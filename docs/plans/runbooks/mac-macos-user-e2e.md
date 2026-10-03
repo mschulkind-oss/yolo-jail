@@ -51,7 +51,7 @@ the sandbox, **nix present**, **flake.lock present**. Each row above nix is one
 of the conditions the launch itself refuses without (`macosuser.LaunchPreconditions`,
 one list for both), and each FAIL names its fix. A clean section means no such
 condition refuses the launch; the nix build and the bootstrap come after it and
-are what §4 tests.
+are what [§4](#4-first-real-run-under-seatbelt) tests.
 
 ## 2. Dry-run the plan — still NO sudo, nothing executes
 Put `runtime: "macos-user"` in a scratch workspace's `yolo-jail.jsonc` (or

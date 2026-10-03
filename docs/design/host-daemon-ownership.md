@@ -199,6 +199,12 @@ capability boundary.
 A per-jail **host-side** daemon satisfies both of those: it runs on the host, and it dies
 with the jail. "Host-side" and "one per host" were never the same requirement.
 
+<a id="oq-hd9-background"></a>**Why [OQ-HD9](#OQ-HD9) matters.** This is the one thing per-jail
+genuinely cannot do, and it is the *only* surviving argument for host-side lifetime independent
+of any jail ([§1.2](#12-the-credential-boundary-story-is-also-false)). A credential that goes
+stale between sessions turns the next launch into a refresh on the critical path at best, and a
+re-login at worst.
+
 ### 1.3 The disposition: detach, do not drain, do not reap
 
 Three dispositions come with the ruling, and each one answers an objection that was raised
@@ -446,6 +452,155 @@ Two residues worth naming, because a reader will otherwise assume they vanished:
   applying to two users launching the **same workspace path**, and it never applied to the
   state dir, which is under each user's `$HOME` already. That is the surviving fragment of
   the old [OQ-HD8](#OQ-HD8), and it belongs to [OQ-HD10](#OQ-HD10) now.
+
+### The spawn flock on macos-user, measured
+
+This is [OQ-HD10](#OQ-HD10)'s background, kept here so the question stays short. "This
+question" below means [OQ-HD10](#OQ-HD10), and "the leaning" means its leaning.
+
+The spawn flock (`paths.HostSingletonLock`) is a **different lock** from the refresh flock
+[§1.1](#11-the-premise-the-scope-was-built-on-is-false) is about: it guards socket
+ownership and process identity, not token redemption. Retiring `scope: "host"` removes it
+along with the thing it guarded. On macos-user there is no container to serialise
+anything, and VERIFIED 2026-09-20 `macosuser.cnameFor` → `cnameFn` →
+`runtime.FromWorkspace` → `FromResolved` hashes the **resolved workspace path**, so two
+simultaneous launches of one workspace are one identity.
+
+It narrows twice and vanishes neither time.
+
+- Two launches on one workspace already share the home overlay and the `.yolo/` state
+  dir, so this is the sharing that backend already has rather than a new class.
+- A per-workspace launch flock already exists and macos-user already takes it
+  (`run.AcquireWorkspaceLockFor`, [`flock.go`](../../internal/cli/run/flock.go)) — but
+  VERIFIED from its own doc comment, it wraps **provisioning**, and when it cannot be
+  taken it **warns and returns a no-op release**, because "a workspace lock is a
+  courtesy against a self-inflicted race and not a safety property worth refusing a
+  launch over". `paths.HostSingletonLock` owns a socket; a courtesy lock around a stage
+  is not the same object. (Since 2026-09-26 it wraps the whole prelude, from pack staging
+  on: see the first run's record below.)
+
+⚠ **And the spawn flock may be doing unasked duty elsewhere**, which is a second thing
+retiring it would remove. `BrokerSpawn` holds it across the spawn *and* the
+socket poll ([§3](#3-the-rendezvous-is-a-name-and-a-flock)), so the child's
+`EnsureCAAndLeaf` mint runs inside it — a lock about socket ownership serializing a
+certificate write it was never asked to guard. (Observed in the working tree
+2026-09-20 as an in-flight change to `internal/oauthbroker`, **not landed**; the
+dependency it describes is a property of the spawn sequence at `af988566` either way.)
+Whatever replaces the flock has to answer for every such rider, not just for spawn.
+
+**The measurement exists, and its first run answered nothing (2026-09-26).** It is
+`TestMacosUserTwoConcurrentLaunchesOfOneWorkspace` in
+[`macosuserspawnlock_test.go`](../../integration/macosuserspawnlock_test.go), and it runs in
+`macos-user.yml`'s `^TestMacosUser` step. It is an experiment: every answer passes. It is red
+only when neither launch ran its probe, or when the two sessions were never up at the same
+time, because then nothing about concurrency was observed. It selects the `claude` pack, whose
+`claude-oauth-broker` is the host-scoped singleton in question. The pair must race to spawn,
+so no broker may be alive when it starts. In the declared macos-user job
+(`YOLO_TEST_MACOS_USER` set) the test stops a live one with `yolo host-daemon stop`. Anywhere
+else a live broker is a developer's real one, because the broker is machine-wide, so the test
+refuses and names that command instead of killing it. At cleanup it always stops the broker
+the pair spawned: that broker runs under the test's temporary `HOME` but answers on the
+machine-wide socket, so a leftover one would serve later launches from a deleted credentials
+path. That refusal, and a broker still alive after the cleanup's stop, are the two other
+ways the test goes red; neither is an answer. Then it starts two launches of one workspace at
+the same moment. The two sessions coordinate through marker files
+so that their lifetimes really overlap. It logs one `HD10 …` line per finding:
+
+- `HD10 SPAWN`: how many broker processes existed during the pair and how many at once,
+  sampled with `pgrep` every 100 ms, so one is a lower bound on spawns and two is proof of a
+  second one. `NOT EXERCISED` means a broker survived the stop, and the flock was never
+  reached.
+- `HD10 WORKSPACE-LOCK`: whether either launch printed the courtesy lock's `Waiting for
+  concurrent jail launch` notice.
+- `HD10 ENDPOINT DURING` and `HD10 ENDPOINT AFTER B EXITED`: each session's broker endpoint
+  variable, whether the file is readable, and whether its host:port answers. The longer
+  session probes a second time once the shorter one's `yolo` process has exited.
+- `HD10 VERDICT`: the spawn answer, plus what the surviving session's endpoint looked like
+  after the other session ended.
+
+**The first run, MEASURED (CI run 36240337031, commit `6eb92400`)**, was red for the "never
+up at the same time" reason, and the cause was not spawn. Launch B exited 1 while staging,
+with `unlinkat …/packs/_official/claude: directory not empty`. Launch A warned that its
+`claude-oauth-broker` module dir "is not a directory, so that loophole is NOT active". Both
+were a race over the workspace's shared pack staging, which ran before any lock and cleared
+`_official/` wholesale. So the run measured neither `SPAWN` nor `ENDPOINT`. The race is fixed
+([`pack-system.md`](../reference/pack-system.md#concurrent-launches-of-one-workspace)), and the
+fix moves the per-workspace lock, which changes the first prediction below.
+
+**What the code predicts, READ FROM CODE 2026-09-25 and revised twice on 2026-09-26**,
+recorded so that the run can confirm or refute it:
+
+- **The courtesy lock is out of the spawn path again.** `run.go`'s macos-user arm starts the
+  host daemons through `startLoopholesDisclosed` *before* it takes the per-workspace launch
+  lock. For part of 2026-09-26 it was the other way round: the staging fix took the lock
+  before pack staging, so a second launch waited through the first one's daemon start, met
+  its broker alive, and could not contend `paths.HostSingletonLock` at all. Per-launch pack
+  trees ([`OQ-PK2`](../reference/pack-system.md#oq-pk2), built) removed the reason: each
+  launch's daemons run from that launch's own tree, so nothing they read is shared, and the
+  lock now opens only before the content staging the orchestrator copies (`holdLaunchLock`).
+  So the two launches' spawns can race again, the pair measures the spawn flock on its own,
+  and `WORKSPACE-LOCK` now says only whether one launch waited for the other's content
+  staging and bootstrap. The prediction is `ONE BROKER` by way of the flock, and a second
+  spawn would be the flock failing. A `WORKSPACE-LOCK` wait still does not show that removing
+  the flock is safe, because the courtesy lock warns and continues when it cannot be taken.
+- **The pair collides over per-workspace state that the flock does not guard.** Both launches
+  publish into one host-services dir, because the cname is the same. `startHostSingleton`
+  unlinks the endpoint file before publishing its own. The macos-user arm's deferred
+  `stopLoopholes(handles, socketsDir, "", "")` passes no cname, so it skips both the relaunch
+  lock and the "still running" check, and it removes the whole dir. So the prediction for the
+  survivor after the other session exits is `GONE`. That is a defect in the macos-user
+  teardown whatever this question's answer turns out to be. It would bear on the leaning's
+  "if they already collide" branch, but it is a collision over the endpoint, not over spawn.
+  **Fixed** since the second run, below ([`HD-D1`](#HD-D1)).
+
+**The second run, MEASURED (scheduled macos-user run 36319436117, commit `f937d0fd`, which
+carries the staging fix and per-launch pack trees)** confirmed both predictions above. Both
+launches ran (`A rc=0`, `B rc=0`) and their sessions overlapped. `SPAWN: ONE BROKER`: a broker
+left over from before was stopped first, then exactly one daemon was seen during the pair (at
+most one at once). B printed the workspace-lock waiting notice and A did not; since each
+launch starts its host daemons before taking that lock, the single broker is the spawn
+flock's work. `ENDPOINT DURING`: both sessions read the same endpoint file and dialed it.
+`ENDPOINT AFTER B EXITED: GONE`: B's teardown removed the per-workspace host-services dir
+while A was still running, so A's jail lost its endpoint, the teardown defect predicted
+above.
+
+**The teardown defect is FIXED (2026-09-27, `openServicesSession`), and fixing it rules nothing
+here.** Each macos-user session now publishes into a host-services dir of its own and removes
+only that one, so one session's exit cannot remove or replace an endpoint another live session
+uses ([`HD-D1`](#HD-D1) has the mechanism). Confirmed from code first: the cname is per
+workspace (`macosuser.cnameFor` → `runtime.FromWorkspace`), `startHostSingleton` removes the
+endpoint file before its front publishes, and the arm's deferred teardown passed no cname, so
+it took no guard and removed the dir. `TestAMacosUserSessionsExitLeavesAConcurrentSessionsEndpointsWorking`
+([`macosusersessions_test.go`](../../internal/cli/run/macosusersessions_test.go)) reproduced
+the `GONE` on Linux through the real macos-user arm and passes now. What the next Mac run should
+show, and has since (below): `ENDPOINT AFTER B EXITED: STILL WORKS`, and `ENDPOINT DURING` naming two
+files (`one file for both: false`). The experiment is no longer silent on this half: it now
+fails when the survivor's endpoint does not answer (`hd10SurvivorFailure`). The spawn question
+is unchanged. Both sessions still front the one host-wide broker, and only
+`paths.HostSingletonLock` serializes its spawn.
+
+**The runs since the fix, MEASURED (scheduled macos-user runs 36437881715 at `650e84b0`,
+36575801495 at `4a2f2506` and 36719581090 at `8f7468dd`, 2026-09-28 to 2026-09-30; each
+commit carries `6a894647`, the fix), read from each run's log on 2026-09-30.** In all three both
+launches ran (`A rc=0`, `B rc=0`) and overlapped. `SPAWN: ONE BROKER` each time. `ENDPOINT
+DURING` named two files, one per session's host-services dir, both readable and both dialed
+(`one file for both: false`). `ENDPOINT AFTER B EXITED`: A's file still readable and its port
+still answering. So [`HD-D1`](#HD-D1) holds on a Mac, and the spawn answer is the same as
+before the fix: one broker, which the test's verdict line credits to the spawn flock or the
+liveness re-check inside it.
+
+**READ FROM CODE 2026-10-01: two of this question's facts have moved, and neither answers
+it.** The in-flight change named above landed the same day: the mint takes a lock of its
+own, `cert.lock` (`withCertLock` in [`cert.go`](../../internal/oauthbroker/cert.go),
+`4ac8f11bc`), so that rider no longer depends on the spawn flock. And since [`HD-D1`](#HD-D1), a
+macos-user session keys a per-jail fronted daemon's upstream socket by its own host-services
+dir (`frontShortHash` in [`loopholesruntime.go`](../../internal/cli/run/loopholesruntime.go)),
+so two sessions of one workspace would not share a socket if the retired daemons took that
+path. The spawn flock is still the only lock on the OpenAI legacy-state migration
+(`PrepareLocked`), and `yolo host -- codex`, `yolo host -- pi` and `yolo openai-auth` still
+ensure the OpenAI daemon at its machine-wide name, with no jail to key a per-jail one by.
+[The plan](host-daemon-ownership-plan.md#what-the-spawn-flock-covers-today) lists
+what the flock covers, row by row. [OQ-HD10](#OQ-HD10)'s leaning is unchanged.
 
 ---
 
@@ -1026,12 +1181,8 @@ each, because a deleted question is one the next reader re-derives.
 ### Live
 
 1. <a id="OQ-HD9"></a>💬 **[OQ-HD9](#OQ-HD9) (NEW, and it decides whether the ruling is complete on its
-   own): who keeps Claude's shared credential fresh when NO jail is running?** This is the
-   one thing per-jail genuinely cannot do, and it is the *only* surviving argument for
-   host-side lifetime independent of any jail
-   ([§1.2](#12-the-credential-boundary-story-is-also-false)). A credential that goes stale
-   between sessions turns the next launch into a refresh on the critical path at best, and a
-   re-login at worst. Candidates:
+   own): who keeps Claude's shared credential fresh when NO jail is running?** [Why it
+   matters](#oq-hd9-background). Candidates:
 
    - **An optional launchd/systemd user TIMER** owning that single job — refresh if due —
      and owning nothing else. ⚠ Not an owner of the daemons: the moment a timer supervises
@@ -1056,36 +1207,9 @@ each, because a deleted question is one the next reader re-derives.
    > _(empty — fill in when decided)_
 
 2. <a id="OQ-HD10"></a>💬 **[OQ-HD10](#OQ-HD10) (NEW, and it is the objection the ruling did NOT answer):
-   what serializes spawn on macos-user, where per-jail identity is per-WORKSPACE?** The spawn
-   flock (`paths.HostSingletonLock`) is a **different lock** from the refresh flock
-   [§1.1](#11-the-premise-the-scope-was-built-on-is-false) is about: it guards socket
-   ownership and process identity, not token redemption. Retiring `scope: "host"` removes it
-   along with the thing it guarded. On macos-user there is no container to serialise
-   anything, and VERIFIED 2026-09-20 `macosuser.cnameFor` → `cnameFn` →
-   `runtime.FromWorkspace` → `FromResolved` hashes the **resolved workspace path**, so two
-   simultaneous launches of one workspace are one identity.
-
-   It narrows twice and vanishes neither time.
-
-   - Two launches on one workspace already share the home overlay and the `.yolo/` state
-     dir, so this is the sharing that backend already has rather than a new class.
-   - A per-workspace launch flock already exists and macos-user already takes it
-     (`run.AcquireWorkspaceLockFor`, [`flock.go`](../../internal/cli/run/flock.go)) — but
-     VERIFIED from its own doc comment, it wraps **provisioning**, and when it cannot be
-     taken it **warns and returns a no-op release**, because "a workspace lock is a
-     courtesy against a self-inflicted race and not a safety property worth refusing a
-     launch over". `paths.HostSingletonLock` owns a socket; a courtesy lock around a stage
-     is not the same object. (Since 2026-09-26 it wraps the whole prelude, from pack staging
-     on: see the first run's record below.)
-
-   ⚠ **And the spawn flock may be doing unasked duty elsewhere**, which is a second thing
-   retiring it would remove. `BrokerSpawn` holds it across the spawn *and* the
-   socket poll ([§3](#3-the-rendezvous-is-a-name-and-a-flock)), so the child's
-   `EnsureCAAndLeaf` mint runs inside it — a lock about socket ownership serializing a
-   certificate write it was never asked to guard. (Observed in the working tree
-   2026-09-20 as an in-flight change to `internal/oauthbroker`, **not landed**; the
-   dependency it describes is a property of the spawn sequence at `af988566` either way.)
-   Whatever replaces the flock has to answer for every such rider, not just for spawn.
+   what serializes spawn on macos-user, where per-jail identity is per-WORKSPACE?** What the
+   spawn flock guards, how the question narrowed, and what the Mac runs measured are in
+   [the spawn flock on macos-user](#the-spawn-flock-on-macos-user-measured).
 
    So the question is sharp rather than vague: **is the existing per-workspace courtesy
    lock enough to cover what the spawn flock covered — including the duties it was never
@@ -1101,120 +1225,6 @@ each, because a deleted question is one the next reader re-derives.
    ⚠ Do not settle this by inheriting the ruling's momentum, and do not settle it with "a
    workspace lock already exists": the ruling's argument is about a *refresh* lock, this is
    a *spawn* lock, and the lock that does exist warns and continues.
-
-   **The measurement exists, and its first run answered nothing (2026-09-26).** It is
-   `TestMacosUserTwoConcurrentLaunchesOfOneWorkspace` in
-   [`macosuserspawnlock_test.go`](../../integration/macosuserspawnlock_test.go), and it runs in
-   `macos-user.yml`'s `^TestMacosUser` step. It is an experiment: every answer passes. It is red
-   only when neither launch ran its probe, or when the two sessions were never up at the same
-   time, because then nothing about concurrency was observed. It selects the `claude` pack, whose
-   `claude-oauth-broker` is the host-scoped singleton in question. The pair must race to spawn,
-   so no broker may be alive when it starts. In the declared macos-user job
-   (`YOLO_TEST_MACOS_USER` set) the test stops a live one with `yolo host-daemon stop`. Anywhere
-   else a live broker is a developer's real one, because the broker is machine-wide, so the test
-   refuses and names that command instead of killing it. At cleanup it always stops the broker
-   the pair spawned: that broker runs under the test's temporary `HOME` but answers on the
-   machine-wide socket, so a leftover one would serve later launches from a deleted credentials
-   path. That refusal, and a broker still alive after the cleanup's stop, are the two other
-   ways the test goes red; neither is an answer. Then it starts two launches of one workspace at
-   the same moment. The two sessions coordinate through marker files
-   so that their lifetimes really overlap. It logs one `HD10 …` line per finding:
-
-   - `HD10 SPAWN`: how many broker processes existed during the pair and how many at once,
-     sampled with `pgrep` every 100 ms, so one is a lower bound on spawns and two is proof of a
-     second one. `NOT EXERCISED` means a broker survived the stop, and the flock was never
-     reached.
-   - `HD10 WORKSPACE-LOCK`: whether either launch printed the courtesy lock's `Waiting for
-     concurrent jail launch` notice.
-   - `HD10 ENDPOINT DURING` and `HD10 ENDPOINT AFTER B EXITED`: each session's broker endpoint
-     variable, whether the file is readable, and whether its host:port answers. The longer
-     session probes a second time once the shorter one's `yolo` process has exited.
-   - `HD10 VERDICT`: the spawn answer, plus what the surviving session's endpoint looked like
-     after the other session ended.
-
-   **The first run, MEASURED (CI run 36240337031, commit `6eb92400`)**, was red for the "never
-   up at the same time" reason, and the cause was not spawn. Launch B exited 1 while staging,
-   with `unlinkat …/packs/_official/claude: directory not empty`. Launch A warned that its
-   `claude-oauth-broker` module dir "is not a directory, so that loophole is NOT active". Both
-   were a race over the workspace's shared pack staging, which ran before any lock and cleared
-   `_official/` wholesale. So the run measured neither `SPAWN` nor `ENDPOINT`. The race is fixed
-   ([`pack-system.md`](../reference/pack-system.md#concurrent-launches-of-one-workspace)), and the
-   fix moves the per-workspace lock, which changes the first prediction below.
-
-   **What the code predicts, READ FROM CODE 2026-09-25 and revised twice on 2026-09-26**,
-   recorded so that the run can confirm or refute it:
-
-   - **The courtesy lock is out of the spawn path again.** `run.go`'s macos-user arm starts the
-     host daemons through `startLoopholesDisclosed` *before* it takes the per-workspace launch
-     lock. For part of 2026-09-26 it was the other way round: the staging fix took the lock
-     before pack staging, so a second launch waited through the first one's daemon start, met
-     its broker alive, and could not contend `paths.HostSingletonLock` at all. Per-launch pack
-     trees ([`OQ-PK2`](../reference/pack-system.md#oq-pk2), built) removed the reason: each
-     launch's daemons run from that launch's own tree, so nothing they read is shared, and the
-     lock now opens only before the content staging the orchestrator copies (`holdLaunchLock`).
-     So the two launches' spawns can race again, the pair measures the spawn flock on its own,
-     and `WORKSPACE-LOCK` now says only whether one launch waited for the other's content
-     staging and bootstrap. The prediction is `ONE BROKER` by way of the flock, and a second
-     spawn would be the flock failing. A `WORKSPACE-LOCK` wait still does not show that removing
-     the flock is safe, because the courtesy lock warns and continues when it cannot be taken.
-   - **The pair collides over per-workspace state that the flock does not guard.** Both launches
-     publish into one host-services dir, because the cname is the same. `startHostSingleton`
-     unlinks the endpoint file before publishing its own. The macos-user arm's deferred
-     `stopLoopholes(handles, socketsDir, "", "")` passes no cname, so it skips both the relaunch
-     lock and the "still running" check, and it removes the whole dir. So the prediction for the
-     survivor after the other session exits is `GONE`. That is a defect in the macos-user
-     teardown whatever this question's answer turns out to be. It would bear on the leaning's
-     "if they already collide" branch, but it is a collision over the endpoint, not over spawn.
-     **Fixed** since the second run, below ([`HD-D1`](#HD-D1)).
-
-   **The second run, MEASURED (scheduled macos-user run 36319436117, commit `f937d0fd`, which
-   carries the staging fix and per-launch pack trees)** confirmed both predictions above. Both
-   launches ran (`A rc=0`, `B rc=0`) and their sessions overlapped. `SPAWN: ONE BROKER`: a broker
-   left over from before was stopped first, then exactly one daemon was seen during the pair (at
-   most one at once). B printed the workspace-lock waiting notice and A did not; since each
-   launch starts its host daemons before taking that lock, the single broker is the spawn
-   flock's work. `ENDPOINT DURING`: both sessions read the same endpoint file and dialed it.
-   `ENDPOINT AFTER B EXITED: GONE`: B's teardown removed the per-workspace host-services dir
-   while A was still running, so A's jail lost its endpoint, the teardown defect predicted
-   above.
-
-   **The teardown defect is FIXED (2026-09-27, `openServicesSession`), and fixing it rules nothing
-   here.** Each macos-user session now publishes into a host-services dir of its own and removes
-   only that one, so one session's exit cannot remove or replace an endpoint another live session
-   uses ([`HD-D1`](#HD-D1) has the mechanism). Confirmed from code first: the cname is per
-   workspace (`macosuser.cnameFor` → `runtime.FromWorkspace`), `startHostSingleton` removes the
-   endpoint file before its front publishes, and the arm's deferred teardown passed no cname, so
-   it took no guard and removed the dir. `TestAMacosUserSessionsExitLeavesAConcurrentSessionsEndpointsWorking`
-   ([`macosusersessions_test.go`](../../internal/cli/run/macosusersessions_test.go)) reproduced
-   the `GONE` on Linux through the real macos-user arm and passes now. What the next Mac run should
-   show, and has since (below): `ENDPOINT AFTER B EXITED: STILL WORKS`, and `ENDPOINT DURING` naming two
-   files (`one file for both: false`). The experiment is no longer silent on this half: it now
-   fails when the survivor's endpoint does not answer (`hd10SurvivorFailure`). The spawn question
-   is unchanged. Both sessions still front the one host-wide broker, and only
-   `paths.HostSingletonLock` serializes its spawn.
-
-   **The runs since the fix, MEASURED (scheduled macos-user runs 36437881715 at `650e84b0`,
-   36575801495 at `4a2f2506` and 36719581090 at `8f7468dd`, 2026-09-28 to 2026-09-30; each
-   commit carries `6a894647`, the fix), read from each run's log on 2026-09-30.** In all three both
-   launches ran (`A rc=0`, `B rc=0`) and overlapped. `SPAWN: ONE BROKER` each time. `ENDPOINT
-   DURING` named two files, one per session's host-services dir, both readable and both dialed
-   (`one file for both: false`). `ENDPOINT AFTER B EXITED`: A's file still readable and its port
-   still answering. So [`HD-D1`](#HD-D1) holds on a Mac, and the spawn answer is the same as
-   before the fix: one broker, which the test's verdict line credits to the spawn flock or the
-   liveness re-check inside it.
-
-   **READ FROM CODE 2026-10-01: two of this question's facts have moved, and neither answers
-   it.** The in-flight change named above landed the same day: the mint takes a lock of its
-   own, `cert.lock` (`withCertLock` in [`cert.go`](../../internal/oauthbroker/cert.go),
-   `4ac8f11bc`), so that rider no longer depends on the spawn flock. And since [`HD-D1`](#HD-D1), a
-   macos-user session keys a per-jail fronted daemon's upstream socket by its own host-services
-   dir (`frontShortHash` in [`loopholesruntime.go`](../../internal/cli/run/loopholesruntime.go)),
-   so two sessions of one workspace would not share a socket if the retired daemons took that
-   path. The spawn flock is still the only lock on the OpenAI legacy-state migration
-   (`PrepareLocked`), and `yolo host -- codex`, `yolo host -- pi` and `yolo openai-auth` still
-   ensure the OpenAI daemon at its machine-wide name, with no jail to key a per-jail one by.
-   [The plan](host-daemon-ownership-plan.md#what-the-spawn-flock-covers-today) lists
-   what the flock covers, row by row. The leaning above is unchanged.
 
    **Answer:**
    > _(empty — fill in when decided)_
@@ -1267,18 +1277,68 @@ each, because a deleted question is one the next reader re-derives.
 
 Each keeps its original text. The leanings are preserved as they were written, including
 where the ruling went past them — that record is the point.
+The context each was asked in is kept just below, so each question stays short.
+
+<a id="oq-hd1-context"></a>**[OQ-HD1](#OQ-HD1)'s context.** *A launcher-spawned child is one
+build by construction, so there is no second build for a version to tell apart.*
+
+Today it carries a name and nothing else, which is why an incompatible daemon and a new
+yolo meet at all — and why every mechanism in
+[§4](#4-the-version-boundary-that-is-not-there-and-why-it-stops-applying-here) is a patch
+applied after they have met. A version in the path would make the standoff
+unrepresentable: a new yolo would find no daemon and start its own. This was the question
+the other seven hung off, and the one that decided whether [OQ-HD3](#OQ-HD3) stayed a
+trade or stopped existing.
+
+<a id="oq-hd3-context"></a>**[OQ-HD3](#OQ-HD3)'s context.** *Neither branch has an occasion:
+there is no live daemon of another build to kill or to spare.*
+
+[`../reference/loophole-transport.md`](../reference/loophole-transport.md) rules that yolo
+names the fixing command rather than killing a skewed daemon, because two yolo versions
+would take turns restarting each other's. `ensureSingleton` takes the opposite branch for
+the OpenAI daemon on a different predicate, and nothing reconciles them. This decided
+whether that was a second ruling or a contradiction.
+
+<a id="oq-hd6-context"></a>**[OQ-HD6](#OQ-HD6)'s context.** *Nothing is unused: a daemon ends
+with the jail that asked for it, and the only survivor is a bounded straggler with a stated
+disposition.*
+
+Nothing does, and nothing states that as a position. The obstacle was real: the daemon does
+not know its clients, the rendezvous cannot carry that, and this repo's own rule is that a
+reaper which cannot ask declines rather than sweeping. [OQ-HD1](#OQ-HD1) made this urgent
+rather than academic — versioned paths strand daemons on purpose.
+
+<a id="oq-hd7-context"></a>**[OQ-HD7](#OQ-HD7)'s context.** *The key is retired, so there is no
+host-wide population to govern — a pack declaring a host daemon declares an ordinary per-jail
+one.*
+
+Today it may: selecting the pack is the whole gate, and the cost list in
+[§8](#8-one-became-three-and-the-ruling-makes-the-population-stop-mattering) is paid
+silently — including three documents that went wrong when the set grew, because nothing
+enumerates it. This decided whether the other questions were about three daemons or an
+open-ended population.
+
+<a id="oq-hd8-context"></a>**[OQ-HD8](#OQ-HD8)'s context.** *The name-keyed `/tmp` collision
+goes with the name-keyed paths; what survives is two users on one **workspace path**, which is
+[OQ-HD10](#OQ-HD10)'s.*
+
+The rendezvous has no user component, and the ruling that put the name there argues from a
+singleton having no *jail* to be keyed by — it says nothing about users. On a host where
+two people share `/tmp`, the second one's launch cannot take the 0644 lock file, cannot
+dial the 0600 socket, and is refused by the reachability witness with a message naming the
+socket rather than the collision.
+
+**Built 2026-09-25 — the message fix, and only that.** `BrokerSpawn` used to return silently
+when it could not open its lock file; it now says which file, the OS's reason and whose
+daemon was not started, and under a permission error names the collision above
+(`lockFailureLine` in [`brokerlifecycle.go`](../../internal/broker/brokerlifecycle.go),
+pinned through `BrokerSpawn` by `TestSpawnSaysWhyItCouldNotTakeTheLock`). The paths still
+carry no user component, and the reachability witness's later refusal is unchanged;
+retiring the singleton is [`HD-R1`](#HD-R1)'s, and not built.
 
 5. <a id="OQ-HD1"></a>✅ **[OQ-HD1](#OQ-HD1) — DISSOLVED 2026-09-20 by [`HD-R1`](#HD-R1):
-   should a daemon rendezvous carry a version?** *A launcher-spawned child is one build by
-   construction, so there is no second build for a version to tell apart.*
-
-   Today it carries a name and nothing else, which is why an incompatible daemon and a new
-   yolo meet at all — and why every mechanism in
-   [§4](#4-the-version-boundary-that-is-not-there-and-why-it-stops-applying-here) is a patch
-   applied after they have met. A version in the path would make the standoff
-   unrepresentable: a new yolo would find no daemon and start its own. This was the question
-   the other seven hung off, and the one that decided whether [OQ-HD3](#OQ-HD3) stayed a
-   trade or stopped existing.
+   should a daemon rendezvous carry a version?** Context:
+   [above](#oq-hd1-context).
 
    <!-- vantage: question id=OQ-HD1 -->
 
@@ -1298,14 +1358,8 @@ where the ruling went past them — that record is the point.
    > [OQ-HD9](#OQ-HD9) installs as a timer.
 
 6. <a id="OQ-HD3"></a>✅ **[OQ-HD3](#OQ-HD3) — DISSOLVED 2026-09-20 by [`HD-R1`](#HD-R1):
-   does the no-kill ruling still hold, now that one path already kills?** *Neither branch has
-   an occasion: there is no live daemon of another build to kill or to spare.*
-
-   [`../reference/loophole-transport.md`](../reference/loophole-transport.md) rules that yolo
-   names the fixing command rather than killing a skewed daemon, because two yolo versions
-   would take turns restarting each other's. `ensureSingleton` takes the opposite branch for
-   the OpenAI daemon on a different predicate, and nothing reconciles them. This decided
-   whether that was a second ruling or a contradiction.
+   does the no-kill ruling still hold, now that one path already kills?** Context:
+   [above](#oq-hd3-context).
 
    <!-- vantage: question id=OQ-HD3 -->
 
@@ -1320,14 +1374,8 @@ where the ruling went past them — that record is the point.
    > will still read it as a mistake.
 
 7. <a id="OQ-HD6"></a>✅ **[OQ-HD6](#OQ-HD6) — DISSOLVED 2026-09-20 by [`HD-R1`](#HD-R1):
-   should anything ever stop an unused singleton, and on what predicate?** *Nothing is
-   unused: a daemon ends with the jail that asked for it, and the only survivor is a bounded
-   straggler with a stated disposition.*
-
-   Nothing does, and nothing states that as a position. The obstacle was real: the daemon does
-   not know its clients, the rendezvous cannot carry that, and this repo's own rule is that a
-   reaper which cannot ask declines rather than sweeping. [OQ-HD1](#OQ-HD1) made this urgent
-   rather than academic — versioned paths strand daemons on purpose.
+   should anything ever stop an unused singleton, and on what predicate?** Context:
+   [above](#oq-hd6-context).
 
    <!-- vantage: question id=OQ-HD6 -->
 
@@ -1345,14 +1393,8 @@ where the ruling went past them — that record is the point.
    > leaning survives as ordinary per-jail service reporting.
 
 8. <a id="OQ-HD7"></a>✅ **[OQ-HD7](#OQ-HD7) — DISSOLVED 2026-09-20 by [`HD-R1`](#HD-R1): may
-   a pack declare `scope: "host"` freely?** *The key is retired, so there is no host-wide
-   population to govern — a pack declaring a host daemon declares an ordinary per-jail one.*
-
-   Today it may: selecting the pack is the whole gate, and the cost list in
-   [§8](#8-one-became-three-and-the-ruling-makes-the-population-stop-mattering) is paid
-   silently — including three documents that went wrong when the set grew, because nothing
-   enumerates it. This decided whether the other questions were about three daemons or an
-   open-ended population.
+   a pack declare `scope: "host"` freely?** Context:
+   [above](#oq-hd7-context).
 
    <!-- vantage: question id=OQ-HD7 -->
 
@@ -1370,15 +1412,8 @@ where the ruling went past them — that record is the point.
    > are wrong about the tree *today* and stay wrong until this is built.
 
 9. <a id="OQ-HD8"></a>✅ **[OQ-HD8](#OQ-HD8) — MOSTLY DISSOLVED 2026-09-20 by
-   [`HD-R1`](#HD-R1): is one user per host a supported assumption or a documented non-goal?**
-   *The name-keyed `/tmp` collision goes with the name-keyed paths; what survives is two users
-   on one **workspace path**, which is [OQ-HD10](#OQ-HD10)'s.*
-
-   The rendezvous has no user component, and the ruling that put the name there argues from a
-   singleton having no *jail* to be keyed by — it says nothing about users. On a host where
-   two people share `/tmp`, the second one's launch cannot take the 0644 lock file, cannot
-   dial the 0600 socket, and is refused by the reachability witness with a message naming the
-   socket rather than the collision.
+   [`HD-R1`](#HD-R1): is one user per host a supported assumption or a documented non-goal?** Context:
+   [above](#oq-hd8-context).
 
    <!-- vantage: question id=OQ-HD8 -->
 
@@ -1394,14 +1429,6 @@ where the ruling went past them — that record is the point.
    > two users launching the **same workspace path**, which is the same per-workspace identity
    > question as [OQ-HD10](#OQ-HD10) and belongs there. ⚠ The leaning's message fix is still
    > worth doing while the singleton ships, since it is a one-line refusal today.
-
-   **Built 2026-09-25 — the message fix, and only that.** `BrokerSpawn` used to return silently
-   when it could not open its lock file; it now says which file, the OS's reason and whose
-   daemon was not started, and under a permission error names the collision above
-   (`lockFailureLine` in [`brokerlifecycle.go`](../../internal/broker/brokerlifecycle.go),
-   pinned through `BrokerSpawn` by `TestSpawnSaysWhyItCouldNotTakeTheLock`). The paths still
-   carry no user component, and the reachability witness's later refusal is unchanged;
-   retiring the singleton is [`HD-R1`](#HD-R1)'s, and not built.
 
 ---
 

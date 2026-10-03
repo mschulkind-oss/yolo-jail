@@ -60,10 +60,10 @@ and when a user's own Tavily search server is also eligible, which one does it g
 
 **Needs your ruling:** [OQ-BR19](#OQ-BR19), [OQ-BR20](#OQ-BR20), [OQ-BR23](#OQ-BR23).
 
-- [OQ-BR19](#OQ-BR19) — where the gateway URL lives. *Leaning:* an environment variable the entry
+- [OQ-BR19](#OQ-BR19) — where the gateway URL lives; leaning: an environment variable the entry
   lists in `requires_env`.
-- [OQ-BR20](#OQ-BR20) — does yolo create the AgentCore gateway? *Leaning:* no; the company does.
-- [OQ-BR23](#OQ-BR23) — AgentCore or the user's Tavily when both are eligible. *Leaning:* AgentCore
+- [OQ-BR20](#OQ-BR20) — does yolo create the AgentCore gateway? The leaning is no; the company does.
+- [OQ-BR23](#OQ-BR23) — AgentCore or the user's Tavily when both are eligible; leaning: AgentCore
   only, with a notice naming what was dropped.
 
 **Reads with:** [`bedrock-plumbing.md`](bedrock-plumbing.md) (how each agent reaches Bedrock at
@@ -520,27 +520,101 @@ projects to. That doc owns the rule; this one only records the reading.
 
 ## 14. Open questions
 
+### 14.1 What the longer questions weigh
+
+Background, options in full and later notes for four of the questions below, kept here so each
+question stays short.
+
+<a id="oq-br19-background"></a>**[OQ-BR19](#OQ-BR19), where the gateway URL lives.** Stakes:
+whether a company can ship it once or every user copies it, and who may point a jail's
+searches somewhere. That value decides where every query goes, so a checked-in workspace file
+should not be able to set it.
+
+| Option | Verdict |
+| :--- | :--- |
+| **A.** An environment variable (proposed: `AGENTCORE_WEB_SEARCH_GATEWAY`) the entry lists in `requires_env`. A company pack sets it with a `kind: "env"` contribution; a user with a local pack or `env_sources` | **Leaning** |
+| **B.** A provider option on the Bedrock provider (`options.web_search_gateway`), set in user config | A company pack cannot set another pack's provider option, the sole-ownership wall [OQ-BR12](model-lists-and-pickers.md#OQ-BR12) also hits, and "no URL, no preset" would need a new gate |
+| **C.** A new top-level config key | Core would learn an AWS service by name |
+
+Under A, "no URL, no preset, and say so" is `requires_env`'s existing behavior. The proxy reads
+the URL from the variable the entry's `env` names ([D7](#d7-read-2026-10-01-two-search-traps-a-derive-can-walk-into)).
+
+⚠ New since the leaning was written (2026-10-01, D7 (b)): that last step holds under claude and
+copilot only. codex passes `env` through unresolved and starts the server with an empty
+environment, and opencode leaves a `${VAR}` reference as literal text over the inherited value.
+Under B or C a derive could write the URL into the entry as a plain value. The credentials have
+the per-agent problem under every option. The leaning is unchanged; this changes what A costs to
+build.
+
+<a id="oq-br21-background"></a>**[OQ-BR21](#OQ-BR21), the signing proxy's shape.** The maintainer's framing is the wire bridge's
+signer as a third route. The signer is shared whichever option wins; what differs is how the
+agent reaches it, and yolo's MCP table can express only a stdio command
+([§6](#6-what-todays-mechanisms-can-and-cannot-express)). Stakes: whether this needs an MCP
+schema change and six derive changes, and how many processes hold credentials.
+
+| Option | Verdict |
+| :--- | :--- |
+| **A.** A stdio MCP proxy that is a hidden `yolo` subcommand, run by the entry's `command`, built on the bridge's signer package | **Leaning** |
+| **B.** A route on the wire bridge's loopback: MCP streamable HTTP in, signed pass-through out | One process and one credential cache for every agent, but the MCP table has no URL transport: `knownMCPServerKeys` and all six projecting derives would change, and each agent's streamable-HTTP support is unread |
+| **C.** AWS's own [`mcp-proxy-for-aws`](https://github.com/aws/mcp-proxy-for-aws) (Apache-2.0, stdio to SigV4, the boto3 credential chain), run through `uvx` | No yolo signing code, but a third-party Python dependency fetched at first use, needing `uvx` and the network at run time |
+
+⚠ New since the leaning was written: the maintainer wants an option to send *all* of an agent's
+traffic through the wire bridge, routed per agent (DIR-WG1 in
+[`wire-bridge-gateway.md`](wire-bridge-gateway.md)). If that lands, B stops being a special case,
+but it still needs the URL transport, so the leaning is unchanged.
+
+<a id="oq-br22-background"></a>**[OQ-BR22](#OQ-BR22), the preset's vehicle and its Bedrock gate.** Since this question was
+written, [`OQ-MP3`](mcp-presets-removal.md#decision-ledger) ruled the `mcp` kind (a named server
+entry composed into `mcp_servers` as `provider` composes into `providers`, pack facts under user
+overrides), so what is left to decide is the gate. Stakes: whether "on by default on Bedrock" is
+a pack fact or a core fact, and whether the same mechanism later carries a pack's Tavily
+*"optionally by capability"*, as the maintainer put it.
+
+| Option | Verdict |
+| :--- | :--- |
+| **A.** The Bedrock pack ships `agentcore-web-search` as an `mcp` entry with a gate that fires only when the render target's selected provider is Bedrock, however [`providers-and-profiles-redesign.md`](providers-and-profiles-redesign.md#OQ-BR2) spells that. Evaluated per render target, merged before the capability filter, under the user's `mcp_servers` as last writer | **Leaning** |
+| **B.** A core preset in `validMCPPresets`, switched on when a Bedrock provider is selected | Core would learn one AWS service and one provider's fact, where [OQ-BR8](providers-and-profiles-redesign.md#OQ-BR8) leans toward provider facts living with the provider; and [`OQ-MP6`](mcp-presets-removal.md#decision-ledger) retires that list |
+| **C.** No preset: a documented `mcp_servers` recipe | Not on by default, which [DIR-BR4](#DIR-BR4) requires |
+
+⚠ Premise changed 2026-09-25: the leaning was first written as "a new pack contribution kind
+carrying one MCP entry". [`OQ-MP3`](mcp-presets-removal.md#decision-ledger) has since ruled that
+kind (`mcp`) and [`OQ-MP6`](mcp-presets-removal.md#decision-ledger) retires the core preset list,
+so A now names the ruled kind and only the Bedrock gate is still open. The choice of A is
+unchanged.
+
+Under A, a user's `mcp_servers.agentcore-web-search: null` removes it. A pack's Tavily entry
+would be the same kind with no provider gate.
+
+<a id="oq-br23-background"></a>**[OQ-BR23](#OQ-BR23), AgentCore or the user's Tavily.** `validate.go` refuses two `mcp_servers`
+entries with one `provides`, but that check sees only the user's config, not a pack's entry.
+Stakes: an agent with two search tools, one sending queries outside AWS.
+
+| Option | Verdict |
+| :--- | :--- |
+| **A.** The preset only: on a render where it is delivered, other `web_search` servers are dropped, with a notice naming them | **Leaning** |
+| **B.** Both are delivered | Two search tools; the agent picks per call, and queries may leave AWS unpredictably |
+| **C.** The user's Tavily entry wins | Honors the user's explicit entry, but a company's "search stays in AWS" is one config line from undone, silently |
+
+⚠ New since the leaning was written (2026-10-01, D7): the two MCP entries are not the only
+search tools on a Bedrock profile. On `-p bedrock-bridge`, claude's WebSearch and codex's
+hosted search are offered and fail. copilot searches through GitHub whenever it holds a login,
+oh-omp through any third-party key it finds, and opencode through Exa when its flag is set. None
+of these is an MCP entry, so no option here drops them. Under codex and opencode the user's
+Tavily entry is broken today, because neither resolves `${TAVILY_API_KEY}`. The leaning is
+unchanged. Its *"queries stay in AWS"* holds only if those per-agent tools are also turned off.
+
+### 14.2 The questions
+
 19. 💬 <a id="OQ-BR19"></a>**OQ-BR19: Where does the gateway URL live?** The entry needs one value,
-    the gateway's URL, and the company that created the gateway is the one who knows it. Stakes:
-    whether a company can ship it once or every user copies it, and who may point a jail's
-    searches somewhere. That value decides where every query goes, so a checked-in workspace file
-    should not be able to set it.
+    the gateway's URL, and the company that created the gateway is the one who knows it. Its
+    stakes, each option's verdict and what D7 changed are in
+    [its background](#oq-br19-background).
 
-    | Option | Verdict |
-    | :--- | :--- |
-    | **A.** An environment variable (proposed: `AGENTCORE_WEB_SEARCH_GATEWAY`) the entry lists in `requires_env`. A company pack sets it with a `kind: "env"` contribution; a user with a local pack or `env_sources` | **Leaning** |
-    | **B.** A provider option on the Bedrock provider (`options.web_search_gateway`), set in user config | A company pack cannot set another pack's provider option, the sole-ownership wall [OQ-BR12](model-lists-and-pickers.md#OQ-BR12) also hits, and "no URL, no preset" would need a new gate |
-    | **C.** A new top-level config key | Core would learn an AWS service by name |
-
-    Under A, "no URL, no preset, and say so" is `requires_env`'s existing behavior. The proxy reads
-    the URL from the variable the entry's `env` names ([D7](#d7-read-2026-10-01-two-search-traps-a-derive-can-walk-into)).
-
-    ⚠ New since the leaning was written (2026-10-01, D7 (b)): that last step holds under claude and
-    copilot only. codex passes `env` through unresolved and starts the server with an empty
-    environment, and opencode leaves a `${VAR}` reference as literal text over the inherited value.
-    Under B or C a derive could write the URL into the entry as a plain value. The credentials have
-    the per-agent problem under every option. The leaning is unchanged; this changes what A costs to
-    build.
+    - **A.** An environment variable (proposed: `AGENTCORE_WEB_SEARCH_GATEWAY`) the entry lists
+      in `requires_env`.
+    - **B.** A provider option on the Bedrock provider (`options.web_search_gateway`), set in user
+      config.
+    - **C.** A new top-level config key.
 
     _Leaning:_ A. It is the one home a company pack and a user can both write today, and it needs
     no new gate. The launch discloses the gateway host whenever the preset is delivered.
@@ -569,22 +643,8 @@ projects to. That doc owns the rule; this one only records the reading.
     > _(empty — fill in when decided)_
 
 21. ✅ <a id="OQ-BR21"></a>**OQ-BR21: What shape is the signing proxy?** Agents' MCP clients cannot
-    sign SigV4, so the entry runs something that does. The maintainer's framing is the wire bridge's
-    signer as a third route. The signer is shared whichever option wins; what differs is how the
-    agent reaches it, and yolo's MCP table can express only a stdio command
-    ([§6](#6-what-todays-mechanisms-can-and-cannot-express)). Stakes: whether this needs an MCP
-    schema change and six derive changes, and how many processes hold credentials.
-
-    | Option | Verdict |
-    | :--- | :--- |
-    | **A.** A stdio MCP proxy that is a hidden `yolo` subcommand, run by the entry's `command`, built on the bridge's signer package | **Leaning** |
-    | **B.** A route on the wire bridge's loopback: MCP streamable HTTP in, signed pass-through out | One process and one credential cache for every agent, but the MCP table has no URL transport: `knownMCPServerKeys` and all six projecting derives would change, and each agent's streamable-HTTP support is unread |
-    | **C.** AWS's own [`mcp-proxy-for-aws`](https://github.com/aws/mcp-proxy-for-aws) (Apache-2.0, stdio to SigV4, the boto3 credential chain), run through `uvx` | No yolo signing code, but a third-party Python dependency fetched at first use, needing `uvx` and the network at run time |
-
-    ⚠ New since the leaning was written: the maintainer wants an option to send *all* of an agent's
-    traffic through the wire bridge, routed per agent (DIR-WG1 in
-    [`wire-bridge-gateway.md`](wire-bridge-gateway.md)). If that lands, B stops being a special case,
-    but it still needs the URL transport, so the leaning is unchanged.
+    sign SigV4, so the entry runs something that does. Its framing, stakes and three options, and
+    a note added after the leaning, are in [its background](#oq-br21-background).
 
     _Leaning:_ A. It is expressible with today's `command`/`args`/`env`, reuses the one signer the
     bridge needs ([R11](#12-risks)), and keeps a credential in no process the agent did not start.
@@ -617,27 +677,8 @@ projects to. That doc owns the rule; this one only records the reading.
 
 22. ✅ <a id="OQ-BR22"></a>**OQ-BR22: How does the Bedrock pack put the preset in the MCP table, gated
     to Bedrock?** Today only core has presets, they are opt-in, and no gate keys on the selected
-    provider ([§6](#6-what-todays-mechanisms-can-and-cannot-express)). Since this question was
-    written, [`OQ-MP3`](mcp-presets-removal.md#decision-ledger) ruled the `mcp` kind (a named server
-    entry composed into `mcp_servers` as `provider` composes into `providers`, pack facts under user
-    overrides), so what is left to decide is the gate. Stakes: whether "on by default on Bedrock" is
-    a pack fact or a core fact, and whether the same mechanism later carries a pack's Tavily
-    *"optionally by capability"*, as the maintainer put it.
-
-    | Option | Verdict |
-    | :--- | :--- |
-    | **A.** The Bedrock pack ships `agentcore-web-search` as an `mcp` entry with a gate that fires only when the render target's selected provider is Bedrock, however [`providers-and-profiles-redesign.md`](providers-and-profiles-redesign.md#OQ-BR2) spells that. Evaluated per render target, merged before the capability filter, under the user's `mcp_servers` as last writer | **Leaning** |
-    | **B.** A core preset in `validMCPPresets`, switched on when a Bedrock provider is selected | Core would learn one AWS service and one provider's fact, where [OQ-BR8](providers-and-profiles-redesign.md#OQ-BR8) leans toward provider facts living with the provider; and [`OQ-MP6`](mcp-presets-removal.md#decision-ledger) retires that list |
-    | **C.** No preset: a documented `mcp_servers` recipe | Not on by default, which [DIR-BR4](#DIR-BR4) requires |
-
-    ⚠ Premise changed 2026-09-25: the leaning was first written as "a new pack contribution kind
-    carrying one MCP entry". [`OQ-MP3`](mcp-presets-removal.md#decision-ledger) has since ruled that
-    kind (`mcp`) and [`OQ-MP6`](mcp-presets-removal.md#decision-ledger) retires the core preset list,
-    so A now names the ruled kind and only the Bedrock gate is still open. The choice of A is
-    unchanged.
-
-    Under A, a user's `mcp_servers.agentcore-web-search: null` removes it. A pack's Tavily entry
-    would be the same kind with no provider gate.
+    provider ([§6](#6-what-todays-mechanisms-can-and-cannot-express)). What changed since it was
+    written, its stakes and its three options are in [its background](#oq-br22-background).
 
     _Leaning:_ A. Default-on for a provider is a fact about that provider, so the pack that owns it
     ships it. The gate keys on what the provider IS, never on a provider or profile name ([trap D5](providers-and-profiles-redesign.md#D5)).
@@ -670,23 +711,13 @@ projects to. That doc owns the rule; this one only records the reading.
 
 23. 💬 <a id="OQ-BR23"></a>**OQ-BR23: When a user's Tavily entry and the AgentCore preset are both
     eligible, which does the agent get?** On a Bedrock profile neither is suppressed by the
-    capability rule, since the source lacks `web_search`. `validate.go` refuses two `mcp_servers`
-    entries with one `provides`, but that check sees only the user's config, not a pack's entry.
-    Stakes: an agent with two search tools, one sending queries outside AWS.
+    capability rule, since the source lacks `web_search`. What `validate.go` already refuses, the
+    stakes, each option's verdict and what D7 changed are in [its background](#oq-br23-background).
 
-    | Option | Verdict |
-    | :--- | :--- |
-    | **A.** The preset only: on a render where it is delivered, other `web_search` servers are dropped, with a notice naming them | **Leaning** |
-    | **B.** Both are delivered | Two search tools; the agent picks per call, and queries may leave AWS unpredictably |
-    | **C.** The user's Tavily entry wins | Honors the user's explicit entry, but a company's "search stays in AWS" is one config line from undone, silently |
-
-    ⚠ New since the leaning was written (2026-10-01, D7): the two MCP entries are not the only
-    search tools on a Bedrock profile. On `-p bedrock-bridge`, claude's WebSearch and codex's
-    hosted search are offered and fail. copilot searches through GitHub whenever it holds a login,
-    oh-omp through any third-party key it finds, and opencode through Exa when its flag is set. None
-    of these is an MCP entry, so no option here drops them. Under codex and opencode the user's
-    Tavily entry is broken today, because neither resolves `${TAVILY_API_KEY}`. The leaning is
-    unchanged. Its *"queries stay in AWS"* holds only if those per-agent tools are also turned off.
+    - **A.** The preset only: on a render where it is delivered, other `web_search` servers are
+      dropped, with a notice naming them.
+    - **B.** Both are delivered.
+    - **C.** The user's Tavily entry wins.
 
     _Leaning:_ A. One search tool per render, matching the rule `validate.go` already enforces, and
     queries stay in AWS. A user who prefers Tavily removes the preset by name, visibly, in their own

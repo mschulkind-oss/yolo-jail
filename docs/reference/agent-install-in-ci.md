@@ -1,6 +1,6 @@
 ---
 status: current
-stage: CURRENT
+stage: DESIGN
 next: "Rule OQ-CI7, whose options and leaning were drafted 2026-10-01 from measured run costs (the leaning: vendor installs on the macos-user workflow, via: npm packs first)"
 verified: 2026-09-23
 verified_commit: 7ad8358c
@@ -360,44 +360,56 @@ The macOS nightly shards the whole `./integration` package but never sets
 test do run, so the podman-VM install path is exercised on macOS by the pinned fixtures only
 (INFERRED from the workflow's env; not observed in a run log for this stamp).
 
+<a id="what-a-vendor-install-on-a-mac-costs"></a>**What a vendor install on a Mac would cost.** [OQ-CI7](#oq-ci7)'s
+options, stakes and leaning were drafted 2026-10-01, from the workflows at `d4e435a3` and the runs named
+below. Three facts set the price:
+
+- **A vendor-install cell costs about two minutes of install.** In Pack Installs run
+  36780595299 (2026-09-30, every cell green), each pack's install step took 94 to 130 seconds
+  on either arch, and a whole cell 204 to 425 seconds. The rest was freeing disk and fetching
+  or loading the image (MEASURED, from the run's job timings).
+- **A podman Mac pays 15 to 35 minutes before any test.** In the green macOS nightly
+  36476746916 (2026-09-29), each of the twelve `macos-26-intel` shards spent 3 to 6½ minutes
+  installing podman and starting the machine, then 11 to 26 minutes loading the jail image.
+  The shards ran 22 to 70 minutes against a 75-minute cap. The macos-user workflow loads no
+  image, and its green runs took about 5 minutes end to end (36437881715, 36319436117).
+  MEASURED, from the runs' job timings.
+- **Only macos-user installs bytes no other job installs.** The podman nightly's jail is
+  linux-x64 in a VM, the same bytes Pack Installs installs on `ubuntu-latest`. What it adds is
+  the machine's file sharing under the install prefix, which is INFERRED to matter and has
+  never been observed failing. macos-user installs darwin builds, which no CI job installs, and
+  its `via: npm` row is *"not measured on hardware"*
+  ([`macos-user-provisioning.md`](macos-user-provisioning.md)).
+
+The options in full, with what each one pays:
+
+- **(a) None, and say so.** macOS install coverage stays the two pinned mechanism cells under
+  podman. *You lose:* nothing runs a vendor's darwin build before a user does.
+- **(b) One vendor job on the podman nightly**, a job of its own rather than a shard, so it
+  cannot push a shard past its cap, installing one `via: npm` pack and one `via: installer`
+  pack. *You pay:* a podman machine and an image load, 15 to 35 minutes on the shards'
+  figures, to install linux-x64 bytes Pack Installs already installs.
+- **(c) Vendor installs on the macos-user workflow**, per pack and hard-failing, as Pack
+  Installs does ([OQ-CI3](#oq-ci3)), the `via: npm` packs first. *You pay:* about two minutes
+  per install on the Linux figure, on a workflow that runs in about five. UNMEASURED on a Mac.
+  A vendor's darwin breakage then turns a scheduled run red, which no push waits on.
+- **(d) Both (b) and (c).**
+
+[OQ-CI7](#oq-ci7) asks which of them to take:
+
 - 💬 <a id="oq-ci7"></a>**[`OQ-CI7`](#oq-ci7) — should the macOS nightly run any vendor agent
   install at all?**
 
   <!-- vantage: question id=OQ-CI7 leaning="(c): vendor installs on the macos-user workflow, per pack and hard-failing, via: npm packs first. darwin is the one platform whose vendor bytes no CI job installs, and the npm half is the one never measured on a Mac, while the podman nightly would re-install linux-x64 bytes Pack Installs already covers, at the highest setup cost." -->
 
-  Today it runs none, as above. Filed 2026-09-26; until then the question had no id. Options,
-  stakes and a leaning drafted 2026-10-01, from the workflows at `d4e435a3` and the runs named
-  below. Three facts set the price:
+  Today it runs none, as above. Filed 2026-09-26; until then the question had no id. The three
+  facts that set the price, and what each option pays, are
+  [above](#what-a-vendor-install-on-a-mac-costs).
 
-  - **A vendor-install cell costs about two minutes of install.** In Pack Installs run
-    36780595299 (2026-09-30, every cell green), each pack's install step took 94 to 130 seconds
-    on either arch, and a whole cell 204 to 425 seconds. The rest was freeing disk and fetching
-    or loading the image (MEASURED, from the run's job timings).
-  - **A podman Mac pays 15 to 35 minutes before any test.** In the green macOS nightly
-    36476746916 (2026-09-29), each of the twelve `macos-26-intel` shards spent 3 to 6½ minutes
-    installing podman and starting the machine, then 11 to 26 minutes loading the jail image.
-    The shards ran 22 to 70 minutes against a 75-minute cap. The macos-user workflow loads no
-    image, and its green runs took about 5 minutes end to end (36437881715, 36319436117).
-    MEASURED, from the runs' job timings.
-  - **Only macos-user installs bytes no other job installs.** The podman nightly's jail is
-    linux-x64 in a VM, the same bytes Pack Installs installs on `ubuntu-latest`. What it adds is
-    the machine's file sharing under the install prefix, which is INFERRED to matter and has
-    never been observed failing. macos-user installs darwin builds, which no CI job installs, and
-    its `via: npm` row is *"not measured on hardware"*
-    ([`macos-user-provisioning.md`](macos-user-provisioning.md)).
-
-  The options:
-
-  - **(a) None, and say so.** macOS install coverage stays the two pinned mechanism cells under
-    podman. *You lose:* nothing runs a vendor's darwin build before a user does.
-  - **(b) One vendor job on the podman nightly**, a job of its own rather than a shard, so it
-    cannot push a shard past its cap, installing one `via: npm` pack and one `via: installer`
-    pack. *You pay:* a podman machine and an image load, 15 to 35 minutes on the shards'
-    figures, to install linux-x64 bytes Pack Installs already installs.
-  - **(c) Vendor installs on the macos-user workflow**, per pack and hard-failing, as Pack
-    Installs does ([OQ-CI3](#oq-ci3)), the `via: npm` packs first. *You pay:* about two minutes
-    per install on the Linux figure, on a workflow that runs in about five. UNMEASURED on a Mac.
-    A vendor's darwin breakage then turns a scheduled run red, which no push waits on.
+  - **(a) None, and say so.**
+  - **(b) One vendor job on the podman nightly**, a job of its own rather than a shard.
+  - **(c) Vendor installs on the macos-user workflow**, per pack and hard-failing, the `via: npm`
+    packs first.
   - **(d) Both (b) and (c).**
 
   _Leaning:_ **(c), `via: npm` first.** darwin is the one platform whose vendor builds no CI job

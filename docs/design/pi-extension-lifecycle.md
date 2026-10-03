@@ -383,6 +383,141 @@ We enforce mutual exclusion using YOLO's standard non-blocking directory lock al
 > invariant 1 is not met for any package the refresh has not already installed. That question is
 > [OQ-4](#OQ-4).
 
+### 3.4 Evidence and as-built notes on the answered refresh questions
+
+<a id="oq-2-candidates"></a>**[OQ-2](#OQ-2)'s candidates.** Three candidates:
+
+- (a) run `pi update --extensions` inside the generated launcher
+  (`/home/agent/.yolo/bin/launch/pi`);
+- (b) a dedicated Go entrypoint subcommand
+  (`yolo internal refresh-pi-extensions`) like `refresh-servers`; or
+- (c) **YOLO resolves and
+  pins the package set through `internal/packsrc` + `packs.lock.json`, and the launcher only
+  materializes it** ([Alternative D](#alternative-d-resolve-and-pin-through-yolos-existing-pack-source-store)).
+
+<a id="oq-2-as-built"></a>What [OQ-2](#OQ-2)'s answer built: **Only the materializer half is
+built (2026-09-25, [§3.2](#32-execution-tier-pre-launch-auto-refresh)); the resolve-and-pin half is not.** The
+mechanism (c) would extend does ship. `internal/packsrc` has `addr.go`, `lock.go` and
+`store.go`, and `packs.lock.json` is real at `~/.config/yolo-jail/packs.lock.json`
+(`LoadLock`/`Save`, beside the user config). So (c) is an extension of a shipping mechanism
+rather than a new one, which is most of why it is the right answer. But that mechanism
+resolves and pins PACKS only. An address is a `file://` directory or a `git+` repository
+(`packsrc.KindFile`, `KindGit`), and a `LockEntry` records a pack's name, source and commit.
+Nothing resolves, pins or records a Pi package's version. So as built, `pi update --extensions`
+resolves as well as materializes, and the version choice is still Pi's and the registry's:
+the in-range maximum at refresh time. ⚠ It also skips EXACT-version pins; see [OQ-4](#OQ-4).
+
+✅ **`pi update --extensions` is VERIFIED, 2026-09-22 — slice one's check is done and the flag
+is real.** Measured STATICALLY against the installed `@earendil-works/pi-coding-agent@0.87.0`,
+by reading its bundle rather than running it, so `AGENTS.md`'s rule that nothing probes an agent
+CLI beyond `--version` is intact:
+
+- The argv parser handles `--extensions` explicitly and accepts it **only** under the `update`
+  command — `if (arg === "--extensions") { command === "update" ? extensionsFlag = true :
+  invalidOption = invalidOption ?? arg; continue }`. Its siblings on the same command are
+  `--self`, `--models` and `--all`. So the flag is not merely mentioned in help text; it is
+  parsed, and it is rejected as an invalid option anywhere else.
+- It is the spelling Pi itself prescribes: two separate user-facing strings tell the user to run
+  `<app> update --extensions`, one when extensions were skipped and one from the
+  package-update notification.
+- **Non-interactive**: the update path holds no interactive primitive — no `createInterface`,
+  `inquirer`, `prompts(`, `await confirm` or `question(` anywhere in it.
+
+So (b), a Go entrypoint subcommand, is **not needed as the materializer**, and the fallback
+stays what it was: a fallback. ⚠ What this does NOT establish is the flag's exit code or its
+behaviour offline — a static read cannot see either, and the implementer should not assume
+success is the only outcome. (The build treats every non-zero status as a failure to report
+and launch past. A further static reading of pi 0.87.1, not a measurement, suggests an offline
+refresh exits 1; see the as-built note in [§3.2](#32-execution-tier-pre-launch-auto-refresh).)
+
+<a id="oq-3-background"></a>**[OQ-3](#OQ-3)'s background.** Pi's interactive TUI unconditionally
+runs `checkForPackageUpdates()` on startup if not offline, warning the user if npm has a newer version. When pre-launch update succeeds or is throttled within
+1 hour, npm will be up-to-date in the happy path.
+
+<a id="oq-3-notes"></a>**Two notes on [OQ-3](#OQ-3)'s answer.**
+
+⚠ **This ruling is conditional on [OQ-2](#OQ-2)'s pin, and the two now pull against each other.** Under
+(c) the version YOLO pins is whatever `packs.lock.json` records, which is *deliberately* not
+always `@latest` — that is what a pin is for. So a jail running a correctly pinned older
+extension will see Pi's warning box, and it will be **right** rather than spurious. Left
+untouched anyway: a user told their pinned version is behind is being told the truth, and the
+alternative is yolo suppressing a vendor's honest notice about software yolo chose the version
+of. If that proves noisy in practice it is a new question, not this one.
+
+⚠ **Correction (2026-09-25): an EXACT pin does not trigger the box.** This was read
+statically from pi 0.87.1's `dist/core/package-manager.js` and not measured by running it. In
+`checkForAvailableUpdates`, `if (parsed.type === "local" || parsed.pinned) return undefined`
+skips every pinned package, and `pinned` is `isExactNpmVersion(version)`. A RANGE is not
+`pinned`. `npmHasAvailableUpdate` compares against `maxSatisfying(versions, range)`, and
+`pi update --extensions` installs that same in-range maximum, so after a refresh a range sees
+nothing newer either. The pull between the two rulings described above therefore does not
+happen. The ruling stands, and nothing needs to be suppressed. The ruling was made against
+0.87.0, and this reading is of 0.87.1.
+
+### 3.5 Who installs a package the refresh did not reach
+
+This is the background to [OQ-4](#OQ-4). The lock of
+[§3.3](#33-concurrency-tier-cross-jail-mutual-exclusion) serializes only the launcher's refresh. Pi installs packages at one more point, its own startup. The resource loader
+calls `packageManager.resolve()`, which installs any configured npm package that
+`!existsSync(installedPath)` or `!installedNpmMatchesConfiguredVersion(…)`, pinned or not.
+**That install takes no lock:** `package-manager.js` contains no lock primitive (pi 0.87.1,
+`dist/core/package-manager.js` and `dist/core/resource-loader.js`, read statically). The
+refresh reaches a package first only when it runs first, and three cases leave it behind:
+
+- **Throttled.** The refresh's stamp is machine-global, but the package list is per-workspace:
+  `~/.pi/agent/settings.json` lives in the workspace-scoped `~/.pi`. A package a workspace
+  declares within the hour after any refresh on the machine is installed by that workspace's
+  Pi, unlocked.
+- **Contended.** A launch that finds the lock held skips the refresh and execs Pi at once
+  ([§3.3](#33-concurrency-tier-cross-jail-mutual-exclusion)). If the holder is still
+  installing a package, the second Pi's `resolve()` finds it missing and runs its own
+  `npm install` into the same store. That makes two writers.
+- **Exact pins.** `pi update --extensions` skips them. `updateConfiguredSources` adds an npm
+  package to the candidates only `if (!parsed.pinned)`, with the comment *"Pinned npm versions
+  are fixed"*. A pinned package that is missing, or whose pin moved, is only ever installed by
+  `resolve()`.
+
+So two jails that start Pi while a configured package is missing from the store can both write
+it, which is the writer [§3.3](#33-concurrency-tier-cross-jail-mutual-exclusion) exists to serialize: [§4.1](#41-invariants)'s invariant 1 is not met for any package
+the refresh has not already installed. And the case that ruling (c) is *about*, a version YOLO
+chose, is one the refresh never reaches.
+
+The options in full:
+
+- **(a) Accept and document.** The window opens whenever a configured package, pinned or not,
+  is missing from the store or outside its configured range: the first Pi launch on a machine
+  with packages configured, a newly declared package, or a moved pin. It closes once one install
+  of that package lands. Nothing is built.
+- **(b) Find a Pi verb that installs configured packages without persisting.** pi 0.87.1 has
+  none by static reading. `update` skips exact pins. `install <source>` calls
+  `installAndPersist`, which writes the source into `settings.json`, a file yolo renders.
+- **(c) Have the launcher pre-install exact pins itself, under the lock.** That means
+  `npm install --prefix <store> <spec>` into the layout Pi's `getNpmInstallRoot` uses. It works
+  against Pi's install layout from outside, which is [Alternative C](#alternative-c-implement-a-full-standalone-go-extension-refresher-yolo-internal-refresh-pi-extensions)'s
+  objection in a smaller form. It covers the exact-pin case only, not the throttled or
+  contended cases.
+- **(d) Have a contended launch wait, bounded, for the holder before it execs Pi.** This closes
+  the contended case. It costs [§3.3](#33-concurrency-tier-cross-jail-mutual-exclusion)'s rule that a jail never waits on the lock, and it does
+  nothing for the throttled case or for exact pins.
+
+**Read 2026-10-01: the ruled per-version npm trees take this question's subject away.** In
+pi 0.99.2, the version this jail now installs, `resolvePackageSources`
+(`dist/core/package-manager.js`) installs a missing or mismatched `npm:` or `git:` source,
+but hands a local path to `resolveLocalExtensionSource` and moves on without installing
+anything; the updater still skips a pinned npm source and never touches a local one. (Read
+statically, as the facts above were, and confirmed by running the resolver once on a scratch
+local package with no agent session: see
+[`pack-pi-resources.md`](pack-pi-resources.md#1-what-pi-loads-from-where-and-in-what-form).)
+[`pi-git-extension-caching.md`](pi-git-extension-caching.md)'s
+[OQ-5](pi-git-extension-caching.md#OQ-5), ruled 2026-09-26, rewrites every `npm:` entry to a
+pointer pi loads as a local package. Once that half is built, pi's own startup never reaches
+the unlocked install for an entry the pack rewrote, and the throttled, contended and exact-pin
+cases go with it. The rewrite is that design's post-fold hook (PG-D2), and it waits on
+[OQ-6](pi-git-extension-caching.md#OQ-6). So [OQ-4](#OQ-4) hangs on that ruling: (a) is the
+one option here that builds nothing the redesign would delete, the question closes
+when the npm half of [OQ-5](pi-git-extension-caching.md#OQ-5) lands, and it comes back only if
+[OQ-6](pi-git-extension-caching.md#OQ-6) is ruled against the rewrite.
+
 ---
 
 ## 4. Invariants and Failure Modes
@@ -474,11 +609,8 @@ We enforce mutual exclusion using YOLO's standard non-blocking directory lock al
    > running a different extension version from its neighbour is not.
 
 2. ✅ <a id="OQ-2"></a>**OQ-2: Update execution mechanism.**
-   Three candidates: (a) run `pi update --extensions` inside the generated launcher
-   (`/home/agent/.yolo/bin/launch/pi`); (b) a dedicated Go entrypoint subcommand
-   (`yolo internal refresh-pi-extensions`) like `refresh-servers`; or (c) **YOLO resolves and
-   pins the package set through `internal/packsrc` + `packs.lock.json`, and the launcher only
-   materializes it** ([Alternative D](#alternative-d-resolve-and-pin-through-yolos-existing-pack-source-store)).
+   The three candidates, and what the answer built, are in
+   [§3.4](#34-evidence-and-as-built-notes-on-the-answered-refresh-questions).
 
    <!-- vantage: question id=OQ-2 -->
 
@@ -488,47 +620,11 @@ We enforce mutual exclusion using YOLO's standard non-blocking directory lock al
    > package-manager half — no npm reimplemented — but the **version choice moves to YOLO**: the
    > seam a distributor must own, since no ecosystem here ships a lockfile or a rollback.
 
-   **Only the materializer half is built (2026-09-25,
-   [§3.2](#32-execution-tier-pre-launch-auto-refresh)); the resolve-and-pin half is not.** The
-   mechanism (c) would extend does ship. `internal/packsrc` has `addr.go`, `lock.go` and
-   `store.go`, and `packs.lock.json` is real at `~/.config/yolo-jail/packs.lock.json`
-   (`LoadLock`/`Save`, beside the user config). So (c) is an extension of a shipping mechanism
-   rather than a new one, which is most of why it is the right answer. But that mechanism
-   resolves and pins PACKS only. An address is a `file://` directory or a `git+` repository
-   (`packsrc.KindFile`, `KindGit`), and a `LockEntry` records a pack's name, source and commit.
-   Nothing resolves, pins or records a Pi package's version. So as built, `pi update --extensions`
-   resolves as well as materializes, and the version choice is still Pi's and the registry's:
-   the in-range maximum at refresh time. ⚠ It also skips EXACT-version pins; see [OQ-4](#OQ-4).
-
-   ✅ **`pi update --extensions` is VERIFIED, 2026-09-22 — slice one's check is done and the flag
-   is real.** Measured STATICALLY against the installed `@earendil-works/pi-coding-agent@0.87.0`,
-   by reading its bundle rather than running it, so `AGENTS.md`'s rule that nothing probes an agent
-   CLI beyond `--version` is intact:
-
-   - The argv parser handles `--extensions` explicitly and accepts it **only** under the `update`
-     command — `if (arg === "--extensions") { command === "update" ? extensionsFlag = true :
-     invalidOption = invalidOption ?? arg; continue }`. Its siblings on the same command are
-     `--self`, `--models` and `--all`. So the flag is not merely mentioned in help text; it is
-     parsed, and it is rejected as an invalid option anywhere else.
-   - It is the spelling Pi itself prescribes: two separate user-facing strings tell the user to run
-     `<app> update --extensions`, one when extensions were skipped and one from the
-     package-update notification.
-   - **Non-interactive**: the update path holds no interactive primitive — no `createInterface`,
-     `inquirer`, `prompts(`, `await confirm` or `question(` anywhere in it.
-
-   So (b), a Go entrypoint subcommand, is **not needed as the materializer**, and the fallback
-   stays what it was: a fallback. ⚠ What this does NOT establish is the flag's exit code or its
-   behaviour offline — a static read cannot see either, and the implementer should not assume
-   success is the only outcome. (The build treats every non-zero status as a failure to report
-   and launch past. A further static reading of pi 0.87.1, not a measurement, suggests an offline
-   refresh exits 1; see the as-built note in [§3.2](#32-execution-tier-pre-launch-auto-refresh).)
-
 3. ✅ <a id="OQ-3"></a>**OQ-3: Handling Pi's in-app update notification check.**
-   Pi's interactive TUI unconditionally runs `checkForPackageUpdates()` on startup if not offline,
-   warning the user if npm has a newer version. When pre-launch update succeeds or is throttled within
-   1 hour, npm will be up-to-date in the happy path. But when an update check fails or is throttled,
-   should YOLO attempt to suppress Pi's warning box (e.g. by setting pinned versions in generated
-   settings) or leave it untouched?
+   But when an update check fails or is throttled, should YOLO attempt to suppress Pi's warning
+   box (e.g. by setting pinned versions in generated settings) or leave it untouched? Its
+   background, and two notes on its answer, are in
+   [§3.4](#34-evidence-and-as-built-notes-on-the-answered-refresh-questions).
 
    <!-- vantage: question id=OQ-3 -->
 
@@ -537,72 +633,19 @@ We enforce mutual exclusion using YOLO's standard non-blocking directory lock al
    > so the in-app check sees the installed package matching `@latest` and passes cleanly.
    > Suppressing it artificially buys little and costs a pinned-version mechanism nobody asked for.
 
-   ⚠ **This ruling is conditional on [OQ-2](#OQ-2)'s pin, and the two now pull against each other.** Under
-   (c) the version YOLO pins is whatever `packs.lock.json` records, which is *deliberately* not
-   always `@latest` — that is what a pin is for. So a jail running a correctly pinned older
-   extension will see Pi's warning box, and it will be **right** rather than spurious. Left
-   untouched anyway: a user told their pinned version is behind is being told the truth, and the
-   alternative is yolo suppressing a vendor's honest notice about software yolo chose the version
-   of. If that proves noisy in practice it is a new question, not this one.
-
-   ⚠ **Correction (2026-09-25): an EXACT pin does not trigger the box.** This was read
-   statically from pi 0.87.1's `dist/core/package-manager.js` and not measured by running it. In
-   `checkForAvailableUpdates`, `if (parsed.type === "local" || parsed.pinned) return undefined`
-   skips every pinned package, and `pinned` is `isExactNpmVersion(version)`. A RANGE is not
-   `pinned`. `npmHasAvailableUpdate` compares against `maxSatisfying(versions, range)`, and
-   `pi update --extensions` installs that same in-range maximum, so after a refresh a range sees
-   nothing newer either. The pull between the two rulings described above therefore does not
-   happen. The ruling stands, and nothing needs to be suppressed. The ruling was made against
-   0.87.0, and this reading is of 0.87.1.
-
 4. 💬 <a id="OQ-4"></a>**[OQ-4](#OQ-4): who installs a package the refresh did not reach, and under what lock?**
    Filed 2026-09-25 by the build of [§3.2](#32-execution-tier-pre-launch-auto-refresh), and widened
    the same day in review from exact pins to every package the refresh did not reach. It is
    **open**.
 
-   The lock of [§3.3](#33-concurrency-tier-cross-jail-mutual-exclusion) serializes only the
-   launcher's refresh. Pi installs packages at one more point, its own startup. The resource loader
-   calls `packageManager.resolve()`, which installs any configured npm package that
-   `!existsSync(installedPath)` or `!installedNpmMatchesConfiguredVersion(…)`, pinned or not.
-   **That install takes no lock:** `package-manager.js` contains no lock primitive (pi 0.87.1,
-   `dist/core/package-manager.js` and `dist/core/resource-loader.js`, read statically). The
-   refresh reaches a package first only when it runs first, and three cases leave it behind:
+   Why the launcher's lock does not cover it, each option in full, and a reading of 2026-10-01
+   are in [§3.5](#35-who-installs-a-package-the-refresh-did-not-reach).
 
-   - **Throttled.** The refresh's stamp is machine-global, but the package list is per-workspace:
-     `~/.pi/agent/settings.json` lives in the workspace-scoped `~/.pi`. A package a workspace
-     declares within the hour after any refresh on the machine is installed by that workspace's
-     Pi, unlocked.
-   - **Contended.** A launch that finds the lock held skips the refresh and execs Pi at once
-     ([§3.3](#33-concurrency-tier-cross-jail-mutual-exclusion)). If the holder is still
-     installing a package, the second Pi's `resolve()` finds it missing and runs its own
-     `npm install` into the same store. That makes two writers.
-   - **Exact pins.** `pi update --extensions` skips them. `updateConfiguredSources` adds an npm
-     package to the candidates only `if (!parsed.pinned)`, with the comment *"Pinned npm versions
-     are fixed"*. A pinned package that is missing, or whose pin moved, is only ever installed by
-     `resolve()`.
-
-   So two jails that start Pi while a configured package is missing from the store can both write
-   it, which is the writer [§3.3](#33-concurrency-tier-cross-jail-mutual-exclusion) exists to serialize: [§4.1](#41-invariants)'s invariant 1 is not met for any package
-   the refresh has not already installed. And the case that ruling (c) is *about*, a version YOLO
-   chose, is one the refresh never reaches.
-
-   The options:
-
-   - **(a) Accept and document.** The window opens whenever a configured package, pinned or not,
-     is missing from the store or outside its configured range: the first Pi launch on a machine
-     with packages configured, a newly declared package, or a moved pin. It closes once one install
-     of that package lands. Nothing is built.
+   - **(a) Accept and document.** Nothing is built.
    - **(b) Find a Pi verb that installs configured packages without persisting.** pi 0.87.1 has
-     none by static reading. `update` skips exact pins. `install <source>` calls
-     `installAndPersist`, which writes the source into `settings.json`, a file yolo renders.
-   - **(c) Have the launcher pre-install exact pins itself, under the lock.** That means
-     `npm install --prefix <store> <spec>` into the layout Pi's `getNpmInstallRoot` uses. It works
-     against Pi's install layout from outside, which is [Alternative C](#alternative-c-implement-a-full-standalone-go-extension-refresher-yolo-internal-refresh-pi-extensions)'s
-     objection in a smaller form. It covers the exact-pin case only, not the throttled or
-     contended cases.
-   - **(d) Have a contended launch wait, bounded, for the holder before it execs Pi.** This closes
-     the contended case. It costs [§3.3](#33-concurrency-tier-cross-jail-mutual-exclusion)'s rule that a jail never waits on the lock, and it does
-     nothing for the throttled case or for exact pins.
+     none by static reading.
+   - **(c) Have the launcher pre-install exact pins itself, under the lock.**
+   - **(d) Have a contended launch wait, bounded, for the holder before it execs Pi.**
 
    <!-- vantage: question id=OQ-4 leaning="(a) Accept and document: the unlocked install happens only while a configured package is missing from the store or outside its range, and it closes once one install lands. No shipped pack declares a Pi package today." -->
 
@@ -611,24 +654,6 @@ We enforce mutual exclusion using YOLO's standard non-blocking directory lock al
    range, and closes once one install lands. No shipped pack declares a Pi package today, so
    yolo opens the window only for packages a user configures. Revisit this when a shipped pack
    first declares one through `config-list` on `pi/settings`.
-
-   **Read 2026-10-01: the ruled per-version npm trees take this question's subject away.** In
-   pi 0.99.2, the version this jail now installs, `resolvePackageSources`
-   (`dist/core/package-manager.js`) installs a missing or mismatched `npm:` or `git:` source,
-   but hands a local path to `resolveLocalExtensionSource` and moves on without installing
-   anything; the updater still skips a pinned npm source and never touches a local one. (Read
-   statically, as the facts above were, and confirmed by running the resolver once on a scratch
-   local package with no agent session: see
-   [`pack-pi-resources.md`](pack-pi-resources.md#1-what-pi-loads-from-where-and-in-what-form).)
-   [`pi-git-extension-caching.md`](pi-git-extension-caching.md)'s
-   [OQ-5](pi-git-extension-caching.md#OQ-5), ruled 2026-09-26, rewrites every `npm:` entry to a
-   pointer pi loads as a local package. Once that half is built, pi's own startup never reaches
-   the unlocked install for an entry the pack rewrote, and the throttled, contended and exact-pin
-   cases go with it. The rewrite is that design's post-fold hook (PG-D2), and it waits on
-   [OQ-6](pi-git-extension-caching.md#OQ-6). So [OQ-4](#OQ-4) hangs on that ruling: (a) is the
-   one option here that builds nothing the redesign would delete, the question closes
-   when the npm half of [OQ-5](pi-git-extension-caching.md#OQ-5) lands, and it comes back only if
-   [OQ-6](pi-git-extension-caching.md#OQ-6) is ruled against the rewrite.
 
    **Answer:**
 

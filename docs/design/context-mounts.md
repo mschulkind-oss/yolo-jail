@@ -4,7 +4,7 @@ date: 2026-09-25
 status: in-review
 tags: [mounts, ctx, macos-user, seatbelt, trust, parity, disclosure]
 summary: "Two proposals the maintainer raised together on 2026-09-25. First, a read-write form of the config `mounts` key: refused at the credential boundary, and disclosed on every launch as an injection channel into the host. Second, context directories on macos-user with no copy: a root-owned tree of links, named by a new env var, with Seatbelt rules on the resolved paths doing all the enforcing. The second narrows DP-D15's fatal refusal rather than overturning it, which the maintainer's own DP-D15 and OQ-DP4 words already ask for (OQ-CX5). Where an rw mount may be declared is deferred to workspace-config-trust.md. Triaged 2026-09-30: two questions answered by earlier rulings, six decided as reversible implementation choices (CX-D1 to CX-D6), and one open, OQ-CX7 (sources inside a real home on macos-user). §4 steps 1-3 are built (2026-09-30): the read-write form on podman and Apple Container, YOLO_CONTEXT_DIR on every backend, and DP-D15's fatal refusal on macos-user. Steps 4-5, the macos-user delivery by root-owned link plus Seatbelt rules and a DAC preflight, are built (2026-10-01) and have not run on a Mac; step 6 waits for a pack that needs it (CX-D3)."
-stage: BUILT
+stage: DESIGN
 next: "Read the first scheduled macos-user.yml run after 2026-10-01: record what the context cases in integration/macosuserseatbelt_test.go and integration/macosusercontextmounts_test.go answered, and the hard-link, /Volumes and privacy-folder measurements, in §4, §3.7 and CX-D5; then rule OQ-CX7"
 ---
 
@@ -398,6 +398,15 @@ in `SandboxGroup` does not widen it, plus `search` on each ancestor. What it cos
 [§6.1](declaration-parity.md#61-dp-l1-the-mechanism-is-a-copy-and-what-nobody-has-measured) declined this for exactly these reasons, and nothing here changes them. They are what the
 ruling would be accepting.
 
+<a id="oq-cx7-stakes"></a>**What [OQ-CX7](#OQ-CX7) decides.** _Stakes (restated 2026-09-30):_ this is now the
+largest limit on macos-user delivery. With
+[OQ-CX5](#OQ-CX5) answered, a source outside every real home that the sandbox uid can reach is
+delivered live, and [OQ-DP4](declaration-parity.md#decision-ledger) asked for the delivery
+"however we can make it work". Most context sources live in the user's own home, though, and
+reaching one there means either changing permissions inside that home (b) or opening Seatbelt
+traversal into it (c). So the choice is whether the common case works on this backend, and at
+what cost to the home.
+
 ### 3.6 `/Volumes` and TCC
 
 - **`/Volumes`.** The profile denies reads under `/Volumes` except `Macintosh HD`. A source on an
@@ -626,17 +635,13 @@ Each one must show:
    > only spelling pack text and agents can share.
 
 7. 💬 <a id="OQ-CX7"></a>**[OQ-CX7](#OQ-CX7): sources inside a real user home on macos-user.**
-   **(a)** Refuse, as v1 does. **(b)** An opt-in per-source ACL grant with a recorded cleanup
-   ledger ([§3.5](#35-the-dac-half)). **(c)** Allow where DAC already passes, emitting ancestor
-   literals inside the home.
 
-   _Stakes (restated 2026-09-30):_ this is now the largest limit on macos-user delivery. With
-   [OQ-CX5](#OQ-CX5) answered, a source outside every real home that the sandbox uid can reach is
-   delivered live, and [OQ-DP4](declaration-parity.md#decision-ledger) asked for the delivery
-   "however we can make it work". Most context sources live in the user's own home, though, and
-   reaching one there means either changing permissions inside that home (b) or opening Seatbelt
-   traversal into it (c). So the choice is whether the common case works on this backend, and at
-   what cost to the home.
+   - **(a)** Refuse, as v1 does.
+   - **(b)** An opt-in per-source ACL grant with a recorded cleanup ledger
+     ([§3.5](#35-the-dac-half)).
+   - **(c)** Allow where DAC already passes, emitting ancestor literals inside the home.
+
+   Its stakes, restated 2026-09-30, close [§3.5](#35-the-dac-half).
 
    _Leaning:_ **(a) for v1**. (c) extends `ancestorLiterals` into homes, which it refuses
    deliberately, and whether a `literal` allows listing the directory is unmeasured. (b) is [§6.1](declaration-parity.md#61-dp-l1-the-mechanism-is-a-copy-and-what-nobody-has-measured)'s

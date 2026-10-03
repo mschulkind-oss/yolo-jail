@@ -119,18 +119,18 @@ questions without asking: [OQ-BR15](#OQ-BR15) on evidence (the bridge serves no 
 - [OQ-BR13](#OQ-BR13): how each derive renders the list into its agent's picker. Directed
   2026-09-29: however each agent allows; the mechanisms are
   [§14](#14-how-each-agents-menu-is-set-researched-2026-09-29)'s table.
-- [OQ-MM1](#OQ-MM1): what a list that only adds does to an agent's own catalog. Leaning: it sits
+- [OQ-MM1](#OQ-MM1): what a list that only adds does to an agent's own catalog. The leaning: it sits
   beside the catalog, and only an `only` makes a menu exact.
 - [OQ-MM2](#OQ-MM2): where copilot's model file gets its key, if it cannot read it from the
   environment. Settled 2026-09-29: in a second file beside the 0600 per-agent env file that
   already holds that key ([MM-D10](#MM-D10)).
 - [OQ-MM3](#OQ-MM3): whether a list with no `only` refuses other models on a gateway that serves
-  more than the list, and what keeps claude's start valid where nothing refuses. Leaning: refuse
-  by default. With the switch off, yolo writes the start model once through claude's selection.
+  more than the list, and what keeps claude's start valid where nothing refuses. The leaning:
+  refuse by default. With the switch off, yolo writes the start model once through claude's selection.
 - [OQ-MM4](#OQ-MM4): whether copilot should show a whole list in the only mode that can, which
-  also shows GitHub's own models. Leaning: no; copilot keeps one model.
+  also shows GitHub's own models. The leaning: no; copilot keeps one model.
 - [OQ-MM5](#OQ-MM5): whether a `-p` at `yolo host` moves codex onto its provider for that
-  launch, so codex's menu there can follow the `-p`. Leaning: yes, through the `CODEX_HOME` yolo
+  launch, so codex's menu there can follow the `-p`. The leaning: yes, through the `CODEX_HOME` yolo
   already rebuilds at every launch with its login.
 - [OQ-BR14](#OQ-BR14): how the lists stay current. Decided 2026-09-30 ([MM-D16](#MM-D16)): the
   agents' own catalogs, plus a `yolo check` warning. Built 2026-09-30, reading the catalog files
@@ -1382,10 +1382,16 @@ while it runs, and its next `/new` would fail.
 
 1. ✅ <a id="OQ-ML1"></a>**[OQ-ML1](#OQ-ML1): What shape is the built-in picks pack, and how
    does it join a launch without breaking "nothing is active by default"?**
-   Options: **(a)** one yolo-shipped pack (`packs/default-models`, say) that adds `models`
-   entries ([OQ-BR12](#OQ-BR12)'s kind) to other packs' providers, joined by those provider
-   packs' `needs`, the wire-bridge pattern; **(b)** ids inside each provider's own pack, which is
-   today's mechanism and buildable now; **(c)** always staged. Sub-choice: do picks **yield**,
+   Options:
+
+   - **(a)** one yolo-shipped pack (`packs/default-models`, say) that adds `models`
+     entries ([OQ-BR12](#OQ-BR12)'s kind) to other packs' providers, joined by those provider
+     packs' `needs`, the wire-bridge pattern;
+   - **(b)** ids inside each provider's own pack, which is
+     today's mechanism and buildable now;
+   - **(c)** always staged.
+
+   Sub-choice: do picks **yield**,
    applying only when no other pack and no user wrote a list for that provider
    ([§5.2](#52-how-it-joins-a-launch))? Stakes: where every shipped opinion lives, whether a
    company's list replaces yolo's or trails it, and whether "nothing is active by default" gains
@@ -1466,10 +1472,19 @@ while it runs, and its next `/new` would fail.
    provider, claude's `bedrock` map) get ids is [OQ-ML2](#OQ-ML2)'s. The geo-prefix verification
    stays a build prerequisite ([§5.3](#53-the-prerequisite-verify-before-an-id-ships)).
 
-5. ✅ <a id="OQ-BR12"></a>**[OQ-BR12](#OQ-BR12): Is there a `models` contribution kind, so a
-   company pack can shape another pack's provider?** (moved from [`bedrock-plumbing.md`](bedrock-plumbing.md), id kept.)
-   [§7](#7-how-a-company-pack-shapes-a-list-the-models-kind). Stakes: whether an org can ship its
-   model selection once, or every user copies it into their own config.
+<a id="oq-br12-background"></a>**Before [OQ-BR12](#OQ-BR12).** Stakes: whether an org can ship its
+model selection once, or every user copies it into their own config.
+
+⚠ **Premise changed 2026-09-25.** [OQ-BR3](#OQ-BR3)'s ruling makes yolo's own picks pack the
+kind's first user under [OQ-ML1](#OQ-ML1)'s leaning, not only company packs. And the entries
+need `alias` and `description` ([§7.3](#73-two-fields-the-entry-shape-is-missing)), which the
+leaning did not name.
+
+5. ✅ <a id="OQ-BR12"></a>**[OQ-BR12](#OQ-BR12): Is there a `models` contribution kind, so a company
+   pack can shape another pack's provider?** (moved from
+   [`bedrock-plumbing.md`](bedrock-plumbing.md), id kept.)
+   [§7](#7-how-a-company-pack-shapes-a-list-the-models-kind). Its stakes, and how its premise
+   changed, are [just above](#oq-br12-background).
 
    | Option | Verdict |
    | :--- | :--- |
@@ -1477,11 +1492,6 @@ while it runs, and its next `/new` would fail.
    | **B.** Let `provider` combine as an overlay across packs | Ends sole ownership for every provider field, and needs a merge rule per field, to get one list |
    | **C.** Widen `config-list` to narrow, and to target a provider's models | `config-list` writes an agent's config surface, so the org would restate the list per agent |
    | **D.** User config only, as [OQ-GP2](gateway-provider-packs.md#decision-ledger) ruled for gateway packs | The org cannot ship it |
-
-   ⚠ **Premise changed 2026-09-25.** [OQ-BR3](#OQ-BR3)'s ruling makes yolo's own picks pack the
-   kind's first user under [OQ-ML1](#OQ-ML1)'s leaning, not only company packs. And the entries
-   need `alias` and `description` ([§7.3](#73-two-fields-the-entry-shape-is-missing)), which the
-   leaning did not name.
 
    _Leaning:_ A. `add` unions in pack order, `only` intersects, and the user's config is the last
    writer. yolo's own packs ship as few ids as [OQ-BR3](#OQ-BR3)'s ruling allows.
@@ -1498,14 +1508,17 @@ while it runs, and its next `/new` would fail.
    > `providers.<name>.models` writes last, not as a policy yolo chooses but because an engineer
    > can always override their own config.
 
-6. ✅ <a id="OQ-BR13"></a>**[OQ-BR13](#OQ-BR13): How does each derive render the effective list
-   into its agent's picker?** (moved from [`bedrock-plumbing.md`](bedrock-plumbing.md), id kept.)
-   [§8](#8-rendering-the-effective-list-into-each-picker). Stakes: what a user sees at launch,
-   whether an org's `only` can lock a picker, and whether the hard-coded GPT-6 lists become data.
-   Four sub-choices: claude's built-ins replaced only on the everything profile;
-   `enforceAvailableModels` only under an `only`; the Fable tier mapped only from a declared
-   `fable` alias (`ANTHROPIC_DEFAULT_FABLE_MODEL` is present in claude 2.1.282 and mapped by no
-   derive); codex gets selection only until `model_catalog_json`'s format is read.
+<a id="oq-br13-background"></a>**Before [OQ-BR13](#OQ-BR13).** Stakes: what a user sees at launch,
+whether an org's `only` can lock a picker, and whether the hard-coded GPT-6 lists become data.
+Four sub-choices: claude's built-ins replaced only on the everything profile;
+`enforceAvailableModels` only under an `only`; the Fable tier mapped only from a declared `fable`
+alias (`ANTHROPIC_DEFAULT_FABLE_MODEL` is present in claude 2.1.282 and mapped by no derive);
+codex gets selection only until `model_catalog_json`'s format is read.
+
+6. ✅ <a id="OQ-BR13"></a>**[OQ-BR13](#OQ-BR13): How does each derive render the effective list into
+   its agent's picker?** (moved from [`bedrock-plumbing.md`](bedrock-plumbing.md), id kept.)
+   [§8](#8-rendering-the-effective-list-into-each-picker). Its stakes and its four sub-choices are
+   [just above](#oq-br13-background).
 
    Options: **A**, render into each agent's own surface from the one list, with the four
    sub-choices (leaning); **B**, render the default only and leave pickers to the agents'
@@ -1611,12 +1624,14 @@ while it runs, and its next `/new` would fail.
    > route either ([§14.3](#143-the-bridges-part-and-get-v1models)). One sensible answer, so it
    > was decided rather than asked, under [OQ-BR13](#OQ-BR13)'s direction.
 
-10. ✅ <a id="OQ-ML3"></a>**[OQ-ML3](#OQ-ML3): Does `yolo host apply` render the `openai-codex`
-    list for pi?** Today it does not ([ML-D8](#ML-D8)): the host notch runs no derive for content,
-    so pi on the host keeps pi-ai's own `openai-codex` catalog, with no 1M variants and with the
-    GPT-5.x ids the jail list dropped. Stakes: whether host pi and a `-p codex` jail offer the
-    same models, against the host render's rule that its computed layer is empty
-    ([host-render-target §3.3](host-render-target.md#33-what-each-target-supplies)).
+<a id="oq-ml3-background"></a>**Before [OQ-ML3](#OQ-ML3).** Today it does not ([ML-D8](#ML-D8)):
+the host notch runs no derive for content, so pi on the host keeps pi-ai's own `openai-codex`
+catalog, with no 1M variants and with the GPT-5.x ids the jail list dropped. Stakes: whether host
+pi and a `-p codex` jail offer the same models, against the host render's rule that its computed
+layer is empty ([host-render-target §3.3](host-render-target.md#33-what-each-target-supplies)).
+
+10. ✅ <a id="OQ-ML3"></a>**[OQ-ML3](#OQ-ML3): Does `yolo host apply` render the `openai-codex` list
+    for pi?** Why it was asked, and its stakes, are [just above](#oq-ml3-background).
 
     Options: **A**, leave it, since the host has one list, pi's, and v0.10.0 behaved the same;
     **B**, compose the provider table for a host apply and run the derive for a surface whose
@@ -1636,41 +1651,49 @@ while it runs, and its next `/new` would fail.
     2026-09-28** by that ruling: the host runs the jail's derives, so host pi gets the declared
     list ([ML-D8](#ML-D8) records what this answer decided).
 
-11. 💬 <a id="OQ-MM1"></a>**[OQ-MM1](#OQ-MM1): When a list only adds models, does the agent's
-    menu still show the agent's own catalog for that provider?** Stakes: what every agent with a
-    catalog shows by default, and whether yolo's own default pick can shrink a menu.
+<a id="oq-mm1-setup"></a>**Before [OQ-MM1](#OQ-MM1): its stakes, setup and options in full.**
+Stakes: what every agent with a catalog shows by default, and whether yolo's own default pick can
+shrink a menu.
 
-    **The setup.** Priya's company pack adds three Bedrock models, GPT-6 Astra, Kimi and Claude
-    Opus 5.5, to the `bedrock` provider with an `add` and no `only`. She runs
-    `yolo -p bedrock -- opencode`. With [§14.1](#141-the-table) built, opencode and pi can show
-    exactly those three: pi without refusing anything, opencode only by refusing every other model
-    too. The other native Bedrock clients take one family each ([§1](#1-the-words-plainly) for
-    claude; [`bedrock-plumbing.md`](bedrock-plumbing.md#where-the-split-ended-up) for codex):
-    claude's `-p bedrock`, its native profile, shows its Default row and Opus 5.5 at most, and
-    codex's shows GPT-6 Astra. GPT-6 Astra and Kimi reach claude only on the everything profile,
-    whose list is exact anyway. Nobody has decided what an `add` means for the catalog the agent
-    already has.
-    The same shape exists today with a user's own list: Dana's five-model
-    `providers.openrouter.models` shows in opencode among its whole OpenRouter catalog, about 374
-    models, because opencode starts any provider named `openrouter` from its catalog; pi's `zai`
-    menu is its own 7 models plus yolo's. The research passes recommended opposite answers, so it
-    is asked.
+**The setup.** Priya's company pack adds three Bedrock models, GPT-6 Astra, Kimi and Claude
+Opus 5.5, to the `bedrock` provider with an `add` and no `only`. She runs
+`yolo -p bedrock -- opencode`. With [§14.1](#141-the-table) built, opencode and pi can show
+exactly those three: pi without refusing anything, opencode only by refusing every other model
+too. The other native Bedrock clients take one family each ([§1](#1-the-words-plainly) for
+claude; [`bedrock-plumbing.md`](bedrock-plumbing.md#where-the-split-ended-up) for codex):
+claude's `-p bedrock`, its native profile, shows its Default row and Opus 5.5 at most, and
+codex's shows GPT-6 Astra. GPT-6 Astra and Kimi reach claude only on the everything profile,
+whose list is exact anyway. Nobody has decided what an `add` means for the catalog the agent
+already has.
+The same shape exists today with a user's own list: Dana's five-model
+`providers.openrouter.models` shows in opencode among its whole OpenRouter catalog, about 374
+models, because opencode starts any provider named `openrouter` from its catalog; pi's `zai`
+menu is its own 7 models plus yolo's. The research passes recommended opposite answers, so it
+is asked.
 
-    Options, with what Priya and Dana would see:
+Options, with what Priya and Dana would see:
 
-    - **A. An `add` sits beside the agent's catalog; only an `only` makes a menu exact.** Priya sees
-      opencode's 166 Bedrock models with her three among them, pi's 176, and claude's built-in rows
-      with Opus 5.5 appended. One `only` line in her company's pack makes opencode's and pi's
-      menus exactly her list, and claude's exactly Opus 5.5 below its Default row. Dana sees her
-      five among opencode's 374 until she states them as an `only`. Where the agent has no
-      catalog for the provider, such as any provider claude is routed to or a key the agent does
-      not ship, every menu is exact anyway.
-    - **B. Any list makes the menu exact.** Priya sees exactly her three in opencode and pi, and
-      Opus 5.5 alone below claude's Default row, and opencode refuses every other model. Dana sees
-      exactly her five. A provider pack's own one-model default, which [OQ-ML1](#OQ-ML1)'s ruling has every provider declare, then shrinks
-      that agent's menu to one model, unless a declared default is told apart from a list.
-    - **C. Exact for the user's own list, beside for a pack's.** Dana sees exactly her five; Priya
-      sees her three beside the catalog. The same list means two things depending on who wrote it.
+- **A. An `add` sits beside the agent's catalog; only an `only` makes a menu exact.** Priya sees
+  opencode's 166 Bedrock models with her three among them, pi's 176, and claude's built-in rows
+  with Opus 5.5 appended. One `only` line in her company's pack makes opencode's and pi's
+  menus exactly her list, and claude's exactly Opus 5.5 below its Default row. Dana sees her
+  five among opencode's 374 until she states them as an `only`. Where the agent has no
+  catalog for the provider, such as any provider claude is routed to or a key the agent does
+  not ship, every menu is exact anyway.
+- **B. Any list makes the menu exact.** Priya sees exactly her three in opencode and pi, and
+  Opus 5.5 alone below claude's Default row, and opencode refuses every other model. Dana sees
+  exactly her five. A provider pack's own one-model default, which [OQ-ML1](#OQ-ML1)'s ruling has every provider declare, then shrinks
+  that agent's menu to one model, unless a declared default is told apart from a list.
+- **C. Exact for the user's own list, beside for a pack's.** Dana sees exactly her five; Priya
+  sees her three beside the catalog. The same list means two things depending on who wrote it.
+
+11. 💬 <a id="OQ-MM1"></a>**[OQ-MM1](#OQ-MM1): When a list only adds models, does the agent's menu
+    still show the agent's own catalog for that provider?** Its stakes, the setup and each option in
+    full, with what Priya and Dana would see, are [just above](#oq-mm1-setup).
+
+    - **A. An `add` sits beside the agent's catalog; only an `only` makes a menu exact.**
+    - **B. Any list makes the menu exact.**
+    - **C. Exact for the user's own list, beside for a pack's.**
 
     <!-- vantage: question id=OQ-MM1 leaning="A: an add sits beside the agent's own catalog for that provider, and only an only makes the menu exact (claude's native built-ins stay, opencode and pi keep their catalogs); a provider the agent has no catalog for (any provider claude is routed to, or a key the agent does not ship) is exact anyway. The verbs already say 'these too' and 'just these', and B would let yolo's own one-model default shrink a menu." -->
 
@@ -1681,41 +1704,48 @@ while it runs, and its next `/new` would fail.
     **Answer:**
     > _(empty — fill in when decided)_
 
-12. ✅ <a id="OQ-MM2"></a>**[OQ-MM2](#OQ-MM2): If copilot's model file cannot read its key from
-    the environment, may yolo write the key into a file, so copilot shows the whole list?**
-    Stakes: copilot's menu, one model or the list, against where a credential may be written.
+<a id="oq-mm2-setup"></a>**Before [OQ-MM2](#OQ-MM2): its stakes, setup and options in full.**
+Stakes: copilot's menu, one model or the list, against where a credential may be written.
 
-    **The setup.** Sam runs `yolo -p bedrock -- copilot`. copilot reaches Bedrock only through
-    the wire bridge, and its menu has one model, the list's default, because copilot's
-    environment-variable setup carries exactly one ([§14.2](#142-what-each-row-rests-on)).
-    copilot 1.0.89 can show a whole list from a `providers.json` file, but the file holds its key
-    as literal text. That key is whatever `COPILOT_PROVIDER_API_KEY` carries today: the launch's
-    caller token on a bridged provider ([WB-D18](../reference/wire-bridge.md#wb-d18)), and the
-    provider's own key on a direct one, such as z.ai. **It is already in a file.** On the
-    container backends an env derive's output is written to
-    `<workspace>/.yolo/home/agent-env/copilot.sh`, 0600 in a 0700 directory, rewritten on every
-    entry and kept in the workspace's state between launches
-    ([the credential gate](../reference/providers.md#the-credential-gate)). What the rules forbid
-    is narrower: the caller token is *"never in a rendered config file, where each derive writes
-    the variable's name instead"* ([caller authentication](../reference/wire-bridge.md#caller-authentication)),
-    and a derive, which renders surfaces, never receives a hydrated key
-    ([providers.md](../reference/providers.md#derives-the-delivery-mechanism)). Two unmeasured
-    fields might let the file take its key from the environment: a key command, or a fallback to
-    `COPILOT_PROVIDER_API_KEY`. The build measures them first, and if either works this question
-    closes by itself.
+**The setup.** Sam runs `yolo -p bedrock -- copilot`. copilot reaches Bedrock only through
+the wire bridge, and its menu has one model, the list's default, because copilot's
+environment-variable setup carries exactly one ([§14.2](#142-what-each-row-rests-on)).
+copilot 1.0.89 can show a whole list from a `providers.json` file, but the file holds its key
+as literal text. That key is whatever `COPILOT_PROVIDER_API_KEY` carries today: the launch's
+caller token on a bridged provider ([WB-D18](../reference/wire-bridge.md#wb-d18)), and the
+provider's own key on a direct one, such as z.ai. **It is already in a file.** On the
+container backends an env derive's output is written to
+`<workspace>/.yolo/home/agent-env/copilot.sh`, 0600 in a 0700 directory, rewritten on every
+entry and kept in the workspace's state between launches
+([the credential gate](../reference/providers.md#the-credential-gate)). What the rules forbid
+is narrower: the caller token is *"never in a rendered config file, where each derive writes
+the variable's name instead"* ([caller authentication](../reference/wire-bridge.md#caller-authentication)),
+and a derive, which renders surfaces, never receives a hydrated key
+([providers.md](../reference/providers.md#derives-the-delivery-mechanism)). Two unmeasured
+fields might let the file take its key from the environment: a key command, or a fallback to
+`COPILOT_PROVIDER_API_KEY`. The build measures them first, and if either works this question
+closes by itself.
 
-    Options, with what Sam would see:
+Options, with what Sam would see:
 
-    - **A. Keep one model.** Sam's menu shows only the default. Another listed model is reachable
-      only by typing its id, and on a bridged provider the bridge still refuses anything off the
-      list.
-    - **B. A second file in the per-agent env directory.** The launch's per-agent env writer puts
-      the file beside `copilot.sh`, with the same mode and lifetime, and points copilot at it with
-      `COPILOT_PROVIDERS_CONFIG`. Sam sees the whole list, and no reader gains anything
-      `copilot.sh` does not already give it.
-    - **C. The file in copilot's home, as a rendered surface.** Sam sees the whole list, but the
-      key sits in `~/.copilot/providers.json`, a rendered config file, which the caller-token rule
-      forbids, and the derive that renders it never holds the key.
+- **A. Keep one model.** Sam's menu shows only the default. Another listed model is reachable
+  only by typing its id, and on a bridged provider the bridge still refuses anything off the
+  list.
+- **B. A second file in the per-agent env directory.** The launch's per-agent env writer puts
+  the file beside `copilot.sh`, with the same mode and lifetime, and points copilot at it with
+  `COPILOT_PROVIDERS_CONFIG`. Sam sees the whole list, and no reader gains anything
+  `copilot.sh` does not already give it.
+- **C. The file in copilot's home, as a rendered surface.** Sam sees the whole list, but the
+  key sits in `~/.copilot/providers.json`, a rendered config file, which the caller-token rule
+  forbids, and the derive that renders it never holds the key.
+
+12. ✅ <a id="OQ-MM2"></a>**[OQ-MM2](#OQ-MM2): If copilot's model file cannot read its key from the
+    environment, may yolo write the key into a file, so copilot shows the whole list?** Its stakes,
+    the setup and each option in full, with what Sam would see, are [just above](#oq-mm2-setup).
+
+    - **A. Keep one model.**
+    - **B. A second file in the per-agent env directory.**
+    - **C. The file in copilot's home, as a rendered surface.**
 
     _Leaning:_ B. It adds a second file of a kind that already exists, in the same directory, with
     the same readers.
@@ -1731,45 +1761,54 @@ while it runs, and its next `/new` would fail.
     > [OQ-BR13](#OQ-BR13)'s direction asks for, and C breaks the caller-token rule. That left one
     > sensible answer, so it was decided.
 
-13. 💬 <a id="OQ-MM3"></a>**[OQ-MM3](#OQ-MM3): On a gateway that serves more than its list, does
-    a list with no `only` refuse other models, and what keeps claude's start valid where nothing
-    refuses?** Stakes: whether a gateway model that works today stops working once yolo renders a
-    list, and whether [OQ-ML2](#OQ-ML2)'s "every start valid" survives the enforcement switch
-    being off.
+<a id="oq-mm3-setup"></a>**Before [OQ-MM3](#OQ-MM3): its stakes, setup and options in full.**
+Stakes: whether a gateway model that works today stops working once yolo renders a list, and
+whether [OQ-ML2](#OQ-ML2)'s "every start valid" survives the enforcement switch being off.
 
-    **The setup.** Where the agent has no catalog of its own for a provider, the list is the
-    provider's whole universe ([§14](#14-how-each-agents-menu-is-set-researched-2026-09-29)):
-    every provider claude is routed to, and every key pi, oh-omp or opencode does not ship.
-    [§8](#8-rendering-the-effective-list-into-each-picker) sets a refusal there by default, under
-    the profile's switch ([MM-D5](#MM-D5)). On `openai-codex` that costs nothing, since the
-    subscription serves only the list. On a gateway it does. Lee's z.ai list has three GLM models,
-    and `/model glm-4.7` works on z.ai today. With claude's allowlist on a z.ai launch, claude
-    refuses it until Lee lists it or turns the switch off, and pi's wrapper does the same on a Kilo
-    list. [OQ-WG3](wire-bridge-gateway.md#OQ-WG3) ruled the list enforced by default (*"If we put
-    it in the model picker, it's allowed … let's have it even default on enforced"*). That ruling
-    was about the bridge, and it added that a list *"does not mean that we need the bridge to deny
-    it"*. claude cannot separate the two either: its allowlist is also its only start check that
-    does not steer ([§14.2](#142-what-each-row-rests-on)). With the switch off claude gets
-    `modelPicker` alone, and nothing yolo writes checks the start. Omar's saved first-party
-    `claude-opus-5-5`, carried into the everything profile, then starts unchecked and fails at its
-    first request (INFERRED). That breaks [OQ-ML2](#OQ-ML2)'s *"whenever you start up a session,
-    we always want to make sure that we have picked one of those models"*.
+**The setup.** Where the agent has no catalog of its own for a provider, the list is the
+provider's whole universe ([§14](#14-how-each-agents-menu-is-set-researched-2026-09-29)):
+every provider claude is routed to, and every key pi, oh-omp or opencode does not ship.
+[§8](#8-rendering-the-effective-list-into-each-picker) sets a refusal there by default, under
+the profile's switch ([MM-D5](#MM-D5)). On `openai-codex` that costs nothing, since the
+subscription serves only the list. On a gateway it does. Lee's z.ai list has three GLM models,
+and `/model glm-4.7` works on z.ai today. With claude's allowlist on a z.ai launch, claude
+refuses it until Lee lists it or turns the switch off, and pi's wrapper does the same on a Kilo
+list. [OQ-WG3](wire-bridge-gateway.md#OQ-WG3) ruled the list enforced by default (*"If we put
+it in the model picker, it's allowed … let's have it even default on enforced"*). That ruling
+was about the bridge, and it added that a list *"does not mean that we need the bridge to deny
+it"*. claude cannot separate the two either: its allowlist is also its only start check that
+does not steer ([§14.2](#142-what-each-row-rests-on)). With the switch off claude gets
+`modelPicker` alone, and nothing yolo writes checks the start. Omar's saved first-party
+`claude-opus-5-5`, carried into the everything profile, then starts unchecked and fails at its
+first request (INFERRED). That breaks [OQ-ML2](#OQ-ML2)'s *"whenever you start up a session,
+we always want to make sure that we have picked one of those models"*.
 
-    Options, with what Lee and Omar would see:
+Options, with what Lee and Omar would see:
+
+- **A. Refuse by default wherever the list is the whole universe**, as [MM-D1](#MM-D1) was
+  first drafted. Lee's `glm-4.7` is refused until he lists it or turns the switch off. With
+  the switch off, Omar starts unchecked, so a start is valid only while the switch is on.
+- **B. Refuse only on `openai-codex` and under an `only`, and check claude's start with a pin
+  everywhere else.** yolo writes the list's default into claude's settings `model` key once,
+  through the selection namespace, so a later `/model` choice is kept until the provider
+  changes. Lee keeps `glm-4.7` with the switch on, and Omar starts on the list's default. The
+  cost: an exception to providers.md's rule that
+  [yolo never writes claude a model id through the selection namespace](../reference/providers.md#deselection-clear-what-yolo-wrote-keep-what-the-user-wrote),
+  and a `claude` started outside yolo reads that id too.
+- **C. A's default, plus B's pin whenever the switch is off.** Lee is refused by default, and
+  turning the switch off gives him `glm-4.7` with a start that stays valid. Omar starts valid
+  either way.
+
+13. 💬 <a id="OQ-MM3"></a>**[OQ-MM3](#OQ-MM3): On a gateway that serves more than its list, does a
+    list with no `only` refuse other models, and what keeps claude's start valid where nothing
+    refuses?** Its stakes, the setup and each option in full, with what Lee and Omar would see, are
+    [just above](#oq-mm3-setup).
 
     - **A. Refuse by default wherever the list is the whole universe**, as [MM-D1](#MM-D1) was
-      first drafted. Lee's `glm-4.7` is refused until he lists it or turns the switch off. With
-      the switch off, Omar starts unchecked, so a start is valid only while the switch is on.
+      first drafted.
     - **B. Refuse only on `openai-codex` and under an `only`, and check claude's start with a pin
-      everywhere else.** yolo writes the list's default into claude's settings `model` key once,
-      through the selection namespace, so a later `/model` choice is kept until the provider
-      changes. Lee keeps `glm-4.7` with the switch on, and Omar starts on the list's default. The
-      cost: an exception to providers.md's rule that
-      [yolo never writes claude a model id through the selection namespace](../reference/providers.md#deselection-clear-what-yolo-wrote-keep-what-the-user-wrote),
-      and a `claude` started outside yolo reads that id too.
-    - **C. A's default, plus B's pin whenever the switch is off.** Lee is refused by default, and
-      turning the switch off gives him `glm-4.7` with a start that stays valid. Omar starts valid
-      either way.
+      everywhere else.**
+    - **C. A's default, plus B's pin whenever the switch is off.**
 
     <!-- vantage: question id=OQ-MM3 leaning="C: refuse by default wherever the list is the whole universe, as OQ-WG3's default-on switch says, and when the switch is off check claude's start with a pin yolo writes once into claude's settings model key through the selection namespace, so a later /model choice is kept. It keeps both rulings as spoken, and the one exception to providers.md's rule is paid only with the switch off." -->
 
@@ -1782,44 +1821,53 @@ while it runs, and its next `/new` would fail.
     **Answer:**
     > _(empty — fill in when decided)_
 
+<a id="oq-mm4-setup"></a>**Before [OQ-MM4](#OQ-MM4): when it was filed, its stakes, setup and
+options in full.** Filed 2026-09-30, when the measurement [MM-D10](#MM-D10) waited on contradicted
+it ([§14.4](#144-build-order)). Stakes: copilot's menu, one model or the list, against whether a
+copilot signed in to GitHub can pick a model GitHub serves while its profile names another
+provider, past a company's `only` and past the wire bridge.
+
+**The setup.** Sam's company pack narrows `bedrock` to five models with an `only`, and Sam
+runs `yolo -p bedrock -- copilot`. Today copilot's menu is one model, the list's default, set
+through copilot's environment variables, the mode in which, in copilot's own help, *"the CLI
+uses this provider instead of GitHub Copilot's model routing"*. Every request goes to Bedrock
+through the wire bridge, which refuses a sixth model. [MM-D10](#MM-D10) planned the whole list
+through copilot's `providers.json`. Reading copilot 1.0.89 found that the file's providers are
+additive: they *"coexist with Copilot API auth"*, and copilot merges their models into the list
+GitHub's API returns. Sam is signed in to GitHub with a Copilot plan, so in that mode his menu
+shows the five and every model GitHub offers him, and a GitHub model he picks is served by
+GitHub, not Bedrock. The company's `only` then shapes only part of the menu, and the bridge
+never sees that request. Riya is not signed in, and would see just the five, if the file's mode
+starts at all without a GitHub login, which is UNMEASURED. Either way the file holds its key
+as literal text, so it would be written beside `agent-env/copilot.sh`, as
+[OQ-MM2](#OQ-MM2) settled.
+
+Options, with what Sam would see:
+
+- **A. Keep one model, and drop MM-D10.** Sam's menu is the list's default alone, and every
+  request stays on Bedrock behind the bridge. Another listed model is reachable only by
+  typing its id, and whether copilot accepts it that way is unmeasured.
+- **B. Write the file on every provider.** Sam sees the five and GitHub's models, and a GitHub
+  pick goes to GitHub. An `only` narrows the provider's part of the menu and nothing else.
+- **C. Write the file only for a list no `only` narrowed, and keep one model under an
+  `only`.** A list that merely adds sits beside copilot's own catalog, which is GitHub's, the
+  way [OQ-MM1](#OQ-MM1)'s leaning has an `add` sit beside every agent's catalog. Under an
+  `only` Sam keeps today's single model, on Bedrock, behind the bridge. One agent then runs in
+  two modes, chosen by the verb.
+- **D. Write the file and keep copilot off GitHub**, with its offline mode. Sam sees the five
+  alone, but offline also turns off copilot's web tools, its GitHub MCP server and its
+  updates, and copilot's help says offline wants the environment variable
+  `COPILOT_PROVIDER_BASE_URL`, so whether it accepts the file at all is unmeasured.
+
 14. 💬 <a id="OQ-MM4"></a>**[OQ-MM4](#OQ-MM4): copilot can show a whole model list only in a mode
-    that also shows GitHub's own models. Should yolo use that mode?** Filed 2026-09-30, when the
-    measurement [MM-D10](#MM-D10) waited on contradicted it ([§14.4](#144-build-order)). Stakes:
-    copilot's menu, one model or the list, against whether a copilot signed in to GitHub can pick
-    a model GitHub serves while its profile names another provider, past a company's `only` and
-    past the wire bridge.
+    that also shows GitHub's own models. Should yolo use that mode?** When it was filed, its stakes,
+    the setup and each option in full, with what Sam would see, are [just above](#oq-mm4-setup).
 
-    **The setup.** Sam's company pack narrows `bedrock` to five models with an `only`, and Sam
-    runs `yolo -p bedrock -- copilot`. Today copilot's menu is one model, the list's default, set
-    through copilot's environment variables, the mode in which, in copilot's own help, *"the CLI
-    uses this provider instead of GitHub Copilot's model routing"*. Every request goes to Bedrock
-    through the wire bridge, which refuses a sixth model. [MM-D10](#MM-D10) planned the whole list
-    through copilot's `providers.json`. Reading copilot 1.0.89 found that the file's providers are
-    additive: they *"coexist with Copilot API auth"*, and copilot merges their models into the list
-    GitHub's API returns. Sam is signed in to GitHub with a Copilot plan, so in that mode his menu
-    shows the five and every model GitHub offers him, and a GitHub model he picks is served by
-    GitHub, not Bedrock. The company's `only` then shapes only part of the menu, and the bridge
-    never sees that request. Riya is not signed in, and would see just the five, if the file's mode
-    starts at all without a GitHub login, which is UNMEASURED. Either way the file holds its key
-    as literal text, so it would be written beside `agent-env/copilot.sh`, as
-    [OQ-MM2](#OQ-MM2) settled.
-
-    Options, with what Sam would see:
-
-    - **A. Keep one model, and drop MM-D10.** Sam's menu is the list's default alone, and every
-      request stays on Bedrock behind the bridge. Another listed model is reachable only by
-      typing its id, and whether copilot accepts it that way is unmeasured.
-    - **B. Write the file on every provider.** Sam sees the five and GitHub's models, and a GitHub
-      pick goes to GitHub. An `only` narrows the provider's part of the menu and nothing else.
+    - **A. Keep one model, and drop MM-D10.**
+    - **B. Write the file on every provider.**
     - **C. Write the file only for a list no `only` narrowed, and keep one model under an
-      `only`.** A list that merely adds sits beside copilot's own catalog, which is GitHub's, the
-      way [OQ-MM1](#OQ-MM1)'s leaning has an `add` sit beside every agent's catalog. Under an
-      `only` Sam keeps today's single model, on Bedrock, behind the bridge. One agent then runs in
-      two modes, chosen by the verb.
-    - **D. Write the file and keep copilot off GitHub**, with its offline mode. Sam sees the five
-      alone, but offline also turns off copilot's web tools, its GitHub MCP server and its
-      updates, and copilot's help says offline wants the environment variable
-      `COPILOT_PROVIDER_BASE_URL`, so whether it accepts the file at all is unmeasured.
+      `only`.**
+    - **D. Write the file and keep copilot off GitHub**, with its offline mode.
 
     <!-- vantage: question id=OQ-MM4 leaning="A: keep copilot on one COPILOT_MODEL and drop MM-D10, since a profile picks one path (OQ-WG5, as MM-D5 reads it for a list) and every other agent's list stays inside the provider the profile selects; B and C would be the only renderings in this doc that let a session leave its provider, and D costs copilot's web tools, GitHub MCP server and updates on a mode not measured to accept the file. Revisit when copilot offers a way to show a file's models alone." -->
 
@@ -1833,41 +1881,50 @@ while it runs, and its next `/new` would fail.
     **Answer:**
     > _(empty — fill in when decided)_
 
-15. 💬 <a id="OQ-MM5"></a>**[OQ-MM5](#OQ-MM5): At `yolo host`, should a `-p` choose codex's
-    provider for that launch, so its model menu can follow the `-p`?** Filed 2026-09-30, when
-    designing codex's menu at the host found that [MM-D22](#MM-D22)'s premise holds only in part
-    ([§14.7](#147-codexs-menu-at-yolo-host-designed-2026-09-30)). Stakes: whether
-    `yolo host -p codex -- codex` runs codex on the ChatGPT subscription with yolo's menu, as a
-    jail does, and whether a host `-p` means for codex what it means at every other notch.
+<a id="oq-mm5-setup"></a>**Before [OQ-MM5](#OQ-MM5): when it was filed, its stakes, setup and
+options in full.** Filed 2026-09-30, when designing codex's menu at the host found that
+[MM-D22](#MM-D22)'s premise holds only in part
+([§14.7](#147-codexs-menu-at-yolo-host-designed-2026-09-30)). Stakes: whether `yolo host -p codex
+-- codex` runs codex on the ChatGPT subscription with yolo's menu, as a jail does, and whether a
+host `-p` means for codex what it means at every other notch.
 
-    **The setup.** In a jail, `yolo -p codex -- codex` starts codex on the subscription with a
-    menu of three models ([MM-D22](#MM-D22)). At the host, codex reads its provider from its
-    config file, and only `yolo host apply` writes that file, for the profile the config's
-    `profile` key names, never for a launch's `-p` ([OQ-HC3](../reference/host-agent-environment.md#oq-hc3)). A
-    `-p` reaches codex's environment, not its provider. Kim's config names
-    no profile for codex, so her `yolo host -p codex -- codex` starts codex on its own default,
-    which happens to be the ChatGPT login. Lee's config names `zai` for codex, so his starts codex
-    on z.ai, without the z.ai key a z.ai launch would deliver. A menu built for the `-p` is right
-    for Kim by luck and hands OpenAI's models to codex on z.ai for Lee, the fault
-    [MM-D22](#MM-D22) exists to prevent. A menu built for the configured profile is right for both,
-    but then the `-p` changes nothing codex shows. Until this is ruled, [MM-D25](#MM-D25) builds a
-    menu only where the two agree.
+**The setup.** In a jail, `yolo -p codex -- codex` starts codex on the subscription with a
+menu of three models ([MM-D22](#MM-D22)). At the host, codex reads its provider from its
+config file, and only `yolo host apply` writes that file, for the profile the config's
+`profile` key names, never for a launch's `-p` ([OQ-HC3](../reference/host-agent-environment.md#oq-hc3)). A
+`-p` reaches codex's environment, not its provider. Kim's config names
+no profile for codex, so her `yolo host -p codex -- codex` starts codex on its own default,
+which happens to be the ChatGPT login. Lee's config names `zai` for codex, so his starts codex
+on z.ai, without the z.ai key a z.ai launch would deliver. A menu built for the `-p` is right
+for Kim by luck and hands OpenAI's models to codex on z.ai for Lee, the fault
+[MM-D22](#MM-D22) exists to prevent. A menu built for the configured profile is right for both,
+but then the `-p` changes nothing codex shows. Until this is ruled, [MM-D25](#MM-D25) builds a
+menu only where the two agree.
 
-    Options, with what Kim and Lee would see:
+Options, with what Kim and Lee would see:
 
-    - **A. codex stays on its configured provider at the host, and the menu follows that.** A host
-      `-p` stays an environment choice for codex. Kim gets the menu once her config names `codex`
-      for codex, with or without `-p`. Lee's `-p codex` runs z.ai with codex's own menu, and the launch
-      says the `-p` did not move codex.
-    - **B. A host `-p` moves codex for that launch, and the menu follows it.** The launch writes
-      its own selection into the config of the `CODEX_HOME` yolo already rebuilds for codex at
-      every launch with yolo's login, leaving the user's `~/.codex/config.toml` untouched. Kim and
-      Lee both get the subscription and its menu, as in a jail. A launch without yolo's login has
-      no such home and stays as in A. codex becomes the one host agent whose file-held selection
-      follows a `-p`, until the same is done for pi, whose selection is also file-held.
+- **A. codex stays on its configured provider at the host, and the menu follows that.** A host
+  `-p` stays an environment choice for codex. Kim gets the menu once her config names `codex`
+  for codex, with or without `-p`. Lee's `-p codex` runs z.ai with codex's own menu, and the launch
+  says the `-p` did not move codex.
+- **B. A host `-p` moves codex for that launch, and the menu follows it.** The launch writes
+  its own selection into the config of the `CODEX_HOME` yolo already rebuilds for codex at
+  every launch with yolo's login, leaving the user's `~/.codex/config.toml` untouched. Kim and
+  Lee both get the subscription and its menu, as in a jail. A launch without yolo's login has
+  no such home and stays as in A. codex becomes the one host agent whose file-held selection
+  follows a `-p`, until the same is done for pi, whose selection is also file-held.
+- **C. Neither: a `-p` naming another provider than the configured one is refused at the
+  host for codex**, naming `yolo host apply` with that profile configured. Nothing runs on a
+  provider the user did not mean, and `-p` stops being usable for codex at the host.
+
+15. 💬 <a id="OQ-MM5"></a>**[OQ-MM5](#OQ-MM5): At `yolo host`, should a `-p` choose codex's provider
+    for that launch, so its model menu can follow the `-p`?** When it was filed, its stakes, the
+    setup and each option in full, with what Kim and Lee would see, are [just above](#oq-mm5-setup).
+
+    - **A. codex stays on its configured provider at the host, and the menu follows that.**
+    - **B. A host `-p` moves codex for that launch, and the menu follows it.**
     - **C. Neither: a `-p` naming another provider than the configured one is refused at the
-      host for codex**, naming `yolo host apply` with that profile configured. Nothing runs on a
-      provider the user did not mean, and `-p` stops being usable for codex at the host.
+      host for codex**, naming `yolo host apply` with that profile configured.
 
     <!-- vantage: question id=OQ-MM5 leaning="B: a host -p moves codex for that launch by writing the launch's selection into the CODEX_HOME yolo already rebuilds at every launch with its login, and the menu follows it, since NC-D1 rules that the host acts like every other notch and at every other notch -p codex -- codex is the subscription with its menu; the user's own ~/.codex stays untouched, and until this is ruled MM-D25 builds only where the -p and the configured profile agree." -->
 

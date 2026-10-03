@@ -2,7 +2,7 @@
 title: "Bedrock plumbing: which transport reaches Bedrock in each agent, and what you type"
 date: 2026-09-04
 status: in-review
-stage: DECIDED
+stage: DESIGN
 next: "Write §12 step 7: the hand-written API-key provider and mantle recipes in the user guide, with P1 stated where users hit it"
 depends-on:
   - wire-bridge-gateway.md
@@ -171,6 +171,37 @@ service, adapter and `packs/aws-auth` landed 2026-09-18 (`b94351fe`, `e76e43b2`,
 podman jail has reached them since 2026-09-20 (`62e553a8`), though never against a live
 `aws sso login` ([README](../../packs/aws-auth/README.md)). Its plan's done-condition 7 waits on
 this doc's native clients.
+
+### <a id="what-a-user-types-the-options-oq-br1-weighed"></a>What a user types: the options weighed before the ruling
+
+This is the background to [OQ-BR1](#OQ-BR1). The maintainer, 2026-09-25, on the earlier
+version: *"I have no idea what any of these are. This is very unclear … maybe bedrock-codex would be the native,
+which is really only useful against the codex agent? would you want that against claude code?
+straight bedrock is better? isn't it really provider native and then the wire bridge. I'm
+actually not sure where the split ended up."*
+[Where the split ended up](#where-the-split-ended-up) answers the last sentence.
+
+The earlier version weighed vendor names (`bedrock-gpt`, `bedrock-openai`) and `-mantle` names.
+[DIR-BR3](#DIR-BR3) removed the second, and [OQ-BR9](#OQ-BR9)'s leaning removes the need for the
+first. What remains is the axis the maintainer named. Stakes: profile names are typed, and
+expensive to change, and a name that means different things per agent is the confusion itself.
+
+| Option | Verdict |
+| :--- | :--- |
+| **A.** `-p bedrock` means Bedrock in every agent: its native client where one exists (codex, opencode, pi, and claude for Anthropic), the bridge where none does (copilot, oh-omp). One more profile forces the bridge, spelled for the transport (proposed `bedrock-bridge`) | **Leaning** |
+| **B.** A profile per agent (`bedrock-codex`) | Adds nothing: native is already each agent's default, and `-p codex=bedrock` already scopes a pick |
+| **C.** A profile per vendor (`bedrock-gpt`) | Meaningful only under [OQ-BR9](#OQ-BR9) B; under A the vendor is on each entry and the picker chooses |
+| **D.** `bedrock-native` beside `bedrock-bridge` | The native name is a synonym of `bedrock` everywhere |
+
+Under A, `-p bedrock-bridge` means claude's everything profile and pi's bridge version
+([OQ-BR5](#OQ-BR5)). For copilot and oh-omp it is the same as `-p bedrock`. For codex and
+opencode it writes nothing until [OQ-WG5](wire-bridge-gateway.md#OQ-WG5) gives them a bridge
+route, and for agy it writes nothing. claude's
+`-p bedrock` keeps its shipped meaning. Two later questions do not block this:
+- how all-traffic mode is switched on, [OQ-WG2](wire-bridge-gateway.md#OQ-WG2), and which
+  native-client agents get a bridge route, [OQ-WG5](wire-bridge-gateway.md#OQ-WG5);
+- whether transport becomes a first-class provider fact,
+  [OQ-PP2](providers-and-profiles-redesign.md#OQ-PP2), which may later subsume this.
 
 ---
 
@@ -427,6 +458,18 @@ The reason: one `default` alias cannot name an Anthropic id for claude and a GPT
 `Name` field's comment calls that the ordinary case (*"one pack shipping two names is two
 contributions"*).
 
+<a id="oq-br9-background"></a>**What else [OQ-BR9](#OQ-BR9) weighed.** Stakes: whether a
+new vendor is a list entry or a new provider plus profile; whether `-p bedrock` means one thing
+for every agent; and whether claude's `bedrock` leaves packs/claude.
+
+It reopens two [§10](#10-alternatives-considered) rows and decides [OQ-BR1](#OQ-BR1)'s premise.
+It sets which ids the built-in pack targets ([OQ-BR3](model-lists-and-pickers.md#OQ-BR3)). It
+makes `-p codex=bedrock` the ordinary gesture, which
+[OQ-BR4](../reference/providers.md#oq-br4)'s ruling (*"no I don't want it to leak"*) makes
+safe, and which is built (2026-09-26). The provider must not declare `web_search`, since on runtime that is false.
+[OQ-PP2](providers-and-profiles-redesign.md#OQ-PP2) may later reshape providers, and does not
+block this.
+
 ### 6.2 What each derive emits
 
 Each binding lives in its agent's own derive: core learns no agent's vocabulary and resolves no
@@ -682,6 +725,17 @@ Written for the implementer. Anything not here and not an open question is their
   *(Superseded 2026-09-29 by [BR-D10](#BR-D10): each agent has one built-in Bedrock provider, so
   only the selected one gets a row.)*
 
+<a id="oq-br6-reask"></a>[OQ-BR6](#OQ-BR6) was asked again after its ruling:
+
+> [!NOTE]
+> **The re-ask, answered 2026-09-29 by [BR-DIR1](#BR-DIR1), and built.** It asked whether
+> yolo should read `~/.aws/config` for the effective profile at the host notch only, since
+> claude's resolver reads the shared-config region of the active `AWS_PROFILE` before
+> falling back to `us-east-1` ([BR-D5](#BR-D5)). The direction was the same at every notch:
+> yolo reads the region of the profile the credential comes from in the host's file and
+> delivers it, at `yolo host` and in a jail alike. The decisions are [BR-D20](#BR-D20) to
+> [BR-D26](#BR-D26).
+
 **Failure paths.**
 - **Credential absent.** The native provider declares no `api_key_env_name`, so the preflight
   demands nothing. Failure is the agent's AWS auth error at first request. The hand-written API-key
@@ -821,23 +875,14 @@ R6 to R11 moved with the bridge, model-list and search designs.
 
 1. ✅ <a id="OQ-BR9"></a>**[OQ-BR9](#OQ-BR9): One Bedrock provider, holding every model family, in its own pack?** With mantle
    not shipped, the question is whether one runtime provider carries every family the org selected,
-   and who owns it ([§6.1](#61-the-provider-shape-one-bedrock-provider-or-two)). Stakes: whether a
-   new vendor is a list entry or a new provider plus profile; whether `-p bedrock` means one thing
-   for every agent; and whether claude's `bedrock` leaves packs/claude.
+   and who owns it ([§6.1](#61-the-provider-shape-one-bedrock-provider-or-two)). Its stakes, and
+   what else it decides, close [§6.1](#61-the-provider-shape-one-bedrock-provider-or-two).
 
    | Option | Verdict |
    | :--- | :--- |
    | **A.** One runtime provider, every family, a declared `vendor` per entry, owned by a new `bedrock` pack | **Leaning** |
    | **B.** Keep the split: claude's `bedrock` for Anthropic ids, `bedrock-openai` for the rest | A provider per vendor group and a profile per provider; a company pack must know which one to extend |
    | **C.** A, but infer the vendor from the id prefix | Weaker: prefixes vary by inference profile, user ids defeat it, and [`stringly-typed-references-principle.md`](../reference/stringly-typed-references-principle.md) forbids the match |
-
-   It reopens two [§10](#10-alternatives-considered) rows and decides [OQ-BR1](#OQ-BR1)'s premise.
-   It sets which ids the built-in pack targets ([OQ-BR3](model-lists-and-pickers.md#OQ-BR3)). It
-   makes `-p codex=bedrock` the ordinary gesture, which
-   [OQ-BR4](../reference/providers.md#oq-br4)'s ruling (*"no I don't want it to leak"*) makes
-   safe, and which is built (2026-09-26). The provider must not declare `web_search`, since on runtime that is false.
-   [OQ-PP2](providers-and-profiles-redesign.md#OQ-PP2) may later reshape providers, and does not
-   block this.
 
    _Leaning:_ A. The provider moves into a new `bedrock` pack under its existing name, so
    `-p bedrock` keeps working for claude and starts working for everyone. The same pack ships the
@@ -858,34 +903,9 @@ R6 to R11 moved with the bridge, model-list and search designs.
    > the first model that agent can call.
 
 2. ✅ <a id="OQ-BR1"></a>**[OQ-BR1](#OQ-BR1): What does a user type to put an agent on Bedrock, and is "native client or wire
-   bridge" something they name?** The maintainer, 2026-09-25, on the earlier version: *"I have no
-   idea what any of these are. This is very unclear … maybe bedrock-codex would be the native,
-   which is really only useful against the codex agent? would you want that against claude code?
-   straight bedrock is better? isn't it really provider native and then the wire bridge. I'm
-   actually not sure where the split ended up."*
-   [Where the split ended up](#where-the-split-ended-up) answers the last sentence.
-
-   The earlier version weighed vendor names (`bedrock-gpt`, `bedrock-openai`) and `-mantle` names.
-   [DIR-BR3](#DIR-BR3) removed the second, and [OQ-BR9](#OQ-BR9)'s leaning removes the need for the
-   first. What remains is the axis the maintainer named. Stakes: profile names are typed, and
-   expensive to change, and a name that means different things per agent is the confusion itself.
-
-   | Option | Verdict |
-   | :--- | :--- |
-   | **A.** `-p bedrock` means Bedrock in every agent: its native client where one exists (codex, opencode, pi, and claude for Anthropic), the bridge where none does (copilot, oh-omp). One more profile forces the bridge, spelled for the transport (proposed `bedrock-bridge`) | **Leaning** |
-   | **B.** A profile per agent (`bedrock-codex`) | Adds nothing: native is already each agent's default, and `-p codex=bedrock` already scopes a pick |
-   | **C.** A profile per vendor (`bedrock-gpt`) | Meaningful only under [OQ-BR9](#OQ-BR9) B; under A the vendor is on each entry and the picker chooses |
-   | **D.** `bedrock-native` beside `bedrock-bridge` | The native name is a synonym of `bedrock` everywhere |
-
-   Under A, `-p bedrock-bridge` means claude's everything profile and pi's bridge version
-   ([OQ-BR5](#OQ-BR5)). For copilot and oh-omp it is the same as `-p bedrock`. For codex and
-   opencode it writes nothing until [OQ-WG5](wire-bridge-gateway.md#OQ-WG5) gives them a bridge
-   route, and for agy it writes nothing. claude's
-   `-p bedrock` keeps its shipped meaning. Two later questions do not block this:
-   - how all-traffic mode is switched on, [OQ-WG2](wire-bridge-gateway.md#OQ-WG2), and which
-     native-client agents get a bridge route, [OQ-WG5](wire-bridge-gateway.md#OQ-WG5);
-   - whether transport becomes a first-class provider fact,
-     [OQ-PP2](providers-and-profiles-redesign.md#OQ-PP2), which may later subsume this.
+   bridge" something they name?**
+   Its background, the four options it weighed and what A meant per agent are in
+   [what a user types](#what-a-user-types-the-options-oq-br1-weighed).
 
    _Leaning:_ A. One name, `-p bedrock`, means Bedrock everywhere, by each agent's native client
    where it has one and the bridge where it does not. The only second name forces the bridge, and
@@ -904,7 +924,7 @@ R6 to R11 moved with the bridge, model-list and search designs.
    > profile can force it the same way with `via`. No profile is named for an agent or a model
    > maker.
 
-3. ✅ <a id="OQ-BR5"></a>[**OQ-BR5**](#OQ-BR5) (ruled 2026-09-25): **Is pi bound through its native
+3. ✅ <a id="OQ-BR5"></a>**[OQ-BR5](#OQ-BR5) (ruled 2026-09-25): Is pi bound through its native
    Converse client, or through runtime's OpenAI-compatible route?**
 
    <!-- vantage: question id=OQ-BR5 -->
@@ -915,7 +935,7 @@ R6 to R11 moved with the bridge, model-list and search designs.
    ([`wire-bridge-gateway.md`](wire-bridge-gateway.md)). Its premise: a hand-written API-key provider
    would leave pi needing a bearer because of yolo, not AWS (INFERRED); pi-ai 0.87.1 ships the built-in
    (SOURCED).
-4. ✅ <a id="OQ-BR6"></a>[**OQ-BR6**](#OQ-BR6) (ruled 2026-09-25, as its leaning): **Refuse the
+4. ✅ <a id="OQ-BR6"></a>**[OQ-BR6](#OQ-BR6) (ruled 2026-09-25, as its leaning): Refuse the
    launch when no region is resolvable?**
 
    <!-- vantage: question id=OQ-BR6 -->
@@ -924,18 +944,10 @@ R6 to R11 moved with the bridge, model-list and search designs.
    [§8](#8-behaviour-this-design-fixes). Its premise: codex refuses and names the sources, while
    opencode 1.18.32 and pi-ai 0.87.1 fall silently to `us-east-1` (read, not run), and so does
    Claude Code 2.1.285 (read statically 2026-09-29). **Built 2026-09-29**; the implementation
-   decisions are [BR-D1](#BR-D1) to [BR-D5](#BR-D5).
+   decisions are [BR-D1](#BR-D1) to [BR-D5](#BR-D5). Its re-ask, answered and built, is in
+   [§8](#8-behaviour-this-design-fixes).
 
-   > [!NOTE]
-   > **The re-ask, answered 2026-09-29 by [BR-DIR1](#BR-DIR1), and built.** It asked whether
-   > yolo should read `~/.aws/config` for the effective profile at the host notch only, since
-   > claude's resolver reads the shared-config region of the active `AWS_PROFILE` before
-   > falling back to `us-east-1` ([BR-D5](#BR-D5)). The direction was the same at every notch:
-   > yolo reads the region of the profile the credential comes from in the host's file and
-   > delivers it, at `yolo host` and in a jail alike. The decisions are [BR-D20](#BR-D20) to
-   > [BR-D26](#BR-D26).
-
-5. ✅ <a id="OQ-BR7"></a>[**OQ-BR7**](#OQ-BR7) (answered 2026-09-25 by [DIR-BR3](#DIR-BR3)): **Is
+5. ✅ <a id="OQ-BR7"></a>**[OQ-BR7](#OQ-BR7) (answered 2026-09-25 by [DIR-BR3](#DIR-BR3)): Is
    `endpoint_family` its own field?**
 
    <!-- vantage: question id=OQ-BR7 -->
@@ -943,7 +955,7 @@ R6 to R11 moved with the bridge, model-list and search designs.
    No; with one family there is nothing to name. The fact it
    protected now shows as the mantle recipe being its own provider.
 
-6. ✅ <a id="OQ-BR11"></a>[**OQ-BR11**](#OQ-BR11) (ruled 2026-09-24): **How does claude use native
+6. ✅ <a id="OQ-BR11"></a>**[OQ-BR11](#OQ-BR11) (ruled 2026-09-24): How does claude use native
    Bedrock for Anthropic ids and the bridge for the rest?**
 
    <!-- vantage: question id=OQ-BR11 -->

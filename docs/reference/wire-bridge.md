@@ -1084,12 +1084,9 @@ the picked port have not run on a Mac: the macos-user arm is pinned by unit test
 
 ## Open questions
 
-### <a id="oq-wb1"></a>✅ [`OQ-WB1`](#oq-wb1) — what does the Codex route do with `response.failed`? — **RULED (b), BUILT 2026-09-25**
+### <a id="response-failed-defect"></a>The `response.failed` defect, and the options weighed on it
 
-<!-- vantage: question id=OQ-WB1 -->
-
-Opened 2026-09-25. *WB* stands for "wire bridge"; the prefix is new with this question. **What
-follows is the defect as it stood before the ruling was built**; the answer below says what the bridge
+**What follows is the defect as it stood before the ruling was built**; the answer below says what the bridge
 does now. The Responses
 stream translator (`ResponsesStreamTranslator.Chunk`, `internal/wirebridge/responses.go`) handles
 `response.completed` and `response.incomplete` as terminal events and passes a fixed list of lifecycle
@@ -1112,6 +1109,13 @@ the struct the translator decodes has no field for the failed response's error.
   `rate_limit_error`, for example). Cost: the type changes how the agent retries, so the mapping needs
   the set of codes the ChatGPT backend actually sends, which nothing here has measured.
 
+<!-- vantage: question id=OQ-WB1 -->
+
+### <a id="oq-wb1"></a>✅ [`OQ-WB1`](#oq-wb1) — what does the Codex route do with `response.failed`? — **RULED (b), BUILT 2026-09-25**
+
+Opened 2026-09-25. *WB* stands for "wire bridge"; the prefix is new with this question. The defect it
+was opened on, and the three options it weighed, are in
+[the `response.failed` defect](#response-failed-defect).
 
 _Leaning:_ **(b).** It replaces a misleading message with the upstream's own, and it changes no retry
 behavior, because the event type stays `api_error`. Mapping codes waits until the codes are measured.

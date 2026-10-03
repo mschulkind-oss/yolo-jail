@@ -2837,8 +2837,7 @@ a developer who has written the key is unaffected by either face.
 _Leaning:_ **Face 1: refuse, with a message of its own.** It names `own`, with `yolo config
 promote` for the keys the user keeps by hand, and `none`. That is the shape every retired
 spelling in this config takes. Not `none` with a notice, which overrides a declaration the user
-made on purpose. Not `own`, for the reason face 1 gives.
-
+made on purpose. Not `own`, for the reason face 1 gives.\
 **Face 2: no prompt at upgrade, and nothing silent where the user acts.** On a home that carries
 yolo's provenance record, the `none` refusal of `yolo host apply` and `yolo check`'s
 host-management row (`hostManagementRow`, `internal/cli/check/section_hostwrappers.go`) name
@@ -2899,8 +2898,8 @@ not an implementation shape, because the options differ in what that pack's user
 <!-- vantage: question id=OQ-CO15 leaning="(a) assert its leaves: it is what the host notch already does, so it makes one declaration mean one thing at both notches, which is the scope note's own requirement." -->
 
 _Leaning:_ **(a).** It is what the host notch already does, so it makes one declaration mean
-one thing at both notches, which is what the scope note above requires. (b) hides a pack's
-contribution and (c) forbids a shape the host already handles. Not urgent: it changes nothing
+one thing at both notches, which is what the scope note above requires. Skipping it with a boot
+note hides a pack's contribution, and refusing the pack forbids a shape the host already handles. Not urgent: it changes nothing
 until a pack ships the shape.
 
 **Answer:**

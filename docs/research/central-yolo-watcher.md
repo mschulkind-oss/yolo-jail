@@ -593,24 +593,29 @@ host-side daemon, a resident watcher included, and any ruling can be revised in 
 It is recorded as [YW-D7](#YW-D7). Whether one timer or several carry timed duties is a mechanism
 choice with one answer, recorded as [YW-D8](#YW-D8).
 
+<a id="oq-yw1-background"></a>The background to [OQ-YW1](#OQ-YW1): A6 rejected a timer for
+reclaim because it runs at moments no user bounds (P7), and "the launch path fires at least as
+often as the artifacts are created". This question exists only if [OQ-HD9](../design/host-daemon-ownership.md#OQ-HD9) puts a timer on the
+machine for credentials. It does not decide the image-load stall, which a tick holding the same
+lock would move rather than end ([§5.4](#54-cleanup-and-reclaim)).
+
+The two options it weighed:
+
+- **A — No. A6 stands, and the timer stays credential-only.** Reclaim keeps running in the
+  launch slot. A class that today waits for `yolo prune` can move into the slot, which needs no
+  timer. An idle machine is reclaimed at its next launch, and it creates no new launch
+  artifacts while idle.
+- **B — Yes. The timer also runs the reclaim floors**, each calling the slot's own function
+  under its existing locks and liveness gates. That buys reclaim on a machine that sits idle,
+  and the prune-only classes run with nobody typing. It costs P7 exposure at unchosen moments,
+  a launch that overlaps a tick waiting up to 116 s on the lock, moving
+  `YOLO_NO_AUTO_IMAGE_REAP` into configuration first ([YW-P5](#YW-P5)), and the unit-path rule
+  in [§6.2](#62-versions).
+
 1. ✅ <a id="OQ-YW1"></a>**[OQ-YW1](#OQ-YW1): If [OQ-HD9](../design/host-daemon-ownership.md#OQ-HD9)
    installs a timer, may reclaim also run on it while no launch is present, reversing
-   [A6](../design/minimal-disk-footprint.md#7-alternatives-considered)?** A6 rejected a timer for
-   reclaim because it runs at moments no user bounds (P7), and "the launch path fires at least as
-   often as the artifacts are created". This question exists only if [OQ-HD9](../design/host-daemon-ownership.md#OQ-HD9) puts a timer on the
-   machine for credentials. It does not decide the image-load stall, which a tick holding the same
-   lock would move rather than end ([§5.4](#54-cleanup-and-reclaim)).
-
-   - **A — No. A6 stands, and the timer stays credential-only.** Reclaim keeps running in the
-     launch slot. A class that today waits for `yolo prune` can move into the slot, which needs no
-     timer. An idle machine is reclaimed at its next launch, and it creates no new launch
-     artifacts while idle.
-   - **B — Yes. The timer also runs the reclaim floors**, each calling the slot's own function
-     under its existing locks and liveness gates. That buys reclaim on a machine that sits idle,
-     and the prune-only classes run with nobody typing. It costs P7 exposure at unchosen moments,
-     a launch that overlaps a tick waiting up to 116 s on the lock, moving
-     `YOLO_NO_AUTO_IMAGE_REAP` into configuration first ([YW-P5](#YW-P5)), and the unit-path rule
-     in [§6.2](#62-versions).
+   [A6](../design/minimal-disk-footprint.md#7-alternatives-considered)?** The background, and the two
+   options it weighed, are [above](#oq-yw1-background).
 
    _Leaning:_ **A.** An earlier draft leaned B because a tick seemed to take the 62-116 s pass off
    the launch path. It does not: the pass already runs off its own launch's path, and a tick under

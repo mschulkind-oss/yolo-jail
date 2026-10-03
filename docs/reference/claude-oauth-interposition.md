@@ -1,6 +1,6 @@
 ---
 status: current
-stage: CURRENT
+stage: DESIGN
 next: "The maintainer rules OQ-CI1 (A, B or C; leaning B: one login per machine, yolo host -- claude joining through a view once the view's measures pass); host claude's own login (notch-convergence.md OQ-NC7) is reopened by a B"
 verified: 2026-09-23
 verified_commit: 7ad8358c

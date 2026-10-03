@@ -187,6 +187,29 @@ keeps managing them itself. Local entries, `npm:` entries and the registrations 
 workspace's own `~/.pi/agent/git` for that session. Capture records the new entry as the user's.
 The next launch renders it as a pointer and resolves it like any other.
 
+<a id="the-rewrite-against-oq-lt2"></a>**Why the rewrite needs a ruling.** This is the
+background to [OQ-6](#OQ-6). [§3.2](#32-pointing-pi-at-a-tree) needs each `git:`, `https://` and `npm:` entry in
+pi's `packages` list turned into a local pointer path, because a local path is pi's only way to
+load a package it never installs or updates ([§5](#5-alternatives)). That list is the user's:
+it comes from the host layer and captured edits, which a derive never sees, so only a step
+after the merge can rewrite it. The build did that with `yolo.finalize`, recorded as
+implementation decision PG-D2, without noticing it contradicts [`OQ-LT2`](../reference/pack-system.md#oq-lt2)'s last sentence. The
+ruling also names the other road: *"a declarative `filter`/`replace` op is designed against a
+real case or not at all"*, and this is a real case.
+
+The options in full:
+
+- **(a)** Amend [`OQ-LT2`](../reference/pack-system.md#oq-lt2): a pack's own `yolo.finalize` on its own surface is the one allowed
+  post-fold step. It runs in the derive's sandbox, is deterministic, and runs in every compose,
+  the capture's included. No user- or config-supplied script. Built and tested; ships as is.
+- **(b)** Keep [`OQ-LT2`](../reference/pack-system.md#oq-lt2) as written and replace the Lua hook with a declarative rewrite op in
+  `pack.json`: pattern-to-template rules the pack supplies, applied by core to one array. It
+  needs per-capture transforms (a ref's `/` escaped, `@HEAD` and `@latest` defaults), so it is a
+  small vocabulary core owns. The store, the launcher step and garbage collection are unchanged.
+- **(c)** No rewrite: the user writes pointer paths, or a `yolo` command converts the entries
+  once. No post-merge step of any kind; every `pi install git:X` in a jail stays unshared until
+  converted.
+
 ### 3.3 Resolving at launch
 
 pi's pack declares one more pre-launch step, beside its existing refresh. The pi launcher runs it
@@ -327,6 +350,12 @@ package at a resolved version and recipe, `npm:` entries rewritten to pointers, 
 versions. pi's own `pi update` would then have nothing left to touch in a jail. Whether that is done
 now is [OQ-5](#OQ-5).
 
+<a id="oq-5-background"></a>The background to [OQ-5](#OQ-5): `.pi-shared-npm` breaks [OQ-3](#OQ-3)
+and [OQ-4](#OQ-4) in the same way the git store did, and it is live today. The earlier ruling that
+shared it ([`pi-extension-lifecycle.md` OQ-1](pi-extension-lifecycle.md#OQ-1), *"one version
+instead of N that drift"*) predates the no-winner ruling, and the two now pull apart for any pinned
+version.
+
 ### 3.12 The refresh trigger that stays
 
 `c402dd43`'s `due_on_change` makes pi's pre-launch refresh due whenever the settings content
@@ -379,24 +408,17 @@ unlocked. It is independent of the store's shape, so it stays either way.
 
 1. 💬 <a id="OQ-6"></a>**[OQ-6](#OQ-6): may the pi pack rewrite its own surface after the merge,
    when [`OQ-LT2`](../reference/pack-system.md#oq-lt2) said not to reintroduce a post-merge script
-   slot?** [§3.2](#32-pointing-pi-at-a-tree) needs each `git:`, `https://` and `npm:` entry in
-   pi's `packages` list turned into a local pointer path, because a local path is pi's only way to
-   load a package it never installs or updates ([§5](#5-alternatives)). That list is the user's:
-   it comes from the host layer and captured edits, which a derive never sees, so only a step
-   after the merge can rewrite it. The build did that with `yolo.finalize`, recorded as
-   implementation decision PG-D2, without noticing it contradicts [`OQ-LT2`](../reference/pack-system.md#oq-lt2)'s last sentence. The
-   ruling also names the other road: *"a declarative `filter`/`replace` op is designed against a
-   real case or not at all"*, and this is a real case.
-   - **(a)** Amend [`OQ-LT2`](../reference/pack-system.md#oq-lt2): a pack's own `yolo.finalize` on its own surface is the one allowed
-     post-fold step. It runs in the derive's sandbox, is deterministic, and runs in every compose,
-     the capture's included. No user- or config-supplied script. Built and tested; ships as is.
-   - **(b)** Keep [`OQ-LT2`](../reference/pack-system.md#oq-lt2) as written and replace the Lua hook with a declarative rewrite op in
-     `pack.json`: pattern-to-template rules the pack supplies, applied by core to one array. It
-     needs per-capture transforms (a ref's `/` escaped, `@HEAD` and `@latest` defaults), so it is a
-     small vocabulary core owns. The store, the launcher step and garbage collection are unchanged.
+   slot?**
+
+   Why it needs a ruling, and each option in full, close
+   [§3.2](#32-pointing-pi-at-a-tree).
+
+   - **(a)** Amend [`OQ-LT2`](../reference/pack-system.md#oq-lt2): a pack's own `yolo.finalize` on
+     its own surface is the one allowed post-fold step. Built and tested; ships as is.
+   - **(b)** Keep [`OQ-LT2`](../reference/pack-system.md#oq-lt2) as written and replace the Lua
+     hook with a declarative rewrite op in `pack.json`.
    - **(c)** No rewrite: the user writes pointer paths, or a `yolo` command converts the entries
-     once. No post-merge step of any kind; every `pi install git:X` in a jail stays unshared until
-     converted.
+     once.
 
    _Leaning:_ **(a)**. The rewrite parses four source forms and escapes refs, which a declarative
    op can express only by growing the filter vocabulary the transform removal retired, and the
@@ -410,10 +432,7 @@ unlocked. It is independent of the store's shape, so it stays either way.
 
 
 1. ✅ <a id="OQ-5"></a>**[OQ-5](#OQ-5): does the npm store move to the same shape now?**
-   [§3.11](#311-the-npm-store): `.pi-shared-npm` breaks [OQ-3](#OQ-3) and [OQ-4](#OQ-4) in the same
-   way the git store did, and it is live today. The earlier ruling that shared it
-   ([`pi-extension-lifecycle.md` OQ-1](pi-extension-lifecycle.md#OQ-1), *"one version instead of N that
-   drift"*) predates the no-winner ruling, and the two now pull apart for any pinned version.
+   Background: the end of [§3.11](#311-the-npm-store).
 
    - **(a)** Extend this design to `npm:` entries now: one mechanism, and pi's updater touches
      nothing in a jail. The largest build, and pi's pre-launch refresh then has nothing to do.

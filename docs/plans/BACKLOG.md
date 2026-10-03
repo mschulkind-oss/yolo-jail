@@ -1,7 +1,7 @@
 ---
 title: "Backlog — the one implementable list"
 status: in-review
-stage: CURRENT
+stage: DESIGN
 next: "Rule E5: the 2026-10-01 survey found no managed or defaults array that needs an append, and the guarded posture's emptied additionalDirectories was fixed without a ruling, so the one call left is whether E5 closes"
 tags: [backlog, packs, composed-config]
 ---
