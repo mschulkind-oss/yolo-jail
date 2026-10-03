@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"syscall"
 	"testing"
 	"time"
 
@@ -318,5 +319,86 @@ func TestALaunchRefusedByAnEarliestGuardLeavesItsLine(t *testing.T) {
 			}
 			assertOneLaunchLine(t, ws, "runtime=- podman_wait=- tries=- outcome=not-started rc=1")
 		})
+	}
+}
+
+// launchLogAtExit reads the launch log from an arm's exit, which runs on the arm's goroutine and
+// so may not fail the test itself: "" when there is no log.
+func launchLogAtExit() string {
+	data, _ := os.ReadFile(MachineLaunchLogPath())
+	return strings.TrimSpace(string(data))
+}
+
+// A SIGNAL AFTER PACK STAGING ENDS THE LAUNCH THROUGH ITS GUARD (launchguard.go), whose exit is
+// os.Exit: Run's deferred record never runs there, so the guard's exit writes the line itself,
+// before the process ends. The line must be in the log AT the exit, since a real exit runs
+// nothing after it; the test's fake exit returns, and Run's own return then adds no second one.
+func TestALaunchASignalEndsAfterItsPackStagingLeavesItsLine(t *testing.T) {
+	home := packHome(t)
+	writeUserPacks(t, home, `[]`)
+	ws := t.TempDir()
+	cname := yoloruntime.FromWorkspace(ws)
+	t.Setenv("PATH", t.TempDir())
+	var atExit string
+	exits := seeArmExitsWith(t, cname, func() { atExit = launchLogAtExit() })
+	catchSignal(t, syscall.SIGINT)
+
+	var stdout, stderr bytes.Buffer
+	o := dispatchOptions(t, ws, "podman", &stdout, &stderr, nil)
+	repo, _ := o.RepoRoot()
+	o.PathExists = func(p string) bool { return p == filepath.Join(prebuiltBinDir(repo.Root), "yolo-entrypoint") }
+	o.Exec = func([]string, string, []string, time.Duration) ExecResult { return ExecResult{Ran: true, RC: 0} }
+	var exited *armExit
+	o.autoLoad = func(image.AutoLoadOptions) image.LoadResult {
+		if err := syscall.Kill(os.Getpid(), syscall.SIGINT); err != nil {
+			t.Error(err)
+		}
+		select {
+		case e := <-exits:
+			exited = &e
+		case <-time.After(5 * time.Second):
+		}
+		return image.LoadResult{OK: false}
+	}
+	Run(*o)
+	if exited == nil {
+		t.Fatalf("no arm ended the launch on its SIGINT, so this test says nothing about its line\n"+
+			"stdout:\n%s\nstderr:\n%s", stdout.String(), stderr.String())
+	}
+	if !strings.Contains(atExit, "outcome=interrupted rc=130") || strings.Count(atExit, "\n") != 0 {
+		t.Errorf("at the guard's exit the launch log held %q, want this launch's one line, "+
+			"outcome=interrupted rc=130: a real exit writes nothing after it", atExit)
+	}
+	assertOneLaunchLine(t, ws, "runtime=podman", "outcome=interrupted", "rc=130")
+}
+
+// A launch run inside another in this process (a capture jail's) ends the outer launch too when a
+// signal ends it: the inner launch's arm exits, the outer launch's guard runs its abandon, and
+// that launch's line is written there, with the code the process exits with.
+func TestALaunchEndedByTheLaunchInsideItLeavesItsLine(t *testing.T) {
+	var atExit string
+	f := newGuardFixture(t, "yolo-guard-abandoned")
+	f.o.armLaunchRecord()
+	innerExit := make(chan int, 1)
+	inner := armLaunchSignalsWith(func() {}, func(code int) { atExit = launchLogAtExit(); innerExit <- code })
+	t.Cleanup(func() { popLaunchArm(inner) })
+	catchSignal(t, syscall.SIGHUP)
+	if err := syscall.Kill(os.Getpid(), syscall.SIGHUP); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case code := <-innerExit:
+		if code != 128+int(syscall.SIGHUP) {
+			t.Fatalf("the inner arm exited %d, want %d", code, 128+int(syscall.SIGHUP))
+		}
+	case e := <-f.exits:
+		t.Fatalf("the outer launch's guard acted (%d) on a signal its inner launch's arm was installed for", e.code)
+	case <-time.After(10 * time.Second):
+		t.Fatal("no arm acted")
+	}
+	code := paths.JailShortHash(yoloruntime.FromWorkspace(f.o.Workspace))
+	if !strings.Contains(atExit, " launch jail="+code+" ") || !strings.Contains(atExit, "outcome=interrupted rc=129") {
+		t.Errorf("at the inner launch's exit the log held %q, want the outer launch's line, "+
+			"outcome=interrupted rc=129", atExit)
 	}
 }

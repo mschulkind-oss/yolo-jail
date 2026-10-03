@@ -56,7 +56,9 @@ const (
 	// launchNotStarted: Run returned with no container started or attached — every refusal,
 	// and a container that could not be started. rc says with what.
 	launchNotStarted = "not-started"
-	// launchInterrupted: a Ctrl-C during the podman readiness wait (exit 130).
+	// launchInterrupted: a signal ended the launch before its line was written — a Ctrl-C
+	// during the podman readiness wait (exit 130), or a SIGINT, SIGHUP or SIGTERM its launch
+	// guard took from its pack staging on (exit 128+N, launchguard.go).
 	launchInterrupted = "interrupted"
 )
 
@@ -95,6 +97,30 @@ func (o *Options) recordLaunchExit(rc int) {
 		outcome = launchInterrupted
 	}
 	o.recordLaunchOutcome(outcome, rc)
+}
+
+// interruptedArmExit is the exit for an arm that can end a launch before its line is written:
+// it writes the line, interrupted with the code the process exits with, then exits through
+// launchArmExit as read now (an arm takes its exit when it is installed). Run's deferred record
+// never runs past os.Exit. Once the line is written this adds nothing (recordLaunchOutcome's
+// Once).
+func (o *Options) interruptedArmExit() func(int) {
+	exit := launchArmExit
+	return func(code int) {
+		o.recordLaunchOutcome(launchInterrupted, code)
+		exit(code)
+	}
+}
+
+// recordLaunchEndedBySignal writes the line of a launch the signal now ending this process ends,
+// with the code it exits with (-1, no code, when no arm is ending it): a launch that another one
+// running inside it, in this process, takes down with it (abandonLaunch).
+func (o *Options) recordLaunchEndedBySignal() {
+	rc := -1
+	if sig, ending := signalEndingTheProcess(); ending {
+		rc = 128 + int(sig)
+	}
+	o.recordLaunchOutcome(launchInterrupted, rc)
 }
 
 // launchLine renders one line: the launch's start (UTC), then key=value fields in a fixed

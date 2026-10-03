@@ -53,10 +53,11 @@ type unspawned struct {
 
 // armLaunchGuard installs this launch's guard over the pack tree it has just staged. A container
 // launch only: macos-user's sandbox runs the host daemons it starts from that tree, and has no
-// keeper to hand it to.
+// keeper to hand it to. Its exit writes the launch's machine-wide line first (launchrecord.go),
+// since a signal it takes ends the process before Run's deferred record could.
 func (o *Options) armLaunchGuard(cname, rt string) {
 	g := &launchGuard{cname: cname, rt: rt, unspawned: unspawned{tree: o.packTree}}
-	g.arm = armLaunchSignalsOuter(o.launchGuardTeardown(g), func() { o.abandonLaunch(g) }, launchArmExit)
+	g.arm = armLaunchSignalsOuter(o.launchGuardTeardown(g), func() { o.abandonLaunch(g) }, o.interruptedArmExit())
 	o.launchGuard = g
 }
 
@@ -81,12 +82,13 @@ func (o *Options) launchGuardTeardown(g *launchGuard) func() {
 
 // abandonLaunch is the guard's outer hook: a launch running inside this one, in this process (a
 // capture jail's), ends the process on a signal, and this launch with it. What it made goes, as at
-// its own signal, and the terminal goes back; a keeper it spawned unwinds on its own once the
-// process's exit closes the lifeline.
+// its own signal, its machine-wide line is written, and the terminal goes back; a keeper it spawned
+// unwinds on its own once the process's exit closes the lifeline.
 func (o *Options) abandonLaunch(g *launchGuard) {
 	if left, kp := g.end(); kp == nil {
 		o.discardUnspawned(g.cname, g.rt, left)
 	}
+	o.recordLaunchEndedBySignal()
 	o.restoreTerminal()
 }
 
