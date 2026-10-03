@@ -5,7 +5,7 @@ status: in-review
 tags: [packs, uniformity, delivery, pinning, npm, mise, image, evergreen]
 summary: "Four delivery classes, one of which kept no record and was never re-derived — and all divergence lived there. Amended 2026-09-03 with a second axis: a dependency serves either the AGENT (evergreen, updated at its own invocation) or the PROJECT (pinned, reproducible), and the delivery mechanism does not tell you which. Largely implemented by 2026-09-04."
 stage: DESIGN
-next: "Rule OQ-PD19: its first task is done as far as any record goes (2026-10-01: PR #19 records no reason, and the exclusion hides a project's own mise pin of pnpm; a declared mise_tools pnpm, which it also hid, is delivered by mise since 2026-10-01)"
+next: "Rule OQ-PD19, OQ-PD20 and OQ-PD21 in one sitting. OQ-PD19's first task is done as far as any record goes (2026-10-01: PR #19 records no reason, and the exclusion hides a project's own mise pin of pnpm; a declared mise_tools pnpm, which it also hid, is delivered by mise since 2026-10-01). OQ-PD20's ruling is ready: its leaning waited for a tagged release past the 2026-09-25 recipe-table deletion, and 0.11.0 (2026-09-28) and 0.11.1 (2026-10-02) both shipped it."
 ---
 
 # How executable content gets into a jail — and what makes two jails the same
@@ -16,7 +16,8 @@ compacted 2026-09-06; cross-checked against its sibling designs 2026-09-24. Ever
 is ruled and sits in the [Decision Ledger](#decision-ledger), and **these are open** — [OQ-PD19](#-oq-pd19--do-steps-three-and-five-still-have-a-subject-after-the-agentproject-split), which asks whether two ruled-but-unbuilt steps of
 [§10](#10-what-i-would-build-in-order) still have a subject, [OQ-PD20](#oq-pd20), which asks whether `$GOBIN` stays a boot-catalog
 orphan class that `programs.autoprune` removes now that yolo installs nothing there, and
-[OQ-PD21](#oq-pd21), which asks whether a pack may pin an agent CLI against P6's *Pin: none*. **In the tree:** the receipts and the boot orphan catalog
+[OQ-PD21](#oq-pd21), which asks whether a pack may pin an agent CLI against P6's *Pin: none*, and
+[OQ-PD23](#oq-pd23), which asks whether an agent CLI updates once per machine. **In the tree:** the receipts and the boot orphan catalog
 (`af46c9b4`), the mise half (`a16403e2`), the [§6.2](#62-pay-the-enum-tolerance-before-the-next-mechanism-arrives) tolerance (`0a4d241c`), the offline
 reconcile (`43f28ce8`), the removal act and `yolo programs` (`3a4f1bbf`, `c127f4ad`, `3ac165e4`),
 evergreen agent updates with B2's PATH move and A7's version prune (merge `208a5e43`), and install
@@ -28,7 +29,7 @@ jail, dated), **READ FROM CODE** (traced but not observed running) or **NOT MEAS
 was re-verified as an ancestor of `HEAD` on 2026-09-06 — a rebase had left earlier revisions of
 this doc, and the roadmap, citing SHAs that resolve as objects but are not ancestors.
 
-**Needs your ruling:** [OQ-PD19](#-oq-pd19--do-steps-three-and-five-still-have-a-subject-after-the-agentproject-split), [OQ-PD20](#oq-pd20), [OQ-PD21](#oq-pd21).
+**Needs your ruling:** [OQ-PD19](#-oq-pd19--do-steps-three-and-five-still-have-a-subject-after-the-agentproject-split), [OQ-PD20](#oq-pd20), [OQ-PD21](#oq-pd21), [OQ-PD23](#oq-pd23).
 
 > [!IMPORTANT]
 > **AMENDED 2026-09-03 — the doc reopened, and [§3.5](#35-the-second-axis-who-the-dependency-serves-amendment-2026-09-03) is the amendment.** This document
@@ -1858,7 +1859,7 @@ needed it, which was the point.
 
 ## Open Questions
 
-**Open: [OQ-PD19](#-oq-pd19--do-steps-three-and-five-still-have-a-subject-after-the-agentproject-split), [OQ-PD20](#oq-pd20) and [OQ-PD21](#oq-pd21).** Every other question is ruled and in the [Decision Ledger](#decision-ledger):
+**Open: [OQ-PD19](#-oq-pd19--do-steps-three-and-five-still-have-a-subject-after-the-agentproject-split), [OQ-PD20](#oq-pd20), [OQ-PD21](#oq-pd21) and [OQ-PD23](#oq-pd23).** Every other question is ruled and in the [Decision Ledger](#decision-ledger):
 the 2026-08-24 set, the 2026-09-03 amendment's rulings with its B2 revision and the two questions
 it opened, and the two from 2026-09-04 (the capture build opened [OQ-PD17](#decision-ledger), and
 ruling it surfaced [OQ-PD18](#decision-ledger)). [OQ-PD22](#decision-ledger), recorded 2026-10-01, was an
@@ -2011,6 +2012,12 @@ _Leaning:_ **(b) now, then (c) after a release.** The rule autoprune should keep
 never deletes bytes yolo did not install, and since 2026-09-25 nothing yolo runs installs into
 `$GOBIN`. The explicit verb still collects the leftovers, because its plan names each path before it
 removes anything. Once a tagged release has shipped past the deletion, retire the class.
+
+⚠ *2026-10-03: that release has shipped, so this is ready to rule.* The deletion landed on
+2026-09-25 (`7253fd80` and `f15da12d`). Both commits are in 0.11.0, tagged 2026-09-28, and in
+0.11.1, tagged 2026-10-02 (`git merge-base --is-ancestor` against `v0.11.0` and `v0.11.1`).
+So (c) waits on nothing. The 2026-09-30 re-read above still applies to it: retiring the class
+would also hide what a dropped fork leaves in `$GOBIN`.
 
 **Answer:**
 > _(empty — fill in when decided)_
