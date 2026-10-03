@@ -282,3 +282,41 @@ func TestConcurrentLaunchesAtTheRotationBoundaryLoseNothing(t *testing.T) {
 		}
 	}
 }
+
+// THE EARLIEST GUARDS REFUSE LAUNCHES TOO. OQ-PR3 ruled one line per launch, refused or not,
+// and the three refusals Run makes before any other work — the live workspace from inside a
+// jail, a workspace holding the credential boundary, a linked .yolo — are launches the user
+// typed. The line lands in yolo's own log directory, never under the workspace, and names it
+// only by its code.
+func TestALaunchRefusedByAnEarliestGuardLeavesItsLine(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		setup func(t *testing.T, home string) (ws string, env map[string]string)
+	}{
+		{"live workspace from inside a jail", func(*testing.T, string) (string, map[string]string) {
+			return "/workspace", map[string]string{"YOLO_VERSION": "0.8.0-test"}
+		}},
+		{"workspace is the home", func(_ *testing.T, home string) (string, map[string]string) {
+			return home, nil
+		}},
+		{"linked .yolo", func(t *testing.T, _ string) (string, map[string]string) {
+			ws := t.TempDir()
+			if err := os.Symlink(t.TempDir(), filepath.Join(ws, ".yolo")); err != nil {
+				t.Fatal(err)
+			}
+			return ws, nil
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			home := scopeGuardHome(t)
+			ws, env := tc.setup(t, home)
+			var stdout, stderr bytes.Buffer
+			o := dispatchOptions(t, ws, "podman", &stdout, &stderr, nil)
+			o.Getenv = guardEnv(env)
+			if rc := Run(*o); rc != 1 || !strings.Contains(stderr.String(), "Refusing to launch") {
+				t.Fatalf("Run = %d, want the guard's refusal\nstderr:\n%s", rc, stderr.String())
+			}
+			assertOneLaunchLine(t, ws, "runtime=- podman_wait=- tries=- outcome=not-started rc=1")
+		})
+	}
+}

@@ -41,9 +41,20 @@ func Run(opts Options) (rc int) {
 	fillDefaults(&opts)
 	o := &opts
 
-	// THE LIVE-OVERLAY GUARD, before ANY other work — no storage touch, no config
-	// load, no staging: this launch would jail the running session's own live
-	// workspace over its own home (liveoverlayguard.go states the two measured
+	// THE MACHINE-WIDE LAUNCH LINE (launchrecord.go, OQ-PR3): one line per launch in
+	// GLOBAL_STORAGE/logs/launches.log, written when the container starts or the attach
+	// begins — or at return, for a launch that did neither. ARMED FIRST, above even the
+	// three guards below, because the ruling is one line per launch refused or not, and
+	// those guards refuse launches too. It is the one write above them, and none of their
+	// reasons reaches it: it writes nothing under the workspace (the line lands in yolo's own
+	// log directory, the one every launch writes, whatever its workspace) and names the
+	// workspace only by the short code crossings.log already uses.
+	o.armLaunchRecord()
+	defer func() { o.recordLaunchExit(rc) }()
+
+	// THE LIVE-OVERLAY GUARD, before any other work — no storage touch beyond the launch
+	// line above, no config load, no staging: this launch would jail the running session's
+	// own live workspace over its own home (liveoverlayguard.go states the two measured
 	// incidents). Refusing here is the cheapest refusal in the whole pipeline.
 	if refuseLiveWorkspaceLaunch(o) {
 		o.pr(o.Stderr).print("[bold red]Refusing to launch: the workspace is /workspace and " +
@@ -101,13 +112,6 @@ func Run(opts Options) (rc int) {
 	// (launchlog.go).
 	launchLog := attachLaunchLog(o)
 	defer func() { launchLog.finish(rc) }()
-
-	// THE MACHINE-WIDE LAUNCH LINE (launchrecord.go, OQ-PR3): one line per launch in
-	// GLOBAL_STORAGE/logs/launches.log, written when the container starts or the attach
-	// begins — or here, at return, for a launch that did neither. Armed in the same window as
-	// the launch log, for the same reason: the guards above refuse before any side effect.
-	o.armLaunchRecord()
-	defer func() { o.recordLaunchExit(rc) }()
 
 	// THIS LAUNCH'S PACK RECORDS ARE ITS OWN. stagePacks records the pack-shipped
 	// loophole modules, the `supersedes` claims and the pack skills sources

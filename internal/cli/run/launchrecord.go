@@ -68,8 +68,9 @@ type launchRecord struct {
 	cname string
 }
 
-// armLaunchRecord starts this launch's record. Called by Run once the launch has passed the
-// guards that refuse before any side effect.
+// armLaunchRecord starts this launch's record. Called by Run before anything else, the guards
+// that refuse a launch before any other side effect included: they refuse launches, and the
+// ruling is one line per launch, refused or not.
 func (o *Options) armLaunchRecord() {
 	o.launchRecord = &launchRecord{start: o.Now(), cname: runtime.FromWorkspace(o.Workspace)}
 }
