@@ -78,6 +78,10 @@ func TestEnsureRestartsALiveDaemonWhoseSettingsChanged(t *testing.T) {
 	if len(st.spawnArgv) == 0 {
 		t.Fatal("no respawn: the daemon was stopped and nothing replaced it")
 	}
+	if !got.Started {
+		t.Error("Started = false after the ensure spawned the replacement; a caller would ensure " +
+			"again and start a second copy beside it")
+	}
 	if pid, _ := BrokerReadPID(deps); pid != 77 {
 		t.Errorf("pid file names %d, want the new daemon 77", pid)
 	}
@@ -115,6 +119,10 @@ func TestEnsureReusesALiveDaemonWhoseSettingsMatch(t *testing.T) {
 	}
 	if got.Stale != nil || out.Len() != 0 {
 		t.Errorf("Stale=%v output=%q, want a silent reuse", got.Stale, out.String())
+	}
+	if got.Started {
+		t.Error("Started = true for a reused daemon; a caller finding it stopped since would not " +
+			"ensure again")
 	}
 }
 

@@ -397,6 +397,12 @@ type Ensured struct {
 	// settings file now holds and this ensure could NOT replace it — the one outcome a
 	// caller must not paper over by fronting the daemon anyway. It names changed keys only.
 	Stale *SettingsDrift
+	// Started is true when THIS ensure spawned the daemon, false when it reused one it found
+	// alive or started nothing. A caller that finds the socket refusing right after an ensure
+	// needs it: a reused daemon may have stopped since, and ensuring again starts a fresh one,
+	// while one this ensure just started may still be coming up, and ensuring again would start
+	// a second copy beside it (nothing here stops a live process whose socket is not bound).
+	Started bool
 }
 
 // EnsureSingleton is BrokerSpawn with the outcome a caller can act on.
@@ -506,6 +512,7 @@ func EnsureSingleton(deps Deps) Ensured {
 		// what reports a daemon that never started.
 		return done
 	}
+	done.Started = true
 	_ = os.WriteFile(deps.PIDFilePath, []byte(strconv.Itoa(pid)+"\n"), 0o644)
 	// Stamp the singleton as one THIS build started, so a later launch can tell a
 	// compatible daemon from one predating the fronted conversion. See

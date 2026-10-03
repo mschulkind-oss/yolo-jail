@@ -1058,6 +1058,13 @@ func (o *Options) startHostSingleton(
 	// Giving up at the first refusal left the jail without the service, and refused the
 	// macos-user launch outright when it was the OpenAI credential service. Only once: a
 	// daemon that will not stay up is its log's to explain.
+	//
+	// ONLY AFTER AN ENSURE THAT REUSED A DAEMON. One this ensure STARTED and that still
+	// refuses has either exited, which its log explains, or not bound yet (the spawn warns
+	// about both when the socket never appeared). In the second case ensuring again starts a
+	// second copy beside a first that is still alive and may yet bind, because the ensure
+	// stops nothing it finds alive with no socket: whichever binds last takes the socket path,
+	// and the other runs on unreachable, with the PID file naming only the second.
 	for attempt := 1; ; attempt++ {
 		ensured := broker.EnsureSingleton(deps)
 		if ensured.Stale != nil {
@@ -1079,11 +1086,10 @@ func (o *Options) startHostSingleton(
 		if hostSingletonAccepting(daemonPath, time.Second) {
 			break
 		}
-		if attempt == 2 {
+		if ensured.Started || attempt == 2 {
 			o.pr(o.Stdout).print("[yellow]Warning: the host-wide daemon for '" + name +
-				"' is not accepting connections at " + daemonPath +
-				", even after yolo started it again — " + o.unreachableBy() +
-				" cannot reach it. See " + deps.LogPath + "[/yellow]")
+				"' " + hostSingletonRefusal(daemonPath, attempt, ensured.Started) + " — " +
+				o.unreachableBy() + " cannot reach it. See " + deps.LogPath + "[/yellow]")
 			return loopholeDaemon{}, false
 		}
 	}
@@ -1664,6 +1670,21 @@ func frontPublishFailure(endpointPath string, timeout time.Duration, failed <-ch
 // socket: socketConnectable, a variable so a test can make the daemon exit at the one instant
 // a real machine cannot be made to, between the ensure and this probe.
 var hostSingletonAccepting = socketConnectable
+
+// hostSingletonRefusal says what startHostSingleton found at the daemon's socket on its last
+// try, and only what it knows: on a second try, whether the ensure before it started a fresh
+// daemon or found one alive again (or could start none, which the ensure has already said).
+func hostSingletonRefusal(daemonPath string, attempt int, started bool) string {
+	switch {
+	case attempt < 2:
+		return "is not accepting connections at " + daemonPath
+	case started:
+		return "stopped accepting connections at " + daemonPath +
+			", and the copy yolo started in its place is not accepting either"
+	default:
+		return "is still not accepting connections at " + daemonPath + " on a second try"
+	}
+}
 
 // socketConnectable is a plain connect() probe. The dial error is the ANSWER (false)
 // rather than something to report: every caller turns it into a failure clause of its
