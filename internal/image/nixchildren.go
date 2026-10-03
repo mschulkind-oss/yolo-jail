@@ -30,7 +30,14 @@ type nixChildSet struct {
 	// goes on while the signal's teardown runs, and an identity eval the stop cut short falls
 	// through to a build, which would otherwise start just as the process exits and outlive it.
 	stopping bool
-	running  map[*os.Process]chan struct{}
+	// awaitExit is the stop's hand-off, run by the goroutine whose nix the stop cut short once that
+	// nix has been waited for: the teardown that stopped it owns the process's exit, and nothing
+	// that goroutine would go on to do is the launch's any more. Left to go on, it reported the
+	// build the signal interrupted as a failed one ("Cannot start jail: could not build yolo's own
+	// binaries") just as the teardown exited, three interrupted launches of three (2026-10-03),
+	// where before the stop it never got past the nix. nil hands nothing off.
+	awaitExit func()
+	running   map[*os.Process]chan struct{}
 }
 
 func newNixChildSet() *nixChildSet {
@@ -46,6 +53,11 @@ var errNixStopped = errors.New("nix not started: a signal is ending this launch"
 // start starts cmd and tracks it until release, which the caller calls once cmd's Wait returned,
 // or refuses with errNixStopped once a stop has run. The start happens under the set's lock, so a
 // stop either finds the child registered or keeps it from starting: there is no moment between.
+//
+// A release after a stop hands off (awaitExit) before it returns, so a caller does not go on to
+// report the end of a nix the stop caused. A refused start does not: the stop is the teardown's
+// first act, so its own goroutine has no nix to release, but it is the one goroutine that could
+// still ask to start one, and waiting there for its own exit would never end.
 func (s *nixChildSet) start(cmd *exec.Cmd) (release func(), err error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -65,14 +77,29 @@ func (s *nixChildSet) start(cmd *exec.Cmd) (release func(), err error) {
 			s.mu.Unlock()
 			close(done)
 		})
+		s.handOff()
 	}, nil
 }
 
+// handOff runs the stop's awaitExit once a stop has run, and returns at once before one.
+func (s *nixChildSet) handOff() {
+	s.mu.Lock()
+	await := s.awaitExit
+	if !s.stopping {
+		await = nil
+	}
+	s.mu.Unlock()
+	if await != nil {
+		await()
+	}
+}
+
 // stop interrupts every running nix of the set, waits up to grace for each to be waited for, and
-// kills any still running then.
-func (s *nixChildSet) stop(grace time.Duration) {
+// kills any still running then. awaitExit is the hand-off each one's caller runs (handOff).
+func (s *nixChildSet) stop(grace time.Duration, awaitExit func()) {
 	s.mu.Lock()
 	s.stopping = true
+	s.awaitExit = awaitExit
 	running := make(map[*os.Process]chan struct{}, len(s.running))
 	for p, done := range s.running {
 		running[p] = done
@@ -117,5 +144,6 @@ func RunNix(cmd *exec.Cmd) error {
 
 // StopNixChildren ends every nix this process still has running for a launch — an interrupt
 // first, as a terminal's Ctrl-C would deliver, then, past nixStopGrace, a kill — and starts no
-// more. A launch's signal teardown calls it before the process exits.
-func StopNixChildren() { nixChildren.stop(nixStopGrace) }
+// more. A launch's signal teardown calls it before the process exits, with awaitExit waiting for
+// that exit: the goroutine each stopped nix belonged to runs it before going on.
+func StopNixChildren(awaitExit func()) { nixChildren.stop(nixStopGrace, awaitExit) }

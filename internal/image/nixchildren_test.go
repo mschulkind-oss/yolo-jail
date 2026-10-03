@@ -19,7 +19,7 @@ func freshNixChildren(t *testing.T) *nixChildSet {
 	saved, s := nixChildren, newNixChildSet()
 	nixChildren = s
 	t.Cleanup(func() {
-		s.stop(time.Second)
+		s.stop(time.Second, nil)
 		nixChildren = saved
 	})
 	return s
@@ -60,7 +60,7 @@ func TestStopNixChildrenInterruptsARunningBuild(t *testing.T) {
 	}()
 	awaitTracked(t, s, 1)
 	start := time.Now()
-	s.stop(10 * time.Second)
+	s.stop(10*time.Second, nil)
 	if took := time.Since(start); took > 5*time.Second {
 		t.Errorf("stop took %s to end a nix that answers its interrupt at once", took)
 	}
@@ -89,7 +89,7 @@ func TestStopNixChildrenKillsANixThatIgnoresTheInterrupt(t *testing.T) {
 		close(done)
 	}()
 	awaitTracked(t, s, 1)
-	s.stop(200 * time.Millisecond)
+	s.stop(200*time.Millisecond, nil)
 	select {
 	case <-done:
 	case <-time.After(10 * time.Second):
@@ -102,7 +102,7 @@ func TestStopNixChildrenKillsANixThatIgnoresTheInterrupt(t *testing.T) {
 // through to a build, so that build must not start at all.
 func TestNoNixStartsAfterTheStop(t *testing.T) {
 	s := freshNixChildren(t)
-	s.stop(time.Second)
+	s.stop(time.Second, nil)
 	ran := filepath.Join(t.TempDir(), "ran")
 	path, tail := runNixBuild([]string{"sh", "-c", "touch " + ran}, t.TempDir(), os.Environ(),
 		filepath.Join(t.TempDir(), "out"), io.Discard)
@@ -138,7 +138,7 @@ func TestEvalImageIdentityIsTracked(t *testing.T) {
 		done <- ok
 	}()
 	awaitTracked(t, s, 1)
-	s.stop(10 * time.Second)
+	s.stop(10*time.Second, nil)
 	select {
 	case ok := <-done:
 		if ok {
@@ -146,5 +146,65 @@ func TestEvalImageIdentityIsTracked(t *testing.T) {
 		}
 	case <-time.After(10 * time.Second):
 		t.Fatal("EvalImageIdentity did not return after its nix was stopped")
+	}
+}
+
+// TestAStoppedNixsCallerWaitsForTheExit: the goroutine whose nix a stop cut short runs the stop's
+// hand-off before it returns, so it cannot go on to report a failed build while the teardown that
+// stopped it exits. The stop itself does not wait on that hand-off.
+func TestAStoppedNixsCallerWaitsForTheExit(t *testing.T) {
+	s := freshNixChildren(t)
+	returned := make(chan []string, 1)
+	go func() {
+		_, tail := runNixBuild([]string{"sh", "-c", trapsInterrupt}, t.TempDir(), os.Environ(),
+			filepath.Join(t.TempDir(), "out"), io.Discard)
+		returned <- tail
+	}()
+	awaitTracked(t, s, 1)
+	exited, handedOff := make(chan struct{}), make(chan struct{}, 1)
+	stopped := make(chan struct{})
+	go func() {
+		s.stop(10*time.Second, func() { handedOff <- struct{}{}; <-exited })
+		close(stopped)
+	}()
+	select {
+	case <-stopped:
+	case <-time.After(10 * time.Second):
+		t.Fatal("the stop waited on its own hand-off: the teardown would never reach its exit")
+	}
+	select {
+	case <-handedOff:
+	case <-time.After(10 * time.Second):
+		t.Fatal("the stopped nix's caller never ran the stop's hand-off")
+	}
+	select {
+	case tail := <-returned:
+		t.Fatalf("runNixBuild returned before the exit it was handed off to, free to report a "+
+			"failed build the signal caused; its tail: %q", tail)
+	case <-time.After(200 * time.Millisecond):
+	}
+	close(exited)
+	select {
+	case <-returned:
+	case <-time.After(10 * time.Second):
+		t.Fatal("runNixBuild did not return once the exit it waited for came")
+	}
+}
+
+// TestANixRefusedAfterTheStopIsNotHandedOff: a start the stop refuses returns at once. The stop is
+// the teardown's first act, so the teardown's goroutine holds no nix to release, but it is the one
+// goroutine that could still ask to start one, and waiting there for its own exit would never end.
+func TestANixRefusedAfterTheStopIsNotHandedOff(t *testing.T) {
+	s := freshNixChildren(t)
+	s.stop(time.Second, func() { select {} })
+	done := make(chan error, 1)
+	go func() { done <- RunNix(exec.Command("true")) }()
+	select {
+	case err := <-done:
+		if !errors.Is(err, errNixStopped) {
+			t.Errorf("RunNix after the stop returned %v, want errNixStopped", err)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("a start the stop refused waited on the hand-off")
 	}
 }

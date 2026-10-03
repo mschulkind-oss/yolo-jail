@@ -71,7 +71,7 @@ func (o *Options) launchGuardTeardown(g *launchGuard) func() {
 	return func() {
 		// First, whichever way the launch ends: a nix it has running is its own, and a signal
 		// sent to this process alone reaches no child (image.StopNixChildren).
-		o.stopNixChildren()
+		o.stopNixChildren(g)
 		left, kp := g.end()
 		if kp != nil {
 			o.keeperPreReadyTeardown(kp, g.cname, g.rt)()
@@ -86,12 +86,16 @@ func (o *Options) launchGuardTeardown(g *launchGuard) func() {
 }
 
 // stopNixChildren ends the nix this launch has running, through the seam or image.StopNixChildren.
-func (o *Options) stopNixChildren() {
+// The goroutine each stopped nix belonged to then waits for this teardown's exit, as Run's own
+// return does (endLaunchGuard), rather than reporting the build the signal cut short as a failed
+// one. g.arm is read when that wait begins, which follows armLaunchGuard's assignment of it: the
+// launch runs no nix before its guard is armed.
+func (o *Options) stopNixChildren(g *launchGuard) {
 	if o.StopNixChildren != nil {
 		o.StopNixChildren()
 		return
 	}
-	image.StopNixChildren()
+	image.StopNixChildren(func() { g.arm.awaitExit() })
 }
 
 // abandonLaunch is the guard's outer hook: a launch running inside this one, in this process (a

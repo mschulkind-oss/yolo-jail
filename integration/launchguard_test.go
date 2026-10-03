@@ -17,6 +17,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/image"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	naming "github.com/mschulkind-oss/yolo-jail/internal/runtime"
 )
@@ -118,6 +119,15 @@ func TestAnInterruptedLaunchStopsTheNixItStarted(t *testing.T) {
 		t.Errorf("the interrupted launch exited and its nix (pid %d: %s) is still running",
 			p.pid, strings.Join(args, " "))
 		_ = syscall.Kill(p.pid, syscall.SIGKILL)
+	}
+	// The build the interrupt cut short is not a failed build. Once the stop waited for that nix,
+	// the launch's own path went on to report it as one, three runs of three, as the exit came:
+	// "Cannot start jail: could not build yolo's own binaries", and nothing to fall back on.
+	for _, said := range []string{"Cannot start jail", image.BuildFailedMarker} {
+		if strings.Contains(run.combined(), said) {
+			t.Errorf("the interrupted launch reported the nix it stopped as a failed build (%q):\n%s",
+				said, run.combined())
+		}
 	}
 }
 
