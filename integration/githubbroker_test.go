@@ -93,7 +93,9 @@ func newGitHubBrokerFixture(t *testing.T) githubBrokerFixture {
 	argvLog := filepath.Join(bin, "argv.log")
 	// The stand-in for the host's gh: the version the classifier was measured against, a
 	// token for the broker's one start-up read (redaction), and an echo of every other argv.
-	// `leak` prints the token, to prove the redaction backstop end to end.
+	// `leak` prints the token, to prove the redaction backstop end to end. The broker's own
+	// `auth status --hostname github.com --active --json hosts` gets gh's JSON for a login whose
+	// token source is a host path and whose scopes are the host's (BB-D65).
 	script := "#!/bin/sh\n" +
 		"echo \"$*\" >> '" + argvLog + "'\n" +
 		"case \"$1\" in\n" +
@@ -101,6 +103,7 @@ func newGitHubBrokerFixture(t *testing.T) githubBrokerFixture {
 		"  auth) if [ \"$2\" = token ]; then echo '" + fakeGHToken + "'; exit 0; fi ;;\n" +
 		"esac\n" +
 		"case \"$*\" in\n" +
+		"  'auth status --hostname github.com --active --json hosts') echo '{\"hosts\":{\"github.com\":[{\"state\":\"success\",\"active\":true,\"host\":\"github.com\",\"login\":\"yolo-it-user\",\"tokenSource\":\"" + bin + "/hosts.yml\",\"scopes\":\"gist, read:org, repo\",\"gitProtocol\":\"https\"}]}}'; exit 0 ;;\n" +
 		"  *leak*) echo \"fake gh ran: $* " + fakeGHToken + "\"; exit 0 ;;\n" +
 		"esac\n" +
 		"echo \"fake gh ran: $*\"\n" +
@@ -261,20 +264,24 @@ func TestGitHubBrokerRunsAReadAgainstTheHostGH(t *testing.T) {
 	fx.recordScope(t, "yolo-it/app")
 
 	script := ghScript(
-		"gh pr view 32",                         // A: a read, repository from origin
-		"gh pr list -R yolo-it/app --state all", // B: a read, explicit -R
-		"gh auth token",                         // C: refused
-		"gh pr view 1 -R other/private",         // D: out of scope
-		"gh pr comment 32 --body hi",            // E: a write, exit 77
-		"gh api repos/yolo-it/app/leak",         // F: a read whose output carries the token
-		"type gh",                               // G: gh resolves to the intercept
+		"gh pr view 32",                          // A: a read, repository from origin
+		"gh pr list -R yolo-it/app --state all",  // B: a read, explicit -R
+		"gh auth token",                          // C: refused
+		"gh pr view 1 -R other/private",          // D: out of scope
+		"gh pr comment 32 --body hi",             // E: a write, exit 77
+		"gh api repos/yolo-it/app/leak",          // F: a read whose output carries the token
+		"type gh",                                // G: gh resolves to the intercept
+		"gh pr view 32 --json title --jq .title", // H: a filter runs on the host (BB-D64)
+		"gh auth status",                         // I: the broker answers it (BB-D65)
+		`head -4 "$(command -v gh)"`,             // J: the shim says it is a forwarder (BB-D67)
 	)
 	r := runCommand(t, fx.dir, []string{"run", "--", "bash", "-lc", script}, fx.opts...)
 	if r.rc != 0 {
 		t.Fatalf("the launch failed: rc %d\n%s%s", r.rc, r.combined(), brokerDaemonLog(t))
 	}
 	out := r.stdout
-	want := map[string]string{"RCA": "0", "RCB": "0", "RCC": "64", "RCD": "64", "RCE": "77", "RCF": "0", "RCG": "0"}
+	want := map[string]string{"RCA": "0", "RCB": "0", "RCC": "64", "RCD": "64", "RCE": "77", "RCF": "0", "RCG": "0",
+		"RCH": "0", "RCI": "0", "RCJ": "0"}
 	for k, v := range want {
 		if got := kvLine(out, k); got != v {
 			t.Errorf("%s = %q, want %q", k, got, v)
@@ -304,14 +311,39 @@ func TestGitHubBrokerRunsAReadAgainstTheHostGH(t *testing.T) {
 	if !strings.Contains(out, "block/gh") {
 		t.Errorf("`type gh` did not resolve to the intercept in the block dir:\n%s", out)
 	}
+	// H, I and J: the filter reached the host gh in the canonical argv; the broker's own
+	// answer to `auth status` names the login and the scope and none of the host's facts;
+	// the shim's first lines say what it is.
+	for _, s := range []string{
+		"fake gh ran: pr view --json=title --jq=.title 32 --repo=yolo-it/app",
+		"Logged in to github.com account yolo-it-user through yolo's github-broker; the token stays on the host",
+		"Repositories this jail can use: yolo-it/app",
+		"# NOT A BLOCKER: this gh is pack github's forwarder (a yolo intercept).",
+	} {
+		if !strings.Contains(out, s) {
+			t.Errorf("stdout lacks %q:\n%s", s, out)
+		}
+	}
+	// I's own output: what the jail printed between H's exit code and I's.
+	if h, i := strings.Index(out, "RCH="), strings.Index(out, "RCI="); h >= 0 && i > h {
+		status := out[h:i]
+		for _, host := range []string{"hosts.yml", "read:org", fx.argvLog} {
+			if strings.Contains(status, host) {
+				t.Errorf("`gh auth status` in the jail carried the host's %q:\n%s", host, status)
+			}
+		}
+	} else {
+		t.Errorf("no RCH= and RCI= markers to find `gh auth status`'s output by:\n%s", out)
+	}
 
 	// The host gh saw the reads and the broker's own start-up reads, and nothing else.
 	logged, _ := os.ReadFile(fx.argvLog)
 	for _, line := range strings.Split(strings.TrimSpace(string(logged)), "\n") {
 		switch {
 		case line == "--version", line == "auth token --hostname github.com",
-			strings.HasPrefix(line, "pr view 32"), strings.HasPrefix(line, "pr list"),
-			strings.HasPrefix(line, "api repos/yolo-it/app/leak"):
+			line == "auth status --hostname github.com --active --json hosts",
+			strings.HasPrefix(line, "pr view 32"), strings.HasPrefix(line, "pr view --json=title --jq=.title 32"),
+			strings.HasPrefix(line, "pr list"), strings.HasPrefix(line, "api repos/yolo-it/app/leak"):
 		default:
 			t.Errorf("the host gh was run with %q, which the broker must never run", line)
 		}
@@ -342,8 +374,8 @@ func TestGitHubBrokerRunsAReadAgainstTheHostGH(t *testing.T) {
 			}
 		}
 	}
-	if n != 3 {
-		t.Errorf("yolo audit --set read-only listed %d calls, want 3:\n%s", n, a.combined())
+	if n != 5 {
+		t.Errorf("yolo audit --set read-only listed %d calls, want 5:\n%s", n, a.combined())
 	}
 
 	// The launch's scope file went with its daemon.
