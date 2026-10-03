@@ -8,6 +8,7 @@ package run
 
 import (
 	"bytes"
+	"github.com/mschulkind-oss/yolo-jail/internal/shquote"
 	"os"
 	"path/filepath"
 	"strings"
@@ -90,7 +91,7 @@ func TestTheLaunchNamesAHooksModuleAndHowToSeeWhatItCalls(t *testing.T) {
 				"first-mod: 1 wrapped plugin runs code in the jail — hooks (1)",
 				"the hooks include a hooks module",
 				"JavaScript or TypeScript that Claude Code runs inside its own process",
-				"`claude plugin validate " + dir + "` lists what it calls",
+				"`claude plugin validate " + shquote.JoinDisplay([]string{dir}) + "` lists what it calls",
 			} {
 				if !strings.Contains(said, want) {
 					t.Errorf("the jail-code line for a mod does not say %q:\n%s", want, said)
@@ -174,7 +175,7 @@ func TestTheLaunchNamesEachPluginsHooksModuleOnThePacksOneLine(t *testing.T) {
 	said := errBuf.String()
 	for _, want := range []string{
 		"mods: 2 wrapped plugins run code in the jail — hooks (2); the hooks of 2 plugins include a hooks module",
-		"`claude plugin validate " + dirs[0] + "`, `claude plugin validate " + dirs[1] + "` list what each calls",
+		"`claude plugin validate " + shquote.JoinDisplay([]string{dirs[0]}) + "`, `claude plugin validate " + shquote.JoinDisplay([]string{dirs[1]}) + "` list what each calls",
 	} {
 		if !strings.Contains(said, want) {
 			t.Errorf("the pack's line does not say %q:\n%s", want, said)

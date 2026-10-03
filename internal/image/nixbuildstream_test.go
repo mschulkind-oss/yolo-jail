@@ -2,6 +2,7 @@ package image
 
 import (
 	"bufio"
+	"github.com/mschulkind-oss/yolo-jail/internal/shquote"
 	"io"
 	"os"
 	"path/filepath"
@@ -17,7 +18,7 @@ import (
 func TestANixLineLongerThanTheScannerReadsDoesNotWedgeTheBuild(t *testing.T) {
 	freshNixChildren(t)
 	out := filepath.Join(t.TempDir(), "out")
-	script := `head -c 2097152 /dev/zero | tr '\0' x >&2; echo >&2; echo "after the long line" >&2; ln -s /nix/store/fake-out ` + out
+	script := `head -c 2097152 /dev/zero | tr '\0' x >&2; echo >&2; echo "after the long line" >&2; ln -s /nix/store/fake-out ` + shquote.Quote(out)
 	type built struct {
 		path string
 		tail []string
