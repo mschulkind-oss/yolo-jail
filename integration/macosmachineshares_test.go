@@ -312,19 +312,20 @@ func uncommentedYAML(body string) string {
 }
 
 // A FAILED `podman machine start` TAKES THE WHOLE SHARD, so it is retried — and the retry
-// must never be a second `init`.
+// may re-init only through the ONE `podman machine init` there is.
 //
 // MEASURED 2026-09-14 (run 34870117573, shard 1): `Error: EOF` at rc 125, 3m34s in, on a
 // machine that had just initialized cleanly. It was the one red shard in a run where every
 // other one passed, and nothing in the shard ran after it.
 //
-// The second assertion is the load-bearing one. `parseMachineInitShares` above reads the
-// FIRST `podman machine init` and only that one, so a retry that re-inits would carry a
+// The init count is the load-bearing assertion. `parseMachineInitShares` above reads the
+// FIRST `podman machine init` and only that one, so a second init command would carry a
 // SECOND copy of the four shares with nothing checking it — and a share list that drifts
-// from the one under test is exactly what cost the 2026-09-13 nightly 47 tests. Retry the
-// start; if a fresh machine is ever genuinely needed, single-source the share list and
-// teach parseMachineInitShares to read it.
-func TestTheNightlyRetriesTheMachineStartWithoutReinitialising(t *testing.T) {
+// from the one under test is exactly what cost the 2026-09-13 nightly 47 tests. Since
+// 2026-10-03 the last attempt does start a fresh machine (macosmachinereset_test.go says why
+// and runs it), and it gets one by calling the shell function that holds the one init, so
+// this count still reads every share list the step can pass.
+func TestTheNightlyRetriesTheMachineStartFromOneInit(t *testing.T) {
 	body := readWorkflow(t, nightlyWorkflow)
 
 	step, ok := stepContaining(body, "podman machine start")
@@ -377,7 +378,8 @@ func TestTheNightlyRetriesTheMachineStartWithoutReinitialising(t *testing.T) {
 		t.Errorf("%s runs `podman machine init` %d times; exactly one is allowed.\n\n"+
 			"parseMachineInitShares reads the FIRST one only, so a second carries a copy of "+
 			"the share list that nothing verifies. `-v` is init-only, and a drifted share "+
-			"list is what took 47 tests down on 2026-09-13. Retry `start`, not `init`.",
+			"list is what took 47 tests down on 2026-09-13. To make a fresh machine, call the "+
+			"function that holds the one init (`machine_init`) rather than writing another.",
 			nightlyWorkflow, n)
 	}
 }

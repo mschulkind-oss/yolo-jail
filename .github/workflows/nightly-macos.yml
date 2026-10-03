@@ -351,8 +351,8 @@ jobs:
     # 75, up from 50 on 2026-09-15. The cap was being hit by WORK rather than by hangs —
     # zero failing tests in the run that set this number — and a cap that fires on healthy
     # work reports nothing except that the budget was wrong. The two inner bounds are what
-    # keep the raise honest: `Install Podman` is capped at 15m below, and `Load jail image`
-    # at 35m, so a genuine hang still fails against its own step rather than burning 75
+    # keep the raise honest: `Install Podman` and `Load jail image` each carry their own cap
+    # below, so a genuine hang still fails against its own step rather than burning 75
     # minutes to say "cancelled" with no step named.
     timeout-minutes: 75
     steps:
@@ -401,16 +401,28 @@ jobs:
         # eating the whole `timeout-minutes: 50` job budget, so nothing after it ever ran and
         # the run said only that two shards were cancelled.
         #
-        # 25, up from 15 on 2026-09-18, and the number is now DERIVED rather than chosen:
+        # 25, up from 15 on 2026-09-18, and the number was DERIVED rather than chosen:
         # `podman machine start` is bounded at 6m per attempt below and retried three times,
         # so the step needs 18m for the retries plus ~2m for the download, install and init —
         # and at 15m the third attempt could never run. That was not theoretical: run
         # 35335702509 lost shard 6 to a single 14m hang, with attempts 2 and 3 unreachable.
         #
+        # 35, up from 25 on 2026-10-03, because that sum left out a term: the `podman machine
+        # stop` after each hung start, 1m30s–1m32s every time it was measured (podman's graceful
+        # stop times out at 90s, then it hard-stops). Three hangs with their stops needed ~25m,
+        # and the 25m cap fired INSIDE the last attempt twice — run 36862305695 shard 7 (during
+        # its stop, so the step's own error never printed) and run 37056529987 shard 10. Summed
+        # again with the reset below: the install (under 20s measured), the first init (2m53s at
+        # the slowest measured, run 36862305695 shard 7), two attempts with a stop and a pause
+        # each (2 × 7m37s), the reset (bounded at 6m) and the last attempt (6m, no stop after
+        # it) — 30m27s, so 35.
+        #
         # The cap still exists for the reason it always did — an uncapped hang costs the whole
-        # shard and names nothing — and it is still far inside the 75m job budget. Pinned by
-        # integration/macosmachineshares_test.go.
-        timeout-minutes: 25
+        # shard and names nothing. A shard that comes up only on the fresh VM has spent ~25m here
+        # and has that much less of the 75m job for its load and tests; before the reset it was a
+        # lost shard. Pinned by integration/macosmachineshares_test.go and, the sum itself, by
+        # integration/macosmachinereset_test.go.
+        timeout-minutes: 35
         run: |
           # No brew here: Homebrew ships no x86_64 macOS bottles for podman
           # 6.x (Tier 3 on Tahoe Intel → "no bottle available"), and podman
@@ -493,13 +505,22 @@ jobs:
           # `-v` can only be set at init — there is no `podman machine set --volume`.
           # integration/macosmachineshares_test.go pins this list, on Linux, on every
           # push.
-          podman machine init --cpus 2 --memory 4096 --disk-size 30 \
-            -v /Users:/Users \
-            -v /private:/private \
-            -v /var/folders:/var/folders \
-            -v /nix:/nix
+          #
+          # A FUNCTION, SO THE RESET BELOW RE-INITS FROM THIS LIST AND NO OTHER. The share
+          # list is single-sourced on purpose: integration/macosmachineshares_test.go reads
+          # this one `podman machine init` and refuses a second, because a second copy of the
+          # four shares, with nothing checking it, is the exact drift that cost the 2026-09-13
+          # nightly 47 tests.
+          machine_init() {
+            podman machine init --cpus 2 --memory 4096 --disk-size 30 \
+              -v /Users:/Users \
+              -v /private:/private \
+              -v /var/folders:/var/folders \
+              -v /nix:/nix
+          }
+          machine_init
 
-          # RETRIED, and `start` ONLY — never a second `init`.
+          # RETRIED: `start` twice on the machine `machine_init` made, then once on a FRESH one.
           #
           # MEASURED 2026-09-14 (run 34870117573, shard 1): `Starting machine
           # "podman-machine-default"` → `Error: EOF`, rc 125, 3m34s in, on a machine that
@@ -510,12 +531,17 @@ jobs:
           # a second `start` on that state fails the same way; `|| true` because stopping a
           # machine that never came up is not an error worth ending the step on.
           #
-          # ⚠ IT MUST NOT RE-INIT. The share list above is single-sourced on purpose (`-v`
-          # is init-only), and integration/macosmachineshares_test.go reads the FIRST
-          # `podman machine init` and only that one — so a second init here would be a
-          # second copy of four shares that nothing checks, which is the exact drift that
-          # cost the 2026-09-13 nightly 47 tests. If a retry ever genuinely needs a fresh
-          # machine, give the share list a variable and teach that test to read it.
+          # THE LAST ATTEMPT GETS A NEW VM, because a third start of the same one has never
+          # worked. MEASURED over the 38 runs of this workflow from 34870117573 (2026-09-14) to
+          # 37118791671 (2026-10-03): a start that FAILED FAST on attempt 1 came up on attempt
+          # 2 all seven times; a start that HUNG on attempt 1 came up on attempt 2 twice in seven
+          # (35437249292, 36521751485), and the other five hung on attempts 2 AND 3 — 36315864178,
+          # 36862305695, 37056529987 twice, 37118791671. So before the last attempt the machine
+          # is deleted (`podman machine rm -f`) and made again by `machine_init` above: the same
+          # function, so the same shares and still one `podman machine init` for the test to
+          # read. Whether a fresh VM comes up where the old one hung is NOT measured yet; a shard
+          # that comes up after a retry says so in a warning, and that warning is the measurement.
+          #
           # EACH ATTEMPT IS BOUNDED, and without that the retry above is unreachable.
           #
           # MEASURED 2026-09-18 (run 35335702509, shard 6): `Starting machine
@@ -544,8 +570,46 @@ jobs:
             return "$start_rc"
           }
 
+          # THE RESET IS BOUNDED LIKE A START, at 6m: ~2x the slowest first init measured (2m53s,
+          # image pull included, run 36862305695 shard 7). The machine was stopped just before it,
+          # so `rm -f` has no VM to wait for. `pkill -P` before `kill`, because reset_machine runs
+          # as a subshell and the process that hangs is its podman CHILD: killing only the
+          # subshell ends the wait but leaves that podman running.
+          reset_machine() {
+            podman machine rm -f || return
+            machine_init
+          }
+          reset_with_deadline() {
+            reset_machine &
+            reset_pid=$!
+            ( sleep "$1"; pkill -TERM -P "$reset_pid" 2>/dev/null || true
+              kill -TERM "$reset_pid" 2>/dev/null ) &
+            dog_pid=$!
+            reset_rc=0
+            wait "$reset_pid" || reset_rc=$?
+            kill "$dog_pid" 2>/dev/null || true
+            wait "$dog_pid" 2>/dev/null || true
+            return "$reset_rc"
+          }
+
+          # `ran` is what the step's last line reports: every attempt, the reset, and how each ended.
           started=
+          ran=
           for attempt in 1 2 3; do
+            if [ "$attempt" -eq 3 ]; then
+              echo "resetting the VM before the last attempt: podman machine rm -f, then the same init"
+              reset_started=$(date +%s)
+              if reset_with_deadline 360; then
+                ran="${ran:+$ran; }VM reset (podman machine rm -f + init)"
+              else
+                if [ "$(( $(date +%s) - reset_started ))" -ge 360 ]; then
+                  ran="${ran:+$ran; }VM reset HUNG past its 6m deadline (killed), so attempt 3 never ran"
+                else
+                  ran="${ran:+$ran; }VM reset FAILED, so attempt 3 never ran"
+                fi
+                break
+              fi
+            fi
             attempt_started=$(date +%s)
             if start_with_deadline 360; then
               started=yes
@@ -555,18 +619,27 @@ jobs:
             # the next reader of this log is deciding whether the VM handshake is broken or
             # the CDN is, and "failed" alone does not tell them.
             if [ "$(( $(date +%s) - attempt_started ))" -ge 360 ]; then
-              echo "podman machine start HUNG past its 6m deadline (attempt ${attempt}/3)" \
-                "— killed, stopping and retrying"
+              outcome="HUNG past its 6m deadline (killed)"
             else
-              echo "podman machine start failed (attempt ${attempt}/3) — stopping and retrying"
+              outcome="failed"
             fi
+            ran="${ran:+$ran; }attempt ${attempt} ${outcome}"
+            # No stop after the last attempt: nothing follows it, and a stop after a hang costs
+            # ~90s of the step's budget.
+            if [ "$attempt" -eq 3 ]; then
+              echo "podman machine start ${outcome} (attempt 3/3, on the fresh VM) — no attempts left"
+              break
+            fi
+            echo "podman machine start ${outcome} (attempt ${attempt}/3) — stopping and retrying"
             podman machine stop || true
             sleep 5
           done
           if [ -z "$started" ]; then
-            echo "::error::podman machine start failed three times, each bounded at 6m. The VM" \
-              "never came up, so every launch in this shard would exit 125 before pid1 ran."
+            echo "::error::the podman machine never came up — ${ran}. Each start was bounded at 6m. No yolo code has run yet, so every launch in this shard would exit 125 before pid1 ran and the fault is the runner's VM, not the commit under test. Next: re-run the failed shards with gh run rerun ${GITHUB_RUN_ID:-<run-id>} --failed."
             exit 1
+          fi
+          if [ -n "$ran" ]; then
+            echo "::warning::the podman machine came up on attempt ${attempt}/3, after: ${ran}."
           fi
 
           # ASSERT THE SHARES, because the failure they cause names no cause.
