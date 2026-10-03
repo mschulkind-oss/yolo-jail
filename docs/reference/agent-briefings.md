@@ -630,7 +630,9 @@ behavior:
   has a `skills/` folder. That is the shape of a Claude Code
   [mod](https://code.claude.com/docs/en/plugins/mods/overview), a manifest and `hooks/` and
   nothing else. It reaches the destinations the pack's skills are addressed to
-  (`packload.Pack.SkillsAudience`), since it sits in none of the pack's skills sources.
+  (`packload.Pack.SkillsAudience`), since it sits in none of the pack's skills sources. A plugin
+  whose manifest `name` is not a plain folder name, one with a `/` or a `..`, is refused at both
+  notches, with the rename to make, rather than written where that path points.
 
 The built-in suite and the workspace fill only the names the packs left free, so the order is
 unchanged. A **reserved child** a destination declares (`packs/claude` reserves `synced`) is

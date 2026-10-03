@@ -518,3 +518,86 @@ func TestRootPluginDoesNotDeliverSkillsTwice(t *testing.T) {
 		})
 	}
 }
+
+// A PLUGIN'S NAME IS ONE FOLDER, whoever wrote its manifest. Both tiers join it onto the skills
+// dir, so a manifest name carrying path structure used to be written wherever it pointed: outside
+// the destination with "..", and into a reserved child with "synced/x", which the jail's fence
+// checks only at the top level. Driven through both notches' entries, the jail's ComposeInto and
+// the host's RenderHostSkills, at both tiers, the flat one through a plugin whose root is itself a
+// skill (the shape whose flat skill takes the plugin's name).
+func TestAPluginNameWithPathStructureIsRefusedNotFollowed(t *testing.T) {
+	for _, name := range []string{"../../escaped-plugin", "synced/planted", "..", "."} {
+		for _, tier := range []Tier{TierNamespaced, TierFlat} {
+			t.Run(name+"/"+tier.String(), func(t *testing.T) {
+				base := t.TempDir()
+				dir := filepath.Join(base, "plugins", "p")
+				manifest := `{"name":"` + name + `","skills":["./"]}`
+				for rel, body := range map[string]string{
+					".claude-plugin/plugin.json": manifest,
+					"SKILL.md":                   "---\nname: p\ndescription: d\n---\nbody\n",
+					"hooks/hooks.json":           `{"modules":["./register.js"]}`,
+					"hooks/register.js":          "export function register(on) {}\n",
+				} {
+					p := filepath.Join(dir, filepath.FromSlash(rel))
+					if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+						t.Fatal(err)
+					}
+					if err := os.WriteFile(p, []byte(body), 0o644); err != nil {
+						t.Fatal(err)
+					}
+				}
+				pl, ok := pluginpack.Load(dir)
+				if !ok {
+					t.Fatalf("the fixture at %s is not plugin-shaped", dir)
+				}
+				for notch, compose := range map[string]func(Destination) ([]Result, error){
+					"jail": func(d Destination) ([]Result, error) {
+						res, err := ComposeInto(d, d.Dir)
+						return res.Results, err
+					},
+					"host": func(d Destination) ([]Result, error) {
+						return RenderHostSkills([]Destination{d}, composeReq(t), false)
+					},
+				} {
+					home := filepath.Join(base, notch, "home")
+					skills := filepath.Join(home, ".claude", "skills")
+					if err := os.MkdirAll(filepath.Join(skills, "synced"), 0o755); err != nil {
+						t.Fatal(err)
+					}
+					d := Destination{Dir: skills, Reserved: []string{"synced"},
+						Layers: []Layer{{Pack: "wrapper", Tier: tier, Plugins: []*pluginpack.Plugin{pl}}}}
+					before := treeListing(t, filepath.Join(base, notch))
+					res, err := compose(d)
+					if err != nil {
+						t.Fatalf("%s: %v", notch, err)
+					}
+					if after := treeListing(t, filepath.Join(base, notch)); after != before {
+						t.Errorf("%s: a plugin named %q wrote outside its own folder:\nbefore:\n%s\nafter:\n%s",
+							notch, name, before, after)
+					}
+					refused := false
+					for _, r := range res {
+						refused = refused || (r.Action == ActionRefused && strings.Contains(r.Detail, "not a plain folder name") &&
+							strings.Contains(r.Detail, "set `name` in its .claude-plugin/plugin.json"))
+					}
+					if !refused {
+						t.Errorf("%s: a plugin named %q was not refused with the rename to make: %+v", notch, name, res)
+					}
+				}
+			})
+		}
+	}
+}
+
+// treeListing is every path under root, one per line, for a before/after comparison.
+func treeListing(t *testing.T, root string) string {
+	t.Helper()
+	var out []string
+	_ = filepath.Walk(root, func(p string, _ os.FileInfo, err error) error {
+		if err == nil {
+			out = append(out, p)
+		}
+		return nil
+	})
+	return strings.Join(out, "\n")
+}

@@ -161,3 +161,38 @@ func TestAJailSendsARootModOnlyToTheAgentItsPackAddresses(t *testing.T) {
 		t.Errorf("a mod whose pack addresses its skills to claude reached alphacli's skills folder (%v)", err)
 	}
 }
+
+// A MOD'S NAME IS ONE FOLDER: the staging joins the manifest's name onto a scratch skills dir in
+// the HOST's temp dir, so "../../<x>" used to land in that temp dir itself, outside everything the
+// staging owns, and "synced/<x>" inside the child packs/claude reserves. Both are refused, and the
+// launch names the rename to make.
+func TestAJailRefusesARootModWhoseNameIsAPath(t *testing.T) {
+	for _, tc := range []struct{ label, name string }{
+		{"leaving the staging", "../../zz-escaped-mod"},
+		{"entering a reserved child", "synced/planted"},
+	} {
+		name := tc.name
+		t.Run(tc.label, func(t *testing.T) {
+			home := packHome(t)
+			tmp := t.TempDir()
+			mods := t.TempDir()
+			t.Setenv("TMPDIR", tmp)
+			writeUserPacks(t, home, `["claude",`+writeRootMod(t, mods, "first-mod", name,
+				`{"name":"first-mod","skills_tier":"namespaced"}`)+`]`)
+			staging, said := stageJailSkills(t, goldenOptions(t.TempDir(), home), "yolo-test-g10-pathname")
+			for _, p := range []string{
+				filepath.Join(tmp, "zz-escaped-mod"),
+				filepath.Join(staging, jailcontent.SkillStagingName("claude"), "synced", "planted"),
+			} {
+				if _, err := os.Lstat(p); !os.IsNotExist(err) {
+					t.Errorf("a mod named %q was written to %s (%v)", name, p, err)
+				}
+			}
+			for _, want := range []string{"Skills:", "not a plain folder name", "set `name` in its .claude-plugin/plugin.json"} {
+				if !strings.Contains(said, want) {
+					t.Errorf("the launch did not say %q about a mod named %q:\n%s", want, name, said)
+				}
+			}
+		})
+	}
+}

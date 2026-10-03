@@ -31,6 +31,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/pluginpack"
 )
@@ -70,6 +71,19 @@ type PluginRequest struct {
 // per-entry becomes a Result so the user sees the whole picture in one run.
 func DeliverPlugin(req PluginRequest) ([]Result, error) {
 	name := req.Plugin.Name()
+	// THE NAME IS A PATH ELEMENT, and the manifest is the plugin author's. Both tiers join it onto
+	// the skills dir (deliverPluginTree's tree, deliverPluginFlat's root skill), so a name carrying
+	// path structure would write wherever it pointed: "../../x" outside the destination, from a
+	// jail launch's staging into the host's own temp dir, and "synced/x" into a reserved child,
+	// which ComposeInto's fence checks only at the top level.
+	if !plainPluginName(name) {
+		return []Result{{
+			Name: name, Path: req.Plugin.ManifestPath, Action: ActionRefused,
+			Detail: "plugin not delivered: its manifest's name is not a plain folder name, so " +
+				"what it carries would land outside its own folder in this skills dir — set `name` " +
+				"in its " + req.Plugin.ManifestRel() + " to one with no \"/\" and no \"..\"",
+		}}, nil
+	}
 	tier, downgrade := ProbeTier(req.Tier, req.SkillsDir, name)
 	var out []Result
 	if downgrade != "" {
@@ -84,6 +98,12 @@ func DeliverPlugin(req PluginRequest) ([]Result, error) {
 	}
 	res, err := deliverPluginFlat(req, name)
 	return append(out, res...), err
+}
+
+// plainPluginName reports whether a plugin name is one directory entry: not empty, not "." or
+// "..", and free of either separator, so joining it onto a skills dir names a child of that dir.
+func plainPluginName(name string) bool {
+	return name != "" && name != "." && name != ".." && !strings.ContainsAny(name, `/\`)
 }
 
 // deliverPluginTree is the tier-A path: the plugin dir lands at <skillsDir>/<plugin-name>/,
