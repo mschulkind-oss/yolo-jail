@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"syscall"
 	"time"
 )
 
@@ -95,8 +96,9 @@ func SupersededStoreOutputs(storeDir string, rootDirs []string, inUse map[string
 			}
 			// A path realized moments ago may belong to a launch that has not
 			// reached its rooting step. Same shape as PrefixRootGrace and for the
-			// same reason — a guard against a race, not a retention policy.
-			if st, err := os.Lstat(p); err == nil && now.Sub(st.ModTime()) < grace {
+			// same reason — a guard against a race, not a retention policy. Aged by
+			// its change time, never its mtime: see storePathAge.
+			if st, err := os.Lstat(p); err == nil && storePathAge(st, now) < grace {
 				continue
 			}
 			out = append(out, p)
@@ -104,6 +106,37 @@ func SupersededStoreOutputs(storeDir string, rootDirs []string, inUse map[string
 	}
 	sort.Strings(out)
 	return out
+}
+
+// storePathAge is how long ago the store path fi describes entered the store, read from
+// its inode CHANGE time (st_ctime) and never from its mtime.
+//
+// NIX CANONICALIZES EVERY STORE PATH'S MTIME to one second past the epoch as it registers
+// the path, so an output built a moment ago has the same mtime as one from 2020, and an age
+// read from the mtime called every output 56 years old: the grace protected nothing. That
+// canonicalization is itself a write to the inode's metadata (it sets the mode and the
+// mtime), so the change time it leaves is when the path was registered. MEASURED
+// 2026-10-03 on the host store this jail mounts: for all 51 valid yolo outputs, ctime
+// equaled `nix path-info`'s registrationTime to the second, while every mtime was 1. On
+// darwin the same holds by POSIX (chmod and utimes both update st_ctime), not by a
+// measurement on a Mac.
+//
+// Chosen over registrationTime, which is a store-database read through the daemon and has
+// no answer for a path not registered yet, and over the birth time, which syscall.Stat_t
+// does not carry on Linux and which predates registration by the whole build. Anything
+// that touches the path after registration (a `nix store optimise`, an xattr, a chmod)
+// can only move its change time FORWARD, barring a clock set back, and forward makes the
+// path look younger, so it is kept longer: the side a race guard should err on.
+//
+// A FileInfo with no *syscall.Stat_t behind it, which os.Lstat never returns on linux or
+// darwin, has no change time to read, and is treated as just realized: an unknown age is
+// not permission.
+func storePathAge(fi os.FileInfo, now time.Time) time.Duration {
+	st, ok := fi.Sys().(*syscall.Stat_t)
+	if !ok {
+		return 0
+	}
+	return now.Sub(statChangeTime(st))
 }
 
 // StoreDeleteCmd is the argv that removes one store path, and it is spelled here
@@ -170,7 +203,8 @@ func DeleteSupersededStoreOutputsGuarded(paths []string, apply bool, run RunFunc
 const storeDeleteTimeout = 60 * time.Second
 
 // StoreOutputGrace mirrors PrefixRootGrace: an output younger than this belongs
-// to a launch that may not have rooted it yet.
+// to a launch that may not have rooted it yet. Measured by storePathAge, never by
+// the mtime nix pins to the epoch.
 const StoreOutputGrace = time.Hour
 
 // describeStoreOutput trims the store dir for display, so a report names

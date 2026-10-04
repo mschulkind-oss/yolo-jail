@@ -2,7 +2,6 @@ package stores
 
 import (
 	"go/ast"
-	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -331,17 +330,13 @@ func TestNixClassCoverageMatchesTheReclaimer(t *testing.T) {
 		writeFile(t, filepath.Join(p, "f"), 1)
 		bySuffix[c.suffix] = p
 	}
-	// Older than the grace floor, which exists for a launch whose rooting has not
-	// happened yet — not a retention policy.
-	old := time.Now().Add(-2 * prune.StoreOutputGrace)
-	for _, p := range bySuffix {
-		if err := os.Chtimes(p, old, old); err != nil {
-			t.Fatal(err)
-		}
-	}
+	// Observed from past the grace floor, which exists for a launch whose rooting has
+	// not happened yet — not a retention policy. The reclaimer ages a store path by
+	// its change time, which no fixture can set back, so the clock moves instead.
+	pastGrace := time.Now().Add(2 * prune.StoreOutputGrace)
 
 	selected := map[string]bool{}
-	for _, p := range prune.SupersededStoreOutputs(store, []string{roots}, nil /* nothing running in this fixture */, prune.StoreOutputGrace, time.Now()) {
+	for _, p := range prune.SupersededStoreOutputs(store, []string{roots}, nil /* nothing running in this fixture */, prune.StoreOutputGrace, pastGrace) {
 		for suffix, path := range bySuffix {
 			if p == path {
 				selected[suffix] = true

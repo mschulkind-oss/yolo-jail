@@ -10,34 +10,45 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-func mkStorePath(t *testing.T, storeDir, name string, age time.Duration) string {
+// nixCanonicalMtime is the mtime nix gives every path it registers in its store: one second
+// past the epoch. Measured 2026-10-03 on the host store this jail mounts: every one of the 51
+// valid yolo-jail-install-prefix and yolo-jail-go-0-dev outputs had it, however recently built.
+var nixCanonicalMtime = time.Unix(1, 0)
+
+// mkStorePath makes a store path the way nix leaves one: realized NOW, and with its mtime
+// canonicalized to nixCanonicalMtime. A fixture that kept a real mtime here is what let the
+// grace protect nothing in production while its own test passed. Nothing can set a path's
+// change time back, so a test that wants an OLD path observes it from a later `now`
+// (pastGrace) instead.
+func mkStorePath(t *testing.T, storeDir, name string) string {
 	t.Helper()
 	p := filepath.Join(storeDir, name)
 	if err := os.MkdirAll(p, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	when := time.Now().Add(-age)
-	tv := []unix.Timeval{unix.NsecToTimeval(when.UnixNano()), unix.NsecToTimeval(when.UnixNano())}
+	tv := []unix.Timeval{unix.NsecToTimeval(nixCanonicalMtime.UnixNano()), unix.NsecToTimeval(nixCanonicalMtime.UnixNano())}
 	if err := unix.Lutimes(p, tv); err != nil {
 		t.Fatal(err)
 	}
 	return p
 }
 
+// pastGrace is a `now` from which every path mkStorePath just made is older than the grace.
+func pastGrace() time.Time { return time.Now().Add(StoreOutputGrace + time.Hour) }
+
 // TestSupersededStoreOutputsIsScopedByNameAndRoots pins the two properties that
 // make this admissible under P5 at all: it only ever names yolo's own outputs,
 // and it never names one a root of ours points at.
 func TestSupersededStoreOutputsIsScopedByNameAndRoots(t *testing.T) {
 	store := t.TempDir()
-	old := 48 * time.Hour
 
-	rooted := mkStorePath(t, store, "aaaa-yolo-jail-install-prefix", old)
-	orphanPrefix := mkStorePath(t, store, "bbbb-yolo-jail-install-prefix", old)
-	orphanGo := mkStorePath(t, store, "cccc-yolo-jail-go-0-dev", old)
+	rooted := mkStorePath(t, store, "aaaa-yolo-jail-install-prefix")
+	orphanPrefix := mkStorePath(t, store, "bbbb-yolo-jail-install-prefix")
+	orphanGo := mkStorePath(t, store, "cccc-yolo-jail-go-0-dev")
 	// Not ours. Two shapes that a careless glob would sweep: somebody else's
 	// package, and a name that merely CONTAINS ours.
-	stranger := mkStorePath(t, store, "dddd-firefox-140.0", old)
-	lookalike := mkStorePath(t, store, "eeee-yolo-jail-install-prefix-backup", old)
+	stranger := mkStorePath(t, store, "dddd-firefox-140.0")
+	lookalike := mkStorePath(t, store, "eeee-yolo-jail-install-prefix-backup")
 
 	rootsDir := filepath.Join(t.TempDir(), "roots")
 	if err := os.MkdirAll(rootsDir, 0o755); err != nil {
@@ -47,7 +58,7 @@ func TestSupersededStoreOutputsIsScopedByNameAndRoots(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	got := SupersededStoreOutputs(store, []string{rootsDir}, nil, StoreOutputGrace, time.Now())
+	got := SupersededStoreOutputs(store, []string{rootsDir}, nil, StoreOutputGrace, pastGrace())
 
 	want := map[string]bool{orphanPrefix: true, orphanGo: true}
 	if len(got) != len(want) {
@@ -71,13 +82,38 @@ func TestSupersededStoreOutputsIsScopedByNameAndRoots(t *testing.T) {
 // TestStoreOutputGraceCoversAnUnrootedNewBuild: an output realized moments ago
 // belongs to a launch that may not have rooted it yet. Same guard, same reason,
 // as PrefixRootGrace.
+//
+// THE PATH CARRIES NIX'S MTIME, which is the epoch for a path built a second ago, so
+// an age read from the mtime calls every output 56 years old and the grace keeps
+// nothing. Both halves are asserted on the one path: kept while it is young, and
+// returned once the grace has passed, so an age source that never expires fails too.
 func TestStoreOutputGraceCoversAnUnrootedNewBuild(t *testing.T) {
 	store := t.TempDir()
-	fresh := mkStorePath(t, store, "ffff-yolo-jail-install-prefix", time.Minute)
+	fresh := mkStorePath(t, store, "ffff-yolo-jail-install-prefix")
 	if got := SupersededStoreOutputs(store, nil, nil, StoreOutputGrace, time.Now()); len(got) != 0 {
-		t.Fatalf("selected %v — a path built a minute ago has not reached its rooting step", got)
+		t.Fatalf("selected %v — a path built moments ago has not reached its rooting step; "+
+			"its mtime is nix's canonical epoch, so the grace must not read the mtime", got)
 	}
-	_ = fresh
+	got := SupersededStoreOutputs(store, nil, nil, StoreOutputGrace, pastGrace())
+	if len(got) != 1 || got[0] != fresh {
+		t.Fatalf("selected %v once the grace had passed, want [%s] — the grace is a race guard, "+
+			"not a retention policy, and an output past it is a candidate", got, fresh)
+	}
+}
+
+// statlessInfo is a FileInfo with no *syscall.Stat_t behind it, carrying nix's epoch mtime.
+type statlessInfo struct{ os.FileInfo }
+
+func (statlessInfo) Sys() any           { return nil }
+func (statlessInfo) ModTime() time.Time { return nixCanonicalMtime }
+
+// TestAStorePathWithNoChangeTimeIsTreatedAsJustRealized: with no change time to read, the
+// age is unknown, and an unknown age is not permission. Falling back to the mtime instead
+// would put the bug this guard had straight back, since a store path's mtime is the epoch.
+func TestAStorePathWithNoChangeTimeIsTreatedAsJustRealized(t *testing.T) {
+	if age := storePathAge(statlessInfo{}, time.Now()); age >= StoreOutputGrace {
+		t.Fatalf("storePathAge = %s for a path with no change time, want under the %s grace", age, StoreOutputGrace)
+	}
 }
 
 // TestStoreDeleteCmdNeverIgnoresLiveness is the pin that keeps nix's own refusal
@@ -138,15 +174,14 @@ func TestDeleteSkipsWhatNixRefuses(t *testing.T) {
 // a nix GC root, so nix does not consider the path live.
 func TestARunningJailsPrefixIsNeverSuperseded(t *testing.T) {
 	store := t.TempDir()
-	old := 48 * time.Hour
 
 	// A jail that has been up since before prefix roots existed: OLD, UNROOTED,
 	// and in use. Every property that makes it look reclaimable is true.
-	liveButUnrooted := mkStorePath(t, store, "aaaa-yolo-jail-install-prefix", old)
-	genuinelyDead := mkStorePath(t, store, "bbbb-yolo-jail-install-prefix", old)
+	liveButUnrooted := mkStorePath(t, store, "aaaa-yolo-jail-install-prefix")
+	genuinelyDead := mkStorePath(t, store, "bbbb-yolo-jail-install-prefix")
 
 	inUse := map[string]bool{liveButUnrooted: true}
-	got := SupersededStoreOutputs(store, nil /* no roots at all */, inUse, StoreOutputGrace, time.Now())
+	got := SupersededStoreOutputs(store, nil /* no roots at all */, inUse, StoreOutputGrace, pastGrace())
 
 	if len(got) != 1 || got[0] != genuinelyDead {
 		t.Fatalf("selected %v, want only %q. The other path is what a LIVE jail is executing pid1 "+
