@@ -22,6 +22,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/packsrc"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/richtext"
+	"github.com/mschulkind-oss/yolo-jail/internal/shquote"
 )
 
 // patchedPacksStore is the pack store a patched fork's lines read its check record from.
@@ -75,7 +76,7 @@ func HeldSuffix(f packload.Fork, rec *packsrc.CheckRecord, in packsrc.CheckInput
 		switch h.Kind {
 		case packsrc.OutcomeConflict:
 			return at + ": upstream " + h.Entry.Label() + " does not take " + h.Member +
-				" — `yolo pack update` shows the conflict and how to rebase the series"
+				" — `yolo pack rebase " + shquote.QuoteDisplay(f.Key()) + "`"
 		case packsrc.OutcomeBuildFailed:
 			return at + ": the build of upstream " + h.Entry.Label() + " failed — `yolo capture " + f.Bin +
 				"` retries it now"

@@ -217,6 +217,23 @@ floor's four recipe readers, its refresh arm, `UpdatesAllowed` and `yolo host --
 floor's record); macos-user, which delivers no fork at all yet (FP-D3) and says so for a patched
 fork too; and patched extensions, which reuse the advance through the owner key.
 
+## Step 3, landed 2026-10-04
+
+[`patched-forks.md` §14](patched-forks.md#14-what-i-would-build-in-order) step 3, `yolo pack rebase`
+([PF-D26](patched-forks.md#PF-D26)), a host verb that every notch's conflict line names. What the
+tree changed against the map above:
+
+| Where | What landed |
+| :--- | :--- |
+| [`packsrc/rebase.go`](../../internal/packsrc/rebase.go), [`replay.go`](../../internal/packsrc/replay.go) | the rebase clone and its marker ([PF-D47](patched-forks.md#PF-D47), [PF-D48](patched-forks.md#PF-D48)): the clone in the store's regime with no template, the blobs prefetched, the replay's `git am` on a branch and the walk's pick, `git rebase --onto` only for a conflict; `ResolveRebaseTarget`, `RefKind`; `applyAtBase` takes the branch |
+| [`cli/patchedrebase.go`](../../internal/cli/patchedrebase.go), [`cli/pack.go`](../../internal/cli/pack.go) | the verb and its dispatch and usage: the directory's refusals, its own clone and `--restart`, the forced check, the default target, the continue and the export for a local or a fetched fork pack ([PF-D49](patched-forks.md#PF-D49)) |
+| [`cli/patchedfork.go`](../../internal/cli/patchedfork.go), [`cli/patchedadvance.go`](../../internal/cli/patchedadvance.go), [`run/patchedforkline.go`](../../internal/cli/run/patchedforkline.go) | `cli.rebaseSteps`, the by-hand rebase, replaced by `rebaseCommand` in the explicit acts' and the launch's conflict message, `yolo pack status`'s conflict line, the held suffix and the nothing-to-build line |
+
+The trap the step found: **a clone's template is its own repository config**, which the replay's
+environment cannot reach, so a clone the replay runs in takes `--template=` as the scratch repository
+does. Left for later steps: the host floor (step 4) and patched extensions, whose conflict lines name
+the same verb through the owner key once they have one.
+
 ## Measurements to make
 
 - The maintainer's own pi series against the newest upstream version: the replay's time on the

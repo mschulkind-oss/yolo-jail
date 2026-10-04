@@ -449,7 +449,7 @@ func (a *advance) noFit(edited bool, newest string) advanceResult {
 		why = fmt.Sprintf("upstream %s does not take fork %s's patch series", newest, a.f.Key())
 	}
 	if a.serving == nil {
-		next := "`yolo pack update` shows the conflict and how to rebase the series"
+		next := "`" + rebaseCommand(a.f, packsrc.ListEntry{}, true) + "` rebases the series onto the upstream it does not fit"
 		if edited {
 			next += "; reverting the edit brings back the good build " + run.GoodBuildLabel(a.rec.Good)
 		}
@@ -571,9 +571,8 @@ func (a *advance) walk(list []packsrc.ListEntry, ofList bool) packsrc.WalkResult
 				a.f.Key(), r.Entry.Label())))
 			a.dim("  %s conflicts in %s", r.Conflict.Member, paths)
 			a.dim("  %s", a.heldLine(fit))
-			for _, line := range rebaseSteps(a.f, a.series, r.Entry) {
-				a.dim("%s", line)
-			}
+			a.dim("  rebase the series: %s", rebaseCommand(a.f, r.Entry,
+				isRebaseDefault(a.rec, a.in, a.series.Digest, r.Entry)))
 		case r.Clean:
 			for _, m := range r.Upstream {
 				a.dim("  %s is already in upstream %s; drop it from %s", m, r.Entry.Label(), a.series.Dir)

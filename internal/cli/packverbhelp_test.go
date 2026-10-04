@@ -45,7 +45,7 @@ func packActsFixture(t *testing.T) (refreshes, applies *int, cwd string) {
 // exit 0, and no act — no refresh, no host apply, no scaffold.
 func TestAPackVerbsHelpFlagPrintsTheUsageAndRunsNothing(t *testing.T) {
 	refreshes, applies, cwd := packActsFixture(t)
-	verbs := []string{"init", "lint", "ls", "explain", "footprint", "install", "update", "status"}
+	verbs := []string{"init", "lint", "ls", "explain", "footprint", "install", "update", "status", "rebase"}
 	for _, verb := range verbs {
 		for _, args := range [][]string{{verb, "--help"}, {verb, "-h"}, {verb, "x", "--help"}} {
 			var out, errw bytes.Buffer

@@ -205,6 +205,15 @@ yolo pack install or yolo pack update re-fetches a tag its author re-pointed.
                               to what its ref names now. Run the npm half inside the jail —
                               that is where an agent CLI is installed
   yolo pack status            show locked commits and fork pins, and flag config/lock drift
+  yolo pack rebase <pack>/<bin> [--onto <ref>] [--into <dir>] [--restart]
+                              rebase a PATCHED fork's series (a fork that declares "patches")
+                              when an upstream version no longer takes it: clones the upstream
+                              into --into (default ./<pack>-<bin>-rebase), replays the series
+                              onto --onto (default: the newest upstream version a launch would
+                              take), and stops at the conflict for you to resolve. It prints the continue
+                              and export commands and writes nothing in the pack; on its own
+                              earlier clone it prints them again, and --restart starts over.
+                              Host only
   yolo pack --help, -h        this text (also 'yolo pack help', and after any verb)
 
 Packs are configured in ~/.config/yolo-jail/config.jsonc under "packs" (USER scope
@@ -275,6 +284,8 @@ func packMain(args []string, out, errw io.Writer, color bool) int {
 		return packUpdate(out, errw, color)
 	case "status":
 		return packStatus(out, errw, color)
+	case "rebase":
+		return packRebase(args[1:], out, errw, color)
 	case "-h", "--help", "help":
 		fmt.Fprintln(out, packUsage)
 		return 0

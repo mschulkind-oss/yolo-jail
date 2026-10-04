@@ -211,17 +211,19 @@ func TestPackUpdateReportsAConflictAndTheNewestFit(t *testing.T) {
 		"fork forkpack/tool: upstream v1.2.0 (" + shortSHA(v12) + ") does not take the patch series —",
 		"0001-ten.patch conflicts in f.txt",
 		"nothing runs yet: the first build is the newest fit, v1.1.0 (" + shortSHA(v11) + ")",
-		"rebase the series by hand", "`git rebase --onto " + v12 + " " + f.base + "`",
-		"`git format-patch --base=" + v12 + " -o ",
+		"rebase the series: yolo pack rebase forkpack/tool\n",
 		"the newest fit, upstream v1.1.0 (" + shortSHA(v11) + "), takes the series",
 	} {
 		if !strings.Contains(out, w) {
 			t.Errorf("update lacks %q:\n%s", w, out)
 		}
 	}
+	if strings.Contains(out, "by hand") || strings.Contains(out, "git rebase") {
+		t.Errorf("the conflict's next step is a rebase by hand, not `yolo pack rebase`:\n%s", out)
+	}
 	_, out, _ = packVerb(t, "status")
-	for _, w := range []string{"candidate: v1.2.0", "does not take 0001-ten.patch (conflicts in f.txt)",
-		"below it: v1.1.0", "applies"} {
+	for _, w := range []string{"candidate: v1.2.0", "does not take 0001-ten.patch (conflicts in f.txt) — " +
+		"`yolo pack rebase forkpack/tool` rebases the series", "below it: v1.1.0", "applies"} {
 		if !strings.Contains(out, w) {
 			t.Errorf("status lacks %q:\n%s", w, out)
 		}
@@ -422,8 +424,8 @@ func TestPackUpdateNamesTheBaseFallbackAsTheBase(t *testing.T) {
 }
 
 // EVERY VERB A PATCHED FORK'S LINES NAME EXISTS: update's and status's lines, a conflict's included,
-// name only `yolo pack` verbs this yolo dispatches — an interim build names no verb a later step
-// adds (`yolo pack rebase` is step 3), since following that step would only fail.
+// name only `yolo pack` verbs this yolo dispatches — a conflict's `yolo pack rebase` among them —
+// since following a step that names a verb this yolo lacks would only fail.
 func TestPatchedForkLinesNameOnlyVerbsThatExist(t *testing.T) {
 	f := newPatchedFixture(t, "")
 	f.commit(t, "v1.1.0", map[int]string{14: "fourteen"})
@@ -433,6 +435,9 @@ func TestPatchedForkLinesNameOnlyVerbsThatExist(t *testing.T) {
 	all := out + errw + sout + serr
 	if !strings.Contains(out, "does not take the patch series") || !strings.Contains(sout, "does not take") {
 		t.Fatalf("the fixture's v1.2.0 did not conflict, so no conflict line was read:\n%s", all)
+	}
+	if !strings.Contains(out, "yolo pack rebase forkpack/tool") {
+		t.Errorf("the conflict's next step does not name `yolo pack rebase`:\n%s", all)
 	}
 	for _, m := range regexp.MustCompile("yolo pack ([a-z-]+)").FindAllStringSubmatch(all, -1) {
 		switch m[1] {
