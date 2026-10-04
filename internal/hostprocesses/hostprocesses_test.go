@@ -1,6 +1,7 @@
 package hostprocesses
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -262,6 +263,10 @@ func TestSelfCheckAsksTheHostsPS(t *testing.T) {
 		{"bsd answers", bsdPS, `printf '%s hostprocesses.t\n' "$PPID"`, 0, "answers the BSD queries"},
 		{"bsd silent", bsdPS, "exit 1\n", 1, "Put /bin ahead of any other ps"},
 		{"bsd lists others", bsdPS, "echo '1 launchd'\n", 1, "this process was not in its answer"},
+		// List mode reads every snapshot against the name-free pid listing, so the check
+		// asks for that listing too.
+		{"bsd refuses the pid listing", bsdPS, "case \"$*\" in\n'-ax -o pid=') echo 'ps: no' >&2; exit 1 ;;\n" +
+			"*) printf '%s hostprocesses.t\\n' \"$PPID\" ;;\nesac\n", 1, "ps: no"},
 		{"gnu answers", gnuPS, `echo "$PPID"`, 0, "answers the GNU procps queries"},
 		{"gnu refuses -C", gnuPS, "echo 'ps: illegal argument' >&2\nexit 1\n", 1, "ps: illegal argument"},
 	} {
@@ -275,5 +280,64 @@ func TestSelfCheckAsksTheHostsPS(t *testing.T) {
 				t.Errorf("selfCheck = %d\n%s\nwant %d and %q", rc, out.String(), tc.rc, tc.want)
 			}
 		})
+	}
+}
+
+// TestMainSelfCheckAsksTheHostsPS pins the PRODUCTION path rather than the callee:
+// `--self-check`, which the manifest's doctor_cmd runs, must ask the ps on PATH, so a ps
+// that cannot answer is rc 1 on either dialect (GNU's probe fails on -C, BSD's on the
+// snapshot). Reducing SelfCheck to the settings check alone kept every other test green.
+func TestMainSelfCheckAsksTheHostsPS(t *testing.T) {
+	t.Setenv("PATH", fakePS(t, "exit 1\n"))
+	if rc := Main([]string{"--self-check"}); rc != 1 {
+		t.Errorf("--self-check with a ps that answers nothing = %d, want 1: the doctor must "+
+			"ask the host's ps, not only read the settings file", rc)
+	}
+}
+
+// TestParseBSDSnapshotDropsAPidOnTwoRows: BSD ps prints ucomm raw, so a file name holding
+// a newline prints a forged row. The kernel holds a pid once, so a pid on two rows means
+// one of them is forged, and neither can be told from the other: both go.
+func TestParseBSDSnapshotDropsAPidOnTwoRows(t *testing.T) {
+	got := parseBSDSnapshot([]byte("    1 launchd\n  500 a\n600 sway       \n  600 secret-holder\n"), false)
+	want := []bsdProc{{pid: 1, comm: "launchd"}, {pid: 500, comm: "a"}}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("snapshot with pid 600 twice = %+v, want %+v", got, want)
+	}
+	tree := parseBSDSnapshot([]byte("    1     0 launchd\n  500     1 a\n1 0 sway\n  600     1 b\n"), true)
+	wantTree := []bsdProc{{pid: 500, ppid: 1, comm: "a"}, {pid: 600, ppid: 1, comm: "b"}}
+	if !reflect.DeepEqual(tree, wantTree) {
+		t.Errorf("tree snapshot with pid 1 twice = %+v, want %+v", tree, wantTree)
+	}
+}
+
+// TestListNameIsDashCs: GNU -C compares a name's first 15 bytes (procps-ng 4.0.7: `-C
+// abcdefghijklmnoZZZ` finds a process whose comm is `abcdefghijklmno`, and `-C
+// abcdefghijklmn` does not), and BSD list mode compares listName of both sides.
+func TestListNameIsDashCs(t *testing.T) {
+	for in, want := range map[string]string{
+		"sway":                "sway",
+		"chrome-devtool":      "chrome-devtool",
+		"chrome-devtools":     "chrome-devtools",
+		"chrome-devtools-":    "chrome-devtools",
+		"chrome-devtools-mcp": "chrome-devtools",
+	} {
+		if got := listName(in); got != want {
+			t.Errorf("listName(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
+// TestTreeFailedNamesTheNextStepButNotOnTheDeadline: a tree whose ps could not start
+// names `yolo check` (the call sites are pinned by the no-ps tests in blackbox_test.go),
+// and the deadline keeps its frozen bytes, with nothing appended.
+func TestTreeFailedNamesTheNextStepButNotOnTheDeadline(t *testing.T) {
+	if got := treeFailed(errors.New("exec: \"ps\": executable file not found in $PATH")); got !=
+		"tree mode failed: exec: \"ps\": executable file not found in $PATH\n"+checkHostPS {
+		t.Errorf("spawn failure = %q, want the failure and then checkHostPS", got)
+	}
+	got := treeFailed(&psTimeoutError{argv: gnuTreeArgv, secs: treeDeadlineSeconds})
+	if want := "tree mode failed: Command '['ps', '-eo', 'pid,ppid,comm,args', '--forest']' timed out after 15 seconds\n"; got != want {
+		t.Errorf("deadline = %q, want the frozen %q", got, want)
 	}
 }

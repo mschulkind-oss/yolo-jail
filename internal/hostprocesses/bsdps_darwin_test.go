@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"testing"
@@ -161,5 +162,31 @@ func TestBSDPSRealSelfCheckPasses(t *testing.T) {
 	var out strings.Builder
 	if rc := selfCheck("", dialectFor(hostOS), &out); rc != 0 || !strings.Contains(out.String(), "answers the BSD queries") {
 		t.Errorf("self-check on this Mac = %d\n%s\nwant 0 and the BSD OK line", rc, out.String())
+	}
+}
+
+// TestBSDPSRealListMatchesALongNameAsGNUDoes: this test binary's file name,
+// hostprocesses.test, is longer than the 16 bytes darwin keeps as ucomm, so the kernel
+// cut it. List mode must still find it by the FULL name, as GNU -C does on Linux.
+func TestBSDPSRealListMatchesALongNameAsGNUDoes(t *testing.T) {
+	exe, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	full := filepath.Base(exe)
+	if len(full) <= 16 {
+		t.Skipf("test binary %q is not longer than ucomm's 16 bytes", full)
+	}
+	self := strconv.Itoa(os.Getpid())
+	// The package comment's MAXCOMLEN claim. If this fails, only that wording is wrong.
+	if ucomm := realPS(t, "-o", "ucomm=", "-p", self); len(ucomm) > 16 {
+		t.Errorf("ucomm of %q = %q, longer than the 16 bytes the package comment says darwin keeps", full, ucomm)
+	}
+	ep, stop := startDaemon(t, settings(t, `{"visible":["`+full+`"],"fields":["pid","comm"]}`), "")
+	defer stop()
+	out, errOut, rc := query(t, ep, map[string]any{"mode": "list"})
+	if _, ok := rowFor(string(out), self); rc != 0 || !ok {
+		t.Errorf("list by the full name %q = rc %d out %q (stderr=%q), want rc 0 and this process's row",
+			full, rc, out, errOut)
 	}
 }

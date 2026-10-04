@@ -2,6 +2,7 @@ package hostprocesses
 
 import (
 	"context"
+	"errors"
 	"strconv"
 	"strings"
 	"time"
@@ -53,7 +54,7 @@ func handleTree(s *hostservice.Session, visible map[string]struct{}, d dialect) 
 		// "timed out" diverged from the expected bytes). A spawn failure (ps absent)
 		// is exit 1 too; a ps that RAN and exited non-zero is not an error at all, and
 		// its stdout is used below (which may be empty -> the exit-0 empty path).
-		s.Stderr("tree mode failed: " + err.Error() + "\n")
+		s.Stderr(treeFailed(err))
 		s.Exit(1)
 		return
 	}
@@ -112,12 +113,25 @@ func handleTree(s *hostservice.Session, visible map[string]struct{}, d dialect) 
 	s.Exit(0)
 }
 
+// treeFailed is tree mode's stderr for a ps it could not use, on either dialect: the
+// failure, and then the next step (checkHostPS). The one exception is the deadline,
+// whose message is frozen byte for byte (TestTreeTimeoutStderrGolden).
+func treeFailed(err error) string {
+	msg := "tree mode failed: " + err.Error() + "\n"
+	var timeout *psTimeoutError
+	if !errors.As(err, &timeout) {
+		msg += checkHostPS
+	}
+	return msg
+}
+
 // bsdTreeSnapshotArgv is the BSD tree's question about every process: pid, parent and
 // name, the name LAST for the reason bsdListSnapshotArgv gives.
 var bsdTreeSnapshotArgv = []string{"ps", "-ax", "-o", "pid=,ppid=,ucomm="}
 
 // handleTreeBSD is tree mode on BSD ps, which has no --forest, so the forest is built
-// here: the bsdTreeSnapshotArgv snapshot gives the shape and the names, every
+// here: the bsdTreeSnapshotArgv snapshot, read against the name-free pid listing
+// (bsdSnapshot), gives the shape and the names, every
 // allowlisted process and all of its descendants are kept (GNU tree mode's set), and
 // one `ps -o pid=,args= -p <kept pids>` supplies their command lines.
 //
@@ -134,18 +148,19 @@ var bsdTreeSnapshotArgv = []string{"ps", "-ax", "-o", "pid=,ppid=,ucomm="}
 // then their descendants with depth counted from pid 0.
 //
 // Failure paths are GNU's: the deadline (treeDeadlineSeconds for the whole mode) names
-// the argv that was running when it passed, a ps that could not run is exit 1, and a
-// snapshot with no rows is exit 0 with no output, as GNU's non-zero-and-empty ps is.
+// the argv that was running when it passed, a ps that could not run is exit 1 naming
+// the next step (treeFailed), and a snapshot with no rows is exit 0 with no output, as
+// GNU's non-zero-and-empty ps is.
 func handleTreeBSD(s *hostservice.Session, visible map[string]struct{}) {
 	ctx, cancel := context.WithTimeout(context.Background(), treeDeadlineSeconds*time.Second)
 	defer cancel()
-	snap, err := runPS(ctx, treeDeadlineSeconds, bsdTreeSnapshotArgv)
+	// A ps that listed nothing (unanswered) is GNU's non-zero-and-empty ps: exit 0, below.
+	procs, _, err := bsdSnapshot(ctx, treeDeadlineSeconds, bsdTreeSnapshotArgv, true)
 	if err != nil {
-		s.Stderr("tree mode failed: " + err.Error() + "\n")
+		s.Stderr(treeFailed(err))
 		s.Exit(1)
 		return
 	}
-	procs := parseBSDSnapshot(snap.stdout, true)
 	if len(procs) == 0 {
 		s.Exit(0)
 		return
@@ -161,7 +176,7 @@ func handleTreeBSD(s *hostservice.Session, visible map[string]struct{}) {
 		}
 		run, err := runPS(ctx, treeDeadlineSeconds, []string{"ps", "-o", "pid=,args=", "-p", strings.Join(pids, ",")})
 		if err != nil {
-			s.Stderr("tree mode failed: " + err.Error() + "\n")
+			s.Stderr(treeFailed(err))
 			s.Exit(1)
 			return
 		}

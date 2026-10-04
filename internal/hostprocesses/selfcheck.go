@@ -85,8 +85,8 @@ func settingsCheck(settingsPath string, out io.Writer) int {
 
 // psCheck asks the host's ps the question list mode depends on and grades the answer:
 //
-//   - BSD: the list snapshot itself (bsdListSnapshotArgv), read by the parser list mode
-//     uses, must list this process with a name.
+//   - BSD: the list snapshot itself (bsdListSnapshotArgv), read as list mode reads it
+//     (bsdSnapshot), must list this process with a name.
 //   - GNU: `ps -o pid= -C <this process's comm>` must print this pid. -C is the
 //     selector GNU list mode is built on, and the comm comes from /proc, which pid and
 //     tree mode read.
@@ -130,19 +130,22 @@ func psCheck(d dialect, out io.Writer) int {
 	return 0
 }
 
-// bsdAnswers runs a BSD snapshot and says why it is unusable, or "" when it lists pid
-// with a name.
+// bsdAnswers runs a BSD snapshot as list mode does (bsdSnapshot, so the name-free pid
+// listing too) and says why it is unusable, or "" when it lists pid with a name.
 func bsdAnswers(ctx context.Context, argv []string, pid int) string {
-	run, err := runPS(ctx, psDeadlineSeconds, argv)
+	procs, notListed, err := bsdSnapshot(ctx, psDeadlineSeconds, argv, false)
 	if err != nil {
 		return err.Error()
 	}
-	for _, p := range parseBSDSnapshot(run.stdout, false) {
+	if notListed != "" {
+		return notListed
+	}
+	for _, p := range procs {
 		if p.pid == pid && p.comm != "" {
 			return ""
 		}
 	}
-	return unanswered(run)
+	return "this process was not in its answer"
 }
 
 // gnuAnswers runs a `ps -o pid= …` selection and says why it is unusable, or "" when

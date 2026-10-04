@@ -17,6 +17,7 @@ import (
 
 	"github.com/mschulkind-oss/yolo-jail/internal/frameproto"
 	"github.com/mschulkind-oss/yolo-jail/internal/hostservice"
+	"github.com/mschulkind-oss/yolo-jail/internal/shquote"
 	"github.com/mschulkind-oss/yolo-jail/internal/svcendpoint"
 )
 
@@ -616,7 +617,7 @@ func TestBlackboxTreeMatchesAProcessBelowTheRoot(t *testing.T) {
 	if err := os.WriteFile(forest, []byte(strings.Join([]string{header, root, match, child, other}, "\n")+"\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	ps := fakePS(t, "cat "+forest+"\n")
+	ps := fakePS(t, "cat "+shquote.Quote(forest)+"\n")
 	ep, stop := startDaemon(t, settings(t, `{"visible":["sleep"]}`), ps)
 	defer stop()
 
@@ -634,17 +635,39 @@ func TestBlackboxTreeMatchesAProcessBelowTheRoot(t *testing.T) {
 // the Go-side selection and tree drawing that replace GNU's -C and --forest; the same
 // three modes against a REAL BSD ps are bsdps_darwin_test.go's, on check-macos.
 
-// bsdFake is a fake BSD ps that answers the snapshot query with snapshot and every
-// other query with other (shell code), recording each call.
+// bsdFake is a fake BSD ps that answers the snapshot query with snapshot, the
+// name-free pid listing taken before it (bsdPidListArgv) with the first field of every
+// snapshot line, and every other query with other (shell code), recording each call.
 func bsdFake(t *testing.T, snapshotArgs, snapshot, other string) string {
+	t.Helper()
+	var pids []string
+	for _, line := range strings.Split(snapshot, "\n") {
+		if f := strings.Fields(line); len(f) > 0 {
+			pids = append(pids, f[0])
+		}
+	}
+	return bsdFakeListing(t, strings.Join(pids, "\n")+"\n", snapshotArgs, snapshot, other)
+}
+
+// bsdFakeListing is bsdFake with the name-free listing GIVEN, for a snapshot carrying
+// rows that a process name forged and the kernel's own pid list does not.
+//
+// The files are named through shquote.Quote: t.TempDir() is under $TMPDIR, which may
+// hold a space, and a bare path in this shell text would then be two words.
+func bsdFakeListing(t *testing.T, pids, snapshotArgs, snapshot, other string) string {
 	t.Helper()
 	dir := t.TempDir()
 	snap := filepath.Join(dir, "snapshot.txt")
+	listing := filepath.Join(dir, "pids.txt")
 	if err := os.WriteFile(snap, []byte(snapshot), 0o644); err != nil {
 		t.Fatal(err)
 	}
+	if err := os.WriteFile(listing, []byte(pids), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	return fakePS(t, "case \"$*\" in\n"+
-		"  '"+snapshotArgs+"') cat "+snap+" ;;\n"+
+		"  '-ax -o pid=') cat "+shquote.Quote(listing)+" ;;\n"+
+		"  '"+snapshotArgs+"') cat "+shquote.Quote(snap)+" ;;\n"+
 		"  *) "+other+" ;;\n"+
 		"esac\n")
 }
@@ -666,8 +689,8 @@ func TestBlackboxBSDListModeSelectsInGo(t *testing.T) {
 		t.Errorf("BSD list = rc %d out %q, want rc 0 out %q\nstderr=%q\nps invocations: %s",
 			rc, out, want, errOut, psInvocations(ps))
 	}
-	if calls := psCalls(ps); len(calls) != 2 || calls[0] != "-ax -o pid=,ucomm=" {
-		t.Errorf("BSD list ran %q, want the snapshot and then the one streamed ps", calls)
+	if calls := psCalls(ps); len(calls) != 3 || calls[0] != "-ax -o pid=" || calls[1] != "-ax -o pid=,ucomm=" {
+		t.Errorf("BSD list ran %q, want the name-free listing, the snapshot and then the one streamed ps", calls)
 	}
 }
 
@@ -694,7 +717,7 @@ func TestBlackboxBSDListModeNoMatchIsHeaderAndExit1(t *testing.T) {
 			}
 			calls := psCalls(ps)
 			wantHeaderQuery := "-p " + strconv.Itoa(os.Getpid())
-			if len(calls) != 2 || !strings.HasSuffix(calls[1], wantHeaderQuery) {
+			if len(calls) != 3 || !strings.HasSuffix(calls[2], wantHeaderQuery) {
 				t.Errorf("header query = %q, want one ending %q, the daemon's own pid", calls, wantHeaderQuery)
 			}
 		})
@@ -733,6 +756,11 @@ func TestBlackboxBSDPidMode(t *testing.T) {
 		{"allowlisted", `printf 'sway            \n'`, 0, "ARGS: -o pid,ucomm,args -p 999999999\n", ""},
 		{"not allowlisted", `echo bash`, 2, "", "pid 999999999 has comm='bash' which is not allowlisted\n"},
 		{"not found", `exit 1`, 1, "", "pid 999999999 not found\n"},
+		// BSD ps prints ucomm raw, so a file name holding a newline prints two lines. The
+		// name is ALL of them: its first line alone would be a name the process does not
+		// have, here an allowlisted one.
+		{"newline in the name", `printf 'sway\nx               \n'`, 2, "",
+			"pid 999999999 has comm='sway\\nx' which is not allowlisted\n"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			// The lookup gets tc.answer; the streamed query echoes its argv.
@@ -786,7 +814,7 @@ func TestBlackboxBSDTreeBuildsTheForest(t *testing.T) {
 			rc, out, want, errOut, psInvocations(ps))
 	}
 	calls := psCalls(ps)
-	if wantCalls := []string{"-ax -o pid=,ppid=,ucomm=", "-o pid=,args= -p 100,101,102,103,104"}; !reflect.DeepEqual(calls, wantCalls) {
+	if wantCalls := []string{"-ax -o pid=", "-ax -o pid=,ppid=,ucomm=", "-o pid=,args= -p 100,101,102,103,104"}; !reflect.DeepEqual(calls, wantCalls) {
 		t.Errorf("BSD tree ran %q, want %q — args are asked for the kept pids and no others", calls, wantCalls)
 	}
 }
@@ -804,8 +832,8 @@ func TestBlackboxBSDTreeEdges(t *testing.T) {
 		if rc != 0 || string(out) != "PID PPID UCOMM ARGS\n" {
 			t.Errorf("no match = rc %d out %q, want rc 0 and the header alone", rc, out)
 		}
-		if calls := psCalls(ps); len(calls) != 1 {
-			t.Errorf("no match ran %q, want the snapshot alone", calls)
+		if calls := psCalls(ps); len(calls) != 2 {
+			t.Errorf("no match ran %q, want the name-free listing and the snapshot alone", calls)
 		}
 	})
 	t.Run("empty snapshot", func(t *testing.T) {
@@ -819,19 +847,178 @@ func TestBlackboxBSDTreeEdges(t *testing.T) {
 	})
 }
 
-// TestBlackboxBSDWithNoPSSaysWhatToDo: when the BSD arm cannot run ps at all, list and
-// pid mode fail with exit 1, say so, and name the next step, `yolo check` on the host,
+// TestBlackboxBSDWithNoPSSaysWhatToDo: when the BSD arm cannot run ps at all, every
+// mode fails with exit 1, says so, and names the next step, `yolo check` on the host,
 // whose self-check asks the same ps the same question.
 func TestBlackboxBSDWithNoPSSaysWhatToDo(t *testing.T) {
 	withHostOS(t, "darwin")
 	t.Setenv("PATH", t.TempDir())
 	ep, stop := startDaemon(t, settings(t, `{"visible":["sway"]}`), "")
 	defer stop()
-	for _, req := range []map[string]any{{"mode": "list"}, {"mode": "pid", "pid": 1}} {
+	for _, req := range []map[string]any{{"mode": "list"}, {"mode": "pid", "pid": 1}, {"mode": "tree"}} {
 		_, errOut, rc := query(t, ep, req)
 		want := req["mode"].(string) + " mode failed: "
 		if rc != 1 || !strings.HasPrefix(string(errOut), want) || !strings.Contains(string(errOut), "`yolo check` on the host") {
 			t.Errorf("%v with no ps = rc %d stderr %q, want rc 1, %q and the next step", req, rc, errOut, want)
 		}
+	}
+}
+
+// TestBlackboxBSDTreeArgsFailureSaysWhatToDo: the BSD tree's second ps, the args query,
+// names the same next step when it cannot start. The fake deletes itself once it has
+// answered the snapshot, so that query finds no ps.
+func TestBlackboxBSDTreeArgsFailureSaysWhatToDo(t *testing.T) {
+	withHostOS(t, "darwin")
+	ps := bsdFake(t, "-ax -o pid=,ppid=,ucomm=", "    1     0 launchd\n  100     1 sway\n", "echo unexpected")
+	snapshotThenGone := "case \"$*\" in\n  '-ax -o pid=,ppid=,ucomm=') rm -f \"$0\" ;;\nesac\n"
+	script := filepath.Join(ps, "ps")
+	b, err := os.ReadFile(script)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Appended, so it runs after the case statement has printed the snapshot.
+	if err := os.WriteFile(script, append(b, snapshotThenGone...), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// PATH is the fake and the two tools it runs, and nothing else, so that once the
+	// fake is gone no other ps can answer in its place.
+	tools := t.TempDir()
+	for _, tool := range []string{"cat", "rm"} {
+		real, err := exec.LookPath(tool)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Symlink(real, filepath.Join(tools, tool)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	t.Setenv("PATH", ps+":"+tools)
+	ep, stop := startDaemon(t, settings(t, `{"visible":["sway"]}`), "")
+	defer stop()
+	_, errOut, rc := query(t, ep, map[string]any{"mode": "tree"})
+	if rc != 1 || !strings.HasPrefix(string(errOut), "tree mode failed: ") ||
+		!strings.Contains(string(errOut), "`yolo check` on the host") {
+		t.Errorf("BSD tree whose args query finds no ps = rc %d stderr %q, want rc 1, the failure "+
+			"and the next step\nps invocations: %s", rc, errOut, psInvocations(ps))
+	}
+}
+
+// TestBlackboxTreeWithNoPSSaysWhatToDo is the GNU twin of the tree case above: a tree
+// whose ps cannot be started names the same next step. (List and pid mode stream their
+// ps through hostservice, which words its own spawn failure.)
+func TestBlackboxTreeWithNoPSSaysWhatToDo(t *testing.T) {
+	withHostOS(t, "linux")
+	t.Setenv("PATH", t.TempDir())
+	ep, stop := startDaemon(t, settings(t, `{"visible":["sway"]}`), "")
+	defer stop()
+	_, errOut, rc := query(t, ep, map[string]any{"mode": "tree"})
+	if rc != 1 || !strings.HasPrefix(string(errOut), "tree mode failed: ") ||
+		!strings.Contains(string(errOut), "`yolo check` on the host") {
+		t.Errorf("GNU tree with no ps = rc %d stderr %q, want rc 1, the failure and the next step", rc, errOut)
+	}
+}
+
+// TestBlackboxBSDForgedRowsSelectNothing is the regression for a process name that
+// writes rows into a BSD snapshot. BSD ps prints ucomm RAW (adv_cmds print.c, ucomm()),
+// and darwin takes it from the executable's file name, which may hold a newline: a
+// process run from a file named "a\n600 sway" prints a second line that claims pid 600
+// is called sway. On macos-user the agent's own processes are in the host's `ps -ax`, so
+// without this defense it could have the host stream any process's command line, the
+// very thing Seatbelt denies it. Each case failed on ebd1ce7cf by selecting the forged
+// pid. The secret-holder's pid must reach no ps the daemon runs after the snapshot; it
+// is above every kernel's pid ceiling, so it can never be the daemon's own.
+func TestBlackboxBSDForgedRowsSelectNothing(t *testing.T) {
+	withHostOS(t, "darwin")
+	for _, tc := range []struct {
+		name, mode, snapshotArgs, pids, snapshot, want string
+		rc                                             int
+		victim                                         string
+	}{
+		{
+			// pid 9000600 is on two rows. The kernel holds a pid once, so one is forged.
+			name: "list, a second row for a live pid", mode: "list", snapshotArgs: "-ax -o pid=,ucomm=",
+			pids:     "1\n500\n9000600\n",
+			snapshot: "    1 launchd\n  500 a\n9000600 sway       \n  9000600 secret-holder\n",
+			rc:       1, victim: "9000600",
+		},
+		{
+			// pid 9000700 is on one row, but no process held it when the name-free listing
+			// ran: whatever is born at 9000700 before the next ps would be shown.
+			name: "list, a row for a pid nobody holds", mode: "list", snapshotArgs: "-ax -o pid=,ucomm=",
+			pids:     "1\n500\n",
+			snapshot: "    1 launchd\n  500 a\n9000700 sway       \n",
+			rc:       1, victim: "9000700",
+		},
+		{
+			// The forged row renames launchd, so every process on the machine would be
+			// kept as its descendant and have its args asked for.
+			name: "tree, a second row for launchd", mode: "tree", snapshotArgs: "-ax -o pid=,ppid=,ucomm=",
+			pids:     "1\n400\n500\n9000600\n",
+			snapshot: "    1     0 launchd\n  400     1 zsh\n  500   400 a\n1 0 sway      \n  9000600     1 secret-holder\n",
+			want:     "PID PPID UCOMM ARGS\n", victim: "9000600",
+		},
+		{
+			name: "tree, a row for a pid nobody holds", mode: "tree", snapshotArgs: "-ax -o pid=,ppid=,ucomm=",
+			pids:     "1\n500\n",
+			snapshot: "    1     0 launchd\n  500     1 a\n9000700 1 sway      \n",
+			want:     "PID PPID UCOMM ARGS\n", victim: "9000700",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			// Every later query answers as if the victim existed, with its secret.
+			ps := bsdFakeListing(t, tc.pids, tc.snapshotArgs, tc.snapshot,
+				`printf '  PID UCOMM\n  '`+tc.victim+`' secret-holder --token=hunter2\n'`)
+			ep, stop := startDaemon(t, settings(t, `{"visible":["sway"]}`), ps)
+			defer stop()
+			out, errOut, rc := query(t, ep, map[string]any{"mode": tc.mode})
+			if rc != tc.rc || strings.Contains(string(out), "hunter2") || (tc.mode == "tree" && string(out) != tc.want) {
+				t.Errorf("%s = rc %d out %q (stderr=%q), want rc %d and no forged pid shown",
+					tc.mode, rc, out, errOut, tc.rc)
+			}
+			calls := psCalls(ps)
+			if len(calls) < 2 || calls[0] != "-ax -o pid=" || calls[1] != tc.snapshotArgs {
+				t.Errorf("ps ran %q, want the name-free listing and then the snapshot", calls)
+			}
+			for _, c := range calls[min(2, len(calls)):] {
+				for _, tok := range strings.FieldsFunc(c, func(r rune) bool { return r == ' ' || r == ',' }) {
+					if tok == tc.victim {
+						t.Errorf("ps was asked about the forged pid %s: %q", tc.victim, c)
+					}
+				}
+			}
+		})
+	}
+}
+
+// TestBlackboxBSDListModeMatchesLongNamesAsGNUDoes: GNU list mode's -C matches a name of
+// 15 bytes or more on its first 15 (procps-ng 4.0.7, measured 2026-10-04), so the BSD
+// list compares the first 15 bytes of both names. The full program name, the 15 bytes a
+// Linux ps shows and the 16 a Mac's ps shows all find `chrome-devtools-mcp`, whose ucomm
+// is `chrome-devtools-`; a shorter name still matches whole (`sway` is not `swayidle`).
+func TestBlackboxBSDListModeMatchesLongNamesAsGNUDoes(t *testing.T) {
+	withHostOS(t, "darwin")
+	snapshot := "  101 chrome-devtools-\n  102 chrome-devtools\n  103 chrome-devtoolX\n  104 swayidle\n  105 sway\n"
+	for _, tc := range []struct{ name, visible, pids string }{
+		{"the full name", `"chrome-devtools-mcp"`, "101,102"},
+		{"what Linux shows", `"chrome-devtools"`, "101,102"},
+		{"what a Mac shows", `"chrome-devtools-"`, "101,102"},
+		{"a short name is whole", `"sway"`, "105"},
+		{"fourteen bytes is whole", `"chrome-devtool"`, ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ps := bsdFake(t, "-ax -o pid=,ucomm=", snapshot, `echo "ARGS: $*"`)
+			ep, stop := startDaemon(t, settings(t, `{"visible":[`+tc.visible+`],"fields":["pid"]}`), ps)
+			defer stop()
+			out, errOut, rc := query(t, ep, map[string]any{"mode": "list"})
+			if tc.pids == "" {
+				if rc != 1 {
+					t.Errorf("list %s = rc %d out %q, want rc 1 (no match)", tc.visible, rc, out)
+				}
+				return
+			}
+			if want := "ARGS: -o pid -p " + tc.pids + "\n"; rc != 0 || string(out) != want {
+				t.Errorf("list %s = rc %d out %q (stderr=%q), want rc 0 out %q", tc.visible, rc, out, errOut, want)
+			}
+		})
 	}
 }

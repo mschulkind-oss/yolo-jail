@@ -22,6 +22,10 @@
 //   - pid: the name comes from `ps -o ucomm= -p <pid>` instead of /proc/<pid>/comm.
 //   - tree: handleTreeBSD.
 //
+// Every snapshot is read against a name-free `ps -ax -o pid=` taken just before it,
+// because BSD ps prints a process's name raw, and a name holding a newline can forge a
+// row for another pid (bsdSnapshot).
+//
 // Which arm runs is hostOS, which is runtime.GOOS unless a test sets it, and
 // BuildHandler reads it once. So a Linux test drives the BSD arm against a fake ps,
 // and that arm is compiled, vetted and tested on every platform rather than only on
@@ -39,9 +43,19 @@
 // process was started by one (`/bin/sleep` where ucomm says `sleep`, which
 // bsdps_darwin_test.go asserts), and `(<p_comm>)` when ps may not read the process's
 // arguments. Matching on it would make the same program match or miss depending on
-// how it was started and by whom. Matching is exact, as it is on Linux, so a name
-// longer than 16 bytes is written truncated to 16, just as a Linux pid-mode name
-// longer than 15 is written truncated to 15.
+// how it was started and by whom.
+//
+// Each mode compares names the way its GNU twin does. GNU list mode selects with `-C`,
+// which matches a name of 15 bytes or more on its first 15 (procps-ng 4.0.7, measured
+// 2026-10-04: `-C abcdefghijklmnoZZZ` finds a process whose comm is `abcdefghijklmno`),
+// so BSD list mode compares the first 15 bytes of both names (listName). A name written
+// for Linux list mode therefore finds the same program on a Mac, and so do the full
+// program name and the 16 bytes a Mac's ps shows: `chrome-devtools`,
+// `chrome-devtools-` and `chrome-devtools-mcp` all find the program whose ucomm is
+// `chrome-devtools-`. Pid and tree mode compare the whole name on both, as Linux
+// compares /proc/<pid>/comm, so there a long name is written as the host's kernel cut
+// it: 15 bytes on Linux, 16 on a Mac. A program that names itself differently on the
+// two (node's Linux task name is `MainThread`) needs both names.
 //
 // For the same reason a `comm` in `fields` is DISPLAYED as `ucomm` on darwin
 // (bsdFields), so the column shows the name the allowlist matched, the short name
@@ -115,6 +129,25 @@ const psDeadlineSeconds = 30
 // its pid and its name, and nothing else. The name is last because a ucomm may contain
 // spaces, so it can only be read as the rest of the line.
 var bsdListSnapshotArgv = []string{"ps", "-ax", "-o", "pid=,ucomm="}
+
+// bsdPidListArgv lists every process by its pid ALONE: a column of numbers, which no
+// process can write into, so it is the one BSD answer a process name cannot forge. Every
+// snapshot is read against it (bsdSnapshot).
+var bsdPidListArgv = []string{"ps", "-ax", "-o", "pid="}
+
+// gnuCommMatchLen is how many leading bytes GNU `-C` compares: the 15 a Linux task name
+// keeps (TASK_COMM_LEN less its NUL). BSD list mode compares the same (listName).
+const gnuCommMatchLen = 15
+
+// listName is a name as list mode compares it, on BSD: its first gnuCommMatchLen bytes,
+// which is how GNU `-C` compares a name with a comm (see the package comment). Both the
+// allowlisted name and the process's ucomm go through it.
+func listName(name string) string {
+	if len(name) > gnuCommMatchLen {
+		return name[:gnuCommMatchLen]
+	}
+	return name
+}
 
 // Config is the resolved settings this daemon runs on.
 type Config struct {
@@ -382,27 +415,28 @@ func handleList(s *hostservice.Session, visible map[string]struct{}, fields []st
 func handleListBSD(s *hostservice.Session, visible map[string]struct{}, fields []string) {
 	ctx, cancel := context.WithTimeout(context.Background(), psDeadlineSeconds*time.Second)
 	defer cancel()
-	snap, err := runPS(ctx, psDeadlineSeconds, bsdListSnapshotArgv)
+	procs, notListed, err := bsdSnapshot(ctx, psDeadlineSeconds, bsdListSnapshotArgv, false)
 	if err != nil {
 		s.Stderr("list mode failed: " + err.Error() + "\n" + checkHostPS)
 		s.Exit(1)
 		return
 	}
-	procs := parseBSDSnapshot(snap.stdout, false)
-	if len(procs) == 0 && snap.rc != 0 {
+	if notListed != "" {
 		// `ps -ax` lists at least the daemon itself, so an empty answer with a failing
 		// status is a ps that could not do the one thing this mode needs. Said here,
 		// because the next step would turn it into a bare exit 1 with no output.
-		s.Stderr("list mode failed: " + pyReprStrList(bsdListSnapshotArgv) + " exited " +
-			strconv.Itoa(snap.rc) + " without listing a process: " +
-			strings.TrimSpace(string(snap.stderr)) + "\n" + checkHostPS)
+		s.Stderr("list mode failed: " + notListed + "\n" + checkHostPS)
 		s.Exit(1)
 		return
 	}
 	joined := strings.Join(bsdFields(fields), ",")
+	names := map[string]struct{}{}
+	for name := range visible {
+		names[listName(name)] = struct{}{}
+	}
 	var pids []string
 	for _, p := range procs {
-		if _, ok := visible[p.comm]; ok {
+		if _, ok := names[listName(p.comm)]; ok {
 			pids = append(pids, strconv.Itoa(p.pid))
 		}
 	}
@@ -516,8 +550,12 @@ func commOf(d dialect, pid int) (comm string, found bool, err error) {
 	}
 	// A pid BSD ps does not know prints nothing and exits 1, which is the not-found
 	// answer, so the status is not consulted: an empty name is.
-	first, _, _ := strings.Cut(string(run.stdout), "\n")
-	comm = strings.TrimSpace(first)
+	//
+	// The name is ALL of the output, not its first line. BSD ps prints ucomm raw, and a
+	// file name may hold a newline, so the first line of `sway\nx` is a name the process
+	// does not have; whole, it matches nothing, as exactly as Linux compares
+	// /proc/<pid>/comm.
+	comm = strings.TrimSpace(string(run.stdout))
 	return comm, comm != "", nil
 }
 
@@ -580,10 +618,77 @@ type bsdProc struct {
 	comm      string // ucomm
 }
 
+// bsdSnapshot runs a BSD snapshot (bsdListSnapshotArgv or bsdTreeSnapshotArgv) and
+// returns the rows it can believe, sorted by pid.
+//
+// A PROCESS NAME CAN WRITE ROWS INTO A BSD SNAPSHOT. BSD ps prints ucomm raw (adv_cmds
+// print.c, ucomm(): a bare printf of p_comm, where args and comm go through strvis),
+// and darwin copies p_comm from the executable's file name, which may hold a newline. A
+// process run from a file named "a\n600 sway" therefore prints its own row, `500 a`
+// when its pid is 500, and then a line claiming that pid 600 is called sway. On macos-user the agent's own processes are in
+// the host's `ps -ax`, so a believed forged row would have the host show it any
+// process's command line, the very thing Seatbelt denies it. GNU procps escapes control
+// characters, so the GNU arm has no such row.
+//
+// Two rules leave a forged row nothing to select:
+//
+//   - a pid on two rows is dropped, both rows (parseBSDSnapshot): the kernel holds a pid
+//     once, so one row is forged, and nothing tells which.
+//   - a pid the name-free listing (bsdPidListArgv), taken just BEFORE the snapshot, did
+//     not hold is dropped. Otherwise a forged row could name a pid nobody holds, and
+//     select whatever process is born there before the next ps runs. Since darwin hands
+//     out pids in sequence, a pid freed between the two listings comes back only after
+//     the whole pid space wraps.
+//
+// A process born between the two listings is missed by this request; the next one sees
+// it. The process that forged the rows keeps its own first line, a name it chose, which
+// shows nothing it could not show by naming a file `sway`.
+//
+// err is runPS's: a ps that could not start or overran the deadline (secs names it).
+// notListed is set when a ps listed no process and exited non-zero, and says which and
+// how; procs is then empty.
+func bsdSnapshot(ctx context.Context, secs int, argv []string, withPPID bool) (procs []bsdProc, notListed string, err error) {
+	listing, err := runPS(ctx, secs, bsdPidListArgv)
+	if err != nil {
+		return nil, "", err
+	}
+	listed := map[int]bool{}
+	for _, line := range strings.Split(string(listing.stdout), "\n") {
+		pidTok, _ := cutField(line)
+		if pid, err := strconv.Atoi(pidTok); err == nil {
+			listed[pid] = true
+		}
+	}
+	if len(listed) == 0 && listing.rc != 0 {
+		return nil, notListing(bsdPidListArgv, listing), nil
+	}
+	snap, err := runPS(ctx, secs, argv)
+	if err != nil {
+		return nil, "", err
+	}
+	rows := parseBSDSnapshot(snap.stdout, withPPID)
+	if len(rows) == 0 && snap.rc != 0 {
+		return nil, notListing(argv, snap), nil
+	}
+	for _, p := range rows {
+		if listed[p.pid] {
+			procs = append(procs, p)
+		}
+	}
+	return procs, "", nil
+}
+
+// notListing says that the ps argv ran, exited non-zero and listed no process.
+func notListing(argv []string, run psRun) string {
+	return pyReprStrList(argv) + " exited " + strconv.Itoa(run.rc) + " without listing a process: " +
+		strings.TrimSpace(string(run.stderr))
+}
+
 // parseBSDSnapshot reads the rows of bsdListSnapshotArgv (withPPID false) or
 // bsdTreeSnapshotArgv (withPPID true), sorted by pid. The name is the REST of each
 // line, trimmed, because it is the last column and may contain spaces. A row whose
-// numbers do not parse is skipped, never guessed at.
+// numbers do not parse is skipped, never guessed at, and a pid on two rows is dropped
+// with both of them: one is a row a process name forged (bsdSnapshot says how).
 func parseBSDSnapshot(out []byte, withPPID bool) []bsdProc {
 	var procs []bsdProc
 	for _, line := range strings.Split(string(out), "\n") {
@@ -603,8 +708,18 @@ func parseBSDSnapshot(out []byte, withPPID bool) []bsdProc {
 		p.comm = strings.TrimSpace(rest)
 		procs = append(procs, p)
 	}
-	sort.Slice(procs, func(i, j int) bool { return procs[i].pid < procs[j].pid })
-	return procs
+	rows := map[int]int{}
+	for _, p := range procs {
+		rows[p.pid]++
+	}
+	var unique []bsdProc
+	for _, p := range procs {
+		if rows[p.pid] == 1 {
+			unique = append(unique, p)
+		}
+	}
+	sort.Slice(unique, func(i, j int) bool { return unique[i].pid < unique[j].pid })
+	return unique
 }
 
 // cutField returns the first whitespace-separated field of s and everything after the
