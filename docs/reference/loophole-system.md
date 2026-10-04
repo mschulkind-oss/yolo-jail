@@ -378,9 +378,14 @@ will honor, so the claim set and the effect cannot disagree. The strict read bel
 ### Two module-dir tokens, and value sanitation
 
 `{loophole_dir}` resolves **host-side** to the staged module directory;
-`{jail_loophole_dir}` resolves to the container path the module directory is mounted at.
-Two tokens rather than one, each **refused in the wrong half at load**, because one token
-with two resolutions is the kind of asymmetry an author discovers by debugging.
+`{jail_loophole_dir}` resolves to the module directory **where the jail sees it**: in a container,
+the path the module directory is mounted at; on `macos-user`, its place in the sandbox's
+root-owned copy of the launch's staged packs, which keeps each file's exec bit
+([JD-10](../design/jail-daemon-on-macos-user-plan.md#JD-10)). Two tokens rather than one, each
+**refused in the wrong half at load**, because one token with two resolutions is the kind of
+asymmetry an author discovers by debugging; the jail token's per-backend place is one meaning
+(the jail's copy of the module directory), not two. The `macos-user` guest declines a daemon whose
+program there is a Linux executable, since the sandbox runs macOS programs.
 
 **Every value that feeds a claim is sanitized at load**, not escaped at display: control
 characters, DEL, the C1 range and invalid UTF-8 are refused in every field a claim is built
@@ -439,8 +444,9 @@ one. What each missing piece produces:
 
 The jail receives each build as **one read-only file bind**, never the cache directory, and the
 file carries the exec bit the pack's tree could not. The `macos-user` guest declines a jail
-daemon whose argv names a jail binary, as it declines `{jail_loophole_dir}`: that path exists
-only in a container. A host binary runs there as it does anywhere.
+daemon whose argv names a jail binary: that path exists only in a container, and the build is a
+Linux one (placing a darwin build there is deferred, [BP-D6](../design/broker-as-a-pack.md#BP-D6)).
+A host binary runs there as it does anywhere.
 
 **No pack yolo ships declares `binaries` yet.** When one does, yolo's own release builds the
 program from `cmd/<name>` for each platform the release ships `yolo` to that the loophole runs
@@ -954,10 +960,11 @@ only place the values themselves are stated.
 | Retired manifest key (recognized, refused) | `enabled` | `loopholedecl.RetiredKeyEnabled` |
 | User's switch | `loopholes.<name>.enabled`, either scope, or the per-workspace file, which merges last; a brokered loophole's, the per-workspace file alone (added 2026-10-01) | `loopholes.ConfigEnabledOverride`, `config.WorkspaceFilePath` |
 | Setting scopes, and the default | `user` (default), `workspace` | `loopholedecl.SettingScopeUser`, `SettingScopeWorkspace`, `DefaultSettingScope` |
-| Module-dir tokens | `{loophole_dir}` (host), `{jail_loophole_dir}` (container) | `loopholedecl.TokenLoopholeDir`, `TokenJailLoopholeDir`; substituted in `internal/loopholes/load.go` |
+| Module-dir tokens | `{loophole_dir}` (host), `{jail_loophole_dir}` (the jail's copy: the container mount point, or on `macos-user` the module dir under the sandbox's staged-pack copy) | `loopholedecl.TokenLoopholeDir`, `TokenJailLoopholeDir`; substituted in `internal/loopholes/load.go`, and placed for `macos-user` by `loopholes.JailDaemonSpec.InGuest` |
 | Sources, in precedence order | `pack` < `config` | `loopholes.SourcePack`, `SourceConfig` |
 | Retired discovery directory (named only by the migration notice) | `~/.local/share/yolo-jail/loopholes/` | `loopholes.RetiredUserLoopholesDir` |
 | Module-dir mount point in the jail | `/etc/yolo-jail/loopholes/<name>` | `loopholedecl.JailLoopholeDir` |
+| The module dir in the `macos-user` sandbox (added 2026-10-04) | under `/var/yolo-jail/packs/<jail name>/`, at its path relative to the launch's staged pack tree | `macosuser.StagedPackRoot`; placed by `run.placeModuleDirsInGuest` |
 | Binary tokens (added 2026-09-30) | `{binary:<name>}` (host), `{jail_binary:<name>}` (container) | `loopholedecl.TokenBinary`, `TokenJailBinary`; substituted in `internal/loopholes/load.go` |
 | A jail binary's mount point (added 2026-09-30) | `/etc/yolo-jail/loophole-binaries/<loophole>/<name>` | `loopholedecl.JailBinaryPath` |
 | The downloaded-binary cache, and a build's mode (added 2026-09-30) | `<global storage>/pack-binaries/<sha256>/<name>`, `0555` | `paths.PackBinariesDir`, `packbin.Path` |

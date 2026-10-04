@@ -230,6 +230,11 @@ type Options struct {
 	// yolo does not ship, or an argv not naming `yolo`), so each is judged as the jail daemon it
 	// also is. Read by the one disclosure that says so (noteRefusedDoorways). nil when none.
 	refusedDoorways []launchservice.RefusedDoorway
+	// refusedServiceHosts are the pack services whose host half the last jail-daemon payload this
+	// process composed did not admit (launchservice.AdmitServiceHosts: a pack yolo does not ship,
+	// or an argv not naming `yolo`), so each is judged as the jail daemon it also is. Read by the
+	// one disclosure that says so (noteRefusedServiceHosts). nil when none.
+	refusedServiceHosts []launchservice.RefusedDoorway
 	// launchDoorways are the DOORWAYS this macos-user launch opens outside its sandbox as
 	// launch-owned listeners (macosuserdoorways.go, docs/design/host-notch-services.md HS-D15),
 	// planned from the payload at the served addresses and caller tokens the channel composed.

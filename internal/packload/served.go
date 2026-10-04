@@ -237,22 +237,6 @@ func (s ServedDaemons) Plus(o ServedDaemons) ServedDaemons {
 	return out
 }
 
-// ServiceJailDaemonNames is the name of every selected pack service that declares a jail
-// daemon, sorted: the services a container launch's payload runs. A service with no jail
-// daemon runs nowhere in this build. A name two packs declare is listed once, and only when the
-// declaration holding it (HeldServices, the later one) declares a daemon, as the payload runs it.
-func ServiceJailDaemonNames(packs []*Pack) []string {
-	var out []string
-	held, _ := HeldServices(packs)
-	for _, h := range held {
-		if s := h.Service; s.JailDaemon != nil && len(s.JailDaemon.Cmd) > 0 {
-			out = append(out, s.Name)
-		}
-	}
-	sort.Strings(out)
-	return out
-}
-
 // Serves reports whether the jail daemon named name is served at this notch.
 func (s ServedDaemons) Serves(name string) bool { return s.runs && name != "" && s.names[name] }
 

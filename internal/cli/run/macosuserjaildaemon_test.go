@@ -17,6 +17,7 @@ package run
 
 import (
 	"bytes"
+	"errors"
 	"go/ast"
 	"go/parser"
 	"go/token"
@@ -26,9 +27,14 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/hostfloor/floortest"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
+	"github.com/mschulkind-oss/yolo-jail/internal/launchservice"
+	"github.com/mschulkind-oss/yolo-jail/internal/loopholedecl"
+	"github.com/mschulkind-oss/yolo-jail/internal/loopholes"
 	"github.com/mschulkind-oss/yolo-jail/internal/macosuser"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
+	"github.com/mschulkind-oss/yolo-jail/internal/runtime"
 	"github.com/mschulkind-oss/yolo-jail/internal/supervisor"
 	"github.com/mschulkind-oss/yolo-jail/internal/svcendpoint"
 )
@@ -177,8 +183,9 @@ func TestMacosUserBareClaudeOpensTheOpenAIDoorwayOutsideAndDeclinesTheRestByName
 	}
 }
 
-// A pack SERVICE's jail_daemon is declined by name, with the reason: on this backend a pack
-// service runs its host half (OQ-NC1 A), never its jail daemon.
+// A pack SERVICE's jail_daemon that publishes an endpoint file is declined by name, with the
+// reason: the file's path is a container one the sandbox has no counterpart of
+// (docs/design/jail-daemon-on-macos-user-plan.md JD-9).
 func TestMacosUserDeclinesAServiceJailDaemonByName(t *testing.T) {
 	home := packHome(t)
 	ws := t.TempDir()
@@ -191,7 +198,7 @@ func TestMacosUserDeclinesAServiceJailDaemonByName(t *testing.T) {
 	if got.rc != 0 {
 		t.Fatalf("Run() = %d, want 0\n%s", got.rc, got.out)
 	}
-	if !strings.Contains(got.out, "acme-bridge: yolo-jaild acme-bridge — a pack service runs its host half") {
+	if !strings.Contains(got.out, "acme-bridge: yolo-jaild acme-bridge — it publishes its endpoint file at /run/yolo-services/acme-bridge.endpoint") {
 		t.Errorf("a pack SERVICE's jail daemon is not declined by name with its reason:\n%s", got.out)
 	}
 	if len(payloadOf(t, got.jailDaemons)) != 0 {
@@ -231,7 +238,7 @@ func TestMacosUserDryRunDescribesTheGuestDaemonsToo(t *testing.T) {
 		"jail_daemon": {"cmd": ["yolo-jaild", "acme-adapter"]}}`)
 	writeLocalPackJSON(t, home, `{"contributes": [
 		{"kind": "loophole", "from": "loopholes/acme-proxy"},
-		{"kind": "service", "name": "acme-bridge",
+		{"kind": "service", "name": "acme-bridge", "endpoint": "acme-bridge.endpoint",
 		 "jail_daemon": {"cmd": ["yolo-jaild", "acme-bridge"]}}]}`)
 	writeUserConfigJSON(t, home, `{"packs": []}`)
 
@@ -253,6 +260,181 @@ func TestMacosUserDryRunDescribesTheGuestDaemonsToo(t *testing.T) {
 	}
 	if specs := payloadOf(t, handed); len(specs) != 1 || specs[0].Name != "acme-proxy" {
 		t.Errorf("the plan render was handed %+v, want the acme-proxy guest daemon", specs)
+	}
+}
+
+// A PACK SERVICE WITH NO HOST HALF RUNS IN THE GUEST, as a container runs it (OQ-DP8; JD-9). It
+// used to be declined as "a pack service runs its host half on this backend instead" although it
+// has none, so it ran nowhere. Restoring a bare Service decline in the guest split fails this.
+func TestMacosUserRunsAJailDaemonOnlyServiceInTheGuest(t *testing.T) {
+	home := packHome(t)
+	ws := t.TempDir()
+	writeLocalPackJSON(t, home, `{"contributes": [{"kind": "service", "name": "acme-svc",
+		"jail_daemon": {"cmd": ["acme-svc", "--serve"]}}]}`)
+	writeUserConfigJSON(t, home, `{"packs": []}`)
+
+	got := macosUserLaunch(t, ws)
+	if got.rc != 0 {
+		t.Fatalf("Run() = %d, want 0\n%s", got.rc, got.out)
+	}
+	specs := payloadOf(t, got.jailDaemons)
+	if len(specs) != 1 || specs[0].Name != "acme-svc" || strings.Join(specs[0].Cmd, " ") != "acme-svc --serve" {
+		t.Fatalf("the guest was handed %+v, want the acme-svc jail daemon as declared\n%s", specs, got.out)
+	}
+	if strings.Contains(got.out, "Declined: these jail daemons") {
+		t.Errorf("a service the guest runs was declined:\n%s", got.out)
+	}
+	dv, _ := got.jailDaemons.Env.Get("YOLO_SERVICE_ACME_SVC_TOKEN")
+	if tok, _ := dv.(string); !svcendpoint.IsToken(tok) {
+		t.Errorf("the service's caller token did not reach the supervisor: %v", dv)
+	}
+}
+
+// A HOST HALF FROM A PACK YOLO DOES NOT SHIP NEVER RUNS (OQ-HS4), so the service's jail daemon
+// runs in the guest instead, confined, and the launch says so. The service serves an adaptation,
+// the shape whose admitted host half the guest defers to: deleting AdmitServiceHosts from
+// jailDaemonsFor fails this, because the guest then declines the daemon for a host half that
+// never starts.
+func TestMacosUserRunsAServiceInTheGuestWhenItsHostHalfIsNotAdmitted(t *testing.T) {
+	home := packHome(t)
+	ws := t.TempDir()
+	writeLocalPackJSON(t, home, `{"contributes": [
+		{"kind": "adapter", "adapts": {"from": "openai", "to": "anthropic"}, "address": "http://127.0.0.1:8299"},
+		{"kind": "service", "name": "acme-svc", "jail_daemon": {"cmd": ["acme-svc"]},
+		 "host_daemon": {"cmd": ["yolo", "internal", "daemon", "acme-svc"]}}]}`)
+	writeUserConfigJSON(t, home, `{"packs": []}`)
+
+	got := macosUserLaunch(t, ws)
+	if got.rc != 0 {
+		t.Fatalf("Run() = %d, want 0\n%s", got.rc, got.out)
+	}
+	if specs := payloadOf(t, got.jailDaemons); len(specs) != 1 || specs[0].Name != "acme-svc" {
+		t.Fatalf("the guest was handed %+v, want the acme-svc jail daemon\n%s", specs, got.out)
+	}
+	if !strings.Contains(got.out, `Not started outside the sandbox: the "acme-svc" service's host half (pack "local")`) ||
+		!strings.Contains(got.out, "not one yolo ships") ||
+		!strings.Contains(got.out, "Its jail daemon runs in the sandbox instead.") {
+		t.Errorf("the refused host half is not disclosed with why and where its daemon runs:\n%s", got.out)
+	}
+	if strings.Contains(got.out, "Declined: these jail daemons") {
+		t.Errorf("the guest declined a daemon it runs:\n%s", got.out)
+	}
+}
+
+// A PURE WORKER RUNS IN THE GUEST: a held service that publishes no endpoint (packdecl's word for
+// one) and serves no adaptation, so its host half has no pairing to serve on this backend and is
+// not started, and its jail half runs confined, as a container runs it (JD-9: confinement
+// preferred). Declared with both halves, as a worker may be.
+func TestMacosUserRunsAPureWorkerInTheGuest(t *testing.T) {
+	home := packHome(t)
+	ws := t.TempDir()
+	writeLocalPackJSON(t, home, `{"contributes": [{"kind": "service", "name": "acme-worker",
+		"jail_daemon": {"cmd": ["acme-worker", "--queue", "jobs"]},
+		"host_daemon": {"cmd": ["yolo", "internal", "daemon", "acme-worker"]}}]}`)
+	writeUserConfigJSON(t, home, `{"packs": []}`)
+	starts := 0
+	prev := startMacosUserService
+	startMacosUserService = func(*launchservice.Plan, map[string]string) (launchedService, string, error) {
+		starts++
+		return nil, "", errors.New("a pure worker's host half was started")
+	}
+	t.Cleanup(func() { startMacosUserService = prev })
+
+	got := macosUserLaunch(t, ws)
+	if got.rc != 0 {
+		t.Fatalf("Run() = %d, want 0\n%s", got.rc, got.out)
+	}
+	specs := payloadOf(t, got.jailDaemons)
+	if len(specs) != 1 || strings.Join(specs[0].Cmd, " ") != "acme-worker --queue jobs" {
+		t.Fatalf("the guest was handed %+v, want the worker's jail half as declared\n%s", specs, got.out)
+	}
+	if starts != 0 {
+		t.Errorf("the worker's host half was started %d times outside the sandbox", starts)
+	}
+	if strings.Contains(got.out, "Declined: these jail daemons") {
+		t.Errorf("the guest declined the worker:\n%s", got.out)
+	}
+}
+
+// A LOOPHOLE DAEMON NAMING ITS MODULE DIRECTORY RUNS FROM THE SANDBOX'S COPY OF THE STAGED PACKS
+// (JD-10): `{jail_loophole_dir}` resolves to the module directory's place under
+// macosuser.StagedPackRoot, which the orchestrator copies the launch's pack tree to. This is the
+// hello-daemon shape. Deleting placeModuleDirsInGuest from jailDaemonsFor fails this: the guest is
+// handed the container's mount point, which it does not have, and declines it.
+func TestMacosUserRunsAModuleDirJailDaemonFromTheStagedCopy(t *testing.T) {
+	home := packHome(t)
+	ws := t.TempDir()
+	writeLocalLoopholePack(t, home, "hello", jailOnlyLoophole("hello", `["{jail_loophole_dir}/bin/hello", "--conf", "{jail_loophole_dir}/hello.conf"]`))
+	writeLocalModuleFile(t, home, "hello", "bin/hello", []byte("#!/bin/sh\necho \"hello from $0\"\n"))
+	writeUserConfigJSON(t, home, `{"packs": []}`)
+
+	got := macosUserLaunch(t, ws)
+	if got.rc != 0 {
+		t.Fatalf("Run() = %d, want 0\n%s", got.rc, got.out)
+	}
+	dir := filepath.Join(macosuser.StagedPackRoot(runtime.FromWorkspace(ws), ""), "local", "loopholes", "hello")
+	specs := payloadOf(t, got.jailDaemons)
+	if len(specs) != 1 || len(specs[0].Cmd) != 3 || specs[0].Cmd[0] != dir+"/bin/hello" || specs[0].Cmd[2] != dir+"/hello.conf" {
+		t.Fatalf("the guest was handed %+v, want the program at %s/bin/hello\n%s", specs, dir, got.out)
+	}
+	if strings.Contains(got.out, "Declined: these jail daemons") {
+		t.Errorf("a module-dir daemon the guest runs was declined:\n%s", got.out)
+	}
+}
+
+// A MODULE DIRECTORY OUTSIDE THE LAUNCH'S STAGED TREE has no copy in the sandbox, so its daemon
+// keeps the container path and loses its ModuleDir, and the guest declines it by name rather than
+// running a path nothing copied. Inside it, through a symlinked spelling of the root included (a
+// darwin temp dir is reached through /var, a link to /private/var), it is placed.
+func TestAModuleDirOutsideTheStagedPacksIsDeclinedNotPlaced(t *testing.T) {
+	base := floortest.ResolvedTemp(t)
+	tree := filepath.Join(base, "tree")
+	inside := filepath.Join(tree, "local", "loopholes", "hello")
+	if err := os.MkdirAll(inside, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(t.TempDir(), "link")
+	if err := os.Symlink(tree, link); err != nil {
+		t.Fatal(err)
+	}
+	spec := func(name, dir string) loopholes.JailDaemonSpec {
+		return loopholes.JailDaemonSpec{Name: name, Cmd: []string{loopholedecl.JailLoopholeDir(name) + "/bin/hello"},
+			ModuleDir: dir, ModuleCmd: []string{loopholedecl.TokenJailLoopholeDir + "/bin/hello"}}
+	}
+	o := &Options{Workspace: base, packTree: link}
+	out := o.placeModuleDirsInGuest("macos-user", []loopholes.JailDaemonSpec{
+		spec("hello", inside), spec("stray", filepath.Join(base, "elsewhere", "stray"))})
+	want := filepath.Join(macosuser.StagedPackRoot(runtime.FromWorkspace(base), ""), "local", "loopholes", "hello", "bin", "hello")
+	if out[0].Cmd[0] != want {
+		t.Errorf("the staged module dir is placed at %q, want %q", out[0].Cmd[0], want)
+	}
+	if out[1].ModuleDir != "" || out[1].Cmd[0] != loopholedecl.JailLoopholeDir("stray")+"/bin/hello" {
+		t.Errorf("a module dir outside the staged tree was placed: %+v", out[1])
+	}
+	runs, declined := loopholes.JailDaemonsRunIn("macos-user", out)
+	if len(runs) != 1 || runs[0].Name != "hello" || len(declined) != 1 || declined[0].Spec.Name != "stray" {
+		t.Errorf("the guest runs %+v and declines %+v, want hello run and stray declined", runs, declined)
+	}
+	if same := o.placeModuleDirsInGuest("podman", out[:1]); same[0].Cmd[0] != out[0].Cmd[0] {
+		t.Errorf("a container launch's specs were placed again: %v", same[0].Cmd)
+	}
+	if kept := o.placeModuleDirsInGuest("podman", []loopholes.JailDaemonSpec{spec("hello", inside)}); kept[0].Cmd[0] != loopholedecl.JailLoopholeDir("hello")+"/bin/hello" {
+		t.Errorf("a container launch's module dir was moved off the mount point: %v", kept[0].Cmd)
+	}
+}
+
+// linuxProgram is the start of an ELF image, which the macos-user guest declines to run.
+var linuxProgram = []byte{0x7f, 'E', 'L', 'F', 2, 1, 1, 0}
+
+// writeLocalModuleFile writes rel, mode 0755, into the local pack's loophole module directory.
+func writeLocalModuleFile(t *testing.T, home, loophole, rel string, body []byte) {
+	t.Helper()
+	path := filepath.Join(home, ".config", "yolo-jail", "local", "loopholes", loophole, filepath.FromSlash(rel))
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, body, 0o755); err != nil {
+		t.Fatal(err)
 	}
 }
 

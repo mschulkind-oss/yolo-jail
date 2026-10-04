@@ -28,9 +28,8 @@ import (
 // pack hands the guest anything (TestMacosUserOpensTheCodexDoorwayOutsideTheSandbox covers the
 // doorway). A pack that declares the same loophole WITHOUT a host argv still runs its jail daemon
 // in the guest, which is what this test measures, so the conventional local pack declares one:
-// the shipped manifest, less `host_cmd`. Not the plan's hello-daemon: its argv names the
-// container's loophole mount, which the guest declines by name (loopholes' guestrun.go), and an
-// embedded pack's files are 0444 anyway (OQ-BP5).
+// the shipped manifest, less `host_cmd`. The plan's hello-daemon shape, whose argv names its
+// module directory, has a test of its own below (TestMacosUserRunsAModuleDirJailDaemonInTheGuest).
 //
 // WHAT ONLY THIS TEST CAN SEE, every item of it unexecuted before: that the Go-built darwin
 // yolo-jaild is signed well enough for the kernel to exec from /var/yolo-jail/bin; that
@@ -120,24 +119,148 @@ func TestMacosUserJailDaemonRunsConfinedInTheGuest(t *testing.T) {
 	}
 
 	// Nothing survives the session: the stop is SIGTERM to the supervisor's process group.
-	deadline := time.Now().Add(20 * time.Second)
-	for {
-		left, _ := exec.Command("pgrep", "-u", macosuser.SandboxUser, "-f", "yolo-jaild").Output()
-		if strings.TrimSpace(string(left)) == "" {
-			break
-		}
-		if time.Now().After(deadline) {
-			t.Errorf("a yolo-jaild of %s survives the session (pids %s)%s", macosuser.SandboxUser,
-				strings.TrimSpace(string(left)), diag())
-			break
-		}
-		time.Sleep(500 * time.Millisecond)
-	}
+	requireNoGuestSupervisorLeft(t, diag)
 
 	// And the in-jail binary is the SANDBOX's, never on the host's PATH (OQ-DP8).
 	if p, err := exec.LookPath("yolo-jaild"); err == nil {
 		t.Errorf("yolo-jaild resolves on the HOST's PATH (%s); the host ship set is {yolo}", p)
 	}
+}
+
+// requireNoGuestSupervisorLeft fails t when a yolo-jaild of the sandbox account is still running
+// 20 s after the session returned: the stop is SIGTERM to the supervisor's process group.
+func requireNoGuestSupervisorLeft(t *testing.T, diag func() string) {
+	t.Helper()
+	deadline := time.Now().Add(20 * time.Second)
+	for {
+		left, _ := exec.Command("pgrep", "-u", macosuser.SandboxUser, "-f", "yolo-jaild").Output()
+		if strings.TrimSpace(string(left)) == "" {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Errorf("a yolo-jaild of %s survives the session (pids %s)%s", macosuser.SandboxUser,
+				strings.TrimSpace(string(left)), diag())
+			return
+		}
+		time.Sleep(500 * time.Millisecond)
+	}
+}
+
+// TestMacosUserRunsAPackServiceJailDaemonInTheGuest is the one guest rule on the hardware
+// (docs/design/jail-daemon-on-macos-user-plan.md JD-9, under OQ-DP8): a pack SERVICE that
+// declares a jail daemon and no host half, from the conventional local pack, runs confined in the
+// guest as a container runs it, instead of being declined as one whose host half runs here. The
+// daemon writes one line and stays up; the probe waits for that line in its log, which the
+// supervisor opens under the sandbox home, and the session's end must stop the supervisor.
+//
+// WHAT ONLY THIS TEST CAN SEE: that the guest's supervisor really starts a service's daemon (the
+// unit tests stop at the payload handed to it), with the service's caller token in its env file.
+func TestMacosUserRunsAPackServiceJailDaemonInTheGuest(t *testing.T) {
+	requireMacosUser(t)
+	packHome(t, `{"packs": []}`)
+	writeLocalPackFiles(t, map[string]localPackFile{
+		"pack.json": {body: `{"contributes": [{"kind": "service", "name": "acme-svc",
+			"jail_daemon": {"cmd": ["/bin/sh", "-c", "echo acme-svc-up; exec /bin/sleep 600"]}}]}`},
+	})
+	ws := macosUserWorkspace(t, `{}`)
+	logRel := ".local/state/yolo-jail-daemons/acme-svc.log"
+	r := macosUserRunProbe(t, "guest-service", ws, guestLogProbeScript(logRel, "acme-svc-up"))
+	hostLog := filepath.Join(ws, ".yolo", "home", "local", "state", "yolo-jail-daemons", "acme-svc.log")
+	diag := func() string {
+		return fmt.Sprintf("\n--- the daemons' logs:\n%s\n--- launch stdout:\n%s\n--- launch stderr:\n%s",
+			dumpDir(filepath.Dir(hostLog)), r.stdout, r.stderr)
+	}
+	if strings.Contains(r.combined(), "acme-svc: /bin/sh") {
+		t.Errorf("the launch declined the service's jail daemon, which has no host half%s", diag())
+	}
+	if !strings.Contains(r.combined(), "Started acme-svc inside the sandbox") {
+		t.Errorf("the launch did not disclose the guest's service daemon%s", diag())
+	}
+	if b, err := os.ReadFile(hostLog); err != nil || !strings.Contains(string(b), "acme-svc-up") {
+		t.Errorf("the service's daemon did not write its line to %s (err %v)%s", hostLog, err, diag())
+	}
+	requireNoGuestSupervisorLeft(t, diag)
+}
+
+// TestMacosUserRunsAModuleDirJailDaemonInTheGuest is the hello-daemon shape on the hardware
+// (docs/design/jail-daemon-on-macos-user-plan.md JD-10): a loophole jail daemon whose argv is
+// `{jail_loophole_dir}/bin/hello`, a 0755 script its pack ships, runs in the guest from the
+// sandbox's root-owned copy of the launch's staged packs (macosuser.StagedPackRoot). The script
+// prints the path it was run from and stays up, so its log says the copy's path, which proves the
+// token resolved there, that the copy kept the exec bit, and that the sandbox account may exec it.
+func TestMacosUserRunsAModuleDirJailDaemonInTheGuest(t *testing.T) {
+	requireMacosUser(t)
+	packHome(t, `{"packs": []}`)
+	writeLocalPackFiles(t, map[string]localPackFile{
+		"pack.json": {body: `{"contributes": [{"kind": "loophole", "from": "loopholes/hello-guest"}]}`},
+		"loopholes/hello-guest/manifest.jsonc": {body: `{"name": "hello-guest",
+			"description": "the hello-daemon shape as a guest jail daemon (integration fixture)",
+			"version": 1, "default_enabled": true, "transport": "none",
+			"jail_daemon": {"cmd": ["{jail_loophole_dir}/bin/hello"]}}`},
+		"loopholes/hello-guest/bin/hello": {body: "#!/bin/sh\necho \"hello from $0\"\nexec /bin/sleep 600\n", mode: 0o755},
+	})
+	ws := macosUserWorkspace(t, `{}`)
+	logRel := ".local/state/yolo-jail-daemons/hello-guest.log"
+	r := macosUserRunProbe(t, "guest-module-dir", ws, guestLogProbeScript(logRel, "hello from"))
+	hostLog := filepath.Join(ws, ".yolo", "home", "local", "state", "yolo-jail-daemons", "hello-guest.log")
+	diag := func() string {
+		return fmt.Sprintf("\n--- the daemons' logs:\n%s\n--- launch stdout:\n%s\n--- launch stderr:\n%s",
+			dumpDir(filepath.Dir(hostLog)), r.stdout, r.stderr)
+	}
+	if strings.Contains(r.combined(), "hello-guest: ") && strings.Contains(r.combined(), "Declined:") {
+		t.Errorf("the launch declined the module-dir jail daemon%s", diag())
+	}
+	if !strings.Contains(r.combined(), "Started hello-guest inside the sandbox") {
+		t.Errorf("the launch did not disclose the guest's module-dir daemon%s", diag())
+	}
+	want := "hello from " + filepath.Dir(macosuser.StagedPackRoot("x", "")) + "/"
+	if b, err := os.ReadFile(hostLog); err != nil || !strings.Contains(string(b), want) {
+		t.Errorf("the module-dir program did not run from the staged copy (want %q in %s, err %v)%s",
+			want, hostLog, err, diag())
+	}
+	requireNoGuestSupervisorLeft(t, diag)
+}
+
+// localPackFile is one file of a conventional local pack fixture; mode 0 means 0644.
+type localPackFile struct {
+	body string
+	mode os.FileMode
+}
+
+// writeLocalPackFiles writes the conventional local pack (~/.config/yolo-jail/local, which every
+// launch appends to its selection) from files, keyed by pack-relative slash path, under the HOME
+// packHome set.
+func writeLocalPackFiles(t *testing.T, files map[string]localPackFile) {
+	t.Helper()
+	local := filepath.Join(os.Getenv("HOME"), ".config", "yolo-jail", "local")
+	for rel, f := range files {
+		path := filepath.Join(local, filepath.FromSlash(rel))
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		mode := f.mode
+		if mode == 0 {
+			mode = 0o644
+		}
+		if err := os.WriteFile(path, []byte(f.body), mode); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Chmod(path, mode); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+// guestLogProbeScript is a session script that waits up to 30 s for the daemon log at logRel
+// (under the sandbox home) to contain want, then prints it between markers.
+func guestLogProbeScript(logRel, want string) string {
+	log := "$HOME/" + logRel
+	return strings.Join([]string{
+		`for i in $(seq 1 150); do grep -q '` + want + `' "` + log + `" 2>/dev/null && break; sleep 0.2; done`,
+		`echo "=== LOG ==="`,
+		`cat "` + log + `" 2>&1 || echo "NO LOG"`,
+		`echo "=== END ==="`,
+	}, "\n")
 }
 
 // localGuestAdapterManifest is packs/openai-auth's loophole manifest less `jail_daemon.host_cmd`:

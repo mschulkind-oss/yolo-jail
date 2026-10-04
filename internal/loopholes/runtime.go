@@ -146,12 +146,93 @@ type JailDaemonSpec struct {
 	// rather than a loophole's. NOT on the wire either; JailDaemonsRunIn reads both.
 	Intercepts bool
 	Service    bool
+	// HostHalf says a pack SERVICE's daemon declares a host half (`host_daemon`) that this
+	// launch may run: internal/launchservice's ServiceJailDaemons sets it from the declaration
+	// and its AdmitServiceHosts clears it for one the launch will not admit (a pack yolo does
+	// not ship, an argv not naming `yolo`). ServesAdaptation says the service serves a protocol
+	// adaptation a pack declares (packload.ServiceAdaptations), the job a host half does for an
+	// agent's pairing on a backend whose agent shares the host's loopback. Endpoint is the
+	// service's declared endpoint file name, which its daemon publishes under
+	// paths.JailHostServicesDir, a container path. NOT on the wire: JailDaemonsRunIn reads all
+	// three to decide whether the macos-user guest runs the daemon.
+	HostHalf         bool
+	ServesAdaptation bool
+	Endpoint         string
 	// HostCmd is the loophole's `jail_daemon.host_cmd` (loopholedecl.JailDaemon.HostCmd): the argv
 	// that opens this daemon's DOORWAY on the host instead, as a launch-owned listener, for a
 	// launch whose agent shares the host's loopback (docs/design/host-notch-services.md HS-D15;
 	// DoorwaysOutside). nil when not declared, and cleared by a launch that will not admit it,
 	// so the jail daemon runs where it would have. NOT on the wire: the supervisor never runs it.
 	HostCmd []string
+	// ModuleDir is the loophole's module directory on the host (Loophole.Path), "" for a pack
+	// service's daemon. ModuleCmd is Cmd before the module directory is placed: the argv load
+	// resolved, with the container mount point of THIS loophole's module dir
+	// (loopholedecl.JailLoopholeDir) put back as `{jail_loophole_dir}` (moduleDirArgv). A
+	// container places it at that mount point, which is what Cmd already says; a backend that
+	// copies the module dir somewhere else places it there (InGuest). NOT on the wire.
+	ModuleDir string
+	ModuleCmd []string
+}
+
+// NamesModuleDir reports whether the daemon's argv names its loophole's module directory
+// through `{jail_loophole_dir}`, so a backend without the container mount must place a copy.
+func (sp JailDaemonSpec) NamesModuleDir() bool {
+	if sp.ModuleDir == "" {
+		return false
+	}
+	for _, a := range sp.ModuleCmd {
+		if strings.Contains(a, loopholedecl.TokenJailLoopholeDir) {
+			return true
+		}
+	}
+	return false
+}
+
+// InGuest is sp with its module directory placed at dir instead of the container mount point:
+// Cmd is ModuleCmd with `{jail_loophole_dir}` resolved to dir. The macos-user guest runs a
+// loophole's jail daemon from the root-owned copy of the launch's staged packs
+// (internal/cli/run's guest resolution), which is where its program is on that backend. A spec
+// that names no module directory (NamesModuleDir) is returned unchanged.
+func (sp JailDaemonSpec) InGuest(dir string) JailDaemonSpec {
+	if !sp.NamesModuleDir() {
+		return sp
+	}
+	out := sp
+	out.Cmd = substituteAll(sp.ModuleCmd, loopholedecl.TokenJailLoopholeDir, dir)
+	return out
+}
+
+// moduleDirArgv is cmd, a loophole's jail-daemon argv as load resolved it, with each mention of
+// the container mount point of the loophole name's module dir put back as `{jail_loophole_dir}`:
+// the inverse of load's one substitution (resolve, load.go), so ModuleCmd is the declared argv
+// with only its binary tokens resolved. A mention counts only where the mount point ends a path
+// segment (end of the word, or a "/" next), so a sibling loophole's mount, whose name merely
+// starts with this one's, is left as it is and the guest declines it as a container path. A
+// manifest that spelled this mount point out instead of writing the token names the same
+// directory, and resolves the same way.
+func moduleDirArgv(name string, cmd []string) []string {
+	root := loopholedecl.JailLoopholeDir(name)
+	out := make([]string, len(cmd))
+	for i, a := range cmd {
+		var b strings.Builder
+		for {
+			j := strings.Index(a, root)
+			if j < 0 {
+				b.WriteString(a)
+				break
+			}
+			rest := a[j+len(root):]
+			b.WriteString(a[:j])
+			if rest == "" || rest[0] == '/' {
+				b.WriteString(loopholedecl.TokenJailLoopholeDir)
+			} else {
+				b.WriteString(root)
+			}
+			a = rest
+		}
+		out[i] = b.String()
+	}
+	return out
 }
 
 // ResolvedCmd is the argv this spec runs: Cmd with loopholedecl.TokenListen resolved to Listen.
@@ -353,6 +434,8 @@ func jailDaemonSpecs(loopholes []*Loophole, runtime string, gate *Set,
 			CallerToken: m.JailDaemon.CallerToken, Listen: m.JailDaemon.Listen,
 			Intercepts: len(m.Intercepts) > 0,
 			HostCmd:    append([]string(nil), m.JailDaemon.HostCmd...),
+			ModuleDir:  m.Path,
+			ModuleCmd:  moduleDirArgv(m.Name, m.JailDaemon.Cmd),
 		})
 	}
 	// Pack services' jail daemons join the loopholes' own entries, one list, one env

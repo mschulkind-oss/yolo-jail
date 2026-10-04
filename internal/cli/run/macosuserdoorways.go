@@ -155,18 +155,47 @@ func (o *Options) launchDoorwayPlanned(name string) bool {
 // daemon: the guest runs it, or declines it for a reason of its own, such as an argv naming the
 // container's loophole mount, and then nothing serves it this launch. A disclosure, so no quiet
 // switch (docs/reference/report-tiers.md, OQ-RO3). Silent when none.
+//
+// It ends with noteRefusedServiceHosts, the same disclosure for a pack service's host half, from
+// the one call site the macos-user arm makes for both (below its decline report).
 func (o *Options) noteRefusedDoorways(declined []loopholes.DeclinedJailDaemon) {
-	guestDeclines := map[string]bool{}
-	for _, d := range declined {
-		guestDeclines[d.Spec.Name] = true
-	}
+	guestDeclines := guestDeclinedNames(declined)
 	for _, r := range o.refusedDoorways {
-		where := "Its jail daemon runs in the sandbox instead."
-		if guestDeclines[r.Name] {
-			where = "Its jail daemon is declined in the sandbox too (its Declined: line says why), " +
-				"so nothing serves it this launch."
-		}
 		o.pr(o.Stderr).print(fmt.Sprintf("[yellow]Not opened outside the sandbox: the %q doorway's "+
-			"host argv (pack %q): %s. %s[/yellow]", r.Name, r.Pack, r.Why, where))
+			"host argv (pack %q): %s. %s[/yellow]", r.Name, r.Pack, r.Why, guestPlacement(guestDeclines[r.Name])))
 	}
+	o.noteRefusedServiceHosts(guestDeclines)
+}
+
+// noteRefusedServiceHosts is the disclosure for launchservice.AdmitServiceHosts on macos-user:
+// one line per pack service whose host half this launch will not run (a pack yolo does not
+// ship, or an argv not naming `yolo`; OQ-HS4), naming it, its pack and why, and saying where its
+// jail daemon goes instead, read off the guest's own split as the doorway's line is: the sandbox
+// runs it (OQ-DP8), or declines it for a reason of its own, such as an endpoint file at a
+// container path, and then nothing serves it this launch. A disclosure, so no quiet switch.
+// Silent when none.
+func (o *Options) noteRefusedServiceHosts(guestDeclines map[string]bool) {
+	for _, r := range o.refusedServiceHosts {
+		o.pr(o.Stderr).print(fmt.Sprintf("[yellow]Not started outside the sandbox: the %q service's "+
+			"host half (pack %q): %s. %s[/yellow]", r.Name, r.Pack, r.Why, guestPlacement(guestDeclines[r.Name])))
+	}
+}
+
+// guestDeclinedNames is the set of daemon names the guest's split declined.
+func guestDeclinedNames(declined []loopholes.DeclinedJailDaemon) map[string]bool {
+	out := map[string]bool{}
+	for _, d := range declined {
+		out[d.Spec.Name] = true
+	}
+	return out
+}
+
+// guestPlacement is where a refused host argv's jail daemon goes on macos-user, for the two
+// disclosures above.
+func guestPlacement(declinedInGuest bool) string {
+	if declinedInGuest {
+		return "Its jail daemon is declined in the sandbox too (its Declined: line says why), " +
+			"so nothing serves it this launch."
+	}
+	return "Its jail daemon runs in the sandbox instead."
 }
