@@ -52,6 +52,13 @@ type packFilesTarget struct {
 	// packFilesSkipWarning.
 	Root string
 	From string
+
+	// Tree is a PATCHED EXTENSION's extension key (docs/design/patched-extensions.md §8.1), "" for
+	// a pack's own tree. Its Src is the launch's per-launch copy of the good build, beside the pack
+	// tree and never in it, and a tree with no copy this launch is no target at all: it mounts
+	// nothing, and needs no mountpoint, since an empty directory at `into` is one an agent may try
+	// to load (§9).
+	Tree string
 }
 
 // packFilesTargets resolves every loaded pack's `files` contributions, in declaration
@@ -64,7 +71,12 @@ type packFilesTarget struct {
 // tree is land it on the jail's PATH — refused at the manifest, in
 // packdecl.appendJailPathProblems, so a name on PATH comes from a `program` declaration or
 // from nowhere.
-func packFilesTargets(packs []*packload.Pack) []packFilesTarget {
+//
+// trees is the launch's per-launch copy of each PATCHED EXTENSION it delivered, by extension key
+// (Options.patchedTreeDirs); nil delivers none, and every patched extension is then no target.
+// `from` is never joined for one: it has none, and joining "" would mount the pack's whole
+// staged tree at `into`.
+func packFilesTargets(packs []*packload.Pack, trees map[string]string) []packFilesTarget {
 	// ADDRESSED contributions (`agents`, no `into`) are resolved by packload.ResolveDestinations,
 	// the one resolver `yolo host apply` renders through too (docs/plans/notch-convergence.md
 	// row D8). After it, each addressed tree is an ordinary `into` contribution on a copy of its
@@ -87,6 +99,13 @@ func packFilesTargets(packs []*packload.Pack) []packFilesTarget {
 			// what keeps the slot root itself raw — every tree lands UNDER it, namespaced by the
 			// contributing pack, the owner's own included (design §3).
 			if c.Agent != "" || c.Into == "" {
+				continue
+			}
+			if c.IsPatchedExtension() {
+				key := p.Name + "/" + c.ExtensionName()
+				if dir := trees[key]; dir != "" {
+					out = append(out, packFilesTarget{Pack: p.Name, Src: dir, Dest: c.Into, Root: p.Root, Tree: key})
+				}
 				continue
 			}
 			out = append(out, packFilesTarget{
@@ -122,7 +141,7 @@ func packFilesTargets(packs []*packload.Pack) []packFilesTarget {
 //     packFilesSkipWarning's decision — the two causes need different reactions.
 func (o *Options) packFilesMountArgs(in *assembleInput) []string {
 	var args []string
-	for _, t := range packFilesTargets(in.packs) {
+	for _, t := range packFilesTargets(in.packs, in.treeDirs) {
 		switch {
 		case isDir(t.Src):
 			args = append(args, "-v", t.Src+":/home/agent/"+t.Dest+":ro")
@@ -226,13 +245,13 @@ type packFilesMountpoint struct {
 // writable. On podman it lives there only when it is below a pack-declared workspace state
 // dir; every other target lives in the machine-wide read-only base and cannot safely be
 // retired from one workspace's view of the configured packs.
-func preparePackFiles(packs []*packload.Pack, wsState, rt string) []string {
+func preparePackFiles(packs []*packload.Pack, trees map[string]string, wsState, rt string) []string {
 	manifestPath := filepath.Join(filepath.Dir(wsState), packFilesMountpointManifestName)
 	previous := loadPackFilesMountpointManifest(manifestPath)
 	current := map[string]packFilesTarget{}
 	if rt != "macos-user" { // parity: NotApplicable — macos-user copies `files` trees through the home overlay (buildMacosHomeOverlay), which needs no mountpoint.
 		writable := packload.WritableDirs(packs)
-		for _, t := range packFilesTargets(packs) {
+		for _, t := range packFilesTargets(packs, trees) {
 			if rel, ok := packFilesWorkspaceRel(t.Dest, writable, rt); ok {
 				current[rel] = t
 			}
@@ -635,9 +654,9 @@ func fileSHA256(path string) string {
 // every podman jail mounted — so one workspace's pack `files` mountpoints showed up in every
 // other jail on the machine. The backend gate that function carried is the builder's call
 // site's now: only podman builds a skeleton (runContainer).
-func packFilesSkeletonEntries(packs []*packload.Pack) (dirs, files []string) {
+func packFilesSkeletonEntries(packs []*packload.Pack, trees map[string]string) (dirs, files []string) {
 	writable := packload.WritableDirs(packs)
-	for _, t := range packFilesTargets(packs) {
+	for _, t := range packFilesTargets(packs, trees) {
 		if pathUnderAny(t.Dest, writable) {
 			continue
 		}
@@ -760,8 +779,9 @@ func packFilesShadowedSurfaces(packs []*packload.Pack) []string {
 
 	var out []string
 	// Over the RESOLVED targets, not the raw contributions: an addressed `files` contribution
-	// has `Into == ""` and would be invisible here, and a slot makes no mount at all.
-	for _, t := range packFilesTargets(packs) {
+	// has `Into == ""` and would be invisible here, and a slot makes no mount at all. Every patched
+	// extension counts as delivered here, since any launch may mount one at its `into`.
+	for _, t := range packFilesTargets(packs, everyPatchedTree(packs)) {
 		dir := strings.TrimSuffix(t.Dest, "/") + "/"
 		for _, s := range surfaces {
 			if !strings.HasPrefix(s.path, dir) {
@@ -777,5 +797,15 @@ func packFilesShadowedSurfaces(packs []*packload.Pack) []string {
 		}
 	}
 	sort.Strings(out)
+	return out
+}
+
+// everyPatchedTree marks every patched extension packs carry as delivered, for a check that asks
+// where a launch MAY mount one rather than where this one did (packFilesShadowedSurfaces).
+func everyPatchedTree(packs []*packload.Pack) map[string]string {
+	out := map[string]string{}
+	for _, f := range packload.PatchedTrees(packs) {
+		out[f.Key()] = "(a patched extension's tree)"
+	}
 	return out
 }

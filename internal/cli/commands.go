@@ -1268,6 +1268,16 @@ func runRun(args []string) int {
 		}
 		return buildForksForLaunch(req, out, errw, colorForWriter(os.Stdout))
 	}
+	// And the TREE ARM beside it (docs/design/patched-extensions.md §6.1, §8.1): each patched
+	// extension's advance and the per-launch copy its jail mounts, on the launch path only for the
+	// same reason.
+	opts.BuildTrees = func(req run.TreeBuildRequest) map[string]run.TreeDelivery {
+		out, errw := io.Writer(os.Stdout), io.Writer(os.Stderr)
+		if req.Stdout != nil && req.Stderr != nil {
+			out, errw = req.Stdout, req.Stderr
+		}
+		return deliverTreesForLaunch(req, out, errw, colorForWriter(os.Stdout))
+	}
 	// Set the tmux/kitty jail indicator around the run, restoring on exit. The
 	// restore runs as subprocesses (kitten/tmux) with no timeout of their own,
 	// so it is spanned — the last unmeasured step between the report printing

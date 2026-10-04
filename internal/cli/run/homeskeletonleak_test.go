@@ -33,7 +33,7 @@ func TestAFatalSkeletonFailureLeavesNoDirectory(t *testing.T) {
 		t.Fatalf("loading the fixture pack: %v", problems)
 	}
 	const cname = "yolo-fatal-skeleton"
-	if _, err := buildHomeSkeleton(paths.HomeSkeletonRoot(cname), []*packload.Pack{p}, nil, nil); err == nil {
+	if _, err := buildHomeSkeleton(paths.HomeSkeletonRoot(cname), []*packload.Pack{p}, nil, nil, nil); err == nil {
 		t.Fatal("a pack dir on a redirect name must fail the skeleton: the fixture no longer reaches " +
 			"the fatal path, so this test proves nothing")
 	}

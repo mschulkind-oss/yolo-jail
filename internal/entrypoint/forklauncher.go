@@ -118,6 +118,8 @@ func sourceAgentLauncherSegments(inst *packdecl.Install, d ForkDelivery, stampDi
 		"__YOLO_SERVERS_ENABLED__", shquote.Quote(boolFlag(!servers.empty())),
 		"__YOLO_SERVERS_NPM__", shquote.Quote(servers.npm),
 		"__YOLO_EXEC_PREFIX__", token,
+		// The gate a patched extension this agent loads puts on it (patchedtrees.go, PPX-D18).
+		"__YOLO_TREE_GATE__", shquote.Quote(inst.Gate),
 	}, append(launchFlagSplices(flags), refreshSplices(inst.Refresh)...)...)...)
 	return strings.Split(r.Replace(sourceLauncherTemplate), token)
 }
@@ -223,7 +225,7 @@ if [ "$SERVERS_ENABLED" = "1" ]; then
     _refresh_servers
 fi
 ` + prelaunchRefreshShellFn + `
-` + agentEnvShellFn + agentAuthPrelaunchShellFn + `
+` + agentEnvShellFn + agentAuthPrelaunchShellFn + treeGateShell + `
 if [ -x "$REAL_BIN" ]; then
     _yolo_launch_argv "$@"
     exec __YOLO_EXEC_PREFIX__"$REAL_BIN" ${YOLO_ARGV[@]+"${YOLO_ARGV[@]}"}

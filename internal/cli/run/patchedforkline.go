@@ -77,7 +77,7 @@ func HeldSuffix(f packload.Fork, rec *packsrc.CheckRecord, in packsrc.CheckInput
 			return at + ": upstream " + h.Entry.Label() + " does not take " + h.Member +
 				" — `yolo pack update` shows the conflict and how to rebase the series"
 		case packsrc.OutcomeBuildFailed:
-			return at + ": the build of upstream " + h.Entry.Label() + " failed — `yolo capture " + f.Bin +
+			return at + ": the build of upstream " + h.Entry.Label() + " failed — `yolo capture " + f.CaptureArg() +
 				"` retries it now"
 		case packsrc.HeldByApplyError:
 			return at + ": the series could not be replayed at upstream " + h.Entry.Label() + " (" + h.Error +
@@ -93,10 +93,11 @@ func HeldSuffix(f packload.Fork, rec *packsrc.CheckRecord, in packsrc.CheckInput
 }
 
 // PatchedForkHold is what holds a patched fork's upstream at its good build, "" when nothing does:
-// `agent_updates` off for the fork pack or for its base (PF-D19).
+// `agent_updates` off for the fork pack or for its base (PF-D19) — or, for a patched extension, for
+// its contributing pack, its owning agent pack or a fork of the owner's programs (PPX-D9).
 func PatchedForkHold(f packload.Fork) string {
 	wire := config.AgentUpdatesWire()
-	for _, pack := range []string{f.Pack, f.Base} {
+	for _, pack := range f.HoldPacks() {
 		if !entrypoint.PackPolicyAllows(wire, pack) {
 			return "`agent_updates` holds pack " + pack
 		}

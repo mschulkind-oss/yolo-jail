@@ -94,7 +94,7 @@ func TestDroppedPackFileMountpointIsRetiredFromWorkspaceOverlay(t *testing.T) {
 		".pi/agent/extensions/thinking-preview.ts", ".pi")
 	target := filepath.Join(wsState, "pi", "agent", "extensions", "thinking-preview.ts")
 
-	preparePackFiles([]*packload.Pack{p}, wsState, "podman")
+	preparePackFiles([]*packload.Pack{p}, nil, wsState, "podman")
 	if !fileIsEmptyRegular(target) {
 		t.Fatalf("workspace mountpoint was not provisioned as an empty file: %s", target)
 	}
@@ -103,7 +103,7 @@ func TestDroppedPackFileMountpointIsRetiredFromWorkspaceOverlay(t *testing.T) {
 		t.Fatalf("workspace mountpoint ownership was not recorded: %s", manifest)
 	}
 
-	preparePackFiles(nil, wsState, "podman")
+	preparePackFiles(nil, nil, wsState, "podman")
 	if _, err := os.Lstat(target); !os.IsNotExist(err) {
 		t.Fatalf("dropped contribution left its mountpoint behind: %v", err)
 	}
@@ -121,12 +121,12 @@ func TestDroppedPackFileMountpointPreservesUserReplacement(t *testing.T) {
 	p := workspaceFilesPack(t, "pi-extension", "extension.ts",
 		".pi/agent/extensions/thinking-preview.ts", ".pi")
 	target := filepath.Join(wsState, "pi", "agent", "extensions", "thinking-preview.ts")
-	preparePackFiles([]*packload.Pack{p}, wsState, "podman")
+	preparePackFiles([]*packload.Pack{p}, nil, wsState, "podman")
 	if err := os.WriteFile(target, []byte("user replacement\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
-	preparePackFiles(nil, wsState, "podman")
+	preparePackFiles(nil, nil, wsState, "podman")
 	body, err := os.ReadFile(target)
 	if err != nil || string(body) != "user replacement\n" {
 		t.Fatalf("retirement changed a user replacement: body=%q err=%v", body, err)
@@ -145,8 +145,8 @@ func TestOldRuntimeCreatedEmptyFileIsAdoptedAndLaterRetired(t *testing.T) {
 	p := workspaceFilesPack(t, "pi", "extension.js",
 		".pi/agent/extensions/yolo-openai-auth.js", ".pi")
 
-	preparePackFiles([]*packload.Pack{p}, wsState, "podman")
-	preparePackFiles(nil, wsState, "podman")
+	preparePackFiles([]*packload.Pack{p}, nil, wsState, "podman")
+	preparePackFiles(nil, nil, wsState, "podman")
 	if _, err := os.Lstat(target); !os.IsNotExist(err) {
 		t.Fatalf("pre-manifest runtime scaffold was not adopted and retired: %v", err)
 	}
@@ -173,7 +173,7 @@ func TestPreLedgerDroppedSiblingIsArchivedOnce(t *testing.T) {
 	p := workspaceFilesPack(t, "pi", "extension.js",
 		".pi/agent/extensions/yolo-openai-auth.js", ".pi")
 
-	archived := preparePackFiles([]*packload.Pack{p}, wsState, "podman")
+	archived := preparePackFiles([]*packload.Pack{p}, nil, wsState, "podman")
 	if len(archived) != 1 {
 		t.Fatalf("archived = %v, want the one legacy orphan", archived)
 	}
@@ -193,7 +193,7 @@ func TestPreLedgerDroppedSiblingIsArchivedOnce(t *testing.T) {
 	if err := os.WriteFile(userEmpty, nil, 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if again := preparePackFiles([]*packload.Pack{p}, wsState, "podman"); len(again) != 0 {
+	if again := preparePackFiles([]*packload.Pack{p}, nil, wsState, "podman"); len(again) != 0 {
 		t.Fatalf("legacy migration ran twice and archived new user content: %v", again)
 	}
 	if !fileIsEmptyRegular(userEmpty) {
@@ -211,9 +211,9 @@ func TestAppleContainerSnapshotIsRetiredOnlyWhileUnchanged(t *testing.T) {
 	targetRel := filepath.Join(".pi", "agent", "extensions", "thinking-preview.ts")
 	target := filepath.Join(wsState, targetRel)
 
-	preparePackFiles([]*packload.Pack{p}, wsState, "container")
+	preparePackFiles([]*packload.Pack{p}, nil, wsState, "container")
 	acMaterialize(filepath.Join(p.Root, "extension.ts"), targetRel, wsState)
-	preparePackFiles(nil, wsState, "container")
+	preparePackFiles(nil, nil, wsState, "container")
 	if _, err := os.Lstat(target); !os.IsNotExist(err) {
 		t.Fatalf("unchanged Apple Container snapshot was not retired: %v", err)
 	}
@@ -274,7 +274,7 @@ func TestPackFilesTargetsResolvesAddressedSlot(t *testing.T) {
 	}
 
 	var got []string
-	for _, tg := range packFilesTargets([]*packload.Pack{pi, content}) {
+	for _, tg := range packFilesTargets([]*packload.Pack{pi, content}, nil) {
 		got = append(got, tg.Dest)
 	}
 	want := []string{filepath.Join(".pi/agent/extensions", "matt")}
@@ -550,7 +550,7 @@ func TestTheSkeletonCreatesSkillsAndBriefingMountpoints(t *testing.T) {
 
 	o := &Options{Workspace: ws}
 	_ = o.prepareWsState(nil, packs, "podman")
-	sk, err := buildHomeSkeleton(paths.HomeSkeletonRoot("yolo-test-contributor"), packs, nil, nil)
+	sk, err := buildHomeSkeleton(paths.HomeSkeletonRoot("yolo-test-contributor"), packs, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("buildHomeSkeleton: %v", err)
 	}
@@ -602,7 +602,7 @@ func TestTheSkeletonCreatesFilesMountpointsOfTheSourcesType(t *testing.T) {
 		t.Fatalf("loading pack: %v", problems)
 	}
 
-	sk, err := buildHomeSkeleton(paths.HomeSkeletonRoot("yolo-test-files-shapes"), []*packload.Pack{p}, nil, nil)
+	sk, err := buildHomeSkeleton(paths.HomeSkeletonRoot("yolo-test-files-shapes"), []*packload.Pack{p}, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("buildHomeSkeleton: %v", err)
 	}

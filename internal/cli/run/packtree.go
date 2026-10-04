@@ -109,8 +109,10 @@ func discardPackTree(cname, dir string) {
 		return
 	}
 	_ = os.RemoveAll(dir)
-	// And its delivery record, which lives and dies with it (forkhanded.go).
+	// And its delivery record and its per-launch copies, which live and die with it (forkhanded.go,
+	// patchedtrees.go).
 	_ = os.Remove(handedForksPath(dir))
+	removeTreeCopies(dir)
 }
 
 // writeLivePackTree records dir as the tree cname's running container booted from

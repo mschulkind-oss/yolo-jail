@@ -89,6 +89,11 @@ type assembleInput struct {
 	// (Options.forkDeliveriesFor, forkbuild.go): the store key its jail materializes, or why there
 	// is none. Emitted beside the store mount as entrypoint.ForkBuildsEnv; nil emits nothing.
 	forkDeliveries map[string]entrypoint.ForkDelivery
+	// patchedTrees is the host's decision per patched extension for this launch
+	// (Options.patchedTreesWire, patchedtrees.go), emitted as YOLO_PATCHED_TREES; treeDirs is the
+	// per-launch copy the `files` emitter mounts for each one delivered, by extension key.
+	patchedTrees map[string]entrypoint.TreeDelivery
+	treeDirs     map[string]string
 	// homeSkeleton is this launch's per-jail home skeleton (buildHomeSkeleton), the
 	// directory podmanBaseMounts binds read-only at /home/agent. It is INPUT, built by the
 	// run pipeline on the fresh-launch path, because building it creates directories and
@@ -943,6 +948,11 @@ func (o *Options) assembleRunCmd(in *assembleInput) []string {
 	// can read, so the host decides the entry and hands the jail its key, or why it has none (FP-D8).
 	if wire := entrypoint.ForkBuildsWire(in.forkDeliveries); wire != "" {
 		runCmd = append(runCmd, "-e", entrypoint.ForkBuildsEnv+"="+wire)
+	}
+	// --- PATCHED EXTENSIONS: what each one was handed, and whether its agent's launchers stop ---
+	// (patchedtrees.go, docs/design/patched-extensions.md PPX-D8, PPX-D18).
+	if wire := entrypoint.PatchedTreesWire(in.patchedTrees); wire != "" {
+		runCmd = append(runCmd, "-e", entrypoint.PatchedTreesEnv+"="+wire)
 	}
 
 	// --- host files (pack-declared, origin-gated) ---

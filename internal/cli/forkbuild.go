@@ -85,6 +85,14 @@ type forkBuild struct {
 // build — the unpatched upstream — as the patched program. "" matches no build
 // (resolveForkBuild) and builds nothing (buildFork).
 func (b forkBuild) recipe() string {
+	if b.Fork.IsTree() {
+		// A PATCHED EXTENSION's recipe is tagged as a tree's (packdecl.TreeRecipe, PPX-D6), so it
+		// never equals a program's of the same inputs.
+		if b.Series == nil {
+			return ""
+		}
+		return packdecl.TreeSourceRecipe(b.Fork.Source, b.Fork.Build, b.Fork.Produces, b.Series.Digest)
+	}
 	if b.Fork.Patched() {
 		if b.Series == nil {
 			return ""
@@ -287,10 +295,16 @@ func buildForkUnderLock(b forkBuild, mode buildMode, store *capture.Store, pr ri
 	entry, m, err := captureStaged(store, staging,
 		func() int { return runJail(staging, b) },
 		func(m *capture.Manifest) string {
+			if f.IsTree() {
+				return fmt.Sprintf("%s's build left no tree at ~/%s", f.Label(), packdecl.TreeReservedDir(f.Bin))
+			}
 			return fmt.Sprintf("%s's build left nothing in the program surfaces (%s)", f.Key(),
 				strings.Join(m.Surfaces, ", "))
 		},
 		func(m *capture.Manifest) string {
+			if f.IsTree() {
+				return treeAdmitProblem(m, f)
+			}
 			if why := missingProduces(m, f.Produces); why != "" {
 				return why
 			}
@@ -569,10 +583,119 @@ func forkBuildJailArgv(build string) []string {
 }
 
 // forkBuildRunJail runs b's build in the capture jail UNDER THE SEAL, with the pack selection
-// narrowed to the fork and its base (FP-D9).
+// narrowed to the fork and its base (FP-D9) — or, for a PATCHED EXTENSION, to the contributing pack
+// alone (PPX-D5): its toolchain is the image's, so no agent pack has anything to add to it.
 func forkBuildRunJail(workspace string, b forkBuild, out, errw io.Writer, color bool) int {
-	return runCaptureJail(workspace, b.Fork.Bin, forkBuildJailArgv(b.Fork.Build),
-		&captureSeal{only: []string{b.Fork.Pack, b.Fork.Base}}, out, errw, color)
+	return runCaptureJail(workspace, b.Fork.Bin, buildJailArgv(b.Fork), &captureSeal{only: sealPacks(b.Fork)},
+		out, errw, color)
+}
+
+// sealPacks are the packs a build jail's selection is narrowed to: a fork and its base, or a
+// patched extension's contributing pack.
+func sealPacks(f packload.Fork) []string {
+	if f.IsTree() {
+		return []string{f.Pack}
+	}
+	return []string{f.Pack, f.Base}
+}
+
+// buildJailArgv is f's build jail command: a fork's (forkBuildJailArgv) or a tree's (treeBuildJailArgv).
+func buildJailArgv(f packload.Fork) []string {
+	if f.IsTree() {
+		return treeBuildJailArgv(f.Build, f.Bin)
+	}
+	return forkBuildJailArgv(f.Build)
+}
+
+// treeBuildJailArgv is a PATCHED EXTENSION's build jail command (docs/design/patched-extensions.md
+// §7.1, PPX-D5): capture-run, as a fork's, around a script that writes the toolchain record first —
+// the image's identity and the version of the image's own node and npm, which the build runs with
+// (PF-D39 reads the record's absence as a jail that never ran its build line) — then runs the
+// optional build line in the checkout with the image's /bin first on PATH, and ends in ONE FIXED
+// STEP: the checkout, links kept as links, copied into the reserved directory under ~/.local
+// (packdecl.TreeReservedDir), which the capture driver already walks.
+//
+// The build line runs in a subshell, so a `cd` inside it cannot move the copy's source.
+func treeBuildJailArgv(build, name string) []string {
+	src := path.Join(containerWorkspace, forkSourceLeaf)
+	toolchain := shquote.Quote(path.Join(containerWorkspace, forkToolchainLeaf))
+	script := "{ cat " + jailImageIdentityPath + " 2>/dev/null; printf ' node %s npm %s' " +
+		"\"$(/bin/node --version 2>/dev/null)\" \"$(/bin/npm --version 2>/dev/null)\"; } > " + toolchain + " || true\n" +
+		"export PATH=/bin:/usr/bin:\"$PATH\"\n" +
+		"cd " + shquote.Quote(src)
+	if strings.TrimSpace(build) != "" {
+		script += " && ( " + build + " )"
+	}
+	script += " && mkdir -p \"$HOME\"/" + shquote.Quote(packdecl.TreeReservedRoot) +
+		" && cp -a " + shquote.Quote(src) + " \"$HOME\"/" + shquote.Quote(packdecl.TreeReservedDir(name))
+	return []string{
+		"yolo", "internal", "capture-run",
+		"--out=" + path.Join(containerWorkspace, captureOutLeaf),
+		"--surface-root=" + paths.WorkspaceHomeState(containerWorkspace),
+		"--scan-content-refs",
+		"--", "env", "YOLO_BYPASS_SHIMS=1", "bash", "-c", script,
+	}
+}
+
+// treeAdmitProblem is a PATCHED EXTENSION's admit (docs/design/patched-extensions.md §7.1, PPX-D5),
+// "" when the build may be admitted. Beside the empty-delta refusal captureStaged makes, and the link
+// check every build gets (linksIntoTheBuild), three checks, each one a failed build:
+//
+//   - nothing in the delta lies outside the reserved directory: the tree would not carry it;
+//   - every `produces` path exists in the tree, joined onto the reserved directory, since a tree's
+//     produces are tree-relative where a program's are home-relative;
+//   - the full content scan finds no reference to the build jail's home: the tree lands at another
+//     path in every jail and at the host, so the relocation a program gets cannot rescue it (it
+//     rewrites one home prefix into another, and a tree also moves within the home).
+func treeAdmitProblem(m *capture.Manifest, f packload.Fork) string {
+	reserved := packdecl.TreeReservedDir(f.Bin)
+	have := map[string]bool{}
+	var strays []string
+	for _, e := range m.Entries {
+		have[e.Path] = true
+		if e.Path == reserved || strings.HasPrefix(e.Path, reserved+"/") || strings.HasPrefix(reserved, e.Path+"/") {
+			continue
+		}
+		strays = append(strays, e.Path)
+	}
+	if len(strays) > 0 {
+		return fmt.Sprintf("the build left %d %s outside the tree it delivers (%s), which the tree would "+
+			"not carry — point the build line's tools at the checkout (a cache or a store under ./), "+
+			"so nothing of the build lands in the home", len(strays), plural(len(strays), "path", "paths"),
+			strings.Join(sampleOf(strays, 3), ", "))
+	}
+	if !have[reserved] {
+		return fmt.Sprintf("the build left no tree at ~/%s", reserved)
+	}
+	var missing []string
+	for _, p := range f.Produces {
+		if !have[reserved+"/"+p] {
+			missing = append(missing, p)
+		}
+	}
+	if len(missing) > 0 {
+		return "the build exited 0 but its tree has none of " + strings.Join(missing, ", ") +
+			" — the paths its pack declares under `produces`, relative to the tree"
+	}
+	var refs []string
+	seen := map[string]bool{}
+	for _, r := range m.AbsoluteRefs {
+		rel := strings.TrimPrefix(strings.TrimPrefix(r.Path, reserved), "/")
+		if !seen[rel] {
+			seen[rel] = true
+			refs = append(refs, rel)
+		}
+	}
+	refs = append(refs, m.NotRelocatable...)
+	if len(refs) > 0 || m.RefScan != capture.RefScanFull {
+		if m.RefScan != capture.RefScanFull {
+			refs = append(refs, "(the full content scan did not run)")
+		}
+		return fmt.Sprintf("the tree names the build jail's home %s in %s — the tree lands at another "+
+			"path in every jail and at the host, where such a reference breaks; have the build leave "+
+			"relative paths", m.Home, strings.Join(sampleOf(refs, 3), ", "))
+	}
+	return linksIntoTheBuild(m)
 }
 
 // captureSeal is what makes a capture jail a fork build's: the seal, and the packs entries the

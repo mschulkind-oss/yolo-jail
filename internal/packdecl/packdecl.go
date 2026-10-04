@@ -276,6 +276,11 @@ type Install struct {
 	// not a fork's. Provenance only: every line that says what a source-built program is names
 	// the pack that supplied its bytes, not only the pack that owns its name.
 	ForkedBy string `json:"forked_by,omitempty"`
+	// Gate is NOT a manifest field, and no manifest can set it: the jail's launcher generator sets
+	// it on its copy of an OWNING AGENT PACK's program when a patched extension that agent loads
+	// has no build this launch (docs/design/patched-extensions.md PPX-D18), and the launcher stops
+	// before exec with it. "" for every program that may start.
+	Gate string `json:"-"`
 	// ModelMenu is the program's declared model menu, nil when it declares none. The
 	// Contribution field of the same name carries the reasoning; the generated launcher is its
 	// one reader (MM-D9, MM-D22).

@@ -61,6 +61,22 @@ type HandedFork struct {
 type handedForksFile struct {
 	Schema int                   `json:"schema"`
 	Forks  map[string]HandedFork `json:"forks"`
+	// Trees are what the launch handed its jail per PATCHED EXTENSION, by extension key
+	// (docs/design/patched-extensions.md §8.1): an attach's line reads it. Additive, so a record
+	// an older yolo wrote reads with none, and an older yolo reading this one ignores it.
+	Trees map[string]HandedTree `json:"trees,omitempty"`
+}
+
+// HandedTree is what one launch handed its jail for one patched extension: the store entry its
+// per-launch copy was made from and that build's inputs, or why there is none.
+type HandedTree struct {
+	Entry   string `json:"entry,omitempty"`
+	Reason  string `json:"reason,omitempty"`
+	Into    string `json:"into,omitempty"`
+	Commit  string `json:"commit,omitempty"`
+	Tag     string `json:"tag,omitempty"`
+	Patches int    `json:"patches,omitempty"`
+	Series  string `json:"series,omitempty"`
 }
 
 // handedForksPath is tree's delivery record.
@@ -68,6 +84,25 @@ func handedForksPath(tree string) string { return tree + handedForksSuffix }
 
 // readHandedForks reads tree's delivery record: nil and no error when there is none.
 func readHandedForks(tree string) (map[string]HandedFork, error) {
+	f, err := readHandedFile(tree)
+	if err != nil || f == nil {
+		return nil, err
+	}
+	return f.Forks, nil
+}
+
+// readHandedTrees reads the patched extensions of tree's delivery record: nil and no error when
+// there is none.
+func readHandedTrees(tree string) (map[string]HandedTree, error) {
+	f, err := readHandedFile(tree)
+	if err != nil || f == nil {
+		return nil, err
+	}
+	return f.Trees, nil
+}
+
+// readHandedFile reads tree's whole delivery record: nil and no error when there is none.
+func readHandedFile(tree string) (*handedForksFile, error) {
 	data, err := os.ReadFile(handedForksPath(tree))
 	if errors.Is(err, fs.ErrNotExist) {
 		return nil, nil
@@ -82,24 +117,41 @@ func readHandedForks(tree string) (map[string]HandedFork, error) {
 	if f.Schema != handedForksSchema {
 		return nil, fmt.Errorf("%s is schema %d, which this yolo does not read", handedForksPath(tree), f.Schema)
 	}
-	return f.Forks, nil
+	return &f, nil
 }
 
 // recordHandedFork merges bin's delivery into tree's record, through a temp file and a rename.
 // One launch writes its own tree's record, from its own goroutine, so there is no second writer.
 func recordHandedFork(tree, bin string, h HandedFork) error {
+	return updateHandedFile(tree, func(f *handedForksFile) { f.Forks[bin] = h })
+}
+
+// recordHandedTree merges one patched extension's delivery into tree's record, as recordHandedFork.
+func recordHandedTree(tree, key string, h HandedTree) error {
+	return updateHandedFile(tree, func(f *handedForksFile) {
+		if f.Trees == nil {
+			f.Trees = map[string]HandedTree{}
+		}
+		f.Trees[key] = h
+	})
+}
+
+// updateHandedFile rewrites tree's delivery record with edit applied, through a temp file and a
+// rename.
+func updateHandedFile(tree string, edit func(*handedForksFile)) error {
 	if tree == "" {
 		return nil
 	}
-	cur, err := readHandedForks(tree)
-	if err != nil {
-		cur = nil // an unreadable record of our own is replaced, never read around
+	cur, err := readHandedFile(tree)
+	if err != nil || cur == nil {
+		cur = &handedForksFile{} // an unreadable record of our own is replaced, never read around
 	}
-	if cur == nil {
-		cur = map[string]HandedFork{}
+	cur.Schema = handedForksSchema
+	if cur.Forks == nil {
+		cur.Forks = map[string]HandedFork{}
 	}
-	cur[bin] = h
-	data, err := json.MarshalIndent(handedForksFile{Schema: handedForksSchema, Forks: cur}, "", "  ")
+	edit(cur)
+	data, err := json.MarshalIndent(cur, "", "  ")
 	if err != nil {
 		return err
 	}
@@ -199,4 +251,33 @@ func HandedForkKeys() (map[string]bool, error) {
 		}
 	}
 	return keys, nil
+}
+
+// recordHandedTrees records what this launch hands its jail for every patched extension its tree
+// arm answered, for an attach's line (noteAttachTreeBuilds).
+func (o *Options) recordHandedTrees(out map[string]TreeDelivery) {
+	if o.packTree == "" || len(out) == 0 {
+		return
+	}
+	intos := map[string]string{}
+	for _, f := range o.patchedTrees {
+		intos[f.Key()] = f.Into
+	}
+	keys := make([]string, 0, len(out))
+	for k := range out {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	for _, k := range keys {
+		d := out[k]
+		h := HandedTree{Reason: d.Reason, Into: intos[k]}
+		if d.Dir != "" {
+			h = HandedTree{Entry: d.Entry, Into: intos[k], Commit: d.Commit, Tag: d.Tag, Patches: d.Patches, Series: d.Series}
+		}
+		if err := recordHandedTree(o.packTree, k, h); err != nil {
+			o.pr(o.Stderr).printf("[yellow]Warning: could not record what this launch hands its jail for %s (%v): "+
+				"an attach to this jail will not say which build it runs; the jail itself is unaffected[/yellow]", k, err)
+			return
+		}
+	}
 }

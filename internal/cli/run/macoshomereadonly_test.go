@@ -233,7 +233,7 @@ func stageEveryDeclaredDest(t *testing.T, staging string, packs []*packload.Pack
 	}
 	// `files` trees are not staged: they are copied from the pack tree itself, so every one
 	// whose source the pack ships is delivered (and so must be protected).
-	for _, tg := range packFilesTargets(packs) {
+	for _, tg := range packFilesTargets(packs, nil) {
 		if isDir(tg.Src) || isFile(tg.Src) {
 			set[tg.Dest] = true
 		}

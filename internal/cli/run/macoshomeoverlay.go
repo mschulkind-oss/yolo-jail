@@ -65,7 +65,7 @@ import (
 // destination physically lands once the bootstrap lays the home-tier layout.
 func buildMacosHomeOverlay(staging string, packs []*packload.Pack, warn func(string)) (macosuser.HomeOverlay, error) {
 	tree, dests, err := buildMacosHomeOverlayFor(staging, packSkillTargets(packs),
-		briefingDestinations(packs), packFilesTargets(packs), warn)
+		briefingDestinations(packs), packFilesTargets(packs, nil), warn)
 	if err != nil || tree == "" {
 		return macosuser.HomeOverlay{}, err
 	}

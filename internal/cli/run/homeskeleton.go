@@ -81,8 +81,12 @@ const homeSkeletonTimeLayout = "20060102T150405Z"
 //
 // Every -v destination directly under /home/agent must either exist here or sit inside
 // another bind; TestEveryHomeBindHasASkeletonEntry checks that over the assembled argv.
+//
+// trees is the launch's per-launch copy of each patched extension it delivered, by extension key
+// (Options.patchedTreeDirs): a delivered one gets its directory mountpoint, and one with no copy
+// none.
 func buildHomeSkeleton(root string, packs []*packload.Pack, cfg *jsonx.OrderedMap,
-	hostFiles []config.HostFileEntry) (homeSkeleton, error) {
+	hostFiles []config.HostFileEntry, trees map[string]string) (homeSkeleton, error) {
 	if err := os.MkdirAll(root, 0o755); err != nil {
 		return homeSkeleton{}, fmt.Errorf("cannot create the jail's home skeleton root %s: %w", root, err)
 	}
@@ -151,7 +155,7 @@ func buildHomeSkeleton(root string, packs []*packload.Pack, cfg *jsonx.OrderedMa
 	}
 	// Pack `files` targets no pack writable dir covers; the leaf type follows the source,
 	// because a dir bind over a file (or the reverse) aborts container creation.
-	fileDirs, fileFiles := packFilesSkeletonEntries(packs)
+	fileDirs, fileFiles := packFilesSkeletonEntries(packs, trees)
 	for _, rel := range fileDirs {
 		warn(b.mkdir(rel))
 	}
