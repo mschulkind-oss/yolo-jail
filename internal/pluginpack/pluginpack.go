@@ -27,10 +27,12 @@
 // location it loads when the manifest is silent (hooks/hooks.json, .mcp.json, .lsp.json,
 // monitors/monitors.json, bin/, settings.json, …: the "Standard layout" table of
 // https://code.claude.com/docs/en/plugins-reference, and workflows/ and themes/ beside them in
-// Claude Code's own loader), so a manifest-only reading misses code that runs; and the tools
-// disagree about which manifest is the plugin's (see manifestDirs).
-// That reading is the one thing here that is not a pass-through: the defaults are listed in
-// the components table below, beside the fields they stand in for.
+// Claude Code's own loader), and GitHub Copilot CLI, which loads the same trees, reads a
+// plugin's hooks from two more (a root hooks.json, and com.github.copilot/hooks/hooks.json). So
+// a manifest-only reading misses code that runs; and the tools disagree about which manifest is
+// the plugin's (see manifestDirs). That reading is the one thing here that is not a
+// pass-through: the defaults are listed in the components table below, beside the fields they
+// stand in for.
 //
 // It is dependency-free on the rest of the repo, for the same reason packdecl is: both the
 // host CLI (footprint, `pack init`) and the host renderer read it.
@@ -46,9 +48,9 @@ import (
 )
 
 // manifestDirs is where a plugin manifest may live inside a plugin directory, in the order
-// the tools search. Verified against the shipped Copilot bundle (its own search list) and
-// Claude's documented `.claude-plugin/` convention; "." means the manifest sits directly in
-// the plugin dir.
+// the tools search. Verified against the shipped Copilot bundle (its own search list, read
+// again in Copilot CLI 1.0.91's native plugin loader on 2026-10-03) and Claude's documented
+// `.claude-plugin/` convention; "." means the manifest sits directly in the plugin dir.
 //
 // All four are recognized even though Claude reads only `.claude-plugin/`, because
 // recognition drives the TRUST report: a manifest yolo did not notice is a manifest whose
@@ -214,11 +216,17 @@ type Component struct {
 	// approval was deleted; disclosure is what it feeds now.
 	RunsCode bool
 	// Sources is where the plugin carries it, plugin-relative and slash-separated: the
-	// manifest file when a manifest field declares it, then the default location when Claude
-	// Code loads that too. At least one entry. A component named both ways is ONE component
-	// with two sources, so a count of components is a count of kinds of code, never of files.
+	// manifest file when a manifest field declares it, then each default location a tool loads
+	// too, in the components table's order. At least one entry. A component named more than
+	// one way is ONE component with several sources, so a count of components is a count of
+	// kinds of code, never of files.
 	Sources []string
 }
+
+// ClaudeCodeHooksFile is the hooks file Claude Code loads with no manifest entry. It is the only
+// default hooks location a hooks module's `modules` key can load from: hooks modules are Claude
+// Code's, and the other two default hooks locations are Copilot's, which Claude Code never reads.
+const ClaudeCodeHooksFile = "hooks/hooks.json"
 
 // defaultShape is what makes a default location present.
 type defaultShape int
@@ -237,6 +245,15 @@ const (
 	defaultKeyInFile
 )
 
+// location is one place a tool loads a component from when no manifest names it there.
+type location struct {
+	// rel is plugin-relative and slash-separated.
+	rel   string
+	shape defaultShape
+	// merges says it loads beside a manifest declaration rather than being replaced by one.
+	merges bool
+}
+
 // components is the closed description of what yolo reports per component, with the
 // code-running verdict attached. `skills` is absent on purpose: it is the one component
 // yolo models itself, so it is delivered rather than reported as a pass-through.
@@ -248,7 +265,8 @@ const (
 // The order is the report's: code first, then prose. Two launches of one pack print the same
 // line only because this order is fixed.
 //
-// def and merges are Claude Code's, verified against its plugin reference
+// The default locations and their merges values are Claude Code's, except the last two of
+// hooks, which are Copilot's (below). Claude Code's are verified against its plugin reference
 // (https://code.claude.com/docs/en/plugins-reference, "Standard layout" and "How each key
 // combines with its default location", read 2026-10-03), its changelog, and the plugin loader
 // shipped in Claude Code 2.1.289 (MEASURED 2026-10-03, strings of its binary):
@@ -286,6 +304,32 @@ const (
 // copy is not;
 // `types` and `experimental.evals` are read by a plugin's dependents' type check and an
 // evaluation harness, not by a session.
+//
+// The last two of hooks' default locations are GitHub Copilot CLI's, which loads these plugins
+// too and reads their hooks from more places than Claude Code. Verified 2026-10-03 against
+// Copilot CLI 1.0.91 by reading the shipped package, never running a session (`copilot
+// --version` only). Its plugin loader is native code: the npm package's platform binary embeds
+// the app as an asset named `copilot.tgz`, and `prebuilds/linux-x64/runtime.node` inside that
+// holds the loader. It reads a manifest from manifestDirs in manifestDirs' order, then a
+// plugin's hooks from a static two-entry list, "hooks.json" then "hooks/hooks.json", or from
+// "com.github.copilot" joined with "hooks/hooks.json":
+//
+//   - For a plugin whose manifest names no Agent Plugins `$schema`, the Claude format among
+//     them, Copilot reads the manifest's `hooks` first: a path, read when that file exists, or
+//     an inline object. When that loads, it reads no hooks file. Otherwise it tries a ROOT
+//     hooks.json, then hooks/hooks.json, and takes the first that loads. So a root hooks.json
+//     is REPLACED by the field, while hooks/hooks.json keeps Claude Code's merge.
+//   - For a plugin whose manifest's `$schema` is https://agent-plugins.org/schemas/1.0.0 or
+//     1.1.0's plugin.schema.json (the "Agent Plugins spec" plugins of Copilot's changelog),
+//     Copilot reads only com.github.copilot/hooks/hooks.json, whatever the manifest says
+//     (changelog 1.0.80-0: "Agent Plugins spec plugins now read … hooks/hooks.json … only
+//     under com.github.copilot/ — no longer from the plugin root").
+//
+// yolo does not decide which manifests count as spec manifests: that is an exact match against
+// a version list Copilot extends. So each of the two Copilot locations is reported whenever a
+// hooks file sits there, a file whose only purpose is a tool's hooks, rather than missed when
+// the next schema version appears. A spec plugin's other components under com.github.copilot/
+// are not read here.
 var components = []struct {
 	name     string
 	detail   string
@@ -296,48 +340,52 @@ var components = []struct {
 	// a flat delivery keeps out of a root skill's copy (ComponentPaths). A setting's value and an
 	// inline object name none: `settings.agent` is an agent's name.
 	paths bool
-	// def is the plugin-relative default location, slash-separated; "" for none.
-	def   string
-	shape defaultShape
-	// merges says the default loads beside a declaration rather than being replaced by it.
-	merges bool
+	// defs are the default locations, the ones a tool loads with no manifest entry, in the order
+	// Sources lists them; nil for none.
+	defs []location
 }{
 	{name: "hooks", detail: "runs code at agent lifecycle events", runsCode: true,
 		pick: func(m Manifest) json.RawMessage { return m.Hooks }, paths: true,
-		def: "hooks/hooks.json", shape: defaultFile, merges: true},
+		defs: []location{
+			{rel: ClaudeCodeHooksFile, shape: defaultFile, merges: true},
+			{rel: "hooks.json", shape: defaultFile},
+			{rel: "com.github.copilot/hooks/hooks.json", shape: defaultFile, merges: true},
+		}},
 	{name: "mcpServers", detail: "starts MCP server processes", runsCode: true,
 		pick: func(m Manifest) json.RawMessage { return m.MCPServers }, paths: true,
-		def: ".mcp.json", shape: defaultFile, merges: true},
+		defs: []location{{rel: ".mcp.json", shape: defaultFile, merges: true}}},
 	{name: "lspServers", detail: "starts language server processes", runsCode: true,
 		pick: func(m Manifest) json.RawMessage { return m.LSPServers }, paths: true,
-		def: ".lsp.json", shape: defaultFile, merges: true},
+		defs: []location{{rel: ".lsp.json", shape: defaultFile, merges: true}}},
 	{name: "monitors", detail: "runs background shell commands for the whole session", runsCode: true,
-		pick: Manifest.monitors, paths: true, def: "monitors/monitors.json", shape: defaultFile},
+		pick: Manifest.monitors, paths: true,
+		defs: []location{{rel: "monitors/monitors.json", shape: defaultFile}}},
 	{name: "bin", detail: "puts executables on the agent's shell PATH", runsCode: true,
-		def: "bin", shape: defaultExecDir},
+		defs: []location{{rel: "bin", shape: defaultExecDir}}},
 	{name: "subagentStatusLine", detail: "runs a shell command to draw each subagent's status row",
 		runsCode: true, pick: settingKey("subagentStatusLine"),
-		def: "settings.json", shape: defaultKeyInFile, merges: true},
+		defs: []location{{rel: "settings.json", shape: defaultKeyInFile, merges: true}}},
 	{name: "workflows", runsCode: true,
 		detail: "adds workflow scripts, JavaScript Claude Code runs when one is invoked",
 		pick:   func(m Manifest) json.RawMessage { return m.Workflows },
-		paths:  true, def: "workflows", shape: defaultDir},
+		paths:  true, defs: []location{{rel: "workflows", shape: defaultDir}}},
 	{name: "syntaxHighlighting", runsCode: true,
 		detail: "adds syntax-highlighting grammars, JavaScript Claude Code runs in its own process",
 		pick:   experimentalKey("syntaxHighlighting")},
 	{name: "commands", detail: "adds slash commands (prompt text)",
 		pick: func(m Manifest) json.RawMessage { return m.Commands }, paths: true,
-		def: "commands", shape: defaultDir},
+		defs: []location{{rel: "commands", shape: defaultDir}}},
 	{name: "agents", detail: "adds sub-agent definitions",
 		pick: func(m Manifest) json.RawMessage { return m.Agents }, paths: true,
-		def: "agents", shape: defaultDir},
+		defs: []location{{rel: "agents", shape: defaultDir}}},
 	{name: "outputStyles", detail: "adds output styles",
 		pick: func(m Manifest) json.RawMessage { return m.OutputStyles }, paths: true,
-		def: "output-styles", shape: defaultDir},
+		defs: []location{{rel: "output-styles", shape: defaultDir}}},
 	{name: "themes", detail: "adds color themes",
-		pick: Manifest.themes, paths: true, def: "themes", shape: defaultDir},
+		pick: Manifest.themes, paths: true, defs: []location{{rel: "themes", shape: defaultDir}}},
 	{name: "agent", detail: "runs the main session as one of its agents",
-		pick: settingKey("agent"), def: "settings.json", shape: defaultKeyInFile, merges: true},
+		pick: settingKey("agent"),
+		defs: []location{{rel: "settings.json", shape: defaultKeyInFile, merges: true}}},
 }
 
 // settingKey picks the manifest's `settings.<key>`.
@@ -351,8 +399,8 @@ func experimentalKey(key string) func(Manifest) json.RawMessage {
 }
 
 // Components returns the non-skill components this plugin carries, in a stable order: each
-// one any of its manifests declares (see manifestDirs), and each one sitting at the default
-// location Claude Code loads it from (see components). Inferring from the filesystem is not
+// one any of its manifests declares (see manifestDirs), and each one sitting at a default
+// location a tool loads it from (see components). Inferring from the filesystem is not
 // crying wolf: a hooks/hooks.json with no manifest entry runs, which `claude plugin validate`
 // shows by listing its hooks. What is reported is only what would load — a hooks/ directory without
 // hooks.json, an empty bin/, a default a replacing field overrides — so a prose plugin stays
@@ -371,9 +419,12 @@ func (p *Plugin) Components() []Component {
 		}
 		// A replacing key overrides its default only for a tool whose manifest sets it, so the
 		// default still loads unless EVERY manifest a tool might read sets it.
-		replaced := !c.merges && len(sources) == len(manifests)
-		if c.def != "" && !replaced && defaultPresent(p.Dir, c.def, c.shape, c.name) {
-			sources = append(sources, c.def)
+		everyManifestDeclares := len(sources) == len(manifests)
+		for _, d := range c.defs {
+			replaced := !d.merges && everyManifestDeclares
+			if !replaced && defaultPresent(p.Dir, d.rel, d.shape, c.name) {
+				sources = append(sources, d.rel)
+			}
 		}
 		if len(sources) == 0 {
 			continue
@@ -384,9 +435,9 @@ func (p *Plugin) Components() []Component {
 	return out
 }
 
-// defaultPresent reports whether a component's default location holds something Claude Code
-// would load. Stat, not Lstat: the tools follow a symlinked file or directory, so a disclosure
-// that did not would miss what they load.
+// defaultPresent reports whether a component's default location holds something a tool would
+// load. Stat, not Lstat: the tools follow a symlinked file or directory, so a disclosure that
+// did not would miss what they load.
 func defaultPresent(dir, rel string, shape defaultShape, key string) bool {
 	path := filepath.Join(dir, filepath.FromSlash(rel))
 	fi, err := os.Stat(path)
@@ -566,11 +617,12 @@ func (p *Plugin) ComponentPaths() []string {
 		exclude("skills", fm.m.Skills)
 	}
 	for _, c := range components {
-		// Each component's DEFAULT location too, by its top-level entry (`hooks/` for
-		// hooks/hooks.json, `.mcp.json`, `bin/`): it is plugin machinery whether or not the
-		// manifest names it, and Components reports it as refused on a flat destination.
-		if c.def != "" {
-			top, _, _ := strings.Cut(c.def, "/")
+		// Each component's DEFAULT locations too, by their top-level entry (`hooks/` for
+		// hooks/hooks.json, `com.github.copilot/`, `.mcp.json`, `bin/`): each is plugin
+		// machinery whether or not the manifest names it, and Components reports it as refused
+		// on a flat destination.
+		for _, d := range c.defs {
+			top, _, _ := strings.Cut(d.rel, "/")
 			out = append(out, filepath.Join(p.Dir, top))
 		}
 		// Only a field whose value is paths: a setting's value is a name, and read as a path it

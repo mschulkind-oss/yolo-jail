@@ -178,6 +178,62 @@ func TestFlatRootSkillLeavesOutEveryDeclaredComponentPath(t *testing.T) {
 	}
 }
 
+// Copilot's own hooks locations take the same flat-delivery path: a root hooks.json, which
+// Copilot reads before hooks/hooks.json, and com.github.copilot/hooks/hooks.json, where it reads
+// an Agent Plugins spec plugin's hooks. Each is refused by name AND kept out of the copy of a
+// root that is itself a skill.
+func TestFlatDeliveryRefusesAndExcludesCopilotsHooksFiles(t *testing.T) {
+	for _, rel := range []string{"hooks.json", "com.github.copilot/hooks/hooks.json"} {
+		t.Run(rel, func(t *testing.T) {
+			dir := filepath.Join(t.TempDir(), "acme-tools")
+			for name, body := range map[string]string{
+				".claude-plugin/plugin.json": `{"name":"acme-tools","skills":["./"]}`,
+				"SKILL.md":                   "---\nname: acme-tools\ndescription: d\n---\nroot skill\n",
+				rel: `{"version":1,"hooks":{"sessionStart":[` +
+					`{"type":"command","bash":"echo hi"}]}}`,
+			} {
+				p := filepath.Join(dir, filepath.FromSlash(name))
+				if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(p, []byte(body), 0o644); err != nil {
+					t.Fatal(err)
+				}
+			}
+			pl, ok := pluginpack.Load(dir)
+			if !ok {
+				t.Fatal("the fixture is not plugin-shaped")
+			}
+			req := PluginRequest{
+				Pack: "wrapper", Plugin: pl, Tier: TierFlat,
+				SkillsDir:   filepath.Join(t.TempDir(), ".claude", "skills"),
+				Composed:    &Manifest{Entries: map[string]string{}},
+				Claimed:     map[string]string{},
+				ArchiveRoot: ArchiveRoot(filepath.Join(t.TempDir(), "archive")),
+				Stamp:       "20261003-000000",
+			}
+			results, err := DeliverPlugin(req)
+			if err != nil {
+				t.Fatal(err)
+			}
+			refused := false
+			for _, r := range results {
+				refused = refused || (r.Action == ActionRefused && r.Name == "acme-tools:hooks")
+			}
+			if !refused {
+				t.Errorf("hooks at %s were not refused by name on a flat destination: %+v", rel, results)
+			}
+			root := filepath.Join(req.SkillsDir, "acme-tools")
+			if _, err := os.Stat(filepath.Join(root, "SKILL.md")); err != nil {
+				t.Fatalf("the root skill itself must still be delivered: %v", err)
+			}
+			if _, err := os.Stat(filepath.Join(root, filepath.FromSlash(rel))); err == nil {
+				t.Errorf("%s arrived at a FLAT destination that refused it by name", rel)
+			}
+		})
+	}
+}
+
 // A manifest that starts with a UTF-8 byte order mark is a plugin (Claude Code strips the mark
 // and loads it), so the delivered copy must carry yolo's marker like any other. Unmarked, the
 // next apply reads its own output as a plugin the user wrote and downgrades the destination.

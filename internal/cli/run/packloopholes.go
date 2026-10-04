@@ -327,10 +327,13 @@ func disclosureClassOfClaim(c packload.Claim) disclosureClass {
 // ReviewWorthy is the discriminator because on THIS claim it is the code question: the
 // producer sets it from pluginpack.Plugin.RunsCode (footprint.go's Plugins loop), which is
 // true exactly when the plugin carries a component pluginpack's components table marks as
-// running code (hooks, MCP and LSP servers, `bin/`, workflow scripts, …) — declared in any of
-// its manifests or sitting at the default location Claude Code loads it from without one. A
-// plugin shipping only prose (skills, commands, output styles, themes) keeps
-// `skills`'s disclosureSkip and stays off the launch — announcing it is option (c), which
+// running code (hooks, MCP and LSP servers, monitors, `bin/` executables, a subagentStatusLine,
+// workflow scripts, syntax-highlighting grammars) — declared in any of its manifests or sitting
+// at a default location a tool loads it from without one: Claude Code's (hooks/hooks.json,
+// .mcp.json, .lsp.json, monitors/monitors.json, bin/, settings.json, workflows/), and for hooks
+// also Copilot's root hooks.json and com.github.copilot/hooks/hooks.json. A plugin shipping only
+// prose (skills, commands, sub-agents, output styles, themes, a main-session `agent` setting)
+// keeps `skills`'s disclosureSkip and stays off the launch — announcing it is option (c), which
 // OQ-TP10 rejected for burying the hooks in the noise.
 func pluginCodeClaim(c packload.Claim) bool {
 	return c.Kind == packdecl.KindSkills &&
@@ -634,18 +637,24 @@ func hooksModuleSummary(dirs []string) string {
 // (MEASURED on 2.1.288): a hooks file itself — the default hooks/hooks.json — and a hooks file a
 // manifest's `hooks` names by path, as a string or in an array. A manifest's INLINE `hooks` object
 // is not one: Claude Code reads its `modules` key as an unknown hook event and ignores it. An empty
-// `modules` loads nothing (validate rejects it), and an entry is a path string.
+// `modules` loads nothing (validate rejects it), and an entry is a path string. The other default
+// hooks files Components names are Copilot's, which Claude Code never reads, so a `modules` entry
+// in one loads nothing and the clause, which says Claude Code runs it, would be false.
 func pluginLoadsHooksModule(pl *pluginpack.Plugin) bool {
 	for _, comp := range pl.Components() {
 		if comp.Name != "hooks" {
 			continue
 		}
 		for _, src := range comp.Sources {
+			isManifest := path.Base(src) == "plugin.json"
+			if !isManifest && src != pluginpack.ClaudeCodeHooksFile {
+				continue
+			}
 			obj, ok := readPluginJSON(pl.Dir, src)
 			if !ok {
 				continue
 			}
-			if path.Base(src) != "plugin.json" {
+			if !isManifest {
 				if namesHooksModule(obj) {
 					return true
 				}

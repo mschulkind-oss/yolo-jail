@@ -240,16 +240,17 @@ now retired — kept because they remain true of the lockfile and constrain anyt
    > reads directly. yolo delivers it and reports what it carries, but never interprets it. yolo
    > reports the component kinds below and marks the ones that run code (the `components` table
    > in [`pluginpack.go`](../../internal/pluginpack/pluginpack.go)). Each counts whether a
-   > manifest declares it or it sits at the **default location** Claude Code loads it from when
+   > manifest declares it or it sits at a **default location** a tool loads it from when
    > the manifest says nothing (the "Standard layout" table of Claude Code's
-   > [plugin reference](https://code.claude.com/docs/en/plugins-reference)). "A manifest" is
+   > [plugin reference](https://code.claude.com/docs/en/plugins-reference), and for hooks two
+   > more locations GitHub Copilot CLI reads). "A manifest" is
    > every `plugin.json` the tree carries at a location some tool reads, because the tools
    > disagree about which one is the plugin's. A component found more than one way is one
    > component:
    >
    > | Component | Default location | What it does | Runs code |
    > | :--- | :--- | :--- | :--- |
-   > | `hooks` | `hooks/hooks.json` | runs code at agent lifecycle events | ✅ |
+   > | `hooks` | `hooks/hooks.json`; for Copilot also `hooks.json` and `com.github.copilot/hooks/hooks.json` | runs code at agent lifecycle events | ✅ |
    > | `mcpServers` | `.mcp.json` | starts MCP server processes | ✅ |
    > | `lspServers` | `.lsp.json` | starts language server processes | ✅ |
    > | `monitors` | `monitors/monitors.json` | runs background shell commands for the whole session | ✅ |
@@ -271,6 +272,17 @@ now retired — kept because they remain true of the lockfile and constrain anyt
    > setting had no row until later that day, read from Claude Code 2.1.289's own plugin loader,
    > so a flat skills dir lost them without naming them, and a namespaced one delivered workflow
    > and grammar code that no line named.
+   >
+   > Copilot's two hooks locations were checked on 2026-10-03 against Copilot CLI 1.0.91, by
+   > reading the plugin loader in its shipped package rather than by running it. For a plugin in
+   > the Claude format, Copilot reads the manifest's `hooks` when it declares one, and then no
+   > hooks file. Without one it
+   > reads `hooks.json` at the plugin root, then `hooks/hooks.json`, and takes the first that
+   > loads. For a plugin whose manifest names an Agent Plugins `$schema`, it reads only
+   > `com.github.copilot/hooks/hooks.json`. yolo names either Copilot file whenever it is there.
+   > It does not judge which manifests count as Agent Plugins ones, since that is an exact match
+   > against a version list Copilot extends. The evidence is beside the `components` table in
+   > [`pluginpack.go`](../../internal/pluginpack/pluginpack.go).
    >
    > A **hook body** is the script a `hooks` entry names — the thing the *agent* executes when it
    > reaches one of its own lifecycle events. yolo never runs it and never reads it.

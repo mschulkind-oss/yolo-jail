@@ -45,16 +45,16 @@ into a jail, and what each launch shows about the code it runs. See
   date.
 - On Apple Container, a terminal whose jail is stopped while it runs now says the jail stopped and
   why, instead of saying nothing or that the jail stays up.
-- The launch, `yolo pack footprint` and `yolo host apply` now name the code a wrapped Claude plugin
-  runs from Claude Code's default places (hooks, MCP and language servers, monitors, `bin/`), not
-  only what its manifest declares, and the launch says when its hooks include a mod's module.
+- The launch, `yolo pack footprint` and `yolo host apply` now name all the code a wrapped Claude
+  plugin runs, its workflows and highlighting grammars included, wherever Claude Code or Copilot
+  loads it from by default, not only where its manifest says, and the launch says when its hooks
+  include a mod's module.
 - A Claude plugin at the root of a pack with no `skills/` folder, the usual shape of a Claude Code
   mod, now reaches a jail and `yolo host apply`.
 - A plugin whose manifest names it with a path, such as `../x`, is refused instead of being written
   outside the skills folder.
 - A wrapped Claude plugin's workflows, themes, highlighting grammars and the agent it sets for your
-  sessions are now named when they are left out, and its workflows and grammars count as code it
-  runs.
+  sessions are now named when they are left out.
 - In a jail, `gh` now runs `--jq` and `--template`, takes an encoded branch name such as
   `MS%2Fmain`, and answers `gh auth status` without your machine's paths or the token's scopes; a
   write says at once that nothing ran and to run it on your machine.
