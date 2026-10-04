@@ -74,7 +74,8 @@ identifiers. Upstream's `packages/ai/src/models.ts` carries the same `checkProvi
 
 1. **The extension layer** (SOURCED). [`yolo-openai-auth.js`](../../packs/pi/extensions/yolo-openai-auth.js)
    registers `openai-codex` with `pi.registerProvider("openai-codex", { ... })` (everywhere but
-   `yolo host -- pi` since [PH-D2](#PH-D2)). Its model list comes from
+   `yolo host -- pi` on a pi that takes the native provider, since [PH-D2](#PH-D2) and
+   [PH-D4](#PH-D4)). Its model list comes from
    `~/.pi/agent/yolo-openai-codex-models.json` (`CODEX_LIST_FILE`), and its `oauth` block wires
    `login`, `refreshToken` and `getApiKey` to the yolo auth broker.
 2. **Registrations land before selection** (SOURCED, `$PI/core/agent-session-services.js:72-111`).
@@ -648,7 +649,8 @@ code changed: `yolo host -- pi` already hands pi the broker's socket and writes 
 pins that).
 
 - **Two registrations, one per route** ([PH-D2](#PH-D2)). The **host route**: where
-  `YOLO_OPENAI_AUTH_HOST_SOCKET` is set and pi exports its built-in `openai-codex` provider serving
+  `YOLO_OPENAI_AUTH_HOST_SOCKET` is set, pi's loader takes a provider object (its root's `ModelRuntime`
+  has `registerNativeProvider`) and pi exports its built-in `openai-codex` provider serving
   `openai-codex-responses`, the extension registers that provider natively, `pi.registerProvider(provider)`,
   named *OpenAI Codex*, with yolo's broker login as its `auth.oauth` and a key method as its
   `auth.apiKey`. The key method's `check` answers `{ type: "oauth", source: "yolo shared login" }`
@@ -665,8 +667,14 @@ pins that).
   1.0.1 `interactive-mode.js`, `getLoginProviderOptions` and `showAmbientAuthDialog`). Not run in an
   interactive pi.
 - **`resolve` reuses the broker's view** until five minutes before it expires ([PH-D3](#PH-D3)).
-- **Fallback** ([PH-D4](#PH-D4)): with no built-in to register, or a `registerProvider` that throws on a
-  provider object, the host route registers the jail route's `ProviderConfig`.
+- **Fallback** ([PH-D4](#PH-D4)): with no built-in to register, or a pi whose loader cannot take a
+  provider object, the host route registers the jail route's `ProviderConfig`. pi 0.80.10 is such a
+  pi: it exports the built-in, but its `registerProvider` takes the object for a name, throws nothing,
+  and fails applying it, which, when a `try`/`catch` around the call chose the route, reported the
+  extension as failed and lost yolo's login (MEASURED 2026-10-04). Asking for
+  `registerNativeProvider` keeps 0.80.10 on the `ProviderConfig`, unconfigured with no stored login
+  and carrying *OpenAI Codex (yolo shared login)*, the login [§1.2](#12-the-live-confirmation) chose
+  in `/login` (MEASURED by a throwaway probe of `createAgentSessionServices`).
 
 **What is measured.** MEASURED 2026-10-04 on pi 1.0.1 by the two `TestPiOpenAIAuthUnderPisOwnRuntime`
 tests in [`pi_openai_auth_native_test.go`](../../internal/entrypoint/pi_openai_auth_native_test.go),
@@ -822,7 +830,7 @@ building it.
 | <a id="PH-D1"></a>PH-D1 | **[OQ-1](#OQ-1): D2.** Decided on its leaning under the maintainer's 2026-10-04 delegation (*"make them and build it … adjust later"*), open to his revision. Host pi gets a native `openai-codex` provider whose key check answers `oauth` only while the host socket is set, so pi counts the provider configured with nothing stored, and yolo writes nothing into the user's `auth.json`: [NC-D37](../plans/notch-convergence.md#NC-D37) stands as written | 2026-10-04 | [§3.4](#34-for-the-authjson-seeding-the-option-space) D, [§5](#5-build-order-and-the-tests-that-pin-each-step) step 3 | ✅ 2026-10-04 ([§5.1](#51-as-built-the-native-registration)); a host pi session not yet run on it |
 | <a id="PH-D2"></a>PH-D2 | *Implementation decision, taken under the maintainer's 2026-10-04 delegation ("make them and build it … adjust later"); reversible.* **The native registration only where the host socket is set; everywhere else the `ProviderConfig` as it was.** The alternative was the native provider everywhere, which a jail would notice in two ways: pi wraps only its own built-ins in its remote catalog refresh (`ModelRuntime.create`, SOURCED on pi 1.0.1), so a jail with no rendered list would lose that refresh, and pi's `/login` would gain an API-key entry, since it lists one for every key method. A jail gains nothing in return, having stored its login before pi starts. The socket is set only by `yolo host --`, so a jail's and a directly started pi's registration stay what they were, field for field | 2026-10-04 | [§5.1](#51-as-built-the-native-registration) | ✅ 2026-10-04; `TestPiOpenAIAuthJailRouteNeverRegistersNatively` fails with the gate removed |
 | <a id="PH-D3"></a>PH-D3 | *Implementation decision, taken under the maintainer's 2026-10-04 delegation ("make them and build it … adjust later"); reversible.* **The key method's `resolve` reuses the broker's view until five minutes before it expires**, pi's own refresh window for a stored login (pi-ai `auth/resolve.js`), instead of asking the client on every request. A token the broker replaced meanwhile is used until then, exactly as pi uses a stored login's, the jail's included | 2026-10-04 | [§5.1](#51-as-built-the-native-registration) | ✅ 2026-10-04; `TestPiOpenAIAuthHostRouteRegistersPisBuiltInAsANativeProvider` and `TestPiOpenAIAuthHostRouteAsksAgainForATokenNearItsEnd` |
-| <a id="PH-D4"></a>PH-D4 | *Implementation decision, taken under the maintainer's 2026-10-04 delegation ("make them and build it … adjust later"); reversible.* **No built-in to register falls back to the `ProviderConfig`**: a pi whose `providers/all` exports no `builtinProviders`, none for `openai-codex`, or one not serving `openai-codex-responses`, and a `registerProvider` that throws on a provider object. Such a pi keeps today's host behavior, `/login` included. Pi's changelog records native provider registration in 0.81.0 (SOURCED, its `CHANGELOG.md`); which release first exported `builtinProviders` is not measured, and a loader that took the provider object without throwing and failed only when applying it would lose the registration (INFERRED; no such pi is known) | 2026-10-04 | [§5.1](#51-as-built-the-native-registration) | ✅ 2026-10-04; `TestPiOpenAIAuthHostRouteFallsBackToTheProviderConfig` |
+| <a id="PH-D4"></a>PH-D4 | *Implementation decision, taken under the maintainer's 2026-10-04 delegation ("make them and build it … adjust later"); reversible.* **Nothing to register natively falls back to the `ProviderConfig`**: a pi whose root's `ModelRuntime` has no `registerNativeProvider`, the method its loader hands a provider object to, or whose `providers/all` exports no `builtinProviders`, none for `openai-codex`, or one not serving `openai-codex-responses`. Such a pi keeps the host behavior it had before D2, `/login` included. The route is chosen by asking for the method, not by a throw: pi 0.80.10 exports the built-in, and its `registerProvider` took a provider object for a name, threw nothing, and failed applying it, which lost the registration and reported the extension as failed under the `try`/`catch` this row first named (MEASURED 2026-10-04). 0.81.0, the next release, has the method, as do 0.87.1, 0.99.2, 1.0.1 and 1.0.2 (MEASURED), and 0.81.0's changelog records the registration (SOURCED, its `CHANGELOG.md`) | 2026-10-04 | [§5.1](#51-as-built-the-native-registration) | ✅ 2026-10-04; `TestPiOpenAIAuthHostRouteFallsBackToTheProviderConfig`, whose cases fail with the method check or the api check removed |
 
 ---
 

@@ -651,6 +651,7 @@ func TestTheHostNotchGivesPiTheDeclaredCodexList(t *testing.T) {
 			// both routes: a plain pi's, and the native provider `yolo host -- pi` registers with
 			// the host socket set, over a stand-in for pi's built-in resolved from the home.
 			writePiAIStub(t, home, piCatalogStubJS+piBuiltinProvidersStubJS)
+			writePiCoreStub(t, home, piNativeCoreStubJS)
 			harness := filepath.Join(t.TempDir(), "harness.mjs")
 			ext := filepath.Join(home, ".pi", "agent", "extensions", "yolo-openai-auth.js")
 			if err := os.WriteFile(harness, []byte(piRegisteredIDsHarness), 0o644); err != nil {

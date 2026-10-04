@@ -312,13 +312,43 @@ func writePiAIStub(t *testing.T, root, allJS string) {
 	}
 }
 
+// piNativeCoreStubJS stands in for the root of a pi whose loader takes a provider object: the
+// root exports ModelRuntime, and its prototype has the registerNativeProvider that loader hands
+// the object to (pi 0.81.0 on; MEASURED 2026-10-04, docs/design/pi-host-openai-auth.md PH-D4).
+const piNativeCoreStubJS = "export class ModelRuntime { registerNativeProvider() {} }\n"
+
+// piPreNativeCoreStubJS is the root of pi 0.80.10, the shape MEASURED there on 2026-10-04: a
+// ModelRuntime with no registerNativeProvider, so its loader queues a provider object as a name
+// and fails applying it, without throwing at the call.
+const piPreNativeCoreStubJS = "export const VERSION = \"0.80.10\";\nexport class ModelRuntime {}\n"
+
+// writePiCoreStub writes body as the stand-in for pi's own package root,
+// @earendil-works/pi-coding-agent, into root's node_modules, where node resolves a bare import
+// from any file below root.
+func writePiCoreStub(t *testing.T, root, body string) {
+	t.Helper()
+	pkg := filepath.Join(root, "node_modules", "@earendil-works", "pi-coding-agent")
+	if err := os.MkdirAll(pkg, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(pkg, "package.json"), []byte(
+		`{"name":"@earendil-works/pi-coding-agent","type":"module","exports":{".":"./index.js"}}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(pkg, "index.js"), []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
 // catalogStub installs pi's catalog lookup alone, the module of a pi that exports no built-in
 // provider object.
 func (f piExtensionFixture) catalogStub(t *testing.T) { f.stubPiAI(t, piCatalogStubJS) }
 
-// builtinStub installs the catalog lookup and pi's built-in openai-codex provider.
+// builtinStub installs the catalog lookup and pi's built-in openai-codex provider, under the root
+// of a pi whose loader takes a provider object: the pi the host route registers natively on.
 func (f piExtensionFixture) builtinStub(t *testing.T) {
 	f.stubPiAI(t, piCatalogStubJS+piBuiltinProvidersStubJS)
+	writePiCoreStub(t, f.dir, piNativeCoreStubJS)
 }
 
 // fakeClient installs a stand-in `yolo` whose `internal openai-auth-client <action>` runs the
@@ -605,17 +635,7 @@ func TestPiOpenAIAuthExtensionWarnsOnceWhenPisCatalogCannotDescribeAModel(t *tes
 // directory. body is the module's source, so a root exporting no version is spellable.
 func (f piExtensionFixture) piPackageStub(t *testing.T, body string) {
 	t.Helper()
-	pkg := filepath.Join(f.dir, "node_modules", "@earendil-works", "pi-coding-agent")
-	if err := os.MkdirAll(pkg, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(pkg, "package.json"), []byte(
-		`{"name":"@earendil-works/pi-coding-agent","type":"module","exports":{".":"./index.js"}}`), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(pkg, "index.js"), []byte(body), 0o644); err != nil {
-		t.Fatal(err)
-	}
+	writePiCoreStub(t, f.dir, body)
 }
 
 // Two ids the catalog stub lacks, the shape of a pi older than the GPT-6 models.
@@ -846,34 +866,55 @@ eq(streamed.map((c) => [c.via, c.model, c.options === options]),
 `)
 }
 
-// THE PROVIDERCONFIG IS THE FALLBACK. With the socket set but no built-in to register natively
-// (a pi that exports no provider objects, or none for openai-codex, or no catalog module at all),
-// or a registerProvider that takes no provider object, the extension registers today's
-// ProviderConfig, so an older pi keeps the login it had.
+// THE PROVIDERCONFIG IS THE FALLBACK. With the socket set but nothing to register natively, the
+// extension registers today's ProviderConfig, so an older pi keeps the login it had, yolo's entry
+// in /login included (docs/design/pi-host-openai-auth.md PH-D4): a pi that exports no built-in
+// providers, none for openai-codex, or one on another api, which nativeModel would point every
+// listed model at with nothing to serve it; no catalog module at all; and a pi whose loader cannot
+// take a provider object. That last is pi 0.80.10, MEASURED 2026-10-04: it exports the built-in,
+// and its registerProvider queues the object as a name without throwing, then fails applying it,
+// so the registration is lost and the extension reported as failed. A try/catch around the call
+// cannot see that, so the extension asks pi's root for registerNativeProvider, and each case's
+// stand-in registerProvider only records the call, as 0.80.10's throws nothing.
 func TestPiOpenAIAuthHostRouteFallsBackToTheProviderConfig(t *testing.T) {
+	builtins := piCatalogStubJS + piBuiltinProvidersStubJS
 	for name, tc := range map[string]struct {
-		allJS, registerProvider string
+		allJS, coreJS string
 	}{
-		"pi exports no built-in providers": {allJS: piCatalogStubJS},
-		"pi's built-ins lack openai-codex": {allJS: piCatalogStubJS + "export function builtinProviders() { return []; }\n"},
-		"no catalog module at all":         {},
-		"registerProvider takes no provider object": {allJS: piCatalogStubJS + piBuiltinProvidersStubJS,
-			registerProvider: `if (typeof args[0] !== "string") throw new Error("Provider config is required when registering by name");`},
+		"pi exports no built-in providers": {allJS: piCatalogStubJS, coreJS: piNativeCoreStubJS},
+		"pi's built-ins lack openai-codex": {allJS: piCatalogStubJS + "export function builtinProviders() { return []; }\n",
+			coreJS: piNativeCoreStubJS},
+		"pi's built-in serves another api": {allJS: piCatalogStubJS + `
+export function builtinProviders() {
+	const models = () => Object.keys(known).map((id) => ({ ...getBuiltinModel("openai-codex", id), api: "openai-responses-v9" }));
+	return [{ id: "openai-codex", name: "OpenAI Codex (legacy)", auth: { oauth: {} }, getModels: models, getAllModels: models,
+		streamSimple: () => { throw new Error("the built-in ran a model on an api it does not serve"); } }];
+}
+`, coreJS: piNativeCoreStubJS},
+		"no catalog module at all":                          {coreJS: piNativeCoreStubJS},
+		"pi 0.80.10, whose loader takes no provider object": {allJS: builtins, coreJS: piPreNativeCoreStubJS},
+		"no pi package root to ask":                         {allJS: builtins},
 	} {
 		t.Run(name, func(t *testing.T) {
 			f := newPiExtensionFixture(t)
 			if tc.allJS != "" {
 				f.stubPiAI(t, tc.allJS)
 			}
+			if tc.coreJS != "" {
+				writePiCoreStub(t, f.dir, tc.coreJS)
+			}
 			f.modelsFile(t, piCodexModelsFixture)
 			f.output(t, piHostRoute, piRegistrationViewJS+`
 import extension from "./extension.mjs";
 const registrations = [];
-await extension({ registerProvider(...args) { `+tc.registerProvider+` registrations.push(args); }, on() {} });
+await extension({ registerProvider(...args) { registrations.push(args); }, on() {} });
 if (registrations.length !== 1) throw new Error("registrations: " + registrations.length);
 const view = registrationView(registrations[0]);
 requireRoute(view);
-if (!view.hasLogin || view.config.models?.length !== 3) throw new Error("the fallback lost the login or the list");
+if (!view.hasLogin || view.config.oauth?.name !== "OpenAI Codex (yolo shared login)") throw new Error("the fallback lost yolo's login");
+if (JSON.stringify(view.config.models?.map((m) => m.id)) !== JSON.stringify(["gpt-6-sol", "gpt-6-sol[1m]", "gpt-6-nova"])) {
+	throw new Error("the fallback lost the list: " + JSON.stringify(view.config.models));
+}
 `, "PI_WANT_NATIVE=0")
 		})
 	}

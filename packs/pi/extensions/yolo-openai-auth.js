@@ -268,12 +268,29 @@ const DEFAULT_MAX_TOKENS = 16384;
 // "0.0.0" is what pi reports when it could not read its own package.json (config.js), so it
 // counts as unreadable rather than as a version.
 async function piVersion() {
+	const VERSION = (await piPackage())?.VERSION;
+	return typeof VERSION === "string" && VERSION.length > 0 && VERSION !== "0.0.0" ? VERSION : undefined;
+}
+
+// piPackage returns the running pi's package root, the module piVersion describes, or undefined
+// when it cannot be imported.
+async function piPackage() {
 	try {
-		const { VERSION } = await import("@earendil-works/pi-coding-agent");
-		return typeof VERSION === "string" && VERSION.length > 0 && VERSION !== "0.0.0" ? VERSION : undefined;
+		return await import("@earendil-works/pi-coding-agent");
 	} catch {
 		return undefined;
 	}
+}
+
+// piTakesNativeProviders says whether this pi's extension loader can take a provider object, the
+// host route's registration. pi 0.81.0 added that, routing the one-argument registerProvider to
+// its model runtime's registerNativeProvider; pi 0.80.10 already exports the built-in provider,
+// but its registerProvider queues the object as a name and fails applying it, which loses the
+// registration and throws nothing at the call (MEASURED 2026-10-04,
+// docs/design/pi-host-openai-auth.md PH-D4). A try/catch around the call cannot see that, so the
+// method is asked for here instead, on the ModelRuntime pi's root exports.
+async function piTakesNativeProviders() {
+	return typeof (await piPackage())?.ModelRuntime?.prototype?.registerNativeProvider === "function";
 }
 
 // degradedWarning says which registered models fell back to the defaults above, or returns
@@ -391,12 +408,13 @@ function nativeModel(definition) {
 // pi awaits an extension's factory (core/extensions/loader.js), so the catalog import
 // finishes before the registration is read.
 //
-// TWO REGISTRATIONS, ONE PER ROUTE. Where `yolo host` set the broker's socket and pi exports its
-// built-in openai-codex provider, the host route above (nativeCodexProvider). Everywhere else — a
-// jail, which stores the login before pi starts, a pi started directly, and a pi too old to
-// export the built-in — the ProviderConfig below, which composes over pi's built-in provider and
-// counts as configured only for a stored login. Keeping the jail on the ProviderConfig keeps its
-// registration exactly what it was, with pi's remote catalog refresh and no key method in /login.
+// TWO REGISTRATIONS, ONE PER ROUTE. Where `yolo host` set the broker's socket, pi's loader takes a
+// provider object and pi exports its built-in openai-codex provider, the host route above
+// (nativeCodexProvider). Everywhere else — a jail, which stores the login before pi starts, a pi
+// started directly, and a pi too old for either — the ProviderConfig below, which composes over
+// pi's built-in provider and counts as configured only for a stored login. Keeping the jail on the
+// ProviderConfig keeps its registration exactly what it was, with pi's remote catalog refresh and
+// no key method in /login.
 //
 // THE REFUSAL (docs/design/model-lists-and-pickers.md MM-D6, MM-D23). With a list and its
 // `enforce` on, the registration also carries a `streamSimple` that throws yolo's refusal for a
@@ -423,15 +441,11 @@ export default async function registerYoloOpenAIAuth(pi) {
 		if (!allowed.has(model?.id)) throw new Error(refusal("openai-codex", model?.id, listed));
 	};
 
-	const base = process.env[HOST_SOCKET_ENV] ? await builtinCodexProvider() : undefined;
-	let native = false;
-	if (base) {
-		try {
-			pi.registerProvider(nativeCodexProvider(base, definitions?.map(nativeModel), refusing ? refuse : undefined));
-			native = true;
-		} catch {
-			// a pi whose registerProvider takes no provider object: the ProviderConfig below
-		}
+	const base =
+		process.env[HOST_SOCKET_ENV] && (await piTakesNativeProviders()) ? await builtinCodexProvider() : undefined;
+	const native = base !== undefined;
+	if (native) {
+		pi.registerProvider(nativeCodexProvider(base, definitions?.map(nativeModel), refusing ? refuse : undefined));
 	}
 	const delegate = !native && refusing ? await codexDelegate() : undefined;
 	if (!native) {

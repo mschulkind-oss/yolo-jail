@@ -186,6 +186,8 @@ func runPiCodexRefusal(t *testing.T, route piRoute, list []byte, allJS, compatJS
 			t.Fatal(err)
 		}
 	}
+	// A pi whose loader takes a provider object, so the stub's built-in decides the route alone.
+	writePiCoreStub(t, dir, piNativeCoreStubJS)
 	probeJSON, err := json.Marshal(probe)
 	if err != nil {
 		t.Fatal(err)
