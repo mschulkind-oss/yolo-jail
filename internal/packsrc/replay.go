@@ -26,10 +26,11 @@ package packsrc
 //
 // TWO CONFIG REGIMES. The prefetch is the store's (gitCmd: the user's own git config honored, for
 // a private upstream's credential helpers). The replay sees NO user or system config at all — no
-// hooks, no signing, no whitespace judgment, no attributes file, a fixed committer — because a
-// user setting changes its answer or runs a user program: with commit.gpgsign=true `git am` runs
-// the configured signer, and with apply.whitespace=error a member adding a trailing space fails
-// (both MEASURED in the design). replayEnv is that regime.
+// hooks, no signing, no whitespace judgment, no attributes file, no template, a fixed committer —
+// because a user setting changes its answer or runs a user program: with commit.gpgsign=true
+// `git am` runs the configured signer, and with apply.whitespace=error a member adding a trailing
+// space fails (both MEASURED in the design). replayEnv and newScratch's `--template=` are that
+// regime.
 //
 // THE GIT IT NEEDS: `merge-tree --merge-base` arrived in git 2.40, so an older git is an apply
 // error naming the version, never a conflict.
@@ -231,13 +232,20 @@ func newScratch(gitBin, mirror string, b budget) (*scratch, error) {
 		return nil, err
 	}
 	sc := &scratch{gitBin: gitBin, dir: dir, repo: filepath.Join(dir, "repo"), b: b}
-	if _, err := sc.git("", "init", "-q", "-b", "yolo-replay", sc.repo); err != nil {
+	// `--template=` copies no template: a user's template directory (init.templateDir, or
+	// GIT_TEMPLATE_DIR, which replayEnv drops anyway) would otherwise land as this repository's own
+	// config and info/attributes, which no `-c` here fully overrides — merge.renames among them.
+	if _, err := sc.git("", "init", "--template=", "-q", "-b", "yolo-replay", sc.repo); err != nil {
 		sc.remove()
 		return nil, err
 	}
+	info := filepath.Join(sc.repo, ".git", "objects", "info")
 	objects, err := filepath.Abs(filepath.Join(mirror, "objects"))
 	if err == nil {
-		err = os.WriteFile(filepath.Join(sc.repo, ".git", "objects", "info", "alternates"), []byte(objects+"\n"), 0o644)
+		err = os.MkdirAll(info, 0o755)
+	}
+	if err == nil {
+		err = os.WriteFile(filepath.Join(info, "alternates"), []byte(objects+"\n"), 0o644)
 	}
 	if err != nil {
 		sc.remove()
@@ -275,24 +283,28 @@ var replayIdentity = []string{
 	"GIT_AUTHOR_DATE=@0 +0000",
 }
 
-// replayEnv is the replay's environment: the process's, with git's repository state and every
-// source of configuration but the run's own `-c` removed — no global or system file, nothing
-// carried in the environment (GIT_CONFIG_PARAMETERS, GIT_CONFIG_COUNT and its pairs) — no lazy
-// fetch, no prompt, and the fixed committer.
+// replayKeepsGitEnv is the one GIT_ variable a replay inherits: where this git finds its own
+// programs (`git am` is one), which a relocated git install may need set.
+const replayKeepsGitEnv = "GIT_EXEC_PATH"
+
+// replayEnv is the replay's environment: the process's with EVERY git variable dropped but
+// replayKeepsGitEnv — git's repository state, every source of configuration but the run's own
+// `-c` (no global or system file, nothing carried in GIT_CONFIG_PARAMETERS or GIT_CONFIG_COUNT and
+// its pairs), and every other variable that changes git's answer: GIT_TEMPLATE_DIR (a template's
+// config and attributes become the scratch repository's own), GIT_ATTR_SOURCE (attributes read
+// from a tree), GIT_DEFAULT_HASH (a scratch repository that cannot borrow the mirror's objects),
+// the identity — then no system attributes file, no lazy fetch, no prompt, and the fixed
+// committer. An allowlist, so a variable a later git adds cannot reach the replay either.
 func replayEnv() []string {
 	var out []string
-	for _, kv := range CleanGitEnv(os.Environ()) {
+	for _, kv := range os.Environ() {
 		key, _, _ := strings.Cut(kv, "=")
-		switch {
-		case key == "GIT_CONFIG_GLOBAL", key == "GIT_CONFIG_SYSTEM", key == "GIT_CONFIG_NOSYSTEM",
-			key == "GIT_CONFIG_PARAMETERS", key == "GIT_CONFIG_COUNT",
-			strings.HasPrefix(key, "GIT_CONFIG_KEY_"), strings.HasPrefix(key, "GIT_CONFIG_VALUE_"),
-			strings.HasPrefix(key, "GIT_COMMITTER_"), strings.HasPrefix(key, "GIT_AUTHOR_"):
+		if strings.HasPrefix(key, "GIT_") && key != replayKeepsGitEnv {
 			continue
 		}
 		out = append(out, kv)
 	}
-	return append(append(out, "GIT_CONFIG_GLOBAL="+os.DevNull, "GIT_CONFIG_NOSYSTEM=1",
+	return append(append(out, "GIT_CONFIG_GLOBAL="+os.DevNull, "GIT_CONFIG_NOSYSTEM=1", "GIT_ATTR_NOSYSTEM=1",
 		"GIT_NO_LAZY_FETCH=1", "GIT_TERMINAL_PROMPT=0", "GIT_ASKPASS=", "SSH_ASKPASS="), replayIdentity...)
 }
 

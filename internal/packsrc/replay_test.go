@@ -140,18 +140,7 @@ func TestABlobThatCannotBeFetchedIsAnApplyError(t *testing.T) {
 // package's tripwire, armed in TestMain, signs through the environment too.) The fetch keeps the
 // user's config, which none of these settings disturbs.
 func TestTheReplayIgnoresTheUsersGitConfig(t *testing.T) {
-	u := newPatchedUpstream(t)
-	// A series whose second member adds a trailing space.
-	gitIn(t, u.repo, "checkout", "-q", "-b", "ws")
-	commitFile(t, u.repo, "f.txt", thirtyLines(map[int]string{10: "ten"}))
-	commitFile(t, u.repo, "f.txt", thirtyLines(map[int]string{10: "ten", 5: "five "}))
-	os.RemoveAll(filepath.Join(u.pack, "patches"))
-	gitIn(t, u.repo, "format-patch", "-q", "--base="+u.base, "-o", filepath.Join(u.pack, "patches"), "main..ws")
-	gitIn(t, u.repo, "checkout", "-q", "main")
-	gitIn(t, u.repo, "mv", "f.txt", "g.txt")
-	gitIn(t, u.repo, "commit", "-qm", "rename")
-	gitIn(t, u.repo, "tag", "v1.1.0")
-
+	u := renamedUpstream(t)
 	global := filepath.Join(t.TempDir(), "gitconfig")
 	writeTestFile(t, global, "[merge]\n\trenames = false\n[commit]\n\tgpgsign = true\n[gpg]\n\t"+
 		"program = /nonexistent/signer\n[apply]\n\twhitespace = error\n[core]\n\tautocrlf = true\n")
@@ -163,6 +152,72 @@ func TestTheReplayIgnoresTheUsersGitConfig(t *testing.T) {
 	}
 	if want := u.handRebaseTree(t, list[0].Commit); w.Results[0].Tree != want {
 		t.Errorf("the patched tree %s is not a hand rebase's %s", w.Results[0].Tree, want)
+	}
+}
+
+// renamedUpstream is the fixture with a series whose second member adds a trailing space, and an
+// upstream v1.1.0 that renamed the series' file f.txt to g.txt: the replay applies to the new name
+// only with rename detection on (§5.2's rename row).
+func renamedUpstream(t *testing.T) *patchedUpstream {
+	t.Helper()
+	u := newPatchedUpstream(t)
+	gitIn(t, u.repo, "checkout", "-q", "-b", "ws")
+	commitFile(t, u.repo, "f.txt", thirtyLines(map[int]string{10: "ten"}))
+	commitFile(t, u.repo, "f.txt", thirtyLines(map[int]string{10: "ten", 5: "five "}))
+	os.RemoveAll(filepath.Join(u.pack, "patches"))
+	gitIn(t, u.repo, "format-patch", "-q", "--base="+u.base, "-o", filepath.Join(u.pack, "patches"), "main..ws")
+	gitIn(t, u.repo, "checkout", "-q", "main")
+	gitIn(t, u.repo, "mv", "f.txt", "g.txt")
+	gitIn(t, u.repo, "commit", "-qm", "rename")
+	gitIn(t, u.repo, "tag", "v1.1.0")
+	return u
+}
+
+// THE REPLAY TAKES NO TEMPLATE AND NO GIT VARIABLE OF THE USER'S (PF-D29). A template directory
+// whose config turns rename detection off and whose attributes merge every file as binary would
+// land in the scratch repository as its own config, which no `-c` overrides, and a default hash of
+// sha256 would make a scratch repository that cannot borrow the mirror's objects: under both, the
+// renamed upstream still takes the series, as a hand rebase does.
+func TestTheReplayIgnoresTheUsersGitTemplateAndVariables(t *testing.T) {
+	u := renamedUpstream(t)
+	series, list := u.checked(t)
+	want := u.handRebaseTree(t, list[0].Commit)
+	tpl := t.TempDir()
+	writeTestFile(t, filepath.Join(tpl, "config"), "[merge]\n\trenames = false\n")
+	writeTestFile(t, filepath.Join(tpl, "info", "attributes"), "* -text merge=binary\n")
+	t.Setenv("GIT_TEMPLATE_DIR", tpl)
+	t.Setenv("GIT_DEFAULT_HASH", "sha256")
+	w := u.store.WalkSeries(mustAddr(t, u.source("main")).Repo, "", series, list, WalkOptions{})
+	if w.Err != nil || w.Base != nil || w.Fit != 0 {
+		t.Fatalf("under the user's template the walk = %+v (base %v), want v1.1.0 to take the series", w, w.Base)
+	}
+	if w.Results[0].Tree != want {
+		t.Errorf("the patched tree %s is not a hand rebase's %s", w.Results[0].Tree, want)
+	}
+}
+
+// replayEnv drops every GIT_ variable but where git finds its own programs, whatever its name.
+func TestTheReplayEnvKeepsNoGitVariableButItsExecPath(t *testing.T) {
+	for _, kv := range [][2]string{{"GIT_TEMPLATE_DIR", "/t"}, {"GIT_ATTR_SOURCE", "HEAD"},
+		{"GIT_DEFAULT_HASH", "sha256"}, {"GIT_SOME_LATER_KNOB", "1"}, {"GIT_DIR", "/elsewhere"},
+		{"GIT_EXEC_PATH", "/opt/git/libexec"}} {
+		t.Setenv(kv[0], kv[1])
+	}
+	ours := map[string]bool{"GIT_CONFIG_GLOBAL": true, "GIT_CONFIG_NOSYSTEM": true, "GIT_ATTR_NOSYSTEM": true,
+		"GIT_NO_LAZY_FETCH": true, "GIT_TERMINAL_PROMPT": true, "GIT_ASKPASS": true}
+	kept := false
+	for _, kv := range replayEnv() {
+		key, val, _ := strings.Cut(kv, "=")
+		switch {
+		case key == "GIT_EXEC_PATH":
+			kept = val == "/opt/git/libexec"
+		case strings.HasPrefix(key, "GIT_AUTHOR_"), strings.HasPrefix(key, "GIT_COMMITTER_"), ours[key]:
+		case strings.HasPrefix(key, "GIT_"):
+			t.Errorf("the replay inherits %s", kv)
+		}
+	}
+	if !kept {
+		t.Error("the replay dropped GIT_EXEC_PATH, where git finds its own programs")
 	}
 }
 
