@@ -15,6 +15,7 @@ import (
 
 	"github.com/mschulkind-oss/yolo-jail/internal/containerbuilder"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
+	"github.com/mschulkind-oss/yolo-jail/internal/nixchildren"
 	"github.com/mschulkind-oss/yolo-jail/internal/nixstderr"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/perf"
@@ -1357,9 +1358,9 @@ func runNixBuild(argv []string, repoRoot string, buildEnv []string, outLink stri
 		return "", []string{"could not pipe nix stderr: " + err.Error()}
 	}
 	// Tracked while it runs, so a launch a signal ends stops it rather than leaving it
-	// behind (nixchildren.go).
-	release, err := nixChildren.start(cmd)
-	if errors.Is(err, errNixStopped) {
+	// behind (internal/nixchildren).
+	release, err := nixchildren.Start(cmd)
+	if errors.Is(err, nixchildren.ErrStopped) {
 		return "", []string{err.Error()}
 	}
 	if err != nil {

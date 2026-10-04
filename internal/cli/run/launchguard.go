@@ -27,7 +27,7 @@ import (
 	"errors"
 	"sync"
 
-	"github.com/mschulkind-oss/yolo-jail/internal/image"
+	"github.com/mschulkind-oss/yolo-jail/internal/nixchildren"
 )
 
 // errLaunchEnded is a keeper spawn refused because a signal's teardown has begun ending the launch.
@@ -70,7 +70,7 @@ func (o *Options) armLaunchGuard(cname, rt string) {
 func (o *Options) launchGuardTeardown(g *launchGuard) func() {
 	return func() {
 		// First, whichever way the launch ends: a nix it has running is its own, and a signal
-		// sent to this process alone reaches no child (image.StopNixChildren).
+		// sent to this process alone reaches no child (internal/nixchildren).
 		o.stopNixChildren(g)
 		left, kp := g.end()
 		if kp != nil {
@@ -85,7 +85,7 @@ func (o *Options) launchGuardTeardown(g *launchGuard) func() {
 	}
 }
 
-// stopNixChildren ends the nix this launch has running, through the seam or image.StopNixChildren.
+// stopNixChildren ends the nix this launch has running, through the seam or nixchildren.Stop.
 // The goroutine each stopped nix belonged to then waits for this teardown's exit, as Run's own
 // return does (endLaunchGuard), rather than reporting the build the signal cut short as a failed
 // one. g.arm is read when that wait begins, which follows armLaunchGuard's assignment of it: the
@@ -95,7 +95,7 @@ func (o *Options) stopNixChildren(g *launchGuard) {
 		o.StopNixChildren()
 		return
 	}
-	image.StopNixChildren(func() { g.arm.awaitExit() })
+	nixchildren.Stop(func() { g.arm.awaitExit() })
 }
 
 // abandonLaunch is the guard's outer hook: a launch running inside this one, in this process (a

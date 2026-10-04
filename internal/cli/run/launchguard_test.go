@@ -22,6 +22,7 @@ import (
 	"time"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/image"
+	"github.com/mschulkind-oss/yolo-jail/internal/nixchildren"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/runtime"
 )
@@ -44,15 +45,15 @@ func seeArmExits(t *testing.T, cname string) <-chan armExit {
 // else a test must read at that moment. An arm takes launchArmExit when it is installed, so this
 // is swapped in before the arm.
 //
-// It also gives the test a set of tracked nix children of its own (image.IsolateNixChildren). An
+// It also gives the test a set of tracked nix children of its own (nixchildren.Isolate). An
 // arm whose exit is faked here has run the launch's teardown, whose first act is the real
-// image.StopNixChildren, and a stop is permanent for the set it ran on: shared with the rest of
+// nixchildren.Stop, and a stop is permanent for the set it ran on: shared with the rest of
 // the binary, it refused every later test's tracked nix (TestAGuardTestsNixStopEndsWithTheTest).
 // A test runs that teardown and lives on only with the arm's exit faked, and this is where it is
 // faked.
 func seeArmExitsWith(t *testing.T, cname string, atExit func()) <-chan armExit {
 	t.Helper()
-	image.IsolateNixChildren(t)
+	nixchildren.Isolate(t)
 	exits := make(chan armExit, 4)
 	saved := launchArmExit
 	launchArmExit = func(code int) {
@@ -447,7 +448,7 @@ func TestWhatTheLaunchMakesWhileTheGuardTearsDownIsNotLeftBehind(t *testing.T) {
 
 // TestAGuardedLaunchStopsItsNixBeforeItExits: a signal that ends a launch before its keeper ends
 // the nix it has running first. A signal sent to this process alone reaches no child, and the nix
-// of a launch that exited without stopping it ran on with no parent (image.StopNixChildren).
+// of a launch that exited without stopping it ran on with no parent (nixchildren.Stop).
 func TestAGuardedLaunchStopsItsNixBeforeItExits(t *testing.T) {
 	var stopped, stoppedAtExit atomic.Bool
 	f := newGuardFixtureWith(t, "yolo-guard-stops-nix", func() { stoppedAtExit.Store(stopped.Load()) })
@@ -462,7 +463,7 @@ func TestAGuardedLaunchStopsItsNixBeforeItExits(t *testing.T) {
 }
 
 // TestAGuardTestsNixStopEndsWithTheTest: a test that interrupts a guarded launch runs the real
-// image.StopNixChildren, and a stop is permanent for the process it runs in. That is right for a
+// nixchildren.Stop, and a stop is permanent for the process it runs in. That is right for a
 // launch a signal is ending, which exits next, and wrong for this test binary, which fakes that
 // exit (seeArmExitsWith) and goes on to other tests: each later test that started a tracked nix was
 // refused, so whether it passed depended on the order the tests ran in. The stop must end with the

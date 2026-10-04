@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/nixchildren"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 )
 
@@ -272,9 +273,9 @@ func EvalImageIdentity(repoRoot string) (string, bool) {
 	// warnings on stderr, and they would bury the one line we want.
 	var out bytes.Buffer
 	cmd.Stdout = &out
-	// RunNix rather than Output: tracked, so a launch a signal ends stops this eval
-	// too (nixchildren.go).
-	if err := RunNix(cmd); err != nil {
+	// nixchildren.Run rather than Output: tracked, so a launch a signal ends stops this
+	// eval too.
+	if err := nixchildren.Run(cmd); err != nil {
 		return "", false
 	}
 	return ParseImageIdentity(out.String())

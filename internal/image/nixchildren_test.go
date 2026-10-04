@@ -1,32 +1,34 @@
 package image
 
 import (
-	"errors"
 	"io"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/mschulkind-oss/yolo-jail/internal/nixchildren"
 )
 
-// freshNixChildren swaps in an empty set for one test and returns it (isolateNixChildren): a stop
+// nixchildren_test.go pins this package's nix call sites to the one set internal/nixchildren
+// keeps: each test fails if its call site starts its nix without it. What the set does with a
+// child is pinned there.
+
+// freshNixChildren swaps in an empty set for one test and returns it (nixchildren.Isolate): a stop
 // is permanent for the set it ran on, as it is for the process a signal is ending. The cleanup
 // stops the set again, so a red run leaves none of its stand-in nix processes looping after the
 // test binary exits.
-func freshNixChildren(t *testing.T) *nixChildSet {
+func freshNixChildren(t *testing.T) *nixchildren.Set {
 	t.Helper()
-	return isolateNixChildren(t)
+	return nixchildren.Isolate(t)
 }
 
 // awaitTracked waits for s to hold n running children.
-func awaitTracked(t *testing.T, s *nixChildSet, n int) {
+func awaitTracked(t *testing.T, s *nixchildren.Set, n int) {
 	t.Helper()
 	for deadline := time.Now().Add(10 * time.Second); ; time.Sleep(5 * time.Millisecond) {
-		s.mu.Lock()
-		got := len(s.running)
-		s.mu.Unlock()
+		got := s.Running()
 		if got == n {
 			return
 		}
@@ -38,6 +40,16 @@ func awaitTracked(t *testing.T, s *nixChildSet, n int) {
 
 // trapsInterrupt is a stand-in nix that runs until interrupted and says so on stderr.
 const trapsInterrupt = `trap 'echo interrupted >&2; exit 130' INT; echo started >&2; while :; do sleep 0.05; done`
+
+// standInNix puts a `nix` on PATH that runs script.
+func standInNix(t *testing.T, script string) {
+	t.Helper()
+	bin := t.TempDir()
+	if err := os.WriteFile(filepath.Join(bin, "nix"), []byte("#!/bin/sh\n"+script+"\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+}
 
 // TestStopNixChildrenInterruptsARunningBuild: runNixBuild's nix is tracked, and a stop interrupts
 // it, as a terminal's Ctrl-C would, and waits for it to end.
@@ -55,7 +67,7 @@ func TestStopNixChildrenInterruptsARunningBuild(t *testing.T) {
 	}()
 	awaitTracked(t, s, 1)
 	start := time.Now()
-	s.stop(10*time.Second, nil)
+	nixchildren.Stop(nil)
 	if took := time.Since(start); took > 5*time.Second {
 		t.Errorf("stop took %s to end a nix that answers its interrupt at once", took)
 	}
@@ -73,31 +85,11 @@ func TestStopNixChildrenInterruptsARunningBuild(t *testing.T) {
 	awaitTracked(t, s, 0)
 }
 
-// TestStopNixChildrenKillsANixThatIgnoresTheInterrupt: past the grace, a nix still running is
-// killed rather than left behind.
-func TestStopNixChildrenKillsANixThatIgnoresTheInterrupt(t *testing.T) {
-	s := freshNixChildren(t)
-	done := make(chan struct{})
-	go func() {
-		runNixBuild([]string{"sh", "-c", `trap '' INT; while :; do sleep 0.05; done`}, t.TempDir(),
-			os.Environ(), filepath.Join(t.TempDir(), "out"), io.Discard)
-		close(done)
-	}()
-	awaitTracked(t, s, 1)
-	s.stop(200*time.Millisecond, nil)
-	select {
-	case <-done:
-	case <-time.After(10 * time.Second):
-		t.Fatal("a nix that ignored its interrupt was still running ten seconds after the stop")
-	}
-}
-
-// TestNoNixStartsAfterTheStop: a stop is not only for what runs when it is called. The launch's
-// main goroutine goes on while the signal's teardown runs, and an eval the stop cut short falls
-// through to a build, so that build must not start at all.
-func TestNoNixStartsAfterTheStop(t *testing.T) {
-	s := freshNixChildren(t)
-	s.stop(time.Second, nil)
+// TestARunNixBuildAfterTheStopSaysWhy: a build the stop refused starts nothing and says why in the
+// tail its caller reports.
+func TestARunNixBuildAfterTheStopSaysWhy(t *testing.T) {
+	freshNixChildren(t)
+	nixchildren.Stop(nil)
 	ran := filepath.Join(t.TempDir(), "ran")
 	path, tail := runNixBuild([]string{"sh", "-c", "touch " + ran}, t.TempDir(), os.Environ(),
 		filepath.Join(t.TempDir(), "out"), io.Discard)
@@ -107,14 +99,8 @@ func TestNoNixStartsAfterTheStop(t *testing.T) {
 	if _, err := os.Stat(ran); err == nil {
 		t.Error("a nix was started after the stop")
 	}
-	if !strings.Contains(strings.Join(tail, "\n"), "a signal is ending this launch") {
+	if !strings.Contains(strings.Join(tail, "\n"), nixchildren.ErrStopped.Error()) {
 		t.Errorf("the refused build does not say why: %q", tail)
-	}
-	if err := RunNix(exec.Command("sh", "-c", "touch "+ran)); !errors.Is(err, errNixStopped) {
-		t.Errorf("RunNix after the stop returned %v, want errNixStopped", err)
-	}
-	if _, err := os.Stat(ran); err == nil {
-		t.Error("RunNix started a nix after the stop")
 	}
 }
 
@@ -122,18 +108,14 @@ func TestNoNixStartsAfterTheStop(t *testing.T) {
 // measured leaving behind, is one a stop reaches.
 func TestEvalImageIdentityIsTracked(t *testing.T) {
 	s := freshNixChildren(t)
-	bin := t.TempDir()
-	if err := os.WriteFile(filepath.Join(bin, "nix"), []byte("#!/bin/sh\n"+trapsInterrupt+"\n"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	standInNix(t, trapsInterrupt)
 	done := make(chan bool, 1)
 	go func() {
 		_, ok := EvalImageIdentity(t.TempDir())
 		done <- ok
 	}()
 	awaitTracked(t, s, 1)
-	s.stop(10*time.Second, nil)
+	nixchildren.Stop(nil)
 	select {
 	case ok := <-done:
 		if ok {
@@ -144,10 +126,10 @@ func TestEvalImageIdentityIsTracked(t *testing.T) {
 	}
 }
 
-// TestAStoppedNixsCallerWaitsForTheExit: the goroutine whose nix a stop cut short runs the stop's
-// hand-off before it returns, so it cannot go on to report a failed build while the teardown that
-// stopped it exits. The stop itself does not wait on that hand-off.
-func TestAStoppedNixsCallerWaitsForTheExit(t *testing.T) {
+// TestAStoppedBuildsCallerWaitsForTheExit: runNixBuild releases its nix only on its way out, so
+// the stop's hand-off holds runNixBuild itself, and its caller cannot go on to report a failed
+// build while the teardown that stopped it exits.
+func TestAStoppedBuildsCallerWaitsForTheExit(t *testing.T) {
 	s := freshNixChildren(t)
 	returned := make(chan []string, 1)
 	go func() {
@@ -157,16 +139,7 @@ func TestAStoppedNixsCallerWaitsForTheExit(t *testing.T) {
 	}()
 	awaitTracked(t, s, 1)
 	exited, handedOff := make(chan struct{}), make(chan struct{}, 1)
-	stopped := make(chan struct{})
-	go func() {
-		s.stop(10*time.Second, func() { handedOff <- struct{}{}; <-exited })
-		close(stopped)
-	}()
-	select {
-	case <-stopped:
-	case <-time.After(10 * time.Second):
-		t.Fatal("the stop waited on its own hand-off: the teardown would never reach its exit")
-	}
+	go nixchildren.Stop(func() { handedOff <- struct{}{}; <-exited })
 	select {
 	case <-handedOff:
 	case <-time.After(10 * time.Second):
@@ -183,23 +156,5 @@ func TestAStoppedNixsCallerWaitsForTheExit(t *testing.T) {
 	case <-returned:
 	case <-time.After(10 * time.Second):
 		t.Fatal("runNixBuild did not return once the exit it waited for came")
-	}
-}
-
-// TestANixRefusedAfterTheStopIsNotHandedOff: a start the stop refuses returns at once. The stop is
-// the teardown's first act, so the teardown's goroutine holds no nix to release, but it is the one
-// goroutine that could still ask to start one, and waiting there for its own exit would never end.
-func TestANixRefusedAfterTheStopIsNotHandedOff(t *testing.T) {
-	s := freshNixChildren(t)
-	s.stop(time.Second, func() { select {} })
-	done := make(chan error, 1)
-	go func() { done <- RunNix(exec.Command("true")) }()
-	select {
-	case err := <-done:
-		if !errors.Is(err, errNixStopped) {
-			t.Errorf("RunNix after the stop returned %v, want errNixStopped", err)
-		}
-	case <-time.After(10 * time.Second):
-		t.Fatal("a start the stop refused waited on the hand-off")
 	}
 }
