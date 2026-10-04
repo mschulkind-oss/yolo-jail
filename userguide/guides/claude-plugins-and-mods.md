@@ -144,8 +144,9 @@ of those plugins carry it, not how many hooks or servers there are. The kinds ar
 hooks module among them, tool (MCP) servers, language servers, background monitors, programs in the
 plugin's `bin/` folder, a status line for subagents, workflow scripts and syntax-highlighting
 grammars. Each counts whether the plugin's manifest names it or it sits where Claude Code looks for
-it by default. A plugin of skills, commands, subagents, output styles or themes runs no code and
-gets no line.
+it by default. Hooks also count where GitHub Copilot CLI looks for them, a `hooks.json` at the
+plugin's root or under `com.github.copilot/hooks/`. A plugin of skills, commands, subagents, output
+styles or themes runs no code and gets no line.
 
 **What the launch does not list:** a plugin kept in the project, and a plugin Claude Code installs
 itself, from your settings or a `/plugin install`. Check those in Claude Code: `/plugin` shows what

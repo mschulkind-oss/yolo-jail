@@ -37,7 +37,6 @@ import (
 	"bytes"
 	"encoding/json"
 	"os"
-	"path"
 	"path/filepath"
 	"slices"
 	"strconv"
@@ -637,16 +636,17 @@ func hooksModuleSummary(dirs []string) string {
 // (MEASURED on 2.1.288): a hooks file itself — the default hooks/hooks.json — and a hooks file a
 // manifest's `hooks` names by path, as a string or in an array. A manifest's INLINE `hooks` object
 // is not one: Claude Code reads its `modules` key as an unknown hook event and ignores it. An empty
-// `modules` loads nothing (validate rejects it), and an entry is a path string. The other default
-// hooks files Components names are Copilot's, which Claude Code never reads, so a `modules` entry
-// in one loads nothing and the clause, which says Claude Code runs it, would be false.
+// `modules` loads nothing (validate rejects it), and an entry is a path string. Only Claude Code's
+// own files are read: the other default hooks files Components names, and every manifest but
+// .claude-plugin/plugin.json, are Copilot's, which Claude Code never reads, so a `modules` entry
+// reached through one loads nothing and the clause, which says Claude Code runs it, would be false.
 func pluginLoadsHooksModule(pl *pluginpack.Plugin) bool {
 	for _, comp := range pl.Components() {
 		if comp.Name != "hooks" {
 			continue
 		}
 		for _, src := range comp.Sources {
-			isManifest := path.Base(src) == "plugin.json"
+			isManifest := src == pluginpack.ClaudeCodeManifest
 			if !isManifest && src != pluginpack.ClaudeCodeHooksFile {
 				continue
 			}

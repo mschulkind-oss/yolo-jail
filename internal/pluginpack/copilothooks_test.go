@@ -100,21 +100,37 @@ func TestBothDefaultHooksFilesAreOneComponent(t *testing.T) {
 	}
 }
 
-// THE CONTROL: Copilot reads a root hooks.json only when the manifest's `hooks` does not load,
-// and Claude Code never reads it. So when every manifest declares `hooks`, the root file runs
-// nowhere and is not named; the manifest still reports the component.
-func TestRootHooksFileGivesWayToADeclaredHooksField(t *testing.T) {
-	dir := writePlugin(t, t.TempDir(), "p", `{"name":"p","hooks":"./config/hooks.json"}`)
-	writeFile(t, dir, "config/hooks.json", copilotHooks)
-	writeFile(t, dir, "hooks.json", copilotHooks)
-	p, _ := Load(dir)
-	hooks := hooksComponent(p)
-	if hooks == nil {
-		t.Fatalf("the manifest's hooks were not reported: %+v", p.Components())
-	}
-	if len(hooks.Sources) != 1 || hooks.Sources[0] != ".claude-plugin/plugin.json" {
-		t.Errorf("hooks Sources = %v, want only the manifest: a root hooks.json gives way to a "+
-			"declared hooks field", hooks.Sources)
+// A root hooks.json is named beside a manifest that declares `hooks`. Copilot reads it whenever
+// the declared hooks do not load, and Copilot 1.0.91 checks a declared path only for existence, so
+// a manifest naming a missing file sends it to the root hooks.json (the evidence is beside the
+// components table). Naming the file only when no manifest declares `hooks` left out the one file
+// Copilot runs in that case. When the declared file is there too, both are named: which one runs
+// decides which commands run, not whether any do, and the component is reported either way.
+func TestRootHooksFileIsNamedBesideADeclaredHooksField(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		declaredOK bool
+	}{
+		{"the declared hooks file is missing", false},
+		{"the declared hooks file is there", true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := writePlugin(t, t.TempDir(), "p", `{"name":"p","hooks":"./config/hooks.json"}`)
+			if tc.declaredOK {
+				writeFile(t, dir, "config/hooks.json", copilotHooks)
+			}
+			writeFile(t, dir, "hooks.json", copilotHooks)
+			p, _ := Load(dir)
+			hooks := hooksComponent(p)
+			if hooks == nil {
+				t.Fatalf("the manifest's hooks were not reported: %+v", p.Components())
+			}
+			want := []string{".claude-plugin/plugin.json", "hooks.json"}
+			if got := hooks.Sources; len(got) != 2 || got[0] != want[0] || got[1] != want[1] {
+				t.Errorf("hooks Sources = %v, want %v: Copilot runs the root hooks.json whenever "+
+					"the declared hooks do not load", got, want)
+			}
+		})
 	}
 }
 

@@ -3553,8 +3553,9 @@ one: for Claude Code, `hooks/hooks.json` (classic hooks, and a hooks module's `m
 `.mcp.json`, `.lsp.json`, `monitors/monitors.json`, `bin/`, `settings.json` and `workflows/`
 (grammars have none), and for GitHub Copilot CLI two more hooks files, a root `hooks.json` and
 `com.github.copilot/hooks/hooks.json` (checked against Copilot CLI 1.0.91). A `modules` entry in
-either is not reported as a hooks module, because hooks modules are Claude Code's and Claude Code
-reads neither file. Every manifest is read, not
+either, or in a hooks file only a manifest other than `.claude-plugin/plugin.json` names, is not
+reported as a hooks module, because hooks modules are Claude Code's and Claude Code reads none of
+those files. Every manifest is read, not
 only the first found, because Copilot takes the first that parses while Claude Code reads
 `.claude-plugin/plugin.json`. One component found more than one way counts once
 ([`pluginpack.Components`](../../internal/pluginpack/pluginpack.go); the table is

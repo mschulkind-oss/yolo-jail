@@ -39,3 +39,26 @@ func TestTheLaunchNamesNoHooksModuleInARootHooksFile(t *testing.T) {
 		t.Errorf("the line names a hooks module Claude Code never loads:\n%s", said)
 	}
 }
+
+// Claude Code reads one manifest, .claude-plugin/plugin.json (measured on 2.1.288; see
+// pluginpack's manifestDirs). A hooks file named only by one of the manifests Copilot reads
+// instead, at the root, under .plugin/ or under .github/plugin/, loads no hooks module, so the
+// line counts the hooks without saying Claude Code runs a module.
+func TestTheLaunchNamesNoHooksModuleThroughAManifestClaudeCodeDoesNotRead(t *testing.T) {
+	for _, manifest := range []string{"plugin.json", ".plugin/plugin.json", ".github/plugin/plugin.json"} {
+		t.Run(manifest, func(t *testing.T) {
+			said, _ := jailCodeLineFor(t, map[string]string{
+				manifest:      `{"name":"first-mod","hooks":"./h.json"}`,
+				"h.json":      `{"hooks":{},"modules":["./register.js"]}`,
+				"register.js": hooksModuleJS,
+			})
+			if !strings.Contains(said, "first-mod: 1 wrapped plugin runs code in the jail — hooks (1)") {
+				t.Fatalf("the hooks %s declares were not counted:\n%s", manifest, said)
+			}
+			if strings.Contains(said, "hooks module") {
+				t.Errorf("the line names a hooks module that only %s, which Claude Code never "+
+					"reads, points to:\n%s", manifest, said)
+			}
+		})
+	}
+}

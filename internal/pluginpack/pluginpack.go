@@ -228,6 +228,11 @@ type Component struct {
 // Code's, and the other two default hooks locations are Copilot's, which Claude Code never reads.
 const ClaudeCodeHooksFile = "hooks/hooks.json"
 
+// ClaudeCodeManifest is the one manifest Claude Code reads, plugin-relative and slash-separated
+// (see manifestDirs). It is the only manifest whose `hooks` can name a hooks module's file: the
+// others are Copilot's, and Claude Code reads none of them.
+const ClaudeCodeManifest = PreferredManifestDir + "/" + manifestName
+
 // defaultShape is what makes a default location present.
 type defaultShape int
 
@@ -315,21 +320,27 @@ type location struct {
 // "com.github.copilot" joined with "hooks/hooks.json":
 //
 //   - For a plugin whose manifest names no Agent Plugins `$schema`, the Claude format among
-//     them, Copilot reads the manifest's `hooks` first: a path, read when that file exists, or
-//     an inline object. When that loads, it reads no hooks file. Otherwise it tries a ROOT
-//     hooks.json, then hooks/hooks.json, and takes the first that loads. So a root hooks.json
-//     is REPLACED by the field, while hooks/hooks.json keeps Claude Code's merge.
+//     them, Copilot reads the manifest's `hooks` first: a path, or an inline value. When that
+//     loads, it reads no hooks file. A path counts as loading when a file exists there: the
+//     loader checks that before reading it, and a missing file sends it on, so a manifest whose
+//     `hooks` names a file the tree lacks does not stop it. Otherwise it tries a ROOT
+//     hooks.json, then hooks/hooks.json, and takes the first that loads. So whether a declared
+//     `hooks` replaces a root hooks.json depends on whether what it names loads, and the root
+//     file is listed as merging for the reason the settings rows are: deciding that shadow
+//     means copying what the tool accepts, while the over-report only names one more file of a
+//     component reported either way. Which file wins decides which commands run, not whether
+//     any do. hooks/hooks.json keeps Claude Code's merge.
 //   - For a plugin whose manifest's `$schema` is https://agent-plugins.org/schemas/1.0.0 or
 //     1.1.0's plugin.schema.json (the "Agent Plugins spec" plugins of Copilot's changelog),
 //     Copilot reads only com.github.copilot/hooks/hooks.json, whatever the manifest says
 //     (changelog 1.0.80-0: "Agent Plugins spec plugins now read … hooks/hooks.json … only
 //     under com.github.copilot/ — no longer from the plugin root").
 //
-// yolo does not decide which manifests count as spec manifests: that is an exact match against
-// a version list Copilot extends. So each of the two Copilot locations is reported whenever a
-// hooks file sits there, a file whose only purpose is a tool's hooks, rather than missed when
-// the next schema version appears. A spec plugin's other components under com.github.copilot/
-// are not read here.
+// yolo does not decide which manifests count as spec manifests either: that is an exact match
+// against a version list Copilot extends. So each of the two Copilot locations is reported
+// whenever a hooks file sits there, a file whose only purpose is a tool's hooks, rather than
+// missed when the next schema version appears. A spec plugin's other components under
+// com.github.copilot/ are not read here.
 var components = []struct {
 	name     string
 	detail   string
@@ -348,7 +359,7 @@ var components = []struct {
 		pick: func(m Manifest) json.RawMessage { return m.Hooks }, paths: true,
 		defs: []location{
 			{rel: ClaudeCodeHooksFile, shape: defaultFile, merges: true},
-			{rel: "hooks.json", shape: defaultFile},
+			{rel: "hooks.json", shape: defaultFile, merges: true},
 			{rel: "com.github.copilot/hooks/hooks.json", shape: defaultFile, merges: true},
 		}},
 	{name: "mcpServers", detail: "starts MCP server processes", runsCode: true,
@@ -404,7 +415,10 @@ func experimentalKey(key string) func(Manifest) json.RawMessage {
 // crying wolf: a hooks/hooks.json with no manifest entry runs, which `claude plugin validate`
 // shows by listing its hooks. What is reported is only what would load — a hooks/ directory without
 // hooks.json, an empty bin/, a default a replacing field overrides — so a prose plugin stays
-// unflagged.
+// unflagged. The defaults named where they may not load are the deliberate over-reports the
+// components table explains, each where deciding would mean copying what a tool accepts: a root
+// hooks.json beside a declared `hooks`, and a settings.json key whose value Claude Code's
+// settings schema rejects.
 func (p *Plugin) Components() []Component {
 	var out []Component
 	manifests := p.manifests()

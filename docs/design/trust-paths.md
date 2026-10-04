@@ -275,11 +275,12 @@ now retired — kept because they remain true of the lockfile and constrain anyt
    >
    > Copilot's two hooks locations were checked on 2026-10-03 against Copilot CLI 1.0.91, by
    > reading the plugin loader in its shipped package rather than by running it. For a plugin in
-   > the Claude format, Copilot reads the manifest's `hooks` when it declares one, and then no
-   > hooks file. Without one it
-   > reads `hooks.json` at the plugin root, then `hooks/hooks.json`, and takes the first that
-   > loads. For a plugin whose manifest names an Agent Plugins `$schema`, it reads only
-   > `com.github.copilot/hooks/hooks.json`. yolo names either Copilot file whenever it is there.
+   > the Claude format, Copilot reads the manifest's `hooks` first, and reads no hooks file only
+   > when those load: a path to a file that exists, or an inline value it accepts. A path to a
+   > missing file does not stop it. Otherwise it reads `hooks.json` at the plugin root, then
+   > `hooks/hooks.json`, and takes the first that loads. For a plugin whose manifest names an
+   > Agent Plugins `$schema`, it reads only `com.github.copilot/hooks/hooks.json`. yolo names
+   > either Copilot file whenever it is there, beside a declared `hooks` too.
    > It does not judge which manifests count as Agent Plugins ones, since that is an exact match
    > against a version list Copilot extends. The evidence is beside the `components` table in
    > [`pluginpack.go`](../../internal/pluginpack/pluginpack.go).
