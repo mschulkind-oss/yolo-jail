@@ -72,6 +72,8 @@ type ReplayResult struct {
 	Conflict *ReplayConflict
 	// Err is an APPLY ERROR: anything else that stopped the replay. The entry stays pending.
 	Err error
+	// head is a clean replay's last commit, in the scratch repository, for OnFit's checkout.
+	head string
 }
 
 // ReplayConflict is the member a conflicting replay stopped on.
@@ -99,6 +101,13 @@ type WalkOptions struct {
 	Waiting func(string)
 	// All replays every entry instead of stopping at the first fit (a status survey).
 	All bool
+	// OnFit, when non-nil, is handed the newest fit's source subdirectory (the whole tree for a
+	// repository-root source) checked out of the replay's last commit into a directory inside
+	// the walk's private scratch space, with its links as links and no .git, before the scratch
+	// repository is deleted: the build act's copy into its src/ (§5.1, PF-D18). The directory is
+	// gone once the walk returns. An error from it is the fit's apply error, which leaves the
+	// entry pending, since nothing about the upstream or the series failed.
+	OnFit func(tree string) error
 }
 
 // WalkResult is a walk's answer.
@@ -142,7 +151,7 @@ func (s *Store) WalkSeries(repo, subdir string, series *Series, list []ListEntry
 		return res
 	}
 	defer unlock()
-	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	ctx, cancel := context.WithTimeout(s.parentCtx(), timeout)
 	defer cancel()
 	b := budget{ctx: ctx, d: timeout}
 	mirror := s.mirrorPath(repo)
@@ -182,6 +191,11 @@ func (s *Store) WalkSeries(repo, subdir string, series *Series, list []ListEntry
 			return res
 		}
 		sc.pick(&r, series, commits, subdir)
+		if r.Clean && res.Fit < 0 && opts.OnFit != nil {
+			if err := sc.export(r.head, subdir, opts.OnFit); err != nil {
+				r.Clean, r.Tree, r.Err = false, "", err
+			}
+		}
 		res.Results = append(res.Results, r)
 		switch {
 		case r.Err != nil:
@@ -317,13 +331,19 @@ func (sc *scratch) git(dir string, args ...string) (string, error) {
 
 // gitStatus is git that also returns the exit status, -1 when git did not exit by itself.
 func (sc *scratch) gitStatus(dir string, args ...string) (string, int, error) {
+	return sc.gitStatusEnv(dir, nil, args...)
+}
+
+// gitStatusEnv is gitStatus with env appended after replayEnv: the one GIT_ variable a replay
+// run sets itself, the private index of the export's checkout.
+func (sc *scratch) gitStatusEnv(dir string, env []string, args ...string) (string, int, error) {
 	full := append(append([]string{}, replayConfig...), args...)
 	if dir == "" && len(args) > 0 && args[0] != "init" {
 		dir = sc.repo
 	}
 	cmd := exec.CommandContext(sc.b.ctx, sc.gitBin, full...)
 	cmd.Dir = dir
-	cmd.Env = replayEnv()
+	cmd.Env = append(replayEnv(), env...)
 	cmd.WaitDelay = gitWaitDelay
 	var stdout, stderr strings.Builder
 	cmd.Stdout, cmd.Stderr = &stdout, &stderr
@@ -437,7 +457,35 @@ func (sc *scratch) pick(r *ReplayResult, series *Series, commits []string, subdi
 		r.Err = fmt.Errorf("the replay at %s has no %s: %s", shortCommit(r.Entry.Commit), subdirName(subdir), oneLine(err))
 		return
 	}
-	r.Clean, r.Tree = true, strings.TrimSpace(tree)
+	if kind, err := sc.git("", "cat-file", "-t", strings.TrimSpace(tree)); err != nil || strings.TrimSpace(kind) != "tree" {
+		r.Err = fmt.Errorf("the replay at %s has no %s as a directory", shortCommit(r.Entry.Commit), subdirName(subdir))
+		return
+	}
+	r.Clean, r.Tree, r.head = true, strings.TrimSpace(tree), onto
+}
+
+// export checks the source's subdirectory of commit out of the scratch repository into a
+// directory of the scratch space, through a private empty index as the store's own checkout does
+// (Store.checkoutTree), under the replay's config regime — no hook runs, no filter or attribute of
+// the user's applies — and hands its path to fn.
+func (sc *scratch) export(commit, subdir string, fn func(string) error) error {
+	dst := filepath.Join(sc.dir, "export")
+	if err := os.MkdirAll(dst, 0o755); err != nil {
+		return err
+	}
+	idx := filepath.Join(sc.dir, "export-index")
+	if _, _, err := sc.gitStatusEnv("", []string{"GIT_INDEX_FILE=" + idx}, "--work-tree="+dst,
+		"checkout", "--force", commit, "--", literalPathspec(subdir)); err != nil {
+		return fmt.Errorf("checking the patched tree out: %s", oneLine(err))
+	}
+	tree := dst
+	if subdir != "" {
+		tree = filepath.Join(dst, filepath.FromSlash(subdir))
+	}
+	if err := fn(tree); err != nil {
+		return fmt.Errorf("copying the patched tree: %w", err)
+	}
+	return nil
 }
 
 func subdirName(subdir string) string {

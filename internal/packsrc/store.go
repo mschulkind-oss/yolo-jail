@@ -85,6 +85,11 @@ type Store struct {
 	// developed from inside its own jail, where YOLO_PACK_ROOT is always set to a real
 	// tree, so a test reading the ambient environment would be measuring the machine.
 	Getenv func(string) string
+	// Ctx, when non-nil, is the parent of every budget this store starts (newBudget, and a
+	// replay's walk): cancelling it ends the git it runs. A launch's patched-fork advance sets it,
+	// so a Ctrl-C ends the advance's check and walk and the launch starts on the good build
+	// (docs/design/patched-forks.md PF-D25). Nil means none, as every other store has.
+	Ctx context.Context
 }
 
 // Resolved is a fetched, materialized source ready to stage.
@@ -212,8 +217,16 @@ type budget struct {
 
 // newBudget starts a budget of the store's Timeout. The caller cancels it when done.
 func (s *Store) newBudget() (budget, context.CancelFunc) {
-	ctx, cancel := context.WithTimeout(context.Background(), s.timeout())
+	ctx, cancel := context.WithTimeout(s.parentCtx(), s.timeout())
 	return budget{ctx: ctx, d: s.timeout()}, cancel
+}
+
+// parentCtx is the context every budget of this store starts under: Ctx, or none.
+func (s *Store) parentCtx() context.Context {
+	if s.Ctx != nil {
+		return s.Ctx
+	}
+	return context.Background()
 }
 
 // fsckArgs turn on object checking for everything a git run receives over the network:

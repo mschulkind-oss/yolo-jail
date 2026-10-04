@@ -559,3 +559,48 @@ func (s *Store) RecordWalk(owner, series, yolo string, w WalkResult, now time.Ti
 		return changed, nil
 	})
 }
+
+// The kinds a Held names besides an outcome's: the last check's problem.
+const HeldByProblem = "problem"
+
+// Held is why a record's newest candidate is not what runs, read offline with no git: the first
+// entry of the walk's list (as Candidates cuts it) that a recorded conflict or failed build of the
+// series as it stands stops, or the last check's problem (§8: the HELD SUFFIX a fork's line carries
+// until the candidate changes). Its Kind is OutcomeConflict, OutcomeBuildFailed or HeldByProblem.
+type Held struct {
+	Kind  string
+	Entry ListEntry
+	// Member and Paths are a conflict's; Error a failed build's or the problem.
+	Member string
+	Paths  []string
+	Error  string
+}
+
+// HeldAt is what holds the record's newest candidate back for a check of in and the series digest
+// and recipe asked for now, or nil when nothing does: the first entry the walk would reach, and
+// nothing below it, since an entry that may still fit holds nothing. Outcomes are matched on the
+// series (and a build's on the recipe) and not on the yolo or git that recorded them: this is what
+// the record says, which the next advance revisits under a new yolo or git.
+func (r *CheckRecord) HeldAt(in CheckInputs, series, recipe string) *Held {
+	if r == nil || r.Check == nil || !r.Answers(in) {
+		return nil
+	}
+	if r.Check.Problem != "" {
+		return &Held{Kind: HeldByProblem, Error: r.Check.Problem}
+	}
+	for _, e := range r.Candidates(in) {
+		for _, o := range r.Outcomes {
+			if o.Commit != e.Commit || o.Series != series {
+				continue
+			}
+			switch {
+			case o.Kind == OutcomeConflict:
+				return &Held{Kind: o.Kind, Entry: e, Member: o.Member, Paths: o.Paths}
+			case o.Kind == OutcomeBuildFailed && o.Recipe == recipe:
+				return &Held{Kind: o.Kind, Entry: e, Error: o.Error}
+			}
+		}
+		return nil
+	}
+	return nil
+}

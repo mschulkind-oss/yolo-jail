@@ -52,3 +52,25 @@ func TestABoundedWaitTimesOut(t *testing.T) {
 		t.Error("the wait gave up before its bound")
 	}
 }
+
+// A CANCELLED WAIT ends with ErrCanceled, bounded or not (a patched fork's advance, whose Ctrl-C
+// ends the wait: docs/design/patched-forks.md PF-D25).
+func TestACancelledWaitEnds(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "x.lock")
+	first, err := Acquire(path, NoWait, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer first.Release()
+	for _, bound := range []time.Duration{0, time.Hour} {
+		cancel := make(chan struct{})
+		go func() { time.Sleep(100 * time.Millisecond); close(cancel) }()
+		start := time.Now()
+		if _, err := Acquire(path, Mode{Wait: true, Bound: bound, Cancel: cancel}, nil); !errors.Is(err, ErrCanceled) {
+			t.Fatalf("bound %s: a cancelled wait returned %v, want ErrCanceled", bound, err)
+		}
+		if time.Since(start) > 10*time.Second {
+			t.Errorf("bound %s: the cancelled wait took %s", bound, time.Since(start))
+		}
+	}
+}
