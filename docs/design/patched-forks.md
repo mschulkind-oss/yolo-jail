@@ -105,7 +105,7 @@ source build cannot:
   2026-09-25): a tag or a full commit holds. On a branch, `follow` says whether the newest version
   tag or the head is taken ([§3.3](#33-what-the-latest-of-the-upstream-is)).
 - **P2. What runs moves only through a build this machine admitted, and stays on this machine.**
-  The good build moves to a candidate only once that candidate's build is in this machine's capture
+  The good build moves to a new build only once that build is in this machine's capture
   store, and it is recorded in this machine's pack store, never in the fork lock
   ([§6.1](#61-the-good-build-is-a-ratchet), [§6.5](#65-nothing-in-the-fork-lock)). Whether it
   still runs after the user's own edit fails is [OQ-PFK1](#OQ-PFK1).
@@ -345,16 +345,21 @@ Under the fork's record lock ([§6.6](#66-locks-and-their-order)), re-reading th
    back. An explicit act fetches whatever either stamp says, still putting tags back, so a version
    published minutes ago is seen.
 3. Apply the follow rule ([§3.3](#33-what-the-latest-of-the-upstream-is)) to what the mirror now
-   holds, with no further network, release the mirror's lock, and record the commit, its tag and the
-   check's sequence number.
+   holds and take the candidate, the newest entry of the walk's list above the good build
+   ([§6.1](#61-the-good-build-is-a-ratchet), [§6.4](#64-the-newest-fit-and-the-first-advance)),
+   with no replay and no further network; the base it needs is the one the series' first member
+   names. Release the mirror's lock, and record the commit, its tag and the check's sequence
+   number.
 
 The fetch needs no change for versions: the source's ref is a branch, a fetch of the mirror brings
 every branch and tag ([`store.go:476-477`](../../internal/packsrc/store.go#L476-L477)), and a tag it
 added stays.
 
 **Concurrency.** Two launches due at once serialize on the fork's record lock; the second re-reads a
-fresh stamp and runs no git. Checks of different forks never wait for each other, and none of this
-takes the fork lock `forks.lock.json`'s writers share.
+fresh stamp and runs no git. Checks of different forks wait for each other only when they name one
+upstream repository, on its mirror lock for the fetch (READ the per-repository flock,
+[`store.go:23`](../../internal/packsrc/store.go#L23), [`refresh.go:637-641`](../../internal/packsrc/refresh.go#L637-L641)),
+and none of this takes the fork lock `forks.lock.json`'s writers share.
 
 **Offline.** A fetch that fails leaves the mirror's own answer in use, as for a pack
 ([`refresh.go:33-36`](../../internal/packsrc/refresh.go#L33-L36)), and the record notes the failure.
@@ -488,16 +493,23 @@ series digest, the recipe hash and the patched tree. It is not a pin: nothing wr
 lock, and it never leaves the machine ([§6.5](#65-nothing-in-the-fork-lock)).
 
 A **candidate** *(coined here)* is the same inputs for what the manifest and the last check ask for
-now; on a branch its commit is the newest the series fits
-([§6.4](#64-the-newest-fit-and-the-first-advance)). It is **pending** when it differs from the good
-build and has no recorded outcome
+now. Its commit is the newest entry of the walk's list, above the good build when there is one
+([§6.4](#64-the-newest-fit-and-the-first-advance)): under `follow: "head"` the branch's tip, and
+otherwise the newest version tag merged into the branch that contains the series' base and
+outranks the good build's version. The check finds it from what the mirror holds, with no replay
+([§4.3](#43-the-check-itself)). With a good build, an empty list leaves the good build's own commit
+as the candidate, so nothing is pending and no held suffix is shown; with none, the first advance
+builds the base ([§6.4](#64-the-newest-fit-and-the-first-advance)). Otherwise, walking the list newest first and
+passing over every entry that did not apply, the candidate is **pending** when the first entry
+reached has no recorded outcome, or a build failure past its back-off; when every entry did not
+apply, or that first entry's failed build is still backing off, nothing is pending
 ([§6.2](#62-the-check-record-and-what-is-pending)). The **advance** *(coined here)* is the act that
-takes a candidate to a good build: replay ([§5](#5-applying-the-series)), build, and, once the build
-is admitted, move the good build. It is not the check, which only finds the candidate
-([§4](#4-detection)).
+takes a candidate to a good build: replay ([§5](#5-applying-the-series)) down the list, build the
+newest fit, which may be an older entry than the candidate, and, once the build is admitted, move
+the good build. It is not the check, which only finds the candidate ([§4](#4-detection)).
 
-**The good build moves to a candidate only after the candidate's build is admitted to this
-machine's capture store** (P2). A candidate that does not apply or build never touches it. That one
+**The good build moves to a new build only after that build is admitted to this machine's capture
+store** (P2). A candidate that does not apply or build never touches it. That one
 rule covers every cause of a candidate:
 
 | What changed | Candidate |
@@ -557,18 +569,19 @@ and nothing is built on the host.
 The **check record** *(coined here)* is one record per owner key ([PF-D22](#PF-D22)) in the pack
 store: the check stamp
 and what the last check read (repository, subdirectory, ref, `follow`), the last check's commit with
-its sequence number and whether its fetch failed, the good build, and the current candidate's
-outcome. It is machine-local by design, written only under the fork's record lock through a temp
+its sequence number and whether its fetch failed, the good build, and one outcome per entry of the
+walk's list ([§6.4](#64-the-newest-fit-and-the-first-advance)), so an entry that did not apply is
+never replayed again however many newer entries come after it. It is machine-local by design, written only under the fork's record lock through a temp
 file and a rename, and read without a lock.
 
 | Outcome on the record | What later launches do |
 | :--- | :--- |
-| none, or the candidate equals the good build | run the good build |
+| nothing pending ([§6.1](#61-the-good-build-is-a-ratchet)): the list is empty, every entry on it did not apply, or the first that may still apply is backing off a failed build | run the good build; a held suffix only when the list is not empty |
 | pending | run the advance; whether a launch waits for it is [OQ-PFK3](#OQ-PFK3) |
 | pending, and the last fetch failed | run the good build; no advance until a check fetches |
 | apply error | run the good build; the next check retries |
-| did not apply (the member, its paths), for (candidate, series digest, yolo version, git version) | run the good build; no launch replays that key again. A new upstream commit, an edited series, another yolo or another git is a new key, since an upgrade may be the fix |
-| build failed (the error, the yolo version, the count), for that candidate | run the good build; retried after [OQ-PD26](program-delivery.md#decision-ledger)'s back-off, a day doubling to a week, reset by another candidate or another yolo. With nothing to serve, every fresh launch retries instead, as a plain fork's failed build is retried |
+| did not apply (the member, its paths), for (entry, series digest, yolo version, git version) | run the good build; no launch replays that key again. A new upstream commit, an edited series, another yolo or another git is a new key, since an upgrade may be the fix |
+| build failed (the error, the yolo version, the count), for that entry | run the good build; retried after [OQ-PD26](program-delivery.md#decision-ledger)'s back-off, a day doubling to a week, reset by another candidate or another yolo. With nothing to serve, every fresh launch retries instead, as a plain fork's failed build is retried |
 
 Never recorded as an outcome: a lost build-lock wait, a build jail the runtime would not start, and
 an advance a Ctrl-C ended ([§8.1](#81-the-failure-table)). Each leaves the candidate pending.
@@ -628,14 +641,18 @@ it: the tip when it differs from the good build's commit, and versions of higher
 one the good build runs (its tag, or the newest version its commit contains).
 
 - **Replays run down the list** in the advance's replay step ([§5.1](#51-where-it-runs)), each
-  entry's blobs prefetched first. A conflict is recorded per [PF-D9](#PF-D9), so no entry is replayed
-  twice for one series, yolo version and git version; an apply error ends the walk and leaves the
-  newest entry pending.
-- **The first clean entry is the candidate.** With none, the good build holds, and the held line
-  names the newest version and the member that stopped it.
-- **Bound:** 60 s for the whole walk, its prefetches included: `LaunchFetchTimeout`, the check's
-  own fetch budget ([§4.3](#43-the-check-itself)). Past it the walk stops as if nothing further fit,
-  and records nothing for the entries it did not reach.
+  entry's blobs prefetched first. A conflict is recorded against its entry ([PF-D9](#PF-D9)), and an
+  entry with one is passed over with no replay, so no entry is replayed twice for one series, yolo
+  version and git version; an apply error ends the walk and leaves the entries it did not settle
+  pending.
+- **The first clean entry is the newest fit, and the advance builds it.** With none, the good build
+  holds, and the held line names the candidate and the member that stopped it.
+- **Bound:** 60 s for the whole walk, its prefetches included, a budget of its own, apart from the
+  check's fetch, which has the same `LaunchFetchTimeout` ([§4.3](#43-the-check-itself)); so git holds
+  a launch at most 120 s before a build. A walk that runs past it is an apply error for the entries
+  it did not reach ([§5.2](#52-the-replay-and-what-applies-cleanly-means)): nothing is recorded for
+  them, they stay pending, and the next check retries them. On a first advance the base is still
+  built meanwhile, as in any state with nothing to serve.
 - **Tags must contain the base**, so an older version cannot pass for an update: a branch whose
   newest version predates the base, as one of the maintainer's extension upstreams does
   ([`patched-extensions.md` §3.2](patched-extensions.md#32-the-maintainers-five-forks)), builds the
@@ -651,7 +668,9 @@ A patched fork with no good build on this machine, after recovery
 - **If nothing on the list fits, the series' base is built**, when the followed branch contains the
   base. The series applies there by construction, so a migrating user
   gets a working program on the first launch, held at the base, and the line says why. A tag or
-  commit hold gets no fallback, since the user named the commit.
+  commit hold gets no fallback, since the user named the commit. An empty list is no hold: a series
+  whose base is past the branch's newest version builds the base, nothing is pending afterwards, and
+  later launches carry no held suffix.
 - **The same fallback covers any state with nothing to serve**, which under [OQ-PFK1](#OQ-PFK1)'s
   leaning includes an edit that does not fit the newest candidate: the edited series is built at its
   own base before the program goes.
@@ -731,8 +750,8 @@ flowchart TD
   good -- "no" --> first["first advance: the newest fit, else the series' base"]
   good -- "yes" --> due{"check due, or a candidate pending?"}
   due -- "no" --> serve["run the good build: no git"]
-  due -- "yes" --> check["check: fetch, apply the follow rule"]
-  check --> diff{"candidate differs from the good build, with no outcome recorded?"}
+  due -- "yes" --> check["check: fetch, take the newest entry above the good build"]
+  check --> diff{"an entry above the good build with no outcome recorded?"}
   diff -- "no" --> serve
   diff -- "yes" --> replay["replay the series on the host, newest first, down the walk's list"]
   first --> replay
@@ -803,11 +822,11 @@ tool).
 | The ref is `HEAD` or an abbreviated commit, names nothing, or `follow: "release"` finds no version on the branch | the good build, held; nothing without one | — | the ref, and the spellings that work: `follow: "head"`, a branch, a tag or a full commit |
 | The series cannot be read: its directory missing, unreadable or empty, a link on its path, a member that is a plain diff, or no `base-commit:` | [OQ-PFK1](#OQ-PFK1): nothing under its leaning, the good build under its option A | — | the file, and the fix for its cause: correct `patches` or create the directory; the path's permissions; a regular file in place of the link; a plain fork for no patches; `git format-patch` for a plain diff; `git format-patch --base` for a missing base |
 | The series does not apply at its own base | as the row above | — | the member, and re-exporting the series from its branch with `git format-patch --base` |
-| A member conflicts at the newest version | a build of the newest version above the good build that the series fits ([§6.4](#64-the-newest-fit-and-the-first-advance)); with none, the good build | did not apply, for (candidate, series, yolo version, git version) | once: the conflict message ([§8.2](#82-the-conflict-message)) |
+| A member conflicts at the newest version | a build of the newest version above the good build that the series fits ([§6.4](#64-the-newest-fit-and-the-first-advance)); with none, the good build | did not apply, for each entry that conflicted, with (series, yolo version, git version) | once: the conflict message ([§8.2](#82-the-conflict-message)) |
 | An object the replay needs cannot be fetched, or git fails | the good build | apply error; the next check retries | once: the error, and `yolo pack update` to retry now |
 | A member is already upstream | the new build: the series is clean | — | once per candidate, naming the file to drop |
 | The runtime would not start the build jail | the good build | nothing; the candidate stays pending | the runtime's error; on Apple Container, that a capture jail cannot start beside a running one ([§9](#9-notch-coverage)), and that `yolo capture <bin>` builds it once the other jails stop |
-| The build fails, or runs past the 20-minute bound | the good build | build failed, for this candidate, with back-off | once: the error; that the build's output is above, and in `<workspace>/.yolo/launch.log` for a jail launch; `yolo capture <bin>` to retry now; and, to stay on the running version, `agent_updates` off for the fork pack, or a tag `?ref=` in a manifest you own |
+| The build fails, or runs past the 20-minute bound | the good build | build failed, for the entry built, with back-off | once: the error; that the build's output is above, and in `<workspace>/.yolo/launch.log` for a jail launch; `yolo capture <bin>` to retry now; and, to stay on the running version, `agent_updates` off for the fork pack, or a tag `?ref=` in a manifest you own |
 | Another build of this candidate holds the build lock past the 20-minute wait | the good build | nothing | the pid holding it, that the next launch takes its result, and stopping that pid if it hung |
 | Another launch's build of this candidate failed while this one waited | the good build; nothing rebuilt | already, by that launch | that launch's error, once |
 | The user's own edit to the series, `build` or `produces` does not apply or build at the candidate, nor at the series' base | [OQ-PFK1](#OQ-PFK1): nothing under its leaning, the good build under its option A | as the cause's row | the cause's message, and that reverting the edit brings back the good build |
@@ -949,8 +968,8 @@ hands it.
 | **Upstream code arrives unreviewed.** A plain fork ran only what its owner pushed; a patched fork runs the upstream's latest, on the host floor too | The same exposure the base pack's own npm delivery has at both notches today, since agent dependencies are evergreen ([OQ-PD12](program-delivery.md#decision-ledger)). The build runs sealed ([FP-D9](forked-programs-as-packs.md#FP-D9)), every move is a disclosure line, and the replay runs no user program ([§5.1](#51-where-it-runs)) |
 | **The store grows by a build per upstream version taken**: 137.6 MB for the stand-in pi build, so about 0.7 GB in the five days to 2026-10-03 under `release`, and up to 3.3 GB a day under `head`, were nothing reclaimed | The move reaps every build no running jail was handed ([§6.3](#63-what-is-served-and-the-store-key)), so the store holds the good build and the builds running jails use. The mirror grows by git objects only, with no checkout per check |
 | **A new upstream build that cannot be relocated** leaves `yolo host` without the program while jails run it ([§9](#9-notch-coverage)) | Said at the host with the jail's home named, as FP-D16 does; a hold keeps the fork at the last relocatable version |
-| **A launch waits on the network or a build** | The check's fetch holds a launch up to 60 s once an hour, and the replay's blob prefetch is a second fetch under the same budget. A build wait comes about once a day under `release` at pi's cadence, and up to every hourly check under `head`; under [OQ-PFK3](#OQ-PFK3)'s leaning it is at most 20 minutes and a Ctrl-C ends it |
-| **Checks of one fork serialize** | On its own record lock, for at most the check's 60 s fetch; other forks' checks and the fork lock's writers do not wait ([§6.6](#66-locks-and-their-order)) |
+| **A launch waits on the network or a build** | The check's fetch holds a launch up to 60 s once an hour, and the walk, its blob prefetches included, has a 60 s bound of its own, so git holds a launch at most 120 s before a build. A build wait comes about once a day under `release` at pi's cadence, and up to every hourly check under `head`; under [OQ-PFK3](#OQ-PFK3)'s leaning it is at most 20 minutes and a Ctrl-C ends it |
+| **Checks of one fork serialize** | On its own record lock, for at most the check's 60 s fetch. Other forks' checks wait only when they name one upstream repository, on its mirror lock for the fetch; the fork lock's writers do not wait ([§6.6](#66-locks-and-their-order)) |
 
 ## 13. What this does not cover
 
@@ -991,6 +1010,8 @@ hands it.
   the hourly check says the upstream moved, and its jail runs the new version with the series, with
   nobody having typed a command.
 - A second launch inside the hour runs no git process.
+- A `follow: "release"` series whose base is past the branch's newest version builds the base once,
+  then runs no git inside the hour and shows no held suffix.
 - A series whose second member's context moved upstream applies, as the maintainer's rebase does.
 - An upstream version that conflicts with a member is said once, with the member, the paths and the
   next step; the jail runs the previous build, and later launches show only the held suffix.
@@ -1102,8 +1123,8 @@ that are the maintainer's are [OQ-PFK1](#OQ-PFK1)–[OQ-PFK4](#OQ-PFK4), above. 
 | <a id="PF-D6"></a>PF-D6 | *Implementation decision.* **The replay: the series applied by `git am` at its base, then its commits picked three-way onto the candidate one at a time; it applies cleanly when neither step stops.** A pick that changes nothing is a member already upstream, and clean; a conflict is a pick stopped with conflicting paths and every object present, and anything else is an apply error. Chosen over `git am --3way`, which was measured unable to replay a stacked series in a repository holding only the upstream | 2026-10-03 | [§5.2](#52-the-replay-and-what-applies-cleanly-means) | — |
 | <a id="PF-D7"></a>PF-D7 | *Implementation decision, under [FP-D8](forked-programs-as-packs.md#FP-D8).* **The revision stays the upstream commit; a patched fork's recipe appends the series digest, and a plain fork's stays byte-identical; the `build` receipt gains `fork`, `series` and `tree`; a patched build is selected by the fork key, identified by repository, subdirectory, commit and recipe, never the ref, and found by an exact lookup** | 2026-10-03 | [§6.3](#63-what-is-served-and-the-store-key) | — |
 | <a id="PF-D8"></a>PF-D8 | *Implementation decision, applying [OQ-PD12](program-delivery.md#decision-ledger)'s "offline with the agent installed → run what is there" to a new upstream version the series does not fit.* **What runs moves only after a candidate's build is admitted on this machine, by a compare-and-swap under the fork's record lock that prefers the newer check, with a disclosure line; a new upstream version that does not apply or build leaves the good build running.** For a manifest that declares `patches`, and only there, it overrides: the fork route's [§9](forked-programs-as-packs.md#9-failure-modes) *"never rebuild on a timer or on every launch"*, and its *"never serve an entry whose key does not match"* for the upstream commit; [§12](forked-programs-as-packs.md#12-what-this-does-not-license)'s *"a fork that drifts from its lock is reported, never silently refreshed"*; [FP-D18](forked-programs-as-packs.md#FP-D18)'s standing pin, moved only by `yolo pack update`; [FP-D16](forked-programs-as-packs.md#FP-D16)'s floor entry that is never polled; [FP-D17](forked-programs-as-packs.md#FP-D17)'s failed-reinstall removal, for a newer upstream; and [§11](forked-programs-as-packs.md#11-sequencing)'s done condition that a second machine runs the same binary. The edit half of the near-miss and FP-D17 rules is [OQ-PFK1](#OQ-PFK1) | 2026-10-03 | [§6.1](#61-the-good-build-is-a-ratchet) | — |
-| <a id="PF-D9"></a>PF-D9 | *Implementation decision.* **A machine-local check record per fork in the pack store, written under the fork's record lock and read without one. A conflict is never replayed again by a launch for the same (candidate, series, yolo version, git version); a build failure is backed off per candidate on [OQ-PD26](program-delivery.md#decision-ledger)'s schedule while a good build serves, and retried by every fresh launch while nothing serves; an apply error, a failed fetch, a lost build-lock wait, a build jail the runtime would not start and a Ctrl-C are not recorded as outcomes; a lost record is recovered from the store's receipts** | 2026-10-03 | [§6.2](#62-the-check-record-and-what-is-pending), [§8.1](#81-the-failure-table) | — |
-| <a id="PF-D10"></a>PF-D10 | *Implementation decision, amended 2026-10-04.* **Every advance takes the newest fit: the first entry, newest first, of the branch's tip under `follow: "head"` and then the version tags merged into the branch that contain the series' base, above the good build when there is one, onto which the series replays; conflicts are recorded per [PF-D9](#PF-D9) so no entry is replayed twice, and the walk shares the check's 60 s. With no fit the good build holds; a first advance builds the series' base, when the followed branch contains it, writes the good build only after its admit, and retries on the next fresh launch with no back-off; the same fallback serves any state with nothing to serve.** The amendment replaces "the newest candidate, else the base", which drops a second machine or an edited series to the base where an intermediate version fits ([`patched-extensions.md` §6.2](patched-extensions.md#62-the-newest-fit-walk)) | 2026-10-03 · amended 2026-10-04 | [§6.4](#64-the-newest-fit-and-the-first-advance) | — |
+| <a id="PF-D9"></a>PF-D9 | *Implementation decision.* **A machine-local check record per fork in the pack store, written under the fork's record lock and read without one. The record keeps one outcome per entry of the walk's list. A conflict is never replayed again by a launch for the same (entry, series, yolo version, git version); a build failure is backed off per entry on [OQ-PD26](program-delivery.md#decision-ledger)'s schedule while a good build serves, and retried by every fresh launch while nothing serves; an apply error, a failed fetch, a lost build-lock wait, a build jail the runtime would not start and a Ctrl-C are not recorded as outcomes; a lost record is recovered from the store's receipts** | 2026-10-03 | [§6.2](#62-the-check-record-and-what-is-pending), [§8.1](#81-the-failure-table) | — |
+| <a id="PF-D10"></a>PF-D10 | *Implementation decision, amended 2026-10-04.* **Every advance takes the newest fit: the first entry, newest first, of the branch's tip under `follow: "head"` and then the version tags merged into the branch that contain the series' base, above the good build when there is one, onto which the series replays; conflicts are recorded per entry per [PF-D9](#PF-D9) so no entry is replayed twice; the walk has a 60 s bound of its own, apart from the check's, and one that runs past it is an apply error for the entries it did not reach, which stay pending. The check's candidate is the list's newest entry, found from the mirror with no replay; an empty list leaves nothing pending and no held suffix. With no fit the good build holds; a first advance builds the series' base, when the followed branch contains it, writes the good build only after its admit, and retries on the next fresh launch with no back-off; the same fallback serves any state with nothing to serve.** The amendment replaces "the newest candidate, else the base", which drops a second machine or an edited series to the base where an intermediate version fits ([`patched-extensions.md` §6.2](patched-extensions.md#62-the-newest-fit-walk)) | 2026-10-03 · amended 2026-10-04 | [§6.4](#64-the-newest-fit-and-the-first-advance) | — |
 | <a id="PF-D11"></a>PF-D11 | *Implementation decision, under the happy-path principle.* **Each failure is said once, on the launch that found it, with its next step; later launches carry a held suffix that names the step; every fork line names the series; an attach names the build its running jail was handed; nothing refuses a launch** | 2026-10-03 | [§7](#7-the-build-and-the-launch), [§8](#8-failure-and-the-next-step) | — |
 | <a id="PF-D12"></a>PF-D12 | *Implementation decision.* **`yolo pack update` and `yolo pack install` force the check and the replay and record the outcome, and never build or move the good build; `yolo capture <bin>` forces the check and builds the candidate now, or rebuilds the good build, through the swap; `yolo pack status` reads the good build and the candidate apart** | 2026-10-03 | [§8.3](#83-the-explicit-acts) | — |
 | <a id="PF-D13"></a>PF-D13 | *Implementation decision, under [OQ-PFK4](#OQ-PFK4)'s leaning, and void under its option B.* **`yolo pack rebase` clones the upstream's URL blobless at `--into`, by default a directory in the current one where a workspace may be, replays to the conflict with `git rebase --onto`, and prints the continue command and an export into a new directory renamed into place; it never writes the fork pack** | 2026-10-03 | [§8.4](#84-rebasing-the-series) | — |

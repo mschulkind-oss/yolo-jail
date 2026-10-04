@@ -41,8 +41,12 @@ the good build at `into`; and the pack author's list entry points pi at it.
 
 **Cost.** A copy of each tree per fresh launch (free under reflink; on ext4 a full copy, 21 MB and
 14 MB for the two trees measured), a launch that waits for a build once per upstream version taken,
-and two collisions with standing pi rulings ([OQ-PPX1](#OQ-PPX1), [OQ-PPX2](#OQ-PPX2)). It amends
-[PF-D10](patched-forks.md#PF-D10) for both routes.
+and two collisions with standing pi rulings ([OQ-PPX1](#OQ-PPX1), [OQ-PPX2](#OQ-PPX2)). On
+macos-user and a macOS host it costs the extensions themselves: migrating drops each `git:` entry
+from a list every notch reads, and those notches build no tree, so pi there runs without the
+extension where today it installs the fork ([§11](#11-notch-coverage),
+[§13](#13-migrating-the-maintainers-five-forks)). It amends [PF-D10](patched-forks.md#PF-D10) for
+both routes.
 
 **Start at [§5](#5-what-carries-over-from-patched-forks)**: what carries over unchanged, and the three
 places it cannot, which [§7](#7-the-build-and-the-admit) and [§8](#8-delivery) take.
@@ -79,12 +83,15 @@ Coined here unless a link says otherwise:
 - **Owner key** *(coined in [PF-D22](patched-forks.md#PF-D22))*: the key the check, its record and
   lock, the replay, the ratchet and the explicit acts use: the fork key for a patched fork, the
   extension key for a patched extension.
-- **Owning agent pack**: the selected pack one of whose `state` contributions has an `at` that is a
-  whole-segment prefix of `into`, the longest such `at` winning. For `.pi/…` that is `pi`, which
-  declares `.pi` as workspace state (READ
-  [`packs/pi/pack.json:184-188`](../../packs/pi/pack.json#L184-L188)); `.pi-shared-npm` is not a
-  prefix of `.pi/agent`. There may be none. It is not necessarily the contributing pack: in the
-  maintainer's case `matt` contributes and `pi` owns.
+- **Owning agent pack**: the selected pack that declares the surface of the list entry naming the
+  tree: the `config-list` or posture-list entry, in the contributing pack, equal to `~/<into>`,
+  which [§8.2](#82-how-pi-finds-it)'s lint looks for. A surface is named `agent/name` (READ
+  [`contributes.go:399`](../../internal/packdecl/contributes.go#L399)), and `pi/settings` is the pi
+  pack's (READ [`packs/pi/pack.json:84-91`](../../packs/pi/pack.json#L84-L91)), so in the
+  maintainer's case `matt` contributes and `pi` owns. With no such entry there is none, and pi never
+  loads the tree. It is not read from where the tree lands: [§4](#4-the-declaration) lets the author
+  land it anywhere, and a `state` declaration says which pack keeps a directory, not which agent
+  loads a tree in it.
 - **Newest fit** *(coined in [`patched-forks.md` §6.4](patched-forks.md#64-the-newest-fit-and-the-first-advance))*:
   the first entry of the walk's list ([§6.2](#62-the-newest-fit-walk)) onto which the series replays
   cleanly. Not the newest version, which the series may not fit.
@@ -216,10 +223,16 @@ there. Validation is static, and the series' contents are read at each advance, 
 
 **Where to land it.** Outside every directory the agent discovers by itself. For pi that means outside
 `~/.pi/agent/extensions/`, where a subdirectory loads only through its manifest's extensions or an
-index file ([`pack-pi-resources.md`](pack-pi-resources.md#1-what-pi-loads-from-where-and-in-what-form)),
-so skills and prompts would be lost and a list entry beside it would load it twice. `pi-subagents` and
-`pi-dynamic-workflows` both declare skills (READ, their `package.json` at v0.75.0 and v3.13.0). Core
-knows no agent's paths, so this is guidance, not a check.
+index file ([`pack-pi-resources.md`](pack-pi-resources.md#1-what-pi-loads-from-where-and-in-what-form)).
+There, the list entry stops being the one switch. Without it pi still loads the extension, but not
+its skills and prompts; with it, pi resolves each file once, because it keeps one entry per
+absolute path (READ `package-manager.js:2102-2107`); and once the entry is removed, discovery keeps
+loading the extension. MEASURED with pi 0.99.1's package resolver, `HOME` in scratch and no
+session: a package at `~/.pi/agent/extensions/demo` whose manifest names `./index.ts` and
+`./skills` resolved to that extension and no skill with no list entry, and to the same one
+extension and its skill with the entry. `pi-subagents` and `pi-dynamic-workflows` both declare
+skills (READ, their `package.json` at v0.75.0 and v3.13.0). Core knows no agent's paths, so this is
+guidance, not a check.
 
 ## 5. What carries over from patched forks
 
@@ -253,16 +266,21 @@ checkout. It runs at:
 
 - **a fresh jail launch**, in a second arm beside the fork builds in their slot, below every attach
   site and under the launch lock (READ [`run.go:1323-1332`](../../internal/cli/run/run.go#L1323-L1332));
-- **the host's `files` render**: `yolo host apply`, and `yolo host -- <agent>` under
-  `host_apply_on_launch`, before the gate compares the render in observe posture
-  ([§8.3](#83-at-the-host));
+- **the host's `files` render**: `yolo host apply`, and `yolo host -- <bin>` under
+  `host_apply_on_launch` when `<bin>` is a program of the owning agent pack or of a fork of it,
+  before the gate compares the render in observe posture ([§8.3](#83-at-the-host)). So
+  `yolo host -- claude` runs no check for a pi extension;
 - **the explicit acts**, which force it: `yolo pack update`, `yolo pack install`,
   `yolo capture <pack>/<name>` and, under [OQ-PFK4](patched-forks.md#OQ-PFK4)'s leaning,
   `yolo pack rebase <pack>/<name>`.
 
 It never runs on an attach, a dry run, in a jail, in a capture or build jail, or under a hold with a
-good build ([PPX-D9](#PPX-D9)). Checks of different keys may run concurrently, since
-[PF-D17](patched-forks.md#PF-D17) gives them no shared lock; their lines print in declaration order.
+good build ([PPX-D9](#PPX-D9)). Checks of different keys may run concurrently, except where two
+name one upstream repository, such as two `//subdir` extensions of one monorepo, or an extension and
+a patched fork of one repository: those share its mirror lock for the fetch
+([PF §6.6](patched-forks.md#66-locks-and-their-order); READ the per-repository flock,
+[`store.go:23`](../../internal/packsrc/store.go#L23), [`refresh.go:637-641`](../../internal/packsrc/refresh.go#L637-L641))
+and serialize on it. Their lines print in declaration order.
 
 ### 6.2 The newest-fit walk
 
@@ -270,16 +288,20 @@ This amends [PF-D10](patched-forks.md#PF-D10) for both routes, and its one norma
 [`patched-forks.md` §6.4](patched-forks.md#64-the-newest-fit-and-the-first-advance). In brief: an
 advance replays the series down a list, newest first (the branch's tip under `follow: "head"`, then the
 version tags merged into the branch that contain the series' base), and takes the first entry it fits.
-A conflict is recorded per [PF-D9](patched-forks.md#PF-D9), so no entry is replayed twice for one
-series. No fit holds the good build or, on a first advance, builds the base. The walk is bounded at
-60 s.
+The check's candidate is that list's newest entry above the good build, found from the mirror with no
+replay; an empty list leaves nothing pending and shows no held suffix. A conflict is recorded against
+its entry ([PF-D9](patched-forks.md#PF-D9)), so no entry is replayed twice for one series. No fit
+holds the good build or, on a first advance, builds the base. The walk has a 60 s bound of its own,
+apart from the check's; the entries it did not reach by then stay pending for the next check.
 
 **Why the core changes.** "The newest, else the base" drops a second machine, or an edited series, to
 the base even where v1.2 fits and only v1.3 conflicts. Restricting tags to those containing the base
 keeps an older version from passing for an update: for `pi-automode` today the newest version,
 v1.17.0, is older than the base, and the series replays onto it cleanly (MEASURED,
-[§3.2](#32-the-maintainers-five-forks)). Day one for the maintainer does not change: for the three
-that conflict, the newest fit is the base ([§3.2](#32-the-maintainers-five-forks)).
+[§3.2](#32-the-maintainers-five-forks)). So its list is empty: once its base is built nothing is
+pending, and no launch inside the hour runs git or shows a held suffix. Day one for the maintainer
+does not change: for the three that conflict, the newest fit is the base
+([§3.2](#32-the-maintainers-five-forks)).
 
 ## 7. The build and the admit
 
@@ -363,6 +385,16 @@ A move reaps every other build of the key at once: no jail reads the store for a
 jail's copy can be stranded. A launch that finds its entry reaped between the lookup and the copy
 re-reads the record once.
 
+A copy in progress can still be cut short, by another workspace's launch moving the good build. The
+store accepts a reap in the middle of a materialize only because a failed materialize falls through
+to the vendor's installer (READ [`gc.go:45-48`](../../internal/capture/gc.go#L45-L48)), and a tree
+has no installer to fall through to. So a copy is checked against its entry's completion marker once
+it ends. A reap removes the marker before any of the tree (READ
+[`gc.go:219-224`](../../internal/capture/gc.go#L219-L224)), and the move reaps the same way, so a
+marker still there means the copy read a whole tree. A marker gone means the copy may be partial
+even if it reported no error: it is removed and the record re-read once, as when the entry was
+reaped before the copy began.
+
 ### 8.2 How pi finds it
 
 - **The author writes `~/<into>` in pi's `packages` list**, with no trailing slash, and drops the
@@ -371,11 +403,13 @@ re-reads the record once.
 - **The pi pack's subagents MCP render still fires.** Its pattern matches
   `~/.pi/agent/yolo-patched/pi-subagents` and does not match it with a trailing slash (MEASURED with
   node, against [`packs/pi/pack.json:140`](../../packs/pi/pack.json#L140)).
-- **Two lints**, at `yolo pack lint` and once at launch, each a warning naming the line to change:
-  - no `config-list` or posture-list entry in the contributing pack equals `~/<into>`, so the tree is
-    mounted and pi never loads it;
-  - the same list carries another entry whose last segment, less any `@ref` and `.git`, is `<name>`,
-    so pi would load both.
+- **One lint**, at `yolo pack lint` and once at launch, a warning naming the line to add: no
+  `config-list` or posture-list entry in the contributing pack equals `~/<into>`, so the tree is
+  mounted and pi never loads it. Its test is exact equality, so core reads none of pi's grammar.
+- **No lint for the old entry left beside the new one**, which loads the extension twice. Telling
+  that entry apart means parsing pi's package-source grammar (`@ref`, `.git`), which core does not do
+  ([caching §5](pi-git-extension-caching.md#5-alternatives)). It is [§13](#13-migrating-the-maintainers-five-forks)'s
+  guidance instead.
 
 ### 8.3 At the host
 
@@ -384,13 +418,20 @@ existing render copies file by file and skips a contribution with no `from`
 ([`hostfilestree.go:59-89`](../../internal/entrypoint/hostfilestree.go#L59-L89)), and `pi-subagents`'
 tree alone is 1,386 files (MEASURED).
 
-- **The check and any advance run first**, before `yolo host -- <agent>`'s gate compares the render in
-  observe posture, so the comparison sees the build the apply would install. They run outside that
-  comparison, never inside it: the comparison is the apply itself with its writes withheld, bounded
-  at one second as a stuck-detector (READ
+- **The check and any advance run first**, at `yolo host apply`, and at `yolo host -- <bin>` only
+  when `<bin>` is a program of the owning agent pack or of a fork of it, before the gate compares
+  the render in observe posture, so the comparison sees the build the apply would install. The
+  scope is needed because the gate surveys the whole render whatever the bin, which it uses only for
+  its messages and to pick which failures stop the launch (READ
+  [`hostapplygate.go:108`](../../internal/cli/hostapplygate.go#L108), [`:189`](../../internal/cli/hostapplygate.go#L189),
+  [`:221`](../../internal/cli/hostapplygate.go#L221)). Without it, `yolo host -- claude` would wait
+  on a pi extension's fetch and build. A patched fork's host trigger is likewise its own program's
+  floor install ([PF §4.1](patched-forks.md#41-where-the-check-runs)).
+- **They run outside that comparison, never inside it**: the comparison is the apply itself with its
+  writes withheld, bounded at one second as a stuck-detector (READ
   [`hostapplygate.go:62-72`](../../internal/cli/hostapplygate.go#L62-L72)), and a check alone may
-  wait 60 s on the network. Inside the comparison the patched arm only reads which build the link
-  names.
+  wait 60 s on the network. Inside the comparison, and at every other bin's launch, the patched arm
+  only reads which build the link names against the good build the record names.
 - **The good build is materialized into a host-private versioned directory**, one per build key, in
   yolo's state directory where no jail mounts it.
 - **`~/<into>` is a symbolic link the render owns**, recorded in the `files` ownership record and
@@ -403,7 +444,8 @@ tree alone is 1,386 files (MEASURED).
   directories with it.
 
 A `pi` started outside yolo at the host finds whatever the link names, and with no link pi skips the
-path silently. **macOS host:** none, since the build is the jail's Linux platform; a line says so once.
+path silently. **macOS host:** none, since the build is the jail's Linux platform. A line says so
+once and names a jail that has the extension: `YOLO_RUNTIME=podman yolo -- pi`.
 
 ## 9. Failure, and the next step
 
@@ -413,20 +455,36 @@ path silently. **macOS host:** none, since the build is the jail's Linux platfor
 | :--- | :--- | :--- |
 | A newer upstream does not replay or build | the good build ([PF-D8](patched-forks.md#PF-D8)), unless [OQ-PPX1](#OQ-PPX1) is ruled C | the held suffix, naming `yolo pack rebase <pack>/<name>` |
 | A `produces` path is missing, the tree names the build's home, or the delta has strays | the good build; a failed build with back-off | the paths, and the build line as the fix |
-| The entry was reaped between the lookup and the copy | the record re-read once; else rebuilt from its inputs | as a first build |
+| The entry was reaped between the lookup and the copy, or during it (its completion marker gone when the copy ends) | the partial copy removed and the record re-read once; else rebuilt from its inputs | as a first build |
 | The per-launch copy fails (a full disk) | nothing for this launch; the store is untouched | the error and the extension |
 | Nothing serves | [OQ-PPX1](#OQ-PPX1) | see below |
 
 **Nothing serves.** Under [OQ-PPX1](#OQ-PPX1)'s leaning, the owning agent pack's launchers, the base's
 and any fork's, stop before exec, naming the extension, the cause and the next step, and the jail's
-shell stays up. Notches that never build trees (macos-user, the macOS host) start pi with a line said
-once, in [FP-D3](forked-programs-as-packs.md#FP-D3)'s shape. With no owning agent pack, the launch says
-it and nothing stops. A mountpoint podman made on an earlier launch may be left empty at `~/<into>`
+shell stays up. Notches that build no tree (macos-user, the macOS host, and Apple Container below its
+read-only floor, [§11](#11-notch-coverage)) start pi with a line said once, in
+[FP-D3](forked-programs-as-packs.md#FP-D3)'s shape, naming `YOLO_RUNTIME=podman`. With no owning agent
+pack no list entry names the tree, so pi does not load it, [§8.2](#82-how-pi-finds-it)'s lint says so,
+and nothing stops. Nor does a tree stop pi at a notch its entry does not reach: `pi-automode`'s
+entry is in a guarded posture list, which reaches the host and no jail
+([§3.2](#32-the-maintainers-five-forks)), so a jail with nothing to serve for it starts pi. A mountpoint podman made on an earlier launch may be left empty at `~/<into>`
 (INFERRED: `.pi` is a workspace state directory on the host). pi does not skip an empty directory
 as it skips a missing path: it tries to load the directory itself as one extension, which fails
 (READ `package-manager.js:1079-1085`;
 [`pack-pi-resources.md` §1](pack-pi-resources.md#1-what-pi-loads-from-where-and-in-what-form)).
 Under option A the launch's line has to name it.
+
+**What [OQ-2](pi-git-extension-caching.md#OQ-2) asks, in two halves.** A launch starts pi on nothing
+but what its config calls for, never on what another launch left; and a launch that waited for
+another never inherits that launch's failure, but retries the failed step once itself (READ
+[caching §3.5](pi-git-extension-caching.md#35-locks-waits-and-bounds) and
+[§3.6](pi-git-extension-caching.md#36-failure-paths)). Patched forks depart from the second half by
+design: a waiter takes another launch's result, failure included
+([PF-D17](patched-forks.md#PF-D17)), and a failed build is backed off for a day, doubling to a
+week, while a good build serves ([PF-D9](patched-forks.md#PF-D9)). The notches that build no tree,
+which [OQ-PPX1](#OQ-PPX1)'s B exempts, are macos-user, the macOS host and Apple Container below its
+read-only floor ([§11](#11-notch-coverage)). Under option C neither departure applies to a patched
+extension, so a build that keeps failing costs every fresh launch a rebuild, and its pi.
 
 **The jail launch itself is never refused**, so [PF §6.7](patched-forks.md#67-what-the-mode-never-does)
 holds.
@@ -452,10 +510,10 @@ holds.
 | Notch | Patched extension |
 | :--- | :--- |
 | **jail, podman** | yes |
-| **jail, Apple Container** | delivery at every version: the mount is a per-launch copy, so below the read-only floor, where `:ro` is ignored, a write changes only that copy, as for any `files` tree. Builds as [PF §9](patched-forks.md#9-notch-coverage) says: a capture jail cannot start beside a running jail (INFERRED there), so a candidate stays pending and the good build serves |
+| **jail, Apple Container** | from the read-only floor up, yes, and builds as [PF §9](patched-forks.md#9-notch-coverage) says: a capture jail cannot start beside a running jail (INFERRED there), so a candidate stays pending and the good build serves. **Below the floor no tree is built**, as no fork is: the tree arm takes the slot's floor return ([`run/forkbuild.go:63-68`](../../internal/cli/run/forkbuild.go#L63-L68)). The floor's reason is that `:ro` is ignored there (READ [`backendcaps.go:82-91`](../../internal/cli/run/backendcaps.go#L82-L91)), so a build jail's read-only binds would be writable, which the seal ([FP-D9](forked-programs-as-packs.md#FP-D9)) does not allow for (INFERRED). A good build already on this machine for the jail's platform is still delivered: the mount is a per-launch copy, so a write changes only that copy, as for any `files` tree. With none, pi starts without the extension and the line names `YOLO_RUNTIME=podman` ([§9](#9-failure-and-the-next-step)) |
 | **jail, macos-user** | none: no sealed build there ([FP-D3](forked-programs-as-packs.md#FP-D3)); the line names `YOLO_RUNTIME=podman`, as a fork's does |
 | **`yolo host`, Linux** | yes ([§8.3](#83-at-the-host)) |
-| **`yolo host`, macOS** | none |
+| **`yolo host`, macOS** | none; the line names `YOLO_RUNTIME=podman yolo -- pi` ([§8.3](#83-at-the-host)) |
 | **guest** | unbuilt, as every verb there is |
 
 ## 12. Dependencies
@@ -467,8 +525,8 @@ holds.
 - Rulings on patched forks' three blocking questions, whose leanings read the same here:
   - [OQ-PFK1](patched-forks.md#OQ-PFK1)'s B also fits the caching design's
     [OQ-2](pi-git-extension-caching.md#OQ-2);
-  - under [OQ-PFK3](patched-forks.md#OQ-PFK3)'s A the wait is mostly the build jail's boot, since the
-    measured builds took 0.3 s and about 7.4 s;
+  - under [OQ-PFK3](patched-forks.md#OQ-PFK3)'s A the wait is the build jail's boot plus the build,
+    measured at 0.3 s for one tree and 7.4 to 24 s for the other ([§15](#15-risks-and-costs));
   - [OQ-PFK4](patched-forks.md#OQ-PFK4)'s verb takes the `<pack>/<name>` address.
 - [OQ-PFK2](patched-forks.md#OQ-PFK2) only picks a default, but `pi-background-tasks` has no tags, so
   it needs `follow: "head"` whatever the default is.
@@ -506,6 +564,13 @@ For each extension:
 - `pi-automode`'s list entry is guarded-only, and a posture cannot carry `files`, so every jail
   builds and mounts a tree its pi never loads, and the Linux host, where the guarded list reaches,
   loads it: minor.
+- **On macos-user and a macOS host every migrated extension is absent**, where today pi installs each
+  fork from its `git:` entry there (INFERRED from [§3.1](#31-how-pi-takes-an-extension-and-where-yolo-can-put-a-tree)'s
+  first row). Step 2 drops that entry from a list that reaches every notch
+  (READ [`notch-scoped-config-contributions.md`](notch-scoped-config-contributions.md)'s summary:
+  a list is placed at every notch, and only a posture list narrows it), no list can be narrowed to
+  those notches alone ([§14](#14-alternatives-and-what-this-does-not-cover)), and those notches build
+  no tree ([§11](#11-notch-coverage)). Each says so once and names `YOLO_RUNTIME=podman`.
 
 **An older yolo** refuses the manifest at the host, as it refuses a patched fork's, and
 [PF §10](patched-forks.md#10-migration-from-a-plain-fork)'s mitigations apply: a pack author keeps
@@ -518,7 +583,7 @@ the `git:` manifest where existing users point and publishes this one on a new r
 | **A. The program route**, a `program` with `fork_of` | **Rejected.** An extension has no bin and no base program, and the fork fields are refused off `program` with `via: "source"` ([`fork.go:67-70`](../../internal/packdecl/fork.go#L67-L70)) |
 | **B. Patch pi's own git checkout** | **Rejected.** The hourly refresh's update cleans and resets it ([§3.1](#31-how-pi-takes-an-extension-and-where-yolo-can-put-a-tree)) |
 | **C. Patch the published npm package** | **Rejected.** Some are build output: `pi-subagents`' published 0.75.0 names `./index.js`, its git source `./index.ts` (MEASURED), so a series written against the source has nothing to apply to |
-| **D. Land in `extensions/<name>`** | **Rejected.** It loses skills and prompts, and loads twice beside a list entry ([§4](#4-the-declaration)) |
+| **D. Land in `extensions/<name>`** | **Rejected.** pi's discovery loads the tree there whether or not a list entry names it, so the entry is no longer the one switch: with no entry the extension loads without its skills and prompts, and it keeps loading after the entry is removed (MEASURED, [§4](#4-the-declaration)). With the entry, pi resolves each file once, so double loading is not the reason |
 | **E. A new contribution kind** | **Rejected.** The delivery is `files`' read-only mount; a kind would be a second path to it |
 | **F. Rewrite the `git:` entry automatically** | **Rejected for now.** It needs [OQ-6](pi-git-extension-caching.md#OQ-6) and an [`OQ-LT2`](../reference/pack-system.md#oq-lt2) amendment (PE7) |
 | **G. The held extension store as the base**, a replay in the jail into its per-commit trees | **Rejected.** It replays in the jail (against P3), runs git on every launch (against P4), stops pi when a new build fails (no ratchet), needs [OQ-6](pi-git-extension-caching.md#OQ-6), has no host delivery, and keeps its records in a store every jail can write. Its walk idea is kept ([§6.2](#62-the-newest-fit-walk)) |
@@ -531,7 +596,12 @@ the `git:` manifest where existing users point and publishes this one on a new r
 - **A tree with no build, admitted without a jail.** It would reach macos-user; deferred.
 - **Writing the list entry for the author.** It waits on [OQ-PR1](pack-pi-resources.md#OQ-PR1).
 - **Moving a tree inside a running jail.** A running jail keeps what it booted with.
-- **A `files` contribution scoped to a posture or notch.**
+- **A `files` contribution scoped to a posture or notch**, and a list entry scoped to a notch, which
+  could keep the `git:` entry on macos-user and a macOS host
+  ([§13](#13-migrating-the-maintainers-five-forks)).
+- **A lint for the old entry left beside the new one.** It needs pi's package-source grammar
+  ([§8.2](#82-how-pi-finds-it)). The pi pack could declare the pattern, as it does for the
+  subagents render's `whenListed.matches` ([`packs/pi/pack.json:140`](../../packs/pi/pack.json#L140)).
 - **Resolving conflicts, and writing the series.** As [patched forks §13](patched-forks.md#13-what-this-does-not-cover).
 
 ## 15. Risks and costs
@@ -542,7 +612,7 @@ the `git:` manifest where existing users point and publishes this one on a new r
 | Unreviewed upstream code runs inside pi's process | The same exposure today's `git:` entries carry, minus their scripts running in the user's jail ([§10](#10-trust-and-disclosure)) |
 | An extension in a long-lived jail moves only at a fresh launch, where today's hourly refresh moves it in a running jail | Stated; a fresh launch is the readiness act ([PF-D5](patched-forks.md#PF-D5)) |
 | An extension that writes into its own directory fails on the read-only mount | Said by pi as the extension's error; the fix is the extension's |
-| `pi-archimedes` takes its core package from the registry: the fork's root depends on `@pi-archimedes/core` `2.8.0` and declares no npm `workspaces`, and one series member patches `packages/core` (MEASURED), so under npm that member never reaches runtime (INFERRED) | The build line must build and link the workspace package; a lint cannot see this |
+| `pi-archimedes` takes its core package from the registry: the fork's root depends on `@pi-archimedes/core` `2.8.0`, which the registry has, and declares no npm `workspaces` (MEASURED). Today's series changes `packages/core` only by a test devDependency, member 11's `fast-check` (MEASURED), so nothing is lost now; a later member under `packages/core/src` would never reach runtime under npm (INFERRED) | If such a member appears, the build line must build and link the workspace package; a lint cannot see this |
 | A native module built against the jail's Node runs under another at the host | The toolchain is on the receipt; pi reports the load error |
 | No pi has loaded a tree that carries its own `node_modules` | The first step of [§16](#16-what-i-would-build-in-order) measures it in a nested jail |
 
@@ -550,8 +620,12 @@ the `git:` manifest where existing users point and publishes this one on a new r
 
 - **Replay:** at most 0.63 s for one series' first replay, and 2.15 s for the longest walk from a fresh
   blobless clone.
-- **Trees:** 21 MB and 1,386 files for `pi-subagents` (0.3 s to install), 14 MB and 302 files for
-  `pi-dynamic-workflows` at its base (3.8 s `npm ci`, 3.0 s `tsc`, 0.6 s prune).
+- **Trees:** 21 MB and 1,386 files for `pi-subagents` (0.3 s to install), and 14 MB and 335 files
+  for `pi-dynamic-workflows` at its base with the dist-free series, the tree day one delivers;
+  upstream v3.13.0 alone gives 302. Its build was first timed on upstream v3.13.0 alone: 3.8 s
+  `npm ci`, 3.0 s `tsc`, 0.6 s prune. Re-timed with the series, five runs each interleaved with five
+  of the base alone, on a loaded machine (a one-minute load average of 40 to 57 on 32 CPUs where
+  read), the three steps took 14.8 to 24.2 s in all, against 12.2 to 21.5 s for the base alone.
 - **Per-launch copy:** about free under reflink; this jail's workspace and home are btrfs (MEASURED,
   `stat -f`; the host's being the same, and the cost, are INFERRED from
   [`materialize.go`](../../internal/capture/materialize.go)). Under ext4, a full copy per fresh
@@ -564,7 +638,7 @@ the `git:` manifest where existing users point and publishes this one on a new r
 1. **Patched forks' steps 1 and 2** with the owner key and the walk, and a nested-jail run in which a
    real pi loads a hand-made tree with its own `node_modules` from a local entry. That run is a
    human's check, not a test: no automated test starts pi (AGENTS.md, Testing).
-2. **The declaration**: validation, the extension key, the lints and the footprint claim.
+2. **The declaration**: validation, the extension key, the lint and the footprint claim.
 3. **The tree build**: the final copy, the admit's three checks, the recipe and the receipt.
 4. **Jail delivery**: the per-launch copy, the mount, `YOLO_PATCHED_TREES`, the attach line and the
    launchers' reason.
@@ -580,7 +654,11 @@ source, the host link and the launchers' gate. The traps the implementation must
 - pi lists the built tree's tools and skills, checked by hand, and the tree is read-only in the
   jail.
 - A second launch inside the hour runs no git.
+- `pi-automode`, whose base is past its upstream's newest version, runs no git on a second launch
+  inside the hour and shows no held suffix.
 - A conflict is said once, and the good build runs.
+- A copy whose store entry is reaped while it runs is never mounted.
+- `yolo host -- claude` runs no check for a pi extension.
 - `pi update --extensions` leaves the tree byte-identical.
 - Neither `yolo prune` nor a move changes a running jail's copy.
 - An attach never reports that the pack set differs.
@@ -594,25 +672,32 @@ mode as written, and one ruling of each covers both routes ([§12](#12-dependenc
 
 1. 💬 **OQ-PPX1: When a patched extension's build cannot be had, what does pi start with?**
 
-   Patched forks keep the good build when a newer upstream fails ([PF-D8](patched-forks.md#PF-D8));
-   the caching design's [OQ-2](pi-git-extension-caching.md#OQ-2) starts pi on nothing but what its
-   config calls for ([§9](#9-failure-and-the-next-step)).
+   Patched forks keep the good build when a newer upstream fails ([PF-D8](patched-forks.md#PF-D8)),
+   and depart from the second half of the caching design's
+   [OQ-2](pi-git-extension-caching.md#OQ-2) ([§9](#9-failure-and-the-next-step)).
 
    - **A — pi always starts**, without the extension when nothing serves, and the launch says so.
-   - **B — The good build serves; with none, pi's launchers stop before exec.** Notches that never
-     build trees are exempt.
-   - **C — Strict [OQ-2](pi-git-extension-caching.md#OQ-2).** pi stops whenever the newest fit is not
-     built and admitted.
+   - **B — The good build serves; with none, pi's launchers stop before exec.** Notches that build
+     no tree are exempt.
+   - **C — Strict [OQ-2](pi-git-extension-caching.md#OQ-2).** pi stops unless the newest fit is
+     admitted; each launch retries a failed build itself, with no back-off.
 
-   Under B or C, a fresh offline machine, or Apple Container beside a running jail, starts no pi
-   until a first build lands; under A the extension can go missing unnoticed.
+   Under B or C, a fresh offline machine starts no pi until a first build lands; under A the
+   extension can go missing unnoticed.
 
-   <!-- vantage: question id=OQ-PPX1 leaning="B — a good build is a complete, admitted, immutable build of this machine's own, not another launch's leftover, so serving it is not what OQ-2 forbade; nothing to serve is exactly that ruling's case; and a forked pi with nothing to serve does not run either." -->
+   <!-- vantage: question id=OQ-PPX1 leaning="B — it keeps OQ-2's first half: a good build is complete, admitted and immutable, where the case it ruled out was a launch that found the refresh lock held booting on whatever was installed, and nothing to serve is exactly that ruling's case. It departs from the second half: the good build is whatever an earlier launch on this machine admitted, perhaps another workspace's, and a launch takes another's failure and its back-off, so which upstream version a launch gets depends on other launches. My read is that this stays within the ruling's purpose, because every launch gets the series and recipe its config spells, and only the upstream version, which the config leaves to the follow rule, depends on the machine, as PF-D8 has it for a patched program; and a forked pi with nothing to serve does not run either." -->
 
-   _Leaning:_ B — a good build is a complete, admitted, immutable build of this machine's own, not
-   another launch's leftover, so serving it is not what [OQ-2](pi-git-extension-caching.md#OQ-2)
-   forbade; nothing to serve is exactly that ruling's case; and a forked pi with nothing to serve does
-   not run either.
+   _Leaning:_ B — it keeps [OQ-2](pi-git-extension-caching.md#OQ-2)'s first half: a good build is
+   complete, admitted and immutable, where the case it ruled out was a launch that found the
+   refresh lock held booting on whatever was installed
+   ([caching §2](pi-git-extension-caching.md#2-how-pi-handles-git-packages-today)), and nothing
+   to serve is exactly that ruling's case. It departs from the second half: the good build is
+   whatever an earlier launch on this machine admitted, perhaps another workspace's, and a launch
+   takes another's failure and its back-off, so which upstream version a launch gets depends on
+   other launches. My read is that this stays within the ruling's purpose, because every launch
+   gets the series and recipe its config spells, and only the upstream version, which the config
+   leaves to the follow rule, depends on the machine, as [PF-D8](patched-forks.md#PF-D8) has it for
+   a patched program; and a forked pi with nothing to serve does not run either.
 
    **Answer:**
    > _(empty — fill in when decided)_
@@ -647,16 +732,16 @@ changes this design makes to patched forks are recorded there:
 | <a id="PPX-D1"></a>PPX-D1 | *Implementation decision.* **A patched extension is a `files` contribution with `source` and `patches` in place of `from`; there is no new kind.** `from`, `fork_of`, `agent` and `agents` are refused beside `source`, and `patches` is required | 2026-10-04 | [§4](#4-the-declaration) | — |
 | <a id="PPX-D2"></a>PPX-D2 | *Implementation decision.* **The extension key is `<pack>/<last segment of into>`, unique per pack across its patched extensions and its patched programs' bins; every record, lock, selection, message and explicit act uses it** | 2026-10-04 | [§1](#1-defined-terms), [§4](#4-the-declaration) | — |
 | <a id="PPX-D3"></a>PPX-D3 | *Implementation decision.* **`into` is required and may not land on PATH, for any pack; `build` is optional and the sealed jail runs either way; `produces` is optional and tree-relative** | 2026-10-04 | [§4](#4-the-declaration) | — |
-| <a id="PPX-D4"></a>PPX-D4 | *Implementation decision.* **The owning agent pack is the selected pack one of whose `state` contributions has an `at` that is a whole-segment prefix of `into`, the longest such `at` winning; there may be none** | 2026-10-04 | [§1](#1-defined-terms) | — |
+| <a id="PPX-D4"></a>PPX-D4 | *Implementation decision.* **The owning agent pack is the selected pack that declares the surface of the contributing pack's `config-list` or posture-list entry equal to `~/<into>`, the entry [§8.2](#82-how-pi-finds-it)'s lint looks for; with no such entry there is none, and pi never loads the tree.** Not read from a `state` prefix of `into`, which says which pack keeps a directory, not which agent loads a tree there | 2026-10-04 | [§1](#1-defined-terms) | — |
 | <a id="PPX-D5"></a>PPX-D5 | *Implementation decision.* **The build is a fork's build act with the seal narrowed to the contributing pack and one fixed final step that copies the checkout into a reserved directory under `~/.local`; the admit adds the `produces` paths, no stray delta and no reference to the build home to the empty-delta and link checks** | 2026-10-04 | [§7.1](#71-the-build-act) | — |
 | <a id="PPX-D6"></a>PPX-D6 | *Implementation decision.* **The recipe is `["tree", build, sorted produces, subdir, series digest]`; selection is by extension key and platform with an exact lookup; the receipt gains PF-D7's fields; `yolo prune`'s newest-per-selection-key rule is unchanged** | 2026-10-04 | [§7.2](#72-identity-and-selection) | — |
-| <a id="PPX-D7"></a>PPX-D7 | *Implementation decision.* **A fresh launch materializes the good build, by reflink or copy and never by hardlink, into a per-launch directory beside its pack tree, and the `files` emitter mounts it read-only; no store is mounted for it, and a move reaps every other build of the key at once** | 2026-10-04 | [§8.1](#81-in-a-jail) | — |
+| <a id="PPX-D7"></a>PPX-D7 | *Implementation decision.* **A fresh launch materializes the good build, by reflink or copy and never by hardlink, into a per-launch directory beside its pack tree, and the `files` emitter mounts it read-only; no store is mounted for it, and a move reaps every other build of the key at once, marker first.** A copy whose entry's completion marker is gone when it ends may be partial: it is removed, and the record re-read once | 2026-10-04 | [§8.1](#81-in-a-jail) | — |
 | <a id="PPX-D8"></a>PPX-D8 | *Implementation decision.* **The jail learns what it was handed from `YOLO_PATCHED_TREES`, a once-at-boot sibling of `YOLO_FORK_BUILDS`** | 2026-10-04 | [§8.1](#81-in-a-jail) | — |
 | <a id="PPX-D9"></a>PPX-D9 | *Implementation decision, applying [PF-D19](patched-forks.md#PF-D19).* **`agent_updates` off for the contributing pack or the owning agent pack holds a patched extension; with a fork of the owning agent's program selected, the fork pack counts too** | 2026-10-04 | [§2](#2-the-verdict-and-three-more-principles) PE8 | — |
-| <a id="PPX-D10"></a>PPX-D10 | *Implementation decision.* **pi learns of a built tree only through a `~/<into>` list entry its author writes; two lints warn when no entry names it and when a same-named entry would load it twice** | 2026-10-04 | [§8.2](#82-how-pi-finds-it) | — |
-| <a id="PPX-D11"></a>PPX-D11 | *Implementation decision.* **The Linux host renders a patched extension as a host-private versioned copy and an owned link swapped by rename, after the check and the advance and before the launch gate's comparison; the previous version is kept until the next move** | 2026-10-04 | [§8.3](#83-at-the-host) | — |
-| <a id="PPX-D12"></a>PPX-D12 | *Implementation decision, under [OQ-PPX1](#OQ-PPX1).* **The owning agent pack's launchers, the base's and any fork's, act on a patched extension's reason as [OQ-PPX1](#OQ-PPX1) rules; the jail launch is never refused** | 2026-10-04 | [§9](#9-failure-and-the-next-step) | — |
-| <a id="PPX-D13"></a>PPX-D13 | *Implementation decision.* **Checks of different extension keys may run concurrently, and their lines print in declaration order** | 2026-10-04 | [§6.1](#61-where-the-check-runs) | — |
+| <a id="PPX-D10"></a>PPX-D10 | *Implementation decision.* **pi learns of a built tree only through a `~/<into>` list entry its author writes; one lint warns when no entry equals it.** No lint looks for the old entry left beside it, which would need pi's package-source grammar in core | 2026-10-04 | [§8.2](#82-how-pi-finds-it) | — |
+| <a id="PPX-D11"></a>PPX-D11 | *Implementation decision.* **The Linux host renders a patched extension as a host-private versioned copy and an owned link swapped by rename, after the check and the advance and before the launch gate's comparison; the previous version is kept until the next move.** The check and the advance run at `yolo host apply`, and at `yolo host -- <bin>` only when `<bin>` is a program of the owning agent pack or of a fork of it; at any other bin the gate only reads which build the link names | 2026-10-04 | [§8.3](#83-at-the-host) | — |
+| <a id="PPX-D12"></a>PPX-D12 | *Implementation decision, under [OQ-PPX1](#OQ-PPX1).* **The owning agent pack's launchers, the base's and any fork's, act on a patched extension's reason as [OQ-PPX1](#OQ-PPX1) rules, and only at a notch the list entry naming the tree reaches; the jail launch is never refused** | 2026-10-04 | [§9](#9-failure-and-the-next-step) | — |
+| <a id="PPX-D13"></a>PPX-D13 | *Implementation decision.* **Checks of different extension keys may run concurrently, except two that name one upstream repository, which serialize on its mirror lock; their lines print in declaration order** | 2026-10-04 | [§6.1](#61-where-the-check-runs) | — |
 | <a id="PPX-D14"></a>PPX-D14 | *Implementation decision, applying [PF-D8](patched-forks.md#PF-D8).* **A newer upstream that does not replay or build leaves the good build serving, unless [OQ-PPX1](#OQ-PPX1) is ruled C** | 2026-10-04 | [§9](#9-failure-and-the-next-step) | — |
 | <a id="PPX-D15"></a>PPX-D15 | *Implementation decision.* **The footprint marks a patched extension for review, naming its source, ref, follow rule, series, build and landing; no flag hides its launch, move or held lines** | 2026-10-04 | [§10](#10-trust-and-disclosure) | — |
 | <a id="PPX-D16"></a>PPX-D16 | *Implementation decision.* **A series member that adds a path the upstream ignores at the base is said once, naming `build`** | 2026-10-04 | [§7.2](#72-identity-and-selection) | — |

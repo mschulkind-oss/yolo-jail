@@ -126,9 +126,22 @@ Traps:
   ([`hostapplygate.go`](../../internal/cli/hostapplygate.go)). Run after it, the gate compares
   against a render the apply would change at once; run inside it, a check blows the one-second
   `hostApplyGateBudget` and the gate reports cannot-determine.
+- **At `yolo host -- <bin>`, only for the owning agent pack's programs and their forks.** The gate
+  surveys the whole render whatever `<bin>` is
+  ([`hostapplygate.go:189`](../../internal/cli/hostapplygate.go#L189)), so a check wired in front of
+  it unscoped makes `yolo host -- claude` wait on a pi extension's fetch and build.
 - **The `files` emitter has no read-only-floor check** ([`packfiles.go:123-140`](../../internal/cli/run/packfiles.go#L123-L140)).
   That is what lets Apple Container below the floor take a per-launch copy; a fix that adds the check
   for other reasons must not drop this delivery.
+- **The fork slot returns below Apple Container's read-only floor before any build**
+  ([`run/forkbuild.go:63-68`](../../internal/cli/run/forkbuild.go#L63-L68)). The tree arm takes that
+  return for its check and build, and must not take it for delivery: a good build already on the
+  machine is still copied and mounted there.
+- **A reap can empty a store entry while a launch copies it.** The store accepts that only because a
+  failed materialize falls through to a vendor installer
+  ([`gc.go:45-48`](../../internal/capture/gc.go#L45-L48)); a tree has none, so the copy is checked
+  against the entry's completion marker after it ends, and the move must reap marker first, as
+  `reapEntry` does ([`gc.go:219-224`](../../internal/capture/gc.go#L219-L224)).
 
 ## Waiting on the design
 
