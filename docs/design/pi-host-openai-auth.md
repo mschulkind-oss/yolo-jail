@@ -16,14 +16,17 @@ run on it yet. [OQ-2](#OQ-2) and [OQ-3](#OQ-3) are open. Diagnosis measured live
 2026-09-30, then re-verified against pi 0.99.2 and the tree at `2f579bb9` with offline probes of pi's own
 model runtime, whose commands and output are in [Appendix A](#appendix-a-the-probes).
 
-> **In short.** Host pi lists no ChatGPT model because pi counts `openai-codex` as configured only
+> **In short.** Host pi listed no ChatGPT model because pi counts `openai-codex` as configured only
 > when a credential is stored for it, and yolo stores one only inside a jail. Pi also accepts a
 > provider that declares itself configured with no stored credential, so the host can serve the
-> subscription through the socket NC-D37 already hands it, without writing the user's `auth.json`.
+> subscription through the socket NC-D37 already hands it, without writing the user's `auth.json`;
+> D2 does that, on pi 0.81.0 and later ([§5.1](#51-as-built-the-native-registration)).
 
-**Why it matters.** Running `yolo host -- pi` under the `codex` profile boots pi into a fallback
-model (`local/qwen3.8-27b`) and hides every ChatGPT subscription model from `/model`, which says
-*"Only showing models from configured providers. Use /login to add providers."*
+**Why it matters.** Running `yolo host -- pi` under the `codex` profile booted pi into a fallback
+model (`local/qwen3.8-27b`) and hid every ChatGPT subscription model from `/model`, which said
+*"Only showing models from configured providers. Use /login to add providers."* D2 fixes that
+([§5.1](#51-as-built-the-native-registration)), though a start can still land on the fallback through
+a start-up race in pi, with `/model` listing the subscription a moment later.
 
 **The shape.** Three families: write the entry into the user's `auth.json` (by the launch, the
 extension, `/login` or `yolo host apply`), give host pi an agent directory of yolo's own, as host
