@@ -12,10 +12,14 @@ package packsrc
 //     is checked with lstat, in a fetched pack and a local one alike. The host reads these bytes
 //     with a pack's authority, and a link would make the series a read of whatever it names. The
 //     reads themselves go through an os.Root of the pack, so a link swapped in after the check
-//     still cannot reach outside it.
-//   - At least one member, and the first names its BASE (`base-commit:`, which
-//     `git format-patch --base` writes). An empty, missing or unreadable directory is each the
-//     fork's reason, never read as "no patches".
+//     still cannot reach outside it, and each member is lstat'd again once open and must be the
+//     file the open returned, so one swapped for an in-pack link is refused too (readMember).
+//   - At least one member, and the series names its BASE (`base-commit:`, which
+//     `git format-patch --base` writes into the first member, or into the cover letter under
+//     `--cover-letter`). An empty, missing or unreadable directory is each the fork's reason,
+//     never read as "no patches".
+//   - A COVER LETTER, the leading 0000-cover-letter.patch `--cover-letter` writes, is read for its
+//     base and digested, never replayed; a file with no diff anywhere else is refused.
 //   - READ ONCE: a caller reads the series once per act and replays from that copy, so the digest
 //     it records describes the bytes it applied.
 //
@@ -50,9 +54,15 @@ type Series struct {
 	Dir string
 	// Members are the series' patches, in series order.
 	Members []SeriesMember
-	// Base is the full commit id the first member's `base-commit:` names.
+	// Cover is the series' COVER LETTER, nil when it has none: the leading file `git format-patch
+	// --cover-letter` writes (0000-cover-letter.patch), which carries no diff and, under --base, the
+	// series' only `base-commit:` line. It is read for its base and never replayed (PF-D30).
+	Cover *SeriesMember
+	// Base is the full commit id the series' `base-commit:` line names: the cover letter's, else
+	// the first member's.
 	Base string
-	// Digest is the series digest.
+	// Digest is the series digest, over every file the read took: the cover letter, when there is
+	// one, and the members, in series order.
 	Digest string
 }
 
@@ -167,6 +177,7 @@ func ReadSeries(packRoot, rel string) (*Series, error) {
 	sort.Strings(names) // byte-wise, which is format-patch's 0001-… order
 	s := &Series{Dir: rel}
 	total := 0
+	var read []SeriesMember // every file taken, the cover letter included, for the digest
 	for i, name := range names {
 		at := rel + "/" + name
 		data, err := readMember(root, at, MaxSeriesBytes-total)
@@ -180,28 +191,58 @@ func ReadSeries(packRoot, rel string) (*Series, error) {
 				"makes the series' commits", Fix: "export the commit with `git format-patch` rather " +
 				"than `diff -u` or `git diff`"}
 		}
-		if !strings.Contains(string(data), "\ndiff --git ") {
-			return nil, &SeriesError{Path: at, Problem: "carries no diff (a cover letter, or an empty " +
-				"commit), so it makes no commit to replay", Fix: "remove it from the series directory"}
-		}
-		if i == 0 {
-			base, ok := baseCommit(data)
-			if !ok {
-				return nil, &SeriesError{Path: at, Problem: "names no base commit (the \"base-commit:\" " +
-					"line), and the series is replayed from its base", Fix: "re-export the series with " +
-					"`git format-patch --base=<upstream commit>`"}
-			}
-			s.Base = base
-		}
 		sum := sha256.Sum256(data)
-		s.Members = append(s.Members, SeriesMember{Name: name, Data: data, Sum: hex.EncodeToString(sum[:])})
+		m := SeriesMember{Name: name, Data: data, Sum: hex.EncodeToString(sum[:])}
+		read = append(read, m)
+		if !strings.Contains(string(data), "\ndiff --git ") {
+			if i == 0 && isCoverLetterName(name) {
+				// THE COVER LETTER: `--cover-letter --base` writes the series' base here and in no
+				// patch, so it is read for that, and is not a member.
+				s.Cover = &m
+				continue
+			}
+			return nil, &SeriesError{Path: at, Problem: "carries no diff (an empty commit, or a cover letter " +
+				"that is not the series' first file), so it makes no commit to replay",
+				Fix: "remove it from the series directory"}
+		}
+		s.Members = append(s.Members, m)
 	}
-	s.Digest = SeriesDigest(s.Members)
+	if len(s.Members) == 0 {
+		return nil, &SeriesError{Path: rel, Problem: "holds a cover letter and no patch, and a patched fork " +
+			"applies at least one", Fix: "export the series into it with `git format-patch --base=<upstream " +
+			"commit> -o " + rel + " <upstream commit>..HEAD`"}
+	}
+	first := s.Members[0]
+	base, ok := baseCommit(first.Data)
+	if s.Cover != nil {
+		coverBase, coverOK := baseCommit(s.Cover.Data)
+		switch {
+		case coverOK && ok && coverBase != base:
+			return nil, &SeriesError{Path: rel + "/" + s.Cover.Name, Problem: "names the base " + coverBase +
+				" and " + first.Name + " names " + base + ", and a series has one base", Fix: "re-export " +
+				"the series with `git format-patch --base=<upstream commit>`"}
+		case coverOK:
+			base, ok = coverBase, true
+		}
+	}
+	if !ok {
+		return nil, &SeriesError{Path: rel + "/" + first.Name, Problem: "names no base commit (the " +
+			"\"base-commit:\" line), and the series is replayed from its base", Fix: "re-export the " +
+			"series with `git format-patch --base=<upstream commit>`"}
+	}
+	s.Base = base
+	s.Digest = SeriesDigest(read)
 	return s, nil
 }
 
-// SeriesDigest is the series digest of members: the sha256 of the JSON array of [name, content
-// sha256] pairs, in order.
+// isCoverLetterName reports whether a series file is named as `git format-patch --cover-letter`
+// names its cover letter: 0000-cover-letter.patch, under -v<n> v<n>-0000-cover-letter.patch.
+func isCoverLetterName(name string) bool {
+	return strings.HasSuffix(name, "0000-cover-letter.patch")
+}
+
+// SeriesDigest is the series digest of the files a read took (a cover letter first, when there is
+// one, then the members): the sha256 of the JSON array of [name, content sha256] pairs, in order.
 func SeriesDigest(members []SeriesMember) string {
 	pairs := make([][2]string, len(members))
 	for i, m := range members {
@@ -212,11 +253,18 @@ func SeriesDigest(members []SeriesMember) string {
 	return hex.EncodeToString(sum[:])
 }
 
-// readMember reads one member through the pack's root, refusing a link that appeared since the
-// listing (O_NOFOLLOW) and anything that is not a regular file once opened, and taking at most
-// budget bytes.
+// readMember reads one member through the pack's root, taking at most budget bytes, and refuses
+// anything that is not a regular file once opened and a member that became a link since the
+// listing.
+//
+// THE LINK CHECK IS AFTER THE OPEN. os.Root follows a symbolic link that stays inside the root
+// whatever O_NOFOLLOW says (measured, go 1.26.7: a root holding the link a.patch -> b.txt opens
+// and reads b.txt), so the open alone would read a member swapped for an in-pack link after the
+// lstat walk. The name is lstat'd once the file is open, and must still be a regular file and the
+// very file the open returned (os.SameFile); a swap either way is refused. The root still keeps
+// every read inside the pack.
 func readMember(root *os.Root, at string, budget int) ([]byte, error) {
-	f, err := root.OpenFile(at, os.O_RDONLY|syscall.O_NOFOLLOW|syscall.O_NONBLOCK, 0)
+	f, err := root.OpenFile(at, os.O_RDONLY|syscall.O_NONBLOCK, 0)
 	if err != nil {
 		return nil, &SeriesError{Path: at, Problem: "cannot be read (" + err.Error() + ")",
 			Fix: "check its permissions, and that it is a regular file rather than a link", Err: err}
@@ -226,6 +274,11 @@ func readMember(root *os.Root, at string, budget int) ([]byte, error) {
 	if err != nil || !fi.Mode().IsRegular() {
 		return nil, &SeriesError{Path: at, Problem: "is not a regular file",
 			Fix: "a series member is a patch file; rename or remove this one", Err: err}
+	}
+	if li, err := root.Lstat(at); err != nil || li.Mode()&fs.ModeSymlink != 0 || !os.SameFile(fi, li) {
+		return nil, &SeriesError{Path: at, Problem: "is a symbolic link, or changed while the series was " +
+			"read, and a series is read from the pack itself, never through a link",
+			Fix: "put the patch file itself in its place, and read the series again", Err: err}
 	}
 	data, err := io.ReadAll(io.LimitReader(f, int64(budget)+1))
 	if err != nil {

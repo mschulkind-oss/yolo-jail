@@ -106,11 +106,20 @@ func TestReadSeriesRefusals(t *testing.T) {
 			}
 			os.WriteFile(p, []byte(strings.Join(kept, "\n")), 0o644)
 		}, "patches", []string{"names no base commit", "--base"}},
-		{"a cover letter", func(t *testing.T, pack string) {
-			writeTestFile(t, filepath.Join(pack, "patches", "0000-cover-letter.patch"),
+		{"a file with no diff past the first", func(t *testing.T, pack string) {
+			writeTestFile(t, filepath.Join(pack, "patches", "0003-empty.patch"),
 				"From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001\n"+
-					"Subject: [PATCH 0/2] *** SUBJECT HERE ***\n\nbase-commit: "+strings.Repeat("a", 40)+"\n")
-		}, "patches", []string{"0000-cover-letter.patch", "carries no diff"}},
+					"Subject: [PATCH 3/3] empty\n\n")
+		}, "patches", []string{"0003-empty.patch", "carries no diff", "remove it"}},
+		{"a cover letter and no patch", func(t *testing.T, pack string) {
+			for _, n := range patchNames(t, pack) {
+				os.Remove(filepath.Join(pack, "patches", n))
+			}
+			writeTestFile(t, filepath.Join(pack, "patches", "0000-cover-letter.patch"), coverLetter(strings.Repeat("a", 40)))
+		}, "patches", []string{"holds a cover letter and no patch", "git format-patch --base"}},
+		{"a cover letter naming another base", func(t *testing.T, pack string) {
+			writeTestFile(t, filepath.Join(pack, "patches", "0000-cover-letter.patch"), coverLetter(strings.Repeat("a", 40)))
+		}, "patches", []string{"0000-cover-letter.patch", "a series has one base", "--base"}},
 		{"an unclean path", func(t *testing.T, pack string) {}, "patches/", []string{"not a clean path"}},
 		{"an escaping path", func(t *testing.T, pack string) {}, "../patches", []string{"not a clean path"}},
 	}
@@ -199,5 +208,80 @@ func TestParseFollowAndVersions(t *testing.T) {
 	c, _ := ParseVersion("0.100.0")
 	if a.Compare(b) >= 0 || c.Compare(a) <= 0 || b.Compare(c) <= 0 {
 		t.Error("semver precedence is not numeric per field, or does not cross a major version")
+	}
+}
+
+// coverLetter is a cover letter as `git format-patch --cover-letter --base=<base>` writes one.
+func coverLetter(base string) string {
+	return "From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001\n" +
+		"Subject: [PATCH 0/2] *** SUBJECT HERE ***\n\n*** BLURB HERE ***\n\n" +
+		" f.txt | 2 +-\n\nbase-commit: " + base + "\n-- \n2.55.0\n"
+}
+
+// A SERIES EXPORTED WITH --cover-letter --base, the common format-patch habit, reads as-is: the
+// cover letter, which alone carries the base line, gives the base and is no member; it is in the
+// digest, since the base it names decides the replay; and the series replays (PF-D30).
+func TestReadSeriesTakesTheBaseFromACoverLetter(t *testing.T) {
+	u := newPatchedUpstream(t)
+	plain := u.series(t)
+	for _, version := range []string{"", "-v2"} {
+		t.Run("format-patch"+version, func(t *testing.T) {
+			gitIn(t, u.repo, "checkout", "-q", "-b", "cover"+version)
+			for _, m := range plain.Members {
+				gitIn(t, u.repo, "am", "-q", filepath.Join(u.pack, "patches", m.Name))
+			}
+			dir := filepath.Join(u.pack, "cover"+version)
+			args := []string{"format-patch", "-q", "--cover-letter", "--base=" + u.base, "-o", dir}
+			if version != "" {
+				args = append(args, version)
+			}
+			// am needs the branch at the base, which main is.
+			gitIn(t, u.repo, append(args, "main..cover"+version)...)
+			gitIn(t, u.repo, "checkout", "-q", "main")
+			s, err := ReadSeries(u.pack, "cover"+version)
+			if err != nil {
+				t.Fatalf("ReadSeries over a --cover-letter export: %v", err)
+			}
+			if s.Cover == nil || !strings.HasSuffix(s.Cover.Name, "0000-cover-letter.patch") || len(s.Members) != 2 {
+				t.Fatalf("series = cover %v, %d members; want the cover letter apart and the two patches", s.Cover, len(s.Members))
+			}
+			if strings.Contains(string(s.Members[0].Data), "base-commit:") {
+				t.Fatal("the fixture's first patch carries the base line itself; the cover-letter case is not exercised")
+			}
+			if s.Base != u.base {
+				t.Errorf("base = %s, want %s from the cover letter", s.Base, u.base)
+			}
+			if s.Digest == SeriesDigest(s.Members) {
+				t.Error("the digest leaves the cover letter, and the base it names, out")
+			}
+			res := u.check(t, PatchedWant{Owner: "forkpack/tool", Source: u.source("main"), Base: s.Base}, true)
+			w := u.store.WalkSeries(mustAddr(t, u.source("main")).Repo, "", s, res.Record.Check.List, WalkOptions{})
+			if w.Err != nil || w.Base != nil || w.Fit != 0 {
+				t.Errorf("the --cover-letter series does not replay: %+v (base %v)", w, w.Base)
+			}
+		})
+	}
+}
+
+// A MEMBER THAT IS AN IN-PACK LINK is refused by the read itself, not only by the listing: os.Root
+// follows a link that stays inside it, so readMember checks the name again once the file is open.
+func TestReadMemberRefusesAnInPackLink(t *testing.T) {
+	dir := t.TempDir()
+	writeTestFile(t, filepath.Join(dir, "b.txt"), "target bytes\n")
+	if err := os.Symlink("b.txt", filepath.Join(dir, "a.patch")); err != nil {
+		t.Fatal(err)
+	}
+	root, err := os.OpenRoot(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer root.Close()
+	data, err := readMember(root, "a.patch", MaxSeriesBytes)
+	var se *SeriesError
+	if !errors.As(err, &se) || !strings.Contains(err.Error(), "symbolic link") {
+		t.Errorf("readMember over an in-pack link = %q, %v; want it refused", data, err)
+	}
+	if _, err := readMember(root, "b.txt", MaxSeriesBytes); err != nil {
+		t.Errorf("readMember over a regular file: %v", err)
 	}
 }
