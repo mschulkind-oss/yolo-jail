@@ -140,7 +140,10 @@ MCP-enabled tool.
   root-owned session env file the launch writes before its bootstrap runs. The bootstrap reads
   that file into the gate's view and leaves its own process environment unchanged (the
   `hydrate_session_env` boot step), so a server gated on a shared `env_sources` variable is kept
-  there as it is in a container.
+  there as it is in a container. The file is the launched agent's environment, so it also holds
+  the values the gate scoped to that agent; a name some agent's own env file sets is left out of
+  the jail-wide view, and the server reaches only the agents whose file sets it, as above. No
+  `YOLO_` name is taken from the file: those are the launcher's.
 - **Key order is insertion order** — presets in the order the config listed them, then custom
   entries — so a projection's output is byte-stable across boots.
 
@@ -566,8 +569,12 @@ other.
 > installed there from 2026-09-13) still holds those packages until that act runs. The npm
 > packages are under `<workspace>/.yolo/home/npm-global/lib/node_modules`, and `gopls` is at
 > `<workspace>/.yolo/home/go/bin/gopls`. The sandbox's `~/.npm-global` and `~/go` are links to
-> those directories, and the act removes through them. Unmeasured on a Mac until
-> `TestMacosUserProgramsLsSeesTheStagedPacks` and `TestMacosUserAutopruneRemovesAnOrphan` run.
+> those directories. The bootstrap runs outside the sandbox, so the boot catalog reads, and
+> autoprune removes, only beneath those directories themselves; a symbolic link below one is
+> named on the terminal, and that boot removes nothing
+> ([program-delivery.md OQ-PD28](../design/program-delivery.md#decision-ledger)). Unmeasured on a
+> Mac until `TestMacosUserProgramsLsSeesTheStagedPacks` and `TestMacosUserAutopruneRemovesAnOrphan`
+> run.
 
 ## The node/npx wrapper
 

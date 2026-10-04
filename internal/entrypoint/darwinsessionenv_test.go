@@ -78,7 +78,7 @@ func TestTheDarwinBootstrapKeepsAnMCPServerGatedOnASessionVariable(t *testing.T)
 // environment: YOLO_VERSION there would make config.InJail answer true for an unconfined
 // process, and a credential there would reach every child the bootstrap spawns.
 func TestTheSessionEnvFileFillsOnlyTheGeneratorEnv(t *testing.T) {
-	for _, k := range []string{"GITHUB_TOKEN", "YOLO_SESSION_ONLY_PROBE"} {
+	for _, k := range []string{"GITHUB_TOKEN", "SESSION_ONLY_PROBE"} {
 		t.Setenv(k, "")
 		os.Unsetenv(k)
 	}
@@ -87,7 +87,7 @@ func TestTheSessionEnvFileFillsOnlyTheGeneratorEnv(t *testing.T) {
 		"export GITHUB_TOKEN='ghp_fake'",
 		"export YOLO_MCP_SERVERS='{}'",
 		"export YOLO_VERSION='9.9.9'",
-		`export YOLO_SESSION_ONLY_PROBE='it'\''s here'`,
+		`export SESSION_ONLY_PROBE='it'\''s here'`,
 		"# a comment, and a line that is not an export",
 		"echo nope",
 	}, "\n")+"\n")
@@ -102,17 +102,20 @@ func TestTheSessionEnvFileFillsOnlyTheGeneratorEnv(t *testing.T) {
 	if got := e.Getenv("GITHUB_TOKEN"); got != "ghp_fake" {
 		t.Errorf("GITHUB_TOKEN = %q in the generator Env, want the session file's value", got)
 	}
-	if got := e.Getenv("YOLO_SESSION_ONLY_PROBE"); got != "it's here" {
+	if got := e.Getenv("SESSION_ONLY_PROBE"); got != "it's here" {
 		t.Errorf("the session file's single-quote escape was not reversed: %q", got)
 	}
 	if got := e.Getenv("YOLO_MCP_SERVERS"); got != contract {
 		t.Errorf("the session file overrode the bootstrap's own YOLO_MCP_SERVERS: %q", got)
 	}
-	if os.Getenv("GITHUB_TOKEN") != "" || os.Getenv("YOLO_SESSION_ONLY_PROBE") != "" {
+	if os.Getenv("GITHUB_TOKEN") != "" || os.Getenv("SESSION_ONLY_PROBE") != "" {
 		t.Error("hydration exported a session variable into the bootstrap's process environment")
 	}
 	if os.Getenv("YOLO_VERSION") != before {
 		t.Error("hydration changed the process's YOLO_VERSION, the jail marker config.InJail reads")
+	}
+	if got := e.Getenv("YOLO_VERSION"); got != "" {
+		t.Errorf("YOLO_VERSION = %q in the generator Env: a YOLO_ key is the launcher's, never the file's", got)
 	}
 	if !sharedMCPNames(e)["gh"] {
 		t.Error("the gated server is not in the shared MCP table after hydration")
@@ -154,4 +157,165 @@ func TestTheContainerBootDoesNotReadASessionEnvFile(t *testing.T) {
 	}
 	assertStepBefore(t, bootDarwin, "hydrate_session_env", "configure_pack_surfaces",
 		"the requires_env gate in the surface render asks the hydrated environment")
+}
+
+// A COMPOSED FILE SETS NO LAUNCHER CONTRACT KEY. The session env file carries env_sources,
+// the workspace's included, and the agent can write a dotenv file the workspace already lists,
+// with no config prompt. So a key the bootstrap's argv lacks because the LAUNCHER did not set
+// it must stay unset: an `export YOLO_PROGRAMS_AUTOPRUNE='1'` there turned on the destructive
+// autoprune that only the user's own config may turn on, and the bootstrap deleted the orphan.
+// Every YOLO_ name is the launcher's (YOLO_PACK_ROOT would load a pack tree of the agent's
+// choosing outside the sandbox, YOLO_DARWIN_HOME_OVERLAY copy a tree of its choosing over the
+// account home), and none is taken from the file.
+//
+// MUTATION: drop the launcherContractKey skip in hydrateEnvFromSessionEnvFile and the orphan
+// is deleted.
+func TestTheSessionEnvFileCannotTurnOnAutoprune(t *testing.T) {
+	home, packRoot := catalogHome(t)
+	ws, sidecar, _ := darwinSidecarFixture(t)
+	pkg := filepath.Join(sidecar, "npm-global", "lib", "node_modules", "leftover-agent")
+	if err := os.MkdirAll(pkg, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	overlay := filepath.Join(resolvedDir(t), "agent-overlay")
+	if err := os.MkdirAll(filepath.Join(overlay, ".zshrc.d"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	session := writeSessionEnvFile(t, strings.Join([]string{
+		"export " + OrphanAutopruneEnv + "='1'",
+		"export YOLO_DARWIN_HOME_OVERLAY='" + overlay + "'",
+		"export GITHUB_TOKEN='ghp_fake'",
+	}, "\n")+"\n")
+	e := DarwinEnvFrom(map[string]string{
+		"JAIL_HOME": home, "YOLO_PACK_ROOT": packRoot, "YOLO_DARWIN_WORKSPACE": ws,
+		DarwinHomeSidecarEnv: sidecar, DarwinSessionEnvFileEnv: session,
+	}, home)
+	var term strings.Builder
+	e.Stderr = &term
+
+	_ = RunDarwinBootstrap(e, DarwinBootstrapOptions{MacosLog: "off"})
+
+	if _, err := os.Stat(pkg); err != nil {
+		t.Errorf("a session env file turned autoprune on, and the orphan was deleted (err=%v)\n%s",
+			err, term.String())
+	}
+	if strings.Contains(term.String(), autoprunePrefix) {
+		t.Errorf("autoprune ran with no relay from the launcher:\n%s", term.String())
+	}
+	for _, k := range []string{OrphanAutopruneEnv, "YOLO_DARWIN_HOME_OVERLAY"} {
+		if got := e.Getenv(k); got != "" {
+			t.Errorf("%s = %q in the generator Env, taken from the session env file", k, got)
+		}
+	}
+	if e.Getenv("GITHUB_TOKEN") != "ghp_fake" {
+		t.Error("the launcher-key skip also dropped an ordinary env_sources value")
+	}
+}
+
+// THE CONTAINER'S READER HAD THE SAME HOLE: an env_sources line is a def-form default, and a
+// default sets a key the launch did not set — YOLO_PROGRAMS_AUTOPRUNE included, from a dotenv
+// file the workspace lists. A def-form YOLO_ line is now skipped, in the boot's Env and in its
+// process environment alike; the session's shell still sources the file for itself. A
+// plain-form line is the launcher's own per-entry channel and still applies, its wire tables
+// included.
+//
+// MUTATION: drop the launcherContractKey skip in hydrateEnvFromUserEnvFile and the orphan is
+// deleted.
+func TestAnEnvSourcesDefaultCannotTurnOnTheContainerAutoprune(t *testing.T) {
+	t.Setenv(OrphanAutopruneEnv, "")
+	os.Unsetenv(OrphanAutopruneEnv)
+	t.Setenv("YOLO_USE_PROFILES", "")
+	t.Setenv("ENV_SOURCES_PROBE", "")
+	home, packRoot := catalogHome(t)
+	seedNpm(t, home, "leftover-agent")
+	writeTestUserEnv(t, home, strings.Join([]string{
+		"export " + OrphanAutopruneEnv + "=${" + OrphanAutopruneEnv + ":-'1'}",
+		"export ENV_SOURCES_PROBE=${ENV_SOURCES_PROBE:-'kept'}",
+		EntryChannelSectionHeader,
+		`export YOLO_USE_PROFILES='{"claude":"codex"}'`,
+	}, "\n")+"\n")
+	e := NewEnv(map[string]string{"JAIL_HOME": home, "YOLO_PACK_ROOT": packRoot})
+	var term strings.Builder
+	e.Stderr = &term
+
+	hydrateEnvFromUserEnvFile(e)
+	CatalogInstalledOrphans(e)
+
+	if _, err := os.Stat(filepath.Join(home, ".npm-global", "lib", "node_modules", "leftover-agent")); err != nil {
+		t.Errorf("an env_sources default turned autoprune on, and the orphan was deleted (err=%v)\n%s",
+			err, term.String())
+	}
+	if e.Getenv(OrphanAutopruneEnv) != "" || os.Getenv(OrphanAutopruneEnv) != "" {
+		t.Errorf("an env_sources default set %s (Env %q, process %q)", OrphanAutopruneEnv,
+			e.Getenv(OrphanAutopruneEnv), os.Getenv(OrphanAutopruneEnv))
+	}
+	if e.Getenv("ENV_SOURCES_PROBE") != "kept" {
+		t.Error("the launcher-key skip also dropped an ordinary env_sources default")
+	}
+	if got := e.Getenv("YOLO_USE_PROFILES"); got != `{"claude":"codex"}` {
+		t.Errorf("the launcher's own plain-form channel line no longer applies: YOLO_USE_PROFILES = %q", got)
+	}
+}
+
+// A VALUE THE CREDENTIAL GATE SCOPED TO ONE AGENT STAYS THAT AGENT'S IN THE MCP TABLES. On
+// macos-user the session env file is the LAUNCHED agent's environment, so it carries that
+// agent's scoped values too — the ones the launch also writes to its per-agent file
+// (~/.config/yolo-agent-env/<agent>.sh). Hydrated into the shared view, a server gated on one
+// was written into every agent's config and the "configured only for" notice was lost. A key
+// some agent's file names is therefore not taken from the session file for the shared view or
+// for any agent's fallback; the agent whose file sets it still gets the server. Both of the
+// writer's line shapes are covered: the def-form default and the `case` a composed value takes
+// when yolo set its name elsewhere.
+//
+// MUTATION: make loadMCPTables ask e.Lookup instead of the scoped view, and zai is shared.
+func TestASessionValueScopedToOneAgentStaysInItsMCPTable(t *testing.T) {
+	for _, form := range []struct{ name, line string }{
+		{"def-form", "export ZAI_API_KEY=${ZAI_API_KEY:-'k'}"},
+		{"case-form", `case "${ZAI_API_KEY-}" in ''|'inherited') export ZAI_API_KEY='k' ;; esac`},
+	} {
+		t.Run(form.name, func(t *testing.T) {
+			home := resolvedDir(t)
+			agentDir := filepath.Join(home, AgentEnvDirRel)
+			if err := os.MkdirAll(agentDir, 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(agentDir, "claude.sh"), []byte(form.line+"\n"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(agentDir, "codex.sh"), []byte("export OTHER=${OTHER:-'o'}\n"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			session := writeSessionEnvFile(t, "export ZAI_API_KEY='k'\nexport GITHUB_TOKEN='ghp_fake'\n")
+			e := DarwinEnvFrom(map[string]string{
+				"JAIL_HOME": home,
+				"YOLO_MCP_SERVERS": `{"zai":{"command":"zai-mcp","requires_env":["ZAI_API_KEY"]},` +
+					`"gh":{"command":"gh-mcp","requires_env":["GITHUB_TOKEN"]}}`,
+				DarwinSessionEnvFileEnv: session,
+			}, home)
+			var term strings.Builder
+			e.Stderr = &term
+
+			hydrateEnvFromSessionEnvFile(e)
+			tables := loadMCPTables(e)
+
+			if _, ok := tables.shared.Get("zai"); ok {
+				t.Errorf("a server gated on claude's scoped value is in the shared MCP table\n%s", term.String())
+			}
+			if _, ok := tables.perAgent["codex"].Get("zai"); ok {
+				t.Errorf("codex's table carries a server gated on claude's scoped value\n%s", term.String())
+			}
+			if form.name == "def-form" {
+				if _, ok := tables.perAgent["claude"].Get("zai"); !ok {
+					t.Errorf("claude's own table lost the server its file's value satisfies\n%s", term.String())
+				}
+				if !strings.Contains(term.String(), "notice: MCP server 'zai' configured only for claude") {
+					t.Errorf("the per-agent notice is missing:\n%s", term.String())
+				}
+			}
+			if _, ok := tables.shared.Get("gh"); !ok {
+				t.Errorf("the shared env_sources value no agent file names was dropped from the shared table\n%s",
+					term.String())
+			}
+		})
+	}
 }

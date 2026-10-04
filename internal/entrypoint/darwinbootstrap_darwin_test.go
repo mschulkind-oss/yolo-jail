@@ -198,8 +198,9 @@ func TestDarwinBootstrapToleratesAMissingOverlay(t *testing.T) {
 }
 
 // The real bootstrap keeps the container's boot log in the workspace on a real macOS
-// filesystem — where t.TempDir is itself behind a symbolic link (/var → /private/var), so a
-// beneath-a-root open that refused every link above `.yolo` would show here and nowhere else.
+// filesystem. The workspace is resolved where it is minted (bootstrapEnv), as the launcher
+// resolves it, so no link sits above `.yolo` here; that the open follows one is
+// TestTheDarwinBootLogFollowsALinkAboveTheStateDir's, on every platform.
 func TestDarwinBootstrapKeepsABootLogInTheWorkspace(t *testing.T) {
 	home := t.TempDir()
 	e := bootstrapEnv(t, home, nil)

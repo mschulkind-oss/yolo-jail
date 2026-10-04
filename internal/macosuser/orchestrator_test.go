@@ -620,6 +620,12 @@ func TestNoPackEnvMeansNoWireTables(t *testing.T) {
 // bootstrap's own output — the refusal and every line before it — was on a terminal the user
 // may have closed. And the session env file is installed BEFORE the bootstrap runs, because
 // the bootstrap reads it (hydrate_session_env).
+//
+// HEDGED, because the log is this launch's only if the bootstrap got as far as opening it: a
+// refusal before RunDarwinBootstrap (the workspace-scope check), a sudo or exec failure, or a
+// linked `.yolo` leaves the PREVIOUS launch's log at that path, which may well end "boot
+// complete". So the line says how to tell (the log's first line carries the time it started)
+// and where the output is otherwise.
 func TestABootstrapFailureNamesTheBootLog(t *testing.T) {
 	var rec []string
 	d := mockDeps(&rec)
@@ -642,6 +648,12 @@ func TestABootstrapFailureNamesTheBootLog(t *testing.T) {
 		!strings.Contains(out, entrypoint.BootLogPath(resolvePathAbs(opts.Workspace))) {
 		t.Errorf("the bootstrap-failed line does not name the boot log %s:\n%s",
 			entrypoint.BootLogPath(resolvePathAbs(opts.Workspace)), out)
+	}
+	for _, want := range []string{"If it got as far as opening its log", "first line", "the lines above"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("the bootstrap-failed line claims the log is this launch's without saying how "+
+				"to tell, or where the output is otherwise (missing %q):\n%s", want, out)
+		}
 	}
 
 	envInstall, boot := -1, -1

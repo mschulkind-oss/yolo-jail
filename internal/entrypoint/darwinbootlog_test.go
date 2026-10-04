@@ -223,3 +223,71 @@ func TestTheContainerBootLogRefusesALinkedStateDir(t *testing.T) {
 		t.Errorf("wrote %d entries through the linked .yolo into %s", len(entries), elsewhere)
 	}
 }
+
+// THE LEAF-LINK PROTECTION ON ITS OWN, where the rotation cannot help. With a non-empty
+// directory at boot.log.prev the rename aside fails, so the link the agent left at boot.log is
+// still there when the log is opened, and only the beneath-a-root open
+// (paths.OpenWorkspaceStateFile) keeps the write off its target: the link is replaced by a
+// fresh regular file and what it pointed at is untouched.
+//
+// MUTATION M9 (the reviewer's): replace that open with a plain
+// os.OpenFile(filepath.Join(dir, name), O_CREATE|O_WRONLY|O_TRUNC, 0o644) and the outside file
+// is overwritten with the boot log. TestTheDarwinBootLogFollowsNoLinkTheAgentLeft cannot catch
+// it, because there the rename moves the link aside first.
+func TestTheDarwinBootLogWritesNoLinkWhenItsRotationFails(t *testing.T) {
+	home, ws, elsewhere := resolvedDir(t), resolvedDir(t), resolvedDir(t)
+	target := filepath.Join(elsewhere, "protected")
+	if err := os.WriteFile(target, []byte("keep\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	dir := paths.WorkspaceStateDir(ws)
+	prev := filepath.Join(dir, bootLogPrevName)
+	if err := os.MkdirAll(filepath.Join(prev, "occupied"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(target, filepath.Join(dir, bootLogName)); err != nil {
+		t.Fatal(err)
+	}
+	e := darwinBootEnv(t, home, ws, nil)
+	e.Stderr = &strings.Builder{}
+	_ = RunDarwinBootstrap(e, DarwinBootstrapOptions{MacosLog: "off"})
+	if got, _ := os.ReadFile(target); string(got) != "keep\n" {
+		t.Errorf("the boot log was written through the link at %s onto %s:\n%s", bootLogName, target, got)
+	}
+	fi, err := os.Lstat(BootLogPath(ws))
+	if err != nil || !fi.Mode().IsRegular() {
+		t.Fatalf("boot.log is not a fresh regular file (err=%v)", err)
+	}
+	if raw, _ := os.ReadFile(BootLogPath(ws)); !strings.Contains(string(raw), "macos-user bootstrap") {
+		t.Errorf("boot.log is not this bootstrap's log:\n%s", raw)
+	}
+	if fi, err := os.Stat(filepath.Join(prev, "occupied")); err != nil || !fi.IsDir() {
+		t.Errorf("the directory at %s was disturbed (err=%v)", bootLogPrevName, err)
+	}
+}
+
+// The beneath-a-root open is rooted at `.yolo` and FOLLOWS the components above it, which are
+// the workspace's own path: a workspace reached through a symbolic link above it (on a Mac,
+// /var -> /private/var holds every t.TempDir) keeps its log. The macos-user launcher resolves
+// the workspace before it hands it over (macosuser's resolvePathAbs), so this is the open's
+// own property rather than a case a launch produces.
+func TestTheDarwinBootLogFollowsALinkAboveTheStateDir(t *testing.T) {
+	real, links := resolvedDir(t), resolvedDir(t)
+	if err := os.MkdirAll(filepath.Join(real, "proj"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	via := filepath.Join(links, "via")
+	if err := os.Symlink(real, via); err != nil {
+		t.Fatal(err)
+	}
+	e := darwinBootEnv(t, resolvedDir(t), filepath.Join(via, "proj"), nil)
+	e.Stderr = &strings.Builder{}
+	_ = RunDarwinBootstrap(e, DarwinBootstrapOptions{MacosLog: "off", Version: "via-link"})
+	raw, err := os.ReadFile(BootLogPath(filepath.Join(real, "proj")))
+	if err != nil {
+		t.Fatalf("no boot log for a workspace reached through a link above .yolo: %v", err)
+	}
+	if !strings.Contains(string(raw), "macos-user bootstrap, yolo via-link\n") {
+		t.Errorf("boot.log is not this bootstrap's log:\n%s", raw)
+	}
+}

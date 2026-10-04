@@ -135,6 +135,16 @@ type Env struct {
 	// value is the line-oriented one with the default timings; a test sets
 	// Immediate to see a step that finishes at once.
 	progressCfg progress.Config
+	// sessionEnvKeys names the keys hydrateEnvFromSessionEnvFile put into Vars from the
+	// macos-user session env file — the LAUNCHED agent's environment, which carries the values
+	// the credential gate scoped to that agent alongside the shared ones. loadMCPTables reads it
+	// to keep a scoped value out of the shared view (scopedMCPView). Nil on every other boot.
+	sessionEnvKeys map[string]struct{}
+	// orphanFS is where the orphan finders read and the removal act unlinks
+	// (orphanFiles): nil, the plain filesystem, everywhere but the macos-user bootstrap's
+	// catalog step, which installs one confined beneath roots on the workspace sidecar
+	// (catalogConfinedOrphans) for as long as the step runs.
+	orphanFS orphanFS
 }
 
 // genFailure records a fatal config-generator failure (A12). Collected rather

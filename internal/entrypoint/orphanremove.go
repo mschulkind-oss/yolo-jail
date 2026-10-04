@@ -38,7 +38,9 @@ import (
 // the container's on the podman argv (internal/cli/run's assembleRunCmd), and macos-user's on
 // the bootstrap argv of a LAUNCH (macosuser.BuildRunPlanWithDaemons; a capture never carries
 // it). So an absent variable — an older launcher, a config that never mentions it — means
-// OFF, which is the ruled default and also the safe reading of every one of those cases.
+// OFF, which is the ruled default and also the safe reading of every one of those cases. Neither
+// boot takes it from a file composed from env_sources (launcherContractKey), so a dotenv file a
+// workspace lists cannot turn it on.
 const OrphanAutopruneEnv = "YOLO_PROGRAMS_AUTOPRUNE"
 
 // orphanAutopruneEnv is OrphanAutopruneEnv under the spelling this package reads it by.
@@ -80,12 +82,13 @@ type OrphanRemoval struct {
 // is a command that fails with a confusing error rather than one that is absent. So the
 // symlinks are part of the plan, named in it, and removed by it.
 func PlanOrphanRemovals(e *Env, orphans []Orphan) []OrphanRemoval {
+	fsys := e.orphanFiles()
 	out := make([]OrphanRemoval, 0, len(orphans))
 	for _, o := range orphans {
-		r := OrphanRemoval{Orphan: o, Paths: []string{o.Path}, Bytes: pathBytes(o.Path)}
+		r := OrphanRemoval{Orphan: o, Paths: []string{o.Path}, Bytes: pathBytesIn(fsys, o.Path)}
 		if o.Class == OrphanNpm {
 			r.Paths = append(r.Paths, npmBinLinksInto(e, o.Path)...)
-			if scope := emptiedScopeDir(o.Path); scope != "" {
+			if scope := emptiedScopeDir(fsys, o.Path); scope != "" {
 				r.Paths = append(r.Paths, scope)
 			}
 		}
@@ -95,7 +98,9 @@ func PlanOrphanRemovals(e *Env, orphans []Orphan) []OrphanRemoval {
 }
 
 // ApplyOrphanRemovals unlinks every path in the plan, in plan order, and returns the same
-// removals with Err filled in.
+// removals with Err filled in. It unlinks on the plain filesystem: its caller is
+// `yolo programs remove`, which runs as the agent, inside the sandbox on macos-user. The boot's
+// own act (autopruneOrphans) unlinks through the Env's orphan filesystem instead.
 //
 // os.RemoveAll, and it is the right verb for all three classes: an npm package is a
 // directory, a native installer's program is usually a file but `mcp-wrappers` proves a
@@ -109,9 +114,14 @@ func PlanOrphanRemovals(e *Env, orphans []Orphan) []OrphanRemoval {
 // there would make the option's behaviour depend on the alphabetical position of the first
 // unwritable entry.
 func ApplyOrphanRemovals(plan []OrphanRemoval) []OrphanRemoval {
+	return applyOrphanRemovals(hostOrphanFS{}, plan)
+}
+
+// applyOrphanRemovals is ApplyOrphanRemovals unlinking through fsys.
+func applyOrphanRemovals(fsys orphanFS, plan []OrphanRemoval) []OrphanRemoval {
 	for i := range plan {
 		for _, p := range plan[i].Paths {
-			if err := os.RemoveAll(p); err != nil {
+			if err := fsys.RemoveAll(p); err != nil {
 				plan[i].Err = err
 				break
 			}
@@ -143,7 +153,7 @@ func autopruneOrphans(e *Env, orphans []Orphan) {
 		e.warn(autoprunePrefix + "removing " + r.Orphan.Display + " (" +
 			RenderSize(r.Bytes) + "): " + strings.Join(r.Paths, " "))
 	}
-	for _, r := range ApplyOrphanRemovals(plan) {
+	for _, r := range applyOrphanRemovals(e.orphanFiles(), plan) {
 		if r.Err != nil {
 			e.warn(autoprunePrefix + "could not remove " + r.Orphan.Display + ": " +
 				r.Err.Error())
@@ -176,8 +186,9 @@ func autopruneEnabled(e *Env) bool {
 // target is resolved against the bin directory rather than the process's cwd (npm writes
 // them relative, `../lib/node_modules/…`), and an absolute target is used as-is.
 func npmBinLinksInto(e *Env, pkgDir string) []string {
+	fsys := e.orphanFiles()
 	binDir := filepath.Join(e.NpmPrefix, "bin")
-	entries, err := os.ReadDir(binDir)
+	entries, err := fsys.ReadDir(binDir)
 	if err != nil {
 		return nil
 	}
@@ -188,7 +199,7 @@ func npmBinLinksInto(e *Env, pkgDir string) []string {
 			continue
 		}
 		link := filepath.Join(binDir, ent.Name())
-		target, err := os.Readlink(link)
+		target, err := fsys.Readlink(link)
 		if err != nil {
 			continue
 		}
@@ -210,12 +221,12 @@ func npmBinLinksInto(e *Env, pkgDir string) []string {
 // see it — a scope with no children yields no entries — so nothing would ever report it and
 // nothing would ever remove it. It is named in the plan rather than swept afterwards,
 // because the act unlinks what the plan says and nothing else.
-func emptiedScopeDir(pkgDir string) string {
+func emptiedScopeDir(fsys orphanFS, pkgDir string) string {
 	scope := filepath.Dir(pkgDir)
 	if !strings.HasPrefix(filepath.Base(scope), "@") {
 		return ""
 	}
-	entries, err := os.ReadDir(scope)
+	entries, err := fsys.ReadDir(scope)
 	if err != nil {
 		return ""
 	}
@@ -233,8 +244,11 @@ func emptiedScopeDir(pkgDir string) string {
 // SYMLINKS ARE NOT FOLLOWED, in the walk or at the root. A global-bin symlink into a package
 // would otherwise count that package's bytes a second time, and a link out of the home would
 // count a file this act is not going to remove.
-func pathBytes(path string) int64 {
-	fi, err := os.Lstat(path)
+func pathBytes(path string) int64 { return pathBytesIn(hostOrphanFS{}, path) }
+
+// pathBytesIn is pathBytes measured through fsys, which is how the plan measures.
+func pathBytesIn(fsys orphanFS, path string) int64 {
+	fi, err := fsys.Lstat(path)
 	if err != nil {
 		return 0
 	}
@@ -245,7 +259,7 @@ func pathBytes(path string) int64 {
 		return 0
 	}
 	var total int64
-	_ = filepath.WalkDir(path, func(_ string, d fs.DirEntry, err error) error {
+	_ = fsys.WalkDir(path, func(_ string, d fs.DirEntry, err error) error {
 		if err != nil {
 			// EVERY walk error is swallowed, permission and otherwise: an unreadable
 			// subtree contributes nothing and does not abort the walk. See
@@ -279,4 +293,37 @@ func countWord(n int, word string) string {
 		return "1 " + word
 	}
 	return itoa(int64(n)) + " " + word + "s"
+}
+
+// orphanFS is the filesystem the orphan finders read and the removal act unlinks through, in
+// the absolute paths an Orphan carries. Two implementations: hostOrphanFS, the plain
+// filesystem, for every caller that runs as the agent (the container boot, `yolo programs`), and
+// confinedOrphanFS (catalog.go), for the macos-user bootstrap, which runs OUTSIDE the sandbox.
+type orphanFS interface {
+	ReadDir(name string) ([]fs.DirEntry, error)
+	Stat(name string) (fs.FileInfo, error)
+	Lstat(name string) (fs.FileInfo, error)
+	Readlink(name string) (string, error)
+	RemoveAll(name string) error
+	WalkDir(name string, fn fs.WalkDirFunc) error
+}
+
+// orphanFiles is this Env's orphan filesystem: the one a boot step installed, or the plain one.
+func (e *Env) orphanFiles() orphanFS {
+	if e.orphanFS != nil {
+		return e.orphanFS
+	}
+	return hostOrphanFS{}
+}
+
+// hostOrphanFS is the plain filesystem, path for path.
+type hostOrphanFS struct{}
+
+func (hostOrphanFS) ReadDir(name string) ([]fs.DirEntry, error) { return os.ReadDir(name) }
+func (hostOrphanFS) Stat(name string) (fs.FileInfo, error)      { return os.Stat(name) }
+func (hostOrphanFS) Lstat(name string) (fs.FileInfo, error)     { return os.Lstat(name) }
+func (hostOrphanFS) Readlink(name string) (string, error)       { return os.Readlink(name) }
+func (hostOrphanFS) RemoveAll(name string) error                { return os.RemoveAll(name) }
+func (hostOrphanFS) WalkDir(name string, fn fs.WalkDirFunc) error {
+	return filepath.WalkDir(name, fn)
 }

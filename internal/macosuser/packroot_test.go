@@ -296,3 +296,54 @@ func TestAutopruneReachesTheLaunchBootstrapFromTheUserConfigOnly(t *testing.T) {
 		t.Errorf("autoprune off, and the bootstrap argv still carries the switch: %v", off.BootstrapArgv)
 	}
 }
+
+// AND NOT FROM THE SESSION ENV FILE EITHER, across the launch-to-bootstrap crossing. The file
+// carries env_sources, the workspace's included, and an agent can write a dotenv file the
+// workspace already lists, with no config prompt; launchEnv layers it last. So a user config
+// that leaves autoprune off, and an env_sources value that turns it on, must leave the
+// bootstrap's Env with it OFF: no relay on the argv (above), and none taken from the file
+// (entrypoint's hydrate_session_env takes no YOLO_ name). The same for a pack tree: a launch
+// that staged none must not have the bootstrap load one the file names.
+func TestAnEnvSourcesValueCannotTurnOnAutopruneAtTheBootstrap(t *testing.T) {
+	userConfig(t, `{}`)
+	env := jsonx.NewOrderedMap()
+	env.Set(entrypoint.OrphanAutopruneEnv, "1")
+	env.Set("YOLO_PACK_ROOT", "/Users/Shared/yolo/proj/agent-chosen-packs")
+	env.Set("GITHUB_TOKEN", "ghp-not-a-real-token")
+	plan := BuildRunPlan("/Users/Shared/yolo/proj", jsonx.NewOrderedMap(), []string{"claude"},
+		[]string{"claude"}, "/opt/yolo-jail/bin/yolo", "", HomeOverlay{}, HostContext{}, env, nil, nil)
+	if argvMentions(plan.BootstrapArgv, entrypoint.OrphanAutopruneEnv) {
+		t.Fatalf("the bootstrap argv carries the autoprune switch with the user config off: %v",
+			plan.BootstrapArgv)
+	}
+	if _, ok := sandboxEnvFileValue(plan.EnvFileContent, entrypoint.OrphanAutopruneEnv); !ok {
+		t.Fatalf("the fixture does not reach the session env file, so nothing below is a result:\n%s",
+			plan.EnvFileContent)
+	}
+
+	vars := bootstrapVars(t, plan.BootstrapArgv)
+	file := filepath.Join(t.TempDir(), "session.env")
+	if err := os.WriteFile(file, []byte(plan.EnvFileContent), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	home := t.TempDir()
+	vars[SandboxEnvFileEnv] = file // the plan's path is /var/yolo-jail; the bytes are the plan's
+	vars["JAIL_HOME"], vars["HOME"] = home, home
+	vars["YOLO_DARWIN_WORKSPACE"] = t.TempDir()
+	vars["MISE_DATA_DIR"] = t.TempDir()
+	delete(vars, entrypoint.DarwinHomeSidecarEnv)
+
+	e := entrypoint.DarwinEnvFrom(vars, home)
+	var term strings.Builder
+	e.Stderr = &term
+	_ = entrypoint.RunDarwinBootstrap(e, entrypoint.DarwinBootstrapOptions{MacosLog: "off"})
+	for _, k := range []string{entrypoint.OrphanAutopruneEnv, "YOLO_PACK_ROOT"} {
+		if got := e.Getenv(k); got != "" {
+			t.Errorf("%s = %q in the bootstrap's Env, taken from the agent's session env file\n%s",
+				k, got, term.String())
+		}
+	}
+	if e.Getenv("GITHUB_TOKEN") != "ghp-not-a-real-token" {
+		t.Errorf("the bootstrap stopped reading ordinary env_sources values from the file\n%s", term.String())
+	}
+}

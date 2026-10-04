@@ -683,11 +683,20 @@ func RunMacosUser(deps Deps, opts Options) int {
 	// on failure. The binary was staged (fresh inode) by the StageCommands above;
 	// no bootstrap FILE to install — the sandbox runs `yolo internal
 	// darwin-bootstrap` with the generator env baked onto the argv.
+	//
+	// The failure line names the boot log, HEDGED: the log is this launch's only when the
+	// bootstrap got as far as opening it. A refusal before that (the workspace-scope check in
+	// `yolo internal darwin-bootstrap`), a sudo or exec failure, or a linked `.yolo` the open
+	// refuses all leave the PREVIOUS launch's log at the path, which may end "boot complete".
+	// So the line says how to tell (the log's first line carries the time it started) and where
+	// the output is otherwise.
 	if deps.Run(plan.BootstrapArgv) != 0 {
 		out.print("[bold red]entrypoint bootstrap failed[/bold red] — the sandbox " +
 			"user's shims/agent configs were not generated, so the agent " +
-			"would not run correctly. Aborting. Its full output, and the reason it " +
-			"refused, are in " + entrypoint.BootLogPath(plan.Workspace) + ".")
+			"would not run correctly. Aborting. If it got as far as opening its log, its full " +
+			"output and the reason it refused are in " + entrypoint.BootLogPath(plan.Workspace) +
+			", whose first line carries the time it started; if that time is older than this " +
+			"launch, it stopped before opening the log, and the lines above are all it printed.")
 		return 1
 	}
 

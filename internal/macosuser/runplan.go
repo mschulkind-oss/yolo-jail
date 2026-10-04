@@ -446,7 +446,9 @@ func BuildRunPlanWithDaemons(workspace string, cfg *jsonx.OrderedMap, agents, ag
 	// `programs.autoprune` — the catalog's removal act at boot (OQ-PD4's third clause, off by
 	// default), relayed exactly as the container launch relays it (internal/cli/run's
 	// assembleRunCmd): read from the USER config alone, so an agent-editable workspace config
-	// cannot turn on a destructive act, and emitted only when on. Here and not in
+	// cannot turn on a destructive act, and emitted only when on. Nor can an env_sources value:
+	// the session env file carries those, and the bootstrap takes no YOLO_ name from it
+	// (entrypoint's hydrate_session_env, program-delivery.md OQ-PD29). Here and not in
 	// buildBootstrapEnv, because the install capture shares that function, and a capture's
 	// throwaway staging home has nothing a removal could be for.
 	if config.ProgramsAutoprune(nil) {

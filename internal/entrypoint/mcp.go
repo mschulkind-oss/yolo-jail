@@ -1,7 +1,9 @@
 package entrypoint
 
 import (
+	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
@@ -278,12 +280,18 @@ type mcpTables struct {
 //
 // ONE NOTICE PER SERVER, jail-wide: skipped everywhere keeps the old line; configured for
 // some agents only names them.
+//
+// "The boot's environment" is scopedMCPView's, not e's own, and on the container the two are
+// the same. On macos-user the bootstrap also hydrated the session env file, which is the
+// LAUNCHED agent's environment and so carries that agent's scoped values too; the view leaves
+// those out, so they reach the agent whose file sets them and no other.
 func loadMCPTables(e *Env) mcpTables {
-	shared, skipped := e.mcpServersWith(e.Lookup)
+	view := scopedMCPView(e)
+	shared, skipped := e.mcpServersWith(view.Lookup)
 	t := mcpTables{shared: shared, perAgent: map[string]*jsonx.OrderedMap{}}
 	agents := agentsWithEnvFiles(e)
 	for _, agent := range agents {
-		own, _ := e.mcpServersWith(agentEnvLookup(e, agent))
+		own, _ := e.mcpServersWith(agentEnvLookup(view, agent))
 		t.perAgent[agent] = own
 	}
 	for _, s := range skipped {
@@ -302,6 +310,73 @@ func loadMCPTables(e *Env) mcpTables {
 			") reaches only the agent that selected its provider")
 	}
 	return t
+}
+
+// scopedMCPView is the environment loadMCPTables asks for the jail-wide table, and under each
+// agent's own file: e itself, unless the macos-user bootstrap hydrated a session env file
+// (e.sessionEnvKeys) holding a key some agent's per-agent env file names. Such a key is dropped
+// from the view, because the file it came from is one agent's launch environment: the
+// credential gate scoped the value to that agent, which is why its per-agent file sets it too
+// (the launch writes every profiled agent's file before the bootstrap runs). Taken into the
+// shared view it put a server gated on it in every agent's config and lost the "configured only
+// for" notice; dropped, the server reaches the agents whose file sets the key, as it does in a
+// container, whose boot environment never holds a scoped value.
+//
+// A key BOTH shared and named by some agent's file is dropped too, which can only withhold a
+// server, never grant one (fail closed), and the notice then names the agents that have it.
+//
+// The view is a separate Env holding only what agentEnvLookup and Lookup read (the home and
+// the variables), so nothing the gate does writes through it.
+func scopedMCPView(e *Env) *Env {
+	if len(e.sessionEnvKeys) == 0 {
+		return e
+	}
+	scoped := agentEnvFileNames(e)
+	var drop []string
+	for k := range e.sessionEnvKeys {
+		if scoped[k] {
+			drop = append(drop, k)
+		}
+	}
+	if len(drop) == 0 {
+		return e
+	}
+	vars := make(map[string]string, len(e.Vars))
+	for k, v := range e.Vars {
+		vars[k] = v
+	}
+	for _, k := range drop {
+		delete(vars, k)
+	}
+	return &Env{Home: e.Home, Vars: vars}
+}
+
+// agentEnvFileNameRe finds each variable a per-agent env file line sets or removes: the
+// writer's def-form and plain exports, the `case … ) export K=… ;; esac` a composed value
+// takes when yolo set its name elsewhere, and `unset K` in either shape
+// (internal/cli/run's agentEnvFileContent). Matching a name inside a quoted value as well can
+// only drop one more key from the shared view, which withholds rather than grants.
+var agentEnvFileNameRe = regexp.MustCompile(`(?:^|[^A-Za-z0-9_])(?:export|unset)\s+([A-Za-z_][A-Za-z0-9_]*)`)
+
+// agentEnvFileNames is the set of variable names any agent's env file under this home sets or
+// removes (agentsWithEnvFiles; scopedMCPView says why). A file it cannot read names nothing.
+func agentEnvFileNames(e *Env) map[string]bool {
+	out := map[string]bool{}
+	for _, agent := range agentsWithEnvFiles(e) {
+		data, err := os.ReadFile(AgentEnvFile(e.Home, agent))
+		if err != nil {
+			continue
+		}
+		for _, line := range splitLines(string(data)) {
+			if strings.HasPrefix(strings.TrimSpace(line), "#") {
+				continue
+			}
+			for _, m := range agentEnvFileNameRe.FindAllStringSubmatch(line, -1) {
+				out[m[1]] = true
+			}
+		}
+	}
+	return out
 }
 
 // contains reports whether list holds s.

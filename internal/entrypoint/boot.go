@@ -179,6 +179,14 @@ func ParseEntryChannel(data []byte) (map[string]string, bool) {
 // this hydration is the first thing the exec'd boot does, so stale channel keys
 // from an older entry cannot survive into this one. Unparseable lines are
 // ignored. Sets os.Setenv so spawned children inherit the values.
+//
+// A DEF-FORM LINE NEVER SETS A LAUNCHER CONTRACT KEY (launcherContractKey). A default sets a
+// key the launch did not, and env_sources values come from dotenv files the workspace lists,
+// which the agent and the repository can write with no config prompt — so
+// `YOLO_PROGRAMS_AUTOPRUNE=1` there turned on the destructive act only the user's own config may
+// turn on. Such a line is skipped here, in e.Vars and in the process environment alike; the
+// session's shell still sources the whole file for itself (activationPrefix), so only the
+// boot's contract is protected. The plain-form channel is the launcher's own and is read whole.
 func hydrateEnvFromUserEnvFile(e *Env) {
 	f := filepath.Join(e.Home, ".config", "yolo-user-env.sh")
 	data, err := os.ReadFile(f)
@@ -193,6 +201,9 @@ func hydrateEnvFromUserEnvFile(e *Env) {
 		if !ok {
 			continue
 		}
+		if def && launcherContractKey(key) {
+			continue // an env_sources default never sets the launcher's contract
+		}
 		if _, present := e.Vars[key]; present && def {
 			continue // a def-form default loses to launch-time env; a plain-form channel value never does
 		}
@@ -204,12 +215,26 @@ func hydrateEnvFromUserEnvFile(e *Env) {
 	}
 }
 
+// launcherContractKey reports whether key is in the namespace of the launcher's contract with
+// the boot: every YOLO_ name. The boot's own environment carries each one the launch set (the
+// podman argv, the bootstrap argv), so one it lacks is one the launch DID NOT set, and a file
+// composed from env_sources must not set it in the launch's place: YOLO_PROGRAMS_AUTOPRUNE turns
+// on a removal act, YOLO_PACK_ROOT names the pack tree the boot loads, YOLO_DARWIN_HOME_OVERLAY
+// a tree the macos-user bootstrap copies over the account home, all outside the sandbox there.
+// The whole prefix rather than a list of today's names, so a contract key added later is
+// covered without anyone remembering this function.
+func launcherContractKey(key string) bool { return strings.HasPrefix(key, "YOLO_") }
+
 // parseExportLine reads one `export K=…` line in any of exportLineRe's four forms, returning
 // the key, the value with the writer's single-quote escape reversed, whether the line is the
 // def form (`export K=${K:-'v'}`, a default the launch-time environment beats), and whether it
-// parsed at all. ONE parse for every reader of this grammar — the user env file, its per-entry
-// channel, and the macos-user session env file — so the three cannot come to disagree about a
-// value's quoting.
+// parsed at all. Shared by three readers of this grammar — the user env file
+// (hydrateEnvFromUserEnvFile), its per-entry channel (ParseEntryChannel), and the macos-user
+// session env file (hydrateEnvFromSessionEnvFile) — so those three cannot come to disagree
+// about a value's quoting. A fourth reader, agentEnvLookup (agentenv.go), still keeps its own
+// copy of the group switch and the unescape, with its own def-form rule (an empty value, or one
+// an earlier `unset` line removed, does not beat the default); folding it in is left to a
+// change that owns that file.
 func parseExportLine(line string) (key, val string, def, ok bool) {
 	loc := exportLineRe.FindStringSubmatchIndex(line)
 	if loc == nil {
@@ -246,16 +271,27 @@ const DarwinSessionEnvFileEnv = "YOLO_DARWIN_ENV_FILE"
 // have. Without it, a server gated on a shared env_sources variable was dropped from every
 // agent config on this backend, although the agent's own environment carried the variable.
 //
-// TWO DIFFERENCES FROM ITS TWIN, both deliberate:
+// THREE DIFFERENCES FROM ITS TWIN, all deliberate:
 //
 //   - A key the bootstrap's own environment already sets WINS. That environment is the
 //     generator contract the launch composed for this process (macosuser.buildBootstrapEnv),
 //     and the file is the agent's; where both name a key, they name the same value, or the
 //     contract is the one the generators are written against.
+//   - NO YOLO_ KEY IS TAKEN FROM THE FILE AT ALL (launcherContractKey). The file is plain-form
+//     throughout, so a launcher line cannot be told from an env_sources one, and env_sources
+//     includes the workspace's dotenv files, which the agent writes. A contract key the argv
+//     lacks is one the launch did not set, and the bootstrap runs OUTSIDE Seatbelt: an
+//     `export YOLO_PROGRAMS_AUTOPRUNE='1'` there made it delete files, and YOLO_PACK_ROOT or
+//     YOLO_DARWIN_HOME_OVERLAY would have it load or copy trees of the agent's choosing.
 //   - NOTHING IS os.Setenv'd. The file carries YOLO_VERSION, the jail marker config.InJail
 //     reads off the process, and the credentials the gate asks about; in e.Vars they answer the
 //     gate, while in the process environment they would make this unconfined process call
 //     itself a jail and hand every credential to each child it spawns.
+//
+// The file is the LAUNCHED agent's environment, so it also carries the values the credential
+// gate scoped to that agent alone. They are hydrated like the rest (the agent's own MCP table
+// needs them) and their names recorded in e.sessionEnvKeys, so loadMCPTables can keep a value
+// some agent's own env file names out of the shared view (scopedMCPView).
 //
 // An unset variable is a launch that composed nothing (or a test), and reads nothing. A file
 // named and unreadable is warned about, because the gate then answers wrongly for this launch.
@@ -273,13 +309,17 @@ func hydrateEnvFromSessionEnvFile(e *Env) {
 	}
 	for _, line := range splitLines(string(data)) {
 		key, val, _, ok := parseExportLine(line)
-		if !ok {
+		if !ok || launcherContractKey(key) {
 			continue
 		}
 		if _, present := e.Vars[key]; present {
 			continue
 		}
 		e.Vars[key] = val
+		if e.sessionEnvKeys == nil {
+			e.sessionEnvKeys = map[string]struct{}{}
+		}
+		e.sessionEnvKeys[key] = struct{}{}
 	}
 }
 

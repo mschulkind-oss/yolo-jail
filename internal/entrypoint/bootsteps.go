@@ -236,8 +236,20 @@ func bootSteps() []bootStep {
 			// pack tree and the workspace, so `yolo programs ls`/`remove` read this jail from
 			// inside the sandbox (entrypoint.JailEnvFromOS), and the launch relays
 			// `programs.autoprune` (macosuser.BuildRunPlanWithDaemons).
+			//
+			// CONFINED ON macos-user, the one per-boot difference in this step: that bootstrap
+			// runs outside Seatbelt, and every directory the catalog reads and autoprune unlinks
+			// is reached through the agent-writable workspace sidecar, so it reads and unlinks
+			// only beneath roots opened on those directories (catalogConfinedOrphans). A
+			// container boot sees only what the agent sees and keeps the plain filesystem.
 			name: "catalog_installed_orphans",
-			run:  func(b *bootRun) { CatalogInstalledOrphans(b.e) },
+			run: func(b *bootRun) {
+				if b.target == bootDarwin {
+					catalogConfinedOrphans(b.e)
+					return
+				}
+				CatalogInstalledOrphans(b.e)
+			},
 		},
 		{
 			// The catalog's other half, beside it for the same reasons and with the same
