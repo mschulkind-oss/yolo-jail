@@ -23,6 +23,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/openauthclient"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
+	"github.com/mschulkind-oss/yolo-jail/internal/perf"
 	"github.com/mschulkind-oss/yolo-jail/internal/render"
 	"github.com/mschulkind-oss/yolo-jail/internal/reporoot"
 	"github.com/mschulkind-oss/yolo-jail/internal/richtext"
@@ -84,11 +85,16 @@ Exec flags (yolo host -- ...):
                                 Nothing else implies it: not -p, not the profile key, not
                                 any YOLO_ALLOW_* variable, and no config key. HOST ONLY:
                                 a jail launch refuses it.
+  --timing                      Time this launch: record its stages' spans in
+                                ~/.local/share/yolo-jail/logs/host-notch-perf.log and
+                                print the table before the command starts, as a jail
+                                launch's --timing does. ` + "`perf_logging: true`" + ` and an
+                                exported YOLO_TIMING record without printing.
   --at host                     Accepted and changes nothing: this verb is the host notch.
                                 ` + "`yolo --at host -- <cmd>`" + ` and ` + "`yolo run --at host -- <cmd>`" + `
                                 are this verb, wherever --at sits. Another notch is
                                 refused, as is a jail-launch flag with no meaning here
-                                (--timing, --dry-run, --network, --accept-config-changes).
+                                (--dry-run, --network, --accept-config-changes).
   --help, -h                    Show this help.
 
 With ` + "`host_apply_on_launch`" + ` enabled (defaulting to on when ` + "`host_wrappers: true`" + `),
@@ -122,6 +128,13 @@ apply flags:
                   blockers, the counts and the outcome. --json is the same flag.
                   Refused with --assert (exit 2): that posture acts, and an acting
                   verb does not grow a second output mode.
+  --timing        Time the apply's stages and print the table on stderr, so a
+                  --format json stdout stays one document. ` + "`yolo --timing host apply`" + `
+                  is the same request.
+
+Run in a jail, apply refuses (exit 1) and writes nothing: it renders into the home of
+whoever runs it, and a jail's home is the jail's own, rendered by its launch. Run it on
+the host.
 
 The report ends in one sentence saying how the run went, with the counts beneath it.
 Packs resolve the way a launch resolves them: a git pack from the pack store, which this
@@ -202,6 +215,14 @@ func hostMain(args []string, out, errw io.Writer, color bool, stdin io.Reader) i
 		fmt.Fprintln(out, hostUsage)
 		return 0
 	}
+	// `yolo --timing host apply` IS `yolo host apply --timing` (perf-logging.md D18): --timing is
+	// the one flag both host verbs take, so typed ahead of `apply` — where the front door leaves
+	// it, as it leaves `yolo -p zai host -- c`'s -p for the exec half — it is the apply's, and is
+	// moved after the verb rather than refused as an exec flag naming no command. The verb switch
+	// below then runs it, so the apply is reached by one branch only.
+	if moved, ok := timingAheadOfApply(args); ok {
+		args = moved
+	}
 	// A LEADING FLAG WITH NO `--` IS AN EXEC FLAG, never a verb: no verb is spelled with a dash,
 	// and `yolo --at host -p zai` reaches here as [-p zai] exactly as `yolo host -p zai` does. So
 	// the exec half's parser judges it, and a missing value, a jail-only flag or a typo gets the
@@ -224,6 +245,19 @@ func hostMain(args []string, out, errw io.Writer, color bool, stdin io.Reader) i
 		fmt.Fprintf(errw, "yolo host: unknown verb %q\n\n%s\n", args[0], hostUsage)
 		return 1
 	}
+}
+
+// timingAheadOfApply reports whether args is one or more --timing followed by the apply verb,
+// and if so the same command with the flag after the verb: `apply <args...> --timing`.
+func timingAheadOfApply(args []string) ([]string, bool) {
+	i := 0
+	for i < len(args) && args[i] == hostTimingFlag {
+		i++
+	}
+	if i == 0 || i >= len(args) || args[i] != "apply" {
+		return nil, false
+	}
+	return append(append([]string{"apply"}, args[i+1:]...), hostTimingFlag), true
 }
 
 // hostExecWithoutCommand is exec flags typed with no `--` and so no command: `yolo host -p zai`,
@@ -254,11 +288,15 @@ type hostExecFlags struct {
 	// help is a --help/-h among the exec flags: parseHostExecFlags stops there, and hostExec
 	// prints the usage and exits 0.
 	help bool
+	// timing is --timing, as typed on this invocation: the launch's spans recorded AND printed
+	// (perf-logging.md D12's explicit flag; hosttiming.go in internal/cli/run, D18).
+	timing bool
 }
 
 // jailOnlyRunFlags are the launch flags `yolo run` takes and `yolo host --` has no meaning for:
-// runFlags less the two the host shares (the profile, and `--at`, a no-op here). Derived, so a
-// run flag added later is named here as a jail-launch flag rather than called unknown.
+// runFlags less the three the host shares (the profile; `--at`, a no-op here; and `--timing`,
+// which times the host launch as it times a jail's: perf-logging.md D18). Derived, so a run flag
+// added later is named here as a jail-launch flag rather than called unknown.
 //
 // `--accept-config-changes` is among them, by the maintainer's ruling (notch-convergence.md
 // OQ-NC10, 2026-09-28): since host-apply-staleness.md's zero-prompt auto-apply the host launch
@@ -268,12 +306,17 @@ type hostExecFlags struct {
 func jailOnlyRunFlags() []string {
 	var out []string
 	for _, f := range runFlags {
-		if f != "--profile" && f != "--at" {
+		if f != "--profile" && f != "--at" && f != hostTimingFlag {
 			out = append(out, f)
 		}
 	}
 	return out
 }
+
+// hostTimingFlag is the one run flag both notches take whole: `--timing` records this launch's
+// spans and prints them (D18). A constant because jailOnlyRunFlags must leave out exactly the
+// spelling the parsers accept.
+const hostTimingFlag = "--timing"
 
 // acceptConfigChangesAtHost is the line the refusal of `--accept-config-changes` adds at the host
 // (OQ-NC10): what the flag would approve there, which is nothing, and where the one question the
@@ -388,6 +431,10 @@ func parseHostExecFlags(args []string, errw io.Writer) (hostExecFlags, bool) {
 		if a == "--help" || a == "-h" {
 			f.help = true
 			return f, false
+		}
+		if a == hostTimingFlag {
+			f.timing = true
+			continue
 		}
 		// A LAUNCH FLAG WITH NO HOST MEANING is named as one. It reaches here from
 		// `yolo --at host --timing -- c` as readily as from `yolo host --timing -- c`, and an
@@ -525,6 +572,11 @@ func hostBareListUndeclared(agent string, entries []string) error {
 // dynamic loopback credential adapter must be closed when the agent exits, and so does a
 // launch that starts a pack service's host half or opens a credential doorway, which stay
 // the agent's parent (launchservice.RunAgent) and close both when it exits.
+//
+// THE ARGV IS JUDGED HERE, and everything after it is a LAUNCH (hostLaunch), which leaves a
+// trace whatever its outcome (hostLaunchTrace): one machine-wide launch line, a block in the host
+// launch log, and, when an opt-in asks, its timing spans. A usage error (exit 2 at the parse)
+// leaves none, as a jail launch's argv refusal leaves no launch line.
 func hostExec(flagArgs, cmd []string, out, errw io.Writer, stdin io.Reader) int {
 	flags, ok := parseHostExecFlags(flagArgs, errw)
 	if flags.help {
@@ -543,6 +595,74 @@ func hostExec(flagArgs, cmd []string, out, errw io.Writer, stdin io.Reader) int 
 		fmt.Fprintf(errw, "yolo host: %v\n", err)
 		return 2
 	}
+	trace := startHostLaunchTrace(cmd[0], flags.timing, errw)
+	rc := hostLaunch(flags, profile, cmd, out, trace.errw, errw, stdin, trace)
+	trace.end(rc)
+	return rc
+}
+
+// hostLaunchTrace is what one `yolo host -- <cmd>` leaves behind on this machine, whatever its
+// outcome, in three places under GLOBAL_STORAGE/logs and never in the directory it ran in:
+//
+//   - launches.log, the machine-wide launch line every jail launch writes (OQ-PR3), with
+//     `runtime=host` (run.HostLaunchRecord);
+//   - host-launch.log, a block holding every line yolo printed to stderr, ANSI-stripped, each
+//     named by the launch's pid, with nothing typed after the program and never the directory
+//     (run.HostLaunchLog; the argv disclosures and the starting line reach it through
+//     printHostLinesLogged) — the host's half of report-tiers.md's "the launcher persists its
+//     half";
+//   - host-notch-perf.log, the launch's spans, when --timing, a typed --verbose, `perf_logging`
+//     or YOLO_TIMING/YOLO_VERBOSE asks (run.HostNotchTiming; perf-logging.md D18).
+//
+// errw is the stream yolo's own lines go to, the log teed beneath it. The stream as the caller
+// handed it is what a resident launch hands the AGENT (hostLaunch's rawErrw), so the agent keeps
+// its terminal and nothing it prints lands in the log.
+type hostLaunchTrace struct {
+	record *run.HostLaunchRecord
+	log    *run.HostLaunchLog
+	timing *run.HostNotchTiming
+	errw   io.Writer
+}
+
+// startHostLaunchTrace starts the trace of a launch of cmd0 from the current directory; typedTiming
+// is --timing as typed.
+func startHostLaunchTrace(cmd0 string, typedTiming bool, errw io.Writer) *hostLaunchTrace {
+	ws, err := os.Getwd()
+	if err != nil {
+		ws = "."
+	}
+	t := &hostLaunchTrace{record: run.StartHostLaunchRecord(ws)}
+	t.log = run.OpenHostLaunchLog(ws, cmd0)
+	t.errw = t.log.Writer(errw)
+	t.timing = run.HostNotchTimingLog(typedTiming, explicitVerbose(), os.Getenv, t.errw)
+	return t
+}
+
+// span starts one of the launch's named spans (a no-op when nothing records).
+func (t *hostLaunchTrace) span(name string) *perf.Span { return t.timing.Log.Span(name) }
+
+// handOver is the last thing the launch does before the command gets the process or the
+// terminal: the hand-over mark, the timing report (the table, or the line naming the file), and
+// the launch line's `outcome=started`. It runs BEFORE the starting line, so that line stays the
+// last one yolo prints and a slow agent startup is visibly the agent's.
+func (t *hostLaunchTrace) handOver() {
+	t.timing.Log.Mark("host.handover")
+	t.timing.Report("yolo host timing (to the hand-over):")
+	t.record.Started()
+}
+
+// end is the trace of a launch that returned rc: `outcome=not-started` unless it had already
+// handed over (a resident agent that exited, or an exec that failed), and the log's trailer.
+func (t *hostLaunchTrace) end(rc int) {
+	t.record.NotStarted(rc)
+	t.log.Done(rc)
+}
+
+// hostLaunch is hostExec past the argv: every stage of one launch, spanned. errw is the teed
+// stream for yolo's own lines, rawErrw the caller's, handed only to an agent yolo stays resident
+// under.
+func hostLaunch(flags hostExecFlags, profile string, cmd []string, out, errw, rawErrw io.Writer,
+	stdin io.Reader, trace *hostLaunchTrace) int {
 	profile, bareNote, err := narrowHostBareList(flags.profile, profile, filepath.Base(cmd[0]))
 	if err != nil {
 		fmt.Fprintf(errw, "yolo host: refusing to launch: %v\n", err)
@@ -552,29 +672,195 @@ func hostExec(flagArgs, cmd []string, out, errw io.Writer, stdin io.Reader) int 
 		fmt.Fprintf(errw, "yolo host: %s\n", bareNote)
 	}
 	flags.profile = profile
-	// THE HOST-RENDER GATE, before anything else this function does (hostapplygate.go, and
-	// docs/reference/host-apply-staleness.md §4.1). It is the host notch's answer to the jail's
-	// launch-time config approval, and it sits FIRST for the reason the credential pre-flight
-	// below gives for its own placement: a launch that is going to be stopped should be stopped
-	// while the only thing it has done is read some files. It is silent unless the user opted
-	// in, and it is a no-op in a jail.
-	// THE PACK REFRESH, above the gate: the gate's observe pass and the composition below
-	// both resolve the selected packs, and a never-fetched git pack must be fetched (and a
-	// branch-following one refreshed hourly) before either reads the store, exactly as a
-	// jail launch does (hostpackrefresh.go). stderr, like the gate: an agent's stdout is
-	// routinely parsed.
+	// THE PACK REFRESH, first: the capability gate, the render gate's observe pass and the
+	// composition below all resolve the selected packs, and a never-fetched git pack must be
+	// fetched (and a branch-following one refreshed hourly) before any of them reads the store,
+	// exactly as a jail launch does (hostpackrefresh.go). stderr, like the gates: an agent's
+	// stdout is routinely parsed.
+	sp := trace.span("host.pack_refresh")
 	refreshHostPacks(errw)
-	if !hostApplyGate(errw, stdin, cmd[0]) {
+	sp.End()
+	// OQ-CAP2's GATE (hostcapabilities.go), before the render gate for the reason that gate gives
+	// for its own provider-section check (hostapplygate.go, "a config the launch refuses is not
+	// rendered first"): a launch this refuses must not auto-apply a render of its config first.
+	sp = trace.span("host.capability_gate")
+	refused := refuseHostUnmetCapabilities(errw, filepath.Base(cmd[0]), flags.profile)
+	sp.End()
+	if refused {
+		return 1
+	}
+	// THE HOST-RENDER GATE (hostapplygate.go, and docs/reference/host-apply-staleness.md §4.1).
+	// It is the host notch's answer to the jail's launch-time config approval, and it sits before
+	// the composition for the reason the credential pre-flight below gives for its own placement:
+	// a launch that is going to be stopped should be stopped while the only thing it has done is
+	// read some files. It is silent unless the user opted in, and it is a no-op in a jail.
+	sp = trace.span("host.apply_gate")
+	gated := hostApplyGate(errw, stdin, cmd[0])
+	sp.End()
+	if !gated {
 		return 1
 	}
 
 	// hostServicesStart: this is the one front door that owns its command's lifetime, so a
 	// profile paired through a pack service runs that service's host half for the command
 	// (docs/design/host-notch-services.md; OQ-NC1 A, OQ-HS3 per launch).
+	sp = trace.span("host.compose")
 	launch := composeHostLaunchWith(cmd[0], flags.profile, flags.grant, func(msg string) {
 		fmt.Fprintf(errw, "Warning: %s\n", msg)
 	}, hostServicesStart)
+	sp.End()
 
+	sp = trace.span("host.preflight")
+	if rc := hostPreflight(launch, errw); rc != 0 {
+		sp.End()
+		return rc
+	}
+	sp.End()
+
+	// WHICH BINARY RUNS (HP-DIR4, host-agent-environment.md, which copy runs): a bare name of a program a
+	// selected pack delivers is the FLOOR's copy, installed first when missing; a path is exec'd
+	// as given; anything else is looked up on the child's PATH — the LAUNCH PATH (the caller's
+	// PATH, then `host_path`'s folders not already on it: HE-DIR1, HE-D3), then the floor's bin/
+	// (OQ-HE10 (c), HE-D1), which is also the PATH the child is handed below. The launch PATH is
+	// resolved once, here, for both.
+	lp := hostLaunchPath()
+	childPath := hostChildPath(lp, hostFloorBinDir())
+	sp = trace.span("host.resolve_target")
+	resolved, rc := resolveHostLaunchTarget(launch.packs, cmd[0], lp, errw)
+	sp.End()
+	if rc != 0 {
+		return rc
+	}
+	target := resolved.Path
+	// argv[0] stays the name the user typed, not the resolved path: agents branch on it
+	// (usage text, `$0`), and handing them an absolute path changes what they print.
+	argv := injectHostLaunchFlags(launch.packs, append([]string{cmd[0]}, cmd[1:]...), errw)
+	// THE PROGRAM'S MODEL MENU (docs/design/model-lists-and-pickers.md §14.7, MM-D24 to MM-D28):
+	// the jail launcher's step, run here against the resolved target with the list this launch
+	// composed, and only where the launch's provider is the configured profile's. After the
+	// binary resolves and the pack's flags are added, so the catalog is the program that runs;
+	// its flag goes right after argv[0], ahead of those flags, and is disclosed in their words.
+	// The menu's lock is held for the program's life: by this process where it stays resident
+	// (the deferred Close), and by the program itself across the exec below.
+	sp = trace.span("host.model_menu")
+	menu := launch.modelMenu(target, launch.childEnviron(childPath), errw)
+	defer menu.Close()
+	asked := argv
+	argv, menuLines := menu.rewrite(argv)
+	sp.End()
+	printHostArgvDisclosure(errw, menuLines, asked, argv)
+	// THE DECLARATIVE OPENAI PRELAUNCH (notch-convergence item 15): what the launched command's
+	// pack declares, from the composition, logging in only where a human can answer the browser
+	// login. It used to switch on the command's name and log in regardless of profile or terminal.
+	sp = trace.span("host.openai_prelaunch")
+	managed, err := prepareOpenAIAuthHost(launch.prelaunch(hostGateCanPrompt()), errw)
+	sp.End()
+	if err != nil {
+		fmt.Fprintf(errw, "yolo host: prepare shared OpenAI authentication: %v\n", err)
+		return 1
+	}
+	// THE MANAGED LAUNCH'S OWN ARGV REWRITE (OQ-CDX1): a managed Codex launch runs with
+	// --no-daemon, so it never attaches to a background server an earlier launch left running
+	// with that launch's refresh address. Before both exec paths below, and disclosed like the
+	// pack flags above: a launch has no quiet mode.
+	if managed != nil {
+		asked := argv
+		var disclosure []string
+		argv, disclosure = managed.Argv(argv)
+		printHostArgvDisclosure(errw, disclosure, asked, argv)
+	}
+	// WHAT THIS NOTCH WITHHOLDS BECAUSE NOTHING HERE SERVES IT (notch convergence item 2),
+	// after the managed launch is prepared, because that launch serves one of them itself:
+	// `yolo host -- codex` runs its own refresh adapter and sets the URL the codex pack's
+	// pointer names, so that one is not missing and is not named. When that launch did not
+	// start (no login, no terminal), the URL is named with that reason, the launch's own.
+	printHostLines(errw, launch.unservedLines(managedHostVars(managed)))
+	environ := launch.childEnviron(childPath)
+	// THE LAUNCH-OWNED SERVICES (docs/design/host-notch-services.md §4.4): started after the
+	// agent resolved on PATH and after the prelaunch, so a missing agent starts nothing and the
+	// OpenAI login exists before the bridge asks for a view; the agent starts only once each
+	// service is listening, and every one stops when the agent exits. Said on stderr, every
+	// time: this is host code yolo runs on the user's machine, and a launch has no quiet mode.
+	//
+	// THE DOORWAYS FIRST (HS-D15, HS-D21; run.HostDoorways.Start): the host service each one
+	// forwards to, fronted for this launch, then the doorway, as the macos-user arm orders them
+	// (HS-D19). The fronts and their session dir close after the agent's parent has stopped the
+	// doorways, when this function returns.
+	if len(launch.services) > 0 || len(launch.doorways.Plans()) > 0 {
+		if managed != nil {
+			environ = managed.Environ(environ)
+		}
+		sp = trace.span("host.services_start")
+		running, stopHostServices, lines, err := launch.doorways.Start(launch.cfg, launch.workspace,
+			launch.agent, errw, startLaunchService)
+		for _, line := range lines {
+			fmt.Fprintf(errw, "yolo host: %s\n", line)
+		}
+		if err != nil {
+			sp.End()
+			fmt.Fprintf(errw, "yolo host: refusing to launch: %v\n", err)
+			return 1
+		}
+		defer stopHostServices()
+		for _, plan := range launch.services {
+			r, err := startLaunchService(plan, launch.serviceInput())
+			if err != nil {
+				for _, started := range running {
+					started.Stop()
+				}
+				sp.End()
+				fmt.Fprintf(errw, "yolo host: refusing to launch: %v\n", err)
+				return 1
+			}
+			running = append(running, r)
+			// The addresses the agent's provider environment points it at, the only routes the
+			// service opens (HS-D24): never read out of environ, whose wire tables (FT-D2) name
+			// every address the plan moved.
+			fmt.Fprintf(errw, "yolo host: started the %q service (pack %q, pid %d) for %s on %s; "+
+				"it answers only this launch's caller token and stops when %s exits. Its log: %s\n",
+				plan.Service, plan.Pack, r.PID(), launch.agent,
+				strings.Join(plan.PointedAt(launch.scope.Agent(launch.agent)), ", "), launch.agent, r.Log)
+		}
+		sp.End()
+		// WHAT STARTS, AND FROM WHERE, the last line before the hand-over: a slow agent startup
+		// is then visibly the agent's, not yolo's.
+		trace.handOver()
+		printHostStartingLine(errw, cmd[0], resolved)
+		// The agent gets the caller's own stream, never the teed one (hostLaunchTrace).
+		return launchservice.RunAgent(target, argv, environ, stdin, out, rawErrw, running,
+			hostServiceSignals, "yolo host: ")
+	}
+	// The same line on the exec path — a managed launch that stays resident included, since it
+	// runs the same target.
+	trace.handOver()
+	printHostStartingLine(errw, cmd[0], resolved)
+	if managed != nil {
+		environ = managed.Environ(environ)
+		if rc, handled := managed.Run(target, argv, environ, stdin, out, rawErrw); handled {
+			return rc
+		}
+	}
+	// Given back BEFORE the exec, because cli.Main's deferred release never runs once this
+	// process has been replaced — and every host wrapper launch comes through here. With the
+	// shared cache tree that closes a lease the exec would drop anyway (close-on-exec); with a
+	// per-process FALLBACK tree it is the only thing that deletes it. Nothing after the exec
+	// reads a Pack.Root: the host-apply sync above rendered copies out of it.
+	packload.ReleaseEmbedded()
+	// The menu's lock crosses the exec, so the program holds it for its own life (MM-D27): the
+	// deferred Close above never runs once this process is replaced.
+	menu.KeepAcrossExec(errw)
+	trace.log.HandedOver("exec")
+	if err := hostSyscallExec(target, argv, environ); err != nil {
+		fmt.Fprintf(errw, "yolo host: exec %s: %v\n", target, err)
+		return 126
+	}
+	return 0 // unreachable: a successful Exec never returns
+}
+
+// hostPreflight is the launch's pre-flights over its composition, in order, each refusing with
+// its own lines: the composition's own refusal, the OQ-SSO8 check, the platform-switch notice,
+// the credential and region pre-flights, then the disclosures they leave. 0 to go on.
+func hostPreflight(launch *hostComposition, errw io.Writer) int {
 	// THE PROVIDER COMPOSITION's own refusal, before anything else: a provider table this
 	// notch cannot compose is one no launch may exec from, and the credential pre-flight
 	// below would be answering a question about a table that was never built. Same exit
@@ -657,129 +943,7 @@ func hostExec(flagArgs, cmd []string, out, errw io.Writer, stdin io.Reader) int 
 	for _, block := range [][]string{launch.regionLines(), launch.credentialScopeLines(), launch.grantLines()} {
 		printHostLines(errw, block)
 	}
-
-	// WHICH BINARY RUNS (HP-DIR4, host-agent-environment.md, which copy runs): a bare name of a program a
-	// selected pack delivers is the FLOOR's copy, installed first when missing; a path is exec'd
-	// as given; anything else is looked up on the child's PATH — the LAUNCH PATH (the caller's
-	// PATH, then `host_path`'s folders not already on it: HE-DIR1, HE-D3), then the floor's bin/
-	// (OQ-HE10 (c), HE-D1), which is also the PATH the child is handed below. The launch PATH is
-	// resolved once, here, for both.
-	lp := hostLaunchPath()
-	childPath := hostChildPath(lp, hostFloorBinDir())
-	resolved, rc := resolveHostLaunchTarget(launch.packs, cmd[0], lp, errw)
-	if rc != 0 {
-		return rc
-	}
-	target := resolved.Path
-	// argv[0] stays the name the user typed, not the resolved path: agents branch on it
-	// (usage text, `$0`), and handing them an absolute path changes what they print.
-	argv := injectHostLaunchFlags(launch.packs, append([]string{cmd[0]}, cmd[1:]...), errw)
-	// THE PROGRAM'S MODEL MENU (docs/design/model-lists-and-pickers.md §14.7, MM-D24 to MM-D28):
-	// the jail launcher's step, run here against the resolved target with the list this launch
-	// composed, and only where the launch's provider is the configured profile's. After the
-	// binary resolves and the pack's flags are added, so the catalog is the program that runs;
-	// its flag goes right after argv[0], ahead of those flags, and is disclosed in their words.
-	// The menu's lock is held for the program's life: by this process where it stays resident
-	// (the deferred Close), and by the program itself across the exec below.
-	menu := launch.modelMenu(target, launch.childEnviron(childPath), errw)
-	defer menu.Close()
-	argv, menuLines := menu.rewrite(argv)
-	printHostLines(errw, menuLines)
-	// THE DECLARATIVE OPENAI PRELAUNCH (notch-convergence item 15): what the launched command's
-	// pack declares, from the composition, logging in only where a human can answer the browser
-	// login. It used to switch on the command's name and log in regardless of profile or terminal.
-	managed, err := prepareOpenAIAuthHost(launch.prelaunch(hostGateCanPrompt()), errw)
-	if err != nil {
-		fmt.Fprintf(errw, "yolo host: prepare shared OpenAI authentication: %v\n", err)
-		return 1
-	}
-	// THE MANAGED LAUNCH'S OWN ARGV REWRITE (OQ-CDX1): a managed Codex launch runs with
-	// --no-daemon, so it never attaches to a background server an earlier launch left running
-	// with that launch's refresh address. Before both exec paths below, and disclosed like the
-	// pack flags above: a launch has no quiet mode.
-	if managed != nil {
-		var disclosure []string
-		argv, disclosure = managed.Argv(argv)
-		printHostLines(errw, disclosure)
-	}
-	// WHAT THIS NOTCH WITHHOLDS BECAUSE NOTHING HERE SERVES IT (notch convergence item 2),
-	// after the managed launch is prepared, because that launch serves one of them itself:
-	// `yolo host -- codex` runs its own refresh adapter and sets the URL the codex pack's
-	// pointer names, so that one is not missing and is not named. When that launch did not
-	// start (no login, no terminal), the URL is named with that reason, the launch's own.
-	printHostLines(errw, launch.unservedLines(managedHostVars(managed)))
-	environ := launch.childEnviron(childPath)
-	// THE LAUNCH-OWNED SERVICES (docs/design/host-notch-services.md §4.4): started after the
-	// agent resolved on PATH and after the prelaunch, so a missing agent starts nothing and the
-	// OpenAI login exists before the bridge asks for a view; the agent starts only once each
-	// service is listening, and every one stops when the agent exits. Said on stderr, every
-	// time: this is host code yolo runs on the user's machine, and a launch has no quiet mode.
-	//
-	// THE DOORWAYS FIRST (HS-D15, HS-D21; run.HostDoorways.Start): the host service each one
-	// forwards to, fronted for this launch, then the doorway, as the macos-user arm orders them
-	// (HS-D19). The fronts and their session dir close after the agent's parent has stopped the
-	// doorways, when this function returns.
-	if len(launch.services) > 0 || len(launch.doorways.Plans()) > 0 {
-		if managed != nil {
-			environ = managed.Environ(environ)
-		}
-		running, stopHostServices, lines, err := launch.doorways.Start(launch.cfg, launch.workspace,
-			launch.agent, errw, startLaunchService)
-		for _, line := range lines {
-			fmt.Fprintf(errw, "yolo host: %s\n", line)
-		}
-		if err != nil {
-			fmt.Fprintf(errw, "yolo host: refusing to launch: %v\n", err)
-			return 1
-		}
-		defer stopHostServices()
-		for _, plan := range launch.services {
-			r, err := startLaunchService(plan, launch.serviceInput())
-			if err != nil {
-				for _, started := range running {
-					started.Stop()
-				}
-				fmt.Fprintf(errw, "yolo host: refusing to launch: %v\n", err)
-				return 1
-			}
-			running = append(running, r)
-			// The addresses the agent's provider environment points it at, the only routes the
-			// service opens (HS-D24): never read out of environ, whose wire tables (FT-D2) name
-			// every address the plan moved.
-			fmt.Fprintf(errw, "yolo host: started the %q service (pack %q, pid %d) for %s on %s; "+
-				"it answers only this launch's caller token and stops when %s exits. Its log: %s\n",
-				plan.Service, plan.Pack, r.PID(), launch.agent,
-				strings.Join(plan.PointedAt(launch.scope.Agent(launch.agent)), ", "), launch.agent, r.Log)
-		}
-		// WHAT STARTS, AND FROM WHERE, the last line before the hand-over: a slow agent startup
-		// is then visibly the agent's, not yolo's.
-		fmt.Fprintln(errw, hostStartingLine(cmd[0], resolved))
-		return launchservice.RunAgent(target, argv, environ, stdin, out, errw, running,
-			hostServiceSignals, "yolo host: ")
-	}
-	// The same line on the exec path — a managed launch that stays resident included, since it
-	// runs the same target.
-	fmt.Fprintln(errw, hostStartingLine(cmd[0], resolved))
-	if managed != nil {
-		environ = managed.Environ(environ)
-		if rc, handled := managed.Run(target, argv, environ, stdin, out, errw); handled {
-			return rc
-		}
-	}
-	// Given back BEFORE the exec, because cli.Main's deferred release never runs once this
-	// process has been replaced — and every host wrapper launch comes through here. With the
-	// shared cache tree that closes a lease the exec would drop anyway (close-on-exec); with a
-	// per-process FALLBACK tree it is the only thing that deletes it. Nothing after the exec
-	// reads a Pack.Root: the host-apply sync above rendered copies out of it.
-	packload.ReleaseEmbedded()
-	// The menu's lock crosses the exec, so the program holds it for its own life (MM-D27): the
-	// deferred Close above never runs once this process is replaced.
-	menu.KeepAcrossExec(errw)
-	if err := hostSyscallExec(target, argv, environ); err != nil {
-		fmt.Fprintf(errw, "yolo host: exec %s: %v\n", target, err)
-		return 126
-	}
-	return 0 // unreachable: a successful Exec never returns
+	return 0
 }
 
 // startLaunchService starts one launch-owned service; a var so a test can observe what started.
@@ -837,13 +1001,23 @@ func (c *hostComposition) wireTables() map[string]string {
 // the first line after "yolo host: ", the rest as they are. The block's wording is packload's,
 // shared with the jail notch, so this prefix is the only part of it that is the host's.
 func printHostLines(errw io.Writer, lines []string) {
+	if len(lines) == 0 {
+		return
+	}
+	_, _ = io.WriteString(errw, hostLinesText(lines))
+}
+
+// hostLinesText is lines as printHostLines prints them: the first after the "yolo host: " prefix,
+// each on its own line.
+func hostLinesText(lines []string) string {
+	var b strings.Builder
 	for i, line := range lines {
 		if i == 0 {
-			fmt.Fprintf(errw, "yolo host: %s\n", line)
-			continue
+			b.WriteString("yolo host: ")
 		}
-		fmt.Fprintln(errw, line)
+		b.WriteString(line + "\n")
 	}
+	return b.String()
 }
 
 // injectHostLaunchFlags is the host notch's argv rewrite: the SAME injector the jail launcher
@@ -857,8 +1031,85 @@ func printHostLines(errw io.Writer, lines []string) {
 // was rewritten, which is every shipped pack today: none declares a guarded launch flag.
 func injectHostLaunchFlags(packs []*packload.Pack, argv []string, errw io.Writer) []string {
 	out, inj := packload.InjectLaunchFlags(packs, render.ProfileFor(render.KindHost).AgentAutonomy, argv)
-	printHostLines(errw, inj.DisclosureLines())
+	printHostArgvDisclosure(errw, inj.DisclosureLines(), argv, out)
 	return out
+}
+
+// hostLogRedacting is the host launch log's tee (run.HostLaunchLog.Writer): a line written to it
+// this way reaches the terminal as p and the log as logCopy.
+type hostLogRedacting interface {
+	WriteRedacted(p, logCopy []byte) (int, error)
+}
+
+// printHostLinesLogged prints lines as printHostLines does, and hands the host launch log logLines
+// in their place: what the user is shown stays whole, and the machine log keeps only what it may
+// (run.HostLaunchLog: nothing typed after the program). A stream with no log beneath it gets lines.
+func printHostLinesLogged(errw io.Writer, lines, logLines []string) {
+	if len(lines) == 0 {
+		return
+	}
+	writeHostLogged(errw, hostLinesText(lines), hostLinesText(logLines))
+}
+
+// writeHostLogged writes text to errw, and logText in its place to the host launch log beneath it
+// when there is one.
+func writeHostLogged(errw io.Writer, text, logText string) {
+	if r, ok := errw.(hostLogRedacting); ok {
+		_, _ = r.WriteRedacted([]byte(text), []byte(logText))
+		return
+	}
+	_, _ = io.WriteString(errw, text)
+}
+
+// printHostArgvDisclosure prints an argv rewrite's disclosure (lines, nil when nothing was
+// rewritten), which quotes asked, the argv as typed, and ran, the argv yolo runs, each whole. The
+// terminal gets it as written; the host launch log gets each argv as hostLoggedArgv names it.
+func printHostArgvDisclosure(errw io.Writer, lines, asked, ran []string) {
+	whole := []string{shquote.Join(ran), shquote.Join(asked)}
+	named := []string{hostLoggedArgv(ran), hostLoggedArgv(asked)}
+	logged := make([]string, len(lines))
+	for i, line := range lines {
+		logged[i] = line
+		// The longer argv first: ran holds every word asked does, so a line quoting ran would
+		// otherwise be matched by asked's prefix of it.
+		for j, w := range whole {
+			if strings.Contains(line, w) {
+				logged[i] = strings.Replace(line, w, named[j], 1)
+				break
+			}
+		}
+	}
+	printHostLinesLogged(errw, lines, logged)
+}
+
+// hostLoggedArgv is an argv as the host launch log names it: the program's base name and how many
+// arguments followed it, never the arguments.
+func hostLoggedArgv(argv []string) string {
+	if len(argv) == 0 {
+		return ""
+	}
+	switch n := len(argv) - 1; n {
+	case 0:
+		return filepath.Base(argv[0])
+	case 1:
+		return filepath.Base(argv[0]) + " <1 argument>"
+	default:
+		return fmt.Sprintf("%s <%d arguments>", filepath.Base(argv[0]), n)
+	}
+}
+
+// printHostStartingLine prints the starting line (hostStartingLine), the last line yolo says
+// before the hand-over. A program typed as a path is resolved against the directory it was typed
+// in, so the line's path names that directory: the host launch log gets the line with the program
+// by its base name and without the path.
+func printHostStartingLine(errw io.Writer, cmd0 string, t hostTarget) {
+	line := hostStartingLine(cmd0, t)
+	logged := line
+	if t.Origin == originGiven {
+		logged = strings.Replace(line, "starting "+cmd0+" (", "starting "+filepath.Base(cmd0)+" (", 1)
+		logged = strings.Replace(logged, ", "+homeTilde(t.Path)+")", ")", 1)
+	}
+	writeHostLogged(errw, line+"\n", logged+"\n")
 }
 
 // hostSyscallExec is the exec `yolo host` replaces itself with; a var so a test can pin

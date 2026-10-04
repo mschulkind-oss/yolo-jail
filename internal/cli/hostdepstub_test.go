@@ -78,6 +78,11 @@ func TestMain(m *testing.M) {
 			"depInstallRun in your test if the install itself is what you are exercising", cmd)
 	}
 	disarmTheHostFloor()
+	// THE TESTS RUN AS ON THE HOST, wherever the package runs. A jail sets YOLO_VERSION, and with
+	// it every host apply refuses (hostapplyinjail.go) — so run inside this repo's own jail the
+	// package's host-notch tests would test the refusal instead of the apply, and stay green on
+	// CI, where it is unset. A test that is about the jail sets it itself (t.Setenv).
+	os.Unsetenv("YOLO_VERSION")
 	// A fixture's git reads no machine configuration (testsupport.HermeticGitEnv), and the
 	// tripwire makes one that does fail here and on CI, not only on a machine that signs.
 	testsupport.ArmGitConfigTripwire()

@@ -148,39 +148,25 @@ func (o *Options) capabilityLaunch(cfg *jsonx.OrderedMap) *config.CapabilityLaun
 // src locates the key in the files that wrote it (config's sources.go); nil locates nothing.
 func (o *Options) refuseUnmetCapabilities(cfg *jsonx.OrderedMap, src *config.Sources) bool {
 	missing, err := config.UnmetCapabilities(cfg, o.capabilityLaunch(cfg))
-	if len(missing) == 0 {
-		return false
-	}
-	named := "'" + strings.Join(missing, "', '") + "'"
+	// The words are config.UnmetCapabilityRefusal's, shared with `yolo host --` (the gate's host
+	// notch), so the two notches cannot come to say different things about one gap; the markup is
+	// this notch's own: a warning in yellow, a refusal's verdict in bold red and its next step dim.
+	lines, refuse := config.UnmetCapabilityRefusal(missing, err,
+		o.Getenv(AllowUnmetCapabilitiesEnv) != "", src.Locations("config.required_capabilities"))
 	out := o.pr(o.Stderr)
-	if err != nil {
-		out.printf("[yellow]Warning: cannot tell whether anything satisfies required capability "+
-			"%s: %s. Continuing: this launch reports that problem itself further on.[/yellow]",
-			named, err.Error())
-		return false
+	for i, line := range lines {
+		switch {
+		case !refuse:
+			out.print("[yellow]" + line + "[/yellow]")
+		case i == 0:
+			out.print("[bold red]" + line + "[/bold red]")
+		case i == len(lines)-1:
+			out.print("[dim]" + line + "[/dim]")
+		default:
+			out.print(line)
+		}
 	}
-	// The hatch is consulted only where it suppresses something — a launch with no gap never
-	// announces it (providerpreflight.go's rule), and when it DOES suppress, the notice says
-	// what: nothing was repaired.
-	if o.Getenv(AllowUnmetCapabilitiesEnv) != "" {
-		out.printf("[yellow]Warning: %s is set — CONTINUING with required capability %s "+
-			"that nothing in this launch satisfies. Nothing was repaired: whatever needed "+
-			"the capability still has to do without it.[/yellow]",
-			AllowUnmetCapabilitiesEnv, named)
-		return false
-	}
-	out.printf("[bold red]Refusing to launch: config.required_capabilities declares %s, "+
-		"and nothing this config or its selected packs declare satisfies it.[/bold red]", named)
-	if where := src.Locations("config.required_capabilities"); len(where) > 0 {
-		out.print("  config.required_capabilities is written at " + strings.Join(where, " and at ") + ".")
-	}
-	out.print("  A capability is satisfied by a declaration: `providers.<name>.capabilities` " +
-		"naming it (the agent has it natively there), an `mcp_servers.<name>` entry with " +
-		"\"provides\": \"<capability>\", or a selected agent whose pack declares it for the " +
-		"source the agent runs on: its built-in login, or the provider its profile selects.")
-	out.printf("[dim]Declare the satisfier, drop the name from required_capabilities, or "+
-		"launch anyway with %s=1.[/dim]", AllowUnmetCapabilitiesEnv)
-	return true
+	return refuse
 }
 
 // resolveRuntime returns the resolved container runtime

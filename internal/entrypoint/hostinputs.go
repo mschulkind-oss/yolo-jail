@@ -142,9 +142,11 @@ func (t hostAgentTables) skippedNotes() []string {
 // prefix, the /run/yolo tree the boot writes (store packages, caller tokens) and the service
 // endpoint directory.
 //
-// A root the RENDERED home lies at or under is dropped (HC-D15): `yolo host apply` run inside a
-// jail renders into that jail's /home/agent, where /home/agent/... is the real home and not a
-// jail path, and a user whose account home happens to be /home/agent is the same case.
+// A root the RENDERED home lies at or under is dropped (HC-D15): a host render whose home is
+// /home/agent renders where /home/agent/... is the real home and not a jail path. That is a user
+// whose account home happens to be /home/agent, and an in-jail verb that composes the host notch's
+// inputs without writing them (`yolo config render`'s host target); `yolo host apply` itself
+// refuses inside a jail since 2026-10-04, rendering into no jail's home.
 func jailOnlyRoots(renderedHome string) []string {
 	jail := NewEnv(nil).renderTarget()
 	candidates := []string{jail.Home, jail.Workspace, packload.CtxRoot, paths.JailPrefixDir,
