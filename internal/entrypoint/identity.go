@@ -1,16 +1,19 @@
 package entrypoint
 
 import (
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/shquote"
 )
 
 // configureGit sets git name, email and global gitignore from the host-forwarded
-// YOLO_GIT_* env vars, and marks the workspace as a safe.directory. No-op if git isn't on
-// PATH. Each subprocess runs with stdout+stderr discarded.
+// YOLO_GIT_* env vars, removes a name or email it forwarded earlier once the host stops
+// setting it (forwardIdentity), and marks the workspace as a safe.directory. No-op if git
+// isn't on PATH. Each subprocess runs with stdout+stderr discarded.
 //
 // EACH FAILURE IS REPORTED, and the symptom is why. `git config --global` writes
 // ~/.gitconfig; the container backends compose that file on the HOST and mount it
@@ -52,19 +55,16 @@ func configureGit(e *Env) {
 			"\"detected dubious ownership\" (exit 128).")
 		return
 	}
-	set := func(key, val string) {
+	set := func(key, val string) bool {
 		if err := runGitConfig(e, git, global, "--global", key, val); err != nil {
 			e.warn("Warning: could not set git " + key + ": " + err.Error() +
 				"; this jail has no " + key + " and git will refuse to commit until one " +
 				"is set (~/.gitconfig is mounted read-only on the container backends)")
+			return false
 		}
+		return true
 	}
-	if name := e.Getenv("YOLO_GIT_NAME"); name != "" {
-		set("user.name", name)
-	}
-	if email := e.Getenv("YOLO_GIT_EMAIL"); email != "" {
-		set("user.email", email)
-	}
+	forwardIdentity(e, git, global, set)
 	gitignore := e.Getenv("YOLO_GLOBAL_GITIGNORE")
 	if gitignore != "" {
 		if fi, err := os.Stat(gitignore); err == nil && fi.Mode().IsRegular() {
@@ -72,6 +72,128 @@ func configureGit(e *Env) {
 		}
 	}
 	trustWorkspace(e, git, global)
+}
+
+// forwardedIdentity is the allowlist as the macos-user launch carries it: each key with the
+// variable the host forwards it in (macosuser.MacosSandboxEnv sets exactly these two).
+var forwardedIdentity = []struct{ env, key string }{
+	{"YOLO_GIT_NAME", "user.name"},
+	{"YOLO_GIT_EMAIL", "user.email"},
+}
+
+// gitIdentityRecord is the home-relative path of the record forwardIdentity keeps: each key it
+// set and the value it set, in git's config format, beside the global config ~/.gitconfig
+// redirects to. On macos-user ~/.config is the layout's link into the workspace sidecar, so the
+// record lives exactly as long as the file whose values it claims.
+const gitIdentityRecord = ".config/git/yolo-forwarded"
+
+// forwardIdentity sets each identity key the host forwards, and removes one the host no longer
+// sets, but only while the global config still holds the value yolo itself last set there.
+//
+// WHY A REMOVAL AT ALL. This is the one backend whose global config PERSISTS. The container
+// backends compose it on the host every run and mount it read-only, so a key the host cleared is
+// absent from the next boot's file (docs/reference/git-identity.md, "Fresh composition is what
+// fixes staleness"). Here the file is the sidecar's and outlives the launch, and a replay that
+// only ever set a key kept a cleared host email in the sandbox for good.
+//
+// WHY NOT REWRITE THE FILE, OR UNSET WHAT THE HOST DOES NOT SET. The file is the user's too: it
+// holds the safe.directory entry and whatever `git config --global` wrote inside the jail.
+// Rewriting it whole loses those, and unsetting every key the host leaves out deletes an
+// identity the user set in the jail on a host that has none.
+//
+// THE RULE IS "CLEAR WHAT YOLO WROTE, KEEP WHAT THE USER WROTE", the deselection rule of
+// docs/reference/providers.md applied to two keys:
+//
+//   - A key the host sets is set, as before, and recorded once the set succeeds.
+//   - A key the host no longer sets, with a recorded value, is unset with `--fixed-value
+//     --unset-all <key> <recorded>`, which removes only the lines still holding that value; git
+//     makes the comparison itself, under its own lock. Exit 5 means no line holds it: the user
+//     changed or removed it, so the key is theirs and stays.
+//   - Either way the key leaves the record. A kept claim would remove a value the user types
+//     by hand later, the same value included, the next time the host sets nothing.
+//   - No record, no claim. A key the host cleared before this record existed stays, and so
+//     does anything in a record git cannot read.
+//
+// THE RECORD IS WRITTEN BY GIT, OUTSIDE SEATBELT, in the sidecar the agent can write. So it is
+// reached through the same checked walk as the global file (homeFileThroughLayout) and handed
+// to git by its physical path. A link planted on the way is refused and said, with its remedy.
+// The identity is still forwarded then; only the clearing waits until the link is gone.
+func forwardIdentity(e *Env, git, global string, set func(key, val string) bool) {
+	layout, _ := darwinHomeLayoutFor(e, nil)
+	record, recordErr := layout.homeFileThroughLayout(gitIdentityRecord)
+	if recordErr != nil {
+		e.warn("Warning: a git name or email the host stops setting will not be removed from " +
+			"this jail: " + recordErr.Error())
+	}
+	for _, id := range forwardedIdentity {
+		if val := e.Getenv(id.env); val != "" {
+			if set(id.key, val) && recordErr == nil {
+				recordIdentity(e, git, global, record, id.key, val)
+			}
+			continue
+		}
+		if recordErr != nil {
+			continue
+		}
+		if last, ok := recordedIdentity(e, git, global, record, id.key); ok {
+			clearIdentity(e, git, global, record, id.key, last)
+		}
+	}
+}
+
+// recordIdentity records that yolo set key to val. A failure is said: without the entry, a
+// later clear on the host leaves the value here.
+func recordIdentity(e *Env, git, global, record, key, val string) {
+	err := os.MkdirAll(filepath.Dir(record), 0o755)
+	if err == nil {
+		err = runGitConfig(e, git, global, "--file", record, "--replace-all", key, val)
+	}
+	if err != nil {
+		e.warn("Warning: could not record that yolo set git " + key + " in " + record + ": " +
+			err.Error() + "; if the host stops setting it, this jail keeps it until you remove " +
+			"it inside the jail:\n  " + unsetIdentityRemedy(key))
+	}
+}
+
+// recordedIdentity is the value the record holds for key, read whole (--null) as git stores
+// it, and whether it holds one.
+func recordedIdentity(e *Env, git, global, record, key string) (string, bool) {
+	out, err := gitConfigOutput(e, git, global, "--file", record, "--null", "--get", key)
+	val := strings.TrimSuffix(out, "\x00")
+	return val, err == nil && val != ""
+}
+
+// clearIdentity removes key from the global config while it still holds last, the value yolo
+// recorded setting, and then drops the key from the record. Each outcome is one boot-log line
+// and nothing on the terminal, as a deselection clear is; only a failure is a warning.
+func clearIdentity(e *Env, git, global, record, key, last string) {
+	err := runGitConfig(e, git, global, "--global", "--fixed-value", "--unset-all", key, last)
+	switch {
+	case err == nil:
+		e.note("git identity: removed " + key + ", which the host no longer sets")
+	case gitExitedWith(err, 5):
+		e.note("git identity: kept " + key + ": the host no longer sets it, but the value here " +
+			"is not the one yolo set, so it is the user's")
+	default:
+		e.warn("Warning: could not remove git " + key + ", which the host no longer sets: " +
+			err.Error() + "; the next launch tries again, and until then this jail keeps the " +
+			"value yolo set. To remove it now, inside the jail:\n  " + unsetIdentityRemedy(key))
+		return // the record keeps its claim, so the next launch tries again
+	}
+	if err := runGitConfig(e, git, global, "--file", record, "--unset-all", key); err != nil &&
+		!gitExitedWith(err, 5) {
+		e.warn("Warning: could not drop git " + key + " from " + record + ": " + err.Error() +
+			"; until it is dropped, a later launch removes that value again even if you set it " +
+			"yourself. Remove the record, and the next launch starts a new one:\n  sudo rm " +
+			shquote.Quote(record))
+	}
+}
+
+// unsetIdentityRemedy is the command that removes key from the jail's global config, every line
+// of it. It is run inside the jail, where ~/.gitconfig is the sandbox's; on the host the same
+// command would remove the host's own identity.
+func unsetIdentityRemedy(key string) string {
+	return "git config --global --unset-all " + key
 }
 
 // gitForConfig is the git configureGit runs: the first on the agent's PATH that lies OUTSIDE
@@ -192,13 +314,32 @@ func safeDirectoryRemedy(ws string) string {
 // whenever <home>/.gitconfig does not exist yet, and on macos-user git would resolve
 // <home>/.gitconfig through the sidecar's links again, after gitGlobalConfigFile checked them.
 func runGitConfig(e *Env, git, global string, args ...string) error {
+	cmd := gitConfigCmd(e, git, global, args...)
+	cmd.Stdout = nil
+	cmd.Stderr = nil
+	return cmd.Run()
+}
+
+// gitConfigOutput is runGitConfig for a read: it returns what `git config <args>` printed on
+// stdout, stderr still discarded.
+func gitConfigOutput(e *Env, git, global string, args ...string) (string, error) {
+	out, err := gitConfigCmd(e, git, global, args...).Output()
+	return string(out), err
+}
+
+// gitConfigCmd is the `git config <args>` both runners start, with runGitConfig's environment.
+func gitConfigCmd(e *Env, git, global string, args ...string) *exec.Cmd {
 	cmd := exec.Command(git, append([]string{"config"}, args...)...)
 	// Appended last, so they win over any inherited value (os/exec keeps the LAST
 	// duplicate of a key).
 	cmd.Env = append(os.Environ(),
 		"HOME="+e.Home,
 		"GIT_CONFIG_GLOBAL="+global)
-	cmd.Stdout = nil
-	cmd.Stderr = nil
-	return cmd.Run()
+	return cmd
+}
+
+// gitExitedWith reports whether err is git exiting with code.
+func gitExitedWith(err error, code int) bool {
+	var exit *exec.ExitError
+	return errors.As(err, &exit) && exit.ExitCode() == code
 }

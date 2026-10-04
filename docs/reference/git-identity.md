@@ -22,13 +22,14 @@ host's git configuration. So identity is a **forward of an enumerated two-key al
 On the **container backends** the host composes a small `gitconfig` fresh every run from those
 two keys and delivers it **read-only** at git's default global path. On **`macos-user`**, which
 has no mount namespace, the same two keys are forwarded as environment variables and replayed
-imperatively.
+imperatively, and a key the host stops setting is removed again while it still holds the value
+yolo forwarded.
 
 | Component | Lives in |
 | :--- | :--- |
 | Reading the host keys, composing the file, mounting it | `internal/cli/run` (`gitIdentityMountArgs`, `composeGitconfig`, `hostGitConfigGet`, `gitConfigValue`, `gitIncludeHeader`) |
 | The Apple Container materialize path | `internal/cli/run` (`acMaterialize`) |
-| The imperative replay, `macos-user` only | `internal/entrypoint` (`configureGit`, reading `YOLO_GIT_*`) |
+| The imperative replay, `macos-user` only | `internal/entrypoint` (`configureGit`, reading `YOLO_GIT_*`; `forwardIdentity`, which also removes a key the host stopped setting) |
 | The home-root alias that makes `~/.gitconfig` resolve | `internal/paths` (`HomeFileRedirects`), written into each podman jail's home skeleton by `internal/cli/run` (`buildHomeSkeleton`) and into the `macos-user` account home by `internal/entrypoint` (`DeriveDarwinHomeLayout`) |
 
 **Reads with:** [`composed-file-permissions.md`](composed-file-permissions.md) (what `:ro`
@@ -93,7 +94,9 @@ global path:
   materialized into the state tree that backs the whole home bind.
 - **`macos-user`** — no mount namespace at all, so the two keys ride as `YOLO_GIT_*` environment
   variables and `configureGit` replays them with `git config --global`. This mirrors how the
-  global gitignore already diverges on that backend.
+  global gitignore already diverges on that backend. The file it writes persists, so the replay
+  also removes a key the host stopped setting:
+  [clearing on `macos-user`](#clearing-on-macos-user-remove-what-yolo-forwarded).
 
 With **no identity and no gitignore**, nothing is emitted at all: a bare, identity-less jail,
 whose launch argv is byte-identical to one where the feature does not apply.
@@ -110,6 +113,9 @@ construction: **there is no persistent file to accrete into.** A cleared host ke
 without that line on the very next boot. `TestGitIdentityMountStaleClearedEmail` pins the
 regression.
 
+On `macos-user` there *is* a persistent file, so the replay cannot get freshness by construction
+and clears by record instead, below.
+
 That is also why this surface is *not* a prism surface. Composition on the host plus a read-only
 delivery gets the same freshness with no codec, no sidecars and no capture — see
 [`config-migration-to-prism.md`](config-migration-to-prism.md) for the mechanism it declined.
@@ -119,6 +125,43 @@ delivery gets the same freshness with no codec, no sidecars and no capture — s
 > `identity` surface, and adding one rebuilds a thing that was deliberately rejected: it would
 > reintroduce a persistent, jail-writable file as the source of truth for the one surface whose
 > whole bug was persistence.
+
+### Clearing on `macos-user`: remove what yolo forwarded
+
+On `macos-user`, `~/.gitconfig` resolves into the workspace's home sidecar, so the file outlives
+every launch, and it holds more than yolo's two keys: the workspace's `safe.directory` entry, and
+whatever `git config --global` wrote inside the jail. Until 2026-10-04 the replay only ever set a
+key, so a name or email removed on the host stayed in the sandbox for good: the accretion described
+above, on the one backend that composition does not reach.
+
+Two obvious fixes are both wrong. Rewriting the file whole deletes the user's own entries.
+Unsetting every key the host does not forward deletes an identity the user set in the jail on a
+host that has none. So the replay follows the rule a deselected provider follows
+([clear what yolo wrote, keep what the user wrote](providers.md#deselection-clear-what-yolo-wrote-keep-what-the-user-wrote)):
+
+| The host, at this launch | The jail's global config | What the replay does |
+| :--- | :--- | :--- |
+| sets the key | anything | sets it, and records the value it set |
+| does not set it, and yolo recorded a value | still holds that value | removes it, drops it from the record, and writes one `boot.log` line |
+| does not set it, and yolo recorded a value | holds another value, or none (the user changed or removed it) | keeps it, drops it from the record, and writes one `boot.log` line |
+| does not set it, and there is no record | anything | nothing: yolo claims no value it did not record |
+
+- **The comparison is git's own.** The removal is `git config --global --fixed-value --unset-all
+  <key> <recorded value>`, which removes only lines that still hold that value; exit 5 means none
+  does, and the key is the user's.
+- **Dropping the record entry is what keeps a later hand-set value safe**, the same value
+  included: once yolo removed its value, it claims nothing.
+- **The record is `~/.config/git/yolo-forwarded`**, beside the file whose values it claims, in
+  git's own config format. It is not a source of truth, which stays the host: it says only which
+  values were yolo's. It is written by git outside Seatbelt like the global file, so it is
+  reached through the same checked walk, and a link planted on the way is refused with its
+  `sudo rm` remedy. The identity is still forwarded then; only the clearing waits. An agent that
+  edits the record changes only what yolo removes from a file the agent can already write.
+- **A key the host cleared before the record existed has no record and stays.** Remove it inside
+  the jail with `git config --global --unset-all user.email` (or `user.name`).
+
+`gitidentityclear_test.go` pins each row against the real bootstrap and real git, and
+`TestConfigureGitWritesOnlyThroughTheLayoutsOwnLinks` the refused link at the record.
 
 ## The writable sibling, and the alias that still lies
 
@@ -172,12 +215,13 @@ Two things close most of that gap:
 | **The allowlist is `user.name` + `user.email`** (plus the in-jail `core.excludesFile`) | It satisfies "keep author identity, pass no credentials, do not confuse agents with UI settings" with nothing else in scope. Everything else useful is a credential, UI, or a dead host path. |
 | **Host-compose + a `:ro` bind at git's default path** — not `GIT_CONFIG_GLOBAL`, not an imperative unset-and-set | Fresh composition kills the staleness bug by construction rather than by a scoped reconciler, and reusing the global-gitignore delivery machinery introduces no new env var and no new mechanism. |
 | **`macos-user` keeps the imperative replay** | Seatbelt has no mount namespace, so there is no `:ro` file to bind; this is the same container-vs-native split every other mount-shaped surface has. |
+| **On `macos-user` a key the host no longer sets is removed only while it still holds the value yolo last forwarded, and a value the user set is kept.** *Implementation decision, taken under the maintainer's 2026-10-04 delegation ("make them and build it … adjust later"); reversible.* | The persistent file holds the user's entries too, so neither rewriting it whole nor unsetting every unforwarded key is safe. A record of what yolo set, compared by git under its own lock, is the deselection rule's [clear what yolo wrote, keep what the user wrote](providers.md#deselection-clear-what-yolo-wrote-keep-what-the-user-wrote), and dropping the claim with the value keeps a value the user sets by hand later. See [clearing on `macos-user`](#clearing-on-macos-user-remove-what-yolo-forwarded). |
 | **The `[include]` goes first, and carries no `GIT_CONFIG_GLOBAL`** | Last-definition-wins means an include placed first keeps yolo's keys authoritative; an env var would be absent for exactly the invocations that need it most. |
 
 ## Current values
 
-Verified at `40915b60`. The prose above explains what each of these is for; this table is the
-only place the values themselves are stated.
+Verified at `40915b60`, and re-checked 2026-10-04 when the record row was added. The prose above
+explains what each of these is for; this table is the only place the values themselves are stated.
 
 | Value | Setting | Defined in |
 | :--- | :--- | :--- |
@@ -188,17 +232,20 @@ only place the values themselves are stated.
 | Host key lookup | `git config --get <key>`; `--global --get core.excludesFile` | `Options.hostGitConfigGet` |
 | `macos-user` variables | `YOLO_GIT_NAME`, `YOLO_GIT_EMAIL` — **and NOT `YOLO_GLOBAL_GITIGNORE`**, which `configureGit` reads and nothing sets (see the note below) | `macosuser.MacosSandboxEnv` sets; `entrypoint.configureGit` reads |
 | Home-root alias | `~/.gitconfig` → `.config/git/config` | `paths.HomeFileRedirects` |
+| `macos-user` record of the forwarded values | `~/.config/git/yolo-forwarded`, in the workspace sidecar | `entrypoint.gitIdentityRecord` |
 
 > [!WARNING]
 > **`YOLO_GLOBAL_GITIGNORE` is read and never set — the global gitignore does NOT
-> replay on `macos-user`** (measured 2026-09-11). `entrypoint.configureGit`
-> (`internal/entrypoint/identity.go:22`) reads it and points `core.excludesFile` at
+> replay on `macos-user`** (measured 2026-09-11, re-checked 2026-10-04). `entrypoint.configureGit`
+> (`internal/entrypoint/identity.go`) reads it and points `core.excludesFile` at
 > it; **nothing in the tree writes it.** `MacosSandboxEnv`
 > (`internal/macosuser/orchestrator.go`) forwards exactly two pairs —
 > `YOLO_GIT_NAME`/`user.name` and `YOLO_GIT_EMAIL`/`user.email` — and the container
 > backends do not use the env route at all: `Options.gitIdentityMountArgs` replaced
 > it with a composed gitconfig plus a `:ro` mount of the gitignore, precisely so a
-> CLEARED host key can be reflected (an add-only setter could never remove one).
+> CLEARED host key can be reflected (an add-only setter could never remove one). The
+> `macos-user` replay of the two identity keys is no longer add-only: it
+> [removes what it forwarded](#clearing-on-macos-user-remove-what-yolo-forwarded).
 >
 > So the variable is a leftover of the replaced mechanism, and the user-visible
 > consequence is real: on `macos-user`, git *identity* replays and the global
