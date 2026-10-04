@@ -54,14 +54,20 @@ package macosuser
 // profile, the ordering the last-match-wins policy depends on, and that BuildCapturePlan uses
 // THIS generator rather than the session one.
 //
-// NOT ASSERTED CONTINUOUSLY: that Seatbelt honors it. The earlier claim here — "no kernel has
-// ever loaded this profile" — is STALE twice over: capture.go records this profile being loaded
-// on hardware 2026-09-11, and the SESSION profile beside it is now asserted on every macOS CI run
+// NOT YET MEASURED: that Seatbelt honors it. The earlier claim here — "no kernel has ever loaded
+// this profile" — is STALE twice over: capture.go records this profile being loaded on hardware
+// 2026-09-11, and the SESSION profile beside it is asserted on the macOS CI runs
 // (integration/macosuserseatbelt_test.go, which loads a generated profile with `sandbox-exec` and
-// checks the kernel refused what it names). This one has no such suite: a capture needs the whole
-// staging pipeline, so it is verified by hand rather than by a case. A Linux jail cannot run
-// sandbox-exec and podman-in-podman cannot exercise this backend at all, so the gap closes on a
-// Mac. Two specific things a human there must check rather than assume:
+// checks the kernel refused what it names). A case for THIS profile exists now and has no green
+// run recorded: integration/macosusercaptureseatbelt_test.go's
+// TestMacosUserCaptureSeatbeltProfileDeniesTheSharedHome builds a capture plan over a root of its
+// own under /Users/Shared, makes the staging tree with the plan's PrepareCommands, and loads
+// plan.Seatbelt as the sandbox account, a bare control first for every case: the shared home
+// unwritable and unreadable, the staging home and out dir writable, the capture root traversable,
+// a sibling under it and a neutral /private/var/tmp path refused. It runs nothing else of a
+// capture. A Linux jail cannot run sandbox-exec and podman-in-podman cannot exercise this backend
+// at all, so the gap closes on a Mac. Two specific things a human there must check rather than
+// assume, the first of which that case does not touch:
 //
 //  1. That an installer's shell tolerates a home whose passwd entry (getpwuid → /Users/_yolojail)
 //     is unreadable while $HOME points elsewhere. Tools that resolve the home through the passwd
@@ -69,7 +75,8 @@ package macosuser
 //  2. That the staging root's own path is reachable — `ancestorLiterals` grants traversal for a
 //     path under /Users/Shared/, and a capture root sited anywhere else under /Users would be
 //     denied by the /Users read deny with nothing to re-allow it. CaptureRootDefault is under
-//     /Users/Shared for exactly this reason.
+//     /Users/Shared for exactly this reason. The case's capture root is under /Users/Shared too,
+//     so a green run answers this for that siting.
 
 // SeatbeltCaptureProfile generates the SBPL profile for one install capture: deny writes
 // everywhere, then re-allow ONLY the capture's own staging root plus the OS scratch dirs.
