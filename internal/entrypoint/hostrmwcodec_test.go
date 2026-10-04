@@ -19,6 +19,7 @@ import (
 	"testing"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/agentcfg/manifest"
+	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/render"
 	"github.com/mschulkind-oss/yolo-jail/internal/tomlx"
 )
@@ -488,8 +489,8 @@ func TestRMWRefusesKeylessCodecs(t *testing.T) {
 				refusal.Reason())
 		}
 	}
-	// The two OBJECT codecs are accepted.
-	for _, c := range []string{"json", "toml"} {
+	// The three OBJECT codecs are accepted.
+	for _, c := range []string{"json", "toml", "yaml"} {
 		s := manifest.Surface{Agent: "acme", Name: "cfg", Codec: c,
 			Path: "~/.acme/cfg", Mode: manifest.ModeRMW}
 		if refusal := rmwCodecRefusal(s); refusal != nil {
@@ -599,4 +600,214 @@ func TestTOMLHasComments(t *testing.T) {
 			t.Errorf("%s: tomlHasComments(%q) = %v, want %v", tc.name, tc.src, got, tc.want)
 		}
 	}
+}
+
+// ── yaml ─────────────────────────────────────────────────────────────────────────────────
+//
+// The `yaml` arm of the codec boundary (yamltrivia.go). Its first user is oh-omp, whose
+// models.yml and config.yml every `yolo host apply` under the default contract refused with
+// "no RMW encoder for codec yaml" (MEASURED 2026-10-04, omp + cerebras). These run the writer
+// itself — renderSurfaceRMWSurface, the call both notches make — over a synthetic surface, so
+// deleting either arm in surfacecodec.go fails them.
+
+// yamlSurface is an rmw yaml surface at ~/.acme/config.yml asserting managed.
+func yamlSurface(managed map[string]any) manifest.Surface {
+	return manifest.Surface{Agent: "acme", Name: "config", Codec: "yaml",
+		Path: "~/.acme/config.yml", Mode: manifest.ModeRMW, Managed: managed}
+}
+
+// renderYAML writes content at ~/.acme/config.yml in a scratch home, renders s over it and
+// returns the env and the file's path.
+func renderYAML(t *testing.T, s manifest.Surface, content string) (*Env, string) {
+	t.Helper()
+	e := &Env{Home: t.TempDir(), Workspace: t.TempDir(), Vars: map[string]string{}}
+	withCtxRoot(t, t.TempDir(), "none")
+	path := filepath.Join(e.Home, ".acme", "config.yml")
+	if content != "" {
+		writeTestFile(t, path, content)
+	}
+	if err := renderSurfaceRMWSurface(e, s, nil, nil); err != nil {
+		t.Fatalf("rmw render of a yaml surface: %v", err)
+	}
+	return e, path
+}
+
+const commentedYAML = `# my settings
+
+# the theme I like
+theme: dark # inline
+zeta: 1
+nested:
+  # keep me
+  keep: plain
+  # about set
+  set: old
+tags: [a, b]
+quoted: 'single'
+when: "2026-10-04"
+`
+
+// THE USER'S KEYS, THEIR ORDER, THEIR TYPES AND THE COMMENTS ABOVE WHAT YOLO LEFT ALONE all
+// survive an rmw render on a yaml surface; yolo's managed keys land; the comment above the one
+// key yolo changed goes, because it explains a value that is no longer there (rule ①).
+func TestRMWYAMLKeepsYourKeysOrderAndComments(t *testing.T) {
+	s := yamlSurface(map[string]any{"nested": map[string]any{"set": "new"}, "added": true})
+	_, path := renderYAML(t, s, commentedYAML)
+	raw := string(mustRead(t, path))
+	got, err := decodeYAMLObject(s, path, []byte(raw))
+	if err != nil {
+		t.Fatalf("the rendered file does not read back: %v\n%s", err, raw)
+	}
+	if want := []string{"theme", "zeta", "nested", "tags", "quoted", "when", "added"}; strings.Join(got.Keys(), ",") != strings.Join(want, ",") {
+		t.Errorf("key order = %v, want your order with yolo's new key last %v\n%s", got.Keys(), want, raw)
+	}
+	if v, _ := got.Get("zeta"); !jsonxIsInt(v) {
+		t.Errorf("your integer was retyped: %#v\n%s", v, raw)
+	}
+	if v, _ := got.Get("when"); v != "2026-10-04" {
+		t.Errorf("your quoted date is no longer the same string: %#v\n%s", v, raw)
+	}
+	nested, _ := got.Get("nested")
+	if set, _ := nested.(*jsonx.OrderedMap).Get("set"); set != "new" {
+		t.Errorf("the managed key did not land: %v\n%s", set, raw)
+	}
+	if added, _ := got.Get("added"); added != true {
+		t.Errorf("the managed key yolo adds did not land: %v\n%s", added, raw)
+	}
+	for _, kept := range []string{"# my settings", "# the theme I like", "# inline", "# keep me",
+		"tags: [a, b]", "quoted: 'single'"} {
+		if !strings.Contains(raw, kept) {
+			t.Errorf("%q did not survive a render that left its value alone:\n%s", kept, raw)
+		}
+	}
+	if strings.Contains(raw, "about set") {
+		t.Errorf("the comment above the key yolo changed survived to explain a value that is gone:\n%s", raw)
+	}
+}
+
+// A SECOND RENDER IS BYTE-IDENTICAL, so re-applying is a no-op rather than a churning diff.
+func TestRMWYAMLSecondRenderIsIdentical(t *testing.T) {
+	s := yamlSurface(map[string]any{"nested": map[string]any{"set": "new"}, "added": true})
+	e, path := renderYAML(t, s, commentedYAML)
+	first := string(mustRead(t, path))
+	if err := renderSurfaceRMWSurface(e, s, nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	if second := string(mustRead(t, path)); second != first {
+		t.Errorf("a second render changed the file:\n--- first ---\n%s\n--- second ---\n%s", first, second)
+	}
+}
+
+// WHAT THE WRITE DROPS IS REPORTED, by key, by the same encoder call the write makes — and a
+// file whose comments all survive reports nothing.
+func TestRMWYAMLReportsTheCommentsItDrops(t *testing.T) {
+	s := yamlSurface(map[string]any{"nested": map[string]any{"set": "new"}})
+	before, err := decodeYAMLObject(s, "x", []byte(commentedYAML))
+	if err != nil {
+		t.Fatal(err)
+	}
+	after, _ := decodeYAMLObject(s, "x", []byte(commentedYAML))
+	nested, _ := after.Get("nested")
+	nested.(*jsonx.OrderedMap).Set("set", "new")
+	after.Delete("theme")
+	_, losses, err := encodeSurfaceObjectReporting(s, after, []byte(commentedYAML), before)
+	if err != nil {
+		t.Fatal(err)
+	}
+	joined := strings.Join(losses, " | ")
+	if !strings.Contains(joined, "EXCEPT above `nested.set`") {
+		t.Errorf("the changed key's dropped comment is not named: %v", losses)
+	}
+	if !strings.Contains(joined, "`theme`") || !strings.Contains(joined, "not in the rendered file") {
+		t.Errorf("the removed key's dropped comments are not named: %v", losses)
+	}
+	untouched, _ := decodeYAMLObject(s, "x", []byte(commentedYAML))
+	if _, losses, _ := encodeSurfaceObjectReporting(s, untouched, []byte(commentedYAML), before); len(losses) != 0 {
+		t.Errorf("an unchanged file reports losses: %v", losses)
+	}
+}
+
+// WHAT A REWRITE COULD NOT REPRODUCE IS REFUSED, AND THE FILE IS LEFT BYTE-FOR-BYTE, with a
+// reason that names the fix. Each of these is something codec.YAML would have mangled: the
+// documents after the first, an alias it expands, a merge it flattens, a key or a date it
+// retypes.
+func TestRMWYAMLRefusesWhatItCannotWriteBack(t *testing.T) {
+	for _, tc := range []struct{ name, content, want string }{
+		{"two documents", "a: 1\n---\nb: 2\n", "2 YAML documents"},
+		{"an alias", "base: &b {x: 1}\nother: *b\n", "anchor or alias"},
+		{"a merge key", "a:\n  <<: {x: 1}\n  y: 2\n", "merge key"},
+		{"a non-string key", "1: one\n", "not a string"},
+		{"an unquoted date", "when: 2026-10-04\n", "quote it"},
+		{"a binary value", "blob: !!binary aGk=\n", "!!binary"},
+		{"a duplicate key", "a: 1\na: 2\n", "twice"},
+		{"not a mapping", "- a\n- b\n", "not a mapping"},
+		{"invalid", "a: [unterminated\n", "not valid YAML"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			e := &Env{Home: t.TempDir(), Workspace: t.TempDir(), Vars: map[string]string{}}
+			withCtxRoot(t, t.TempDir(), "none")
+			path := filepath.Join(e.Home, ".acme", "config.yml")
+			writeTestFile(t, path, tc.content)
+			err := renderSurfaceRMWSurface(e, yamlSurface(map[string]any{"added": true}), nil, nil)
+			refusal, isRefusal := asRMWRefusal(err)
+			if !isRefusal {
+				t.Fatalf("want a refusal, got %v", err)
+			}
+			if !strings.Contains(refusal.Reason(), tc.want) {
+				t.Errorf("the refusal does not say why (%q): %q", tc.want, refusal.Reason())
+			}
+			if got := string(mustRead(t, path)); got != tc.content {
+				t.Errorf("a refused yaml file was rewritten:\nbefore %q\nafter  %q", tc.content, got)
+			}
+		})
+	}
+}
+
+// yamlHasComments is the parser's answer, so a `#` inside a quoted string or a block scalar
+// is not a comment.
+func TestYAMLHasComments(t *testing.T) {
+	for _, tc := range []struct {
+		src  string
+		want bool
+	}{
+		{"# hi\na: 1\n", true},
+		{"a: 1 # hi\n", true},
+		{"url: \"https://x/#frag\"\n", false},
+		{"s: |\n  # not a comment\n", false},
+		{"a: 1\n", false},
+		{"", false},
+	} {
+		if got := yamlHasComments([]byte(tc.src)); got != tc.want {
+			t.Errorf("yamlHasComments(%q) = %v, want %v", tc.src, got, tc.want)
+		}
+	}
+}
+
+// UNDER `own` A COMMENTED YAML FILE IS TOLD, BEFORE THE WRITE, THAT ITS COMMENTS GO: the owned
+// render composes the whole file through the shared codec, which has none. And not told it
+// gains a generated header, which only a TOML surface gets.
+func TestOwnedHostRenderReportsYAMLCommentLoss(t *testing.T) {
+	t.Setenv("YOLO_CTX_ROOT", t.TempDir())
+	home := t.TempDir()
+	writeTestFile(t, filepath.Join(home, ".oh-omp", "agent", "config.yml"), "# mine\ntheme: dark\n")
+	packs := testPacksForAgent(t, "omp")
+	results, err := RenderHostPack(packs[0], home, render.OwnershipOwn, true, nil,
+		hostTestInputs(t, packs, nil, nil, nil))
+	if err != nil {
+		t.Fatal(err)
+	}
+	r := resultFor(t, results, "oh-omp/settings")
+	joined := strings.Join(r.Formatting, " ")
+	if !strings.Contains(joined, "NOT preserved") {
+		t.Fatalf("an owned render of a commented yaml file does not say its comments go: %+v", r)
+	}
+	if strings.Contains(joined, "header") {
+		t.Errorf("a yaml file is told it gains a generated header, which yolo writes on TOML only: %v", r.Formatting)
+	}
+}
+
+// jsonxIsInt reports whether v is an integer in the RMW value model.
+func jsonxIsInt(v any) bool {
+	_, ok := jsonx.AsInt(v)
+	return ok
 }

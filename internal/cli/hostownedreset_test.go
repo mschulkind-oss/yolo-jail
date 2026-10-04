@@ -1,9 +1,10 @@
 package cli
 
-// hostownedreset_test.go pins host-side `yolo config reset` across the three
-// `host_management` values (docs/design/config-ownership-and-promotion.md §6.1, §6.3.3).
+// hostownedreset_test.go pins host-side `yolo config reset` and `yolo config capture` across
+// the three `host_management` values (docs/design/config-ownership-and-promotion.md §6.1,
+// §6.3.3, OQ-CO3).
 //
-// # Why reset is the one host-side write `own` unlocks, and why that is not parity
+// # Why `own` unlocks reset, and why that is not parity
 //
 // ComposeStateful's adoption is safe against reset ONLY because reset also truncates the
 // surface to its pure render. Without the truncation the sequence is reset → no baseline →
@@ -13,12 +14,17 @@ package cli
 //
 // Under `none` and `assert` the refusal stays: the guard's premise is a file yolo does not own
 // in this context, and those two contracts are that premise.
+//
+// Capture joined reset under `own` on 2026-10-04 (OQ-CO3, ruled yes-under-own): its premise is
+// a credential copied into the WORKSPACE tree, and under `own` it writes the host's own 0600
+// store instead, with the bytes the next apply records there anyway.
 
 import (
 	"bytes"
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -72,9 +78,11 @@ func TestHostSideResetWorksUnderOwn(t *testing.T) {
 	if rc := configReset(hostTargetForTest(), []string{"claude/settings"}, &out, &errw, false); rc != 0 {
 		t.Fatalf("reset under `own`: rc=%d\n%s%s", rc, out.String(), errw.String())
 	}
-	if _, err := os.Stat(filepath.Join(store, "claude-settings.overlay.json")); !os.IsNotExist(err) {
-		t.Errorf("the capture overlay survived reset in the host capture store (err=%v) — "+
-			"the next apply would re-apply the very edit the user just discarded", err)
+	// The overlay holds NOTHING after reset: absent, or the empty one the re-render writes
+	// (persistStatefulSurface, the owned write's own sidecar) — never the discarded edit.
+	if n := capturedKeysAt(t, filepath.Join(store, "claude-settings.overlay.json")); n != 0 {
+		t.Errorf("the capture overlay survived reset in the host capture store (%d key(s)) — "+
+			"the next apply would re-apply the very edit the user just discarded", n)
 	}
 	// THE BASELINE IS RE-SEEDED, NOT DELETED (OQ-CO7 D1, reseedResetBaseline). `last_render`
 	// means "the exact bytes yolo wrote last", and reset has just written them; deleting it
@@ -169,23 +177,112 @@ func TestHostSideResetForceStillWorksUnderAssert(t *testing.T) {
 	}
 }
 
-// AND CAPTURE IS STILL REFUSED UNDER `own`, deliberately. Its premise is the G2 PRIVACY defect
-// rather than reset's data-loss one, and while `own` does relocate the destination out of the
-// workspace, `yolo config capture` host-side buys only visibility — it folds early what the
-// next apply folds anyway. Nothing depends on it the way adoption depends on reset, so leaving
-// it refused keeps the new store with exactly two writers: the render, and the reset that
-// discards.
-//
-// Written down as a test because the asymmetry is the kind that reads like an oversight.
-func TestHostSideCaptureStaysRefusedUnderOwn(t *testing.T) {
-	hostResetFixture(t, "own")
+// UNDER `own`, CAPTURE WORKS (OQ-CO3, ruled yes-under-own 2026-09-10): it folds the edit in
+// your real file into the HOST capture store — 0600, never the workspace tree a jail reads —
+// and leaves the file itself byte for byte. It was refused until 2026-10-04, so `config diff
+// --at host` could not show an edit made since the last apply.
+func TestHostSideCaptureWorksUnderOwn(t *testing.T) {
+	_, store, surfacePath := hostResetFixture(t, "own")
+	writeFile(t, surfacePath, `{"theme":"yolo's","myEdit":"present"}`)
+	before := mustReadFile(t, surfacePath)
 	var out, errw bytes.Buffer
-	if rc := configCapture(hostTargetForTest(), []string{"claude/settings"}, &out, &errw, false); rc != 1 {
-		t.Fatalf("capture under `own`: rc=%d, want 1 (refused)\n%s%s",
-			rc, out.String(), errw.String())
+	if rc := configCapture(hostTargetForTest(), []string{"claude/settings"}, &out, &errw, false); rc != 0 {
+		t.Fatalf("capture under `own`: rc=%d\n%s%s", rc, out.String(), errw.String())
 	}
-	if !strings.Contains(errw.String(), "refusing") {
-		t.Errorf("capture under `own` did not refuse:\n%s", errw.String())
+	overlay := filepath.Join(store, "claude-settings.overlay.json")
+	if got := mustReadFile(t, overlay); !strings.Contains(got, "myEdit") {
+		t.Errorf("the edit in your file was not captured into the host store: %s", got)
+	}
+	if info, err := os.Stat(overlay); err != nil {
+		t.Fatal(err)
+	} else if got := info.Mode().Perm(); got != 0o600 {
+		t.Errorf("the captured overlay is mode %04o, want 0600 — it holds your own config", got)
+	}
+	if after := mustReadFile(t, surfacePath); after != before {
+		t.Errorf("capture changed the surface file:\nbefore %s\nafter  %s", before, after)
+	}
+}
+
+// UNDER `none` AND `assert` CAPTURE IS STILL REFUSED — there is no store to capture into — and
+// --force no longer pretends otherwise: it reached a capture that found no baseline and called
+// every surface "never rendered here". The refusal names the contract that keeps a store.
+func TestHostSideCaptureStillRefusedUnderAssertAndNone(t *testing.T) {
+	for _, mode := range []string{"assert", "none"} {
+		for _, args := range [][]string{{"claude/settings"}, {"claude/settings", "--force"}} {
+			t.Run(mode+" "+strings.Join(args, " "), func(t *testing.T) {
+				_, store, surfacePath := hostResetFixture(t, mode)
+				before := mustReadFile(t, surfacePath)
+				overlayBefore := mustReadFile(t, filepath.Join(store, "claude-settings.overlay.json"))
+				var out, errw bytes.Buffer
+				if rc := configCapture(hostTargetForTest(), args, &out, &errw, false); rc != 1 {
+					t.Fatalf("capture under %q: rc=%d, want 1\n%s%s", mode, rc, out.String(), errw.String())
+				}
+				if !strings.Contains(errw.String(), `"host_management": "own"`) {
+					t.Errorf("the refusal does not name the contract that keeps a store:\n%s", errw.String())
+				}
+				if strings.Contains(errw.String(), "--force") {
+					t.Errorf("the refusal offers --force, which does nothing here:\n%s", errw.String())
+				}
+				if mustReadFile(t, surfacePath) != before ||
+					mustReadFile(t, filepath.Join(store, "claude-settings.overlay.json")) != overlayBefore {
+					t.Errorf("a refused capture wrote something")
+				}
+			})
+		}
+	}
+}
+
+// THE VERB WRITES WHAT THE NEXT APPLY RECORDS: a capture under `own`, then the apply, leaves the
+// overlay exactly as the capture wrote it, and the edit in your file. If the two disagreed the
+// verb would be a second writer of the store with its own answer.
+func TestOwnedCaptureVerbIsIdempotentWithTheApply(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("YOLO_VERSION", "")
+	writeFile(t, filepath.Join(home, ".config", "yolo-jail", "config.jsonc"),
+		`{"packs":["claude"],"host_management":"own"}`)
+	var claude *packload.Pack
+	for _, p := range packload.Embedded() {
+		if p.Name == "claude" {
+			claude = p
+		}
+	}
+	if _, err := entrypoint.RenderHostPack(claude, home, render.OwnershipOwn, false, nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	store := render.Host(home, nil, render.OwnershipOwn).SidecarDir()
+	s, _ := surfaceManifest().Lookup("claude", "settings")
+	surf := expandHome(s.Path)
+	var doc map[string]any
+	if err := json.Unmarshal([]byte(mustReadFile(t, surf)), &doc); err != nil {
+		t.Fatal(err)
+	}
+	doc["myEdit"] = "present"
+	raw, _ := json.Marshal(doc)
+	writeFile(t, surf, string(raw))
+
+	var out, errw bytes.Buffer
+	if rc := configCapture(hostTargetForTest(), []string{"claude/settings"}, &out, &errw, false); rc != 0 {
+		t.Fatalf("capture: rc=%d\n%s%s", rc, out.String(), errw.String())
+	}
+	overlay := filepath.Join(store, "claude-settings.overlay.json")
+	byVerb := mustReadFile(t, overlay)
+	if !strings.Contains(byVerb, "myEdit") {
+		t.Fatalf("fixture: the verb captured nothing: %s", byVerb)
+	}
+	if _, err := entrypoint.RenderHostPack(claude, home, render.OwnershipOwn, false, nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	byApply := mustReadFile(t, overlay)
+	var a, b any
+	_ = json.Unmarshal([]byte(byVerb), &a)
+	_ = json.Unmarshal([]byte(byApply), &b)
+	if !reflect.DeepEqual(a, b) {
+		t.Errorf("the apply after the verb recorded a different overlay:\n verb  %s\n apply %s",
+			byVerb, byApply)
+	}
+	if !strings.Contains(mustReadFile(t, surf), "myEdit") {
+		t.Errorf("the edit the verb captured is gone after the apply")
 	}
 }
 
@@ -356,5 +453,183 @@ func TestOwnedHostDiffReportsExactlyWhatResetDiscards(t *testing.T) {
 	if strings.Contains(out.String(), "theme") {
 		t.Errorf("the key `diff` showed survived the `reset` that was supposed to discard it:\n%s",
 			out.String())
+	}
+}
+
+// capturedKeysAt is how many captured keys the overlay sidecar at path holds: 0 for an absent
+// file or an empty overlay.
+func capturedKeysAt(t *testing.T, path string) int {
+	t.Helper()
+	data, err := os.ReadFile(path)
+	if os.IsNotExist(err) {
+		return 0
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
+	var captured map[string]any
+	if err := json.Unmarshal(data, &captured); err != nil {
+		t.Fatalf("decode the overlay %s: %v\n%s", path, err, data)
+	}
+	return len(captured)
+}
+
+// ownedPiHome is a real home under `own` with pi, the codex profile and one MCP server of the
+// user's, after one `yolo host apply --assert`, and a captured edit in pi's settings since.
+func ownedPiHome(t *testing.T) (home, store string) {
+	t.Helper()
+	home = hostComputedHome(t, ownedPiConfig)
+	writeFile(t, filepath.Join(home, ".pi", "agent", "settings.json"), `{"theme":"dark"}`)
+	var out, errw bytes.Buffer
+	if rc := hostMain([]string{"apply", "--assert"}, &out, &errw, false, strings.NewReader("y\n")); rc != 0 {
+		t.Fatalf("yolo host apply --assert rc=%d\n%s%s", rc, out.String(), errw.String())
+	}
+	settings := readJSONAt(t, home, ".pi/agent/settings.json")
+	if settings["defaultProvider"] != "openai-codex" {
+		t.Fatalf("fixture: the apply did not select the codex profile: %v", settings)
+	}
+	settings["theme"] = "light" // the edit the reset discards
+	raw, _ := json.Marshal(settings)
+	writeFile(t, filepath.Join(home, ".pi", "agent", "settings.json"), string(raw))
+	return home, render.Host(home, nil, render.OwnershipOwn).SidecarDir()
+}
+
+const ownedPiConfig = `{"packs":["pi"],"host_management":"own","profile":{"pi":"codex"},
+	"mcp_servers":{"tavily":{"command":"npx","args":["-y","tavily-mcp"]}}}`
+
+// UNDER `own`, A RESET LANDS WHAT THE NEXT APPLY LANDS: the profile's selection, the user's MCP
+// server, every layer the apply composes — not the declared layers alone. MEASURED before
+// 2026-10-04: `config reset pi` truncated settings.json to two keys and emptied mcp.json while
+// saying "Cleared", and the next dry run then had both to re-render.
+func TestOwnedHostResetKeepsTheComputedLayer(t *testing.T) {
+	home, store := ownedPiHome(t)
+	var out, errw bytes.Buffer
+	if rc := configReset(hostTargetForTest(), []string{"pi"}, &out, &errw, false); rc != 0 {
+		t.Fatalf("reset pi under `own`: rc=%d\n%s%s", rc, out.String(), errw.String())
+	}
+	settings := readJSONAt(t, home, ".pi/agent/settings.json")
+	if settings["defaultProvider"] != "openai-codex" || settings["defaultModel"] == nil {
+		t.Errorf("the reset dropped your profile's selection: %v\n%s", settings, out.String())
+	}
+	if settings["theme"] == "light" {
+		t.Errorf("the captured edit survived the reset: %v", settings)
+	}
+	servers, _ := readJSONAt(t, home, ".pi/agent/mcp.json")["mcpServers"].(map[string]any)
+	if _, ok := servers["tavily"]; !ok {
+		t.Errorf("the reset emptied your MCP servers out of mcp.json: %v", servers)
+	}
+	for _, surface := range []struct{ rel, sidecar string }{
+		{".pi/agent/settings.json", "pi-settings.last_render"},
+		{".pi/agent/mcp.json", "pi-mcp.last_render"},
+	} {
+		file, _ := os.ReadFile(filepath.Join(home, surface.rel))
+		baseline, err := os.ReadFile(filepath.Join(store, surface.sidecar))
+		if err != nil || string(baseline) != string(file) {
+			t.Errorf("%s: the baseline is not the file the reset left (err=%v):\n baseline %q\n file     %q",
+				surface.rel, err, baseline, file)
+		}
+	}
+	if !strings.Contains(out.String(), "re-rendered") || strings.Contains(out.String(), "Cleared") {
+		t.Errorf("the reset line does not say it re-rendered (or still says Cleared):\n%s", out.String())
+	}
+	// The next dry run finds nothing to change: the reset wrote the apply's bytes.
+	out.Reset()
+	errw.Reset()
+	hostMain([]string{"apply"}, &out, &errw, false, strings.NewReader(""))
+	if report := out.String() + errw.String(); !strings.Contains(report, "this home is up to date") {
+		t.Errorf("the dry run after a reset still has something to apply:\n%s", report)
+	}
+}
+
+// WHEN THE APPLY'S COMPOSITION FAILS, the reset still discards and truncates to the declared
+// layers — and says what is missing and how to land it, rather than reading as a full reset.
+func TestOwnedHostResetSaysWhenItCannotComposeTheRest(t *testing.T) {
+	home, _ := ownedPiHome(t)
+	// A config every launch refuses on its provider section: the retired `use_profiles`.
+	writeFile(t, filepath.Join(home, ".config", "yolo-jail", "config.jsonc"),
+		`{"packs":["pi"],"host_management":"own","use_profiles":{"pi":"codex"}}`)
+	var out, errw bytes.Buffer
+	if rc := configReset(hostTargetForTest(), []string{"pi/settings"}, &out, &errw, false); rc != 0 {
+		t.Fatalf("reset: rc=%d\n%s%s", rc, out.String(), errw.String())
+	}
+	report := out.String()
+	if !strings.Contains(report, "declared layers only") || !strings.Contains(report, "yolo host apply --assert") {
+		t.Errorf("the fallback is not named with its next step:\n%s", report)
+	}
+	if settings := readJSONAt(t, home, ".pi/agent/settings.json"); settings["theme"] == "light" {
+		t.Errorf("the captured edit survived a reset that could not compose the rest: %v", settings)
+	}
+}
+
+// AND RESET TAKES THE HOST APPLY'S LOCK: a reset while another process is applying the home is
+// refused with the way forward, before anything is discarded.
+func TestOwnedHostResetRefusesWhileAnApplyHoldsTheLock(t *testing.T) {
+	_, store, surfacePath := hostResetFixture(t, "own")
+	held := tryHostApplyLock(os.Getenv("HOME"))
+	if held == nil {
+		t.Fatal("fixture: could not take the lock")
+	}
+	defer held.Close()
+	var out, errw bytes.Buffer
+	if rc := configReset(hostTargetForTest(), []string{"claude/settings"}, &out, &errw, false); rc != 1 {
+		t.Fatalf("reset under a held lock: rc=%d, want 1\n%s%s", rc, out.String(), errw.String())
+	}
+	if !strings.Contains(errw.String(), "again once it has finished") {
+		t.Errorf("the refusal does not name the next step:\n%s", errw.String())
+	}
+	if capturedKeysAt(t, filepath.Join(store, "claude-settings.overlay.json")) == 0 {
+		t.Errorf("a refused reset discarded the captured edit")
+	}
+	if data, _ := os.ReadFile(surfacePath); !strings.Contains(string(data), "the user's edit") {
+		t.Errorf("a refused reset truncated the file:\n%s", data)
+	}
+}
+
+// THE TRUNCATION COMPOSES THE CONFIGURED PACK'S DECLARATION, not the shipped one of the same
+// name: a fork of claude configured by path declares its own guarded posture, and the reset —
+// here on its declared-layers path, the composition refused — lands the fork's value. It read
+// the shipped manifest until 2026-10-04, so a fork's reset wrote the pack it replaced.
+func TestOwnedHostResetTruncatesToTheConfiguredPacksDeclaration(t *testing.T) {
+	_, _, surfacePath := hostResetFixture(t, "own")
+	var claude *packload.Pack
+	for _, p := range packload.Embedded() {
+		if p.Name == "claude" {
+			claude = p
+		}
+	}
+	fork := filepath.Join(t.TempDir(), "claude")
+	if err := os.CopyFS(fork, os.DirFS(claude.Root)); err != nil {
+		t.Fatal(err)
+	}
+	manifest := filepath.Join(fork, "pack.json")
+	raw := mustReadFile(t, manifest)
+	const shipped = `"defaultMode": "default"`
+	if strings.Count(raw, shipped) != 1 {
+		t.Fatalf("fixture: the shipped guarded defaultMode is not where this test edits it")
+	}
+	if err := os.Chmod(manifest, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, manifest, strings.Replace(raw, shipped, `"defaultMode": "plan"`, 1))
+	// The retired key refuses the composition, so the reset stops at the truncation this pins.
+	writeFile(t, filepath.Join(os.Getenv("HOME"), ".config", "yolo-jail", "config.jsonc"),
+		`{"packs":["`+fork+`"],"host_management":"own","use_profiles":{"claude":"x"}}`)
+
+	var out, errw bytes.Buffer
+	if rc := configReset(hostTargetForTest(), []string{"claude/settings"}, &out, &errw, false); rc != 0 {
+		t.Fatalf("reset: rc=%d\n%s%s", rc, out.String(), errw.String())
+	}
+	var got struct {
+		Permissions struct {
+			DefaultMode string `json:"defaultMode"`
+		} `json:"permissions"`
+	}
+	if err := json.Unmarshal([]byte(mustReadFile(t, surfacePath)), &got); err != nil {
+		t.Fatal(err)
+	}
+	if got.Permissions.DefaultMode != "plan" {
+		t.Errorf("permissions.defaultMode = %q, want the configured fork's %q — the reset composed "+
+			"the shipped pack instead of the one you configured:\n%s", got.Permissions.DefaultMode,
+			"plan", out.String())
 	}
 }

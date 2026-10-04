@@ -241,7 +241,8 @@ because every ancestor of a boundary root contains that root and so is one too.
 **A directory that resolves neither marker is answered about, not refused.** Outside a
 workspace the only home there is to describe is the host's, and standing there is how the user
 says so. It is a *target, not a permission*: the write guard is untouched, so `capture` stays
-refused host-side even under `own`.
+refused host-side under `none` and `assert` — under `own` the guard admits it, since
+2026-10-04, for the reason [the last section](#what-this-does-not-license) gives.
 
 ## The disclosure
 
@@ -501,8 +502,13 @@ running both commands rather than by comparing two lists.
   since licensed exactly that change — and only from outside this document, which is why it is
   fenced in [its own section](#ruled-2026-09-20-not-built-retiring-assert) rather than folded in
   here. This bullet governs until that work lands.
-- **`config capture` stays refused host-side, including under `own`.** Its premise is privacy —
-  a credential copied out of a real file — not ownership.
+- **`config capture` stays refused host-side under `none` and `assert`**, where the host keeps no
+  capture store — and `--force` does not reach it there, since it could only find nothing to
+  capture. Under `own` it works since 2026-10-04: its premise is a credential copied out of a
+  real file into the WORKSPACE tree, and under `own` it writes the host's own `0600` store
+  instead, with what the next `yolo host apply` records there anyway
+  ([`OQ-CO3`](../design/config-ownership-and-promotion.md#13-decision-ledger), ruled
+  yes-under-own 2026-09-10).
 - **No new store, no new sidecar, no new file format, and no migration.** Every path here is
   derived at read time.
 - **No `guest` notch.** `--at guest` is refused by name, with the same sentence `apply` prints.

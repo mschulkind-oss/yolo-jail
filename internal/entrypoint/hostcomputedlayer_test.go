@@ -168,8 +168,22 @@ func TestTheHostRendersEachDerivedSurfaceClass(t *testing.T) {
 			check: func(t *testing.T, home string) {
 				jsonAt(t, home, ".gemini/antigravity-cli/mcp_config.json", "mcpServers", "tavily")
 			}},
-		// yaml has no rmw encoder, so oh-omp/models is refused under `assert` as it always was;
-		// under `own` it renders through `stateful` (OQ-HC2), which is its host path.
+		// oh-omp/models is yaml: under `assert` it renders through rmw's yaml arm
+		// (yamltrivia.go), and under `own` through `stateful` (OQ-HC2). Until 2026-10-04 the
+		// assert case was refused, "no RMW encoder for codec yaml".
+		{name: "oh-omp/models carries the provider table under assert", pack: "omp",
+			surface: "oh-omp/models", rel: ".oh-omp/agent/models.yml", extra: []string{"cerebras"},
+			ownership: render.OwnershipAssert,
+			check: func(t *testing.T, home string) {
+				raw, err := os.ReadFile(filepath.Join(home, ".oh-omp/agent/models.yml"))
+				if err != nil {
+					t.Fatal(err)
+				}
+				if !strings.Contains(string(raw), "cerebras:") ||
+					!strings.Contains(string(raw), "https://api.cerebras.ai/v1") {
+					t.Errorf("oh-omp/models has no cerebras row:\n%s", raw)
+				}
+			}},
 		{name: "oh-omp/models carries the provider table under own", pack: "omp",
 			surface: "oh-omp/models", rel: ".oh-omp/agent/models.yml", extra: []string{"cerebras"},
 			ownership: render.OwnershipOwn,
@@ -321,6 +335,49 @@ func TestAnOwnedHostRenderAdoptsAComputedSurface(t *testing.T) {
 	}
 }
 
+// AN EXISTING YAML CATALOG IS READ, under both contracts, and a provider you added by hand is
+// named before it goes. Until 2026-10-04 `assert` refused the yaml surface outright and `own`
+// refused it over an existing file ("no RMW decoder for codec yaml", hostStatefulRefusal's
+// probe), so neither contract could ever write omp's catalog into a home that had one.
+func TestAHostRenderReadsAnExistingYAMLCatalog(t *testing.T) {
+	for _, ownership := range []render.HostOwnership{render.OwnershipAssert, render.OwnershipOwn} {
+		t.Run(ownership.String(), func(t *testing.T) {
+			t.Setenv("YOLO_CTX_ROOT", t.TempDir())
+			home := t.TempDir()
+			models := filepath.Join(home, ".oh-omp", "agent", "models.yml")
+			writeTestFile(t, models, "# my catalog\nproviders:\n  mine:\n"+
+				"    baseUrl: http://127.0.0.1:9/v1\n    api: openai-completions\n")
+			packs := testPacksForAgent(t, "omp", "cerebras")
+			in := hostTestInputs(t, packs, nil, nil, nil)
+			preview := func() HostRenderResult {
+				results, err := RenderHostPack(packs[0], home, ownership, true,
+					packoverlay.Collect(packs, false, nil), in)
+				if err != nil {
+					t.Fatal(err)
+				}
+				return resultFor(t, results, "oh-omp/models")
+			}
+			r := preview()
+			if strings.HasPrefix(r.Action, "refused") {
+				t.Fatalf("oh-omp/models over an existing file: %q", r.Action)
+			}
+			if !strings.Contains(strings.Join(r.EntryLosses, " "), "providers.mine") || !r.FirstApply {
+				t.Errorf("the hand-added provider is not named as a first-apply loss: %+v", r)
+			}
+			if r := hostRenderWith(t, home, ownership, in, "omp", "oh-omp/models"); r.Action != "rendered" {
+				t.Fatalf("oh-omp/models --assert: %q", r.Action)
+			}
+			raw := string(mustRead(t, models))
+			if !strings.Contains(raw, "cerebras:") {
+				t.Errorf("the catalog was not written:\n%s", raw)
+			}
+			if again := preview(); again.WouldChange {
+				t.Errorf("an apply over the file it just wrote is not in sync: %+v\n%s", again, raw)
+			}
+		})
+	}
+}
+
 // THE profile SELECTION, with the jail's edge-triggered rule (OQ-HC3, OQ-PSW2), under both
 // contracts: written when the chosen profile arrives, your own later pick standing through a
 // re-apply, and on deselection only what yolo wrote cleared.
@@ -371,6 +428,68 @@ func TestHostApplyWritesTheUseProfilesSelectionOnTheEdge(t *testing.T) {
 				t.Errorf("deselection cleared your own pick: %v", doc)
 			}
 		})
+	}
+}
+
+// A COMPUTED LEAF THAT REPLACES A VALUE OF YOURS IS NAMED, with the input of yours it comes
+// from, under both contracts — and once your own later pick stands, it is not. MEASURED before
+// 2026-10-04: the profile's first activation replaced `defaultModel: before-yolo` and the
+// report's Overwrites was [] under assert and under own.
+func TestTheOverwriteReportNamesAComputedLeaf(t *testing.T) {
+	for _, ownership := range []render.HostOwnership{render.OwnershipAssert, render.OwnershipOwn} {
+		t.Run(ownership.String(), func(t *testing.T) {
+			t.Setenv("YOLO_CTX_ROOT", t.TempDir())
+			home := t.TempDir()
+			settings := filepath.Join(home, ".pi", "agent", "settings.json")
+			writeTestFile(t, settings, `{"theme": "dark", "defaultModel": "before-yolo"}`)
+			packs := testPacksForAgent(t, "pi")
+			in := hostTestInputs(t, packs, map[string]string{"pi": "codex"}, nil, nil)
+			preview := func() HostRenderResult {
+				t.Helper()
+				results, err := RenderHostPack(packs[0], home, ownership, true,
+					packoverlay.Collect(packs, false, nil), in)
+				if err != nil {
+					t.Fatal(err)
+				}
+				return resultFor(t, results, "pi/settings")
+			}
+			if got := strings.Join(preview().Overwrites, "; "); !strings.Contains(got,
+				"defaultModel (computed from your profile)") {
+				t.Fatalf("the profile's first activation replaces your defaultModel and the "+
+					"report does not say so, or not from what: %q", got)
+			}
+			hostRenderWith(t, home, ownership, in, "pi", "pi/settings")
+			doc := decodeJSONFile(t, settings)
+			doc["defaultModel"] = "my-pick"
+			raw, _ := json.Marshal(doc)
+			writeTestFile(t, settings, string(raw))
+			if got := strings.Join(preview().Overwrites, "; "); strings.Contains(got, "defaultModel") {
+				t.Errorf("your own later pick stands, and the report says it is replaced: %q", got)
+			}
+		})
+	}
+}
+
+// AND A LEAF THE DERIVE RE-ASSERTS EVERY APPLY: claude/settings' env.ENABLE_LSP_TOOL, from
+// your lsp_servers, over a different value in your file.
+func TestTheOverwriteReportNamesAComputedEnvLeaf(t *testing.T) {
+	t.Setenv("YOLO_CTX_ROOT", t.TempDir())
+	home := t.TempDir()
+	writeTestFile(t, filepath.Join(home, ".claude", "settings.json"),
+		`{"env": {"ENABLE_LSP_TOOL": "0", "MY_VAR": "x"}}`)
+	packs := testPacksForAgent(t, "claude")
+	in := hostTestInputs(t, packs, nil, nil, map[string]any{"gopls": map[string]any{"command": "gopls"}})
+	results, err := RenderHostPack(packs[0], home, render.OwnershipAssert, true,
+		packoverlay.Collect(packs, false, nil), in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := strings.Join(resultFor(t, results, "claude/settings").Overwrites, "; ")
+	if !strings.Contains(got, "env.ENABLE_LSP_TOOL (computed from your lsp_servers)") {
+		t.Errorf("the computed env leaf that replaces your value is not named by its input: %q", got)
+	}
+	if strings.Contains(got, "MY_VAR") {
+		t.Errorf("a key no layer asserts is reported: %q", got)
 	}
 }
 

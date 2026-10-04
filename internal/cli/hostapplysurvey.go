@@ -419,18 +419,34 @@ func configResultTier(r entrypoint.HostRenderResult) reportTier {
 }
 
 // replacedValue is one value of the user's a render replaces: the key, the surface and file it
-// sits in, and the WINNER — the pack whose config-overlay wrote it, or "" for a managed key of
-// the surface's own pack.
+// sits in, and the WINNER — the pack whose config-overlay wrote it, "" for a managed key of the
+// surface's own pack, or computedWinner plus the inputs for a computed leaf (splitOverwriteLabel).
 type replacedValue struct {
 	Key, Winner, Surface, Path string
 }
 
-// splitOverwriteLabel splits one HostRenderResult.Overwrites entry, "<key>" or
-// "<key> (config-overlay from <pack>)", into the key and the overlay's pack.
-func splitOverwriteLabel(label string) (key, overlayPack string) {
+// computedWinner prefixes the winner of a value a COMPUTED leaf replaced: the user-scope inputs
+// it is computed from follow it ("computed:profile", "computed:lsp_servers"), and nothing does
+// for a leaf no input of the user's moves ("computed:"). The colon is what keeps it apart from
+// an overlay's winner, a pack name: a pack reference may not contain one
+// (packdecl.ValidPackName, through ValidBinName).
+const computedWinner = "computed:"
+
+// splitOverwriteLabel splits one HostRenderResult.Overwrites entry into the key and its winner:
+// "<key>" is the owning pack's managed layer (""), "<key> (config-overlay from <pack>)" the
+// pack, and "<key> (computed from your <inputs>)" or "<key> (computed by its pack)" a computed
+// leaf (computedWinner plus the inputs, or alone). The computed spellings are the render's own
+// constants, so the two packages cannot drift apart on them.
+func splitOverwriteLabel(label string) (key, winner string) {
 	const mark = " (config-overlay from "
 	if i := strings.LastIndex(label, mark); i >= 0 && strings.HasSuffix(label, ")") {
 		return label[:i], label[i+len(mark) : len(label)-1]
+	}
+	if k, ok := strings.CutSuffix(label, entrypoint.ComputedByPackLabel); ok {
+		return k, computedWinner
+	}
+	if i := strings.LastIndex(label, entrypoint.ComputedFromLabel); i >= 0 && strings.HasSuffix(label, ")") {
+		return label[:i], computedWinner + label[i+len(entrypoint.ComputedFromLabel):len(label)-1]
 	}
 	return label, ""
 }

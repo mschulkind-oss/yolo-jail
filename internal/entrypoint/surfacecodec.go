@@ -17,7 +17,9 @@ package entrypoint
 //   - THE CODEC DECIDES both ends. Decode with the surface's codec, encode with the same
 //     one. The TOML side reuses internal/tomlx (decode, order-preserving) and
 //     internal/agentcfg/codec (encode) — the same two the jail's compose path uses, so
-//     there is exactly one TOML emitter in the tree.
+//     there is exactly one TOML emitter in the tree. The YAML side walks yaml.v3's node
+//     tree both ways (yamltrivia.go), because the shared YAML codec keeps neither order nor
+//     comments nor any document after the first.
 //   - AN UNPARSEABLE FILE IS REFUSED, NEVER REWRITTEN. RMW means "preserve everything yolo
 //     does not declare"; a read that cannot see the existing keys cannot honor that, so
 //     starting from an empty object is not a degraded render, it is deletion. Refusing
@@ -119,9 +121,9 @@ func rmwCodecRefusal(surface manifest.Surface) *rmwRefusedError {
 // Order preservation is why this does not just call the codec's own Decode: codec.JSON and
 // codec.TOML both yield plain map[string]any, and the RMW writer's contract with a JSON
 // surface is that the user's key order survives (dumpJSONIndent2 over an insertion-ordered
-// map). jsonx.Decode and tomlx.DecodeOrdered are the order-preserving decoders for the two
-// object codecs; the ENCODE side still goes through the shared codec (see
-// encodeSurfaceObject), so there is no second parser or second emitter here.
+// map). jsonx.Decode, tomlx.DecodeOrdered and decodeYAMLObject are the order-preserving
+// decoders for the three object codecs; the TOML ENCODE side still goes through the shared
+// codec (see encodeSurfaceObject), so there is no second TOML parser or emitter here.
 func decodeSurfaceObject(surface manifest.Surface, path string) (*jsonx.OrderedMap, error) {
 	raw, err := os.ReadFile(path)
 	if err != nil {
@@ -170,10 +172,15 @@ func decodeSurfaceBytes(surface manifest.Surface, path string, raw []byte) (*jso
 				"them; fix or move the file and re-run", path, derr)
 		}
 		return m, nil
+	case "yaml":
+		// An order-preserving walk of yaml.v3's node tree, never codec.YAML.Decode: that one
+		// keeps the first document only, loses order and comments, and fails on an unquoted
+		// date. What it cannot write back as written is refused here (yamltrivia.go).
+		return decodeYAMLObject(surface, path, raw)
 	default:
 		// Unreachable: rmwCodecRefusal has already rejected every non-object codec, and
-		// json/toml are the only two. Kept as a refusal rather than a fallthrough to JSON
-		// so a codec added tomorrow fails closed instead of being silently mis-parsed.
+		// json/toml/yaml are the only three. Kept as a refusal rather than a fallthrough to
+		// JSON so a codec added tomorrow fails closed instead of being silently mis-parsed.
 		return nil, refuseRMW(surface, "no RMW decoder for codec %q", surface.Codec)
 	}
 }
@@ -231,9 +238,12 @@ func readRMWSource(surface manifest.Surface, path string) ([]byte, *jsonx.Ordere
 //     come back as a value the caller prints.
 //   - it is deterministic, so a second apply writes byte-identical bytes.
 //
+// YAML patches the original node tree (yamltrivia.go): key order IS preserved, an unchanged
+// value keeps its node and so its comments and layout, and the losses come back the same way.
+//
 // orig and before are the file's bytes and its decoded state BEFORE this render; both are
-// optional (nil for a caller with no prior file, e.g. a first apply) and only the TOML path
-// reads them. JSON ignores them — strict JSON has no comment syntax, so a `json` surface has
+// optional (nil for a caller with no prior file, e.g. a first apply) and only the TOML and
+// YAML paths read them. JSON ignores them — strict JSON has no comment syntax, so a `json` surface has
 // no comments to preserve and a commented file was never decodable in the first place.
 func encodeSurfaceObject(surface manifest.Surface, obj *jsonx.OrderedMap, orig []byte,
 	before *jsonx.OrderedMap) (string, error) {
@@ -258,6 +268,11 @@ func encodeSurfaceObjectReporting(surface manifest.Surface, obj *jsonx.OrderedMa
 		}
 		text, losses := reattachTOMLComments(string(encoded)+"\n", orig, before, obj)
 		return text, losses, nil
+	case "yaml":
+		// The original node tree patched to obj: an unchanged value keeps its node, so its
+		// layout and comments survive, and a comment above a changed key is dropped and
+		// reported — the TOML arm's rule ① (yamltrivia.go).
+		return encodeYAMLObject(surface, obj, orig, before)
 	default:
 		return "", nil, refuseRMW(surface, "no RMW encoder for codec %q", surface.Codec)
 	}

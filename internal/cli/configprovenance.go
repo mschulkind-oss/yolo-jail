@@ -151,10 +151,16 @@ func overlayContributionRows(t configTarget, agent, surface string) ([]overlayCo
 	// PROFILE, so this report cannot disagree with the render it is describing. The profile
 	// table matches the same notch for the same reason: a `profile`-gated overlay is not a
 	// contribution this report may list when the selection that gates it is off.
-	set := packoverlay.Collect(packs, render.ProfileFor(notch).AgentAutonomy,
-		overlayGateProfiles(notch, packs))
+	//
+	// THE SURFACES ARE FOLDED AT THE SAME POSTURE, which they were not until 2026-10-04
+	// (declaration-parity.md DP-B25): packSurfacesForAgent read every pack at the AUTONOMOUS
+	// posture beside an overlay set collected at the notch's, so `config ls --at host` said the
+	// owner's managed layer replaces claude's /permissions/allow — a key only the jail's posture
+	// manages — while `config render --at host` showed the entry landing.
+	autonomy := render.ProfileFor(notch).AgentAutonomy
+	set := packoverlay.Collect(packs, autonomy, overlayGateProfiles(notch, packs))
 	var out []overlayContribution
-	for _, s := range packSurfacesForAgent(packs, agent, surface) {
+	for _, s := range packSurfacesForAgent(packs, autonomy, agent, surface) {
 		overlays := set.For(s.Agent, s.Name)
 		row := overlayContribution{
 			Surface: s.Agent + "/" + s.Name,
@@ -274,13 +280,15 @@ func surfaceProvenance(t configTarget, s manifest.Surface) (winners map[string]s
 }
 
 // packSurfacesForAgent returns the loaded packs' surfaces owned by one agent — or by every
-// agent, when agent is empty — honoring an optional name filter. Deduped by identity, last declaration winning — matching
-// manifest.Merge's rule, so this reports the surface the boot render would actually use.
-func packSurfacesForAgent(packs []*packload.Pack, agent, name string) []manifest.Surface {
+// agent, when agent is empty — honoring an optional name filter, each folded at the given
+// autonomy posture (the notch's: packload.Pack.SurfacesFor). Deduped by identity, last
+// declaration winning — matching manifest.Merge's rule, so this reports the surface the
+// notch's render would actually use.
+func packSurfacesForAgent(packs []*packload.Pack, autonomy bool, agent, name string) []manifest.Surface {
 	byKey := map[manifest.SurfaceKey]manifest.Surface{}
 	var order []manifest.SurfaceKey
 	for _, p := range packs {
-		surfaces, _ := p.Surfaces()
+		surfaces, _ := p.SurfacesFor(autonomy)
 		for _, s := range surfaces {
 			if (agent != "" && s.Agent != agent) || (name != "" && s.Name != name) {
 				continue

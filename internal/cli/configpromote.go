@@ -663,7 +663,10 @@ type promoteFold struct {
 	// packs is the fold in order, kept so the owner question is asked of the same set the
 	// overlays were collected over.
 	packs []*packload.Pack
-	set   *packoverlay.OverlaySet
+	// autonomy is the posture the overlays were collected at, so the owner question is asked
+	// of the same fold.
+	autonomy bool
+	set      *packoverlay.OverlaySet
 }
 
 // loadPromoteFold resolves the pack fold order the way a launch does, plus the names of any
@@ -686,8 +689,8 @@ func loadPromoteFold() (promoteFold, []unresolvedPack) {
 	}
 	fold.packs = packs
 	notch := render.KindJail
-	fold.set = packoverlay.Collect(packs, render.ProfileFor(notch).AgentAutonomy,
-		overlayGateProfiles(notch, packs))
+	fold.autonomy = render.ProfileFor(notch).AgentAutonomy
+	fold.set = packoverlay.Collect(packs, fold.autonomy, overlayGateProfiles(notch, packs))
 	return fold, unresolved
 }
 
@@ -699,7 +702,7 @@ func loadPromoteFold() (promoteFold, []unresolvedPack) {
 // manifest: a third-party pack is a legitimate owner, and the embedded set would report a
 // user's own pack's surface as ownerless.
 func (f promoteFold) ownedByPack(s manifest.Surface) bool {
-	return len(packSurfacesForAgent(f.packs, s.Agent, s.Name)) > 0
+	return len(packSurfacesForAgent(f.packs, f.autonomy, s.Agent, s.Name)) > 0
 }
 
 // outrankedBy names the pack whose config-overlay would beat this key once it is declared

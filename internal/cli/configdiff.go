@@ -30,6 +30,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/entrypoint"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
+	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/render"
 	"github.com/mschulkind-oss/yolo-jail/internal/richtext"
@@ -125,14 +126,21 @@ func parseSurfaceIdentity(cmd, identity string, errw io.Writer) (agent, surface 
 // a silent no-op (the engine's own comment says the two halves are one change). So an owned
 // host whose reset refused would have an adoption path with nothing to discard against.
 //
-// CAPTURE IS NOT EXEMPT, and the asymmetry is deliberate rather than an oversight. Its
-// premise is the G2 PRIVACY defect — a credential copied out of a real file into the
-// workspace sidecar tree, which crosses into a jail and plausibly into git — and while `own`
-// does relocate that destination to the state-dir store (§6.2), `yolo config capture`
-// host-side buys only VISIBILITY: it folds edits early that the next host apply would fold
-// anyway (see configCapture, "for observability, not correctness"). Nothing depends on it the
-// way adoption depends on reset, and leaving it refused keeps the new store with exactly two
-// writers — the render, and the reset that discards. --force still reaches it.
+// # `own` answers it for CAPTURE too — OQ-CO3, ruled yes-under-own 2026-09-10
+//
+// ([OQ-CO3](docs/design/config-ownership-and-promotion.md#13-decision-ledger).)
+//
+// Capture's premise is the G2 PRIVACY defect — a credential copied out of a real file into the
+// WORKSPACE sidecar tree, which a jail reads and git plausibly commits. Under `own` that is not
+// where it writes: the destination is the host capture store, render.Target.SidecarDir at the
+// host notch — a 0700 directory of 0600 files under the state dir in the user's own home — and
+// the bytes are the ones the next `yolo host apply` records there anyway, because the verb runs
+// the capture half of the owned render itself (captureSurfaceAt, the engine call the render
+// makes first). So it adds no writer the render disagrees with; it folds early what the next
+// apply folds, which is the visibility `yolo config diff --at host` was missing. Under `none`
+// and `assert` there is NO store, so a capture has nothing to write into — and --force was no
+// answer there: it ran, found no baseline, and reported every surface "never rendered here".
+// That case is refused before --force is read, naming the contract that keeps a store.
 //
 // # A JAIL-NOTCH RESET IS THE THIRD WRITER, and the premise is false for it too
 //
@@ -147,10 +155,22 @@ func parseSurfaceIdentity(cmd, identity string, errw io.Writer) (agent, surface 
 // What replaces the guard for that one case is an ORDERING condition, not a weaker version
 // of it — see configrunningjail.go, which also states why `--force` reaches it.
 func refuseHostSideWrite(t configTarget, cmd string, force bool, errw io.Writer) bool {
-	if t.local || force {
+	if t.local {
 		return false
 	}
-	if cmd == "reset" && t.hostOwned() {
+	if (cmd == "reset" || cmd == "capture") && t.hostOwned() {
+		return false
+	}
+	if cmd == "capture" && t.notch == render.KindHost {
+		fmt.Fprintf(errw, "yolo config capture: nothing to capture into — under "+
+			"`host_management: %q` yolo keeps no capture store for your real home, so an edit "+
+			"there stays in the file as you made it and there is nothing to fold. Set "+
+			"`\"host_management\": \"own\"` in %s to keep one; for a jail's edits, run "+
+			"`yolo config capture` inside the jail that owns the workspace.\n",
+			t.ownership.String(), prettyHomePath(t.store.Home, paths.UserConfigPath()))
+		return true
+	}
+	if force {
 		return false
 	}
 	if cmd == "reset" && t.notch == render.KindJail {
@@ -513,7 +533,27 @@ func configReset(t configTarget, args []string, out, errw io.Writer, color bool)
 	}
 
 	pr := richtext.Printer{W: out, Color: color}
-	cleared := 0
+	// UNDER `own`, RESET IS A HOST APPLY OF THE SURFACE, so it takes the apply's one-writer lock
+	// (hostapplylock.go) and its composition. The lock because reset is three writes — the
+	// sidecars, the truncation, the re-render — and an apply interleaved between the first two
+	// would find no baseline over the user's file and adopt the very edits being discarded. Not
+	// waited for, as the gate does not wait: a held lock is another process writing this home,
+	// and the reset is simply run again once it is done.
+	var owned *ownedHostReset
+	if t.hostOwned() {
+		lock := tryHostApplyLock(t.store.Home)
+		if lock == nil {
+			fmt.Fprintf(errw, "yolo config reset: not reset — another `yolo host apply` is "+
+				"writing this home right now (or its lock under %s cannot be taken). Run "+
+				"`yolo config reset %s --at host` again once it has finished.\n",
+				prettyHomePath(t.store.Home, filepath.Dir(hostApplyLockPath(t.store.Home))),
+				surfaceIdentity(agent, surface))
+			return 1
+		}
+		defer lock.Close()
+		owned = newOwnedHostReset(t.store.Home)
+	}
+	cleared, rendered := 0, 0
 	for _, s := range surfaces {
 		if t.overlayPath(s.Agent, s.Name) == "" {
 			// A target that keeps no capture store has no sidecars to discard, and a bare
@@ -565,7 +605,7 @@ func configReset(t configTarget, args []string, out, errw io.Writer, color bool)
 		//
 		// Truncating also makes reset VISIBLE immediately rather than only after the
 		// next boot, which is what a user means by "reset".
-		baseline, note, err := truncateSurfaceToPureRender(t, s)
+		baseline, note, err := truncateSurfaceToPureRender(t, s, owned)
 		if err != nil {
 			if !t.refusals.note(err) {
 				fmt.Fprintf(errw, "yolo config reset: %s/%s: %v\n", s.Agent, s.Name, err)
@@ -586,20 +626,26 @@ func configReset(t configTarget, args []string, out, errw io.Writer, color bool)
 			}
 			return 1
 		}
-		cleared++
-		switch {
-		case had > 0 && hadList > 0:
-			pr.Printf("Cleared [cyan]%s/%s[/cyan] — discarded %d captured %s and %d captured list %s.",
-				s.Agent, s.Name, had, plural(had, "key", "keys"), hadList, plural(hadList, "entry", "entries"))
-		case had > 0:
-			pr.Printf("Cleared [cyan]%s/%s[/cyan] — discarded %d captured %s.",
-				s.Agent, s.Name, had, plural(had, "key", "keys"))
-		case hadList > 0:
-			pr.Printf("Cleared [cyan]%s/%s[/cyan] — discarded %d captured list %s.",
-				s.Agent, s.Name, hadList, plural(hadList, "entry", "entries"))
-		default:
-			pr.Printf("Cleared [cyan]%s/%s[/cyan] — no captured edits (baseline re-seeded).", s.Agent, s.Name)
+		// UNDER `own`, THE RE-RENDER: the truncation above composed the surface's DECLARED
+		// layers alone, and the next apply composes more — the config-overlays and config-lists
+		// other packs contribute, the computed layer the derive builds from your providers,
+		// servers and profile, the selection. Left there, the reset wrote a file that was neither
+		// yours nor yolo's render (pi's settings.json down to two keys, its mcp.json emptied,
+		// while the line below said "Cleared"). So the reset now lands what the apply lands,
+		// through the apply's own write for this one surface, with the baseline it has just
+		// re-seeded as the discard point: nothing of the discarded edits is left to capture.
+		reRendered, rerr := owned.rerender(pr, s)
+		if rerr != nil {
+			fmt.Fprintf(errw, "yolo config reset: %s/%s: the captured edits are discarded and the "+
+				"file holds its declared layers, but re-rendering the rest failed: %v. Run "+
+				"`yolo host apply --assert` to finish it.\n", s.Agent, s.Name, rerr)
+			return 1
 		}
+		if reRendered {
+			rendered++
+		}
+		cleared++
+		pr.Printf("%s", resetLine(s, had, hadList, reRendered))
 	}
 	if cleared == 0 {
 		pr.Printf("[dim]Nothing to reset for %s%s.[/dim]", agent, surfaceSuffix(surface))
@@ -607,14 +653,150 @@ func configReset(t configTarget, args []string, out, errw io.Writer, color bool)
 	}
 	// WHICH COMMAND RE-RENDERS depends on the notch this reset ran at, and naming the wrong
 	// one sends a host-side user to relaunch a jail that has nothing to do with the file they
-	// just truncated.
-	if t.hostOwned() {
+	// just truncated. An owned host whose every surface was re-rendered here has nothing left
+	// for that command to do, and says so instead.
+	switch {
+	case t.hostOwned() && rendered == cleared:
+		pr.Printf("[dim]Re-rendered as `yolo host apply --assert` renders them, so the next " +
+			"apply finds nothing to change here.[/dim]")
+	case t.hostOwned():
 		pr.Printf("[dim]The next `yolo host apply --assert` re-renders these surfaces from " +
 			"their layers.[/dim]")
-	} else {
+	default:
 		pr.Printf("[dim]The next jail launch re-renders these surfaces from their layers.[/dim]")
 	}
 	return 0
+}
+
+// resetLine is the one line a reset prints for one surface: what it discarded, and — under
+// `own` — that it re-rendered the surface. A reset that found nothing captured says so in those
+// words: "Cleared … — no captured edits" read as though something had been cleared.
+func resetLine(s manifest.Surface, had, hadList int, reRendered bool) string {
+	id := fmt.Sprintf("[cyan]%s/%s[/cyan]", s.Agent, s.Name)
+	tail := "."
+	if reRendered {
+		tail = ", and re-rendered it from its layers."
+	}
+	switch {
+	case had > 0 && hadList > 0:
+		return fmt.Sprintf("Reset %s — discarded %d captured %s and %d captured list %s%s", id,
+			had, plural(had, "key", "keys"), hadList, plural(hadList, "entry", "entries"), tail)
+	case had > 0:
+		return fmt.Sprintf("Reset %s — discarded %d captured %s%s", id, had,
+			plural(had, "key", "keys"), tail)
+	case hadList > 0:
+		return fmt.Sprintf("Reset %s — discarded %d captured list %s%s", id, hadList,
+			plural(hadList, "entry", "entries"), tail)
+	case reRendered:
+		return fmt.Sprintf("Reset %s — no captured edits to discard; re-rendered it from its "+
+			"layers.", id)
+	}
+	return fmt.Sprintf("Reset %s — no captured edits to discard (baseline re-seeded).", id)
+}
+
+// ownedHostReset is what `yolo config reset` renders from under `host_management: own`: the
+// host apply's composition (composeHostPrelude, then composeHostInputs), resolved once per
+// invocation, so a reset of one surface lands the bytes `yolo host apply --assert` would.
+//
+// nil is the jail notch's, and every method answers for it as a no-op.
+type ownedHostReset struct {
+	home    string
+	prelude hostRenderPrelude
+	inputs  *entrypoint.HostInputs
+	// failure is why the full render cannot run here — a composition host apply refuses too —
+	// and noted is whether that has been said: once per invocation, at the first surface.
+	failure string
+	noted   bool
+}
+
+// newOwnedHostReset composes the host apply's inputs for home. A composition host apply would
+// refuse is not an error here: the reset still discards, truncates to the declared layers and
+// says what is missing (rerender).
+func newOwnedHostReset(home string) *ownedHostReset {
+	r := &ownedHostReset{home: home, prelude: composeHostPrelude()}
+	switch {
+	case len(r.prelude.unresolved) > 0:
+		r.failure = "these configured packs cannot be resolved: " +
+			describeUnresolved(r.prelude.unresolved)
+	case len(r.prelude.collisions) > 0:
+		c := r.prelude.collisions[0]
+		r.failure = fmt.Sprintf("surface %s is claimed by %s (%s)", c.Target,
+			strings.Join(c.Packs, ", "), c.Reason)
+	case len(r.prelude.overlays.Problems) > 0:
+		r.failure = r.prelude.overlays.Problems[0]
+	default:
+		in, err := r.prelude.inputs(home)
+		if err != nil {
+			r.failure = err.Error()
+		} else {
+			r.inputs = in.inputs
+		}
+	}
+	return r
+}
+
+// configured is the configured pack that declares s, and s as that pack composes it at the
+// HOST notch's posture — never the autonomous one surfaceManifest() folds for reporting, which
+// written into a real home is the 2026-08-01 permission-bypass leak. A surface no configured
+// pack declares (a `user` host_files slug) comes back as it was given, with no pack.
+func (r *ownedHostReset) configured(s manifest.Surface) (*packload.Pack, manifest.Surface) {
+	autonomy := render.Host(r.home, nil, hostOwnership()).Profile().AgentAutonomy
+	var owner *packload.Pack
+	found := s
+	for _, p := range r.prelude.packs {
+		surfaces, probs := p.SurfacesFor(autonomy)
+		if len(probs) > 0 {
+			continue
+		}
+		// The last declaration wins, as manifest.Merge's rule has it.
+		for _, ps := range surfaces {
+			if ps.Agent == s.Agent && ps.Name == s.Name {
+				owner, found = p, ps
+			}
+		}
+	}
+	if owner == nil {
+		if hs, ok := hostSurfaceManifest().Lookup(s.Agent, s.Name); ok {
+			found = hs
+		}
+	}
+	return owner, found
+}
+
+// rerender runs the owned write for s alone (entrypoint.RenderHostSurface) and reports whether
+// it landed. When it cannot run — the composition failed, no configured pack declares the
+// surface, or the render refused it — the file keeps the declared layers the truncation wrote,
+// and the line printed says why and what lands the rest.
+func (r *ownedHostReset) rerender(pr richtext.Printer, s manifest.Surface) (bool, error) {
+	if r == nil {
+		return false, nil
+	}
+	p, _ := r.configured(s)
+	if r.failure != "" {
+		if !r.noted {
+			r.noted = true
+			pr.Printf("[yellow]Reset to the declared layers only — %s. Fix that, then run "+
+				"`yolo host apply --assert` to land the rest (overlays, the computed layer and "+
+				"your profile's selection).[/yellow]", richtext.Escape(r.failure))
+		}
+		return false, nil
+	}
+	if p == nil {
+		return false, nil // a surface no pack declares: its declared layers are the whole render
+	}
+	res, ok, err := entrypoint.RenderHostSurface(p, s.Agent, s.Name, r.home, hostOwnership(),
+		r.prelude.overlays, r.inputs)
+	if err != nil || !ok {
+		return false, err
+	}
+	if !strings.HasPrefix(res.Action, "rendered") && res.Action != "unchanged" &&
+		res.Action != "adopted" {
+		pr.Printf("[yellow]%s/%s: reset to its declared layers only — the full render did not "+
+			"run (%s). `yolo host apply` shows the same line; fix what it names and run "+
+			"`yolo host apply --assert`.[/yellow]", s.Agent, s.Name, richtext.Escape(res.Action))
+		return false, nil
+	}
+	return true, nil
 }
 
 // reseedResetBaseline writes the last_render sidecar for the bytes `reset` has just truncated
@@ -790,7 +972,7 @@ func sortedKeys(m *jsonx.OrderedMap) []string {
 //     as a layer (see the `stateful` arm of entrypoint.RenderHostPack). Feeding it back here
 //     would preserve exactly the keys the user asked to discard — reset as a no-op, which is
 //     the failure the truncation exists to prevent.
-func truncateSurfaceToPureRender(t configTarget, s manifest.Surface) ([]byte, string, error) {
+func truncateSurfaceToPureRender(t configTarget, s manifest.Surface, owned *ownedHostReset) ([]byte, string, error) {
 	surf, ok := t.surfaceStateFile(s.Path)
 	if !ok {
 		// NOT RESOLVABLE AT THIS NOTCH (§4.1's last row). Never a fallback to the process
@@ -832,7 +1014,10 @@ func truncateSurfaceToPureRender(t configTarget, s manifest.Surface) ([]byte, st
 		return nil, "", nil
 	}
 	if t.hostOwned() {
-		text, err := truncateHostSurfaceToPureRender(t, s, surf.name)
+		if owned == nil {
+			owned = newOwnedHostReset(t.store.Home)
+		}
+		text, err := truncateHostSurfaceToPureRender(t, owned, s, surf.name)
 		return text, "", err
 	}
 	// THE HOST LAYER IS THE PREVIEW'S, which is [OQ-CR4] inheriting [OQ-CR6]'s answer — the
@@ -918,17 +1103,19 @@ func pureRenderText(s manifest.Surface, encoded []byte) []byte {
 // posture because its callers are reporting commands (see hostSurfaceManifest for the whole
 // argument). Writing that composition into a real home puts the jail's permission bypass into
 // the user's own config — the 2026-08-01 leak. So the surface is RE-RESOLVED here at the host
-// notch, by its own (agent, name), through the manifest built with the host Target's posture.
+// notch, by its own (agent, name), from the CONFIGURED pack that declares it, at the host
+// Target's posture (ownedHostReset.configured) — the pack host apply renders, which for a
+// configured pack shadowing a shipped one is not the shipped declaration the lookup here used to
+// read.
 //
-// Re-resolving rather than taking a second parameter keeps the choice at the one place that
-// writes: a caller that forgot to pass the host surface would be a silent leak, while a
-// surface this lookup cannot find falls back to the one it was given — a pseudo-agent
-// "user" host_files slug, which declares no autonomy posture and so cannot carry the keys
-// this guards against.
-func truncateHostSurfaceToPureRender(t configTarget, s manifest.Surface, path string) ([]byte, error) {
-	if hs, ok := hostSurfaceManifest().Lookup(s.Agent, s.Name); ok {
-		s = hs
-	}
+// Re-resolving rather than taking the resolved surface as a parameter keeps the choice at the
+// one place that writes: a caller that forgot to pass the host surface would be a silent leak,
+// while a surface no configured pack declares falls back to the shipped host-posture manifest
+// and then to the one it was given — a pseudo-agent "user" host_files slug, which declares no
+// autonomy posture and so cannot carry the keys this guards against.
+func truncateHostSurfaceToPureRender(t configTarget, owned *ownedHostReset, s manifest.Surface,
+	path string) ([]byte, error) {
+	_, s = owned.configured(s)
 	// PRUNE, then compose at the host Target — which substitutes nothing, because a host
 	// notch has no ${workspace} referent to substitute against (render.Target.Prepare).
 	// The two steps are the same pair entrypoint.RenderHostPack performs, in the same

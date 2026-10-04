@@ -138,9 +138,11 @@ var (
 //
 // surfaceManifest() is built from packload.Pack.Surfaces(), which is SurfacesFor(TRUE) — the
 // AUTONOMOUS posture — and whose own docstring says "The host path calls SurfacesFor(false)".
-// That is the right input for a REPORTING command: `yolo config ls` and `config diff` describe
-// what a jail renders, at either notch, and describing the autonomous posture host-side is
-// accurate. It is the wrong input for a host-side WRITE. Composing a pack's autonomous block
+// That is the right input only for a report about what a JAIL renders. A report about the
+// HOST folds the host's posture: `config ls --at host`'s per-array account did not, and said the
+// managed layer replaces an array only the jail's posture manages (declaration-parity.md DP-B25,
+// fixed 2026-10-04 in overlayContributionRows, which now folds at its notch's posture). And it
+// is the wrong input for a host-side WRITE. Composing a pack's autonomous block
 // into a real ~/.claude/settings.json puts the jail's permission bypass — `defaultMode:
 // acceptEdits`, `additionalDirectories: ["/"]`, `skipDangerousModePermissionPrompt: true` —
 // into the user's own config, which is exactly the leak the 2026-08-01
@@ -148,7 +150,9 @@ var (
 //
 // `host_management: own` is what created the hazard: before it, every host-side write was
 // refused outright, so the single reporting manifest had no writing caller to be wrong for.
-// The `own` reset exemption gave it one.
+// The `own` reset exemption gave it one. Since 2026-10-04 that reset resolves the CONFIGURED
+// pack's declaration at the host posture first (ownedHostReset.configured) and reads this
+// manifest only for a shipped surface no configured pack declares.
 //
 // THE POSTURE COMES FROM THE TARGET'S PROFILE, never a hardcoded false — the same one
 // statement internal/entrypoint/hostrender.go reads where it calls SurfacesForReport. A
