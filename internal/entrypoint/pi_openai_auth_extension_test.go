@@ -2,12 +2,15 @@ package entrypoint
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/openauthclient"
 	"github.com/mschulkind-oss/yolo-jail/internal/packdecl"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	officialpacks "github.com/mschulkind-oss/yolo-jail/packs"
@@ -65,133 +68,154 @@ func TestShippedPiPackDeliversOpenAIAuthExtension(t *testing.T) {
 	}
 }
 
+// piRoute is which registration the shipped extension makes: the jail route's ProviderConfig,
+// `registerProvider("openai-codex", config)`, or the host route's native provider,
+// `registerProvider(provider)`, which it makes only where `yolo host` set the broker's socket
+// (docs/design/pi-host-openai-auth.md OQ-1, D2).
+type piRoute struct {
+	name   string
+	socket bool
+}
+
+var (
+	piJailRoute = piRoute{"jail route", false}
+	piHostRoute = piRoute{"host route", true}
+	piRoutes    = []piRoute{piJailRoute, piHostRoute}
+)
+
+// env is the route's half of a harness's environment. The socket variable is set to a path no
+// broker serves, or set EMPTY, never inherited: a developer running the suite under `yolo host`
+// carries a live one, which would decide the case. PI_WANT_NATIVE is what requireRoute in
+// piRegistrationViewJS expects; a later entry overrides it for a case that must fall back.
+func (r piRoute) env() []string {
+	if r.socket {
+		return []string{openauthclient.HostSocketEnv + "=/nonexistent/yolo-openai-auth.sock", "PI_WANT_NATIVE=1"}
+	}
+	return []string{openauthclient.HostSocketEnv + "=", "PI_WANT_NATIVE=0"}
+}
+
+// piRegistrationViewJS reads either registration into one view, so a harness asserts the login,
+// the list and the refusal in one spelling on both routes. requireRoute fails a run whose route
+// is not the one the Go side asked for.
+const piRegistrationViewJS = `
+function registrationView(args) {
+	const [first, config] = args;
+	if (typeof first === "string") {
+		const oauth = config?.oauth ?? {};
+		return {
+			native: false, id: first, name: config?.name, baseUrl: config?.baseUrl, apis: [config?.api],
+			models: config?.models, streamSimple: config?.streamSimple, config,
+			hasLogin: typeof oauth.login === "function" && typeof oauth.refreshToken === "function" &&
+				typeof oauth.getApiKey === "function",
+			login: (interaction) => oauth.login(interaction ?? {}),
+			refresh: (credential, signal) => oauth.refreshToken(credential, signal),
+			apiKeyOf: async (credential) => oauth.getApiKey(credential),
+		};
+	}
+	const oauth = first?.auth?.oauth ?? {};
+	const models = typeof first?.getModels === "function" ? first.getModels() : undefined;
+	return {
+		native: true, id: first?.id, name: first?.name, baseUrl: first?.baseUrl,
+		apis: [...new Set((models ?? []).map((m) => m.api))], models, streamSimple: first?.streamSimple, provider: first,
+		hasLogin: typeof oauth.login === "function" && typeof oauth.refresh === "function" &&
+			typeof oauth.toAuth === "function",
+		login: (interaction) => oauth.login(interaction ?? {}),
+		refresh: (credential, signal) => oauth.refresh(credential, signal),
+		apiKeyOf: async (credential) => (await oauth.toAuth(credential)).apiKey,
+	};
+}
+function requireRoute(view) {
+	const want = process.env.PI_WANT_NATIVE === "1";
+	if (view.native !== want) {
+		throw new Error("the extension registered " + (view.native ? "a native provider" : "a ProviderConfig") +
+			" with " + (process.env.YOLO_OPENAI_AUTH_HOST_SOCKET ? "the host socket set" : "no host socket"));
+	}
+}
+`
+
 // Pi's own lock is scoped to one workspace auth.json. The adapter must therefore ask the
 // machine broker on every login and refresh, and must never put its canonical refresh token
 // in that workspace file. A broker that is already authenticated must not start another
-// browser flow. This executes the shipped extension with a fake yolo client.
+// browser flow. This executes the shipped extension with a fake yolo client, on both routes:
+// the host route's native provider carries the same login.
 func TestPiOpenAIAuthExtensionReusesBrokerLoginAndRefreshes(t *testing.T) {
-	p := shippedPiPack(t)
-	source, err := os.ReadFile(filepath.Join(p.Root, "extensions", "yolo-openai-auth.js"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	dir := t.TempDir()
-	extension := filepath.Join(dir, "extension.mjs")
-	if err := os.WriteFile(extension, source, 0o644); err != nil {
-		t.Fatal(err)
-	}
-	// ⚠ `wc -l | tr -d ' '`, AND THE `tr` IS THE WHOLE REASON THIS TEST PASSES ON A MAC.
-	// BSD `wc` right-pads its count to 8 columns; GNU `wc` does not. So the call counter
-	// below interpolated as `access-       2` on darwin and `access-2` on Linux, and the
-	// harness's `first.access !== "access-2"` failed with "broker calls were not sequenced"
-	// — a message that points at sequencing when the fault is whitespace. Measured on macOS
-	// 26.5; it reddened `check-macos` while `check-go` stayed green, which is what made it
-	// read as a macOS behaviour difference in the adapter rather than in the fixture.
-	//
-	// The sibling site in openaiauth_prelaunch_test.go does NOT need this: it feeds the
-	// count to `[ … -gt 1 ]`, and POSIX integer comparison tolerates leading blanks. The
-	// workflows that count test lines already carry the same `tr` for the same reason.
-	yolo := filepath.Join(dir, "yolo")
-	if err := os.WriteFile(yolo, []byte(`#!/bin/sh
-printf '%s\n' "$*" >> "$CALLS"
+	for _, route := range piRoutes {
+		t.Run(route.name, func(t *testing.T) {
+			f := newPiExtensionFixture(t)
+			f.builtinStub(t)
+			// ⚠ `wc -l | tr -d ' '`, AND THE `tr` IS THE WHOLE REASON THIS TEST PASSES ON A MAC.
+			// BSD `wc` right-pads its count to 8 columns; GNU `wc` does not. So the call counter
+			// below interpolated as `access-       2` on darwin and `access-2` on Linux, and the
+			// harness's `first.access !== "access-2"` failed with "broker calls were not sequenced"
+			// — a message that points at sequencing when the fault is whitespace. Measured on macOS
+			// 26.5; it reddened `check-macos` while `check-go` stayed green, which is what made it
+			// read as a macOS behaviour difference in the adapter rather than in the fixture.
+			//
+			// The sibling site in openaiauth_prelaunch_test.go does NOT need this: it feeds the
+			// count to `[ … -gt 1 ]`, and POSIX integer comparison tolerates leading blanks. The
+			// workflows that count test lines already carry the same `tr` for the same reason.
+			f.fakeClient(t, `
 case "$3" in
   status) printf '{"logged_in":true,"login_required":false}\n' ;;
   login) printf 'unexpected browser login\n' >&2; exit 9 ;;
   token) printf '{"access_token":"access-%s","refresh_token":"must-not-escape","expires_at":4102444800000,"account_id":"acct-1","generation":4}\n' "$(wc -l < "$CALLS" | tr -d ' ')" ;;
 esac
-`), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	harness := filepath.Join(dir, "harness.mjs")
-	if err := os.WriteFile(harness, []byte(`
+`)
+			output := f.output(t, route, piRegistrationViewJS+`
 import extension from "./extension.mjs";
-let registration;
-await extension({ registerProvider(name, config) { registration = { name, config }; } });
-if (registration.name !== "openai-codex") throw new Error("wrong provider: " + registration.name);
-const oauth = registration.config.oauth;
-const first = await oauth.login({});
-const second = await oauth.refreshToken(first, new AbortController().signal);
+const registrations = [];
+await extension({ registerProvider(...args) { registrations.push(args); } });
+if (registrations.length !== 1) throw new Error("registrations: " + registrations.length);
+const view = registrationView(registrations[0]);
+requireRoute(view);
+if (view.id !== "openai-codex") throw new Error("wrong provider: " + view.id);
+const first = await view.login({});
+const second = await view.refresh(first, new AbortController().signal);
 if (first.refresh !== "yolo-broker:4" || second.refresh !== "yolo-broker:4") throw new Error("refresh secret escaped");
 if (first.access !== "access-2" || second.access !== "access-3") throw new Error("broker calls were not sequenced");
 if (first.expires !== 4102444800000 || second.accountId !== "acct-1") throw new Error("view shape lost");
-if (oauth.getApiKey(second) !== "access-3") throw new Error("access token not resolved");
-`), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	calls := filepath.Join(dir, "calls")
-	cmd := exec.Command(requireNode(t, "the pi openai-auth extension"), harness)
-	cmd.Dir = dir
-	cmd.Env = append(os.Environ(), "PATH="+dir+string(os.PathListSeparator)+os.Getenv("PATH"), "CALLS="+calls,
-		// A temp HOME: the extension reads its model list from HOME, and a developer's real
-		// ~/.pi must never feed a test.
-		"HOME="+t.TempDir())
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		t.Fatalf("executing Pi OpenAI extension: %v\n%s", err, output)
-	}
-	if strings.Contains(string(output), "unexpected browser login") {
-		t.Fatalf("an existing broker login started a browser flow: %q", output)
-	}
-	got, err := os.ReadFile(calls)
-	if err != nil {
-		t.Fatal(err)
-	}
-	want := "internal openai-auth-client status\ninternal openai-auth-client token\ninternal openai-auth-client token\n"
-	if string(got) != want {
-		t.Fatalf("broker calls = %q, want %q", strings.TrimSpace(string(got)), strings.TrimSpace(want))
+if (await view.apiKeyOf(second) !== "access-3") throw new Error("access token not resolved");
+`)
+			if strings.Contains(string(output), "unexpected browser login") {
+				t.Fatalf("an existing broker login started a browser flow: %q", output)
+			}
+			want := "internal openai-auth-client status\ninternal openai-auth-client token\ninternal openai-auth-client token\n"
+			if got := f.calls(t); got != want {
+				t.Fatalf("broker calls = %q, want %q", strings.TrimSpace(got), strings.TrimSpace(want))
+			}
+		})
 	}
 }
 
 func TestPiOpenAIAuthExtensionStartsBrowserOnlyWhenStatusRequiresLogin(t *testing.T) {
-	p := shippedPiPack(t)
-	source, err := os.ReadFile(filepath.Join(p.Root, "extensions", "yolo-openai-auth.js"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	dir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(dir, "extension.mjs"), source, 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(dir, "yolo"), []byte(`#!/bin/sh
-printf '%s\n' "$*" >> "$CALLS"
+	for _, route := range piRoutes {
+		t.Run(route.name, func(t *testing.T) {
+			f := newPiExtensionFixture(t)
+			f.builtinStub(t)
+			f.fakeClient(t, `
 case "$3" in
   status) printf '{"logged_in":false}\n' ;;
   login) printf 'Open this URL: https://example.test/login\n' >&2; printf '{"ok":true}\n' ;;
   token) printf '{"access_token":"access","expires_at":4102444800000,"generation":1}\n' ;;
 esac
-`), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(dir, "harness.mjs"), []byte(`
+`)
+			output := f.output(t, route, piRegistrationViewJS+`
 import extension from "./extension.mjs";
-let oauth;
-await extension({ registerProvider(_name, config) { oauth = config.oauth; } });
-const result = await oauth.login({});
+const registrations = [];
+await extension({ registerProvider(...args) { registrations.push(args); } });
+const view = registrationView(registrations[0]);
+requireRoute(view);
+const result = await view.login({});
 if (result.access !== "access" || result.refresh !== "yolo-broker:1") throw new Error("bad credentials");
-`), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	calls := filepath.Join(dir, "calls")
-	cmd := exec.Command(requireNode(t, "the pi openai-auth extension"), filepath.Join(dir, "harness.mjs"))
-	cmd.Dir = dir
-	cmd.Env = append(os.Environ(), "PATH="+dir+string(os.PathListSeparator)+os.Getenv("PATH"), "CALLS="+calls,
-		// A temp HOME: the extension reads its model list from HOME, and a developer's real
-		// ~/.pi must never feed a test.
-		"HOME="+t.TempDir())
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		t.Fatalf("executing Pi OpenAI extension: %v\n%s", err, output)
-	}
-	if !strings.Contains(string(output), "https://example.test/login") {
-		t.Fatalf("login URL was not forwarded: %q", output)
-	}
-	got, err := os.ReadFile(calls)
-	if err != nil {
-		t.Fatal(err)
-	}
-	want := "internal openai-auth-client status\ninternal openai-auth-client login\ninternal openai-auth-client token\n"
-	if string(got) != want {
-		t.Fatalf("broker calls = %q, want %q", strings.TrimSpace(string(got)), strings.TrimSpace(want))
+`)
+			if !strings.Contains(string(output), "https://example.test/login") {
+				t.Fatalf("login URL was not forwarded: %q", output)
+			}
+			want := "internal openai-auth-client status\ninternal openai-auth-client login\ninternal openai-auth-client token\n"
+			if got := f.calls(t); got != want {
+				t.Fatalf("broker calls = %q, want %q", strings.TrimSpace(got), strings.TrimSpace(want))
+			}
+		})
 	}
 }
 
@@ -228,20 +252,9 @@ func (f piExtensionFixture) modelsFile(t *testing.T, raw string) {
 	}
 }
 
-// catalogStub installs a stand-in for pi's own catalog module, resolved the way node
-// resolves the extension's bare import from its directory. Known ids carry a marker the
-// extension can only have copied from the catalog.
-func (f piExtensionFixture) catalogStub(t *testing.T) {
-	t.Helper()
-	pkg := filepath.Join(f.dir, "node_modules", "@earendil-works", "pi-ai")
-	if err := os.MkdirAll(pkg, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(pkg, "package.json"), []byte(
-		`{"name":"@earendil-works/pi-ai","type":"module","exports":{"./providers/all":"./all.js"}}`), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(pkg, "all.js"), []byte(`
+// piCatalogStubJS stands in for pi's own catalog lookup. Known ids carry a marker the extension
+// can only have copied from the catalog.
+const piCatalogStubJS = `
 const known = {
 	"gpt-6-sol": { name: "Catalog Sol", contextWindow: 272000 },
 	"gpt-6-astra": { name: "Catalog Astra", contextWindow: 272000 },
@@ -256,39 +269,159 @@ export function getBuiltinModel(provider, id) {
 		...known[id],
 	};
 }
-`), 0o644); err != nil {
+`
+
+// piBuiltinProvidersStubJS adds pi's built-in openai-codex provider to the catalog stub: pi's own
+// name, address and login, each a marker the host route must replace, its catalog's models, and
+// two streams that record what they are handed.
+const piBuiltinProvidersStubJS = `
+export const streamed = [];
+export function builtinProviders() {
+	const models = () => Object.keys(known).map((id) => getBuiltinModel("openai-codex", id));
+	return [{
+		id: "openai-codex", name: "OpenAI Codex (legacy)", baseUrl: "https://catalog.example",
+		auth: { oauth: { name: "pi's own login", isSubscription: true,
+			login: async () => { throw new Error("pi's own login ran"); },
+			refresh: async () => { throw new Error("pi's own refresh ran"); },
+			toAuth: async () => ({ apiKey: "pi's own token" }) } },
+		getModels: models, getAllModels: models, refreshModels: async () => {},
+		stream: (model, context, options) => { streamed.push({ via: "stream", model: model.id, options }); return "builtin-stream"; },
+		streamSimple: (model, context, options) => { streamed.push({ via: "streamSimple", model: model.id, options }); return "builtin-stream"; },
+	}];
+}
+`
+
+// stubPiAI installs a stand-in for pi-ai's providers/all module, resolved the way node resolves
+// the extension's bare import from its directory.
+func (f piExtensionFixture) stubPiAI(t *testing.T, allJS string) { writePiAIStub(t, f.dir, allJS) }
+
+// writePiAIStub writes the stand-in for pi-ai's providers/all module into root's node_modules,
+// where node resolves a bare import from any file below root.
+func writePiAIStub(t *testing.T, root, allJS string) {
+	t.Helper()
+	pkg := filepath.Join(root, "node_modules", "@earendil-works", "pi-ai")
+	if err := os.MkdirAll(pkg, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(pkg, "package.json"), []byte(
+		`{"name":"@earendil-works/pi-ai","type":"module","exports":{"./providers/all":"./all.js"}}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(pkg, "all.js"), []byte(allJS), 0o644); err != nil {
 		t.Fatal(err)
 	}
 }
 
-// run executes a harness beside the extension and fails on a non-zero exit.
-func (f piExtensionFixture) run(t *testing.T, harness string) {
+// piNativeCoreStubJS stands in for the root of a pi whose loader takes a provider object: the
+// root exports ModelRuntime, and its prototype has the registerNativeProvider that loader hands
+// the object to (pi 0.81.0 on; MEASURED 2026-10-04, docs/design/pi-host-openai-auth.md PH-D4).
+const piNativeCoreStubJS = "export class ModelRuntime { registerNativeProvider() {} }\n"
+
+// piPreNativeCoreStubJS is the root of pi 0.80.10, the shape MEASURED there on 2026-10-04: a
+// ModelRuntime with no registerNativeProvider, so its loader queues a provider object as a name
+// and fails applying it, without throwing at the call.
+const piPreNativeCoreStubJS = "export const VERSION = \"0.80.10\";\nexport class ModelRuntime {}\n"
+
+// writePiCoreStub writes body as the stand-in for pi's own package root,
+// @earendil-works/pi-coding-agent, into root's node_modules, where node resolves a bare import
+// from any file below root.
+func writePiCoreStub(t *testing.T, root, body string) {
+	t.Helper()
+	pkg := filepath.Join(root, "node_modules", "@earendil-works", "pi-coding-agent")
+	if err := os.MkdirAll(pkg, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(pkg, "package.json"), []byte(
+		`{"name":"@earendil-works/pi-coding-agent","type":"module","exports":{".":"./index.js"}}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(pkg, "index.js"), []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// catalogStub installs pi's catalog lookup alone, the module of a pi that exports no built-in
+// provider object.
+func (f piExtensionFixture) catalogStub(t *testing.T) { f.stubPiAI(t, piCatalogStubJS) }
+
+// builtinStub installs the catalog lookup and pi's built-in openai-codex provider, under the root
+// of a pi whose loader takes a provider object: the pi the host route registers natively on.
+func (f piExtensionFixture) builtinStub(t *testing.T) {
+	f.stubPiAI(t, piCatalogStubJS+piBuiltinProvidersStubJS)
+	writePiCoreStub(t, f.dir, piNativeCoreStubJS)
+}
+
+// fakeClient installs a stand-in `yolo` whose `internal openai-auth-client <action>` runs the
+// shell body with the action in $3, after logging the call to the fixture's calls file.
+func (f piExtensionFixture) fakeClient(t *testing.T, body string) {
+	t.Helper()
+	bin := filepath.Join(f.dir, "bin")
+	if err := os.MkdirAll(bin, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(bin, "yolo"), []byte("#!/bin/sh\nprintf '%s\\n' \"$*\" >> \"$CALLS\"\n"+body), 0o755); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// calls is what the fake client was asked, one line per call, or "" when it was never run.
+func (f piExtensionFixture) calls(t *testing.T) string {
+	t.Helper()
+	got, err := os.ReadFile(filepath.Join(f.dir, "calls"))
+	if os.IsNotExist(err) {
+		return ""
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(got)
+}
+
+// output executes a harness beside the extension on the route, with any env after the route's,
+// fails on a non-zero exit, and returns what it printed. The fake client, when installed, is
+// first on PATH.
+func (f piExtensionFixture) output(t *testing.T, route piRoute, harness string, env ...string) []byte {
 	t.Helper()
 	if err := os.WriteFile(filepath.Join(f.dir, "harness.mjs"), []byte(harness), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	cmd := exec.Command(requireNode(t, "the pi openai-auth extension"), "harness.mjs")
 	cmd.Dir = f.dir
-	cmd.Env = append(os.Environ(), "HOME="+f.home)
-	if output, err := cmd.CombinedOutput(); err != nil {
-		t.Fatalf("executing the Pi OpenAI extension harness: %v\n%s", err, output)
+	cmd.Env = append(os.Environ(), "HOME="+f.home, "CALLS="+filepath.Join(f.dir, "calls"),
+		"PATH="+filepath.Join(f.dir, "bin")+string(os.PathListSeparator)+os.Getenv("PATH"))
+	cmd.Env = append(append(cmd.Env, route.env()...), env...)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("executing the Pi OpenAI extension harness on the %s: %v\n%s", route.name, err, output)
 	}
+	return output
+}
+
+// run executes a harness beside the extension on the jail route and fails on a non-zero exit.
+func (f piExtensionFixture) run(t *testing.T, harness string) {
+	t.Helper()
+	f.output(t, piJailRoute, harness)
 }
 
 // piRegisterHarness is the harness prefix every case shares: load the extension the way pi
-// does (awaiting the factory) and capture the one provider it registers.
-const piRegisterHarness = `
+// does (awaiting the factory) and capture the one provider it registers, as `view` on either
+// route and as `cfg`, the ProviderConfig, on the jail route.
+const piRegisterHarness = piRegistrationViewJS + `
 import extension from "./extension.mjs";
-let registration;
+const registrations = [];
 let beforeProviderHandler;
 await extension({
-	registerProvider(name, config) { registration = { name, config }; },
+	registerProvider(...args) { registrations.push(args); },
 	on(event, handler) { if (event === "before_provider_request") beforeProviderHandler = handler; },
 });
-if (!registration || registration.name !== "openai-codex") throw new Error("provider not registered as openai-codex");
-const cfg = registration.config;
-if (cfg.baseUrl !== "https://chatgpt.com/backend-api" || cfg.api !== "openai-codex-responses") throw new Error("address lost: " + JSON.stringify(cfg));
-if (typeof cfg.oauth?.login !== "function" || typeof cfg.oauth?.refreshToken !== "function") throw new Error("oauth lost");
+if (registrations.length !== 1) throw new Error("registrations: " + registrations.length);
+const view = registrationView(registrations[0]);
+requireRoute(view);
+const cfg = view.config;
+if (view.id !== "openai-codex") throw new Error("provider not registered as openai-codex");
+if (view.baseUrl !== "https://chatgpt.com/backend-api") throw new Error("address lost: " + view.baseUrl);
+if (!view.native && JSON.stringify(view.apis) !== JSON.stringify(["openai-codex-responses"])) throw new Error("api lost: " + view.apis);
+if (!view.hasLogin) throw new Error("oauth lost");
 function eq(got, want, what) {
 	if (JSON.stringify(got) !== JSON.stringify(want)) throw new Error(what + " = " + JSON.stringify(got) + ", want " + JSON.stringify(want));
 }
@@ -410,7 +543,7 @@ func (f piExtensionFixture) runWarningHarness(t *testing.T, hasUI bool) (notifie
 	}
 	cmd := exec.Command(requireNode(t, "the pi openai-auth extension"), "harness.mjs")
 	cmd.Dir = f.dir
-	cmd.Env = append(os.Environ(), "HOME="+f.home, "PI_HAS_UI="+ui)
+	cmd.Env = append(append(os.Environ(), "HOME="+f.home, "PI_HAS_UI="+ui), piJailRoute.env()...)
 	out, err := cmd.Output()
 	if err != nil {
 		t.Fatalf("executing the Pi OpenAI extension warning harness: %v\n%s", err, out)
@@ -502,17 +635,7 @@ func TestPiOpenAIAuthExtensionWarnsOnceWhenPisCatalogCannotDescribeAModel(t *tes
 // directory. body is the module's source, so a root exporting no version is spellable.
 func (f piExtensionFixture) piPackageStub(t *testing.T, body string) {
 	t.Helper()
-	pkg := filepath.Join(f.dir, "node_modules", "@earendil-works", "pi-coding-agent")
-	if err := os.MkdirAll(pkg, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(pkg, "package.json"), []byte(
-		`{"name":"@earendil-works/pi-coding-agent","type":"module","exports":{".":"./index.js"}}`), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(pkg, "index.js"), []byte(body), 0o644); err != nil {
-		t.Fatal(err)
-	}
+	writePiCoreStub(t, f.dir, body)
 }
 
 // Two ids the catalog stub lacks, the shape of a pi older than the GPT-6 models.
@@ -608,20 +731,205 @@ func TestPiOpenAIAuthExtensionNamesPisVersionAndTheRemedyWhenAModelIsMissing(t *
 // (0.99.1 dist/core/provider-composer.js, composeModelProvider). A registration with no `name`
 // therefore showed yolo's subscription provider as "(legacy)" in pi's menus
 // (docs/design/model-lists-and-pickers.md §14.2; MM-D6: "Either form sets its own name").
-// With and without a model list, because the name must not depend on the list.
+// With and without a model list, because the name must not depend on the list, and on both
+// routes, because the host route's provider starts as pi's built-in, legacy name and all.
 func TestPiOpenAIAuthExtensionNamesTheProviderItRegisters(t *testing.T) {
-	for _, tc := range []struct {
-		name, file string
-	}{{"with the rendered list", piCodexModelsFixture}, {"with no list", ""}} {
-		t.Run(tc.name, func(t *testing.T) {
-			f := newPiExtensionFixture(t)
-			if tc.file != "" {
-				f.modelsFile(t, tc.file)
-			}
-			f.run(t, piRegisterHarness+`
-if (typeof cfg.name !== "string" || cfg.name.length === 0) throw new Error("the registration sets no name, so pi falls back to its built-in's label: " + JSON.stringify(cfg.name));
-if (/legacy/i.test(cfg.name)) throw new Error("the registration names the provider " + JSON.stringify(cfg.name));
+	for _, route := range piRoutes {
+		for _, tc := range []struct {
+			name, file string
+		}{{"with the rendered list", piCodexModelsFixture}, {"with no list", ""}} {
+			t.Run(route.name+"/"+tc.name, func(t *testing.T) {
+				f := newPiExtensionFixture(t)
+				f.builtinStub(t)
+				if tc.file != "" {
+					f.modelsFile(t, tc.file)
+				}
+				f.output(t, route, piRegisterHarness+`
+if (typeof view.name !== "string" || view.name.length === 0) throw new Error("the registration sets no name, so pi falls back to its built-in's label: " + JSON.stringify(view.name));
+if (/legacy/i.test(view.name)) throw new Error("the registration names the provider " + JSON.stringify(view.name));
 `)
+			})
+		}
+	}
+}
+
+// piHostRouteClient is the fake client the host-route cases run: an authenticated broker whose
+// token view counts its calls and expires at $EXPIRES_AT, far in the future unless a case says.
+const piHostRouteClient = `
+case "$3" in
+  status) printf '{"logged_in":true,"login_required":false}\n' ;;
+  login) printf 'unexpected browser login\n' >&2; exit 9 ;;
+  token) printf '{"access_token":"access-%s","expires_at":%s,"generation":4}\n' "$(wc -l < "$CALLS" | tr -d ' ')" "${EXPIRES_AT:-4102444800000}" ;;
+esac
+`
+
+// THE HOST ROUTE IS A NATIVE PROVIDER CONFIGURED BY THE HOST SOCKET (docs/design/pi-host-openai-auth.md
+// OQ-1, D2). Where `yolo host` set the broker's socket and pi exports its built-in openai-codex
+// provider, the extension registers that provider through pi's one-argument registerProvider,
+// with yolo's login in place of pi's own and a key method pi counts as configured while the
+// socket is set, with nothing stored in the user's auth.json (NC-D37). That method resolves to
+// the broker's access token, reusing it inside pi's five-minute window, and offers no /login
+// setup. Deleting the native registration, or ungating the check, fails this.
+func TestPiOpenAIAuthHostRouteRegistersPisBuiltInAsANativeProvider(t *testing.T) {
+	f := newPiExtensionFixture(t)
+	f.builtinStub(t)
+	f.fakeClient(t, piHostRouteClient)
+	f.output(t, piHostRoute, `
+import extension from "./extension.mjs";
+import { readFileSync, existsSync } from "node:fs";
+function eq(got, want, what) {
+	if (JSON.stringify(got) !== JSON.stringify(want)) throw new Error(what + " = " + JSON.stringify(got) + ", want " + JSON.stringify(want));
+}
+const calls = () => existsSync(process.env.CALLS) ? readFileSync(process.env.CALLS, "utf8").trim().split("\n") : [];
+const registrations = [];
+await extension({ registerProvider(...args) { registrations.push(args); }, on() {} });
+eq(registrations.map((args) => args.length), [1], "registerProvider calls, by argument count");
+const p = registrations[0][0];
+eq([p.id, p.name, p.baseUrl], ["openai-codex", "OpenAI Codex", "https://chatgpt.com/backend-api"], "id, name and address");
+eq(p.getModels().map((m) => m.id), ["gpt-6-sol", "gpt-6-astra"], "with no list, pi's own catalog");
+const { oauth, apiKey } = p.auth;
+eq([oauth.name, oauth.isSubscription], ["OpenAI Codex (yolo shared login)", true], "the login is yolo's, not pi's own");
+if (typeof apiKey?.check !== "function" || typeof apiKey?.resolve !== "function") throw new Error("no key method");
+if ("login" in apiKey) throw new Error("the key method offers a /login setup, and there is no key to enter");
+const signal = new AbortController().signal;
+eq(await apiKey.check({ ctx: {}, signal }), { type: "oauth", source: "yolo shared login" }, "check with the socket set");
+const socket = process.env.YOLO_OPENAI_AUTH_HOST_SOCKET;
+delete process.env.YOLO_OPENAI_AUTH_HOST_SOCKET;
+eq(await apiKey.check({ ctx: {}, signal }), undefined, "check with no socket");
+eq(await apiKey.resolve({ ctx: {}, signal }), undefined, "resolve with no socket");
+process.env.YOLO_OPENAI_AUTH_HOST_SOCKET = socket;
+eq(calls(), [], "client calls from a check");
+eq(await apiKey.resolve({ ctx: {}, signal }), { auth: { apiKey: "access-1" }, source: "yolo shared login" }, "resolve");
+eq((await apiKey.resolve({ ctx: {}, signal })).auth.apiKey, "access-1", "a second resolve inside the token's life");
+eq(calls(), ["internal openai-auth-client token"], "client calls from two resolves");
+const login = await oauth.login({ signal });
+eq([login.type, login.access, login.refresh], ["oauth", "access-3", "yolo-broker:4"], "the login's credential");
+const refreshed = await oauth.refresh(login, signal);
+eq([refreshed.type, refreshed.access, refreshed.refresh], ["oauth", "access-4", "yolo-broker:4"], "the refresh's credential");
+eq(await oauth.toAuth(refreshed), { apiKey: "access-4" }, "the request auth of a stored login");
+`)
+}
+
+// A TOKEN NEAR ITS END IS ASKED FOR AGAIN: the reuse ends where pi would refresh a stored login,
+// five minutes before expiry, so a request never runs on a token about to lapse.
+func TestPiOpenAIAuthHostRouteAsksAgainForATokenNearItsEnd(t *testing.T) {
+	f := newPiExtensionFixture(t)
+	f.builtinStub(t)
+	f.fakeClient(t, piHostRouteClient)
+	soon := time.Now().Add(4 * time.Minute).UnixMilli()
+	f.output(t, piHostRoute, `
+import extension from "./extension.mjs";
+let provider;
+await extension({ registerProvider(p) { provider = p; }, on() {} });
+const signal = new AbortController().signal;
+const keys = [];
+for (let i = 0; i < 2; i++) keys.push((await provider.auth.apiKey.resolve({ ctx: {}, signal })).auth.apiKey);
+if (JSON.stringify(keys) !== JSON.stringify(["access-1", "access-2"])) throw new Error("keys = " + JSON.stringify(keys));
+`, fmt.Sprintf("EXPIRES_AT=%d", soon))
+}
+
+// THE LIST AND THE REFUSAL RIDE ON THE NATIVE PROVIDER. A native registration replaces the
+// extension layer pi would compose a ProviderConfig's models over, so the rendered list is the
+// provider's own getModels: each definition completed as a Model of this provider, at the
+// subscription's address, on its api, with pi's catalog facts for its base id; and no catalog
+// refresh replaces it. With the list's switch on, the provider's two streams refuse a model
+// outside it before pi's own stream runs, and hand a listed one on with pi's resolved options.
+func TestPiOpenAIAuthHostRouteCarriesTheListAndTheRefusalOnTheProvider(t *testing.T) {
+	f := newPiExtensionFixture(t)
+	f.builtinStub(t)
+	f.modelsFile(t, strings.Replace(piCodexModelsFixture, `{"models":[`, `{"enforce":true,"models":[`, 1))
+	f.output(t, piHostRoute, piRegisterHarness+`
+const { streamed } = await import("@earendil-works/pi-ai/providers/all");
+const p = view.provider;
+eq(view.models.map((m) => m.id), ["gpt-6-sol", "gpt-6-sol[1m]", "gpt-6-nova"], "the provider's models, in the file's order");
+eq(p.getAllModels().map((m) => m.id), view.models.map((m) => m.id), "getAllModels");
+for (const m of view.models) {
+	eq([m.provider, m.api, m.baseUrl], ["openai-codex", "openai-codex-responses", "https://chatgpt.com/backend-api"], m.id + "'s address");
+}
+const [sol, sol1m, nova] = view.models;
+eq(sol.thinkingLevelMap, { marker: "from-catalog-gpt-6-sol" }, "base id's catalog facts");
+eq(sol1m.thinkingLevelMap, { marker: "from-catalog-gpt-6-sol" }, "the [1m] variant's facts from its BASE");
+eq([sol1m.contextWindow, nova.maxTokens], [1000000, 16384], "declared window and the defaults path");
+if (p.refreshModels !== undefined) throw new Error("a catalog refresh can replace the exact menu");
+const options = { apiKey: "the-subscription-access-token" };
+eq(p.streamSimple(sol1m, { messages: [] }, options), "builtin-stream", "a listed model's streamSimple");
+eq(p.stream(sol, { messages: [] }, options), "builtin-stream", "a listed model's stream");
+for (const call of ["stream", "streamSimple"]) {
+	let refused = "";
+	try { p[call]({ ...sol, id: "gpt-5.5" }, { messages: [] }, options); } catch (e) { refused = e.message; }
+	if (!refused.includes('"openai-codex/gpt-5.5" is not on yolo') || !refused.includes("gpt-6-sol, gpt-6-sol[1m], gpt-6-nova")) {
+		throw new Error(call + " of an unlisted model: " + JSON.stringify(refused));
+	}
+}
+eq(streamed.map((c) => [c.via, c.model, c.options === options]),
+	[["streamSimple", "gpt-6-sol[1m]", true], ["stream", "gpt-6-sol", true]], "what pi's own streams were handed");
+`)
+}
+
+// THE PROVIDERCONFIG IS THE FALLBACK. With the socket set but nothing to register natively, the
+// extension registers today's ProviderConfig, so an older pi keeps the login it had, yolo's entry
+// in /login included (docs/design/pi-host-openai-auth.md PH-D4): a pi that exports no built-in
+// providers, none for openai-codex, or one on another api, which nativeModel would point every
+// listed model at with nothing to serve it; no catalog module at all; and a pi whose loader cannot
+// take a provider object. That last is pi 0.80.10, MEASURED 2026-10-04: it exports the built-in,
+// and its registerProvider queues the object as a name without throwing, then fails applying it,
+// so the registration is lost and the extension reported as failed. A try/catch around the call
+// cannot see that, so the extension asks pi's root for registerNativeProvider, and each case's
+// stand-in registerProvider only records the call, as 0.80.10's throws nothing.
+func TestPiOpenAIAuthHostRouteFallsBackToTheProviderConfig(t *testing.T) {
+	builtins := piCatalogStubJS + piBuiltinProvidersStubJS
+	for name, tc := range map[string]struct {
+		allJS, coreJS string
+	}{
+		"pi exports no built-in providers": {allJS: piCatalogStubJS, coreJS: piNativeCoreStubJS},
+		"pi's built-ins lack openai-codex": {allJS: piCatalogStubJS + "export function builtinProviders() { return []; }\n",
+			coreJS: piNativeCoreStubJS},
+		"pi's built-in serves another api": {allJS: piCatalogStubJS + `
+export function builtinProviders() {
+	const models = () => Object.keys(known).map((id) => ({ ...getBuiltinModel("openai-codex", id), api: "openai-responses-v9" }));
+	return [{ id: "openai-codex", name: "OpenAI Codex (legacy)", auth: { oauth: {} }, getModels: models, getAllModels: models,
+		streamSimple: () => { throw new Error("the built-in ran a model on an api it does not serve"); } }];
+}
+`, coreJS: piNativeCoreStubJS},
+		"no catalog module at all":                          {coreJS: piNativeCoreStubJS},
+		"pi 0.80.10, whose loader takes no provider object": {allJS: builtins, coreJS: piPreNativeCoreStubJS},
+		"no pi package root to ask":                         {allJS: builtins},
+	} {
+		t.Run(name, func(t *testing.T) {
+			f := newPiExtensionFixture(t)
+			if tc.allJS != "" {
+				f.stubPiAI(t, tc.allJS)
+			}
+			if tc.coreJS != "" {
+				writePiCoreStub(t, f.dir, tc.coreJS)
+			}
+			f.modelsFile(t, piCodexModelsFixture)
+			f.output(t, piHostRoute, piRegistrationViewJS+`
+import extension from "./extension.mjs";
+const registrations = [];
+await extension({ registerProvider(...args) { registrations.push(args); }, on() {} });
+if (registrations.length !== 1) throw new Error("registrations: " + registrations.length);
+const view = registrationView(registrations[0]);
+requireRoute(view);
+if (!view.hasLogin || view.config.oauth?.name !== "OpenAI Codex (yolo shared login)") throw new Error("the fallback lost yolo's login");
+if (JSON.stringify(view.config.models?.map((m) => m.id)) !== JSON.stringify(["gpt-6-sol", "gpt-6-sol[1m]", "gpt-6-nova"])) {
+	throw new Error("the fallback lost the list: " + JSON.stringify(view.config.models));
+}
+`, "PI_WANT_NATIVE=0")
 		})
 	}
+}
+
+// THE JAIL ROUTE NEVER REGISTERS NATIVELY, even where pi exports its built-in: with no host
+// socket the registration is the ProviderConfig a jail has always had, which counts as configured
+// only for the login the jail stores before pi starts, and adds no key method to pi's /login.
+// (The implementation decision recorded in docs/design/pi-host-openai-auth.md: native only where
+// the socket is set.)
+func TestPiOpenAIAuthJailRouteNeverRegistersNatively(t *testing.T) {
+	f := newPiExtensionFixture(t)
+	f.builtinStub(t)
+	f.modelsFile(t, piCodexModelsFixture)
+	f.output(t, piJailRoute, piRegisterHarness+`
+if ("apiKey" in cfg) throw new Error("the jail's registration carries a key method");
+`)
 }

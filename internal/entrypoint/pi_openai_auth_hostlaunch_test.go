@@ -49,20 +49,34 @@ func TestPiOpenAIAuthClientHelper(t *testing.T) {
 	os.Exit(openauthclient.Run(args[2:], os.Getenv, os.Stdout, os.Stderr))
 }
 
-// hostLaunchCase runs the shipped extension's login and refresh under env and returns the two
-// error messages, or fails if either call succeeded.
+// hostLaunchCase runs the shipped extension's login and refresh under env, and, when the
+// registration is the host route's native provider, its key method's resolve, and returns each
+// call's error message, or fails if any call succeeded.
 type hostLaunchCase struct {
 	// jailHome creates ~/.yolo/bin in the fixture home, the jail witness that survives a
 	// scrubbed environment.
 	jailHome bool
 	// noYolo leaves `yolo` off PATH entirely — a direct launch on a host without it there.
 	noYolo bool
-	env    []string
+	// builtin installs pi's built-in openai-codex provider (piBuiltinProvidersStubJS), which the
+	// extension registers natively where the host socket is set.
+	builtin bool
+	env     []string
 }
 
-func runPiAuthFailure(t *testing.T, c hostLaunchCase) (login, refresh string) {
+// piAuthFailures is each failed call's message, by call: login, refresh and, on the host
+// route's native provider, resolve.
+type piAuthFailures struct {
+	Native   bool              `json:"native"`
+	Messages map[string]string `json:"messages"`
+}
+
+func runPiAuthFailure(t *testing.T, c hostLaunchCase) piAuthFailures {
 	t.Helper()
 	f := newPiExtensionFixture(t)
+	if c.builtin {
+		f.builtinStub(t)
+	}
 	if c.jailHome {
 		if err := os.MkdirAll(filepath.Join(f.home, ".yolo", "bin"), 0o755); err != nil {
 			t.Fatal(err)
@@ -80,16 +94,18 @@ func runPiAuthFailure(t *testing.T, c hostLaunchCase) (login, refresh string) {
 		}
 		c.env = append(c.env, "YOLO_TEST_SELF="+self, openAIClientHelperEnv+"=1")
 	}
-	harness := `
+	harness := piRegistrationViewJS + `
 import extension from "./extension.mjs";
-let oauth;
-await extension({ registerProvider(_name, config) { oauth = config.oauth; } });
-const out = {};
-for (const [name, call] of [["login", () => oauth.login({})],
-		["refresh", () => oauth.refreshToken({}, new AbortController().signal)]]) {
-	try { await call(); out[name] = "SUCCEEDED"; } catch (error) { out[name] = error.message; }
+let view;
+await extension({ registerProvider(...args) { view = registrationView(args); } });
+const signal = new AbortController().signal;
+const calls = [["login", () => view.login({})], ["refresh", () => view.refresh({}, signal)]];
+if (view.native) calls.push(["resolve", () => view.provider.auth.apiKey.resolve({ ctx: {}, signal })]);
+const messages = {};
+for (const [name, call] of calls) {
+	try { await call(); messages[name] = "SUCCEEDED"; } catch (error) { messages[name] = error.message; }
 }
-console.log(JSON.stringify(out));
+console.log(JSON.stringify({ native: view.native, messages }));
 `
 	if err := os.WriteFile(filepath.Join(f.dir, "harness.mjs"), []byte(harness), 0o644); err != nil {
 		t.Fatal(err)
@@ -104,19 +120,22 @@ console.log(JSON.stringify(out));
 	if err != nil {
 		t.Fatalf("running the extension harness: %v\n%s", err, out)
 	}
-	var got struct{ Login, Refresh string }
+	var got piAuthFailures
 	if err := json.Unmarshal(bytes.TrimSpace(out), &got); err != nil {
 		t.Fatalf("decoding the harness output %q: %v", out, err)
 	}
-	if got.Login == "SUCCEEDED" || got.Refresh == "SUCCEEDED" {
-		t.Fatalf("a call with no route to the broker succeeded: %+v", got)
+	for name, msg := range got.Messages {
+		if msg == "SUCCEEDED" {
+			t.Fatalf("%s with no route to the broker succeeded: %+v", name, got)
+		}
 	}
-	return got.Login, got.Refresh
+	return got
 }
 
-func requireBoth(t *testing.T, login, refresh string, check func(msg string) string) {
+// requireEach reports each call whose message check finds a problem in.
+func requireEach(t *testing.T, got piAuthFailures, check func(msg string) string) {
 	t.Helper()
-	for name, msg := range map[string]string{"login": login, "refresh": refresh} {
+	for name, msg := range got.Messages {
 		if problem := check(msg); problem != "" {
 			t.Errorf("%s: %s\nmessage: %s", name, problem, msg)
 		}
@@ -131,8 +150,7 @@ func TestPiOpenAIAuthOutsideAJailSaysToLaunchThroughYoloHost(t *testing.T) {
 		"yolo not on PATH": {noYolo: true},
 	} {
 		t.Run(name, func(t *testing.T) {
-			login, refresh := runPiAuthFailure(t, c)
-			requireBoth(t, login, refresh, func(msg string) string {
+			requireEach(t, runPiAuthFailure(t, c), func(msg string) string {
 				if !strings.Contains(msg, "`yolo host -- pi`") {
 					return "does not say to launch pi through `yolo host -- pi`"
 				}
@@ -151,8 +169,7 @@ func TestPiOpenAIAuthInsideAJailKeepsTheClientsMessage(t *testing.T) {
 		"a jail home, scrubbed": {jailHome: true},
 	} {
 		t.Run(name, func(t *testing.T) {
-			login, refresh := runPiAuthFailure(t, c)
-			requireBoth(t, login, refresh, func(msg string) string {
+			requireEach(t, runPiAuthFailure(t, c), func(msg string) string {
 				if strings.Contains(msg, "yolo host") {
 					return "tells a jail to launch through `yolo host`"
 				}
@@ -181,18 +198,32 @@ func TestPiOpenAIAuthExtensionSpellsTheClientsRouteVariables(t *testing.T) {
 }
 
 // A `yolo host --` LAUNCH has a route, so a failure there is something else — here, a broker
-// socket that is not there — and the message is the client's, with no launch advice.
+// socket that is not there — and the message is the client's, with no launch advice. On both
+// registrations the host socket can meet: the ProviderConfig of a pi that exports no built-in,
+// and the native provider, whose key method resolves the request's token through the same
+// client and so must keep its words too.
 func TestPiOpenAIAuthWithAHostRouteKeepsTheClientsMessage(t *testing.T) {
-	socket := filepath.Join(t.TempDir(), "absent.sock")
-	login, refresh := runPiAuthFailure(t, hostLaunchCase{
-		env: []string{openauthclient.HostSocketEnv + "=" + socket}})
-	requireBoth(t, login, refresh, func(msg string) string {
-		if strings.Contains(msg, "yolo host --") {
-			return "gives launch advice to a launch that already went through `yolo host`"
-		}
-		if !strings.Contains(msg, "host OpenAI credential service") {
-			return "does not carry the client's own failure"
-		}
-		return ""
-	})
+	for name, builtin := range map[string]bool{"a pi with no built-in to register natively": false,
+		"the native provider": true} {
+		t.Run(name, func(t *testing.T) {
+			socket := filepath.Join(t.TempDir(), "absent.sock")
+			got := runPiAuthFailure(t, hostLaunchCase{builtin: builtin,
+				env: []string{openauthclient.HostSocketEnv + "=" + socket}})
+			if got.Native != builtin {
+				t.Fatalf("native = %v, want %v", got.Native, builtin)
+			}
+			if _, resolved := got.Messages["resolve"]; resolved != builtin {
+				t.Fatalf("calls = %v: the native provider's resolve must be among them, and only there", got.Messages)
+			}
+			requireEach(t, got, func(msg string) string {
+				if strings.Contains(msg, "yolo host --") {
+					return "gives launch advice to a launch that already went through `yolo host`"
+				}
+				if !strings.Contains(msg, "host OpenAI credential service") {
+					return "does not carry the client's own failure"
+				}
+				return ""
+			})
+		})
+	}
 }
