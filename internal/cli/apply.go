@@ -159,7 +159,7 @@ func applyMain(args []string, out, errw io.Writer, color bool, stdin io.Reader) 
 		// IN A JAIL, NOTHING, at this spelling too (hostapplyinjail.go): `--at host`, its
 		// --revert, and a config whose `confinement` is host all render into the home of whoever
 		// runs them, which in a jail is the jail's own.
-		if rc, refused := refuseHostApplyInJail("yolo apply", errw); refused {
+		if rc, refused := refuseHostApplyInJail("yolo apply", revert, errw); refused {
 			return rc
 		}
 		finish := startHostApplyTiming(timing, errw)

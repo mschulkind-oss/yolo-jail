@@ -17,36 +17,45 @@ var hostApplySpellings = []struct {
 	name string
 	cfg  string // extra user-config keys
 	run  func(stdout, stderr *bytes.Buffer) int
+	// revert is whether the spelling asks for the withdrawal (--revert), whose next step on the
+	// host is the withdrawal too, never the render.
+	revert bool
 }{
-	{"host apply", "", func(o, e *bytes.Buffer) int { return hostMain([]string{"apply"}, o, e, false, nil) }},
+	{"host apply", "", func(o, e *bytes.Buffer) int { return hostMain([]string{"apply"}, o, e, false, nil) }, false},
 	{"host apply --assert", "", func(o, e *bytes.Buffer) int {
 		return hostMain([]string{"apply", "--assert"}, o, e, false, strings.NewReader("y\n"))
-	}},
+	}, false},
 	{"host apply --revert", "", func(o, e *bytes.Buffer) int {
 		return hostMain([]string{"apply", "--revert"}, o, e, false, nil)
-	}},
+	}, true},
 	{"host apply --revert --assert", "", func(o, e *bytes.Buffer) int {
 		return hostMain([]string{"apply", "--revert", "--assert"}, o, e, false, nil)
-	}},
+	}, true},
 	{"host apply --format json", "", func(o, e *bytes.Buffer) int {
 		return hostMain([]string{"apply", "--format", "json"}, o, e, false, nil)
-	}},
+	}, false},
 	{"host apply --timing", "", func(o, e *bytes.Buffer) int {
 		return hostMain([]string{"apply", "--timing"}, o, e, false, nil)
-	}},
-	{"apply --at host", "", func(o, e *bytes.Buffer) int { return applyMain([]string{"--at", "host"}, o, e, false, nil) }},
+	}, false},
+	{"apply --at host", "", func(o, e *bytes.Buffer) int { return applyMain([]string{"--at", "host"}, o, e, false, nil) }, false},
 	{"apply --at host --assert", "", func(o, e *bytes.Buffer) int {
 		return applyMain([]string{"--at", "host", "--assert"}, o, e, false, strings.NewReader("y\n"))
-	}},
+	}, false},
+	{"apply --at host --revert", "", func(o, e *bytes.Buffer) int {
+		return applyMain([]string{"--at", "host", "--revert"}, o, e, false, nil)
+	}, true},
 	{"apply --at host --revert --assert", "", func(o, e *bytes.Buffer) int {
 		return applyMain([]string{"--at", "host", "--revert", "--assert"}, o, e, false, nil)
-	}},
+	}, true},
 	{"apply under confinement: host", `, "confinement": "host"`, func(o, e *bytes.Buffer) int {
 		return applyMain(nil, o, e, false, nil)
-	}},
+	}, false},
 	{"apply --assert under confinement: host", `, "confinement": "host"`, func(o, e *bytes.Buffer) int {
 		return applyMain([]string{"--assert"}, o, e, false, strings.NewReader("y\n"))
-	}},
+	}, false},
+	{"apply --revert under confinement: host", `, "confinement": "host"`, func(o, e *bytes.Buffer) int {
+		return applyMain([]string{"--revert"}, o, e, false, nil)
+	}, true},
 }
 
 func TestAHostApplyRefusesInsideAJail(t *testing.T) {
@@ -63,10 +72,28 @@ func TestAHostApplyRefusesInsideAJail(t *testing.T) {
 			if out.Len() != 0 {
 				t.Errorf("stdout is not empty:\n%s", out.String())
 			}
-			for _, w := range []string{"refusing — this process is inside a jail", home,
-				"`yolo host apply --assert` in a terminal on the host", "Nothing was written."} {
+			for _, w := range []string{"refusing — this process is inside a jail", home, "Nothing was written."} {
 				if !strings.Contains(errw.String(), w) {
 					t.Errorf("the refusal lacks %q:\n%s", w, errw.String())
+				}
+			}
+			// THE NEXT STEP IS THE ONE ASKED FOR (happy-path-principle.md): a revert is told to
+			// withdraw on the host, and is never handed the render it was trying to undo.
+			next := []string{"Run `yolo host apply` (a dry run) or `yolo host apply --assert` in a terminal on the host."}
+			never := []string{"--revert"}
+			if sp.revert {
+				next = []string{"Run `yolo host apply --revert` (a dry run) or `yolo host apply --revert --assert` " +
+					"in a terminal on the host."}
+				never = []string{"`yolo host apply`", "`yolo host apply --assert`"}
+			}
+			for _, w := range next {
+				if !strings.Contains(errw.String(), w) {
+					t.Errorf("the refusal does not name the next step %q:\n%s", w, errw.String())
+				}
+			}
+			for _, w := range never {
+				if strings.Contains(errw.String(), w) {
+					t.Errorf("the refusal names %q, the wrong next step for this spelling:\n%s", w, errw.String())
 				}
 			}
 			if hashTree(t, home) != before {

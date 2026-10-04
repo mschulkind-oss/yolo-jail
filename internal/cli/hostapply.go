@@ -63,7 +63,7 @@ func hostApply(args []string, out, errw io.Writer, color bool, stdin io.Reader) 
 	// is the jail's own, which its launch already rendered (hostapplyinjail.go). After the parse,
 	// so --help and the --shell-init refusal still answer; before every stage, so a refused run
 	// writes nothing at all.
-	if rc, refused := refuseHostApplyInJail("yolo host apply", errw); refused {
+	if rc, refused := refuseHostApplyInJail("yolo host apply", revert, errw); refused {
 		return rc
 	}
 	// ABOVE EVERY STAGE, not just above the render. [OQ-RO4]'s refusal is misuse decided

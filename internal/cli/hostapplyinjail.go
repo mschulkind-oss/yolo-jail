@@ -29,15 +29,23 @@ import (
 // refuseHostApplyInJail refuses verb (the spelling the user typed, for the message) when this
 // process runs inside a jail, printing why and the next step; it reports the exit code and
 // whether it refused. Exit 1: the argv was well formed, and the place it ran is what is wrong.
-func refuseHostApplyInJail(verb string, errw io.Writer) (int, bool) {
+//
+// revert is whether the argv asked for the withdrawal (--revert), because the next step is the
+// operation the user asked for, run where it means something (happy-path-principle.md): a revert
+// is told to withdraw on the host, and is never handed the render it was trying to undo.
+func refuseHostApplyInJail(verb string, revert bool, errw io.Writer) (int, bool) {
 	if !config.InJail() {
 		return 0, false
+	}
+	next := "Run `yolo host apply` (a dry run) or `yolo host apply --assert` in a terminal on the host."
+	if revert {
+		next = "Run `yolo host apply --revert` (a dry run) or `yolo host apply --revert --assert` in a " +
+			"terminal on the host."
 	}
 	fmt.Fprintf(errw, "%s: refusing — this process is inside a jail, and a host apply renders "+
 		"into the home of whoever runs it: here the jail's own (%s), which this jail's launch "+
 		"already rendered for the jail. Nothing was written.\n"+
-		"  Run `yolo host apply` (a dry run) or `yolo host apply --assert` in a terminal on the "+
-		"host. This jail's own config is rendered again by its next launch.\n",
-		verb, paths.Home())
+		"  %s This jail's own config is rendered again by its next launch.\n",
+		verb, paths.Home(), next)
 	return 1, true
 }
