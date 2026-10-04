@@ -19,6 +19,7 @@ covers:
   - scripts/stage-source-bundle.sh
 tags: [image, nix, podman, mounts, packages, disk]
 stage: CURRENT
+next: "Give Apple Container the stock tag: container image tag <src> <dst> exists in container 1.1.0 and 1.5.0, so ImageTagCmd learns that spelling and both Runtime == container guards go (tagStockImage and its caller in AutoLoadImage), and TestMacArchiveDeliveryReusesLayers evicts the stock tag on Apple Container too, or the verifying dispatch fails on 'Image build skipped'. Then skip the no-op build for an unchanged launch that declares packages: generalize the stock record into a launch record keyed on the identity, the exact YOLO_EXTRA_PACKAGES, the attr and the system, taken only when every pinned nixpkgs value is a full commit; rewrite the non-goal that excludes it and ledger the change under OQ-4 and OQ-IP4"
 summary: "How a jail gets its image and its own binaries: the image bakes nixpkgs and names, a launch bind-mounts yolo's binaries and can deliver packages from the mounted nix store, a failed build is fatal, the loaded image is addressed by content and delivered by a layer-negotiating `skopeo copy` (layer-aware delivery, C9) over a three-tier layer plan, serialised machine-wide and with no retained tar anywhere. The invariants, the pipeline, the traps, and the cost model that shaped them."
 ---
 
