@@ -187,6 +187,60 @@ func TestAResidentAgentsStderrStaysOutOfTheHostLaunchLog(t *testing.T) {
 	}
 }
 
+// stderrMarkingManagedLaunch is a managed launch (a managed Codex login) that stays resident and
+// runs its program, standing in for codex: its Run writes managedStderrMarker to the stderr it was
+// handed, as the program would to its own, and keeps that writer for the cell to compare.
+type stderrMarkingManagedLaunch struct {
+	fakeManagedHostLaunch
+	stderr io.Writer
+}
+
+const managedStderrMarker = "MANAGED-AGENT-STDERR-MARKER-41c9"
+
+func (f *stderrMarkingManagedLaunch) Run(_ string, argv, _ []string, _ io.Reader, _, stderr io.Writer) (int, bool) {
+	f.ran, f.argv, f.stderr = true, argv, stderr
+	fmt.Fprintln(stderr, managedStderrMarker)
+	return 0, true
+}
+
+// A MANAGED LAUNCH KEEPS ITS OWN STREAM TOO: the second path yolo stays the parent on, a managed
+// Codex login's managed.Run, is handed the caller's stderr itself, never the teed one. A tee there
+// would put a pipe on the program's stderr in place of the terminal and copy what it prints into
+// the machine log.
+func TestAManagedLaunchsStderrStaysOutOfTheHostLaunchLog(t *testing.T) {
+	timingHome(t, "")
+	fake := &stderrMarkingManagedLaunch{}
+	orig := prepareOpenAIAuthHost
+	prepareOpenAIAuthHost = func(hostPrelaunch, io.Writer) (managedOpenAIHostLaunch, error) { return fake, nil }
+	t.Cleanup(func() { prepareOpenAIAuthHost = orig })
+	origExec := hostSyscallExec
+	hostSyscallExec = func(string, []string, []string) error {
+		t.Error("the managed launch exec'd instead of running its program")
+		return nil
+	}
+	t.Cleanup(func() { hostSyscallExec = origExec })
+
+	var errw bytes.Buffer
+	if rc := hostMain([]string{"--", "mytool"}, io.Discard, &errw, false, nil); rc != 0 || !fake.ran {
+		t.Fatalf("rc = %d, managed launch ran = %v\n%s", rc, fake.ran, errw.String())
+	}
+	if fake.stderr != io.Writer(&errw) {
+		t.Errorf("the managed launch was handed %T for stderr, not the caller's own stream", fake.stderr)
+	}
+	if !strings.Contains(errw.String(), managedStderrMarker) {
+		t.Fatalf("the program's stderr never reached the caller's stream:\n%s", errw.String())
+	}
+	log := readFile(t, run.HostLaunchLogPath())
+	if strings.Contains(log, managedStderrMarker) {
+		t.Errorf("the managed program's own stderr landed in host-launch.log:\n%s", log)
+	}
+	for _, w := range []string{"yolo host: starting mytool", "=== launch done"} {
+		if !strings.Contains(log, w) {
+			t.Errorf("host-launch.log lacks yolo's own %q:\n%s", w, log)
+		}
+	}
+}
+
 // THE LOG KEEPS THE NEWEST perf.MaxRuns BLOCKS: a launch over a full log trims it at open, keeping
 // the newest and adding its own.
 func TestTheHostLaunchLogKeepsTheNewestRuns(t *testing.T) {
