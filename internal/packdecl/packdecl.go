@@ -266,6 +266,12 @@ type Install struct {
 	Source   string   `json:"source,omitempty"`
 	Build    string   `json:"build,omitempty"`
 	Produces []string `json:"produces,omitempty"`
+	// Patches and Follow are a PATCHED FORK's (docs/design/patched-forks.md): the pack-relative
+	// series directory, relative to the FORK pack's root (ForkedBy's), and the follow rule as
+	// written ("" meaning the default, "release"). Both empty for a plain fork. The Contribution
+	// fields of the same names carry the grammar.
+	Patches string `json:"patches,omitempty"`
+	Follow  string `json:"follow,omitempty"`
 	// ForkedBy names the fork pack whose build this program is, "" for every program that is
 	// not a fork's. Provenance only: every line that says what a source-built program is names
 	// the pack that supplied its bytes, not only the pack that owns its name.
@@ -477,10 +483,24 @@ func Decode(data []byte) (*Manifest, []string) {
 	dec := json.NewDecoder(bytes.NewReader(clean))
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(&m); err != nil {
-		return nil, []string{ManifestName + ": " + err.Error()}
+		return nil, []string{ManifestName + ": " + err.Error() + unknownFieldHint(err)}
 	}
 	problems := append(m.retiredFieldProblems(), m.installHintProblems()...)
 	return &m, append(problems, m.Validate()...)
+}
+
+// unknownFieldHint is the next step a strict decode's unknown-field refusal names, "" for any
+// other decode error (docs/design/patched-forks.md PF-D1). A field this build does not know is
+// either a typo or a field a NEWER yolo reads — a pack published for a newer yolo, such as a
+// patched fork's `patches` read by a yolo older than the mode — and encoding/json's bare
+// `json: unknown field "x"` names neither. It helps the next new field, not one an older binary
+// already refuses.
+func unknownFieldHint(err error) string {
+	if !strings.HasPrefix(err.Error(), "json: unknown field ") {
+		return ""
+	}
+	return " — check its spelling; if the pack was written for a newer yolo, that yolo may read " +
+		"this field: update yolo"
 }
 
 // retiredFieldProblems reports a field this build has RETIRED — decodable, so the strict

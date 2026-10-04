@@ -59,16 +59,59 @@ func forkFields(c Contribution) []struct {
 	}
 }
 
+// IsPatchedFork reports whether c is a PATCHED FORK's own program contribution: a fork that
+// declares `patches` (docs/design/patched-forks.md PF-D1). Its `source` names the upstream, and
+// its bytes are that upstream at a commit with the series replayed.
+func (c Contribution) IsPatchedFork() bool {
+	return c.IsFork() && c.Patches != ""
+}
+
+// IsPatchedFork reports whether this Install is a patched fork's delivery: a base program the
+// fork rewrite gave a fork's build whose fork declares `patches`.
+func (in Install) IsPatchedFork() bool {
+	return in.Kind == InstallKindSource && in.Patches != ""
+}
+
+// patchedForkFields are the two fields a PATCHED fork adds to a fork's four, for the placement
+// refusal: on anything but a fork they are read by no consumer.
+func patchedForkFields(c Contribution) []struct {
+	name string
+	set  bool
+} {
+	return []struct {
+		name string
+		set  bool
+	}{
+		{"patches", c.Patches != ""},
+		{"follow", c.Follow != ""},
+	}
+}
+
 // forkFieldPlacementProblems refuses the four fork fields anywhere but a `program` delivered
 // `via: "source"`, in `update`'s position and for its reason: on any other kind, or beside any
 // other via, no consumer reads them, so accepting them would be a declaration that silently
 // does nothing. The reverse — `via: "source"` without them — is forkProblems' required-field
-// check.
+// check. A patched fork's two fields, `patches` and `follow`, are refused in the same place with
+// the declaration that does read them named.
 func forkFieldPlacementProblems(label string, c Contribution) []string {
 	if c.Kind == KindProgram && c.Via == ViaSource {
 		return nil
 	}
 	var problems []string
+	for _, f := range patchedForkFields(c) {
+		if !f.set {
+			continue
+		}
+		on := fmt.Sprintf("kind %q does not take %q", c.Kind, f.name)
+		if c.Kind == KindProgram {
+			on = fmt.Sprintf("a program delivered via %q does not take %q", c.Via, f.name)
+		}
+		problems = append(problems, fmt.Sprintf(
+			"%s: %s — it is part of a PATCHED FORK's delivery (a patch series replayed onto an "+
+				"upstream and built in a capture jail), which only a \"program\" with via %q, "+
+				"\"fork_of\" and \"patches\" declares; no consumer reads it here",
+			label, on, ViaSource))
+	}
 	for _, f := range forkFields(c) {
 		if !f.set {
 			continue
@@ -158,7 +201,65 @@ func forkProblems(label string, c Contribution) []string {
 			"a script, which belongs in the fork's repository where the command can call it")
 	}
 	problems = append(problems, producesProblems(label, c.Bin, c.Produces)...)
+	problems = append(problems, patchedForkProblems(label, c)...)
 	return problems
+}
+
+// patchedForkProblems validates a fork's `patches` and `follow` statically
+// (docs/design/patched-forks.md §3.1, PF-D1 to PF-D3): the series directory is a clean
+// pack-relative path, `follow` is in its grammar and only beside `patches`, and a patched fork's
+// ref is not `HEAD`. What the directory holds is read at each check, never here, so a broken
+// series is the fork's reason at launch rather than a pack this build refuses to load.
+func patchedForkProblems(label string, c Contribution) []string {
+	var problems []string
+	if c.Follow != "" && c.Patches == "" {
+		problems = append(problems, fmt.Sprintf("%s: \"follow\" needs \"patches\" — following an "+
+			"upstream is a PATCHED fork's opt-in, and a plain fork's pin moves only by `yolo pack "+
+			"update` (FP-D18); add a \"patches\" directory holding a `git format-patch --base` "+
+			"series, or drop \"follow\"", label))
+	}
+	if c.Follow != "" {
+		if _, err := packsrc.ParseFollow(c.Follow); err != nil {
+			problems = append(problems, fmt.Sprintf("%s.follow: %v", label, err))
+		}
+	}
+	if c.Patches == "" {
+		return problems
+	}
+	if why := PatchesDirProblem(c.Patches); why != "" {
+		problems = append(problems, fmt.Sprintf("%s.patches %q: %s", label, c.Patches, why))
+	}
+	if a, err := packsrc.Parse(c.Source); err == nil && a.Ref == "HEAD" {
+		problems = append(problems, fmt.Sprintf("%s.source %q: a patched fork's ?ref= names a branch "+
+			"to follow, or a tag or a full commit to hold at, and HEAD is none of them — it moves "+
+			"with its branch whenever the mirror is fetched, so it would read as held while it "+
+			"moves; name the branch (?ref=main), a tag or a full commit", label, c.Source))
+	}
+	return problems
+}
+
+// PatchesDirProblem says why p cannot name a patched fork's series directory, or "": it must be a
+// clean path relative to the fork pack's root, inside it, and not the root itself. The same
+// directory is read at every check (packsrc.ReadSeries), which also refuses a link anywhere on
+// the way to it; this is the half that needs no file system.
+func PatchesDirProblem(p string) string {
+	switch {
+	case strings.HasPrefix(p, "/"):
+		return "must be relative to the pack's root, not absolute"
+	case strings.Contains(p, "\\"):
+		return "must use \"/\" as its separator"
+	case p == ".":
+		return "names the pack's root itself — the series is a directory of its own inside the " +
+			"pack, e.g. \"patches\""
+	case path.Clean(p) != p:
+		return "must be a clean path (no ./, //, or trailing /)"
+	}
+	for _, seg := range strings.Split(p, "/") {
+		if seg == ".." {
+			return "must stay inside the pack (no \"..\")"
+		}
+	}
+	return ""
 }
 
 // ForkSourceProblem says why a fork's `source` cannot key a build, or "" when it can: it must
@@ -285,6 +386,21 @@ func ForkRecipe(build string, produces []string, subdir string) string {
 	return hex.EncodeToString(sum[:])
 }
 
+// PatchedForkRecipe is a PATCHED fork build's recipe hash (docs/design/patched-forks.md §6.3,
+// PF-D7): ForkRecipe's canonical array with the series digest appended, [build, sorted produces,
+// subdir, series digest]. A patched build's bytes are the upstream commit with the series
+// replayed, so two series must never share an entry, and the series digest is the one input
+// besides the commit that says which. A plain fork's recipe is ForkRecipe's, byte for byte as it
+// was before this mode existed, so no entry a plain fork built stops hitting
+// (TestAPlainForkRecipeIsByteForByteWhatItWas).
+func PatchedForkRecipe(build string, produces []string, subdir, series string) string {
+	sorted := append([]string(nil), produces...)
+	sort.Strings(sorted)
+	canonical, _ := json.Marshal([]any{build, sorted, subdir, series})
+	sum := sha256.Sum256(canonical)
+	return hex.EncodeToString(sum[:])
+}
+
 // ForkSourceRecipe is ForkRecipe for a fork's declaration as the manifest spells it: the source
 // subdirectory is read off the source address (the `//sub` of a pack address), so every reader —
 // the build act that records a build, the jail launch and the host floor that ask for one — keys a
@@ -298,12 +414,35 @@ func ForkSourceRecipe(source, build string, produces []string) string {
 }
 
 // SourceRecipe is ForkSourceRecipe for this Install's fork delivery, "" for a program that is not
-// a fork's.
+// a fork's — and "" for a PATCHED fork's, whose recipe also needs the series digest no manifest
+// carries (the series is read at each check, never at selection): its readers ask
+// PatchedSourceRecipe with the digest of the series they read, or read the good build's recipe.
+// "" matches no build a store holds, so a reader that missed the patched arm finds nothing to
+// serve rather than a plain fork's build of the unpatched upstream.
 func (in Install) SourceRecipe() string {
-	if in.Kind != InstallKindSource {
+	if in.Kind != InstallKindSource || in.Patches != "" {
 		return ""
 	}
 	return ForkSourceRecipe(in.Source, in.Build, in.Produces)
+}
+
+// PatchedSourceRecipe is PatchedForkRecipe for this Install's patched-fork delivery and the given
+// series digest, "" for a program that is not a patched fork's.
+func (in Install) PatchedSourceRecipe(series string) string {
+	if !in.IsPatchedFork() {
+		return ""
+	}
+	return ForkSourcePatchedRecipe(in.Source, in.Build, in.Produces, series)
+}
+
+// ForkSourcePatchedRecipe is PatchedForkRecipe for a patched fork's declaration as the manifest
+// spells it, the subdirectory read off the source address as ForkSourceRecipe reads it.
+func ForkSourcePatchedRecipe(source, build string, produces []string, series string) string {
+	sub := ""
+	if a, err := packsrc.Parse(source); err == nil {
+		sub = a.Path
+	}
+	return PatchedForkRecipe(build, produces, sub, series)
 }
 
 // forkProgramExample renders the accepted program paths for a message.

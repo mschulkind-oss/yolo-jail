@@ -82,6 +82,29 @@ type Contribution struct {
 	// (`.local/bin/<bin>`, `.npm-global/bin/<bin>` or `go/bin/<bin>`). A build whose result
 	// misses one stores nothing: an exit status of 0 with no program is a failed build (§9).
 	Produces []string `json:"produces,omitempty"`
+	// Patches makes the fork a PATCHED FORK (docs/design/patched-forks.md, PF-D1): a clean
+	// pack-relative directory holding a `git format-patch --base` series, which yolo replays
+	// onto the upstream `source` names instead of building a fork repository. Its presence is
+	// the opt-in: `source` then names the UPSTREAM, with `?ref=` a branch to follow or a tag or
+	// a full commit to hold at, and what runs follows that upstream for as long as the series
+	// applies and builds. Refused on every contribution but a fork's.
+	//
+	// THE SERIES is the regular files in the directory whose names end in `.patch`, in
+	// byte-wise lexical order, each one mail-format (`git format-patch` output), at least one,
+	// the first naming its base commit (`base-commit:`, which `--base` writes). No link may sit
+	// anywhere on the way from the pack root to a member (PF-D2). The contents are read at
+	// each check, never at validation, so a broken series is the fork's reason, not a refused
+	// pack. Export one from a fork's checkout with
+	// `git format-patch --base=$(git merge-base <upstream>/main HEAD) -o patches <upstream>/main..HEAD`.
+	Patches string `json:"patches,omitempty"`
+	// Follow says which commit of a BRANCH `?ref=` a patched fork takes (PF-D3, PF-D24):
+	// "release", the default, takes the newest tag merged into the branch whose name is a
+	// semantic version, optionally `v`-led; "release:<prefix>" takes the same among tags named
+	// <prefix> followed by a semantic version (a monorepo's per-package tags); "head" takes the
+	// branch's newest commit. A tag or full-commit ref holds the fork there whatever this says.
+	// Refused without `patches`: a plain fork's pin moves only by `yolo pack update` (FP-D18),
+	// and following an upstream is the patched mode's opt-in, not a dial on a plain fork.
+	Follow string `json:"follow,omitempty"`
 	// ForkedBy is NOT a manifest field, and no manifest can set it: the fork rewrite
 	// (packload.ApplyForks) sets it on the copy of the BASE's program it rewrites, naming the
 	// fork pack, so a reader of the base's program can say whose bytes it runs.
@@ -1170,6 +1193,9 @@ func (m *Manifest) InstallContributions() []Install {
 			// bytes these are. Copied, so an Install edited by a consumer cannot reach back.
 			in.Source, in.Build, in.ForkedBy = c.Source, c.Build, c.ForkedBy
 			in.Produces = append([]string(nil), c.Produces...)
+			// A patched fork's series directory and follow rule ride along, so every reader of
+			// the program can tell a patched fork from a plain one (Install.IsPatchedFork).
+			in.Patches, in.Follow = c.Patches, c.Follow
 		}
 		out = append(out, in)
 	}
