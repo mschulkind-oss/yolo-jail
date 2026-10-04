@@ -183,7 +183,7 @@ func Scan(s *Store, read Records) ([]Scanned, error) {
 	}
 	out := make([]Scanned, 0, len(scan))
 	for _, er := range scan {
-		out = append(out, Scanned{Key: er.Key, Records: er.Records})
+		out = append(out, Scanned(er))
 	}
 	return out, nil
 }
