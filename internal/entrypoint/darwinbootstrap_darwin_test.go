@@ -196,3 +196,47 @@ func TestDarwinBootstrapToleratesAMissingOverlay(t *testing.T) {
 		t.Errorf("a missing overlay was silent:\n%s", warnings.String())
 	}
 }
+
+// The real bootstrap keeps the container's boot log in the workspace on a real macOS
+// filesystem. The workspace is resolved where it is minted (bootstrapEnv), as the launcher
+// resolves it, so no link sits above `.yolo` here; that the open follows one is
+// TestTheDarwinBootLogFollowsALinkAboveTheStateDir's, on every platform.
+func TestDarwinBootstrapKeepsABootLogInTheWorkspace(t *testing.T) {
+	home := t.TempDir()
+	e := bootstrapEnv(t, home, nil)
+	if err := RunDarwinBootstrap(e, DarwinBootstrapOptions{MacosLog: "off", Version: "darwin-twin"}); err != nil {
+		t.Fatalf("bootstrap failed: %v", err)
+	}
+	raw, err := os.ReadFile(BootLogPath(e.Workspace))
+	if err != nil {
+		t.Fatalf("the bootstrap kept no boot log in its workspace: %v", err)
+	}
+	log := string(raw)
+	if !strings.Contains(log, "macos-user bootstrap, yolo darwin-twin\n") ||
+		!strings.HasSuffix(log, "=== boot complete, handing over ===\n") {
+		t.Errorf("boot.log does not record what booted and how it ended:\n%s", log)
+	}
+}
+
+// And it reads the session env file the launch named into its generator Env, so an MCP server
+// gated on a variable only that file carries is kept in the MCP table.
+func TestDarwinBootstrapReadsTheSessionEnvFile(t *testing.T) {
+	home := t.TempDir()
+	file := filepath.Join(t.TempDir(), "session.env")
+	if err := os.WriteFile(file, []byte("export GITHUB_TOKEN='ghp_fake'\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	e := bootstrapEnv(t, home, map[string]string{
+		"YOLO_MCP_SERVERS":      `{"gh":{"command":"gh-mcp","requires_env":["GITHUB_TOKEN"]}}`,
+		DarwinSessionEnvFileEnv: file,
+	})
+	if err := RunDarwinBootstrap(e, DarwinBootstrapOptions{MacosLog: "off"}); err != nil {
+		t.Fatalf("bootstrap failed: %v", err)
+	}
+	if !sharedMCPNames(e)["gh"] {
+		t.Error("the env-gated server is not in the MCP table after the bootstrap read the session file")
+	}
+	if os.Getenv("GITHUB_TOKEN") == "ghp_fake" {
+		t.Error("the bootstrap exported the session file's GITHUB_TOKEN into its own process")
+	}
+}

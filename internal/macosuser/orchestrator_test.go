@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/entrypoint"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 )
 
@@ -611,5 +612,61 @@ func TestNoPackEnvMeansNoWireTables(t *testing.T) {
 		if strings.Contains(joined, wire) {
 			t.Errorf("a launch with no channel must not invent %s: %s", wire, joined)
 		}
+	}
+}
+
+// A FAILED BOOTSTRAP SENDS ITS READER TO THE BOOT LOG, which the bootstrap now keeps in the
+// workspace (entrypoint.BootLogPath): the launch line alone said that it failed, and the
+// bootstrap's own output — the refusal and every line before it — was on a terminal the user
+// may have closed. And the session env file is installed BEFORE the bootstrap runs, because
+// the bootstrap reads it (hydrate_session_env).
+//
+// HEDGED, because the log is this launch's only if the bootstrap got as far as opening it: a
+// refusal before RunDarwinBootstrap (the workspace-scope check), a sudo or exec failure, or a
+// linked `.yolo` leaves the PREVIOUS launch's log at that path, which may well end "boot
+// complete". So the line says how to tell (the log's first line carries the time it started)
+// and where the output is otherwise.
+func TestABootstrapFailureNamesTheBootLog(t *testing.T) {
+	var rec []string
+	d := mockDeps(&rec)
+	run := d.Run
+	d.Run = func(argv []string) int {
+		if strings.Contains(strings.Join(argv, " "), "internal darwin-bootstrap") {
+			rec = append(rec, "run:"+strings.Join(argv, " "))
+			return 1
+		}
+		return run(argv)
+	}
+	var buf bytes.Buffer
+	d.Out = &buf
+	opts := newOpts("/Users/Shared/yolo/proj")
+	if rc := RunMacosUser(d, opts); rc != 1 {
+		t.Fatalf("rc = %d after a failed bootstrap, want 1\n%s", rc, buf.String())
+	}
+	out := buf.String()
+	if !strings.Contains(out, "entrypoint bootstrap failed") ||
+		!strings.Contains(out, entrypoint.BootLogPath(resolvePathAbs(opts.Workspace))) {
+		t.Errorf("the bootstrap-failed line does not name the boot log %s:\n%s",
+			entrypoint.BootLogPath(resolvePathAbs(opts.Workspace)), out)
+	}
+	for _, want := range []string{"If it got as far as opening its log", "first line", "the lines above"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("the bootstrap-failed line claims the log is this launch's without saying how "+
+				"to tell, or where the output is otherwise (missing %q):\n%s", want, out)
+		}
+	}
+
+	envInstall, boot := -1, -1
+	for i, r := range rec {
+		switch {
+		case envInstall < 0 && strings.HasPrefix(r, "install:"+stateDir+"/"+sandboxEnvLeaf+"/"):
+			envInstall = i
+		case boot < 0 && strings.Contains(r, "internal darwin-bootstrap"):
+			boot = i
+		}
+	}
+	if envInstall < 0 || boot < 0 || envInstall > boot {
+		t.Errorf("the session env file must be installed before the bootstrap that reads it "+
+			"(install at %d, bootstrap at %d):\n%s", envInstall, boot, strings.Join(rec, "\n"))
 	}
 }

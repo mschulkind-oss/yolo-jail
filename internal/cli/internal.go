@@ -25,6 +25,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/packdecl"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/selfupdate"
+	"github.com/mschulkind-oss/yolo-jail/internal/version"
 )
 
 // runInternal dispatches the hidden `yolo internal <cmd>` family — debugging
@@ -263,7 +264,10 @@ func runBundleDir(args []string) int {
 // YOLO_DARWIN_WORKSPACE, YOLO_DARWIN_MACOS_LOG, YOLO_DARWIN_HOME_SIDECAR and
 // YOLO_DARWIN_LOGIN_PATH — the last two read off the Env rather than passed as options,
 // because the layout is derived from the staged packs and the login rc files now re-prepend
-// the variable itself instead of a value baked at generation time.
+// the variable itself instead of a value baked at generation time. YOLO_DARWIN_ENV_FILE names
+// the session env file, which the bootstrap reads into its Env and never into this process's
+// environment (entrypoint's hydrate_session_env step). The bootstrap writes
+// <workspace>/.yolo/boot.log as the container boot does.
 func runDarwinBootstrap(_ []string) int {
 	home := firstNonEmptyEnv("JAIL_HOME", "HOME")
 	if home == "" {
@@ -303,6 +307,9 @@ func runDarwinBootstrap(_ []string) int {
 	opts := entrypoint.DarwinBootstrapOptions{
 		MacosLog:      os.Getenv("YOLO_DARWIN_MACOS_LOG"),
 		YoloLogScript: macosuser.MacosLogWrapperScript(os.Getenv("YOLO_DARWIN_MACOS_LOG")),
+		// The boot log's version line, from this binary's own stamp. NEVER relayed as
+		// YOLO_VERSION: that variable is the jail marker, and this process is not in one.
+		Version: version.Baked(),
 	}
 	if err := entrypoint.RunDarwinBootstrap(e, opts); err != nil {
 		// A12: do NOT print "ok" over a failed bootstrap.

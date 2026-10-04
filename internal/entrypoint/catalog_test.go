@@ -224,7 +224,7 @@ func TestCatalogSizeScalesItsUnit(t *testing.T) {
 			t.Skipf("cannot size a %d-byte file here: %v", tc.size, err)
 		}
 		f.Close()
-		if got := catalogSize(path); got != tc.want {
+		if got := catalogSize(hostOrphanFS{}, path); got != tc.want {
 			t.Errorf("catalogSize(%d bytes) = %q, want %q", tc.size, got, tc.want)
 		}
 	}
@@ -235,7 +235,7 @@ func TestCatalogSizeScalesItsUnit(t *testing.T) {
 	if err := os.Mkdir(sub, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if got := catalogSize(sub); got != "" {
+	if got := catalogSize(hostOrphanFS{}, sub); got != "" {
 		t.Errorf("catalogSize(dir) = %q, want no size", got)
 	}
 }
@@ -503,36 +503,95 @@ func TestBootCatalogSaysHowManyAndLogsWhich(t *testing.T) {
 	}
 }
 
-// THE macos-user BOOTSTRAP DOES NOT CATALOG, driven through RunDarwinBootstrap with the Env
-// built the way the production caller builds it (internal/cli/internal.go: DarwinEnvFrom, then
-// Stderr and nothing else — no boot log, so no LogOnly sink). The catalog's one line points at
-// boot.log for the names, `yolo programs ls` for sizes and `programs.autoprune` for removal, and
-// on this backend there is no boot log (every name would be discarded), `programs ls` answers
-// wrongly and autoprune is not relayed. A count whose three pointers are all dead is not a
-// report, so the step is a declared exclusion there until they exist.
+// THE macos-user BOOTSTRAP CATALOGS, INTO ITS BOOT LOG, driven through RunDarwinBootstrap
+// with the Env built the way the production caller builds it (internal/cli/internal.go:
+// DarwinEnvFrom, then Stderr and nothing else). The one terminal line points at boot.log for
+// the names, and on this backend boot.log now exists (attachDarwinBootLog): the line reaches
+// the terminal, and the orphan's name reaches the log through e.note.
 //
-// The bashrc assertion is what keeps the absence meaningful: it proves the bootstrap ran the
-// table past the catalog's slot rather than stopping before it.
-//
-// MUTATION: delete the catalog step's notDarwin and this goes red on the terminal half.
-func TestTheDarwinBootstrapDoesNotCatalogOrphans(t *testing.T) {
+// MUTATION: restore the catalog step's notDarwin, or delete the bootstrap's boot-log attach,
+// and this goes red.
+func TestTheDarwinBootstrapCatalogsOrphansIntoItsBootLog(t *testing.T) {
 	home, packRoot := catalogHome(t)
 	seedNpm(t, home, "leftover-agent")
+	ws := t.TempDir()
 	e := DarwinEnvFrom(map[string]string{
-		"JAIL_HOME": home, "YOLO_PACK_ROOT": packRoot, "YOLO_DARWIN_WORKSPACE": t.TempDir(),
+		"JAIL_HOME": home, "YOLO_PACK_ROOT": packRoot, "YOLO_DARWIN_WORKSPACE": ws,
 	}, home)
 	var term strings.Builder
 	e.Stderr = &term
 
 	_ = RunDarwinBootstrap(e, DarwinBootstrapOptions{MacosLog: "off"})
 
-	if strings.Contains(term.String(), catalogPrefix) {
-		t.Errorf("the macos-user bootstrap cataloged orphans it has no boot log to name:\n%s",
+	if !strings.Contains(term.String(), catalogSummary(1)) {
+		t.Errorf("the macos-user bootstrap did not catalog the orphan on the terminal:\n%s",
 			term.String())
 	}
-	if _, err := os.Stat(filepath.Join(home, ".bashrc")); err != nil {
-		t.Fatalf("the bootstrap did not run the table past the catalog's slot (no ~/.bashrc): %v\n%s",
+	log, err := os.ReadFile(BootLogPath(ws))
+	if err != nil {
+		t.Fatalf("the macos-user bootstrap kept no boot log for the names: %v\n%s", err, term.String())
+	}
+	line := catalogPrefix + "npm package installed but not declared by any selected pack or preset: leftover-agent"
+	if !strings.Contains(string(log), line) {
+		t.Errorf("boot.log does not name the orphan the terminal line counted:\n%s", log)
+	}
+	if strings.Contains(term.String(), line) {
+		t.Errorf("the per-orphan line reached the terminal; it belongs in boot.log alone:\n%s", term.String())
+	}
+}
+
+// AND programs.autoprune REMOVES THROUGH THE HOME LAYOUT'S LINK. On macos-user ~/.npm-global is
+// a symlink into the workspace sidecar (<workspace>/.yolo/home/npm-global), laid by the
+// bootstrap's own first step, so the orphan's bytes and its bin link live in the sidecar while
+// the Env names them through the home. The relayed variable is what turns the act on
+// (macosuser.BuildRunPlanWithDaemons sets it from the user's config). The act unlinks beneath
+// roots on the sidecar (catalogConfinedOrphans), a scoped package's emptied scope included.
+func TestTheDarwinBootstrapAutoprunesThroughTheHomeLayoutLink(t *testing.T) {
+	home, packRoot := catalogHome(t)
+	ws := t.TempDir()
+	sidecar := filepath.Join(ws, ".yolo", "home")
+	pkg := filepath.Join(sidecar, "npm-global", "lib", "node_modules", "leftover-agent")
+	if err := os.MkdirAll(filepath.Join(pkg, "bin"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	scoped := filepath.Join(sidecar, "npm-global", "lib", "node_modules", "@gone", "agent")
+	if err := os.MkdirAll(scoped, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(pkg, "bin", "cli.js"), []byte("x"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	bin := filepath.Join(sidecar, "npm-global", "bin")
+	if err := os.MkdirAll(bin, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("../lib/node_modules/leftover-agent/bin/cli.js", filepath.Join(bin, "leftover")); err != nil {
+		t.Fatal(err)
+	}
+	e := DarwinEnvFrom(map[string]string{
+		"JAIL_HOME": home, "YOLO_PACK_ROOT": packRoot, "YOLO_DARWIN_WORKSPACE": ws,
+		DarwinHomeSidecarEnv: sidecar, OrphanAutopruneEnv: "1",
+	}, home)
+	var term strings.Builder
+	e.Stderr = &term
+
+	_ = RunDarwinBootstrap(e, DarwinBootstrapOptions{MacosLog: "off"})
+
+	if fi, err := os.Lstat(filepath.Join(home, ".npm-global")); err != nil || fi.Mode()&os.ModeSymlink == 0 {
+		t.Fatalf("the fixture is not the layout this test is about: ~/.npm-global is not a link (err=%v)\n%s",
 			err, term.String())
+	}
+	if !strings.Contains(term.String(), autoprunePrefix+"removing leftover-agent") {
+		t.Errorf("autoprune did not announce the removal:\n%s", term.String())
+	}
+	if _, err := os.Lstat(pkg); !os.IsNotExist(err) {
+		t.Errorf("the orphan's package survived autoprune in the sidecar (err=%v)\n%s", err, term.String())
+	}
+	if _, err := os.Lstat(filepath.Join(bin, "leftover")); !os.IsNotExist(err) {
+		t.Errorf("the orphan's bin link survived autoprune (err=%v)", err)
+	}
+	if _, err := os.Lstat(filepath.Dir(scoped)); !os.IsNotExist(err) {
+		t.Errorf("the scoped orphan, or the scope it emptied, survived autoprune (err=%v)\n%s", err, term.String())
 	}
 }
 
@@ -565,16 +624,18 @@ func TestBootCatalogIsSilentOnBothSinksWithNoOrphans(t *testing.T) {
 //     away (TestBothBootsRunTheTable), so it reads the PREVIOUS launch's state, the only state
 //     in which "undeclared" means anything.
 //
-// The macos-user bootstrap does not run it, for the reason declared on the step
-// (TestTheDarwinBootstrapDoesNotCatalogOrphans). The step's body is located with callIndex, which skips a commented-out mention.
+// The macos-user bootstrap runs it in the same slot (TestTheDarwinBootstrapCatalogsOrphansIntoItsBootLog).
+// The step's body is located with callIndex, which skips a commented-out mention.
 func TestBootCatalogsOrphansBesideTheOtherInformationalSteps(t *testing.T) {
 	s := mustBootStep(t, "catalog_installed_orphans")
 	if s.gen != nil || s.run == nil {
 		t.Error("the catalog must be a run step, not a generator: it generates nothing, and a " +
 			"fatal there would mean a jail with one orphaned package refuses to START")
 	}
-	assertStepBefore(t, bootContainer, "assert_required_bins", "catalog_installed_orphans",
-		"the two informational steps read the same declarations, and the missing-bin finding comes first")
+	for _, target := range []bootTarget{bootContainer, bootDarwin} {
+		assertStepBefore(t, target, "assert_required_bins", "catalog_installed_orphans",
+			"the two informational steps read the same declarations, and the missing-bin finding comes first")
+	}
 	src, err := os.ReadFile(filepath.Join(repoRoot(t), "internal", "entrypoint", "bootsteps.go"))
 	if err != nil {
 		t.Fatal(err)
@@ -582,6 +643,10 @@ func TestBootCatalogsOrphansBesideTheOtherInformationalSteps(t *testing.T) {
 	if callIndex(string(src), "CatalogInstalledOrphans(b.e)") < 0 {
 		t.Fatal("the boot step table never calls CatalogInstalledOrphans — the catalog is " +
 			"unreachable, and every test in this file passes anyway")
+	}
+	if callIndex(string(src), "catalogConfinedOrphans(b.e)") < 0 {
+		t.Fatal("the boot step table never calls catalogConfinedOrphans — the macos-user " +
+			"bootstrap catalogs, and autoprunes, through links the agent can leave")
 	}
 }
 
@@ -603,4 +668,202 @@ func callIndex(src, needle string) int {
 		off = i + len(needle)
 	}
 	return -1
+}
+
+// darwinSidecarFixture is a macos-user workspace for the catalog: a workspace whose sidecar
+// (<ws>/.yolo/home) the bootstrap lays the home's links into, and a SIBLING workspace beside
+// it, the directory the session's sandbox profile denies the agent. Returns the workspace, its
+// sidecar and the sibling.
+func darwinSidecarFixture(t *testing.T) (ws, sidecar, sibling string) {
+	t.Helper()
+	root := resolvedDir(t)
+	ws, sibling = filepath.Join(root, "ws"), filepath.Join(root, "otherws")
+	sidecar = filepath.Join(ws, ".yolo", "home")
+	for _, d := range []string{sidecar, filepath.Join(sibling, "src")} {
+		if err := os.MkdirAll(d, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return ws, sidecar, sibling
+}
+
+// THE macos-user BOOTSTRAP NEITHER LISTS NOR DELETES THROUGH A LINK THE AGENT LEFT IN THE
+// SIDECAR. The bootstrap runs as the sandbox account OUTSIDE Seatbelt, and the sidecar is in the
+// workspace the agent writes, so a link at <sidecar>/local/bin to a sibling workspace once made
+// the catalog list that workspace's files as orphans and autoprune delete them — files the
+// session's profile denies the agent. The finders now read beneath a root opened on the sidecar
+// itself, and a link on the way refuses the directory, saying which link and what to do.
+//
+// MUTATION: make the darwin catalog step call CatalogInstalledOrphans unconfined, and the
+// sibling's file is deleted.
+func TestTheDarwinBootstrapRemovesNothingThroughALinkInTheSidecar(t *testing.T) {
+	home, packRoot := catalogHome(t)
+	ws, sidecar, sibling := darwinSidecarFixture(t)
+	outside := filepath.Join(sibling, "src", "main.go")
+	if err := os.WriteFile(outside, []byte("package main\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(sidecar, "local"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(sidecar, "local", "bin")
+	if err := os.Symlink(filepath.Join(sibling, "src"), link); err != nil {
+		t.Fatal(err)
+	}
+	e := DarwinEnvFrom(map[string]string{
+		"JAIL_HOME": home, "YOLO_PACK_ROOT": packRoot, "YOLO_DARWIN_WORKSPACE": ws,
+		DarwinHomeSidecarEnv: sidecar, OrphanAutopruneEnv: "1",
+	}, home)
+	var term strings.Builder
+	e.Stderr = &term
+
+	_ = RunDarwinBootstrap(e, DarwinBootstrapOptions{MacosLog: "off"})
+
+	if fi, err := os.Lstat(filepath.Join(home, ".local")); err != nil || fi.Mode()&os.ModeSymlink == 0 {
+		t.Fatalf("the fixture is not the layout this test is about: ~/.local is not a link (err=%v)\n%s",
+			err, term.String())
+	}
+	if got, err := os.ReadFile(outside); err != nil || string(got) != "package main\n" {
+		t.Fatalf("the bootstrap deleted or changed a file in another workspace through %s (err=%v)\n%s",
+			link, err, term.String())
+	}
+	log, _ := os.ReadFile(BootLogPath(ws))
+	if strings.Contains(term.String()+string(log), "main.go") {
+		t.Errorf("the catalog listed a file in another workspace:\nterminal:\n%s\nlog:\n%s", term.String(), log)
+	}
+	refusal := lineWith(term.String(), link)
+	for _, want := range []string{catalogPrefix, "~/.local/bin", "symbolic link", "sudo rm", "yolo programs"} {
+		if !strings.Contains(refusal, want) {
+			t.Errorf("the refusal does not say %q — it must name the directory, the link and the next "+
+				"step:\n%s", want, term.String())
+		}
+	}
+	if _, err := os.Lstat(link); err != nil {
+		t.Errorf("the refusal removed the link itself; nothing is removed for the user (err=%v)", err)
+	}
+}
+
+// The npm finder too, through a link one level deeper (<sidecar>/npm-global/lib): the package
+// directory in the sibling workspace is neither listed nor removed, and while a link sits on the
+// way nothing at all is removed this boot, the other finders' orphans included.
+func TestTheDarwinBootstrapRemovesNoNpmPackageThroughALinkInTheSidecar(t *testing.T) {
+	home, packRoot := catalogHome(t)
+	ws, sidecar, sibling := darwinSidecarFixture(t)
+	victim := filepath.Join(sibling, "src", "node_modules", "victim")
+	if err := os.MkdirAll(victim, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(sidecar, "npm-global"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(filepath.Join(sibling, "src"), filepath.Join(sidecar, "npm-global", "lib")); err != nil {
+		t.Fatal(err)
+	}
+	ownOrphan := filepath.Join(sidecar, "local", "bin", "leftover")
+	if err := os.MkdirAll(filepath.Dir(ownOrphan), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(ownOrphan, []byte("x"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	e := DarwinEnvFrom(map[string]string{
+		"JAIL_HOME": home, "YOLO_PACK_ROOT": packRoot, "YOLO_DARWIN_WORKSPACE": ws,
+		DarwinHomeSidecarEnv: sidecar, OrphanAutopruneEnv: "1",
+	}, home)
+	var term strings.Builder
+	e.Stderr = &term
+
+	_ = RunDarwinBootstrap(e, DarwinBootstrapOptions{MacosLog: "off"})
+
+	if _, err := os.Stat(victim); err != nil {
+		t.Fatalf("autoprune removed a package directory in another workspace (err=%v)\n%s", err, term.String())
+	}
+	if strings.Contains(term.String(), "victim") {
+		t.Errorf("the catalog listed a package in another workspace:\n%s", term.String())
+	}
+	if _, err := os.Stat(ownOrphan); err != nil {
+		t.Errorf("autoprune removed an orphan while a link sat on the way of another finder (err=%v)\n%s",
+			err, term.String())
+	}
+	if log, _ := os.ReadFile(BootLogPath(ws)); !strings.Contains(string(log), "~/.local/bin/leftover") {
+		t.Errorf("the finders with no link on the way stopped cataloging:\n%s", log)
+	}
+}
+
+// lineWith returns the first line of s containing sub, or "".
+func lineWith(s, sub string) string {
+	for _, l := range strings.Split(s, "\n") {
+		if strings.Contains(l, sub) {
+			return l
+		}
+	}
+	return ""
+}
+
+// THE CATALOG READS AND THE ACT UNLINKS BENEATH THE ROOTS IT OPENED, not along a path, so a
+// link swapped into the sidecar after the open cannot redirect either. Here the directory the
+// root was opened on is moved aside and a link to the sibling workspace takes its name: the
+// listing still names the directory that was opened, the unlink lands there, and the sibling's
+// file of the same name survives. And a path below no finder directory is refused outright.
+//
+// MUTATION: make confinedOrphanFS.ReadDir call os.ReadDir(name), and the listing names the
+// sibling's file; make its RemoveAll call os.RemoveAll(name), and that file is deleted.
+func TestTheConfinedOrphanActUnlinksBeneathItsRoots(t *testing.T) {
+	ws, sidecar, sibling := darwinSidecarFixture(t)
+	home := resolvedDir(t)
+	bin := filepath.Join(sidecar, "local", "bin")
+	if err := os.MkdirAll(bin, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(bin, "leftover"), []byte("x"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(sibling, "src", "leftover"), []byte("keep"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	e := DarwinEnvFrom(map[string]string{
+		"JAIL_HOME": home, "YOLO_DARWIN_WORKSPACE": ws, DarwinHomeSidecarEnv: sidecar,
+	}, home)
+	if err := InstallDarwinHomeLayout(e, nil); err != nil {
+		t.Fatal(err)
+	}
+	fsys := openDarwinOrphanFS(e)
+	defer fsys.close()
+	if lines := fsys.refusals(e); len(lines) != 0 {
+		t.Fatalf("a clean sidecar was refused: %v", lines)
+	}
+
+	if err := os.Rename(bin, bin+".read"); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(filepath.Join(sibling, "src"), bin); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(sibling, "src", "main.go"), []byte("package main\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	entries, err := fsys.ReadDir(e.LocalBin())
+	if err != nil {
+		t.Fatalf("the confined listing failed: %v", err)
+	}
+	var names []string
+	for _, ent := range entries {
+		names = append(names, ent.Name())
+	}
+	if strings.Join(names, ",") != "leftover" {
+		t.Errorf("the listing followed a link swapped in after the open: %v", names)
+	}
+	if err := fsys.RemoveAll(filepath.Join(e.LocalBin(), "leftover")); err != nil {
+		t.Fatalf("the confined unlink failed: %v", err)
+	}
+	if got, err := os.ReadFile(filepath.Join(sibling, "src", "leftover")); err != nil || string(got) != "keep" {
+		t.Errorf("the unlink followed a link swapped in after the read (err=%v)", err)
+	}
+	if _, err := os.Lstat(filepath.Join(bin+".read", "leftover")); !os.IsNotExist(err) {
+		t.Errorf("the unlink did not land in the directory the catalog read (err=%v)", err)
+	}
+	outside := filepath.Join(sibling, "src", "leftover")
+	if err := fsys.RemoveAll(outside); err == nil {
+		t.Errorf("the confined act removed %s, below no directory the catalog reads", outside)
+	}
 }

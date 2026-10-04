@@ -110,14 +110,16 @@ func TestRunDarwinBootstrapGeneratesConfig(t *testing.T) {
 // sandbox home that fail the moment anything execs one.
 //
 // Open Decision #4 is resolved by SKIPPING them and saying so. This pins both
-// halves: no wrapper file appears, and a config that asked for presets is told.
+// halves: no wrapper file appears, and a config that asked for presets is told — by name.
+// The Env is the production translation (DarwinEnvFrom), which is what sets SkipMCPPresets.
 func TestDarwinBootstrapSkipsLinuxMCPWrappers(t *testing.T) {
 	home := t.TempDir()
 	var warnings strings.Builder
-	e := NewEnv(map[string]string{
-		"JAIL_HOME":        home,
-		"YOLO_MCP_PRESETS": `["chrome-devtools"]`,
-	})
+	e := DarwinEnvFrom(map[string]string{
+		"JAIL_HOME":             home,
+		"YOLO_MCP_PRESETS":      `["chrome-devtools"]`,
+		"YOLO_DARWIN_WORKSPACE": t.TempDir(),
+	}, home)
 	e.Stderr = &warnings
 
 	_ = RunDarwinBootstrap(e, DarwinBootstrapOptions{MacosLog: "off"})
@@ -129,8 +131,8 @@ func TestDarwinBootstrapSkipsLinuxMCPWrappers(t *testing.T) {
 	}
 	// And the skip must be reported: an agent told an MCP server exists, whose wrapper
 	// is silently absent, is the same lie in the other direction.
-	if !strings.Contains(warnings.String(), "mcp_presets are not delivered on macos-user") {
-		t.Errorf("skipped the wrappers without saying so:\n%s", warnings.String())
+	if !strings.Contains(warnings.String(), "mcp_presets are not delivered on macos-user (chrome-devtools left out") {
+		t.Errorf("skipped the wrappers without saying so, by name:\n%s", warnings.String())
 	}
 }
 
@@ -138,7 +140,8 @@ func TestDarwinBootstrapSkipsLinuxMCPWrappers(t *testing.T) {
 // is the noise that trains people to skip the line that matters.
 func TestDarwinBootstrapSilentAboutMCPWhenNonePresetsAsked(t *testing.T) {
 	var warnings strings.Builder
-	e := NewEnv(map[string]string{"JAIL_HOME": t.TempDir()})
+	home := t.TempDir()
+	e := DarwinEnvFrom(map[string]string{"JAIL_HOME": home, "YOLO_DARWIN_WORKSPACE": t.TempDir()}, home)
 	e.Stderr = &warnings
 
 	_ = RunDarwinBootstrap(e, DarwinBootstrapOptions{MacosLog: "off"})

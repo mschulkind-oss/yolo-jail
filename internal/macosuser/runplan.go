@@ -418,6 +418,22 @@ func BuildRunPlanWithDaemons(workspace string, cfg *jsonx.OrderedMap, agents, ag
 	// argv's `env -i` list is closed (sandboxEnvPairs).
 	contextDir := StagedCtxRoot(cname, "")
 	sandboxEnv = withEnvVar(sandboxEnv, paths.ContextDirEnv, contextDir)
+	// THE STAGED PACK TREE AND THE WORKSPACE, NAMED TO THE SESSION, so an in-sandbox `yolo`
+	// reads the jail the way its bootstrap did. `yolo programs` and `yolo pack update` decide
+	// whether they are looking at a jail by YOLO_PACK_ROOT (cli/programs.go states why that
+	// variable and not YOLO_VERSION), and read the receipts from the workspace's .yolo, which
+	// this backend's session names as YOLO_DARWIN_WORKSPACE: entrypoint.JailEnvFromOS turns it
+	// into the same Env DarwinEnvFrom gives the bootstrap. The container launch passes both
+	// through its environment already (YOLO_PACK_ROOT=/ctx/packs, and /workspace is literal).
+	//
+	// Both on the PACK ROOT's condition, the bootstrap's own rule (buildBootstrapEnv): a launch
+	// that staged no tree says so by absence, and the verbs then say "no staged packs here"
+	// rather than computing every installed program as undeclared. The values are paths, root-
+	// owned or the workspace itself; nothing composed rides with them.
+	if packRoot != "" {
+		sandboxEnv = withEnvVar(sandboxEnv, "YOLO_PACK_ROOT", packRoot)
+		sandboxEnv = withEnvVar(sandboxEnv, "YOLO_DARWIN_WORKSPACE", workspace)
+	}
 	// THE WORKSPACE SIDECAR — <workspace>/.yolo/home, the same directory the podman argv
 	// binds the jail home's per-workspace dirs from (paths.WorkspaceHomeState, one spelling
 	// for both backends). Naming it is what turns the tier collapse off: the bootstrap
@@ -427,6 +443,17 @@ func BuildRunPlanWithDaemons(workspace string, cfg *jsonx.OrderedMap, agents, ag
 		homeOverlay, ctxRoot, hostCtx, paths.WorkspaceHomeState(workspace), SandboxHome(),
 		darwinPrefix, blockedTools)
 	bootstrapEnv.Set(paths.ContextDirEnv, contextDir)
+	// `programs.autoprune` — the catalog's removal act at boot (OQ-PD4's third clause, off by
+	// default), relayed exactly as the container launch relays it (internal/cli/run's
+	// assembleRunCmd): read from the USER config alone, so an agent-editable workspace config
+	// cannot turn on a destructive act, and emitted only when on. Nor can an env_sources value:
+	// the session env file carries those, and the bootstrap takes no YOLO_ name from it
+	// (entrypoint's hydrate_session_env, program-delivery.md OQ-PD29). Here and not in
+	// buildBootstrapEnv, because the install capture shares that function, and a capture's
+	// throwaway staging home has nothing a removal could be for.
+	if config.ProgramsAutoprune(nil) {
+		bootstrapEnv.Set(entrypoint.OrphanAutopruneEnv, "1")
+	}
 
 	stagedYolo := StagedYoloPath("")
 	offendingHome, offendingSet := HomeContaining(workspace)
@@ -447,6 +474,13 @@ func BuildRunPlanWithDaemons(workspace string, cfg *jsonx.OrderedMap, agents, ag
 	envFileContent := SandboxEnvFileContent(sandboxEnv)
 	if envFileContent != "" {
 		envFile = SandboxEnvFile(cname, "")
+		// AND THE BOOTSTRAP IS TOLD WHERE IT IS, by path and never by value: the launch writes
+		// the file before the bootstrap runs (orchestrator.go, step 2.5), and the bootstrap
+		// reads it into its generator Env only (entrypoint's hydrate_session_env step), so the
+		// MCP requires_env gate sees the hydrated env_sources the agent will have. Without it,
+		// a server gated on a shared env_sources variable was dropped from every agent config
+		// although the agent's own environment carried the variable.
+		bootstrapEnv.Set(SandboxEnvFileEnv, envFile)
 	}
 
 	var provisionArgv []string
@@ -1280,6 +1314,17 @@ func PlanInvariants(plan RunPlan) []string {
 		problems = append(problems,
 			"session env file "+plan.EnvFile+" is not under the root-owned state dir "+
 				plan.StagedDir+"; the sandbox could rewrite the environment it is launched with")
+	}
+	// AND THE BOOTSTRAP IS TOLD WHERE THE FILE IS. It renders every agent's MCP table, and the
+	// requires_env gate there asks the environment the agent will have; that environment is
+	// this file. A bootstrap not told about it answers from its own closed contract, which
+	// carries no env_sources value, and drops every server gated on one — silently, from every
+	// agent config, while the agent's own environment has the variable.
+	if plan.EnvFile != "" && !containsArg(plan.BootstrapArgv, SandboxEnvFileEnv+"="+plan.EnvFile) {
+		problems = append(problems,
+			SandboxEnvFileEnv+"="+plan.EnvFile+" is not baked into the bootstrap env; the MCP "+
+				"requires_env gate would not see the hydrated env_sources, and every server gated "+
+				"on one would be dropped from every agent config")
 	}
 
 	problems = append(problems, jailDaemonInvariants(plan)...)

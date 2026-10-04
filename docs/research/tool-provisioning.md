@@ -421,11 +421,14 @@ Key consequences of the ordering:
 - **`~/.local/bin/mcp-wrappers/` is NOT on PATH** — only `~/.local/bin` is. The
   wrappers are referenced by absolute path from generated MCP config
   (`internal/entrypoint/mcp.go`), never resolved via PATH.
-- **`macos-user` carries a THIRD list** (`macosuser.SandboxPath`) and it is **not this
-  order**: `$HOME/.local/bin` is third there and sixth here, and `/usr/bin` precedes
-  `/bin`, so a pipx-installed tool outranks a mise shim on that backend and loses to it on
-  every container backend. Nothing compares that list to either copy above; the divergence
-  is left standing deliberately rather than quietly reordered.
+- **`macos-user` carries a THIRD list** (`macosuser.SandboxPath`), and since 2026-10-04 its
+  head IS this order: it takes the six home entries from `entrypoint.HomePathDirs`, the
+  function `BootPath` is built from, so a mise shim outranks a pipx-installed tool on that
+  backend as it does in every container
+  ([OQ-PD27](../design/program-delivery.md#decision-ledger)). Until then it was a hand-written
+  copy with `$HOME/.local/bin` third. Only its tail differs, by decision: the darwin store
+  prefix, the staged `yolo`'s directory, then macOS's own `/usr/bin:/bin:/usr/sbin:/sbin`.
+  `internal/macosuser/sandboxpathorder_test.go` compares the head entry by entry.
 
 ---
 
@@ -509,9 +512,10 @@ before restarting.
   baked binary: `internal/entrypoint/shims.go`, `internal/entrypoint/launchercollision.go`.
 - MCP node/npx wrappers: `internal/entrypoint/mcp_wrappers.go`.
 - MCP config wiring to wrappers: `internal/entrypoint/mcp.go`.
-- PATH assembly: `internal/entrypoint/boot.go` (`BootPath`, the authority) and
-  `internal/entrypoint/shell.go` (the `.bashrc` copy); `internal/macosuser/macosuser.go`
-  (`SandboxPath`, the third list).
+- PATH assembly: `internal/entrypoint/boot.go` (`BootPath`, the authority, and
+  `HomePathDirs`, its head) and `internal/entrypoint/shell.go` (the `.bashrc` copy);
+  `internal/macosuser/macosuser.go` (`SandboxPath`, the third list, which takes its head from
+  `HomePathDirs`).
 - Node-binary duality, the loader analysis and nix-ld:
   [`../reference/mise-node-dynamic-linking.md`](../reference/mise-node-dynamic-linking.md).
 - mise shared-store host↔jail pitfalls:

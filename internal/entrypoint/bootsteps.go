@@ -17,6 +17,8 @@ package entrypoint
 // of which only a container boot has, and which bracket the table rather than sit in it.
 
 import (
+	"strings"
+
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 )
 
@@ -133,9 +135,18 @@ func bootSteps() []bootStep {
 			// interpolation sees them. bash sources the same file again at shell time.
 			name: "hydrate_user_env",
 			run:  func(b *bootRun) { hydrateEnvFromUserEnvFile(b.e) },
-			notDarwin: "the bootstrap's own environment already carries the composed channel " +
-				"(macosuser.BuildRunPlan relays it), and this backend writes no " +
-				"~/.config/yolo-user-env.sh to read it back from",
+			notDarwin: "this backend writes no ~/.config/yolo-user-env.sh: its composed " +
+				"environment rides the root-owned session env file, which hydrate_session_env reads",
+		},
+		{
+			// The macos-user twin of hydrate_user_env, in the same slot for the same reason: the
+			// requires_env gate in every configure_* step below asks the environment the agent
+			// will have, and on this backend that is the session env file the launch installed
+			// before this bootstrap ran. Read into e.Vars only, never the process environment
+			// (hydrateEnvFromSessionEnvFile says why).
+			name:         "hydrate_session_env",
+			run:          func(b *bootRun) { hydrateEnvFromSessionEnvFile(b.e) },
+			notContainer: "the container boot reads its composed environment from ~/.config/yolo-user-env.sh (hydrate_user_env, above)",
 		},
 		{
 			// Populate /run/localtime + /run/timezone from $TZ before anything else.
@@ -219,17 +230,26 @@ func bootSteps() []bootStep {
 			// provisioning, on purpose: what is on disk now is what the LAST launch installed,
 			// which is the only state in which "undeclared" means anything.
 			//
-			// NOT ON macos-user, for a reason about the REPORT rather than its input. The old
-			// premise (that backend stages no pack tree) is false: it stages one, named by
-			// YOLO_PACK_ROOT, so the declared set is there. What is missing is everywhere the
-			// report sends its reader, which is the whole of what the one-line compression
-			// promises (catalog.go, "THE SET IS NOT COMPRESSED").
+			// ON BOTH BOOTS. macos-user was excluded until every place the one-line summary
+			// sends its reader worked there (notch-convergence.md, NC-D26): the bootstrap now
+			// keeps the container's boot.log (attachDarwinBootLog), the session names the staged
+			// pack tree and the workspace, so `yolo programs ls`/`remove` read this jail from
+			// inside the sandbox (entrypoint.JailEnvFromOS), and the launch relays
+			// `programs.autoprune` (macosuser.BuildRunPlanWithDaemons).
+			//
+			// CONFINED ON macos-user, the one per-boot difference in this step: that bootstrap
+			// runs outside Seatbelt, and every directory the catalog reads and autoprune unlinks
+			// is reached through the agent-writable workspace sidecar, so it reads and unlinks
+			// only beneath roots opened on those directories (catalogConfinedOrphans). A
+			// container boot sees only what the agent sees and keeps the plain filesystem.
 			name: "catalog_installed_orphans",
-			run:  func(b *bootRun) { CatalogInstalledOrphans(b.e) },
-			notDarwin: "its one line sends the reader to boot.log for the names, `yolo programs ls` " +
-				"and `programs.autoprune`, and none works here: this backend keeps no boot log " +
-				"(Env.LogOnly is nil, so every name would be discarded), `programs ls` answers " +
-				"wrongly from inside the sandbox, and the launch relays no YOLO_PROGRAMS_AUTOPRUNE",
+			run: func(b *bootRun) {
+				if b.target == bootDarwin {
+					catalogConfinedOrphans(b.e)
+					return
+				}
+				CatalogInstalledOrphans(b.e)
+			},
 		},
 		{
 			// The catalog's other half, beside it for the same reasons and with the same
@@ -318,12 +338,18 @@ func bootSteps() []bootStep {
 			// provision, and guess wrong on most of them. An absent wrapper that says so beats
 			// a present one that lies — the ruling `workspace_readonly` got on this backend
 			// (d0961f2c).
+			//
+			// NOR ANY SERVER ENTRY FOR ONE: Env.SkipMCPPresets keeps the preset out of every
+			// agent's MCP table (mcpServersWith), since an entry naming a wrapper this backend
+			// never writes is the same lie told in the agent's config. So the line names what was
+			// left out.
 			name: "mcp_presets_declined",
 			run: func(b *bootRun) {
-				if len(b.e.LoadMCPPresetNames()) > 0 {
-					b.e.warn("mcp_presets are not delivered on macos-user: the preset wrappers hardcode " +
-						"Linux paths (/usr/bin/chromium, /bin/node, /etc/fonts) that this backend does " +
-						"not provision. Configure the MCP server directly in `mcp_servers` if you need " +
+				if names := b.e.LoadMCPPresetNames(); len(names) > 0 {
+					b.e.warn("mcp_presets are not delivered on macos-user (" + strings.Join(names, ", ") +
+						" left out of every agent config): the preset wrappers hardcode Linux paths " +
+						"(/usr/bin/chromium, /bin/node, /etc/fonts) that this backend does not " +
+						"provision. Configure the MCP server directly in `mcp_servers` if you need " +
 						"it here.")
 				}
 			},
