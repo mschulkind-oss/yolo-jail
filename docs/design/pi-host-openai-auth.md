@@ -684,7 +684,13 @@ and the boot render's `codex` list. With the socket set over an empty `auth.json
 token, and ends an unlisted model's turn with yolo's refusal; `auth.json` is byte-identical afterwards.
 Without the socket it does none of that and asks the client nothing. With an own login stored, the own
 access token wins and the client is not asked. The test skips where pi's package is not installed,
-which includes CI; the node harnesses in the same package pin both routes against stand-ins there.
+which includes CI; the node harnesses in the same package pin both routes against stand-ins there. It
+also skips on a pi lacking a runtime method it reads, naming them and the version, once it has checked
+that the extension loads there without an error and leaves `auth.json` alone. MEASURED 2026-10-04: it
+passes on pi 0.87.1, 0.99.2, 1.0.1 and 1.0.2, and skips on 0.81.0 (no `isUsingSubscription`) and
+0.80.10 (no `registerNativeProvider` either), where a throwaway probe of the same call showed 0.81.0
+configured on the host route and 0.80.10 on the `ProviderConfig`, unconfigured, with no extension
+error.
 
 **A start-up race in pi, not closed here.** Each registration starts a model refresh pi does not
 await, and the refresh `createAgentSessionServices` does await can finish while one of those has

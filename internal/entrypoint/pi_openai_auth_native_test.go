@@ -11,7 +11,8 @@ package entrypoint
 // Offline: a scratch HOME, a fake `yolo` first on PATH, PI_OFFLINE, and a fetch that refuses and
 // records. No session is created and no model is called: the one stream it opens is for a model
 // the refusal turns away before pi's own stream runs. It skips where pi's package is not
-// installed, which is CI's case.
+// installed, which is CI's case, and where the installed pi is too old for what it reads, after
+// checking that the extension loads there without an error.
 
 import (
 	"bytes"
@@ -76,39 +77,68 @@ func installedPiPackage(t *testing.T) string {
 // predate the availability pass that counts this provider (MEASURED 2026-10-04 on pi 1.0.1:
 // docs/design/pi-host-openai-auth.md §5.1). The extra awaited refresh settles that; atStart keeps
 // what pi showed first, for the log.
+//
+// ⚠ AN OLDER pi LACKS SOME OF WHAT IT READS, and that is not a fault of the extension: pi 0.81.0
+// has no isUsingSubscription, and pi 0.80.10 no registerNativeProvider either, the method pi's
+// loader hands a provider object to (MEASURED 2026-10-04). So the harness asks before it reads:
+// a pi missing a runtime method listed in piNativeRuntimeMethods reports them in `missing`, with
+// its VERSION, after the measurements every pi owes (the extension loads without an error, nothing
+// fetched, auth.json untouched), and reads nothing else; runPiNative skips on it.
 const piNativeHarness = `
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 const fetched = [];
 globalThis.fetch = async (url) => { fetched.push(String(url)); throw new Error("the test's network is off"); };
-const { createAgentSessionServices } = await import(process.env.PI_INDEX);
+const pi = await import(process.env.PI_INDEX);
+const version = typeof pi.VERSION === "string" && pi.VERSION.length > 0 ? pi.VERSION : "version unknown";
+const absent = (object, names) => names.filter((name) => typeof object?.[name] !== "function");
 const agentDir = join(process.env.HOME, ".pi", "agent");
 const authPath = join(agentDir, "auth.json");
 const before = readFileSync(authPath);
-const services = await createAgentSessionServices({ cwd: process.env.WORKDIR, agentDir });
-const rt = services.modelRuntime;
-const codexListed = () => rt.getAvailableSnapshot().filter((m) => m.provider === "openai-codex").length;
-const atStart = { configured: rt.hasConfiguredAuth("openai-codex"), listed: codexListed() };
-await rt.refresh({ allowNetwork: false });
-const listed = rt.getAvailableSnapshot().filter((m) => m.provider === "openai-codex").map((m) => m.id);
-const apiKey = await rt.getAuth("openai-codex").then((a) => a?.auth?.apiKey ?? "", (e) => "ERROR " + e.message);
-let refusal = "";
-const model = listed.length > 0 ? rt.getModel("openai-codex", listed[0]) : undefined;
-if (model) refusal = (await rt.completeSimple({ ...model, id: "gpt-5.5" }, { messages: [] })).errorMessage ?? "";
+async function measure() {
+	if (typeof pi.createAgentSessionServices !== "function") return { missing: ["createAgentSessionServices"] };
+	const services = await pi.createAgentSessionServices({ cwd: process.env.WORKDIR, agentDir });
+	const diagnostics = (services.diagnostics ?? []).map((d) => d.message);
+	const rt = services.modelRuntime;
+	const missing = absent(rt, JSON.parse(process.env.PI_RUNTIME_METHODS));
+	if (missing.length > 0) return { missing, diagnostics };
+	const codexListed = () => rt.getAvailableSnapshot().filter((m) => m.provider === "openai-codex").length;
+	const atStart = { configured: rt.hasConfiguredAuth("openai-codex"), listed: codexListed() };
+	await rt.refresh({ allowNetwork: false });
+	const listed = rt.getAvailableSnapshot().filter((m) => m.provider === "openai-codex").map((m) => m.id);
+	const apiKey = await rt.getAuth("openai-codex").then((a) => a?.auth?.apiKey ?? "", (e) => "ERROR " + e.message);
+	let refusal = "";
+	const model = listed.length > 0 ? rt.getModel("openai-codex", listed[0]) : undefined;
+	if (model) refusal = (await rt.completeSimple({ ...model, id: "gpt-5.5" }, { messages: [] })).errorMessage ?? "";
+	return {
+		atStart, diagnostics,
+		configured: rt.hasConfiguredAuth("openai-codex"), oauth: rt.isUsingOAuth("openai-codex"),
+		subscription: rt.isUsingSubscription("openai-codex"), name: rt.getProvider("openai-codex")?.name ?? "",
+		listed, apiKey, refusal,
+	};
+}
+const run = await measure();
 console.log("RESULT " + JSON.stringify({
-	atStart, diagnostics: services.diagnostics.map((d) => d.message),
-	configured: rt.hasConfiguredAuth("openai-codex"), oauth: rt.isUsingOAuth("openai-codex"),
-	subscription: rt.isUsingSubscription("openai-codex"), name: rt.getProvider("openai-codex")?.name ?? "",
-	listed, apiKey, refusal,
-	authUnchanged: Buffer.compare(before, readFileSync(authPath)) === 0, fetched,
+	...run, version, authUnchanged: Buffer.compare(before, readFileSync(authPath)) === 0, fetched,
 }));
 `
+
+// piNativeRuntimeMethods is every method piNativeHarness calls on pi's model runtime, and
+// registerNativeProvider, which it does not call but without which pi's loader cannot take the
+// host route's provider object, so the extension falls back to the ProviderConfig there
+// (docs/design/pi-host-openai-auth.md PH-D4) and nothing this file asserts of the host route holds.
+var piNativeRuntimeMethods = []string{
+	"hasConfiguredAuth", "isUsingOAuth", "isUsingSubscription", "getAvailableSnapshot", "refresh",
+	"getAuth", "getModel", "getProvider", "completeSimple", "registerNativeProvider",
+}
 
 type piNativeRun struct {
 	AtStart struct {
 		Configured bool `json:"configured"`
 		Listed     int  `json:"listed"`
 	} `json:"atStart"`
+	Version       string   `json:"version"`
+	Missing       []string `json:"missing"`
 	Diagnostics   []string `json:"diagnostics"`
 	Configured    bool     `json:"configured"`
 	OAuth         bool     `json:"oauth"`
@@ -163,6 +193,10 @@ esac
 		t.Fatal(err)
 	}
 	node := requireNode(t, "the shipped extension under pi's own runtime")
+	methods, err := json.Marshal(piNativeRuntimeMethods)
+	if err != nil {
+		t.Fatal(err)
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, node, "harness.mjs")
@@ -173,6 +207,7 @@ esac
 		"HOME=" + home, "WORKDIR=" + filepath.Join(dir, "work"), "CALLS=" + calls,
 		"PATH=" + bin + string(os.PathListSeparator) + filepath.Dir(node) + string(os.PathListSeparator) + "/usr/bin:/bin",
 		"PI_INDEX=" + filepath.Join(pkg, "dist", "index.js"), "PI_OFFLINE=1", "PI_TELEMETRY=0",
+		"PI_RUNTIME_METHODS=" + string(methods),
 	}
 	if socket {
 		cmd.Env = append(cmd.Env, openauthclient.HostSocketEnv+"="+filepath.Join(dir, "absent.sock"))
@@ -193,18 +228,24 @@ esac
 	if raw, err := os.ReadFile(calls); err == nil {
 		run.Calls = strings.Split(strings.TrimSpace(string(raw)), "\n")
 	}
-	if run.AtStart.Configured != run.Configured || run.AtStart.Listed != len(run.Listed) {
-		t.Logf("pi's first snapshot (configured %v, %d openai-codex models) predates its settled one: "+
-			"the refresh race docs/design/pi-host-openai-auth.md §5.1 records", run.AtStart.Configured, run.AtStart.Listed)
-	}
 	if len(run.Diagnostics) != 0 {
-		t.Errorf("pi reported %v loading the extension", run.Diagnostics)
+		t.Errorf("pi %s reported %v loading the extension", run.Version, run.Diagnostics)
 	}
 	if len(run.Fetched) != 0 {
 		t.Errorf("pi or the extension fetched %v with PI_OFFLINE set", run.Fetched)
 	}
 	if !run.AuthUnchanged {
 		t.Errorf("auth.json changed: yolo writes nothing into the user's pi login file (NC-D37)")
+	}
+	if len(run.Missing) != 0 {
+		t.Skipf("the pi at %s (%s) has no %s, which this test reads, so it checked only that the extension "+
+			"loads there without an error and writes nothing; update that pi (`pi update`), or set "+
+			"YOLO_TEST_PI_PACKAGE to the directory of a newer @earendil-works/pi-coding-agent",
+			pkg, run.Version, strings.Join(run.Missing, ", "))
+	}
+	if run.AtStart.Configured != run.Configured || run.AtStart.Listed != len(run.Listed) {
+		t.Logf("pi's first snapshot (configured %v, %d openai-codex models) predates its settled one: "+
+			"the refresh race docs/design/pi-host-openai-auth.md §5.1 records", run.AtStart.Configured, run.AtStart.Listed)
 	}
 	return run
 }
