@@ -19,7 +19,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/mschulkind-oss/yolo-jail/internal/cli/run"
 	"github.com/mschulkind-oss/yolo-jail/internal/hostfloor"
 	"github.com/mschulkind-oss/yolo-jail/internal/packdecl"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
@@ -494,22 +493,5 @@ func TestAgentUpdatesHoldIsSaidAtUpdateAndStatus(t *testing.T) {
 				t.Errorf("status lacks %q:\n%s", want, out)
 			}
 		})
-	}
-}
-
-// `yolo capture <bin>` OF A PATCHED FORK names the act that reads its upstream, and never itself:
-// capturing it again would stop on the same missing pin.
-func TestCaptureOfAPatchedForkNamesAStepThatWorks(t *testing.T) {
-	newPatchedFixture(t, "")
-	withFakeCaptureJail(t, func(run.Options) int { t.Error("no jail may launch"); return 1 })
-	rc, stderr := runCaptureFor(t, "tool")
-	if rc == 0 {
-		t.Fatalf("capture of a patched fork exited 0:\n%s", stderr)
-	}
-	if strings.Contains(stderr, "then: yolo capture") {
-		t.Errorf("capture names itself as the next step:\n%s", stderr)
-	}
-	if got := stepAfter(t, stderr, "yolo capture: fork forkpack"); !strings.Contains(got, "`yolo pack update` checks its upstream") {
-		t.Errorf("the step after the pin is %q, want `yolo pack update`\n%s", got, stderr)
 	}
 }

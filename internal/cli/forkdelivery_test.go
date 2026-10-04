@@ -41,12 +41,12 @@ func TestALaunchWiresTheForkBuildTrigger(t *testing.T) {
 	withFakeCaptureJail(t, func(o run.Options) int { builds++; return fake(o) })
 	pin := packload.ForkPin{Fork: f, Commit: forkTestCommit, Ref: "main"}
 	quiet(t, func() {
-		got := seen.BuildForks([]packload.ForkPin{pin}, "linux/arm64")
+		got := seen.BuildForks(run.ForkBuildRequest{Pins: []packload.ForkPin{pin}, Platform: "linux/arm64"})
 		if d := got["probetool"]; d.Key == "" || builds != 1 {
 			t.Errorf("the wired trigger answered %+v after %d builds, want a key from one build", got, builds)
 		}
 		// A HIT BUILDS NOTHING (§9: never rebuild on every launch).
-		again := seen.BuildForks([]packload.ForkPin{pin}, "linux/arm64")
+		again := seen.BuildForks(run.ForkBuildRequest{Pins: []packload.ForkPin{pin}, Platform: "linux/arm64"})
 		if again["probetool"].Key != got["probetool"].Key || builds != 1 {
 			t.Errorf("the second launch built again (builds %d) or answered another key %+v", builds, again)
 		}
@@ -59,7 +59,8 @@ func TestAFailedLaunchBuildIsTheForksReason(t *testing.T) {
 	withFakeCaptureJail(t, func(run.Options) int { return 5 })
 	var got map[string]entrypoint.ForkDelivery
 	quiet(t, func() {
-		got = buildForksForLaunch([]packload.ForkPin{{Fork: f, Commit: forkTestCommit}}, "linux/arm64",
+		got = buildForksForLaunch(run.ForkBuildRequest{Pins: []packload.ForkPin{{Fork: f, Commit: forkTestCommit}},
+			Platform: "linux/arm64"},
 			&bytes.Buffer{}, &bytes.Buffer{}, false)
 	})
 	if d := got["probetool"]; d.Key != "" || !strings.Contains(d.Reason, "failed on the host") {

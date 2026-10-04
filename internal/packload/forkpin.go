@@ -171,11 +171,10 @@ func PinForks(forks []Fork, lockPath string, store *packsrc.Store, begin func() 
 }
 
 // PatchedForkPinReason is a patched fork's reason wherever a fork's PIN is read: it has none by
-// design (PF-D16). Until the advance is built (patched-forks.md §14 step 2), it is also why such a
-// fork delivers nothing yet, and it names the acts that do read its upstream.
+// design (PF-D16). A fresh jail launch never hands it to a jail: the launch's advance decides a
+// patched fork's delivery (patched-forks.md §6.5); the reason names that act.
 const PatchedForkPinReason = "it is a patched fork: it follows its upstream with no pin in " +
-	packsrc.ForkLockName + ", and this yolo checks its upstream and replays its series (`yolo pack " +
-	"status`, `yolo pack update`) but does not build it yet"
+	packsrc.ForkLockName + ", and a fresh jail launch checks its upstream and builds it from its series"
 
 // PinnedLine is the one line a caller discloses for a pin it made (Pinned): which fork, at which
 // commit of which source, and what moves it. A launch has no quiet mode (OQ-RO3), and the commit a

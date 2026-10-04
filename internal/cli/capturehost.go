@@ -264,6 +264,9 @@ func captureHost(args []string, out, errw io.Writer, color bool) int {
 // builds even when the store holds this build, and REFUSES on contention, as a capture does: a human
 // who typed it can re-run it, where a launch waits (FP-D1).
 func captureFork(f packload.Fork, out, errw io.Writer, color bool) int {
+	if f.Patched() {
+		return capturePatchedFork(f, out, errw, color)
+	}
 	pin := forkPinOf(f)
 	if pin.Commit == "" && pin.Pinnable { // never inside a jail (forkPinOf)
 		// NO PIN YET, and this act needs none made beforehand (FP-D18): it pins the fork as a launch
@@ -283,14 +286,6 @@ func captureFork(f packload.Fork, out, errw io.Writer, color bool) int {
 		// The pin's reason names what makes one (packload.ForkPin.Reason); this is the rest of the
 		// way back to the build the user asked for.
 		fmt.Fprintf(errw, "yolo capture: %s\n", pin.Line())
-		if f.Patched() {
-			// A PATCHED FORK HAS NO PIN by design (PF-D16), so capturing it again would stop here
-			// again. Until its build lands (patched-forks.md §14 step 2, which replaces this arm),
-			// the act that reads its upstream is the step.
-			fmt.Fprintf(errw, "  `yolo pack update` checks its upstream and replays its series now; %s\n",
-				patchedNotBuilt)
-			return 1
-		}
 		fmt.Fprintf(errw, "  then: yolo capture %s\n", f.Bin)
 		return 1
 	}
@@ -309,6 +304,28 @@ func captureFork(f packload.Fork, out, errw io.Writer, color bool) int {
 		return 1
 	}
 	return 0
+}
+
+// capturePatchedFork is `yolo capture <bin>` of a PATCHED fork (docs/design/patched-forks.md
+// §8.3, PF-D12): the check forced, then the pending candidate built now, ignoring a back-off; with
+// none pending, the good build's own inputs rebuilt, as it force-rebuilds a plain fork. Its build
+// goes through the swap like any advance's (patchedadvance.go), and it REFUSES on contention, as a
+// capture does. On the host only: the fork's mirror, series and record live there.
+func capturePatchedFork(f packload.Fork, out, errw io.Writer, color bool) int {
+	if config.InJail() {
+		fmt.Fprintf(errw, "yolo capture: fork %s is a patched fork, checked, replayed and built on the host — "+
+			"run `yolo capture %s` there\n", f.Key(), f.Bin)
+		return 1
+	}
+	r := advancePatchedFork(f, advanceOptions{platform: captureJailPlatform(), out: out, errw: errw, color: color,
+		force: true})
+	if r.built {
+		return 0
+	}
+	if r.delivery.Key == "" && r.delivery.Reason != "" {
+		fmt.Fprintf(errw, "yolo capture: %s\n", r.delivery.Reason)
+	}
+	return 1
 }
 
 // captureAgain is the clause most of a capture's stops end their next step with: running it again

@@ -34,7 +34,7 @@ import (
 // rewrite semantics.
 func runInternal(args []string) int {
 	if len(args) == 0 {
-		fmt.Fprintln(os.Stderr, "usage: yolo internal <capture-materialize|capture-run|config-dump|daemon|darwin-bootstrap|footer|image-copy|installer-check|migrate-host|model-menu|no-terminal|node-floor-launchers|node-floor-satisfied|openai-auth|openai-auth-client|refresh-servers|bundle-dir|scratch-rm|update-check> [args...]")
+		fmt.Fprintln(os.Stderr, "usage: yolo internal <capture-materialize|capture-run|config-dump|fork-build-jail|daemon|darwin-bootstrap|footer|image-copy|installer-check|migrate-host|model-menu|no-terminal|node-floor-launchers|node-floor-satisfied|openai-auth|openai-auth-client|refresh-servers|bundle-dir|scratch-rm|update-check> [args...]")
 		return 2
 	}
 	switch args[0] {
@@ -59,6 +59,11 @@ func runInternal(args []string) int {
 		// rather than documented: it MOVES an installer's output out of the home it
 		// is pointed at, which is correct only inside a throwaway capture jail.
 		return runCaptureRun(args[1:])
+	case forkBuildJailVerb:
+		// A fork's build jail as a child of the launch that staged it, so a Ctrl-C ends the build
+		// and not the launch (forkbuildchild.go; docs/design/patched-forks.md PF-D25). Hidden: its
+		// caller is a patched fork's advance.
+		return runForkBuildJail(args[1:], os.Stdout, os.Stderr)
 	case "config-dump":
 		return runConfigDump(args[1:])
 	case run.ScratchRemoverVerb:

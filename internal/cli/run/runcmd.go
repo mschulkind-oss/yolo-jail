@@ -503,15 +503,17 @@ type Options struct {
 	// PLATFORM likewise — only the pipeline knows which backend is about to run, and the
 	// one answer that looks right and is wrong is the host's own (containerJailPlatform).
 	AutoCapture func(bins []string, platform string)
-	// BuildForks builds, for every pinned fork in pins, the store entry the jail needs at platform
-	// when the machine holds none, and returns per bin the entry's key or why there is none
-	// (docs/design/forked-programs-as-packs.md OQ-FP4, FP-D1, FP-D8). It blocks while it works —
-	// waiting, bounded, for a build another launch is already running — and never fails the launch.
+	// BuildForks builds, for every pinned fork in the request, the store entry the jail needs at
+	// its platform when the machine holds none, and returns per bin the entry's key or why there is
+	// none (docs/design/forked-programs-as-packs.md OQ-FP4, FP-D1, FP-D8); for a PATCHED fork it
+	// runs the advance (docs/design/patched-forks.md §6, §7), which the request's Hand records. It
+	// blocks while it works — waiting, bounded, for a build another launch is already running — and
+	// never fails the launch.
 	//
 	// A seam for AutoCapture's reason: the build act launches jails, so it lives in internal/cli,
 	// which imports this package; the front door injects it. nil builds nothing, and every fork
 	// then reaches its jail with the reason that says so.
-	BuildForks func(pins []packload.ForkPin, platform string) map[string]entrypoint.ForkDelivery
+	BuildForks func(req ForkBuildRequest) map[string]entrypoint.ForkDelivery
 	// Sealed is THE SEAL (docs/design/forked-programs-as-packs.md FP-D9; seal.go): this launch is
 	// a fork BUILD, whose command is arbitrary code from a repository a pack named, so the jail is
 	// handed no credential and nothing that writes outside its own workspace and home. Every
@@ -593,6 +595,9 @@ type Options struct {
 	forkPinned []packload.ForkPin
 	// forkDelivered is what this launch hands its jail per forked program (forkDeliveriesFor).
 	forkDelivered map[string]entrypoint.ForkDelivery
+	// handedForks are the bins a patched fork's advance recorded itself, under its record lock
+	// (ForkBuildRequest.Hand), which the trigger's own record of the rest leaves as they are.
+	handedForks []string
 }
 
 // captureConfigOnTerminate runs the injected E3 capture for a jail that has just

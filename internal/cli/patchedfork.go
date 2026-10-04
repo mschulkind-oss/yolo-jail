@@ -24,8 +24,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/mschulkind-oss/yolo-jail/internal/config"
-	"github.com/mschulkind-oss/yolo-jail/internal/entrypoint"
+	"github.com/mschulkind-oss/yolo-jail/internal/capture"
+	"github.com/mschulkind-oss/yolo-jail/internal/cli/run"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/packsrc"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
@@ -42,27 +42,19 @@ var patchedYoloVersion = func() string { return version.Baked() + "@" + version.
 // patchedNow is the clock the explicit acts check and record by; a var for tests.
 var patchedNow = time.Now
 
-// patchedNotBuilt is what follows a clean replay in this yolo's lines. STEP 1 of
-// patched-forks.md §14 checks and replays a patched fork and builds it nowhere, a launch included
-// (packload.PatchedForkPinReason). Step 2, which builds the advance, replaces it with §8.3's
-// "the next launch builds it", so that every line naming what builds a candidate is true.
-const patchedNotBuilt = "this yolo checks and replays a patched fork but does not build it yet"
+// patchedNotBuilt is what follows a clean replay in an explicit act's lines (§8.3: "applies; the
+// next launch builds it"): the explicit acts build nothing and never move the good build (P2), and
+// a fresh jail launch's advance builds the candidate (patchedadvance.go). It said that this yolo
+// built nothing while only step 1 of §14 was in (PF-D35).
+const patchedNotBuilt = "the next fresh launch builds it"
 
 // patchedForkStore is the pack store the verbs check through: the user's own terminal, so not the
 // launch's detached store, and the store's default budget.
 func patchedForkStore() *packsrc.Store { return &packsrc.Store{Dir: paths.PacksDir()} }
 
 // patchedForkHold is what holds a patched fork's upstream at the good build, "" when nothing does:
-// `agent_updates` off for the fork pack or for its base (PF-D19).
-func patchedForkHold(f packload.Fork) string {
-	wire := config.AgentUpdatesWire()
-	for _, pack := range []string{f.Pack, f.Base} {
-		if !entrypoint.PackPolicyAllows(wire, pack) {
-			return "`agent_updates` holds pack " + pack
-		}
-	}
-	return ""
-}
+// `agent_updates` off for the fork pack or for its base (PF-D19), as a launch reads it.
+func patchedForkHold(f packload.Fork) string { return run.PatchedForkHold(f) }
 
 // checkPatchedForks is `yolo pack install`'s and `yolo pack update`'s arm for every patched fork in
 // forks: update checks and replays each one; install only those with no good build on this
@@ -272,12 +264,9 @@ func subdirOf(source string) string {
 }
 
 // patchedForkStatusLines is `yolo pack status`'s lines for one patched fork, offline: its series,
-// the good build, the candidate and its outcome, and what holds it — a tag or commit `?ref=`, or
-// `agent_updates` — read from the check record and the series, never git.
-//
-// NO NEXT-CHECK LINE YET: in step 1 of patched-forks.md §14 no launch checks a patched fork, so
-// when the throttle would let one is nothing a user can act on. Step 2 adds the launch's check and
-// puts the line back (§8.3), as it replaces patchedNotBuilt.
+// the good build and whether the capture store holds it, the candidate and its outcome, what holds
+// it — a tag or commit `?ref=`, or `agent_updates` — and when a fresh launch next checks it (§8.3),
+// read from the check record, the series and the store, never git.
 func patchedForkStatusLines(f packload.Fork) []string {
 	series, serr := f.ReadSeries()
 	rec, rerr := patchedForkStore().LoadCheckRecord(f.Key())
@@ -315,12 +304,38 @@ func patchedForkStatusLines(f packload.Fork) []string {
 			"record over[/yellow]")
 	}
 	if rec.Good == nil {
-		lines = append(lines, "[dim]  good build: none on this machine yet[/dim]")
+		lines = append(lines, "[dim]  good build: none on this machine yet — the next fresh launch builds it[/dim]")
 	} else {
-		lines = append(lines, fmt.Sprintf("[dim]  good build: %s + %d %s (series %s)[/dim]", goodLabel(rec.Good),
-			rec.Good.Patches, plural(rec.Good.Patches, "patch", "patches"), shortSHA(rec.Good.Series)))
+		lines = append(lines, fmt.Sprintf("[dim]  good build: %s + %d %s (series %s), %s[/dim]", goodLabel(rec.Good),
+			rec.Good.Patches, plural(rec.Good.Patches, "patch", "patches"), shortSHA(rec.Good.Series),
+			goodBuildStored(f, rec.Good)))
 	}
-	return append(lines, candidateLines(rec, series, in)...)
+	lines = append(lines, candidateLines(rec, series, in)...)
+	return append(lines, nextCheckLine(f, rec, in)...)
+}
+
+// goodBuildStored says whether the capture store holds the good build, by the exact lookup (§6.3).
+func goodBuildStored(f packload.Fork, g *packsrc.GoodBuild) string {
+	platform := captureJailPlatform()
+	store := &capture.Store{Dir: paths.CapturesDir()}
+	if entry, _, err := resolvePatchedBuild(store, f.Key(), f.Bin, platform, patchedBuildSource(f.Source),
+		g.Commit, g.Recipe); err == nil {
+		return "built (" + entry.Key + ", " + platform + ")"
+	}
+	return "not in the capture store for " + platform + " — the next fresh launch builds it again"
+}
+
+// nextCheckLine is when a fresh launch next checks the fork's upstream (§8.3), or nothing while a
+// hold keeps every launch from checking it.
+func nextCheckLine(f packload.Fork, rec *packsrc.CheckRecord, in packsrc.CheckInputs) []string {
+	if patchedForkHold(f) != "" || rec.CheckedAt == 0 {
+		return nil
+	}
+	if due, _ := packsrc.CheckDue(rec, in, patchedNow(), 0); due {
+		return []string{"[dim]  next check: due — the next fresh launch checks it, or `yolo pack update` checks now[/dim]"}
+	}
+	return []string{fmt.Sprintf("[dim]  next check: in %s, at a fresh launch then, or `yolo pack update` checks now[/dim]",
+		patchedAge(rec.NextCheck(0).Sub(patchedNow())))}
 }
 
 // patchedRefKind is what the fork's ?ref= names, as far as is known offline: the last check's

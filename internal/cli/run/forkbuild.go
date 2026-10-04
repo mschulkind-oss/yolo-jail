@@ -10,6 +10,7 @@ package run
 // is the rebuild on a timer §9 forbids. Moving a pin is `yolo pack update`'s alone.
 
 import (
+	"io"
 	goruntime "runtime" // stdlib; this package's `runtime` is yolo's own (run.go)
 
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
@@ -18,11 +19,41 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/packsrc"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
+	"github.com/mschulkind-oss/yolo-jail/internal/richtext"
 )
+
+// ForkBuildRequest is what a launch hands its fork build trigger (Options.BuildForks).
+type ForkBuildRequest struct {
+	// Pins are the forks to deliver: each PLAIN fork with its pinned commit, and each PATCHED fork,
+	// which has no pin by design (docs/design/patched-forks.md §6.5) and whose delivery its advance
+	// decides.
+	Pins []packload.ForkPin
+	// Platform is the jail's platform (containerJailPlatform), never the host's.
+	Platform string
+	// Runtime is the backend the jail runs on, for a line that names what differs there (§9: an
+	// Apple Container capture jail cannot start beside a running one).
+	Runtime string
+	// Workspace is the launch's workspace, whose launch.log a failed build's line names.
+	Workspace string
+	// Stdout and Stderr are the launch's own writers, teed into that launch.log (launchlog.go), so
+	// a build's output is there as well as above; nil for the process's streams.
+	Stdout, Stderr io.Writer
+	// Hand records, beside this launch's pack tree, what this launch hands its jail for bin. A
+	// patched fork's advance calls it under the fork's record lock, so the move that reaps the
+	// fork's other builds reads it and never reaps one a launch is about to hand (PF-D20). nil
+	// records nothing.
+	Hand func(bin string, h HandedFork) error
+}
 
 // forkDeliveriesFor is THE TRIGGER (OQ-FP4: eager, at the notch's readiness act): for every fork
 // this launch carries, the store key its jail materializes, or why there is none — building a
 // pinned fork the machine holds no build of, through the injected build act (Options.BuildForks).
+//
+// A PATCHED FORK (docs/design/patched-forks.md) has no pin by design, so it is never given the
+// no-pin reason: it goes to the build act too, whose ADVANCE checks its upstream, replays its
+// series and builds the newest fit, a first advance included (§6.5). The advance's lines follow the
+// launch's "Forks this launch" block, so its move line names the build this jail gets (§7). Never in
+// a jail: a patched fork is checked, replayed and built on the host (§4.1).
 //
 // The trigger is the SELECTED PACK SET, which is statically knowable (the fork pins read above the
 // dispatch), exactly as auto-capture's is; core cannot know what the jail will run. A hit builds
@@ -44,10 +75,17 @@ func (o *Options) forkDeliveriesFor(rt string) map[string]entrypoint.ForkDeliver
 		return nil
 	}
 	out := map[string]entrypoint.ForkDelivery{}
+	defer o.recordHandedForks(out)
 	platform := containerJailPlatform()
 	var build []packload.ForkPin
 	for _, p := range o.forkPinned {
-		if p.Commit == "" {
+		if p.Fork.Patched() && config.InJail() {
+			out[p.Fork.Bin] = entrypoint.ForkDelivery{Reason: "fork " + p.Fork.Key() + " is a patched fork, " +
+				"whose upstream is checked and whose series is replayed and built on the host — a launch " +
+				"from the host delivers it"}
+			continue
+		}
+		if p.Commit == "" && !p.Fork.Patched() {
 			out[p.Fork.Bin] = entrypoint.ForkDelivery{Reason: p.Reason}
 			continue
 		}
@@ -73,7 +111,15 @@ func (o *Options) forkDeliveriesFor(rt string) map[string]entrypoint.ForkDeliver
 		}
 		return out
 	}
-	for bin, d := range o.BuildForks(build, platform) {
+	req := ForkBuildRequest{Pins: build, Platform: platform, Runtime: rt, Workspace: o.Workspace,
+		Stdout: o.Stdout, Stderr: o.Stderr}
+	if o.packTree != "" {
+		req.Hand = func(bin string, h HandedFork) error {
+			o.handedForks = append(o.handedForks, bin)
+			return recordHandedFork(o.packTree, bin, h)
+		}
+	}
+	for bin, d := range o.BuildForks(req) {
 		out[bin] = d
 	}
 	for _, p := range build {
@@ -164,6 +210,17 @@ func (o *Options) noteForkPins(packs []*packload.Pack) []packload.ForkPin {
 	}
 	out.print("[dim]Forks this launch:[/dim]")
 	for _, p := range pins {
+		if p.Fork.Patched() {
+			// No pin by design (PF-D16): its line is its series and its good build (patchedforkline.go).
+			line, warn := patchedForkLine(p)
+			line = richtext.Escape(line)
+			if warn {
+				out.print("[yellow]  " + line + "[/yellow]")
+			} else {
+				out.print("[dim]  " + line + "[/dim]")
+			}
+			continue
+		}
 		if p.Commit == "" {
 			out.print("[yellow]  " + p.Line() + "[/yellow]")
 			continue

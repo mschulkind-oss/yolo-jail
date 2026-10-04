@@ -400,7 +400,7 @@ func TestHostLaunchRunsTheBuildAJailLaunchMadeOnAMachineThatCannotBuild(t *testi
 
 	sel := selectConfiguredHostPacks()
 	pins := packload.LoadForkPins(packload.Forks(sel.packs), forkLockPath())
-	delivered := buildForksForLaunch(pins, captureJailPlatform(), io.Discard, io.Discard, false)
+	delivered := buildForksForLaunch(run.ForkBuildRequest{Pins: pins, Platform: captureJailPlatform()}, io.Discard, io.Discard, false)
 	if d := delivered["forkcli"]; d.Key == "" || runs != 1 {
 		t.Fatalf("the jail launch's build: %+v, %d builds", d, runs)
 	}

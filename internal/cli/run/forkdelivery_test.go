@@ -89,8 +89,8 @@ func TestALaunchBuildsItsPinnedForkAndHandsTheJailTheKey(t *testing.T) {
 	var gotPins []packload.ForkPin
 	var gotPlatform string
 	argv, printed := fakePodmanLaunch(t, func(o *Options) {
-		o.BuildForks = func(pins []packload.ForkPin, platform string) map[string]entrypoint.ForkDelivery {
-			gotPins, gotPlatform = pins, platform
+		o.BuildForks = func(req ForkBuildRequest) map[string]entrypoint.ForkDelivery {
+			gotPins, gotPlatform = req.Pins, req.Platform
 			return map[string]entrypoint.ForkDelivery{"tool": {Key: "k1"}}
 		}
 	})
@@ -110,7 +110,7 @@ func TestAnUnpinnableForkReachesTheJailAsItsReason(t *testing.T) {
 	forkLaunchHome(t, forkPinSource)
 	called := false
 	argv, _ := fakePodmanLaunch(t, func(o *Options) {
-		o.BuildForks = func([]packload.ForkPin, string) map[string]entrypoint.ForkDelivery { called = true; return nil }
+		o.BuildForks = func(ForkBuildRequest) map[string]entrypoint.ForkDelivery { called = true; return nil }
 	})
 	if called {
 		t.Error("the build act was asked to build a fork with no pin")
@@ -128,7 +128,7 @@ func TestACaptureJailTriggersNoForkBuild(t *testing.T) {
 	called := false
 	argv, printed := fakePodmanLaunch(t, func(o *Options) {
 		o.CapturesDir = func() string { return "" }
-		o.BuildForks = func([]packload.ForkPin, string) map[string]entrypoint.ForkDelivery { called = true; return nil }
+		o.BuildForks = func(ForkBuildRequest) map[string]entrypoint.ForkDelivery { called = true; return nil }
 	})
 	if called || forkBuildsInArgv(t, argv) != nil {
 		t.Errorf("a capture jail triggered a fork build (called %v) or was handed decisions", called)
@@ -145,7 +145,7 @@ func TestNoForkIsBuiltBelowTheAppleContainerFloor(t *testing.T) {
 	o := goldenOptions("/ws", t.TempDir())
 	o.CapturesDir = func() string { return "/store" }
 	called := false
-	o.BuildForks = func([]packload.ForkPin, string) map[string]entrypoint.ForkDelivery { called = true; return nil }
+	o.BuildForks = func(ForkBuildRequest) map[string]entrypoint.ForkDelivery { called = true; return nil }
 	o.forkPinned = []packload.ForkPin{{Fork: packload.Fork{Pack: "forkpack", Bin: "tool"}, Commit: "c"}}
 	got := o.forkDeliveriesFor("container")
 	if called || !strings.Contains(got["tool"].Reason, "mounts no capture store") {
@@ -183,7 +183,7 @@ func TestAnAttachTriggersNoForkBuild(t *testing.T) {
 			}
 			return ExecResult{Ran: true, RC: 0}
 		}
-		o.BuildForks = func([]packload.ForkPin, string) map[string]entrypoint.ForkDelivery { called = true; return nil }
+		o.BuildForks = func(ForkBuildRequest) map[string]entrypoint.ForkDelivery { called = true; return nil }
 	})
 	if !strings.Contains(printed, "Attaching to existing jail") {
 		t.Fatalf("the fixture did not attach, so the attach path is unexercised:\n%s", printed)
