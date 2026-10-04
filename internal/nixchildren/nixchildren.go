@@ -3,22 +3,28 @@
 //
 // A Ctrl-C at a terminal reaches nix by itself: the terminal signals its whole foreground group,
 // nix included. A signal sent to yolo's PID alone does not — `kill -INT`, a supervisor's SIGTERM, a
-// test harness — and the launch guard then ended yolo and left its nix running with no parent
-// (measured 2026-10-03: an interrupted launch's `nix eval --impure --raw .#imageIdentity`, parent
-// pid 1, still running after its test had passed). Stop gives each one the interrupt the terminal
-// would have, so it ends the way a Ctrl-C ends it.
+// test harness — and yolo then ended and left its nix running with no parent (measured
+// 2026-10-03: an interrupted launch's `nix eval --impure --raw .#imageIdentity`, parent pid 1,
+// still running after its test had passed). Stop gives each one the interrupt the terminal would
+// have, so it ends the way a Ctrl-C ends it.
 //
-// A nix is in the set when it was started through Start or Run, and only then. The package is its
-// own so that every package running a nix can use the one set: internal/image and
-// internal/darwinpkg are independent leaves, and the no-image backend does not import the image
-// package (internal/image's NixFlakeFlags says why).
+// A nix is in the set when it was started through Start or Run, and only then. A signal teardown
+// calls Stop: a container launch's launch guard calls it itself (internal/cli/run's
+// launchguard.go), and StopOnSignal is the teardown of a command with no signal arm of its own
+// around the nix it runs.
+//
+// The package is its own so that every package running a nix can use the one set: internal/image
+// and internal/darwinpkg are independent leaves, and the no-image backend does not import the
+// image package (internal/image's NixFlakeFlags says why).
 package nixchildren
 
 import (
 	"errors"
 	"os"
 	"os/exec"
+	"os/signal"
 	"sync"
+	"syscall"
 	"time"
 )
 
@@ -42,6 +48,9 @@ type Set struct {
 	// where before the stop it never got past the nix. nil hands nothing off.
 	awaitExit func()
 	running   map[*os.Process]chan struct{}
+	// exits is where a test's set (Isolate) hears the process exits StopOnSignal's teardown ends
+	// with. nil for the process's own set, whose exit is os.Exit.
+	exits chan int
 }
 
 func newSet() *Set {
@@ -52,7 +61,7 @@ func newSet() *Set {
 var current = newSet()
 
 // ErrStopped is a nix not started because a signal is ending this process.
-var ErrStopped = errors.New("nix not started: a signal is ending this launch")
+var ErrStopped = errors.New("nix not started: a signal is ending yolo")
 
 // start starts cmd and tracks it until release, which the caller calls once cmd's Wait returned,
 // or refuses with ErrStopped once a stop has run. The start happens under the set's lock, so a
@@ -152,6 +161,87 @@ func Run(cmd *exec.Cmd) error {
 // belonged to runs it before going on.
 func Stop(awaitExit func()) { current.stop(stopGrace, awaitExit) }
 
+// exit is how StopOnSignal's teardown ends the process. Isolate fakes it.
+var exit = os.Exit
+
+// StopOnSignal arms SIGINT, SIGHUP and SIGTERM, until the disarm it returns, for a command with no
+// signal teardown of its own around the nix it runs, such as `yolo check`. A signal stops every nix
+// this process has running (Stop) and then ends the process with status 128+N, the status a
+// launch's own arm ends with. Without it, the signal's default action ended yolo at once and its
+// nix ran on with no parent.
+//
+// A container launch does not use it: the launch guard's teardown calls Stop itself
+// (internal/cli/run's launchguard.go), and two arms acting on one signal would race to exit.
+//
+// disarm is idempotent. Called once a signal's teardown has begun, it waits for that teardown's
+// exit instead of returning, so the caller never races it to the end of the process with a status
+// of its own. A signal already delivered to the arm as it is disarmed is raised again, to take
+// whatever action it has without the arm.
+func StopOnSignal() (disarm func()) {
+	s, end := current, exit
+	sigs := make(chan os.Signal, 1)
+	signal.Notify(sigs, syscall.SIGINT, syscall.SIGHUP, syscall.SIGTERM)
+	var (
+		mu       sync.Mutex
+		ending   bool
+		disarmed bool
+	)
+	removed, exited := make(chan struct{}), make(chan struct{})
+	go func() {
+		var sig os.Signal
+		select {
+		case sig = <-sigs:
+		case <-removed:
+			select {
+			case sig = <-sigs:
+			default:
+				return
+			}
+		}
+		mu.Lock()
+		if disarmed {
+			mu.Unlock()
+			raise(sig)
+			return
+		}
+		ending = true
+		mu.Unlock()
+		s.stop(stopGrace, func() { <-exited })
+		end(signalStatus(sig))
+		// Reached only where the exit is faked (Isolate): the process has ended otherwise.
+		close(exited)
+	}()
+	return func() {
+		mu.Lock()
+		if ending {
+			mu.Unlock()
+			<-exited
+			return
+		}
+		if !disarmed {
+			disarmed = true
+			signal.Stop(sigs)
+			close(removed)
+		}
+		mu.Unlock()
+	}
+}
+
+// signalStatus is the exit status for a process a signal ended: 128+N.
+func signalStatus(sig os.Signal) int {
+	if n, ok := sig.(syscall.Signal); ok {
+		return 128 + int(n)
+	}
+	return 1
+}
+
+// raise sends sig to this process again.
+func raise(sig os.Signal) {
+	if p, err := os.FindProcess(os.Getpid()); err == nil {
+		_ = p.Signal(sig)
+	}
+}
+
 // Isolate gives the calling test a set of tracked nix children of its own until it ends: an empty
 // set now, stopped when the test ends so no stand-in nix it started outlives it, and then the
 // previous set back. For tests only; nothing in yolo calls it.
@@ -162,17 +252,30 @@ func Stop(awaitExit func()) { current.stop(stopGrace, awaitExit) }
 // a tracked nix refused, and whether that test passed depended on the order the tests ran in
 // (internal/cli/run's TestAGuardTestsNixStopEndsWithTheTest).
 //
+// It fakes the process exit StopOnSignal's teardown ends with too, for the same reason: the
+// teardown's status arrives on the set's Exited instead, and the test goes on.
+//
 // t is a *testing.T; Cleanup is all this needs of it, so the yolo binary does not link the testing
 // package.
 func Isolate(t interface{ Cleanup(func()) }) *Set {
-	saved, s := current, newSet()
+	savedSet, savedExit, s := current, exit, newSet()
+	s.exits = make(chan int, 4)
 	current = s
+	exit = func(code int) {
+		select {
+		case s.exits <- code:
+		default:
+		}
+	}
 	t.Cleanup(func() {
 		s.stop(time.Second, nil)
-		current = saved
+		current, exit = savedSet, savedExit
 	})
 	return s
 }
+
+// Exited is the statuses StopOnSignal's teardown ended the process with, for a set Isolate made.
+func (s *Set) Exited() <-chan int { return s.exits }
 
 // Running is how many nix processes s has started and not yet released: a test's way to know its
 // stand-in nix is running before it sends the signal that should stop it.

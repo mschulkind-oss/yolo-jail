@@ -12,6 +12,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/entrypoint"
 	"github.com/mschulkind-oss/yolo-jail/internal/ioprio"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
+	"github.com/mschulkind-oss/yolo-jail/internal/nixchildren"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/provision"
 	"github.com/mschulkind-oss/yolo-jail/internal/richtext"
@@ -471,6 +472,15 @@ func RunMacosUser(deps Deps, opts Options) int {
 	// `yolo -- bash` with no config previously needed neither. run.Run's gate
 	// moved with it, so the refusal still lands host-side with an actionable
 	// message rather than three layers down in nix.
+	//
+	// A SIGNAL SENT TO YOLO ALONE WHILE IT RUNS NIX HERE STOPS THAT NIX (internal/nixchildren):
+	// this build and the guest-binaries build below. This backend has no signal arm of its own
+	// before the TTY proxy's, so the default action ended yolo here and left the nix building
+	// with no parent. The arm stops that nix, then ends the launch with status 128+N, and is
+	// removed once the two builds are done (disarmNix below), so the privileged steps and the
+	// session keep the signal behavior they had.
+	disarmNix := nixchildren.StopOnSignal()
+	defer disarmNix()
 	var darwin *Darwin
 	pkgs := config.EffectivePackages(opts.Config, config.PlatformDarwin)
 	// The nix build runs from the repo ROOT (the flake dir).
@@ -591,6 +601,8 @@ func RunMacosUser(deps Deps, opts Options) int {
 		}
 		opts.JailDaemons.GuestBinSource = src
 	}
+	// The host nix builds are done: the signal arm goes before anything else runs.
+	disarmNix()
 
 	plan := buildPlan(deps, opts, darwin)
 	problems := PlanInvariants(plan)

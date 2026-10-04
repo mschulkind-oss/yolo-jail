@@ -4,7 +4,10 @@ import (
 	"errors"
 	"os"
 	"os/exec"
+	"os/signal"
 	"path/filepath"
+	"strings"
+	"syscall"
 	"testing"
 	"time"
 )
@@ -107,5 +110,122 @@ func TestANixRefusedAfterTheStopIsNotHandedOff(t *testing.T) {
 		}
 	case <-time.After(10 * time.Second):
 		t.Fatal("a start the stop refused waited on the hand-off")
+	}
+}
+
+// catchSignal keeps sig from ending the test binary when no arm is installed to catch it, which is
+// the defect's own shape: without this a red run would kill the whole package's run.
+func catchSignal(t *testing.T, sig os.Signal) {
+	t.Helper()
+	catch := make(chan os.Signal, 4)
+	signal.Notify(catch, sig)
+	t.Cleanup(func() { signal.Stop(catch) })
+}
+
+// awaitExit reads the status StopOnSignal's teardown ended the process with, or fails.
+func awaitExit(t *testing.T, s *Set) int {
+	t.Helper()
+	select {
+	case code := <-s.Exited():
+		return code
+	case <-time.After(15 * time.Second):
+		t.Fatal("the signal did not end the process")
+		return 0
+	}
+}
+
+// TestASignalStopsTheNixAndEndsTheProcess: a signal sent to this process alone, under the arm,
+// interrupts the nix it has running and then ends the process 128+N. Without the arm the signal's
+// default action ended the process at once, and the nix ran on with no parent.
+func TestASignalStopsTheNixAndEndsTheProcess(t *testing.T) {
+	s := Isolate(t)
+	catchSignal(t, syscall.SIGTERM)
+	disarm := StopOnSignal()
+	defer disarm()
+	var stderr strings.Builder
+	returned := make(chan error, 1)
+	go func() {
+		cmd := exec.Command("sh", "-c", trapsInterrupt)
+		cmd.Stderr = &stderr
+		returned <- Run(cmd)
+	}()
+	awaitRunning(t, s, 1)
+	if err := syscall.Kill(os.Getpid(), syscall.SIGTERM); err != nil {
+		t.Fatal(err)
+	}
+	if code := awaitExit(t, s); code != 128+int(syscall.SIGTERM) {
+		t.Errorf("the process ended %d, want %d", code, 128+int(syscall.SIGTERM))
+	}
+	select {
+	case <-returned:
+		if !strings.Contains(stderr.String(), "interrupted") {
+			t.Errorf("the nix was not interrupted; its stderr: %q", stderr.String())
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("the stopped nix's Run never returned")
+	}
+}
+
+// TestADisarmedArmLeavesTheSignalAlone: once disarmed the arm neither stops nix nor ends the
+// process, so a command's steps after its nix keep the signal behavior they had.
+func TestADisarmedArmLeavesTheSignalAlone(t *testing.T) {
+	s := Isolate(t)
+	catchSignal(t, syscall.SIGTERM)
+	disarm := StopOnSignal()
+	disarm()
+	disarm() // idempotent
+	if err := syscall.Kill(os.Getpid(), syscall.SIGTERM); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case code := <-s.Exited():
+		t.Fatalf("a disarmed arm ended the process %d", code)
+	case <-time.After(300 * time.Millisecond):
+	}
+	if err := Run(exec.Command("true")); err != nil {
+		t.Errorf("a disarmed arm stopped the set: %v", err)
+	}
+}
+
+// TestADisarmDuringTheTeardownWaitsForItsExit: a command that reaches its disarm while the arm's
+// teardown is stopping its nix waits there for the teardown's exit, so it never races that exit to
+// the end of the process with a status of its own.
+func TestADisarmDuringTheTeardownWaitsForItsExit(t *testing.T) {
+	s := Isolate(t)
+	catchSignal(t, syscall.SIGTERM)
+	marker := filepath.Join(t.TempDir(), "interrupted")
+	disarm := StopOnSignal()
+	go func() {
+		_ = Run(exec.Command("sh", "-c",
+			"trap 'touch "+marker+"; sleep 0.3; exit 130' INT; while :; do sleep 0.05; done"))
+	}()
+	awaitRunning(t, s, 1)
+	if err := syscall.Kill(os.Getpid(), syscall.SIGTERM); err != nil {
+		t.Fatal(err)
+	}
+	for deadline := time.Now().Add(10 * time.Second); ; time.Sleep(5 * time.Millisecond) {
+		if _, err := os.Stat(marker); err == nil {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("the signal never reached the nix")
+		}
+	}
+	disarmed := make(chan struct{})
+	go func() { disarm(); close(disarmed) }()
+	select {
+	case <-disarmed:
+		t.Fatal("the disarm returned while the teardown that owns the exit was still stopping nix")
+	case code := <-s.Exited():
+		if code != 128+int(syscall.SIGTERM) {
+			t.Errorf("the process ended %d, want %d", code, 128+int(syscall.SIGTERM))
+		}
+	case <-time.After(15 * time.Second):
+		t.Fatal("the signal did not end the process")
+	}
+	select {
+	case <-disarmed:
+	case <-time.After(10 * time.Second):
+		t.Fatal("the disarm never returned after the exit")
 	}
 }

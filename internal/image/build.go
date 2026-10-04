@@ -1,12 +1,14 @@
 package image
 
 import (
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
+	"github.com/mschulkind-oss/yolo-jail/internal/nixchildren"
 	"github.com/mschulkind-oss/yolo-jail/internal/nixstderr"
 )
 
@@ -103,14 +105,14 @@ func BuildOCIImage(req OCIBuildRequest) (string, []string) {
 	// `<outPath>-1` and `<outPath>-1-man` beside the first link, and each is its
 	// own GC root. Removing only `outPath` would leave a preflight pinning a
 	// skopeo closure in /tmp forever, per `yolo check`.
-	defer func() {
+	removeLinks := func() {
 		_ = os.Remove(outPath)
 		if extra, err := filepath.Glob(outPath + "-*"); err == nil {
 			for _, link := range extra {
 				_ = os.Remove(link)
 			}
 		}
-	}()
+	}
 
 	argv, buildEnv := ociPreflightBuild(req, outPath, os.Environ())
 	cmd := exec.Command(argv[0], argv[1:]...)
@@ -121,9 +123,20 @@ func BuildOCIImage(req OCIBuildRequest) (string, []string) {
 	if err != nil {
 		return "", []string{"could not pipe nix stderr: " + err.Error()}
 	}
-	if err := cmd.Start(); err != nil {
+	// Tracked while it runs, so a signal sent to the check alone stops it rather than leaving
+	// it building with no parent (internal/nixchildren).
+	release, err := nixchildren.Start(cmd)
+	if errors.Is(err, nixchildren.ErrStopped) {
+		return "", []string{err.Error()}
+	}
+	if err != nil {
 		return "", []string{"nix command not found"}
 	}
+	// The links go first, before the release: after a stop, the release waits there for the
+	// signal's teardown to end the process (nixchildren.Stop's hand-off), and a link left for
+	// that wait would be a GC root in /tmp for good. Nothing before the start can leave one.
+	defer release()
+	defer removeLinks()
 
 	// Every line, however long, before the Wait: a read that stopped early would leave the Wait
 	// waiting on a nix blocked on its full pipe (nixstderr.Read).

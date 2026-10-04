@@ -12,6 +12,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/image"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/loopholes"
+	"github.com/mschulkind-oss/yolo-jail/internal/nixchildren"
 	"github.com/mschulkind-oss/yolo-jail/internal/nixdiag"
 	"github.com/mschulkind-oss/yolo-jail/internal/outfmt"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
@@ -26,6 +27,12 @@ import (
 // process exit code (0 = no failures, 1 = any fail). The whole section sequence
 // is driven off the injected seams so it is deterministic.
 func Check(opts Options) int {
+	// A SIGNAL SENT TO THE CHECK ALONE STOPS ITS NIX (internal/nixchildren). check has no signal
+	// teardown of its own, so the default action ended it at once and left the nix it had running
+	// — the image build, the dry-run, `nix config show` — with no parent; a Ctrl-C at a terminal
+	// never showed it, because the terminal signals nix too. Now the signal stops that nix and the
+	// check ends 128+N.
+	defer nixchildren.StopOnSignal()()
 	fillDefaults(&opts)
 	o := &opts
 	// Gate color through the one gate (tty.Color): o.Color merely requests it,

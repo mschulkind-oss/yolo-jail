@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/nixchildren"
 	"github.com/mschulkind-oss/yolo-jail/internal/nixstderr"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 )
@@ -193,7 +194,10 @@ func skippedNames(repoRoot string, env []string, system string) []string {
 	cmd.Env = env
 	var stdout strings.Builder
 	cmd.Stdout = &stdout
-	if err := cmd.Start(); err != nil {
+	// Tracked while it runs, so a signal that ends the launch stops this eval too
+	// (internal/nixchildren). A stop also keeps the build after it from starting.
+	release, err := nixchildren.Start(cmd)
+	if err != nil {
 		return nil
 	}
 	done := make(chan error, 1)
@@ -202,8 +206,10 @@ func skippedNames(repoRoot string, env []string, system string) []string {
 	case <-time.After(120 * time.Second):
 		_ = cmd.Process.Kill()
 		<-done
+		release()
 		return nil
 	case err := <-done:
+		release()
 		if err != nil {
 			return nil
 		}
@@ -223,16 +229,21 @@ func skippedNames(repoRoot string, env []string, system string) []string {
 // truncate the tail and raced on the buffer after a 5s join timeout.)
 //
 // cmd.Stdout must already be set by the caller; err is non-nil only when the
-// process could not be started (exec.ErrNotFound / other start failure). A
-// non-zero exit is reported via the returned code, not err.
+// process could not be started (exec.ErrNotFound / other start failure, or
+// nixchildren.ErrStopped once a signal is ending the launch). A non-zero exit is
+// reported via the returned code, not err.
 func streamStderrTail(cmd *exec.Cmd, errStderr io.Writer, max int) (tail []string, exitCode int, err error) {
 	stderrPipe, perr := cmd.StderrPipe()
 	if perr != nil {
 		return nil, 0, perr
 	}
-	if serr := cmd.Start(); serr != nil {
+	// Tracked while it runs, so a signal that ends the launch stops this build rather than
+	// leaving it running with no parent (internal/nixchildren).
+	release, serr := nixchildren.Start(cmd)
+	if serr != nil {
 		return nil, 0, serr
 	}
+	defer release()
 	tail = nixstderr.Read(stderrPipe, max, func(clean string) { fmt.Fprintln(errStderr, clean) })
 	waitErr := cmd.Wait()
 	code := 0

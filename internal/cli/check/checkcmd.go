@@ -27,6 +27,7 @@ import (
 	"os"
 	"os/exec"
 	"os/user"
+	"path/filepath"
 	"runtime"
 	"strings"
 	"time"
@@ -34,6 +35,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/banner"
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/hostfloor"
+	"github.com/mschulkind-oss/yolo-jail/internal/nixchildren"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/reporoot"
@@ -341,7 +343,8 @@ func realExec(argv []string, dir string, env []string, timeout time.Duration) Ex
 	var stdout, stderr strings.Builder
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
-	if err := cmd.Start(); err != nil {
+	release, err := startProbe(cmd, argv[0])
+	if err != nil {
 		return ExecResult{Ran: false}
 	}
 	done := make(chan error, 1)
@@ -350,8 +353,10 @@ func realExec(argv []string, dir string, env []string, timeout time.Duration) Ex
 	case <-time.After(timeout):
 		_ = cmd.Process.Kill()
 		<-done
+		release()
 		return ExecResult{Stdout: stdout.String(), Stderr: stderr.String(), Ran: true, Timeout: true}
 	case err := <-done:
+		release()
 		rc := 0
 		if cmd.ProcessState != nil {
 			rc = cmd.ProcessState.ExitCode()
@@ -359,6 +364,16 @@ func realExec(argv []string, dir string, env []string, timeout time.Duration) Ex
 		_ = err
 		return ExecResult{Stdout: stdout.String(), Stderr: stderr.String(), RC: rc, Ran: true}
 	}
+}
+
+// startProbe starts cmd, a probe named name. A nix (`nix --version`, the dry-run, `nix config
+// show`) is started through the tracked set (internal/nixchildren), so a signal sent to the check
+// alone stops it; every other probe starts bare. Its release is the caller's once Wait returned.
+func startProbe(cmd *exec.Cmd, name string) (release func(), err error) {
+	if filepath.Base(name) == "nix" {
+		return nixchildren.Start(cmd)
+	}
+	return func() {}, cmd.Start()
 }
 
 // NewDefaultOptions returns Options with the real platform predicate and build

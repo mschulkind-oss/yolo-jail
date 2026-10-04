@@ -38,8 +38,11 @@ func awaitTracked(t *testing.T, s *nixchildren.Set, n int) {
 	}
 }
 
-// trapsInterrupt is a stand-in nix that runs until interrupted and says so on stderr.
-const trapsInterrupt = `trap 'echo interrupted >&2; exit 130' INT; echo started >&2; while :; do sleep 0.05; done`
+// trapsInterrupt is a stand-in nix that runs until interrupted and says so on stderr. It gives up
+// after 30 seconds, so a red run whose nix nothing tracks — and so nothing stops — does not leave
+// it looping after the test binary exits.
+const trapsInterrupt = `trap 'echo interrupted >&2; exit 130' INT; echo started >&2; ` +
+	`i=0; while [ $i -lt 600 ]; do sleep 0.05; i=$((i+1)); done; exit 1`
 
 // standInNix puts a `nix` on PATH that runs script.
 func standInNix(t *testing.T, script string) {
@@ -123,6 +126,77 @@ func TestEvalImageIdentityIsTracked(t *testing.T) {
 		}
 	case <-time.After(10 * time.Second):
 		t.Fatal("EvalImageIdentity did not return after its nix was stopped")
+	}
+}
+
+// TestBuildOCIImageIsTracked: `yolo check`'s image build is a nix a stop reaches, so a signal sent
+// to the check alone stops it rather than leaving it building with no parent.
+func TestBuildOCIImageIsTracked(t *testing.T) {
+	s := freshNixChildren(t)
+	standInNix(t, trapsInterrupt)
+	type built struct {
+		path string
+		tail []string
+	}
+	done := make(chan built, 1)
+	go func() {
+		p, tail := BuildOCIImage(OCIBuildRequest{RepoRoot: t.TempDir()})
+		done <- built{p, tail}
+	}()
+	awaitTracked(t, s, 1)
+	nixchildren.Stop(nil)
+	select {
+	case b := <-done:
+		if b.path != "" {
+			t.Errorf("an interrupted check build returned store path %q", b.path)
+		}
+		if !strings.Contains(strings.Join(b.tail, "\n"), "interrupted") {
+			t.Errorf("the check build's nix was not interrupted; its stderr: %q", b.tail)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("BuildOCIImage did not return after its nix was stopped")
+	}
+}
+
+// TestAStoppedCheckBuildRemovesItsLinksBeforeTheHandOff: the out-links BuildOCIImage removes are
+// GC roots under /tmp, and after a stop its release waits for the signal's teardown to end the
+// process. A link still there at that wait is never removed, so it goes first.
+func TestAStoppedCheckBuildRemovesItsLinksBeforeTheHandOff(t *testing.T) {
+	s := freshNixChildren(t)
+	// The stand-in makes its out-link the way nix does, then runs until interrupted.
+	standInNix(t, `while [ $# -gt 0 ]; do [ "$1" = --out-link ] && ln -s /nonexistent "$2"; shift; done; `+
+		trapsInterrupt)
+	links := make(chan []string, 1)
+	go BuildOCIImage(OCIBuildRequest{RepoRoot: t.TempDir()})
+	awaitTracked(t, s, 1)
+	matches := func() []string {
+		m, _ := filepath.Glob(filepath.Join(os.TempDir(), "yolo-check-*"))
+		var mine []string
+		for _, l := range m {
+			if target, err := os.Readlink(l); err == nil && target == "/nonexistent" {
+				mine = append(mine, l)
+			}
+		}
+		return mine
+	}
+	for deadline := time.Now().Add(10 * time.Second); len(matches()) == 0; time.Sleep(5 * time.Millisecond) {
+		if time.Now().After(deadline) {
+			t.Fatal("the stand-in never made its out-link")
+		}
+	}
+	exited := make(chan struct{})
+	t.Cleanup(func() { close(exited) })
+	go nixchildren.Stop(func() { links <- matches(); <-exited })
+	select {
+	case left := <-links:
+		if len(left) > 0 {
+			t.Errorf("the stopped check build handed off with its out-links still in place: %v", left)
+			for _, l := range left {
+				_ = os.Remove(l)
+			}
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("the stopped check build never reached the stop's hand-off")
 	}
 }
 
