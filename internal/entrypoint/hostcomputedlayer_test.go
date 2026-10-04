@@ -15,6 +15,7 @@ import (
 	"testing"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
+	"github.com/mschulkind-oss/yolo-jail/internal/packdecl"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/packoverlay"
 	"github.com/mschulkind-oss/yolo-jail/internal/render"
@@ -490,6 +491,53 @@ func TestTheOverwriteReportNamesAComputedEnvLeaf(t *testing.T) {
 	}
 	if strings.Contains(got, "MY_VAR") {
 		t.Errorf("a key no layer asserts is reported: %q", got)
+	}
+}
+
+// A KEY A CONFIG-OVERLAY AND A COMPUTED LEAF BOTH WRITE IS REPORTED ONCE, AS THE COMPUTED LEAF,
+// under both contracts. Computed outranks a config-overlay (§5), so the leaf is what replaces your
+// value; reported under the overlay too, the line's remedy sent you to a pack edit that could not
+// keep it. Under `assert` the overlay line is dropped where the computed one is added
+// (withComputedOverwrites); under `own` the stateful re-measure skips it (hostStatefulOverwrites).
+func TestAComputedLeafOutranksAnOverlayInTheOverwriteReport(t *testing.T) {
+	raw, err := json.Marshal(map[string]any{"managed": map[string]any{
+		"env": map[string]any{"ENABLE_LSP_TOOL": "from-the-pack"}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	overlayPack := &packload.Pack{Name: "lspov", Decl: &packdecl.Manifest{
+		Contributes: []packdecl.Contribution{
+			{Kind: packdecl.KindConfigOverlay, Surface: "claude/settings", Raw: raw},
+		},
+	}}
+	for _, ownership := range []render.HostOwnership{render.OwnershipAssert, render.OwnershipOwn} {
+		t.Run(ownership.String(), func(t *testing.T) {
+			t.Setenv("YOLO_CTX_ROOT", t.TempDir())
+			home := t.TempDir()
+			writeTestFile(t, filepath.Join(home, ".claude", "settings.json"),
+				`{"env": {"ENABLE_LSP_TOOL": "0"}}`)
+			packs := append(testPacksForAgent(t, "claude"), overlayPack)
+			in := hostTestInputs(t, packs, nil, nil,
+				map[string]any{"gopls": map[string]any{"command": "gopls"}})
+			results, err := RenderHostPack(packs[0], home, ownership, true,
+				packoverlay.Collect(packs, false, nil), in)
+			if err != nil {
+				t.Fatal(err)
+			}
+			r := resultFor(t, results, "claude/settings")
+			if len(r.Overlays) == 0 {
+				t.Fatalf("fixture: the overlay pack does not reach claude/settings: %+v", r)
+			}
+			var lines []string
+			for _, o := range r.Overwrites {
+				if strings.Contains(o, "ENABLE_LSP_TOOL") {
+					lines = append(lines, o)
+				}
+			}
+			if len(lines) != 1 || lines[0] != "env.ENABLE_LSP_TOOL (computed from your lsp_servers)" {
+				t.Errorf("want env.ENABLE_LSP_TOOL reported once, as the computed leaf; got %q", lines)
+			}
+		})
 	}
 }
 

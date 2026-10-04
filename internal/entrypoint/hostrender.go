@@ -247,30 +247,76 @@ type HostRenderResult struct {
 	// way the write computes it, for `yolo config render --at host --explain`. Observe only,
 	// like Content; nil where the notch's census keeps no record for the mechanism.
 	Provenance map[string]string
+	// capture is the stateful render the observe posture composed for Content — the write's own
+	// compose, stopped before the write — kept for its capture half (Capture). Observe only, and
+	// nil for a skipped or refused surface and for every surface rmw renders.
+	capture *statefulRender
+}
+
+// HostCapture is the CAPTURE HALF of one owned (`stateful`) host render: the two capture
+// sidecars the write would persist for the surface, as the observe posture composed them, and the
+// one-shot repairs that composition made to the captured edits.
+//
+// It is `yolo config capture`'s whole input at an owned host. The verb used to run the engine's
+// capture itself, at the JAIL's Target with no layers, over the shipped pack's AUTONOMOUS
+// declaration; that composition's managed layer owns `permissions.deny`, so its narrowing erased a
+// deny rule an earlier apply had captured, and with no computed layer it recorded a key the apply
+// narrows out (MEASURED 2026-10-04, both). Reading the capture off the apply's own render, for the
+// configured pack at the host posture with the computed layer, the overlays and the selection, is
+// what makes "the verb records what the next apply records" a property of the code: there is one
+// composition, and the verb persists part of it.
+type HostCapture struct {
+	// Overlay is the capture overlay sidecar's content, without the newline the writer adds.
+	Overlay []byte
+	// ListCapture is the per-entry list capture's content, nil for a surface with no config-list
+	// path — and then the writer creates no file.
+	ListCapture []byte
+	// Repairs are the one-shot repairs the composition made to the captured edits, one sentence
+	// each, for the caller to print: a mutation of the user's captured state nobody announced is
+	// the defect, not the mutation (noteRepairedValues).
+	Repairs []string
+}
+
+// Capture is the capture half of this result's render (HostCapture). ok is false when there is
+// nothing to capture, which is every result but an observed stateful render of a file that exists
+// over a trusted baseline: with no baseline the render ADOPTS the file, and adoption is the
+// apply's to perform, with its one-time archive (OQ-CO7) — the capture verb has never acted
+// without a baseline, because without one it cannot tell an edit from yolo's own output.
+func (r HostRenderResult) Capture() (HostCapture, bool) {
+	sr := r.capture
+	if sr == nil || sr.out == nil || sr.current == nil || sr.out.FirstMigration {
+		return HostCapture{}, false
+	}
+	c := HostCapture{Overlay: sr.out.OverlayJSON, ListCapture: sr.out.ListCaptureJSON}
+	for _, rep := range sr.out.Repairs {
+		c.Repairs = append(c.Repairs, rep.Describe("removed", "your captured edits"))
+	}
+	return c, true
 }
 
 // hostMechanismPreview is the content and provenance an --assert through mechanism would
 // write for s: the writer's own compose, stopped before the write. Every failure answers
 // empty, as the change predicate does — the probes the caller ran first refuse what this
-// cannot compose, and a refusal has no content.
+// cannot compose, and a refusal has no content. The stateful compose comes back too, for its
+// capture half (HostRenderResult.Capture); rmw keeps no capture, and returns nil.
 func hostMechanismPreview(e *Env, mechanism string, s manifest.Surface, l surfaceLayers,
-	contribs *surfaceContribs) (string, map[string]string) {
+	contribs *surfaceContribs) (string, map[string]string, *statefulRender) {
 	if mechanism == manifest.ModeStateful {
 		r, err := composeStatefulSurface(e, s, nil, l.computed, l.inFull, contribs)
 		if err != nil || r.out == nil || r.out.Result == nil {
-			return "", nil
+			return "", nil, nil
 		}
-		return r.text(), r.out.Result.Provenance
+		return r.text(), r.out.Result.Provenance, r
 	}
 	r, err := composeRMWSurface(e, s, l.computed, contribs)
 	if err != nil {
-		return "", nil
+		return "", nil, nil
 	}
 	var prov map[string]string
 	if e.renderTarget().Modes().Records(manifest.ModeRMW) {
 		prov = r.provenance(e, l.computed, contribs)
 	}
-	return r.text, prov
+	return r.text, prov, nil
 }
 
 // hostRenderEnv is the Env every host render drives: render.Host, not render.Jail, over the
@@ -300,8 +346,10 @@ func hostRenderEnv(homeDir string, ownership render.HostOwnership, in *HostInput
 // for a caller that has no other packs in view.
 //
 // only, when given, names the "agent/name" surfaces to render, and every other plan is dropped
-// before anything is read or written — RenderHostSurface's one-surface render, kept on this
-// entry so the host half of the one loop still has exactly one head (surfaceloop_test.go).
+// before anything is read or written — RenderHostSurface's one-surface write, and the
+// one-surface observe whose capture half `yolo config capture` persists at an owned host
+// (HostRenderResult.Capture), kept on this entry so the host half of the one loop still has
+// exactly one head (surfaceloop_test.go).
 func RenderHostPack(p *packload.Pack, homeDir string, ownership render.HostOwnership,
 	observe bool, overlays *packoverlay.OverlaySet, in *HostInputs, only ...string) ([]HostRenderResult, error) {
 	// hostTarget: this Env drives render.Host, not render.Jail. Load-bearing for every
@@ -680,14 +728,14 @@ func renderHostPlans(e *Env, p *packload.Pack, plans []surfacePlan, observe bool
 			if !wouldChange {
 				action = "unchanged"
 			}
-			content, provenance := hostMechanismPreview(e, mechanism, s, layers, contribs)
+			content, provenance, composed := hostMechanismPreview(e, mechanism, s, layers, contribs)
 			out = append(out, HostRenderResult{Surface: id, Path: path, Action: action,
 				Overwrites: overwrites, Kept: kept, Overlays: overlayPackNames(surfaceOverlays),
 				Lists:     contribs.listPacks(),
 				Outranked: outranked, Pruned: pruned, EntryLosses: losses,
 				FirstApply: firstApply, Formatting: formatting, WouldChange: wouldChange,
 				Repaired: repaired, Content: content, Provenance: provenance,
-				InputSkips: agentSrc.skippedNotes()})
+				InputSkips: agentSrc.skippedNotes(), capture: composed})
 			continue
 		}
 		// INTO THE REAL HOME, through the mechanism the census named, with the layers decided

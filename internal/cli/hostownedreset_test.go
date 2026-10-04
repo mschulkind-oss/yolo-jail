@@ -232,58 +232,360 @@ func TestHostSideCaptureStillRefusedUnderAssertAndNone(t *testing.T) {
 	}
 }
 
-// THE VERB WRITES WHAT THE NEXT APPLY RECORDS: a capture under `own`, then the apply, leaves the
-// overlay exactly as the capture wrote it, and the edit in your file. If the two disagreed the
-// verb would be a second writer of the store with its own answer.
+// THE VERB WRITES WHAT THE NEXT APPLY RECORDS: a capture under `own`, then the real `yolo host
+// apply --assert`, leaves the overlay exactly as the capture wrote it, and the edit in your file.
+// If the two disagreed the verb would be a second writer of the store with its own answer. (The
+// two tests above pin the keys a top-level edit like this one cannot reach: a key only the jail's
+// posture manages, and one the computed layer writes.)
 func TestOwnedCaptureVerbIsIdempotentWithTheApply(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("HOME", home)
-	t.Setenv("YOLO_VERSION", "")
-	writeFile(t, filepath.Join(home, ".config", "yolo-jail", "config.jsonc"),
-		`{"packs":["claude"],"host_management":"own"}`)
+	home := hostComputedHome(t, `{"packs":["claude"],"host_management":"own"}`)
+	ownedApply(t)
+	editJSONAt(t, home, ".claude/settings.json", func(doc map[string]any) {
+		doc["myEdit"] = "present"
+	})
+
+	var out, errw bytes.Buffer
+	if rc := configCapture(hostTargetForTest(), []string{"claude/settings"}, &out, &errw, false); rc != 0 {
+		t.Fatalf("capture: rc=%d\n%s%s", rc, out.String(), errw.String())
+	}
+	overlay := filepath.Join(render.Host(home, nil, render.OwnershipOwn).SidecarDir(),
+		"claude-settings.overlay.json")
+	byVerb := mustReadFile(t, overlay)
+	if !strings.Contains(byVerb, "myEdit") {
+		t.Fatalf("fixture: the verb captured nothing: %s", byVerb)
+	}
+	ownedApply(t)
+	sameOverlay(t, "the apply after the verb recorded a different overlay", byVerb,
+		mustReadFile(t, overlay))
+	if readJSONAt(t, home, ".claude/settings.json")["myEdit"] != "present" {
+		t.Errorf("the edit the verb captured is gone after the apply")
+	}
+}
+
+// ownedApply runs the real `yolo host apply --assert` in the current HOME, answering yes to any
+// prompt, and returns what it printed.
+func ownedApply(t *testing.T) string {
+	t.Helper()
+	var out, errw bytes.Buffer
+	if rc := hostMain([]string{"apply", "--assert"}, &out, &errw, false,
+		strings.NewReader("y\ny\ny\ny\n")); rc != 0 {
+		t.Fatalf("yolo host apply --assert rc=%d\n%s%s", rc, out.String(), errw.String())
+	}
+	return out.String() + errw.String()
+}
+
+// editJSONAt decodes home/rel, hands it to edit, and writes it back.
+func editJSONAt(t *testing.T, home, rel string, edit func(map[string]any)) {
+	t.Helper()
+	doc := readJSONAt(t, home, rel)
+	edit(doc)
+	raw, err := json.Marshal(doc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, filepath.Join(home, rel), string(raw))
+}
+
+// sameOverlay fails unless the two overlay sidecar texts decode to the same value.
+func sameOverlay(t *testing.T, what, a, b string) {
+	t.Helper()
+	var x, y any
+	if err := json.Unmarshal([]byte(a), &x); err != nil {
+		t.Fatalf("%s: %v\n%s", what, err, a)
+	}
+	if err := json.Unmarshal([]byte(b), &y); err != nil {
+		t.Fatalf("%s: %v\n%s", what, err, b)
+	}
+	if !reflect.DeepEqual(x, y) {
+		t.Errorf("%s:\n verb  %s\n apply %s", what, a, b)
+	}
+}
+
+// THE VERB CAPTURES AT THE HOST POSTURE, WITH THE COMPUTED LAYER — the apply's own composition —
+// so an edit the apply already captured survives it. MEASURED before the fix (the reviewer's probe,
+// 2026-10-04): the verb composed the claude pack at the JAIL posture, whose managed layer owns
+// permissions.deny, so its narrowing erased a deny rule an earlier apply had captured — "0 keys now
+// recorded" — and the next `yolo host apply --assert` wrote the file without it.
+func TestOwnedCaptureVerbKeepsAnEditTheApplyCaptured(t *testing.T) {
+	home := hostComputedHome(t, `{"packs":["claude"],"host_management":"own"}`)
+	ownedApply(t)
+	editJSONAt(t, home, ".claude/settings.json", func(doc map[string]any) {
+		doc["permissions"].(map[string]any)["deny"] = []any{"Bash(rm:*)"}
+	})
+	ownedApply(t) // captures the deny rule into the host store, and keeps it in the file
+	overlay := filepath.Join(render.Host(home, nil, render.OwnershipOwn).SidecarDir(),
+		"claude-settings.overlay.json")
+	if !strings.Contains(mustReadFile(t, overlay), "Bash(rm:*)") {
+		t.Fatalf("fixture: the apply did not capture the deny rule: %s", mustReadFile(t, overlay))
+	}
+
+	var out, errw bytes.Buffer
+	if rc := configCapture(hostTargetForTest(), []string{"claude/settings"}, &out, &errw, false); rc != 0 {
+		t.Fatalf("capture: rc=%d\n%s%s", rc, out.String(), errw.String())
+	}
+	byVerb := mustReadFile(t, overlay)
+	if !strings.Contains(byVerb, "Bash(rm:*)") {
+		t.Errorf("`yolo config capture` erased the deny rule the apply had captured:\n%s\n%s",
+			byVerb, out.String())
+	}
+	ownedApply(t)
+	sameOverlay(t, "the apply after the verb recorded a different overlay", byVerb,
+		mustReadFile(t, overlay))
+	perms, _ := readJSONAt(t, home, ".claude/settings.json")["permissions"].(map[string]any)
+	if deny, _ := perms["deny"].([]any); len(deny) != 1 || deny[0] != "Bash(rm:*)" {
+		t.Errorf("your deny rule is gone from the file after capture + apply: %v", perms)
+	}
+}
+
+// AND A KEY THE COMPUTED LAYER WRITES IS NOT RECORDED: the apply narrows it out of the overlay
+// (computed outranks a captured edit), so a verb that recorded it was a second writer with its own
+// answer. MEASURED before the fix: env.ENABLE_LSP_TOOL, computed from your lsp_servers, edited to
+// "0" in the file — the verb said "1 key now recorded" and the next apply's overlay was {}.
+func TestOwnedCaptureVerbDoesNotRecordAComputedKey(t *testing.T) {
+	home := hostComputedHome(t, `{"packs":["claude"],"host_management":"own",
+		"lsp_servers":{"gopls":{"command":"gopls"}}}`)
+	ownedApply(t)
+	env, _ := readJSONAt(t, home, ".claude/settings.json")["env"].(map[string]any)
+	if env["ENABLE_LSP_TOOL"] == nil || env["ENABLE_LSP_TOOL"] == "0" {
+		t.Fatalf("fixture: the apply did not compute env.ENABLE_LSP_TOOL: %v", env)
+	}
+	editJSONAt(t, home, ".claude/settings.json", func(doc map[string]any) {
+		doc["env"].(map[string]any)["ENABLE_LSP_TOOL"] = "0"
+	})
+
+	var out, errw bytes.Buffer
+	if rc := configCapture(hostTargetForTest(), []string{"claude/settings"}, &out, &errw, false); rc != 0 {
+		t.Fatalf("capture: rc=%d\n%s%s", rc, out.String(), errw.String())
+	}
+	overlay := filepath.Join(render.Host(home, nil, render.OwnershipOwn).SidecarDir(),
+		"claude-settings.overlay.json")
+	byVerb := mustReadFile(t, overlay)
+	if strings.Contains(byVerb, "ENABLE_LSP_TOOL") {
+		t.Errorf("the verb recorded a key the computed layer writes, which the apply narrows out:\n%s",
+			byVerb)
+	}
+	ownedApply(t)
+	sameOverlay(t, "the apply after the verb recorded a different overlay", byVerb,
+		mustReadFile(t, overlay))
+}
+
+// UNDER `own`, A RESET OF ONE SURFACE LEAVES ITS PACK'S OTHER SURFACES ALONE: the re-render is
+// RenderHostPack's one-surface filter, not the pack. Without the filter a reset of claude/settings
+// rewrote ~/.claude.json too (MEASURED: {"mine":true} became {"mine":true,"mcpServers":{}}) while
+// the line said it had reset claude/settings.
+func TestOwnedHostResetOfOneSurfaceLeavesItsSiblingsAlone(t *testing.T) {
+	home, _, _ := hostResetFixture(t, "own")
+	sibling := filepath.Join(home, ".claude.json")
+	writeFile(t, sibling, `{"mine":true}`)
+	before := mustReadFile(t, sibling)
+	var out, errw bytes.Buffer
+	if rc := configReset(hostTargetForTest(), []string{"claude/settings"}, &out, &errw, false); rc != 0 {
+		t.Fatalf("reset: rc=%d\n%s%s", rc, out.String(), errw.String())
+	}
+	if !strings.Contains(out.String(), "re-rendered") {
+		t.Fatalf("fixture: the reset did not re-render claude/settings:\n%s", out.String())
+	}
+	if after := mustReadFile(t, sibling); after != before {
+		t.Errorf("a reset of claude/settings rewrote %s:\nbefore %s\nafter  %s", sibling, before, after)
+	}
+}
+
+// claudeForkWithFailingSettingsDerive is a copy of the shipped claude pack, configured by path,
+// whose claude/settings derive raises when the host render calls it: a composition that resolves
+// (its registration loads) and a one-surface render that comes back refused.
+func claudeForkWithFailingSettingsDerive(t *testing.T) string {
+	t.Helper()
 	var claude *packload.Pack
 	for _, p := range packload.Embedded() {
 		if p.Name == "claude" {
 			claude = p
 		}
 	}
-	if _, err := entrypoint.RenderHostPack(claude, home, render.OwnershipOwn, false, nil, nil); err != nil {
+	fork := filepath.Join(t.TempDir(), "claude")
+	if err := os.CopyFS(fork, os.DirFS(claude.Root)); err != nil {
 		t.Fatal(err)
 	}
-	store := render.Host(home, nil, render.OwnershipOwn).SidecarDir()
-	s, _ := surfaceManifest().Lookup("claude", "settings")
-	surf := expandHome(s.Path)
-	var doc map[string]any
-	if err := json.Unmarshal([]byte(mustReadFile(t, surf)), &doc); err != nil {
+	derive := filepath.Join(fork, "derive.lua")
+	raw := mustReadFile(t, derive)
+	const head = `yolo.derive("claude", "settings", function(ctx)`
+	if strings.Count(raw, head) != 1 {
+		t.Fatalf("fixture: the claude/settings derive is not where this test edits it")
+	}
+	if err := os.Chmod(derive, 0o644); err != nil {
 		t.Fatal(err)
 	}
-	doc["myEdit"] = "present"
-	raw, _ := json.Marshal(doc)
-	writeFile(t, surf, string(raw))
+	writeFile(t, derive, strings.Replace(raw, head, head+` error("this derive fails at the host")`, 1))
+	return fork
+}
 
+// WHEN THE ONE-SURFACE RE-RENDER IS REFUSED, THE RESET SAYS SO, and does not claim it re-rendered:
+// the file holds the declared layers the truncation wrote, and the trailer names the apply that
+// lands the rest. A refused render read "re-rendered it from its layers" without the warning.
+func TestOwnedHostResetSaysWhenTheReRenderIsRefused(t *testing.T) {
+	home, _, _ := hostResetFixture(t, "own")
+	fork := claudeForkWithFailingSettingsDerive(t)
+	writeFile(t, filepath.Join(home, ".config", "yolo-jail", "config.jsonc"),
+		`{"packs":["`+fork+`"],"host_management":"own"}`)
 	var out, errw bytes.Buffer
-	if rc := configCapture(hostTargetForTest(), []string{"claude/settings"}, &out, &errw, false); rc != 0 {
+	if rc := configReset(hostTargetForTest(), []string{"claude/settings"}, &out, &errw, false); rc != 0 {
+		t.Fatalf("reset: rc=%d\n%s%s", rc, out.String(), errw.String())
+	}
+	report := out.String()
+	if !strings.Contains(report, "reset to its declared layers only") ||
+		!strings.Contains(report, "its derive failed at the host") {
+		t.Errorf("the refused re-render is not named:\n%s", report)
+	}
+	if strings.Contains(report, "re-rendered") || strings.Contains(report, "finds nothing to change") {
+		t.Errorf("the reset claims a re-render that was refused:\n%s", report)
+	}
+	if !strings.Contains(report, "The next `yolo host apply --assert` re-renders these surfaces") {
+		t.Errorf("the trailer does not name the apply that lands the rest:\n%s", report)
+	}
+}
+
+// AND THE OWNED CAPTURE REFUSES WHAT THE APPLY REFUSES, recording nothing: a surface the apply
+// will not compose is one whose edits nothing would record, and saying "captured" there would be
+// the verb's own answer again.
+func TestOwnedCaptureVerbRefusesWhatTheApplyRefuses(t *testing.T) {
+	home, store, surfacePath := hostResetFixture(t, "own")
+	fork := claudeForkWithFailingSettingsDerive(t)
+	writeFile(t, filepath.Join(home, ".config", "yolo-jail", "config.jsonc"),
+		`{"packs":["`+fork+`"],"host_management":"own"}`)
+	writeFile(t, surfacePath, `{"theme":"yolo's","myEdit":"present"}`)
+	overlay := filepath.Join(store, "claude-settings.overlay.json")
+	before := mustReadFile(t, overlay)
+	var out, errw bytes.Buffer
+	if rc := configCapture(hostTargetForTest(), []string{"claude/settings"}, &out, &errw, false); rc != 1 {
+		t.Fatalf("capture of a surface the apply refuses: rc=%d, want 1\n%s%s", rc, out.String(),
+			errw.String())
+	}
+	if report := out.String(); !strings.Contains(report, "not captured") ||
+		!strings.Contains(report, "yolo host apply --assert") {
+		t.Errorf("the refusal does not say why or what next:\n%s", report)
+	}
+	if after := mustReadFile(t, overlay); after != before {
+		t.Errorf("a refused capture wrote the overlay:\nbefore %s\nafter  %s", before, after)
+	}
+}
+
+// AND THE OWNED CAPTURE TAKES THE APPLY'S LOCK, as reset does: an apply writes the file and then
+// the baseline, and a capture reading between the two would record yolo's own new values as
+// edits of yours.
+func TestOwnedCaptureVerbRefusesWhileAnApplyHoldsTheLock(t *testing.T) {
+	_, store, surfacePath := hostResetFixture(t, "own")
+	writeFile(t, surfacePath, `{"theme":"yolo's","myEdit":"present"}`)
+	held := tryHostApplyLock(os.Getenv("HOME"))
+	if held == nil {
+		t.Fatal("fixture: could not take the lock")
+	}
+	defer held.Close()
+	overlay := filepath.Join(store, "claude-settings.overlay.json")
+	before := mustReadFile(t, overlay)
+	var out, errw bytes.Buffer
+	if rc := configCapture(hostTargetForTest(), []string{"claude/settings"}, &out, &errw, false); rc != 1 {
+		t.Fatalf("capture under a held lock: rc=%d, want 1\n%s%s", rc, out.String(), errw.String())
+	}
+	if !strings.Contains(errw.String(), "again once it has finished") {
+		t.Errorf("the refusal does not name the next step:\n%s", errw.String())
+	}
+	if after := mustReadFile(t, overlay); after != before {
+		t.Errorf("a refused capture wrote the overlay")
+	}
+}
+
+// WITH NO BASELINE, OR NO FILE, THE OWNED CAPTURE RECORDS NOTHING. With no baseline the apply's
+// render ADOPTS the file, and adoption is the apply's to perform, with its one-time archive; the
+// verb has never acted without one, because it cannot tell an edit from yolo's own output. With no
+// file there is no edit to fold.
+func TestOwnedCaptureVerbNeitherAdoptsNorCapturesAnAbsentFile(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		remove func(store, surfacePath string) string
+	}{
+		{"no baseline", func(store, _ string) string {
+			return filepath.Join(store, "claude-settings.last_render")
+		}},
+		{"no file", func(_, surfacePath string) string { return surfacePath }},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			_, store, surfacePath := hostResetFixture(t, "own")
+			writeFile(t, surfacePath, `{"theme":"yolo's","myEdit":"present"}`)
+			if err := os.Remove(tc.remove(store, surfacePath)); err != nil {
+				t.Fatal(err)
+			}
+			overlay := filepath.Join(store, "claude-settings.overlay.json")
+			before := mustReadFile(t, overlay)
+			var out, errw bytes.Buffer
+			if rc := configCapture(hostTargetForTest(), []string{"claude/settings"}, &out, &errw,
+				false); rc != 0 {
+				t.Fatalf("capture: rc=%d\n%s%s", rc, out.String(), errw.String())
+			}
+			if !strings.Contains(out.String(), "never rendered here — nothing to capture") {
+				t.Errorf("the capture does not say there was nothing to capture:\n%s", out.String())
+			}
+			if after := mustReadFile(t, overlay); after != before {
+				t.Errorf("the capture wrote the overlay:\nbefore %s\nafter  %s", before, after)
+			}
+		})
+	}
+}
+
+// AND A REPAIR THE COMPOSITION MAKES TO YOUR CAPTURED EDITS IS ANNOUNCED. pi rejects
+// `theme: "system"` (agentcfg/rejectedvalues.go), and the apply's composition removes it from the
+// capture overlay; the verb persists that overlay, so it says so, as the apply does.
+func TestOwnedCaptureVerbAnnouncesARepairToYourCapturedEdits(t *testing.T) {
+	home := hostComputedHome(t, `{"packs":["pi"],"host_management":"own"}`)
+	ownedApply(t)
+	editJSONAt(t, home, ".pi/agent/settings.json", func(doc map[string]any) {
+		doc["theme"] = "system"
+	})
+	var out, errw bytes.Buffer
+	if rc := configCapture(hostTargetForTest(), []string{"pi/settings"}, &out, &errw, false); rc != 0 {
 		t.Fatalf("capture: rc=%d\n%s%s", rc, out.String(), errw.String())
 	}
-	overlay := filepath.Join(store, "claude-settings.overlay.json")
-	byVerb := mustReadFile(t, overlay)
-	if !strings.Contains(byVerb, "myEdit") {
-		t.Fatalf("fixture: the verb captured nothing: %s", byVerb)
+	if !strings.Contains(out.String(), `removed theme = "system" from your captured edits`) {
+		t.Errorf("the repair to your captured edits is not announced:\n%s", out.String())
 	}
-	if _, err := entrypoint.RenderHostPack(claude, home, render.OwnershipOwn, false, nil, nil); err != nil {
-		t.Fatal(err)
+	overlay := filepath.Join(render.Host(home, nil, render.OwnershipOwn).SidecarDir(),
+		"pi-settings.overlay.json")
+	if got := mustReadFile(t, overlay); strings.Contains(got, "system") {
+		t.Errorf("the rejected value was recorded: %s", got)
 	}
-	byApply := mustReadFile(t, overlay)
-	var a, b any
-	_ = json.Unmarshal([]byte(byVerb), &a)
-	_ = json.Unmarshal([]byte(byApply), &b)
-	if !reflect.DeepEqual(a, b) {
-		t.Errorf("the apply after the verb recorded a different overlay:\n verb  %s\n apply %s",
-			byVerb, byApply)
+}
+
+// A `host_files` ENTRY IS CAPTURED AS THE APPLY RENDERS IT: at the host its inline content folds
+// into the layer its mode names (entrypoint.HostFileSurfaceAtHost), so a key a `copy` entry's
+// content declares is managed there and the apply narrows an edit of it out. The verb lowered
+// the entry the jail's way, kept the edit, and disagreed with the apply that followed.
+func TestOwnedCaptureVerbCapturesAHostFileAsTheApplyRendersIt(t *testing.T) {
+	home := hostComputedHome(t, `{"host_management":"own","host_files":[
+		{"path":".config/tool/conf.json","mode":"copy","content":"{\"pinned\":\"yolo\"}"}]}`)
+	ownedApply(t)
+	rel := ".config/tool/conf.json"
+	if readJSONAt(t, home, rel)["pinned"] != "yolo" {
+		t.Fatalf("fixture: the apply did not render the entry: %s", mustReadFile(t, filepath.Join(home, rel)))
 	}
-	if !strings.Contains(mustReadFile(t, surf), "myEdit") {
-		t.Errorf("the edit the verb captured is gone after the apply")
+	editJSONAt(t, home, rel, func(doc map[string]any) {
+		doc["pinned"] = "mine"
+		doc["extra"] = "mine too"
+	})
+	var out, errw bytes.Buffer
+	if rc := configCapture(hostTargetForTest(), []string{"user"}, &out, &errw, false); rc != 0 {
+		t.Fatalf("capture user: rc=%d\n%s%s", rc, out.String(), errw.String())
 	}
+	store := render.Host(home, nil, render.OwnershipOwn).SidecarDir()
+	matches, _ := filepath.Glob(filepath.Join(store, "user-*.overlay.json"))
+	if len(matches) != 1 {
+		t.Fatalf("fixture: want one user overlay in %s, have %v\n%s", store, matches, out.String())
+	}
+	byVerb := mustReadFile(t, matches[0])
+	if strings.Contains(byVerb, "pinned") || !strings.Contains(byVerb, "extra") {
+		t.Errorf("the verb's capture is not the apply's (a managed key recorded, or the edit "+
+			"missed):\n%s\n%s", byVerb, out.String())
+	}
+	ownedApply(t)
+	sameOverlay(t, "the apply after the verb recorded a different overlay", byVerb,
+		mustReadFile(t, matches[0]))
 }
 
 // AND THE TRUNCATION RENDERS THE GUARDED POSTURE, not the autonomous one. This is the half
@@ -531,6 +833,12 @@ func TestOwnedHostResetKeepsTheComputedLayer(t *testing.T) {
 	}
 	if !strings.Contains(out.String(), "re-rendered") || strings.Contains(out.String(), "Cleared") {
 		t.Errorf("the reset line does not say it re-rendered (or still says Cleared):\n%s", out.String())
+	}
+	// Every surface re-rendered, so the trailer says the apply has nothing left here, not that it
+	// still has to run — the dry run below is what makes that true.
+	if !strings.Contains(out.String(), "finds nothing to change here") {
+		t.Errorf("a reset that re-rendered every surface does not say the apply has nothing left:\n%s",
+			out.String())
 	}
 	// The next dry run finds nothing to change: the reset wrote the apply's bytes.
 	out.Reset()

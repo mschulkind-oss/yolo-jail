@@ -151,7 +151,7 @@ var (
 // `host_management: own` is what created the hazard: before it, every host-side write was
 // refused outright, so the single reporting manifest had no writing caller to be wrong for.
 // The `own` reset exemption gave it one. Since 2026-10-04 that reset resolves the CONFIGURED
-// pack's declaration at the host posture first (ownedHostReset.configured) and reads this
+// pack's declaration at the host posture first (ownedHostRender.configured) and reads this
 // manifest only for a shipped surface no configured pack declares.
 //
 // THE POSTURE COMES FROM THE TARGET'S PROFILE, never a hardcoded false — the same one

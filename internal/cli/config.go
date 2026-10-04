@@ -84,8 +84,9 @@ Subcommands:
                            captures on TERMINATE, and the next boot captures again
                            — so this is for reading 'diff' mid-session, while the
                            jail that made the edits is still running. At the host
-                           under host_management "own" it folds the edits in your
-                           real home into the host's capture store, so
+                           under host_management "own" it records the edits in
+                           your real home as 'yolo host apply --assert' would
+                           record them, into the host's capture store, so
                            'diff --at host' shows them before the next apply.
   drift                    Show whether the WORKSPACE config (yolo-jail.jsonc) on
                            disk differs from the one this jail was started with —

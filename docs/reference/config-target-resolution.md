@@ -506,9 +506,13 @@ running both commands rather than by comparing two lists.
   capture store — and `--force` does not reach it there, since it could only find nothing to
   capture. Under `own` it works since 2026-10-04: its premise is a credential copied out of a
   real file into the WORKSPACE tree, and under `own` it writes the host's own `0600` store
-  instead, with what the next `yolo host apply` records there anyway
+  instead. What it writes there is the capture half of the host apply's own render of the
+  surface, run in observe, so it records what the next `yolo host apply` would rather than
+  composing the capture the jail's way — which its first build did, erasing a captured
+  `permissions.deny` the apply keeps
   ([`OQ-CO3`](../design/config-ownership-and-promotion.md#13-decision-ledger), ruled
-  yes-under-own 2026-09-10).
+  yes-under-own 2026-09-10; the mechanism and its measurement are in
+  [§6.2](../design/config-ownership-and-promotion.md#62-host-capture-and-the-privacy-ruling-it-has-to-answer-to)).
 - **No new store, no new sidecar, no new file format, and no migration.** Every path here is
   derived at read time.
 - **No `guest` notch.** `--at guest` is refused by name, with the same sentence `apply` prints.
