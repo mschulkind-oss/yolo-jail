@@ -54,9 +54,15 @@ func awaitStarted(t *testing.T, started string) {
 // than left behind.
 func TestStopKillsANixThatIgnoresTheInterrupt(t *testing.T) {
 	s := Isolate(t)
+	started := startMark(t)
 	done := make(chan error, 1)
-	go func() { done <- Run(exec.Command("sh", "-c", `trap '' INT; while :; do sleep 0.05; done`)) }()
+	go func() {
+		done <- Run(exec.Command("sh", "-c", `trap '' INT; touch `+started+`; while :; do sleep 0.05; done`))
+	}()
 	awaitRunning(t, s, 1)
+	// Once the trap is set: an interrupt before it ends the shell at once, and the run passes
+	// without reaching the kill this test is for.
+	awaitStarted(t, started)
 	s.stop(200*time.Millisecond, nil)
 	select {
 	case <-done:
