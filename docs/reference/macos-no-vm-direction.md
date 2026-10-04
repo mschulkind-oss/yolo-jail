@@ -108,6 +108,9 @@ it came to 2.3 GiB in the 2026-10-02 run ([M13](../research/macos-backend-perfor
   (MEASURED, [on a shared folder](../research/macos-vm-runtime-comparison.md#32-on-a-shared-mac-folder)),
   and VZ's virtio-fs device takes only a folder and a tag (SOURCED,
   [the open-stack survey](../research/macos-vm-runtime-comparison.md#6-is-there-an-open-stack-with-faster-shared-folders)).
+  No open stack tried beat it: libkrun with complete permission semantics tied it, and QEMU with a
+  macOS virtiofsd port was slower even at its most aggressive caching (MEASURED without yolo, the
+  same section); NFS from macOS's own `nfsd`, which needs `sudo`, is untried.
   Per-file operations there cost 12 to 115 times what they cost on the VM's own disk (MEASURED,
   [per-file cost](../research/apple-container-file-cost.md#21-per-file-cost-not-bandwidth)). So the
   workspace, which the Mac must see, stays slower on either VZ backend whatever yolo does with the

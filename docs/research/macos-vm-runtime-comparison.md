@@ -12,9 +12,9 @@ vantage:
 
 # Which macOS VM runs a Python, Django and Postgres workload best?
 
-**Status:** 2026-10-03; §6.2 added 2026-10-04.
+**Status:** 2026-10-03; [§6.2](#62-measured-two-of-them) added 2026-10-04.
 - **MEASURED** on one Mac for native, Apple Container, Podman Machine on libkrun and on applehv,
-  and OrbStack (a trial install, which the maintainer made). §6.2 adds libkrun with
+  and OrbStack (a trial install, which the maintainer made). [§6.2](#62-measured-two-of-them) adds libkrun with
   `permissionSemantics=complete`, and QEMU with a macOS virtiofsd port.
 - **Not run:** Docker Desktop. The maintainer ruled it out (2026-10-03): its licence makes it
   *"non-viable to even test … for commercial work."*
