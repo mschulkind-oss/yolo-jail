@@ -3,13 +3,16 @@ package cli
 import (
 	"fmt"
 	"io"
+	"os"
 	"strings"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/cli/run"
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/hostwrap"
 	"github.com/mschulkind-oss/yolo-jail/internal/outfmt"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
+	"github.com/mschulkind-oss/yolo-jail/internal/perf"
 	"github.com/mschulkind-oss/yolo-jail/internal/richtext"
 )
 
@@ -24,7 +27,7 @@ func hostApply(args []string, out, errw io.Writer, color bool, stdin io.Reader) 
 	if !ok {
 		return 2
 	}
-	assert, dryRun, revert := false, false, false
+	assert, dryRun, revert, timing := false, false, false, false
 	for i := 0; i < len(args); i++ {
 		a := args[i]
 		// Tokens the format parse above already consumed. This parser REFUSES an
@@ -48,12 +51,21 @@ func hostApply(args []string, out, errw io.Writer, color bool, stdin io.Reader) 
 			return refuseShellInit(errw)
 		case a == "--revert":
 			revert = true
+		case a == hostTimingFlag:
+			timing = true
 		default:
 			fmt.Fprintf(errw, "yolo host apply: unexpected argument %q\n\n%s\n", a, hostUsage)
 			return 2
 		}
 	}
 	write := assert && !dryRun
+	// IN A JAIL, NOTHING: a host apply renders into the home of whoever runs it, and in here that
+	// is the jail's own, which its launch already rendered (hostapplyinjail.go). After the parse,
+	// so --help and the --shell-init refusal still answer; before every stage, so a refused run
+	// writes nothing at all.
+	if rc, refused := refuseHostApplyInJail("yolo host apply", errw); refused {
+		return rc
+	}
 	// ABOVE EVERY STAGE, not just above the render. [OQ-RO4]'s refusal is misuse decided
 	// from argv, so it ends the command here; asking applyHostFormatted to make it once left
 	// a later stage (the since-removed --shell-init) running behind it, with `write` still
@@ -66,28 +78,76 @@ func hostApply(args []string, out, errw io.Writer, color bool, stdin io.Reader) 
 	// command: it consumes the provenance record instead of writing one, has no document to
 	// emit and no wrappers to generate. The flag it cannot share is refused by name rather
 	// than silently ignored (hostrevert.go).
-	if revert {
-		if outfmt.IsJSON(format) {
-			fmt.Fprintf(errw, "yolo host apply: --revert has no document to emit — it is a "+
-				"dry run by default, and its report IS the thing you read before asserting "+
-				"it.\n")
-			return 2
-		}
-		if rc, refused := refuseHostRevert(errw); refused {
-			return rc
-		}
-		return hostRevert(out, errw, color, write)
+	if revert && outfmt.IsJSON(format) {
+		fmt.Fprintf(errw, "yolo host apply: --revert has no document to emit — it is a "+
+			"dry run by default, and its report IS the thing you read before asserting "+
+			"it.\n")
+		return 2
 	}
-	// THE DECLARED OWNERSHIP CONTRACT, above every stage for the same reason the refusal
-	// above it is: a refusal that only stopped the render would leave any later stage
-	// running inside a command that wrote nothing (hostmanagementgate.go).
-	if rc, refused := refuseHostManagement(errw); refused {
+	// THE TIMING SURFACE (perf-logging.md D18), past every refusal decided from argv: each
+	// stage below is spanned, and the table goes to stderr so a `--format json` stdout is still
+	// one document.
+	finish := startHostApplyTiming(timing, errw)
+	var rc int
+	if revert {
+		rc = hostApplyRevert(out, errw, color, write)
+	} else {
+		// THE DECLARED OWNERSHIP CONTRACT, above every stage for the same reason the refusal
+		// above it is: a refusal that only stopped the render would leave any later stage
+		// running inside a command that wrote nothing (hostmanagementgate.go).
+		var refused bool
+		if rc, refused = refuseHostManagement(errw); !refused {
+			rc = hostApplyRefreshAndRender(out, errw, color, write, stdin, format)
+		}
+	}
+	finish(rc)
+	return rc
+}
+
+// hostApplyRevert is --revert's whole command at both spellings: the ownership gate it shares
+// with nothing else (refuseHostRevert), then the withdrawal, spanned.
+func hostApplyRevert(out, errw io.Writer, color, write bool) int {
+	if rc, refused := refuseHostRevert(errw); refused {
 		return rc
 	}
-	// Fetch-before-resolve, as a launch does (hostpackrefresh.go). To stderr, so a
-	// `--format json` stdout still carries one document and nothing else.
+	defer hostApplySpan("host_apply.revert").End()
+	return hostRevert(out, errw, color, write)
+}
+
+// hostApplyRefreshAndRender is the apply proper at both spellings (OQ-7: one operation): the
+// fetch-before-resolve a launch does (hostpackrefresh.go), to stderr so a `--format json`
+// stdout still carries one document and nothing else, then the render, each spanned.
+func hostApplyRefreshAndRender(out, errw io.Writer, color, write bool, stdin io.Reader, format string) int {
+	sp := hostApplySpan("host_apply.pack_refresh")
 	refreshHostPacks(errw)
+	sp.End()
+	defer hostApplySpan("host_apply.render").End()
 	return applyHostFormatted(out, errw, color, write, stdin, format)
+}
+
+// hostApplyPerf is the collector of the host apply this process is running, nil outside one and
+// whenever nothing asked to record (a nil *perf.Log spans nothing). Package state, set and
+// restored by startHostApplyTiming, for one reason: two of the stages it times (the wrappers and
+// the floor) sit inside applyHostSurveyed, which the launch gate's observe pass runs too, and a
+// collector threaded through that render's signatures would reach every one of its callers for
+// two spans. The gate's pass runs with this nil, so it records nothing of its own.
+var hostApplyPerf *perf.Log
+
+// hostApplySpan starts one of the running host apply's spans.
+func hostApplySpan(name string) *perf.Span { return hostApplyPerf.Span(name) }
+
+// startHostApplyTiming opens a host apply's timing surface (run.HostNotchTimingLog: the jail
+// launch's two gates, the machine-wide file) and returns the function that ends it with the
+// apply's exit code: the table when this invocation typed --timing or --verbose, one line naming
+// the file when a persistent opt-in recorded, nothing otherwise.
+func startHostApplyTiming(typed bool, errw io.Writer) func(rc int) {
+	t := run.HostNotchTimingLog(typed, explicitVerbose(), os.Getenv, errw)
+	prev := hostApplyPerf
+	hostApplyPerf = t.Log
+	return func(rc int) {
+		hostApplyPerf = prev
+		t.Report(fmt.Sprintf("yolo host apply timing (rc %d):", rc))
+	}
 }
 
 // refuseShellInit is all that is left of `yolo host apply --shell-init`: a refusal that

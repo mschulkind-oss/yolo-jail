@@ -23,11 +23,15 @@ covers:
   - internal/cli/commands.go
   - internal/paths/paths.go
   - internal/config/perflogging.go
+  - internal/cli/run/hosttiming.go
+  - internal/cli/host.go
+  - internal/cli/hostapply.go
+  - internal/cli/apply.go
   - internal/ttyproxy/ttyproxy.go
   - internal/ttyproxy/suspendkey.go
   - internal/image/autoload.go
 tags: [observability, timing, run, shutdown, perf]
-summary: "The host-side timing-span system behind `--timing`, `--verbose`, `perf_logging` and `YOLO_TIMING`: a nil-safe collector in `internal/perf` that spans the launch, the child window and both shutdown arms, writes every event to `<workspace>/.yolo/host-perf.log` the moment it happens, prices the stretch inside podman's own `--rm` cleanup from its event log and records that too, and prints a table only when a flag typed on that invocation asks for one."
+summary: "The host-side timing-span system behind `--timing`, `--verbose`, `perf_logging` and `YOLO_TIMING`: a nil-safe collector in `internal/perf` that spans the launch, the child window and both shutdown arms, writes every event to `<workspace>/.yolo/host-perf.log` the moment it happens, prices the stretch inside podman's own `--rm` cleanup from its event log and records that too, and prints a table only when a flag typed on that invocation asks for one. `yolo host --` and `yolo host apply` record by the same gates into a machine-wide file."
 ---
 
 # Timing spans — `--timing`, `perf_logging`, and the host perf log
@@ -38,7 +42,8 @@ yolo times its own launch and shutdown as a set of named **spans** recorded by a
 host-side collector, so the question "who is holding my shell prompt after the
 agent exited?" has an answer with names in it. Every opt-in writes the spans to a
 per-workspace file as they happen; only an explicit per-invocation flag prints
-the table. The stretch yolo cannot time — podman's own post-exit cleanup, where
+the table. The host notch's commands, `yolo host --` and `yolo host apply`, write
+one machine-wide file instead ([The host notch](#the-host-notch)). The stretch yolo cannot time — podman's own post-exit cleanup, where
 no yolo code runs — is attributed afterwards from podman's event log. The jail
 has a second, older timing half of its own (the entrypoint's boot checkpoints),
 which this system reads and prints but does not own.
@@ -56,6 +61,7 @@ which this system reads and prints but does not own.
 | The jail half's switch: the argv pair and the bash timers | `internal/cli/run` (`assembleRunCmd`, `buildSessionCmd`) |
 | The global `--verbose` / `-v` flag | `internal/cli` (`applyVerboseFlag`, `explicitVerbose`) |
 | `yolo stop`'s spans | `internal/cli` (`stopJail`), `internal/cli/run` (`TimingLogFor`) |
+| The host notch's spans: `yolo host --` and `yolo host apply` | `internal/cli/run` (`HostNotchTimingLog`, `HostNotchPerfLogPath`), `internal/cli` (`hostLaunchTrace`, `startHostApplyTiming`) |
 | The host-process env opt-ins | `internal/paths` (`TimingEnv`, `VerboseEnv`) |
 | The persistent config key | `internal/config` (`PerfLoggingEnabled`) |
 
@@ -161,7 +167,7 @@ intended.
 
 | Opt-in | Kind | Records | Prints |
 | :--- | :--- | :---: | :---: |
-| `--timing` (run flag) | per-invocation | yes | yes |
+| `--timing` (run flag; also `yolo host`'s and `yolo host apply`'s) | per-invocation | yes | yes |
 | `--verbose` / `-v` (global flag, before the subcommand) | per-invocation | yes | yes |
 | `perf_logging: true` (user config) | persistent | yes | no |
 | `YOLO_TIMING`, `YOLO_VERBOSE` non-empty in the environment | persistent | yes | no |
@@ -788,6 +794,38 @@ mechanism.
 > with the emit site — nothing in the tree reads the variable, so a shared constant
 > would make the assertion tautological.
 
+## The host notch
+
+`yolo host -- <cmd>` and `yolo host apply` (with its systematic spelling, `yolo apply --at host`)
+are timed by the same system since 2026-10-04 ([D18](#why-its-this-way)). They used to have no
+timing at all: `yolo host --timing -- true` was refused as a jail-launch flag, and
+`perf_logging: true` wrote nothing for a host command.
+
+- **The same gates.** The recording and reporting gates are the launch's own, asked of the same
+  inputs: `--timing` or a typed `--verbose` records and prints; `perf_logging: true`, `YOLO_TIMING`
+  and `YOLO_VERBOSE` in the environment record silently and print one line naming the file. With
+  no opt-in nothing is collected and nothing is written.
+- **A machine-wide file, never the directory the command ran in.** A host command has no
+  workspace: it runs wherever it was typed, the home included, and a `.yolo` minted in the home
+  breaks every later `yolo config` verb's workspace walk. So the spans go to
+  `~/.local/share/yolo-jail/logs/host-notch-perf.log`, beside `launches.log`. Each run's header
+  names the directory by its short code, `jail=host:<code>` (the code `launches.log` uses),
+  never by its path. The trim and the header are written under a sibling `.lock`, because host
+  wrappers make concurrent host commands ordinary; the event lines are single appends, as they
+  are in a workspace's file.
+- **`yolo host --` spans every stage before its hand-over:** `host.pack_refresh`,
+  `host.capability_gate`, `host.apply_gate`, `host.compose`, `host.preflight`,
+  `host.resolve_target` (which includes a first launch's floor install), `host.model_menu`,
+  `host.openai_prelaunch`, and `host.services_start` when the launch starts a service or a
+  doorway; then the `host.handover` mark. The table, or the quiet line, prints before
+  `yolo host: starting …`, which stays the last thing yolo says: after the exec there is no
+  process left to print anything, and a resident launch's terminal belongs to the agent.
+- **`yolo host apply` spans** `host_apply.pack_refresh`, `host_apply.render`, and inside the
+  render `host_apply.wrappers` and `host_apply.floor`; `--revert` is `host_apply.revert`. The table
+  goes to stderr, so `--format json` keeps stdout one document. `yolo --timing host apply` is
+  `yolo host apply --timing` ([D19](#why-its-this-way)), and `yolo apply --timing` at any notch but
+  the host is refused by name.
+
 ## Where the log lives
 
 The host half is `<workspace>/.yolo/host-perf.log`, beside `boot.log`. The jail
@@ -814,6 +852,10 @@ same bytes as a fast one.
 If the file cannot be opened, the sink warns **once** (`yolo: timing log
 unavailable at …`) and stays installed but silent; the in-memory record and the
 stderr report still work, and a jail is never refused over its timing log.
+
+The host notch's commands write elsewhere, to one machine-wide file
+([The host notch](#the-host-notch)), with the same run header, the same retention and the
+same failure rule.
 
 > [!WARNING]
 > **This directory is inside the live workspace bind**, so a jail *can* write the
@@ -1120,6 +1162,10 @@ is the only place the exact values and spellings are stated.
 | Persistent config key (boolean, user scope only) | `perf_logging` | `internal/config` (`perfLoggingKey`, `PerfLoggingEnabled`) |
 | Jail-half argv pair | `-e YOLO_JAIL_TIMING=1` | `internal/cli/run` (`assembleRunCmd`) |
 | Host perf log | `<workspace>/.yolo/host-perf.log` | `run.HostPerfLogName`, `paths.WorkspaceStateDir` |
+| Host notch perf log (`yolo host --`, `yolo host apply`), its trim lock beside it | `~/.local/share/yolo-jail/logs/host-notch-perf.log`, `host-notch-perf.log.lock` | `run.HostNotchPerfLogName`, `run.HostNotchPerfLogPath` |
+| Host notch run label | `jail=host:<paths.JailShortHash of the directory's container name>` | `run.hostNotchLabel` |
+| Host notch report headers | `yolo host timing (to the hand-over):`, `yolo host apply timing (rc <n>):` | `cli.hostLaunchTrace.handOver`, `cli.startHostApplyTiming` |
+| Host notch spans | `host.{pack_refresh,capability_gate,apply_gate,compose,preflight,resolve_target,model_menu,openai_prelaunch,services_start}`, mark `host.handover`; `host_apply.{pack_refresh,render,wrappers,floor,revert}` | `cli.hostLaunch`, `cli.hostApplyRefreshAndRender`, `cli.hostApplyRevert`, `cli.applyHostSurveyed` |
 | Jail perf log | `~/.yolo-perf.log` in the jail, backed by `<workspace>/.yolo/home/yolo-perf.log` | `internal/entrypoint` (`perfLog.dump`), `internal/cli/run` mount args |
 | Run header prefix (also the trim delimiter) | `=== YOLO Host Perf (<timestamp>) jail=<name> ===` | `perf.runPrefix`, `perf.FileSink` |
 | Runs retained per workspace | 50 | `perf.MaxRuns` |
@@ -1186,3 +1232,5 @@ defence.
 | D16 — the probe learns of the death from an inotify watch on conmon's exit directory | Polling `podman ps` or `/proc` during the session is simpler and costs every session to diagnose a few; a pidfd on the container's init needs a `podman inspect`, and podman's lock is a suspect; "the pty went quiet" is not a death at all |
 | D17 — forwarded input is logged as a byte count and at most the name `ctrl-c`, and only after the death | Logging the bytes would make the keystroke test easier to read, and would put whatever the user typed (a password) in a file; logging from the start of the session would record a whole session's typing rhythm to answer a question about its last few seconds |
 | D15 — Window A attribution RECORDS (every opt-in) while the table PRINTS (the typed flags) | D12 reads as "attribution is part of the report", and it shipped that way. But D12 governs what prints, and Window A is the one measurement a user cannot ask for in advance — they learn it was slow by waiting through it, after the launch that could have measured it is over. The cost is one bounded exec per quiet quit; the alternative was a number yolo could go and get, and chose not to write down |
+| D18 — the host notch is timed by the launch's gates, into a machine-wide file. *Implementation decision, taken under the maintainer's 2026-10-04 delegation ("make them and build it … adjust later"); reversible* | Refusing `--timing` at the host left the one notch with no instrument, and "times a jail launch" was the census's whole reason for `perf_logging` doing nothing there. The gates are asked of an `Options` holding only what they read, so the two notches cannot classify an opt-in differently. The file is under `~/.local/share/yolo-jail/logs/` and not in the directory the command ran in, because a `.yolo` minted in the home breaks the workspace walk, and its header names the directory by the short code `launches.log` uses ([OQ-PR3](../design/podman-reboot-readiness.md#OQ-PR3)), never its path. A separate file from any workspace's `host-perf.log`, so a host command's runs are never mistaken for a jail launch's |
+| D19 — `yolo --timing host apply` is `yolo host apply --timing`. *Implementation decision, taken under the maintainer's 2026-10-04 delegation; reversible* | The front door leaves a flag typed before `host` for the host verb, as it leaves `-p` for the exec half, and `--timing` is the one flag both host verbs take, so the request has one meaning. Refusing it, naming the other spelling, was the alternative; moving it is the next step the refusal would have named |

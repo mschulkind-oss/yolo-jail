@@ -129,6 +129,12 @@ var hostConfigKeys = map[string]keyCensusEntry{
 		"captured settings"},
 	"prune": {KeyHonored, "the free-disk threshold `yolo check`'s disk section warns at, on this " +
 		"machine"},
+	"perf_logging": {KeyHonored, "`yolo host --` and `yolo host apply` record their spans when it " +
+		"is on, silently, into the machine-wide host-notch-perf.log (run.HostNotchTimingLog, " +
+		"reading config.PerfLoggingEnabled), as a jail launch records into its workspace's file"},
+	"required_capabilities": {KeyHonored, "`yolo host --` asks OQ-CAP2's gate over the user scope " +
+		"it composes from, after the pack refresh and before its apply gate " +
+		"(refuseHostUnmetCapabilities), refusing as a jail launch does"},
 
 	// ---- Not applicable: the key means nothing off-container -------------------------
 	"mounts": {KeyNotApplicable, "a mount needs a mount namespace, which is unavailable without a " +
@@ -160,8 +166,6 @@ var hostConfigKeys = map[string]keyCensusEntry{
 		"host manages your own mise"},
 	"mcp_presets": {KeyNotApplicable, "a preset's command is a wrapper only a jail's boot writes " +
 		"(HC-D6), so `yolo host apply` writes none and names each one it leaves out"},
-	"perf_logging": {KeyNotApplicable, "times a jail launch's phases; `yolo host --` records no " +
-		"spans and refuses --timing as a jail-launch flag with no meaning there"},
 	// `brokered` is read only by a jail launch, which writes its workspace's entry into the
 	// GitHub broker's scope file (run's writeScopeFiles, through config.BrokeredWidening), and
 	// by `yolo check`'s report of that launch; no host-notch verb starts the broker.
@@ -180,7 +184,7 @@ var hostConfigKeys = map[string]keyCensusEntry{
 		"there are the ones on your own PATH"},
 
 	// ---- Unbuilt: the key applies at the host and nothing honors it yet ---------------
-	"required_capabilities": {KeyUnbuilt, "OQ-CAP2 refuses a launch whose required capability " +
-		"nothing satisfies, and the gate runs in a jail launch's config path " +
-		"(refuseUnmetCapabilities); `yolo host --` launches without asking it"},
+	// None, since 2026-10-04: `required_capabilities`, the last, gained its host reader.
+	// KeyUnbuilt stays the disposition for the next key that applies here before its reader
+	// exists.
 }

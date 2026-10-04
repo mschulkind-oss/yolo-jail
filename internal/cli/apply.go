@@ -55,7 +55,7 @@ func applyMain(args []string, out, errw io.Writer, color bool, stdin io.Reader) 
 		return 2
 	}
 	var at string
-	var dryRun, sealed, assert, revert bool
+	var dryRun, sealed, assert, revert, timing bool
 	for i := 0; i < len(args); i++ {
 		a := args[i]
 		// Already consumed by the format parse above; this parser refuses an unrecognized
@@ -85,6 +85,8 @@ func applyMain(args []string, out, errw io.Writer, color bool, stdin io.Reader) 
 			sealed = true
 		case a == "--revert":
 			revert = true
+		case a == hostTimingFlag:
+			timing = true // the host notch's alone; refused below once the notch is known
 		default:
 			fmt.Fprintf(errw, "yolo apply: unexpected argument %q\n\n%s\n", a, applyUsage)
 			return 2
@@ -127,6 +129,17 @@ func applyMain(args []string, out, errw io.Writer, color bool, stdin io.Reader) 
 			"to emit: guest is unbuilt, and at jail this verb points at launch.")
 		return 2
 	}
+	// --timing TIMES THE HOST NOTCH'S APPLY (perf-logging.md D18), and only that, by the JSON
+	// flag's reasoning above: the guest notch is unbuilt, at jail this verb runs no stage worth a
+	// span (a jail launch's own --timing is where that time goes), and --sealed refuses rather
+	// than applies. Refused by name rather than silently ignored.
+	if timing && (sealed || notch != config.ConfinementHost) {
+		fmt.Fprintln(errw, "yolo apply: --timing times the HOST notch's apply (`yolo apply --at "+
+			"host --timing`, or `yolo host apply --timing`). No other route here has a stage to "+
+			"time: guest is unbuilt, --sealed only checks, and at jail this verb points at launch, "+
+			"whose own `yolo --timing -- <cmd>` times it.")
+		return 2
+	}
 	if sealed {
 		return applySealed(out, errw, color)
 	}
@@ -143,22 +156,16 @@ func applyMain(args []string, out, errw io.Writer, color bool, stdin io.Reader) 
 
 	switch notch {
 	case config.ConfinementHost:
-		// The declared ownership contract decides whether there is a host render at all
-		// (hostmanagementgate.go). Both spellings of the verb are one operation (OQ-7), so
-		// both ask — a key that stopped `yolo host apply` and not `yolo apply --at host`
-		// would be a contract with a way around it.
-		if revert {
-			if rc, refused := refuseHostRevert(errw); refused {
-				return rc
-			}
-			return hostRevert(out, errw, color, assert && !dryRun)
-		}
-		if rc, refused := refuseHostManagement(errw); refused {
+		// IN A JAIL, NOTHING, at this spelling too (hostapplyinjail.go): `--at host`, its
+		// --revert, and a config whose `confinement` is host all render into the home of whoever
+		// runs them, which in a jail is the jail's own.
+		if rc, refused := refuseHostApplyInJail("yolo apply", errw); refused {
 			return rc
 		}
-		// The same fetch-before-resolve `yolo host apply` does: one operation, two spellings.
-		refreshHostPacks(errw)
-		return applyHostFormatted(out, errw, color, assert && !dryRun, stdin, format)
+		finish := startHostApplyTiming(timing, errw)
+		rc := applyAtHost(out, errw, color, assert && !dryRun, revert, stdin, format)
+		finish(rc)
+		return rc
 	case config.ConfinementGuest:
 		// render.NotchUnbuilt is the sentence, not a literal: `run.Run` refuses a guest
 		// LAUNCH with the same words (OQ-DP3), and two spellings of one notch's status is
@@ -189,6 +196,21 @@ func applyMain(args []string, out, errw io.Writer, color bool, stdin io.Reader) 
 		pr.Printf("")
 		return describeMain(nil, out, errw, color)
 	}
+}
+
+// applyAtHost is `yolo apply`'s host notch: the declared ownership contract decides whether there
+// is a host render at all (hostmanagementgate.go). Both spellings of the verb are one operation
+// (OQ-7), so both ask — a key that stopped `yolo host apply` and not `yolo apply --at host` would
+// be a contract with a way around it — and both run the same stages (hostApplyRevert,
+// hostApplyRefreshAndRender), spanned the same way.
+func applyAtHost(out, errw io.Writer, color, write, revert bool, stdin io.Reader, format string) int {
+	if revert {
+		return hostApplyRevert(out, errw, color, write)
+	}
+	if rc, refused := refuseHostManagement(errw); refused {
+		return rc
+	}
+	return hostApplyRefreshAndRender(out, errw, color, write, stdin, format)
 }
 
 // applyHost renders the configured packs' config surfaces into the invoking user's REAL
@@ -367,16 +389,20 @@ func applyHostSurveyed(out, errw io.Writer, color bool, write bool, stdin io.Rea
 		// orphan pointing at something nothing will reinstall. Leaving them behind is
 		// exactly the "delivered output nobody will ever ask about again" this branch
 		// exists to prevent — and these are EXECUTABLES, at the front of a PATH.
+		sp := hostApplySpan("host_apply.wrappers")
 		if wrc := applyHostWrappers(pr, errw, home, nil, write, survey); wrc != 0 {
 			rc = wrc
 			survey.noteStageFailure(stageWrappers)
 		}
+		sp.End()
 		// The FLOOR too, for the same reason: with no pack configured, every agent yolo keeps in
 		// its host prefix is one no selected pack delivers, and this is the act that removes it.
 		if survey.floorStage {
+			sp := hostApplySpan("host_apply.floor")
 			if frc := applyHostFloor(pr, out, nil, write, true, survey); frc != 0 {
 				rc = frc
 			}
+			sp.End()
 		}
 		// THE TIER-3 GROUPS, HERE TOO. This branch can retire content, and the remedy contract's rule
 		// is that no default view omits a loss — a branch that cannot currently produce one must
@@ -810,17 +836,21 @@ func applyHostSurveyed(out, errw io.Writer, color bool, write bool, stdin io.Rea
 	// Launch wrappers, last: they are the only stage that writes OUTSIDE the composed
 	// surfaces, and generating them after the surfaces means a wrapper never appears for
 	// a pack whose own apply just failed. Silent unless opted in (§5.5).
+	sp := hostApplySpan("host_apply.wrappers")
 	if wrc := applyHostWrappers(pr, errw, home, loaded, write, survey); wrc != 0 {
 		rc = wrc
 		survey.noteStageFailure(stageWrappers)
 	}
+	sp.End()
 	// THE HOST AGENT FLOOR (host-tool-provisioning.md): the same provisioning a launch does, for
 	// every program the selection delivers, and the one place an entry no selected pack delivers
 	// any more is removed. After the surfaces for the wrappers' reason: it writes outside them.
 	if survey.floorStage {
+		sp := hostApplySpan("host_apply.floor")
 		if frc := applyHostFloor(pr, out, loaded, write, resolvedAll, survey); frc != 0 {
 			rc = frc
 		}
+		sp.End()
 	}
 
 	// A destination refused under the broken-link rule was not written, so an --assert that met
@@ -1476,6 +1506,11 @@ const applyUsage = `yolo apply — make this environment match its description, 
                             (yolo-jail.local.jsonc, an outstanding capture overlay,
                             an unset host_management)
   yolo apply --dry-run      show what would change, write nothing
+  yolo apply --at host --timing  time the host apply's stages; the table goes to stderr
+                            (refused at every other notch, and with --sealed)
+
+At the host notch, apply refuses inside a jail and writes nothing: it renders into the
+home of whoever runs it, which in a jail is the jail's own. Run it on the host.
 
 Machine-readable output, at the HOST notch's dry run only (` + "`yolo apply --at host --format json`" + `):
 the asserting posture acts, and an acting verb refuses the flag rather than growing a

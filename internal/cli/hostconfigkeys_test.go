@@ -22,26 +22,24 @@ import (
 // when a key is classified not-applicable or unbuilt and has no sample here, so the next such
 // key is driven through the report rather than assumed to reach it.
 var undoneKeySamples = map[string]string{
-	"brokered":              `{"github": {"workspaces": {"~/code/app": {"repos": ["org/lib"]}}}}`,
-	"cache_relocations":     `{"npm": "/srv/cache/npm"}`,
-	"devices":               `[{"usb": "0403:6001"}]`,
-	"ephemeral_storage":     `"tmpfs"`,
-	"gpu":                   `{"enabled": true}`,
-	"kvm":                   `true`,
-	"macos_log":             `"user"`,
-	"mcp_presets":           `["sequential-thinking"]`,
-	"mise_tools":            `{"node": "22"}`,
-	"mounts":                `["~/data"]`,
-	"network":               `{"mode": "bridge", "ports": ["3000:3000"]}`,
-	"packages":              `["ripgrep"]`,
-	"per_side_paths":        `[".cargo"]`,
-	"perf_logging":          `true`,
-	"programs":              `{"autoprune": true}`,
-	"required_capabilities": `["web_search"]`,
-	"resources":             `{"memory": "4g"}`,
-	"security":              `{"blocked_tools": [{"name": "curl", "message": "no"}]}`,
-	"workspace_readonly":    `["src"]`,
-	"writable_home_dirs":    `[".pi-lens"]`,
+	"brokered":           `{"github": {"workspaces": {"~/code/app": {"repos": ["org/lib"]}}}}`,
+	"cache_relocations":  `{"npm": "/srv/cache/npm"}`,
+	"devices":            `[{"usb": "0403:6001"}]`,
+	"ephemeral_storage":  `"tmpfs"`,
+	"gpu":                `{"enabled": true}`,
+	"kvm":                `true`,
+	"macos_log":          `"user"`,
+	"mcp_presets":        `["sequential-thinking"]`,
+	"mise_tools":         `{"node": "22"}`,
+	"mounts":             `["~/data"]`,
+	"network":            `{"mode": "bridge", "ports": ["3000:3000"]}`,
+	"packages":           `["ripgrep"]`,
+	"per_side_paths":     `[".cargo"]`,
+	"programs":           `{"autoprune": true}`,
+	"resources":          `{"memory": "4g"}`,
+	"security":           `{"blocked_tools": [{"name": "curl", "message": "no"}]}`,
+	"workspace_readonly": `["src"]`,
+	"writable_home_dirs": `[".pi-lens"]`,
 }
 
 // undoneHostKeys is every live key the host census leaves undone, sorted.
@@ -70,10 +68,12 @@ func TestHostApplyNamesEveryConfigKeyTheHostLeavesUndone(t *testing.T) {
 		}
 		body = append(body, `"`+k+`": `+v)
 	}
-	// Two keys the host HONORS ride along, so the test also fails if the report names a key the
-	// census says some host verb acts on.
-	honored := []string{"loopholes", "update_check"}
-	body = append(body, `"loopholes": {}`, `"update_check": false`)
+	// Keys the host HONORS ride along, so the test also fails if the report names a key the
+	// census says some host verb acts on: among them the two whose host readers are the newest
+	// (`yolo host --`'s capability gate, and the host notch's timing).
+	honored := []string{"loopholes", "update_check", "required_capabilities", "perf_logging"}
+	body = append(body, `"loopholes": {}`, `"update_check": false`,
+		`"required_capabilities": ["code_editing"]`, `"perf_logging": true`)
 	cfg := `{"packs": ["pi"], ` + strings.Join(body, ", ") + `}`
 
 	for _, verbose := range []bool{false, true} {

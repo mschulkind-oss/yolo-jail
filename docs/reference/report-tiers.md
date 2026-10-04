@@ -399,6 +399,20 @@ reading the file rather than by hiding the line. The caveat is
 [`perf-logging.md`](perf-logging.md)'s D2, inherited whole: the directory is inside the live
 workspace bind, so a jail can write the host's record. Nothing reads it back to make a decision.
 
+**So does the host notch's launch, in a machine-wide file.** Since 2026-10-04 every
+`yolo host -- <cmd>` past its argument check appends one block to
+`~/.local/share/yolo-jail/logs/host-launch.log` (`run.HostLaunchLog`): a header naming the yolo
+version, the directory's short code and the program's base name (never its arguments or the
+directory's path), every line yolo itself printed to stderr before the hand-over, ANSI-stripped,
+and a trailer, `=== handed over: exec ===` or `=== launch done, rc=<n> ===`. It keeps the newest
+50 blocks, trimmed at open under a sibling `.lock`. It is not `<cwd>/.yolo/launch.log`, because a
+host launch has no workspace and a `.yolo` minted in the home breaks the workspace walk. The
+command's own output never passes through it: the exec replaces yolo, and an agent yolo stays the
+parent of (a launch-owned service, a managed Codex login) is handed the caller's own stderr, so it
+keeps its terminal. Like the jail's log it is never fatal and never prints. The same launch also
+leaves its line in the machine-wide `launches.log`, with `runtime=host`
+([`OQ-PR3`](../design/podman-reboot-readiness.md#OQ-PR3)).
+
 ## Machine consumers
 
 [`self-documenting-cli.md`](self-documenting-cli.md)'s requirement 7 says anything that reports
@@ -585,5 +599,6 @@ place the values themselves are stated.
 | `--assert` refusal exit code | 1 | `internal/cli` (`gateHostDeps`) |
 | Acting-posture JSON refusal | exit 2, stdout empty | `internal/cli` (`refuseJSONForActingApply`) |
 | Launcher log | `launch.log`, under `<workspace>/.yolo/` | `internal/cli/run` (`LaunchLogName`) |
+| Host-notch launcher log (`yolo host --`), newest 50 blocks | `host-launch.log`, under `~/.local/share/yolo-jail/logs/` | `internal/cli/run` (`HostLaunchLogName`, `perf.MaxRuns`) |
 | Detail flag | `--verbose`, and `YOLO_VERBOSE` in the environment | `internal/cli` (`reportVerbose`) |
 | Launch banner hatch | `YOLO_NO_BANNER` (the version line only) | `internal/cli/run` |
