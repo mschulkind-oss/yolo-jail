@@ -350,6 +350,13 @@ func (o *Options) classDebounce(class string) (due bool, done func()) {
 		return false, func() {}
 	}
 	return true, func() {
+		// NOR WHILE A SIGNAL ENDS THE PROCESS. The arm stops every nix and refuses any started
+		// after, so a pass finishing in its teardown had each `nix store delete` refused and did
+		// nothing; it ran to its end, but it did not complete
+		// (TestAPassASignalCutsShortLeavesItsClassDue).
+		if _, ending := signalEndingTheProcess(); ending {
+			return
+		}
 		// MkdirAll first: prune.RecordAutoImageReap discards its write error on
 		// purpose (a failed stamp only means the next launch retries), which is
 		// the safe direction but silently NEVER debounces on a machine whose
