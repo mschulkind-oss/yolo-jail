@@ -4,6 +4,8 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"runtime"
+	"strings"
 	"testing"
 )
 
@@ -147,5 +149,131 @@ func TestSelfCheckUnparseableFileFails(t *testing.T) {
 	}
 	if rc := SelfCheck(p); rc != 0 {
 		t.Errorf("SelfCheck on an empty allowlist = %d, want 0", rc)
+	}
+}
+
+// TestTheDialectIsTheHosts pins the production default: the daemon speaks the ps of
+// the OS it was built for, and only darwin's is BSD. A hostOS hardcoded to either
+// value would pass every forced-dialect test in blackbox_test.go and break one host.
+func TestTheDialectIsTheHosts(t *testing.T) {
+	if hostOS != runtime.GOOS {
+		t.Fatalf("hostOS = %q, want runtime.GOOS %q", hostOS, runtime.GOOS)
+	}
+	for goos, want := range map[string]dialect{"darwin": bsdPS, "linux": gnuPS, "freebsd": gnuPS} {
+		if got := dialectFor(goos); got != want {
+			t.Errorf("dialectFor(%q) = %v, want %v", goos, got, want)
+		}
+	}
+}
+
+// TestBSDFieldsShowTheMatchedName: on darwin `comm` is asked for as `ucomm`, header
+// and all, so the column is the name the allowlist matched; nothing else is touched.
+func TestBSDFieldsShowTheMatchedName(t *testing.T) {
+	got := bsdFields([]string{"pid", "comm", "comm=NAME", "args", "ucomm", "command"})
+	want := []string{"pid", "ucomm", "ucomm=NAME", "args", "ucomm", "command"}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("bsdFields = %v, want %v", got, want)
+	}
+}
+
+// TestParseBSDSnapshot: the name is the rest of the line (it may hold spaces, and BSD
+// ps may pad it), rows sort by pid, and a row whose numbers do not parse is dropped.
+func TestParseBSDSnapshot(t *testing.T) {
+	out := "  300 bash\n    1 launchd         \n  200 Google Chrome He\nPID UCOMM\n\n  x7 junk\n"
+	got := parseBSDSnapshot([]byte(out), false)
+	want := []bsdProc{{pid: 1, comm: "launchd"}, {pid: 200, comm: "Google Chrome He"}, {pid: 300, comm: "bash"}}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("list snapshot = %+v, want %+v", got, want)
+	}
+	tree := parseBSDSnapshot([]byte("  101   100 waybar\n  102  zz waybar\n    0     0 kernel_task\n"), true)
+	wantTree := []bsdProc{{pid: 0, ppid: 0, comm: "kernel_task"}, {pid: 101, ppid: 100, comm: "waybar"}}
+	if !reflect.DeepEqual(tree, wantTree) {
+		t.Errorf("tree snapshot = %+v, want %+v", tree, wantTree)
+	}
+}
+
+// TestForestPrefixIsGNUs pins the glyph runs against what procps-ng 4.0.7 drew for
+// `ps -eo pid,ppid,comm,args --forest` (measured 2026-10-04), cell for cell.
+func TestForestPrefixIsGNUs(t *testing.T) {
+	for _, tc := range []struct {
+		hasSibling []bool
+		want       string
+	}{
+		{nil, ""},
+		{[]bool{true}, " \\_ "},
+		{[]bool{false}, " \\_ "},
+		{[]bool{true, false}, " |   \\_ "},
+		{[]bool{true, false, true}, " |       \\_ "},
+		{[]bool{false, false}, "     \\_ "},
+	} {
+		if got := forestPrefix(tc.hasSibling); got != tc.want {
+			t.Errorf("forestPrefix(%v) = %q, want %q", tc.hasSibling, got, tc.want)
+		}
+	}
+}
+
+// TestKeptPidsSurvivesAParentCycle: a racy snapshot can leave two kept processes each
+// naming the other as parent, so neither is a root. Both are still drawn, once each.
+func TestKeptPidsSurvivesAParentCycle(t *testing.T) {
+	procs := []bsdProc{{pid: 5, ppid: 1, comm: "sway"}, {pid: 7, ppid: 8, comm: "a"}, {pid: 8, ppid: 7, comm: "sway"}}
+	kept := keptPids(procs, map[string]struct{}{"sway": {}})
+	if !kept[5] || !kept[7] || !kept[8] {
+		t.Fatalf("kept = %v, want 5, 7 and 8", kept)
+	}
+	out := renderForest(procs, kept, map[int]string{5: "sway", 7: "a", 8: "sway"})
+	for _, pid := range []string{"5", "7", "8"} {
+		n := 0
+		for _, line := range strings.Split(out, "\n")[1:] {
+			if f := strings.Fields(line); len(f) > 0 && f[0] == pid {
+				n++
+			}
+		}
+		if n != 1 {
+			t.Errorf("pid %s drawn %d times, want once:\n%s", pid, n, out)
+		}
+	}
+}
+
+// TestTimeoutMessagesKeepTheFrozenForm: the production formatter, not a copy of it,
+// yields the frozen GNU bytes TestTreeTimeoutStderrGolden spells out, and the same form
+// for the BSD snapshot.
+func TestTimeoutMessagesKeepTheFrozenForm(t *testing.T) {
+	gnu := (&psTimeoutError{argv: gnuTreeArgv, secs: treeDeadlineSeconds}).Error()
+	if want := "Command '['ps', '-eo', 'pid,ppid,comm,args', '--forest']' timed out after 15 seconds"; gnu != want {
+		t.Errorf("GNU timeout = %q, want %q", gnu, want)
+	}
+	bsd := (&psTimeoutError{argv: bsdTreeSnapshotArgv, secs: treeDeadlineSeconds}).Error()
+	if want := "Command '['ps', '-ax', '-o', 'pid=,ppid=,ucomm=']' timed out after 15 seconds"; bsd != want {
+		t.Errorf("BSD timeout = %q, want %q", bsd, want)
+	}
+}
+
+// TestSelfCheckAsksTheHostsPS: the self-check passes only when the ps on PATH answers
+// the daemon's own first question in this host's dialect WITH THIS PROCESS, and a FAIL
+// names the next step. The fakes answer with $PPID, which is this test process.
+func TestSelfCheckAsksTheHostsPS(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		d      dialect
+		script string
+		rc     int
+		want   string
+	}{
+		{"bsd answers", bsdPS, `printf '%s hostprocesses.t\n' "$PPID"`, 0, "answers the BSD queries"},
+		{"bsd silent", bsdPS, "exit 1\n", 1, "Put /bin ahead of any other ps"},
+		{"bsd lists others", bsdPS, "echo '1 launchd'\n", 1, "this process was not in its answer"},
+		{"gnu answers", gnuPS, `echo "$PPID"`, 0, "answers the GNU procps queries"},
+		{"gnu refuses -C", gnuPS, "echo 'ps: illegal argument' >&2\nexit 1\n", 1, "ps: illegal argument"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if tc.d == gnuPS && runtime.GOOS != "linux" {
+				t.Skip("the GNU probe names this process from /proc/self/comm")
+			}
+			t.Setenv("PATH", fakePS(t, tc.script+"\n")+":"+os.Getenv("PATH"))
+			var out strings.Builder
+			if rc := selfCheck("", tc.d, &out); rc != tc.rc || !strings.Contains(out.String(), tc.want) {
+				t.Errorf("selfCheck = %d\n%s\nwant %d and %q", rc, out.String(), tc.rc, tc.want)
+			}
+		})
 	}
 }

@@ -3,7 +3,50 @@
 // launch, via internal/hostservice (the frame-protocol server).
 // Frozen contracts: the DEFAULT_FIELDS, the list/tree/pid mode argv + allowlist
 // construction, and the exit codes (3 empty-allowlist, 2 bad-mode/bad-pid/
-// not-allowlisted).
+// not-allowlisted). Each holds per ps dialect: the GNU argv below is unchanged, and
+// the BSD arm has its own (see "Two ps dialects").
+//
+// # Two ps dialects, chosen by the host's OS
+//
+// The daemon runs the HOST's own `ps`, and a Linux host and a Mac have different ones.
+// GNU procps, which this daemon was written against, selects by name with `-C`, draws
+// a tree with `--forest`, and names a pid in /proc/<pid>/comm. BSD ps on darwin has
+// none of the three (the manifest records `ps -C bash` failing with `ps: illegal
+// argument: bash` on macOS 25.5, and there is no /proc). So the BSD arm asks ps only
+// for what every BSD ps has, `-ax`, `-o` and `-p`, and does the selecting and the
+// tree drawing in Go:
+//
+//   - list: one `ps -ax -o pid=,ucomm=` snapshot, matched against the allowlist here,
+//     then `ps -o <fields> -p <pid,…>` through ExecAllowlisted with exactly those
+//     pids on the allowlist (handleListBSD).
+//   - pid: the name comes from `ps -o ucomm= -p <pid>` instead of /proc/<pid>/comm.
+//   - tree: handleTreeBSD.
+//
+// Which arm runs is hostOS, which is runtime.GOOS unless a test sets it, and
+// BuildHandler reads it once. So a Linux test drives the BSD arm against a fake ps,
+// and that arm is compiled, vetted and tested on every platform rather than only on
+// the one it serves.
+//
+// # On darwin a `visible` name is matched against `ucomm`
+//
+// An implementation decision, taken under the maintainer's 2026-10-04 delegation
+// ("make them and build it … adjust later"); reversible. A `visible` entry is a comm
+// name: on Linux, the kernel's task name, at most 15 bytes, which is what
+// /proc/<pid>/comm holds. darwin's counterpart is the process's accounting name,
+// `p_comm`, at most 16 bytes (MAXCOMLEN), which BSD ps prints as `ucomm`. BSD `comm`
+// has the same keyword but not the same meaning. macOS's ps (adv_cmds, print.c
+// `just_command`) prints the process's argv[0], which is a full path whenever the
+// process was started by one (`/bin/sleep` where ucomm says `sleep`, which
+// bsdps_darwin_test.go asserts), and `(<p_comm>)` when ps may not read the process's
+// arguments. Matching on it would make the same program match or miss depending on
+// how it was started and by whom. Matching is exact, as it is on Linux, so a name
+// longer than 16 bytes is written truncated to 16, just as a Linux pid-mode name
+// longer than 15 is written truncated to 15.
+//
+// For the same reason a `comm` in `fields` is DISPLAYED as `ucomm` on darwin
+// (bsdFields), so the column shows the name the allowlist matched, the short name
+// Linux shows, rather than a path. Every other field passes through verbatim: `fields`
+// is a list of the host ps's own `-o` keywords, and every default exists in both.
 //
 // # The allowlist is FROZEN at launch, and that is a deliberate change
 //
@@ -25,10 +68,15 @@
 package hostprocesses
 
 import (
+	"context"
+	"errors"
 	"os"
+	"os/exec"
+	"runtime"
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/hostservice"
 	"github.com/mschulkind-oss/yolo-jail/internal/json5"
@@ -37,6 +85,36 @@ import (
 )
 
 var DefaultFields = []string{"pid", "comm", "args", "etime", "%cpu", "%mem", "rss"}
+
+// hostOS names the OS whose ps the daemon drives: runtime.GOOS, unless a test sets it
+// to drive the other arm. BuildHandler and SelfCheck read it; nothing else may.
+var hostOS = runtime.GOOS
+
+// dialect is which ps the daemon speaks.
+type dialect int
+
+const (
+	gnuPS dialect = iota // GNU procps, on Linux
+	bsdPS                // BSD ps, on darwin
+)
+
+// dialectFor maps a GOOS to its ps. Only darwin is BSD: yolo runs host daemons on
+// Linux and darwin alone, and Linux's is the dialect this daemon was written against.
+func dialectFor(goos string) dialect {
+	if goos == "darwin" {
+		return bsdPS
+	}
+	return gnuPS
+}
+
+// psDeadlineSeconds bounds each ps the BSD arm runs and parses itself: the same 30
+// seconds ExecAllowlisted gives the ps whose output it streams.
+const psDeadlineSeconds = 30
+
+// bsdListSnapshotArgv is the one question the BSD list mode asks about EVERY process:
+// its pid and its name, and nothing else. The name is last because a ucomm may contain
+// spaces, so it can only be read as the rest of the line.
+var bsdListSnapshotArgv = []string{"ps", "-ax", "-o", "pid=,ucomm="}
 
 // Config is the resolved settings this daemon runs on.
 type Config struct {
@@ -171,6 +249,8 @@ func BuildHandler(cfg Config) hostservice.Handler {
 		visible[c] = struct{}{}
 	}
 	fields := append([]string(nil), cfg.Fields...)
+	// Read once, like the allowlist: a handler never changes dialect mid-life.
+	d := dialectFor(hostOS)
 	return func(s *hostservice.Session) {
 		// mode = str(request["mode"] or "list"). A truthy NON-string (e.g. 5,
 		// {...}) is stringified and falls through to the unknown-mode exit-2
@@ -194,11 +274,11 @@ func BuildHandler(cfg Config) hostservice.Handler {
 
 		switch mode {
 		case "list":
-			handleList(s, visible, fields)
+			handleList(s, visible, fields, d)
 		case "tree":
-			handleTree(s, visible)
+			handleTree(s, visible, d)
 		case "pid":
-			handlePid(s, visible, fields)
+			handlePid(s, visible, fields, d)
 		default:
 			s.Stderr("unknown mode: " + pytext.Repr(mode) + "\n")
 			s.Exit(2)
@@ -264,8 +344,12 @@ func pyStr(v any) string {
 
 // handleList runs `ps -o <fields> -C <comm>...` with an allowlist.
 // list branch: argv = ["ps","-o",joined] + ["-C",comm] for each sorted comm;
-// allowlist = visible ∪ {"ps","-o","-C",joined}.
-func handleList(s *hostservice.Session, visible map[string]struct{}, fields []string) {
+// allowlist = visible ∪ {"ps","-o","-C",joined}. BSD ps has no -C: handleListBSD.
+func handleList(s *hostservice.Session, visible map[string]struct{}, fields []string, d dialect) {
+	if d == bsdPS {
+		handleListBSD(s, visible, fields)
+		return
+	}
 	joined := strings.Join(fields, ",")
 	argv := []string{"ps", "-o", joined}
 	comms := sortedKeys(visible)
@@ -282,9 +366,100 @@ func handleList(s *hostservice.Session, visible map[string]struct{}, fields []st
 	s.ExecAllowlisted(func(*jsonx.OrderedMap) []string { return argv }, allow, nil, 30_000_000_000)
 }
 
+// handleListBSD is list mode on BSD ps, which cannot select by name: the
+// bsdListSnapshotArgv snapshot is matched against the allowlist here, and the matching
+// pids, and nothing else, go to `ps -o <fields> -p <pid,…>` through ExecAllowlisted,
+// whose allowlist is exactly that argv.
+//
+// TWO EXECS WHERE GNU NEEDS ONE, so there is a window GNU's `-C` does not have: a pid
+// the snapshot matched can exit and be REUSED before the second ps runs. It is the
+// window pid mode has always had between reading a name and running its own ps, and on
+// darwin it is narrower than it sounds, since pids are handed out in sequence and reuse
+// within one request needs the whole pid space to wrap in between.
+//
+// No match keeps GNU's answer, the column header and exit 1, which is what
+// `ps -o … -C <comm>` prints when nothing has that name (bsdHeaderOnly).
+func handleListBSD(s *hostservice.Session, visible map[string]struct{}, fields []string) {
+	ctx, cancel := context.WithTimeout(context.Background(), psDeadlineSeconds*time.Second)
+	defer cancel()
+	snap, err := runPS(ctx, psDeadlineSeconds, bsdListSnapshotArgv)
+	if err != nil {
+		s.Stderr("list mode failed: " + err.Error() + "\n" + checkHostPS)
+		s.Exit(1)
+		return
+	}
+	procs := parseBSDSnapshot(snap.stdout, false)
+	if len(procs) == 0 && snap.rc != 0 {
+		// `ps -ax` lists at least the daemon itself, so an empty answer with a failing
+		// status is a ps that could not do the one thing this mode needs. Said here,
+		// because the next step would turn it into a bare exit 1 with no output.
+		s.Stderr("list mode failed: " + pyReprStrList(bsdListSnapshotArgv) + " exited " +
+			strconv.Itoa(snap.rc) + " without listing a process: " +
+			strings.TrimSpace(string(snap.stderr)) + "\n" + checkHostPS)
+		s.Exit(1)
+		return
+	}
+	joined := strings.Join(bsdFields(fields), ",")
+	var pids []string
+	for _, p := range procs {
+		if _, ok := visible[p.comm]; ok {
+			pids = append(pids, strconv.Itoa(p.pid))
+		}
+	}
+	if len(pids) == 0 {
+		if header := bsdHeaderOnly(ctx, joined); header != "" {
+			s.Stdout(header)
+		}
+		s.Exit(1)
+		return
+	}
+	pidList := strings.Join(pids, ",")
+	argv := []string{"ps", "-o", joined, "-p", pidList}
+	allow := map[string]struct{}{"ps": {}, "-o": {}, joined: {}, "-p": {}, pidList: {}}
+	s.ExecAllowlisted(func(*jsonx.OrderedMap) []string { return argv }, allow, nil, psDeadlineSeconds*time.Second)
+}
+
+// checkHostPS is the next step after a ps the daemon could not use: the self-check
+// asks the same ps the same question (psCheck) and says what to change.
+const checkHostPS = "Run `yolo check` on the host: it tests the ps this daemon runs and names the fix.\n"
+
+// bsdHeaderOnly returns the column header BSD ps prints for these fields, or "" when it
+// prints none (every field spelled `name=`), for a list that matched nothing.
+//
+// The header is taken from a query about the daemon's OWN pid, the one process certain
+// to exist, and the data row under it is discarded. Only a FIRST line followed by a
+// second one is a header: with every header suppressed, the first line is that row,
+// which nobody asked to see.
+func bsdHeaderOnly(ctx context.Context, joined string) string {
+	run, err := runPS(ctx, psDeadlineSeconds, []string{"ps", "-o", joined, "-p", strconv.Itoa(os.Getpid())})
+	if err != nil {
+		return ""
+	}
+	lines := strings.Split(strings.TrimRight(string(run.stdout), "\n"), "\n")
+	if len(lines) < 2 {
+		return ""
+	}
+	return lines[0] + "\n"
+}
+
+// bsdFields is the `fields` list as BSD ps is asked for it: `comm` becomes `ucomm`, so
+// the column shows the name the allowlist matched (see the package comment), and every
+// other keyword passes through verbatim. `comm=<header>` keeps its header.
+func bsdFields(fields []string) []string {
+	out := make([]string, len(fields))
+	for i, f := range fields {
+		if f == "comm" || strings.HasPrefix(f, "comm=") {
+			f = "u" + f
+		}
+		out[i] = f
+	}
+	return out
+}
+
 // handlePid runs `ps -o <fields> -p <pid>` after verifying the pid's comm is
-// allowlisted.
-func handlePid(s *hostservice.Session, visible map[string]struct{}, fields []string) {
+// allowlisted. The comm comes from /proc/<pid>/comm under GNU and from
+// `ps -o ucomm= -p <pid>` under BSD (commOf).
+func handlePid(s *hostservice.Session, visible map[string]struct{}, fields []string, d dialect) {
 	pidV, ok := s.Get("pid")
 	pid, isInt := asIntStrict(pidV)
 	if !ok || !isInt {
@@ -292,17 +467,24 @@ func handlePid(s *hostservice.Session, visible map[string]struct{}, fields []str
 		s.Exit(2)
 		return
 	}
-	commBytes, err := os.ReadFile("/proc/" + strconv.Itoa(pid) + "/comm")
+	comm, found, err := commOf(d, pid)
 	if err != nil {
+		s.Stderr("pid mode failed: " + err.Error() + "\n" + checkHostPS)
+		s.Exit(1)
+		return
+	}
+	if !found {
 		s.Stderr("pid " + strconv.Itoa(pid) + " not found\n")
 		s.Exit(1)
 		return
 	}
-	comm := strings.TrimSpace(string(commBytes))
 	if _, allowed := visible[comm]; !allowed {
 		s.Stderr("pid " + strconv.Itoa(pid) + " has comm=" + pytext.Repr(comm) + " which is not allowlisted\n")
 		s.Exit(2)
 		return
+	}
+	if d == bsdPS {
+		fields = bsdFields(fields)
 	}
 	joined := strings.Join(fields, ",")
 	pidStr := strconv.Itoa(pid)
@@ -316,6 +498,124 @@ func handlePid(s *hostservice.Session, visible map[string]struct{}, fields []str
 		positions[i] = struct{}{}
 	}
 	s.ExecAllowlisted(func(*jsonx.OrderedMap) []string { return argv }, allow, positions, 30_000_000_000)
+}
+
+// commOf names a pid the way the allowlist matches it. found is false when no such
+// process exists. err is set only when the BSD lookup's ps could not run or overran its
+// deadline, which is a broken daemon rather than an absent pid.
+func commOf(d dialect, pid int) (comm string, found bool, err error) {
+	if d == gnuPS {
+		comm, found = linuxComm(strconv.Itoa(pid))
+		return comm, found, nil
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), psDeadlineSeconds*time.Second)
+	defer cancel()
+	run, err := runPS(ctx, psDeadlineSeconds, []string{"ps", "-o", "ucomm=", "-p", strconv.Itoa(pid)})
+	if err != nil {
+		return "", false, err
+	}
+	// A pid BSD ps does not know prints nothing and exits 1, which is the not-found
+	// answer, so the status is not consulted: an empty name is.
+	first, _, _ := strings.Cut(string(run.stdout), "\n")
+	comm = strings.TrimSpace(first)
+	return comm, comm != "", nil
+}
+
+// linuxComm reads /proc/<pid>/comm, the kernel's own name for a process. pid must be
+// decimal, so a malformed one can name no other file.
+func linuxComm(pid string) (string, bool) {
+	if _, err := strconv.Atoi(pid); err != nil {
+		return "", false
+	}
+	b, err := os.ReadFile("/proc/" + pid + "/comm")
+	if err != nil {
+		return "", false
+	}
+	return strings.TrimSpace(string(b)), true
+}
+
+// psRun is what one ps the daemon parses itself produced.
+type psRun struct {
+	stdout, stderr []byte
+	rc             int // ps's exit status; 0 when it succeeded
+}
+
+// psTimeoutError is the deadline passing, worded as tree mode has always worded it:
+// "Command '<argv list repr>' timed out after N seconds" (TestTreeTimeoutStderrGolden).
+type psTimeoutError struct {
+	argv []string
+	secs int
+}
+
+func (e *psTimeoutError) Error() string {
+	return "Command '" + pyReprStrList(e.argv) + "' timed out after " + strconv.Itoa(e.secs) + " seconds"
+}
+
+// runPS runs one ps whose output the daemon reads rather than streams. A ps that ran
+// and exited non-zero is NOT an error: its stdout is returned regardless, with the
+// status in rc, which is how tree mode has always read ps. err is set only when ps
+// could not be started, or when ctx's deadline (secs, for the message) passed.
+func runPS(ctx context.Context, secs int, argv []string) (psRun, error) {
+	cmd := exec.CommandContext(ctx, argv[0], argv[1:]...)
+	var stderr strings.Builder
+	cmd.Stderr = &stderr
+	out, err := cmd.Output()
+	if ctx.Err() == context.DeadlineExceeded {
+		return psRun{}, &psTimeoutError{argv: argv, secs: secs}
+	}
+	run := psRun{stdout: out, stderr: []byte(stderr.String())}
+	if err != nil {
+		var ee *exec.ExitError
+		if !errors.As(err, &ee) {
+			return psRun{}, err
+		}
+		run.rc = ee.ExitCode()
+	}
+	return run, nil
+}
+
+// bsdProc is one row of a BSD snapshot.
+type bsdProc struct {
+	pid, ppid int
+	comm      string // ucomm
+}
+
+// parseBSDSnapshot reads the rows of bsdListSnapshotArgv (withPPID false) or
+// bsdTreeSnapshotArgv (withPPID true), sorted by pid. The name is the REST of each
+// line, trimmed, because it is the last column and may contain spaces. A row whose
+// numbers do not parse is skipped, never guessed at.
+func parseBSDSnapshot(out []byte, withPPID bool) []bsdProc {
+	var procs []bsdProc
+	for _, line := range strings.Split(string(out), "\n") {
+		pidTok, rest := cutField(line)
+		pid, err := strconv.Atoi(pidTok)
+		if err != nil {
+			continue
+		}
+		p := bsdProc{pid: pid}
+		if withPPID {
+			var ppidTok string
+			ppidTok, rest = cutField(rest)
+			if p.ppid, err = strconv.Atoi(ppidTok); err != nil {
+				continue
+			}
+		}
+		p.comm = strings.TrimSpace(rest)
+		procs = append(procs, p)
+	}
+	sort.Slice(procs, func(i, j int) bool { return procs[i].pid < procs[j].pid })
+	return procs
+}
+
+// cutField returns the first whitespace-separated field of s and everything after the
+// whitespace that ends it.
+func cutField(s string) (field, rest string) {
+	s = strings.TrimLeft(s, " \t")
+	i := strings.IndexAny(s, " \t")
+	if i < 0 {
+		return s, ""
+	}
+	return s[:i], s[i+1:]
 }
 
 func sortedKeys(m map[string]struct{}) []string {
