@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/nixchildren"
+	"github.com/mschulkind-oss/yolo-jail/internal/shquote"
 )
 
 // standInNix puts a `nix` on PATH whose eval runs evalScript and whose build runs buildScript.
@@ -32,7 +33,7 @@ func standInNix(t *testing.T, evalScript, buildScript string) {
 // not leave it looping after the test binary exits.
 func runsUntilInterrupted(dir, name string) string {
 	started, interrupted := filepath.Join(dir, name+"-started"), filepath.Join(dir, name+"-interrupted")
-	return "trap 'touch " + interrupted + "; exit 130' INT; touch " + started + "; " +
+	return "trap " + shquote.Quote("touch "+shquote.Quote(interrupted)+"; exit 130") + " INT; touch " + shquote.Quote(started) + "; " +
 		"i=0; while [ $i -lt 600 ]; do sleep 0.05; i=$((i+1)); done; exit 1"
 }
 
@@ -93,7 +94,7 @@ func TestTheSkipListEvalIsTracked(t *testing.T) {
 	s := nixchildren.Isolate(t)
 	dir := t.TempDir()
 	built := filepath.Join(dir, "built")
-	standInNix(t, runsUntilInterrupted(dir, "eval"), "touch "+built+"; echo /nix/store/fake-profile")
+	standInNix(t, runsUntilInterrupted(dir, "eval"), "touch "+shquote.Quote(built)+"; echo /nix/store/fake-profile")
 	if err := stopMidStep(t, s, dir, "eval"); err == nil {
 		t.Error("a materialize whose eval was stopped reported success")
 	}

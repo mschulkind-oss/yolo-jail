@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/nixchildren"
+	"github.com/mschulkind-oss/yolo-jail/internal/shquote"
 )
 
 // standInNix puts a `nix` on PATH that runs until interrupted, marking its start and the interrupt
@@ -24,8 +25,8 @@ import (
 func standInNix(t *testing.T) (marks string) {
 	t.Helper()
 	bin, marks := t.TempDir(), t.TempDir()
-	script := "#!/bin/sh\ntrap 'touch " + filepath.Join(marks, "interrupted") + "; exit 130' INT\n" +
-		"touch " + filepath.Join(marks, "started") + "\n" +
+	script := "#!/bin/sh\ntrap " + shquote.Quote("touch "+shquote.Quote(filepath.Join(marks, "interrupted"))+"; exit 130") + " INT\n" +
+		"touch " + shquote.Quote(filepath.Join(marks, "started")) + "\n" +
 		"i=0; while [ $i -lt 600 ]; do sleep 0.05; i=$((i+1)); done; exit 1\n"
 	if err := os.WriteFile(filepath.Join(bin, "nix"), []byte(script), 0o755); err != nil {
 		t.Fatal(err)

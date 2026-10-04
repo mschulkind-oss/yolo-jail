@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/nixchildren"
+	"github.com/mschulkind-oss/yolo-jail/internal/shquote"
 )
 
 // nixchildren_test.go pins this package's nix call sites to the one set internal/nixchildren
@@ -43,7 +44,7 @@ func awaitTracked(t *testing.T, s *nixchildren.Set, n int) {
 // red run whose nix nothing tracks — and so nothing stops — does not leave it looping after the
 // test binary exits.
 func trapsInterrupt(started string) string {
-	return `trap 'echo interrupted >&2; exit 130' INT; touch ` + started + `; ` +
+	return `trap 'echo interrupted >&2; exit 130' INT; touch ` + shquote.Quote(started) + `; ` +
 		`i=0; while [ $i -lt 600 ]; do sleep 0.05; i=$((i+1)); done; exit 1`
 }
 
@@ -124,7 +125,7 @@ func TestARunNixBuildAfterTheStopSaysWhy(t *testing.T) {
 	freshNixChildren(t)
 	nixchildren.Stop(nil)
 	ran := filepath.Join(t.TempDir(), "ran")
-	path, tail := runNixBuild([]string{"sh", "-c", "touch " + ran}, t.TempDir(), os.Environ(),
+	path, tail := runNixBuild([]string{"sh", "-c", "touch " + shquote.Quote(ran)}, t.TempDir(), os.Environ(),
 		filepath.Join(t.TempDir(), "out"), io.Discard)
 	if path != "" {
 		t.Errorf("a build after the stop returned store path %q", path)
@@ -310,8 +311,8 @@ func TestTheStorePathValidityProbeIsTracked(t *testing.T) {
 	s := freshNixChildren(t)
 	marks := t.TempDir()
 	started := filepath.Join(marks, "started")
-	standIn(t, "nix-store", "trap 'touch "+filepath.Join(marks, "interrupted")+"; exit 130' INT; "+
-		"touch "+started+"; i=0; while [ $i -lt 600 ]; do sleep 0.05; i=$((i+1)); done; exit 1")
+	standIn(t, "nix-store", "trap "+shquote.Quote("touch "+shquote.Quote(filepath.Join(marks, "interrupted"))+"; exit 130")+" INT; "+
+		"touch "+shquote.Quote(started)+"; i=0; while [ $i -lt 600 ]; do sleep 0.05; i=$((i+1)); done; exit 1")
 	done := make(chan bool, 1)
 	go func() { done <- nixStorePathValid("/nix/store/aaaa-image.json") }()
 	awaitTracked(t, s, 1)

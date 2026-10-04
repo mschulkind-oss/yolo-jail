@@ -12,6 +12,8 @@ import (
 	"syscall"
 	"testing"
 	"time"
+
+	"github.com/mschulkind-oss/yolo-jail/internal/shquote"
 )
 
 // awaitRunning waits for s to hold n running children.
@@ -29,7 +31,7 @@ func awaitRunning(t *testing.T, s *Set, n int) {
 // trapsInterrupt is a stand-in nix that runs until interrupted and says so on stderr, and that
 // creates the file started once its trap is set (awaitStarted).
 func trapsInterrupt(started string) string {
-	return `trap 'echo interrupted >&2; exit 130' INT; touch ` + started + `; while :; do sleep 0.05; done`
+	return `trap 'echo interrupted >&2; exit 130' INT; touch ` + shquote.Quote(started) + `; while :; do sleep 0.05; done`
 }
 
 // startMark is where a stand-in of t marks its start: a path in a temp dir of t's own.
@@ -57,7 +59,7 @@ func TestStopKillsANixThatIgnoresTheInterrupt(t *testing.T) {
 	started := startMark(t)
 	done := make(chan error, 1)
 	go func() {
-		done <- Run(exec.Command("sh", "-c", `trap '' INT; touch `+started+`; while :; do sleep 0.05; done`))
+		done <- Run(exec.Command("sh", "-c", `trap '' INT; touch `+shquote.Quote(started)+`; while :; do sleep 0.05; done`))
 	}()
 	awaitRunning(t, s, 1)
 	// Once the trap is set: an interrupt before it ends the shell at once, and the run passes
@@ -78,7 +80,7 @@ func TestNoNixStartsAfterTheStop(t *testing.T) {
 	s := Isolate(t)
 	s.stop(time.Second, nil)
 	ran := filepath.Join(t.TempDir(), "ran")
-	if err := Run(exec.Command("sh", "-c", "touch "+ran)); !errors.Is(err, ErrStopped) {
+	if err := Run(exec.Command("sh", "-c", "touch "+shquote.Quote(ran))); !errors.Is(err, ErrStopped) {
 		t.Errorf("Run after the stop returned %v, want ErrStopped", err)
 	}
 	if _, err := os.Stat(ran); err == nil {
@@ -229,7 +231,7 @@ func TestADisarmDuringTheTeardownWaitsForItsExit(t *testing.T) {
 	disarm := StopOnSignal()
 	go func() {
 		_ = Run(exec.Command("sh", "-c",
-			"trap 'touch "+marker+"; sleep 0.3; exit 130' INT; touch "+started+"; while :; do sleep 0.05; done"))
+			"trap "+shquote.Quote("touch "+shquote.Quote(marker)+"; sleep 0.3; exit 130")+" INT; touch "+shquote.Quote(started)+"; while :; do sleep 0.05; done"))
 	}()
 	awaitRunning(t, s, 1)
 	awaitStarted(t, started)
@@ -278,8 +280,8 @@ func TestStopOnSignalHelper(t *testing.T) {
 	}
 	disarm := StopOnSignal()
 	started := filepath.Join(marks, "started")
-	cmd := exec.Command("sh", "-c", "trap 'touch "+filepath.Join(marks, "interrupted")+"; exit 130' INT; "+
-		"touch "+started+"; i=0; while [ $i -lt 30 ]; do sleep 0.05; i=$((i+1)); done")
+	cmd := exec.Command("sh", "-c", "trap "+shquote.Quote("touch "+shquote.Quote(filepath.Join(marks, "interrupted"))+"; exit 130")+" INT; "+
+		"touch "+shquote.Quote(started)+"; i=0; while [ $i -lt 30 ]; do sleep 0.05; i=$((i+1)); done")
 	release, err := Start(cmd)
 	if err != nil {
 		fmt.Println("start:", err)

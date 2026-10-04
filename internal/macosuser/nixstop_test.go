@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/nixchildren"
+	"github.com/mschulkind-oss/yolo-jail/internal/shquote"
 )
 
 // catchSignal keeps sig from ending the test binary when no arm is installed to catch it, which is
@@ -36,8 +37,8 @@ func catchSignal(t *testing.T, sig os.Signal) {
 // nothing stops does not leave it looping after the test binary exits.
 func trackedStandInNix(marks string) error {
 	return nixchildren.Run(exec.Command("sh", "-c",
-		"trap 'touch "+filepath.Join(marks, "interrupted")+"; exit 130' INT; "+
-			"touch "+filepath.Join(marks, "started")+"; "+
+		"trap "+shquote.Quote("touch "+shquote.Quote(filepath.Join(marks, "interrupted"))+"; exit 130")+" INT; "+
+			"touch "+shquote.Quote(filepath.Join(marks, "started"))+"; "+
 			"i=0; while [ $i -lt 600 ]; do sleep 0.05; i=$((i+1)); done; exit 1"))
 }
 
