@@ -33,12 +33,16 @@ import (
 	"strings"
 )
 
-// orphanAutopruneEnv turns the boot's catalog into a boot that also REMOVES. It is emitted
-// by the host launcher only when the user's own config asks for it (config.ProgramsAutoprune),
-// so an absent variable — an older launcher, a backend that emits no env, a config that
-// never mentions it — means OFF, which is the ruled default and also the safe reading of
-// every one of those cases.
-const orphanAutopruneEnv = "YOLO_PROGRAMS_AUTOPRUNE"
+// OrphanAutopruneEnv turns the boot's catalog into a boot that also REMOVES. It is emitted
+// by a host launcher only when the user's own config asks for it (config.ProgramsAutoprune):
+// the container's on the podman argv (internal/cli/run's assembleRunCmd), and macos-user's on
+// the bootstrap argv of a LAUNCH (macosuser.BuildRunPlanWithDaemons; a capture never carries
+// it). So an absent variable — an older launcher, a config that never mentions it — means
+// OFF, which is the ruled default and also the safe reading of every one of those cases.
+const OrphanAutopruneEnv = "YOLO_PROGRAMS_AUTOPRUNE"
+
+// orphanAutopruneEnv is OrphanAutopruneEnv under the spelling this package reads it by.
+const orphanAutopruneEnv = OrphanAutopruneEnv
 
 // autoprunePrefix heads the act's boot lines. It is deliberately NOT catalogPrefix: a line
 // that says bytes were DELETED must not be skimmable as one of the informational lines

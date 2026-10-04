@@ -154,21 +154,11 @@ func ParseEntryChannel(data []byte) (map[string]string, bool) {
 		if !inChannel {
 			continue
 		}
-		loc := exportLineRe.FindStringSubmatchIndex(line)
-		if loc == nil || groupParticipated(loc, exportGroupDef) {
+		key, val, def, ok := parseExportLine(line)
+		if !ok || def {
 			continue
 		}
-		key := groupStr(line, loc, exportGroupKey)
-		var raw string
-		switch {
-		case groupParticipated(loc, exportGroupSq):
-			raw = groupStr(line, loc, exportGroupSq)
-		case groupParticipated(loc, exportGroupDq):
-			raw = groupStr(line, loc, exportGroupDq)
-		default:
-			raw = groupStr(line, loc, exportGroupBare)
-		}
-		values[key] = strings.ReplaceAll(raw, "'\\''", "'")
+		values[key] = val
 	}
 	for _, key := range WireTables() {
 		if _, ok := values[key]; !ok {
@@ -199,34 +189,97 @@ func hydrateEnvFromUserEnvFile(e *Env) {
 		if strings.TrimSpace(line) == "" || strings.HasPrefix(strings.TrimLeft(line, " \t\r\n\v\f"), "#") {
 			continue
 		}
-		loc := exportLineRe.FindStringSubmatchIndex(line)
-		if loc == nil {
+		key, val, def, ok := parseExportLine(line)
+		if !ok {
 			continue
 		}
-		key := groupStr(line, loc, exportGroupKey)
-		if _, ok := e.Vars[key]; ok && groupParticipated(loc, exportGroupDef) {
+		if _, present := e.Vars[key]; present && def {
 			continue // a def-form default loses to launch-time env; a plain-form channel value never does
 		}
-		var raw string
-		switch {
-		case groupParticipated(loc, exportGroupDef):
-			raw = groupStr(line, loc, exportGroupDef)
-		case groupParticipated(loc, exportGroupSq):
-			raw = groupStr(line, loc, exportGroupSq)
-		case groupParticipated(loc, exportGroupDq):
-			raw = groupStr(line, loc, exportGroupDq)
-		default:
-			// m.group("bare") or "" — bare always participates (\S* can match
-			// empty); an empty bare yields "".
-			raw = groupStr(line, loc, exportGroupBare)
-		}
-		// Reverse the writer's '\'' escape for single-quoted contexts.
-		val := strings.ReplaceAll(raw, "'\\''", "'")
 		e.Vars[key] = val
 		// os.Setenv fails on exactly two inputs — an empty key and a key containing
 		// "=" or a NUL — and exportLineRe's `key` group is [A-Za-z_][A-Za-z0-9_]*,
 		// which admits neither. There is no reachable error here to report.
 		_ = os.Setenv(key, val)
+	}
+}
+
+// parseExportLine reads one `export K=…` line in any of exportLineRe's four forms, returning
+// the key, the value with the writer's single-quote escape reversed, whether the line is the
+// def form (`export K=${K:-'v'}`, a default the launch-time environment beats), and whether it
+// parsed at all. ONE parse for every reader of this grammar — the user env file, its per-entry
+// channel, and the macos-user session env file — so the three cannot come to disagree about a
+// value's quoting.
+func parseExportLine(line string) (key, val string, def, ok bool) {
+	loc := exportLineRe.FindStringSubmatchIndex(line)
+	if loc == nil {
+		return "", "", false, false
+	}
+	key = groupStr(line, loc, exportGroupKey)
+	var raw string
+	switch {
+	case groupParticipated(loc, exportGroupDef):
+		raw, def = groupStr(line, loc, exportGroupDef), true
+	case groupParticipated(loc, exportGroupSq):
+		raw = groupStr(line, loc, exportGroupSq)
+	case groupParticipated(loc, exportGroupDq):
+		raw = groupStr(line, loc, exportGroupDq)
+	default:
+		// bare always participates (\S* can match empty); an empty bare yields "".
+		raw = groupStr(line, loc, exportGroupBare)
+	}
+	// Reverse the writer's '\'' escape for single-quoted contexts.
+	return key, strings.ReplaceAll(raw, "'\\''", "'"), def, true
+}
+
+// DarwinSessionEnvFileEnv names the macos-user SESSION ENV FILE on the bootstrap's argv: the
+// root-owned 0600 file, with one read grant for the sandbox account, that carries everything the
+// launch composed for the agent — the hydrated env_sources, the profile and provider channel,
+// git identity, the terminal (macosuser's envfile.go; macosuser.SandboxEnvFileEnv is this
+// constant). Its value is a PATH, never a value from the file, so the argv stays free of every
+// credential the file holds.
+const DarwinSessionEnvFileEnv = "YOLO_DARWIN_ENV_FILE"
+
+// hydrateEnvFromSessionEnvFile is the macos-user twin of hydrateEnvFromUserEnvFile: it reads
+// the session env file the launch installed before this bootstrap ran into e.Vars, so the
+// generators — the MCP requires_env gate above all — see the environment the agent will
+// have. Without it, a server gated on a shared env_sources variable was dropped from every
+// agent config on this backend, although the agent's own environment carried the variable.
+//
+// TWO DIFFERENCES FROM ITS TWIN, both deliberate:
+//
+//   - A key the bootstrap's own environment already sets WINS. That environment is the
+//     generator contract the launch composed for this process (macosuser.buildBootstrapEnv),
+//     and the file is the agent's; where both name a key, they name the same value, or the
+//     contract is the one the generators are written against.
+//   - NOTHING IS os.Setenv'd. The file carries YOLO_VERSION, the jail marker config.InJail
+//     reads off the process, and the credentials the gate asks about; in e.Vars they answer the
+//     gate, while in the process environment they would make this unconfined process call
+//     itself a jail and hand every credential to each child it spawns.
+//
+// An unset variable is a launch that composed nothing (or a test), and reads nothing. A file
+// named and unreadable is warned about, because the gate then answers wrongly for this launch.
+func hydrateEnvFromSessionEnvFile(e *Env) {
+	path := e.Getenv(DarwinSessionEnvFileEnv)
+	if path == "" {
+		return
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		e.warn("warning: could not read the session env file " + path + " (" + err.Error() +
+			"), so an MCP server gated by requires_env on an env_sources variable is left out " +
+			"of the agent configs this launch. Relaunch to rewrite the file.")
+		return
+	}
+	for _, line := range splitLines(string(data)) {
+		key, val, _, ok := parseExportLine(line)
+		if !ok {
+			continue
+		}
+		if _, present := e.Vars[key]; present {
+			continue
+		}
+		e.Vars[key] = val
 	}
 }
 
@@ -470,10 +523,17 @@ func miseUninstallTools(e *Env, tools []string) {
 //
 // Extracted from execBash so the order is assertable without exec'ing a shell.
 func BootPath(e *Env) string {
-	return strings.Join([]string{
-		e.BlockDir(), e.LaunchDir(), e.NpmBin(), e.MiseShims(), e.GoBin(), e.LocalBin(),
-		StorePackagesBin(), "/bin", "/usr/bin",
-	}, ":")
+	return strings.Join(append(HomePathDirs(e), StorePackagesBin(), "/bin", "/usr/bin"), ":")
+}
+
+// HomePathDirs is the HEAD of BootPath: the two generated dirs, then every per-home install
+// prefix, in the order every backend's PATH puts them. Exported for macosuser.SandboxPath, which
+// takes its head from here rather than spelling a third copy (the copy it was had put
+// ~/.local/bin third, so a tool installed there outranked a mise shim on macos-user alone).
+// What follows the head is each platform's own: the store farm and the image's bins here, the
+// darwin store prefix and the macOS system dirs there.
+func HomePathDirs(e *Env) []string {
+	return []string{e.BlockDir(), e.LaunchDir(), e.NpmBin(), e.MiseShims(), e.GoBin(), e.LocalBin()}
 }
 
 // executingLine is the "⚡ Executing: <command>" hand-over execBash prints for an

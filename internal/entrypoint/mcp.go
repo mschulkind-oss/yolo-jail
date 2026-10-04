@@ -176,8 +176,13 @@ func (e *Env) mcpServersWith(lookup func(string) (string, bool)) (*jsonx.Ordered
 
 	servers := jsonx.NewOrderedMap()
 
-	// Expand requested presets (order follows the YOLO_MCP_PRESETS list).
-	if presetsJSON := e.Getenv("YOLO_MCP_PRESETS"); presetsJSON != "" {
+	// Expand requested presets (order follows the YOLO_MCP_PRESETS list) — UNLESS this
+	// environment does not generate the preset wrappers (Env.SkipMCPPresets, macos-user). Every
+	// preset's `command` is the mcp-wrappers `node`, so an entry here would send each agent to
+	// a file that is never written: the server is left out instead, and the bootstrap's
+	// mcp_presets_declined warning names it. The user's own mcp_servers below still merge,
+	// null-removals included.
+	if presetsJSON := e.Getenv("YOLO_MCP_PRESETS"); presetsJSON != "" && !e.SkipMCPPresets {
 		if decoded, err := jsonx.Decode([]byte(presetsJSON)); err == nil {
 			if arr, ok := decoded.([]any); ok {
 				for _, n := range arr {

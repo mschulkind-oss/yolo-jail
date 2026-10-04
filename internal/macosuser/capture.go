@@ -275,6 +275,10 @@ func BuildCapturePlan(opts CaptureOptions) CapturePlan {
 	envFileContent := SandboxEnvFileContent(opts.SandboxEnv)
 	if envFileContent != "" {
 		envFile = SandboxEnvFile(cname, "")
+		// Named to the bootstrap by path, as a launch names it (BuildRunPlanWithDaemons): the
+		// capture's bootstrap is the launch's bootstrap, and its generator Env should see the
+		// environment the driver will run in.
+		bootstrapEnv.Set(SandboxEnvFileEnv, envFile)
 	}
 
 	return CapturePlan{
@@ -455,6 +459,12 @@ func CapturePlanInvariants(plan CapturePlan) []string {
 	// INSTALLER, so a credential on this argv is visible to the very program yolo is
 	// running for the first time.
 	problems = append(problems, SandboxArgvEnvProblems("capture driver", plan.DriverArgv)...)
+	if plan.EnvFile != "" && !containsArg(plan.BootstrapArgv, SandboxEnvFileEnv+"="+plan.EnvFile) {
+		problems = append(problems,
+			SandboxEnvFileEnv+"="+plan.EnvFile+" is not baked into the capture bootstrap env; "+
+				"the staging home would be generated against a different environment than the "+
+				"one the driver runs the installer in")
+	}
 	if !SandboxArgvReadsEnvFile(plan.EnvFile, plan.DriverArgv) {
 		problems = append(problems,
 			"the capture driver argv never reads the session env file ("+plan.EnvFile+

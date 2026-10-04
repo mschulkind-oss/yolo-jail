@@ -21,14 +21,15 @@ package entrypoint
 // there. Running it after the bootstrap would instead catalog a set the same boot had just
 // re-installed, which answers nothing.
 //
-// IT IS NOT RUN BY THE macos-user BOOTSTRAP, and the reason is about the report, not its
-// input. It was once left out on the premise that that backend stages no pack tree; it stages
-// one and names it with YOLO_PACK_ROOT, and the gate on InstalledOrphans (nothing without
-// YOLO_PACK_ROOT) keeps the rule under that premise: a boot that cannot state what it declared
-// is not asked what is undeclared. What that backend lacks is every place the summary line
-// points: it keeps no boot log (so the names e.note writes would be discarded), `yolo programs
-// ls` answers wrongly from inside its sandbox, and its launch relays no
-// YOLO_PROGRAMS_AUTOPRUNE. The exclusion is declared on the step in bootsteps.go.
+// IT RUNS ON BOTH BOOTS. The macos-user bootstrap left it out twice, for two different
+// reasons that are both gone: first on the premise that that backend stages no pack tree (it
+// stages one, named by YOLO_PACK_ROOT, and the gate on InstalledOrphans — nothing without
+// YOLO_PACK_ROOT — keeps the rule that a boot unable to state what it declared is not asked
+// what is undeclared), and then because every place the summary line points was missing there
+// (notch-convergence.md, NC-D26). Since then the bootstrap keeps the container's boot.log, so
+// the names e.note writes land where the line says; the session names the staged tree and the
+// workspace, so `yolo programs ls` reads this jail from inside the sandbox; and the launch
+// relays YOLO_PROGRAMS_AUTOPRUNE from the user's config as the container launch does.
 //
 // NO LSP RECIPE DECLARES ANYTHING ANY MORE. The three-entry table that mapped `lsp_servers`
 // names to packages (and the ~/.yolo-installed-lsps sentinel recording what it installed) is

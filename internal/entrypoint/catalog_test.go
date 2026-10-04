@@ -503,36 +503,87 @@ func TestBootCatalogSaysHowManyAndLogsWhich(t *testing.T) {
 	}
 }
 
-// THE macos-user BOOTSTRAP DOES NOT CATALOG, driven through RunDarwinBootstrap with the Env
-// built the way the production caller builds it (internal/cli/internal.go: DarwinEnvFrom, then
-// Stderr and nothing else — no boot log, so no LogOnly sink). The catalog's one line points at
-// boot.log for the names, `yolo programs ls` for sizes and `programs.autoprune` for removal, and
-// on this backend there is no boot log (every name would be discarded), `programs ls` answers
-// wrongly and autoprune is not relayed. A count whose three pointers are all dead is not a
-// report, so the step is a declared exclusion there until they exist.
+// THE macos-user BOOTSTRAP CATALOGS, INTO ITS BOOT LOG, driven through RunDarwinBootstrap
+// with the Env built the way the production caller builds it (internal/cli/internal.go:
+// DarwinEnvFrom, then Stderr and nothing else). The one terminal line points at boot.log for
+// the names, and on this backend boot.log now exists (attachDarwinBootLog): the line reaches
+// the terminal, and the orphan's name reaches the log through e.note.
 //
-// The bashrc assertion is what keeps the absence meaningful: it proves the bootstrap ran the
-// table past the catalog's slot rather than stopping before it.
-//
-// MUTATION: delete the catalog step's notDarwin and this goes red on the terminal half.
-func TestTheDarwinBootstrapDoesNotCatalogOrphans(t *testing.T) {
+// MUTATION: restore the catalog step's notDarwin, or delete the bootstrap's boot-log attach,
+// and this goes red.
+func TestTheDarwinBootstrapCatalogsOrphansIntoItsBootLog(t *testing.T) {
 	home, packRoot := catalogHome(t)
 	seedNpm(t, home, "leftover-agent")
+	ws := t.TempDir()
 	e := DarwinEnvFrom(map[string]string{
-		"JAIL_HOME": home, "YOLO_PACK_ROOT": packRoot, "YOLO_DARWIN_WORKSPACE": t.TempDir(),
+		"JAIL_HOME": home, "YOLO_PACK_ROOT": packRoot, "YOLO_DARWIN_WORKSPACE": ws,
 	}, home)
 	var term strings.Builder
 	e.Stderr = &term
 
 	_ = RunDarwinBootstrap(e, DarwinBootstrapOptions{MacosLog: "off"})
 
-	if strings.Contains(term.String(), catalogPrefix) {
-		t.Errorf("the macos-user bootstrap cataloged orphans it has no boot log to name:\n%s",
+	if !strings.Contains(term.String(), catalogSummary(1)) {
+		t.Errorf("the macos-user bootstrap did not catalog the orphan on the terminal:\n%s",
 			term.String())
 	}
-	if _, err := os.Stat(filepath.Join(home, ".bashrc")); err != nil {
-		t.Fatalf("the bootstrap did not run the table past the catalog's slot (no ~/.bashrc): %v\n%s",
+	log, err := os.ReadFile(BootLogPath(ws))
+	if err != nil {
+		t.Fatalf("the macos-user bootstrap kept no boot log for the names: %v\n%s", err, term.String())
+	}
+	line := catalogPrefix + "npm package installed but not declared by any selected pack or preset: leftover-agent"
+	if !strings.Contains(string(log), line) {
+		t.Errorf("boot.log does not name the orphan the terminal line counted:\n%s", log)
+	}
+	if strings.Contains(term.String(), line) {
+		t.Errorf("the per-orphan line reached the terminal; it belongs in boot.log alone:\n%s", term.String())
+	}
+}
+
+// AND programs.autoprune REMOVES THROUGH THE HOME LAYOUT'S LINK. On macos-user ~/.npm-global is
+// a symlink into the workspace sidecar (<workspace>/.yolo/home/npm-global), laid by the
+// bootstrap's own first step, so the orphan's bytes and its bin link live in the sidecar while
+// the Env names them through the home. The relayed variable is what turns the act on
+// (macosuser.BuildRunPlanWithDaemons sets it from the user's config).
+func TestTheDarwinBootstrapAutoprunesThroughTheHomeLayoutLink(t *testing.T) {
+	home, packRoot := catalogHome(t)
+	ws := t.TempDir()
+	sidecar := filepath.Join(ws, ".yolo", "home")
+	pkg := filepath.Join(sidecar, "npm-global", "lib", "node_modules", "leftover-agent")
+	if err := os.MkdirAll(filepath.Join(pkg, "bin"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(pkg, "bin", "cli.js"), []byte("x"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	bin := filepath.Join(sidecar, "npm-global", "bin")
+	if err := os.MkdirAll(bin, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("../lib/node_modules/leftover-agent/bin/cli.js", filepath.Join(bin, "leftover")); err != nil {
+		t.Fatal(err)
+	}
+	e := DarwinEnvFrom(map[string]string{
+		"JAIL_HOME": home, "YOLO_PACK_ROOT": packRoot, "YOLO_DARWIN_WORKSPACE": ws,
+		DarwinHomeSidecarEnv: sidecar, OrphanAutopruneEnv: "1",
+	}, home)
+	var term strings.Builder
+	e.Stderr = &term
+
+	_ = RunDarwinBootstrap(e, DarwinBootstrapOptions{MacosLog: "off"})
+
+	if fi, err := os.Lstat(filepath.Join(home, ".npm-global")); err != nil || fi.Mode()&os.ModeSymlink == 0 {
+		t.Fatalf("the fixture is not the layout this test is about: ~/.npm-global is not a link (err=%v)\n%s",
 			err, term.String())
+	}
+	if !strings.Contains(term.String(), autoprunePrefix+"removing leftover-agent") {
+		t.Errorf("autoprune did not announce the removal:\n%s", term.String())
+	}
+	if _, err := os.Lstat(pkg); !os.IsNotExist(err) {
+		t.Errorf("the orphan's package survived autoprune in the sidecar (err=%v)\n%s", err, term.String())
+	}
+	if _, err := os.Lstat(filepath.Join(bin, "leftover")); !os.IsNotExist(err) {
+		t.Errorf("the orphan's bin link survived autoprune (err=%v)", err)
 	}
 }
 
@@ -565,16 +616,18 @@ func TestBootCatalogIsSilentOnBothSinksWithNoOrphans(t *testing.T) {
 //     away (TestBothBootsRunTheTable), so it reads the PREVIOUS launch's state, the only state
 //     in which "undeclared" means anything.
 //
-// The macos-user bootstrap does not run it, for the reason declared on the step
-// (TestTheDarwinBootstrapDoesNotCatalogOrphans). The step's body is located with callIndex, which skips a commented-out mention.
+// The macos-user bootstrap runs it in the same slot (TestTheDarwinBootstrapCatalogsOrphansIntoItsBootLog).
+// The step's body is located with callIndex, which skips a commented-out mention.
 func TestBootCatalogsOrphansBesideTheOtherInformationalSteps(t *testing.T) {
 	s := mustBootStep(t, "catalog_installed_orphans")
 	if s.gen != nil || s.run == nil {
 		t.Error("the catalog must be a run step, not a generator: it generates nothing, and a " +
 			"fatal there would mean a jail with one orphaned package refuses to START")
 	}
-	assertStepBefore(t, bootContainer, "assert_required_bins", "catalog_installed_orphans",
-		"the two informational steps read the same declarations, and the missing-bin finding comes first")
+	for _, target := range []bootTarget{bootContainer, bootDarwin} {
+		assertStepBefore(t, target, "assert_required_bins", "catalog_installed_orphans",
+			"the two informational steps read the same declarations, and the missing-bin finding comes first")
+	}
 	src, err := os.ReadFile(filepath.Join(repoRoot(t), "internal", "entrypoint", "bootsteps.go"))
 	if err != nil {
 		t.Fatal(err)

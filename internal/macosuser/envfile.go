@@ -65,10 +65,17 @@ import (
 // SandboxEnvFileEnv names the session env file on the argv. The value is a PATH, so the
 // word itself is safe to print, log and tee into <workspace>/.yolo/launch.log.
 //
-// Its consumer is the `sh -c` reader ExecWithEnvFile wraps every argv in, not the sandbox
-// process itself; it is emitted so a human reading `ps` or a dry run can find the file
-// that explains the environment they cannot see on the command line.
-const SandboxEnvFileEnv = "YOLO_DARWIN_ENV_FILE"
+// It has two consumers. On the sandboxed argvs, the `sh -c` reader ExecWithEnvFile wraps
+// each one in sources the file it is handed as an argument, and the variable is emitted
+// beside it so a human reading `ps` or a dry run can find the file that explains the
+// environment they cannot see on the command line. On the BOOTSTRAP argv the variable is the
+// whole delivery: the bootstrap reads the file into its generator Env (entrypoint's
+// hydrate_session_env step), never into its process environment, so the requires_env gate
+// it renders every agent's MCP table through sees what the agent will have.
+//
+// Spelled once, by the reader (entrypoint.DarwinSessionEnvFileEnv), since macosuser imports
+// entrypoint and not the reverse.
+const SandboxEnvFileEnv = entrypoint.DarwinSessionEnvFileEnv
 
 // sandboxEnvLeaf is the state-dir subdir holding each session's env file. A subdir of its
 // own, not a sibling of the staged binary, because the directory carries a 0700 mode and a

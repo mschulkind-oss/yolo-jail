@@ -779,11 +779,20 @@ func WorkspaceACLStripScript(workspace string) string {
 // SandboxPath returns the PATH for the sandboxed agent — the two generated dirs, then its
 // own install prefixes, then the `prefix` (darwin store bin dirs), then system.
 //
-// THE THIRD COPY OF entrypoint.BootPath's ORDER, and it moves with it. B2
-// (program-delivery.md §3.5, OQ-PD12a) puts ~/.yolo/bin/launch SECOND, ahead of the
-// install prefixes: a launcher ordered after what it installs is unreachable from its own
-// second invocation onward, so the update arm it carries never runs. ~/.yolo/bin/block
-// stays first — interception must win over installation.
+// ITS HEAD IS entrypoint.BootPath's HEAD, TAKEN FROM IT RATHER THAN COPIED (HomePathDirs):
+// blockers, launchers, the npm prefix, the mise shims, $GOPATH/bin, ~/.local/bin — the
+// container's order entry for entry (program-delivery.md, OQ-PD27). This was a third,
+// hand-written copy, and it had drifted: it put ~/.local/bin THIRD, so a tool a vendor
+// installer or pipx left there outranked the mise shim of the same name on this backend
+// alone, while BootPath ranks the shim first. B2 (program-delivery.md §3.5, OQ-PD12a) is why
+// ~/.yolo/bin/launch is second, ahead of the install prefixes: a launcher ordered after what
+// it installs is unreachable from its own second invocation onward, so the update arm it
+// carries never runs. ~/.yolo/bin/block stays first — interception must win over installation.
+//
+// THE TAIL IS THIS PLATFORM'S OWN, deliberately: the darwin store prefix where the container
+// has its store farm, the staged yolo's directory where the container has /bin/<name> links,
+// and macOS's system dirs in the order its own /etc/paths lists them (/usr/bin before /bin,
+// then the two sbin dirs). Only the head is a cross-backend rule.
 //
 // macos-user is the backend where this matters most and hides least: it bakes no image, so
 // the only thing a launcher could shadow here is a `packages:` store entry or a system
@@ -816,14 +825,13 @@ func SandboxPath(home string, prefix []string) string {
 	if home == "" {
 		home = SandboxHome()
 	}
-	parts := []string{
-		home + "/.yolo/bin/block",
-		home + "/.yolo/bin/launch",
-		home + "/.local/bin",
-		home + "/.npm-global/bin",
-		filepath.Join(SandboxMiseData(home), "shims"),
-		home + "/go/bin",
-	}
+	// The Env the bootstrap generates against resolves these the same way: its MISE_DATA_DIR
+	// is SandboxMiseData (buildBootstrapEnv), and the npm prefix and GOPATH are the home's
+	// defaults on both sides.
+	parts := entrypoint.HomePathDirs(entrypoint.NewEnv(map[string]string{
+		"JAIL_HOME":     home,
+		"MISE_DATA_DIR": SandboxMiseData(home),
+	}))
 	parts = append(parts, prefix...)
 	// Derived from StagedYoloPath rather than spelled, so the directory holding the
 	// staged binary and the directory on PATH cannot become two different answers.

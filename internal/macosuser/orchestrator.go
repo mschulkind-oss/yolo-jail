@@ -367,8 +367,10 @@ func buildPlan(deps Deps, opts Options, darwin *Darwin) RunPlan {
 	// env_sources and the caller's own env: whether this process is a jail is the launcher's
 	// fact, and a composed layer that emptied it would turn every in-jail refusal off.
 	//
-	// It crosses in the session env file, so it reaches the provisioning stage and the agent,
-	// not the bootstrap, which reads a closed contract of its own (buildBootstrapEnv). What
+	// It crosses in the session env file, so it reaches the provisioning stage and the agent.
+	// The bootstrap reads that file too, but into its generator Env alone (entrypoint's
+	// hydrate_session_env step), never into its process environment: config.InJail reads the
+	// process, so it stays false there and the bootstrap's children inherit nothing. What
 	// setting it changes on this backend is audited in the design's §2.2.
 	env.Set("YOLO_VERSION", version.Get(opts.RepoRoot))
 	selfExe := ""
@@ -659,8 +661,9 @@ func RunMacosUser(deps Deps, opts Options) int {
 
 	// 2.5 THE SESSION ENV FILE — everything this launch composed, delivered as a root-owned
 	// 0600 file the sandbox account may read, instead of as words on three command lines
-	// (envfile.go). Before the bootstrap, because the provisioning stage is the next thing
-	// after it that reads the file.
+	// (envfile.go). Before the bootstrap, because the bootstrap is the first thing that reads
+	// it: its argv names the file (SandboxEnvFileEnv), and the MCP requires_env gate it renders
+	// every agent config through asks what the file holds.
 	//
 	// SWEPT ON EVERY EXIT PATH BELOW THIS LINE, including the failures: the file holds this
 	// launch's credentials, and a launch that died at the bootstrap has no more use for them
@@ -683,7 +686,8 @@ func RunMacosUser(deps Deps, opts Options) int {
 	if deps.Run(plan.BootstrapArgv) != 0 {
 		out.print("[bold red]entrypoint bootstrap failed[/bold red] — the sandbox " +
 			"user's shims/agent configs were not generated, so the agent " +
-			"would not run correctly. Aborting.")
+			"would not run correctly. Aborting. Its full output, and the reason it " +
+			"refused, are in " + entrypoint.BootLogPath(plan.Workspace) + ".")
 		return 1
 	}
 

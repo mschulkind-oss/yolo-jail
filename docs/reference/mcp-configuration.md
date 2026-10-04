@@ -123,7 +123,10 @@ Because every projection reads the same table, these apply **identically** to ev
 MCP-enabled tool.
 
 - **Presets are opt-in and expanded in-jail**, not on the host. Their `command` is the wrapper
-  path, baked in — so the servers yolo ships are wrapper-routed by construction.
+  path, baked in — so the servers yolo ships are wrapper-routed by construction. **`macos-user`
+  expands none**: it generates no wrappers (their bodies are Linux paths), so a preset entry
+  would point every agent at a file that does not exist. The bootstrap writes no entry for a
+  preset (`Env.SkipMCPPresets`) and its launch warning names each preset it left out.
 - **`null` removes** a server or a preset. Same-file "enabled *and* null-removed" is a
   validation error; across scopes (a user config enables, a workspace nulls) it is intentional
   and allowed.
@@ -133,7 +136,11 @@ MCP-enabled tool.
   claims reaches only the agent that selected that provider, in that agent's own env file
   ([the credential gate](providers.md#the-credential-gate)), so the server is written into
   that agent's config and no other, and the notice names the agents it was configured for
-  (`loadMCPTables` in `internal/entrypoint`).
+  (`loadMCPTables` in `internal/entrypoint`). On `macos-user` the jail's environment is the
+  root-owned session env file the launch writes before its bootstrap runs. The bootstrap reads
+  that file into the gate's view and leaves its own process environment unchanged (the
+  `hydrate_session_env` boot step), so a server gated on a shared `env_sources` variable is kept
+  there as it is in a container.
 - **Key order is insertion order** — presets in the order the config listed them, then custom
   entries — so a projection's output is byte-stable across boots.
 
@@ -540,25 +547,27 @@ plumbing, so the recipe names are no longer special: `lsp_servers.python` is a s
 other.
 
 What the recipe installed before the deletion is **left in place**, not uninstalled. Nothing
-declares it any more, so **on the container backends** the boot catalog names it as an orphan,
-and `yolo programs remove --apply` (or `programs.autoprune`) collects it. That act reads the
+declares it any more, so on every jail backend the boot catalog names it as an orphan, and
+`yolo programs remove --apply` (or `programs.autoprune`) collects it. That act reads the
 disk rather than a record, which is why no one-shot uninstall was written: the sentinel was a
 record, and `internal/entrypoint/orphanremove.go`'s header describes it losing exactly these
 entries. A workspace whose `lsp_servers` names one of those servers keeps working on the
 leftover until it is collected; after that, the server has to come from `PATH` like every
 other.
 
-> [!WARNING]
-> **On `macos-user` nothing collects it.** The boot catalog, and the autoprune it ends in, run
-> only in the container entrypoint (`entrypoint.Main`), not in `RunDarwinBootstrap`. The
-> in-sandbox `yolo programs` refuses, because this backend sets `YOLO_PACK_ROOT` only on the
-> bootstrap's own argv and never in the sandbox session (`programsEnv` in
-> `internal/cli/programs.go`). A macos-user workspace that had `lsp_servers.python`,
-> `typescript` or `go` set while the recipe existed (it installed there from 2026-09-13) keeps
-> those packages until they are deleted by hand. The npm packages are under
-> `<workspace>/.yolo/home/npm-global/lib/node_modules`, and `gopls` is at
-> `<workspace>/.yolo/home/go/bin/gopls` (the sandbox's `~/.npm-global` and `~/go` are links to
-> those directories). This is an open gap, not a ruling.
+> [!NOTE]
+> **`macos-user` collects it too, since 2026-10-04.** The macos-user bootstrap runs the boot
+> catalog and keeps the same `<workspace>/.yolo/boot.log` the container boot keeps, so the
+> catalog's names land there. The launch relays the user's `programs.autoprune`. The sandbox
+> session names the staged pack tree and the workspace, so `yolo programs ls` and
+> `yolo programs remove` run inside the sandbox
+> ([notch-convergence.md](../plans/notch-convergence.md), the row amending NC-D26). A macos-user
+> workspace that had `lsp_servers.python`, `typescript` or `go` set while the recipe existed (it
+> installed there from 2026-09-13) still holds those packages until that act runs. The npm
+> packages are under `<workspace>/.yolo/home/npm-global/lib/node_modules`, and `gopls` is at
+> `<workspace>/.yolo/home/go/bin/gopls`. The sandbox's `~/.npm-global` and `~/go` are links to
+> those directories, and the act removes through them. Unmeasured on a Mac until
+> `TestMacosUserProgramsLsSeesTheStagedPacks` and `TestMacosUserAutopruneRemovesAnOrphan` run.
 
 ## The node/npx wrapper
 

@@ -355,8 +355,8 @@ backend bakes no image, so on macOS all three paths are simply absent (verified 
 
 | Where | What it does today | After |
 | :--- | :--- | :--- |
-| `RunDarwinBootstrap` | warns *"mcp_presets are not delivered on macos-user"* and skips wrapper generation | **Gone with the key** |
-| `Env.SkipMCPPresets` | empties the npm arm of the generated bootstrap script | **Gone** — a pack's `program` install is the backend's ordinary path |
+| `RunDarwinBootstrap` | warns *"mcp_presets are not delivered on macos-user"*, naming each preset it left out, and skips wrapper generation | **Gone with the key** |
+| `Env.SkipMCPPresets` | keeps every preset's server entry out of the MCP table each agent's config renders from, and empties the npm arm of the generated bootstrap script. The entry half was added 2026-10-04: until then each agent's config named the `mcp-wrappers` `node` this backend never writes | **Gone** — a pack's `program` install is the backend's ordinary path |
 | `macosuser.ProvisionNeeded` | excludes `mcp_presets` from the two keys that start a stage | **Gone** — the carve-out's whole comment is about presets |
 | the store-packages inert-feature note | records `mcp_presets` as the one thing genuinely still undelivered here | **Gone** |
 

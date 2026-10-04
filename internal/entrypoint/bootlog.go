@@ -55,6 +55,13 @@ import (
 // complete before `startup.log`'s first line exists.
 const bootLogName = "boot.log"
 
+// BootLogPath is <workspace>/.yolo/boot.log, for a host-side message that sends its reader
+// there: the macos-user launcher's "bootstrap failed" line, whose bootstrap writes this log
+// from outside any container.
+func BootLogPath(workspace string) string {
+	return filepath.Join(paths.WorkspaceStateDir(workspace), bootLogName)
+}
+
 // bootLogPrevName holds the PREVIOUS boot's log. One boot of history is what makes
 // "it worked last time" answerable, and it is the difference between diagnosing a
 // failed launch and diagnosing it twice: the natural reaction to a broken jail is to
@@ -124,13 +131,23 @@ func attachBootLogAs(e *Env, stderr io.Writer, name, prevName string) *bootLog {
 	if err != nil {
 		return nil
 	}
-	path := filepath.Join(dir, name)
 
+	// BENEATH A ROOT ON `.yolo`, never by plain path (paths/statefile.go states the rule).
+	// `.yolo` is writable by the agent, and on macos-user this writer is the sandbox account
+	// running OUTSIDE its Seatbelt profile (RunDarwinBootstrap), so a link the agent left at
+	// either name would aim a writer the profile otherwise confines at a file of the agent's
+	// choosing. A linked `.yolo` is refused, and the boot keeps plain stderr; a link at a name
+	// is renamed aside or replaced, never written through.
+	r, err := paths.OpenStateDirRoot(dir)
+	if err != nil {
+		return nil
+	}
 	// Rotate rather than truncate. Ignore the error: a missing previous log is the
 	// normal first-boot case, and a rotation that fails must not cost us the new log.
-	_ = os.Rename(path, filepath.Join(dir, prevName))
+	_ = r.Rename(name, prevName)
+	r.Close()
 
-	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o644)
+	f, err := paths.OpenWorkspaceStateFile(e.WorkspaceDir(), name, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o644)
 	if err != nil {
 		return nil
 	}
