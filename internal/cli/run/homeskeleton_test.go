@@ -28,12 +28,14 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"reflect"
 	"sort"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
+	"github.com/mschulkind-oss/yolo-jail/internal/entrypoint"
 	"github.com/mschulkind-oss/yolo-jail/internal/ioprio"
 	"github.com/mschulkind-oss/yolo-jail/internal/jailcontent"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
@@ -276,6 +278,69 @@ func TestTheSkeletonCarriesTheConfigDrivenEntries(t *testing.T) {
 	}
 	if _, err := os.Lstat(filepath.Join(dir, ".config", "mytool")); err == nil {
 		t.Error("an entry already under the ~/.config bind got a skeleton mountpoint")
+	}
+}
+
+// TestTheSkeletonsHostFileLinksAreTheMacosUserLayouts: a home-root host_files file is a link
+// on BOTH backends, and the same link — same home-relative path, same relative target — so
+// `~/.npmrc` is per-workspace on both or on neither (paths.HomeFileRedirects states the rule
+// for core's three files). The podman half is this skeleton; the macos-user half is the
+// account-home layout's HostFileRedirects (entrypoint.DarwinHomeLayout.WithHostFileRedirects),
+// derived here from the same entries and the same selected packs. Compared as SETS of every
+// non-core link at the skeleton's root, so an entry one backend links and the other does not
+// fails as surely as a target that differs.
+func TestTheSkeletonsHostFileLinksAreTheMacosUserLayouts(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	packs := packsFixture(t, "claude")
+	hostFiles := []config.HostFileEntry{
+		{Path: ".npmrc", Source: "/host/.npmrc", Codec: "raw", Mode: config.HostFileModeReadonly},
+		{Path: ".netrc", Codec: "raw", HasContent: true, Mode: config.HostFileModeOnce},
+		{Path: "gitignore_global", Codec: "raw", HasContent: true, Mode: config.HostFileModeCopy},
+		{Path: "hf/one.json", Codec: "json", HasContent: true, Mode: config.HostFileModeOnce},
+		{Path: ".config/mytool/c.json", Codec: "json", HasContent: true, Mode: config.HostFileModeOnce},
+		{Path: ".claude/extra.json", Codec: "json", HasContent: true, Mode: config.HostFileModeOnce},
+	}
+	dir := buildSkeletonForTest(t, "yolo-darwin-agrees", packs, nil, hostFiles)
+
+	core := map[string]bool{}
+	for _, r := range paths.HomeFileRedirects() {
+		core[r.Name] = true
+	}
+	skeleton := map[string]string{}
+	top, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, d := range top {
+		if d.Type()&os.ModeSymlink == 0 || core[d.Name()] {
+			continue
+		}
+		target, err := os.Readlink(filepath.Join(dir, d.Name()))
+		if err != nil {
+			t.Fatal(err)
+		}
+		skeleton[d.Name()] = target
+	}
+
+	const home, sidecar = "/Users/_yolojail", "/Users/Shared/yolo/proj/.yolo/home"
+	layout := entrypoint.DeriveDarwinHomeLayout(home, sidecar,
+		packload.WritableDirs(packs), packload.SharedDirs(packs)).WithHostFileRedirects(hostFiles, packs)
+	darwin := map[string]string{}
+	for _, ln := range layout.HostFileRedirects {
+		rel, err := filepath.Rel(home, ln.Path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		darwin[rel] = ln.Target
+	}
+
+	if len(skeleton) != 3 {
+		t.Errorf("the skeleton links %d host_files destinations, want the 3 home-root files: %v",
+			len(skeleton), skeleton)
+	}
+	if !reflect.DeepEqual(skeleton, darwin) {
+		t.Errorf("the two backends disagree about the home-root host_files links:\n"+
+			"  podman skeleton  %v\n  macos-user layout %v", skeleton, darwin)
 	}
 }
 

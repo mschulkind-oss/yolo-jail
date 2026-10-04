@@ -688,6 +688,12 @@ type HomeFileRedirect struct {
 // account home (entrypoint.DeriveDarwinHomeLayout). A fourth file redirected on one backend and not the
 // other is a per-backend answer to "where does my agent's state live", which is the drift
 // docs/design/macos-user-home-tiers.md §5.0 rules out.
+//
+// These are CORE's. The CONFIG-driven redirects — one per home-root `host_files` file
+// (`~/.npmrc`) — exist on both backends too, outside this list because the user's config
+// decides them: each consumer above lays them from the same two calls,
+// config.HostFileEntry.StagingFor and SymlinkTarget (on macos-user,
+// entrypoint.DarwinHomeLayout.WithHostFileRedirects).
 func HomeFileRedirects() []HomeFileRedirect {
 	return []HomeFileRedirect{
 		{Name: ".claude.json", Target: filepath.Join(".claude", "claude.json")},
