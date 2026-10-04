@@ -20,7 +20,9 @@ package hostskills
 //
 // TIER B gets an honest degradation, not a quiet one. A flat skills dir has no way to carry a
 // plugin manifest, so only the plugin's SKILLS are deliverable; every other component it
-// declares is refused BY NAME. That is the never-silent rule the rest of this work enforces:
+// carries, declared or at the default location Claude Code loads it from
+// (pluginpack.Components), is refused BY NAME. That is the never-silent rule the rest of this
+// work enforces:
 // a user whose plugin ships hooks must hear that the hooks are not arriving, because the
 // alternative is a plugin that looks installed and half works.
 

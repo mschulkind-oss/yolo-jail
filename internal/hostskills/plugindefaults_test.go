@@ -1,9 +1,10 @@
 package hostskills
 
-// plugindefaults_test.go pins delivery for a wrapped plugin whose code sits at Claude Code's
-// DEFAULT locations with no manifest entry (hooks/hooks.json, .mcp.json,
-// monitors/monitors.json, bin/). The verbatim copy brings every one of them, so a namespaced
-// delivery must name each, and a flat one must refuse each by name AND keep it out of the copy.
+// plugindefaults_test.go pins delivery for a wrapped plugin whose components sit at Claude Code's
+// DEFAULT locations with no manifest entry (hooks/hooks.json, .mcp.json, monitors/monitors.json,
+// bin/, workflows/, and the rest of pluginpacktest.EveryDefaultLocation). The verbatim copy
+// brings every one of them, so a namespaced delivery must name each that runs code, and a flat
+// one must refuse each by name AND keep it out of the copy.
 
 import (
 	"os"
@@ -14,14 +15,14 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/pluginpack/pluginpacktest"
 )
 
-var defaultLocationCode = []string{"hooks", "mcpServers", "monitors", "bin"}
+var defaultLocationCode = []string{"hooks", "mcpServers", "monitors", "bin", "workflows"}
 
-// defaultsPluginReq is testPluginReq over the default-location fixture, with manifest written
-// over the fixture's when non-empty (still declaring no component).
+// defaultsPluginReq is testPluginReq over the every-default-location fixture, with manifest
+// written over the fixture's when non-empty.
 func defaultsPluginReq(t *testing.T, tier Tier, manifest string) PluginRequest {
 	t.Helper()
 	dir := filepath.Join(t.TempDir(), "acme-tools")
-	pluginpacktest.WriteDefaultLocationPlugin(t, dir, "acme-tools")
+	pluginpacktest.WriteEveryDefaultLocationPlugin(t, dir, "acme-tools")
 	if manifest != "" {
 		if err := os.WriteFile(filepath.Join(dir, ".claude-plugin", "plugin.json"),
 			[]byte(manifest), 0o644); err != nil {
@@ -71,9 +72,11 @@ func TestDefaultLocationCodeIsReportedOnDelivery(t *testing.T) {
 	}
 }
 
-// A flat destination refuses each by name, and the refusal is real: when the plugin's root is
-// itself a skill, the copy of that root leaves every one of them behind.
-func TestFlatDeliveryRefusesAndExcludesDefaultLocationCode(t *testing.T) {
+// A flat destination refuses EVERY component Claude Code loads from a default location by name,
+// prose and code alike, and the refusal is real: when the plugin's root is itself a skill, the
+// copy of that root leaves every one of them behind. workflows/ and themes/ used to arrive in
+// that copy, refused by no line, and Claude Code ignored them there.
+func TestFlatDeliveryRefusesAndExcludesEveryDefaultLocation(t *testing.T) {
 	req := defaultsPluginReq(t, TierFlat, `{"name":"acme-tools","skills":["./"]}`)
 	if err := os.WriteFile(filepath.Join(req.Plugin.Dir, "SKILL.md"),
 		[]byte("---\nname: acme-tools\ndescription: d\n---\nroot skill\n"), 0o644); err != nil {
@@ -89,20 +92,45 @@ func TestFlatDeliveryRefusesAndExcludesDefaultLocationCode(t *testing.T) {
 			refused[r.Name] = true
 		}
 	}
-	for _, comp := range defaultLocationCode {
-		if !refused["acme-tools:"+comp] {
-			t.Errorf("%s at its default location was not refused by name on a flat "+
-				"destination: %+v", comp, results)
-		}
-	}
 	root := filepath.Join(req.SkillsDir, "acme-tools")
 	if _, err := os.Stat(filepath.Join(root, "SKILL.md")); err != nil {
 		t.Fatalf("the root skill itself must still be delivered: %v", err)
 	}
-	for _, rel := range []string{"hooks/hooks.json", ".mcp.json", "monitors/monitors.json", "bin/acme-tool"} {
-		if _, err := os.Stat(filepath.Join(root, filepath.FromSlash(rel))); err == nil {
-			t.Errorf("%s arrived at a FLAT destination that refused it by name", rel)
+	for comp, where := range pluginpacktest.EveryDefaultLocation {
+		if !refused["acme-tools:"+comp] {
+			t.Errorf("%s at its default location (%s) was not refused by name on a flat "+
+				"destination: %+v", comp, where, results)
 		}
+		if _, err := os.Stat(filepath.Join(root, filepath.FromSlash(where))); err == nil {
+			t.Errorf("%s arrived at a FLAT destination that refused %s by name", where, comp)
+		}
+	}
+}
+
+// A SETTING'S VALUE IS A NAME, NOT A PATH. The flat copy of a root skill leaves out every path a
+// component field names, and `settings.agent` names an agent, so reading it as a path would drop
+// the skill's own folder of that name from the copy.
+func TestFlatRootSkillKeepsTheFolderASettingNames(t *testing.T) {
+	req := defaultsPluginReq(t, TierFlat,
+		`{"name":"acme-tools","skills":["./"],"settings":{"agent":"notes"}}`)
+	for rel, body := range map[string]string{
+		"SKILL.md":       "---\nname: acme-tools\ndescription: d\n---\nroot skill\n",
+		"notes/guide.md": "the root skill's own notes\n",
+	} {
+		p := filepath.Join(req.Plugin.Dir, filepath.FromSlash(rel))
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := DeliverPlugin(req); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(req.SkillsDir, "acme-tools", "notes", "guide.md")); err != nil {
+		t.Errorf("the root skill's notes/ folder was left out of its flat copy because the "+
+			"plugin's agent setting is called notes: %v", err)
 	}
 }
 

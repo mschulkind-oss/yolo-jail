@@ -2,9 +2,10 @@ package run
 
 // plugindefaultsdisclosure_test.go pins the jail-code disclosure for a wrapped plugin whose code
 // sits at Claude Code's DEFAULT locations with no manifest entry: hooks/hooks.json, a root
-// .mcp.json, monitors/monitors.json and bin/. Claude Code loads each of those whatever the
-// manifest says (https://code.claude.com/docs/en/plugins-reference, "Standard layout"), so a
-// launch that read only the manifest delivered that code with nothing on the banner.
+// .mcp.json, monitors/monitors.json, bin/ and workflows/. Claude Code loads each of those
+// whatever the manifest says (https://code.claude.com/docs/en/plugins-reference, "Standard
+// layout"), so a launch that read only the manifest delivered that code with nothing on the
+// banner.
 
 import (
 	"bytes"
@@ -56,7 +57,8 @@ func TestDefaultLocationPluginCodeIsDisclosedAtTheSpawnBoundary(t *testing.T) {
 			"none of them, and Claude Code loads every one. The launch said:\n%s", got)
 	}
 	// Each component is counted ONCE, by the name the line uses for it.
-	for _, want := range []string{"hooks (1)", "mcpServers (1)", "monitors (1)", "bin (1)"} {
+	for _, want := range []string{"hooks (1)", "mcpServers (1)", "monitors (1)", "bin (1)",
+		"workflows (1)"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("the jail-code line does not count %q:\n%s", want, got)
 		}

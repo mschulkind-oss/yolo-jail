@@ -625,8 +625,11 @@ behavior:
 - **`skills_tier` is honored.** A namespaced pack's skills land in a subtree of their own with
   yolo's plugin manifest and invoke as `/<pack>:<skill>`, as at the host.
 - **Wrapped plugins are delivered as at the host**: verbatim, with yolo's marker, from a
-  namespaced pack; at the flat default only the plugin's skills, with every other component named
-  as refused. Each refusal names the fix, setting `skills_tier` to `namespaced` in the pack's
+  namespaced pack; at the flat default only the plugin's skills, with every other component
+  Claude Code loads, prose and code alike, named as refused
+  ([`pluginpack.Components`](../../internal/pluginpack/pluginpack.go), the table
+  [trust-paths.md](../design/trust-paths.md#where-a-pin-would-change-the-outcome) mirrors). Each
+  refusal names the fix, setting `skills_tier` to `namespaced` in the pack's
   `pack.json`, or, when a namespaced delivery was downgraded, the folder in its way. A plugin at
   the pack's root is delivered the same way whether or not the pack has a `skills/` folder. That
   is the shape of a Claude Code [mod](https://code.claude.com/docs/en/plugins/mods/overview), a

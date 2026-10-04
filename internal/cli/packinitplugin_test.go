@@ -207,7 +207,7 @@ func TestInitFromPluginNamesDefaultLocationCode(t *testing.T) {
 	lines := strings.Split(out.String(), "\n")
 	for comp, where := range map[string]string{
 		"hooks": "hooks/hooks.json", "mcpServers": ".mcp.json",
-		"monitors": "monitors/monitors.json", "bin": "bin",
+		"monitors": "monitors/monitors.json", "bin": "bin", "workflows": "workflows",
 	} {
 		var found bool
 		for _, l := range lines {

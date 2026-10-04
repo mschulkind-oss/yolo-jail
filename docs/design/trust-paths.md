@@ -255,7 +255,10 @@ now retired — kept because they remain true of the lockfile and constrain anyt
    > | `monitors` | `monitors/monitors.json` | runs background shell commands for the whole session | ✅ |
    > | `bin` | `bin/` | puts executables on the agent's shell PATH | ✅ |
    > | `subagentStatusLine` | `settings.json` (or the manifest's `settings`) | runs a shell command to draw each subagent's status row | ✅ |
-   > | `commands` · `agents` · `outputStyles` | `commands/` · `agents/` · `output-styles/` | slash commands, sub-agent definitions, output styles | ❌ |
+   > | `workflows` | `workflows/` | adds workflow scripts, JavaScript Claude Code runs when one is invoked | ✅ |
+   > | `syntaxHighlighting` | none (the manifest's `experimental`) | adds syntax-highlighting grammars, JavaScript Claude Code runs in its own process | ✅ |
+   > | `commands` · `agents` · `outputStyles` · `themes` | `commands/` · `agents/` · `output-styles/` · `themes/` | slash commands, sub-agent definitions, output styles, color themes | ❌ |
+   > | `agent` | `settings.json` (or the manifest's `settings`) | runs the main session as one of the plugin's agents | ❌ |
    >
    > Until 2026-10-03 yolo read only the manifest, so code at a default location reached no
    > disclosure. That covered a hooks file with no `hooks` field, which `claude plugin validate`
@@ -264,7 +267,10 @@ now retired — kept because they remain true of the lockfile and constrain anyt
    > only the first manifest it found, in Copilot's search order, where Claude Code reads
    > `.claude-plugin/plugin.json` whatever sits beside it. So a component-free `plugin.json` at
    > the plugin root hid the inline hooks Claude Code runs. A byte order mark, which Claude Code
-   > strips, made the whole tree read as not a plugin.
+   > strips, made the whole tree read as not a plugin. Workflows, grammars, themes and the `agent`
+   > setting had no row until later that day, read from Claude Code 2.1.289's own plugin loader,
+   > so a flat skills dir lost them without naming them, and a namespaced one delivered workflow
+   > and grammar code that no line named.
    >
    > A **hook body** is the script a `hooks` entry names — the thing the *agent* executes when it
    > reaches one of its own lifecycle events. yolo never runs it and never reads it.

@@ -41,7 +41,7 @@ func TestFootprintSurfacesDefaultLocationPluginCode(t *testing.T) {
 			"locations was not flagged for review — its manifest names none of them, and "+
 			"Claude Code loads every one: %q", claim.Detail)
 	}
-	for _, want := range []string{"hooks", "mcpServers", "monitors", "bin", "RUNS CODE"} {
+	for _, want := range []string{"hooks", "mcpServers", "monitors", "bin", "workflows", "RUNS CODE"} {
 		if !strings.Contains(claim.Detail, want) {
 			t.Errorf("footprint detail %q must name %q", claim.Detail, want)
 		}

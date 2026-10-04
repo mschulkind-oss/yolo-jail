@@ -3546,10 +3546,12 @@ other two ([`OQ-RO3`](report-tiers.md#why-its-this-way): a launch has no quiet m
 ([`OQ-TP10`](../design/trust-paths.md#oq-tp10--a-wrapped-plugins-hooks-reach-the-agents-lifecycle-and-appear-in-no-launch-banner)).
 The claim is reported under the `skills` kind, which stays skip, and is reclassified per claim
 when the plugin runs code. What counts as code is a plugin's hooks, MCP and LSP servers,
-monitors, `bin/` executables and a `subagentStatusLine` setting. Each counts whether any of the
-plugin's manifests declares it or it sits at the default location Claude Code loads without
-one: `hooks/hooks.json` (classic hooks, and a hooks module's `modules` entry), `.mcp.json`,
-`.lsp.json`, `monitors/monitors.json`, `bin/` and `settings.json`. Every manifest is read, not
+monitors, `bin/` executables, a `subagentStatusLine` setting, workflow scripts and the
+syntax-highlighting grammars an `experimental.syntaxHighlighting` names. Each counts whether any
+of the plugin's manifests declares it or it sits at the default location Claude Code loads
+without one: `hooks/hooks.json` (classic hooks, and a hooks module's `modules` entry),
+`.mcp.json`, `.lsp.json`, `monitors/monitors.json`, `bin/`, `settings.json` and `workflows/`
+(grammars have none). Every manifest is read, not
 only the first found, because Copilot takes the first that parses while Claude Code reads
 `.claude-plugin/plugin.json`. One component found more than one way counts once
 ([`pluginpack.Components`](../../internal/pluginpack/pluginpack.go); the table is
@@ -3562,8 +3564,9 @@ only the first found, because Copilot takes the first that parses while Claude C
 | `yolo pack init --from-plugin` | one line per component, with `⚠ RUNS CODE` and the file or directory that carries it |
 | `yolo host apply` | at a namespaced destination, `<plugin>:<component>  … delivered — <what it does> once your tool loads the plugin` under `--verbose`. At a flat one, the component refused by name in the default view, and kept out of the copy |
 
-A plugin of skills, commands, agents and output styles alone runs nothing and stays off the
-launch.
+A plugin of skills, commands, agents, output styles and themes alone runs nothing and stays off
+the launch. A flat delivery refuses by name every component the same reading reports, prose ones
+included, because a flat skills dir can carry none of them.
 
 ## Command surface
 

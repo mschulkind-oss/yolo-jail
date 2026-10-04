@@ -2,9 +2,9 @@ package cli
 
 // applyhostplugindefaults_test.go pins `yolo host apply`'s delivery lines for a wrapped plugin
 // whose code sits at Claude Code's DEFAULT locations with no manifest entry. A namespaced
-// delivery copies the tree whole, so hooks/hooks.json, .mcp.json, monitors/monitors.json and
-// bin/ all land in the real home, and Claude Code loads each one whatever the manifest says
-// (https://code.claude.com/docs/en/plugins-reference, "Standard layout").
+// delivery copies the tree whole, so hooks/hooks.json, .mcp.json, monitors/monitors.json, bin/
+// and workflows/ all land in the real home, and Claude Code loads each one whatever the manifest
+// says (https://code.claude.com/docs/en/plugins-reference, "Standard layout").
 //
 // Every home is a t.TempDir() with XDG_CONFIG_HOME inside it.
 
@@ -36,7 +36,7 @@ func TestApplyHostNamesDefaultLocationPluginCode(t *testing.T) {
 		if rc != 0 {
 			t.Fatalf("host apply (write=%v) rc=%d\n%s", write, rc, report)
 		}
-		for _, comp := range []string{"hooks", "mcpServers", "monitors", "bin"} {
+		for _, comp := range []string{"hooks", "mcpServers", "monitors", "bin", "workflows"} {
 			name := "acme-tools:" + comp
 			if !strings.Contains(report, name) {
 				t.Errorf("host apply (write=%v) delivered the plugin with no %s line, though "+
@@ -46,7 +46,8 @@ func TestApplyHostNamesDefaultLocationPluginCode(t *testing.T) {
 		}
 	}
 	// And the code really did land, so the lines above describe the home.
-	for _, rel := range []string{"hooks/hooks.json", ".mcp.json", "monitors/monitors.json", "bin/acme-tool"} {
+	for _, rel := range []string{"hooks/hooks.json", ".mcp.json", "monitors/monitors.json", "bin/acme-tool",
+		"workflows/review.js"} {
 		if _, err := os.Stat(filepath.Join(home, ".claude", "skills", "acme-tools",
 			filepath.FromSlash(rel))); err != nil {
 			t.Errorf("%s did not arrive with the plugin tree: %v", rel, err)

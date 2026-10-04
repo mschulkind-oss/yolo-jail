@@ -176,9 +176,15 @@ func TestPluginDeliveryLeavesSiblingsAlone(t *testing.T) {
 // dropped — a plugin that looks installed and half works is the failure mode this rule exists
 // to remove.
 func TestFlatRefusesNonSkillComponentsByName(t *testing.T) {
+	// Every manifest key Claude Code (2.1.289) loads a component from, skills aside.
 	req, _ := testPluginReq(t, TierFlat, `{"name":"acme-tools","skills":["./"],
 		"hooks":{"PreToolUse":[]},"mcpServers":"./.mcp.json","lspServers":{"gopls":{}},
-		"agents":["./agents"],"outputStyles":["./output-styles"],"commands":"./cmds"}`)
+		"agents":["./agents"],"outputStyles":["./output-styles"],"commands":"./cmds",
+		"themes":"./looks","workflows":["./flows"],
+		"experimental":{"monitors":"./watch.json",
+			"syntaxHighlighting":{"hljsLanguages":[{"id":"acme","remote":"npm:acme-hljs@1.0.0"}]}},
+		"settings":{"agent":"reviewer",
+			"subagentStatusLine":{"type":"command","command":"./row.sh"}}}`)
 
 	results, err := DeliverPlugin(req)
 	if err != nil {
@@ -191,7 +197,8 @@ func TestFlatRefusesNonSkillComponentsByName(t *testing.T) {
 		}
 	}
 	for _, comp := range []string{"hooks", "mcpServers", "lspServers", "agents",
-		"outputStyles", "commands"} {
+		"outputStyles", "commands", "themes", "workflows", "monitors", "syntaxHighlighting",
+		"agent", "subagentStatusLine"} {
 		want := "acme-tools:" + comp
 		detail, ok := refused[want]
 		if !ok {
@@ -389,7 +396,9 @@ func TestPluginObserveWritesNothing(t *testing.T) {
 // lockfile.
 func TestDeliveredCodeComponentsAreReported(t *testing.T) {
 	req, _ := testPluginReq(t, TierNamespaced,
-		`{"name":"acme-tools","skills":["./"],"hooks":{"PreToolUse":[]},"mcpServers":"./.mcp.json"}`)
+		`{"name":"acme-tools","skills":["./"],"hooks":{"PreToolUse":[]},"mcpServers":"./.mcp.json",
+		"workflows":"./flows/review.js",
+		"experimental":{"syntaxHighlighting":{"hljsLanguages":[{"id":"acme"}]}}}`)
 	results, err := DeliverPlugin(req)
 	if err != nil {
 		t.Fatal(err)
@@ -398,7 +407,8 @@ func TestDeliveredCodeComponentsAreReported(t *testing.T) {
 	for _, r := range results {
 		reported[r.Name] = true
 	}
-	for _, want := range []string{"acme-tools:hooks", "acme-tools:mcpServers"} {
+	for _, want := range []string{"acme-tools:hooks", "acme-tools:mcpServers",
+		"acme-tools:workflows", "acme-tools:syntaxHighlighting"} {
 		if !reported[want] {
 			t.Errorf("%q was delivered without a line of its own — a component that RUNS must "+
 				"be visible at the moment it lands: %+v", want, results)

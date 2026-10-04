@@ -159,3 +159,37 @@ func TestSubagentStatusLineIsCode(t *testing.T) {
 		})
 	}
 }
+
+// `agent` is the other setting Claude Code keeps from a plugin's settings (2.1.289 keeps exactly
+// ["agent","subagentStatusLine"]): it names an agent "to use for the main thread", applying that
+// agent's system prompt, tool restrictions and model. It runs nothing, but it changes every
+// session the plugin is enabled in, so a flat delivery that cannot carry it must say so, and it
+// can say so only of a component Components reports.
+func TestMainSessionAgentSettingIsReported(t *testing.T) {
+	cases := []struct {
+		name, manifest, settings, source string
+	}{
+		{"settings.json", `{"name":"p"}`, `{"agent":"reviewer"}`, "settings.json"},
+		{"manifest settings", `{"name":"p","settings":{"agent":"reviewer"}}`, "", ".claude-plugin/plugin.json"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := writePlugin(t, t.TempDir(), "p", tc.manifest)
+			if tc.settings != "" {
+				if err := os.WriteFile(filepath.Join(dir, "settings.json"),
+					[]byte(tc.settings), 0o644); err != nil {
+					t.Fatal(err)
+				}
+			}
+			p, _ := Load(dir)
+			c, found := componentByName(p, "agent")
+			if !found {
+				t.Fatalf("a plugin setting the main session's agent reported no agent component: %+v",
+					p.Components())
+			}
+			if c.RunsCode || !slices.Equal(c.Sources, []string{tc.source}) {
+				t.Errorf("got %+v, want prose from %s alone", c, tc.source)
+			}
+		})
+	}
+}

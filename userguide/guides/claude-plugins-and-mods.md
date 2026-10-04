@@ -53,8 +53,9 @@ as `/first-mod:<skill>`. `yolo host apply --assert` writes the same plugin into 
   pack's `skills/first-mod/` folder and run the same `yolo pack init --from-plugin` again.
 - **To share it,** keep the pack in a git repository and list it as a git pack. It is then pinned
   and updated like any other pack; see [Packs from elsewhere](packs-and-skills.md#packs-from-elsewhere).
-- **Listing the plugin's own repository under `packs` does not work yet.** With no `pack.json`, its
-  hooks and mod code are left out. Wrap it instead.
+- **Listing the plugin's own repository under `packs` does not work yet.** With no `pack.json`, only
+  its skills arrive. Its hooks, mod code and every other part are left out, and each launch names
+  each part it left out. Wrap it instead.
 
 ### Keep it in the project
 
@@ -141,9 +142,10 @@ This launch delivers pack code that runs inside the jail (`yolo pack footprint` 
 The line names each kind of code the pack's plugins carry, and the number beside a kind is how many
 of those plugins carry it, not how many hooks or servers there are. The kinds are hooks, a mod's
 hooks module among them, tool (MCP) servers, language servers, background monitors, programs in the
-plugin's `bin/` folder and a status line for subagents. Each counts whether the plugin's manifest
-names it or it sits where Claude Code looks for it by default. A plugin of skills, commands,
-subagents or output styles runs no code and gets no line.
+plugin's `bin/` folder, a status line for subagents, workflow scripts and syntax-highlighting
+grammars. Each counts whether the plugin's manifest names it or it sits where Claude Code looks for
+it by default. A plugin of skills, commands, subagents, output styles or themes runs no code and
+gets no line.
 
 **What the launch does not list:** a plugin kept in the project, and a plugin Claude Code installs
 itself, from your settings or a `/plugin install`. Check those in Claude Code: `/plugin` shows what

@@ -5,9 +5,9 @@
 // The design constraint that shapes this whole package: yolo READS the fields it needs and
 // passes the tree through intact. It deliberately does NOT re-implement the plugin schema.
 // A plugin manifest declares more than yolo models — hooks, MCP servers, LSP servers,
-// sub-agents, output styles, commands — and lowering those into yolo's own contribution
-// kinds would silently drop every one yolo has no kind for, then need a new lowering rule
-// each time the plugin schema grows. So the decode below is LENIENT (no
+// sub-agents, output styles, commands, themes, workflows — and lowering those into yolo's own
+// contribution kinds would silently drop every one yolo has no kind for, then need a new
+// lowering rule each time the plugin schema grows. So the decode below is LENIENT (no
 // DisallowUnknownFields, unlike packdecl's own manifest): an unknown field is somebody
 // else's feature travelling through, not an authoring mistake yolo should report.
 //
@@ -16,17 +16,19 @@
 //   - the NAME, because it is the destination directory AND the namespace the tools
 //     qualify the plugin's skills with (`<name>:<skill>`);
 //   - WHICH COMPONENTS it carries, because some of them are CODE THAT RUNS. A plugin is
-//     someone else's repo, and hooks, MCP and LSP servers, monitors, `bin/` executables and a
-//     subagent status line mean processes started on the user's behalf. Those are what the
-//     footprint's ⚠ RUNS CODE line reports (packload.FootprintOf), and a component yolo failed
-//     to notice would be hooks nobody was told about. They were an APPROVAL question until OQ-TP9 deleted the
-//     prompt (docs/design/trust-paths.md, 2026-09-04); they are a DISCLOSURE question now.
+//     someone else's repo, and hooks, MCP and LSP servers, monitors, `bin/` executables, a
+//     subagent status line, workflow scripts and syntax-highlighting grammars mean processes
+//     started, or JavaScript run, on the user's behalf. Those are what the footprint's
+//     ⚠ RUNS CODE line reports (packload.FootprintOf), and a component yolo failed to notice
+//     would be hooks nobody was told about. They were an APPROVAL question until OQ-TP9 deleted
+//     the prompt (docs/design/trust-paths.md, 2026-09-04); they are a DISCLOSURE question now.
 //
 // "Carries" is every manifest AND the filesystem. Claude Code gives every component a default
 // location it loads when the manifest is silent (hooks/hooks.json, .mcp.json, .lsp.json,
 // monitors/monitors.json, bin/, settings.json, …: the "Standard layout" table of
-// https://code.claude.com/docs/en/plugins-reference), so a manifest-only reading misses code
-// that runs; and the tools disagree about which manifest is the plugin's (see manifestDirs).
+// https://code.claude.com/docs/en/plugins-reference, and workflows/ and themes/ beside them in
+// Claude Code's own loader), so a manifest-only reading misses code that runs; and the tools
+// disagree about which manifest is the plugin's (see manifestDirs).
 // That reading is the one thing here that is not a pass-through: the defaults are listed in
 // the components table below, beside the fields they stand in for.
 //
@@ -91,6 +93,12 @@ type Manifest struct {
 	LSPServers json.RawMessage `json:"lspServers"`
 
 	OutputStyles json.RawMessage `json:"outputStyles"`
+	// Themes is the top-level spelling of a plugin's color themes; Claude Code reads
+	// `experimental.themes` first (see themes).
+	Themes json.RawMessage `json:"themes"`
+	// Workflows names workflow scripts: JavaScript files, or directories of them, that Claude
+	// Code runs when a workflow is invoked. Only the top-level spelling loads (2.1.289).
+	Workflows json.RawMessage `json:"workflows"`
 
 	// Monitors is the top-level spelling of a plugin's background monitors, which Claude Code
 	// still loads with a `claude plugin validate` warning; Experimental carries the current
@@ -102,17 +110,25 @@ type Manifest struct {
 
 	// Settings is the inline form of the plugin's root settings.json. Of the two keys Claude
 	// Code honors there, `subagentStatusLine` is a shell command it runs to draw each
-	// subagent's row in the agent panel; `agent` names one of the plugin's own agents.
+	// subagent's row in the agent panel; `agent` names one of the plugin's own agents, which
+	// the main session then runs as.
 	Settings json.RawMessage `json:"settings"`
 }
 
-// subagentStatusLine is the manifest's `settings.subagentStatusLine`.
-func (m Manifest) subagentStatusLine() json.RawMessage {
-	var s struct {
-		Line json.RawMessage `json:"subagentStatusLine"`
-	}
+// setting is the manifest's `settings.<key>`.
+func (m Manifest) setting(key string) json.RawMessage {
+	var s map[string]json.RawMessage
 	if declared(m.Settings) && json.Unmarshal(m.Settings, &s) == nil {
-		return s.Line
+		return s[key]
+	}
+	return nil
+}
+
+// experimental is the manifest's `experimental.<key>`.
+func (m Manifest) experimental(key string) json.RawMessage {
+	var exp map[string]json.RawMessage
+	if declared(m.Experimental) && json.Unmarshal(m.Experimental, &exp) == nil {
+		return exp[key]
 	}
 	return nil
 }
@@ -120,14 +136,19 @@ func (m Manifest) subagentStatusLine() json.RawMessage {
 // monitors is the declared monitors value: `experimental.monitors` when present, else the
 // top-level `monitors`.
 func (m Manifest) monitors() json.RawMessage {
-	var exp struct {
-		Monitors json.RawMessage `json:"monitors"`
-	}
-	if declared(m.Experimental) && json.Unmarshal(m.Experimental, &exp) == nil &&
-		declared(exp.Monitors) {
-		return exp.Monitors
+	if exp := m.experimental("monitors"); declared(exp) {
+		return exp
 	}
 	return m.Monitors
+}
+
+// themes is the declared themes value: `experimental.themes` when present, else the top-level
+// `themes`, the order Claude Code reads them in.
+func (m Manifest) themes() json.RawMessage {
+	if exp := m.experimental("themes"); declared(exp) {
+		return exp
+	}
+	return m.Themes
 }
 
 // Plugin is one recognized plugin tree.
@@ -181,8 +202,9 @@ func (p *Plugin) Name() string {
 
 // Component is one thing a plugin carries, as yolo reports it.
 type Component struct {
-	// Name is the manifest field ("hooks", "mcpServers", …), or "bin" for the executables
-	// directory, which has no field.
+	// Name is the manifest field ("hooks", "mcpServers", "syntaxHighlighting" under
+	// `experimental`, …), the key of a setting ("subagentStatusLine", "agent"), or "bin" for the
+	// executables directory, which has no field.
 	Name string
 	// Detail is a one-line human note for the footprint and refusal lines.
 	Detail string
@@ -219,56 +241,108 @@ const (
 // code-running verdict attached. `skills` is absent on purpose: it is the one component
 // yolo models itself, so it is delivered rather than reported as a pass-through.
 //
+// It is EVERY component Claude Code loads from a plugin, not only the code: a flat delivery
+// refuses by name exactly what this table reports (hostskills' deliverPluginFlat), so a row
+// missing here is a component that vanishes from a flat skills dir without a word.
+//
 // The order is the report's: code first, then prose. Two launches of one pack print the same
 // line only because this order is fixed.
 //
 // def and merges are Claude Code's, verified against its plugin reference
 // (https://code.claude.com/docs/en/plugins-reference, "Standard layout" and "How each key
-// combines with its default location", read 2026-10-03) and its changelog:
+// combines with its default location", read 2026-10-03), its changelog, and the plugin loader
+// shipped in Claude Code 2.1.289 (MEASURED 2026-10-03, strings of its binary):
 //
 //   - hooks/hooks.json, .mcp.json and .lsp.json MERGE with the manifest field: the default
 //     file loads first, then what the manifest declares. hooks/hooks.json also carries the
 //     `modules` key of a JavaScript or TypeScript hooks module (Claude Code 2.1.287's mods),
 //     which runs inside the agent itself.
-//   - monitors/monitors.json, commands/, agents/ and output-styles/ are REPLACED by their field:
-//     a manifest that sets one loads its paths and not the default.
+//   - monitors/monitors.json, commands/, agents/, output-styles/, themes/ and workflows/ are
+//     REPLACED by their field: a manifest that sets one loads its paths and not the default.
+//     The loader reads `experimental.monitors ?? monitors` and `experimental.themes ?? themes`,
+//     but only the top-level `workflows` and `outputStyles`.
 //   - bin/ has no field: "Files in bin/ at the plugin root are on the PATH of the Bash tool's
 //     shell while the plugin is enabled" (changelog 2.1.91: "Plugins can now ship executables
 //     under bin/ and invoke them as bare commands from the Bash tool").
-//   - subagentStatusLine is a setting, in a root settings.json or the manifest's `settings`,
-//     and settings.json "takes precedence over this key" (the reference's `settings` row). It
-//     is listed as merging so that both are reported when both are present: which one wins
-//     decides only which command runs, not whether one does.
+//   - subagentStatusLine and agent are settings, in a root settings.json or the manifest's
+//     `settings` (2.1.289 keeps exactly those two keys from either), and settings.json "takes
+//     precedence over this key" (the reference's `settings` row). Each is listed as merging so
+//     that both are reported when both are present: which one wins decides only which value
+//     applies, not whether one does.
+//   - a workflow is a JavaScript file Claude Code runs, in a `node:vm` context, when the
+//     workflow is invoked; a theme is a JSON file its theme picker offers.
+//   - `experimental.syntaxHighlighting.hljsLanguages` names highlight.js grammars, each a
+//     JavaScript function Claude Code's highlighter calls in its own process. It has no default
+//     location.
+//
+// Not rows, because each loads nothing of its own: `channels` binds one of the plugin's MCP
+// servers (reported as mcpServers); `userConfig` and `dependencies` are prompts and other
+// plugins; `binaries` is fetched into bin/ when Claude Code installs the plugin, which yolo's
+// copy is not;
+// `types` and `experimental.evals` are read by a plugin's dependents' type check and an
+// evaluation harness, not by a session.
 var components = []struct {
 	name     string
 	detail   string
 	runsCode bool
 	// pick is the manifest field's value; nil when the component has no field.
 	pick func(Manifest) json.RawMessage
+	// paths says pick's value names plugin paths (a string, a list of them, or {paths}), which
+	// a flat delivery keeps out of a root skill's copy (ComponentPaths). A setting's value and an
+	// inline object name none: `settings.agent` is an agent's name.
+	paths bool
 	// def is the plugin-relative default location, slash-separated; "" for none.
 	def   string
 	shape defaultShape
 	// merges says the default loads beside a declaration rather than being replaced by it.
 	merges bool
 }{
-	{"hooks", "runs code at agent lifecycle events", true,
-		func(m Manifest) json.RawMessage { return m.Hooks }, "hooks/hooks.json", defaultFile, true},
-	{"mcpServers", "starts MCP server processes", true,
-		func(m Manifest) json.RawMessage { return m.MCPServers }, ".mcp.json", defaultFile, true},
-	{"lspServers", "starts language server processes", true,
-		func(m Manifest) json.RawMessage { return m.LSPServers }, ".lsp.json", defaultFile, true},
-	{"monitors", "runs background shell commands for the whole session", true,
-		Manifest.monitors, "monitors/monitors.json", defaultFile, false},
-	{"bin", "puts executables on the agent's shell PATH", true,
-		nil, "bin", defaultExecDir, false},
-	{"subagentStatusLine", "runs a shell command to draw each subagent's status row", true,
-		Manifest.subagentStatusLine, "settings.json", defaultKeyInFile, true},
-	{"commands", "adds slash commands (prompt text)", false,
-		func(m Manifest) json.RawMessage { return m.Commands }, "commands", defaultDir, false},
-	{"agents", "adds sub-agent definitions", false,
-		func(m Manifest) json.RawMessage { return m.Agents }, "agents", defaultDir, false},
-	{"outputStyles", "adds output styles", false,
-		func(m Manifest) json.RawMessage { return m.OutputStyles }, "output-styles", defaultDir, false},
+	{name: "hooks", detail: "runs code at agent lifecycle events", runsCode: true,
+		pick: func(m Manifest) json.RawMessage { return m.Hooks }, paths: true,
+		def: "hooks/hooks.json", shape: defaultFile, merges: true},
+	{name: "mcpServers", detail: "starts MCP server processes", runsCode: true,
+		pick: func(m Manifest) json.RawMessage { return m.MCPServers }, paths: true,
+		def: ".mcp.json", shape: defaultFile, merges: true},
+	{name: "lspServers", detail: "starts language server processes", runsCode: true,
+		pick: func(m Manifest) json.RawMessage { return m.LSPServers }, paths: true,
+		def: ".lsp.json", shape: defaultFile, merges: true},
+	{name: "monitors", detail: "runs background shell commands for the whole session", runsCode: true,
+		pick: Manifest.monitors, paths: true, def: "monitors/monitors.json", shape: defaultFile},
+	{name: "bin", detail: "puts executables on the agent's shell PATH", runsCode: true,
+		def: "bin", shape: defaultExecDir},
+	{name: "subagentStatusLine", detail: "runs a shell command to draw each subagent's status row",
+		runsCode: true, pick: settingKey("subagentStatusLine"),
+		def: "settings.json", shape: defaultKeyInFile, merges: true},
+	{name: "workflows", runsCode: true,
+		detail: "adds workflow scripts, JavaScript Claude Code runs when one is invoked",
+		pick:   func(m Manifest) json.RawMessage { return m.Workflows },
+		paths:  true, def: "workflows", shape: defaultDir},
+	{name: "syntaxHighlighting", runsCode: true,
+		detail: "adds syntax-highlighting grammars, JavaScript Claude Code runs in its own process",
+		pick:   experimentalKey("syntaxHighlighting")},
+	{name: "commands", detail: "adds slash commands (prompt text)",
+		pick: func(m Manifest) json.RawMessage { return m.Commands }, paths: true,
+		def: "commands", shape: defaultDir},
+	{name: "agents", detail: "adds sub-agent definitions",
+		pick: func(m Manifest) json.RawMessage { return m.Agents }, paths: true,
+		def: "agents", shape: defaultDir},
+	{name: "outputStyles", detail: "adds output styles",
+		pick: func(m Manifest) json.RawMessage { return m.OutputStyles }, paths: true,
+		def: "output-styles", shape: defaultDir},
+	{name: "themes", detail: "adds color themes",
+		pick: Manifest.themes, paths: true, def: "themes", shape: defaultDir},
+	{name: "agent", detail: "runs the main session as one of its agents",
+		pick: settingKey("agent"), def: "settings.json", shape: defaultKeyInFile, merges: true},
+}
+
+// settingKey picks the manifest's `settings.<key>`.
+func settingKey(key string) func(Manifest) json.RawMessage {
+	return func(m Manifest) json.RawMessage { return m.setting(key) }
+}
+
+// experimentalKey picks the manifest's `experimental.<key>`.
+func experimentalKey(key string) func(Manifest) json.RawMessage {
+	return func(m Manifest) json.RawMessage { return m.experimental(key) }
 }
 
 // Components returns the non-skill components this plugin carries, in a stable order: each
@@ -494,7 +568,9 @@ func (p *Plugin) ComponentPaths() []string {
 			top, _, _ := strings.Cut(c.def, "/")
 			out = append(out, filepath.Join(p.Dir, top))
 		}
-		if c.pick != nil {
+		// Only a field whose value is paths: a setting's value is a name, and read as a path it
+		// would drop the root skill's own folder of that name from the copy.
+		if c.pick != nil && c.paths {
 			for _, fm := range manifests {
 				exclude(c.name, c.pick(fm.m))
 			}

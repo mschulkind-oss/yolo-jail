@@ -10,14 +10,15 @@ package pluginpack
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"testing"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/pluginpack/pluginpacktest"
 )
 
-// THE HOLE: hooks/hooks.json (a command hook and a hooks module), .mcp.json, a monitors file and
-// a bin/ executable, with a manifest that declares none of them. Each one runs code once Claude
-// Code loads the plugin, and each must be reported as code-running.
+// THE HOLE: hooks/hooks.json (a command hook and a hooks module), .mcp.json, a monitors file, a
+// bin/ executable and a workflow script, with a manifest that declares none of them. Each one runs
+// code once Claude Code loads the plugin, and each must be reported as code-running.
 func TestComponentsAtDefaultLocationsAreReported(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "acme-tools")
 	pluginpacktest.WriteDefaultLocationPlugin(t, dir, "acme-tools")
@@ -32,7 +33,7 @@ func TestComponentsAtDefaultLocationsAreReported(t *testing.T) {
 	}
 	for name, where := range map[string]string{
 		"hooks": "hooks/hooks.json", "mcpServers": ".mcp.json",
-		"monitors": "monitors/monitors.json", "bin": "bin",
+		"monitors": "monitors/monitors.json", "bin": "bin", "workflows": "workflows",
 	} {
 		c, ok := got[name]
 		if !ok {
@@ -51,6 +52,40 @@ func TestComponentsAtDefaultLocationsAreReported(t *testing.T) {
 	}
 	if !p.RunsCode() {
 		t.Error("a plugin carrying hooks, MCP servers, monitors and executables must report RunsCode")
+	}
+}
+
+// EVERY DEFAULT LOCATION CLAUDE CODE LOADS is reported, under the name yolo uses for it and with
+// that location as its source, code and prose alike: a flat delivery refuses exactly what this
+// reports, so a location missing here is a component that disappears from a flat skills dir with
+// no word. workflows/, themes/ and a settings.json `agent` were the ones missing.
+func TestEveryDefaultLocationIsReported(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "acme-tools")
+	pluginpacktest.WriteEveryDefaultLocationPlugin(t, dir, "acme-tools")
+	p, ok := Load(dir)
+	if !ok {
+		t.Fatal("the fixture is not plugin-shaped")
+	}
+	got := map[string]Component{}
+	for _, c := range p.Components() {
+		got[c.Name] = c
+	}
+	// Which of them run code: a process, a command or a script started on the user's behalf.
+	runs := map[string]bool{"hooks": true, "mcpServers": true, "lspServers": true,
+		"monitors": true, "bin": true, "workflows": true, "subagentStatusLine": true}
+	for name, where := range pluginpacktest.EveryDefaultLocation {
+		c, ok := got[name]
+		if !ok {
+			t.Errorf("%s at its default location (%s) was not reported, though Claude Code loads "+
+				"it with no manifest entry. Got: %+v", name, where, p.Components())
+			continue
+		}
+		if c.RunsCode != runs[name] {
+			t.Errorf("%s reports RunsCode=%v, want %v", name, c.RunsCode, runs[name])
+		}
+		if !slices.Equal(c.Sources, []string{where}) {
+			t.Errorf("%s Sources = %v, want only %s", name, c.Sources, where)
+		}
 	}
 }
 
@@ -79,7 +114,7 @@ func TestComponentNamedBothWaysIsReportedOnce(t *testing.T) {
 			}
 		}
 	}
-	for _, name := range []string{"hooks", "mcpServers", "monitors", "bin"} {
+	for _, name := range []string{"hooks", "mcpServers", "monitors", "bin", "workflows"} {
 		if seen[name] != 1 {
 			t.Errorf("%s reported %d times, want once", name, seen[name])
 		}
@@ -149,7 +184,8 @@ func TestInertLookalikesAreNotReported(t *testing.T) {
 // directory loads as slash commands with no manifest entry.
 func TestDefaultProseDirsAreReportedAsContent(t *testing.T) {
 	dir := writePlugin(t, t.TempDir(), "p", `{"name":"p"}`)
-	for _, rel := range []string{"commands/status.md", "agents/reviewer.md", "output-styles/terse.md"} {
+	for _, rel := range []string{"commands/status.md", "agents/reviewer.md", "output-styles/terse.md",
+		"themes/dusk.json"} {
 		path := filepath.Join(dir, filepath.FromSlash(rel))
 		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 			t.Fatal(err)
@@ -163,7 +199,7 @@ func TestDefaultProseDirsAreReportedAsContent(t *testing.T) {
 	for _, c := range p.Components() {
 		got[c.Name] = c.RunsCode
 	}
-	for _, name := range []string{"commands", "agents", "outputStyles"} {
+	for _, name := range []string{"commands", "agents", "outputStyles", "themes"} {
 		runs, ok := got[name]
 		if !ok {
 			t.Errorf("%s at its default directory was not reported: %+v", name, p.Components())
@@ -173,6 +209,50 @@ func TestDefaultProseDirsAreReportedAsContent(t *testing.T) {
 		}
 	}
 	if p.RunsCode() {
-		t.Error("a plugin of commands, agents and output styles runs no code")
+		t.Error("a plugin of commands, agents, output styles and themes runs no code")
+	}
+}
+
+// The manifest keys Claude Code loads beside its default directories: `themes` (and
+// `experimental.themes`, which it reads first), `workflows`, and `experimental.syntaxHighlighting`,
+// whose highlight.js grammars are JavaScript functions Claude Code calls in its own process. Like
+// `commands`, a themes or workflows field REPLACES its default directory, so once the only
+// manifest sets the field the default directory is no longer a source.
+func TestDeclaredThemesWorkflowsAndGrammarsAreReported(t *testing.T) {
+	cases := []struct {
+		manifest, name string
+		runs           bool
+	}{
+		{`{"name":"p","themes":"./looks"}`, "themes", false},
+		{`{"name":"p","experimental":{"themes":["./looks"]}}`, "themes", false},
+		{`{"name":"p","workflows":"./flows/review.js"}`, "workflows", true},
+		{`{"name":"p","experimental":{"syntaxHighlighting":{"hljsLanguages":[` +
+			`{"id":"acme","remote":"npm:acme-hljs@1.0.0"}]}}}`, "syntaxHighlighting", true},
+	}
+	for _, tc := range cases {
+		dir := writePlugin(t, t.TempDir(), "p", tc.manifest)
+		for _, rel := range []string{"themes/dusk.json", "workflows/default.js"} {
+			path := filepath.Join(dir, filepath.FromSlash(rel))
+			if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(path, []byte("{}\n"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+		}
+		p, _ := Load(dir)
+		c, found := componentByName(p, tc.name)
+		if !found {
+			t.Errorf("manifest %s declares %s and it was not reported: %+v", tc.manifest, tc.name,
+				p.Components())
+			continue
+		}
+		if c.RunsCode != tc.runs {
+			t.Errorf("manifest %s: %s RunsCode=%v, want %v", tc.manifest, tc.name, c.RunsCode, tc.runs)
+		}
+		if !slices.Equal(c.Sources, []string{".claude-plugin/plugin.json"}) {
+			t.Errorf("manifest %s: %s Sources = %v, want the manifest alone (the field replaces "+
+				"the default directory)", tc.manifest, tc.name, c.Sources)
+		}
 	}
 }
