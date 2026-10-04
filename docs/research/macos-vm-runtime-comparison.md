@@ -206,7 +206,28 @@ MEASURED. What it shows:
   native. `stat` is 2.6 times native against VZ's 24; pip install 1.3 times against 2.1; the
   `pgbench` load is faster than native; read-only Postgres runs at 90 percent of native and
   read-write at 46 percent, against VZ's 26 to 30. Warm pytest (1.17 s) and `django.setup()`
-  (0.21 s) beat native. How it does this is undisclosed; it is closed source.
+  (0.21 s) beat native.
+- **Why, as far as can be seen from outside** (OrbStack is closed source):
+  - **Its guest uses the same protocol.** The shared folder is a `virtiofs` mount in OrbStack's
+    guest, as in Apple Container's (MEASURED: `/proc/mounts`).
+  - **What differs is the Mac side that answers it.** On VZ, Apple's own virtiofs server answers
+    every request, which is why Apple Container and applehv cost the same. OrbStack's VM ran
+    inside its own helper process, which links Hypervisor.framework and holds the entitlement for
+    it, and no Virtualization.framework VM process appeared (MEASURED). So its file server is
+    OrbStack's own code (INFERRED).
+  - **What OrbStack says it does.** It "rewrote the virtualization stack" in 1.6 and gives its
+    file system "custom dynamic caching", cutting "per-call overhead by up to 10x", for real
+    workloads at "75-95% of native" (SOURCED: its
+    [file system post](https://orbstack.dev/blog/fast-filesystem) and
+    [architecture page](https://docs.orbstack.dev/architecture)).
+  - **The pattern fits caching existing files in the guest and nothing else.** `stat` on existing
+    files is 9 times VZ's speed, but `stat` on missing names only 1.1 times, which suggests a
+    name not found is asked of the Mac every time. That keeps a file created on the Mac visible
+    to the guest: in one check, two files the Mac created after the guest had looked for them
+    were visible in the guest, with their contents, within 1.5 s (MEASURED). How long the guest
+    trusts its cache of an existing file was not checked.
+  - **Its slower syncs** ([§2](#2-what-differs-between-the-runs-and-does-not-matter-here)) match
+    the same post's statement that it "waits for data to be sent to the SSD" for Postgres's sake.
 - **libkrun's virtiofs costs 1.6 to 9 times VZ's on all but one step.** `stat` is 3.2 times VZ's, pip install 3.9
   times, warm pytest 3.7 times, and Postgres's read-only rate falls to a ninth; the `pgbench` load, about a fifth faster than
   on VZ, is the exception. INFERRED:
