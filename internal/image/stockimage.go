@@ -417,10 +417,13 @@ const storePathValidTimeout = 30 * time.Second
 // nixStorePathValid is the real StorePathValid: `nix-store --check-validity`,
 // which asks the store's database rather than the filesystem, so a path that is
 // half-deleted or was never registered reads as absent. It realises nothing.
+//
+// Tracked while it runs (internal/nixchildren), so a launch a signal ends stops it
+// rather than leaving it waiting on a busy daemon with no parent.
 func nixStorePathValid(storePath string) bool {
 	ctx, cancel := context.WithTimeout(context.Background(), storePathValidTimeout)
 	defer cancel()
-	return exec.CommandContext(ctx, "nix-store", "--check-validity", storePath).Run() == nil
+	return nixchildren.Run(exec.CommandContext(ctx, "nix-store", "--check-validity", storePath)) == nil
 }
 
 // reportWriter is where a launch-stream DISCLOSURE goes: Report when the caller

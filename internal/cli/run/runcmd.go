@@ -25,6 +25,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/launchservice"
 	"github.com/mschulkind-oss/yolo-jail/internal/macosuser"
+	"github.com/mschulkind-oss/yolo-jail/internal/nixchildren"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/perf"
@@ -478,10 +479,6 @@ type Options struct {
 	// realBuildImageExtras. A seam for the same reason MaterializeStorePackages is one,
 	// and only ever called on a launch that already took the store-delivery fast path.
 	BuildImageExtras func(repoRoot string) (string, error)
-	// StopNixChildren ends the nix processes this launch has running, when a signal ends the
-	// launch before its keeper (launchguard.go). nil => nixchildren.Stop. A seam so the
-	// guard's call is assertable without a nix to interrupt.
-	StopNixChildren func()
 	// autoLoad is the image build/load itself. Unexported: it is not a CLI-facing seam,
 	// it exists so autoLoadImage's own DECISIONS are assertable without nix and podman —
 	// above all C4's, which is a single assignment (`extra = nil`) that silently reverts
@@ -958,6 +955,12 @@ func (o *Options) inJail() bool {
 // timeout <= 0 means "no deadline" (matches the subprocess.run calls that pass no timeout,
 // e.g. find_running_container / find_existing_container): the call waits for the child's exit
 // and the end of both streams, as long as that takes.
+//
+// A NIX IT RUNS IS TRACKED (internal/nixchildren), such as the housekeeping slot's `nix store
+// delete`, so the launch arm a signal ends the process through stops it
+// (launchSignalArm.terminate) rather than leaving it running with no parent. It is released once
+// its Wait returns; after a stop that release waits for the arm's exit, so a call with no
+// deadline never returns then, and one with a deadline returns at it as timed out.
 func realExec(argv []string, dir string, env []string, timeout time.Duration) ExecResult {
 	if len(argv) == 0 {
 		return ExecResult{}
@@ -970,13 +973,14 @@ func realExec(argv []string, dir string, env []string, timeout time.Duration) Ex
 		cmd.Env = append(os.Environ(), env...)
 	}
 	var stdout, stderr execOutput
-	drained, err := startWithPipes(cmd, &stdout, &stderr)
+	drained, release, err := startWithPipes(cmd, &stdout, &stderr)
 	if err != nil {
 		return ExecResult{Ran: false}
 	}
 	exited := make(chan struct{})
 	go func() {
 		_ = cmd.Wait()
+		release()
 		close(exited)
 	}()
 	var deadline <-chan time.Time
@@ -1052,25 +1056,28 @@ func (w *execOutput) take() string {
 // the only write ends, so a pipe ends exactly when the last of them closes it. drained closes
 // when both copies have reached the end of their pipe. Each copy closes its read end there and
 // nowhere sooner: the caller never cuts a pipe off under a process still writing to it.
-func startWithPipes(cmd *exec.Cmd, stdout, stderr io.Writer) (drained <-chan struct{}, err error) {
+//
+// A nix starts through the tracked set (nixchildren.StartIfNix), and release is the caller's
+// once cmd's Wait has returned.
+func startWithPipes(cmd *exec.Cmd, stdout, stderr io.Writer) (drained <-chan struct{}, release func(), err error) {
 	outR, outW, err := os.Pipe()
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	errR, errW, err := os.Pipe()
 	if err != nil {
 		_ = outR.Close()
 		_ = outW.Close()
-		return nil, err
+		return nil, nil, err
 	}
 	cmd.Stdout, cmd.Stderr = outW, errW
-	err = cmd.Start()
+	release, err = nixchildren.StartIfNix(cmd)
 	_ = outW.Close()
 	_ = errW.Close()
 	if err != nil {
 		_ = outR.Close()
 		_ = errR.Close()
-		return nil, err
+		return nil, nil, err
 	}
 	done := make(chan struct{})
 	var copies sync.WaitGroup
@@ -1083,7 +1090,7 @@ func startWithPipes(cmd *exec.Cmd, stdout, stderr io.Writer) (drained <-chan str
 	go drain(stdout, outR)
 	go drain(stderr, errR)
 	go func() { copies.Wait(); close(done) }()
-	return done, nil
+	return done, release, nil
 }
 
 // isTTY reports whether f is a real terminal via a TCGETS ioctl, NOT a

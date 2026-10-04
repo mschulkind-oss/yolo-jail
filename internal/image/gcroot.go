@@ -1,6 +1,7 @@
 package image
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"io"
@@ -8,6 +9,7 @@ import (
 	"os/exec"
 	"path/filepath"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/nixchildren"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 )
 
@@ -79,12 +81,17 @@ type Rooter func(link, storePath string, out io.Writer, failMsg string) error
 // this exact store path — which is what makes an age policy meaningful for the
 // image roots without any bookkeeping of its own (PruneOrphanImageRoots). Every
 // failure is a warning with nix-store's own output, as it always was.
+//
+// The nix-store is tracked while it runs (internal/nixchildren), so a launch a
+// signal ends stops it rather than leaving it running with no parent.
 func AddRoot(link, storePath string, out io.Writer, failMsg string) error {
 	cmd := exec.Command("nix-store", "--add-root", link, "--realise", storePath)
-	if outbuf, err := cmd.CombinedOutput(); err != nil {
+	var outbuf bytes.Buffer
+	cmd.Stdout, cmd.Stderr = &outbuf, &outbuf
+	if err := nixchildren.Run(cmd); err != nil {
 		fmt.Fprintln(out, "Warning: "+failMsg+": "+err.Error())
-		if len(outbuf) > 0 {
-			fmt.Fprintln(out, "  "+string(outbuf))
+		if outbuf.Len() > 0 {
+			fmt.Fprintln(out, "  "+outbuf.String())
 		}
 		return err
 	}

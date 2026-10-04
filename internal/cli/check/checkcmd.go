@@ -27,7 +27,6 @@ import (
 	"os"
 	"os/exec"
 	"os/user"
-	"path/filepath"
 	"runtime"
 	"strings"
 	"time"
@@ -343,7 +342,10 @@ func realExec(argv []string, dir string, env []string, timeout time.Duration) Ex
 	var stdout, stderr strings.Builder
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
-	release, err := startProbe(cmd, argv[0])
+	// A nix (`nix --version`, the dry-run, `nix config show`) starts through the tracked set
+	// (internal/nixchildren), so a signal sent to the check alone stops it; every other probe
+	// starts bare. Its release is this function's once Wait returned.
+	release, err := nixchildren.StartIfNix(cmd)
 	if err != nil {
 		return ExecResult{Ran: false}
 	}
@@ -364,16 +366,6 @@ func realExec(argv []string, dir string, env []string, timeout time.Duration) Ex
 		_ = err
 		return ExecResult{Stdout: stdout.String(), Stderr: stderr.String(), RC: rc, Ran: true}
 	}
-}
-
-// startProbe starts cmd, a probe named name. A nix (`nix --version`, the dry-run, `nix config
-// show`) is started through the tracked set (internal/nixchildren), so a signal sent to the check
-// alone stops it; every other probe starts bare. Its release is the caller's once Wait returned.
-func startProbe(cmd *exec.Cmd, name string) (release func(), err error) {
-	if filepath.Base(name) == "nix" {
-		return nixchildren.Start(cmd)
-	}
-	return func() {}, cmd.Start()
 }
 
 // NewDefaultOptions returns Options with the real platform predicate and build

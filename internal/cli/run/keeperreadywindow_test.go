@@ -60,6 +60,7 @@ func TestASIGINTBetweenReadyAndTheRetargetEndsTheJailWithoutWaitingOutTheBound(t
 		t.Fatal(err)
 	}
 	codes := make(chan int, 1)
+	isolateNixSet(t)
 	arm := armLaunchSignalsWith(o.keeperPreReadyTeardown(kp, cname, "podman"), func(code int) { codes <- code })
 	// The arm that fired never disarms (its exit would have ended the process).
 	t.Cleanup(func() { popLaunchArm(arm) })
@@ -152,6 +153,7 @@ func startReadyWindowLaunch(t *testing.T, cname string, counted bool, others fun
 		t.Fatal(err)
 	}
 	codes := make(chan int, 1)
+	isolateNixSet(t)
 	arm := armLaunchSignalsWith(o.keeperPreReadyTeardown(kp, cname, "podman"), func(code int) { codes <- code })
 	t.Cleanup(func() { popLaunchArm(arm) })
 	var out, errOut, jailOut, jailErr lockedBuffer

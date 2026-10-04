@@ -2,6 +2,7 @@ package run
 
 import (
 	"encoding/binary"
+	"fmt"
 	"io"
 	"net"
 	"os"
@@ -15,6 +16,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/journald"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/loopholes"
+	"github.com/mschulkind-oss/yolo-jail/internal/nixchildren"
 	"github.com/mschulkind-oss/yolo-jail/internal/svcendpoint"
 	"github.com/mschulkind-oss/yolo-jail/internal/testsupport"
 )
@@ -80,6 +82,17 @@ func TestMain(m *testing.M) {
 	// loopholes' own logs, which two of them appended to.
 	releaseHome := testsupport.IsolateHome()
 	code := m.Run()
+	// EVERY SIGNAL ARM STOPS THE PROCESS'S NIX (launchSignalArm.terminate), and that stop is
+	// permanent: a test that drove an arm to its exit on the process's own set refused every later
+	// test's tracked nix, so the order the tests ran in decided whether those passed. A test that
+	// fires an arm gives itself a set of its own (nixchildren.Isolate; seeArmExitsWith does).
+	if nixchildren.Stopped() {
+		fmt.Fprintln(os.Stderr, "FAIL: a test stopped this process's own set of tracked nix children: "+
+			"give each test that drives a signal arm to its exit nixchildren.Isolate(t)")
+		if code == 0 {
+			code = 1
+		}
+	}
 	releaseHome()
 	release()
 	os.Exit(code)

@@ -323,6 +323,7 @@ func TestASIGINTToTheLaunchRightAfterItsKeeperStartedLeavesNoContainerRunning(t 
 				t.Fatal(err)
 			}
 			codes := make(chan int, 1)
+			isolateNixSet(t)
 			arm := armLaunchSignalsWith(o.keeperPreReadyTeardown(kp, cname, "podman"), func(code int) { codes <- code })
 			// The arm that fired never disarms (its exit would have ended the process), so its
 			// handler goes here instead: a later signal to the test binary reaches no dead arm.

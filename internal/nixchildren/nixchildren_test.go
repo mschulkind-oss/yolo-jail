@@ -1,7 +1,9 @@
 package nixchildren
 
 import (
+	"bufio"
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"os/signal"
@@ -227,5 +229,144 @@ func TestADisarmDuringTheTeardownWaitsForItsExit(t *testing.T) {
 	case <-disarmed:
 	case <-time.After(10 * time.Second):
 		t.Fatal("the disarm never returned after the exit")
+	}
+}
+
+// ignoredSignalHelperEnv names, in the helper TestStopOnSignalHelper re-execs this test binary as,
+// the directory its stand-in nix marks an interrupt in. Unset, the helper does nothing.
+const ignoredSignalHelperEnv = "YOLO_NIXCHILDREN_IGNORED_SIGNAL_HELPER"
+
+// TestStopOnSignalHelper is the process TestAnIgnoredSignalStaysIgnoredUnderTheArm signals: it arms
+// StopOnSignal, runs a tracked stand-in nix that ends by itself after about a second and a half,
+// says "ready" once that nix is running and marks an interrupt, and says "finished normally" if the nix ran to its end.
+// Run as a test of its own, it does nothing.
+func TestStopOnSignalHelper(t *testing.T) {
+	marks := os.Getenv(ignoredSignalHelperEnv)
+	if marks == "" {
+		return
+	}
+	disarm := StopOnSignal()
+	started := filepath.Join(marks, "started")
+	cmd := exec.Command("sh", "-c", "trap 'touch "+filepath.Join(marks, "interrupted")+"; exit 130' INT; "+
+		"touch "+started+"; i=0; while [ $i -lt 30 ]; do sleep 0.05; i=$((i+1)); done")
+	release, err := Start(cmd)
+	if err != nil {
+		fmt.Println("start:", err)
+		os.Exit(2)
+	}
+	// Ready once the stand-in's trap is set, so an interrupt that reaches it is one it marks.
+	for deadline := time.Now().Add(10 * time.Second); ; time.Sleep(5 * time.Millisecond) {
+		if _, err := os.Stat(started); err == nil {
+			break
+		}
+		if time.Now().After(deadline) {
+			fmt.Println("the stand-in nix never started")
+			os.Exit(2)
+		}
+	}
+	fmt.Println("ready")
+	waitErr := cmd.Wait()
+	release()
+	disarm()
+	if waitErr != nil {
+		fmt.Println("the nix ended:", waitErr)
+		os.Exit(3)
+	}
+	fmt.Println("finished normally")
+	os.Exit(0)
+}
+
+// TestAnIgnoredSignalStaysIgnoredUnderTheArm: a SIGHUP or SIGINT this process started with ignored
+// is not armed, so it stays ignored. Notify on an ignored SIGHUP or SIGINT turns it back on, so
+// under the arm `nohup yolo check` ended 129 on a hangup and stopped its image build, and a `yolo
+// check &` from a script, which starts with SIGINT ignored, ended 130 on a Ctrl-C meant for the
+// script; before the arm both went on.
+func TestAnIgnoredSignalStaysIgnoredUnderTheArm(t *testing.T) {
+	for _, tc := range []struct {
+		trap string
+		sig  syscall.Signal
+	}{{"HUP", syscall.SIGHUP}, {"INT", syscall.SIGINT}} {
+		t.Run("SIG"+tc.trap, func(t *testing.T) {
+			marks := t.TempDir()
+			cmd := exec.Command("sh", "-c", "trap '' "+tc.trap+`; exec "$0" -test.run='^TestStopOnSignalHelper$'`,
+				os.Args[0])
+			cmd.Env = append(os.Environ(), ignoredSignalHelperEnv+"="+marks)
+			stdout, err := cmd.StdoutPipe()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := cmd.Start(); err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { _ = cmd.Process.Kill() })
+			lines := bufio.NewScanner(stdout)
+			ready := make(chan bool, 1)
+			go func() { ready <- lines.Scan() && lines.Text() == "ready" }()
+			select {
+			case ok := <-ready:
+				if !ok {
+					t.Fatal("the helper never said its nix was running")
+				}
+			case <-time.After(15 * time.Second):
+				t.Fatal("the helper never said its nix was running")
+			}
+			if err := cmd.Process.Signal(tc.sig); err != nil {
+				t.Fatal(err)
+			}
+			var rest strings.Builder
+			for lines.Scan() {
+				rest.WriteString(lines.Text() + "\n")
+			}
+			waitErr := cmd.Wait()
+			if code := cmd.ProcessState.ExitCode(); code != 0 {
+				t.Errorf("a SIG%s the process ignored ended it %d (%v), want it to go on; it said %q",
+					tc.trap, code, waitErr, rest.String())
+			}
+			if !strings.Contains(rest.String(), "finished normally") {
+				t.Errorf("the helper's nix did not run to its end; it said %q", rest.String())
+			}
+			if _, err := os.Stat(filepath.Join(marks, "interrupted")); err == nil {
+				t.Errorf("a SIG%s the process ignored stopped its nix", tc.trap)
+			}
+		})
+	}
+}
+
+// TestStartIfNixTracksANixAlone: an exec seam that runs nix among other programs tracks `nix` and
+// its `nix-*` tools, by name or by path, and starts anything else untracked.
+func TestStartIfNixTracksANixAlone(t *testing.T) {
+	bin := t.TempDir()
+	for _, name := range []string{"nix", "nix-store"} {
+		if err := os.WriteFile(filepath.Join(bin, name), []byte("#!/bin/sh\nexec sleep 30\n"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	for _, tc := range []struct {
+		argv0   string
+		tracked bool
+	}{
+		{"nix", true},
+		{"nix-store", true},
+		{filepath.Join(bin, "nix"), true},
+		{"sleep", false},
+	} {
+		t.Run(tc.argv0, func(t *testing.T) {
+			s := Isolate(t)
+			cmd := exec.Command(tc.argv0, "30")
+			release, err := StartIfNix(cmd)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := s.Running() == 1; got != tc.tracked {
+				t.Errorf("%s tracked: %v, want %v", tc.argv0, got, tc.tracked)
+			}
+			_ = cmd.Process.Kill()
+			_ = cmd.Wait()
+			release()
+			if s.Running() != 0 {
+				t.Errorf("%s still tracked after its release", tc.argv0)
+			}
+		})
 	}
 }

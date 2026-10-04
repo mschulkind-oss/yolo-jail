@@ -32,6 +32,7 @@ import (
 
 	"github.com/mschulkind-oss/yolo-jail/internal/capture"
 	"github.com/mschulkind-oss/yolo-jail/internal/execx"
+	"github.com/mschulkind-oss/yolo-jail/internal/nixchildren"
 	"github.com/mschulkind-oss/yolo-jail/internal/outfmt"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	// Registers the embedded pack FS, so packload.EmbeddedHash names THIS build's tree and
@@ -317,6 +318,12 @@ const (
 // Run executes `yolo prune`, writing the report to Out, and returns the exit
 // code (always 0 — prune never fails the process).
 func Run(opts Options) int {
+	// A SIGNAL SENT TO PRUNE ALONE STOPS ITS NIX (internal/nixchildren): the bounded store GC,
+	// which an applied prune lets run for up to half an hour, and each store delete. prune has no
+	// signal teardown of its own, so the default action ended it at once and left that nix
+	// running with no parent; a Ctrl-C at a terminal never showed it, because the terminal
+	// signals nix too. Now the signal stops that nix and prune ends 128+N.
+	defer nixchildren.StopOnSignal()()
 	fillDefaults(&opts)
 	// Honest color gate: ANSI only when requested AND stdout is a real terminal
 	// AND NO_COLOR does not veto it (tty.Color), so piped output stays plain
@@ -1270,6 +1277,11 @@ func (p *printer) line(s string) { p.Print(s) }
 // captured stdout. A missing binary / start failure / timeout yields Ran=false;
 // a completed run yields Ran=true with the exit status in RC (the engine treats
 // a non-zero RC as an empty degrade).
+//
+// A nix it runs — the store GC, a store delete — starts through the tracked set
+// (internal/nixchildren), so a signal sent to prune alone stops it (Run's arm)
+// rather than leaving it running with no parent; a stop refuses one not yet
+// started, which reads as Ran=false.
 func realProbeExec(argv []string, timeout time.Duration) ProbeResult {
 	if len(argv) == 0 {
 		return ProbeResult{}
@@ -1277,7 +1289,8 @@ func realProbeExec(argv []string, timeout time.Duration) ProbeResult {
 	cmd := exec.Command(argv[0], argv[1:]...)
 	var stdout strings.Builder
 	cmd.Stdout = &stdout
-	if err := cmd.Start(); err != nil {
+	release, err := nixchildren.StartIfNix(cmd)
+	if err != nil {
 		return ProbeResult{Ran: false}
 	}
 	done := make(chan error, 1)
@@ -1289,8 +1302,10 @@ func realProbeExec(argv []string, timeout time.Duration) ProbeResult {
 	case <-time.After(timeout):
 		_ = cmd.Process.Kill()
 		<-done
+		release()
 		return ProbeResult{Ran: false} // timeout => degrade
 	case <-done:
+		release()
 		rc := 0
 		if cmd.ProcessState != nil {
 			rc = cmd.ProcessState.ExitCode()

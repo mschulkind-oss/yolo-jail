@@ -127,6 +127,7 @@ func TestASignalThatLeavesATerminalSaysTheJailStaysUpForTheOthersOnce(t *testing
 				t.Fatal("the attach could not count itself in the jail")
 			}
 			codes := make(chan int, 1)
+			isolateNixSet(t)
 			arm := armLaunchSignalsWith(a.attachTeardown("podman", cname, staysUpSessionID), func(code int) { codes <- code })
 			t.Cleanup(func() { popLaunchArm(arm) })
 			moments := watchTerminal(a, arm, attachErr)
@@ -259,6 +260,7 @@ func TestTheArmNamesTheSignalItEndsTheProcessOn(t *testing.T) {
 	var seen syscall.Signal
 	var ending bool
 	codes := make(chan int, 1)
+	isolateNixSet(t)
 	arm := armLaunchSignalsWith(func() { seen, ending = signalEndingTheProcess() }, func(code int) { codes <- code })
 	t.Cleanup(func() { popLaunchArm(arm) })
 	if code := signalArm(t, syscall.SIGTERM, codes); code != 128+int(syscall.SIGTERM) {

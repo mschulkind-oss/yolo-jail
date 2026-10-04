@@ -47,8 +47,14 @@ const trapsInterrupt = `trap 'echo interrupted >&2; exit 130' INT; echo started 
 // standInNix puts a `nix` on PATH that runs script.
 func standInNix(t *testing.T, script string) {
 	t.Helper()
+	standIn(t, "nix", script)
+}
+
+// standIn puts a program named name on PATH that runs script.
+func standIn(t *testing.T, name, script string) {
+	t.Helper()
 	bin := t.TempDir()
-	if err := os.WriteFile(filepath.Join(bin, "nix"), []byte("#!/bin/sh\n"+script+"\n"), 0o755); err != nil {
+	if err := os.WriteFile(filepath.Join(bin, name), []byte("#!/bin/sh\n"+script+"\n"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
@@ -161,7 +167,12 @@ func TestBuildOCIImageIsTracked(t *testing.T) {
 // TestAStoppedCheckBuildRemovesItsLinksBeforeTheHandOff: the out-links BuildOCIImage removes are
 // GC roots under /tmp, and after a stop its release waits for the signal's teardown to end the
 // process. A link still there at that wait is never removed, so it goes first.
+//
+// The build makes its links in a temp dir of this test's own: the machine-wide one holds every
+// other run's, a link an earlier red run left and one a run of this package going on beside this
+// one is making, and globbing it there failed this test on correct code and deleted that link.
 func TestAStoppedCheckBuildRemovesItsLinksBeforeTheHandOff(t *testing.T) {
+	t.Setenv("TMPDIR", t.TempDir())
 	s := freshNixChildren(t)
 	// The stand-in makes its out-link the way nix does, then runs until interrupted.
 	standInNix(t, `while [ $# -gt 0 ]; do [ "$1" = --out-link ] && ln -s /nonexistent "$2"; shift; done; `+
@@ -230,5 +241,55 @@ func TestAStoppedBuildsCallerWaitsForTheExit(t *testing.T) {
 	case <-returned:
 	case <-time.After(10 * time.Second):
 		t.Fatal("runNixBuild did not return once the exit it waited for came")
+	}
+}
+
+// TestAddRootIsTracked: the GC-root registration a launch makes on the host, `nix-store
+// --add-root`, is a nix a stop reaches, so a launch a signal ends does not leave it running.
+func TestAddRootIsTracked(t *testing.T) {
+	s := freshNixChildren(t)
+	standIn(t, "nix-store", trapsInterrupt)
+	var out strings.Builder
+	done := make(chan error, 1)
+	go func() {
+		done <- AddRoot(filepath.Join(t.TempDir(), "root"), "/nix/store/aaaa-image.json", &out, "could not root it")
+	}()
+	awaitTracked(t, s, 1)
+	nixchildren.Stop(nil)
+	select {
+	case err := <-done:
+		if err == nil {
+			t.Error("an interrupted registration reported success")
+		}
+		if !strings.Contains(out.String(), "interrupted") {
+			t.Errorf("the registration's nix-store was not interrupted; it said %q", out.String())
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("AddRoot did not return after its nix-store was stopped")
+	}
+}
+
+// TestTheStorePathValidityProbeIsTracked: the store-validity probe a matched launch makes,
+// `nix-store --check-validity`, which waits up to 30 seconds on a busy daemon, is a nix a stop
+// reaches.
+func TestTheStorePathValidityProbeIsTracked(t *testing.T) {
+	s := freshNixChildren(t)
+	marks := t.TempDir()
+	standIn(t, "nix-store", "trap 'touch "+filepath.Join(marks, "interrupted")+"; exit 130' INT; "+
+		"i=0; while [ $i -lt 600 ]; do sleep 0.05; i=$((i+1)); done; exit 1")
+	done := make(chan bool, 1)
+	go func() { done <- nixStorePathValid("/nix/store/aaaa-image.json") }()
+	awaitTracked(t, s, 1)
+	nixchildren.Stop(nil)
+	select {
+	case valid := <-done:
+		if valid {
+			t.Error("an interrupted probe called the path valid")
+		}
+		if _, err := os.Stat(filepath.Join(marks, "interrupted")); err != nil {
+			t.Error("the probe's nix-store was not interrupted")
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("the validity probe did not return after its nix-store was stopped")
 	}
 }

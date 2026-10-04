@@ -8,10 +8,10 @@
 // still running after its test had passed). Stop gives each one the interrupt the terminal would
 // have, so it ends the way a Ctrl-C ends it.
 //
-// A nix is in the set when it was started through Start or Run, and only then. A signal teardown
-// calls Stop: a container launch's launch guard calls it itself (internal/cli/run's
-// launchguard.go), and StopOnSignal is the teardown of a command with no signal arm of its own
-// around the nix it runs.
+// A nix is in the set when it was started through Start, Run or StartIfNix, and only then. A
+// signal teardown calls Stop: each of a container launch's signal arms calls it first
+// (internal/cli/run's launchSignalArm.terminate), and StopOnSignal is the teardown of a command
+// with no signal arm of its own around the nix it runs.
 //
 // The package is its own so that every package running a nix can use the one set: internal/image
 // and internal/darwinpkg are independent leaves, and the no-image backend does not import the
@@ -23,6 +23,8 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
+	"path/filepath"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -145,6 +147,25 @@ func (s *Set) stop(grace time.Duration, awaitExit func()) {
 // once cmd's Wait has returned.
 func Start(cmd *exec.Cmd) (release func(), err error) { return current.start(cmd) }
 
+// StartIfNix is Start for a cmd that runs a nix — `nix` itself or one of its `nix-*` tools, by
+// the base name of cmd.Args[0] — and cmd.Start for any other program: for an exec seam that runs
+// nix among other programs, such as `yolo check`'s probes, `yolo prune`'s and a launch's. Its
+// release is the caller's once cmd's Wait has returned, and does nothing for a program that is no
+// nix.
+func StartIfNix(cmd *exec.Cmd) (release func(), err error) {
+	if len(cmd.Args) > 0 && isNix(cmd.Args[0]) {
+		return Start(cmd)
+	}
+	return func() {}, cmd.Start()
+}
+
+// isNix reports whether name, a program to run, is a nix: `nix` or a `nix-*` tool such as
+// nix-store, by its base name.
+func isNix(name string) bool {
+	base := filepath.Base(name)
+	return base == "nix" || strings.HasPrefix(base, "nix-")
+}
+
 // Run is cmd.Run for a nix this process runs, tracked while it runs.
 func Run(cmd *exec.Cmd) error {
 	release, err := Start(cmd)
@@ -170,8 +191,15 @@ var exit = os.Exit
 // launch's own arm ends with. Without it, the signal's default action ended yolo at once and its
 // nix ran on with no parent.
 //
-// A container launch does not use it: the launch guard's teardown calls Stop itself
-// (internal/cli/run's launchguard.go), and two arms acting on one signal would race to exit.
+// A SIGHUP or SIGINT this process started with ignored is not armed, and stays ignored: `nohup`
+// ignores SIGHUP, and a shell without job control starts a background job with SIGINT ignored.
+// Notify would turn either back on, so `nohup yolo check` ended 129 on a hangup and stopped its
+// image build, which before the arm went on. (Those two are the signals the Go runtime leaves
+// ignored when it inherits them so; signal.Ignored says which.)
+//
+// A container launch does not use it: each of its own signal arms calls Stop itself
+// (internal/cli/run's launchSignalArm.terminate), and two arms acting on one signal would race to
+// exit.
 //
 // disarm is idempotent. Called once a signal's teardown has begun, it waits for that teardown's
 // exit instead of returning, so the caller never races it to the end of the process with a status
@@ -179,8 +207,17 @@ var exit = os.Exit
 // whatever action it has without the arm.
 func StopOnSignal() (disarm func()) {
 	s, end := current, exit
+	var armed []os.Signal
+	for _, sig := range []os.Signal{syscall.SIGINT, syscall.SIGHUP, syscall.SIGTERM} {
+		if !signal.Ignored(sig) {
+			armed = append(armed, sig)
+		}
+	}
+	if len(armed) == 0 {
+		return func() {}
+	}
 	sigs := make(chan os.Signal, 1)
-	signal.Notify(sigs, syscall.SIGINT, syscall.SIGHUP, syscall.SIGTERM)
+	signal.Notify(sigs, armed...)
 	var (
 		mu       sync.Mutex
 		ending   bool
@@ -272,6 +309,17 @@ func Isolate(t interface{ Cleanup(func()) }) *Set {
 		current, exit = savedSet, savedExit
 	})
 	return s
+}
+
+// Stopped reports whether a stop has run on the set this process uses now — its own, once every
+// test's Isolate has been undone. It is for a test binary's TestMain: a test that drove a real stop
+// without Isolate left the process's own set stopped for good, every later test in the binary that
+// started a tracked nix was refused, and whether that test passed depended on the order the tests
+// ran in. For tests only; nothing in yolo calls it.
+func Stopped() bool {
+	current.mu.Lock()
+	defer current.mu.Unlock()
+	return current.stopping
 }
 
 // Exited is the statuses StopOnSignal's teardown ended the process with, for a set Isolate made.

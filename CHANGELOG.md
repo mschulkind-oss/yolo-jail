@@ -64,8 +64,8 @@ into a jail, and what each launch shows about the code it runs. See
   restarts just as it connects.
 - On a Mac, a launch and `yolo check` wait up to a minute for a busy Podman machine instead of
   calling it not started after 10 seconds.
-- A launch or `yolo check` stopped by a signal sent to yolo alone, such as `kill` or a
-  supervisor's, no longer leaves the nix it was running behind, a macOS sandbox's package build
+- A launch, `yolo check` or `yolo prune` stopped by a signal sent to yolo alone, such as `kill` or
+  a supervisor's, no longer leaves the nix it was running behind, a macOS sandbox's package build
   included.
 - A launch, or `yolo check`, no longer hangs for good, printing nothing, when nix prints one very
   long line while it builds the jail's image, yolo's own binaries, or a macOS sandbox's packages.

@@ -37,6 +37,7 @@ import (
 	"time"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/entrypoint"
+	"github.com/mschulkind-oss/yolo-jail/internal/nixchildren"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/runtime"
 )
@@ -373,16 +374,25 @@ func armLaunchSignalsOuter(onTerminate, outer func(), exit func(int)) *launchSig
 // finds a job the user ^Z'd while the main process's client lingered there, and a tty write on
 // the way out would raise SIGTTOU and stop it again, so both job-control signals are ignored
 // first. Then the terminal, when the first session's run holds it, before the teardown prints;
-// then onTerminate; then the exec client, at its pid, read again because a run that started
-// while the teardown ran attaches late (attach); then what each launch this one runs inside needs
-// done, since the exit ends them too (armstack.go); then the embedded pack tree, which the exit
-// would otherwise leak, for the reason the proxy's arm releases it (proxy_linux.go's
-// withEmbeddedRelease).
+// then the nix this process has running; then onTerminate; then the exec client, at its pid, read
+// again because a run that started while the teardown ran attaches late (attach); then what each
+// launch this one runs inside needs done, since the exit ends them too (armstack.go); then the
+// embedded pack tree, which the exit would otherwise leak, for the reason the proxy's arm releases
+// it (proxy_linux.go's withEmbeddedRelease).
+//
+// THE NIX GOES BEFORE onTerminate, WHICHEVER ARM THIS IS: a signal sent to this process alone
+// reaches no child, and a nix it has running is its own (internal/nixchildren). Under the launch
+// guard that is the image and prefix builds; under the keeper's and the session's arms it is the
+// housekeeping slot's, such as its `nix store delete`, which runs while the session does. Every
+// arm stops it here, so none of them can leave it running with no parent. The goroutine each
+// stopped nix belonged to then waits for this arm's exit rather than report the nix the signal cut
+// short as failed (nixchildren.Stop).
 func (a *launchSignalArm) terminate(h sessionHandle, onTerminate func()) {
 	signal.Ignore(syscall.SIGTTOU, syscall.SIGTTIN)
 	if h != nil {
 		h.Terminate()
 	}
+	nixchildren.Stop(a.awaitExit)
 	if onTerminate != nil {
 		onTerminate()
 	}

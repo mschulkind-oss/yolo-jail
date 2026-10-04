@@ -194,6 +194,7 @@ func (h *fakeSessionHandle) seen() string {
 // a SIGHUP, and returns the exit code the arm chose.
 func armAndHangUp(t *testing.T, onTerminate func(), setup func(*launchSignalArm)) (*launchSignalArm, int) {
 	t.Helper()
+	isolateNixSet(t)
 	codes := make(chan int, 1)
 	arm := armLaunchSignalsWith(onTerminate, func(code int) { codes <- code })
 	// An arm that fired never disarms (its exit would have ended the process), so it leaves the
