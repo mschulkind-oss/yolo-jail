@@ -20,6 +20,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -29,6 +30,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/packsrc"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/richtext"
+	"github.com/mschulkind-oss/yolo-jail/internal/shquote"
 	"github.com/mschulkind-oss/yolo-jail/internal/version"
 )
 
@@ -39,6 +41,12 @@ var patchedYoloVersion = func() string { return version.Baked() + "@" + version.
 
 // patchedNow is the clock the explicit acts check and record by; a var for tests.
 var patchedNow = time.Now
+
+// patchedNotBuilt is what follows a clean replay in this yolo's lines. STEP 1 of
+// patched-forks.md §14 checks and replays a patched fork and builds it nowhere, a launch included
+// (packload.PatchedForkPinReason). Step 2, which builds the advance, replaces it with §8.3's
+// "the next launch builds it", so that every line naming what builds a candidate is true.
+const patchedNotBuilt = "this yolo checks and replays a patched fork but does not build it yet"
 
 // patchedForkStore is the pack store the verbs check through: the user's own terminal, so not the
 // launch's detached store, and the store's default budget.
@@ -180,8 +188,8 @@ func walkReport(f packload.Fork, series *packsrc.Series, rec *packsrc.CheckRecor
 				what = "the newest fit, " + what + ","
 			}
 			lines = append(lines, fmt.Sprintf("[green]fork %s[/green]: %s takes the series (%d %s, series %s): "+
-				"applies — the next launch builds it", f.Key(), what, series.Len(),
-				plural(series.Len(), "patch", "patches"), series.ShortDigest()))
+				"applies — %s", f.Key(), what, series.Len(), plural(series.Len(), "patch", "patches"),
+				series.ShortDigest(), patchedNotBuilt))
 		case r.Err != nil:
 			lines = append(lines, fmt.Sprintf("[yellow]⚠ fork %s: could not replay the series onto %s: %v — "+
 				"`yolo pack update` retries[/yellow]", f.Key(), r.Entry.Label(), r.Err))
@@ -202,11 +210,25 @@ func conflictMessage(f packload.Fork, series *packsrc.Series, rec *packsrc.Check
 	if paths == "" {
 		paths = "(no path named)"
 	}
-	return []string{
+	return append([]string{
 		fmt.Sprintf("[yellow]fork %s: upstream %s does not take the patch series —[/yellow]", f.Key(), r.Entry.Label()),
 		fmt.Sprintf("  %s conflicts in %s", r.Conflict.Member, paths),
 		"  " + heldAt(rec, series, fit),
-		"  rebase the series: yolo pack rebase " + f.Key(),
+	}, rebaseSteps(f, series, r.Entry)...)
+}
+
+// rebaseSteps is the conflict message's next step (§8.2). `yolo pack rebase` (§8.4, PF-D26) is
+// step 3 of §14 and not in this yolo yet, so until it is the step is the rebase it would run, by
+// hand — §8.2's other spelling, OQ-PFK4's option B — and step 3 replaces it with the verb. Paths
+// are quoted for the shell they are pasted into.
+func rebaseSteps(f packload.Fork, series *packsrc.Series, onto packsrc.ListEntry) []string {
+	patches := filepath.Join(f.Root, f.Patches)
+	return []string{
+		"  rebase the series by hand: in a clone of " +
+			shquote.Quote(mustRepo(f.Source)) + ", `git am` it at its base " + series.Base + ", then `git rebase " +
+			"--onto " + onto.Commit + " " + series.Base + "`, resolving each conflict and `git rebase --continue`;",
+		"  then `git format-patch --base=" + onto.Commit + " -o " + shquote.Quote(patches+".new") + " " +
+			onto.Commit + "..HEAD`, and put it in place of " + shquote.Quote(patches),
 	}
 }
 
@@ -250,25 +272,47 @@ func subdirOf(source string) string {
 }
 
 // patchedForkStatusLines is `yolo pack status`'s lines for one patched fork, offline: its series,
-// the good build, the candidate and its outcome, what holds it, and when the next check is due —
-// read from the check record and the series, never git.
+// the good build, the candidate and its outcome, and what holds it — a tag or commit `?ref=`, or
+// `agent_updates` — read from the check record and the series, never git.
+//
+// NO NEXT-CHECK LINE YET: in step 1 of patched-forks.md §14 no launch checks a patched fork, so
+// when the throttle would let one is nothing a user can act on. Step 2 adds the launch's check and
+// puts the line back (§8.3), with patchedNotBuilt's wording.
 func patchedForkStatusLines(f packload.Fork) []string {
-	head := fmt.Sprintf("%-20s patched fork of %s's %s, from %s, following %s", f.Key(), f.Base, f.Bin,
-		f.Source, followLabel(f.Follow))
 	series, serr := f.ReadSeries()
+	rec, rerr := patchedForkStore().LoadCheckRecord(f.Key())
+	var in packsrc.CheckInputs
+	if serr == nil {
+		in, _, _, _ = f.CheckWant(series).Inputs()
+	}
+	refKind := patchedRefKind(f, rec, in)
+	head := fmt.Sprintf("%-20s patched fork of %s's %s, from %s, ", f.Key(), f.Base, f.Bin, f.Source)
+	switch refKind {
+	case "tag", "commit":
+		head += "held at that " + refKind
+	default:
+		head += "following " + followLabel(f.Follow)
+	}
 	if serr != nil {
 		return []string{head, "[yellow]  ⚠ " + serr.Error() + "[/yellow]"}
 	}
 	lines := []string{head, fmt.Sprintf("[dim]  series: %d %s in %s (series %s), base %s[/dim]", series.Len(),
 		plural(series.Len(), "patch", "patches"), series.Dir, series.ShortDigest(), shortSHA(series.Base))}
-	store := patchedForkStore()
-	rec, err := store.LoadCheckRecord(f.Key())
+	if refKind == "tag" || refKind == "commit" {
+		// A HOLD BY THE MANIFEST (§3.4): the ref names a tag or a full commit, so nothing is followed.
+		lines = append(lines, "[dim]  held: its ?ref= names a "+refKind+", so it follows nothing: the series "+
+			"is applied there, and it rebuilds only when the series or the recipe changes — a branch "+
+			"as the ?ref= follows one[/dim]")
+	}
+	if hold := patchedForkHold(f); hold != "" {
+		lines = append(lines, "[dim]  held: "+hold+", so no launch checks it[/dim]")
+	}
 	switch {
-	case errors.Is(err, packsrc.ErrNoCheckRecord):
-		return append(lines, "[dim]  not checked on this machine yet — the next launch checks it, or "+
-			"`yolo pack update` checks now[/dim]")
-	case err != nil:
-		return append(lines, "[yellow]  ⚠ "+err.Error()+" — the next check starts it over[/yellow]")
+	case errors.Is(rerr, packsrc.ErrNoCheckRecord):
+		return append(lines, "[dim]  not checked on this machine yet — `yolo pack update` checks it now[/dim]")
+	case rerr != nil:
+		return append(lines, "[yellow]  ⚠ "+rerr.Error()+" — `yolo pack update` checks it again and starts the "+
+			"record over[/yellow]")
 	}
 	if rec.Good == nil {
 		lines = append(lines, "[dim]  good build: none on this machine yet[/dim]")
@@ -276,18 +320,28 @@ func patchedForkStatusLines(f packload.Fork) []string {
 		lines = append(lines, fmt.Sprintf("[dim]  good build: %s + %d %s (series %s)[/dim]", goodLabel(rec.Good),
 			rec.Good.Patches, plural(rec.Good.Patches, "patch", "patches"), shortSHA(rec.Good.Series)))
 	}
-	in, _, _, _ := f.CheckWant(series).Inputs()
-	lines = append(lines, candidateLines(rec, series, in)...)
-	if hold := patchedForkHold(f); hold != "" {
-		lines = append(lines, "[dim]  held: "+hold+", so no launch checks it[/dim]")
+	return append(lines, candidateLines(rec, series, in)...)
+}
+
+// patchedRefKind is what the fork's ?ref= names, as far as is known offline: the last check's
+// answer when it was a check of in, else "commit" for a full commit id, which can name nothing
+// else, and "" (not known until a check) otherwise.
+func patchedRefKind(f packload.Fork, rec *packsrc.CheckRecord, in packsrc.CheckInputs) string {
+	if rec.Answers(in) && rec.Check.RefKind != "" {
+		return rec.Check.RefKind
 	}
-	now := patchedNow()
-	if due, why := packsrc.CheckDue(rec, in, now, 0); due {
-		lines = append(lines, "[dim]  next check: due now ("+why+")[/dim]")
-	} else {
-		lines = append(lines, "[dim]  next check: in "+patchedAge(rec.NextCheck(0).Sub(now))+"[/dim]")
+	if a, err := packsrc.Parse(f.Source); err == nil && isFullCommitID(a.Ref) {
+		return "commit"
 	}
-	return lines
+	return ""
+}
+
+// isFullCommitID reports whether ref is a full object id, 40 or 64 hex digits.
+func isFullCommitID(ref string) bool {
+	if len(ref) != 40 && len(ref) != 64 {
+		return false
+	}
+	return strings.Trim(strings.ToLower(ref), "0123456789abcdef") == ""
 }
 
 // patchedAge renders a duration as a status line reads one.
@@ -349,7 +403,7 @@ func candidateLines(rec *packsrc.CheckRecord, series *packsrc.Series, in packsrc
 		if o := rec.Conflict(e.Commit, series.Digest, yolo, gitVer); o != nil {
 			state = fmt.Sprintf("does not take %s (conflicts in %s)", o.Member, strings.Join(o.Paths, ", "))
 		} else if o := rec.Applies(e.Commit, series.Digest, yolo, gitVer); o != nil {
-			state = "applies — the next launch builds it"
+			state = "applies — " + patchedNotBuilt
 		}
 		lines = append(lines, fmt.Sprintf("[dim]  %s: %s, checked %s ago: %s[/dim]", label, e.Label(), ago, state))
 		if !strings.HasPrefix(state, "does not take") {

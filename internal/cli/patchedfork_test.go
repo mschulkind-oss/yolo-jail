@@ -15,9 +15,11 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/cli/run"
 	"github.com/mschulkind-oss/yolo-jail/internal/hostfloor"
 	"github.com/mschulkind-oss/yolo-jail/internal/packdecl"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
@@ -30,7 +32,7 @@ import (
 // patchedFixture is an upstream repository, a fork pack whose series was exported from a branch
 // of it, and a HOME whose user config selects the fork and its base.
 type patchedFixture struct {
-	repo, forkDir, manifest, base string
+	repo, forkDir, manifest, base, packs, home string
 }
 
 // upstreamGit runs git in dir with a hermetic environment and a fixed identity.
@@ -103,11 +105,19 @@ func newPatchedFixture(t *testing.T, follow string) *patchedFixture {
 		`{"name":"basepack","contributes":[{"kind":"program","bin":"tool","via":"npm","package":"tool"}]}`)
 	f.manifest = filepath.Join(f.forkDir, "pack.json")
 	f.writeManifest(t, "main", follow)
-	writeFile(t, filepath.Join(home, ".config", "yolo-jail", "config.jsonc"), `{"packs":[`+
-		`{"source":"file://`+filepath.Join(packs, "basepack")+`","name":"basepack"},`+
-		`{"source":"file://`+f.forkDir+`","name":"forkpack"}]}`)
+	f.packs, f.home = packs, home
+	f.writeUserConfig(t, "")
 	forkPinHomeSeams(t)
 	return f
+}
+
+// writeUserConfig writes the HOME's user config selecting the base pack and the fork, with extra
+// (a leading-comma JSON member list, "" for none) after "packs".
+func (f *patchedFixture) writeUserConfig(t *testing.T, extra string) {
+	t.Helper()
+	writeFile(t, filepath.Join(f.home, ".config", "yolo-jail", "config.jsonc"), `{"packs":[`+
+		`{"source":"file://`+filepath.Join(f.packs, "basepack")+`","name":"basepack"},`+
+		`{"source":"file://`+f.forkDir+`","name":"forkpack"}]`+extra+`}`)
 }
 
 func (f *patchedFixture) writeManifest(t *testing.T, ref, follow string) {
@@ -156,7 +166,7 @@ func TestPackUpdateReportsThatThePatchedSeriesApplies(t *testing.T) {
 		t.Fatalf("update rc=%d\n%s\n%s", rc, out, errw)
 	}
 	if !strings.Contains(out, "fork forkpack/tool") || !strings.Contains(out, "upstream v1.1.0 ("+shortSHA(v11)+
-		") takes the series (2 patches") || !strings.Contains(out, "applies — the next launch builds it") {
+		") takes the series (2 patches") || !strings.Contains(out, "applies — "+patchedNotBuilt) {
 		t.Errorf("update does not say the series applies at v1.1.0:\n%s", out)
 	}
 	if got := pinnedCommit(t); got != "" {
@@ -178,7 +188,7 @@ func TestPackUpdateReportsThatThePatchedSeriesApplies(t *testing.T) {
 	}
 	for _, w := range []string{"patched fork of basepack's tool", "2 patches in patches (series ",
 		"good build: none on this machine yet", "candidate: v1.1.0 (" + shortSHA(v11) + ")",
-		"applies — the next launch builds it", "next check: in "} {
+		"applies — " + patchedNotBuilt} {
 		if !strings.Contains(out, w) {
 			t.Errorf("status lacks %q:\n%s", w, out)
 		}
@@ -202,7 +212,8 @@ func TestPackUpdateReportsAConflictAndTheNewestFit(t *testing.T) {
 		"fork forkpack/tool: upstream v1.2.0 (" + shortSHA(v12) + ") does not take the patch series —",
 		"0001-ten.patch conflicts in f.txt",
 		"nothing runs yet: the first build is the newest fit, v1.1.0 (" + shortSHA(v11) + ")",
-		"rebase the series: yolo pack rebase forkpack/tool",
+		"rebase the series by hand", "`git rebase --onto " + v12 + " " + f.base + "`",
+		"`git format-patch --base=" + v12 + " -o ",
 		"the newest fit, upstream v1.1.0 (" + shortSHA(v11) + "), takes the series",
 	} {
 		if !strings.Contains(out, w) {
@@ -408,5 +419,97 @@ func TestPackUpdateNamesTheBaseFallbackAsTheBase(t *testing.T) {
 	}
 	if strings.Contains(out, "upstream "+shortSHA(f.base)) {
 		t.Errorf("update labels the series' base as an upstream version:\n%s", out)
+	}
+}
+
+// EVERY VERB A PATCHED FORK'S LINES NAME EXISTS: update's and status's lines, a conflict's included,
+// name only `yolo pack` verbs this yolo dispatches — an interim build names no verb a later step
+// adds (`yolo pack rebase` is step 3), since following that step would only fail.
+func TestPatchedForkLinesNameOnlyVerbsThatExist(t *testing.T) {
+	f := newPatchedFixture(t, "")
+	f.commit(t, "v1.1.0", map[int]string{14: "fourteen"})
+	f.commit(t, "v1.2.0", map[int]string{14: "fourteen", 11: "eleven"})
+	_, out, errw := packVerb(t, "update")
+	_, sout, serr := packVerb(t, "status")
+	all := out + errw + sout + serr
+	if !strings.Contains(out, "does not take the patch series") || !strings.Contains(sout, "does not take") {
+		t.Fatalf("the fixture's v1.2.0 did not conflict, so no conflict line was read:\n%s", all)
+	}
+	for _, m := range regexp.MustCompile("yolo pack ([a-z-]+)").FindAllStringSubmatch(all, -1) {
+		switch m[1] {
+		case "install", "update", "status":
+			continue
+		}
+		var o, e bytes.Buffer
+		packMain([]string{m[1]}, &o, &e, false)
+		if strings.Contains(e.String(), "unknown verb") {
+			t.Errorf("a patched fork's line names `yolo pack %s`, which this yolo does not have:\n%s", m[1], all)
+		}
+	}
+}
+
+// A TAG OR A COMMIT ?ref= IS A HOLD (§3.3, §3.4): status says the fork is held there and follows
+// nothing, never "following release".
+func TestPackStatusSaysARefHolds(t *testing.T) {
+	for _, tc := range []struct{ name, kind string }{{"tag", "tag"}, {"commit", "commit"}} {
+		t.Run(tc.name, func(t *testing.T) {
+			f := newPatchedFixture(t, "")
+			ref := "v1.0.0"
+			if tc.kind == "commit" {
+				ref = f.base
+			}
+			f.writeManifest(t, ref, "")
+			if rc, out, errw := packVerb(t, "update"); rc != 0 {
+				t.Fatalf("update rc=%d\n%s\n%s", rc, out, errw)
+			}
+			_, out, _ := packVerb(t, "status")
+			for _, w := range []string{"held at that " + tc.kind, "its ?ref= names a " + tc.kind + ", so it follows nothing"} {
+				if !strings.Contains(out, w) {
+					t.Errorf("status lacks %q:\n%s", w, out)
+				}
+			}
+			if strings.Contains(out, "following release") {
+				t.Errorf("status says a %s hold follows release:\n%s", tc.kind, out)
+			}
+		})
+	}
+}
+
+// AGENT_UPDATES HOLDS A PATCHED FORK, through its own pack or its base (PF-D19): update still checks
+// it, as a human asked, and says the hold; status names it.
+func TestAgentUpdatesHoldIsSaidAtUpdateAndStatus(t *testing.T) {
+	for _, pack := range []string{"forkpack", "basepack"} {
+		t.Run(pack, func(t *testing.T) {
+			f := newPatchedFixture(t, "")
+			f.writeUserConfig(t, `,"agent_updates":{"`+pack+`":false}`)
+			rc, out, errw := packVerb(t, "update")
+			if rc != 0 {
+				t.Fatalf("update rc=%d\n%s\n%s", rc, out, errw)
+			}
+			if want := "`agent_updates` holds pack " + pack + ": no launch checks it"; !strings.Contains(out, want) {
+				t.Errorf("update lacks %q:\n%s", want, out)
+			}
+			_, out, _ = packVerb(t, "status")
+			if want := "held: `agent_updates` holds pack " + pack + ", so no launch checks it"; !strings.Contains(out, want) {
+				t.Errorf("status lacks %q:\n%s", want, out)
+			}
+		})
+	}
+}
+
+// `yolo capture <bin>` OF A PATCHED FORK names the act that reads its upstream, and never itself:
+// capturing it again would stop on the same missing pin.
+func TestCaptureOfAPatchedForkNamesAStepThatWorks(t *testing.T) {
+	newPatchedFixture(t, "")
+	withFakeCaptureJail(t, func(run.Options) int { t.Error("no jail may launch"); return 1 })
+	rc, stderr := runCaptureFor(t, "tool")
+	if rc == 0 {
+		t.Fatalf("capture of a patched fork exited 0:\n%s", stderr)
+	}
+	if strings.Contains(stderr, "then: yolo capture") {
+		t.Errorf("capture names itself as the next step:\n%s", stderr)
+	}
+	if got := stepAfter(t, stderr, "yolo capture: fork forkpack"); !strings.Contains(got, "`yolo pack update` checks its upstream") {
+		t.Errorf("the step after the pin is %q, want `yolo pack update`\n%s", got, stderr)
 	}
 }

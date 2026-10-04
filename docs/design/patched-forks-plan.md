@@ -177,7 +177,12 @@ test; `forkDeliveriesFor` routing a patched fork to the advance before its `Comm
 the build id, the receipt fields, the exact lookup and the selection key; the copy into `src/`; the
 swap, the reap and the delivery record; the waiter's record re-read; build failures and their
 back-off; the record's recovery from the store; the launch's lines; and `yolo capture`'s patched
-arm. The interim `PatchedForkPinReason` goes when the advance lands.
+arm. The interim `PatchedForkPinReason` goes when the advance lands, and with it the interim lines
+of [PF-D35](patched-forks.md#PF-D35): `cli.patchedNotBuilt` becomes "the next launch builds it",
+`yolo pack status` gets its next-check line back, and `captureFork`'s patched arm builds. Step 2
+also writes `GoodBuild.Read` at the move, which the list's cut reads
+([PF-D34](patched-forks.md#PF-D34)). Step 3's `yolo pack rebase` replaces `cli.rebaseSteps`, the
+conflict message's by-hand rebase.
 
 ## Measurements to make
 

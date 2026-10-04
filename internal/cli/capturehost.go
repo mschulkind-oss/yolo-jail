@@ -283,6 +283,14 @@ func captureFork(f packload.Fork, out, errw io.Writer, color bool) int {
 		// The pin's reason names what makes one (packload.ForkPin.Reason); this is the rest of the
 		// way back to the build the user asked for.
 		fmt.Fprintf(errw, "yolo capture: %s\n", pin.Line())
+		if f.Patched() {
+			// A PATCHED FORK HAS NO PIN by design (PF-D16), so capturing it again would stop here
+			// again. Until its build lands (patched-forks.md §14 step 2, which replaces this arm),
+			// the act that reads its upstream is the step.
+			fmt.Fprintf(errw, "  `yolo pack update` checks its upstream and replays its series now; %s\n",
+				patchedNotBuilt)
+			return 1
+		}
 		fmt.Fprintf(errw, "  then: yolo capture %s\n", f.Bin)
 		return 1
 	}
