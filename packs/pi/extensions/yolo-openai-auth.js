@@ -133,14 +133,20 @@ function readCodexModelList() {
 	};
 }
 
-// codexDelegate is the stream pi runs an openai-codex model on when no extension wraps it,
-// rebuilt from what pi exports: its built-in openai-codex provider when that serves this
-// registration's api, else pi's api registry for the api (pi 0.99.1 composeModelProvider's
-// streamWith, which does exactly this for a registration without a streamSimple). It never
-// touches the credential: pi resolves the subscription login into `options` before it calls the
-// wrapper below (MEASURED 2026-09-30 on pi 0.99.1, docs/design/model-lists-and-pickers.md
-// MM-D23). undefined when neither can be found.
-async function codexDelegate() {
+// The subscription's address, and the names pi shows for the provider and its login. pi composes
+// a registration's display name as its own `name`, else models.json's, else its built-in
+// provider's (provider-composer.js, composeModelProvider), and pi 0.99.0 renamed that built-in
+// "OpenAI Codex (legacy)". So a registration naming nothing showed yolo's subscription login under
+// a label for a provider pi no longer recommends (docs/design/model-lists-and-pickers.md §14.2).
+const CODEX_BASE_URL = "https://chatgpt.com/backend-api";
+const CODEX_NAME = "OpenAI Codex";
+const CODEX_LOGIN_NAME = "OpenAI Codex (yolo shared login)";
+
+// builtinCodexProvider returns pi's own openai-codex provider (a complete pi-ai Provider:
+// address, catalog, streams and its own oauth) when pi exports one that serves this
+// registration's api, else undefined. The specifier resolves through the alias pi's extension
+// loader installs for its own packages.
+async function builtinCodexProvider() {
 	try {
 		const all = await import("@earendil-works/pi-ai/providers/all");
 		const base =
@@ -152,11 +158,24 @@ async function codexDelegate() {
 			typeof base.streamSimple === "function" &&
 			(base.getModels?.() ?? []).some((model) => model?.api === CODEX_API)
 		) {
-			return (model, context, options) => base.streamSimple(model, context, options);
+			return base;
 		}
 	} catch {
-		// no built-in provider to hand the model to: try pi's api registry
+		// no built-in provider: the caller degrades
 	}
+	return undefined;
+}
+
+// codexDelegate is the stream pi runs an openai-codex model on when no extension wraps it,
+// rebuilt from what pi exports: its built-in openai-codex provider when that serves this
+// registration's api, else pi's api registry for the api (pi 0.99.1 composeModelProvider's
+// streamWith, which does exactly this for a registration without a streamSimple). It never
+// touches the credential: pi resolves the subscription login into `options` before it calls the
+// wrapper below (MEASURED 2026-09-30 on pi 0.99.1, docs/design/model-lists-and-pickers.md
+// MM-D23). undefined when neither can be found.
+async function codexDelegate() {
+	const base = await builtinCodexProvider();
+	if (base) return (model, context, options) => base.streamSimple(model, context, options);
 	try {
 		const compat = await import("@earendil-works/pi-ai/compat");
 		const registered = typeof compat.getApiProvider === "function" ? compat.getApiProvider(CODEX_API) : undefined;
@@ -280,8 +299,104 @@ async function degradedWarning(list, catalog) {
 	return `yolo: pi's openai-codex catalog has no ${missing.join(", ")}, so ${missing.length === 1 ? "that model is" : "those models are"} ${what}. ${cause}`;
 }
 
+// The source pi records for the host route's answer, and the name of the key method that gives
+// it. pi lists that method in /login with no setup of its own, as "configured outside pi".
+const HOST_LOGIN_SOURCE = "yolo shared login";
+const HOST_LOGIN_METHOD = "yolo shared login (through `yolo host`)";
+
+// The window pi refreshes a stored OAuth login in (pi-ai auth/resolve.js,
+// DEFAULT_OAUTH_MINIMUM_VALIDITY_MS): the host route reuses the broker's view until then, as pi
+// reuses a stored one, rather than asking the client on every request.
+const TOKEN_REUSE_MS = 5 * 60 * 1000;
+
+// THE HOST ROUTE (docs/design/pi-host-openai-auth.md OQ-1, D2). pi lists a provider's models only
+// when it counts the provider configured, and for openai-codex it counted that only for a login
+// stored in ~/.pi/agent/auth.json. A jail stores one before pi starts; `yolo host -- pi` writes
+// nothing into that file, which is the user's own (docs/plans/notch-convergence.md NC-D37), and
+// hands pi the host broker's socket instead. So host pi started on a fallback model with no
+// ChatGPT subscription model in /model.
+//
+// This is pi's own openai-codex provider with yolo's login on it, registered as a NATIVE provider
+// (pi's one-argument registerProvider). Its key method answers "oauth" while the socket is set,
+// which pi counts as configured with nothing stored, and resolves to the broker's access token, so
+// the footer's subscription mark stays. A login stored in auth.json still wins over the key method,
+// as pi resolves a stored credential first (pi-ai auth/resolve.js), so /login, a jail's view and a
+// login of the user's own act as before. The method has no `login`: there is no key to enter.
+//
+// A native registration replaces the extension layer a ProviderConfig would compose, so the model
+// list, the name and the refusal ride on the provider itself. models are the list's definitions,
+// completed with the address fields pi's composer would add; guard throws the refusal for a model
+// outside the list, before pi's own stream runs it.
+function nativeCodexProvider(base, models, guard) {
+	let held;
+	const accessToken = async (signal) => {
+		if (!held || held.expires - Date.now() <= TOKEN_REUSE_MS) held = await brokerToken(signal);
+		return held.access;
+	};
+	return {
+		...base,
+		name: CODEX_NAME,
+		baseUrl: CODEX_BASE_URL,
+		auth: {
+			oauth: {
+				name: CODEX_LOGIN_NAME,
+				isSubscription: true,
+				login: async (interaction) => ({ ...(await brokerLogin(interaction?.signal)), type: "oauth" }),
+				refresh: async (_credential, signal) => ({ ...(await brokerToken(signal)), type: "oauth" }),
+				toAuth: async (credential) => ({ apiKey: credential.access }),
+			},
+			apiKey: {
+				name: HOST_LOGIN_METHOD,
+				check: async () => (process.env[HOST_SOCKET_ENV] ? { type: "oauth", source: HOST_LOGIN_SOURCE } : undefined),
+				resolve: async (input) =>
+					process.env[HOST_SOCKET_ENV]
+						? { auth: { apiKey: await accessToken(input?.signal) }, source: HOST_LOGIN_SOURCE }
+						: undefined,
+			},
+		},
+		...(models
+			? {
+					getModels: () => [...models],
+					getAllModels: () => [...models],
+					// The list is the exact menu, so no catalog refresh replaces it.
+					refreshModels: undefined,
+				}
+			: {}),
+		...(guard
+			? {
+					...(typeof base.stream === "function"
+						? {
+								stream: (model, context, options) => {
+									guard(model);
+									return base.stream(model, context, options);
+								},
+							}
+						: {}),
+					streamSimple: (model, context, options) => {
+						guard(model);
+						return base.streamSimple(model, context, options);
+					},
+				}
+			: {}),
+	};
+}
+
+// nativeModel completes one list definition as the Model a native provider returns: the fields
+// pi's composer adds to an extension's definition (provider-composer.js,
+// extensionModelFromDefinition).
+function nativeModel(definition) {
+	return { ...definition, api: CODEX_API, provider: "openai-codex", baseUrl: CODEX_BASE_URL, headers: undefined };
+}
+
 // pi awaits an extension's factory (core/extensions/loader.js), so the catalog import
 // finishes before the registration is read.
+//
+// TWO REGISTRATIONS, ONE PER ROUTE. Where `yolo host` set the broker's socket and pi exports its
+// built-in openai-codex provider, the host route above (nativeCodexProvider). Everywhere else — a
+// jail, which stores the login before pi starts, a pi started directly, and a pi too old to
+// export the built-in — the ProviderConfig below, which composes over pi's built-in provider and
+// counts as configured only for a stored login. Keeping the jail on the ProviderConfig keeps its
+// registration exactly what it was, with pi's remote catalog refresh and no key method in /login.
 //
 // THE REFUSAL (docs/design/model-lists-and-pickers.md MM-D6, MM-D23). With a list and its
 // `enforce` on, the registration also carries a `streamSimple` that throws yolo's refusal for a
@@ -293,41 +408,55 @@ async function degradedWarning(list, catalog) {
 // auth/resolve.js). So the login needs no handling here, and the refusal covers pi's `--model`
 // fallback, which copies a listed model and so runs on the same api. Without a list there is
 // nothing to refuse against, and pi's own catalog stays in place. A delegate that cannot be found
-// leaves the exact menu alone, and pi says once that it cannot refuse.
+// leaves the exact menu alone, and pi says once that it cannot refuse. On the host route the
+// refusal guards the provider's own two streams, which pi calls after the same resolution, and
+// pi's built-in provider is the delegate.
 export default async function registerYoloOpenAIAuth(pi) {
 	const { list, enforce } = readCodexModelList();
 	const catalog = list.length > 0 ? await codexCatalog() : { lookup: () => undefined };
 	const lookup = catalog.lookup;
 	const refusing = list.length > 0 && enforce;
-	const delegate = refusing ? await codexDelegate() : undefined;
 	const listed = list.map((entry) => entry.id);
 	const allowed = new Set(listed);
-	pi.registerProvider("openai-codex", {
-		// The provider's display name. pi composes it as this registration's `name`, else
-		// models.json's, else its built-in provider's (provider-composer.js,
-		// composeModelProvider), and pi 0.99.0 renamed that built-in "OpenAI Codex (legacy)". So
-		// a registration naming nothing showed yolo's subscription login under a label for a
-		// provider pi no longer recommends (docs/design/model-lists-and-pickers.md §14.2).
-		name: "OpenAI Codex",
-		baseUrl: "https://chatgpt.com/backend-api",
-		api: CODEX_API,
-		oauth: {
-			name: "OpenAI Codex (yolo shared login)",
-			isSubscription: true,
-			login: (_callbacks) => brokerLogin(),
-			refreshToken: (_credentials, signal) => brokerToken(signal),
-			getApiKey: (credentials) => credentials.access,
-		},
-		...(list.length > 0 ? { models: list.map((entry) => codexModelDefinition(entry, lookup)) } : {}),
-		...(delegate
-			? {
-					streamSimple: (model, context, options) => {
-						if (!allowed.has(model?.id)) throw new Error(refusal("openai-codex", model?.id, listed));
-						return delegate(model, context, options);
-					},
-				}
-			: {}),
-	});
+	const definitions = list.length > 0 ? list.map((entry) => codexModelDefinition(entry, lookup)) : undefined;
+	const refuse = (model) => {
+		if (!allowed.has(model?.id)) throw new Error(refusal("openai-codex", model?.id, listed));
+	};
+
+	const base = process.env[HOST_SOCKET_ENV] ? await builtinCodexProvider() : undefined;
+	let native = false;
+	if (base) {
+		try {
+			pi.registerProvider(nativeCodexProvider(base, definitions?.map(nativeModel), refusing ? refuse : undefined));
+			native = true;
+		} catch {
+			// a pi whose registerProvider takes no provider object: the ProviderConfig below
+		}
+	}
+	const delegate = !native && refusing ? await codexDelegate() : undefined;
+	if (!native) {
+		pi.registerProvider("openai-codex", {
+			name: CODEX_NAME,
+			baseUrl: CODEX_BASE_URL,
+			api: CODEX_API,
+			oauth: {
+				name: CODEX_LOGIN_NAME,
+				isSubscription: true,
+				login: (_callbacks) => brokerLogin(),
+				refreshToken: (_credentials, signal) => brokerToken(signal),
+				getApiKey: (credentials) => credentials.access,
+			},
+			...(definitions ? { models: definitions } : {}),
+			...(delegate
+				? {
+						streamSimple: (model, context, options) => {
+							refuse(model);
+							return delegate(model, context, options);
+						},
+					}
+				: {}),
+		});
+	}
 
 	// ONCE PER LOAD, where the user can see it: pi's own notification when there is a UI, else
 	// stderr, which is what pi's extension runner does with its own diagnostics. session_start
@@ -335,7 +464,7 @@ export default async function registerYoloOpenAIAuth(pi) {
 	const warnings = [];
 	const degraded = list.length > 0 ? await degradedWarning(list, catalog) : undefined;
 	if (degraded) warnings.push(degraded);
-	if (refusing && !delegate) {
+	if (refusing && !native && !delegate) {
 		warnings.push(
 			"yolo: pi shows exactly yolo's model list for openai-codex, but cannot refuse a model outside it " +
 				"there (pi's own stream for it was not found), so `pi --model` can still run an unlisted one.",
