@@ -178,8 +178,9 @@ yolo pack install or yolo pack update re-fetches a tag its author re-pointed.
                               --from-plugin <dir>  wrap an EXISTING agent plugin (a tree with
                               a .claude-plugin/plugin.json) as a pack: its tree is delivered
                               verbatim, so its skills invoke as /<plugin>:<skill> and cannot
-                              collide with yours. Components that RUN (hooks, MCP/LSP servers)
-                              are named at init and shown in the pack's footprint.
+                              collide with yours. Components that RUN (hooks, MCP/LSP servers,
+                              bin/, workflow scripts, …) are named at init and shown in the
+                              pack's footprint.
   yolo pack lint [dir]        validate the tree AND the pack.json manifest; print its footprint
   yolo pack ls                list configured packs and what each stages
   yolo pack explain <name>    show which files a pack stages, and what it dropped

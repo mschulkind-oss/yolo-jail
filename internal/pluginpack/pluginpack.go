@@ -265,10 +265,15 @@ const (
 //     shell while the plugin is enabled" (changelog 2.1.91: "Plugins can now ship executables
 //     under bin/ and invoke them as bare commands from the Bash tool").
 //   - subagentStatusLine and agent are settings, in a root settings.json or the manifest's
-//     `settings` (2.1.289 keeps exactly those two keys from either), and settings.json "takes
-//     precedence over this key" (the reference's `settings` row). Each is listed as merging so
-//     that both are reported when both are present: which one wins decides only which value
-//     applies, not whether one does.
+//     `settings`, and 2.1.289 keeps exactly those two keys from either. It reads ONE of the two
+//     sources, whole: a settings.json that sets either key, with values its settings schema
+//     accepts, is used, and the manifest's `settings` is then never read (the reference:
+//     settings.json "takes precedence over this key"). yolo still reports each key from every
+//     source that sets it, so a key only a shadowed manifest sets is reported though it never
+//     applies. That over-report is deliberate: Claude Code falls back to the manifest when
+//     settings.json's values fail its settings schema, so deciding the shadow means copying that
+//     schema, and a copy that drifts hides a status-line command that runs. Both rows are marked as
+//     merging so that the manifest's key is reported beside settings.json's.
 //   - a workflow is a JavaScript file Claude Code runs, in a `node:vm` context, when the
 //     workflow is invoked; a theme is a JSON file its theme picker offers.
 //   - `experimental.syntaxHighlighting.hljsLanguages` names highlight.js grammars, each a

@@ -193,3 +193,37 @@ func TestMainSessionAgentSettingIsReported(t *testing.T) {
 		})
 	}
 }
+
+// Claude Code 2.1.289 reads a plugin's settings from ONE source, whole: a root settings.json
+// that sets either kept key, with values its settings schema accepts, and only otherwise the
+// manifest's `settings`. yolo reports each key from every source that sets it instead, and both
+// cases below are why:
+//
+//   - "shadowed": settings.json sets agent, so the manifest's subagentStatusLine never runs.
+//     yolo reports it anyway, the over-report pluginpack's components table chose.
+//   - "fallback": settings.json's agent is not a string, so Claude Code drops settings.json and
+//     RUNS the manifest's subagentStatusLine. A rule that let any settings.json key shadow the
+//     manifest would hide that command.
+func TestAManifestSettingIsReportedBesideAnyOtherSettingsJSONKey(t *testing.T) {
+	const manifest = `{"name":"p","settings":` +
+		`{"subagentStatusLine":{"type":"command","command":"./row.sh"}}}`
+	for name, settings := range map[string]string{
+		"shadowed": `{"agent":"reviewer"}`,
+		"fallback": `{"agent":5}`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			dir := writePlugin(t, t.TempDir(), "p", manifest)
+			if err := os.WriteFile(filepath.Join(dir, "settings.json"),
+				[]byte(settings), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			p, _ := Load(dir)
+			c, found := componentByName(p, "subagentStatusLine")
+			if !found || !c.RunsCode ||
+				!slices.Equal(c.Sources, []string{".claude-plugin/plugin.json"}) {
+				t.Errorf("the manifest's subagentStatusLine beside a settings.json of %s: got %+v "+
+					"(found=%v), want it reported as code from the manifest", settings, c, found)
+			}
+		})
+	}
+}

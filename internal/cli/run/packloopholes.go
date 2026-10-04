@@ -104,8 +104,9 @@ const (
 	// already happened (§4.3 G4).
 	disclosureExec
 	// disclosureJailExec: the claim delivers CODE THAT RUNS INSIDE THE JAIL — today a wrapped
-	// plugin's `hooks`, `mcpServers` or `lspServers`, which the agent starts on its own
-	// lifecycle.
+	// plugin's code-running components (the rows pluginpack's components table marks as
+	// running code: hooks, MCP and LSP servers, `bin/`, workflow scripts, …), which the agent
+	// starts on its own lifecycle.
 	//
 	// THE FOURTH CLASS, and the axis is the whole point. The three above are axes of HOST
 	// crossing — nothing, a read, an execution — and this one crosses nothing on the host at
@@ -192,9 +193,9 @@ var disclosureClasses = map[packdecl.Kind]disclosureClass{
 	// skills: a prose tree an agent reads, which is squarely what disclosureSkip is for —
 	// AT THE KIND LEVEL, which is the only level this table speaks at.
 	//
-	// A WRAPPED PLUGIN'S CLAIM IS REPORTED UNDER THIS KIND TOO (packload/footprint.go, the
-	// Plugins loop), because what a plugin declares lives in its own manifest rather than in
-	// pack.json — so `hooks`, `mcpServers` and `lspServers`, which the agent runs on its
+	// A WRAPPED PLUGIN'S CLAIM IS REPORTED UNDER THIS KIND TOO (packload/footprint.go, the Plugins
+	// loop), because what a plugin declares lives in its own manifest rather than in pack.json —
+	// so its code-running components (pluginpack's components table), which the agent runs on its
 	// lifecycle, used to inherit this row and reach no banner at all. That was the known hole
 	// TP9's deletion of the approval gate made load-bearing: the banner it KEPT as the
 	// compensating disclosure was silent about exactly the contribution that runs code.
@@ -203,8 +204,8 @@ var disclosureClasses = map[packdecl.Kind]disclosureClass{
 	// claims to disclosureJailExec (trust-paths.md OQ-TP10, ruled (a) on 2026-09-14). The row
 	// stays disclosureSkip because the ruling rejected reclassifying it — option (c), which
 	// "would announce every skill file and bury the hooks in the noise that made
-	// disclosureSkip right here" — and because a plugin shipping only skills, commands or
-	// output styles is prose, and belongs here with them.
+	// disclosureSkip right here" — and because a plugin shipping only prose (skills, commands,
+	// output styles, themes, …) belongs here with them.
 	packdecl.KindSkills:        disclosureSkip,
 	packdecl.KindFiles:         disclosureSkip,
 	packdecl.KindConfig:        disclosureSkip,

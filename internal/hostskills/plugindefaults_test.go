@@ -4,7 +4,8 @@ package hostskills
 // DEFAULT locations with no manifest entry (hooks/hooks.json, .mcp.json, monitors/monitors.json,
 // bin/, workflows/, and the rest of pluginpacktest.EveryDefaultLocation). The verbatim copy
 // brings every one of them, so a namespaced delivery must name each that runs code, and a flat
-// one must refuse each by name AND keep it out of the copy.
+// one must refuse each by name AND keep it out of the copy. It also pins which manifest values
+// that copy reads as paths: every path a component field declares, and no setting's value.
 
 import (
 	"os"
@@ -131,6 +132,49 @@ func TestFlatRootSkillKeepsTheFolderASettingNames(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(req.SkillsDir, "acme-tools", "notes", "guide.md")); err != nil {
 		t.Errorf("the root skill's notes/ folder was left out of its flat copy because the "+
 			"plugin's agent setting is called notes: %v", err)
+	}
+}
+
+// A FIELD'S DECLARED PATH IS PLUGIN MACHINERY: the other side of the setting test above. A flat
+// delivery refuses each component by name, so a file at a path its manifest field names (`flows/`
+// for `workflows`, `looks/` for `themes`) must not ride along in the root skill's copy either.
+func TestFlatRootSkillLeavesOutEveryDeclaredComponentPath(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "acme-tools")
+	pluginpacktest.WriteEveryDeclaredPathPlugin(t, dir, "acme-tools")
+	pl, ok := pluginpack.Load(dir)
+	if !ok {
+		t.Fatal("the fixture is not plugin-shaped")
+	}
+	req := PluginRequest{
+		Pack: "wrapper", Plugin: pl, Tier: TierFlat,
+		SkillsDir:   filepath.Join(t.TempDir(), ".claude", "skills"),
+		Composed:    &Manifest{Entries: map[string]string{}},
+		Claimed:     map[string]string{},
+		ArchiveRoot: ArchiveRoot(filepath.Join(t.TempDir(), "archive")),
+		Stamp:       "20261003-000000",
+	}
+	results, err := DeliverPlugin(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	refused := map[string]bool{}
+	for _, r := range results {
+		if r.Action == ActionRefused {
+			refused[r.Name] = true
+		}
+	}
+	root := filepath.Join(req.SkillsDir, "acme-tools")
+	if _, err := os.Stat(filepath.Join(root, "SKILL.md")); err != nil {
+		t.Fatalf("the root skill itself must still be delivered: %v", err)
+	}
+	for comp, rel := range pluginpacktest.EveryDeclaredPath {
+		if !refused["acme-tools:"+comp] {
+			t.Errorf("%s declared at %s was not refused by name: %+v", comp, rel, results)
+		}
+		if _, err := os.Stat(filepath.Join(root, filepath.FromSlash(rel))); err == nil {
+			t.Errorf("%s arrived in the root skill's flat copy, though the same delivery refused "+
+				"%s by name", rel, comp)
+		}
 	}
 }
 
