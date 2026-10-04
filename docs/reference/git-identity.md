@@ -158,14 +158,21 @@ host that has none. So the replay follows the rule a deselected provider follows
 - **The record is `~/.config/git/yolo-forwarded`**, beside the file whose values it claims, in
   git's own config format. It is not a source of truth, which stays the host: it says only which
   values were yolo's. It is written by git outside Seatbelt like the global file, so it is
-  reached through the same checked walk, and a link planted on the way is refused with its
-  `sudo rm` remedy. The identity is still forwarded then; only the clearing waits. An agent that
-  edits the record changes only what yolo removes from a file the agent can already write.
+  reached through the same checked walk. An agent that edits the record changes only what yolo
+  removes from a file the agent can already write.
+- **A record the launch cannot use is refused once, with the command that removes it**: a link
+  planted on the way, a directory, a FIFO (which git would wait on forever) or bytes git cannot
+  parse. The identity is still forwarded; only the recording and the clearing wait. After
+  `sudo rm` (`sudo rm -r` for a directory), the next launch starts a new record, and a value the
+  old one claimed stays, like one set before any record existed (next bullet). A read or write of
+  a usable record that fails is a warning too, with its own next step, and a failed read keeps
+  the claim, so the next launch tries again.
 - **A key the host cleared before the record existed has no record and stays.** Remove it inside
   the jail with `git config --global --unset-all user.email` (or `user.name`).
 
-`gitidentityclear_test.go` pins each row against the real bootstrap and real git, and
-`TestConfigureGitWritesOnlyThroughTheLayoutsOwnLinks` the refused link at the record.
+`gitidentityclear_test.go` pins each row and each refusal of the record against the real
+bootstrap and real git, and `TestConfigureGitWritesOnlyThroughTheLayoutsOwnLinks` the refused
+link at the record.
 
 ## The writable sibling, and the alias that still lies
 

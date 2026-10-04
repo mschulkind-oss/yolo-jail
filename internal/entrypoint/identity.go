@@ -2,6 +2,7 @@ package entrypoint
 
 import (
 	"errors"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -111,16 +112,15 @@ const gitIdentityRecord = ".config/git/yolo-forwarded"
 //     changed or removed it, so the key is theirs and stays.
 //   - Either way the key leaves the record. A kept claim would remove a value the user types
 //     by hand later, the same value included, the next time the host sets nothing.
-//   - No record, no claim. A key the host cleared before this record existed stays, and so
-//     does anything in a record git cannot read.
+//   - No record, no claim. A key the host cleared before this record existed stays.
 //
 // THE RECORD IS WRITTEN BY GIT, OUTSIDE SEATBELT, in the sidecar the agent can write. So it is
-// reached through the same checked walk as the global file (homeFileThroughLayout) and handed
-// to git by its physical path. A link planted on the way is refused and said, with its remedy.
-// The identity is still forwarded then; only the clearing waits until the link is gone.
+// reached through the same checked walk as the global file and handed to git by its physical
+// path, and a record this launch cannot use is refused once, with the command that ends it
+// (usableIdentityRecord). The identity is still forwarded then; only the recording and the
+// clearing wait until the record is usable again.
 func forwardIdentity(e *Env, git, global string, set func(key, val string) bool) {
-	layout, _ := darwinHomeLayoutFor(e, nil)
-	record, recordErr := layout.homeFileThroughLayout(gitIdentityRecord)
+	record, recordErr := usableIdentityRecord(e, git, global)
 	if recordErr != nil {
 		e.warn("Warning: a git name or email the host stops setting will not be removed from " +
 			"this jail: " + recordErr.Error())
@@ -135,10 +135,68 @@ func forwardIdentity(e *Env, git, global string, set func(key, val string) bool)
 		if recordErr != nil {
 			continue
 		}
-		if last, ok := recordedIdentity(e, git, global, record, id.key); ok {
+		last, ok, err := recordedIdentity(e, git, global, record, id.key)
+		if err != nil {
+			e.warn("Warning: could not read git " + id.key + " from " + record + ", the record " +
+				"of what yolo forwarded: " + err.Error() + "; the host no longer sets it, and the " +
+				"next launch tries again to remove it. To remove it now, inside the jail:\n  " +
+				unsetIdentityRemedy(id.key))
+			continue // the claim stays, so the next launch tries again
+		}
+		if ok {
 			clearIdentity(e, git, global, record, id.key, last)
 		}
 	}
+}
+
+// usableIdentityRecord is the record's physical path, or why this launch cannot use it. An
+// absent record is usable: git creates it at the first set.
+//
+// THREE REFUSALS, each said once per launch with the command that ends it:
+//
+//   - A link on the way to it that the layout did not lay (homeFileThroughLayout, whose error
+//     carries its own `sudo rm`).
+//   - Something other than a regular file at it. git reads a directory as an empty config and
+//     refuses to write one, so a clear was skipped in silence; and git opening a FIFO waits for
+//     a writer that never comes, holding the launch with it.
+//   - A file git cannot parse. git exits 128 on every read and write of it, so each forwarded
+//     key warned at every launch, with a remedy that did not stop the warning, and a key the
+//     host stopped setting was skipped in silence, since a failed read looked like no entry.
+//
+// Removing the record ends each of them: the next launch starts a new one. What the record
+// claimed is lost with it, so a value yolo set and the host stopped setting meanwhile stays,
+// as one set before the record existed does (no record, no claim).
+func usableIdentityRecord(e *Env, git, global string) (string, error) {
+	layout, _ := darwinHomeLayoutFor(e, nil)
+	record, err := layout.homeFileThroughLayout(gitIdentityRecord)
+	if err != nil {
+		return "", err
+	}
+	unusable := func(problem, remedy string) error {
+		return errors.New(record + ", the record of the git name and email yolo forwarded, " +
+			problem + ". Remove it, and the next launch starts a new one:\n  " + remedy)
+	}
+	fi, err := os.Lstat(record)
+	switch {
+	case errors.Is(err, fs.ErrNotExist):
+		return record, nil
+	case err != nil:
+		return "", err
+	case fi.IsDir():
+		return "", unusable("is a directory", "sudo rm -r "+shquote.Quote(record))
+	case !fi.Mode().IsRegular():
+		return "", unusable("is not a regular file", removeRecordRemedy(record))
+	}
+	if err := runGitConfig(e, git, global, "--file", record, "--list"); err != nil {
+		return "", unusable("is not a file git can read ("+err.Error()+")", removeRecordRemedy(record))
+	}
+	return record, nil
+}
+
+// removeRecordRemedy is the command that removes the record file. It is run on the host, where
+// the record belongs to the sandbox account.
+func removeRecordRemedy(record string) string {
+	return "sudo rm " + shquote.Quote(record)
 }
 
 // recordIdentity records that yolo set key to val. A failure is said: without the entry, a
@@ -156,11 +214,18 @@ func recordIdentity(e *Env, git, global, record, key, val string) {
 }
 
 // recordedIdentity is the value the record holds for key, read whole (--null) as git stores
-// it, and whether it holds one.
-func recordedIdentity(e *Env, git, global, record, key string) (string, bool) {
+// it, and whether it holds one. git exiting 1 is no entry (or no record at all); any other
+// failure is returned, since read as "no entry" it skipped a clear in silence.
+func recordedIdentity(e *Env, git, global, record, key string) (string, bool, error) {
 	out, err := gitConfigOutput(e, git, global, "--file", record, "--null", "--get", key)
+	switch {
+	case gitExitedWith(err, 1):
+		return "", false, nil
+	case err != nil:
+		return "", false, err
+	}
 	val := strings.TrimSuffix(out, "\x00")
-	return val, err == nil && val != ""
+	return val, val != "", nil
 }
 
 // clearIdentity removes key from the global config while it still holds last, the value yolo
@@ -190,8 +255,8 @@ func clearIdentity(e *Env, git, global, record, key, last string) {
 		!gitExitedWith(err, 5) {
 		e.warn("Warning: could not drop git " + key + " from " + record + ": " + err.Error() +
 			"; until it is dropped, a later launch removes that value again even if you set it " +
-			"yourself. Remove the record, and the next launch starts a new one:\n  sudo rm " +
-			shquote.Quote(record))
+			"yourself. Remove the record, and the next launch starts a new one:\n  " +
+			removeRecordRemedy(record))
 	}
 }
 
