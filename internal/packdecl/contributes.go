@@ -82,12 +82,17 @@ type Contribution struct {
 	// (`.local/bin/<bin>`, `.npm-global/bin/<bin>` or `go/bin/<bin>`). A build whose result
 	// misses one stores nothing: an exit status of 0 with no program is a failed build (§9).
 	Produces []string `json:"produces,omitempty"`
+	// ON `files`, `source`, `patches`, `follow`, `build` and `produces` make a PATCHED EXTENSION
+	// (docs/design/patched-extensions.md, PPX-D1; patchedext.go): `source` and `patches` in place of
+	// `from`, `build` optional, and `produces` paths relative to the built tree rather than the
+	// home. Beside `patches` only: without a series they are refused there as everywhere else.
+	//
 	// Patches makes the fork a PATCHED FORK (docs/design/patched-forks.md, PF-D1): a clean
 	// pack-relative directory holding a `git format-patch --base` series, which yolo replays
 	// onto the upstream `source` names instead of building a fork repository. Its presence is
 	// the opt-in: `source` then names the UPSTREAM, with `?ref=` a branch to follow or a tag or
 	// a full commit to hold at, and what runs follows that upstream for as long as the series
-	// applies and builds. Refused on every contribution but a fork's.
+	// applies and builds. Refused on every contribution but a fork's and a `files` one's.
 	//
 	// THE SERIES is the regular files in the directory whose names end in `.patch`, in
 	// byte-wise lexical order, each one mail-format (`git format-patch` output), at least one,
@@ -2566,6 +2571,7 @@ func (m *Manifest) validateContributions() []string {
 	problems = append(problems, m.validateDuplicateContentSources()...)
 	problems = append(problems, m.validateSingleAutonomy()...)
 	problems = append(problems, m.validateServicePointers()...)
+	problems = append(problems, m.validatePatchedOwnerKeys()...)
 	return problems
 }
 
@@ -3655,6 +3661,10 @@ func validateContribution(label string, c Contribution) []string {
 		// — DefaultSkillsDir, and every *.md directly inside DefaultBriefingDir — so an omitted
 		// `from` there names the convention rather than nothing.
 		switch {
+		case c.IsPatchedExtension():
+			// A PATCHED EXTENSION (patchedext.go, docs/design/patched-extensions.md §4): `source` and
+			// `patches` in place of `from`, landing at the `into` it names.
+			problems = append(problems, patchedExtensionProblems(label, c)...)
 		case c.Agent != "":
 			if c.Into == "" && len(c.Agents) > 0 {
 				// `agent` beside `agents` validated before P5 (an audience made `into` optional
@@ -3696,7 +3706,7 @@ func validateContribution(label string, c Contribution) []string {
 		// (packload.ResolveDestinations borrows it from the pack that OWNS that agent), and
 		// naming both would be a content pack asserting a path it has no business knowing
 		// (docs/reference/agent-briefings.md#the-two-halves-and-why-neither-knows-the-others-business, #ba-p4). Naming NEITHER is the broadcast above.
-		if len(c.Agents) > 0 && c.Into != "" {
+		if len(c.Agents) > 0 && c.Into != "" && !c.IsPatchedExtension() {
 			problems = append(problems, fmt.Sprintf(
 				"%s: kind %q takes \"into\" or \"agents\", not both — a contribution that "+
 					"names its audience has its destination inferred from the pack that owns "+

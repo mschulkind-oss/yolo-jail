@@ -165,6 +165,16 @@ func (c Claim) DisclosureSentence() string {
 				"at the commit its first launch pinned (only `yolo pack update` moves it), never at " +
 				"whatever the ref names today"
 		}
+	case packdecl.KindFiles:
+		// A PATCHED EXTENSION's claim (patchedTreeClaimDetail): the tree its agent loads follows
+		// the upstream, so the line says what it follows, where its build runs and what moves it.
+		if tree, ok := strings.CutPrefix(c.Detail, patchedTreeClaimDetailPrefix); ok {
+			return "DELIVERS a tree built from source at ~/" + strings.TrimSuffix(c.Target, "/") + ": " + tree +
+				" — at the upstream's newest commit that rule names and the series applies to, checked " +
+				"at most hourly; the series is replayed on this machine with no code run, the build runs " +
+				"in a capture jail that gets no credentials, and a new build is delivered only once it is " +
+				"admitted: the UPSTREAM'S NEW CODE ARRIVES UNREVIEWED, and the agent that loads the tree runs it"
+		}
 	case packdecl.KindBriefing:
 		// Detail is "concat after host:<host-home path>", optionally with an audience
 		// suffix (audienceDetail). CutPrefix rather than a search-and-replace so the
@@ -497,6 +507,13 @@ func FootprintOf(p *Pack) Footprint {
 			}
 			add(packdecl.KindBriefing, audienceTarget(c), audienceDetail(c, detail), review)
 		case packdecl.KindFiles:
+			// A PATCHED EXTENSION is review-worthy (PPX-D15): its tree is an upstream's code with a
+			// series replayed and built, which the agent that loads it runs, so its claim names the
+			// source, the ref, the follow rule, the series, the build and the landing.
+			if c.IsPatchedExtension() {
+				add(packdecl.KindFiles, c.Into, patchedTreeClaimDetail(p.Root, c), true)
+				continue
+			}
 			// audienceDetail's THIRD case ("declares no `agent`, so no `agents` selector can
 			// name it") is right for briefing/skills, where `into` with no identity is an
 			// unaddressable DESTINATION (R4), and wrong here: `files` with `into` AND `from` is

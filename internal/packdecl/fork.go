@@ -93,8 +93,16 @@ func patchedForkFields(c Contribution) []struct {
 // does nothing. The reverse — `via: "source"` without them — is forkProblems' required-field
 // check. A patched fork's two fields, `patches` and `follow`, are refused in the same place with
 // the declaration that does read them named.
+//
+// A PATCHED EXTENSION is the one other placement (docs/design/patched-extensions.md §4, PPX-D1):
+// `source`, `build`, `produces`, `patches` and `follow` on `files` beside `patches`, which
+// patchedExtensionProblems validates, refusing `fork_of` there by name. A `files` contribution
+// with any of them and no `patches` is refused here, with this message unchanged.
 func forkFieldPlacementProblems(label string, c Contribution) []string {
 	if c.Kind == KindProgram && c.Via == ViaSource {
+		return nil
+	}
+	if c.IsPatchedExtension() {
 		return nil
 	}
 	var problems []string
