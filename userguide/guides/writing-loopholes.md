@@ -165,7 +165,7 @@ another in the jail, so there is a placeholder for each:
 | Placeholder | Becomes | Use it in |
 |---|---|---|
 | `{loophole_dir}` | the loophole's folder, on the host | `host_daemon.cmd`, `doctor_cmd`, `host_bind_mounts[].host` |
-| `{jail_loophole_dir}` | the same folder in the jail, `/etc/yolo-jail/loopholes/<name>` | `jail_daemon.cmd` |
+| `{jail_loophole_dir}` | the same folder in the jail: `/etc/yolo-jail/loopholes/<name>` in a container, and yolo's read-only copy of it on `macos-user` | `jail_daemon.cmd` |
 | `{socket}` | the Unix socket your host program listens on | `host_daemon.cmd` |
 | `{state}` | this loophole's state folder on the host | `ca_cert` |
 | `{listen}` | the jail address from `jail_daemon.listen` | `jail_daemon.cmd`, and `env` values |
@@ -280,14 +280,18 @@ when the agent exits. It needs `listen` and `caller_token`, and `{listen}` is th
 it takes. Only yolo's own packs may use it: the Codex and AWS credential helpers do. In any other
 pack yolo does not run it and says so at launch, and the `jail_daemon` is handled as if `host_cmd`
 were not there: it runs inside the sandbox, unless the sandbox cannot run it as written. A `cmd`
-that names `{jail_loophole_dir}`, like the example above, is one of those, because that folder
-exists only inside a container; the launch then says the helper runs nowhere.
+that names `{jail_loophole_dir}`, like the example above, runs there from yolo's copy of your
+loophole's folder, so the program it names must be one a Mac can run: a script, or a macOS
+build. A Linux executable is one the sandbox cannot run, and the launch then says the helper runs
+nowhere and that a container runtime runs it (`YOLO_RUNTIME=podman` or `YOLO_RUNTIME=container`
+for one launch).
 
 ### A program your pack downloads
 
-A program you ship in the loophole's folder works when the pack is selected by its path. It does
-not work for a pack yolo ships inside itself, whose files cannot be executable. Either way, a
-compiled program needs one build per machine. So a loophole can name its program as a
+A program you ship in the loophole's folder works when the pack is selected by its path. On
+`macos-user` it must be one a Mac runs, a script or a macOS build. It does not work for a pack
+yolo ships inside itself, whose files cannot be executable. Either way, a compiled program needs
+one build per machine. So a loophole can name its program as a
 **download** instead: one build per platform, each with an `https` address and the file's
 `sha256`, which is required.
 
@@ -414,7 +418,7 @@ ran.
 |---|---|
 | Podman, on Linux or a Mac | Everything |
 | Apple Container | Nothing reaches the host yet: the jail cannot connect to a host program |
-| `macos-user` | Host daemons run. Jail daemons run inside the sandbox, except one whose `cmd` names `{jail_loophole_dir}` or `{jail_binary:<name>}` and one that intercepts a website; yolo's own credential helpers run outside it (`host_cmd`) |
+| `macos-user` | Host daemons run. Jail daemons run inside the sandbox, a program from your loophole's folder included, except a Linux executable, one whose `cmd` names `{jail_binary:<name>}`, and one that intercepts a website; yolo's own credential helpers run outside it (`host_cmd`) |
 
 In each case the launch names the loopholes that do nothing and says why.
 [What works on each setup](../reference/settings-per-setup.md#the-loopholes-host-services-a-jail-can-use)

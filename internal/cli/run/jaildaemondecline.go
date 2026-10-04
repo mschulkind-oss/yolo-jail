@@ -13,11 +13,15 @@ package run
 // and a confined `yolo-jaild supervise` (internal/macosuser's jaildaemon.go) — so a loophole's
 // jail daemon RUNS in the guest, and the decline shrank to the daemons the guest does not run,
 // each for a reason that is a fact about the declaration: the intercepting OAuth terminator, a
-// pack service's daemon (its host half runs instead), a credential DOORWAY that declares a host
-// argv (it opens outside the sandbox instead, HS-D15: the OpenAI refresh adapter a bare
-// `"packs": ["claude"]` selects, and the AWS credential adapter when a `bedrock` profile is
-// selected), and an argv naming the container's loophole mount (internal/loopholes' guestrun.go
-// states each).
+// pack service whose admitted host half serves its adaptation instead (the wire bridge), a pack
+// service that publishes an endpoint file at a container path, a credential DOORWAY that
+// declares a host argv (it opens outside the sandbox instead, HS-D15: the OpenAI refresh adapter
+// a bare `"packs": ["claude"]` selects, and the AWS credential adapter when a `bedrock` profile
+// is selected), a program in a loophole's module directory that is a Linux executable, and an
+// argv naming a container path the sandbox has no copy of (internal/loopholes' guestrun.go
+// states each). Every other pack service's daemon runs in the guest, and a loophole daemon naming
+// `{jail_loophole_dir}` runs from the sandbox's copy of the staged packs
+// (macosuserguestdaemons.go; docs/design/jail-daemon-on-macos-user-plan.md JD-9, JD-10).
 //
 // THE CLASSIFIER THIS FILE ONCE DECLINED TO WRITE now exists, in internal/loopholes, and for
 // the reason this file gave for not writing it: the verdict used to be one branch; it now
