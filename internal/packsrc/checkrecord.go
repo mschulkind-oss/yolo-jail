@@ -44,7 +44,9 @@ type CheckRecord struct {
 	// CheckedAt is the CHECK STAMP (the design's term, §4.2): when the last check was ATTEMPTED,
 	// in unix seconds, whatever its outcome. 0 when no check has run.
 	CheckedAt int64 `json:"checked_at,omitempty"`
-	// Read is what the last check read. A launch that finds any of it changed checks at once.
+	// Read is what the last FINISHED check read, written with Check and never with the attempt's
+	// stamp alone, so the two always describe one check. A launch that finds any of it changed
+	// checks at once.
 	Read CheckInputs `json:"read"`
 	// Seq is the sequence number of the last check that finished, 0 before any.
 	Seq int64 `json:"seq,omitempty"`
@@ -279,6 +281,10 @@ func CheckDue(r *CheckRecord, in CheckInputs, now time.Time, interval time.Durat
 	switch {
 	case r == nil || r.CheckedAt == 0:
 		return true, "never checked on this machine"
+	case r.Check == nil:
+		// An attempt with no answer: the check died in its git (a kill, a closed terminal) before
+		// it found anything, so there is nothing for the interval to keep serving.
+		return true, "no check has finished on this machine"
 	case r.Read != in:
 		return true, "what it follows changed since the last check"
 	}

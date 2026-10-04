@@ -108,7 +108,7 @@ func checkPatchedFork(pr richtext.Printer, errw io.Writer, store *packsrc.Store,
 		fmt.Fprintf(errw, "yolo pack: fork %s: %s\n", f.Key(), found.Problem)
 		return 1
 	}
-	list := rec.Candidates()
+	list := rec.Candidates(res.Inputs)
 	first := rec.Good == nil
 	if len(list) == 0 && first && found.BaseOnBranch {
 		// NOTHING ON THE LIST: a series whose base is past the branch's newest version builds the
@@ -271,11 +271,11 @@ func patchedForkStatusLines(f packload.Fork) []string {
 		lines = append(lines, fmt.Sprintf("[dim]  good build: %s + %d %s (series %s)[/dim]", goodLabel(rec.Good),
 			rec.Good.Patches, plural(rec.Good.Patches, "patch", "patches"), shortSHA(rec.Good.Series)))
 	}
-	lines = append(lines, candidateLines(rec, series)...)
+	in, _, _, _ := f.CheckWant(series).Inputs()
+	lines = append(lines, candidateLines(rec, series, in)...)
 	if hold := patchedForkHold(f); hold != "" {
 		lines = append(lines, "[dim]  held: "+hold+", so no launch checks it[/dim]")
 	}
-	in, _, _, _ := f.CheckWant(series).Inputs()
 	now := patchedNow()
 	if due, why := packsrc.CheckDue(rec, in, now, 0); due {
 		lines = append(lines, "[dim]  next check: due now ("+why+")[/dim]")
@@ -305,11 +305,16 @@ func patchedAge(d time.Duration) string {
 }
 
 // candidateLines are the status lines for the last check's candidate and every replay recorded
-// against the series as it stands.
-func candidateLines(rec *packsrc.CheckRecord, series *packsrc.Series) []string {
+// against the series as it stands. in is what a check of the fork reads now: a record whose last
+// check read anything else answers another question, and its list is not shown as the candidate.
+func candidateLines(rec *packsrc.CheckRecord, series *packsrc.Series, in packsrc.CheckInputs) []string {
 	found := rec.Check
 	if found == nil {
 		return []string{"[dim]  checked, with no answer recorded — `yolo pack update` checks again[/dim]"}
+	}
+	if !rec.Answers(in) {
+		return []string{"[yellow]  ⚠ the fork's " + changedInputs(rec.Read, in) + " changed since the last " +
+			"check, so it names no candidate yet — `yolo pack update` checks it now[/yellow]"}
 	}
 	ago := patchedAge(patchedNow().Sub(time.Unix(found.At, 0)))
 	var lines []string
@@ -320,7 +325,7 @@ func candidateLines(rec *packsrc.CheckRecord, series *packsrc.Series) []string {
 	if found.Problem != "" {
 		return append(lines, "[yellow]  ⚠ "+found.Problem+"[/yellow]")
 	}
-	list := rec.Candidates()
+	list := rec.Candidates(in)
 	if len(list) == 0 {
 		if rec.Good == nil && found.BaseOnBranch {
 			return append(lines, fmt.Sprintf("[dim]  candidate: the series' base %s (no version of the "+
@@ -347,6 +352,25 @@ func candidateLines(rec *packsrc.CheckRecord, series *packsrc.Series) []string {
 		}
 	}
 	return lines
+}
+
+// changedInputs names what differs between what the last check read and what a check reads now:
+// the source's repository, subdirectory or ref, the follow rule, or the series' base.
+func changedInputs(was, now packsrc.CheckInputs) string {
+	var what []string
+	if was.Repo != now.Repo || was.Subdir != now.Subdir || was.Ref != now.Ref {
+		what = append(what, "source")
+	}
+	if was.Follow != now.Follow {
+		what = append(what, "follow rule")
+	}
+	if was.Base != now.Base {
+		what = append(what, "series base")
+	}
+	if len(what) == 0 {
+		return "upstream"
+	}
+	return strings.Join(what, " and ")
 }
 
 // followLabel is a follow rule as written, the default named.

@@ -7,11 +7,14 @@ package packsrc
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"syscall"
 	"testing"
 	"time"
+
+	"github.com/mschulkind-oss/yolo-jail/internal/shquote"
 )
 
 // THE LIST UNDER release: the version tags merged into the branch that contain the series' base,
@@ -275,7 +278,8 @@ func TestACheckThatWaitedReadsTheOthersStamp(t *testing.T) {
 	}()
 	<-waiting
 	// The "other launch" writes a fresh check while this one waits.
-	if err := u.store.saveCheckRecord(&CheckRecord{Owner: w.Owner, CheckedAt: u.now.Unix(), Read: in, Seq: 7}); err != nil {
+	if err := u.store.saveCheckRecord(&CheckRecord{Owner: w.Owner, CheckedAt: u.now.Unix(), Read: in, Seq: 7,
+		Check: &CheckFound{Seq: 7, At: u.now.Unix()}}); err != nil {
 		t.Fatal(err)
 	}
 	unlock()
@@ -301,5 +305,148 @@ func TestAboveGoodCutsTheListAtTheGoodBuild(t *testing.T) {
 	}
 	if got := listLabels(AboveGood(list, &GoodBuild{Commit: "base"})); got != "t* v1.3.0 v1.2.0 v1.1.0" {
 		t.Errorf("above a good build that runs no version = %q, want every entry", got)
+	}
+}
+
+// blockingGit is a git that stops at its first run until release is called: it marks that it
+// started, waits for the release file, then runs the real git. A check run through it is held
+// inside its record lock after the attempt's save, the state a check killed in its fetch leaves.
+func blockingGit(t *testing.T) (bin string, started func() bool, release func()) {
+	t.Helper()
+	real, err := exec.LookPath("git")
+	if err != nil {
+		t.Skip("git not available")
+	}
+	dir := t.TempDir()
+	mark, gate := filepath.Join(dir, "started"), filepath.Join(dir, "release")
+	bin = filepath.Join(dir, "git")
+	writeTestFile(t, bin, "#!/bin/sh\n: > "+shquote.Quote(mark)+"\nwhile [ ! -e "+shquote.Quote(gate)+
+		" ]; do sleep 0.05; done\nexec "+shquote.Quote(real)+" \"$@\"\n")
+	if err := os.Chmod(bin, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	started = func() bool { _, err := os.Stat(mark); return err == nil }
+	release = func() { writeTestFile(t, gate, "") }
+	return bin, started, release
+}
+
+// A CHECK KILLED IN ITS GIT NEVER PAIRS NEW INPUTS WITH THE OLD LIST (§4.2): the attempt's stamp
+// is written before the fetch, and what the check read only with what it found. So while a check
+// under an edited follow rule is stopped inside its first git — what a kill there would leave on
+// disk — the record still reads as the head rule's, the release check is due at once, and the head
+// rule's list is no candidate under release.
+func TestACheckStoppedInItsGitLeavesAnEditDue(t *testing.T) {
+	u := newPatchedUpstream(t)
+	u.release(t, "v1.1.0", map[int]string{14: "fourteen"})
+	u.release(t, "", map[int]string{14: "fourteen", 25: "tip"})
+	head, rel := u.want(t, "main", "head"), u.want(t, "main", "")
+	u.check(t, head, false)
+
+	bin, started, release := blockingGit(t)
+	blocked := &Store{Dir: u.store.Dir, Git: bin, Getenv: noStagedTree}
+	u.now = u.now.Add(5 * time.Minute)
+	done := make(chan CheckResult, 1)
+	go func() {
+		done <- blocked.CheckPatched(rel, CheckOptions{Now: func() time.Time { return u.now }})
+	}()
+	deadline := time.Now().Add(30 * time.Second)
+	for !started() {
+		if time.Now().After(deadline) {
+			release()
+			t.Fatal("the release check never ran git")
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	mid, err := u.store.LoadCheckRecord(rel.Owner)
+	if err != nil {
+		release()
+		t.Fatal(err)
+	}
+	if due, why := CheckDue(mid, mustInputs(t, rel), u.now, 0); !due {
+		t.Errorf("mid-check, the record reads as a fresh check of the release rule (Read %+v): a kill "+
+			"here would serve the head rule's list for an hour", mid.Read)
+	} else if !strings.Contains(why, "changed") {
+		t.Errorf("mid-check the release check is due for %q, want the edit", why)
+	}
+	if got := mid.Candidates(mustInputs(t, rel)); got != nil {
+		t.Errorf("mid-check the release rule's candidates are %q, the head rule's list", listLabels(got))
+	}
+	if got := listLabels(mid.Candidates(mustInputs(t, head))); !strings.HasSuffix(got, "* v1.1.0 v1.0.0") {
+		t.Errorf("mid-check the head rule's own list = %q, want it intact", got)
+	}
+	release()
+	res := <-done
+	if res.Err != nil || !res.Ran || res.Record.Read != mustInputs(t, rel) {
+		t.Fatalf("the release check = %+v", res)
+	}
+	if got := listLabels(res.Record.Candidates(res.Inputs)); got != "v1.1.0 v1.0.0" {
+		t.Errorf("after the release check the candidates = %q, want v1.1.0 v1.0.0", got)
+	}
+}
+
+// A CHECK WITH NO ANSWER IS NO ANSWER: a record whose attempt was stamped but whose check never
+// finished is due at once, not served for the interval.
+func TestAnAttemptWithNoAnswerIsDue(t *testing.T) {
+	u := newPatchedUpstream(t)
+	w := u.want(t, "main", "")
+	r := &CheckRecord{Owner: w.Owner, CheckedAt: u.now.Unix(), Read: mustInputs(t, w)}
+	if due, why := CheckDue(r, mustInputs(t, w), u.now, 0); !due || !strings.Contains(why, "finished") {
+		t.Errorf("an attempt with no answer is due=%v (%q), want due at once", due, why)
+	}
+}
+
+// A CHECK WITH A PROBLEM KEEPS THE OUTCOMES: a ref edited to HEAD for one check lists nothing, and
+// the conflict recorded before it is still there once the ref is put back (PF-D9: no launch replays
+// that key again).
+func TestACheckWithAProblemKeepsTheOutcomes(t *testing.T) {
+	u := newPatchedUpstream(t)
+	v11 := u.release(t, "v1.1.0", map[int]string{14: "fourteen"})
+	w := u.want(t, "main", "")
+	u.check(t, w, true)
+	conflict := EntryOutcome{Commit: v11, Kind: OutcomeConflict, Series: "s", Yolo: "y", Git: "g", Member: "0001-x.patch"}
+	if err := u.store.WithCheckRecord(w.Owner, nil, func(r *CheckRecord, _ error, _ func() error) (bool, error) {
+		r.SetOutcome(conflict)
+		return true, nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	res := u.check(t, u.want(t, "HEAD", ""), true)
+	if res.Record.Check.Problem == "" {
+		t.Fatal("?ref=HEAD named a candidate")
+	}
+	if res.Record.Conflict(v11, "s", "y", "g") == nil {
+		t.Errorf("a check with a problem dropped the recorded conflict: %+v", res.Record.Outcomes)
+	}
+	res = u.check(t, w, true)
+	if res.Record.Conflict(v11, "s", "y", "g") == nil {
+		t.Errorf("the conflict did not survive back to the branch: %+v", res.Record.Outcomes)
+	}
+}
+
+// AN OUTCOME LEAVES WITH ITS ENTRY: the record keeps one outcome per entry of the walk's list, so a
+// conflict at a version the follow rule no longer lists is dropped by the next check, and one at a
+// version it still lists is kept.
+func TestAnOutcomeLeavesWithItsEntry(t *testing.T) {
+	u := newPatchedUpstream(t)
+	v11 := u.release(t, "v1.1.0", map[int]string{14: "fourteen"})
+	agent := u.release(t, "agent@2.0.0", map[int]string{14: "fourteen", 20: "twenty"})
+	w := u.want(t, "main", "")
+	u.check(t, w, true)
+	if err := u.store.WithCheckRecord(w.Owner, nil, func(r *CheckRecord, _ error, _ func() error) (bool, error) {
+		r.SetOutcome(EntryOutcome{Commit: v11, Kind: OutcomeConflict, Series: "s", Yolo: "y", Git: "g"})
+		r.SetOutcome(EntryOutcome{Commit: agent, Kind: OutcomeConflict, Series: "s", Yolo: "y", Git: "g"})
+		return true, nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	res := u.check(t, u.want(t, "main", "release:agent@"), true)
+	if got := listLabels(res.Record.Check.List); got != "agent@2.0.0" {
+		t.Fatalf("under release:agent@ the list = %q", got)
+	}
+	if res.Record.Conflict(v11, "s", "y", "g") != nil {
+		t.Error("the conflict at v1.1.0, which left the list, is still recorded")
+	}
+	if res.Record.Conflict(agent, "s", "y", "g") == nil {
+		t.Error("the conflict at agent@2.0.0, still on the list, was dropped")
 	}
 }

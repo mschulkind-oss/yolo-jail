@@ -339,3 +339,23 @@ func TestTheHostFloorNeverPinsAPatchedFork(t *testing.T) {
 		t.Errorf("the floor's pin wrote the fork lock for a patched fork (err %v)", err)
 	}
 }
+
+// AN EDIT TO WHAT THE FORK FOLLOWS, since its last check, leaves status naming no stale candidate:
+// the record's list answers the old rule (§4.2), so status says what changed and names the act that
+// checks it now.
+func TestPackStatusAfterAnEditNamesNoStaleCandidate(t *testing.T) {
+	f := newPatchedFixture(t, "")
+	f.commit(t, "v1.1.0", map[int]string{14: "fourteen"})
+	if rc, out, errw := packVerb(t, "update"); rc != 0 {
+		t.Fatalf("update rc=%d\n%s\n%s", rc, out, errw)
+	}
+	f.writeManifest(t, "main", "head")
+	_, out, _ := packVerb(t, "status")
+	if !strings.Contains(out, "follow rule changed since the last check") ||
+		!strings.Contains(out, "`yolo pack update` checks it now") {
+		t.Errorf("status after an edited follow does not say the record is the old rule's:\n%s", out)
+	}
+	if strings.Contains(out, "candidate: v1.1.0") {
+		t.Errorf("status shows the release rule's candidate under head:\n%s", out)
+	}
+}

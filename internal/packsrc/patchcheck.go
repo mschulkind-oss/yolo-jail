@@ -93,6 +93,8 @@ type CheckResult struct {
 	// Recovered is the error the record that stood before this call had when it could not be
 	// read: the check started over from an empty record (§6.2). nil otherwise.
 	Recovered error
+	// Inputs is what a check of the want reads, for Record.Candidates.
+	Inputs CheckInputs
 	// Err is why no check could run or be recorded: an unparseable source, or a record that
 	// could not be locked or written.
 	Err error
@@ -113,7 +115,7 @@ func (s *Store) CheckPatched(w PatchedWant, opts CheckOptions) CheckResult {
 	rec, readErr := s.LoadCheckRecord(w.Owner)
 	if readErr == nil && !opts.Force {
 		if due, _ := CheckDue(rec, in, now(), opts.Interval); !due {
-			return CheckResult{Record: rec}
+			return CheckResult{Record: rec, Inputs: in}
 		}
 	}
 	waiting, end := (func(string))(nil), func() {}
@@ -121,7 +123,7 @@ func (s *Store) CheckPatched(w PatchedWant, opts CheckOptions) CheckResult {
 		waiting, end = opts.Begin()
 	}
 	defer end()
-	var res CheckResult
+	res := CheckResult{Inputs: in}
 	err = s.WithCheckRecord(w.Owner, waiting, func(r *CheckRecord, recErr error, save func() error) (bool, error) {
 		res.Recovered = recErr
 		// RE-READ UNDER THE LOCK: another launch may have checked while this one waited.
@@ -136,8 +138,12 @@ func (s *Store) CheckPatched(w PatchedWant, opts CheckOptions) CheckResult {
 			res.Due = "an explicit act checks now"
 		}
 		// THE ATTEMPT COUNTS, written before the fetch: a check that dies in it still waits out the
-		// interval, rather than every launch paying the same timeout.
-		r.CheckedAt, r.Read = now().Unix(), in
+		// interval, rather than every launch paying the same timeout. The STAMP ALONE: what the
+		// check read is written only with what it found, below, so the record never pairs these
+		// inputs with the last check's list. A check killed in its git after an edit to what it
+		// reads leaves the old inputs beside the old list, and the next launch is due at once
+		// (CheckDue) instead of serving the old rule's list under the new one for an hour.
+		r.CheckedAt = now().Unix()
 		if err := save(); err != nil {
 			return false, err
 		}
@@ -145,8 +151,14 @@ func (s *Store) CheckPatched(w PatchedWant, opts CheckOptions) CheckResult {
 		found := s.findCandidates(addr, follow, w.Base, opts.Force, now(), waiting)
 		r.Seq++
 		found.Seq, found.At = r.Seq, now().Unix()
-		r.Check = &found
-		r.Outcomes = keepListedOutcomes(r.Outcomes, found.List)
+		r.Read, r.Check = in, &found
+		// OUTCOMES FOLLOW THE LIST, and only a list: a check that names no candidate (a problem — a
+		// git error, a lock it could not take, a ref edited to HEAD for a minute) lists nothing, and
+		// pruning against that would forget every conflict the next good check would otherwise pass
+		// over (PF-D9), and in step 2 every build failure's back-off.
+		if found.Problem == "" {
+			r.Outcomes = keepListedOutcomes(r.Outcomes, found.List)
+		}
 		res.Record = r
 		return true, nil
 	})
@@ -433,13 +445,21 @@ func (r *CheckRecord) SetOutcome(o EntryOutcome) {
 	r.Outcomes = append(kept, o)
 }
 
-// Candidates is the walk's list as an advance considers it now: the last check's list cut at the
-// good build (AboveGood). nil before any check.
-func (r *CheckRecord) Candidates() []ListEntry {
-	if r == nil || r.Check == nil {
+// Candidates is the walk's list as an advance considers it now, for a check of in: the last
+// check's list cut at the good build (AboveGood). nil before any finished check, and nil when the
+// last one read something other than in — an edited ref, follow rule or base, whose own check is
+// due at once (CheckDue): that list answers another question, and serving it under the new one is
+// the stale answer §4.2 rules out.
+func (r *CheckRecord) Candidates(in CheckInputs) []ListEntry {
+	if !r.Answers(in) {
 		return nil
 	}
 	return AboveGood(r.Check.List, r.Good)
+}
+
+// Answers reports whether the record's last finished check is a check of in.
+func (r *CheckRecord) Answers(in CheckInputs) bool {
+	return r != nil && r.Check != nil && r.Read == in
 }
 
 // RecordWalk writes a walk's outcomes into owner's record under its lock, keyed by the series
