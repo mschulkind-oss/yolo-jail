@@ -30,8 +30,10 @@ import (
 //
 // One launch per test: every macos-user launch builds a native floor.
 
-// macosUserNpmFloor is the floor the npm cell declares: met by the package floor's nodejs_24,
-// below it by a whole major, so a floor node of the wrong major would fail it.
+// macosUserNpmFloor is the floor the npm cell declares: met by the package floor's nodejs_24
+// with two majors to spare, since a floor is met by any node at or above it. The cell's floor
+// check fails only for a node older than 22; a launcher that execs no absolute node, or a mise
+// shim, is failed by the check before it.
 const macosUserNpmFloor = "22"
 
 func TestMacosUserPinnedNpmProgramInstallsUnderItsNodeFloor(t *testing.T) {
