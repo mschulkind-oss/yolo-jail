@@ -5,6 +5,9 @@ import (
 	"path/filepath"
 	"sort"
 	"time"
+
+	"github.com/mschulkind-oss/yolo-jail/internal/paths"
+	"github.com/mschulkind-oss/yolo-jail/internal/runtime"
 )
 
 // PruneOrphanAgentStaging reaps per-jail briefing/skill staging dirs
@@ -109,4 +112,49 @@ func TrackedContainerNames(containerDir string) map[string]struct{} {
 		}
 	}
 	return names
+}
+
+// SessionStagingNames returns the AGENTS_DIR entries a host-services SESSION may be using. A
+// session is one macos-user invocation of yolo, or one `yolo host` launch that opens a doorway:
+// one command and the host services started for it, from launch to teardown, each in a dir of its
+// own whose lock it holds throughout (runtime.ListSessions reads them). The names returned are the
+// staging dirs whose name hashes (paths.JailShortHash) to the workspace key of a session under
+// sessionsBase that is live, or whose liveness cannot be read. It is the term of the known set
+// that keeps a macos-user session's staging: that backend has no container, so nothing a
+// container runtime lists or a tracking file records names it, and a session uses its staging
+// for as long as its sandbox runs, past the age floor.
+//
+// EVERY SWEEP, UNDER EVERY RUNTIME. A Mac running macos-user beside Apple Container or podman
+// runs the container runtime's sweeps too, in `yolo prune` and in a container launch's
+// housekeeping slot, and without this term both would read a live macos-user session's staging
+// as an orphan once it was an hour old (INFERRED from the code, not measured on a Mac). A
+// `yolo host` session protects its workspace's names the same way, and only while it runs.
+//
+// ok is false when the sessions could not be listed at all; a caller then declines its sweep, as
+// it does when the container runtime cannot be asked.
+func SessionStagingNames(agentsDir, sessionsBase string) (names map[string]struct{}, ok bool) {
+	sessions, ok := runtime.ListSessions(sessionsBase)
+	if !ok {
+		return nil, false
+	}
+	keys := map[string]bool{}
+	for _, s := range sessions {
+		if s.Liveness != runtime.SessionGone && s.Key != "" {
+			keys[s.Key] = true
+		}
+	}
+	names = map[string]struct{}{}
+	if len(keys) == 0 {
+		return names, true
+	}
+	entries, err := os.ReadDir(agentsDir)
+	if err != nil {
+		return names, true
+	}
+	for _, e := range entries {
+		if keys[paths.JailShortHash(e.Name())] {
+			names[e.Name()] = struct{}{}
+		}
+	}
+	return names, true
 }

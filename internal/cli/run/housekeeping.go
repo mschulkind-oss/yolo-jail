@@ -458,7 +458,7 @@ func (o *Options) reapSmallAutomaticClasses(rt, launchingCname string, guard pru
 		// is not an orphan. Not stamped — the next launch retries.
 		return
 	}
-	// THE KNOWN SET IS live ∪ tracked ∪ THIS LAUNCH, and each of the three earned
+	// THE KNOWN SET IS live ∪ tracked ∪ THIS LAUNCH ∪ SESSIONS, and each term earned
 	// its place by something breaking without it.
 	//
 	// TRACKED was in PruneOrphanAgentStaging's contract from the start — "a name is
@@ -495,8 +495,24 @@ func (o *Options) reapSmallAutomaticClasses(rt, launchingCname string, guard pru
 	// own container is visible". That is true of the IMAGE and false of the
 	// container, which is created after every housekeeping class has run. Do not
 	// restore a version of this that relies on it.
+	//
+	// ⚠ AND EVERY HOST-SERVICES SESSION'S, the fourth term (prune.SessionStagingNames). A
+	// macos-user session has no container, so neither the live set nor a tracking file names it,
+	// and its staging is in use for as long as its sandbox runs: on a Mac running that backend
+	// beside this one, this sweep would read a live session's staging as an orphan once it was an
+	// hour old (INFERRED from the code; the human check is such a session beside a container
+	// launch).
+	// The sessions are listed the way the live set is asked, tri-state: a listing that cannot run
+	// declines the sweep, unstamped.
+	sessionNames, sessionsKnown := prune.SessionStagingNames(paths.AgentsDir(), paths.HostServicesBase(o.IsMacOS))
+	if !sessionsKnown {
+		return
+	}
 	known := prune.TrackedContainerNames(paths.ContainerDir())
 	for name := range live.Names {
+		known[name] = struct{}{}
+	}
+	for name := range sessionNames {
 		known[name] = struct{}{}
 	}
 	if launchingCname != "" {
