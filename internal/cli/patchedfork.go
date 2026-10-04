@@ -110,10 +110,11 @@ func checkPatchedFork(pr richtext.Printer, errw io.Writer, store *packsrc.Store,
 	}
 	list := rec.Candidates(res.Inputs)
 	first := rec.Good == nil
+	atBase := false
 	if len(list) == 0 && first && found.BaseOnBranch {
 		// NOTHING ON THE LIST: a series whose base is past the branch's newest version builds the
 		// base, which it applies to by construction (§6.4), and nothing is held.
-		list = []packsrc.ListEntry{{Commit: series.Base}}
+		list, atBase = []packsrc.ListEntry{{Commit: series.Base}}, true
 	}
 	if len(list) == 0 {
 		switch {
@@ -132,7 +133,7 @@ func checkPatchedFork(pr richtext.Printer, errw io.Writer, store *packsrc.Store,
 		fmt.Fprintf(errw, "yolo pack: fork %s: recording the replay: %v\n", f.Key(), err)
 		rc = 1
 	}
-	for _, line := range walkReport(f, series, rec, list, w) {
+	for _, line := range walkReport(f, series, rec, w, atBase) {
 		pr.Printf("%s", line)
 	}
 	if w.Base != nil || w.Err != nil || w.Fit < 0 {
@@ -146,9 +147,10 @@ func checkPatchedFork(pr richtext.Printer, errw io.Writer, store *packsrc.Store,
 
 // walkReport is the lines an explicit act prints for a walk: the candidate and whether the series
 // replays there, each member already upstream, the conflict message (§8.2) for every entry that
-// did not take the series, and the newest fit the next launch builds.
-func walkReport(f packload.Fork, series *packsrc.Series, rec *packsrc.CheckRecord, list []packsrc.ListEntry,
-	w packsrc.WalkResult) []string {
+// did not take the series, and the newest fit. atBase is a walk of the first advance's fallback, the
+// series' base alone, which is named as that rather than as an upstream version.
+func walkReport(f packload.Fork, series *packsrc.Series, rec *packsrc.CheckRecord, w packsrc.WalkResult,
+	atBase bool) []string {
 	var lines []string
 	switch {
 	case w.Base != nil:
@@ -171,7 +173,10 @@ func walkReport(f packload.Fork, series *packsrc.Series, rec *packsrc.CheckRecor
 					m, r.Entry.Label(), series.Dir))
 			}
 			what := "upstream " + r.Entry.Label()
-			if i > 0 {
+			switch {
+			case atBase:
+				what = "the series' base " + r.Entry.Label() + " (no version of the branch contains it)"
+			case i > 0:
 				what = "the newest fit, " + what + ","
 			}
 			lines = append(lines, fmt.Sprintf("[green]fork %s[/green]: %s takes the series (%d %s, series %s): "+

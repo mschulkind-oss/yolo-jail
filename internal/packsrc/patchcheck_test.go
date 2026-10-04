@@ -513,3 +513,28 @@ func TestAnEditedFollowIsCutAtTheGoodBuildsCommit(t *testing.T) {
 		t.Errorf("a re-exported series dropped the precedence cut: %q", got)
 	}
 }
+
+// A BRANCH WITH NO VERSION TAG AT ALL IS A REF PROBLEM under a release rule (§8.1, PF-D27), told
+// apart from versions that all predate the base: the reason names `follow: "head"` and a hold, and
+// `follow: "head"` lists the tip. A release:<prefix> rule over tags of another name is the same.
+func TestABranchWithNoVersionTagIsARefProblem(t *testing.T) {
+	u := newPatchedUpstream(t)
+	gitIn(t, u.repo, "tag", "-d", "v1.0.0")
+	u.release(t, "nightly", map[int]string{14: "fourteen"})
+	tip := u.release(t, "", map[int]string{14: "fourteen", 20: "twenty"})
+	res := u.check(t, u.want(t, "main", ""), true)
+	f := res.Record.Check
+	if len(f.List) != 0 || !strings.Contains(f.Problem, "carries no version tag that `follow: \"release\"` reads") ||
+		!strings.Contains(f.Problem, "`follow: \"head\"`") || !strings.Contains(f.Problem, "hold at") {
+		t.Errorf("a tagless branch under release = %+v, want the ref problem naming head and a hold", f)
+	}
+	res = u.check(t, u.want(t, "main", "head"), true)
+	if got := listLabels(res.Record.Check.List); got != shortCommit(tip)+"*" || res.Record.Check.Problem != "" {
+		t.Errorf("under head the tagless branch lists %q (%s), want its tip", got, res.Record.Check.Problem)
+	}
+	u.release(t, "v2.0.0", map[int]string{14: "fourteen", 20: "twenty", 21: "x"})
+	res = u.check(t, u.want(t, "main", "release:agent@"), true)
+	if f := res.Record.Check; !strings.Contains(f.Problem, "`follow: \"release:agent@\"` reads (a tag named `agent@`") {
+		t.Errorf("release:agent@ over v-tags = %+v, want the ref problem naming the prefix", f)
+	}
+}

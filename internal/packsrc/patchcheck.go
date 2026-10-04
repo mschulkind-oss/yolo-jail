@@ -264,8 +264,35 @@ func (s *Store) findCandidates(a Addr, follow FollowRule, base string, force boo
 		found.Problem = "could not list " + a.Repo + "'s version tags: " + oneLine(err)
 		return found
 	}
+	if follow.Kind == FollowRelease && len(versions) == 0 {
+		// TWO EMPTY LISTS, TOLD APART (§8.1, PF-D27): versions that all predate the series' base are
+		// an empty list, the base built and nothing held (§6.4); a branch carrying no version the
+		// rule reads at all is a ref problem, since a release rule there follows nothing ever and
+		// the fork would sit at its base for good with no word of why.
+		merged, err := s.versionsContaining(mirror, name, "", follow)
+		switch {
+		case err != nil:
+			found.Problem = "could not list " + a.Repo + "'s version tags: " + oneLine(err)
+			return found
+		case len(merged) == 0:
+			found.Problem = noVersionProblem(a, follow)
+			return found
+		}
+	}
 	found.List = walkList(follow, tip, versions)
 	return found
+}
+
+// noVersionProblem is the reason for a branch on which a release rule finds no version tag at all:
+// what the rule reads, and the spellings that follow the branch anyway or hold it.
+func noVersionProblem(a Addr, follow FollowRule) string {
+	reads := "a tag named a semantic version, optionally `v`-led"
+	if follow.Prefix != "" {
+		reads = "a tag named `" + follow.Prefix + "` and a semantic version"
+	}
+	return "?ref=" + a.Ref + " of " + a.Repo + " carries no version tag that `follow: \"" + follow.String() +
+		"\"` reads (" + reads + ", never a pre-release), so it follows nothing — `follow: \"head\"` " +
+		"follows the branch's commits, or name a tag or a full commit as the ?ref= to hold at"
 }
 
 // ensureBase makes the series' base present in the mirror, fetching it by its id when no branch or
@@ -319,13 +346,17 @@ type taggedVersion struct {
 	v      Version
 }
 
-// versionsContaining lists the version tags merged into branch (a full ref name) that contain base,
-// under follow's grammar, releases only, newest first by precedence. A tag naming no commit is
-// left out by git itself; ties in precedence keep the tag whose name sorts last, so the order is
-// the same on every machine.
+// versionsContaining lists the version tags merged into branch (a full ref name) that contain base
+// (every one merged, when base is ""), under follow's grammar, releases only, newest first by
+// precedence. A tag naming no commit is left out by git itself; ties in precedence keep the tag
+// whose name sorts last, so the order is the same on every machine.
 func (s *Store) versionsContaining(mirror, branch, base string, follow FollowRule) ([]taggedVersion, error) {
-	out, err := s.run(mirror, "for-each-ref", "--merged="+branch, "--contains="+base,
-		"--format=%(refname:strip=2) %(objectname) %(*objectname)", "refs/tags")
+	args := []string{"for-each-ref", "--merged=" + branch}
+	if base != "" {
+		args = append(args, "--contains="+base)
+	}
+	out, err := s.run(mirror, append(args, "--format=%(refname:strip=2) %(objectname) %(*objectname)",
+		"refs/tags")...)
 	if err != nil {
 		return nil, err
 	}

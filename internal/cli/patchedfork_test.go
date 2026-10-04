@@ -359,3 +359,54 @@ func TestPackStatusAfterAnEditNamesNoStaleCandidate(t *testing.T) {
 		t.Errorf("status shows the release rule's candidate under head:\n%s", out)
 	}
 }
+
+// A TAGLESS UPSTREAM UNDER THE DEFAULT RULE is a ref problem, never a silent stay at the series'
+// base (§8.1, PF-D27): update fails naming `follow: "head"` and a hold, and status says the same.
+func TestPackUpdateOnATaglessUpstreamNamesFollowHead(t *testing.T) {
+	f := newPatchedFixture(t, "")
+	upstreamGit(t, f.repo, "tag", "-d", "v1.0.0")
+	f.commitMsg(t, "untagged one", "", map[int]string{14: "fourteen"})
+	f.commitMsg(t, "untagged two", "", map[int]string{14: "fourteen", 20: "twenty"})
+	rc, out, errw := packVerb(t, "update")
+	if rc == 0 {
+		t.Errorf("update exited 0 on a branch release reads no version on:\n%s", out)
+	}
+	for _, w := range []string{"carries no version tag that `follow: \"release\"` reads", "`follow: \"head\"`"} {
+		if !strings.Contains(errw, w) {
+			t.Errorf("update lacks %q:\n%s", w, errw)
+		}
+	}
+	if strings.Contains(out, "takes the series") {
+		t.Errorf("update replayed a candidate a tagless branch under release does not name:\n%s", out)
+	}
+	_, out, _ = packVerb(t, "status")
+	if !strings.Contains(out, "`follow: \"head\"` follows the branch's commits") {
+		t.Errorf("status does not name follow head for a tagless branch:\n%s", out)
+	}
+}
+
+// VERSIONS THAT ALL PREDATE THE BASE are an empty list, not a ref problem: the first advance's
+// fallback is the series' base, which update names as the base and not as an upstream version.
+func TestPackUpdateNamesTheBaseFallbackAsTheBase(t *testing.T) {
+	f := newPatchedFixture(t, "")
+	upstreamGit(t, f.repo, "tag", "-d", "v1.0.0")
+	// A version on a history the base is not on, merged into main: merged, and older than the base.
+	upstreamGit(t, f.repo, "checkout", "-q", "--orphan", "old")
+	upstreamGit(t, f.repo, "rm", "-rqf", ".")
+	writeFile(t, filepath.Join(f.repo, "old.txt"), "old\n")
+	upstreamGit(t, f.repo, "add", "-A")
+	upstreamGit(t, f.repo, "commit", "-qm", "old line")
+	upstreamGit(t, f.repo, "tag", "v0.9.0")
+	upstreamGit(t, f.repo, "checkout", "-q", "main")
+	upstreamGit(t, f.repo, "merge", "-q", "--allow-unrelated-histories", "-m", "merge old", "old")
+	rc, out, errw := packVerb(t, "update")
+	if rc != 0 {
+		t.Fatalf("update rc=%d\n%s\n%s", rc, out, errw)
+	}
+	if want := "the series' base " + shortSHA(f.base) + " (no version of the branch contains it) takes the series"; !strings.Contains(out, want) {
+		t.Errorf("update lacks %q:\n%s", want, out)
+	}
+	if strings.Contains(out, "upstream "+shortSHA(f.base)) {
+		t.Errorf("update labels the series' base as an upstream version:\n%s", out)
+	}
+}
