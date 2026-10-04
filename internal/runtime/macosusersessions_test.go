@@ -172,6 +172,44 @@ func TestListSessionsSkipsASymlinkAtASessionsName(t *testing.T) {
 	}
 }
 
+// TestListSessionsLeavesOutAnotherAccountsSessions: the session base is the machine-wide /tmp, so
+// on a Mac with more than one user another account's session dirs sit beside this one's. Such a
+// dir is 0700 and its lock cannot be opened, so listed it would read as unknown: a "starting or
+// unknown" row in `yolo ps` and a name every staging sweep keeps. The listing reads only the dirs
+// this user owns, so a live session of another account, record and all, is not listed, and
+// neither is it a macos-user session. The owner seam stands in for the other account, since no
+// unprivileged test can make a dir as one.
+func TestListSessionsLeavesOutAnotherAccountsSessions(t *testing.T) {
+	base := t.TempDir()
+	plantSession(t, base, "yolo-theirs-1", "live", &SessionRecord{Notch: NotchMacosUser, Workspace: "/theirs", Name: "yolo-theirs-1"})
+
+	if sessions, ok := ListSessions(base); !ok || len(sessions) != 1 {
+		t.Fatalf("as the dir's owner ListSessions = %+v, %v; want the one session (the fixture is wrong otherwise)", sessions, ok)
+	}
+
+	prev := sessionOwner
+	sessionOwner = func() int { return os.Geteuid() + 1 }
+	t.Cleanup(func() { sessionOwner = prev })
+	sessions, ok := ListSessions(base)
+	if !ok {
+		t.Fatal("ListSessions reported that it could not list")
+	}
+	if len(sessions) != 0 {
+		t.Errorf("listed another account's session dirs: %+v", sessions)
+	}
+	if mu, _ := MacosUserSessions(base); len(mu) != 0 {
+		t.Errorf("MacosUserSessions listed another account's session dirs: %+v", mu)
+	}
+}
+
+// TestTheSessionOwnerIsThisProcesssEffectiveUID: the seam's production answer, so a test that
+// moves it cannot stand in for a filter that compares against anything else.
+func TestTheSessionOwnerIsThisProcesssEffectiveUID(t *testing.T) {
+	if got := sessionOwner(); got != os.Geteuid() {
+		t.Errorf("sessionOwner() = %d, want the effective uid %d", got, os.Geteuid())
+	}
+}
+
 // TestWriteSessionRecordIsPrivateAndWrittenOnce: the record is 0600 (the sandbox account's grant
 // on the dir is search alone, and the record names a host path), and a second write refuses
 // rather than replacing the first.

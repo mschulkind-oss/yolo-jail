@@ -221,3 +221,56 @@ func TestSessionStagingNamesMatchesByWorkspaceKey(t *testing.T) {
 		t.Errorf("names = %v, want only the live session's yolo-a-live", names)
 	}
 }
+
+// TestSessionStagingNamesIgnoresAnotherAccountsSession: another account's session dir under the
+// machine-wide base keeps none of this user's staging. Its workspace key would otherwise select
+// a name this user's sweeps then never reclaim. A dir another account owns needs root to make,
+// so this runs only as root (the runtime package's owner-seam test covers the filter everywhere).
+func TestSessionStagingNamesIgnoresAnotherAccountsSession(t *testing.T) {
+	if os.Geteuid() != 0 {
+		t.Skip("needs root to make a session dir another account owns")
+	}
+	base := redirectSessions(t)
+	agents := t.TempDir()
+	plantSession(t, base, "yolo-theirs", "live", "/theirs")
+	dirs, err := filepath.Glob(paths.HostServicesSessionGlob(base))
+	if err != nil || len(dirs) != 1 {
+		t.Fatalf("planted session dirs = %v, %v; want one", dirs, err)
+	}
+	if err := os.Lchown(dirs[0], 65534, 65534); err != nil {
+		t.Fatal(err)
+	}
+	mustMkdir(t, filepath.Join(agents, "yolo-theirs"))
+	names, ok := SessionStagingNames(agents, base)
+	if !ok {
+		t.Fatal("SessionStagingNames could not list")
+	}
+	if len(names) != 0 {
+		t.Errorf("names = %v; another account's session keeps none of this user's staging", names)
+	}
+}
+
+// TestAStagingSweepDeclinesWhenTheSessionsCannotBeListed: a session listing that could not run is
+// not one that found no sessions, so the sweep deletes nothing, as it does when the container
+// runtime cannot be asked, and says why. A base the glob refuses (an unclosed bracket in its
+// path) is the one way the listing fails.
+func TestAStagingSweepDeclinesWhenTheSessionsCannotBeListed(t *testing.T) {
+	bad := filepath.Join(t.TempDir(), "unlistable[")
+	mustMkdir(t, bad)
+	prev := paths.HostSingletonDir
+	paths.HostSingletonDir = bad
+	t.Cleanup(func() { paths.HostSingletonDir = prev })
+	o, gs := baseOpts(t)
+	o.Apply = true // runtime podman, which answers and lists nothing
+	orphan := plantStaging(t, filepath.Join(gs, "agents"), "yolo-d-orphan")
+
+	var buf bytes.Buffer
+	o.Out = &buf
+	Run(o)
+	if _, err := os.Stat(orphan); err != nil {
+		t.Errorf("the sweep removed %s although the sessions could not be listed:\n%s", orphan, buf.String())
+	}
+	if !strings.Contains(buf.String(), "could not list the host-services sessions; declining to sweep") {
+		t.Errorf("the sweep does not say why it declined:\n%s", buf.String())
+	}
+}

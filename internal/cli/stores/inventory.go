@@ -184,7 +184,7 @@ func Inventory(o Options) Report {
 	rep.Stores = append(rep.Stores, scratchStores(o, rt)...)
 	rep.Stores = append(rep.Stores, durableStores(o, rt)...)
 	rep.Stores = append(rep.Stores, macosUserStores(o)...)
-	rep.Stores = append(rep.Stores, nixStores(o)...)
+	rep.Stores = append(rep.Stores, nixStores(o, rt)...)
 	return rep
 }
 
@@ -734,11 +734,28 @@ var nixOutputClasses = []nixOutputClass{
 // host's with the gcroots dir unmounted, so a jail cannot tell rooted from
 // unrooted. A row that claimed a reclaimer an in-jail yolo will never run would
 // be exactly the kind of unchecked claim this command exists to replace.
-func storeOutputReclaimer(inJail bool) (Reclaimer, Verdict, string) {
+//
+// IT IS RUNTIME-DEPENDENT TOO. The pass asks a container runtime which prefix each
+// running jail executes, so on macos-user, which runs no container, `yolo prune`
+// prints it as not applicable and a launch runs no post-launch slot at all. The
+// reclaimer is still yolo's, run by a container runtime on the same Mac, so the
+// row names that runtime as its trigger instead of the macos-user prune that
+// declines it.
+func storeOutputReclaimer(inJail bool, rt string) (Reclaimer, Verdict, string) {
 	if inJail {
 		return Reclaimer{Detail: "host-only — an in-jail yolo cannot tell rooted from unrooted"},
 			VerdictHuman,
 			"a HOST yolo reclaims these; from in here nothing does"
+	}
+	if rt == macosUserRuntime {
+		return Reclaimer{
+				Func:   "SupersededStoreOutputs",
+				Detail: "unrooted only, by name; under a container runtime only",
+				Trigger: "a container launch's post-launch slot (24h) + " +
+					"`YOLO_RUNTIME=container yolo prune --apply` (or YOLO_RUNTIME=podman)",
+			}, VerdictYolo,
+			"macos-user's launches and its `yolo prune` never run this pass; a container runtime on " +
+				"this Mac does, and with none, nothing does"
 	}
 	return Reclaimer{
 		Func:    "SupersededStoreOutputs",
@@ -755,7 +772,7 @@ func storeOutputReclaimer(inJail bool) (Reclaimer, Verdict, string) {
 // build on the machine is exactly what §5.5 forbids, and it is why the rooted /
 // unrooted split the design reports is absent here and said to be absent rather
 // than guessed.
-func nixStores(o Options) []Store {
+func nixStores(o Options, rt string) []Store {
 	entries, err := os.ReadDir(o.NixStore)
 	if err != nil {
 		var out []Store
@@ -791,7 +808,7 @@ func nixStores(o Options) []Store {
 		reclaimer := Reclaimer{Detail: "nix store gc only, which nothing runs on its own"}
 		verdict, extra := VerdictHuman, ""
 		if c.reaped {
-			reclaimer, verdict, extra = storeOutputReclaimer(o.InJail())
+			reclaimer, verdict, extra = storeOutputReclaimer(o.InJail(), rt)
 		}
 		note := c.note
 		if extra != "" {
@@ -995,15 +1012,37 @@ func macosUserStores(o Options) []Store {
 }
 
 // macosUserPerWorkspaceLeaves are the state dir's children that hold one copy per workspace,
-// keyed by the workspace's container name: what each copy is, and the spelling of one copy under
-// the child (internal/macosuser's StagedPackRoot, StagedHomeOverlay, StagedCtxRoot and
-// SandboxEnvFile build these paths).
-var macosUserPerWorkspaceLeaves = map[string]struct{ what, copy string }{
-	"packs":        {"each workspace's staged pack tree", "<cname>"},
-	"home-overlay": {"each workspace's staged skills and briefings", "<cname>"},
-	"ctx":          {"each workspace's staged context tree (its /ctx)", "<cname>"},
-	"env":          {"each workspace's session environment files", "<cname>.*"},
+// keyed by the workspace's container name: what each copy is, and the command that removes one
+// workspace's copy, spelled from the same internal/macosuser functions that build the paths a
+// launch writes.
+//
+// THE REMOVAL NAMES EACH PATH LITERALLY, NEVER A GLOB. The user's own shell expands a glob before
+// sudo runs, and env/ is a dir only root can list (SandboxEnvDirCommands makes it 0700), so a
+// pattern there matches nothing: zsh, macOS's default shell, refuses with "no matches found", and
+// bash hands rm the literal pattern, which -f then ignores with exit 0.
+var macosUserPerWorkspaceLeaves = map[string]struct {
+	what string
+	// perDir says each workspace's copy is one dir, so the child's entries count workspaces.
+	perDir bool
+	remove func(stateDir string) string
+}{
+	"packs": {"each workspace's staged pack tree", true, func(sd string) string {
+		return "sudo rm -rf " + macosuser.StagedPackRoot(cnamePlaceholder, sd)
+	}},
+	"home-overlay": {"each workspace's staged skills and briefings", true, func(sd string) string {
+		return "sudo rm -rf " + macosuser.StagedHomeOverlay(cnamePlaceholder, sd)
+	}},
+	"ctx": {"each workspace's staged context tree (its /ctx)", true, func(sd string) string {
+		return "sudo rm -rf " + macosuser.StagedCtxRoot(cnamePlaceholder, sd)
+	}},
+	"env": {"each workspace's session environment files", false, func(sd string) string {
+		return "sudo rm -f " + macosuser.SandboxEnvFile(cnamePlaceholder, sd) + " " +
+			macosuser.SandboxDaemonEnvFile(cnamePlaceholder, sd)
+	}},
 }
+
+// cnamePlaceholder stands for a workspace's container name in a command a note prints.
+const cnamePlaceholder = "<cname>"
 
 // macosUserStateRows is one row per child of the root-owned state dir, plus one for its loose
 // files (the per-workspace Seatbelt profiles). exists is false only when the dir is absent.
@@ -1043,12 +1082,12 @@ func macosUserStateRows(o Options, stateDir string) (rows []Store, exists bool) 
 		switch {
 		case perWorkspace:
 			s.Reclaimer = Reclaimer{Detail: "a launch replaces its own workspace's copy; nothing removes another's"}
-			if n, ok := countEntries(path); ok && leaf.copy == "<cname>" {
+			if n, ok := countEntries(path); ok && leaf.perDir {
 				s.Count, s.CountLabel = n, "workspaces"
 			}
 			s.Note = leaf.what + ", root-owned and replaced in place by that workspace's next launch. A " +
 				"workspace you no longer launch keeps its copy until you remove it: " +
-				"`sudo rm -rf " + filepath.Join(path, leaf.copy) + "`; " + teardown
+				"`" + leaf.remove(stateDir) + "`; " + teardown
 		case name == "bin":
 			s.Reclaimer = Reclaimer{Detail: "every launch replaces it"}
 			s.Note = "the staged yolo binary and the sandbox's own yolo binaries, one copy for the " +

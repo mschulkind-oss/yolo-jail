@@ -134,8 +134,24 @@ func TestTheMacosUserSectionListsTheStateDirAndTheHomesStores(t *testing.T) {
 			t.Errorf("the packs row's note does not name %q: %s", want, packs.Note)
 		}
 	}
-	if note := rows["macos.state.env"].Note; !strings.Contains(note, filepath.Join(stateDir, "env", "<cname>.*")) {
-		t.Errorf("the env row's note does not name its per-workspace files: %s", note)
+	// env/ is root's and 0700, so the user's own shell cannot list it: a glob there is expanded
+	// before sudo runs and matches nothing (zsh refuses "no matches found"; bash hands rm the
+	// literal pattern, which -f then ignores, exit 0). The note names each file literally.
+	env := filepath.Join(stateDir, "env")
+	envNote := rows["macos.state.env"].Note
+	wantRm := "`sudo rm -f " + filepath.Join(env, "<cname>.env") + " " + filepath.Join(env, "<cname>.daemons.env") + "`"
+	if !strings.Contains(envNote, wantRm) {
+		t.Errorf("the env row's note does not name its per-workspace files as %s: %s", wantRm, envNote)
+	}
+	if strings.Contains(envNote, "*") {
+		t.Errorf("the env row's note names a glob the user's shell cannot expand in a dir only root can list: %s", envNote)
+	}
+	// The spellings are internal/macosuser's own, so the note cannot drift from the files.
+	if got := macosuser.SandboxEnvFile("<cname>", stateDir); got != filepath.Join(env, "<cname>.env") {
+		t.Errorf("SandboxEnvFile = %s; the env row's note names %s", got, filepath.Join(env, "<cname>.env"))
+	}
+	if got := macosuser.SandboxDaemonEnvFile("<cname>", stateDir); got != filepath.Join(env, "<cname>.daemons.env") {
+		t.Errorf("SandboxDaemonEnvFile = %s; the env row's note names %s", got, filepath.Join(env, "<cname>.daemons.env"))
 	}
 	for _, root := range walked {
 		if root == home || strings.HasPrefix(root, filepath.Join(home, "Documents")) ||
@@ -172,6 +188,11 @@ func TestAnUnreadableStateDirChildIsUnknownAndNamesSudoDu(t *testing.T) {
 			}
 			if !strings.Contains(s.Note, "sudo du -sh "+env) {
 				t.Errorf("env/'s note does not name `sudo du -sh %s`: %s", env, s.Note)
+			}
+			// The unreadable dir is exactly where a glob cannot expand, so the removal it names
+			// spells each file.
+			if !strings.Contains(s.Note, "sudo rm -f "+filepath.Join(env, "<cname>.env")) || strings.Contains(s.Note, "*") {
+				t.Errorf("env/'s note does not name its files literally: %s", s.Note)
 			}
 		})
 	}
@@ -224,6 +245,8 @@ func TestTheMacosUserSectionIsRendered(t *testing.T) {
 func TestContainerOnlySectionsSayTheyDoNotApplyOnMacosUser(t *testing.T) {
 	o, _ := testOptions(t)
 	o.DetectRuntime = func() string { return "macos-user" }
+	writeFile(t, filepath.Join(o.NixStore, "aaa-yolo-jail-install-prefix", "bin", "yolo"), 10)
+	writeFile(t, filepath.Join(o.NixStore, "bbb-yolo-jail-go-0-dev", "bin", "yolo"), 10)
 	rep := Inventory(o)
 	for _, section := range []string{SectionImages, SectionVolumes} {
 		rows := sectionRows(rep, section)
@@ -237,6 +260,33 @@ func TestContainerOnlySectionsSayTheyDoNotApplyOnMacosUser(t *testing.T) {
 				t.Errorf("%s row = %+v", section, s)
 			}
 		}
+	}
+
+	// The store-output pass is a container runtime's: macos-user's own prune prints it as not
+	// applicable and its launches run no post-launch slot. So the rows it covers name the
+	// runtime that runs it rather than the bare `yolo prune --apply` the same Mac's macos-user
+	// prune declines to run.
+	for _, key := range []string{"nix.install-prefix", "nix.go-build"} {
+		s := storeByKey(t, rep, key)
+		if s.Reclaimer.Func != "SupersededStoreOutputs" || s.Verdict != VerdictYolo {
+			t.Errorf("%s: reclaimer %+v verdict %q; a container runtime on this Mac still runs the pass", key, s.Reclaimer, s.Verdict)
+		}
+		if !strings.Contains(s.Reclaimer.Trigger, "YOLO_RUNTIME=container yolo prune --apply") ||
+			!strings.Contains(s.Reclaimer.Trigger, "YOLO_RUNTIME=podman") ||
+			!strings.Contains(s.Reclaimer.Detail, "container runtime") {
+			t.Errorf("%s on macos-user names reclaimer %+v; want the container runtime that runs it", key, s.Reclaimer)
+		}
+		if strings.HasPrefix(s.Reclaimer.Trigger, "post-launch slot") {
+			t.Errorf("%s on macos-user claims the post-launch slot, which no macos-user launch runs: %q", key, s.Reclaimer.Trigger)
+		}
+		if !strings.Contains(s.Note, "macos-user") {
+			t.Errorf("%s's note does not say macos-user's prune and launches do not run the pass: %s", key, s.Note)
+		}
+	}
+	// A container runtime's rows keep the reclaimer as it was.
+	o.DetectRuntime = func() string { return "podman" }
+	if s := storeByKey(t, Inventory(o), "nix.install-prefix"); s.Reclaimer.Trigger != "post-launch slot (24h) + yolo prune --apply" {
+		t.Errorf("under podman the install-prefix trigger is %q", s.Reclaimer.Trigger)
 	}
 }
 

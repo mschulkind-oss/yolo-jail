@@ -439,3 +439,28 @@ func TestPsOnMacosUserWithNoSessionsSaysSoAndWhereContainersAre(t *testing.T) {
 		t.Errorf("JSON report = %+v, want enumerated with no jails", rep)
 	}
 }
+
+// TestPsOnMacosUserLeavesOutAnotherAccountsSessions: the session base is the machine-wide /tmp,
+// so on a Mac with more than one user another account's session dirs sit beside this one's.
+// `yolo ps` lists this user's alone; listed, another account's would be a row named after its
+// dir. A dir another account owns needs root to make, so this runs only as root (the runtime
+// package's owner-seam test covers the filter everywhere).
+func TestPsOnMacosUserLeavesOutAnotherAccountsSessions(t *testing.T) {
+	if os.Geteuid() != 0 {
+		t.Skip("needs root to make a session dir another account owns")
+	}
+	t.Setenv("HOME", t.TempDir())
+	base := redirectSessionBase(t)
+	theirs := plantPsSession(t, base, "yolo-theirs-1", "live",
+		&runtime.SessionRecord{Notch: runtime.NotchMacosUser, Workspace: "/Users/them/proj", Name: "yolo-theirs-1"})
+	must(t, os.Lchown(theirs, 65534, 65534))
+
+	var buf bytes.Buffer
+	if rc := psRun(noExecDeps(t, &buf, "")); rc != 0 {
+		t.Fatalf("rc = %d", rc)
+	}
+	if out := buf.String(); strings.Contains(out, "yolo-theirs-1") || strings.Contains(out, filepath.Base(theirs)) ||
+		!strings.Contains(out, "No running macos-user sessions.") {
+		t.Errorf("yolo ps listed another account's session:\n%s", out)
+	}
+}

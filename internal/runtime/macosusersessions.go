@@ -148,6 +148,11 @@ func LockSession(dir string, exclusive bool) (*os.File, SessionLiveness) {
 	return f, SessionGone
 }
 
+// sessionOwner is the uid whose session dirs ListSessions lists: this process's effective uid.
+// A variable so a test can stand in for another account, which no unprivileged test can make a
+// dir as.
+var sessionOwner = os.Geteuid
+
 // Session is one host-services session dir and what it says.
 type Session struct {
 	// Dir is the session's host-services dir.
@@ -167,15 +172,17 @@ type Session struct {
 // and its record. ok is false only when the listing itself could not run (the glob refused its
 // pattern), which a caller must not read as "no sessions".
 //
-// THIS USER'S DIRS ONLY: a dir another account made is 0700 and its lock cannot be opened, so it
-// could only ever list as unknown, and nothing this user's yolo does depends on another
-// account's sessions. A symlink at a session's name is not a session either.
+// THIS USER'S DIRS ONLY (sessionOwner): base is the machine-wide /tmp, and a dir another account
+// made is 0700 and its lock cannot be opened, so it could only ever list as unknown, and would
+// then show in `yolo ps` and join every staging sweep's keep set, while nothing this user's yolo
+// does depends on another account's sessions. A symlink at a session's name is not a session
+// either.
 func ListSessions(base string) (sessions []Session, ok bool) {
 	matches, err := filepath.Glob(paths.HostServicesSessionGlob(base))
 	if err != nil {
 		return nil, false
 	}
-	euid := os.Geteuid()
+	euid := sessionOwner()
 	for _, dir := range matches {
 		st, err := os.Lstat(dir)
 		if err != nil || !st.IsDir() {

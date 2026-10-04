@@ -621,3 +621,41 @@ func TestHousekeepingKeepsALiveMacosUserSessionsStaging(t *testing.T) {
 		t.Error("a real orphan survived, so the sweep did not run and the keep above proves nothing")
 	}
 }
+
+// TestHousekeepingDeclinesTheStagingSweepWhenTheSessionsCannotBeListed: a session listing that
+// could not run is not one that found no sessions, so the slot's staging sweep deletes nothing,
+// as it does when the container runtime cannot be asked. A base the glob refuses (an unclosed
+// bracket in its path) is the one way the listing fails.
+func TestHousekeepingDeclinesTheStagingSweepWhenTheSessionsCannotBeListed(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("YOLO_VERSION", "")
+	t.Setenv(autoReapOptOutEnv, "")
+	bad := filepath.Join(t.TempDir(), "unlistable[")
+	if err := os.Mkdir(bad, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	prev := paths.HostSingletonDir
+	paths.HostSingletonDir = bad
+	t.Cleanup(func() { paths.HostSingletonDir = prev })
+	o := &Options{Workspace: t.TempDir()}
+	fillDefaults(o)
+	o.Now = time.Now
+	o.Exec = func(argv []string, _ string, _ []string, _ time.Duration) ExecResult {
+		return ExecResult{Ran: true, RC: 0, Stdout: ""}
+	}
+	orphan := filepath.Join(home, ".local", "share", "yolo-jail", "agents", "yolo-gone-22222222")
+	if err := os.MkdirAll(filepath.Join(orphan, "pack-trees"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	old := time.Now().Add(-30 * 24 * time.Hour)
+	if err := os.Chtimes(orphan, old, old); err != nil {
+		t.Fatal(err)
+	}
+
+	o.reapSmallAutomaticClasses("podman", "yolo-launching-other", nil)
+
+	if !fileExists(orphan) {
+		t.Errorf("the housekeeping slot removed %s although the sessions could not be listed", orphan)
+	}
+}
