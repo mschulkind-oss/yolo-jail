@@ -139,7 +139,9 @@ func captureHost(args []string, out, errw io.Writer, color bool) int {
 	// (docs/design/patched-extensions.md §6.1, PF-D12 generalized): the check forced, then the
 	// pending candidate built, or the good build's own inputs rebuilt, through the swap.
 	if strings.Contains(bin, "/") {
-		return captureTree(bin, out, errw, color)
+		if rc, handled := captureTree(bin, out, errw, color); handled {
+			return rc
+		}
 	}
 	// ValidBinName before anything else touches the filesystem: the name becomes a staging
 	// directory and a lock filename, and packdecl's own gate is the one that decides what a
@@ -325,8 +327,12 @@ func captureFork(f packload.Fork, out, errw io.Writer, color bool) int {
 // capture does. On the host only: the fork's mirror, series and record live there.
 func capturePatchedFork(f packload.Fork, out, errw io.Writer, color bool) int {
 	if config.InJail() {
-		fmt.Fprintf(errw, "yolo capture: %s is patched, checked, replayed and built on the host — "+
-			"run `yolo capture %s` there\n", f.Label(), f.CaptureArg())
+		kind := "patched fork"
+		if f.IsTree() {
+			kind = "patched extension"
+		}
+		fmt.Fprintf(errw, "yolo capture: %s is a %s, checked, replayed and built on the host — "+
+			"run `yolo capture %s` there\n", f.Label(), kind, f.CaptureArg())
 		return 1
 	}
 	r := advancePatchedFork(f, advanceOptions{platform: captureJailPlatform(), out: out, errw: errw, color: color,
@@ -341,30 +347,27 @@ func capturePatchedFork(f packload.Fork, out, errw io.Writer, color bool) int {
 }
 
 // captureTree is `yolo capture <pack>/<name>`: a patched extension's explicit build, as
-// capturePatchedFork is a patched fork's. A key the selection carries no extension under is refused,
-// naming the ones it does.
-func captureTree(key string, out, errw io.Writer, color bool) int {
+// capturePatchedFork is a patched fork's. A key no selected pack declares an extension under is
+// refused naming the ones that do; with none declared, or a config that cannot be read, it handles
+// nothing, and the name is refused as no program's.
+func captureTree(key string, out, errw io.Writer, color bool) (int, bool) {
 	sel := selectConfiguredHostPacks()
 	if sel.loadErr != nil {
-		fmt.Fprintf(errw, "yolo capture: your config could not be read (%v) — fix what it names in %s, then "+
-			"run `yolo capture %s` again\n", sel.loadErr, paths.UserConfigPath(), key)
-		return 1
+		return 0, false
 	}
 	var keys []string
 	for _, f := range packload.PatchedTrees(sel.packs) {
 		if f.Key() == key {
-			return capturePatchedFork(f, out, errw, color)
+			return capturePatchedFork(f, out, errw, color), true
 		}
 		keys = append(keys, f.Key())
 	}
 	if len(keys) == 0 {
-		fmt.Fprintf(errw, "yolo capture: %q names no patched extension — none of your packs declares one; `yolo "+
-			"capture <program>` captures a program\n", key)
-		return 1
+		return 0, false
 	}
-	fmt.Fprintf(errw, "yolo capture: %q names no patched extension your packs declare — they declare %s\n",
-		key, strings.Join(keys, ", "))
-	return 1
+	fmt.Fprintf(errw, "yolo capture: %q names no patched extension your packs declare — they declare %s; "+
+		"run `yolo capture <pack>/<name>` with one of them\n", key, strings.Join(keys, ", "))
+	return 1, true
 }
 
 // captureAgain is the clause most of a capture's stops end their next step with: running it again
