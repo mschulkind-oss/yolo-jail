@@ -9,6 +9,7 @@ package run
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -64,10 +65,17 @@ func TestALaunchHandsAPatchedForkToItsAdvance(t *testing.T) {
 	patchedLaunchHome(t)
 	var gotPins []packload.ForkPin
 	var hand func(string, HandedFork) error
-	var handedFile string
+	var handedFile, ws string
+	var gotReq ForkBuildRequest
 	argv, printed := fakePodmanLaunch(t, func(o *Options) {
+		ws = o.Workspace
 		o.BuildForks = func(req ForkBuildRequest) map[string]entrypoint.ForkDelivery {
-			gotPins, hand = req.Pins, req.Hand
+			gotPins, hand, gotReq = req.Pins, req.Hand, req
+			// THE LAUNCH'S OWN WRITERS, teed into its launch.log, which a failed build's line names.
+			if req.Stdout != nil && req.Stderr != nil {
+				fmt.Fprintln(req.Stdout, "advance-stdout-marker")
+				fmt.Fprintln(req.Stderr, "advance-stderr-marker")
+			}
 			if hand != nil {
 				if err := hand("tool", HandedFork{Key: "k-patched", Fork: "forkpack/tool", Commit: patchedBase, Patches: 1}); err != nil {
 					t.Errorf("Hand: %v", err)
@@ -92,6 +100,20 @@ func TestALaunchHandsAPatchedForkToItsAdvance(t *testing.T) {
 	}
 	if hand == nil {
 		t.Error("the request carries no Hand, so a move could reap the build this launch hands")
+	}
+	// THE RUNTIME AND THE WORKSPACE, which the advance's lines name (§9: Apple Container's capture
+	// jail; the launch.log a failed build's output is in).
+	if gotReq.Runtime != "podman" || gotReq.Workspace != ws {
+		t.Errorf("the request names runtime %q and workspace %q, want podman and %s", gotReq.Runtime, gotReq.Workspace, ws)
+	}
+	logged, err := os.ReadFile(filepath.Join(ws, ".yolo", LaunchLogName))
+	if err != nil {
+		t.Fatalf("the launch log: %v", err)
+	}
+	for _, m := range []string{"advance-stdout-marker", "advance-stderr-marker"} {
+		if !strings.Contains(string(logged), m) {
+			t.Errorf("what the advance writes through the request does not reach the launch log (%s missing):\n%s", m, logged)
+		}
 	}
 	if d := forkBuildsInArgv(t, argv); d["tool"].Key != "k-patched" {
 		t.Errorf("the jail is handed %+v, want the advance's key", d)

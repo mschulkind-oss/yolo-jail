@@ -489,8 +489,10 @@ func TestCaptureOfAPatchedForkBuildsThroughTheSwap(t *testing.T) {
 }
 
 // THE LAUNCH'S WIRED TRIGGER RUNS THE ADVANCE for a patched fork (TestALaunchWiresTheForkBuildTrigger's
-// shape): red if runRun stops wiring Options.BuildForks, or buildForksForLaunch stops sending a
-// patched fork to its advance.
+// shape): red if runRun stops wiring Options.BuildForks, if buildForksForLaunch stops sending a
+// patched fork to its advance, or if the wiring stops writing the advance to the launch's own
+// writers (the request's Stdout and Stderr, teed into its launch.log, which a failed build's line
+// names).
 func TestTheWiredTriggerRunsAPatchedForksAdvance(t *testing.T) {
 	fx := newPatchedAdvanceFixture(t, "")
 	fx.commit(t, "v1.1.0", map[int]string{14: "fourteen"})
@@ -505,12 +507,17 @@ func TestTheWiredTriggerRunsAPatchedForksAdvance(t *testing.T) {
 		t.Fatal("`yolo run` did not wire Options.BuildForks")
 	}
 	var got map[string]entrypoint.ForkDelivery
+	var launchOut, launchErr syncBuffer
 	quiet(t, func() {
 		got = seen.BuildForks(run.ForkBuildRequest{Pins: []packload.ForkPin{{Fork: fx.fork(t),
-			Reason: packload.PatchedForkPinReason}}, Platform: patchedTestPlatform})
+			Reason: packload.PatchedForkPinReason}}, Platform: patchedTestPlatform, Stdout: &launchOut, Stderr: &launchErr})
 	})
 	if got["tool"].Key == "" || len(fx.builds) != 1 {
 		t.Errorf("the wired trigger answered %+v after %d builds, want the advance's build", got, len(fx.builds))
+	}
+	if !strings.Contains(launchOut.String(), "built fork forkpack/tool") {
+		t.Errorf("the advance's lines did not reach the launch's writers:\nstdout: %s\nstderr: %s", launchOut.String(),
+			launchErr.String())
 	}
 }
 
