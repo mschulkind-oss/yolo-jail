@@ -133,14 +133,45 @@ func (o *Options) forkDeliveriesFor(rt string) map[string]entrypoint.ForkDeliver
 // noteMacosUserForks is FP-D3's line: a macos-user launch that carries a fork says it delivers no
 // program for it, and why. On this backend the build trigger sits below the arm's return and no
 // launch can read the capture store yet (install-capture.md hand-off H4), so a silent absence would
-// read as the fork being broken.
+// read as the fork being broken. A PATCHED fork says what it is too (docs/design/patched-forks.md
+// §9): its upstream is checked and its series replayed by the same fresh-launch slot, which this
+// backend never reaches either.
 func (o *Options) noteMacosUserForks() {
 	for _, p := range o.forkPinned {
 		o.pr(o.Stderr).print("[yellow]Warning: " + p.Fork.Bin + " is not delivered on macos-user[/yellow] — " +
-			"fork " + p.Fork.Pack + " builds it from source in a capture jail, and no macos-user launch " +
-			"can read the capture store yet (install-capture.md hand-off H4); run it on a container " +
-			"backend (YOLO_RUNTIME=podman).")
+			richtext.Escape(macosUserForkWhy(p.Fork)) + ".")
 	}
+}
+
+// macosUserForkWhy is why a macos-user launch delivers no program for fork f, ending in the next step:
+// the one clause FP-D3's warning prints and the sandbox's launcher for the program repeats
+// (macosUserForkWire), so `<bin>` typed in the sandbox says what the launch said.
+func macosUserForkWhy(f packload.Fork) string {
+	what := "fork " + f.Pack + " builds it from source in a capture jail"
+	if f.Patched() {
+		what = "fork " + f.Key() + " is a patched fork, whose upstream a fresh launch on a container backend " +
+			"checks and whose patch series it replays and builds in a capture jail — which no macos-user launch " +
+			"runs"
+	}
+	return what + ", and no macos-user launch can read the capture store yet (install-capture.md hand-off " +
+		"H4); run it on a container backend: YOLO_RUNTIME=container (Apple Container) or YOLO_RUNTIME=podman"
+}
+
+// macosUserForkWire is the fork decisions a macos-user launch hands its sandbox (entrypoint.ForkBuildsEnv):
+// each fork's program, with no build and the reason a macos-user launch delivers none
+// (macosUserForkWhy), so the sandbox's launcher for the program names this backend and the step that
+// runs it, never "the launch that started this jail built no <bin>", which names a container launch's
+// fault. "" when the launch carries no fork.
+func (o *Options) macosUserForkWire() string {
+	if len(o.forkPinned) == 0 {
+		return ""
+	}
+	d := make(map[string]entrypoint.ForkDelivery, len(o.forkPinned))
+	for _, p := range o.forkPinned {
+		d[p.Fork.Bin] = entrypoint.ForkDelivery{Reason: p.Fork.Bin + " is not delivered on macos-user: " +
+			macosUserForkWhy(p.Fork)}
+	}
+	return entrypoint.ForkBuildsWire(d)
 }
 
 // forkLockPath is the fork lock beside the user config.
@@ -189,7 +220,9 @@ func (o *Options) forkPins(packs []*packload.Pack) []packload.ForkPin {
 // each source-built program is pinned to — never only its ref — or why it has none and what pins
 // it, after one line for each pin this launch made (FP-D18) and each warning a pin left. Disclosures,
 // so none has a quiet switch (OQ-RO3). It returns the pins, for the build trigger that acts on them.
-func (o *Options) noteForkPins(packs []*packload.Pack) []packload.ForkPin {
+// rt is the backend: a macos-user launch builds no fork (FP-D3), so a patched fork's line there names
+// a container backend's launch as what builds an edited series.
+func (o *Options) noteForkPins(packs []*packload.Pack, rt string) []packload.ForkPin {
 	// NOT IN A CAPTURE OR BUILD JAIL (the one switch, CapturesDir returning ""): no fork is built
 	// or delivered from inside one, and the launch that started it has already said this line.
 	if o.CapturesDir() == "" {
@@ -212,7 +245,11 @@ func (o *Options) noteForkPins(packs []*packload.Pack) []packload.ForkPin {
 	for _, p := range pins {
 		if p.Fork.Patched() {
 			// No pin by design (PF-D16): its line is its series and its good build (patchedforkline.go).
-			line, warn := patchedForkLine(p)
+			rebuilds := "a fresh launch"
+			if rt == "macos-user" { // parity: Warned — macos-user builds no fork (FP-D3), so the line names a container backend's launch, and noteMacosUserForks says why
+				rebuilds = "a fresh launch on a container backend"
+			}
+			line, warn := patchedForkLine(p, rebuilds)
 			line = richtext.Escape(line)
 			if warn {
 				out.print("[yellow]  " + line + "[/yellow]")

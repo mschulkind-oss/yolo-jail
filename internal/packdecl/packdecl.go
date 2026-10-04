@@ -276,6 +276,9 @@ type Install struct {
 	// not a fork's. Provenance only: every line that says what a source-built program is names
 	// the pack that supplied its bytes, not only the pack that owns its name.
 	ForkedBy string `json:"forked_by,omitempty"`
+	// ForkRoot is the fork pack's root directory (Contribution.ForkRoot), which a patched fork's
+	// Patches is relative to; "" for every program that is not a fork's. Never serialized.
+	ForkRoot string `json:"-"`
 	// ModelMenu is the program's declared model menu, nil when it declares none. The
 	// Contribution field of the same name carries the reasoning; the generated launcher is its
 	// one reader (MM-D9, MM-D22).

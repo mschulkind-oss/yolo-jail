@@ -296,6 +296,20 @@ func (s *Store) Resolve(key string) (*Entry, error) {
 	return &Entry{Key: key, Root: entry, Tree: TreeDir(entry)}, nil
 }
 
+// Complete reports whether e's completion marker is still in place: whether the entry is still in
+// the store. A reap removes the marker FIRST (reapEntry), so a copy of e's tree checked with this
+// AFTER it ends is a copy of a whole entry whenever this says true — the one check a reader needs
+// that, unlike a materialize into a jail, has no vendor installer to fall back to when an entry is
+// reaped under it (docs/design/patched-forks.md PF-D48: the host floor's copy of a patched fork's
+// build, whose move reaps every build no running jail was handed).
+func (e *Entry) Complete() bool {
+	if e == nil || e.Root == "" {
+		return false
+	}
+	_, err := os.Stat(filepath.Join(e.Root, completeMarker))
+	return err == nil
+}
+
 // EntryKeys lists the keys of every COMPLETE entry in the store, sorted.
 //
 // AN ABSENT STORE IS AN EMPTY ONE, not an error: a machine that has never captured anything

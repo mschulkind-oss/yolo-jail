@@ -35,10 +35,20 @@ func GoodBuildLabel(g *packsrc.GoodBuild) string {
 // PatchCount is "N patch(es)".
 func PatchCount(n int) string { return fmt.Sprintf("%d %s", n, plural(n, "patch", "patches")) }
 
+// PatchedForkLine is a patched fork's line as `yolo host -- <bin>` prints it once the floor installed
+// the program (docs/design/patched-forks.md §7: every fork line names the series, and a later launch
+// carries the held suffix), and whether it is a warning: the jail's fork-block line, with rebuilds
+// naming the act that builds an edited series there.
+func PatchedForkLine(f packload.Fork, rebuilds string) (string, bool) {
+	return patchedForkLine(packload.ForkPin{Fork: f}, rebuilds)
+}
+
 // patchedForkLine is a patched fork's line in the launch's fork block, and whether it is a warning
 // (nothing runs, or something holds it): "fork <pack>: <bin> (in place of pack <base>'s) is a
-// patched fork of <source> + N patches (series S), at <good build>", then the held suffix.
-func patchedForkLine(p packload.ForkPin) (string, bool) {
+// patched fork of <source> + N patches (series S), at <good build>", then the held suffix. rebuilds
+// is the act that builds an edited series on this notch: a fresh launch, or a launch on a container
+// backend for a macos-user one, which builds no fork (FP-D3).
+func patchedForkLine(p packload.ForkPin, rebuilds string) (string, bool) {
 	f := p.Fork
 	head := "fork " + f.Pack + ": " + f.Bin + " (in place of pack " + f.Base + "'s) is a patched fork of " + f.Source
 	series, err := f.ReadSeries()
@@ -57,7 +67,7 @@ func patchedForkLine(p packload.ForkPin) (string, bool) {
 	line := head + ", at " + GoodBuildLabel(g)
 	recipe := packdecl.ForkSourcePatchedRecipe(f.Source, f.Build, f.Produces, series.Digest)
 	if g.Recipe != recipe {
-		return line + " with another series or build recipe — a fresh launch builds the edited one", true
+		return line + " with another series or build recipe — " + rebuilds + " builds the edited one", true
 	}
 	in, _, _, _ := f.CheckWant(series).Inputs()
 	if why := HeldSuffix(f, rec, in, series.Digest, recipe); why != "" {

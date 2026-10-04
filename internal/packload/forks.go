@@ -220,6 +220,9 @@ func ApplyForks(packs []*Pack) ([]*Pack, error) {
 		}
 		fork := forkContributionOf(packs, f)
 		base.Decl.Contributes[at] = forkedProgram(base.Decl.Contributes[at], fork, f.Pack)
+		// The fork pack's root, which a patched fork's series directory is relative to: a reader of
+		// the base's program (the host floor) reads the series through it.
+		base.Decl.Contributes[at].ForkRoot = f.Root
 	}
 	if len(problems) > 0 {
 		sort.Strings(problems)

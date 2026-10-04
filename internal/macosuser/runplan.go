@@ -708,6 +708,14 @@ func buildBootstrapEnv(workspace string, cfg, gitIdentity, sandboxEnv *jsonx.Ord
 		if v, ok := sandboxEnv.Get(durable.EnvVar); ok {
 			bootstrapEnv.Set(durable.EnvVar, v)
 		}
+		// THE FORK DECISIONS, relayed the same way (entrypoint.ForkBuildsEnv): the bootstrap generates
+		// the sandbox's launcher for a forked program, which bakes its bin's decision in. This backend
+		// delivers no fork's build (docs/design/forked-programs-as-packs.md FP-D3), and the launch says
+		// why per fork; relayed, the launcher repeats that reason and its next step when the program is
+		// typed, rather than blaming a launch that never meant to build it.
+		if v, ok := sandboxEnv.Get(entrypoint.ForkBuildsEnv); ok {
+			bootstrapEnv.Set(entrypoint.ForkBuildsEnv, v)
+		}
 	}
 	// host_files, IN TWO HALVES THAT COME FROM DIFFERENT PLACES, and the split is the
 	// credential boundary rather than a structure.

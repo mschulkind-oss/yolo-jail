@@ -91,3 +91,22 @@ func TestReapEntryReapsOneEntry(t *testing.T) {
 		t.Error("a key with a path in it was reaped")
 	}
 }
+
+// COMPLETE IS THE MARKER (Entry.Complete): an admitted entry is complete, and one a reap has begun
+// on — its marker the reap's first removal — is not, whatever of its tree is left; so a copy checked
+// after it ends is a copy of a whole entry whenever Complete still says so.
+func TestAnEntryIsCompleteUntilItsReapBegins(t *testing.T) {
+	s := &Store{Dir: t.TempDir()}
+	e := admitFixture(t, s, "x", "X\n")
+	if !e.Complete() {
+		t.Fatal("an admitted entry is not complete")
+	}
+	must(t, os.Remove(filepath.Join(e.Root, completeMarker)))
+	if e.Complete() {
+		t.Error("an entry whose marker is gone is still complete")
+	}
+	var none *Entry
+	if none.Complete() || (&Entry{}).Complete() {
+		t.Error("no entry is complete")
+	}
+}

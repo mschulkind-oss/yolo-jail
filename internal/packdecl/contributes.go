@@ -109,6 +109,12 @@ type Contribution struct {
 	// (packload.ApplyForks) sets it on the copy of the BASE's program it rewrites, naming the
 	// fork pack, so a reader of the base's program can say whose bytes it runs.
 	ForkedBy string `json:"-"`
+	// ForkRoot is NOT a manifest field either: the fork rewrite sets it beside ForkedBy, naming
+	// the fork pack's root directory, so a reader of the base's program can read a PATCHED fork's
+	// series (Patches is relative to it) with no pack loader of its own — the host floor, which is
+	// handed programs and not packs (docs/design/patched-forks.md §9). Never serialized: it is a
+	// host path, and a jail repeats the rewrite against its own tree.
+	ForkRoot string `json:"-"`
 
 	// Update is the argv that makes the program update ITSELF, with the bin omitted:
 	// `"update": ["install"]` for claude, `["update", "--self"]` for pi. Read only on
@@ -1191,7 +1197,7 @@ func (m *Manifest) InstallContributions() []Install {
 			// A base program the fork rewrite replaced the delivery of: the fork's address,
 			// recipe and outputs, and the fork pack's name for every line that says whose
 			// bytes these are. Copied, so an Install edited by a consumer cannot reach back.
-			in.Source, in.Build, in.ForkedBy = c.Source, c.Build, c.ForkedBy
+			in.Source, in.Build, in.ForkedBy, in.ForkRoot = c.Source, c.Build, c.ForkedBy, c.ForkRoot
 			in.Produces = append([]string(nil), c.Produces...)
 			// A patched fork's series directory and follow rule ride along, so every reader of
 			// the program can tell a patched fork from a plain one (Install.IsPatchedFork).

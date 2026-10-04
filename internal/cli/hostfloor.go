@@ -19,6 +19,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/hostpath"
 	"github.com/mschulkind-oss/yolo-jail/internal/packdecl"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
+	"github.com/mschulkind-oss/yolo-jail/internal/packsrc"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/pidlock"
 	"github.com/mschulkind-oss/yolo-jail/internal/richtext"
@@ -98,12 +99,6 @@ var newHostFloor = func(out io.Writer, progs []hostfloor.Program) *hostfloor.Flo
 			if !ok {
 				return "", "no fork in this selection builds it"
 			}
-			if pin.Fork.Patched() {
-				// A PATCHED FORK HAS NO FLOOR ENTRY YET (patched-forks.md §14 step 4 builds its advance
-				// here): the jail's reason names a jail launch, whose build is for the jail's platform
-				// and never reaches this floor, so following it here would loop (PF-D35).
-				return "", hostFloorPatchedReason(pin.Fork)
-			}
 			return pin.Commit, pin.Reason
 		},
 		// THE LAUNCH'S PIN (FP-D18): a fork the lock does not pin for its declared source is pinned
@@ -133,6 +128,15 @@ var newHostFloor = func(out io.Writer, progs []hostfloor.Program) *hostfloor.Flo
 			return buildFork(floorForkBuild(p, commit),
 				buildMode{lock: pidlock.Mode{Wait: true, Bound: forkBuildWaitBound}}, out, out, false)
 		},
+		// A PATCHED FORK's program (docs/design/patched-forks.md §9, PF-D14): no pin, so the floor reads
+		// the GOOD BUILD where a plain fork's reads the pin — offline, from this machine's check record
+		// and capture store — and its install runs the fork's ADVANCE first, the one a fresh jail launch
+		// runs (patchedadvance.go), waiting for it as that launch does (PF-D25).
+		Patched: floorPatchedState,
+		Advance: func(_ context.Context, p hostfloor.Program) hostfloor.PatchedState {
+			floorAdvance(floorForkBuild(p, "").Fork, out)
+			return floorPatchedState(p)
+		},
 		Home:   paths.Home(),
 		Out:    out,
 		Prefix: "yolo host: ",
@@ -147,20 +151,68 @@ func floorForkBuild(p hostfloor.Program, commit string) forkBuild {
 	in := p.Install
 	return forkBuild{
 		// Patches and Follow too, so a patched fork reads as one to the pinner, which never pins it
-		// (packload.PinForks, PF-D16).
+		// (packload.PinForks, PF-D16); and the fork pack's root, which its series is read from.
 		Fork: packload.Fork{Pack: in.ForkedBy, Base: p.Pack, Bin: in.Bin, Source: in.Source, Build: in.Build,
-			Produces: in.Produces, Platforms: in.Platforms, Patches: in.Patches, Follow: in.Follow},
+			Produces: in.Produces, Platforms: in.Platforms, Patches: in.Patches, Follow: in.Follow,
+			Root: in.ForkRoot},
 		Commit:   commit,
 		Platform: capture.Platform(),
 	}
 }
 
-// hostFloorPatchedReason is why the floor holds no entry for a patched fork's program: what this
-// yolo does at the host notch, and where the program does run (PF-D35's rule: a line names only
-// what this yolo does).
-func hostFloorPatchedReason(f packload.Fork) string {
-	return "it is a patched fork, and `yolo host` does not deliver a patched fork yet — run " + f.Bin +
-		" in a jail, where a fresh launch builds it from its series"
+// floorPatchedPlatform is the platform a patched fork's floor build is of: this host's, as a plain
+// fork's floor build is (floorForkBuild), the only one a materialize on the host takes. The floor
+// holds a fork's build on Linux only (noEntryReason refuses every other host first), where it is a
+// capture jail's too, so the floor's lookups and a jail launch's name one build.
+func floorPatchedPlatform() string { return capture.Platform() }
+
+// floorAdvance is the floor's advance of a patched fork (hostfloor.Floor.Advance): the fresh
+// launch's own (advancePatchedFork) as a LAUNCH — the check throttled, a back-off honored, the wait
+// interruptible while a good build serves (PF-D25) — at the host (advanceOptions.host), its lines on
+// the launch's stderr, as the floor's are. It hands nothing: the floor installs the good build the
+// record names once it returns. A var so a test can count the floor's advances.
+var floorAdvance = func(f packload.Fork, out io.Writer) {
+	advancePatchedFork(f, advanceOptions{platform: floorPatchedPlatform(), out: out, errw: out, launch: true, host: true})
+}
+
+// floorPatchedState is the floor's offline read of a patched fork's program (hostfloor.Floor.Patched):
+// the recipe its series asks for now, and the good build that serves it — the check record's, or,
+// with no record, the one the capture store holds for this recipe (recoverGoodBuild, which writes
+// nothing) — with its store entry by the exact lookup. File reads only: no git, no network.
+func floorPatchedState(p hostfloor.Program) hostfloor.PatchedState {
+	f := floorForkBuild(p, "").Fork
+	series, err := f.ReadSeries()
+	if err != nil {
+		return hostfloor.PatchedState{Reason: fmt.Sprintf("%v — correct it, and the next `yolo host -- %s` builds it",
+			err, f.Bin)}
+	}
+	recipe := forkBuild{Fork: f, Series: series}.recipe()
+	ps := hostfloor.PatchedState{Recipe: recipe}
+	platform := floorPatchedPlatform()
+	store := &capture.Store{Dir: paths.CapturesDir()}
+	var g *packsrc.GoodBuild
+	if rec, err := patchedForkStore().LoadCheckRecord(f.Key()); err == nil && rec.Good != nil {
+		g = rec.Good
+	} else {
+		g = recoverGoodBuild(store, f.Key(), platform, recipe, series.Len())
+	}
+	switch {
+	case g == nil:
+		ps.Reason = "fork " + f.Key() + " has no build on this machine yet"
+		return ps
+	case g.Recipe != recipe:
+		// THE USER'S EDIT (PF-D23): nothing serves until the edited series or recipe builds.
+		ps.Reason = "fork " + f.Key() + "'s patch series or build recipe changed since its good build " +
+			run.GoodBuildLabel(g) + " — reverting the edit brings that build back"
+		return ps
+	}
+	ps.Good = &hostfloor.PatchedBuild{Commit: g.Commit, Recipe: g.Recipe,
+		Label: run.GoodBuildLabel(g) + " + " + run.PatchCount(g.Patches)}
+	if e, _, err := resolvePatchedBuild(store, f.Key(), f.Bin, platform, patchedBuildSource(f.Source), g.Commit,
+		recipe); err == nil {
+		ps.Good.Entry = e
+	}
+	return ps
 }
 
 // floorForkPins reads the fork lock once for every source-built program among progs, keyed by bin,
@@ -476,6 +528,13 @@ func resolveHostLaunchTarget(packs []*packload.Pack, cmd0 string, lp *hostpath.L
 	case err != nil:
 		fmt.Fprintf(errw, "yolo host: could not install %s into yolo's floor: %v\n", cmd0, err)
 		return hostTarget{}, 127
+	}
+	if prog.Install.IsPatchedFork() {
+		// A PATCHED FORK'S LINE (docs/design/patched-forks.md §7, PF-D11), the one a jail launch's fork
+		// block prints: the series, the good build this launch runs, and the held suffix while
+		// something holds the newest upstream back. A disclosure, so on every launch (OQ-RO3).
+		line, _ := run.PatchedForkLine(floorForkBuild(prog, "").Fork, "the next `yolo host -- "+cmd0+"`")
+		fmt.Fprintf(errw, "yolo host: %s\n", line)
 	}
 	return hostTarget{Path: st.Launcher, Origin: originFloor}, 0
 }

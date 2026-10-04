@@ -157,7 +157,7 @@ func TestTheForkBlockNamesAPatchedForksGoodBuildAndItsHold(t *testing.T) {
 	f := packload.Fork{Pack: "forkpack", Base: "basepack", Bin: "tool", Source: patchedSource, Build: "make install",
 		Produces: []string{".local/bin/tool"}, Root: forkDir, Patches: "patches"}
 	t.Setenv("PATH", t.TempDir()) // no git on PATH: the line must not need one
-	line, warn := patchedForkLine(packload.ForkPin{Fork: f})
+	line, warn := patchedForkLine(packload.ForkPin{Fork: f}, "a fresh launch")
 	if !strings.Contains(line, "is a patched fork of "+patchedSource+" + 1 patch (series ") ||
 		!strings.Contains(line, "no build of it on this machine yet") || !warn {
 		t.Errorf("with no good build the line is %q (warn %v)", line, warn)
@@ -180,7 +180,7 @@ func TestTheForkBlockNamesAPatchedForksGoodBuildAndItsHold(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	line, warn = patchedForkLine(packload.ForkPin{Fork: f})
+	line, warn = patchedForkLine(packload.ForkPin{Fork: f}, "a fresh launch")
 	if !strings.Contains(line, ", at v1.0.0 (01234567)") || warn || strings.Contains(line, "held") {
 		t.Errorf("with a good build the line is %q (warn %v)", line, warn)
 	}
@@ -191,7 +191,7 @@ func TestTheForkBlockNamesAPatchedForksGoodBuildAndItsHold(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	line, warn = patchedForkLine(packload.ForkPin{Fork: f})
+	line, warn = patchedForkLine(packload.ForkPin{Fork: f}, "a fresh launch")
 	if !strings.Contains(line, "held at v1.0.0 (01234567): upstream v1.1.0 (bbbbbbbb) does not take 0001-ten.patch") ||
 		!strings.Contains(line, "`yolo pack update` shows the conflict") || !warn {
 		t.Errorf("with a conflict recorded the line is %q (warn %v)", line, warn)
