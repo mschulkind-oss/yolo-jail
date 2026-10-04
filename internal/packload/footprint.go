@@ -149,6 +149,16 @@ func (c Claim) DisclosureSentence() string {
 		// The commit itself is not a manifest fact — the fork lock holds it — so the launch
 		// names it on a line of its own (OQ-FP6); this one says which act pins it, and which moves
 		// it (FP-D18).
+		// A PATCHED fork's: its bytes follow the upstream rather than a pin, so the line says what
+		// it follows and what moves it (docs/design/patched-forks.md §6.1, PF-D8).
+		if build, ok := strings.CutPrefix(c.Detail, patchedForkClaimDetailPrefix); ok {
+			return "RUNS a program built from source, INSIDE THE JAIL (not on your machine), as " +
+				c.Target + ": " + build + " — at the upstream's newest commit that rule names and the " +
+				"series applies to, checked at most hourly; the series is replayed on this machine " +
+				"with no code run, the build runs in a capture jail that gets no credentials, and a " +
+				"new build runs only once it is admitted: the UPSTREAM'S NEW CODE ARRIVES UNREVIEWED, " +
+				"as an npm agent's release does"
+		}
 		if build, ok := strings.CutPrefix(c.Detail, forkClaimDetailPrefix); ok {
 			return "RUNS a program built from source, INSIDE THE JAIL (not on your machine), as " +
 				c.Target + ": " + build + " — built in a capture jail that gets no credentials, " +
@@ -439,7 +449,7 @@ func FootprintOf(p *Pack) Footprint {
 			// on the bin, and review-worthy, because what the jail runs is built from code the
 			// pack names rather than a registry's or a vendor's release (OQ-FP6).
 			if c.IsFork() {
-				add(packdecl.KindProgram, ForkClaimTarget(c.Bin, c.ForkOf), forkClaimDetail(c), true)
+				add(packdecl.KindProgram, ForkClaimTarget(c.Bin, c.ForkOf), forkClaimDetail(p.Root, c), true)
 				continue
 			}
 			detail := c.Via

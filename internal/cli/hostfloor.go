@@ -140,8 +140,10 @@ var newHostFloor = func(out io.Writer, progs []hostfloor.Program) *hostfloor.Flo
 func floorForkBuild(p hostfloor.Program, commit string) forkBuild {
 	in := p.Install
 	return forkBuild{
+		// Patches and Follow too, so a patched fork reads as one to the pinner, which never pins it
+		// (packload.PinForks, PF-D16).
 		Fork: packload.Fork{Pack: in.ForkedBy, Base: p.Pack, Bin: in.Bin, Source: in.Source, Build: in.Build,
-			Produces: in.Produces, Platforms: in.Platforms},
+			Produces: in.Produces, Platforms: in.Platforms, Patches: in.Patches, Follow: in.Follow},
 		Commit:   commit,
 		Platform: capture.Platform(),
 	}

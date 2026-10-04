@@ -52,12 +52,22 @@ func pinForks(pr richtext.Printer, errw io.Writer, repin bool) int {
 	lockPath := forkLockPath()
 	store := &packsrc.Store{Dir: paths.PacksDir()}
 	rc := 0
-	var lines, pruned []string
+	var lines, pruned, migrated []string
 	err := packsrc.WithForkLock(store.Dir, lockPath, func(line string) { pr.Printf("[dim]%s[/dim]", line) },
 		func(l *packsrc.ForkLock) (bool, error) {
 			changed := false
 			var keep []string
 			for _, f := range forks {
+				if f.Patched() {
+					// A PATCHED FORK HAS NO PIN (PF-D16): a plain fork's entry left under its key from
+					// before a migration is dropped, and said, apart from the forks that left.
+					if _, pinned := l.Get(f.Key()); pinned {
+						delete(l.Forks, f.Key())
+						migrated = append(migrated, f.Key())
+						changed = true
+					}
+					continue
+				}
 				keep = append(keep, f.Key())
 				prev, pinned := l.Get(f.Key())
 				addr, err := packsrc.Parse(f.Source)
@@ -120,9 +130,19 @@ func pinForks(pr richtext.Printer, errw io.Writer, repin bool) int {
 	for _, gone := range pruned {
 		pr.Printf("[dim]fork %s left the selection — dropped from %s[/dim]", gone, packsrc.ForkLockName)
 	}
+	for _, key := range migrated {
+		pr.Printf("[dim]fork %s is a patched fork now; its plain-fork pin is dropped from %s[/dim]",
+			key, packsrc.ForkLockName)
+	}
 	if err != nil {
 		fmt.Fprintf(errw, "yolo pack: writing %s: %v\n", lockPath, err)
 		return 1
+	}
+	// THE PATCHED FORKS (docs/design/patched-forks.md §8.3), after the fork lock is released — the
+	// fork lock comes before a check record's lock, and nothing here holds both: update checks and
+	// replays every one, install those with no good build.
+	if n := checkPatchedForks(pr, errw, forks, repin); n != 0 {
+		rc = n
 	}
 	return rc
 }
@@ -166,6 +186,11 @@ func forkStatusLines() (lines []string, drift bool, err error) {
 		return nil, false, err
 	}
 	for _, p := range packload.ForkPins(forks, lock) {
+		if p.Fork.Patched() {
+			// No pin by design (PF-D16): its state is its check record's (patchedfork.go).
+			lines = append(lines, patchedForkStatusLines(p.Fork)...)
+			continue
+		}
 		if p.Commit == "" {
 			drift = drift || p.LockedSource != ""
 			lines = append(lines, "[yellow]⚠ "+p.Line()+"[/yellow]")

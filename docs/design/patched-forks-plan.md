@@ -154,6 +154,31 @@ Every question this map waited on was decided on its leaning under the maintaine
 - `yolo pack rebase` is built ([PF-D26](patched-forks.md#PF-D26)).
 - `follow` defaults to the newest version tag ([PF-D24](patched-forks.md#PF-D24)).
 
+## Step 1, landed 2026-10-04
+
+[`patched-forks.md` §14](patched-forks.md#14-what-i-would-build-in-order) step 1, the declaration
+and the check with no build. What the tree changed against the map above, and what step 2 starts
+from:
+
+| Where | What landed |
+| :--- | :--- |
+| [`packdecl/contributes.go`](../../internal/packdecl/contributes.go), [`fork.go`](../../internal/packdecl/fork.go), [`packdecl.go`](../../internal/packdecl/packdecl.go) | `patches` and `follow` on `Contribution` and `Install`; `patchedForkProblems`, `PatchesDirProblem` and the placement refusal for both fields; `PatchedForkRecipe`, with `Install.SourceRecipe()` empty for a patched fork ([PF-D31](patched-forks.md#PF-D31)); `unknownFieldHint` |
+| [`packsrc/series.go`](../../internal/packsrc/series.go) | `ReadSeries`, `SeriesDigest`, `SeriesError` |
+| [`packsrc/follow.go`](../../internal/packsrc/follow.go) | `ParseFollow`, the version grammar |
+| [`packsrc/refresh.go`](../../internal/packsrc/refresh.go) | `fetchStep`, split from `refreshMirror` above its resolution and checkout; `fetchMode.keepTags` puts tags back on a forced fetch too |
+| [`packsrc/checkrecord.go`](../../internal/packsrc/checkrecord.go) | the record, its lock, `WithCheckRecord`, `CheckDue` ([PF-D28](patched-forks.md#PF-D28)); `GoodBuild` and `OutcomeBuildFailed` are declared and unwritten |
+| [`packsrc/patchcheck.go`](../../internal/packsrc/patchcheck.go) | `CheckPatched` (the throttle, the attempt, the fetch, the ref's kind, the base fetched by id, the list), `AboveGood`, `RecordWalk` |
+| [`packsrc/replay.go`](../../internal/packsrc/replay.go) | `WalkSeries` ([PF-D29](patched-forks.md#PF-D29)). Built in step 1 rather than 2 because `yolo pack update` reports whether the series replays. Step 2's build act needs one more hook: a way to copy the fit's subdirectory out of the scratch repository into `src/` before the walk removes it |
+| [`packload/forks.go`](../../internal/packload/forks.go), [`forkpin.go`](../../internal/packload/forkpin.go), [`footprint.go`](../../internal/packload/footprint.go) | `Fork.Root`, `Patches`, `Follow`, `ReadSeries`, `CheckWant`; the rewrite carries the two fields; the claim names the series; `PinForks` and `ForkPins` skip a patched fork with `PatchedForkPinReason` ([PF-D33](patched-forks.md#PF-D33)) |
+| [`cli/patchedfork.go`](../../internal/cli/patchedfork.go), [`cli/forkpin.go`](../../internal/cli/forkpin.go), [`cli/hostfloor.go`](../../internal/cli/hostfloor.go) | `yolo pack update`, `install` and `status` ([PF-D32](patched-forks.md#PF-D32)); the plain-fork entry dropped; `floorForkBuild` carries `patches` |
+
+Left for step 2, against the traps above: the trigger in the fresh-launch slot and its call-site
+test; `forkDeliveriesFor` routing a patched fork to the advance before its `Commit == ""` reason;
+the build id, the receipt fields, the exact lookup and the selection key; the copy into `src/`; the
+swap, the reap and the delivery record; the waiter's record re-read; build failures and their
+back-off; the record's recovery from the store; the launch's lines; and `yolo capture`'s patched
+arm. The interim `PatchedForkPinReason` goes when the advance lands.
+
 ## Measurements to make
 
 - The maintainer's own pi series against the newest upstream version: the replay's time on the
