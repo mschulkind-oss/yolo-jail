@@ -145,8 +145,12 @@ func (o *Options) recordHandedForks(out map[string]entrypoint.ForkDelivery) {
 		}
 		d := out[bin]
 		if err := recordHandedFork(o.packTree, bin, HandedFork{Key: d.Key, Reason: d.Reason}); err != nil {
+			// What it costs: an attach to this jail cannot say what it was handed for these bins. No
+			// move reaps a plain fork's build, and a patched fork's advance records its own bin.
 			o.pr(o.Stderr).printf("[yellow]Warning: could not record what this launch hands its jail for %s "+
-				"(%v): a patched fork's next move keeps every build until this jail stops[/yellow]", bin, err)
+				"(%v): an attach to this jail will not say which build it runs; the jail itself is "+
+				"unaffected, and making %s writable lets the next launch record it[/yellow]", bin, err,
+				filepath.Dir(handedForksPath(o.packTree)))
 			return
 		}
 	}

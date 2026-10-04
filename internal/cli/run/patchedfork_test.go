@@ -324,3 +324,24 @@ func TestNoPatchedForkAdvancesBelowTheAppleContainerFloor(t *testing.T) {
 		t.Errorf("below the floor: called %v, answered %+v", called, got)
 	}
 }
+
+// A DELIVERY RECORD THAT CANNOT BE WRITTEN says what that costs — an attach cannot name the build,
+// and nothing else changes, since no move reaps a plain fork's build and a patched fork's advance
+// records its own bin — and the step that lets the next launch write it.
+func TestADeliveryRecordThatCannotBeWrittenSaysWhatItCosts(t *testing.T) {
+	o := goldenOptions("/ws", t.TempDir())
+	var errw strings.Builder
+	o.Stderr = &errw
+	o.packTree = filepath.Join(t.TempDir(), "missing", "tree")
+	o.recordHandedForks(map[string]entrypoint.ForkDelivery{"tool": {Key: "k1"}})
+	for _, w := range []string{"could not record what this launch hands its jail for tool",
+		"an attach to this jail will not say which build it runs", "the jail itself is unaffected",
+		"making " + filepath.Dir(o.packTree) + " writable"} {
+		if !strings.Contains(errw.String(), w) {
+			t.Errorf("the warning lacks %q:\n%s", w, errw.String())
+		}
+	}
+	if strings.Contains(errw.String(), "keeps every build") {
+		t.Errorf("the warning claims what a failed write does not do:\n%s", errw.String())
+	}
+}

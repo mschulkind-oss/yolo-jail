@@ -98,6 +98,12 @@ var newHostFloor = func(out io.Writer, progs []hostfloor.Program) *hostfloor.Flo
 			if !ok {
 				return "", "no fork in this selection builds it"
 			}
+			if pin.Fork.Patched() {
+				// A PATCHED FORK HAS NO FLOOR ENTRY YET (patched-forks.md §14 step 4 builds its advance
+				// here): the jail's reason names a jail launch, whose build is for the jail's platform
+				// and never reaches this floor, so following it here would loop (PF-D35).
+				return "", hostFloorPatchedReason(pin.Fork)
+			}
 			return pin.Commit, pin.Reason
 		},
 		// THE LAUNCH'S PIN (FP-D18): a fork the lock does not pin for its declared source is pinned
@@ -147,6 +153,14 @@ func floorForkBuild(p hostfloor.Program, commit string) forkBuild {
 		Commit:   commit,
 		Platform: capture.Platform(),
 	}
+}
+
+// hostFloorPatchedReason is why the floor holds no entry for a patched fork's program: what this
+// yolo does at the host notch, and where the program does run (PF-D35's rule: a line names only
+// what this yolo does).
+func hostFloorPatchedReason(f packload.Fork) string {
+	return "it is a patched fork, and `yolo host` does not deliver a patched fork yet — run " + f.Bin +
+		" in a jail, where a fresh launch builds it from its series"
 }
 
 // floorForkPins reads the fork lock once for every source-built program among progs, keyed by bin,

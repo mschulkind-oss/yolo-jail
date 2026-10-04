@@ -50,6 +50,17 @@ type keeperSpawner func(launch *Options, planPath string, progress, lifeline, lo
 // (it would run the package's whole suite in a detached child).
 var defaultKeeperSpawner keeperSpawner = realSpawnKeeper
 
+// SelfExecPath is what a child that must be this very binary is exec'd from, as the keeper is: on
+// Linux /proc/self/exe, which still names it after `just install` replaced its file (JL-D5), and
+// elsewhere its path (execx.SelfExecArgv), or the bare "yolo" when that cannot be read. A patched
+// fork's child build jail is the other caller (cli's forkbuildchild.go).
+func SelfExecPath() string {
+	if exe := keeperSelfExe(); exe != "" {
+		return exe
+	}
+	return execx.SelfExecArgv([]string{"yolo"})[0]
+}
+
 // realSpawnKeeper is the production spawner: the running binary, in a session of its own, stdio on
 // /dev/null, the three descriptors as fds 3 to 5 and the reserved ports after them
 // (startDetached's shape, JL-D29). On Linux it is exec'd from /proc/self/exe, which still names

@@ -20,13 +20,15 @@ package cli
 import (
 	"context"
 	"errors"
+	"flag"
 	"fmt"
 	"io"
-	"os"
 	"os/exec"
 	"strings"
 	"syscall"
 	"time"
+
+	"github.com/mschulkind-oss/yolo-jail/internal/cli/run"
 )
 
 // forkBuildJailVerb is the hidden subcommand: `yolo internal fork-build-jail`.
@@ -39,15 +41,22 @@ const forkBuildChildGrace = 60 * time.Second
 // child.
 var forkBuildChild = runForkBuildChild
 
-// forkBuildChildCommand is the child's command for argv (the args after the binary): this binary.
-// A var so a test can run a stand-in.
+// forkBuildChildCommand is the child's command for argv (the args after the binary): this very
+// binary, exec'd as the keeper is (run.SelfExecPath), so a `just install` during a long launch never
+// runs the build jail from another build of yolo. A test binary never self-execs: that would run
+// the package's whole suite in the child. A var so a test can run a stand-in.
 var forkBuildChildCommand = func(argv []string) (*exec.Cmd, error) {
-	exe, err := os.Executable()
-	if err != nil {
-		return nil, err
+	if flag.Lookup("test.v") != nil {
+		return nil, errForkBuildChildFromTest
 	}
-	return exec.Command(exe, argv...), nil
+	return forkBuildChildExec(argv), nil
 }
+
+// forkBuildChildExec is the child's command, unguarded: this very binary with argv.
+func forkBuildChildExec(argv []string) *exec.Cmd { return exec.Command(run.SelfExecPath(), argv...) }
+
+// errForkBuildChildFromTest refuses the one spawn a unit test must never make (forkBuildChildCommand).
+var errForkBuildChildFromTest = errors.New("a test binary does not self-exec the fork build jail")
 
 // forkBuildChildArgv is the child's arguments for b's build in staging.
 func forkBuildChildArgv(staging string, b forkBuild, color bool) []string {
