@@ -445,16 +445,55 @@ func (r *CheckRecord) SetOutcome(o EntryOutcome) {
 	r.Outcomes = append(kept, o)
 }
 
+// BeforeGood is the walk's list cut at the good build's COMMIT, in list order (PF-D34): every entry
+// above that commit, and the whole list when the commit is not on it. It is the cut for a list
+// whose order is not the good build's: a tag or commit hold, which is that commit always (§3.3),
+// and a list read under another rule than the good build's, whose versions may be older than the
+// version it runs and still be candidates "like any other" (§3.3) — while a newer fit above the
+// good build's own entry is still never passed over for an older one below it.
+func BeforeGood(list []ListEntry, good *GoodBuild) []ListEntry {
+	if good == nil {
+		return list
+	}
+	for i, e := range list {
+		if e.Commit == good.Commit {
+			return list[:i:i]
+		}
+	}
+	return list
+}
+
 // Candidates is the walk's list as an advance considers it now, for a check of in: the last
-// check's list cut at the good build (AboveGood). nil before any finished check, and nil when the
-// last one read something other than in — an edited ref, follow rule or base, whose own check is
-// due at once (CheckDue): that list answers another question, and serving it under the new one is
-// the stale answer §4.2 rules out.
+// check's list cut at the good build. nil before any finished check, and nil when the last one
+// read something other than in — an edited ref, follow rule or base, whose own check is due at once
+// (CheckDue): that list answers another question, and serving it under the new one is the stale
+// answer §4.2 rules out.
+//
+// THE CUT (PF-D34): by version precedence (AboveGood) for a branch list read under the rule the
+// good build's check read; at the good build's commit (BeforeGood) for a tag or commit hold, and
+// for a list read under another repository, subdirectory, ref or follow rule than the good build's.
+// A good build that records no inputs is cut by precedence, so a missing field never moves one back.
 func (r *CheckRecord) Candidates(in CheckInputs) []ListEntry {
 	if !r.Answers(in) {
 		return nil
 	}
-	return AboveGood(r.Check.List, r.Good)
+	list, good := r.Check.List, r.Good
+	switch {
+	case good == nil:
+		return list
+	case r.Check.RefKind == "tag" || r.Check.RefKind == "commit":
+		return BeforeGood(list, good)
+	case good.Read != nil && !sameFollowed(*good.Read, r.Read):
+		return BeforeGood(list, good)
+	}
+	return AboveGood(list, good)
+}
+
+// sameFollowed reports whether two checks followed the same thing: one repository, subdirectory,
+// ref and follow rule. The series' base is not part of it: a re-exported series is the series' row
+// of §6.1, a candidate at the commit the follow rule names, not a new rule.
+func sameFollowed(a, b CheckInputs) bool {
+	return a.Repo == b.Repo && a.Subdir == b.Subdir && a.Ref == b.Ref && a.Follow == b.Follow
 }
 
 // Answers reports whether the record's last finished check is a check of in.

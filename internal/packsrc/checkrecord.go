@@ -131,6 +131,11 @@ type GoodBuild struct {
 	// Seq is the sequence number of the check its candidate came from, which the move's
 	// compare-and-swap reads (§6.1).
 	Seq int64 `json:"seq"`
+	// Read is what that check read (the record's Read when the advance took its candidate), so a
+	// later list read under another ref or follow rule is cut at this build's commit rather than by
+	// its version (Candidates, PF-D34). The advance writes it; nil, as an older record has it,
+	// reads as the same rule.
+	Read *CheckInputs `json:"read,omitempty"`
 	// Entry is its capture store entry's key.
 	Entry string `json:"entry,omitempty"`
 	// At is when it was admitted, in unix seconds.

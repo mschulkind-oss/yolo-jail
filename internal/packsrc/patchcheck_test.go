@@ -450,3 +450,66 @@ func TestAnOutcomeLeavesWithItsEntry(t *testing.T) {
 		t.Error("the conflict at agent@2.0.0, still on the list, was dropped")
 	}
 }
+
+// A HOLD IS THAT COMMIT, ALWAYS (§3.3, PF-D34): a tag or full-commit ref's one entry is a candidate
+// whatever version the good build runs, the same for both spellings of one commit, and nothing is
+// pending once the good build is that commit.
+func TestAHoldOlderThanTheGoodBuildIsACandidate(t *testing.T) {
+	in := CheckInputs{Repo: "r", Ref: "v1.0.0", Follow: "release", Base: "b"}
+	good := &GoodBuild{Commit: "c2", Tag: "v1.1.0", Version: "1.1.0"}
+	for _, held := range []struct {
+		kind  string
+		entry ListEntry
+	}{{"tag", ListEntry{Commit: "c1", Tag: "v1.0.0", Version: "1.0.0"}}, {"commit", ListEntry{Commit: "c1"}}} {
+		r := &CheckRecord{Read: in, Good: good, Check: &CheckFound{RefKind: held.kind, List: []ListEntry{held.entry}}}
+		if got := r.Candidates(in); len(got) != 1 || got[0].Commit != "c1" {
+			t.Errorf("a %s hold older than the good build: candidates = %q, want the held commit", held.kind, listLabels(got))
+		}
+		r.Good = &GoodBuild{Commit: "c1", Version: "1.0.0"}
+		if got := r.Candidates(in); len(got) != 0 {
+			t.Errorf("a %s hold at the good build's commit: candidates = %q, want none", held.kind, listLabels(got))
+		}
+	}
+}
+
+// AN EDITED FOLLOW NAMES A CANDIDATE LIKE ANY OTHER (§3.3, PF-D34): after head → release the good
+// build is the old tip, which runs v1.1.0, and the release list is no longer cut by that version —
+// while a list that holds the good build's own commit is still cut there, so a fit below it never
+// replaces it. A good build that records no inputs is cut by precedence, as the same rule's is.
+func TestAnEditedFollowIsCutAtTheGoodBuildsCommit(t *testing.T) {
+	head := CheckInputs{Repo: "r", Ref: "main", Follow: "head", Base: "b"}
+	rel := head
+	rel.Follow = "release"
+	list := []ListEntry{{Commit: "c2", Tag: "v1.1.0", Version: "1.1.0"}, {Commit: "c1", Tag: "v1.0.0", Version: "1.0.0"}}
+	r := &CheckRecord{Read: rel, Check: &CheckFound{RefKind: "branch", List: list},
+		Good: &GoodBuild{Commit: "tip", Version: "1.1.0", Read: &head}}
+	if got := listLabels(r.Candidates(rel)); got != "v1.1.0 v1.0.0" {
+		t.Errorf("after head → release the candidates = %q, want the release list", got)
+	}
+	r.Good.Read = nil
+	if got := listLabels(r.Candidates(rel)); got != "" {
+		t.Errorf("a good build recording no inputs is not cut by precedence: %q", got)
+	}
+	r.Good.Read = &rel
+	if got := listLabels(r.Candidates(rel)); got != "" {
+		t.Errorf("under the good build's own rule the candidates = %q, want the precedence cut's none", got)
+	}
+	// A hold lifted onto the branch: the good build is v1.1.0's commit, on the list, so v1.2.0 is a
+	// candidate and v1.0.0, below it, is not.
+	tag := rel
+	tag.Ref = "v1.1.0"
+	r.Check.List = append([]ListEntry{{Commit: "c3", Tag: "v1.2.0", Version: "1.2.0"}}, list...)
+	r.Good = &GoodBuild{Commit: "c2", Tag: "v1.1.0", Version: "1.1.0", Read: &tag}
+	if got := listLabels(r.Candidates(rel)); got != "v1.2.0" {
+		t.Errorf("a hold lifted onto the branch: candidates = %q, want v1.2.0 alone", got)
+	}
+	// The base is not what the rule follows: a re-exported series keeps the precedence cut, here
+	// over a good build whose commit is not on the list (it runs v1.2.0 plus more).
+	rebased := rel
+	rebased.Base = "b2"
+	r.Read, r.Good.Read = rebased, &rel
+	r.Good.Commit, r.Good.Version = "c9", "1.2.0"
+	if got := listLabels(r.Candidates(rebased)); got != "" {
+		t.Errorf("a re-exported series dropped the precedence cut: %q", got)
+	}
+}
