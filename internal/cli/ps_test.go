@@ -2,9 +2,12 @@ package cli
 
 import (
 	"bytes"
+	"encoding/json"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
@@ -308,5 +311,131 @@ func must(t *testing.T, err error) {
 	t.Helper()
 	if err != nil {
 		t.Fatal(err)
+	}
+}
+
+// redirectSessionBase points the host-services base this package's TestMain isolated at a dir of
+// the test's own, so the sessions it plants are the only ones the listing can find.
+func redirectSessionBase(t *testing.T) string {
+	t.Helper()
+	base := t.TempDir()
+	prev := paths.HostSingletonDir
+	paths.HostSingletonDir = base
+	t.Cleanup(func() { paths.HostSingletonDir = prev })
+	return paths.HostServicesBase(false)
+}
+
+// plantPsSession makes a host-services session dir the way the launch's openServicesSession
+// does: "live" holds its lock on a descriptor of the test's own, "gone" leaves it free, and
+// "nolock" makes no lock file (a session starting up). rec nil writes no record (an older yolo).
+func plantPsSession(t *testing.T, base, cname, state string, rec *runtime.SessionRecord) string {
+	t.Helper()
+	dir, err := os.MkdirTemp(base, paths.HostServicesSessionPrefix(cname))
+	must(t, err)
+	if rec != nil {
+		must(t, runtime.WriteSessionRecord(dir, *rec))
+	}
+	if state == "nolock" {
+		return dir
+	}
+	f, err := os.OpenFile(filepath.Join(dir, paths.HostServicesSessionLockName), os.O_CREATE|os.O_RDWR, 0o600)
+	must(t, err)
+	if state == "gone" {
+		_ = f.Close()
+		return dir
+	}
+	must(t, syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB))
+	t.Cleanup(func() { _ = f.Close() })
+	return dir
+}
+
+// noExecDeps is psDeps for the macos-user runtime with a RunCmd that fails the test: macos-user
+// names no binary, and the exec the container branch makes is the defect this replaced.
+func noExecDeps(t *testing.T, out *bytes.Buffer, format string) psDeps {
+	return psDeps{
+		DetectRuntime: func() string { return "macos-user" },
+		RunCmd: func(argv []string) (string, bool) {
+			t.Fatalf("yolo ps on macos-user ran %v; it has no runtime binary to ask", argv)
+			return "", false
+		},
+		PathIsDir: func(string) bool { return true },
+		Out:       out,
+		Format:    format,
+	}
+}
+
+// TestPsOnMacosUserListsItsLiveSessions: `yolo ps` with runtime macos-user used to exec
+// `macos-user ps` and print a red "Could not query". It now lists the backend's running sessions
+// from their own locks and records: a live one with its workspace, one with no lock yet as
+// "starting or unknown", and neither an ended one nor a `yolo host` launch's. It runs nothing, and
+// it leaves every container jail's tracking file alone, since an Apple Container jail on the same
+// Mac is not in a session listing and pruning on one would delete its file (D11).
+func TestPsOnMacosUserListsItsLiveSessions(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	base := redirectSessionBase(t)
+	must(t, runtime.WriteContainerTracking("yolo-ac-1234", "/ac-workspace"))
+
+	plantPsSession(t, base, "yolo-live-1", "live",
+		&runtime.SessionRecord{Notch: runtime.NotchMacosUser, Workspace: "/Users/Shared/yolo/live", Name: "yolo-live-1"})
+	plantPsSession(t, base, "yolo-ended-2", "gone",
+		&runtime.SessionRecord{Notch: runtime.NotchMacosUser, Workspace: "/Users/Shared/yolo/ended", Name: "yolo-ended-2"})
+	plantPsSession(t, base, "yolo-hostnotch-3", "live",
+		&runtime.SessionRecord{Notch: runtime.NotchHost, Workspace: "/Users/me/proj", Name: "yolo-hostnotch-3"})
+	starting := plantPsSession(t, base, "yolo-starting-4", "nolock", nil)
+
+	var buf bytes.Buffer
+	if rc := psRun(noExecDeps(t, &buf, "")); rc != 0 {
+		t.Fatalf("rc = %d", rc)
+	}
+	out := buf.String()
+	for _, want := range []string{
+		"SESSION", "yolo-live-1", "running (macos-user session)", "/Users/Shared/yolo/live",
+		filepath.Base(starting), "starting or unknown",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("the listing lacks %q:\n%s", want, out)
+		}
+	}
+	for _, unwanted := range []string{"yolo-ended-2", "yolo-hostnotch-3", "Could not query", "No running"} {
+		if strings.Contains(out, unwanted) {
+			t.Errorf("the listing shows %q:\n%s", unwanted, out)
+		}
+	}
+	if _, ok := runtime.ReadContainerWorkspace("yolo-ac-1234"); !ok {
+		t.Error("yolo ps on macos-user deleted a container jail's tracking file (D11)")
+	}
+
+	var js bytes.Buffer
+	psRun(noExecDeps(t, &js, "json"))
+	var rep psReport
+	if err := json.Unmarshal(js.Bytes(), &rep); err != nil {
+		t.Fatalf("not JSON: %v\n%s", err, js.String())
+	}
+	if !rep.Enumerated || rep.Runtime != "macos-user" || len(rep.Jails) != 2 {
+		t.Errorf("JSON report = %+v, want enumerated macos-user with the live and the starting session", rep)
+	}
+}
+
+// TestPsOnMacosUserWithNoSessionsSaysSoAndWhereContainersAre: an empty listing is an answer
+// (enumerated), and it names where a container jail on the same Mac is listed instead.
+func TestPsOnMacosUserWithNoSessionsSaysSoAndWhereContainersAre(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	redirectSessionBase(t)
+	var buf bytes.Buffer
+	psRun(noExecDeps(t, &buf, ""))
+	want := "No running macos-user sessions.\n" +
+		"Container jails are listed under their own runtime: YOLO_RUNTIME=container yolo ps " +
+		"(or YOLO_RUNTIME=podman yolo ps).\n"
+	if buf.String() != want {
+		t.Errorf("output = %q, want %q", buf.String(), want)
+	}
+	var js bytes.Buffer
+	psRun(noExecDeps(t, &js, "json"))
+	var rep psReport
+	if err := json.Unmarshal(js.Bytes(), &rep); err != nil {
+		t.Fatalf("not JSON: %v\n%s", err, js.String())
+	}
+	if !rep.Enumerated || len(rep.Jails) != 0 {
+		t.Errorf("JSON report = %+v, want enumerated with no jails", rep)
 	}
 }

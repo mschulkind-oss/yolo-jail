@@ -293,7 +293,7 @@ func (o *Options) startLoopholesMatching(set loopholes.Set, cname, rt string, cf
 	var socketsDir string
 	if rt == "macos-user" || rt == hostNotchRuntime { // parity: HonoredBy — a container backend has one container per name, so its cname-keyed dir has one publisher, and its teardown's relaunch lock and existence probe keep it for a live jail
 		if o.servicesSession == nil {
-			s, err := o.openServicesSession(cname)
+			s, err := o.openServicesSession(cname, rt)
 			if err != nil {
 				o.pr(o.Stdout).print(servicesSessionFailure(err))
 				return nil

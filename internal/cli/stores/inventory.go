@@ -16,6 +16,7 @@ import (
 
 	"github.com/mschulkind-oss/yolo-jail/internal/brokeraudit"
 	"github.com/mschulkind-oss/yolo-jail/internal/durable"
+	"github.com/mschulkind-oss/yolo-jail/internal/macosuser"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/prune"
 	"github.com/mschulkind-oss/yolo-jail/internal/richtext"
@@ -182,6 +183,7 @@ func Inventory(o Options) Report {
 	rep.Stores = append(rep.Stores, imageStores(o, rt)...)
 	rep.Stores = append(rep.Stores, scratchStores(o, rt)...)
 	rep.Stores = append(rep.Stores, durableStores(o, rt)...)
+	rep.Stores = append(rep.Stores, macosUserStores(o)...)
 	rep.Stores = append(rep.Stores, nixStores(o)...)
 	return rep
 }
@@ -554,6 +556,9 @@ func imageStores(o Options, rt string) []Store {
 		return rows
 	}
 
+	if rt == macosUserRuntime {
+		return []Store{notApplicableOnMacosUser("images.macos-user", SectionImages, "images")}
+	}
 	if !slices.Contains(paths.SupportedRuntimes, rt) {
 		return setAll(SizingAbsent, "no container runtime on this notch")
 	}
@@ -639,6 +644,9 @@ func scratchStores(o Options, rt string) []Store {
 			rows[i].Sizing, rows[i].Reason, rows[i].CountLabel = sizing, reason, ""
 		}
 		return rows
+	}
+	if rt == macosUserRuntime {
+		return []Store{notApplicableOnMacosUser("volumes.macos-user", SectionVolumes, "scratch volumes")}
 	}
 	if !slices.Contains(paths.SupportedRuntimes, rt) {
 		return setAll(SizingAbsent, "no container runtime on this notch")
@@ -933,4 +941,187 @@ func durableStores(o Options, rt string) []Store {
 func shortHash(s string) string {
 	sum := sha256.Sum256([]byte(s))
 	return hex.EncodeToString(sum[:])[:16]
+}
+
+// macosUserRuntime is the native macOS backend's runtime name, which names no container runtime.
+const macosUserRuntime = "macos-user"
+
+// notApplicableOnMacosUser is the one row a container-only section gets on macos-user: that
+// backend runs no containers or images, so there is nothing to list, and a container runtime on
+// the same Mac is listed by naming it. Absent, never unknown: nothing was asked and failed.
+func notApplicableOnMacosUser(key, section, what string) Store {
+	return Store{
+		Key: key, Section: section, Name: "(not applicable)", Path: "macos-user",
+		Sizing:    SizingAbsent,
+		Reason:    "not applicable on macos-user, which runs no containers or images",
+		Reclaimer: none(), Verdict: VerdictYolo,
+		Note: "a container runtime's " + what + " on this Mac are listed by " +
+			"`YOLO_RUNTIME=container yolo stores` (or YOLO_RUNTIME=podman)",
+	}
+}
+
+// SectionMacosUser is the macos-user backend's own storage outside the state dir: the root-owned
+// dir every launch stages its copies into, and the sandbox account's machine-tier stores.
+const SectionMacosUser = "macos-user sandbox account"
+
+// macosUserStores inventories that storage, one row per child of the root-owned state dir and one
+// per machine-tier store of the sandbox home. NOTHING IN YOLO RECLAIMS ANY OF IT, so every row is
+// the user's to decide about and its note says how.
+//
+// IT RUNS NO sudo. The state dir is root-owned and world-readable except env/, which is 0700 and
+// reads as unknown, naming the `sudo du -sh` that measures it; a figure this command could only
+// get as root is not one it may obtain on its own. The sandbox home is read as the host user,
+// who is in the sandbox account's group, and ONLY the named stores are walked: the whole home is
+// not this command's to walk (its other directories are links into each workspace, and macOS
+// guards a home's contents with TCC prompts).
+//
+// Neither root on a Mac is one absent row naming `yolo macos-setup`; not a Mac is no rows.
+func macosUserStores(o Options) []Store {
+	stateDir, home, ok := o.MacosUser()
+	if !ok {
+		return nil
+	}
+	state, stateExists := macosUserStateRows(o, stateDir)
+	homeRows, homeExists := macosUserHomeRows(o, home)
+	if !stateExists && !homeExists {
+		return []Store{{
+			Key: "macos.absent", Section: SectionMacosUser, Name: "(no sandbox account)", Path: stateDir,
+			Sizing: SizingAbsent, Reclaimer: none(), Verdict: VerdictHuman,
+			Note: "neither " + stateDir + " nor " + home + " exists, so this Mac has no macos-user " +
+				"backend set up; `yolo macos-setup` creates the account it runs as",
+		}}
+	}
+	return append(state, homeRows...)
+}
+
+// macosUserPerWorkspaceLeaves are the state dir's children that hold one copy per workspace,
+// keyed by the workspace's container name: what each copy is, and the spelling of one copy under
+// the child (internal/macosuser's StagedPackRoot, StagedHomeOverlay, StagedCtxRoot and
+// SandboxEnvFile build these paths).
+var macosUserPerWorkspaceLeaves = map[string]struct{ what, copy string }{
+	"packs":        {"each workspace's staged pack tree", "<cname>"},
+	"home-overlay": {"each workspace's staged skills and briefings", "<cname>"},
+	"ctx":          {"each workspace's staged context tree (its /ctx)", "<cname>"},
+	"env":          {"each workspace's session environment files", "<cname>.*"},
+}
+
+// macosUserStateRows is one row per child of the root-owned state dir, plus one for its loose
+// files (the per-workspace Seatbelt profiles). exists is false only when the dir is absent.
+func macosUserStateRows(o Options, stateDir string) (rows []Store, exists bool) {
+	entries, err := os.ReadDir(stateDir)
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil, false
+	}
+	teardown := "`yolo macos-teardown` does not remove it"
+	if err != nil {
+		s := Store{Key: "macos.state", Section: SectionMacosUser, Name: stateDir, Path: stateDir,
+			Sizing: SizingUnknown, Reason: err.Error(), Reclaimer: none(), Verdict: VerdictHuman,
+			Note: "the root-owned dir every macos-user launch stages into; " + sudoDu(stateDir)}
+		return []Store{s}, true
+	}
+	var loose int64
+	var looseFiles, profiles int
+	for _, e := range entries {
+		info, err := e.Info()
+		if err != nil || info.Mode()&os.ModeSymlink != 0 {
+			continue
+		}
+		name := e.Name()
+		if !info.IsDir() {
+			loose += info.Size()
+			looseFiles++
+			if strings.HasPrefix(name, "profile-") && strings.HasSuffix(name, ".sb") {
+				profiles++
+			}
+			continue
+		}
+		path := filepath.Join(stateDir, name)
+		s := Store{Key: "macos.state." + name, Section: SectionMacosUser, Name: path + "/", Path: path,
+			Verdict: VerdictHuman}
+		sizeRootOwned(&s, path, o)
+		leaf, perWorkspace := macosUserPerWorkspaceLeaves[name]
+		switch {
+		case perWorkspace:
+			s.Reclaimer = Reclaimer{Detail: "a launch replaces its own workspace's copy; nothing removes another's"}
+			if n, ok := countEntries(path); ok && leaf.copy == "<cname>" {
+				s.Count, s.CountLabel = n, "workspaces"
+			}
+			s.Note = leaf.what + ", root-owned and replaced in place by that workspace's next launch. A " +
+				"workspace you no longer launch keeps its copy until you remove it: " +
+				"`sudo rm -rf " + filepath.Join(path, leaf.copy) + "`; " + teardown
+		case name == "bin":
+			s.Reclaimer = Reclaimer{Detail: "every launch replaces it"}
+			s.Note = "the staged yolo binary and the sandbox's own yolo binaries, one copy for the " +
+				"machine that every launch replaces; " + teardown
+		default:
+			s.Reclaimer = none()
+			s.Note = "root-owned, under the dir every macos-user launch stages into; " + teardown
+		}
+		if s.Sizing == SizingUnknown {
+			s.Note += ". " + sudoDu(path)
+		}
+		rows = append(rows, s)
+	}
+	if looseFiles > 0 {
+		rows = append(rows, Store{
+			Key: "macos.state._files", Section: SectionMacosUser, Name: stateDir + "/ (loose files)", Path: stateDir,
+			Sizing: SizingMeasured, Bytes: loose, Files: looseFiles, Count: profiles, CountLabel: "profiles",
+			Reclaimer: Reclaimer{Detail: "a launch rewrites its own workspace's profile"}, Verdict: VerdictHuman,
+			Note: "the per-workspace Seatbelt profiles (profile-<cname>.sb), one per workspace launched; " +
+				"a workspace you no longer launch keeps its own until you remove it: `sudo rm " +
+				filepath.Join(stateDir, "profile-<cname>.sb") + "`; " + teardown,
+		})
+	}
+	return rows, true
+}
+
+// macosUserHomeRows is the sandbox home's two machine-tier stores, the only parts of that home
+// this command walks. exists is false only when the home itself is absent.
+func macosUserHomeRows(o Options, home string) (rows []Store, exists bool) {
+	if _, err := os.Lstat(home); errors.Is(err, fs.ErrNotExist) {
+		return nil, false
+	}
+	teardown := "`yolo macos-teardown` deletes it with the account's home"
+	for _, h := range []struct{ key, path, note string }{
+		{"macos.home.mise", macosuser.SandboxMiseData(home),
+			"the sandbox account's mise tool store, shared by every macos-user workspace; nothing in yolo prunes it, and " + teardown},
+		{"macos.home.cache", filepath.Join(home, ".cache"),
+			"the sandbox account's ~/.cache, shared by every macos-user workspace; the cache purge covers yolo's own " +
+				"cache/, not this, and " + teardown},
+	} {
+		s := Store{Key: h.key, Section: SectionMacosUser, Name: h.path, Path: h.path,
+			Reclaimer: none(), Verdict: VerdictHuman, Note: h.note}
+		sizeRootOwned(&s, h.path, o)
+		if s.Sizing == SizingUnknown {
+			s.Note += ". " + sudoDu(h.path)
+		}
+		rows = append(rows, s)
+	}
+	return rows, true
+}
+
+// sizeRootOwned is sizeStore for a tree this user may not be able to read: a walk that could
+// read NOTHING (its root refused, so no file and no byte was counted) is UNKNOWN, not "≥ 0 B",
+// which is a lower bound with no information in it wearing a figure's clothes.
+func sizeRootOwned(s *Store, root string, o Options) {
+	sizeStore(s, root, o)
+	if s.Sizing == SizingPartial && s.Files == 0 && s.Bytes == 0 && s.Unreadable > 0 {
+		s.Sizing = SizingUnknown
+		s.Reason = "not readable as this user"
+	}
+}
+
+// sudoDu is the sentence an unreadable root-owned row ends with: the one command that measures
+// it, which this command does not run.
+func sudoDu(path string) string {
+	return "`sudo du -sh " + path + "` measures it; this command runs no sudo"
+}
+
+// countEntries counts a directory's children, false when it cannot be read.
+func countEntries(dir string) (int, bool) {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return 0, false
+	}
+	return len(entries), true
 }
