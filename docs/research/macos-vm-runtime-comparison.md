@@ -367,11 +367,12 @@ VZ's. Each candidate:
   Mutagen's costs: a second copy on disk, a first sync that takes a while, writes that arrive
   asynchronously, and two-way conflicts (SOURCED by the agent).
 
+  **Ruled out** by the maintainer (2026-10-04: *"don't like it"*), so it is not on the list below.
+
 Worth measuring here, cheapest first:
 1. krunkit with `permissionSemantics=complete`, run directly rather than through Podman Machine;
 2. QEMU with `christhomas/virtiofsd --cache=always`, the upper bound for an open share;
-3. Mutagen into a VM-local folder, timing the sync lag too;
-4. `nfsd` with `actimeo=60` and `actimeo=1`.
+3. `nfsd` with `actimeo=60` and `actimeo=1`.
 
 ## 7. Re-running it
 
