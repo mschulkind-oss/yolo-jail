@@ -402,16 +402,31 @@ workspace bind, so a jail can write the host's record. Nothing reads it back to 
 **So does the host notch's launch, in a machine-wide file.** Since 2026-10-04 every
 `yolo host -- <cmd>` past its argument check appends one block to
 `~/.local/share/yolo-jail/logs/host-launch.log` (`run.HostLaunchLog`): a header naming the yolo
-version, the directory's short code and the program's base name (never its arguments or the
-directory's path), every line yolo itself printed to stderr before the hand-over, ANSI-stripped,
-and a trailer, `=== handed over: exec ===` or `=== launch done, rc=<n> ===`. It keeps the newest
-50 blocks, trimmed at open under a sibling `.lock`. It is not `<cwd>/.yolo/launch.log`, because a
-host launch has no workspace and a `.yolo` minted in the home breaks the workspace walk. The
-command's own output never passes through it: the exec replaces yolo, and an agent yolo stays the
-parent of (a launch-owned service, a managed Codex login) is handed the caller's own stderr, so it
-keeps its terminal. Like the jail's log it is never fatal and never prints. The same launch also
-leaves its line in the machine-wide `launches.log`, with `runtime=host`
+version, the directory's short code and the program's base name, every line yolo itself printed
+to stderr, ANSI-stripped, and a trailer, `=== handed over (pid <n>): exec ===` or
+`=== launch done (pid <n>), rc=<n> ===`. It keeps the newest 50 blocks, trimmed at open under a
+sibling `.lock`. It is not `<cwd>/.yolo/launch.log`, because a host launch has no workspace and a
+`.yolo` minted in the home breaks the workspace walk. The command's own output never passes
+through it: the exec replaces yolo, and an agent yolo stays the parent of (a launch-owned service,
+a managed Codex login) is handed the caller's own stderr, so it keeps its terminal. Like the
+jail's log it is never fatal and never prints. The same launch also leaves its line in the
+machine-wide `launches.log`, with `runtime=host`
 ([`OQ-PR3`](../design/podman-reboot-readiness.md#OQ-PR3)).
+
+The file keeps nothing typed after the program, and never the directory it was typed in, by
+OQ-PR3's rule for a machine-wide record: an argument can be a secret or a prompt, the directory
+names a project, and the logs directory is one a jail may mount. The terminal still gets every
+line whole. In the log, a disclosure that yolo changed the command names each command by its
+program and argument count (`you asked for: codex <2 arguments>`), a program typed as a path is
+named by its base name, and the directory itself, or a path under it, is written
+`<cwd>`; a directory that is the root, the home or above the home is left as it is.
+
+Launches interleave in the file, so every line names its launch. The header carries the
+process id (`=== yolo host launch <time> (pid <n>) ===`), every line of the block starts with it,
+and so does each trailer. Host wrappers make concurrent launches ordinary, and a launch yolo stays
+resident under writes its last lines and its trailer when the agent exits, often below later
+launches' blocks: read a trailer by its pid, never by where it sits. A resident launch whose header
+a later launch's trim removed leaves its late lines and its trailer with no header above them.
 
 ## Machine consumers
 

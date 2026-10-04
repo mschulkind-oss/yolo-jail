@@ -606,9 +606,11 @@ func hostExec(flagArgs, cmd []string, out, errw io.Writer, stdin io.Reader) int 
 //
 //   - launches.log, the machine-wide launch line every jail launch writes (OQ-PR3), with
 //     `runtime=host` (run.HostLaunchRecord);
-//   - host-launch.log, a block holding every line yolo printed to stderr before the hand-over,
-//     ANSI-stripped (run.HostLaunchLog) — the host's half of report-tiers.md's "the launcher
-//     persists its half";
+//   - host-launch.log, a block holding every line yolo printed to stderr, ANSI-stripped, each
+//     named by the launch's pid, with nothing typed after the program and never the directory
+//     (run.HostLaunchLog; the argv disclosures and the starting line reach it through
+//     printHostLinesLogged) — the host's half of report-tiers.md's "the launcher persists its
+//     half";
 //   - host-notch-perf.log, the launch's spans, when --timing, a typed --verbose, `perf_logging`
 //     or YOLO_TIMING/YOLO_VERBOSE asks (run.HostNotchTiming; perf-logging.md D18).
 //
@@ -743,9 +745,10 @@ func hostLaunch(flags hostExecFlags, profile string, cmd []string, out, errw, ra
 	sp = trace.span("host.model_menu")
 	menu := launch.modelMenu(target, launch.childEnviron(childPath), errw)
 	defer menu.Close()
+	asked := argv
 	argv, menuLines := menu.rewrite(argv)
 	sp.End()
-	printHostLines(errw, menuLines)
+	printHostArgvDisclosure(errw, menuLines, asked, argv)
 	// THE DECLARATIVE OPENAI PRELAUNCH (notch-convergence item 15): what the launched command's
 	// pack declares, from the composition, logging in only where a human can answer the browser
 	// login. It used to switch on the command's name and log in regardless of profile or terminal.
@@ -761,9 +764,10 @@ func hostLaunch(flags hostExecFlags, profile string, cmd []string, out, errw, ra
 	// with that launch's refresh address. Before both exec paths below, and disclosed like the
 	// pack flags above: a launch has no quiet mode.
 	if managed != nil {
+		asked := argv
 		var disclosure []string
 		argv, disclosure = managed.Argv(argv)
-		printHostLines(errw, disclosure)
+		printHostArgvDisclosure(errw, disclosure, asked, argv)
 	}
 	// WHAT THIS NOTCH WITHHOLDS BECAUSE NOTHING HERE SERVES IT (notch convergence item 2),
 	// after the managed launch is prepared, because that launch serves one of them itself:
@@ -821,7 +825,7 @@ func hostLaunch(flags hostExecFlags, profile string, cmd []string, out, errw, ra
 		// WHAT STARTS, AND FROM WHERE, the last line before the hand-over: a slow agent startup
 		// is then visibly the agent's, not yolo's.
 		trace.handOver()
-		fmt.Fprintln(errw, hostStartingLine(cmd[0], resolved))
+		printHostStartingLine(errw, cmd[0], resolved)
 		// The agent gets the caller's own stream, never the teed one (hostLaunchTrace).
 		return launchservice.RunAgent(target, argv, environ, stdin, out, rawErrw, running,
 			hostServiceSignals, "yolo host: ")
@@ -829,7 +833,7 @@ func hostLaunch(flags hostExecFlags, profile string, cmd []string, out, errw, ra
 	// The same line on the exec path — a managed launch that stays resident included, since it
 	// runs the same target.
 	trace.handOver()
-	fmt.Fprintln(errw, hostStartingLine(cmd[0], resolved))
+	printHostStartingLine(errw, cmd[0], resolved)
 	if managed != nil {
 		environ = managed.Environ(environ)
 		if rc, handled := managed.Run(target, argv, environ, stdin, out, rawErrw); handled {
@@ -997,13 +1001,23 @@ func (c *hostComposition) wireTables() map[string]string {
 // the first line after "yolo host: ", the rest as they are. The block's wording is packload's,
 // shared with the jail notch, so this prefix is the only part of it that is the host's.
 func printHostLines(errw io.Writer, lines []string) {
+	if len(lines) == 0 {
+		return
+	}
+	_, _ = io.WriteString(errw, hostLinesText(lines))
+}
+
+// hostLinesText is lines as printHostLines prints them: the first after the "yolo host: " prefix,
+// each on its own line.
+func hostLinesText(lines []string) string {
+	var b strings.Builder
 	for i, line := range lines {
 		if i == 0 {
-			fmt.Fprintf(errw, "yolo host: %s\n", line)
-			continue
+			b.WriteString("yolo host: ")
 		}
-		fmt.Fprintln(errw, line)
+		b.WriteString(line + "\n")
 	}
+	return b.String()
 }
 
 // injectHostLaunchFlags is the host notch's argv rewrite: the SAME injector the jail launcher
@@ -1017,8 +1031,85 @@ func printHostLines(errw io.Writer, lines []string) {
 // was rewritten, which is every shipped pack today: none declares a guarded launch flag.
 func injectHostLaunchFlags(packs []*packload.Pack, argv []string, errw io.Writer) []string {
 	out, inj := packload.InjectLaunchFlags(packs, render.ProfileFor(render.KindHost).AgentAutonomy, argv)
-	printHostLines(errw, inj.DisclosureLines())
+	printHostArgvDisclosure(errw, inj.DisclosureLines(), argv, out)
 	return out
+}
+
+// hostLogRedacting is the host launch log's tee (run.HostLaunchLog.Writer): a line written to it
+// this way reaches the terminal as p and the log as logCopy.
+type hostLogRedacting interface {
+	WriteRedacted(p, logCopy []byte) (int, error)
+}
+
+// printHostLinesLogged prints lines as printHostLines does, and hands the host launch log logLines
+// in their place: what the user is shown stays whole, and the machine log keeps only what it may
+// (run.HostLaunchLog: nothing typed after the program). A stream with no log beneath it gets lines.
+func printHostLinesLogged(errw io.Writer, lines, logLines []string) {
+	if len(lines) == 0 {
+		return
+	}
+	writeHostLogged(errw, hostLinesText(lines), hostLinesText(logLines))
+}
+
+// writeHostLogged writes text to errw, and logText in its place to the host launch log beneath it
+// when there is one.
+func writeHostLogged(errw io.Writer, text, logText string) {
+	if r, ok := errw.(hostLogRedacting); ok {
+		_, _ = r.WriteRedacted([]byte(text), []byte(logText))
+		return
+	}
+	_, _ = io.WriteString(errw, text)
+}
+
+// printHostArgvDisclosure prints an argv rewrite's disclosure (lines, nil when nothing was
+// rewritten), which quotes asked, the argv as typed, and ran, the argv yolo runs, each whole. The
+// terminal gets it as written; the host launch log gets each argv as hostLoggedArgv names it.
+func printHostArgvDisclosure(errw io.Writer, lines, asked, ran []string) {
+	whole := []string{shquote.Join(ran), shquote.Join(asked)}
+	named := []string{hostLoggedArgv(ran), hostLoggedArgv(asked)}
+	logged := make([]string, len(lines))
+	for i, line := range lines {
+		logged[i] = line
+		// The longer argv first: ran holds every word asked does, so a line quoting ran would
+		// otherwise be matched by asked's prefix of it.
+		for j, w := range whole {
+			if strings.Contains(line, w) {
+				logged[i] = strings.Replace(line, w, named[j], 1)
+				break
+			}
+		}
+	}
+	printHostLinesLogged(errw, lines, logged)
+}
+
+// hostLoggedArgv is an argv as the host launch log names it: the program's base name and how many
+// arguments followed it, never the arguments.
+func hostLoggedArgv(argv []string) string {
+	if len(argv) == 0 {
+		return ""
+	}
+	switch n := len(argv) - 1; n {
+	case 0:
+		return filepath.Base(argv[0])
+	case 1:
+		return filepath.Base(argv[0]) + " <1 argument>"
+	default:
+		return fmt.Sprintf("%s <%d arguments>", filepath.Base(argv[0]), n)
+	}
+}
+
+// printHostStartingLine prints the starting line (hostStartingLine), the last line yolo says
+// before the hand-over. A program typed as a path is resolved against the directory it was typed
+// in, so the line's path names that directory: the host launch log gets the line with the program
+// by its base name and without the path.
+func printHostStartingLine(errw io.Writer, cmd0 string, t hostTarget) {
+	line := hostStartingLine(cmd0, t)
+	logged := line
+	if t.Origin == originGiven {
+		logged = strings.Replace(line, "starting "+cmd0+" (", "starting "+filepath.Base(cmd0)+" (", 1)
+		logged = strings.Replace(logged, ", "+homeTilde(t.Path)+")", ")", 1)
+	}
+	writeHostLogged(errw, line+"\n", logged+"\n")
 }
 
 // hostSyscallExec is the exec `yolo host` replaces itself with; a var so a test can pin

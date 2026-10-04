@@ -21,6 +21,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/perf"
 	"github.com/mschulkind-oss/yolo-jail/internal/runtime"
+	"github.com/mschulkind-oss/yolo-jail/internal/shquote"
 )
 
 // readFile is path's content, "" when it does not exist.
@@ -33,42 +34,190 @@ func readFile(t *testing.T, path string) string {
 	return string(data)
 }
 
+// hostLaunchID is how this process's launch blocks name it: on the header, on every body line and
+// on every trailer (run.HostLaunchLog), so a block can be told from another launch's interleaved
+// with it.
+func hostLaunchID() string { return fmt.Sprintf("(pid %d)", os.Getpid()) }
+
 // THE LAUNCH LINE IS ON DISK BEFORE THE HAND-OVER: an exec replaces this process, so `started` is
 // written before it or never. The line is the jail launch's own format, with the host's runtime.
+// And the block it leaves names the program and never what was typed after it or where: every
+// launch below types an argument the machine log may not keep, and the ones that REWRITE the argv
+// print it in a disclosure the terminal keeps whole and the log keeps as a count.
 func TestAHostLaunchWritesItsLaunchLineBeforeTheExec(t *testing.T) {
-	_, cwd := timingHome(t, "")
-	var atExec, logAtExec string
-	orig := hostSyscallExec
-	hostSyscallExec = func(string, []string, []string) error {
-		atExec = readFile(t, run.MachineLaunchLogPath())
-		logAtExec = readFile(t, run.HostLaunchLogPath())
-		return nil
-	}
-	t.Cleanup(func() { hostSyscallExec = orig })
-	var errw bytes.Buffer
-	if rc := hostMain([]string{"--", "mytool", "do-not-log-this-argument"}, io.Discard, &errw, false, nil); rc != 0 {
-		t.Fatalf("rc = %d\n%s", rc, errw.String())
-	}
-	hash := paths.JailShortHash(runtime.FromWorkspace(cwd))
-	want := " launch jail=" + hash + " runtime=host podman_wait=- tries=- outcome=started rc=- after="
-	if !strings.Contains(atExec, want) {
-		t.Errorf("launches.log at the exec = %q, want a line containing %q", atExec, want)
-	}
-	if n := strings.Count(readFile(t, run.MachineLaunchLogPath()), "\n"); n != 1 {
-		t.Errorf("launches.log holds %d lines after one launch, want 1", n)
-	}
-	for _, w := range []string{"=== yolo host launch ", "jail=" + hash, "program=mytool",
-		"yolo host: starting mytool", "=== handed over: exec ==="} {
-		if !strings.Contains(logAtExec, w) {
-			t.Errorf("host-launch.log at the exec lacks %q:\n%s", w, logAtExec)
+	const secret = "do-not-log-this-argument"
+	t.Run("a command on PATH", func(t *testing.T) {
+		_, cwd := timingHome(t, "")
+		var atExec, logAtExec string
+		orig := hostSyscallExec
+		hostSyscallExec = func(string, []string, []string) error {
+			atExec = readFile(t, run.MachineLaunchLogPath())
+			logAtExec = readFile(t, run.HostLaunchLogPath())
+			return nil
+		}
+		t.Cleanup(func() { hostSyscallExec = orig })
+		var errw bytes.Buffer
+		if rc := hostMain([]string{"--", "mytool", secret}, io.Discard, &errw, false, nil); rc != 0 {
+			t.Fatalf("rc = %d\n%s", rc, errw.String())
+		}
+		hash := paths.JailShortHash(runtime.FromWorkspace(cwd))
+		want := " launch jail=" + hash + " runtime=host podman_wait=- tries=- outcome=started rc=- after="
+		if !strings.Contains(atExec, want) {
+			t.Errorf("launches.log at the exec = %q, want a line containing %q", atExec, want)
+		}
+		if n := strings.Count(readFile(t, run.MachineLaunchLogPath()), "\n"); n != 1 {
+			t.Errorf("launches.log holds %d lines after one launch, want 1", n)
+		}
+		for _, w := range []string{"=== yolo host launch ", " " + hostLaunchID() + " ===\n", "jail=" + hash,
+			"program=mytool", hostLaunchID() + " yolo host: starting mytool",
+			"=== handed over " + hostLaunchID() + ": exec ==="} {
+			if !strings.Contains(logAtExec, w) {
+				t.Errorf("host-launch.log at the exec lacks %q:\n%s", w, logAtExec)
+			}
+		}
+		assertMachineLogsNever(t, secret, cwd)
+		assertNoWorkspaceState(t, cwd)
+	})
+
+	// codex's model menu (hostmodelmenu.go) and the pack flags rewrite the argv and disclose both
+	// argvs; the menu is the rewrite every subscription launch of codex makes.
+	t.Run("codex's model menu rewrites the argv", func(t *testing.T) {
+		l := runHostMenu(t, "", codexOnTheSubscription, nil, nil, "exec", secret)
+		if l.rc != 0 || l.argv == nil {
+			t.Fatalf("rc=%d, exec reached=%v\n%s", l.rc, l.argv != nil, l.errs)
+		}
+		cwd, _ := os.Getwd()
+		if !strings.Contains(l.errs, "  you asked for: codex exec "+secret+"\n") {
+			t.Errorf("the terminal lost the whole disclosure, which is what the user is shown:\n%s", l.errs)
+		}
+		log := readFile(t, run.HostLaunchLogPath())
+		for _, w := range []string{"yolo host: yolo CHANGED the command you asked for:",
+			hostLaunchID() + "   you asked for: codex <2 arguments>\n",
+			hostLaunchID() + "   yolo will run: codex <4 arguments>\n",
+			"  added by pack codex: -c model_catalog_json="} {
+			if !strings.Contains(log, w) {
+				t.Errorf("host-launch.log lacks %q:\n%s", w, log)
+			}
+		}
+		assertMachineLogsNever(t, secret, cwd)
+	})
+
+	// A pack's guarded launch flags (injectHostLaunchFlags), the third rewrite, in the same words.
+	t.Run("a pack's launch flags rewrite the argv", func(t *testing.T) {
+		rc, argv, errs := hostLaunchFlagsRun(t, twoPostureManifest, secret)
+		if rc != 0 || argv == nil {
+			t.Fatalf("rc = %d, exec reached = %v\n%s", rc, argv != nil, errs)
+		}
+		cwd, _ := os.Getwd()
+		if !strings.Contains(errs, "  you asked for: tool "+secret+"\n") {
+			t.Errorf("the terminal lost the whole disclosure:\n%s", errs)
+		}
+		log := readFile(t, run.HostLaunchLogPath())
+		for _, w := range []string{"  you asked for: tool <1 argument>\n", "  yolo will run: tool <2 arguments>\n",
+			"  added by pack local: --ask-first\n"} {
+			if !strings.Contains(log, w) {
+				t.Errorf("host-launch.log lacks %q:\n%s", w, log)
+			}
+		}
+		assertMachineLogsNever(t, secret, cwd)
+	})
+
+	// The managed Codex launch's own rewrite (--no-daemon) is disclosed in the same words.
+	t.Run("a managed launch rewrites the argv", func(t *testing.T) {
+		_, cwd := timingHome(t, "")
+		fake := &argvDisclosingManagedLaunch{}
+		orig := prepareOpenAIAuthHost
+		prepareOpenAIAuthHost = func(hostPrelaunch, io.Writer) (managedOpenAIHostLaunch, error) { return fake, nil }
+		t.Cleanup(func() { prepareOpenAIAuthHost = orig })
+		var errw bytes.Buffer
+		if rc := hostMain([]string{"--", "mytool", "exec", secret}, io.Discard, &errw, false, nil); !fake.ran {
+			t.Fatalf("rc = %d, the managed launch was not reached\n%s", rc, errw.String())
+		}
+		if !strings.Contains(errw.String(), "  yolo will run: mytool "+fakeManagedArgvFlag+" exec "+secret+"\n") {
+			t.Errorf("the terminal lost the whole disclosure:\n%s", errw.String())
+		}
+		log := readFile(t, run.HostLaunchLogPath())
+		for _, w := range []string{"  you asked for: mytool <2 arguments>\n", "  yolo will run: mytool <3 arguments>\n"} {
+			if !strings.Contains(log, w) {
+				t.Errorf("host-launch.log lacks %q:\n%s", w, log)
+			}
+		}
+		assertMachineLogsNever(t, secret, cwd)
+	})
+
+	// A program typed as a path names the directory it was typed in once it is resolved: the
+	// terminal's starting line keeps it, the log names the program by its base name, and so does
+	// the line an exec that failed prints.
+	t.Run("a command given as a path", func(t *testing.T) {
+		_, cwd := timingHome(t, "")
+		writeFile(t, filepath.Join(cwd, "secretproj", "tool"), "#!/bin/sh\nexit 0\n")
+		if err := os.Chmod(filepath.Join(cwd, "secretproj", "tool"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		orig := hostSyscallExec
+		hostSyscallExec = func(string, []string, []string) error { return syscall.EACCES }
+		t.Cleanup(func() { hostSyscallExec = orig })
+		var errw bytes.Buffer
+		if rc := hostMain([]string{"--", "./secretproj/tool", "--api-key=" + secret}, io.Discard, &errw, false,
+			nil); rc != 126 {
+			t.Fatalf("rc = %d, want the failed exec's 126\n%s", rc, errw.String())
+		}
+		if !strings.Contains(errw.String(), "yolo host: starting ./secretproj/tool (as given, ") {
+			t.Errorf("the terminal lost the starting line's path:\n%s", errw.String())
+		}
+		log := readFile(t, run.HostLaunchLogPath())
+		for _, w := range []string{"program=tool", hostLaunchID() + " yolo host: starting tool (as given)\n",
+			hostLaunchID() + " yolo host: exec tool: permission denied\n",
+			"=== launch done " + hostLaunchID() + ", rc=126 ==="} {
+			if !strings.Contains(log, w) {
+				t.Errorf("host-launch.log lacks %q:\n%s", w, log)
+			}
+		}
+		assertMachineLogsNever(t, secret, cwd, "secretproj")
+	})
+
+	// The directory itself, wherever a line of yolo's names it: here the miss line, which lists
+	// the PATH searched, one folder of which is inside the directory the command ran in.
+	t.Run("a line naming the directory", func(t *testing.T) {
+		_, cwd := timingHome(t, "")
+		t.Setenv("PATH", filepath.Join(cwd, "bin")+string(os.PathListSeparator)+os.Getenv("PATH"))
+		captureHostExec(t)
+		var errw bytes.Buffer
+		if rc := hostMain([]string{"--", "nosuchtool-b01"}, io.Discard, &errw, false, nil); rc != 127 {
+			t.Fatalf("rc = %d, want the miss's 127\n%s", rc, errw.String())
+		}
+		if !strings.Contains(errw.String(), filepath.Join(cwd, "bin")) {
+			t.Fatalf("the miss line does not name the folder under the directory, so this cell proves "+
+				"nothing:\n%s", errw.String())
+		}
+		if log := readFile(t, run.HostLaunchLogPath()); !strings.Contains(log, "<cwd>"+string(os.PathSeparator)+"bin") {
+			t.Errorf("host-launch.log does not name the folder relative to <cwd>:\n%s", log)
+		}
+		assertMachineLogsNever(t, cwd)
+	})
+}
+
+// argvDisclosingManagedLaunch is a managed launch whose Argv discloses its rewrite in the words
+// openaiauthhost's does: the verdict, both argvs quoted whole, and who added the flag.
+type argvDisclosingManagedLaunch struct{ fakeManagedHostLaunch }
+
+func (f *argvDisclosingManagedLaunch) Argv(argv []string) ([]string, []string) {
+	out := append([]string{argv[0], fakeManagedArgvFlag}, argv[1:]...)
+	return out, []string{"yolo CHANGED the command you asked for:", "  you asked for: " + shquote.Join(argv),
+		"  yolo will run: " + shquote.Join(out), "  added by the fake managed launch: " + fakeManagedArgvFlag}
+}
+
+// assertMachineLogsNever fails when host-launch.log or launches.log holds any of never.
+func assertMachineLogsNever(t *testing.T, never ...string) {
+	t.Helper()
+	for _, p := range []string{run.HostLaunchLogPath(), run.MachineLaunchLogPath()} {
+		got := readFile(t, p)
+		for _, n := range never {
+			if strings.Contains(got, n) {
+				t.Errorf("the machine log %s names %q, which it never may:\n%s", filepath.Base(p), n, got)
+			}
 		}
 	}
-	for _, never := range []string{"do-not-log-this-argument", cwd} {
-		if strings.Contains(logAtExec, never) || strings.Contains(atExec, never) {
-			t.Errorf("a machine log names %q, which it never may:\n%s\n%s", never, logAtExec, atExec)
-		}
-	}
-	assertNoWorkspaceState(t, cwd)
 }
 
 // A REFUSED LAUNCH LEAVES ITS LINE AND ITS WORDS: `outcome=not-started rc=1`, and the refusal as
@@ -95,7 +244,7 @@ func TestARefusedHostLaunchLeavesItsLineAndItsRefusal(t *testing.T) {
 	if !strings.HasPrefix(refusal, "yolo host: refusing to launch:") || !strings.Contains(log, refusal) {
 		t.Errorf("host-launch.log lacks the refusal %q:\n%s", refusal, log)
 	}
-	if !strings.HasSuffix(log, "=== launch done, rc=1 ===\n") {
+	if !strings.HasSuffix(log, "=== launch done "+hostLaunchID()+", rc=1 ===\n") {
 		t.Errorf("host-launch.log does not end with the trailer:\n%s", log)
 	}
 	if strings.ContainsRune(log, '\x1b') {
@@ -130,60 +279,76 @@ func TestAHostLaunchInTheHomeCreatesNoWorkspaceState(t *testing.T) {
 		t.Fatalf("rc = %d\n%s", rc, errw.String())
 	}
 	assertNoWorkspaceState(t, home)
-	if !strings.Contains(readFile(t, run.HostLaunchLogPath()), "=== handed over: exec ===") {
+	if !strings.Contains(readFile(t, run.HostLaunchLogPath()), "=== handed over "+hostLaunchID()+": exec ===") {
 		t.Errorf("the launch from the home left no block")
 	}
 }
 
 // AN AGENT YOLO STAYS RESIDENT UNDER KEEPS ITS OWN STREAM: on the launch-owned-services path the
 // agent is handed the caller's stderr, never the teed one, so what it prints never lands in the
-// log, while yolo's own lines, the service line among them, do.
+// log, while yolo's own lines, the service line among them, do. Typed as a path inside the
+// directory it runs in, the agent is named in the log by its base name: the starting line on this
+// path keeps the path off the log too.
 func TestAResidentAgentsStderrStaysOutOfTheHostLaunchLog(t *testing.T) {
-	upstream, _ := fakeUpstream(t)
-	fakeHostBroker(t)
-	const marker = "AGENT-STDERR-MARKER-7f3a"
-	hostGateHome(t, codexConfig(upstream.URL), wcShell(nil))
-	exe, err := os.Executable()
-	if err != nil {
-		t.Fatal(err)
-	}
-	bin := t.TempDir()
-	script := "#!/bin/sh\necho " + marker + " >&2\nexec '" + exe + "' " + testFakeAgentArg + " \"$@\"\n"
-	writeFile(t, filepath.Join(bin, "claude"), script)
-	if err := os.Chmod(filepath.Join(bin, "claude"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
-	t.Setenv("YOLO_CLI_TEST_AGENT_DUMP", filepath.Join(t.TempDir(), "agent.json"))
-	t.Setenv("YOLO_CLI_TEST_AGENT_MODE", "")
-	orig := hostSyscallExec
-	hostSyscallExec = func(string, []string, []string) error {
-		t.Error("the services path exec'd instead of staying the agent's parent")
-		return nil
-	}
-	t.Cleanup(func() { hostSyscallExec = orig })
+	for _, tc := range []struct{ name, cmd0, starting string }{
+		{"by name", "claude", "yolo host: starting claude (from your PATH, "},
+		{"as a path", "./secretproj/claude", hostLaunchID() + " yolo host: starting claude (as given)\n"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			upstream, _ := fakeUpstream(t)
+			fakeHostBroker(t)
+			const marker = "AGENT-STDERR-MARKER-7f3a"
+			hostGateHome(t, codexConfig(upstream.URL), wcShell(nil))
+			cwd, err := os.Getwd()
+			if err != nil {
+				t.Fatal(err)
+			}
+			exe, err := os.Executable()
+			if err != nil {
+				t.Fatal(err)
+			}
+			bin := filepath.Join(cwd, "secretproj")
+			script := "#!/bin/sh\necho " + marker + " >&2\nexec '" + exe + "' " + testFakeAgentArg + " \"$@\"\n"
+			writeFile(t, filepath.Join(bin, "claude"), script)
+			if err := os.Chmod(filepath.Join(bin, "claude"), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+			t.Setenv("YOLO_CLI_TEST_AGENT_DUMP", filepath.Join(t.TempDir(), "agent.json"))
+			t.Setenv("YOLO_CLI_TEST_AGENT_MODE", "")
+			orig := hostSyscallExec
+			hostSyscallExec = func(string, []string, []string) error {
+				t.Error("the services path exec'd instead of staying the agent's parent")
+				return nil
+			}
+			t.Cleanup(func() { hostSyscallExec = orig })
 
-	var errw bytes.Buffer
-	rc := hostMain([]string{"-p", "codex", "--", "claude"}, io.Discard, &errw, false, nil)
-	if rc != 0 {
-		t.Fatalf("rc = %d\n%s", rc, errw.String())
-	}
-	if !strings.Contains(errw.String(), marker) {
-		t.Fatalf("the agent's stderr never reached the caller's stream, so this cell proves "+
-			"nothing:\n%s", errw.String())
-	}
-	log := readFile(t, run.HostLaunchLogPath())
-	if strings.Contains(log, marker) {
-		t.Errorf("the agent's own stderr landed in host-launch.log:\n%s", log)
-	}
-	for _, w := range []string{`started the "wire-bridge" service`, "yolo host: starting claude",
-		"=== launch done, rc=0 ==="} {
-		if !strings.Contains(log, w) {
-			t.Errorf("host-launch.log lacks yolo's own %q:\n%s", w, log)
-		}
-	}
-	if line := readFile(t, run.MachineLaunchLogPath()); !strings.Contains(line, " outcome=started rc=- ") {
-		t.Errorf("launches.log = %q, want the resident launch's started line", line)
+			var errw bytes.Buffer
+			rc := hostMain([]string{"-p", "codex", "--", tc.cmd0}, io.Discard, &errw, false, nil)
+			if rc != 0 {
+				t.Fatalf("rc = %d\n%s", rc, errw.String())
+			}
+			if !strings.Contains(errw.String(), marker) {
+				t.Fatalf("the agent's stderr never reached the caller's stream, so this cell proves "+
+					"nothing:\n%s", errw.String())
+			}
+			log := readFile(t, run.HostLaunchLogPath())
+			if strings.Contains(log, marker) {
+				t.Errorf("the agent's own stderr landed in host-launch.log:\n%s", log)
+			}
+			for _, w := range []string{`started the "wire-bridge" service`, tc.starting,
+				"=== launch done " + hostLaunchID() + ", rc=0 ==="} {
+				if !strings.Contains(log, w) {
+					t.Errorf("host-launch.log lacks yolo's own %q:\n%s", w, log)
+				}
+			}
+			if line := readFile(t, run.MachineLaunchLogPath()); !strings.Contains(line, " outcome=started rc=- ") {
+				t.Errorf("launches.log = %q, want the resident launch's started line", line)
+			}
+			if tc.cmd0 != "claude" {
+				assertMachineLogsNever(t, "secretproj")
+			}
+		})
 	}
 }
 
