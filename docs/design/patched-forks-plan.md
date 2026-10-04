@@ -201,6 +201,16 @@ read-only floor, which the fork slot already reads). What the tree changed again
 | [`cli/capturehost.go`](../../internal/cli/capturehost.go), [`cli/patchedfork.go`](../../internal/cli/patchedfork.go), [`entrypoint/forklauncher.go`](../../internal/entrypoint/forklauncher.go) | `yolo capture`'s patched arm; status's store state and next-check line; `patchedNotBuilt` and `PatchedForkPinReason` reworded for what now builds; the launcher's update-mode note |
 | [`integration/patchedfork_test.go`](../../integration/patchedfork_test.go) | a local upstream: the first launch builds and runs the patched program, a new tag advances with the old build reaped, a conflicting tag is held with the previous build running |
 
+Corrected in review the same day: with nothing serving, a fit that fails to build, or a walk that
+stops on an apply error, sends the same advance on to the series' base ([PF-D40](patched-forks.md#PF-D40));
+the build's replay into `src/` shares the walk's bound ([PF-D44](patched-forks.md#PF-D44)); an apply
+error is replayed by the next check, not every launch ([PF-D45](patched-forks.md#PF-D45)); a build is
+settled under its build lock, and a move's reap passes over one another advance has not settled
+([PF-D46](patched-forks.md#PF-D46)); a build the bound stopped is a failed build however far its jail
+got ([PF-D39](patched-forks.md#PF-D39)); and the host floor's line for a patched fork names what `yolo
+host` does ([PF-D35](patched-forks.md#PF-D35)). **The trap for step 4**: a caller of `buildFork` that
+records anything a waiter reads does it in `buildMode.settle`, never after `buildFork` returns.
+
 Left for later steps: `yolo pack rebase` (step 3), which replaces `cli.rebaseSteps`; the host
 floor's four recipe readers, its refresh arm, `UpdatesAllowed` and `yolo host -- <bin>`'s wait
 (step 4, whose seam is `advanceOptions`: `launch` false, a host platform, a hand that writes the
