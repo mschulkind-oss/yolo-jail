@@ -3,18 +3,19 @@ title: "Which macOS VM runs a Python, Django and Postgres workload best? Apple C
 date: 2026-10-03
 status: in-review
 stage: DESIGN
-next: "The maintainer decides between a Docker-API backend aimed at OrbStack (closed source, paid for commercial use, and the fastest shared folders and the only memory return measured here) and VM-local volumes for chosen workspace folders on the backends yolo already has (apple-container-file-cost.md §4); first, measure the open candidates in §6, cheapest first"
+next: "The maintainer decides between a Docker-API backend aimed at OrbStack (closed source, paid for commercial use, and the fastest shared folders and the only memory return measured here) and VM-local volumes for chosen workspace folders on the backends yolo already has (apple-container-file-cost.md §4); no open shared-folder stack tried in §6 beat VZ, and NFS, the one candidate left, needs sudo"
 tags: [research, macos, apple-container, podman, libkrun, orbstack, virtiofs, memory, postgres, benchmark]
-summary: "The maintainer asked whether re-adding a Docker-style backend on macOS would make development faster, and whether keeping hot files on the VM's own disk would. The same Python, Django and Postgres workload ran natively and in four VMs, each on a shared Mac folder and on a VM-local disk, without yolo. On a VM-local disk every VM beat native macOS at the Python steps (pytest 0.9 s against 1.85 s, pip install 1.8 to 2.0 s against 4.0 s). On a shared folder, the two Virtualization.framework VMs took 2 to 5 times native on file-heavy steps and libkrun up to 9 times slower again, while OrbStack came within 1.3 to 2.6 times native on all but one step and ran Postgres's reads at 90 percent of native. OrbStack was also the only VM to give a freed 2 GiB back to macOS, within 10 s; libkrun's free page reporting returned nothing even under pressure. OrbStack is closed source and paid for commercial use; Docker Desktop was not run, its licence ruling it out for the maintainer's commercial work."
+summary: "The maintainer asked whether re-adding a Docker-style backend on macOS would make development faster, and whether keeping hot files on the VM's own disk would. The same Python, Django and Postgres workload ran natively and in four VMs, each on a shared Mac folder and on a VM-local disk, without yolo. On a VM-local disk every VM beat native macOS at the Python steps (pytest 0.9 s against 1.85 s, pip install 1.8 to 2.0 s against 4.0 s). On a shared folder, the two Virtualization.framework VMs took 2 to 5 times native on file-heavy steps and libkrun up to 9 times slower again, while OrbStack came within 1.3 to 2.6 times native on all but one step and ran Postgres's reads at 90 percent of native. OrbStack was also the only VM to give a freed 2 GiB back to macOS, within 10 s; libkrun's free page reporting returned nothing even under pressure. No open alternative tried beat VZ's shared folder: libkrun with permissionSemantics=complete tied it, and QEMU with a macOS virtiofsd port was slower even at its most aggressive caching. OrbStack is closed source and paid for commercial use; Docker Desktop was not run, its licence ruling it out for the maintainer's commercial work."
 vantage:
   status-chip: true
 ---
 
 # Which macOS VM runs a Python, Django and Postgres workload best?
 
-**Status:** 2026-10-03.
+**Status:** 2026-10-03; §6.2 added 2026-10-04.
 - **MEASURED** on one Mac for native, Apple Container, Podman Machine on libkrun and on applehv,
-  and OrbStack (a trial install, which the maintainer made).
+  and OrbStack (a trial install, which the maintainer made). §6.2 adds libkrun with
+  `permissionSemantics=complete`, and QEMU with a macOS virtiofsd port.
 - **Not run:** Docker Desktop. The maintainer ruled it out (2026-10-03): its licence makes it
   *"non-viable to even test … for commercial work."*
 - **INFERRED:** every reading of the numbers that a row does not show directly.
@@ -47,6 +48,9 @@ whatever we can, without yolo support yet."*
 >   ([§4](#4-memory-does-a-vm-give-a-freed-2-gib-back)).
 > - **OrbStack's weak spot is Postgres writes on its own disk**: 2,940 read-write transactions per
 >   second against 9,000 to 10,000 on the other VMs ([§3.1](#31-on-a-vm-local-disk)).
+> - **No open stack tried beats VZ's shared folder.** libkrun with `permissionSemantics=complete`
+>   catches up with VZ, but for about 1 s a file renamed on the Mac looks missing. QEMU with a macOS
+>   virtiofsd port at `--cache=always` is slower, and never shows Mac edits to existing files ([§6](#6-is-there-an-open-stack-with-faster-shared-folders)).
 > - **Two ways forward, both inferred** ([§5](#5-what-this-means-for-the-maintainers-question)):
 >   - a Docker-API backend aimed at OrbStack, which fixes both of Apple Container's weaknesses
 >     but is closed source and paid for commercial use;
@@ -322,12 +326,14 @@ INFERRED from [§3](#3-results) and [§4](#4-memory-does-a-vm-give-a-freed-2-gib
 
 ## 6. Is there an open stack with faster shared folders?
 
+### 6.1 What a search found
+
 The maintainer asked (2026-10-04): *"there's really no open VM stack that does this better?"* An
 agent searched project sources, issue trackers and published benchmarks on 2026-10-04 and
 installed nothing. No open shared-folder server has published small-file numbers better than
 VZ's. Each candidate:
 
-- **libkrun has a setting that may explain its slow `stat`.** krunkit's default
+- **libkrun has a setting that explains half its slow `stat`** (measured in [§6.2](#62-measured-two-of-them)). krunkit's default
   `permissionSemantics=simplified` sets the virtiofs attribute timeout to 0, "as uid/gid are
   context-dependent, attributes can't be cached", so every `stat` goes to the Mac.
   `permissionSemantics=complete` keeps virtio-fs's default 5 s, and the device has one request
@@ -369,10 +375,78 @@ VZ's. Each candidate:
 
   **Ruled out** by the maintainer (2026-10-04: *"don't like it"*), so it is not on the list below.
 
-Worth measuring here, cheapest first:
-1. krunkit with `permissionSemantics=complete`, run directly rather than through Podman Machine;
-2. QEMU with `christhomas/virtiofsd --cache=always`, the upper bound for an open share;
-3. `nfsd` with `actimeo=60` and `actimeo=1`.
+### 6.2 Measured: two of them
+
+The maintainer asked for the first two of three candidates (2026-10-04: *"run 1 and 2"*). Both
+ran the same `wl.sh` on the same shared folder, in the same Fedora CoreOS guest with 5 CPUs and
+8 GiB. NFS, the third, is not run.
+
+- **`krunc`**: the `bench-krun` machine, with a wrapper ahead of krunkit that appends
+  `permissionSemantics=complete` to the virtio-fs device Podman passes it
+  ([Appendix C](#appendix-c-the-two-open-candidates)).
+- **`qemu-always`**: an APFS clone of `bench-krun`'s disk booted under QEMU 10.1.2, built from
+  source with vhost-user, using HVF (Hypervisor.framework). The folder is served by
+  [`christhomas/virtiofsd`](https://github.com/christhomas/virtiofsd) at commit `541aa9c`, with
+  `--cache=always`, the most caching it offers. Unprivileged, it cannot `chown`, so every guest
+  uid is written as the Mac user and the Mac user is shown as the image's postgres (999). The
+  guest's podman runs rootful, because a rootless container's root could not write a folder that
+  looked owned by someone else.
+
+The table repeats the shared-folder rows of [§3.2](#32-on-a-shared-mac-folder) for applehv (VZ),
+libkrun and OrbStack. Times in ms unless a unit is given; one run each (MEASURED):
+
+| Metric | applehv | libkrun | **libkrun, complete** | **QEMU + virtiofsd, always** | OrbStack |
+| :--- | ---: | ---: | ---: | ---: | ---: |
+| mkdir+create 20k 4 KiB files | 12,833 | 20,216 | 19,252 | 21,036 | 5,121 |
+| stat 20k just-written files | 2,306 | 6,899 | 2,614 | 3,567 | 241 |
+| stat 20k missing names | 1,847 | 6,457 | 2,072 | 4,341 | 1,551 |
+| open+read 20k files | 7,421 | 15,483 | 8,517 | 15,751 | 2,204 |
+| readdir 200 directories | 197 | 149 | 92 | 1,291 | 84 |
+| unlink 20k files | 5,412 | 12,845 | 10,105 | 10,397 | 2,556 |
+| syncs per second | 4,491 | 4,620 | 3,414 | 253 | 1,779 |
+| import 40 packages, first/warm | 823/188 | 1,600/690 | 942/210 | 1,293/293 | 582/107 |
+| pip install | 9.26 s | 32.68 s | 12.95 s | 16.26 s | 5.34 s |
+| ripgrep the venv | 1.41 s | 3.92 s | 1.58 s | 2.81 s | 0.37 s |
+| django setup | 0.36 s | 1.33 s | 0.45 s | 0.53 s | 0.21 s |
+| pytest 2,000, first/warm | 2.51/1.44 s | 6.18/4.89 s | 2.72/1.54 s | 3.12/1.71 s | 2.08/1.17 s |
+| Postgres rw tps | 4,605 | 2,554 | 3,067 | 742 | 7,101 |
+| Postgres ro tps | 51,009 | 6,097 | 12,168 | 4,826 | 107,871 |
+
+**What a change on the Mac looks like from inside** (MEASURED, `coh.py`: the guest reads three
+files every 0.1 s while the Mac appends to one, renames a new file over the second, and creates
+the third):
+
+| | Append | Rename over a file | New file |
+| :--- | :--- | :--- | :--- |
+| libkrun, complete | old size for about 1 s | **`ENOENT` for about 1 s**, then the new contents | at once |
+| QEMU + virtiofsd, always | **old size for all 15 s watched** | **old contents for all 15 s** | at once |
+
+Reading it:
+- **`permissionSemantics=complete` brings libkrun level with VZ, and no further.** `stat` goes from
+  3.0 to 1.1 times VZ's, pip install from 3.5 to 1.4 times, and the Django and pytest steps to
+  within 25 percent. Postgres's reads double but stay at a quarter of VZ's. It costs the rename
+  window libkrun #888 describes, and editors save by renaming, so an agent reading a file just
+  saved on the Mac can be told it does not exist (INFERRED from the rename row).
+- **The virtiofsd port caches hard and still loses to VZ.** It does cache: in a separate check,
+  `stat` over 20k files that had been created but not written took 24 ms under QEMU against
+  1,138 to 1,237 ms on applehv (MEASURED, `statcmp.sh`, two passes each). But a write drops the
+  cached attributes, so the table's `stat` row is a round trip each time. One round trip costs
+  about twice VZ's (217 µs against 92 µs for a missing name), and the steps that open and read
+  files lose by as much (INFERRED: from the stat rows). `--cache=always` also never shows the Mac's
+  edits to existing files, as the second table shows, so it is unfit for a workspace that is
+  edited on both sides. `--cache=auto` would revalidate and be slower again (INFERRED, not run).
+- **Its syncs are real.** 253 syncs per second matches native macOS's 249, while VZ and libkrun
+  report about 4,500. The port's `fsync` reaches the Mac's SSD and the other two do not
+  (INFERRED from the rates). That is also why its Postgres read-write rate is 742.
+- **Not tried:** a smaller `--thread-pool-size`, which the other port's README says helps, or
+  push invalidation (`--notify-invalidate`), which needs `VIRTIO_FS_F_NOTIFICATION` in the guest
+  kernel, and a stock guest kernel lacks it (SOURCED: the port's README).
+
+**So the answer to the maintainer's question stands, now measured.** Of the open candidates that
+could be run without `sudo`, none beats VZ on a shared folder. The best, libkrun with
+`permissionSemantics=complete`, ties it and costs a rename window. OrbStack's lead (`stat` about
+10 times VZ's, and pip install within 1.3 times native) is not reproduced by any open server tried
+here (INFERRED). NFS from `nfsd`, the one untried candidate, needs `sudo`.
 
 ## 7. Re-running it
 
@@ -500,15 +574,18 @@ for rt in "$@"; do
         container run --rm --cpus 5 --memory 8g -e WHEELS=/wheels -e PG_USER=postgres \
           -v "$B:/b" -v "$B/share:/share" -v vmb:/vol $IMG /b/wl.sh $tgt container-$fs >"$R/container-$fs.tsv"
       done ;;
-    krun|applehv)
+    krun|krunc|applehv)
+      # krunc: the krun machine, its shared folder under permissionSemantics=complete
       m=bench-krun; [ $rt = applehv ] && m=podman-machine-default
       export CONTAINERS_CONF_OVERRIDE=$HOME/.config/bench-krun/containers.conf
+      [ $rt = krunc ] && export CONTAINERS_CONF_OVERRIDE=$HOME/.config/bench-krun-complete/containers.conf
       [ $rt = applehv ] && unset CONTAINERS_CONF_OVERRIDE
       podman machine start $m >/dev/null 2>&1
       podman -c $m image exists $IMG || podman -c $m load -i "$B/vmbench.oci.tar" >/dev/null
       podman -c $m volume exists vmb || podman -c $m volume create vmb >/dev/null
       cpus=5; [ $rt = applehv ] && cpus=4
-      for fs in share vol; do
+      fss="share vol"; [ $rt = krunc ] && fss=share # the VM disk is the krun machine's
+      for fs in $fss; do
         tgt=/share; [ $fs = vol ] && tgt=/vol
         podman -c $m run --rm --cpus $cpus -e WHEELS=/wheels -e PG_USER=postgres \
           -v "$B:/b" -v "$B/share:/share" -v vmb:/vol $IMG /b/wl.sh $tgt $rt-$fs >"$R/$rt-$fs.tsv"
@@ -674,3 +751,137 @@ $ podman machine init bench-krun --cpus 5 --memory 8192 --disk-size 60 -v "$PWD/
 `com.apple.security.cs.disable-library-validation`; the second lets the ad-hoc-signed binary load
 the ad-hoc-signed `libkrun.dylib`. The machine's guest showed the balloon device offering
 feature bits 1, 3 and 5 (stats, free page hinting and free page reporting).
+
+## Appendix C: the two open candidates
+
+### libkrun with `permissionSemantics=complete`
+
+Podman Machine does not pass the option, so a wrapper named `krunkit` goes first on a second
+`helper_binaries_dir` and the same machine is started through it:
+
+```bash
+#!/bin/bash
+# Runs the real krunkit with permissionSemantics=complete on every virtio-fs device, which
+# keeps libkrun's 5 s attribute cache (its default, simplified, sets it to 0).
+real=/Users/Shared/yolo/bench-macos-backends/krunkit/bin/krunkit
+args=()
+for a in "$@"; do
+  case $a in virtio-fs,*) a="$a,permissionSemantics=complete" ;; esac
+  args+=("$a")
+done
+echo "$(date +%T) ${args[*]}" >> /tmp/krunkit-complete.log
+exec "$real" "${args[@]}"
+```
+
+```console
+$ mkdir -p ~/.config/bench-krun-complete && sed 's|/krunkit/bin|/krunkit-complete/bin|' \
+    ~/.config/bench-krun/containers.conf > ~/.config/bench-krun-complete/containers.conf
+$ ./run-all.sh krunc
+```
+
+### QEMU with the macOS virtiofsd port
+
+```console
+$ brew install meson ninja dtc libslirp
+$ git clone https://github.com/christhomas/virtiofsd && (cd virtiofsd && cargo build --release)
+$ curl -LO https://download.qemu.org/qemu-10.1.2.tar.xz && tar xf qemu-10.1.2.tar.xz && cd qemu-10.1.2
+$ ./configure --target-list=aarch64-softmmu --enable-hvf --enable-vhost-user --disable-vhost-net \
+    --disable-vhost-crypto --enable-slirp --disable-docs --disable-gtk --disable-sdl --disable-cocoa \
+    --prefix="$PWD/../qemu-install" && make -C build install
+$ cd .. && cp qemu-install/share/qemu/edk2-aarch64-code.fd code.fd && truncate -s 64m code.fd
+$ dd if=/dev/zero of=vars.fd bs=1m count=64
+$ cp -c ~/.local/share/containers/podman/machine/libkrun/bench-krun-arm64.raw disk.raw   # an APFS clone
+```
+
+Three traps:
+- **`--enable-vhost-user` alone fails to build on macOS**: vhost-net pulls in a Linux header, so
+  vhost-net and vhost-crypto are disabled.
+- **The Podman guest drops to emergency mode under QEMU, stopping sshd.** Two things cause it.
+  Its `ready.service` requires a virtio-serial port named `vsock` and reports to the host over
+  vsock, which QEMU on macOS lacks. And its shared-folder mount unit fails unless the folder is
+  exported under the tag Podman chose. `qvm.sh` supplies the port and the tag, and a drop-in
+  on `bench-krun`, made before cloning (harmless on krun), lets the report fail:
+  `/etc/systemd/system/ready.service.d/50-qemu-bench.conf` holding `[Unit] OnFailure=` and
+  `[Service] ExecStart=` followed by `ExecStart=-/bin/sh -c "/usr/bin/echo Ready | socat - VSOCK-CONNECT:2:1025"`.
+- **The kernel console is `hvc0`**, so boot messages go to the virtio console `qvm.sh` logs to
+  `console.log`, not to the serial port.
+
+`qvm.sh` boots it, and `qrun.sh` runs the workload in it:
+
+```bash
+#!/bin/bash
+# qvm.sh <cache>: boots an APFS clone of the bench-krun disk under QEMU (HVF, 5 CPUs, 8 GiB), with
+# bench-macos-backends/ shared, under the tag the krun guest mounts, through the christhomas/virtiofsd macOS port at the given --cache policy.
+# Guest uids are all squashed to the Mac user, which the guest sees as postgres (999): the image's postgres under
+# rootful podman in the guest (rootless podman's root cannot override permissions on the share).
+set -euo pipefail
+H=$(cd "$(dirname "$0")" && pwd); cache=$1; S=/tmp/qvm-vfsd.sock
+rm -f $S
+"$H/virtiofsd/target/release/virtiofsd" --socket-path=$S --shared-dir=/Users/Shared/yolo/bench-macos-backends \
+  --cache="$cache" --sandbox=none --thread-pool-size=8 \
+  --translate-uid=squash-guest:0:$(id -u):4294967295 --translate-gid=squash-guest:0:$(id -g):4294967295 \
+  --translate-uid=host:$(id -u):999:1 --translate-gid=host:$(id -g):999:1 >"$H/vfsd.log" 2>&1 &
+while [ ! -S $S ]; do sleep 0.1; done
+exec "$H/qemu-install/bin/qemu-system-aarch64" -machine virt,highmem=on,memory-backend=mem0 -accel hvf -cpu host \
+  -smp 5 -m 8G -object memory-backend-shm,id=mem0,size=8G,share=on \
+  -drive if=pflash,format=raw,readonly=on,file="$H/code.fd" -drive if=pflash,format=raw,file="$H/vars.fd" \
+  -drive if=virtio,format=raw,file="$H/disk.raw",cache=none \
+  -netdev user,id=n0,hostfwd=tcp:127.0.0.1:2223-:22 -device virtio-net-pci,netdev=n0 \
+  -chardev socket,id=vfs0,path=$S -device vhost-user-fs-pci,queue-size=1024,chardev=vfs0,tag=f0135d858b785135d1bb07da8267d77e2bf2 \
+  -device virtio-serial-pci -chardev file,id=con0,path="$H/console.log" -device virtconsole,chardev=con0 \
+  -chardev null,id=vs0 -device virtserialport,chardev=vs0,name=vsock \
+  -display none -serial file:"$H/serial.log" -monitor unix:/tmp/qvm-mon.sock,server,nowait
+```
+
+```bash
+#!/bin/bash
+# qrun.sh <cache>: boots qvm.sh at that cache policy, runs wl.sh on the shared folder, powers off.
+set -uo pipefail
+H=$(cd "$(dirname "$0")" && pwd); B=/Users/Shared/yolo/bench-macos-backends/vmbench; c=$1
+S="ssh -i $HOME/.local/share/containers/podman/machine/machine -p 2223 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR core@127.0.0.1"
+("$H/qvm.sh" "$c" >"$H/qemu.out" 2>&1 &)
+until $S true 2>/dev/null; do sleep 2; done
+$S "sudo podman image exists localhost/vmbench:1 || sudo podman load -q -i $B/vmbench.oci.tar >/dev/null; sudo podman run --rm --cpus 5 -e WHEELS=/wheels -e PG_USER=postgres -v $B:/b -v $B/share:/share localhost/vmbench:1 /b/wl.sh /share qemu-$c-share" >"$B/results/qemu-$c-share.tsv"
+$S 'sudo systemctl poweroff' 2>/dev/null; sleep 8; pkill -f qemu-system-aarch64; pkill -f 'virtiofsd --socket-path=/tmp/qvm'
+```
+
+### `coh.py`
+
+Run in a container on the shared folder, starting with `f` holding `a`, `r` holding `old` and no
+`new`. Four to five seconds in, the Mac runs, in `share/coh`:
+`printf bbbb >> f; printf new > r.tmp && mv r.tmp r; printf x > new`.
+
+```python
+# coh.py: prints, every 0.1 s for 20 s, what the guest sees of three files the host changes
+import os, time
+def st(p):
+    try: return os.stat(p).st_size
+    except FileNotFoundError: return "ENOENT"
+def rd(p):
+    try: return open(p).read()
+    except FileNotFoundError: return "ENOENT"
+F, R, N = "/share/coh/f", "/share/coh/r", "/share/coh/new"
+st(N); t0 = time.time()
+while time.time() - t0 < 20:
+    print(f"{time.time() - t0:5.2f} size={st(F)} r={rd(R)} new={st(N)}", flush=True)
+    time.sleep(0.1)
+```
+
+### `statcmp.sh`
+
+```bash
+# statcmp.sh <dir>: 20k files, then stat each three ways: Python os.stat (stat(2)), Node statSync (statx with btime), twice
+d=$1/statcmp; rm -rf $d; mkdir -p $d; cd $d
+python3 -c 'import os
+for i in range(20000): open(f"f{i}", "w").close()'
+for k in 1 2; do
+python3 -c 'import os, time
+t = time.time()
+for i in range(20000): os.stat(f"f{i}")
+print(f"python os.stat 20k: {(time.time() - t) * 1000:.0f} ms")'
+node -e 'const fs = require("fs"); let t = process.hrtime.bigint();
+for (let i = 0; i < 20000; i++) fs.statSync("f" + i);
+console.log("node statSync 20k: " + Number((process.hrtime.bigint() - t) / 1000000n) + " ms")'
+done
+cd /; rm -rf $d
+```
