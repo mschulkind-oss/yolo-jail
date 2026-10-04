@@ -51,8 +51,9 @@ import (
 	"time"
 )
 
-// ReplayTimeout bounds one walk, its prefetches included: a budget of its own, apart from the
-// check's fetch (§6.4), so git holds a launch at most twice LaunchFetchTimeout before a build.
+// ReplayTimeout bounds one advance's replays before a build, their prefetches included: a budget
+// of its own, apart from the check's fetch (§6.4), so git holds a launch at most twice
+// LaunchFetchTimeout before a build (WalkOptions.Spent).
 const ReplayTimeout = 60 * time.Second
 
 // replayMinGit is the oldest git whose merge-tree takes --merge-base.
@@ -97,6 +98,12 @@ func (e *SeriesBaseError) Error() string {
 type WalkOptions struct {
 	// Timeout is the walk's bound; zero means ReplayTimeout.
 	Timeout time.Duration
+	// Spent is what earlier replays of the same act took of that bound: one advance's replays
+	// before a build — its walk, the base's walk when nothing on the list fits, and the build's own
+	// replay into src/ — share the one bound, so git holds a launch at most a check's fetch and one
+	// replay bound before a build (§6.4, PF-D44). A walk with nothing left is an apply error at
+	// once, naming the whole bound.
+	Spent time.Duration
 	// Waiting is told when the walk is about to block on the mirror's lock.
 	Waiting func(string)
 	// All replays every entry instead of stopping at the first fit (a status survey).
@@ -134,6 +141,11 @@ func (s *Store) WalkSeries(repo, subdir string, series *Series, list []ListEntry
 	if timeout <= 0 {
 		timeout = ReplayTimeout
 	}
+	left := timeout - opts.Spent
+	if left <= 0 {
+		res.Err = fmt.Errorf("the series' replay ran out of its %s", timeout)
+		return res
+	}
 	gitVer, err := s.GitVersion()
 	res.Git = gitVer
 	if err != nil {
@@ -151,7 +163,7 @@ func (s *Store) WalkSeries(repo, subdir string, series *Series, list []ListEntry
 		return res
 	}
 	defer unlock()
-	ctx, cancel := context.WithTimeout(s.parentCtx(), timeout)
+	ctx, cancel := context.WithTimeout(s.parentCtx(), left)
 	defer cancel()
 	b := budget{ctx: ctx, d: timeout}
 	mirror := s.mirrorPath(repo)

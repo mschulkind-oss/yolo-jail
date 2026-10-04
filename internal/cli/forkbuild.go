@@ -125,17 +125,31 @@ func patchedBuildSource(source string) string {
 // fork's key besides, so two forks of one upstream stage apart. The lock and the staging workspace
 // are keyed on it, so two builds of one key serialize and anything else does not.
 func (b forkBuild) id() string {
-	key := b.buildSource()
 	if b.Fork.Patched() {
-		key = b.Fork.Key() + "\x00" + key
+		return patchedBuildID(b.Fork.Key(), b.buildSource(), b.Commit, b.recipe(), b.Platform)
 	}
-	sum := sha256.Sum256([]byte(key + "\x00" + b.Commit + "\x00" + b.recipe() + "\x00" + b.Platform))
+	return buildID(b.buildSource(), b.Commit, b.recipe(), b.Platform)
+}
+
+// buildID is a build's id from its key's parts (forkBuild.id): source, revision, recipe, platform.
+func buildID(source, commit, recipe, platform string) string {
+	sum := sha256.Sum256([]byte(source + "\x00" + commit + "\x00" + recipe + "\x00" + platform))
 	return hex.EncodeToString(sum[:])[:16]
 }
 
+// patchedBuildID is a PATCHED build's id, which carries its fork key besides: read back from an
+// admitted build's receipt (its fork, source, revision, recipe and platform), it names the lock that
+// build was made under, which a move's reap asks about (patchedadvance.go, reapOthers).
+func patchedBuildID(fork, source, commit, recipe, platform string) string {
+	return buildID(fork+"\x00"+source, commit, recipe, platform)
+}
+
 // lockPath is the build's lock, beside the capture locks.
-func (b forkBuild) lockPath() string {
-	return filepath.Join(paths.GlobalStorage(), "locks", "fork-build-"+b.id()+".lock")
+func (b forkBuild) lockPath() string { return forkBuildLockPath(b.id()) }
+
+// forkBuildLockPath is the lock of the build whose id is id.
+func forkBuildLockPath(id string) string {
+	return filepath.Join(paths.GlobalStorage(), "locks", "fork-build-"+id+".lock")
 }
 
 // buildMode is how buildFork behaves toward an existing entry and a build already running.
@@ -157,6 +171,15 @@ type buildMode struct {
 	// packs is the pack store a PATCHED build replays its series in (the launch's, under the
 	// advance's context); nil reads the machine's with the store's default budget.
 	packs *packsrc.Store
+	// replaySpent is what the advance's walks have already taken of the replay's bound, which the
+	// build's own replay into src/ shares (packsrc.WalkOptions.Spent, PF-D44).
+	replaySpent time.Duration
+	// settle, when non-nil, is run with the build's result — its entry, or the error that ended it
+	// — while the build's lock is still held, and every return from the act after the lock was
+	// taken goes through it: a PATCHED fork's advance records a failed build and moves the good
+	// build there (§6.6, PF-D17), so a waiter that takes the lock next reads either, and a move's
+	// reap sees this build's lock held until the build is in the record.
+	settle func(entry *capture.Entry, err error)
 }
 
 // errForkBuildLocked is a build refused because another holds its lock.
@@ -208,6 +231,19 @@ func buildFork(b forkBuild, mode buildMode, out, errw io.Writer, color bool) (*c
 		return nil, err
 	}
 	defer lk.Release()
+	entry, err := buildForkUnderLock(b, mode, store, pr, out, errw, color)
+	if mode.settle != nil {
+		mode.settle(entry, err)
+	}
+	return entry, err
+}
+
+// buildForkUnderLock is buildFork's act once the build's lock is held: the hit after the lock, the
+// staged workspace and its source, the sealed jail, the admit and the receipt. The workspace is
+// cleaned up when it returns, before the caller's settle.
+func buildForkUnderLock(b forkBuild, mode buildMode, store *capture.Store, pr richtext.Printer, out, errw io.Writer,
+	color bool) (*capture.Entry, error) {
+	f := b.Fork
 	// A HIT AFTER THE LOCK: a launch that waited finds the entry the winner just admitted and uses
 	// it, as the host floor re-checks after its wait, rather than building the same bytes twice. A
 	// patched fork's waiter takes the winner's result, a failure included (afterLock, §6.6).
@@ -232,7 +268,7 @@ func buildFork(b forkBuild, mode buildMode, out, errw io.Writer, color bool) (*c
 	if b.Series != nil {
 		// A PATCHED FORK: the series replayed onto the commit on the host, in a scratch repository
 		// outside this workspace, and the patched subdirectory copied into src/ (§5.1).
-		if tree, err = replayIntoSource(mode.packs, b, src); err != nil {
+		if tree, err = replayIntoSource(mode.packs, b, src, mode.replaySpent); err != nil {
 			return nil, forkSourceError{fmt.Errorf("replaying the series onto %s: %w", b.Entry.Label(), err)}
 		}
 		pr.Printf("[bold]build[/bold] [cyan]%s[/cyan]  [dim]%s at %s + %d %s (series %s), in a sealed jail[/dim]",

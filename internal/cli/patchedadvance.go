@@ -21,6 +21,14 @@ package cli
 // or `produces` is not held (PF-D23): nothing serves until the edited series builds, at the newest
 // fit or, failing that, at its own base.
 //
+// # The base, when nothing serves (§6.4, PF-D23, PF-D40)
+//
+// With nothing to serve — a first advance, the user's own edit, the good build's entry gone — the
+// series is built at its own base when the followed branch contains it and nothing better runs: the
+// list holds nothing newer than the base, nothing on it takes the series, the walk stopped on an
+// apply error, or the newest fit failed to build, in this same advance. The fit is tried again at
+// every later fresh launch while nothing serves, and on its back-off once the base does.
+//
 // # Who runs it, and how a Ctrl-C ends it
 //
 //   - A FRESH JAIL LAUNCH, in its fork-build slot (run's forkDeliveriesFor, through
@@ -40,8 +48,10 @@ package cli
 // The build's lock, then the fork's record lock, then the mirror lock, and nothing waits for an
 // earlier one while it holds a later one: the check takes the record lock and the mirror's inside
 // it (packsrc.CheckPatched); the walk takes the mirror's alone; the build act takes the build lock
-// and, inside it, the waiter's re-read and the replay into src/ (the mirror's); the move, the
-// failure record, the hand and the reap run under the record lock alone, after the build.
+// and, inside it, the waiter's re-read and the replay into src/ (the mirror's), and then, still
+// inside it but after the build, the move, the failure record, the hand and the reap, under the
+// record lock (buildMode.settle). So a waiter that takes the build lock next reads the winner's
+// result, and a move's reap sees another advance's admitted build as building until it is settled.
 
 import (
 	"context"
@@ -95,6 +105,11 @@ type advanceResult struct {
 	failed bool
 	// lost is true when this advance's admitted build lost the swap to a newer check's (§6.1).
 	lost bool
+	// gone is why this advance's admitted build could not be moved to: it left the store first.
+	gone error
+	// fellShort is true when the build act came to nothing a later step can use: a failed build,
+	// another's failure taken, or a source that could not be put in place (the base follows, PF-D23).
+	fellShort bool
 }
 
 // patchedNow and patchedYoloVersion (patchedfork.go) are the advance's clock and yolo version too.
@@ -126,28 +141,48 @@ type advance struct {
 	// serving is the good build the advance started with, when it serves (its store entry).
 	serving *capture.Entry
 	rec     *packsrc.CheckRecord
+	// seq is the sequence number of the check the walk's list came from.
+	seq int64
 	// boundHit is set by the child build runner when the build ran past forkBuildWaitBound.
 	boundHit bool
+	// replaySpent is what this advance's replays have taken of the replay's bound since its last
+	// build began (PF-D44): the walk and the build's replay into src/ share one bound, and the
+	// series' base, built after a walk or a build that came to nothing, has one of its own.
+	replaySpent time.Duration
+	// walked is set once a walk of the list ran to its end, and applyErr is the apply error it, or
+	// the build's own replay, ended in (PF-D45): finish records the one, or clears the record's.
+	walked   bool
+	applyErr *packsrc.ApplyError
+	// thenBase is set while a build runs whose failure sends this advance on to the series' base
+	// (PF-D23), so its failure's lines say that rather than the steps; ownLock is that build's lock.
+	thenBase bool
+	ownLock  string
 }
+
+// baseWhy is why an advance builds the series at its own base (§6.4), baseNone when it does not.
+type baseWhy int
+
+const (
+	baseNone baseWhy = iota
+	// baseEmpty: the branch has no version newer than the series' base (PF-D27): nothing is held.
+	baseEmpty
+	// baseNoFit: nothing on the walk's list takes the series.
+	baseNoFit
+	// baseApplyErr: the walk stopped on an apply error before it found a fit.
+	baseApplyErr
+	// baseBuildFailed: the newest fit's build failed, or could not be put in place.
+	baseBuildFailed
+)
+
+// replayElapsed is how long a replay begun at start took: a var so a test can stand in for a slow
+// one.
+var replayElapsed = time.Since
 
 // advancePatchedFork runs f's advance and returns what its jail is handed.
 func advancePatchedFork(f packload.Fork, o advanceOptions) advanceResult {
-	a := &advance{f: f, o: o, pr: richtext.Printer{W: o.out, Color: o.color}, epr: richtext.Printer{W: o.errw, Color: o.color},
-		packs: patchedAdvanceStore(o.launch), store: &capture.Store{Dir: paths.CapturesDir()},
-		yolo: patchedYoloVersion(), ctx: context.Background(), repo: mustRepo(f.Source), subdir: subdirOf(f.Source)}
-	series, err := f.ReadSeries()
-	if err != nil {
-		// THE SERIES CANNOT BE READ (§8.1): nothing serves under PF-D23, since the manifest's recipe
-		// is not known, and the reason names the file and its fix.
-		a.warn("fork %s: %v", f.Key(), err)
-		return a.handReason(fmt.Sprintf("fork %s's patch series cannot be read (%v)", f.Key(), err))
-	}
-	a.series = series
-	a.recipe = forkBuild{Fork: f, Series: series}.recipe()
-	a.in, _, _, _ = f.CheckWant(series).Inputs()
-	a.rec = a.loadOrRecover()
-	if a.rec != nil && a.rec.Good != nil && a.rec.Good.Recipe == a.recipe {
-		a.serving = a.exactGood(a.rec.Good)
+	a, early := newAdvance(f, o)
+	if early != nil {
+		return *early
 	}
 	if !o.launch || a.serving == nil {
 		return a.run()
@@ -165,6 +200,31 @@ func advancePatchedFork(f packload.Fork, o advanceOptions) advanceResult {
 			"jail starts on the good build %s; the next fresh launch tries again", f.Key(), a.goodLine())))
 	}
 	return res
+}
+
+// newAdvance reads what f's advance starts from — its series, its recipe, its check record (or one
+// recovered from the store) and the good build that serves — or, when the series cannot be read,
+// the advance's whole result.
+func newAdvance(f packload.Fork, o advanceOptions) (*advance, *advanceResult) {
+	a := &advance{f: f, o: o, pr: richtext.Printer{W: o.out, Color: o.color}, epr: richtext.Printer{W: o.errw, Color: o.color},
+		packs: patchedAdvanceStore(o.launch), store: &capture.Store{Dir: paths.CapturesDir()},
+		yolo: patchedYoloVersion(), ctx: context.Background(), repo: mustRepo(f.Source), subdir: subdirOf(f.Source)}
+	series, err := f.ReadSeries()
+	if err != nil {
+		// THE SERIES CANNOT BE READ (§8.1): nothing serves under PF-D23, since the manifest's recipe
+		// is not known, and the reason names the file and its fix.
+		a.warn("fork %s: %v", f.Key(), err)
+		r := a.handReason(fmt.Sprintf("fork %s's patch series cannot be read (%v)", f.Key(), err))
+		return nil, &r
+	}
+	a.series = series
+	a.recipe = forkBuild{Fork: f, Series: series}.recipe()
+	a.in, _, _, _ = f.CheckWant(series).Inputs()
+	a.rec = a.loadOrRecover()
+	if a.rec != nil && a.rec.Good != nil && a.rec.Good.Recipe == a.recipe {
+		a.serving = a.exactGood(a.rec.Good)
+	}
+	return a, nil
 }
 
 // interrupted reports whether the interrupt scope's Ctrl-C has ended this advance.
@@ -196,7 +256,7 @@ func (a *advance) run() advanceResult {
 	hold := run.PatchedForkHold(f)
 
 	var list []packsrc.ListEntry
-	seq := a.rec.Seq
+	a.seq = a.rec.Seq
 	// THE GIT A CONFLICT IS KEYED BY is asked only when this launch runs git anyway (a check ran):
 	// inside the throttle a recorded conflict holds whichever git recorded it, so a steady-state
 	// launch runs no git process at all (P4), and a git upgrade is replayed at the next check
@@ -230,7 +290,7 @@ func (a *advance) run() advanceResult {
 		}
 		a.rec = res.Record
 		found := a.rec.Check
-		seq = found.Seq
+		a.seq = found.Seq
 		exactGit = res.Ran
 		if res.Ran && found.FetchErr != "" {
 			a.warn("fork %s: could not check its upstream (%s) — %s; the next check is in an hour, or "+
@@ -248,6 +308,12 @@ func (a *advance) run() advanceResult {
 			// needs the network too, and its failure would start a back-off for no reason.
 			return a.finish(nil, forkBuild{}, 0, nil, "")
 		}
+		if a.serving != nil && !res.Ran && !a.o.force && a.rec.ApplyErrAtLastCheck() != nil {
+			// THE LAST WALK OF THIS CHECK'S LIST ENDED IN AN APPLY ERROR (§6.2's row, PF-D45), said on
+			// the launch that met it: the good build runs, the fork's line carries the held suffix,
+			// and the next check retries — never every launch inside the hour, each paying the walk.
+			return a.finish(nil, forkBuild{}, 0, nil, "")
+		}
 	}
 	if a.serving == nil && good != nil && !onList(list, good.Commit) {
 		// THE EDIT, OR THE GOOD BUILD'S ENTRY GONE (§6.1's series and recipe rows, §8.1): with nothing
@@ -255,6 +321,7 @@ func (a *advance) run() advanceResult {
 		// as they stand.
 		list = append(list, goodEntry(good))
 	}
+	listed := len(list) > 0
 	if pending := a.pendingOf(list, exactGit); a.o.force && a.serving != nil && len(pending) == 0 {
 		// `yolo capture` WITH NOTHING PENDING rebuilds the good build's own inputs, as it force-
 		// rebuilds a plain fork (§8.3).
@@ -262,7 +329,7 @@ func (a *advance) run() advanceResult {
 	} else {
 		list = pending
 	}
-	atBase := false
+	base := baseNone
 	if len(list) == 0 {
 		if a.serving != nil {
 			return a.finish(nil, forkBuild{}, 0, nil, "") // nothing pending: the good build runs, no build
@@ -270,7 +337,13 @@ func (a *advance) run() advanceResult {
 		if !a.baseFallback() {
 			return a.noFit(edited, "")
 		}
-		list, atBase = []packsrc.ListEntry{{Commit: a.series.Base}}, true
+		// NOTHING TO WALK, AND NOTHING SERVES (§6.4): the branch has no version newer than the
+		// series' base (PF-D27, no hold), or every entry on it is a recorded conflict.
+		base = baseNoFit
+		if !listed {
+			base = baseEmpty
+		}
+		list = []packsrc.ListEntry{a.baseEntry()}
 	}
 	switch {
 	case a.serving != nil && list[0].Commit != good.Commit:
@@ -285,19 +358,28 @@ func (a *advance) run() advanceResult {
 	case good == nil:
 		a.say("fork %s: no build of it on this machine yet; replaying its %s", f.Key(), run.PatchCount(a.series.Len()))
 	}
-	w := a.walk(list)
+	w := a.walk(list, base == baseNone)
 	if a.interrupted() {
 		return a.finish(nil, forkBuild{}, 0, nil, "")
 	}
-	if w.Fit < 0 && w.Base == nil && w.Err == nil && !atBase && a.serving == nil && a.lastClean(w) && a.baseFallback() {
+	if w.Fit < 0 && w.Base == nil && w.Err == nil && base == baseNone && a.serving == nil && a.baseFallback() {
 		// THE FIRST ADVANCE'S FALLBACK, and any state with nothing to serve (§6.4): nothing on the list
-		// takes the series, so it is built at its own base, where it applies by construction.
-		a.say("fork %s: no version on the list takes the series, so it is built at its base %s and held there",
-			f.Key(), shortSHA(a.series.Base))
-		if w = a.walk([]packsrc.ListEntry{{Commit: a.series.Base}}); a.interrupted() {
+		// takes the series, or the walk stopped on an apply error before it found what does, so it is
+		// built at its own base, where it applies by construction — with a replay bound of its own,
+		// since a walk the bound stopped has none left (PF-D44).
+		if err := a.walkErr(w); err != nil {
+			a.warn("fork %s: could not replay the series: %v — building it at its base %s meanwhile; the next "+
+				"check retries the rest, or `yolo pack update` now", f.Key(), err, shortSHA(a.series.Base))
+			base = baseApplyErr
+		} else {
+			a.say("fork %s: no version on the list takes the series, so it is built at its base %s and held there",
+				f.Key(), shortSHA(a.series.Base))
+			base = baseNoFit
+		}
+		a.replaySpent = 0
+		if w = a.walk([]packsrc.ListEntry{a.baseEntry()}, false); a.interrupted() {
 			return a.finish(nil, forkBuild{}, 0, nil, "")
 		}
-		atBase = true
 	}
 	switch {
 	case w.Base != nil:
@@ -305,14 +387,27 @@ func (a *advance) run() advanceResult {
 		return a.serveOr(fmt.Sprintf("fork %s's series does not apply at its own base (%s)", f.Key(), w.Base.Error()))
 	case w.Fit < 0:
 		if err := a.walkErr(w); err != nil {
-			a.warn("fork %s: could not replay the series: %v — `yolo pack update` retries now", f.Key(), err)
+			a.warn("fork %s: could not replay the series: %v — %s; %s", f.Key(), err, a.runsNow(), a.retryStep())
 			return a.serveOr(fmt.Sprintf("fork %s's series could not be replayed on the host (%v)", f.Key(), err))
 		}
 		return a.noFit(edited, w.Results[0].Entry.Label())
 	}
 	fit := w.Results[w.Fit]
 	return a.build(forkBuild{Fork: f, Commit: fit.Entry.Commit, Platform: a.o.platform, Series: a.series,
-		Entry: a.entryWithVersion(fit.Entry)}, seq, atBase, edited)
+		Entry: a.entryWithVersion(fit.Entry)}, base, edited)
+}
+
+// baseEntry is the series' base as an entry of the walk's list: the list's own entry for it when the
+// last check listed it (its version tag), else the commit alone.
+func (a *advance) baseEntry() packsrc.ListEntry {
+	if c := a.rec.Check; c != nil {
+		for _, e := range c.List {
+			if e.Commit == a.series.Base {
+				return e
+			}
+		}
+	}
+	return packsrc.ListEntry{Commit: a.series.Base}
 }
 
 // goodBuild is the record's good build, nil for none.
@@ -329,6 +424,15 @@ func (a *advance) runsNow() string {
 		return "still running " + a.goodLine()
 	}
 	return "this jail has no " + a.f.Bin
+}
+
+// retryStep is when an apply error is replayed again (PF-D45): at the next check while the good build
+// serves, at the next fresh launch while nothing does; and `yolo pack update` at once.
+func (a *advance) retryStep() string {
+	if a.serving != nil {
+		return "the next check, in an hour, retries it, or `yolo pack update` now"
+	}
+	return "the next fresh launch retries it, or `yolo pack update` now"
 }
 
 // serveOr ends an advance that builds nothing: the good build when it serves, else why's reason.
@@ -433,11 +537,21 @@ func (a *advance) buildFailure(commit string) *packsrc.EntryOutcome {
 }
 
 // walk replays the series down list and records each outcome, and says each conflict and each
-// member already upstream once, on the launch that found it.
-func (a *advance) walk(list []packsrc.ListEntry) packsrc.WalkResult {
-	w := a.packs.WalkSeries(a.repo, a.subdir, a.series, list, packsrc.WalkOptions{})
+// member already upstream once, on the launch that found it. ofList marks a walk of the check's list
+// (not the series' base alone), whose apply error finish records (PF-D45). It takes what is left of
+// the replay's bound (PF-D44).
+func (a *advance) walk(list []packsrc.ListEntry, ofList bool) packsrc.WalkResult {
+	start := time.Now()
+	w := a.packs.WalkSeries(a.repo, a.subdir, a.series, list, packsrc.WalkOptions{Spent: a.replaySpent})
+	a.replaySpent += replayElapsed(start)
 	if a.interrupted() {
 		return w
+	}
+	if ofList {
+		a.walked, a.applyErr = true, nil
+		if err := a.walkErr(w); w.Fit < 0 && w.Base == nil && err != nil {
+			a.applyErr = &packsrc.ApplyError{Seq: a.seq, Error: oneLineErr(err)}
+		}
 	}
 	if err := a.packs.RecordWalk(a.f.Key(), a.series.Digest, a.yolo, w, patchedNow()); err != nil {
 		a.warn("fork %s: recording the replay: %v", a.f.Key(), err)
@@ -482,12 +596,6 @@ func (a *advance) heldLine(fit *packsrc.ReplayResult) string {
 	return "nothing runs: nothing on the list takes the series"
 }
 
-// lastClean reports whether a walk with no fit ended on an entry that was settled (a conflict),
-// not on an apply error.
-func (a *advance) lastClean(w packsrc.WalkResult) bool {
-	return len(w.Results) > 0 && w.Results[len(w.Results)-1].Err == nil
-}
-
 // walkErr is a walk's apply error, nil when every entry it reached was settled.
 func (a *advance) walkErr(w packsrc.WalkResult) error {
 	if w.Err != nil {
@@ -516,15 +624,20 @@ func (a *advance) entryWithVersion(e packsrc.ListEntry) packsrc.ListEntry {
 }
 
 // buildFailedLines are a failed build's lines (§8.1): the error, where its output is, and the
-// next steps.
+// next steps — or, when the series' base is built next (thenBase), that.
 func (a *advance) buildFailedLines(b forkBuild, err error, retryAt time.Time) {
 	f := a.f
 	what := b.Entry.Label() + " + " + run.PatchCount(b.Series.Len())
-	a.warn("fork %s: the build of %s failed: %v — %s", f.Key(), what, err, a.runsNow())
+	tail := a.runsNow()
+	if a.thenBase {
+		tail = a.baseNext()
+	}
+	a.warn("fork %s: the build of %s failed: %v — %s", f.Key(), what, err, tail)
 	if a.o.workspace != "" {
 		a.dim("  its output is above, and in %s", filepath.Join(a.o.workspace, ".yolo", "launch.log"))
 	}
 	switch {
+	case a.thenBase:
 	case a.serving != nil:
 		a.dim("  `yolo capture %s` retries it now; a fresh launch retries it after %s", f.Bin,
 			retryAt.Local().Format("2006-01-02 15:04"))
@@ -537,21 +650,30 @@ func (a *advance) buildFailedLines(b forkBuild, err error, retryAt time.Time) {
 	}
 }
 
-// build runs the build act for b and settles its outcome: the move, a recorded failure, or nothing
-// recorded, and then the hand.
-func (a *advance) build(b forkBuild, seq int64, atBase, edited bool) advanceResult {
+// baseNext is what a failed build's line says follows it when the series' base is built next.
+func (a *advance) baseNext() string {
+	return "this jail has no " + a.f.Bin + " from it, so the series is built at its base " +
+		a.baseEntry().Label() + " instead"
+}
+
+// build runs the build act for b and settles its outcome under the build's lock (settle): the
+// move, a recorded failure, or nothing recorded, and then the hand. With nothing serving, a fit
+// whose build fails or cannot be put in place sends the advance on to the series' base (PF-D23).
+func (a *advance) build(b forkBuild, base baseWhy, edited bool) advanceResult {
 	f := a.f
 	switch {
 	case a.serving != nil && a.o.launch:
 		a.say("fork %s: %s takes the series; building it — this launch waits for it, at most %s, and a Ctrl-C "+
 			"starts this jail on the good build %s instead", f.Key(), b.Entry.Label(), forkBuildWaitBound,
 			run.GoodBuildLabel(a.rec.Good))
-	case !atBase:
+	case base == baseNone:
 		a.say("fork %s: %s takes the series; building it", f.Key(), b.Entry.Label())
 	}
+	a.thenBase = base == baseNone && a.serving == nil && a.baseFallback() && b.Commit != a.series.Base
 	startFail := a.buildFailure(b.Commit)
 	startGood := a.goodBuild()
-	mode := buildMode{force: a.o.force, packs: a.packs, lock: pidlock.NoWait}
+	a.boundHit, a.ownLock = false, b.lockPath()
+	mode := buildMode{force: a.o.force, packs: a.packs, lock: pidlock.NoWait, replaySpent: a.replaySpent}
 	if a.o.launch {
 		mode.lock = pidlock.Mode{Wait: true, Bound: forkBuildWaitBound, Cancel: a.ctx.Done()}
 		mode.afterLock = func() (*capture.Entry, error, bool) { return a.afterLock(b, startGood, startFail) }
@@ -563,21 +685,76 @@ func (a *advance) build(b forkBuild, seq int64, atBase, edited bool) advanceResu
 			}
 		}
 	}
-	entry, err := buildFork(b, mode, a.o.out, a.o.errw, a.o.color)
+	var settled *advanceResult
+	mode.settle = func(entry *capture.Entry, err error) {
+		r := a.settle(b, entry, err, base, edited)
+		settled = &r
+	}
+	_, err := buildFork(b, mode, a.o.out, a.o.errw, a.o.color)
+	r := advanceResult{}
+	if settled != nil {
+		r = *settled
+	} else {
+		r = a.settle(b, nil, err, base, edited) // the lock was never taken
+	}
+	if !a.thenBase || !r.fellShort || a.interrupted() {
+		return r
+	}
+	// THE SERIES' BASE, IN THIS SAME ADVANCE (PF-D23, §8.1): nothing serves and the newest fit came
+	// to nothing, so the base is tried before the program goes, with a replay bound of its own.
+	a.thenBase = false
+	a.replaySpent = 0
+	w := a.walk([]packsrc.ListEntry{a.baseEntry()}, false)
+	switch {
+	case a.interrupted():
+		return a.finish(nil, forkBuild{}, 0, nil, "")
+	case w.Base != nil:
+		a.warn("fork %s: %s", f.Key(), w.Base.Error())
+		return a.serveOr(fmt.Sprintf("fork %s's series does not apply at its own base (%s)", f.Key(), w.Base.Error()))
+	case w.Fit < 0:
+		err := a.walkErr(w)
+		a.warn("fork %s: could not replay the series at its base: %v — %s", f.Key(), err, a.runsNow())
+		return a.serveOr(fmt.Sprintf("fork %s's series could not be replayed on the host (%v)", f.Key(), err))
+	}
+	res := a.build(forkBuild{Fork: f, Commit: a.series.Base, Platform: a.o.platform, Series: a.series,
+		Entry: w.Results[w.Fit].Entry}, baseBuildFailed, edited)
+	res.failed = true // what was asked for did not build, whatever the base did
+	return res
+}
+
+// settle is the build act's result, settled while the build's lock is held (buildMode.settle,
+// §6.6): the move of an admitted build; the record of a build line that failed or ran past the
+// bound; and for everything else, which records nothing, its line. It hands the jail what runs.
+func (a *advance) settle(b forkBuild, entry *capture.Entry, err error, base baseWhy, edited bool) advanceResult {
+	f := a.f
+	if err == nil {
+		return a.moved(b, entry, base, edited)
+	}
+	if a.interrupted() || errors.Is(err, pidlock.ErrCanceled) {
+		return a.finish(nil, forkBuild{}, 0, nil, "the advance was interrupted — the next fresh launch builds it")
+	}
+	if a.boundHit {
+		// STOPPED AT THE BOUND (PF-D38, §8.1): a failed build, with its back-off, whether or not the
+		// build line had started — a jail still booting at the bound (its own image build, say) took
+		// as long as one that hung, and the next launch must not wait the whole bound again.
+		return a.buildFailed(b, fmt.Errorf("it ran past the %s bound and was stopped", forkBuildWaitBound))
+	}
 	var waited waiterFailure
 	var lockTimeout forkLockTimeout
 	var source forkSourceError
 	switch {
-	case err == nil:
-		return a.moved(b, entry, seq, atBase, edited)
-	case a.interrupted() || errors.Is(err, pidlock.ErrCanceled):
-		return a.finish(nil, forkBuild{}, 0, nil, "the advance was interrupted — the next fresh launch builds it")
 	case errors.As(err, &waited):
 		// ANOTHER LAUNCH'S BUILD OF THIS CANDIDATE FAILED while this one waited (§6.6): its result is
 		// this one's, recorded already, and nothing is rebuilt.
+		tail := a.runsNow()
+		if a.thenBase {
+			tail = a.baseNext()
+		}
 		a.warn("fork %s: another launch's build of %s failed while this one waited: %s — %s", f.Key(),
-			b.Entry.Label(), waited.msg, a.runsNow())
-		return a.serveOr(fmt.Sprintf("fork %s's build of %s failed on the host (%s)", f.Key(), b.Entry.Label(), waited.msg))
+			b.Entry.Label(), waited.msg, tail)
+		r := a.serveOrUnlessBase(fmt.Sprintf("fork %s's build of %s failed on the host (%s)", f.Key(), b.Entry.Label(), waited.msg))
+		r.fellShort = true
+		return r
 	case errors.As(err, &lockTimeout):
 		a.warn("fork %s: %v — %s; the next launch takes that build's result, and if that pid has hung, "+
 			"stopping it lets the next launch build", f.Key(), err, a.runsNow())
@@ -598,26 +775,74 @@ func (a *advance) build(b forkBuild, seq int64, atBase, edited bool) advanceResu
 		}
 		return a.serveOr(fmt.Sprintf("fork %s's build jail did not start on the host (%v)", f.Key(), err))
 	case errors.As(err, &source):
-		// AN APPLY ERROR in the build's own replay: nothing recorded, the next check retries.
-		a.warn("fork %s: %v — %s; `yolo pack update` retries now", f.Key(), err, a.runsNow())
-		return a.serveOr(fmt.Sprintf("fork %s's series could not be put in place on the host (%v)", f.Key(), err))
+		// AN APPLY ERROR in the build's own replay: nothing recorded against the entry, and the next
+		// check retries it (PF-D45).
+		a.applyErr = &packsrc.ApplyError{Seq: a.seq, Error: oneLineErr(err)}
+		tail := a.runsNow() + "; " + a.retryStep()
+		if a.thenBase {
+			tail = a.baseNext()
+		}
+		a.warn("fork %s: %v — %s", f.Key(), err, tail)
+		r := a.serveOrUnlessBase(fmt.Sprintf("fork %s's series could not be put in place on the host (%v)", f.Key(), err))
+		r.fellShort = true
+		return r
 	}
-	// THE BUILD LINE RAN AND FAILED, or ran past the bound: recorded, with the back-off.
-	if a.boundHit {
-		err = fmt.Errorf("it ran past the %s bound and was stopped", forkBuildWaitBound)
-	}
-	count := 1
-	if startFail != nil {
-		count = startFail.Count + 1
-	}
+	// THE BUILD LINE RAN AND FAILED: recorded, with the back-off.
+	return a.buildFailed(b, err)
+}
+
+// buildFailed records b's failed build — counted against the failures the record holds for its key
+// (OQ-PD26's back-off) — and says it. Under the build's lock (settle), so a launch that waited on
+// it reads the failure before it can take the lock (§6.6).
+func (a *advance) buildFailed(b forkBuild, err error) advanceResult {
+	f := a.f
 	now := patchedNow()
 	o := &packsrc.EntryOutcome{Commit: b.Commit, Kind: packsrc.OutcomeBuildFailed, Series: a.series.Digest,
-		Yolo: a.yolo, Recipe: a.recipe, Error: oneLineErr(err), Count: count, At: now.Unix()}
-	a.buildFailedLines(b, err, autoCaptureRetryAt(capture.AutoFailure{Failures: count, Last: now}))
-	r := a.finish(nil, forkBuild{}, 0, o, fmt.Sprintf("fork %s's build of %s failed on the host (%s) — the next "+
-		"fresh launch tries again, or `yolo capture %s` now", f.Key(), b.Entry.Label(), oneLineErr(err), f.Bin))
-	r.failed = true
+		Yolo: a.yolo, Recipe: a.recipe, Error: oneLineErr(err), Count: 1, At: now.Unix()}
+	var r advanceResult
+	if a.thenBase {
+		// The base is built next, and its own settle hands the jail what runs.
+		a.recordOnly(o)
+	} else {
+		r = a.finish(nil, forkBuild{}, 0, o, fmt.Sprintf("fork %s's build of %s failed on the host (%s) — the next "+
+			"fresh launch tries again, or `yolo capture %s` now", f.Key(), b.Entry.Label(), oneLineErr(err), f.Bin))
+	}
+	a.buildFailedLines(b, err, autoCaptureRetryAt(capture.AutoFailure{Failures: o.Count, Last: now}))
+	r.failed, r.fellShort = true, true
 	return r
+}
+
+// recordOnly writes a failed build's outcome, counted against the record's, and nothing else.
+func (a *advance) recordOnly(o *packsrc.EntryOutcome) {
+	err := a.packs.WithCheckRecord(a.f.Key(), nil, func(r *packsrc.CheckRecord, _ error, _ func() error) (bool, error) {
+		setFailure(r, o)
+		a.rec = r
+		return true, nil
+	})
+	if err != nil {
+		a.warn("fork %s: could not update its check record: %v", a.f.Key(), err)
+	}
+}
+
+// setFailure sets o on r, its count one more than the failures r holds for its key (commit,
+// series, recipe, yolo).
+func setFailure(r *packsrc.CheckRecord, o *packsrc.EntryOutcome) {
+	for _, prev := range r.Outcomes {
+		if prev.Kind == o.Kind && prev.Commit == o.Commit && prev.Series == o.Series && prev.Recipe == o.Recipe &&
+			prev.Yolo == o.Yolo {
+			o.Count = prev.Count + 1
+		}
+	}
+	r.SetOutcome(*o)
+}
+
+// serveOrUnlessBase is serveOr, unless the series' base is built next (thenBase): then nothing is
+// handed yet, since the base's own settle hands the jail what runs.
+func (a *advance) serveOrUnlessBase(why string) advanceResult {
+	if a.thenBase {
+		return advanceResult{failed: true}
+	}
+	return a.serveOr(why)
 }
 
 // waiterFailure is a launch that waited for another's build of the same candidate and found it
@@ -649,9 +874,17 @@ func (a *advance) afterLock(b forkBuild, startGood *packsrc.GoodBuild, startFail
 
 // moved settles an admitted build: the move under the record lock, and its disclosure, which no
 // flag hides (OQ-RO3).
-func (a *advance) moved(b forkBuild, entry *capture.Entry, seq int64, atBase, edited bool) advanceResult {
+func (a *advance) moved(b forkBuild, entry *capture.Entry, base baseWhy, edited bool) advanceResult {
 	prev := a.goodBuild()
-	r := a.finish(entry, b, seq, nil, "")
+	r := a.finish(entry, b, a.seq, nil, "")
+	if r.gone != nil {
+		// THE BUILD WENT BEFORE IT COULD BE HANDED: never moved to (§6.7, "never moves the good build
+		// to a build this machine has not admitted"), and the jail runs what the record names.
+		a.warn("fork %s: the build of %s left the capture store before this launch could hand it (%v) — %s; the "+
+			"next fresh launch builds it again", a.f.Key(), b.Entry.Label(), r.gone, a.handedNow(r))
+		r.failed = true
+		return r
+	}
 	r.built = true
 	if r.lost {
 		a.say("fork %s: another launch moved the good build meanwhile, from a newer check; this jail runs that one, "+
@@ -661,28 +894,49 @@ func (a *advance) moved(b forkBuild, entry *capture.Entry, seq int64, atBase, ed
 	what := b.Entry.Label() + " + " + run.PatchCount(b.Series.Len())
 	switch {
 	case prev == nil:
-		line := "built fork " + a.f.Key() + ": " + what + "; this jail runs it"
-		if atBase {
-			line += " — held at the series' base, which no version of the branch takes the series past"
-		}
-		a.pr.Printf("[bold]%s[/bold]", richtext.Escape(line))
+		a.pr.Printf("[bold]%s[/bold]", richtext.Escape("built fork "+a.f.Key()+": "+what+"; this jail runs it"+a.baseClause(base)))
 	case prev.Entry == entry.Key:
-		a.pr.Printf("[bold]%s[/bold]", richtext.Escape("rebuilt fork "+a.f.Key()+": "+what+"; this jail runs it"))
+		a.pr.Printf("[bold]%s[/bold]", richtext.Escape("rebuilt fork "+a.f.Key()+": "+what+"; this jail runs it"+a.baseClause(base)))
 	case edited:
 		a.pr.Printf("[bold]%s[/bold]", richtext.Escape("updated fork "+a.f.Key()+": "+run.GoodBuildLabel(prev)+
 			" → "+b.Entry.Label()+", the edited series ("+run.PatchCount(b.Series.Len())+", series "+
-			b.Series.ShortDigest()+"); this jail runs the new build"))
+			b.Series.ShortDigest()+"); this jail runs the new build"+a.baseClause(base)))
 	default:
 		a.pr.Printf("[bold]%s[/bold]", richtext.Escape("updated fork "+a.f.Key()+": "+run.GoodBuildLabel(prev)+" → "+
-			b.Entry.Label()+", "+run.PatchCount(b.Series.Len())+"; this jail runs the new build"))
+			b.Entry.Label()+", "+run.PatchCount(b.Series.Len())+"; this jail runs the new build"+a.baseClause(base)))
 	}
 	return r
 }
 
-// finish is the advance's last act, under the fork's record lock (§6.1, §6.6): the move of an
-// admitted build, a compare-and-swap that prefers the newer check; a failure's outcome; the hand of
-// the good build as the record now names it (or why when it does not serve); and the reap of what
-// the move leaves behind. reason is what the jail is handed when nothing serves.
+// baseClause is the move line's last clause for a build at the series' base: why it is there, and
+// whether that holds anything (PF-D27: a branch with nothing newer holds nothing).
+func (a *advance) baseClause(base baseWhy) string {
+	switch base {
+	case baseEmpty:
+		return " — no version of the branch is newer than the series' base"
+	case baseNoFit:
+		return " — held at the series' base, which no version of the branch takes the series past"
+	case baseApplyErr:
+		return " — held at the series' base until the series replays at a newer version; the next check retries"
+	case baseBuildFailed:
+		return " — held at the series' base, since the newest version the series takes did not build"
+	}
+	return ""
+}
+
+// handedNow says what the jail was handed by r: the good build, or nothing.
+func (a *advance) handedNow(r advanceResult) string {
+	if r.delivery.Key != "" && a.rec.Good != nil {
+		return "this jail runs " + a.goodLine()
+	}
+	return "this jail has no " + a.f.Bin
+}
+
+// finish is the advance's last act, under the fork's record lock (§6.1, §6.6) — and, after a build,
+// under its build lock too (settle): the move of an admitted build, a compare-and-swap that prefers
+// the newer check, and only to a build still in the store; a failure's outcome; the walk's apply
+// error; the hand of the good build as the record now names it (or why when it does not serve); and
+// the reap of what the move leaves behind. reason is what the jail is handed when nothing serves.
 func (a *advance) finish(built *capture.Entry, b forkBuild, seq int64, failure *packsrc.EntryOutcome, reason string) advanceResult {
 	f := a.f
 	var res advanceResult
@@ -690,9 +944,13 @@ func (a *advance) finish(built *capture.Entry, b forkBuild, seq int64, failure *
 	err := a.packs.WithCheckRecord(f.Key(), nil, func(r *packsrc.CheckRecord, _ error, _ func() error) (bool, error) {
 		changed := false
 		if built != nil {
-			if r.Good != nil && seq < r.Good.Seq {
+			_, gone := a.store.Resolve(built.Key)
+			switch {
+			case gone != nil:
+				res.gone = gone
+			case r.Good != nil && seq < r.Good.Seq:
 				lost = true
-			} else {
+			default:
 				read := r.Read
 				r.Good = &packsrc.GoodBuild{Commit: b.Commit, Tag: b.Entry.Tag, Version: b.Entry.Version,
 					Series: b.Series.Digest, Recipe: b.recipe(), Tree: a.builtTree(built), Patches: b.Series.Len(),
@@ -702,8 +960,14 @@ func (a *advance) finish(built *capture.Entry, b forkBuild, seq int64, failure *
 			}
 		}
 		if failure != nil {
-			r.SetOutcome(*failure)
+			setFailure(r, failure)
 			changed = true
+		}
+		switch {
+		case a.applyErr != nil:
+			r.ApplyErr, changed = a.applyErr, true
+		case a.walked && r.ApplyErr != nil:
+			r.ApplyErr, changed = nil, true
 		}
 		a.rec = r
 		h := run.HandedFork{Fork: f.Key()}
@@ -720,8 +984,10 @@ func (a *advance) finish(built *capture.Entry, b forkBuild, seq int64, failure *
 		}
 		res.delivery = entrypoint.ForkDelivery{Key: h.Key, Reason: h.Reason}
 		if a.o.hand != nil {
-			if err := a.o.hand(f.Bin, h); err != nil {
-				a.warn("fork %s: could not record what this launch hands its jail (%v)", f.Key(), err)
+			if err := a.o.hand(f.Bin, h); err != nil && h.Key != "" {
+				a.warn("fork %s: could not record what this launch hands its jail (%v) — until it is recorded, "+
+					"another launch's move of this fork may remove the build before this jail first runs %s; "+
+					"if %s then cannot start, a fresh launch delivers the good build", f.Key(), err, f.Bin, f.Bin)
 			}
 		}
 		// THE REAP (PF-D20), after the hand, so this launch's own build is in the records it reads.
@@ -792,7 +1058,9 @@ func (a *advance) exact(commit string) *capture.Entry {
 
 // reapOthers reaps every other build of this fork for this platform that no running jail was
 // handed, once the good build moved to keep (PF-D20). A delivery record that cannot be read keeps
-// every build, and so does an entry any other program's record names.
+// every build, and so does an entry any other program's record names, and one whose build's lock is
+// held: another advance admitted it and has not settled it yet, and its own swap, or its own reap
+// when it loses, decides it (PF-D46).
 func (a *advance) reapOthers(keep string) {
 	handed, err := run.HandedForkKeys()
 	if err != nil {
@@ -804,11 +1072,24 @@ func (a *advance) reapOthers(keep string) {
 		return
 	}
 	for _, e := range scan {
-		if e.Key == keep || handed[e.Key] || !a.onlyThisFork(e.Records) {
+		if e.Key == keep || handed[e.Key] || !a.onlyThisFork(e.Records) || a.building(e.Records) {
 			continue
 		}
 		_ = a.store.ReapEntry(e.Key)
 	}
+}
+
+// building reports whether a record of an entry names a build whose lock another holds right now
+// (patchedBuildID, from the receipt's fork, source, revision, recipe and platform). This advance's
+// own build lock is not another's.
+func (a *advance) building(recs []capture.Record) bool {
+	for _, r := range recs {
+		lock := forkBuildLockPath(patchedBuildID(r.Fork, r.Source, r.Revision, r.Recipe, r.Platform))
+		if lock != a.ownLock && pidlock.Held(lock) {
+			return true
+		}
+	}
+	return false
 }
 
 // reapOne reaps a build that lost the swap, unless a running jail was handed it.
@@ -962,8 +1243,10 @@ func onList(list []packsrc.ListEntry, commit string) bool {
 // replayIntoSource replays b's series onto b.Entry in a scratch repository outside the build's
 // workspace (§5.1, PF-D18), under the mirror's lock, and copies the patched source subdirectory into
 // dst with the copy that never follows a link; it returns the PATCHED TREE (§5.3). packs nil is the
-// launch's store.
-func replayIntoSource(packs *packsrc.Store, b forkBuild, dst string) (string, error) {
+// launch's store. It is the fit's second replay, under the build's lock (which is keyed on the fit,
+// so only after the walk found it), and takes what the walk left of the replay's bound (spent,
+// PF-D44).
+func replayIntoSource(packs *packsrc.Store, b forkBuild, dst string, spent time.Duration) (string, error) {
 	if packs == nil {
 		packs = packsrc.LaunchStore(paths.PacksDir())
 	}
@@ -972,7 +1255,7 @@ func replayIntoSource(packs *packsrc.Store, b forkBuild, dst string) (string, er
 		return "", err
 	}
 	w := packs.WalkSeries(a.Repo, a.Path, b.Series, []packsrc.ListEntry{b.Entry}, packsrc.WalkOptions{
-		OnFit: func(tree string) error { return copySourceTree(tree, dst) }})
+		Spent: spent, OnFit: func(tree string) error { return copySourceTree(tree, dst) }})
 	switch {
 	case w.Base != nil:
 		return "", w.Base

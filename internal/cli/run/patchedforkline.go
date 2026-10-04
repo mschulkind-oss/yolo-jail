@@ -79,6 +79,9 @@ func HeldSuffix(f packload.Fork, rec *packsrc.CheckRecord, in packsrc.CheckInput
 		case packsrc.OutcomeBuildFailed:
 			return at + ": the build of upstream " + h.Entry.Label() + " failed — `yolo capture " + f.Bin +
 				"` retries it now"
+		case packsrc.HeldByApplyError:
+			return at + ": the series could not be replayed at upstream " + h.Entry.Label() + " (" + h.Error +
+				") — the next check, in an hour, retries it, or `yolo pack update` now"
 		default:
 			return at + ": " + h.Error
 		}

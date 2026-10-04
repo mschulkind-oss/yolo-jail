@@ -6,15 +6,16 @@ package cli
 // runs no git; a new tag moves the good build and reaps what no running jail was handed; a
 // conflicting tag is said once and held with the previous build serving; a failed build backs off
 // while the good build serves, and a build jail that never ran records nothing; the user's own
-// failed edit is not held (PF-D23); a waiter takes the winner's failure; a Ctrl-C ends the advance
-// and the jail starts on the good build (PF-D25); a lost record is recovered from the store; and
-// `yolo capture` builds through the same swap.
+// failed edit is not held (PF-D23, patchedbase_test.go); a waiter takes the winner's failure
+// (patchedrace_test.go); a Ctrl-C ends the advance and the jail starts on the good build (PF-D25);
+// a lost record is recovered from the store; and `yolo capture` builds through the same swap.
 
 import (
 	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"io"
 	"os"
 	"os/exec"
@@ -32,7 +33,6 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/packsrc"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
-	"github.com/mschulkind-oss/yolo-jail/internal/pidlock"
 	"github.com/mschulkind-oss/yolo-jail/internal/shquote"
 )
 
@@ -403,29 +403,6 @@ func TestABuildJailThatNeverRanRecordsNothing(t *testing.T) {
 	}
 }
 
-// THE USER'S OWN FAILED EDIT IS NOT HELD (PF-D23): an edited build recipe that fails leaves the
-// jail with no program, said with the revert that brings the good build back; reverting it does.
-func TestAUsersFailedEditIsNotHeld(t *testing.T) {
-	fx, _, _, r, _, _ := firstAdvance(t)
-	writeFile(t, fx.manifest, strings.Replace(mustRead(t, fx.manifest), `"build":"sh build.sh"`, `"build":"sh build2.sh"`, 1))
-	fx.rc = 2
-	edited, out, _ := fx.launch(t, "podman")
-	if edited.delivery.Key != "" || edited.delivery.Reason == "" || len(fx.builds) != 2 {
-		t.Fatalf("the failed edit handed %+v after %d builds, want no program\n%s", edited.delivery, len(fx.builds), out)
-	}
-	if !strings.Contains(out, "reverting the edit to the series or the build brings back the good build v1.1.0") {
-		t.Errorf("the failed edit does not name the revert:\n%s", out)
-	}
-	if !storeEntryExists(r.delivery.Key) {
-		t.Error("the failed edit reaped the good build it did not replace")
-	}
-	writeFile(t, fx.manifest, strings.Replace(mustRead(t, fx.manifest), `"build":"sh build2.sh"`, `"build":"sh build.sh"`, 1))
-	reverted, out, _ := fx.launch(t, "podman")
-	if reverted.delivery.Key != r.delivery.Key || len(fx.builds) != 2 {
-		t.Errorf("after the revert the launch handed %+v after %d builds\n%s", reverted.delivery, len(fx.builds), out)
-	}
-}
-
 func mustRead(t *testing.T, p string) string {
 	t.Helper()
 	data, err := os.ReadFile(p)
@@ -433,44 +410,6 @@ func mustRead(t *testing.T, p string) string {
 		t.Fatal(err)
 	}
 	return string(data)
-}
-
-// A WAITER TAKES THE WINNER'S FAILURE (§6.6): a launch that waited on the build lock and finds the
-// candidate's failure recorded since its advance began builds nothing and serves the good build.
-func TestAWaiterTakesTheWinnersFailure(t *testing.T) {
-	fx, _, _, r, _, _ := firstAdvance(t)
-	v13 := fx.commit(t, "v1.3.0", map[int]string{14: "fourteen", 20: "twenty"})
-	fx.later(2 * time.Hour)
-	f := fx.fork(t)
-	series, _ := f.ReadSeries()
-	b := forkBuild{Fork: f, Commit: v13, Platform: patchedTestPlatform, Series: series}
-	holder, err := pidlock.Acquire(b.lockPath(), pidlock.NoWait, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	done := make(chan struct{})
-	var got advanceResult
-	var out string
-	go func() {
-		defer close(done)
-		got, out, _ = fx.launch(t, "podman")
-	}()
-	time.Sleep(1500 * time.Millisecond)
-	if err := (&packsrc.Store{Dir: paths.PacksDir()}).WithCheckRecord(f.Key(), nil, func(rec *packsrc.CheckRecord, _ error, _ func() error) (bool, error) {
-		rec.SetOutcome(packsrc.EntryOutcome{Commit: v13, Kind: packsrc.OutcomeBuildFailed, Series: series.Digest,
-			Yolo: patchedYoloVersion(), Recipe: b.recipe(), Error: "the winner's build failed", Count: 1, At: fx.now.Unix()})
-		return true, nil
-	}); err != nil {
-		t.Fatal(err)
-	}
-	holder.Release()
-	<-done
-	if got.delivery.Key != r.delivery.Key || len(fx.builds) != 1 {
-		t.Errorf("the waiter handed %+v after %d builds, want the good build and no rebuild\n%s", got.delivery, len(fx.builds), out)
-	}
-	if !strings.Contains(out, "another launch's build of v1.3.0 ("+shortSHA(v13)+") failed while this one waited: the winner's build failed") {
-		t.Errorf("the waiter does not say whose failure it took:\n%s", out)
-	}
 }
 
 // A CTRL-C DURING THE BUILD ends the advance, not the launch (PF-D25): the jail starts on the good
@@ -639,6 +578,27 @@ func TestPackStatusNamesTheGoodBuildAndTheNextCheck(t *testing.T) {
 	for _, w := range []string{"not in the capture store", "the next fresh launch builds it again", "next check: due"} {
 		if !strings.Contains(out, w) {
 			t.Errorf("status lacks %q:\n%s", w, out)
+		}
+	}
+}
+
+// A HAND THAT CANNOT BE RECORDED still hands the build, and says what that costs — another launch's
+// move may remove it before the jail's first run — and the step that recovers it.
+func TestAHandThatCannotBeRecordedSaysWhatItCosts(t *testing.T) {
+	fx := newPatchedAdvanceFixture(t, "")
+	fx.commit(t, "v1.1.0", map[int]string{14: "fourteen"})
+	var out syncBuffer
+	r := advancePatchedFork(fx.fork(t), advanceOptions{platform: patchedTestPlatform, runtime: "podman",
+		workspace: "/ws", out: &out, errw: &out, launch: true,
+		hand: func(string, run.HandedFork) error { return errors.New("disk full") }})
+	if r.delivery.Key == "" {
+		t.Fatalf("a hand that could not be recorded handed nothing:\n%s", out.String())
+	}
+	for _, w := range []string{"could not record what this launch hands its jail (disk full)",
+		"another launch's move of this fork may remove the build before this jail first runs tool",
+		"if tool then cannot start, a fresh launch delivers the good build"} {
+		if !strings.Contains(out.String(), w) {
+			t.Errorf("the warning lacks %q:\n%s", w, out.String())
 		}
 	}
 }

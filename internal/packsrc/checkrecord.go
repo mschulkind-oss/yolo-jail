@@ -57,6 +57,27 @@ type CheckRecord struct {
 	Good *GoodBuild `json:"good,omitempty"`
 	// Outcomes holds one outcome per entry of the walk's list, keyed as each kind says.
 	Outcomes []EntryOutcome `json:"outcomes,omitempty"`
+	// ApplyErr is the last walk of a check's list that ended in an APPLY ERROR (§5.2): not an
+	// outcome (PF-D9), since it settles no entry, but the check it was of, so a launch that reads
+	// that same check while a good build serves replays nothing again and the next check retries
+	// it (§6.2's apply-error row, PF-D45). nil once a walk of the list settles what it reached.
+	ApplyErr *ApplyError `json:"apply_err,omitempty"`
+}
+
+// ApplyError is a walk's apply error as the record keeps it: the check whose list was walked, and
+// the error, one line.
+type ApplyError struct {
+	Seq   int64  `json:"seq"`
+	Error string `json:"error"`
+}
+
+// ApplyErrAtLastCheck is the apply error the last walk of the last check's list ended in, or nil:
+// one recorded for an earlier check is the next check's to retry, and has been.
+func (r *CheckRecord) ApplyErrAtLastCheck() *ApplyError {
+	if r == nil || r.ApplyErr == nil || r.ApplyErr.Seq != r.Seq {
+		return nil
+	}
+	return r.ApplyErr
 }
 
 // CheckInputs is what a check reads, the half of a record that decides whether a check is due
