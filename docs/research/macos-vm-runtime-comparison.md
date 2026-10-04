@@ -3,7 +3,7 @@ title: "Which macOS VM runs a Python, Django and Postgres workload best? Apple C
 date: 2026-10-03
 status: in-review
 stage: DESIGN
-next: "The maintainer decides between a Docker-API backend aimed at OrbStack (closed source, paid for commercial use, and the fastest shared folders and the only memory return measured here) and VM-local volumes for chosen workspace folders on the backends yolo already has (apple-container-file-cost.md §4)"
+next: "The maintainer decides between a Docker-API backend aimed at OrbStack (closed source, paid for commercial use, and the fastest shared folders and the only memory return measured here) and VM-local volumes for chosen workspace folders on the backends yolo already has (apple-container-file-cost.md §4); first, measure the open candidates in §6, cheapest first"
 tags: [research, macos, apple-container, podman, libkrun, orbstack, virtiofs, memory, postgres, benchmark]
 summary: "The maintainer asked whether re-adding a Docker-style backend on macOS would make development faster, and whether keeping hot files on the VM's own disk would. The same Python, Django and Postgres workload ran natively and in four VMs, each on a shared Mac folder and on a VM-local disk, without yolo. On a VM-local disk every VM beat native macOS at the Python steps (pytest 0.9 s against 1.85 s, pip install 1.8 to 2.0 s against 4.0 s). On a shared folder, the two Virtualization.framework VMs took 2 to 5 times native on file-heavy steps and libkrun up to 9 times slower again, while OrbStack came within 1.3 to 2.6 times native on all but one step and ran Postgres's reads at 90 percent of native. OrbStack was also the only VM to give a freed 2 GiB back to macOS, within 10 s; libkrun's free page reporting returned nothing even under pressure. OrbStack is closed source and paid for commercial use; Docker Desktop was not run, its licence ruling it out for the maintainer's commercial work."
 vantage:
@@ -320,7 +320,60 @@ INFERRED from [§3](#3-results) and [§4](#4-memory-does-a-vm-give-a-freed-2-gib
   [the design sketch](apple-container-file-cost.md#4-a-design-sketch-vm-local-volumes-for-chosen-workspace-folders).
 - **Docker Desktop** was not measured, by the maintainer's ruling on its licence.
 
-## 6. Re-running it
+## 6. Is there an open stack with faster shared folders?
+
+The maintainer asked (2026-10-04): *"there's really no open VM stack that does this better?"* An
+agent searched project sources, issue trackers and published benchmarks on 2026-10-04 and
+installed nothing. No open shared-folder server has published small-file numbers better than
+VZ's. Each candidate:
+
+- **libkrun has a setting that may explain its slow `stat`.** krunkit's default
+  `permissionSemantics=simplified` sets the virtiofs attribute timeout to 0, "as uid/gid are
+  context-dependent, attributes can't be cached", so every `stat` goes to the Mac.
+  `permissionSemantics=complete` keeps virtio-fs's default 5 s, and the device has one request
+  queue (SOURCED: libkrun's `fs/device.rs` and krunkit's
+  [usage doc](https://github.com/containers/krunkit/blob/main/docs/usage.md), read 2026-10-04).
+  Podman Machine does not expose the option. A 5 s cache has a cost: a file the Mac renames over
+  another can look missing in the guest for up to 5 s
+  ([libkrun #888](https://github.com/libkrun/libkrun/issues/888), open; SOURCED by the agent).
+- **VZ has no setting.** Its virtio-fs device takes only a folder and a tag, as vfkit's
+  [usage doc](https://github.com/crc-org/vfkit/blob/main/doc/usage.md) shows, and a guest cannot
+  lengthen the cache times the server sends (SOURCED by the agent).
+- **Upstream virtiofsd has two community macOS ports**, `christhomas/virtiofsd` and
+  `mheese/macosvirtiofsd`, both Apache-2.0, tracked in
+  [lima #5212](https://github.com/lima-vm/lima/issues/5212). The first has
+  `--cache=auto|always|never`. They are the only open servers with a cache policy a user can set.
+  They need a QEMU built with vhost-user, which Homebrew's is not, and they publish no benchmarks
+  (SOURCED by the agent). They could be driven from a VM driver, not from podman or Apple
+  Container (INFERRED).
+- **9p and reverse-sshfs** (QEMU, Lima, Colima) have caching options and no published sign of
+  being fast (SOURCED by the agent).
+- **NFS from macOS's own `nfsd`** with a long attribute cache might give OrbStack-like `stat`
+  speed, at the price of host changes staying invisible for that long and no inotify. It needs
+  `sudo` and `/etc/exports`. No small-file numbers were found (INFERRED).
+- **A sync instead of a share is what beats VZ in published numbers.**
+  [Mutagen](https://github.com/mutagen-io/mutagen) (MIT, with an SSPL part in its official builds
+  since 0.17) copies the folder into the VM and keeps the two in step. In
+  [one January 2025 benchmark](https://www.paolomainardi.com/posts/docker-performance-macos-2025/)
+  on an M4 Pro, `npm install` on a bind mount took:
+
+  | Setup | Time |
+  | :--- | ---: |
+  | native | 3.37 s |
+  | Docker Desktop's Mutagen-based synced shares | 3.88 s |
+  | OrbStack | 4.22 s |
+  | Lima on VZ virtiofs | 8.99 s |
+
+  Mutagen's costs: a second copy on disk, a first sync that takes a while, writes that arrive
+  asynchronously, and two-way conflicts (SOURCED by the agent).
+
+Worth measuring here, cheapest first:
+1. krunkit with `permissionSemantics=complete`, run directly rather than through Podman Machine;
+2. QEMU with `christhomas/virtiofsd --cache=always`, the upper bound for an open share;
+3. Mutagen into a VM-local folder, timing the sync lag too;
+4. `nfsd` with `actimeo=60` and `actimeo=1`.
+
+## 7. Re-running it
 
 1. Build the image and save it beside the scripts:
    `podman build -t localhost/vmbench:1 vmbench && podman save --format oci-archive -o vmbench/vmbench.oci.tar localhost/vmbench:1`.
