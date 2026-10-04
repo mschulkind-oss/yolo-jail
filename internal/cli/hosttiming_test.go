@@ -13,7 +13,9 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
+	"time"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/cli/run"
 	"github.com/mschulkind-oss/yolo-jail/internal/hostfloor"
@@ -293,6 +295,95 @@ func TestHostApplyTimingKeepsTheDocumentAndTimesEveryStage(t *testing.T) {
 			}
 			assertNoWorkspaceState(t, cwd)
 		})
+	}
+}
+
+// THE REVERT AND THE NO-PACK APPLY ARE TIMED TOO: `--revert` is a different operation and records
+// its own host_apply.revert span (at both spellings), and an apply with no pack configured still
+// runs the wrappers and floor stages, on a branch of its own that returns before the main tail,
+// and spans them there.
+func TestHostApplyTimingSpansTheRevertAndTheNoPackApply(t *testing.T) {
+	for _, tc := range []struct {
+		name, cfg string
+		argv      []string
+		apply     bool // through applyMain, not hostMain
+		stages    []string
+	}{
+		{"host apply --revert --timing", `{"packs": ["pi"]}`, []string{"apply", "--revert", "--timing"}, false,
+			[]string{"host_apply.revert"}},
+		{"apply --at host --revert --timing", `{"packs": ["pi"]}`, []string{"--at", "host", "--revert", "--timing"}, true,
+			[]string{"host_apply.revert"}},
+		{"host apply --timing with no pack", `{}`, []string{"apply", "--timing"}, false,
+			[]string{"host_apply.pack_refresh", "host_apply.render", "host_apply.wrappers", "host_apply.floor"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			_, cwd := timingHome(t, tc.cfg)
+			stubDeclaredBins(t)
+			var out, errw bytes.Buffer
+			var rc int
+			if tc.apply {
+				rc = applyMain(tc.argv, &out, &errw, false, nil)
+			} else {
+				rc = hostMain(tc.argv, &out, &errw, false, nil)
+			}
+			if rc != 0 {
+				t.Fatalf("rc = %d\nstdout:\n%s\nstderr:\n%s", rc, out.String(), errw.String())
+			}
+			if !strings.Contains(errw.String(), "yolo host apply timing (rc 0):") {
+				t.Errorf("no table on stderr:\n%s", errw.String())
+			}
+			data, _ := os.ReadFile(run.HostNotchPerfLogPath())
+			for _, name := range tc.stages {
+				if !strings.Contains(errw.String(), "  "+name+"\n") || !strings.Contains(string(data), "end    "+name) {
+					t.Errorf("%s is missing from the table or the file:\nstderr:\n%s\nfile:\n%s",
+						name, errw.String(), data)
+				}
+			}
+			assertNoWorkspaceState(t, cwd)
+		})
+	}
+}
+
+// THE PERF FILE'S TRIM AND HEADER RUN UNDER ITS SIBLING LOCK, as the host launch log's do
+// (TestTheHostLaunchLogTrimsUnderTheSiblingLock): while another host command holds
+// host-notch-perf.log.lock, opening the timing surface waits, and writes its run header once the
+// lock is free. Two host commands starting together otherwise interleave one's trim with the
+// other's header and lose runs.
+func TestTheHostNotchPerfLogOpensUnderTheSiblingLock(t *testing.T) {
+	timingHome(t, "")
+	path := run.HostNotchPerfLogPath()
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	lock, err := os.OpenFile(path+".lock", os.O_CREATE|os.O_WRONLY, 0o600)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer lock.Close()
+	if err := syscall.Flock(int(lock.Fd()), syscall.LOCK_EX); err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan *run.HostNotchTiming)
+	go func() { done <- run.HostNotchTimingLog(true, false, func(string) string { return "" }, io.Discard) }()
+	select {
+	case <-done:
+		t.Fatal("the timing surface opened its file while another host command held the lock")
+	case <-time.After(150 * time.Millisecond):
+	}
+	if strings.Contains(readFile(t, path), "jail=host:") {
+		t.Fatal("the run header was written while another host command held the lock")
+	}
+	_ = syscall.Flock(int(lock.Fd()), syscall.LOCK_UN)
+	select {
+	case tm := <-done:
+		if !tm.Recording() {
+			t.Fatal("a typed --timing recorded nothing")
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("the timing surface never opened once the lock was free")
+	}
+	if !strings.Contains(readFile(t, path), "jail=host:") {
+		t.Error("no run header once the lock was free")
 	}
 }
 
