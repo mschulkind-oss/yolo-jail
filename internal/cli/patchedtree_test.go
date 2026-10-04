@@ -10,6 +10,7 @@ package cli
 // nothing is built and a good build is still copied; and a move reaps every other build at once.
 
 import (
+	"bytes"
 	"context"
 	"io"
 	"os"
@@ -362,4 +363,34 @@ func patchedRecordOf(t *testing.T, owner string) *packsrc.CheckRecord {
 		t.Fatalf("the check record of %s: %v", owner, err)
 	}
 	return r
+}
+
+// THE EXPLICIT ACTS ON AN EXTENSION KEY (PF-D12 generalized): `yolo pack update` checks the upstream
+// and replays the series, building nothing; `yolo pack status` reports it offline; `yolo capture
+// <pack>/<name>` builds it now through the swap, and refuses a key nothing declares.
+func TestTheExplicitActsTakeAnExtensionKey(t *testing.T) {
+	fx := newTreeFixture(t, `"f.txt"`)
+	rc, out, errw := packVerb(t, "update")
+	if !strings.Contains(out+errw, "extension "+treeKeyCLI) || len(fx.builds) != 0 {
+		t.Fatalf("`yolo pack update` rc=%d did not check the extension, or built it (%d):\n%s%s", rc,
+			len(fx.builds), out, errw)
+	}
+	if rec := patchedRecordOf(t, treeKeyCLI); rec.Check == nil {
+		t.Error("`yolo pack update` recorded no check of the extension")
+	}
+	_, out, errw = packVerb(t, "status")
+	if !strings.Contains(out+errw, treeKeyCLI) || !strings.Contains(out+errw, "patched extension at ~/.tool/ext/tool-ext") {
+		t.Errorf("`yolo pack status` does not report the extension:\n%s%s", out, errw)
+	}
+	var cout, cerr bytes.Buffer
+	if rc := captureHost([]string{treeKeyCLI}, &cout, &cerr, false); rc != 0 || len(fx.builds) != 1 {
+		t.Fatalf("`yolo capture %s` rc=%d after %d builds:\n%s%s", treeKeyCLI, rc, len(fx.builds), cout.String(), cerr.String())
+	}
+	if rec := patchedRecordOf(t, treeKeyCLI); rec.Good == nil {
+		t.Error("the capture's build did not become the good build")
+	}
+	cerr.Reset()
+	if rc := captureHost([]string{"treepack/nope"}, &cout, &cerr, false); rc == 0 || !strings.Contains(cerr.String(), treeKeyCLI) {
+		t.Errorf("a key nothing declares: rc=%d\n%s", rc, cerr.String())
+	}
 }

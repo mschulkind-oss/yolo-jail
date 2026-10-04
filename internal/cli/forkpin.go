@@ -42,10 +42,15 @@ func pinForks(pr richtext.Printer, errw io.Writer, repin bool) int {
 		return 0
 	}
 	forks := packload.Forks(sel.packs)
+	trees := packload.PatchedTrees(sel.packs)
 	if config.InJail() {
 		if len(forks) > 0 {
 			pr.Printf("[dim]Fork pins are recorded on the host (%s): the next launch there pins a fork "+
 				"that has none, and `yolo pack update` there moves one.[/dim]", packsrc.ForkLockName)
+		}
+		if len(trees) > 0 {
+			pr.Printf("[dim]Patched extensions are checked, replayed and built on the host: `yolo pack update` " +
+				"there checks them.[/dim]")
 		}
 		return 0
 	}
@@ -144,6 +149,11 @@ func pinForks(pr richtext.Printer, errw io.Writer, repin bool) int {
 	if n := checkPatchedForks(pr, errw, forks, repin); n != 0 {
 		rc = n
 	}
+	// And the PATCHED EXTENSIONS, through the same check and walk by their extension keys
+	// (docs/design/patched-extensions.md §6.1, PF-D12 generalized): no pin, no fork lock.
+	if n := checkPatchedForks(pr, errw, trees, repin); n != 0 {
+		rc = n
+	}
 	return rc
 }
 
@@ -171,16 +181,30 @@ func forkStatusLines() (lines []string, drift bool, err error) {
 		return nil, false, nil
 	}
 	forks := packload.Forks(sel.packs)
-	if len(forks) == 0 {
+	trees := packload.PatchedTrees(sel.packs)
+	if len(forks) == 0 && len(trees) == 0 {
 		return nil, false, nil
 	}
 	// IN A JAIL the lock is not here: it is beside the host's user config, which no jail reads, so
 	// an absent file would read as every fork being unpinned (pinForks' in-jail line, the twin).
 	if config.InJail() {
-		return []string{fmt.Sprintf("[dim]%d %s: the pins are recorded on the host (%s) — run "+
-			"`yolo pack status` there[/dim]", len(forks), plural(len(forks), "fork", "forks"),
-			packsrc.ForkLockName)}, false, nil
+		if len(forks) > 0 {
+			lines = append(lines, fmt.Sprintf("[dim]%d %s: the pins are recorded on the host (%s) — run "+
+				"`yolo pack status` there[/dim]", len(forks), plural(len(forks), "fork", "forks"),
+				packsrc.ForkLockName))
+		}
+		if len(trees) > 0 {
+			lines = append(lines, fmt.Sprintf("[dim]%d patched %s: checked and built on the host — run "+
+				"`yolo pack status` there[/dim]", len(trees), plural(len(trees), "extension", "extensions")))
+		}
+		return lines, false, nil
 	}
+	// A PATCHED EXTENSION's state is its check record's, as a patched fork's is (patchedfork.go).
+	defer func() {
+		for _, f := range trees {
+			lines = append(lines, patchedForkStatusLines(f)...)
+		}
+	}()
 	lock, err := packsrc.LoadForkLock(forkLockPath())
 	if err != nil {
 		return nil, false, err

@@ -70,7 +70,8 @@ const captureOutLeaf = "out"
 
 const captureUsage = `yolo capture — record what a vendor installer leaves behind, once per machine
 
-  yolo capture <bin>      run <bin>'s installer in a throwaway jail and store the result
+  yolo capture <bin>          run <bin>'s installer in a throwaway jail and store the result
+  yolo capture <pack>/<name>  build a patched extension's tree now
 
 A ` + "`program via installer`" + ` contribution names a URL whose contents run as a shell
 script: there is nothing to pin, because the installer RUN is the resolution. So yolo runs it
@@ -88,9 +89,14 @@ sealed jail, which gets no credential, no host file and no host service, and the
 stored under a build receipt naming the commit. This is the explicit rebuild: it builds even
 when the store already holds that commit's build, for instance after the image changed.
 
+A PATCHED EXTENSION (a ` + "`files`" + ` contribution with ` + "`source`" + ` and ` + "`patches`" + `) is
+captured by its key, <pack>/<name>: its upstream is checked, its series replayed and the newest
+version it fits built now in a sealed jail, ignoring a failed build's back-off.
+
 Examples:
   yolo capture codex                  # record codex's installer once, for every jail
-  yolo capture pi                     # rebuild a forked pi at its pinned commit`
+  yolo capture pi                     # rebuild a forked pi at its pinned commit
+  yolo capture matt/pi-subagents      # build a patched pi extension now`
 
 // runCapture is the `yolo capture` dispatch entry.
 //
@@ -128,6 +134,12 @@ func captureHost(args []string, out, errw io.Writer, color bool) int {
 	if bin == "" {
 		fmt.Fprintln(errw, captureUsage)
 		return 2
+	}
+	// A PATCHED EXTENSION is captured by its extension key, `<pack>/<name>`
+	// (docs/design/patched-extensions.md §6.1, PF-D12 generalized): the check forced, then the
+	// pending candidate built, or the good build's own inputs rebuilt, through the swap.
+	if strings.Contains(bin, "/") {
+		return captureTree(bin, out, errw, color)
 	}
 	// ValidBinName before anything else touches the filesystem: the name becomes a staging
 	// directory and a lock filename, and packdecl's own gate is the one that decides what a
@@ -313,8 +325,8 @@ func captureFork(f packload.Fork, out, errw io.Writer, color bool) int {
 // capture does. On the host only: the fork's mirror, series and record live there.
 func capturePatchedFork(f packload.Fork, out, errw io.Writer, color bool) int {
 	if config.InJail() {
-		fmt.Fprintf(errw, "yolo capture: fork %s is a patched fork, checked, replayed and built on the host — "+
-			"run `yolo capture %s` there\n", f.Key(), f.Bin)
+		fmt.Fprintf(errw, "yolo capture: %s is patched, checked, replayed and built on the host — "+
+			"run `yolo capture %s` there\n", f.Label(), f.CaptureArg())
 		return 1
 	}
 	r := advancePatchedFork(f, advanceOptions{platform: captureJailPlatform(), out: out, errw: errw, color: color,
@@ -325,6 +337,33 @@ func capturePatchedFork(f packload.Fork, out, errw io.Writer, color bool) int {
 	if r.delivery.Key == "" && r.delivery.Reason != "" {
 		fmt.Fprintf(errw, "yolo capture: %s\n", r.delivery.Reason)
 	}
+	return 1
+}
+
+// captureTree is `yolo capture <pack>/<name>`: a patched extension's explicit build, as
+// capturePatchedFork is a patched fork's. A key the selection carries no extension under is refused,
+// naming the ones it does.
+func captureTree(key string, out, errw io.Writer, color bool) int {
+	sel := selectConfiguredHostPacks()
+	if sel.loadErr != nil {
+		fmt.Fprintf(errw, "yolo capture: your config could not be read (%v) — fix what it names in %s, then "+
+			"run `yolo capture %s` again\n", sel.loadErr, paths.UserConfigPath(), key)
+		return 1
+	}
+	var keys []string
+	for _, f := range packload.PatchedTrees(sel.packs) {
+		if f.Key() == key {
+			return capturePatchedFork(f, out, errw, color)
+		}
+		keys = append(keys, f.Key())
+	}
+	if len(keys) == 0 {
+		fmt.Fprintf(errw, "yolo capture: %q names no patched extension — none of your packs declares one; `yolo "+
+			"capture <program>` captures a program\n", key)
+		return 1
+	}
+	fmt.Fprintf(errw, "yolo capture: %q names no patched extension your packs declare — they declare %s\n",
+		key, strings.Join(keys, ", "))
 	return 1
 }
 
