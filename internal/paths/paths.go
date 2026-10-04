@@ -819,6 +819,25 @@ func HostFloorDirUnder(home string) string {
 	return filepath.Join(GlobalStorageUnder(home), hostFloorLeaf)
 }
 
+// hostTreesLeaf is the state-dir child holding the host's PATCHED EXTENSION trees.
+const hostTreesLeaf = "host-trees"
+
+// HostTreesDir returns $HOME/.local/share/yolo-jail/host-trees — where `yolo host apply` keeps its
+// versioned copies of each patched extension's good build, one directory per build, that the
+// owned link at `~/<into>` names (docs/design/patched-extensions.md §8.3, PPX-D11).
+//
+// ⚠ NO JAIL MOUNTS IT, IN ANY MODE, for HostFloorDir's reason in another form: the host's agent
+// loads these trees and runs their code with the user's full authority, so a copy a jail could
+// write would be a jail choosing the code an unconfined agent runs, read BECAUSE OF WHERE IT SITS.
+// It is created 0700, and the test that pins the floor's mount rule in internal/cli/run pins it
+// too.
+func HostTreesDir() string { return HostTreesDirUnder(home()) }
+
+// HostTreesDirUnder is HostTreesDir under an EXPLICIT home.
+func HostTreesDirUnder(home string) string {
+	return filepath.Join(GlobalStorageUnder(home), hostTreesLeaf)
+}
+
 // hostModelMenusLeaf is the state-dir child holding the host's MODEL MENUS (internal/modelmenu).
 const hostModelMenusLeaf = "model-menus"
 

@@ -27,7 +27,10 @@ import (
 // corrupt or missing record must fail closed independently: a files render that cannot prove
 // ownership refuses and touches nothing, which is the correct outcome whether or not skill
 // delivery in the same run had the same problem.
-func applyHostFiles(pr richtext.Printer, errw io.Writer, p *packload.Pack, home, stamp string,
+//
+// packs is the whole selection, which a PATCHED EXTENSION's owning agent pack is read from: its arm
+// is renderHostTrees (hosttrees.go), since the plain render skips a contribution with no `from`.
+func applyHostFiles(pr richtext.Printer, errw io.Writer, p *packload.Pack, packs []*packload.Pack, home, stamp string,
 	write bool, survey *hostApplySurvey) int {
 	if !declaresKind(p, packdecl.KindFiles) {
 		return 0
@@ -54,6 +57,7 @@ func applyHostFiles(pr richtext.Printer, errw io.Writer, p *packload.Pack, home,
 		survey.noteRenderFailure(p.Name, "files: "+rerr.Error())
 		return 1
 	}
+	results = append(results, renderHostTrees(p, packs, home, man, !write)...)
 	for _, r := range results {
 		// tierRun: a `files` render only writes paths this kind's ownership record says are
 		// yolo's, and archives the previous copy of one before replacing it — so nothing of

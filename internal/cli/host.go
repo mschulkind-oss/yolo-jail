@@ -564,9 +564,21 @@ func hostExec(flagArgs, cmd []string, out, errw io.Writer, stdin io.Reader) int 
 	// jail launch does (hostpackrefresh.go). stderr, like the gate: an agent's stdout is
 	// routinely parsed.
 	refreshHostPacks(errw)
+	// THE PATCHED EXTENSIONS this program loads (docs/design/patched-extensions.md §8.3, PPX-D11):
+	// their check and advance BEFORE the gate compares the render, and outside that comparison, so
+	// it sees the build the apply would install — scoped to the owning agent's programs, so a
+	// launch of any other bin waits on no extension's fetch or build.
+	if config.HostApplyOnLaunchEnabled() && config.HostManagementMode() != config.HostManagementNone {
+		advanceHostTrees(errw, colorForWriter(errw), filepath.Base(cmd[0]))
+	}
 	if !hostApplyGate(errw, stdin, cmd[0]) {
 		return 1
 	}
+	// AND PPX-D18's STOP: the owning agent does not start without a patched extension it loads.
+	if home, err := os.UserHomeDir(); err == nil && !config.InJail() && !hostTreeGate(errw, filepath.Base(cmd[0]), home) {
+		return 1
+	}
+	noteHostTreeLines(errw, colorForWriter(errw), filepath.Base(cmd[0]))
 
 	// hostServicesStart: this is the one front door that owns its command's lifetime, so a
 	// profile paired through a pack service runs that service's host half for the command

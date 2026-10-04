@@ -158,6 +158,10 @@ func applyMain(args []string, out, errw io.Writer, color bool, stdin io.Reader) 
 		}
 		// The same fetch-before-resolve `yolo host apply` does: one operation, two spellings.
 		refreshHostPacks(errw)
+		// And the same patched-extension advance before the render, acting posture only.
+		if assert && !dryRun {
+			advanceHostTrees(errw, color, "")
+		}
 		return applyHostFormatted(out, errw, color, assert && !dryRun, stdin, format)
 	case config.ConfinementGuest:
 		// render.NotchUnbuilt is the sentence, not a literal: `run.Run` refuses a guest
@@ -741,7 +745,7 @@ func applyHostSurveyed(out, errw io.Writer, color bool, write bool, stdin io.Rea
 			// per-contribution rendering is the auditor's third copy.
 			detail(pr, "%s", packDeps.depLine(c))
 		}
-		if frc := applyHostFiles(pr, errw, p, home, stamp, write, survey); frc != 0 {
+		if frc := applyHostFiles(pr, errw, p, loaded, home, stamp, write, survey); frc != 0 {
 			rc = frc // attributed to p by applyHostFiles itself
 		}
 		// THE DECLARED CONTRACT, read once per invocation and passed down: it is what selects

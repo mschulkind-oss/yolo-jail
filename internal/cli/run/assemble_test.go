@@ -1191,6 +1191,7 @@ func TestAssembleNeverMountsTheHostFloor(t *testing.T) {
 		guarded := map[string]string{
 			paths.HostFloorDirUnder(home):      "the host agent floor",
 			paths.HostModelMenusDirUnder(home): "the host's model menus",
+			paths.HostTreesDirUnder(home):      "the host's patched-extension trees",
 		}
 		under := func(p, dir string) bool { return p == dir || strings.HasPrefix(p, dir+string(filepath.Separator)) }
 		sawState := false
@@ -1223,6 +1224,9 @@ func TestAssembleNeverMountsTheHostFloor(t *testing.T) {
 			t.Fatal(err)
 		}
 		if err := os.MkdirAll(filepath.Join(paths.HostModelMenusDirUnder(home), "codex", "codex"), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.MkdirAll(filepath.Join(paths.HostTreesDirUnder(home), "matt--x", "e1"), 0o700); err != nil {
 			t.Fatal(err)
 		}
 	}
