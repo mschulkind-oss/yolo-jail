@@ -3,8 +3,12 @@ package entrypoint
 import (
 	"os"
 	"path/filepath"
+	"reflect"
+	"slices"
 	"strings"
 	"testing"
+
+	"github.com/mschulkind-oss/yolo-jail/internal/config"
 )
 
 // darwinhomelayout_test.go covers the macos-user workspace tier
@@ -731,4 +735,87 @@ func equalStrings(a, b []string) bool {
 		}
 	}
 	return true
+}
+
+// A HOME-ROOT host_files FILE GETS THE LINK PODMAN'S SKELETON GIVES IT, AND NOTHING ELSE DOES.
+// The deciding call is config.HostFileEntry.StagingFor and the target SymlinkTarget, the two
+// the skeleton reads (run.TestTheSkeletonsHostFileLinksAreTheMacosUserLayouts compares the two
+// backends' output). A destination under a writable root, a new top-level directory and a
+// directory entry are not home-root files and get no redirect; a layout with no sidecar gets
+// none at all, since an install capture's flat staging home has no workspace tier to point it
+// into. Applied, the link is laid DANGLING and the layout creates nothing under it: `once`
+// seeds only a file it cannot stat, and the host_files step makes the directory through the
+// path it checked.
+func TestWithHostFileRedirectsLaysOnlyHomeRootFiles(t *testing.T) {
+	base, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	home, sidecar := filepath.Join(base, "home"), filepath.Join(base, "ws", ".yolo", "home")
+	npmrc := config.HostFileEntry{Path: ".npmrc", Source: "/host/.npmrc", Codec: "raw", Mode: config.HostFileModeReadonly}
+	plain := config.HostFileEntry{Path: "gitignore_global", Codec: "raw", HasContent: true, Mode: config.HostFileModeOnce}
+	entries := []config.HostFileEntry{
+		npmrc,
+		plain,
+		// A login rc file WriteLoginRC writes by path: no link (HT-D12).
+		{Path: ".zshrc", Codec: "raw", HasContent: true, Mode: config.HostFileModeOnce},
+		{Path: ".config/mytool/c.json", Codec: "json", HasContent: true, Mode: config.HostFileModeOnce},
+		{Path: "hf/one.json", Codec: "json", HasContent: true, Mode: config.HostFileModeOnce},
+		{Path: "themes", Source: "/host/themes", IsDir: true, Mode: config.HostFileModeCopy},
+	}
+
+	l := DeriveDarwinHomeLayout(home, sidecar, nil, nil).WithHostFileRedirects(entries, nil)
+	want := []DarwinHomeLink{
+		{Path: filepath.Join(home, ".npmrc"), Target: filepath.FromSlash(npmrc.SymlinkTarget())},
+		{Path: filepath.Join(home, "gitignore_global"), Target: filepath.FromSlash(plain.SymlinkTarget())},
+	}
+	if !reflect.DeepEqual(l.HostFileRedirects, want) {
+		t.Errorf("HostFileRedirects = %v, want %v", l.HostFileRedirects, want)
+	}
+	if got := (DarwinHomeLayout{Home: home}).WithHostFileRedirects(entries, nil).HostFileRedirects; got != nil {
+		t.Errorf("a layout with no sidecar gained host_files redirects: %v", got)
+	}
+
+	if err := l.Apply(); err != nil {
+		t.Fatal(err)
+	}
+	for _, ln := range want {
+		if got, err := os.Readlink(ln.Path); err != nil || got != ln.Target {
+			t.Errorf("%s -> %q (err %v), want %q", ln.Path, got, err, ln.Target)
+		}
+		if _, err := os.Stat(ln.Path); !os.IsNotExist(err) {
+			t.Errorf("%s resolves after the layout (err %v); it must dangle until the "+
+				"host_files step writes it, or `once` never seeds", ln.Path, err)
+		}
+	}
+	if _, err := os.Lstat(filepath.Join(sidecar, "config", "yolo-home")); !os.IsNotExist(err) {
+		t.Errorf("the layout created the host_files staging directory (err %v); it is the "+
+			"host_files step's to create, through the path it checked", err)
+	}
+}
+
+// TestDarwinLoginRCFilesAreTheFilesWriteLoginRCWrites: DarwinLoginRCFiles is the list
+// WithHostFileRedirects keeps links away from, and WriteLoginRC spells the same names itself. A
+// fourth rc file WriteLoginRC learns to write, missing from the list, would be one a workspace's
+// host_files link sends that write through into another workspace's sidecar (HT-D12). So the
+// writer is RUN, and the files it leaves in an empty home are compared with the list.
+func TestDarwinLoginRCFilesAreTheFilesWriteLoginRCWrites(t *testing.T) {
+	home := t.TempDir()
+	if err := WriteLoginRC(NewEnv(map[string]string{"HOME": home})); err != nil {
+		t.Fatal(err)
+	}
+	ents, err := os.ReadDir(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var wrote []string
+	for _, d := range ents {
+		wrote = append(wrote, d.Name())
+	}
+	want := DarwinLoginRCFiles()
+	slices.Sort(wrote)
+	slices.Sort(want)
+	if !slices.Equal(wrote, want) {
+		t.Errorf("WriteLoginRC wrote %v at the home root; DarwinLoginRCFiles is %v", wrote, want)
+	}
 }

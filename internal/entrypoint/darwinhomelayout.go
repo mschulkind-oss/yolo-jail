@@ -4,8 +4,10 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/shquote"
@@ -53,7 +55,9 @@ import (
 //
 // NO MIGRATION (OQ-HT2). A real directory where a link belongs is not migrated, copied or
 // renamed — the launch refuses and names the path. `sudo rm -rf /Users/_yolojail` before
-// the first launch IS the migration.
+// the first launch IS the migration. The one narrower remedy is a home-root host_files file
+// (HostFileRedirects), which an older launch rendered into the shared home: the refusal
+// names `sudo rm` of that one file.
 
 // DarwinHomeSidecarEnv names the workspace sidecar (<workspace>/.yolo/home) for the native
 // bootstrap. ABSENCE MEANS "LAY NO LAYOUT", which is not a degraded mode: an install
@@ -115,6 +119,24 @@ type DarwinHomeLayout struct {
 	// same three into each jail's home skeleton). Their targets are relative, spelled as the container spells them, and
 	// they resolve through the Links above — so they are created after them.
 	FileRedirects []DarwinHomeLink
+	// HostFileRedirects are the user's HOME-ROOT `host_files` destinations (`~/.npmrc`), one
+	// link each, with the relative target podman's skeleton lays for the same entry
+	// (config.HostFileEntry.SymlinkTarget, `.config/yolo-home/<slug>`): it resolves through
+	// the ~/.config link above, so each workspace's file is in its own sidecar. Added by
+	// WithHostFileRedirects, never by the deriver, because the list is CONFIG and not core.
+	//
+	// Kept apart from FileRedirects for the refusal's sake, not the link's: a real file at
+	// one of these paths is what an earlier launch rendered into the shared account home, so
+	// its remedy is removing that one file, where an occupied core path's is the account
+	// reset (occupiedLayoutError). And the directory the target names is NOT created here,
+	// as a core redirect's is: the host_files step creates it through the path it checked
+	// (DarwinHomeLayout.homeFileThroughLayout), so a link planted at
+	// <sidecar>/config/yolo-home is refused there rather than followed by this unconfined
+	// process.
+	//
+	// None is laid at a file the bootstrap writes itself (DarwinLoginRCFiles), where podman's
+	// skeleton does lay one: that is the one home-root entry the two backends link differently.
+	HostFileRedirects []DarwinHomeLink
 }
 
 // DeriveDarwinHomeLayout is the pure deriver: home, the sidecar, and the two pack-declared
@@ -255,10 +277,22 @@ func (l DarwinHomeLayout) Apply() error {
 			inHome = append(inHome, r.Path)
 		}
 	}
-	if len(inHome)+len(inSidecar) == 0 {
+	// Left DANGLING, as podman's skeleton leaves the same link: `once` seeds only a file it
+	// cannot stat, and the host_files step makes the directory when it writes the file.
+	var inHostFiles []string
+	for _, r := range l.HostFileRedirects {
+		occupied, err := ensureLayoutSymlink(r.Path, r.Target)
+		if err != nil {
+			return err
+		}
+		if occupied {
+			inHostFiles = append(inHostFiles, r.Path)
+		}
+	}
+	if len(inHome)+len(inSidecar)+len(inHostFiles) == 0 {
 		return nil
 	}
-	return occupiedLayoutError(l.Home, inHome, inSidecar)
+	return occupiedLayoutError(l.Home, inHome, inSidecar, inHostFiles...)
 }
 
 // occupiedLayoutError is the refusal, split out so the two-remedy rule above is one
@@ -267,9 +301,15 @@ func (l DarwinHomeLayout) Apply() error {
 // The paths are listed one per line and INDENTED. A comma-joined run of absolute paths is
 // the form a reader cannot copy out of a CI log, and this refusal's whole job is to be
 // acted on by somebody who has only the log.
-func occupiedLayoutError(home string, inHome []string, inSidecar []DarwinHomeLink) error {
+//
+// hostFiles is a THIRD group with a third remedy: account-home paths where a home-root
+// `host_files` link belongs (HostFileRedirects). Each is a file an earlier launch rendered
+// into the shared account home, before this backend kept those files per workspace, so the
+// remedy removes that one path and the rest of the account is left alone. Variadic so the
+// two-group callers read as they did.
+func occupiedLayoutError(home string, inHome []string, inSidecar []DarwinHomeLink, hostFiles ...string) error {
 	var b strings.Builder
-	n := len(inHome) + len(inSidecar)
+	n := len(inHome) + len(inSidecar) + len(hostFiles)
 	fmt.Fprintf(&b, "the per-workspace home layout cannot be laid: %d %s real, where the "+
 		"workspace tier's symlink belongs.\n", n, plural(n, "path is", "paths are"))
 	b.WriteString("There is no migration (macos-user-home-tiers.md OQ-HT2) — nothing here " +
@@ -294,6 +334,24 @@ func occupiedLayoutError(home string, inHome []string, inSidecar []DarwinHomeLin
 			"path in parentheses. Remove the WORKSPACE copy:\n")
 		for _, ln := range inSidecar {
 			fmt.Fprintf(&b, "  sudo rm -rf %s\n", shquote.Quote(ln.Path))
+		}
+	}
+	if len(hostFiles) > 0 {
+		b.WriteString("\nIn the SANDBOX ACCOUNT HOME, where a `host_files` entry's link belongs. " +
+			"Most likely each is the copy an older yolo rendered there, when every workspace on " +
+			"this Mac shared one; each workspace now keeps its own, rendered from your " +
+			"host_files entry, so the shared copy is no longer used:\n")
+		for _, p := range hostFiles {
+			fmt.Fprintf(&b, "  %s\n", p)
+		}
+		b.WriteString("Move what you want to keep, then remove each one (nothing else in the " +
+			"account is touched):\n")
+		for _, p := range hostFiles {
+			rm := "sudo rm"
+			if fi, err := os.Lstat(p); err == nil && fi.IsDir() {
+				rm = "sudo rm -rf"
+			}
+			fmt.Fprintf(&b, "  %s %s\n", rm, shquote.Quote(p))
 		}
 	}
 	return fmt.Errorf("%s", strings.TrimRight(b.String(), "\n"))
@@ -361,32 +419,33 @@ func (l DarwinHomeLayout) linkedSidecarPaths() []string {
 // only the links this layout lays, or an error naming the first link on the way that is not one
 // of them.
 //
-// WHY A WRITE BY ANOTHER PROGRAM NEEDS IT. The bootstrap runs outside Seatbelt as the sandbox
-// account, which can write every workspace under the shared root. Its own writes into the home
-// go through handles the overlay install opens beneath the home or the sidecar
-// (openOverlayInstallRoots), but a write made by another program — `git config --global` is the
-// one — takes a path, and follows every link it meets, the last component included (git's
-// lockfile resolves a symlinked config file before it locks it). The sidecar is in the
-// workspace, which the agent can write, so a link the agent planted anywhere below a layout
-// link's target would aim that write at a directory the agent itself cannot reach, such as
-// another workspace's .git. So the path is walked here first, one component at a time, and the
-// other program is handed the PHYSICAL path the walk arrived at, with no link left in it for
-// the program to follow.
+// WHY A WRITE BY PATH NEEDS IT. The bootstrap runs outside Seatbelt as the sandbox account,
+// which can write every workspace under the shared root. The overlay install writes through
+// handles it opens beneath the home or the sidecar (openOverlayInstallRoots), but two writers
+// take a path, and follow every link they meet, the last component included: another program —
+// `git config --global`, whose lockfile resolves a symlinked config file before it locks it —
+// and the host_files step, which renders each entry with the composition engine's own path
+// writes (hostFileDestination). The sidecar is in the workspace, which the agent can write, so
+// a link the agent planted anywhere below a layout link's target would aim that write at a
+// directory the agent itself cannot reach, such as another workspace's .git. So the path is
+// walked here first, one component at a time, and the writer is handed the PHYSICAL path the
+// walk arrived at, with no link left in it to follow.
 //
 // THE RULE IS overlayLinks.route's, applied to a file rather than to a delivered tree:
 //
-//   - A LAYOUT LINK (a directory Link or a FileRedirect) is the one way through, and only while
-//     it is the link this launch laid, to the target it laid. A layout path that is not yet that
-//     link — absent, a real file or directory the layout step refused to replace (OQ-HT2), or a
-//     stale link to another workspace — is refused rather than written: a real file written
-//     where the layout's link belongs is one the next launch then refuses forever.
+//   - A LAYOUT LINK (a directory Link, a FileRedirect or a HostFileRedirect) is the one way
+//     through, and only while it is the link this launch laid, to the target it laid. A layout
+//     path that is not yet that link — absent, a real file or directory the layout step refused
+//     to replace (OQ-HT2), or a stale link to another workspace — is refused rather than
+//     written: a real file written where the layout's link belongs is one the next launch then
+//     refuses forever.
 //   - ANY OTHER LINK is refused, in the account home and in the sidecar alike, the file itself
 //     included. The layout lays none there, so one is somebody else's.
 //   - An absent component below everything the layout lays ends the walk: nothing below it
 //     exists, so nothing below it is a link, and the writer creates what it needs.
 //
 // ⚠ WHAT A PATH CHECK CANNOT COVER is a component swapped for a link between this walk and the
-// other program's own resolution of the path. The sidecar belongs to one workspace, so only a
+// writer's own resolution of the path. The sidecar belongs to one workspace, so only a
 // session of the SAME workspace running while this bootstrap does can make that swap; nothing
 // here closes it, because the writer takes a path and not a handle.
 func (l DarwinHomeLayout) homeFileThroughLayout(rel string) (string, error) {
@@ -398,7 +457,7 @@ func (l DarwinHomeLayout) homeFileThroughLayout(rel string) (string, error) {
 		laid[ln.Path] = ln.Target
 	}
 	redirects := map[string]string{}
-	for _, r := range l.FileRedirects {
+	for _, r := range slices.Concat(l.FileRedirects, l.HostFileRedirects) {
 		redirects[r.Path] = r.Target
 	}
 	parts := strings.Split(filepath.ToSlash(filepath.Clean(rel)), "/")
@@ -530,14 +589,68 @@ func InstallDarwinHomeLayout(e *Env, packs []*packload.Pack) error {
 // the launcher named no sidecar. The ONE derivation both boot steps use — the layout step lays
 // it, and the overlay step follows only the links it names (InstallHomeOverlay) — so the two
 // cannot disagree about which links are yolo's.
+//
+// The user's home-root host_files destinations come from YOLO_HOST_FILES, the wire the
+// launcher already hands the bootstrap for the host_files step. An undecodable wire adds
+// none: the host_files step reports that wire itself, fatally, and a layout guessing at it
+// would lay links nothing then writes.
 func darwinHomeLayoutFor(e *Env, packs []*packload.Pack) (DarwinHomeLayout, bool) {
 	sidecar := e.Getenv(DarwinHomeSidecarEnv)
 	if sidecar == "" {
 		return DarwinHomeLayout{Home: e.Home}, false
 	}
-	return DeriveDarwinHomeLayout(e.Home, sidecar,
-		packload.WritableDirs(packs), packload.SharedDirs(packs)), true
+	l := DeriveDarwinHomeLayout(e.Home, sidecar,
+		packload.WritableDirs(packs), packload.SharedDirs(packs))
+	entries, _ := config.UnmarshalHostFiles(e.Getenv("YOLO_HOST_FILES"))
+	return l.WithHostFileRedirects(entries, packs), true
 }
+
+// WithHostFileRedirects returns the layout with one HostFileRedirect for each entry podman's
+// home skeleton gives a symlink (config.HostFileStagingSymlink: a home-root FILE outside
+// every writable root of this pack selection), to the SAME relative target the skeleton lays
+// (config.HostFileEntry.SymlinkTarget). One deciding call and one target for both backends,
+// so `~/.npmrc` is per-workspace on both or on neither (paths.HomeFileRedirects states the
+// same rule for core's three files). packs are the launch's selected packs, the ones the
+// launcher's staging decision read.
+//
+// THE ONE EXCEPTION is a file this bootstrap itself writes by path on every launch,
+// DarwinLoginRCFiles: it stays a real account-home file, as before this layout linked any
+// host_files entry (HT-D12).
+//
+// A layout with no sidecar gains nothing: an install capture's staging home has no workspace
+// tier for the link to resolve into (DarwinHomeSidecarEnv).
+func (l DarwinHomeLayout) WithHostFileRedirects(entries []config.HostFileEntry, packs []*packload.Pack) DarwinHomeLayout {
+	if l.Sidecar == "" {
+		return l
+	}
+	l.HostFileRedirects = nil
+	ownWrites := DarwinLoginRCFiles()
+	for _, entry := range entries {
+		if entry.StagingFor(packs) != config.HostFileStagingSymlink || slices.Contains(ownWrites, entry.Path) {
+			continue
+		}
+		l.HostFileRedirects = append(l.HostFileRedirects, DarwinHomeLink{
+			Path:   filepath.Join(l.Home, filepath.FromSlash(entry.Path)),
+			Target: filepath.FromSlash(entry.SymlinkTarget()),
+		})
+	}
+	return l
+}
+
+// DarwinLoginRCFiles are the home-root files the macos-user bootstrap writes BY PATH on every
+// launch, WriteLoginRC's three login rc files, which config validation reserves for no
+// backend. WithHostFileRedirects lays no host_files link at one of them, and that is what
+// keeps every workspace bootable: a link laid there by the one workspace that declares the
+// entry is left by every other launch (P2), and WriteLoginRC's write followed it into the
+// sidecar of whichever workspace launched next, where `.config/yolo-home` need not exist —
+// a fatal ENOENT in a workspace that declared nothing (macos-user-home-tiers.md HT-D12).
+//
+// The host_files step refuses an entry naming one of them (hostFileDestination, HT-D13): that
+// write would replace it before any shell read it.
+//
+// ⚠ WriteLoginRC (darwin.go) still spells the three names itself;
+// TestDarwinLoginRCFilesAreTheFilesWriteLoginRCWrites runs it and fails when the two differ.
+func DarwinLoginRCFiles() []string { return []string{".zprofile", ".zshrc", ".bash_profile"} }
 
 // DarwinSidecar returns this Env's workspace sidecar (<workspace>/.yolo/home), or "" when
 // the launcher named none.

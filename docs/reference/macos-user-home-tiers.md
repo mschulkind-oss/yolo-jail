@@ -1,11 +1,13 @@
 ---
 status: current
+next: "Rule OQ-HT5 (leaning (a): keep refusing a real home-root file where a host_files link belongs, with sudo rm of that file)"
 verified: 2026-09-21
 verified_commit: 753bcb88
 covers:
   - internal/entrypoint/darwinhomelayout.go
   - internal/entrypoint/darwin.go
   - internal/entrypoint/darwinoverlay.go
+  - internal/entrypoint/hostfiles.go
   - internal/entrypoint/packhooks.go
   - internal/macosuser/macosuser.go
   - internal/macosuser/runplan.go
@@ -45,6 +47,7 @@ from a claim that is still an argument.
 | Component | Lives in |
 | :--- | :--- |
 | The pure deriver and the boot-path entry | `internal/entrypoint/darwinhomelayout.go` (`DeriveDarwinHomeLayout`, `InstallDarwinHomeLayout`) |
+| Home-root `host_files` links, and the checked path the host_files step writes | `internal/entrypoint/darwinhomelayout.go` (`DarwinHomeLayout.WithHostFileRedirects`, `homeFileThroughLayout`), `internal/entrypoint/hostfiles.go` (`hostFileDestination`) |
 | Where it runs in the native bootstrap | `internal/entrypoint/bootsteps.go` (the `darwin_home_layout` step, the first the macos-user bootstrap runs) |
 | The two tier lists it reads | `internal/packload/packload.go` (`WritableDirs`, `SharedDirs`), declared per pack in `packs/*/pack.json` |
 | The directory names both backends share | `internal/paths/paths.go` (`HomeSurfaces`, `HomeFileRedirects`, `WorkspaceHomeState`) |
@@ -123,7 +126,9 @@ is any directory the layout links.
 `entrypoint.DeriveDarwinHomeLayout(home, sidecar, writableDirs, sharedDirs)` is a pure function
 and produces four ordered groups. `InstallDarwinHomeLayout` is the boot-path entry; it reads the
 sidecar from `YOLO_DARWIN_HOME_SIDECAR` and the two tier lists from `packload.WritableDirs` /
-`packload.SharedDirs`.
+`packload.SharedDirs`, and adds a fifth group from the user's config,
+`DarwinHomeLayout.WithHostFileRedirects`, read from `YOLO_HOST_FILES`, the variable the launcher
+already passes to the bootstrap for the host_files step.
 
 | Group | What it is | Contents |
 | :--- | :--- | :--- |
@@ -131,6 +136,7 @@ sidecar from `YOLO_DARWIN_HOME_SIDECAR` and the two tier lists from `packload.Wr
 | `Links` | the workspace tier — an account-home path pointing INTO the sidecar | `paths.HomeSurfaces()` (`npm-global→.npm-global`, `local→.local`, `go→go`), `yolo-bin→.yolo/bin`, `config→.config`, and each `packload.WritableDirs` entry with its leading `.` trimmed for the sidecar name |
 | `Mirrors` | the machine tier as the SIDECAR sees it | `<sidecar>/<dir> → <home>/<dir>` for each `packload.SharedDirs` entry |
 | `FileRedirects` | home-ROOT files that are symlinks into a per-workspace directory | `paths.HomeFileRedirects()`, filtered to the ones whose holding directory THIS launch actually laid |
+| `HostFileRedirects` | the user's home-ROOT `host_files` files (`~/.npmrc`), the same links podman's home skeleton lays | one per entry `config.HostFileEntry.StagingFor` gives a symlink, to `SymlinkTarget` (`.config/yolo-home/<slug>`), resolving through the `.config` link; laid dangling, and the directory it names is left to the host_files step ([HT-D9](#ht-d9)). None for a login rc file the bootstrap writes itself (`DarwinLoginRCFiles`, [HT-D12](#ht-d12)) |
 
 **The list is the container's, not a new one.** Every entry cites the mount it mirrors, and that
 is a constraint rather than tidiness: a directory added to the podman mount table and not here
@@ -237,8 +243,9 @@ be derived.
 | The `SharedDirs` mirror before anything RESOLVES one | `Mirrors` is applied in the same step as the `Links`, above every generator |
 | `MISE_DATA_DIR` names a path outside the workspace tier | `macosuser.SandboxMiseData` is the one function the launch env, the bootstrap env and the PATH's shims dir all read; `assertOutsideTheWorkspaceTier` asks the deriver |
 | `InstallHomeOverlay` replaces its destinations and nothing else — never the layout, never a directory above or beside a destination | the host lists every destination beside the tree (`.yolo-home-overlay.json`), and `installOverlayDestination` replaces exactly one listed path at a time ([below](#the-overlay-replaces-its-destinations-and-nothing-else)) |
-| Nothing is laid or delivered through a link the layout did not lay | `DarwinHomeLayout.linkedSidecarPaths`, checked first by `Apply` and again by `InstallHomeOverlay`; `overlayLinks.route` for a link at or above each listed destination; `DarwinHomeLayout.homeFileThroughLayout` for the git config `configure_git` writes ([below](#nothing-is-delivered-through-a-link-the-layout-did-not-lay)) |
+| Nothing is laid or delivered through a link the layout did not lay | `DarwinHomeLayout.linkedSidecarPaths`, checked first by `Apply` and again by `InstallHomeOverlay`; `overlayLinks.route` for a link at or above each listed destination; `DarwinHomeLayout.homeFileThroughLayout` for the git config `configure_git` writes and for every file the host_files step writes ([below](#nothing-is-delivered-through-a-link-the-layout-did-not-lay)) |
 | A redirect is laid only when this launch lays the directory that holds it | `DeriveDarwinHomeLayout` tracks the home-relative dirs it laid and filters `paths.HomeFileRedirects()` against them |
+| A home-root `host_files` link is laid only when THIS launch declares the entry, and a launch that does not leaves it alone | `darwinHomeLayoutFor` hands `WithHostFileRedirects` this launch's `YOLO_HOST_FILES` and nothing else, and nothing removes a link it does not lay ([HT-D9](#ht-d9)) |
 
 > [!WARNING]
 > **The redirect rule is the one a reasoned ordering missed, and it bricked three integration
@@ -489,6 +496,7 @@ the sidecar, so a planted link cannot change what the bind delivers.
 | In the account home, where this launch lays no layout link (`~/.claude` on a launch whose packs do not declare it) | **Refuses** the delivery, naming the link and `sudo rm <link>`. It is typically another workspace's layout link, which the layout deliberately leaves alone (removing it would strand a live sidecar, and a real directory there is refused forever by [OQ-HT2](#oq-ht2)); following it wrote this launch's content into that workspace's sidecar |
 | A layout path that is not yet the layout's link (a pre-layout real `~/.claude` the layout just refused) | **Left alone.** The install used to replace it wholesale, deleting the transcripts the refusal had just told the reader to move out first |
 | Past `~/.config`, on the way to the git config `~/.gitconfig` redirects to (`<sidecar>/config/git`, or the file `<sidecar>/config/git/config` itself) | **Refuses** the git step: no identity and no `safe.directory` entry are written, and the warning names the link and `sudo rm <link>`. `git config --global` follows every link on its way to the file, the file included, and it runs outside Seatbelt, so a link there once carried the identity and the `safe.directory` entry into another workspace's `.git/config`. The path is walked through the layout's own links first (`DarwinHomeLayout.homeFileThroughLayout`), and git is handed the physical file the walk reached. A link swapped in between that walk and git's own write, by a session of the same workspace running at the time, is not covered |
+| On the way to a `host_files` destination: for a home-root entry `<sidecar>/config/yolo-home` or the file itself, and for any entry anything below a layout link or in the account home | **Refuses** the host_files step, which is fatal like any entry that cannot be staged: nothing is written, and the refusal names the link and `sudo rm <link>`. The composition engine writes by path and follows every link, and the step runs outside Seatbelt, so a link the agent left below `~/.config` once carried the write into another workspace's `.git` (measured on Linux against the real bootstrap, 2026-10-04). The file is written at the physical path the walk reached ([HT-D10](#ht-d10)), with the same gap as git's for a link swapped in during the write. A destination that is itself a link a pack hook made, such as the shared-credential link at `~/.claude/.credentials.json`, is refused the same way, so a `host_files` entry naming that file does not work on this backend |
 
 So after a bootstrap that did not fail, every component from the workspace down to each
 destination is a real directory or a layout link pointing where the layout laid it, and the host's
@@ -553,6 +561,14 @@ reader is being told to wipe anyway.
 > until 2026-08-24 and bound `/home/agent` straight at the workspace state dir, so an AC jail from
 > before then left a real `.claude-shared-credentials` in that workspace's sidecar.
 
+**A home-root `host_files` path is a third group, with a third remedy.** Until 2026-10-04 this
+backend rendered home-root files such as `~/.npmrc` as real files in the account home, so the
+first launch that lays the link finds that file where the link belongs. It refuses, like every occupied path,
+but its remedy is `sudo rm <that file>`, not the account reset: the file is almost always the copy
+an older launch rendered, which the per-workspace file replaces, and resetting the account would
+cost every workspace's machine tier for it ([HT-D11](#ht-d11)). Whether the layout should replace
+such a file itself, for the modes that keep no edits, is open ([OQ-HT5](#oq-ht5)).
+
 The full reset, for an account that predates the layout, is `sudo rm -rf /Users/_yolojail && yolo
 macos-setup`. It is safe to follow; it was not until 2026-09-12, when `rm -rf` took the home and
 left the dscl record while every home-provisioning step lived in `macos-setup`'s account-CREATION
@@ -565,7 +581,7 @@ permission denied`.
 The layout closes the cross-workspace content race for everything it links — every shipped
 briefing and skills destination is under a pack `state` dir or `.config`, so all of them are
 per-workspace now, and `noteMachineWideWorkspaceState` was retired along with the defect it named.
-Four things are still one-per-machine, and each is deliberate or named.
+What is still one-per-machine, each deliberate or named:
 
 - **The home ROOT is shared, so the login rc files are.** `.zprofile`, `.zshrc` and
   `.bash_profile` sit below every symlink the layout lays and are read by the shell from `$HOME`.
@@ -573,7 +589,16 @@ Four things are still one-per-machine, and each is deliberate or named.
   `$YOLO_DARWIN_LOGIN_PATH`, which the launch exports from the same `SandboxPath` call that builds
   `PATH`. A literal there would be one workspace's `packages:` store dirs in the next workspace's
   login shell — the same race the sidecar closed for briefings, in three files nobody would look
-  at. Unset (a shell yolo did not launch) leaves `PATH` alone.
+  at. Unset (a shell yolo did not launch) leaves `PATH` alone. So a `host_files` entry naming one
+  of the three gets no per-workspace link ([HT-D12](#ht-d12)) and is **refused** on this backend,
+  naming the next step ([HT-D13](#ht-d13)). Until 2026-10-04 the step wrote it and `WriteLoginRC`
+  replaced it later in the same boot, in every mode, with no warning; a `readonly` one left the
+  shared file 0444, which the account that owns it cannot open for writing, so every workspace's
+  launch would fail at `write_login_rc` (the mode measured on Linux against the real bootstrap,
+  and the refused open measured on Linux as a non-root owner; not run on a Mac). Config validation does not know the rule, so `yolo check` passes such an entry and
+  the launch refuses it. The fuller answer, not built because it changes `WriteLoginRC`, is to
+  stage the entry at `.config/yolo-home/<slug>` like any other home-root entry and have the rc
+  file source that copy after its `PATH` line: per-workspace, as podman's is, and no refusal.
 - **The account home holds ONE link set.** A second launch in a different workspace repoints it,
   which is correct for sequential use and self-healing (`ensureLayoutSymlink` repoints a link yolo
   wrote). Two **concurrent** launches in different workspaces still contend: the last one wins,
@@ -581,7 +606,18 @@ Four things are still one-per-machine, and each is deliberate or named.
   Reasoned from two measured facts rather than observed. The per-workspace launch lock does not
   cover it — `run.AcquireWorkspaceLockFor` is keyed per workspace and released before the agent
   starts, because holding it across a session would make a second terminal in the same workspace
-  block until the first ended.
+  block until the first ended. The home-root `host_files` links resolve through `~/.config`, so
+  they inherit this limit and add none.
+- **A `host_files` file in a new top-level directory (`~/.aws/config`) is still one per machine.**
+  podman stages that directory as a writable subtree of the workspace (`writable_home_dirs`'
+  recipe); this layout has no link for it, so the file is rendered into the account home every
+  workspace shares, and the last launch's copy is what every session reads. Home-root files are
+  per-workspace since 2026-10-04 ([HT-D9](#ht-d9)); this is the half that is not.
+- **A workspace that does not declare a home-root entry still has the link another one left.**
+  It dangles there, as the file is absent from a podman jail that does not declare it, and a
+  program writing the file — `npm config set` with no `~/.npmrc` entry — fails `No such file or
+  directory` unless that workspace's `<sidecar>/config/yolo-home` already exists, where podman's
+  read-only home fails the same write. Reasoned, not measured.
 - **`yolo stop` has nothing to stop and there is no attach.** Every invocation is a fresh sandbox
   (`internal/cli/stop.go`), so two launches on one workspace really do run two bootstraps and two
   provisioning stages. The workspace lock covers that window — bootstrap through stage, since the
@@ -641,6 +677,7 @@ more than usual.
 | The profile protects exactly the destinations the install replaces | `TestHomeOverlayReturnsTheDestinationsItWrote` reads the written list file back against `Dests`, and `TestWorkspaceSkillsReachTheMacosUserHome` requires a mirrored workspace skill's destination in both |
 | The kernel REFUSES writes, renames, deletes and a planted skill, and allows the agent's own state | **MEASURED 2026-09-28 on a Mac** ([run 36437881715](https://github.com/mschulkind-oss/yolo-jail/actions/runs/36437881715), commit `650e84b0`): every `home_content_*` case of `TestMacosUserSeatbeltProfileEnforcesItsRules` passed (write, rename, delete, planted skill, briefing write and anchor replace refused; the state dir and the agent's own state usable), and so did the real launch, `TestMacosUserStagedContentIsWriteProtected`. Their scripts' bare halves are also exercised on Linux (`TestMacosUserSeatbeltContentControlsRunUnsandboxed`, `TestMacosUserContentProbeReadsARealLayout`) |
 | An occupied ACCOUNT-HOME path refuses | Linux only (`TestDarwinHomeLayoutRefusesToReplaceRealDirectories`); not separately exercised on hardware |
+| A home-root `host_files` file is per-workspace across two workspaces in `once`, `copy` and `readonly`; a launch that does not declare it leaves the link; a real file there refuses with `sudo rm` of that file; no host_files write follows a link the layout did not lay; and an entry naming a login rc file is refused with its next step and leaves every workspace bootable | Linux unit gate driving `RunDarwinBootstrap` (`internal/entrypoint/hostfileredirect_test.go`; the rc case is `TestALoginRCHostFileEntryIsRefusedAndLeavesEveryWorkspaceBootable`, with `TestDarwinLoginRCFilesAreTheFilesWriteLoginRCWrites` holding the list to what `WriteLoginRC` writes), and `run.TestTheSkeletonsHostFileLinksAreTheMacosUserLayouts` comparing the two backends' links. The Mac half, a sandboxed session reading its own workspace's file through both links, is `integration/TestMacosUserHomeRootHostFilesArePerWorkspace`: **written 2026-10-04 and not yet run on hardware or in the nightly**. Whether npm rewrites `~/.npmrc` in place through the link, rather than replacing the link with a file, is **not measured** |
 | A concurrent second workspace leaves the first session pointing at a denied directory | **Not measured** — reasoned from the one-link-set fact plus target evaluation |
 | The pack-load poisoning route | **Not measured, deliberately, and must stay that way** (see the caution above) |
 | The overlay install leaves the state beside and above every destination, for every shipped pack | Linux unit gate driving `RunDarwinBootstrap` with each pack's real manifest (`TestDarwinOverlayInstallKeepsAgentStateBesideAndAboveEveryDestination`); the install's own rules by `internal/entrypoint/darwinoverlay_test.go`; the host builder's list read by the real install in `internal/cli/run/macoshomeoverlay_test.go` |
@@ -667,6 +704,32 @@ machine that develops this repo, and a skip reads as a pass.
 > test-fast` and `just done` red for the whole tree — which costs every unrelated commit the
 > ability to tell *"I broke something"* from *"the known red"*. Reverted in `efe7282c`.
 
+## Open questions
+
+- 💬 <a id="oq-ht5"></a>**[`OQ-HT5`](#oq-ht5) — may the layout replace a real home-root file
+  where a `host_files` link belongs, for the modes that keep no edits?**
+
+  <!-- vantage: question id=OQ-HT5 leaning="(a): keep refusing in every mode. OQ-HT2's ruling covers the case in its own words, and the remedy is one sudo rm per file, once per account." -->
+
+  Filed 2026-10-04 with [HT-D11](#ht-d11), which refuses today. The file is the copy an older
+  launch rendered into the shared account home before [HT-D9](#ht-d9); the first launch after an
+  upgrade meets it once per entry.
+
+  - **(a) Keep refusing in every mode**, with `sudo rm` of the file (today).
+  - **(b) Replace it for `copy` and `readonly`**, whose every launch overwrote that file anyway, so
+    it holds yolo's last render unless something edited it since; keep refusing `once` and
+    `capture`, where it may hold the agent's edits.
+  - **(c) Move it aside in every mode** (`<name>.pre-workspace-tier`) and lay the link.
+
+  _Leaning:_ **(a).** [OQ-HT2](#oq-ht2)'s ruling — *"Nobody is using it. No transition needed.
+  If I need to wipe it first, that's fine."* — covers the case in its own words, and the remedy
+  is one command per file, once per account. Replacing the file for two modes is the one to take
+  if that refusal turns out to be met often. Moving it aside is the one-shot migration
+  [OQ-HT2](#oq-ht2) declined.
+
+  **Answer:**
+  > _(empty — fill in when decided)_
+
 ## Why it is this way
 
 Rulings a future change would otherwise re-derive or undo, with the ids source comments and other
@@ -686,6 +749,11 @@ documents cite.
 | <a id="ht-d6"></a>[**HT-D6**](#ht-d6) — *Implementation decision.* The overlay install derives the SAME layout the layout step laid (`darwinHomeLayoutFor`) and follows a link only when its path and its target are both the layout's | One derivation for both steps, so they cannot disagree about which links are yolo's. The target is compared because an account-home link can name the right path and another workspace's sidecar. A layout path whose link is not in place is left untouched, since the layout step has already refused it (2026-09-27) |
 | <a id="ht-d7"></a>[**HT-D7**](#ht-d7) — *Implementation decision.* ONE destination list: the one `entrypoint.WriteHomeOverlayManifest` writes beside the tree is the one it returns, and `buildMacosHomeOverlay` hands exactly that on as `macosuser.HomeOverlay.Dests`. The profile protects what the install replaces, by construction | G14 carried `Dests` to the profile and G36 wrote a list for the install, both from the same loop, so they already agreed about the set; they could still have disagreed about a rule, since the list file is cleaned, sorted and stripped of nested destinations and `Dests` was not. Returning the written list removes the second copy rather than adding a test that the two match. `Dests` is therefore sorted rather than in the order written, which changes only the order the profile lists its rules in (2026-09-27) |
 | <a id="ht-d8"></a>[**HT-D8**](#ht-d8) — *Implementation decision.* Past a layout link, a link ABOVE a destination is refused; a link AT one is replaced | G14's tree walk replaced the first path past a layout link whatever it was, and for pi that path was `~/.pi/agent`, a directory above the destination — the G36 shape. The list-driven install replaces only a listed destination, so a link above one cannot be replaced without replacing that directory, and following it would land where no content rule names. It is refused with the same `sudo rm` remedy as a link in the account home. A link AT a destination is still replaced, because the destination is what the install replaces anyway (2026-09-27) |
+| <a id="ht-d9"></a>[**HT-D9**](#ht-d9) — *Implementation decision, taken under the maintainer's 2026-10-04 delegation ("make them and build it … adjust later"); reversible.* A home-root `host_files` file is a layout link in the account home with podman's own target, chosen by the same `StagingFor` call, and derived in `darwinHomeLayoutFor` from `YOLO_HOST_FILES` | One deciding call and one target on both backends, so `~/.npmrc` is per-workspace on both (`paths.HomeFileRedirects`' rule for core's three files, applied to config). The link is the same relative string for every workspace and resolves through `~/.config`, which every launch repoints, so it needs no repointing and no launch line of its own. A launch that does not declare the entry leaves it dangling ([P2](#p2)), as the file is absent from a podman jail that does not declare it: removing it would take the file from a running session of a workspace that does. It is a group of its own rather than more `FileRedirects`, for the refusal's remedy ([HT-D11](#ht-d11)), and the layout does not create the directory it names, so the unconfined layout step never follows a link planted there ([HT-D10](#ht-d10)) (2026-10-04) |
+| <a id="ht-d10"></a>[**HT-D10**](#ht-d10) — *Implementation decision, taken under the maintainer's 2026-10-04 delegation ("make them and build it … adjust later"); reversible.* Every `host_files` file on this backend is written at the physical path `homeFileThroughLayout` reaches, not only one past a layout link | The composition engine writes by path, and its `MkdirAll`, truncating write and `readonly` chmod each follow every link they meet, so a link planted below `~/.config` carried the write into another workspace (measured). Walking every destination keeps one rule — a link the layout did not lay is somebody else's, in the account home as in the sidecar — and costs nothing the layout lays. Two costs, stated: a destination that is itself a pack hook's link (the shared-credential link) is refused too, and for a `capture` entry past a layout link the boot's capture notice names the physical file rather than `~/<path>`. The packs are loaded by the step itself, as other generators load them, because the boot table hands it none (2026-10-04) |
+| <a id="ht-d11"></a>[**HT-D11**](#ht-d11) — *Implementation decision, taken under the maintainer's 2026-10-04 delegation ("make them and build it … adjust later"); reversible.* A real file where a home-root `host_files` link belongs refuses the launch in its own group, with `sudo rm` of that one file as the remedy | [OQ-HT2](#oq-ht2)'s no-migration rule, with a remedy that reaches the path and no further: the file is almost always the copy an older launch rendered into the shared home, and the account reset would cost every workspace's machine tier for it. A directory there is offered `sudo rm -rf` of that directory. The host_files step then refuses too, rather than writing the shared file the layout refused (2026-10-04) |
+| <a id="ht-d12"></a>[**HT-D12**](#ht-d12) — *Implementation decision, taken under the maintainer's 2026-10-04 delegation ("make them and build it … adjust later"); reversible.* No home-root `host_files` link is laid at a file the bootstrap writes by path on every launch, `WriteLoginRC`'s `.zprofile`, `.zshrc` and `.bash_profile` (`entrypoint.DarwinLoginRCFiles`); they stay real account-home files, as before [HT-D9](#ht-d9) | A link there, laid by the one workspace that declares the entry, is left by every other launch ([P2](#p2)), and `WriteLoginRC` followed it into the sidecar of whichever workspace launched next. There `.config/yolo-home` need not exist, so a workspace that declared nothing failed its launch at `write_login_rc` with `ENOENT` (found in review, 2026-10-04). It is the one home-root entry the two backends link differently; podman's skeleton still links it, since the container boot does not write the file. What the host_files step does with such an entry is [HT-D13](#ht-d13) (2026-10-04) |
+| <a id="ht-d13"></a>[**HT-D13**](#ht-d13) — *Implementation decision, taken under the maintainer's 2026-10-04 delegation ("make them and build it … adjust later"); reversible.* Where the layout is laid, the host_files step refuses an entry naming one of `DarwinLoginRCFiles`, fatally, with the next step: remove it from `host_files`, and for zsh declare `~/.zshenv`, which zsh reads first and yolo does not write | The entry cannot be delivered: `WriteLoginRC` replaces it later in the same boot, so it never reached a shell, and a `readonly` one left the shared file 0444, which would fail every workspace's `write_login_rc` on the Mac. A host_files entry that cannot be delivered is an error, not a warning, by the ruling that a failed config generator refuses the boot ([`A12` in `jail-home.md`](jail-home.md#why-its-this-way)). A refusal is the stopgap: sourcing a per-workspace copy from the rc file would deliver it ([what is still shared](#what-is-still-shared-and-what-that-costs)) and lift this. A launch that declared such an entry and came up with it silently replaced now stops (2026-10-04) |
 | <a id="p1"></a>[**P1**](#p1) — a split must restore every tier it breaks, **explicitly** | Colocation is not a mechanism. The machine tier's *backing* works here by accident — the shared dir is a plain directory because there is only one home to put it in — so any change separating the directories has to replace that accident with something stated. A fix that repairs the workspace tier and leaves the machine tier to luck has moved the bug. |
 | <a id="p2"></a>[**P2**](#p2) — the tier of a path is what the pack declares, and there is no second list of "which dirs are per-workspace" | The list is the podman mount table, and adding a directory to one without the other is the drift this layout exists to end. Applied to home-root files it also decides the redirect rule: the layout manages what THIS launch declares. |
 | <a id="retraction"></a>[**Retracted**](#retraction) — *"the single home IS this backend's shared-credentials mechanism"* | It stood in this doc's first draft, in `run.go`, in `seatbeltcapture.go`, in the backend reference and in the roadmap, and it is wrong in the one way that mattered: the mechanism is the `shared_credentials` **hook**, which runs on every backend, and the home only ever supplied the *backing* of the pack-declared `scope: machine` directory. A carve-out whose stated reason was wrong survived for months because the reason sounded structural ([`declaration-parity.md` DP-D15](../design/declaration-parity.md#7-ruled-divergent-and-the-ones-i-would-re-open)). What actually refuses a per-workspace home is parity. |
@@ -707,6 +775,7 @@ against the stamp at the top.
 | Workspace-tier pack dirs | the union of every selected pack's `scope: workspace` state dirs | `internal/packload/packload.go` (`WritableDirs`); declared in `packs/*/pack.json` |
 | Machine-tier pack dirs, and their mirrors | the union of every selected pack's `scope: machine` state dirs | `internal/packload/packload.go` (`SharedDirs`); declared in `packs/*/pack.json` |
 | Home-root file redirects | `.claude.json`, `.gitconfig`, `.bashrc` — laid only when their holding dir is | `internal/paths/paths.go` (`HomeFileRedirects`) |
+| Home-root `host_files` links | `~/<path> → .config/yolo-home/<slug>`, one per home-root file entry this launch declares, laid dangling; none at `.zprofile`, `.zshrc`, `.bash_profile` | `internal/config/hostfiles.go` (`StagingFor`, `SymlinkTarget`), laid by `internal/entrypoint/darwinhomelayout.go` (`WithHostFileRedirects`) |
 | mise data dir | `<home>/.yolo/mise`, crossed as `MISE_DATA_DIR`, not overridable from the launch env | `internal/macosuser/macosuser.go` (`SandboxMiseData`) |
 | Machine-wide cache | `~/.cache` in the account home — deliberately not linked | `internal/entrypoint/darwinhomelayout.go` (by absence); container analogue `paths.GlobalCache` |
 | Login-rc PATH indirection | `YOLO_DARWIN_LOGIN_PATH`, re-prepended in `.zprofile`, `.zshrc`, `.bash_profile` | `internal/entrypoint/darwinhomelayout.go` (`DarwinLoginPathEnv`), `internal/entrypoint/darwin.go` (`WriteLoginRC`) |

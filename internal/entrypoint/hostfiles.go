@@ -21,9 +21,12 @@ package entrypoint
 // gap that degrades to a warning here, not a crash.
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
+	"strings"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/agentcfg/manifest"
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
@@ -78,18 +81,89 @@ func ConfigureHostFiles(e *Env) error {
 	// user who declared a file got a jail that came up looking fine with the file
 	// missing. A config surface must not fail silently; the caller aborts boot
 	// with this error.
+	layout, laid := hostFilesLayout(e)
 	for _, entry := range entries {
-		if err := stageHostFile(e, entry); err != nil {
+		if err := stageHostFile(e, entry, layout, laid); err != nil {
 			return fmt.Errorf("host_files: staging ~/%s: %w", entry.Path, err)
 		}
 	}
 	return nil
 }
 
+// hostFilesLayout is the macos-user home layout this launch laid, derived the way the layout
+// step derived it (darwinHomeLayoutFor, from the staged packs and this same wire), and false
+// on every boot that lays none: the container boot, and an install capture's flat staging
+// home.
+//
+// The packs are loaded here rather than handed in because this step's signature is the boot
+// table's generator shape, as the other generators that read packs load them. They are
+// needed, not decoration: a destination under a selected pack's state dir (`~/.claude/x`)
+// is reached through that pack's layout link, which a layout derived without the packs would
+// refuse as a link it did not lay. A load that fails yields the layout the layout step laid
+// from the same failure, and configure_pack_surfaces reports it.
+func hostFilesLayout(e *Env) (DarwinHomeLayout, bool) {
+	if e.DarwinSidecar() == "" {
+		return DarwinHomeLayout{Home: e.Home}, false
+	}
+	packs, _ := LoadJailPacks(e)
+	return darwinHomeLayoutFor(e, packs)
+}
+
+// hostFileDestination is where ONE entry is written: ~/<path> wherever no macos-user layout
+// was laid, and, where one was, the PHYSICAL path the layout's own links lead to
+// (DarwinHomeLayout.homeFileThroughLayout), or the refusal naming the link on the way that is
+// not one of them.
+//
+// WHY. On macos-user this step runs outside Seatbelt as the sandbox account, which can write
+// every workspace under the shared root, and the composition engine writes by PATH — its
+// MkdirAll, its truncating write and the readonly chmod each follow every link they meet. A
+// home-root entry is a layout link to .config/yolo-home/<slug> and ~/.config is a link into
+// the workspace sidecar, which the agent can write, so a link the agent left there (at
+// yolo-home, at the file itself, or below any other ~/.config destination) carried this write
+// into a directory the agent cannot reach, such as another workspace's .git (MEASURED on
+// Linux against the real bootstrap, 2026-10-04). Every destination is walked, not only those
+// past a layout link: a link in the account home is somebody else's just the same, since
+// the layout lays none there that this walk does not know.
+//
+// What a path check cannot cover is stated on homeFileThroughLayout: a link swapped in between
+// this walk and the write, by a session of the same workspace running at the time.
+//
+// A LOGIN RC FILE IS REFUSED where a layout was laid (HT-D13). The bootstrap writes
+// DarwinLoginRCFiles itself later in this same boot (WriteLoginRC), so the entry's bytes would
+// be replaced before any shell read them, in every mode, and a `readonly` entry would leave the
+// shared account-home file 0444, which WriteLoginRC, running as the account that owns it, cannot
+// open for writing: every workspace's launch on the Mac would then fail. An entry that cannot be
+// delivered is an error here (the A12 ruling above), so the refusal names the next step instead.
+func hostFileDestination(e *Env, entry config.HostFileEntry, layout DarwinHomeLayout, laid bool) (string, error) {
+	if !laid {
+		return expandHomePath(e, "~/"+entry.Path), nil
+	}
+	if slices.Contains(DarwinLoginRCFiles(), entry.Path) {
+		return "", loginRCHostFileError(entry.Path)
+	}
+	return layout.homeFileThroughLayout(entry.Path)
+}
+
+// loginRCHostFileError is HT-D13's refusal: what yolo does with the file, why the entry cannot
+// reach it, and the one edit that clears it. zsh reads ~/.zshenv first, and nothing yolo writes
+// is named that, so a zsh entry has somewhere to go; bash's login file has no such sibling here
+// (bash reads only the first of .bash_profile, .bash_login and .profile, and ~/.bashrc is
+// yolo's on every backend).
+func loginRCHostFileError(rel string) error {
+	msg := fmt.Sprintf("on macos-user yolo writes ~/%s itself on every launch, to put the "+
+		"sandbox PATH back after macOS path_helper reorders it, so this entry would be "+
+		"replaced before any shell read it. Remove ~/%s from host_files", rel, rel)
+	if strings.HasPrefix(rel, ".z") {
+		msg += "; for zsh, declare ~/.zshenv instead, which zsh reads before ~/.zprofile and " +
+			"~/.zshrc and yolo does not write"
+	}
+	return errors.New(msg)
+}
+
 // stageHostFile renders or copies ONE entry. A directory entry is a recursive
 // copy (there is no per-file codec to run); a file entry routes through the
 // composition engine per its mode.
-func stageHostFile(e *Env, entry config.HostFileEntry) error {
+func stageHostFile(e *Env, entry config.HostFileEntry, layout DarwinHomeLayout, laid bool) error {
 	if entry.IsDir {
 		// A directory entry is always source-bearing (checkHostFileObject rejects a
 		// dir with no source), so its tree lives at the /ctx/host-user/<slug> mount.
@@ -101,9 +175,17 @@ func stageHostFile(e *Env, entry config.HostFileEntry) error {
 		if _, err := os.Stat(src); err != nil {
 			return nil
 		}
-		return copyTree(src, expandHomePath(e, "~/"+entry.Path))
+		dest, err := hostFileDestination(e, entry, layout, laid)
+		if err != nil {
+			return err
+		}
+		return copyTree(src, dest)
 	}
-	return renderHostFileSurface(e, entry)
+	dest, err := hostFileDestination(e, entry, layout, laid)
+	if err != nil {
+		return err
+	}
+	return renderHostFileSurface(e, entry, dest)
 }
 
 // renderHostFileSurface composes a single FILE entry, dispatching on its mode.
@@ -114,10 +196,19 @@ func stageHostFile(e *Env, entry config.HostFileEntry) error {
 // entries (Agent="user", Name=slug). A pack that could contribute keys to them would be
 // asserting into a file the user declared for themselves, which is the opposite of the
 // consent direction every other pack claim runs in.
-func renderHostFileSurface(e *Env, entry config.HostFileEntry) error {
+//
+// dest is the file to write (hostFileDestination). Where it is not simply ~/<path> — on
+// macos-user, past a layout link — the surface's own path is pointed at it, so the stat, the
+// render and the chmod below all name the one checked file rather than re-resolving the links
+// the walk checked. The §5 sidecars key on the surface's agent and name, never on its path, so
+// a captured edit is found again on every boot whatever the path resolved to; what changes is
+// only that the capture notice names the physical file there.
+func renderHostFileSurface(e *Env, entry config.HostFileEntry, dest string) error {
 	surface := HostFileSurface(entry)
+	if dest != expandHomePath(e, surface.Path) {
+		surface.Path = dest
+	}
 	hostBytes := hostFileLayerBytes(entry)
-	dest := expandHomePath(e, surface.Path)
 
 	switch entry.Mode {
 	case config.HostFileModeCapture:
