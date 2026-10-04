@@ -20,7 +20,7 @@ only, such as some database images; that is a property of the image, not of yolo
 |---|---|---|
 | **Apple Container** (recommended) | Apple's own container tool: each jail runs in its own small VM, and there is no VM for you to manage | You have an Apple silicon Mac on macOS 26 (Tahoe) or later |
 | **Podman** | Every jail runs inside one Linux VM, the **Podman Machine** | You have an Intel Mac or macOS before 26, or you need a feature Apple Container lacks, such as the shared Claude login or published ports |
-| **`macos-user`** (in development) | The agent runs as a hidden macOS user inside Apple's built-in sandbox, with no container and no VM | You want the fastest start and accept a weaker boundary and missing features |
+| **`macos-user`** (in development) | The agent runs as a hidden macOS user inside Apple's built-in sandbox, with no container and no VM | You want the fastest fresh start and accept a weaker boundary and missing features |
 
 If both container runtimes are installed and running, yolo uses Apple Container. `macos-user` is
 used only when you ask for it. To choose, set the `runtime` key in your config or the
@@ -32,6 +32,31 @@ export YOLO_RUNTIME=podman     # for this shell; or "runtime": "podman" in your 
 
 [Settings per setup](../reference/settings-per-setup.md#what-works-in-each-setup) compares all
 setups feature by feature.
+
+### How they compare on speed
+
+A **fresh start** is a `yolo` in a project with no jail running. A second terminal in the same
+project instead **joins** the jail already running, where the setup can.
+
+Measured on one Apple silicon Mac (an M1 Max on macOS 26.5) in October 2026, each setup against
+the same Mac doing the same work outside any jail:
+
+| | Apple Container | `macos-user` |
+|---|---|---|
+| A fresh start | about 7 s | about 5.5 s, and `sudo` asks for your password |
+| A second terminal in the same project | about 2 s: it joins the running jail | a fresh start again, about 5.5 s, with `sudo` again |
+| Work on the project's files: `git status`, searching, `npm ci` | 3 to 5 times slower than on the Mac | as fast as on the Mac |
+| One-thread CPU work | as fast as on the Mac | as fast as on the Mac |
+| A parallel build | half your cores by default, and about 16% slower on the same number of cores | every core, as fast as on the Mac |
+| Starting programs | about 7 times faster than on the Mac, and a program built moments ago starts at once | as on the Mac: a program built moments ago takes about 0.4 s to start the first time |
+| Memory the jail used | held until the jail stops | given back once a program frees it |
+
+So `macos-user` is faster for work on many project files and gives memory back, and Apple
+Container is faster at starting programs and at opening another terminal. In yolo 0.11.1, Apple
+Container also re-runs the claude, codex and agy installers at every start and every second
+terminal, which added about a minute to a start and 14 s to a second terminal with all three
+selected; the release after 0.11.1 fixes that. Podman has not been measured this way yet. Every figure and its source are in
+[the macOS direction](https://github.com/mschulkind-oss/yolo-jail/blob/main/docs/reference/macos-no-vm-direction.md#what-each-macos-path-costs-measured).
 
 ## Apple Container
 
@@ -195,8 +220,9 @@ next launch stops and names `yolo macos-fix-permissions`, which repairs it.
 
 ### macos-user trade-offs
 
-What you gain: no runtime to install, no Linux image to build, the fastest start, and native Mac
-builds of your `packages`.
+What you gain: no runtime to install, no Linux image to build, the fastest fresh start, native
+speed on your project's files, and native Mac builds of your `packages`
+([how the setups compare on speed](#how-they-compare-on-speed)).
 
 What you give up:
 

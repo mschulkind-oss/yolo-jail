@@ -33,8 +33,9 @@ A jail needs a **container runtime**, the program that runs it:
 ### The `macos-user` sandbox
 
 On a Mac there is a third way to run a jail, **`macos-user`**: the agent runs as a hidden macOS user
-inside Apple's built-in sandbox, with no container and no virtual machine. It starts fastest and
-needs no runtime, but its boundary is weaker than a container's and several features are missing.
+inside Apple's built-in sandbox, with no container and no virtual machine. It has the
+[fastest fresh start](macos.md#how-they-compare-on-speed) and needs no runtime, but its boundary is
+weaker than a container's and several features are missing.
 It is still in development, and is planned to become the main Mac setup once it is finished.
 [About `macos-user` →](macos.md#the-macos-user-backend)
 
