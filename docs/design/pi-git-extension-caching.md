@@ -65,6 +65,10 @@ git extensions again, as it did before `c402dd43`.
   [§3.8](#38-garbage-collection) follows.
 - [`pi-git-extension-caching-plan.md`](pi-git-extension-caching-plan.md): the implementation
   sketch. It is incomplete, and nobody builds from it.
+- [`patched-extensions.md`](patched-extensions.md): a pi extension that follows its upstream with a
+  patch series, replayed on the host, built in the sealed capture jail and mounted per launch outside
+  this store, through a local entry this design's rewrite passes untouched. Its
+  [OQ-PPX1](patched-extensions.md#OQ-PPX1) asks how far [OQ-2](#OQ-2) reaches there.
 
 ---
 

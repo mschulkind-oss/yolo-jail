@@ -52,8 +52,10 @@ host or an outside account follows under [External waits](#external-waits).
    and [an old pi or a leftover `mcp-adapter.json` there](../reference/mcp-configuration.md#OQ-MC2), since `--revert` removes the servers you added
    with `pi mcp add`; and [what backs an Apple Container jail's `/mise`](../research/macos-backend-performance.md#OQ-MB1), since while one such
    jail runs a jail in another workspace cannot start, which also stopped the 2026-10-03 Apple Container run's keeper sweep measure.
-9. [Rule the patched-fork mode](../design/patched-forks.md) — the maintainer asked on 2026-10-03 for
-    forks that follow their upstream while a patch series applies, and the build waits on the rulings.
+9. [Rule the patched-fork mode](../design/patched-forks.md), with [its companion for pi
+    extensions](../design/patched-extensions.md) — the maintainer asked on 2026-10-03 for forks that
+    follow their upstream while a patch series applies, and on 2026-10-04 for the same over his pi
+    extensions; both builds wait on the rulings, and one sitting rules the two routes' shared questions.
 10. [Rule how the Claude footer moves into a Claude Code plugin](../research/claude-code-extensions-footer.md) — the
     plugin ends a process per refresh and keeps yolo's segment beside your own status line, and its first build
     step, disclosing a wrapped plugin's default-location hooks, is under way. [How yolo installs and manages

@@ -4,15 +4,17 @@ date: 2026-10-03
 status: in-review
 stage: DESIGN
 tags: [design, packs, programs, forks, build, evergreen, git]
-summary: "A second mode for a forked program: the fork pack names the upstream and carries a git format-patch series. yolo checks the upstream at most hourly, replays the series at its base and picks it onto the new upstream commit on the host, builds the result in the sealed capture jail, and moves this machine's good build only once that build is admitted, so a new upstream version the series does not fit leaves the previous build running. Four calls are the maintainer's: what runs after the user's own edit fails, whether the default follows versions or the branch head, whether a launch waits for the rebuild, and whether a conflict gets a rebase verb."
-next: "Rule OQ-PFK1, OQ-PFK3 and OQ-PFK4 — the build waits on them; OQ-PFK2 only picks a default"
+summary: "A second mode for a forked program: the fork pack names the upstream and carries a git format-patch series. yolo checks the upstream at most hourly, replays the series at its base and picks it onto the newest upstream version it fits on the host, builds the result in the sealed capture jail, and moves this machine's good build only once that build is admitted, so a new upstream version the series does not fit leaves the previous build running. The same mode follows a pi extension's upstream as a tree, in patched-extensions.md. Four calls are the maintainer's: what runs after the user's own edit fails, whether the default follows versions or the branch head, whether a launch waits for the rebuild, and whether a conflict gets a rebase verb."
+next: "Rule OQ-PFK1, OQ-PFK3 and OQ-PFK4 — the build of both routes, patched extensions included, waits on them; OQ-PFK2 only picks a default"
 depends-on:
   - forked-programs-as-packs.md
 ---
 
 # A patched fork follows its upstream — a patch series that rebuilds itself while it applies
 
-**Status:** 2026-10-03. Nothing built. Evidence read at `026fca672`; every `git` behavior in
+**Status:** 2026-10-03, amended 2026-10-04 for the newest-fit walk ([PF-D10](#PF-D10)) and the
+owner key ([PF-D22](#PF-D22)), whose evidence was read at `48491fd4a`. Nothing built. Evidence read
+at `026fca672`; every `git` behavior in
 [§5](#5-applying-the-series) MEASURED the same day with git 2.55.0 in scratch repositories, a
 blobless mirror among them, and pi's upstream cadence read from GitHub the same day.
 
@@ -44,7 +46,8 @@ which the failure handling and the notch behavior fall out.
 extends; its ledger is the ground truth for every FP-D cited here),
 [`patched-forks-plan.md`](patched-forks-plan.md) (the implementation sketch, incomplete while the
 questions are open), [`program-delivery.md`](program-delivery.md) (the agent-dependency rule this
-mode brings forks under).
+mode brings forks under), [`patched-extensions.md`](patched-extensions.md) (the companion that takes
+this mode to pi extensions, sharing its implementation through [PF-D22](#PF-D22)'s owner key).
 
 ---
 
@@ -56,7 +59,9 @@ then get applied to the latest of the upstream. So we can essentially have an ev
 long as these patches clean apply. So basically you will still detect updates in the upstream. When
 that happens you will fetch the upstream, apply the patches, and then build so that we don't have to
 just do essentially clean rebases for every new upstream version."* It amends the fork route's
-[patch-set non-goal](forked-programs-as-packs.md#1-goal-and-non-goals) for this mode only.
+[patch-set non-goal](forked-programs-as-packs.md#1-goal-and-non-goals) for this mode only. On
+2026-10-04 he extended it: *"I want the fork patch thing to cover pi extensions as well."* That route
+is [`patched-extensions.md`](patched-extensions.md), which reuses this design up to the build's output.
 
 **Build it as a field on the existing route, not as a new route.** A patched fork is a `program`
 with `via: "source"` and `fork_of`, exactly as a fork is today
@@ -181,6 +186,11 @@ rewritten as a patched fork:
 `yolo pack update` ([FP-D18](forked-programs-as-packs.md#FP-D18)), and following an upstream is
 this mode's opt-in, not a dial on that one.
 
+The fork key `<pack>/<bin>` is this route's **owner key** *(coined in [PF-D22](#PF-D22))*: the key
+the check, its record and lock, the replay, the ratchet and the explicit acts use. A patched
+extension's is `<pack>/<name>` ([`patched-extensions.md`](patched-extensions.md#1-defined-terms)), so
+one implementation serves both, and a pack's owner keys are unique across the two.
+
 ### 3.2 The series
 
 **The series** is the ordered set of patch files a patched fork applies, in the field-standard sense
@@ -207,8 +217,8 @@ of a [`git format-patch`](https://git-scm.com/docs/git-format-patch) series. Its
 - **It names its base.** The first member carries the `base-commit:` line
   `git format-patch --base` writes, and a series without one is refused, naming that flag. The
   replay starts there ([§5.2](#52-the-replay-and-what-applies-cleanly-means)), the first advance
-  falls back there ([§6.4](#64-the-first-advance)), and the base must be an upstream commit: one the
-  mirror holds or can fetch by its id.
+  falls back there ([§6.4](#64-the-newest-fit-and-the-first-advance)), and the base must be an
+  upstream commit: one the mirror holds or can fetch by its id.
 - **Paths are the repository's.** `format-patch` writes paths from the repository root, so the series
   is replayed over the whole commit even when `source` names a `//subdir`, and the build gets the
   subdirectory, as a plain fork's does ([§5.1](#51-where-it-runs)).
@@ -252,9 +262,13 @@ The release rule's details, each decided ([PF-D4](#PF-D4)):
 - **A re-pointed tag is not followed.** A fetch puts back every tag it moved
   ([`refresh.go:357-358`](../../internal/packsrc/refresh.go#L357-L358)), so the mirror keeps the
   first object a tag named. A new tag is kept.
-- **No ancestry check.** The candidate is whatever the rule names, forward or back: a force-pushed
-  head, or a `follow` changed from `head` to `release`, can name an older commit, and it is a
-  candidate like any other.
+- **No ancestry check against the good build.** The candidate is whatever the rule names, forward
+  or back: a force-pushed head, or a `follow` changed from `head` to `release`, can name an older
+  commit, and it is a candidate like any other. Against the series' base there is one: the walk
+  offers only version tags that contain the base ([§6.4](#64-the-newest-fit-and-the-first-advance)).
+
+Which of the commits the rule allows an advance builds is the newest one the series fits, found by
+that walk.
 
 A patched fork is **held** *(coined here)* when what runs is not following: its ref names a tag or
 a commit, `agent_updates` holds it, or its newest candidate did not apply or build
@@ -347,7 +361,8 @@ takes the fork lock `forks.lock.json`'s writers share.
 No advance runs until a check fetches again: the build needs the network too, and its failure would
 start a back-off the next online launch has no reason for. The launch says once that it could not
 check, with the error, *"next check in an hour"*, and `yolo pack update` to check now. A machine that
-has never fetched the upstream has nothing to serve ([§6.4](#64-the-first-advance)).
+has never fetched the upstream has nothing to serve
+([§6.4](#64-the-newest-fit-and-the-first-advance)).
 
 ## 5. Applying the series
 
@@ -473,7 +488,9 @@ series digest, the recipe hash and the patched tree. It is not a pin: nothing wr
 lock, and it never leaves the machine ([§6.5](#65-nothing-in-the-fork-lock)).
 
 A **candidate** *(coined here)* is the same inputs for what the manifest and the last check ask for
-now. It is **pending** when it differs from the good build and has no recorded outcome
+now; on a branch its commit is the newest the series fits
+([§6.4](#64-the-newest-fit-and-the-first-advance)). It is **pending** when it differs from the good
+build and has no recorded outcome
 ([§6.2](#62-the-check-record-and-what-is-pending)). The **advance** *(coined here)* is the act that
 takes a candidate to a good build: replay ([§5](#5-applying-the-series)), build, and, once the build
 is admitted, move the good build. It is not the check, which only finds the candidate
@@ -530,14 +547,15 @@ flag hides ([`OQ-RO3`](../reference/report-tiers.md#why-its-this-way)).
   floor keeps the good build. The edit half is [OQ-PFK1](#OQ-PFK1);
 - the fork route's done condition that *"A second machine, given only the config, ends up running
   the same forked binary"* ([§11](forked-programs-as-packs.md#11-sequencing)): a second machine runs
-  the newest upstream the series fits there ([§6.4](#64-the-first-advance)).
+  the newest upstream the series fits there ([§6.4](#64-the-newest-fit-and-the-first-advance)).
 
 Every other rule of the fork route stands: a plain fork never moves at launch, a hit builds nothing,
 and nothing is built on the host.
 
 ### 6.2 The check record, and what is pending
 
-The **check record** *(coined here)* is one record per fork key in the pack store: the check stamp
+The **check record** *(coined here)* is one record per owner key ([PF-D22](#PF-D22)) in the pack
+store: the check stamp
 and what the last check read (repository, subdirectory, ref, `follow`), the last check's commit with
 its sequence number and whether its fetch failed, the good build, and the current candidate's
 outcome. It is machine-local by design, written only under the fork's record lock through a temp
@@ -558,8 +576,8 @@ an advance a Ctrl-C ended ([§8.1](#81-the-failure-table)). Each leaves the cand
 **Losing the record costs a lookup, not a rebuild.** A record that is gone or cannot be read is
 recovered from the capture store: the newest admitted build of this fork key, for this platform,
 whose recipe is the manifest's (the series included), is the good build; with none, the next fresh
-launch runs a first advance ([§6.4](#64-the-first-advance)). The check starts over, which costs at
-most one replay.
+launch runs a first advance ([§6.4](#64-the-newest-fit-and-the-first-advance)). The check starts
+over, which costs at most one walk.
 
 ### 6.3 What is served, and the store key
 
@@ -593,7 +611,35 @@ most one replay.
   unchanged: it keeps the newest build per fork, which is the good build except after a crash
   between an admit and the record's write ([§8.1](#81-the-failure-table)).
 
-### 6.4 The first advance
+### 6.4 The newest fit, and the first advance
+
+**Every advance takes the newest fit** *(coined here)*: the first entry of a list, newest first,
+onto which the series replays cleanly ([PF-D10](#PF-D10), amended 2026-10-04). Not "the newest, else
+the base": that drops a second machine, or an edited series, to the base even where v1.2 fits and
+only v1.3 conflicts. The list:
+
+1. Under `follow: "head"`, the branch's tip.
+2. The version tags merged into the branch that contain the series' base, the base's own tag
+   included, by the release rule's precedence ([§3.3](#33-what-the-latest-of-the-upstream-is));
+   under `release:<prefix>`, only that prefix's.
+
+A tag or commit ref lists that commit alone. With a good build, the list holds only entries above
+it: the tip when it differs from the good build's commit, and versions of higher precedence than the
+one the good build runs (its tag, or the newest version its commit contains).
+
+- **Replays run down the list** in the advance's replay step ([§5.1](#51-where-it-runs)), each
+  entry's blobs prefetched first. A conflict is recorded per [PF-D9](#PF-D9), so no entry is replayed
+  twice for one series, yolo version and git version; an apply error ends the walk and leaves the
+  newest entry pending.
+- **The first clean entry is the candidate.** With none, the good build holds, and the held line
+  names the newest version and the member that stopped it.
+- **Bound:** 60 s for the whole walk, its prefetches included: `LaunchFetchTimeout`, the check's
+  own fetch budget ([§4.3](#43-the-check-itself)). Past it the walk stops as if nothing further fit,
+  and records nothing for the entries it did not reach.
+- **Tags must contain the base**, so an older version cannot pass for an update: a branch whose
+  newest version predates the base, as one of the maintainer's extension upstreams does
+  ([`patched-extensions.md` §3.2](patched-extensions.md#32-the-maintainers-five-forks)), builds the
+  base, not that version.
 
 A patched fork with no good build on this machine, after recovery
 ([§6.2](#62-the-check-record-and-what-is-pending)), gets a **first advance**:
@@ -602,8 +648,8 @@ A patched fork with no good build on this machine, after recovery
   the next fresh launch tries again, as a plain fork's failed first build is retried
   ([`cli/forkbuild.go:202-207`](../../internal/cli/forkbuild.go#L202-L207)), with no back-off, since
   nothing serves.
-- **If the series does not apply at the newest candidate, its base is built instead**, when the
-  followed branch contains the base. The series applies there by construction, so a migrating user
+- **If nothing on the list fits, the series' base is built**, when the followed branch contains the
+  base. The series applies there by construction, so a migrating user
   gets a working program on the first launch, held at the base, and the line says why. A tag or
   commit hold gets no fallback, since the user named the commit.
 - **The same fallback covers any state with nothing to serve**, which under [OQ-PFK1](#OQ-PFK1)'s
@@ -682,16 +728,16 @@ so every launch that waited on a failing build would build it again.
 ```mermaid
 flowchart TD
   act["fresh launch, or the host floor's install"] --> good{"a good build that serves?"}
-  good -- "no" --> first["first advance: the newest candidate, else the series' base"]
+  good -- "no" --> first["first advance: the newest fit, else the series' base"]
   good -- "yes" --> due{"check due, or a candidate pending?"}
   due -- "no" --> serve["run the good build: no git"]
   due -- "yes" --> check["check: fetch, apply the follow rule"]
   check --> diff{"candidate differs from the good build, with no outcome recorded?"}
   diff -- "no" --> serve
-  diff -- "yes" --> replay["replay the series on the host"]
+  diff -- "yes" --> replay["replay the series on the host, newest first, down the walk's list"]
   first --> replay
-  replay -- "conflict" --> held["held: said once; the good build runs, or nothing on a first advance"]
-  replay -- "clean" --> build["build in the sealed jail"]
+  replay -- "nothing newer fits" --> held["held: said once; the good build runs, or nothing on a first advance"]
+  replay -- "the newest fit" --> build["build in the sealed jail"]
   build -- "fails" --> held
   build -- "admitted" --> move["move the good build; this jail gets it"]
 ```
@@ -757,7 +803,7 @@ tool).
 | The ref is `HEAD` or an abbreviated commit, names nothing, or `follow: "release"` finds no version on the branch | the good build, held; nothing without one | — | the ref, and the spellings that work: `follow: "head"`, a branch, a tag or a full commit |
 | The series cannot be read: its directory missing, unreadable or empty, a link on its path, a member that is a plain diff, or no `base-commit:` | [OQ-PFK1](#OQ-PFK1): nothing under its leaning, the good build under its option A | — | the file, and the fix for its cause: correct `patches` or create the directory; the path's permissions; a regular file in place of the link; a plain fork for no patches; `git format-patch` for a plain diff; `git format-patch --base` for a missing base |
 | The series does not apply at its own base | as the row above | — | the member, and re-exporting the series from its branch with `git format-patch --base` |
-| A member conflicts at the candidate | the good build | did not apply, for (candidate, series, yolo version, git version) | once: the conflict message ([§8.2](#82-the-conflict-message)) |
+| A member conflicts at the newest version | a build of the newest version above the good build that the series fits ([§6.4](#64-the-newest-fit-and-the-first-advance)); with none, the good build | did not apply, for (candidate, series, yolo version, git version) | once: the conflict message ([§8.2](#82-the-conflict-message)) |
 | An object the replay needs cannot be fetched, or git fails | the good build | apply error; the next check retries | once: the error, and `yolo pack update` to retry now |
 | A member is already upstream | the new build: the series is clean | — | once per candidate, naming the file to drop |
 | The runtime would not start the build jail | the good build | nothing; the candidate stays pending | the runtime's error; on Apple Container, that a capture jail cannot start beside a running one ([§9](#9-notch-coverage)), and that `yolo capture <bin>` builds it once the other jails stop |
@@ -858,8 +904,9 @@ this mode:
    `"patches": "patches"`, and `follow` if not the default.
 3. **Launch.** A patched fork reads no fork-lock entry ([§6.5](#65-nothing-in-the-fork-lock)), so the
    old one is ignored until the next `yolo pack install` or `update` drops it. The first advance
-   builds the newest candidate, or the series' base when the newest does not take it
-   ([§6.4](#64-the-first-advance)), and the jail waits for that first build, as it does for any fork.
+   builds the newest fit, or the series' base when nothing newer takes it
+   ([§6.4](#64-the-newest-fit-and-the-first-advance)), and the jail waits for that first build, as
+   it does for any fork.
 
 **What already exists on the day this ships is untouched**: every plain fork's lock entry, recipe
 and store entry, and so every plain fork's build. The old plain fork's build stays in the store under
@@ -917,15 +964,21 @@ hands it.
   [non-goals](forked-programs-as-packs.md#1-goal-and-non-goals) stand.
 - **Notification outside a launch.** A held fork is said in the launch stream and `yolo pack status`;
   nothing polls when no act runs.
+- **pi extensions, and any other tree a pack delivers.** This design patches programs; the same mode
+  over a `files` tree, sharing this implementation through [PF-D22](#PF-D22)'s owner key, is
+  [`patched-extensions.md`](patched-extensions.md).
 
 ## 14. What I would build, in order
 
 1. **The declaration and the check, with no build:** `patches` and `follow` validated; the series
-   read, refused and digested; the check record and its lock; the fetch with no checkout; and
+   read, refused and digested; the check record and its lock, keyed by the owner key
+   ([PF-D22](#PF-D22)) so patched extensions reuse them; the fetch with no checkout; and
    `yolo pack status` and `yolo pack update` reporting a candidate and whether the series replays.
    Nothing moves yet.
 2. **The advance at a fresh launch:** the replay with its config regime and blob prefetch, outside
-   the staging workspace; the identity and receipt fields and the exact lookup; the swap and the
+   the staging workspace, and the newest-fit walk over it
+   ([§6.4](#64-the-newest-fit-and-the-first-advance)); the identity and receipt fields and the exact
+   lookup; the swap and the
    reaping; the first advance's fallback; the fork-lock pinners skipping a patched fork; the messages
    and the attach line.
 3. **`yolo pack rebase`**, as [OQ-PFK4](#OQ-PFK4) rules.
@@ -1044,13 +1097,13 @@ that are the maintainer's are [OQ-PFK1](#OQ-PFK1)–[OQ-PFK4](#OQ-PFK4), above. 
 | <a id="PF-D1"></a>PF-D1 | *Implementation decision.* **A patched fork is a `via: "source"` fork with a `patches` field; its `source` names the upstream.** No new `via` and no new kind, because the delivery is the fork route's. An older host refuses the pack by its strict decode with no next step, which this design cannot change; the unknown-field refusal gains *"a newer yolo may read this field"* for the next field, and a pack author keeps a plain-fork manifest where older users point. An older entrypoint ignores the field harmlessly, because a jail never builds | 2026-10-03 | [§1](#1-the-verdict-and-five-principles), [§3.1](#31-the-fields), [§10](#10-migration-from-a-plain-fork) | — |
 | <a id="PF-D2"></a>PF-D2 | *Implementation decision.* **The series is the regular `*.patch` files in the pack-relative `patches` directory, in byte-wise lexical order, each in `git format-patch` form, at least one, the first naming its base.** No series file; a link anywhere on the path, a non-regular member, a plain diff, a missing `base-commit:` and an empty, missing or unreadable directory are each the fork's reason. The bytes are read once per advance, and the series digest is the sha256 of the JSON `[name, content sha256]` list of that copy | 2026-10-03 | [§3.2](#32-the-series) | — |
 | <a id="PF-D3"></a>PF-D3 | *Implementation decision, applying [`OQ-PF1`](../reference/pack-system.md#oq-pf1).* **The ref and `follow` decide what moves: a tag or a full commit holds the fork there, a branch is followed as `follow` says, and `HEAD` or an abbreviated commit is refused.** `follow` is `release`, `release:<prefix>` or `head`, and is refused without `patches` | 2026-10-03 | [§3.3](#33-what-the-latest-of-the-upstream-is) | — |
-| <a id="PF-D4"></a>PF-D4 | *Implementation decision.* **A version is the newest tag merged into the branch whose name is a semantic version, optionally `v`- or prefix-led, by semver precedence; pre-releases and unparseable tags are never chosen, a re-pointed tag is not followed, major versions are crossed, and no ancestry check is made** | 2026-10-03 | [§3.3](#33-what-the-latest-of-the-upstream-is) | — |
+| <a id="PF-D4"></a>PF-D4 | *Implementation decision.* **A version is the newest tag merged into the branch whose name is a semantic version, optionally `v`- or prefix-led, by semver precedence; pre-releases and unparseable tags are never chosen, a re-pointed tag is not followed, major versions are crossed, and no ancestry check is made against the good build.** Amended 2026-10-04 with [PF-D10](#PF-D10): the walk lists only versions that contain the series' base | 2026-10-03 · amended 2026-10-04 | [§3.3](#33-what-the-latest-of-the-upstream-is) | — |
 | <a id="PF-D5"></a>PF-D5 | *Implementation decision, under [OQ-FP4](forked-programs-as-packs.md#14-decision-ledger).* **The check runs at the acts that ready a fork's program (a fresh launch's fork trigger, the host floor's install act) and at the explicit acts, which force it; never on an attach, a dry run, in a jail or a build jail, or while `agent_updates` holds the fork. It is throttled per fork at `BranchRefreshInterval` from the last attempt by a stamp read before any git, is due at once when what it reads changed, and uses the per-mirror step's fetch and ref rule with no checkout** | 2026-10-03 | [§4](#4-detection) | — |
 | <a id="PF-D6"></a>PF-D6 | *Implementation decision.* **The replay: the series applied by `git am` at its base, then its commits picked three-way onto the candidate one at a time; it applies cleanly when neither step stops.** A pick that changes nothing is a member already upstream, and clean; a conflict is a pick stopped with conflicting paths and every object present, and anything else is an apply error. Chosen over `git am --3way`, which was measured unable to replay a stacked series in a repository holding only the upstream | 2026-10-03 | [§5.2](#52-the-replay-and-what-applies-cleanly-means) | — |
 | <a id="PF-D7"></a>PF-D7 | *Implementation decision, under [FP-D8](forked-programs-as-packs.md#FP-D8).* **The revision stays the upstream commit; a patched fork's recipe appends the series digest, and a plain fork's stays byte-identical; the `build` receipt gains `fork`, `series` and `tree`; a patched build is selected by the fork key, identified by repository, subdirectory, commit and recipe, never the ref, and found by an exact lookup** | 2026-10-03 | [§6.3](#63-what-is-served-and-the-store-key) | — |
 | <a id="PF-D8"></a>PF-D8 | *Implementation decision, applying [OQ-PD12](program-delivery.md#decision-ledger)'s "offline with the agent installed → run what is there" to a new upstream version the series does not fit.* **What runs moves only after a candidate's build is admitted on this machine, by a compare-and-swap under the fork's record lock that prefers the newer check, with a disclosure line; a new upstream version that does not apply or build leaves the good build running.** For a manifest that declares `patches`, and only there, it overrides: the fork route's [§9](forked-programs-as-packs.md#9-failure-modes) *"never rebuild on a timer or on every launch"*, and its *"never serve an entry whose key does not match"* for the upstream commit; [§12](forked-programs-as-packs.md#12-what-this-does-not-license)'s *"a fork that drifts from its lock is reported, never silently refreshed"*; [FP-D18](forked-programs-as-packs.md#FP-D18)'s standing pin, moved only by `yolo pack update`; [FP-D16](forked-programs-as-packs.md#FP-D16)'s floor entry that is never polled; [FP-D17](forked-programs-as-packs.md#FP-D17)'s failed-reinstall removal, for a newer upstream; and [§11](forked-programs-as-packs.md#11-sequencing)'s done condition that a second machine runs the same binary. The edit half of the near-miss and FP-D17 rules is [OQ-PFK1](#OQ-PFK1) | 2026-10-03 | [§6.1](#61-the-good-build-is-a-ratchet) | — |
 | <a id="PF-D9"></a>PF-D9 | *Implementation decision.* **A machine-local check record per fork in the pack store, written under the fork's record lock and read without one. A conflict is never replayed again by a launch for the same (candidate, series, yolo version, git version); a build failure is backed off per candidate on [OQ-PD26](program-delivery.md#decision-ledger)'s schedule while a good build serves, and retried by every fresh launch while nothing serves; an apply error, a failed fetch, a lost build-lock wait, a build jail the runtime would not start and a Ctrl-C are not recorded as outcomes; a lost record is recovered from the store's receipts** | 2026-10-03 | [§6.2](#62-the-check-record-and-what-is-pending), [§8.1](#81-the-failure-table) | — |
-| <a id="PF-D10"></a>PF-D10 | *Implementation decision.* **A first advance writes the good build only after its admit, retries on the next fresh launch with no back-off, and falls back to the series' base when the newest candidate does not take the series and the followed branch contains the base; the same fallback serves any state with nothing to serve** | 2026-10-03 | [§6.4](#64-the-first-advance) | — |
+| <a id="PF-D10"></a>PF-D10 | *Implementation decision, amended 2026-10-04.* **Every advance takes the newest fit: the first entry, newest first, of the branch's tip under `follow: "head"` and then the version tags merged into the branch that contain the series' base, above the good build when there is one, onto which the series replays; conflicts are recorded per [PF-D9](#PF-D9) so no entry is replayed twice, and the walk shares the check's 60 s. With no fit the good build holds; a first advance builds the series' base, when the followed branch contains it, writes the good build only after its admit, and retries on the next fresh launch with no back-off; the same fallback serves any state with nothing to serve.** The amendment replaces "the newest candidate, else the base", which drops a second machine or an edited series to the base where an intermediate version fits ([`patched-extensions.md` §6.2](patched-extensions.md#62-the-newest-fit-walk)) | 2026-10-03 · amended 2026-10-04 | [§6.4](#64-the-newest-fit-and-the-first-advance) | — |
 | <a id="PF-D11"></a>PF-D11 | *Implementation decision, under the happy-path principle.* **Each failure is said once, on the launch that found it, with its next step; later launches carry a held suffix that names the step; every fork line names the series; an attach names the build its running jail was handed; nothing refuses a launch** | 2026-10-03 | [§7](#7-the-build-and-the-launch), [§8](#8-failure-and-the-next-step) | — |
 | <a id="PF-D12"></a>PF-D12 | *Implementation decision.* **`yolo pack update` and `yolo pack install` force the check and the replay and record the outcome, and never build or move the good build; `yolo capture <bin>` forces the check and builds the candidate now, or rebuilds the good build, through the swap; `yolo pack status` reads the good build and the candidate apart** | 2026-10-03 | [§8.3](#83-the-explicit-acts) | — |
 | <a id="PF-D13"></a>PF-D13 | *Implementation decision, under [OQ-PFK4](#OQ-PFK4)'s leaning, and void under its option B.* **`yolo pack rebase` clones the upstream's URL blobless at `--into`, by default a directory in the current one where a workspace may be, replays to the conflict with `git rebase --onto`, and prints the continue command and an export into a new directory renamed into place; it never writes the fork pack** | 2026-10-03 | [§8.4](#84-rebasing-the-series) | — |
@@ -1062,3 +1115,4 @@ that are the maintainer's are [OQ-PFK1](#OQ-PFK1)–[OQ-PFK4](#OQ-PFK4), above. 
 | <a id="PF-D19"></a>PF-D19 | *Implementation decision, applying [OQ-PD12](program-delivery.md#decision-ledger)'s `agent_updates` opt-out.* **`agent_updates` off for the fork pack or its base holds a patched fork: no check runs, a change to the series or the recipe is built at the good build's commit, and a fork with no good build still gets its first advance** | 2026-10-03 | [§3.4](#34-holding-a-patched-fork) | — |
 | <a id="PF-D20"></a>PF-D20 | *Implementation decision.* **The move reaps every other build of the fork that no running jail was handed, read from the record each fresh launch leaves beside its jail's pack tree, and keeps every build when a record cannot be read; a build that loses the swap is reaped at once; `yolo prune` is unchanged** | 2026-10-03 | [§6.3](#63-what-is-served-and-the-store-key) | — |
 | <a id="PF-D21"></a>PF-D21 | *Implementation decision.* **A build jail the runtime would not start is not a failed build: nothing is recorded, the candidate stays pending, and the line names the runtime's error and the step that builds it, on Apple Container among others** | 2026-10-03 | [§8.1](#81-the-failure-table), [§9](#9-notch-coverage) | — |
+| <a id="PF-D22"></a>PF-D22 | *Implementation decision.* **The check, its record and lock, the replay and its walk, the ratchet and the explicit acts are keyed by an owner key: `<pack>/<bin>` for a patched fork, `<pack>/<name>` for a patched extension ([`patched-extensions.md`](patched-extensions.md)). One implementation serves both, and a pack's owner keys are unique across its patched programs and patched extensions** | 2026-10-04 | [§3.1](#31-the-fields), [§6.2](#62-the-check-record-and-what-is-pending) | — |

@@ -4,21 +4,25 @@ date: 2026-10-03
 status: draft
 stage: SKETCH
 tags: [plan, packs, programs, forks, build]
-summary: "Where the patched-fork mode's code would land, read against the tree at 026fca672, and the traps found while designing it. A parking lot for the design, not a hand-off: nothing here may be built from while it is a sketch."
-next: "Promote against the tree once OQ-PFK1, OQ-PFK3 and OQ-PFK4 are ruled, with the implementation-plan skill"
+summary: "Where the patched-fork mode's code would land, for programs and for pi extensions, read against the tree at 026fca672 and 48491fd4a, and the traps found while designing it. A parking lot for the designs, not a hand-off: nothing here may be built from while it is a sketch."
+next: "Promote against the tree once OQ-PFK1, OQ-PFK3, OQ-PFK4, OQ-PPX1 and OQ-PPX2 are ruled, with the implementation-plan skill"
 depends-on:
   - patched-forks.md#OQ-PFK1
   - patched-forks.md#OQ-PFK3
   - patched-forks.md#OQ-PFK4
+  - patched-extensions.md#OQ-PPX1
+  - patched-extensions.md#OQ-PPX2
 ---
 
 # Patched forks — implementation sketch
 
-**Status:** 2026-10-03 — incomplete, and unstable while questions are open.
+**Status:** 2026-10-03, extended 2026-10-04 to patched extensions — incomplete, and unstable while
+questions are open.
 
-**Design:** [`patched-forks.md`](patched-forks.md). **Precedence:** the design wins on behavior,
-the tree wins on fact. No design decision is made here; an entry that would need one is a question
-in the design.
+**Designs:** [`patched-forks.md`](patched-forks.md), and [`patched-extensions.md`](patched-extensions.md),
+which shares its implementation through the owner key ([PF-D22](patched-forks.md#PF-D22)).
+**Precedence:** the designs win on behavior, the tree wins on fact. No design decision is made here;
+an entry that would need one is a question in a design.
 
 ## Map, sketched
 
@@ -30,11 +34,11 @@ Read at `026fca672`. Every row is a pointer to check before relying on it.
 | [`packdecl/fork.go`](../../internal/packdecl/fork.go#L280-L286) | the recipe's canonical array gains the series digest for a patched fork only; a plain fork's bytes must not move |
 | [`packdecl/packdecl.go`](../../internal/packdecl/packdecl.go#L471) | the strict `Decode`'s unknown-field refusal gains *"a newer yolo may read this field"* (the design's PF-D1) |
 | [`packload/forks.go`](../../internal/packload/forks.go#L47-L65) | `Fork` gains the series (read once, `lstat` on every component, from the fork pack's `Root`) and the follow rule; `ApplyForks` carries the digest onto the base's `Install`; `forkClaimDetail` names the series |
-| `packsrc` (new) | the check record and its per-fork lock, beside `stamps/`; a fetch-and-resolve with no checkout, split from `refreshMirror` above its `materialize` ([`refresh.go:420`](../../internal/packsrc/refresh.go#L420)); the follow rule |
+| `packsrc` (new) | the check record and its lock per owner key ([PF-D22](patched-forks.md#PF-D22)), beside `stamps/`; a fetch-and-resolve with no checkout, split from `refreshMirror` above its `materialize` ([`refresh.go:420`](../../internal/packsrc/refresh.go#L420)); the follow rule, and the newest-fit walk's list ([PF-D10](patched-forks.md#PF-D10)) |
 | [`packsrc/forkpin.go`](../../internal/packsrc/forkpin.go#L79), [`packload/forkpin.go`](../../internal/packload/forkpin.go#L101) | patched forks kept out of `PinForks` at every caller ([`run/forkbuild.go:113`](../../internal/cli/run/forkbuild.go#L113), [`cli/hostfloor.go:105-118`](../../internal/cli/hostfloor.go#L105-L118), [`capturehost.go:267-271`](../../internal/cli/capturehost.go#L267-L271)); `InJailForkPins`'s reason for a patched fork names the host build, not an install |
 | [`cli/forkpin.go`](../../internal/cli/forkpin.go#L38) | `pinForks` skips a patched fork and drops a plain-fork entry under its key; `pack update`, `pack install` and `pack status` arms; `forkBuiltState` ([`:180-189`](../../internal/cli/forkpin.go#L180-L189)) reads the good build |
 | [`cli/forkbuild.go`](../../internal/cli/forkbuild.go#L82) | the build id from repository and subdirectory, not the source as written |
-| [`cli/forkbuild.go`](../../internal/cli/forkbuild.go#L310-L326) | `checkOutForkSource`'s patched arm: the scratch repository outside staging, the prefetch into the mirror, the replay, the copy into `src/`, the patched tree |
+| [`cli/forkbuild.go`](../../internal/cli/forkbuild.go#L310-L326) | `checkOutForkSource`'s patched arm: the scratch repository outside staging, the prefetch into the mirror, the replay down the walk's list, the copy into `src/`, the patched tree |
 | [`cli/forkbuild.go`](../../internal/cli/forkbuild.go#L107-L212) | `buildFork`'s record re-read after the lock ([`:125-131`](../../internal/cli/forkbuild.go#L125-L131)); runtime-refused told apart from a build line that failed; `buildForksForLaunch` looks up the good build, runs the advance, swaps and reaps |
 | [`cli/capturematerialize.go`](../../internal/cli/capturematerialize.go#L311-L332), [`capture/select.go`](../../internal/capture/select.go#L41-L52) | the exact lookup by fork key; the fork key in a patched build's selection key, which [`capture/gc.go`](../../internal/capture/gc.go) reaps by too |
 | [`entrypoint/buildreceipt.go`](../../internal/entrypoint/buildreceipt.go#L40-L52) | `fork`, `series` and `tree` |
@@ -83,10 +87,57 @@ Read at `026fca672`. Every row is a pointer to check before relying on it.
 - **The call-site rule** (AGENTS.md, Testing): the trigger's test must fail when the check's call in
   the fresh-launch slot is deleted, as `TestALaunchWiresTheForkBuildTrigger` does for the build.
 
+## Patched extensions
+
+Read at `48491fd4a`, for [`patched-extensions.md`](patched-extensions.md). The rows above serve it
+through the owner key; these are what only a tree touches.
+
+| Where | What the mode touches |
+| :--- | :--- |
+| [`packdecl/contributes.go`](../../internal/packdecl/contributes.go#L3698) | `source`, `patches`, `follow`, `build` and `produces` on `files`; `from`, `fork_of`, `agent` and `agents` refused beside `source`; the extension key's uniqueness against the pack's patched bins |
+| [`packdecl/fork.go`](../../internal/packdecl/fork.go#L47-L88) | `forkFieldPlacementProblems` lets `source`, `build` and `produces` onto `files` beside `patches` only; its message elsewhere is unchanged |
+| [`run/packfiles.go`](../../internal/cli/run/packfiles.go#L67-L99) | a patched extension's mount source is the launch's per-launch copy, not `<root>/<from>` |
+| [`run/run.go`](../../internal/cli/run/run.go#L1323-L1332) | the tree arm beside the fork builds in their slot: check, advance, copy, and `YOLO_PATCHED_TREES` |
+| [`cli/forkbuild.go`](../../internal/cli/forkbuild.go#L388-L406) | the final copy into the reserved directory; the seal narrowed to the contributing pack; the admit's three new checks |
+| [`capture/select.go`](../../internal/capture/select.go#L41-L52), [`capture/gc.go`](../../internal/capture/gc.go) | a selection that names no bin, by extension key, which gc's complement reaps by too |
+| [`entrypoint/hostfilestree.go`](../../internal/entrypoint/hostfilestree.go#L59-L89) | the host arm: the versioned copies and the owned link |
+| [`packload/footprint.go`](../../internal/packload/footprint.go#L489-L498) | the review-marked claim in place of *"read-only tree"* |
+
+Traps:
+
+- **The fork fields are refused on `files` today** ([`fork.go:62-88`](../../internal/packdecl/fork.go#L62-L88)):
+  `source`, `build` and `produces` all fail placement on any kind but `program` with `via: "source"`.
+- **`packFilesTargets` joins `from` unconditionally** ([`packfiles.go:93`](../../internal/cli/run/packfiles.go#L93)).
+  A contribution with no `from` mounts the pack's whole staged tree at `into`.
+- **The host render skips a contribution with no `from`** ([`hostfilestree.go:62`](../../internal/entrypoint/hostfilestree.go#L62)),
+  so without its own arm the host drops a patched extension with no message.
+- **The per-launch copy goes beside the pack tree, never in it.** The attach compares each pack's
+  staged digest ([`run/packtree.go:316-317`](../../internal/cli/run/packtree.go#L316-L317)), and the
+  boot's fallback walk reads every top-level directory as a pack
+  ([`packtreerecord.go:22-27`](../../internal/packload/packtreerecord.go#L22-L27)). Nothing lists the
+  tree root today (`PackTreeRoot`'s callers searched 2026-10-04), but a name a tree or `.live` could
+  spell would collide.
+- **Never hardlink.** `capture.Materialize` tries a hardlink second
+  ([`materialize.go:227`](../../internal/capture/materialize.go#L227)), and on the host the copy and
+  the store share a mount, so the arm would succeed.
+- **`missingProduces` compares home-relative paths** ([`cli/forkbuild.go:217`](../../internal/cli/forkbuild.go#L217));
+  a tree's `produces` are tree-relative and must be joined onto the reserved directory first.
+- **At the host, the advance runs before the launch gate's observe comparison and outside it**
+  ([`hostapplygate.go`](../../internal/cli/hostapplygate.go)). Run after it, the gate compares
+  against a render the apply would change at once; run inside it, a check blows the one-second
+  `hostApplyGateBudget` and the gate reports cannot-determine.
+- **The `files` emitter has no read-only-floor check** ([`packfiles.go:123-140`](../../internal/cli/run/packfiles.go#L123-L140)).
+  That is what lets Apple Container below the floor take a per-launch copy; a fix that adds the check
+  for other reasons must not drop this delivery.
+
 ## Waiting on the design
 
 - How the launch path is shaped after the check, waiting or not, and whether `yolo host -- <bin>`
   waits, is blocked on [OQ-PFK3](patched-forks.md#OQ-PFK3).
+- What the owning agent pack's launchers do with a patched extension's reason is blocked on
+  [OQ-PPX1](patched-extensions.md#OQ-PPX1).
+- Whether a patched extension writes `packs.lock.json` is blocked on
+  [OQ-PPX2](patched-extensions.md#OQ-PPX2); the map above assumes its leaning, no pin.
 - Whether the good build is served, and the floor keeps it, after the user's own edit fails is
   blocked on [OQ-PFK1](patched-forks.md#OQ-PFK1); the map above assumes its leaning.
 - The `rebase` subcommand is blocked on [OQ-PFK4](patched-forks.md#OQ-PFK4).
