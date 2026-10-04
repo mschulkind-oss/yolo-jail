@@ -53,8 +53,8 @@ into a jail, and what each launch shows about the code it runs. See
   mod, now reaches a jail and `yolo host apply`.
 - A plugin whose manifest names it with a path, such as `../x`, is refused instead of being written
   outside the skills folder.
-- A wrapped Claude plugin's workflows, themes, highlighting grammars and the agent it sets for your
-  sessions are now named when they are left out.
+- When a flat skills folder leaves out a wrapped Claude plugin's workflows, themes, highlighting
+  grammars or the agent it sets for your sessions, it now says so by name, as it does for the rest.
 - In a jail, `gh` now runs `--jq` and `--template`, takes an encoded branch name such as
   `MS%2Fmain`, and answers `gh auth status` without your machine's paths or the token's scopes; a
   write says at once that nothing ran and to run it on your machine.
