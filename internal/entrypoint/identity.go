@@ -164,8 +164,14 @@ func recordedIdentity(e *Env, git, global, record, key string) (string, bool) {
 }
 
 // clearIdentity removes key from the global config while it still holds last, the value yolo
-// recorded setting, and then drops the key from the record. Each outcome is one boot-log line
-// and nothing on the terminal, as a deselection clear is; only a failure is a warning.
+// recorded setting, and then drops the key from the record. A removal and a keep are each one
+// log-only note (Env.note) and nothing on the terminal, as a deselection clear is; only a
+// failure is a warning.
+//
+// ⚠ A NOTE IS KEPT ONLY WHERE THE BOOTSTRAP KEEPS A BOOT LOG. Env.note writes to Env.LogOnly
+// alone, which is <workspace>/.yolo/boot.log where a boot log is attached and nil otherwise. A
+// macos-user bootstrap that keeps no boot log (G20 in docs/plans/setup-support-gaps.md) records
+// these notes nowhere, and the global config itself is the only answer to what happened.
 func clearIdentity(e *Env, git, global, record, key, last string) {
 	err := runGitConfig(e, git, global, "--global", "--fixed-value", "--unset-all", key, last)
 	switch {

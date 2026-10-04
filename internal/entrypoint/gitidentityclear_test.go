@@ -103,7 +103,8 @@ var forwardedBoth = map[string]string{"YOLO_GIT_NAME": firstName, "YOLO_GIT_EMAI
 
 // (a) A NAME AND EMAIL THE HOST STOPS SETTING LEAVE THE JAIL at the next launch, and the rest of
 // the file stays: an alias the user set in the jail, and the safe.directory entry. The removal
-// is one boot-log line per key and nothing on the terminal.
+// is one log-only note per key and nothing on the terminal (launchLogged says where the test
+// reads that note from, and what that does not prove).
 //
 // It fails on the replay that only ever set a key (the email stayed, and git kept committing as
 // the address the user removed on the host); it fails if the record is not written when a key
@@ -126,10 +127,10 @@ func TestAGitIdentityTheHostStopsSettingLeavesTheMacosUserJail(t *testing.T) {
 	}
 	for _, key := range []string{"user.email", "user.name"} {
 		if !strings.Contains(logged, "removed "+key) {
-			t.Errorf("the boot log does not record removing %s:\n%s", key, logged)
+			t.Errorf("the launch did not log removing %s:\n%s", key, logged)
 		}
 		if strings.Contains(said, key) {
-			t.Errorf("a clear is a boot-log line, not a terminal one, and the terminal got %s:\n%s", key, said)
+			t.Errorf("a clear is a log-only note, not a terminal line, and the terminal got %s:\n%s", key, said)
 		}
 	}
 }
@@ -160,7 +161,7 @@ func TestAGitIdentityTheUserSetInTheMacosUserJailIsKept(t *testing.T) {
 		// The name was not touched, so it is still yolo's and goes.
 		h.wantAbsent(t, "the untouched key beside it", "user.name")
 		if !strings.Contains(logged, "kept user.email") {
-			t.Errorf("the boot log does not say the user's email was kept:\n%s", logged)
+			t.Errorf("the launch did not log that the user's email was kept:\n%s", logged)
 		}
 	})
 }

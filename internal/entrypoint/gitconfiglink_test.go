@@ -11,6 +11,8 @@ package entrypoint
 
 import (
 	"bytes"
+	"errors"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -28,7 +30,8 @@ func gitLayoutLaunch(t *testing.T, home, ws, packRoot, email string) string {
 }
 
 // gitLayoutBoot is gitLayoutLaunch forwarding the YOLO_GIT_* variables in identity (none, for a
-// host that sets no identity), and returning what went to the boot log alone as well.
+// host that sets no identity), and returning as well what the launch logged without printing
+// (launchLogged).
 func gitLayoutBoot(t *testing.T, home, ws, packRoot string, identity map[string]string) (said, logged string) {
 	t.Helper()
 	t.Setenv("PATH", "")
@@ -51,7 +54,31 @@ func gitLayoutBoot(t *testing.T, home, ws, packRoot string, identity map[string]
 	e.Stderr = &out
 	e.LogOnly = &logOnly
 	_ = RunDarwinBootstrap(e, DarwinBootstrapOptions{MacosLog: "off"})
-	return out.String(), logOnly.String()
+	return out.String(), launchLogged(t, ws, logOnly.String())
+}
+
+// launchLogged is what one launch logged without printing it: the workspace's boot.log when the
+// bootstrap keeps one, because that file is where production sends a log-only note
+// (Env.LogOnly); otherwise injected, what reached the LogOnly sink the test handed the Env.
+//
+// ⚠ THE SECOND HALF CHECKS WHAT THE CODE SAID, NOT THAT ANYTHING KEPT IT. A macos-user
+// bootstrap that keeps no boot log (G20 in docs/plans/setup-support-gaps.md) attaches no
+// LogOnly sink of its own, so in production every note is discarded and the injected sink is
+// the only place the test can read one. Once the bootstrap keeps <ws>/.yolo/boot.log it
+// replaces the sink with that file for the launch, the injected one receives nothing, and the
+// file is read instead: a note the bootstrap stops sending there then fails the test.
+func launchLogged(t *testing.T, ws, injected string) string {
+	t.Helper()
+	b, err := os.ReadFile(filepath.Join(ws, ".yolo", bootLogName))
+	switch {
+	case err == nil:
+		return string(b)
+	case errors.Is(err, fs.ErrNotExist):
+		return injected
+	default:
+		t.Fatalf("reading the launch's boot log: %v", err)
+		return ""
+	}
 }
 
 // swapForLink replaces p, whatever it is, with a symbolic link to target — what an agent can do

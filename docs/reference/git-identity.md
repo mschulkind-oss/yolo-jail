@@ -142,8 +142,8 @@ host that has none. So the replay follows the rule a deselected provider follows
 | The host, at this launch | The jail's global config | What the replay does |
 | :--- | :--- | :--- |
 | sets the key | anything | sets it, and records the value it set |
-| does not set it, and yolo recorded a value | still holds that value | removes it, drops it from the record, and writes one `boot.log` line |
-| does not set it, and yolo recorded a value | holds another value, or none (the user changed or removed it) | keeps it, drops it from the record, and writes one `boot.log` line |
+| does not set it, and yolo recorded a value | still holds that value | removes it, drops it from the record, and notes the removal |
+| does not set it, and yolo recorded a value | holds another value, or none (the user changed or removed it) | keeps it, drops it from the record, and notes the keep |
 | does not set it, and there is no record | anything | nothing: yolo claims no value it did not record |
 
 - **The comparison is git's own.** The removal is `git config --global --fixed-value --unset-all
@@ -151,6 +151,10 @@ host that has none. So the replay follows the rule a deselected provider follows
   does, and the key is the user's.
 - **Dropping the record entry is what keeps a later hand-set value safe**, the same value
   included: once yolo removed its value, it claims nothing.
+- **The removal and the keep are log-only notes**, never terminal lines, as a deselection clear
+  is. They reach `<workspace>/.yolo/boot.log` only once `macos-user` keeps a boot log
+  ([G20](../plans/setup-support-gaps.md#2-ranked-gap-backlog)). A bootstrap without one records
+  them nowhere, and `git config --global user.email` inside the jail is then the only answer.
 - **The record is `~/.config/git/yolo-forwarded`**, beside the file whose values it claims, in
   git's own config format. It is not a source of truth, which stays the host: it says only which
   values were yolo's. It is written by git outside Seatbelt like the global file, so it is
