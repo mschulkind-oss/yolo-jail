@@ -1,11 +1,11 @@
 ---
 title: "A patched fork follows its upstream — a patch series that rebuilds itself while it applies"
 date: 2026-10-03
-status: in-review
-stage: DESIGN
+status: accepted
+stage: DECIDED
 tags: [design, packs, programs, forks, build, evergreen, git]
-summary: "A second mode for a forked program: the fork pack names the upstream and carries a git format-patch series. yolo checks the upstream at most hourly, replays the series at its base and picks it onto the newest upstream version it fits on the host, builds the result in the sealed capture jail, and moves this machine's good build only once that build is admitted, so a new upstream version the series does not fit leaves the previous build running. The same mode follows a pi extension's upstream as a tree, in patched-extensions.md. Four calls are the maintainer's: what runs after the user's own edit fails, whether the default follows versions or the branch head, whether a launch waits for the rebuild, and whether a conflict gets a rebase verb."
-next: "Rule OQ-PFK1, OQ-PFK3 and OQ-PFK4 — the build of both routes, patched extensions included, waits on them; OQ-PFK2 only picks a default"
+summary: "A second mode for a forked program: the fork pack names the upstream and carries a git format-patch series. yolo checks the upstream at most hourly, replays the series at its base and picks it onto the newest upstream version it fits on the host, builds the result in the sealed capture jail, and moves this machine's good build only once that build is admitted, so a new upstream version the series does not fit leaves the previous build running. The same mode follows a pi extension's upstream as a tree, in patched-extensions.md. The four calls that were the maintainer's, what runs after the user's own edit fails, whether the default follows versions or the branch head, whether a launch waits for the rebuild, and whether a conflict gets a rebase verb, were decided on their leanings under his delegation of 2026-10-04."
+next: "Build both routes, patched extensions included, at every notch (started 2026-10-04 from patched-forks-plan.md's map); the maintainer tests them and may overrule PF-D23 to PF-D26"
 depends-on:
   - forked-programs-as-packs.md
 ---
@@ -40,7 +40,8 @@ running jail still uses, and the host runs `git` over pack content for the first
 **Start at [§6](#6-the-good-build-the-record-and-the-store-key)**: the good build as a ratchet, from
 which the failure handling and the notch behavior fall out.
 
-**Needs your ruling:** [OQ-PFK1](#OQ-PFK1), [OQ-PFK2](#OQ-PFK2), [OQ-PFK3](#OQ-PFK3), [OQ-PFK4](#OQ-PFK4).
+**Decided under your delegation of 2026-10-04, yours to overrule:** [OQ-PFK1](#OQ-PFK1) B,
+[OQ-PFK2](#OQ-PFK2) A, [OQ-PFK3](#OQ-PFK3) A and [OQ-PFK4](#OQ-PFK4) A, each on its leaning.
 
 **Reads with:** [`forked-programs-as-packs.md`](forked-programs-as-packs.md) (the fork route this
 extends; its ledger is the ground truth for every FP-D cited here),
@@ -1025,7 +1026,7 @@ hands it.
 
 ## Open Questions
 
-1. 💬 **OQ-PFK1: When the user's own edit to the series, `build` or `produces` does not apply or build, does the previous good build keep running?**
+1. ✅ **OQ-PFK1: When the user's own edit to the series, `build` or `produces` does not apply or build, does the previous good build keep running?**
 
    A new upstream version that fails already keeps it running ([PF-D8](#PF-D8)). The request does
    not cover an edit, and serving the build it replaced is the near-miss the fork route forbids
@@ -1037,16 +1038,18 @@ hands it.
    - **B — No, FP-D17's rule.** The series' base is tried, and with nothing built the program is
      missing, said with the next step.
 
-   <!-- vantage: question id=OQ-PFK1 leaning="B — an edit is the user's own act at the moment they launch, so its failure is theirs to see, and A would run code they just changed away from; the cost is a fetched fork pack whose author pushes a broken series, which its users hold by pinning that pack's ref." -->
+   <!-- vantage: question id=OQ-PFK1 -->
 
    _Leaning:_ B — an edit is the user's own act at the moment they launch, so its failure is theirs
    to see, and A would run code they just changed away from; the cost is a fetched fork pack whose
    author pushes a broken series, which its users hold by pinning that pack's ref.
 
    **Answer:**
-   > _(empty — fill in when decided)_
+   > **B**, decided 2026-10-04 on the leaning under the maintainer's delegation of that day:
+   > "I want to get the patched forks and patched extensions out as soon as possible. So if there's design decisions you can make, make them and build it. And we can always adjust later."
+   > The user's own failed edit is said at once with its next step, and FP-D17's rule stands: the series' base is tried, and with nothing built the program is missing. Adjustable: his to overrule once he has tested the build.
 
-2. 💬 **OQ-PFK2: When `follow` is absent, does a patched fork on a branch take its newest version tag or its head?**
+2. ✅ **OQ-PFK2: When `follow` is absent, does a patched fork on a branch take its newest version tag or its head?**
 
    Decides how often the fork rebuilds and what it is built from by default; both stay declarable
    ([§3.3](#33-what-the-latest-of-the-upstream-is)).
@@ -1057,15 +1060,17 @@ hands it.
    - **B — The head.** What [`OQ-PF1`](../reference/pack-system.md#oq-pf1) already makes a branch ref mean: up to one build per hourly check
      (pi made 16 commits in a day), and more series breaks in mid-work commits.
 
-   <!-- vantage: question id=OQ-PFK2 leaning="A — the request counts its rebuilds in upstream versions, and under OQ-PFK3's leaning every build is a launch that waits, which B would make most launches past the hour." -->
+   <!-- vantage: question id=OQ-PFK2 -->
 
    _Leaning:_ A — the request counts its rebuilds in upstream versions, and under [OQ-PFK3](#OQ-PFK3)'s leaning
    every build is a launch that waits, which B would make most launches past the hour.
 
    **Answer:**
-   > _(empty — fill in when decided)_
+   > **A**, decided 2026-10-04 on the leaning under the maintainer's delegation of that day:
+   > "I want to get the patched forks and patched extensions out as soon as possible. So if there's design decisions you can make, make them and build it. And we can always adjust later."
+   > With no `follow`, a patched fork takes its upstream's newest version tag; `follow: "head"` still follows the branch head. Adjustable: his to overrule once he has tested the build.
 
-3. 💬 **OQ-PFK3: Does the launch that finds a new candidate wait for its build, at a fresh jail launch and at `yolo host -- <bin>`?**
+3. ✅ **OQ-PFK3: Does the launch that finds a new candidate wait for its build, at a fresh jail launch and at `yolo host -- <bin>`?**
 
    [OQ-FP4](forked-programs-as-packs.md#14-decision-ledger) builds a fork before a launch runs
    anything that needs it. With a good build the program exists, so this decides only how long a
@@ -1078,7 +1083,7 @@ hands it.
      detached.
    - **C — Never wait.** Start on the good build, and build detached.
 
-   <!-- vantage: question id=OQ-PFK3 leaning="A, at both notches — a jail reads its fork decisions once at boot (FP-D14), so a detached build reaches only the next fresh launch, and B and C need a new detached host builder and a second jail beside the user's, which Apple Container may not start (OQ-PD25)." -->
+   <!-- vantage: question id=OQ-PFK3 -->
 
    _Leaning:_ A, at both notches — a jail reads its fork decisions once at boot
    ([FP-D14](forked-programs-as-packs.md#FP-D14)), so a detached build reaches only the next fresh
@@ -1086,9 +1091,11 @@ hands it.
    Apple Container may not start ([OQ-PD25](program-delivery.md#decision-ledger)).
 
    **Answer:**
-   > _(empty — fill in when decided)_
+   > **A**, decided 2026-10-04 on the leaning under the maintainer's delegation of that day:
+   > "I want to get the patched forks and patched extensions out as soon as possible. So if there's design decisions you can make, make them and build it. And we can always adjust later."
+   > At a fresh jail launch and at `yolo host -- <bin>`, the launch waits for the build up to `forkBuildWaitBound`, and a Ctrl-C ends the advance and starts on the good build. Adjustable: his to overrule once he has tested the build.
 
-4. 💬 **OQ-PFK4: Does a series that stops fitting get a verb, `yolo pack rebase`, or a printed git recipe?**
+4. ✅ **OQ-PFK4: Does a series that stops fitting get a verb, `yolo pack rebase`, or a printed git recipe?**
 
    Decides whether the conflict message's next step is one command or five, and whether yolo gains
    a verb ([§8.4](#84-rebasing-the-series)).
@@ -1098,18 +1105,22 @@ hands it.
    - **B — A recipe.** The conflict message prints the clone, the replay at the base,
      `git rebase --onto` and the export, with the commits filled in.
 
-   <!-- vantage: question id=OQ-PFK4 leaning="A — the happy-path principle's easiest next step is yolo doing it, and the base and target commits B asks the user to copy are where a hand rebase goes wrong." -->
+   <!-- vantage: question id=OQ-PFK4 -->
 
    _Leaning:_ A — the happy-path principle's easiest next step is yolo doing it, and the base and
    target commits B asks the user to copy are where a hand rebase goes wrong.
 
    **Answer:**
-   > _(empty — fill in when decided)_
+   > **A**, decided 2026-10-04 on the leaning under the maintainer's delegation of that day:
+   > "I want to get the patched forks and patched extensions out as soon as possible. So if there's design decisions you can make, make them and build it. And we can always adjust later."
+   > `yolo pack rebase` clones the upstream outside yolo's state directory, replays the series to the conflict, and prints the continue and export commands; it writes nothing in the pack. Adjustable: his to overrule once he has tested the build.
 
 ## Decision Ledger
 
-Every row is an implementation decision made in drafting, reversible, and none is built. The calls
-that are the maintainer's are [OQ-PFK1](#OQ-PFK1)–[OQ-PFK4](#OQ-PFK4), above. [PF-D8](#PF-D8),
+Every row is reversible, and none is built. [PF-D1](#PF-D1)–[PF-D22](#PF-D22) are implementation
+decisions made in drafting. [PF-D23](#PF-D23)–[PF-D26](#PF-D26) are the four questions that were the
+maintainer's, [OQ-PFK1](#OQ-PFK1)–[OQ-PFK4](#OQ-PFK4), decided on their leanings on 2026-10-04 under
+his delegation, and still his to overrule. [PF-D8](#PF-D8),
 [PF-D16](#PF-D16) and [PF-D19](#PF-D19) apply rulings of
 [`program-delivery.md`](program-delivery.md#decision-ledger) rather than making one.
 
@@ -1137,3 +1148,7 @@ that are the maintainer's are [OQ-PFK1](#OQ-PFK1)–[OQ-PFK4](#OQ-PFK4), above. 
 | <a id="PF-D20"></a>PF-D20 | *Implementation decision.* **The move reaps every other build of the fork that no running jail was handed, read from the record each fresh launch leaves beside its jail's pack tree, and keeps every build when a record cannot be read; a build that loses the swap is reaped at once; `yolo prune` is unchanged** | 2026-10-03 | [§6.3](#63-what-is-served-and-the-store-key) | — |
 | <a id="PF-D21"></a>PF-D21 | *Implementation decision.* **A build jail the runtime would not start is not a failed build: nothing is recorded, the candidate stays pending, and the line names the runtime's error and the step that builds it, on Apple Container among others** | 2026-10-03 | [§8.1](#81-the-failure-table), [§9](#9-notch-coverage) | — |
 | <a id="PF-D22"></a>PF-D22 | *Implementation decision.* **The check, its record and lock, the replay and its walk, the ratchet and the explicit acts are keyed by an owner key: `<pack>/<bin>` for a patched fork, `<pack>/<name>` for a patched extension ([`patched-extensions.md`](patched-extensions.md)). One implementation serves both, and a pack's owner keys are unique across its patched programs and patched extensions** | 2026-10-04 | [§3.1](#31-the-fields), [§6.2](#62-the-check-record-and-what-is-pending) | — |
+| <a id="PF-D23"></a>PF-D23 | *Decided under delegation, on [OQ-PFK1](#OQ-PFK1)'s leaning.* **A user's own edit to the series, `build` or `produces` that fails is not held: the base is tried, and with nothing built the program is missing, said with the next step** | 2026-10-04 | [OQ-PFK1](#OQ-PFK1) | — |
+| <a id="PF-D24"></a>PF-D24 | *Decided under delegation, on [OQ-PFK2](#OQ-PFK2)'s leaning.* **With no `follow`, a patched fork follows its upstream's newest version tag** | 2026-10-04 | [OQ-PFK2](#OQ-PFK2) | — |
+| <a id="PF-D25"></a>PF-D25 | *Decided under delegation, on [OQ-PFK3](#OQ-PFK3)'s leaning.* **A fresh launch, and `yolo host -- <bin>`, waits for the advance up to `forkBuildWaitBound`; a Ctrl-C ends the advance and the launch starts on the good build** | 2026-10-04 | [OQ-PFK3](#OQ-PFK3) | — |
+| <a id="PF-D26"></a>PF-D26 | *Decided under delegation, on [OQ-PFK4](#OQ-PFK4)'s leaning.* **A series that stops fitting gets `yolo pack rebase`, which writes nothing in the pack** | 2026-10-04 | [OQ-PFK4](#OQ-PFK4) | — |

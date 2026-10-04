@@ -5,13 +5,10 @@ status: draft
 stage: SKETCH
 tags: [plan, packs, programs, forks, build]
 summary: "Where the patched-fork mode's code would land, for programs and for pi extensions, read against the tree at 026fca672 and 48491fd4a, and the traps found while designing it. A parking lot for the designs, not a hand-off: nothing here may be built from while it is a sketch."
-next: "Promote against the tree once OQ-PFK1, OQ-PFK3, OQ-PFK4, OQ-PPX1 and OQ-PPX2 are ruled, with the implementation-plan skill"
+next: "The build started 2026-10-04 works from this map; record what the tree changed as each step lands, then graduate it into the designs' status lines"
 depends-on:
-  - patched-forks.md#OQ-PFK1
-  - patched-forks.md#OQ-PFK3
-  - patched-forks.md#OQ-PFK4
-  - patched-extensions.md#OQ-PPX1
-  - patched-extensions.md#OQ-PPX2
+  - patched-forks.md
+  - patched-extensions.md
 ---
 
 # Patched forks — implementation sketch
@@ -143,18 +140,19 @@ Traps:
   against the entry's completion marker after it ends, and the move must reap marker first, as
   `reapEntry` does ([`gc.go:219-224`](../../internal/capture/gc.go#L219-L224)).
 
-## Waiting on the design
+## Decided on 2026-10-04
 
-- How the launch path is shaped after the check, waiting or not, and whether `yolo host -- <bin>`
-  waits, is blocked on [OQ-PFK3](patched-forks.md#OQ-PFK3).
-- What the owning agent pack's launchers do with a patched extension's reason is blocked on
-  [OQ-PPX1](patched-extensions.md#OQ-PPX1).
-- Whether a patched extension writes `packs.lock.json` is blocked on
-  [OQ-PPX2](patched-extensions.md#OQ-PPX2); the map above assumes its leaning, no pin.
-- Whether the good build is served, and the floor keeps it, after the user's own edit fails is
-  blocked on [OQ-PFK1](patched-forks.md#OQ-PFK1); the map above assumes its leaning.
-- The `rebase` subcommand is blocked on [OQ-PFK4](patched-forks.md#OQ-PFK4).
-- [OQ-PFK2](patched-forks.md#OQ-PFK2) picks only the default of `follow`, which is one constant.
+Every question this map waited on was decided on its leaning under the maintainer's delegation of
+2026-10-04, and each stays his to overrule:
+
+- The launch waits for the advance, bounded and interruptible, at a fresh launch and at
+  `yolo host -- <bin>` ([PF-D25](patched-forks.md#PF-D25)).
+- The owning agent pack's launchers serve the good build and stop before exec when none exists
+  ([PPX-D18](patched-extensions.md#PPX-D18)).
+- A patched extension writes no pin ([PPX-D19](patched-extensions.md#PPX-D19)).
+- A user's own failed edit is not held ([PF-D23](patched-forks.md#PF-D23)).
+- `yolo pack rebase` is built ([PF-D26](patched-forks.md#PF-D26)).
+- `follow` defaults to the newest version tag ([PF-D24](patched-forks.md#PF-D24)).
 
 ## Measurements to make
 

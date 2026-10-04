@@ -1,15 +1,13 @@
 ---
 title: "A patched fork can follow a pi extension's upstream — the same ratchet, ending in a read-only tree pi loads in place"
 date: 2026-10-04
-status: in-review
-stage: DESIGN
+status: accepted
+stage: DECIDED
 tags: [design, packs, files, pi, extensions, forks, evergreen, git]
-summary: "The maintainer asked on 2026-10-04 for the patched-fork mode to cover pi extensions. A `files` contribution may name an upstream `source` and a `patches` series in place of `from`. yolo checks the upstream at most hourly, replays the series on the host exactly as a patched fork does, takes the newest upstream version the series fits, builds it in the sealed capture jail and admits the result as a tree. Each fresh jail launch mounts its own copy of this machine's good build read-only, and pi loads it as a local package through a list entry the pack author writes, so pi never installs or updates it. Two calls are new and the maintainer's: what pi starts with when no build serves, and whether the version is pinned in packs.lock.json; the four patched-fork questions bind this mode too."
-next: "Rule OQ-PPX1 and OQ-PPX2 in the sitting that rules patched-forks.md's OQ-PFK1, OQ-PFK3 and OQ-PFK4, since one ruling of those covers both routes"
+summary: "The maintainer asked on 2026-10-04 for the patched-fork mode to cover pi extensions. A `files` contribution may name an upstream `source` and a `patches` series in place of `from`. yolo checks the upstream at most hourly, replays the series on the host exactly as a patched fork does, takes the newest upstream version the series fits, builds it in the sealed capture jail and admits the result as a tree. Each fresh jail launch mounts its own copy of this machine's good build read-only, and pi loads it as a local package through a list entry the pack author writes, so pi never installs or updates it. Two calls were new and the maintainer's, what pi starts with when no build serves and whether the version is pinned in packs.lock.json; they and the four patched-fork questions were decided on their leanings under his delegation of 2026-10-04."
+next: "Build after patched forks' steps 1 and 2, at every notch (started 2026-10-04); the maintainer tests it and may overrule PPX-D18 and PPX-D19"
 depends-on:
-  - patched-forks.md#OQ-PFK1
-  - patched-forks.md#OQ-PFK3
-  - patched-forks.md#OQ-PFK4
+  - patched-forks.md
 ---
 
 # A patched fork can follow a pi extension's upstream — the same ratchet, ending in a read-only tree pi loads in place
@@ -51,9 +49,10 @@ both routes.
 **Start at [§5](#5-what-carries-over-from-patched-forks)**: what carries over unchanged, and the three
 places it cannot, which [§7](#7-the-build-and-the-admit) and [§8](#8-delivery) take.
 
-**Needs your ruling:** [OQ-PPX1](#OQ-PPX1), [OQ-PPX2](#OQ-PPX2). Patched forks'
-[OQ-PFK1](patched-forks.md#OQ-PFK1), [OQ-PFK3](patched-forks.md#OQ-PFK3) and
-[OQ-PFK4](patched-forks.md#OQ-PFK4) bind this mode as written ([§12](#12-dependencies)).
+**Decided under your delegation of 2026-10-04, yours to overrule:** [OQ-PPX1](#OQ-PPX1) B and
+[OQ-PPX2](#OQ-PPX2) A, each on its leaning. Patched forks' [OQ-PFK1](patched-forks.md#OQ-PFK1),
+[OQ-PFK3](patched-forks.md#OQ-PFK3) and [OQ-PFK4](patched-forks.md#OQ-PFK4), decided the same day, bind
+this mode as written ([§12](#12-dependencies)).
 
 **Reads with:** [`patched-forks.md`](patched-forks.md) (the mode this extends; every PF term and PF-D
 row cited here is its), [`pi-git-extension-caching.md`](pi-git-extension-caching.md) (pi git
@@ -670,7 +669,7 @@ source, the host link and the launchers' gate. The traps the implementation must
 Patched forks' [OQ-PFK1](patched-forks.md#OQ-PFK1) to [OQ-PFK4](patched-forks.md#OQ-PFK4) bind this
 mode as written, and one ruling of each covers both routes ([§12](#12-dependencies)).
 
-1. 💬 **OQ-PPX1: When a patched extension's build cannot be had, what does pi start with?**
+1. ✅ **OQ-PPX1: When a patched extension's build cannot be had, what does pi start with?**
 
    Patched forks keep the good build when a newer upstream fails ([PF-D8](patched-forks.md#PF-D8)),
    and depart from the second half of the caching design's
@@ -685,7 +684,7 @@ mode as written, and one ruling of each covers both routes ([§12](#12-dependenc
    Under B or C, a fresh offline machine starts no pi until a first build lands; under A the
    extension can go missing unnoticed.
 
-   <!-- vantage: question id=OQ-PPX1 leaning="B — it keeps OQ-2's first half: a good build is complete, admitted and immutable, where the case it ruled out was a launch that found the refresh lock held booting on whatever was installed, and nothing to serve is exactly that ruling's case. It departs from the second half: the good build is whatever an earlier launch on this machine admitted, perhaps another workspace's, and a launch takes another's failure and its back-off, so which upstream version a launch gets depends on other launches. My read is that this stays within the ruling's purpose, because every launch gets the series and recipe its config spells, and only the upstream version, which the config leaves to the follow rule, depends on the machine, as PF-D8 has it for a patched program; and a forked pi with nothing to serve does not run either." -->
+   <!-- vantage: question id=OQ-PPX1 -->
 
    _Leaning:_ B — it keeps [OQ-2](pi-git-extension-caching.md#OQ-2)'s first half: a good build is
    complete, admitted and immutable, where the case it ruled out was a launch that found the
@@ -700,9 +699,11 @@ mode as written, and one ruling of each covers both routes ([§12](#12-dependenc
    a patched program; and a forked pi with nothing to serve does not run either.
 
    **Answer:**
-   > _(empty — fill in when decided)_
+   > **B**, decided 2026-10-04 on the leaning under the maintainer's delegation of that day:
+   > "I want to get the patched forks and patched extensions out as soon as possible. So if there's design decisions you can make, make them and build it. And we can always adjust later."
+   > The good build serves; with none, the owning agent pack's launchers stop before exec and say why, and notches that never build trees are exempt. Adjustable: his to overrule once he has tested the build.
 
-2. 💬 **OQ-PPX2: Is a patched extension's version pinned in `packs.lock.json`?**
+2. ✅ **OQ-PPX2: Is a patched extension's version pinned in `packs.lock.json`?**
 
    [`pi-extension-lifecycle.md` OQ-2](pi-extension-lifecycle.md#OQ-2) ruled that yolo resolves and pins
    pi packages through `packs.lock.json`; that pin is unbuilt. The request asks for an evergreen build,
@@ -711,19 +712,23 @@ mode as written, and one ruling of each covers both routes ([§12](#12-dependenc
    - **A — No pin.** The good build is machine-local; a hold is a tag ref or `agent_updates`.
    - **B — A pin**, moved only by `yolo pack update`; a second machine builds that exact commit.
 
-   <!-- vantage: question id=OQ-PPX2 leaning="A — lifecycle OQ-2's purpose, putting the version choice and a rollback in yolo, is met by the check and the ratchet; a pin that moves at every admit is not a pin; and B brings back the cross-machine coupling PF-D16 removes." -->
+   <!-- vantage: question id=OQ-PPX2 -->
 
    _Leaning:_ A — [lifecycle OQ-2](pi-extension-lifecycle.md#OQ-2)'s purpose, putting the version
    choice and a rollback in yolo, is met by the check and the ratchet; a pin that moves at every admit
    is not a pin; and B brings back the cross-machine coupling PF-D16 removes.
 
    **Answer:**
-   > _(empty — fill in when decided)_
+   > **A**, decided 2026-10-04 on the leaning under the maintainer's delegation of that day:
+   > "I want to get the patched forks and patched extensions out as soon as possible. So if there's design decisions you can make, make them and build it. And we can always adjust later."
+   > No pin: the good build is machine-local, and a hold is a tag ref or `agent_updates`. Adjustable: his to overrule once he has tested the build.
 
 ## Decision Ledger
 
-Every row is an implementation decision made in drafting, reversible, and none is built. The calls
-that are the maintainer's are [OQ-PPX1](#OQ-PPX1) and [OQ-PPX2](#OQ-PPX2), above. The two core
+Every row is reversible, and none is built. [PPX-D1](#PPX-D1)–[PPX-D17](#PPX-D17) are implementation
+decisions made in drafting. [PPX-D18](#PPX-D18) and [PPX-D19](#PPX-D19) are the two questions that were
+the maintainer's, [OQ-PPX1](#OQ-PPX1) and [OQ-PPX2](#OQ-PPX2), decided on their leanings on 2026-10-04
+under his delegation, and still his to overrule. The two core
 changes this design makes to patched forks are recorded there:
 [PF-D10](patched-forks.md#PF-D10), amended, and [PF-D22](patched-forks.md#PF-D22).
 
@@ -746,3 +751,5 @@ changes this design makes to patched forks are recorded there:
 | <a id="PPX-D15"></a>PPX-D15 | *Implementation decision.* **The footprint marks a patched extension for review, naming its source, ref, follow rule, series, build and landing; no flag hides its launch, move or held lines** | 2026-10-04 | [§10](#10-trust-and-disclosure) | — |
 | <a id="PPX-D16"></a>PPX-D16 | *Implementation decision.* **A series member that adds a path the upstream ignores at the base is said once, naming `build`** | 2026-10-04 | [§7.2](#72-identity-and-selection) | — |
 | <a id="PPX-D17"></a>PPX-D17 | *Implementation decision.* **The check record is per extension key, as [PF-D9](patched-forks.md#PF-D9)'s is per fork key, never per declaration** | 2026-10-04 | [§14](#14-alternatives-and-what-this-does-not-cover) | — |
+| <a id="PPX-D18"></a>PPX-D18 | *Decided under delegation, on [OQ-PPX1](#OQ-PPX1)'s leaning.* **The good build serves; with none, the owning agent pack's launchers stop before exec and say why; notches that never build trees are exempt** | 2026-10-04 | [OQ-PPX1](#OQ-PPX1) | — |
+| <a id="PPX-D19"></a>PPX-D19 | *Decided under delegation, on [OQ-PPX2](#OQ-PPX2)'s leaning.* **A patched extension writes no pin to `packs.lock.json`; its good build is machine-local** | 2026-10-04 | [OQ-PPX2](#OQ-PPX2) | — |
