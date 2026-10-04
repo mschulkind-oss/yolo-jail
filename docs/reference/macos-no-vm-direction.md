@@ -54,10 +54,11 @@ matrix cell), [`../guides/macos.md`](../../userguide/guides/macos.md) (user-faci
 
 ## What each macOS path costs, measured
 
-**As of 2026-10-04.** Every figure here comes from one Mac and links to the run that produced it;
-[Caveats](#caveats) says what that Mac and those runs were. This section reports. The rulings
-in this document are unchanged, and [What the numbers bear on](#what-the-numbers-bear-on) names
-the two sentences of theirs that the numbers contradict.
+**As of 2026-10-04.** Every figure but the cold-first-launch row comes from one Mac, and each
+links to the run that produced it; [Caveats](#caveats) says what that Mac and those runs were.
+This section reports. The rulings in this document are unchanged, and
+[What the numbers bear on](#what-the-numbers-bear-on) names the two sentences of theirs that the
+numbers bear on: they contradict the warning, and parts of the problem statement.
 
 **Labels.** **MEASURED** is a recorded run, through yolo unless it says *without yolo*.
 **SOURCED** is read in a named outside source, **READ** in this repository's code or docs.
@@ -73,7 +74,7 @@ are [the benchmark's metrics](../research/macos-backend-performance.md#42-the-me
 **The answer, performance first.** `macos-user` is the Mac at native speed, and memory it used
 comes back; it pays macOS's cost of starting processes, `sudo`, and a fresh launch for
 every terminal. A VM backend is Linux: fast at starting processes and on its own disk, slow on
-every file it shares with the Mac, and it holds memory until the jail stops. So which is faster
+every file it shares with the Mac, and it holds memory while its VM runs. So which is faster
 depends on how much of the work touches the shared folders.
 
 ### Dimension by dimension
@@ -84,18 +85,21 @@ natively on the same day.
 | Dimension | `macos-user` | Apple Container | Podman Machine | Source |
 | :--- | :--- | :--- | :--- | :--- |
 | Fresh launch, to a prompt | **5.5 s**, with `sudo` already authorized | 6.9 s with auto-capture off; 67.3 s as run, [a defect](#what-will-change) | not measured on Apple silicon | [M1, Apple Container](../research/macos-backend-performance.md#launch-m1-to-m3); [M1, macos-user](../research/macos-backend-performance.md#macos-user-2026-10-03) |
-| A second terminal in the same workspace | another fresh launch, 5.5 s, and `sudo` again | **an attach, 1.8 s** | an attach; not measured | [M3](../research/macos-backend-performance.md#launch-m1-to-m3); `sudo` per launch: READ, [the user guide](../../userguide/guides/macos.md#the-macos-user-backend) |
+| A second terminal in the same workspace | another fresh launch and `sudo` again; INFERRED from M1's 5.5 s, not timed beside a running jail | **an attach, 1.8 s** | an attach; not measured | [M3](../research/macos-backend-performance.md#launch-m1-to-m3); `sudo` per launch: READ, [the user guide](../../userguide/guides/macos.md#the-macos-user-backend) |
 | Workspace file work: `git status`, ripgrep and `npm ci` over a 100,000-file tree | **native** | 5.3, 5.0 and 3.2 times native | *without yolo*: applehv within about 25% of Apple Container; libkrun 1.6 to 9 times slower than VZ on all but one step | [M5 to M7](../research/macos-backend-performance.md#timings-m5-to-m12); [on a shared folder](../research/macos-vm-runtime-comparison.md#32-on-a-shared-mac-folder) |
 | Folders only the jail uses (`.venv`, `node_modules`, `~/.cache`, the home), where yolo puts them today | the Mac's own disk; the Mac and the sandbox share `.venv` and `node_modules` | READ: shared folders, at the workspace's cost; only `/mise` is a VM-local disk, and scratch is RAM | READ: shared folders; `/mise` and scratch are on the VM's disk | [Apple Container's mounts](../../internal/cli/run/assemble_parts.go#L59-L71); [Podman's](../../internal/cli/run/assemble_parts.go#L139-L205) and [its scratch](../../internal/cli/run/runmount.go#L34-L56); [the jail's own copies](../../internal/cli/run/mounts.go#L124-L127) |
 | One-thread CPU | native | native | not measured | [M9](../research/macos-backend-performance.md#timings-m5-to-m12) |
-| Parallel `go build`, and the default share of cores | native, every core | 16% slower on 5 threads each; READ: half the cores by default, so 21% slower at defaults | the machine's CPUs; not measured | [M10](../research/macos-backend-performance.md#timings-m5-to-m12); [the default](../../internal/cli/run/backendcaps.go#L257-L268) |
+| Parallel `go build`, and the default share of cores | native, every core | 16% slower on 5 threads each, and 21% slower at defaults (MEASURED); READ: the default is half the cores | the machine's CPUs; not measured | [M10](../research/macos-backend-performance.md#timings-m5-to-m12); [the default](../../internal/cli/run/backendcaps.go#L257-L268) |
 | Process start: 2,000 execs, then a new binary's first exec | native: 9.5 s, then 0.38 s | **6.7 times faster than native** (1.3 s), then **about 400 times** (0.001 s) | not measured; INFERRED like Apple Container, being a Linux guest | [M11, M12](../research/macos-backend-performance.md#timings-m5-to-m12) |
 | Memory after a 2 GiB load ends | **returned**: 0 to 2% still held 120 s later | held: 104% still charged 120 s later, until the jail stops | *without yolo*: held, on both providers | [M4](../research/macos-backend-performance.md#memory-m4-apple-container); [macos-user](../research/macos-backend-performance.md#macos-user-2026-10-03); [without yolo](../research/macos-vm-runtime-comparison.md#4-memory-does-a-vm-give-a-freed-2-gib-back) |
-| Idle memory | not recorded | the VM's footprint 878 MiB and resident size 1,062 MiB under a 16 GiB cap; READ: the default cap is half of host RAM, at least 4 GB | *without yolo*: one VM for every jail, resident 1,540 MiB on libkrun and 1,636 MiB on applehv | [M4](../research/macos-backend-performance.md#memory-m4-apple-container); [the cap](../../internal/cli/run/helpers.go#L174-L199); [without yolo](../research/macos-vm-runtime-comparison.md#4-memory-does-a-vm-give-a-freed-2-gib-back) |
+| Idle memory | recorded on the Mac, not copied into the repository (`results-20261003-131315/memory.tsv`); no VM holds memory for it | the VM's footprint 878 MiB and resident size 1,062 MiB under a 16 GiB cap; READ: the default cap is half of host RAM, at least 4 GB | *without yolo*: one VM for every jail, resident 1,540 MiB on libkrun and 1,636 MiB on applehv | [M4](../research/macos-backend-performance.md#memory-m4-apple-container); [the cap](../../internal/cli/run/helpers.go#L174-L199); [without yolo](../research/macos-vm-runtime-comparison.md#4-memory-does-a-vm-give-a-freed-2-gib-back) |
 | Several jails at once | not measured | **no**: a second workspace's jail is refused on `container` 1.1.0 | not measured; one VM serves every jail | [the two-jail check](../research/macos-backend-performance.md#7-found-on-the-way-two-apple-container-jails-may-mount-one-ext4-disk) |
 | `sudo` | at every launch | never | never | READ, [the user guide](../../userguide/guides/macos.md#the-macos-user-backend); [side by side](../research/macos-backend-performance.md#the-two-backends-side-by-side) |
-| Disk | the [darwin floor](macos-user-provisioning.md#the-floor)'s closure 2.2 GiB, the sandbox home 566 MiB, `/var/yolo-jail` 58 MiB | the data root 26.0 GiB, where `container system df` counts 26.72 GB of images, 93% reclaimable; plus yolo's own 2.3 GiB | not measured | [M13](../research/macos-backend-performance.md#disk-m13); [macos-user](../research/macos-backend-performance.md#macos-user-2026-10-03) |
+| Disk | the [darwin floor](macos-user-provisioning.md#the-floor)'s closure 2.2 GiB, the sandbox home 566 MiB, `/var/yolo-jail` 58 MiB | the data root 26.0 GiB, where `container system df` counts 26.72 GB of images, 93% reclaimable | not measured | [M13](../research/macos-backend-performance.md#disk-m13); [macos-user](../research/macos-backend-performance.md#macos-user-2026-10-03) |
 | Cold first launch | 73.61 s on a hosted CI runner; never recorded on a developer Mac | machine-cold not measured; a first image delivery into a warm content store 45 s, a `packages:` change 30 s | on GitHub's Intel runner: a first delivery 18 min 6 s, a `packages:` change 1 min 46 s | [CI logs](../research/macos-backend-performance.md#26-what-ci-logs-already-hold); [image delivery](../research/macos-layer-reusing-image-delivery.md#mac-results-2026-09-25) |
+
+yolo's machine state (`~/.local/share/yolo-jail`), which both backends use, is in neither Disk cell:
+it came to 2.3 GiB in the 2026-10-02 run ([M13](../research/macos-backend-performance.md#disk-m13)).
 
 ### What holds even when both work
 
@@ -108,11 +112,16 @@ natively on the same day.
   [per-file cost](../research/apple-container-file-cost.md#21-per-file-cost-not-bandwidth)). So the
   workspace, which the Mac must see, stays slower on either VZ backend whatever yolo does with the
   other folders.
-- **A VM holds the memory it touched until the jail stops.** VZ offers no free page reporting and
-  Apple Container attaches no balloon (SOURCED,
+- **Apple Container's and Podman Machine's VMs hold the memory they touched while they run**:
+  on Apple Container until the jail stops (MEASURED, M4), and on Podman Machine, whose one VM
+  serves every jail, until the machine stops (INFERRED). VZ offers no free page reporting (SOURCED,
   [what VZ offers](../research/macos-vm-memory-reclaim.md#3-what-virtualizationframework-offers)),
+  Apple Container attaches no balloon (MEASURED by a source search,
+  [the benchmark's §2.2, item 4](../research/macos-backend-performance.md#22-memory-backed-on-first-touch-kept-until-the-container-stops)),
   and libkrun's reporting returned nothing in the one run here (MEASURED without yolo,
   [memory](../research/macos-vm-runtime-comparison.md#4-memory-does-a-vm-give-a-freed-2-gib-back)).
+  The one VM measured that gave memory back, OrbStack's, is not a yolo backend (MEASURED without
+  yolo, the same run).
 - **Starting processes favors the Linux guest, until its cause is known.** XProtect's first-run
   scan is the candidate (SOURCED,
   [process start](../research/macos-backend-performance.md#25-process-start-new-binaries-networking)),
@@ -155,19 +164,24 @@ Defects and unbuilt work behind some of the numbers above:
   [perf logging](perf-logging.md#macos-user-native-runs-have-no-collector-past-dispatch)), and it
   evaluates and builds its darwin floor at every launch, at a cost nobody has measured (READ,
   [orchestrator.go](../../internal/macosuser/orchestrator.go#L458-L492)).
-- **The durable-dir size walk** runs on both boot passes of a fresh launch (READ,
-  [bootsteps.go](../../internal/entrypoint/bootsteps.go#L247-L251)), each stopped at 2 s (READ,
-  [report.go](../../internal/durable/report.go#L21)). On the maintainer's Linux host one launch's
-  two passes took 0.95 s and 0.30 s on 2026-10-04 (MEASURED, from the entrypoint perf log of
-  yolo-jail's own workspace, which is not in the repository). On a VM backend the durable dir is inside the shared workspace, so each pass would come
-  nearer that limit (INFERRED).
+- **The durable-dir size walk** runs on every boot pass: twice on a fresh launch (the jail's own
+  boot and the first session's) and once on every attach, on both container backends, and in the
+  `macos-user` bootstrap (READ: [boot.go](../../internal/entrypoint/boot.go#L595-L645),
+  [bootsteps.go](../../internal/entrypoint/bootsteps.go#L246-L252),
+  [darwin.go](../../internal/entrypoint/darwin.go#L84-L87)). Each walk stops at 2 s (READ,
+  [report.go](../../internal/durable/report.go#L21)), and the walk at an attach goes against
+  [DS-D11](../design/durable-scratch-space.md#DS-D11)'s "never at an attach". So it is inside
+  Apple Container's 1.8 s attach (INFERRED). On the maintainer's Linux host one launch's two
+  passes took 0.95 s and 0.30 s on 2026-10-04 (MEASURED, from the entrypoint perf log of
+  yolo-jail's own workspace, which is not in the repository). On a VM backend the durable dir is
+  inside the shared workspace, so each pass would come nearer that limit (INFERRED).
 - **Podman's provider.** Podman's own installer gives a new machine libkrun since Podman 6.0.0,
   and Homebrew's Podman patches the default back to applehv (SOURCED: Podman 6.1.3's
   [`platform_darwin.go`](https://github.com/podman-container-tools/podman/blob/v6.1.3/pkg/machine/provider/platform_darwin.go)
   and Homebrew's [`podman.rb`](https://github.com/Homebrew/homebrew-core/blob/master/Formula/p/podman.rb),
   read 2026-10-04). Without yolo, libkrun's shared folders were the slowest measured. yolo neither
-  reads nor reports which provider a machine runs (MEASURED: a search of `internal/` and `cmd/`
-  for the provider names finds one comment).
+  reads nor reports which provider a machine runs (READ: outside tests, `internal/` and `cmd/`
+  name a provider only in one comment, and no code reads a machine's `VMType`).
 
 ### What VM-local disks would change
 
@@ -197,10 +211,14 @@ and the rest on VM-local disks, against the same work under `macos-user`.
 
 ### Caveats
 
-- **One Mac, two days, two yolo commits.** An M1 Max with 32 GiB, on macOS 26.5 with `container`
-  1.1.0. Apple Container ran on 2026-10-02 at `e09919d2` and `macos-user` on 2026-10-03 at
-  `5ca9b748`. Native moved by up to 20% between the days, so each backend is read against its own
-  day's native run ([side by side](../research/macos-backend-performance.md#the-two-backends-side-by-side)).
+- **One Mac, two days, two yolo commits**, for every row but the cold first launch. An M1 Max
+  with 32 GiB, on macOS 26.5 with `container` 1.1.0. Apple Container ran on 2026-10-02 at
+  `e09919d2` and `macos-user` on 2026-10-03 at `5ca9b748`. Native moved by up to 20% between the
+  days, so each backend is read against its own day's native run
+  ([side by side](../research/macos-backend-performance.md#the-two-backends-side-by-side)).
+- **The cold-first-launch row is from CI**: GitHub-hosted arm64 (`macos-latest`) and Intel
+  (`macos-26-intel`) runners, and the Apple Container self-hosted runner on 2026-09-25 at
+  `22011184`.
 - **CrowdStrike Falcon's endpoint-security extension was active.** It touches native file
   operations and not the guest's own disk ([the setup](../research/apple-container-file-cost.md#1-the-setup)).
 - **yolo's builder VM ran during every Apple Container run**, with 8 CPUs and a 12 GiB cap, and it
@@ -216,12 +234,15 @@ and the rest on VM-local disks, against the same work under `macos-user`.
 
 ### What the numbers bear on
 
-Both sentences are the maintainer's, and stay as written until the maintainer rewords them:
+Both are standing text of this ruling document, and stay as written until the maintainer
+rewords them:
 
 - **The problem statement** ([lines 32-37](#L32-L37)) calls a Mac container VM "slow to start", its
   RAM a ceiling "to guess ahead of time", and that RAM "permanently held". Measured: a fresh launch
-  took 6.9 s against `macos-user`'s 5.5 s, 2.5 s of it the VM's boot and boot script; yolo picks
-  the ceiling, half of host RAM and at least 4 GB; and the RAM is held, as stated.
+  took 6.9 s with auto-capture off, 2.5 s of it the VM's boot and boot script, against
+  `macos-user`'s 5.5 s; a second terminal attaches in 1.8 s (M3), where `macos-user` needs another
+  fresh launch; yolo picks the ceiling, half of host RAM and at least 4 GB; and the RAM is held, as
+  stated.
 - **The warning under [Refuted alternatives](#refuted-alternatives)** says a VM "still reserves RAM
   up front". VZ backs guest memory on first touch instead (SOURCED,
   [memory](../research/macos-backend-performance.md#22-memory-backed-on-first-touch-kept-until-the-container-stops)).

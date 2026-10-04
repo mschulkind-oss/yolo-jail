@@ -70,26 +70,18 @@ host or an outside account follows under [External waits](#external-waits).
    block](../reference/report-tiers.md#the-verdict-block)'s "Only the dry run has a footer"; this entry is the work's only
    home. Rule [whether the dry run's exit follows OQ-RO5](../reference/report-tiers.md#OQ-RO8) in the same sitting: the code
    exits 1 where the ruling says 0, and the launch gate reads that exit.
-13. Finish [the comparison of `macos-user` with the Mac VM backends](../reference/macos-no-vm-direction.md#what-each-macos-path-costs-measured)
-    that the maintainer asked on 2026-10-04 to see highlighted — first of that day's Mac speed work, since readers see it now:
-    [the benchmark's remaining corrections](../research/macos-backend-performance.md#9-corrections-the-results-feed), draft
-    rewordings of [the direction's ruled sentences](../reference/macos-no-vm-direction.md#what-the-numbers-bear-on) for him to
-    approve, and [the harness's green-run precondition](../research/macos-backend-performance.md#appendix-a--the-harness), which the two-jail test blocks.
-14. [Design VM-local disks behind the folders only a jail uses](../research/apple-container-file-cost.md) on Apple Container and
-    Podman Machine, with the probe that fixes its shape — the largest speedup measured there (pip install 8.35 s on a shared
-    folder, 2.01 s on Apple Container's own disk, without yolo), and it builds on the per-side set yolo already keeps; its
-    `~/.cache` half is ruled with [OQ-MB1](../research/macos-backend-performance.md#OQ-MB1), and the upstream report drafts ride along.
-
-    The probe lives only here until the file-cost research records its results. **Action:** a dispatch-only workflow on the
-    self-hosted Apple Container runner, bare `container` commands and no agent, `yolo-ac-builder` stopped first and all it made
-    removed, recording whether a volume nests under the shared workspace, how many volumes one VM takes, one volume in two
-    containers, `fs.js` on the nested one, a jail `git status` right after the Mac's, and `wl.sh` with only the virtualenv and
-    Postgres on a volume. **First stop:** `apple-container.yml`'s fork guard and its `set-safe-directory: false` checkout,
-    without which each run adds a line to the runner owner's `~/.gitconfig`. **Evidence:** no doc records the per-VM device
-    limit, and nobody has nested a volume under the workspace or measured that mixed placement.
-15. [Time the parts of a launch nothing records](../reference/perf-logging.md#known-gaps): `macos-user` past its dispatch, the
-    provisioning stage, and Apple Container outside `image.*` — without them neither [the comparison's refresh](../reference/macos-no-vm-direction.md#when-to-refresh-this)
-    nor the build skip below can split `macos-user`'s 5.5 s launch.
+13. [Design VM-local disks behind the folders only a jail uses](../research/apple-container-file-cost.md) on Apple Container and Podman
+    Machine, with [the probe that fixes its shape](../research/apple-container-file-cost.md#5-a-planned-probe-on-the-mac-runner) — first of the
+    2026-10-04 Mac speed work, as the largest speedup measured there waits on it (pip install 8.35 s on a shared folder, 2.01 s on
+    Apple Container's own disk, without yolo); it builds on the per-side set yolo already keeps, its `~/.cache` half is ruled with
+    [OQ-MB1](../research/macos-backend-performance.md#OQ-MB1), and the upstream report drafts ride along, with [VZ's memory request](../research/macos-vm-memory-reclaim.md).
+14. [Amend the harness's green-run precondition](../research/macos-backend-performance.md#appendix-a--the-harness) — ahead of the read-back, as the
+    precondition it amends, which the two-jail test blocks, holds the Mac session (47). [The benchmark's remaining corrections](../research/macos-backend-performance.md#9-corrections-the-results-feed)
+    and draft rewordings of [the direction's ruled sentences](../reference/macos-no-vm-direction.md#what-the-numbers-bear-on) for the maintainer ride with it,
+    finishing [the comparison](../reference/macos-no-vm-direction.md#what-each-macos-path-costs-measured) he asked to see.
+15. [Time what a launch's spans leave out](../reference/perf-logging.md#known-gaps): `macos-user` past its dispatch, the provisioning stage in the
+    jail perf log, and the Apple Container delivery test's reader past `image.*` — without them [the comparison's refresh](../reference/macos-no-vm-direction.md#when-to-refresh-this)
+    cannot split `macos-user`'s 5.5 s launch, nor the delivery test show the build skip's saving on Apple Container.
 16. Read the Mac runs of 2026-10-02 and 2026-10-03 into the docs that wait on them — agent work now, and ahead of the
     rulings below because two of the reads unblock work: [the AWS doorway](../design/host-notch-services.md) and
     [its Bedrock design](../design/sso-backed-bedrock.md), [A2's twin](macos-revival-and-distribution-plan.md),
@@ -175,11 +167,11 @@ host or an outside account follows under [External waits](#external-waits).
     among the builds because the maintainer put the broker on the plate for the week of 2026-09-28, and only its
     no-notifier notice and its ping wait on a ruling or another design.
 42. Speed builds the maintainer asked for on 2026-10-04, next among the builds since neither holds other work:
-    [Apple Container's stock-image skip, then the same skip for a launch declaring `packages:`](../reference/image-staging-vs-baking.md),
-    as the nix build that finds nothing to do is 3.2 to 3.5 s of Apple Container's 6.9 s fresh launch and a median 1.7 s over 33
-    of the maintainer's launches of this repository, the second covering Apple Container too, so count its saving once; and
-    [Apple-silicon Podman Machines pinned to applehv](../research/macos-vm-runtime-comparison.md#32-on-a-shared-mac-folder), as Podman's own installer gives a
-    new machine libkrun, the slowest shared folder measured.
+    [Apple Container's stock-image skip, then the same skip for a launch declaring `packages:`](../reference/image-staging-vs-baking.md), as the nix
+    build that finds nothing to do is 3.2 to 3.5 s of Apple Container's 6.9 s fresh launch and a median 1.7 s per launch of this repository,
+    which declares `packages:` (33 builds in its host perf log, 2026-09-14 to 2026-10-04, not in the repository), and the second also covers
+    Apple Container launches that declare `packages:`; and [Apple-silicon Podman Machines pinned to applehv](../research/macos-vm-runtime-comparison.md#32-on-a-shared-mac-folder),
+    as Podman's own installer gives a new machine libkrun, the slowest shared folder measured.
 43. Builds and small steps no ruling holds, after the broker and the speed builds since none holds other work: [a provider set's two gaps](../design/active-provider-sets.md#13-what-was-built-2026-09-29), where
     the overlay modifier and the host remedy line read only the set's primary; [the empty-list line in `yolo check`](../design/model-lists-and-pickers.md#72-composition-rules);
     [the `boot.log` half of TP10's disclosure](../design/trust-paths.md#outstanding-work); [macos-user's item 2 twin](handoff-macos-user-open-threads.md);
@@ -204,12 +196,12 @@ host or an outside account follows under [External waits](#external-waits).
 ## External waits
 
 47. One session at a Mac, with `sudo`'s password and the runner stopped, completes [the benchmark](../research/macos-backend-performance.md#8-results):
-    [auto-capture](../design/program-delivery.md#decision-ledger) on current main, once about 90% of an Apple Container launch,
-    macos-user's `go test`, new binaries' first run with and without the developer-tool setting, and [the open shared-folder
-    candidates](../research/macos-vm-runtime-comparison.md), whose arms an agent adds first — first among the waits, as [the comparison's
-    refresh](../reference/macos-no-vm-direction.md#when-to-refresh-this) waits on it; it measures the build skip and spans if landed, waiting for neither.
+    [auto-capture](../design/program-delivery.md#decision-ledger) on current main, once about 90% of an Apple Container launch, macos-user's
+    `go test`, new binaries' first run with and without the developer-tool setting, Podman Machine through yolo on the Mac's applehv machine,
+    and [the open shared-folder candidates](../research/macos-vm-runtime-comparison.md), whose arms an agent adds first — first among the waits,
+    as [the comparison's refresh](../reference/macos-no-vm-direction.md#when-to-refresh-this) waits on it; it measures the build skip and spans if landed, waiting for neither.
 48. Someone at the runner Mac upgrades `container` from 1.1.0 to 1.5.0 (its kernel prompt is interactive), so the next
-    `apple-container.yml` dispatch reruns [the two-jail check](../research/macos-backend-performance.md#7-found-on-the-way-two-apple-container-jails-may-mount-one-ext4-disk), which all nine parity runs of 2026-10-03 and 2026-10-04 failed;
+    `apple-container.yml` dispatch reruns [the two-jail check](../research/macos-backend-performance.md#7-found-on-the-way-two-apple-container-jails-may-mount-one-ext4-disk), which every parity run on 1.1.0 since 2026-10-03 has failed;
     the VM-local probe needs the maintainer's push and one dispatch, after the upgrade for answers that hold on 1.5.0.
 49. A human with a subscription login clears [Claude's login without interception](../design/claude-login-without-interception.md)
     by running [its runbook](runbooks/claude-credential-view-measures.md), on a Mac and for a day on a rootless host,

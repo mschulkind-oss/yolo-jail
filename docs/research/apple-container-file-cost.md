@@ -3,7 +3,7 @@ title: "Why file work is slow in an Apple Container jail, and what it means for 
 date: 2026-10-03
 status: accepted
 stage: DECIDED
-next: "Write docs/design/vm-local-volumes.md from §4 with the design-doc skill: VM-local named volumes behind the per-side folders (.venv, node_modules, the mise venv path and per_side_paths) on Apple Container and Podman Machine, with no new key, its mechanism decided in a ledger and three calls filed as numbered questions (default or opt-in; ~/.cache, ruled with the backend benchmark's /mise question; database data folders); record the Mac-runner probe the roadmap describes in a new section here once it runs; draft a Feedback Assistant report asking for a cache policy on VZ's virtio-fs, led by the runtime comparison's run without yolo with OrbStack's row as the control, and a comment for apple/container discussion #1516, for the maintainer to file"
+next: "Write docs/design/vm-local-volumes.md from §4 with the design-doc skill: VM-local named volumes behind the per-side folders (.venv, node_modules, the mise venv path and per_side_paths) on Apple Container and Podman Machine, with no new key, its mechanism decided in a ledger and three calls filed as numbered questions (default or opt-in; ~/.cache, ruled with the backend benchmark's /mise question; database data folders); write §5's Mac-runner probe workflow for the maintainer to push and dispatch, and record its results in §5; draft a Feedback Assistant report asking for a cache policy on VZ's virtio-fs, led by the runtime comparison's run without yolo with OrbStack's row as the control, and a comment for apple/container discussion #1516, for the maintainer to file"
 tags: [research, macos, apple-container, virtiofs, performance, python, postgres]
 summary: "A follow-up to the macOS backend benchmark. File work in an Apple Container jail is slow because every file costs a round trip to the Mac through virtiofs, not because bytes move slowly: 20,000 small files take 12 to 115 times as long to create, stat, read or delete on the shared workspace as on the VM's own ext4 disk, which beats even native APFS. A large Python and Django monorepo keeps its virtualenv, node_modules and build caches in the workspace, so it pays that cost on every import and every test run. The fix that the numbers point to is keeping those trees on a VM-local disk; yolo has no key for that today."
 vantage:
@@ -175,6 +175,29 @@ Its costs:
 
 On podman these folders are already on the Linux host's own filesystem, so the setting would do
 nothing there.
+
+## 5. A planned probe on the Mac runner
+
+Planned, not run. It fixes the shape of [§4](#4-a-design-sketch-vm-local-volumes-for-chosen-workspace-folders)'s
+VM-local volumes before the design is written, and its results go in this section.
+
+- **Action:** a dispatch-only workflow on the self-hosted Apple Container runner, running bare
+  `container` commands and no agent. It stops `yolo-ac-builder`, yolo's nix builder VM on that
+  Mac, first and restarts it at the end, and removes everything the workflow itself created. It
+  records whether a volume nests under the shared workspace, how many volumes one VM takes, one
+  volume in two containers, [`fs.js`](#appendix-fsjs) on the nested volume, a jail's `git status`
+  right after the Mac's, and the runtime comparison's
+  [`wl.sh`](macos-vm-runtime-comparison.md#appendix-a-the-scripts) with only the virtualenv and
+  Postgres on a volume.
+- **First stop:** `apple-container.yml`'s fork guard and its `set-safe-directory: false` checkout,
+  without which each run adds a line to the runner owner's `~/.gitconfig`.
+- **Evidence:** no doc measures how many volumes one VM takes. The ~22 bind-mount figure in
+  [`platform-comparison.md`](platform-comparison.md) and
+  [`sandbox-comparison.md`](sandbox-comparison.md) cites no source, and
+  [`assemble_parts.go`](../../internal/cli/run/assemble_parts.go#L72-L80) declines to repeat it.
+  Nobody has nested a volume under the workspace or measured that mixed placement.
+- **When it runs:** the maintainer pushes the workflow and dispatches it once, after the runner's
+  `container` is upgraded to 1.5.0, so that its answers hold there.
 
 ## Appendix: fs.js
 
