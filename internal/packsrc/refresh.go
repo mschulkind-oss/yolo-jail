@@ -290,6 +290,10 @@ func (s *Store) refreshGrouped(items []refreshItem, outcomes []Outcome, force bo
 //
 // THE WHOLE MIRROR SHARES ONE BUDGET (the store's Timeout): its clone, its fetch and every
 // checkout after them.
+//
+// ITS FETCH IS fetchStep, shared with a patched fork's check (patchcheck.go), which takes the
+// same ref rule and fetch and NO CHECKOUT: everything below the fetch step is resolution and
+// the materialize, which a check must not run (each would leave a tree no reaper reads).
 func (s *Store) refreshMirror(repo string, items []refreshItem, outcomes []Outcome, force bool,
 	now time.Time, interval time.Duration, waiting func(string)) {
 	unlock, err := s.lockMirror(repo, waiting)
@@ -304,76 +308,20 @@ func (s *Store) refreshMirror(repo string, items []refreshItem, outcomes []Outco
 	defer cancel()
 
 	mirror := s.mirrorPath(repo)
-	type pre struct {
-		kind  refKind
-		name  string // the full ref name for a tag or branch
-		local string // the commit the ref resolved to before any fetch
-		err   error  // git could not be asked what the ref names: kind and local are unknown
-	}
-	before := make([]pre, len(items))
-	needFetch := force
-	existed := mirrorExists(mirror)
+	addrs := make([]Addr, len(items))
 	for i, it := range items {
-		if existed {
-			p := &before[i]
-			p.kind, p.name, p.local, p.err = s.classifyRef(mirror, it.addr.Ref)
-		}
+		addrs[i] = it.addr
+	}
+	step := s.fetchStep(b, repo, addrs, fetchMode{always: force}, now, interval)
+	before := step.before
+	for i, it := range items {
 		o := &outcomes[it.idx]
 		o.Prev = before[i].local
 		// Unknown is not "no local copy": the lockfile, when there is one, says whether the
 		// pack was delivered before.
 		o.First = before[i].local == "" && before[i].err == nil
-		switch {
-		case before[i].err != nil:
-			// NO FETCH ON ITS ACCOUNT: whether the ref moves is exactly what could not be read,
-			// and a fetch for a ref that may be a pinned tag is what the ref rule forbids. The
-			// failure is reported below; the next launch asks again (no stamp was written).
-		case before[i].local == "":
-			needFetch = true
-		case before[i].kind == refBranch && !s.stampFresh(it.addr, now, interval):
-			needFetch = true
-		}
 	}
-
-	var fetchErr error
-	fetched := false
-	if needFetch {
-		var tags map[string]string
-		var tagsErr error
-		if existed && !force {
-			tags, tagsErr = s.tagSnapshot(mirror)
-		}
-		fetchErr = s.fetchMirror(b, items[0].addr, force)
-		if fetchErr == nil {
-			fetched = true
-			s.markFetched(repo)
-			// Every ref on the mirror is current after a good fetch, so each pack's ref is
-			// stamped from the same one.
-			for _, it := range items {
-				s.writeStamp(it.addr, now)
-			}
-			switch {
-			case force:
-			case tagsErr == nil && tags != nil:
-				s.restoreTags(mirror, tags)
-			default:
-				// No snapshot: at least the tags this call's packs are pinned to go back.
-				for i := range items {
-					if before[i].kind == refTag {
-						s.restoreRef(mirror, before[i].name, before[i].local)
-					}
-				}
-			}
-			// A commit a pack pins that is on no branch or tag, which that fetch did not bring.
-			addrs := make([]Addr, len(items))
-			for i, it := range items {
-				addrs[i] = it.addr
-			}
-			s.fetchPinnedCommits(b, mirror, addrs)
-		} else {
-			s.recordFetchFailure(repo, fetchErr)
-		}
-	}
+	fetched, needFetch, fetchErr := step.fetched, step.needFetch, step.fetchErr
 
 	for i, it := range items {
 		o := &outcomes[it.idx]
@@ -424,6 +372,103 @@ func (s *Store) refreshMirror(repo string, items []refreshItem, outcomes []Outco
 		o.Commit = commit
 		s.recordDecided(it.addr, commit)
 	}
+}
+
+// refPre is what the mirror said about one ref BEFORE any fetch.
+type refPre struct {
+	kind  refKind
+	name  string // the full ref name for a tag or branch
+	local string // the commit the ref resolved to before any fetch
+	err   error  // git could not be asked what the ref names: kind and local are unknown
+}
+
+// fetchMode is how fetchStep decides and runs its fetch.
+type fetchMode struct {
+	// always fetches whatever the refs and the stamps say: `yolo pack install`/`update` for a
+	// pack, and an explicit act's check of a patched fork.
+	always bool
+	// keepTags puts back every tag the fetch moved or pruned even when always is set. A pack's
+	// forced fetch leaves them moved, which is how install moves to a re-pointed tag; a patched
+	// fork's check never follows a re-pointed tag (PF-D4), forced or not.
+	keepTags bool
+}
+
+// fetchStepResult is what fetchStep found and did.
+type fetchStepResult struct {
+	before    []refPre
+	needFetch bool
+	fetched   bool
+	fetchErr  error
+}
+
+// fetchStep is THE PER-MIRROR STEP'S FETCH (the design's term, forked-programs-as-packs.md
+// FP-D18), split from refreshMirror above its resolution and checkout so a patched fork's check
+// can take it with no checkout (docs/design/patched-forks.md §4.3). The caller holds the
+// mirror's lock and owns the budget.
+//
+// Each address's ref is classified with no network (classifyRef), and a fetch runs when one has
+// no local copy, a branch's last good fetch is over interval old, or mode.always — never on
+// account of a ref git could not be asked about. A good fetch stamps every address and puts
+// moved tags back (refreshMirror says why), and fetches the full commits the addresses pin that
+// no branch or tag brought; a failed one is recorded for resolution's message.
+func (s *Store) fetchStep(b budget, repo string, addrs []Addr, mode fetchMode, now time.Time,
+	interval time.Duration) fetchStepResult {
+	mirror := s.mirrorPath(repo)
+	r := fetchStepResult{before: make([]refPre, len(addrs)), needFetch: mode.always}
+	existed := mirrorExists(mirror)
+	for i, a := range addrs {
+		if existed {
+			p := &r.before[i]
+			p.kind, p.name, p.local, p.err = s.classifyRef(mirror, a.Ref)
+		}
+		switch {
+		case r.before[i].err != nil:
+			// NO FETCH ON ITS ACCOUNT: whether the ref moves is exactly what could not be read,
+			// and a fetch for a ref that may be a pinned tag is what the ref rule forbids. The
+			// failure is reported by the caller; the next launch asks again (no stamp was written).
+		case r.before[i].local == "":
+			r.needFetch = true
+		case r.before[i].kind == refBranch && !s.stampFresh(a, now, interval):
+			r.needFetch = true
+		}
+	}
+	if !r.needFetch {
+		return r
+	}
+	restore := !mode.always || mode.keepTags
+	var tags map[string]string
+	var tagsErr error
+	if existed && restore {
+		tags, tagsErr = s.tagSnapshot(mirror)
+	}
+	// A fetch whose moved tags go back runs with gc off (fetchMirror says why), forced or not.
+	r.fetchErr = s.fetchMirror(b, addrs[0], !restore)
+	if r.fetchErr != nil {
+		s.recordFetchFailure(repo, r.fetchErr)
+		return r
+	}
+	r.fetched = true
+	s.markFetched(repo)
+	// Every ref on the mirror is current after a good fetch, so each address's ref is stamped
+	// from the same one.
+	for _, a := range addrs {
+		s.writeStamp(a, now)
+	}
+	switch {
+	case !restore:
+	case tagsErr == nil && tags != nil:
+		s.restoreTags(mirror, tags)
+	default:
+		// No snapshot: at least the tags these addresses are pinned to go back.
+		for i := range addrs {
+			if r.before[i].kind == refTag {
+				s.restoreRef(mirror, r.before[i].name, r.before[i].local)
+			}
+		}
+	}
+	// A commit an address pins that is on no branch or tag, which that fetch did not bring.
+	s.fetchPinnedCommits(b, mirror, addrs)
+	return r
 }
 
 // tagSnapshot is every tag in the mirror and the object it names (a tag object for an
