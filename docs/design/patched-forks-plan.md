@@ -184,6 +184,29 @@ also writes `GoodBuild.Read` at the move, which the list's cut reads
 ([PF-D34](patched-forks.md#PF-D34)). Step 3's `yolo pack rebase` replaces `cli.rebaseSteps`, the
 conflict message's by-hand rebase.
 
+## Step 2, landed 2026-10-04
+
+[`patched-forks.md` §14](patched-forks.md#14-what-i-would-build-in-order) step 2, the advance at a
+fresh launch, for the jail notches (podman on Linux or a macOS VM, and Apple Container through its
+read-only floor, which the fork slot already reads). What the tree changed against the map above:
+
+| Where | What landed |
+| :--- | :--- |
+| [`entrypoint/buildreceipt.go`](../../internal/entrypoint/buildreceipt.go), [`capture/select.go`](../../internal/capture/select.go), [`capture/gc.go`](../../internal/capture/gc.go) | the receipt's `fork`, `series`, `tree`, `tag`, `version`; selection and the prune keyed by fork (`Record.Program`); `capture.Scan` and `Store.ReapEntry` ([PF-D36](patched-forks.md#PF-D36)) |
+| [`packsrc/replay.go`](../../internal/packsrc/replay.go), [`store.go`](../../internal/packsrc/store.go), [`patchcheck.go`](../../internal/packsrc/patchcheck.go), [`pidlock`](../../internal/pidlock/pidlock.go) | `WalkOptions.OnFit`, the hook step 1 left for the copy into `src/`; `Store.Ctx`; `CheckRecord.HeldAt`; `Mode.Cancel` |
+| [`cli/patchedadvance.go`](../../internal/cli/patchedadvance.go) | the advance: the check, the pending list, the walk, the build, the move under the record lock, the hand and the reap, the recovery, the waiter's re-read, the failure record and its back-off; `resolvePatchedBuild`, the exact lookup |
+| [`cli/forkbuild.go`](../../internal/cli/forkbuild.go) | the build id from the fork key, repository and subdirectory; the patched recipe; the replay into `src/`; a jail that never ran its build line told apart ([PF-D39](patched-forks.md#PF-D39)) |
+| [`cli/forkbuildchild.go`](../../internal/cli/forkbuildchild.go), [`run/interruptscope.go`](../../internal/cli/run/interruptscope.go) | the interruptible wait: the build jail as a child, `yolo internal fork-build-jail`, under an interrupt scope ([PF-D38](patched-forks.md#PF-D38)) |
+| [`run/forkbuild.go`](../../internal/cli/run/forkbuild.go), [`run/forkhanded.go`](../../internal/cli/run/forkhanded.go), [`run/patchedforkline.go`](../../internal/cli/run/patchedforkline.go) | `ForkBuildRequest`; a patched fork routed to the advance before the no-pin reason, never in a jail; the delivery record ([PF-D37](patched-forks.md#PF-D37)); the fork block's line and the attach's ([PF-D43](patched-forks.md#PF-D43)) |
+| [`cli/capturehost.go`](../../internal/cli/capturehost.go), [`cli/patchedfork.go`](../../internal/cli/patchedfork.go), [`entrypoint/forklauncher.go`](../../internal/entrypoint/forklauncher.go) | `yolo capture`'s patched arm; status's store state and next-check line; `patchedNotBuilt` and `PatchedForkPinReason` reworded for what now builds; the launcher's update-mode note |
+| [`integration/patchedfork_test.go`](../../integration/patchedfork_test.go) | a local upstream: the first launch builds and runs the patched program, a new tag advances with the old build reaped, a conflicting tag is held with the previous build running |
+
+Left for later steps: `yolo pack rebase` (step 3), which replaces `cli.rebaseSteps`; the host
+floor's four recipe readers, its refresh arm, `UpdatesAllowed` and `yolo host -- <bin>`'s wait
+(step 4, whose seam is `advanceOptions`: `launch` false, a host platform, a hand that writes the
+floor's record); macos-user, which delivers no fork at all yet (FP-D3) and says so for a patched
+fork too; and patched extensions, which reuse the advance through the owner key.
+
 ## Measurements to make
 
 - The maintainer's own pi series against the newest upstream version: the replay's time on the
