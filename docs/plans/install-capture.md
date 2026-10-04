@@ -26,7 +26,8 @@ confirmation of uid mapping on a real rootless host is still unrecorded
 ([Verification](#verification-honestly)). The sequencing below was
 reversed by [OQ-CP1](../reference/agent-cli-copies.md#oq-cp1). On `macos-user`, hand-off H1 (wiring
 `yolo capture` to that backend) landed 2026-09-04 and the recording half was measured on hardware
-2026-09-11. The confinement denial probe (slice 6's hardware item 3) has no recorded run. H3 is a
+2026-09-11. The confinement denial probe (slice 6's hardware item 3) has a case,
+`TestMacosUserCaptureSeatbeltProfileDeniesTheSharedHome`, and no green run recorded. H3 is a
 stated non-default, not a gap. **This is not a graduation candidate until H4 lands or is retired.**
 The doc owes work rather than a ruling although H4 wants one, because H4's question is about the
 `macos-user` sandbox's read set (the session Seatbelt profile), not one of this design's rulings;
@@ -837,9 +838,11 @@ wrong one to sequence on.
    ✅ **Items 1 and 2 RAN on 2026-09-11** as the provisioner runbook's
    [M4](runbooks/mac-provisioner-measurements.md#m4--does-the-capture-recording-half-work-on-hardware):
    `yolo capture claude` loaded this profile, drove the vendor installer through the generated
-   launcher, and admitted an entry into the machine store, rc 0. Items 3–5 have no recorded run —
-   in particular the denial probe in item 3, the one check that tells a confined capture from one
-   that silently wrote to the shared home.
+   launcher, and admitted an entry into the machine store, rc 0. Items 3–5 have no recorded run.
+   Item 3, the denial probe and the one check that tells a confined capture from one that silently
+   wrote to the shared home, has a case: `TestMacosUserCaptureSeatbeltProfileDeniesTheSharedHome`
+   ([`macosusercaptureseatbelt_test.go`](../../integration/macosusercaptureseatbelt_test.go)),
+   which `macos-user.yml` runs on a Mac. No green run is recorded.
 
    As first written — unit tests pin the profile's BYTES, the argvs, the plan invariants and the
    relocation record, and no kernel had loaded this profile. After landing H1, on a Mac with
@@ -853,7 +856,12 @@ wrong one to sequence on.
    3. **The confinement itself, which is the only claim that matters:** with the capture profile
       loaded, `sandbox-exec -f <profile> -- /bin/sh -c 'touch /Users/_yolojail/PROBE'` must fail,
       and `log show --predicate 'sender == "Sandbox"' --last 5m` must show the denial. A capture
-      that silently wrote to the shared home would look identical to a successful one.
+      that silently wrote to the shared home would look identical to a successful one. A case
+      exists for this item, with no green run recorded: it loads a capture plan's profile as
+      `_yolojail` over a staging tree the plan's own prepare commands made, runs each probe bare
+      first, and checks that the shared home is neither written nor read, that the staging home
+      and out dir are written, and that a sibling under the capture root and a `/private/var/tmp`
+      path are refused. It logs `log show`'s Sandbox lines only when a case fails.
    4. Whether `getpwuid`-based home resolution (as opposed to `$HOME`) trips the `/Users` read deny
       for a vendor installer's shell — the one failure mode designed around rather than observed.
    5. Whether the `EXDEV` refusal in (b) ever fires in practice.
@@ -1010,7 +1018,8 @@ wrong one to sequence on.
   generated profile string and the relocation RECORD. On hardware, the backend's installer
   launchers and capture's recording half both ran on 2026-09-11 (M1 and
   [M4](runbooks/mac-provisioner-measurements.md#m4--does-the-capture-recording-half-work-on-hardware));
-  whether Seatbelt *denies* the shared home during a capture is still unrecorded (slice 6's item 3).
+  whether Seatbelt *denies* the shared home during a capture is still unrecorded (slice 6's item 3:
+  a case exists, and no green run is recorded).
   ⚠ *This line once said "the relocation rewrite" when there was none. Since 2026-09-26 there is
   one (hand-off H2), MEASURED on Linux against temp dirs standing in for the two macOS homes, and
   run by no Mac: no launch on that backend reaches it until H4.* The hardware checklist that would

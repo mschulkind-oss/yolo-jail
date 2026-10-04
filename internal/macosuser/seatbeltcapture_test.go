@@ -11,10 +11,11 @@ import (
 // run than it carries: they measure the BYTES this repo emits — the clauses present, the clauses
 // absent, and the ordering the last-match-wins policy depends on. They measure nothing about
 // Apple Seatbelt. This profile HAS been kernel-loaded — capture.go records the run, on hardware
-// 2026-09-11 — but nothing asserts it continuously the way the SESSION profile is now asserted
-// (integration/macosuserseatbelt_test.go), because a capture needs the whole staging pipeline
-// rather than one `sandbox-exec`. A Linux jail cannot run sandbox-exec at all, so a human with a
-// Mac is what closes that gap — see docs/plans/install-capture.md's slice 6 hardware checklist.
+// 2026-09-11 — and its denials have a case of their own now, with no green run recorded:
+// integration/macosusercaptureseatbelt_test.go's TestMacosUserCaptureSeatbeltProfileDeniesTheSharedHome,
+// which loads a capture plan's profile as the sandbox account (macos-user.yml, on a Mac). A Linux
+// jail cannot run sandbox-exec at all; what the case leaves to a human with a Mac is in
+// docs/plans/install-capture.md's slice 6 hardware checklist.
 
 const testStagingRoot = "/Users/Shared/yolo-captures/probetool"
 

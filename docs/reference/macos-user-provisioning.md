@@ -498,7 +498,7 @@ tier otherwise.
 | `lsp_servers` | config rendered, nothing installed — the binary is the user's | the same: config rendered, nothing installed, no stage started for it | no warning — the property is every backend's, not a gap of this one |
 | `mcp_presets` | npm-installed by the stage | wrappers not generated, packages not installed | warns — **from inside the bootstrap** (`RunDarwinBootstrap`), so `--dry-run` never shows it |
 | agent CLIs, `via: installer` | the launcher execs the vendor installer | **works** — `curl` and `bash` are at `/usr/bin` | n/a — nothing to tell |
-| agent CLIs, `via: npm` | the launcher execs `npm install -g` | the floor supplies node and npm, so the launcher can run — **not measured on hardware** | `GenerateAgentLaunchers` has no *generation*-time precondition, so nothing warns at launch; a failure lands on the user's first real command |
+| agent CLIs, `via: npm` | the launcher execs `npm install -g` | the floor supplies node and npm, so the launcher can run — **not measured on hardware** (a case exists, `TestMacosUserPinnedNpmProgramInstallsUnderItsNodeFloor`, with no green run recorded) | `GenerateAgentLaunchers` has no *generation*-time precondition, so nothing warns at launch; a failure lands on the user's first real command |
 | `packages:` | baked into the image | realized natively, and now composed with the floor | works |
 
 `rg -n '"via": "(installer|npm)"' packs/*/pack.json` is the split; do not write the membership
@@ -508,11 +508,17 @@ the set is larger now.
 
 > [!WARNING]
 > **The evergreen half of the agent CLIs is a different claim from the install half, and it is
-> unproven here.** The generated launchers bound their update arm with `timeout(1)`, which is
-> GNU coreutils: the image bakes it and a stock macOS does not — and `coreutils-full` is a
-> policy exclusion on this floor, so `_bounded` takes its unbounded branch. Running unbounded
-> is a better answer there than not updating at all, and a vendor updater that hangs has
-> nothing to stop it. Installing once is measured; staying current is not.
+> unproven here.** A launcher runs a program's declared update verb through `_bounded`, which
+> prefers the staged yolo's own `yolo internal no-terminal` with a timeout and a kill grace: no
+> controlling terminal, a `/dev/null` stdin, SIGTERM at the timeout and SIGKILL after the grace.
+> The staged yolo is on the sandbox `PATH` (`SandboxPath`), so that is the branch this backend
+> should take, INFERRED until a run on a Mac is green. `timeout(1)`, the fallback, is GNU
+> coreutils, which a stock macOS lacks and this floor leaves out by policy, so a launcher that
+> finds no usable yolo runs the update with no time limit, and says so.
+> `TestMacosUserBoundsAnUpdateVerbThroughTheStagedYolo` is the case, with no green run recorded.
+> A `via: npm` program with no update verb is outside the bound on every backend: its evergreen
+> arm runs `npm view` and `npm install -g` directly, with no time limit. Installing once is
+> measured; staying current is not.
 
 ## The two retired warnings, and the rule that retired them
 
@@ -599,7 +605,8 @@ it was scheduled to do.
 **What no instrument covers:**
 
 - **The `via: npm` agent launchers on this backend.** The floor supplies node and npm, so the
-  loud-but-late `npm: command not found` should be gone. Nothing has run it.
+  loud-but-late `npm: command not found` should be gone. Nothing has run it. A case exists,
+  `TestMacosUserPinnedNpmProgramInstallsUnderItsNodeFloor`, with no green run recorded.
 - **Whether a real `sandbox-exec` rejection takes the continue branch.** The fault injection
   the runbook prescribes (`chmod 000 /usr/bin/sandbox-exec`) is a global, SIP-adjacent mutation
   no test should make, and the stage argv names `/usr/bin/sandbox-exec` absolutely so no PATH

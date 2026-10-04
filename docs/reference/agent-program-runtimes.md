@@ -391,6 +391,11 @@ the host's check of whether a declared floor starts the stage
 written for it: if the package floor's node is where `flake.nix` says, the host shows pi's floor
 met and no stage starts, and if it is not, the stage starts and asks again.
 
+A case exists for the node, with no green run recorded:
+`TestMacosUserPinnedNpmProgramInstallsUnderItsNodeFloor` installs a pinned npm program declaring
+`node_floor` 22 on macos-user, reads the interpreter off its launcher's exec line, and checks it
+is an absolute node that meets the floor. It does not check whether the stage started.
+
 ## What is measured
 
 No real workload has been watched running under the shipped behavior. The failure it prevents,
@@ -403,7 +408,7 @@ and each measured claim above, carry their own dates. These are the checks that 
 | `opencode` still starts in that same jail (its bin is never wrapped) | none; the unit tier pins the byte-identical launcher | not measured |
 | A floor the image does not meet is satisfied by an interpreter installed during provisioning, so a program's first invocation downloads nothing, and the stage regenerates its launcher to exec it on that launch ([the note under Resolution](#a-stage-installed-interpreter-reaches-the-launcher-one-boot-late)) | the unit tier generates the launcher, installs a fake node and regenerates it, and runs the bootstrap's regeneration call against fakes (`internal/entrypoint`) | not measured in a launch |
 | A failed `mise install` still runs the floor check | the unit tier runs both backends' stage bodies against a failing fake `mise` (`internal/cli/run`, `internal/macosuser`, `internal/provision`) | not measured in a launch |
-| The macos-user node, and the host's check that starts the stage for a floor | a Mac | [UNVERIFIED](#macos-user-unverified) |
+| The macos-user node, and the host's check that starts the stage for a floor | a Mac; the node has a case, `TestMacosUserPinnedNpmProgramInstallsUnderItsNodeFloor` (`integration/macosusernpm_test.go`) | [UNVERIFIED](#macos-user-unverified): no green run recorded |
 
 <a id="not-built"></a>
 
