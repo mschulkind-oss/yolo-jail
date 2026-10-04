@@ -117,7 +117,7 @@ On **`macos-user`** the same config runs it in the sandbox. There is no mount th
 launch's staged packs, so the line names `/var/yolo-jail/packs/<jail>/…/bin/hello` instead, and
 the log is at `<workspace>/.yolo/home/local/state/yolo-jail-daemons/hello-daemon.log` on the Mac
 ([JD-10](../../docs/design/jail-daemon-on-macos-user-plan.md#JD-10)). A script runs there; a Linux
-binary would not, and the launch declines one by name.
+binary would not, and the launch declines one by name and names a container runtime that runs it.
 
 ## Retiring it
 

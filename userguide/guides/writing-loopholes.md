@@ -283,7 +283,8 @@ were not there: it runs inside the sandbox, unless the sandbox cannot run it as 
 that names `{jail_loophole_dir}`, like the example above, runs there from yolo's copy of your
 loophole's folder, so the program it names must be one a Mac can run: a script, or a macOS
 build. A Linux executable is one the sandbox cannot run, and the launch then says the helper runs
-nowhere.
+nowhere and that a container runtime runs it (`YOLO_RUNTIME=podman` or `YOLO_RUNTIME=container`
+for one launch).
 
 ### A program your pack downloads
 

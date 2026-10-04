@@ -321,6 +321,50 @@ func TestMacosUserRunsAServiceInTheGuestWhenItsHostHalfIsNotAdmitted(t *testing.
 	}
 }
 
+// A REFUSED HOST HALF WHOSE JAIL DAEMON THE GUEST DECLINES TOO IS SAID TO RUN NOWHERE, with the
+// next step: this service publishes an endpoint file, a container path the sandbox has no
+// counterpart of (JD-9's rule (b)), so its refused host half leaves it unserved this launch, and
+// a container backend runs it. Deleting the decline lookup from noteRefusedServiceHosts fails
+// this, as does a line naming no next step (docs/reference/happy-path-principle.md).
+func TestMacosUserSaysARefusedServiceHostHalfTheGuestDeclinesRunsNowhere(t *testing.T) {
+	home := packHome(t)
+	ws := t.TempDir()
+	writeLocalPackJSON(t, home, `{"contributes": [
+		{"kind": "adapter", "adapts": {"from": "openai", "to": "anthropic"}, "address": "http://127.0.0.1:8299"},
+		{"kind": "service", "name": "acme-svc", "endpoint": "acme-svc.endpoint",
+		 "jail_daemon": {"cmd": ["acme-svc"]},
+		 "host_daemon": {"cmd": ["yolo", "internal", "daemon", "acme-svc"]}}]}`)
+	writeUserConfigJSON(t, home, `{"packs": []}`)
+
+	got := macosUserLaunch(t, ws)
+	if got.rc != 0 {
+		t.Fatalf("Run() = %d, want 0\n%s", got.rc, got.out)
+	}
+	if specs := payloadOf(t, got.jailDaemons); len(specs) != 0 {
+		t.Fatalf("the guest was handed %+v, want nothing: the service publishes a container endpoint", specs)
+	}
+	const dial = "a container runtime runs it (`YOLO_RUNTIME=podman` or `YOLO_RUNTIME=container` for one launch)"
+	var refusal, decline string
+	for _, line := range strings.Split(got.out, "\n") {
+		switch {
+		case strings.Contains(line, `Not started outside the sandbox: the "acme-svc" service's host half (pack "local")`):
+			refusal = line
+		case strings.Contains(line, "acme-svc: acme-svc — "):
+			decline = line
+		}
+	}
+	if refusal == "" || !strings.Contains(refusal, "declined in the sandbox too") ||
+		strings.Contains(refusal, "runs in the sandbox instead") {
+		t.Errorf("the refused host half is not said to leave its daemon running nowhere:\n%s", got.out)
+	}
+	if !strings.Contains(refusal, "nothing serves it this launch; "+dial) {
+		t.Errorf("the refusal line names no next step:\n%s", refusal)
+	}
+	if !strings.Contains(decline, "/run/yolo-services/acme-svc.endpoint") || !strings.Contains(decline, dial) {
+		t.Errorf("the Declined: line does not name the endpoint and the next step:\n%s", got.out)
+	}
+}
+
 // A PURE WORKER RUNS IN THE GUEST: a held service that publishes no endpoint (packdecl's word for
 // one) and serves no adaptation, so its host half has no pairing to serve on this backend and is
 // not started, and its jail half runs confined, as a container runs it (JD-9: confinement

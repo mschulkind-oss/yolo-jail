@@ -41,6 +41,15 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 )
 
+// ContainerRuntimeRunsIt is the next step a macos-user line names when a daemon a selected pack
+// declared runs nowhere this launch: a container backend runs every daemon its payload names, so
+// the dial that picks one for a single launch is the easiest way to get it (AGENTS.md's "every
+// stop names the next step", docs/reference/happy-path-principle.md). The same dial the `yolo
+// host` refusal for an unserved adaptation names. Read by the guest's own declines below and by
+// the macos-user arm's refused-host-argv lines (internal/cli/run's macosuserdoorways.go).
+const ContainerRuntimeRunsIt = "a container runtime runs it (`YOLO_RUNTIME=podman` or " +
+	"`YOLO_RUNTIME=container` for one launch)"
+
 // DeclinedJailDaemon is one composed jail daemon a runtime does not run, and why.
 type DeclinedJailDaemon struct {
 	Spec JailDaemonSpec
@@ -80,16 +89,26 @@ func JailDaemonsRunIn(rt string, specs []JailDaemonSpec) ([]JailDaemonSpec, []De
 //     macosuserservices.go). Running its jail daemon too would serve one address twice.
 //   - A PACK SERVICE that publishes an ENDPOINT FILE: its daemon writes it under
 //     paths.JailHostServicesDir, a container path the sandbox has no counterpart of, and the
-//     launch points its clients at that path.
+//     launch points its clients at that path. A container runs it, and the reason says so
+//     (ContainerRuntimeRunsIt), since nothing serves it here.
 //   - A DOORWAY that declares its host argv (`jail_daemon.host_cmd`, HS-D15): it opens outside
 //     the sandbox for this launch instead, on the Mac's loopback the agent shares. Running its
 //     jail daemon too would serve one address twice.
 //   - A daemon whose program is a LINUX EXECUTABLE in its loophole's module directory: the
-//     sandbox runs macOS programs, and a file starting with ELF magic is not one.
+//     sandbox runs macOS programs, and a file starting with ELF magic is not one. The reason
+//     names both ways out: what the pack can ship there instead, and a container runtime.
 //   - A daemon whose argv names a CONTAINER PATH the guest has no copy of: the loophole mount of
 //     a module directory the composer did not record (ModuleDir), or of another loophole; or a
 //     JAIL BINARY's container path (loopholedecl.JailBinaryPath, what `{jail_binary:<name>}`
 //     resolves to), a container bind the sandbox never receives (broker-as-a-pack.md BP-D6).
+//     A container has both, so the reason names it.
+//
+// EVERY DECLINE THAT LEAVES THE DAEMON RUNNING NOWHERE NAMES THE NEXT STEP
+// (ContainerRuntimeRunsIt): the endpoint publisher, the Linux executable and both container
+// paths. The terminator, the bridge and a doorway are not stuck there: the bridge's host half
+// and a doorway serve their addresses outside the sandbox, and the terminator's decline is the
+// backend's standing answer (macos-user-nix-and-features.md), so a dial pointing at a container
+// would send the user away from a launch that works.
 func macosUserGuestDecline(s JailDaemonSpec) string {
 	switch {
 	case s.Intercepts:
@@ -100,18 +119,19 @@ func macosUserGuestDecline(s JailDaemonSpec) string {
 			"agent's pairing needs it"
 	case s.Service && s.Endpoint != "":
 		return "it publishes its endpoint file at " + paths.JailHostServicesDir + "/" + s.Endpoint +
-			", a container path the sandbox has no counterpart of"
+			", a container path the sandbox has no counterpart of; " + ContainerRuntimeRunsIt
 	case isDoorway(s):
 		return "its doorway opens outside the sandbox on this backend instead, as a listener " +
 			"the launch owns on the Mac's loopback, which the agent shares (host-notch-services.md HS-D15)"
 	case runsLinuxModuleProgram(s):
-		return "its program is a Linux executable; the sandbox runs macOS programs"
+		return "its program is a Linux executable and the sandbox runs macOS programs: a script " +
+			"or a macOS build the pack ships at that path runs here, and " + ContainerRuntimeRunsIt
 	case namesContainerLoopholeDir(s.Cmd) && (!s.NamesModuleDir() || namesContainerLoopholeDir(s.ModuleCmd)):
 		return "its argv names the container's loophole mount (" + loopholedecl.JailLoopholeDir("") +
-			"…), which the sandbox has no copy of"
+			"…), which the sandbox has no copy of; " + ContainerRuntimeRunsIt
 	case namesContainerBinary(s.Cmd):
 		return "its argv names a binary the launch mounts into a container (" +
-			loopholedecl.JailBinaryRoot + "…), which the sandbox has no copy of"
+			loopholedecl.JailBinaryRoot + "…), which the sandbox has no copy of; " + ContainerRuntimeRunsIt
 	}
 	return ""
 }

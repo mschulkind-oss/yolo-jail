@@ -279,6 +279,12 @@ func TestMacosUserSaysARefusedDoorwayTheGuestDeclinesRunsNowhere(t *testing.T) {
 		!strings.Contains(got.out, "acme-proxy: "+guestProgram) || !strings.Contains(got.out, "a Linux executable") {
 		t.Errorf("the refusal does not point at the jail daemon's own Declined: line:\n%s", got.out)
 	}
+	// A daemon the user selected runs nowhere, so the line names the next step: a container
+	// backend runs it (docs/reference/happy-path-principle.md).
+	if !strings.Contains(refusal, "nothing serves it this launch; a container runtime runs it "+
+		"(`YOLO_RUNTIME=podman` or `YOLO_RUNTIME=container` for one launch)") {
+		t.Errorf("the refusal says the doorway runs nowhere and names no next step:\n%s", refusal)
+	}
 }
 
 // A PACK THAT DECLARES THE ADAPTER WITHOUT A HOST ARGV STILL RUNS IT IN THE GUEST: the doorway

@@ -122,6 +122,41 @@ func TestTheGuestRunsAServiceThatHasNoHostHalf(t *testing.T) {
 	}
 }
 
+// A DECLINE THAT LEAVES A SELECTED DAEMON RUNNING NOWHERE NAMES THE NEXT STEP (AGENTS.md's "every
+// stop names the next step", docs/reference/happy-path-principle.md): a service publishing a
+// container endpoint file, a Linux program in a loophole's folder and an argv naming either
+// container path all run on a container backend, so each reason names the dial that picks one
+// for a launch, and the Linux program's names what its pack can ship instead. A daemon whose
+// address is served outside the sandbox (the bridge's host half, a doorway) is not stuck, and its
+// decline sends nobody to a container.
+func TestTheGuestsDeclinesThatRunNowhereNameTheNextStep(t *testing.T) {
+	elf := moduleProgram(t, []byte{0x7f, 'E', 'L', 'F', 2, 1, 1, 0})
+	_, declined := JailDaemonsRunIn("macos-user", []JailDaemonSpec{
+		{Name: "publishing", Cmd: []string{"acme-pub"}, Service: true, Endpoint: "acme-pub.endpoint"},
+		moduleSpec("hello-elf", elf),
+		{Name: "hello-unplaced", Cmd: []string{loopholedecl.JailLoopholeDir("hello-unplaced") + "/bin/hello"}},
+		{Name: "tool", Cmd: []string{loopholedecl.JailBinaryPath("tool", "toold")}},
+		{Name: "wire-bridge", Cmd: []string{"yolo-jaild", "wire-bridge"}, Service: true, HostHalf: true,
+			ServesAdaptation: true, Endpoint: "wire-bridge.endpoint"},
+		{Name: "aws-auth", Cmd: []string{"yolo-jaild", "aws-credential-adapter"},
+			HostCmd: []string{"yolo", "internal", "daemon", "aws-credential-adapter"}},
+	})
+	if len(declined) != 6 {
+		t.Fatalf("declined %v, want all six", declined)
+	}
+	const dial = "a container runtime runs it (`YOLO_RUNTIME=podman` or `YOLO_RUNTIME=container` for one launch)"
+	elsewhere := map[string]bool{"wire-bridge": true, "aws-auth": true}
+	for _, d := range declined {
+		if names := strings.Contains(d.Why, dial); names == elsewhere[d.Spec.Name] {
+			t.Errorf("%s is declined as %q: naming a container runtime is %v, want %v",
+				d.Spec.Name, d.Why, names, !elsewhere[d.Spec.Name])
+		}
+	}
+	if why := declined[1].Why; !strings.Contains(why, "a script or a macOS build") {
+		t.Errorf("the Linux program's decline does not say what its pack can ship instead: %q", why)
+	}
+}
+
 // THE COMPOSER RECORDS WHERE A LOOPHOLE'S MODULE DIRECTORY IS, and the argv before it is placed:
 // ModuleDir from the loaded record's Path, ModuleCmd with `{jail_loophole_dir}` put back, while
 // Cmd keeps the container mount point load resolved, so a container's payload is unchanged.
