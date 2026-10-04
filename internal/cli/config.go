@@ -67,7 +67,10 @@ Subcommands:
                            jail's own home overlay, never on your real home —
                            and refuses while a jail for that workspace is
                            running, naming the in-jail command, which is
-                           available exactly then.
+                           available exactly then. At the host under
+                           host_management "own" it re-renders the surface as
+                           'yolo host apply --assert' would, so your profile,
+                           servers and the packs' overlays stay in it.
   promote <agent[/surface]> [flags]
                            Turn captured in-jail edits into DECLARED ones: write them
                            into a pack (the conventional local pack by default, which
@@ -80,7 +83,11 @@ Subcommands:
                            without waiting. Nothing is lost without it — a jail
                            captures on TERMINATE, and the next boot captures again
                            — so this is for reading 'diff' mid-session, while the
-                           jail that made the edits is still running.
+                           jail that made the edits is still running. At the host
+                           under host_management "own" it records the edits in
+                           your real home as 'yolo host apply --assert' would
+                           record them, into the host's capture store, so
+                           'diff --at host' shows them before the next apply.
   drift                    Show whether the WORKSPACE config (yolo-jail.jsonc) on
                            disk differs from the one this jail was started with —
                            i.e. whether a restart is needed to apply an edit. Exit
@@ -124,8 +131,10 @@ ls, render, diff, reset and capture also take:
 reset/capture also take:
   --force            reset and capture WRITE files. At the HOST notch they resolve
                      against your REAL home and could clobber your own config, so
-                     they refuse there unless --force ('own' exempts reset, which
-                     yolo composes). A host-side reset of a WORKSPACE needs no
+                     they refuse there unless --force. 'own' exempts both: yolo
+                     composes those files and keeps their capture store. Under
+                     'none' and 'assert' there is no store, so capture refuses
+                     even with --force. A host-side reset of a WORKSPACE needs no
                      --force — those files are that jail's, not yours — but it
                      refuses while that jail is running, or while the container
                      runtime cannot be asked whether it is; --force reaches both.
