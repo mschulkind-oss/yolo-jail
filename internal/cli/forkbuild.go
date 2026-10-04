@@ -71,8 +71,16 @@ type forkBuild struct {
 	Platform string
 }
 
-// recipe is the build's recipe hash: its command, its outputs and the source subdirectory.
+// recipe is the build's recipe hash: its command, its outputs and the source subdirectory. It is ""
+// for a PATCHED fork, as Install.SourceRecipe is (PF-D31): a plain fork of the same upstream, build
+// and produces has ForkSourceRecipe's very hash, so reading it here would serve that build — the
+// unpatched upstream — as the patched program, and a build made under it would be found as the
+// plain fork's. "" matches no build (resolveForkBuild) and builds nothing (buildFork); step 2 of
+// patched-forks.md §14 gives a patched build its own recipe, with the series digest.
 func (b forkBuild) recipe() string {
+	if b.Fork.Patched() {
+		return ""
+	}
 	return packdecl.ForkSourceRecipe(b.Fork.Source, b.Fork.Build, b.Fork.Produces)
 }
 
@@ -108,6 +116,11 @@ func buildFork(b forkBuild, mode buildMode, out, errw io.Writer, color bool) (*c
 	pr := richtext.Printer{W: out, Color: color}
 	store := &capture.Store{Dir: paths.CapturesDir()}
 	f := b.Fork
+	if b.recipe() == "" {
+		// A PATCHED FORK, or anything else with no recipe: a build here would be the upstream
+		// unpatched, admitted under a recipe no reader asks for.
+		return nil, fmt.Errorf("fork %s is a patched fork, and %s", f.Key(), patchedNotBuilt)
+	}
 	lk, err := pidlock.Acquire(b.lockPath(), mode.lock, func(pid int) {
 		pr.Printf("[dim]waiting for pid %d, which is building %s at %s (at most %s)[/dim]",
 			pid, f.Bin, shortSHA(b.Commit), forkBuildWaitBound)
