@@ -21,7 +21,9 @@ import (
 // kind writes: `revision` (the full commit), `recipe` (packdecl.ForkRecipe, the sha256 of the build
 // command, the outputs and the source subdirectory) and `toolchain` (the capture jail's image
 // identity — OQ-FP2's record, which is on the receipt and never in the capture manifest, whose
-// invariant is that nothing about the producing run is in it).
+// invariant is that nothing about the producing run is in it). A PATCHED fork's build adds five
+// more, additive as FP-D8 lets the schema grow: `fork`, `series`, `tree`, `tag` and `version`
+// (docs/design/patched-forks.md §6.3).
 
 // ReceiptKindBuild is a fork build's receipt kind.
 const ReceiptKindBuild = "build"
@@ -47,6 +49,17 @@ type BuildReceipt struct {
 	Recipe string
 	// Toolchain is the image identity of the jail the build ran in, "" when it could not be read.
 	Toolchain string
+	// Fork, Series, Tree, Tag and Version are a PATCHED fork's build's (docs/design/patched-forks.md
+	// §6.3, PF-D7), and a plain fork's build writes none of them: the fork key ("<pack>/<bin>"),
+	// which a patched build's selection keys on in place of its source, so no plain fork's query
+	// and no other fork's selects it; the series digest; the PATCHED TREE (the git tree object
+	// copied into the build's src/, §5.3); and the version tag of the upstream commit with its
+	// version (PF-D36), so a good build recovered from the store knows the version it runs.
+	Fork    string
+	Series  string
+	Tree    string
+	Tag     string
+	Version string
 	// Act is ReceiptActRecord beside the entry, ReceiptActMaterialize in a workspace's log.
 	Act string
 	// Time is the moment recorded.
@@ -69,6 +82,7 @@ func (r BuildReceipt) Line() string {
 	for _, f := range []struct{ name, val string }{
 		{"path", r.Path}, {"platform", r.Platform}, {"revision", r.Revision},
 		{"recipe", r.Recipe}, {"toolchain", r.Toolchain},
+		{"fork", r.Fork}, {"series", r.Series}, {"tree", r.Tree}, {"tag", r.Tag}, {"version", r.Version},
 	} {
 		if f.val != "" {
 			b.WriteString(`,"` + f.name + `":` + jsonStringLiteral(f.val))
@@ -107,7 +121,8 @@ func ReadBuildReceipts(path string) ([]BuildReceipt, error) {
 		br := BuildReceipt{
 			Bin: r.Bin, Source: r.Declared, Key: r.Resolved, Digest: r.SHA256, Bytes: r.Bytes,
 			Path: r.Path, Platform: r.Platform, Revision: r.Revision, Recipe: r.Recipe,
-			Toolchain: r.Toolchain, Act: r.Act,
+			Toolchain: r.Toolchain, Fork: r.Fork, Series: r.Series, Tree: r.Tree, Tag: r.Tag,
+			Version: r.Version, Act: r.Act,
 		}
 		if t, terr := time.Parse(receiptTimeLayout, r.Time); terr == nil {
 			br.Time = t

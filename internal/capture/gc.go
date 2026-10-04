@@ -2,6 +2,7 @@ package capture
 
 import (
 	"errors"
+	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -196,7 +197,7 @@ func lostBy(er entryRecords, selected map[Program]Selected) []Superseded {
 	seen := map[Program]bool{}
 	var out []Superseded
 	for _, r := range er.Records {
-		p := Program{Bin: r.Bin, Platform: r.Platform, Source: r.Source}
+		p := r.Program()
 		if seen[p] {
 			continue
 		}
@@ -210,6 +211,17 @@ func lostBy(er entryRecords, selected map[Program]Selected) []Superseded {
 		return out[i].Program.Platform < out[j].Program.Platform
 	})
 	return out
+}
+
+// ReapEntry reaps the entry key as the prune does (reapEntry): its completion marker first, then
+// its tree, the metadata beside it kept. For the one reclaimer outside the prune, a PATCHED fork's
+// move (docs/design/patched-forks.md §6.3, PF-D20), which reaps the builds of its fork that no
+// running jail was handed; a key that is not one entry name is refused.
+func (s *Store) ReapEntry(key string) error {
+	if err := validSegment(key); err != nil {
+		return fmt.Errorf("capture reap: %w", err)
+	}
+	return reapEntry(s.EntryDir(key))
 }
 
 // reapEntry drops one entry's tree and its claim to exist, keeping the metadata beside it.

@@ -89,6 +89,14 @@ type receipt struct {
 	Revision  string
 	Recipe    string
 	Toolchain string
+	// Fork, Series, Tree, Tag and Version are written by a PATCHED fork's build alone
+	// (docs/design/patched-forks.md §6.3, PF-D7, PF-D36): the fork key its selection keys on, the
+	// series digest, the patched tree, and the version tag of the upstream commit it was built at.
+	Fork    string
+	Series  string
+	Tree    string
+	Tag     string
+	Version string
 }
 
 // HasResolved reports whether this receipt states a resolved identity at all.
@@ -183,6 +191,11 @@ func parseReceiptLine(line string) (receipt, error) {
 		Revision  string `json:"revision"`
 		Recipe    string `json:"recipe"`
 		Toolchain string `json:"toolchain"`
+		Fork      string `json:"fork"`
+		Series    string `json:"series"`
+		Tree      string `json:"tree"`
+		Tag       string `json:"tag"`
+		Version   string `json:"version"`
 		Act       string `json:"act"`
 		Time      string `json:"time"`
 	}
@@ -200,6 +213,7 @@ func parseReceiptLine(line string) (receipt, error) {
 		Spec: raw.Spec, Resolved: raw.Resolved, SHA256: raw.SHA256, Path: raw.Path,
 		Platform: raw.Platform, Act: raw.Act, Time: raw.Time, Bytes: -1,
 		Revision: raw.Revision, Recipe: raw.Recipe, Toolchain: raw.Toolchain,
+		Fork: raw.Fork, Series: raw.Series, Tree: raw.Tree, Tag: raw.Tag, Version: raw.Version,
 	}
 	if raw.Bytes != nil {
 		r.Bytes = *raw.Bytes

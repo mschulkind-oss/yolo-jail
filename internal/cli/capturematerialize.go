@@ -299,6 +299,8 @@ func captureRecords(entryDir string) ([]capture.Record, error) {
 		out = append(out, capture.Record{
 			Bin: r.Bin, Platform: r.Platform, Source: r.Source, Revision: r.Revision,
 			Recipe: r.Recipe, Time: r.Time, Digest: r.Digest,
+			// A PATCHED fork's build is selected by its fork, never its source (capture.Program.Fork).
+			Fork: r.Fork, Series: r.Series, Tree: r.Tree, Tag: r.Tag, Version: r.Version,
 		})
 	}
 	return out, nil
