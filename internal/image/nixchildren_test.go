@@ -38,11 +38,33 @@ func awaitTracked(t *testing.T, s *nixchildren.Set, n int) {
 	}
 }
 
-// trapsInterrupt is a stand-in nix that runs until interrupted and says so on stderr. It gives up
-// after 30 seconds, so a red run whose nix nothing tracks — and so nothing stops — does not leave
-// it looping after the test binary exits.
-const trapsInterrupt = `trap 'echo interrupted >&2; exit 130' INT; echo started >&2; ` +
-	`i=0; while [ $i -lt 600 ]; do sleep 0.05; i=$((i+1)); done; exit 1`
+// trapsInterrupt is a stand-in nix that runs until interrupted and says so on stderr, and that
+// creates the file started once its trap is set (awaitStarted). It gives up after 30 seconds, so a
+// red run whose nix nothing tracks — and so nothing stops — does not leave it looping after the
+// test binary exits.
+func trapsInterrupt(started string) string {
+	return `trap 'echo interrupted >&2; exit 130' INT; touch ` + started + `; ` +
+		`i=0; while [ $i -lt 600 ]; do sleep 0.05; i=$((i+1)); done; exit 1`
+}
+
+// startMark is where a stand-in of t marks its start: a path in a temp dir of t's own.
+func startMark(t *testing.T) string { return filepath.Join(t.TempDir(), "started") }
+
+// awaitStarted waits for the stand-in that marks its start at started to have done so, which it
+// does once its interrupt trap is set. Being tracked is not enough: the set tracks the stand-in as
+// soon as it is started, and an interrupt that reaches the shell before its trap line ends it by
+// the signal's default action, which says nothing.
+func awaitStarted(t *testing.T, started string) {
+	t.Helper()
+	for deadline := time.Now().Add(10 * time.Second); ; time.Sleep(5 * time.Millisecond) {
+		if _, err := os.Stat(started); err == nil {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("the stand-in nix never marked its start")
+		}
+	}
+}
 
 // standInNix puts a `nix` on PATH that runs script.
 func standInNix(t *testing.T, script string) {
@@ -69,12 +91,14 @@ func TestStopNixChildrenInterruptsARunningBuild(t *testing.T) {
 		tail []string
 	}
 	done := make(chan built, 1)
+	started := startMark(t)
 	go func() {
-		p, tail := runNixBuild([]string{"sh", "-c", trapsInterrupt}, t.TempDir(), os.Environ(),
+		p, tail := runNixBuild([]string{"sh", "-c", trapsInterrupt(started)}, t.TempDir(), os.Environ(),
 			filepath.Join(t.TempDir(), "out"), io.Discard)
 		done <- built{p, tail}
 	}()
 	awaitTracked(t, s, 1)
+	awaitStarted(t, started)
 	start := time.Now()
 	nixchildren.Stop(nil)
 	if took := time.Since(start); took > 5*time.Second {
@@ -117,7 +141,7 @@ func TestARunNixBuildAfterTheStopSaysWhy(t *testing.T) {
 // measured leaving behind, is one a stop reaches.
 func TestEvalImageIdentityIsTracked(t *testing.T) {
 	s := freshNixChildren(t)
-	standInNix(t, trapsInterrupt)
+	standInNix(t, trapsInterrupt(startMark(t)))
 	done := make(chan bool, 1)
 	go func() {
 		_, ok := EvalImageIdentity(t.TempDir())
@@ -139,7 +163,8 @@ func TestEvalImageIdentityIsTracked(t *testing.T) {
 // to the check alone stops it rather than leaving it building with no parent.
 func TestBuildOCIImageIsTracked(t *testing.T) {
 	s := freshNixChildren(t)
-	standInNix(t, trapsInterrupt)
+	started := startMark(t)
+	standInNix(t, trapsInterrupt(started))
 	type built struct {
 		path string
 		tail []string
@@ -150,6 +175,7 @@ func TestBuildOCIImageIsTracked(t *testing.T) {
 		done <- built{p, tail}
 	}()
 	awaitTracked(t, s, 1)
+	awaitStarted(t, started)
 	nixchildren.Stop(nil)
 	select {
 	case b := <-done:
@@ -174,9 +200,13 @@ func TestBuildOCIImageIsTracked(t *testing.T) {
 func TestAStoppedCheckBuildRemovesItsLinksBeforeTheHandOff(t *testing.T) {
 	t.Setenv("TMPDIR", t.TempDir())
 	s := freshNixChildren(t)
-	// The stand-in makes its out-link the way nix does, then runs until interrupted.
+	// The stand-in makes its out-link the way nix does, then runs until interrupted. Its link comes
+	// before its trap, so the link alone does not say the trap is set (awaitStarted below): an
+	// interrupt the shell takes while it waits on `ln`, which then exits normally, is one it
+	// ignores and goes on, past the stop's grace and this test's bound.
+	started := startMark(t)
 	standInNix(t, `while [ $# -gt 0 ]; do [ "$1" = --out-link ] && ln -s /nonexistent "$2"; shift; done; `+
-		trapsInterrupt)
+		trapsInterrupt(started))
 	links := make(chan []string, 1)
 	go BuildOCIImage(OCIBuildRequest{RepoRoot: t.TempDir()})
 	awaitTracked(t, s, 1)
@@ -195,6 +225,7 @@ func TestAStoppedCheckBuildRemovesItsLinksBeforeTheHandOff(t *testing.T) {
 			t.Fatal("the stand-in never made its out-link")
 		}
 	}
+	awaitStarted(t, started)
 	exited := make(chan struct{})
 	t.Cleanup(func() { close(exited) })
 	go nixchildren.Stop(func() { links <- matches(); <-exited })
@@ -217,8 +248,9 @@ func TestAStoppedCheckBuildRemovesItsLinksBeforeTheHandOff(t *testing.T) {
 func TestAStoppedBuildsCallerWaitsForTheExit(t *testing.T) {
 	s := freshNixChildren(t)
 	returned := make(chan []string, 1)
+	script := trapsInterrupt(startMark(t))
 	go func() {
-		_, tail := runNixBuild([]string{"sh", "-c", trapsInterrupt}, t.TempDir(), os.Environ(),
+		_, tail := runNixBuild([]string{"sh", "-c", script}, t.TempDir(), os.Environ(),
 			filepath.Join(t.TempDir(), "out"), io.Discard)
 		returned <- tail
 	}()
@@ -248,13 +280,15 @@ func TestAStoppedBuildsCallerWaitsForTheExit(t *testing.T) {
 // --add-root`, is a nix a stop reaches, so a launch a signal ends does not leave it running.
 func TestAddRootIsTracked(t *testing.T) {
 	s := freshNixChildren(t)
-	standIn(t, "nix-store", trapsInterrupt)
+	started := startMark(t)
+	standIn(t, "nix-store", trapsInterrupt(started))
 	var out strings.Builder
 	done := make(chan error, 1)
 	go func() {
 		done <- AddRoot(filepath.Join(t.TempDir(), "root"), "/nix/store/aaaa-image.json", &out, "could not root it")
 	}()
 	awaitTracked(t, s, 1)
+	awaitStarted(t, started)
 	nixchildren.Stop(nil)
 	select {
 	case err := <-done:
@@ -275,11 +309,13 @@ func TestAddRootIsTracked(t *testing.T) {
 func TestTheStorePathValidityProbeIsTracked(t *testing.T) {
 	s := freshNixChildren(t)
 	marks := t.TempDir()
+	started := filepath.Join(marks, "started")
 	standIn(t, "nix-store", "trap 'touch "+filepath.Join(marks, "interrupted")+"; exit 130' INT; "+
-		"i=0; while [ $i -lt 600 ]; do sleep 0.05; i=$((i+1)); done; exit 1")
+		"touch "+started+"; i=0; while [ $i -lt 600 ]; do sleep 0.05; i=$((i+1)); done; exit 1")
 	done := make(chan bool, 1)
 	go func() { done <- nixStorePathValid("/nix/store/aaaa-image.json") }()
 	awaitTracked(t, s, 1)
+	awaitStarted(t, started)
 	nixchildren.Stop(nil)
 	select {
 	case valid := <-done:

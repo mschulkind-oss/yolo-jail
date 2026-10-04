@@ -32,12 +32,29 @@ func catchSignal(t *testing.T, sig os.Signal) {
 }
 
 // trackedStandInNix runs, through the tracked set, a stand-in nix that runs until interrupted and
-// marks the interrupt in marks. It gives up after 30 seconds, so a red run whose nix nothing
-// stops does not leave it looping after the test binary exits.
+// marks its start and the interrupt in marks. It gives up after 30 seconds, so a red run whose nix
+// nothing stops does not leave it looping after the test binary exits.
 func trackedStandInNix(marks string) error {
 	return nixchildren.Run(exec.Command("sh", "-c",
 		"trap 'touch "+filepath.Join(marks, "interrupted")+"; exit 130' INT; "+
+			"touch "+filepath.Join(marks, "started")+"; "+
 			"i=0; while [ $i -lt 600 ]; do sleep 0.05; i=$((i+1)); done; exit 1"))
+}
+
+// awaitStarted waits for the stand-in nix of marks to mark its start, which it does once its
+// interrupt trap is set. Being tracked is not enough: the set tracks the stand-in as soon as it is
+// started, and an interrupt that reaches the shell before its trap line ends it by the signal's
+// default action, which marks nothing.
+func awaitStarted(t *testing.T, marks string) {
+	t.Helper()
+	for deadline := time.Now().Add(10 * time.Second); ; time.Sleep(5 * time.Millisecond) {
+		if _, err := os.Stat(filepath.Join(marks, "started")); err == nil {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("the stand-in nix never marked its start")
+		}
+	}
 }
 
 // TestASignalWhileTheSandboxNixRunsStopsIt: a SIGTERM sent to the launch alone during either of
@@ -74,6 +91,7 @@ func TestASignalWhileTheSandboxNixRunsStopsIt(t *testing.T) {
 					t.Fatalf("%s's nix never ran\n%s", step, buf.String())
 				}
 			}
+			awaitStarted(t, marks)
 			if err := syscall.Kill(os.Getpid(), syscall.SIGTERM); err != nil {
 				t.Fatal(err)
 			}

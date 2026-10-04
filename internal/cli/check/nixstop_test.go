@@ -48,6 +48,22 @@ func awaitTracked(t *testing.T, s *nixchildren.Set, n int) {
 	}
 }
 
+// awaitStarted waits for the stand-in nix of marks to mark its start, which it does once its
+// interrupt trap is set. Being tracked is not enough: the set tracks the stand-in as soon as it is
+// started, and an interrupt that reaches the shell before its trap line ends it by the signal's
+// default action, which marks nothing.
+func awaitStarted(t *testing.T, marks string) {
+	t.Helper()
+	for deadline := time.Now().Add(10 * time.Second); ; time.Sleep(5 * time.Millisecond) {
+		if _, err := os.Stat(filepath.Join(marks, "started")); err == nil {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("the stand-in nix never marked its start")
+		}
+	}
+}
+
 // catchSignal keeps sig from ending the test binary when no arm is installed to catch it, which is
 // the defect's own shape: without this a red run would kill the whole package's run.
 func catchSignal(t *testing.T, sig os.Signal) {
@@ -61,10 +77,11 @@ func catchSignal(t *testing.T, sig os.Signal) {
 // dry-run, `nix config show` — is one a stop reaches.
 func TestRealExecTracksItsNix(t *testing.T) {
 	s := nixchildren.Isolate(t)
-	standInNix(t)
+	marks, _ := standInNix(t)
 	done := make(chan ExecResult, 1)
 	go func() { done <- realExec([]string{"nix", "--version"}, "", nil, time.Minute) }()
 	awaitTracked(t, s, 1)
+	awaitStarted(t, marks)
 	nixchildren.Stop(nil)
 	select {
 	case res := <-done:
@@ -96,6 +113,7 @@ func TestASignalToCheckStopsItsNix(t *testing.T) {
 	returned := make(chan int, 1)
 	go func() { returned <- Check(opts) }()
 	awaitTracked(t, s, 1)
+	awaitStarted(t, marks)
 	if err := syscall.Kill(os.Getpid(), syscall.SIGTERM); err != nil {
 		t.Fatal(err)
 	}

@@ -48,6 +48,22 @@ func awaitTracked(t *testing.T, s *nixchildren.Set, n int) {
 	}
 }
 
+// awaitStarted waits for the stand-in nix of marks to mark its start, which it does once its
+// interrupt trap is set. Being tracked is not enough: the set tracks the stand-in as soon as it is
+// started, and an interrupt that reaches the shell before its trap line ends it by the signal's
+// default action, which marks nothing.
+func awaitStarted(t *testing.T, marks string) {
+	t.Helper()
+	for deadline := time.Now().Add(10 * time.Second); ; time.Sleep(5 * time.Millisecond) {
+		if _, err := os.Stat(filepath.Join(marks, "started")); err == nil {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("the stand-in nix never marked its start")
+		}
+	}
+}
+
 // interrupted reports whether the stand-in nix of marks was interrupted.
 func interrupted(marks string) bool {
 	_, err := os.Stat(filepath.Join(marks, "interrupted"))
@@ -83,6 +99,7 @@ func TestPrunesNixIsTracked(t *testing.T) {
 			done := make(chan bool, 1)
 			go func() { done <- tc.run() }()
 			awaitTracked(t, s, 1)
+			awaitStarted(t, marks)
 			nixchildren.Stop(nil)
 			select {
 			case did := <-done:
@@ -116,6 +133,7 @@ func TestASignalToPruneStopsItsNix(t *testing.T) {
 	returned := make(chan int, 1)
 	go func() { returned <- Run(o) }()
 	awaitTracked(t, s, 1)
+	awaitStarted(t, marks)
 	if err := syscall.Kill(os.Getpid(), syscall.SIGTERM); err != nil {
 		t.Fatal(err)
 	}

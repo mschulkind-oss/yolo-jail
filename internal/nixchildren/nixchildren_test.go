@@ -26,8 +26,29 @@ func awaitRunning(t *testing.T, s *Set, n int) {
 	}
 }
 
-// trapsInterrupt is a stand-in nix that runs until interrupted and says so on stderr.
-const trapsInterrupt = `trap 'echo interrupted >&2; exit 130' INT; echo started >&2; while :; do sleep 0.05; done`
+// trapsInterrupt is a stand-in nix that runs until interrupted and says so on stderr, and that
+// creates the file started once its trap is set (awaitStarted).
+func trapsInterrupt(started string) string {
+	return `trap 'echo interrupted >&2; exit 130' INT; touch ` + started + `; while :; do sleep 0.05; done`
+}
+
+// startMark is where a stand-in of t marks its start: a path in a temp dir of t's own.
+func startMark(t *testing.T) string { return filepath.Join(t.TempDir(), "started") }
+
+// awaitStarted waits for the stand-in that marks its start at started to have done so, which it
+// does once its interrupt trap is set. Being tracked is not enough: the set tracks the stand-in as
+// soon as it is started, and an interrupt that reaches the shell before its trap line ends it by
+// the signal's default action, which runs no trap.
+func awaitStarted(t *testing.T, started string) {
+	t.Helper()
+	for deadline := time.Now().Add(10 * time.Second); ; time.Sleep(5 * time.Millisecond) {
+		if _, err := os.Stat(started); err == nil {
+			return
+		} else if time.Now().After(deadline) {
+			t.Fatal("the stand-in nix never marked its start")
+		}
+	}
+}
 
 // TestStopKillsANixThatIgnoresTheInterrupt: past the grace, a nix still running is killed rather
 // than left behind.
@@ -65,7 +86,8 @@ func TestNoNixStartsAfterTheStop(t *testing.T) {
 func TestAStoppedNixsCallerWaitsForTheExit(t *testing.T) {
 	s := Isolate(t)
 	returned := make(chan error, 1)
-	go func() { returned <- Run(exec.Command("sh", "-c", trapsInterrupt)) }()
+	script := trapsInterrupt(startMark(t))
+	go func() { returned <- Run(exec.Command("sh", "-c", script)) }()
 	awaitRunning(t, s, 1)
 	exited, handedOff := make(chan struct{}), make(chan struct{}, 1)
 	stopped := make(chan struct{})
@@ -146,12 +168,14 @@ func TestASignalStopsTheNixAndEndsTheProcess(t *testing.T) {
 	defer disarm()
 	var stderr strings.Builder
 	returned := make(chan error, 1)
+	started := startMark(t)
 	go func() {
-		cmd := exec.Command("sh", "-c", trapsInterrupt)
+		cmd := exec.Command("sh", "-c", trapsInterrupt(started))
 		cmd.Stderr = &stderr
 		returned <- Run(cmd)
 	}()
 	awaitRunning(t, s, 1)
+	awaitStarted(t, started)
 	if err := syscall.Kill(os.Getpid(), syscall.SIGTERM); err != nil {
 		t.Fatal(err)
 	}
@@ -195,13 +219,14 @@ func TestADisarmedArmLeavesTheSignalAlone(t *testing.T) {
 func TestADisarmDuringTheTeardownWaitsForItsExit(t *testing.T) {
 	s := Isolate(t)
 	catchSignal(t, syscall.SIGTERM)
-	marker := filepath.Join(t.TempDir(), "interrupted")
+	marker, started := filepath.Join(t.TempDir(), "interrupted"), startMark(t)
 	disarm := StopOnSignal()
 	go func() {
 		_ = Run(exec.Command("sh", "-c",
-			"trap 'touch "+marker+"; sleep 0.3; exit 130' INT; while :; do sleep 0.05; done"))
+			"trap 'touch "+marker+"; sleep 0.3; exit 130' INT; touch "+started+"; while :; do sleep 0.05; done"))
 	}()
 	awaitRunning(t, s, 1)
+	awaitStarted(t, started)
 	if err := syscall.Kill(os.Getpid(), syscall.SIGTERM); err != nil {
 		t.Fatal(err)
 	}

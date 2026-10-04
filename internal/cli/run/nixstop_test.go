@@ -45,7 +45,10 @@ func marked(marks, name string) bool {
 	return err == nil
 }
 
-// awaitMark waits for the stand-in nix of marks to leave the mark named name.
+// awaitMark waits for the stand-in nix of marks to leave the mark named name. A test that stops
+// the stand-in waits for its "started" mark, which it leaves once its interrupt trap is set: the
+// set tracks it as soon as it is started, and an interrupt that reaches the shell before its trap
+// line ends it by the signal's default action, which marks nothing.
 func awaitMark(t *testing.T, marks, name string) {
 	t.Helper()
 	for deadline := time.Now().Add(10 * time.Second); !marked(marks, name); time.Sleep(5 * time.Millisecond) {
@@ -89,6 +92,7 @@ func TestRealExecTracksItsNix(t *testing.T) {
 		done <- realExec(prune.StoreDeleteCmd("/nix/store/aaaa-yolo-jail-install-prefix"), "", nil, time.Minute)
 	}()
 	awaitTracked(t, s, 1)
+	awaitMark(t, marks, "started")
 	nixchildren.Stop(nil)
 	select {
 	case res := <-done:
