@@ -225,7 +225,7 @@ func rebaseSteps(f packload.Fork, series *packsrc.Series, onto packsrc.ListEntry
 	patches := filepath.Join(f.Root, f.Patches)
 	return []string{
 		"  rebase the series by hand: in a clone of " +
-			shquote.Quote(mustRepo(f.Source)) + ", `git am` it at its base " + series.Base + ", then `git rebase " +
+			shquote.Quote(mustRepo(f.Source)) + ", `git am` its patches at its base " + series.Base + ", then `git rebase " +
 			"--onto " + onto.Commit + " " + series.Base + "`, resolving each conflict and `git rebase --continue`;",
 		"  then `git format-patch --base=" + onto.Commit + " -o " + shquote.Quote(patches+".new") + " " +
 			onto.Commit + "..HEAD`, and put it in place of " + shquote.Quote(patches),
@@ -277,7 +277,7 @@ func subdirOf(source string) string {
 //
 // NO NEXT-CHECK LINE YET: in step 1 of patched-forks.md §14 no launch checks a patched fork, so
 // when the throttle would let one is nothing a user can act on. Step 2 adds the launch's check and
-// puts the line back (§8.3), with patchedNotBuilt's wording.
+// puts the line back (§8.3), as it replaces patchedNotBuilt.
 func patchedForkStatusLines(f packload.Fork) []string {
 	series, serr := f.ReadSeries()
 	rec, rerr := patchedForkStore().LoadCheckRecord(f.Key())
