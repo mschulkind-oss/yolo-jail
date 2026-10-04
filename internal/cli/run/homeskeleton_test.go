@@ -289,6 +289,11 @@ func TestTheSkeletonCarriesTheConfigDrivenEntries(t *testing.T) {
 // derived here from the same entries and the same selected packs. Compared as SETS of every
 // non-core link at the skeleton's root, so an entry one backend links and the other does not
 // fails as surely as a target that differs.
+//
+// ONE STATED EXCEPTION: a login rc file the macos-user bootstrap writes by path on every launch
+// (entrypoint.DarwinLoginRCFiles) is linked by the skeleton and not by the layout, which leaves
+// it a real account-home file (macos-user-home-tiers.md HT-D12). It is asserted as such, so the
+// exception cannot widen to an entry it does not name.
 func TestTheSkeletonsHostFileLinksAreTheMacosUserLayouts(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	packs := packsFixture(t, "claude")
@@ -299,6 +304,7 @@ func TestTheSkeletonsHostFileLinksAreTheMacosUserLayouts(t *testing.T) {
 		{Path: "hf/one.json", Codec: "json", HasContent: true, Mode: config.HostFileModeOnce},
 		{Path: ".config/mytool/c.json", Codec: "json", HasContent: true, Mode: config.HostFileModeOnce},
 		{Path: ".claude/extra.json", Codec: "json", HasContent: true, Mode: config.HostFileModeOnce},
+		{Path: ".zprofile", Codec: "raw", HasContent: true, Mode: config.HostFileModeOnce},
 	}
 	dir := buildSkeletonForTest(t, "yolo-darwin-agrees", packs, nil, hostFiles)
 
@@ -334,9 +340,19 @@ func TestTheSkeletonsHostFileLinksAreTheMacosUserLayouts(t *testing.T) {
 		darwin[rel] = ln.Target
 	}
 
-	if len(skeleton) != 3 {
-		t.Errorf("the skeleton links %d host_files destinations, want the 3 home-root files: %v",
+	if len(skeleton) != 4 {
+		t.Errorf("the skeleton links %d host_files destinations, want the 4 home-root files: %v",
 			len(skeleton), skeleton)
+	}
+	if _, ok := skeleton[".zprofile"]; !ok {
+		t.Errorf("the skeleton does not link ~/.zprofile; on podman nothing writes it but the entry")
+	}
+	for _, name := range entrypoint.DarwinLoginRCFiles() {
+		if target, ok := darwin[name]; ok {
+			t.Errorf("the macos-user layout links ~/%s -> %q, a file its bootstrap writes by path "+
+				"on every launch", name, target)
+		}
+		delete(skeleton, name)
 	}
 	if !reflect.DeepEqual(skeleton, darwin) {
 		t.Errorf("the two backends disagree about the home-root host_files links:\n"+

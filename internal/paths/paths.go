@@ -693,7 +693,8 @@ type HomeFileRedirect struct {
 // (`~/.npmrc`) — exist on both backends too, outside this list because the user's config
 // decides them: each consumer above lays them from the same two calls,
 // config.HostFileEntry.StagingFor and SymlinkTarget (on macos-user,
-// entrypoint.DarwinHomeLayout.WithHostFileRedirects).
+// entrypoint.DarwinHomeLayout.WithHostFileRedirects). macos-user lays none at a login rc
+// file its bootstrap writes by path on every launch (entrypoint.DarwinLoginRCFiles).
 func HomeFileRedirects() []HomeFileRedirect {
 	return []HomeFileRedirect{
 		{Name: ".claude.json", Target: filepath.Join(".claude", "claude.json")},

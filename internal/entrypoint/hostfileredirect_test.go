@@ -370,3 +370,99 @@ func TestADirectoryWhereTheHostFileLinkBelongsIsOfferedItsOwnRemoval(t *testing.
 		t.Errorf("the refused directory's contents changed to %q", got)
 	}
 }
+
+// A LOGIN RC FILE THE BOOTSTRAP WRITES ITSELF IS NEVER A host_files LINK, AND AN ENTRY NAMING
+// ONE IS REFUSED. WriteLoginRC writes `.zprofile`, `.zshrc` and `.bash_profile` by path on every
+// launch, so:
+//
+//   - a home-root link at one of them — laid by the one workspace that declares it, and left by
+//     every other launch (P2) — carried that write into the sidecar of whichever workspace
+//     launched next, where the staging directory need not exist, and the generator's ENOENT
+//     refused a workspace that declared nothing (HT-D12);
+//   - the entry's bytes were replaced by that write before any shell read them, in every mode,
+//     and a `readonly` entry left the shared file 0444, which WriteLoginRC, running as the
+//     account that owns it, cannot open for writing: every workspace's launch on the Mac then
+//     failed at write_login_rc (HT-D13).
+//
+// So the three stay real account-home files every launch writes its PATH restore into; the
+// declaring workspace's host_files step refuses the entry (fail-closed, as every entry that
+// cannot be delivered), naming the next step, and writes nothing; and every other workspace
+// boots. Root ignores the 0444 here, so the readonly half is asserted as the mode the step must
+// not leave.
+//
+// Fails on the layout that linked every home-root entry (B's launch failed at write_login_rc)
+// and on a host_files step that stages the entry (no refusal; readonly left 0444).
+func TestALoginRCHostFileEntryIsRefusedAndLeavesEveryWorkspaceBootable(t *testing.T) {
+	failedAt := func(step string, err error) bool { return err != nil && strings.Contains(err.Error(), step) }
+	// Literals, not DarwinLoginRCFiles: dropping a name from that list must fail here.
+	for _, name := range []string{".zprofile", ".zshrc", ".bash_profile"} {
+		for _, mode := range []string{config.HostFileModeOnce, config.HostFileModeCopy, config.HostFileModeReadonly} {
+			t.Run(name+"/"+mode, func(t *testing.T) {
+				f := newHomeRootFixture(t)
+				entry := config.HostFileEntry{Path: name, Codec: "raw", Content: "# mine\n", HasContent: true, Mode: mode}
+				rc := filepath.Join(f.home, name)
+				requireRealRC := func(t *testing.T, after string) {
+					t.Helper()
+					fi, err := os.Lstat(rc)
+					if err != nil || fi.Mode()&os.ModeSymlink != 0 {
+						target, _ := os.Readlink(rc)
+						t.Fatalf("~/%s after %s is not a real file (err %v, link -> %q): the bootstrap "+
+							"writes it by path, so a link there sends that write into a sidecar", name, after, err, target)
+					}
+					if fi.Mode().Perm()&0o200 == 0 {
+						t.Errorf("~/%s after %s is %v: the account that owns it cannot open it for "+
+							"WriteLoginRC's write, so every workspace's launch fails", name, after, fi.Mode().Perm())
+					}
+					if got := readOrAbsent(t, rc); !strings.Contains(got, DarwinLoginPathEnv) || strings.Contains(got, "# mine") {
+						t.Errorf("~/%s after %s is not WriteLoginRC's PATH restore alone:\n%s", name, after, got)
+					}
+				}
+
+				said, err := f.launch("a", "", entry)
+				if failedAt("darwin_home_layout", err) || failedAt("write_login_rc", err) {
+					t.Fatalf("the declaring workspace's launch failed outside the host_files step: %v\n%s", err, said)
+				}
+				if !failedAt("configure_host_files", err) {
+					t.Fatalf("an entry naming ~/%s, which the bootstrap writes itself, was not refused "+
+						"(err %v)\n%s", name, err, said)
+				}
+				nextStep := "Remove ~/" + name + " from host_files"
+				if !strings.Contains(err.Error(), "yolo writes ~/"+name+" itself") || !strings.Contains(err.Error(), nextStep) {
+					t.Errorf("the refusal does not say why and %q, the next step:\n%v", nextStep, err)
+				}
+				if zsh := strings.Contains(err.Error(), "~/.zshenv"); zsh != (name != ".bash_profile") {
+					t.Errorf("the refusal for ~/%s offers ~/.zshenv: %v, want it for the zsh files only:\n%v", name, zsh, err)
+				}
+				requireRealRC(t, "the declaring workspace's launch")
+				if _, err := os.Lstat(filepath.Join(f.sidecar("a"), "config", "yolo-home")); !os.IsNotExist(err) {
+					t.Errorf("the refused entry was staged in the declaring workspace's sidecar (err %v)", err)
+				}
+
+				said, err = f.launch("b", "")
+				if failedAt("write_login_rc", err) || failedAt("configure_host_files", err) {
+					t.Fatalf("a workspace that declares nothing failed: %v\n%s", err, said)
+				}
+				requireRealRC(t, "a launch that declares nothing")
+			})
+		}
+	}
+}
+
+// THE NEXT STEP THE REFUSAL OFFERS WORKS: a `~/.zshenv` entry, which the bootstrap does not
+// write, is delivered like any other home-root file, per workspace, and the launch is not
+// refused.
+func TestTheZshenvTheLoginRCRefusalOffersIsDelivered(t *testing.T) {
+	f := newHomeRootFixture(t)
+	entry := config.HostFileEntry{Path: ".zshenv", Codec: "raw", Content: "alias ll='ls -l'\n", HasContent: true, Mode: config.HostFileModeCopy}
+	said, err := f.launch("a", "", entry)
+	requireHostFilesStepsOK(t, said, err)
+	if err != nil && strings.Contains(err.Error(), "write_login_rc") {
+		t.Fatalf("write_login_rc failed: %v", err)
+	}
+	if got := readOrAbsent(t, filepath.Join(f.home, ".zshenv")); got != "alias ll='ls -l'\n" {
+		t.Errorf("~/.zshenv reads %q, want the entry's bytes", got)
+	}
+	if got := readOrAbsent(t, filepath.Join(f.sidecar("a"), "config", "yolo-home", entry.Slug())); got != "alias ll='ls -l'\n" {
+		t.Errorf("the workspace's own copy holds %q, want the entry's bytes", got)
+	}
+}

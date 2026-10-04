@@ -133,6 +133,9 @@ type DarwinHomeLayout struct {
 	// (DarwinHomeLayout.homeFileThroughLayout), so a link planted at
 	// <sidecar>/config/yolo-home is refused there rather than followed by this unconfined
 	// process.
+	//
+	// None is laid at a file the bootstrap writes itself (DarwinLoginRCFiles), where podman's
+	// skeleton does lay one: that is the one home-root entry the two backends link differently.
 	HostFileRedirects []DarwinHomeLink
 }
 
@@ -610,6 +613,10 @@ func darwinHomeLayoutFor(e *Env, packs []*packload.Pack) (DarwinHomeLayout, bool
 // same rule for core's three files). packs are the launch's selected packs, the ones the
 // launcher's staging decision read.
 //
+// THE ONE EXCEPTION is a file this bootstrap itself writes by path on every launch,
+// DarwinLoginRCFiles: it stays a real account-home file, as before this layout linked any
+// host_files entry (HT-D12).
+//
 // A layout with no sidecar gains nothing: an install capture's staging home has no workspace
 // tier for the link to resolve into (DarwinHomeSidecarEnv).
 func (l DarwinHomeLayout) WithHostFileRedirects(entries []config.HostFileEntry, packs []*packload.Pack) DarwinHomeLayout {
@@ -617,8 +624,9 @@ func (l DarwinHomeLayout) WithHostFileRedirects(entries []config.HostFileEntry, 
 		return l
 	}
 	l.HostFileRedirects = nil
+	ownWrites := DarwinLoginRCFiles()
 	for _, entry := range entries {
-		if entry.StagingFor(packs) != config.HostFileStagingSymlink {
+		if entry.StagingFor(packs) != config.HostFileStagingSymlink || slices.Contains(ownWrites, entry.Path) {
 			continue
 		}
 		l.HostFileRedirects = append(l.HostFileRedirects, DarwinHomeLink{
@@ -628,6 +636,21 @@ func (l DarwinHomeLayout) WithHostFileRedirects(entries []config.HostFileEntry, 
 	}
 	return l
 }
+
+// DarwinLoginRCFiles are the home-root files the macos-user bootstrap writes BY PATH on every
+// launch, WriteLoginRC's three login rc files, which config validation reserves for no
+// backend. WithHostFileRedirects lays no host_files link at one of them, and that is what
+// keeps every workspace bootable: a link laid there by the one workspace that declares the
+// entry is left by every other launch (P2), and WriteLoginRC's write followed it into the
+// sidecar of whichever workspace launched next, where `.config/yolo-home` need not exist —
+// a fatal ENOENT in a workspace that declared nothing (macos-user-home-tiers.md HT-D12).
+//
+// The host_files step refuses an entry naming one of them (hostFileDestination, HT-D13): that
+// write would replace it before any shell read it.
+//
+// ⚠ WriteLoginRC (darwin.go) still spells the three names itself;
+// TestDarwinLoginRCFilesAreTheFilesWriteLoginRCWrites runs it and fails when the two differ.
+func DarwinLoginRCFiles() []string { return []string{".zprofile", ".zshrc", ".bash_profile"} }
 
 // DarwinSidecar returns this Env's workspace sidecar (<workspace>/.yolo/home), or "" when
 // the launcher named none.

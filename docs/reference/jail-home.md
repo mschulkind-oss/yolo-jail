@@ -266,10 +266,13 @@ all:
 That table is podman's, and its symlink row holds on macos-user too: the home layout lays the same
 relative link in the sandbox account home, from the same `StagingFor` and `SymlinkTarget` calls, so
 a home-root file lands in the workspace's own `.config` on both
-([HT-D9](macos-user-home-tiers.md#ht-d9)). The other two rows have no macos-user counterpart,
-because that home is writable as it stands: a destination under a layout link lands in the
-workspace, and one in a new top-level directory lands in the account home every workspace shares.
-Apple Container stages nothing: its whole home is the read-write workspace state dir, so every
+([HT-D9](macos-user-home-tiers.md#ht-d9)). The exception is the three login rc files the
+macos-user bootstrap writes itself on every launch, `.zprofile`, `.zshrc` and `.bash_profile`:
+they stay real files in the account home, and an entry naming one is refused there with the next
+step ([HT-D12](macos-user-home-tiers.md#ht-d12), [HT-D13](macos-user-home-tiers.md#ht-d13)). The
+other two rows have no macos-user counterpart, because that home is writable as it stands: a
+destination under a layout link lands in the workspace, and one in a new top-level directory lands
+in the account home every workspace shares. Apple Container stages nothing: its whole home is the read-write workspace state dir, so every
 destination is writable as it stands.
 
 > [!WARNING]

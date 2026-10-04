@@ -21,9 +21,12 @@ package entrypoint
 // gap that degrades to a warning here, not a crash.
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
+	"strings"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/agentcfg/manifest"
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
@@ -124,11 +127,37 @@ func hostFilesLayout(e *Env) (DarwinHomeLayout, bool) {
 //
 // What a path check cannot cover is stated on homeFileThroughLayout: a link swapped in between
 // this walk and the write, by a session of the same workspace running at the time.
+//
+// A LOGIN RC FILE IS REFUSED where a layout was laid (HT-D13). The bootstrap writes
+// DarwinLoginRCFiles itself later in this same boot (WriteLoginRC), so the entry's bytes would
+// be replaced before any shell read them, in every mode, and a `readonly` entry would leave the
+// shared account-home file 0444, which WriteLoginRC, running as the account that owns it, cannot
+// open for writing: every workspace's launch on the Mac would then fail. An entry that cannot be
+// delivered is an error here (the A12 ruling above), so the refusal names the next step instead.
 func hostFileDestination(e *Env, entry config.HostFileEntry, layout DarwinHomeLayout, laid bool) (string, error) {
 	if !laid {
 		return expandHomePath(e, "~/"+entry.Path), nil
 	}
+	if slices.Contains(DarwinLoginRCFiles(), entry.Path) {
+		return "", loginRCHostFileError(entry.Path)
+	}
 	return layout.homeFileThroughLayout(entry.Path)
+}
+
+// loginRCHostFileError is HT-D13's refusal: what yolo does with the file, why the entry cannot
+// reach it, and the one edit that clears it. zsh reads ~/.zshenv first, and nothing yolo writes
+// is named that, so a zsh entry has somewhere to go; bash's login file has no such sibling here
+// (bash reads only the first of .bash_profile, .bash_login and .profile, and ~/.bashrc is
+// yolo's on every backend).
+func loginRCHostFileError(rel string) error {
+	msg := fmt.Sprintf("on macos-user yolo writes ~/%s itself on every launch, to put the "+
+		"sandbox PATH back after macOS path_helper reorders it, so this entry would be "+
+		"replaced before any shell read it. Remove ~/%s from host_files", rel, rel)
+	if strings.HasPrefix(rel, ".z") {
+		msg += "; for zsh, declare ~/.zshenv instead, which zsh reads before ~/.zprofile and " +
+			"~/.zshrc and yolo does not write"
+	}
+	return errors.New(msg)
 }
 
 // stageHostFile renders or copies ONE entry. A directory entry is a recursive

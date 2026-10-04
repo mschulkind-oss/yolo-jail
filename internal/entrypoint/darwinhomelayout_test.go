@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 
@@ -756,6 +757,8 @@ func TestWithHostFileRedirectsLaysOnlyHomeRootFiles(t *testing.T) {
 	entries := []config.HostFileEntry{
 		npmrc,
 		plain,
+		// A login rc file WriteLoginRC writes by path: no link (HT-D12).
+		{Path: ".zshrc", Codec: "raw", HasContent: true, Mode: config.HostFileModeOnce},
 		{Path: ".config/mytool/c.json", Codec: "json", HasContent: true, Mode: config.HostFileModeOnce},
 		{Path: "hf/one.json", Codec: "json", HasContent: true, Mode: config.HostFileModeOnce},
 		{Path: "themes", Source: "/host/themes", IsDir: true, Mode: config.HostFileModeCopy},
@@ -788,5 +791,31 @@ func TestWithHostFileRedirectsLaysOnlyHomeRootFiles(t *testing.T) {
 	if _, err := os.Lstat(filepath.Join(sidecar, "config", "yolo-home")); !os.IsNotExist(err) {
 		t.Errorf("the layout created the host_files staging directory (err %v); it is the "+
 			"host_files step's to create, through the path it checked", err)
+	}
+}
+
+// TestDarwinLoginRCFilesAreTheFilesWriteLoginRCWrites: DarwinLoginRCFiles is the list
+// WithHostFileRedirects keeps links away from, and WriteLoginRC spells the same names itself. A
+// fourth rc file WriteLoginRC learns to write, missing from the list, would be one a workspace's
+// host_files link sends that write through into another workspace's sidecar (HT-D12). So the
+// writer is RUN, and the files it leaves in an empty home are compared with the list.
+func TestDarwinLoginRCFilesAreTheFilesWriteLoginRCWrites(t *testing.T) {
+	home := t.TempDir()
+	if err := WriteLoginRC(NewEnv(map[string]string{"HOME": home})); err != nil {
+		t.Fatal(err)
+	}
+	ents, err := os.ReadDir(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var wrote []string
+	for _, d := range ents {
+		wrote = append(wrote, d.Name())
+	}
+	want := DarwinLoginRCFiles()
+	slices.Sort(wrote)
+	slices.Sort(want)
+	if !slices.Equal(wrote, want) {
+		t.Errorf("WriteLoginRC wrote %v at the home root; DarwinLoginRCFiles is %v", wrote, want)
 	}
 }
