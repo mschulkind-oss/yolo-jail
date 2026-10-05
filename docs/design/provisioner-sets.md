@@ -64,6 +64,10 @@ reversed, and the user's nix is no longer a host provisioner yolo would install.
 [`PS-D8`](#PS-D8) records the fix for the defect [`OQ-PS9`](#OQ-PS9)'s answer named, also built
 that day: `detectManager` probes nix instead of returning it by elimination. [`OQ-PS11`](#OQ-PS11) and the
 rename it gates, [`OQ-PS5`](#OQ-PS5), were restated with lettered options and stay open.
+**[`PS-D9`](#PS-D9), 2026-10-04, built [`OQ-PS14`](#OQ-PS14) (a) and [`OQ-PS15`](#OQ-PS15) (a) on
+their leanings** under the maintainer's 2026-10-04 delegation, for macos-user: each launch trusts
+the CAs this Mac's System keychain trusts for TLS, and names them. Both questions stay open, and
+their answers are the maintainer's; a ruling either way revises PS-D9.
 
 > **In short.** yolo already is a package manager — the corpus has held that position since
 > [`program-delivery.md` §6.3](program-delivery.md#63-installers-that-just-do-whatever-capture-the-install-then-treat-the-capture-as-the-package)
@@ -106,7 +110,7 @@ The survey that forced all of it — the inventory, the coverage matrix, the nix
 [`provisioner-evidence.md`](provisioner-evidence.md), and you need it to **check** the argument
 rather than to follow it.
 
-**Needs your ruling:** [`OQ-PS5`](#OQ-PS5) (asked only if [`OQ-PS11`](#OQ-PS11) is ruled (a)), [`OQ-PS7`](#OQ-PS7), [`OQ-PS11`](#OQ-PS11), [`OQ-NX4`](#OQ-NX4), [`OQ-NX8`](#OQ-NX8), [`OQ-PS14`](#OQ-PS14), [`OQ-PS15`](#OQ-PS15).
+**Needs your ruling:** [`OQ-PS5`](#OQ-PS5) (asked only if [`OQ-PS11`](#OQ-PS11) is ruled (a)), [`OQ-PS7`](#OQ-PS7), [`OQ-PS11`](#OQ-PS11), [`OQ-NX4`](#OQ-NX4), [`OQ-NX8`](#OQ-NX8), [`OQ-PS14`](#OQ-PS14) and [`OQ-PS15`](#OQ-PS15) (each built on its leaning as [`PS-D9`](#PS-D9), open to your revision).
 
 > [!NOTE]
 > **Scope note — this doc absorbed
@@ -1212,7 +1216,9 @@ The evidence, row by row:
   list: `HOME`, `USER`, `SHELL`, `PATH`, `MISE_DATA_DIR`, a copy of the login `PATH`, and the path of
   the session env file. That file adds terminal and color variables, git identity, pack `env` and
   `env_sources`, `NIX_REMOTE` and `NIX_CONFIG`, and `PKG_CONFIG_PATH` when `<profile>/lib/pkgconfig`
-  exists. The container's combined CA-bundle step is marked *"not ported"* on this backend. SOURCED:
+  exists. The container's combined CA-bundle step is marked *"not ported"* on this backend.
+  *(Until 2026-10-04: [`PS-D9`](#PS-D9) builds the bundle on the launch's host side, and the step's
+  darwin reason now says so.)* SOURCED:
   `sandboxEnvPairs` (`internal/macosuser/macosuser.go` lines 836-863), `MacosSandboxEnv`
   (`internal/macosuser/orchestrator.go` lines 210-227), `hostNixEnv`
   (`internal/macosuser/hostnix.go` lines 61-64), `ProfilePaths` (`internal/darwinpkg/darwinpkg.go`
@@ -1349,7 +1355,10 @@ offset 101852500, so it has a system-store path that can come back empty.
   `CLAUDE_CODE_CERT_STORE` (first at offset 98120540). Their macOS builds were not inspected.
 
 **How this doc leans to handle it.** This is the mechanism under option (a) of
-[`OQ-PS14`](#OQ-PS14), which holds the decision:
+[`OQ-PS14`](#OQ-PS14), which holds the decision. ✅ *Items 1 to 3 were built on 2026-10-04 as
+[`PS-D9`](#PS-D9), with two departures recorded there: no loophole CA is joined, since none reaches
+the macos-user sandbox, and a bundle the user's own env layers name wins for all five variables.
+Item 4 is deferred.*
 
 1. **Ask macOS where the tool can.** Go, mise and pip already do, and need nothing.
 2. **Copy where the tool cannot, fresh at every launch.** The yolo process that starts the sandbox
@@ -1409,7 +1418,8 @@ and disclosing any copy. The cost is unmeasured: one `security find-certificate`
 number, because the public roots come from Mozilla's bundle rather than from the system root store
 (INFERRED).
 
-⚠ **The container jail has the same gap, and this design does not close it.** Its combined bundle
+⚠ **The container jail has the same gap, and this design does not close it** ([`PS-D9`](#PS-D9)
+leaves it open too). Its combined bundle
 is built from the image's Mozilla bundle and the loophole CAs alone (`GenerateCABundle`,
 `internal/entrypoint/system.go`), so a host's corporate CA reaches no container jail either. That
 is outside this question, and is recorded here so it is not lost.
@@ -1523,8 +1533,8 @@ A sketch of the two new spellings, not a schema (the names are placeholders):
 | Variables | Shape | Fires when | Why |
 | :--- | :--- | :--- | :--- |
 | `PKG_CONFIG_PATH` | locator row: `lib/pkgconfig` and `share/pkgconfig`, each added when it exists | either directory exists | a fix to today's row, which misses zlib's `share/pkgconfig` ([§16.2](#162-what-each-library-does-on-macos-with-its-variable-unset)) |
-| `NIX_SSL_CERT_FILE`, `SSL_CERT_FILE`, `REQUESTS_CA_BUNDLE`, `CURL_CA_BUNDLE`, `GIT_SSL_CAINFO` | derived-file row: the CA bundle | every launch, if [`OQ-PS14`](#OQ-PS14) is ruled (a) | [§16.3](#163-the-corporate-certificate-trap) |
-| `NODE_EXTRA_CA_CERTS` | derived-file row: one PEM file holding the extra CAs alone | there is at least one | Node reads one file and adds it to its own roots |
+| `NIX_SSL_CERT_FILE`, `SSL_CERT_FILE`, `REQUESTS_CA_BUNDLE`, `CURL_CA_BUNDLE`, `GIT_SSL_CAINFO` | derived-file row: the CA bundle | every launch, if [`OQ-PS14`](#OQ-PS14) is ruled (a); ✅ built on that leaning as [`PS-D9`](#PS-D9) | [§16.3](#163-the-corporate-certificate-trap) |
+| `NODE_EXTRA_CA_CERTS` | derived-file row: one PEM file holding the extra CAs alone | there is at least one; ✅ built as [`PS-D9`](#PS-D9) | Node reads one file and adds it to its own roots |
 | `FONTCONFIG_FILE`, `FONTCONFIG_PATH` | derived-file row: `fonts.conf` | every launch | [§16.4](#164-fonts-a-generated-file-not-a-pointer) |
 
 The `share/pkgconfig` arm gets a `darwinpkg` test of its own, beside the one that pins
@@ -1555,16 +1565,17 @@ fontconfig, which would read a distro `fonts.conf` written for a different fontc
   names `<profile>/share/fonts`, and the CA bundle holds that launch's loophole CAs. Two
   concurrent launches would overwrite each other's copy. The host-side yolo also runs as the
   human, not as the sandbox account. The channel that already exists is the session env file:
-  `/var/yolo-jail/env/<session>.env`, where `<session>` is the per-workspace name the Seatbelt
-  profile and the staged pack tree are keyed by. It is root-owned, written through `sudo tee`,
+  `/var/yolo-jail/env/<session>.env`. `<session>` was the per-workspace name the staged pack tree
+  is keyed by, until two terminals in one workspace were found to share the file; since 2026-10-04
+  it is that name and an id each launch mints (`macosuser.SessionKey`), the key the Seatbelt
+  profile and both CA files are named by too. It is root-owned, written through `sudo tee`,
   with one read ACE (an access-control entry) for the sandbox account (`SandboxEnvFile`,
-  `SandboxEnvDirCommands`,
-  `internal/macosuser/envfile.go` lines 28-33 and 85-98). It is per session so that *"two
+  `SandboxEnvDirCommands`, `internal/macosuser/envfile.go`). It is per session so that *"two
   workspaces launching at once cannot read each other's composed environment"*, and read-only so
   the sandbox cannot choose its own environment. The derived files go beside it, keyed by the
   same session name, written the same way, with the same ACE, and swept with it. The variables reach
   the agent through the env file, the way `PKG_CONFIG_PATH` does
-  (`internal/macosuser/runplan.go` lines 302-316), and are set again after `/etc/zshenv` has run
+  (`internal/macosuser/runplan.go`), and are set again after `/etc/zshenv` has run
   ([§16.3](#163-the-corporate-certificate-trap), item 4). The font cache is the one exception
   ([§16.4](#164-fonts-a-generated-file-not-a-pointer)).
 - **Disclosed.** The launch names each variable it set. A launch has no quiet mode
@@ -1649,7 +1660,10 @@ from: stock, Determinate or nix-darwin. When a Mac session takes them, they belo
    ([§16.2](#162-what-each-library-does-on-macos-with-its-variable-unset)).
 8. Outside the sandbox,
    `time security find-certificate -a -p /Library/Keychains/System.keychain | wc -l`: the cost of
-   the export in [§16.3](#163-the-corporate-certificate-trap).
+   the export in [§16.3](#163-the-corporate-certificate-trap). Since [`PS-D9`](#PS-D9),
+   `TestTheSystemKeychainIsReadableWithoutSudo` (`internal/macosuser/cabundle_darwin_test.go`)
+   runs the launch's own export, filter and `verify-cert` calls on every check-macos run and logs
+   the counts and the time each took.
 
 ---
 
@@ -2595,6 +2609,10 @@ that does not name the URL, and a `#!` script with a NUL byte in its first KiB r
 
 #### Background to [OQ-PS14](#OQ-PS14)
 
+> **Built on the leaning, 2026-10-04:** (a), as [`PS-D9`](#PS-D9), under the maintainer's
+> delegation. The answer above stays the maintainer's to give, and a ruling either way revises
+> PS-D9. The "today" below is the state before it.
+
 **Setup.** Sam's employer runs Zscaler, which decrypts HTTPS traffic and re-signs it with its
 own certificate, and its MDM put "Zscaler Root CA" into the Mac's System keychain. Sam runs
 `yolo` on the macos-user backend, and the agent runs `git clone https://github.com/…` or
@@ -2641,6 +2659,10 @@ facts differently.
   rotates the CA.
 
 #### Background to [OQ-PS15](#OQ-PS15)
+
+> **Built on the leaning's first half, 2026-10-04:** (a), as part of [`PS-D9`](#PS-D9): the launch
+> reads the System keychain alone. Naming a login-keychain-only CA it left out, and the opt-in, are
+> not built. The answer above stays the maintainer's to give.
 
 **Setup.** Lee trusted a staging server's CA by double-clicking it in Keychain Access, so it
 sits in Lee's login keychain marked "Always Trust". The macos-user agent runs as a different
@@ -2748,3 +2770,4 @@ inherited from the retired doc with their rulings intact.
 | <a id="PS-D6"></a>PS-D6 | *Implementation decision, reversible, inside [`PS-D4`](#PS-D4)'s open choice:* **the body check keeps two implementations, held to one table.** The jail's launcher keeps its shell check (`_installer_body_kind`), and the host's remedy runs a Go one (`internal/installerbody`, through `yolo internal installer-check`). `installerbody.Fixtures` is the table both answer to, and a parity test cuts the shell function out of the rendered launcher and runs every fixture through both. **Why:** the launcher's check must work where no `yolo` is on the PATH and under macOS's stock bash 3.2, so a shell copy stays whatever the host does, and the host cannot use that copy, because the prompt prints the exact command and a forty-line shell function inside it is not a command anyone can read before answering. One table catches a rule changed in one copy and not the other, which is the drift a second implementation risks. The host remedy spells the check as bare `yolo`, found on the PATH the install runs with; where there is none, the `&&` chain runs nothing | 2026-09-30 | [`OQ-PS13`](#OQ-PS13) |
 | <a id="PS-D7"></a>PS-D7 | *Implementation decision, reversible, inside [`PS-D1`](#PS-D1):* **the jail's launcher asks whether `yolo internal no-terminal` exists before running its installer through it**, by running `yolo internal no-terminal -- true`. Where no `yolo` has the verb, the installer keeps its `/dev/null` stdin, loses only the terminal half, and the launcher prints one line saying so. The verb forwards an interrupt, terminate or hangup to the installer while it waits, since a process in its own session no longer gets the terminal's Ctrl-C, and when the installer dies of one it forwarded, the verb dies of that signal too (`notty.WrapperExit`): bash abandons a script on a Ctrl-C only when the command it waits on died of SIGINT, so a verb that exited 130 instead let the launcher go on to its stamp, an update receipt and the agent. For the same reason the host's dependency gate stops the run at an install a forwarded signal ended (`notty.Stopped`), with that signal's status and nothing written, rather than re-probing and carrying on. **Why:** a shell cannot drop its controlling terminal itself, and `setsid(1)` is not on a stock Mac, so the detach is yolo's. The jail's own `yolo` is the launcher's build on both backends, so the probe costs one process start on a path that downloads a vendor script anyway, while a `yolo` older than the launcher (a test host, a skewed install) would otherwise leave the installer never run. ⚠ **Narrowed 2026-10-01 by [`OQ-PD22`](program-delivery.md#decision-ledger)** for an UPDATE on the jail's launch path: there a Ctrl-C ends the installer re-run (or the update verb) and the launcher runs the installed version, saying so, with no receipt for what the stopped installer left. A Ctrl-C at a cold install, which has nothing to run, still ends the launcher | 2026-09-30 · narrowed 2026-10-01 | [`OQ-PS8`](#OQ-PS8) |
 | <a id="PS-D8"></a>PS-D8 | *Implementation decision, reversible, fixing the defect [`OQ-PS9`](#OQ-PS9)'s answer names:* **`detectManager` probes `nix` last, on the caller's lookup like every other manager, and returns no manager when it finds none.** It used to return `nix` by elimination, so on a host with none of brew, apt, dnf or pacman, `yolo check-deps` and `yolo host apply` offered `nix profile install` (as the remedy, or as the alternative beside a pack's own installer) while `yolo check` reported nix missing. With no manager, a hint is never the remedy: a pack's own installer still leads, with no package-manager alternative, and a binary with only hints is missing with no remedy, its line saying no package manager yolo knows is on the PATH (`depcheck.NoManager`, which both reports print). A binary declaring no hint at all keeps its no-hint line in both reports, since no manager would install it. The probe order is unchanged, so a host with another manager gets the same answer as before. **Why:** a remedy may not name a manager the host lacks, and that needs no ruling. Whether the no-manager line should go on to help install nix is [`OQ-PS9`](#OQ-PS9)'s *yes in principle, not now*, so it says only what is missing. **Built 2026-09-30** (`internal/depcheck`; `TestApplyHostOffersNoManagerThePathLacks` and `TestCheckDepsOffersNoManagerThePathLacks` drive both reports) | 2026-09-30 | [`OQ-PS9`](#OQ-PS9) |
+| <a id="PS-D9"></a>PS-D9 | *Implementation decision, taken under the maintainer's 2026-10-04 delegation ("make them and build it … adjust later"); reversible. Built on the leanings of [`OQ-PS14`](#OQ-PS14) (a) and [`OQ-PS15`](#OQ-PS15) (a), whose answers stay the maintainer's.* **A macos-user launch trusts the certificate authorities this Mac's System keychain trusts for TLS, and names them.** At every launch, after the native build, the host-side yolo reads `/Library/Keychains/System.keychain` with `security find-certificate -a -p`, as the invoking user: the file is world-readable, so no sudo, and no keychain is ever written; both Seatbelt keychain denies stay. It keeps each unexpired CA whose extended key usage is absent, TLS server or any, and then each one `security verify-cert -l -L -R offline -p ssl` accepts (Homebrew's filter). It writes, beside the session env file and named by the session's key, a bundle of the tool profile's `etc/ssl/certs/ca-bundle.crt` plus the kept CAs, and a file of the kept CAs alone, the env file's way (`sudo tee` into the 0700 `env` dir, then one read ACE for the sandbox account), and removes both when the session ends; the sweep of an ended session's files removes them too. `NIX_SSL_CERT_FILE`, `SSL_CERT_FILE`, `REQUESTS_CA_BUNDLE`, `CURL_CA_BUNDLE` and `GIT_SSL_CAINFO` name the bundle, or the profile's own bundle when the keychain added nothing, and `NODE_EXTRA_CA_CERTS` names the second file only when there is one, a single path, never a list. The launch prints `Trusting N certificate authorities from this Mac's System keychain: <name>, …` with the variables that name the bundle, or one dim line when it trusts the public roots alone. The provisioning stage reads the same env file, so its `mise install` and npm fetches trust the same CAs; an install capture with a tool profile writes the same files and variables (`yolo capture` passes none today). **Two departures from [§16.3](#163-the-corporate-certificate-trap)'s mechanism.** No loophole CA is joined: none reaches the macos-user sandbox today, since the container's crosses as a mount and an `-e NODE_EXTRA_CA_CERTS` argument the container argv assembly adds (`loopholesRuntimeArgs`), which the macos-user arm does not call (READ FROM CODE). And a bundle the launch's own env layers name (`env_sources`, a profile or a pack) wins for ALL FIVE: when they set any of the five, every one they left unset takes the first such value in that order, and the session's bundle is not written. Each tool reads its own variable first (nix's OpenSSL `NIX_SSL_CERT_FILE` before `SSL_CERT_FILE`, curl `CURL_CA_BUNDLE`, git `GIT_SSL_CAINFO`, requests `REQUESTS_CA_BUNDLE`), so a default of ours under a user's one variable would be what those tools read instead of it. That was the first build's rule, and it broke a user's `SSL_CERT_FILE`, which had worked before this decision, when no launch set any of the five. MEASURED 2026-10-05 in a Linux jail against a private CA served on loopback, with nix curl 8.22 (OpenSSL 3.6.4), git 2.55 and `openssl s_client`: `SSL_CERT_FILE` alone, naming the CA, verifies in all three; the same with the other four naming the public roots fails verification in all three; all five naming the CA verifies in all three. `NODE_EXTRA_CA_CERTS` is none of the five, since Node adds that file to its own roots, so it still names the keychain's CAs, as a default. The container still sets its four independently, under the user's env file, so the same trap is open there for a user who sets `SSL_CERT_FILE` alone; that is the container half, deferred with it below. **Failures.** A keychain that cannot be read warns, names `env_sources` (set `SSL_CERT_FILE`, which the other four follow, and `NODE_EXTRA_CA_CERTS` for Node), and still points the variables at the profile's public roots; it never refuses. A profile with no bundle sets no variable and says so. A CA file that cannot be written or granted refuses the launch, as the env file does, since the env file already names it, and says to run it again and that `yolo run --dry-run` prints every privileged command. **Deferred, each recorded and unbuilt:** setting the variables again after a nix-darwin `/etc/zshenv` ([§16.3](#163-the-corporate-certificate-trap) item 4); the login-keychain opt-in and the line naming what it left out ([`OQ-PS15`](#OQ-PS15) (b) and (c)); the container jail's half; and the colon-joined `NODE_EXTRA_CA_CERTS` the container launcher emits for two loophole CAs (`internal/loopholes/runtime.go`). UNMEASURED on a Mac: the macOS CI test that installs a trusted root and curls through it (`TestMacosUserTrustsSystemKeychainCA`, `integration/macosusercatrust_test.go`) needs a dispatch, and Determinate, nix-darwin and a real MDM CA with git, Node and uv are a human's | 2026-10-04 | [§16.3](#163-the-corporate-certificate-trap), [§16.5](#165-the-extension-point-declared-rows); ✅ `internal/macosuser/cabundle.go` (`ComposeCATrust`, `applyCATrust`, `printCATrust`), its call sites in `RunMacosUser` and `RunCapturePlan`; pinned by `internal/macosuser/cabundle_test.go`, each call site mutation-checked |

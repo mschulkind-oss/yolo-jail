@@ -20,10 +20,18 @@ import (
 // RunPlan is the fully-resolved, ordered artifacts + commands for one session.
 // real gate rather than a pretty-printer.
 type RunPlan struct {
-	Workspace   string
+	Workspace string
+	// Cname is the WORKSPACE's container name: the launch lock and the staged trees are keyed
+	// by it, and shared by every session of the workspace. SessionID is this session's own id
+	// (SessionPlaceholder in a plan no launch minted one for), and SessionKey(Cname, SessionID)
+	// names every root-owned file only this session writes: its profile, its env and daemons env
+	// files and its CA files (sessionfiles.go).
 	Cname       string
+	SessionID   string
 	ProfilePath string
 	Seatbelt    string
+	// ProfileRemoveCommands remove the session's Seatbelt profile when the session ends.
+	ProfileRemoveCommands [][]string
 	// StagedDir is the root-owned state dir; StagedYolo is the staged yolo
 	// binary the sandbox self-execs. StageCommands stage that binary
 	// (fresh-inode copy).
@@ -96,13 +104,25 @@ type RunPlan struct {
 	EnvFileCommands       [][]string
 	EnvFileGrantCommands  [][]string
 	EnvFileRemoveCommands [][]string
-	GitIdentity           *jsonx.OrderedMap
-	OffendingHome         string // "" when on neutral ground
-	OffendingHomeSet      bool   // true when a home contains the workspace
-	DarwinPathPrefix      []string
-	DarwinEnv             *jsonx.OrderedMap
-	DarwinSkipped         []string
-	DarwinMaterialized    bool
+	// CATrust is the TLS trust this launch composed (cabundle.go): the zero value composed none.
+	// CABundleFile and CAExtrasFile are the session's two CA files beside the env file, with what
+	// to write into each, each "" when no variable names it: the variables name the tool
+	// profile's own bundle, the launch's env layers named a bundle of their own, or nothing was
+	// composed. EnvFileRemoveCommands sweep both. CAFollows is the bundle variable those layers
+	// set, which the other four then name too (applyCATrust), or "".
+	CATrust            CATrust
+	CABundleFile       string
+	CABundleContent    string
+	CAExtrasFile       string
+	CAExtrasContent    string
+	CAFollows          string
+	GitIdentity        *jsonx.OrderedMap
+	OffendingHome      string // "" when on neutral ground
+	OffendingHomeSet   bool   // true when a home contains the workspace
+	DarwinPathPrefix   []string
+	DarwinEnv          *jsonx.OrderedMap
+	DarwinSkipped      []string
+	DarwinMaterialized bool
 	// NixClientDir is the host nix client's store bin dir when this launch put one on the
 	// sandbox PATH (it is also the last entry of DarwinPathPrefix), "" when it did not.
 	NixClientDir string
@@ -295,7 +315,16 @@ func DarwinBootstrapArgv(stagedYolo, home string, bootstrapEnv *jsonx.OrderedMap
 // section (core blocks nothing by default). `darwin` may be nil.
 func BuildRunPlan(workspace string, cfg *jsonx.OrderedMap, agents, agentArgv []string, selfExe, hostPackRoot string, hostHomeOverlay HomeOverlay, hostCtx HostContext, sandboxEnv *jsonx.OrderedMap, darwin *Darwin, blockedTools []packload.BlockedTool) RunPlan {
 	return BuildRunPlanWithDaemons(workspace, cfg, agents, agentArgv, selfExe, hostPackRoot,
-		hostHomeOverlay, hostCtx, sandboxEnv, darwin, blockedTools, JailDaemons{}, FloorStage{})
+		hostHomeOverlay, hostCtx, sandboxEnv, darwin, blockedTools, JailDaemons{}, FloorStage{},
+		PlanSession{})
+}
+
+// PlanSession is what the orchestrator minted and composed for ONE session, beside the
+// workspace's inputs: its id (sessionfiles.go; "" is SessionPlaceholder) and its TLS trust
+// (cabundle.go; the zero value composes none).
+type PlanSession struct {
+	ID      string
+	CATrust CATrust
 }
 
 // sandboxPathPrefix is the store bin dirs this launch puts on the sandbox PATH, in order: the
@@ -317,10 +346,12 @@ func sandboxPathPrefix(darwin *Darwin) []string {
 }
 
 // BuildRunPlanWithDaemons is BuildRunPlan plus the jail daemons this launch runs in the guest
-// (jaildaemon.go) and the host's answer to whether a declared Node floor starts the provisioning
-// stage (FloorStage, AR-L3). The orchestrator's buildPlan calls this one; BuildRunPlan is the plan
-// of a launch that runs no daemon and whose floors, if any, the host showed met.
-func BuildRunPlanWithDaemons(workspace string, cfg *jsonx.OrderedMap, agents, agentArgv []string, selfExe, hostPackRoot string, hostHomeOverlay HomeOverlay, hostCtx HostContext, sandboxEnv *jsonx.OrderedMap, darwin *Darwin, blockedTools []packload.BlockedTool, jailDaemons JailDaemons, floors FloorStage) RunPlan {
+// (jaildaemon.go), the host's answer to whether a declared Node floor starts the provisioning
+// stage (FloorStage, AR-L3), and what the launch minted and composed for this one session
+// (PlanSession). The orchestrator's buildPlan calls this one; BuildRunPlan is the plan of a
+// launch that runs no daemon, whose floors, if any, the host showed met, and that no launch
+// minted a session for.
+func BuildRunPlanWithDaemons(workspace string, cfg *jsonx.OrderedMap, agents, agentArgv []string, selfExe, hostPackRoot string, hostHomeOverlay HomeOverlay, hostCtx HostContext, sandboxEnv *jsonx.OrderedMap, darwin *Darwin, blockedTools []packload.BlockedTool, jailDaemons JailDaemons, floors FloorStage, session PlanSession) RunPlan {
 	// SYMLINK-RESOLVED ONCE, HERE, BECAUSE THE KERNEL RESOLVES BEFORE THE POLICY IS CONSULTED.
 	// Measured on hardware 2026-09-13 (declaration-parity.md §6.1's probe 2): a profile denying
 	// `(subpath "/tmp")` does not stop `touch /tmp/canary`, while one denying
@@ -379,7 +410,15 @@ func BuildRunPlanWithDaemons(workspace string, cfg *jsonx.OrderedMap, agents, ag
 	}
 
 	cname := cnameFor(workspace)
-	profilePath := SessionProfilePath(cname, "")
+	// THE SESSION'S OWN NAMES (sessionfiles.go): every root-owned file only this session writes
+	// is named by its key, never by the workspace's cname, which every terminal in the workspace
+	// shares.
+	sessionID := session.ID
+	if sessionID == "" {
+		sessionID = SessionPlaceholder
+	}
+	sessionKey := SessionKey(cname, sessionID)
+	profilePath := SessionProfilePath(sessionKey, "")
 
 	// Git identity = the sandbox-env keys prefixed YOLO_GIT.
 	gitIdentity := jsonx.NewOrderedMap()
@@ -485,10 +524,14 @@ func BuildRunPlanWithDaemons(workspace string, cfg *jsonx.OrderedMap, agents, ag
 	// whenever this launch composed anything at all — a workspace with no env_sources, no
 	// profile and no git identity composes an empty map, and then there is no file, no
 	// directory to prepare and no wrapper on either argv.
+	//
+	// THE TLS VARIABLES first (cabundle.go), each a default under the caller's layers, so the file
+	// carries them and names the session's own CA files.
+	sandboxEnv, caBundleFile, caExtrasFile, caFollows := applyCATrust(sandboxEnv, session.CATrust, sessionKey)
 	envFile := ""
 	envFileContent := SandboxEnvFileContent(sandboxEnv)
 	if envFileContent != "" {
-		envFile = SandboxEnvFile(cname, "")
+		envFile = SandboxEnvFile(sessionKey, "")
 		// AND THE BOOTSTRAP IS TOLD WHERE IT IS, by path and never by value: the launch writes
 		// the file before the bootstrap runs (orchestrator.go, step 2.5), and the bootstrap
 		// reads it into its generator Env only (entrypoint's hydrate_session_env step), so the
@@ -545,7 +588,7 @@ func BuildRunPlanWithDaemons(workspace string, cfg *jsonx.OrderedMap, agents, ag
 	guestSource, daemonEnvFile, daemonEnvContent, supervisorLog := "", "", "", ""
 	if len(daemonNames) > 0 {
 		guestSource = jailDaemons.GuestBinSource
-		daemonEnvFile = SandboxDaemonEnvFile(cname, "")
+		daemonEnvFile = SandboxDaemonEnvFile(sessionKey, "")
 		daemonEnvContent = SandboxEnvFileContent(jailDaemons.Env)
 		supervisorLog = SupervisorLogPath(workspace)
 		jailDaemonArgv = JailDaemonArgv(profilePath, daemonEnvFile, supervisorLog, "", "", darwinPrefix)
@@ -561,10 +604,18 @@ func BuildRunPlanWithDaemons(workspace string, cfg *jsonx.OrderedMap, agents, ag
 	// config's target included wherever it sits (workspacereadonly.go).
 	readonlyRels, readonlyTargets := workspaceReadonlyRels(workspace, cfg)
 
+	caBundleContent, caExtrasContent := caTrustContents(session.CATrust, caBundleFile, caExtrasFile)
+	envFileRemove := SandboxEnvRemoveCommands(envFile)
+	for _, f := range []string{caBundleFile, caExtrasFile} {
+		envFileRemove = append(envFileRemove, SandboxEnvRemoveCommands(f)...)
+	}
+
 	return RunPlan{
-		Workspace:   workspace,
-		Cname:       cname,
-		ProfilePath: profilePath,
+		Workspace:             workspace,
+		Cname:                 cname,
+		SessionID:             sessionID,
+		ProfilePath:           profilePath,
+		ProfileRemoveCommands: [][]string{{rmBin, "-f", profilePath}},
 		// workspace_readonly and its config lock, each raw-path `devices` entry's ioctl
 		// carve-out (devices.go), and macos_log, whose "off" is a deny (SeatbeltProfile).
 		Seatbelt: seatbeltProfile(workspace, SandboxHome(), readonlyRels, readonlyTargets,
@@ -603,7 +654,14 @@ func BuildRunPlanWithDaemons(workspace string, cfg *jsonx.OrderedMap, agents, ag
 		EnvFileContent:        envFileContent,
 		EnvFileCommands:       SandboxEnvDirCommands(envFile, ""),
 		EnvFileGrantCommands:  SandboxEnvGrantCommands(envFile, ""),
-		EnvFileRemoveCommands: SandboxEnvRemoveCommands(envFile),
+		EnvFileRemoveCommands: envFileRemove,
+
+		CATrust:         session.CATrust,
+		CABundleFile:    caBundleFile,
+		CABundleContent: caBundleContent,
+		CAExtrasFile:    caExtrasFile,
+		CAExtrasContent: caExtrasContent,
+		CAFollows:       caFollows,
 
 		GitIdentity:        gitIdentity,
 		OffendingHome:      offendingHome,
@@ -1391,6 +1449,7 @@ func PlanInvariants(plan RunPlan) []string {
 	}
 
 	problems = append(problems, jailDaemonInvariants(plan)...)
+	problems = append(problems, sessionFileInvariants(plan)...)
 	return problems
 }
 
@@ -1844,6 +1903,11 @@ func cfgStrList(cfg *jsonx.OrderedMap, key string) []string {
 		}
 	}
 	return out
+}
+
+// caTrustFilePlans are the plan's CA files as installable files (cabundle.go).
+func (p RunPlan) caTrustFilePlans() []sessionFilePlan {
+	return caTrustFiles(p.EnvFile, p.CABundleFile, p.CABundleContent, p.CAExtrasFile, p.CAExtrasContent)
 }
 
 // envFile and envFileCommands make a RunPlan a sandboxEnvPlan (envfile.go).

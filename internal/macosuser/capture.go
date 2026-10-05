@@ -170,6 +170,11 @@ type CaptureOptions struct {
 	// no real launch ever has, which is the one difference between the two homes this file
 	// exists to prevent (see the bootstrap paragraph in the file comment).
 	BlockedTools []packload.BlockedTool
+	// CATrust is the TLS trust the capture runs its installer under (cabundle.go): the same
+	// composition a launch makes, so an installer behind a corporate CA reaches its CDN as the
+	// launch's own tools do. RunCaptureAct composes it when the capture has a tool profile
+	// (Darwin), which `yolo capture` does not pass today; the zero value composes none.
+	CATrust CATrust
 }
 
 // CapturePlan is the fully-resolved, ordered artifacts + commands for one install capture — the
@@ -206,7 +211,17 @@ type CapturePlan struct {
 	EnvFileContent       string
 	EnvFileCommands      [][]string
 	EnvFileGrantCommands [][]string
-	DarwinPathPrefix     []string
+	// CATrust is the TLS trust the capture composed (CaptureOptions.CATrust). CABundleFile and
+	// CAExtrasFile are its CA files beside its env file, with what to write into each
+	// (cabundle.go); each "" when no variable names it. CleanupCommands remove both. CAFollows is
+	// the bundle variable the capture's env set, which the other four then name too, or "".
+	CATrust          CATrust
+	CABundleFile     string
+	CABundleContent  string
+	CAExtrasFile     string
+	CAExtrasContent  string
+	CAFollows        string
+	DarwinPathPrefix []string
 	// OffendingHome is the user home containing StagingRoot, when there is one — the same
 	// neutral-ground check a launch makes about its workspace, applied to the staging tree.
 	OffendingHome    string
@@ -271,8 +286,13 @@ func BuildCapturePlan(opts CaptureOptions) CapturePlan {
 	// what keeps a capture from reading (or sweeping) the environment of a session running
 	// beside it. Its REMOVAL rides CaptureCleanupCommands rather than a list of its own,
 	// because a capture already sweeps everything it created in one deferred call.
+	//
+	// THE TLS VARIABLES, as a launch sets them (cabundle.go): defaults under the composed env, and
+	// the capture's own CA files beside its env file, keyed on the same cname.
+	sandboxEnv, caBundleFile, caExtrasFile, caFollows := applyCATrust(opts.SandboxEnv, opts.CATrust, cname)
+	caBundleContent, caExtrasContent := caTrustContents(opts.CATrust, caBundleFile, caExtrasFile)
 	envFile := ""
-	envFileContent := SandboxEnvFileContent(opts.SandboxEnv)
+	envFileContent := SandboxEnvFileContent(sandboxEnv)
 	if envFileContent != "" {
 		envFile = SandboxEnvFile(cname, "")
 		// Named to the bootstrap by path, as a launch names it (BuildRunPlanWithDaemons): the
@@ -295,8 +315,9 @@ func BuildCapturePlan(opts CaptureOptions) CapturePlan {
 		PrepareCommands: CaptureStagingCommands(stagingRoot, opts.HostUser),
 		StageCommands: append(StageBinaryCommands(opts.SelfExe, ""),
 			StagePackCommands(opts.HostPackRoot, cname, "")...),
-		CleanupCommands: append(CaptureCleanupCommands(stagingRoot, profilePath),
-			SandboxEnvRemoveCommands(envFile)...),
+		CleanupCommands: append(append(append(CaptureCleanupCommands(stagingRoot, profilePath),
+			SandboxEnvRemoveCommands(envFile)...), SandboxEnvRemoveCommands(caBundleFile)...),
+			SandboxEnvRemoveCommands(caExtrasFile)...),
 		BootstrapArgv: DarwinBootstrapArgv(stagedYolo, stagingHome, bootstrapEnv, ""),
 		DriverArgv: CaptureDriverArgv(stagedYolo, stagingHome, outDir, opts.Bin, profilePath,
 			envFile, darwinPrefix),
@@ -304,6 +325,12 @@ func BuildCapturePlan(opts CaptureOptions) CapturePlan {
 		EnvFileContent:       envFileContent,
 		EnvFileCommands:      SandboxEnvDirCommands(envFile, ""),
 		EnvFileGrantCommands: SandboxEnvGrantCommands(envFile, ""),
+		CATrust:              opts.CATrust,
+		CABundleFile:         caBundleFile,
+		CABundleContent:      caBundleContent,
+		CAExtrasFile:         caExtrasFile,
+		CAExtrasContent:      caExtrasContent,
+		CAFollows:            caFollows,
 		DarwinPathPrefix:     darwinPrefix,
 		OffendingHome:        offendingHome,
 		OffendingHomeSet:     offendingSet,
@@ -686,6 +713,11 @@ func RunCapturePlan(deps Deps, plan CapturePlan) int {
 	if !installSandboxEnvFile(deps, out, plan) {
 		return 1
 	}
+	// Its CA files, which its env file names, on the launch's terms (cabundle.go); removed by
+	// CleanupCommands too.
+	if !installCATrustFiles(deps, out, plan.caTrustFilePlans()) {
+		return 1
+	}
 	if deps.Run(plan.BootstrapArgv) != 0 {
 		out.print("[bold red]capture bootstrap failed[/bold red] — the staging home has no " +
 			"generated launcher, so there is nothing for the capture to run. Aborting.")
@@ -750,6 +782,16 @@ func PrintCapturePlan(w io.Writer, plan CapturePlan, problems []string) {
 	for _, cmd := range plan.EnvFileGrantCommands {
 		p.print("  sudo " + shquote.JoinDisplay(cmd))
 	}
+	for _, f := range plan.caTrustFilePlans() {
+		for _, cmd := range f.dir {
+			p.print("  sudo " + shquote.JoinDisplay(cmd))
+		}
+		p.printf("  sudo %s %s  [dim](content on stdin, never argv)[/dim]", teeBin, shquote.QuoteDisplay(f.path))
+		p.printf("  sudo %s 0600 %s", chmodBin, shquote.QuoteDisplay(f.path))
+		for _, cmd := range f.grant {
+			p.print("  sudo " + shquote.JoinDisplay(cmd))
+		}
+	}
 	p.print("")
 	p.print("[bold]── capture Seatbelt profile ──[/bold]")
 	p.print(strings.TrimRight(plan.Seatbelt, "\n"))
@@ -802,6 +844,11 @@ func RunCaptureAct(deps Deps, opts CaptureOptions, dest string, dryRun bool) int
 	if opts.HostUser == "" && deps.HostUser != nil {
 		opts.HostUser = deps.HostUser()
 	}
+	// The TLS trust a launch would compose, when the capture has a tool profile to compose it from
+	// (cabundle.go). A read of the host, so never in a dry run.
+	if !dryRun {
+		opts.CATrust = ComposeCATrust(deps, opts.Darwin)
+	}
 	plan := BuildCapturePlan(opts)
 	if dryRun {
 		PrintCapturePlan(deps.Out, plan, CapturePlanInvariants(plan))
@@ -810,6 +857,7 @@ func RunCaptureAct(deps Deps, opts CaptureOptions, dest string, dryRun bool) int
 		}
 		return 0
 	}
+	printCATrust(out, plan.CATrust, plan.EnvFileContent, plan.CABundleFile, plan.CAExtrasFile, plan.CAFollows)
 	rc := RunCapturePlan(deps, plan)
 	// Sweep whatever the run got as far as, INCLUDING on failure: a half-provisioned staging
 	// tree left behind would merge into the next capture's baseline. It runs after the move
@@ -847,6 +895,11 @@ func moveCaptureOut(src, dest string) error {
 			src, dest, CaptureRootDefault(), err)
 	}
 	return err
+}
+
+// caTrustFilePlans are the capture's CA files as installable files (cabundle.go).
+func (p CapturePlan) caTrustFilePlans() []sessionFilePlan {
+	return caTrustFiles(p.EnvFile, p.CABundleFile, p.CABundleContent, p.CAExtrasFile, p.CAExtrasContent)
 }
 
 // envFile and envFileCommands make a CapturePlan a sandboxEnvPlan (envfile.go).

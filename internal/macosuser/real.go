@@ -1,6 +1,8 @@
 package macosuser
 
 import (
+	"bytes"
+	"context"
 	"errors"
 	"os"
 	"os/exec"
@@ -11,6 +13,9 @@ import (
 	"sync"
 	"syscall"
 	"time"
+
+	"github.com/mschulkind-oss/yolo-jail/internal/paths"
+	"github.com/mschulkind-oss/yolo-jail/internal/shquote"
 )
 
 // This file holds the production ("real") backing for the Deps seams —
@@ -350,3 +355,50 @@ func (c *cappedBuffer) String() string {
 // jailDaemonStopGrace is how long the stop waits for the supervisor's own SIGTERM→5 s→SIGKILL
 // teardown (internal/supervisor) before killing what is left.
 const jailDaemonStopGrace = 10 * time.Second
+
+// SessionRecordsDir is where the production liveness records live (sessionfiles.go), beside the
+// per-workspace launch locks: <global storage>/locks/macos-user-sessions, a record per session
+// named <session key>.lock.
+func SessionRecordsDir() string {
+	return filepath.Join(paths.GlobalStorage(), "locks", sessionRecordLeaf)
+}
+
+// readSystemKeychainReal exports every certificate in the System keychain as PEM, as the invoking
+// user (systemKeychainExportArgv): the keychain file is world-readable, so this needs no sudo, and
+// it reads, never writes. A failure names the command, so the launch's warning gives the user
+// the one line that reproduces it.
+func readSystemKeychainReal() (string, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	var stdout, stderr bytes.Buffer
+	argv := systemKeychainExportArgv()
+	cmd := exec.CommandContext(ctx, argv[0], argv[1:]...)
+	cmd.Stdout, cmd.Stderr = &stdout, &stderr
+	if err := cmd.Run(); err != nil {
+		msg := strings.TrimSpace(stderr.String())
+		if msg == "" {
+			msg = err.Error()
+		}
+		return "", errors.New("`" + shquote.JoinDisplay(argv) + "`: " + msg)
+	}
+	return stdout.String(), nil
+}
+
+// verifyCAReal asks macOS whether it trusts one CA for TLS (verifyCAArgv, whose comment says what
+// each flag is for). The PEM goes through a private temporary file, since the tool takes a path.
+func verifyCAReal(pemBlock string) bool {
+	f, err := os.CreateTemp("", "yolo-ca-*.pem")
+	if err != nil {
+		return false
+	}
+	defer func() { _ = os.Remove(f.Name()) }()
+	if _, err := f.WriteString(pemBlock); err != nil {
+		_ = f.Close()
+		return false
+	}
+	if err := f.Close(); err != nil {
+		return false
+	}
+	argv := verifyCAArgv(f.Name())
+	return runWithTimeout(exec.Command(argv[0], argv[1:]...), 15*time.Second) == 0
+}

@@ -89,20 +89,14 @@ const sandboxEnvLeaf = "env"
 // (PlanInvariants' root-owned-state-dir check).
 const sandboxFileReadRights = "read,readattr,readextattr,readsecurity"
 
-// SandboxEnvFile is the per-session env file: <stateDir>/env/<cname>.env.
+// SandboxEnvFile is the per-session env file: <stateDir>/env/<key>.env.
 //
-// Per SESSION rather than per workspace, keyed the same way the Seatbelt profile and the
-// staged pack tree are (cnameFor the workspace), so two workspaces launching at once cannot
-// read each other's composed environment out of one file.
-func SandboxEnvFile(cname, sd string) string {
-	if sd == "" {
-		sd = stateDir
-	}
-	if cname == "" {
-		return ""
-	}
-	return sd + "/" + sandboxEnvLeaf + "/" + cname + ".env"
-}
+// Per SESSION: key is the session's (SessionKey: <cname>.<session id>, sessionfiles.go), the
+// same key its Seatbelt profile and daemons env file are named by. So two workspaces launching
+// at once cannot read each other's composed environment out of one file, and neither can two
+// terminals in one workspace, which a key of the workspace's cname alone let one session
+// rewrite, or remove, under the other.
+func SandboxEnvFile(key, sd string) string { return sessionEnvDirFile(key, sd, ".env") }
 
 // SandboxEnvFileContent renders the composed launch env as shell `export K='v'` lines.
 //
@@ -227,8 +221,11 @@ func SandboxEnvGrantCommands(envFile, user string) [][]string {
 }
 
 // SandboxEnvRemoveCommands delete the file. Best-effort at every call site: a session whose
-// agent exited must not be reported as failed because its env file could not be swept, and
-// the next launch of the same workspace overwrites the same path.
+// agent exited must not be reported as failed because its env file could not be swept. A
+// launch runs them through its teardown (sessionTeardown), so a removal that fails keeps the
+// session's liveness record, as a session that never reached its teardown does: either way the
+// next launch's sweep (sweepGoneSessions) removes the file, which the record names it to. The
+// install capture runs them in its own cleanup, on files keyed by its own staging root.
 func SandboxEnvRemoveCommands(envFile string) [][]string {
 	if envFile == "" {
 		return nil

@@ -14,6 +14,8 @@ covers:
   - internal/macosuser/runplan.go
   - internal/macosuser/envfile.go
   - internal/macosuser/macosuser.go
+  - internal/macosuser/sessionfiles.go
+  - internal/macosuser/cabundle.go
   - internal/entrypoint/darwinstage.go
   - internal/entrypoint/darwin.go
   - internal/entrypoint/darwinhomelayout.go
@@ -35,7 +37,10 @@ language server on any backend now, so that key no longer starts, feeds or is ch
 stage. The skip rule, the bootstrap's place in the stage and the installer-prompt warning were
 updated on 2026-09-30 for [AR-L3](agent-program-runtimes.md#ar-l3),
 [AR-L4](agent-program-runtimes.md#ar-l4) and
-[PS-D1](../design/provisioner-sets.md#PS-D1), read from code and unit tests only.
+[PS-D1](../design/provisioner-sets.md#PS-D1), read from code and unit tests only. The per-session
+file names, the liveness record and the CA files were added on 2026-10-04
+([`<session>`](#the-session-key), [PS-D9](../design/provisioner-sets.md#PS-D9)), read from code and
+unit tests only.
 
 A container jail gets its tools from two places: an image **floor** that exists before any
 config asks for anything, and an imperative **stage** that runs inside the jail before the
@@ -210,10 +215,13 @@ Two costs a user notices, both accepted rather than overlooked:
 The macos-user launch is five privileged steps, and the stage is the one added by this
 mechanism:
 
-1. the Seatbelt profile, installed root-owned (`0444`) at the session path, plus the staging
-   commands that copy the yolo binary, the pack tree, the home overlay and the `/ctx` tree;
+1. the Seatbelt profile, installed root-owned (`0444`) at the session path and removed when the
+   session ends, plus the staging commands that copy the yolo binary, the pack tree, the home
+   overlay and the `/ctx` tree;
 2. the **session env file** — everything this launch composed, root-owned `0600`, readable by
-   the sandbox account, swept on every exit path below it;
+   the sandbox account, swept on every exit path below it — and beside it the session's CA
+   files when this Mac's System keychain adds a CA and a variable names them
+   ([PS-D9](../design/provisioner-sets.md#PS-D9)), swept with it;
 3. the **darwin bootstrap** — `sudo --user=… /usr/bin/env -i … <staged yolo> internal
    darwin-bootstrap`, yolo's own generators, **with no `sandbox-exec`**;
 4. **the stage** — `runProvisionStage`, confined;
@@ -234,6 +242,32 @@ sudo --user=_yolojail /usr/bin/env -i YOLO_BYPASS_SHIMS=1 \
      /bin/sh -c '<source the session env file, then exec "$@">' <name> <env file> \
      /bin/bash -c '<the wrapped stage script>'
 ```
+
+<a id="the-session-key"></a>**`<session>` is the session key, `<cname>.<id>`** (`macosuser.SessionKey`,
+[`sessionfiles.go`](../../internal/macosuser/sessionfiles.go)): the workspace's container name and
+a 16-hex id the launch mints from `crypto/rand`, so two terminals in one workspace never write,
+read or remove one another's profile, env files or CA files. A *session* is the term
+`paths.HostServicesSessionPrefix` coins ([`paths.go`](../../internal/paths/paths.go)): one
+macos-user invocation of yolo, one sandbox and what was started for it, from launch to teardown.
+Each session holds an exclusive flock on a **liveness record**,
+`<global storage>/locks/macos-user-sessions/<session>.lock`, from before its first root-owned
+write until it returns. `<global storage>` is `~/.local/share/yolo-jail` in the home of the macOS
+user who launched it (`paths.GlobalStorage`), so each macOS user's records are their own, while the
+files they name sit in the one machine-wide `/var/yolo-jail/env`. When it ends it removes its own files and then the record; if one of
+those removals fails (its `sudo` not authenticating at the end of a long session, say), it keeps
+the record, lets its lock go, and warns with the `sudo rm -f` that removes every file it can
+leave, since once the session has ended the record is the only thing that names them. Every
+launch first sweeps the records its own macOS user's launches left, of every workspace: a record
+nobody holds is a session that ended without removing its files, and they are removed with one
+`sudo rm -f`; a record that is held, cannot be opened, or does not parse is kept, and so is one
+whose removal fails, with the same warning. So a killed session's files wait for the next
+macos-user launch by the same macOS user, and a session that warned it could not record itself
+leaves them for nothing to sweep (that warning prints the `sudo rm -f`). A dry run mints nothing
+and prints the literal `<session>`. *Implementation decision, taken under the maintainer's
+2026-10-04 delegation ("make them and build it … adjust later"); reversible*: the id, the
+record's place, the sweep of every record its macOS user's launches left, and the teardown order
+are ledgered as
+[JL-D84](../design/jail-lifetime-last-session-wins.md#JL-D84).
 
 `HOME`, `USER`, `SHELL`, `PATH`, `MISE_DATA_DIR` and `YOLO_DARWIN_LOGIN_PATH` are the **protected
 set** — `macosuser.ProtectedSandboxEnvNames`, the identity quartet plus the store that travels
@@ -709,10 +743,13 @@ $ nix eval --json '.#yoloNoncontainerFloorNames.aarch64-darwin'
 | Failure marker | `PROVISIONING FAILED` | `internal/provision/provision.go` (`FailedMarker`) |
 | Generated bootstrap script | `<workspace>/.yolo/home/yolo-bootstrap.sh` | `internal/entrypoint/darwinstage.go` (`DarwinBootstrapScriptPath`); `macosuser.ProvisionBootstrapScript` |
 | mise data dir | `<account home>/.yolo/mise`, set explicitly as `MISE_DATA_DIR` | `internal/macosuser/macosuser.go` (`SandboxMiseData`, `sandboxEnvPairs`) |
-| Session Seatbelt profile | `/var/yolo-jail/profile-<session>.sb`, root-owned `0444` | `internal/macosuser/macosuser.go` (`SessionProfilePath`); installed by `orchestrator.go` |
+| Session key | `<cname>.<id>`, 16 hex digits minted per launch ([`<session>`](#the-session-key)) | `internal/macosuser/sessionfiles.go` (`SessionKey`, `newSessionID`) |
+| Session Seatbelt profile | `/var/yolo-jail/profile-<session>.sb`, root-owned `0444`, removed when the session ends | `internal/macosuser/macosuser.go` (`SessionProfilePath`); installed and removed by `orchestrator.go` |
 | Session env file | `/var/yolo-jail/env/<session>.env`, root-owned `0600`, named by `YOLO_DARWIN_ENV_FILE` | `internal/macosuser/envfile.go` (`SandboxEnvFile`, `SandboxEnvFileEnv`) |
+| Session CA files | `/var/yolo-jail/env/<session>.ca-bundle.crt` and `<session>.extra-ca.pem`, root-owned `0600`, each written only when the System keychain adds a CA and a variable names the file: the bundle not when the launch's env layers name a bundle of their own, the extras not when they set `NODE_EXTRA_CA_CERTS` | `internal/macosuser/cabundle.go` (`CABundleFile`, `CAExtrasFile`, `ComposeCATrust`) |
+| Liveness record | `<global storage>/locks/macos-user-sessions/<session>.lock`, flocked for the session's life | `internal/macosuser/sessionfiles.go` (`openSessionRecord`, `sweepGoneSessions`) |
 | Sandbox PATH, and the login copy | `macosuser.SandboxPath`, carried as `PATH` and as `YOLO_DARWIN_LOGIN_PATH` | `internal/macosuser/macosuser.go`; `internal/entrypoint/darwinhomelayout.go` (`DarwinLoginPathEnv`) |
 | Shim bypass | `YOLO_BYPASS_SHIMS=1`, in the stage process's environment | `internal/macosuser/provision.go` (`ProvisionArgv`) |
-| Workspace launch lock | `<global storage>/locks/<session>.lock`, held from the content staging (skills, briefings, the overlay and context trees) until just before the agent; pack staging and the host daemons run outside it, each launch having its own pack tree | `internal/cli/run/flock.go` (`holdLaunchLock`, `AcquireWorkspaceLockFor`) |
+| Workspace launch lock | `<global storage>/locks/<cname>.lock`, held from the content staging (skills, briefings, the overlay and context trees) until just before the agent; pack staging and the host daemons run outside it, each launch having its own pack tree | `internal/cli/run/flock.go` (`holdLaunchLock`, `AcquireWorkspaceLockFor`) |
 | Prompt gate | `[ -t 0 ]` — ⚠ the `YOLO_PROVISION_PROMPT` clause beside it has **no writer** on any backend | `internal/provision/provision.go` (`Script`) |
 | CI schedule and caps | nightly 07:00 UTC on `macos-latest`; `timeout-minutes` and `YOLO_TEST_MACOS_USER_TIMEOUT` are ceilings on waste | [`.github/workflows/macos-user.yml`](../../.github/workflows/macos-user.yml) |
