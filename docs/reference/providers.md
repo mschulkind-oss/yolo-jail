@@ -750,7 +750,9 @@ that writes a launch's environment for one notch or backend. There are three:
     file. The files go with the jail. The gate's lines name a granted key as every process's.
     The keeper's start record names the set, so an attach asking for a provider or a name the
     running jail's grant lacks is refused, naming `yolo stop` and the fresh launch. A profile an
-    attach selects still delivers its own provider's key, pending a ruling
+    attach selects delivers its own provider's key into that agent's env file, as ruled
+    ([the "OQ-ES5 (attach `-p`)" ledger row](../design/credential-sources-separation.md#10-decision-ledger)),
+    and the attach's grant disclosure names each key it delivers beyond the grant
     ([§5.2](../design/credential-sources-separation.md#52-the-jail-half---with-credentials-at-a-jail-launch-built),
     [ES-D31 to ES-D39](../design/credential-sources-separation.md#10-decision-ledger)).
 

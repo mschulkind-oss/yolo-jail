@@ -75,7 +75,8 @@ for as long as it runs, so every session you open in it later has them too, and 
 when the jail stops. A running jail's grant cannot grow: running `yolo --with-credentials` with a
 provider the jail was not launched with stops, and tells you to run `yolo stop` and then launch
 again with the flag. A profile you select when you rejoin a jail, such as `yolo -p zai -- claude`,
-still hands that agent its provider's key, as it always has. On `macos-user` each
+is not a grant: it still hands that agent its provider's key, and the launch says so when the
+jail's grant did not include that key. On `macos-user` each
 `yolo` is its own sandbox session, so each gets the keys its own command line names. No config key
 can do this; only the flag can. `yolo host --with-credentials zai -- <command>` does the same for
 one command on your own machine.

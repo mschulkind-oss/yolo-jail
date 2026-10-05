@@ -2549,7 +2549,8 @@ func (o *Options) attachExisting(cname, rt, targetCmd string, cfg *jsonx.Ordered
 	o.recordLaunchOutcome(launchAttached, -1)
 	// WHAT THIS SESSION HOLDS OF THE JAIL'S GRANT, on every attach to a jail launched with one,
 	// whether or not this entry typed the flag or delivers its channel (jailgrant.go).
-	o.noteHeldGrant(grantAttach, "", channelProfiled(channel))
+	// And, by the "OQ-ES5 (attach -p)" ruling, what this entry's profiles deliver beyond it.
+	o.noteHeldGrant(grantAttach, "", channelProfiled(channel), profileKeysBeyondGrant(channel, o.heldGrant, deliver)...)
 	// What this attach did NOT deliver: the configured packs, when they differ from the ones
 	// the jail booted with (OQ-PK2 (c)'s notice).
 	o.noteBootedPackSetDiffers(rt, cname, view)

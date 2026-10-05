@@ -459,7 +459,7 @@ func TestAnAttachHoldsTheJailsGrantAndAsksForNoOther(t *testing.T) {
 				"launched with --with-credentials zai", "cerebras (CEREBRAS_API_KEY)",
 				"'yolo stop' from this workspace", "`yolo --with-credentials zai,cerebras -- claude` (the jail's grant",
 				// ES-D39: the grant's rule, and no claim the jail takes no other credential, since an
-				// attach's -p still delivers its profile's key.
+				// attach's -p delivers its profile's key, as ruled ("OQ-ES5 (attach -p)").
 				"--with-credentials grant is fixed when the jail is launched, and an attach cannot add to it"},
 			[]string{"Attaching to", "takes no others", "holds exactly the credentials"}},
 		{"a jail launched with no grant", nil, []string{"zai"}, false,
@@ -530,8 +530,8 @@ func TestAnAttachHoldsTheJailsGrantAndAsksForNoOther(t *testing.T) {
 // environment, so the attach adds them to what it knows yolo set (bootEnv). An agent whose profile
 // selects the granted provider then overrides the launch-time value with its profile's current one
 // (the `case` guard), as it did when the values were frozen into the container, rather than
-// deferring to the stale grant. A profile at an attach still delivers that way, pending a ruling
-// (ES-D39).
+// deferring to the stale grant. A profile at an attach delivers that way, as the design's
+// "OQ-ES5 (attach -p)" ledger row rules (ES-D39).
 func TestAnAttachTreatsTheGrantFilesValuesAsYolos(t *testing.T) {
 	packs := zaiSelected(t)
 	store := jsonx.NewOrderedMap()
@@ -564,6 +564,65 @@ func TestAnAttachTreatsTheGrantFilesValuesAsYolos(t *testing.T) {
 	}
 	if want := `case "${ZAI_API_KEY-}" in ''|'tok-old') export ZAI_API_KEY='tok-new' ;; esac`; !strings.Contains(string(b), want) {
 		t.Errorf("claude's file must override the grant's launch-time value with its profile's (%q):\n%s", want, b)
+	}
+	// The grant names zai, so the profile delivers nothing beyond it, and the block says nothing more.
+	if strings.Contains(stderr.String(), "beyond the grant") {
+		t.Errorf("a profile delivering only granted keys was disclosed as going beyond the grant:\n%s", stderr.String())
+	}
+}
+
+// AN ATTACH'S PROFILE BRINGS ITS PROVIDER'S KEY, AND THE GRANT BLOCK SAYS SO (the design's
+// "OQ-ES5 (attach -p)" ledger row, ruled 2026-10-05; ES-D39): a jail launched with
+// --with-credentials cerebras, attached with claude on the zai profile, hands claude ZAI_API_KEY
+// in its own env file, which the grant did not name, and the attach's grant disclosure names the
+// agent, the profile and the key, never the value. Deleting the call that adds the line, or the
+// line itself, fails it.
+func TestAnAttachSaysWhenItsProfileDeliversAKeyTheGrantDidNotName(t *testing.T) {
+	packs := append(zaiSelected(t), officialPack(t, "cerebras"))
+	store := jsonx.NewOrderedMap()
+	store.Set("ZAI_API_KEY", "tok-z")
+	store.Set("CEREBRAS_API_KEY", "tok-c")
+	o, cfg, channel, stderr := attachFixture(t, currentJailEnv, packs, store,
+		func(o *Options, _ *jsonx.OrderedMap) { o.ProfileName = "zai" })
+	const cname = "yolo-ws-abcd1234"
+	live, err := holdLivenessLock(cname)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer releaseLock(live)
+	other, _, err := takeSessionLock(cname)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer other.release()
+	grant := &jailGrant{Spelled: "cerebras", Providers: []string{"cerebras"},
+		Granted: []grantedProvider{{Provider: "cerebras", Delivered: []string{"CEREBRAS_API_KEY"}, Claims: []string{"CEREBRAS_API_KEY"}}}}
+	if err := writeKeeperRecord(cname, keeperRecord{PID: 4242, Started: time.Now(), Grant: grant}); err != nil {
+		t.Fatal(err)
+	}
+	if rc, _, execed := attachToExec(t, o, cfg, packs, channel); rc != 0 || !execed {
+		t.Fatalf("attach rc %d execed %v\n%s", rc, execed, stderr.String())
+	}
+	out := stderr.String()
+	for _, want := range []string{
+		"Credential grant (this jail was launched with --with-credentials cerebras)",
+		"  and beyond the grant: claude's zai profile, selected by this entry, delivers ZAI_API_KEY into " +
+			"claude's own env file, which every process of this jail can read",
+		"OQ-ES5 (attach -p)",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("the attach's grant disclosure must say %q:\n%s", want, out)
+		}
+	}
+	for _, v := range grantValues {
+		if strings.Contains(out, v) {
+			t.Errorf("the attach printed a credential VALUE (%s):\n%s", v, out)
+		}
+	}
+	// The behavior the ruling keeps: claude's own file carries the profile's key.
+	b, _ := os.ReadFile(filepath.Join(paths.WorkspaceHomeState(o.Workspace), agentEnvStateDir, "claude.sh"))
+	if !strings.Contains(string(b), "tok-z") {
+		t.Errorf("an attach's profile still delivers its provider's key, by ruling; claude's file:\n%s", b)
 	}
 }
 

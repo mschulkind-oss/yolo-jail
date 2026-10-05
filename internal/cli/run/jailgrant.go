@@ -10,9 +10,13 @@ package run
 // ones, a named provider with no value reported, combining with -p, implied by nothing), resolved
 // by the resolver the host reads it with (packload.ResolveGrant), and THE GRANT is fixed when the
 // jail is launched: no later entry adds to it. What this file does NOT govern is a profile: an
-// attach's `-p <profile>` still delivers that profile's provider key into the agent's own env file
-// (deliverChannel's per-entry delivery, which predates the ruling), so a running jail can hold a
-// key it was not launched with that way, pending the maintainer's ruling on it (ES-D39).
+// attach's `-p <profile>` delivers that profile's provider key into the agent's own env file
+// (deliverChannel's per-entry delivery), so a running jail can come to hold a key it was not
+// launched with that way. That is RULED, not a gap: the design's "OQ-ES5 (attach -p)" ledger row,
+// 2026-10-05, keeps it ("I just don't want it to be by default loaded so another agent is
+// incentivized to find it … it's not a adversarial type of thing"), and the attach's grant
+// disclosure says so whenever such a profile delivers a key the grant did not name
+// (profileKeysBeyondGrant, ES-D39).
 //
 // WHO HOLDS IT. Not one process, as at the host, but the jail: every process the boot and each
 // session's entrypoint start, so every session attached later and everything each starts
@@ -327,7 +331,10 @@ const (
 // per granted provider (packload.GrantProviderLines). Names only, never a value. A disclosure, so
 // it has no quiet switch (OQ-RO3). launched is the macos-user session's program, and profiled
 // whether some agent of this entry keeps a profile beside the grant.
-func (o *Options) noteHeldGrant(entry grantEntry, launched string, profiled bool) {
+//
+// beyond are lines added after the per-provider ones: on an attach, what this entry's profiles
+// deliver that the grant did not name (profileKeysBeyondGrant).
+func (o *Options) noteHeldGrant(entry grantEntry, launched string, profiled bool, beyond ...string) {
 	g := o.heldGrant
 	if g == nil {
 		return
@@ -365,6 +372,42 @@ func (o *Options) noteHeldGrant(entry grantEntry, launched string, profiled bool
 	for _, l := range packload.GrantProviderLines(delivered) {
 		out.print(richtext.Escape(l))
 	}
+	for _, l := range beyond {
+		out.print(richtext.Escape(l))
+	}
+}
+
+// profileKeysBeyondGrant is the attach's half of the "OQ-ES5 (attach -p)" ruling's "say so
+// plainly" (ES-D39): one line per agent whose profile this entry delivers a claimed key the jail's
+// grant did not name, naming the keys, never a value. An attach's profile delivers its provider's
+// key into that agent's own env file, which every process of the jail can read, so the grant
+// block would otherwise read as the jail's whole credential set. Nil when the entry delivers no
+// channel, when the jail holds no grant, or when every key a profile delivers is granted.
+func profileKeysBeyondGrant(channel *packChannel, g *jailGrant, deliver bool) []string {
+	if !deliver || g == nil || channel == nil || channel.scope == nil {
+		return nil
+	}
+	var lines []string
+	for _, agent := range channel.scope.Agents() {
+		d := channel.scope.Agent(agent)
+		if d == nil || d.Profile == "" || d.EnvSources == nil {
+			continue
+		}
+		var extra []string
+		for _, k := range d.EnvSources.Keys() {
+			if !g.holds(k) {
+				extra = append(extra, k)
+			}
+		}
+		if len(extra) == 0 {
+			continue
+		}
+		lines = append(lines, fmt.Sprintf("  and beyond the grant: %s's %s profile, selected by this "+
+			"entry, delivers %s into %s's own env file, which every process of this jail can read. An "+
+			"attach's profile brings its provider's key, as ruled (credential-sources-separation.md, "+
+			"OQ-ES5 (attach -p))", agent, strings.Join(d.Set, ","), strings.Join(extra, ", "), agent))
+	}
+	return lines
 }
 
 // channelProfiled reports whether some agent of the channel keeps a profile, for the grant's

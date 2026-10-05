@@ -505,8 +505,10 @@
     jail holding them, keys only, for its whole life: every process in it,
     and every session attached to it later, inherits them, and an attach
     asking for a provider the running jail was not launched with is
-    refused (`yolo stop`, then launch again with the flag).  On macos-user
-    the grant is the one sandbox session's.  No config key can grant either.
+    refused (`yolo stop`, then launch again with the flag).  A profile an
+    attach selects is no grant: it still hands its agent that profile's
+    key, as ruled, and the attach says so.  On macos-user the grant is the
+    one sandbox session's.  No config key can grant either.
     Dropping a key (or the whole list) REVOKES it: the next launch rewrites
     that file, truncating it to empty when nothing resolves, so a removed
     credential stops being exported.  Values already live in a RUNNING jail

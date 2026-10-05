@@ -77,7 +77,10 @@ Flags:
                      everything each one starts inherit it, and an attach asking
                      for a provider the running jail was not launched with is
                      refused ('yolo stop', then launch again with the flag); one
-                     naming the jail's set, part of it, or nothing enters. On
+                     naming the jail's set, part of it, or nothing enters. A -p
+                     profile selected at an attach is not a grant: it still hands
+                     its agent that profile's provider key, as ruled, and the
+                     attach says so when the grant did not name the key. On
                      macos-user each invocation is its own session and holds its
                      own grant. Every entry names what is granted, by name, never
                      by value. An unknown provider refuses, naming the known ones;
