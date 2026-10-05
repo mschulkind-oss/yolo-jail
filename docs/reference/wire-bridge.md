@@ -1061,7 +1061,7 @@ path shortened; the pid and port are the kernel's, the cause lines are [WB-D12](
 machine never logged in to OpenAI prints the prelaunch's login lines before the service line. <a id="no-macos-user-bridge"></a>On **macos-user** the same host half runs
 outside Seatbelt, started after the launch's host services and stopped when the sandboxed command
 returns. The jail-daemon decline names the bridge's jail daemon with "(its host half runs for this
-launch instead)". A dry run says what it would start. The host socket and the sandbox's reach to
+launch)". A dry run says what it would start. The host socket and the sandbox's reach to
 the picked port have not run on a Mac: the macos-user arm is pinned by unit tests only.
 
 ## What this does not license
