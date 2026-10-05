@@ -421,6 +421,47 @@ type Contribution struct {
 	// only place "who is this for?" has more than one answer. (`files` joined them with the
 	// slot mechanism; the first two are the ones with a conventional source.)
 	Agents []string `json:"agents,omitempty"`
+	// Describes names the KINDS OF THIS PACK'S OWN CONTRIBUTIONS that a `briefing` content
+	// contribution's prose is about, and delivers that prose at the host only where, for every
+	// one of them, some contribution of that kind the pack declares applies there
+	// (docs/design/boundary-broker.md BB-D69). `{"kind": "briefing", "from": "briefing/gh.md",
+	// "describes": ["intercept"]}` is the github pack's: the file explains the `gh` forwarder its
+	// `intercept` puts first on a jail's PATH, so it reaches every agent in a jail and none at the
+	// host, where that forwarder does not exist and `gh` is the user's own. Absent means the prose
+	// holds wherever the contribution delivers, as before.
+	//
+	// The answer is the pack's CONTRIBUTION's, not the kind's: a kind delivered at `yolo host --`
+	// may have a shape the host delivers nowhere (a loophole with no doorway, an env var a
+	// jail-only daemon serves), and prose about the pack's own loophole is withheld when that
+	// loophole is the undelivered shape, as the apply's notch line says it is.
+	//
+	// `briefing` CONTENT ONLY. Refused on every other kind, and on a briefing DESTINATION
+	// (`agent` set), which sources nothing to gate (P5). Every entry must be a kind, never
+	// `briefing` itself (prose gated on prose would describe nothing), and one the manifest
+	// itself declares: the field is about the pack's own contributions, so naming a kind the
+	// pack does not declare is a gate on nothing (validateDescribes, strict path only). An
+	// unknown kind is refused on the strict path alone, so a jail reading a newer pack's
+	// manifest still boots (DecodeTolerant).
+	//
+	// # Why a kind and not a notch
+	//
+	// Core knows notch NAMES only at render's two edges (docs/reference/pack-system.md#batch-6c),
+	// so a manifest spelling `"host"` or a notch-named sub-convention such as `briefing/jail/`
+	// is ruled out; the predicate has to be a capability
+	// (docs/design/notch-scoped-config-contributions.md §6, alternative B). A kind the pack
+	// declares is that capability, and whether it applies at a notch is already the census's
+	// answer (internal/render), so the pack states what its prose is about and core decides
+	// where that holds.
+	//
+	// # What reads it
+	//
+	// The HOST briefing composer (entrypoint.ComposeHostBriefings) withholds a source whose
+	// governor describes a kind the host notch does not deliver for the pack, by the census `yolo
+	// host apply` builds per contribution from its notch line (entrypoint.HostDelivery), and that
+	// apply names each withheld file once in its notch line. `yolo pack lint`, which has no pack
+	// set, names the gate beside the delivery and settles only a kind no host verb delivers in any
+	// shape (render.HostDelivers). The jail composer does not read it.
+	Describes []Kind `json:"describes,omitempty"`
 
 	// Tier is a TOMBSTONE for the per-contribution tier S2 removed: it declared a GLOBAL
 	// property (what a skill is called) at a PER-DESTINATION site, so it could not express a
@@ -2585,6 +2626,85 @@ func (m *Manifest) validateContributions() []string {
 	problems = append(problems, m.validateSingleAutonomy()...)
 	problems = append(problems, m.validateServicePointers()...)
 	problems = append(problems, m.validatePatchedOwnerKeys()...)
+	problems = append(problems, m.validateDescribes()...)
+	return problems
+}
+
+// describesProblems refuses a `describes` (Contribution.Describes) anywhere but on `briefing`
+// CONTENT, in `reserved`'s position and for its reason: the host briefing composer is its only
+// reader, so on any other kind it would be a gate that silently gates nothing. A DESTINATION
+// (`agent` set) sources nothing (P5), so there is no prose for it to gate either. An entry naming
+// no kind, or `briefing` itself, is refused on both decode paths: both ends of a version boundary
+// agree neither is a kind a briefing can be about. Whether a kind EXISTS is validateDescribes'
+// question, asked on the strict path only.
+func describesProblems(label string, c Contribution) []string {
+	if len(c.Describes) == 0 {
+		return nil
+	}
+	var problems []string
+	switch {
+	case c.Kind != KindBriefing:
+		problems = append(problems, fmt.Sprintf(
+			"%s: kind %q does not take \"describes\" — it says which of the pack's own kinds a "+
+				"BRIEFING's prose is about, so only \"briefing\" has prose to withhold where they "+
+				"do not apply", label, c.Kind))
+	case c.Agent != "":
+		problems = append(problems, fmt.Sprintf(
+			"%s: a briefing DESTINATION (agent %q) takes no \"describes\" — it ships no prose of "+
+				"its own to withhold; put \"describes\" on the content contribution that names "+
+				"the file: {\"kind\":\"briefing\",\"from\":\"briefing/<file>.md\",\"describes\":[\"<kind>\"]}",
+			label, c.Agent))
+	}
+	for i, k := range c.Describes {
+		switch k {
+		case "":
+			problems = append(problems, fmt.Sprintf(
+				"%s.describes[%d]: empty kind — name the kind of this pack's own contribution "+
+					"the prose is about", label, i))
+		case KindBriefing:
+			problems = append(problems, fmt.Sprintf(
+				"%s.describes[%d]: \"briefing\" — a briefing cannot be about itself; name the kind "+
+					"of this pack's own contribution the prose explains (an \"intercept\", a "+
+					"\"loophole\", ...)", label, i))
+		}
+	}
+	return problems
+}
+
+// validateDescribes is `describes`' STRICT half: every kind it names must be one this build
+// knows, and one the manifest itself declares. The field states what the pack's OWN prose is
+// about, so a kind the pack does not declare makes the gate a statement about another pack's
+// contribution, which this pack cannot keep true, and a misspelled kind would withhold the prose
+// at the host for a kind that does not exist.
+//
+// Strict path only, like validateFilesDestinations and every sibling in this family: the sibling
+// half needs the whole list, and the unknown-kind half is version skew. A kind a newer build adds
+// may be named here by a pack it ships, and an older in-jail reader that refused it would brick
+// the boot, the `tier` incident's shape (DecodeTolerant). No jail reads the field, so letting the
+// tolerant path pass it costs nothing.
+func (m *Manifest) validateDescribes() []string {
+	declared := map[Kind]bool{}
+	for _, c := range m.Contributes {
+		declared[c.Kind] = true
+	}
+	var problems []string
+	for i, c := range m.Contributes {
+		for j, k := range c.Describes {
+			switch {
+			case k == "" || k == KindBriefing:
+				continue // describesProblems' refusal, reported there
+			case !KnownKind(k):
+				problems = append(problems, fmt.Sprintf("contributes[%d].describes[%d]: %s",
+					i, j, ValidateKind(k)))
+			case !declared[k]:
+				problems = append(problems, fmt.Sprintf(
+					"contributes[%d].describes[%d]: %q — this pack declares no %q contribution, "+
+						"and \"describes\" names the kinds of the pack's OWN contributions its prose "+
+						"is about. Declare the %s here, or drop it from \"describes\"",
+					i, j, string(k), string(k), string(k)))
+			}
+		}
+	}
 	return problems
 }
 
@@ -3460,6 +3580,7 @@ func validateContribution(label string, c Contribution) []string {
 		}
 	}
 	problems = append(problems, projectDirsProblems(label, c)...)
+	problems = append(problems, describesProblems(label, c)...)
 	// `update` is program's alone, refused in `profile`'s position and for `profile`'s
 	// reason: a verb declared on `requires` (which installs nothing) or on a content kind
 	// is read by no consumer, so accepting it would be a declaration that silently does

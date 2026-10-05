@@ -301,6 +301,39 @@ func HostUnimplemented(k packdecl.Kind) (string, bool) {
 	return r, ok
 }
 
+// HostLeavesUndone reports whether a host target's FieldSet does nothing in a home with kind k:
+// it does not honor the kind (refusalReasons), or honors it with no renderer behind it
+// (hostUnimplemented). It is the apply's "does not apply" predicate for a kind with no at-launch
+// shape (cli's notchInapplicable), and with HostAtLaunch the whole of HostDelivers.
+func HostLeavesUndone(fields FieldSet, k packdecl.Kind) bool {
+	if !fields.Honors(k) {
+		return true
+	}
+	_, unbuilt := HostUnimplemented(k)
+	return unbuilt
+}
+
+// HostDelivers reports whether some host verb does something with kind k: `yolo host apply`
+// renders it into a home (HostLeavesUndone is false), or `yolo host -- <program>` delivers it to
+// the program it starts (HostAtLaunch). It is the PER-KIND answer: an at-launch kind with a shape
+// the host does not deliver (an env pointer at a daemon only a jail serves, a loophole with no
+// doorway) still counts, because telling the shapes apart needs the launch's own checks, which
+// the apply asks per contribution (cli's hostNotchOutcomeOf).
+//
+// It is the FALLBACK of the host briefing gate (packdecl.Contribution.Describes, boundary-broker.md
+// BB-D69), for a pack no per-contribution census names (entrypoint.HostDelivery): `yolo pack
+// lint`, which has no pack set, and a composition asked with no census. `yolo host apply` passes
+// its census, so a briefing about a loophole with no doorway is withheld there although this
+// answers true. Where this answers false no contribution of the kind can apply, so the census
+// agrees: `intercept` is the shipped case, a forwarder no host verb puts anywhere (refusalReasons
+// says why), so prose about it would be false in a real home.
+func HostDelivers(fields FieldSet, k packdecl.Kind) bool {
+	if _, ok := HostAtLaunch(k); ok {
+		return true
+	}
+	return !HostLeavesUndone(fields, k)
+}
+
 // JailFields is every kind a jail RENDERS, which is every kind except the ones rendered
 // by something other than the render path.
 //

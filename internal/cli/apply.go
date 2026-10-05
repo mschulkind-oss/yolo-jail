@@ -426,7 +426,7 @@ func applyHostSurveyed(out, errw io.Writer, color bool, write bool, stdin io.Rea
 		// left to retire."
 		rc := applyHostUserFiles(pr, survey, userFiles, home, write)
 		if brc := applyHostBriefings(pr, out, stdin, nil, packload.Embedded(), empty, true,
-			home, stamp, write, nil, survey); brc != 0 {
+			home, stamp, write, nil, nil, survey); brc != 0 {
 			rc = brc
 			survey.noteStageFailure(stageBriefing)
 		}
@@ -634,8 +634,19 @@ func applyHostSurveyed(out, errw io.Writer, color bool, write bool, stdin io.Rea
 	}
 	loaded, destinations := packload.ResolveDestinations(loaded)
 	survey.noteLoaded(loaded)
+	// THE HOST'S DELIVERY CENSUS, once, over the resolved set: per pack, the kinds of its own
+	// contributions some host verb delivers, by the notch line's own per-contribution outcome
+	// (hostDelivery). A briefing's `describes` is gated on it (BB-D69), so the destinations
+	// report below, the notch line and the briefing composer read one answer. The doorways are
+	// the ones `yolo host --` can open for these packs (run.HostDoorwayLoopholes: PlanHostDoorways'
+	// composition and admission check, read with every selected loophole switched on and no
+	// selection filter, as its header says), so a credential loophole is named as delivered at
+	// launch by the check the launch decides with. Discovering them says the loader's warnings on
+	// stderr, here, above the notch line whose loophole outcome they explain.
+	doorways := run.HostDoorwayLoopholes(userCfg, loaded)
+	delivery := hostDelivery(loaded, hostFields, doorways)
 	for _, d := range destinations {
-		if drc, refused := reportInferredDestinations(pr, d); drc != 0 {
+		if drc, refused := reportInferredDestinations(pr, d, delivery); drc != 0 {
 			rc = drc
 			// Named in the verdict by the kinds its `<kind> refused` lines lead with.
 			survey.noteStageFailureAs(stageDestinations, refused...)
@@ -789,11 +800,8 @@ func applyHostSurveyed(out, errw io.Writer, color bool, write bool, stdin io.Rea
 	// Before the loop, so "folded into the config surfaces below" is a true word about what
 	// comes next, and so a reader meets the notch before they meet this home.
 	//
-	// The doorways are the ones `yolo host --` can open for these packs (run.HostDoorwayLoopholes:
-	// PlanHostDoorways' composition and admission check, read with every selected loophole
-	// switched on and no selection filter, as its header says), so a credential loophole is named
-	// as delivered at launch by the check the launch decides with.
-	notch := surveyNotchFacts(loaded, hostFields, overlays, run.HostDoorwayLoopholes(userCfg, loaded))
+	// Over the doorways and the delivery census taken after resolution, above.
+	notch := surveyNotchFacts(loaded, hostFields, overlays, doorways, delivery)
 	notch.InertPackages = inertPackages
 	notch.InertConfig = userFiles.inertNames()
 	// The user's own inline loopholes, per entry: the `loopholes` key is honored here, so the
@@ -880,7 +888,7 @@ func applyHostSurveyed(out, errw io.Writer, color bool, write bool, stdin io.Rea
 		survey.noteStageFailure(stageSkills)
 	}
 	if brc := applyHostBriefings(pr, out, stdin, loaded, candidates, active, resolvedAll,
-		home, stamp, write, reloadPacks, survey); brc != 0 {
+		home, stamp, write, reloadPacks, delivery, survey); brc != 0 {
 		rc = brc
 		survey.noteStageFailure(stageBriefing)
 	}
@@ -1331,15 +1339,33 @@ func confirmHostLosses(pr richtext.Printer, out io.Writer, stdin io.Reader,
 // unable to tell a working selector from a typo, since both produce the same line. The audience
 // is named, so the report answers "did my selector reach claude?".
 //
+// NEITHER LINE CLAIMS A DELIVERY THE `describes` GATE WITHHELD (BB-D69). delivery is the
+// census the briefing composer withholds by (hostDelivery), and a contribution that reaches a
+// destination only to deliver withheld files merges nothing there
+// (entrypoint.HostWithholdsBorrowing, the composer's own ownership rule): it is left off both
+// lines, since the notch line already names each withheld file once. The github pack's
+// briefing/gh.md is that case, and the merge line used to name ~/.claude/CLAUDE.md for it in the
+// same run whose destination line read claude/briefing.
+//
 // The second return is the kinds its `<kind> refused` lines named, the words the verdict names
 // this stage's failure by (noteStageFailureAs).
-func reportInferredDestinations(pr richtext.Printer, d packload.Destinations) (int, []string) {
+func reportInferredDestinations(pr richtext.Printer, d packload.Destinations,
+	delivery entrypoint.HostDelivery) (int, []string) {
+	// withheld reports whether c, one of this pack's briefing contributions, delivers nothing
+	// at the host (see above). Asked only of a delivery that resolved somewhere.
+	withheld := func(c packdecl.Contribution) bool {
+		return entrypoint.HostWithholdsBorrowing(delivery, d.Pack, c)
+	}
 	// Destinations an ADDRESSED contribution accounted for. Subtracted from the silent-inference
 	// line below so one delivery is not reported twice, in two voices — a pack MAY carry both a
 	// bare into-less contribution (broadcast) and an addressed one, in which case the addressed
-	// line names its destinations and the broadcast line names the rest.
+	// line names its destinations and the broadcast line names the rest. An addressed delivery
+	// the gate withheld accounts for nothing, so a broadcast into the same file is still named.
 	addressed := map[string]bool{}
 	for _, a := range d.Addressed {
+		if len(a.Into) > 0 && withheld(packdecl.Contribution{Kind: a.Kind, From: a.From}) {
+			continue
+		}
 		for _, into := range a.Into {
 			addressed[string(a.Kind)+"\x00"+into] = true
 		}
@@ -1358,7 +1384,7 @@ func reportInferredDestinations(pr richtext.Printer, d packload.Destinations) (i
 	byKind := map[packdecl.Kind][]string{}
 	var order []packdecl.Kind
 	for _, c := range d.Inferred {
-		if addressed[string(c.Kind)+"\x00"+c.Into] {
+		if addressed[string(c.Kind)+"\x00"+c.Into] || withheld(c) {
 			continue
 		}
 		if _, seen := byKind[c.Kind]; !seen {

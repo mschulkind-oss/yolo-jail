@@ -68,6 +68,7 @@ import (
 	"strings"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/cli/run"
+	"github.com/mschulkind-oss/yolo-jail/internal/entrypoint"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/launchservice"
 	"github.com/mschulkind-oss/yolo-jail/internal/packdecl"
@@ -137,6 +138,11 @@ type notchFacts struct {
 	// list kept here: a key added to the schema is classified there or the build fails, and
 	// once classified it is named here with no new call (inertConfigKeys).
 	InertKeys []string
+	// WithheldBriefings is every briefing file a selected pack ships that the host composer
+	// leaves out of every destination, because it `describes` a kind of the pack's own that this
+	// notch does not deliver (withheldBriefings over hostDelivery, docs/design/boundary-broker.md
+	// BB-D69). A fact of the notch and the pack, so it is stated once here, never per destination.
+	WithheldBriefings []withheldBriefing
 }
 
 // inertConfigKeys is the config-key half of the survey: each top-level key cfg DECLARES whose
@@ -230,9 +236,12 @@ func inertInlineLoopholes(cfg *jsonx.OrderedMap, packs []*packload.Pack) []strin
 // doorways is run.HostDoorwayLoopholes over the same packs: the loopholes whose credential
 // doorway `yolo host --` opens, the set the at-launch outcome of a loophole (and of an env
 // pointer served by one) is read off. Computing it is loophole discovery, whose own warnings go
-// to the process's stderr before this runs (hostdoorwaysets.go's header says why).
+// to the process's stderr before this runs (hostdoorwaysets.go's header says why). delivery is
+// hostDelivery over the same packs and doorways, the census the briefing composer withholds by,
+// so the withheld files this names are the ones the composer leaves out.
 func surveyNotchFacts(loaded []*packload.Pack, fields render.FieldSet,
-	overlays *packoverlay.OverlaySet, doorways map[string]bool) notchFacts {
+	overlays *packoverlay.OverlaySet, doorways map[string]bool,
+	delivery entrypoint.HostDelivery) notchFacts {
 	var f notchFacts
 	// Per kind, per outcome, the packs whose contributions landed there.
 	from := map[hostNotchOutcome]map[packdecl.Kind][]string{
@@ -265,6 +274,7 @@ func surveyNotchFacts(loaded []*packload.Pack, fields render.FieldSet,
 	}
 	f.AtLaunch = sortedKinds(from[notchAtLaunch])
 	f.Inapplicable = sortedKinds(from[notchDoesNotApply])
+	f.WithheldBriefings = withheldBriefings(loaded, delivery)
 	for k, launched := range from[notchAtLaunch] {
 		if withheld, both := from[notchDoesNotApply][k]; both {
 			if f.splitFrom == nil {
@@ -386,12 +396,53 @@ func hostAdmitsService(loaded []*packload.Pack, service string) bool {
 // delivered at launch; for one it does (service and loophole are refused by the FieldSet and
 // delivered in their other shape), hostNotchOutcomeOf decides per contribution and asks this
 // for nothing.
+//
+// The body is render.HostLeavesUndone, which render.HostDelivers also reads: that is the
+// per-kind answer a briefing's `describes` gets only where no per-contribution census exists
+// (`yolo pack lint`). The apply gates on hostDelivery instead, this line's own outcome per
+// contribution, so a briefing about a loophole with no doorway is withheld in the run that names
+// that loophole as not applying.
 func notchInapplicable(fields render.FieldSet, k packdecl.Kind) bool {
-	if !fields.Honors(k) {
-		return true
+	return render.HostLeavesUndone(fields, k)
+}
+
+// hostDelivery is the `describes` gate's census at the host (entrypoint.HostDelivery,
+// docs/design/boundary-broker.md BB-D69): per pack, the kinds of its own contributions whose
+// outcome here (hostNotchOutcomeOf, the notch line's own per-contribution answer) is anything but
+// "does not apply". Every pack of loaded is named, so the composer gives none of them the per-kind
+// fallback, and a kind a pack declares no contribution of is delivered for it nowhere.
+//
+// The apply computes it once, after resolution, and hands the same map to the destinations
+// report (reportInferredDestinations), the notch line (surveyNotchFacts) and the composer
+// (applyHostBriefings), so the three read one answer.
+func hostDelivery(loaded []*packload.Pack, fields render.FieldSet,
+	doorways map[string]bool) entrypoint.HostDelivery {
+	out := entrypoint.HostDelivery{}
+	for _, p := range loaded {
+		if p == nil {
+			continue
+		}
+		kinds := out[p.Name]
+		if kinds == nil {
+			kinds = map[packdecl.Kind]bool{}
+			out[p.Name] = kinds
+		}
+		for _, c := range p.Decl.Contributions() {
+			if hostNotchOutcomeOf(loaded, fields, p, c, doorways) != notchDoesNotApply {
+				kinds[c.Kind] = true
+			}
+		}
 	}
-	_, unbuilt := render.HostUnimplemented(k)
-	return unbuilt
+	return out
+}
+
+// hostDecidesPerContribution reports whether the host's answer for kind k depends on the
+// contribution: k is delivered at launch (render.HostAtLaunch) and has a shape that does not apply
+// (notchMayNotApply). `yolo pack lint`, which has no pack set or config to decide it with, says so
+// beside a briefing that describes such a kind.
+func hostDecidesPerContribution(fields render.FieldSet, k packdecl.Kind) bool {
+	_, atLaunch := render.HostAtLaunch(k)
+	return atLaunch && notchMayNotApply(fields, k)
 }
 
 // notchMayNotApply reports whether some contribution of kind k can land under "does not apply at
@@ -407,8 +458,10 @@ func notchMayNotApply(fields render.FieldSet, k packdecl.Kind) bool {
 	return withheld
 }
 
-// printNotchFacts prints the tier-1 half of the report: one line by default and at most four
-// under --verbose, whatever the pack set's size.
+// printNotchFacts prints the tier-1 half of the report, whatever the pack set's size: one line by
+// default, and under --verbose one line each for the at-launch kinds, the kinds that do not apply,
+// the config that does not apply, the withheld briefing files and the posture, each only when it
+// has something to name.
 //
 // Both lines point somewhere rather than explaining themselves (P3/P8). The kinds line names
 // `yolo config-ref`, which is where the report vocabulary moved the REASONS — as list entries
@@ -422,8 +475,8 @@ func notchMayNotApply(fields render.FieldSet, k packdecl.Kind) bool {
 // ONE LINE BY DEFAULT (report-tiers.md, tier 1: "one line per run, naming the kinds and the
 // posture"). Every tier-1 fact is the same sentence on every run, so the default view names them
 // on a single line — the kinds `yolo host --` delivers, the kinds that do not apply (the census,
-// P5: appearing once is appearing), inert `packages:`, and the posture — and --verbose prints the
-// full lines below. The maintainer's report was that three lines of this, above every apply, made
+// P5: appearing once is appearing), inert `packages:`, each withheld briefing file, and the
+// posture — and --verbose prints the full lines below. The maintainer's report was that three lines of this, above every apply, made
 // the output "very confusing".
 func printNotchFacts(pr richtext.Printer, f notchFacts) {
 	if !reportVerbose() {
@@ -437,6 +490,9 @@ func printNotchFacts(pr richtext.Printer, f notchFacts) {
 		}
 		if len(names) > 0 {
 			parts = append(parts, "does not apply at the host: "+strings.Join(names, ", "))
+		}
+		if fact := withheldBriefingFact(f.WithheldBriefings); fact != "" {
+			parts = append(parts, richtext.Escape(fact))
 		}
 		if f.Autonomy {
 			parts = append(parts, "guarded posture — permission prompts stay on")
@@ -470,6 +526,11 @@ func printNotchFacts(pr richtext.Printer, f notchFacts) {
 		}
 		pr.Printf("  [dim]config that does not apply at the host notch: %s (%s)[/dim]",
 			strings.Join(names, ", "), why)
+	}
+	// One line for every withheld briefing file, whatever their number: which file, and why the
+	// host leaves it out of the destinations below (BB-D69).
+	if fact := withheldBriefingFact(f.WithheldBriefings); fact != "" {
+		pr.Printf("  [dim]%s[/dim]", richtext.Escape(fact))
 	}
 	if f.Autonomy {
 		where := "folded into the config surfaces below"
