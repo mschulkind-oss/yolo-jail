@@ -338,9 +338,17 @@ func TestTheGuardReturnsTheChildsStatus(t *testing.T) {
 	if rc := waitRC(t, runGuard(fastGuard, []string{"sh", "-c", "kill -USR1 $$"}, s)); rc != 128+int(syscall.SIGUSR1) {
 		t.Errorf("rc = %d, want 128+SIGUSR1 for a child a signal ended", rc)
 	}
-	_, s = newGuardRun(t, 1)
+	g, s = newGuardRun(t, 1)
 	if rc := waitRC(t, runGuard(fastGuard, []string{"/nonexistent/yolo-test-binary"}, s)); rc != 127 {
 		t.Errorf("rc = %d, want 127 when the command cannot start", rc)
+	}
+	// A stop names the next step: what it tried to start, the command that prints the whole
+	// launch argv, and how to launch without the guard in between.
+	for _, want := range []string{"could not start /nonexistent/yolo-test-binary",
+		"`yolo run --dry-run` prints the launch argv", "remove resources.memory from yolo-jail.jsonc"} {
+		if !strings.Contains(g.stderr.String(), want) {
+			t.Errorf("the start failure does not say %q:\n%s", want, g.stderr.String())
+		}
 	}
 }
 
@@ -420,6 +428,10 @@ func TestTheGuardSaysOnceWhenItCannotReadTheTable(t *testing.T) {
 	}
 	if c := strings.Count(g.stderr.String(), "cannot read the process table"); c != 1 {
 		t.Errorf("the table warning printed %d times, want once:\n%s", c, g.stderr.String())
+	}
+	// And it names the next step, as every problem line does.
+	if want := "Remove resources.memory from yolo-jail.jsonc to silence this."; !strings.Contains(g.stderr.String(), want) {
+		t.Errorf("the table warning does not end with %q:\n%s", want, g.stderr.String())
 	}
 	if g.killLog() != "" || g.psCalls < 2 {
 		t.Errorf("kills %q after %d reads; want none, and the guard to keep trying", g.killLog(), g.psCalls)

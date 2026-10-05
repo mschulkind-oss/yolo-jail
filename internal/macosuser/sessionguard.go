@@ -398,7 +398,12 @@ func runSessionGuard(o sessionGuardOptions, argv []string, s guardSeams) int {
 
 	child, err := s.start(argv)
 	if err != nil {
-		s.say("[bold red]yolo: could not start the session (%v).[/bold red]", err)
+		// The next step is the launch argv that named this command, and the launch without the
+		// guard in it: the same command failing there too says the guard is not the cause.
+		s.say("[bold red]yolo: the memory guard could not start %s (%s). `yolo run --dry-run` "+
+			"prints the launch argv it was given; to launch without the guard, remove "+
+			"resources.memory from yolo-jail.jsonc.[/bold red]",
+			richtext.Escape(argv[0]), richtext.Escape(err.Error()))
 		return 127
 	}
 	// The terminal may be handed to a job-control shell the agent runs, leaving the guard in a
@@ -444,8 +449,10 @@ func runSessionGuard(o sessionGuardOptions, argv []string, s guardSeams) int {
 			}
 			if err != nil {
 				if !psFailing {
-					s.say("[yellow]yolo: the memory guard cannot read the process table (%v), so "+
-						"resources.memory is not being checked; it will keep trying.[/yellow]", err)
+					s.say("[yellow]yolo: the memory guard cannot read the process table (%s), so "+
+						"resources.memory is not being checked; it will keep trying. Remove "+
+						"resources.memory from yolo-jail.jsonc to silence this.[/yellow]",
+						richtext.Escape(err.Error()))
 				}
 				psFailing = true
 				continue
