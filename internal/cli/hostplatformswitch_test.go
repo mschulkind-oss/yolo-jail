@@ -65,15 +65,24 @@ func TestHostLaunchNamesAUsersOwnBedrockSwitch(t *testing.T) {
 // apply that moves claude's host selection off Bedrock removes it, after which no line prints.
 // Before, the key stayed forever and the line told the user to remove a key of theirs.
 //
-// THE LEAF RECORD IS THE rmw ARM'S, so the fixture is claude with its settings surface declaring
-// `"mode": "rmw"` (claudeForkWithRMWSettings) under `host_management: "own"`. The shipped surface
-// declares no mode, so `own` composes it whole and writes no leaf record; the retired `assert`
-// read-modify-wrote every surface, which is how this ran over the shipped pack before OQ-CO14.
+// THROUGH BOTH WRITERS an owned host runs, under `host_management: "own"`: the SHIPPED claude pack,
+// whose settings surface declares no mode and so composes `stateful`, and a copy whose surface
+// declares `"mode": "rmw"` (claudeForkWithRMWSettings) — the arm the retired `assert` ran for every
+// surface, which is how this ran over the shipped pack before OQ-CO14. The shipped case is the
+// default path for anyone who writes their home now, and it failed until CO-D15: the stateful
+// writer kept no computed-leaf record, so the launch named the switch `own` wrote as the user's.
 func TestHostApplyRemovesTheBedrockSwitchItWroteAndTheLineSaysWhoWroteIt(t *testing.T) {
+	t.Run("shipped claude, stateful", func(t *testing.T) { hostBedrockSwitchRoundTrip(t, "claude") })
+	t.Run("claude declaring rmw", func(t *testing.T) { hostBedrockSwitchRoundTrip(t, claudeForkWithRMWSettings(t)) })
+}
+
+// hostBedrockSwitchRoundTrip is the round trip over the pack named by packEntry (a bare shipped
+// name or a path).
+func hostBedrockSwitchRoundTrip(t *testing.T, packEntry string) {
 	const providers = `"providers": {"bedrock": {"region": "us-west-2"},
 	  "mine": {"endpoints": {"anthropic": {"base_url": "https://anthropic.example"}}}},
 	  "profiles": {"mine": {"provider": "mine"}}`
-	fork := claudeForkWithRMWSettings(t)
+	fork := packEntry
 	home := hostGateHome(t, `{"packs": ["`+fork+`"], "host_management": "own", "profile": {"claude": "bedrock"}, `+
 		providers+`}`, nil)
 	// `yolo host apply` refuses while a declared program is missing, and `claude` is on this

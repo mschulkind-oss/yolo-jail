@@ -8,10 +8,11 @@ package entrypoint
 // moving claude to `codex` and applying again left it, and every later launch then ran claude in
 // Bedrock mode with no AWS credential while PP-D1's line blamed the user for yolo's write.
 //
-// The computed-leaf RECORD is the rmw arm's (hostRMWLeafRecord), which every surface ran under the
-// retired `assert` and an owned host runs for a surface its pack declares `rmw`; the shipped
-// claude/settings declares nothing and composes `stateful` under `own`, which clears a dropped
-// leaf by recomposing. So each test names the mechanism it drives (hostMechanisms, declaredRMW).
+// The computed-leaf RECORD is kept by both writers an owned host runs: the rmw arm
+// (hostRMWLeafRecord), which every surface ran under the retired `assert` and an owned host runs
+// for a surface its pack declares `rmw`, and since CO-D15 the `stateful` arm the shipped
+// claude/settings composes through (hostStatefulLeafRecord), which clears a dropped leaf by
+// recomposing. So each test names the mechanism it drives (hostMechanisms, declaredRMW).
 
 import (
 	"encoding/json"
@@ -106,34 +107,54 @@ func TestHostApplyKeepsABedrockSwitchTheUserWrote(t *testing.T) {
 }
 
 // THE RECORD IS WRITTEN WHERE A LAUNCH READS IT (render.Target.LeafRecordPath), naming the leaf by
-// its pointer, and it is gone once nothing of yolo's is left to clear. The record is the rmw arm's,
-// so claude/settings is declared `rmw` here.
+// its pointer, and it is gone once nothing of yolo's is left to clear — through BOTH writers. It was
+// the rmw arm's alone until CO-D15: the shipped claude/settings composes `stateful` under `own`,
+// left no record, and a launch then named the Bedrock switch `own` wrote as the user's own.
 func TestTheHostLeafRecordNamesTheSwitchYoloWrote(t *testing.T) {
+	for _, m := range hostMechanisms {
+		t.Run(m.name, func(t *testing.T) {
+			t.Setenv("YOLO_CTX_ROOT", t.TempDir())
+			home := t.TempDir()
+			rec := render.Host(home, nil, render.OwnershipOwn).LeafRecordPath("claude", "settings")
+			applyClaudeSettings(t, home, m.rmw, "bedrock")
+			raw, err := os.ReadFile(rec)
+			if err != nil {
+				t.Fatalf("the apply on bedrock must record the leaf it wrote: %v", err)
+			}
+			var got map[string]any
+			if err := json.Unmarshal(raw, &got); err != nil || got["/env/CLAUDE_CODE_USE_BEDROCK"] != "1" {
+				t.Fatalf("the record must name /env/CLAUDE_CODE_USE_BEDROCK = \"1\": %s", raw)
+			}
+			if !render.HostLeafWrote(home)("claude/settings", "/env/CLAUDE_CODE_USE_BEDROCK", "1") {
+				t.Error("the launch's reader does not see the switch as yolo's")
+			}
+			applyClaudeSettings(t, home, m.rmw, "")
+			if _, err := os.Stat(rec); !os.IsNotExist(err) {
+				raw, _ := os.ReadFile(rec)
+				t.Errorf("with nothing of yolo's left, the record must be gone: %v\n%s", err, raw)
+			}
+
+			// A revert ends the relationship, and the record with it.
+			applyClaudeSettings(t, home, m.rmw, "bedrock")
+			if _, err := RevertHostRender(testPacksForAgent(t, "claude"), home, false); err != nil {
+				t.Fatalf("revert: %v", err)
+			}
+			if _, err := os.Stat(rec); !os.IsNotExist(err) {
+				t.Errorf("a revert must remove the computed-leaf record: %v", err)
+			}
+		})
+	}
+}
+
+// A VALUE THE USER WROTE BEFORE yolo ASSERTED IT IS NOT RECORDED by the stateful arm either: the
+// record claims a leaf only when yolo's write is what put its value there (PP-D1).
+func TestTheStatefulLeafRecordDoesNotClaimAValueThatWasAlreadyThere(t *testing.T) {
 	t.Setenv("YOLO_CTX_ROOT", t.TempDir())
 	home := t.TempDir()
-	rec := render.Host(home, nil, render.OwnershipOwn).LeafRecordPath("claude", "settings")
-	applyClaudeSettings(t, home, true, "bedrock")
-	raw, err := os.ReadFile(rec)
-	if err != nil {
-		t.Fatalf("the apply on bedrock must record the leaf it wrote: %v", err)
-	}
-	var got map[string]any
-	if err := json.Unmarshal(raw, &got); err != nil || got["/env/CLAUDE_CODE_USE_BEDROCK"] != "1" {
-		t.Fatalf("the record must name /env/CLAUDE_CODE_USE_BEDROCK = \"1\": %s", raw)
-	}
-	applyClaudeSettings(t, home, true, "")
-	if _, err := os.Stat(rec); !os.IsNotExist(err) {
-		raw, _ := os.ReadFile(rec)
-		t.Errorf("with nothing of yolo's left, the record must be gone: %v\n%s", err, raw)
-	}
-
-	// A revert ends the relationship, and the record with it.
-	applyClaudeSettings(t, home, true, "bedrock")
-	if _, err := RevertHostRender(testPacksForAgent(t, "claude"), home, false); err != nil {
-		t.Fatalf("revert: %v", err)
-	}
-	if _, err := os.Stat(rec); !os.IsNotExist(err) {
-		t.Errorf("a revert must remove the computed-leaf record: %v", err)
+	writeTestFile(t, filepath.Join(home, ".claude", "settings.json"), `{"env": {"CLAUDE_CODE_USE_BEDROCK": "1"}}`)
+	applyClaudeSettings(t, home, false, "bedrock")
+	if render.HostLeafWrote(home)("claude/settings", "/env/CLAUDE_CODE_USE_BEDROCK", "1") {
+		t.Error("a switch the user wrote before yolo asserted it was recorded as yolo's")
 	}
 }
 

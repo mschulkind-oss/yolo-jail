@@ -789,6 +789,15 @@ func renderHostPlans(e *Env, p *packload.Pack, plans []surfacePlan, observe bool
 		// so a key the user owns and a pack also declares would flip to the pack's value.
 		// Only the stateful writer reads inFull (it is the one that adopts), and archived is
 		// set by it alone: rmw asserts individual keys and adopts nothing.
+		// THE stateful ARM'S COMPUTED-LEAF RECORD reads the file as it was before the write and the
+		// record as it stood (hostStatefulLeafRecord): the rmw arm decides its record before the
+		// write, from the file, and the stateful one can only decide it after, from what landed.
+		var statefulLeafBefore, statefulLeafRecord map[string]any
+		if mechanism == manifest.ModeStateful {
+			data, _ := os.ReadFile(path)
+			statefulLeafBefore = agentcfg.DecodeSurfaceObject(s.Codec, data)
+			statefulLeafRecord = readHostLeafRecord(e, s.Agent, s.Name)
+		}
 		w, werr := writeSurfaceThrough(e, mechanism, s, layers, contribs)
 		archived := w.archived
 		if werr != nil {
@@ -805,7 +814,13 @@ func renderHostPlans(e *Env, p *packload.Pack, plans []surfacePlan, observe bool
 		if selectionTouched {
 			writeSelectionRecord(e, s.Agent, s.Name, selectionNext)
 		}
-		// The computed-leaf record, by the same rule: after the write, and only then.
+		// The computed-leaf record, by the same rule: after the write, and only then. The stateful
+		// arm decides its record here, from what the write landed.
+		if mechanism == manifest.ModeStateful {
+			data, _ := os.ReadFile(path)
+			leafNext, leafTouched = hostStatefulLeafRecord(hl.leaves, statefulLeafBefore,
+				agentcfg.DecodeSurfaceObject(s.Codec, data), statefulLeafRecord)
+		}
 		if leafTouched {
 			writeHostLeafRecord(e, s.Agent, s.Name, leafNext)
 		}
