@@ -732,7 +732,8 @@ environment and the notch is not something it may guess from one:
   store-delivered farm, `/Applications/Google Chrome.app` and `Chromium.app`, and the same two
   under `~/Applications`. The first found is passed as `--executablePath`; with none, nothing is
   passed and chrome-devtools-mcp looks for Chrome itself. A browser the caller's own arguments
-  name (`--browserUrl`, `--wsEndpoint`, `--executablePath`, `--channel`) is never overridden.
+  name (`--browserUrl`, `--wsEndpoint`, `--executablePath`, `--channel`, or `--autoConnect` to
+  attach to the Chrome you already run) is never overridden.
 
 It says which on stderr each time it starts the server, and **`sh
 ~/.local/share/yolo-chrome-devtools/chrome-devtools-mcp-wrapper --check`** prints both finds

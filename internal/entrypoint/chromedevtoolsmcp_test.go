@@ -292,6 +292,19 @@ func TestTheWrapperLeavesTheBrowserToChromeDevtoolsMcpOrTheCaller(t *testing.T) 
 		strings.Join(logLines(t, w.log), " ") != "--browserUrl=http://127.0.0.1:9222" {
 		t.Errorf("a browser the caller named was overridden: rc=%d argv=%v\n%s", rc, logLines(t, w.log), errs)
 	}
+	// --autoConnect attaches to the Chrome you are already running (chrome-devtools-mcp's route to
+	// your own browser), and chrome-devtools-mcp 1.10.1 refuses it beside --executablePath, so it
+	// names the caller's browser too, in each spelling its parser takes.
+	for _, arg := range []string{"--autoConnect", "--autoConnect=true", "--auto-connect", "--auto-connect=true"} {
+		w := newWrapperWorld(t)
+		w.server(t, filepath.Join(w.home, ".yolo", "bin", "launch"))
+		exe(t, filepath.Join(w.root, "usr", "bin", "chromium"))
+		if _, errs, rc := w.run(t, []string{"HOME=" + w.home, "PATH=" + resolvedDir(t)}, arg); rc != 0 ||
+			strings.Join(logLines(t, w.log), " ") != arg {
+			t.Errorf("%s: the server ran with %v, want the caller's argument alone (no --executablePath, "+
+				"which chrome-devtools-mcp refuses beside it): rc=%d\n%s", arg, logLines(t, w.log), rc, errs)
+		}
+	}
 }
 
 // Nothing installed: exit 127 with the next step at each notch; and --check reports both finds

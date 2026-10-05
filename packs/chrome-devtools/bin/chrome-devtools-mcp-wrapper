@@ -104,13 +104,16 @@ if [ -z "${FONTCONFIG_PATH:-}" ] && [ -d /etc/fonts ]; then
     export FONTCONFIG_PATH
 fi
 
-# A browser of the caller's own choosing wins: any flag that names one, or a running one.
+# A browser of the caller's own choosing wins: any flag that names one, or a running one
+# (--autoConnect attaches to the Chrome you already run, and chrome-devtools-mcp refuses it beside
+# --executablePath, as it does --browserUrl, --wsEndpoint and --channel).
 chosen=0
 for a in "$@"; do
     case "$a" in
     -e | -u | -w | --executablePath | --executablePath=* | --executable-path | --executable-path=* | \
         --browserUrl | --browserUrl=* | --browser-url | --browser-url=* | --wsEndpoint | \
-        --wsEndpoint=* | --ws-endpoint | --ws-endpoint=* | --channel | --channel=*)
+        --wsEndpoint=* | --ws-endpoint | --ws-endpoint=* | --channel | --channel=* | \
+        --autoConnect | --autoConnect=* | --auto-connect | --auto-connect=*)
         chosen=1
         ;;
     esac
