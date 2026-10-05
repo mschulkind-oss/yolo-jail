@@ -3,12 +3,13 @@ package entrypoint
 // patchedtrees_test.go pins the jail's half of a PATCHED EXTENSION (docs/design/patched-extensions.md
 // §8.1, §9; PPX-D8, PPX-D18): GenerateAgentLaunchers reads YOLO_PATCHED_TREES once, and the launchers
 // of the pack that owns a tree the host says has nothing to serve stop before exec, naming the
-// extension and the host's reason — the npm launcher and a fork's source launcher alike — while
+// extension and the host's reason — the npm launcher, the native one and a fork's source launcher alike — while
 // every other pack's launchers, and the owner's once a build serves, start as before.
 
 import (
 	"bytes"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -99,4 +100,50 @@ func forkLauncherWithTrees(t *testing.T, deliveries, trees string) (home, launch
 		t.Fatal(err)
 	}
 	return home, filepath.Join(e.LaunchDir(), "pi"), fakeBin, argvLog
+}
+
+// THE NATIVE LAUNCHER carries the gate too (PPX-D24): an owner whose program installs through a
+// vendor installer stops before exec, naming the extension and the host's reason, while a tree it
+// loads has nothing to serve, and runs its program with no tree stopped. Red if nativeAgentLauncher
+// stops splicing the install's gate.
+func TestTheNativeLauncherStopsBeforeExecWithNoBuild(t *testing.T) {
+	if _, err := exec.LookPath("bash"); err != nil {
+		t.Skip("bash not found")
+	}
+	url := installerURL(t, "#!/bin/bash\nexit 0\n")
+	owned := strings.Replace(stoppedTree, `"owner":"pi"`, `"owner":"acme"`, 1)
+	for _, tc := range []struct {
+		trees string
+		stop  bool
+	}{{owned, true}, {"", false}} {
+		home := t.TempDir()
+		packRoot := filepath.Join(t.TempDir(), "packs")
+		writeTestFile(t, filepath.Join(packRoot, "acme", "pack.json"),
+			`{"name":"acme","contributes":[{"kind":"program","bin":"nat","via":"installer","url":"`+url+`"}]}`)
+		e := NewEnv(map[string]string{"JAIL_HOME": home, "YOLO_PACK_ROOT": packRoot,
+			"YOLO_WORKSPACE": filepath.Join(home, "ws"), PatchedTreesEnv: tc.trees})
+		e.Stderr = &bytes.Buffer{}
+		if err := GenerateAgentLaunchers(e); err != nil {
+			t.Fatal(err)
+		}
+		realBin := filepath.Join(home, ".local", "bin", "nat")
+		writeTestFile(t, realBin, "#!/bin/sh\necho NATIVE_RAN\n")
+		if err := os.Chmod(realBin, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		out, rc := runGeneratedLauncher(t, e, os.Getenv("PATH"), "nat")
+		ran := strings.Contains(out, "NATIVE_RAN")
+		if tc.stop {
+			if rc == 0 || ran {
+				t.Fatalf("rc=%d: the native launcher ran its program with no build of a tree it loads:\n%s", rc, out)
+			}
+			for _, w := range []string{"extension matt/pi-subagents", "has no build on this machine yet"} {
+				if !strings.Contains(out, w) {
+					t.Errorf("the native launcher's stop does not name %q:\n%s", w, out)
+				}
+			}
+		} else if rc != 0 || !ran {
+			t.Errorf("rc=%d: with no tree stopped the native launcher did not run its program:\n%s", rc, out)
+		}
+	}
 }
