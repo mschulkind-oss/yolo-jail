@@ -49,10 +49,10 @@ package entrypoint
 //     "host parity with the same handling"): the file opens the destination above a `---`, as a
 //     jail launch prepends it (jailcontent.PrependHostBriefing). It is NOT read when it names
 //     yolo's own output — a destination this composition writes (every shipped agent pack's
-//     `after` names its own `into`) or one the briefing record says yolo composed — because yolo
-//     never reads its output back in as input (S3, GeneratedHostBriefings). And it is never OPENED
-//     when it cannot be read as a file (UnreadHostSource): a dangling link, a FIFO, a directory.
-//     See hostBriefingOverlay.
+//     `after` names its own `into`) or one the briefing record says yolo composed, by its path or
+//     as the same file through a link — because yolo never reads its output back in as input (S3,
+//     GeneratedHostBriefings). And it is never OPENED when it cannot be read as a file
+//     (UnreadHostSource): a dangling link, a FIFO, a directory. See hostBriefingOverlay.
 
 import (
 	"encoding/json"
@@ -314,6 +314,12 @@ func hostAfterPath(after string) string {
 //     back in; prepending it as well would deliver the user's prose twice.
 //  2. A FILE THE BRIEFING RECORD LISTS AS yolo's (HostBriefingOwner) — a destination an earlier
 //     apply composed for a pack no longer selected. Its content is packs' prose, not the user's.
+//  3. EITHER OF THOSE UNDER ANOTHER NAME — the same file, through a symlink or a hard link
+//     (sameFileAsYoloOutput). A dotfiles manager links one canonical file to where each tool reads
+//     it, so `~/.foo/AGENTS.md -> ~/AGENTS.md` with `after: "host:AGENTS.md"` names this
+//     destination by a path no comparison of paths matches. The render writes through the link,
+//     so read as the user's the file was yolo's previous output, prepended to itself on every
+//     apply: it grew without bound, and the launch gate saw a change on every start.
 //
 // Then the file is asked about before it is opened (UnreadHostSource): a dangling link, anything
 // but a regular file — a FIFO would stall the apply until something wrote into it — or a read
@@ -339,6 +345,10 @@ func hostBriefingOverlay(d *HostBriefingDestination, homeDir string,
 			return d.Content, ov
 		}
 	}
+	if why, ok := sameFileAsYoloOutput(src, d.Path, homeDir, composed, man); ok {
+		ov.Outcome, ov.Why = OverlayYoloOutput, why
+		return d.Content, ov
+	}
 	if skip := UnreadHostSource(src); skip != nil {
 		ov.Outcome, ov.Unread = OverlayUnread, skip
 		return d.Content, ov
@@ -351,6 +361,66 @@ func hostBriefingOverlay(d *HostBriefingDestination, homeDir string,
 		ov.Outcome = OverlayPrepended
 	}
 	return out, ov
+}
+
+// sameFileAsYoloOutput reports whether src is, by file identity, one of yolo's briefing outputs: a
+// destination in this composition (dest is the one being composed) or a file the briefing record
+// lists as HostBriefingOwner's. why is the clause the report prints.
+//
+// os.Stat follows links and never opens the file, so a FIFO cannot stall it; anything it cannot
+// stat — absent, or a link to nowhere — is not identified here and falls to UnreadHostSource. A
+// candidate not yet on disk (the first apply) is no file src can be. Visited in sorted order, so a
+// file that is two outputs at once is always reported as the same one.
+func sameFileAsYoloOutput(src, dest, homeDir string, composed map[string]*HostBriefingDestination,
+	man *hostskills.Manifest) (why string, ok bool) {
+	info, err := os.Stat(src)
+	if err != nil {
+		return "", false
+	}
+	same := func(p string) bool {
+		other, err := os.Stat(p)
+		return err == nil && os.SameFile(info, other)
+	}
+	paths := make([]string, 0, len(composed))
+	for p := range composed {
+		paths = append(paths, p)
+	}
+	sort.Strings(paths)
+	for _, p := range paths {
+		if !same(p) {
+			continue
+		}
+		if p == dest {
+			return "it is the same file as this destination, which this apply composes", true
+		}
+		return "it is the same file as " + homeDisplayPath(homeDir, p) +
+			", a briefing destination this apply composes", true
+	}
+	if man == nil {
+		return "", false
+	}
+	var recorded []string
+	for p, owner := range man.Entries {
+		if owner == HostBriefingOwner {
+			recorded = append(recorded, p)
+		}
+	}
+	sort.Strings(recorded)
+	for _, p := range recorded {
+		if same(p) {
+			return "it is the same file as " + homeDisplayPath(homeDir, p) +
+				", which an earlier apply composed", true
+		}
+	}
+	return "", false
+}
+
+// homeDisplayPath is p as `~/<rel>` when it lies under homeDir, else p — for a clause naming a file.
+func homeDisplayPath(homeDir, p string) string {
+	if rel, ok := strings.CutPrefix(p, homeDir+string(filepath.Separator)); ok {
+		return "~/" + filepath.ToSlash(rel)
+	}
+	return p
 }
 
 // sortedUniqueSources is one pack's sources for one destination, deduplicated by pack-relative

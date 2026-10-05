@@ -300,7 +300,7 @@ func applyHostSkills(pr richtext.Printer, out io.Writer, stdin io.Reader,
 	// last, so no pack's same-named directory can stand in for it) and before the prune, which
 	// visits the same destinations. Not reached when the adoption is declined or a collision
 	// refuses the composition: nothing is written into a destination this apply left alone.
-	if lrc := applyHostLSPPlugin(pr, survey, lsp, dests, candidates, req, home, write); lrc != 0 {
+	if lrc := applyHostLSPPlugin(pr, survey, lsp, dests, sres, candidates, req, home, write); lrc != 0 {
 		rc = lrc
 	}
 

@@ -565,20 +565,27 @@ them and says where it cannot:
   after an `--assert` finds nothing to do.
 - **Nothing else at that name is overwritten.** A `yolo-lsp` the user made, or a skill of that
   name a pack composes there, is refused by name with the rename that lets the servers through,
-  and an `--assert` that met one exits 1 (a dry run reports it and exits 0). A launch stages into
-  an empty directory and writes the plugin last, so it never meets either.
+  and an `--assert` that met one exits 1 (a dry run reports it and exits 0,
+  [LSP-I1](#lsp-i1)). A launch stages into an empty directory and writes the plugin last, so it
+  never meets either.
+- **The dry run says what the `--assert` does.** Whether a pack composes a `yolo-lsp` is read
+  from the packs this apply composes, not from the skills record, and what the skills render
+  retires counts as gone ([LSP-I3](#lsp-i3)). A dry run records and archives nothing, so read
+  from the record it would promise a plugin the `--assert` then refuses, or repeat a refusal the
+  user has already acted on.
 - **A reserved name is skipped.** A pack contributing to the destination may fence `yolo-lsp`
-  as another tool's tree, and a fence is never composed over.
+  as another tool's tree, and a fence is never composed over. The skip is a `--verbose` line
+  ([LSP-I6](#lsp-i6)).
 - **Archived, not deleted, and unconfirmed** when the table renders nothing, when no selected
   pack composes the destination any more, and when `packs` is empty: every byte moved is one
   yolo wrote. It goes under the skills archive, in a `lsp_servers` directory of the apply's
-  generation. A destination counts as no longer composed only when every configured pack
-  resolved.
+  generation ([LSP-I4](#lsp-i4)). A destination counts as no longer composed only when every
+  configured pack resolved ([LSP-I5](#lsp-i5)).
 - **Owned by its manifest, never a record.** The skills record maps a path to the pack that
   composed it, and the dropped-pack retire reads every owner there as a pack. So the plugin is
   recorded nowhere, and that retire's scan of marked directories skips it by its manifest
-  (`IsLSPPlugin`); a pack literally named `yolo-lsp` is still found there, its subtree having
-  no `lspServers`.
+  (`IsLSPPlugin`, [LSP-I2](#lsp-i2)); a pack literally named `yolo-lsp` is still found there,
+  its subtree having no `lspServers`.
 
 Two host verbs do not touch it: `yolo host apply --revert` withdraws no skills of any kind, and
 `yolo config render --at host` renders config surfaces, which the plugin is not.
@@ -820,7 +827,9 @@ are stated.
 
 ## Why it's this way
 
-Forward-facing rulings a maintainer would otherwise undo, with their original ids.
+Forward-facing rulings a maintainer would otherwise undo, with their original ids. An `LSP-I`
+row is an implementation decision rather than a ruling, numbered in a series coined in this table
+for the host half of Claude's plugin.
 
 | ID | Ruling | Why it stays |
 | :--- | :--- | :--- |
@@ -829,4 +838,10 @@ Forward-facing rulings a maintainer would otherwise undo, with their original id
 | Principle 2 of [`pack-system.md`](pack-system.md) | Core publishes the **domain** (`mcp_servers`); the pack owns the **tool's dialect** | A per-tool branch in core is the agent registry coming back through a different door. The projection changes when the tool changes, which is the pack's business. |
 | <a id="oq-lsp1"></a>[`OQ-LSP1`](#oq-lsp1) | **Option D — generate.** yolo authors ONE plugin whose `lspServers` is rendered from the user's own `lsp_servers` table, and delivers it as content. Never a per-language map, never marketplace plugin ids — neither the three it replaced nor the full official set | A per-language map is yolo picking "the" server for a language, which is the user's choice; marketplace ids also need an install path, and a jail runs no vendor install verb. The ruling said "and enables it", but no enable step exists: the skills-tree load path is opt-out. The same rule deleted the install side: the three-entry recipe table that picked `pyright`, `typescript-language-server` and `gopls`, and its install lists, sentinel and refresh arm, went on 2026-09-25, so yolo installs no language server. |
 | <a id="oq-lsp3"></a>[`OQ-LSP3`](#oq-lsp3) | Claude **auto-loads a plugin from `~/.claude/skills/*`** with no marketplace, no `enabledPlugins` entry and no flag; it is **enabled by default** there; ONE plugin may declare MANY servers, keyed by server name. Measured statically against Claude Code 2.1.278 | This is the precondition option D rests on, and it is version-pinned. **Falsifier:** a Claude release that removes the skills-tree or session load arm, or a managed policy that stops the skills-tree scan — a `strictKnownMarketplaces` allowlist without `{"source": "skills-dir"}`, a `blockedMarketplaces` entry naming it, or (2.1.288 strings) any `strictPluginOnlyCustomization` lock — shipped on by default, or set by a policy on the user's machine. `disableSideloadFlags` is not one: it gates `--plugin-dir`, `--plugin-url`, `CLAUDE_CODE_PLUGIN_DIRS`, `--agents`, `--mcp-config` and the mods folder, not the skills tree (corrected 2026-10-03, [claude-code-mods-management.md G6](../research/claude-code-mods-management.md#g6-an-organization-policy-silently-blocks-the-whole-route)). Anyone revisiting it re-reads the installed version's plugin assembler. Two servers claiming one extension is a warning, not a load failure. |
+| <a id="lsp-i1"></a>[`LSP-I1`](#lsp-i1) | *Implementation decision, taken under the maintainer's 2026-10-04 delegation ("make them and build it … adjust later"); reversible.* At `yolo host apply`, a `yolo-lsp` the plugin cannot be written over makes an `--assert` **exit 1**, and a dry run **exit 0** | The `--assert` did not deliver what the config asks, so a script must see it fail. A dry run's output is the finding ([OQ-RO5](report-tiers.md#why-its-this-way)), and a non-zero observe pass would leave the launch gate unable to read the home at all. |
+| <a id="lsp-i2"></a>[`LSP-I2`](#lsp-i2) | *Implementation decision, taken under the maintainer's 2026-10-04 delegation ("make them and build it … adjust later"); reversible.* The plugin is **identified by its manifest alone**: yolo's ownership marker, the name `yolo-lsp`, and an `lspServers` object (`IsLSPPlugin`) | The marker and the name are not enough: the namespaced subtree of a pack called `yolo-lsp` carries both. Recording the plugin in the skills record instead would have the dropped-pack retire read it as a pack's output and offer to retire it on every apply. |
+| <a id="lsp-i3"></a>[`LSP-I3`](#lsp-i3) | *Implementation decision, taken under the maintainer's 2026-10-04 delegation ("make them and build it … adjust later"); reversible.* **A `yolo-lsp` is a pack's when the packs this apply composes claim that name** at the destination, read from their layers (`hostskills.Collisions`, the authority the skills refusal uses), and **what the skills render archives or clears there is free** | Built first as "any path either skills record attributes to a pack". A dry run records and archives nothing, so that rule had the dry run disagree with the `--assert` both ways: on a new home it promised a plugin the `--assert` refused, and after the user renamed the pack's skill it repeated the refusal while the `--assert` wrote the plugin. Revised the same day. |
+| <a id="lsp-i4"></a>[`LSP-I4`](#lsp-i4) | *Implementation decision, taken under the maintainer's 2026-10-04 delegation ("make them and build it … adjust later"); reversible.* A retired plugin is **archived, unconfirmed, under `lsp_servers/`** in the skills archive of the apply's generation | No pack owns it, so it is filed under the config key whose output it was. Every byte moved is one yolo wrote, the asymmetry the skills retire already carries, and an archive costs one `mv` back. |
+| <a id="lsp-i5"></a>[`LSP-I5`](#lsp-i5) | *Implementation decision, taken under the maintainer's 2026-10-04 delegation ("make them and build it … adjust later"); reversible.* A destination is retired as **dead only over a complete pack set** | A configured pack that did not resolve may be the one naming the destination, the reason the skills composition's own retire waits for a complete set. |
+| <a id="lsp-i6"></a>[`LSP-I6`](#lsp-i6) | *Implementation decision, taken under the maintainer's 2026-10-04 delegation ("make them and build it … adjust later"); reversible.* The **reserved-name skip is a `--verbose` line**, not a warning | A fence is a pack's deliberate declaration, nothing is wrong, and the skills report already puts a skipped entry's line on demand. |
 | Orphan-file cleanup ([`config-migration-to-prism.md`](config-migration-to-prism.md#the-two-sidecars-are-different-kinds-of-thing)) | A retired sidecar is deleted by the surface's owner on first composed render, as **data** rather than Go | It was the last thing left in the per-agent render functions besides the computed layer, and keeping it in Go would keep those functions alive for a one-shot cleanup. |

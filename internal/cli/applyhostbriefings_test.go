@@ -597,3 +597,101 @@ func TestApplyHostBriefingWarnsOfAnUnreadableAfterFile(t *testing.T) {
 		})
 	}
 }
+
+// applyFourTimes runs four --asserts, each answering stdin, and returns the destination's bytes
+// after each one — the idempotence the launch gate depends on, since a `yolo host -- <bin>` whose
+// observe pass always sees a change re-applies on every start.
+func applyFourTimes(t *testing.T, dest, stdin string) []string {
+	t.Helper()
+	var got []string
+	for i := 0; i < 4; i++ {
+		if rc, report := applyWith(t, true, strings.NewReader(stdin)); rc != 0 {
+			t.Fatalf("apply %d rc=%d\n%s", i+1, rc, report)
+		}
+		b, err := os.ReadFile(dest)
+		if err != nil {
+			t.Fatalf("apply %d: %v", i+1, err)
+		}
+		got = append(got, string(b))
+	}
+	return got
+}
+
+// THE DOTFILES SHAPE: the destination is a symlink to the user's canonical file, and the pack's
+// `after` names that canonical file. One file under two names, so a path comparison took it for the
+// user's: the render writes through the link, and every later apply prepended yolo's previous output
+// to itself — the file grew on every apply, and the launch gate re-applied on every start. Compared
+// by file identity it is this destination, which the adoption moves into the local pack once.
+func TestApplyHostBriefingDoesNotGrowADestinationLinkedToItsAfterFile(t *testing.T) {
+	home := afterFixture(t, "AGENTS.md", "")
+	writeFile(t, filepath.Join(home, "AGENTS.md"), "MY CANONICAL RULES\n")
+	dest := filepath.Join(home, ".foo", "AGENTS.md")
+	if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(filepath.Join(home, "AGENTS.md"), dest); err != nil {
+		t.Fatal(err)
+	}
+
+	got := applyFourTimes(t, dest, "y\n")
+	for i, body := range got {
+		if n := strings.Count(body, "MY CANONICAL RULES"); n != 1 {
+			t.Errorf("after apply %d the user's prose appears %d times, want once (through the "+
+				"local pack):\n%s", i+1, n, body)
+		}
+		if body != got[0] {
+			t.Errorf("apply %d changed the destination (%d bytes, then %d) — yolo's own output was "+
+				"read back in through the link", i+1, len(got[0]), len(body))
+		}
+	}
+}
+
+// THE OTHER DIRECTION: the `after` file is a symlink to the destination itself. On the first apply
+// the destination does not exist yet, so the link dangles and is warned about; from then on it is
+// this destination's own output, and must not be prepended to itself.
+func TestApplyHostBriefingDoesNotGrowADestinationItsAfterFileLinksTo(t *testing.T) {
+	home := afterFixture(t, "mine.md", "")
+	dest := filepath.Join(home, ".foo", "AGENTS.md")
+	if err := os.Symlink(dest, filepath.Join(home, "mine.md")); err != nil {
+		t.Fatal(err)
+	}
+
+	got := applyFourTimes(t, dest, "")
+	for i, body := range got {
+		if body != got[0] || strings.Contains(body, "\n---\n") {
+			t.Errorf("apply %d: the destination was prepended to itself (%d bytes, then %d):\n%s",
+				i+1, len(got[0]), len(body), body)
+		}
+	}
+}
+
+// THE RECORD HALF OF THE SKIP RULE, AT THE RENDER. claude is selected and then dropped, so on the
+// second apply ~/.claude/CLAUDE.md is no longer a destination of this composition — only the
+// briefing record still knows it is yolo's output — and foo's `after` names it. The render must
+// compose with the record as the gate does, or it reads that file back in as the user's.
+func TestApplyHostBriefingSkipsAFileTheRecordListsAtTheRender(t *testing.T) {
+	home := afterFixture(t, ".claude/CLAUDE.md", `"claude",`)
+	if rc, report := applyWith(t, true, strings.NewReader("")); rc != 0 {
+		t.Fatalf("first apply rc=%d\n%s", rc, report)
+	}
+	foo := filepath.Join(home, ".foo", "AGENTS.md")
+	first, _ := os.ReadFile(foo)
+	if claude, _ := os.ReadFile(filepath.Join(home, ".claude", "CLAUDE.md")); len(claude) == 0 {
+		t.Fatal("fixture: the first apply did not compose ~/.claude/CLAUDE.md")
+	}
+	cfgPath := filepath.Join(home, ".config", "yolo-jail", "config.jsonc")
+	cfg, err := os.ReadFile(cfgPath)
+	if err != nil || !strings.Contains(string(cfg), `"claude",`) {
+		t.Fatalf("fixture: no claude to drop in %q (%v)", cfg, err)
+	}
+	writeFile(t, cfgPath, strings.Replace(string(cfg), `"claude",`, "", 1))
+
+	rc, report := applyWith(t, true, strings.NewReader(""))
+	if rc != 0 {
+		t.Fatalf("apply after dropping claude rc=%d\n%s", rc, report)
+	}
+	if second, _ := os.ReadFile(foo); string(second) != string(first) {
+		t.Errorf("~/.foo/AGENTS.md changed once claude was dropped — the composed "+
+			"~/.claude/CLAUDE.md was read back in:\n--- first\n%s\n--- second\n%s\n%s", first, second, report)
+	}
+}

@@ -26,6 +26,12 @@ package cli
 //     pack composed (a flat skill of that name, or the namespaced subtree of a pack called
 //     `yolo-lsp`). Either is refused by name, with the rename that lets the servers through, and
 //     an --assert that met one exits 1.
+//   - A PACK'S CLAIM IS THIS COMPOSITION'S, NOT THE RECORD'S (lspPluginClaimant), and what the
+//     render retires is free (lspPluginPathsFreed). A dry run neither records nor archives, so
+//     read from the record and the disk it disagreed with the --assert both ways: on a fresh home
+//     it promised a plugin the --assert then refused for a pack's skill, and after the user renamed
+//     that skill it repeated "rename that skill" while the --assert archived the old entry and
+//     wrote the plugin.
 //   - A RESERVED NAME IS LEFT ALONE: a pack contributing to a destination may fence `yolo-lsp` as
 //     another tool's tree (packdecl.Contribution.Reserved), and a fence is never composed over.
 //   - RETIRED BY ARCHIVE, unconfirmed, when the table renders nothing or no selected pack composes
@@ -46,6 +52,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/jailcontent"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
+	"github.com/mschulkind-oss/yolo-jail/internal/pluginpack"
 	"github.com/mschulkind-oss/yolo-jail/internal/richtext"
 )
 
@@ -59,14 +66,15 @@ const lspPluginArchiveAttribution = "lsp_servers"
 // observe pass would leave the launch gate unable to read the home at all.
 //
 // dests are the destinations this apply composes (hostskills.ComposeHostSkills over the active
-// set); candidates add every pack yolo ships, so a destination a dropped pack named is visited for
-// a plugin left behind there. req is the composition's own request: its records name what a pack
-// composed, and its archive root and stamp group a retired plugin with the skills this apply
-// retires.
+// set), and rendered is what RenderHostSkills just did to them; candidates add every pack yolo
+// ships, so a destination a dropped pack named is visited for a plugin left behind there. req is
+// the composition's own request: its archive root and stamp group a retired plugin with the skills
+// this apply retires.
 func applyHostLSPPlugin(pr richtext.Printer, survey *hostApplySurvey, lsp *jsonx.OrderedMap,
-	dests []hostskills.Destination, candidates []*packload.Pack, req hostskills.ComposeRequest,
-	home string, write bool) int {
+	dests []hostskills.Destination, rendered []hostskills.Result, candidates []*packload.Pack,
+	req hostskills.ComposeRequest, home string, write bool) int {
 	manifest, render := jailcontent.RenderLSPPlugin(lsp)
+	freed := lspPluginPathsFreed(rendered)
 	rc := 0
 	report := func(r hostskills.Result) {
 		printSkillResult(pr, survey, r)
@@ -88,7 +96,7 @@ func applyHostLSPPlugin(pr richtext.Printer, survey *hostApplySurvey, lsp *jsonx
 			continue
 		}
 		if render {
-			report(writeHostLSPPlugin(path, manifest, req, home, write))
+			report(writeHostLSPPlugin(path, manifest, lspPluginClaimant(d), freed[path], home, write))
 			continue
 		}
 		if r, ok := retireHostLSPPlugin(path, req, write,
@@ -114,8 +122,10 @@ func applyHostLSPPlugin(pr richtext.Printer, survey *hostApplySurvey, lsp *jsonx
 }
 
 // writeHostLSPPlugin delivers the plugin at path, or refuses when something not provably the
-// plugin holds that name.
-func writeHostLSPPlugin(path string, manifest []byte, req hostskills.ComposeRequest, home string,
+// plugin holds that name. claimant is the pack this composition puts a `yolo-lsp` of its own at
+// path for ("" for none); freed says the skills render archives or clears what is at path, which a
+// dry run leaves on disk, so it is treated as gone in both postures.
+func writeHostLSPPlugin(path string, manifest []byte, claimant string, freed bool, home string,
 	write bool) hostskills.Result {
 	r := hostskills.Result{Name: jailcontent.LSPPluginDir, Path: path,
 		Detail: "Claude's language servers, from your lsp_servers"}
@@ -123,14 +133,18 @@ func writeHostLSPPlugin(path string, manifest []byte, req hostskills.ComposeRequ
 		r.Action, r.Detail, r.WouldChange = hostskills.ActionRefused, why, false
 		return r
 	}
-	if pack, ok := lspPluginPathPackOwner(path, req); ok {
+	if claimant != "" {
 		return refuse(fmt.Sprintf("pack %s composes a skill named %s at %s, the name yolo's LSP "+
 			"plugin takes, so your lsp_servers do not reach this destination — rename that skill "+
 			"in pack %s, then run `yolo host apply --assert` again",
-			pack, jailcontent.LSPPluginDir, prettyHomePath(home, path), pack))
+			claimant, jailcontent.LSPPluginDir, prettyHomePath(home, path), claimant))
 	}
 	manifestPath := filepath.Join(path, filepath.FromSlash(jailcontent.LSPPluginManifestRel))
-	if _, err := os.Lstat(path); err == nil {
+	_, err := os.Lstat(path)
+	switch {
+	case err == nil && freed:
+		// What is there leaves with this apply's skills retire; only a dry run still sees it.
+	case err == nil:
 		if !jailcontent.IsLSPPlugin(path) {
 			return refuse(fmt.Sprintf("%s is not yolo's LSP plugin (it holds no manifest yolo "+
 				"wrote), so it is left as it is and your lsp_servers do not reach this destination — "+
@@ -141,7 +155,7 @@ func writeHostLSPPlugin(path string, manifest []byte, req hostskills.ComposeRequ
 			r.Action = hostskills.ActionUnchanged
 			return r
 		}
-	} else if !os.IsNotExist(err) {
+	case !os.IsNotExist(err):
 		return refuse(fmt.Sprintf("cannot inspect %s: %v", prettyHomePath(home, path), err))
 	}
 	r.WouldChange = true
@@ -161,10 +175,11 @@ func writeHostLSPPlugin(path string, manifest []byte, req hostskills.ComposeRequ
 
 // retireHostLSPPlugin archives the plugin at path, and reports false when there is no plugin of
 // yolo's there to retire — absent, the user's own, or a pack's skill of the same name, whose
-// retirement is the skills composition's.
+// retirement is the skills composition's. The manifest alone decides (IsLSPPlugin): a pack's skill
+// or namespaced subtree named yolo-lsp carries no `lspServers`.
 func retireHostLSPPlugin(path string, req hostskills.ComposeRequest, write bool,
 	why string) (hostskills.Result, bool) {
-	if _, ok := lspPluginPathPackOwner(path, req); ok || !jailcontent.IsLSPPlugin(path) {
+	if !jailcontent.IsLSPPlugin(path) {
 		return hostskills.Result{}, false
 	}
 	r := hostskills.Result{Name: jailcontent.LSPPluginDir, Path: path, Detail: why, WouldChange: true}
@@ -183,16 +198,59 @@ func retireHostLSPPlugin(path string, req hostskills.ComposeRequest, write bool,
 	return r, true
 }
 
-// lspPluginPathPackOwner names the pack a skills record says composed path, if one does: the
-// composition's record, or the per-entry record a pre-composition delivery kept.
-func lspPluginPathPackOwner(path string, req hostskills.ComposeRequest) (string, bool) {
-	for _, m := range []*hostskills.Manifest{req.Composed, req.Legacy} {
-		if m == nil {
+// lspPluginProbe is the layer lspPluginClaimant adds to a destination to ask who else claims the
+// name: a namespaced layer whose one wrapped plugin is called yolo-lsp, which claims exactly that
+// top-level name and nothing else. Its pack name can be no pack's: a configured pack's name never
+// holds a "/" (config's checkPackName), since it becomes a staging directory, and a shipped one is
+// its own directory's.
+const lspPluginProbe = "lsp_servers/" + jailcontent.LSPPluginDir
+
+// lspPluginClaimant names the pack whose layer in THIS composition puts an entry called yolo-lsp at
+// d's top level, "" for none: a flat skill of that name, the namespaced subtree of a pack called
+// yolo-lsp, or a wrapped plugin of that name.
+//
+// Asked of hostskills.Collisions with the plugin added as one more layer, because that is the one
+// authority on which top-level names a composition creates (layerClaims, which mirrors the
+// render's own deliveries). Read from the destination's LAYERS, not from the skills record or the
+// disk, because a dry run writes neither: the record names what an earlier --assert composed, so a
+// claim this composition makes for the first time is absent from it, and one the user just renamed
+// away is still in it. A real collision between two packs never reaches here — applyHostSkills
+// refuses it first — so at most one pack claims the name, and a destination with an unresolved
+// layer, which the render leaves alone, reports none.
+func lspPluginClaimant(d hostskills.Destination) string {
+	layers := append(append([]hostskills.Layer(nil), d.Layers...), hostskills.Layer{
+		Pack: lspPluginProbe, Tier: hostskills.TierNamespaced,
+		Plugins: []*pluginpack.Plugin{{Dir: jailcontent.LSPPluginDir}},
+	})
+	for _, c := range hostskills.Collisions([]hostskills.Destination{{Dir: d.Dir, Layers: layers}}) {
+		if c.Name != jailcontent.LSPPluginDir {
 			continue
 		}
-		if owner, ok := m.Owner(path); ok {
-			return owner, true
+		for _, cl := range c.Claims {
+			if cl.Pack != lspPluginProbe {
+				return cl.Pack
+			}
 		}
 	}
-	return "", false
+	return ""
+}
+
+// lspPluginPathsFreed is every path the skills render archives or clears, in either posture: a
+// `yolo-lsp` a pack no longer composes, which the --assert moves out before the plugin is written,
+// and which a dry run must therefore not report as standing in the plugin's way. The LAST result
+// at a path decides, since a delivery can clear a dangling link and then write over it.
+func lspPluginPathsFreed(rendered []hostskills.Result) map[string]bool {
+	last := map[string]hostskills.Action{}
+	for _, r := range rendered {
+		last[r.Path] = r.Action
+	}
+	freed := map[string]bool{}
+	for path, a := range last {
+		switch a {
+		case hostskills.ActionArchived, hostskills.ActionWouldArchive,
+			hostskills.ActionCleared, hostskills.ActionWouldClear:
+			freed[path] = true
+		}
+	}
+	return freed
 }

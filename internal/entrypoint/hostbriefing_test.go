@@ -1317,3 +1317,114 @@ func mustAfter(t *testing.T, err error) {
 		t.Fatal(err)
 	}
 }
+
+// THE SKIP RULE BY FILE IDENTITY, not only by path. A dotfiles manager links one canonical file
+// to the place a tool reads it, so an `after` file and a composed destination can be ONE file under
+// two names. Compared by path, that file was read back in as the user's on every apply: the render
+// writes through the link, so the next composition prepended its own previous output and the file
+// grew without bound. Each shape below must be skipped as yolo's output, and the destination must
+// hold the composition alone.
+func TestComposeHostBriefingsSkipsAnAfterFileThatIsYoloOutputUnderAnotherName(t *testing.T) {
+	cases := map[string]struct {
+		// setup builds the home and returns the `after` path and, for the record case, the file
+		// the record lists.
+		setup func(t *testing.T, home string) (after, recorded string)
+		why   string
+	}{
+		"the destination links to the after file": {func(t *testing.T, home string) (string, string) {
+			mustAfter(t, os.WriteFile(filepath.Join(home, "AGENTS.md"), []byte("YOLO WROTE THIS\n"), 0o644))
+			mustAfter(t, os.MkdirAll(filepath.Join(home, ".foo"), 0o755))
+			mustAfter(t, os.Symlink(filepath.Join(home, "AGENTS.md"), filepath.Join(home, ".foo", "AGENTS.md")))
+			return "AGENTS.md", ""
+		}, "it is the same file as this destination, which this apply composes"},
+		"the after file links to the destination": {func(t *testing.T, home string) (string, string) {
+			mustAfter(t, os.MkdirAll(filepath.Join(home, ".foo"), 0o755))
+			mustAfter(t, os.WriteFile(filepath.Join(home, ".foo", "AGENTS.md"), []byte("YOLO WROTE THIS\n"), 0o644))
+			mustAfter(t, os.Symlink(filepath.Join(home, ".foo", "AGENTS.md"), filepath.Join(home, "mine.md")))
+			return "mine.md", ""
+		}, "it is the same file as this destination, which this apply composes"},
+		"the after file links to another destination": {func(t *testing.T, home string) (string, string) {
+			mustAfter(t, os.MkdirAll(filepath.Join(home, ".claude"), 0o755))
+			mustAfter(t, os.WriteFile(filepath.Join(home, ".claude", "CLAUDE.md"), []byte("YOLO WROTE THIS\n"), 0o644))
+			mustAfter(t, os.Symlink(filepath.Join(home, ".claude", "CLAUDE.md"), filepath.Join(home, "mine.md")))
+			return "mine.md", ""
+		}, "it is the same file as ~/.claude/CLAUDE.md, a briefing destination this apply composes"},
+		"the after file links to a file the record lists": {func(t *testing.T, home string) (string, string) {
+			old := filepath.Join(home, "old.md")
+			mustAfter(t, os.WriteFile(old, []byte("YOLO WROTE THIS\n"), 0o644))
+			mustAfter(t, os.Symlink(old, filepath.Join(home, "mine.md")))
+			return "mine.md", old
+		}, "it is the same file as ~/old.md, which an earlier apply composed"},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			home := evalTempDir(t)
+			after, recorded := tc.setup(t, home)
+			packs := []*packload.Pack{
+				briefingPack(t, "claude", ".claude/CLAUDE.md", "Claude prose.\n"),
+				afterPack(t, ".foo/AGENTS.md", after),
+			}
+			req, man := briefingReq(t, home)
+			if recorded != "" {
+				man.Record(recorded, HostBriefingOwner)
+			}
+			for _, d := range ComposeHostBriefingsFor(packs, home, req) {
+				if d.Path != filepath.Join(home, ".foo", "AGENTS.md") {
+					continue
+				}
+				if d.Content != "Pack prose.\n" {
+					t.Errorf("~/.foo/AGENTS.md read yolo's own output back in: %q", d.Content)
+				}
+				if d.Overlay.Outcome != OverlayYoloOutput || d.Overlay.Why != tc.why {
+					t.Errorf("overlay = %+v, want %q because %q", d.Overlay, OverlayYoloOutput, tc.why)
+				}
+			}
+			// The adoption gate composes through the same rule, so it compares the same bytes.
+			dest := filepath.Join(home, ".foo", "AGENTS.md")
+			if _, err := os.Stat(dest); err == nil {
+				for _, a := range HostBriefingAdoptions(packs, home, man, req.Base, req.Provenance) {
+					if strings.Contains(a.Existing, "Pack prose.") {
+						t.Errorf("the gate composed different bytes than the render: %+v", a)
+					}
+				}
+			}
+		})
+	}
+}
+
+// evalTempDir is t.TempDir() with its symlinks resolved, so a path compared against one the code
+// built from a resolved file reads the same on darwin, where the temp root is a link.
+func evalTempDir(t *testing.T) string {
+	t.Helper()
+	dir, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	return dir
+}
+
+// THE RECORD HALF AT THE ADOPTION GATE. The gate composes with the record, so a destination holding
+// exactly the record-aware composition — the `after` file NOT prepended, because the record lists
+// it as yolo's — is not offered for adoption. Composed without the record, the gate would prepend
+// that file, see bytes that differ, and ask to adopt a destination yolo is about to write the same
+// content into. The destination itself is not in the record, so nothing else exempts it.
+func TestHostBriefingAdoptionsComposeWithTheRecord(t *testing.T) {
+	home := evalTempDir(t)
+	old := filepath.Join(home, "old.md")
+	mustAfter(t, os.WriteFile(old, []byte("A DROPPED PACK'S PROSE\n"), 0o644))
+	packs := []*packload.Pack{afterPack(t, ".foo/AGENTS.md", "old.md")}
+	req, man := briefingReq(t, home)
+	man.Record(old, HostBriefingOwner)
+	dest := filepath.Join(home, ".foo", "AGENTS.md")
+	mustAfter(t, os.MkdirAll(filepath.Dir(dest), 0o755))
+	mustAfter(t, os.WriteFile(dest, []byte(composedAt(ComposeHostBriefingsFor(packs, home, req), home,
+		".foo/AGENTS.md")), 0o644))
+	if got, _ := os.ReadFile(dest); string(got) != "Pack prose.\n" {
+		t.Fatalf("fixture: the record-aware composition prepended the recorded file: %q", got)
+	}
+
+	if got := HostBriefingAdoptions(packs, home, man, req.Base, req.Provenance); len(got) != 0 {
+		t.Errorf("a destination holding exactly the record-aware composition was offered for "+
+			"adoption — the gate composed without the record: %+v", got)
+	}
+}

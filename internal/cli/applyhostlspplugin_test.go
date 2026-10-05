@@ -283,3 +283,111 @@ func archivedPlugin(t *testing.T, home string) bool {
 	}
 	return false
 }
+
+// lspClashFixture is lspHostFixture plus a configured pack, `name`, contributing skills to
+// ~/.claude/skills: one skill dir per entry of skills, and `extra` spliced into its contribution
+// (`,"reserved":["yolo-lsp"]` for a fence). It returns the home and the pack's root.
+func lspClashFixture(t *testing.T, name, extra string, skills ...string) (home, packDir string) {
+	t.Helper()
+	home = lspHostFixture(t, `"claude"`, lspHostServers)
+	packDir = filepath.Join(t.TempDir(), name)
+	writeFile(t, filepath.Join(packDir, "pack.json"),
+		`{"name":"`+name+`","description":"d","contributes":[`+
+			`{"kind":"skills","from":"skills","into":".claude/skills"`+extra+`}]}`)
+	for _, s := range skills {
+		writeFile(t, filepath.Join(packDir, "skills", s, "SKILL.md"),
+			"---\nname: "+s+"\ndescription: x\n---\nbody\n")
+	}
+	writeLSPHostConfig(t, home, `"claude",{"source":"file://`+packDir+`","name":"`+name+`"}`, lspHostServers)
+	return home, packDir
+}
+
+// A SKILL NAMED yolo-lsp THAT A PACK COMPOSES is refused by name, naming the pack and the rename —
+// and the dry run says so too, on a home where nothing has been applied yet. The pack's claim is
+// this composition's, not the ownership record's: a dry run records nothing, so read from the
+// record the first dry run promised to render the plugin that the --assert then refused.
+func TestHostApplyRefusesAYoloLSPAPackComposesNamingThePack(t *testing.T) {
+	home, _ := lspClashFixture(t, "lspclash", "", "yolo-lsp")
+	verboseReport(t)
+	const refusal = "pack lspclash composes a skill named yolo-lsp"
+
+	rc, dry := applyWith(t, false, nil)
+	if rc != 0 || countLines(dry, refusal, "rename that skill in pack lspclash") != 1 ||
+		countLines(dry, "Claude's language servers", "would render") != 0 {
+		t.Errorf("the dry run must name the refusal the --assert makes, and exit 0; rc=%d\n%s", rc, dry)
+	}
+	rc, wet := applyWith(t, true, strings.NewReader(""))
+	if rc != 1 || countLines(wet, refusal, "rename that skill in pack lspclash") != 1 {
+		t.Errorf("want rc 1 and one refusal naming the pack, got rc=%d\n%s", rc, wet)
+	}
+	if jailcontent.IsLSPPlugin(filepath.Join(home, ".claude", "skills", jailcontent.LSPPluginDir)) {
+		t.Error("yolo's plugin was written over the pack's skill")
+	}
+}
+
+// ONCE THE USER FOLLOWS THE REFUSAL'S REMEDY, the dry run agrees with the --assert. The renamed
+// pack's old `yolo-lsp` is still on disk and still in the record until an --assert archives it, so
+// a dry run reading either repeated "rename that skill" about a skill already renamed, while the
+// --assert archived the old entry and wrote the plugin.
+func TestHostApplyDryRunAfterTheRenameAgreesWithTheAssert(t *testing.T) {
+	home, packDir := lspClashFixture(t, "lspclash", "", "yolo-lsp")
+	if rc, report := applyWith(t, true, strings.NewReader("")); rc != 1 {
+		t.Fatalf("fixture: want the refusal first, rc=%d\n%s", rc, report)
+	}
+	if err := os.Rename(filepath.Join(packDir, "skills", "yolo-lsp"),
+		filepath.Join(packDir, "skills", "renamed")); err != nil {
+		t.Fatal(err)
+	}
+	verboseReport(t)
+
+	rc, dry := applyWith(t, false, nil)
+	if rc != 0 || countLines(dry, "pack lspclash composes a skill named yolo-lsp") != 0 ||
+		countLines(dry, jailcontent.LSPPluginDir, "would render", "Claude's language servers") != 1 {
+		t.Errorf("the dry run must say the plugin would render, and repeat no refusal; rc=%d\n%s", rc, dry)
+	}
+	if jailcontent.IsLSPPlugin(filepath.Join(home, ".claude", "skills", jailcontent.LSPPluginDir)) {
+		t.Error("the dry run wrote the plugin")
+	}
+	rc, wet := applyWith(t, true, strings.NewReader(""))
+	if rc != 0 || countLines(wet, jailcontent.LSPPluginDir, "rendered", "Claude's language servers") != 1 {
+		t.Errorf("the --assert must write what the dry run promised; rc=%d\n%s", rc, wet)
+	}
+	mustExist(t, lspPluginManifest(home, ".claude/skills"), "the rename freed the name")
+}
+
+// A DESTINATION THAT RESERVES yolo-lsp gets no plugin: a pack contributing there fenced the name as
+// another tool's tree, and a fence is never composed over. The skip is named under --verbose.
+func TestHostApplyWritesNoLSPPluginWhereAPackReservesTheName(t *testing.T) {
+	home, _ := lspClashFixture(t, "fence", `,"reserved":["yolo-lsp"]`, "x")
+	verboseReport(t)
+
+	rc, report := applyWith(t, true, strings.NewReader(""))
+	if rc != 0 {
+		t.Fatalf("assert rc=%d\n%s", rc, report)
+	}
+	mustNotExist(t, filepath.Join(home, ".claude", "skills", jailcontent.LSPPluginDir),
+		"a pack contributing to ~/.claude/skills reserves yolo-lsp")
+	if n := countLines(report, jailcontent.LSPPluginDir, "reserves this name"); n != 1 {
+		t.Errorf("want the skip named once under --verbose, got %d:\n%s", n, report)
+	}
+}
+
+// A DESTINATION IS DEAD ONLY OVER A COMPLETE PACK SET. With a configured pack that does not
+// resolve, ~/.claude/skills — which no resolved pack composes any more — may still be that pack's,
+// so neither the dry run nor anything after it may offer to archive the plugin there. (An --assert
+// refuses an incomplete pack set before this, so the dry run is the posture that reaches the guard.)
+func TestHostApplyKeepsTheLSPPluginWhileAConfiguredPackDoesNotResolve(t *testing.T) {
+	home := lspHostFixture(t, `"claude"`, lspHostServers)
+	if rc, report := applyWith(t, true, strings.NewReader("")); rc != 0 {
+		t.Fatalf("first assert rc=%d\n%s", rc, report)
+	}
+	writeLSPHostConfig(t, home,
+		`"codex",{"source":"file://`+filepath.Join(home, "no-such-pack")+`","name":"ghost"}`, lspHostServers)
+	verboseReport(t)
+
+	_, dry := applyWith(t, false, nil)
+	if n := countLines(dry, jailcontent.LSPPluginDir, "would archive"); n != 0 {
+		t.Errorf("a dry run over an incomplete pack set offered to archive the plugin:\n%s", dry)
+	}
+	mustExist(t, lspPluginManifest(home, ".claude/skills"), "a configured pack did not resolve")
+}
