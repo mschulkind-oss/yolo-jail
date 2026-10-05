@@ -578,8 +578,24 @@ func BriefingContent(in BriefingInput) string {
 	// scoped to the jail: wherever the host nix daemon is mounted the jail runs with
 	// NIX_REMOTE=daemon, so a `nix build` runs in the daemon's builders on the host, which
 	// no process here started (docs/design/io-priority.md §2, Non-Goal 6).
+	//
+	// ON macos-user THE MECHANISM IS ANOTHER ONE, and so is every word after the value: the
+	// launcher sets a macOS disk I/O policy on itself and the session inherits it
+	// (docs/design/io-priority.md §5.5). There is no Linux class, no scheduler to name and no
+	// entrypoint boot, so the Linux sentence would be three false claims in a row; this one
+	// names the policy and keeps the two that hold everywhere: advisory, and the host nix
+	// daemon's builds are outside it.
 	var ioPriorityLine []string
-	if p := ioprio.Priority(in.IOPriority); p.Declared() {
+	if p := ioprio.Priority(in.IOPriority); p.Declared() && slices.Contains(paths.NativeRuntimes, in.Mechanism) {
+		pol, _ := p.DarwinPolicy()
+		ioPriorityLine = []string{
+			"- **Disk I/O priority**: `" + in.IOPriority + "` (" + ioprio.DarwinPolicyName(pol) + "), " +
+				"the macOS disk I/O policy the launcher set before this session started, so every " +
+				"process here inherits it and builds yield the disk under contention. Advisory, not a " +
+				"limit: a process can set its own, and work a host process does for the session is " +
+				"outside it: a `nix build` through the host nix daemon keeps the host's policy.",
+		}
+	} else if p.Declared() {
 		ioPriorityLine = []string{
 			"- **Disk I/O priority**: `" + in.IOPriority + "` (" + p.ClassName() + "), set on every " +
 				"process in this jail at boot so builds here yield the disk under contention. " +
@@ -846,14 +862,22 @@ func BriefingContent(in BriefingInput) string {
 //
 // IT BRANCHES BECAUSE THE SECOND HALF IS FALSE OFF-CONTAINER, which the `## Environment` fix
 // above did not reach: it told every agent to request a "container-limit change" by editing
-// `resources`, on a backend with no container where `resources` is read and IGNORED by ruling
-// (DP-D1 — RLIMIT_AS is address space rather than RSS, RLIMIT_NPROC is per-USER and collides
-// across concurrent sessions on the shared account, both rejected by name). Instructing an
-// agent to ask its human for a limit nothing can deliver is worse than a wrong path: the human
-// grants it, the config carries it, and the cap does not exist. DP-D1's own words are the rule
-// applied here — "a cap a user believes in but that does not hold is worse than a documented
-// absence" — so the absence is NAMED rather than left as silence, the same disposition every
-// other unreadable declaration on this backend gets.
+// `resources`, on a backend with no container, where no `resources` key is a kernel cap. So the
+// native arm says what EACH key does there instead, because an agent planning around a limit
+// has to know which kind it is:
+//   - `io` is a macOS disk I/O policy the launcher sets on itself before the session starts,
+//     inherited by every process in it (docs/design/io-priority.md §5.5);
+//   - `memory` is a guard inside the sandbox that samples the session's resident memory and
+//     terminates its largest process when the total is over (macosuser/sessionguard.go). The
+//     agent whose build that guard just killed is the reader this sentence is for: told no
+//     limit exists, it would never ask its human for a bigger one;
+//   - `cpus` sets only the parallelism defaults macosuser.CooperativeCPUVars lists, which a
+//     program is free to ignore. The four names are spelled out below, because jailcontent
+//     cannot import macosuser, and a macosuser test pins them to that list;
+//   - `pids_limit` is read and IGNORED (DP-D1: RLIMIT_NPROC, its one stand-in, is per-USER and
+//     collides across concurrent sessions on the shared account). DP-D1's own words govern
+//     that one — "a cap a user believes in but that does not hold is worse than a documented
+//     absence" — so its absence is NAMED rather than left as silence.
 //
 // ⚠ `/workspace` IS KEPT ON BOTH ARMS, deliberately. The 2026-09-13 ruling made it canonical
 // and spends the Environment bullet explaining that it means the real path on a native backend;
@@ -869,9 +893,14 @@ func packagesSection(mechanism, configName string) []string {
 			"To request a tool: edit `/workspace/" + configName + "` (`packages`), ALWAYS run",
 			"`yolo check` after every config edit (`yolo check --no-build` is fine inside a",
 			"running jail), then ask the human to restart the jail. Reference: `yolo config-ref`.",
-			"⚠ `resources` is not enforced here — there is no container to cap, so a memory or",
-			"CPU limit in the config is read and ignored. Do not plan around one, and do not ask",
-			"for one: it cannot be delivered on this backend.",
+			"⚠ `resources` is not enforced here the way a container enforces it: there is no",
+			"container, so no key is a kernel cap. What each one does on this backend: `io`",
+			"lowers the session's macOS disk I/O priority; `memory` is checked by sampling (not",
+			"kernel-enforced), and when the session goes over it its largest process is",
+			"terminated — a line naming `resources.memory` says so, and if the work needs more,",
+			"ask the human to raise it; `cpus` only sets the GOMAXPROCS, CARGO_BUILD_JOBS,",
+			"RAYON_NUM_THREADS and OMP_NUM_THREADS defaults, so a program that ignores them is",
+			"not limited; and `pids_limit` is read and ignored.",
 			"",
 		}
 	}

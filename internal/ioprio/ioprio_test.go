@@ -1,6 +1,7 @@
 package ioprio
 
 import (
+	"runtime"
 	"strings"
 	"testing"
 
@@ -114,5 +115,44 @@ func TestKernelValues(t *testing.T) {
 	}
 	if Normal.Declared() || !Low.Declared() || !Idle.Declared() {
 		t.Error("only low and idle declare anything")
+	}
+}
+
+// TestDarwinPolicies pins the macos-user mapping (IO-D7) to <sys/resource.h>'s numbers: low is
+// IOPOL_UTILITY (4), idle IOPOL_THROTTLE (3), and normal makes no call, exactly like Linux.
+// The numbers are checked as literals on purpose: a constant typed wrong once, in both the
+// mapping and this test, would pass a test that compared the two.
+func TestDarwinPolicies(t *testing.T) {
+	if v, ok := Low.DarwinPolicy(); !ok || v != 4 || DarwinPolicyName(v) != "IOPOL_UTILITY" {
+		t.Errorf("low = %d %v (%s), want IOPOL_UTILITY (4)", v, ok, DarwinPolicyName(v))
+	}
+	if v, ok := Idle.DarwinPolicy(); !ok || v != 3 || DarwinPolicyName(v) != "IOPOL_THROTTLE" {
+		t.Errorf("idle = %d %v (%s), want IOPOL_THROTTLE (3)", v, ok, DarwinPolicyName(v))
+	}
+	for _, p := range []Priority{Normal, "", "realtime"} {
+		if _, ok := p.DarwinPolicy(); ok {
+			t.Errorf("%q must make no call on macOS", p)
+		}
+	}
+	if IopolTypeDisk != 0 || IopolScopeProcess != 0 {
+		t.Errorf("IOPOL_TYPE_DISK and IOPOL_SCOPE_PROCESS are both 0 in <sys/resource.h>, got %d and %d",
+			IopolTypeDisk, IopolScopeProcess)
+	}
+	if DarwinPolicyName(0) != "IOPOL_DEFAULT" || DarwinPolicyName(9) != "policy 9" {
+		t.Errorf("names: %q %q", DarwinPolicyName(0), DarwinPolicyName(9))
+	}
+}
+
+// TestTheDiskPolicyCallIsMacOSOnly: off darwin the call refuses rather than pretending, so a
+// launcher that reached it on another OS warns instead of claiming a policy it never set.
+func TestTheDiskPolicyCallIsMacOSOnly(t *testing.T) {
+	if runtime.GOOS == "darwin" {
+		t.Skip("darwin makes the real call (diskpolicy_darwin_test.go)")
+	}
+	if err := SetProcessDiskPolicy(IopolThrottle); err == nil {
+		t.Error("SetProcessDiskPolicy succeeded off macOS")
+	}
+	if _, err := GetProcessDiskPolicy(); err == nil {
+		t.Error("GetProcessDiskPolicy succeeded off macOS")
 	}
 }

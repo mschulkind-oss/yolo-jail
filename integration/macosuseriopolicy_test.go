@@ -18,6 +18,12 @@ import (
 // THE macos-user LAUNCH ARGV? (docs/design/io-priority.md §5.5 and IO-D7;
 // docs/design/io-priority-plan.md, step 5.)
 //
+// ANSWERED: the scheduled run of 2026-10-03 (GitHub Actions run 37121866798) logged IOPOL
+// VERDICT: SURVIVES, and step 5 is built on it — TestMacosUserIOPriorityIsApplied below checks
+// the launcher's own set. This experiment stays as the inheritance regression underneath: its
+// workspace declares no resources.io, so the launcher sets nothing and the wrapper's policy is
+// the only one in play.
+//
 // THE QUESTION. Step 5 would have the macos-user launcher call
 // setiopolicy_np(IOPOL_TYPE_DISK, IOPOL_SCOPE_PROCESS, …) and then run macosuser.LaunchArgv:
 // `sudo --user=_yolojail /usr/bin/env -i … /usr/bin/sandbox-exec -f <profile> -- …`. The man
@@ -104,10 +110,63 @@ func TestMacosUserIOPolicyAcrossTheLaunchArgv(t *testing.T) {
 		"")
 }
 
-// The policy numbers this file names, from <sys/resource.h>. Only THROTTLE is asserted; the
-// reader prints whatever it gets.
+// TestMacosUserIOPriorityIsApplied is build step 5 itself, on a Mac (io-priority.md §5.5,
+// IO-D7): with NO wrapper around the launcher, a declared resources.io reaches the sandboxed
+// shell as its process disk policy, because the macos-user launcher sets it on itself before
+// the bootstrap. "idle" reads IOPOL_THROTTLE, "low" IOPOL_UTILITY, and an empty object — which
+// declares nothing — reads whatever the launcher's own policy is, taken here as the baseline
+// rather than assumed to be IOPOL_DEFAULT. TestMacosUserIOPolicyAcrossTheLaunchArgv stays as
+// the inheritance regression underneath it.
+func TestMacosUserIOPriorityIsApplied(t *testing.T) {
+	requireMacosUser(t)
+	py, err := exec.LookPath("python3")
+	if err != nil {
+		t.Fatal("no `python3` on this host's PATH, so the baseline policy cannot be read")
+	}
+	baseline, baselineOut := ioPolicyHostReading([]string{py, "-c", ioPolicyReaderPy})
+	if baseline == nil {
+		t.Fatalf("the host could not read its own disk policy, so nothing below compares:\n%s", baselineOut)
+	}
+	for _, tc := range []struct {
+		name, cfg, want string
+	}{
+		{"idle", `{"resources": {"io": "idle"}}`, fmt.Sprint(ioPolicyThrottle)},
+		{"low", `{"resources": {"io": {"priority": "low"}}}`, fmt.Sprint(ioPolicyUtility)},
+		{"undeclared", `{"resources": {"io": {}}}`, baseline["process"]},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ws := macosUserWorkspace(t, tc.cfg)
+			r := runMacosUser(t, ws, strings.Join([]string{
+				`echo "=== IOPOL ==="`,
+				`echo "reader $(command -v python3 || echo NONE)"`,
+				`python3 -c ` + shquote.Quote(ioPolicyReaderPy) + ` 2>&1`,
+				`echo "=== END ==="`,
+			}, "\n"))
+			body := section(r.stdout, "=== IOPOL ===", "=== END ===")
+			got := parseIOPolicyLine(body)
+			if r.rc != 0 || got == nil {
+				t.Fatalf("the launch did not report a reading (rc %d).\nstdout:\n%s\nstderr:\n%s",
+					r.rc, r.stdout, r.stderr)
+			}
+			if got["process"] != tc.want {
+				t.Errorf("resources.io %s: the sandboxed shell reads process=%s, want %s (the "+
+					"launcher's own baseline is %s).\nlaunch output:\n%s",
+					tc.cfg, got["process"], tc.want, baseline["process"], r.combined())
+			}
+			if strings.Contains(r.combined(), "was not applied on macos-user") {
+				t.Errorf("the launch warned that the policy was not applied:\n%s", r.combined())
+			}
+			stepSummary(t, "- resources.io "+tc.cfg+": sandbox reads "+ioPolicyDescribe(got, body)+
+				" (baseline "+ioPolicyDescribe(baseline, baselineOut)+")")
+		})
+	}
+}
+
+// The policy numbers this file names, from <sys/resource.h>. The reader prints whatever it
+// gets; THROTTLE and UTILITY are the two a declaration asserts.
 const (
-	ioPolicyThrottle = 3 // IOPOL_THROTTLE
+	ioPolicyThrottle = 3 // IOPOL_THROTTLE, "idle"
+	ioPolicyUtility  = 4 // IOPOL_UTILITY, "low"
 )
 
 // ioPolicySetterMark is the line the setter writes to stderr once the policy is set, just

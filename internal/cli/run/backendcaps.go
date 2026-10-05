@@ -290,20 +290,25 @@ func appliedResourceLimits(rt string, resCfg *jsonx.OrderedMap, acDefaultMemory 
 	return out
 }
 
-// appliedIOPriority is the disk I/O priority this launch passes to the entrypoint, which is
-// not always the one the config declares: only podman on a Linux host passes one, nested
-// jails included (docs/design/io-priority.md §5.2, IO-D2). It feeds the argv
-// (ioPriorityEnvArgs) and the fresh launch's briefing, so the agent is told a class exactly
-// where one was passed — the same argv/briefing pairing as appliedResourceLimits, and for the
+// appliedIOPriority is the disk I/O priority this launch applies, which is not always the one
+// the config declares: podman on a Linux host passes it to the entrypoint, nested jails
+// included, and the macos-user launcher sets it on itself as a process disk policy
+// (docs/design/io-priority.md §5.2, IO-D2; §5.5, IO-D7). It feeds the podman argv
+// (ioPriorityEnvArgs) and the fresh launch's briefing, so the agent is told a priority exactly
+// where one is applied — the same argv/briefing pairing as appliedResourceLimits, and for the
 // same reason. An attach briefs launchedIOPriority instead: its config is the current one.
 //
-// Apple Container and podman on a macOS host pass nothing: the jail runs in a VM and its
+// Apple Container and podman on a macOS host apply nothing: the jail runs in a VM and its
 // workspace reaches the Mac over VirtioFS, whose protocol has no priority field, so a class
 // set in the VM never reaches the Mac's disk for build output. noteIOPriority says so at
-// launch (Warned). macos-user never runs an entrypoint; its own line is the orchestrator's
-// (IO-D8), and its mechanism is build step 5.
+// launch (Warned). macos-user has no VM in the way: the agent's I/O is the Mac's own, and the
+// policy the orchestrator sets before the bootstrap is inherited by every process of the
+// session; its failure line is the orchestrator's.
 func appliedIOPriority(rt string, isMacOS bool, resCfg *jsonx.OrderedMap) ioprio.Priority {
-	if rt != "podman" || isMacOS { // parity: Warned — AC and podman on macOS cross VirtioFS, which carries no priority; noteIOPriority says so, and macos-user's line is the orchestrator's
+	if rt == "macos-user" { // parity: HonoredBy — setiopolicy_np on the macos-user launcher, inherited by every process it starts, where podman on Linux uses the entrypoint's ioprio_set
+		return ioprio.FromResources(resCfg)
+	}
+	if rt != "podman" || isMacOS { // parity: Warned — AC and podman on macOS cross VirtioFS, which carries no priority; noteIOPriority says so
 		return ioprio.Normal
 	}
 	return ioprio.FromResources(resCfg)
@@ -324,15 +329,16 @@ const appleContainerDefaultMemoryDesc = "half of host RAM (min 4g)"
 // it would add a standing line to every existing briefing to report a constant. What the
 // line must never do is the opposite — claim a limit the backend never passed.
 func briefedResourceLimits(rt string, resCfg *jsonx.OrderedMap) map[string]any {
-	// NOTHING IS ENFORCED ON macos-user, so nothing is stated (DP-B6 / DP-L8). That
-	// backend passes no flag at all — there is no container to cap — and the launch
-	// already warns the HUMAN that `resources` is read and ignored. The agent was being
-	// told the same numbers were "kernel-enforced", and pointed at `yolo-cglimit`, which
-	// has no delegate to talk to here: the two audiences were given opposite answers in
-	// one launch. The argv-side appliedResourceLimits is deliberately left alone — it is
-	// never reached on this backend, and a briefing-only defect is fixed in the
-	// briefing's own projection.
-	if inStrSlice(paths.NativeRuntimes, rt) { // parity: Warned — macos-user enforces no limit at all, and the launch warns the human
+	// NO KERNEL CAP EXISTS ON macos-user, so this line states none (DP-B6 / DP-L8). That
+	// backend passes no limit flag — there is no container to cap — and this line calls its
+	// numbers "kernel-enforced" and points at `yolo-cglimit`, which has no delegate to talk
+	// to there: the agent was once told that while the launch told the HUMAN the opposite.
+	// What each key does on macos-user instead (`io` a disk policy, `memory` a sampled guard,
+	// `cpus` parallelism defaults, `pids_limit` nothing) the agent reads in the briefing's
+	// packages section and Disk I/O line, and the human in the launch's own lines. The
+	// argv-side appliedResourceLimits is deliberately left alone — it is never reached on
+	// this backend, and a briefing-only defect is fixed in the briefing's own projection.
+	if inStrSlice(paths.NativeRuntimes, rt) { // parity: Warned — macos-user caps nothing in the kernel; the briefing's packages section and the launch's lines say what each key does instead
 		return nil
 	}
 	out := map[string]any{}

@@ -140,21 +140,41 @@ func TestIOPriorityCheckSaysWhyItCannotGrade(t *testing.T) {
 }
 
 // TestIOPriorityCheckOnMacOSHosts: a macOS host never resolves a disk. Its VM backends are
-// Warned by name, and macos-user is Warned until build step 5.
+// Warned by name, where nothing on a Mac can make the key act, so the step is the one that
+// silences it.
 func TestIOPriorityCheckOnMacOSHosts(t *testing.T) {
 	for _, tc := range []struct{ rt, want string }{
 		{"container", `resources.io.priority "low" is not applied on Apple Container`},
 		{"podman", `resources.io.priority "low" is not applied on podman on macOS`},
-		{"macos-user", `resources.io.priority "low" is not applied on macos-user yet`},
 	} {
 		got, _ := runIOPrioritySection(t, ioCheck{io: "low", macOS: true, runtime: tc.rt})
 		if !strings.Contains(got, "[WARN] "+tc.want) {
 			t.Errorf("%s: report\n%s\nwant %q", tc.rt, got, tc.want)
 		}
-		// Nothing on a Mac can make the key act, so the step is the one that silences it.
 		if !strings.Contains(got, "remove resources.io.priority to silence this, then: yolo check") {
 			t.Errorf("%s: the warning names no next step:\n%s", tc.rt, got)
 		}
+	}
+}
+
+// TestIOPriorityCheckOnMacosUserIsApplied is build step 5 (io-priority.md §5.5, IO-D7): the
+// macos-user launcher sets the policy, so the row is a [PASS] naming the policy each value
+// becomes, and it is no longer a warning with a step to silence it.
+func TestIOPriorityCheckOnMacosUserIsApplied(t *testing.T) {
+	for _, tc := range []struct{ io, want string }{
+		{"low", `[PASS] resources.io.priority "low" is applied at launch by setiopolicy_np as IOPOL_UTILITY`},
+		{"idle", `[PASS] resources.io.priority "idle" is applied at launch by setiopolicy_np as IOPOL_THROTTLE`},
+	} {
+		got, r := runIOPrioritySection(t, ioCheck{io: tc.io, macOS: true, runtime: "macos-user"})
+		if !strings.Contains(got, tc.want) {
+			t.Errorf("%s: report\n%s\nwant %q", tc.io, got, tc.want)
+		}
+		if strings.Contains(got, "[WARN]") || strings.Contains(got, "silence this") || r.warned != 0 {
+			t.Errorf("%s: an applied priority is still reported as a warning:\n%s", tc.io, got)
+		}
+	}
+	if got, _ := runIOPrioritySection(t, ioCheck{io: "normal", macOS: true, runtime: "macos-user"}); got != "" {
+		t.Errorf("an undeclared priority printed a row on macos-user:\n%s", got)
 	}
 }
 
@@ -197,11 +217,13 @@ func TestIOPriorityUdevRulePerDisk(t *testing.T) {
 	}
 }
 
-// macos-user's note said "nothing on this Mac can:" and then, in the shared step, "Nothing here
-// can make it act": the same sentence twice in one note.
-func TestIOPriorityMacOSUserNoteSaysItOnce(t *testing.T) {
-	got, _ := runIOPrioritySection(t, ioCheck{io: "low", macOS: true, runtime: "macos-user"})
-	if n := strings.Count(strings.ToLower(got), "nothing"); n != 1 {
-		t.Errorf("the note says \"nothing\" %d times, want once:\n%s", n, got)
+// The VM backends' note says "Nothing here can make it act" once, in the shared step, and not
+// again in its own words.
+func TestIOPriorityMacOSNoteSaysItOnce(t *testing.T) {
+	for _, rt := range []string{"container", "podman"} {
+		got, _ := runIOPrioritySection(t, ioCheck{io: "low", macOS: true, runtime: rt})
+		if n := strings.Count(strings.ToLower(got), "nothing"); n != 1 {
+			t.Errorf("%s: the note says \"nothing\" %d times, want once:\n%s", rt, n, got)
+		}
 	}
 }
