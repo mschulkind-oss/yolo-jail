@@ -3,7 +3,7 @@ title: "One keyed build for every pi extension: in parallel, published by rename
 date: 2026-10-05
 status: in-review
 stage: DESIGN
-next: "Confirm XB-D14 (the npm prefix unshared now, OQ-5's passed-over option as an interim) and XB-D27 (the reading of OQ-2), and rule OQ-6 (restated in pi-git-extension-caching.md) and OQ-XB1; the rest of §14's steps 1 and 2 (the launcher's refresh fixes, the parallel advance) wait on none of them"
+next: "Confirm XB-D27 (the reading of OQ-2) and rule pi-extension-lifecycle.md OQ-4; build OQ-6 (c) and XB-D14 now (ruled 2026-10-05), with §14's steps 1 and 2 (the launcher's refresh fixes, the parallel advance)"
 tags: [pi, extensions, packs, builds, parallelism, locks, updates, startup]
 summary: "The maintainer asked on 2026-10-05 for parallel extension installs and updates, for unmodified extensions to be captured, for no machine-wide lock, for updates at launch by default with an option to update in the background for the next launch, and for a profile of pi's startup. This companion to the extension store's design proposes that an unmodified extension be built exactly as a patched one is, with no patches: on the host, in the sealed build jail, each key under its own lock, all keys at once, published by rename and handed to each fresh jail as a read-only copy. That retires the held in-jail store, its post-merge rewrite and the one machine-wide lock in pi's path, and it restates OQ-6 around that choice. It also records the update-timing ruling and the profile's ranked findings."
 vantage:
@@ -46,13 +46,11 @@ and, under [OQ-6](pi-git-extension-caching.md#OQ-6)'s leaning, the held in-jail 
 **Start at [§2](#2-the-verdict-and-five-principles)**: the comparison that decides [OQ-6](pi-git-extension-caching.md#OQ-6). Everything
 after it holds under either answer unless it says otherwise.
 
-**Needs your ruling:** [OQ-6](pi-git-extension-caching.md#OQ-6), restated in the store's design
-around this companion, and [OQ-XB1](#OQ-XB1). [`pi-extension-lifecycle.md` OQ-4](pi-extension-lifecycle.md#OQ-4)
-rides with [OQ-6](pi-git-extension-caching.md#OQ-6) ([§4.4](#44-entries-no-pack-declares)). Two
-ledger rows need your one-line confirmation, since neither is a choice I can make for you:
-[XB-D14](#XB-D14), which takes [OQ-5](pi-git-extension-caching.md#OQ-5)'s passed-over option as an
-interim, and [XB-D27](#XB-D27), my reading of your update-timing ruling against
-[OQ-2](pi-git-extension-caching.md#OQ-2).
+**Needs your ruling:** [OQ-6](pi-git-extension-caching.md#OQ-6) (c) and [OQ-XB1](#OQ-XB1) (A, widened
+to captures) were ruled 2026-10-05, and [XB-D14](#XB-D14) confirmed. [`pi-extension-lifecycle.md` OQ-4](pi-extension-lifecycle.md#OQ-4)
+rides with [OQ-6](pi-git-extension-caching.md#OQ-6) ([§4.4](#44-entries-no-pack-declares)). One
+ledger row still needs your one-line confirmation: [XB-D27](#XB-D27), my reading of your
+update-timing ruling against [OQ-2](pi-git-extension-caching.md#OQ-2).
 
 **Reads with:**
 - [`pi-git-extension-caching.md`](pi-git-extension-caching.md): the held store, its rulings
@@ -717,7 +715,7 @@ template's order.
 [OQ-6](pi-git-extension-caching.md#OQ-6), which way pack-declared extensions are built and whether
 anything rewrites pi's list, is restated in the store's design.
 
-1. 💬 **OQ-XB1: When an extension updates in the background, do pi's own CLI update, its MCP servers' refresh and its refresh of entries no pack declares move out of the launch too?**
+1. ✅ <a id="OQ-XB1"></a>**OQ-XB1: When an extension updates in the background, do pi's own CLI update, its MCP servers' refresh and its refresh of entries no pack declares move out of the launch too?**
 
    Each rewrites in place files a running pi in the same jail reads ([§7.5](#75-what-stays-in-front)),
    so the background mode covers safely only what yolo builds and hands as a copy.
@@ -728,7 +726,6 @@ anything rewrites pi's list, is restated in the store's design.
    - **B — All of them.** Each runs detached after pi starts; a running session can find its files
      replaced underneath it, and pi's startup install can race the refresh.
 
-   <!-- vantage: question id=OQ-XB1 leaning="A — only what yolo builds moves to the background. B takes the three steps out of the launch when they are due: the refresh, at least 8.4 s in the one real run timed, hourly per workspace once XB-D14 lands, and the CLI's update and the servers' refresh, not timed and hourly per machine, each of the three bounded at 60 s. It buys that with the in-place breakage the trees exist to end, and pi's CLI joins once OQ-PD23 delivers it once per machine." -->
 
    _Leaning:_ A — only what yolo builds moves to the background. B takes the three steps out of the
    launch when they are due: the refresh, at least 8.4 s in the one real run timed
@@ -738,8 +735,13 @@ anything rewrites pi's list, is restated in the store's design.
    joins once [OQ-PD23](program-delivery.md#OQ-PD23) delivers it once per machine.
 
    **Answer:**
-
-   > _(empty — fill in when decided)_
+   > **Ruled in review 2026-10-05, A, widened to everything yolo captures:** *"only what YOLO builds, I
+   > guess, unless by, if there are things that we capture, then I think yes, the answer is we should count
+   > that as being built, and I think that covers most everything, because it would be nice to be as
+   > consistent as possible, so there's only one simplified mental model."* In the background mode,
+   > whatever yolo builds or captures (extension trees, patched forks and extensions, captured programs)
+   > is updated in the background; only pi's refresh of hand-installed extensions, and anything not yet
+   > delivered by a build or capture, stays in front.
 
 ## Decision Ledger
 
@@ -763,7 +765,7 @@ of that day is recorded in [§7.1](#71-the-ruling). Rows marked *under (c)* appl
 | <a id="XB-D11"></a>XB-D11 | *Under (c).* **npm metadata is fetched by the host in Go over one keep-alive client per process, once per package name per check, never by an `npm view` subprocess** | 2026-10-05 | [§5.3](#53-what-is-shared-and-what-never-is) | — |
 | <a id="XB-D12"></a>XB-D12 | **No npm cache is shared between builds or with any jail; each build keeps the seal's private cache, removed with its staging** | 2026-10-05 | [§5.3](#53-what-is-shared-and-what-never-is) | — |
 | <a id="XB-D13"></a>XB-D13 | **One build jail per key. The parallel advance's first build measures a build jail's start on an extension with nothing to install; if that exceeds 5 s, batching a launch's due keys per contributing pack into one build jail, each admitted separately, is built next** | 2026-10-05 | [§10](#10-alternatives) | — |
-| <a id="XB-D14"></a>XB-D14 | *Awaits the maintainer's confirmation: it takes [OQ-5](pi-git-extension-caching.md#OQ-5)'s option (c), which his 2026-09-26 ruling passed over, as an interim.* **One change, first, under every [OQ-6](pi-git-extension-caching.md#OQ-6) option, with two halves: the held branch's PG-D23 (`.pi-shared-npm` retired as `.pi-shared-git` was, its state and `shared_directory` hook gone, an `unshare_directory` hook in their place, the refresh's lock at `.pi/.yolo-update.lock`, and the host directory left for a human to delete), and a refresh's stamp and seen-content markers moved into its lock's directory, so the throttle has the lock's scope**; for pi, one workspace. Not PG-D23 alone: it was built for a branch where npm entries became pointers, and on main a machine-wide seen marker would let a new workspace skip the refresh and leave pi's startup to install every npm extension unlocked. Until trees land, each workspace installs its own npm extensions | 2026-10-05 | [§6.3](#63-what-replaces-the-machine-wide-lock-now) | — |
+| <a id="XB-D14"></a>XB-D14 | *Confirmed by the maintainer 2026-10-05 ("yes, unshare now"): it takes [OQ-5](pi-git-extension-caching.md#OQ-5)'s option (c), which his 2026-09-26 ruling passed over, as an interim.* **One change, first, under every [OQ-6](pi-git-extension-caching.md#OQ-6) option, with two halves: the held branch's PG-D23 (`.pi-shared-npm` retired as `.pi-shared-git` was, its state and `shared_directory` hook gone, an `unshare_directory` hook in their place, the refresh's lock at `.pi/.yolo-update.lock`, and the host directory left for a human to delete), and a refresh's stamp and seen-content markers moved into its lock's directory, so the throttle has the lock's scope**; for pi, one workspace. Not PG-D23 alone: it was built for a branch where npm entries became pointers, and on main a machine-wide seen marker would let a new workspace skip the refresh and leave pi's startup to install every npm extension unlocked. Until trees land, each workspace installs its own npm extensions | 2026-10-05 | [§6.3](#63-what-replaces-the-machine-wide-lock-now) | — |
 | <a id="XB-D15"></a>XB-D15 | **[§6.2](#62-the-rules)'s six rules bind every lock this design adds** | 2026-10-05 | [§6.2](#62-the-rules) | — |
 | <a id="XB-D16"></a>XB-D16 | *Under (a) or (b) only.* **The held store lands with [§8](#8-if-the-held-store-lands-instead)'s fixes: pi 1.0.1's per-manager dependency argv, packsrc's blob prefetch and `storeGitConfig`, one ref lookup per pointer, at most 4 pointers at once with Node probed once, a 5 s heartbeat and 60 s staleness, a reaper that drops the marker before the tree, and its prefetch as the background mode** | 2026-10-05 | [§8](#8-if-the-held-store-lands-instead) | — |
 | <a id="XB-D17"></a>XB-D17 | **`agent_updates` takes `true`, `false`, `"launch"` and `"next-launch"`, at its top level or per pack, user scope only; `true` is `"launch"`. "May it move" reads both strings as yes; a separate reader answers "when"; `host_floor` stays boolean** | 2026-10-05 | [§7.6](#76-the-setting) | — |
@@ -777,3 +779,4 @@ of that day is recorded in [§7.1](#71-the-ruling). Rows marked *under (c)* appl
 | <a id="XB-D25"></a>XB-D25 | **The tree gate runs first in every launcher template, right after the update mode's exit and before any install, update or refresh**, amending [PPX-D24](patched-extensions.md#PPX-D24)'s "after the install and the refresh": a launch the gate stops pays for nothing | 2026-10-05 | [§3](#3-what-exists-today-precisely) | — |
 | <a id="XB-D26"></a>XB-D26 | **A refresh that fails on new settings content records when it failed; that content is due again only once the failure is older than `UPDATE_INTERVAL`** | 2026-10-05 | [§3](#3-what-exists-today-precisely) | — |
 | <a id="XB-D27"></a>XB-D27 | *Awaits the maintainer's confirmation: it reads his ruling, it is not his words.* **For a pack set to `"next-launch"`, the update-timing ruling amends [OQ-2](pi-git-extension-caching.md#OQ-2)'s "what you get in a launch should not depend on the state of other launches": which admitted build a launch gets may depend on what an earlier launch's background advance finished.** Once confirmed, [OQ-2](pi-git-extension-caching.md#OQ-2)'s row in the store's design notes the amendment | 2026-10-05 | [§7.1](#71-the-ruling) | — |
+| <a id="XB-D28"></a>XB-D28 | **Ruled in review ([OQ-XB1](#OQ-XB1) A, widened):** in the background update mode, everything yolo builds or captures updates in the background; only what neither delivers (pi's refresh of hand-installed extensions) stays in front | 2026-10-05 | [OQ-XB1](#OQ-XB1) | pending |

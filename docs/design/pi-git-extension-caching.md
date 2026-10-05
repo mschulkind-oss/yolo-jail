@@ -3,7 +3,7 @@ title: "Sharing pi git extensions across jails: immutable per-commit trees, neve
 date: 2026-09-25
 status: in-review
 stage: DESIGN
-next: "Rule OQ-6, restated 2026-10-05: (a) or (b) lands the held store (d44cb88b9 on held/pi-extension-store) with the companion's fixes; (c) builds pack-declared extensions as patched ones are and leaves the held branch unmerged"
+next: "Build OQ-6 (c), ruled 2026-10-05, in pi-extension-store-builds.md: pack-declared extensions built on the host as patched ones are, a read-only copy per jail; the held branch stays unmerged"
 tags: [pi, extensions, git, caching, machine-tier, storage, isolation]
 summary: "pi's git extensions cost every new jail a clone and a dependency build. The first build shared one mutable checkout per repository across jails, which let one jail's pin or update change the files another jail was running; the maintainer's rulings of 2026-09-25 withdraw it. The redesign shares content, never state: a machine store of bare mirrors and one immutable tree per resolved commit, each jail pointing at the commit its own config resolves to, pi loading each tree as a local package so it never clones or updates one itself. A launch waits for the tree it needs and never boots on another launch's leftovers. The npm store gets the same treatment, git first (ruled 2026-09-26). One question is open, restated on 2026-10-05 around a companion design: whether pack-declared extensions land through this store and its post-merge rewrite, or are built as patched extensions are, with no patches and nothing rewritten."
 vantage:
@@ -49,9 +49,8 @@ git extensions again, as it did before `c402dd43`.
 
 **Start at [§3](#3-the-design--share-content-never-state)**, the store and how a jail reaches it.
 
-**Needs your ruling:** [OQ-6](#OQ-6), whether pack-declared extensions land through this store
-and its post-merge rewrite or are built as patched extensions are, with nothing rewritten. Every
-earlier question is ruled.
+**Needs your ruling:** none. [OQ-6](#OQ-6) was ruled 2026-10-05: pack-declared extensions are built
+as patched extensions are, with nothing rewritten, and the held store stays unmerged.
 
 **Reads with:**
 - [`pi-extension-store-builds.md`](pi-extension-store-builds.md): the companion of 2026-10-05,
@@ -449,7 +448,7 @@ install. It is independent of the store's shape, so it stays either way.
 
 ## 6. Open questions
 
-1. 💬 <a id="OQ-6"></a>**[OQ-6](#OQ-6): Do the pi extensions a pack declares land through this
+1. ✅ <a id="OQ-6"></a>**[OQ-6](#OQ-6): Do the pi extensions a pack declares land through this
    store and its post-merge rewrite, or are they built as patched extensions are, with nothing
    rewritten?**
 
@@ -464,7 +463,6 @@ install. It is independent of the store's shape, so it stays either way.
      per jail launch, which an extension cannot write into. Updates land at a jail launch; entries
      no pack declares stay pi's, per workspace, unlike [OQ-5](#OQ-5).
 
-   <!-- vantage: question id=OQ-6 leaning="(c): it is what the maintainer asked for on 2026-10-05 ('if we can just capture unmodified extensions that would probably be great'). No jail can write what another runs, install scripts run sealed rather than in your jail, nothing is rewritten so OQ-LT2 stands, and one build serves patched and unmodified extensions. Its gap, your own pi install, is unshared but no longer leaks once the npm prefix is per workspace." -->
 
    _Leaning:_ **(c)**: it is what the maintainer asked for on 2026-10-05 (*"if we can just capture
    unmodified extensions that would probably be great"*). No jail can write what another runs,
@@ -474,8 +472,11 @@ install. It is independent of the store's shape, so it stays either way.
    npm prefix is per workspace.
 
    **Answer:**
-
-   > _(empty — fill in when decided)_
+   > **Ruled in review 2026-10-05, (c):** the extensions a pack declares are built like patched ones with
+   > zero patches: on the host, sealed, once per machine, with a read-only copy in each new jail; nothing
+   > rewrites the pi package list, so [`OQ-LT2`](../reference/pack-system.md#oq-lt2) stands, and the held store stays unmerged. On the costs: *"I
+   > think the jail restart is the update mechanism. It is a fairly accepted YOLO convention at this
+   > point."* The copy-per-jail and first-launch waits are to optimize later.
 
 ## 7. Decision Ledger
 
@@ -484,6 +485,7 @@ install. It is independent of the store's shape, so it stays either way.
 | <a id="OQ-1"></a>[**OQ-1**](#OQ-1) | The refresh lock's location: **an implementation decision**, not the maintainer's (*"an implementation decision I don't need to comment on"*). This design's locks are [§3.5](#35-locks-waits-and-bounds)'s | 2026-09-25 | [§3.5](#35-locks-waits-and-bounds) | — |
 | <a id="OQ-2"></a>[**OQ-2**](#OQ-2) | **A launch's result never depends on other launches.** It waits for the update it needs and gets what its config calls for; it never boots on another launch's leftovers (*"what you get in a launch should not depend on the state of other launches"*). Overturns the non-blocking leaning and the first draft's P4 | 2026-09-25 | [§1](#1-principles) P2, [§3.5](#35-locks-waits-and-bounds), [§3.6](#36-failure-paths) | — |
 | <a id="OQ-3"></a>[**OQ-3**](#OQ-3) | **No winner.** Jails pick their own versions (*"You can't have one jail's configuration impact another"*) | 2026-09-25 | [§1](#1-principles) P3, [§3.3](#33-resolving-at-launch) | — |
+| [OQ-6](#OQ-6) | **(c):** pack-declared extensions are built on the host as patched extensions are, with zero patches, and each new jail gets a read-only copy; nothing rewrites the package list; the held store stays unmerged; a jail restart is the update mechanism | 2026-10-05 | [OQ-6](#OQ-6) | pending ([`pi-extension-store-builds.md`](pi-extension-store-builds.md)) |
 | <a id="OQ-4"></a>[**OQ-4**](#OQ-4) | **No leakage of effects between jails**; sharing and efficiency yes (*"something has to change about your design"*) | 2026-09-25 | [§1](#1-principles) P1, [§3.1](#31-the-store) | — |
 | PG-D1 | *Implementation decision.* Trees keyed by commit plus recipe, built in `tmp/` and renamed, read-only after completion | 2026-09-25 | [§3.4](#34-building-a-tree) | — |
 | PG-D2 | *Implementation decision.* pi sees each tree as a **local package** through a stable per-workspace pointer, rewritten by the pi pack's `yolo.finalize` post-fold hook, user scope only, never at the host notch | 2026-09-25 | [§3.2](#32-pointing-pi-at-a-tree) | — |
