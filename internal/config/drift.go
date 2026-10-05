@@ -20,6 +20,9 @@ package config
 // that started THIS jail" stay fixed while the live config moves under it.
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
+	"errors"
 	"os"
 	"path/filepath"
 
@@ -42,12 +45,45 @@ func WorkspaceConfigBootPath(workspace string) string {
 // so an in-jail `config drift` has an immutable record of what the jail was built
 // from. wsCfg is the already-loaded workspace config (LoadWorkspaceConfig); passing
 // it in rather than re-reading keeps the baseline identical to what the launch used.
-func WriteWorkspaceBootBaseline(workspace string, wsCfg *jsonx.OrderedMap) error {
+//
+// It returns the baseline's digest (baselineDigest), for a launch to hand its session in
+// BootBaselineDigestEnv. A container launch ignores it; see that constant for the backend
+// that needs it.
+func WriteWorkspaceBootBaseline(workspace string, wsCfg *jsonx.OrderedMap) (string, error) {
 	j, err := SnapshotJSON(wsCfg)
 	if err != nil {
-		return err
+		return "", err
 	}
-	return writeWorkspaceSnapshot(workspace, WorkspaceConfigBootPath(workspace), j)
+	if err := writeWorkspaceSnapshot(workspace, WorkspaceConfigBootPath(workspace), j); err != nil {
+		return "", err
+	}
+	return baselineDigest(j), nil
+}
+
+// BootBaselineDigestEnv names the variable that carries, into a session, the digest of the
+// boot baseline its launch wrote. It is a wire variable between a launch and the `yolo config
+// drift` run inside it, not a setting.
+//
+// IT EXISTS FOR A BACKEND WHOSE SESSIONS OVERLAP. A container jail's baseline is written at its
+// fresh launch only, and a second fresh launch of the workspace cannot happen while that
+// container runs (an invocation attaches instead), so the file stays the one the jail started
+// from. macos-user has no attach: each invocation is a fresh launch, and it releases the launch
+// lock before its agent starts, so a second session of the workspace can rewrite the file under
+// the first. Without the digest, the first session's drift would then compare the live config
+// against the SECOND launch's baseline and could say "in sync" about a config it never ran.
+const BootBaselineDigestEnv = "YOLO_CONFIG_BOOT_DIGEST"
+
+// ErrBaselineReplaced is WorkspaceConfigDrift's answer when the baseline on disk is not the one
+// this session was launched with (BootBaselineDigestEnv): a later launch of the workspace
+// replaced it, so no comparison against it speaks for this session.
+var ErrBaselineReplaced = errors.New("a later launch of this workspace replaced the boot baseline this session started from")
+
+// baselineDigest is the hex SHA-256 of a baseline's canonical JSON with its trailing
+// whitespace stripped, which is the form WorkspaceConfigDrift compares, so the writer's digest
+// and the reader's agree about one file whatever newline the writer appended.
+func baselineDigest(canonical string) string {
+	sum := sha256.Sum256([]byte(pyRstrip(canonical)))
+	return hex.EncodeToString(sum[:])
 }
 
 // WorkspaceConfigDrift compares the frozen boot baseline against the workspace config
@@ -55,6 +91,8 @@ func WriteWorkspaceBootBaseline(workspace string, wsCfg *jsonx.OrderedMap) error
 //
 //   - No baseline (a jail started before this feature, or config-boot.json removed):
 //     ok=false, so a caller can say "cannot determine drift" rather than "no drift".
+//   - A baseline a later launch of this workspace wrote, in a session that carries its own
+//     baseline's digest (BootBaselineDigestEnv): ok=false and ErrBaselineReplaced.
 //   - Baseline present, live config equal: hasDrift=false, no diff lines.
 //   - Differ: hasDrift=true, diffLines is the unified diff (baseline → live).
 //
@@ -74,6 +112,14 @@ func WorkspaceConfigDrift(workspace string) (diffLines []string, hasDrift, ok bo
 		return nil, false, false, readErr
 	}
 	baseline := pyRstrip(string(baselineBytes))
+	// THE SESSION'S OWN BASELINE, OR NO ANSWER (BootBaselineDigestEnv). Only for the jail's own
+	// workspace, which is the one the launch wrote the digest for: a `config drift` run in
+	// another workspace from inside the session would otherwise be refused about a baseline
+	// that was never this session's to begin with.
+	if want := os.Getenv(BootBaselineDigestEnv); want != "" && inJail() && jailOwnWorkspace(workspace) &&
+		want != baselineDigest(baseline) {
+		return nil, false, false, ErrBaselineReplaced
+	}
 
 	live, err := LoadWorkspaceConfig(workspace, false, func(string) {})
 	if err != nil {

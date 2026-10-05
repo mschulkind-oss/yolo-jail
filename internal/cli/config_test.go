@@ -380,3 +380,28 @@ func canonicalWS(t *testing.T, repo string) string {
 	}
 	return j + "\n"
 }
+
+// A macos-user session whose workspace was launched again after it started: that launch froze
+// ITS config in config-boot.json, so the session's own digest (config.BootBaselineDigestEnv) no
+// longer matches the file. `drift` exits 4, the "cannot determine" code an agent already keys on,
+// and names the relaunch that gives it a baseline of its own — never 0, the false "in sync".
+func TestConfigDriftNamesAReplacedBaseline(t *testing.T) {
+	_, repo := withHomeAndCwd(t)
+	writeFile(t, filepath.Join(repo, "yolo-jail.jsonc"), `{"packs":["claude"]}`)
+	writeFile(t, filepath.Join(repo, ".yolo", "config-boot.json"), canonicalWS(t, repo))
+	t.Setenv("YOLO_VERSION", "9.9.9-test")
+	t.Setenv("YOLO_WORKSPACE", repo) // the session's own workspace, as its launch names it
+	t.Setenv(config.BootBaselineDigestEnv, "not-this-baseline")
+	var out, errw bytes.Buffer
+	if rc := configRunW([]string{"drift"}, &out, &errw); rc != 4 {
+		t.Fatalf("a replaced baseline must exit 4, got %d\n%s%s", rc, out.String(), errw.String())
+	}
+	for _, want := range []string{"launched again", "relaunch"} {
+		if !strings.Contains(out.String(), want) {
+			t.Errorf("the replaced-baseline message is missing %q:\n%s", want, out.String())
+		}
+	}
+	if strings.Contains(out.String(), "In sync") {
+		t.Errorf("a replaced baseline was reported in sync:\n%s", out.String())
+	}
+}

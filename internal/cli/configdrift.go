@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -19,7 +20,9 @@ import (
 //
 //	0  in sync — the workspace config on disk matches what started this jail
 //	3  DRIFT — they differ (the unified diff is printed)
-//	4  cannot determine — no boot baseline (a pre-feature jail, or run outside one)
+//	4  cannot determine — no boot baseline (a pre-feature jail, or run outside one), or a
+//	   later launch of this workspace replaced the baseline this session started from
+//	   (config.ErrBaselineReplaced, which a macos-user session can meet)
 //	1  an error occurred
 //
 // Drift compares the CANONICAL form of each config (sorted keys, stable formatting),
@@ -53,11 +56,19 @@ func configDrift(args []string, out, errw io.Writer, color bool) int {
 	// in a container jail and the invoking dir on the host — the place the baseline
 	// and the live workspace config both live.
 	diffLines, hasDrift, ok, err := config.WorkspaceConfigDrift("")
+	pr := richtext.Printer{W: out, Color: color}
+	if errors.Is(err, config.ErrBaselineReplaced) {
+		// A macos-user session, whose workspace was launched again after it started: that
+		// launch froze its own config in the file, so neither answer would be about this one.
+		pr.Printf("[yellow]Cannot determine drift[/yellow] — this workspace was launched again " +
+			"after this session started, and that launch replaced the config this session was " +
+			"started from. Exit and relaunch this session to compare against it.")
+		return 4
+	}
 	if err != nil {
 		fmt.Fprintf(errw, "yolo config drift: %v\n", err)
 		return 1
 	}
-	pr := richtext.Printer{W: out, Color: color}
 	if !ok {
 		pr.Printf("[yellow]No boot baseline found[/yellow] — this does not look like a jail " +
 			"started by a yolo that writes one (or it was started before this feature). " +

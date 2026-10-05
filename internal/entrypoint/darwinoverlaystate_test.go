@@ -249,3 +249,64 @@ func TestDarwinOverlayInstallKeepsAgentStateBesideAndAboveEveryDestination(t *te
 			"read nothing, so this test would pass having checked nothing")
 	}
 }
+
+// THE INHERITED USER SCOPE'S FILE on macos-user (OQ-LP9, run.macosUserInheritedScope): the host
+// lays the generated ~/.config/yolo-jail/config.jsonc into the overlay as a destination of its
+// own, and the install replaces that one file and nothing beside it — R8's property, which the
+// container gets from a single-file bind: the directory around it stays the agent's, so a
+// --user-layer file it wrote there and the conventional local pack (~/.config/yolo-jail/local)
+// both survive the launch. It lands through the ~/.config layout link, in the workspace's sidecar.
+func TestDarwinOverlayInstallsTheInheritedUserScopeBesideTheAgentsOwnFiles(t *testing.T) {
+	packs, err := embeddedPackSet()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var claude *packload.Pack
+	for _, p := range packs {
+		if p.Name == "claude" {
+			claude = p
+		}
+	}
+	if claude == nil {
+		t.Fatal("no shipped claude pack")
+	}
+	base := t.TempDir()
+	home := filepath.Join(base, "home")
+	ws := filepath.Join(base, "workspace")
+	for _, d := range []string{home, ws} {
+		if err := os.MkdirAll(d, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	packRoot := stageWholePackForBootstrap(t, claude)
+	const dest = ".config/yolo-jail/config.jsonc"
+
+	// Boot 1 lays the layout; then the agent writes its own files beside the destination, and a
+	// previous launch's copy of the file is there to be replaced.
+	bootDarwinForPack(t, home, ws, packRoot, "")
+	dir := filepath.Join(home, ".config", "yolo-jail")
+	layer := filepath.Join(dir, "layer.jsonc")
+	local := filepath.Join(dir, "local", "pack.json")
+	writeTreeFile(t, layer, `{"packs": ["mine"]}`)
+	writeTreeFile(t, local, `{"name": "local"}`)
+	writeTreeFile(t, filepath.Join(home, filepath.FromSlash(dest)), "previous launch's user scope")
+
+	// Boot 2 with the overlay carrying the file, as a file destination.
+	stderr := bootDarwinForPack(t, home, ws, packRoot, stageHostShapedOverlay(t, nil, []string{dest}))
+
+	if got, err := os.ReadFile(filepath.Join(home, filepath.FromSlash(dest))); err != nil || string(got) != "delivered briefing" {
+		t.Errorf("the inherited user scope did not arrive at ~/%s: %q, %v\n%s", dest, got, err, stderr)
+	}
+	sidecarCopy := filepath.Join(ws, ".yolo", "home", "config", "yolo-jail", "config.jsonc")
+	if got, err := os.ReadFile(sidecarCopy); err != nil || string(got) != "delivered briefing" {
+		t.Errorf("the file is not in the workspace's sidecar at %s (%q, %v): it did not land "+
+			"through the ~/.config layout link", sidecarCopy, got, err)
+	}
+	for _, kept := range []string{layer, local} {
+		if _, err := os.Stat(kept); err != nil {
+			rel, _ := filepath.Rel(home, kept)
+			t.Errorf("~/%s, the agent's own file beside the inherited user scope, did not survive "+
+				"the install: %v", rel, err)
+		}
+	}
+}

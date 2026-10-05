@@ -31,10 +31,14 @@ package run
 //     is the existing mechanism for noticing, and it now covers this file too.
 
 import (
+	"bufio"
+	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
+	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 )
 
 // The in-jail names of the two generated files. Both live in the jail's own
@@ -134,6 +138,33 @@ func inheritScopeFiles(effective *jsonx.OrderedMap, rt, launchedAt string) (file
 	return files, unknown, nil
 }
 
+// inheritedScope renders this launch's generated user-scope files (inheritScopeFiles) and says
+// what went wrong with the render, for every backend's delivery: the container path mounts each
+// file (userConfigMountArgs) and the macos-user arm lays it into the home overlay
+// (macosUserInheritedScope). A render that failed delivers nothing, and says so.
+func (o *Options) inheritedScope(rt string) []inheritScopeFile {
+	out := o.pr(o.Stdout)
+	files, unknown, err := inheritScopeFiles(o.effectiveConfigForInherit(), rt, o.inheritStamp())
+	if err != nil {
+		// LOUD, and the reason matters: a jail whose user scope silently failed to render
+		// looks like a jail whose user config is empty — `yolo pack ls` shows nothing, a
+		// loophole the human installed is missing — and the agent inside debugs the wrong
+		// thing. Not fatal, because a jail with no user scope still boots and works.
+		out.print("[yellow]Warning: could not render this jail's inherited user config (" +
+			err.Error() + ") — in-jail `yolo check`, `pack` and `loopholes` will see no " +
+			"user scope[/yellow]")
+		return nil
+	}
+	if len(unknown) > 0 {
+		// Named, not swallowed: an unclassified key reaching a jail unreviewed is the
+		// failure the census exists to prevent, so its absence has to be visible.
+		out.print("[yellow]Warning: config keys with no inherit classification were " +
+			"dropped from the jail's user scope: " + joinComma(unknown) +
+			" — classify them in internal/config/inherit.go[/yellow]")
+	}
+	return files
+}
+
 // userConfigMountArgs delivers the generated inner user scope, returning the container
 // argv for it.
 //
@@ -156,25 +187,7 @@ func (o *Options) userConfigMountArgs(rt, wsState string) []string {
 	// which is where every other composed file goes — the gitconfig, the user-env script)
 	// and mounted from there, one bind per file.
 	out := o.pr(o.Stdout)
-	files, unknown, err := inheritScopeFiles(o.effectiveConfigForInherit(), rt, o.inheritStamp())
-	if err != nil {
-		// LOUD, and the reason matters: a jail whose user scope silently failed to render
-		// looks like a jail whose user config is empty — `yolo pack ls` shows nothing, a
-		// loophole the human installed is missing — and the agent inside debugs the wrong
-		// thing. Not fatal, because a jail with no user scope still boots and works.
-		out.print("[yellow]Warning: could not render this jail's inherited user config (" +
-			err.Error() + ") — in-jail `yolo check`, `pack` and `loopholes` will see no " +
-			"user scope[/yellow]")
-		return args
-	}
-	if len(unknown) > 0 {
-		// Named, not swallowed: an unclassified key reaching a jail unreviewed is the
-		// failure the census exists to prevent, so its absence has to be visible.
-		out.print("[yellow]Warning: config keys with no inherit classification were " +
-			"dropped from the jail's user scope: " + joinComma(unknown) +
-			" — classify them in internal/config/inherit.go[/yellow]")
-	}
-	for _, f := range files {
+	for _, f := range o.inheritedScope(rt) {
 		// Both writes are BENEATH wsState (writeFileBeneath, wsstatebeneath.go): the jail can
 		// leave a link at either destination, or above the Apple Container one, for a plain
 		// write to follow onto a host file, and podman would then bind the link's target.
@@ -204,6 +217,77 @@ func (o *Options) userConfigMountArgs(rt, wsState string) []string {
 	}
 
 	return args
+}
+
+// macosUserInheritedScope is the macos-user arm's delivery of the generated user scope: the
+// files inheritedScope renders, as files of core's for the home overlay
+// (buildMacosHomeOverlayWith). The overlay is copied into the sandbox account home by the
+// bootstrap, through the ~/.config layout link into the workspace's sidecar, and the Seatbelt
+// profile denies the agent writes to it — so the file is read-only as a container's single-file
+// `:ro` bind is, and the directory around it (where a --user-layer file goes, and the
+// conventional local pack) stays the agent's own (R8). canNest is false for this backend, so
+// the nested-launch file is never among them (R2).
+//
+// AND THE ONE IT DID NOT RENDER, removed (removeStaleInheritedScope), on a launch only. A
+// container's bind leaves nothing behind when it is not made; this backend's copy stays in the
+// sidecar, so a user config that lost its last inheritable key would otherwise keep serving the
+// previous launch's user scope to every in-sandbox reader. A plan render removes nothing.
+func (o *Options) macosUserInheritedScope(rt string) []overlayFile {
+	var core []overlayFile
+	preflight := false
+	for _, f := range o.inheritedScope(rt) {
+		core = append(core, overlayFile{Rel: f.rel, Body: []byte(f.body)})
+		preflight = preflight || f.rel == inheritPreflightRel
+	}
+	if !preflight && !o.DryRun {
+		removeStaleInheritedScope(paths.WorkspaceHomeState(o.Workspace))
+	}
+	return core
+}
+
+// removeStaleInheritedScope removes the generated user-scope file a previous macos-user launch
+// installed in sidecar (the workspace's <ws>/.yolo/home, which the sandbox's ~/.config links into
+// at `config`), and only when it is that file: a regular file whose first line is the generated
+// header's (config.InheritHeader). Anything else at the path is an agent's own and is kept.
+//
+// BENEATH THE SIDECAR'S ROOT, never by path (openStateRoot): the sidecar is written by the agent,
+// so a link it planted above the file would otherwise take the removal to whatever it names.
+// Best-effort: a stale file left behind costs a stale user scope, never a launch.
+//
+// ⚠ RESIDUAL, stated rather than fixed: a launch that DOES render the file replaces an agent's
+// own config.jsonc at the path, where podman's bind only hides it until the next launch without
+// one. The agent's place for its own user-scope config is a --user-layer file beside it.
+func removeStaleInheritedScope(sidecar string) {
+	rel := filepath.FromSlash(strings.TrimPrefix(inheritPreflightRel, "."))
+	// No sidecar, no file: and openStateRoot would create the directories it opens.
+	if _, err := os.Lstat(sidecar); err != nil {
+		return
+	}
+	r, err := openStateRoot(sidecar)
+	if err != nil {
+		return
+	}
+	defer r.Close()
+	if fi, err := r.Lstat(rel); err != nil || !fi.Mode().IsRegular() {
+		return
+	}
+	f, err := r.Open(rel)
+	if err != nil {
+		return
+	}
+	first, _ := bufio.NewReader(f).ReadString('\n')
+	_ = f.Close()
+	if strings.TrimRight(first, "\n") != inheritHeaderFirstLine() {
+		return
+	}
+	_ = r.Remove(rel)
+}
+
+// inheritHeaderFirstLine is the first line of every generated user-scope file, read off the
+// header's own renderer so the two cannot disagree.
+func inheritHeaderFirstLine() string {
+	line, _, _ := strings.Cut(config.InheritHeader(config.InheritPreflight, ""), "\n")
+	return line
 }
 
 // effectiveConfigForInherit returns the config the generated files are rendered FROM.
