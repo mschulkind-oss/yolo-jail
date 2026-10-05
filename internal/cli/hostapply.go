@@ -171,6 +171,11 @@ func refuseShellInit(errw io.Writer) int {
 	return 2
 }
 
+// hostWrapperYolo is the yolo the generated wrappers exec, by absolute path: the running one,
+// spelled as hostwrap.Running spells it from this process's PATH. A variable so a test can point
+// the stage at a stub and see the stage hand it to hostwrap (hostwrapperspath_test.go).
+var hostWrapperYolo = func() string { return hostwrap.Running(os.Getenv("PATH")) }
+
 // applyHostWrappers is the wrapper-generation stage of an apply.
 //
 // It runs at BOTH spellings of the host apply because it lives inside applyHost, not
@@ -194,7 +199,7 @@ func applyHostWrappers(pr richtext.Printer, errw io.Writer, home string, packs [
 		// any of this from being a nag. The one exception is cleaning up after the key
 		// is turned back OFF: leaving live wrappers on a user's PATH after they said no
 		// would be the worst of both.
-		plan, err := hostwrap.PlanFor(dir, nil)
+		plan, err := hostwrap.PlanFor(dir, "", nil)
 		if err != nil {
 			// Cannot determine, so nothing is noted: an unreadable wrapper dir is not a change
 			// the launch gate may stop on (§4.4).
@@ -219,8 +224,9 @@ func applyHostWrappers(pr richtext.Printer, errw io.Writer, home string, packs [
 	}
 
 	bins := hostwrap.Bins(packs)
+	yolo := hostWrapperYolo()
 	if !write {
-		plan, err := hostwrap.PlanFor(dir, bins)
+		plan, err := hostwrap.PlanFor(dir, yolo, bins)
 		if err != nil {
 			reportWrappersFailure(errw, home, dir, "planning them", err, true)
 			return 1
@@ -230,7 +236,7 @@ func applyHostWrappers(pr richtext.Printer, errw io.Writer, home string, packs [
 			"host_wrappers", describeWrapperPlan(plan, false), dir)
 		return 0
 	}
-	plan, err := hostwrap.Generate(dir, bins)
+	plan, err := hostwrap.Generate(dir, yolo, bins)
 	if err != nil {
 		reportWrappersFailure(errw, home, dir, "generating them", err, true)
 		return 1

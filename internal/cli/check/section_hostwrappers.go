@@ -1,13 +1,17 @@
 package check
 
 import (
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
+	"github.com/mschulkind-oss/yolo-jail/internal/hostfloor"
+	"github.com/mschulkind-oss/yolo-jail/internal/hostpath"
 	"github.com/mschulkind-oss/yolo-jail/internal/hostwrap"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/shquote"
@@ -15,9 +19,11 @@ import (
 
 // sectionHostWrappers observes whether the generated host launch wrappers are actually what a
 // bare invocation runs (docs/reference/host-agent-environment.md §5.5, OQ-4): the directory
-// exists, holds a wrapper for every program the selected packs install (completeness), is on
-// PATH, and WINS there for each wrapper's name (precedence) — and, riding on those, whether
-// host_apply_on_launch's re-check is reachable at all.
+// exists, holds a wrapper for every program the selected packs install (completeness), each
+// wrapper names a yolo that runs from every launcher (staleWrappers), the directory is on PATH,
+// and it WINS there for each wrapper's name (precedence) — and, riding on those, whether
+// host_apply_on_launch's re-check is reachable at all. Its PASS row also says where an IDE or
+// desktop launcher, which never reads the rc, points instead.
 //
 // # Why this observation lives HERE and not in apply
 //
@@ -124,6 +130,29 @@ func (o *Options) sectionHostWrappers(r *reporter) {
 				"never passes the launch gate that would bring this host up to date.")
 	}
 
+	// THE YOLO A WRAPPER NAMES: a wrapper execs yolo by the absolute path the apply that wrote
+	// it ran from, so an upgrade or a move that deletes that file makes every wrapper exit 127,
+	// from a terminal and an IDE alike, with nothing else saying so. A wrapper an older yolo
+	// wrote finds yolo through PATH instead, which an IDE or desktop launcher may not have.
+	// Either way the apply that rewrites it is the fix, and it is reported whatever PATH says:
+	// a wrapper is also reached by its full path.
+	if len(st.stale) > 0 {
+		var lines []string
+		for _, w := range st.stale {
+			lines = append(lines, "  "+w.why)
+		}
+		fix := "Run `yolo host apply --assert`: it rewrites them to name the yolo you run now, " +
+			"by its full path."
+		if st.managementNone {
+			fix = "`yolo host apply --assert` rewrites them to name the yolo you run now, once " +
+				"host_management in " + paths.UserConfigPath() + " is \"assert\" (under \"none\" " +
+				"it refuses); or turn host_wrappers off."
+		}
+		r.warn(fmt.Sprintf("%d wrapper(s) cannot start yolo from every launcher: %s",
+			len(st.stale), joinNames(staleNames(st.stale))),
+			joinLines(fix, strings.Join(lines, "\n"), st.gateClause(gateNoYolo)))
+	}
+
 	if !st.onPath {
 		// ONE row for the one cause. The fix leads, as the literal line; what the cause breaks
 		// follows, once each: every bare command, and the launch sync when it is on. The
@@ -164,6 +193,76 @@ func (o *Options) sectionHostWrappers(r *reporter) {
 		return
 	}
 	r.ok("wrapper directory is on PATH and wins for every wrapper (" + joinNames(names) + ")")
+	// The other way in. A launcher that never reads the rc never gets the PATH line above, and
+	// the wrapper's full path is the surface built for it (hostwrap's package doc).
+	r.dim(st.launcherLine())
+	for _, l := range o.launcherHostPathLines(st) {
+		r.dim(l)
+	}
+}
+
+// launcherLine is the OK row's pointer for an IDE or desktop launcher: one wrapper's full path,
+// or the directory's `<program>` slot naming the wrappers in it.
+func (st wrapperState) launcherLine() string {
+	target := filepath.Join(st.dir, st.names[0])
+	if len(st.names) > 1 {
+		target = filepath.Join(st.dir, "<program>") + " (" + orNames(st.names) + ")"
+	}
+	return "point an IDE or desktop launcher that does not read your shell rc at " + target
+}
+
+// launcherHostPathLines says, for each wrapped program yolo keeps no copy of on this machine
+// (its floor disposition is no entry, as claude's is on macOS, where the floor holds no
+// installer agent), that a launcher reaching it through its wrapper also needs `host_path` to
+// name the folder holding it. `yolo host` finds such a program on the PATH it was started
+// with, then host_path's folders, and an IDE or desktop launcher hands it its own PATH, which
+// the rc that put that folder on this shell's PATH never built.
+//
+// Nothing is said for a program this check's own PATH does not find either: the Host launch
+// PATH section's miss line reports that, with the same key as its fix. Nor for one whose folder
+// host_path already names, which is the fix already in place.
+func (o *Options) launcherHostPathLines(st wrapperState) []string {
+	if !o.selectedPacksKnown || len(st.names) == 0 {
+		return nil
+	}
+	var in []hostfloor.PackPrograms
+	for _, p := range o.selectedPacks {
+		installs, _ := p.HonoredInstalls()
+		in = append(in, hostfloor.PackPrograms{Pack: p.Name, Installs: installs})
+	}
+	progs := hostfloor.Programs(in)
+	if len(progs) == 0 {
+		return nil
+	}
+	floor := o.hostFloor(progs)
+	wrapped := map[string]bool{}
+	for _, n := range st.names {
+		wrapped[n] = true
+	}
+	lp := hostpath.Resolve(o.Getenv("PATH"))
+	declared := map[string]bool{}
+	for _, d := range lp.Declared() {
+		declared[filepath.Clean(d)] = true
+	}
+	var lines []string
+	for _, p := range progs {
+		bin := p.Bin()
+		if !wrapped[bin] || floor.Status(p).Disposition != hostfloor.NoEntry {
+			continue
+		}
+		found, err := lp.LookPath(bin)
+		if err != nil {
+			continue
+		}
+		folder := filepath.Dir(found)
+		if declared[filepath.Clean(folder)] {
+			continue
+		}
+		lines = append(lines, fmt.Sprintf("yolo keeps no copy of %s on this machine, so that "+
+			"launcher also needs host_path in %s to name %s, the folder this PATH finds it in",
+			bin, paths.UserConfigPath(), tildeUnder(paths.Home(), folder)))
+	}
+	return lines
 }
 
 // wrapperState is everything this section observes, computed ONCE before any row prints —
@@ -186,6 +285,12 @@ type wrapperState struct {
 	wins     []string // wrappers a bare invocation reaches
 	shadowed []hostwrap.Shadow
 
+	// stale is each generated wrapper whose named yolo a launcher may not reach (staleWrappers),
+	// and reaching the wins whose yolo does run from this check's PATH: the wrappers a bare
+	// invocation from here takes to the launch gate.
+	stale    []staleWrapper
+	reaching []string
+
 	// launchOn is host_apply_on_launch, read once so every row agrees on it.
 	launchOn bool
 	// managementNone is host_management "none", under which the launch gate returns before it
@@ -200,7 +305,8 @@ func (o *Options) observeWrappers(dir string) wrapperState {
 	if o.selectedPacksKnown {
 		st.binsKnown = true
 		st.bins = hostwrap.Bins(o.selectedPacks)
-		if plan, err := hostwrap.PlanFor(dir, st.bins); err == nil {
+		// The yolo is this check's own, which decides only Rewritten; completeness reads Added.
+		if plan, err := hostwrap.PlanFor(dir, hostwrap.Running(o.Getenv("PATH")), st.bins); err == nil {
 			st.missing = plan.Added
 		}
 	}
@@ -209,7 +315,76 @@ func (o *Options) observeWrappers(dir string) wrapperState {
 	if st.onPath && len(st.names) > 0 {
 		st.wins, st.shadowed = hostwrap.Precedence(pathEnv, dir, st.names)
 	}
+	st.stale = staleWrappers(dir, st.names, pathEnv)
+	brokenHere := map[string]bool{}
+	for _, w := range st.stale {
+		if !w.runsHere {
+			brokenHere[w.bin] = true
+		}
+	}
+	for _, w := range st.wins {
+		if !brokenHere[w] {
+			st.reaching = append(st.reaching, w)
+		}
+	}
 	return st
+}
+
+// staleWrapper is one generated wrapper that cannot start yolo from every launcher.
+type staleWrapper struct {
+	bin string
+	// why is the row's line about it.
+	why string
+	// runsHere is whether it still starts yolo from this check's PATH, so a bare invocation from
+	// here still reaches the launch gate through it.
+	runsHere bool
+}
+
+// staleWrappers reads the yolo each generated wrapper names (hostwrap.NamedYolo) and returns the
+// wrappers that cannot start it from every launcher: one naming a file that is gone or cannot
+// run, and one an older yolo wrote, which finds yolo through the PATH of whatever starts it. A
+// file that is not a body yolo writes is not judged: what it runs is not this section's to say.
+func staleWrappers(dir string, names []string, pathEnv string) []staleWrapper {
+	var out []staleWrapper
+	for _, bin := range names {
+		body, err := os.ReadFile(filepath.Join(dir, bin))
+		if err != nil {
+			continue
+		}
+		yolo, ok := hostwrap.NamedYolo(string(body), bin)
+		if !ok {
+			continue
+		}
+		if filepath.IsAbs(yolo) {
+			switch err := hostwrap.Runnable(yolo); {
+			case err == nil:
+			case errors.Is(err, fs.ErrNotExist):
+				out = append(out, staleWrapper{bin: bin,
+					why: bin + " execs " + yolo + ", which no longer exists"})
+			default:
+				out = append(out, staleWrapper{bin: bin,
+					why: bin + " execs a yolo that cannot run: " + err.Error()})
+			}
+			continue
+		}
+		if found, ok := hostwrap.Resolve(pathEnv, yolo); ok {
+			out = append(out, staleWrapper{bin: bin, runsHere: true,
+				why: bin + " finds yolo through PATH (" + found + " here), so a launcher " +
+					"whose PATH lacks it cannot start it"})
+			continue
+		}
+		out = append(out, staleWrapper{bin: bin,
+			why: bin + " finds yolo through PATH, and this PATH has none"})
+	}
+	return out
+}
+
+func staleNames(ws []staleWrapper) []string {
+	out := make([]string, 0, len(ws))
+	for _, w := range ws {
+		out = append(out, w.bin)
+	}
+	return out
 }
 
 // programsClause renders " (claude, pi)" for the programs a host apply would wrap, or "" when
@@ -221,7 +396,7 @@ func (st wrapperState) programsClause() string {
 	return " (" + joinNames(st.bins) + ")"
 }
 
-// The five reasons no launch can reach the host-apply gate, or reaches it to no effect. Each is
+// The six reasons no launch can reach the host-apply gate, or reaches it to no effect. Each is
 // the CAUSE of exactly one row in this section, which is the row that says the sync cannot fire
 // (gateClause).
 const (
@@ -232,6 +407,9 @@ const (
 	gateUnreadable  = "the wrapper directory cannot be read"
 	gateOffPath     = "the wrapper directory is not on PATH"
 	gateAllShadowed = "every wrapper is shadowed by an earlier PATH entry"
+	// gateNoYolo: every wrapper that wins names a yolo that does not run from here, so the
+	// wrapped launch exits before any yolo code, the gate included, runs.
+	gateNoYolo = "every wrapper that wins names a yolo that cannot run"
 )
 
 // gateUnreachable says why no launch can reach the host-apply gate, or "" when at least one
@@ -251,6 +429,8 @@ func (st wrapperState) gateUnreachable() string {
 		return gateOffPath
 	case len(st.wins) == 0:
 		return gateAllShadowed
+	case len(st.reaching) == 0:
+		return gateNoYolo
 	}
 	return ""
 }
@@ -381,7 +561,7 @@ func hostApplyOnLaunchRow(r *reporter, st wrapperState) {
 		}
 		r.ok("host_apply_on_launch is on — a wrapped launch re-checks the render first, and " +
 			"synchronizes host configuration automatically (reached through " +
-			joinNames(st.wins) + ")")
+			joinNames(st.reaching) + ")")
 		return
 	}
 	r.ok("host_apply_on_launch is off — a wrapped launch execs whatever the last " +

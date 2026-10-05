@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/hostfloor"
+	"github.com/mschulkind-oss/yolo-jail/internal/hostwrap"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 )
 
@@ -163,6 +165,11 @@ func TestHostWrappersPassesWhenOnPath(t *testing.T) {
 	}
 	if !strings.Contains(buf.String(), "[PASS]") {
 		t.Errorf("no PASS badge:\n%s", buf.String())
+	}
+	// The other way in: a launcher that never reads the rc is pointed at the wrapper's full path.
+	if want := "point an IDE or desktop launcher that does not read your shell rc at " +
+		filepath.Join(dir, "claude"); !strings.Contains(buf.String(), want) {
+		t.Errorf("the PASS does not point an IDE at the wrapper's full path (%q):\n%s", want, buf.String())
 	}
 }
 
@@ -675,20 +682,23 @@ func TestHostApplyOnLaunchRowWarnsWhenNoWrapperCanReachTheGate(t *testing.T) {
 		onPath     bool
 		unreadable bool   // the wrap path is a regular file, so it cannot be listed
 		noPrograms bool   // run the Packs section over a config selecting no pack
+		goneYolo   bool   // each wrapper execs a yolo that no longer exists
 		headline   string // the cause row's headline, which must carry the gate sentence
 	}{
-		{"no wrapper directory", nil, false, false, false, false,
+		{"no wrapper directory", nil, false, false, false, false, false,
 			"[WARN] host_wrappers is on but no wrapper directory exists yet"},
-		{"empty wrapper directory", []string{}, false, true, false, false,
+		{"empty wrapper directory", []string{}, false, true, false, false, false,
 			"[WARN] host_wrappers is on but no wrappers are generated"},
-		{"directory off PATH", []string{"claude"}, false, false, false, false,
+		{"directory off PATH", []string{"claude"}, false, false, false, false, false,
 			"[WARN] wrapper directory is not on PATH"},
-		{"every wrapper shadowed", []string{"claude"}, true, true, false, false,
+		{"every wrapper shadowed", []string{"claude"}, true, true, false, false, false,
 			"[WARN] 1 wrapper(s) are shadowed by an earlier PATH entry: claude"},
-		{"wrapper path unreadable", nil, false, true, true, false,
+		{"wrapper path unreadable", nil, false, true, true, false, false,
 			"[WARN] cannot read the wrapper directory"},
-		{"selected packs install nothing", nil, false, false, false, true,
+		{"selected packs install nothing", nil, false, false, false, true, false,
 			"[WARN] host_wrappers is on but no selected pack installs a program"},
+		{"every winning wrapper's yolo is gone", []string{"claude"}, false, true, false, false, true,
+			"[WARN] 1 wrapper(s) cannot start yolo from every launcher: claude"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -700,6 +710,9 @@ func TestHostApplyOnLaunchRowWarnsWhenNoWrapperCanReachTheGate(t *testing.T) {
 				if err := os.WriteFile(wrapDirIn(t), []byte("not a directory\n"), 0o644); err != nil {
 					t.Fatal(err)
 				}
+			}
+			if tc.goneYolo {
+				writeWrapperNaming(t, filepath.Join(t.TempDir(), "gone", "yolo"), tc.wrappers...)
 			}
 			pathEnv := t.TempDir()
 			if tc.shadow {
@@ -737,6 +750,238 @@ func TestHostApplyOnLaunchRowWarnsWhenNoWrapperCanReachTheGate(t *testing.T) {
 			}
 		})
 	}
+}
+
+// writeWrapperNaming overwrites each named wrapper in the fixture's wrap dir with the body a host
+// apply writes for it, execing yolo.
+func writeWrapperNaming(t *testing.T, yolo string, bins ...string) {
+	t.Helper()
+	for _, bin := range bins {
+		if err := os.WriteFile(filepath.Join(wrapDirIn(t), bin), []byte(hostwrap.BodyFor(yolo, bin)), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+// TestHostWrappersWarnsWhenAWrapperNamesAYoloThatIsGone: a wrapper execs yolo by the path the
+// apply that wrote it ran from, so an upgrade or a move that deletes that file makes it exit 127
+// from every launcher. The row names the file and the apply that rewrites it, whatever PATH says,
+// and — the only wrapper being the one that wins — is why the launch sync cannot fire.
+func TestHostWrappersWarnsWhenAWrapperNamesAYoloThatIsGone(t *testing.T) {
+	o, r, buf := hostManagementFixture(t, `{"host_wrappers": true}`, []string{"claude"}, "<WRAP>")
+	gone := filepath.Join(t.TempDir(), "Cellar", "yolo", "0.9", "bin", "yolo")
+	writeWrapperNaming(t, gone, "claude")
+	o.sectionHostWrappers(r)
+	out := buf.String()
+	headline := "[WARN] 1 wrapper(s) cannot start yolo from every launcher: claude"
+	if !strings.Contains(out, headline) {
+		t.Fatalf("a wrapper naming a yolo that is gone must WARN:\n%s", out)
+	}
+	note := strings.Join(noteLinesAfter(t, out, headline), "\n")
+	for _, want := range []string{
+		"yolo host apply --assert",
+		"claude execs " + gone + ", which no longer exists",
+		"host_apply_on_launch is on but cannot fire",
+	} {
+		if !strings.Contains(note, want) {
+			t.Errorf("the row must say %q:\n%s", want, out)
+		}
+	}
+	if got := noteLinesAfter(t, out, headline); !strings.Contains(got[0], "yolo host apply --assert") {
+		t.Errorf("the row's first note line must be the fix:\n%s", out)
+	}
+	if r.warned != 1 {
+		t.Errorf("warned = %d, want 1 — one cause, one row:\n%s", r.warned, out)
+	}
+	if strings.Contains(out, "synchronizes host configuration automatically") {
+		t.Errorf("no wrapped launch reaches the gate, so the reassurance must not print:\n%s", out)
+	}
+}
+
+// TestHostWrappersWarnsWhenAWrapperYoloCannotRun: present but not executable is the same cause.
+func TestHostWrappersWarnsWhenAWrapperYoloCannotRun(t *testing.T) {
+	o, r, buf := hostManagementFixture(t, `{"host_wrappers": true}`, []string{"claude"}, "<WRAP>")
+	plain := filepath.Join(t.TempDir(), "yolo")
+	if err := os.WriteFile(plain, []byte("not a program\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	writeWrapperNaming(t, plain, "claude")
+	o.sectionHostWrappers(r)
+	out := buf.String()
+	if !strings.Contains(out, "claude execs a yolo that cannot run: "+plain) {
+		t.Errorf("a wrapper naming a yolo that cannot run must say so:\n%s", out)
+	}
+	if r.warned != 1 {
+		t.Errorf("warned = %d, want 1:\n%s", r.warned, out)
+	}
+}
+
+// TestHostWrappersPassesAWrapperNamingAYoloThatRuns: the yolo the wrapper names runs, so there is
+// nothing to say about it.
+func TestHostWrappersPassesAWrapperNamingAYoloThatRuns(t *testing.T) {
+	o, r, buf := hostManagementFixture(t, `{"host_wrappers": true}`, []string{"claude"}, "<WRAP>")
+	writeWrapperNaming(t, filepath.Join(fakeProgram(t, "yolo"), "yolo"), "claude")
+	o.sectionHostWrappers(r)
+	if r.warned != 0 {
+		t.Errorf("a wrapper naming a yolo that runs must not warn:\n%s", buf.String())
+	}
+	if !strings.Contains(buf.String(), "synchronizes host configuration automatically (reached through claude)") {
+		t.Errorf("the gate row must pass through the wrapper:\n%s", buf.String())
+	}
+}
+
+// TestHostWrappersGateRowNamesOnlyTheWrappersThatReachYolo: claude's yolo is gone and pi's
+// runs, so a wrapped launch of pi still reaches the gate and the gate row passes through pi
+// alone, while claude's row says what to fix.
+func TestHostWrappersGateRowNamesOnlyTheWrappersThatReachYolo(t *testing.T) {
+	o, r, buf := hostManagementFixture(t, `{"host_wrappers": true}`, []string{"claude", "pi"}, "<WRAP>")
+	writeWrapperNaming(t, filepath.Join(t.TempDir(), "gone", "yolo"), "claude")
+	writeWrapperNaming(t, filepath.Join(fakeProgram(t, "yolo"), "yolo"), "pi")
+	o.sectionHostWrappers(r)
+	out := buf.String()
+	if !strings.Contains(out, "synchronizes host configuration automatically (reached through pi)") {
+		t.Errorf("the gate row must pass through pi alone:\n%s", out)
+	}
+	if !strings.Contains(out, "1 wrapper(s) cannot start yolo from every launcher: claude") {
+		t.Errorf("claude's row is missing:\n%s", out)
+	}
+	if strings.Contains(out, "cannot fire") {
+		t.Errorf("pi reaches the gate, so the sync can fire:\n%s", out)
+	}
+	if r.warned != 1 {
+		t.Errorf("warned = %d, want 1:\n%s", r.warned, out)
+	}
+}
+
+// TestHostWrappersWarnsAboutAWrapperAnOlderYoloWrote: before wrappers named yolo by path, each
+// found it through the PATH of whatever started it — the shape an IDE or desktop launcher whose
+// PATH lacks yolo cannot start. With yolo on this PATH a bare launch from here still reaches the
+// gate, so the row is about launchers only; with none here, it is also why the sync cannot fire.
+func TestHostWrappersWarnsAboutAWrapperAnOlderYoloWrote(t *testing.T) {
+	headline := "[WARN] 1 wrapper(s) cannot start yolo from every launcher: claude"
+	t.Run("yolo on this PATH", func(t *testing.T) {
+		o, r, buf := hostManagementFixture(t, `{"host_wrappers": true}`, []string{"claude"}, "")
+		writeWrapperNaming(t, "yolo", "claude")
+		yoloDir := fakeProgram(t, "yolo")
+		setPath(o, wrapDirIn(t)+string(os.PathListSeparator)+yoloDir)
+		o.sectionHostWrappers(r)
+		out := buf.String()
+		note := strings.Join(noteLinesAfter(t, out, headline), "\n")
+		if !strings.Contains(note, "claude finds yolo through PATH ("+filepath.Join(yoloDir, "yolo")+
+			" here), so a launcher whose PATH lacks it cannot start it") {
+			t.Errorf("the row must say a launcher without yolo cannot start it:\n%s", out)
+		}
+		if strings.Contains(note, "cannot fire") {
+			t.Errorf("a bare launch from here still reaches the gate:\n%s", out)
+		}
+		if !strings.Contains(out, "reached through claude") {
+			t.Errorf("the gate row must still pass through claude:\n%s", out)
+		}
+		if r.warned != 1 {
+			t.Errorf("warned = %d, want 1:\n%s", r.warned, out)
+		}
+	})
+	t.Run("no yolo on this PATH", func(t *testing.T) {
+		o, r, buf := hostManagementFixture(t, `{"host_wrappers": true}`, []string{"claude"}, "<WRAP>")
+		writeWrapperNaming(t, "yolo", "claude")
+		o.sectionHostWrappers(r)
+		out := buf.String()
+		note := strings.Join(noteLinesAfter(t, out, headline), "\n")
+		if !strings.Contains(note, "claude finds yolo through PATH, and this PATH has none") {
+			t.Errorf("the row must say this PATH has no yolo:\n%s", out)
+		}
+		if !strings.Contains(note, "host_apply_on_launch is on but cannot fire") {
+			t.Errorf("no launch from here reaches the gate, and this row is why:\n%s", out)
+		}
+		if r.warned != 1 {
+			t.Errorf("warned = %d, want 1:\n%s", r.warned, out)
+		}
+	})
+}
+
+// TestHostWrappersStaleYoloUnderNoneNamesTheKeyItWaitsOn: under host_management "none" the apply
+// refuses, so the stale row's fix says what the apply needs first instead of offering one that
+// refuses.
+func TestHostWrappersStaleYoloUnderNoneNamesTheKeyItWaitsOn(t *testing.T) {
+	o, _, buf := hostManagementFixture(t, `{"host_wrappers": true, "host_management": "none"}`,
+		[]string{"claude"}, "<WRAP>")
+	writeWrapperNaming(t, filepath.Join(t.TempDir(), "gone", "yolo"), "claude")
+	o.sectionHostWrappers(newReporter(buf, false))
+	note := strings.Join(noteLinesAfter(t, buf.String(),
+		"[WARN] 1 wrapper(s) cannot start yolo from every launcher: claude"), "\n")
+	if !strings.Contains(note, `once host_management in`) || !strings.Contains(note, `under "none" it refuses`) {
+		t.Errorf("under none the fix must name the key the apply waits on:\n%s", buf.String())
+	}
+}
+
+// TestHostWrappersOKRowNamesTheDirectorysProgramSlot: with several wrappers, the IDE pointer
+// names the directory's <program> slot and the programs in it.
+func TestHostWrappersOKRowNamesTheDirectorysProgramSlot(t *testing.T) {
+	o, r, buf := hostManagementFixture(t, `{"host_wrappers": true}`, []string{"claude", "pi"}, "<WRAP>")
+	o.sectionHostWrappers(r)
+	want := "point an IDE or desktop launcher that does not read your shell rc at " +
+		filepath.Join(wrapDirIn(t), "<program>") + " (claude or pi)"
+	if !strings.Contains(buf.String(), want) {
+		t.Errorf("want %q in:\n%s", want, buf.String())
+	}
+}
+
+// floorOn is an Options.HostFloor seam answering for an empty prefix on goos: on darwin the floor
+// holds no installer agent (claude has no floor entry), on linux it does.
+func floorOn(t *testing.T, goos string) func([]hostfloor.Program) *hostfloor.Floor {
+	t.Helper()
+	dir := t.TempDir()
+	return func(progs []hostfloor.Program) *hostfloor.Floor {
+		return &hostfloor.Floor{Dir: dir, GOOS: goos, GOARCH: "arm64",
+			NodeFloor: hostfloor.HighestNodeFloor(progs)}
+	}
+}
+
+// TestHostWrappersOKRowSaysALauncherNeedsHostPathForAProgramYoloKeepsNoCopyOf: on macOS the floor
+// holds no installer agent, so `yolo host -- claude` finds claude on the PATH it was started with,
+// then host_path. An IDE pointed at the wrapper hands it the IDE's PATH, which the rc that put
+// claude's folder on this shell's PATH never built, so the OK row says that launcher also needs
+// host_path naming the folder. Not on linux, where the floor holds claude; not when host_path
+// already names the folder.
+func TestHostWrappersOKRowSaysALauncherNeedsHostPathForAProgramYoloKeepsNoCopyOf(t *testing.T) {
+	const lead = "yolo keeps no copy of claude on this machine, so that launcher also needs host_path"
+	run := func(t *testing.T, goos, userConfig string) (string, string) {
+		t.Helper()
+		t.Setenv("YOLO_VERSION", "")
+		claudeDir := fakeProgram(t, "claude")
+		if userConfig != "" {
+			userConfig = strings.ReplaceAll(userConfig, "<CLAUDE>", claudeDir)
+		} else {
+			userConfig = `{"host_wrappers": true, "packs": ["claude"]}`
+		}
+		o, _, _ := hostManagementFixture(t, userConfig, []string{"claude"}, "")
+		setPath(o, wrapDirIn(t)+string(os.PathListSeparator)+claudeDir)
+		o.HostFloor = floorOn(t, goos)
+		r, out := runPacksThenWrappers(t, o)
+		if r.warned != 0 {
+			t.Errorf("warned = %d, want 0:\n%s", r.warned, out)
+		}
+		return out, claudeDir
+	}
+	t.Run("darwin", func(t *testing.T) {
+		out, claudeDir := run(t, "darwin", "")
+		want := lead + " in " + filepath.Join(os.Getenv("HOME"), ".config", "yolo-jail", "config.jsonc") +
+			" to name " + claudeDir + ", the folder this PATH finds it in"
+		if !strings.Contains(out, want) {
+			t.Errorf("want %q in:\n%s", want, out)
+		}
+	})
+	t.Run("linux", func(t *testing.T) {
+		if out, _ := run(t, "linux", ""); strings.Contains(out, lead) {
+			t.Errorf("the floor holds claude here, so no launcher needs host_path for it:\n%s", out)
+		}
+	})
+	t.Run("darwin, host_path names the folder", func(t *testing.T) {
+		out, _ := run(t, "darwin", `{"host_wrappers": true, "packs": ["claude"], "host_path": ["<CLAUDE>"]}`)
+		if strings.Contains(out, lead) {
+			t.Errorf("host_path already names claude's folder:\n%s", out)
+		}
+	})
 }
 
 // TestHostApplyOnLaunchOffKeepsTheCauseRowToItself: with the key OFF, the sync is opted out of

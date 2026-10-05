@@ -1,7 +1,10 @@
 package hostwrap
 
 import (
+	"errors"
+	"io/fs"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"reflect"
 	"runtime"
@@ -10,10 +13,30 @@ import (
 
 	"github.com/mschulkind-oss/yolo-jail/internal/packdecl"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
+	"github.com/mschulkind-oss/yolo-jail/internal/shquote"
 )
 
+// realTemp is t.TempDir() with its symlinks resolved, so a fixture path compared against code
+// that resolves them (os.SameFile, os.Executable on Linux) matches on darwin, where t.TempDir()
+// is under the /var -> /private/var symlink.
+func realTemp(t *testing.T) string {
+	t.Helper()
+	d, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	return d
+}
+
+// stubYolo writes an executable named yolo under a fresh directory and returns its path. Nothing
+// runs it except where a test says so.
+func stubYolo(t *testing.T) string {
+	t.Helper()
+	return filepath.Join(mkexec(t, filepath.Join(realTemp(t), "bin"), "yolo"), "yolo")
+}
+
 func TestBodyIsThreeLinesAndExecsHost(t *testing.T) {
-	body := Body("claude")
+	body := BodyFor("/opt/homebrew/bin/yolo", "claude")
 	lines := strings.Split(strings.TrimRight(body, "\n"), "\n")
 	if len(lines) != 3 {
 		t.Fatalf("wrapper body has %d lines, want 3:\n%s", len(lines), body)
@@ -21,7 +44,9 @@ func TestBodyIsThreeLinesAndExecsHost(t *testing.T) {
 	if lines[0] != "#!/usr/bin/env bash" {
 		t.Errorf("shebang = %q", lines[0])
 	}
-	if got, want := lines[2], `exec yolo host -- claude "$@"`; got != want {
+	// yolo BY PATH: the launcher of an IDE or desktop app hands the wrapper a PATH no rc built,
+	// and a bare `yolo` there is exit 127.
+	if got, want := lines[2], `exec /opt/homebrew/bin/yolo host -- claude "$@"`; got != want {
 		t.Errorf("exec line = %q, want %q", got, want)
 	}
 	// The wrapper must hold NO environment logic — that lives in `yolo host` alone, and
@@ -38,9 +63,230 @@ func TestBodyIsThreeLinesAndExecsHost(t *testing.T) {
 // wrapper body as data. Quoting it keeps a name with a shell metacharacter from becoming
 // a command.
 func TestBodyQuotesTheProgramName(t *testing.T) {
-	body := Body("we;ird")
+	body := BodyFor("/usr/local/bin/yolo", "we;ird")
 	if strings.Contains(body, "-- we;ird ") {
 		t.Errorf("unquoted program name reached the body:\n%s", body)
+	}
+}
+
+// TestBodyQuotesTheYoloPath: the path is the applier's, and a home or an install prefix may hold
+// a space or a quote; the exec line must still name that one file.
+func TestBodyQuotesTheYoloPath(t *testing.T) {
+	yolo := "/Users/Jo O'Neil/bin/yolo"
+	body := BodyFor(yolo, "claude")
+	if !strings.Contains(body, "exec "+shquote.Quote(yolo)+" host -- claude") {
+		t.Errorf("the yolo path is not shell-quoted:\n%s", body)
+	}
+}
+
+// TestBodyNamesTheRunningYolo: Body is BodyFor with this process's own spelling.
+func TestBodyNamesTheRunningYolo(t *testing.T) {
+	if got, want := Body("claude"), BodyFor(Running(os.Getenv("PATH")), "claude"); got != want {
+		t.Errorf("Body = %q, want %q", got, want)
+	}
+}
+
+// TestAWrapperStartsYoloFromAPathWithoutYolo is the defect: an IDE or desktop launcher starts the
+// wrapper with the PATH its own launcher was handed, which no shell rc built. The wrapper used to
+// exec `yolo` by name and exited 127 ("exec: yolo: not found") there; naming yolo by absolute
+// path reaches it from a PATH holding nothing but bash and env.
+func TestAWrapperStartsYoloFromAPathWithoutYolo(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("wrappers are shell scripts")
+	}
+	root := realTemp(t)
+	// A space in the folder, so the quoting the exec line needs is exercised by a real shell.
+	yoloDir := filepath.Join(root, "yolo bin")
+	if err := os.MkdirAll(yoloDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	yolo := filepath.Join(yoloDir, "yolo")
+	argsFile := filepath.Join(root, "args")
+	stub := "#!/usr/bin/env bash\nprintf '%s\\n' \"$@\" > " + shquote.Quote(argsFile) + "\n"
+	if err := os.WriteFile(yolo, []byte(stub), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// The launcher's PATH: bash and env and nothing else, so no yolo.
+	launcherPath := filepath.Join(root, "launcher-path")
+	if err := os.MkdirAll(launcherPath, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"bash", "env"} {
+		real, err := exec.LookPath(name)
+		if err != nil {
+			t.Skipf("no %s on this machine's PATH: %v", name, err)
+		}
+		if err := os.Symlink(real, filepath.Join(launcherPath, name)); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	wrap := filepath.Join(root, "wrap")
+	if _, err := Generate(wrap, yolo, []string{"claude"}); err != nil {
+		t.Fatal(err)
+	}
+	cmd := exec.Command(filepath.Join(wrap, "claude"), "--version")
+	cmd.Env = []string{"PATH=" + launcherPath, "HOME=" + root}
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("the wrapper did not reach yolo from a PATH without it: %v\n%s", err, out)
+	}
+	got, err := os.ReadFile(argsFile)
+	if err != nil {
+		t.Fatalf("the stub yolo never ran: %v", err)
+	}
+	if want := "host\n--\nclaude\n--version\n"; string(got) != want {
+		t.Errorf("yolo got argv %q, want %q", got, want)
+	}
+}
+
+// TestSpellingPrefersAPathEntryNamingTheSameFile is the Homebrew shape: a stable link on PATH
+// (bin/yolo) to a versioned file (Cellar/yolo/1.0/bin/yolo) the next upgrade deletes.
+// os.Executable on Linux answers with the versioned file, so baking that would break every
+// wrapper at the upgrade; the PATH spelling naming the same file is what gets baked. A yolo
+// earlier on PATH that is ANOTHER file does not decide the spelling, and a relative entry is
+// skipped.
+func TestSpellingPrefersAPathEntryNamingTheSameFile(t *testing.T) {
+	root := realTemp(t)
+	cellar := mkexec(t, filepath.Join(root, "Cellar", "yolo", "1.0", "bin"), "yolo")
+	exe := filepath.Join(cellar, "yolo")
+	brewBin := filepath.Join(root, "bin")
+	if err := os.MkdirAll(brewBin, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(exe, filepath.Join(brewBin, "yolo")); err != nil {
+		t.Fatal(err)
+	}
+	other := mkexec(t, filepath.Join(root, "other"), "yolo")
+	sep := string(os.PathListSeparator)
+
+	if got, want := Spelling(exe, "relative"+sep+other+sep+brewBin), filepath.Join(brewBin, "yolo"); got != want {
+		t.Errorf("Spelling = %q, want the PATH link naming the same file, %q", got, want)
+	}
+	if got := Spelling(exe, other); got != exe {
+		t.Errorf("no PATH entry names the running file: Spelling = %q, want the executable %q", got, exe)
+	}
+	t.Chdir(root)
+	if got := Spelling(exe, "bin"); got != exe {
+		t.Errorf("a relative PATH entry decided the spelling: %q, want %q", got, exe)
+	}
+	if got := Spelling(filepath.Join(root, "gone", "yolo"), brewBin); got != "yolo" {
+		t.Errorf("an executable that is gone: Spelling = %q, want the bare name", got)
+	}
+}
+
+// TestPlanKeepsAnotherSpellingOfTheSameYolo: the launch gate's apply runs from whatever PATH
+// started the agent, so a wrapper naming the same yolo through another spelling must not be
+// Rewritten — or every launch from the other shell would rewrite the wrappers and say so.
+func TestPlanKeepsAnotherSpellingOfTheSameYolo(t *testing.T) {
+	real, alias := symlinkedTemp(t)
+	mkexec(t, real, "yolo")
+	dir := filepath.Join(t.TempDir(), "wrap")
+	if _, err := Generate(dir, filepath.Join(alias, "yolo"), []string{"claude"}); err != nil {
+		t.Fatal(err)
+	}
+	plan, err := PlanFor(dir, filepath.Join(real, "yolo"), []string{"claude"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plan.Changed() {
+		t.Errorf("another spelling of the same yolo planned a change: %+v", plan)
+	}
+	if plan, err = Generate(dir, filepath.Join(real, "yolo"), []string{"claude"}); err != nil || plan.Changed() {
+		t.Fatalf("Generate = %+v, %v; want no change", plan, err)
+	}
+	got, _ := os.ReadFile(filepath.Join(dir, "claude"))
+	if string(got) != BodyFor(filepath.Join(alias, "yolo"), "claude") {
+		t.Errorf("the existing spelling was not kept:\n%s", got)
+	}
+	// A wrapper added beside it takes the spelling the directory already uses.
+	if _, err := Generate(dir, filepath.Join(real, "yolo"), []string{"claude", "pi"}); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := os.ReadFile(filepath.Join(dir, "pi")); string(got) != BodyFor(filepath.Join(alias, "yolo"), "pi") {
+		t.Errorf("an added wrapper did not adopt the directory's spelling:\n%s", got)
+	}
+}
+
+// TestPlanRewritesAWrapperNamingAnotherYolo: a different file is a different yolo, and a named
+// yolo that is gone is never the same file, so the next apply repairs the wrapper.
+func TestPlanRewritesAWrapperNamingAnotherYolo(t *testing.T) {
+	a, b := stubYolo(t), stubYolo(t)
+	dir := filepath.Join(t.TempDir(), "wrap")
+	if _, err := Generate(dir, a, []string{"claude"}); err != nil {
+		t.Fatal(err)
+	}
+	plan, err := Generate(dir, b, []string{"claude"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(plan.Rewritten, []string{"claude"}) {
+		t.Errorf("Rewritten = %q, want [claude]", plan.Rewritten)
+	}
+	if got, _ := os.ReadFile(filepath.Join(dir, "claude")); string(got) != BodyFor(b, "claude") {
+		t.Errorf("the wrapper still names the other yolo:\n%s", got)
+	}
+	if err := os.Remove(b); err != nil {
+		t.Fatal(err)
+	}
+	if plan, _ := PlanFor(dir, a, []string{"claude"}); !reflect.DeepEqual(plan.Rewritten, []string{"claude"}) {
+		t.Errorf("a wrapper naming a yolo that is gone: Rewritten = %q, want [claude]", plan.Rewritten)
+	}
+}
+
+// TestPlanRewritesABodyAnOlderYoloWrote: the bare-`yolo` body every wrapper had before this one
+// is out of date, so an apply after the upgrade rewrites it.
+func TestPlanRewritesABodyAnOlderYoloWrote(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "wrap")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	legacy := bodyHeader + `exec yolo host -- claude "$@"` + "\n"
+	if err := os.WriteFile(filepath.Join(dir, "claude"), []byte(legacy), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	plan, err := PlanFor(dir, stubYolo(t), []string{"claude"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(plan.Rewritten, []string{"claude"}) {
+		t.Errorf("Rewritten = %q, want [claude]", plan.Rewritten)
+	}
+}
+
+func TestNamedYoloReadsBackWhatBodyForWrote(t *testing.T) {
+	for _, yolo := range []string{"/opt/homebrew/bin/yolo", "/Users/Jo O'Neil/bin/yolo", "yolo"} {
+		if got, ok := NamedYolo(BodyFor(yolo, "claude"), "claude"); !ok || got != yolo {
+			t.Errorf("NamedYolo(BodyFor(%q)) = %q, %v", yolo, got, ok)
+		}
+	}
+	for name, body := range map[string]string{
+		"another script":       "#!/bin/sh\n",
+		"another program":      BodyFor("/bin/yolo", "pi"),
+		"a hand-edited body":   BodyFor("/bin/yolo", "claude") + "echo hi\n",
+		"an empty yolo":        bodyHeader + `exec '' host -- claude "$@"` + "\n",
+		"an unbalanced quote":  bodyHeader + `exec '/a b host -- claude "$@"` + "\n",
+		"a quote needing none": bodyHeader + `exec '/bin/yolo' host -- claude "$@"` + "\n",
+	} {
+		if got, ok := NamedYolo(body, "claude"); ok {
+			t.Errorf("%s: NamedYolo = %q, true; want false", name, got)
+		}
+	}
+}
+
+func TestRunnable(t *testing.T) {
+	ok := stubYolo(t)
+	if err := Runnable(ok); err != nil {
+		t.Errorf("Runnable(executable) = %v", err)
+	}
+	if err := Runnable(filepath.Join(filepath.Dir(ok), "gone")); !errors.Is(err, fs.ErrNotExist) {
+		t.Errorf("Runnable(missing) = %v, want a not-exist error", err)
+	}
+	plain := filepath.Join(filepath.Dir(ok), "plain")
+	if err := os.WriteFile(plain, []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := Runnable(plain); err == nil {
+		t.Error("Runnable(non-executable) = nil")
 	}
 }
 
@@ -94,7 +340,8 @@ func TestBinsIncludesAnInstallerDeclaredProgram(t *testing.T) {
 
 func TestGenerateCreatesWrappersAndReportsAdded(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "wrap")
-	plan, err := Generate(dir, []string{"claude", "pi"})
+	yolo := stubYolo(t)
+	plan, err := Generate(dir, yolo, []string{"claude", "pi"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -110,7 +357,7 @@ func TestGenerateCreatesWrappersAndReportsAdded(t *testing.T) {
 		if err != nil {
 			t.Fatalf("reading %s: %v", bin, err)
 		}
-		if string(got) != Body(bin) {
+		if string(got) != BodyFor(yolo, bin) {
 			t.Errorf("%s body = %q", bin, got)
 		}
 		info, err := os.Stat(path)
@@ -127,10 +374,11 @@ func TestGenerateCreatesWrappersAndReportsAdded(t *testing.T) {
 // directory, so an unchanged re-apply must report no change. Otherwise every apply nags.
 func TestGenerateIsIdempotent(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "wrap")
-	if _, err := Generate(dir, []string{"claude"}); err != nil {
+	yolo := stubYolo(t)
+	if _, err := Generate(dir, yolo, []string{"claude"}); err != nil {
 		t.Fatal(err)
 	}
-	plan, err := Generate(dir, []string{"claude"})
+	plan, err := Generate(dir, yolo, []string{"claude"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -141,14 +389,15 @@ func TestGenerateIsIdempotent(t *testing.T) {
 
 func TestGenerateRemovesStaleWrapperAndRewritesDriftedBody(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "wrap")
-	if _, err := Generate(dir, []string{"claude", "dropped"}); err != nil {
+	yolo := stubYolo(t)
+	if _, err := Generate(dir, yolo, []string{"claude", "dropped"}); err != nil {
 		t.Fatal(err)
 	}
-	// Drift one body, the way a yolo upgrade that changed Body would.
+	// Drift one body, the way a yolo upgrade that changed BodyFor would.
 	if err := os.WriteFile(filepath.Join(dir, "claude"), []byte("#!/bin/sh\nexec claude\n"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	plan, err := Generate(dir, []string{"claude"})
+	plan, err := Generate(dir, yolo, []string{"claude"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -162,7 +411,7 @@ func TestGenerateRemovesStaleWrapperAndRewritesDriftedBody(t *testing.T) {
 		t.Error("the dropped pack's wrapper survived")
 	}
 	got, _ := os.ReadFile(filepath.Join(dir, "claude"))
-	if string(got) != Body("claude") {
+	if string(got) != BodyFor(yolo, "claude") {
 		t.Errorf("drifted wrapper was not rewritten: %q", got)
 	}
 }
@@ -173,14 +422,15 @@ func TestGenerateRemovesStaleWrapperAndRewritesDriftedBody(t *testing.T) {
 // those references. Contents-only, always.
 func TestGenerateAndClearNeverRemoveTheDirectoryItself(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "wrap")
-	if _, err := Generate(dir, []string{"claude"}); err != nil {
+	yolo := stubYolo(t)
+	if _, err := Generate(dir, yolo, []string{"claude"}); err != nil {
 		t.Fatal(err)
 	}
 	before, err := os.Stat(dir)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := Generate(dir, []string{"pi"}); err != nil {
+	if _, err := Generate(dir, yolo, []string{"pi"}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := Clear(dir); err != nil {
@@ -255,7 +505,7 @@ func mkexec(t *testing.T, dir, name string) string {
 }
 
 // TestLookPathSkippingIsTheRecursionGuard is the test the whole wrapper design rests on.
-// The wrapper execs `yolo host -- claude`; if `yolo host` resolved "claude" the ordinary
+// The wrapper execs `<yolo> host -- claude`; if `yolo host` resolved "claude" the ordinary
 // way it would find the WRAPPER again and fork-bomb. The real binary must win even though
 // the wrap dir comes first on PATH.
 func TestLookPathSkippingIsTheRecursionGuard(t *testing.T) {
@@ -369,7 +619,7 @@ func TestBinsSkipsNamesThatAreNotBarePrograms(t *testing.T) {
 func TestGenerateRefusesPathTraversalNames(t *testing.T) {
 	tmp := t.TempDir()
 	dir := filepath.Join(tmp, "wrap")
-	_, err := Generate(dir, []string{"sub/../../pwn"})
+	_, err := Generate(dir, "/usr/local/bin/yolo", []string{"sub/../../pwn"})
 	if err == nil || !strings.Contains(err.Error(), "bare program name") {
 		t.Fatalf("err = %v, want a bare-program-name refusal", err)
 	}
