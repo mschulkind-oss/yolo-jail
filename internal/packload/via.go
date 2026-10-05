@@ -149,6 +149,17 @@ type ViaPointer struct {
 // read off output values only, so a derive that names the URL in a key points nothing.
 func DerivedViaPointers(packs []*Pack, providers *jsonx.OrderedMap, useProfiles map[string]string,
 	resolved map[string]ResolvedProfile, agent string) ([]ViaPointer, error) {
+	return derivedPointers(packs, providers, useProfiles, resolved, agent, func(url, v string) bool {
+		return v == url || strings.HasPrefix(v, url+"/")
+	})
+}
+
+// derivedPointers is DerivedViaPointers with the reading of a value its own: every place the
+// derives' output, run as DerivedViaPointers runs them with ctx.via_url set, carries a string
+// match accepts, given the agent's via URL. nil when the agent has no via URL, whose derives the
+// via cannot reach.
+func derivedPointers(packs []*Pack, providers *jsonx.OrderedMap, useProfiles map[string]string,
+	resolved map[string]ResolvedProfile, agent string, match func(url, value string) bool) ([]ViaPointer, error) {
 	profile := useProfiles[agent]
 	url := ViaURLFor(resolved[profile], agent)
 	if url == "" {
@@ -197,7 +208,7 @@ func DerivedViaPointers(packs []*Pack, providers *jsonx.OrderedMap, useProfiles 
 			if err != nil {
 				return nil, fmt.Errorf("pack %s: %s/%s's derive: %w", p.Name, agent, s.Name, err)
 			}
-			out = appendViaPointers(out, s.Name, layer, url)
+			out = appendViaPointers(out, s.Name, layer, url, match)
 		}
 	}
 	if owner := binOwner(packs, agent); owner != nil {
@@ -209,15 +220,16 @@ func DerivedViaPointers(packs []*Pack, providers *jsonx.OrderedMap, useProfiles 
 			if err != nil {
 				return nil, fmt.Errorf("pack %s: %s's env derive: %w", owner.Name, agent, err)
 			}
-			out = appendViaPointers(out, "", env, url)
+			out = appendViaPointers(out, "", env, url, match)
 		}
 	}
 	return out, nil
 }
 
 // appendViaPointers walks one derived layer in key order and appends a ViaPointer for each
-// string value that is url or lies under it.
-func appendViaPointers(out []ViaPointer, surface string, layer map[string]any, url string) []ViaPointer {
+// string value match accepts (DerivedViaPointers': one that is url or lies under it).
+func appendViaPointers(out []ViaPointer, surface string, layer map[string]any, url string,
+	match func(url, value string) bool) []ViaPointer {
 	var walk func(v any, path []string)
 	walk = func(v any, path []string) {
 		switch t := v.(type) {
@@ -235,7 +247,7 @@ func appendViaPointers(out []ViaPointer, surface string, layer map[string]any, u
 				walk(e, append(append([]string(nil), path...), strconv.Itoa(i)))
 			}
 		case string:
-			if t == url || strings.HasPrefix(t, url+"/") {
+			if match(url, t) {
 				out = append(out, ViaPointer{Surface: surface, Path: path, Layer: layer})
 			}
 		}

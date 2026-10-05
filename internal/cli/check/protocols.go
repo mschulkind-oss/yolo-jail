@@ -26,6 +26,7 @@ import (
 
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
+	"github.com/mschulkind-oss/yolo-jail/internal/launchservice"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/wirebridged"
 )
@@ -105,6 +106,38 @@ func protocolPairingGap(packs []*packload.Pack, merged *jsonx.OrderedMap, served
 			"did not resolve (" + err.Error() + "). The launch will report this problem " +
 			"first; the pairing is unchecked until it is fixed"}
 	}
+	// THE VIA TRIGGER, PREDICTED (docs/design/host-notch-services.md HS-D30): a launch that runs pack
+	// services as launch-owned host halves (macos-user, the one such runtime `check` predicts) plans
+	// the service a via or a carrier routes a profiled agent through once served, and composes
+	// against it, so the via is served there and the via gate below asks of it, as the launch does.
+	// The same what-if the launch asks (packload.ViaRoutedServices), with its admission.
+	var noEffect []string
+	if served.RunsLaunchOwnedServices() {
+		routed, rerr := packload.ViaRoutedServices(packload.ViaWhatIf{User: subMap(merged, "providers"),
+			Packs: packs, Addresses: addresses, Served: served, Profiles: declared, Active: profiles},
+			func(service string) bool {
+				_, aerr := launchservice.Admit(packs, service)
+				return aerr == nil
+			})
+		// A service whose via re-points none of the agents it names is not planned (ViaRouted.NoEffect),
+		// and the launch says so of each agent, which check predicts in the launch's words.
+		var names []string
+		for _, r := range routed {
+			if len(r.Agents) > 0 {
+				names = append(names, r.Service)
+				continue
+			}
+			noEffect = append(noEffect, r.NoEffectLines(profiles)...)
+		}
+		if rerr == nil && len(names) > 0 {
+			served = served.Plus(packload.ServedByLaunch(names))
+			if p, u, cerr := packload.ComposeProvidersAt(subMap(merged, "providers"), packs, addresses, served); cerr == nil {
+				if r, perr := packload.ResolveProfiles(packs, declared, p); perr == nil {
+					providers, unserved, resolved = p, u, r
+				}
+			}
+		}
+	}
 	// A via the runtime does not serve is cleared, as the launch clears it, so the via gate
 	// below asks nothing of it.
 	resolved, _ = packload.ViaServedAt(resolved, packs, served)
@@ -136,5 +169,5 @@ func protocolPairingGap(packs []*packload.Pack, merged *jsonx.OrderedMap, served
 	for _, refusal := range viaRefusals {
 		errs = append(errs, "This launch will be REFUSED: "+refusal.Error())
 	}
-	return errs, viaNotices
+	return errs, append(viaNotices, noEffect...)
 }

@@ -35,6 +35,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/entrypoint"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/sigv4"
@@ -590,16 +591,20 @@ func writeOpenAIError(w http.ResponseWriter, status int, typ, message string) {
 }
 
 // viaHandlerFor builds the via listener's handler: per route, one pass-through per
-// distinct upstream, each with its own credential from the key channel (WG7 (e)), and an
-// idle handler for an upstream whose credential is missing. It returns the handler and
-// one description per upstream for the serve log.
-func viaHandlerFor(plan viaPlan, home string, allow map[string]*modelAllowlist) (http.Handler, []string) {
+// distinct upstream, each with its own credential from the key channel of the daemon under e
+// (WG7 (e); keyFor: in a jail the served agent's env file, the shared file and this process's
+// environment, and in the HOST HALF the launch's input alone, never a jail home's file), and an
+// idle handler for an upstream whose credential is missing. It returns the handler and one
+// description per upstream for the serve log.
+func viaHandlerFor(plan viaPlan, e *entrypoint.Env, allow map[string]*modelAllowlist) (http.Handler, []string) {
 	mux := &viaMux{routes: map[string]http.Handler{}}
 	var lines []string
 	for _, rt := range plan.Routes {
 		// The agent's allowlist rides every upstream handler of its route (Part 5, WG-I40).
 		upstreamFor := func(up viaUpstream) (http.Handler, string) {
-			h, line := viaUpstreamHandler(rt, up, home)
+			h, line := viaUpstreamHandlerKeyed(rt, up, func(name string) (string, string) {
+				return keyFor(e, name, rt.Agent)
+			}, keySources(e, rt.Agent))
 			if ph, ok := h.(*passthroughHandler); ok && allow[rt.Agent] != nil {
 				ph.allow = allow[rt.Agent]
 				line += allowlistNote(allow[rt.Agent])
@@ -628,21 +633,28 @@ func viaHandlerFor(plan viaPlan, home string, allow map[string]*modelAllowlist) 
 	return mux, lines
 }
 
-// viaUpstreamHandler builds one upstream's pass-through with its credential — SigV4 for
-// a Bedrock host, the provider's key otherwise — or the idle handler naming what is
-// missing, and the serve-log description of either.
+// viaUpstreamHandler is viaUpstreamHandlerKeyed over a jail's key channel at home (resolveKey).
 func viaUpstreamHandler(rt viaRoute, up viaUpstream, home string) (http.Handler, string) {
+	return viaUpstreamHandlerKeyed(rt, up, func(name string) (string, string) {
+		return resolveKey(name, home, rt.Agent)
+	}, keyChannelDescription(home, rt.Agent)+" or the daemon's environment")
+}
+
+// viaUpstreamHandlerKeyed builds one upstream's pass-through with its credential — SigV4 for
+// a Bedrock host, the provider's key otherwise — read through lookup, or the idle handler naming
+// what is missing and where, which names the channel lookup reads; and the serve-log description
+// of either.
+func viaUpstreamHandlerKeyed(rt viaRoute, up viaUpstream, lookup func(name string) (string, string),
+	where string) (http.Handler, string) {
 	if up.bedrock() {
 		region, regionSource := up.SignRegion, ""
 		if region == "" {
 			// The served agent's region (WG-I38), from the key channel its credential comes from.
 			var why string
-			region, regionSource, why = envRegion(func(name string) (string, string) {
-				return resolveKey(name, home, rt.Agent)
-			})
+			region, regionSource, why = envRegion(lookup)
 			if why != "" {
 				reason := "the via route for " + rt.Agent + " goes to Bedrock (provider " + rt.ProviderName +
-					"), and " + why + " in " + keyChannelDescription(home, rt.Agent) + " or the daemon's environment"
+					"), and " + why + " in " + where
 				return idleViaHandler{reason: reason}, "idle: " + reason
 			}
 		}
@@ -651,7 +663,7 @@ func viaUpstreamHandler(rt viaRoute, up viaUpstream, home string) (http.Handler,
 			base = runtimeBaseURL(region)
 		}
 		env := sigv4.EnvFrom(func(name string) string {
-			v, _ := resolveKey(name, home, rt.Agent)
+			v, _ := lookup(name)
 			return v
 		})
 		if !hasAWSCredentialSource(env) {
@@ -666,11 +678,10 @@ func viaUpstreamHandler(rt viaRoute, up viaUpstream, home string) (http.Handler,
 			"→ " + base + " (provider " + rt.ProviderName + ", " + signingDescription(region, regionSource) +
 				", from " + env.String() + ")"
 	}
-	key, source := resolveKey(rt.KeyEnvName, home, rt.Agent)
+	key, source := lookup(rt.KeyEnvName)
 	if key == "" && rt.KeyEnvName != "" {
 		reason := "the via route for " + rt.Agent + " needs $" + rt.KeyEnvName +
-			" (provider " + rt.ProviderName + "), and it is set neither in " +
-			keyChannelDescription(home, rt.Agent) + " nor in the daemon's environment"
+			" (provider " + rt.ProviderName + "), and it is not set in " + where
 		return idleViaHandler{reason: reason}, "idle: " + reason
 	}
 	cred := "none"

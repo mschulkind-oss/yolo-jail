@@ -33,6 +33,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/launchservice"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
+	"github.com/mschulkind-oss/yolo-jail/internal/shquote"
 )
 
 // hostInputComposition is one invocation's host derive inputs and what composing them left out.
@@ -165,6 +166,12 @@ func composeHostInputs(cfg *jsonx.OrderedMap, packs []*packload.Pack, home strin
 			c.omitted = append(c.omitted, fmt.Sprintf("profile %s → %s is not applied at "+
 				"the host: %s", agent, profile, firstLine(refusal.Error())))
 			continue
+		}
+		// A VIA OR CARRIER (docs/design/host-notch-services.md HS-D33): the table above renders it
+		// inert, so the apply says where the selection's route does take effect, as it does for a
+		// bridged selection.
+		if note := viaSelectionNote(cfg, packs, userProfiles, agent, profile); note != "" {
+			c.omitted = append(c.omitted, note)
 		}
 		if len(set) > 0 {
 			v = packload.ProfileSetWire(set)
@@ -329,6 +336,35 @@ func sortedOmitted(lines []string) []string {
 	out := append([]string(nil), lines...)
 	sort.Strings(out)
 	return out
+}
+
+// viaSelectionNote is what `yolo host apply` says of a profile selection whose via, or whose
+// carrier, routes agent through a pack service once served (hostViaWhatIf, the what-if `yolo host
+// --` plans by; docs/design/host-notch-services.md HS-D33), "" for any other: the apply renders the
+// via inert (WG-I12 as WG-I46 narrowed it), since the service's address is a port one launch picks.
+// A route the agent's environment carries takes effect through `yolo host -- <agent>` or its host
+// wrapper, which start the service; one its own config file carries, only in a jail or on
+// macos-user (HS-D31). A via that re-points nothing of the agent changes nothing anywhere, so it
+// gets no line.
+func viaSelectionNote(cfg *jsonx.OrderedMap, packs []*packload.Pack, userProfiles map[string]packload.UserProfile,
+	agent, profile string) string {
+	v, err := hostViaWhatIf(cfg, packs, userProfiles, agent, profile)
+	if err != nil || v.service == "" || v.noEffect {
+		return ""
+	}
+	if len(v.files) > 0 {
+		return fmt.Sprintf("profile %s → %s renders no address for %s here: %s reads its route from %s, "+
+			"its own config, and pack %q's %q service answers at a port each launch picks, so no file "+
+			"can name it and %s keeps its own client at the host. A jail or a macos-user launch serves "+
+			"it: `yolo -p %s -- %s` (docs/design/host-notch-services.md HS-D31)", agent, profile,
+			"its "+v.route, agent, strings.Join(v.files, ", "), v.pack, v.service, agent,
+			shquote.Quote(profile), shquote.Quote(agent))
+	}
+	return fmt.Sprintf("profile %s → %s renders no address for %s here: it runs through pack %q's "+
+		"%q service, which a host launch starts for its own command and stops when that command "+
+		"exits, so no file can name it. It takes effect through `yolo host -- %s` or the host "+
+		"wrappers; %s started any other way runs without it (docs/design/host-notch-services.md "+
+		"HS-D30, OQ-HS3)", agent, profile, "its "+v.route, v.pack, v.service, agent, agent)
 }
 
 // bridgedSelectionNote is what `yolo host apply` says of a profile selection whose pairing
