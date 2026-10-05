@@ -307,19 +307,11 @@ func patchedTreeCopyDir(copyRoot, key string) string {
 func PatchedTreeCopyDir(copyRoot, key string) string { return patchedTreeCopyDir(copyRoot, key) }
 
 // noteAttachTreeBuilds is an attach's line for each patched extension its jail was handed
-// (docs/design/patched-extensions.md §8.1 step 4), read from the running jail's delivery record:
-// the build it mounts, and, when this machine's good build has moved since the jail booted, that the
-// next fresh launch, once this jail stops, mounts that one. Silent for a jail whose tree this attach
-// could not find, and for one launched before patched extensions.
-func (o *Options) noteAttachTreeBuilds(view attachPackView) {
-	if view.unfound != "" || view.unreadable || view.staged.root == "" {
-		return
-	}
-	handed, err := readHandedTrees(view.staged.root)
-	if err != nil {
-		o.pr(o.Stderr).printf("[yellow]Warning: could not read what this jail was handed for its patched extensions (%v)[/yellow]", err)
-		return
-	}
+// (docs/design/patched-extensions.md §8.1 step 4), from the running jail's delivery record
+// (noteAttachHandedBuilds reads it): the build it mounts, and, when this machine's good build has
+// moved since the jail booted, that the next fresh launch, once this jail stops, mounts that one.
+// Silent for a jail launched before patched extensions, whose record has no trees.
+func (o *Options) noteAttachTreeBuilds(handed map[string]HandedTree) {
 	keys := make([]string, 0, len(handed))
 	for k := range handed {
 		keys = append(keys, k)

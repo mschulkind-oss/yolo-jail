@@ -168,3 +168,42 @@ func TestAPatchedExtensionOverAConfigSurfaceIsRefused(t *testing.T) {
 		t.Errorf("a patched extension over a config surface was not refused:\n%s", printed)
 	}
 }
+
+// AN UNREADABLE DELIVERY RECORD is said ONCE by an attach, for the forks and the patched extensions
+// it holds alike, with what follows — never once per half, and never with no next step.
+func TestAnAttachSaysAnUnreadableDeliveryRecordOnce(t *testing.T) {
+	treeLaunchHome(t, true)
+	ws := t.TempDir()
+	cname := yoloruntime.FromWorkspace(ws)
+	_, printed := fakePodmanLaunchIn(t, ws, "", func(o *Options) {
+		tree, err := newPackTree(cname)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := writeLivePackTree(cname, tree); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(handedForksPath(tree), []byte("{not json"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		o.Exec = func(argv []string, _ string, _ []string, _ time.Duration) ExecResult {
+			joined := strings.Join(argv, " ")
+			switch {
+			case len(argv) >= 2 && argv[1] == "ps" && strings.Contains(joined, "name=^/"+cname+"$"):
+				return ExecResult{Ran: true, RC: 0, Stdout: "abc123\n"}
+			case len(argv) >= 2 && argv[1] == "inspect":
+				return ExecResult{Ran: true, RC: 0, Stdout: "YOLO_VERSION=9.9.9-test\n" + entrypointContractTagsLine() + "\n"}
+			}
+			return ExecResult{Ran: true, RC: 0}
+		}
+	})
+	if !strings.Contains(printed, "Attaching to existing jail") {
+		t.Fatalf("the fixture did not attach:\n%s", printed)
+	}
+	if n := strings.Count(printed, "could not read what this jail was handed"); n != 1 {
+		t.Errorf("the unreadable record is said %d times, want once:\n%s", n, printed)
+	}
+	if !strings.Contains(printed, "the next fresh launch, once this jail stops, writes a new one") {
+		t.Errorf("the unreadable record's line names no next step:\n%s", printed)
+	}
+}

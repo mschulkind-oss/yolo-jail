@@ -2482,10 +2482,10 @@ func (o *Options) attachExisting(cname, rt, targetCmd string, cfg *jsonx.Ordered
 	// What this attach did NOT deliver: the configured packs, when they differ from the ones
 	// the jail booted with (OQ-PK2 (c)'s notice).
 	o.noteBootedPackSetDiffers(rt, cname, view)
-	// And what it runs of each patched fork, from what the jail was handed (patchedforkline.go):
-	// the good build may have moved since it booted, and only a fresh launch delivers a move.
-	o.noteAttachForkBuilds(view)
-	o.noteAttachTreeBuilds(view)
+	// And what it runs of each patched fork and mounts of each patched extension, from what the jail
+	// was handed (patchedforkline.go): the good build may have moved since it booted, and only a
+	// fresh launch delivers a move.
+	o.noteAttachHandedBuilds(view)
 	// And what it did not APPLY: a host-wide daemon's settings the config has changed since it
 	// started. Reported, never restarted, from an attach (noteSingletonSettingsDrift).
 	o.noteSingletonSettingsDrift(cfg)

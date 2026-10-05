@@ -91,16 +91,6 @@ func readHandedForks(tree string) (map[string]HandedFork, error) {
 	return f.Forks, nil
 }
 
-// readHandedTrees reads the patched extensions of tree's delivery record: nil and no error when
-// there is none.
-func readHandedTrees(tree string) (map[string]HandedTree, error) {
-	f, err := readHandedFile(tree)
-	if err != nil || f == nil {
-		return nil, err
-	}
-	return f.Trees, nil
-}
-
 // readHandedFile reads tree's whole delivery record: nil and no error when there is none.
 func readHandedFile(tree string) (*handedForksFile, error) {
 	data, err := os.ReadFile(handedForksPath(tree))

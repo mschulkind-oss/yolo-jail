@@ -105,20 +105,34 @@ func PatchedForkHold(f packload.Fork) string {
 	return ""
 }
 
-// noteAttachForkBuilds is an attach's line for each patched fork its jail was handed (§7: "An
-// attach says what the running jail runs"), read from the running jail's delivery record: the build
-// it runs, and, when this machine's good build has moved since the jail booted, that the next fresh
-// launch, once this jail stops, runs that one. Silent for a jail whose tree this attach could not
-// find, and for one launched before delivery records.
-func (o *Options) noteAttachForkBuilds(view attachPackView) {
+// noteAttachHandedBuilds is an attach's lines for what its jail was handed, from the running jail's
+// delivery record, read ONCE for both of its halves: each patched fork's (noteAttachForkBuilds) and
+// each patched extension's (noteAttachTreeBuilds). A record that cannot be read is said once, with
+// what follows. Silent for a jail whose tree this attach could not find, and for one launched before
+// delivery records.
+func (o *Options) noteAttachHandedBuilds(view attachPackView) {
 	if view.unfound != "" || view.unreadable || view.staged.root == "" {
 		return
 	}
-	handed, err := readHandedForks(view.staged.root)
+	f, err := readHandedFile(view.staged.root)
 	if err != nil {
-		o.pr(o.Stderr).printf("[yellow]Warning: could not read what this jail was handed for its forks (%v)[/yellow]", err)
+		o.pr(o.Stderr).printf("[yellow]Warning: could not read what this jail was handed for its forks and "+
+			"patched extensions (%v)[/yellow] — the jail itself is unaffected, and this attach cannot say which "+
+			"builds it runs; the next fresh launch, once this jail stops, writes a new one", err)
 		return
 	}
+	if f == nil {
+		return
+	}
+	o.noteAttachForkBuilds(f.Forks)
+	o.noteAttachTreeBuilds(f.Trees)
+}
+
+// noteAttachForkBuilds is an attach's line for each patched fork its jail was handed (§7: "An
+// attach says what the running jail runs"), from the running jail's delivery record: the build it
+// runs, and, when this machine's good build has moved since the jail booted, that the next fresh
+// launch, once this jail stops, runs that one.
+func (o *Options) noteAttachForkBuilds(handed map[string]HandedFork) {
 	bins := make([]string, 0, len(handed))
 	for bin := range handed {
 		bins = append(bins, bin)

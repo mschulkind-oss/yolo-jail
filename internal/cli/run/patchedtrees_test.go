@@ -267,7 +267,7 @@ func TestAnAttachNamesTheTreeItsJailMounts(t *testing.T) {
 	}
 	var stderr strings.Builder
 	o := &Options{Stderr: &stderr}
-	o.noteAttachTreeBuilds(attachPackView{staged: stagedPacks{root: tree}})
+	o.noteAttachHandedBuilds(attachPackView{staged: stagedPacks{root: tree}})
 	if !strings.Contains(stderr.String(), "this jail mounts extension "+treeKey+" at v1.0.0") ||
 		!strings.Contains(stderr.String(), "2 patches") {
 		t.Errorf("the attach line = %q", stderr.String())
