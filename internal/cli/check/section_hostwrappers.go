@@ -24,7 +24,8 @@ import (
 // and it WINS there for each wrapper's name (precedence) — and, riding on those, whether
 // host_apply_on_launch's re-check is reachable at all. The row that ends it with wrappers on disk
 // (PASS, off PATH, or shadowed) also says where an IDE or desktop launcher, which never reads the
-// rc, points instead, and what host_path that launcher needs.
+// rc, points instead, and what host_path that launcher needs — for the wrappers that can start
+// yolo from any launcher only (pointable).
 //
 // # Why this observation lives HERE and not in apply
 //
@@ -198,18 +199,44 @@ func (o *Options) sectionHostWrappers(r *reporter) {
 	r.ok("wrapper directory is on PATH and wins for every wrapper (" + joinNames(names) + ")")
 	// The other way in. A launcher that never reads the rc never gets the PATH line above, and
 	// the wrapper's full path is the surface built for it (hostwrap's package doc).
-	r.dim(st.launcherLine())
+	if l := st.launcherLine(); l != "" {
+		r.dim(l)
+	}
 	for _, l := range o.launcherHostPathLines(st) {
 		r.dim(l)
 	}
 }
 
+// pointable is the generated wrappers an IDE or desktop launcher can be pointed at: every one but
+// those staleWrappers reports, which the row above says cannot start yolo from every launcher. A
+// pointer naming one of those would contradict that row in the same section. When none is left the
+// pointer is not printed at all: the stale row's `yolo host apply --assert` comes first, and the
+// next check points the launcher once it has run.
+func (st wrapperState) pointable() []string {
+	stale := map[string]bool{}
+	for _, w := range st.stale {
+		stale[w.bin] = true
+	}
+	var out []string
+	for _, n := range st.names {
+		if !stale[n] {
+			out = append(out, n)
+		}
+	}
+	return out
+}
+
 // launcherLine is the OK row's pointer for an IDE or desktop launcher: one wrapper's full path,
-// or the directory's `<program>` slot naming the wrappers in it.
+// or the directory's `<program>` slot naming the wrappers in it — of the pointable ones, and ""
+// when there are none.
 func (st wrapperState) launcherLine() string {
-	target := filepath.Join(st.dir, st.names[0])
-	if len(st.names) > 1 {
-		target = filepath.Join(st.dir, "<program>") + " (" + orNames(st.names) + ")"
+	names := st.pointable()
+	if len(names) == 0 {
+		return ""
+	}
+	target := filepath.Join(st.dir, names[0])
+	if len(names) > 1 {
+		target = filepath.Join(st.dir, "<program>") + " (" + orNames(names) + ")"
 	}
 	return "point an IDE or desktop launcher that does not read your shell rc at " + target
 }
@@ -222,9 +249,19 @@ func (st wrapperState) launcherLine() string {
 // adding the PATH line lands on the off-PATH row, which is why the host_path half cannot ride on
 // the PASS row alone.
 //
+// Like the PASS row's pointer it covers only the pointable wrappers: with a stale one beside them
+// it names that one as the exception, and with none left it says nothing.
+//
 // It does not spell the wrapper directory: the row's PATH line already does, once (HE-D2).
 func (o *Options) fullPathNote(st wrapperState) string {
-	return joinLines(append([]string{"A wrapper still starts by its absolute path, which is what " +
+	if len(st.pointable()) == 0 {
+		return ""
+	}
+	subject := "A wrapper"
+	if len(st.stale) > 0 {
+		subject = "Every wrapper but " + andNames(staleNames(st.stale))
+	}
+	return joinLines(append([]string{subject + " still starts by its absolute path, which is what " +
 		"to give an IDE or desktop launcher that does not read your shell rc."},
 		o.launcherHostPathLines(st)...)...)
 }
@@ -238,9 +275,11 @@ func (o *Options) fullPathNote(st wrapperState) string {
 //
 // Nothing is said for a program this check's own PATH does not find either: the Host launch
 // PATH section's miss line reports that, with the same key as its fix. Nor for one whose folder
-// host_path already names, which is the fix already in place.
+// host_path already names, which is the fix already in place. Nor for one whose wrapper is not
+// pointable: "that launcher" is the one the pointer sends to the wrapper, and no pointer names it.
 func (o *Options) launcherHostPathLines(st wrapperState) []string {
-	if !o.selectedPacksKnown || len(st.names) == 0 {
+	pointable := st.pointable()
+	if !o.selectedPacksKnown || len(pointable) == 0 {
 		return nil
 	}
 	var in []hostfloor.PackPrograms
@@ -254,7 +293,7 @@ func (o *Options) launcherHostPathLines(st wrapperState) []string {
 	}
 	floor := o.hostFloor(progs)
 	wrapped := map[string]bool{}
-	for _, n := range st.names {
+	for _, n := range pointable {
 		wrapped[n] = true
 	}
 	lp := hostpath.Resolve(o.Getenv("PATH"))
@@ -617,14 +656,19 @@ func joinNames(names []string) string {
 
 // orNames renders "claude", "claude or pi", "agy, claude or pi": the programs a bare
 // invocation of ANY one of them is about, in a sentence about one invocation.
-func orNames(names []string) string {
+func orNames(names []string) string { return listNames(names, "or") }
+
+// andNames renders "claude", "claude and pi", "agy, claude and pi": every one of the programs.
+func andNames(names []string) string { return listNames(names, "and") }
+
+func listNames(names []string, conj string) string {
 	switch len(names) {
 	case 0:
 		return ""
 	case 1:
 		return names[0]
 	}
-	return strings.Join(names[:len(names)-1], ", ") + " or " + names[len(names)-1]
+	return strings.Join(names[:len(names)-1], ", ") + " " + conj + " " + names[len(names)-1]
 }
 
 // joinLines joins a note's lines, dropping the empty ones — a row's optional sentence
