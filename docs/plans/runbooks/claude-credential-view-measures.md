@@ -1,14 +1,14 @@
 ---
-title: "RUNBOOK — the Claude credential view's measures, M1 to M11, on a real host"
+title: "RUNBOOK — the Claude credential view's measures, M1 to M11 and H1 to H5, on a real host"
 status: accepted
 stage: CURRENT
 next: "The maintainer runs Part A on the host (M1, M2 and M4 to M6 against a hand-made view), then Parts B and C"
 date: 2026-09-29
 tags: [runbook, host, claude, credentials, oauth, broker, measures]
-summary: "The measures the Claude credential view owes before the interception can be deleted, written as one sitting's procedure for the maintainer: Part A runs M1, M2 and M4 to M6 in an ordinary interception jail against a hand-made view, with the terminator's log as the witness for any token request; Part B turns the view on for one throwaway workspace and runs M3 and M7 to M10 against the broker's own rewrites; Part C exercises /login, /logout and yolo claude-auth logout; Part D is the Mac measure M11 and the day on a rootless host. Nothing here prints a token."
+summary: "The measures the Claude credential view owes before the interception can be deleted, written as one sitting's procedure for the maintainer: Part A runs M1, M2 and M4 to M6 in an ordinary interception jail against a hand-made view, with the terminator's log as the witness for any token request; Part B turns the view on for one throwaway workspace and runs M3 and M7 to M10 against the broker's own rewrites; Part C exercises /login, /logout and yolo claude-auth logout; Part D is the Mac measure M11 and the day on a rootless host; Part H runs the same switch at `yolo host -- claude` (H1 to H5, CL-D27). Nothing here prints a token."
 ---
 
-# RUNBOOK — the Claude credential view's measures, M1 to M11, on a real host
+# RUNBOOK — the Claude credential view's measures, M1 to M11 and H1 to H5, on a real host
 
 **Status:** A procedure. None of it has run yet. It is what
 [OQ-CL1](../../design/claude-login-without-interception.md#OQ-CL1)'s ruled order puts between the
@@ -353,6 +353,81 @@ day, including one workspace with `network.mode: "host"` (the case the intercept
 `view: wrote` line for every open workspace; no "Login expired" in any session; and two
 host-networked jails running Claude at once.
 
+## Part H — `yolo host -- claude` with the switch on: H1 to H5
+
+The switch reaches the host notch since 2026-10-04
+([CL-D27](../../design/claude-login-without-interception.md#CL-D27)): with
+`YOLO_CLAUDE_CREDENTIAL_VIEW=1`, `yolo host -- claude` registers a view in a store yolo manages,
+`~/.local/share/yolo-jail/host-agents/claude`, and points Claude at it with
+`CLAUDE_SECURESTORAGE_CONFIG_DIR`. Your own `~/.claude` is never written. Run Part H after Part C,
+so the machine has a login.
+
+### H0. Set up
+
+```console
+$ mkdir -p ~/tmp/cv-h && cd ~/tmp/cv-h
+$ yolo claude-auth inspect ~/.claude/.credentials.json > ~/tmp/cv-h-own-before.txt
+```
+
+On a Mac your own login may live in the Keychain and the file may be absent: then the file's
+absence is what H2 compares.
+
+### H1. The launch says what it does, and Claude is logged in
+
+```console
+$ YOLO_CLAUDE_CREDENTIAL_VIEW=1 yolo host -- claude -p 'Reply with the single word: ok'
+$ yolo claude-auth status
+```
+
+**Pass:** the launch prints `claude reads the machine's shared Claude login from a store yolo
+manages, ~/.local/share/yolo-jail/host-agents/claude`; the answer is `ok`; and `status` lists that
+store's view with its runtime as `host`, marked as `yolo host --`'s store, `live`, and with
+`refresh token: absent`.
+
+### H2. Your own login is untouched
+
+```console
+$ yolo claude-auth inspect ~/.claude/.credentials.json > ~/tmp/cv-h-own-after.txt
+$ diff ~/tmp/cv-h-own-before.txt ~/tmp/cv-h-own-after.txt
+```
+
+**Pass:** no difference: the same mode, modification time and fingerprints.
+
+### H3. A rewritten view reaches an idle host session
+
+Start `YOLO_CLAUDE_CREDENTIAL_VIEW=1 yolo host -- claude` and send `say ok`. In a second terminal
+run `yolo claude-auth refresh`, and look for `view: wrote …/host-agents/claude/.credentials.json`
+in the broker log. Send `say ok` again.
+
+**Pass:** the second answer comes with no restart and no "Login expired", as M3 asks of a jail.
+
+### H4. /login and /logout in a host session
+
+With the machine signed out (`yolo claude-auth logout`, C3), start a host session with the switch:
+it prints that the machine has no shared Claude login yet and that `/login` in the session enrolls
+it. Run `/login`. Then run `/logout`, exit, and launch again.
+
+**Pass:** the broker log shows `enrollment: … adopted the /login in …/host-agents/claude/…`
+within a minute of the `/login`, then a line saying the store was signed out by `/logout` in a
+`yolo host` session; the relaunch prints that this launch signs the store back in, and
+`claude -p ok` works.
+
+### H5. Without the switch nothing changed, and the Mac's fail signature
+
+```console
+$ yolo host -- claude -p 'Reply with the single word: ok'
+```
+
+**Pass:** no line about a store yolo manages, and Claude answers on your own login. **On a Mac,
+the fail signature for H1:** "Please run /login" while `status` shows a fresh host view means Claude
+read a Keychain entry named for the moved store rather than the file, and the host view stays off
+on macOS.
+
+### H9. Put Part H back
+
+`rm -rf ~/tmp/cv-h ~/tmp/cv-h-own-*.txt`. The store's registration goes when its directory does:
+`rm -rf ~/.local/share/yolo-jail/host-agents/claude`, and the broker drops it on its next tick.
+
 ## Results
 
 | # | Date | Claude Code | Result | Notes |
@@ -369,6 +444,7 @@ host-networked jails running Claude at once.
 | M10 | | | | |
 | M11 | | | | |
 | C1 to C3 | | | | |
+| H1 to H5 (host) | | | | |
 | A day, rootless | | | | |
 
 **What a full pass licenses:** turning the switch on for podman, then

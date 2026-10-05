@@ -83,17 +83,19 @@ func TestNotchUnbuiltNamesTheVerbItWasGiven(t *testing.T) {
 	}
 }
 
-// TestServiceAndBlockedToolCarryTheirOwnRefusalReason closes DP-B27 (DP-L6): both kinds
-// fell to Refuse's generic fallback — "<kind> is not applicable at this confinement
-// level", which names the kind and explains nothing — while the real reasons sat, hand
-// written, in internal/cli/config_ref.txt's host-notch list.
+// TestServiceAndInterceptCarryTheirOwnRefusalReason closes DP-B27 (DP-L6) for the kinds the host
+// still refuses: `service` fell to Refuse's generic fallback — "<kind> is not applicable at this
+// confinement level", which names the kind and explains nothing — while the real reason sat,
+// hand written, in internal/cli/config_ref.txt's host-notch list. `intercept`'s reason is its own
+// since HE-D11 took `blocked-tool` out of this set: an intercept layers a permission over a CLI,
+// and the agent at the host runs as the user (boundary-broker.md BB-D17).
 //
 // Asserted on the HOST FieldSet rather than on the map, because "the host notch refuses
 // this kind" and "the reason is specific" are one fact for a reader and the map is an
 // implementation detail of it.
-func TestServiceAndBlockedToolCarryTheirOwnRefusalReason(t *testing.T) {
+func TestServiceAndInterceptCarryTheirOwnRefusalReason(t *testing.T) {
 	fields := HostFields()
-	for _, k := range []packdecl.Kind{packdecl.KindService, packdecl.KindBlockedTool} {
+	for _, k := range []packdecl.Kind{packdecl.KindService, packdecl.KindIntercept} {
 		if fields.Honors(k) {
 			t.Fatalf("%s is honored at the host notch now — this test is asserting the "+
 				"reason for a refusal that no longer happens", k)
@@ -113,12 +115,43 @@ func TestServiceAndBlockedToolCarryTheirOwnRefusalReason(t *testing.T) {
 	// and not on the meaning (the same reason
 	// TestEveryHostNotchInapplicableKindHasItsReasonDocumented asserts an entry, not text).
 	for kind, fragment := range map[packdecl.Kind]string{
-		packdecl.KindBlockedTool: "a blocker is a shim at the head of a JAIL's PATH",
-		packdecl.KindService:     "a daemon pair plus an endpoint file under the jail's /run",
+		packdecl.KindIntercept: "the agent runs as you and can run the real program",
+		packdecl.KindService:   "a daemon pair plus an endpoint file under the jail's /run",
 	} {
 		if !strings.Contains(fields.Refuse(kind), fragment) {
 			t.Errorf("%s's reason is not the one config_ref.txt gives a reader.\n"+
 				"want substring: %q\ngot: %q", kind, fragment, fields.Refuse(kind))
+		}
+	}
+	// And the old reason is gone from the one kind that still carries a shim's name: "yolo owns no
+	// PATH entry" stopped being true of `yolo host --` when it composed the child's PATH (HE-D1).
+	if strings.Contains(fields.Refuse(packdecl.KindIntercept), "owns no PATH entry") {
+		t.Errorf("intercept's reason still says yolo owns no PATH entry off-container, which "+
+			"`yolo host --` has since HE-D1: %q", fields.Refuse(packdecl.KindIntercept))
+	}
+}
+
+// TestBlockedToolIsHonoredAtTheHostAndUnbuiltForApply pins HE-D11 in the census: `yolo host --`
+// puts the blockers first on the PATH of the program it starts, so the kind is honored at the
+// host, and `yolo host apply`, which starts nothing, carries env's honored-but-unbuilt shape and
+// says what does deliver it.
+func TestBlockedToolIsHonoredAtTheHostAndUnbuiltForApply(t *testing.T) {
+	fields := HostFields()
+	if !fields.Honors(packdecl.KindBlockedTool) {
+		t.Fatalf("blocked-tool is refused at the host, but `yolo host --` renders it (HE-D11): %q",
+			fields.Refuse(packdecl.KindBlockedTool))
+	}
+	if r := fields.Refuse(packdecl.KindBlockedTool); r != "" {
+		t.Errorf("an honored kind has a refusal reason: %q", r)
+	}
+	reason, unbuilt := HostUnimplemented(packdecl.KindBlockedTool)
+	if !unbuilt {
+		t.Fatal("blocked-tool has no honored-but-unbuilt entry, so `yolo host apply` would " +
+			"render it in silence — and apply starts no process to put a shim in front of")
+	}
+	for _, want := range []string{"`yolo host apply`", "`yolo host -- <program>`"} {
+		if !strings.Contains(reason, want) {
+			t.Errorf("blocked-tool's apply reason does not name %s: %q", want, reason)
 		}
 	}
 }

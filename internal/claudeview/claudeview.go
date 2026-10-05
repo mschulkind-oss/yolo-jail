@@ -43,10 +43,18 @@ import (
 // (CL-D10, docs/design/claude-login-without-interception.md).
 //
 //	podman, macos-user, container (Apple): off unless the host environment sets it to 1
+//	host (`yolo host -- claude`):          off unless the invoking shell sets it to 1 (CL-D27)
 //
 // The launcher resolves it once and hands the RESOLVED value to the jail (1 or 0), so the
-// in-jail entrypoint never re-derives a default for a runtime it cannot see.
+// in-jail entrypoint never re-derives a default for a runtime it cannot see. At the host there is
+// no jail to hand it to: `yolo host` resolves it for runtime "host" and, when it is on, points the
+// launched Claude's store at a directory yolo manages (HostLocation) instead of `~/.claude`, which
+// is the user's own login and stays untouched (OQ-NC7).
 const SwitchEnv = "YOLO_CLAUDE_CREDENTIAL_VIEW"
+
+// HostRuntime is the runtime name the host notch resolves the switch for and registers its view
+// under, so `yolo claude-auth status` names the launch that registered it.
+const HostRuntime = "host"
 
 // DefaultOn reports the switch's default for a runtime (CL-D11): OFF ON EVERY BACKEND, so `=1`
 // is the opt-in everywhere until the measures pass. OQ-CL1's order is measure first.
@@ -60,6 +68,9 @@ const SwitchEnv = "YOLO_CLAUDE_CREDENTIAL_VIEW"
 //     fallback, and which one a sandbox account's Claude reads is unmeasured; the sandbox's
 //     machine-tier shared file is in the sandbox account's home, not the host user's store the
 //     broker migrates from; and this backend's launch path has never run on hardware (M11).
+//   - host: Claude keeps the user's own login by OQ-NC7's ruling, and the view at the host is an
+//     opt-in like everywhere else (CL-D27); whether Claude on macOS reads the file or a Keychain
+//     entry under the moved store is unmeasured.
 //
 // Kept as a function of the runtime, though it answers false for all of them, because turning
 // one backend on after its measures pass is a change to this one line.
@@ -165,14 +176,42 @@ var ErrViewIsLink = errors.New("it is a symbolic link, and the jail can write th
 // maxViewBytes bounds a view read. The file is jail-written, and the broker parses it on the host.
 const maxViewBytes = 1 << 20
 
-// Location is one workspace's view on the host: <Workspace>/.yolo/home/<Subdir>/.credentials.json.
+// Location is one view on the host. A jail's is one workspace's:
+// <Workspace>/.yolo/home/<Subdir>/.credentials.json. The host notch's is a directory yolo
+// manages, Dir, absolute and outside every workspace: <Dir>/.credentials.json (HostLocation).
+// Exactly one of the two shapes is set; a registration written before Dir existed has Workspace
+// and Subdir alone, and reads exactly as it did.
 type Location struct {
-	Workspace string `json:"workspace"`
-	Subdir    string `json:"subdir"`
+	Workspace string `json:"workspace,omitempty"`
+	Subdir    string `json:"subdir,omitempty"`
+	// Dir is the absolute directory of a host-notch view, which Claude reads through
+	// CLAUDE_SECURESTORAGE_CONFIG_DIR. Empty for a workspace's view.
+	Dir string `json:"dir,omitempty"`
+}
+
+// HostLocation is the view `yolo host -- <program>` registers for the pack that delivers it:
+// paths.HostAgentStoreDir(pack), a directory under yolo's own state dir that no jail mounts.
+func HostLocation(pack string) Location {
+	return Location{Dir: paths.HostAgentStoreDir(pack)}
+}
+
+// IsHost reports whether l is a host-notch view (Dir set) rather than a workspace's.
+func (l Location) IsHost() bool { return l.Dir != "" }
+
+// Valid reports whether l has one of its two shapes: a Dir that is absolute, or a Workspace and
+// a Subdir. A registration file that is neither is skipped by the broker.
+func (l Location) Valid() bool {
+	if l.Dir != "" {
+		return filepath.IsAbs(l.Dir) && l.Workspace == "" && l.Subdir == ""
+	}
+	return l.Workspace != "" && l.Subdir != ""
 }
 
 // Path is the view's host path, for messages only. Nothing opens by it.
 func (l Location) Path() string {
+	if l.IsHost() {
+		return filepath.Join(l.Dir, ViewFile)
+	}
 	return filepath.Join(paths.WorkspaceHomeState(l.Workspace), l.Subdir, ViewFile)
 }
 
@@ -181,7 +220,21 @@ func (l Location) Path() string {
 // bound whole on both container backends, and macos-user's sandbox writes the workspace). It
 // creates nothing; a missing directory is ErrDirGone, which is how a registration for a
 // workspace that has gone is recognized.
+//
+// A host view's directory is opened refusing a link at Dir itself (paths.OpenStateDirRoot), and
+// the same ErrDirGone when it is missing. Nothing but yolo writes there, but the refusal costs
+// nothing and keeps one rule for every view.
 func (l Location) openDir() (*os.Root, error) {
+	if l.IsHost() {
+		if !l.Valid() {
+			return nil, &fs.PathError{Op: "open", Path: l.Dir, Err: fs.ErrInvalid}
+		}
+		r, err := paths.OpenStateDirRoot(l.Dir)
+		if err != nil {
+			return nil, l.dirError(err)
+		}
+		return r, nil
+	}
 	if l.Subdir == "" || filepath.Base(l.Subdir) != l.Subdir || l.Subdir == "." || l.Subdir == ".." {
 		return nil, &fs.PathError{Op: "open", Path: l.Subdir, Err: fs.ErrInvalid}
 	}
@@ -218,7 +271,27 @@ var ErrDirGone = errors.New("the view's directory does not exist")
 // made only later by the sandbox's bootstrap. <workspace>/.yolo goes through
 // paths.EnsureWorkspaceStateDir, the one chokepoint that creates it; nothing below it is
 // created through a link.
+//
+// A host view's Dir is created 0700, with its parent under the state dir, and is then opened
+// refusing a link, so a link standing where the directory should be fails the launch's
+// registration rather than being written through.
 func (l Location) EnsureDir() error {
+	if l.IsHost() {
+		if !l.Valid() {
+			return &fs.PathError{Op: "mkdir", Path: l.Dir, Err: fs.ErrInvalid}
+		}
+		if err := os.MkdirAll(filepath.Dir(l.Dir), 0o700); err != nil {
+			return err
+		}
+		if err := os.Mkdir(l.Dir, 0o700); err != nil && !errors.Is(err, fs.ErrExist) {
+			return err
+		}
+		r, err := paths.OpenStateDirRoot(l.Dir)
+		if err != nil {
+			return l.dirError(err)
+		}
+		return r.Close()
+	}
 	if _, err := paths.EnsureWorkspaceStateDir(l.Workspace); err != nil {
 		return err
 	}
@@ -440,7 +513,12 @@ func (l Location) Write(data []byte) error {
 // before the view left there, and reports whether it did. Only a link whose target is exactly
 // LegacyLinkTarget is removed; a link to anywhere else is left for Update to refuse, because
 // yolo did not make it. Removing a link never follows it.
+//
+// A host view has no such link to remove: no hook ever ran in yolo's own directory.
 func (l Location) RemoveLegacyLink() (bool, error) {
+	if l.IsHost() {
+		return false, nil
+	}
 	r, err := l.openDir()
 	if err != nil {
 		return false, err

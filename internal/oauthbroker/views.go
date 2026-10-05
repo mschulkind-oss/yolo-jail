@@ -27,8 +27,9 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 )
 
-// viewRegistration is one workspace whose launch selected the credential view. It lives in
-// ViewRegistryDir, which is under BrokerDir and host-only.
+// viewRegistration is one workspace whose launch selected the credential view, or one program
+// `yolo host --` started with it (its Location's Dir set, CL-D27). It lives in ViewRegistryDir,
+// which is under BrokerDir and host-only.
 type viewRegistration struct {
 	claudeview.Location
 	// Runtime and Container say which launch registered it, for `yolo claude-auth status`.
@@ -47,10 +48,33 @@ type viewRegistration struct {
 }
 
 // registrationFile names a location's registration: a digest, so a workspace path never has
-// to be spelled as a file name.
+// to be spelled as a file name. A workspace's keeps the digest it always had, so a registration
+// written before host views existed is still the one its next launch finds; a host view's is a
+// digest of its directory under a prefix no workspace's input can produce (it begins with NUL).
 func registrationFile(loc claudeview.Location) string {
-	sum := sha256.Sum256([]byte(loc.Workspace + "\x00" + loc.Subdir))
+	key := loc.Workspace + "\x00" + loc.Subdir
+	if loc.IsHost() {
+		key = "\x00dir\x00" + loc.Dir
+	}
+	sum := sha256.Sum256([]byte(key))
 	return filepath.Join(ViewRegistryDir, hex.EncodeToString(sum[:8])+".json")
+}
+
+// sortKey orders registrations: workspaces by path, then host views by directory.
+func (r *viewRegistration) sortKey() string {
+	if r.IsHost() {
+		return "\xff" + r.Dir
+	}
+	return r.Workspace + "\x00" + r.Subdir
+}
+
+// signedOutWhere names where a registration's /logout ran, for the log and `yolo claude-auth
+// status`.
+func (r *viewRegistration) signedOutWhere() string {
+	if r.IsHost() {
+		return "in a `yolo host` session"
+	}
+	return "in its jail"
 }
 
 func (r *viewRegistration) save() error {
@@ -92,14 +116,14 @@ func loadRegistrations() []*viewRegistration {
 			continue
 		}
 		var r viewRegistration
-		if err := json.Unmarshal(data, &r); err != nil || r.Workspace == "" || r.Subdir == "" {
+		if err := json.Unmarshal(data, &r); err != nil || !r.Valid() {
 			logWarn("view: registration %s does not parse; skipped", p)
 			continue
 		}
 		r.file = p
 		out = append(out, &r)
 	}
-	sort.Slice(out, func(i, j int) bool { return out[i].Workspace < out[j].Workspace })
+	sort.Slice(out, func(i, j int) bool { return out[i].sortKey() < out[j].sortKey() })
 	return out
 }
 
@@ -359,8 +383,8 @@ func (s store) maintainViewLocked(r *viewRegistration) {
 		if err := r.save(); err != nil {
 			logWarn("view: could not record the /logout in %s: %s", r.Path(), err)
 		}
-		logInfo("view: %s was signed out by /logout in its jail; the broker writes it nothing "+
-			"more until that workspace's next launch", r.Path())
+		logInfo("view: %s was signed out by /logout %s; the broker writes it nothing "+
+			"more until its next launch", r.Path(), r.signedOutWhere())
 		return
 	}
 	canonical, err := oauthFromCreds(s.canonical)

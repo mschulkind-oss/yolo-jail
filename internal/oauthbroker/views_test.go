@@ -10,6 +10,8 @@ package oauthbroker
 // files are fixtures under a temp HOME, and every path the store derives from HOME is inside it.
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -454,5 +456,104 @@ func TestAViewRegisteredBeforeTheMigrationReplacesYolosOwnLinkOnly(t *testing.T)
 	fi, err := os.Lstat(filepath.Join(dir, claudeview.ViewFile))
 	if err != nil || !fi.Mode().IsRegular() {
 		t.Fatalf("the view is not a regular file after registration: %v", err)
+	}
+}
+
+// hostView registers a host-notch view (CL-D27) the way `yolo host -- claude` does: a directory
+// yolo manages, outside every workspace, registered under runtime "host".
+func (f *viewFixture) hostView(t *testing.T, pack string) claudeview.Location {
+	t.Helper()
+	loc := claudeview.Location{Dir: filepath.Join(f.home, ".local", "share", "yolo-jail", "host-agents", pack)}
+	if _, err := RegisterView(loc, claudeview.HostRuntime, ""); err != nil {
+		t.Fatalf("RegisterView(host %s): %v", pack, err)
+	}
+	return loc
+}
+
+// TestAHostViewIsRegisteredRefreshedAdoptedAndSignedOutLikeAWorkspaces pins CL-D27's broker half:
+// a registration naming a directory rather than a workspace is written at registration with no
+// refresh token, rewritten on a refresh, its /login adopted once, and its login removed at a
+// machine sign-out — every path a workspace's view takes.
+func TestAHostViewIsRegisteredRefreshedAdoptedAndSignedOutLikeAWorkspaces(t *testing.T) {
+	f := newViewFixture(t)
+	writeLogin(t, CanonicalPath, "AT_machine", "RT_machine", nowMS()+7*3600_000, nil)
+	host := f.hostView(t, "claude")
+	alpha := f.workspace(t, "alpha")
+	assertView(t, host, "AT_machine")
+	if fi, err := os.Stat(host.Dir); err != nil || fi.Mode().Perm() != 0o700 {
+		t.Errorf("the host view's directory is %v (%v), want 0700", fi.Mode().Perm(), err)
+	}
+	if got := filepath.Base(registrationFile(host)); got == filepath.Base(registrationFile(alpha)) {
+		t.Fatalf("a host view and a workspace's share a registration file: %s", got)
+	}
+
+	if _, err := ForceRefresh(0); err != nil {
+		t.Fatal(err)
+	}
+	assertView(t, host, "AT_1")
+	assertView(t, alpha, "AT_1")
+
+	// /login in a `yolo host -- claude` session: Claude writes a whole credential into the view.
+	writeLogin(t, host.Path(), "AT_host", "RT_host", nowMS()+8*3600_000, nil)
+	BackgroundRefreshTick(f.legacy, BackgroundRefreshLeadSeconds)
+	if got := f.redemptions(); len(got) != 2 || got[1] != "RT_host" {
+		t.Fatalf("upstream was sent %v, want the host session's refresh token redeemed once", got)
+	}
+	assertView(t, host, "AT_2")
+	assertView(t, alpha, "AT_2")
+
+	res, err := SignOut()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Views != 2 {
+		t.Errorf("SignOut removed the login from %d views, want both", res.Views)
+	}
+	if oa := oauthOf(t, host.Path()); oa != nil {
+		t.Error("the host view still holds a login after sign-out")
+	}
+}
+
+// A registration file written before host views existed — workspace and subdir, no dir — still
+// loads, under the digest it always had; and one with neither shape is skipped.
+func TestRegistrationsWrittenBeforeHostViewsStillLoad(t *testing.T) {
+	newViewFixture(t)
+	if err := os.MkdirAll(ViewRegistryDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	old := claudeview.Location{Workspace: "/code/old", Subdir: "claude"}
+	sum := sha256.Sum256([]byte(old.Workspace + "\x00" + old.Subdir))
+	if want := filepath.Join(ViewRegistryDir, hex.EncodeToString(sum[:8])+".json"); registrationFile(old) != want {
+		t.Fatalf("a workspace's registration moved: %s, want %s", registrationFile(old), want)
+	}
+	writeFileT(t, registrationFile(old), `{"workspace": "/code/old", "subdir": "claude", "runtime": "podman", "written": true}`)
+	writeFileT(t, filepath.Join(ViewRegistryDir, "bogus.json"), `{"runtime": "podman"}`)
+	writeFileT(t, filepath.Join(ViewRegistryDir, "relative.json"), `{"dir": "relative/dir"}`)
+	regs := loadRegistrations()
+	if len(regs) != 1 || regs[0].Workspace != "/code/old" || regs[0].IsHost() || !regs[0].Written {
+		t.Fatalf("loadRegistrations = %+v, want the old workspace registration alone", regs)
+	}
+}
+
+// `yolo claude-auth status` names a host view's runtime and that it is not the user's own file.
+func TestClaudeAuthStatusNamesAHostView(t *testing.T) {
+	f := newViewFixture(t)
+	writeLogin(t, CanonicalPath, "AT_machine", "RT_machine", nowMS()+7*3600_000, nil)
+	host := f.hostView(t, "claude")
+	var b strings.Builder
+	if err := DescribeStore(&b); err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{host.Path(), "runtime host (`yolo host --`", "your own ~/.claude is not this file"} {
+		if !strings.Contains(b.String(), want) {
+			t.Errorf("status does not say %q:\n%s", want, b.String())
+		}
+	}
+}
+
+func writeFileT(t *testing.T, p, content string) {
+	t.Helper()
+	if err := os.WriteFile(p, []byte(content), 0o600); err != nil {
+		t.Fatal(err)
 	}
 }

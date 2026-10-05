@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 )
 
 // TestGenerateShimsPreservesAnchorAndClearsStale is the regression guard for the
@@ -292,5 +294,80 @@ func TestShippedBlockersDeclareNoExemptions(t *testing.T) {
 		if strings.Contains(string(body), "exec /bin/"+name+` "$@" ;;`) {
 			t.Errorf("%s gained an exemption arm it never declared:\n%s", name, body)
 		}
+	}
+}
+
+// TestTheJailAndAHostLaunchRenderOneBlockerScript pins the one writer (HE-D11): the jail's boot
+// and `yolo host --` render a blocked-tool list through RenderBlockers, so the same entries, the
+// same replacement answer and the same real grep give byte-identical scripts in both places. A
+// second copy of the shim logic at the host would pass every host test and drift from this one.
+func TestTheJailAndAHostLaunchRenderOneBlockerScript(t *testing.T) {
+	const block = `[{"name":"grep","message":"grep's recursive mode is blocked.",` +
+		`"suggestion":"Try: rg","replacement":"rg","block_flags":["--recursive","-r","-R","-*[rR]*"]},` +
+		`{"name":"find","message":"find is blocked.","suggestion":"Try: fd","replacement":"fd"},` +
+		`{"name":"curl","message":"no"}]`
+	bin := t.TempDir()
+	for _, name := range []string{"rg", "fd"} {
+		if err := os.WriteFile(filepath.Join(bin, name), []byte("#!/bin/sh\n"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	e := NewEnv(map[string]string{
+		"JAIL_HOME":              t.TempDir(),
+		"YOLO_DARWIN_LOGIN_PATH": bin,
+		"YOLO_BLOCK_CONFIG":      block,
+	})
+	if err := GenerateShims(e); err != nil {
+		t.Fatal(err)
+	}
+
+	decoded, err := jsonx.Decode([]byte(block))
+	if err != nil {
+		t.Fatal(err)
+	}
+	host := RenderBlockers(decoded.([]any), BlockerRender{
+		LookPath: func(b string) string { return lookPathIn(bin, b) },
+		RealBin:  func(name string) (string, bool) { return e.ShimBinPath() + "/" + name, true },
+	})
+	if len(host) != 3 {
+		t.Fatalf("the host render gave %d scripts, want grep, find and curl: %+v", len(host), host)
+	}
+	for _, s := range host {
+		jail, err := os.ReadFile(filepath.Join(e.BlockDir(), s.Name))
+		if err != nil {
+			t.Fatalf("the jail wrote no %s: %v", s.Name, err)
+		}
+		if string(jail) != s.Content {
+			t.Errorf("%s differs between the jail and a host launch:\njail:\n%s\nhost:\n%s",
+				s.Name, jail, s.Content)
+		}
+	}
+}
+
+// A host launch's real grep can sit in a folder a shell would split; the exec in the shim quotes
+// it, and leaves a plain path bare so the jail's script is unchanged.
+func TestABlockerQuotesTheRealBinaryItExecs(t *testing.T) {
+	decoded, err := jsonx.Decode([]byte(`[{"name":"grep","message":"m","block_flags":["-r"]}]`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	entries := decoded.([]any)
+	spaced := RenderBlockers(entries, BlockerRender{
+		RealBin: func(string) (string, bool) { return "/Users/A User/bin/grep", true },
+	})
+	if len(spaced) != 1 || !strings.Contains(spaced[0].Content, `exec '/Users/A User/bin/grep' "$@"`) {
+		t.Errorf("the real grep's path was not quoted:\n%+v", spaced)
+	}
+	plain := RenderBlockers(entries, BlockerRender{
+		RealBin: func(string) (string, bool) { return "/bin/grep", true },
+	})
+	if len(plain) != 1 || !strings.Contains(plain[0].Content, `exec /bin/grep "$@"`) {
+		t.Errorf("a plain path was quoted, changing the jail's script:\n%+v", plain)
+	}
+	// No real binary: the entry is skipped, never rendered as a shim that execs nothing.
+	if none := RenderBlockers(entries, BlockerRender{
+		RealBin: func(string) (string, bool) { return "", false },
+	}); len(none) != 0 {
+		t.Errorf("a grep blocker with no real grep was rendered: %+v", none)
 	}
 }

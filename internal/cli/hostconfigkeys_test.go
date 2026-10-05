@@ -37,7 +37,6 @@ var undoneKeySamples = map[string]string{
 	"per_side_paths":     `[".cargo"]`,
 	"programs":           `{"autoprune": true}`,
 	"resources":          `{"memory": "4g"}`,
-	"security":           `{"blocked_tools": [{"name": "curl", "message": "no"}]}`,
 	"workspace_readonly": `["src"]`,
 	"writable_home_dirs": `[".pi-lens"]`,
 }
@@ -69,11 +68,12 @@ func TestHostApplyNamesEveryConfigKeyTheHostLeavesUndone(t *testing.T) {
 		body = append(body, `"`+k+`": `+v)
 	}
 	// Keys the host HONORS ride along, so the test also fails if the report names a key the
-	// census says some host verb acts on: among them the two whose host readers are the newest
-	// (`yolo host --`'s capability gate, and the host notch's timing).
-	honored := []string{"loopholes", "update_check", "required_capabilities", "perf_logging"}
+	// census says some host verb acts on: among them the three whose host readers are the newest
+	// (`yolo host --`'s capability gate, the host notch's timing, and its blocked tools, HE-D11).
+	honored := []string{"loopholes", "update_check", "required_capabilities", "perf_logging", "security"}
 	body = append(body, `"loopholes": {}`, `"update_check": false`,
-		`"required_capabilities": ["code_editing"]`, `"perf_logging": true`)
+		`"required_capabilities": ["code_editing"]`, `"perf_logging": true`,
+		`"security": {"blocked_tools": [{"name": "curl", "message": "no"}]}`)
 	cfg := `{"packs": ["pi"], ` + strings.Join(body, ", ") + `}`
 
 	for _, verbose := range []bool{false, true} {

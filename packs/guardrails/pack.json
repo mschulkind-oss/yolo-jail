@@ -1,6 +1,6 @@
 {
   "name": "guardrails",
-  "description": "Habits worth enforcing: tools the jail refuses in favour of a better one. Opt in by adding \"guardrails\" to packs.",
+  "description": "Habits worth enforcing: tools a launch refuses in favour of a better one, in a jail and in what `yolo host --` starts. Opt in by adding \"guardrails\" to packs.",
   "contributes": [
     {
       "kind": "blocked-tool",

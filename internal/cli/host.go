@@ -732,6 +732,12 @@ func hostLaunch(flags hostExecFlags, profile string, cmd []string, out, errw, ra
 		return rc
 	}
 	target := resolved.Path
+	// THE BLOCKED TOOLS (HE-D11, hostblockers.go): the selected packs' and the user scope's
+	// blocked-tool shims, first on the child's PATH, once the target has resolved — its lookup
+	// above read the PATH without them, as the folders it skips include theirs — and before the
+	// model menu, so every reader of the child's environment below sees the PATH the child gets.
+	// With nothing blocked the PATH is OQ-HE10's exactly.
+	childPath = hostBlockedChildPath(launch, childPath, errw)
 	// argv[0] stays the name the user typed, not the resolved path: agents branch on it
 	// (usage text, `$0`), and handing them an absolute path changes what they print.
 	argv := injectHostLaunchFlags(launch.packs, append([]string{cmd[0]}, cmd[1:]...), errw)
@@ -775,7 +781,15 @@ func hostLaunch(flags hostExecFlags, profile string, cmd []string, out, errw, ra
 	// pointer names, so that one is not missing and is not named. When that launch did not
 	// start (no login, no terminal), the URL is named with that reason, the launch's own.
 	printHostLines(errw, launch.unservedLines(managedHostVars(managed)))
+	// THE WORKSPACE SKILLS LINK (OQ-WS5's B; docs/design/workspace-skills.md WS-D19 to WS-D23,
+	// hostworkspaceskills.go): after every pre-flight and the prelaunch, so a launch that is
+	// refused writes nothing into the workspace, and before the environment is handed over.
+	hostWorkspaceSkills(launch.packs, launch.agent, errw)
 	environ := launch.childEnviron(childPath)
+	// THE CLAUDE CREDENTIAL VIEW AT THE HOST (CL-D27, hostclaudeview.go), behind the jails' own
+	// switch and off by default: set in environ here, so the exec and the resident path below
+	// both carry it.
+	environ = hostClaudeView(launch, environ, errw)
 	// THE LAUNCH-OWNED SERVICES (docs/design/host-notch-services.md §4.4): started after the
 	// agent resolved on PATH and after the prelaunch, so a missing agent starts nothing and the
 	// OpenAI login exists before the bridge asks for a view; the agent starts only once each

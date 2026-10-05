@@ -223,8 +223,9 @@ const hostNotchDocMarker = "AT THE HOST NOTCH"
 // report's tier-1 line is built from. Its own wording names only the FieldSet's refusals,
 // and stopping there would have covered five kinds and silently dropped the other six: `env`,
 // `launch`, `hook`, `profile` and `provider` are HONORED by the host FieldSet and unbuilt
-// (render.HostUnimplemented), and `service`/`blocked-tool` fall to the generic refusal with no
-// entry in refusalReasons at all. A reader meeting any of them gets the one-line report and
+// (render.HostUnimplemented), and `service`/`blocked-tool` fell to the generic refusal with no
+// entry in refusalReasons at all (blocked-tool is honored-but-unbuilt for apply since HE-D11,
+// env's shape, and keeps its row). A reader meeting any of them gets the one-line report and
 // then this list; a gate over half the set would leave the other half undocumented and green.
 //
 // WHAT IT ASSERTS IS AN ENTRY, NOT THE TEXT. The strings stay in internal/render because they

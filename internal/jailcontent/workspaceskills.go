@@ -406,6 +406,40 @@ func stageWorkspaceLayer(ws *WorkspaceSkills) (l *workspaceLayer, err error) {
 	return l, nil
 }
 
+// WorkspaceSkillSourceCheck is CheckWorkspaceSkillSource's answer for one source dir.
+type WorkspaceSkillSourceCheck struct {
+	// Skills are the skill directories the source holds that the reader staged whole, sorted.
+	Skills []string
+	// Refused is every entry the reader would not read or could not stage, the cap's crossing
+	// included, each named by its workspace-relative path and a fixed reason.
+	Refused []WorkspaceSkillRefusal
+}
+
+// CheckWorkspaceSkillSource is P5's check of ONE source dir, for the host notch's in-workspace
+// link (OQ-WS5's mechanism B, docs/design/workspace-skills.md WS-D21): the reader this layer
+// stages through, run over dir alone, so the link `yolo host --` writes points only at a tree
+// this reader would deliver whole. Any refusal, the cap's included, is the caller's reason to
+// write no link: a link would hand the agent the escaping entry the mirror skips, through a path
+// yolo made.
+//
+// Nothing outlives the call: the scratch copy the reader makes is removed before it returns. The
+// one error is the reader's own (its scratch root could not be made); an absent dir is a check
+// with nothing in it.
+func CheckWorkspaceSkillSource(root, dir string) (WorkspaceSkillSourceCheck, error) {
+	var out WorkspaceSkillSourceCheck
+	l, err := stageWorkspaceLayer(&WorkspaceSkills{Root: root, Dirs: []string{dir}})
+	if err != nil {
+		return out, err
+	}
+	defer l.close()
+	for _, sk := range l.skills {
+		out.Skills = append(out.Skills, sk.name)
+	}
+	sort.Strings(out.Skills)
+	out.Refused = append(out.Refused, l.refused...)
+	return out, nil
+}
+
 // stageSkill copies one skill directory into scratch and returns it, or nil when not one file
 // of it could be staged — every entry refused, or none there — so there is no skill to deliver
 // and the mirror line must not claim one. The refusals were already named; a later source's
