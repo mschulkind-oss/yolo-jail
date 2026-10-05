@@ -290,9 +290,50 @@ func TestHostPiRefreshRunsWithoutTheCredentialsComposedForPi(t *testing.T) {
 	if len(got) == 0 || !strings.HasPrefix(got[0], "refresh ") || strings.Contains(got[0], "tok-host") {
 		t.Errorf("the refresh did not run, or saw pi's credential: %q", got)
 	}
-	// And the child's PATH, the one pi is exec'd with, floor bin/ last.
-	if len(got) > 0 && !strings.Contains(got[0], "|PATH="+filepath.Dir(h.stub)+string(os.PathListSeparator)) {
-		t.Errorf("the refresh did not run on the child's PATH: %q", got[0])
+}
+
+// THE REFRESH RUNS ON THE CHILD'S PATH, BEFORE THE BLOCKED TOOLS JOIN IT: the launch PATH with
+// `host_path`'s folders, then the floor's bin/ last, exactly what pi is exec'd with but for the
+// blocker shims leading that, since the jail runs its refresh with the blockers bypassed. A
+// `host_path` folder the shell's PATH lacks, and a user-scope block, make each half visible: the
+// shell's PATH alone has neither the folder nor the floor's bin/, and a refresh run after the
+// blockers join would have their folder first.
+func TestHostPiRefreshRunsOnTheChildsPathBeforeTheBlockedTools(t *testing.T) {
+	h := newRefreshHost(t, `{"packs": ["pi"], "host_floor": {"pi": false}, "host_path": ["~/tools/bin"], `+
+		`"security": {"blocked_tools": ["curl"]}}`, "")
+	tools := filepath.Join(h.home, "tools", "bin")
+	if err := os.MkdirAll(tools, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	r := h.launch(t)
+	if r.rc != 0 || r.execEnv == nil {
+		t.Fatalf("yolo host -- pi: rc=%d\n%s", r.rc, r.errs)
+	}
+	sep := string(os.PathListSeparator)
+	execPath := filepath.SplitList(r.execEnv["PATH"])
+	if len(execPath) < 2 {
+		t.Fatalf("setup: the exec's PATH is %q", r.execEnv["PATH"])
+	}
+	blockDir := execPath[0]
+	if _, err := os.Stat(filepath.Join(blockDir, "curl")); err != nil {
+		t.Fatalf("setup: the user's curl block does not lead the exec's PATH %q (%v)\n%s", r.execEnv["PATH"], err, r.errs)
+	}
+	got := h.entries(t)
+	if len(got) == 0 || !strings.HasPrefix(got[0], "refresh ") {
+		t.Fatalf("the refresh did not run: %q", got)
+	}
+	_, refreshPath, _ := strings.Cut(got[0], "|PATH=")
+	if want := strings.Join(execPath[1:], sep); refreshPath != want {
+		t.Errorf("the refresh ran on\n  %s\nwant the exec's PATH without its blocker folder\n  %s", refreshPath, want)
+	}
+	if strings.Contains(sep+refreshPath+sep, sep+blockDir+sep) {
+		t.Errorf("the blocker folder %s is on the refresh's PATH %s", blockDir, refreshPath)
+	}
+	if !strings.Contains(sep+refreshPath+sep, sep+tools+sep) {
+		t.Errorf("host_path's folder %s is not on the refresh's PATH %s", tools, refreshPath)
+	}
+	if !strings.HasSuffix(refreshPath, sep+hostFloorBinDir()) {
+		t.Errorf("the floor's bin/ %s is not last on the refresh's PATH %s", hostFloorBinDir(), refreshPath)
 	}
 }
 
