@@ -171,10 +171,12 @@ func (c *packChannel) agentsWithOwnValues() []string {
 // WHAT IT WRITES is the agent's composition where it differs from the shared one (packload's
 // envcompose.go: the shape var over the env_sources it receives over the pack env fold, an
 // env_sources null and a shape tombstone each removing what ranks below): one line per name
-// whose winner for this agent is not what the shared file already sets, plus a name some other
-// value yolo set this entry would otherwise leave in its slot (another agent's file, the
-// container's frozen environment). The shared file is sourced first, so a name both answer alike
-// needs no line.
+// whose winner for this agent is not the shared composition's, plus a name the two answer alike
+// that another agent's file sets otherwise, which an agent started by that one would inherit.
+// The shared file is sourced first, so a name both answer alike is otherwise left as the jail
+// shell holds it: the container's frozen value, where the shared file's line is a def-form
+// default or a null it writes nowhere, and the channel's own lines (the wire tables, the caller
+// tokens) are kept for the agent as for every process (sharesWinner).
 //
 // THE PRECEDENCE IS "THE USER'S EXPLICIT VALUE WINS" (docs/reference/providers.md
 // OQ-CN8, ruled 2026-09-28). The file is sourced by the agent's launcher, AFTER the user's
@@ -208,6 +210,13 @@ func agentEnvFileContent(channel *packChannel, agent string) string {
 		if !packdecl.ValidEnvName(e.Key) {
 			continue
 		}
+		// THE WIRE TABLES ARE THE LAUNCH'S: the shared file writes them plain-form after the
+		// composition, as the host exec and launchEnv write them after it, so no entry of the
+		// agent's composition (a pack's env, an env_sources value or null, a shape var) replaces
+		// or removes one in the agent's process either.
+		if slices.Contains(entrypoint.WireTables(), e.Key) {
+			continue
+		}
 		boot := true
 		if e.Origin == packload.FromProfileEnv && filledRegion(d, e) {
 			// THE REGION FILL'S VALUE (packload's regionfill.go, docs/design/bedrock-plumbing.md
@@ -219,6 +228,19 @@ func agentEnvFileContent(channel *packChannel, agent string) string {
 			boot = false
 		}
 		inherited := channel.inheritedValues(view, agent, e.Key, boot)
+		if view.sharesWinner(e) {
+			// THE AGENT'S WINNER IS EVERY PROCESS'S (an unclaimed env_sources value, an env_sources
+			// null, a fold winner): the slot already holds what the shared file left there, the
+			// container's frozen value over a def-form line or a null and the channel's own lines
+			// (the wire tables, the caller tokens) included, which is what a jail shell holds too.
+			// So the only values to override are another agent's, which an agent started by that
+			// one inherits. Reading a frozen value or a channel line as a stale default here gave
+			// the agent a second winner, and on an attach alone, the one entry that knows bootEnv.
+			inherited = channel.otherAgentsValues(view, agent, e.Key)
+			if len(inherited) == 0 {
+				continue
+			}
+		}
 		if e.Unset {
 			if len(inherited) > 0 {
 				lines.WriteString("case \"${" + e.Key + "-}\" in " + casePatterns(inherited) +
@@ -318,16 +340,37 @@ func (c *packChannel) inheritedValues(view envView, agent, key string, boot bool
 	if boot {
 		add(c.bootEnv[key])
 	}
+	for _, v := range c.otherAgentsValues(view, agent, key) {
+		add(v)
+	}
+	sort.Strings(out)
+	return out
+}
+
+// otherAgentsValues is every non-empty value, sorted and deduplicated, that an agent other than
+// agent receives under key from its own composition: what an agent started by that one inherits
+// from its file.
+func (c *packChannel) otherAgentsValues(view envView, agent, key string) []string {
+	seen := map[string]bool{}
+	var out []string
 	for other, comp := range view.agents {
 		if other == agent {
 			continue
 		}
-		if v, ok := comp.Value(key); ok {
-			add(v)
+		if v, ok := comp.Value(key); ok && !seen[v] {
+			seen[v] = true
+			out = append(out, v)
 		}
 	}
 	sort.Strings(out)
 	return out
+}
+
+// sharesWinner reports whether e, an entry of one agent's composition, is also the shared
+// composition's entry for its name: the same value, or a removal in both.
+func (v envView) sharesWinner(e packload.EnvEntry) bool {
+	s, ok := v.shared.Lookup(e.Key)
+	return ok && s.Unset == e.Unset && s.Value == e.Value
 }
 
 // sharedChannelExports is the channel section's plain-form values beyond the pack env, as

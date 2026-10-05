@@ -788,7 +788,11 @@ so for pi the only lever on what it can reach is the credential. For `openai-cod
   per-agent files and the macos-user session serialize one composition
   (`CredentialScope.EnvFor`, [OQ-NC12](../plans/notch-convergence.md#OQ-NC12), decided on its
   leaning on 2026-10-04 and open to revision), so a name has one winner wherever the agent
-  runs. A value meant to beat the profile has the per-command spelling above.
+  runs. A value meant to beat the profile has the per-command spelling above. In a jail, a name
+  the agent and every other process get the same value for is left in the agent's process as
+  the jail shell holds it, so an attach and a fresh launch agree. The three tables a launch
+  composes (`YOLO_PROVIDERS`, `YOLO_PROFILES`, `YOLO_USE_PROFILES`) are written after that
+  composition at every notch, so no `env_sources` value or null replaces or removes one.
 
 ## The canonical wire_api vocabulary
 

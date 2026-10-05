@@ -2475,10 +2475,17 @@ func composeHostVarsWith(cfg *jsonx.OrderedMap, workspace, agent, command, profi
 	// config's selection. ALL THREE ON EVERY LAUNCH, empty tables included, so a launch started
 	// inside another agent's launch replaces what it inherited instead of keeping that launch's
 	// selection. After the composition, so nothing in it — the pack fold, env_sources, a shape
-	// var or an env_sources null — can write or remove a table this launch did not compose
-	// (FT-D3), as the macos-user session env layers them last too. Ranged over
-	// entrypoint.WireTables, as every jail writer ranges (NC-D22), and attributed to the launch's
-	// own composition, since no pack declares them.
+	// var or an env_sources null — can write or remove a table this launch did not compose, as
+	// no jail vehicle lets one: the shared file writes them plain-form, the per-agent file leaves
+	// them as the shared file set them, and the macos-user session env layers them last. That
+	// amends FT-D3, which put them before the removals (notch-convergence NC-D72): a null of
+	// YOLO_USE_PROFILES there handed the agent its parent launch's table, or none, which FT-D2's
+	// "every launch sets all three" exists to prevent. A composed entry under a table's name is
+	// dropped rather than left for the table to override, so the vars keep one entry per name and
+	// `yolo host env` prints no line its next one undoes. Ranged over entrypoint.WireTables, as
+	// every jail writer ranges (NC-D22), and attributed to the launch's own composition, since no
+	// pack declares them.
+	vars, c.origins, c.originPacks = withoutNames(vars, c.origins, c.originPacks, entrypoint.WireTables())
 	wire := c.wireTables()
 	for _, k := range entrypoint.WireTables() {
 		vars = append(vars, agentenv.Var{Key: k, Value: wire[k]})
@@ -2501,28 +2508,47 @@ const hostHonorsIncomingValue = false
 // hostComposedVars serializes one composition (packload's envcompose.go) for the host exec: one
 // var per name in the composition's order, a removal as an unset, with the channel each came from
 // (the packload.From* phrases, fromRemoval for an unset) and the pack it is attributed to, index
-// for index. When honorIncoming is set, an assignment whose name the invoking shell (incoming)
-// already holds non-empty is left out, so the shell's value passes through; a removal is the
-// user's own and is kept either way.
+// for index.
+//
+// When honorIncoming is set, an entry of yolo's whose name the invoking shell (incoming) already
+// holds non-empty is left out, so the shell's value passes through: an assignment, and a shape
+// var's tombstone, which is the derive's removal and not the user's. That is the jail's rule
+// with no record to compare against (the per-agent file writes a tombstone as `unset` only over
+// a value yolo set, CN-D21), so every shell value counts as the user's. An env_sources null IS
+// the user's own, the spelling that drops a name from the invoking shell, and is kept either way.
 func hostComposedVars(comp packload.EnvComposition, honorIncoming bool,
 	incoming func(string) (string, bool)) (vars []agentenv.Var, origins, originPacks []string) {
 	for _, e := range comp.Entries() {
+		if honorIncoming && (!e.Unset || e.Origin == packload.FromProfileEnv) {
+			if v, ok := incoming(e.Key); ok && v != "" {
+				continue
+			}
+		}
 		if e.Unset {
 			vars = append(vars, agentenv.Var{Key: e.Key, Unset: true})
 			origins = append(origins, fromRemoval)
 			originPacks = append(originPacks, "")
 			continue
 		}
-		if honorIncoming {
-			if v, ok := incoming(e.Key); ok && v != "" {
-				continue
-			}
-		}
 		vars = append(vars, agentenv.Var{Key: e.Key, Value: e.Value})
 		origins = append(origins, e.Origin)
 		originPacks = append(originPacks, e.Pack)
 	}
 	return vars, origins, originPacks
+}
+
+// withoutNames is vars, with the origins and packs index for index, minus every var whose name is
+// in names.
+func withoutNames(vars []agentenv.Var, origins, originPacks, names []string) ([]agentenv.Var, []string, []string) {
+	var kv []agentenv.Var
+	var ko, kp []string
+	for i, v := range vars {
+		if slices.Contains(names, v.Key) {
+			continue
+		}
+		kv, ko, kp = append(kv, v), append(ko, origins[i]), append(kp, originPacks[i])
+	}
+	return kv, ko, kp
 }
 
 // inheritedExcept is the invoking shell as the exec'd agent inherits it: os.LookupEnv, with every

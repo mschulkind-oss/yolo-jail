@@ -2,6 +2,7 @@ package run
 
 import (
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 
@@ -31,7 +32,7 @@ const channelSectionHeader = entrypoint.EntryChannelSectionHeader
 // this entry composed that EVERY process may see — the three wire tables
 // (YOLO_PROVIDERS, YOLO_PROFILES, YOLO_USE_PROFILES) and the ungated pack env fold's
 // winners in the shared composition (sharedFoldWinners: a name env_sources assigns or removes
-// is not among them) — as UNCONDITIONAL `export K='v'` lines. What the credential gate scopes to one agent
+// is not among them, nor a wire table's) — as UNCONDITIONAL `export K='v'` lines. What the credential gate scopes to one agent
 // (a provider's claimed credentials, a profile-gated env, the shape vars) is NOT
 // here: this file's first reader exports it into every process of the jail, so those
 // values go to that agent's own env file instead (agentenvfiles.go, OQ-CN6), and
@@ -126,9 +127,16 @@ func writeUserEnvFile(userEnvFile string, userEnv *jsonx.OrderedMap, channel *pa
 		// def-form line above, which beats the fold, and a name an env_sources null removes is
 		// written nowhere. Writing both lines for one name made the plain fold line win, a pack's
 		// default beating the user's dotenv value in every jail shell.
+		//
+		// A fold winner under a wire table's name is not written either: the tables are the
+		// launch's, written after the composition at every vehicle (the host exec, launchEnv), and
+		// a plain fold line after them here would hand every process a pack's value instead.
 		shared := channel.sharedFoldWinners()
 		keys := make([]string, 0, len(shared))
 		for k := range shared {
+			if slices.Contains(entrypoint.WireTables(), k) {
+				continue
+			}
 			if userEnv != nil {
 				if _, assigned := userEnv.Get(k); assigned {
 					continue

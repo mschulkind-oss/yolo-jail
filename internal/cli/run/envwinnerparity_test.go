@@ -282,3 +282,144 @@ func TestARecomposedChannelKeepsTheEnvSourcesRemovals(t *testing.T) {
 	requireWinners(t, "recomposed fxa", winnersOf(again.scope.EnvFor("fxa")), winnersOf(channel.scope.EnvFor("fxa")),
 		wantAgentWinners)
 }
+
+// AN ATTACH KEEPS ONE WINNER TOO. On an attach the delivery knows the container's frozen
+// environment (bootEnv), and the agent's file reads a frozen value as yolo's own default to
+// override, for a name whose winner for the agent is NOT every process's (the profile's value
+// still beats a value the container froze: K2 below). A name the agent and every process answer
+// alike (an unclaimed env_sources value, an env_sources null, a fold winner) is left where the
+// shared file left it: the jail shell keeps a frozen value over the shared file's def-form line
+// and over a null, which the shared file writes nowhere, so the agent keeps it too. Otherwise
+// the shell and the agent held two winners on an attach (the agent took `EDITOR=vim` from
+// env_sources while the shell kept the argv's `EDITOR=cat`), and the attach disagreed with the
+// fresh launch, whose delivery has no frozen environment to read.
+func TestAnAttachLeavesASharedWinnerWhereTheJailShellHasIt(t *testing.T) {
+	_, _, _, channel := winnerChannel(t)
+	frozen := map[string]string{"K2": "frozen", "K4": "frozen", "K5": "frozen", "K8": "frozen"}
+	agent, shared := channel.scope.EnvFor("fxa"), channel.scope.SharedEnv()
+	sharedNames := []string{"K4", "K5", "K8"}
+	for _, k := range sharedNames {
+		a, _ := agent.Lookup(k)
+		s, _ := shared.Lookup(k)
+		if a.Unset != s.Unset || a.Value != s.Value {
+			t.Fatalf("fixture: %s must have one winner for fxa and every process: %+v, %+v", k, a, s)
+		}
+	}
+	for _, rt := range []string{"podman", "container"} {
+		t.Run(rt, func(t *testing.T) {
+			files := func(ws string) (string, string) {
+				if rt == "container" {
+					return filepath.Join(ws, ".config", "yolo-user-env.sh"),
+						filepath.Join(ws, entrypoint.AgentEnvDirRel, "fxa.sh")
+				}
+				return filepath.Join(ws, "yolo-user-env.sh"), filepath.Join(ws, agentEnvStateDir, "fxa.sh")
+			}
+			fresh := t.TempDir()
+			channel.bootEnv = nil
+			deliverChannel(fresh, rt, channel)
+			attach := t.TempDir()
+			channel.bootEnv = frozen
+			deliverChannel(attach, rt, channel)
+			channel.bootEnv = nil
+
+			freshShared, freshAgent := files(fresh)
+			attachShared, attachAgent := files(attach)
+			shell := sourcedWinners(t, frozen, attachShared)
+			onAttach := sourcedWinners(t, frozen, attachShared, attachAgent)
+			onFresh := sourcedWinners(t, frozen, freshShared, freshAgent)
+			body, _ := os.ReadFile(attachAgent)
+			for _, k := range sharedNames {
+				if onAttach[k] != shell[k] {
+					t.Errorf("attach: %s = %q in fxa's process and %q in the jail shell — two "+
+						"winners for a name both compose alike\n%s", k, onAttach[k], shell[k], body)
+				}
+				if onAttach[k] != onFresh[k] {
+					t.Errorf("%s = %q on an attach and %q on a fresh launch\n%s", k, onAttach[k], onFresh[k], body)
+				}
+			}
+			if onAttach["K2"] != "shape" {
+				t.Errorf("attach: K2 = %q, want the profile's shape value over the value the "+
+					"container froze, which is yolo's\n%s", onAttach["K2"], body)
+			}
+		})
+	}
+}
+
+// THE WIRE TABLES ARE THE LAUNCH'S, AT EVERY JAIL VEHICLE. Every vehicle writes the three tables
+// after the composition (the shared file's plain-form channel lines, launchEnv's last three),
+// so neither an env_sources value nor an env_sources null of a table's name replaces or removes
+// the table the launch composed, in a jail shell, in the agent's process (the shared file, then
+// its own), or in the macos-user session. The host exec's pin is internal/cli's
+// TestTheHostExecKeepsTheWireTablesOverEnvSources.
+func TestTheJailVehiclesKeepTheWireTablesOverEnvSources(t *testing.T) {
+	home := packHome(t)
+	o := goldenOptions(t.TempDir(), home)
+	o.UseProfiles = map[string]string{"fxa": "fxp"}
+	cfg := winnerFixtureConfig()
+	es := jsonx.NewOrderedMap()
+	es.Set(entrypoint.ProvidersWireEnv, "es-value")
+	es.Set(entrypoint.UseProfilesWireEnv, nil)
+	cfg.Set("env_sources", []any{es})
+	channel := channelFor(t, o, cfg, []*packload.Pack{winnerFixturePack(t)}, nil)
+	want := channel.wireTableValues()
+	tables := entrypoint.WireTables()
+	read := func(t *testing.T, env map[string]string, files ...string) map[string]string {
+		t.Helper()
+		if _, err := exec.LookPath("bash"); err != nil {
+			t.Skip("bash not found")
+		}
+		var script strings.Builder
+		for _, f := range files {
+			script.WriteString(". '" + f + "'\n")
+		}
+		script.WriteString(`for k in ` + strings.Join(tables, " ") + `; do printf '%s=%s\n' "$k" "${!k-` + unsetMark + `}"; done`)
+		cmd := exec.Command("bash", "-c", script.String())
+		cmd.Env = []string{"PATH=/usr/bin:/bin"}
+		for k, v := range env {
+			cmd.Env = append(cmd.Env, k+"="+v)
+		}
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			t.Fatalf("sourcing %v: %v\n%s", files, err, out)
+		}
+		got := map[string]string{}
+		for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+			if k, v, ok := strings.Cut(line, "="); ok {
+				got[k] = v
+			}
+		}
+		return got
+	}
+	check := func(t *testing.T, vehicle string, got map[string]string) {
+		t.Helper()
+		for _, k := range tables {
+			if got[k] != want[k] {
+				t.Errorf("%s: %s = %q, want the table the launch composed, %q", vehicle, k, got[k], want[k])
+			}
+		}
+	}
+	ws := t.TempDir()
+	deliverChannel(ws, "podman", channel)
+	sharedFile, agentFile := filepath.Join(ws, "yolo-user-env.sh"), filepath.Join(ws, agentEnvStateDir, "fxa.sh")
+	check(t, "jail shell", read(t, nil, sharedFile))
+	check(t, "fxa in the jail (shared file, then fxa's)", read(t, nil, sharedFile, agentFile))
+	check(t, "macos-user session (yolo -- fxa)", envMap(channel.launchEnv("fxa")))
+
+	// A pack's env naming a table, static (every process's) and gated on fxa's profile (fxa's
+	// alone), is the same: the launch's table wins, as at the host, where the tables follow the
+	// whole composition.
+	tablePack := inlinePack(t, "fy", `{"name":"fy","contributes":[`+
+		`{"kind":"env","vars":{"`+entrypoint.ProfilesWireEnv+`":"fold-static"}},`+
+		`{"kind":"env","profile":"fxp","vars":{"`+entrypoint.UseProfilesWireEnv+`":"fold-gated"}}]}`)
+	folded := channelFor(t, o, winnerFixtureConfig(), []*packload.Pack{winnerFixturePack(t), tablePack}, nil)
+	if v, ok := folded.scope.EnvFor("fxa").Value(entrypoint.UseProfilesWireEnv); !ok || v != "fold-gated" {
+		t.Fatalf("fixture: fxa's composition must carry the gated table name, got %q %v", v, ok)
+	}
+	want = folded.wireTableValues()
+	ws = t.TempDir()
+	deliverChannel(ws, "podman", folded)
+	sharedFile, agentFile = filepath.Join(ws, "yolo-user-env.sh"), filepath.Join(ws, agentEnvStateDir, "fxa.sh")
+	check(t, "jail shell, a pack's env naming a table", read(t, nil, sharedFile))
+	check(t, "fxa in the jail, a pack's env naming a table", read(t, nil, sharedFile, agentFile))
+	check(t, "macos-user session, a pack's env naming a table", envMap(folded.launchEnv("fxa")))
+}

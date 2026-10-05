@@ -18,6 +18,7 @@ import (
 	"testing"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/agentenv"
+	"github.com/mschulkind-oss/yolo-jail/internal/entrypoint"
 )
 
 // hostWinnerKeys are the names the fixture sets from more than one source; K3 is the shell's
@@ -126,7 +127,7 @@ func TestHostComposedVarsHonorsTheShellOnlyWhenAsked(t *testing.T) {
 	}
 	comp := c.scope.EnvFor("fxa")
 	shell := func(name string) (string, bool) {
-		if name == "K3" || name == "K5" {
+		if name == "K3" || name == "K5" || name == "K7" {
 			return "user-shell", true
 		}
 		return "", false
@@ -154,5 +155,62 @@ func TestHostComposedVarsHonorsTheShellOnlyWhenAsked(t *testing.T) {
 	}
 	if v := index(on)["K1"]; v.Value != "shape" {
 		t.Errorf("on: K1 = %+v, a name the shell does not hold keeps yolo's value", v)
+	}
+	// A SHAPE TOMBSTONE IS THE DERIVE'S, not the user's: switched on, it leaves a value the shell
+	// holds alone, as the jail's per-agent file writes one only over a value yolo set (CN-D21).
+	// Off, it removes the shell's value like every composed entry replaces one.
+	if v := index(off)["K7"]; !v.Unset {
+		t.Errorf("off: K7 = %+v, want the derive's tombstone over the shell's value", v)
+	}
+	if v, ok := index(on)["K7"]; ok {
+		t.Errorf("on: K7 = %+v, want the shell's value left alone: a tombstone is yolo's, not the user's", v)
+	}
+}
+
+// THE WIRE TABLES ARE THE LAUNCH'S. They are written after the composition, so neither an
+// env_sources value nor an env_sources null of a table's name replaces or removes the table this
+// launch composed, as no jail vehicle lets one (internal/cli/run's
+// TestTheJailVehiclesKeepTheWireTablesOverEnvSources), and a launch started inside another
+// agent's launch still replaces the table it inherited (FT-D2). Before the one composition the
+// host applied the removals after the tables, so a null of YOLO_USE_PROFILES handed the agent
+// the table its parent launch exported, or none.
+func TestTheHostExecKeepsTheWireTablesOverEnvSources(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("YOLO_VERSION", "")
+	t.Chdir(t.TempDir())
+	writeWinnerFixture(t, home)
+	userCfg(t, home, `{
+	  "packs": [{"source": "file://`+filepath.Join(home, "packs", "fx")+`", "name": "fx"}],
+	  "profile": {"fxa": "fxp"},
+	  "env_sources": [{"YOLO_PROVIDERS": "es-value", "YOLO_USE_PROFILES": null, "YOLO_PROFILES": null}]
+	}`)
+	// What a parent launch exported.
+	t.Setenv("YOLO_USE_PROFILES", `{"claude": "zai"}`)
+	t.Setenv("YOLO_PROFILES", `{"zai": {}}`)
+
+	c := composeHostLaunch("fxa", "", nil, func(string) {})
+	if c.err != nil {
+		t.Fatal(c.err)
+	}
+	got := map[string]string{}
+	for _, kv := range c.environ() {
+		if k, v, ok := strings.Cut(kv, "="); ok {
+			got[k] = v
+		}
+	}
+	wire := c.wireTables()
+	for _, k := range entrypoint.WireTables() {
+		if got[k] != wire[k] {
+			t.Errorf("%s = %q, want the table this launch composed, %q", k, got[k], wire[k])
+		}
+	}
+	// One var per name, so `yolo host env` prints no removal its own next line undoes.
+	seen := map[string]bool{}
+	for _, v := range c.vars {
+		if seen[v.Key] {
+			t.Errorf("%s is composed twice", v.Key)
+		}
+		seen[v.Key] = true
 	}
 }
