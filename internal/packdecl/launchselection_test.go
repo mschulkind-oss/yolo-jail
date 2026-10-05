@@ -14,7 +14,7 @@ import (
 const validLaunchSelection = `{"surface":".x/config.toml","each":["-c","{key}={value}"],
   "rows":{"table":"model_providers","named_by":["model_provider"]},
   "defaults":{"model_provider":"openai"},
-  "surfaces":{".x/list.json":"X_LIST"}}`
+  "surfaces":{".x/list.json":"X_LIST"},"subcommands":["login","mcp"]}`
 
 func TestLaunchSelectionIsProjectedFromAProgramOfAnyVia(t *testing.T) {
 	m, problems := Decode([]byte(`{"contributes":[
@@ -31,9 +31,10 @@ func TestLaunchSelectionIsProjectedFromAProgramOfAnyVia(t *testing.T) {
 		t.Fatalf("installs = %+v, want three", installs)
 	}
 	want := &LaunchSelection{Surface: ".x/config.toml", Each: []string{"-c", "{key}={value}"},
-		Rows:     &LaunchSelectionRows{Table: "model_providers", NamedBy: []string{"model_provider"}},
-		Defaults: map[string]string{"model_provider": "openai"},
-		Surfaces: map[string]string{".x/list.json": "X_LIST"}}
+		Rows:        &LaunchSelectionRows{Table: "model_providers", NamedBy: []string{"model_provider"}},
+		Defaults:    map[string]string{"model_provider": "openai"},
+		Surfaces:    map[string]string{".x/list.json": "X_LIST"},
+		Subcommands: []string{"login", "mcp"}}
 	if !reflect.DeepEqual(installs[0].LaunchSelection, want) {
 		t.Errorf("codex's LaunchSelection = %+v, want %+v", installs[0].LaunchSelection, want)
 	}
@@ -50,6 +51,7 @@ func TestLaunchSelectionIsProjectedFromAProgramOfAnyVia(t *testing.T) {
 	installs[0].LaunchSelection.Rows.NamedBy[0] = "edited"
 	installs[0].LaunchSelection.Defaults["model_provider"] = "edited"
 	installs[0].LaunchSelection.Surfaces[".x/list.json"] = "EDITED"
+	installs[0].LaunchSelection.Subcommands[0] = "edited"
 	installs[1].LaunchSelection.Flags[0].Argv[0] = "edited"
 	again := m.InstallContributions()
 	if !reflect.DeepEqual(again[0].LaunchSelection, want) || !reflect.DeepEqual(again[1].LaunchSelection, flags) {
@@ -132,6 +134,17 @@ func TestLaunchSelectionIsRefusedWhereNoLaunchCouldHandIt(t *testing.T) {
 			ls.Each, ls.Env = nil, "X_CONFIG"
 			ls.Surfaces = map[string]string{".x/a.json": "X_CONFIG"}
 		}), `which "env" already uses`},
+		{"subcommands for the env form", with(func(ls *LaunchSelection) {
+			ls.Each, ls.Env, ls.Subcommands = nil, "X_CONFIG", []string{"run"}
+		}), `"subcommands" are for an argv form`},
+		{"an empty subcommand", with(func(ls *LaunchSelection) { ls.Subcommands = []string{""} }),
+			`"subcommands"[0] is empty`},
+		{"a flag as a subcommand", with(func(ls *LaunchSelection) { ls.Subcommands = []string{"--help"} }),
+			"is a flag"},
+		{"a spaced subcommand", with(func(ls *LaunchSelection) { ls.Subcommands = []string{"mcp add"} }),
+			"holds a space"},
+		{"a subcommand twice", with(func(ls *LaunchSelection) { ls.Subcommands = []string{"update", "update"} }),
+			`names "update" a second time`},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -143,7 +156,8 @@ func TestLaunchSelectionIsRefusedWhereNoLaunchCouldHandIt(t *testing.T) {
 	for name, ls := range map[string]*LaunchSelection{
 		"each": each(),
 		"flags": {Surface: ".x/settings.json", Flags: []LaunchSelectionFlag{flag("p", "--provider", "{value}")},
-			Defaults: map[string]string{"p": "x"}, Surfaces: map[string]string{".x/list.json": "X_LIST"}},
+			Defaults: map[string]string{"p": "x"}, Surfaces: map[string]string{".x/list.json": "X_LIST"},
+			Subcommands: []string{"update", "install"}},
 		"env": {Surface: ".x/config.json", Env: "X_CONFIG",
 			Rows: &LaunchSelectionRows{Table: "provider", NamedBy: []string{"enabled_providers"}}},
 	} {
@@ -170,5 +184,30 @@ func TestLaunchSelectionKeepsTheProgramOnTheTolerantPath(t *testing.T) {
 	  "via":"npm","package":"codex","launch_selection":{"surface":".x/config.toml"}}]}`))
 	if !containsSubstr(problems, "names no way to hand the selection") {
 		t.Errorf("a declaration with no form passed the tolerant path: %v", problems)
+	}
+}
+
+// A SUBCOMMAND IS argv[1] AS TYPED, and only a declared word: the launch compares the user's own
+// argv[1] with the declaration, so a later word, a flag before it, a prompt that merely starts
+// with the word, and a declaration naming none take no subcommand.
+func TestLaunchSelectionTakesASubcommandOnlyAsArgvOne(t *testing.T) {
+	ls := &LaunchSelection{Subcommands: []string{"update", "auth"}}
+	for _, tc := range []struct {
+		argv []string
+		want bool
+	}{
+		{[]string{"pi", "update"}, true},
+		{[]string{"/usr/local/bin/pi", "auth", "check"}, true},
+		{[]string{"pi"}, false},
+		{[]string{"pi", "--continue", "update"}, false},
+		{[]string{"pi", "update the readme"}, false},
+		{[]string{"pi", "install"}, false},
+	} {
+		if got := ls.TakesSubcommand(tc.argv); got != tc.want {
+			t.Errorf("TakesSubcommand(%q) = %v, want %v", tc.argv, got, tc.want)
+		}
+	}
+	if (&LaunchSelection{}).TakesSubcommand([]string{"pi", "update"}) || (*LaunchSelection)(nil).TakesSubcommand([]string{"pi", "update"}) {
+		t.Error("a declaration naming no subcommand took one")
 	}
 }

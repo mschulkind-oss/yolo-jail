@@ -339,7 +339,10 @@ opencode, pi and oh-omp, for that one launch, as it does in a jail, without edit
 ChatGPT subscription; the next launch without `-p` is back on what your config picks. yolo hands
 the choice to the agent on its command line, or for opencode in `OPENCODE_CONFIG_CONTENT`, and the
 launch shows exactly what it added. An option of your own typed after the agent's name still wins.
-`yolo host env -p` can carry the choice only for opencode; for the others it names the
+A command such as `yolo host -p zai -- pi update` or `-- oh-omp commit` runs as you typed it, with
+nothing added. If a profile cannot move the agent, such as `-p zai` for Codex, which does not speak
+z.ai's API, yolo says so and lists the profiles that can. `yolo host env -p` can carry the choice
+only for opencode; for the others it names the
 `yolo host -p` command that does. To change the provider an agent starts on every time, set
 `profile` for it in your config and run `yolo host apply`.
 

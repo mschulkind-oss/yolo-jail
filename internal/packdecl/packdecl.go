@@ -929,10 +929,11 @@ const (
 // WHAT THE LAUNCH GUARANTEES around it, none of which the pack can turn off: it hands anything
 // only when a `-p` was typed and what it would hand differs from what the configured profile
 // composes, so a wrapped launch and a bare `yolo host --` leave the program on its file; argv
-// words go right after argv[0], so a user's own later flag of the same name still wins; every
-// handoff is disclosed (a launch has no quiet mode); YOLO_NO_LAUNCH_FLAGS=1 skips it and says so;
-// in a jail it does nothing, the jail's own render having written the -p's selection already; and
-// `yolo host env`, which carries no argv, exports the env form and names the launch for the others.
+// words go right after argv[0], so a user's own later flag of the same name still wins, and none
+// go in front of a word Subcommands names; every handoff is disclosed (a launch has no quiet
+// mode); YOLO_NO_LAUNCH_FLAGS=1 skips it and says so; in a jail it does nothing, the jail's own
+// render having written the -p's selection already; and `yolo host env`, which carries no argv,
+// exports the env form and names the launch for the others.
 type LaunchSelection struct {
 	// Surface is the home-relative path of the program's config surface whose derive composes the
 	// selection: `.codex/config.toml` for codex. The path must be one of the pack's own `config`
@@ -955,6 +956,13 @@ type LaunchSelection struct {
 	// its content for this launch: pi's model-list files, which pi's extensions read from the
 	// variable before the file. Each path must be a computed surface of the pack.
 	Surfaces map[string]string `json:"surfaces,omitempty"`
+	// Subcommands are the words a release of the program reads as a subcommand only when it is
+	// argv[1], where argv words the launch put right after argv[0] would push it out and the
+	// program would take it for something else: pi 1.0.1 reads `pi --provider zai update` as a
+	// session whose first prompt is "update". A launch whose argv[1], as the user typed it, is one
+	// of them hands nothing of the selection, argv or variables, and says so, so the subcommand
+	// runs as typed. Only an argv form (Each, Flags) takes it, since the Env form moves no word.
+	Subcommands []string `json:"subcommands,omitempty"`
 }
 
 // LaunchSelectionFlag is one selection key's argv words in the Flags form.
@@ -977,8 +985,9 @@ type LaunchSelectionRows struct {
 // launchSelectionProblems refuses a `launch_selection` no launch could hand: on a kind with no
 // program, with a surface path that is not a clean home-relative file path, with no form or more
 // than one, a form whose words never carry a value (or, for `each`, never name the leaf), a row
-// declaration the Flags form has no word for, an empty key or variable name, or two surfaces
-// handed in one variable.
+// declaration the Flags form has no word for, an empty key or variable name, two surfaces
+// handed in one variable, or a subcommand word that is empty, a flag, named twice, or declared
+// for the Env form, which moves no word.
 func launchSelectionProblems(label string, c Contribution) []string {
 	ls := c.LaunchSelection
 	if ls == nil {
@@ -1095,6 +1104,25 @@ func launchSelectionProblems(label string, c Contribution) []string {
 		}
 		vars[name] = fmt.Sprintf("%q", p)
 	}
+	if len(ls.Subcommands) > 0 && len(ls.Each) == 0 && len(ls.Flags) == 0 {
+		add("\"subcommands\" are for an argv form: the selection is handed in no argv word, so none " +
+			"can push a subcommand out of argv[1]; drop \"subcommands\"")
+	}
+	named := map[string]bool{}
+	for i, w := range ls.Subcommands {
+		field := fmt.Sprintf("\"subcommands\"[%d]", i)
+		switch {
+		case w == "":
+			add("%s is empty", field)
+		case strings.HasPrefix(w, "-"):
+			add("%s %q is a flag, not a subcommand word: a launch compares it with argv[1] as typed", field, w)
+		case strings.ContainsAny(w, " \t\n"):
+			add("%s %q holds a space, and one argv word cannot", field, w)
+		case named[w]:
+			add("%s names %q a second time", field, w)
+		}
+		named[w] = true
+	}
 	return problems
 }
 
@@ -1125,5 +1153,22 @@ func (ls *LaunchSelection) clone() *LaunchSelection {
 			out.Surfaces[k] = v
 		}
 	}
+	if len(ls.Subcommands) > 0 {
+		out.Subcommands = append([]string(nil), ls.Subcommands...)
+	}
 	return out
+}
+
+// TakesSubcommand reports whether argv, a program's argv as the user typed it (argv[0] the
+// program), runs one of ls's Subcommands, so the launch hands it nothing of the selection.
+func (ls *LaunchSelection) TakesSubcommand(argv []string) bool {
+	if ls == nil || len(argv) < 2 {
+		return false
+	}
+	for _, w := range ls.Subcommands {
+		if argv[1] == w {
+			return true
+		}
+	}
+	return false
 }

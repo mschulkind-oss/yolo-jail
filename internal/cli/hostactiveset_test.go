@@ -700,3 +700,46 @@ func TestHostMovesOhOmpsScopeUnderAnOnly(t *testing.T) {
 		t.Errorf("with no `only` oh-omp got %q, want its own argv", plain.argv)
 	}
 }
+
+// A SUBCOMMAND RUNS AS TYPED (MM-D30, packdecl.LaunchSelection.Subcommands): pi and oh-omp read a
+// subcommand only as their first word, so words handed right after argv[0] would turn `pi update`
+// or `oh-omp commit` into a session whose first prompt is the subcommand. A -p that would move
+// either hands nothing in front of one, argv or variables, and says so, naming the launch that
+// starts a session on the -p's selection; a first word that is not a subcommand is still moved.
+func TestHostLeavesASubcommandWhereTheUserTypedIt(t *testing.T) {
+	hostGateHome(t, setHostCfg, nil)
+	pi := hostSelectionRun(t, "", []string{"-p", "pi=zai,openrouter"}, "pi", "update")
+	if !reflect.DeepEqual(pi.argv, []string{"pi", "update"}) {
+		t.Errorf("`yolo host -p pi=zai,openrouter -- pi update` exec'd %q, want it as typed\n%s", pi.argv, pi.errs)
+	}
+	for _, name := range []string{"YOLO_PI_MODEL_LISTS", "YOLO_PI_OPENAI_CODEX_MODELS"} {
+		if _, set := pi.env[name]; set {
+			t.Errorf("`pi update` was handed %s, half of a selection it does not run on", name)
+		}
+	}
+	for _, want := range []string{"yolo host: `pi update` runs a subcommand of pi, and pi reads one only as " +
+		"its first word", "To start pi itself on that selection: `yolo host -p zai,openrouter -- pi`"} {
+		if !strings.Contains(pi.errs, want) {
+			t.Errorf("the launch must say %q:\n%s", want, pi.errs)
+		}
+	}
+	if strings.Contains(pi.errs, "yolo CHANGED the command") || strings.Contains(pi.errs, "yolo SET variables for pi") {
+		t.Errorf("`pi update` disclosed a selection it was not handed:\n%s", pi.errs)
+	}
+	// A prompt that only starts with the word is no subcommand, and is moved.
+	prompt := hostSelectionRun(t, "", []string{"-p", "pi=zai,openrouter"}, "pi", "update the readme")
+	if len(prompt.argv) < 3 || prompt.argv[1] != "--provider" || prompt.argv[len(prompt.argv)-1] != "update the readme" {
+		t.Errorf("a prompt was not moved: pi got %q\n%s", prompt.argv, prompt.errs)
+	}
+
+	home := hostGateHome(t, `{"packs": ["claude", "omp", "zai"], "env_sources": [{"ZAI_API_KEY": "tok-zai"}]}`, nil)
+	writeFile(t, filepath.Join(home, ".config", "yolo-jail", "local", "pack.json"),
+		`{"name":"acme","contributes":[{"kind":"models","provider":"zai","only":["glm-5.3","glm-4.6"]}]}`)
+	omp := hostSelectionRun(t, home, []string{"-p", "oh-omp=zai"}, "oh-omp", "commit", "--push")
+	if !reflect.DeepEqual(omp.argv, []string{"oh-omp", "commit", "--push"}) {
+		t.Errorf("`yolo host -p oh-omp=zai -- oh-omp commit --push` exec'd %q, want it as typed\n%s", omp.argv, omp.errs)
+	}
+	if !strings.Contains(omp.errs, "`oh-omp commit` runs a subcommand of oh-omp") {
+		t.Errorf("the launch must say why oh-omp commit was not moved:\n%s", omp.errs)
+	}
+}

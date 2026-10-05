@@ -775,7 +775,7 @@ func hostLaunch(flags hostExecFlags, profile string, cmd []string, out, errw, ra
 	// config file, as argv right after argv[0] or a variable, disclosed here and set in the
 	// environment below; the menu then follows the provider the program runs on.
 	sp = trace.span("host.model_menu")
-	selection := launch.launchSelection(launch.childEnviron(childPath), func(line string) {
+	selection := launch.launchSelection(cmd, launch.childEnviron(childPath), func(line string) {
 		fmt.Fprintf(errw, "yolo host: %s\n", line)
 	})
 	asked := argv
@@ -3411,7 +3411,7 @@ func hostEnvDelta(agent, profile string, grant *hostGrantRequest, warn func(stri
 	// exported with the rest; one that needs the agent's argv cannot be, and the line names the
 	// launch that carries it. Each line is a block of its own, as the composition's lines are.
 	var said []string
-	selection := c.launchSelection(c.environ(), func(line string) { said = append(said, line) })
+	selection := c.launchSelection(nil, c.environ(), func(line string) { said = append(said, line) })
 	vars, lines := selection.scriptVars()
 	disclosure = append(append(disclosure, said...), lines...)
 	return append(append([]agentenv.Var(nil), c.vars...), vars...), disclosure, nil

@@ -10,9 +10,11 @@ package cli
 // config-surface derive composes the selection over this launch's wire tables
 // (entrypoint.HostLaunchSelection, MM-D24's one path), and when a `-p` was typed and what it
 // composes differs from what the configured profile composes, the launch hands it to the program in
-// the pack's words: argv right after argv[0] (codex's `-c`, pi's `--provider`), or a variable
-// (opencode's OPENCODE_CONFIG_CONTENT). With no -p, and through every host wrapper, the program
-// starts on its file, which `yolo host apply` writes for the configured profile (OQ-HC3).
+// the pack's words: argv right after argv[0] (codex's `-c`, pi's `--provider`), never in front of
+// a subcommand the pack names, or a variable (opencode's OPENCODE_CONFIG_CONTENT). With no -p, and
+// through every host wrapper, the program starts on its file, which `yolo host apply` writes for
+// the configured profile (OQ-HC3). A -p that composes no selection at all is said on every launch,
+// with the profiles that do move the program.
 //
 // THE MODEL MENU (packdecl.ModelMenu, a term coined there; §14.7, MM-D24 to MM-D28): the step a
 // jail's launcher runs before it execs a program whose pack declares one, run here against the
@@ -37,6 +39,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/agentenv"
@@ -245,10 +248,12 @@ type hostSelection struct {
 // with no -p (the program's file is the configured selection, which a wrapper always runs on) and in
 // a jail (the jail's own render wrote the -p's selection into its files already: MM-D28 (9)); one
 // that is not declared, handing nothing, where the program's pack declares no launch selection.
-// environ is the program's environment as composed so far, which a document variable is merged
-// into. Nothing here refuses the launch: every reason it hands nothing is a line handed to say, and
-// the program then starts on its own file.
-func (c *hostComposition) launchSelection(environ []string, say func(string)) *hostSelection {
+// typed is the program's argv as the user typed it, whose argv[1] may be a subcommand the
+// selection's words must not go in front of (packdecl.LaunchSelection.Subcommands); nil for `yolo
+// host env`, which runs no program. environ is the program's environment as composed so far, which
+// a document variable is merged into. Nothing here refuses the launch: every reason it hands
+// nothing for a -p is a line handed to say, and the program then starts on its own file.
+func (c *hostComposition) launchSelection(typed, environ []string, say func(string)) *hostSelection {
 	if c.typedProfile == "" || config.InJail() {
 		return nil
 	}
@@ -267,6 +272,13 @@ func (c *hostComposition) launchSelection(environ []string, say func(string)) *h
 	if err != nil {
 		return keepsFile(fmt.Sprintf("could not compose %s's selection for this launch (%v)", c.agent, err))
 	}
+	// A -p THAT COMPOSES NOTHING IS SAID FIRST, before the comparison, which counts two empty
+	// selections the same: a -p over a provider the program's pack composes nothing for, with no
+	// profile configured, would otherwise move nothing in silence.
+	if launch.Empty() {
+		say(c.noSelectionLine(p, *spec))
+		return sel
+	}
 	configured, err := entrypoint.HostLaunchSelection(p, *spec, paths.Home(),
 		&entrypoint.HostInputs{Vars: c.configuredWireTables(), Packs: c.packs}, nil)
 	if err == nil && launch.Same(configured) {
@@ -275,9 +287,13 @@ func (c *hostComposition) launchSelection(environ []string, say func(string)) *h
 		sel.follows = true
 		return sel
 	}
-	if launch.Empty() {
-		return keepsFile(fmt.Sprintf("-p %s gives %s no selection: %s's pack composes none for it, as for a "+
-			"provider %s cannot reach", shquote.Quote(c.typedProfile), c.agent, c.agent, c.agent))
+	if spec.TakesSubcommand(typed) {
+		say(fmt.Sprintf("`%s %s` runs a subcommand of %s, and %s reads one only as its first word, so this "+
+			"launch hands %s none of -p %s's selection, whose words would go in front of it; it runs as typed. "+
+			"To start %s itself on that selection: `yolo host -p %s -- %s`.", c.agent, shquote.Quote(typed[1]), c.agent,
+			c.agent, c.agent, shquote.Quote(c.typedProfile), c.agent, shquote.Quote(c.typedProfile),
+			shquote.Quote(c.agent)))
+		return sel
 	}
 	if os.Getenv(entrypoint.NoLaunchFlagsEnv) == "1" {
 		return keepsFile(fmt.Sprintf("%s=1 is set, which skips what packs add to a launch, and moving %s onto "+
@@ -315,6 +331,46 @@ func (s *hostSelection) scriptVars() ([]agentenv.Var, []string) {
 		vars = append(vars, agentenv.Var{Key: v.Name, Value: v.Value})
 	}
 	return vars, s.varLines()
+}
+
+// noSelectionLine is what a launch says when its -p composes no selection for the program: the
+// program starts on its own file, and configuring the profile would not move it either, since
+// `yolo host apply` runs the same derive; so the next step it names is the profiles that do move
+// the program (profilesThatMove) and the launch that takes one, or, with none, the program's own
+// choice.
+func (c *hostComposition) noSelectionLine(p *packload.Pack, spec packdecl.LaunchSelection) string {
+	line := fmt.Sprintf("-p %s composes no selection for %s, so %s starts on the selection its own config "+
+		"holds (~/%s); naming that profile in your config would not move it either, as `yolo host apply` "+
+		"runs the same derive.", shquote.Quote(c.typedProfile), c.agent, c.agent, spec.Surface)
+	movers := c.profilesThatMove(p, spec)
+	if len(movers) == 0 {
+		return line + fmt.Sprintf(" No profile this launch knows moves %s, so choose its model in %s itself.",
+			c.agent, c.agent)
+	}
+	return line + fmt.Sprintf(" Profiles that do move %s, for one launch with `yolo host -p <profile> -- %s`: %s.",
+		c.agent, shquote.Quote(c.agent), strings.Join(movers, ", "))
+}
+
+// profilesThatMove is every profile this launch resolves, the -p's primary aside, for which the
+// program's pack composes a selection over this launch's tables: each would move the program as
+// a -p. Sorted; a profile whose composition fails is left out, as a launch on it would say.
+func (c *hostComposition) profilesThatMove(p *packload.Pack, spec packdecl.LaunchSelection) []string {
+	names := make([]string, 0, len(c.resolved))
+	for name := range c.resolved {
+		if name != c.profile {
+			names = append(names, name)
+		}
+	}
+	sort.Strings(names)
+	var out []string
+	for _, name := range names {
+		sel, err := entrypoint.HostLaunchSelection(p, spec, paths.Home(),
+			&entrypoint.HostInputs{Vars: c.wireTablesFor([]string{name}), Packs: c.packs}, nil)
+		if err == nil && !sel.Empty() {
+			out = append(out, name)
+		}
+	}
+	return out
 }
 
 // selectionRemedy is the next step a launch that could not move its program names: the launch's

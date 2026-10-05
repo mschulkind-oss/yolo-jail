@@ -7,7 +7,11 @@
       // touching ~/.oh-omp/agent/config.yml (docs/design/model-lists-and-pickers.md MM-D30): the
       // settings derive's one selection key, enabledModels under an `only`, as --models, which
       // 0.15.3 reads in its place (`parsedArgs.models ?? settings.get("enabledModels")`, read in
-      // the shipped binary, never run) and splits on commas.
+      // the shipped binary, never run) and splits on commas. Never in front of a subcommand:
+      // 0.15.3's runCli reads its first word as one only when it does not start with "-" (and
+      // `help` alone), else runs `launch` with every word, so `oh-omp --models ... commit` would
+      // start a session whose first prompt is "commit". The words are its command table's names
+      // and aliases, read in the same binary.
       "launch_selection": {
         "flags": [
           {
@@ -17,6 +21,24 @@
             ],
             "key": "enabledModels"
           }
+        ],
+        "subcommands": [
+          "agents",
+          "auth",
+          "commit",
+          "config",
+          "grep",
+          "help",
+          "jupyter",
+          "launch",
+          "plugin",
+          "q",
+          "search",
+          "setup",
+          "shell",
+          "ssh",
+          "stats",
+          "update"
         ],
         "surface": ".oh-omp/agent/config.yml"
       },
