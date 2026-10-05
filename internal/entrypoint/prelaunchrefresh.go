@@ -341,12 +341,13 @@ _refresh_job() {
         return 0
     fi
     if [ "$lrc" != 0 ]; then
-        echo "--- cannot take the refresh lock $REFRESH_LOCK ($REFRESH_STORE is missing or not writable)."
-        # Stamped and recorded, as the launch path does, so a store that is absent says so once.
+        # Stamped, as the launch path does, so a store that is absent says so once an hour. No
+        # content key is recorded: a job is started only for content a refresh has already seen.
         _refresh_touch || true
-        _refresh_record_seen || true
         _refresh_note_result "could not take its lock ($REFRESH_STORE is missing or not writable)" \
             "Nothing was refreshed: check that $REFRESH_STORE is a directory this jail can write."
+        # Last, like every job's closing line: its log says a job has ended only once it has.
+        echo "--- cannot take the refresh lock $REFRESH_LOCK ($REFRESH_STORE is missing or not writable)."
         return 0
     fi
     # Asked again UNDER the lock: a refresh that finished after this job was started stamped it.

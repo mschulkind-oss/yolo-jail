@@ -320,6 +320,69 @@ func TestAFailedBackgroundRefreshIsSaidOnceAtTheNextLaunch(t *testing.T) {
 	}
 }
 
+// TestABackgroundRefreshThatTimesOutIsSaidAtTheNextLaunch: a job whose act outlives the bound
+// stamps, like any other outcome, and leaves the timeout for the next launch to say once — the
+// bound, the log and the way to retry — and the launch after says nothing.
+func TestABackgroundRefreshThatTimesOutIsSaidAtTheNextLaunch(t *testing.T) {
+	p := newTimingProbe(t, false, false)
+	p.bodyPatch = map[string]string{"\nUPDATE_TIMEOUT=60 ": "\nUPDATE_TIMEOUT=1 ", "\nUPDATE_GRACE=5\n": "\nUPDATE_GRACE=1\n"}
+	p.run(t, "", "FAKE_REFRESH_WAIT="+filepath.Join(p.home, "never"))
+	jobLog := waitForJobs(t, p, 1)
+	if !strings.Contains(jobLog, "ended (status 124)") {
+		t.Errorf("the job's act must have been ended by the bound:\n%s", jobLog)
+	}
+	if _, err := os.Stat(p.stampPath()); err != nil {
+		t.Errorf("a timed-out background refresh must still stamp (§4.1 invariant 3): %v", err)
+	}
+
+	_, stderr := p.run(t, "")
+	for _, want := range []string{"⚠ tool: the background refresh (update --extensions) timed out after 1s",
+		p.jobLog(), "to retry now, run: tool update --extensions"} {
+		if !strings.Contains(stderr, want) {
+			t.Errorf("the next launch must say %q:\n%s", want, stderr)
+		}
+	}
+	_, stderr = p.run(t, "")
+	if strings.Contains(stderr, "background refresh") {
+		t.Errorf("the timeout must be said once, not on every launch:\n%s", stderr)
+	}
+}
+
+// TestABackgroundJobThatCannotTakeItsLockSaysSoOnce: a store the job cannot take its lock in —
+// here a FILE where the lock directory goes, which passes the launch's checks and fails the
+// job's mkdir — is "cannot take", never "another holds". The job stamps, so the store says so
+// once an hour rather than on every launch, and leaves that for the next launch to say once.
+func TestABackgroundJobThatCannotTakeItsLockSaysSoOnce(t *testing.T) {
+	p := newTimingProbe(t, false, false)
+	if err := os.WriteFile(p.lockPath(), nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_, stderr := p.run(t, "")
+	if !strings.Contains(stderr, "refreshing in the background") {
+		t.Fatalf("the launch must start the job, which is what finds the lock unusable:\n%s", stderr)
+	}
+	jobLog := waitForJobs(t, p, 1)
+	if !strings.Contains(jobLog, "cannot take the refresh lock") || countLine(p.logLines(t), "REFRESH") != 0 {
+		t.Errorf("a job that cannot take its lock must say so and refresh nothing:\n%s\n%v", jobLog, p.logLines(t))
+	}
+	if _, err := os.Stat(p.stampPath()); err != nil {
+		t.Errorf("a job that cannot take its lock must stamp, so it is not retried every launch: %v", err)
+	}
+
+	_, stderr = p.run(t, "")
+	if n := strings.Count(stderr, "could not take its lock"); n != 1 ||
+		!strings.Contains(stderr, "is a directory this jail can write") {
+		t.Errorf("the next launch must say once that the job could not take its lock, and what to check:\n%s", stderr)
+	}
+	if strings.Contains(stderr, "in the background") || strings.Contains(stderr, "another refresh holds") {
+		t.Errorf("inside the hour no second job may start, and the lock is not HELD:\n%s", stderr)
+	}
+	_, stderr = p.run(t, "")
+	if strings.Contains(stderr, "refresh") {
+		t.Errorf("the unusable lock must be said once, not on every launch:\n%s", stderr)
+	}
+}
+
 // startBlockedJob starts a background job whose act blocks until the cell writes the returned
 // release file, and returns the release and the job's process group: the job is a session leader
 // (the detach), and the pid is the first field of the owner token it wrote into the lock.
