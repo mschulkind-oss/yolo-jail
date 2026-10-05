@@ -13,7 +13,8 @@ vantage:
 # One keyed build for every pi extension: in parallel, published by rename, read without a lock, and updated at launch or for the next one
 
 **Status:** 2026-10-05. Built: [XB-D14](#XB-D14), the unshared npm prefix with the refresh's
-throttle beside its lock; nothing else here is. Evidence read at `854480458` (main) and `d44cb88b9`
+throttle beside its lock, and [XB-D34](#XB-D34), the npm launcher's install kept off a piped
+launch's stdout; nothing else here is. Evidence read at `854480458` (main) and `d44cb88b9`
 (the held store, branch `held/pi-extension-store`), and pi 1.0.1 read as installed in this jail, not
 run. MEASURED by a research pass of 2026-10-05 in scratch outside the repository, on a machine whose
 one-minute load ran from 5 to 138 on 32 CPUs: most figures below are medians of repeated runs, with
@@ -619,7 +620,8 @@ Container creation, 0.31–6.07 s wall per fresh launch, varied with load and wa
 CLI writes npm's output to the launcher's standard output, so `pi -p … | consumer` hands it to the
 consumer (MEASURED with a fake `npm`; READ, `npm install -g … 2>&1` with no redirect at
 [`shims.go:1296`](../../internal/entrypoint/shims.go#L1296) and the cold install's call at
-[`:1475`](../../internal/entrypoint/shims.go#L1475)). And `pi --version` runs every update step, the
+[`:1475`](../../internal/entrypoint/shims.go#L1475); fixed 2026-10-05, [XB-D34](#XB-D34), which
+names the two other launcher installs still writing there). And `pi --version` runs every update step, the
 CLI's, the servers' and the refresh, so a version probe can hold a launch for about two minutes, a
 60 s wait for the lock and a 60 s refresh (INFERRED from those bounds), and write the npm prefix. The
 research pass's own first `pi --version` ran the refresh and rewrote the shared prefix, and the
@@ -701,7 +703,8 @@ jiti's path-and-hash cache key). A machine-wide one is ruled out by
    ([XB-D23](#XB-D23)), every update step skipped for a version probe ([XB-D24](#XB-D24)), the gate
    first ([XB-D25](#XB-D25)), and a failed refresh throttled ([XB-D26](#XB-D26)). Then, once you
    confirm it, [XB-D14](#XB-D14) as one change: PG-D23's unsharing and the refresh's stamp and seen
-   markers beside its lock. Confirmed and built 2026-10-05.
+   markers beside its lock. Confirmed and built 2026-10-05, with the npm launcher's stdout fix
+   ([XB-D34](#XB-D34)).
 2. **The parallel advance** for patched forks and extensions as they are today
    ([XB-D10](#XB-D10)–[XB-D13](#XB-D13)), with the build jail's start measured on an extension with
    nothing to install.
@@ -793,3 +796,4 @@ in [§7.1](#71-the-ruling). Rows marked *under (c)* apply only if
 | <a id="XB-D31"></a>XB-D31 | *Building [XB-D14](#XB-D14).* **A fresh launch on podman or Apple Container, other than a sealed build, prints one line for each `at` of a selected pack's `unshare_directory` hook that is a real directory in the machine store and that no selected pack still declares shared, naming the pack and the exact `rm -rf`, to run once every jail started before the update has stopped. Absent, unreadable, a link or a file prints nothing, and nothing deletes the folder.** Read from the hook, so `.pi-shared-git` is covered too and core learns nothing about pi; not deleted, by the move-over-delete rule, since a jail an older yolo launched still mounts it. Not on macos-user, whose machine tier is the sandbox account's home, which the launching user may not be able to list or delete in without sudo, and which no Mac has run this against | 2026-10-05 | [§6.3](#63-what-replaces-the-machine-wide-lock-now) | yes, 2026-10-05 |
 | <a id="XB-D32"></a>XB-D32 | *Building [XB-D14](#XB-D14).* **The base-home sweep that `yolo check` reports knows each shipped `unshare_directory` hook's `at` as retired (`basehome.Decls.RetiredSharedDirs`): it is neither a walk root nor an unknown top-level directory, so it is never a move candidate and never an "incomplete detection" warning.** Otherwise the `node_modules` left in every pi user's `.pi-shared-npm` read as an unknown root at every `yolo check`; the launch line of [XB-D31](#XB-D31) is where it is reported | 2026-10-05 | [§6.3](#63-what-replaces-the-machine-wide-lock-now) | yes, 2026-10-05 |
 | <a id="XB-D33"></a>XB-D33 | *Building [XB-D14](#XB-D14), as PG-D23 did.* **The `shared_directory` hook stays in core with no shipped user, and its tests run on a fixture pack of pi's old shape.** It is a generic hook a configured pack may declare, and removing a hook name breaks that pack's manifest | 2026-10-05 | [§6.3](#63-what-replaces-the-machine-wide-lock-now) | yes, 2026-10-05 |
+| <a id="XB-D34"></a>XB-D34 | *The roadmap's first item ([§9](#9-the-startup-profile), "Found on the way").* **The npm launcher's `npm install -g` sends npm's whole output to stderr (`>&2`, in place of `2>&1`) on every path through its one install function: a cold install, a moved pin, the hourly update and `yolo pack update`.** The native template's installer run and the package-manager launcher's install still use `2>&1`: found, not changed here. The first reaches a piped launch only on a cold install of an installer-delivered agent, since all three shipped ones declare an update verb, whose output already goes to stderr | 2026-10-05 | [§9](#9-the-startup-profile) | yes, 2026-10-05 |

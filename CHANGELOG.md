@@ -29,6 +29,8 @@ into a jail, and what each launch shows about the code it runs. See
 
 ### Fixed
 
+- Piping an npm-installed agent, such as `pi -p … | jq`, no longer hands its install or hourly
+  update log to the next command.
 - When `yolo host` has no container runtime to capture an agent with, it now says to install one.
 - A Ctrl-C in one of a jail's terminals now says the jail stays up for the others.
 - A Ctrl-C as a terminal's session starts no longer leaves that session's command running in the

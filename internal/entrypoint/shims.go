@@ -1293,7 +1293,9 @@ _do_install() {
     echo "  Installing $SPEC..." >&2
     # Clean stale npm temp dirs that cause ENOTEMPTY
     rm -rf "$NPM_CONFIG_PREFIX"/lib/node_modules/${PKG%%/*}/.${PKG##*/}-* 2>/dev/null
-    if YOLO_BYPASS_SHIMS=1 npm install -g __YOLO_EXTRA__--prefer-online "$SPEC" 2>&1; then
+    # npm's whole log to STDERR, its own stdout included: this runs in front of the exec, so a
+    # piped launch ("$BIN -p … | consumer") must receive the program's output and nothing else.
+    if YOLO_BYPASS_SHIMS=1 npm install -g __YOLO_EXTRA__--prefer-online "$SPEC" >&2; then
         # Record what we ASKED for, and ONLY once npm agreed to it. It lets a later run tell
         # "the DECLARATION moved" from "the registry moved" with a local file read and no
         # network — the only question a pinned package still has to answer.
