@@ -10,7 +10,7 @@ package cli
 // (loopholes.BinaryInertNotes). `yolo pack update` runs install first, so it fetches too. The
 // one other way a build enters the cache is no fetch: a from-source `just install` builds the
 // official programs from its tree and seeds them (packbin.Seed, BP-D15), and an official build
-// that fails its digest here names that step when this yolo came from a checkout
+// that cannot be fetched here names that step when this yolo came from a checkout
 // (fromSourceHint).
 //
 // EVERY SELECTED PACK, embedded ones included, through the one selection function the host verbs
@@ -23,7 +23,6 @@ package cli
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"io"
 	"runtime"
@@ -41,20 +40,20 @@ var packBinaryFetcher = func() packbin.Fetcher {
 	return packbin.Fetcher{Dir: paths.PackBinariesDir()}
 }
 
-// fromSourceHint is the next step after an official pack's build failed its digest, when this
-// yolo was installed from a checkout ("" otherwise). Between releases main pins ITS OWN build
-// of each official program, while each url still names the last release
-// (docs/design/broker-as-a-pack.md BP-D15), so for a program the tree has changed the release's
-// file is expected not to match. The tree's build is what this yolo's manifests pin, and `just
-// install` in that checkout builds it into the cache with no download.
-func fromSourceHint(p *packload.Pack, err error) string {
-	var integrity *packbin.IntegrityError
-	if !p.Official || version.SourceDir == "" || !errors.As(err, &integrity) {
+// fromSourceHint is the next step after an official pack's build could not be fetched — a
+// digest that does not match, or a file that is not there — when this yolo was installed from a
+// checkout ("" otherwise). Between releases main pins ITS OWN build of each official program,
+// while each url still names the last release (docs/design/broker-as-a-pack.md BP-D15): for a
+// program the tree has changed, the release's file is expected not to match, and for one added
+// since, no release has a file at all (BP-D24). Either way the tree's build is what this yolo's
+// manifests pin, and `just install` in that checkout builds it into the cache with no download.
+func fromSourceHint(p *packload.Pack) string {
+	if !p.Official || version.SourceDir == "" {
 		return ""
 	}
 	return fmt.Sprintf("  this yolo was installed from the checkout at %s, and pins that tree's own "+
-		"build of %s's programs, which no release publishes when the tree has changed one — run "+
-		"`just install` there: it builds them into the cache, with no download", version.SourceDir, p.Name)
+		"build of %s's programs, which a release may not publish yet — run `just install` there: "+
+		"it builds them into the cache, with no download", version.SourceDir, p.Name)
 }
 
 // installPackBinaries is the download step over the user's selection, on this machine.
@@ -107,7 +106,7 @@ func fetchPackBinaries(packs []*packload.Pack, f packbin.Fetcher, goos, goarch s
 					Name: n.Binary, URL: n.Build.URL, SHA256: n.Build.SHA256})
 				if err != nil {
 					fmt.Fprintf(errw, "yolo pack install: %s: %v\n", label, err)
-					if hint := fromSourceHint(p, err); hint != "" {
+					if hint := fromSourceHint(p); hint != "" {
 						fmt.Fprintln(errw, hint)
 					}
 					rc = 1

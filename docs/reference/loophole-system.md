@@ -462,10 +462,10 @@ the last release. `just check-ci` rebuilds every build and refuses a digest the 
 produces, naming `just pin-pack-binaries`, which with no version re-pins the digests and keeps
 the urls. A from-source `just install` builds this machine's builds from the tree and seeds them
 into the cache, re-pinning a program the tree has changed, so its jail runs the tree's program
-with no download. Any other build of such a tree, for a changed program, meets the release's
-file failing its digest at `yolo pack install`, which then names `just install` in the
-checkout when the `yolo` came from one
-([BP-D16 to BP-D19](../design/broker-as-a-pack.md#BP-D16)).
+with no download. Any other build of such a tree meets, at `yolo pack install`, the release's
+file failing its digest for a changed program, or no file at all for one added since the last
+release. Either failure then names `just install` in the checkout when the `yolo` came from one
+([BP-D16 to BP-D24](../design/broker-as-a-pack.md#BP-D16)).
 
 > [!WARNING]
 > **A yolo older than the key reads a manifest with `binaries` tolerantly**: it skips the key

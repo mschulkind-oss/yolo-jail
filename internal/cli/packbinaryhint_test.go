@@ -11,16 +11,51 @@ package cli
 
 import (
 	"bytes"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
 	"testing"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/packbin"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
+	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/richtext"
 	"github.com/mschulkind-oss/yolo-jail/internal/version"
 )
+
+// A program added since the last release has no file on any release yet, so its fetch fails
+// with a 404 rather than a digest mismatch, and it needs the same next step (BP-D24).
+func TestPackInstallNamesJustInstallForAnOfficialBuildNoReleasePublishes(t *testing.T) {
+	srv := httptest.NewTLSServer(http.NotFoundHandler())
+	t.Cleanup(srv.Close)
+	prev := packBinaryFetcher
+	packBinaryFetcher = func() packbin.Fetcher {
+		return packbin.Fetcher{Dir: paths.PackBinariesDir(), Client: srv.Client()}
+	}
+	t.Cleanup(func() { packBinaryFetcher = prev })
+	binaryPackHome(t, srv.URL+"/toold", sha256Hex([]byte("this tree's new program")))
+	p, problems := packload.LoadDir(filepath.Join(os.Getenv("HOME"), "packs", "toolpack"), "toolpack")
+	if len(problems) > 0 {
+		t.Fatalf("loading the fixture pack: %v", problems)
+	}
+	p.Official = true
+	prevDir := version.SourceDir
+	version.SourceDir = "/home/someone/code/yolo-jail"
+	t.Cleanup(func() { version.SourceDir = prevDir })
+
+	var out, errw bytes.Buffer
+	rc := fetchPackBinaries([]*packload.Pack{p}, packBinaryFetcher(), runtime.GOOS, runtime.GOARCH,
+		richtext.Printer{W: &out}, &errw)
+	if rc != 1 || !strings.Contains(errw.String(), "404") {
+		t.Fatalf("install of a build no release publishes: rc %d\n%s", rc, errw.String())
+	}
+	if !strings.Contains(errw.String(), "run `just install` there") {
+		t.Errorf("the 404 does not name `just install` in the checkout:\n%s", errw.String())
+	}
+}
 
 func TestPackInstallNamesJustInstallForAFromSourceOfficialBuild(t *testing.T) {
 	url := serveBinary(t, []byte("the last release's build"))
