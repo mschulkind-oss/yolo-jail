@@ -17,6 +17,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/entrypoint"
 	"github.com/mschulkind-oss/yolo-jail/internal/hostfloor"
 	"github.com/mschulkind-oss/yolo-jail/internal/hostpath"
+	"github.com/mschulkind-oss/yolo-jail/internal/macosuser"
 	"github.com/mschulkind-oss/yolo-jail/internal/packdecl"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/packsrc"
@@ -24,6 +25,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/pidlock"
 	"github.com/mschulkind-oss/yolo-jail/internal/richtext"
 	runtimepkg "github.com/mschulkind-oss/yolo-jail/internal/runtime"
+	"github.com/mschulkind-oss/yolo-jail/internal/tty"
 )
 
 // hostfloor.go wires the HOST AGENT FLOOR (internal/hostfloor,
@@ -54,7 +56,7 @@ var newHostFloor = func(out io.Writer, progs []hostfloor.Program) *hostfloor.Flo
 	store := &capture.Store{Dir: paths.CapturesDir()}
 	floorWire, updatesWire := config.HostFloorWire(), config.AgentUpdatesWire()
 	pins := floorForkPins(progs)
-	return &hostfloor.Floor{
+	f := &hostfloor.Floor{
 		Dir:       paths.HostFloorDir(),
 		GOOS:      runtime.GOOS,
 		GOARCH:    runtime.GOARCH,
@@ -63,26 +65,27 @@ var newHostFloor = func(out io.Writer, progs []hostfloor.Program) *hostfloor.Flo
 		UpdatesAllowed: func(pack string) bool {
 			return entrypoint.PackPolicyAllows(updatesWire, pack)
 		},
+		// Either origin (resolveFloorCapture): a capture jail's, or this host's own capture (HP-D18),
+		// which no jail ever selects.
 		ResolveCapture: func(bin string) (*capture.Entry, error) {
-			entry, _, err := resolveCaptureFor(store, bin, capture.Platform())
+			entry, _, err := resolveFloorCapture(store, bin, capture.Platform())
 			return entry, err
 		},
-		// The capture act itself — the same `yolo capture <bin>` a human runs and a jail
-		// launch's auto-capture calls — with its report on the launch's stderr too.
-		Capture: func(bin string) error {
-			if rc := hostFloorCaptureAct([]string{bin}, out, out, false); rc != 0 {
-				return fmt.Errorf("`yolo capture %s` exited %d", bin, rc)
-			}
-			return nil
-		},
-		// A capture boots a jail, so a machine whose runtime is not installed cannot make one —
-		// and an installer program with no capture in the store then has no floor entry here,
-		// rather than an install bound to fail. The capture act itself finds the runtime on PATH,
-		// so this asks the same question it will: the AMBIENT PATH, never `host_path`, since the
-		// capture boots a jail and a jail launch finds its runtime on the PATH it was started with
-		// (host-agent-environment.md, one resolver: exempt by name).
+		// A fork's build boots a jail, so a machine whose runtime is not installed cannot make one —
+		// and a fork with no build in the store then has no floor entry here, rather than an install
+		// bound to fail. The build act itself finds the runtime on PATH, so this asks the same
+		// question it will: the AMBIENT PATH, never `host_path`, since the build boots a jail and a
+		// jail launch finds its runtime on the PATH it was started with (host-agent-environment.md,
+		// one resolver: exempt by name). An installer's capture asks CaptureActUnavailable instead.
 		CaptureUnavailable: func() string {
 			rt := captureRuntime()
+			for _, native := range paths.NativeRuntimes {
+				if rt == native {
+					// No program to find on PATH: macos-user is an account, and it boots no container
+					// for a build to run in.
+					return "the runtime selected here, " + rt + ", boots no container to run a capture jail in"
+				}
+			}
 			if _, err := exec.LookPath(rt); err != nil {
 				return "no container runtime (" + rt + ") is on PATH to run `yolo capture` with"
 			}
@@ -141,6 +144,121 @@ var newHostFloor = func(out io.Writer, progs []hostfloor.Program) *hostfloor.Flo
 		Out:    out,
 		Prefix: "yolo host: ",
 	}
+	wireFloorCapture(f, out)
+	return f
+}
+
+// wireFloorCapture gives f its installer capture — the act, why it cannot run, and how it runs — by
+// the FLOOR'S platform (f.GOOS, read at each call, the one its dispositions are decided for), since
+// the two platforms capture differently:
+//
+//   - LINUX: the same `yolo capture <bin>` a human runs and a jail launch's auto-capture calls, with
+//     its report on the launch's stderr too, in a capture jail when a runtime is selected or on PATH,
+//     and on a machine with neither, on this host under Landlock (HP-D18), which chooseCaptureArm
+//     decides inside the act. Its blockers ask the same question the act will, of the AMBIENT PATH.
+//   - A MAC: the macos-user capture act (HP-D2) — Seatbelt, a throwaway HOME, the sandbox account —
+//     with that runtime handed to the act for this one run (hostFloorCaptureActOn), never through the
+//     environment the agent is exec'd with afterwards. A container capture here would record a Linux
+//     entry, which no floor on a Mac can run. Its blockers are the act's own refusals, asked first.
+func wireFloorCapture(f *hostfloor.Floor, out io.Writer) {
+	f.Capture = func(bin string) error {
+		var rc int
+		if f.GOOS == "darwin" {
+			rc = hostFloorCaptureActOn("macos-user", []string{bin}, out, out, false)
+		} else {
+			rc = hostFloorCaptureAct([]string{bin}, out, out, false)
+		}
+		if rc != 0 {
+			return fmt.Errorf("`yolo capture %s` exited %d", bin, rc)
+		}
+		return nil
+	}
+	f.CaptureActUnavailable = func(bin, does string) string {
+		if f.GOOS == "darwin" {
+			return macCaptureBlocked(hostFloorMacProbes(), bin, does)
+		}
+		return linuxCaptureBlocked(f.GOOS, does)
+	}
+	f.CaptureHow = func() string {
+		switch {
+		case f.GOOS == "darwin":
+			return "the macos-user sandbox account runs its installer once, in a throwaway home under " +
+				"Seatbelt; sudo may ask for your password"
+		case chooseCaptureArm(f.GOOS, "").host():
+			return "with no container runtime here, its installer runs once on this host, confined by " +
+				"Landlock to a throwaway home; jails capture their own"
+		}
+		return ""
+	}
+}
+
+// linuxCaptureBlocked is a Linux floor's CaptureActUnavailable: "" when chooseCaptureArm finds an arm
+// that can run, otherwise why not, with the step — for a runtime the user selected and has not
+// installed, that runtime; for one nothing selected, that runtime or a kernel with Landlock.
+func linuxCaptureBlocked(goos, does string) string {
+	arm := chooseCaptureArm(goos, "")
+	switch {
+	case arm.blocked == "":
+		return ""
+	case arm.hostWhy != "":
+		return arm.blocked + ", and yolo cannot confine its installer on this host instead (" + arm.hostWhy +
+			") — install " + arm.missing + " (`yolo check` names how on this machine), or run a kernel with " +
+			"Landlock enabled, and the next `yolo host` launch " + does
+	}
+	return arm.blocked + hostfloor.RuntimeStep(does)
+}
+
+// macCaptureProbes is what the floor's Mac capture predicate reads off the machine: the macos-user
+// capture act's own refusals (macosuser.RunCapturePlan's order), and whether its sudo can be asked.
+type macCaptureProbes struct {
+	Geteuid           func() int
+	Which             func(name string) bool
+	SandboxUserExists func() bool
+	// StdinIsTerminal reports whether sudo can ask for a password on this launch's terminal.
+	StdinIsTerminal func() bool
+	// SudoWithoutPassword reports whether `sudo -n true` succeeds: credentials sudo already holds,
+	// or a rule that asks for none. Asked only with no terminal.
+	SudoWithoutPassword func() bool
+}
+
+// hostFloorMacProbes is the machine's answers. A var so a test can stand a Mac in on any OS.
+var hostFloorMacProbes = func() macCaptureProbes {
+	d := macosuser.RealDeps(nil, nil, false)
+	return macCaptureProbes{
+		Geteuid:           d.Geteuid,
+		Which:             d.Which,
+		SandboxUserExists: d.SandboxUserExists,
+		StdinIsTerminal:   func() bool { return tty.IsTerminalFile(os.Stdin) },
+		SudoWithoutPassword: func() bool {
+			cmd := exec.Command("sudo", "-n", "true")
+			cmd.Stdin, cmd.Stdout, cmd.Stderr = nil, nil, nil
+			return cmd.Run() == nil
+		},
+	}
+}
+
+// macCaptureBlocked is a Mac floor's CaptureActUnavailable: why the macos-user capture act cannot
+// capture bin here now, with its step, or "" when it can. Each refusal is one RunCapturePlan would
+// make after the jail's preparation began, asked here first so the floor says it as no floor entry —
+// the launch then runs the PATH copy (OQ-HE11) — rather than failing an install.
+func macCaptureBlocked(p macCaptureProbes, bin, does string) string {
+	switch {
+	case p.Geteuid() == 0:
+		return "yolo is running as root, and a capture on a Mac runs as your own user, asking for sudo " +
+			"itself at each step that needs it — run `yolo host` without sudo, and it " + does
+	case !p.Which("sandbox-exec"):
+		return "sandbox-exec (Apple Seatbelt), which confines a capture's installer on a Mac, is not on PATH " +
+			"— put /usr/bin back on it, and the next `yolo host` launch " + does
+	case !p.SandboxUserExists():
+		return "the sandbox account " + macosuser.SandboxUser + ", which a capture on a Mac runs its " +
+			"installer as, does not exist — run the one-time setup, `yolo macos-setup`, and the next " +
+			"`yolo host` launch " + does
+	case !p.StdinIsTerminal() && !p.SudoWithoutPassword():
+		return "a capture on a Mac asks for sudo, and this launch has no terminal to ask on — run " +
+			"`YOLO_RUNTIME=macos-user yolo capture " + bin + "` once in a terminal, and every later " +
+			"`yolo host` launch uses its result"
+	}
+	return ""
 }
 
 // floorForkBuild is the build a floor program of a fork asks for: the fork as its pack declares it,
@@ -265,10 +383,17 @@ func floorForkPins(progs []hostfloor.Program) map[string]packload.ForkPin {
 	return out
 }
 
-// hostFloorCaptureAct is the capture act the production floor runs: `yolo capture <bin>` itself.
-// A var only so a test can stand in for the jail it boots and still drive the floor's own Capture
-// wiring; nothing but a test reassigns it.
+// hostFloorCaptureAct is the capture act the production floor runs on Linux: `yolo capture <bin>`
+// itself. A var only so a test can stand in for the jail it boots and still drive the floor's own
+// Capture wiring; nothing but a test reassigns it.
 var hostFloorCaptureAct = captureHost
+
+// hostFloorCaptureActOn is the capture act under a runtime its caller names for this act alone
+// (captureAct.runtime): the Mac floor's, on macos-user (HP-D2). A var for hostFloorCaptureAct's
+// reason.
+var hostFloorCaptureActOn = func(rt string, args []string, out, errw io.Writer, color bool) int {
+	return captureHostWith(args, out, errw, color, captureAct{runtime: rt})
+}
 
 // captureRuntime is the runtime a `yolo capture` would boot its jail with: YOLO_RUNTIME, then the
 // user config's `runtime`, then the platform default — run's precedence without its probe.
@@ -584,22 +709,11 @@ func resolveHostLaunchTarget(packs []*packload.Pack, cmd0 string, lp *hostpath.L
 	return hostTarget{Path: st.Launcher, Origin: originFloor}, 0
 }
 
-// noCopyWhere names the machine the no-copy line is about — and says "yet" for the one case that
-// is a matter of time: an installer agent on a Mac, until the host capture (HP-D2) ships. goos is
-// the floor's own platform (Floor.GOOS), the one its disposition was decided for.
-func noCopyWhere(goos string, p hostfloor.Program) string {
-	switch {
-	case p.Install.Kind == packdecl.InstallKindSource:
-		// A fork's build: the reason says why this machine holds none — no pin, a build made for
-		// the jail's home only, no runtime to build with, or a Mac, which no Linux build runs on.
-		// None of those is a matter of time, so no "yet".
-		if goos == "darwin" {
-			return "on this Mac"
-		}
-		return "on this machine"
-	case goos == "darwin" && p.Install.Kind == "native":
-		return "on this Mac yet"
-	case goos == "darwin":
+// noCopyWhere names the machine the no-copy line is about. goos is the floor's own platform
+// (Floor.GOOS), the one its disposition was decided for. The reason after it says why this machine
+// holds no copy and, where something ends that, what does: none is only a matter of time.
+func noCopyWhere(goos string, _ hostfloor.Program) string {
+	if goos == "darwin" {
 		return "on this Mac"
 	}
 	return "on this machine"

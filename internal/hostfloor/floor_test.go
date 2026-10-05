@@ -480,6 +480,120 @@ func TestAnInstallerProgramTheFloorCannotCaptureForWantOfARuntimeNamesTheStep(t 
 	}
 }
 
+// TestAnInstallerProgramOnAMacIsItsCaptureMaterialized is HP-D2 at this package's reach: on a Mac
+// the floor's claude is the store's capture — the macos-user capture act's, taken under the neutral
+// staging home /Users/Shared/yolo-captures/claude/home — relocated into the prefix, and it starts
+// from its launcher with no environment. The floor's platform is the Mac's; the materialize itself
+// runs wherever the test does, which only the platform gate in capture.Materialize reads.
+func TestAnInstallerProgramOnAMacIsItsCaptureMaterialized(t *testing.T) {
+	w := newLinuxWorld(t)
+	w.floor.GOOS, w.floor.GOARCH = "darwin", "arm64"
+	cs := newCaptureStore(t)
+	cs.home = "/Users/Shared/yolo-captures/claude/home"
+	entry := cs.add("claude", "2.1.267", true)
+	w.floor.ResolveCapture = cs.resolve
+	w.floor.Capture = func(string) error { t.Fatal("a capture ran although the store had one"); return nil }
+	w.floor.CaptureActUnavailable = func(string, string) string { return "" }
+	claude := installerProgram("claude", "claude")
+	if st := w.floor.Status(claude); st.Disposition != Missing {
+		t.Fatalf("Status = %s (%s), want missing: a Mac holds an installer agent's capture", st.Disposition, st.Reason)
+	}
+	st, outcome, err := w.floor.Ensure(context.Background(), claude)
+	if err != nil {
+		t.Fatalf("Ensure: %v\n%s", err, w.out.String())
+	}
+	if outcome != Installed || st.Record.Capture != entry.Key || st.Record.Version != "2.1.267" {
+		t.Fatalf("outcome %s record %+v", outcome, st.Record)
+	}
+	cmd := exec.Command(st.Launcher, "--version")
+	cmd.Env = []string{}
+	if got, err := cmd.CombinedOutput(); err != nil || string(got) != "claude-2.1.267 --version\n" {
+		t.Fatalf("running the floor's claude: %q %v", got, err)
+	}
+	if link, _ := os.Readlink(st.Record.Entry); !strings.HasPrefix(link, w.floor.Dir) {
+		t.Errorf("~/.local/bin/claude links to %s, not into the floor: the capture was not relocated", link)
+	}
+}
+
+// AN INSTALLER'S CAPTURE IS NOT A FORK'S BUILD: on a machine that cannot boot a jail (CaptureUnavailable)
+// but can capture an installer another way (CaptureActUnavailable "" — the Landlock host capture,
+// HP-D18), the installer program is missing and its install captures it, while a fork's program,
+// whose build only a jail runs, stays no floor entry naming the runtime: a pack may not build on the
+// host (forked-programs-as-packs.md §12).
+func TestAMachineThatCapturesWithoutAJailStillCannotBuildAFork(t *testing.T) {
+	const noRuntime = "no container runtime (podman) is on PATH"
+	w := newLinuxWorld(t)
+	cs := newCaptureStore(t)
+	w.floor.ResolveCapture = cs.resolve
+	captures := 0
+	w.floor.Capture = func(bin string) error {
+		captures++
+		cs.add(bin, "2.1.267", true)
+		return nil
+	}
+	w.floor.CaptureUnavailable = func() string { return noRuntime }
+	w.floor.CaptureActUnavailable = func(string, string) string { return "" }
+	claude := installerProgram("claude", "claude")
+	if st := w.floor.Status(claude); st.Disposition != Missing {
+		t.Fatalf("installer: Status = %s (%s), want missing — the capture runs without a jail", st.Disposition, st.Reason)
+	}
+	if st, outcome, err := w.floor.Ensure(context.Background(), claude); err != nil || outcome != Installed ||
+		captures != 1 {
+		t.Fatalf("installer: Ensure = %+v %s %v with %d captures, want one capture installed\n%s", st, outcome, err,
+			captures, w.out.String())
+	}
+
+	pin := forkCommitOne
+	fw, bs := forkWorld(t, &pin)
+	fw.floor.CaptureUnavailable = func() string { return noRuntime }
+	fw.floor.CaptureActUnavailable = func(string, string) string { return "" }
+	st, _, err := fw.floor.Ensure(context.Background(), forkProgram())
+	if !errors.Is(err, ErrNoEntry) || st.Disposition != NoEntry || !strings.Contains(st.Reason, noRuntime) {
+		t.Fatalf("fork: Ensure = %s (%s), %v; want no floor entry naming the missing runtime", st.Disposition,
+			st.Reason, err)
+	}
+	if len(bs.builds) != 0 {
+		t.Errorf("builds = %v: a fork was built on a machine that boots no jail", bs.builds)
+	}
+}
+
+// THE CAPTURE ACT'S OWN REASON IS THE WHOLE CLAUSE: CaptureActUnavailable names its step, so the floor
+// appends no runtime step to it, in both of the capture arms; and with no act predicate the runtime
+// predicate answers with its step, as before.
+func TestTheCaptureActsReasonCarriesItsOwnStep(t *testing.T) {
+	const own = "the sandbox account _yolojail does not exist — run `yolo macos-setup`, and the next launch "
+	for _, c := range []struct {
+		name, reason, does string
+		seed               func(cs *captureStore)
+	}{
+		{"no capture", "there is no capture of claude on this machine, and ", "captures it", func(*captureStore) {}},
+		{"a capture for a jail's home only", "the capture of claude on this machine was recorded for a jail's home " +
+			"only, and ", "recaptures it", func(cs *captureStore) { cs.add("claude", "2.1.200", false) }},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			w := newLinuxWorld(t)
+			w.floor.GOOS = "darwin"
+			cs := newCaptureStore(t)
+			c.seed(cs)
+			w.floor.ResolveCapture = cs.resolve
+			w.floor.Capture = func(string) error { t.Fatal("a capture ran"); return nil }
+			w.floor.CaptureUnavailable = func() string { return "a runtime reason no installer capture reads" }
+			var asked []string
+			w.floor.CaptureActUnavailable = func(bin, does string) string {
+				asked = append(asked, bin+"/"+does)
+				return own + does
+			}
+			st := w.floor.Status(installerProgram("claude", "claude"))
+			if st.Disposition != NoEntry || st.Reason != c.reason+own+c.does {
+				t.Fatalf("Status = %s\n  %s\nwant no floor entry\n  %s", st.Disposition, st.Reason, c.reason+own+c.does)
+			}
+			if strings.Join(asked, "|") != "claude/"+c.does {
+				t.Errorf("CaptureActUnavailable was asked %q, want once for claude", asked)
+			}
+		})
+	}
+}
+
 // TestNoFloorEntryDispositions: the ways the floor cannot hold a selected pack's program,
 // each with its reason, and none of them touching the disk.
 func TestNoFloorEntryDispositions(t *testing.T) {
@@ -491,10 +605,29 @@ func TestNoFloorEntryDispositions(t *testing.T) {
 	}{
 		{"configured out", func(f *Floor, p *Program) { f.Include = func(string) bool { return false } }, "host_floor"},
 		{"unpublished", func(f *Floor, p *Program) { p.Install.Platforms = []string{"plan9"} }, "publishes no build"},
-		{"installer on macOS", func(f *Floor, p *Program) {
-			f.GOOS = "darwin"
+		// An installer agent on a Mac with nothing captured and the macos-user capture act unable to
+		// run: its own refusal, whose step is the sandbox account's setup (HP-D2).
+		{"installer on macOS before macos-setup", func(f *Floor, p *Program) {
+			f.GOOS, f.GOARCH = "darwin", "arm64"
+			f.ResolveCapture = newCaptureStore(t).resolve
+			f.Capture = func(string) error { t.Fatal("a capture ran on a Mac with no sandbox account"); return nil }
+			f.CaptureActUnavailable = func(bin, does string) string {
+				return "the sandbox account _yolojail does not exist — run the one-time setup, `yolo macos-setup`, " +
+					"and the next `yolo host` launch " + does
+			}
 			*p = installerProgram("claude", "claude")
-		}, "host capture"},
+		}, "`yolo macos-setup`, and the next `yolo host` launch captures it"},
+		// A Mac's floor given no capture act has none to run: no capture jail stands in for it.
+		{"installer on macOS with no capture act", func(f *Floor, p *Program) {
+			f.GOOS, f.GOARCH = "darwin", "arm64"
+			f.ResolveCapture = newCaptureStore(t).resolve
+			f.CaptureUnavailable = func() string { return "" }
+			*p = installerProgram("claude", "claude")
+		}, "macos-user capture act"},
+		{"installer on a platform no capture runs on", func(f *Floor, p *Program) {
+			f.GOOS = "freebsd"
+			*p = installerProgram("claude", "claude")
+		}, "this machine is freebsd/"},
 		{"no Node for this arch", func(f *Floor, p *Program) { f.GOARCH = "riscv64" }, "Node publishes no official build"},
 		// A FORK's program (the base's, after the selection's fork rewrite) on a floor that reads
 		// no pin: no build to ask for, naming the fork. built_test.go has the fork's other cases.

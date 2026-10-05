@@ -149,6 +149,12 @@ func runInternal(args []string) int {
 		// the launch argv runs inside the sandbox, between the env-file reader and the shell that
 		// execs the agent. Hidden: its caller is that argv, and it runs the command it is handed.
 		return macosuser.SessionGuardMain(args[1:])
+	case landlockExecVerb:
+		// The HOST CAPTURE's confinement on Linux (capturelandlock_linux.go,
+		// docs/design/host-tool-provisioning.md HP-D18): this process restricts itself with Landlock
+		// and execs the capture driver, or runs nothing. Hidden: its caller is `yolo capture` on a
+		// machine with no container runtime.
+		return runLandlockExec(args[1:])
 	default:
 		fmt.Fprintf(os.Stderr, "yolo internal: unknown command %q\n", args[0])
 		return 2

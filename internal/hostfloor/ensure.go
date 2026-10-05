@@ -523,8 +523,8 @@ func (f *Floor) installFromCapture(p Program, dir string) (*Record, error) {
 			return nil, fmt.Errorf("no capture of %s on this machine (%v), and this machine cannot run "+
 				"`yolo capture`", p.Bin(), err)
 		}
-		f.say("no capture of %s on this machine yet; running `yolo capture %s` (a throwaway jail runs "+
-			"its installer once, and every jail on this machine reuses the result)", p.Bin(), p.Bin())
+		f.say("no capture of %s on this machine yet; running `yolo capture %s` (%s)", p.Bin(), p.Bin(),
+			f.captureHow())
 		if entry, err = f.recapture(p.Bin()); err != nil {
 			return nil, err
 		}
