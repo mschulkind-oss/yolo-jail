@@ -227,9 +227,9 @@ func (f *Floor) execRecord(ctx context.Context, in packdecl.Install, rec *Record
 		return rec, nil
 	}
 	// NODE'S LOADER, BEFORE NODE IS FETCHED (HP-D15): the floor's status checks the store's build
-	// first where it can (buildProvisionable), and this is the check every fork's install reaches,
-	// a patched fork's and a build the install itself just made included, so no launch downloads a
-	// Node this machine cannot start.
+	// first where it can (buildProvisionable, patchedProvisionable), and this is the check every
+	// fork's install reaches, a patched fork's and a build the install itself just made included,
+	// so no launch downloads a Node this machine cannot start.
 	if why := f.nodeLoaderProblem(); why != "" {
 		return nil, &noEntryError{reason: "the build of " + in.Bin + " (" + rec.Version + ") is a Node script, and " + why}
 	}

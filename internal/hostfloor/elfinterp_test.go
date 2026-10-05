@@ -673,8 +673,10 @@ func TestAForkNodeScriptOnAMachineWithoutNodesLoaderIsNoFloorEntryBeforeAnyFetch
 }
 
 // A PATCHED FORK'S NODE SCRIPT ON A MACHINE WITHOUT NODE'S LOADER is refused before Node is fetched,
-// at the install's own check (execRecord), so no launch downloads a Node this machine cannot start:
-// the first launch's and every later one's. Drop that check, and this fails.
+// so no launch downloads a Node this machine cannot start: the first launch's, whose advance makes
+// the good build, and every later one's. The status reads the good build's program
+// (patchedProvisionable); TestAForkBuildTheInstallMakesOnAMachineWithoutNodesLoaderFetchesNoNode
+// pins the install's own check (execRecord), which a build no status has seen reaches.
 func TestAPatchedForkNodeScriptOnAMachineWithoutNodesLoaderFetchesNoNode(t *testing.T) {
 	w, pf := patchedWorld(t)
 	fetches := w.countingNodeDist()
@@ -698,5 +700,73 @@ func TestAPatchedForkNodeScriptOnAMachineWithoutNodesLoaderFetchesNoNode(t *test
 	}
 	if _, err := os.Stat(w.floor.Launcher("forkcli")); err == nil {
 		t.Error("a launcher was written for a program this machine cannot start")
+	}
+}
+
+// A PATCHED FORK'S GOOD BUILD THAT CANNOT START HERE is no floor entry at its status, before any
+// install: its program is read from the store as a plain fork's build is (storeProgramLoaderProblem),
+// so a machine without Node's loader neither copies the good build out of the store nor fetches
+// Node, on the first launch or any later one. Drop the check from patchedProvisionable, and the
+// status says Missing and each launch copies the build before its install refuses it.
+func TestAPatchedForkGoodBuildThatCannotStartHereIsNoFloorEntryBeforeAnyCopy(t *testing.T) {
+	w, pf := patchedWorld(t)
+	fetches := w.countingNodeDist()
+	firstGood(pf)
+	w.rootWithout()
+	p := patchedProgram()
+	st := w.floor.Status(p)
+	if st.Disposition != NoEntry ||
+		!strings.Contains(st.Reason, "fork pack forkpack's patched build of forkcli at v1.0.0 (11111111) + 2 patches") {
+		t.Fatalf("Status = %s (%s), want no floor entry for the good build", st.Disposition, st.Reason)
+	}
+	for _, want := range w.nodeScriptReasonParts() {
+		if !strings.Contains(st.Reason, want) {
+			t.Errorf("the reason lacks %q:\n  %s", want, st.Reason)
+		}
+	}
+	for launch := 1; launch <= 2; launch++ {
+		if st, _, err := w.floor.Ensure(context.Background(), p); !errors.Is(err, ErrNoEntry) || st.Disposition != NoEntry {
+			t.Fatalf("launch %d: %s (%s) %v\n%s", launch, st.Disposition, st.Reason, err, w.out.String())
+		}
+	}
+	if out := w.out.String(); strings.Contains(out, "materialized forkcli") {
+		t.Errorf("the floor copied a good build this machine cannot start:\n%s", out)
+	}
+	if n := fetches.Load(); n != 0 {
+		t.Errorf("Node was fetched %d times for a program this machine cannot start", n)
+	}
+	if _, err := os.Stat(w.floor.Launcher("forkcli")); err == nil {
+		t.Error("a launcher was written for a program this machine cannot start")
+	}
+}
+
+// A FORK BUILD THE INSTALL ITSELF MAKES, on a machine without Node's loader, is refused before Node
+// is fetched by the install's own check (execRecord): the status had no store build to read, so no
+// earlier check can see the program. The next launch's status reads the build the first one left.
+// Drop execRecord's check, and the first launch fetches Node.
+func TestAForkBuildTheInstallMakesOnAMachineWithoutNodesLoaderFetchesNoNode(t *testing.T) {
+	pin := forkCommitOne
+	w, bs := forkWorld(t, &pin)
+	fetches := w.countingNodeDist()
+	w.rootWithout()
+	p := forkProgram()
+	if st := w.floor.Status(p); st.Disposition != Missing {
+		t.Fatalf("before any build: %s (%s), want missing", st.Disposition, st.Reason)
+	}
+	st, _, err := w.floor.Ensure(context.Background(), p)
+	if !errors.Is(err, ErrNoEntry) || len(bs.builds) != 1 {
+		t.Fatalf("the install: %s (%s) %v after %d builds\n%s", st.Disposition, st.Reason, err, len(bs.builds), w.out.String())
+	}
+	if !strings.Contains(err.Error(), "is a Node script") || !strings.Contains(err.Error(), "programs.nix-ld.enable = true;") {
+		t.Errorf("the install's refusal does not name the Node script and the step: %v", err)
+	}
+	if n := fetches.Load(); n != 0 {
+		t.Errorf("Node was fetched %d times for a program this machine cannot start\n%s", n, w.out.String())
+	}
+	if _, err := os.Stat(w.floor.Launcher("forkcli")); err == nil {
+		t.Error("a launcher was written for a program this machine cannot start")
+	}
+	if st := w.floor.Status(p); st.Disposition != NoEntry {
+		t.Errorf("after the build: %s (%s), want no floor entry from the store's build", st.Disposition, st.Reason)
 	}
 }
