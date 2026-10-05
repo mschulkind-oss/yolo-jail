@@ -578,8 +578,24 @@ func BriefingContent(in BriefingInput) string {
 	// scoped to the jail: wherever the host nix daemon is mounted the jail runs with
 	// NIX_REMOTE=daemon, so a `nix build` runs in the daemon's builders on the host, which
 	// no process here started (docs/design/io-priority.md §2, Non-Goal 6).
+	//
+	// ON macos-user THE MECHANISM IS ANOTHER ONE, and so is every word after the value: the
+	// launcher sets a macOS disk I/O policy on itself and the session inherits it
+	// (docs/design/io-priority.md §5.5). There is no Linux class, no scheduler to name and no
+	// entrypoint boot, so the Linux sentence would be three false claims in a row; this one
+	// names the policy and keeps the two that hold everywhere: advisory, and the host nix
+	// daemon's builds are outside it.
 	var ioPriorityLine []string
-	if p := ioprio.Priority(in.IOPriority); p.Declared() {
+	if p := ioprio.Priority(in.IOPriority); p.Declared() && slices.Contains(paths.NativeRuntimes, in.Mechanism) {
+		pol, _ := p.DarwinPolicy()
+		ioPriorityLine = []string{
+			"- **Disk I/O priority**: `" + in.IOPriority + "` (" + ioprio.DarwinPolicyName(pol) + "), " +
+				"the macOS disk I/O policy the launcher set before this session started, so every " +
+				"process here inherits it and builds yield the disk under contention. Advisory, not a " +
+				"limit: a process can set its own, and work a host process does for the session is " +
+				"outside it: a `nix build` through the host nix daemon keeps the host's policy.",
+		}
+	} else if p.Declared() {
 		ioPriorityLine = []string{
 			"- **Disk I/O priority**: `" + in.IOPriority + "` (" + p.ClassName() + "), set on every " +
 				"process in this jail at boot so builds here yield the disk under contention. " +

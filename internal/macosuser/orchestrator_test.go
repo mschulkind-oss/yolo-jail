@@ -2,6 +2,9 @@ package macosuser
 
 import (
 	"bytes"
+	"io"
+	"runtime"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -13,7 +16,18 @@ import (
 // override fields per test. The default is a clean macOS host with a resolved
 // interpreter (so the plan is viable), recording every Run/RunBash/RunWithProxy.
 func mockDeps(rec *[]string) Deps {
+	// The process disk policy the mock "holds": SetDiskIOPolicy records the call and sets it,
+	// and DiskIOPolicy reads it back, as the real pair does on a Mac.
+	policy := 0
 	return Deps{
+		SetDiskIOPolicy: func(p int) error {
+			if rec != nil {
+				*rec = append(*rec, "iopol:"+strconv.Itoa(p))
+			}
+			policy = p
+			return nil
+		},
+		DiskIOPolicy:      func() (int, error) { return policy, nil },
 		IsMacOS:           func() bool { return true },
 		Geteuid:           func() int { return 501 },
 		Which:             func(string) bool { return true },
@@ -57,6 +71,9 @@ func mockDeps(rec *[]string) Deps {
 		SetRandomPassword: func() bool { return true },
 		PathIsDir:         func(string) bool { return true },
 		PathExists:        func(string) bool { return true },
+		// Discarded unless a test reads it: every launch prints, and a production Deps always
+		// has a writer.
+		Out: io.Discard,
 	}
 }
 
@@ -668,5 +685,25 @@ func TestABootstrapFailureNamesTheBootLog(t *testing.T) {
 	if envInstall < 0 || boot < 0 || envInstall > boot {
 		t.Errorf("the session env file must be installed before the bootstrap that reads it "+
 			"(install at %d, bootstrap at %d):\n%s", envInstall, boot, strings.Join(rec, "\n"))
+	}
+}
+
+// TestRealDepsWiresTheDiskPolicyCalls: the launch's Deps reach internal/ioprio's
+// setiopolicy_np pair. Unwired, a declared resources.io would warn "no call wired" on every
+// macos-user launch while every mock-driven test stayed green. Off darwin the pair refuses
+// with ioprio's own error, which is how this test tells the wiring from a stand-in.
+func TestRealDepsWiresTheDiskPolicyCalls(t *testing.T) {
+	d := RealDeps(nil, nil, false)
+	if d.SetDiskIOPolicy == nil || d.DiskIOPolicy == nil {
+		t.Fatal("RealDeps leaves the disk policy seams nil")
+	}
+	if runtime.GOOS == "darwin" {
+		return // the real call; internal/ioprio's darwin test drives it in a child process
+	}
+	if err := d.SetDiskIOPolicy(3); err == nil || !strings.Contains(err.Error(), "setiopolicy_np") {
+		t.Errorf("SetDiskIOPolicy off darwin = %v, want internal/ioprio's refusal", err)
+	}
+	if _, err := d.DiskIOPolicy(); err == nil || !strings.Contains(err.Error(), "setiopolicy_np") {
+		t.Errorf("DiskIOPolicy off darwin = %v, want internal/ioprio's refusal", err)
 	}
 }

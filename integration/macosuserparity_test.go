@@ -199,19 +199,22 @@ func TestMacosUserStartsAConfigDeclaredLoophole(t *testing.T) {
 
 // TestMacosUserSaysResourcesAndRelocationsAreIgnored is fix #9 (`8ab03d2e`) as it stands today.
 //
-// Two of its three warnings stand and one is retired. `resources` and `cache_relocations` still
-// warn (internal/macosuser/orchestrator.go), and the hardware can check what each warning SAYS,
-// not just that it is printed: that the sandboxed process runs with the invoking user's own
-// virtual-memory limit, and that a relocated cache subdir is not relocated — a file written
-// there in the sandbox never reaches the relocation target. The third warning, pack `state` at
-// scope:workspace being machine-wide, was retired when the per-workspace home layout shipped;
-// TestMacosUserHomeTierIsPerWorkspace is its hardware test, so it is not repeated here.
+// Two of its three warnings stand and one is retired. `cache_relocations` still warns, and so
+// does `resources` — for pids_limit alone now: io is set as the disk policy, cpus is honored
+// cooperatively and memory by the sampled guard (internal/macosuser/orchestrator.go;
+// TestMacosUserIOPriorityIsApplied and TestMacosUserMemoryGuard are their hardware tests). The
+// hardware can check what each remaining warning SAYS, not just that it is printed: that the
+// sandboxed process runs with the invoking user's own virtual-memory limit, and that a
+// relocated cache subdir is not relocated — a file written there in the sandbox never reaches
+// the relocation target. The third warning, pack `state` at scope:workspace being machine-wide,
+// was retired when the per-workspace home layout shipped; TestMacosUserHomeTierIsPerWorkspace is
+// its hardware test, so it is not repeated here.
 func TestMacosUserSaysResourcesAndRelocationsAreIgnored(t *testing.T) {
 	requireMacosUser(t)
 	target := filepath.Join(resolvedTempDir(t), "relocated")
 	const subdir = "yolo-it-reloc"
 	packHome(t, fmt.Sprintf(`{"cache_relocations": {%q: %q}}`, subdir, target))
-	ws := macosUserWorkspace(t, `{"resources": {"memory": "2g"}}`)
+	ws := macosUserWorkspace(t, `{"resources": {"pids_limit": 4096, "cpus": 2}}`)
 	probeName := "probe-" + acParityNonce()
 
 	r := macosUserRunProbe(t, "#9", ws, strings.Join([]string{
@@ -222,7 +225,7 @@ func TestMacosUserSaysResourcesAndRelocationsAreIgnored(t *testing.T) {
 	out := r.combined()
 
 	for _, want := range []string{
-		"resources are NOT enforced on macos-user", "memory",
+		"resources are NOT enforced on macos-user", "so pids_limit are read and ignored",
 		"cache_relocations are NOT implemented on macos-user", subdir,
 	} {
 		if !strings.Contains(out, want) {
@@ -230,6 +233,12 @@ func TestMacosUserSaysResourcesAndRelocationsAreIgnored(t *testing.T) {
 				"backend does with the two keys (orchestrator.go), so a missing one is a "+
 				"silent drop again.\n%s", want, out)
 		}
+	}
+	// cpus is acted on, so it is named on its own line and never on the ignored one.
+	if strings.Contains(out, "so cpus") || strings.Contains(out, "cpus, pids_limit") ||
+		!strings.Contains(out, "resources.cpus (2) is honored cooperatively") {
+		t.Errorf("resources.cpus is honored cooperatively and must say so, not be called "+
+			"ignored:\n%s", out)
 	}
 
 	hostV, err := exec.Command("/bin/bash", "-c", "ulimit -v").Output()

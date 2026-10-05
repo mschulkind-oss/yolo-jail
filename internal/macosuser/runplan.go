@@ -8,6 +8,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/durable"
 	"github.com/mschulkind-oss/yolo-jail/internal/entrypoint"
+	"github.com/mschulkind-oss/yolo-jail/internal/ioprio"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
@@ -105,6 +106,18 @@ type RunPlan struct {
 	// NixClientDir is the host nix client's store bin dir when this launch put one on the
 	// sandbox PATH (it is also the last entry of DarwinPathPrefix), "" when it did not.
 	NixClientDir string
+	// IOPriority is the declared resources.io priority, which the launcher sets on itself as
+	// a process disk policy before the bootstrap, so every process of the session inherits it
+	// (orchestrator.go, applyDiskIOPolicy; docs/design/io-priority.md §5.5). Normal sets
+	// nothing.
+	IOPriority ioprio.Priority
+	// SessionGuard is the declared resources.memory, which the launch argv enforces by
+	// sampling (sessionguard.go); the zero value runs no guard and leaves the argv untouched.
+	SessionGuard SessionGuard
+	// CooperativeCPUs is ceil(resources.cpus), at least 1, when cpus is declared, and 0 when
+	// it is not: the value the parallelism variables (CooperativeCPUVars) default to in the
+	// session env file, below any value the user's own env layers set.
+	CooperativeCPUs int
 	// HomeReadonly is what Seatbelt was told to write-protect in the sandbox home: every
 	// staged skills dir and briefing this launch delivered, at the PHYSICAL path the kernel
 	// will see, and the chain above each (ResolveHomeReadonly). Empty when the launch
@@ -483,6 +496,16 @@ func BuildRunPlanWithDaemons(workspace string, cfg *jsonx.OrderedMap, agents, ag
 		bootstrapEnv.Set(SandboxEnvFileEnv, envFile)
 	}
 
+	// THE DECLARED RESOURCES THIS BACKEND NOW ACTS ON (docs/design/declaration-parity.md
+	// DP-D1's two rejected stand-ins were RLIMIT_AS and RLIMIT_NPROC; neither is used): the I/O
+	// priority the orchestrator sets as a disk policy, the memory guard the launch argv runs,
+	// and the cpus value buildPlan's parallelism defaults were set from. pids_limit is the one
+	// still read and ignored.
+	resCfg := cfgSection(cfg, "resources")
+	ioPriority := ioprio.FromResources(resCfg)
+	guard := SessionGuardFor(resCfg)
+	cpus, _ := CooperativeCPUs(resCfg)
+
 	var provisionArgv []string
 	provisionScriptPath := ""
 	if ProvisionNeeded(cfg, floors) {
@@ -554,7 +577,11 @@ func BuildRunPlanWithDaemons(workspace string, cfg *jsonx.OrderedMap, agents, ag
 		ProvisionArgv:       provisionArgv,
 		ProvisionScriptPath: provisionScriptPath,
 		ProvisionFloors:     floors,
-		LaunchArgv:          LaunchArgv(agentArgv, profilePath, envFile, workspace, "", "", darwinPrefix),
+		LaunchArgv: LaunchArgvWithGuard(agentArgv, profilePath, envFile, workspace, "", "",
+			darwinPrefix, guard, stagedYolo),
+		IOPriority:      ioPriority,
+		SessionGuard:    guard,
+		CooperativeCPUs: cpus,
 
 		JailDaemonArgv:          jailDaemonArgv,
 		JailDaemonNames:         daemonNames,
@@ -1171,6 +1198,26 @@ func PlanInvariants(plan RunPlan) []string {
 				"the keychains or another process's command line")
 	}
 
+	// THE MEMORY GUARD IS ON THE LAUNCH ARGV EXACTLY WHEN IT IS DECLARED, run by the staged
+	// yolo. Declared and absent, the launch tells the human resources.memory is guarded and
+	// guards nothing; present and undeclared, a launch that asked for nothing runs a sampler
+	// it never heard of; run by another binary, the sandbox execs one it may not be able to
+	// read. The words are checked consecutively, like the profile above, because `--memory`
+	// and a byte count alone could sit anywhere on an argv.
+	guardWords := plan.SessionGuard.Argv(plan.StagedYolo)
+	hasGuard := containsArgPair(plan.LaunchArgv, plan.StagedYolo, "internal", SessionGuardVerb)
+	switch {
+	case len(plan.LaunchArgv) == 0:
+	case plan.SessionGuard.Enabled() && !containsArgRun(plan.LaunchArgv, guardWords):
+		problems = append(problems,
+			"resources.memory is declared ("+formatBytes(plan.SessionGuard.MemoryBytes)+") but the "+
+				"launch argv does not run `"+strings.Join(guardWords, " ")+"`; the launch would "+
+				"say the session's memory is guarded and guard nothing")
+	case !plan.SessionGuard.Enabled() && hasGuard:
+		problems = append(problems,
+			"the launch argv runs the memory guard although resources.memory is not declared")
+	}
+
 	// Acceptance-bar guard: darwin store bin dirs must reach the launch PATH.
 	launchStr := strings.Join(plan.LaunchArgv, " ")
 	for _, storeBin := range plan.DarwinPathPrefix {
@@ -1490,6 +1537,28 @@ func argvEnvValue(argv []string, key string) (string, bool) {
 func containsArg(argv []string, arg string) bool {
 	for _, a := range argv {
 		if a == arg {
+			return true
+		}
+	}
+	return false
+}
+
+// containsArgRun reports whether words appear in argv consecutively, in order: containsArgPair
+// for a run of any length. An empty run is never contained, so an invariant handed a guard
+// that renders no words cannot pass by vacuity.
+func containsArgRun(argv, words []string) bool {
+	if len(words) == 0 {
+		return false
+	}
+	for i := 0; i+len(words) <= len(argv); i++ {
+		match := true
+		for j, w := range words {
+			if argv[i+j] != w {
+				match = false
+				break
+			}
+		}
+		if match {
 			return true
 		}
 	}

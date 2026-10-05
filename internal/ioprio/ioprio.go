@@ -1,6 +1,7 @@
 // Package ioprio is the one reading of `resources.io` and the one grading of the disk a
 // path lands on, shared by every reader: config validation, the launcher and its briefing,
-// the macos-user orchestrator, `yolo check`, and yolo-entrypoint, which applies it
+// the macos-user orchestrator, `yolo check`, and the two that apply it: yolo-entrypoint on
+// Linux (ioprio_set) and the macos-user launcher on macOS (setiopolicy_np)
 // (docs/design/io-priority.md).
 //
 // ONE PACKAGE, BECAUSE THE SHORTHAND HAS FIVE READERS. `"io": "low"` means
@@ -30,9 +31,9 @@ const (
 	// Normal makes no call: the jail keeps whatever class its launcher's process tree holds.
 	// It is also what an unset key, `null` and `{}` mean.
 	Normal Priority = "normal"
-	// Low is class BE (best effort), level 7 on Linux.
+	// Low is class BE (best effort), level 7 on Linux, and IOPOL_UTILITY on macos-user.
 	Low Priority = "low"
-	// Idle is class IDLE on Linux.
+	// Idle is class IDLE on Linux, and IOPOL_THROTTLE on macos-user.
 	Idle Priority = "idle"
 )
 
@@ -173,4 +174,55 @@ func (p Priority) ClassName() string {
 		return "idle class"
 	}
 	return "unset"
+}
+
+// The macOS disk I/O policy, from xnu's <sys/resource.h>: setiopolicy_np(IOPOL_TYPE_DISK,
+// IOPOL_SCOPE_PROCESS, <policy>) is what the macos-user launcher calls (io-priority.md §5.5,
+// IO-D7). The numbers are the header's, not a mapping of ours, so they are spelled here once
+// and both the darwin call and the Linux-tested mapping read them.
+const (
+	IopolTypeDisk     = 0 // IOPOL_TYPE_DISK
+	IopolScopeProcess = 0 // IOPOL_SCOPE_PROCESS
+	IopolDefault      = 0 // IOPOL_DEFAULT
+	IopolImportant    = 1 // IOPOL_IMPORTANT (IOPOL_NORMAL is its older name)
+	IopolPassive      = 2 // IOPOL_PASSIVE
+	IopolThrottle     = 3 // IOPOL_THROTTLE
+	IopolUtility      = 4 // IOPOL_UTILITY
+	IopolStandard     = 5 // IOPOL_STANDARD
+)
+
+// DarwinPolicy is p's macOS disk policy, and false for Normal, which makes no call: "low" is
+// IOPOL_UTILITY ("throttled to prevent a significant impact on the latency of IMPORTANT and
+// STANDARD I/Os", getiopolicy_np(3)) and "idle" is IOPOL_THROTTLE ("for long-running I/O
+// intensive background work"). Pure, so the mapping is tested on every platform; the call
+// itself is darwin's (diskpolicy_darwin.go).
+func (p Priority) DarwinPolicy() (int, bool) {
+	switch p {
+	case Low:
+		return IopolUtility, true
+	case Idle:
+		return IopolThrottle, true
+	}
+	return 0, false
+}
+
+// DarwinPolicyName names a raw macOS disk policy the way <sys/resource.h> does, for the
+// launch's warning and the briefing: "IOPOL_UTILITY", or "policy 9" for a number the header
+// does not define.
+func DarwinPolicyName(v int) string {
+	switch v {
+	case IopolDefault:
+		return "IOPOL_DEFAULT"
+	case IopolImportant:
+		return "IOPOL_IMPORTANT"
+	case IopolPassive:
+		return "IOPOL_PASSIVE"
+	case IopolThrottle:
+		return "IOPOL_THROTTLE"
+	case IopolUtility:
+		return "IOPOL_UTILITY"
+	case IopolStandard:
+		return "IOPOL_STANDARD"
+	}
+	return fmt.Sprintf("policy %d", v)
 }

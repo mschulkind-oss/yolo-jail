@@ -852,6 +852,24 @@ func SandboxPath(home string, prefix []string) string {
 // sandbox must have before the file is read (sandboxEnvPairs, and the workspace-centric
 // `cd … && exec …` inner shell).
 func LaunchArgv(agentArgv []string, profilePath, envFile string, workspace, user, home string, pathPrefix []string) []string {
+	return LaunchArgvWithGuard(agentArgv, profilePath, envFile, workspace, user, home, pathPrefix, SessionGuard{}, "")
+}
+
+// LaunchArgvWithGuard is LaunchArgv with the session guard (sessionguard.go) placed between
+// the env-file reader and the inner shell when `guard` is Enabled:
+//
+//	… sandbox-exec -f <profile> -- /bin/sh -c <reader> yolo-sandbox-env <env file> \
+//	    <staged yolo> internal session-guard --memory <bytes> -- /bin/zsh -c 'cd … && exec …'
+//
+// THERE, AND NOWHERE ELSE. After the reader, so the guard runs with the session's composed
+// environment and inside the sandbox, as the account whose processes it reads; before the
+// shell, so everything the agent starts is its descendant. stagedYolo is the root-owned copy
+// the sandbox already execs for its bootstrap (StagedYoloPath), never the host's own binary,
+// which the sandbox account cannot read.
+//
+// A guard that is not Enabled adds no word, so a launch that declares no resources.memory
+// gets the argv byte for byte as before it existed.
+func LaunchArgvWithGuard(agentArgv []string, profilePath, envFile string, workspace, user, home string, pathPrefix []string, guard SessionGuard, stagedYolo string) []string {
 	if user == "" {
 		user = SandboxUser
 	}
@@ -896,7 +914,8 @@ func LaunchArgv(agentArgv []string, profilePath, envFile string, workspace, user
 	}
 	out = append(out, envPairs...)
 	out = append(out, "/usr/bin/sandbox-exec", "-f", profilePath, "--")
-	out = append(out, ExecWithEnvFile(envFile, []string{"/bin/zsh", "-c", inner})...)
+	session := append(guard.Argv(stagedYolo), "/bin/zsh", "-c", inner)
+	out = append(out, ExecWithEnvFile(envFile, session)...)
 	return out
 }
 

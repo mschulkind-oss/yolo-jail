@@ -139,6 +139,11 @@ func runInternal(args []string) int {
 		// recipe never recomputes them — the drift that once aimed `rm -rf` at the
 		// state dir. See runBundleDir for the three forms.
 		return runBundleDir(args[1:])
+	case macosuser.SessionGuardVerb:
+		// resources.memory on macos-user (internal/macosuser/sessionguard.go): the sampled guard
+		// the launch argv runs inside the sandbox, between the env-file reader and the shell that
+		// execs the agent. Hidden: its caller is that argv, and it runs the command it is handed.
+		return macosuser.SessionGuardMain(args[1:])
 	default:
 		fmt.Fprintf(os.Stderr, "yolo internal: unknown command %q\n", args[0])
 		return 2

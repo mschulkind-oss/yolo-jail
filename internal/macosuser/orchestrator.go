@@ -4,7 +4,9 @@ import (
 	"fmt"
 	"github.com/mschulkind-oss/yolo-jail/internal/progress"
 	"io"
+	"math"
 	"os"
+	"strconv"
 	"strings"
 	"sync"
 
@@ -102,6 +104,14 @@ type Deps struct {
 	// package does not import; the front door wires it (internal/cli's guestBinariesSeam).
 	// nil refuses a launch that has a daemon to run, naming why.
 	GuestBinaries func(repoRoot string) (string, error)
+	// SetDiskIOPolicy sets THIS process's disk I/O policy (setiopolicy_np, process scope), and
+	// DiskIOPolicy reads it back (getiopolicy_np): the launcher calls them on itself before the
+	// bootstrap, so every process the session starts inherits a declared resources.io
+	// (docs/design/io-priority.md §5.5, IO-D7). Seams because the call is darwin's alone
+	// (internal/ioprio's diskpolicy_darwin.go), and a test must see it made, and made first.
+	// nil means this build cannot set one, which the launch reports like a failed set.
+	SetDiskIOPolicy func(policy int) error
+	DiskIOPolicy    func() (int, error)
 	// StartBackground starts argv in the background, in a process group of its own, with
 	// no terminal, and returns its handle: the stop that ends it (idempotent, never nil on
 	// success), a channel closed when it exits, and what it wrote on its own stdout and
@@ -234,23 +244,33 @@ func MacosSandboxEnv(deps Deps, cfg *jsonx.OrderedMap) *jsonx.OrderedMap {
 	return env
 }
 
-// buildPlan starts from the sandbox env, layers the composed channel (PackEnv, which
-// carries the gate-narrowed env_sources last), layers the caller's sandbox_env, sets the
-// jail marker over all of them, then builds the plan.
-// unenforcedResourceKeys is every `resources` key the warning below names: all of them,
-// whatever their value, except an `io` that resolves to "normal" (that string, null or {}).
-// That one makes no call on any backend, so it is already honored here, and naming it would
-// report a declaration of nothing (docs/design/io-priority.md IO-D8). Any other `io` is named
-// until setiopolicy_np ships, build step 5.
+// unenforcedResourceKeys is every `resources` key the "NOT enforced" warning below names:
+// the ones this backend reads and does nothing with. Since build step 5 of
+// docs/design/io-priority.md that is no longer all of them:
+//
+//   - `io` is never named. A declared priority is set as the process disk policy before the
+//     bootstrap (RunMacosUser), and one that resolves to "normal" makes no call on any backend
+//     (IO-D8). A failed set is the launch's own warning, said where it happens.
+//   - `cpus` is honored COOPERATIVELY (CooperativeCPUVars) and `memory` by the SAMPLED session
+//     guard (sessionguard.go), each with a disclosure line of its own saying how far that goes.
+//     A value neither can read (validation refuses one first) is still named here.
+//   - `pids_limit` is the one left, and stays named: RLIMIT_NPROC is per-USER, so it would
+//     collide across concurrent sessions on the shared sandbox account (DP-D1).
 func unenforcedResourceKeys(res *jsonx.OrderedMap) []string {
 	if res == nil {
 		return nil
 	}
 	var keys []string
 	for _, k := range res.Keys() {
-		if k == "io" {
-			v, _ := res.Get(k)
-			if p, problems := ioprio.Parse(v, "resources.io"); len(problems) == 0 && !p.Declared() {
+		switch k {
+		case "io":
+			continue
+		case "cpus":
+			if _, ok := CooperativeCPUs(res); ok {
+				continue
+			}
+		case "memory":
+			if SessionGuardFor(res).Enabled() {
 				continue
 			}
 		}
@@ -259,6 +279,70 @@ func unenforcedResourceKeys(res *jsonx.OrderedMap) []string {
 	return keys
 }
 
+// CooperativeCPUVars are the variables `resources.cpus` sets for the session, and they are
+// chosen by ONE RULE: each is a variable whose unset default is the machine's CPU count, so
+// setting it to the declared count can only LOWER a program's parallelism, never raise it.
+// That rule is why MAKEFLAGS and CMAKE_BUILD_PARALLEL_LEVEL are not here: make's default is
+// one job, so `-j4` would turn a serial build parallel (docs/design/declaration-parity.md
+// ledger). Each is a default, under every value the user's own env layers set.
+//
+//   - GOMAXPROCS: the Go runtime's OS threads running Go code, and `go build -p`'s default.
+//   - CARGO_BUILD_JOBS: cargo's parallel rustc jobs.
+//   - RAYON_NUM_THREADS: the rayon thread pool, which rustc and many Rust tools use.
+//   - OMP_NUM_THREADS: OpenMP's team size; GNU `nproc` honors it too.
+var CooperativeCPUVars = []string{"GOMAXPROCS", "CARGO_BUILD_JOBS", "RAYON_NUM_THREADS", "OMP_NUM_THREADS"}
+
+// CooperativeCPUs is the whole-CPU count a declared `resources.cpus` asks for: ceil of the
+// number, at least 1, so "0.5" is 1 and "2.5" is 3, because every variable above takes a
+// whole count and a fractional cap rounded down would be a stricter one than declared. false
+// when cpus is absent or is not a number (validation refuses that first). A bool is the
+// validator's own reading: true is 1.
+func CooperativeCPUs(res *jsonx.OrderedMap) (int, bool) {
+	if res == nil {
+		return 0, false
+	}
+	v, _ := res.Get("cpus")
+	var f float64
+	switch t := v.(type) {
+	case nil:
+		return 0, false
+	case bool:
+		if !t {
+			return 0, false
+		}
+		f = 1
+	case string:
+		n, err := strconv.ParseFloat(strings.TrimSpace(t), 64)
+		if err != nil {
+			return 0, false
+		}
+		f = n
+	case float64:
+		f = t
+	case int:
+		f = float64(t) // a config built in code rather than decoded
+	case int64:
+		f = float64(t)
+	default:
+		n, ok := jsonx.AsInt(v) // a decoded JSON integer
+		if !ok {
+			return 0, false
+		}
+		f = float64(n)
+	}
+	if f <= 0 || math.IsNaN(f) || math.IsInf(f, 0) {
+		return 0, false
+	}
+	n := int(math.Ceil(f))
+	if n < 1 {
+		n = 1
+	}
+	return n, true
+}
+
+// buildPlan starts from the sandbox env, layers the composed channel (PackEnv, which
+// carries the gate-narrowed env_sources last), layers the caller's sandbox_env, sets the
+// jail marker over all of them, then builds the plan.
 func buildPlan(deps Deps, opts Options, darwin *Darwin) RunPlan {
 	env := MacosSandboxEnv(deps, opts.Config)
 	// Trust the workspace's mise configs, for the same reason the container gets this on its
@@ -278,6 +362,17 @@ func buildPlan(deps Deps, opts Options, darwin *Darwin) RunPlan {
 	// that environment and have no business asserting trust in it.
 	if opts.Workspace != "" {
 		env.Set("MISE_TRUSTED_CONFIG_PATHS", resolvePathAbs(opts.Workspace))
+	}
+	// `resources.cpus`, COOPERATIVELY: the parallelism defaults of the common build tools, set
+	// to the declared count (CooperativeCPUVars says which, and the one rule that picks them).
+	// Here, before PackEnv, env_sources and SandboxEnv, for MISE_TRUSTED_CONFIG_PATHS's reason:
+	// a value the user set in any of those wins, and the disclosure below reports the value
+	// that won.
+	resources := cfgSection(opts.Config, "resources")
+	if n, ok := CooperativeCPUs(resources); ok {
+		for _, k := range CooperativeCPUVars {
+			env.Set(k, strconv.Itoa(n))
+		}
 	}
 	// The composed profile/provider channel, ahead of env_sources — the container's
 	// precedence, where the channel rides the `-e` base env and yolo-user-env.sh
@@ -318,18 +413,10 @@ func buildPlan(deps Deps, opts Options, darwin *Darwin) RunPlan {
 	// THE REST OF WHAT THIS BACKEND CANNOT DO, said at the same boundary and for the
 	// same reason as per_side_paths above. Each of these renders, validates and reads
 	// exactly like it does on a container backend, and then does nothing here — which
-	// is the silent-drop shape the sweep behind #39 found ten more of.
+	// is the silent-drop shape the sweep behind #39 found ten more of. The `resources`
+	// lines are printed below, once the env layers have run, because the cpus line reports
+	// the values that won.
 	//
-	// resources: macOS has no cgroups and there is no VM to size. RLIMIT_AS is not what
-	// --memory means (address space, not RSS — it breaks JITs and the Go runtime) and
-	// RLIMIT_NPROC is per-USER, so it would collide across concurrent sessions on the
-	// shared _yolojail account. A cap a user believes in but that does not hold is worse
-	// than a documented absence, so this warns and will keep warning.
-	if keys := unenforcedResourceKeys(cfgSection(opts.Config, "resources")); len(keys) > 0 {
-		out.print("[yellow]Warning: resources are NOT enforced on macos-user[/yellow] — " +
-			"macOS has no cgroups and there is no VM to size, so " + strings.Join(keys, ", ") +
-			" are read and ignored. The agent runs with your user's own limits.")
-	}
 	// cache_relocations: the container path nests a bind inside ~/.cache. There are no
 	// binds here, and the documented "just symlink it yourself" workaround does NOT
 	// work either — the Seatbelt profile denies writes outside the workspace, the
@@ -356,6 +443,7 @@ func buildPlan(deps Deps, opts Options, darwin *Darwin) RunPlan {
 			env.Set(k, v)
 		}
 	}
+	printResourceDispositions(out, resources, env)
 	// THE JAIL MARKER, the one variable every container launch sets (`-e YOLO_VERSION=` in
 	// internal/cli/run's commonEnvBlock) and this backend did not (docs/design/agent-footer.md
 	// OQ-FT13). config.InJail() and the probes that copy it read it, so without it every
@@ -393,6 +481,38 @@ func buildPlan(deps Deps, opts Options, darwin *Darwin) RunPlan {
 	return BuildRunPlanWithDaemons(opts.Workspace, opts.Config, opts.Agents, opts.AgentArgv,
 		selfExe, opts.HostPackRoot, opts.HostHomeOverlay, opts.HostCtx, env, darwin,
 		opts.BlockedTools, opts.JailDaemons, floors)
+}
+
+// printResourceDispositions says, at launch and in a dry run, what this backend does with each
+// declared `resources` key: the cooperative cpus defaults with the values that won (env is the
+// layered launch env), the sampled memory guard and its holes, and the keys still read and
+// ignored. A launch that declares none prints nothing. resources.io says nothing here: it is
+// applied, and the launch speaks only if the set fails (RunMacosUser).
+func printResourceDispositions(out printer, res, env *jsonx.OrderedMap) {
+	if n, ok := CooperativeCPUs(res); ok {
+		pairs := make([]string, 0, len(CooperativeCPUVars))
+		for _, k := range CooperativeCPUVars {
+			v, _ := env.Get(k)
+			pairs = append(pairs, k+"="+asStr(v))
+		}
+		out.printf("[yellow]resources.cpus (%d) is honored cooperatively on macos-user[/yellow] — "+
+			"%s for the session; a program that ignores them is not limited.", n, strings.Join(pairs, ", "))
+	}
+	if g := SessionGuardFor(res); g.Enabled() {
+		out.printf("[yellow]resources.memory (%s) is guarded by sampling on macos-user, not enforced "+
+			"by the kernel[/yellow] — a process inside the sandbox sums the session's resident memory "+
+			"every %s and stops the largest process when the total is over. The agent can kill that "+
+			"process, and a process that leaves the session's process tree is not counted.",
+			formatBytes(g.MemoryBytes), sessionGuardInterval)
+	}
+	// RLIMIT_NPROC, the one stand-in for pids_limit, is per-USER, so it would collide across
+	// concurrent sessions on the shared _yolojail account (DP-D1): a cap a user believes in but
+	// that does not hold is worse than a documented absence, so this warns.
+	if keys := unenforcedResourceKeys(res); len(keys) > 0 {
+		out.print("[yellow]Warning: resources are NOT enforced on macos-user[/yellow] — " +
+			"macOS has no cgroups and there is no VM to size, so " + strings.Join(keys, ", ") +
+			" are read and ignored. The agent runs with your user's own limits.")
+	}
 }
 
 // RunMacosUser launches agent_argv in the dedicated-user + Seatbelt sandbox.
@@ -617,6 +737,14 @@ func RunMacosUser(deps Deps, opts Options) int {
 		return 1
 	}
 
+	// THE DISK I/O POLICY (docs/design/io-priority.md §5.5, IO-D7), set on THIS process before
+	// anything that does the session's I/O starts: the stage copies, the bootstrap, the
+	// provisioning stage, the jail daemons and the agent all descend from it, and a process
+	// policy is inherited across fork and exec — measured through sudo, env -i and sandbox-exec
+	// (GitHub Actions run 37121866798, IOPOL VERDICT: SURVIVES). After the plan is known viable,
+	// so a refused launch never ran under a policy it did not use. Never fatal (IO-D4).
+	applyDiskIOPolicy(deps, out, plan.IOPriority)
+
 	// THE PER-WORKSPACE LAUNCH LOCK, held across the three privileged steps below and
 	// released before the agent — never across the agent itself, which would make a
 	// second terminal in the same workspace block until the first session ended, a
@@ -726,6 +854,43 @@ func RunMacosUser(deps Deps, opts Options) int {
 	// sessions on one workspace already share on every backend.
 	release()
 	return deps.RunWithProxy(plan.LaunchArgv)
+}
+
+// applyDiskIOPolicy sets a declared priority as this process's disk policy and reads it back.
+// Silent when it holds; one warning naming resources.io when the set fails or the read-back
+// disagrees, and the launch goes on at the default policy (IO-D4, IO-D9); a read-back that
+// itself fails is one dim line, since the set before it succeeded. "normal" makes no call.
+func applyDiskIOPolicy(deps Deps, out printer, p ioprio.Priority) {
+	want, ok := p.DarwinPolicy()
+	if !ok {
+		return
+	}
+	key := `resources.io "` + string(p) + `"`
+	fail := func(why string) {
+		out.print("[yellow]Warning: " + key + " was not applied on macos-user[/yellow] — " + why +
+			", so the session runs at the default disk I/O policy. Remove resources.io to " +
+			"silence this.")
+	}
+	if deps.SetDiskIOPolicy == nil {
+		fail("this build has no setiopolicy_np call wired")
+		return
+	}
+	if err := deps.SetDiskIOPolicy(want); err != nil {
+		fail("setiopolicy_np(" + ioprio.DarwinPolicyName(want) + ") failed: " + err.Error())
+		return
+	}
+	if deps.DiskIOPolicy == nil {
+		return
+	}
+	got, err := deps.DiskIOPolicy()
+	switch {
+	case err != nil:
+		out.printf("[dim]%s: %s was set; reading it back failed (%v).[/dim]",
+			key, ioprio.DarwinPolicyName(want), err)
+	case got != want:
+		fail("it was set to " + ioprio.DarwinPolicyName(want) + " and reads back as " +
+			ioprio.DarwinPolicyName(got))
+	}
 }
 
 // runContextPreflight asks the kernel, as the sandbox account, whether it can reach every
@@ -902,6 +1067,27 @@ func PrintPlan(w io.Writer, plan RunPlan, problems []string) {
 			plan.SupervisorLog)
 		p.printf("  [dim]sets, values not shown:[/dim] %s",
 			strings.Join(SandboxEnvFileKeys(plan.DaemonEnvFileContent), ", "))
+	}
+	// THE DECLARED RESOURCES THIS BACKEND ACTS ON, each named only when declared: an undeclared
+	// key has nothing to show, and the keys still ignored are the warning printed above the plan.
+	if pol, ok := plan.IOPriority.DarwinPolicy(); ok {
+		p.printf("disk I/O:    %s [dim](resources.io %q; set on the launcher by setiopolicy_np "+
+			"before the bootstrap, and inherited by every process of the session)[/dim]",
+			ioprio.DarwinPolicyName(pol), string(plan.IOPriority))
+	}
+	if plan.CooperativeCPUs > 0 {
+		pairs := make([]string, 0, len(CooperativeCPUVars))
+		for _, k := range CooperativeCPUVars {
+			v, _ := sandboxEnvFileValue(plan.EnvFileContent, k)
+			pairs = append(pairs, k+"="+v)
+		}
+		p.printf("cpus:        %d, cooperatively [dim](%s in the env file; a program that ignores "+
+			"them is not limited)[/dim]", plan.CooperativeCPUs, strings.Join(pairs, ", "))
+	}
+	if plan.SessionGuard.Enabled() {
+		p.printf("memory:      %s, sampled every %s by `%s internal %s` inside the sandbox "+
+			"[dim](not kernel-enforced; the largest process is stopped when the session is over)[/dim]",
+			formatBytes(plan.SessionGuard.MemoryBytes), sessionGuardInterval, plan.StagedYolo, SessionGuardVerb)
 	}
 	if plan.DarwinMaterialized {
 		p.printf("darwin pkgs: %d store bin dir(s) on PATH", len(plan.DarwinPathPrefix))
@@ -1105,6 +1291,8 @@ func RealDeps(runProxy func(argv []string) int, materialize func(repoRoot string
 		InstallRootFile:   installRootFileReal,
 		MaterializeDarwin: materialize,
 		StartBackground:   startBackgroundReal,
+		SetDiskIOPolicy:   ioprio.SetProcessDiskPolicy,
+		DiskIOPolicy:      ioprio.GetProcessDiskPolicy,
 		HostNix:           hostNixReal,
 		NodeFloorMet:      entrypoint.PackageFloorMeets,
 		TakenIDs:          takenIDsReal,
