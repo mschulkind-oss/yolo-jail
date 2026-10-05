@@ -421,6 +421,15 @@ func (s ContextSiting) privacyDir(src, home string) string {
 	return ""
 }
 
+// copiedDests is each copy's /ctx destination, the paths a copy occupies in the context dir.
+func copiedDests(copies []ContextLink) []string {
+	out := make([]string, 0, len(copies))
+	for _, c := range copies {
+		out = append(out, c.Dest)
+	}
+	return out
+}
+
 // ContextOccupied is every context-dir path yolo's own staging uses on this launch: the
 // reserved children of the context dir (paths.ReservedContextPaths, the names `yolo check`
 // refuses a `mounts` element at) and every destination the composed tree delivers a host

@@ -1,17 +1,21 @@
 package run
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"io/fs"
 	"os"
+	"path"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"syscall"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
+	"github.com/mschulkind-oss/yolo-jail/internal/entrypoint"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/macosuser"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
@@ -259,8 +263,12 @@ func (o *Options) buildMacosCtxTree(staging string, packs []*packload.Pack,
 			if !isDir(e.Source) {
 				continue
 			}
-			if err := copyCtxTreeConfined(e.Source, tree, hostUserCtxDir+"/"+e.Slug(),
-				macosDirHostFileEntryCap, macosDirHostFileLaunchCap, &launchSpent); err != nil {
+			modes, err := copyCtxTreeConfined(e.Source, tree, hostUserCtxDir+"/"+e.Slug(),
+				macosDirHostFileEntryCap, macosDirHostFileLaunchCap, &launchSpent)
+			if err == nil {
+				err = writeCtxHostFileModes(tree, e.Slug(), modes)
+			}
+			if err != nil {
 				return out, dirHostFileCopyError(e, err)
 			}
 			wrote = true
@@ -299,7 +307,7 @@ func (o *Options) buildMacosCtxTree(staging string, packs []*packload.Pack,
 		if err := copyCtxFile(c.Source, tree, c.Dest); err != nil {
 			return out, packFileMountCopyError(c, err)
 		}
-		out.ctx.Copied = append(out.ctx.Copied, c.Dest)
+		out.ctx.Copied = append(out.ctx.Copied, c)
 		wrote = true
 	}
 
@@ -332,7 +340,7 @@ func (o *Options) buildMacosCtxTree(staging string, packs []*packload.Pack,
 	}
 	sort.Strings(out.ctx.Delivered)
 	sort.Strings(out.ctx.Rendered)
-	sort.Strings(out.ctx.Copied)
+	sort.Slice(out.ctx.Copied, func(i, j int) bool { return out.ctx.Copied[i].Dest < out.ctx.Copied[j].Dest })
 	out.ctx.Tree = tree
 	return out, nil
 }
@@ -476,9 +484,10 @@ func (o *Options) noteMacosUserRWMounts(cname string, links []macosuser.ContextL
 //
 // THE EXEC BIT IS CARRIED, because a reader downstream decides a mode from it:
 // entrypoint.hostSourceIsExecutable stats the staged copy, so a host script arriving
-// without its bit renders non-executable and the agent told to run it gets EACCES. The
-// explicit chmod is load-bearing — os.OpenFile's mode is masked by umask and ignored
-// outright for a file that already exists.
+// without its bit renders non-executable and the agent told to run it gets EACCES. AND NO
+// OTHER BIT IS ADDED (ctxCopyMode): a 0600 credentials file stays 0600 in the host-side
+// staging dir, which other accounts can reach. The explicit chmod is load-bearing —
+// os.OpenFile's mode is masked by umask and ignored outright for a file that already exists.
 func copyCtxFile(src, tree, dest string) error {
 	rel := strings.TrimPrefix(dest, packload.CtxRoot+"/")
 	if rel == dest {
@@ -495,48 +504,58 @@ func copyCtxFile(src, tree, dest string) error {
 	if err := copyFile2(src, target); err != nil {
 		return err
 	}
-	mode := os.FileMode(0o644)
-	if info.Mode().Perm()&0o111 != 0 {
-		mode = 0o755
-	}
-	return os.Chmod(target, mode)
+	return os.Chmod(target, ctxCopyMode(info.Mode()))
 }
 
 // copyCtxTreeConfined copies the directory src into the tree at dest (the /ctx path, as
 // copyCtxFile takes it), CONFINED to src and charged against two caps: entryCap for this entry
 // alone, and launchCap for every directory entry of the launch, whose spend so far is
-// *launchSpent and grows by what this copy writes.
+// *launchSpent and grows by what this copy writes. It returns each copied file's permission bits
+// on the host, keyed by its slash path under src, for the caller to record
+// (entrypoint.HostFileDirModes).
 //
 // CONFINED AS A CONTAINER BIND IS. A bind of src shows the jail what is under src and nothing
-// else: a link inside it that leads out names a path the jail does not have, so the boot's copy
-// skips it as dangling. So here the walk runs through an os.Root on src, and a link is followed
-// only where it resolves INSIDE src; an absolute link (os.Root refuses every one), a `../` link
-// that leaves, a dangling link and a link to a directory are skipped, as a dangling link is
-// skipped at boot. Never entrypoint's copyTree or copyFile2 here: both follow every link, and a
-// link in a source tree that leads into the rest of the home would be a host-file read nobody
-// declared.
+// else, and the boot's copy (entrypoint.copyTree) follows every link it meets there: a link that
+// resolves inside src delivers what it names, a file or a whole folder, and one that leads out
+// names a path the jail does not have, so the copy skips it as dangling. So here the walk runs
+// through an os.Root on src and follows a link only where it resolves INSIDE src, to a file or a
+// folder; an absolute link (os.Root refuses every one), a `../` link that leaves and a dangling
+// link are skipped, as a dangling link is skipped at boot. A folder link that leads back to a
+// folder the walk is already inside (`loop -> .`) is skipped too: its contents are copied where
+// the walk found them, and following it would repeat the tree until a lookup limit stopped it.
+// Never entrypoint's copyTree or copyFile2 here: both follow every link, and a link in a source
+// tree that leads into the rest of the home would be a host-file read nobody declared.
 //
 // REGULAR FILES AND DIRECTORIES ONLY, each file opened non-blocking and checked by fstat after
 // the open, so a FIFO swapped in for a file between the listing and the open neither blocks the
-// launch nor crosses; the exec bit is carried as copyCtxFile carries it, because the boot's
-// readers decide a mode from it.
+// launch nor crosses.
+//
+// NO WIDER THAN THE HOST FILE: each copy is written with its source's bits, readable by you and
+// writable by no other account (ctxCopyMode), so a 0600 key copied here is not readable by every
+// account that can reach the host-side staging dir; the source's exact bits are what the caller
+// records.
 //
 // EVERY WRITE IS CHARGED BEFORE IT IS MADE, a file its size before a byte of it is read, and at
 // most that many bytes are copied (a file growing while it is read arrives as it was when
 // charged). Crossing either cap returns a *dirCopyCapError, and the caller ends the launch.
-func copyCtxTreeConfined(src, tree, dest string, entryCap, launchCap dirCopyCap, launchSpent *dirCopyCap) error {
+func copyCtxTreeConfined(src, tree, dest string, entryCap, launchCap dirCopyCap,
+	launchSpent *dirCopyCap) (entrypoint.HostFileDirModes, error) {
 	rel := strings.TrimPrefix(dest, packload.CtxRoot+"/")
 	if rel == dest {
-		return fmt.Errorf("context destination %q is not under %s", dest, packload.CtxRoot)
+		return nil, fmt.Errorf("context destination %q is not under %s", dest, packload.CtxRoot)
 	}
 	target := filepath.Join(tree, filepath.FromSlash(rel))
 	root, err := os.OpenRoot(src)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	defer root.Close()
+	top, err := root.Stat(".")
+	if err != nil {
+		return nil, err
+	}
 	if err := os.MkdirAll(target, 0o755); err != nil {
-		return err
+		return nil, err
 	}
 	var spent dirCopyCap
 	charge := func(bytes, entries int64, what string) error {
@@ -550,65 +569,135 @@ func copyCtxTreeConfined(src, tree, dest string, entryCap, launchCap dirCopyCap,
 		launchSpent.bytes, launchSpent.entries = launchSpent.bytes+bytes, launchSpent.entries+entries
 		return nil
 	}
-	return fs.WalkDir(root.FS(), ".", func(p string, d fs.DirEntry, werr error) error {
-		if werr != nil {
-			return werr
+	modes := entrypoint.HostFileDirModes{}
+
+	// walk copies the folder at dir (a slash path under src); `inside` is every folder the walk
+	// is in, src's own root first, which is what a looping folder link is recognised by.
+	var walk func(dir string, inside []fs.FileInfo) error
+	walk = func(dir string, inside []fs.FileInfo) error {
+		ents, err := fs.ReadDir(root.FS(), dir)
+		if err != nil {
+			return err
 		}
-		if p == "." {
-			return nil
-		}
-		out := filepath.Join(target, filepath.FromSlash(p))
-		switch {
-		case d.IsDir():
-			if err := charge(0, 1, p+"/"); err != nil {
+		for _, d := range ents {
+			p := path.Join(dir, d.Name())
+			out := filepath.Join(target, filepath.FromSlash(p))
+			link := d.Type()&fs.ModeSymlink != 0
+			if d.IsDir() || link {
+				// Resolved through the root, so only inside src: an absolute, escaping or
+				// dangling link fails here and is what a bind would show the jail as dangling.
+				info, err := root.Stat(p)
+				if err != nil {
+					if link {
+						continue
+					}
+					return err
+				}
+				if info.IsDir() {
+					if slices.ContainsFunc(inside, func(a fs.FileInfo) bool { return os.SameFile(a, info) }) {
+						continue
+					}
+					if err := charge(0, 1, p+"/"); err != nil {
+						return err
+					}
+					if err := os.MkdirAll(out, 0o755); err != nil {
+						return err
+					}
+					if err := walk(p, append(slices.Clip(inside), info)); err != nil {
+						return err
+					}
+					continue
+				}
+				if !info.Mode().IsRegular() {
+					continue
+				}
+			} else if !d.Type().IsRegular() {
+				// A socket, FIFO or device node holds no bytes a copy could carry.
+				continue
+			}
+			perm, copied, err := copyConfinedCtxFile(root, p, out, link, charge)
+			if err != nil {
 				return err
 			}
-			return os.MkdirAll(out, 0o755)
-		case d.Type()&fs.ModeSymlink != 0:
-			// Followed only where it resolves inside src to a regular file; anything else is
-			// what a bind would show the jail as dangling.
-			if info, err := root.Stat(p); err != nil || !info.Mode().IsRegular() {
-				return nil
+			if copied {
+				modes[p] = perm
 			}
-		case !d.Type().IsRegular():
-			// A socket, FIFO or device node holds no bytes a copy could carry.
-			return nil
 		}
-		f, err := root.OpenFile(p, os.O_RDONLY|syscall.O_NONBLOCK, 0)
-		if err != nil {
-			if d.Type()&fs.ModeSymlink != 0 {
-				return nil // the link changed since it was resolved; skipped as dangling
-			}
-			return err
+		return nil
+	}
+	if err := walk(".", []fs.FileInfo{top}); err != nil {
+		return nil, err
+	}
+	return modes, nil
+}
+
+// copyConfinedCtxFile copies the regular file at p under root to out, charged first, and returns
+// the host file's permission bits; copied is false for a file that is not there to copy any more
+// (a link that changed since it was resolved, or something swapped in that is not a file).
+func copyConfinedCtxFile(root *os.Root, p, out string, link bool,
+	charge func(bytes, entries int64, what string) error) (perm os.FileMode, copied bool, err error) {
+	f, err := root.OpenFile(p, os.O_RDONLY|syscall.O_NONBLOCK, 0)
+	if err != nil {
+		if link {
+			return 0, false, nil // the link changed since it was resolved; skipped as dangling
 		}
-		defer f.Close()
-		info, err := f.Stat()
-		if err != nil {
-			return err
-		}
-		if !info.Mode().IsRegular() {
-			return nil // swapped for something that is not a file since the listing
-		}
-		if err := charge(info.Size(), 1, p); err != nil {
-			return err
-		}
-		w, err := os.OpenFile(out, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o644)
-		if err != nil {
-			return err
-		}
-		if _, err := io.Copy(w, io.LimitReader(f, info.Size())); err != nil {
-			w.Close()
-			return err
-		}
-		if err := w.Close(); err != nil {
-			return err
-		}
-		mode := os.FileMode(0o644)
-		if info.Mode().Perm()&0o111 != 0 {
-			mode = 0o755
-		}
-		return os.Chmod(out, mode)
-	})
+		return 0, false, err
+	}
+	defer f.Close()
+	info, err := f.Stat()
+	if err != nil {
+		return 0, false, err
+	}
+	if !info.Mode().IsRegular() {
+		return 0, false, nil // swapped for something that is not a file since the listing
+	}
+	if err := charge(info.Size(), 1, p); err != nil {
+		return 0, false, err
+	}
+	mode := ctxCopyMode(info.Mode())
+	w, err := os.OpenFile(out, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, mode)
+	if err != nil {
+		return 0, false, err
+	}
+	if _, err := io.Copy(w, io.LimitReader(f, info.Size())); err != nil {
+		w.Close()
+		return 0, false, err
+	}
+	if err := w.Close(); err != nil {
+		return 0, false, err
+	}
+	if err := os.Chmod(out, mode); err != nil {
+		return 0, false, err
+	}
+	return info.Mode().Perm(), true, nil
+}
+
+// ctxCopyMode is the mode a host-side copy into the tree is written with: the source's bits,
+// readable by you, and never writable by another account. No other account gets a bit the source
+// did not give it, so the host-side staging dir, under your yolo state dir, holds no copy another
+// account can read where the source was yours alone. (The root-owned staged copy is made readable
+// to the sandbox account whatever this is: macosuser.StageCtxCommands.)
+func ctxCopyMode(src os.FileMode) os.FileMode {
+	return (src.Perm() | 0o400) &^ 0o022
+}
+
+// writeCtxHostFileModes records modes for the directory entry slug at its place in the tree
+// (entrypoint.HostFileDirModesPath), for the bootstrap to create each file in the home with.
+func writeCtxHostFileModes(tree, slug string, modes entrypoint.HostFileDirModes) error {
+	at := entrypoint.HostFileDirModesPath(slug)
+	rel := strings.TrimPrefix(at, packload.CtxRoot+"/")
+	if rel == at {
+		return fmt.Errorf("context destination %q is not under %s", at, packload.CtxRoot)
+	}
+	b, err := json.Marshal(modes)
+	if err != nil {
+		return err
+	}
+	target := filepath.Join(tree, filepath.FromSlash(rel))
+	if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+		return err
+	}
+	return os.WriteFile(target, b, 0o644)
 }
 
 // dirCopyCapError is a confined copy that would cross a cap: which cap, what had been charged

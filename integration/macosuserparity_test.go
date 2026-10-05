@@ -301,6 +301,7 @@ func TestMacosUserDeliversHostBytesByCopy(t *testing.T) {
 		filepath.Join(home, "yolo-it-mu-source.txt"):                "HOSTFILE-" + nonce,
 		filepath.Join(home, "yolo-it-mu-srcdir", "inner.txt"):       "DIR-" + nonce,
 		filepath.Join(home, "yolo-it-mu-srcdir", "sub", "deep.txt"): "DEEP-" + nonce,
+		filepath.Join(home, "yolo-it-mu-srcdir", "dark", "colors"):  "DARK-" + nonce,
 		filepath.Join(home, "yolo-it-mu-outside", "secret.txt"):     "OUTSIDE-" + nonce,
 	} {
 		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
@@ -309,6 +310,14 @@ func TestMacosUserDeliversHostBytesByCopy(t *testing.T) {
 		if err := os.WriteFile(path, []byte(body+"\n"), 0o644); err != nil {
 			t.Fatal(err)
 		}
+	}
+	// An owner-only file, whose bits must survive the world-readable staged copy (a 0644 key is
+	// one OpenSSH refuses), and a folder link inside the source, which a container bind resolves.
+	if err := os.WriteFile(filepath.Join(home, "yolo-it-mu-srcdir", "key"), []byte("KEY\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("dark", filepath.Join(home, "yolo-it-mu-srcdir", "current")); err != nil {
+		t.Fatal(err)
 	}
 	if err := os.Symlink(filepath.Join(home, "yolo-it-mu-outside", "secret.txt"),
 		filepath.Join(home, "yolo-it-mu-srcdir", "out-link")); err != nil {
@@ -320,6 +329,8 @@ func TestMacosUserDeliversHostBytesByCopy(t *testing.T) {
 		`echo "=== FILE ==="; cat ~/.config/yolo-it-mu/probe.txt 2>&1`,
 		`echo "=== DIR ==="; cat ~/.config/yolo-it-mu-dir/inner.txt ~/.config/yolo-it-mu-dir/sub/deep.txt 2>&1`,
 		`echo "=== LINK ==="; cat ~/.config/yolo-it-mu-dir/out-link 2>&1`,
+		`echo "=== DIRLINK ==="; cat ~/.config/yolo-it-mu-dir/current/colors 2>&1`,
+		`echo "=== MODE ==="; stat -f '%Lp' ~/.config/yolo-it-mu-dir/key 2>&1`,
 		`echo "=== END ==="`,
 	}, "\n"))
 	out := r.combined()
@@ -341,7 +352,15 @@ func TestMacosUserDeliversHostBytesByCopy(t *testing.T) {
 				"that basis.\n%s", want, dir)
 		}
 	}
-	if got := section(r.stdout, "=== LINK ===", "=== END ==="); strings.Contains(got, "OUTSIDE-"+nonce) {
+	if got := section(r.stdout, "=== DIRLINK ===", "=== MODE ==="); !strings.Contains(got, "DARK-"+nonce) {
+		t.Errorf("a folder link inside the source did not deliver its folder, as a container's bind "+
+			"and boot copy do (copyCtxTreeConfined).\n%s", got)
+	}
+	if got := strings.TrimSpace(section(r.stdout, "=== MODE ===", "=== END ===")); got != "600" {
+		t.Errorf("an owner-only file of a host_files DIRECTORY entry arrived with mode %q, want 600 "+
+			"as on a container (entrypoint.HostFileDirModes)", got)
+	}
+	if got := section(r.stdout, "=== LINK ===", "=== DIRLINK ==="); strings.Contains(got, "OUTSIDE-"+nonce) {
 		t.Errorf("a link inside the source that leads out of it carried the file it points at into "+
 			"the sandbox — a host-file read nobody declared (copyCtxTreeConfined).\n%s", got)
 	}

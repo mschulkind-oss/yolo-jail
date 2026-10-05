@@ -395,7 +395,9 @@ func StageCtxCommands(hostCtxTree, cname, sd string) [][]string {
 		// root. A `user:` ACE for sandboxFileReadAce's reason (SandboxGroup holds the host user),
 		// with list as well as search, because the bootstrap and the agent walk this directory
 		// (SandboxEnvDirCommands grants search alone: a file there is opened by name).
-		// UNMEASURED on a Mac: that `list,search` is the ACE spelling macOS's chmod accepts.
+		// UNMEASURED on a Mac (context-mounts.md CX-D24): both rights are spelled as in the
+		// shared root's provisioning ACE (dirRights), but no Mac has yet run a launch through a
+		// root closed this way, and if the ACE does not admit the sandbox nothing here arrives.
 		{chmodBin, "0700", tmp},
 		{chmodBin, "+a", "user:" + SandboxUser + " allow list,search", tmp},
 		{rmBin, "-rf", dst},

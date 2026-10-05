@@ -424,6 +424,31 @@ func TestPlanRenderNamesEachContextLinkAndItsPreflight(t *testing.T) {
 	}
 }
 
+// THE DRY RUN NAMES EACH COPIED PACK FILE TOO, at its staged path with its host source and
+// marked copied, so a launch whose only context mount is a copy (CX-D23) no longer prints "no
+// context mounts" while its briefing lists one. Off the plan the builder makes from the host
+// context, so dropping the copies on the way into RunPlan fails here as surely as dropping the
+// printer's loop.
+func TestPlanRenderNamesEachCopiedPackFile(t *testing.T) {
+	copied := ContextLink{Dest: "/ctx/acme/notes.txt", Source: "/Users/me/notes.txt",
+		Named: "~/notes.txt", Pack: "acme"}
+	plan := BuildRunPlan(ctxWorkspace, jsonx.NewOrderedMap(), []string{"claude"},
+		[]string{"/bin/zsh", "-l"}, "/usr/local/bin/yolo", hostStaged, HomeOverlay{},
+		HostContext{Tree: "/tmp/yolo-ctx-tree", Copied: []ContextLink{copied}},
+		jsonx.NewOrderedMap(), nil, nil)
+	var b strings.Builder
+	PrintPlan(&b, plan, nil)
+	got := b.String()
+	want := "context:     " + plan.ContextDir + "/acme/notes.txt ← /Users/me/notes.txt " +
+		"(read-only, pack acme's `mount`; copied at launch, so a host edit arrives at the next launch)"
+	if !strings.Contains(got, want) {
+		t.Errorf("the plan does not name the copied pack file (want %q):\n%s", want, got)
+	}
+	if strings.Contains(got, "no context mounts") {
+		t.Errorf("a plan that copies a pack file says it has no context mounts:\n%s", got)
+	}
+}
+
 // THE STAGING COMMANDS WORK, run for real with `sudo` dropped and the state dir redirected —
 // the part an argv assertion cannot see: that the links land at their paths pointing at their
 // sources, that the recursive chmod leaves the sources alone, and that a re-stage replaces
@@ -552,7 +577,8 @@ func TestPlanInvariantsRefuseALinkAroundACopiedPackFile(t *testing.T) {
 		link := ContextLink{Dest: dest, Source: "/opt/x", Dir: true}
 		plan := BuildRunPlan(ctxWorkspace, jsonx.NewOrderedMap(), []string{"claude"},
 			[]string{"/bin/zsh", "-l"}, "/usr/local/bin/yolo", hostStaged, HomeOverlay{},
-			HostContext{Tree: "/tmp/yolo-ctx-tree", Copied: []string{"/ctx/acme/notes.txt"},
+			HostContext{Tree: "/tmp/yolo-ctx-tree", Copied: []ContextLink{{Dest: "/ctx/acme/notes.txt",
+				Source: "/Users/me/notes.txt", Pack: "acme"}},
 				Links: []ContextLink{link}}, jsonx.NewOrderedMap(), nil, nil)
 		probs := strings.Join(PlanInvariants(plan), "\n")
 		if want := "/ctx/acme/notes.txt, which yolo's own staging uses"; !strings.Contains(probs, want) {

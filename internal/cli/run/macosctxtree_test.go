@@ -227,14 +227,21 @@ func TestMacosUserLaunchCopiesADirectoryHostFileEntry(t *testing.T) {
 	writeHostFileAt(t, filepath.Join(src, "inner.txt"), "INNER\n", 0o644)
 	writeHostFileAt(t, filepath.Join(src, "sub", "deep.txt"), "DEEP\n", 0o644)
 	writeHostFileAt(t, filepath.Join(src, "run.sh"), "#!/bin/sh\nexit 0\n", 0o755)
-	// Links: one that stays inside the source (followed, as a bind resolves it), and three that
-	// a container bind would show the jail as dangling — absolute, `../` out of the source, and
-	// dangling — none of which may carry a byte of the rest of the home.
+	writeHostFileAt(t, filepath.Join(src, "dark", "colors.vim"), "DARK\n", 0o644)
+	// Links: two that stay inside the source, to a file and to a folder (each followed, as a bind
+	// resolves it and the boot's copy then copies what it resolves to), one that loops back to the
+	// source's own root (its contents are already there, so it adds nothing), and five that a
+	// container bind would show the jail as dangling — absolute and `../` out of the source, to a
+	// file and to a folder, and dangling — none of which may carry a byte of the rest of the home.
 	writeHostFileAt(t, filepath.Join(home, "outside-secret"), "SECRET\n", 0o600)
 	for link, target := range map[string]string{
 		"in-root-link": "sub/deep.txt",
+		"current":      "dark",
+		"loop":         ".",
 		"abs-link":     filepath.Join(home, "outside-secret"),
+		"abs-dir":      home,
 		"escape-link":  "../outside-secret",
+		"escape-dir":   "..",
 		"dangling":     "nope",
 	} {
 		if err := os.Symlink(target, filepath.Join(src, link)); err != nil {
@@ -250,10 +257,12 @@ func TestMacosUserLaunchCopiesADirectoryHostFileEntry(t *testing.T) {
 	}
 	staged := filepath.Join(ctx.Tree, "host-user", ctx.HostFiles[0].Slug())
 	for rel, want := range map[string]string{
-		"inner.txt":    "INNER\n",
-		"sub/deep.txt": "DEEP\n",
-		"in-root-link": "DEEP\n",
-		"run.sh":       "#!/bin/sh\nexit 0\n",
+		"inner.txt":          "INNER\n",
+		"sub/deep.txt":       "DEEP\n",
+		"in-root-link":       "DEEP\n",
+		"run.sh":             "#!/bin/sh\nexit 0\n",
+		"dark/colors.vim":    "DARK\n",
+		"current/colors.vim": "DARK\n",
 	} {
 		if got := readOrAbsentAt(t, filepath.Join(staged, rel)); got != want {
 			t.Errorf("staged %s = %q, want %q", rel, got, want)
@@ -263,11 +272,15 @@ func TestMacosUserLaunchCopiesADirectoryHostFileEntry(t *testing.T) {
 		t.Errorf("the staged run.sh lost its exec bit (%v, %v): the boot would render it "+
 			"non-executable", fi, err)
 	}
-	for _, rel := range []string{"abs-link", "escape-link", "dangling"} {
+	for _, rel := range []string{"abs-link", "abs-dir", "escape-link", "escape-dir", "dangling"} {
 		if _, err := os.Lstat(filepath.Join(staged, rel)); err == nil {
 			t.Errorf("%s was staged: a link that leads out of the source carried host bytes "+
 				"nobody declared", rel)
 		}
+	}
+	if _, err := os.Lstat(filepath.Join(staged, "loop")); err == nil {
+		t.Errorf("the link back to the source's own root was copied: the tree repeats itself " +
+			"under loop/ until a lookup limit stops it")
 	}
 	if err := filepath.Walk(ctx.Tree, func(p string, info os.FileInfo, err error) error {
 		if err == nil && info.Mode()&os.ModeSymlink != 0 {
@@ -310,7 +323,8 @@ func TestMacosUserLaunchCopiesADirectoryHostFileEntry(t *testing.T) {
 	if err := entrypoint.ConfigureHostFiles(e); err != nil {
 		t.Fatalf("the boot's host_files step failed: %v\n%s", err, errw.String())
 	}
-	for rel, want := range map[string]string{"inner.txt": "INNER\n", "sub/deep.txt": "DEEP\n"} {
+	for rel, want := range map[string]string{"inner.txt": "INNER\n", "sub/deep.txt": "DEEP\n",
+		"current/colors.vim": "DARK\n"} {
 		if got := readOrAbsentAt(t, filepath.Join(jailHome, ".config", "themes", rel)); got != want {
 			t.Errorf("the jail home's ~/.config/themes/%s = %q, want %q", rel, got, want)
 		}

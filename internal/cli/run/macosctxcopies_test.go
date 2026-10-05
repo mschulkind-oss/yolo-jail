@@ -56,8 +56,10 @@ func TestMacosUserCopiesAPackFileMountIntoTheContextTree(t *testing.T) {
 
 	ctx, out := runMacosUserCapturingCtx(t, t.TempDir(), homeSiting(t, home))
 
-	if want := []string{"/ctx/acme/notes.sh"}; len(ctx.Copied) != 1 || ctx.Copied[0] != want[0] {
-		t.Fatalf("Copied = %v, want %v — the pack's file grant did not cross\n%s", ctx.Copied, want, out)
+	if want := "/ctx/acme/notes.sh"; len(ctx.Copied) != 1 || ctx.Copied[0].Dest != want ||
+		ctx.Copied[0].Source != filepath.Join(home, "notes", "acme.sh") || ctx.Copied[0].Pack != "acme" {
+		t.Fatalf("Copied = %+v, want pack acme's ~/notes/acme.sh at %s — the pack's file grant did "+
+			"not cross\n%s", ctx.Copied, want, out)
 	}
 	staged := filepath.Join(ctx.Tree, "acme", "notes.sh")
 	if got := readOrAbsentAt(t, staged); got != "#!/bin/sh\necho NOTES\n" {

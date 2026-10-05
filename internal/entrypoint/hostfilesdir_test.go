@@ -13,6 +13,7 @@ import (
 	"testing"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
+	"github.com/mschulkind-oss/yolo-jail/internal/shquote"
 )
 
 // launchDir runs the real macos-user bootstrap for workspace `name` with one directory entry,
@@ -100,7 +101,14 @@ func TestMacosUserBootstrapRefusesALinkInsideAHostFilesDirectory(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "configure_host_files") {
 		t.Fatalf("the boot wrote a host_files directory through a link it did not lay (err %v)\n%s", err, said)
 	}
-	for _, want := range []string{"is a link", "rm "} {
+	// The next step is `sudo rm`, as every sibling refusal on this path spells it: the link sits in
+	// a directory the SANDBOX account made and owns, so the host user's plain `rm` is refused.
+	physical, perr := filepath.EvalSymlinks(filepath.Dir(planted))
+	if perr != nil {
+		t.Fatal(perr)
+	}
+	for _, want := range []string{"is a link",
+		"sudo rm " + shquote.Quote(filepath.Join(physical, filepath.Base(planted)))} {
 		if !strings.Contains(err.Error()+said, want) {
 			t.Errorf("the refusal does not say %q: %v\n%s", want, err, said)
 		}
@@ -137,7 +145,7 @@ func TestCopyTreeBeneathNeverWritesOutsideTheDestination(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	err = copyTreeBeneath(src, dest, ".config/x")
+	err = copyTreeBeneath(src, dest, ".config/x", nil)
 	if err == nil || !strings.Contains(err.Error(), "~/.config/x/sub was not written") {
 		t.Errorf("a linked directory in the destination was not refused by name: %v", err)
 	}

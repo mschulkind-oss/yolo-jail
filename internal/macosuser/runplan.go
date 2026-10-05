@@ -59,7 +59,12 @@ type RunPlan struct {
 	ContextLinks     []ContextLink
 	ContextPreflight []ContextProbe
 	ContextOccupied  []string
-	BootstrapArgv    []string
+	// ContextCopies are the pack `mount` files this launch COPIED into ContextDir
+	// (HostContext.Copied), for the dry run to name beside the links: without them a launch
+	// whose only context mount is a copy printed "no context mounts" while its briefing listed
+	// one.
+	ContextCopies []ContextLink
+	BootstrapArgv []string
 	// ProvisionArgv is the CONFINED provisioning stage, run between the bootstrap and
 	// the agent — nil when this config gives it nothing to do (ProvisionNeeded), which
 	// is what makes `yolo -- bash` in a tool-less workspace pay nothing for it.
@@ -217,12 +222,13 @@ type HostContext struct {
 	// (entrypoint.stageHostFile), so DP-D15's size reason never applied to this key. They used
 	// to be left out and warned about.
 	HostFiles []config.HostFileEntry
-	// Copied is the /ctx destination (packload.MountCtxPath) of every selected pack's
-	// single-FILE `mount` the host CLI copied into Tree, rather than linked: a pack grant names
-	// a path in the user's home, which a link cannot serve here (OQ-CX7), and a copy can.
-	// Separate from Delivered, which is the host-layer report's subject and nothing else; a
-	// context link may land at, inside or around neither (ContextOccupied).
-	Copied []string
+	// Copied is every selected pack's single-FILE `mount` the host CLI copied into Tree at its
+	// /ctx destination (Dest, packload.MountCtxPath), rather than linked: a pack grant names a
+	// path in the user's home, which a link cannot serve here (OQ-CX7), and a copy can. Each
+	// keeps its source and pack for the dry run, which names what it copied. Separate from
+	// Delivered, which is the host-layer report's subject and nothing else; a context link may
+	// land at, inside or around neither (ContextOccupied).
+	Copied []ContextLink
 	// GlobalGitignore is the /ctx destination of the host's global gitignore
 	// (paths.ContextGlobalGitignore) when the host CLI copied it into Tree, "" when there is
 	// none. The bootstrap is told its staged path (YOLO_GLOBAL_GITIGNORE) and points the
@@ -654,7 +660,8 @@ func BuildRunPlanWithDaemons(workspace string, cfg *jsonx.OrderedMap, agents, ag
 		// A copied pack `mount` occupies its path as a copied host file does, so the plan's own
 		// re-siting (contextLinkProblems) refuses a link at, inside or around either.
 		ContextOccupied: ContextOccupied(append(append([]string(nil), hostCtx.Delivered...),
-			hostCtx.Copied...)),
+			copiedDests(hostCtx.Copied)...)),
+		ContextCopies:       hostCtx.Copied,
 		BootstrapArgv:       DarwinBootstrapArgv(stagedYolo, SandboxHome(), bootstrapEnv, ""),
 		ProvisionArgv:       provisionArgv,
 		ProvisionScriptPath: provisionScriptPath,
