@@ -45,15 +45,21 @@ func hostCapabilityLaunch(cfg *jsonx.OrderedMap, agent, typed string) *config.Ca
 // refuseHostUnmetCapabilities is the gate itself: it reports whether the launch of agent (the
 // command's base name) on typed (the -p as hostProfileFor resolved it, "" for none) must stop,
 // having printed why. A malformed value is refused with the validator's own message, since the
-// census reads a non-list as requiring nothing and the jail refuses that config at validation.
-// The hatch is the jail's (config.AllowUnmetCapabilitiesEnv), read from this process's own
-// environment.
+// census reads a non-list as requiring nothing and the jail refuses that config at validation,
+// and its next step names the file and line that wrote the value: any file of the user scope can
+// (an include_if_found file, the inherited nested-launch file, a --user-layer), so config.jsonc
+// is named only when the record cannot place it. The hatch is the jail's
+// (config.AllowUnmetCapabilitiesEnv), read from this process's own environment.
 func refuseHostUnmetCapabilities(errw io.Writer, agent, typed string) bool {
 	cfg := config.UserScopeConfigOrEmpty()
 	if probs := config.RequiredCapabilitiesProblems(cfg); len(probs) > 0 {
+		at := "in " + paths.UserConfigPath()
+		if where := capabilityKeyLocations(probs); len(where) > 0 {
+			at = "at " + strings.Join(where, " and at ")
+		}
 		printHostLines(errw, []string{"refusing to launch: " + strings.Join(probs, "; "),
-			"  Make it a list of capability names (`\"required_capabilities\": [\"web_search\"]`) in " +
-				paths.UserConfigPath() + ", or remove it. `yolo check` reports the same problem."})
+			"  Make it a list of capability names (`\"required_capabilities\": [\"web_search\"]`) " +
+				at + ", or remove it. `yolo check` reports the same problem."})
 		return true
 	}
 	missing, err := config.UnmetCapabilities(cfg, hostCapabilityLaunch(cfg, agent, typed))
@@ -65,9 +71,10 @@ func refuseHostUnmetCapabilities(errw io.Writer, agent, typed string) bool {
 }
 
 // capabilityKeyLocations locates `required_capabilities` in the user scope's files, read only when
-// there is a gap to name: UserScopeSources reads the files again, so it belongs on the error path.
-func capabilityKeyLocations(missing []string) []string {
-	if len(missing) == 0 {
+// there is something to name (a gap, or a malformed value): UserScopeSources reads the files
+// again, so it belongs on the error path.
+func capabilityKeyLocations(problems []string) []string {
+	if len(problems) == 0 {
 		return nil
 	}
 	return config.UserScopeSources().Locations("config.required_capabilities")
