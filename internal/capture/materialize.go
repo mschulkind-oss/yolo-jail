@@ -32,7 +32,8 @@ import (
 // each MEASURED at the moment it is used rather than predicted from a mount table:
 //
 //  1. REFLINK — O(1), shares extents, and the destination is its own inode. Works on btrfs,
-//     XFS with reflink=1, and ZFS, ACROSS mounts.
+//     XFS with reflink=1, and ZFS, ACROSS mounts; on macOS it is APFS's clonefile(2), within
+//     one APFS volume (clone_darwin.go).
 //  2. HARDLINK — free to try, and it wins in the one arrangement reflink does not cover: a
 //     store and a home that share a mount (a host-side materialize, or a jail whose home and
 //     store arrive through one bind). Rare here, and it is second rather than first because
@@ -387,41 +388,17 @@ func (c *chain) placeFile(src, dst string, perm fs.FileMode) error {
 }
 
 // reflinkOne and hardlinkOne are the two O(1) arms, behind package vars so a test can force
-// the chain down its lower steps.
+// the chain down its lower steps. reflinkOne is the platform's reflinkFile: FICLONE on Linux
+// (clone_linux.go), clonefile(2) on macOS (clone_darwin.go).
 //
 // A SEAM RATHER THAN A FILESYSTEM FIXTURE, because the property under test is the FALLBACK,
 // and arranging for a real ext4 (no reflink) and a real second mount (no hardlink) inside a
 // unit test would mean requiring root and two loopback filesystems to assert a branch. The
 // real mechanisms are measured where they can be — the integration cell and the premise test
-// in materialize_test.go — and the chain's ORDER and stickiness are measured here.
+// in materialize_test.go, and on macOS clone_darwin_test.go — and the chain's ORDER and
+// stickiness are measured here.
 var (
-	reflinkOne = func(src, dst string, perm fs.FileMode) error {
-		sf, err := os.Open(src)
-		if err != nil {
-			return err
-		}
-		defer sf.Close()
-		// O_EXCL: replaceable() already unlinked anything here, so a destination that
-		// exists now is a race or a bug, and clobbering it would be the wrong answer.
-		df, err := os.OpenFile(dst, os.O_WRONLY|os.O_CREATE|os.O_EXCL, perm)
-		if err != nil {
-			return err
-		}
-		if cerr := cloneFile(df, sf); cerr != nil {
-			df.Close()
-			// The destination was created by THIS call and holds nothing anyone
-			// wants; leaving it behind would make the hardlink arm fail EEXIST.
-			_ = os.Remove(dst)
-			return cerr
-		}
-		if cerr := df.Close(); cerr != nil {
-			return cerr
-		}
-		// Its own inode, so the manifest's mode is safe to assert (O_CREATE's is
-		// masked by umask).
-		return os.Chmod(dst, perm)
-	}
-
+	reflinkOne  = reflinkFile
 	hardlinkOne = func(src, dst string) error { return os.Link(src, dst) }
 )
 
