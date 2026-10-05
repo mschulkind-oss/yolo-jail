@@ -29,6 +29,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/packsrc"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
+	"github.com/mschulkind-oss/yolo-jail/internal/shquote"
 )
 
 const treeKeyCLI = "treepack/tool-ext"
@@ -352,7 +353,9 @@ func TestATreesFinalCopyRunsAfterACommentedBuildLine(t *testing.T) {
 	ws, home := t.TempDir(), t.TempDir()
 	writeFile(t, filepath.Join(ws, forkSourceLeaf, "index.js"), "x")
 	argv := treeBuildJailArgv("touch built # and nothing else", "tool-ext")
-	script := strings.ReplaceAll(argv[len(argv)-1], containerWorkspace, ws)
+	// The temp workspace is pasted into a shell script, so it is quoted: a TMPDIR with a space
+	// (macOS's, or a CI runner's) would otherwise split it.
+	script := strings.ReplaceAll(argv[len(argv)-1], containerWorkspace, shquote.Quote(ws))
 	cmd := exec.Command("bash", "-c", script)
 	cmd.Env = append(os.Environ(), "HOME="+home)
 	if out, err := cmd.CombinedOutput(); err != nil {
