@@ -21,6 +21,7 @@ import (
 
 	"github.com/mschulkind-oss/yolo-jail/internal/capture"
 	"github.com/mschulkind-oss/yolo-jail/internal/cli/run"
+	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/hostskills"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
@@ -257,6 +258,30 @@ func TestAHostLaunchAdvancesItsOwnersTreeBeforeTheGate(t *testing.T) {
 	}
 	if !isDir(fx.link()) {
 		t.Error("the gate's apply did not render the tree's link")
+	}
+}
+
+// A LAUNCH THE CAPABILITY GATE REFUSES BUILDS NOTHING (OQ-CAP2 before PPX-D11): the gate runs ahead
+// of the advance, as it runs ahead of the render gate, so `yolo host -- tool` under a
+// `required_capabilities` nothing satisfies stops without fetching or building the tree its pack
+// loads. Red if the advance moves back above refuseHostUnmetCapabilities in hostLaunch.
+func TestAHostLaunchTheCapabilityGateRefusesBuildsNoTree(t *testing.T) {
+	fx := newTreeFixture(t, `"f.txt"`)
+	fx.listTreeForAgent(t)
+	fx.writeHostConfig(t, `,"host_apply_on_launch":true,"required_capabilities":["web_search"]`)
+	t.Setenv(config.AllowUnmetCapabilitiesEnv, "")
+	stubBins(t, "tool")
+	got := captureHostExec(t)
+	var errw bytes.Buffer
+	rc := hostExec(nil, []string{"tool"}, io.Discard, &errw, nil)
+	if rc != 1 || got.execed {
+		t.Fatalf("rc=%d, execed %v: the capability gate did not refuse\n%s", rc, got.execed, errw.String())
+	}
+	if !strings.Contains(errw.String(), "declares 'web_search'") {
+		t.Errorf("the refusal is not the capability gate's:\n%s", errw.String())
+	}
+	if len(fx.builds) != 0 {
+		t.Errorf("a launch the capability gate refused built %d trees:\n%s", len(fx.builds), errw.String())
 	}
 }
 
