@@ -366,9 +366,11 @@ func (s *CredentialScope) FoldFor(agent string) []EnvFoldEntry {
 }
 
 // UnservedEnvLines names every pack env variable this notch withheld because the jail daemon
-// it points at is not served here, one line per daemon, sorted (P4: what a notch cannot do, it
-// says). nil when nothing was withheld. Names only: the value is an address, but the line is
-// about what is absent, and a reader acts on the variable.
+// it points at is not served here, or, for a pointer `served_by` a BOUND LOOPHOLE
+// (ServedDaemons.notBoundWhy), because this notch did not bind what that loophole binds into a
+// jail, one line per daemon, sorted (P4: what a notch cannot do, it says). nil when nothing was
+// withheld. Names only: the value is an address, but the line is about what is absent, and a
+// reader acts on the variable.
 //
 // byLaunch is the launch's own word on each variable (LaunchServes): one it sets itself is left
 // out, and one whose own server did not start gets the reason byLaunch gives. nil says nothing.
@@ -378,9 +380,18 @@ func (s *CredentialScope) UnservedEnvLines(byLaunch LaunchServes) []string {
 	if s == nil || (len(s.unservedEnv) == 0 && len(s.unlistenedEnv) == 0 && len(s.untokenedEnv) == 0) {
 		return nil
 	}
-	type reason struct{ daemon, why string }
+	type reason struct {
+		daemon, why string
+		bound       bool
+	}
 	byReason := map[reason][]string{}
 	var reasons []reason
+	// A pointer at what a BOUND LOOPHOLE binds into a jail (ServedDaemons.notBoundWhy) points
+	// at no daemon, so its line says what it does point at and why this notch has none.
+	var bound map[string]bool
+	if len(s.unservedEnv) > 0 {
+		bound = boundLoopholes(s.packs)
+	}
 	for k, daemon := range s.unservedEnv {
 		why := ""
 		if byLaunch != nil {
@@ -390,12 +401,18 @@ func (s *CredentialScope) UnservedEnvLines(byLaunch LaunchServes) []string {
 			}
 			why = launchWhy
 		}
-		if why == "" {
+		switch {
+		case why != "" && bound[daemon]:
+			why += ", so nothing would answer it"
+		case why != "":
+		case bound[daemon]:
+			why = s.served.notBoundWhy(daemon)
+		default:
 			// The served set's: the launch's reason for the daemon when it gave one
 			// (WithNotServedWhy), else the notch's (ServedDaemons.notServedWhy).
 			why = s.served.notServedWhy(daemon)
 		}
-		r := reason{daemon, why}
+		r := reason{daemon, why, bound[daemon]}
 		if _, seen := byReason[r]; !seen {
 			reasons = append(reasons, r)
 		}
@@ -411,6 +428,11 @@ func (s *CredentialScope) UnservedEnvLines(byLaunch LaunchServes) []string {
 	for _, r := range reasons {
 		vars := byReason[r]
 		sort.Strings(vars)
+		if r.bound {
+			lines = append(lines, strings.Join(vars, ", ")+" — points at what the "+
+				strconv.Quote(r.daemon)+" loophole binds into a jail, "+r.why)
+			continue
+		}
 		lines = append(lines, strings.Join(vars, ", ")+" — points at the "+
 			strconv.Quote(r.daemon)+" jail daemon, "+r.why+", so nothing would answer it")
 	}
@@ -448,6 +470,32 @@ func (s *CredentialScope) UnservedEnvLines(byLaunch LaunchServes) []string {
 			"none for it (its jail_daemon declares no caller_token), so there is no token to compose")
 	}
 	return lines
+}
+
+// boundLoopholes is the name of every BOUND LOOPHOLE (ServedDaemons.notBoundWhy) a selected pack
+// ships: one whose manifest declares no `jail_daemon` and at least one host bind or device, the
+// declaration half of the rule loopholes' JailBoundNames applies to a launch's records. nil when
+// no selected pack ships one. A manifest that cannot be read is no bound loophole: its pointer
+// keeps the jail-daemon wording, and the launch already warned that the loophole is absent.
+func boundLoopholes(packs []*Pack) map[string]bool {
+	var out map[string]bool
+	for _, p := range packs {
+		if p == nil || p.Decl == nil {
+			continue
+		}
+		mods, _, _ := p.LoopholeModules()
+		for _, m := range mods {
+			if m.Decl == nil || m.Decl.JailDaemon != nil ||
+				(len(m.Decl.HostBindMounts) == 0 && len(m.Decl.HostDevices) == 0) {
+				continue
+			}
+			if out == nil {
+				out = map[string]bool{}
+			}
+			out[m.Name] = true
+		}
+	}
+	return out
 }
 
 // WithheldBy is the jail daemon whose pointer this notch withheld under the variable name, for

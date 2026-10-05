@@ -672,11 +672,17 @@ func hostExportKeys(out string) []string {
 // proves `yolo host` actually HANDS it anything. Measured before this test existed:
 // deleting the whole `if packs, err := loadedHostPacks(); ...` block from hostEnvVars
 // compiled and passed the entire suite — meaning no pack's env vars were reaching a host
-// launch and nothing noticed. audio is the one shipped pack with a real kind:"env"
-// contribution (PIPEWIRE_REMOTE, PULSE_SERVER), so selecting it by bare name is the
-// shortest config that exercises the block through the real embedded-pack loader.
+// launch and nothing noticed.
 //
-// Three properties, one per assertion: PRESENCE (both vars with audio's literal values),
+// THE FIXTURE IS A LOCAL PACK WITH PLAIN ENV, and it was the shipped `audio` pack until
+// 2026-10-04. audio's two variables are `served_by` its loophole now
+// (docs/design/loophole-packaging.md LP-D1), so the host withholds them — they name sockets only
+// a jail's bind provides — and TestHostEnvWithholdsTheAudioPointers pins that. A plain `env`
+// contribution, which points at no daemon, is what every notch delivers, so it is what this
+// test needs. Its names sort AFTER SECRET_TOKEN, so a composition that sorted the whole output
+// instead of putting the pack block first fails the order assertion.
+//
+// Three properties, one per assertion: PRESENCE (both vars with the pack's literal values),
 // ORDER vs the secret channel (the whole pack block precedes every env_sources
 // assignment), and STABILITY (the order is identical on every run — the sorting exists
 // because "an argv that reshuffles between runs is a diff nobody can read", and map
@@ -687,8 +693,8 @@ func TestHostEnvPackEnvVarsSortedBeforeEnvSources(t *testing.T) {
 	t.Setenv("HOME", home)
 	t.Setenv("YOLO_VERSION", "")
 	t.Chdir(t.TempDir())
+	writeLocalEnvPack(t, home, `{"YANKEE_PACK_VAR": "y", "XRAY_PACK_VAR": "x"}`)
 	userCfg(t, home, `{
-	  "packs": ["audio"],
 	  "env_sources": [{"SECRET_TOKEN": "hunter2"}]
 	}`)
 
@@ -703,8 +709,8 @@ func TestHostEnvPackEnvVarsSortedBeforeEnvSources(t *testing.T) {
 
 	got := run(t)
 	for _, want := range []string{
-		`export PIPEWIRE_REMOTE='/run/pipewire/pipewire-0'`,
-		`export PULSE_SERVER='unix:/run/pulse/native'`,
+		`export XRAY_PACK_VAR='x'`,
+		`export YANKEE_PACK_VAR='y'`,
 	} {
 		if !strings.Contains(got, want) {
 			t.Errorf("pack env contribution missing from the composition: %q\n%s", want, got)
@@ -716,15 +722,15 @@ func TestHostEnvPackEnvVarsSortedBeforeEnvSources(t *testing.T) {
 	for i, k := range keys {
 		pos[k] = i
 	}
-	for _, k := range []string{"PIPEWIRE_REMOTE", "PULSE_SERVER", "SECRET_TOKEN"} {
+	for _, k := range []string{"XRAY_PACK_VAR", "YANKEE_PACK_VAR", "SECRET_TOKEN"} {
 		if _, ok := pos[k]; !ok {
 			t.Fatalf("key %s absent from %v\n%s", k, keys, got)
 		}
 	}
-	if !(pos["PIPEWIRE_REMOTE"] < pos["PULSE_SERVER"] && pos["PULSE_SERVER"] < pos["SECRET_TOKEN"]) {
+	if !(pos["XRAY_PACK_VAR"] < pos["YANKEE_PACK_VAR"] && pos["YANKEE_PACK_VAR"] < pos["SECRET_TOKEN"]) {
 		t.Errorf("pack env vars are not a SORTED block ahead of env_sources: "+
-			"PIPEWIRE_REMOTE@%d PULSE_SERVER@%d SECRET_TOKEN@%d in %v",
-			pos["PIPEWIRE_REMOTE"], pos["PULSE_SERVER"], pos["SECRET_TOKEN"], keys)
+			"XRAY_PACK_VAR@%d YANKEE_PACK_VAR@%d SECRET_TOKEN@%d in %v",
+			pos["XRAY_PACK_VAR"], pos["YANKEE_PACK_VAR"], pos["SECRET_TOKEN"], keys)
 	}
 
 	// The stability half of the sorting contract: one canonical order, every run.
@@ -732,6 +738,59 @@ func TestHostEnvPackEnvVarsSortedBeforeEnvSources(t *testing.T) {
 		if again := run(t); again != got {
 			t.Fatalf("composition order reshuffled between runs (run %d):\nfirst:\n%s\nagain:\n%s", i+1, got, again)
 		}
+	}
+}
+
+// writeLocalEnvPack writes the conventional local pack (~/.config/yolo-jail/local) with one
+// unconditional `env` contribution of vars, a JSON object: a pack every notch delivers, since it
+// points at no daemon. config.LoadPacks appends the local pack with no `packs` entry naming it.
+func writeLocalEnvPack(t *testing.T, home, vars string) {
+	t.Helper()
+	dir := filepath.Join(home, ".config", "yolo-jail", "local")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	body := `{"name":"local","contributes":[{"kind":"env","vars":` + vars + `}]}`
+	if err := os.WriteFile(filepath.Join(dir, "pack.json"), []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// THE HOST NOTCH WITHHOLDS THE AUDIO POINTERS, even with the loophole on (docs/design/
+// loophole-packaging.md LP-D1). MEASURED 2026-10-04 before this: `yolo host env --agent claude`
+// with packs [claude, audio] exported PULSE_SERVER='unix:/run/pulse/native', and libpulse handed
+// that value never tries $XDG_RUNTIME_DIR/pulse/native, so `yolo host -- claude` broke the host's
+// own audio. The host binds nothing (there is no jail), so neither variable is exported, and the
+// disclosure names both, in the words for what a loophole binds rather than for a jail daemon,
+// which audio has none of. The host notch has no call site of its own for this: it fails when
+// packs/audio's `served_by` or packload's bound-loophole wording is deleted.
+func TestHostEnvWithholdsTheAudioPointers(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("YOLO_VERSION", "")
+	os.Unsetenv("YOLO_VERSION")
+	t.Chdir(t.TempDir())
+	userCfg(t, home, `{
+	  "packs": ["claude", "audio"],
+	  "loopholes": {"audio": {"enabled": true}}
+	}`)
+
+	var out, errw bytes.Buffer
+	if rc := hostEnv([]string{"--agent", "claude"}, &out, &errw); rc != 0 {
+		t.Fatalf("hostEnv rc = %d, stderr = %s", rc, errw.String())
+	}
+	for _, k := range []string{"PIPEWIRE_REMOTE", "PULSE_SERVER"} {
+		if strings.Contains(out.String(), k) {
+			t.Errorf("`yolo host env` exported %s, a socket only a jail's bind provides:\n%s", k, out.String())
+		}
+	}
+	said := errw.String()
+	if !strings.Contains(said, `PIPEWIRE_REMOTE, PULSE_SERVER — points at what the "audio" loophole binds into a jail`) ||
+		!strings.Contains(said, "reaches the host's own server") {
+		t.Errorf("the host did not name the withheld audio pointers and why:\n%s", said)
+	}
+	if strings.Contains(said, `"audio" jail daemon`) {
+		t.Errorf("the audio pointers were worded as a jail daemon's:\n%s", said)
 	}
 }
 

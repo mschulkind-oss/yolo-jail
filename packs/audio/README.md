@@ -8,7 +8,7 @@ enumeration, its approval gate, its name pre-flight and its inert report.
 
 **What it ships:** one `loophole` contribution (`loopholes/audio` — both host sockets,
 `/dev/snd`, and the ALSA→PipeWire routing fragment) and one `env` contribution
-(`PULSE_SERVER`, `PIPEWIRE_REMOTE`).
+(`PULSE_SERVER`, `PIPEWIRE_REMOTE`), set only in a jail that binds the sockets (note 4 below).
 
 **Select it, and switch it on. Neither is implied by the other:**
 
@@ -29,7 +29,7 @@ both have since been undone by the things that forced them:
 | It was… | Because | What changed |
 |---|---|---|
 | named `audio-alsa` | `audio` was a **reserved** loophole name — the bundled directory names *are* the reserved set, read off the same embed.FS the loader materializes — and `PackLoopholeNameConflicts` refuses a pack claiming one **fatally**, so every jail selecting the pack would have failed to start | deleting the bundled copy retired the reservation **in the same commit**, because it was *derived* from the directory rather than listed beside it. The pack took the plain name back, which matters: `loopholes.audio.enabled` is the key users write |
-| ALSA-only | the pack-shipped subset refused a `host_bind_mounts[].host` that expands an environment variable, and every socket a real audio loophole needs is under `${XDG_RUNTIME_DIR}`. There was **no legal spelling** — the variable was refused, the literal was refused as absolute, and it is not under `$HOME` | **OQ-LP14 withdrew that rule** (2026-08-17). It admitted `~/.ssh` and blocked a pulse socket, which is a gate with its two cases inverted. What replaced it is not a narrower gate but total claim enumeration plus the origin approval |
+| ALSA-only | the pack-shipped subset refused a `host_bind_mounts[].host` that expands an environment variable, and every socket a real audio loophole needs is under `${XDG_RUNTIME_DIR}`. There was **no legal spelling** — the variable was refused, the literal was refused as absolute, and it is not under `$HOME` | **[`OQ-LP14`](../../docs/reference/loophole-system.md#oq-lp14) withdrew that rule** (2026-08-17). It admitted `~/.ssh` and blocked a pulse socket, which is a gate with its two cases inverted. What replaced it is not a narrower gate but total claim enumeration plus the origin approval |
 
 **So "the subset cannot express the real audio loophole" is a retired finding, not a
 current one.** It is worth knowing it existed: it is the measurement that killed the rule.
@@ -70,13 +70,20 @@ start**). The choice survives the collision because alsa-lib loads `/etc/alsa/co
 measured working in this repo's jail with `sox`. Moving to the freed path would be an
 unmeasured edit made for tidiness.
 
-**4. `PULSE_SERVER`/`PIPEWIRE_REMOTE` are the pack's `env` contribution, so they are
-UNCONDITIONAL.** `jail_env` is refused for a pack-shipped loophole, and the difference is
-real: a loophole's `jail_env` applied only when the loophole was active; the `env` kind is
-set on every launch that selects the pack. So selecting this pack on a machine with no
-audio socket points `PULSE_SERVER` at a socket that is not there, and a libpulse client
-fails the same way it would on a host with no daemon. That is §3.1's named cost and
-OQ-LP5's trigger; the fix is the cross-kind collision pass, which is purely additive.
+**4. `PULSE_SERVER`/`PIPEWIRE_REMOTE` are the pack's `env` contribution, marked
+`served_by: "audio"`.** `jail_env` is refused for a pack-shipped loophole, and an `env`
+contribution on its own is set on every launch that selects the pack. Until 2026-10-04 that is
+what happened, and at the host it did harm: `yolo host -- claude` pointed libpulse at
+`/run/pulse/native`, and libpulse given `PULSE_SERVER` never falls back to the host's own
+`$XDG_RUNTIME_DIR/pulse/native`, so selecting this pack broke the host's audio. `served_by` names
+this loophole, which runs no jail daemon but binds the sockets, and a launch serves that name only
+where its container argv carries the binds
+([LP-D1](../../docs/design/loophole-packaging.md#LP-D1)): a podman jail on Linux with the loophole
+on. `yolo host`, macos-user, a Mac, and a jail with the loophole off leave both variables out and
+name them at launch. With the loophole on, a host missing one of the sockets still gets that
+socket's variable, because a missing socket skips only its own bind. And re-entering a running
+jail after switching the loophole on or off sets or leaves out both variables by the new switch,
+while the jail keeps the binds it started with (both recorded in LP-D1).
 
 ## Off by default
 

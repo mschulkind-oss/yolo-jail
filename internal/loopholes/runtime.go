@@ -417,6 +417,40 @@ func admitsJailSideEffects(m *Loophole, runtime string, gate *Set, what string) 
 	return !(runtime == "container" && len(m.Intercepts) > 0)
 }
 
+// JailBoundNames names each record in from that SERVES ITS CLIENTS BY BINDING ALONE and whose
+// binds this runtime's container argv carries: a loophole with no `jail_daemon` and at least one
+// `host_bind_mounts` or `host_devices` entry, admitted by the predicate the argv's bind loop asks
+// (admitsJailSideEffects, with the argv path's `what`, so a never-gated record's warning is the
+// line that loop already said and warnf says it once).
+//
+// It is the bind-only half of "served at this notch" (packload.ServedDaemons;
+// docs/design/loophole-packaging.md LP-D1): a pack `env` pointer `served_by` such a loophole
+// (packs/audio's PULSE_SERVER, PIPEWIRE_REMOTE) names a socket that exists in the jail only when
+// the argv bound it, so the launch serves its name exactly when this lists it, and the credential
+// gate withholds and names the pointer everywhere else. A record with a jail daemon is not listed:
+// its daemon is what serves it (ServedJailDaemonNames). nil on macos-user, whose Seatbelt sandbox
+// is a process on the host's filesystem with no mount namespace, so nothing is bound into it.
+//
+// A bind whose host source is missing is still counted, as is a device skipped in a nested
+// launch: the argv loop skips each one with a warning, and the pointer then names a path that
+// is not there, as a host with no audio daemon would.
+func (s Set) JailBoundNames(from []*Loophole, runtime string) []string {
+	if runtime == "macos-user" {
+		return nil
+	}
+	var names []string
+	for _, m := range from {
+		if m.JailDaemon != nil || (len(m.HostBindMount) == 0 && len(m.HostDevices) == 0) {
+			continue
+		}
+		if !admitsJailSideEffects(m, runtime, &s, "RuntimeArgsFor") {
+			continue
+		}
+		names = append(names, m.Name)
+	}
+	return names
+}
+
 // jailDaemonSpecs is THE COMPOSER of this launch's jail-daemon entries — the body behind
 // Set.JailDaemons and the one runtimeArgsFor calls, so there is exactly one.
 func jailDaemonSpecs(loopholes []*Loophole, runtime string, gate *Set,

@@ -17,7 +17,8 @@ import (
 // opens outside it (host-notch-services.md HS-D15), after the same admission of their host argvs
 // and of each pack service's host half the launch applies (launchservice.AdmitDoorways,
 // AdmitServiceHosts), declines the same ones the launch declines by name, and every gate it
-// predicts refuses or withholds what that launch does.
+// predicts refuses or withholds what that launch does. The bound loopholes (loopholes'
+// JailBoundNames) are served by the one rule too: by name wherever the argv would bind them.
 //
 // No runtime named predicts a container one, which is what a launch with none named resolves
 // to on every platform: macos-user is only ever chosen by name.
@@ -41,5 +42,12 @@ func (o *Options) predictedServed(merged *jsonx.OrderedMap, packs []*packload.Pa
 	// port of a shared namespace's launch to know, and a pointer naming {listen} composes to
 	// the address a private namespace serves (docs/plans/notch-convergence.md NC-D41).
 	names, listen := loopholes.ServedJailDaemonNames(rt, specs)
-	return packload.ServedInJail(names).WithListen(listen)
+	// The BOUND LOOPHOLES the launch's argv would bind, served by name as the launch's
+	// servedDaemons serves them (docs/design/loophole-packaging.md LP-D1), and the macos-user
+	// mark the launch sets, so a pointer at one is predicted withheld, in the launch's words.
+	served := packload.ServedInJail(append(names, set.JailBoundNames(set.Enabled(), rt)...)).WithListen(listen)
+	if rt == "macos-user" {
+		served = served.MountsNothing()
+	}
+	return served
 }

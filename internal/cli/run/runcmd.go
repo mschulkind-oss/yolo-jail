@@ -218,6 +218,12 @@ type Options struct {
 	// (packload.HeldServices, notch-convergence NC-D59). Read by the one disclosure that says so
 	// (noteShadowedServices). nil when no service name is declared twice.
 	shadowedServices []packload.ShadowedService
+	// jailBound are the BOUND LOOPHOLES (loopholes.JailBoundNames: no jail daemon, host binds or
+	// devices) whose binds the last jail-daemon payload this process composed would put on the
+	// container argv, recorded beside it so servedDaemons serves their names: a pack env pointer
+	// `served_by` one reaches the jail only where its binds do (docs/design/loophole-packaging.md
+	// LP-D1). nil on macos-user, which binds nothing, and when none is active.
+	jailBound []string
 	// launchServices are the LAUNCH-OWNED SERVICES this macos-user launch planned
 	// (macosuserservices.go, docs/design/host-notch-services.md §4.7): pack services whose host
 	// half runs as this launch's child because a profiled agent's pairing needs one. Settled

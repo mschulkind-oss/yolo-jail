@@ -419,8 +419,9 @@ func TestAudioShapedManifestEnumeratesEveryCrossingClass(t *testing.T) {
 //	readonly:false ×2   -> declare `readonly: true`. Measured: a :ro bind of an
 //	                       AF_UNIX socket is fully connectable and BIDIRECTIONAL,
 //	                       so the refusal costs a socket nothing.
-//	jail_env            -> the pack's `env` contribution kind, accepting that it
-//	                       becomes unconditional (OQ-LP5).
+//	jail_env            -> the pack's `env` contribution kind, `served_by` the
+//	                       loophole so it still follows the binds (LP-D1;
+//	                       OQ-LP5 is the question of jail_env itself).
 //	requires.file_exists-> `platforms: ["linux"]`, which answers the question the
 //	                       probe was really asking and is not path-scoped.
 //
@@ -488,3 +489,164 @@ const audioShapedManifest = `{
     "PIPEWIRE_REMOTE": "/run/pipewire/pipewire-0"
   }
 }`
+
+// THE POINTERS ARE SERVED BY THE LOOPHOLE THAT BINDS THEIR SOCKETS (docs/design/loophole-packaging.md
+// LP-D1). The pack's `env` declares `served_by: "audio"`, so the credential gate delivers
+// PULSE_SERVER and PIPEWIRE_REMOTE only where a launch serves that name — a container launch
+// whose argv binds the loophole — and withholds and names them everywhere else. Without it they
+// were set at every notch that selected the pack: `yolo host -- claude` pointed libpulse at
+// /run/pulse/native, which on a host is no socket at all, and libpulse given PULSE_SERVER never
+// falls back to the host's own $XDG_RUNTIME_DIR/pulse/native. Deleting the line from
+// packs/audio/pack.json fails this and every test below.
+func TestAudioPackPointersAreServedByTheAudioLoophole(t *testing.T) {
+	served := embeddedAudioPack(t).Decl.EnvServedBy()
+	for _, k := range []string{"PIPEWIRE_REMOTE", "PULSE_SERVER"} {
+		if got := served[k]; got != audioLoopholeName {
+			t.Errorf("%s is served_by %q, want %q: the variable names a socket only the "+
+				"loophole's bind puts in a jail", k, got, audioLoopholeName)
+		}
+	}
+}
+
+// audioScope composes the credential gate's answer for a launch selecting only the shipped audio
+// pack, at the notch served describes.
+func audioScope(t *testing.T, served packload.ServedDaemons) *packload.CredentialScope {
+	t.Helper()
+	s, err := packload.ScopeCredentials(packload.ScopeInput{
+		Packs: []*packload.Pack{embeddedAudioPack(t)}, NoDerives: true, Served: &served})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return s
+}
+
+// Per notch: delivered where the jail binds the loophole, and otherwise withheld, on one line
+// that says what the variables point at — what the loophole binds into a jail, never a jail
+// daemon, since none exists — and why this notch has none, in its own terms.
+func TestAudioPackPointersAreDeliveredOnlyWhereTheLoopholeBinds(t *testing.T) {
+	const head = `PIPEWIRE_REMOTE, PULSE_SERVER — points at what the "audio" loophole binds into a jail, `
+	for _, tc := range []struct {
+		name   string
+		served packload.ServedDaemons
+		want   string // "" = delivered
+	}{
+		{"a container launch that binds it", packload.ServedInJail([]string{"audio"}), ""},
+		{"a container launch with the loophole off", packload.ServedInJail(nil),
+			head + `which this launch did not bind: the loophole is off (` +
+				"`" + `"loopholes": {"audio": {"enabled": true}}` + "`"},
+		{"the host", packload.NothingServed().AtHost(),
+			head + "and the host has no jail to bind it into, so a client here reaches the host's own server"},
+		{"macos-user", packload.ServedInJail(nil).MountsNothing(),
+			head + "which the macos-user sandbox does not have: it binds nothing into the jail"},
+		// macos-user's set is its guest's daemons Plus its launch-owned services: the mark
+		// survives the union.
+		{"macos-user with a launch-owned service", packload.ServedInJail(nil).MountsNothing().
+			Plus(packload.ServedByLaunch([]string{"wire-bridge"})),
+			head + "which the macos-user sandbox does not have"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			s := audioScope(t, tc.served)
+			lines := strings.Join(packload.UnservedLines(s, nil, nil), "\n")
+			for _, k := range []string{"PIPEWIRE_REMOTE", "PULSE_SERVER"} {
+				_, delivered := s.DeliveredPackEnv(k)
+				if delivered != (tc.want == "") {
+					t.Errorf("%s delivered = %v, want %v", k, delivered, tc.want == "")
+				}
+			}
+			if tc.want == "" {
+				if lines != "" {
+					t.Errorf("a notch delivering both named something withheld:\n%s", lines)
+				}
+				return
+			}
+			if !strings.Contains(lines, tc.want) {
+				t.Errorf("the withheld line does not say %q:\n%s", tc.want, lines)
+			}
+			if strings.Contains(lines, "jail daemon") {
+				t.Errorf("the audio pointers were worded as a jail daemon's, and audio runs none:\n%s", lines)
+			}
+		})
+	}
+}
+
+// ONLY A LOOPHOLE WITH NO JAIL DAEMON AND SOMETHING TO BIND IS A BOUND LOOPHOLE
+// (docs/design/loophole-packaging.md LP-D1), so only its withheld pointer is worded as one. A
+// loophole that declares a `jail_daemon` beside a bind is served by that daemon: its pointer
+// names the daemon's address, and a notch that withholds it says the daemon does not run there.
+// Worded as a bound loophole's, the host's line would claim a client there reaches the host's own
+// server at its default path, and a daemon's address has no host default. A loophole that binds
+// nothing and runs no jail daemon is served nowhere, and its pointer says the jail daemon it names
+// is not run. No shipped loophole is either shape, so these fixtures are what hold
+// boundLoopholes' two guards.
+func TestOnlyABoundLoopholesWithheldPointerIsWordedAsBound(t *testing.T) {
+	for _, tc := range []struct {
+		name, decl string
+		wantDaemon bool // the fixture must decode with a jail daemon
+	}{
+		{"both-ways", `"host_bind_mounts": [{"host": "{loophole_dir}/both-ways.conf",
+  "container": "/etc/both-ways.conf", "readonly": true}],
+  "jail_daemon": {"cmd": ["yolo-jaild", "both-ways"]}`, true},
+		{"binds-nothing", `"lifecycle": "external"`, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			p := servedByFixturePack(t, tc.name, tc.decl)
+			mods, _, _ := p.LoopholeModules()
+			if len(mods) != 1 || mods[0].Decl == nil ||
+				(mods[0].Decl.JailDaemon != nil) != tc.wantDaemon ||
+				(len(mods[0].Decl.HostBindMounts) > 0) != tc.wantDaemon {
+				t.Fatalf("the fixture decoded to the wrong shape: %+v", mods)
+			}
+			head := `FIXTURE_ADDR — points at the "` + tc.name + `" jail daemon, `
+			for _, n := range []struct {
+				notch  string
+				served packload.ServedDaemons
+			}{
+				{"the host", packload.NothingServed().AtHost()},
+				{"a container launch that does not run it", packload.ServedInJail(nil)},
+				{"macos-user", packload.ServedInJail(nil).MountsNothing()},
+			} {
+				served := n.served
+				s, err := packload.ScopeCredentials(packload.ScopeInput{
+					Packs: []*packload.Pack{p}, NoDerives: true, Served: &served})
+				if err != nil {
+					t.Fatal(err)
+				}
+				if _, delivered := s.DeliveredPackEnv("FIXTURE_ADDR"); delivered {
+					t.Errorf("%s: a notch that serves nothing by this name delivered its pointer", n.notch)
+				}
+				lines := strings.Join(packload.UnservedLines(s, nil, nil), "\n")
+				if !strings.Contains(lines, head) {
+					t.Errorf("%s: the withheld line does not say %q:\n%s", n.notch, head, lines)
+				}
+				if strings.Contains(lines, "binds into a jail") || strings.Contains(lines, "default path") {
+					t.Errorf("%s: a pointer at a loophole that is not a bound loophole was worded "+
+						"as one:\n%s", n.notch, lines)
+				}
+			}
+		})
+	}
+}
+
+// servedByFixturePack writes and loads a pack shipping one loophole, name, whose manifest adds
+// decl to the required keys, and one env contribution `served_by` it setting FIXTURE_ADDR.
+func servedByFixturePack(t *testing.T, name, decl string) *packload.Pack {
+	t.Helper()
+	root := t.TempDir()
+	dir := filepath.Join(root, "loopholes", name)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for file, body := range map[string]string{
+		filepath.Join(dir, "manifest.jsonc"): `{"name": "` + name + `", "description": "x",
+  "transport": "none", ` + decl + `}`,
+		filepath.Join(dir, name+".conf"): "",
+		filepath.Join(root, "pack.json"): `{"name": "acme", "contributes": [
+  {"kind": "loophole", "from": "loopholes/` + name + `"},
+  {"kind": "env", "served_by": "` + name + `", "vars": {"FIXTURE_ADDR": "127.0.0.1:1470"}}]}`,
+	} {
+		if err := os.WriteFile(file, []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return loadPack(t, root)
+}

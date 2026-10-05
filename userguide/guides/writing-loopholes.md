@@ -348,13 +348,28 @@ full access to whatever is behind it. Name a socket `*.sock` so that yolo descri
 
 `host_devices` passes device nodes, such as `/dev/snd`, into the jail with read and write access.
 
+When a pack `env` entry tells a client where to find something your loophole mounts, mark it with
+`served_by` and the loophole's name, as you would for a jail daemon:
+
+```jsonc
+{"kind": "env", "served_by": "my-loophole", "vars": {"MY_SOCKET": "unix:/run/my-loophole/sock"}}
+```
+
+The variable is then set only in a jail that gets your mounts: a container jail with the loophole
+on and active on that machine. `yolo host` and `macos-user` mount nothing into a jail, and a jail
+with the loophole off gets none of its mounts, so each of these leaves the variable out and says
+so at launch. A client there uses its own default instead, which under `yolo host` is your
+machine's own service. The `audio` pack marks `PULSE_SERVER` and `PIPEWIRE_REMOTE` this way.
+This works only for a loophole that mounts something or runs a jail daemon: an entry marked
+`served_by` a loophole that does neither is never set, even with the loophole on.
+
 ### What a pack's manifest may not use
 
 yolo holds every manifest to a few rules, because a pack is something other people install:
 
 | Not allowed | Use instead |
 |---|---|
-| `jail_env` | a pack `env` contribution. It applies whenever the pack is selected, even if the loophole is not active |
+| `jail_env` | a pack `env` contribution. It applies whenever the pack is selected, even if the loophole is not active. If the variable points at something the loophole mounts or at its jail daemon, mark it `served_by` the loophole and it follows the loophole (see [Mounts and devices](#mounts-and-devices) and [A program in the jail](#a-program-in-the-jail)). Marked `served_by` a loophole that does neither, it is never set |
 | `readonly: false` in a mount | a read-only mount, or a host daemon that does the writing |
 | `publishes` left out, or `"endpoint"` | `"publishes": "socket"` |
 | an absolute or `$VAR` path in `ca_cert` or `requires.file_exists` | a path inside the loophole's folder; `{state}/…` for `ca_cert`; a path relative to your home for `file_exists` |
