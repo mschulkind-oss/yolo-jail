@@ -67,7 +67,8 @@ const (
 	// RefreshHeld: another launch holds the refresh lock; nothing ran, and the launch runs what is
 	// installed.
 	RefreshHeld
-	// RefreshNoLock: the lock could not be taken at all (the prefix is not writable); nothing ran.
+	// RefreshNoLock: the lock could not be taken at all (the prefix is not writable); nothing ran,
+	// and the next launch, which most likely cannot write the prefix either, says so again.
 	RefreshNoLock
 	// RefreshRan: the refresh ran and exited 0.
 	RefreshRan
@@ -145,8 +146,13 @@ func (f *Floor) PrelaunchRefresh(p Program, exe string, env []string) RefreshRes
 	case err != nil:
 		f.say("%s: cannot take the refresh lock %s (%v) — skipping the pre-launch refresh; once %s "+
 			"is a directory you can write, a later launch runs it", bin, lockPath, err, f.refreshDir())
-		// Stamped and recorded as the launcher's are, best effort, so a refresh that cannot run
-		// says so once an interval rather than on every launch, and its change trigger with it.
+		// Stamped and recorded as the launcher's are, BEST EFFORT. The launcher's stamp sits in a
+		// directory of its own, apart from the store whose lock failed, so there a refresh that
+		// cannot run says so once an interval. Here the stamp and the record live in the same
+		// prefix's refresh/, so in the usual case, a prefix that cannot be written, both writes fail
+		// too and the line is said on every launch, which keeps the broken prefix in view. A lock
+		// that fails beside a writable refresh/ (a directory where the lock file should be, say) is
+		// said once an interval, its change trigger with it.
 		f.touchRefreshStamp(bin)
 		f.recordSeen(bin, key)
 		return RefreshResult{Outcome: RefreshNoLock}
