@@ -22,6 +22,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync/atomic"
 	"testing"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/capture"
@@ -567,5 +568,135 @@ func TestTheLoaderCheckRunsOnlyForALinuxFloor(t *testing.T) {
 		if got := f.loaderProblem("/lib64/ld-linux-x86-64.so.2") != ""; c.root != "" && got != c.want {
 			t.Errorf("GOOS %s under an empty root: a problem = %v, want %v", c.goos, got, c.want)
 		}
+	}
+}
+
+// A LOADER PATH THAT CANNOT LEAD TO A FILE is a missing loader, with the nix-ld step: a file where
+// a directory of the path should be (ENOTDIR), a chain of links that never ends, and a directory at
+// the loader's own path. Each is a program the kernel cannot start, and serving it would only be a
+// launcher that exits 127.
+func TestALoaderPathThatCannotLeadToAFileIsAMissingLoader(t *testing.T) {
+	const loader = "/lib64/ld-linux-x86-64.so.2"
+	for _, c := range []struct {
+		name string
+		lay  func(root string)
+	}{
+		{"a file where a directory should be", func(root string) {
+			must(t, os.WriteFile(filepath.Join(root, "lib64"), []byte("not a directory\n"), 0o644))
+		}},
+		{"a link loop", func(root string) {
+			must(t, os.MkdirAll(filepath.Join(root, "lib64"), 0o755))
+			must(t, os.Symlink("ld-loop", filepath.Join(root, "lib64", "ld-linux-x86-64.so.2")))
+			must(t, os.Symlink("ld-linux-x86-64.so.2", filepath.Join(root, "lib64", "ld-loop")))
+		}},
+		{"a directory at the loader's path", func(root string) {
+			must(t, os.MkdirAll(filepath.Join(root, "lib64", "ld-linux-x86-64.so.2"), 0o755))
+		}},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			root := resolvedTemp(t)
+			c.lay(root)
+			f := &Floor{GOOS: "linux", Root: root}
+			why := f.loaderProblem(loader)
+			for _, want := range []string{"needs the dynamic loader " + loader + ", and this machine has no file there",
+				"a NixOS host without nix-ld, or a musl system", "programs.nix-ld.enable = true;"} {
+				if !strings.Contains(why, want) {
+					t.Errorf("loaderProblem = %q, lacks %q", why, want)
+				}
+			}
+		})
+	}
+}
+
+// countingNodeDist serves Node's official tarball for w's platform — its node an ELF asking for the
+// official loader — and returns the count of its fetches.
+func (w *world) countingNodeDist() *atomic.Int32 {
+	w.t.Helper()
+	tarball := elfNodeTarball(w.t, floortest.Shipped, w.plat, elfAsking(w.linuxLoader()))
+	fetches := &atomic.Int32{}
+	srv := httptest.NewServer(http.HandlerFunc(func(rw http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/dist/v"+floortest.Shipped+"/node-v"+floortest.Shipped+"-"+w.plat+".tar.gz" {
+			fetches.Add(1)
+			_, _ = rw.Write(tarball)
+			return
+		}
+		http.NotFound(rw, r)
+	}))
+	w.t.Cleanup(srv.Close)
+	w.floor.Node = NodeDist{BaseURL: srv.URL + "/dist", Shipped: floortest.Shipped,
+		Pinned: map[string]string{w.plat: floortest.Sum(tarball)}}
+	return fetches
+}
+
+// nodeScriptReasonParts is what a no-floor-entry reason for a Node script on a machine without
+// Node's loader says: that the program is one, the build the floor would run it on, its loader, and
+// the nix-ld step.
+func (w *world) nodeScriptReasonParts() []string {
+	return []string{"is a Node script", "Node's official " + w.plat + " build",
+		"needs the dynamic loader " + w.linuxLoader(), "programs.nix-ld.enable = true;"}
+}
+
+// A FORK'S NODE SCRIPT ON A MACHINE WITHOUT NODE'S LOADER: the floor runs a fork's Node script on
+// Node's official build, which cannot start there, so the store's build is no floor entry before
+// any install — nothing materialized, no Node fetched — on the first launch and on every launch
+// after it. Drop the check from the fork's status, and this fails.
+func TestAForkNodeScriptOnAMachineWithoutNodesLoaderIsNoFloorEntryBeforeAnyFetch(t *testing.T) {
+	pin := forkCommitOne
+	w, bs := forkWorld(t, &pin)
+	fetches := w.countingNodeDist()
+	bs.add("forkcli", forkCommitOne, true)
+	w.rootWithout()
+	p := forkProgram()
+	st := w.floor.Status(p)
+	if st.Disposition != NoEntry || !strings.Contains(st.Reason, "fork pack forkpack's build of forkcli at commit 111111111111") {
+		t.Fatalf("Status = %s (%s), want no floor entry for the store's build", st.Disposition, st.Reason)
+	}
+	for _, want := range w.nodeScriptReasonParts() {
+		if !strings.Contains(st.Reason, want) {
+			t.Errorf("the reason lacks %q:\n  %s", want, st.Reason)
+		}
+	}
+	for launch := 1; launch <= 2; launch++ {
+		if st, _, err := w.floor.Ensure(context.Background(), p); !errors.Is(err, ErrNoEntry) || st.Disposition != NoEntry {
+			t.Fatalf("launch %d: %s (%s) %v\n%s", launch, st.Disposition, st.Reason, err, w.out.String())
+		}
+	}
+	if n := fetches.Load(); n != 0 {
+		t.Errorf("Node was fetched %d times for a program this machine cannot start", n)
+	}
+	if out := w.out.String(); strings.Contains(out, "materialized forkcli") || strings.Contains(out, "fetching Node") {
+		t.Errorf("the floor copied or fetched for a program it cannot hold:\n%s", out)
+	}
+	if len(bs.builds) != 0 {
+		t.Errorf("%d builds ran", len(bs.builds))
+	}
+}
+
+// A PATCHED FORK'S NODE SCRIPT ON A MACHINE WITHOUT NODE'S LOADER is refused before Node is fetched,
+// at the install's own check (execRecord), so no launch downloads a Node this machine cannot start:
+// the first launch's and every later one's. Drop that check, and this fails.
+func TestAPatchedForkNodeScriptOnAMachineWithoutNodesLoaderFetchesNoNode(t *testing.T) {
+	w, pf := patchedWorld(t)
+	fetches := w.countingNodeDist()
+	pf.advance = firstGood
+	w.rootWithout()
+	p := patchedProgram()
+	for launch := 1; launch <= 2; launch++ {
+		st, _, err := w.floor.Ensure(context.Background(), p)
+		if !errors.Is(err, ErrNoEntry) || st.Disposition != NoEntry {
+			t.Fatalf("launch %d: %s (%s) %v\n%s", launch, st.Disposition, st.Reason, err, w.out.String())
+		}
+		for _, want := range w.nodeScriptReasonParts() {
+			if !strings.Contains(st.Reason, want) {
+				t.Errorf("launch %d: the reason lacks %q:\n  %s", launch, want, st.Reason)
+			}
+		}
+		pf.advance = nil
+	}
+	if n := fetches.Load(); n != 0 {
+		t.Errorf("Node was fetched %d times for a program this machine cannot start\n%s", n, w.out.String())
+	}
+	if _, err := os.Stat(w.floor.Launcher("forkcli")); err == nil {
+		t.Error("a launcher was written for a program this machine cannot start")
 	}
 }

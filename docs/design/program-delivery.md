@@ -2111,7 +2111,8 @@ machine shares, while each install is the workspace's own ([§4.4](#44-the-scope
 **READ FROM CODE, NOT MEASURED:** an update in one workspace holds off every other workspace's for
 an hour, so a workspace that only launches within an hour of another's update stays on its old
 version. **At the host, since 2026-10-05:** the host floor updates an installer agent per machine, not
-per workspace: at most once a day it captures the agent again, and it installs only a newer release
+per workspace: once its newest capture of the agent is a day old it captures the agent again (a
+failed capture is retried after the hourly interval), and it installs only a newer release
 ([HP-D16](host-tool-provisioning.md#HP-D16)). That capture is the store's newest, so a jail's cold
 install takes it too. The question stays open for a jail's warm updates.
 

@@ -60,18 +60,7 @@ func hostFloorCheckFixture(t *testing.T, userConfig string) (*Options, *hostfloo
 	}
 	dist := floortest.NewDist(t)
 	dist.Publish("floorcli-pkg", "1.0.0", "bin=floorcli")
-	// A filesystem root of the fixture's own for the loader check (HP-D15), holding each loader
-	// Node's official Linux builds ask for, so no row depends on this machine's /lib64.
-	root := floortest.ResolvedTemp(t)
-	for _, loader := range []string{"/lib64/ld-linux-x86-64.so.2", "/lib/ld-linux-aarch64.so.1"} {
-		p := filepath.Join(root, filepath.FromSlash(loader))
-		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
-			t.Fatal(err)
-		}
-		if err := os.WriteFile(p, []byte("a dynamic loader\n"), 0o755); err != nil {
-			t.Fatal(err)
-		}
-	}
+	root := checkLoaderRoot(t)
 	floor := &hostfloor.Floor{
 		Dir: paths.HostFloorDir(), GOOS: dist.GOOS, GOARCH: dist.GOARCH,
 		Node: hostfloor.NodeDist{BaseURL: dist.URL, Shipped: floortest.Shipped,
@@ -89,6 +78,25 @@ func hostFloorCheckFixture(t *testing.T, userConfig string) (*Options, *hostfloo
 	o.selectedPacks, o.selectedPacksKnown = []*packload.Pack{pack}, true
 	o.HostFloor = func([]hostfloor.Program) *hostfloor.Floor { return floor }
 	return o, floor, dist, filepath.Join(handBin, "floorcli")
+}
+
+// checkLoaderRoot is a filesystem root of the fixture's own for the floor's loader check (HP-D15,
+// hostfloor.Floor.Root), holding each loader Node's official Linux builds ask for, so no row a test
+// reads depends on what this machine keeps in /lib64 — a NixOS machine without nix-ld, or a musl
+// one, has none there. A floor built with Root "" reads the machine's own.
+func checkLoaderRoot(t *testing.T) string {
+	t.Helper()
+	root := floortest.ResolvedTemp(t)
+	for _, loader := range []string{"/lib64/ld-linux-x86-64.so.2", "/lib/ld-linux-aarch64.so.1"} {
+		p := filepath.Join(root, filepath.FromSlash(loader))
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte("a dynamic loader\n"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return root
 }
 
 func runHostFloorSection(o *Options) (string, *reporter) {

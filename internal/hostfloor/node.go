@@ -58,6 +58,23 @@ var officialNodeLoader = map[string]string{
 	"linux-arm64": "/lib/ld-linux-aarch64.so.1",
 }
 
+// nodeLoaderProblem says why this machine cannot start Node's official build for the floor's
+// platform — the build an npm program and a fork's Node script run on — as a clause about the
+// program ("the floor runs it on Node's official linux-x64 build, which needs the dynamic loader
+// …"), or "" when it can, when Node publishes no build here (noEntryReason says that), or when this
+// floor checks no loaders (HP-D15). It reads the loader compiled in, so it is answered before any
+// download, and a caller asks it before every ensureNode that could fetch.
+func (f *Floor) nodeLoaderProblem() string {
+	plat, ok := nodePlatform(f.GOOS, f.GOARCH)
+	if !ok {
+		return ""
+	}
+	if why := f.loaderProblem(officialNodeLoader[plat]); why != "" {
+		return "the floor runs it on Node's official " + plat + " build, which " + why
+	}
+	return ""
+}
+
 // DefaultNodeDistURL is Node's official release distribution.
 const DefaultNodeDistURL = "https://nodejs.org/dist"
 
@@ -206,17 +223,15 @@ func (f *Floor) ensureNode(ctx context.Context, v string) (string, error) {
 	}
 	// THE LOADER IT ASKS FOR (HP-D15), read from the node just extracted: the one compiled in, or
 	// none, or the check that kept a machine without it from downloading this build checked the
-	// wrong file. A fork's Node script reaches here with no such check first (execRecord), so the
-	// loader itself is asked about too.
+	// wrong file. Every caller asked nodeLoaderProblem before this download — an npm program's
+	// noEntryReason, a fork's Node script's execRecord — so a release that asks for the compiled-in
+	// loader is one this machine can start, and only a different loader is left to refuse.
 	if interp, err := elfInterp(filepath.Join(scratch, "bin", "node")); err == nil {
 		if want, ok := officialNodeLoader[plat]; ok && interp != "" && interp != want {
 			return "", fmt.Errorf("%s's node asks for the dynamic loader %q, not %s as this yolo expects of "+
 				"Node's official %s build, so this yolo cannot tell whether the machine can start it — refusing "+
 				"to install it; `yolo update` brings a yolo that knows, and if none does, it is a yolo bug to report",
 				name, interp, want, plat)
-		}
-		if why := f.loaderProblem(interp); why != "" {
-			return "", &noEntryError{reason: "Node's official " + plat + " build " + why}
 		}
 	}
 	if err := os.WriteFile(filepath.Join(scratch, completeMarker), nil, 0o600); err != nil {

@@ -263,3 +263,147 @@ func TestAnInstallerAgentWithNoVersionsDirectoryFollowsTheStore(t *testing.T) {
 		t.Fatalf("with a newer capture: %s %+v %v\n%s", outcome, st.Record, err, w.out.String())
 	}
 }
+
+// codexEvergreenWorld is a Linux floor holding codex at installed, captured by the real capture
+// driver in codex's standalone shape — whose release directories are named `<version>-<target>`
+// (codexRelease) — with a capture act that captures the release next() names and counts itself.
+type codexEvergreenWorld struct {
+	*world
+	clk      *clock
+	cs       *captureStore
+	captures int
+	next     string
+}
+
+func newCodexEvergreenWorld(t *testing.T, installed string) *codexEvergreenWorld {
+	t.Helper()
+	e := &codexEvergreenWorld{world: newLinuxWorld(t), clk: &clock{t: time.Date(2026, 10, 1, 9, 0, 0, 0, time.UTC)},
+		cs: newCaptureStore(t)}
+	e.floor.Now = e.clk.now
+	e.floor.ResolveCapture = e.cs.resolve
+	e.floor.Capture = func(string) error { e.captures++; realCodexCapture(t, e.cs, e.next); return nil }
+	realCodexCapture(t, e.cs, installed)
+	if st, outcome, err := e.floor.Ensure(context.Background(), codexProgram()); err != nil || outcome != Installed ||
+		st.Record.Version != codexRelease(installed) {
+		t.Fatalf("installing codex %s: %s %+v %v\n%s", installed, outcome, st.Record, err, e.out.String())
+	}
+	return e
+}
+
+// runs is the version the floor's codex prints.
+func (e *codexEvergreenWorld) runs(st Status) string {
+	e.t.Helper()
+	cmd := exec.Command(st.Launcher, "--version")
+	cmd.Env = []string{}
+	got, err := cmd.CombinedOutput()
+	if err != nil {
+		e.t.Fatalf("running the floor's codex: %q %v", got, err)
+	}
+	return strings.TrimSpace(string(got))
+}
+
+// TestCodexTakesAPatchReleaseAndNeverAnOlderOne: codex's release directories carry the target after
+// the version (`0.159.1-x86_64-unknown-linux-musl`), so the refresh reads the release number each
+// starts with. A patch release is newer — found by the refresh's own capture once the newest one is
+// a day old, and from a capture a human or a jail's launch stored — and an older release the store
+// selects afterwards, an older patch among them, is never installed. Compare the whole names as
+// versions, which reads the last part as 0 and calls 0.159.1 and 0.159.2 equal, and this fails.
+func TestCodexTakesAPatchReleaseAndNeverAnOlderOne(t *testing.T) {
+	e := newCodexEvergreenWorld(t, "0.159.0")
+	codex := codexProgram()
+
+	// The refresh's own capture, a day on, stores the patch release: it is installed.
+	e.next = "0.159.1"
+	e.clk.t = e.clk.t.Add(25 * time.Hour)
+	st, outcome, err := e.floor.Ensure(context.Background(), codex)
+	if err != nil || outcome != Updated || st.Record.Version != codexRelease("0.159.1") || e.captures != 1 {
+		t.Fatalf("after the recapture: %s %+v %v after %d captures\n%s", outcome, st.Record, err, e.captures, e.out.String())
+	}
+	if got := e.runs(st); got != "codex-cli 0.159.1" {
+		t.Errorf("the floor's codex prints %q, want 0.159.1", got)
+	}
+
+	// A capture stored outside the refresh (`yolo capture codex`, a jail launch's auto-capture): the
+	// next patch release is installed from the store with no capture of the floor's own.
+	realCodexCapture(t, e.cs, "0.159.2")
+	e.clk.t = e.clk.t.Add(2 * time.Hour)
+	if st, outcome, err = e.floor.Ensure(context.Background(), codex); err != nil || outcome != Updated ||
+		st.Record.Version != codexRelease("0.159.2") || e.captures != 1 {
+		t.Fatalf("with 0.159.2 in the store: %s %+v %v after %d captures\n%s", outcome, st.Record, err, e.captures,
+			e.out.String())
+	}
+
+	// An OLDER release, captured later — an older patch and an older minor from the store, then one
+	// from the refresh's own capture — is never installed over it.
+	for _, older := range []string{"0.159.1", "0.158.9"} {
+		realCodexCapture(t, e.cs, older)
+		e.clk.t = e.clk.t.Add(2 * time.Hour)
+		if st, outcome, err = e.floor.Ensure(context.Background(), codex); err != nil || outcome != Current ||
+			st.Record.Version != codexRelease("0.159.2") {
+			t.Fatalf("with %s selected: %s %+v %v\n%s", older, outcome, st.Record, err, e.out.String())
+		}
+	}
+	e.next = "0.158.9"
+	e.clk.t = e.clk.t.Add(25 * time.Hour)
+	if st, outcome, err = e.floor.Ensure(context.Background(), codex); err != nil || outcome != Current ||
+		st.Record.Version != codexRelease("0.159.2") || e.captures != 2 {
+		t.Fatalf("when its own capture stored 0.158.9: %s %+v %v after %d captures\n%s", outcome, st.Record, err,
+			e.captures, e.out.String())
+	}
+	if got := e.runs(st); got != "codex-cli 0.159.2" {
+		t.Errorf("the floor's codex prints %q, want 0.159.2 kept", got)
+	}
+	if strings.Contains(e.out.String(), "updating codex "+codexRelease("0.159.2")) {
+		t.Errorf("the refresh offered a downgrade:\n%s", e.out.String())
+	}
+}
+
+// TestAReleaseNameIsOrderedByTheNumberItStartsWith: the comparison the refresh and a capture's
+// version read share. A name's leading dotted number orders it, whatever follows; a name with no
+// number orders below every one; and the newest of a versions directory is the one with the highest
+// number, two names with the same number ordered the same way every time.
+func TestAReleaseNameIsOrderedByTheNumberItStartsWith(t *testing.T) {
+	for _, c := range []struct {
+		a, b string
+		want int
+	}{
+		{codexRelease("0.159.1"), codexRelease("0.159.0"), 1},
+		{codexRelease("0.159.0"), codexRelease("0.159.1"), -1},
+		{codexRelease("0.160.0"), codexRelease("0.159.9"), 1},
+		{codexRelease("0.159.1"), codexRelease("0.159.1"), 0},
+		{"2.1.300", "2.1.267", 1},
+		{"v2.1.267", "2.1.267", 0},
+		{"2.1.10", "2.1.9", 1},
+		{"latest", "0.0.1", -1},
+	} {
+		if got := compareReleases(c.a, c.b); got != c.want {
+			t.Errorf("compareReleases(%q, %q) = %d, want %d", c.a, c.b, got, c.want)
+		}
+	}
+	names := []string{codexRelease("0.159.1"), codexRelease("0.159.10"), codexRelease("0.159.9"), codexRelease("0.158.20")}
+	if got := newestVersion(names); got != codexRelease("0.159.10") {
+		t.Errorf("newestVersion = %q, want %s", got, codexRelease("0.159.10"))
+	}
+	tied := []string{"0.160.0-x86_64-unknown-linux-musl", "0.160.0-alpha.3-x86_64-unknown-linux-musl"}
+	first, second := newestVersion(tied), newestVersion([]string{tied[1], tied[0]})
+	if first != second {
+		t.Errorf("two names with one number: newest is %q one way and %q the other", first, second)
+	}
+}
+
+// TestTwoNamesWithOneReleaseNumberFollowTheStore: a pre-release and its release carry one number
+// (`0.160.0-alpha.3-<target>`, `0.160.0-<target>`), which nothing the floor reads orders, so the
+// store's newest capture is installed, as every jail's materialize takes it — never refused as
+// "not newer". The same name is the same release, and installs nothing.
+func TestTwoNamesWithOneReleaseNumberFollowTheStore(t *testing.T) {
+	e := newCodexEvergreenWorld(t, "0.160.0-alpha.3")
+	realCodexCapture(t, e.cs, "0.160.0")
+	e.clk.t = e.clk.t.Add(2 * time.Hour)
+	st, outcome, err := e.floor.Ensure(context.Background(), codexProgram())
+	if err != nil || outcome != Updated || st.Record.Version != codexRelease("0.160.0") {
+		t.Fatalf("with 0.160.0 newest in the store: %s %+v %v\n%s", outcome, st.Record, err, e.out.String())
+	}
+	if got := e.runs(st); got != "codex-cli 0.160.0" {
+		t.Errorf("the floor's codex prints %q", got)
+	}
+}

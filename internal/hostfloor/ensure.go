@@ -308,15 +308,16 @@ func (f *Floor) newerThan(ctx context.Context, p Program, rec *Record) (string, 
 }
 
 // newerCapture is the version entry would install over rec, "" when it is not newer. Where both
-// carry a versions-directory version it is packdecl.CompareVersions, so an older release is never
-// installed over a newer one. A program whose captures carry none (a lone binary in
-// ~/.local/bin, agy's) has nothing to compare, and the store's own order decides, newest capture
-// first: the entry every jail materializes too.
+// carry a versions-directory version they are compared as releases (compareReleases), so an older
+// release is never installed over a newer one. Two names with the same release number and different
+// text (a pre-release suffix) are not ordered by anything the floor reads, and neither is a program
+// whose captures carry no versions directory (a lone binary in ~/.local/bin, agy's): the store's own
+// order decides, newest capture first, the entry every jail materializes too.
 func newerCapture(in packdecl.Install, rec *Record, entry *capture.Entry) string {
 	v := manifestVersion(entry, in)
 	installedVersioned := rec.Version != "" && rec.Version != unversionedCapture(rec.Capture)
 	if v != "" && installedVersioned {
-		if packdecl.CompareVersions(v, rec.Version) > 0 {
+		if c := compareReleases(v, rec.Version); c > 0 || (c == 0 && v != rec.Version) {
 			return v
 		}
 		return ""
@@ -739,14 +740,41 @@ func manifestVersion(entry *capture.Entry, in packdecl.Install) string {
 	return newestVersion(names)
 }
 
-// newestVersion is the newest of names by packdecl.CompareVersions, "" for none.
+// newestVersion is the newest of names by compareReleases, "" for none. Two names with one release
+// number are ordered by their text, so the answer never depends on the order a directory listed them.
 func newestVersion(names []string) string {
 	if len(names) == 0 {
 		return ""
 	}
 	sorted := append([]string(nil), names...)
-	sort.Slice(sorted, func(i, j int) bool { return packdecl.CompareVersions(sorted[i], sorted[j]) < 0 })
+	sort.Slice(sorted, func(i, j int) bool {
+		if c := compareReleases(sorted[i], sorted[j]); c != 0 {
+			return c < 0
+		}
+		return sorted[i] < sorted[j]
+	})
 	return sorted[len(sorted)-1]
+}
+
+// compareReleases returns -1, 0 or 1 comparing two versions-directory names as releases: by the
+// dotted number each starts with (releaseNumber), through packdecl.CompareVersions. A whole name is
+// not a version to CompareVersions, which reads a part that is not a plain integer as 0: codex names
+// a release directory `<version>-<target>` (`0.159.1-x86_64-unknown-linux-musl`), and compared whole,
+// 0.159.0 and 0.159.1 are equal, so a patch release would never be installed.
+func compareReleases(a, b string) int {
+	return packdecl.CompareVersions(releaseNumber(a), releaseNumber(b))
+}
+
+// releaseNumber is the dotted number a versions-directory name starts with, a leading "v" dropped:
+// "0.159.1" of "0.159.1-x86_64-unknown-linux-musl", "2.1.267" of itself, "" of a name that starts
+// with none (which orders below every release).
+func releaseNumber(name string) string {
+	s := strings.TrimPrefix(name, "v")
+	end := 0
+	for end < len(s) && (s[end] == '.' || s[end] >= '0' && s[end] <= '9') {
+		end++
+	}
+	return strings.Trim(s[:end], ".")
 }
 
 // launcherScript is bin/<bin>: it starts the recorded argv by absolute path and nothing else.

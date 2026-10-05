@@ -509,18 +509,14 @@ func (f *Floor) recipeNoEntryReason(p Program) string {
 	}
 	switch in.Kind {
 	case "npm":
-		plat, ok := nodePlatform(f.GOOS, f.GOARCH)
-		if !ok {
+		if _, ok := nodePlatform(f.GOOS, f.GOARCH); !ok {
 			return "Node publishes no official build for " + f.GOOS + "/" + f.GOARCH +
 				", so the floor has no interpreter to run it on"
 		}
 		// THE INTERPRETER'S LOADER, before any download (HP-D15): Node's official Linux build
 		// cannot start without it, so a machine that lacks it gets the copy on PATH, not a fetched
 		// tarball that exits 127.
-		if why := f.loaderProblem(officialNodeLoader[plat]); why != "" {
-			return "the floor runs it on Node's official " + plat + " build, which " + why
-		}
-		return ""
+		return f.nodeLoaderProblem()
 	case "native":
 		if f.GOOS == "darwin" {
 			return "an installer agent on macOS comes from a host capture, which is not built " +
