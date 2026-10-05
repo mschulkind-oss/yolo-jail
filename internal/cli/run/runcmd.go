@@ -280,9 +280,19 @@ type Options struct {
 	// The one thing it must never be given is o.Now (see initPerf).
 	Perf *perf.Log
 	// PerfRef, when non-nil, receives the collector initPerf builds, so a caller
-	// holding a COPY of Options can span work that happens after Run returns.
+	// holding a COPY of Options can span work that happens after Run returns — or
+	// that a handler it injected does while Run runs: initPerf publishes it before any
+	// seam is called, and the macos-user handler hands it to the backend (internal/cli's
+	// macosUserRun), whose steps are spanned on it.
 	// Pointer for the reason above; nil is fine and means "no caller is asking".
 	PerfRef *PerfRef
+	// MacosUserArm is the macos-user launch's signal arm (macosuserarm.go), made by the front door
+	// so the handler it injects (MacosUserRun) can hand the arm's session runner, Ending and
+	// AgentStarting to the backend, and installed by Run's macos-user arm. A pointer for PerfRef's
+	// reason: Options crosses the launchRunPipeline seam by value. nil installs no arm (a capture
+	// act's launch, a test), whose handler never asks one: its signals keep their default action
+	// (armMacosUser).
+	MacosUserArm *MacosUserArm
 	// perfReportOnce makes the timing report once per Run invocation — a
 	// POINTER, not an embedded sync.Once, because Options is copied by value
 	// (Run's own signature) and a copied lock is a vet copylocks error. Created
@@ -1153,14 +1163,16 @@ func NewDefaultOptions() Options {
 
 // RunWithProxy launches argv under the platform-appropriate TTY proxy (Linux:
 // internal/ttyproxy; other: a plain foreground exec) and returns the child exit
-// code, or 1 on a launch error. It is the run-proxy seam the front door injects
-// into macosuser (whose RunWithProxy field is `func([]string) int`), so the
-// macos-user path never imports the Linux-only ttyproxy package directly (which
-// would break the GOOS=darwin build).
+// code, or 1 on a launch error.
+//
+// IT LOST ITS LAST CALLER on 2026-10-05: it was the run-proxy seam the front door injected into
+// macosuser, and a macos-user session now runs under its launch's signal arm instead
+// (MacosUserArm.RunSession, macosuserarm.go), which this seam had none of. It goes, with
+// proxy_other.go's runWithProxy, the next time those files and the comments naming it as the
+// macos-user seam (proxy_linux.go, AGENTS.md) are edited together.
 func RunWithProxy(argv []string) int {
-	// A bare &Options{}: this seam has no collector (macos-user's native runs
-	// have not grown one), and a nil *Options would panic on the field read —
-	// an empty Options' nil Perf is the intended no-op state.
+	// A bare &Options{}: this seam has no collector, and a nil *Options would panic on the field
+	// read — an empty Options' nil Perf is the intended no-op state.
 	rc, err := runWithProxy(argv, nil, nil, &Options{})
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "launch failed: %v\n", err)

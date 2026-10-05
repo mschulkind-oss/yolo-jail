@@ -819,3 +819,38 @@ func TestDarwinLoginRCFilesAreTheFilesWriteLoginRCWrites(t *testing.T) {
 		t.Errorf("WriteLoginRC wrote %v at the home root; DarwinLoginRCFiles is %v", wrote, want)
 	}
 }
+
+// TestASecondWorkspaceLayoutRepointsTheFirstsLinks keeps the measurement the macos-user account
+// home's hold rests on (internal/cli/run's accounthomehold.go,
+// docs/reference/macos-user-home-tiers.md#ht-d15): the one account home holds ONE link set, and a
+// second workspace's layout repoints the first's core links even when the two select disjoint
+// packs. If this ever stops holding — a per-workspace home, say — the hold that refuses a second
+// workspace's launch while a session runs is what to revisit, and this test is the evidence.
+func TestASecondWorkspaceLayoutRepointsTheFirstsLinks(t *testing.T) {
+	base, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	home := filepath.Join(base, "Users", "_yolojail")
+	a := filepath.Join(base, "Shared", "a", ".yolo", "home")
+	b := filepath.Join(base, "Shared", "b", ".yolo", "home")
+	la := DeriveDarwinHomeLayout(home, a, []string{".claude"}, []string{".claude-shared-credentials"})
+	if err := la.Apply(); err != nil {
+		t.Fatal(err)
+	}
+	if err := DeriveDarwinHomeLayout(home, b, []string{".codex"}, nil).Apply(); err != nil {
+		t.Fatal(err)
+	}
+	var taken []string
+	for _, ln := range la.Links {
+		if got, _ := os.Readlink(ln.Path); got != ln.Target {
+			rel, _ := filepath.Rel(home, ln.Path)
+			taken = append(taken, rel)
+		}
+	}
+	for _, core := range []string{".npm-global", ".local", "go", filepath.Join(".yolo", "bin"), ".config"} {
+		if !slices.Contains(taken, core) {
+			t.Errorf("workspace B's layout left A's %s in place; B took only %v", core, taken)
+		}
+	}
+}

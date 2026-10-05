@@ -83,16 +83,62 @@ func hostUserReal() string {
 // asks and what every child resolves color against — and would copy an agent session's
 // bytes into a 0644 launch.log, which is the one thing that log excludes by name
 // (internal/cli/run/launchlog.go, *What it deliberately does not capture*).
+//
+// EACH CHILD IS NAMED TO THE FOREGROUND WATCH while it runs (SetForegroundWatch), when a launch's
+// signal arm has published one: a SIGTERM sent to yolo alone reaches no child, so the arm forwards
+// it to the one running here — a sudo prompt, the bootstrap, a provisioning stage that can take
+// minutes — and the launch ends at its next step instead of after it.
 func runReal(argv []string) int {
 	if len(argv) == 0 {
 		return 1
 	}
 	cmd := exec.Command(argv[0], argv[1:]...)
 	cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, os.Stdout, os.Stderr
-	if err := cmd.Run(); err != nil {
+	if err := cmd.Start(); err != nil {
 		return exitCodeOf(err)
 	}
-	return 0
+	done := watchForeground(cmd.Process)
+	err := cmd.Wait()
+	done()
+	return exitCodeOf(err)
+}
+
+// foregroundWatch is the published watch runReal names each child to, nil outside a launch whose
+// signal arm is installed. Published rather than passed, for LaunchWriter's reason: RealDeps builds
+// Run for the four `yolo macos-*` commands too, which have no arm, and none of their call sites
+// moves.
+var (
+	foregroundWatchMu sync.Mutex
+	foregroundWatch   func(*os.Process) (done func())
+)
+
+// SetForegroundWatch publishes watch, told of each child runReal starts (and, through the done it
+// returns, of that child's exit), and returns the undo, never nil. A macos-user launch's signal arm
+// publishes it while installed (internal/cli/run's macosuserarm.go).
+func SetForegroundWatch(watch func(*os.Process) (done func())) (undo func()) {
+	foregroundWatchMu.Lock()
+	defer foregroundWatchMu.Unlock()
+	prev := foregroundWatch
+	foregroundWatch = watch
+	return func() {
+		foregroundWatchMu.Lock()
+		defer foregroundWatchMu.Unlock()
+		foregroundWatch = prev
+	}
+}
+
+// watchForeground names p to the published watch, returning its done (never nil).
+func watchForeground(p *os.Process) (done func()) {
+	foregroundWatchMu.Lock()
+	watch := foregroundWatch
+	foregroundWatchMu.Unlock()
+	if watch == nil {
+		return func() {}
+	}
+	if d := watch(p); d != nil {
+		return d
+	}
+	return func() {}
 }
 
 // runBashReal runs `bash -c <script>` inheriting stdio; returns the returncode.
@@ -262,7 +308,7 @@ func isDigits(s string) bool {
 
 // startBackgroundReal starts argv as the jail-daemon supervisor's launcher: no terminal
 // (stdin /dev/null; stdout and stderr one bounded in-memory capture, never the terminal, since
-// this runs beside the agent's TTY proxy), in a PROCESS GROUP OF ITS OWN, so the stop can signal
+// this runs beside the session, which holds the terminal), in a PROCESS GROUP OF ITS OWN, so the stop can signal
 // the whole group, matching the container's teardown (macos-user-nix-and-features.md JD-6).
 //
 // The capture holds only what is written BEFORE the guest takes stdout and stderr over — sudo's

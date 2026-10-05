@@ -55,6 +55,7 @@ package macosuser
 // the ruling never comes up.
 
 import (
+	"fmt"
 	"sort"
 	"strings"
 
@@ -261,7 +262,7 @@ func sandboxFileReadAce(path, user string) []string {
 // layer is exactly what this repo already measured going wrong.
 //
 // `exec` replaces the shell, so nothing extra survives in the process tree — the agent
-// keeps the pid and the terminal the TTY proxy gave it.
+// keeps the pid and the terminal the launch gave it.
 //
 // `|| exit 1` FAILS CLOSED. An unreadable env file means the agent would run with no
 // credentials and no provider configuration; starting anyway produces an agent that
@@ -331,24 +332,26 @@ func installSandboxEnvFile(deps Deps, out printer, plan sandboxEnvPlan) bool {
 	if envFile == "" {
 		return true
 	}
+	// Each failure is said unless a signal is ending the launch, which is then why its sudo failed
+	// (Deps.sayFailed); the caller returns the signal's status.
 	dirCmds, grantCmds := plan.envFileCommands()
 	for _, cmd := range dirCmds {
 		if deps.Run(append([]string{"sudo"}, cmd...)) != 0 {
-			out.printf("[bold red]Could not prepare the session environment directory "+
-				"(%s).[/bold red]", strings.Join(cmd, " "))
+			deps.sayFailed(out, fmt.Sprintf("[bold red]Could not prepare the session environment "+
+				"directory (%s).[/bold red]", strings.Join(cmd, " ")))
 			return false
 		}
 	}
 	if !deps.InstallRootFile(envFile, content, "0600") {
-		out.printf("[bold red]Could not write the session environment file %s.[/bold red]\n"+
-			"It carries everything this launch composed — the profile/provider channel and "+
-			"the hydrated env_sources — so the sandbox would start with none of it.", envFile)
+		deps.sayFailed(out, fmt.Sprintf("[bold red]Could not write the session environment file "+
+			"%s.[/bold red]\nIt carries everything this launch composed — the profile/provider "+
+			"channel and the hydrated env_sources — so the sandbox would start with none of it.", envFile))
 		return false
 	}
 	for _, cmd := range grantCmds {
 		if deps.Run(append([]string{"sudo"}, cmd...)) != 0 {
-			out.printf("[bold red]Could not grant %s read on %s (%s).[/bold red]",
-				SandboxUser, envFile, strings.Join(cmd, " "))
+			deps.sayFailed(out, fmt.Sprintf("[bold red]Could not grant %s read on %s (%s).[/bold red]",
+				SandboxUser, envFile, strings.Join(cmd, " ")))
 			return false
 		}
 	}

@@ -538,8 +538,8 @@ func startJailDaemons(deps Deps, out printer, plan RunPlan, teardown *sessionTea
 	bg, err := deps.StartBackground(plan.JailDaemonArgv)
 	if err != nil || bg.Stop == nil {
 		sweep()
-		out.printf("[bold red]Could not start the sandbox's jail daemons (%s):[/bold red] %s",
-			names, errStr(err))
+		deps.sayFailed(out, fmt.Sprintf("[bold red]Could not start the sandbox's jail daemons "+
+			"(%s):[/bold red] %s", names, errStr(err)))
 		return nil, false
 	}
 	outcome, fresh := awaitSupervisor(deps, bg, logPath, offset)
@@ -560,7 +560,8 @@ func startJailDaemons(deps Deps, out printer, plan RunPlan, teardown *sessionTea
 		if launcherSaw != "" {
 			msg += "\n  Before that log took over, sudo and sandbox-exec printed:" + launcherSaw
 		}
-		out.print(msg + "\n  The launch stops here: its agents were already pointed at these " +
+		// Unless a signal is ending the launch, which is then why the supervisor exited.
+		deps.sayFailed(out, msg+"\n  The launch stops here: its agents were already pointed at these "+
 			"daemons' addresses.")
 		return nil, false
 	case supervisorUnconfirmed:
