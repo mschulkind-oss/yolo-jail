@@ -193,7 +193,7 @@ func TestTheForkBlockNamesAPatchedForksGoodBuildAndItsHold(t *testing.T) {
 	}
 	line, warn = patchedForkLine(packload.ForkPin{Fork: f})
 	if !strings.Contains(line, "held at v1.0.0 (01234567): upstream v1.1.0 (bbbbbbbb) does not take 0001-ten.patch") ||
-		!strings.Contains(line, "`yolo pack update` shows the conflict") || !warn {
+		!strings.Contains(line, " — `yolo pack rebase forkpack/tool`") || !warn {
 		t.Errorf("with a conflict recorded the line is %q (warn %v)", line, warn)
 	}
 }

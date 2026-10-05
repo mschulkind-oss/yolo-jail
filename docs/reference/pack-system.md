@@ -3584,10 +3584,13 @@ included, because a flat skills dir can carry none of them.
 | `yolo pack install` | force a refresh of every configured git pack, a tag or a branch still inside its hour included (so it follows a re-pointed tag, which a launch never does), materialize each commit into the store, write the lockfile, report whether each pin **moved**, prune the entries of packs that left the config. Optional: a host launch fetches a missing pack itself |
 | `yolo pack update` | everything `install` does, plus the refresh of npm-declared programs |
 | `yolo pack status` | show locked commits and flag config/lock drift |
+| `yolo pack rebase <pack>/<bin> [--onto <ref>] [--into <dir>] [--restart]` | for a patched fork ([`patched-forks.md` §8.4](../design/patched-forks.md#84-rebasing-the-series)): force its check, clone its upstream outside yolo's state directory, replay the series onto the target, and stop at the conflict, printing the continue and the export with the commits filled in; it writes nothing in the pack, and runs on the host only |
 
 **No `yolo pack` verb asks a question, and `packMain` takes no stdin at all.** `install` and
-`update` fetch and report; every other verb inspects. That is a property of the whole surface
-rather than an omission from one row: the only reader ever threaded through here was the
+`update` fetch and report; `rebase` fetches too, a patched fork's forced check, and clones the
+fork's upstream into a directory outside yolo's state directory, printing the commands that change
+the pack rather than running them; `init` scaffolds a pack; every other verb inspects. That is a
+property of the whole surface rather than an omission from one row: the only reader ever threaded through here was the
 fetched-pack approval prompt. `install` and `update` share the fetch body, a forced refresh
 of every git pack. `update` adds the refresh of npm-declared programs ([`program`](#program)). The distinction a user cares about is *did my pins move*, which the
 output reports directly, as a launch's `Fetched pack` and `Updated pack` lines do.

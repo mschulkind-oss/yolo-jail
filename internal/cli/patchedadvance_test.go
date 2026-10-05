@@ -325,7 +325,7 @@ func TestAConflictingTagIsHeldWithThePreviousBuildServing(t *testing.T) {
 	}
 	for _, w := range []string{"fork forkpack/tool: upstream v1.4.0 (" + shortSHA(v14) + ") does not take the patch series —",
 		"0001-ten.patch conflicts in f.txt", "still running v1.1.0 (" + shortSHA(v11) + ") + 2 patches",
-		"rebase the series by hand"} {
+		"rebase the series: yolo pack rebase forkpack/tool"} {
 		if !strings.Contains(out, w) {
 			t.Errorf("the held launch lacks %q:\n%s", w, out)
 		}
@@ -339,7 +339,8 @@ func TestAConflictingTagIsHeldWithThePreviousBuildServing(t *testing.T) {
 	series, _ := f.ReadSeries()
 	in, _, _, _ := f.CheckWant(series).Inputs()
 	suffix := run.HeldSuffix(f, fx.record(t), in, series.Digest, forkBuild{Fork: f, Series: series}.recipe())
-	if !strings.Contains(suffix, "held at v1.1.0 ("+shortSHA(v11)+"): upstream v1.4.0 ("+shortSHA(v14)+") does not take 0001-ten.patch") {
+	if !strings.Contains(suffix, "held at v1.1.0 ("+shortSHA(v11)+"): upstream v1.4.0 ("+shortSHA(v14)+") does not take 0001-ten.patch"+
+		" — `yolo pack rebase forkpack/tool`") {
 		t.Errorf("the held suffix is %q", suffix)
 	}
 }

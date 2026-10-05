@@ -20,7 +20,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"path/filepath"
 	"strings"
 	"time"
 
@@ -163,10 +162,12 @@ func walkReport(f packload.Fork, series *packsrc.Series, rec *packsrc.CheckRecor
 	if w.Fit >= 0 {
 		fit = &w.Results[w.Fit]
 	}
+	in, _, _, _ := f.CheckWant(series).Inputs()
 	for i, r := range w.Results {
 		switch {
 		case r.Conflict != nil:
-			lines = append(lines, conflictMessage(f, series, rec, r, fit)...)
+			lines = append(lines, conflictMessage(f, series, rec, r, fit,
+				isRebaseDefault(rec, in, series.Digest, r.Entry))...)
 		case r.Clean:
 			for _, m := range r.Upstream {
 				lines = append(lines, fmt.Sprintf("[dim]  %s is already in upstream %s; drop it from %s[/dim]",
@@ -195,33 +196,36 @@ func walkReport(f packload.Fork, series *packsrc.Series, rec *packsrc.CheckRecor
 }
 
 // conflictMessage is §8.2's message for one entry the series did not take; fit is the walk's newest
-// fit, nil when it found none.
+// fit, nil when it found none. isDefault is whether the entry is the one `yolo pack rebase` takes
+// with no --onto (isRebaseDefault); another's step names it with --onto.
 func conflictMessage(f packload.Fork, series *packsrc.Series, rec *packsrc.CheckRecord, r packsrc.ReplayResult,
-	fit *packsrc.ReplayResult) []string {
+	fit *packsrc.ReplayResult, isDefault bool) []string {
 	paths := strings.Join(r.Conflict.Paths, ", ")
 	if paths == "" {
 		paths = "(no path named)"
 	}
-	return append([]string{
+	return []string{
 		fmt.Sprintf("[yellow]fork %s: upstream %s does not take the patch series —[/yellow]", f.Key(), r.Entry.Label()),
 		fmt.Sprintf("  %s conflicts in %s", r.Conflict.Member, paths),
 		"  " + heldAt(rec, series, fit),
-	}, rebaseSteps(f, series, r.Entry)...)
+		"  rebase the series: " + rebaseCommand(f, r.Entry, isDefault),
+	}
 }
 
-// rebaseSteps is the conflict message's next step (§8.2). `yolo pack rebase` (§8.4, PF-D26) is
-// step 3 of §14 and not in this yolo yet, so until it is the step is the rebase it would run, by
-// hand — §8.2's other spelling, OQ-PFK4's option B — and step 3 replaces it with the verb. Paths
-// are quoted for the shell they are pasted into.
-func rebaseSteps(f packload.Fork, series *packsrc.Series, onto packsrc.ListEntry) []string {
-	patches := filepath.Join(f.Root, f.Patches)
-	return []string{
-		"  rebase the series by hand: in a clone of " +
-			shquote.Quote(mustRepo(f.Source)) + ", `git am` its patches at its base " + series.Base + ", then `git rebase " +
-			"--onto " + onto.Commit + " " + series.Base + "`, resolving each conflict and `git rebase --continue`;",
-		"  then `git format-patch --base=" + onto.Commit + " -o " + shquote.Quote(patches+".new") + " " +
-			onto.Commit + "..HEAD`, and put it in place of " + shquote.Quote(patches),
+// rebaseCommand is the conflict message's next step (§8.2): `yolo pack rebase <key>` (§8.4, PF-D26),
+// which rebases onto its default target (isDefault, rebaseDefaultTarget); for another entry,
+// `--onto` it. It is the only step a conflict names: the verb clones, replays to the conflict and
+// prints the continue and the export with the commits filled in (patchedrebase.go).
+func rebaseCommand(f packload.Fork, onto packsrc.ListEntry, isDefault bool) string {
+	cmd := "yolo pack rebase " + shquote.QuoteDisplay(f.Key())
+	if !isDefault {
+		ref := onto.Tag
+		if ref == "" {
+			ref = onto.Commit
+		}
+		cmd += " --onto " + shquote.QuoteDisplay(ref)
 	}
+	return cmd
 }
 
 // heldAt says what runs while the newest candidate does not fit: the good build; with none, the
@@ -310,7 +314,7 @@ func patchedForkStatusLines(f packload.Fork) []string {
 			rec.Good.Patches, plural(rec.Good.Patches, "patch", "patches"), shortSHA(rec.Good.Series),
 			goodBuildStored(f, rec.Good)))
 	}
-	lines = append(lines, candidateLines(rec, series, in)...)
+	lines = append(lines, candidateLines(f, rec, series, in)...)
 	return append(lines, nextCheckLine(f, rec, in)...)
 }
 
@@ -379,9 +383,10 @@ func patchedAge(d time.Duration) string {
 }
 
 // candidateLines are the status lines for the last check's candidate and every replay recorded
-// against the series as it stands. in is what a check of the fork reads now: a record whose last
-// check read anything else answers another question, and its list is not shown as the candidate.
-func candidateLines(rec *packsrc.CheckRecord, series *packsrc.Series, in packsrc.CheckInputs) []string {
+// against the series as it stands, a conflict's naming `yolo pack rebase` as its next step. in is
+// what a check of the fork reads now: a record whose last check read anything else answers another
+// question, and its list is not shown as the candidate.
+func candidateLines(f packload.Fork, rec *packsrc.CheckRecord, series *packsrc.Series, in packsrc.CheckInputs) []string {
 	found := rec.Check
 	if found == nil {
 		return []string{"[dim]  checked, with no answer recorded — `yolo pack update` checks again[/dim]"}
@@ -416,7 +421,8 @@ func candidateLines(rec *packsrc.CheckRecord, series *packsrc.Series, in packsrc
 		}
 		state := "not replayed yet — `yolo pack update` replays it"
 		if o := rec.Conflict(e.Commit, series.Digest, yolo, gitVer); o != nil {
-			state = fmt.Sprintf("does not take %s (conflicts in %s)", o.Member, strings.Join(o.Paths, ", "))
+			state = fmt.Sprintf("does not take %s (conflicts in %s) — `%s` rebases the series", o.Member,
+				strings.Join(o.Paths, ", "), rebaseCommand(f, e, isRebaseDefault(rec, in, series.Digest, e)))
 		} else if o := rec.Applies(e.Commit, series.Digest, yolo, gitVer); o != nil {
 			state = "applies — " + patchedNotBuilt
 		}

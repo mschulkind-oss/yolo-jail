@@ -184,7 +184,7 @@ func (s *Store) WalkSeries(repo, subdir string, series *Series, list []ListEntry
 		return res
 	}
 	defer sc.remove()
-	commits, baseErr, err := sc.applyAtBase(series)
+	commits, baseErr, err := sc.applyAtBase(series, "")
 	switch {
 	case baseErr != nil:
 		res.Base = baseErr
@@ -375,11 +375,16 @@ func (sc *scratch) gitStatusEnv(dir string, env []string, args ...string) (strin
 	return stdout.String(), 0, nil
 }
 
-// applyAtBase checks the series' base out in the scratch work tree and makes each member a commit
+// applyAtBase checks the series' base out in the scratch work tree — detached, or on a new branch
+// of that name when branch is set (the rebase clone's, rebase.go) — and makes each member a commit
 // with `git am`, one member at a time so a failure names its member. It returns the commits in
 // series order.
-func (sc *scratch) applyAtBase(series *Series) ([]string, *SeriesBaseError, error) {
-	if _, err := sc.git("", "checkout", "-q", "--detach", series.Base); err != nil {
+func (sc *scratch) applyAtBase(series *Series, branch string) ([]string, *SeriesBaseError, error) {
+	at := []string{"checkout", "-q", "--detach", series.Base}
+	if branch != "" {
+		at = []string{"checkout", "-q", "-b", branch, series.Base}
+	}
+	if _, err := sc.git("", at...); err != nil {
 		return nil, nil, fmt.Errorf("checking the series' base %s out: %s", shortCommit(series.Base), oneLine(err))
 	}
 	files := filepath.Join(sc.dir, "series")
