@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"path"
 	"path/filepath"
+	"reflect"
 	"strconv"
 	"strings"
 	"testing"
@@ -92,6 +93,36 @@ func TestBSDPSRealListMode(t *testing.T) {
 	}
 	if header, _, _ := strings.Cut(string(out), "\n"); !strings.Contains(header, "UCOMM") {
 		t.Errorf("header %q: want a UCOMM column", header)
+	}
+}
+
+// TestBSDPSRealDefaultFields asks the real ps for the columns every Mac user gets: no
+// `fields` key, so LoadSettings falls back to DefaultFields (pid, comm as ucomm, args,
+// etime, %cpu, %mem, rss). The other tests here name two or three fields; this is the
+// one that would see a default the entitled /bin/ps does not know, as a warning on
+// stderr, a non-zero exit or a column missing from the row.
+func TestBSDPSRealDefaultFields(t *testing.T) {
+	pid := startSleep(t)
+	cfg := settings(t, `{"visible":["sleep"]}`)
+	if !reflect.DeepEqual(cfg.Fields, DefaultFields) {
+		t.Fatalf("fields = %v, want the DefaultFields fallback %v", cfg.Fields, DefaultFields)
+	}
+	ep, stop := startDaemon(t, cfg, "")
+	defer stop()
+	n, _ := strconv.Atoi(pid)
+	for _, req := range []map[string]any{{"mode": "list"}, {"mode": "pid", "pid": n}} {
+		out, errOut, rc := query(t, ep, req)
+		row, ok := rowFor(string(out), pid)
+		if rc != 0 || len(errOut) != 0 || !ok {
+			t.Errorf("%v with the default fields = rc %d stderr %q, row found %v:\n%s\nwant rc 0, "+
+				"nothing on stderr and the sleep's row", req, rc, errOut, ok, out)
+			continue
+		}
+		// args may be cut to its column, so it is at least one field, and every other
+		// default is exactly one.
+		if f := strings.Fields(row); len(f) < len(DefaultFields) {
+			t.Errorf("%v row %q has %d fields, want at least %d, one per default", req, row, len(f), len(DefaultFields))
+		}
 	}
 }
 

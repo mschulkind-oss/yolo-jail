@@ -282,8 +282,9 @@ func BuildHandler(cfg Config) hostservice.Handler {
 		visible[c] = struct{}{}
 	}
 	fields := append([]string(nil), cfg.Fields...)
-	// Read once, like the allowlist: a handler never changes dialect mid-life.
+	// Read once, like the allowlist: a handler never changes dialect or deadline mid-life.
 	d := dialectFor(hostOS)
+	treeSecs := treeDeadlineSeconds
 	return func(s *hostservice.Session) {
 		// mode = str(request["mode"] or "list"). A truthy NON-string (e.g. 5,
 		// {...}) is stringified and falls through to the unknown-mode exit-2
@@ -309,7 +310,7 @@ func BuildHandler(cfg Config) hostservice.Handler {
 		case "list":
 			handleList(s, visible, fields, d)
 		case "tree":
-			handleTree(s, visible, d)
+			handleTree(s, visible, d, treeSecs)
 		case "pid":
 			handlePid(s, visible, fields, d)
 		default:

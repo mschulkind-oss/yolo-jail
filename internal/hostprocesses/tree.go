@@ -28,8 +28,11 @@ func pyReprStrList(xs []string) string {
 // inside the timeout message.
 var gnuTreeArgv = []string{"ps", "-eo", "pid,ppid,comm,args", "--forest"}
 
-// treeDeadlineSeconds bounds the whole of tree mode, on either dialect.
-const treeDeadlineSeconds = 15
+// treeDeadlineSeconds bounds the whole of tree mode, on either dialect: 15, frozen with
+// the message that names it (TestTreeTimeoutStderrGolden). A var only so a test can drive
+// a tree to its deadline in a second rather than fifteen; BuildHandler reads it once, as
+// it reads hostOS, and nothing else may.
+var treeDeadlineSeconds = 15
 
 // handleTree runs `ps -eo pid,ppid,comm,args --forest` (15s timeout), then
 // filters to allowlisted comms + their children (two passes). Failure paths:
@@ -40,14 +43,14 @@ const treeDeadlineSeconds = 15
 // whatever stdout we captured.
 //
 // BSD ps has no --forest: handleTreeBSD builds the forest itself.
-func handleTree(s *hostservice.Session, visible map[string]struct{}, d dialect) {
+func handleTree(s *hostservice.Session, visible map[string]struct{}, d dialect, secs int) {
 	if d == bsdPS {
-		handleTreeBSD(s, visible)
+		handleTreeBSD(s, visible, secs)
 		return
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), treeDeadlineSeconds*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(secs)*time.Second)
 	defer cancel()
-	run, err := runPS(ctx, treeDeadlineSeconds, gnuTreeArgv)
+	run, err := runPS(ctx, secs, gnuTreeArgv)
 	if err != nil {
 		// Frozen contract (must not drift — the wire message is
 		// "Command '<argv list repr>' timed out after 15 seconds"; a hardcoded
@@ -147,15 +150,15 @@ var bsdTreeSnapshotArgv = []string{"ps", "-ax", "-o", "pid=,ppid=,ucomm="}
 // come in tree order, indented from the kept roots, where GNU prints the matches and
 // then their descendants with depth counted from pid 0.
 //
-// Failure paths are GNU's: the deadline (treeDeadlineSeconds for the whole mode) names
-// the argv that was running when it passed, a ps that could not run is exit 1 naming
-// the next step (treeFailed), and a snapshot with no rows is exit 0 with no output, as
-// GNU's non-zero-and-empty ps is.
-func handleTreeBSD(s *hostservice.Session, visible map[string]struct{}) {
-	ctx, cancel := context.WithTimeout(context.Background(), treeDeadlineSeconds*time.Second)
+// Failure paths are GNU's: the deadline (secs, treeDeadlineSeconds, for the whole
+// mode) names the argv that was running when it passed, a ps that could not run is
+// exit 1 naming the next step (treeFailed), and a snapshot with no rows is exit 0 with
+// no output, as GNU's non-zero-and-empty ps is.
+func handleTreeBSD(s *hostservice.Session, visible map[string]struct{}, secs int) {
+	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(secs)*time.Second)
 	defer cancel()
 	// A ps that listed nothing (unanswered) is GNU's non-zero-and-empty ps: exit 0, below.
-	procs, _, err := bsdSnapshot(ctx, treeDeadlineSeconds, bsdTreeSnapshotArgv, true)
+	procs, _, err := bsdSnapshot(ctx, secs, bsdTreeSnapshotArgv, true)
 	if err != nil {
 		s.Stderr(treeFailed(err))
 		s.Exit(1)
@@ -174,7 +177,7 @@ func handleTreeBSD(s *hostservice.Session, visible map[string]struct{}) {
 				pids = append(pids, strconv.Itoa(p.pid))
 			}
 		}
-		run, err := runPS(ctx, treeDeadlineSeconds, []string{"ps", "-o", "pid=,args=", "-p", strings.Join(pids, ",")})
+		run, err := runPS(ctx, secs, []string{"ps", "-o", "pid=,args=", "-p", strings.Join(pids, ",")})
 		if err != nil {
 			s.Stderr(treeFailed(err))
 			s.Exit(1)

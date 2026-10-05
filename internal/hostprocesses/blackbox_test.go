@@ -948,6 +948,65 @@ func TestBlackboxBSDListHeaderQueryFailureSaysWhatToDo(t *testing.T) {
 	}
 }
 
+// withTreeDeadline gives the daemon this test starts a tree deadline of secs, restoring
+// the production 15 on cleanup. Like withHostOS it must run BEFORE startDaemon, because
+// BuildHandler reads the deadline once.
+func withTreeDeadline(t *testing.T, secs int) {
+	t.Helper()
+	prev := treeDeadlineSeconds
+	treeDeadlineSeconds = secs
+	t.Cleanup(func() { treeDeadlineSeconds = prev })
+}
+
+// TestBlackboxTreeDeadlineKeepsTheFrozenMessage drives tree mode to its deadline through
+// the production call sites, on both dialects: stderr is exactly the frozen
+// "tree mode failed: Command '<argv>' timed out after N seconds", naming the ps that was
+// running when the deadline passed, with nothing appended, and the exit is 1. Only the
+// formatter was pinned before, so a call site could pass the wrong deadline, or lose the
+// timeout's own error, with the package green.
+//
+// The deadline is shortened here (15 in production, which
+// TestTimeoutMessagesKeepTheFrozenForm pins) and the fake ps outlives it with an exec'd
+// sleep, which the deadline's kill ends at once. A call site timing out on a longer
+// deadline than it names therefore outwaits the sleep and answers rc 0 instead. A BSD
+// case that must get past earlier ps runs first gets 2 seconds, so a loaded machine
+// spawning those runs slowly does not move the deadline onto the wrong one.
+func TestBlackboxTreeDeadlineKeepsTheFrozenMessage(t *testing.T) {
+	const hang = "exec sleep 5"
+	for _, tc := range []struct {
+		name, goos string
+		secs       int
+		ps         func(t *testing.T) string
+		argv       string
+	}{
+		{"gnu", "linux", 1, func(t *testing.T) string { return fakePS(t, hang+"\n") },
+			"['ps', '-eo', 'pid,ppid,comm,args', '--forest']"},
+		{"bsd pid listing", "darwin", 1, func(t *testing.T) string {
+			return fakePS(t, "case \"$*\" in\n  '-ax -o pid=') "+hang+" ;;\nesac\n")
+		}, "['ps', '-ax', '-o', 'pid=']"},
+		{"bsd snapshot", "darwin", 2, func(t *testing.T) string {
+			return fakePS(t, "case \"$*\" in\n  '-ax -o pid=') echo 100 ;;\n  *) "+hang+" ;;\nesac\n")
+		}, "['ps', '-ax', '-o', 'pid=,ppid=,ucomm=']"},
+		{"bsd args query", "darwin", 2, func(t *testing.T) string {
+			return bsdFake(t, "-ax -o pid=,ppid=,ucomm=", "  100     1 sway\n", hang)
+		}, "['ps', '-o', 'pid=,args=', '-p', '100']"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			withHostOS(t, tc.goos)
+			withTreeDeadline(t, tc.secs)
+			ps := tc.ps(t)
+			ep, stop := startDaemon(t, settings(t, `{"visible":["sway"]}`), ps)
+			defer stop()
+			out, errOut, rc := query(t, ep, map[string]any{"mode": "tree"})
+			want := "tree mode failed: Command '" + tc.argv + "' timed out after " + strconv.Itoa(tc.secs) + " seconds\n"
+			if rc != 1 || len(out) != 0 || string(errOut) != want {
+				t.Errorf("tree at its deadline = rc %d out %q stderr %q, want rc 1, no output and %q\nps invocations: %s",
+					rc, out, errOut, want, psInvocations(ps))
+			}
+		})
+	}
+}
+
 // TestBlackboxTreeWithNoPSSaysWhatToDo is the GNU twin of the tree case above: a tree
 // whose ps cannot be started names the same next step. (List and pid mode stream their
 // ps through hostservice, which words its own spawn failure.)
