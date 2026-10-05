@@ -415,8 +415,6 @@ func (s *CredentialScope) UnservedEnvLines(byLaunch LaunchServes) []string {
 			why = launchWhy
 		}
 		switch {
-		case why != "" && bound[daemon]:
-			why += ", so nothing would answer it"
 		case why != "":
 		case bound[daemon]:
 			why = s.served.notBoundWhy(daemon)

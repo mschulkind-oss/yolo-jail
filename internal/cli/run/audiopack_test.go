@@ -729,3 +729,77 @@ func TestMacosUserHandsTheSandboxNoAudioPointer(t *testing.T) {
 		t.Errorf("the macos-user launch did not name the withheld pointers with its reason (%q):\n%s", want, got.out)
 	}
 }
+
+// `yolo host --` OPENS NO DOORWAY FOR A BOUND LOOPHOLE, so a withheld pointer at one never names
+// a doorway's next step. PlanHostDoorways gives every profile-served name it did not open a
+// reason, and a profile-gated pointer `served_by` a bound loophole is one: its reason is a
+// doorway's ("`yolo host --` opens its doorway for this agent once ... `"enabled": true`" for a
+// loophole left off, "declares no doorway ... so only a jail runs it" for one switched on). No
+// switch gives the host a jail to bind into, so the line the host prints is the host's own clause
+// either way. No shipped pack gates a bound pointer (audio's is ungated), so a local pack does.
+func TestTheHostWordsAGatedBoundPointerAsTheHostsOwn(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
+	hostLauncher(t)
+	emptyLoopholeDirs(t)
+	root := t.TempDir()
+	mod := filepath.Join(root, "loopholes", "snd")
+	if err := os.MkdirAll(mod, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for file, body := range map[string]string{
+		filepath.Join(mod, "native"): "",
+		filepath.Join(mod, "manifest.jsonc"): `{"name": "snd", "description": "d", "version": 1,
+		"transport": "none", "lifecycle": "external",
+		"host_bind_mounts": [{"host": "{loophole_dir}/native", "container": "/run/snd/native", "readonly": true}]}`,
+		filepath.Join(root, "pack.json"): `{"contributes": [{"kind": "loophole", "from": "loopholes/snd"},
+		{"kind": "env", "profile": "p", "served_by": "snd", "vars": {"SND_SERVER": "unix:/run/snd/native"}}]}`,
+	} {
+		if err := os.WriteFile(file, []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	acme, probs := packload.LoadDir(root, "acme")
+	if len(probs) > 0 {
+		t.Fatalf("the local pack fixture does not load: %v", probs)
+	}
+	packs := []*packload.Pack{officialPack(t, "pi"), acme}
+	profiles := map[string]string{"pi": "p"}
+	for _, enabled := range []string{"false", "true"} {
+		t.Run("enabled="+enabled, func(t *testing.T) {
+			cfg := loopholesConfig(t, `{"snd": {"enabled": `+enabled+`}}`)
+			plan, err := PlanHostDoorways(cfg, packs, packload.GateSelection{Profiles: profiles},
+				true, "yolo host -- pi")
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer plan.Release()
+			if plan.notOpened["snd"] == "" {
+				t.Fatalf("fixture bug: the plan gave the gated bound pointer no reason, so this " +
+					"test no longer reaches the arm it guards")
+			}
+			served := plan.Served()
+			scope, err := packload.ScopeCredentials(packload.ScopeInput{Packs: packs,
+				Profiles: profiles, NoDerives: true, Served: &served})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, delivered := scope.DeliveredPackEnv("SND_SERVER"); delivered {
+				t.Fatal("the host delivered a pointer at a socket only a jail's bind provides")
+			}
+			lines := strings.Join(packload.UnservedLines(scope, nil, nil), "\n")
+			want := `SND_SERVER — points at what the "snd" loophole binds into a jail, and the host ` +
+				"has no jail to bind it into, so a client here reaches the host's own server"
+			if !strings.Contains(lines, want) {
+				t.Errorf("the host's withheld line does not say %q:\n%s", want, lines)
+			}
+			for _, wrong := range []string{"doorway", "is disabled", "only a jail runs it"} {
+				if strings.Contains(lines, wrong) {
+					t.Errorf("the host's withheld line says %q, a doorway's reason for a loophole "+
+						"that has none:\n%s", wrong, lines)
+				}
+			}
+		})
+	}
+}
