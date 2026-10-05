@@ -24,10 +24,15 @@ summary: "How the user guide is published: userguide/ is a closed tree of Markdo
 site served at its address with HTTP 200, and its recent-commits list named a guide change pushed
 to `main` that morning, so a push reaches the live site with nobody running anything. MEASURED
 2026-10-01: the index still returns 200 and its recent-commits list names a guide change of that
-morning, but a path-shaped deep link (`/guides/macos`, `/README.md`) returns HTTP 500 with
-Cloudflare's error 1101, a Worker exception, and so does a deep link on `docs.vantageapp.dev`,
-the setup this one copies. UNMEASURED: whether a browser reaches a page by its own address, and
-whether the site's history view follows the `git mv` renames that created the tree.
+morning, but a path-shaped deep link (`/guides/macos`, `/README.md`) returned HTTP 500 with
+Cloudflare's error 1101, a Worker exception, as a deep link on `docs.vantageapp.dev`, the setup
+this one copies, did too. The `ASSETS` binding fixed that the same day ([Serving](#serving)).
+MEASURED 2026-10-05: `/guides/macos` and `/README.md` return 200, to a plain GET and to one
+carrying a browser's navigation header. In a browser (headless Chromium), a page's hash address,
+`/#/guides/macos.md`, renders the page, but `/guides/macos` renders an empty one: the export's
+`index.html` loads its scripts and styles by relative paths (`./assets/…`), which resolve under
+`/guides/`, and the fallback answers those with the HTML page too, so the viewer never starts.
+UNMEASURED: whether the site's history view follows the `git mv` renames that created the tree.
 
 The user guide is published as a website by copying [Vantage](https://github.com/mschulkind-oss/vantage)'s
 own setup whole. `userguide/` holds the content. One build script turns it into a static export of

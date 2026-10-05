@@ -62,9 +62,9 @@ host or an outside account follows under [External waits](#external-waits).
    Kilo model without a declared window a 1M-token context; [whether a hatch reaches a required daemon's refusal](../reference/loopback-tls-reachability.md#OQ-R8),
    which the documented one cannot; [`--no-daemon` for every in-jail `codex`](../research/codex-background-service.md#OQ-CDX3), since `codex agents`
    there still starts the daemon yolo turns off; [how host pi gets its OpenAI subscription credential](../design/pi-host-openai-auth.md), since
-   `yolo host -- pi` on the `codex` profile lists no ChatGPT model; [who owns the host's pi `mcp.json` server table](../reference/mcp-configuration.md#OQ-MC1)
-   and [an old pi or a leftover `mcp-adapter.json` there](../reference/mcp-configuration.md#OQ-MC2), since `--revert` removes the servers you added
-   with `pi mcp add`; and [what backs an Apple Container jail's `/mise`](../research/macos-backend-performance.md#OQ-MB1), since while one such
+   `yolo host -- pi` on the `codex` profile lists no ChatGPT model; [an old pi or a leftover `mcp-adapter.json` at the host](../reference/mcp-configuration.md#OQ-MC2),
+   since host apply never deletes that file and pi-mcp-adapter keeps loading it (the `--revert` that removes the servers you added with
+   `pi mcp add` runs only under `assert`, so its fix is item 27's retirement, not [OQ-MC1](../reference/mcp-configuration.md#OQ-MC1)); and [what backs an Apple Container jail's `/mise`](../research/macos-backend-performance.md#OQ-MB1), since while one such
    jail runs a jail in another workspace cannot start, which also stopped the 2026-10-03 Apple Container run's keeper sweep measure.
 12. [Build the patched-fork mode](../design/patched-forks.md), with [its companion for pi
     extensions](../design/patched-extensions.md), at every notch — the maintainer asked on 2026-10-04

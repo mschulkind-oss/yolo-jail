@@ -1005,7 +1005,10 @@ would read such a view or its Keychain is unmeasured, as measure M11 is for `mac
 ### The maintainer's words, and one phrase that is not theirs
 
 - On [OQ-CL2](../design/claude-login-without-interception.md#OQ-CL2), whose leaning has `/login`
-  in any jail still enroll the machine: *"all of that sounds right"* (2026-09-28).
+  in any jail still enroll the machine: *"all of that sounds right"* (2026-09-28). The text it
+  approved assumes one login per machine: a jail's `/login` enrolls the machine, a jail's
+  `/logout` signs out only that workspace, and `yolo claude-auth logout` on the host signs the
+  machine out. Whether approving it was also a ruling on sharing is this question's to say.
 - On [OQ-CL1](../design/claude-login-without-interception.md#OQ-CL1): *"we can just write the new
   one in there and it just picks it up. If that's the case, then yes, we should do that."*
   (2026-09-28). That approves the mechanism that shares the grant. It does not rule on sharing.

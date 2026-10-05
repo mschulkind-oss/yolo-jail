@@ -765,9 +765,13 @@ code" — but it is worth building in the three places of [§1](#1-the-verdict) 
 ### 💬 <a id="OQ-TP11"></a>[OQ-TP11](#OQ-TP11) — does the jail-daemon disclosure reach a pack service's daemon?
 
 Since 2026-09-30 a launch names each program a pack's loophole runs inside the jail, on that pack's
-line. A `service` contribution's `jail_daemon` also runs a supervised program in the jail (the
-wire bridge is the shipped one), and no line names it: its claim is classified skip, so it reaches
-no block. [OQ-TP10](#oq-tp10--a-wrapped-plugins-hooks-reach-the-agents-lifecycle-and-appear-in-no-launch-banner)'s argument
+line. A `service` contribution's `jail_daemon` also runs a supervised program in the jail, and no
+line names it: its claim is classified skip, so it reaches no block. The wire bridge is the shipped
+one, but it is not the only one possible. Any selected pack may declare a service, a fetched or
+local pack included, and its `jail_daemon` runs whatever command it names
+(`serviceJailDaemons`, [`packservices.go`](../../internal/cli/run/packservices.go), checks no
+origin). Only a service's host half is limited to the packs yolo ships
+([OQ-HS4](host-notch-services.md#OQ-HS4)). [OQ-TP10](#oq-tp10--a-wrapped-plugins-hooks-reach-the-agents-lifecycle-and-appear-in-no-launch-banner)'s argument
 was about the loophole's claim-free daemon, and the [inventory](#2-the-inventory) has no row for a
 service, so the ruling does not say.
 

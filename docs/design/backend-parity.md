@@ -5,17 +5,17 @@ status: in-review
 tags: [backends, apple-container, macos-user, parity, silent-drop]
 summary: "Issue #39 was not one bug. A 48-agent sweep found 42 candidates and confirmed 31, deduping to 17 distinct defects — 21 once a class test written for three of them found a fourth nobody had looked for. All one shape: a mechanism wired into the podman branch of the run pipeline with nothing checking the other two backends. Fourteen are fixed or warned; the rest need a census — a per-backend disposition table with FOUR states, because 'achieved another way' is the state that half the audit turned out to be."
 stage: DESIGN
-next: "Record #10 in §5.4: the 2026-10-03 apple-container.yml run (GitHub Actions run 37133569003, at 5ca9b7485) logged AC-PARITY #10 VERDICT: HOLDS, a published port answering the Mac under an explicit network.mode: host as under the default; then rule OQ-BP-1, the per-backend census table or the annotation check and the two hand-kept tables"
+next: "Rule OQ-BP-1, the per-backend census table or the annotation check and the two hand-kept tables"
 ---
 
 # Three backends, one pipeline, and no census — why a mechanism goes missing quietly
 
 **Status:** 2026-08-24 — a diagnosis and a proposal. **Fourteen fixes are shipped** ([§5](#5-what-is-already-fixed-2026-08-24)), and since
 2026-09-25 each has a named hardware test or a stated reason for having none
-([§5.4](#54-which-test-answers-which-row)). Every row with a hardware test except #10 has since
-held or passed on a Mac: the Apple Container rows by `apple-container.yml` run 36378256230
-(2026-09-28), the macos-user rows (#6, #7, #9, #14) in `macos-user.yml` run 36719581090
-(2026-09-30). #10 waits on the runner Mac's Local Network permission, not on yolo. The census
+([§5.4](#54-which-test-answers-which-row)). Every row with a hardware test has since held or
+passed on a Mac: the Apple Container rows except #10 by `apple-container.yml` run 36378256230
+(2026-09-28), #10 by run 37133569003 (2026-10-03), and the macos-user rows (#6, #7, #9, #14) in
+`macos-user.yml` run 36719581090 (2026-09-30). The census
 in [§4](#4-the-proposal--a-backend-census-sibling-to-renderfieldset) is unbuilt **as a data structure** and **built as an
 enforced annotation** — `internal/cli/run/backendparity_test.go` (2026-09-14) has required a
 `// parity: <Disposition> — <reason>` on every runtime-gated line in the run pipeline since,
@@ -538,8 +538,14 @@ and unrun on the Mac.
   test process's own and does not decide #10. That is the likely shape of a run where the helpers
   are granted and the `go test` binary is not. Both verdicts still pass.
 
-The macos-user checks #6, #7, #9 and #14 are still unrun: the last `macos-user.yml` run, on
-2026-09-25, did not select them.
+**#10 HOLDS, 2026-10-03** (`apple-container.yml` run 37133569003 at `5ca9b7485`). A published
+port answered the Mac on `127.0.0.1` under the default network mode and under an explicit
+`network.mode: host`, from the IPv4-only and the dual-stack listener alike, after a dozen dials
+refused while the jail started. The published port on the vmnet gateway was not reached. The
+same run's dials from the test process to the container's own address connected on the first
+try, where every run through 2026-09-28 got `no route to host`
+([§5.5](#55-the-container-to-host-probe-every-run-since-2026-09-15)). What changed on the runner
+in between is not recorded.
 
 ### 5.5 The container-to-host probe, every run since 2026-09-15
 

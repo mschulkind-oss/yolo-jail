@@ -601,7 +601,7 @@ None of these is a config key in v1.
 | The host half publishes at once, and the launch waits on a separate key-fetch outcome | **Rejected.** The launch still has to wait before it writes the agent env file, so this adds a second channel from host half to launch rather than removing one. And a published endpoint would no longer mean the route is on, which the attach rule relies on ([§3.5](#35-who-gets-the-bus-address)) |
 | Model the host lock with Secret Service prompts during a call | **Rejected for v1.** Fetching keys at launch leaves no mid-call dialog to model. Revisit if keys ever have to be fetched lazily |
 | Route A of [OQ-CT1](../research/copilot-token-storage.md#OQ-CT1): force plain text and share `config.json` | **Rejected** in the research ([§5 there](../research/copilot-token-storage.md#5-why-the-hook-was-not-shipped)) |
-| Route B of [OQ-CT1](../research/copilot-token-storage.md#OQ-CT1): a fine-grained token in `env_sources` | **Still available**, and it needs nothing from yolo. It stays a user-guide recipe for someone who wants no stored login at all |
+| Route B of [OQ-CT1](../research/copilot-token-storage.md#OQ-CT1): a fine-grained token in `env_sources` | **Still available**, and it needs nothing from yolo, for someone who wants no stored login at all. No user-guide recipe for it exists yet: the guide's `env_sources` token advice names `GH_TOKEN` for `gh`, and nothing under `userguide/` names `COPILOT_GITHUB_TOKEN` |
 
 ### 3.12 Risks
 

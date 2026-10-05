@@ -581,7 +581,7 @@ place the values themselves are stated.
 | :--- | :--- | :--- |
 | Report tiers with a constant | `tierRun` = 2, `tierLoss` = 3 | `internal/cli` (`reportTier`) |
 | Outcome tokens | `refused`, `incomplete`, `no_packs`, `blocked`, `nothing_to_do`, `applied`, `would_complete` | `internal/cli` (`hostapplyverdict.go`) |
-| Dry-run exit code | 0, whatever it finds | `internal/cli` (`applyHost`) |
+| Dry-run exit code | 1 when it meets a refusal or a failed stage, 0 otherwise, a broken link included; re-read at `b830eabb6`. The ruling says 0 whatever it finds ([OQ-RO8](#oq-ro8)) | `internal/cli` (`applyHostSurveyed`) |
 | `--assert` refusal exit code | 1 | `internal/cli` (`gateHostDeps`) |
 | Acting-posture JSON refusal | exit 2, stdout empty | `internal/cli` (`refuseJSONForActingApply`) |
 | Launcher log | `launch.log`, under `<workspace>/.yolo/` | `internal/cli/run` (`LaunchLogName`) |

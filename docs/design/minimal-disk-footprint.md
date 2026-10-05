@@ -790,15 +790,19 @@ nothing joins the pieces.** MEASURED in this jail, mise 2026.8.6:
 - **Its links name jail paths and go stale.** They point at `/workspace/…`, which is a
   different directory in every workspace, and 469 of this workspace's 623 links dangled: 309
   into `/tmp`, which a restart empties, and most of the rest into removed worktrees.
-- **No list of workspaces exists to join them over.** The only one yolo has is the running
-  jails' (`prune.FindYoloWorkspaces`): a launch runs its container with `--rm`, so a workspace
-  whose jail has exited is not in it. A reaper that cannot see a workspace has to decline, as
-  the tri-state rule requires.
+- **One list of workspaces exists, built for images.** Each container launch that loads an image
+  from a store path writes a pointer file for its workspace under `BuildDir()/current-images`
+  (`prune.RecordCurrentImage`), naming the workspace's host path, and the file outlives the jail.
+  The running jails' list (`prune.FindYoloWorkspaces`) is not one: a launch runs its container
+  with `--rm`, so a workspace whose jail has exited is not in it. The pointers do not cover a
+  macos-user workspace, which loads no image, or a launch that skipped the build or fell back to
+  a stale image, which has no store path to record. A reaper that cannot see a workspace has to decline, as the tri-state rule
+  requires.
 
-So (A)'s cost is now a known shape: a record, written at each launch, of every workspace that
-has used the store, read host-side with each `/workspace` link mapped to that workspace's host
-path, and declining whenever a recorded workspace cannot be read. mise supplies the per-config
-half; what is missing is the list of workspaces.
+So (A)'s cost is now a known shape: a record of every workspace that has used the store, read
+host-side with each `/workspace` link mapped to that workspace's host path, and declining
+whenever a recorded workspace cannot be read. mise supplies the per-config half, and the
+image pointers are a list of workspaces to join it over, for the container backends only.
 
 4. 💬 <a id="OQ-DF4"></a>**[OQ-DF4](#OQ-DF4) — does yolo owe the machine a stated number, or only a policy?**
 
