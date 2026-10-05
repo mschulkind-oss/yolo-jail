@@ -1,0 +1,678 @@
+---
+title: "One keyed build for every pi extension: in parallel, published by rename, read without a lock, and updated at launch or for the next one"
+date: 2026-10-05
+status: in-review
+stage: DESIGN
+next: "Rule OQ-6 (restated in pi-git-extension-caching.md) and OQ-XB1; steps 1 and 2 of §14 (the npm prefix unshared, the launcher's refresh fixes, the parallel advance) wait on neither"
+tags: [pi, extensions, packs, builds, parallelism, locks, updates, startup]
+summary: "The maintainer asked on 2026-10-05 for parallel extension installs and updates, for unmodified extensions to be captured, for no machine-wide lock, for updates at launch by default with an option to update in the background for the next launch, and for a profile of pi's startup. This companion to the extension store's design proposes that an unmodified extension be built exactly as a patched one is, with no patches: on the host, in the sealed build jail, each key under its own lock, all keys at once, published by rename and handed to each fresh jail as a read-only copy. That retires the held in-jail store, its post-merge rewrite and the one machine-wide lock in pi's path, and it restates OQ-6 around that choice. It also records the update-timing ruling and the profile's ranked findings."
+vantage:
+  status-chip: true
+---
+
+# One keyed build for every pi extension: in parallel, published by rename, read without a lock, and updated at launch or for the next one
+
+**Status:** 2026-10-05. Nothing here is built. Evidence read at `854480458` (main) and `d44cb88b9`
+(the held store, branch `held/pi-extension-store`), and pi 1.0.1 read as installed in this jail, not
+run. MEASURED by a research pass of 2026-10-05 in scratch outside the repository, on a machine whose
+one-minute load ran from 5 to 138 on 32 CPUs: every figure below is a median of repeated runs, with
+CPU time (user+sys of the whole process tree) beside wall time, because single wall-clock numbers
+were unreliable under that load. UNMEASURED: no pi has loaded a tree built this way, no npm source
+has been built in the sealed jail, and a build jail's own start cost has not been timed apart from
+its build.
+
+> **In short.** An unmodified extension is a patched extension with no patches. So every extension
+> a pack declares can be built the way a patched one already is, on the host, each key under its own
+> lock and all keys at once, and handed to the next launch whenever you would rather not wait.
+
+**Why it matters.** pi's extensions are refreshed in front of a launch, hourly, under one lock every
+jail on the machine shares ([`packs/pi/pack.json:34`](../../packs/pi/pack.json#L34)), into an npm prefix
+every pi jail loads from, against the 2026-09-25 no-leakage ruling
+([OQ-4](pi-git-extension-caching.md#OQ-4)); and every build runs one key after another. On
+2026-10-05 the maintainer asked for each of those to change.
+
+**The shape.** One pipeline per extension key (check, build, admit, copy), run for all keys of a
+launch at once; per-key host locks; records and trees published by rename; and one `agent_updates`
+value that picks when the pipeline runs.
+
+**Cost.** An npm source kind and a `fallback` field on `files`; a read-only copy of each tree per
+fresh launch; updates that arrive at a jail launch rather than at a pi relaunch; and, under
+[OQ-6](pi-git-extension-caching.md#OQ-6)'s leaning, the held in-jail store not landing.
+
+**Start at [§2](#2-the-verdict-and-five-principles)**: the comparison that decides [OQ-6](pi-git-extension-caching.md#OQ-6). Everything
+after it holds under either answer unless it says otherwise.
+
+**Needs your ruling:** [OQ-6](pi-git-extension-caching.md#OQ-6), restated in the store's design
+around this companion, and [OQ-XB1](#OQ-XB1). [`pi-extension-lifecycle.md` OQ-4](pi-extension-lifecycle.md#OQ-4)
+rides with [OQ-6](pi-git-extension-caching.md#OQ-6) ([§4.4](#44-entries-no-pack-declares)).
+
+**Reads with:**
+- [`pi-git-extension-caching.md`](pi-git-extension-caching.md): the held store, its rulings
+  [OQ-2](pi-git-extension-caching.md#OQ-2) to [OQ-5](pi-git-extension-caching.md#OQ-5), and
+  [OQ-6](pi-git-extension-caching.md#OQ-6). This doc extends it; split out so each stays decidable.
+- [`patched-extensions.md`](patched-extensions.md) and [`patched-forks.md`](patched-forks.md): the
+  build, admit, delivery and locks this reuses. Every PPX and PF term and row cited here is theirs.
+- [`pi-extension-lifecycle.md`](pi-extension-lifecycle.md): the pre-launch refresh this changes.
+- [`program-delivery.md`](program-delivery.md): the agent CLI's own update, which
+  [OQ-XB1](#OQ-XB1) leaves in front until [OQ-PD23](program-delivery.md#OQ-PD23).
+- [`pi-extension-store-builds-plan.md`](pi-extension-store-builds-plan.md): the implementation
+  sketch, incomplete while questions are open; nobody builds from it.
+
+---
+
+## 1. Defined terms
+
+Coined here unless a link says otherwise:
+
+- **Unmodified extension**: a `files` contribution that names a `source` and no `patches`. Its bytes
+  are the upstream at one commit or version, built in the sealed capture jail. Not a
+  [patched extension](patched-extensions.md#1-defined-terms), which carries a series, and not a pi
+  `git:` or `npm:` entry, which pi installs and updates itself.
+- **Raw entry**: an element of pi's `packages` list written in pi's own source grammar (`git:`,
+  `npm:`, a URL), which pi installs and updates itself, whoever wrote it: a pack's `config-list`, the
+  host layer, or a `pi install` inside a jail. Not a local path, which pi only loads.
+- **Background advance**: the check and advance ([PF-D5](patched-forks.md#PF-D5),
+  [PF-D8](patched-forks.md#PF-D8)) a fresh launch starts as a detached host process after handing
+  each key the build it already has. Not the in-jail pre-launch refresh, which pi runs.
+- **Update timing**: which of two moments a key's advance runs at, **at launch** (the launch waits
+  for it, bounded) or **for the next launch** (a background advance). A per-pack value of
+  `agent_updates` ([§7.6](#76-the-setting)).
+
+[Built tree](patched-extensions.md#1-defined-terms), extension key, owner key, owning agent pack,
+newest fit, good build, check, advance and held keep their meanings in the patched designs. The held
+store's own **tree**, **mirror** and **pointer** keep [theirs](pi-git-extension-caching.md#defined-terms),
+and are named "the held store's" wherever they appear.
+
+## 2. The verdict, and five principles
+
+**Build every extension a pack declares as a patched extension is built, with an empty series, and
+do not land the held in-jail store.** The two pipelines make byte-equivalent trees: a replay of no
+patches is a checkout, and a build line equal to pi's dependency command installs what pi would. What
+differs is everything around the bytes:
+
+| | Held store ([OQ-6](pi-git-extension-caching.md#OQ-6) a or b) | Capture route ([OQ-6](pi-git-extension-caching.md#OQ-6) c) |
+| :--- | :--- | :--- |
+| Where the build runs | In your jail, at a pi exec; install scripts run there, workspace mounted (READ the held `prelaunchtrees.go`, PG-D25) | On the host, in the sealed, credential-free build jail ([PPX §7.1](patched-extensions.md#71-the-build-act)) |
+| Who can write the store | Every pi jail; a container agent runs as root in its user namespace, so read-only bits bind nothing ([store §4](pi-git-extension-caching.md#4-invariants-and-done-conditions)'s limit) | No jail: the capture store is mounted read-only or not at all |
+| How pi finds a tree | A pointer the pi pack's post-merge rewrite writes into the settings, amending [`OQ-LT2`](../reference/pack-system.md#oq-lt2) | A list entry the author writes ([PE7](patched-extensions.md#2-the-verdict-and-three-more-principles)); nothing is rewritten |
+| Your own `pi install` | Shared through the rewrite | pi's, per workspace ([§4.4](#44-entries-no-pack-declares)) |
+| When an update lands | At any pi exec, hourly | At a fresh jail launch, hourly; a pi relaunch inside a running jail keeps its trees |
+| macos-user, a macOS host | The same store (unverified on a Mac) | pi's own install, through the author's `fallback` ([§4.3](#43-delivery-and-the-fallback)) |
+| Cost per pi exec | 63.6 ms CPU warm as held, 42.8 ms with [§8](#8-if-the-held-store-lands-instead)'s fixes (MEASURED, 2×20 runs) | None: the launcher reads a wire it already reads |
+| Machine-wide lock | None | None |
+| Pipelines for one property | Two: this and patched extensions ([PPX alternative G](patched-extensions.md#14-alternatives-and-what-this-does-not-cover) rejected the store as the base for patched ones) | One |
+
+My read is that the capture route is what the request asked for in its own words (*"if we can just
+capture unmodified extensions that would probably be great"*), and that its two real costs, updates
+only at a jail launch and your own `pi install` staying per workspace, are smaller than a store any
+jail can write and a rewrite that amends a standing ruling. That is
+[OQ-6](pi-git-extension-caching.md#OQ-6)'s leaning; the restated question is there.
+
+The principles, numbered so later sections and the store's design can cite them:
+
+- **XB-P1. One build for one property.** An extension tree is built one way, patched or not; two
+  mechanisms for one property is the drift [OQ-5](pi-git-extension-caching.md#OQ-5)'s ruling named.
+- **XB-P2. Per key, never per machine.** Every lock, record and throttle names one extension key,
+  one repository or one workspace. Nothing names the machine.
+- **XB-P3. Publish complete, read without locking.** A tree or record becomes visible by one rename,
+  completion marker last, and a reader checks the marker and takes no lock.
+- **XB-P4. Nothing a jail can write feeds another jail or the host.** Not a tree, not a record, not a
+  cache a build reads.
+- **XB-P5. Timing changes when, never what.** Either timing hands a launch only an admitted build or
+  the author's fallback; the background mode only changes which launch first gets a newer one.
+
+## 3. What exists today, precisely
+
+| Fact | Where | How known |
+| :--- | :--- | :--- |
+| pi's refresh, `pi update --extensions`, runs in front of the exec under `.pi-shared-npm/.yolo-update.lock`, one lock for the machine, since the prefix it writes is one directory every pi jail mounts | [`packs/pi/pack.json:34`](../../packs/pi/pack.json#L34), [`:189-200`](../../packs/pi/pack.json#L189-L200) | READ |
+| A launch whose settings content is new, finding that lock held, waits up to `UPDATE_TIMEOUT` (60 s) for it | [`prelaunchrefresh.go:152-163`](../../internal/entrypoint/prelaunchrefresh.go#L152-L163) | READ |
+| The refresh is due when its stamp, `~/.cache/yolo-agent-stamps/refresh/pi.stamp`, is over an hour old (machine-global), or the settings content was never refreshed with successfully; a failure records nothing, so new content offline refreshes on every launch | [`:140-145`](../../internal/entrypoint/prelaunchrefresh.go#L140-L145), [`:229-239`](../../internal/entrypoint/prelaunchrefresh.go#L229-L239) | READ; the repeat MEASURED, three launches in a row |
+| The patched-extension gate runs after the refresh, so a launch it stops has paid for the refresh first | [`shims.go:1529-1530`](../../internal/entrypoint/shims.go#L1529-L1530), [`forklauncher.go:226-227`](../../internal/entrypoint/forklauncher.go#L226-L227) | READ |
+| Patched extensions are delivered one key after another, each advance with its own build jail | [`treedelivery.go:45-51`](../../internal/cli/treedelivery.go#L45-L51) | READ |
+| A build's lock is a kernel `flock` per build identity, which the kernel releases when its holder dies | [`forkbuild.go:146-151`](../../internal/cli/forkbuild.go#L146-L151), [`pidlock.go:6`](../../internal/pidlock/pidlock.go#L6) | READ |
+| A sealed build's `~/.cache` is its own, made under its staging workspace and removed with it | [`seal.go:64-68`](../../internal/cli/run/seal.go#L64-L68), [`forkbuild.go:258-263`](../../internal/cli/forkbuild.go#L258-L263) | READ |
+| `agent_updates` is a bool or a per-pack map of bools, user scope only; the jail's reader reads any other shape as "on" | [`config/agentupdates.go:12-27`](../../internal/config/agentupdates.go#L12-L27), [`validate.go:588-610`](../../internal/config/validate.go#L588-L610), [`entrypoint/agentupdates.go:46-70`](../../internal/entrypoint/agentupdates.go#L46-L70) | READ |
+| pi 1.0.1 checks npm versions 4 at a time, then runs one batched npm install beside git updates 4 at a time; its startup installs anything still missing one at a time | `dist/core/package-manager.js:36-37`, `:884`, `:896-911`, `:1000-1040` | READ |
+| pi 1.0.1's git dependency step for npm is `install --omit=dev --legacy-peer-deps`; its npm install is `install <spec> --prefix <root> --legacy-peer-deps` | `package-manager.js:1483-1499`, `:1505-1526` | READ |
+| The held resolver resolves every pointer one after another, looks each git ref up twice, prefetches no blobs, and runs `<npmCommand> install` with neither of pi's flags when `npmCommand` is set | `held/pi-extension-store:internal/pkgtrees/pkgtrees.go:200-211`, `git.go`, `packs/pi/pack.json` | READ |
+
+The maintainer's own pack lists nine extensions as raw entries (READ, the staged
+`/ctx/packs/matt/pack.json:70-82`). Four are his forks, which
+[the patched-extension migration](patched-extensions.md#13-migrating-the-maintainers-five-forks)
+turns into patched extensions. The other five are unmodified: one git entry pinned to a commit
+(`pi-thread-goal`) and four npm packages, one of them an exact pin. So **the npm source kind is most of
+what "capture unmodified extensions" buys him.**
+
+## 4. Capturing unmodified extensions
+
+### 4.1 The declaration
+
+```jsonc
+{ "kind": "files",
+  "into": ".pi/agent/yolo-ext/pi-web-access",
+  "source": "npm:pi-web-access",
+  "fallback": "npm:pi-web-access" },
+{ "kind": "files",
+  "into": ".pi/agent/yolo-ext/pi-thread-goal",
+  "source": "git+https://github.com/T50-Systems/pi-thread-goal?ref=5650274186687d1c5bfb18c8d11276a31830e0b3",
+  "fallback": "git:github.com/T50-Systems/pi-thread-goal@5650274186687d1c5bfb18c8d11276a31830e0b3" },
+// and in the pack's config-list on pi/settings at /packages, in the same edit:
+//  - "npm:pi-web-access"
+//  + "~/.pi/agent/yolo-ext/pi-web-access/node_modules/pi-web-access"
+//  - "git:github.com/T50-Systems/pi-thread-goal@5650274186687d1c5bfb18c8d11276a31830e0b3"
+//  + "~/.pi/agent/yolo-ext/pi-thread-goal"
+```
+
+| Field | Rule beside `source` with no `patches` |
+| :--- | :--- |
+| `source` | A git source as [PF-D1](patched-forks.md#PF-D1) has it, or `npm:<name>[@<spec>]`, where `<spec>` is an exact version, a dist-tag or a range, and absent means `latest` ([XB-D5](#XB-D5)) |
+| `follow` | Git only. Default `head`, what pi does with the same `git:` entry today; a tag or commit `?ref=` is fixed ([XB-D2](#XB-D2)). Refused beside an npm source |
+| `build` | Optional. Absent means pi's own dependency command ([XB-D3](#XB-D3)) |
+| `produces`, `into` | As for a patched extension ([PPX §4](patched-extensions.md#4-the-declaration)) |
+| `fallback` | Optional: the raw entry pi installs itself where this launch hands no tree ([§4.3](#43-delivery-and-the-fallback)). Refused beside `patches`, since the upstream unpatched is not what a series asks for |
+
+**The tree's list entry** is `~/<into>` for a git source and `~/<into>/node_modules/<name>` for an
+npm source, because an npm tree is an npm prefix, the shape pi's own install leaves
+([XB-D6](#XB-D6)). The lint, the owning agent pack's match ([PPX-D4](patched-extensions.md#PPX-D4))
+and the fallback all compare that exact string; core reads none of pi's grammar.
+
+This reverses, for `files` only, [PF alternative H](patched-forks.md#11-alternatives-with-verdicts)'s
+*"a series has at least one member"* and [PPX §4](patched-extensions.md#4-the-declaration)'s
+*"Zero patches would be a plain `git:` entry"*. H's reason was that nobody asked for a zero-patch
+mode and that it would make two ways to deliver one thing; for an extension both have turned:
+the request asks for it, and a plain `git:` entry is the second way, not this. A `program` keeps H
+([XB-D1](#XB-D1)).
+
+### 4.2 Building and admitting
+
+Unchanged from [PPX §7](patched-extensions.md#7-the-build-and-the-admit): the check per key at most
+hourly ([PF-D5](patched-forks.md#PF-D5)), the ratchet ([PF-D8](patched-forks.md#PF-D8)), the back-off
+of a failed build ([PF-D9](patched-forks.md#PF-D9)), the sealed build jail narrowed to the contributing
+pack, the image's `/bin/node` and `/bin/npm`, the final copy, and the admit's checks. What an empty
+series changes:
+
+- **The walk has one entry.** Every candidate fits, so the newest is taken: the branch's tip under
+  `follow: "head"`, the newest version tag under `release`, the resolved version for npm.
+- **The recipe's series digest is a fixed value for no series**, so a patched and an unmodified build
+  of one commit never share an entry.
+- **The npm check runs on the host, in Go**: one HTTPS request per package for the registry's
+  abbreviated metadata, through one keep-alive client per process, resolved by node-semver's rules
+  ([XB-D5](#XB-D5), [XB-D11](#XB-D11)). An exact version needs no request at all.
+- **An npm build starts from an empty checkout** and runs pi's npm invocation into it.
+
+### 4.3 Delivery, and the fallback
+
+A built tree is delivered exactly as a patched one is ([PPX §8.1](patched-extensions.md#81-in-a-jail)):
+a per-launch copy, by reflink or copy and never a hardlink, mounted read-only at `~/<into>`, and
+named in `YOLO_PATCHED_TREES`, which keeps its name ([XB-D8](#XB-D8)). The Linux host renders it as
+[PPX §8.3](patched-extensions.md#83-at-the-host) says.
+
+**Where the launch hands no tree, the fallback takes the list entry's place** ([XB-D7](#XB-D7)): at a
+notch that builds none (macos-user, a macOS host, a nested launch, Apple Container below its read-only
+floor with no good build on the machine), after a build that failed with nothing serving, or when the
+wire is absent. Core contributes the author's `fallback` string in place of the tree's list entry in
+the contributing pack's own `config-list` and posture-list entries, before the fold. So pi installs
+the extension itself, per workspace, exactly as it does today. This is not the post-merge rewrite
+[`OQ-LT2`](../reference/pack-system.md#oq-lt2) forbids: it chooses between two strings one author wrote,
+in that author's own contribution, before anything merges. Each fallback taken is said once at launch,
+naming the reason and that pi installs it in this workspace.
+
+Without a `fallback`, an unmodified extension behaves as a patched one:
+[PPX-D18](patched-extensions.md#PPX-D18)'s stop at a notch that builds trees, and a line at one that
+builds none.
+
+### 4.4 Entries no pack declares
+
+A raw entry stays pi's, installed and refreshed per workspace, once the npm prefix is per workspace
+([§6.3](#63-what-replaces-the-machine-wide-lock-now)). Nothing rewrites it, so it is not shared; it
+no longer leaks either, which was the fault [OQ-5](pi-git-extension-caching.md#OQ-5)'s ruling set out
+to end. It departs from that ruling's *"pi's updater touches nothing in a jail"* for entries no pack
+declares, which [OQ-6](pi-git-extension-caching.md#OQ-6)'s option (c) says. Moving one into a pack is
+an edit: the `files` contribution of [§4.1](#41-the-declaration), its list entry, and its old raw
+string as the `fallback`.
+
+[`pi-extension-lifecycle.md` OQ-4](pi-extension-lifecycle.md#OQ-4), who installs a package the refresh
+did not reach and under what lock, narrows under (c) to raw entries in one workspace: two pi sessions
+of that workspace starting together while a raw package is missing. Its leaning, accept and document,
+fits that better than it did the machine-wide case.
+
+### 4.5 What it changes in the store's design
+
+Under [OQ-6](pi-git-extension-caching.md#OQ-6) (c):
+
+| In [`pi-git-extension-caching.md`](pi-git-extension-caching.md) | Becomes |
+| :--- | :--- |
+| [§3.1](pi-git-extension-caching.md#31-the-store)–[§3.8](pi-git-extension-caching.md#38-garbage-collection): the store, pointers, resolver, locks and reaper | Not landed. The held branch stays unmerged as the record of option (a) |
+| [§3.2](pi-git-extension-caching.md#32-pointing-pi-at-a-tree)'s rewrite and its amendment of [`OQ-LT2`](../reference/pack-system.md#oq-lt2) | Not needed; [`OQ-LT2`](../reference/pack-system.md#oq-lt2) stands as written |
+| [§3.11](pi-git-extension-caching.md#311-the-npm-store), the npm store | npm extensions a pack declares become built trees; `.pi-shared-npm` is retired now, under every option ([§6.3](#63-what-replaces-the-machine-wide-lock-now)) |
+| [§3.12](pi-git-extension-caching.md#312-the-refresh-trigger-that-stays), `due_on_change` | Stays, for raw entries |
+| [§4](pi-git-extension-caching.md#4-invariants-and-done-conditions)'s I1, I2 and I4 | Hold, through per-launch copies and one capture entry per key, commit and recipe |
+| I3 | A launch runs pi on the trees it was handed or on the author's fallback, or [PPX-D18](patched-extensions.md#PPX-D18) stops it and says why |
+| The limit, a hostile jail writing the shared store | Gone: no jail writes the capture store |
+| Its done conditions | Replaced by [§12](#12-what-done-looks-like) |
+
+Under (a) or (b) the store lands with [§8](#8-if-the-held-store-lands-instead)'s fixes, and
+[§5](#5-parallel-installs-and-updates) to [§7](#7-when-updates-run) apply to both pipelines.
+
+## 5. Parallel installs and updates
+
+### 5.1 What runs one after another today
+
+- **The launch's tree arm** advances one key, then the next
+  ([`treedelivery.go:45-51`](../../internal/cli/treedelivery.go#L45-L51)), and the fork arm before it
+  does the same for patched forks
+  ([`forkbuild.go:347-355`](../../internal/cli/forkbuild.go#L347-L355)).
+- **The held resolver** resolves every pointer in turn (READ, `pkgtrees.go:200-211` on the held
+  branch).
+- **pi** checks 4 at a time and installs in two waves, then its startup installs what is still
+  missing one at a time ([§3](#3-what-exists-today-precisely)).
+
+### 5.2 The pipeline
+
+Every key a fresh launch's fork-build slot serves, a plain fork's missing build, a patched fork's
+advance and an extension tree's alike, runs its own pipeline, and the pipelines run together
+([XB-D10](#XB-D10)):
+
+```mermaid
+flowchart LR
+  subgraph "per key, all keys at once"
+    check["check: at most 8 at a time"] --> adv{"candidate?"}
+    adv -- "no" --> copy["per-launch copy"]
+    adv -- "yes" --> build["replay + sealed build: at most 4 at a time"]
+    build --> admit["admit by rename; move the good build"] --> copy
+  end
+  copy --> hand["YOLO_PATCHED_TREES, the mount, the jail starts"]
+```
+
+- **Checks** are network-bound and cheap, so up to 8 run at once. MEASURED in the research pass: a
+  registry metadata request costs 0.018 s CPU for four in parallel, against 0.84 s for four
+  `npm view` runs; a git `ls-remote` 0.16–0.33 s wall.
+- **Builds** are CPU-bound, so at most `min(4, max(1, CPUs/2))` run at once, 4 being pi's own
+  `GIT_UPDATE_CONCURRENCY`. A key's build starts as soon as its own check finds a candidate; it never
+  waits for other checks.
+- **Copies** start as each key's advance ends.
+- **Locks** stay [PF §6.6](patched-forks.md#66-locks-and-their-order)'s, in its order, so two keys of
+  one repository serialize on its mirror lock for the fetch, the blob prefetch and the replay, and
+  build in parallel ([PPX-D13](patched-extensions.md#PPX-D13)).
+
+**What it buys**, from the research pass's measurements of the same nine extensions (MEASURED,
+four interleaved rounds at a load of 97 to 105): pi's own cold install took a median 6.56 s wall and
+18.9 s CPU; the nine trees built at once, each in its own directory and published by rename, took
+6.03 s and 16.7 s with pi's exact commands, and 4.91 s and 14.1 s skipping empty dependency steps
+([XB-D3](#XB-D3)) and npm's audit as well. The larger wins are where pi repeats work a machine-wide
+build does once: a new workspace on a warm machine costs pi a median 18.0 s wall and 14.1 s CPU to
+clone and install again, and a no-change update 1.89 s and 1.26 s; a built tree costs a copy. Those
+builds ran outside any build jail, whose own start is UNMEASURED apart from a build
+([XB-D13](#XB-D13)).
+
+### 5.3 What is shared, and what never is
+
+| Shared | Why it is safe |
+| :--- | :--- |
+| One bare mirror per repository, host-side, with one blob prefetch per checkout | packsrc's, under its per-repository flock; a jail never writes it |
+| The registry's metadata, fetched once per package name per check | Read-only, and checked again by npm's own integrity at install |
+| A built tree, per machine, for every workspace | Admitted by the sealed build and copied per launch |
+
+**Never an npm cache shared across builds** ([XB-D12](#XB-D12)). npm's cache index maps a request to
+a digest a writer chooses, which is [the injection channel AGENTS.md names](../../AGENTS.md#invariants--gotchas)
+for npm's `_cacache`; a build runs an upstream's install scripts, so a shared cache would let one
+extension's scripts choose another's bytes, and the machine's `~/.cache`, which every jail writes,
+would let a jail choose what the host's pi later loads. The cost is measured: five git dependency
+steps at once took 2.96 s with private cold caches and 2.53 s with one shared cold cache, and four npm
+trees 4.46 s against 2.90 s (MEASURED, research pass).
+
+### 5.4 Output, interrupts and bounds
+
+- **Lines print in declaration order**, each key's buffered until it and every key before it have
+  ended ([PPX-D13](patched-extensions.md#PPX-D13)). One start line per build prints at once, naming
+  the extension and its log, because a launch parked in silence reads as a hang.
+- **One Ctrl-C ends every wait** ([PF-D57](patched-forks.md#PF-D57)): every in-flight advance is
+  cancelled, each key with a good build is handed it, and a key with none takes its fallback or is
+  [PPX-D18](patched-extensions.md#PPX-D18)'s stop.
+- **The bounds are per key and unchanged**: 60 s for a check's fetch, 60 s for the walk, and
+  `forkBuildWaitBound` (20 minutes) for a build ([OQ-PFK3](patched-forks.md#OQ-PFK3)). A launch now
+  waits for the slowest key, not for the sum.
+
+## 6. No machine-wide lock
+
+### 6.1 Every lock in pi's path
+
+| Lock | Scope | After this design |
+| :--- | :--- | :--- |
+| `.pi-shared-npm/.yolo-update.lock`, pi's refresh | **The machine**, because the prefix is | Moves to `.pi/.yolo-update.lock`, one workspace ([§6.3](#63-what-replaces-the-machine-wide-lock-now)) |
+| The program's install-prefix lock, `$NPM_CONFIG_PREFIX/.yolo-update.lock` | One workspace (`~/.npm-global`) | Unchanged ([`shims.go:1219`](../../internal/entrypoint/shims.go#L1219)) |
+| The MCP server refresh's lock | One workspace's prefix | Unchanged |
+| A build's lock | One build identity | Unchanged, a kernel flock |
+| An owner key's record lock | One key | Unchanged |
+| A mirror's lock | One repository | Unchanged |
+| The launch lock | One workspace | Unchanged |
+| The held store's `mirror-<slug>` and `tree-<key>` locks | One repository, one tree | Land only under (a) or (b), retuned ([§8](#8-if-the-held-store-lands-instead)) |
+| The refresh's stamp and its seen-content markers (throttles, not locks) | **The machine**, under `~/.cache` | Move beside the refresh's lock, one workspace ([XB-D14](#XB-D14)) |
+
+The first row is the one machine-wide lock in pi's path, and the last row the one machine-wide
+throttle over per-workspace work.
+
+### 6.2 The rules
+
+1. **A reader never locks.** It checks a completion marker written last, and a record written by
+   rename. Correctness never depends on a lock being held, except a compare-and-swap of a record
+   ([PF-D8](patched-forks.md#PF-D8)).
+2. **A lock names one key.** No lock spans two keys, and nothing waits for a lock earlier in
+   [PF §6.6](patched-forks.md#66-locks-and-their-order)'s order while holding a later one.
+3. **A lock is single-flight, not a gate.** It saves duplicate work. A build that loses a rename to an
+   identical one discards its own copy.
+4. **A kernel lock where every contender shares a kernel** (the host; one Linux kernel on podman and
+   on macos-user), so a dead holder releases at once. A directory lock with a heartbeat only where
+   contenders may not share one: Apple Container runs each jail in its own VM over one host directory,
+   the held store's case.
+5. **A background holder never waits.** It tries each lock once and skips the key if it is held
+   ([§7.4](#74-for-the-next-launch-the-option)).
+6. **A throttle has its lock's scope.** A stamp that covers one workspace's work lives with that
+   workspace's lock.
+
+### 6.3 What replaces the machine-wide lock, now
+
+The held branch's PG-D23, landed alone and first, under every
+[OQ-6](pi-git-extension-caching.md#OQ-6) option ([XB-D14](#XB-D14)): `packs/pi` stops declaring
+`.pi-shared-npm`, an `unshare_directory` hook replaces the link, as it did for `.pi-shared-git`
+([PG-D8](pi-git-extension-caching.md#7-decision-ledger)), and the refresh's lock becomes
+`.pi/.yolo-update.lock`. The wait for new content stays, now between sessions of one workspace only.
+Until trees land, each workspace installs its npm extensions itself: that is
+[OQ-5](pi-git-extension-caching.md#OQ-5)'s option (c) as an interim on the way to its ruled (a),
+taken now because the shared prefix is a live breach of the no-leakage ruling. In the research pass a
+single refresh in one jail reported *"changed 292 packages"* in the prefix every pi jail loads from.
+
+## 7. When updates run
+
+### 7.1 The ruling
+
+The maintainer, 2026-10-05: *"I want to have it default update at launch and then I want to have an
+option to change that to update on next launch so it updates while you're using it"*. So the default
+is update at launch, bounded and throttled hourly as today, and the option runs the update in the
+background so its result lands on the next launch. In that mode a launch can start on the build it
+already has while a newer one is fetched, which is what the option asks for. So for a pack that opts
+in, this ruling amends [OQ-2](pi-git-extension-caching.md#OQ-2)'s *"what you get in a launch should
+not depend on the state of other launches"*: which version a launch gets then depends on what an
+earlier launch's background advance built. Nothing else changes: a launch still runs only an admitted
+build or the author's fallback ([XB-P5](#2-the-verdict-and-five-principles)).
+
+### 7.2 Two kinds of launch
+
+| Update | Runs at | Default (at launch) | Option (for the next launch) |
+| :--- | :--- | :--- | :--- |
+| A built tree's check and advance (patched or unmodified) | A fresh jail launch, on the host | Waits, bounded ([§7.3](#73-at-launch-the-default)) | A background advance ([§7.4](#74-for-the-next-launch-the-option)) |
+| pi's refresh of raw entries | Every pi exec in a jail, hourly per workspace | Waits, 60 s bound | Stays in front under [OQ-XB1](#OQ-XB1)'s leaning ([§7.5](#75-what-stays-in-front)) |
+| pi's own CLI, and its MCP servers | Every pi exec, hourly | Waits, as today | Stays in front under the same leaning |
+
+### 7.3 At launch (the default)
+
+Today's behavior, unchanged except for [§5](#5-parallel-installs-and-updates)'s parallelism: a key
+whose check is due is checked; a candidate is built while the launch waits, up to
+`forkBuildWaitBound`; a Ctrl-C ends the wait and starts on the good build
+([OQ-PFK3](patched-forks.md#OQ-PFK3)); a key with no good build builds, or takes its fallback when its
+build fails. Within the hour, a launch runs no git and no registry request.
+
+### 7.4 For the next launch (the option)
+
+1. **The launch hands what it has, at once.** Each key with a good build is handed it with no check;
+   a key with none and a `fallback` is handed the fallback, so pi installs it this once; a key with
+   neither builds in front, since there is nothing to hand.
+2. **When any key's check is due, a candidate is pending, or a key took its fallback for want of a
+   build, the launch starts one background advance**: a detached host process in a session of its own, at a lowered priority, its standard
+   streams on a log file, so it neither holds a piped launch's output open nor dies with the
+   terminal. It resolves the selection itself, as `yolo capture <pack>/<name>` does, never from the
+   launch's staged tree, which goes when the jail stops ([XB-D19](#XB-D19)).
+3. **It runs the same check and advance**, in parallel, with [§6.2](#62-the-rules)'s rule 5: a key
+   whose lock another launch holds is skipped. Its check claims the key's hourly stamp, so the next
+   launch inside the hour starts no second one.
+4. **What it builds lands for the next fresh launch** through the record's compare-and-swap
+   ([PF-D8](patched-forks.md#PF-D8)). It never touches a running jail's copy, and at the Linux host it
+   moves the good build without swapping the link, which the next host render does.
+5. **It says so** ([XB-D20](#XB-D20)): one line at the spawn naming the keys and the log; at the next
+   launch the move line, or the failure with the log and when it is retried. No flag hides either
+   ([`OQ-RO3`](../reference/report-tiers.md#why-its-this-way)).
+
+A background advance killed with the machine, or by a user, leaves its flocks released by the kernel,
+a staging directory the next build or `yolo prune` removes, and the record as it was. **On Apple
+Container** a build jail cannot start beside a running jail
+([PF §9](patched-forks.md#9-notch-coverage)), so there the background advance checks but does not
+build; a pending candidate is built in front by the next fresh launch, before its own jail starts, and
+the line says so once ([XB-D21](#XB-D21)). macos-user and a macOS host build nothing, so they start
+none.
+
+Under (a) or (b), the same option is the held store's prefetch: a detached in-jail run that fetches,
+resolves and builds trees but never repoints, so the next pi exec repoints with no network
+([§8](#8-if-the-held-store-lands-instead)).
+
+### 7.5 What stays in front
+
+Three other updates run in front of pi, and each rewrites in place files a running pi in the same
+jail reads:
+
+- **pi's refresh of raw entries** resets and cleans each git checkout (`git clean -fdx` deletes its
+  `node_modules`) and reifies the npm prefix (READ, pi 1.0.1 `package-manager.js:1625-1665`), while
+  pi's own startup installs any missing package with no lock
+  ([lifecycle §3.5](pi-extension-lifecycle.md#35-who-installs-a-package-the-refresh-did-not-reach)).
+- **pi's own CLI** updates by `npm install -g` over the install a running pi loads its lazily
+  imported chunks from (INFERRED from the bundle's hash-named chunk imports).
+- **The MCP servers' refresh** must complete before the exec, by ruling
+  ([OQ-PD12a](program-delivery.md#decision-ledger)).
+
+Whether the option moves them too is [OQ-XB1](#OQ-XB1). Under its leaning they stay in front, and
+pi's CLI joins the background once it is delivered once per machine, which is
+[OQ-PD23](program-delivery.md#OQ-PD23)'s leaning.
+
+### 7.6 The setting
+
+`agent_updates` takes four values, at its top level or per pack, user scope only as today
+([XB-D17](#XB-D17)):
+
+```jsonc
+"agent_updates": { "*": true, "pi": "next-launch" }
+// true or "launch": update at launch; "next-launch": update for the next launch; false: hold
+```
+
+- **Whose value governs a tree**: `false` from the contributing pack or the owning agent pack holds
+  it ([PPX-D9](patched-extensions.md#PPX-D9)); otherwise the owning agent pack's value picks the
+  timing, else the contributing pack's ([XB-D18](#XB-D18)).
+- **Readers.** The check that asks "may it move" reads both strings as yes; a separate reader answers
+  "when". `host_floor`, which shares `agent_updates`' shape, stays boolean.
+- **An older jail-side reader** reads a string as "on", update at launch, except under a `"*": false`
+  default, where it treats the pack's string as absent and holds. Both halves come from one tree on
+  every launch, so that pairing needs a source skew the launch already refuses.
+
+## 8. If the held store lands instead
+
+Under [OQ-6](pi-git-extension-caching.md#OQ-6) (a) or (b), these land with it ([XB-D16](#XB-D16)),
+each found by the research pass against `d44cb88b9`:
+
+| Defect or cost | Fix | Measured effect |
+| :--- | :--- | :--- |
+| The git dependency command has drifted from pi 1.0.1: a set `npmCommand` runs a bare `install`, pulling dev dependencies and pi's own `@earendil-works/pi-*` peers into every tree | Per-manager argv mirroring pi's `getGitDependencyInstallArgs` (npm, bun, pnpm) | `pi-subagents` 634 MB → 21 MB; `pi-dynamic-workflows` 687 MB → 15 MB |
+| No blob prefetch: a checkout from the blob-less mirror makes one fetch per file | packsrc's one-request prefetch ([`store.go:770-775`](../../internal/packsrc/store.go#L770-L775)) | Five trees: 670 s wall, 65.8 s CPU → 14.6 s, 0.93 s |
+| Each git ref looked up twice per launch | One lookup per pointer | Warm launch 62.4 → 42.8 ms CPU |
+| Pointers resolved one after another | At most 4 at once, Node probed once | Cold trees, mirrors present: 7.2–7.5 s → 1.5–1.7 s wall, CPU about the same |
+| The store's git ignores packsrc's hook and fsmonitor guard | `storeGitConfig` ([`store.go:289`](../../internal/packsrc/store.go#L289)) | READ |
+| A dead holder blocks a waiter up to 600 s | Heartbeat 5 s, stale after 60 s, for a Go holder | INFERRED |
+| A launch can repoint at a tree a prune is removing, and pi skips the missing path silently | The reaper removes the marker, then renames the tree into `tmp/`; a repoint re-checks the marker after its rename | INFERRED |
+
+The refresh's stamp per workspace, the refresh skipped when nothing is raw, and the background
+prefetch of [§7.4](#74-for-the-next-launch-the-option) apply there too. Landing replays the six held
+commits onto main with nine conflicting files, five of them code, each conflict small
+([the sketch](pi-extension-store-builds-plan.md#landing-the-held-store)).
+
+## 9. The startup profile
+
+Measured 2026-10-05 against scratch copies of this jail's pi state, `PI_OFFLINE=1`, no agent session,
+sockets and child processes blocked during loading (MEASURED unless marked). The jail runs the pi fork
+build at 0.99.1, whose package manager is byte-identical to 1.0.1's.
+
+| # | Step | Cost | How often | Improvement | Where it goes |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| 1 | Compiling extensions with jiti's cache empty | `pi --help` 7.0 s wall, 10.2 s CPU (n=5), against 0.68 s and 0.88 s warm (n=10) | The first pi start after every jail start: the cache is `/tmp/jiti`, which a restart empties | Keep the cache per workspace across restarts, never machine-wide | [Roadmap](../plans/roadmap.md) |
+| 2 | The pre-launch refresh, when due | At least 8.4 s wall in one real run (INFERRED from file times), 60 s bound; 131 ms wall, 161 ms CPU offline | Hourly per machine, and on new settings content | The background mode; skip it when nothing is raw, and for a probe | Here: [§7](#7-when-updates-run), [XB-D23](#XB-D23), [XB-D24](#XB-D24) |
+| 3 | The MCP server refresh, when stale | An `npm install` per server, 60 s bound; not timed | Hourly per machine | Stays in front ([OQ-XB1](#OQ-XB1)); a probe should skip it | Probe half: [roadmap](../plans/roadmap.md) |
+| 4 | A nix build with nothing to do, at a fresh launch | 1.69 s median (n=15, host perf log) | Every fresh launch declaring `packages:` ([`autoload.go:479-483`](../../internal/image/autoload.go#L479-L483)) | The stock-image skip for a launch with `packages:` | Already on the [roadmap](../plans/roadmap.md) |
+| 5 | The durable-directory walk | 0.30 s and 0.95 s for the two passes of one launch; 2.0 s where it hit its cap ([`report.go:21`](../../internal/durable/report.go#L21)) | Twice per fresh launch | Walk once, in the jail's own boot | Already on the [roadmap](../plans/roadmap.md) |
+| 6 | Extensions loading with a warm cache | 474 ms wall, 597 ms CPU for 23 extensions | Every start | One shared jiti instance with its module cache on (pi gives each extension its own, with `moduleCache: false`, READ `loader.js:478`) | pi upstream, not yolo work |
+| 7 | Node's compile cache for pi's own bundle | `pi --version` 210 → 135 ms wall | The first start after a jail start: unset `NODE_COMPILE_CACHE` puts it in `/tmp` | A persistent directory, with #1 | [Roadmap](../plans/roadmap.md) |
+| 8 | Evaluating pi's bundle | About 100 ms (INFERRED from a CPU profile) | Every start | Lazy imports of highlighting, undici and yaml | pi upstream |
+| 9 | A `rg` call through mise's shim for an inactive tool | 14.6 ms wall against 0.6 ms (n=20, research); 37 ms CPU against 3.3 ms (n=21, MEASURED here at a load of 127) | Every `rg` pi's grep tool runs | Let no inactive tool's shim shadow `/bin` | [Roadmap](../plans/roadmap.md) |
+| 10 | The held store's resolver, per pi exec | 63.6 ms CPU warm, 42.8 ms fixed | Every pi exec, under (a) or (b) only | [§8](#8-if-the-held-store-lands-instead); none under (c) | Here |
+| 11 | MCP connections at the first prompt | Up to 10 s wait (READ); the `tavily` server is `npx -y tavily-mcp@latest`, a registry lookup per session | Every session | Install or pin it | The user's own config, not yolo work |
+| 12 | The launcher's own steps, and the Node binary | 18–20 ms wall; about 6 ms for the image's Node against mise's | Every start | None worth making | — |
+
+Container creation, 0.31–6.07 s per fresh launch, varied with load and was not investigated.
+
+**Found on the way, and routed to the roadmap as defects:** a due update of an npm-delivered agent
+CLI writes npm's output to the launcher's standard output, so `pi -p … | consumer` hands it to the
+consumer (MEASURED with a fake `npm`; READ, `npm install -g … 2>&1` with no redirect at
+[`shims.go:1296`](../../internal/entrypoint/shims.go#L1296) and the cold install's call at
+[`:1473`](../../internal/entrypoint/shims.go#L1473)); and `pi --version` runs every update step, the
+CLI's, the servers' and the refresh, so a version probe can hold a launch for about two minutes, a
+60 s wait for the lock and a 60 s refresh (INFERRED from those bounds), and write the npm prefix. The
+research pass's own first `pi --version` ran the refresh and rewrote the shared prefix.
+
+**What belongs here** is #2 and #10, and one finding for #1: under (c) a tree sits at the same
+`~/<into>` path in every jail and across its versions, so a per-workspace compile cache keyed by
+path and content keeps hitting after an update for every file that did not change (INFERRED from
+jiti's path-and-hash cache key). A machine-wide one is ruled out by
+[XB-P4](#2-the-verdict-and-five-principles): compiled code a jail wrote would run in another.
+
+## 10. Alternatives
+
+| Alternative | Verdict |
+| :--- | :--- |
+| **Land the held store with the fixes** ([§8](#8-if-the-held-store-lands-instead)) | [OQ-6](pi-git-extension-caching.md#OQ-6)'s option (a) or (b); not the leaning ([§2](#2-the-verdict-and-five-principles)) |
+| **Both: capture for what packs declare, the held store and its rewrite for raw entries** | **Rejected.** Two pipelines for one property ([XB-P1](#2-the-verdict-and-five-principles)), and the rewrite still amends [`OQ-LT2`](../reference/pack-system.md#oq-lt2) |
+| **Recognize `git:` and `npm:` strings in a pack's `config-list` and capture them automatically** | **Rejected.** Core would parse pi's grammar ([store §5](pi-git-extension-caching.md#5-alternatives)); a pack writes the structured form instead |
+| **Build every due key in one build jail** | **Deferred** until a build jail's start is measured apart from its build ([XB-D13](#XB-D13)); it costs failure isolation, since a stray in the delta could not be blamed on one key |
+| **One npm cache shared by builds** | **Rejected** ([§5.3](#53-what-is-shared-and-what-never-is)) |
+| **The background update on main's shared prefix** | **Rejected.** It writes in place under running sessions, and races pi's own startup install ([§7.5](#75-what-stays-in-front)) |
+| **The background advance after the session ends** | **Rejected.** It holds the terminal after the user quits, and a one-shot `yolo -- pi -p` ends before it can run |
+| **Delivering a newer tree into a running jail** (mount the per-launch directory whole, repoint at a pi exec) | **Not now.** It would let a pi relaunch take an update under (c), at the cost of a host process watching each jail; [§13](#13-what-this-does-not-cover) |
+| **Resolving npm ranges with `npm view` in a build jail** | **Rejected.** The check must be cheap and host-side; a jail per check is the cost [§5.2](#52-the-pipeline) removes |
+| **A flock for the held store's locks** | **Rejected.** Apple Container runs each jail in its own VM, where a flock arbitrates nothing ([§6.2](#62-the-rules) rule 4) |
+
+## 11. Risks
+
+| Risk | Mitigation |
+| :--- | :--- |
+| A cold machine's first launch waits for several build jails where pi installed in seconds | Builds run 4 at once; the background mode with a `fallback` hands pi's own install that once; the wait is once per machine per version |
+| A build jail's own start dominates small trees | Measured first ([XB-D13](#XB-D13)); batching per contributing pack is ready to build if it does |
+| A long-lived jail runs old extensions | An attach says when a newer good build waits ([PPX §8.1](patched-extensions.md#81-in-a-jail)); under (a) a pi relaunch updates |
+| An npm package from a private registry | Not covered: no credential reaches the check or the sealed build, so it stays a raw entry ([XB-D5](#XB-D5)) |
+| A node-semver range resolved differently in Go than by npm | Tested against node-semver's own range cases; an exact pin avoids it |
+| An install script that needs a credential fails sealed | It fails as a build, the good build or the fallback serves, and the line names the log |
+| A detached process outlives what launched it | Its locks are kernel flocks, its wait is bounded per key, and its log is named at the spawn |
+| Per-launch copies on a filesystem without reflinks | About 100 MB for the maintainer's nine (MEASURED tree sizes, summed): 38 MB of git trees, 62 MB of npm trees |
+
+## 12. What done looks like
+
+- A second workspace's fresh launch on a machine that has built the maintainer's extensions runs no
+  `npm install` and no clone, and pi lists their tools, checked by hand.
+- A fresh launch with nine due keys builds them concurrently: the slot's wall time is the slowest
+  key's plus a copy, and the lines print in declaration order.
+- pi's launcher takes no lock in a machine-scoped directory, and its extension refresh's stamp is
+  per workspace: two workspaces refresh their raw entries in the same minute without waiting on, or
+  silencing, each other.
+- With `"pi": "next-launch"`, a fresh launch whose keys are all due starts pi with no network wait, a
+  line names the background log, and the next fresh launch runs what that advance built.
+- On macos-user an extension with a `fallback` is installed by pi in the workspace, as today, with one
+  line saying so.
+- `pi --version` through the launcher runs no refresh and no tree step.
+- A launch the tree gate stops runs no refresh first.
+- A refresh that fails on new settings content runs at most once an hour.
+
+## 13. What this does not cover
+
+- **A verb that converts a raw entry into a contribution.** The edit is by hand
+  ([§4.4](#44-entries-no-pack-declares)).
+- **Delivering a newer tree into a running jail** ([§10](#10-alternatives)).
+- **Private registries and authenticated git** for a captured extension.
+- **pi's own CLI in the background mode**, which waits on [OQ-PD23](program-delivery.md#OQ-PD23).
+- **Writing the list entry for the author**, which waits on [OQ-PR1](pack-pi-resources.md#OQ-PR1).
+- **The compile caches and the shim**, routed to the [roadmap](../plans/roadmap.md).
+
+## 14. What I would build, in order
+
+1. **What no ruling holds, in the launcher**: PG-D23 alone ([XB-D14](#XB-D14)), the refresh's stamp
+   beside its lock, the refresh skipped when nothing is raw ([XB-D23](#XB-D23)) and for a probe
+   ([XB-D24](#XB-D24)), the gate first ([XB-D25](#XB-D25)), and a failed refresh throttled
+   ([XB-D26](#XB-D26)).
+2. **The parallel advance** for patched forks and extensions as they are today
+   ([XB-D10](#XB-D10)–[XB-D13](#XB-D13)), with the build jail's start measured on an extension with
+   nothing to install.
+3. **The update-timing value and the background advance** ([XB-D17](#XB-D17)–[XB-D22](#XB-D22)), as
+   [OQ-XB1](#OQ-XB1) rules; it serves the patched pipeline already built.
+4. **Under (c)**: the unmodified git source and the fallback ([XB-D1](#XB-D1)–[XB-D3](#XB-D3),
+   [XB-D7](#XB-D7), [XB-D8](#XB-D8)), then the npm source ([XB-D5](#XB-D5), [XB-D6](#XB-D6),
+   [XB-D11](#XB-D11)), then the maintainer's five migrated, each keeping its old string as its
+   fallback. **Under (a) or (b)**: [§8](#8-if-the-held-store-lands-instead)'s fixes, then the landing
+   in the sketch.
+
+Every call site gets a test that fails when the call site is deleted: the pool's use in the slot, the
+spawn of the background advance, the fallback's substitution, the stamp's path and each launcher
+template's order.
+
+## Open Questions
+
+[OQ-6](pi-git-extension-caching.md#OQ-6), which way pack-declared extensions are built and whether
+anything rewrites pi's list, is restated in the store's design.
+
+1. 💬 **OQ-XB1: When an extension updates in the background, do pi's own CLI update, its MCP servers' refresh and its refresh of entries no pack declares move out of the launch too?**
+
+   Each rewrites in place files a running pi in the same jail reads ([§7.5](#75-what-stays-in-front)),
+   so the background mode covers safely only what yolo builds and hands as a copy.
+
+   - **A — Only what yolo builds.** The three stay in front, hourly and bounded as today; pi's CLI
+     joins the background once it is delivered once per machine
+     ([OQ-PD23](program-delivery.md#OQ-PD23)).
+   - **B — All of them.** Each runs detached after pi starts; a running session can find its files
+     replaced underneath it, and pi's startup install can race the refresh.
+
+   <!-- vantage: question id=OQ-XB1 leaning="A — only what yolo builds moves to the background: B saves a few seconds an hour at the cost of the in-place breakage the trees exist to end, and pi's CLI joins once OQ-PD23 delivers it once per machine." -->
+
+   _Leaning:_ A — only what yolo builds moves to the background: B saves a few seconds an hour at the
+   cost of the in-place breakage the trees exist to end, and pi's CLI joins once
+   [OQ-PD23](program-delivery.md#OQ-PD23) delivers it once per machine.
+
+   **Answer:**
+
+   > _(empty — fill in when decided)_
+
+## Decision Ledger
+
+Every row is an implementation decision, reversible, made 2026-10-05 in drafting; the maintainer's
+own ruling of that day is recorded in [§7.1](#71-the-ruling). Rows marked *under (c)* apply only if
+[OQ-6](pi-git-extension-caching.md#OQ-6) is ruled (c), and [XB-D16](#XB-D16) only under (a) or (b).
+
+| ID | Ruling / Decision | Date | Settled in | Built |
+| :--- | :--- | :--- | :--- | :--- |
+| <a id="XB-D1"></a>XB-D1 | *Under (c), following the request of 2026-10-05.* **A `files` contribution may name `source` with no `patches`; the patched extension's check, walk, build, admit, delivery, ratchet, back-off, hold and explicit acts apply unchanged with an empty series.** `follow`, `build` and `produces` are accepted beside `source` alone on `files`; a `program` keeps [PF alternative H](patched-forks.md#11-alternatives-with-verdicts) | 2026-10-05 | [§4.1](#41-the-declaration) | — |
+| <a id="XB-D2"></a>XB-D2 | *Under (c).* **With no `patches`, `follow` defaults to `head`, what pi does with the same `git:` entry; a tag or commit `?ref=` is fixed, and checked only until it first resolves** | 2026-10-05 | [§4.1](#41-the-declaration) | — |
+| <a id="XB-D3"></a>XB-D3 | *Under (c).* **An unmodified git source with no `build` runs pi 1.0.1's npm dependency command, `npm install --omit=dev --legacy-peer-deps`, when the checkout has a `package.json` declaring dependencies, optional dependencies or an install-time script, and nothing otherwise.** The skip leaves the tree as pi's but for npm's empty bookkeeping, and saved 3.35 s on a cold `pi-background-tasks` (MEASURED, research). A patched extension keeps [PPX-D3](patched-extensions.md#PPX-D3)'s rule, no `build` and no command, since its author writes the build its series needs; the default here exists because an unmodified extension replaces a raw entry pi would have installed this way | 2026-10-05 | [§4.1](#41-the-declaration) | — |
+| <a id="XB-D4"></a>XB-D4 | *Under (c).* **The recipe of a build with no series carries a fixed series digest**, so a patched and an unmodified build of one commit never share a capture entry | 2026-10-05 | [§4.2](#42-building-and-admitting) | — |
+| <a id="XB-D5"></a>XB-D5 | *Under (c).* **An npm source is `npm:<name>[@<spec>]` against the public registry. The host resolves it from the registry's abbreviated metadata: an exact version with no request, a dist-tag to its version, a range to its highest match by node-semver's rules, prereleases only where the range names one.** The matcher is Go, tested against node-semver's range cases. No credential reaches the check or the build, so a private registry is not covered | 2026-10-05 | [§4.2](#42-building-and-admitting) | — |
+| <a id="XB-D6"></a>XB-D6 | *Under (c).* **An npm tree is an npm prefix built with pi's own invocation, `npm install <name>@<version> --prefix <tree> --legacy-peer-deps`, and its list entry is `~/<into>/node_modules/<name>`**: pi's own layout, so Node resolves the package's dependencies as it does under pi's install. The lint, the owning agent pack's match and the fallback compare that string | 2026-10-05 | [§4.1](#41-the-declaration) | — |
+| <a id="XB-D7"></a>XB-D7 | *Under (c).* **An unmodified extension may declare `fallback`. Wherever the launch hands no tree for its key, whatever the reason, core contributes the fallback in place of the tree's list entry in the contributing pack's own list contributions, before the fold, and says so once. A key with a fallback never sets [PPX-D24](patched-extensions.md#PPX-D24)'s stop.** Refused beside `patches` | 2026-10-05 | [§4.3](#43-delivery-and-the-fallback) | — |
+| <a id="XB-D8"></a>XB-D8 | *Under (c).* **`YOLO_PATCHED_TREES` keeps its name and shape and carries unmodified keys too; an absent wire means nothing was handed.** Renaming it moves a host↔jail contract for no behavior | 2026-10-05 | [§4.3](#43-delivery-and-the-fallback) | — |
+| <a id="XB-D9"></a>XB-D9 | *Under (c).* **Raw entries are not rewritten and stay pi's, per workspace; moving one into a pack is an edit, with no verb** | 2026-10-05 | [§4.4](#44-entries-no-pack-declares) | — |
+| <a id="XB-D10"></a>XB-D10 | **The fork-build slot runs every owner key's pipeline concurrently: checks up to 8 at once, builds up to `min(4, max(1, CPUs/2))`, each key's build as soon as its own check finds a candidate, copies as each advance ends; [PF §6.6](patched-forks.md#66-locks-and-their-order)'s locks and order unchanged; lines buffered per key and printed in declaration order, with one start line per build at once; one Ctrl-C cancels every wait** | 2026-10-05 | [§5.2](#52-the-pipeline), [§5.4](#54-output-interrupts-and-bounds) | — |
+| <a id="XB-D11"></a>XB-D11 | *Under (c).* **npm metadata is fetched by the host in Go over one keep-alive client per process, once per package name per check, never by an `npm view` subprocess** | 2026-10-05 | [§5.3](#53-what-is-shared-and-what-never-is) | — |
+| <a id="XB-D12"></a>XB-D12 | **No npm cache is shared between builds or with any jail; each build keeps the seal's private cache, removed with its staging** | 2026-10-05 | [§5.3](#53-what-is-shared-and-what-never-is) | — |
+| <a id="XB-D13"></a>XB-D13 | **One build jail per key. The parallel advance's first build measures a build jail's start on an extension with nothing to install; if that exceeds 5 s, batching a launch's due keys per contributing pack into one build jail, each admitted separately, is built next** | 2026-10-05 | [§10](#10-alternatives) | — |
+| <a id="XB-D14"></a>XB-D14 | **The held branch's PG-D23 lands alone and first, under every [OQ-6](pi-git-extension-caching.md#OQ-6) option: `.pi-shared-npm` retired by an `unshare_directory` hook, the refresh's lock at `.pi/.yolo-update.lock`. A refresh's stamp and seen-content markers move into its lock's directory, so the throttle has the lock's scope**; for pi, one workspace | 2026-10-05 | [§6.3](#63-what-replaces-the-machine-wide-lock-now) | — |
+| <a id="XB-D15"></a>XB-D15 | **[§6.2](#62-the-rules)'s six rules bind every lock this design adds** | 2026-10-05 | [§6.2](#62-the-rules) | — |
+| <a id="XB-D16"></a>XB-D16 | *Under (a) or (b) only.* **The held store lands with [§8](#8-if-the-held-store-lands-instead)'s fixes: pi 1.0.1's per-manager dependency argv, packsrc's blob prefetch and `storeGitConfig`, one ref lookup per pointer, at most 4 pointers at once with Node probed once, a 5 s heartbeat and 60 s staleness, a reaper that drops the marker before the tree, and its prefetch as the background mode** | 2026-10-05 | [§8](#8-if-the-held-store-lands-instead) | — |
+| <a id="XB-D17"></a>XB-D17 | **`agent_updates` takes `true`, `false`, `"launch"` and `"next-launch"`, at its top level or per pack, user scope only; `true` is `"launch"`. "May it move" reads both strings as yes; a separate reader answers "when"; `host_floor` stays boolean** | 2026-10-05 | [§7.6](#76-the-setting) | — |
+| <a id="XB-D18"></a>XB-D18 | **`false` from a tree's contributing or owning agent pack holds it; otherwise the owning agent pack's value picks its timing, else the contributing pack's; a patched fork's is its own pack's** | 2026-10-05 | [§7.6](#76-the-setting) | — |
+| <a id="XB-D19"></a>XB-D19 | **In the next-launch mode a fresh launch hands each key its good build or its fallback at once, builds in front only a key with neither, and starts one background advance when any check is due, any candidate pending or any key took its fallback for want of a build: a detached host process in its own session, at a lowered priority, its streams on a log, resolving the selection itself, taking each lock once and skipping a held key, moving good builds by the record's compare-and-swap and never a running jail's copy or the host's link** | 2026-10-05 | [§7.4](#74-for-the-next-launch-the-option) | — |
+| <a id="XB-D20"></a>XB-D20 | **A background advance is said at its spawn, naming its keys and log, and its outcome at the next launch: the move line, or the failure with the log and its retry time** | 2026-10-05 | [§7.4](#74-for-the-next-launch-the-option) | — |
+| <a id="XB-D21"></a>XB-D21 | **On Apple Container the background advance checks but builds nothing, and the next fresh launch builds a pending candidate in front, before its own jail starts; said once.** A build jail cannot start beside a running jail there | 2026-10-05 | [§7.4](#74-for-the-next-launch-the-option) | — |
+| <a id="XB-D22"></a>XB-D22 | **At the Linux host, `yolo host -- <bin>` of an owning agent in the next-launch mode starts the same background advance; the next host render swaps the link** | 2026-10-05 | [§7.4](#74-for-the-next-launch-the-option) | — |
+| <a id="XB-D23"></a>XB-D23 | **A pack's refresh may declare the files, home-relative or relative to the directory the program starts in, and the fixed strings that make it worth running; the launcher skips the refresh, and the second program process it costs, when none of those files holds any of those strings. pi declares `~/.pi/agent/settings.json` and `.pi/settings.json` in the starting directory, which is where pi 1.0.1 reads its project settings (READ `settings-manager.js:100`), and `"npm:`, `"git:`, `"http`, `"ssh:` and `"git@`** | 2026-10-05 | [§9](#9-the-startup-profile) | — |
+| <a id="XB-D24"></a>XB-D24 | **A program may declare probe arguments; an invocation whose first argument is one runs no pre-launch refresh, no tree gate and no tree step. pi declares `--version`, `-v`, `--help` and `-h`, the four its argument parser answers without a session (READ pi 1.0.1 `dist/cli/args.js:34-37`)** | 2026-10-05 | [§9](#9-the-startup-profile) | — |
+| <a id="XB-D25"></a>XB-D25 | **The tree gate runs first in every launcher template, right after the update mode's exit and before any install, update or refresh**, amending [PPX-D24](patched-extensions.md#PPX-D24)'s "after the install and the refresh": a launch the gate stops pays for nothing | 2026-10-05 | [§3](#3-what-exists-today-precisely) | — |
+| <a id="XB-D26"></a>XB-D26 | **A refresh that fails on new settings content records when it failed; that content is due again only once the failure is older than `UPDATE_INTERVAL`** | 2026-10-05 | [§3](#3-what-exists-today-precisely) | — |

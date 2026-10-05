@@ -3,7 +3,7 @@ title: "Pi extensions want machine-scoped storage and pre-launch refreshes acros
 date: 2026-09-17
 status: in-review
 stage: DESIGN
-next: "Rule OQ-4, which hangs on pi-git-extension-caching.md's OQ-6: its ruled npm trees make every rewritten entry a local package, which pi 0.99.2 loads without installing, so (a) builds nothing they would delete"
+next: "Rule OQ-4 with pi-git-extension-caching.md's OQ-6, restated 2026-10-05: under its leaning (c) nothing is rewritten, and this narrows to entries no pack declares racing within one workspace, which (a) fits"
 tags: [pi, extensions, updates, packages, machine-tier, launchers]
 summary: "Architecture for managing Pi package and extension lifecycles across multiple YOLO jails: machine-scoped extension storage, rate-limited pre-launch updates, and cross-jail concurrency control."
 vantage:
@@ -516,7 +516,11 @@ cases go with it. The rewrite is that design's post-fold hook (PG-D2), and it wa
 [OQ-6](pi-git-extension-caching.md#OQ-6). So [OQ-4](#OQ-4) hangs on that ruling: (a) is the
 one option here that builds nothing the redesign would delete, the question closes
 when the npm half of [OQ-5](pi-git-extension-caching.md#OQ-5) lands, and it comes back only if
-[OQ-6](pi-git-extension-caching.md#OQ-6) is ruled against the rewrite.
+[OQ-6](pi-git-extension-caching.md#OQ-6) is ruled against the rewrite. [OQ-6](pi-git-extension-caching.md#OQ-6),
+restated on 2026-10-05, leans that way, to building pack-declared extensions as patched ones are; under it this
+question comes back narrowed. With the npm prefix per workspace, the unlocked install can race only
+another pi session of the same workspace, and only for an entry no pack declares
+([`pi-extension-store-builds.md` §4.4](pi-extension-store-builds.md#44-entries-no-pack-declares)).
 
 ---
 
