@@ -1,9 +1,8 @@
 package cli
 
-// patchedhost_test.go pins what a PATCHED fork's step 2 leaves at the host's edges of the jail
-// launch (docs/design/patched-forks.md §9, PF-D35, PF-D38): the host floor's line names what this
-// yolo does at the host, never a jail launch's build it cannot use; and the child build jail is this
-// very binary and never a test binary.
+// patchedhost_test.go pins what a PATCHED fork's step 2 leaves at the host's edge of the jail
+// launch (docs/design/patched-forks.md PF-D38): the child build jail is this very binary and never a
+// test binary. What the host floor does with a patched fork (step 4) is hostfloorpatched_test.go's.
 
 import (
 	"bytes"
@@ -15,31 +14,6 @@ import (
 
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 )
-
-// THE HOST FLOOR'S LINE FOR A PATCHED FORK (PF-D35): `yolo host` does not deliver one yet, and the
-// line says so and where the program does run — never the jail reason's "a fresh jail launch builds
-// it", whose build is for the jail's platform and which, followed, brings the user back here.
-func TestTheHostFloorSaysItDoesNotDeliverAPatchedForkYet(t *testing.T) {
-	newPatchedFixture(t, "")
-	sel := selectConfiguredHostPacks()
-	progs := floorPrograms(sel.packs)
-	f := productionHostFloor(io.Discard, progs)
-	found := false
-	for _, p := range progs {
-		if p.Bin() != "tool" || p.Install.ForkedBy == "" {
-			continue
-		}
-		found = true
-		commit, why := f.ForkPin(p)
-		if commit != "" || !strings.Contains(why, "`yolo host` does not deliver a patched fork yet") ||
-			!strings.Contains(why, "run tool in a jail") || strings.Contains(why, packload.PatchedForkPinReason) {
-			t.Errorf("the host floor's reason for a patched fork is %q (commit %q)", why, commit)
-		}
-	}
-	if !found {
-		t.Fatalf("the selection's floor carries no forked tool: %+v", progs)
-	}
-}
 
 // THE CHILD BUILD JAIL IS THIS VERY BINARY (PF-D38), exec'd as the keeper is — /proc/self/exe on
 // Linux, which `just install` cannot swap mid-launch — and a test binary never self-execs as it: the

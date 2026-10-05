@@ -317,7 +317,7 @@ func Run(opts Options) (rc int) {
 	// THE FORK PINS, made for a fork the lock does not pin yet (never moved: FP-D18) and disclosed
 	// above the dispatch, so every backend and an attach say which revision each source-built
 	// program is at (OQ-FP6, forkbuild.go).
-	o.forkPinned = o.noteForkPins(staged.packs)
+	o.forkPinned = o.noteForkPins(staged.packs, rt)
 
 	// PACK LAUNCH FLAGS, ABOVE THE DISPATCH — the same B-0 move pack staging made, for
 	// the same reason. The injection used to sit inside runContainer, which the
@@ -648,8 +648,12 @@ func Run(opts Options) (rc int) {
 		o.noteMacosUserPortKeys(cfg)
 		// A FORK DELIVERS NO PROGRAM ON THIS BACKEND, and says so (FP-D3; forkbuild.go): the build
 		// trigger sits below this arm's return, and no macos-user launch can read the capture
-		// store yet (hand-off H4).
+		// store yet (hand-off H4). The sandbox's own launcher for the program is told the same
+		// reason (macosUserForkWire), so typing it there names this backend and the next step.
 		o.noteMacosUserForks()
+		if wire := o.macosUserForkWire(); wire != "" {
+			launchEnv.Set(entrypoint.ForkBuildsEnv, wire)
+		}
 		// YOLO_STORE_PACKAGES's only consumer (planStorePackages) is below this arm's
 		// return, so on this backend the dial vanished without a line. A NOTICE, not a
 		// refusal — planStorePackages' own ruling for an ineligible launch — and here the

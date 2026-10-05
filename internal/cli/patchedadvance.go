@@ -41,7 +41,15 @@ package cli
 //     the launch (§7).
 //   - `yolo capture <bin>` (force): the check forced, the pending candidate built ignoring a
 //     back-off, and with none pending the good build's own inputs rebuilt; through the swap.
-//   - The host floor's install is §14 step 4's (S4): advanceOptions is its seam.
+//   - THE HOST FLOOR'S INSTALL (§9, PF-D14): `yolo host -- <bin>` and `yolo host apply --assert`,
+//     through the floor's Advance (internal/cli's hostfloor.go). A launch's advance in every rule
+//     above — it waits, interruptibly while a good build serves (PF-D25) — whose lines name `yolo
+//     host` and its next launch rather than a jail (advanceOptions.host), and which hands nothing:
+//     the floor installs the good build the record names once the advance returns. The floor's own
+//     installed copy of the series as it stands serves as a good build does (advanceOptions.installed,
+//     PF-D55): it keeps running whatever the advance does, so the advance is interruptible, honors a
+//     back-off and never builds the series' base in its place, and a good build that copy already is
+//     is not built again for want of its store entry.
 //
 // # Locks (§6.6, PF-D17)
 //
@@ -92,6 +100,26 @@ type advanceOptions struct {
 	// hand records what the launch hands its jail (run.ForkBuildRequest.Hand), under the record
 	// lock; nil records nothing.
 	hand func(bin string, h run.HandedFork) error
+	// host is the HOST FLOOR'S install act (§9, PF-D14): `yolo host -- <bin>`, or `yolo host apply
+	// --assert`. With launch set, it is a launch's advance in every rule (the check throttled, a
+	// back-off honored, the wait interruptible while a good build serves: PF-D25); only its lines
+	// differ, naming `yolo host` and its next launch where a jail's name this jail and the next
+	// fresh launch (PF-D50).
+	host bool
+	// installed is the host floor's own copy of the program when it is a build of the series as it
+	// stands — the copy a failed install keeps (PF-D8) — nil otherwise, and always for a jail, whose
+	// program is a store entry. While no store entry of the good build serves, it does (PF-D55).
+	installed *installedCopy
+}
+
+// installedCopy is a copy of the program that runs outside the capture store: the host floor's
+// installed build (advanceOptions.installed).
+type installedCopy struct {
+	// commit and recipe are what it is a build of: the upstream commit, and the recipe hash with the
+	// series digest in it.
+	commit, recipe string
+	// label is what a line names it: "v1.1.0 (3f2a9c1e) + 2 patches".
+	label string
 }
 
 // advanceResult is what an advance did.
@@ -140,7 +168,10 @@ type advance struct {
 	ctx    context.Context // the interrupt scope's, Background outside one
 	// serving is the good build the advance started with, when it serves (its store entry).
 	serving *capture.Entry
-	rec     *packsrc.CheckRecord
+	// installed is the host floor's copy that serves when no store entry does (PF-D55): set only with
+	// serving nil, and only when it is a build of the recipe as it stands.
+	installed *installedCopy
+	rec       *packsrc.CheckRecord
 	// seq is the sequence number of the check the walk's list came from.
 	seq int64
 	// boundHit is set by the child build runner when the build ran past forkBuildWaitBound.
@@ -184,10 +215,11 @@ func advancePatchedFork(f packload.Fork, o advanceOptions) advanceResult {
 	if early != nil {
 		return *early
 	}
-	if !o.launch || a.serving == nil {
+	if !o.launch || !a.serves() {
 		return a.run()
 	}
-	// A GOOD BUILD SERVES, so a Ctrl-C ends this advance and the jail starts on it (PF-D25).
+	// A GOOD BUILD SERVES — or the floor's copy does (PF-D55) — so a Ctrl-C ends this advance and the
+	// jail, or `yolo host`, starts on it (PF-D25).
 	var res advanceResult
 	sig := run.InterruptScope(func(ctx context.Context) {
 		a.ctx = ctx
@@ -196,8 +228,8 @@ func advancePatchedFork(f packload.Fork, o advanceOptions) advanceResult {
 	})
 	if sig != nil && !res.built {
 		// Every step that saw the interrupt ended in finish, which handed the good build.
-		a.pr.Printf("[yellow]%s[/yellow]", richtext.Escape(fmt.Sprintf("fork %s: the advance was interrupted — this "+
-			"jail starts on the good build %s; the next fresh launch tries again", f.Key(), a.goodLine())))
+		a.pr.Printf("[yellow]%s[/yellow]", richtext.Escape(fmt.Sprintf("fork %s: the advance was interrupted — %s "+
+			"%s; %s tries again", f.Key(), a.startsOn(), a.servingName(), a.next())))
 	}
 	return res
 }
@@ -224,7 +256,41 @@ func newAdvance(f packload.Fork, o advanceOptions) (*advance, *advanceResult) {
 	if a.rec != nil && a.rec.Good != nil && a.rec.Good.Recipe == a.recipe {
 		a.serving = a.exactGood(a.rec.Good)
 	}
+	if a.serving == nil && o.installed != nil && o.installed.recipe == a.recipe {
+		// THE FLOOR'S COPY SERVES (PF-D55): no store entry of the good build does, and the floor holds
+		// a build of the series as it stands, which keeps running whatever this advance does.
+		a.installed = o.installed
+	}
 	return a, nil
+}
+
+// serves reports whether something runs while this advance does not move: the good build's store
+// entry, or the floor's installed copy (PF-D55).
+func (a *advance) serves() bool { return a.serving != nil || a.installed != nil }
+
+// installedIsGood reports whether the floor's copy that serves is the good build itself, whose store
+// entry is then not built again for it (PF-D55).
+func (a *advance) installedIsGood() bool {
+	g := a.goodBuild()
+	return a.installed != nil && g != nil && a.installed.commit == g.Commit && a.installed.recipe == g.Recipe
+}
+
+// servingLine is what runs while this advance does not move, as the lines name it: the good build,
+// "<label> + N patches", or the floor's copy's label.
+func (a *advance) servingLine() string {
+	if a.serving == nil && a.installed != nil {
+		return a.installed.label
+	}
+	return a.goodLine()
+}
+
+// servingName is servingLine with what it is: "the good build <…>", or "the installed <…>" for a
+// floor copy the good build has moved past.
+func (a *advance) servingName() string {
+	if a.serving == nil && a.installed != nil && !a.installedIsGood() {
+		return "the installed " + a.installed.label
+	}
+	return "the good build " + a.servingLine()
 }
 
 // interrupted reports whether the interrupt scope's Ctrl-C has ended this advance.
@@ -265,7 +331,7 @@ func (a *advance) run() advanceResult {
 	if hold != "" && good != nil && !a.o.force {
 		// HELD BY agent_updates (PF-D19): no check; a change to the series or the recipe is built at
 		// the good build's commit, and a serving good build is what runs.
-		if a.serving == nil {
+		if !a.serves() {
 			list = []packsrc.ListEntry{goodEntry(good)}
 		}
 	} else {
@@ -303,22 +369,23 @@ func (a *advance) run() advanceResult {
 			return a.serveOr(fmt.Sprintf("fork %s's upstream names nothing to build (%s)", f.Key(), found.Problem))
 		}
 		list = a.rec.Candidates(a.in)
-		if a.serving != nil && found.FetchErr != "" {
+		if a.serves() && found.FetchErr != "" {
 			// PENDING, AND THE LAST FETCH FAILED (§6.2): no advance until a check fetches — the build
 			// needs the network too, and its failure would start a back-off for no reason.
 			return a.finish(nil, forkBuild{}, 0, nil, "")
 		}
-		if a.serving != nil && !res.Ran && !a.o.force && a.rec.ApplyErrAtLastCheck() != nil {
+		if a.serves() && !res.Ran && !a.o.force && a.rec.ApplyErrAtLastCheck() != nil {
 			// THE LAST WALK OF THIS CHECK'S LIST ENDED IN AN APPLY ERROR (§6.2's row, PF-D45), said on
 			// the launch that met it: the good build runs, the fork's line carries the held suffix,
 			// and the next check retries — never every launch inside the hour, each paying the walk.
 			return a.finish(nil, forkBuild{}, 0, nil, "")
 		}
 	}
-	if a.serving == nil && good != nil && !onList(list, good.Commit) {
+	if a.serving == nil && good != nil && !onList(list, good.Commit) && !a.installedIsGood() {
 		// THE EDIT, OR THE GOOD BUILD'S ENTRY GONE (§6.1's series and recipe rows, §8.1): with nothing
 		// newer that fits, the candidate is the good build's own commit, with the series and recipe
-		// as they stand.
+		// as they stand — unless the floor's copy that serves is that build (PF-D55), which needs no
+		// store entry to run.
 		list = append(list, goodEntry(good))
 	}
 	listed := len(list) > 0
@@ -331,7 +398,7 @@ func (a *advance) run() advanceResult {
 	}
 	base := baseNone
 	if len(list) == 0 {
-		if a.serving != nil {
+		if a.serves() {
 			return a.finish(nil, forkBuild{}, 0, nil, "") // nothing pending: the good build runs, no build
 		}
 		if !a.baseFallback() {
@@ -346,7 +413,7 @@ func (a *advance) run() advanceResult {
 		list = []packsrc.ListEntry{a.baseEntry()}
 	}
 	switch {
-	case a.serving != nil && list[0].Commit != good.Commit:
+	case a.serves() && good != nil && list[0].Commit != good.Commit:
 		a.say("fork %s: upstream moved — %s is newer than the good build %s; replaying the series", f.Key(),
 			list[0].Label(), run.GoodBuildLabel(good))
 	case edited:
@@ -362,7 +429,7 @@ func (a *advance) run() advanceResult {
 	if a.interrupted() {
 		return a.finish(nil, forkBuild{}, 0, nil, "")
 	}
-	if w.Fit < 0 && w.Base == nil && w.Err == nil && base == baseNone && a.serving == nil && a.baseFallback() {
+	if w.Fit < 0 && w.Base == nil && w.Err == nil && base == baseNone && !a.serves() && a.baseFallback() {
 		// THE FIRST ADVANCE'S FALLBACK, and any state with nothing to serve (§6.4): nothing on the list
 		// takes the series, or the walk stopped on an apply error before it found what does, so it is
 		// built at its own base, where it applies by construction — with a replay bound of its own,
@@ -420,24 +487,70 @@ func (a *advance) goodBuild() *packsrc.GoodBuild {
 
 // runsNow says what this launch runs while the advance does not move: the good build, or nothing.
 func (a *advance) runsNow() string {
-	if a.serving != nil {
-		return "still running " + a.goodLine()
+	if a.serves() {
+		return "still running " + a.servingLine()
+	}
+	return a.hasNo()
+}
+
+// THE NOTCH'S WORDS (PF-D50): what this advance's lines call the place the program runs, and the
+// act that tries again — a jail and its next fresh launch, or `yolo host` and its next launch of the
+// program, whose floor installs what the advance leaves (advanceOptions.host).
+
+// runner is what runs the program this advance readies: "this jail" or "`yolo host`".
+func (a *advance) runner() string {
+	if a.o.host {
+		return "`yolo host`"
+	}
+	return "this jail"
+}
+
+// hasNo says the program is missing where it runs.
+func (a *advance) hasNo() string {
+	if a.o.host {
+		return "yolo's floor has no " + a.f.Bin
 	}
 	return "this jail has no " + a.f.Bin
+}
+
+// startsOn is how a launch that stops waiting starts: "this jail starts on" or "`yolo host` starts
+// <bin> on", followed by the good build.
+func (a *advance) startsOn() string {
+	if a.o.host {
+		return "`yolo host` starts " + a.f.Bin + " on"
+	}
+	return "this jail starts on"
+}
+
+// ctrlCStarts is what a Ctrl-C during the build does, followed by the good build: "starts this jail
+// on", or "starts <bin> on".
+func (a *advance) ctrlCStarts() string {
+	if a.o.host {
+		return "starts " + a.f.Bin + " on"
+	}
+	return "starts this jail on"
+}
+
+// next is the act that tries again: the next fresh launch, or the next `yolo host -- <bin>`.
+func (a *advance) next() string {
+	if a.o.host {
+		return "the next `yolo host -- " + a.f.Bin + "`"
+	}
+	return "the next fresh launch"
 }
 
 // retryStep is when an apply error is replayed again (PF-D45): at the next check while the good build
 // serves, at the next fresh launch while nothing does; and `yolo pack update` at once.
 func (a *advance) retryStep() string {
-	if a.serving != nil {
+	if a.serves() {
 		return "the next check, in an hour, retries it, or `yolo pack update` now"
 	}
-	return "the next fresh launch retries it, or `yolo pack update` now"
+	return a.next() + " retries it, or `yolo pack update` now"
 }
 
 // serveOr ends an advance that builds nothing: the good build when it serves, else why's reason.
 func (a *advance) serveOr(why string) advanceResult {
-	r := a.finish(nil, forkBuild{}, 0, nil, why+" — the next fresh launch tries again")
+	r := a.finish(nil, forkBuild{}, 0, nil, why+" — "+a.next()+" tries again")
 	r.failed = true
 	return r
 }
@@ -448,12 +561,12 @@ func (a *advance) noFit(edited bool, newest string) advanceResult {
 	if newest != "" {
 		why = fmt.Sprintf("upstream %s does not take fork %s's patch series", newest, a.f.Key())
 	}
-	if a.serving == nil {
+	if !a.serves() {
 		next := "`" + rebaseCommand(a.f, packsrc.ListEntry{}, true) + "` rebases the series onto the upstream it does not fit"
 		if edited {
 			next += "; reverting the edit brings back the good build " + run.GoodBuildLabel(a.rec.Good)
 		}
-		a.warn("fork %s: nothing to build — this jail has no %s; %s", a.f.Key(), a.f.Bin, next)
+		a.warn("fork %s: nothing to build — %s; %s", a.f.Key(), a.hasNo(), next)
 		r := a.finish(nil, forkBuild{}, 0, nil, why+" — "+next)
 		r.failed = true
 		return r
@@ -482,7 +595,7 @@ func (a *advance) pendingOf(list []packsrc.ListEntry, exactGit bool) []packsrc.L
 	if exactGit {
 		gitVer, _ = a.packs.GitVersion()
 	}
-	backoff := a.o.launch && a.serving != nil
+	backoff := a.o.launch && a.serves()
 	var out []packsrc.ListEntry
 	for _, e := range list {
 		if a.conflicted(e.Commit, gitVer) {
@@ -587,8 +700,8 @@ func (a *advance) heldLine(fit *packsrc.ReplayResult) string {
 	switch {
 	case fit != nil:
 		return "building the newest fit, " + fit.Entry.Label() + ", instead"
-	case a.serving != nil:
-		return "still running " + a.goodLine()
+	case a.serves():
+		return "still running " + a.servingLine()
 	case a.baseFallback():
 		return "nothing runs yet: building the series at its base " + shortSHA(a.series.Base)
 	}
@@ -637,12 +750,16 @@ func (a *advance) buildFailedLines(b forkBuild, err error, retryAt time.Time) {
 	}
 	switch {
 	case a.thenBase:
-	case a.serving != nil:
-		a.dim("  `yolo capture %s` retries it now; a fresh launch retries it after %s", f.Bin,
+	case a.serves():
+		later := "a fresh launch"
+		if a.o.host {
+			later = "`yolo host -- " + f.Bin + "`"
+		}
+		a.dim("  `yolo capture %s` retries it now; %s retries it after %s", f.Bin, later,
 			retryAt.Local().Format("2006-01-02 15:04"))
 		a.dim("  to stay on the running version: `agent_updates` off for pack %s, or a tag `?ref=` in a manifest you own", f.Pack)
 	default:
-		a.dim("  the next fresh launch tries again, or `yolo capture %s` now", f.Bin)
+		a.dim("  %s tries again, or `yolo capture %s` now", a.next(), f.Bin)
 		if g := a.goodBuild(); g != nil && g.Recipe != a.recipe {
 			a.dim("  reverting the edit to the series or the build brings back the good build %s", run.GoodBuildLabel(g))
 		}
@@ -651,7 +768,7 @@ func (a *advance) buildFailedLines(b forkBuild, err error, retryAt time.Time) {
 
 // baseNext is what a failed build's line says follows it when the series' base is built next.
 func (a *advance) baseNext() string {
-	return "this jail has no " + a.f.Bin + " from it, so the series is built at its base " +
+	return a.hasNo() + " from it, so the series is built at its base " +
 		a.baseEntry().Label() + " instead"
 }
 
@@ -661,14 +778,21 @@ func (a *advance) baseNext() string {
 func (a *advance) build(b forkBuild, base baseWhy, edited bool) advanceResult {
 	f := a.f
 	switch {
-	case a.serving != nil && a.o.launch:
-		a.say("fork %s: %s takes the series; building it — this launch waits for it, at most %s, and a Ctrl-C "+
-			"starts this jail on the good build %s instead", f.Key(), b.Entry.Label(), forkBuildWaitBound,
-			run.GoodBuildLabel(a.rec.Good))
+	case a.serves() && a.o.launch:
+		waits := "this launch"
+		if a.o.host {
+			waits = "`yolo host`"
+		}
+		runs := "the good build " + run.GoodBuildLabel(a.rec.Good)
+		if a.serving == nil {
+			runs = a.servingName()
+		}
+		a.say("fork %s: %s takes the series; building it — %s waits for it, at most %s, and a Ctrl-C "+
+			"%s %s instead", f.Key(), b.Entry.Label(), waits, forkBuildWaitBound, a.ctrlCStarts(), runs)
 	case base == baseNone:
 		a.say("fork %s: %s takes the series; building it", f.Key(), b.Entry.Label())
 	}
-	a.thenBase = base == baseNone && a.serving == nil && a.baseFallback() && b.Commit != a.series.Base
+	a.thenBase = base == baseNone && !a.serves() && a.baseFallback() && b.Commit != a.series.Base
 	startFail := a.buildFailure(b.Commit)
 	startGood := a.goodBuild()
 	a.boundHit, a.ownLock = false, b.lockPath()
@@ -676,7 +800,7 @@ func (a *advance) build(b forkBuild, base baseWhy, edited bool) advanceResult {
 	if a.o.launch {
 		mode.lock = pidlock.Mode{Wait: true, Bound: forkBuildWaitBound, Cancel: a.ctx.Done()}
 		mode.afterLock = func() (*capture.Entry, error, bool) { return a.afterLock(b, startGood, startFail) }
-		if a.serving != nil {
+		if a.serves() {
 			mode.runJail = func(staging string, b forkBuild) int {
 				rc, bound := forkBuildChild(a.ctx, forkBuildWaitBound, staging, b, a.o.out, a.o.errw, a.o.color)
 				a.boundHit = bound
@@ -730,7 +854,7 @@ func (a *advance) settle(b forkBuild, entry *capture.Entry, err error, base base
 		return a.moved(b, entry, base, edited)
 	}
 	if a.interrupted() || errors.Is(err, pidlock.ErrCanceled) {
-		return a.finish(nil, forkBuild{}, 0, nil, "the advance was interrupted — the next fresh launch builds it")
+		return a.finish(nil, forkBuild{}, 0, nil, "the advance was interrupted — "+a.next()+" builds it")
 	}
 	if a.boundHit {
 		// STOPPED AT THE BOUND (PF-D38, §8.1): a failed build, with its back-off, whether or not the
@@ -770,7 +894,7 @@ func (a *advance) settle(b forkBuild, entry *capture.Entry, err error, base base
 			a.dim("  On Apple Container a capture jail cannot start beside a running jail: once the other "+
 				"jails stop, `yolo capture %s` builds it", f.Bin)
 		} else {
-			a.dim("  `yolo capture %s` builds it once the runtime starts jails again; the next fresh launch tries too", f.Bin)
+			a.dim("  `yolo capture %s` builds it once the runtime starts jails again; %s tries too", f.Bin, a.next())
 		}
 		return a.serveOr(fmt.Sprintf("fork %s's build jail did not start on the host (%v)", f.Key(), err))
 	case errors.As(err, &source):
@@ -803,8 +927,8 @@ func (a *advance) buildFailed(b forkBuild, err error) advanceResult {
 		// The base is built next, and its own settle hands the jail what runs.
 		a.recordOnly(o)
 	} else {
-		r = a.finish(nil, forkBuild{}, 0, o, fmt.Sprintf("fork %s's build of %s failed on the host (%s) — the next "+
-			"fresh launch tries again, or `yolo capture %s` now", f.Key(), b.Entry.Label(), oneLineErr(err), f.Bin))
+		r = a.finish(nil, forkBuild{}, 0, o, fmt.Sprintf("fork %s's build of %s failed on the host (%s) — %s "+
+			"tries again, or `yolo capture %s` now", f.Key(), b.Entry.Label(), oneLineErr(err), a.next(), f.Bin))
 	}
 	a.buildFailedLines(b, err, autoCaptureRetryAt(capture.AutoFailure{Failures: o.Count, Last: now}))
 	r.failed, r.fellShort = true, true
@@ -879,30 +1003,30 @@ func (a *advance) moved(b forkBuild, entry *capture.Entry, base baseWhy, edited 
 	if r.gone != nil {
 		// THE BUILD WENT BEFORE IT COULD BE HANDED: never moved to (§6.7, "never moves the good build
 		// to a build this machine has not admitted"), and the jail runs what the record names.
-		a.warn("fork %s: the build of %s left the capture store before this launch could hand it (%v) — %s; the "+
-			"next fresh launch builds it again", a.f.Key(), b.Entry.Label(), r.gone, a.handedNow(r))
+		a.warn("fork %s: the build of %s left the capture store before this launch could hand it (%v) — %s; %s "+
+			"builds it again", a.f.Key(), b.Entry.Label(), r.gone, a.handedNow(r), a.next())
 		r.failed = true
 		return r
 	}
 	r.built = true
 	if r.lost {
-		a.say("fork %s: another launch moved the good build meanwhile, from a newer check; this jail runs that one, "+
-			"and this build is reaped", a.f.Key())
+		a.say("fork %s: another launch moved the good build meanwhile, from a newer check; %s runs that one, "+
+			"and this build is reaped", a.f.Key(), a.runner())
 		return r
 	}
 	what := b.Entry.Label() + " + " + run.PatchCount(b.Series.Len())
 	switch {
 	case prev == nil:
-		a.pr.Printf("[bold]%s[/bold]", richtext.Escape("built fork "+a.f.Key()+": "+what+"; this jail runs it"+a.baseClause(base)))
+		a.pr.Printf("[bold]%s[/bold]", richtext.Escape("built fork "+a.f.Key()+": "+what+"; "+a.runner()+" runs it"+a.baseClause(base)))
 	case prev.Entry == entry.Key:
-		a.pr.Printf("[bold]%s[/bold]", richtext.Escape("rebuilt fork "+a.f.Key()+": "+what+"; this jail runs it"+a.baseClause(base)))
+		a.pr.Printf("[bold]%s[/bold]", richtext.Escape("rebuilt fork "+a.f.Key()+": "+what+"; "+a.runner()+" runs it"+a.baseClause(base)))
 	case edited:
 		a.pr.Printf("[bold]%s[/bold]", richtext.Escape("updated fork "+a.f.Key()+": "+run.GoodBuildLabel(prev)+
 			" → "+b.Entry.Label()+", the edited series ("+run.PatchCount(b.Series.Len())+", series "+
-			b.Series.ShortDigest()+"); this jail runs the new build"+a.baseClause(base)))
+			b.Series.ShortDigest()+"); "+a.runner()+" runs the new build"+a.baseClause(base)))
 	default:
 		a.pr.Printf("[bold]%s[/bold]", richtext.Escape("updated fork "+a.f.Key()+": "+run.GoodBuildLabel(prev)+" → "+
-			b.Entry.Label()+", "+run.PatchCount(b.Series.Len())+"; this jail runs the new build"+a.baseClause(base)))
+			b.Entry.Label()+", "+run.PatchCount(b.Series.Len())+"; "+a.runner()+" runs the new build"+a.baseClause(base)))
 	}
 	return r
 }
@@ -925,10 +1049,13 @@ func (a *advance) baseClause(base baseWhy) string {
 
 // handedNow says what the jail was handed by r: the good build, or nothing.
 func (a *advance) handedNow(r advanceResult) string {
-	if r.delivery.Key != "" && a.rec.Good != nil {
-		return "this jail runs " + a.goodLine()
+	switch {
+	case r.delivery.Key != "" && a.rec.Good != nil:
+		return a.runner() + " runs " + a.goodLine()
+	case a.installed != nil:
+		return a.runner() + " runs " + a.servingLine()
 	}
-	return "this jail has no " + a.f.Bin
+	return a.hasNo()
 }
 
 // finish is the advance's last act, under the fork's record lock (§6.1, §6.6) — and, after a build,
@@ -978,7 +1105,7 @@ func (a *advance) finish(built *capture.Entry, b forkBuild, seq int64, failure *
 		if h.Key == "" {
 			h.Reason = reason
 			if h.Reason == "" {
-				h.Reason = "fork " + f.Key() + " has no build on this machine yet — the next fresh launch builds it"
+				h.Reason = "fork " + f.Key() + " has no build on this machine yet — " + a.next() + " builds it"
 			}
 		}
 		res.delivery = entrypoint.ForkDelivery{Key: h.Key, Reason: h.Reason}
@@ -1163,7 +1290,15 @@ func (a *advance) loadOrRecover() *packsrc.CheckRecord {
 // recoverGood is the good build the capture store holds for this fork as the manifest asks for it,
 // or nil: the newest admitted build of the fork key for this platform under the recipe as it stands.
 func (a *advance) recoverGood() *packsrc.GoodBuild {
-	scan, err := capture.Scan(a.store, captureRecords)
+	return recoverGoodBuild(a.store, a.f.Key(), a.o.platform, a.recipe, a.series.Len())
+}
+
+// recoverGoodBuild is recoverGood's lookup, which writes nothing: the newest admitted build of fork
+// for platform under recipe, as a good build of patches members, or nil. The host floor's offline
+// read (floorPatchedState) asks it too, so a machine whose check record is gone and which cannot
+// build still installs the build its store holds.
+func recoverGoodBuild(store *capture.Store, fork, platform, recipe string, patches int) *packsrc.GoodBuild {
+	scan, err := capture.Scan(store, captureRecords)
 	if err != nil {
 		return nil
 	}
@@ -1172,7 +1307,7 @@ func (a *advance) recoverGood() *packsrc.GoodBuild {
 	for _, e := range scan {
 		for i := range e.Records {
 			r := &e.Records[i]
-			if r.Fork != a.f.Key() || r.Platform != a.o.platform || r.Recipe != a.recipe {
+			if r.Fork != fork || r.Platform != platform || r.Recipe != recipe {
 				continue
 			}
 			if best == nil || r.Time.After(best.Time) || (r.Time.Equal(best.Time) && e.Key > bestKey) {
@@ -1184,7 +1319,7 @@ func (a *advance) recoverGood() *packsrc.GoodBuild {
 		return nil
 	}
 	return &packsrc.GoodBuild{Commit: best.Revision, Tag: best.Tag, Version: best.Version, Series: best.Series,
-		Recipe: best.Recipe, Tree: best.Tree, Patches: a.series.Len(), Entry: bestKey, At: best.Time.Unix()}
+		Recipe: best.Recipe, Tree: best.Tree, Patches: patches, Entry: bestKey, At: best.Time.Unix()}
 }
 
 // resolvePatchedBuild is THE EXACT LOOKUP of a patched build (§6.3, PF-D7): among every admitted

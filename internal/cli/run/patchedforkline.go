@@ -14,6 +14,7 @@ package run
 import (
 	"fmt"
 	"sort"
+	"strings"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/entrypoint"
@@ -36,11 +37,32 @@ func GoodBuildLabel(g *packsrc.GoodBuild) string {
 // PatchCount is "N patch(es)".
 func PatchCount(n int) string { return fmt.Sprintf("%d %s", n, plural(n, "patch", "patches")) }
 
+// FloorCopy is the host floor's installed copy of a patched fork's program, which its line names as
+// what runs: the upstream commit and recipe it is a build of, and its label ("v1.1.0 (3f2a9c1e) + 2
+// patches").
+type FloorCopy struct{ Commit, Recipe, Label string }
+
+// PatchedForkLine is a patched fork's line as `yolo host -- <bin>` prints it once the floor installed
+// the program (docs/design/patched-forks.md §7: every fork line names the series, and a later launch
+// carries the held suffix), and whether it is a warning. It names floor, the build that runs (PF-D53):
+// while that is the good build, the jail's fork-block line, with rebuilds naming the act that builds
+// an edited series there; otherwise that build, and the good build when the record names one.
+func PatchedForkLine(f packload.Fork, floor FloorCopy, rebuilds string) (string, bool) {
+	return patchedForkLineOf(f, &floor, rebuilds)
+}
+
 // patchedForkLine is a patched fork's line in the launch's fork block, and whether it is a warning
 // (nothing runs, or something holds it): "fork <pack>: <bin> (in place of pack <base>'s) is a
-// patched fork of <source> + N patches (series S), at <good build>", then the held suffix.
-func patchedForkLine(p packload.ForkPin) (string, bool) {
-	f := p.Fork
+// patched fork of <source> + N patches (series S), at <good build>", then the held suffix. rebuilds
+// is the act that builds an edited series on this notch: a fresh launch, or a launch on a container
+// backend for a macos-user one, which builds no fork (FP-D3).
+func patchedForkLine(p packload.ForkPin, rebuilds string) (string, bool) {
+	return patchedForkLineOf(p.Fork, nil, rebuilds)
+}
+
+// patchedForkLineOf is patchedForkLine, of floor when the host floor's copy is what runs (nil in a
+// jail's fork block, where the good build is).
+func patchedForkLineOf(f packload.Fork, floor *FloorCopy, rebuilds string) (string, bool) {
 	head := "fork " + f.Pack + ": " + f.Bin + " (in place of pack " + f.Base + "'s) is a patched fork of " + f.Source
 	series, err := f.ReadSeries()
 	if err != nil {
@@ -51,18 +73,41 @@ func patchedForkLine(p packload.ForkPin) (string, bool) {
 		return head + " — checked and built on the host", false
 	}
 	rec, err := patchedPacksStore().LoadCheckRecord(f.Key())
-	if err != nil || rec.Good == nil {
+	var g *packsrc.GoodBuild
+	if err == nil {
+		g = rec.Good
+	}
+	if floor != nil && (g == nil || g.Commit != floor.Commit || g.Recipe != floor.Recipe) {
+		return floorCopyLine(f, head, *floor, g)
+	}
+	if g == nil {
 		return head + " — no build of it on this machine yet", true
 	}
-	g := rec.Good
 	line := head + ", at " + GoodBuildLabel(g)
 	recipe := packdecl.ForkSourcePatchedRecipe(f.Source, f.Build, f.Produces, series.Digest)
 	if g.Recipe != recipe {
-		return line + " with another series or build recipe — a fresh launch builds the edited one", true
+		return line + " with another series or build recipe — " + rebuilds + " builds the edited one", true
 	}
 	in, _, _, _ := f.CheckWant(series).Inputs()
 	if why := HeldSuffix(f, rec, in, series.Digest, recipe); why != "" {
 		return line + "; " + why, true
+	}
+	return line, false
+}
+
+// floorCopyLine is the host's line while the floor runs a build the check record does not name as its
+// good build (PF-D53): the copy a failed install of a moved good build keeps (PF-D8), named with that
+// good build; or, with no good build on the record, the one the floor installed from the capture
+// store, which a lost record costs nothing of (§6.2).
+func floorCopyLine(f packload.Fork, head string, floor FloorCopy, g *packsrc.GoodBuild) (string, bool) {
+	at, _, _ := strings.Cut(floor.Label, " + ")
+	line := head + ", at " + at
+	if g != nil {
+		return line + " — its good build " + GoodBuildLabel(g) + " is not installed, so `yolo host` runs this build " +
+			"until it is", true
+	}
+	if hold := PatchedForkHold(f); hold != "" {
+		return line + "; held at " + at + ": " + hold + ", so no launch checks its upstream", true
 	}
 	return line, false
 }

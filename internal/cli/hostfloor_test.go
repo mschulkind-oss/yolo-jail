@@ -2,6 +2,7 @@ package cli
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"io"
 	"os"
@@ -39,6 +40,9 @@ func disarmTheHostFloor() {
 		f.Build = func(p hostfloor.Program, commit string) (*capture.Entry, error) {
 			return nil, errors.New("test guard: refusing to build " + p.Bin() + " at " + commit)
 		}
+		f.Advance = func(_ context.Context, p hostfloor.Program, _ *hostfloor.Record) hostfloor.PatchedState {
+			return hostfloor.PatchedState{Reason: "test guard: refusing to advance " + p.Bin()}
+		}
 		return f
 	}
 }
@@ -75,6 +79,9 @@ func withTestFloorOn(t *testing.T, dist *floortest.Dist) *floortest.Dist {
 		}
 		f.Build = func(p hostfloor.Program, commit string) (*capture.Entry, error) {
 			return nil, errors.New("test guard: refusing to build " + p.Bin() + " at " + commit)
+		}
+		f.Advance = func(_ context.Context, p hostfloor.Program, _ *hostfloor.Record) hostfloor.PatchedState {
+			return hostfloor.PatchedState{Reason: "test guard: refusing to advance " + p.Bin()}
 		}
 		return f
 	}

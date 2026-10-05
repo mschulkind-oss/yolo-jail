@@ -109,17 +109,7 @@ func (b forkBuild) buildSource() string {
 // for a subdirectory source. It is a record, not an address (packsrc.Parse refuses it, as it
 // refuses any git source with no `?ref=`), so no plain fork's query, which is the source as written
 // and always carries a ref, can equal it.
-func patchedBuildSource(source string) string {
-	a, err := packsrc.Parse(source)
-	if err != nil {
-		return source
-	}
-	out := "git+" + a.Repo
-	if a.Path != "" {
-		out += "//" + a.Path
-	}
-	return out
-}
+func patchedBuildSource(source string) string { return packsrc.BuildSource(source) }
 
 // id names the build: source, revision, recipe and platform, the key §6 names, and a patched
 // fork's key besides, so two forks of one upstream stage apart. The lock and the staging workspace

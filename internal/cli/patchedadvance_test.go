@@ -67,11 +67,19 @@ type patchedAdvanceFixture struct {
 	rc     int      // what the fake build jail exits with
 	ran    bool     // whether the fake build jail writes the toolchain record (its build line ran)
 	child  int      // how many builds went through the child-process runner
+	// platform is what the fake build jail's manifest reports: a container capture jail's, unless a
+	// host floor test makes it the floor's own (capture.Platform), which a materialize on the host
+	// requires.
+	platform string
+	// relocatable records the fake build as the full reference scan found it free of its home, which
+	// the host floor's materialize out of the jail's home requires.
+	relocatable bool
 }
 
 func newPatchedAdvanceFixture(t *testing.T, follow string) *patchedAdvanceFixture {
 	t.Helper()
-	fx := &patchedAdvanceFixture{patchedFixture: newPatchedFixture(t, follow), now: time.Unix(1_900_000_000, 0), ran: true}
+	fx := &patchedAdvanceFixture{patchedFixture: newPatchedFixture(t, follow), now: time.Unix(1_900_000_000, 0), ran: true,
+		platform: patchedTestPlatform}
 	prevNow := patchedNow
 	patchedNow = func() time.Time { return fx.now }
 	t.Cleanup(func() { patchedNow = prevNow })
@@ -114,12 +122,15 @@ func (fx *patchedAdvanceFixture) buildJail(t *testing.T) func(run.Options) int {
 		if err := os.Chmod(filepath.Join(capture.TreeDir(out), ".local", "bin", "tool"), 0o755); err != nil {
 			t.Fatal(err)
 		}
-		m := &capture.Manifest{Schema: capture.ManifestSchema, Home: "/home/agent", Platform: patchedTestPlatform,
+		m := &capture.Manifest{Schema: capture.ManifestSchema, Home: "/home/agent", Platform: fx.platform,
 			Surfaces: []string{".local"}, Excluded: capture.DefaultExcludes(), Entries: []capture.ManifestEntry{
 				{Path: ".local", Kind: capture.KindDir, Mode: "0755"},
 				{Path: ".local/bin", Kind: capture.KindDir, Mode: "0755"},
 				{Path: ".local/bin/tool", Kind: capture.KindFile, Mode: "0755", Size: int64(len(body))},
 			}}
+		if fx.relocatable {
+			m.RefScan, m.Relocatable = capture.RefScanFull, true
+		}
 		if err := capture.WriteManifest(out, m); err != nil {
 			t.Fatal(err)
 		}
