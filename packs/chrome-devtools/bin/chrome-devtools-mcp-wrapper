@@ -15,8 +15,8 @@
 #      chrome-devtools-mcp looks for Chrome itself.
 #
 # `--check` prints what it found, and exits 0 when chrome-devtools-mcp is there.
-# YOLO_CHROME_DEVTOOLS_ROOT, a test seam, is a directory the standard paths are looked up
-# under instead of /.
+# YOLO_CHROME_DEVTOOLS_ROOT, a test seam, is a directory the standard paths (the browser's, and
+# /etc/fonts) are looked up under instead of /.
 
 home=${HOME:-}
 if [ -z "$home" ]; then
@@ -95,12 +95,12 @@ if [ -z "$server" ]; then
 fi
 
 # Fonts for a jail's chromium, where the image has them and the client scrubbed the variables.
-if [ -z "${FONTCONFIG_FILE:-}" ] && [ -f /etc/fonts/fonts.conf ]; then
-    FONTCONFIG_FILE=/etc/fonts/fonts.conf
+if [ -z "${FONTCONFIG_FILE:-}" ] && [ -f "$root/etc/fonts/fonts.conf" ]; then
+    FONTCONFIG_FILE=$root/etc/fonts/fonts.conf
     export FONTCONFIG_FILE
 fi
-if [ -z "${FONTCONFIG_PATH:-}" ] && [ -d /etc/fonts ]; then
-    FONTCONFIG_PATH=/etc/fonts
+if [ -z "${FONTCONFIG_PATH:-}" ] && [ -d "$root/etc/fonts" ]; then
+    FONTCONFIG_PATH=$root/etc/fonts
     export FONTCONFIG_PATH
 fi
 

@@ -343,3 +343,47 @@ func TestTheWrapperFindsItsHomeWithoutHOME(t *testing.T) {
 		t.Errorf("with no HOME the server under the wrapper's own home did not run: rc=%d\n%s", rc, errs)
 	}
 }
+
+// THE STORE-DELIVERED FARM is a standard path: a YOLO_STORE_PACKAGES=1 launch puts chromium at
+// /run/yolo/packages/bin and nowhere in /usr/bin, and an MCP client's scrubbed PATH may not name it.
+func TestTheWrapperFindsTheStoreDeliveredChromium(t *testing.T) {
+	w := newWrapperWorld(t)
+	w.server(t, filepath.Join(w.home, ".yolo", "bin", "launch"))
+	farm := exe(t, filepath.Join(w.root, "run", "yolo", "packages", "bin", "chromium"))
+	if _, errs, rc := w.run(t, []string{"HOME=" + w.home, "PATH=" + resolvedDir(t)}); rc != 0 ||
+		strings.Join(logLines(t, w.log), " ") != "--executablePath "+farm {
+		t.Errorf("the server ran with %v, want the farm's chromium: rc=%d\n%s", logLines(t, w.log), rc, errs)
+	}
+}
+
+// FONTS: an MCP client scrubs FONTCONFIG_FILE and FONTCONFIG_PATH, and a jail's chromium needs
+// them to find the image's /etc/fonts; the wrapper sets each that is unset, to /etc/fonts, when that
+// is there, and leaves a value of the caller's alone.
+func TestTheWrapperHandsChromiumTheImagesFonts(t *testing.T) {
+	seen := func(t *testing.T, w wrapperWorld, env ...string) string {
+		t.Helper()
+		dir := filepath.Join(w.home, ".yolo", "bin", "launch")
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		envLog := filepath.Join(w.home, "env.log")
+		argvLogger(t, dir, "chrome-devtools-mcp", w.log,
+			`printf 'FILE=%s PATH=%s\n' "${FONTCONFIG_FILE:-}" "${FONTCONFIG_PATH:-}" > `+shellSingleQuote(envLog))
+		if _, errs, rc := w.run(t, append([]string{"HOME=" + w.home, "PATH=" + resolvedDir(t)}, env...)); rc != 0 {
+			t.Fatalf("rc=%d\n%s", rc, errs)
+		}
+		return strings.TrimSpace(readFileString(t, envLog))
+	}
+	w := newWrapperWorld(t)
+	if got := seen(t, w); got != "FILE= PATH=" {
+		t.Errorf("with no /etc/fonts the server saw %q, want neither set", got)
+	}
+	fonts := filepath.Join(w.root, "etc", "fonts")
+	writeTestFile(t, filepath.Join(fonts, "fonts.conf"), "<fontconfig/>\n")
+	if got, want := seen(t, w), "FILE="+filepath.Join(fonts, "fonts.conf")+" PATH="+fonts; got != want {
+		t.Errorf("the server saw %q, want %q", got, want)
+	}
+	if got, want := seen(t, w, "FONTCONFIG_FILE=/mine/fonts.conf"), "FILE=/mine/fonts.conf PATH="+fonts; got != want {
+		t.Errorf("with your own FONTCONFIG_FILE the server saw %q, want %q", got, want)
+	}
+}

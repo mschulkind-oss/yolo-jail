@@ -254,3 +254,113 @@ func TestAHostAgentLaunchSaysWhenItsMCPServersProgramCannotBeInstalled(t *testin
 		})
 	}
 }
+
+// --- a FETCHED pack's server, at the production call sites (HC-D26's second half, MP-D4) --------
+
+// fetchedMCPPackSource is a FETCHED pack (git+file://, a real fetch with no network) shipping one
+// `mcp` server, acme-mcp, whose `bin` is acme-mcp-bin, and nothing else, so `yolo pack install`
+// asks no approval: neither kind reaches the host in a jail. It returns the pack's `packs` element,
+// named "gp", and clears YOLO_PACK_ROOT so a jail's staged tree cannot answer for it.
+func fetchedMCPPackSource(t *testing.T) string {
+	t.Helper()
+	t.Setenv("YOLO_PACK_ROOT", "")
+	repo := gitPackRepoWith(t, map[string]string{"pack.json": `{"contributes": [{"kind": "mcp", ` +
+		`"name": "acme-mcp", "bin": "acme-mcp-bin", "config": {"command": "acme-mcp-bin", "args": ["--stdio"]}}]}`})
+	return `{"source": "git+file://` + repo + `?ref=main", "name": "gp"}`
+}
+
+// THE REAL `yolo host apply --assert` writes a fetched pack's server into none of the agents' files
+// in your home, where its command would run unconfined as you whenever the agent starts, and the
+// report names it with the step that runs it here. Pinned at composeHostInputs' call of
+// hostMCPPacks: composing every pack's entry, or dropping its omission lines, fails here.
+func TestYoloHostApplyLeavesAFetchedPacksMCPServerOutOfEveryAgentsFile(t *testing.T) {
+	home := hostComputedHome(t, `{"packs":["claude","copilot","codex",`+fetchedMCPPackSource(t)+`],`+
+		`"host_floor":false,"mcp_servers":{"mine":{"command":"/usr/local/bin/mine"}}}`)
+	installGitPack(t)
+	report := hostApplyAssert(t)
+	claude, _ := readJSONAt(t, home, ".claude.json")["mcpServers"].(map[string]any)
+	copilot, _ := readJSONAt(t, home, ".copilot/mcp-config.json")["mcpServers"].(map[string]any)
+	for agent, servers := range map[string]map[string]any{"claude": claude, "copilot": copilot} {
+		if servers["mine"] == nil {
+			t.Errorf("premise: %s's MCP file lacks your own server, so this apply wrote no table: %v\n%s",
+				agent, servers, report)
+		}
+		if _, ok := servers["acme-mcp"]; ok {
+			t.Errorf("%s's MCP file carries the fetched pack's server: %v", agent, servers)
+		}
+	}
+	codex, err := os.ReadFile(filepath.Join(home, ".codex", "config.toml"))
+	if err != nil || !strings.Contains(string(codex), "mine") {
+		t.Errorf("premise: codex's config.toml lacks your own server (err %v):\n%s", err, codex)
+	}
+	if strings.Contains(string(codex), "acme-mcp") {
+		t.Errorf("codex's config.toml carries the fetched pack's server:\n%s", codex)
+	}
+	if !strings.Contains(report, "mcp acme-mcp (pack gp) is not written at the host: the pack was fetched") ||
+		!strings.Contains(report, "write the entry under `mcp_servers`") {
+		t.Errorf("the report does not name the server it left out, with the step that runs it:\n%s", report)
+	}
+}
+
+// A `yolo host -- <agent>` launch installs no program for a fetched pack's server, even one a
+// selected local pack declares and the floor would hold: the server is not written at the host,
+// so nothing starts it. Pinned at ensureMCPPrograms' call of hostMCPPacks.
+func TestAHostAgentLaunchInstallsNothingForAFetchedPacksMCPServer(t *testing.T) {
+	home := floortest.ResolvedTemp(t)
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
+	t.Setenv("YOLO_VERSION", "")
+	t.Chdir(floortest.ResolvedTemp(t))
+	pack := filepath.Join(floortest.ResolvedTemp(t), "floorpack")
+	writeFile(t, filepath.Join(pack, "pack.json"), `{"name":"floorpack","contributes":[`+
+		`{"kind":"program","bin":"floorcli","via":"npm","package":"floorcli-pkg"},`+
+		`{"kind":"program","bin":"acme-mcp-bin","via":"npm","package":"acme-mcp-pkg"}]}`)
+	writeFile(t, filepath.Join(home, ".config", "yolo-jail", "config.jsonc"),
+		`{"packs":[{"source":"file://`+pack+`","name":"floorpack"},`+fetchedMCPPackSource(t)+`]}`)
+	installGitPack(t)
+	orig := prepareOpenAIAuthHost
+	prepareOpenAIAuthHost = func(hostPrelaunch, io.Writer) (managedOpenAIHostLaunch, error) { return nil, nil }
+	t.Cleanup(func() { prepareOpenAIAuthHost = orig })
+	dist := withTestFloor(t)
+	dist.Publish("floorcli-pkg", "1.0.0", "bin=floorcli")
+	dist.Publish("acme-mcp-pkg", "1.0.0", "bin=acme-mcp-bin")
+	got := captureHostExec(t)
+	var errw bytes.Buffer
+	if rc := hostExec(nil, []string{"floorcli"}, io.Discard, &errw, nil); rc != 0 || !got.execed {
+		t.Fatalf("rc=%d execed=%v\n%s", rc, got.execed, errw.String())
+	}
+	if _, err := os.Stat(filepath.Join(paths.HostFloorDir(), "bin", "floorcli")); err != nil {
+		t.Fatalf("premise: the agent itself was not installed into the floor: %v\n%s", err, errw.String())
+	}
+	if _, err := os.Stat(filepath.Join(paths.HostFloorDir(), "bin", "acme-mcp-bin")); err == nil {
+		t.Errorf("the launch installed the program of a server it does not write:\n%s", errw.String())
+	}
+	for _, call := range dist.NpmCalls("install") {
+		if strings.Contains(call, "acme-mcp-pkg") {
+			t.Errorf("npm was asked to install the fetched pack's server program: %q", call)
+		}
+	}
+	if strings.Contains(errw.String(), "acme-mcp") {
+		t.Errorf("the launch spoke of a server it does not write:\n%s", errw.String())
+	}
+}
+
+// The agent's own program may have no floor copy (here `host_floor` leaves its pack out): the
+// launch runs the agent from your PATH, and still installs the program its MCP server runs, since
+// the agent starts that server whichever copy of the agent runs.
+func TestAHostAgentLaunchWithNoFloorCopyStillInstallsItsMCPServersProgram(t *testing.T) {
+	dist := agentWithChromeFixture(t, `,"host_floor":{"floorpack":false}`)
+	dist.Publish("chrome-devtools-mcp", "1.2.3", "bin=chrome-devtools-mcp")
+	stubBins(t, "floorcli")
+	got := captureHostExec(t)
+	var errw bytes.Buffer
+	if rc := hostExec(nil, []string{"floorcli"}, io.Discard, &errw, nil); rc != 0 || !got.execed {
+		t.Fatalf("rc=%d execed=%v\n%s", rc, got.execed, errw.String())
+	}
+	if !strings.Contains(errw.String(), "yolo has no copy of floorcli") {
+		t.Fatalf("premise: the agent had a floor copy after all:\n%s", errw.String())
+	}
+	if _, err := os.Stat(filepath.Join(paths.HostFloorDir(), "bin", "chrome-devtools-mcp")); err != nil {
+		t.Errorf("an agent with no floor copy left its MCP server's program uninstalled: %v\n%s", err, errw.String())
+	}
+}
