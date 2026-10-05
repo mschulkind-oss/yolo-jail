@@ -605,7 +605,10 @@ It is an object: `argv`, the program's own argv with the bin omitted, and `lock`
 home-relative lock directory whose parent is the store the refresh writes. Pi declares
 `{"argv": ["update", "--extensions"], "lock": ".pi-shared-npm/.yolo-update.lock"}`. The launcher
 runs it right before the exec, at most once an hour on a machine-global stamp, and only when
-`agent_updates` lets the pack move. It is bounded by the same timeout as an update, reads
+`agent_updates` lets the pack move. When `agent_updates` gives the pack `"next-launch"`, the
+launcher instead starts the same refresh as a detached job and execs at once, so what it installs
+is the next launch's; a launch whose `due_on_change` content is new still refreshes first
+([OQ-PD31](../design/program-delivery.md#decision-ledger)). It is bounded by the same timeout as an update, reads
 nothing from the terminal, writes its stdout to stderr, and runs only while it holds `lock`.
 `lock` is a non-blocking `mkdir`: a lock another jail holds skips the refresh, and so does a
 store that is missing or read-only. The holder touches the lock while it runs, so only a lock

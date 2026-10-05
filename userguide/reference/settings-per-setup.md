@@ -410,6 +410,7 @@ The `--network` CLI flag overrides `network.mode` for a jail that launch starts,
 | `profiles` † | works | works | works[^reentry] | works[^profmac] | any entry[^reentry] |
 | `profile` † / `-p <name>`, a list for pi[^profset] | works — refuses a `-p` it cannot honor | works | works[^reentry] | works[^profmac] | any entry[^reentry] |
 | `agent_updates` † | works | works | works | works | fresh launch |
+| `agent_updates` † `"next-launch"` (pi's extension update in the background) | works[^nextlaunch] | works[^nextlaunch] | works[^nextlaunch] | works[^nextlaunch] | fresh launch |
 | `env_sources` (dotenv files) | works | works | works[^reentry] | works — per-session, not editable in-jail | any entry[^reentry] |
 | `nix build` usable inside the jail | works — host daemon, store read-only[^gcroot] | **absent, silent** — possible, not planned for now[^nixmac] | **absent, silent** — possible, not planned for now[^nixmac] | works — the host's own `nix`, through its daemon[^munix] | fresh launch |
 | GNU behaviour of `sed`/`find`/`grep`/`tar` | works — GNU userland baked | works | works | BSD tools — GNU flags fail[^bsd] | fresh launch |
@@ -441,6 +442,8 @@ Two things cut across the whole table. First, **`macos-user` has no re-entry**: 
 [^packspartial]: On podman and Apple Container a running jail keeps the packs it started with. Re-entering it after you add, drop or edit a pack changes none of them, and yolo says which packs differ and that a restart picks them up.
 
 [^reentry]: On Apple Container the jail's home is the workspace's own `.yolo/home`, and every entry, a re-entry included, rewrites the provider/profile/`env_sources` channel and each agent's own env file there before the command starts. Checked by tests; not yet run on a Mac. On podman the same files are live binds.
+
+[^nextlaunch]: Pi starts without waiting, the update runs while you work, and the launch after it runs what it installed. On podman and Apple Container, a jail that exits while the update runs ends it, and a later launch runs it again. Checked by tests, which also run on macOS; not yet run in a jail on a Mac.
 
 [^gcroot]: The image turns on `nix-command` and `flakes` in `/etc/nix/nix.conf`, so plain `nix build` and `nix shell` work with no flags. It needs a multi-user nix on the host, the kind with a nix daemon. An in-jail `nix build`'s result gets no durable garbage-collection root, so a host `nix-collect-garbage` can delete a store path a running jail is executing from, with no warning in either place.
 

@@ -284,6 +284,12 @@ type Install struct {
 	// has no build this launch (docs/design/patched-extensions.md PPX-D18), and the launcher stops
 	// before exec with it. "" for every program that may start.
 	Gate string `json:"-"`
+	// RefreshTiming is NOT a manifest field either, for Gate's reason: a pack declares HOW its
+	// program refreshes (Refresh), and WHEN is the user's (`agent_updates`, program-delivery.md
+	// OQ-PD30). The jail's launcher generator sets it on its copy from that policy: "next-launch"
+	// runs the refresh in the background so the launch does not wait, and anything else, "" and
+	// "launch" included, runs it before the exec.
+	RefreshTiming string `json:"-"`
 	// ModelMenu is the program's declared model menu, nil when it declares none. The
 	// Contribution field of the same name carries the reasoning; the generated launcher is its
 	// one reader (MM-D9, MM-D22).

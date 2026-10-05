@@ -1,6 +1,7 @@
 package entrypoint
 
 import (
+	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/packdecl"
 	"github.com/mschulkind-oss/yolo-jail/internal/shquote"
 )
@@ -70,11 +71,20 @@ REFRESH_LOCK_REL=__YOLO_REFRESH_LOCK__
 # gates every expansion of the list, for HAS_REFRESH's bash-3.2 reason.
 HAS_REFRESH_DUE=__YOLO_HAS_REFRESH_DUE__
 REFRESH_DUE_ON_CHANGE=(__YOLO_REFRESH_DUE_ON_CHANGE__)
+# WHEN the refresh runs: "launch" before the exec, "next-launch" in the background, so the
+# launch does not wait and what it installs is the next launch's (program-delivery.md OQ-PD30).
+# The user's agent_updates policy, BAKED for UPDATES_ENABLED's reason: a jail cannot move it.
+REFRESH_TIMING=__YOLO_REFRESH_TIMING__
 `
 
-// prelaunchRefreshShellFn runs the declared refresh, and is spliced into both templates after
-// the MCP/LSP refresh and immediately before the exec — §3.2's "strictly before exec", and
-// after every step that can change what $REAL_BIN is.
+// prelaunchRefreshShellFn defines the declared refresh: its variables, its functions, and the
+// BACKGROUND JOB'S DISPATCH (a term coined here: the launcher re-entered as the job that runs a
+// next-launch refresh, OQ-PD31). It is spliced into every template right after updateBoundShellFn,
+// the last fragment it reads, and so ahead of the program's own install and update: the job must
+// stop there, before any of them, and run the refresh alone. The CALL that runs the refresh on a
+// launch is prelaunchRefreshCallShell, spliced after the MCP/LSP refresh and immediately before
+// the exec — §3.2's "strictly before exec", and after every step that can change what $REAL_BIN
+// is.
 //
 // It reads the templates' own UPDATE_INTERVAL, UPDATE_TIMEOUT, STALE_LOCK, STAMP_DIR,
 // UPDATES_ENABLED, _stamp_mtime and _bounded rather than defining its own, so a refresh is
@@ -82,6 +92,29 @@ REFRESH_DUE_ON_CHANGE=(__YOLO_REFRESH_DUE_ON_CHANGE__)
 // __YOLO_EXEC_PREFIX__ is the npm template's resolved interpreter (a declared node_floor), so a
 // `#!/usr/bin/env node` program is refreshed under the node it is launched under; the native
 // template renders it empty.
+//
+// # The background arm (REFRESH_TIMING=next-launch)
+//
+// The launcher execs the program, so work that outlives the launch has to be started before the
+// exec and must belong to nothing the program inherits. _refresh_in_background starts THIS
+// LAUNCHER again, as the job, through `yolo internal no-terminal --detach`: a session of its own
+// (no terminal, a process group no terminal signal reaches, which a stock macOS has no setsid(1)
+// for), a /dev/null stdin, and its stdout and stderr appended to REFRESH_LOG. Re-entering the
+// launcher rather than writing the job out twice keeps one implementation of the lock, the
+// stamp, the bound and the heartbeat, and needs nothing bash 3.2 lacks: the job is a process of
+// its own, so its $$ is its own and the heartbeat follows the job's life, not the agent's.
+//
+// What the background arm keeps from the launch path: the lock (taken by the job, never waited
+// for: a held lock means another refresh is doing this work), the bound (the job's act runs under
+// _bounded), the stamp (written on every outcome), and the content key (recorded on success).
+// What it does not move: a launch whose watched content has never been refreshed with
+// (DueOnChange) still refreshes BEFORE the exec, because that is the first install of what the
+// settings name and the race DueOnChange closes is the program installing it unlocked at startup.
+// The program's own update and its MCP servers' are not the refresh, and still complete first.
+//
+// It writes nothing to the terminal once the program runs. The launch says ONE line, before the
+// exec, naming the log; a job that did not succeed leaves REFRESH_RESULT, which the next launch
+// prints once and deletes.
 const prelaunchRefreshShellFn = `
 # --- pre-launch refresh (pi-extension-lifecycle.md §3.2, §3.3) -------------------------
 # The stamp is MACHINE-GLOBAL (~/.cache is one truth across workspaces), so one refresh an hour
@@ -100,6 +133,12 @@ REFRESH_BEAT_PID=""
 # workspaces with different settings each refresh once and then stop, instead of taking turns.
 REFRESH_SEEN_DIR="$STAMP_DIR/refresh/$BIN.seen"
 REFRESH_KEY=""
+# Where a BACKGROUND refresh (REFRESH_TIMING=next-launch) writes what it says, and what it leaves
+# for the next launch to say. In THIS home's own storage (~/.local is per workspace), never the
+# machine-shared ~/.cache the stamp is in: the report is about the job this home started.
+REFRESH_LOG_DIR="$HOME/.local/state/yolo/refresh"
+REFRESH_LOG="$REFRESH_LOG_DIR/$BIN.log"
+REFRESH_RESULT="$REFRESH_LOG_DIR/$BIN.result"
 
 # _refresh_content_key prints one key for the current content of every declared file: an
 # absent file contributes "absent", so absent and present differ. cksum is POSIX and ships on a
@@ -238,12 +277,123 @@ _refresh_act() {
     return "$rc"
 }
 
+# --- the background refresh (REFRESH_TIMING=next-launch; program-delivery.md OQ-PD31) ---------
+# _refresh_note_result WHAT NEXT leaves the one line the next launch says about a background
+# refresh that did not succeed: what happened, where its log is, and what to do. Written whole
+# and renamed, so a launch never prints half of one.
+_refresh_note_result() {
+    printf '  ⚠ %s: the background refresh (%s) %s — its log is %s. %s\n' \
+        "$BIN" "${REFRESH_ARGV[*]}" "$1" "$REFRESH_LOG" "$2" > "$REFRESH_RESULT.tmp" 2>/dev/null &&
+        mv -f "$REFRESH_RESULT.tmp" "$REFRESH_RESULT" 2>/dev/null || true
+}
+
+# _refresh_report_last says, once, how the last background refresh this home started ended, when
+# it did not succeed. A success leaves nothing to say.
+_refresh_report_last() {
+    [ -s "$REFRESH_RESULT" ] || return 0
+    cat "$REFRESH_RESULT" >&2 2>/dev/null || true
+    rm -f "$REFRESH_RESULT" 2>/dev/null || true
+}
+
+# _refresh_job is the background refresh itself: this launcher, re-entered by
+# _refresh_in_background, in a session of its own with its output in REFRESH_LOG. It runs the act
+# the launch path runs, under the same lock, bound and stamp, and it never waits: a lock another
+# holds means another refresh is doing this work already, so this one stops.
+_refresh_job() {
+    local lrc=0 rc=0 retry="A launch after an hour tries again; to retry now, run: $BIN ${REFRESH_ARGV[*]}"
+    echo "--- $(date '+%Y-%m-%d %H:%M:%S') $BIN: background refresh (${REFRESH_ARGV[*]})"
+    _take_refresh_lock || lrc=$?
+    if [ "$lrc" = 1 ]; then
+        echo "--- another refresh holds $REFRESH_LOCK and is doing this work; this one stops."
+        return 0
+    fi
+    if [ "$lrc" != 0 ]; then
+        echo "--- cannot take the refresh lock $REFRESH_LOCK ($REFRESH_STORE is missing or not writable)."
+        # Stamped and recorded, as the launch path does, so a store that is absent says so once.
+        _refresh_touch || true
+        _refresh_record_seen || true
+        _refresh_note_result "could not take its lock ($REFRESH_STORE is missing or not writable)" \
+            "Nothing was refreshed: check that $REFRESH_STORE is a directory this jail can write."
+        return 0
+    fi
+    # Asked again UNDER the lock: a refresh that finished after this job was started stamped it.
+    if ! _refresh_due; then
+        _drop_refresh_lock
+        echo "--- already refreshed since this job was started; nothing to do."
+        return 0
+    fi
+    _start_refresh_heartbeat
+    # _shielded for its SIGTERM and SIGHUP arms: a stopped jail releases the lock before the job
+    # ends. Nothing here has a terminal to type a Ctrl-C into.
+    _shielded '_stop_refresh_heartbeat; _drop_refresh_lock' _refresh_act || rc=$?
+    if [ "$rc" = 0 ]; then
+        rm -f "$REFRESH_RESULT" 2>/dev/null || true
+    elif [ "$rc" = 124 ]; then
+        _refresh_note_result "timed out after ${UPDATE_TIMEOUT}s" "$retry"
+    else
+        _refresh_note_result "failed (status $rc)" "$retry"
+    fi
+    echo "--- $(date '+%Y-%m-%d %H:%M:%S') $BIN: background refresh ended (status $rc)"
+    return 0
+}
+
+# _refresh_in_background starts the job and says so, or says why it need not. It returns 0 when
+# the refresh is handled (the job started, or a live lock shows one already running), 1 when
+# this launch cannot start a job (no yolo with the detach verb, or no log directory), and 2 when
+# the store is unusable — the launch path then reports that as it always has.
+_refresh_in_background() {
+    # A job never starts a job: the dispatch below takes every re-entered launcher before it gets
+    # here, and this line keeps a launcher that somehow did from starting them in a chain.
+    [ -z "${_YOLO_REFRESH_JOB:-}" ] || return 1
+    [ -d "$REFRESH_STORE" ] || return 2
+    # A LIVE lock is a refresh already running, in this jail or another: a second job would only
+    # find it held.
+    if [ -d "$REFRESH_LOCK" ] &&
+        [ "$(( $(date +%s) - $(_stamp_mtime "$REFRESH_LOCK") ))" -le "$STALE_LOCK" ]; then
+        echo "  $BIN: another refresh holds $REFRESH_LOCK — running what is installed." >&2
+        return 0
+    fi
+    command -v yolo >/dev/null 2>&1 || return 1
+    mkdir -p "$REFRESH_LOG_DIR" 2>/dev/null || return 1
+    # The job is this launcher, re-entered: _YOLO_REFRESH_JOB sends it to the dispatch, and
+    # _YOLO_LAUNCHER_ACTIVE goes back to what it was before this launcher added $BIN, or the
+    # re-entry guard would exec the program instead. "$0" is this script's own path.
+    _YOLO_LAUNCHER_ACTIVE="${_YOLO_LAUNCHER_ACTIVE%":$BIN"}" _YOLO_REFRESH_JOB="$BIN" YOLO_BYPASS_SHIMS=1 \
+        yolo internal ` + NoTerminalVerb + ` --detach --log="$REFRESH_LOG" -- "$0" </dev/null >/dev/null 2>&1 || return 1
+    echo "  $BIN: refreshing in the background (${REFRESH_ARGV[*]}); the next launch runs what it installs. Its log: $REFRESH_LOG" >&2
+    return 0
+}
+
+# The JOB'S DISPATCH: re-entered as the background job, this launcher runs the refresh and nothing
+# else — no install, no update, no MCP server refresh, no exec — and ends.
+if [ "${_YOLO_REFRESH_JOB:-}" = "$BIN" ]; then
+    unset _YOLO_REFRESH_JOB
+    if [ "$HAS_REFRESH" = "1" ] && [ -x "$REAL_BIN" ]; then
+        _refresh_job || true
+    fi
+    exit 0
+fi
+
 # _prelaunch_refresh ALWAYS RETURNS 0: launching the program outranks refreshing it (§4.1
 # invariant 2), so no outcome here may stop the exec below. What varies is what it says.
 _prelaunch_refresh() {
     [ "$HAS_REFRESH" = "1" ] || return 0
     [ -x "$REAL_BIN" ] || return 0
+    _refresh_report_last
     _refresh_due || return 0
+    # NEXT-LAUNCH (OQ-PD30): the refresh runs behind the program instead of in front of it —
+    # unless this launch's watched content is new, which is the first install of what the
+    # settings name, and stays in front (OQ-PD31).
+    if [ "$REFRESH_TIMING" = "next-launch" ] && ! _refresh_content_unseen; then
+        local brc=0
+        _refresh_in_background || brc=$?
+        if [ "$brc" = 0 ]; then
+            return 0
+        fi
+        if [ "$brc" = 1 ]; then
+            echo "  ($BIN: yolo cannot run this refresh in the background here, so it runs now)" >&2
+        fi
+    fi
     local lrc=0
     _take_refresh_lock || lrc=$?
     if [ "$lrc" = 1 ] && _refresh_content_unseen; then
@@ -288,7 +438,12 @@ _prelaunch_refresh() {
     fi
     return 0
 }
+`
 
+// prelaunchRefreshCallShell runs the refresh on a launch, spliced after the MCP/LSP refresh and
+// immediately before the exec (prelaunchRefreshShellFn says why the call and the definitions sit
+// apart).
+const prelaunchRefreshCallShell = `
 _prelaunch_refresh || true
 `
 
@@ -301,7 +456,13 @@ _prelaunch_refresh || true
 // landing in the bare `REFRESH_ARGV=(…)` — the same treatment UpdateVerb gets. The lock is
 // ONE word, Quote'd, and joined to $HOME inside the script rather than baked absolute, which
 // is how every other home path in both templates is spelled.
-func refreshSplices(r *packdecl.Refresh) []string {
+//
+// timing is Install.RefreshTiming, the user's: anything but "next-launch" bakes "launch", so a
+// value the generator did not set runs the refresh where it always ran.
+func refreshSplices(r *packdecl.Refresh, timing string) []string {
+	if timing != config.AgentUpdatesNextLaunch {
+		timing = config.AgentUpdatesAtLaunch
+	}
 	if r == nil {
 		return []string{
 			"__YOLO_HAS_REFRESH__", shquote.Quote(boolFlag(false)),
@@ -309,6 +470,7 @@ func refreshSplices(r *packdecl.Refresh) []string {
 			"__YOLO_REFRESH_LOCK__", shquote.Quote(""),
 			"__YOLO_HAS_REFRESH_DUE__", shquote.Quote(boolFlag(false)),
 			"__YOLO_REFRESH_DUE_ON_CHANGE__", "",
+			"__YOLO_REFRESH_TIMING__", shquote.Quote(timing),
 		}
 	}
 	return []string{
@@ -318,5 +480,6 @@ func refreshSplices(r *packdecl.Refresh) []string {
 		// Join, like the argv: a LIST of home-relative files, each one word.
 		"__YOLO_HAS_REFRESH_DUE__", shquote.Quote(boolFlag(len(r.DueOnChange) > 0)),
 		"__YOLO_REFRESH_DUE_ON_CHANGE__", shquote.Join(r.DueOnChange),
+		"__YOLO_REFRESH_TIMING__", shquote.Quote(timing),
 	}
 }

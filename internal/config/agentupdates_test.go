@@ -123,8 +123,9 @@ func TestValidateAgentUpdatesWorkspaceScopeErrors(t *testing.T) {
 	}
 }
 
-// TestValidateAgentUpdatesShape: both accepted shapes pass, and the two ways of writing a
-// setting that reads as "on" but is not a boolean are refused by name.
+// TestValidateAgentUpdatesShape: every accepted shape passes — a boolean, one of the two TIMING
+// values (program-delivery.md OQ-PD30), or a per-pack map of either — and every way of writing a
+// setting that reads as "on" but is none of those is refused, naming what is accepted.
 func TestValidateAgentUpdatesShape(t *testing.T) {
 	ws := t.TempDir()
 	t.Setenv("YOLO_VERSION", "")
@@ -134,6 +135,10 @@ func TestValidateAgentUpdatesShape(t *testing.T) {
 		`{"agent_updates": false}`,
 		`{"agent_updates": {}}`,
 		`{"agent_updates": {"*": false, "claude": true}}`,
+		`{"agent_updates": "launch"}`,
+		`{"agent_updates": "next-launch"}`,
+		`{"agent_updates": {"*": true, "pi": "next-launch"}}`,
+		`{"agent_updates": {"*": "next-launch", "claude": "launch", "codex": false}}`,
 	} {
 		var errs []string
 		validateAgentUpdates(decode(t, ok), ws, &errs)
@@ -145,13 +150,44 @@ func TestValidateAgentUpdatesShape(t *testing.T) {
 		`{"agent_updates": "yes"}`,
 		`{"agent_updates": ["claude"]}`,
 		`{"agent_updates": {"claude": "no"}}`,
+		`{"agent_updates": "background"}`,
+		`{"agent_updates": {"pi": "next_launch"}}`,
+		`{"agent_updates": 1}`,
 	} {
 		var errs []string
 		validateAgentUpdates(decode(t, bad), ws, &errs)
 		if len(errs) == 0 {
-			t.Errorf("%s should be refused — a non-boolean here is a setting that reads as "+
-				"\"on\" and means nothing", bad)
+			t.Errorf("%s should be refused — a value that is neither a boolean nor a timing is a "+
+				"setting that reads as \"on\" and means nothing", bad)
+			continue
 		}
+		if joined := strings.Join(errs, "\n"); !strings.Contains(joined, `"next-launch"`) {
+			t.Errorf("%s: the refusal must name the accepted values:\n%s", bad, joined)
+		}
+	}
+}
+
+// TestHostFloorStaysBooleanOnly: the timing values are agent_updates' alone. host_floor shares its
+// two shapes and its reader, but a floor is a set of programs and has no timing, so a "next-launch"
+// there is refused rather than read as "on".
+func TestHostFloorStaysBooleanOnly(t *testing.T) {
+	hostFloorHome(t)
+	clean := t.TempDir()
+	for _, bad := range []string{`{"host_floor": "next-launch"}`, `{"host_floor": {"pi": "launch"}}`} {
+		errs, _ := ValidateConfig(decode(t, bad), clean, nil)
+		if !strings.Contains(strings.Join(errs, "\n"), "config.host_floor:") {
+			t.Errorf("%s was accepted: %v", bad, errs)
+		}
+	}
+}
+
+// TestAgentUpdatesTimingSpellings pins the two values the validator accepts to the spellings
+// `yolo config-ref` documents. The jail reader (internal/entrypoint) uses these constants, so a
+// rename here moves both halves together, and this cell is what says the documented word moved.
+func TestAgentUpdatesTimingSpellings(t *testing.T) {
+	if AgentUpdatesAtLaunch != "launch" || AgentUpdatesNextLaunch != "next-launch" {
+		t.Errorf("the timing values are %q and %q; config-ref documents \"launch\" and \"next-launch\"",
+			AgentUpdatesAtLaunch, AgentUpdatesNextLaunch)
 	}
 }
 

@@ -404,9 +404,13 @@ func GenerateAgentLaunchers(e *Env) error {
 		// TestBothInstallShapesGetALauncher (launcherdir_test.go) is that pin.
 		installs, _ := p.HonoredInstalls()
 		gate := treeGateFor(trees, p.Name)
+		// When the user wants this pack's pre-launch refresh run (OQ-PD30): keyed by the pack,
+		// as UPDATES_ENABLED is, so every program of one pack refreshes on one timing.
+		timing := agentUpdatesRefreshTiming(e, p.Name)
 		for i := range installs {
 			inst := &installs[i]
 			inst.Gate = gate
+			inst.RefreshTiming = timing
 			if !packdecl.ValidBinName(inst.Bin) {
 				// The launcher is FILED at filepath.Join(LaunchDir, bin); a traversal
 				// bin would write outside the anchor into the jail's persistent home.
@@ -589,7 +593,7 @@ func npmAgentLauncherSegments(pack string, inst *packdecl.Install, stampDir, rec
 		"__YOLO_EXEC_PREFIX__", token,
 		// The gate a patched extension this agent loads puts on it (patchedtrees.go, PPX-D18).
 		"__YOLO_TREE_GATE__", shquote.Quote(inst.Gate),
-	}, append(append(launchFlagSplices(flags), refreshSplices(inst.Refresh)...), modelMenuSplices(inst.ModelMenu)...)...)...)
+	}, append(append(launchFlagSplices(flags), refreshSplices(inst.Refresh, inst.RefreshTiming)...), modelMenuSplices(inst.ModelMenu)...)...)...)
 	return strings.Split(r.Replace(npmLauncherTemplate), token)
 }
 
@@ -681,7 +685,7 @@ func nativeAgentLauncher(pack string, inst *packdecl.Install, stampDir, receipts
 		"__YOLO_EXEC_PREFIX__", "",
 		// The gate a patched extension this agent loads puts on it (patchedtrees.go, PPX-D18).
 		"__YOLO_TREE_GATE__", shquote.Quote(inst.Gate),
-	}, append(append(launchFlagSplices(flags), refreshSplices(inst.Refresh)...), modelMenuSplices(inst.ModelMenu)...)...)...)
+	}, append(append(launchFlagSplices(flags), refreshSplices(inst.Refresh, inst.RefreshTiming)...), modelMenuSplices(inst.ModelMenu)...)...)...)
 	return r.Replace(nativeLauncherTemplate)
 }
 
@@ -1333,7 +1337,7 @@ _do_install() {
     return "$rc"
 }
 
-` + updateBoundShellFn + `
+` + updateBoundShellFn + prelaunchRefreshShellFn + `
 # _take_lock is a NON-BLOCKING mkdir, and both halves of that are §3.5's ruling rather than
 # an implementation shortcut: there is no flock in the image and none on a stock macOS, and
 # an invocation that cannot take the lock must PROCEED WITHOUT UPDATING and say so.
@@ -1527,7 +1531,7 @@ _refresh_servers() {
 if [ "$SERVERS_ENABLED" = "1" ]; then
     _refresh_servers
 fi
-` + prelaunchRefreshShellFn + `
+` + prelaunchRefreshCallShell + `
 ` + agentEnvShellFn + agentAuthPrelaunchShellFn + modelMenuShellFn + treeGateShell + `
 if [ -x "$REAL_BIN" ]; then
     _yolo_launch_argv "$@"
@@ -1693,7 +1697,7 @@ export _YOLO_LAUNCHER_ACTIVE="${_YOLO_LAUNCHER_ACTIVE:-}:$BIN"
 mkdir -p "$STAMP_DIR"
 mkdir -p "$HOME/.local"
 ` + stampMtimeFn + receiptShellFns + misplacedShellFn + `
-` + updateBoundShellFn + `
+` + updateBoundShellFn + prelaunchRefreshShellFn + `
 # _take_lock is a NON-BLOCKING mkdir, and both halves of that are the ruling rather than an
 # implementation shortcut. There is no flock in the image and none on a stock macOS; and an
 # invocation that cannot take the lock must PROCEED WITHOUT UPDATING and say so — the user
@@ -2202,7 +2206,7 @@ if [ "$SERVERS_ENABLED" = "1" ]; then
     _refresh_servers
 fi
 
-` + prelaunchRefreshShellFn + `
+` + prelaunchRefreshCallShell + `
 ` + agentEnvShellFn + agentAuthPrelaunchShellFn + modelMenuShellFn + treeGateShell + `
 if [ -x "$REAL_BIN" ]; then
     _yolo_launch_argv "$@"

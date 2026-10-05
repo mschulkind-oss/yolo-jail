@@ -302,6 +302,37 @@ func ExitCode(err error) int {
 	return 127
 }
 
+// StartDetached prepares c (Prepare: a session of its own, so no controlling terminal and a process
+// group no terminal signals, and a /dev/null stdin), starts it, and lets it go: it does not wait
+// for c, forward anything to it, or bound it. What c writes goes where c.Stdout and c.Stderr say,
+// which for a detach must be files, never this process's pipes, or the job would hold open the
+// output of whatever started it.
+//
+// It is how a launcher's BACKGROUND pre-launch refresh starts (docs/design/program-delivery.md
+// OQ-PD31): the launcher execs the agent next, so the job must be no child the agent inherits a
+// signal from, and a stock macOS has no setsid(1) to make it one.
+func StartDetached(c *exec.Cmd) error {
+	Prepare(c)
+	if err := c.Start(); err != nil {
+		return err
+	}
+	return c.Process.Release()
+}
+
+// detachLogLimit is the size past which a detach's log is moved aside to <log>.prev before the
+// next job appends: enough for many runs of a refresh, and a bound on a file one is appended to
+// every hour for as long as the user keeps the setting.
+const detachLogLimit = 1 << 20
+
+// openDetachLog opens path for a detached job to append to, moving it aside first when it has
+// grown past detachLogLimit. It never creates a directory: the caller names where its log goes.
+func openDetachLog(path string) (*os.File, error) {
+	if fi, err := os.Stat(path); err == nil && fi.Size() > detachLogLimit {
+		_ = os.Rename(path, path+".prev")
+	}
+	return os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0o600)
+}
+
 // Main is the whole `yolo internal <verb> [--timeout=SECONDS] [--kill-after=SECONDS] -- <command>
 // [args...]` verb: it runs the command with no controlling terminal and a /dev/null stdin, its
 // stdout and stderr this process's, under the bound the flags give (none without them), and
@@ -309,14 +340,30 @@ func ExitCode(err error) int {
 // forwarded does not return but dies of that signal). 2 is misuse, 127 a command that could not
 // start. It lives here rather than beside the verb's dispatch so that a test can run exactly what
 // the verb runs, the launchers' tests included.
+//
+// `--detach --log=FILE` starts the command instead and returns 0 at once (StartDetached), its
+// stdout and stderr appended to FILE. A detach takes no bound — the command it starts bounds its
+// own act, as a launcher's background refresh does through _bounded — so --timeout or
+// --kill-after beside it is misuse, as is --log without it; 1 is a log that cannot be opened.
+// Each of those runs nothing, so a launcher can tell "this yolo cannot detach" from "the job is
+// running".
 func Main(verb string, args []string) int {
-	usage := "usage: yolo internal " + verb + " [--timeout=SECONDS] [--kill-after=SECONDS] -- <command> [args...]"
+	usage := "usage: yolo internal " + verb + " [--timeout=SECONDS] [--kill-after=SECONDS] -- <command> [args...]\n" +
+		"       yolo internal " + verb + " --detach --log=FILE -- <command> [args...]"
 	var b Bound
+	var detach bool
+	var logPath string
 	i := 0
 	for ; i < len(args) && args[i] != "--"; i++ {
 		var dst *time.Duration
 		var val string
 		switch {
+		case args[i] == "--detach":
+			detach = true
+			continue
+		case strings.HasPrefix(args[i], "--log="):
+			logPath = strings.TrimPrefix(args[i], "--log=")
+			continue
 		case strings.HasPrefix(args[i], "--timeout="):
 			dst, val = &b.Timeout, strings.TrimPrefix(args[i], "--timeout=")
 		case strings.HasPrefix(args[i], "--kill-after="):
@@ -332,9 +379,12 @@ func Main(verb string, args []string) int {
 		}
 		*dst = d
 	}
-	if i+1 >= len(args) {
+	if i+1 >= len(args) || detach != (logPath != "") || (detach && b != (Bound{})) {
 		fmt.Fprintln(os.Stderr, usage)
 		return 2
+	}
+	if detach {
+		return detachMain(verb, logPath, args[i+1], args[i+2:])
 	}
 	c := exec.Command(args[i+1], args[i+2:]...)
 	c.Stdout, c.Stderr = os.Stdout, os.Stderr
@@ -345,6 +395,25 @@ func Main(verb string, args []string) int {
 		fmt.Fprintf(os.Stderr, "yolo internal %s: %v\n", verb, err)
 	}
 	return WrapperExit(err)
+}
+
+// detachMain is Main's --detach arm: the command started in a session of its own with its output
+// appended to logPath, and 0 once it is running; 1 for a log that cannot be opened, 127 for a
+// command that cannot start.
+func detachMain(verb, logPath, name string, argv []string) int {
+	log, err := openDetachLog(logPath)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "yolo internal %s: %v\n", verb, err)
+		return 1
+	}
+	defer log.Close()
+	c := exec.Command(name, argv...)
+	c.Stdout, c.Stderr = log, log
+	if err := StartDetached(c); err != nil {
+		fmt.Fprintf(os.Stderr, "yolo internal %s: %v\n", verb, err)
+		return 127
+	}
+	return 0
 }
 
 // seconds reads a flag's value: a non-negative, finite number of seconds, fractions allowed.

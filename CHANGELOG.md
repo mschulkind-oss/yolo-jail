@@ -17,6 +17,10 @@ patch series, and yolo builds them onto each new release they fit. When a releas
 last good build keeps running and `yolo pack rebase` sets up the fix. It needs git 2.40 or newer on
 the host. See [Follow an upstream with a patch series](userguide/guides/patch-series.md).
 
+**Pi can start without waiting for its extension update.** Set
+`"agent_updates": { "pi": "next-launch" }` and the update runs while you work, for your next launch.
+See [Keep agents and packs up to date](userguide/guides/packs-and-skills.md#keep-agents-and-packs-up-to-date).
+
 **Claude Code plugins and mods.** A new guide covers the ways to bring a Claude Code plugin or mod
 into a jail, and what each launch shows about the code it runs. See
 [Claude Code plugins and mods](userguide/guides/claude-plugins-and-mods.md).

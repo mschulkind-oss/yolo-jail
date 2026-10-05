@@ -956,8 +956,8 @@
     jail, so a workspace config cannot redirect their destination. A workspace
     value is a `yolo check` error and is never read.
 
-  [bold]agent_updates[/bold] (boolean, or object of pack name -> boolean): Keep agent CLIs
-    current.  Default TRUE -- absent means on.
+  [bold]agent_updates[/bold] (boolean, "launch", "next-launch", or object of pack name -> one
+    of those): Keep agent CLIs current.  Default TRUE -- absent means on.
     An AGENT dependency is a program yolo installs so a coding agent can run: the
     agent CLIs themselves, and the MCP servers they drive.  Nobody's build
     reproduces against one, so a six-week-old copy is a defect rather than a
@@ -976,6 +976,22 @@
     TURNING IT OFF freezes the agents at whatever is installed.  `yolo pack
     update` still refreshes them on demand -- it is the only thing that ignores
     this key, because it is an act you performed.
+
+    WHEN AN ADD-ON REFRESH RUNS: "launch" or "next-launch".  Some agents keep
+    add-ons beside the program, and their pack declares a refresh for them:
+    pi's runs `pi update --extensions`.  By default ("launch", the same as true)
+    the refresh runs when you type the agent's name, before the agent starts,
+    at most once an hour and for at most a minute.  "next-launch" runs it in the
+    background instead: the agent starts at once, the refresh runs while you
+    work, and the next launch runs what it installed.  The launch says so in one
+    line naming the refresh's log, ~/.local/state/yolo/refresh/<agent>.log, and
+    a background refresh that fails is reported once, at the next launch.
+    Only that refresh moves.  The agent's own update, its MCP servers, and
+    add-ons your settings name for the first time still finish before the
+    agent starts.  While a background refresh runs, pi may show its own
+    "updates available" notice; the next launch has them.  In a jail that exits
+    first, the refresh stops and a later launch runs it again.  `yolo host` runs
+    no add-on refresh, so there "next-launch" means the same as true.
 
     IT GOVERNS YOLO'S UPDATER, NOT THE AGENT'S OWN.  An agent that ships a
     self-updater runs it on its own terms, and yolo no longer suppresses one: as
@@ -1000,6 +1016,7 @@
     Example (~/.config/yolo-jail/config.jsonc):
       "agent_updates": false
       "agent_updates": { "*": true, "claude": false }
+      "agent_updates": { "pi": "next-launch" }
 
   [bold]host_floor[/bold] (boolean, or object of pack name -> boolean): Keep your agents
     installed for `yolo host`.  Default TRUE -- absent means on.
