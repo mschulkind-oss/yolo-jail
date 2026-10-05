@@ -21,33 +21,50 @@ import (
 // config file that exists. Neither yolo-jail.local.jsonc nor an included file is locked, on
 // either backend.
 //
-// A SYMLINKED CONFIG LOCKS ITS TARGET TOO, when the target sits in the workspace: the kernel
-// resolves a write through the link before the policy is consulted, so a deny on the link's
-// name alone stops only an unlink or a rename of the link. A target outside the workspace is
-// outside its write allow already. ⚠ A HARD LINK is the residual: a link the session makes to
-// the config, under a name of its own, is a path no rule here names (recorded, not asserted,
-// by integration/macosuserworkspacereadonly_test.go).
-func workspaceReadonlyRels(workspace string, cfg *jsonx.OrderedMap) []string {
-	rels := cfgStrList(cfg, "workspace_readonly")
-	if len(rels) == 0 {
-		return rels
+// A SYMLINKED CONFIG LOCKS ITS TARGET TOO, wherever the target sits: the kernel resolves a
+// write through the link before the policy is consulted, so a deny on the link's name alone
+// stops only an unlink or a rename of the link. A target in the workspace joins rels under its
+// workspace-relative path. One outside it is returned in targets, by its physical path, because
+// outside the workspace is not outside the write allow: the fixed writable roots
+// (profileWritableRoots: /tmp and /var/folders with their /private twins, and /dev), the
+// sandbox home and every read-write context mount's source are allowed as well. The container
+// backends bind the config `:ro`, and a bind resolves its source through the link, which locks
+// the content wherever it lives. A deny can only narrow the profile, so this one is emitted
+// whether or not the target is under a writable root.
+// targets is a list of its own because readonlyDenies drops every absolute USER entry, and that
+// refusal stays.
+//
+// ⚠ Two residuals. A HARD LINK the session makes to the config, under a name of its own, is a
+// path no rule here names (recorded, not asserted, by
+// integration/macosuserworkspacereadonly_test.go). So is a link in the MIDDLE of a chain of
+// links: only the config's own name and the chain's final target are named.
+func workspaceReadonlyRels(workspace string, cfg *jsonx.OrderedMap) (rels, targets []string) {
+	declared := cfgStrList(cfg, "workspace_readonly")
+	if len(declared) == 0 {
+		return declared, nil
 	}
 	p, name := config.ResolveWorkspaceConfigPath(workspace, config.WorkspaceConfigName)
 	if _, err := os.Stat(p); err != nil {
-		return rels
+		return declared, nil
 	}
-	out := append([]string(nil), rels...)
+	rels = append([]string(nil), declared...)
 	add := func(rel string) {
-		if !slices.Contains(out, rel) {
-			out = append(out, rel)
+		if !slices.Contains(rels, rel) {
+			rels = append(rels, rel)
 		}
 	}
 	add(name)
 	if target, err := filepath.EvalSymlinks(p); err == nil && target != p {
-		if rel, err := filepath.Rel(workspace, target); err == nil && rel != "." && rel != ".." &&
-			!strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		rel, err := filepath.Rel(workspace, target)
+		switch {
+		case err == nil && rel == ".":
+			// The link names the workspace itself: no file for the loader to read, and the
+			// workspace is not this list's to lock.
+		case err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)):
 			add(filepath.ToSlash(rel))
+		case filepath.IsAbs(target):
+			targets = append(targets, filepath.Clean(target))
 		}
 	}
-	return out
+	return rels, targets
 }

@@ -3,6 +3,7 @@ package macosuser
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -249,18 +250,72 @@ func TestBuildRunPlanLocksASymlinkedConfigsTarget(t *testing.T) {
 			t.Errorf("missing %q\n%s", want, p)
 		}
 	}
-	// A link pointing OUT of the workspace adds nothing: that target is outside the write
-	// allow already, and readonlyDenies drops what is not workspace-relative.
-	out := readonlyWorkspace(t)
+}
+
+// TestBuildRunPlanLocksASymlinkedConfigsTargetOutsideTheWorkspace: a target outside the
+// workspace is NOT outside the write allow when it sits under a writable root — the fixture's
+// TMPDIR is /tmp on Linux and /private/var/folders on macOS, both in profileWritableRoots, which
+// is exactly the case. The container backends bind the RESOLVED file `:ro`, locking its content
+// wherever it lives, so this backend denies the target by its physical path, inside the same
+// workspace_readonly deny form. Through BuildRunPlan, so it fails with the target dropped at the
+// call site.
+func TestBuildRunPlanLocksASymlinkedConfigsTargetOutsideTheWorkspace(t *testing.T) {
+	ws := readonlyWorkspace(t)
 	other := readonlyWorkspace(t)
-	if err := os.WriteFile(filepath.Join(other, "elsewhere.jsonc"), []byte("{}"), 0o644); err != nil {
+	target := filepath.Join(other, "elsewhere.jsonc")
+	if err := os.WriteFile(target, []byte("{}"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.Symlink(filepath.Join(other, "elsewhere.jsonc"), filepath.Join(out, "yolo-jail.jsonc")); err != nil {
+	if err := os.Symlink(target, filepath.Join(ws, "yolo-jail.jsonc")); err != nil {
 		t.Fatal(err)
 	}
-	if p := readonlyPlan(out, "vendored").Seatbelt; strings.Contains(p, "elsewhere.jsonc") {
-		t.Errorf("a target outside the workspace reached the profile\n%s", p)
+	if !slices.ContainsFunc(profileWritableRoots, func(root string) bool {
+		return target == root || strings.HasPrefix(target, root+"/")
+	}) {
+		t.Logf("the fixture's target %s is under no writable root on this machine; the deny is "+
+			"asserted regardless, since it can only narrow the profile", target)
+	}
+	p := readonlyPlan(ws, "vendored").Seatbelt
+	idx := strings.Index(p, "#seatbelt-test-id:workspace-readonly-deny#")
+	if idx < 0 {
+		t.Fatalf("no workspace_readonly deny form\n%s", p)
+	}
+	block := p[idx:]
+	block = block[:strings.Index(block, "))\n")+3]
+	for _, want := range []string{
+		"(literal " + sbplStr(target) + ")",
+		"(subpath " + sbplStr(filepath.Join(ws, "yolo-jail.jsonc")) + ")",
+		"(subpath " + sbplStr(filepath.Join(ws, "vendored")) + ")",
+	} {
+		if !strings.Contains(block, want) {
+			t.Errorf("the workspace_readonly deny form lacks %q, so the session can rewrite the "+
+				"config its next launch reads\n%s", want, p)
+		}
+	}
+	// Without workspace_readonly the target is not named at all: the lock rides the key.
+	if p := readonlyPlan(ws).Seatbelt; strings.Contains(p, "elsewhere.jsonc") {
+		t.Errorf("the target was locked with no workspace_readonly entry\n%s", p)
+	}
+}
+
+// TestReadonlyDeniesKeepsRefusingAbsoluteUserEntries: the yolo-derived targets are a list of
+// their own, so an absolute path in the USER's workspace_readonly is still dropped rather than
+// rendered as a deny outside the workspace, and a target that is not absolute renders nothing.
+func TestReadonlyDeniesKeepsRefusingAbsoluteUserEntries(t *testing.T) {
+	got := readonlyDenies("/Users/Shared/proj", []string{"/etc/hosts", "vendored"}, []string{"relative.jsonc", "/private/tmp/x/cfg.jsonc"})
+	if strings.Contains(got, "/etc/hosts") {
+		t.Errorf("an absolute user entry reached the deny form\n%s", got)
+	}
+	if strings.Contains(got, "relative.jsonc") {
+		t.Errorf("a relative config target reached the deny form\n%s", got)
+	}
+	for _, want := range []string{`(subpath "/Users/Shared/proj/vendored")`, `(literal "/private/tmp/x/cfg.jsonc")`} {
+		if !strings.Contains(got, want) {
+			t.Errorf("missing %q\n%s", want, got)
+		}
+	}
+	if readonlyDenies("/Users/Shared/proj", nil, nil) != "" {
+		t.Error("no entry and no target must render nothing, so the profile stays byte-identical")
 	}
 }
 
@@ -272,8 +327,8 @@ func TestWorkspaceReadonlyRelsDoesNotRepeatADeclaredConfig(t *testing.T) {
 	}
 	cfg := jsonx.NewOrderedMap()
 	cfg.Set("workspace_readonly", []any{"yolo-jail.jsonc", "vendored"})
-	got := workspaceReadonlyRels(ws, cfg)
-	if strings.Join(got, ",") != "yolo-jail.jsonc,vendored" {
-		t.Errorf("workspaceReadonlyRels = %v", got)
+	got, targets := workspaceReadonlyRels(ws, cfg)
+	if strings.Join(got, ",") != "yolo-jail.jsonc,vendored" || len(targets) != 0 {
+		t.Errorf("workspaceReadonlyRels = %v, %v", got, targets)
 	}
 }

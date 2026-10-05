@@ -133,7 +133,17 @@ const bootVolume = "/Volumes/Macintosh HD"
 //
 // devices is config.devices' raw-path entries (deviceIoctlAllow) and macosLog the config's
 // macos_log value as read (macosLogMode: absent is "off"); see SeatbeltProfile for both.
+//
+// It renders no config TARGET outside the workspace: that is read off the workspace on disk,
+// so BuildRunPlan, which reads it (workspaceReadonlyRels), calls seatbeltProfile itself.
 func SeatbeltProfileWithContext(workspace, sandboxHome string, readonlyRels []string, homeReadonly HomeReadonly, ctx []ContextLink, devices []string, macosLog string) string {
+	return seatbeltProfile(workspace, sandboxHome, readonlyRels, nil, homeReadonly, ctx, devices, macosLog)
+}
+
+// seatbeltProfile is the one profile builder. readonlyTargets is the absolute half of
+// workspace_readonly's lock, a symlinked config's target outside the workspace
+// (workspaceReadonlyRels), rendered into the same deny form as readonlyRels (readonlyDenies).
+func seatbeltProfile(workspace, sandboxHome string, readonlyRels, readonlyTargets []string, homeReadonly HomeReadonly, ctx []ContextLink, devices []string, macosLog string) string {
 	if sandboxHome == "" {
 		sandboxHome = SandboxHome()
 	}
@@ -159,7 +169,7 @@ func SeatbeltProfileWithContext(workspace, sandboxHome string, readonlyRels []st
 		"    (subpath " + home + ")\n" +
 		strings.TrimSuffix(writable.String(), "\n") + ")\n" +
 		contextWriteAllow(ctx) +
-		readonlyDenies(workspace, readonlyRels) +
+		readonlyDenies(workspace, readonlyRels, readonlyTargets) +
 		homeReadonlyDenies(homeReadonly) +
 		contextReadonlyDeny(ctx) +
 		"\n" +
@@ -276,8 +286,9 @@ func macosLogDenies(mode string) string {
 
 // readonlyDenies renders the config.workspace_readonly block: ONE
 // `(deny file-write* …)` form carrying one `(subpath "<ws>/<rel>")` clause per
-// entry, or "" when there are none, so a profile without the key is
-// byte-identical to the one this backend emitted before the key was wired.
+// entry, then one `(literal "<target>")` per config target outside the workspace
+// (workspaceReadonlyRels), or "" when there are none, so a profile without the key
+// is byte-identical to the one this backend emitted before the key was wired.
 //
 // The "one deny per entry" spelling this comment carried until 2026-08-23 was
 // wrong, and it had already been copied into
@@ -287,8 +298,8 @@ func macosLogDenies(mode string) string {
 // profile: both positions are correct (nothing later re-allows file-write*), and
 // keeping the whole write policy — deny all, allow the agent's set, re-deny the
 // carve-outs — readable as one unit is worth more than the freedom to append.
-func readonlyDenies(workspace string, rels []string) string {
-	if len(rels) == 0 {
+func readonlyDenies(workspace string, rels, targets []string) string {
+	if len(rels) == 0 && len(targets) == 0 {
 		return ""
 	}
 	var b strings.Builder
@@ -303,6 +314,18 @@ func readonlyDenies(workspace string, rels []string) string {
 			continue
 		}
 		b.WriteString("    (subpath " + sbplStr(path.Join(workspace, rel)) + ")\n")
+	}
+	// A symlinked workspace config's target outside the workspace (workspaceReadonlyRels):
+	// yolo's own derivation, never a user entry, so it is the one absolute path this form
+	// carries. A `literal`, since the target is a file. A path that is not absolute is a deny
+	// the kernel never matches, so it is dropped rather than rendered as protection.
+	seen := map[string]bool{}
+	for _, t := range targets {
+		if !strings.HasPrefix(t, "/") || seen[path.Clean(t)] {
+			continue
+		}
+		seen[path.Clean(t)] = true
+		b.WriteString("    (literal " + sbplStr(path.Clean(t)) + ")\n")
 	}
 	if b.Len() == 0 {
 		return ""

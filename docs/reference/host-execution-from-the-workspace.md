@@ -252,11 +252,16 @@ is anywhere else.
 > [!NOTE]
 > **The config self-lock holds on `macos-user` too, since 2026-10-04.** Any active entry adds the
 > workspace config file the loader reads (`yolo-jail.jsonc`, or `yolo-jail.json` where that is the
-> file) to the same deny form as the declared entries, and, when that file is a symbolic link into
-> the workspace, its target as well, because the kernel resolves a write through the link before the
-> policy is consulted. ⚠ **A hard link is the residual:** one the session makes to the config under
-> a name of its own is a path no rule names. Whether Seatbelt lets it be made is recorded, not
-> asserted, by the macOS integration test, and no Mac has run it yet.
+> file) to the same deny form as the declared entries, and, when that file is a symbolic link, its
+> target as well, because the kernel resolves a write through the link before the policy is
+> consulted. The target is locked wherever it sits: outside the workspace is not outside the
+> profile's write allow, which also covers `/tmp`, `/var/folders`, the sandbox home and every
+> read-write context mount's source, so a target there is denied by its physical path. The
+> container backends lock the content the same way, by binding the resolved file `:ro`.
+> ⚠ **Two residuals.** A hard link the session makes to the config under a name of its own is a
+> path no rule names, and so is a link in the middle of a chain of links. Whether Seatbelt lets the
+> hard link be made is recorded, not asserted, by the macOS integration test, and no Mac has run it
+> yet.
 
 > [!NOTE]
 > **A `macos-user` agent writes as a different user than you**, which is the precise condition
@@ -378,7 +383,7 @@ check it against.
 | Shadow backing store | `<workspace state>/venv-shadows/`, with `/` rendered `__` | `Options.venvShadowMountArgs` |
 | macos-user uv venv | `UV_PROJECT_ENVIRONMENT=.venv-macos-user`, relative to each project root, under any value the user's env layers set (2026-10-04) | `macosuser.buildPlan` |
 | Port publishing | `network.ports` (`"HOST:JAIL"`) | `yolo config-ref` |
-| macos-user rendering | one `(deny file-write* …)` form, one `(subpath …)` clause per entry, appended after the writable-set allow | `macosuser.readonlyDenies` |
+| macos-user rendering | one `(deny file-write* …)` form, one `(subpath …)` clause per entry, and a `(literal …)` clause for a symlinked config's target outside the workspace, appended after the writable-set allow | `macosuser.readonlyDenies` |
 | Entry validation | relative, `..`-free, must exist, must stay inside the workspace; offenders skipped with a warning | `internal/config/validate.go`, `internal/cli/run/mounts.go` |
 
 ## Sources
