@@ -2,7 +2,7 @@
 title: "Two presets, seven hardcodings, and a backend that can have neither"
 date: 2026-09-12
 status: accepted
-stage: DECIDED
+stage: DESIGN
 next: "Rule OQ-MP9 (the browser report the build moved into the wrapper) and the packs safe subset at pack-system.md#OQ-PK1, then build §13 step 3 (retire mcp_presets); steps 1 and 2, the mcp kind and the chrome-devtools pack, are built (MP-D8)"
 depends-on:
   - ../reference/pack-system.md#OQ-PK1
@@ -730,38 +730,28 @@ Observable outcomes a human can check, not test names:
    > not be always-running and must not be orphaned. The `service` conversion is explicitly NOT
    > taken now; if it is ever wanted it is a later, separate change.
 
-7. <a id="OQ-MP9"></a> **OQ-MP9: Does the browser report keep [`OQ-MP5`](#OQ-MP5)'s `requires` half?**
-   Opened 2026-10-05 by the build, which kept OQ-MP5's run-time resolution and not its `requires`
-   ([MP-D5](#MP-D5)). A `requires` names ONE binary that must be on PATH: the jail's boot warns
-   when it is absent (`AssertRequiredBins`), and the host's dependency report names it. `chromium`
-   is on PATH in a container jail and nowhere on a Mac whose Chrome lives in
-   `/Applications/Google Chrome.app`, nor on a Linux host with only `google-chrome`, so a plain
-   `requires` warns on exactly the machines that have a browser. What the build reports instead is
-   the wrapper's own find, which is the browser it will actually run: a stderr line at every
-   server start, on the MCP client's side of the server rather than in the launch, and `--check`
-   on demand. No launch prints it, which is the gap [§14](#14-what-done-looks-like)'s macos-user
-   criterion now notes.
+7. 💬 <a id="OQ-MP9"></a>**[OQ-MP9](#OQ-MP9): Is the wrapper's own browser report enough, dropping [`OQ-MP5`](#OQ-MP5)'s `requires` half?**
 
-   <!-- vantage: question id=OQ-MP9 -->
+   The build declared no `requires` ([MP-D5](#MP-D5) says why: a Mac's Chrome is an app
+   bundle, not `chromium` on PATH). The report is the wrapper's stderr line at each server start
+   and its `--check`; no launch prints one ([§14](#14-what-done-looks-like)).
 
-   Options:
-   - **(a) Keep MP-D5**: the wrapper's report is the browser report, and OQ-MP5's answer loses
-     its `requires` half. Nothing more to build; the cost is a missing browser surfacing on the
-     MCP client's side (its server's stderr, or the server failing to start one) rather than in
-     the launch.
-   - **(b) A `requires` that carries alternatives**: the kind grows an any-of list of names and
-     absolute candidate paths (the app bundles), so the boot and the host's report name a missing
-     browser at launch. A schema change to a kind every notch reads, and the candidate list then
-     lives twice, in the manifest and in the wrapper.
-   - **(c) A plain `requires: chromium`**: right in a container jail; a false warning at every
-     macos-user boot and every host apply on a machine whose Chrome is an app bundle.
-   - **(d) A pack-declared check the launch runs**: the boot (and `yolo host apply`) runs the
-     wrapper's `--check` and prints its browser line. One resolver and a launch-visible line, at
-     the price of a new contribution kind or hook in a registry kept closed on purpose.
+   - **A — Keep MP-D5.**
+   - **B — A `requires` with alternatives**, names and app-bundle paths: a schema change, and a
+     second copy of the wrapper's search.
+   - **C — A plain `requires: chromium`**: a false warning at every launch on a machine whose
+     only browser is Chrome.
+   - **D — A pack-declared check the launch runs**, the wrapper's `--check`: a launch-visible
+     line from the one resolver, for a new kind or hook.
 
-   _Leaning:_ **(a) for this build, and (d) if you want the report at launch.** (a) reports what
-   will actually run and builds nothing new; (d) is the one route to a launch line that keeps
-   the browser search in one place. (c) misreports, and (b) duplicates the search.
+   <!-- vantage: question id=OQ-MP9 leaning="A for this build, and D if the report should appear at launch: A reports the browser that will actually run and builds nothing; D is the one route to a launch line that keeps the search in one place." -->
+
+   _Leaning:_ **A for this build, and D if you want the report at launch.** A reports the browser
+   that will actually run and builds nothing new; D is the one route to a launch line that keeps
+   the search in one place. C misreports, and B duplicates the search.
+
+   **Answer:**
+   > _(empty — fill in when decided)_
 
 ---
 
@@ -789,4 +779,4 @@ answers are in [§15](#15-open-questions).
 | <a id="MP-D6"></a>MP-D6 | *Implementation decision, as MP-D1.* **The kind's shape is `{name, bin, config: <entry>}`.** The entry rides the contribution's `config` payload in exactly mcp_servers' shape, its keys pinned to the config's `knownMCPServerKeys` by test ([§6.2](#62-what-the-kind-must-be-able-to-carry-at-minimum), risk R2); top-level fields would have collided with the retired `env` tombstone. Its path vocabulary is one prefix, `~/` at the start of a `command` or `args` word, joined by the composer to the notch's home ([`OQ-MP4`](#OQ-MP4): the composing side decides the home) | 2026-10-05 | [§6.2](#62-what-the-kind-must-be-able-to-carry-at-minimum) |
 | <a id="MP-D7"></a>MP-D7 | *Implementation decision, as MP-D1.* **Composition follows the provider precedent's shape**: the selected packs' entries in pack order, a name two declarations ship held by the later (NC-D59) and refused before any launch by validation (`config.validatePackMCPServers`) and in `yolo pack footprint` (`Collisions`); the user's entry merges over the pack's per field, `env` per variable; a user `null` removes the pack's and stays in the table as a removal, so a jail's preset of that name goes too | 2026-10-05 | [§6.1](#61-the-three-candidate-shapes) |
 | <a id="MP-D8"></a>MP-D8 | *Implementation decision, as MP-D1, amending [§13](#13-what-i-would-build-in-order)'s "Steps 1–3 do not ship separately".* **Steps 1 and 2 ship before step 3**, which waits on [`OQ-PK1`](../reference/pack-system.md#oq-pk1): a key a workspace can write cannot retire into a selection only user scope can make until [`OQ-MP7`](#OQ-MP7)'s demotion is ruled. The cost is two mechanisms at once, bounded by the pack's entry replacing a same-named preset, and the build answers the maintainer's request for the server at `yolo host` ([roadmap](../plans/roadmap.md) item 44: "the maintainer wants it") | 2026-10-05 | [§13](#13-what-i-would-build-in-order) |
-| <a id="MP-D9"></a>MP-D9 | *Implementation decision, as MP-D1; fixes a defect review found in the jail half.* **A jail's and macos-user's agent launchers install and refresh a pack server's program before they exec the agent**, as they do a preset's package: a server takes the trigger of the agent that connects to it, and nothing may move at connect time ([program-delivery.md §3.5](program-delivery.md#35-the-second-axis-who-the-dependency-serves-amendment-2026-09-03), OQ-PD12a). The npm `program` an `mcp` entry's `bin` names joins the transitive refresh set while the composed table holds that server, and the program's own launcher, which the server runs through for the posture's flags, bakes no update and no server refresh of its own; its cold install stays, for a server no agent's launcher started. **Every launcher's install writes to stderr**: npm's and an installer's output went to stdout, the server's JSON-RPC channel, ahead of its `initialize` response. An installer program, and an npm one whose pack declares install flags, keep their own launcher's trigger, since the refresh hands npm a spec alone; a pinned one is installed again once at its first start, the refresh writing no record of the declaration its launcher compares | 2026-10-05 | [§13](#13-what-i-would-build-in-order) |
+| <a id="MP-D9"></a>MP-D9 | *Implementation decision, as MP-D1; fixes a defect review found in the jail half.* **A jail's and macos-user's agent launchers install and refresh a pack server's program before they exec the agent**, as they do a preset's package: a server takes the trigger of the agent that connects to it, and nothing may move at connect time ([program-delivery.md §3.5](program-delivery.md#35-the-second-axis-who-the-dependency-serves-amendment-2026-09-03), [`OQ-PD12a`](program-delivery.md#decision-ledger)). The npm `program` an `mcp` entry's `bin` names joins the transitive refresh set while the composed table holds that server, and the program's own launcher, which the server runs through for the posture's flags, bakes no update and no server refresh of its own; its cold install stays, for a server no agent's launcher started. **Every launcher's install writes to stderr**: npm's and an installer's output went to stdout, the server's JSON-RPC channel, ahead of its `initialize` response. An installer program, and an npm one whose pack declares install flags, keep their own launcher's trigger, since the refresh hands npm a spec alone; a pinned one is installed again once at its first start, the refresh writing no record of the declaration its launcher compares | 2026-10-05 | [§13](#13-what-i-would-build-in-order) |
