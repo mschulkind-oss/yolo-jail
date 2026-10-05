@@ -218,6 +218,47 @@ func TestHostApplyJSONNamesTheInapplicableKindsAndCarriesNoProse(t *testing.T) {
 				name, reason)
 		}
 	}
+	if len(doc.AtLaunchKinds) == 0 {
+		t.Fatal("the six shipped packs declare kinds `yolo host --` delivers, and the document " +
+			"names none of them")
+	}
+	for _, name := range doc.AtLaunchKinds {
+		if reason, ok := render.HostAtLaunch(packdecl.Kind(name)); ok && strings.Contains(raw, reason) {
+			t.Errorf("the document carries %s's at-launch prose — rationale is not data:\n%s", name, reason)
+		}
+	}
+}
+
+// TestHostApplyJSONNamesTheAtLaunchKinds: the document's two kind lists are the text line's two
+// clauses. pi's env (a plain variable, and aws-auth's credential pointer) is delivered by
+// `yolo host --`, so it is an at-launch kind and no longer an inapplicable one, which is the
+// document half of the at-launch regression.
+func TestHostApplyJSONNamesTheAtLaunchKinds(t *testing.T) {
+	home := t.TempDir()
+	selectPacks(t, home, `"pi"`)
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
+
+	doc, raw, _ := hostApplyJSON(t, "--json")
+	if !slices.Contains(doc.AtLaunchKinds, string(packdecl.KindEnv)) {
+		t.Errorf("at_launch_kinds = %v, want env among them:\n%s", doc.AtLaunchKinds, raw)
+	}
+	if slices.Contains(doc.InapplicableKinds, string(packdecl.KindEnv)) {
+		t.Errorf("inapplicable_kinds = %v names env, which `yolo host --` delivers:\n%s",
+			doc.InapplicableKinds, raw)
+	}
+	// The same survey as the text line: every kind it names is in the document's lists.
+	rc, report := applyWith(t, false, nil)
+	if rc != 0 {
+		t.Fatalf("text dry run rc=%d\n%s", rc, report)
+	}
+	clauses := notchClauses(notchKindLines(report)[0])
+	for _, k := range doc.AtLaunchKinds {
+		if countWord(clauses[atLaunchClause], k) != 1 {
+			t.Errorf("at_launch_kinds names %s and the text line's at-launch clause does not: %q",
+				k, clauses[atLaunchClause])
+		}
+	}
 }
 
 // TestHostApplyAssertRefusesTheDocumentAndWritesNothing is [OQ-RO4]'s acting half: exit 2,
@@ -353,8 +394,8 @@ func TestHostApplyJSONWithNoPacksIsStillADocument(t *testing.T) {
 	// `[]`, never `null`: a consumer looping over a list must not have to special-case the run
 	// that found nothing.
 	for _, want := range []string{
-		`"destinations": []`, `"groups": []`, `"inapplicable_kinds": []`, `"failed_packs": []`,
-		`"failed_stages": []`,
+		`"destinations": []`, `"groups": []`, `"inapplicable_kinds": []`, `"at_launch_kinds": []`,
+		`"failed_packs": []`, `"failed_stages": []`,
 	} {
 		if !strings.Contains(raw, want) {
 			t.Errorf("the empty document is missing %s:\n%s", want, raw)

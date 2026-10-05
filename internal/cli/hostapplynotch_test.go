@@ -12,36 +12,45 @@ package cli
 //
 // Both go through applyHostSurveyed, which is the call site: deleting printNotchFacts from
 // apply.go leaves the kinds unnamed and fails the first test, and restoring the
-// per-contribution prints fails the count in both.
+// per-contribution prints fails the count in both. The at-launch tests go through it too, and
+// read the doorway set apply.go hands the survey.
 
 import (
 	"path/filepath"
 	"strings"
 	"testing"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/cli/run"
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/packdecl"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/render"
 )
 
-// TestHostApplyNamesEachInapplicableKindOnce is the kinds half. Every kind the shipped pack set
-// declares and this notch does nothing with is named, and named once.
-func TestHostApplyNamesEachInapplicableKindOnce(t *testing.T) {
+// TestHostApplyNamesEachKindOncePerGroup is the kinds half. Every kind the shipped pack set
+// declares that this notch does not render is named on the one notch line, and named once in
+// each group it lands in: AT LAUNCH ONLY for what `yolo host --` delivers, DOES NOT APPLY for
+// what no host verb does anything with. A kind can be in both groups (a credential loophole's
+// doorway, and the claude pack's interception loophole whose only client is a container), and
+// once in each is still once per group.
+func TestHostApplyNamesEachKindOncePerGroup(t *testing.T) {
 	shippedPacksFixture(t)
 	_, report := surveyApply(t)
 
-	kinds, contributions := inapplicableKindsInConfig(t)
-	if len(kinds) == 0 {
-		t.Fatalf("fixture bug: the shipped packs declare no kind this notch skips, so there "+
-			"is nothing for the tiers to collapse\n%s", report)
+	groups, contributions := notchGroupsInConfig(t)
+	for _, outcome := range []hostNotchOutcome{notchAtLaunch, notchDoesNotApply} {
+		if len(groups[outcome]) == 0 {
+			t.Fatalf("fixture bug: the shipped packs declare no kind in group %d, so there is "+
+				"nothing for the tiers to collapse\n%s", outcome, report)
+		}
 	}
 	// The collapse is only worth asserting while there is something to collapse: the measured
 	// home had 19 contributions across 7 kinds. A set where the two numbers agree would make
 	// "exactly once" free.
-	if contributions <= len(kinds) {
+	kinds := len(groups[notchAtLaunch]) + len(groups[notchDoesNotApply])
+	if contributions <= kinds {
 		t.Fatalf("fixture bug: %d contributions across %d kinds — no kind is declared twice, "+
-			"so the once-per-run assertion below cannot fail\n%s", contributions, len(kinds), report)
+			"so the once-per-run assertion below cannot fail\n%s", contributions, kinds, report)
 	}
 
 	lines := notchKindLines(report)
@@ -49,11 +58,20 @@ func TestHostApplyNamesEachInapplicableKindOnce(t *testing.T) {
 		t.Fatalf("the kinds that do not apply are a property of the NOTCH, so they are named "+
 			"once per run; got %d lines:\n%s", len(lines), report)
 	}
-	for _, k := range kinds {
-		if n := strings.Count(lines[0], string(k)); n != 1 {
-			t.Errorf("kind %q appears %d times on the notch line, want exactly 1 — the "+
-				"census is satisfied by naming, and naming twice is repetition: %q",
-				k, n, lines[0])
+	clauses := notchClauses(lines[0])
+	for outcome, prefix := range map[hostNotchOutcome]string{
+		notchAtLaunch: atLaunchClause, notchDoesNotApply: doesNotApplyClause,
+	} {
+		clause, ok := clauses[prefix]
+		if !ok {
+			t.Fatalf("the notch line has no %q clause: %q", prefix, lines[0])
+		}
+		for _, k := range groups[outcome] {
+			if n := countWord(clause, string(k)); n != 1 {
+				t.Errorf("kind %q appears %d times in the %q clause, want exactly 1 — the "+
+					"census is satisfied by naming, and naming twice is repetition: %q",
+					k, n, prefix, clause)
+			}
 		}
 	}
 	// the report vocabulary: `refused` belongs to an apply that STOPPED, and a kind with no
@@ -62,10 +80,113 @@ func TestHostApplyNamesEachInapplicableKindOnce(t *testing.T) {
 		t.Errorf("a notch fact says `does not apply`, never `refused` (the report vocabulary): %q", lines[0])
 	}
 	// P8: the ~40-word reasons stay in internal/render and reach no terminal view. One of them,
-	// picked because its wording is the most distinctive of the seven.
-	if strings.Contains(report, "off-container the home simply") {
-		t.Errorf("the kind rationale must not print — it is the manual's (the report vocabulary):\n%s", report)
+	// picked because its wording is the most distinctive of the seven, and one at-launch one.
+	for _, prose := range []string{"off-container the home simply", "editing your shell rc"} {
+		if strings.Contains(report, prose) {
+			t.Errorf("the kind rationale must not print — it is the manual's (the report "+
+				"vocabulary): %q\n%s", prose, report)
+		}
 	}
+}
+
+// THE AT-LAUNCH OUTCOME, the regression this notch line had: `yolo host apply` named env,
+// adapter, service and loophole as not applying at the host while `yolo host -- <program>`
+// delivers each (MEASURED 2026-10-04: the dry run said so while `yolo host -- env` printed the
+// pack env). Over shipped packs that declare all five at-launch kinds: pi's plain env, the
+// guardrails blockers, wire-bridge's adapters and service (an official host half), and aws-auth's
+// credential doorway, with audio beside them for the shape the host delivers nowhere.
+func TestHostApplyNamesWhatYoloHostDeliversAtLaunch(t *testing.T) {
+	home := t.TempDir()
+	selectPacks(t, home, `"pi","guardrails","wire-bridge","aws-auth","audio"`)
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
+	defaultReport(t)
+	_, report := surveyApply(t)
+
+	lines := notchKindLines(report)
+	if len(lines) != 1 {
+		t.Fatalf("want one notch line, got %d:\n%s", len(lines), report)
+	}
+	clauses := notchClauses(lines[0])
+	launched, notApplying := clauses[atLaunchClause], clauses[doesNotApplyClause]
+	for _, k := range []packdecl.Kind{packdecl.KindEnv, packdecl.KindBlockedTool,
+		packdecl.KindAdapter, packdecl.KindService, packdecl.KindLoophole} {
+		if countWord(launched, string(k)) != 1 {
+			t.Errorf("%s is delivered by `yolo host -- <program>` and is not named once as at "+
+				"launch only: %q", k, lines[0])
+		}
+	}
+	// Two kinds whose every contribution here is delivered: neither may be said not to apply.
+	for _, k := range []packdecl.Kind{packdecl.KindAdapter, packdecl.KindBlockedTool, packdecl.KindService} {
+		if countWord(notApplying, string(k)) != 0 {
+			t.Errorf("%s is said not to apply at the host, and `yolo host --` delivers it: %q", k, lines[0])
+		}
+	}
+	// audio's pointer at a socket only a jail binds is withheld at `yolo host --` (LP-D1), and
+	// its loophole has no doorway, so env and loophole are in both groups: the line and the
+	// launch decide with the launch's own predicates.
+	for _, k := range []packdecl.Kind{packdecl.KindEnv, packdecl.KindLoophole} {
+		if countWord(notApplying, string(k)) != 1 {
+			t.Errorf("audio's %s has no meaning at the host (the launch withholds it), and the "+
+				"line does not say so: %q", k, lines[0])
+		}
+	}
+
+	// --verbose says which pack's contributions landed in each group, for a kind in both.
+	verboseReport(t)
+	_, verbose := surveyApply(t)
+	for _, want := range []string{"env (aws-auth, pi)", "env (audio)", "loophole (aws-auth, openai-auth)",
+		"loophole (audio)", "`yolo config-ref` says how"} {
+		if !strings.Contains(verbose, want) {
+			t.Errorf("--verbose does not say %q:\n%s", want, verbose)
+		}
+	}
+}
+
+// A loophole whose only client is a container is named as not applying, and never as delivered
+// at launch. host-processes and journal ship no doorway, and no selected pack ships one, so the
+// doorway set apply.go hands the survey is what decides it: handing it every loophole would
+// name these as delivered, as handing it none would fail the test above.
+func TestHostApplyNamesAContainerOnlyLoopholeAsNotApplying(t *testing.T) {
+	home := t.TempDir()
+	selectPacks(t, home, `"host-processes","journal"`)
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
+	defaultReport(t)
+	_, report := surveyApply(t)
+
+	lines := notchKindLines(report)
+	if len(lines) != 1 {
+		t.Fatalf("want one notch line, got %d:\n%s", len(lines), report)
+	}
+	clauses := notchClauses(lines[0])
+	if _, ok := clauses[atLaunchClause]; ok {
+		t.Errorf("neither pack declares anything `yolo host --` delivers: %q", lines[0])
+	}
+	if countWord(clauses[doesNotApplyClause], "loophole") != 1 {
+		t.Errorf("a loophole whose only client is a container is not named as not applying: %q", lines[0])
+	}
+}
+
+// atLaunchClause and doesNotApplyClause open the default notch line's two kind clauses.
+const (
+	atLaunchClause     = "at launch only (`yolo host --`): "
+	doesNotApplyClause = "does not apply at the host: "
+)
+
+// notchClauses splits the default notch line into its clauses, keyed by the clause's opening
+// words (atLaunchClause, doesNotApplyClause) and holding the names after them.
+func notchClauses(line string) map[string]string {
+	out := map[string]string{}
+	line = strings.TrimSpace(line)
+	for _, part := range strings.Split(line, " · ") {
+		for _, prefix := range []string{atLaunchClause, doesNotApplyClause} {
+			if rest, ok := strings.CutPrefix(part, prefix); ok {
+				out[prefix] = rest
+			}
+		}
+	}
+	return out
 }
 
 // TestHostApplyNamesTheAutonomyPostureOnce is the posture half. Its value comes from the
@@ -126,26 +247,47 @@ func loadedPacksForTest(t *testing.T) []*packload.Pack {
 	return loaded
 }
 
-// inapplicableKindsInConfig reports which kinds the configured packs declare that this notch
-// does nothing with, and how many CONTRIBUTIONS declare them. The second number is what makes
-// the once-per-run assertion non-vacuous.
-func inapplicableKindsInConfig(t *testing.T) (kinds []packdecl.Kind, contributions int) {
+// selectedPacksForTest is loadedPacksForTest through the launch's own selection, as the apply
+// takes it, so the packs a `needs` joins are in the set: the doorways a survey reads are theirs
+// (openai-auth's, which every agent pack but copilot joins).
+func selectedPacksForTest(t *testing.T) []*packload.Pack {
+	t.Helper()
+	sel := selectConfiguredHostPacks()
+	if sel.loadErr != nil {
+		t.Fatalf("load the fixture's packs: %v", sel.loadErr)
+	}
+	if problems := sel.problems(); len(problems) > 0 {
+		t.Fatalf("the fixture's packs do not resolve: %+v", problems)
+	}
+	loaded, _ := packload.ResolveDestinations(sel.packs)
+	return loaded
+}
+
+// notchGroupsInConfig reports which kinds the configured packs declare in each notch-line group,
+// and how many CONTRIBUTIONS landed in either group. The second number is what makes the
+// once-per-group assertion non-vacuous.
+func notchGroupsInConfig(t *testing.T) (map[hostNotchOutcome][]packdecl.Kind, int) {
 	t.Helper()
 	fields := render.HostFields()
-	seen := map[packdecl.Kind]bool{}
-	for _, p := range loadedPacksForTest(t) {
+	loaded := selectedPacksForTest(t)
+	doorways := run.HostDoorwayLoopholes(config.UserScopeConfigOrEmpty(), loaded)
+	groups := map[hostNotchOutcome][]packdecl.Kind{}
+	seen := map[hostNotchOutcome]map[packdecl.Kind]bool{notchAtLaunch: {}, notchDoesNotApply: {}}
+	contributions := 0
+	for _, p := range loaded {
 		for _, c := range p.Decl.Contributions() {
-			if !notchInapplicable(fields, c.Kind) {
+			outcome := hostNotchOutcomeOf(loaded, fields, c, doorways)
+			if outcome == notchApplies {
 				continue
 			}
 			contributions++
-			if !seen[c.Kind] {
-				seen[c.Kind] = true
-				kinds = append(kinds, c.Kind)
+			if !seen[outcome][c.Kind] {
+				seen[outcome][c.Kind] = true
+				groups[outcome] = append(groups[outcome], c.Kind)
 			}
 		}
 	}
-	return kinds, contributions
+	return groups, contributions
 }
 
 // THE AUTONOMY LINE MUST NOT PROMISE A FOLD THAT DOES NOT HAPPEN.

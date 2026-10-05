@@ -24,6 +24,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/cli/run"
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/darwinpkg"
 	"github.com/mschulkind-oss/yolo-jail/internal/entrypoint"
@@ -342,8 +343,11 @@ func applyHostSurveyed(out, errw io.Writer, color bool, write bool, stdin io.Rea
 		userFiles := readHostUserFiles(userCfg)
 		// And every other config key the host leaves undone, from the census (OQ-DP5): a jail
 		// with no pack still honors `mounts` or `mise_tools`, so at the host they are named here.
+		// So is an inline loophole, a config entry rather than a pack's: with no pack selected
+		// every `loopholes.<name>` entry with a command is one, and a jail still runs it.
 		printNotchFacts(pr, notchFacts{InertConfig: userFiles.inertNames(),
-			InertKeys: inertConfigKeys(userCfg, render.HostFields())})
+			InertLoopholes: inertInlineLoopholes(userCfg, nil),
+			InertKeys:      inertConfigKeys(userCfg, render.HostFields())})
 		// The BRANCH, recorded: "no packs are configured" and "every configured pack changed
 		// nothing" are different results with different next actions, and both reach the
 		// survey as an empty changed set. Nothing can derive it downstream, so it is stated
@@ -731,9 +735,16 @@ func applyHostSurveyed(out, errw io.Writer, color bool, write bool, stdin io.Rea
 	//
 	// Before the loop, so "folded into the config surfaces below" is a true word about what
 	// comes next, and so a reader meets the notch before they meet this home.
-	notch := surveyNotchFacts(loaded, hostFields, overlays)
+	//
+	// The doorways are the ones `yolo host --` opens for these packs (run.HostDoorwayLoopholes,
+	// PlanHostDoorways' own filter), so a credential loophole is named as delivered at launch by
+	// the predicate the launch decides with.
+	notch := surveyNotchFacts(loaded, hostFields, overlays, run.HostDoorwayLoopholes(userCfg, loaded))
 	notch.InertPackages = inertPackages
 	notch.InertConfig = userFiles.inertNames()
+	// The user's own inline loopholes, per entry: the `loopholes` key is honored here, so the
+	// key census below cannot name one, and a jail runs it while no host verb does.
+	notch.InertLoopholes = inertInlineLoopholes(userCfg, loaded)
 	// THE CONFIG-KEY CENSUS (docs/design/declaration-parity.md OQ-DP5's second half, DP-B31):
 	// every key the user scope declares that the host's FieldSet says this notch leaves undone
 	// is named on the same line as the kinds, from the same FieldSet the kinds are read off.
@@ -743,9 +754,9 @@ func applyHostSurveyed(out, errw io.Writer, color bool, write bool, stdin io.Rea
 
 	for _, p := range loaded {
 		// Account for EVERY kind the pack declares. Three outcomes, and the invariant is that
-		// there is no fourth: named once above as a kind this notch does not apply (whether
-		// the FieldSet refuses it or honors it with no renderer behind it), rendered below, or
-		// — for the two dep kinds — probed here. A kind that produced no line at all was the
+		// there is no fourth: named once above — as a kind `yolo host --` delivers at launch, or
+		// as one this notch does not apply (whether the FieldSet refuses it or honors it with no
+		// renderer behind it) — rendered below, or — for the two dep kinds — probed here. A kind that produced no line at all was the
 		// G1 bug: `skills`/`briefing` were honored by the FieldSet but rendered by nothing, so
 		// they vanished silently, which is strictly worse than a loud refusal.
 		packDeps := deps.of(p) // probed in the pre-flight above, consulted here

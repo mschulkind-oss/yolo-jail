@@ -130,7 +130,7 @@ is numbered last so the existing P1–P6 citations keep resolving, not because i
 
 | Tier | Definition | Default rendering | `--verbose` adds |
 | :--- | :--- | :--- | :--- |
-| **1 — Notch facts** | True of this notch regardless of the home: which kinds do not apply here, which keys the user config declares that the host leaves undone (the config-key census, [OQ-DP5](../design/declaration-parity.md#OQ-DP5)), an inert `packages:`, the autonomy posture | **one line per run**, naming the kinds, those keys, `packages` when it is inert, and the posture in [the vocabulary](#the-report-vocabulary)'s words (`printNotchFacts`). | the full lines: the kinds with the `yolo config-ref` pointer, the keys, `describe`'s own `packages` line, and where the posture folded. Never the reasoning; that is the manual's (P8) |
+| **1 — Notch facts** | True of this notch regardless of the home: which kinds apply *at launch only* and which do not apply here, which keys the user config declares that the host leaves undone (the config-key census, [OQ-DP5](../design/declaration-parity.md#OQ-DP5)), and the entries of an honored key it does nothing with (a `host_files` entry with a source, an inline loophole), an inert `packages:`, the autonomy posture | **one line per run**, naming the at-launch kinds, then the kinds, keys and entries that do not apply, `packages` when it is inert, and the posture in [the vocabulary](#the-report-vocabulary)'s words (`printNotchFacts`). A kind can be in both clauses, each for its own contributions | the full lines: each clause's kinds with the `yolo config-ref` pointer, and, for a kind in both, which packs' contributions landed in each; the keys and entries, `describe`'s own `packages` line, and where the posture folded. Never the reasoning; that is the manual's (P8) |
 | **2 — Run facts** | Vary with the home but need no action: in-sync, skipped and unchanged surfaces, delivered files and wrappers, composed-from, inferred destinations, would-render surfaces, a reserved skills tree already reported, and a declared dependency that is **present** | counted in the verdict; a destination that changes is itemized, of every kind | every destination, and the per-entry lines |
 | **3 — Losses and blockers** | Two members, one treatment. A **loss**: something of the user's is replaced, dropped, moved or archived. A **blocker**: something stands between this home and a completed apply — a missing declared dependency, a refusal, a pack that failed to render | always itemized, grouped by remedy, each group carrying its remedy once, and every group represented in the verdict line | the per-destination expansion of each group |
 | **4 — Disclosures** (launch only) | Host access this launch has: pack read/exec claims, the cache alias, passthrough, the loopback verdict | always, unchanged, never grouped or compressed | nothing — there is no more to say |
@@ -240,8 +240,8 @@ Each count is chosen by P6 — the unit the reader cares about, not the loop cou
 | surfaces that would lose comments of yours | surfaces | `HostRenderResult.Formatting` |
 | first apply of a surface into this home | flag | `HostRenderResult.FirstApply` |
 
-The kinds that do not apply at this notch are not a count: the tier-1 line names them once per run
-(P1).
+The kinds that apply at launch only, and the ones that do not apply at this notch, are not a count:
+the tier-1 line names them once per run (P1).
 
 **Only the dry run has a footer.** It states the posture — nothing was written — and names
 `--verbose`, because the default view counts what it does not itemize and the reader has to be told
@@ -309,7 +309,8 @@ instead of re-reading a paragraph per contribution.
 | **would change** / **changed** | the destination's content differs from what a render produces; an `--assert` writes it | a destination nothing compared |
 | **unchanged** | compared, and equal | a destination that was skipped or refused |
 | **skipped** | yolo did not touch it, and it stays the user's | something yolo declined for its own reasons |
-| **does not apply** | this kind has no meaning at this notch | anything that stops the apply |
+| **at launch only** *(coined here)* | at the host notch, `yolo host -- <program>` delivers this declaration to the program it starts, and `yolo host apply` writes no file for it: an env var, a blocker, an adapter's address, a service's host half, a credential loophole's doorway. Decided per contribution, by the launch's own predicates, so the line and the launch cannot disagree | a declaration no host verb delivers, which is *does not apply* |
+| **does not apply** | this declaration has no meaning at this notch: no verb there, `yolo host apply` or `yolo host --`, does anything with it | anything that stops the apply, and anything `yolo host --` delivers |
 | **refused** | the apply stopped; nothing was rendered | a notch fact |
 | **replaces** | a value of the user's is overwritten by a managed key or a pack's `config-overlay`, measured against the file the write produces | a key yolo already owned, or one the write leaves as the file has it |
 | **kept** | under `host_management: own`, the user's captured edit outranks a pack's `config-overlay`, so the pack's value is not in effect. Not a loss: stated on its own line with how to take the pack's value (set it in the file and apply again) or drop every captured edit (`yolo config reset <surface> --at host`) | a replaced value |
@@ -319,11 +320,17 @@ instead of re-reading a paragraph per contribution.
 | **missing** | a declared dependency is not on this host | one yolo could not probe, which is *not probed* |
 | **dry run** | the posture that writes nothing | the `--assert` posture, which is *applying* |
 
-Two rows resolve collisions and are worth stating outright:
+Three rows resolve collisions and are worth stating outright:
 
 - **`refused` belongs to the apply, not to a kind.** A kind the notch has no meaning for reads
   *does not apply*, which leaves the word `refused` free for the thing that actually stops an
   apply.
+- **A kind can be *at launch only* and *does not apply* in one run.** The unit is the
+  contribution, not the kind: aws-auth's loophole opens a doorway at `yolo host --` while
+  host-processes' has no client off-container, and a plain pack env var is
+  delivered while audio's pointer at a socket only a jail binds is withheld. Until 2026-10-04 the
+  report named env, adapter, blocked-tool, service and loophole as not applying at the host
+  while `yolo host -- env` printed the pack env.
 - **The user-facing word for the observing posture is *dry run*.** `observe` stays the posture's
   name in the code, because that is what it is called at the call site; the report says *dry run*,
   because that is the question the reader is asking. One word reaches the user, not two.
@@ -338,10 +345,13 @@ it is still what the code decides by, and it is what the drift gate compares the
 > **Moving prose out of a mechanism and into a hand-written doc is how this codebase loses
 > documentation, and the only reason it is safe here is the gate.** Retyped text drifts from the
 > thing it describes, so the move carries a requirement rather than a hope:
-> `TestEveryHostNotchInapplicableKindHasItsReasonDocumented` asserts that every kind the host
-> `FieldSet` refuses has its reason documented, with `TestHostNotchDocGateIsNotVacuous` as its
-> control. A reason that lands in prose no test reads is exactly the predicted failure. Do not
-> move a reason into the manual without extending both.
+> `TestEveryHostNotchInapplicableKindHasItsReasonDocumented` asserts that every kind that can land
+> under *does not apply* has its reason documented, and `TestEveryHostAtLaunchKindHasItsRowDocumented`
+> that every *at launch only* kind has its row, with `TestHostNotchDocGateIsNotVacuous` and
+> `TestHostAtLaunchDocGateIsNotVacuous` as their controls. `TestNoHostNotchListCarriesARowItsKindCannotReach`
+> is the converse: a row left behind for a kind that moved, which the presence gates cannot see. A
+> reason that lands in prose no test reads is exactly the predicted failure. Do not move a reason
+> into the manual without extending the gates.
 
 ## The launch stream
 
@@ -438,8 +448,9 @@ the flag rather than growing a second output mode. `yolo host apply` is an actin
 - **The dry run emits the document.** It is the survey: destinations with tier, action and path;
   losses and blockers with class, names and remedy key; the counts; the verdict's outcome as a
   stable token; the first-apply flag. It goes through the existing `parseOutputFormat` front end,
-  both spellings. It names the kinds that do not apply and **does not carry their prose reasons** —
-  rationale is not data.
+  both spellings. It names the kinds that do not apply (`inapplicable_kinds`) and the ones that
+  apply at launch only (`at_launch_kinds`), and **does not carry their prose reasons** — rationale
+  is not data.
 - **`--assert --format json` refuses**, exit 2, stdout empty. *Nothing to report must still be a
   document*: zero packs emits a document with empty lists and the retire passes' results.
 

@@ -289,6 +289,8 @@
         Must start with /run/yolo-services/.
         Default: /run/yolo-services/<name>.endpoint
         ("jail_socket" is accepted as an alias.)
+    An inline service runs only beside a jail, its one client: at the host notch no
+    verb starts it, and `yolo host apply` names each enabled one as not applying.
 
     OVERRIDING an existing loophole takes only "enabled", "env", "jail_env" and
     "settings" ("jail_env" being extra env vars set INSIDE the jail, merged over
@@ -1684,8 +1686,10 @@
                     mount, one per SOCKET bind as its own read-write host-IPC class (`:ro`
                     is no boundary for an AF_UNIX socket — measured), and one per host
                     device.  `state_files` needs no claim (it stays inside yolo's own
-                    state tree).  Refused at the host notch: a loophole is a host daemon
-                    whose only client is a container, so with no jail there is no client.
+                    state tree).  At the host notch a credential loophole's doorway
+                    opens at `yolo host --` for the agent whose selection asks for it;
+                    any other loophole's only client is a container, so it does not
+                    apply there.
       service       {name, jail_daemon:{cmd, restart}, host_daemon:{cmd}, endpoint,
                     platforms, serves, settings} — a DAEMON the pack contributes to a
                     namespace: a yolo-jaild subcommand run in the jail (under the same
@@ -1701,16 +1705,38 @@
                     agent is paired through the service, and stops when that agent exits;
                     only a pack yolo ships may declare one that runs, and a fetched or
                     local pack's is refused by name (host-notch-services.md OQ-HS4).
-    AT THE HOST NOTCH (`yolo host apply`) THE KINDS BELOW DO NOT APPLY, and this is
-    where the reason lives.  The report names them in one line and stops, because a
-    reason is for the person changing a rule and not the person meeting it; what
-    follows is that reason, per kind, once.  "Does not apply" means the kind has no meaning off-container
-    — it is never a refusal of your apply, which stops nothing and writes your other
-    surfaces normally.
-      blocked-tool  a blocker is a shim first on the PATH of a process yolo starts, and
-                    this command starts none.  Putting one at the head of your whole
-                    session's PATH would mean editing your shell rc.  `yolo host --
-                    <program>` puts them first on that program's PATH instead.
+    AT LAUNCH ONLY (`yolo host -- <program>`): at the host notch the kinds below are
+    delivered to the program yolo starts, for that process only, and `yolo host apply`
+    writes no file for them: what each declares reaches an agent through its process
+    (an environment, a PATH, the providers table, a child daemon), never through a
+    config file.  The report names them in one clause; this is how each arrives.  An
+    env var, a service and a loophole also have a shape the host delivers nowhere,
+    listed under the next heading, so one kind can be named in both.
+      env           an env var applies to a process yolo starts: `yolo host --
+                    <program>` delivers it to that process only, and `yolo host env`
+                    prints it.  Setting it for your whole session would mean editing
+                    your shell rc.
+      blocked-tool  a blocker is a shim first on the PATH of a process yolo starts:
+                    `yolo host -- <program>` puts them first on that program's PATH.
+                    Putting one at the head of your whole session's PATH would mean
+                    editing your shell rc.
+      adapter       an adapter's address is composed into the providers table a launch
+                    carries, so `yolo host -- <program>` points its agent there,
+                    starting the pack service that answers it when one does.
+      service       a service's host half (`host_daemon`, in a pack yolo ships) runs at
+                    `yolo host -- <program>` beside the one agent paired through it,
+                    and stops when that agent exits.
+      loophole      a credential loophole's doorway (`jail_daemon.host_cmd`, in a pack
+                    yolo ships) opens at `yolo host -- <program>` for the agent whose
+                    selection asks for it, once the loophole is enabled, and closes when
+                    that agent exits.
+    AT THE HOST NOTCH THE KINDS BELOW DO NOT APPLY: neither `yolo host apply` nor `yolo
+    host --` does anything with them, and this is where the reason lives.  The report
+    names them in one line and stops, because a reason is for the person changing a
+    rule and not the person meeting it; what follows is that reason, per kind, once.
+    "Does not apply" means the declaration has no meaning off-container — it is never
+    a refusal of your apply, which stops nothing and writes your other surfaces
+    normally.
       intercept     an intercept layers a permission over a CLI by putting a forwarder
                     first on a JAIL's PATH.  At the host the agent runs as you and can
                     run the real program by its path, so the layer would govern
@@ -1719,29 +1745,28 @@
                     simply is writable, so there is nothing to declare.
       reads-host    reads-host carries a host file INTO a jail.  With no jail the file is
                     already where the reader is.
-      mount         a mount needs a mount namespace, which is unavailable without a
-                    container.
-      env           env vars apply to a process yolo starts, and `yolo host apply` only
-                    configures your tools — it never runs them.  Setting them for your
-                    whole session would mean editing your shell rc.  `yolo host --
-                    <program>` delivers them at launch instead, to that process only.
+      mount         a mount grants a jail a host folder through the jail's wall.  At
+                    the host there is no wall, and the folder is already where you are.
+      env           an env var `served_by` a daemon the host does not serve — a bound
+                    loophole's socket path, which only a jail binds (audio's), or a
+                    loophole with no doorway — is withheld at `yolo host --`, which
+                    names it: a client at the host reaches its own server instead.
       hook          the shipped hooks are jail provisioning steps — a credential or
                     package-store symlink into the machine tier, and per-jail history.
                     Off-container each is either meaningless or a mutation of real user
                     state that no pack should perform unprompted (the directory one would
-                    replace a real directory in your own home with a symlink), so this
-                    command runs none of them.
-      adapter       an adapter's address is composed into the providers table a LAUNCH
-                    carries, so it reaches an agent the moment one starts and never
-                    through a config file.  This command starts none, so nothing is
-                    pointed anywhere.
-      loophole      a loophole is a host daemon whose only client is a container: with no
-                    jail there is no client, no --add-host, no YOLO_JAIL_DAEMONS, and
-                    nothing for its endpoint file to be mounted into.  Launch a jail to
-                    run it.
-      service       a service is a daemon pair plus an endpoint file under the jail's
-                    /run.  With no jail there is nothing to supervise the jail half and
-                    nothing to read the endpoint.
+                    replace a real directory in your own home with a symlink), so no
+                    host verb runs any of them.
+      loophole      a loophole with no doorway for a notch without a jail
+                    (`jail_daemon.host_cmd`) is a host daemon whose only client is a
+                    container: with no jail there is no client, no --add-host, no
+                    YOLO_JAIL_DAEMONS, and nothing for its endpoint file to be mounted
+                    into.  An INLINE loophole of yours (a `loopholes.<name>` entry with a
+                    `command`) is one, and the report names it by entry.
+      service       a service with no host half (`host_daemon`), or one in a pack yolo
+                    does not ship, is a daemon pair plus an endpoint file under the
+                    jail's /run.  With no jail there is nothing to supervise the jail
+                    half and nothing to read the endpoint.
     WHAT A HOST APPLY COMPUTES, as a jail does: `yolo host apply`, and the automatic
     apply a wrapped launch runs, run each pack's derives over inputs composed from
     your USER config alone — the providers table (your `providers` over the selected
@@ -2084,7 +2109,9 @@
         whole table into the skills tree Claude loads plugins from.
     yolo installs no language server itself, on any backend.
     At the host notch `yolo host apply` writes the same translation into your real
-    home from your USER config, less any server naming a path only a jail has.
+    home from your USER config, less any server naming a path only a jail has:
+    Copilot's file, and the yolo-lsp plugin in the skills dir of every selected
+    pack that composes one.
     Example: {"rust": {"command": "rust-analyzer", "args": [],
               "fileExtensions": {".rs": "rust"}}}
 
