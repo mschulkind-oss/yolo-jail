@@ -389,10 +389,16 @@ func startJailDaemons(deps Deps, out printer, plan RunPlan, teardown *sessionTea
 			"(no background launcher is wired).")
 		return nil, false
 	}
+	// The sweep is defined BEFORE the install and runs on its failure too, as the env file's and
+	// the profile's removals are deferred before theirs: an install that failed half-way may have
+	// written the caller tokens (the tee ran, the chmod or the read ACE after it failed), and the
+	// file's per-session name means no later launch rewrites it. Through the teardown, so a removal
+	// that fails keeps the session's record for the next launch's sweep.
+	sweep := func() { teardown.remove(plan.DaemonEnvRemoveCommands) }
 	if !installSandboxEnvFile(deps, out, plan.daemonEnvFilePlan()) {
+		sweep()
 		return nil, false
 	}
-	sweep := func() { teardown.remove(plan.DaemonEnvRemoveCommands) }
 	names := strings.Join(plan.JailDaemonNames, ", ")
 	logPath := plan.SupervisorLog
 	// The size before the start, so the wait reads only what this start adds. Exact because the

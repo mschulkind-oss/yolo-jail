@@ -890,7 +890,7 @@ func RunMacosUser(deps Deps, opts Options) int {
 	}
 	// A DISCLOSURE, every launch: which certificate authorities the sandbox trusts, and which
 	// variables say so.
-	printCATrust(out, plan.CATrust, plan.EnvFileContent, plan.CABundleFile, plan.CAExtrasFile)
+	printCATrust(out, plan.CATrust, plan.EnvFileContent, plan.CABundleFile, plan.CAExtrasFile, plan.CAFollows)
 
 	// THE DISK I/O POLICY (docs/design/io-priority.md §5.5, IO-D7), set on THIS process before
 	// anything that does the session's I/O starts: the stage copies, the bootstrap, the
@@ -936,8 +936,9 @@ func RunMacosUser(deps Deps, opts Options) int {
 	// is still in use. Every removal below goes through the teardown, which unlinks the record
 	// only when each one succeeded: one that failed keeps it, free, for the next launch's sweep,
 	// and warns with the command. The sweep removes what sessions that ended without their
-	// teardown left in the state dir, every workspace's, and keeps everything it cannot prove
-	// ended. It runs `sudo rm -f`, so it sits after the notice above.
+	// teardown left in the state dir, every workspace's that this macOS user launched (the
+	// records are in this user's own state dir), and keeps everything it cannot prove ended. It
+	// runs `sudo rm -f`, so it sits after the notice above.
 	sessionKey := SessionKey(plan.Cname, plan.SessionID)
 	record := openSessionRecordOrWarn(deps, out, sessionKey)
 	teardown := &sessionTeardown{deps: deps}

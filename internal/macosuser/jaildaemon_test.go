@@ -20,6 +20,8 @@ package macosuser
 
 import (
 	"bytes"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -305,5 +307,75 @@ func TestPlanInvariantsCatchAnUnconfinedOrMissingSupervisor(t *testing.T) {
 		if len(PlanInvariants(p)) == 0 {
 			t.Errorf("%s: PlanInvariants accepted the plan", name)
 		}
+	}
+}
+
+// A DAEMONS ENV FILE WHOSE INSTALL FAILED HALF-WAY IS STILL REMOVED THROUGH THE TEARDOWN. The tee
+// may have written the supervisor's caller tokens before the chmod or the read ACE failed, and the
+// file's per-session name means no later launch rewrites it; so the refusal removes it, and a
+// removal that fails keeps the session's record for the next sweep, as the env file's and the
+// profile's do. Driven through RunMacosUser, so it fails if startJailDaemons returns without the
+// teardown's removal.
+func TestADaemonsEnvFileWhoseInstallFailsIsRemovedThroughTheTeardown(t *testing.T) {
+	ws := "/Users/Shared/yolo/proj"
+	for _, tc := range []struct {
+		name               string
+		installFails       bool // the tee ran and the chmod after it failed
+		grantFails, rmFail bool
+	}{
+		{name: "the install", installFails: true},
+		{name: "the read ACE", grantFails: true},
+		{name: "the install, and its removal", installFails: true, rmFail: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := t.TempDir()
+			var rec []string
+			d := mockDeps(&rec)
+			d.SessionRecordDir = func() string { return dir }
+			fakeSupervisor(&d, &rec, ws, "", readyLine, "", false)
+			d.GuestBinaries = func(string) (string, error) { return "/opt/yolo/bin/darwin-arm64", nil }
+			install := d.InstallRootFile
+			d.InstallRootFile = func(path, content, mode string) bool {
+				ok := install(path, content, mode)
+				return ok && !(tc.installFails && strings.HasSuffix(path, ".daemons.env"))
+			}
+			run := d.Run
+			d.Run = func(argv []string) int {
+				rc := run(argv)
+				last := argv[len(argv)-1]
+				if !strings.HasSuffix(last, ".daemons.env") {
+					return rc
+				}
+				if (tc.grantFails && argv[1] == chmodBin) || (tc.rmFail && argv[1] == rmBin) {
+					return 1
+				}
+				return rc
+			}
+			var out bytes.Buffer
+			d.Out = &out
+			o := newOpts(ws)
+			o.JailDaemons = openAIAdapterDaemons("")
+			if rc := RunMacosUser(d, o); rc != 1 {
+				t.Fatalf("rc = %d, want the refusal\n%s", rc, out.String())
+			}
+			key := launchedSessionKey(t, rec, ws)
+			daemonsEnv := SandboxDaemonEnvFile(key, "")
+			if !strings.Contains(strings.Join(rec, "\n"), "run:sudo "+rmBin+" -f "+daemonsEnv) {
+				t.Errorf("the half-written daemons env file %s is never removed:\n%s",
+					daemonsEnv, strings.Join(rec, "\n"))
+			}
+			record := filepath.Join(dir, key+sessionRecordSuffix)
+			_, err := os.Lstat(record)
+			if tc.rmFail {
+				if err != nil {
+					t.Errorf("the daemons env file could not be removed and the record naming it is gone: %v", err)
+				}
+				if !strings.Contains(out.String(), "sudo "+rmBin+" -f "+strings.Join(SessionFilePaths(key, ""), " ")) {
+					t.Errorf("the failed removal does not warn with the command:\n%s", out.String())
+				}
+			} else if !os.IsNotExist(err) {
+				t.Errorf("every removal succeeded and the record is still there (%v)", err)
+			}
+		})
 	}
 }

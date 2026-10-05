@@ -213,12 +213,14 @@ type CapturePlan struct {
 	EnvFileGrantCommands [][]string
 	// CATrust is the TLS trust the capture composed (CaptureOptions.CATrust). CABundleFile and
 	// CAExtrasFile are its CA files beside its env file, with what to write into each
-	// (cabundle.go); all "" when no bundle of its own is written. CleanupCommands remove both.
+	// (cabundle.go); each "" when no variable names it. CleanupCommands remove both. CAFollows is
+	// the bundle variable the capture's env set, which the other four then name too, or "".
 	CATrust          CATrust
 	CABundleFile     string
 	CABundleContent  string
 	CAExtrasFile     string
 	CAExtrasContent  string
+	CAFollows        string
 	DarwinPathPrefix []string
 	// OffendingHome is the user home containing StagingRoot, when there is one — the same
 	// neutral-ground check a launch makes about its workspace, applied to the staging tree.
@@ -287,11 +289,8 @@ func BuildCapturePlan(opts CaptureOptions) CapturePlan {
 	//
 	// THE TLS VARIABLES, as a launch sets them (cabundle.go): defaults under the composed env, and
 	// the capture's own CA files beside its env file, keyed on the same cname.
-	sandboxEnv, caBundleFile, caExtrasFile := applyCATrust(opts.SandboxEnv, opts.CATrust, cname)
-	caBundleContent, caExtrasContent := "", ""
-	if caBundleFile != "" {
-		caBundleContent, caExtrasContent = opts.CATrust.Bundle, opts.CATrust.Extras
-	}
+	sandboxEnv, caBundleFile, caExtrasFile, caFollows := applyCATrust(opts.SandboxEnv, opts.CATrust, cname)
+	caBundleContent, caExtrasContent := caTrustContents(opts.CATrust, caBundleFile, caExtrasFile)
 	envFile := ""
 	envFileContent := SandboxEnvFileContent(sandboxEnv)
 	if envFileContent != "" {
@@ -331,6 +330,7 @@ func BuildCapturePlan(opts CaptureOptions) CapturePlan {
 		CABundleContent:      caBundleContent,
 		CAExtrasFile:         caExtrasFile,
 		CAExtrasContent:      caExtrasContent,
+		CAFollows:            caFollows,
 		DarwinPathPrefix:     darwinPrefix,
 		OffendingHome:        offendingHome,
 		OffendingHomeSet:     offendingSet,
@@ -857,7 +857,7 @@ func RunCaptureAct(deps Deps, opts CaptureOptions, dest string, dryRun bool) int
 		}
 		return 0
 	}
-	printCATrust(out, plan.CATrust, plan.EnvFileContent, plan.CABundleFile, plan.CAExtrasFile)
+	printCATrust(out, plan.CATrust, plan.EnvFileContent, plan.CABundleFile, plan.CAExtrasFile, plan.CAFollows)
 	rc := RunCapturePlan(deps, plan)
 	// Sweep whatever the run got as far as, INCLUDING on failure: a half-provisioned staging
 	// tree left behind would merge into the next capture's baseline. It runs after the move

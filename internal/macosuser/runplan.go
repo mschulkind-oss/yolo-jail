@@ -106,13 +106,16 @@ type RunPlan struct {
 	EnvFileRemoveCommands [][]string
 	// CATrust is the TLS trust this launch composed (cabundle.go): the zero value composed none.
 	// CABundleFile and CAExtrasFile are the session's two CA files beside the env file, with what
-	// to write into each, all "" when the variables name the tool profile's own bundle or when
-	// nothing was composed. EnvFileRemoveCommands sweep both.
+	// to write into each, each "" when no variable names it: the variables name the tool
+	// profile's own bundle, the launch's env layers named a bundle of their own, or nothing was
+	// composed. EnvFileRemoveCommands sweep both. CAFollows is the bundle variable those layers
+	// set, which the other four then name too (applyCATrust), or "".
 	CATrust            CATrust
 	CABundleFile       string
 	CABundleContent    string
 	CAExtrasFile       string
 	CAExtrasContent    string
+	CAFollows          string
 	GitIdentity        *jsonx.OrderedMap
 	OffendingHome      string // "" when on neutral ground
 	OffendingHomeSet   bool   // true when a home contains the workspace
@@ -524,7 +527,7 @@ func BuildRunPlanWithDaemons(workspace string, cfg *jsonx.OrderedMap, agents, ag
 	//
 	// THE TLS VARIABLES first (cabundle.go), each a default under the caller's layers, so the file
 	// carries them and names the session's own CA files.
-	sandboxEnv, caBundleFile, caExtrasFile := applyCATrust(sandboxEnv, session.CATrust, sessionKey)
+	sandboxEnv, caBundleFile, caExtrasFile, caFollows := applyCATrust(sandboxEnv, session.CATrust, sessionKey)
 	envFile := ""
 	envFileContent := SandboxEnvFileContent(sandboxEnv)
 	if envFileContent != "" {
@@ -601,10 +604,7 @@ func BuildRunPlanWithDaemons(workspace string, cfg *jsonx.OrderedMap, agents, ag
 	// config's target included wherever it sits (workspacereadonly.go).
 	readonlyRels, readonlyTargets := workspaceReadonlyRels(workspace, cfg)
 
-	caBundleContent, caExtrasContent := "", ""
-	if caBundleFile != "" {
-		caBundleContent, caExtrasContent = session.CATrust.Bundle, session.CATrust.Extras
-	}
+	caBundleContent, caExtrasContent := caTrustContents(session.CATrust, caBundleFile, caExtrasFile)
 	envFileRemove := SandboxEnvRemoveCommands(envFile)
 	for _, f := range []string{caBundleFile, caExtrasFile} {
 		envFileRemove = append(envFileRemove, SandboxEnvRemoveCommands(f)...)
@@ -661,6 +661,7 @@ func BuildRunPlanWithDaemons(workspace string, cfg *jsonx.OrderedMap, agents, ag
 		CABundleContent: caBundleContent,
 		CAExtrasFile:    caExtrasFile,
 		CAExtrasContent: caExtrasContent,
+		CAFollows:       caFollows,
 
 		GitIdentity:        gitIdentity,
 		OffendingHome:      offendingHome,

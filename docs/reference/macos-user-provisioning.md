@@ -219,8 +219,8 @@ mechanism:
    session ends, plus the staging commands that copy the yolo binary, the pack tree, the home
    overlay and the `/ctx` tree;
 2. the **session env file** — everything this launch composed, root-owned `0600`, readable by
-   the sandbox account, swept on every exit path below it — and beside it the session's two CA
-   files when this Mac's System keychain adds a CA
+   the sandbox account, swept on every exit path below it — and beside it the session's CA
+   files when this Mac's System keychain adds a CA and a variable names them
    ([PS-D9](../design/provisioner-sets.md#PS-D9)), swept with it;
 3. the **darwin bootstrap** — `sudo --user=… /usr/bin/env -i … <staged yolo> internal
    darwin-bootstrap`, yolo's own generators, **with no `sandbox-exec`**;
@@ -251,16 +251,22 @@ read or remove one another's profile, env files or CA files. A *session* is the 
 macos-user invocation of yolo, one sandbox and what was started for it, from launch to teardown.
 Each session holds an exclusive flock on a **liveness record**,
 `<global storage>/locks/macos-user-sessions/<session>.lock`, from before its first root-owned
-write until it returns. When it ends it removes its own files and then the record; if one of
+write until it returns. `<global storage>` is `~/.local/share/yolo-jail` in the home of the macOS
+user who launched it (`paths.GlobalStorage`), so each macOS user's records are their own, while the
+files they name sit in the one machine-wide `/var/yolo-jail/env`. When it ends it removes its own files and then the record; if one of
 those removals fails (its `sudo` not authenticating at the end of a long session, say), it keeps
 the record, lets its lock go, and warns with the `sudo rm -f` that removes every file it can
 leave, since once the session has ended the record is the only thing that names them. Every
-launch first sweeps: a record nobody holds is a session that ended without removing its files, and
-they are removed with one `sudo rm -f`; a record that is held, cannot be opened, or does not
-parse is kept, and so is one whose removal fails, with the same warning. A dry run mints nothing
+launch first sweeps the records its own macOS user's launches left, of every workspace: a record
+nobody holds is a session that ended without removing its files, and they are removed with one
+`sudo rm -f`; a record that is held, cannot be opened, or does not parse is kept, and so is one
+whose removal fails, with the same warning. So a killed session's files wait for the next
+macos-user launch by the same macOS user, and a session that warned it could not record itself
+leaves them for nothing to sweep (that warning prints the `sudo rm -f`). A dry run mints nothing
 and prints the literal `<session>`. *Implementation decision, taken under the maintainer's
 2026-10-04 delegation ("make them and build it … adjust later"); reversible*: the id, the
-record's place, the machine-wide sweep and the teardown order are ledgered as
+record's place, the sweep of every record its macOS user's launches left, and the teardown order
+are ledgered as
 [JL-D84](../design/jail-lifetime-last-session-wins.md#JL-D84).
 
 `HOME`, `USER`, `SHELL`, `PATH`, `MISE_DATA_DIR` and `YOLO_DARWIN_LOGIN_PATH` are the **protected
@@ -740,7 +746,7 @@ $ nix eval --json '.#yoloNoncontainerFloorNames.aarch64-darwin'
 | Session key | `<cname>.<id>`, 16 hex digits minted per launch ([`<session>`](#the-session-key)) | `internal/macosuser/sessionfiles.go` (`SessionKey`, `newSessionID`) |
 | Session Seatbelt profile | `/var/yolo-jail/profile-<session>.sb`, root-owned `0444`, removed when the session ends | `internal/macosuser/macosuser.go` (`SessionProfilePath`); installed and removed by `orchestrator.go` |
 | Session env file | `/var/yolo-jail/env/<session>.env`, root-owned `0600`, named by `YOLO_DARWIN_ENV_FILE` | `internal/macosuser/envfile.go` (`SandboxEnvFile`, `SandboxEnvFileEnv`) |
-| Session CA files | `/var/yolo-jail/env/<session>.ca-bundle.crt` and `<session>.extra-ca.pem`, root-owned `0600`, only when the System keychain adds a CA | `internal/macosuser/cabundle.go` (`CABundleFile`, `CAExtrasFile`, `ComposeCATrust`) |
+| Session CA files | `/var/yolo-jail/env/<session>.ca-bundle.crt` and `<session>.extra-ca.pem`, root-owned `0600`, each written only when the System keychain adds a CA and a variable names the file: the bundle not when the launch's env layers name a bundle of their own, the extras not when they set `NODE_EXTRA_CA_CERTS` | `internal/macosuser/cabundle.go` (`CABundleFile`, `CAExtrasFile`, `ComposeCATrust`) |
 | Liveness record | `<global storage>/locks/macos-user-sessions/<session>.lock`, flocked for the session's life | `internal/macosuser/sessionfiles.go` (`openSessionRecord`, `sweepGoneSessions`) |
 | Sandbox PATH, and the login copy | `macosuser.SandboxPath`, carried as `PATH` and as `YOLO_DARWIN_LOGIN_PATH` | `internal/macosuser/macosuser.go`; `internal/entrypoint/darwinhomelayout.go` (`DarwinLoginPathEnv`) |
 | Shim bypass | `YOLO_BYPASS_SHIMS=1`, in the stage process's environment | `internal/macosuser/provision.go` (`ProvisionArgv`) |

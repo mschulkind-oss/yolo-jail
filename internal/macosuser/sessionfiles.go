@@ -40,7 +40,10 @@ package macosuser
 //   - Each launch, before it writes anything root-owned, SWEEPS: every record whose lock it can
 //     take is a session that ended without its teardown (a SIGKILL, a crash, a closed laptop),
 //     so it removes that session's files and the record. A record that is held, cannot be
-//     opened, or does not parse is kept: TRI-STATE, the rule every reaper here follows.
+//     opened, or does not parse is kept: TRI-STATE, the rule every reaper here follows. The
+//     records are in the launching macOS user's own state dir while the files are in the one
+//     machine-wide state dir, so a killed session's files wait for the next launch by the SAME
+//     macOS user, of any workspace; another user's launch never sees that record.
 
 import (
 	"crypto/rand"
@@ -216,7 +219,7 @@ func (t *sessionTeardown) finish(out printer, rec *sessionRecord, key, sd string
 		return
 	}
 	rec.release()
-	then := "The next macos-user launch removes them"
+	then := "The next macos-user launch by this macOS user removes them"
 	if rec == nil {
 		then = "No record of this session was kept, so no launch removes them"
 	}
@@ -285,10 +288,11 @@ func claimOpenedSessionRecord(f *os.File, path string) (*os.File, sessionLivenes
 	return f, sessionGone
 }
 
-// sweepGoneSessions removes the root-owned files of every session whose record says it is gone,
-// then the record. EVERY WORKSPACE'S, not this workspace's alone: liveness is each record's own
-// lock, so nothing another workspace's dead session left can be mistaken for a live one, and a
-// workspace nobody launches again would otherwise keep its dead sessions' files for good.
+// sweepGoneSessions removes the root-owned files of every session whose record in dir says it is
+// gone, then the record. EVERY WORKSPACE'S, not this workspace's alone: liveness is each record's
+// own lock, so nothing another workspace's dead session left can be mistaken for a live one, and a
+// workspace nobody launches again would otherwise keep its dead sessions' files for good. dir is
+// the launching macOS user's (SessionRecordsDir), so it holds only that user's sessions.
 //
 // Best effort, never a refusal: a removal that fails is warned about, naming the command that
 // would do it, and its record is kept so the next launch tries again. Silent when there is
@@ -313,8 +317,9 @@ func sweepGoneSessions(deps Deps, out printer, dir string) {
 		argv := append([]string{rmBin, "-f"}, SessionFilePaths(key, "")...)
 		if deps.Run(append([]string{"sudo"}, argv...)) != 0 {
 			out.printf("[yellow]Warning: could not remove the files a macos-user session that has "+
-				"ended left in %s[/yellow] (`sudo %s` failed). The next launch tries again; to "+
-				"remove them now, run that command.", stateDir, shquote.JoinDisplay(argv))
+				"ended left in %s[/yellow] (`sudo %s` failed). The next macos-user launch by this "+
+				"macOS user tries again; to remove them now, run that command.", stateDir,
+				shquote.JoinDisplay(argv))
 			_ = f.Close()
 			continue
 		}

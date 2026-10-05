@@ -22,9 +22,13 @@ package macosuser
 //  5. names every CA it took, at launch (a launch has no quiet mode).
 //
 // A keychain that cannot be read warns, names env_sources, and still points the variables at the
-// profile's public roots: it never refuses a launch. Each variable is a DEFAULT, under any value
-// the user's own env layers set, as in a container, where the user's env file is read after the
-// boot exports its bundle.
+// profile's public roots: it never refuses a launch.
+//
+// THE CALLER'S OWN BUNDLE WINS, FOR ALL FIVE (applyCATrust). Each tool reads its own of the five
+// first, so a user who set one of them, say SSL_CERT_FILE in env_sources, would have curl, git and
+// nix's OpenSSL ignore it if the other four kept a default of ours. When the launch's env layers
+// set any of the five, every one they left unset takes that value, and NODE_EXTRA_CA_CERTS, which
+// Node adds to its own roots and is none of the five, still names the keychain's CAs, as a default.
 
 import (
 	"bytes"
@@ -217,35 +221,89 @@ func caName(c *x509.Certificate) string {
 	return c.Subject.String()
 }
 
-// applyCATrust sets the CA variables on a copy of env, each as a default under any value already
-// there, and returns the copy with the session's two CA files (both "" when the variables name the
-// profile's own bundle). env itself is untouched.
-func applyCATrust(env *jsonx.OrderedMap, ca CATrust, key string) (out *jsonx.OrderedMap, bundleFile, extrasFile string) {
+// applyCATrust sets the CA variables on a copy of env and returns the copy, with the session's CA
+// files that a variable names (each "" when none does, so nothing writes it) and, when the
+// caller's layers set a bundle variable, which one the others follow. env itself is untouched.
+//
+// ONE BUNDLE FOR THE FIVE, the caller's when they named one. Each tool reads its own of the five
+// first: nix's OpenSSL NIX_SSL_CERT_FILE and only then SSL_CERT_FILE, curl CURL_CA_BUNDLE, git
+// GIT_SSL_CAINFO, requests REQUESTS_CA_BUNDLE and then CURL_CA_BUNDLE. So a default of ours under a
+// user's single variable is not a default but what those tools read instead of it. Measured
+// 2026-10-05 against a private CA on loopback, with nix curl 8.22 (OpenSSL 3.6.4), git 2.55 and
+// `openssl s_client`: SSL_CERT_FILE alone, naming the CA, verifies in all three; the same with
+// the other four naming the public roots fails verification in all three. So when the caller's
+// layers set any of the five to a non-empty value, every one they left unset takes the FIRST such
+// value in CABundleVars order (the order nix's OpenSSL reads them), a variable they set keeps its
+// own, and the session's bundle is not written, since nothing would name it. An empty value names
+// no bundle, so it is kept for its own variable and not followed. NODE_EXTRA_CA_CERTS is not one
+// of the five: it ADDS one file to the roots Node starts from (nix Node's are OpenSSL's, so the
+// five; a downloaded Node's are its own), so it still names the extras, as a default under any
+// value the caller set.
+func applyCATrust(env *jsonx.OrderedMap, ca CATrust, key string) (out *jsonx.OrderedMap, bundleFile, extrasFile, follows string) {
 	if ca.ProfileBundle == "" {
-		return env, "", ""
+		return env, "", "", ""
 	}
 	target := ca.ProfileBundle
 	if ca.Bundle != "" {
 		bundleFile, extrasFile = CABundleFile(key, ""), CAExtrasFile(key, "")
 		target = bundleFile
 	}
+	if k, v, ok := callerCABundle(env); ok {
+		follows, target, bundleFile = k, v, ""
+	}
 	out = env
 	for _, k := range CABundleVars {
 		out = withEnvDefault(out, k, target)
 	}
 	if extrasFile != "" {
-		out = withEnvDefault(out, NodeExtraCAVar, extrasFile)
+		if envSets(env, NodeExtraCAVar) {
+			extrasFile = ""
+		} else {
+			out = withEnvVar(out, NodeExtraCAVar, extrasFile)
+		}
 	}
-	return out, bundleFile, extrasFile
+	return out, bundleFile, extrasFile, follows
+}
+
+// callerCABundle is the first of CABundleVars that env sets to a non-empty value, with that value.
+func callerCABundle(env *jsonx.OrderedMap) (key, value string, ok bool) {
+	if env == nil {
+		return "", "", false
+	}
+	for _, k := range CABundleVars {
+		if v, set := env.Get(k); set && asStr(v) != "" {
+			return k, asStr(v), true
+		}
+	}
+	return "", "", false
+}
+
+// envSets reports whether env sets key at all.
+func envSets(env *jsonx.OrderedMap, key string) bool {
+	if env == nil {
+		return false
+	}
+	_, set := env.Get(key)
+	return set
+}
+
+// caTrustContents is what to write into each of a plan's CA files: the composed bundle into the
+// bundle file and the kept CAs alone into the extras file, each "" when its file is not written.
+func caTrustContents(ca CATrust, bundleFile, extrasFile string) (bundle, extras string) {
+	if bundleFile != "" {
+		bundle = ca.Bundle
+	}
+	if extrasFile != "" {
+		extras = ca.Extras
+	}
+	return bundle, extras
 }
 
 // withEnvDefault is withEnvVar for a key the caller's layers have not set; a set key is left as
 // it is, and env is returned unchanged.
 func withEnvDefault(env *jsonx.OrderedMap, key, value string) *jsonx.OrderedMap {
-	if env != nil {
-		if _, set := env.Get(key); set {
-			return env
-		}
+	if envSets(env, key) {
+		return env
 	}
 	return withEnvVar(env, key, value)
 }
@@ -272,26 +330,26 @@ func caTrustFiles(envFile, bundleFile, bundle, extrasFile, extras string) []sess
 // installCATrustFiles writes a session's CA files root-owned 0600, each with the sandbox
 // account's read ACE: the env file's installer, with messages of its own. A failure refuses the
 // launch, as the env file's does: its variables already name these files, and a bundle that is
-// not there breaks every TLS client in the sandbox rather than narrowing it.
+// not there, or that the sandbox cannot read, breaks every TLS client in the sandbox rather than
+// narrowing it. Each refusal names the next step (caTrustRetry).
 func installCATrustFiles(deps Deps, out printer, files []sessionFilePlan) bool {
 	for _, f := range files {
 		for _, cmd := range f.dir {
 			if deps.Run(append([]string{"sudo"}, cmd...)) != 0 {
 				out.printf("[bold red]Could not prepare the session environment directory "+
-					"(%s).[/bold red]", strings.Join(cmd, " "))
+					"(%s).[/bold red] %s", strings.Join(cmd, " "), caTrustRetry)
 				return false
 			}
 		}
 		if !deps.InstallRootFile(f.path, f.content, "0600") {
-			out.printf("[bold red]Could not write the session's CA bundle %s.[/bold red] The "+
-				"sandbox's TLS variables name it, so the launch stops here; run it again, and if "+
-				"this repeats, `yolo run --dry-run` prints every privileged command.", f.path)
+			out.printf("[bold red]Could not write the session's CA bundle %s.[/bold red] %s",
+				f.path, caTrustRetry)
 			return false
 		}
 		for _, cmd := range f.grant {
 			if deps.Run(append([]string{"sudo"}, cmd...)) != 0 {
-				out.printf("[bold red]Could not grant %s read on %s (%s).[/bold red]",
-					SandboxUser, f.path, strings.Join(cmd, " "))
+				out.printf("[bold red]Could not grant %s read on %s (%s).[/bold red] %s",
+					SandboxUser, f.path, strings.Join(cmd, " "), caTrustRetry)
 				return false
 			}
 		}
@@ -299,10 +357,15 @@ func installCATrustFiles(deps Deps, out printer, files []sessionFilePlan) bool {
 	return true
 }
 
+// caTrustRetry is the next step every refusal of installCATrustFiles names.
+const caTrustRetry = "The sandbox's TLS variables name this file, so the launch stops here; run it " +
+	"again, and if this repeats, `yolo run --dry-run` prints every privileged command."
+
 // printCATrust is the launch's disclosure of what it trusts for TLS in the sandbox, read off the
-// plan, so the variables it names are the ones the env file really sets: a variable the user's own
-// env layers set keeps their value, and the line says so.
-func printCATrust(out printer, ca CATrust, envContent, bundleFile, extrasFile string) {
+// plan, so the variables it names are the ones the env file really sets. follows is the bundle
+// variable the launch's own env layers set (applyCATrust), which the other four then name too:
+// the line says so, and that the keychain's CAs then reach Node alone, or nothing.
+func printCATrust(out printer, ca CATrust, envContent, bundleFile, extrasFile, follows string) {
 	if ca.MissingProfileBundle != "" {
 		out.printf("[yellow]Warning: the sandbox's tool profile has no CA bundle at %s[/yellow], "+
 			"so no TLS variable is set and each tool in the sandbox uses its own default roots. "+
@@ -311,6 +374,45 @@ func printCATrust(out printer, ca CATrust, envContent, bundleFile, extrasFile st
 		return
 	}
 	if ca.ProfileBundle == "" {
+		return
+	}
+	left := ""
+	if ca.LeftOut > 0 {
+		left = fmt.Sprintf(" %d more in it %s left out: expired, not for TLS servers, or not "+
+			"trusted by macOS for TLS.", ca.LeftOut, plural(ca.LeftOut, "was", "were"))
+	}
+	names := make([]string, 0, len(ca.Kept))
+	for _, c := range ca.Kept {
+		names = append(names, richtext.Escape(termsafe.Visible(c.Name)))
+	}
+	n := len(ca.Kept)
+	authorities := fmt.Sprintf("%d certificate %s", n, plural(n, "authority", "authorities"))
+	node := ""
+	if v, ok := sandboxEnvFileValue(envContent, NodeExtraCAVar); ok && v == extrasFile && extrasFile != "" {
+		node = " " + NodeExtraCAVar + " names " + extrasFile + ", those alone."
+	}
+	if follows != "" {
+		// THE CALLER'S BUNDLE, which every one of the five names that they did not set otherwise.
+		yours := func(lead string) string {
+			return lead + " configured environment sets " + follows + ", so " + caVarsClause(envContent) + "."
+		}
+		switch {
+		case ca.ReadError != "":
+			out.printf("[yellow]Warning: could not read this Mac's System keychain (%s)[/yellow], so "+
+				"the sandbox adds none of its certificate authorities. %s",
+				richtext.Escape(termsafe.Visible(ca.ReadError)), yours("Your"))
+		case n == 0:
+			out.printf("[dim]TLS in the sandbox: %s This Mac's System keychain adds no certificate "+
+				"authority.%s[/dim]", yours("your"), left)
+		case node != "":
+			out.printf("Trusting %s from this Mac's System keychain in Node only: %s.%s %s Every "+
+				"other tool trusts only what those variables name.%s", authorities,
+				strings.Join(names, ", "), node, yours("Your"), left)
+		default:
+			out.printf("This Mac's System keychain trusts %s for TLS (%s), and the sandbox does "+
+				"not add %s. %s %s keeps your own value too.%s", authorities,
+				strings.Join(names, ", "), plural(n, "it", "them"), yours("Your"), NodeExtraCAVar, left)
+		}
 		return
 	}
 	target := ca.ProfileBundle
@@ -331,38 +433,51 @@ func printCATrust(out printer, ca CATrust, envContent, bundleFile, extrasFile st
 	}
 	tail := ""
 	if len(theirs) > 0 {
-		tail = " " + strings.Join(theirs, ", ") + " keep the value your own environment set."
-	}
-	left := ""
-	if ca.LeftOut > 0 {
-		left = fmt.Sprintf(" %d more in it %s left out: expired, not for TLS servers, or not "+
-			"trusted by macOS for TLS.", ca.LeftOut, plural(ca.LeftOut, "was", "were"))
+		tail = " " + strings.Join(theirs, ", ") + " keep the empty value your own environment set."
 	}
 	switch {
 	case ca.ReadError != "":
 		out.printf("[yellow]Warning: could not read this Mac's System keychain (%s)[/yellow], so "+
 			"the sandbox trusts only the public roots in its tool profile: %s name %s.%s A "+
 			"certificate authority your network needs can be named in env_sources: put a bundle "+
-			"in the workspace and set {\"SSL_CERT_FILE\": \"<that file>\"}.",
-			richtext.Escape(termsafe.Visible(ca.ReadError)), vars, target, tail)
-	case len(ca.Kept) == 0:
+			"holding it and the public roots in the workspace and set {\"SSL_CERT_FILE\": \"<that "+
+			"file>\"}, which the other four follow, and {\"%s\": \"<that file>\"} for Node.",
+			richtext.Escape(termsafe.Visible(ca.ReadError)), vars, target, tail, NodeExtraCAVar)
+	case n == 0:
 		out.printf("[dim]TLS in the sandbox: %s name the public roots in its tool profile (%s); "+
 			"this Mac's System keychain adds no certificate authority.%s%s[/dim]",
 			vars, target, left, tail)
 	default:
-		names := make([]string, 0, len(ca.Kept))
-		for _, c := range ca.Kept {
-			names = append(names, richtext.Escape(termsafe.Visible(c.Name)))
+		if node == "" {
+			node = " " + NodeExtraCAVar + " keeps your own value, so Node does not add " +
+				plural(n, "it", "them") + "."
 		}
-		node := ""
-		if v, ok := sandboxEnvFileValue(envContent, NodeExtraCAVar); ok && v == extrasFile && extrasFile != "" {
-			node = " " + NodeExtraCAVar + " names " + extrasFile + ", those alone."
-		}
-		out.printf("Trusting %d certificate %s from this Mac's System keychain: %s. %s name %s, "+
-			"the tool profile's public roots plus %s.%s%s%s", len(ca.Kept),
-			plural(len(ca.Kept), "authority", "authorities"), strings.Join(names, ", "), vars, target,
-			plural(len(ca.Kept), "it", "them"), node, left, tail)
+		out.printf("Trusting %s from this Mac's System keychain: %s. %s name %s, the tool "+
+			"profile's public roots plus %s.%s%s%s", authorities, strings.Join(names, ", "), vars,
+			target, plural(n, "it", "them"), node, left, tail)
 	}
+}
+
+// caVarsClause says what the five bundle variables name in a rendered env file, grouped by value
+// in CABundleVars order: "NIX_SSL_CERT_FILE, SSL_CERT_FILE name /a; GIT_SSL_CAINFO names /b". A
+// value is the launch's env layers', so it is printed as text.
+func caVarsClause(envContent string) string {
+	var values []string
+	byValue := map[string][]string{}
+	for _, k := range CABundleVars {
+		v, _ := sandboxEnvFileValue(envContent, k)
+		if _, seen := byValue[v]; !seen {
+			values = append(values, v)
+		}
+		byValue[v] = append(byValue[v], k)
+	}
+	parts := make([]string, 0, len(values))
+	for _, v := range values {
+		ks := byValue[v]
+		parts = append(parts, strings.Join(ks, ", ")+" "+plural(len(ks), "names", "name")+" "+
+			richtext.Escape(termsafe.Visible(v)))
+	}
+	return strings.Join(parts, "; ")
 }
 
 // plural picks the word for n.

@@ -553,6 +553,28 @@ func TestASessionRecordIsCreatedHeldUnderAPendingName(t *testing.T) {
 	}
 }
 
+// openSessionRecord ITSELF GOES THROUGH THE PENDING NAME, which the test above pins only in its
+// callee: with something already at <key>.lock.pending, the open must fail, and leave nothing
+// under the final name. Created directly under its final name (and locked after), the record
+// would open fine here, so this fails if openSessionRecord stops calling createHeldPendingRecord.
+func TestOpeningASessionRecordGoesThroughItsPendingName(t *testing.T) {
+	dir := t.TempDir()
+	key := SessionKey("yolo-proj-0420db18", "0123456789abcdef")
+	final := filepath.Join(dir, key+sessionRecordSuffix)
+	if err := os.Mkdir(final+sessionRecordPendingSuffix, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	r, err := openSessionRecord(dir, key)
+	if err == nil {
+		r.close()
+		t.Fatalf("openSessionRecord succeeded with its pending name taken; it did not create the " +
+			"record under that name first")
+	}
+	if _, err := os.Lstat(final); !os.IsNotExist(err) {
+		t.Errorf("a failed open left a record under its final name (%v)", err)
+	}
+}
+
 // THE PRODUCTION SEAMS ARE WIRED. Nothing on Linux runs RealDeps' launch, and each seam's nil is
 // a launch that silently loses a feature rather than one that fails: no record dir, so no record
 // is kept and a killed session's files are never swept; no keychain reader, so every launch warns

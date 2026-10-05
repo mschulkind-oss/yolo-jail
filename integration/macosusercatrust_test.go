@@ -31,8 +31,8 @@ import (
 //   - a CA made here is added to /Library/Keychains/System.keychain as a trusted root, and a
 //     second one is added WITHOUT trust settings, the control the launch must leave out;
 //   - this process serves TLS on 127.0.0.1 with a leaf the first CA signed;
-//   - a macos-user launch runs the floor's nix curl against it, which trusts only the file
-//     SSL_CERT_FILE or NIX_SSL_CERT_FILE names, and prints the three variables;
+//   - a macos-user launch runs the floor's nix curl against it, which trusts only a file a
+//     variable names, CURL_CA_BUNDLE ahead of the others, and prints four of the variables;
 //   - the launch's output and launch.log must name the first CA and not the second.
 //
 // Both certificates and the trust setting are removed at cleanup. Adding a trusted root to the
@@ -56,10 +56,12 @@ func TestMacosUserTrustsSystemKeychainCA(t *testing.T) {
 	addr := catrustServe(t, ca, caKey)
 	ws := macosUserWorkspace(t, `{}`)
 	r := runMacosUser(t, ws, fmt.Sprintf(`echo "CURL=$(command -v curl)"; curl -fsS https://%s/; echo; `+
-		`echo "SSL=${SSL_CERT_FILE-}"; echo "NIX=${NIX_SSL_CERT_FILE-}"; echo "NODE=${NODE_EXTRA_CA_CERTS-}"`, addr))
+		`echo "SSL=${SSL_CERT_FILE-}"; echo "NIX=${NIX_SSL_CERT_FILE-}"; echo "CURLCA=${CURL_CA_BUNDLE-}"; `+
+		`echo "NODE=${NODE_EXTRA_CA_CERTS-}"`, addr))
 	vars := hd10Fields(r.stdout)
-	// The floor's nix curl, which reads only the bundle a variable names: Apple's /usr/bin/curl
-	// asks the system, so a pass through it would show nothing about the bundle.
+	// The floor's nix curl, which reads only a bundle a variable names (CURL_CA_BUNDLE first):
+	// Apple's /usr/bin/curl asks the system, so a pass through it would show nothing about the
+	// bundle.
 	if !strings.HasPrefix(vars["CURL"], "/nix/store/") {
 		t.Fatalf("the sandbox's curl is %q, not the floor's nix curl, so this run cannot show that "+
 			"the bundle is trusted:\n%s", vars["CURL"], lastLines(r.combined(), 40))
@@ -68,7 +70,7 @@ func TestMacosUserTrustsSystemKeychainCA(t *testing.T) {
 		t.Fatalf("nix curl in the sandbox did not trust the System keychain's CA (rc %d):\n%s",
 			r.rc, lastLines(r.combined(), 40))
 	}
-	for _, k := range []string{"SSL", "NIX"} {
+	for _, k := range []string{"SSL", "NIX", "CURLCA"} {
 		if !strings.HasPrefix(vars[k], macosuser.StateDir()+"/env/") || !strings.HasSuffix(vars[k], ".ca-bundle.crt") {
 			t.Errorf("%s names %q, not the session's CA bundle", k, vars[k])
 		}
