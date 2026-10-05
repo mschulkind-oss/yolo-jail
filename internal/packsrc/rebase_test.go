@@ -8,12 +8,14 @@ package packsrc
 // marker tells a rebase clone from a directory the verb must not touch.
 
 import (
+	"context"
 	"encoding/json"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/shquote"
 )
@@ -339,4 +341,22 @@ func TestRebaseFinishedTellsAFinishedRebase(t *testing.T) {
 	if u.store.RebaseFinished(r2dir, &noApplied) {
 		t.Error("a marker naming no applied series reads as finished")
 	}
+}
+
+// A CLONE A CTRL-C OR A TIMEOUT KILLED cannot remove its own junk, as a git that fails does: the
+// git directory it wrote is removed, and the directory this run made for it.
+func TestAKilledRebaseCloneRemovesWhatItWrote(t *testing.T) {
+	u, v11, series := rebaseFixture(t)
+	// A clone that writes its git directory, then hangs until it is killed.
+	u.store.Git = wrappedGit(t, `case " $* " in *" clone "*) mkdir -p "$last/.git/objects" && exec sleep 30;; esac`)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	u.store.Ctx = ctx
+	time.AfterFunc(500*time.Millisecond, cancel)
+	dir := filepath.Join(t.TempDir(), "clone")
+	r := u.rebase(t, series, ListEntry{Commit: v11}, dir)
+	if r.Err == nil || r.Kept {
+		t.Fatalf("rebase = %+v, want the killed clone's error", r)
+	}
+	mustNotExist(t, dir, "a killed clone left its directory")
 }
