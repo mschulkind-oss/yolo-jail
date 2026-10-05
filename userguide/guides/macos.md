@@ -20,7 +20,7 @@ only, such as some database images; that is a property of the image, not of yolo
 |---|---|---|
 | **Apple Container** (recommended) | Apple's own container tool: each jail runs in its own small VM, and there is no VM for you to manage | You have an Apple silicon Mac on macOS 26 (Tahoe) or later |
 | **Podman** | Every jail runs inside one Linux VM, the **Podman Machine** | You have an Intel Mac or macOS before 26, or you need a feature Apple Container lacks, such as the shared Claude login or published ports |
-| **`macos-user`** (in development) | The agent runs as a hidden macOS user inside Apple's built-in sandbox, with no container and no VM | You want the fastest start and accept a weaker boundary and missing features |
+| **`macos-user`** (in development) | The agent runs as a hidden macOS user inside Apple's built-in sandbox, with no container and no VM | You want a faster fresh start than Apple Container gives, and accept a weaker boundary and missing features |
 
 If both container runtimes are installed and running, yolo uses Apple Container. `macos-user` is
 used only when you ask for it. To choose, set the `runtime` key in your config or the
@@ -32,6 +32,38 @@ export YOLO_RUNTIME=podman     # for this shell; or "runtime": "podman" in your 
 
 [Settings per setup](../reference/settings-per-setup.md#what-works-in-each-setup) compares all
 setups feature by feature.
+
+### How they compare on speed
+
+A **fresh start** is a `yolo` in a project with no jail running. A second terminal in the same
+project instead **joins** the jail already running, where the setup can.
+
+Measured on one Apple silicon Mac in October 2026, each setup against the same Mac doing the same
+work outside any jail. The Mac was an M1 Max on macOS 26.5 running CrowdStrike Falcon, a corporate
+security tool that may slow the Mac's own file work and program starts but not the work inside a
+VM, so a Mac without it may show different ratios.
+
+| | Apple Container | `macos-user` |
+|---|---|---|
+| A fresh start | about 7 s, with install recording off (see below) | about 5.5 s, plus typing your password when `sudo` asks |
+| A second terminal in the same project | about 2 s: it joins the running jail | another fresh start, with `sudo` again |
+| Work on the project's files: `git status`, searching, `npm ci` | 3 to 5 times slower than on the Mac | as fast as on the Mac |
+| One-thread CPU work | as fast as on the Mac | as fast as on the Mac |
+| A parallel build | half your cores by default, and about 16% slower on the same number of cores | every core, as fast as on the Mac |
+| Starting programs | about 7 times faster than on the Mac, and a program built moments ago starts at once | as on the Mac: a program built moments ago takes about 0.4 s to start the first time |
+| Memory the jail used | held until the jail stops | given back once a program frees it |
+
+So `macos-user` is faster for work on many project files and gives memory back, and Apple
+Container is faster at starting programs and at opening another terminal.
+
+Apple Container's two start figures were measured with install recording switched off
+(`YOLO_NO_AUTO_CAPTURE=1`), the step that records an agent's install once per machine. With it on,
+Apple Container in yolo 0.11.1 re-runs the claude, codex and agy installers at every start and
+every second terminal: about a minute more per start and 14 s per second terminal with all three
+selected. A fix is planned for the next release and has not been measured on a Mac yet; until
+then, `YOLO_NO_AUTO_CAPTURE=1` avoids the extra time. Podman has not been measured this way yet.
+Every figure and its source are in
+[the macOS direction](https://github.com/mschulkind-oss/yolo-jail/blob/main/docs/reference/macos-no-vm-direction.md#what-each-macos-path-costs-measured).
 
 ## Apple Container
 
@@ -195,8 +227,9 @@ next launch stops and names `yolo macos-fix-permissions`, which repairs it.
 
 ### macos-user trade-offs
 
-What you gain: no runtime to install, no Linux image to build, the fastest start, and native Mac
-builds of your `packages`.
+What you gain: no runtime to install, no Linux image to build, a faster fresh start than Apple
+Container, native speed on your project's files, and native Mac builds of your `packages`
+([how the setups compare on speed](#how-they-compare-on-speed)).
 
 What you give up:
 

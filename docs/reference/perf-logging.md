@@ -1,5 +1,6 @@
 ---
 status: current
+next: "Close the macos-user gap under Known gaps: carry the run collector across the macos-user dispatch and span the floor's evaluation and build, the guest binaries, each sudo step, the bootstrap, the provisioning stage and sandbox-exec, printing the report on that arm's return; on the container backends, write the provisioning stage's duration into the jail perf log after the stage, not only into YOLO_PROVISION_MS; widen the Apple Container delivery test's span reader past image.* and add one relaunch that delivers nothing; launch macos-user's provisioning test with YOLO_TIMING=1. This closes the --timing clause of setup-support-gaps.md's G20"
 verified: 2026-09-19
 verified_commit: 16ef96cb
 covers:

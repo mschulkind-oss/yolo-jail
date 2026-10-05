@@ -3,7 +3,7 @@ title: "Is macos-user faster than Apple Container? What the sources say, and a b
 date: 2026-10-01
 status: in-review
 stage: DESIGN
-next: "The maintainer rules on OQ-MB1, what backs an Apple Container jail's /mise so that two jails can run at once; a Mac session reruns §7's two-jail check on container 1.5.0; a Mac launch pass confirms that auto-capture now stores claude, codex and agy (fixed from the code 2026-10-03, OQ-PD24 to OQ-PD26); macos-user's go_test (M8) is re-run now that the harness trusts the clone's mise.toml; the Results section's other defects are filed and the Corrections section's edits made"
+next: "Make the Corrections section's remaining edits (platform-comparison.md, sandbox-comparison.md, the revival plan's balloon line, and a qualifier on macos-user-provisioning.md's first-launch claim, since CI recorded only a cold launch with only the floor on a hosted runner), fix this doc's drifted code ranges (C3's backendcaps.go, §2.6's stockimage.go), and draft wording for the macOS direction's ruled sentences for the maintainer to approve; amend Appendix A's step 2 to 'green apart from §7's two-jail test', which every parity run on container 1.1.0 since 2026-10-03 has failed; file the Results section's other defects. The maintainer rules on OQ-MB1. Once the runner Mac's container is upgraded to 1.5.0, the next apple-container.yml dispatch reruns §7's check (TestAppleContainerKeeperSweepSparesAKeptJail); one Mac session confirms that auto-capture stores claude, codex and agy (fixed from the code 2026-10-03, OQ-PD24 to OQ-PD26), re-runs macos-user's go_test (M8) now that the harness trusts the clone's mise.toml, runs M11 and M12 with and without the developer-tool setting, and runs Podman Machine through yolo on the Mac's applehv machine, once an agent adds that arm to Appendix A"
 tags: [research, macos, apple-container, macos-user, performance, memory, benchmark, virtiofs]
 summary: "The maintainer asked for a benchmark instead of an assumption: is macos-user really faster than Apple Container? Sources answer part of it. Apple Container gives each container its own small VM; the VM takes RAM only as the guest touches it, but keeps every page it touched until the container stops, so the maintainer's reading is half right. CPU work should run within a few percent of native, while file work in the shared workspace is where the VM probably costs most: about 2.7 times native in one published measurement of the same macOS file sharing, and 6 to 9 times by Apple's maintainer's rough figures for builds. The doc lists every claim the repo makes about the two backends' speed and memory, a protocol for one Mac running both against one workspace, and a POSIX sh harness that runs the protocol and writes the results table. It measures; it does not choose a backend."
 vantage:
@@ -34,7 +34,7 @@ system", which would make it close to an ordinary container. That reading contra
 [the macOS direction](../reference/macos-no-vm-direction.md), whose premise is that a Mac's
 container VM holds its RAM for as long as it runs
 ([direction:32-37](../reference/macos-no-vm-direction.md#L32-L37)) and whose warning says it
-reserves that RAM up front ([direction:151-153](../reference/macos-no-vm-direction.md#L151-L153)).
+reserves that RAM up front ([direction:363-365](../reference/macos-no-vm-direction.md#L363-L365)).
 
 > **In short.**
 >
@@ -115,19 +115,19 @@ of them cites a measurement on one Mac.
 
 | # | Claim | Where | What the research says |
 | :--- | :--- | :--- | :--- |
-| C1 | macos-user is "the fast native" path and "starts fastest" | [direction:18-19](../reference/macos-no-vm-direction.md#L18-L19), [direction:72](../reference/macos-no-vm-direction.md#L72), [macos.md:23](../../userguide/guides/macos.md#L23), [macos.md:200](../../userguide/guides/macos.md#L200), [confinement.md:36](../../userguide/guides/confinement.md#L36) | **Unsettled.** CI has an Apple Container launch at 8.9–9.1 s and a warm macos-user launch at 2.2–4.6 s, but on two different Macs (MEASURED, [§2.6](#26-what-ci-logs-already-hold)). The VM boot is under 1 s of that (SOURCED), and both backends run a nix build at every launch (SOURCED by code: [stockimage.go:356-364](../../internal/image/stockimage.go#L356-L364), [orchestrator.go:472](../../internal/macosuser/orchestrator.go#L472)). |
-| C2 | A Mac container VM is "slow to start" and "still boots slowly" | [direction:32-34](../reference/macos-no-vm-direction.md#L32-L34), [direction:151](../reference/macos-no-vm-direction.md#L151) | **Partly.** Apple claims sub-second starts; others measured 0.70–0.94 s per `container run`, against 0.19–0.30 s for runtimes that reuse a VM already running (SOURCED). yolo pays it once per fresh launch, not per attach (INFERRED). |
+| C1 | macos-user is "the fast native" path and "starts fastest" | [direction:18-19](../reference/macos-no-vm-direction.md#L18-L19), [direction:284](../reference/macos-no-vm-direction.md#L284), [macos.md:23](../../userguide/guides/macos.md#L23), [macos.md:230-231](../../userguide/guides/macos.md#L230-L231), [confinement.md:36-37](../../userguide/guides/confinement.md#L36-L37) | **Unsettled.** CI has an Apple Container launch at about 9.1 s (9.06–9.13) and a warm macos-user launch at 2.35–3.87 s, but on two different Macs (MEASURED, [§2.6](#26-what-ci-logs-already-hold)). The VM boot is under 1 s of that (SOURCED), and both backends run a nix build at every launch (SOURCED by code: [stockimage.go:356-364](../../internal/image/stockimage.go#L356-L364), [orchestrator.go:472](../../internal/macosuser/orchestrator.go#L472)). |
+| C2 | A Mac container VM is "slow to start" and "still boots slowly" | [direction:32-34](../reference/macos-no-vm-direction.md#L32-L34), [direction:363](../reference/macos-no-vm-direction.md#L363) | **Partly.** Apple claims sub-second starts; others measured 0.70–0.94 s per `container run`, against 0.19–0.30 s for runtimes that reuse a VM already running (SOURCED). yolo pays it once per fresh launch, not per attach (INFERRED). |
 | C3 | "a RAM ceiling you have to guess ahead of time" | [direction:33-34](../reference/macos-no-vm-direction.md#L33-L34) | **Half.** The ceiling is real and fixed at boot (SOURCED). yolo picks it, not the user: half of host RAM, at least 4 GB, and half the cores, at least 2 (SOURCED by code: [helpers.go:172-199](../../internal/cli/run/helpers.go#L172-L199), [backendcaps.go:279-293](../../internal/cli/run/backendcaps.go#L279-L293)). |
-| C4 | The VM "still reserves RAM up front" | [direction:152](../reference/macos-no-vm-direction.md#L152) | **Contradicted.** VZ reserves address space "but doesn't allocate immediately"; pages are backed on first touch (SOURCED). |
-| C5 | "that RAM permanently held while it runs"; "still holds it" | [direction:34](../reference/macos-no-vm-direction.md#L34), [direction:152](../reference/macos-no-vm-direction.md#L152) | **Supported.** Freed guest pages are "not relinquished to the host" (SOURCED), and Containerization attaches no balloon (MEASURED). All of it returns when the container stops (SOURCED). |
+| C4 | The VM "still reserves RAM up front" | [direction:364](../reference/macos-no-vm-direction.md#L364) | **Contradicted.** VZ reserves address space "but doesn't allocate immediately"; pages are backed on first touch (SOURCED). |
+| C5 | "that RAM permanently held while it runs"; "still holds it" | [direction:34](../reference/macos-no-vm-direction.md#L34), [direction:364](../reference/macos-no-vm-direction.md#L364) | **Supported.** Freed guest pages are "not relinquished to the host" (SOURCED), and Containerization attaches no balloon (MEASURED). All of it returns when the container stops (SOURCED). |
 | C6 | The maintainer's reading: Apple Container "dynamically allocates RAM and will return it to the operating system" | the request quoted above | **Half right:** allocation on demand, yes (C4); return only when the container stops (C5). |
-| C7 | "a filesystem boundary over the workspace" | [direction:35](../reference/macos-no-vm-direction.md#L35), [direction:152-153](../reference/macos-no-vm-direction.md#L152-L153) | **Supported, and probably the largest cost.** Every shared folder is virtiofs through one VZ device (MEASURED, by reading the source); yolo shares the workspace, the home and the cache that way (SOURCED by code); the same macOS mechanism measured about 2.7 times native for an `npm install` (SOURCED). |
-| C8 | "the VM overhead is bad enough that a reasonable person reaches for a different tool" | [direction:163-166](../reference/macos-no-vm-direction.md#L163-L166) | **No source settles it.** The benchmark measures its parts. |
+| C7 | "a filesystem boundary over the workspace" | [direction:35](../reference/macos-no-vm-direction.md#L35), [direction:364-365](../reference/macos-no-vm-direction.md#L364-L365) | **Supported, and probably the largest cost.** Every shared folder is virtiofs through one VZ device (MEASURED, by reading the source); yolo shares the workspace, the home and the cache that way (SOURCED by code); the same macOS mechanism measured about 2.7 times native for an `npm install` (SOURCED). |
+| C8 | "the VM overhead is bad enough that a reasonable person reaches for a different tool" | [direction:375-378](../reference/macos-no-vm-direction.md#L375-L378) | **No source settles it.** The benchmark measures its parts. |
 | C9 | Mac container startup is "~2-3s" | [platform-comparison.md:263](platform-comparison.md#L263), [sandbox-comparison.md:437](sandbox-comparison.md#L437) | **Contradicted for a yolo launch:** about 9 s on Apple Container in CI (MEASURED), of which the VM is under 1 s (SOURCED). The first doc is marked partly stale. |
 | C10 | virtiofs is "near-native"; CPU work is "~95-98% native" | [platform-comparison.md:264](platform-comparison.md#L264), [platform-comparison.md:266](platform-comparison.md#L266), [platform-comparison.md:270](platform-comparison.md#L270) | **Files: contradicted** for metadata-heavy work (SOURCED). **CPU: plausible**, within a few percent of other runtimes, with no native baseline published (SOURCED). |
 | C11 | Parallel jails are bounded by memory, and Apple Container's per-VM footprint "is the real cap" | [integration-parallelism.md:82](../plans/integration-parallelism.md#L82), [integration-parallelism.md:108](../plans/integration-parallelism.md#L108) | **Consistent with C5** (INFERRED); never measured. |
-| C12 | On Apple Container the scratch folders "are always held in memory" and count against the cap | [macos.md:86-87](../../userguide/guides/macos.md#L86-L87) | **SOURCED by code** ([assemble_parts.go:64-71](../../internal/cli/run/assemble_parts.go#L64-L71)). INFERRED from C5: a deleted temporary file's pages stay with the VM until it stops. |
-| C13 | macos-user has "No resource limits. Nothing caps memory or CPU" | [macos.md:208](../../userguide/guides/macos.md#L208) | **SOURCED by code.** INFERRED: memory a sandboxed process frees goes back to macOS at once, as for any process. |
+| C12 | On Apple Container the scratch folders "are always held in memory" and count against the cap | [macos.md:116-117](../../userguide/guides/macos.md#L116-L117) | **SOURCED by code** ([assemble_parts.go:64-71](../../internal/cli/run/assemble_parts.go#L64-L71)). INFERRED from C5: a deleted temporary file's pages stay with the VM until it stops. |
+| C13 | macos-user has "No resource limits. Nothing caps memory or CPU" | [macos.md:239](../../userguide/guides/macos.md#L239) | **SOURCED by code.** INFERRED: memory a sandboxed process frees goes back to macOS at once, as for any process. |
 | C14 | "AC's non-reclaiming memory balloon: accepted" | [macos-revival-and-distribution-plan.md:1272](../plans/macos-revival-and-distribution-plan.md#L1272) | **Consistent with C5, with one correction:** there is no balloon device at all (MEASURED). |
 
 ---
@@ -760,6 +760,10 @@ processes or new binaries; macos-user is the Mac, for better and worse. Why the 
 high, and what it means for a large Python monorepo with a database, is
 [its own write-up](apple-container-file-cost.md).
 
+This table stays the dated record of these two runs; the standing comparison, with Podman Machine
+and the runs without yolo beside them, is
+[the macOS direction's measured section](../reference/macos-no-vm-direction.md#what-each-macos-path-costs-measured).
+
 ### Defects found on the way
 
 Each is a yolo defect unless it says otherwise. The first two are being worked on; the rest are
@@ -784,22 +788,37 @@ not filed yet.
 ## 9. Corrections the results feed
 
 Owed by the session that records the results, and not made here: the direction doc's text is a
-ruling, and this doc only adds a pointer beside its premise.
+ruling, and this doc only adds a pointer beside its premise. That pointer is in place, and leads to
+[the direction's measured section](../reference/macos-no-vm-direction.md#what-each-macos-path-costs-measured).
 
-- **[direction:152](../reference/macos-no-vm-direction.md#L152), "still reserves RAM up front"**,
+- **[direction:364](../reference/macos-no-vm-direction.md#L364), "still reserves RAM up front"**,
   is wrong on Apple's own documentation (C4) and needs no measurement to correct.
 - **[direction:32-37](../reference/macos-no-vm-direction.md#L32-L37)**: "slow to start" takes M1's
   and M3's figures; "a RAM ceiling you have to guess" becomes the ceiling yolo picks (C3); "that
   RAM permanently held" takes M4's.
+- **[direction:18-19](../reference/macos-no-vm-direction.md#L18-L19) and
+  [direction:284](../reference/macos-no-vm-direction.md#L284), "the fast native path"**: measured,
+  macos-user starts a fresh jail faster, runs workspace file work at native speed and gives memory
+  back, and is slower at re-entry and at starting processes
+  ([side by side](#the-two-backends-side-by-side)). A VM jail with the
+  folders only it uses on VM-local disks would also be faster at installing, testing and setting up
+  a database (INFERRED, from
+  [the runtime comparison](macos-vm-runtime-comparison.md#31-on-a-vm-local-disk)). That bears on the
+  ruling to pursue both backends as one composed product
+  ([why it's this way](../reference/macos-no-vm-direction.md#why-its-this-way)), whose reason casts
+  the choice as "fast" against "works for this package": measured, the choice is which work is
+  fast. The ruling is the maintainer's to weigh this against.
 - **[platform-comparison.md:263-270](platform-comparison.md#L263-L270)** and
   **[sandbox-comparison.md:437](sandbox-comparison.md#L437)** carry startup and file figures that
   CI and the sources contradict (C9, C10).
 - **[macos-revival-and-distribution-plan.md:1272](../plans/macos-revival-and-distribution-plan.md#L1272)**
   names a balloon that does not exist (C14).
 - **The user guide's "fastest start"** ([macos.md:23](../../userguide/guides/macos.md#L23),
-  [macos.md:200](../../userguide/guides/macos.md#L200),
-  [confinement.md:36](../../userguide/guides/confinement.md#L36)) stays or is qualified on M1
-  and M3.
+  [macos.md:230-231](../../userguide/guides/macos.md#L230-L231),
+  [confinement.md:36-37](../../userguide/guides/confinement.md#L36-L37)) stays or is qualified on
+  M1 and M3. Qualified on 2026-10-04 to a faster fresh start than Apple Container's, since Podman
+  Machine's has not been measured, beside a table of the measured differences
+  ([how they compare on speed](../../userguide/guides/macos.md#how-they-compare-on-speed)).
 - **[macos-user-provisioning.md:627](../reference/macos-user-provisioning.md#L627)** says nobody
   has recorded what a first macos-user launch costs; CI has one, 73.61 s on a hosted runner
   ([§2.6](#26-what-ci-logs-already-hold)).
