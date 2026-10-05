@@ -1759,13 +1759,13 @@ func packStatus(out, errw io.Writer, color bool) int {
 	}
 	// THE FORK PINS (forks.lock.json, FP-D7): each selected fork's pinned commit, or why it has
 	// none. A pin made for a source the fork no longer declares is drift, like a pack's.
-	forkLines, forkDrift, err := forkStatusLines()
+	forkHeader, forkLines, forkDrift, err := forkStatusLines()
 	if err != nil {
 		fmt.Fprintf(errw, "yolo pack status: %v\n", err)
 		return 1
 	}
 	if len(forkLines) > 0 {
-		pr.Printf("[bold]forks[/bold] [dim](%s)[/dim]", packsrc.ForkLockName)
+		pr.Printf("%s", forkHeader)
 		for _, line := range forkLines {
 			pr.Printf("%s", line)
 		}

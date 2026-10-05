@@ -417,3 +417,20 @@ func TestTheExplicitActsTakeAnExtensionKey(t *testing.T) {
 		t.Errorf("a key nothing declares: rc=%d\n%s", rc, cerr.String())
 	}
 }
+
+// `yolo pack status`'S SECTION HEADER names what it lists: a selection carrying only a patched
+// extension gets a header naming patched extensions, never one saying forks.lock.json holds them —
+// a patched extension writes no pin (PPX-D19).
+func TestPackStatusHeadsAPatchedExtensionsSectionWithoutTheForkLock(t *testing.T) {
+	newTreeFixture(t, `"f.txt"`)
+	_, out, errw := packVerb(t, "status")
+	var header string
+	for _, line := range strings.Split(out+errw, "\n") {
+		if strings.Contains(line, "patched extension") && !strings.Contains(line, treeKeyCLI) {
+			header = line
+		}
+	}
+	if header == "" || strings.Contains(header, packsrc.ForkLockName) || strings.Contains(out+errw, "forks ("+packsrc.ForkLockName+")") {
+		t.Errorf("the section header = %q, want one naming patched extensions and no fork lock:\n%s%s", header, out, errw)
+	}
+}
