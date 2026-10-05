@@ -237,6 +237,13 @@ The plan's seam for this step ("`launch` false, a host platform, a hand that wri
 record") was taken as `launch` true and no hand ([PF-D47](patched-forks.md#PF-D47),
 [PF-D48](patched-forks.md#PF-D48)).
 
+Corrected in review the same day: the advance decided what serves from the capture store alone,
+so the floor's own installed copy counted for nothing once the good build's store entry was gone,
+and the fork's line read the check record rather than what the floor runs. The floor now hands its
+advance the installed copy that serves ([PF-D52](patched-forks.md#PF-D52)), an install whose good
+build has no store entry stops on `yolo capture <bin>` instead of starting, and the line names the
+floor's build ([PF-D50](patched-forks.md#PF-D50)).
+
 Left: macos-user delivery, [OQ-PFK5](patched-forks.md#OQ-PFK5), which waits on
 [`install-capture.md`'s hand-off H4](../plans/install-capture.md#hand-offs--what-is-not-wired-and-the-exact-line-that-wires-it);
 and a hardware run of a host floor install, since every floor test here stands in for the build
