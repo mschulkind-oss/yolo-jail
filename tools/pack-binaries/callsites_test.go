@@ -11,6 +11,8 @@ import (
 	"testing"
 
 	"gopkg.in/yaml.v3"
+
+	"github.com/mschulkind-oss/yolo-jail/internal/selfupdate"
 )
 
 // The pin tool's CALL SITES are the release's three gates and the recipe that pins
@@ -148,7 +150,7 @@ func TestJustInstallSeedsTheTreesProgramsBeforeItInstalls(t *testing.T) {
 			"(%d) and precede the version stamp (%d), `go install` (%d) and the bundle (%d)",
 			seed, jail, stamp, install, bundle)
 	}
-	if !strings.HasPrefix(body[seed], "if ! ") {
+	if !strings.HasPrefix(body[seed], "if ! ") && !strings.HasPrefix(body[seed], "elif ! ") {
 		t.Fatalf("the seed's failure no longer stops the install: %q", body[seed])
 	}
 	end := seed
@@ -160,6 +162,31 @@ func TestJustInstallSeedsTheTreesProgramsBeforeItInstalls(t *testing.T) {
 		if !strings.Contains(refusal, want) {
 			t.Errorf("the seed's refusal does not say %q:\n%s", want, refusal)
 		}
+	}
+}
+
+// `yolo update` DEPLOYS UPSTREAM'S TREE AS PULLED (BP-D26): its deploy step sets
+// selfupdate.InstallKeepTreeEnv, and under it `just install` seeds without --repin, so nothing
+// writes the checkout, and a build it cannot seed is reported rather than failing the deploy —
+// which would leave a pulled tree with the old binary. The two spellings of the name are held
+// together here.
+func TestJustInstallKeepsTheTreeForAnUpdate(t *testing.T) {
+	body := justRecipe(t, "install")
+	branch := indexOf(body, `if [ -n "${`+selfupdate.InstallKeepTreeEnv+`:-}" ]; then`)
+	repin := indexOf(body, "go run ./tools/pack-binaries seed --repin")
+	if branch < 0 || repin < 0 || branch > repin {
+		t.Fatalf("`just install` has no %s branch ahead of its re-pinning seed (branch %d, "+
+			"seed --repin %d):\n%s", selfupdate.InstallKeepTreeEnv, branch, repin, strings.Join(body, "\n"))
+	}
+	kept := strings.Join(body[branch:repin], "\n")
+	if !strings.Contains(kept, "go run ./tools/pack-binaries seed;") {
+		t.Errorf("the %s branch does not seed without --repin:\n%s", selfupdate.InstallKeepTreeEnv, kept)
+	}
+	if strings.Contains(kept, "exit 1") || strings.Contains(kept, "--repin") {
+		t.Errorf("the %s branch re-pins, or fails the deploy:\n%s", selfupdate.InstallKeepTreeEnv, kept)
+	}
+	if !strings.Contains(kept, "just install") {
+		t.Errorf("the %s branch's warning names no next step:\n%s", selfupdate.InstallKeepTreeEnv, kept)
 	}
 }
 

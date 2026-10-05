@@ -68,7 +68,20 @@ install:
     # refuses a YOLO_REPO_ROOT launch by this install's stamp until the next one (BP-D23). FIRST, before
     # VERSION, so a re-pin shows in the stamp as -dirty, and before anything is installed, so a
     # failure installs nothing. With no official binary declared it says so and fetches nothing.
-    if ! go run ./tools/pack-binaries seed --repin; then
+    #
+    # UNDER `yolo update` (YOLO_INSTALL_KEEP_TREE, selfupdate.InstallKeepTreeEnv) the tree is the
+    # one it just pulled, and it is deployed EXACTLY: the seed never re-pins, so the checkout stays
+    # clean for the next update and an autostash pops back onto it, and a build it cannot seed is
+    # reported without failing the deploy, which would leave the pulled tree with the old binary.
+    # That build's loophole stays off here until a plain `just install` re-pins it (BP-D26).
+    if [ -n "${YOLO_INSTALL_KEEP_TREE:-}" ]; then
+        if ! go run ./tools/pack-binaries seed; then
+            echo "" >&2
+            echo "⚠ some of this tree's official pack programs were not seeded (the lines above say why)," >&2
+            echo "  so their loopholes stay off on this machine. The update deploys the tree as pulled;" >&2
+            echo "  'just install' in this checkout re-pins and seeds them, leaving the manifest to commit." >&2
+        fi
+    elif ! go run ./tools/pack-binaries seed --repin; then
         echo "" >&2
         echo "✗ could not build this tree's official pack programs into the pack-binary cache —" >&2
         echo "  the lines above say why. Nothing has been installed: fix that and re-run 'just install'." >&2
