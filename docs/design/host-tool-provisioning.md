@@ -5,7 +5,7 @@ status: accepted
 tags: [host, provisioning, floor, program, npm, capture, mise, path, evergreen]
 summary: "yolo host should run every agent a selected pack declares from any launcher, a Waybar widget included, without the user having arranged a PATH. The design is a host agent floor: the program binaries of the user-scope selected packs, installed with no prompt into a yolo-owned host prefix (selecting the pack is the consent), kept current the way the jail's launchers keep them, and exec'd from there by path, so the floor's copy runs even where the user installed their own. The prefix is on no PATH of the user's, and a launch appends its bin/ last to the agent's PATH. npm agents run on the prefix's own Node; the installer-recipe agents come from a yolo capture, which on a Mac is the macos-user capture act and on a Linux host with no container runtime a capture on the host confined by Landlock; a fork's program comes, on Linux, from the capture store's build of its pinned commit. yolo never runs mise install at the host. Every question here is ruled; what runs for a selected pack's program the floor cannot hold is OQ-HE11 in host-launch-environment.md. Built 2026-09-29 on Linux, and on 2026-10-05 for a Mac (HP-D2) and for a Linux host with no container runtime (HP-D18); the Built column of the ledger says what each ruling's code is and what is not yet measured."
 stage: DECIDED
-next: "Dispatch macos-user.yml for TestMacosUserHostFloorMaterializesAFixtureInstallerCapture, then on a Mac run `yolo host -- claude` and `yolo host -- agy` once from a terminal; on a Linux host with no container runtime run `yolo host -- claude`"
+next: "Dispatch macos-user.yml for TestMacosUserHostFloorMaterializesAFixtureInstallerCapture and TestMacosUserHostFloorIsTheHostUsersAlone, and packs.yml for TestHostFloorInstallsTheVendorsRelease, then on a Mac run `yolo host -- claude` and `yolo host -- agy` once from a terminal; on a Linux host with no container runtime run `yolo host -- claude`"
 ---
 
 # A host agent floor: yolo keeps its own agents installed on the host, so a launch needs no particular PATH
@@ -342,18 +342,51 @@ longer exists, and staging leftovers. `yolo check` installs nothing.
 
 ## 8. Done looks like
 
-Each row says what pins it as of 2026-09-29. Every pin below runs on a fake Node distribution and a
-fake npm registry served by the test itself (`internal/hostfloor/floortest`), and a fake capture
-store: no test downloads anything or starts a real agent. What only a real host can confirm is
-said per row.
+Each row says what pins it. The unit pins run on a fake Node distribution and a fake npm registry
+served by the test itself (`internal/hostfloor/floortest`), and a fake capture store. Since
+2026-10-05 four integration tests run the floor on the machine the suite runs on, with the real
+bytes; none starts an agent beyond `--version`:
+
+- `TestHostFloorInstallsAPinnedNpmProgramOnTheRealNode`, on every push (`ci.yml` on Linux x64 and
+  arm64, and the macOS nightly on darwin-x64). A first `yolo host -- cowsay`, from
+  `PATH=/usr/bin:/bin`, fetches the shipped Node tarball from nodejs.org, checks it against the
+  digest compiled into yolo, and installs `cowsay@1.6.0` with that release's npm: the pinned
+  package the jail's own npm install test uses (`TestPinnedNpmProgramInstallsTheDeclaredVersion`). The test reads the installed version from npm's own `package.json`, checks the
+  prefix's `0700`, and runs the floor's launcher with an empty environment. A second launch then
+  installs and polls nothing, and `yolo host apply --assert` keeps the entry.
+- `TestHostFloorRunsARealCaptureOfAnInstallerFixture`, on every push. With no capture on the
+  machine, a first `yolo host -- <bin>` runs a real `yolo capture` of a hermetic installer fixture
+  in a capture jail. It materializes the entry into the floor, relocates the installer's absolute
+  `/home/agent` link into it, and runs the floor's copy. A second launch, from
+  `PATH=/usr/bin:/bin`, captures nothing. On a Mac with no sandbox account (the macOS nightly's
+  runners), it checks that the launch names `yolo macos-setup` instead.
+- `TestHostFloorInstallsTheVendorsRelease`, on Pack Installs' triggers (`packs.yml`, Linux x64
+  and arm64), with one subtest per shipped program. It installs the vendor's current release into
+  the floor and runs it with `--version`: npm packs on the floor's Node, installer packs from a
+  capture.
+- `TestMacosUserHostFloorIsTheHostUsersAlone`, Mac-only (`macos-user.yml`, darwin-arm64). It makes
+  the first test's install on a Mac, then checks that the sandbox account cannot reach the prefix
+  (the `yolo check` row below).
+
+What only a real host can still confirm is said per row.
 
 - After one `yolo host apply` at a terminal, `yolo host -- opencode` started from Waybar, with
   mise unactivated and a minimal PATH, execs the prefix's `opencode`.
   **Built.** `TestHostLaunchRunsTheFloorsCopyOfASelectedPacksAgent` (the first launch installs, a
   second from `PATH=/usr/bin:/bin` execs the same floor copy with no second install) and
   `TestAnNpmProgramInstallsOnTheFloorsOwnNodeAndStartsWithNoPATH` (the floor's launcher runs with
-  an empty environment). **Needs a real host:** the real opencode-ai package installed by the real
-  npm of the official Node tarball, on Linux and on a Mac.
+  an empty environment). **On a real host:** the official Node tarball and its npm are pinned by
+  `TestHostFloorInstallsAPinnedNpmProgramOnTheRealNode` (Linux, and darwin-x64) and
+  `TestMacosUserHostFloorIsTheHostUsersAlone` (darwin-arm64). The real opencode-ai package is
+  pinned by `TestHostFloorInstallsTheVendorsRelease/opencode` (Linux). Both were MEASURED by hand
+  on 2026-10-05 in this development jail with a scratch `HOME`: Node v24.21.0's linux-x64 tarball
+  verified against the compiled-in digest, `cowsay@1.6.0` installed and run from
+  `PATH=/usr/bin:/bin` and with an empty environment, and opencode-ai 1.18.34 installed and run
+  with `--version`. The floor's npm warned that opencode-ai's postinstall script is not yet covered
+  by npm's `allowScripts` setting, so the Pack Installs cell is where a future npm that enforces the
+  setting shows up first. **Still needs a real host:** a vendor's npm agent on a Mac's floor, which
+  waits on [OQ-CI7](../reference/agent-install-in-ci.md#oq-ci7), and a real launcher such as a
+  Waybar widget, in place of the tests' minimal PATH.
 - With a hand-installed `claude` in `~/.local/bin` on the caller's PATH, `yolo host -- claude`
   still execs the prefix's copy, and `yolo check` names the hand-installed one as not run by
   `yolo host`.
@@ -365,9 +398,11 @@ said per row.
   `/lib64/ld-linux-x86-64.so.2`, which a NixOS host without nix-ld lacks) has no floor entry for
   it, and `yolo host -- claude` runs the PATH copy, naming the nix-ld step ([HP-D15](#HP-D15),
   `elfinterp_test.go`, `TestHostLaunchOnAMachineWithoutTheFloorsLoaderRunsThePATHCopyAndNamesTheStep`).
-  **Needs a real Linux host:** that a captured claude runs outside the jail's `/lib` farm on a
-  glibc host, that NixOS's stub-ld and then nix-ld give the two answers, and where claude's own
-  self-updater writes when started from the floor with the real `$HOME` (NOT MEASURED). On a Mac
+  A captured claude running from the floor outside the jail's `/lib` farm, on a glibc host, is
+  pinned by `TestHostFloorInstallsTheVendorsRelease/claude` (Pack Installs, Ubuntu).
+  **Needs a real Linux host:** that NixOS's stub-ld and then nix-ld give the two answers, and
+  where claude's own self-updater writes when started from the floor with the real `$HOME` (NOT
+  MEASURED). On a Mac
   claude is the macos-user capture act's entry ([HP-D2](#HP-D2):
   `TestAnInstallerProgramOnAMacIsItsCaptureMaterialized`, `TestAMacsFloorCapturesThroughTheMacosUserAct`),
   and before `yolo macos-setup` `yolo host -- claude` runs the PATH copy with one line naming that
@@ -379,9 +414,9 @@ said per row.
   **Built** 2026-10-05: `TestACodexCaptureIsTheFloorsCodex` runs the real capture driver over
   codex's standalone layout, `TestAStaleCodexCaptureIsRecapturedBeforeItsProgramIsJudged` and
   `TestACaptureRecordedBeforeTheSurfaceItsProgramIsInIsRecapturedOnce` the two stale shapes.
-  **Needs a real Linux host:** a real `yolo capture codex` (its manifest's surfaces include
-  `.codex/packages/standalone` and it is relocatable), then `yolo host -- codex --version` from the
-  floor, and `yolo check` listing codex provisioned.
+  A real capture of codex, materialized into the floor and run with `--version`, is pinned by
+  `TestHostFloorInstallsTheVendorsRelease/codex` (Pack Installs, Linux). **Needs a real Linux
+  host:** `yolo check` listing codex provisioned.
 - An installer agent stays current: once its newest capture is a day old, the refresh captures it
   again (a failed capture is retried after the hourly interval) and installs the newer release it
   stores, never an older one ([HP-D16](#HP-D16)).
@@ -434,7 +469,16 @@ said per row.
   prefix, and no jail's mount list reaches it.
   **Built.** The section's tests (`section_hostfloor_test.go`), `TestEverySectionIsWired`, and
   `TestAssembleNeverMountsTheHostFloor` for the podman and Apple Container argvs. The macos-user
-  guest is kept out by the prefix's `0700` mode, another uid's, which only a Mac can confirm.
+  guest, another uid, is kept out by the prefix's `0700` mode.
+  `TestMacosUserHostFloorIsTheHostUsersAlone` (Mac-only, `macos-user.yml`) checks the mode alone:
+  it makes a floor under a path the sandbox account can traverse down to the prefix's parent. It then checks that the account can
+  list that parent, but can neither list the prefix nor read its launcher, and that a probe inside
+  a macos-user launch cannot list the prefix either. A real floor, under `/Users/<you>`, has two
+  more layers in front of that mode. The launch's Seatbelt profile denies reads under `/Users`
+  outside the workspace and the account's own home (`users-read-deny` in
+  `internal/macosuser/seatbelt.go`). And `yolo macos-setup` takes the account out of `staff`
+  (`macosuser.CreateUserCommands`), the group a macOS home belongs to. The test logs the mode of
+  the machine's own home and relies on neither layer.
 
 **Pinned since the build's review** (2026-09-29). The review found each of these call sites could
 be removed with the suite green; each test below fails with its line removed.
@@ -458,11 +502,14 @@ be removed with the suite green; each test below fails with its line removed.
   ([HP-D4](#HP-D4)). The case-insensitive aliasing test runs only where the temp directory's
   filesystem folds case, which is the macOS CI runner and not Linux.
 
-**Needs a real host**, beyond the rows above: that a real capture of claude passes the confined
-materialize's checks on a Linux host and then runs from the floor. The checks refuse nothing a
-capture's own walk writes, but the tests show that for the fixture trees they build, not for
-claude's. A caller with no PATH at all is a real launcher's case (`env -i`) that the test
-reproduces only by unsetting PATH in-process.
+A real capture of claude passing the confined materialize's checks on a Linux host and then
+running from the floor is pinned by `TestHostFloorInstallsTheVendorsRelease/claude`. The checks
+refuse nothing a capture's own walk writes; the unit tests show that for the fixture trees they
+build, and `TestHostFloorRunsARealCaptureOfAnInstallerFixture` for a tree a real capture jail
+recorded. **Needs a real host**, beyond the rows above: a caller with no PATH at all is a real
+launcher's case (`env -i yolo host -- <bin>`), which the unit test reproduces only by unsetting PATH
+in-process. `TestHostFloorInstallsAPinnedNpmProgramOnTheRealNode` runs the floor's launcher with an
+empty environment, not `yolo host`.
 
 ## 9. Non-goals
 
@@ -677,8 +724,8 @@ reproduces only by unsetting PATH in-process.
 | <a id="HP-DIR4"></a>HP-DIR4 | **Maintainer ruling (2026-09-29), which copy of a pack's agent `yolo host` runs, with a correction to how [HP-DIR2](#HP-DIR2) item (1) was read:** *"I thought the whole point of running yolo host was to get the actual agent."* `yolo host -- <agent>` runs the floor's copy whenever a selected pack delivers that agent, from any launcher (a terminal, a Waybar widget, cron). A copy the user installed, such as `~/.local/bin/claude`, is not the one that runs. The agent's own commands (`npm test`) see the user's PATH, mise included, first and the floor after it ([OQ-HP7](#OQ-HP7)). A program no selected pack delivers resolves on the user's PATH as usual, with the floor after. **The correction:** HP-DIR2 item (1)'s "the user's PATH … with the floor as a FALLBACK after it" describes the environment the agent's commands run in (the project's `node`, for example), never which copy of a pack's agent runs. HP-DIR2's text stands, read that way. [HP-D1](#HP-D1)'s exec of the floor's program by path stands too; HP-DIR2 still replaces its "prefix first" in the PATH the agent is handed. Recorded in [`host-agent-environment.md`'s launch PATH](../reference/host-agent-environment.md#the-launch-path-and-which-copy-of-a-program-runs) as [OQ-HE10](../reference/host-agent-environment.md#oq-he10), answered (c). *Recorder's reading, not the maintainer's words:* HP-DIR2's "yolo never inspects the command" stands as a bar on inspecting what a command will do (its arguments, an `npm test` it will run). yolo already keys a host launch on the command's base name: `composeHostLaunchWith` takes `filepath.Base` of it, and the profile, provider env, credential gate, launch flags and launch services all follow the pack that installs that name (`selectedPackInstalls` is the existing predicate). HP-DIR4 adds only which copy runs to that same key, and only for a bare name: a target given as a path is exec'd as given ([the one resolver](../reference/host-agent-environment.md#one-resolver)). "Delivers" means the floor holds, or can provision, an entry for the program ([Defined terms](#defined-terms)); what runs for a selected pack's program with no possible floor entry is [OQ-HE11](../reference/host-agent-environment.md#oq-he11), ruled (a) | 2026-09-29 | **Built** (`resolveHostLaunchTarget`): a bare name a selected pack delivers runs the floor's copy; a path is exec'd as given; anything else, and a program with no floor entry, is looked up on the child's PATH, the latter with one line ([OQ-HE11](../reference/host-agent-environment.md#oq-he11), ruled (a)) |
 | <a id="HP-D4"></a>HP-D4 | *Implementation decision:* the deciding (first install, a moved declaration, the throttled refresh, the lock) runs in yolo, on the launch that asks, before the exec; `bin/<bin>` is an exec-only launcher, `exec <node> <entry> "$@"` for a Node script and `exec <entry> "$@"` for anything else. The jail's bash launcher leans on what its image bakes (`jq`, `timeout`, a `yolo` on PATH to materialize with), which a host does not, so the same template here would behave per machine. HP-DIR2 item (2)'s "mise stripped" is read as: nothing on PATH chooses what starts or what interpreter it runs on, because both are absolute paths; the environment is otherwise the one handed over, since [OQ-HP7](#OQ-HP7) gives the agent's commands the user's own, mise included | 2026-09-29 | **Built.** `internal/hostfloor/ensure.go` (`launcherScript`). Its comment line names the record's bin, version and pack only through `commentField`, which turns every character outside a small safe set into `?`: the version is text a vendor chose (npm's `package.json`, a directory a capture's installer made), and a newline in it would otherwise make the rest a line the launcher runs (`launcher_test.go`) |
 | <a id="HP-D5"></a>HP-D5 | *Implementation decision under [OQ-HP1](#OQ-HP1):* the configuration is a user-scope `host_floor` key taking `agent_updates`' two shapes, read by the same reader: `false` is a floor of nothing, and `{"*": true, "<pack>": false}` leaves a pack out. A workspace value is a `yolo check` error | 2026-09-29 | **Built.** `internal/config/hostfloor.go`, `entrypoint.PackPolicyAllows` |
-| <a id="HP-D6"></a>HP-D6 | *Implementation decision under [OQ-HP4](#OQ-HP4):* the shipped release is Node v24.21.0, the LTS line the jail image runs, as `.tar.gz`, with its four platforms' published sha256 compiled in, so the check does not trust a value fetched beside the bytes. A higher `node_floor` raises the floor to that floor padded to three parts (`22.19` is v22.19.0, the lowest release meeting it), checked against that release's `SHASUMS256.txt`. An install runs npm with the floor's Node first on a fixed system PATH, and drops the ambient variables that would redirect an npm install or change what Node loads (`NPM_CONFIG_*`, `npm_config_*`, `NODE_OPTIONS`, `NODE_PATH`). A Node script is started by the floor's Node; a native build shipped through npm (opencode-ai's) is started as itself. An entry keeps the Node it was installed on until a refresh or a moved declaration reinstalls it | 2026-09-29 | **Built.** `internal/hostfloor/node.go`, `run.go`. The real tarball and the real npm are exercised by no test |
-| <a id="HP-D7"></a>HP-D7 | *Implementation decision under [OQ-HP3](#OQ-HP3):* container captures now record the full reference scan (`--scan-content-refs`), without which `capture.Materialize` refuses to move an entry out of `/home/agent`; the floor materializes the store's selected entry into its own install directory and relocates it. An entry recorded before the scan is recaptured once. With no capture in the store, the floor runs `yolo capture <bin>` when a container runtime is on PATH; with none, the program has no floor entry here, and neither has one whose only capture was recorded for a jail's home (**revised 2026-10-05 by [HP-D18](#HP-D18)**: with none, a Linux host whose kernel offers Landlock captures it on the host). A capture whose `~/.local/bin/<bin>` is not in the capture has no floor entry either: codex's installer links it into `~/.codex`, which no capture records (measured 2026-09-29 against this machine's store; its claude 2.1.267 and agy entries hold their program, and no file in either names `/home/agent`, so a full scan finds them relocatable). An installer program is refreshed when the store's selected entry changes; the vendor's own update verb is never run against the real home. **Revised 2026-10-05 by [HP-D17](#HP-D17):** codex is in the floor; its exclusion rested on a capture recorded before its payload was a capture surface, and the recapture now comes before the program check. **Revised 2026-10-05 by [HP-D16](#HP-D16):** the refresh installs a newer release only, and captures again once the newest capture is a day old | 2026-09-29 | **Built** (`internal/hostfloor/ensure.go`, `captured.go`; `captureJailArgv`). Whether a captured binary runs on a real host is NOT MEASURED |
+| <a id="HP-D6"></a>HP-D6 | *Implementation decision under [OQ-HP4](#OQ-HP4):* the shipped release is Node v24.21.0, the LTS line the jail image runs, as `.tar.gz`, with its four platforms' published sha256 compiled in, so the check does not trust a value fetched beside the bytes. A higher `node_floor` raises the floor to that floor padded to three parts (`22.19` is v22.19.0, the lowest release meeting it), checked against that release's `SHASUMS256.txt`. An install runs npm with the floor's Node first on a fixed system PATH, and drops the ambient variables that would redirect an npm install or change what Node loads (`NPM_CONFIG_*`, `npm_config_*`, `NODE_OPTIONS`, `NODE_PATH`). A Node script is started by the floor's Node; a native build shipped through npm (opencode-ai's) is started as itself. An entry keeps the Node it was installed on until a refresh or a moved declaration reinstalls it | 2026-09-29 | **Built.** `internal/hostfloor/node.go`, `run.go`. The real tarball and its npm are exercised by `TestHostFloorInstallsAPinnedNpmProgramOnTheRealNode` (every push: Linux x64 and arm64, and darwin-x64 on the macOS nightly), by `TestMacosUserHostFloorIsTheHostUsersAlone` (darwin-arm64, `macos-user.yml`), and by `TestHostFloorInstallsTheVendorsRelease`'s npm subtests (Pack Installs). **MEASURED 2026-10-05:** all four compiled-in digests match nodejs.org's `SHASUMS256.txt` for v24.21.0, and in this development jail the linux-x64 tarball verified and `cowsay@1.6.0` installed with its npm ran with an empty environment |
+| <a id="HP-D7"></a>HP-D7 | *Implementation decision under [OQ-HP3](#OQ-HP3):* container captures now record the full reference scan (`--scan-content-refs`), without which `capture.Materialize` refuses to move an entry out of `/home/agent`; the floor materializes the store's selected entry into its own install directory and relocates it. An entry recorded before the scan is recaptured once. With no capture in the store, the floor runs `yolo capture <bin>` when a container runtime is on PATH; with none, the program has no floor entry here, and neither has one whose only capture was recorded for a jail's home (**revised 2026-10-05 by [HP-D18](#HP-D18)**: with none, a Linux host whose kernel offers Landlock captures it on the host). A capture whose `~/.local/bin/<bin>` is not in the capture has no floor entry either: codex's installer links it into `~/.codex`, which no capture records (measured 2026-09-29 against this machine's store; its claude 2.1.267 and agy entries hold their program, and no file in either names `/home/agent`, so a full scan finds them relocatable). An installer program is refreshed when the store's selected entry changes; the vendor's own update verb is never run against the real home. **Revised 2026-10-05 by [HP-D17](#HP-D17):** codex is in the floor; its exclusion rested on a capture recorded before its payload was a capture surface, and the recapture now comes before the program check. **Revised 2026-10-05 by [HP-D16](#HP-D16):** the refresh installs a newer release only, and captures again once the newest capture is a day old | 2026-09-29 | **Built** (`internal/hostfloor/ensure.go`, `captured.go`; `captureJailArgv`). A capture jail's entry run from the floor on a real host is pinned by `TestHostFloorRunsARealCaptureOfAnInstallerFixture` (every push, Linux: a real capture jail, the confined materialize, the relocated link) for a hermetic fixture, and by `TestHostFloorInstallsTheVendorsRelease` (Pack Installs, Ubuntu) for claude, agy and codex |
 | <a id="HP-D8"></a>HP-D8 | *Implementation decision:* the prefix is `host-floor/` under the state dir, `0700`: `bin/`, `node/v<version>/`, `programs/<bin>/<id>/` (a completion marker written last), `records/<bin>.json`, `receipts.jsonl`, `locks/`. Each install keeps its program's current and previous version. The per-program lock is a `flock` the kernel drops with its holder, so no lock can be held by a dead pid; `yolo check` reports an install running now and an interrupted one's leftover, which `yolo prune --apply` alone reclaims. `yolo host apply --assert` installs every missing entry and removes one no selected pack delivers, but only when the whole selection resolved; the launch gate's apply takes neither step. A `records/<bin>.json` whose schema is newer than this yolo's is refused and never installed over, as a pack lockfile of a newer schema is: `yolo host -- <bin>` and `yolo host apply --assert` refuse it and name two steps: `yolo update`, and, for a machine where the update finds nothing newer (the prefix is every yolo's on the machine, so the record can be another install's), removing the record, after which this yolo installs its own copy. While such a record is in the prefix, an `--assert` drops no Node release, since this yolo cannot read which one that record runs on (decided 2026-10-01) | 2026-09-29 | **Built.** `internal/hostfloor`, `internal/prune/hostfloor.go`, `yolo stores` |
 | <a id="HP-D9"></a>HP-D9 | *Implementation decision under [the one resolver](../reference/host-agent-environment.md#one-resolver):* the dependency probe of `yolo host apply` (and so the launch gate's survey) and `yolo check-deps` answers a program the floor delivers by its floor entry, as satisfied (provisioned, or the floor's to install), never by a PATH lookup, so a not-yet-installed agent is not a missing-dependency blocker | 2026-09-29 | **Built.** `resolveHostDeps`, `configuredDepRequirements` |
 | <a id="HP-D10"></a>HP-D10 | *Implementation decision under [OQ-HP3](#OQ-HP3), from the build's review:* the floor's materialize runs on the HOST, following a manifest the capture driver wrote inside the capture jail, so the manifest is treated as that jail's claim. Every materialize, in a jail too, refuses before its first write a manifest whose entries are not a tree under the home (an empty, absolute, unclean or climbing path, one listed twice, an unknown kind, one beneath a non-directory entry) and a file entry whose store source is not a regular file; none of these can come from a capture's own walk. The floor's is a **confined** materialize, which also requires an empty home, keeps every entry inside the capture surfaces, and checks each directory on the way to an entry with `Lstat`, so it writes through no link (the one case the entry checks cannot see is two names one directory on a case-insensitive filesystem). A jail's home is never confined: macos-user's reaches `.local` through a link it must follow | 2026-09-29 | **Built.** `internal/capture/confine.go` (`MaterializeOptions.Confined`); the floor sets it in `installFromCapture` |

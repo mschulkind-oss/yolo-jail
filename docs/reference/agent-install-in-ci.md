@@ -8,6 +8,7 @@ covers:
   - integration/installmechanism_test.go
   - integration/agents_test.go
   - integration/harness_test.go
+  - integration/hostfloor_test.go
   - .github/workflows/packs.yml
   - Justfile
 tags: [ci, packs, testing, npm, integration]
@@ -33,14 +34,17 @@ and it fails like any other job.
 
 | Component | Lives in |
 | :--- | :--- |
-| The two pinned install-mechanism cells | `integration/installmechanism_test.go` (`TestPinnedNpmProgramInstallsTheDeclaredVersion`, `TestInstallerProgramRunsThePacksOwnScript`) |
+| The jail's two pinned install-mechanism cells | `integration/installmechanism_test.go` (`TestPinnedNpmProgramInstallsTheDeclaredVersion`, `TestInstallerProgramRunsThePacksOwnScript`) |
+| The host floor's two pinned install-mechanism cells | `integration/hostfloor_test.go` (`TestHostFloorInstallsAPinnedNpmProgramOnTheRealNode`, `TestHostFloorRunsARealCaptureOfAnInstallerFixture`) |
 | The per-pack matrix and its completeness check | `integration/agents_test.go` (`packMatrix`, `packCase`, `TestPackMatrixCoversEveryShippedProgram`) |
 | The network-free per-pack render test | `integration/agents_test.go` (`TestPackRendersConfigAndLauncher`) |
-| The real vendor-install tests | `integration/agents_test.go` (`TestPackInstallsVersionsAndConfigures`, `TestAgentToolsAvailable`) |
+| The real vendor-install tests | `integration/agents_test.go` (`TestPackInstallsVersionsAndConfigures`, `TestAgentToolsAvailable`), and at the host floor `integration/hostfloor_test.go` (`TestHostFloorInstallsTheVendorsRelease`) |
+| The host floor's Mac cell | `integration/macosuserhostfloor_test.go` (`TestMacosUserHostFloorIsTheHostUsersAlone`, on the `macos-user` workflow) |
 | The real-install gate and suite warmup | `integration/harness_test.go` (`requireRealPackInstalls`, `autoCaptureEnvForSuite`, `warmJail`, `warmupTimeout`) |
 | The vendor-install workflow | `.github/workflows/packs.yml` |
 | The local full run | the `Justfile` `test` recipe |
 | The launcher that performs an install | `internal/entrypoint` (the npm and installer launcher templates; `npmInstallSpec`) |
+| What performs an install at the host | `internal/hostfloor` (the floor's own Node and npm in `node.go`, `ensure.go` and `run.go`; a capture materialized into the floor) |
 
 **Reads with:** [`image-staging-vs-baking.md`](image-staging-vs-baking.md#what-a-launch-delivers)
 (why agent CLIs are delivered by a launch and not baked into the image, which is the constraint
@@ -109,9 +113,17 @@ yolo's own and has no coverage question in it. The fix is attribution
   asserts the installed version equals it, read from `node_modules`, where npm records what it
   installed, rather than from a `--version` flag, which is the package's business. The installer
   cell's script lives inside the fixture pack's own tree. Neither can go red without a commit.
+  The host floor's two cells follow the same rule: its npm cell installs the same pinned specimen,
+  on a Node release whose tarball must match a digest compiled into yolo, and its capture cell
+  runs a fixture installer from the pack's own tree.
 - **Exactly one pinned cell per install mechanism.** No more, because a second npm cell re-buys a
   code path already bought ([P2](#p2)). No fewer, because each mechanism's cell is the only thing
-  on the push path that watches an install *arrive* ([P3](#p3)).
+  on the push path that watches an install *arrive* ([P3](#p3)). The host floor installs both
+  declarations with code of its own: npm on the floor's own Node, and an installer as a capture
+  materialized into the floor ([`host-tool-provisioning.md`](../design/host-tool-provisioning.md)).
+  So it has two cells of its own under the same rule. Its npm cell is not the second npm cell
+  [OQ-CI2](#oq-ci2) ruled out: the interpreter, the npm invocation and the prefix are the floor's,
+  and none of them is the jail launcher's.
 - **Every shipped pack that declares a program has a `packMatrix` row.**
   `TestPackMatrixCoversEveryShippedProgram` enumerates the embedded packs and fails for any that
   declares an install contribution without a row. It runs under `-short`, so a forgotten row fails
@@ -208,8 +220,8 @@ row asks a question its trigger cannot cause:
 
 | Trigger | What runs | Why |
 | :--- | :--- | :--- |
-| **Every push and PR** (`ci.yml`, the whole `./integration` package) | the two pinned mechanism cells, the per-pack render test, and every other container test. No vendor installs | A pure function of the repository ([P1](#p1)) |
-| **A push or PR touching `packs/**`, `flake.nix`, `flake.lock`, `internal/image/**` or `packs.yml`** | Pack Installs: every `packMatrix` pack's real install on both arches, plus the coexistence job | A manifest edit, or a change to which image a jail gets, is commit-caused and can break a real install. Without this trigger a manifest typo would reach main and surface a week later |
+| **Every push and PR** (`ci.yml`, the whole `./integration` package) | the jail's two pinned mechanism cells and the host floor's two, the per-pack render test, and every other container test. No vendor installs | A pure function of the repository ([P1](#p1)) |
+| **A push or PR touching `packs/**`, `flake.nix`, `flake.lock`, `internal/image/**`, `internal/hostfloor/**` or `packs.yml`** | Pack Installs: every `packMatrix` pack's real install on both arches, in a jail and into the host floor, plus the coexistence job | A manifest edit, a change to which image a jail gets, or a change to the floor's own install code is commit-caused and can break a real install. Without this trigger a manifest typo would reach main and surface a week later |
 | **Weekly schedule**, and manual dispatch | the same Pack Installs jobs | Vendor drift is not commit-caused, so it does not belong on the push path ([P4](#p4)) |
 
 The path filter names what decides the image as well as the pack manifests, because a delivery
@@ -218,7 +230,8 @@ change breaks every real install as surely as a manifest change does. When it fi
 the workflow caught it only because the same push happened to carry an unrelated manifest edit.
 The filter is not dropped entirely, because ci.yml already covers the launch path on every push.
 What Pack Installs adds is real vendor installs, and the axis that makes those fragile is the
-image.
+image. At the host it is the floor's own install code, which is why `internal/hostfloor/**` is in
+the filter too.
 
 A manifest-triggered run installs **every** pack in the matrix, not only the changed ones. There
 is no changed-files detection. It is still exposed to [Mode A](#mode-a) for every unpinned pack,
@@ -233,7 +246,7 @@ change touch the package?* If not, the failure is upstream.
 
 ### The every-push mechanism cells
 
-Both cells select a **local** `file://` fixture pack written into a temp dir. That matters twice.
+Every cell selects a **local** `file://` fixture pack written into a temp dir. That matters twice.
 A local pack's origin is allowed to declare an `installerUrl` at all. And a staged pack's tree is
 copied whole into `/ctx/packs/<name>/`, so a pack can carry its own installer.
 
@@ -246,6 +259,20 @@ copied whole into `/ctx/packs/<name>/`, so a pack can carry its own installer.
   no network are involved. The fixture entry names the pack explicitly, because a staged pack
   directory takes its name from the source URL's last path segment rather than the manifest's
   `name`, and under `t.TempDir()` that segment is a counter.
+- **The host floor's npm cell** installs the same specimen with `yolo host -- cowsay`, from
+  `PATH=/usr/bin:/bin`, on the Node release yolo ships. That tarball comes from nodejs.org and must
+  match the digest compiled into yolo, so the cell checks the compiled-in digest for its platform
+  against the real bytes, which no other test does. It reads the installed version from npm's own
+  `package.json`, runs the floor's launcher with an empty environment, and checks that a second
+  launch installs and polls nothing.
+- **The host floor's capture cell** runs `capture_test.go`'s hermetic installer fixture through a
+  first `yolo host -- <bin>`: a real capture jail, the confined materialize into the floor, and the
+  installer's absolute `/home/agent` link relocated into the floor. On a Mac the floor captures
+  through the macos-user act instead, so with no sandbox account (the macOS nightly's runners) the
+  cell checks the launch's refusal, which names `yolo macos-setup`.
+- Both floor cells give the test a private floor and, for the capture cell, a private capture
+  store (`privateStateEntries`). Without that, the run's other tests would share them, and
+  `yolo host apply --assert` removes every floor entry outside its own selection.
 
 > [!WARNING]
 > **The npm specimen's bin must not be baked into the image.** Launcher generation writes no
@@ -259,10 +286,18 @@ copied whole into `/ctx/packs/<name>/`, so a pack can carry its own installer.
 `.github/workflows/packs.yml` builds the minimal jail image once per arch, then fans out:
 
 - **`install`** is one job per pack × arch with `fail-fast: false`. Each runs only its own subtest
-  of `TestPackInstallsVersionsAndConfigures`, so a red cell names its vendor in the job name
-  rather than in a log. One vendor's break cannot mask the others ([OQ-CI3](#oq-ci3)). Both arches
-  run, because a version can be fine on linux-x64 and broken on linux-arm64 at the same instant: a
-  vendor that passes on one arch has not passed.
+  of `TestPackInstallsVersionsAndConfigures` and of `TestHostFloorInstallsTheVendorsRelease`, so a
+  red cell names its vendor in the job name rather than in a log. One vendor's break cannot mask
+  the others ([OQ-CI3](#oq-ci3)). Both arches run, because a version can be fine on linux-x64 and
+  broken on linux-arm64 at the same instant: a vendor that passes on one arch has not passed.
+  The `-run` pattern anchors both levels, `^(…)$/^<pack>$`. `go test` matches each level of a
+  `-run` pattern unanchored, so the pattern before 2026-10-05, `TestPackInstallsVersionsAndConfigures/pi`,
+  also ran copilot's subtest in the pi job.
+- **The host floor's subtests** install each vendor's current release with `yolo host -- <bin>
+  --version`, on a private floor, with `agent_updates: false`. That setting keeps a launch from
+  polling, or running a pre-launch refresh, since only `--version` probes are allowed. npm packs
+  install on the floor's Node. Installer packs are materialized from a capture: one the floor
+  makes, or one the job's jail subtest already put in the run's store.
 - **`coexistence`**, per arch, runs `TestAgentToolsAvailable`: one jail whose `packs` name two
   agents must end up with both installed. It is not per-pack, so it is not in the matrix.
 
@@ -360,6 +395,13 @@ The macOS nightly shards the whole `./integration` package but never sets
 test do run, so the podman-VM install path is exercised on macOS by the pinned fixtures only
 (INFERRED from the workflow's env; not observed in a run log for this stamp).
 
+The host floor's npm cell runs in the nightly too, on darwin-x64. The `macos-user` workflow runs it
+on darwin-arm64, inside `TestMacosUserHostFloorIsTheHostUsersAlone`. Between them, some job checks
+each of the floor's four compiled-in Node digests against nodejs.org's real tarballs. The floor's
+capture cell checks only the refusal on a Mac (see above). `TestHostFloorInstallsTheVendorsRelease`
+skips on darwin, so no vendor install runs at a Mac's host floor either, until [OQ-CI7](#oq-ci7) is
+ruled.
+
 <a id="what-a-vendor-install-on-a-mac-costs"></a>**What a vendor install on a Mac would cost.** [OQ-CI7](#oq-ci7)'s
 options, stakes and leaning were drafted 2026-10-01, from the workflows at `d4e435a3` and the runs named
 below. Three facts set the price:
@@ -379,7 +421,8 @@ below. Three facts set the price:
   the machine's file sharing under the install prefix, which is INFERRED to matter and has
   never been observed failing. macos-user installs darwin builds, which no CI job installs, and
   its `via: npm` row is *"not measured on hardware"*
-  ([`macos-user-provisioning.md`](macos-user-provisioning.md)).
+  ([`macos-user-provisioning.md`](macos-user-provisioning.md)). The host floor's cells install
+  darwin bytes too, but only Node's own build and the pure-JavaScript npm specimen: no vendor's.
 
 The options in full, with what each one pays:
 
@@ -469,12 +512,16 @@ place the values themselves are stated.
 | Warmup skipped | only when `YOLO_TEST_MAC_ARCHIVE_DELIVERY` is set (an image-delivery job); every GOOS warms | `warmupSkipReason`, `integration/harness_test.go` |
 | npm mechanism specimen | `cowsay@1.6.0` | `pinnedNpmPackage`, `integration/installmechanism_test.go` |
 | Installer fixture URL | `file:///ctx/packs/local-installer-fixture/install.sh` | `TestInstallerProgramRunsThePacksOwnScript` |
+| Host-floor npm specimen | `cowsay@1.6.0` (the jail cell's), on Node `hostfloor.ShippedNodeVersion` | `installPinnedNpmOnTheFloor`, `integration/hostfloor_test.go` |
+| Host-floor installer fixture URL | `file:///ctx/packs/capture-fixture-pack/install.sh` (`capture_test.go`'s fixture) | `TestHostFloorRunsARealCaptureOfAnInstallerFixture` |
+| Host-floor launch PATH in the pinned cells | `/usr/bin:/bin` | `floorMinimalPath`, `integration/hostfloor_test.go` |
 | Unversioned npm spec | `<pkg>@latest` | `npmInstallSpec`, `internal/entrypoint` |
 | npm install flags | `-g --prefer-online` | the npm launcher template, `internal/entrypoint` |
 | Per-workspace install prefixes | `/home/agent/.npm-global`, `/home/agent/.local` | `internal/cli/run` (`assemble_parts.go`) |
 | Shared npm HTTP cache | `/home/agent/.cache/npm`, from `paths.GlobalCache()` | `internal/cli/run` |
 | Pack Installs weekly schedule | `0 9 * * 1` (Monday 09:00 UTC) | `.github/workflows/packs.yml` |
-| Pack Installs path filter | `packs/**`, `flake.nix`, `flake.lock`, `internal/image/**`, `.github/workflows/packs.yml` | `.github/workflows/packs.yml` (listed twice, for `push` and `pull_request`) |
+| Pack Installs path filter | `packs/**`, `flake.nix`, `flake.lock`, `internal/image/**`, `internal/hostfloor/**`, `.github/workflows/packs.yml` | `.github/workflows/packs.yml` (listed twice, for `push` and `pull_request`) |
+| Pack Installs test selection, per pack | `^(TestPackInstallsVersionsAndConfigures\|TestHostFloorInstallsTheVendorsRelease)$/^<pack>$` | `.github/workflows/packs.yml`, the `install` job |
 | Pack Installs arches | `ubuntu-latest`, `ubuntu-24.04-arm` | `.github/workflows/packs.yml` |
 | Per-job timeout | 60 minutes | `.github/workflows/packs.yml` |
 
