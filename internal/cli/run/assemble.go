@@ -112,7 +112,10 @@ type assembleInput struct {
 	cacheDir string
 	// sealed is THE SEAL (Options.Sealed, seal.go), carried here so argv assembly withholds every
 	// crossing site it emits. False for every launch but a fork build.
-	sealed       bool
+	sealed bool
+	// sealedTree is, under the seal, the patched extension the build jail builds
+	// (Options.SealedTree), emitted as entrypoint.TreeBuildEnv.
+	sealedTree   string
 	hostTZ       string // "" => no TZ
 	yoloVersion  string // _git_describe_version() or "unknown"
 	mountTargets map[string]struct{}
@@ -953,6 +956,10 @@ func (o *Options) assembleRunCmd(in *assembleInput) []string {
 	// (patchedtrees.go, docs/design/patched-extensions.md PPX-D8, PPX-D18).
 	if wire := entrypoint.PatchedTreesWire(in.patchedTrees); wire != "" {
 		runCmd = append(runCmd, "-e", entrypoint.PatchedTreesEnv+"="+wire)
+	}
+	// And in a patched extension's own sealed build jail, which extension it builds (PPX-D30).
+	if in.sealed && in.sealedTree != "" {
+		runCmd = append(runCmd, "-e", entrypoint.TreeBuildEnv+"="+in.sealedTree)
 	}
 
 	// --- host files (pack-declared, origin-gated) ---

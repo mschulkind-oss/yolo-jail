@@ -167,5 +167,5 @@ func runForkBuildJail(args []string, out, errw io.Writer) int {
 	if tree != "" {
 		argv = treeBuildJailArgv(build, tree)
 	}
-	return runCaptureJail(workspace, bin, argv, &captureSeal{only: only}, out, errw, color)
+	return runCaptureJail(workspace, bin, argv, &captureSeal{only: only, tree: tree}, out, errw, color)
 }

@@ -620,6 +620,7 @@ func runCaptureJail(workspace, bin string, argv []string, seal *captureSeal, out
 	if seal != nil {
 		opts.Sealed = true
 		opts.OnlyPacks = seal.only
+		opts.SealedTree = seal.tree
 	}
 	opts.Stdout, opts.Stderr = out, errw
 	// NO CAPTURE STORE IN A CAPTURE JAIL. Every ordinary launch binds the store :ro so a

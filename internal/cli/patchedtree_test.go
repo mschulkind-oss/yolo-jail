@@ -169,8 +169,10 @@ func TestAPatchedExtensionsLaunchBuildsItsTreeAndCopiesIt(t *testing.T) {
 	if got, err := os.ReadFile(filepath.Join(d.Dir, "f.txt")); err != nil || string(got) != want {
 		t.Errorf("the copy's f.txt = %q (%v), want the base with the series applied", got, err)
 	}
-	if len(fx.seen) != 1 || !slices.Equal(fx.seen[0].OnlyPacks, []string{"treepack"}) || !fx.seen[0].Sealed {
-		t.Fatalf("the build jail ran %d times, sealed to %v", len(fx.seen), fx.seen[0].OnlyPacks)
+	if len(fx.seen) != 1 || !slices.Equal(fx.seen[0].OnlyPacks, []string{"treepack"}) || !fx.seen[0].Sealed ||
+		fx.seen[0].SealedTree != "tool-ext" {
+		t.Fatalf("the build jail ran %d times, sealed to %v for tree %q", len(fx.seen), fx.seen[0].OnlyPacks,
+			fx.seen[0].SealedTree)
 	}
 	script := strings.Join(fx.seen[0].Args, " ")
 	if !strings.Contains(script, "cp -a") || !strings.Contains(script, packdecl.TreeReservedDir("tool-ext")) ||
@@ -313,7 +315,7 @@ func TestTheChildBuildJailRunsATreesBuild(t *testing.T) {
 	if rc := runForkBuildJail(argv[2:], io.Discard, io.Discard); rc != 0 {
 		t.Fatalf("the child refused a tree's build with no build line: rc %d", rc)
 	}
-	if !slices.Equal(seen.OnlyPacks, []string{"treepack"}) ||
+	if !slices.Equal(seen.OnlyPacks, []string{"treepack"}) || seen.SealedTree != "tool-ext" ||
 		!strings.Contains(strings.Join(seen.Args, " "), packdecl.TreeReservedDir("tool-ext")) {
 		t.Errorf("the child ran %q sealed to %v", seen.Args, seen.OnlyPacks)
 	}

@@ -529,6 +529,10 @@ type Options struct {
 	// directly. seal.go lists the sites. Set by the build act alone (internal/cli's forkbuild.go);
 	// false for every other launch, `yolo capture` of an installer included.
 	Sealed bool
+	// SealedTree is, under the seal, the name of the PATCHED EXTENSION this launch builds, "" for a
+	// fork's build: the jail is told it (entrypoint.TreeBuildEnv), since its selection is the
+	// contributing pack alone (docs/design/patched-extensions.md PPX-D5, PPX-D30).
+	SealedTree string
 	// OnlyPacks, when non-nil, narrows this launch's `packs` entries to the ones named here, before
 	// the selection closure runs (so the packs those entries need or fork still join). The build
 	// act sets it to the fork and its configured base (FP-D9: a build that works only while some

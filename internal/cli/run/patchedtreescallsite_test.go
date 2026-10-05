@@ -10,10 +10,12 @@ package run
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/entrypoint"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	yoloruntime "github.com/mschulkind-oss/yolo-jail/internal/runtime"
 	"github.com/mschulkind-oss/yolo-jail/internal/shquote"
@@ -217,5 +219,36 @@ func TestAPatchedExtensionsClaimIsDisclosedAtLaunch(t *testing.T) {
 	if !strings.Contains(printed, "DELIVERS a tree built from source at ~/"+treeInto) ||
 		!strings.Contains(printed, "UPSTREAM'S NEW CODE ARRIVES UNREVIEWED") {
 		t.Errorf("the launch does not disclose its patched extension's claim:\n%s", printed)
+	}
+}
+
+// A TREE'S SEALED BUILD JAIL IS TOLD IT IS ONE (entrypoint.TreeBuildEnv), so its boot names no list
+// entry of the contributing pack as ownerless; no other launch, sealed or not, is told. Red if
+// assembly stops emitting it.
+func TestATreesSealedBuildJailIsToldItIsOne(t *testing.T) {
+	treeLaunchHome(t, true)
+	for _, tc := range []struct {
+		sealed bool
+		tree   string
+		want   bool
+	}{{true, "tree-ext", true}, {true, "", false}, {false, "", false}} {
+		argv, printed := fakePodmanLaunch(t, func(o *Options) {
+			o.Sealed, o.SealedTree = tc.sealed, tc.tree
+			if tc.sealed {
+				o.OnlyPacks = []string{"treepack"}
+			}
+		})
+		if argv == nil {
+			t.Fatalf("sealed %v, tree %q: the runtime was never run:\n%s", tc.sealed, tc.tree, printed)
+		}
+		got := slices.Contains(argvValues(argv, "-e"), entrypoint.TreeBuildEnv+"="+tc.tree)
+		if tc.tree == "" {
+			got = slices.ContainsFunc(argvValues(argv, "-e"), func(e string) bool {
+				return strings.HasPrefix(e, entrypoint.TreeBuildEnv+"=")
+			})
+		}
+		if got != tc.want {
+			t.Errorf("sealed %v, tree %q: %s on the argv = %v, want %v", tc.sealed, tc.tree, entrypoint.TreeBuildEnv, got, tc.want)
+		}
 	}
 }

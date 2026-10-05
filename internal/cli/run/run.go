@@ -1669,6 +1669,7 @@ func (o *Options) runContainer(cfg *jsonx.OrderedMap, rt, repoRoot, cname string
 		miseStore:        miseStore,
 		cacheDir:         cacheDir,
 		sealed:           o.Sealed,
+		sealedTree:       o.SealedTree,
 		hostTZ:           detectHostTZ(),
 		yoloVersion:      o.yoloVersion(repoRoot),
 		mountTargets:     BindMountTargets(),

@@ -586,7 +586,7 @@ func forkBuildJailArgv(build string) []string {
 // narrowed to the fork and its base (FP-D9) — or, for a PATCHED EXTENSION, to the contributing pack
 // alone (PPX-D5): its toolchain is the image's, so no agent pack has anything to add to it.
 func forkBuildRunJail(workspace string, b forkBuild, out, errw io.Writer, color bool) int {
-	return runCaptureJail(workspace, b.Fork.Bin, buildJailArgv(b.Fork), &captureSeal{only: sealPacks(b.Fork)},
+	return runCaptureJail(workspace, b.Fork.Bin, buildJailArgv(b.Fork), &captureSeal{only: sealPacks(b.Fork), tree: sealTree(b.Fork)},
 		out, errw, color)
 }
 
@@ -597,6 +597,14 @@ func sealPacks(f packload.Fork) []string {
 		return []string{f.Pack}
 	}
 	return []string{f.Pack, f.Base}
+}
+
+// sealTree is the name a patched extension's build jail is told it builds, "" for a fork's.
+func sealTree(f packload.Fork) string {
+	if f.IsTree() {
+		return f.Bin
+	}
+	return ""
 }
 
 // buildJailArgv is f's build jail command: a fork's (forkBuildJailArgv) or a tree's (treeBuildJailArgv).
@@ -702,7 +710,10 @@ func treeAdmitProblem(m *capture.Manifest, f packload.Fork) string {
 }
 
 // captureSeal is what makes a capture jail a fork build's: the seal, and the packs entries the
-// selection is narrowed to. nil for `yolo capture` of an installer, which keeps today's jail.
+// selection is narrowed to — and, for a patched extension's build, the extension's name (tree),
+// which the jail is told (run.Options.SealedTree). nil for `yolo capture` of an installer, which
+// keeps today's jail.
 type captureSeal struct {
 	only []string
+	tree string
 }

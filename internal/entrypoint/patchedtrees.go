@@ -25,6 +25,14 @@ import (
 // one is keyed by bin, and an extension has none. A host↔jail contract in YOLO_PACK_ROOT's class.
 const PatchedTreesEnv = "YOLO_PATCHED_TREES"
 
+// TreeBuildEnv names, in a PATCHED EXTENSION's sealed build jail alone, the extension the jail builds
+// (docs/design/patched-extensions.md §7.1, PPX-D30). That jail's seal selects the contributing pack
+// and no other (PPX-D5), so the pack's own list entry naming `~/<into>` has no owner there by
+// construction, and the boot names no orphaned overlay or list (reportOverlayResolution) rather than
+// tell the user to check an identity that is correct. Additive: an entrypoint that predates it names
+// the orphan, as before.
+const TreeBuildEnv = "YOLO_TREE_BUILD"
+
 // TreeDelivery is the host's answer for one patched extension this launch.
 type TreeDelivery struct {
 	// Into is the home-relative directory the tree is mounted at.
