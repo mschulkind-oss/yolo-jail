@@ -215,6 +215,14 @@ sandbox user and its home folder, that the project is outside every user's home 
 the sandbox, and Nix. Each failure names the command that fixes it.
 `YOLO_RUNTIME=macos-user yolo --dry-run` prints the full launch plan. Neither needs `sudo`.
 
+**Company certificates.** If IT installed a certificate authority in your Mac's System keychain,
+for example for a proxy that inspects HTTPS, the sandbox trusts it too, and each launch names the
+authorities it took. One you trusted only in your own login keychain is not included. To use it,
+put a certificate bundle holding it and the public roots in the project, and in `env_sources` set
+`SSL_CERT_FILE` to that file, and `NODE_EXTRA_CA_CERTS` too if you use Node. Setting
+`SSL_CERT_FILE` is enough for curl, git, Python and the other tools: yolo points their own
+variables at the same file.
+
 **Remove it.**
 
 ```bash
@@ -236,7 +244,10 @@ What you give up:
 - **A weaker boundary.** The sandbox confines what the agent can read and write, but there is no VM
   and no separate network: the agent is on your Mac's own network, and a port it opens is open on
   the Mac.
-- **No resource limits.** Nothing caps memory or CPU, and a runaway build can slow the whole Mac.
+- **Soft resource limits.** `resources.memory` stops the session's largest process when the
+  session goes over, `resources.cpus` sets common build tools' parallelism, and `resources.io`
+  lowers the session's disk priority. None is enforced by the kernel, so a runaway build can still
+  slow the whole Mac.
 - **Mac tools, not Linux ones.** The agent uses macOS's own `sed`, `grep`, `find` and `tar`, whose
   flags differ from the Linux ones, so a script written for Linux can fail. Without Xcode's command
   line tools (`xcode-select --install`) there is no `cc` or `make`.
@@ -259,8 +270,13 @@ What you give up:
   This has not yet been tried on a Mac. Folder sources in `host_files` are not delivered; single
   files are.
 - **No `per_side_paths`**: a `.venv` or `node_modules` in the project is shared between your Mac and
-  the sandbox.
-- **No `cache_relocations`, `resources`, devices or GPU settings.** Each is named at launch.
+  the sandbox, and the launch says which. `uv` in the sandbox keeps its own `.venv-macos-user`, so
+  your Mac's `.venv` survives it.
+- **No `cache_relocations`, `resources.pids_limit`, GPU settings, or USB device entries.** Each is
+  named at launch. `resources.memory` and `resources.cpus` work only as far as the launch says: the
+  memory check runs every two seconds inside the sandbox, and the CPU number is a default the
+  common build tools read, not a cap. A serial device should work: list its `/dev/cu.*` node in
+  `devices` (not yet tried on a Mac).
 - **MCP presets are not delivered**, although your own `mcp_servers` work if their commands exist on
   your Mac.
 - **Language servers**: as on every setup, you bring the server program yourself.
@@ -318,8 +334,11 @@ export YOLO_NIX_HOST_STORE_LINUX=1  # and the store holds the jail's Linux progr
 ## Stopping a jail and reclaiming space
 
 A jail normally ends when you exit the terminal session that started it. For one left running,
-run `yolo stop` from the project folder. On `macos-user` there is nothing to stop. To reclaim
-disk, use `yolo prune`, a dry run until you add `--apply`; see [Storage](storage.md).
+run `yolo stop` from the project folder. On `macos-user` there is nothing to stop; `yolo ps` lists
+each session that is still running and its project folder. To reclaim disk, use `yolo prune`, a
+dry run until you add `--apply`; see [Storage](storage.md). On `macos-user`, `yolo stores` also
+lists what that backend keeps under `/var/yolo-jail` and in the sandbox account's home, and how to
+remove each one.
 
 ## Troubleshooting
 

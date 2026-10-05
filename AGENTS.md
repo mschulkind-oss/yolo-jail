@@ -443,11 +443,12 @@ live, so edits are visible on the host instantly — there is no sync step.
   pack-declared gets one of each, the blocker winning by position. **Both dirs share ONE bind-mount anchor**
   at `~/.yolo/bin`, so both are cleared CONTENTS-ONLY (`resetAnchorDir`), and nothing may put that shared
   parent on PATH.
-- **`macos-user` carries a THIRD PATH list** (`macosuser.SandboxPath`) and it is **NOT `BootPath`'s order** —
-  the two-copy rule above does not cover three, and nothing compares `SandboxPath` to either other copy.
-  `$HOME/.local/bin` is THIRD there and SIXTH in `BootPath`, and `/usr/bin` precedes `/bin`, so a
-  pipx-installed tool outranks a mise shim on that backend and loses to it on every container backend. Left
-  as a divergence rather than quietly reordered: which order is right is a ruling.
+- **`macos-user` carries a THIRD PATH list** (`macosuser.SandboxPath`), and its **head is `BootPath`'s,
+  derived rather than copied**: `entrypoint.HomePathDirs` is both `BootPath`'s first six entries and
+  `SandboxPath`'s, so a mise shim outranks a `~/.local/bin` tool on every backend
+  ([`OQ-PD27`](docs/design/program-delivery.md#decision-ledger), an implementation decision under the
+  2026-10-04 delegation, reversible). The TAIL is macOS's own by decision: the darwin store prefix, the
+  staged `yolo`'s dir, then `/usr/bin:/bin:/usr/sbin:/sbin`. `sandboxpathorder_test.go` pins both.
 - **Env hygiene** (agents can't handle interactive UI): `PAGER`/`GIT_PAGER`=`cat`, `BAT_PAGER=""`;
   `EDITOR=cat` (stops `git commit` hanging) but `VISUAL=nvim` (human ctrl-g editing); the host's `TERM` is
   forwarded so color survives, and its `NO_COLOR` (when set) so a request for none does too — every

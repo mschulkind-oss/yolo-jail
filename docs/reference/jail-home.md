@@ -442,13 +442,15 @@ reaches the same names without moving this list — and keeps working for a cons
 scrubs PATH and spells `/bin/yolo`.
 
 > [!WARNING]
-> **Three copies of this order exist and they are independently written.** `BootPath` is
-> the authority; the `.bashrc` export in `internal/entrypoint/shell.go` is a second copy,
-> and `macosuser.SandboxPath` is a third for the no-container backend. The first two
-> disagreed about `$HOME/.local/bin` — second in one, fifth in the other — for months,
-> behind a test that only asserted "blockers first, launchers last" and nothing about the
-> middle. They are now compared **entry by entry**. Any change to the order changes all
-> three.
+> **Two copies of this order are written independently, and a third shares its head.**
+> `BootPath` is the authority; the `.bashrc` export in `internal/entrypoint/shell.go` is a
+> second copy. The two disagreed about `$HOME/.local/bin` (second in one, fifth in the
+> other) for months, behind a test that only asserted "blockers first, launchers last" and
+> nothing about the middle. They are now compared **entry by entry**. `macosuser.SandboxPath`,
+> the no-container backend's PATH, takes its head from `entrypoint.HomePathDirs`, the function
+> `BootPath` is built from, and keeps its own macOS tail
+> ([OQ-PD27](../design/program-delivery.md#decision-ledger)). Any change to the order changes
+> `BootPath` and the `.bashrc` export.
 
 > [!WARNING]
 > **What the launchers' old position bought is now a generation-time check, and it must

@@ -345,13 +345,12 @@ user granted read-only.
 
 ### 5.1 Confirmed drops I deliberately did NOT warn about
 
-Six of the twenty-one are real and left silent on purpose, because **fourteen new launch lines
+Some of the twenty-one are real and left silent on purpose, because **fourteen new launch lines
 is well past the number [OQ-BP-3](#OQ-BP-3) asks about**, and warning about a drop whose absence is the
 correct outcome trains the reader to skip the ones that matter.
 
 | Mechanism | Backend | Why no warning |
 | :--- | :--- | :--- |
-| pack `env` contributions | macos-user | The only shipped one is `audio`'s `PULSE_SERVER` / `PIPEWIRE_REMOTE`, pointing at sockets that do not exist there. **Setting them would be worse than dropping them**, and the inert-loophole line for `audio` already fires. A third-party pack declaring `env` is a genuine silent drop — revisit when one exists |
 | `resources.pids_limit` | AC | memory and cpus ARE emitted; a per-sub-key warning inside an honored parent is exactly the noise [§4](#4-the-proposal--a-backend-census-sibling-to-renderfieldset)'s residue 2 describes |
 | `ephemeral_storage` | AC | Scratch is always `--tmpfs` there. Recorded as the repo's own position in `config_ref.txt` and unverified on hardware |
 | `gpu`, `kvm` | macos-user | Commonly set in a config shared with a Linux box; podman-on-macOS and AC both merely warn, and making the native backend stricter than its siblings buys no safety |
@@ -363,6 +362,13 @@ it has always printed a skip line, and as of `0d7e8f58` that line is the shared
 `roBindsUnsupported` rule three further emitters now use ([§5.2](#52-the-rule-that-had-no-home)). A mechanism recorded as
 silent when it is not is the same bookkeeping error as the census exists to prevent, one
 level up.
+
+Pack `env` contributions on macos-user **left this table on 2026-10-04**. macos-user delivers
+pack `env` in its launch env, and the one drop this row defended, `audio`'s `PULSE_SERVER` and
+`PIPEWIRE_REMOTE`, still happens and is right — setting them would point at sockets the sandbox
+never gets — but it is no longer silent: the variables are `served_by` the loophole, which that
+backend never binds, and the launch names both as withheld
+([`loophole-packaging.md` LP-D1](loophole-packaging.md#LP-D1)).
 
 **Every one of these belongs in the census with this reason attached** — which is the argument
 for building it. A table can hold seven quiet rows; a launch cannot hold seven quiet lines.
@@ -727,10 +733,14 @@ an agent plans around it.
   hook, identical on every backend, and the home supplied only the backing of the directory
   a pack declared at `scope: machine`. The refusal stands on parity instead, which is this
   document's own argument: no other backend puts a project's state under the account home.
-- **Not enforcing `resources` on macos-user.** `RLIMIT_AS` is not what `--memory` means and
-  `RLIMIT_NPROC` is per-user, so it would collide across concurrent sessions on the shared
-  account. A cap a user believes in but that does not hold is worse than a documented
-  absence.
+- **Not enforcing `resources` on macos-user through rlimits.** `RLIMIT_AS` is not what
+  `--memory` means and `RLIMIT_NPROC` is per-user, so it would collide across concurrent
+  sessions on the shared account. A cap a user believes in but that does not hold is worse
+  than a documented absence. Three keys ship by other mechanisms, each disclosed as what it is:
+  `io` as the process disk policy ([`io-priority.md` IO-D13](io-priority.md#11-decision-ledger)),
+  `cpus` cooperatively and `memory` by a sampled guard
+  ([`declaration-parity.md` DP-I8, DP-I9](declaration-parity.md#decision-ledger));
+  `pids_limit` is still warned ([OQ-DP10](declaration-parity.md#OQ-DP10)).
 - **Not reimplementing volumes, cgroups, or mount namespaces** on backends that lack them.
   The goal is that a setting stops lying, not that every backend grows every feature.
 - **Not a doc.** [`macos-user-nix-and-features.md`](../reference/macos-user-nix-and-features.md)'s matrix should eventually be *generated*

@@ -54,6 +54,13 @@ On your own machine the agents keep their permission prompts on, and yolo warns 
 setting you made yourself. [Writing your own pack](migrating-to-packs.md#part-2--manage-your-host)
 walks through it.
 
+Two jail habits come along to `yolo host -- <agent>`. Tools the `guardrails` pack (or your own
+`security.blocked_tools`) blocks are blocked for that agent too, and the launch says so. And when
+your repository keeps skills under another agent's folder, such as `.claude/skills`, the launch
+puts one link at the agent's own folder (`.codex/skills`) pointing at those skills, and adds it to
+`.gitignore` once; a repository that already has the agent's folder is left alone. Whether each
+agent follows a linked folder is not yet measured.
+
 ### yolo's own copy of your agents
 
 `yolo host -- claude` runs **yolo's own copy** of each agent your selected packs install, not
