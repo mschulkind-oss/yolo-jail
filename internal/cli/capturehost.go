@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"path"
 	"path/filepath"
 	goruntime "runtime"
@@ -114,6 +115,20 @@ func runCapture(args []string) int {
 
 // captureHost is runCapture with its writers injected, so a test can read what it said.
 func captureHost(args []string, out, errw io.Writer, color bool) int {
+	return captureHostWith(args, out, errw, color, captureAct{})
+}
+
+// captureAct is what a caller of the capture act decides about it, beyond its argv.
+type captureAct struct {
+	// runtime is the runtime the capture jail boots with, handed to the run pipeline for this act
+	// alone — never through the process environment, which the agent a host launch execs next would
+	// inherit. "" is the runtime a launch resolves. The host floor on a Mac names macos-user (HP-D2):
+	// a container capture there records a Linux entry, which a Mac's floor cannot run.
+	runtime string
+}
+
+// captureHostWith is captureHost under act.
+func captureHostWith(args []string, out, errw io.Writer, color bool, act captureAct) int {
 	var bin string
 	for _, a := range args {
 		switch {
@@ -175,6 +190,18 @@ func captureHost(args []string, out, errw io.Writer, color bool) int {
 	if target.Fork != nil {
 		return captureFork(*target.Fork, out, errw, color)
 	}
+	// WHICH ARM (host-tool-provisioning.md HP-D18): a capture jail, or — on Linux, with no runtime
+	// selected and none on PATH — this host, the installer confined by Landlock. A fork's build above
+	// never comes here: it builds in a sealed jail or not at all (forked-programs-as-packs.md §12).
+	arm := chooseCaptureArm(goruntime.GOOS, act.runtime)
+	if arm.hostWhy != "" {
+		// Said before the jail arm's own refusal of the missing runtime, which names that runtime's
+		// install: this is the other way to a capture here, and why it is not taken.
+		fmt.Fprintf(errw, "yolo capture: %s, and yolo cannot confine its installer on this host instead (%s)\n",
+			arm.blocked, arm.hostWhy)
+		fmt.Fprintf(errw, "  Install %s (`yolo check` names how on this machine), or run a kernel with Landlock "+
+			"enabled, %s.\n", arm.missing, captureAgain(bin))
+	}
 
 	// ONE CAPTURE OF ONE BIN AT A TIME, non-blocking. Two concurrent captures of the same
 	// program would run the vendor's installer twice into two jails and race to admit the
@@ -206,7 +233,17 @@ func captureHost(args []string, out, errw io.Writer, color bool) int {
 	defer cleanupCaptureWorkspace(staging, cname)
 
 	pr.Printf("[bold]capture[/bold] [cyan]%s[/cyan]  [dim]%s[/dim]", bin, target.URL)
-	pr.Printf("[dim]pack %s → jail %s[/dim]", target.Pack, cname)
+	runJail := func() int {
+		return runCaptureJail(staging, bin, captureJailArgv(bin), nil, out, errw, color,
+			captureAct{runtime: arm.runtime})
+	}
+	if arm.host() {
+		pr.Printf("[dim]pack %s → this host, its installer confined by Landlock (ABI %d) to a throwaway home; "+
+			"the result serves yolo's host floor, and every jail captures its own[/dim]", target.Pack, arm.hostABI)
+		runJail = func() int { return runHostCapture(staging, target, arm.hostABI, out, errw) }
+	} else {
+		pr.Printf("[dim]pack %s → jail %s[/dim]", target.Pack, cname)
+	}
 
 	// THE CAPTURE ACT'S MIDDLE (captureStaged, shared with a fork's build): the jail, the
 	// manifest, and the admit. AN EMPTY DELTA IS A FAILURE, not an empty package. It is what a
@@ -214,20 +251,34 @@ func captureHost(args []string, out, errw io.Writer, color bool) int {
 	// claims — the ~/.yolo/bin/launch ordering makes the baked one win), and admitting it would
 	// file an entry that materializes nothing and satisfies every later resolve.
 	empty := false
-	entry, m, err := captureStaged(store, staging,
-		func() int { return runCaptureJail(staging, bin, captureJailArgv(bin), nil, out, errw, color) },
+	entry, m, err := captureStaged(store, staging, runJail,
 		func(m *capture.Manifest) string {
 			empty = true
+			if arm.host() {
+				// The launcher heads the installer's PATH, so <bin> resolved to it: only the first half
+				// of a jail's two reasons is possible here.
+				return fmt.Sprintf("%s's installer left nothing in the capture surfaces (%s): it writes "+
+					"somewhere else", bin, strings.Join(m.Surfaces, ", "))
+			}
 			return fmt.Sprintf("%s's installer left nothing in the capture surfaces (%s). Either it "+
 				"writes somewhere else, or %s already resolved to a program this image bakes",
 				bin, strings.Join(m.Surfaces, ", "), bin)
 		}, nil)
 	var exit captureJailExit
 	switch {
+	case errors.As(err, &exit) && arm.host():
+		fmt.Fprintf(errw, "yolo capture: the host capture exited %d — nothing was stored\n", exit.rc)
+		fmt.Fprintf(errw, "  %s\n", captureJailFailedStep(bin))
+		return exit.rc
 	case errors.As(err, &exit):
 		fmt.Fprintf(errw, "yolo capture: %v\n", err)
 		fmt.Fprintf(errw, "  %s\n", captureJailFailedStep(bin))
 		return exit.rc
+	case err != nil && empty && arm.host():
+		fmt.Fprintf(errw, "yolo capture: %v\n", err)
+		fmt.Fprintf(errw, "  Pack %s's installer writes somewhere else: tell that pack's author, or, if yolo "+
+			"ships pack %s, report it at %s.\n", target.Pack, target.Pack, entrypoint.IssuesURL)
+		return 1
 	case err != nil && empty:
 		// Neither half is the user's command to run: a `packages` entry already delivers the
 		// program to every jail, or the pack's installer writes outside the surfaces, which its
@@ -243,6 +294,12 @@ func captureHost(args []string, out, errw io.Writer, color bool) int {
 		fmt.Fprintf(errw, "  Fix what it names, %s.\n", captureAgain(bin))
 		return 1
 	}
+	// THE RECORDED ORIGIN: a host capture's receipt names its platform with the host's mark
+	// (hostCapturePlatform), so no jail's selection can name it and the host floor's can.
+	platform := m.Platform
+	if arm.host() {
+		platform = hostCapturePlatform(platform)
+	}
 	receipt := entrypoint.CaptureReceipt{
 		Bin:      bin,
 		Declared: target.URL,
@@ -250,7 +307,7 @@ func captureHost(args []string, out, errw io.Writer, color bool) int {
 		Digest:   capture.DigestHash(entry.Digest),
 		Bytes:    m.TotalBytes(),
 		Path:     entry.Root,
-		Platform: m.Platform,
+		Platform: platform,
 		Act:      entrypoint.ReceiptActRecord,
 		Time:     time.Now(),
 	}
@@ -267,7 +324,7 @@ func captureHost(args []string, out, errw io.Writer, color bool) int {
 	// (docs/design/program-delivery.md OQ-PD26). The program is stored, so the memo has nothing
 	// left to say, and a launch that misses again later starts from the first wait. Best-effort:
 	// a memo that stays only holds off a capture of a program the store now holds.
-	_ = store.ClearAutoFailure(bin, m.Platform)
+	_ = store.ClearAutoFailure(bin, platform)
 	pr.Printf("[green]captured[/green] %s  [cyan]%s[/cyan]  %d paths, %s  [dim]%s[/dim]",
 		bin, entry.Key, len(m.Entries), humanBytes(m.TotalBytes()), entry.Root)
 	return 0
@@ -473,6 +530,9 @@ type captureTarget struct {
 	// Fork is set when bin is a FORK's program (the base's, rewritten with the fork's delivery):
 	// its capture is its build, and URL is empty.
 	Fork *packload.Fork
+	// Install is the declaration itself, for the host capture, which writes the launcher a jail's
+	// boot would have (entrypoint.NativeCaptureLauncher).
+	Install packdecl.Install
 }
 
 // resolveCaptureTarget finds the pack-declared native installer for bin.
@@ -519,7 +579,7 @@ func resolveCaptureTarget(bin string) (*captureTarget, error) {
 				npmBins = append(npmBins, p.Name)
 				continue
 			}
-			return &captureTarget{Bin: bin, URL: in.InstallerURL, Pack: p.Name}, nil
+			return &captureTarget{Bin: bin, URL: in.InstallerURL, Pack: p.Name, Install: in}, nil
 		}
 	}
 	var b strings.Builder
@@ -612,11 +672,25 @@ func captureJailArgv(bin string) []string {
 // the pipeline withholds every host crossing (run.Options.Sealed) and narrows the pack selection to
 // the packs the seal names. seal nil is the installer capture's jail, unchanged: the design scopes
 // the seal to the fork route.
-func runCaptureJail(workspace, bin string, argv []string, seal *captureSeal, out, errw io.Writer, color bool) int {
+//
+// on, at most one, is what the act's caller decided (captureAct): its runtime reaches the pipeline
+// through the pipeline's own Getenv seam, as YOLO_RUNTIME would for this one run, and the process
+// environment is left alone, so nothing a host launch execs afterwards inherits it.
+func runCaptureJail(workspace, bin string, argv []string, seal *captureSeal, out, errw io.Writer, color bool,
+	on ...captureAct) int {
 	opts := run.NewDefaultOptions()
 	opts.Workspace = workspace
 	opts.Args = argv
 	opts.Color = color
+	if len(on) > 0 && on[0].runtime != "" {
+		rt := on[0].runtime
+		opts.Getenv = func(k string) string {
+			if k == "YOLO_RUNTIME" {
+				return rt
+			}
+			return os.Getenv(k)
+		}
+	}
 	if seal != nil {
 		opts.Sealed = true
 		opts.OnlyPacks = seal.only
@@ -678,10 +752,14 @@ func runCaptureJail(workspace, bin string, argv []string, seal *captureSeal, out
 	// everything after this call in captureHost — read the manifest, refuse an empty delta,
 	// AdmitEntry, receipt — is backend-blind and unchanged.
 	//
-	// ⚠ NOTHING BELOW THIS LINE IS MEASURED ON A MAC. The profile's bytes and both argvs are
-	// unit-pinned; that Seatbelt HONORS the profile is not, and cannot be from Linux. The
-	// probe that settles it is in install-capture.md slice 6 — a capture that silently wrote
-	// to the shared home looks identical to one that did not.
+	// ⚠ WHAT A MAC HAS MEASURED OF THIS, AND WHAT IT HAS NOT. The profile's bytes and both
+	// argvs are unit-pinned. The recording half ran on hardware on 2026-09-11 (the header of
+	// internal/macosuser/capture.go): `yolo capture claude` loaded this profile, drove the vendor
+	// installer and admitted an entry. Still unmeasured on a Mac: that Seatbelt DENIES the shared
+	// home during a capture, since a capture that silently wrote to it looks identical to one
+	// that did not (install-capture.md slice 6's item 3, a case with no green run recorded); the
+	// materialize half; and the host floor's run of a real capture (host-tool-provisioning.md
+	// HP-D2).
 	//
 	// The homeOverlay the pipeline composed is DROPPED here, and that is the capture's
 	// choice rather than an oversight: the overlay is skills and briefing prose for an
@@ -768,4 +846,107 @@ func humanBytes(n int64) string {
 		exp++
 	}
 	return fmt.Sprintf("%.1f %cB", float64(n)/float64(div), "kMGTPE"[exp])
+}
+
+// landlockExecVerb is the hidden `yolo internal` verb the host capture confines its installer
+// through (capturelandlock_linux.go): it restricts itself with Landlock and execs the capture driver.
+const landlockExecVerb = "landlock-exec"
+
+// captureArm is which act one `yolo capture` of an installer program runs (host-tool-provisioning.md
+// HP-D18), and when neither can run, why.
+type captureArm struct {
+	// runtime is the runtime the capture jail boots with: one its caller named for this act, or ""
+	// for the one a launch resolves.
+	runtime string
+	// hostABI is set for the HOST capture: no jail, the installer confined on this host by Landlock at
+	// this ABI.
+	hostABI int
+	// blocked is why no capture jail can boot here ("" when one can, or when the host capture stands
+	// in): no container runtime on PATH. missing is that runtime.
+	blocked, missing string
+	// hostWhy is why the host capture cannot stand in for the missing runtime: set only when nothing
+	// selected a runtime, on Linux, the one case it would have.
+	hostWhy string
+}
+
+// host reports whether this is the host capture.
+func (a captureArm) host() bool { return a.hostABI > 0 }
+
+// hostConfinementABI is the Landlock ABI a host capture would run under on this machine, or why
+// none can (capture.HostConfinementABI). A var so a test can stand in a kernel with Landlock or
+// without it.
+var hostConfinementABI = capture.HostConfinementABI
+
+// runHostCapture runs the host capture's installer in staging and leaves its proto-entry where a
+// capture jail's would be (runLandlockCapture). A var so a test of the arm choice can see which arm
+// ran without confining anything.
+var runHostCapture = runLandlockCapture
+
+// chooseCaptureArm decides the arm for a capture on goos, under the runtime its caller names ("" for
+// none).
+//
+// A RUNTIME SOMEONE CHOSE BOOTS THE JAIL, as a launch would boot it: the caller's, then YOLO_RUNTIME,
+// then the user config's `runtime`. So does the runtime a launch would find, when it is on PATH. Only
+// when nothing chose one and none is on PATH does a Linux host take the host capture, and only when
+// its kernel can confine it; a runtime the user named and did not install is the reason the capture
+// stops, as it is a launch's, never a cue to run the installer some other way.
+func chooseCaptureArm(goos, named string) captureArm {
+	if named != "" {
+		return captureArm{runtime: named}
+	}
+	if sel := selectedCaptureRuntime(); sel != "" {
+		return captureArm{blocked: runtimeAbsent(sel), missing: sel}
+	}
+	rt := captureRuntime()
+	why := runtimeAbsent(rt)
+	if why == "" {
+		return captureArm{}
+	}
+	if goos != "linux" {
+		return captureArm{blocked: why, missing: rt}
+	}
+	abi, err := hostConfinementABI()
+	if err != nil {
+		return captureArm{blocked: why, missing: rt, hostWhy: err.Error()}
+	}
+	return captureArm{hostABI: abi}
+}
+
+// runtimeAbsent says why rt cannot boot a capture jail on this machine: it is not on PATH. "" when
+// it is, and for a runtime that is no program (macos-user), which the run pipeline itself checks.
+func runtimeAbsent(rt string) string {
+	for _, native := range paths.NativeRuntimes {
+		if rt == native {
+			return ""
+		}
+	}
+	if _, err := exec.LookPath(rt); err != nil {
+		return "no container runtime (" + rt + ") is on PATH to run `yolo capture` with"
+	}
+	return ""
+}
+
+// selectedCaptureRuntime is the runtime someone selected for a capture jail: YOLO_RUNTIME, then the
+// user config's `runtime`, each only when it names a runtime yolo knows; "" when neither does, which
+// leaves the choice to the platform's default (captureRuntime).
+func selectedCaptureRuntime() string {
+	if env := os.Getenv("YOLO_RUNTIME"); env != "" && knownRuntime(env) {
+		return env
+	}
+	if v, ok := config.UserScopeConfigOrEmpty().Get("runtime"); ok {
+		if s, ok := v.(string); ok && knownRuntime(s) {
+			return s
+		}
+	}
+	return ""
+}
+
+// knownRuntime reports whether rt is a value the `runtime` key may take.
+func knownRuntime(rt string) bool {
+	for _, known := range paths.AllRuntimes {
+		if rt == known {
+			return true
+		}
+	}
+	return false
 }

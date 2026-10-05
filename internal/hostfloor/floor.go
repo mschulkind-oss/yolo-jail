@@ -30,8 +30,10 @@
 //     against its published sha256 (node.go) — into a prefix-private npm prefix, and started
 //     by that Node's absolute path.
 //   - `via: installer`: materialized from the machine's `yolo capture` store, the same entry a
-//     jail materializes, where this host matches the capture jail (Linux). On macOS the entry is
-//     NO FLOOR ENTRY until the host capture (HP-D2) is measured on a Mac and ships.
+//     jail materializes, where this host matches the capture jail (Linux). A Linux host with no
+//     container runtime captures it itself, its installer confined by Landlock (HP-D18), and a Mac
+//     through the macos-user capture act, Seatbelt and the sandbox account (HP-D2): each fills the
+//     same store, and the floor materializes either the same way.
 //   - `via: source`, a FORK's program (built.go): the capture store's build of the fork's
 //     PINNED commit, the entry a jail launch materializes, relocated into the prefix, where this
 //     host matches the build jail (Linux). A Node script among them is started by the floor's own
@@ -200,13 +202,24 @@ type Floor struct {
 	ResolveCapture func(bin string) (*capture.Entry, error)
 	// Capture runs `yolo capture <bin>`, filling the store. nil => this host cannot capture.
 	Capture func(bin string) error
-	// CaptureUnavailable says why this machine cannot run Capture or Build right now ("" when it
-	// can): a capture and a fork's build each boot a jail, so a host with no container runtime
-	// cannot make one. Asked only for an installer or source-built program that is neither
-	// provisioned nor in the store, which then has no floor entry HERE rather than an install
-	// bound to fail (a selected pack delivers a program the floor "holds, or can provision",
-	// host-agent-environment.md's launch PATH terms). nil => it can.
+	// CaptureUnavailable says why this machine cannot boot a capture or build JAIL right now ("" when
+	// it can): a fork's build and a patched fork's advance each boot one, so a host with no container
+	// runtime cannot make one. Asked only for a program that is neither provisioned nor in the store,
+	// which then has no floor entry HERE rather than an install bound to fail (a selected pack
+	// delivers a program the floor "holds, or can provision", host-agent-environment.md's launch PATH
+	// terms), its reason ending with runtimeStep. It answers for an installer's capture too, unless
+	// CaptureActUnavailable does. nil => it can.
 	CaptureUnavailable func() string
+	// CaptureActUnavailable says why Capture cannot capture bin on this machine right now, as a whole
+	// clause that ends with the step that ends it — does is what the next launch then does ("captures
+	// it") — or "" when it can. It exists because an installer's capture need not boot a container: a
+	// Mac's is the macos-user capture act (HP-D2), and a Linux host with no runtime captures under
+	// Landlock (HP-D18), so its reasons and their steps are not a runtime's. nil => CaptureUnavailable
+	// answers, with runtimeStep.
+	CaptureActUnavailable func(bin, does string) string
+	// CaptureHow is how Capture runs its installer, for the line that starts one: a parenthetical,
+	// without its parentheses. nil, or "", is a capture jail's.
+	CaptureHow func() string
 	// ForkPin is the fork lock's pin of a source-built program (forked-programs-as-packs.md
 	// FP-D7): the full commit its fork's source is pinned to, or "" and why there is none, naming
 	// what pins it. nil => no pin can be read, so no source-built program has a floor
@@ -518,15 +531,22 @@ func (f *Floor) recipeNoEntryReason(p Program) string {
 		// tarball that exits 127.
 		return f.nodeLoaderProblem()
 	case "native":
-		if f.GOOS == "darwin" {
-			return "an installer agent on macOS comes from a host capture, which is not built " +
-				"yet: it must be measured on a Mac first (host-tool-provisioning.md HP-D2)"
+		switch f.GOOS {
+		case "linux":
+			return ""
+		case "darwin":
+			// A MAC CAPTURES ONLY THROUGH THE MACOS-USER ACT (HP-D2), so its entry is decided as Linux's
+			// is — the store's capture, the act, or why neither can be had here (provisionable) — on a
+			// floor that was given that act's predicate. One given none has no capture to run: a capture
+			// jail's runtime stands in for nothing here, its entry being a Linux one no Mac runs.
+			if f.CaptureActUnavailable == nil {
+				return "an installer agent on a Mac comes from the macos-user capture act, which this floor " +
+					"runs none of"
+			}
+			return ""
 		}
-		if f.GOOS != "linux" {
-			return "an installer agent comes from a `yolo capture`, which runs in a Linux jail, " +
-				"and this machine is " + f.GOOS + "/" + f.GOARCH
-		}
-		return ""
+		return "an installer agent comes from a `yolo capture`, which runs in a Linux jail or, on a Mac, " +
+			"as the macos-user sandbox account, and this machine is " + f.GOOS + "/" + f.GOARCH
 	case packdecl.InstallKindSource:
 		// A FORK (docs/design/forked-programs-as-packs.md): its host copy is the capture store's
 		// build of the fork's PINNED commit, relocated into the floor (FP-D4). The build runs in a
@@ -628,8 +648,8 @@ func (f *Floor) buildPending(p Program, rec *Record) string {
 }
 
 // provisionable turns a Missing installer or source-built program into NoEntry when this machine
-// can neither materialize it (the store has no entry for it) nor capture or build one (no
-// container runtime): the floor cannot provision it HERE, so a launch looks for it on PATH
+// can neither materialize it (the store has no entry for it) nor capture or build one (cannotCapture,
+// cannotBuild): the floor cannot provision it HERE, so a launch looks for it on PATH
 // (OQ-HE11) instead of failing an install. So is one whose store entry holds no program that runs
 // here: none outside a jail, or one asking for a dynamic loader this machine lacks (HP-D15). It
 // reads the store offline, never the network. A provisioned entry never comes through here: the
@@ -650,10 +670,9 @@ func (f *Floor) provisionable(st Status) Status {
 		// program the recapture would not record — codex's, whose ~/.local/bin/codex links into
 		// ~/.codex/packages/standalone. The recapture needs what any capture needs.
 		if stale := recaptureReason(entry, bin); stale != "" {
-			if why := f.cannotCapture(); why != "" {
+			if why := f.cannotCapture(bin, "recaptures it"); why != "" {
 				st.Disposition = NoEntry
-				st.Reason = "the capture of " + bin + " on this machine " + stale + ", and " + why +
-					runtimeStep(f.Capture != nil, "recaptures it")
+				st.Reason = "the capture of " + bin + " on this machine " + stale + ", and " + why
 				return st
 			}
 			st.Reason += "; the capture of " + bin + " on this machine " + stale + ", and the install " +
@@ -673,10 +692,9 @@ func (f *Floor) provisionable(st Status) Status {
 		}
 		return st
 	}
-	if why := f.cannotCapture(); why != "" {
+	if why := f.cannotCapture(bin, "captures it"); why != "" {
 		st.Disposition = NoEntry
-		st.Reason = "there is no capture of " + bin + " on this machine, and " + why +
-			runtimeStep(f.Capture != nil, "captures it")
+		st.Reason = "there is no capture of " + bin + " on this machine, and " + why
 	}
 	return st
 }
@@ -696,19 +714,40 @@ func runtimeStep(act bool, does string) string {
 	return " — install one (`yolo check` names how on this machine) and the next `yolo host` launch " + does
 }
 
-// cannotCapture says why this machine cannot run the capture act now, "" when it can.
-func (f *Floor) cannotCapture() string {
+// RuntimeStep is runtimeStep for an act this yolo has: the clause a reason about a missing container
+// runtime ends with, for a caller of CaptureActUnavailable that answers one.
+func RuntimeStep(does string) string { return runtimeStep(true, does) }
+
+// cannotCapture says why this machine cannot run the capture act for bin now, with the step that ends
+// it, "" when it can: CaptureActUnavailable's answer, or a capture jail's (CaptureUnavailable). It is
+// the capture's own question, never the build's (cannotBuild): a capture can run where no jail can
+// boot (HP-D2, HP-D18), and a fork's build cannot.
+func (f *Floor) cannotCapture(bin, does string) string {
 	switch {
 	case f.Capture == nil:
 		return "this machine cannot run `yolo capture`"
+	case f.CaptureActUnavailable != nil:
+		return f.CaptureActUnavailable(bin, does)
 	case f.CaptureUnavailable != nil:
-		return f.CaptureUnavailable()
+		if why := f.CaptureUnavailable(); why != "" {
+			return why + runtimeStep(true, does)
+		}
 	}
 	return ""
 }
 
+// captureHow is the parenthetical the line that starts a capture says how it runs.
+func (f *Floor) captureHow() string {
+	if f.CaptureHow != nil {
+		if how := f.CaptureHow(); how != "" {
+			return how
+		}
+	}
+	return "a throwaway jail runs its installer once, and every jail on this machine reuses the result"
+}
+
 // cannotBuild says why this machine cannot run a fork's build act now, "" when it can: the build
-// boots a jail, as a capture does.
+// boots a jail, which an installer's capture need not (cannotCapture), so this asks the runtime alone.
 func (f *Floor) cannotBuild() string {
 	switch {
 	case f.Build == nil:

@@ -797,6 +797,23 @@ func nativeAgentLauncher(pack string, inst *packdecl.Install, stampDir, receipts
 	return r.Replace(nativeLauncherTemplate)
 }
 
+// NativeCaptureLauncher is the native launcher a HOST capture runs (docs/design/host-tool-provisioning.md
+// HP-D18): this file's own launcher for inst, rendered for a capture's staging home, so a capture on
+// the host installs exactly what a capture jail's would. Its stamps go under home, as a boot's go
+// under the jail's; receiptsPath is where its install receipt lands. It has no capture store to
+// materialize from — the act is what fills the store, and a capture jail's launcher has none either
+// (capturesDir is empty there) — no MCP servers and no launch flags, and its agent_updates branch is
+// moot: the capture runs it with InstallOnlyEnv, which installs and stops.
+//
+// ONE LAUNCHER, NOT GenerateAgentLaunchers: that generator writes a jail's whole set, and its
+// collision check (launcherShadows) asks whether the image's /bin or /usr/bin already provides the
+// name. Run on a host it would ask the HOST's, where a copy of the agent the user installed by hand
+// would suppress the very launcher the capture has to run.
+func NativeCaptureLauncher(pack string, inst packdecl.Install, home, receiptsPath string) string {
+	return nativeAgentLauncher(pack, &inst, filepath.Join(home, ".cache", "yolo-agent-stamps"), receiptsPath, "",
+		false, launcherServers{}, nil)
+}
+
 // boolFlag renders a Go bool as the "1"/"0" a generated launcher tests with `[ "$X" = "1" ]`.
 //
 // Deliberately not `true`/`false`: the templates already spell every other switch that way

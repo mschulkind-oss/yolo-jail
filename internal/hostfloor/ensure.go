@@ -335,7 +335,7 @@ func newerCapture(in packdecl.Install, rec *Record, entry *capture.Entry) string
 // `yolo capture` does: never the vendor's update verb, never against the real home (OQ-HP3 ruled
 // that out). A machine with no capture act or no runtime asks nothing, and keeps what it runs.
 func (f *Floor) recaptureWhenOld(p Program, rec *Record) (string, error) {
-	if f.Capture == nil || f.ResolveCapture == nil || f.cannotCapture() != "" {
+	if f.Capture == nil || f.ResolveCapture == nil || f.cannotCapture(p.Bin(), "recaptures it") != "" {
 		return "", nil
 	}
 	age := f.now().Sub(f.newestCaptureTime(p.Bin(), rec))
@@ -627,8 +627,8 @@ func (f *Floor) installFromCapture(p Program, dir string) (*Record, error) {
 			return nil, fmt.Errorf("no capture of %s on this machine (%v), and this machine cannot run "+
 				"`yolo capture`", bin, err)
 		}
-		f.say("no capture of %s on this machine yet; running `yolo capture %s` (a throwaway jail runs "+
-			"its installer once, and every jail on this machine reuses the result)", bin, bin)
+		f.say("no capture of %s on this machine yet; running `yolo capture %s` (%s)", bin, bin,
+			f.captureHow())
 		if entry, err = f.recapture(bin); err != nil {
 			return nil, err
 		}
