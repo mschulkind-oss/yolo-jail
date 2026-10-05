@@ -11,8 +11,11 @@ import (
 // runWithProxy is the non-Linux fallback: a plain foreground exec (no pty
 // proxy). The Linux path uses internal/ttyproxy; on darwin the container run
 // path (podman machine / Apple Container) is not exercised by the nested-jail
-// gate, and macos-user takes its own native path before reaching here. onStarted
-// runs after spawn; onTerminate is not wired (no signal proxy in the fallback).
+// gate. onStarted runs after spawn; onTerminate is not wired (no signal proxy in
+// the fallback). The macos-user session no longer runs here: it was this
+// function's last caller (through RunWithProxy), and with no signal arm a
+// SIGTERM or a closed window ended the launcher past its teardown. It runs under
+// its launch's own arm now (MacosUserArm.RunSession, macosuserarm.go).
 //
 // The Options param mirrors the Linux half's stage-hook seam; this fallback
 // has only spawn and child-exit to mark, and a nil collector's Mark is a

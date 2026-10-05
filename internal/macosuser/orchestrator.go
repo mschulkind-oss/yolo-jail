@@ -19,6 +19,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/nixchildren"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
+	"github.com/mschulkind-oss/yolo-jail/internal/perf"
 	"github.com/mschulkind-oss/yolo-jail/internal/perside"
 	"github.com/mschulkind-oss/yolo-jail/internal/provision"
 	"github.com/mschulkind-oss/yolo-jail/internal/richtext"
@@ -56,8 +57,11 @@ type Deps struct {
 	// RunBash runs `bash -c <script>` and returns the returncode (unshare /
 	// fix-permissions).
 	RunBash func(script string) int
-	// RunWithProxy launches argv under the TTY proxy and returns the agent exit
-	// code.
+	// RunWithProxy runs the session's command, argv, in the foreground and returns its exit
+	// status, 128+N when a signal ended it. The name is the seam's history: darwin has no TTY
+	// proxy. A launch passes its signal arm's session runner (internal/cli/run's
+	// MacosUserArm.RunSession), which absorbs SIGINT and SIGQUIT and forwards SIGTERM and SIGHUP
+	// to the command's sudo.
 	RunWithProxy func(argv []string) int
 	// InstallRootFile writes content to a root-owned file (sudo mkdir+tee+chmod).
 	InstallRootFile func(path, content, mode string) bool
@@ -83,6 +87,25 @@ type Deps struct {
 	// one npm prefix and one mise store; the container serialises the same window and
 	// then attaches to the jail that won, which this backend cannot do.
 	LockWorkspace func(workspace, cname string) func()
+	// HoldAccountHome takes this workspace's hold on the sandbox account's home for the session,
+	// or refuses: the home holds ONE set of links into one workspace's sidecar, so a launch of
+	// another workspace while a session runs would repoint them under it
+	// (docs/reference/macos-user-home-tiers.md#ht-d15, HT-D15). It returns the release, idempotent and
+	// never nil when it admits, or a refusal that names the live workspace and the next step,
+	// ending with step, the container-runtime clause this launch's notch needs (containerStep).
+	//
+	// Asked BEFORE the native nix build, so a refusal costs seconds, and released when the
+	// session's teardown has run. A SEAM for LockWorkspace's reason: the implementation lives in
+	// internal/cli/run (run.HoldAccountHome), which imports this package. nil takes no hold, which
+	// is what the four `yolo macos-*` commands get (RealDeps): none of them lays the links.
+	HoldAccountHome func(workspace, cname, step string) (release func(), refusal string)
+	// Ending reports that a signal has begun ending this launch, with the status it ends with
+	// (128+N): the launch's signal arm's answer (internal/cli/run's macosuserarm.go). RunMacosUser
+	// asks it at each step boundary and returns that status, so every deferred teardown runs, and
+	// its teardown's sudo runs non-interactively once it is true (teardownDeps). nil is a caller
+	// with no arm — the `yolo macos-*` commands and a test — and RunMacosUser then arms its own
+	// nix stop (nixchildren.StopOnSignal) around its host nix builds, as it always did.
+	Ending func() (status int, ending bool)
 	// TakenIDs returns the union of existing UIDs+GIDs (macos_setup).
 	TakenIDs func() map[int]struct{}
 	// SetRandomPassword sets a random password on the sandbox account.
@@ -138,6 +161,11 @@ type Deps struct {
 	// success), a channel closed when it exits, and what it wrote on its own stdout and
 	// stderr. The jail-daemon supervisor's one seam (startBackgroundReal).
 	StartBackground func(argv []string) (Background, error)
+	// Perf is the launch's timing collector (internal/perf; docs/reference/perf-logging.md): the
+	// run pipeline's own, so RunMacosUser's `macos_user.*` spans land in the same host perf log
+	// and the same report as the host-side spans before the dispatch. nil records nothing, which
+	// is every caller outside a launch.
+	Perf *perf.Log
 	// Out receives the human output. Rich markup is rendered to ANSI when
 	// Color is set, else stripped to plain text.
 	Out io.Writer
@@ -231,6 +259,12 @@ type Options struct {
 	// in a dry run, composes none. Neither is the caller's to set.
 	SessionID string
 	CATrust   CATrust
+	// OnAgentStart runs once, just before the session's command starts: after the workspace lock
+	// is released and every step before the session has succeeded. Never on a dry run, a refusal,
+	// or a launch a signal ended first. The run pipeline hands its macos-user arm's AgentStarting
+	// (internal/cli/run's macosuserarm.go), which runs what the pipeline registered for the
+	// session's start. It must return promptly: the session waits for it. nil runs nothing.
+	OnAgentStart func()
 }
 
 // printer wraps the shared richtext renderer. When color is set the rich markup
@@ -523,6 +557,13 @@ func buildPlan(deps Deps, opts Options, darwin *Darwin) RunPlan {
 	// process, so it stays false there and the bootstrap's children inherit nothing. What
 	// setting it changes on this backend is audited in the design's §2.2.
 	env.Set("YOLO_VERSION", version.Get(opts.RepoRoot))
+	// AND THE JAIL'S OWN WORKSPACE beside it, for the same reason and in the same position: a
+	// container jail's own workspace is its bind root, /workspace, while this backend's is the
+	// host path, so the `yolo` the agent runs here learns it from YOLO_WORKSPACE
+	// (config.IsJailOwnWorkspace, which reads it, as the entrypoint's Env does). Without it every
+	// in-sandbox question "is this my own workspace?" compared against /workspace and answered no.
+	// The launcher's fact too, so no composed layer can point it elsewhere.
+	env.Set("YOLO_WORKSPACE", resolvePathAbs(opts.Workspace))
 	selfExe := ""
 	if deps.SelfExe != nil {
 		selfExe = deps.SelfExe()
@@ -736,11 +777,18 @@ func RunMacosUser(deps Deps, opts Options) int {
 	// with SessionPlaceholder, and every file a launch writes beside the env file is named by it.
 	opts.SessionID = newSessionID()
 
+	// THE STEPS ARE SPANNED (docs/reference/perf-logging.md, the macos-user family) on the run
+	// pipeline's collector, one after another: each begin ends the step before it, and the defer
+	// ends the one a refusal returned from, so no span is left open in the host perf log.
+	steps := &launchSteps{log: deps.Perf}
+	defer steps.end()
+
 	// THE LAUNCH'S PRECONDITIONS (preconditions.go): the machine and workspace conditions it
 	// refuses without — cheap, and asked BEFORE the up-to-30-minute nix build, in the order
 	// that list gives. The order is load-bearing (the in-home rule before the ACL probe), and
 	// `yolo check` reports from the same list. The first one that does not hold refuses the
 	// launch with its own message; nothing after it is asked.
+	steps.begin("preconditions")
 	if c, unmet := unmetLaunchPrecondition(deps.launchProbes(), opts.Workspace); unmet {
 		out.print(c.Refusal(opts.Workspace))
 		return 1
@@ -751,8 +799,25 @@ func RunMacosUser(deps Deps, opts Options) int {
 	// preconditions above are: it is cheap, it is a fact about this machine, and a refusal after
 	// a half-hour build is the worst place to learn it. The same probes the plan carries
 	// (BuildRunPlan → ContextPreflight over the same links), which PlanInvariants checks.
+	steps.begin("context_preflight")
 	if !runContextPreflight(deps, out, opts.HostCtx.Links, containerStep(opts.PackEnv)) {
 		return 1
+	}
+
+	// THE ACCOUNT HOME'S HOLD (Deps.HoldAccountHome), the last check before the nix build and for
+	// the preconditions' reason: a launch of another workspace while a session runs here would
+	// repoint the links that session's agent reads through, so it is refused now, in seconds,
+	// rather than after a half-hour build. Held until this function returns — after the session
+	// and after every teardown deferred below, which run first.
+	steps.begin("account_home")
+	if deps.HoldAccountHome != nil {
+		releaseHome, refusal := deps.HoldAccountHome(opts.Workspace, cnameFor(opts.Workspace),
+			containerStep(opts.PackEnv))
+		if refusal != "" {
+			out.print("[bold red]Refusing the macos-user launch:[/bold red] " + refusal)
+			return 1
+		}
+		defer releaseHome()
 	}
 
 	// Materialize the native tool closure for THIS Mac's arch (the acceptance
@@ -774,12 +839,16 @@ func RunMacosUser(deps Deps, opts Options) int {
 	// message rather than three layers down in nix.
 	//
 	// A SIGNAL SENT TO YOLO ALONE WHILE IT RUNS NIX HERE STOPS THAT NIX (internal/nixchildren):
-	// this build and the guest-binaries build below. This backend has no signal arm of its own
-	// before the TTY proxy's, so the default action ended yolo here and left the nix building
-	// with no parent. The arm stops that nix, then ends the launch with status 128+N, and is
-	// removed once the two builds are done (disarmNix below), so the privileged steps and the
-	// session keep the signal behavior they had.
-	disarmNix := nixchildren.StopOnSignal()
+	// this build and the guest-binaries build below. On a launch, the run pipeline's signal arm
+	// (Deps.Ending) does that: it stops the nix and ends the launch at the next step boundary,
+	// so every teardown below runs. A caller with no arm gets the stop it always had here —
+	// nixchildren.StopOnSignal, which ends the process 128+N once the nix has stopped, removed
+	// once the two builds are done (disarmNix below). Never both: two handlers acting on one
+	// signal, one of them exiting the process, would skip the arm's teardown.
+	disarmNix := func() {}
+	if deps.Ending == nil {
+		disarmNix = nixchildren.StopOnSignal()
+	}
 	defer disarmNix()
 	var darwin *Darwin
 	pkgs := config.EffectivePackages(opts.Config, config.PlatformDarwin)
@@ -788,12 +857,18 @@ func RunMacosUser(deps Deps, opts Options) int {
 	// A flake eval (the skip list) and a build of the whole floor: seconds warm,
 	// up to half an hour cold, and the eval prints nothing while it runs — so the
 	// step has a progress line.
+	steps.begin("materialize")
 	build := deps.Progress.Start(deps.Out, "Building the sandbox's tools with nix")
 	d, ok, err := deps.MaterializeDarwin(opts.RepoRoot, pkgs)
 	if ok {
 		build.Done("done")
 	} else {
 		build.Done("failed")
+	}
+	// A BUILD THE SIGNAL STOPPED is not a failed one: the launch ends with the signal's status,
+	// and says nothing of fixing a package (every step boundary below asks the same).
+	if rc, ending := deps.ending(); ending {
+		return rc
 	}
 	if !ok {
 		out.printf("[bold red]Could not materialize packages natively:[/bold red] %s\n"+
@@ -870,6 +945,7 @@ func RunMacosUser(deps Deps, opts Options) int {
 	// THE HOST'S nix CLIENT, for the sandbox (hostnix.go) — and SAID either way, because the
 	// one backend that requires a host nix for every launch is the last place a user would
 	// expect `nix: command not found`, and the reason it is absent is a fact about their host.
+	steps.begin("host_nix")
 	if deps.HostNix != nil {
 		darwin.Nix = deps.HostNix()
 		if darwin.Nix.BinDir != "" {
@@ -887,6 +963,7 @@ func RunMacosUser(deps Deps, opts Options) int {
 	// starting the agent without them hands it a pointer at a dead port, or an endpoint with no
 	// client to dial it — the state steps 3 and 4 exist to end. The same rule as a container
 	// launch that cannot build its prefix.
+	steps.begin("guest_binaries")
 	if daemons, clients := guestBinariesWanted(opts); (len(daemons) > 0 || len(clients) > 0) &&
 		opts.JailDaemons.GuestBinSource == "" {
 		// No resolver is a yolo bug (macosLaunchDeps always wires one), so the refusal says so and
@@ -900,6 +977,9 @@ func RunMacosUser(deps Deps, opts Options) int {
 			return 1
 		}
 		src, err := deps.GuestBinaries(opts.RepoRoot)
+		if rc, ending := deps.ending(); ending {
+			return rc
+		}
 		if err != nil {
 			out.printf("[bold red]Could not provide the sandbox's in-jail binaries:[/bold red] %s\n"+
 				"[dim]This launch needs them because %s, inside the sandbox, and there is no "+
@@ -916,8 +996,10 @@ func RunMacosUser(deps Deps, opts Options) int {
 	// Mac's System keychain that macOS trusts for TLS. A read of the host, so here and not in the
 	// pure plan builder, after the build that produced the profile; disclosed once the plan says
 	// which variables it set.
+	steps.begin("ca_trust")
 	opts.CATrust = ComposeCATrust(deps, darwin)
 
+	steps.begin("build_plan")
 	plan := buildPlan(deps, opts, darwin)
 	problems := PlanInvariants(plan)
 	if len(problems) > 0 {
@@ -959,6 +1041,7 @@ func RunMacosUser(deps Deps, opts Options) int {
 	// (docs/reference/pack-system.md#oq-pk2), so the copy below reads a tree no other launch
 	// writes. The seam then hands back THAT hold (run.AcquireWorkspaceLockFor), so the release
 	// below is what ends the launch's whole window, before the agent as always.
+	steps.begin("workspace_lock")
 	release := func() {}
 	if deps.LockWorkspace != nil {
 		if r := deps.LockWorkspace(opts.Workspace, plan.Cname); r != nil {
@@ -979,9 +1062,10 @@ func RunMacosUser(deps Deps, opts Options) int {
 	// teardown left in the state dir, every workspace's that this macOS user launched (the
 	// records are in this user's own state dir), and keeps everything it cannot prove ended. It
 	// runs `sudo rm -f`, so it sits after the notice above.
+	steps.begin("session_sweep")
 	sessionKey := SessionKey(plan.Cname, plan.SessionID)
 	record := openSessionRecordOrWarn(deps, out, sessionKey)
-	teardown := &sessionTeardown{deps: deps}
+	teardown := &sessionTeardown{deps: teardownDeps(deps)}
 	defer teardown.finish(out, record, sessionKey, plan.StagedDir)
 	if deps.SessionRecordDir != nil {
 		sweepGoneSessions(deps, out, deps.SessionRecordDir())
@@ -991,12 +1075,21 @@ func RunMacosUser(deps Deps, opts Options) int {
 	// deferred FIRST, so it runs whether the install succeeded or failed half-way: no launch
 	// used to remove its profile, and every one left a file behind.
 	defer func() { teardown.remove(plan.ProfileRemoveCommands) }()
+	// This step holds the launch's first sudo, so its span includes the password prompt.
+	steps.begin("install_profile")
 	if !deps.InstallRootFile(plan.ProfilePath, plan.Seatbelt, "0444") {
+		if rc, ending := deps.ending(); ending {
+			return rc
+		}
 		out.printf("[bold red]Could not write Seatbelt profile %s", plan.ProfilePath)
 		return 1
 	}
+	steps.begin("stage")
 	for _, cmd := range plan.StageCommands {
 		if deps.Run(append([]string{"sudo"}, cmd...)) != 0 {
+			if rc, ending := deps.ending(); ending {
+				return rc
+			}
 			out.printf("[bold red]Could not stage entrypoint (%s).[/bold red]", shquote.JoinDisplay(cmd))
 			return 1
 		}
@@ -1017,12 +1110,18 @@ func RunMacosUser(deps Deps, opts Options) int {
 	//
 	// THE CA FILES go beside it, after it (cabundle.go), on the same terms and swept by the same
 	// commands: the env file names them, so the sandbox reads neither before both are written.
-	defer func() { teardown.remove(plan.EnvFileRemoveCommands) }()
+	defer func() {
+		steps.end() // a refused step's span ends before the teardown's
+		sp := deps.Perf.Span("macos_user.remove_env_file")
+		teardown.remove(plan.EnvFileRemoveCommands)
+		sp.End()
+	}()
+	steps.begin("env_file")
 	if !installSandboxEnvFile(deps, out, plan) {
-		return 1
+		return deps.endingOr(1)
 	}
 	if !installCATrustFiles(deps, out, plan.caTrustFilePlans()) {
-		return 1
+		return deps.endingOr(1)
 	}
 
 	// 3. Bootstrap the sandbox user's home via the staged-yolo self-exec; ABORT
@@ -1036,7 +1135,12 @@ func RunMacosUser(deps Deps, opts Options) int {
 	// refuses all leave the PREVIOUS launch's log at the path, which may end "boot complete".
 	// So the line says how to tell (the log's first line carries the time it started) and where
 	// the output is otherwise.
-	if deps.Run(plan.BootstrapArgv) != 0 {
+	steps.begin("bootstrap")
+	bootRC := deps.Run(plan.BootstrapArgv)
+	if rc, ending := deps.ending(); ending {
+		return rc
+	}
+	if bootRC != 0 {
 		out.print("[bold red]entrypoint bootstrap failed[/bold red] — the sandbox " +
 			"user's shims/agent configs were not generated, so the agent " +
 			"would not run correctly. Aborting. If it got as far as opening its log, its full " +
@@ -1050,7 +1154,15 @@ func RunMacosUser(deps Deps, opts Options) int {
 	// the agent (docs/design/macos-user-provisioning.md half two). Confined under the same
 	// Seatbelt profile the agent gets, which step 2 already installed; empty when the
 	// config declares no tools, and then this costs nothing at all.
-	if len(plan.ProvisionArgv) > 0 && !runProvisionStage(deps, out, plan) {
+	steps.begin("provision")
+	provisioned := len(plan.ProvisionArgv) == 0 || runProvisionStage(deps, out, plan)
+	// A SIGNAL DURING THE STAGE ENDS THE LAUNCH whatever the stage reported: a stage it cut short
+	// may have written no marker, which runProvisionStage reads as "never ran" and launches
+	// anyway, and a Ctrl-C that stopped the tool installs must never continue to the agent.
+	if rc, ending := deps.ending(); ending {
+		return rc
+	}
+	if !provisioned {
 		return 1
 	}
 
@@ -1059,12 +1171,21 @@ func RunMacosUser(deps Deps, opts Options) int {
 	// installs, but a failed stage the human vetoed has already returned above — and before
 	// the agent, so an address the launch composed is being bound by the time a client asks.
 	// Stopped when the agent exits (LIFO: the supervisor first, then its env file swept).
+	steps.begin("start_jail_daemons")
 	if len(plan.JailDaemonArgv) > 0 {
 		stop, ok := startJailDaemons(deps, out, plan, teardown)
 		if !ok {
-			return 1
+			return deps.endingOr(1)
 		}
-		defer stop()
+		defer func() {
+			steps.end()
+			sp := deps.Perf.Span("macos_user.stop_jail_daemons")
+			stop()
+			sp.End()
+		}()
+		if rc, ending := deps.ending(); ending {
+			return rc
+		}
 	}
 
 	// 3.7 THE HOST-SERVICE WITNESS (serviceprobe.go): every published endpoint the session env
@@ -1073,15 +1194,84 @@ func RunMacosUser(deps Deps, opts Options) int {
 	// sandbox cannot use refuses the launch as it would refuse a container's boot (OQ-R2,
 	// OQ-R4) — the agent never starts holding an endpoint it cannot open. A refusal returns
 	// through every deferred teardown above: the supervisor is stopped and the env files swept.
+	steps.begin("service_probe")
 	if len(plan.ProbeArgv) > 0 && runServiceProbe(deps, out, plan) == probeRefused {
-		return 1
+		return deps.endingOr(1)
 	}
 
-	// 4. Launch under the TTY proxy — OUTSIDE the lock. Everything that writes the
-	// per-workspace tier has happened; the agent's own writes are the same ones two
-	// sessions on one workspace already share on every backend.
+	// 4. Launch the session — OUTSIDE the lock. Everything that writes the per-workspace tier
+	// has happened; the agent's own writes are the same ones two sessions on one workspace
+	// already share on every backend. The account home's hold is kept (Deps.HoldAccountHome):
+	// the session reads through the links the bootstrap laid.
 	release()
-	return deps.RunWithProxy(plan.LaunchArgv)
+	// THE LAST BOUNDARY: a signal that has begun ending the launch never reaches the agent. The
+	// arm's own runner refuses too (MacosUserArm.RunSession), for a signal landing after this.
+	if rc, ending := deps.ending(); ending {
+		return rc
+	}
+	if opts.OnAgentStart != nil {
+		opts.OnAgentStart()
+	}
+	steps.begin("agent")
+	rc := deps.RunWithProxy(plan.LaunchArgv)
+	// Ended here, not by the defer, so the teardown's own spans come after the session's.
+	steps.end()
+	return rc
+}
+
+// ending is Deps.Ending, false when no arm is wired.
+func (d Deps) ending() (int, bool) {
+	if d.Ending == nil {
+		return 0, false
+	}
+	return d.Ending()
+}
+
+// endingOr is the status a failed step returns: the signal's, when one is ending the launch (the
+// step most likely failed because the signal reached its child), else rc.
+func (d Deps) endingOr(rc int) int {
+	if status, ending := d.ending(); ending {
+		return status
+	}
+	return rc
+}
+
+// teardownDeps is deps for the session's removal of its own files (sessionTeardown). Once a signal
+// is ending the launch, each removal's sudo runs NON-INTERACTIVELY (`sudo -n`): the terminal may
+// be gone (a closed window's SIGHUP), and a password prompt nobody can answer would hold the
+// teardown, and every teardown after it, until sudo gave up. A removal that cannot run so fails,
+// and the teardown then keeps the session's record and names the command (finish), which the next
+// launch's sweep runs. With no arm, deps is unchanged.
+func teardownDeps(deps Deps) Deps {
+	if deps.Ending == nil || deps.Run == nil {
+		return deps
+	}
+	run, ending := deps.Run, deps.Ending
+	deps.Run = func(argv []string) int {
+		if _, signaled := ending(); signaled && len(argv) > 1 && argv[0] == "sudo" && argv[1] != "-n" {
+			argv = append([]string{"sudo", "-n"}, argv[1:]...)
+		}
+		return run(argv)
+	}
+	return deps
+}
+
+// launchSteps spans RunMacosUser's steps one after another on the launch's collector, as
+// `macos_user.<step>`: begin ends the open step and starts the next, end ends the open one. nil-safe
+// on a nil collector, which records nothing.
+type launchSteps struct {
+	log  *perf.Log
+	open *perf.Span
+}
+
+func (s *launchSteps) begin(step string) {
+	s.open.End()
+	s.open = s.log.Span("macos_user." + step)
+}
+
+func (s *launchSteps) end() {
+	s.open.End()
+	s.open = nil
 }
 
 // guestBinariesWanted is why this launch stages the guest set (jaildaemon.go): the daemons its
@@ -1412,8 +1602,8 @@ func PrintPlan(w io.Writer, plan RunPlan, problems []string) {
 	p.print("")
 
 	p.print("[bold]── privileged commands (run via sudo) ──[/bold]\n" +
-		"[dim]sudo may prompt for your password; it's forwarded through the " +
-		"TTY proxy so you can answer inline.[/dim]")
+		"[dim]sudo may prompt for your password, on this terminal, which every command " +
+		"below runs on.[/dim]")
 	// The DAC preflight first, as the launch runs it: before the nix build, as the sandbox
 	// account. Each is the whole argv, `sudo` included.
 	for _, probe := range plan.ContextPreflight {

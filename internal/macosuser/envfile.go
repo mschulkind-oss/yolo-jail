@@ -261,7 +261,7 @@ func sandboxFileReadAce(path, user string) []string {
 // layer is exactly what this repo already measured going wrong.
 //
 // `exec` replaces the shell, so nothing extra survives in the process tree — the agent
-// keeps the pid and the terminal the TTY proxy gave it.
+// keeps the pid and the terminal the launch gave it.
 //
 // `|| exit 1` FAILS CLOSED. An unreadable env file means the agent would run with no
 // credentials and no provider configuration; starting anyway produces an agent that

@@ -1035,8 +1035,9 @@ the jailed agent under "🔒 JAIL". SOURCED at `v0.9.3`.
 
 - the fresh launch just after `armLaunchSignals`;
 - an attach just after `attachSignalArm`;
-- macos-user, which has no signal arm, after its config prompt and just before its sandbox
-  starts.
+- macos-user just before its sandbox starts, under the signal arm it has had since 2026-10-05
+  ([`macosuserarm.go`](../../internal/cli/run/macosuserarm.go)), installed after its config
+  prompt.
 
 Each releases when its session's runtime client returns. That is before the arm is disarmed and
 before the jail's teardown is streamed, so the label lasts as long as the agent in that pane. Both
@@ -1050,9 +1051,12 @@ MEASURED 2026-10-01 with the same fake `herdr`, in a nested jail on a rootful po
   pane, which releases its own registration and leaves the first pane's;
 - every release comes before the keeper's teardown is streamed.
 
-**macos-user still has no signal arm**, so a signal that ends its launcher leaves the registration
-behind. A pane close is harmless, because it ends herdr's state for the pane. A Mac has to settle
-the rest.
+**macos-user's launcher ends a signaled launch through `run.Run`'s defers**, the release among
+them, since it got a signal arm on 2026-10-05: a signal before its session ends the launch at the
+next step, and one during it is forwarded to the session's `sudo`, whose command's exit returns the
+launcher normally. A signal before the arm, at the config prompt, comes before the registration,
+so it leaves none behind. A pane close ends herdr's state for the pane either way. Unmeasured on a
+Mac.
 
 **Where the hint lands.** MEASURED in review from `/proc/<pid>/environ` during a session, and again
 after the revision:

@@ -316,7 +316,7 @@ func Run(opts Options) (rc int) {
 	// holds and gives the terminal back, where the default action ran no cleanup at all. The
 	// keeper's arm or an attach's takes over from it; this is its retirement at every other return,
 	// after the discard below.
-	if rt != "macos-user" { // parity: Dropped — macos-user has no keeper to hand the tree to, and its host daemons run from the tree under the TTY proxy's own arm, beside which a guard would act too; a signal before its session leaves the tree for the reaper, as it did (JL-D75)
+	if rt != "macos-user" { // parity: HonoredBy — macos-user has no keeper to hand the tree to, so its own arm (macosuserarm.go) ends a signaled launch through Run's defers, the tree's discard among them, from its first host service on; before that arm, at its config prompt, a signal still leaves the tree for the reaper (JL-D75)
 		o.armLaunchGuard(cname, rt)
 		defer o.endLaunchGuard()
 	}
@@ -464,6 +464,26 @@ func Run(opts Options) (rc int) {
 		// either, and the native backend is where a "where is my agent?" is hardest to
 		// diagnose (no image, no provisioning output to read back).
 		o.warnIfNoPacks()
+		// THE MACOS-USER ARM (macosuserarm.go; JL-D40), from here to the last teardown below. A
+		// signal before the session ends the launch at its next step boundary, so every deferred
+		// teardown runs — the host services, the doorways, the launch-owned services and, inside
+		// the backend, the session's env files and guest supervisor — where Go's default action
+		// used to end the process past all of them; during the session it is RunAgent's shape.
+		// Installed below the config-change prompt, where a Ctrl-C still ends the launch at once,
+		// and above the first host service. Its disarm is deferred FIRST of this arm's, so it
+		// outlasts every teardown and the timing report.
+		arm, disarm := o.armMacosUser()
+		defer disarm()
+		// THIS ARM'S TIMING REPORT (docs/reference/perf-logging.md): once the backend has
+		// returned and every teardown deferred below has run, so their shutdown spans are in
+		// it, as the container arm reports after its own chain. Only for a launch that reached
+		// the dispatch or that a signal ended: a refusal before it prints the refusal alone.
+		dispatched := false
+		defer func() {
+			if dispatched {
+				o.emitTimingReport(rc, cname, rt)
+			}
+		}()
 		// THE HOST SERVICES, on this arm too — the WHOLE set, through the same spawn
 		// boundary the container path uses.
 		//
@@ -575,8 +595,14 @@ func Run(opts Options) (rc int) {
 			// (servicessession.go). Two sessions of one workspace used to share the dir the
 			// workspace's cname selects, and this deferred teardown, which takes no container
 			// guard, removed it under the other session (OQ-HD10's second run, measured).
+			sp := o.Perf.Span("launch.start_loopholes")
 			handles := o.startLoopholesDisclosed(cname, rt, cfg, staged.packs, jailDaemons)
-			defer o.endServicesSession(handles)
+			sp.End()
+			defer func() {
+				sp := o.Perf.Span("shutdown.stop_loopholes")
+				o.endServicesSession(handles)
+				sp.End()
+			}()
 			// THE CREDENTIAL VIEW, opt-in until a Mac measures it (CL-D11): the
 			// workspace's view registered and written now that the broker singleton is up, and
 			// the resolved switch handed to the bootstrap, which then does not link the shared
@@ -605,22 +631,34 @@ func Run(opts Options) (rc int) {
 			// THE DOORWAYS (macosuserdoorways.go), once the host services they forward to are up
 			// and their endpoint files are on launchEnv, and stopped when the command returns. One
 			// that does not start refuses the launch before the command runs.
+			sp = o.Perf.Span("launch.start_doorways")
 			stopDoorways, err := o.startMacosUserDoorways(doorways, launchEnv)
+			sp.End()
 			if err != nil {
 				o.pr(o.Stderr).printf("[bold red]Refusing the macos-user launch: %s[/bold red]", err.Error())
 				return 1
 			}
-			defer stopDoorways()
+			defer func() {
+				sp := o.Perf.Span("shutdown.stop_doorways")
+				stopDoorways()
+				sp.End()
+			}()
 			// THE LAUNCH-OWNED SERVICES (macosuserservices.go): the host half of every pack
 			// service a profiled agent's pairing needs, started after the credential service
 			// it may ask for a view, and stopped when the sandboxed command exits. One that does
 			// not start refuses the launch before the command runs.
+			sp = o.Perf.Span("launch.start_services")
 			stopServices, err := o.startMacosUserServices(channel)
+			sp.End()
 			if err != nil {
 				o.pr(o.Stderr).printf("[bold red]Refusing the macos-user launch: %s[/bold red]", err.Error())
 				return 1
 			}
-			defer stopServices()
+			defer func() {
+				sp := o.Perf.Span("shutdown.stop_services")
+				stopServices()
+				sp.End()
+			}()
 		}
 		// AND THE OTHER HALF OF THAT LIFECYCLE, WHICH THIS BACKEND NOW HAS: the guest's
 		// supervisor starts the daemons it runs (MacosUserRun's last argument), and the ones
@@ -789,15 +827,19 @@ func Run(opts Options) (rc int) {
 		}
 		// notchConfig, not cfg: the briefing states the notch, and `--at guest` names one the
 		// config's `confinement` key does not (EMP-D1). Everything else here reads cfg.
+		sp := o.Perf.Span("launch.refresh_jail_briefings")
 		staging, err := o.refreshJailBriefings(cname, o.notchConfig(cfg), rt, staged,
 			appliedIOPriority(rt, o.IsMacOS, cfgMap(cfg, "resources")))
+		sp.End()
 		if err != nil {
 			o.pr(o.Stderr).printf("[bold red]%s[/bold red]", err.Error())
 			return 1
 		}
+		sp = o.Perf.Span("launch.build_home_overlay")
 		homeOverlay, err = buildMacosHomeOverlay(staging, staged.packs, func(line string) {
 			o.pr(o.Stdout).print("[yellow]" + line + "[/yellow]")
 		})
+		sp.End()
 		if err != nil {
 			o.pr(o.Stderr).printf("[bold red]%s[/bold red]", err.Error())
 			return 1
@@ -813,7 +855,9 @@ func Run(opts Options) (rc int) {
 		// that looks like the human's and is not, which is the exact failure OQ-CO10
 		// made the jail's read fail closed over. An ABSENT source is not a failure and
 		// does not reach here. The pack files the decider chose to copy land in the same tree.
+		sp = o.Perf.Span("launch.build_ctx_tree")
 		ctxDelivery, err := o.buildMacosCtxTree(staging, staged.packs, cfg, ctxCopies...)
+		sp.End()
 		if err != nil {
 			o.pr(o.Stderr).printf("[bold red]%s[/bold red]", err.Error())
 			return 1
@@ -858,15 +902,24 @@ func Run(opts Options) (rc int) {
 		// and every listener of this launch's own (the host services' fronts, the doorways and
 		// launch-owned services, which were handed theirs) is bound by now.
 		o.releaseReservedPorts()
-		// THE HERDR PANE, registered as late as this arm can (herdragent.go): it has no signal
-		// arm, so a registration made before its config prompt outlived a Ctrl-C there.
+		// THE HERDR PANE, registered as late as this arm can (herdragent.go), under its signal arm:
+		// a registration made before its config prompt, where no arm runs, outlived a Ctrl-C there.
 		o.registerHerdrAgent(staged.packs, injectedArgs)
+		// A SIGNAL BEFORE THE DISPATCH ends the launch here, through every defer above, and the
+		// backend never starts (the arm's Ending; RunMacosUser asks the same at each of its steps).
+		dispatched = true
+		if status, ending := arm.Ending(); ending {
+			return status
+		}
 		// Composed LAST, after every endpoint variable has landed on launchEnv (the live
 		// path's handles, or a dry run's placeholder), since the daemons dial those files.
-		return o.MacosUserRun(cfg, o.Workspace, config.SelectedAgents(cfg), agentArgv,
+		sp = o.Perf.Span("launch.macos_user")
+		rc = o.MacosUserRun(cfg, o.Workspace, config.SelectedAgents(cfg), agentArgv,
 			repoRoot, staged.root, homeOverlay, ctxDelivery.ctx, o.DryRun,
 			launchEnv, packload.BlockedTools(staged.packs),
 			channel.guestJailDaemons(guestDaemons, launchEnv))
+		sp.End()
+		return rc
 	}
 	// AUTO-CAPTURE is not in this slot any more: it runs on the fresh-launch path inside
 	// runContainer, below every attach decision, beside the fork builds (OQ-PD25).
@@ -2184,8 +2237,10 @@ func (o *Options) emitTimingReportLocked(rc int, cname, rt string) {
 	}
 	o.pr(o.Stderr).printf("[dim]  host file: %s[/dim]",
 		filepath.Join(paths.WorkspaceStateDir(o.Workspace), HostPerfLogName))
-	o.pr(o.Stderr).printf("[dim]  jail half: %s[/dim]",
-		filepath.Join(paths.WorkspaceHomeState(o.Workspace), "yolo-perf.log"))
+	if rt != "macos-user" { // parity: NotApplicable — the macos-user bootstrap keeps no jail perf log, so there is no jail half to name
+		o.pr(o.Stderr).printf("[dim]  jail half: %s[/dim]",
+			filepath.Join(paths.WorkspaceHomeState(o.Workspace), "yolo-perf.log"))
+	}
 }
 
 // hostForwardPorts is the `network.forward_host_ports` entries this launch will

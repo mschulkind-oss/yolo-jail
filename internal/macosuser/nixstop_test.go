@@ -1,11 +1,12 @@
 package macosuser
 
-// nixstop_test.go pins what a signal sent to a macos-user launch alone does while the launch runs
-// nix on the host: the sandbox's tool build (MaterializeDarwin) or its guest-binaries build
-// (GuestBinaries). This backend has no signal arm of its own before the TTY proxy's, so the
-// signal's default action ended yolo there and left that nix building with no parent. Now it is
-// stopped and the launch ends 128+N; from the privileged steps on, the signal is left to the
-// arms that were always there.
+// nixstop_test.go pins what a signal sent to yolo alone does while RunMacosUser runs nix on the
+// host — the sandbox's tool build (MaterializeDarwin) or its guest-binaries build (GuestBinaries)
+// — for a caller that wires NO signal arm (Deps.Ending nil): the signal's default action used to
+// end yolo there and leave that nix building with no parent, and RunMacosUser's own stop
+// (nixchildren.StopOnSignal) now stops it and ends the process 128+N, covering the two builds and
+// nothing after them. A launch wires its arm instead (internal/cli/run's macosuserarm.go), which
+// stops the nix and ends the launch through its teardown; terminate_test.go pins that half.
 
 import (
 	"bytes"
@@ -119,9 +120,9 @@ func TestASignalWhileTheSandboxNixRunsStopsIt(t *testing.T) {
 	}
 }
 
-// TestTheSandboxNixArmIsGoneBeforeTheSession: the arm covers the host nix builds and nothing after
-// them. From the privileged steps on, a signal is the TTY proxy's to handle, and two arms acting on
-// one signal would race each other to the exit.
+// TestTheSandboxNixArmIsGoneBeforeTheSession: the stop covers the host nix builds and nothing after
+// them. From the privileged steps on, a signal is the session runner's to handle, and two handlers
+// acting on one signal would race each other to the exit.
 func TestTheSandboxNixArmIsGoneBeforeTheSession(t *testing.T) {
 	s := nixchildren.Isolate(t)
 	catchSignal(t, syscall.SIGTERM)

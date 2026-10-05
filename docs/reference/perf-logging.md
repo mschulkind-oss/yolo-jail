@@ -1,6 +1,6 @@
 ---
 status: current
-next: "Close the macos-user gap under Known gaps: carry the run collector across the macos-user dispatch and span the floor's evaluation and build, the guest binaries, each sudo step, the bootstrap, the provisioning stage and sandbox-exec, printing the report on that arm's return; on the container backends, write the provisioning stage's duration into the jail perf log after the stage, not only into YOLO_PROVISION_MS; widen the Apple Container delivery test's span reader past image.* and add one relaunch that delivers nothing; launch macos-user's provisioning test with YOLO_TIMING=1. This closes the --timing clause of setup-support-gaps.md's G20"
+next: "Read the first macos-user breakdown (TestMacosUserTimingRecordsTheBackendsSteps on the macOS runner) into What has been measured; on the container backends, write the provisioning stage's duration into the jail perf log after the stage, not only into YOLO_PROVISION_MS; widen the Apple Container delivery test's span reader past image.* and add one relaunch that delivers nothing"
 verified: 2026-09-19
 verified_commit: 16ef96cb
 covers:
@@ -14,6 +14,8 @@ covers:
   - internal/lingerprobe/
   - internal/cli/run/proxy_linux.go
   - internal/cli/run/proxy_other.go
+  - internal/cli/run/macosuserarm.go
+  - internal/macosuser/orchestrator.go
   - internal/cli/run/loopholesruntime.go
   - internal/cli/run/assemble.go
   - internal/cli/run/command.go
@@ -303,8 +305,9 @@ and the members that carry meaning:
 | `launch.*` | every host-side step from staging to the child window: auto-capture, orphan reaping, briefing refresh, the workspace lock, the jail prefix, the image load, workspace state, argv assembly, `launch.await_previous_keeper` (a wait for the keeper still ending the last jail), and `launch.run_with_proxy` — the whole child window under one span: on a fresh launch, the keeper's spawn, the boot it relays and the first session's exec. Port forwarding and loophole start are the keeper's own spans, in its run block | `launch.auto_capture` was added after the first real run put most of a two-minute launch in an unspanned installer capture: **a span table's holes are only visible on a real launch** |
 | `image.*` | inside `launch.auto_load_image`: the nix build, the stream load, the tar materialize | split because one span over four unrelated things measured minutes on a real host with no way to say which; the fixes for a slow build and a slow stream have nothing in common |
 | `assemble.*` | the two argv-assembly steps that run subprocesses: the host-loopback probe and the host git identity | |
-| `child.*` (marks) | the tty proxy's own transitions: `spawned`, `exited`, `drain_done`, `termios_restored` | `child.exited` → `child.drain_done` bounds the proxy-drain hypothesis; a path that skips a stage (a non-tty stdin, the non-Linux fallback) simply never reports it. On a fresh launch the proxy's child is the first session's `exec` |
+| `child.*` (marks) | the tty proxy's own transitions: `spawned`, `exited`, `drain_done`, `termios_restored` | `child.exited` → `child.drain_done` bounds the proxy-drain hypothesis; a path that skips a stage (a non-tty stdin, the non-Linux fallback, and the macos-user session's runner, which marks `spawned` and `exited` alone) simply never reports it. On a fresh launch the proxy's child is the first session's `exec` |
 | `jail_main.*` (marks) | the main-process client, which the keeper starts: `spawned`, `exited`, in the keeper's block; the fresh launch marks `jail_main.spawned` in its own when the keeper says so | `jail_main.exited` is where Window A ends; from `spawned` the boot is relayed to the terminal, so slow-span notices wait, as they do while the proxy's child has it |
+| `macos_user.*` | a macos-user launch's backend steps, one after another, on the run's own collector (`macosuser.Deps.Perf`): `preconditions`, `context_preflight`, `account_home`, `materialize` (the floor's evaluation and build), `host_nix`, `guest_binaries`, `ca_trust`, `build_plan`, `workspace_lock`, `session_sweep`, `install_profile` (the first `sudo`, its password prompt included), `stage`, `env_file`, `bootstrap`, `provision`, `start_jail_daemons`, `service_probe`, `agent` (the session); then the teardown's `stop_jail_daemons` and `remove_env_file` | inside `launch.macos_user`, the host side's span around the backend; a refused step ends its own span and no later one starts. Beside them, the arm's host side is spanned under the container's names (`launch.refresh_jail_briefings`, `launch.start_loopholes`, `shutdown.stop_loopholes`) and its own (`launch.build_home_overlay`, `launch.build_ctx_tree`, `launch.start_doorways`, `launch.start_services`, `shutdown.stop_doorways`, `shutdown.stop_services`) |
 | `housekeeping.slot` | the post-launch housekeeping slot, on a goroutine the fresh launch starts once its keeper says the container is running | runs *concurrently with the child*, so it overlaps `launch.run_with_proxy` by design |
 | `shutdown.*` | the keeper's teardown chain, after its stop (`keeper.stop_jail`), in the keeper's block | see [The shutdown path](#the-shutdown-path) |
 | `session.*` | a session's quit: `session.after_quit`, its look at what it left, and `session.keeper_teardown`, the last session's wait for its keeper | a slow `session.keeper_teardown` is the keeper's chain; its lines are in the keeper's log |
@@ -889,7 +892,7 @@ same failure rule.
 | The keeper's chain ends while the main process's client is still alive | the client is killed, and `shutdown.window_a_cut.keeper` marks it |
 | A `/proc` file the probe cannot read | that field renders `?`; the sample is still written |
 | Non-tty stdin or a non-Linux host | `child.spawned` / `child.exited` only; no drain or termios marks; a session's arm still runs its teardown |
-| `macos-user` backend | the collector records the host-side spans up to the backend dispatch and nothing after; no report and no quiet line — see [Known gaps](#known-gaps) |
+| `macos-user` backend | the host side's spans, the backend's `macos_user.*` steps and the teardown's; the report, or the quiet line, once the teardown has run, with no `jail half:` line, since the bootstrap keeps no jail perf log. A launch refused before the dispatch prints neither. A SIGINT, SIGHUP or SIGTERM before the session marks `terminate.signal`, ends the launch at its next step through the teardown, and still reports |
 | A refused launch (the live-overlay guard) | no collector, no file, no directory |
 
 ## What this does not do
@@ -951,14 +954,6 @@ it at 25–27 ms.
 
 The step still runs subprocesses with no timeout of their own, and the report's
 `Total` still ends before it.
-
-### `macos-user` native runs have no collector past dispatch
-
-The collector is constructed at the top of `Run` for every backend, so a
-`macos-user` launch records the probes and staging spans. The dispatch then
-returns the native arm's result directly: nothing after it is spanned, no report
-prints, and the quiet line does not either. The proxy seam that arm uses carries a
-bare `Options` with no collector, deliberately, until the arm grows one.
 
 ### The motivating symptom: narrowed to one arm, then attributed
 
@@ -1175,6 +1170,8 @@ is the only place the exact values and spellings are stated.
 | Runs retained per workspace | 50 | `perf.MaxRuns` |
 | Slow-span notice threshold | 1 s | `perf.SlowSpanThreshold` |
 | Report header | `--- Host-side timing (rc <n>) ---` | `run.emitTimingReportLocked` |
+| macos-user backend spans | `macos_user.{preconditions,context_preflight,account_home,materialize,host_nix,guest_binaries,ca_trust,build_plan,workspace_lock,session_sweep,install_profile,stage,env_file,bootstrap,provision,start_jail_daemons,service_probe,agent}`, then `macos_user.{stop_jail_daemons,remove_env_file}` | `macosuser.RunMacosUser` (`launchSteps`) |
+| macos-user host-side spans | `launch.{refresh_jail_briefings,build_home_overlay,build_ctx_tree,start_loopholes,start_doorways,start_services,macos_user}`, `shutdown.{stop_loopholes,stop_doorways,stop_services}` | `run.Run`'s macos-user arm |
 | Quiet line | `yolo: timings recorded in <file> (--timing prints them)` | `run.noteTimingLogLocation` |
 | In-container block header | `=== YOLO Jail Profile ===` | `run.buildSessionCmd` |
 | Window A query | `podman events --since <collector start> --stream=false --filter container=<name> --format '{{.TimeNano}} {{.Status}}'` | `run.attributeWindowA` |
@@ -1239,3 +1236,4 @@ defence.
 | D18 — the host notch is timed by the launch's gates, into a machine-wide file. *Implementation decision, taken under the maintainer's 2026-10-04 delegation ("make them and build it … adjust later"); reversible* | Refusing `--timing` at the host left the one notch with no instrument, and "times a jail launch" was the census's whole reason for `perf_logging` doing nothing there. The gates are asked of an `Options` holding only what they read, so the two notches cannot classify an opt-in differently. The file is under `~/.local/share/yolo-jail/logs/` and not in the directory the command ran in, because a `.yolo` minted in the home breaks the workspace walk, and its header names the directory by the short code `launches.log` uses ([OQ-PR3](../design/podman-reboot-readiness.md#OQ-PR3)), never its path. A separate file from any workspace's `host-perf.log`, so a host command's runs are never mistaken for a jail launch's |
 | D19 — `yolo --timing host apply` is `yolo host apply --timing`. *Implementation decision, taken under the maintainer's 2026-10-04 delegation; reversible* | The front door leaves a flag typed before `host` for the host verb, as it leaves `-p` for the exec half, and `--timing` is the one flag both host verbs take, so the request has one meaning. Refusing it, naming the other spelling, was the alternative; moving it is the next step the refusal would have named |
 | D20 — the host notch's quiet line is plain. *Implementation decision, taken under the maintainer's 2026-10-04 delegation ("make them and build it … adjust later"); reversible* | The jail launch dims its `yolo: timings recorded in` line, and matching it is the obvious edit. `yolo host --` and `yolo host apply` write their stderr through no markup printer (their colored output, where they have any, is a stdout report), so one dim line would need the color gate ([`cli-color.md`](cli-color.md)) asked of stderr for that line alone. The host launch log strips ANSI either way |
+| D21 — a macos-user launch is timed on the run's own collector, end to end, and reports after its teardown. *Implementation decision, taken under the maintainer's 2026-10-04 delegation ("make them and build it … adjust later"); reversible* | The backend's steps are spans on the collector `Run` built (`macosuser.Deps.Perf`, handed through `PerfRef`), not a second log of their own, so one table and one file hold the whole launch. The report is deferred by the arm, beside the container arm's after its chain, so the host services' shutdown spans are inside the table it prints; a refusal before the dispatch prints none, as a refused container launch prints none. The session's `child.*` marks come from the runner the session runs under, its signal arm's (`MacosUserArm.RunSession`), which replaced the bare proxy seam (`run.RunWithProxy`) that carried no collector; a timed variant of that seam would have had no caller |

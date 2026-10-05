@@ -27,6 +27,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/outfmt"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
+	"github.com/mschulkind-oss/yolo-jail/internal/perf"
 	"github.com/mschulkind-oss/yolo-jail/internal/prune"
 	"github.com/mschulkind-oss/yolo-jail/internal/runtime"
 	"github.com/mschulkind-oss/yolo-jail/internal/tty"
@@ -1221,15 +1222,26 @@ func runRun(args []string) int {
 	// this field is what additionally makes the report PRINT, which an inherited
 	// YOLO_VERBOSE=1 must not do (D12, docs/reference/perf-logging.md).
 	opts.Verbose = explicitVerbose()
+	// The collector is built INSIDE the pipeline, and Options crosses that seam by value, so the
+	// front door is handed it through this ref (run.PerfRef): read by the title restore below,
+	// after Run returns, and by the macos-user handler while Run runs. Unconditional, since the
+	// handler reads it whether or not a terminal indicator was set.
+	ref := &run.PerfRef{}
+	opts.PerfRef = ref
 	// Wire the macos-user native branch. run stays free of the macosuser +
 	// darwinpkg deps; the front door injects the handler. packEnv is the launch's
 	// composed profile/provider channel, which run.Run composes above the backend
-	// dispatch and passes to whichever arm runs — forwarded verbatim.
+	// dispatch and passes to whichever arm runs — forwarded verbatim. The launch's signal
+	// arm is made here and installed by Run (run.MacosUserArm), so the handler can hand the
+	// backend its session runner, the answer to "is a signal ending this launch?" and the
+	// session-start hook; and the collector, so the backend's steps are spanned on it.
+	arm := run.NewMacosUserArm()
+	opts.MacosUserArm = arm
 	opts.MacosUserRun = func(cfg *jsonx.OrderedMap, workspace string, agents, agentArgv []string,
 		repoRoot, packRoot string, homeOverlay macosuser.HomeOverlay, hostCtx macosuser.HostContext, dryRun bool,
 		packEnv *jsonx.OrderedMap, blocked []packload.BlockedTool, jailDaemons macosuser.JailDaemons) int {
 		return macosUserRun(cfg, workspace, agents, agentArgv, repoRoot, packRoot, homeOverlay,
-			hostCtx, dryRun, packEnv, blocked, jailDaemons)
+			hostCtx, dryRun, packEnv, blocked, jailDaemons, arm, ref.Log)
 	}
 	// Wire E3's capture-on-terminate. Same injection shape and same reason: the
 	// capture engine lives in THIS package, which imports run, so run cannot call it
@@ -1304,9 +1316,7 @@ func runRun(args []string) int {
 		// The collector is built INSIDE the pipeline, and Options crosses that
 		// seam by value — so spanning this on our own copy's Perf was spanning
 		// nil, silently, forever (Span on a nil *Log is a no-op by design). The
-		// ref is handed in so the callee can publish the collector back.
-		ref := &run.PerfRef{}
-		opts.PerfRef = ref
+		// ref above is handed in so the callee can publish the collector back.
 		defer func() {
 			sp := ref.Log.Span("process.title_restore")
 			restore()
@@ -1334,12 +1344,14 @@ var launchRunPipeline = run.Run
 // build root for darwin `packages:`); the native-Go bootstrap self-execs the
 // staged yolo binary and needs no source tree. packRoot is the host-side staged
 // pack tree, which the run pipeline staged before dispatching here, and packEnv is the
-// profile/provider channel it composed before dispatching there too. macos-hardware-gated;
-// on Linux macosuser fails closed at its IsMacOS precondition (dry-run works anywhere).
+// profile/provider channel it composed before dispatching there too. arm is the launch's signal
+// arm, which Run has installed by now, and log its timing collector (nil when not recording).
+// macos-hardware-gated; on Linux macosuser fails closed at its IsMacOS precondition (dry-run
+// works anywhere).
 func macosUserRun(cfg *jsonx.OrderedMap, workspace string, agents, agentArgv []string,
 	repoRoot, packRoot string, homeOverlay macosuser.HomeOverlay, hostCtx macosuser.HostContext, dryRun bool,
-	packEnv *jsonx.OrderedMap, blocked []packload.BlockedTool, jailDaemons macosuser.JailDaemons) int {
-	runProxy := run.RunWithProxy
+	packEnv *jsonx.OrderedMap, blocked []packload.BlockedTool, jailDaemons macosuser.JailDaemons,
+	arm *run.MacosUserArm, log *perf.Log) int {
 	materialize := func(nixRoot string, packages []any) (*macosuser.Darwin, bool, error) {
 		// system "" → darwinpkg.NativeSystem(), the running platform. NOT a
 		// hardcoded aarch64-darwin: this backend is macOS-only but Macs are not
@@ -1368,8 +1380,11 @@ func macosUserRun(cfg *jsonx.OrderedMap, workspace string, agents, agentArgv []s
 			ProfilePath: pkgs.ProfilePath,
 		}, true, nil
 	}
-	return macosuser.RunMacosUser(macosLaunchDeps(runProxy, materialize),
+	return macosuser.RunMacosUser(macosUserSessionDeps(arm, log, materialize),
 		macosuser.Options{
+			// The session-start hook the run pipeline registered on its arm, run by the backend
+			// just before the session's command and on no other path.
+			OnAgentStart:    arm.AgentStarting,
 			Workspace:       workspace,
 			Config:          cfg,
 			Agents:          agents,
@@ -1431,6 +1446,23 @@ func macosLaunchDeps(runProxy func(argv []string) int,
 	deps := macosuser.RealDeps(runProxy, materialize, colorForWriter(os.Stdout))
 	deps.LockWorkspace = workspaceLockSeam
 	deps.GuestBinaries = guestBinariesSeam
+	// The account home's hold, a launch's alone for LockWorkspace's reason: none of the four
+	// `yolo macos-*` commands lays the home's links (run.HoldAccountHome says why a second
+	// workspace's launch is refused while a session holds them).
+	deps.HoldAccountHome = run.HoldAccountHome
+	return deps
+}
+
+// macosUserSessionDeps is macosLaunchDeps for one launch: the session runs under its signal arm
+// (run.MacosUserArm.RunSession, which forwards SIGTERM and SIGHUP to the session's sudo and absorbs
+// SIGINT and SIGQUIT), the backend asks the arm at each step whether a signal is ending the launch
+// (Ending), and its steps are spanned on the launch's collector. A function so the wiring can fail a
+// test, for macosLaunchDeps' reason (TestMacosUserSessionDepsAreTheArms).
+func macosUserSessionDeps(arm *run.MacosUserArm, log *perf.Log,
+	materialize func(repoRoot string, packages []any) (*macosuser.Darwin, bool, error)) macosuser.Deps {
+	deps := macosLaunchDeps(arm.RunSession, materialize)
+	deps.Ending = arm.Ending
+	deps.Perf = log
 	return deps
 }
 
