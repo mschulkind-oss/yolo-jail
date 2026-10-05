@@ -344,6 +344,62 @@ func TestHostApplyTimingSpansTheRevertAndTheNoPackApply(t *testing.T) {
 	}
 }
 
+// THE HOST APPLY TAKES THE SAME OPT-INS AS THE LAUNCH (perf-logging.md, "The host notch"): a
+// persistent one (YOLO_TIMING, an inherited YOLO_VERBOSE, `perf_logging`) records the apply's stages in silence,
+// naming the file in one line and printing no table, and a typed --verbose prints the table as
+// --timing does. Each spelling of the verb is asked, since `yolo apply --at host` opens the same
+// surface from its own call site.
+func TestHostApplyTimingTakesTheLaunchOptIns(t *testing.T) {
+	spellings := []struct {
+		name string
+		run  func(out, errw io.Writer) int
+	}{
+		{"host apply", func(out, errw io.Writer) int { return hostMain([]string{"apply"}, out, errw, false, nil) }},
+		{"apply --at host", func(out, errw io.Writer) int {
+			return applyMain([]string{"--at", "host"}, out, errw, false, nil)
+		}},
+	}
+	for _, sp := range spellings {
+		for _, tc := range []struct {
+			name, cfg string
+			env       map[string]string
+			typed     bool // the global --verbose, typed
+		}{
+			{"YOLO_TIMING", `{"packs": ["pi"]}`, map[string]string{paths.TimingEnv: "1"}, false},
+			{"YOLO_VERBOSE inherited", `{"packs": ["pi"]}`, map[string]string{paths.VerboseEnv: "1"}, false},
+			{"perf_logging", `{"packs": ["pi"], "perf_logging": true}`, nil, false},
+			{"a typed --verbose", `{"packs": ["pi"]}`, nil, true},
+		} {
+			t.Run(sp.name+"/"+tc.name, func(t *testing.T) {
+				_, cwd := timingHome(t, tc.cfg)
+				stubDeclaredBins(t)
+				for k, v := range tc.env {
+					t.Setenv(k, v)
+				}
+				verboseFlagTyped = tc.typed
+				var out, errw bytes.Buffer
+				if rc := sp.run(&out, &errw); rc != 0 {
+					t.Fatalf("rc = %d\nstdout:\n%s\nstderr:\n%s", rc, out.String(), errw.String())
+				}
+				errs := errw.String()
+				if data, _ := os.ReadFile(run.HostNotchPerfLogPath()); !strings.Contains(string(data), "end    host_apply.render") {
+					t.Errorf("the apply recorded no host_apply.render span:\n%s", data)
+				}
+				table := strings.Contains(errs, "yolo host apply timing (rc 0):")
+				line := strings.Contains(errs, "yolo: timings recorded in "+run.HostNotchPerfLogPath())
+				if tc.typed && !table {
+					t.Errorf("a typed --verbose printed no table:\n%s", errs)
+				}
+				if !tc.typed && (table || !line) {
+					t.Errorf("a persistent opt-in must record quietly (table=%v, the line naming the file=%v):\n%s",
+						table, line, errs)
+				}
+				assertNoWorkspaceState(t, cwd)
+			})
+		}
+	}
+}
+
 // THE PERF FILE'S TRIM AND HEADER RUN UNDER ITS SIBLING LOCK, as the host launch log's do
 // (TestTheHostLaunchLogTrimsUnderTheSiblingLock): while another host command holds
 // host-notch-perf.log.lock, opening the timing surface waits, and writes its run header once the
