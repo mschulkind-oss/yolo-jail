@@ -21,6 +21,10 @@ the host. See [Follow an upstream with a patch series](userguide/guides/patch-se
 into a jail, and what each launch shows about the code it runs. See
 [Claude Code plugins and mods](userguide/guides/claude-plugins-and-mods.md).
 
+**Overridden variables are named.** When a profile, your `env_sources` or a pack's default
+overrides another on a variable, every launch says which won, never the value. See
+[Providers and models](userguide/guides/providers-and-models.md).
+
 ### Fixed
 
 - When `yolo host` has no container runtime to capture an agent with, it now says to install one.

@@ -113,6 +113,45 @@ type overrideGapFinding struct {
 func envOverrideGap(packs []*packload.Pack, merged *jsonx.OrderedMap, served packload.ServedDaemons,
 	workspace string, dirsDeliver bool, configWarn func(string),
 	userProfiles func() (map[string]packload.UserProfile, error)) (errs, warns []overrideGapFinding) {
+	scope := overrideScope(packs, merged, served, workspace, configWarn, userProfiles)
+	findings := packload.EnvOverrideFindings(packs, scope.Selection(), func(name string) (string, bool) {
+		// THE LAUNCH'S OWN ANSWER (run/profilechannel.go's deliverySource, read through
+		// jailOriginLookup), minus the two channels named above: the winner of the one ordered
+		// composition in some process of the launch (CredentialScope.Delivered, packload's
+		// envcompose.go), so the prediction names the source that wins there — env_sources over
+		// the pack env fold, a null removing the fold's value. An EMPTY value is unset, exactly as
+		// there: the launch drops an empty value rather than composing an empty token. It is the
+		// winner the launch's shadow line names too (packload's envshadow.go), since both read this
+		// composition.
+		if e, ok := scope.Delivered(name); ok {
+			return e.Origin, true
+		}
+		return "", false
+	}, config.RenderedHostFilePaths(merged, dirsDeliver), &served)
+	for _, f := range findings {
+		g := overrideGapFinding{msg: f.Lines[0], note: overrideNote(f.Lines[1:])}
+		if f.Certain {
+			errs = append(errs, g)
+		} else {
+			warns = append(warns, g)
+		}
+	}
+	return errs, warns
+}
+
+// overrideScope is the credential gate's answer the prediction reads, composed as the launch
+// composes it minus the derives (the FromProfileEnv note above): the one ordered composition
+// (packload's envcompose.go) the launch's delivery lookup and its shadow disclosure read.
+//
+// `yolo check` PRINTS NO SHADOW LINE (docs/plans/notch-convergence.md NC-D76). OQ-NC12's
+// disclosure belongs to a launch (a tier-4 line, docs/reference/report-tiers.md), and this
+// composition holds two of its three sources: no shape var, since check runs no derive, and no
+// `-p`, so the profile's half, where most shadows come from, is invisible here. What check
+// predicts agrees with the line by construction instead: the override finding names the source
+// this composition's winner came from, which is the winner the line names.
+func overrideScope(packs []*packload.Pack, merged *jsonx.OrderedMap, served packload.ServedDaemons,
+	workspace string, configWarn func(string),
+	userProfiles func() (map[string]packload.UserProfile, error)) *packload.CredentialScope {
 	// The hydrated secret channel. A dotenv file that cannot be read degrades to "delivered
 	// nothing" with a warning on configWarn, which is the loader's own contract; it never
 	// changes the verdict, because an unreadable source delivers no variable at launch either.
@@ -148,28 +187,7 @@ func envOverrideGap(packs []*packload.Pack, merged *jsonx.OrderedMap, served pac
 		Sets:       packload.ProfileSets(config.ConfigProfileSets(merged, packs)),
 		EnvSources: userEnv, EnvSourceRemovals: removals, NoDerives: true, Served: &served,
 	})
-
-	findings := packload.EnvOverrideFindings(packs, scope.Selection(), func(name string) (string, bool) {
-		// THE LAUNCH'S OWN ANSWER (run/profilechannel.go's deliverySource, read through
-		// jailOriginLookup), minus the two channels named above: the winner of the one ordered
-		// composition in some process of the launch (CredentialScope.Delivered, packload's
-		// envcompose.go), so the prediction names the source that wins there — env_sources over
-		// the pack env fold, a null removing the fold's value. An EMPTY value is unset, exactly as
-		// there: the launch drops an empty value rather than composing an empty token.
-		if e, ok := scope.Delivered(name); ok {
-			return e.Origin, true
-		}
-		return "", false
-	}, config.RenderedHostFilePaths(merged, dirsDeliver), &served)
-	for _, f := range findings {
-		g := overrideGapFinding{msg: f.Lines[0], note: overrideNote(f.Lines[1:])}
-		if f.Certain {
-			errs = append(errs, g)
-		} else {
-			warns = append(warns, g)
-		}
-	}
-	return errs, warns
+	return scope
 }
 
 // overrideNote joins a finding's detail lines into one note. The launch indents them under

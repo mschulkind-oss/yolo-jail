@@ -1019,7 +1019,15 @@ func hostPreflight(launch *hostComposition, errw io.Writer) int {
 	//
 	// THE REGION FILL'S DISCLOSURE (BR-DIR1) leads them: a region the gate read from the region
 	// file for this agent, with the file and the profile, in the jail's words.
-	for _, block := range [][]string{launch.regionLines(), launch.credentialScopeLines(), launch.grantLines()} {
+	//
+	// THE SHADOW LINES follow it (OQ-NC12, ruled 2026-10-05; packload's envshadow.go): one line
+	// per name for which one of yolo's own sources beat another, in the jail's words, each a block
+	// of its own so each carries this notch's prefix.
+	blocks := [][]string{launch.regionLines()}
+	for _, line := range launch.shadowLines() {
+		blocks = append(blocks, []string{line})
+	}
+	for _, block := range append(blocks, launch.credentialScopeLines(), launch.grantLines()) {
 		printHostLines(errw, block)
 	}
 	return 0
@@ -1695,6 +1703,22 @@ func (c *hostComposition) credentialScopeLines() []string {
 		Inherited: inherited,
 		Composed:  composed,
 	})
+}
+
+// shadowLines is OQ-NC12's disclosure for this launch (packload's ShadowLinesFor, the jail's
+// wording; ruled 2026-10-05): one line per name for which one of yolo's own sources (this agent's
+// profile, env_sources, a pack's env) beat another that set it otherwise, naming the winner and
+// every loser, never a value. Nil when nothing is shadowed. It speaks for the one process this
+// launch composes, so no line names a process. Left out: the three wire tables, written after the
+// composition (composeHostVarsGranting), and a pointer handed only to the launch-owned service
+// (serviceOnly), which the agent never receives. The invoking shell is no losing source: OQ-NC13
+// ruled that it has no say over a name yolo composes (notch-convergence NC-D75).
+func (c *hostComposition) shadowLines() []string {
+	if c.scope == nil {
+		return nil
+	}
+	except := append(append([]string(nil), entrypoint.WireTables()...), c.serviceOnly...)
+	return c.scope.ShadowLinesFor(c.agent, except)
 }
 
 // regionLines is the region fill's disclosure for this launch (packload's RegionLines,
@@ -2751,9 +2775,11 @@ func composeHostVarsWith(cfg *jsonx.OrderedMap, workspace, agent, command, profi
 // hostHonorsIncomingValue is the host notch's answer to OQ-NC13
 // (docs/plans/notch-convergence.md): whether a value the invoking shell already holds beats the
 // one yolo composed for the same name, as a jail's per-agent file lets the user's value win
-// (OQ-CN8). false, pending that ruling: the composition is applied over the shell, so yolo's
-// value replaces one the shell exports, which TestComposeHostEnvOrdering pins. The one input the
-// ruling flips; hostComposedVars reads nothing else to decide it.
+// (OQ-CN8). false, as OQ-NC13 ruled (A, 2026-10-05: the shell "should have absolutely no impact"
+// on a name yolo composes): the composition is applied over the shell, so yolo's value replaces one
+// the shell exports, which TestComposeHostEnvOrdering pins, and the shadow disclosure names no
+// shell value as a loser (NC-D75). The one input that ruling decided; hostComposedVars reads
+// nothing else to decide it.
 const hostHonorsIncomingValue = false
 
 // hostComposedVars serializes one composition (packload's envcompose.go) for the host exec: one
@@ -3677,7 +3703,7 @@ func hostEnvDelta(agent, profile string, grant *hostGrantRequest, warn func(stri
 	blocks := [][]string{c.selectionLines(), c.profileLines(), refusal}
 	blocks = append(blocks, warnings...)
 	var disclosure []string
-	for _, block := range append(blocks, c.regionLines(), c.credentialScopeLines(), c.unservedLines(nil),
+	for _, block := range append(blocks, c.regionLines(), c.shadowLines(), c.credentialScopeLines(), c.unservedLines(nil),
 		c.workerNotes, c.grantLines()) {
 		disclosure = append(disclosure, block...)
 	}

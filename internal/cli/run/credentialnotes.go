@@ -2,7 +2,8 @@ package run
 
 // credentialnotes.go is the credential gate's DISCLOSURE on the jail notch
 // (docs/reference/providers.md, "no silent narrowing"): a launch that
-// withholds a credential the user configured says so, and one that scopes it says to whom.
+// withholds a credential the user configured says so, and one that scopes it says to whom; and
+// one where a source of yolo's own beat another for a name says which (OQ-NC12's disclosure).
 // Names only, never a value. A disclosure rather than a debug line, so it has no quiet
 // switch (docs/reference/report-tiers.md, OQ-RO3).
 
@@ -10,13 +11,16 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/entrypoint"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/richtext"
 )
 
 // noteCredentialScope prints the gate's disclosure to stderr — every arm that delivers a
 // channel calls it beside the delivery: the fresh container launch, the attach, and the
-// macos-user arm. Silent when env_sources hydrated no credential a provider claims.
+// macos-user arm. In order: what this notch does not serve, the region fill, what each name's
+// winning source shadowed (noteShadowedEnv), then the scope itself, which is silent when
+// env_sources hydrated no credential a provider claims.
 func (o *Options) noteCredentialScope(channel *packChannel) {
 	if channel == nil || channel.scope == nil {
 		return
@@ -29,6 +33,7 @@ func (o *Options) noteCredentialScope(channel *packChannel) {
 	for _, l := range channel.scope.RegionLines() {
 		out.print(richtext.Escape(l))
 	}
+	o.noteShadowedEnv(channel)
 	// The one disclosure renderer, the host's too; the jail adds no notes (ES-D2 keeps its
 	// wording until OQ-ES5 decides whether a jail shell has a remedy).
 	lines := channel.scope.DisclosureWith(packload.DisclosureNotes{})
@@ -38,6 +43,21 @@ func (o *Options) noteCredentialScope(channel *packChannel) {
 	out.print("[dim]" + lines[0] + "[/dim]")
 	for _, l := range lines[1:] {
 		out.print(l)
+	}
+}
+
+// noteShadowedEnv is OQ-NC12's disclosure on the jail notch (packload's envshadow.go; ruled
+// 2026-10-05): one line per variable for which one of yolo's own sources beat another that set it
+// otherwise, naming the winner and every loser, never a value, over every process the launch
+// composes for (the shared composition and each profiled agent's). Silent when nothing is
+// shadowed. The three wire tables are left out, because every jail vehicle writes them after the
+// composition. Called from noteCredentialScope, so every arm that delivers a channel says it: the
+// fresh container launch (podman and Apple Container), the attach, and the macos-user arm.
+func (o *Options) noteShadowedEnv(channel *packChannel) {
+	out := o.pr(o.Stderr)
+	for _, l := range channel.scope.ShadowLines(entrypoint.WireTables()) {
+		head, rest, _ := strings.Cut(l, ": ")
+		out.print("[dim]" + richtext.Escape(head) + ":[/dim] " + richtext.Escape(rest))
 	}
 }
 
