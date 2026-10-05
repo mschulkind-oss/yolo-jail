@@ -1445,9 +1445,17 @@ func macosLaunchDeps(runProxy func(argv []string) int,
 //
 // The same two arms as the container's resolveJailPrefix, and a stricter version of its
 // presence check: EVERY macosuser.GuestBinaries member present as a regular file, not merely the
-// directory or one binary. The launch stages the whole set (StageGuestBinaryCommands), so a
-// prebuilt dir short of one member — a bundle staged before the set grew, or a half-staged one —
-// must build rather than fail at the stage copy of the missing name.
+// directory or one binary, because the launch stages the whole set (StageGuestBinaryCommands).
+//
+// A PREBUILT DIR SHORT OF A MEMBER CANNOT BE BUILT PAST in a bundle, so it is refused before any
+// build, naming what is missing and how to restage. A bundle ships no Go sources
+// (stage-source-bundle.sh: THE BUNDLE IS PREBUILT, NOT SOURCE), and the flake's prebuilt branch
+// asks only whether the directory exists: with this flake the build fails at the copy of the
+// missing name, and with the older flake such a bundle carries it succeeds without it. Only a
+// source with a go.mod — a checkout, whose /bin/ is untracked and so invisible to a git flake —
+// builds past a partial dir. And a build's output is held to the same rule, since a flake source
+// older than this yolo's guest set builds a prefix without the clients; either way the launch
+// would otherwise fail at the stage copy, after its privileged steps began, naming no next step.
 func guestBinariesSeam(repoRoot string) (string, error) {
 	return resolveGuestBinaries(repoRoot, image.BuildGuestPrefix, os.Stderr)
 }
@@ -1456,27 +1464,53 @@ func guestBinariesSeam(repoRoot string) (string, error) {
 func resolveGuestBinaries(repoRoot string, build func(string, io.Writer) (string, []string),
 	stderr io.Writer) (string, error) {
 	prebuilt := macosuser.PrebuiltGuestBinDir(repoRoot)
-	complete := true
-	for _, name := range macosuser.GuestBinaries {
-		if info, err := os.Stat(filepath.Join(prebuilt, name)); err != nil || !info.Mode().IsRegular() {
-			complete = false
-			break
+	shipsDir := false
+	if info, err := os.Stat(prebuilt); err == nil && info.IsDir() {
+		shipsDir = true
+		missing := missingGuestBinaries(prebuilt)
+		if len(missing) == 0 {
+			return prebuilt, nil
+		}
+		if _, err := os.Stat(filepath.Join(repoRoot, "go.mod")); err != nil {
+			return "", fmt.Errorf("the flake bundle at %s ships %s without %s, and a bundle carries "+
+				"no Go sources to build them from: it was staged before this yolo's guest set held "+
+				"them, or only half staged. Restage it: `just install` from a yolo-jail checkout, "+
+				"or reinstall yolo-jail (for Homebrew, `brew reinstall yolo-jail`)",
+				repoRoot, prebuilt, strings.Join(missing, ", "))
 		}
 	}
-	if complete {
-		return prebuilt, nil
+	why := "the flake source ships no " + filepath.Base(prebuilt) + " of its own"
+	if shipsDir {
+		why = "the checkout's " + filepath.Base(prebuilt) + " is not the whole set"
 	}
-	fmt.Fprintln(stderr, "Building the sandbox's in-jail binaries (.#guestPrefix) — the flake "+
-		"source ships no "+filepath.Base(prebuilt)+" of its own…")
+	fmt.Fprintln(stderr, "Building the sandbox's in-jail binaries (.#guestPrefix) — "+why+"…")
 	store, tail := build(repoRoot, stderr)
 	if store == "" {
 		msg := "`nix build .#guestPrefix` failed"
 		if len(tail) > 0 {
 			msg += ":\n  " + strings.Join(tail, "\n  ")
 		}
-		return "", errors.New(msg)
+		return "", errors.New(msg + "\nFix the build above and launch again.")
 	}
-	return filepath.Join(store, "bin"), nil
+	bin := filepath.Join(store, "bin")
+	if missing := missingGuestBinaries(bin); len(missing) > 0 {
+		return "", fmt.Errorf("the `.#guestPrefix` build of %s holds no %s: that flake source predates "+
+			"this yolo's guest set. Point YOLO_REPO_ROOT at a current yolo-jail checkout, or unset it "+
+			"to build from the installed bundle", repoRoot, strings.Join(missing, ", "))
+	}
+	return bin, nil
+}
+
+// missingGuestBinaries is the macosuser.GuestBinaries members dir does not hold as a regular file,
+// in the set's order.
+func missingGuestBinaries(dir string) []string {
+	var missing []string
+	for _, name := range macosuser.GuestBinaries {
+		if info, err := os.Stat(filepath.Join(dir, name)); err != nil || !info.Mode().IsRegular() {
+			missing = append(missing, name)
+		}
+	}
+	return missing
 }
 
 const checkUsage = `Usage: yolo check [flags]

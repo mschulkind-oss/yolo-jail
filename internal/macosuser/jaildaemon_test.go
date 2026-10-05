@@ -219,9 +219,29 @@ func TestTheOrchestratorResolvesTheGuestSetForAClientAlone(t *testing.T) {
 	if rc := RunMacosUser(d, o); rc != 1 {
 		t.Fatalf("rc = %d, want the refusal\n%s", rc, buf.String())
 	}
-	for _, want := range []string{"nix build .#guestPrefix failed", "yolo-serial", "the serial loophole"} {
+	for _, want := range []string{"nix build .#guestPrefix failed", "yolo-serial", "the serial loophole",
+		`"loopholes": {"serial": {"enabled": false}}`} {
 		if !strings.Contains(buf.String(), want) {
 			t.Errorf("the refusal does not name %q:\n%s", want, buf.String())
+		}
+	}
+	if strings.Contains(buf.String(), "<name>") {
+		t.Errorf("the refusal leaves the loophole as a placeholder although it knows it:\n%s", buf.String())
+	}
+
+	// No resolver wired at all: a yolo bug, said so, with the same way past it.
+	rec = nil
+	d = mockDeps(&rec)
+	d.GuestBinaries = nil
+	buf.Reset()
+	d.Out = &buf
+	if rc := RunMacosUser(d, o); rc != 1 {
+		t.Fatalf("rc = %d with no resolver, want the refusal\n%s", rc, buf.String())
+	}
+	for _, want := range []string{"yolo bug", "github.com/mschulkind-oss/yolo-jail/issues",
+		`"loopholes": {"serial": {"enabled": false}}`} {
+		if !strings.Contains(buf.String(), want) {
+			t.Errorf("the no-resolver refusal names no next step (%q):\n%s", want, buf.String())
 		}
 	}
 	for _, r := range rec {
@@ -527,5 +547,29 @@ func TestTheDryRunNamesTheGuestSetStagedForAClient(t *testing.T) {
 	}
 	if !strings.Contains(out, "sudo "+mvBin+" -f "+GuestBinaryPath("yolo-serial", "")+".new "+GuestBinaryPath("yolo-serial", "")) {
 		t.Errorf("the dry run's privileged commands do not stage yolo-serial:\n%s", out)
+	}
+}
+
+// A DRY RUN THAT SEES NO CLIENT'S ENDPOINT SAYS IT CANNOT SEE ONE. The run pipeline's dry run starts
+// no host service and names only the credential service's endpoint, so "no guest bins" in a
+// render is not "no guest bins at launch": the line names each client and its loophole, so a
+// user with serial on is not told the sandbox gets no yolo-serial.
+func TestTheDryRunSaysItCannotSeeAGuestClientsEndpoint(t *testing.T) {
+	d := mockDeps(nil)
+	var buf bytes.Buffer
+	d.Out = &buf
+	o := newOpts(probeWS)
+	o.DryRun = true
+	if rc := RunMacosUser(d, o); rc != 0 {
+		t.Fatalf("dry run rc = %d\n%s", rc, buf.String())
+	}
+	out := buf.String()
+	if !strings.Contains(out, "a dry run starts no host service") {
+		t.Errorf("the dry run does not say it cannot see a client's endpoint:\n%s", out)
+	}
+	for _, c := range GuestClients {
+		if !strings.Contains(out, c.Binary+" (the "+c.Loophole+" loophole's client)") {
+			t.Errorf("the dry run does not name %s and its loophole:\n%s", c.Binary, out)
+		}
 	}
 }

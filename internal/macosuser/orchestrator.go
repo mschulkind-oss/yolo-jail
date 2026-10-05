@@ -699,8 +699,11 @@ func RunMacosUser(deps Deps, opts Options) int {
 		plainDeps.Color = false
 		// A plan render builds nothing, so the guest binaries are named at the prebuilt
 		// spelling; a launch whose flake source ships none builds `.#guestPrefix` instead.
-		// Asked under the live launch's condition (guestBinariesWanted), so the plan shows the
-		// staging a launch would do.
+		// Asked under the live launch's condition (guestBinariesWanted), over what a render
+		// carries: the daemons, which it knows, and only the endpoints the run pipeline's dry run
+		// can name, which is the credential service's alone (it starts no host service). So a
+		// render whose launch would stage the set for yolo-serial or yolo-ps alone names none,
+		// and PrintPlan says that is what it cannot see rather than that nothing is staged.
 		if daemons, clients := guestBinariesWanted(opts); (len(daemons) > 0 || len(clients) > 0) &&
 			opts.JailDaemons.GuestBinSource == "" {
 			opts.JailDaemons.GuestBinSource = PrebuiltGuestBinDir(opts.RepoRoot)
@@ -870,19 +873,22 @@ func RunMacosUser(deps Deps, opts Options) int {
 	// launch that cannot build its prefix.
 	if daemons, clients := guestBinariesWanted(opts); (len(daemons) > 0 || len(clients) > 0) &&
 		opts.JailDaemons.GuestBinSource == "" {
+		// No resolver is a yolo bug (macosLaunchDeps always wires one), so the refusal says so and
+		// where to report it; both refusals then name the way past it that needs no fix: the
+		// launch without what the guest set is for (guestWayPast).
 		if deps.GuestBinaries == nil {
 			out.print("[bold red]This build cannot stage the sandbox's in-jail binaries[/bold red] " +
 				"(no guest-binary resolver is wired), and this launch needs them: " +
-				guestNeedPhrase(daemons, clients) + ".")
+				guestNeedPhrase(daemons, clients) + ". That is a yolo bug; please report it at " +
+				entrypoint.IssuesURL + "." + guestWayPast(daemons, clients))
 			return 1
 		}
 		src, err := deps.GuestBinaries(opts.RepoRoot)
 		if err != nil {
 			out.printf("[bold red]Could not provide the sandbox's in-jail binaries:[/bold red] %s\n"+
 				"[dim]This launch needs them because %s, inside the sandbox, and there is no "+
-				"copy to stage. Fix the build above, or switch off the loophole it is for "+
-				"(`\"loopholes\": {\"<name>\": {\"enabled\": false}}`) to launch without it.[/dim]",
-				errStr(err), guestNeedPhrase(daemons, clients))
+				"copy to stage.%s[/dim]", errStr(err), guestNeedPhrase(daemons, clients),
+				guestWayPast(daemons, clients))
 			return 1
 		}
 		opts.JailDaemons.GuestBinSource = src
@@ -1086,6 +1092,22 @@ func guestNeedPhrase(daemons []string, clients []GuestClient) string {
 		parts = append(parts, "the agent runs "+guestClientPhrase(clients))
 	}
 	return strings.Join(parts, ", and ")
+}
+
+// guestWayPast is the refusals' way past a guest set that cannot be staged without fixing
+// anything: launch without what it is for. A client's loophole is known (GuestClient.Loophole), so
+// its switch is spelled in full; a daemon's name is a loophole's or a pack service's, which this
+// package cannot tell apart, so it is named and not spelled.
+func guestWayPast(daemons []string, clients []GuestClient) string {
+	var parts []string
+	for _, c := range clients {
+		parts = append(parts, "set `\"loopholes\": {\""+c.Loophole+"\": {\"enabled\": false}}` in the "+
+			"workspace config (yolo-jail.jsonc) to go without "+c.Binary)
+	}
+	if len(daemons) > 0 {
+		parts = append(parts, "deselect the loophole or pack that runs "+strings.Join(daemons, ", "))
+	}
+	return " To launch without them for now: " + strings.Join(parts, "; ") + "."
 }
 
 // applyDiskIOPolicy sets a declared priority as this process's disk policy and reads it back.
@@ -1306,10 +1328,22 @@ func PrintPlan(w io.Writer, plan RunPlan, problems []string) {
 	// until OQ-DP8, and a dry run is how a user tells them apart.
 	if len(plan.JailDaemonNames) == 0 {
 		p.print("jail daemons: [dim]none run in the sandbox for this launch[/dim]")
-		// The guest set staged for the agent's clients alone, named on the same rule.
+		// The guest set staged for the agent's clients alone, named on the same rule. And when the
+		// render names no client, it says what it cannot see rather than "none": the run
+		// pipeline's dry run starts no host service, so a client's endpoint is never in the plan
+		// it renders, and "no guest bins" here is not "no guest bins at launch".
 		if len(plan.GuestClients) > 0 {
 			p.printf("  guest bins: %s → %s [dim](for %s)[/dim]", plan.GuestBinSource,
 				GuestBinDir(plan.StagedDir), strings.Join(plan.GuestClients, ", "))
+		} else {
+			var each []string
+			for _, c := range GuestClients {
+				each = append(each, guestClientPhrase([]GuestClient{c}))
+			}
+			p.printf("  guest bins: [dim]none in this render — a dry run starts no host service, so "+
+				"it cannot see whether %s will have an endpoint to dial; a live launch stages the "+
+				"guest set into %s when one of those loopholes publishes[/dim]",
+				strings.Join(each, " or "), GuestBinDir(plan.StagedDir))
 		}
 	} else {
 		p.printf("jail daemons: %s [dim](confined; %s supervise, as %s)[/dim]",
@@ -1439,10 +1473,15 @@ func PrintPlan(w io.Writer, plan RunPlan, problems []string) {
 		p.print("")
 	}
 	// THE WITNESS, named either way, on the provisioning stage's rule: "this launch enabled no
-	// host service" and "this backend checks none" must read differently.
+	// host service" and "this backend checks none" must read differently. And without an argv it
+	// claims nothing a render cannot know: the run pipeline's dry run starts no host service and
+	// names only the endpoints it can (the credential service's), so "this launch publishes no
+	// endpoint" would describe every launch whose serial or host-processes loophole is on.
 	if len(plan.ProbeArgv) == 0 {
 		p.print("[bold]── host-service witness ──[/bold]")
-		p.print("  [dim]skipped — this launch carries no published host-service endpoint[/dim]")
+		p.print("  [dim]not in this render — a dry run starts no host service, so the plan carries " +
+			"only the endpoints it can name, and none here; a live launch runs this stage, before " +
+			"the agent, whenever a host service it starts publishes an endpoint[/dim]")
 	} else {
 		p.print("[bold]── host-service witness (confined, before the agent; refuses the launch " +
 			"when the sandbox cannot use a service) ──[/bold]")

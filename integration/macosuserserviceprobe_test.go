@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/entrypoint"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/macosuser"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
@@ -76,6 +77,9 @@ func TestMacosUserServiceProbeRefusesAnEndpointTheSandboxCannotRead(t *testing.T
 		t.Fatal(err)
 	}
 	env := jsonx.NewOrderedMap()
+	// The workspace, named as a launch that staged a pack tree names it, so the witness appends its
+	// record to that workspace's boot.log as the sandbox account (entrypoint's attachWitnessLog).
+	env.Set("YOLO_DARWIN_WORKSPACE", ws)
 	env.Set(paths.HostLoopbackEnvVar, paths.HostLoopbackShared)
 	env.Set(paths.ServiceEnvVarPrefix+"YOLO_IT_PROBE"+paths.ServiceEnvVarSuffix, endpoint)
 	envFile := filepath.Join(shared, "probe.env")
@@ -113,6 +117,20 @@ func TestMacosUserServiceProbeRefusesAnEndpointTheSandboxCannotRead(t *testing.T
 	if strings.Contains(out, "UNREACHABLE from") || strings.Contains(out, "--net=host") {
 		t.Errorf("an unreadable endpoint is reported as a network fault:\n%s", out)
 	}
+	// THE REFUSAL IS ON RECORD, appended after the staging launch's bootstrap record: the sandbox
+	// account can append to the workspace's boot.log from inside a profile.
+	bootLog := func() string {
+		b, err := os.ReadFile(entrypoint.BootLogPath(ws))
+		if err != nil {
+			t.Fatalf("reading %s: %v", entrypoint.BootLogPath(ws), err)
+		}
+		return string(b)
+	}
+	if log := bootLog(); !strings.Contains(log, "=== boot complete, handing over ===") ||
+		!strings.Contains(log, "UNREADABLE") || !strings.HasSuffix(log, " ===\n") ||
+		!strings.Contains(lastWitnessRecord(log), "=== WITNESS REFUSED: ") {
+		t.Errorf("the boot log does not keep the bootstrap's record followed by the witness's refusal:\n%s", log)
+	}
 
 	for _, cmd := range macosuser.EndpointGrantCommands(endpoint, "") {
 		if b, err := exec.Command("sudo", append([]string{"-n"}, cmd...)...).CombinedOutput(); err != nil {
@@ -123,6 +141,19 @@ func TestMacosUserServiceProbeRefusesAnEndpointTheSandboxCannotRead(t *testing.T
 		t.Errorf("with the launch's ACL grant the probe still exits %d, want 0:\n%s%s", rc, out,
 			fmt.Sprintf("\n--- ls -le: %s", lsACL(endpoint)))
 	}
+	if log := bootLog(); !strings.HasSuffix(log, "=== witness passed, launching ===\n") ||
+		!strings.Contains(lastWitnessRecord(log), "1/1 enabled service(s) reachable") {
+		t.Errorf("the boot log does not record the healthy verdict:\n%s", log)
+	}
+}
+
+// lastWitnessRecord is the last witness section of a boot log, "" when it has none.
+func lastWitnessRecord(log string) string {
+	i := strings.LastIndex(log, "=== macos-user host-service witness ")
+	if i < 0 {
+		return ""
+	}
+	return log[i:]
 }
 
 // lsACL is `ls -le` of a path and its directory, for a failure message.

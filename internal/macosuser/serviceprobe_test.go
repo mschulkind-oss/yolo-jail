@@ -256,26 +256,53 @@ func TestTheReachabilityHatchCrossesIntoTheSandboxWhenSet(t *testing.T) {
 	}
 }
 
-// A DRY RUN NAMES THE WITNESS EITHER WAY.
+// A DRY RUN NAMES THE WITNESS EITHER WAY, and claims nothing it cannot know. With an endpoint the
+// render can name, the line under the header is the stage's own argv. Without one, it says the
+// render started no host service rather than "this launch carries no endpoint": the run
+// pipeline's dry run names only the credential service's endpoint, so a launch whose serial or
+// host-processes loophole is on would otherwise be described as one the witness skips.
 func TestTheDryRunNamesTheWitness(t *testing.T) {
-	for _, tc := range []struct {
-		env  *jsonx.OrderedMap
-		want string
-	}{
-		{brokerEndpointEnv(), "internal " + ProbeServicesVerb},
-		{nil, "skipped — this launch carries no published host-service endpoint"},
-	} {
+	render := func(env *jsonx.OrderedMap) string {
+		t.Helper()
 		d := mockDeps(nil)
 		var buf bytes.Buffer
 		d.Out = &buf
 		o := newOpts(probeWS)
-		o.SandboxEnv = tc.env
+		o.SandboxEnv = env
 		o.DryRun = true
 		if rc := RunMacosUser(d, o); rc != 0 {
 			t.Fatalf("dry run rc = %d\n%s", rc, buf.String())
 		}
-		if !strings.Contains(buf.String(), "host-service witness") || !strings.Contains(buf.String(), tc.want) {
-			t.Errorf("the dry run does not name the witness (%q):\n%s", tc.want, buf.String())
+		return buf.String()
+	}
+
+	// underHeader is the line the witness header is followed by.
+	underHeader := func(out string) string {
+		t.Helper()
+		lines := strings.Split(out, "\n")
+		for i, l := range lines {
+			if strings.HasPrefix(l, "── host-service witness") && i+1 < len(lines) {
+				return lines[i+1]
+			}
 		}
+		t.Fatalf("the dry run does not name the witness:\n%s", out)
+		return ""
+	}
+
+	out := render(brokerEndpointEnv())
+	argv := underHeader(out)
+	for _, want := range []string{"  sudo --user=" + SandboxUser + " /usr/bin/env -i ", "/usr/bin/sandbox-exec -f ",
+		" internal " + ProbeServicesVerb} {
+		if !strings.Contains(argv, want) {
+			t.Errorf("the line under the witness header is not the stage's argv (want %q): %q", want, argv)
+		}
+	}
+
+	out = render(nil)
+	if line := underHeader(out); !strings.Contains(line, "not in this render — a dry run starts no host service") {
+		t.Errorf("the dry run does not say what it cannot know about the witness: %q\n%s", line, out)
+	}
+	if strings.Contains(out, "this launch carries no published host-service endpoint") {
+		t.Errorf("the dry run claims the launch publishes no endpoint, which it cannot know:\n%s", out)
 	}
 }

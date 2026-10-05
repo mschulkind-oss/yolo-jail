@@ -386,31 +386,6 @@ state the fatal makes reachable, where there is no jail left to ask. A healthy w
 verdict there and stays silent on the terminal, because "ran and found nothing" and "never ran"
 are otherwise the same bytes.
 
-### On macos-user
-
-A `macos-user` launch has no boot to run the witness in: its bootstrap runs outside the session's
-Seatbelt profile, so a probe there could pass where the agent's own client is refused. The launch
-runs the witness as a **stage of its own** instead, after the guest's jail daemons start and
-before the agent: `yolo internal probe-services`, executed by the staged `yolo` as the sandbox
-account, under the session's profile, reading the session env file, so it dials each endpoint
-exactly as the agent's clients will. It runs only when the session env carries a published
-endpoint. A dry run names the stage either way.
-
-- **The disposition is `shared`, by construction.** The sandbox is an ordinary process on the
-  Mac's own network stack, so the launch writes `YOLO_HOST_LOOPBACK=shared` into the session env
-  on every launch, and every host daemon advertises `127.0.0.1` there on the same fact. So an
-  unusable service refuses the launch, as on a container sharing its launcher's namespace.
-- **The wording is the Mac's.** The refusal and the diagnosis speak of the Mac's own network
-  stack and loopback, never of `--net=host` or a container, and name the escape hatch.
-- **Unreadable is the likeliest fault there.** The endpoint file is 0600 under the user who
-  published it, and the sandbox account reads it through one ACL entry the launch stages. The
-  warning names that entry and the `ls -le` that shows it.
-- **The stage's status decides.** 78, the same refusal status the provisioning stage uses, stops
-  the launch, and the message is already on the terminal. Any other failure means the stage
-  never answered (sudo, `sandbox-exec`, the env file), so the launch warns and goes on.
-- **The hatch crosses.** `YOLO_ALLOW_UNREACHABLE_SERVICES` set on the host is carried into the
-  session env, where the stage reads it.
-
 - 💬 <a id="oq-r8"></a>**[`OQ-R8`](#oq-r8) — should a required jail daemon that cannot publish
   refuse the launch with nothing to get past it?**
 
@@ -487,6 +462,40 @@ The options in full:
 - **(c) One gate: the readiness wait warns, and the witness alone refuses.** *You pay:* severity
   then follows the host-loopback disposition, so a launch whose disposition is `unknown` or
   `unsupported` boots with only a warning when its bridge never started.
+
+### On macos-user
+
+A `macos-user` launch has no boot to run the witness in: its bootstrap runs outside the session's
+Seatbelt profile, so a probe there could pass where the agent's own client is refused. The launch
+runs the witness as a **stage of its own** instead, after the guest's jail daemons start and
+before the agent: `yolo internal probe-services`, executed by the staged `yolo` as the sandbox
+account, under the session's profile, reading the session env file, so it dials each endpoint
+exactly as the agent's clients will. It runs only when the session env carries a published
+endpoint. A dry run names the stage when it can, and otherwise says what it cannot know: it starts
+no host service, so it carries only the endpoints it can name (the credential service's), and a
+launch whose serial or host-processes loophole is on renders as "not in this render" rather than
+as a launch the witness skips.
+
+- **The disposition is `shared`, by construction.** The sandbox is an ordinary process on the
+  Mac's own network stack, so the launch writes `YOLO_HOST_LOOPBACK=shared` into the session env
+  on every launch, and every host daemon advertises `127.0.0.1` there on the same fact. So an
+  unusable service refuses the launch, as on a container sharing its launcher's namespace.
+- **The wording is the Mac's.** The refusal and the diagnosis speak of the Mac's own network
+  stack and loopback, never of `--net=host` or a container, and name the escape hatch.
+- **Unreadable is the likeliest fault there.** The endpoint file is 0600 under the user who
+  published it, and the sandbox account reads it through one ACL entry the launch stages. The
+  warning names that entry and the `ls -le` that shows it.
+- **The stage's status decides.** 78, the same refusal status the provisioning stage uses, stops
+  the launch, and the message is already on the terminal. Any other failure means the stage
+  never answered (sudo, `sandbox-exec`, the env file), so the launch warns and goes on.
+- **The hatch crosses.** `YOLO_ALLOW_UNREACHABLE_SERVICES` set on the host is carried into the
+  session env, where the stage reads it.
+- **The record lands in the same boot log.** The stage appends to `<workspace>/.yolo/boot.log`,
+  after the bootstrap's own record: a header, the disposition and the hatch, each service's
+  warning, the healthy verdict a container keeps there, and a last line saying whether it refused.
+  Its terminal output is the stage's own stderr, which the launcher's `launch.log` tee never sees,
+  so without the log a healthy probe would leave no trace. A launch that names no workspace to the
+  session (one that staged no pack tree) writes none, the bootstrap's own rule.
 
 ## A nested jail is structurally blind to this
 

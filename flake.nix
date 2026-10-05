@@ -1149,8 +1149,11 @@
         # goSrc with GOOS=darwin. The macos-user launch builds this only when it
         # has a jail daemon to run, or carries the endpoint of a client above, and
         # the resolved flake source ships no prebuilt dir holding every name here
-        # (image.BuildGuestPrefix). goArch is the jail's arch, which the
-        # darwin→linux mapping above preserves, so it is also the Mac's.
+        # (image.BuildGuestPrefix). The prebuilt branch asks only whether the dir
+        # EXISTS, so a bundle whose dir lacks a name would fail at that name's cp:
+        # the launch refuses such a bundle before building (internal/cli's
+        # resolveGuestBinaries), naming the restage. goArch is the jail's arch,
+        # which the darwin→linux mapping above preserves, so it is also the Mac's.
         guestBinaries = [ "yolo-jaild" "yolo-serial" "yolo-ps" ];
         guestPrebuiltDir = ./. + "/bin/darwin-${goArch}";
         guestPrefix =

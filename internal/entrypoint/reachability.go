@@ -69,11 +69,11 @@ package entrypoint
 //
 // SEVERITY is the DISPOSITION's decision and nothing else's: requested and shared
 // may fail a launch, unsupported and unknown and an absent variable never may
-// (loopbackDisposition.escalates). All THREE fault classes escalate under it
-// (OQ-R4) — an endpoint that never published and a listener that refused this
-// jail's token are as much "enabled and unusable" as an address that does not
-// answer. What the classes still differ in is WHERE TO LOOK, which is what the
-// per-class warning and the four diagnosis paragraphs are for; severity
+// (loopbackDisposition.escalates). EVERY fault class escalates under it
+// (OQ-R4) — an endpoint that never published, one this jail may not read, and a
+// listener that refused this jail's token are as much "enabled and unusable" as an
+// address that does not answer. What the classes still differ in is WHERE TO LOOK,
+// which is what the per-class warning and the diagnosis paragraphs are for; severity
 // deliberately does not duplicate that distinction.
 //
 // (An earlier spelling of this note also owed "name the required passt version in
@@ -102,8 +102,10 @@ package entrypoint
 import (
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"net"
+	"os"
 	"path/filepath"
 	"sort"
 	"strconv"
@@ -186,9 +188,9 @@ type serviceEndpoint struct {
 	path string
 }
 
-// reachabilityFault classifies WHY a service could not be reached, because the
-// three answers have three different fixes and collapsing them would send the user
-// looking in the wrong place.
+// reachabilityFault classifies WHY a service could not be reached, because each
+// answer has its own fix and collapsing them would send the user looking in the
+// wrong place.
 type reachabilityFault int
 
 const (
@@ -516,10 +518,10 @@ func unusableServicesMessage(d loopbackDisposition, names []string, fatal, nativ
 // that is precisely the machinery a shared namespace does not have.
 //
 // It says "unusable" rather than "unreachable" because since OQ-R4 the list can hold
-// any of the three fault classes: an endpoint that never published and a listener
-// that refused this jail's token are both here, and calling either one unreachable
-// would send the reader to the network for a file. The per-service warnings above
-// already carry which is which.
+// any fault class: an endpoint that never published, one this jail may not read, and
+// a listener that refused this jail's token are all here, and calling any of them
+// unreachable would send the reader to the network for a file. The per-service
+// warnings above already carry which is which.
 //
 // A NATIVE SANDBOX gets a shared lead of its own (nativeSandbox): macos-user has no
 // network namespace to share, so "the namespace of whatever launched it" would describe
@@ -602,8 +604,8 @@ func reachabilityExplanationFor(d loopbackDisposition, native bool) string {
 }
 
 // reachabilitySharedExplanation is the diagnosis for a jail that shares the
-// launcher's network namespace, and it needs its own paragraph because all three of
-// the others would be actively MISLEADING here rather than merely imprecise.
+// launcher's network namespace, and it needs its own paragraph because every other
+// one would be actively MISLEADING here rather than merely imprecise.
 //
 // There is no forwarding hop in this mode. `--net=host` — chosen, or forced for
 // podman-in-podman because netavark cannot create a netns without NET_ADMIN — puts
@@ -677,7 +679,7 @@ const reachabilityFaultExplanation = "" +
 // nothing: `unknown` — a launcher that ran and reached no conclusion — and an
 // unattributed launch, which since OQ-R6 means a launcher older than
 // paths.HostLoopbackEnvVar or one whose spelling this image does not know. It is the
-// widest of the four because it is the one that has to cover a case it cannot
+// widest of the diagnoses because it is the one that has to cover a case it cannot
 // narrow: it walks the mechanism and then lists every branch the launcher might have
 // taken, since it does not know which.
 //
@@ -742,9 +744,68 @@ func nativeSandbox(e *Env) bool { return !e.GNUStat }
 // the same decision. nil is "launch": every enabled service usable, or the hatch named and
 // honored. The error is the refusal, whose explanation the witness has already written to
 // e.Stderr.
+//
+// IT KEEPS THE CONTAINER'S RECORD, in the same file (attachWitnessLog): the witness's warnings
+// and its log-only verdict, appended to <workspace>/.yolo/boot.log after the bootstrap's own
+// record, then a last line saying whether it refused. The stage's stderr is the launch terminal
+// alone (the child inherits it, past the launcher's launch.log tee), so without this a healthy
+// probe left no trace and a refusal's reasons scrolled away with the terminal. Attached here
+// rather than by the caller, for attachBootLog's reason: a caller that forgot to wire it would
+// leave a correct-looking log with no witness in it. The caller's writers are handed back.
 func RunServiceProbe(e *Env) error {
+	stderr, logOnly := e.Stderr, e.LogOnly
+	finish := attachWitnessLog(e)
 	ProbeServiceReachability(e)
-	return genFailuresError(e)
+	err := genFailuresError(e)
+	finish(err)
+	e.Stderr, e.LogOnly = stderr, logOnly
+	return err
+}
+
+// attachWitnessLog opens <workspace>/.yolo/boot.log for APPEND and tees e.Stderr into it, with
+// the file as e.LogOnly, so the witness's affirmative note lands there too (Env.note). It returns
+// the function that writes the closing line and closes the file.
+//
+// APPEND, never the bootstrap's rotate-and-truncate: the bootstrap wrote this launch's record a
+// stage earlier, and rotating it to boot.log.prev would push the previous launch's out of both.
+// Opened BENEATH A ROOT ON `.yolo` (paths.OpenWorkspaceStateFile), as the bootstrap's is.
+//
+// ONLY FOR A WORKSPACE THE LAUNCH NAMED, attachDarwinBootLog's rule and for its reason: an Env
+// without YOLO_DARWIN_WORKSPACE is a test or a hand-run whose WorkspaceDir may be the container's
+// literal /workspace, the live jail's own. Never fatal: every failure keeps plain stderr, and the
+// returned function is then a no-op.
+func attachWitnessLog(e *Env) func(error) {
+	noop := func(error) {}
+	if e.Getenv("YOLO_DARWIN_WORKSPACE") == "" {
+		return noop
+	}
+	f, err := paths.OpenWorkspaceStateFile(e.WorkspaceDir(), bootLogName,
+		os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
+	if err != nil {
+		return noop
+	}
+	fmt.Fprintf(f, "=== macos-user host-service witness %s ===\n", time.Now().Format("2006-01-02T15:04:05-0700"))
+	for _, k := range []string{paths.HostLoopbackEnvVar, paths.AllowUnreachableServicesEnv} {
+		if v := e.Getenv(k); v != "" {
+			fmt.Fprintf(f, "  %s=%s\n", k, v)
+		}
+	}
+	stderr := e.Stderr
+	if stderr == nil {
+		// io.MultiWriter cannot take a nil writer, and a nil Stderr discards (Env.Stderr).
+		stderr = io.Discard
+	}
+	e.Stderr = io.MultiWriter(stderr, f)
+	e.LogOnly = f
+	return func(err error) {
+		if err != nil {
+			fmt.Fprintf(f, "=== WITNESS REFUSED: %v ===\n", err)
+		} else {
+			fmt.Fprintln(f, "=== witness passed, launching ===")
+		}
+		// Discarded for bootLog.finish's reason: this is the log's own close.
+		_ = f.Close()
+	}
 }
 
 // enabledServiceEndpoints lists the loopback-TLS services this launch wired up, in

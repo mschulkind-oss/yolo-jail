@@ -11,6 +11,7 @@ import (
 	"io/fs"
 	"net"
 	"os"
+	"path/filepath"
 	"strings"
 	"syscall"
 	"testing"
@@ -164,5 +165,46 @@ func TestRunServiceProbeIsTheBootsDecision(t *testing.T) {
 	missing[paths.AllowUnreachableServicesEnv] = "1"
 	if out, err := probeDarwin(t, missing); err != nil || !strings.Contains(out, "Nothing was repaired") {
 		t.Errorf("the hatch: err %v, output:\n%s", err, out)
+	}
+}
+
+// THE WITNESS WRITES THE BOOT LOG ONLY FOR A WORKSPACE THE LAUNCH NAMED (attachDarwinBootLog's
+// rule): an Env without YOLO_DARWIN_WORKSPACE is a test or a hand-run, and its WorkspaceDir may be
+// the container's literal /workspace, the live jail's own. Here its Workspace points at a temp dir
+// so a missing guard shows up as a file there rather than as a write into the running jail.
+// And with the variable, the record lands, and the Env's writers are handed back afterwards.
+func TestRunServiceProbeLogsOnlyForANamedWorkspace(t *testing.T) {
+	shrinkReachabilityBudget(t)
+	ws, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	vars := map[string]string{
+		paths.HostLoopbackEnvVar: paths.HostLoopbackShared,
+		paths.SerialEndpointEnv:  liveEndpoint(t, servicesDir(t), "serial"),
+	}
+	e := DarwinEnvFrom(vars, t.TempDir())
+	e.Workspace = ws
+	var out strings.Builder
+	e.Stderr = &out
+	if err := RunServiceProbe(e); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(BootLogPath(ws)); !os.IsNotExist(err) {
+		t.Errorf("the witness wrote %s for an Env naming no workspace (%v)", BootLogPath(ws), err)
+	}
+
+	vars["YOLO_DARWIN_WORKSPACE"] = ws
+	e = DarwinEnvFrom(vars, t.TempDir())
+	e.Stderr = &out
+	if err := RunServiceProbe(e); err != nil {
+		t.Fatal(err)
+	}
+	b, err := os.ReadFile(BootLogPath(ws))
+	if err != nil || !strings.Contains(string(b), "witness passed") {
+		t.Errorf("the named workspace's boot log has no witness record (%v):\n%s", err, b)
+	}
+	if e.Stderr != &out || e.LogOnly != nil {
+		t.Errorf("RunServiceProbe left its log's writers on the Env (Stderr %T, LogOnly %v)", e.Stderr, e.LogOnly)
 	}
 }

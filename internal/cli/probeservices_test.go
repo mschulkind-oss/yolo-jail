@@ -88,13 +88,17 @@ func TestProbeServicesRefusesAnUnusableServiceWithTheNativeWording(t *testing.T)
 	if rc != provision.RefusedStatus {
 		t.Fatalf("rc = %d, want provision.RefusedStatus (%d)\n%s", rc, provision.RefusedStatus, out)
 	}
+	// "removed while the launch ran" is the unpublished warning's Mac variant: no container
+	// mounted this session's services directory, so the container's sentence would send the
+	// reader looking for one.
 	for _, want := range []string{"'serial'", missing, "Mac's own network stack",
-		paths.AllowUnreachableServicesEnv + "=1"} {
+		"removed while the launch ran", paths.AllowUnreachableServicesEnv + "=1"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("the refusal does not carry %q:\n%s", want, out)
 		}
 	}
-	for _, never := range []string{"--net=host", "podman", "namespace of whatever launched it"} {
+	for _, never := range []string{"--net=host", "podman", "namespace of whatever launched it",
+		"container mounted"} {
 		if strings.Contains(out, never) {
 			t.Errorf("the macos-user refusal speaks of a container (%q):\n%s", never, out)
 		}
@@ -156,5 +160,85 @@ func TestRunInternalDispatchesProbeServices(t *testing.T) {
 	}
 	if rc := runInternal([]string{macosuser.ProbeServicesVerb, "extra"}); rc != 2 {
 		t.Errorf("`yolo internal %s extra` = %d, want the usage's 2", macosuser.ProbeServicesVerb, rc)
+	}
+}
+
+// probeWorkspace is a workspace for the witness's record: a resolved temp dir whose .yolo/boot.log
+// already holds the bootstrap's record, as it does when the launch reaches the witness stage.
+func probeWorkspace(t *testing.T) (ws, bootLog, bootstrapRecord string) {
+	t.Helper()
+	ws, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(ws, ".yolo"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	bootLog = filepath.Join(ws, ".yolo", "boot.log")
+	bootstrapRecord = "=== yolo entrypoint 2026-10-05T00:00:00+0000 ===\n=== boot complete, handing over ===\n"
+	if err := os.WriteFile(bootLog, []byte(bootstrapRecord), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return ws, bootLog, bootstrapRecord
+}
+
+func readBootLog(t *testing.T, path string) string {
+	t.Helper()
+	b, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(b)
+}
+
+// A HEALTHY WITNESS LEAVES ITS RECORD IN THE WORKSPACE'S BOOT LOG, after the bootstrap's, and
+// nothing on the terminal: "ran and found nothing" and "never ran" must not be the same bytes,
+// which on this backend they were (the stage's stderr is the terminal alone). Deleting the log's
+// attach in RunServiceProbe fails this.
+func TestProbeServicesRecordsAHealthyVerdictInTheBootLog(t *testing.T) {
+	ws, bootLog, bootstrap := probeWorkspace(t)
+	dir := probeServicesDir(t)
+	rc, out := runProbe(t, map[string]string{
+		"YOLO_DARWIN_WORKSPACE":  ws,
+		paths.HostLoopbackEnvVar: paths.HostLoopbackShared,
+		paths.SerialEndpointEnv:  liveProbeEndpoint(t, dir, "serial"),
+	})
+	if rc != 0 || out != "" {
+		t.Fatalf("rc = %d, stderr:\n%s\nwant 0 and silence", rc, out)
+	}
+	got := readBootLog(t, bootLog)
+	if !strings.HasPrefix(got, bootstrap) {
+		t.Errorf("the witness did not APPEND: the bootstrap's record is gone:\n%s", got)
+	}
+	tail := strings.TrimPrefix(got, bootstrap)
+	for _, want := range []string{"host-service witness", paths.HostLoopbackEnvVar + "=" + paths.HostLoopbackShared,
+		"1/1 enabled service(s) reachable", "witness passed"} {
+		if !strings.Contains(tail, want) {
+			t.Errorf("the witness's record lacks %q:\n%s", want, tail)
+		}
+	}
+}
+
+// A REFUSAL IS RECORDED THERE TOO: each service's warning and the refusal, so the reason
+// survives the terminal scrolling it away.
+func TestProbeServicesRecordsARefusalInTheBootLog(t *testing.T) {
+	ws, bootLog, bootstrap := probeWorkspace(t)
+	missing := filepath.Join(probeServicesDir(t), "serial.endpoint")
+	rc, out := runProbe(t, map[string]string{
+		"YOLO_DARWIN_WORKSPACE":  ws,
+		paths.HostLoopbackEnvVar: paths.HostLoopbackShared,
+		paths.SerialEndpointEnv:  missing,
+	})
+	if rc != provision.RefusedStatus {
+		t.Fatalf("rc = %d, want the refusal\n%s", rc, out)
+	}
+	tail := strings.TrimPrefix(readBootLog(t, bootLog), bootstrap)
+	for _, want := range []string{"'serial'", missing, "WITNESS REFUSED"} {
+		if !strings.Contains(tail, want) {
+			t.Errorf("the boot log does not record %q of the refusal:\n%s", want, tail)
+		}
+	}
+	if !strings.Contains(out, "'serial'") {
+		t.Errorf("the refusal left the terminal:\n%s", out)
 	}
 }

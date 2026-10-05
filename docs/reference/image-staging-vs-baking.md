@@ -239,8 +239,13 @@ or when the session env carries an endpoint variable one of the two clients read
 (`YOLO_SERVICE_SERIAL_ENDPOINT`, `YOLO_SERVICE_HOST_PROCESSES_ENDPOINT`: `macosuser.GuestClients`,
 keyed on each client's own variable, `paths.SerialEndpointEnv` and `paths.HostProcessesEndpointEnv`).
 A launch with neither stages nothing, so a launch from a checkout runs no `.#guestPrefix` build
-for nothing. A prebuilt `bin/darwin-<arch>/` is used only when it holds every member; one short of
-a member (a bundle staged before the set grew) builds instead.
+for nothing. A prebuilt `bin/darwin-<arch>/` is used only when it holds every member. A bundle
+whose directory is short of one (staged before the set grew, or only half staged) is refused
+before any build, naming what is missing and how to restage it (`just install`, or reinstalling
+yolo-jail): a bundle ships no Go sources, and the flake's prebuilt branch asks only whether the
+directory exists, so a build there could only fail at the missing name or succeed without it. A
+checkout builds past a partial directory, which a git flake does not see, and a build whose output
+lacks a member is refused the same way.
 
 The share half is **never the checkout itself**, even though a checkout would satisfy the
 resolver. Mounting it would put the whole working tree inside the jail at a second path and let
