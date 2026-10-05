@@ -187,6 +187,44 @@ func installPinnedNpmOnTheFloor(t *testing.T, dir, home string) string {
 	return floor
 }
 
+// ageFloorRecordCheck moves the floor's record of bin's last evergreen check (hostfloor.Record's
+// `checked`) back by age, leaving every other field as the floor wrote it.
+func ageFloorRecordCheck(t *testing.T, floor, bin string, age time.Duration) {
+	t.Helper()
+	if age <= hostfloor.DefaultUpdateInterval {
+		t.Fatalf("an age of %s is inside the floor's update interval (%s), which would stop the poll first",
+			age, hostfloor.DefaultUpdateInterval)
+	}
+	path := filepath.Join(floor, "records", bin+".json")
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var rec map[string]any
+	if err := json.Unmarshal(raw, &rec); err != nil {
+		t.Fatalf("the floor's record of %s is not JSON: %v\n%s", bin, err, raw)
+	}
+	if _, ok := rec["checked"]; !ok {
+		t.Fatalf("the floor's record of %s has no `checked` field to age:\n%s", bin, raw)
+	}
+	rec["checked"] = time.Now().Add(-age).UTC().Format(time.RFC3339Nano)
+	out, err := json.MarshalIndent(rec, "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	fi, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, out, fi.Mode().Perm()); err != nil {
+		t.Fatal(err)
+	}
+	if got := readFloorRecord(t, floor, bin).Checked; time.Since(got) < age-time.Minute {
+		t.Fatalf("the floor's record of %s was checked %s ago after aging it, want about %s", bin,
+			time.Since(got).Round(time.Second), age)
+	}
+}
+
 // modeOf is fi's permission bits, 0 for a missing file, for a message.
 func modeOf(fi os.FileInfo) os.FileMode {
 	if fi == nil {
@@ -208,6 +246,13 @@ func TestHostFloorInstallsAPinnedNpmProgramOnTheRealNode(t *testing.T) {
 	floor := installPinnedNpmOnTheFloor(t, dir, home)
 	first := readFloorRecord(t, floor, pinnedNpmBin)
 
+	// THE PIN, NOT THE THROTTLE, KEEPS THE SECOND LAUNCH OFF THE REGISTRY. A launch seconds after the
+	// install would stop at the hourly update interval (Floor.refresh, internal/hostfloor/ensure.go)
+	// before it reached the pinned rule, and pass with that rule deleted. So the record's last check
+	// is moved two days back first, past the interval: what is left to keep the launch from polling is
+	// the jail launcher's rule that a PINNED package is never polled.
+	ageFloorRecordCheck(t, floor, pinnedNpmBin, 48*time.Hour)
+
 	again := runCommand(t, dir, []string{"host", "--", pinnedNpmBin, "again"}, hostLaunchEnv(floorMinimalPath))
 	if again.rc != 0 || !strings.Contains(again.stdout, "< again >") {
 		t.Fatalf("the second `yolo host -- %s` did not run the floor's copy: rc %d\nstdout:\n%s\nstderr:\n%s",
@@ -216,8 +261,8 @@ func TestHostFloorInstallsAPinnedNpmProgramOnTheRealNode(t *testing.T) {
 	if !strings.Contains(again.stderr, "starting "+pinnedNpmBin+" (yolo's floor copy") {
 		t.Errorf("the second launch does not name the floor's copy:\n%s", again.stderr)
 	}
-	// A PINNED package is never polled (Floor.refresh in internal/hostfloor/ensure.go, the jail
-	// launcher's rule), so a provisioned entry launches with no network at all.
+	// A PINNED package is never polled, even once its last check is older than the update interval,
+	// so a provisioned entry launches with no network at all.
 	for _, never := range []string{"installing " + pinnedNpmBin, "fetching Node", "checking the npm registry"} {
 		if strings.Contains(again.stderr, never) {
 			t.Errorf("the second launch says %q, so a provisioned, pinned entry was installed or polled again:\n%s",

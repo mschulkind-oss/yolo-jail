@@ -264,8 +264,9 @@ copied whole into `/ctx/packs/<name>/`, so a pack can carry its own installer.
   match the digest compiled into yolo, so the cell checks the compiled-in digest for its platform
   against the real bytes, which no other test does. It reads the installed version from npm's own
   `package.json`, runs the floor's launcher with an empty environment, and checks that the
-  launch's stdout is the program's output alone, and that a second launch installs and polls
-  nothing.
+  launch's stdout is the program's output alone. A second launch installs and polls nothing, with
+  the entry's last check first moved past the hourly update interval, so that the pin, not the
+  interval, is what keeps the launch off the registry.
 - **The host floor's capture cell** runs `capture_test.go`'s hermetic installer fixture through a
   first `yolo host -- <bin>`: a real capture jail, the confined materialize into the floor, and the
   installer's absolute `/home/agent` link relocated into the floor. The launch's stdout must hold

@@ -354,7 +354,8 @@ bytes; none starts an agent beyond `--version`:
   package the jail's own npm install test uses (`TestPinnedNpmProgramInstallsTheDeclaredVersion`). The test reads the installed version from npm's own `package.json`, checks the
   prefix's `0700`, runs the floor's launcher with an empty environment, and checks that the
   launch's stdout is the program's output alone. A second launch then installs and polls nothing,
-  and `yolo host apply --assert` keeps the entry.
+  with the entry's last check first moved past the hourly update interval, so the pinned version,
+  not the interval, is what keeps it off the registry. `yolo host apply --assert` keeps the entry.
 - `TestHostFloorRunsARealCaptureOfAnInstallerFixture`, on every push. With no capture on the
   machine, a first `yolo host -- <bin>` runs a real `yolo capture` of a hermetic installer fixture
   in a capture jail. It materializes the entry into the floor, relocates the installer's absolute
