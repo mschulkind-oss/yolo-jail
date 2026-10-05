@@ -67,6 +67,7 @@ func newTreeFixture(t *testing.T, produces string) *treeFixture {
 	prevNow := patchedNow
 	patchedNow = func() time.Time { return fx.now }
 	t.Cleanup(func() { patchedNow = prevNow })
+	asLinuxTreeHost(t)
 	withFakeCaptureJail(t, fx.buildJail(t))
 	prevChild := forkBuildChild
 	forkBuildChild = func(_ context.Context, _ time.Duration, staging string, b forkBuild, out, errw io.Writer,
@@ -122,6 +123,17 @@ func (fx *treeFixture) buildJail(t *testing.T) func(run.Options) int {
 		}
 		return 0
 	}
+}
+
+// asLinuxTreeHost stands in a host that builds patched extensions — a Linux one, which is what every
+// host test of a tree is about — whatever OS runs the test: on a macOS runner hostTreesBuild is
+// false, and every host advance and render of a tree would build and link nothing. A test of the
+// Mac's own lines sets it false after the fixture.
+func asLinuxTreeHost(t *testing.T) {
+	t.Helper()
+	prev := hostTreesBuild
+	hostTreesBuild = func() bool { return true }
+	t.Cleanup(func() { hostTreesBuild = prev })
 }
 
 func (fx *treeFixture) tree(t *testing.T) packload.Fork {

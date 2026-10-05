@@ -195,6 +195,7 @@ func forkAndTreeFixture(t *testing.T, fx *patchedAdvanceFixture, listed string) 
 	writeFile(t, filepath.Join(tfx.treeDir, "pack.json"), `{"name":"treepack","contributes":[{"kind":"files",`+
 		`"into":".tool/ext/tool-ext","source":"git+file://`+fx.repo+`?ref=main","patches":"patches",`+
 		`"build":"true","produces":["f.txt"]}`+listed+`]}`)
+	asLinuxTreeHost(t)
 	forkJail, treeJail := fx.buildJail(t), tfx.buildJail(t)
 	withFakeCaptureJail(t, func(o run.Options) int {
 		if slices.Contains(o.OnlyPacks, "treepack") {
