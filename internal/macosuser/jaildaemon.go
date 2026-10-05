@@ -146,7 +146,9 @@ func (j JailDaemons) Names() []string {
 	return out
 }
 
-// SandboxDaemonEnvFile is the supervisor's env file: <stateDir>/env/<cname>.daemons.env.
+// SandboxDaemonEnvFile is the supervisor's env file: <stateDir>/env/<key>.daemons.env, where key
+// is the session's (SessionKey: <cname>.<session id>), so two sessions of one workspace never
+// write, read or remove one file (sessionfiles.go).
 //
 // A SECOND FILE rather than the agent's session file, for the credential gate's reason: the
 // agent's file carries what THAT program may see, and a scoped caller token is exported only
@@ -154,14 +156,8 @@ func (j JailDaemons) Names() []string {
 // The supervisor needs every token its daemons demand, so it reads a file no agent is handed.
 // Beside the session file, in the same 0700 directory with the same search ACE, and read-
 // granted to the same one account.
-func SandboxDaemonEnvFile(cname, sd string) string {
-	if sd == "" {
-		sd = stateDir
-	}
-	if cname == "" {
-		return ""
-	}
-	return sd + "/" + sandboxEnvLeaf + "/" + cname + ".daemons.env"
+func SandboxDaemonEnvFile(key, sd string) string {
+	return sessionEnvDirFile(key, sd, ".daemons.env")
 }
 
 // SupervisorLogName is the supervisor's own log, beside the daemons' <name>.log files.
@@ -243,26 +239,27 @@ func JailDaemonArgv(profilePath, envFile, logPath, user, home string, pathPrefix
 	return out
 }
 
-// daemonEnvPlan makes the daemon env file installable through installSandboxEnvFile, the one
-// installer the session file and the capture's file already share: 0700 directory first,
-// content on stdin through `sudo tee`, the sandbox's read ACE after.
-type daemonEnvPlan struct {
+// sessionFilePlan is one more root-owned file a session writes beside its env file, installable
+// through installSandboxEnvFile, the one installer the session file and the capture's file
+// already share: 0700 directory first, content on stdin through `sudo tee`, the sandbox's read
+// ACE after. The daemon env file is one, and the CA files are the others (cabundle.go).
+type sessionFilePlan struct {
 	path, content string
 	dir, grant    [][]string
 }
 
-func (d daemonEnvPlan) envFile() (string, string)                 { return d.path, d.content }
-func (d daemonEnvPlan) envFileCommands() ([][]string, [][]string) { return d.dir, d.grant }
+func (d sessionFilePlan) envFile() (string, string)                 { return d.path, d.content }
+func (d sessionFilePlan) envFileCommands() ([][]string, [][]string) { return d.dir, d.grant }
 
 // daemonEnvFilePlan is the RunPlan's daemon env file as an installable plan. The directory
 // commands are included only when the session file did not already prepare the same
 // directory, so a launch with both never adds the search ACE twice.
-func (p RunPlan) daemonEnvFilePlan() daemonEnvPlan {
+func (p RunPlan) daemonEnvFilePlan() sessionFilePlan {
 	dir := SandboxEnvDirCommands(p.DaemonEnvFile, "")
 	if p.EnvFile != "" && pathParent(p.EnvFile) == pathParent(p.DaemonEnvFile) {
 		dir = nil
 	}
-	return daemonEnvPlan{
+	return sessionFilePlan{
 		path:    p.DaemonEnvFile,
 		content: p.DaemonEnvFileContent,
 		dir:     dir,
@@ -379,13 +376,14 @@ func quoteTail(s string, n int) string {
 // startJailDaemons writes the daemon env file and starts the supervisor, returning the stop
 // that ends it and sweeps the file. Every failure REFUSES the launch (ok false), for
 // RunMacosUser's reason: the served set already pointed this launch's agents at these
-// daemons' addresses.
+// daemons' addresses. Every sweep of the file goes through the session's teardown, so one that
+// fails keeps the session's record for the next launch's sweep (sessionfiles.go).
 //
 // "Started" is printed only once the supervisor's readiness line is in its log
 // (awaitSupervisor, JD-8). A supervisor that exits first is a refusal naming the log and its
 // last lines; one still running but silent past the bound is said to be unconfirmed, and the
 // launch goes on — a timer of ours is no reason to refuse a Mac that is merely slow.
-func startJailDaemons(deps Deps, out printer, plan RunPlan) (func(), bool) {
+func startJailDaemons(deps Deps, out printer, plan RunPlan, teardown *sessionTeardown) (func(), bool) {
 	if deps.StartBackground == nil {
 		out.print("[bold red]This build cannot start the sandbox's jail daemons[/bold red] " +
 			"(no background launcher is wired).")
@@ -394,11 +392,7 @@ func startJailDaemons(deps Deps, out printer, plan RunPlan) (func(), bool) {
 	if !installSandboxEnvFile(deps, out, plan.daemonEnvFilePlan()) {
 		return nil, false
 	}
-	sweep := func() {
-		for _, cmd := range plan.DaemonEnvRemoveCommands {
-			_ = deps.Run(append([]string{"sudo"}, cmd...))
-		}
-	}
+	sweep := func() { teardown.remove(plan.DaemonEnvRemoveCommands) }
 	names := strings.Join(plan.JailDaemonNames, ", ")
 	logPath := plan.SupervisorLog
 	// The size before the start, so the wait reads only what this start adds. Exact because the

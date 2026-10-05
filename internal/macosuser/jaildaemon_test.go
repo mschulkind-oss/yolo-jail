@@ -39,7 +39,8 @@ func openAIAdapterDaemons(src string) JailDaemons {
 func guestPlan(t *testing.T, jd JailDaemons) RunPlan {
 	t.Helper()
 	return BuildRunPlanWithDaemons("/Users/Shared/yolo/proj", jsonx.NewOrderedMap(), []string{"codex"},
-		[]string{"codex"}, "/opt/yolo/bin/yolo", "", HomeOverlay{}, HostContext{}, jsonx.NewOrderedMap(), mockDarwin(), nil, jd, FloorStage{})
+		[]string{"codex"}, "/opt/yolo/bin/yolo", "", HomeOverlay{}, HostContext{}, jsonx.NewOrderedMap(), mockDarwin(), nil, jd, FloorStage{},
+		PlanSession{})
 }
 
 // THE DECLARED COMMAND RUNS VERBATIM, INSIDE THE PROFILE (OQ-DP8's "runs exactly as declared",
@@ -159,7 +160,8 @@ func TestTheDaemonTokenFileIsRootOwned0600AndReadableByTheSandboxAccountOnly(t *
 	if rc := RunMacosUser(d, o); rc != 42 {
 		t.Fatalf("rc = %d\n%s", rc, buf.String())
 	}
-	file := SandboxDaemonEnvFile(cnameFor("/Users/Shared/yolo/proj"), "")
+	// The session's own file, named by the key this launch minted (sessionfiles.go).
+	file := SandboxDaemonEnvFile(launchedSessionKey(t, rec, "/Users/Shared/yolo/proj"), "")
 	if !strings.HasPrefix(file, stateDir+"/"+sandboxEnvLeaf+"/") {
 		t.Fatalf("the daemon env file %s is not in the root-owned env dir", file)
 	}

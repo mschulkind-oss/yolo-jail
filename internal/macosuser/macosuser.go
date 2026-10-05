@@ -1076,12 +1076,16 @@ func MacosLogWrapperScript(mode string) string {
 // ---------------------------------------------------------------------------
 // Helpers (small; pure)
 // ---------------------------------------------------------------------------
-// SessionProfilePath returns the root-owned per-session Seatbelt profile path.
-func SessionProfilePath(cname, sd string) string {
+// SessionProfilePath returns the root-owned per-session Seatbelt profile path:
+// <stateDir>/profile-<key>.sb. A launch passes its session key (SessionKey: <cname>.<session id>,
+// sessionfiles.go), so a second terminal in the workspace cannot rewrite the profile a running
+// sandbox was started under, and removes the one it wrote when it ends; an install capture passes
+// its own staging tree's cname.
+func SessionProfilePath(key, sd string) string {
 	if sd == "" {
 		sd = stateDir
 	}
-	return filepath.Join(sd, "profile-"+cname+".sb")
+	return filepath.Join(sd, "profile-"+key+".sb")
 }
 
 // shQuote single-quotes a string for safe bash embedding: it ALWAYS wraps in

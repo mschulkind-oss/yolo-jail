@@ -551,7 +551,7 @@ func (e errFake) Error() string { return string(e) }
 //     above the dispatch and the channel carries them — so an env_sources entry the
 //     channel does not carry must NOT reach the sandbox. Re-adding a hydration here is the
 //     second delivery vehicle §2.3 names, bypassing the gate, and it fails this test;
-//  3. the order is kept as handed over — env_sources LAST in the channel is what makes a
+//  3. the order is kept as handed over — the channel's one ordered composition is what makes a
 //     user's own dotenv entry beat a pack's default here (the run pipeline's launchEnv).
 func TestPackEnvReachesTheLaunchEnvAheadOfEnvSources(t *testing.T) {
 	opts := newOpts("/Users/Shared/proj")

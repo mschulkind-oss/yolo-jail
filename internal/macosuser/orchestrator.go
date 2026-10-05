@@ -120,6 +120,17 @@ type Deps struct {
 	// capped at it, so they can only lower parallelism (cooperativeCPUCount). nil, or a count
 	// below 1, caps nothing.
 	HostCPUs func() int
+	// SessionRecordDir is the directory holding each session's liveness record
+	// (sessionfiles.go): <global storage>/locks/macos-user-sessions in production. nil, or "",
+	// means no record is kept and no ended session's files are swept, which is a test's launch.
+	SessionRecordDir func() string
+	// ReadSystemKeychain exports every certificate in the Mac's System keychain as PEM, as the
+	// invoking user (`security find-certificate -a -p`, no sudo), and VerifyCA asks macOS whether
+	// it trusts one CA for TLS (`security verify-cert -p ssl`, offline). The two seams of the
+	// launch's CA trust (cabundle.go). nil ReadSystemKeychain is a read that failed; nil VerifyCA
+	// trusts nothing beyond the public roots.
+	ReadSystemKeychain func() (string, error)
+	VerifyCA           func(pem string) bool
 	// StartBackground starts argv in the background, in a process group of its own, with
 	// no terminal, and returns its handle: the stop that ends it (idempotent, never nil on
 	// success), a channel closed when it exits, and what it wrote on its own stdout and
@@ -188,20 +199,20 @@ type Options struct {
 	// packs, and the bootstrap is told nothing rather than pointed at an absent dir.
 	HostPackRoot string
 	// PackEnv is the launch's composed channel in launch-env form, for the ONE program this
-	// invocation starts: the pack env fold, the provider env vars, the three wire tables
-	// (YOLO_PROVIDERS, YOLO_PROFILES, YOLO_USE_PROFILES), and the hydrated env_sources LAST
-	// — all of it already narrowed by the credential gate
+	// invocation starts: the one ordered composition (packload's envcompose.go: the pack env
+	// fold, then env_sources, then the provider env vars, one entry per name) and then the
+	// three wire tables (YOLO_PROVIDERS, YOLO_PROFILES, YOLO_USE_PROFILES) — all of it already
+	// narrowed by the credential gate
 	// (docs/reference/providers.md; the run pipeline's packChannel.launchEnv)
 	// to the shared values plus what that program's own profile scopes to it. The run
 	// pipeline composes the channel above the backend dispatch, so a `-p` launch composes
 	// the same environment natively that it does in a container. Nil is the pre-channel
 	// shape and layers nothing.
 	//
-	// Layered into the plan env BEFORE SandboxEnv. env_sources closes the map, so a user's
-	// own dotenv entry beats a pack's default here, as it did when this package hydrated
-	// env_sources itself. Its two wire tables are ALSO relayed into the bootstrap env
-	// (BuildRunPlan), because the native bootstrap renders pack surfaces and derives from
-	// them exactly as the container boot does.
+	// Layered into the plan env BEFORE SandboxEnv. The wire tables close the map; within it a
+	// dotenv value beats a pack's default and the profile's value beats both. Its two wire
+	// tables are ALSO relayed into the bootstrap env (BuildRunPlan), because the native
+	// bootstrap renders pack surfaces and derives from them exactly as the container boot does.
 	PackEnv *jsonx.OrderedMap
 	// JailDaemons is what this launch runs in the guest: the supervisor's composed env,
 	// payload included (jaildaemon.go). The run pipeline composes it from the daemons the
@@ -212,6 +223,12 @@ type Options struct {
 	// jail marker buildPlan sets over everything; nil is the common case.
 	SandboxEnv *jsonx.OrderedMap
 	DryRun     bool
+	// SessionID is this session's id (sessionfiles.go), minted by RunMacosUser after a dry run
+	// has returned; "" plans with SessionPlaceholder. CATrust is the TLS trust RunMacosUser
+	// composed from the tool profile and the System keychain (cabundle.go); the zero value, as
+	// in a dry run, composes none. Neither is the caller's to set.
+	SessionID string
+	CATrust   CATrust
 }
 
 // printer wraps the shared richtext renderer. When color is set the rich markup
@@ -370,9 +387,10 @@ func hostCPUs(deps Deps) int {
 	return deps.HostCPUs()
 }
 
-// buildPlan starts from the sandbox env, layers the composed channel (PackEnv, which
-// carries the gate-narrowed env_sources last), layers the caller's sandbox_env, sets the
-// jail marker over all of them, then builds the plan.
+// buildPlan starts from the sandbox env, layers the composed channel (PackEnv: the launched
+// program's one ordered composition, its shape vars over the gate-narrowed env_sources over the
+// pack env fold, then the three wire tables), layers the caller's sandbox_env, sets the jail
+// marker over all of them, then builds the plan.
 func buildPlan(deps Deps, opts Options, darwin *Darwin) RunPlan {
 	env := MacosSandboxEnv(deps, opts.Config)
 	// Trust the workspace's mise configs, for the same reason the container gets this on its
@@ -457,10 +475,10 @@ func buildPlan(deps Deps, opts Options, darwin *Darwin) RunPlan {
 	// config.ResolveEnvSources itself and layer EVERY hydrated value — the second delivery
 	// vehicle the credential gate's design counted (docs/reference/providers.md), bypassing
 	// the credential gate. Its env_sources now arrive inside PackEnv, already narrowed by the gate to what
-	// the launched program may see, and LAST in it (the run pipeline's launchEnv), which
-	// is exactly where this layer used to sit: a user's own dotenv entry still beats every
-	// channel value. One hydration per launch also means one set of "file not found"
-	// warnings rather than two.
+	// the launched program may see, at their rank in the one ordered composition (the run
+	// pipeline's launchEnv): a user's own dotenv entry beats a pack's default and loses to the
+	// selected profile's value, as at every other notch (notch-convergence NC-D72). One
+	// hydration per launch also means one set of "file not found" warnings rather than two.
 	if opts.SandboxEnv != nil {
 		for _, k := range opts.SandboxEnv.Keys() {
 			v, _ := opts.SandboxEnv.Get(k)
@@ -513,7 +531,8 @@ func buildPlan(deps Deps, opts Options, darwin *Darwin) RunPlan {
 	floors := floorStageFor(opts.HostPackRoot, met)
 	return BuildRunPlanWithDaemons(opts.Workspace, opts.Config, opts.Agents, opts.AgentArgv,
 		selfExe, opts.HostPackRoot, opts.HostHomeOverlay, opts.HostCtx, env, darwin,
-		opts.BlockedTools, opts.JailDaemons, floors)
+		opts.BlockedTools, opts.JailDaemons, floors,
+		PlanSession{ID: opts.SessionID, CATrust: opts.CATrust})
 }
 
 // uvProjectEnvironment is where a sandbox `uv` keeps a project's venv, relative to the project
@@ -680,6 +699,10 @@ func RunMacosUser(deps Deps, opts Options) int {
 		}
 		return 0
 	}
+
+	// THIS SESSION'S ID (sessionfiles.go), minted only now: a dry run writes nothing, so it plans
+	// with SessionPlaceholder, and every file a launch writes beside the env file is named by it.
+	opts.SessionID = newSessionID()
 
 	// THE LAUNCH'S PRECONDITIONS (preconditions.go): the machine and workspace conditions it
 	// refuses without — cheap, and asked BEFORE the up-to-30-minute nix build, in the order
@@ -849,6 +872,12 @@ func RunMacosUser(deps Deps, opts Options) int {
 	// The host nix builds are done: the signal arm goes before anything else runs.
 	disarmNix()
 
+	// THE SANDBOX'S TLS TRUST (cabundle.go): the tool profile's public roots, plus each CA in this
+	// Mac's System keychain that macOS trusts for TLS. A read of the host, so here and not in the
+	// pure plan builder, after the build that produced the profile; disclosed once the plan says
+	// which variables it set.
+	opts.CATrust = ComposeCATrust(deps, darwin)
+
 	plan := buildPlan(deps, opts, darwin)
 	problems := PlanInvariants(plan)
 	if len(problems) > 0 {
@@ -859,6 +888,9 @@ func RunMacosUser(deps Deps, opts Options) int {
 		out.print("\n[dim]Run `yolo run --dry-run` to inspect the full plan.[/dim]")
 		return 1
 	}
+	// A DISCLOSURE, every launch: which certificate authorities the sandbox trusts, and which
+	// variables say so.
+	printCATrust(out, plan.CATrust, plan.EnvFileContent, plan.CABundleFile, plan.CAExtrasFile)
 
 	// THE DISK I/O POLICY (docs/design/io-priority.md §5.5, IO-D7), set on THIS process before
 	// anything that does the session's I/O starts: the stage copies, the bootstrap, the
@@ -898,7 +930,26 @@ func RunMacosUser(deps Deps, opts Options) int {
 	out.print("[dim]Setting up the sandbox (Seatbelt profile + bootstrap) — sudo may " +
 		"prompt for your password once.[/dim]")
 
-	// 2. Install the root-owned Seatbelt profile (0444) + stage entrypoint.
+	// 1.5 THIS SESSION'S LIVENESS RECORD, THEN THE SWEEP (sessionfiles.go), before the first
+	// root-owned write. The record is held until this function returns and ended LAST, after
+	// every one of this session's files, so a sweeper never finds it free while a file it names
+	// is still in use. Every removal below goes through the teardown, which unlinks the record
+	// only when each one succeeded: one that failed keeps it, free, for the next launch's sweep,
+	// and warns with the command. The sweep removes what sessions that ended without their
+	// teardown left in the state dir, every workspace's, and keeps everything it cannot prove
+	// ended. It runs `sudo rm -f`, so it sits after the notice above.
+	sessionKey := SessionKey(plan.Cname, plan.SessionID)
+	record := openSessionRecordOrWarn(deps, out, sessionKey)
+	teardown := &sessionTeardown{deps: deps}
+	defer teardown.finish(out, record, sessionKey, plan.StagedDir)
+	if deps.SessionRecordDir != nil {
+		sweepGoneSessions(deps, out, deps.SessionRecordDir())
+	}
+
+	// 2. Install the root-owned Seatbelt profile (0444) + stage entrypoint. Its removal is
+	// deferred FIRST, so it runs whether the install succeeded or failed half-way: no launch
+	// used to remove its profile, and every one left a file behind.
+	defer func() { teardown.remove(plan.ProfileRemoveCommands) }()
 	if !deps.InstallRootFile(plan.ProfilePath, plan.Seatbelt, "0444") {
 		out.printf("[bold red]Could not write Seatbelt profile %s", plan.ProfilePath)
 		return 1
@@ -916,19 +967,22 @@ func RunMacosUser(deps Deps, opts Options) int {
 	// it: its argv names the file (SandboxEnvFileEnv), and the MCP requires_env gate it renders
 	// every agent config through asks what the file holds.
 	//
-	// SWEPT ON EVERY EXIT PATH BELOW THIS LINE, including the failures: the file holds this
-	// launch's credentials, and a launch that died at the bootstrap has no more use for them
-	// than one whose agent exited. Best-effort — a session must not be reported as failed
-	// because its env file could not be removed, and the next launch of this workspace
-	// rewrites the same path.
+	// SWEPT ON EVERY EXIT PATH FROM HERE, including the failures and a write that failed
+	// half-way: the file holds this launch's credentials, and a launch that died at the
+	// bootstrap has no more use for them than one whose agent exited. Best-effort — a session
+	// must not be reported as failed because its env file could not be removed. A removal that
+	// fails keeps the record, and one killed before this runs leaves it too, so either way the
+	// next launch's sweep removes the file, which the record names it to.
+	//
+	// THE CA FILES go beside it, after it (cabundle.go), on the same terms and swept by the same
+	// commands: the env file names them, so the sandbox reads neither before both are written.
+	defer func() { teardown.remove(plan.EnvFileRemoveCommands) }()
 	if !installSandboxEnvFile(deps, out, plan) {
 		return 1
 	}
-	defer func() {
-		for _, cmd := range plan.EnvFileRemoveCommands {
-			_ = deps.Run(append([]string{"sudo"}, cmd...))
-		}
-	}()
+	if !installCATrustFiles(deps, out, plan.caTrustFilePlans()) {
+		return 1
+	}
 
 	// 3. Bootstrap the sandbox user's home via the staged-yolo self-exec; ABORT
 	// on failure. The binary was staged (fresh inode) by the StageCommands above;
@@ -965,7 +1019,7 @@ func RunMacosUser(deps Deps, opts Options) int {
 	// the agent, so an address the launch composed is being bound by the time a client asks.
 	// Stopped when the agent exits (LIFO: the supervisor first, then its env file swept).
 	if len(plan.JailDaemonArgv) > 0 {
-		stop, ok := startJailDaemons(deps, out, plan)
+		stop, ok := startJailDaemons(deps, out, plan, teardown)
 		if !ok {
 			return 1
 		}
@@ -1120,7 +1174,11 @@ func PrintPlan(w io.Writer, plan RunPlan, problems []string) {
 	p := printer{w: w, color: false}
 	p.print("[bold]macos-user run plan[/bold] (dry-run — nothing executed)\n")
 	p.printf("workspace:   %s", plan.Workspace)
-	p.printf("session:     %s", plan.Cname)
+	p.printf("session:     %s", SessionKey(plan.Cname, plan.SessionID))
+	if plan.SessionID == SessionPlaceholder {
+		p.printf("  [dim]%s is the id each launch mints, so no two terminals in this workspace "+
+			"share a file below[/dim]", SessionPlaceholder)
+	}
 	p.printf("profile:     %s", plan.ProfilePath)
 	p.printf("staged yolo: %s", plan.StagedYolo)
 	// Named even when empty: "this launch renders no packs" is the state that used to be
@@ -1174,6 +1232,19 @@ func PrintPlan(w io.Writer, plan RunPlan, problems []string) {
 			plan.EnvFile, SandboxUser)
 		p.printf("  [dim]sets, values not shown:[/dim] %s",
 			strings.Join(SandboxEnvFileKeys(plan.EnvFileContent), ", "))
+	}
+	// THE TLS TRUST (cabundle.go), named whichever way it went: a dry run reads no keychain, so it
+	// says when the launch composes it.
+	switch {
+	case plan.CABundleFile != "":
+		p.printf("ca trust:    %s [dim](the tool profile's public roots plus %d CA(s) from this "+
+			"Mac's System keychain)[/dim]", plan.CABundleFile, len(plan.CATrust.Kept))
+		p.printf("  extra CAs: %s [dim](%s)[/dim]", plan.CAExtrasFile, NodeExtraCAVar)
+	case plan.CATrust.ProfileBundle != "":
+		p.printf("ca trust:    %s [dim](the tool profile's public roots)[/dim]", plan.CATrust.ProfileBundle)
+	default:
+		p.print("ca trust:    [dim]composed at launch, from the tool profile's public roots and " +
+			"this Mac's System keychain (a dry run reads neither)[/dim]")
 	}
 	// THE GUEST'S JAIL DAEMONS, named even when there are none, on the pack line's rule:
 	// "this launch runs no jail daemon" and "this backend runs none" were the same statement
@@ -1247,6 +1318,16 @@ func PrintPlan(w io.Writer, plan RunPlan, problems []string) {
 	for _, cmd := range plan.EnvFileGrantCommands {
 		p.print("  sudo " + shquote.JoinDisplay(cmd))
 	}
+	for _, f := range plan.caTrustFilePlans() {
+		for _, cmd := range f.dir {
+			p.print("  sudo " + shquote.JoinDisplay(cmd))
+		}
+		p.printf("  sudo %s %s  [dim](content on stdin, never argv)[/dim]", teeBin, shquote.QuoteDisplay(f.path))
+		p.printf("  sudo %s 0600 %s", chmodBin, shquote.QuoteDisplay(f.path))
+		for _, cmd := range f.grant {
+			p.print("  sudo " + shquote.JoinDisplay(cmd))
+		}
+	}
 	p.print("  sudo " + shquote.JoinDisplay(plan.BootstrapArgv[1:]))
 	// NAMED EVEN WHEN THERE IS NO STAGE, for the reason the pack line above is: "this
 	// launch installs nothing" and "this backend cannot install anything" were
@@ -1254,6 +1335,14 @@ func PrintPlan(w io.Writer, plan RunPlan, problems []string) {
 	// keep them that way.
 	if len(plan.ProvisionArgv) > 0 {
 		p.print("  sudo " + shquote.JoinDisplay(plan.ProvisionArgv[1:]))
+	}
+	p.print("")
+	// WHAT THE SESSION REMOVES WHEN IT ENDS, its own files only (sessionfiles.go): a session
+	// killed before this leaves them to the next launch's sweep.
+	p.print("[bold]── when the session ends (run via sudo) ──[/bold]")
+	for _, cmd := range append(append(append([][]string{}, plan.DaemonEnvRemoveCommands...),
+		plan.EnvFileRemoveCommands...), plan.ProfileRemoveCommands...) {
+		p.print("  sudo " + shquote.JoinDisplay(cmd))
 	}
 	p.print("")
 
@@ -1400,32 +1489,35 @@ func LaunchWriter() io.Writer {
 // process's own.
 func RealDeps(runProxy func(argv []string) int, materialize func(repoRoot string, packages []any) (*Darwin, bool, error), color bool) Deps {
 	return Deps{
-		IsMacOS:           func() bool { return isMacOSReal() },
-		Geteuid:           os.Geteuid,
-		Which:             whichReal,
-		SandboxUserExists: func() bool { return sandboxUserExistsReal(SandboxUser) },
-		SelfExe:           selfExeReal,
-		GitConfig:         gitConfigReal,
-		Getenv:            os.Getenv,
-		HostUser:          hostUserReal,
-		Run:               runReal,
-		RunBash:           runBashReal,
-		RunWithProxy:      runProxy,
-		InstallRootFile:   installRootFileReal,
-		MaterializeDarwin: materialize,
-		StartBackground:   startBackgroundReal,
-		SetDiskIOPolicy:   ioprio.SetProcessDiskPolicy,
-		DiskIOPolicy:      ioprio.GetProcessDiskPolicy,
-		HostCPUs:          runtime.NumCPU,
-		HostNix:           hostNixReal,
-		NodeFloorMet:      entrypoint.PackageFloorMeets,
-		TakenIDs:          takenIDsReal,
-		SetRandomPassword: func() bool { return setRandomPasswordReal(SandboxUser) },
-		PathIsDir:         pathIsDirReal,
-		PathExists:        pathExistsReal,
-		ReadFile:          readFileReal,
-		RemoveFile:        removeFileReal,
-		Out:               LaunchWriter(),
-		Color:             color,
+		IsMacOS:            func() bool { return isMacOSReal() },
+		Geteuid:            os.Geteuid,
+		Which:              whichReal,
+		SandboxUserExists:  func() bool { return sandboxUserExistsReal(SandboxUser) },
+		SelfExe:            selfExeReal,
+		GitConfig:          gitConfigReal,
+		Getenv:             os.Getenv,
+		HostUser:           hostUserReal,
+		Run:                runReal,
+		RunBash:            runBashReal,
+		RunWithProxy:       runProxy,
+		InstallRootFile:    installRootFileReal,
+		MaterializeDarwin:  materialize,
+		StartBackground:    startBackgroundReal,
+		SessionRecordDir:   SessionRecordsDir,
+		ReadSystemKeychain: readSystemKeychainReal,
+		VerifyCA:           verifyCAReal,
+		SetDiskIOPolicy:    ioprio.SetProcessDiskPolicy,
+		DiskIOPolicy:       ioprio.GetProcessDiskPolicy,
+		HostCPUs:           runtime.NumCPU,
+		HostNix:            hostNixReal,
+		NodeFloorMet:       entrypoint.PackageFloorMeets,
+		TakenIDs:           takenIDsReal,
+		SetRandomPassword:  func() bool { return setRandomPasswordReal(SandboxUser) },
+		PathIsDir:          pathIsDirReal,
+		PathExists:         pathExistsReal,
+		ReadFile:           readFileReal,
+		RemoveFile:         removeFileReal,
+		Out:                LaunchWriter(),
+		Color:              color,
 	}
 }

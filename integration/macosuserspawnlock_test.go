@@ -15,7 +15,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/macosuser"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
+	"github.com/mschulkind-oss/yolo-jail/internal/shquote"
 )
 
 // OQ-HD10'S MEASUREMENT: TWO macos-user LAUNCHES OF ONE WORKSPACE, AT ONCE
@@ -60,6 +62,12 @@ import (
 //     into a dir of its own and tears down only that one (internal/cli/run/servicessession.go),
 //     so the survivor's endpoint must still answer: its own front, in its own yolo process, over
 //     the host-wide broker that no session's teardown stops.
+//   - SESSION FILES: which session env file each session read ($YOLO_DARWIN_ENV_FILE), and
+//     whether the longer session's was still there after the shorter one's `yolo` had exited.
+//     ASSERTED too (hd10SessionFileFailure). Until each session named its files by a session id
+//     of its own (internal/macosuser/sessionfiles.go) both read <cname>.env, and the shorter
+//     session's teardown removed it under the survivor
+//     (docs/design/jail-lifetime-last-session-wins.md §9.9.10, row 6).
 //
 // # Every answer about SPAWN passes. Only an experiment not conducted is red, and the survivor
 //
@@ -217,6 +225,42 @@ func TestMacosUserTwoConcurrentLaunchesOfOneWorkspace(t *testing.T) {
 		t.Errorf("%s\nA rc=%d:\n%s\nB rc=%d:\n%s", failure,
 			rA.rc, lastLines(rA.combined(), 40), rB.rc, lastLines(rB.combined(), 40))
 	}
+	t.Logf("HD10 SESSION FILES: A read %s (there: %s) | B read %s (there: %s) | A's after B exited: "+
+		"%s (there: %s)", orNone(fa["A_DURING_ENVFILE"]), orNone(fa["A_DURING_ENVFILE_EXISTS"]),
+		orNone(fb["B_DURING_ENVFILE"]), orNone(fb["B_DURING_ENVFILE_EXISTS"]),
+		orNone(fa["A_AFTER_ENVFILE"]), orNone(fa["A_AFTER_ENVFILE_EXISTS"]))
+	if failure := hd10SessionFileFailure(fa, fb); failure != "" {
+		t.Errorf("%s\nA rc=%d:\n%s\nB rc=%d:\n%s", failure,
+			rA.rc, lastLines(rA.combined(), 40), rB.rc, lastLines(rB.combined(), 40))
+	}
+}
+
+// hd10SessionFileFailure is the experiment's assertion about the per-session files: "" when the
+// two sessions read two different env files and the longer session's was still there after the
+// shorter one's `yolo` had exited, and otherwise why that is a failure. PURE, and pinned with the
+// verdicts. NOT OBSERVED fails, for hd10SurvivorFailure's reason.
+func hd10SessionFileFailure(fa, fb map[string]string) string {
+	a, b := fa["A_DURING_ENVFILE"], fb["B_DURING_ENVFILE"]
+	switch {
+	case a == "" || a == "UNSET" || b == "" || b == "UNSET":
+		return fmt.Sprintf("HD10: NOT OBSERVED — a session did not name its env file (A %q, B %q), "+
+			"so whether two sessions share one was not shown", a, b)
+	case a == b:
+		return "HD10: both sessions read ONE env file, " + a + ". Each macos-user session must name " +
+			"its env file, daemons env file and Seatbelt profile by a session id of its own, or one " +
+			"session's launch hands the other's sandbox its environment and its exit removes the " +
+			"file under it (internal/macosuser/sessionfiles.go)"
+	case fa["A_SAW_B_EXIT"] != "yes":
+		return "HD10: NOT OBSERVED — the longer session never saw the shorter one exit, so whether " +
+			"its env file survived that exit was not shown"
+	case fa["A_AFTER_ENVFILE"] != a:
+		return fmt.Sprintf("HD10: the longer session's env file changed during its own session "+
+			"(%q, then %q)", a, fa["A_AFTER_ENVFILE"])
+	case fa["A_AFTER_ENVFILE_EXISTS"] != "yes":
+		return "HD10: the shorter session's exit removed the longer session's env file " + a +
+			"; a session's teardown must remove only its own files (internal/macosuser/sessionfiles.go)"
+	}
+	return ""
 }
 
 // hd10SurvivorFailure is the experiment's one assertion about its answer: "" when the longer
@@ -259,6 +303,8 @@ func hd10Script(dir, envVar, self, other string, longer bool) string {
 	}
 	lines := []string{
 		`probe() {`,
+		`  ef="${YOLO_DARWIN_ENV_FILE-}"; echo "$1_ENVFILE=${ef:-UNSET}"`,
+		`  if [ -n "$ef" ] && [ -e "$ef" ]; then echo "$1_ENVFILE_EXISTS=yes"; else echo "$1_ENVFILE_EXISTS=no"; fi`,
 		`  ep="${` + envVar + `-}"`,
 		`  echo "$1_VAR=${ep:-UNSET}"`,
 		`  if [ -z "$ep" ]; then return; fi`,
@@ -572,6 +618,29 @@ func TestMacosUserHD10VerdictsNameEachCase(t *testing.T) {
 		t.Errorf("a declared run beside a live broker: hd10PreBrokerPlan = (%v, %q), want (true, \"\")", stop, why)
 	}
 
+	for _, tc := range []struct {
+		name, a, b string
+		want       string
+	}{
+		{"one file for both", "A_DURING_ENVFILE=/e/x.env\nA_SAW_B_EXIT=yes\nA_AFTER_ENVFILE=/e/x.env\nA_AFTER_ENVFILE_EXISTS=yes",
+			"B_DURING_ENVFILE=/e/x.env", "ONE env file"},
+		{"removed under the survivor", "A_DURING_ENVFILE=/e/a.env\nA_SAW_B_EXIT=yes\nA_AFTER_ENVFILE=/e/a.env\nA_AFTER_ENVFILE_EXISTS=no",
+			"B_DURING_ENVFILE=/e/b.env", "removed the longer session's env file"},
+		{"unnamed", "A_DURING_ENVFILE=UNSET", "B_DURING_ENVFILE=/e/b.env", "NOT OBSERVED"},
+		{"exit unseen", "A_DURING_ENVFILE=/e/a.env\nA_SAW_B_EXIT=no", "B_DURING_ENVFILE=/e/b.env", "NOT OBSERVED"},
+		{"each its own, and kept", "A_DURING_ENVFILE=/e/a.env\nA_SAW_B_EXIT=yes\nA_AFTER_ENVFILE=/e/a.env\nA_AFTER_ENVFILE_EXISTS=yes",
+			"B_DURING_ENVFILE=/e/b.env", ""},
+	} {
+		got := hd10SessionFileFailure(hd10Fields(tc.a), hd10Fields(tc.b))
+		if (tc.want == "") != (got == "") || !strings.Contains(got, tc.want) {
+			t.Errorf("%s: hd10SessionFileFailure = %q, want %q", tc.name, got, tc.want)
+		}
+	}
+	if s := hd10Script("/s", "V", "A", "B", true); !strings.Contains(s, "_ENVFILE=${ef:-UNSET}") ||
+		!strings.Contains(s, "_ENVFILE_EXISTS=") {
+		t.Errorf("the probe does not record the session env file:\n%s", s)
+	}
+
 	if got := hd10ParsePIDs("123\n45\n\n"); len(got) != 2 || got[0] != 45 || got[1] != 123 {
 		t.Errorf("hd10ParsePIDs = %v, want [45 123]", got)
 	}
@@ -644,5 +713,91 @@ func TestMacosUserHD10GuardsTheMachineWideBroker(t *testing.T) {
 		t.Error("the experiment no longer fails when the surviving session's endpoint stops " +
 			"answering after the other session exits (hd10SurvivorFailure); it would go back to " +
 			"recording the macos-user teardown defect instead of catching it")
+	}
+}
+
+// TestMacosUserSweepsAKilledSessionsFiles: A SESSION KILLED BEFORE ITS TEARDOWN LEAVES ITS
+// ROOT-OWNED FILES AND ITS LIVENESS RECORD, AND THE NEXT LAUNCH SWEEPS BOTH
+// (internal/macosuser/sessionfiles.go). The first launch writes the env file it was handed into
+// the workspace and sleeps; this process SIGKILLs its `yolo`, so no deferred teardown runs, and
+// checks, as root, that the session's env file and profile are still there (the control: a kill
+// that left nothing shows nothing). A second launch of the same workspace must then remove every
+// one of them and the record, while the first session's sandbox, stopped here too, no longer
+// holds anything.
+func TestMacosUserSweepsAKilledSessionsFiles(t *testing.T) {
+	requireMacosUser(t)
+	ws := macosUserWorkspace(t, `{}`)
+	marker := filepath.Join(ws, "killed-session-envfile")
+	// A sleep no other process on the runner runs, so the cleanup's pkill stops only this one.
+	const nap = "sleep 3607"
+	script := `printf '%s\n' "$YOLO_DARWIN_ENV_FILE" > ` + shquote.Quote(marker) + `; ` + nap
+	ctx, cancel := context.WithTimeout(context.Background(), macosUserTimeout())
+	defer cancel()
+	cmd := exec.CommandContext(ctx, yoloBin, append(jailRunArgs(), "--", "bash", "-lc", script)...)
+	cmd.Dir = ws
+	cmd.Env = hd10LaunchEnv()
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout, cmd.Stderr = &stdout, &stderr
+	awaitDetachedWriters(t, ws, launchHome(cmd.Env))
+	if err := cmd.Start(); err != nil {
+		t.Fatalf("starting the first launch: %v", err)
+	}
+	exited := make(chan struct{})
+	go func() { _ = cmd.Wait(); close(exited) }()
+	stopSandbox := func() {
+		_ = runQuiet(time.Minute, "sudo", "-n", "/usr/bin/pkill", "-u", macosuser.SandboxUser, "-f", nap)
+	}
+	t.Cleanup(func() {
+		_ = cmd.Process.Kill()
+		<-exited
+		stopSandbox()
+	})
+
+	envFile := ""
+	for envFile == "" {
+		if b, err := os.ReadFile(marker); err == nil && strings.TrimSpace(string(b)) != "" {
+			envFile = strings.TrimSpace(string(b))
+			break
+		}
+		select {
+		case <-exited:
+			t.Fatalf("the first launch exited before its session wrote %s:\nstdout:\n%s\nstderr:\n%s",
+				marker, lastLines(stdout.String(), 40), lastLines(stderr.String(), 40))
+		case <-ctx.Done():
+			t.Fatalf("the first launch did not reach its session within %s", macosUserTimeout())
+		case <-time.After(500 * time.Millisecond):
+		}
+	}
+	if err := cmd.Process.Kill(); err != nil {
+		t.Fatalf("SIGKILL of the first launch: %v", err)
+	}
+	<-exited
+	stopSandbox()
+
+	key := strings.TrimSuffix(filepath.Base(envFile), ".env")
+	files := macosuser.SessionFilePaths(key, "")
+	record := filepath.Join(macosuser.SessionRecordsDir(), key+".lock")
+	present := func(p string) bool { return runQuiet(time.Minute, "sudo", "-n", "/bin/test", "-e", p) }
+	if !present(envFile) || !present(macosuser.SessionProfilePath(key, "")) {
+		t.Fatalf("NOT OBSERVED: the killed session left no env file (%s: %v) or profile (%v), so "+
+			"there was nothing for the next launch to sweep", envFile, present(envFile),
+			present(macosuser.SessionProfilePath(key, "")))
+	}
+	if _, err := os.Lstat(record); err != nil {
+		t.Fatalf("the killed session left no liveness record at %s (%v), so nothing could tell the "+
+			"next launch that its files are an ended session's", record, err)
+	}
+
+	r := runMacosUser(t, ws, "true")
+	if r.rc != 0 {
+		t.Fatalf("the second launch failed (rc %d):\n%s", r.rc, lastLines(r.combined(), 40))
+	}
+	for _, f := range files {
+		if present(f) {
+			t.Errorf("the second launch did not sweep the killed session's %s", f)
+		}
+	}
+	if _, err := os.Lstat(record); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("the killed session's record %s survived the next launch's sweep (%v)", record, err)
 	}
 }

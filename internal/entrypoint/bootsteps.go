@@ -285,9 +285,10 @@ func bootSteps() []bootStep {
 					setEnvBoth(e, "GIT_SSL_CAINFO", bundle)
 				}
 			},
-			notDarwin: "not ported: the bundle reaches the agent as four variables this process " +
-				"exports to its children, and the macos-user agent is not one of them — its " +
-				"environment is the session env file",
+			notDarwin: "the macos-user host launcher builds the bundle instead, from the tool " +
+				"profile's public roots and the CAs this Mac's System keychain trusts for TLS, and " +
+				"names it in the session env file, which is the agent's environment there " +
+				"(macosuser.ComposeCATrust)",
 		},
 		{name: "generate_bashrc", gen: GenerateBashrc},
 		{
