@@ -501,3 +501,41 @@ func TestAMacOSHostLaunchSaysTheOwnerStartsWithoutItsTree(t *testing.T) {
 		t.Errorf("a program that loads no tree was told of one:\n%s", errw.String())
 	}
 }
+
+// A REVERT REMOVES THE LINK (§8.3), and the host's versioned copies with it, as it withdraws every
+// key yolo wrote: its dry run names the link and writes nothing, and --assert removes the link, the
+// record's entry for it and the copies. Red if the revert stops calling revertHostTreeLinks.
+func TestARevertRemovesAPatchedExtensionsLinkAndItsCopies(t *testing.T) {
+	fx := newTreeFixture(t, `"f.txt"`)
+	var out, errw bytes.Buffer
+	hostApply([]string{"--assert"}, io.Discard, &errw, false, strings.NewReader(""))
+	target, err := os.Readlink(fx.link())
+	if err != nil {
+		t.Fatalf("the apply rendered no link: %v\n%s", err, errw.String())
+	}
+	if rc := hostMain([]string{"apply", "--revert"}, &out, &errw, false, nil); rc != 0 {
+		t.Fatalf("the dry revert rc=%d\n%s%s", rc, out.String(), errw.String())
+	}
+	if !strings.Contains(out.String(), "would remove") || !strings.Contains(out.String(), fx.link()) {
+		t.Errorf("the dry revert does not name the link:\n%s", out.String())
+	}
+	if _, err := os.Lstat(fx.link()); err != nil {
+		t.Fatal("the dry revert removed the link")
+	}
+	out.Reset()
+	if rc := hostMain([]string{"apply", "--revert", "--assert"}, &out, &errw, false, nil); rc != 0 {
+		t.Fatalf("the revert rc=%d\n%s%s", rc, out.String(), errw.String())
+	}
+	if _, err := os.Lstat(fx.link()); err == nil {
+		t.Errorf("the revert left the link:\n%s", out.String())
+	}
+	if isDir(filepath.Dir(target)) {
+		t.Errorf("the revert left the host's versioned copies:\n%s", out.String())
+	}
+	if man, _ := hostskills.LoadManifest(hostSkillsManifestPath()); man.OwnedBy(fx.link(), "treepack") {
+		t.Error("the revert left the link in the files ownership record")
+	}
+	if !strings.Contains(out.String(), "1 patched-extension link") {
+		t.Errorf("the revert's summary does not count the link:\n%s", out.String())
+	}
+}

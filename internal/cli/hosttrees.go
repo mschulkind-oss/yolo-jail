@@ -31,11 +31,14 @@ package cli
 // naming a jail that has the extension.
 
 import (
+	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 	goruntime "runtime"
+	"sort"
 	"strings"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/capture"
@@ -393,10 +396,6 @@ func linkedTreeLabel(key string) string {
 // link is retired by the apply's prune of a dropped pack's output, which runs before this, and a
 // link still in place keeps its tree. Best-effort: a copy left behind costs disk, never a render.
 func sweepDroppedHostTrees(packs []*packload.Pack) {
-	entries, err := os.ReadDir(paths.HostTreesDir())
-	if err != nil {
-		return
-	}
 	live := map[string]bool{}
 	for _, f := range packload.PatchedTrees(packs) {
 		live[run.PatchedCopySlug(f.Key())] = true
@@ -405,12 +404,20 @@ func sweepDroppedHostTrees(packs []*packload.Pack) {
 	if err != nil {
 		return // an unreadable record proves nothing about which links remain, so nothing goes
 	}
+	sweepUnlinkedHostTrees(live, man)
+}
+
+// sweepUnlinkedHostTrees removes every extension's versioned copies under paths.HostTreesDir that
+// neither live names (by slug) nor any link man records points into. Best-effort.
+func sweepUnlinkedHostTrees(live map[string]bool, man *hostskills.Manifest) {
+	entries, err := os.ReadDir(paths.HostTreesDir())
+	if err != nil {
+		return
+	}
 	linked := map[string]bool{}
 	for dest := range man.Entries {
-		if target, err := os.Readlink(dest); err == nil {
-			if rel, err := filepath.Rel(paths.HostTreesDir(), target); err == nil && !strings.HasPrefix(rel, "..") {
-				linked[strings.SplitN(filepath.ToSlash(rel), "/", 2)[0]] = true
-			}
+		if slug := hostTreeLinkSlug(dest); slug != "" {
+			linked[slug] = true
 		}
 	}
 	for _, e := range entries {
@@ -419,4 +426,53 @@ func sweepDroppedHostTrees(packs []*packload.Pack) {
 		}
 		_ = os.RemoveAll(filepath.Join(paths.HostTreesDir(), e.Name()))
 	}
+}
+
+// hostTreeLinkSlug is the extension slug a link at dest points into under paths.HostTreesDir, ""
+// when dest is no such link.
+func hostTreeLinkSlug(dest string) string {
+	target, err := os.Readlink(dest)
+	if err != nil {
+		return ""
+	}
+	rel, err := filepath.Rel(paths.HostTreesDir(), target)
+	if err != nil || rel == "." || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return ""
+	}
+	return strings.SplitN(filepath.ToSlash(rel), "/", 2)[0]
+}
+
+// revertHostTreeLinks is the revert's arm for PATCHED EXTENSIONS (docs/design/patched-extensions.md
+// §8.3, PPX-D31): every link the `files` ownership record names that points into the host's
+// versioned copies is removed and forgotten, and then every versioned copy no recorded link names,
+// whatever the selection carries — a revert is the user taking yolo out of the home. observe reports
+// the links it would remove and writes nothing. The links come back sorted. A plain `files` tree's
+// output is not this arm's: the revert withdraws keys, and leaves those as it always has.
+func revertHostTreeLinks(observe bool) ([]string, error) {
+	manPath := hostSkillsManifestPath()
+	man, err := hostskills.LoadManifest(manPath)
+	if err != nil {
+		return nil, err
+	}
+	var links []string
+	for dest := range man.Entries {
+		if hostTreeLinkSlug(dest) != "" {
+			links = append(links, dest)
+		}
+	}
+	sort.Strings(links)
+	if observe || len(links) == 0 {
+		return links, nil
+	}
+	for _, dest := range links {
+		if err := os.Remove(dest); err != nil && !errors.Is(err, fs.ErrNotExist) {
+			return links, err
+		}
+		man.Forget(dest)
+	}
+	if err := man.Save(manPath); err != nil {
+		return links, err
+	}
+	sweepUnlinkedHostTrees(nil, man)
+	return links, nil
 }

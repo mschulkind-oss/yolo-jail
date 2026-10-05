@@ -104,19 +104,38 @@ func hostRevert(out, errw io.Writer, color bool, write bool) int {
 		fmt.Fprintf(errw, "yolo host apply --revert: %v\n", rerr)
 		return 1
 	}
-	if len(result.Records) == 0 {
+	// THE PATCHED EXTENSIONS' LINKS (hosttrees.go, docs/design/patched-extensions.md §8.3): each one
+	// the render owns goes, and the host's versioned copies with it.
+	links, lerr := revertHostTreeLinks(!write)
+	for _, l := range links {
+		action := "would remove the link"
+		if write {
+			action = "removed the link"
+		}
+		pr.Printf("  [yellow]%-20s %s[/yellow] [dim]%s[/dim]", "patched extension", action, l)
+	}
+	if lerr != nil {
+		fmt.Fprintf(errw, "yolo host apply --revert: patched extensions: %v — the keys above are withdrawn; "+
+			"re-run it to take the links out\n", lerr)
+		return 1
+	}
+	if len(result.Records) == 0 && len(links) == 0 {
 		pr.Printf("[dim]yolo has never rendered into this home — nothing to revert.[/dim]")
 		return 0
 	}
+	treeNote := ""
+	if len(links) > 0 {
+		treeNote = fmt.Sprintf(", and %d patched-extension link(s) with their host copies", len(links))
+	}
 	if !write {
-		pr.Printf("[bold]%d key(s) across %d surface(s)[/bold] — re-run with [bold]--assert[/bold] "+
-			"to remove them and forget this home.", len(result.Keys), len(result.Records))
+		pr.Printf("[bold]%d key(s) across %d surface(s)%s[/bold] — re-run with [bold]--assert[/bold] "+
+			"to remove them and forget this home.", len(result.Keys), len(result.Records), treeNote)
 		pr.Printf("[dim]Your own keys (recorded `host`) are never touched. This removes what " +
 			"yolo wrote; it does not restore what a key held before yolo wrote it.[/dim]")
 		return 0
 	}
-	pr.Printf("[green]removed %d key(s) across %d surface(s)[/green] — yolo no longer has a "+
-		"record of this home.", len(result.Keys), len(result.Records))
+	pr.Printf("[green]removed %d key(s) across %d surface(s)%s[/green] — yolo no longer has a "+
+		"record of this home.", len(result.Keys), len(result.Records), treeNote)
 	pr.Printf("[dim]A later `yolo host apply --assert` is a FIRST apply again, and asks " +
 		"before replacing anything it finds.[/dim]")
 	return 0
