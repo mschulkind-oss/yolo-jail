@@ -4,6 +4,7 @@ import (
 	"strings"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
+	"github.com/mschulkind-oss/yolo-jail/internal/macosuser"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 )
 
@@ -142,5 +143,31 @@ func backendLimits(rt string, packs []*packload.Pack, cfg *jsonx.OrderedMap) []s
 		"`sed -i` needs a suffix argument (`sed -i ''`), and `find -printf`, `grep -P` and "+
 		"`tar --wildcards` fail. Write portable invocations — a script you write here may also "+
 		"run on a Linux CI machine.")
+
+	// THE TWO REFUSALS THE PROFILE MAKES BY DEFAULT, each with the setting that lifts it. Both
+	// are stops the agent meets with nothing it can see naming the cause — Seatbelt's refusal is
+	// a bare "Operation not permitted" — and no launch line pairs with them, so this is the one
+	// surface where the next step can be said ("Every stop names the next step", AGENTS.md).
+	//
+	// The log: `macos_log` "off", the default, denies the unified log's stores and its stream
+	// service (macosuser.macosLogDenies), so `/usr/bin/log` reads nothing either, and the only
+	// text naming the remedy used to sit inside the `yolo-log` stub, which nothing tells the agent
+	// exists. Conditional on the profile's own reading of the key (macosuser.MacosLogOff), so the
+	// sentence and the deny cannot disagree; under "user" and "full" there is nothing to say.
+	if macosuser.MacosLogOff(cfg) {
+		out = append(out, "The macOS unified log is unreadable here (`macos_log` is off, as it is "+
+			"by default): `/usr/bin/log` and the `yolo-log` helper cannot read it. If you need it, "+
+			"ask the human to set `\"macos_log\": \"user\"` in yolo-jail.jsonc and relaunch.")
+	}
+	// Devices: the profile's `(deny file-ioctl)` is unconditional, re-allowed for terminals and
+	// for each raw-path `devices` entry (macosuser.DeviceIoctlPaths), so the sentence is
+	// unconditional too. Raw disks and packet capture are refused whatever the config lists, so
+	// the remedy says so rather than send the human to add an entry the launch will skip.
+	out = append(out, "Device control calls (`ioctl`) on /dev nodes are refused here, except on "+
+		"the terminal and pseudo-terminals (`/dev/tty`, `/dev/ptmx`, `/dev/ttys*`, `/dev/pty*`) "+
+		"and on each node listed in `devices`, so configuring a serial adapter, for one, fails "+
+		"until its node is listed. If you need one, ask the human to add its path (a serial "+
+		"adapter's `/dev/cu.*` node, say) to `devices` in yolo-jail.jsonc and relaunch; raw disks "+
+		"and packet capture stay refused whatever is listed.")
 	return out
 }

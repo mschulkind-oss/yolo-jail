@@ -3,6 +3,8 @@ package macosuser
 import (
 	"path"
 	"strings"
+
+	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 )
 
 // SeatbeltProfile generates the SBPL sandbox profile, matching SandVault's
@@ -244,16 +246,23 @@ func seatbeltProfile(workspace, sandboxHome string, readonlyRels, readonlyTarget
 		deviceIoctlAllow(devices)
 }
 
-// macosLogOff reports whether a macos_log value leaves the log unreadable: "off" itself, and
-// every value MacosLogWrapperScript rewrites to it (anything config.MacosLogModes does not
+// macosLogModeOff reports whether a macos_log value leaves the log unreadable: "off" itself,
+// and every value MacosLogWrapperScript rewrites to it (anything config.MacosLogModes does not
 // list, the empty string included). One lookup with the helper, so the stub and the deny are
 // never handed two different readings of one value.
-func macosLogOff(mode string) bool {
+func macosLogModeOff(mode string) bool {
 	if _, ok := macosLogModes[mode]; !ok {
 		return true
 	}
 	return mode == "off"
 }
+
+// MacosLogOff reports whether a launch of cfg gets the macos_log "off" profile: the key as
+// BuildRunPlan reads it (macosLogMode: absent is "off"), judged by the predicate the deny is
+// gated on. The agent's briefing asks this (internal/cli/run's backendLimits), so the sentence
+// telling the agent the log is unreadable, and naming the setting that lifts it, and the deny
+// that makes it unreadable are never handed two readings of one config.
+func MacosLogOff(cfg *jsonx.OrderedMap) bool { return macosLogModeOff(macosLogMode(cfg)) }
 
 // macosLogDenies renders the macos_log "off" rules, or "" for "user" and "full", whose profiles
 // stay byte-identical to the ones they always got.
@@ -270,7 +279,7 @@ func macosLogOff(mode string) bool {
 // loaded on a Mac: the two store paths and the service name. Their runtime proof is the
 // macos_log cases in integration/macosuserseatbelt_test.go, with a "user" profile as control.
 func macosLogDenies(mode string) string {
-	if !macosLogOff(mode) {
+	if !macosLogModeOff(mode) {
 		return ""
 	}
 	return ";; --- config.macos_log is \"off\": the unified log is unreadable from the sandbox,\n" +

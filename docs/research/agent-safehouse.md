@@ -314,8 +314,16 @@ narrow but real: Safehouse guarantees the sandboxed agent cannot rewrite the pol
 governs the next run. yolo has an analogue — `workspace_readonly` self-locks the workspace
 config file when any entry is active — and since 2026-10-04 it holds on `macos-user` too, the
 backend where the comparison applies: the config joins the profile's readonly deny
-(`macosuser.workspaceReadonlyRels`). What is left is the condition: a workspace that declares no
-entry gets no lock. Unmeasured on a Mac.
+(`macosuser.workspaceReadonlyRels`). Unmeasured on a Mac. **It is weaker than Safehouse's
+guarantee, on every backend, because it locks one file.** A workspace that declares no entry gets
+no lock. The session can also switch the protection off without touching the locked file: a
+`yolo-jail.local.jsonc` is merged over it unlocked (`"workspace_readonly": null` there turns the
+key off), as is any file pulled in with `include_if_found`, and a new `yolo-jail.jsonc` takes
+over from a locked `yolo-jail.json`. On `macos-user` a hard link to the config, or a link in the
+middle of a chain of links, is a path no rule names as well
+([`host-execution-from-the-workspace.md`](../reference/host-execution-from-the-workspace.md#locking-the-blind-cell-workspace_readonly)).
+What catches each is the config-change approval at the next fresh launch, which shows the human
+the change before it governs a run: yolo makes the rewrite visible, where Safehouse forbids it.
 
 ---
 

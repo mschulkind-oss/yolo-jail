@@ -192,3 +192,40 @@ func TestBackendLimitsSayTheUserlandIsBSD(t *testing.T) {
 		t.Errorf("the composed macos-user briefing does not carry the userland sentence:\n%s", got)
 	}
 }
+
+// The two refusals this backend's profile makes by default, and the setting that lifts each.
+// An agent that runs `/usr/bin/log show` or configures a serial adapter is refused by the
+// Seatbelt profile with nothing it can see naming the cause; the stop names its next step here
+// (AGENTS.md "Every stop names the next step"). The log sentence follows the profile's own
+// reading of `macos_log` (macosuser.MacosLogOff): absent, "off" and every value the profile
+// treats as off carry it, "user" and "full" do not. The device sentence is unconditional, like
+// the ioctl deny it describes. Both are asserted on the composed briefing, so deleting the
+// branch from backendLimits fails them.
+func TestBackendLimitsNameTheLogAndDeviceSettings(t *testing.T) {
+	const logLine = "The macOS unified log is unreadable here"
+	const devLine = "Device control calls (`ioctl`) on /dev nodes are refused here"
+	for _, mode := range []any{nil, "off", "bogus", "user", "full"} {
+		cfg := appliedTestConfig()
+		if mode != nil {
+			cfg.Set("macos_log", mode)
+		}
+		got := macosUserBriefing(t, cfg)
+		wantLog := mode == nil || mode == "off" || mode == "bogus"
+		if has := strings.Contains(got, logLine); has != wantLog {
+			t.Errorf("macos_log %v: the briefing carries the log sentence = %v, want %v:\n%s", mode, has, wantLog, got)
+		}
+		if wantLog && !strings.Contains(got, "ask the human to set `\"macos_log\": \"user\"`") {
+			t.Errorf("macos_log %v: the log sentence does not name the setting that lifts it:\n%s", mode, got)
+		}
+		if !strings.Contains(got, devLine) || !strings.Contains(got, "add its path") ||
+			!strings.Contains(got, "to `devices` in yolo-jail.jsonc") {
+			t.Errorf("macos_log %v: the briefing lacks the device sentence with its next step:\n%s", mode, got)
+		}
+	}
+	for _, rt := range []string{"podman", "container"} {
+		got := strings.Join(backendLimits(rt, nil, jsonx.NewOrderedMap()), "\n")
+		if strings.Contains(got, logLine) || strings.Contains(got, devLine) {
+			t.Errorf("%s was told about the macos-user log or device refusal: %s", rt, got)
+		}
+	}
+}

@@ -185,9 +185,9 @@ func readonlyPlan(ws string, entries ...any) RunPlan {
 // TestBuildRunPlanLocksTheWorkspaceConfigWithWorkspaceReadonly is the macos-user half of the
 // lock the container backends perform beside the declared entries
 // (TestWorkspaceReadonlyLocksTheConfigFileTheLoaderReads, internal/cli/run): any entry locks
-// the config file the loader reads, under the name it reads it under, so a session cannot
-// switch its own protection off. Through BuildRunPlan, so it fails with the call site
-// reverted to the bare entry list.
+// the config file the loader reads, under the name it reads it under, so a session cannot edit
+// its own protection out of that file (the files it does not lock are workspaceReadonlyRels').
+// Through BuildRunPlan, so it fails with the call site reverted to the bare entry list.
 func TestBuildRunPlanLocksTheWorkspaceConfigWithWorkspaceReadonly(t *testing.T) {
 	for _, name := range []string{"yolo-jail.jsonc", "yolo-jail.json"} {
 		t.Run(name, func(t *testing.T) {
