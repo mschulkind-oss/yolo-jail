@@ -129,5 +129,18 @@ func backendLimits(rt string, packs []*packload.Pack, cfg *jsonx.OrderedMap) []s
 		"the human's REAL machine, on its real interfaces, listed in `network.ports` or not. "+
 		"Nothing publishes a port and nothing confines one — bind to `127.0.0.1` when you do "+
 		"not mean to expose a service to their network.")
+
+	// THE USERLAND IS THE MAC'S, and an agent trained mostly on Linux shells reaches for GNU
+	// flags without thinking. UNCONDITIONAL, like the network sentence: whether a GNU build is
+	// ahead on PATH is a fact of `packages:` and mise that this composition does not resolve,
+	// and the sentence is true either way because it names the condition. No launch line pairs
+	// with it — the human chose a Mac and knows its tools; the agent is the one that forgets.
+	// `ls --color` is left out of the failing list on purpose: whether a current macOS `ls`
+	// accepts it has not been checked, and a wrong "this fails" is acted on all session.
+	out = append(out, "`sed`, `find`, `grep`, `tar` and `ls` here are the Mac's own BSD tools, "+
+		"not GNU's, unless `packages:` or a mise tool puts a GNU build ahead of them on PATH: "+
+		"`sed -i` needs a suffix argument (`sed -i ''`), and `find -printf`, `grep -P` and "+
+		"`tar --wildcards` fail. Write portable invocations — a script you write here may also "+
+		"run on a Linux CI machine.")
 	return out
 }

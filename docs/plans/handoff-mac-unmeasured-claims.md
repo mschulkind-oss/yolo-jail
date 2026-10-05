@@ -255,6 +255,19 @@ a real launch's other output, and that a config declaring **none** of these keys
 > '&lt;host&gt;:&lt;jail&gt;' or '&lt;ip&gt;:&lt;host&gt;:&lt;jail&gt;' (host side FIRST — the reverse of
 > network.forward_host_ports)"*.
 
+> [!WARNING]
+> **The `devices` line quoted above no longer prints as measured (2026-10-04), and the new ones are
+> unmeasured on a Mac.** A raw-path entry under `/dev` now gets its ioctls back in the Seatbelt
+> profile, and the launch DISCLOSES that (*"devices: the sandbox allows device control (ioctl) on
+> …"*); a raw-path entry outside `/dev`, or a raw disk, is warned as skipped with its next step;
+> and only the USB and cgroup forms keep a *not read on macos-user* warning. Two lines are new
+> beside them: `ephemeral_storage: "tmpfs"` is warned as unreadable here, and a host
+> `~/.config/nvim` is disclosed as not delivered. Re-run the throwaway `--dry-run` above with a
+> `/dev/cu.*` entry, a raw disk entry, `"ephemeral_storage": "tmpfs"` and a host nvim config, and
+> check that each reads correctly, and that a config declaring none of them prints none.
+> `TestMacosUserBriefingAndLaunchLinesDescribeThisBackend` now asserts the tmpfs line on the
+> nightly.
+
 ---
 
 ## 4. The nightly — five links, all now named

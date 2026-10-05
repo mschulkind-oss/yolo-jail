@@ -62,9 +62,9 @@ func TestMacosUserNamesThePlatformKeysItDoesNotRead(t *testing.T) {
 	}`)
 
 	for _, want := range []string{
-		"`devices` is not read on macos-user",
-		"/dev/ttyUSB0", // the raw-path entry, named
-		"my probe",     // the USB entry, by its description
+		"`devices` USB and cgroup entries are not read on macos-user",
+		"allows device control (ioctl) on /dev/ttyUSB0", // the raw-path entry, carved out
+		"my probe", // the USB entry, by its description
 		"`gpu.enabled` is not read on macos-user",
 		"`kvm` is not read on macos-user",
 	} {
@@ -87,7 +87,8 @@ func TestMacosUserNamesThePlatformKeysItDoesNotRead(t *testing.T) {
 // config that mentions none of the three keys must produce none of the three lines.
 func TestMacosUserSaysNothingAboutPlatformKeysNobodyDeclared(t *testing.T) {
 	got := macosUserNoticeRun(t, `{}`)
-	for _, unwanted := range []string{"`devices`", "`gpu.enabled`", "`kvm`"} {
+	for _, unwanted := range []string{"`devices`", "devices:", "`gpu.enabled`", "`kvm`",
+		"ephemeral_storage", "nvim"} {
 		if strings.Contains(got, unwanted) {
 			t.Errorf("a config declaring nothing was warned about %s:\n%s", unwanted, got)
 		}
@@ -151,5 +152,87 @@ func TestMacosUserSaysNothingAboutPortKeysNobodyDeclared(t *testing.T) {
 		if strings.Contains(got, "not honored on macos-user") {
 			t.Errorf("config %s produced a port notice:\n%s", cfg, got)
 		}
+	}
+}
+
+// A raw-path `devices` entry is now half READ: the profile re-allows its ioctls, and the launch
+// says so — a disclosure, because it widens the sandbox — while an entry the classifier refuses
+// is warned with the step that fixes it, and the USB form is still read by nothing. One
+// classifier for the profile and this line (macosuser.DeviceIoctlPaths).
+func TestMacosUserDisclosesTheDeviceCarveOut(t *testing.T) {
+	got := macosUserNoticeRun(t, `{"devices": ["/dev/cu.usbserial-A1", "/dev/disk4", "/dev/cu.usbserial-A1"]}`)
+	if !strings.Contains(got, "devices: the sandbox allows device control (ioctl) on /dev/cu.usbserial-A1. "+
+		"The node opens under ordinary macOS permissions; nothing is attached.") {
+		t.Errorf("the ioctl carve-out was not disclosed, or names the entry twice:\n%s", got)
+	}
+	if !strings.Contains(got, "`devices` entry /dev/disk4 is skipped on macos-user") ||
+		!strings.Contains(got, "raw disks and packet capture stay denied") {
+		t.Errorf("a raw disk entry was not refused by name with its reason:\n%s", got)
+	}
+	if strings.Contains(got, "USB and cgroup entries") {
+		t.Errorf("a config with no USB or cgroup entry was told about them:\n%s", got)
+	}
+	got = macosUserNoticeRun(t, `{"devices": ["/Users/someone/notes.txt"]}`)
+	if !strings.Contains(got, "is not a device node under /dev") || !strings.Contains(got, "`ls /dev/cu.*`") {
+		t.Errorf("a non-device entry was not refused with the step that finds the node:\n%s", got)
+	}
+	if strings.Contains(got, "allows device control") {
+		t.Errorf("a refused entry was disclosed as carved out:\n%s", got)
+	}
+}
+
+// TestMacosUserNamesTheTmpfsScratchChoice is DP-B5: `ephemeral_storage: "tmpfs"` asks for
+// RAM-backed scratch, which only a container mount gives, and this backend read the key nowhere
+// and said nothing. "volume" and an absent key ask for what this backend already is, on disk.
+func TestMacosUserNamesTheTmpfsScratchChoice(t *testing.T) {
+	got := macosUserNoticeRun(t, `{"ephemeral_storage": "tmpfs"}`)
+	for _, want := range []string{"`ephemeral_storage: \"tmpfs\"` is not read on macos-user",
+		"/var/folders, on disk", "Remove the key, or use Apple Container"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("a tmpfs request on macos-user lacks %q:\n%s", want, got)
+		}
+	}
+	for _, cfg := range []string{`{}`, `{"ephemeral_storage": "volume"}`} {
+		if got := macosUserNoticeRun(t, cfg); strings.Contains(got, "ephemeral_storage") {
+			t.Errorf("%s asks for nothing this backend lacks, and was warned:\n%s", cfg, got)
+		}
+	}
+}
+
+// The host nvim config is delivered on every container launch and on none here; with one on
+// the host, the launch says so once (a disclosure: nothing declares it, so nothing refuses).
+func TestMacosUserDisclosesTheUndeliveredNvimConfig(t *testing.T) {
+	ws := t.TempDir()
+	if err := os.WriteFile(filepath.Join(ws, "yolo-jail.jsonc"), []byte(`{}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	run := func(withNvim bool) string {
+		home := packHome(t)
+		if withNvim {
+			if err := os.MkdirAll(filepath.Join(home, ".config", "nvim"), 0o755); err != nil {
+				t.Fatal(err)
+			}
+		}
+		var stdout, stderr bytes.Buffer
+		o := dispatchOptions(t, ws, "macos-user", &stdout, &stderr, nil)
+		o.DryRun = true
+		o.MacosUserRun = func(*jsonx.OrderedMap, string, []string, []string, string, string,
+			macosuser.HomeOverlay, macosuser.HostContext, bool, *jsonx.OrderedMap, []packload.BlockedTool, macosuser.JailDaemons) int {
+			return 0
+		}
+		if rc := Run(*o); rc != 0 {
+			t.Fatalf("Run() = %d\nstderr:\n%s", rc, stderr.String())
+		}
+		return stderr.String()
+	}
+	got := run(true)
+	if n := strings.Count(got, "Host nvim config (~/.config/nvim) is not delivered on macos-user"); n != 1 {
+		t.Errorf("the nvim disclosure appears %d times, want once:\n%s", n, got)
+	}
+	if !strings.Contains(got, "OQ-ED2") {
+		t.Errorf("the nvim line does not name what delivery waits on:\n%s", got)
+	}
+	if got := run(false); strings.Contains(got, "nvim") {
+		t.Errorf("a host with no nvim config was told about one:\n%s", got)
 	}
 }

@@ -15,7 +15,7 @@ import (
 // tests are that instrument for the rows a launch can answer, in the macos-user.yml job:
 //
 //   - TestMacosUserBriefingAndLaunchLinesDescribeThisBackend, one launch with the claude pack and
-//     a workspace declaring `kvm`, `gpu.enabled` and `resources`:
+//     a workspace declaring `kvm`, `gpu.enabled`, `resources` and `ephemeral_storage`:
 //   - DP-B19: the briefing's header is the native one, not "a sandboxed container";
 //   - the Environment block ruled 2026-09-13 (§11's note): the real workspace path, "There is
 //     no `/workspace` on this backend", and a macOS OS line instead of the container's;
@@ -23,7 +23,8 @@ import (
 //   - DP-B3: the network line is host networking, and nothing names host.containers.internal;
 //   - DP-B6: no "Resource limits (kernel-enforced)" line and no yolo-cglimit offer, though the
 //     workspace declares `resources`;
-//   - DP-B4: the launch prints the `kvm` and `gpu.enabled` "not read on macos-user" lines.
+//   - DP-B4: the launch prints the `kvm` and `gpu.enabled` "not read on macos-user" lines;
+//   - DP-B5: and the `ephemeral_storage: "tmpfs"` one, which this backend cannot give.
 //   - TestMacosUserRefusesADeclaredContextMount: DP-B1, whose disposition since 2026-09-30 is
 //     DP-D15's fatal refusal. A `mounts` entry whose source exists refuses the launch, naming it,
 //     before any sandbox starts.
@@ -33,7 +34,7 @@ import (
 func TestMacosUserBriefingAndLaunchLinesDescribeThisBackend(t *testing.T) {
 	requireMacosUser(t)
 	packHome(t, `{"packs": ["claude"]}`)
-	ws := macosUserWorkspace(t, `{"kvm": true, "gpu": {"enabled": true}, "resources": {"memory": "2g"}}`)
+	ws := macosUserWorkspace(t, `{"kvm": true, "gpu": {"enabled": true}, "resources": {"memory": "2g"}, "ephemeral_storage": "tmpfs"}`)
 	r := macosUserRunProbe(t, "declaration parity", ws, strings.Join([]string{
 		`echo "=== BRIEFING ==="; cat ~/.claude/CLAUDE.md 2>&1`,
 		`echo "=== END ==="`,
@@ -85,11 +86,12 @@ func TestMacosUserBriefingAndLaunchLinesDescribeThisBackend(t *testing.T) {
 	for _, want := range []string{
 		"`kvm` is not read on macos-user",
 		"`gpu.enabled` is not read on macos-user",
+		"`ephemeral_storage: \"tmpfs\"` is not read on macos-user",
 	} {
 		if !strings.Contains(out, want) {
-			t.Errorf("DP-B4: the launch output lacks %q. The key is declared, this backend reads "+
-				"none of them, and noteMacosUserPlatformGaps' line is the whole of what it says "+
-				"about that.\n%s", want, out)
+			t.Errorf("DP-B4/DP-B5: the launch output lacks %q. The key is declared, this backend "+
+				"reads none of them, and noteMacosUserPlatformGaps' line is the whole of what it "+
+				"says about that.\n%s", want, out)
 		}
 	}
 }

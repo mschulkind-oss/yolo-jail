@@ -51,12 +51,13 @@ package run
 // sentence shape rather than about the answer.
 
 import (
-	"strings"
-
+	"path/filepath"
 	"sort"
+	"strings"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/loopholes"
+	"github.com/mschulkind-oss/yolo-jail/internal/macosuser"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 )
 
@@ -404,8 +405,16 @@ func (o *Options) noteMacosUserHostByteGaps(delivery macosCtxDelivery) {
 		acROBindsFloor + " (older versions skip it with a warning).")
 }
 
-// noteMacosUserPlatformGaps names the three PLATFORM keys this backend reads nowhere:
-// `devices`, `gpu` and `kvm` (docs/design/declaration-parity.md DP-B4, fixed by DP-L10).
+// noteMacosUserPlatformGaps names what this backend does with the PLATFORM keys — `devices`,
+// `gpu`, `kvm` and `ephemeral_storage` (docs/design/declaration-parity.md DP-B4, fixed by DP-L10;
+// DP-B5) — and discloses the one host editor config a container launch delivers and this one
+// does not.
+//
+// `devices` IS HALF READ since 2026-10-04: a raw-path entry under /dev gets its control calls
+// back in the Seatbelt profile (macosuser.DeviceIoctlPaths, the ONE classifier the profile reads
+// too), and that is DISCLOSED, unsuppressibly, because it widens the sandbox. A raw-path entry the
+// classifier refuses is warned with its next step, and the USB and cgroup forms, which name no
+// node, are still read by nothing.
 //
 // WHY IT IS NOT THE CONTAINER PATH'S SENTENCE, REUSED. run.deviceArgs, run.kvmArgs and
 // assembleRunCmd's GPU line all warn on macOS already — and every one of them is reached
@@ -433,11 +442,32 @@ func (o *Options) noteMacosUserPlatformGaps(cfg *jsonx.OrderedMap) {
 	out := o.pr(o.Stderr)
 
 	if devs := cfgList(cfg, "devices"); len(devs) > 0 {
-		out.print("[yellow]Warning: `devices` is not read on macos-user[/yellow] — " +
-			strings.Join(deviceLabels(devs), ", ") + ". Device passthrough attaches a host " +
-			"device to a CONTAINER, and this backend starts none; the sandboxed process " +
-			"reaches devices under ordinary macOS permissions instead, so yolo neither " +
-			"attaches nor restricts anything here.")
+		var raw []string
+		var other []any
+		for _, d := range devs {
+			if s, ok := d.(string); ok {
+				raw = append(raw, s)
+			} else {
+				other = append(other, d)
+			}
+		}
+		allowed, refused := macosuser.DeviceIoctlPaths(raw)
+		if len(allowed) > 0 {
+			out.print("[dim]devices: the sandbox allows device control (ioctl) on " +
+				strings.Join(allowed, ", ") + ". The node opens under ordinary macOS " +
+				"permissions; nothing is attached.[/dim]")
+		}
+		for _, r := range refused {
+			out.print("[yellow]Warning: `devices` entry " + r.Entry + " is skipped on " +
+				"macos-user[/yellow] — " + r.Reason + "; " + r.Next + ".")
+		}
+		if labels := deviceLabels(other); len(labels) > 0 {
+			out.print("[yellow]Warning: `devices` USB and cgroup entries are not read on " +
+				"macos-user[/yellow] — " + strings.Join(labels, ", ") + ". Both attach a " +
+				"device to a CONTAINER, and this backend starts none; a USB device is reached " +
+				"through macOS itself, which yolo neither attaches nor restricts. To drive a " +
+				"serial adapter from the sandbox, list its /dev/cu.* node instead.")
+		}
 	}
 
 	if gpuSec := cfgMap(cfg, "gpu"); gpuSec != nil && mapBoolOr(gpuSec, "enabled", false) {
@@ -451,6 +481,29 @@ func (o *Options) noteMacosUserPlatformGaps(cfg *jsonx.OrderedMap) {
 		out.print("[yellow]Warning: `kvm` is not read on macos-user[/yellow] — it asks for " +
 			"/dev/kvm inside a container, and there is neither a container nor a /dev/kvm " +
 			"on macOS.")
+	}
+
+	// `ephemeral_storage: "tmpfs"` asks for RAM-backed scratch, which is a tmpfs mount in a
+	// container. "volume" (the default) and an absent key ask for disk-backed scratch, which is
+	// what this backend's /tmp and /var/folders already are, so they say nothing (DP-B5).
+	if cfgStr(cfg, "ephemeral_storage") == "tmpfs" {
+		out.print("[yellow]Warning: `ephemeral_storage: \"tmpfs\"` is not read on macos-user" +
+			"[/yellow] — RAM-backed scratch is a tmpfs mount inside a CONTAINER, and this " +
+			"backend starts none, so the sandbox writes this machine's own /tmp and " +
+			"/var/folders, on disk. Remove the key, or use Apple Container " +
+			"(runtime: \"container\"), whose scratch is always RAM-backed.")
+	}
+
+	// THE HOST NVIM CONFIG, a disclosure and not a refusal: nothing declares it (the container
+	// arm binds ~/.config/nvim whenever it exists, assemble.go), so refusing it would refuse every
+	// launch on a Mac that has one (CX-D10), and silence would leave nvim coming up unconfigured
+	// with nothing said. Apple Container's "Skipping host nvim config" line is the precedent.
+	// Delivery waits on docs/design/baked-editor-preference.md OQ-ED2, which decides where this
+	// machinery lives at all.
+	if isDir(filepath.Join(homeDir(), ".config", "nvim")) {
+		out.print("[dim]Host nvim config (~/.config/nvim) is not delivered on macos-user: the " +
+			"sandbox's nvim starts with its own. Where host editor config goes is an open " +
+			"design question (OQ-ED2), so there is nothing to change until it is ruled.[/dim]")
 	}
 }
 

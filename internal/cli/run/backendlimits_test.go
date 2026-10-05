@@ -168,3 +168,27 @@ func TestBackendLimitsSayBindingIsPublishingWithNoNamespace(t *testing.T) {
 		}
 	}
 }
+
+// The Mac's userland: an agent reaches for GNU flags by habit, and on this backend `sed -i`
+// with no suffix, `find -printf`, `grep -P` and `tar --wildcards` fail. Unconditional, with or
+// without packs, and never on a container backend, whose userland is GNU.
+func TestBackendLimitsSayTheUserlandIsBSD(t *testing.T) {
+	for _, packs := range [][]*packload.Pack{nil, {limitPack(t)}} {
+		got := strings.Join(backendLimits("macos-user", packs, jsonx.NewOrderedMap()), "\n")
+		for _, want := range []string{"the Mac's own BSD tools", "unless `packages:` or a mise tool",
+			"`sed -i ''`", "`find -printf`", "`grep -P`", "`tar --wildcards`", "Write portable invocations"} {
+			if !strings.Contains(got, want) {
+				t.Errorf("packs=%d: the userland sentence lacks %q:\n%s", len(packs), want, got)
+			}
+		}
+	}
+	for _, rt := range []string{"podman", "container"} {
+		if got := strings.Join(backendLimits(rt, nil, jsonx.NewOrderedMap()), "\n"); strings.Contains(got, "BSD") {
+			t.Errorf("%s was told its userland is BSD: %s", rt, got)
+		}
+	}
+	// And it reaches the briefing a macos-user launch composes, not only this function.
+	if got := macosUserBriefing(t, appliedTestConfig()); !strings.Contains(got, "the Mac's own BSD tools") {
+		t.Errorf("the composed macos-user briefing does not carry the userland sentence:\n%s", got)
+	}
+}
