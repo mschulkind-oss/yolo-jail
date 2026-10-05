@@ -682,23 +682,43 @@ func hostLaunch(flags hostExecFlags, profile string, cmd []string, out, errw, ra
 	sp.End()
 	// OQ-CAP2's GATE (hostcapabilities.go), before the render gate for the reason that gate gives
 	// for its own provider-section check (hostapplygate.go, "a config the launch refuses is not
-	// rendered first"): a launch this refuses must not auto-apply a render of its config first.
+	// rendered first"): a launch this refuses must not auto-apply a render of its config first —
+	// nor fetch or build a patched extension for it.
 	sp = trace.span("host.capability_gate")
 	refused := refuseHostUnmetCapabilities(errw, filepath.Base(cmd[0]), flags.profile)
 	sp.End()
 	if refused {
 		return 1
 	}
+	// THE PATCHED EXTENSIONS this program loads (docs/design/patched-extensions.md §8.3, PPX-D11):
+	// their check and advance BEFORE the gate compares the render, and outside that comparison, so
+	// it sees the build the apply would install — scoped to the owning agent's programs, so a
+	// launch of any other bin waits on no extension's fetch or build. Inside the gate's span: it is
+	// the gate's preparation, and a build it waits on is time the gate cost.
+	// ONE ACT (PF-D57): a Ctrl-C that ends an extension's wait here ends the program's below too.
+	//
 	// THE HOST-RENDER GATE (hostapplygate.go, and docs/reference/host-apply-staleness.md §4.1).
 	// It is the host notch's answer to the jail's launch-time config approval, and it sits before
 	// the composition for the reason the credential pre-flight below gives for its own placement:
 	// a launch that is going to be stopped should be stopped while the only thing it has done is
 	// read some files. It is silent unless the user opted in, and it is a no-op in a jail.
 	sp = trace.span("host.apply_gate")
+	act := &run.ActInterrupt{}
+	if config.HostApplyOnLaunchEnabled() && config.HostManagementMode() != config.HostManagementNone {
+		advanceHostTrees(errw, colorForWriter(errw), filepath.Base(cmd[0]), act)
+	}
 	gated := hostApplyGate(errw, stdin, cmd[0])
 	sp.End()
 	if !gated {
 		return 1
+	}
+	// AND PPX-D18's STOP: the owning agent does not start without a patched extension it loads;
+	// then the line naming the build each one it loads is at (PPX-D26).
+	if home, err := os.UserHomeDir(); err == nil && !config.InJail() {
+		if !hostTreeGate(errw, filepath.Base(cmd[0]), home) {
+			return 1
+		}
+		noteHostTreeLines(errw, colorForWriter(errw), filepath.Base(cmd[0]), home)
 	}
 
 	// hostServicesStart: this is the one front door that owns its command's lifetime, so a
@@ -726,7 +746,7 @@ func hostLaunch(flags hostExecFlags, profile string, cmd []string, out, errw, ra
 	lp := hostLaunchPath()
 	childPath := hostChildPath(lp, hostFloorBinDir())
 	sp = trace.span("host.resolve_target")
-	resolved, rc := resolveHostLaunchTarget(launch.packs, cmd[0], lp, errw)
+	resolved, rc := resolveHostLaunchTarget(launch.packs, cmd[0], lp, errw, act)
 	sp.End()
 	if rc != 0 {
 		return rc

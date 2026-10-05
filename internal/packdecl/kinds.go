@@ -445,7 +445,10 @@ var footprints = map[Kind]Footprint{
 		Claims: "briefing prose concatenated at a path",
 	},
 	KindFiles: {
-		Kind: KindFiles, Combine: CombineExclusive,
+		// REVIEW-WORTHY only as a PATCHED EXTENSION (docs/design/patched-extensions.md PPX-D15): a
+		// tree built from an upstream's code with a series replayed, which the agent that loads it
+		// runs. A plain tree is the pack's own content, and reaches nothing on the host.
+		Kind: KindFiles, Combine: CombineExclusive, MayBeReviewWorthy: true,
 		Claims: "exclusive ownership of a file/dir tree at a path",
 	},
 	KindConfig: {

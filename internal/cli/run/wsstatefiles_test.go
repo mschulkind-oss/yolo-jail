@@ -168,7 +168,7 @@ func TestPackFilesManifestNeverWritesThroughALink(t *testing.T) {
 			p := workspaceFilesPack(t, "pi-extension", "extension.ts",
 				".pi/agent/extensions/thinking-preview.ts", ".pi")
 
-			preparePackFiles([]*packload.Pack{p}, wsState, "podman")
+			preparePackFiles([]*packload.Pack{p}, nil, wsState, "podman")
 
 			verify(t, "the manifest's temp file")
 			assertRegularFile(t, manifest)
@@ -194,7 +194,7 @@ func TestPackFilesManifestNeverWritesThroughALink(t *testing.T) {
 		writeFixture(t, hostManifest, `{"entries":{"pi/agent/stale":{"kind":"file"}}}`)
 		symlinkAt(t, hostManifest, filepath.Join(filepath.Dir(wsState), packFilesMountpointManifestName))
 
-		preparePackFiles(nil, wsState, "podman")
+		preparePackFiles(nil, nil, wsState, "podman")
 
 		if _, err := os.Lstat(owned); err != nil {
 			t.Errorf("the launch acted on a manifest read through a link: %v", err)
@@ -215,7 +215,7 @@ func TestLegacyPackFileArchiveNeverMovesThroughALink(t *testing.T) {
 	p := workspaceFilesPack(t, "pi", "extension.js",
 		".pi/agent/extensions/yolo-openai-auth.js", ".pi")
 
-	preparePackFiles([]*packload.Pack{p}, wsState, "podman")
+	preparePackFiles([]*packload.Pack{p}, nil, wsState, "podman")
 
 	assertEmptyDir(t, hostDir, ".yolo/archive linked")
 }

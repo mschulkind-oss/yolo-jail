@@ -26,6 +26,7 @@ import (
 	"strings"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/packdecl"
+	"github.com/mschulkind-oss/yolo-jail/internal/packsrc"
 )
 
 // forkClaimDetailPrefix opens a fork claim's Detail; Claim.DisclosureSentence keys its sentence
@@ -42,10 +43,32 @@ func ForkClaimTarget(bin, base string) string {
 	return bin + " (fork of " + base + ")"
 }
 
+// patchedForkClaimDetailPrefix opens a PATCHED fork claim's Detail, which
+// Claim.DisclosureSentence keys its own sentence on: a patched fork follows its upstream, where a
+// plain fork's build stays at the commit its pin names.
+const patchedForkClaimDetailPrefix = "patched fork build: "
+
 // forkClaimDetail is a fork claim's Detail: the source address and the build command, verbatim,
-// so two forks that differ in either render as two lines.
-func forkClaimDetail(c packdecl.Contribution) string {
-	return forkClaimDetailPrefix + c.Source + ", built by `" + c.Build + "`"
+// so two forks that differ in either render as two lines. A PATCHED fork's names its series too
+// (docs/design/patched-forks.md §7) — the directory and the follow rule, and the patch count and
+// series digest when root's series reads — since two series of one upstream would otherwise
+// render identically.
+func forkClaimDetail(root string, c packdecl.Contribution) string {
+	if !c.IsPatchedFork() {
+		return forkClaimDetailPrefix + c.Source + ", built by `" + c.Build + "`"
+	}
+	follow, err := packsrc.ParseFollow(c.Follow)
+	rule := c.Follow
+	if err == nil {
+		rule = follow.String()
+	}
+	series := "the series in " + c.Patches
+	if s, err := packsrc.ReadSeries(root, c.Patches); err == nil {
+		series = fmt.Sprintf("%d %s in %s (series %s)", s.Len(), plural(s.Len(), "patch", "patches"),
+			c.Patches, s.ShortDigest())
+	}
+	return patchedForkClaimDetailPrefix + c.Source + " + " + series + ", following " + rule +
+		", built by `" + c.Build + "`"
 }
 
 // Fork is one fork a pack set carries: the fork pack's own `via: "source"` contribution, read off
@@ -62,11 +85,52 @@ type Fork struct {
 	Produces      []string
 	// Platforms is where the fork builds (`platforms`), nil for everywhere.
 	Platforms []string
+	// Root is the fork pack's root directory, which a patched fork's series is read from.
+	Root string
+	// Patches and Follow are a PATCHED fork's (docs/design/patched-forks.md): the series directory,
+	// relative to Root, and the follow rule as written. Both "" for a plain fork.
+	Patches, Follow string
+	// Into is a PATCHED EXTENSION's home-relative landing (docs/design/patched-extensions.md;
+	// patchedtrees.go), "" for every fork of a program. With it set the value is an extension:
+	// Bin is its name, the last segment of Into; Base is ""; and Produces are tree-relative.
+	Into string
+	// Owner is a patched extension's OWNING AGENT PACK (PPX-D4), "" when no list entry names its
+	// tree; OwnerForks are the selection's fork packs of the owner's programs, whose
+	// `agent_updates` holds it too (PPX-D9).
+	Owner      string
+	OwnerForks []string
+	// ListedInJail and ListedAtHost say where the owner's list entry naming the tree reaches: a
+	// `config-list` reaches both, an autonomous posture list every jail, a guarded one the host
+	// alone (PPX-D12: the launchers stop only at a notch the entry reaches).
+	ListedInJail, ListedAtHost bool
 }
 
 // Key is the fork's identity in the fork lock and everywhere a fork is named by one string:
-// "<fork pack>/<bin>" (FP-D7). A pack may fork several programs, each its own key.
+// "<fork pack>/<bin>" (FP-D7). A pack may fork several programs, each its own key. For a patched
+// fork it is the OWNER KEY too (PF-D22): its check record, its lock and its explicit acts use it.
 func (f Fork) Key() string { return f.Pack + "/" + f.Bin }
+
+// Patched reports whether the fork is a PATCHED fork: one that declares `patches`.
+func (f Fork) Patched() bool { return f.Patches != "" }
+
+// ReadSeries reads a patched fork's series from its pack, once (packsrc.ReadSeries): every reader
+// of the series' bytes reads them through here and digests what it read.
+func (f Fork) ReadSeries() (*packsrc.Series, error) {
+	if !f.Patched() {
+		return nil, fmt.Errorf("fork %s declares no patch series", f.Key())
+	}
+	return packsrc.ReadSeries(f.Root, f.Patches)
+}
+
+// CheckWant is the check request for a patched fork whose series s was read: its owner key, its
+// upstream and follow rule, and the series' base.
+func (f Fork) CheckWant(s *packsrc.Series) packsrc.PatchedWant {
+	w := packsrc.PatchedWant{Owner: f.Key(), Source: f.Source, Follow: f.Follow}
+	if s != nil {
+		w.Base = s.Base
+	}
+	return w
+}
 
 // Forks lists every fork the packs carry, in pack order and then declaration order.
 func Forks(packs []*Pack) []Fork {
@@ -83,6 +147,7 @@ func Forks(packs []*Pack) []Fork {
 				Pack: p.Name, Base: c.ForkOf, Bin: c.Bin, Source: c.Source, Build: c.Build,
 				Produces:  append([]string(nil), c.Produces...),
 				Platforms: append([]string(nil), c.Platforms...),
+				Root:      p.Root, Patches: c.Patches, Follow: c.Follow,
 			})
 		}
 	}
@@ -168,6 +233,9 @@ func ApplyForks(packs []*Pack) ([]*Pack, error) {
 		}
 		fork := forkContributionOf(packs, f)
 		base.Decl.Contributes[at] = forkedProgram(base.Decl.Contributes[at], fork, f.Pack)
+		// The fork pack's root, which a patched fork's series directory is relative to: a reader of
+		// the base's program (the host floor) reads the series through it.
+		base.Decl.Contributes[at].ForkRoot = f.Root
 	}
 	if len(problems) > 0 {
 		sort.Strings(problems)
@@ -246,6 +314,10 @@ func forkedProgram(base, fork packdecl.Contribution, forkPack string) packdecl.C
 	}
 	out.Source, out.Build = fork.Source, fork.Build
 	out.Produces = append([]string(nil), fork.Produces...)
+	// A patched fork's series directory and follow rule, so the rewritten program says it is one
+	// (Install.IsPatchedFork). The directory stays relative to the FORK pack's root, which
+	// ForkedBy names.
+	out.Patches, out.Follow = fork.Patches, fork.Follow
 	out.ForkOf, out.ForkedBy = "", forkPack
 	return out
 }

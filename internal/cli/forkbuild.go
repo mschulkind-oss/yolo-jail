@@ -37,6 +37,7 @@ import (
 	"time"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/capture"
+	"github.com/mschulkind-oss/yolo-jail/internal/cli/run"
 	"github.com/mschulkind-oss/yolo-jail/internal/entrypoint"
 	"github.com/mschulkind-oss/yolo-jail/internal/packdecl"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
@@ -69,23 +70,84 @@ type forkBuild struct {
 	Fork     packload.Fork
 	Commit   string
 	Platform string
+	// Series is a PATCHED fork's series as its act read it, once (docs/design/patched-forks.md
+	// §3.2): the bytes the build replays and whose digest its recipe carries. nil for a plain fork.
+	Series *packsrc.Series
+	// Entry is the walk's list entry a patched build is of (its commit, and the version tag its
+	// receipt and the good build record); zero for a plain fork.
+	Entry packsrc.ListEntry
 }
 
-// recipe is the build's recipe hash: its command, its outputs and the source subdirectory.
+// recipe is the build's recipe hash: its command, its outputs and the source subdirectory, and for
+// a PATCHED fork the series digest too (packdecl.PatchedForkRecipe, PF-D7). A patched fork's is ""
+// with no series read, as Install.SourceRecipe is (PF-D31): a plain fork of the same upstream,
+// build and produces has ForkSourceRecipe's very hash, so the plain recipe here would serve that
+// build — the unpatched upstream — as the patched program. "" matches no build
+// (resolveForkBuild) and builds nothing (buildFork).
 func (b forkBuild) recipe() string {
+	if b.Fork.IsTree() {
+		// A PATCHED EXTENSION's recipe is tagged as a tree's (packdecl.TreeRecipe, PPX-D6), so it
+		// never equals a program's of the same inputs.
+		if b.Series == nil {
+			return ""
+		}
+		return packdecl.TreeSourceRecipe(b.Fork.Source, b.Fork.Build, b.Fork.Produces, b.Series.Digest)
+	}
+	if b.Fork.Patched() {
+		if b.Series == nil {
+			return ""
+		}
+		return packdecl.ForkSourcePatchedRecipe(b.Fork.Source, b.Fork.Build, b.Fork.Produces, b.Series.Digest)
+	}
 	return packdecl.ForkSourceRecipe(b.Fork.Source, b.Fork.Build, b.Fork.Produces)
 }
 
-// id names the build: source, revision, recipe and platform, the key §6 names. The lock and the
-// staging workspace are keyed on it, so two builds of one key serialize and anything else does not.
+// buildSource is the source the build's receipt, lock and staging name: the source as written for
+// a plain fork, whose selection keys on it; for a PATCHED fork its repository and subdirectory
+// alone (patchedBuildSource), since the ref is not part of a patched build's identity (§6.3) — a
+// hold moved from `?ref=main` to `?ref=v1.0.1` finds the build already there.
+func (b forkBuild) buildSource() string {
+	if b.Fork.Patched() {
+		return patchedBuildSource(b.Fork.Source)
+	}
+	return b.Fork.Source
+}
+
+// patchedBuildSource is a patched fork's source with no ref: `git+<repository>`, then `//<subdir>`
+// for a subdirectory source. It is a record, not an address (packsrc.Parse refuses it, as it
+// refuses any git source with no `?ref=`), so no plain fork's query, which is the source as written
+// and always carries a ref, can equal it.
+func patchedBuildSource(source string) string { return packsrc.BuildSource(source) }
+
+// id names the build: source, revision, recipe and platform, the key §6 names, and a patched
+// fork's key besides, so two forks of one upstream stage apart. The lock and the staging workspace
+// are keyed on it, so two builds of one key serialize and anything else does not.
 func (b forkBuild) id() string {
-	sum := sha256.Sum256([]byte(b.Fork.Source + "\x00" + b.Commit + "\x00" + b.recipe() + "\x00" + b.Platform))
+	if b.Fork.Patched() {
+		return patchedBuildID(b.Fork.Key(), b.buildSource(), b.Commit, b.recipe(), b.Platform)
+	}
+	return buildID(b.buildSource(), b.Commit, b.recipe(), b.Platform)
+}
+
+// buildID is a build's id from its key's parts (forkBuild.id): source, revision, recipe, platform.
+func buildID(source, commit, recipe, platform string) string {
+	sum := sha256.Sum256([]byte(source + "\x00" + commit + "\x00" + recipe + "\x00" + platform))
 	return hex.EncodeToString(sum[:])[:16]
 }
 
+// patchedBuildID is a PATCHED build's id, which carries its fork key besides: read back from an
+// admitted build's receipt (its fork, source, revision, recipe and platform), it names the lock that
+// build was made under, which a move's reap asks about (patchedadvance.go, reapOthers).
+func patchedBuildID(fork, source, commit, recipe, platform string) string {
+	return buildID(fork+"\x00"+source, commit, recipe, platform)
+}
+
 // lockPath is the build's lock, beside the capture locks.
-func (b forkBuild) lockPath() string {
-	return filepath.Join(paths.GlobalStorage(), "locks", "fork-build-"+b.id()+".lock")
+func (b forkBuild) lockPath() string { return forkBuildLockPath(b.id()) }
+
+// forkBuildLockPath is the lock of the build whose id is id.
+func forkBuildLockPath(id string) string {
+	return filepath.Join(paths.GlobalStorage(), "locks", "fork-build-"+id+".lock")
 }
 
 // buildMode is how buildFork behaves toward an existing entry and a build already running.
@@ -96,10 +158,49 @@ type buildMode struct {
 	// lock is how the build's lock is taken: `yolo capture` refuses on contention, a launch waits,
 	// bounded (FP-D1).
 	lock pidlock.Mode
+	// afterLock, when non-nil, replaces the plain fork's hit check once the lock is held: a
+	// PATCHED fork's waiter takes the result of the build it waited for (§6.6), a success as the
+	// entry and a failure as the error, and done says to stop there.
+	afterLock func() (entry *capture.Entry, err error, done bool)
+	// runJail, when non-nil, runs the build jail in place of forkBuildRunJail: a launch's patched
+	// advance runs it as a child process, so a Ctrl-C ends the build and not the launch
+	// (forkbuildchild.go, PF-D25).
+	runJail func(staging string, b forkBuild) int
+	// packs is the pack store a PATCHED build replays its series in (the launch's, under the
+	// advance's context); nil reads the machine's with the store's default budget.
+	packs *packsrc.Store
+	// replaySpent is what the advance's walks have already taken of the replay's bound, which the
+	// build's own replay into src/ shares (packsrc.WalkOptions.Spent, PF-D44).
+	replaySpent time.Duration
+	// settle, when non-nil, is run with the build's result — its entry, or the error that ended it
+	// — while the build's lock is still held, and every return from the act after the lock was
+	// taken goes through it: a PATCHED fork's advance records a failed build and moves the good
+	// build there (§6.6, PF-D17), so a waiter that takes the lock next reads either, and a move's
+	// reap sees this build's lock held until the build is in the record.
+	settle func(entry *capture.Entry, err error)
 }
 
 // errForkBuildLocked is a build refused because another holds its lock.
 var errForkBuildLocked = errors.New("another build of this fork is running")
+
+// errForkBuildNotStarted marks a build jail that exited before its build line ran: the runtime
+// would not start it, or its boot failed. Not a failed build (§8.1, PF-D21): a patched fork records
+// nothing for it, and the candidate stays pending.
+var errForkBuildNotStarted = errors.New("the build jail never ran the build line")
+
+// forkSourceError is a build that never reached its jail because its source could not be put in
+// place: a checkout that failed, or for a patched fork a replay that failed. Nothing about the
+// build line is known, so a patched fork records nothing for it (an apply error, §5.2).
+type forkSourceError struct{ err error }
+
+func (e forkSourceError) Error() string { return e.err.Error() }
+func (e forkSourceError) Unwrap() error { return e.err }
+
+// forkLockTimeout is a launch that waited forkBuildWaitBound for another build of the same key.
+type forkLockTimeout struct{ msg string }
+
+func (e forkLockTimeout) Error() string { return e.msg }
+func (e forkLockTimeout) Unwrap() error { return pidlock.ErrTimedOut }
 
 // buildFork builds b in a sealed capture jail and returns the admitted entry. A hit returns the
 // existing entry and builds nothing, unless the mode forces a build. It says what it does on out,
@@ -108,6 +209,11 @@ func buildFork(b forkBuild, mode buildMode, out, errw io.Writer, color bool) (*c
 	pr := richtext.Printer{W: out, Color: color}
 	store := &capture.Store{Dir: paths.CapturesDir()}
 	f := b.Fork
+	if b.recipe() == "" {
+		// A PATCHED FORK WITH NO SERIES READ, or anything else with no recipe: a build here would
+		// be the upstream unpatched, admitted under a recipe no reader asks for.
+		return nil, fmt.Errorf("fork %s is a patched fork, and its build was asked for with no series read", f.Key())
+	}
 	lk, err := pidlock.Acquire(b.lockPath(), mode.lock, func(pid int) {
 		pr.Printf("[dim]waiting for pid %d, which is building %s at %s (at most %s)[/dim]",
 			pid, f.Bin, shortSHA(b.Commit), forkBuildWaitBound)
@@ -116,15 +222,35 @@ func buildFork(b forkBuild, mode buildMode, out, errw io.Writer, color bool) (*c
 	case errors.Is(err, pidlock.ErrHeld):
 		return nil, fmt.Errorf("%w (%s at %s; lock: %s)", errForkBuildLocked, f.Key(), shortSHA(b.Commit), b.lockPath())
 	case errors.Is(err, pidlock.ErrTimedOut):
-		return nil, fmt.Errorf("waited %s for another build of %s at %s, and it has not finished",
-			forkBuildWaitBound, f.Key(), shortSHA(b.Commit))
+		return nil, forkLockTimeout{fmt.Sprintf("waited %s for another build of %s at %s, and it has not finished "+
+			"(pid %d holds its lock, %s)", forkBuildWaitBound, f.Key(), shortSHA(b.Commit), pidlock.Holder(b.lockPath()),
+			b.lockPath())}
 	case err != nil:
 		return nil, err
 	}
 	defer lk.Release()
+	entry, err := buildForkUnderLock(b, mode, store, pr, out, errw, color)
+	if mode.settle != nil {
+		mode.settle(entry, err)
+	}
+	return entry, err
+}
+
+// buildForkUnderLock is buildFork's act once the build's lock is held: the hit after the lock, the
+// staged workspace and its source, the sealed jail, the admit and the receipt. The workspace is
+// cleaned up when it returns, before the caller's settle.
+func buildForkUnderLock(b forkBuild, mode buildMode, store *capture.Store, pr richtext.Printer, out, errw io.Writer,
+	color bool) (*capture.Entry, error) {
+	f := b.Fork
 	// A HIT AFTER THE LOCK: a launch that waited finds the entry the winner just admitted and uses
-	// it, as the host floor re-checks after its wait, rather than building the same bytes twice.
-	if !mode.force {
+	// it, as the host floor re-checks after its wait, rather than building the same bytes twice. A
+	// patched fork's waiter takes the winner's result, a failure included (afterLock, §6.6).
+	switch {
+	case mode.afterLock != nil:
+		if entry, err, done := mode.afterLock(); done {
+			return entry, err
+		}
+	case !mode.force:
 		if entry, _, err := resolveForkBuild(store, f.Bin, b.Platform, f.Source, b.Commit, b.recipe()); err == nil {
 			return entry, nil
 		}
@@ -135,31 +261,65 @@ func buildFork(b forkBuild, mode buildMode, out, errw io.Writer, color bool) (*c
 	}
 	cname := runtime.FromWorkspace(staging)
 	defer cleanupCaptureWorkspace(staging, cname)
-	if err := checkOutForkSource(f.Source, b.Commit, filepath.Join(staging, forkSourceLeaf)); err != nil {
-		return nil, fmt.Errorf("checking out %s at %s: %w", f.Source, shortSHA(b.Commit), err)
+	src := filepath.Join(staging, forkSourceLeaf)
+	tree := ""
+	if b.Series != nil {
+		// A PATCHED FORK: the series replayed onto the commit on the host, in a scratch repository
+		// outside this workspace, and the patched subdirectory copied into src/ (§5.1).
+		if tree, err = replayIntoSource(mode.packs, b, src, mode.replaySpent); err != nil {
+			return nil, forkSourceError{fmt.Errorf("replaying the series onto %s: %w", b.Entry.Label(), err)}
+		}
+		pr.Printf("[bold]build[/bold] [cyan]%s[/cyan]  [dim]%s at %s + %d %s (series %s), in a sealed jail[/dim]",
+			f.Key(), patchedBuildSource(f.Source), b.Entry.Label(), b.Series.Len(),
+			plural(b.Series.Len(), "patch", "patches"), b.Series.ShortDigest())
+	} else {
+		if err := checkOutForkSource(f.Source, b.Commit, src); err != nil {
+			return nil, forkSourceError{fmt.Errorf("checking out %s at %s: %w", f.Source, shortSHA(b.Commit), err)}
+		}
+		pr.Printf("[bold]build[/bold] [cyan]%s[/cyan]  [dim]%s at %s, in a sealed jail[/dim]", f.Key(), f.Source, b.Commit)
 	}
-	pr.Printf("[bold]build[/bold] [cyan]%s[/cyan]  [dim]%s at %s, in a sealed jail[/dim]", f.Key(), f.Source, b.Commit)
+	runJail := mode.runJail
+	if runJail == nil {
+		runJail = func(staging string, b forkBuild) int { return forkBuildRunJail(staging, b, out, errw, color) }
+	}
 	entry, m, err := captureStaged(store, staging,
-		func() int { return forkBuildRunJail(staging, b, out, errw, color) },
+		func() int { return runJail(staging, b) },
 		func(m *capture.Manifest) string {
+			if f.IsTree() {
+				return fmt.Sprintf("%s's build left no tree at ~/%s", f.Label(), packdecl.TreeReservedDir(f.Bin))
+			}
 			return fmt.Sprintf("%s's build left nothing in the program surfaces (%s)", f.Key(),
 				strings.Join(m.Surfaces, ", "))
 		},
 		func(m *capture.Manifest) string {
+			if f.IsTree() {
+				return treeAdmitProblem(m, f)
+			}
 			if why := missingProduces(m, f.Produces); why != "" {
 				return why
 			}
 			return linksIntoTheBuild(m)
 		})
+	toolchain, terr := os.ReadFile(filepath.Join(staging, forkToolchainLeaf))
+	var exit captureJailExit
+	if err != nil && b.Series != nil && errors.As(err, &exit) && terr != nil {
+		// THE BUILD LINE NEVER RAN: the jail's script writes the toolchain record first, so a jail
+		// that exited without one is a runtime that would not start it or a boot that failed,
+		// never a build that failed — which a PATCHED fork's record keeps apart (§8.1, PF-D21).
+		return nil, fmt.Errorf("%w (%v)", errForkBuildNotStarted, err)
+	}
 	if err != nil {
 		return nil, err
 	}
-	toolchain, _ := os.ReadFile(filepath.Join(staging, forkToolchainLeaf))
 	receipt := entrypoint.BuildReceipt{
-		Bin: f.Bin, Source: f.Source, Key: entry.Key, Digest: capture.DigestHash(entry.Digest),
+		Bin: f.Bin, Source: b.buildSource(), Key: entry.Key, Digest: capture.DigestHash(entry.Digest),
 		Bytes: m.TotalBytes(), Path: entry.Root, Platform: m.Platform, Revision: b.Commit,
 		Recipe: b.recipe(), Toolchain: strings.TrimSpace(string(toolchain)),
 		Act: entrypoint.ReceiptActRecord, Time: time.Now(),
+	}
+	if b.Series != nil {
+		receipt.Fork, receipt.Series, receipt.Tree = f.Key(), b.Series.Digest, tree
+		receipt.Tag, receipt.Version = b.Entry.Tag, b.Entry.Version
 	}
 	if err := entrypoint.AppendReceiptLine(capture.ReceiptsPath(entry.Root), receipt.Line()); err != nil {
 		return nil, fmt.Errorf("writing the build receipt: %w", err)
@@ -174,12 +334,27 @@ func buildFork(b forkBuild, mode buildMode, out, errw io.Writer, color bool) (*c
 // in a sealed jail when it does not — or with why there is none. It waits, bounded, for a build of
 // the same key another launch is running, and then uses that build (FP-D1). It never fails the
 // launch: a failed build is its fork's reason, printed by the fork's launcher in the jail (§9).
-func buildForksForLaunch(pins []packload.ForkPin, platform string, out, errw io.Writer, color bool) map[string]entrypoint.ForkDelivery {
+//
+// A PATCHED fork gets its ADVANCE instead (patchedadvance.go; docs/design/patched-forks.md §6,
+// §7): its upstream checked, its series replayed and the newest fit built, the good build moved
+// once that build is admitted, and the good build handed, which the request's Hand records.
+func buildForksForLaunch(req run.ForkBuildRequest, out, errw io.Writer, color bool) map[string]entrypoint.ForkDelivery {
 	pr := richtext.Printer{W: out, Color: color}
 	store := &capture.Store{Dir: paths.CapturesDir()}
 	got := map[string]entrypoint.ForkDelivery{}
+	platform := req.Platform
+	var plain []packload.ForkPin
+	for _, p := range req.Pins {
+		if !p.Fork.Patched() {
+			plain = append(plain, p)
+			continue
+		}
+		got[p.Fork.Bin] = advancePatchedFork(p.Fork, advanceOptions{platform: platform, runtime: req.Runtime,
+			workspace: req.Workspace, out: out, errw: errw, color: color, launch: true, hand: req.Hand,
+			act: req.Interrupt}).delivery
+	}
 	var missing []forkBuild
-	for _, p := range pins {
+	for _, p := range plain {
 		b := forkBuild{Fork: p.Fork, Commit: p.Commit, Platform: platform}
 		if entry, _, err := resolveForkBuild(store, p.Fork.Bin, platform, p.Fork.Source, p.Commit, b.recipe()); err == nil {
 			got[p.Fork.Bin] = entrypoint.ForkDelivery{Key: entry.Key}
@@ -188,6 +363,19 @@ func buildForksForLaunch(pins []packload.ForkPin, platform string, out, errw io.
 		missing = append(missing, b)
 	}
 	if len(missing) == 0 {
+		return got
+	}
+	if req.Interrupt.Interrupted() {
+		// A CTRL-C ENDED THIS LAUNCH'S WAIT in a patched fork's advance above (PF-D57): no build is
+		// begun, since each would be a new wait the user had just declined.
+		for _, b := range missing {
+			fmt.Fprintf(errw, "Warning: %s was not built at %s — a Ctrl-C ended this launch's wait for its fork "+
+				"builds, and this launch continues without %s. The next launch builds it.\n", b.Fork.Key(),
+				shortSHA(b.Commit), b.Fork.Bin)
+			got[b.Fork.Bin] = entrypoint.ForkDelivery{Reason: "fork " + b.Fork.Pack + "'s build of commit " +
+				shortSHA(b.Commit) + " was not started: a Ctrl-C ended the launch's wait for its fork builds — " +
+				"the next launch builds it"}
+		}
 		return got
 	}
 	// THE COST IS STATED WHERE IT IS PAID, as auto-capture states its: a source build fetches its
@@ -399,14 +587,137 @@ func forkBuildJailArgv(build string) []string {
 }
 
 // forkBuildRunJail runs b's build in the capture jail UNDER THE SEAL, with the pack selection
-// narrowed to the fork and its base (FP-D9).
+// narrowed to the fork and its base (FP-D9) — or, for a PATCHED EXTENSION, to the contributing pack
+// alone (PPX-D5): its toolchain is the image's, so no agent pack has anything to add to it.
 func forkBuildRunJail(workspace string, b forkBuild, out, errw io.Writer, color bool) int {
-	return runCaptureJail(workspace, b.Fork.Bin, forkBuildJailArgv(b.Fork.Build),
-		&captureSeal{only: []string{b.Fork.Pack, b.Fork.Base}}, out, errw, color)
+	return runCaptureJail(workspace, b.Fork.Bin, buildJailArgv(b.Fork), &captureSeal{only: sealPacks(b.Fork), tree: sealTree(b.Fork)},
+		out, errw, color)
+}
+
+// sealPacks are the packs a build jail's selection is narrowed to: a fork and its base, or a
+// patched extension's contributing pack.
+func sealPacks(f packload.Fork) []string {
+	if f.IsTree() {
+		return []string{f.Pack}
+	}
+	return []string{f.Pack, f.Base}
+}
+
+// sealTree is the name a patched extension's build jail is told it builds, "" for a fork's.
+func sealTree(f packload.Fork) string {
+	if f.IsTree() {
+		return f.Bin
+	}
+	return ""
+}
+
+// buildJailArgv is f's build jail command: a fork's (forkBuildJailArgv) or a tree's (treeBuildJailArgv).
+func buildJailArgv(f packload.Fork) []string {
+	if f.IsTree() {
+		return treeBuildJailArgv(f.Build, f.Bin)
+	}
+	return forkBuildJailArgv(f.Build)
+}
+
+// treeBuildJailArgv is a PATCHED EXTENSION's build jail command (docs/design/patched-extensions.md
+// §7.1, PPX-D5): capture-run, as a fork's, around a script that writes the toolchain record first —
+// the image's identity and the version of the image's own node and npm, which the build runs with
+// (PF-D39 reads the record's absence as a jail that never ran its build line) — then runs the
+// optional build line in the checkout with the image's /bin first on PATH, and ends in ONE FIXED
+// STEP: the checkout, links kept as links, copied into the reserved directory under ~/.local
+// (packdecl.TreeReservedDir), which the capture driver already walks.
+//
+// The build line runs in a subshell, so a `cd` inside it cannot move the copy's source, and on lines
+// of its own inside it: a build line ending in a `# comment`, which a fork's build takes, would
+// otherwise comment out the subshell's close and the final copy, and bash would refuse the script.
+// A build line holds no newline (packdecl refuses one), so it cannot close the subshell early.
+func treeBuildJailArgv(build, name string) []string {
+	src := path.Join(containerWorkspace, forkSourceLeaf)
+	toolchain := shquote.Quote(path.Join(containerWorkspace, forkToolchainLeaf))
+	script := "{ cat " + jailImageIdentityPath + " 2>/dev/null; printf ' node %s npm %s' " +
+		"\"$(/bin/node --version 2>/dev/null)\" \"$(/bin/npm --version 2>/dev/null)\"; } > " + toolchain + " || true\n" +
+		"export PATH=/bin:/usr/bin:\"$PATH\"\n" +
+		"cd " + shquote.Quote(src)
+	if strings.TrimSpace(build) != "" {
+		script += " && (\n" + build + "\n)"
+	}
+	script += " && mkdir -p \"$HOME\"/" + shquote.Quote(packdecl.TreeReservedRoot) +
+		" && cp -a " + shquote.Quote(src) + " \"$HOME\"/" + shquote.Quote(packdecl.TreeReservedDir(name))
+	return []string{
+		"yolo", "internal", "capture-run",
+		"--out=" + path.Join(containerWorkspace, captureOutLeaf),
+		"--surface-root=" + paths.WorkspaceHomeState(containerWorkspace),
+		"--scan-content-refs",
+		"--", "env", "YOLO_BYPASS_SHIMS=1", "bash", "-c", script,
+	}
+}
+
+// treeAdmitProblem is a PATCHED EXTENSION's admit (docs/design/patched-extensions.md §7.1, PPX-D5),
+// "" when the build may be admitted. Beside the empty-delta refusal captureStaged makes, and the link
+// check every build gets (linksIntoTheBuild), three checks, each one a failed build:
+//
+//   - nothing in the delta lies outside the reserved directory: the tree would not carry it;
+//   - every `produces` path exists in the tree, joined onto the reserved directory, since a tree's
+//     produces are tree-relative where a program's are home-relative;
+//   - the full content scan finds no reference to the build jail's home: the tree lands at another
+//     path in every jail and at the host, so the relocation a program gets cannot rescue it (it
+//     rewrites one home prefix into another, and a tree also moves within the home).
+func treeAdmitProblem(m *capture.Manifest, f packload.Fork) string {
+	reserved := packdecl.TreeReservedDir(f.Bin)
+	have := map[string]bool{}
+	var strays []string
+	for _, e := range m.Entries {
+		have[e.Path] = true
+		if e.Path == reserved || strings.HasPrefix(e.Path, reserved+"/") || strings.HasPrefix(reserved, e.Path+"/") {
+			continue
+		}
+		strays = append(strays, e.Path)
+	}
+	if len(strays) > 0 {
+		return fmt.Sprintf("the build left %d %s outside the tree it delivers (%s), which the tree would "+
+			"not carry — point the build line's tools at the checkout (a cache or a store under ./), "+
+			"so nothing of the build lands in the home", len(strays), plural(len(strays), "path", "paths"),
+			strings.Join(sampleOf(strays, 3), ", "))
+	}
+	if !have[reserved] {
+		return fmt.Sprintf("the build left no tree at ~/%s", reserved)
+	}
+	var missing []string
+	for _, p := range f.Produces {
+		if !have[reserved+"/"+p] {
+			missing = append(missing, p)
+		}
+	}
+	if len(missing) > 0 {
+		return "the build exited 0 but its tree has none of " + strings.Join(missing, ", ") +
+			" — the paths its pack declares under `produces`, relative to the tree"
+	}
+	var refs []string
+	seen := map[string]bool{}
+	for _, r := range m.AbsoluteRefs {
+		rel := strings.TrimPrefix(strings.TrimPrefix(r.Path, reserved), "/")
+		if !seen[rel] {
+			seen[rel] = true
+			refs = append(refs, rel)
+		}
+	}
+	refs = append(refs, m.NotRelocatable...)
+	if len(refs) > 0 || m.RefScan != capture.RefScanFull {
+		if m.RefScan != capture.RefScanFull {
+			refs = append(refs, "(the full content scan did not run)")
+		}
+		return fmt.Sprintf("the tree names the build jail's home %s in %s — the tree lands at another "+
+			"path in every jail and at the host, where such a reference breaks; have the build leave "+
+			"relative paths", m.Home, strings.Join(sampleOf(refs, 3), ", "))
+	}
+	return linksIntoTheBuild(m)
 }
 
 // captureSeal is what makes a capture jail a fork build's: the seal, and the packs entries the
-// selection is narrowed to. nil for `yolo capture` of an installer, which keeps today's jail.
+// selection is narrowed to — and, for a patched extension's build, the extension's name (tree),
+// which the jail is told (run.Options.SealedTree). nil for `yolo capture` of an installer, which
+// keeps today's jail.
 type captureSeal struct {
 	only []string
+	tree string
 }

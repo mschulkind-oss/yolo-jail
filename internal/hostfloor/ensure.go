@@ -57,6 +57,10 @@ const (
 // (wrapped, with the reason); one whose record a newer yolo wrote returns ErrNewerRecord's
 // refusal, installing nothing; a first install that fails returns its error.
 func (f *Floor) Ensure(ctx context.Context, p Program) (Status, Outcome, error) {
+	if p.Install.IsPatchedFork() {
+		// A PATCHED fork's install runs its advance first (patched.go): its own arm, end to end.
+		return f.ensurePatched(ctx, p)
+	}
 	st := f.Status(p)
 	switch {
 	case st.Disposition == NoEntry:
@@ -153,6 +157,9 @@ func (f *Floor) Ensure(ctx context.Context, p Program) (Status, Outcome, error) 
 // from when a fork delivered it. A fork's build at the pin that is pending only for a raised
 // node_floor is the build the lock names, and keeps serving as an npm program's version does.
 func (f *Floor) servesANearMiss(p Program, rec *Record) bool {
+	if p.Install.IsPatchedFork() {
+		return f.patchedServesANearMiss(p, rec)
+	}
 	if p.Install.Kind != packdecl.InstallKindSource {
 		return rec.Via == packdecl.ViaSource
 	}
@@ -170,6 +177,9 @@ func (f *Floor) describeRecipe(p Program) string {
 	case "native":
 		return "the machine's capture of its installer (" + in.InstallerURL + ")"
 	case packdecl.InstallKindSource:
+		if in.IsPatchedFork() {
+			return f.describePatched(p)
+		}
 		commit, _ := f.forkPin(p)
 		return "fork pack " + in.ForkedBy + "'s build of " + in.Source + " at commit " + commit
 	}
@@ -183,7 +193,9 @@ func (f *Floor) describeRecipe(p Program) string {
 //
 // A FORK'S BUILD IS NEVER POLLED: its pin moves it (`yolo pack update`, on the host), which
 // Status reports as Pending, and a poll of anything would be the rebuild on a timer
-// forked-programs-as-packs.md §9 forbids. So no lock, no stamp, no store read.
+// forked-programs-as-packs.md §9 forbids. So no lock, no stamp, no store read. A PATCHED fork's
+// refresh is its advance, under UpdatesAllowed, which its own arm runs and which never comes here
+// (ensurePatched, advances).
 func (f *Floor) refresh(ctx context.Context, p Program, st Status) (Status, Outcome, error) {
 	if p.Install.Kind == packdecl.InstallKindSource {
 		return st, Current, nil
@@ -299,7 +311,11 @@ func (f *Floor) install(ctx context.Context, p Program) (*Record, error) {
 	case "native":
 		rec, err = f.installFromCapture(p, dir)
 	case packdecl.InstallKindSource:
-		rec, err = f.installFromBuild(ctx, p, dir)
+		if p.Install.IsPatchedFork() {
+			rec, err = f.installFromPatchedBuild(ctx, p, dir)
+		} else {
+			rec, err = f.installFromBuild(ctx, p, dir)
+		}
 	default:
 		err = fmt.Errorf("no recipe for via %q", p.Install.Kind)
 	}

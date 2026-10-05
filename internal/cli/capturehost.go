@@ -70,7 +70,8 @@ const captureOutLeaf = "out"
 
 const captureUsage = `yolo capture — record what a vendor installer leaves behind, once per machine
 
-  yolo capture <bin>      run <bin>'s installer in a throwaway jail and store the result
+  yolo capture <bin>          run <bin>'s installer in a throwaway jail and store the result
+  yolo capture <pack>/<name>  build a patched extension's tree now
 
 A ` + "`program via installer`" + ` contribution names a URL whose contents run as a shell
 script: there is nothing to pin, because the installer RUN is the resolution. So yolo runs it
@@ -88,9 +89,14 @@ sealed jail, which gets no credential, no host file and no host service, and the
 stored under a build receipt naming the commit. This is the explicit rebuild: it builds even
 when the store already holds that commit's build, for instance after the image changed.
 
+A PATCHED EXTENSION (a ` + "`files`" + ` contribution with ` + "`source`" + ` and ` + "`patches`" + `) is
+captured by its key, <pack>/<name>: its upstream is checked, its series replayed and the newest
+version it fits built now in a sealed jail, ignoring a failed build's back-off.
+
 Examples:
   yolo capture codex                  # record codex's installer once, for every jail
-  yolo capture pi                     # rebuild a forked pi at its pinned commit`
+  yolo capture pi                     # rebuild a forked pi at its pinned commit
+  yolo capture matt/pi-subagents      # build a patched pi extension now`
 
 // runCapture is the `yolo capture` dispatch entry.
 //
@@ -128,6 +134,14 @@ func captureHost(args []string, out, errw io.Writer, color bool) int {
 	if bin == "" {
 		fmt.Fprintln(errw, captureUsage)
 		return 2
+	}
+	// A PATCHED EXTENSION is captured by its extension key, `<pack>/<name>`
+	// (docs/design/patched-extensions.md §6.1, PF-D12 generalized): the check forced, then the
+	// pending candidate built, or the good build's own inputs rebuilt, through the swap.
+	if strings.Contains(bin, "/") {
+		if rc, handled := captureTree(bin, out, errw, color); handled {
+			return rc
+		}
 	}
 	// ValidBinName before anything else touches the filesystem: the name becomes a staging
 	// directory and a lock filename, and packdecl's own gate is the one that decides what a
@@ -264,6 +278,9 @@ func captureHost(args []string, out, errw io.Writer, color bool) int {
 // builds even when the store holds this build, and REFUSES on contention, as a capture does: a human
 // who typed it can re-run it, where a launch waits (FP-D1).
 func captureFork(f packload.Fork, out, errw io.Writer, color bool) int {
+	if f.Patched() {
+		return capturePatchedFork(f, out, errw, color)
+	}
 	pin := forkPinOf(f)
 	if pin.Commit == "" && pin.Pinnable { // never inside a jail (forkPinOf)
 		// NO PIN YET, and this act needs none made beforehand (FP-D18): it pins the fork as a launch
@@ -301,6 +318,56 @@ func captureFork(f packload.Fork, out, errw io.Writer, color bool) int {
 		return 1
 	}
 	return 0
+}
+
+// capturePatchedFork is `yolo capture <bin>` of a PATCHED fork (docs/design/patched-forks.md
+// §8.3, PF-D12): the check forced, then the pending candidate built now, ignoring a back-off; with
+// none pending, the good build's own inputs rebuilt, as it force-rebuilds a plain fork. Its build
+// goes through the swap like any advance's (patchedadvance.go), and it REFUSES on contention, as a
+// capture does. On the host only: the fork's mirror, series and record live there.
+func capturePatchedFork(f packload.Fork, out, errw io.Writer, color bool) int {
+	if config.InJail() {
+		kind := "patched fork"
+		if f.IsTree() {
+			kind = "patched extension"
+		}
+		fmt.Fprintf(errw, "yolo capture: %s is a %s, checked, replayed and built on the host — "+
+			"run `yolo capture %s` there\n", f.Label(), kind, f.CaptureArg())
+		return 1
+	}
+	r := advancePatchedFork(f, advanceOptions{platform: captureJailPlatform(), out: out, errw: errw, color: color,
+		force: true})
+	if r.built {
+		return 0
+	}
+	if r.delivery.Key == "" && r.delivery.Reason != "" {
+		fmt.Fprintf(errw, "yolo capture: %s\n", r.delivery.Reason)
+	}
+	return 1
+}
+
+// captureTree is `yolo capture <pack>/<name>`: a patched extension's explicit build, as
+// capturePatchedFork is a patched fork's. A key no selected pack declares an extension under is
+// refused naming the ones that do; with none declared, or a config that cannot be read, it handles
+// nothing, and the name is refused as no program's.
+func captureTree(key string, out, errw io.Writer, color bool) (int, bool) {
+	sel := selectConfiguredHostPacks()
+	if sel.loadErr != nil {
+		return 0, false
+	}
+	var keys []string
+	for _, f := range packload.PatchedTrees(sel.packs) {
+		if f.Key() == key {
+			return capturePatchedFork(f, out, errw, color), true
+		}
+		keys = append(keys, f.Key())
+	}
+	if len(keys) == 0 {
+		return 0, false
+	}
+	fmt.Fprintf(errw, "yolo capture: %q names no patched extension your packs declare — they declare %s; "+
+		"run `yolo capture <pack>/<name>` with one of them\n", key, strings.Join(keys, ", "))
+	return 1, true
 }
 
 // captureAgain is the clause most of a capture's stops end their next step with: running it again
@@ -553,6 +620,7 @@ func runCaptureJail(workspace, bin string, argv []string, seal *captureSeal, out
 	if seal != nil {
 		opts.Sealed = true
 		opts.OnlyPacks = seal.only
+		opts.SealedTree = seal.tree
 	}
 	opts.Stdout, opts.Stderr = out, errw
 	// NO CAPTURE STORE IN A CAPTURE JAIL. Every ordinary launch binds the store :ro so a

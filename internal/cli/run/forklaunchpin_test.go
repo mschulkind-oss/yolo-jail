@@ -73,7 +73,8 @@ func forkLockEntry(t *testing.T) (packsrc.ForkLockEntry, bool) {
 // recordingBuild is a build act that records the pins it is handed and answers with key k1.
 func recordingBuild(got *[]packload.ForkPin) func(*Options) {
 	return func(o *Options) {
-		o.BuildForks = func(pins []packload.ForkPin, _ string) map[string]entrypoint.ForkDelivery {
+		o.BuildForks = func(req ForkBuildRequest) map[string]entrypoint.ForkDelivery {
+			pins := req.Pins
 			*got = append(*got, pins...)
 			return map[string]entrypoint.ForkDelivery{"tool": {Key: "k1"}}
 		}

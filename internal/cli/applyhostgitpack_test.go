@@ -280,7 +280,7 @@ func TestApplyHostDryRunSaysAnAssertWouldRefuse(t *testing.T) {
 func TestApplyHostJSONNamesTheUnresolvablePack(t *testing.T) {
 	gitPackHome(t, neverFetchedGitSource, "")
 	var out, errw bytes.Buffer
-	if rc := applyHostFormatted(&out, &errw, false, false, nil, "json"); rc != 0 {
+	if rc := applyHostFormatted(&out, &errw, false, false, nil, "json", nil); rc != 0 {
 		t.Fatalf("rc=%d\n%s%s", rc, out.String(), errw.String())
 	}
 	var doc struct {

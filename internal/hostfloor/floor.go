@@ -35,7 +35,8 @@
 //   - `via: source`, a FORK's program (built.go): the capture store's build of the fork's
 //     PINNED commit, the entry a jail launch materializes, relocated into the prefix, where this
 //     host matches the build jail (Linux). A Node script among them is started by the floor's own
-//     Node, as an npm program is.
+//     Node, as an npm program is. A PATCHED fork's (patched.go) is the build of its GOOD BUILD
+//     instead, and its install runs the fork's advance first (docs/design/patched-forks.md §9).
 //
 // # The layout (every name below is this package's)
 //
@@ -51,6 +52,7 @@
 package hostfloor
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -62,6 +64,7 @@ import (
 
 	"github.com/mschulkind-oss/yolo-jail/internal/capture"
 	"github.com/mschulkind-oss/yolo-jail/internal/packdecl"
+	"github.com/mschulkind-oss/yolo-jail/internal/packsrc"
 	"github.com/mschulkind-oss/yolo-jail/internal/updatehint"
 )
 
@@ -222,6 +225,25 @@ type Floor struct {
 	// and only when it is of that commit and the fork's current recipe — never a near-miss).
 	// nil => this host has no capture store.
 	ResolveBuild func(p Program, commit string) (*capture.Entry, error)
+	// Patched reads a PATCHED fork's program (docs/design/patched-forks.md §9, patched.go): the
+	// recipe its series asks for now and the good build that serves it, from this machine's check
+	// record and capture store, offline — file reads, never git or the network, so Status may ask
+	// it. nil => this floor holds no patched fork.
+	Patched func(p Program) PatchedState
+	// Advance runs a patched fork's ADVANCE for p — the check (throttled hourly), the replay of the
+	// series and the build of the newest fit in a sealed capture jail, and the move of the good build
+	// once that build is admitted — waiting for it as a launch does (PF-D25: bounded, and a Ctrl-C
+	// ends it on the good build), and returns the state after it. Ensure asks it before it decides,
+	// outside the floor's lock; never Status. installed is the floor's own copy of p when it is a
+	// build of the series as it stands — the copy a failed install keeps (PF-D8) — and nil otherwise:
+	// it serves whatever the advance does, so the advance runs as one with a good build serving, and
+	// builds no good build that copy already is (PF-D55). nil => no patched fork is advanced here, and
+	// none with no good build in the store has a floor entry.
+	Advance func(ctx context.Context, p Program, installed *Record) PatchedState
+	// NoAdvance is why Advance is nil for this act when the act, not the machine, builds no patched
+	// fork, naming the act that does: the host apply `yolo pack update` runs (PF-D12, PF-D56). ""
+	// keeps the machine's reason.
+	NoAdvance string
 	// Build runs the fork's build act for p at commit (a sealed capture jail; never on the host),
 	// waiting, bounded, for a build of the same key another process is running, as a jail launch
 	// does (FP-D1), and returns the entry it admitted or the one that process did. The entry is
@@ -333,6 +355,12 @@ func declared(in packdecl.Install) string {
 	case "native":
 		return in.InstallerURL
 	case packdecl.InstallKindSource:
+		if in.IsPatchedFork() {
+			// A PATCHED fork's build is identified by its repository and subdirectory, never its ref
+			// (docs/design/patched-forks.md §6.3), so moving a hold from `?ref=main` to `?ref=v1.0.1`
+			// is not a new declaration: the good build it names is the record's to compare.
+			return packsrc.BuildSource(in.Source)
+		}
 		return in.Source
 	}
 	return ""
@@ -457,9 +485,16 @@ func (f *Floor) noEntryReason(p Program) string {
 		// floor still holds is a near-miss it never serves (§9), so that is no entry too — unless
 		// the install can make the pin (awaitsPin, FP-D18), which it does before it builds.
 		if f.GOOS != "linux" {
+			// The next step is a jail's: a build is of the jail's platform (FP-D16), and a jail
+			// launch on a container backend builds it, a patched fork's advance included.
 			return "it is built from source by fork pack " + in.ForkedBy + " in a Linux capture " +
 				"jail, and this machine is " + f.GOOS + "/" + f.GOARCH + ": the floor holds a build " +
-				"made for its own platform only"
+				"made for its own platform only — run it in a jail instead (`yolo -- " + in.Bin + "`, on " +
+				"a container backend: Apple Container or podman), whose fresh launch builds it"
+		}
+		if in.IsPatchedFork() {
+			// A PATCHED fork has no pin (PF-D16): its good build answers instead (patched.go).
+			return f.patchedNoEntryReason(p)
 		}
 		if _, why := f.forkPin(p); why != "" && !f.awaitsPin(p) {
 			return "it is built from source by fork pack " + in.ForkedBy + ", and " + why
@@ -473,6 +508,9 @@ func (f *Floor) noEntryReason(p Program) string {
 // does not hold, the capture store and whether a capture could run — and nothing else: no
 // network, no install, so `yolo check` and the launch gate can ask it freely.
 func (f *Floor) Status(p Program) Status {
+	if p.Install.IsPatchedFork() {
+		return f.patchedStatus(p)
+	}
 	st := Status{Program: p, Launcher: f.Launcher(p.Bin())}
 	if why := f.noEntryReason(p); why != "" {
 		st.Disposition, st.Reason = NoEntry, why

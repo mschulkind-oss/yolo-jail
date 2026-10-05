@@ -19,6 +19,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/hostpath"
 	"github.com/mschulkind-oss/yolo-jail/internal/packdecl"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
+	"github.com/mschulkind-oss/yolo-jail/internal/packsrc"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/pidlock"
 	"github.com/mschulkind-oss/yolo-jail/internal/richtext"
@@ -127,6 +128,15 @@ var newHostFloor = func(out io.Writer, progs []hostfloor.Program) *hostfloor.Flo
 			return buildFork(floorForkBuild(p, commit),
 				buildMode{lock: pidlock.Mode{Wait: true, Bound: forkBuildWaitBound}}, out, out, false)
 		},
+		// A PATCHED FORK's program (docs/design/patched-forks.md §9, PF-D14): no pin, so the floor reads
+		// the GOOD BUILD where a plain fork's reads the pin — offline, from this machine's check record
+		// and capture store — and its install runs the fork's ADVANCE first, the one a fresh jail launch
+		// runs (patchedadvance.go), waiting for it as that launch does (PF-D25).
+		Patched: floorPatchedState,
+		Advance: func(ctx context.Context, p hostfloor.Program, installed *hostfloor.Record) hostfloor.PatchedState {
+			floorAdvance(floorForkBuild(p, "").Fork, out, floorServingCopy(installed), actInterruptOf(ctx))
+			return floorPatchedState(p)
+		},
 		Home:   paths.Home(),
 		Out:    out,
 		Prefix: "yolo host: ",
@@ -140,11 +150,100 @@ var newHostFloor = func(out io.Writer, progs []hostfloor.Program) *hostfloor.Flo
 func floorForkBuild(p hostfloor.Program, commit string) forkBuild {
 	in := p.Install
 	return forkBuild{
+		// Patches and Follow too, so a patched fork reads as one to the pinner, which never pins it
+		// (packload.PinForks, PF-D16); and the fork pack's root, which its series is read from.
 		Fork: packload.Fork{Pack: in.ForkedBy, Base: p.Pack, Bin: in.Bin, Source: in.Source, Build: in.Build,
-			Produces: in.Produces, Platforms: in.Platforms},
+			Produces: in.Produces, Platforms: in.Platforms, Patches: in.Patches, Follow: in.Follow,
+			Root: in.ForkRoot},
 		Commit:   commit,
 		Platform: capture.Platform(),
 	}
+}
+
+// floorPatchedPlatform is the platform a patched fork's floor build is of: this host's, as a plain
+// fork's floor build is (floorForkBuild), the only one a materialize on the host takes. The floor
+// holds a fork's build on Linux only (noEntryReason refuses every other host first), where it is a
+// capture jail's too, so the floor's lookups and a jail launch's name one build.
+func floorPatchedPlatform() string { return capture.Platform() }
+
+// floorAdvance is the floor's advance of a patched fork (hostfloor.Floor.Advance): the fresh
+// launch's own (advancePatchedFork) as a LAUNCH — the check throttled, a back-off honored, the wait
+// interruptible while a good build serves (PF-D25) — at the host (advanceOptions.host), its lines on
+// the launch's stderr, as the floor's are. installed is the floor's own copy that serves, nil for
+// none (PF-D55). act is the verb's act interrupt (PF-D57), which the floor's Ensure carried in its
+// context (withActInterrupt). It hands nothing: the floor installs the good build the record names
+// once it returns. A var so a test can count the floor's advances.
+var floorAdvance = func(f packload.Fork, out io.Writer, installed *installedCopy, act *run.ActInterrupt) {
+	advancePatchedFork(f, advanceOptions{platform: floorPatchedPlatform(), out: out, errw: out, launch: true, host: true,
+		installed: installed, act: act})
+}
+
+// actInterruptKey is the context key the verb's act interrupt rides under through the floor's Ensure,
+// whose Advance it reaches by the context alone (hostfloor.Floor.Advance).
+type actInterruptKey struct{}
+
+// withActInterrupt is ctx carrying act to the floor's Advance (PF-D57); ctx itself for a nil act.
+func withActInterrupt(ctx context.Context, act *run.ActInterrupt) context.Context {
+	if act == nil {
+		return ctx
+	}
+	return context.WithValue(ctx, actInterruptKey{}, act)
+}
+
+// actInterruptOf is the act interrupt ctx carries, nil for none.
+func actInterruptOf(ctx context.Context) *run.ActInterrupt {
+	act, _ := ctx.Value(actInterruptKey{}).(*run.ActInterrupt)
+	return act
+}
+
+// floorServingCopy is the floor's installed copy the floor hands its advance as serving
+// (hostfloor.Floor.Advance), as the advance reads it: the upstream commit and recipe it is a build
+// of, and its label. nil for none.
+func floorServingCopy(rec *hostfloor.Record) *installedCopy {
+	if rec == nil {
+		return nil
+	}
+	return &installedCopy{commit: rec.Revision, recipe: rec.Recipe, label: rec.Version}
+}
+
+// floorPatchedState is the floor's offline read of a patched fork's program (hostfloor.Floor.Patched):
+// the recipe its series asks for now, and the good build that serves it — the check record's, or,
+// with no record, the one the capture store holds for this recipe (recoverGoodBuild, which writes
+// nothing) — with its store entry by the exact lookup. File reads only: no git, no network.
+func floorPatchedState(p hostfloor.Program) hostfloor.PatchedState {
+	f := floorForkBuild(p, "").Fork
+	series, err := f.ReadSeries()
+	if err != nil {
+		return hostfloor.PatchedState{Reason: fmt.Sprintf("%v — correct it, and the next `yolo host -- %s` builds it",
+			err, f.Bin)}
+	}
+	recipe := forkBuild{Fork: f, Series: series}.recipe()
+	ps := hostfloor.PatchedState{Recipe: recipe}
+	platform := floorPatchedPlatform()
+	store := &capture.Store{Dir: paths.CapturesDir()}
+	var g *packsrc.GoodBuild
+	if rec, err := patchedForkStore().LoadCheckRecord(f.Key()); err == nil && rec.Good != nil {
+		g = rec.Good
+	} else {
+		g = recoverGoodBuild(store, f.Key(), platform, recipe, series.Len())
+	}
+	switch {
+	case g == nil:
+		ps.Reason = "fork " + f.Key() + " has no build on this machine yet"
+		return ps
+	case g.Recipe != recipe:
+		// THE USER'S EDIT (PF-D23): nothing serves until the edited series or recipe builds.
+		ps.Reason = "fork " + f.Key() + "'s patch series or build recipe changed since its good build " +
+			run.GoodBuildLabel(g) + " — reverting the edit brings that build back"
+		return ps
+	}
+	ps.Good = &hostfloor.PatchedBuild{Commit: g.Commit, Recipe: g.Recipe,
+		Label: run.GoodBuildLabel(g) + " + " + run.PatchCount(g.Patches)}
+	if e, _, err := resolvePatchedBuild(store, f.Key(), f.Bin, platform, patchedBuildSource(f.Source), g.Commit,
+		recipe); err == nil {
+		ps.Good.Entry = e
+	}
+	return ps
 }
 
 // floorForkPins reads the fork lock once for every source-built program among progs, keyed by bin,
@@ -256,6 +355,11 @@ func applyHostFloor(pr richtext.Printer, out io.Writer, packs []*packload.Pack, 
 	progs := floorPrograms(packs)
 	floor := newHostFloor(out, progs)
 	floor.Prefix = "    "
+	if survey != nil && survey.advanceDeferred != "" {
+		// THE ACT BUILDS NONE (PF-D12, PF-D56): the floor installs a good build already admitted, and a
+		// patched fork with none says which act builds it.
+		floor.Advance, floor.NoAdvance = nil, survey.advanceDeferred
+	}
 	rc := 0
 	// note records a row for the machine document (hostApplyDoc.HostFloor), which only the dry
 	// run emits, so the dry run's rows are the ones it carries.
@@ -269,6 +373,12 @@ func applyHostFloor(pr richtext.Printer, out io.Writer, packs []*packload.Pack, 
 		row := hostApplyDocFloorEntry{Bin: p.Bin(), Pack: p.Pack, Disposition: string(st.Disposition),
 			Action: "none", Reason: st.Reason, Launcher: st.Launcher}
 		switch {
+		case st.Disposition == hostfloor.NoEntry && floor.NoAdvance != "" && strings.Contains(st.Reason, floor.NoAdvance):
+			// A patched fork this act builds none of (PF-D56): not the floor's NoEntry, whose launch
+			// runs the copy on the PATH, since a `yolo host` launch of it builds it.
+			pr.Printf("  [cyan]%-20s[/cyan] %s: not installed yet — %s", "host_floor", p.Bin(), st.Reason)
+			note(row)
+			continue
 		case st.Disposition == hostfloor.NoEntry:
 			pr.Printf("  [cyan]%-20s[/cyan] %s: no floor entry — %s; `yolo host -- %s` runs the one on "+
 				"your PATH", "host_floor", p.Bin(), st.Reason, p.Bin())
@@ -303,7 +413,7 @@ func applyHostFloor(pr richtext.Printer, out io.Writer, packs []*packload.Pack, 
 			note(row)
 			continue
 		}
-		after, outcome, err := floor.Ensure(context.Background(), p)
+		after, outcome, err := floor.Ensure(withActInterrupt(context.Background(), survey.actInterrupt()), p)
 		if errors.Is(err, hostfloor.ErrNewerRecord) {
 			// Refused, not failed, in the dry run's words: a newer yolo's record, which Ensure
 			// does not install over. The run still does not complete, so it exits 1.
@@ -401,7 +511,8 @@ type hostTarget struct {
 //
 // The second return is the exit code of a launch this refuses (127: the program is not
 // available), 0 otherwise. In a jail there is no floor: the jail's own launchers are on PATH.
-func resolveHostLaunchTarget(packs []*packload.Pack, cmd0 string, lp *hostpath.Launch, errw io.Writer) (hostTarget, int) {
+func resolveHostLaunchTarget(packs []*packload.Pack, cmd0 string, lp *hostpath.Launch, errw io.Writer,
+	act *run.ActInterrupt) (hostTarget, int) {
 	floorBin := hostFloorBinDir()
 	child := hostChildLaunch(lp)
 	onPath := func() (hostTarget, int) {
@@ -440,7 +551,7 @@ func resolveHostLaunchTarget(packs []*packload.Pack, cmd0 string, lp *hostpath.L
 		return onPath()
 	}
 	floor := newHostFloor(errw, progs)
-	st, _, err := floor.Ensure(context.Background(), prog)
+	st, _, err := floor.Ensure(withActInterrupt(context.Background(), act), prog)
 	switch {
 	case errors.Is(err, hostfloor.ErrNoEntry):
 		// OQ-HE11 is open: keep today's behavior — the launch's PATH — and say, once, that the
@@ -460,6 +571,15 @@ func resolveHostLaunchTarget(packs []*packload.Pack, cmd0 string, lp *hostpath.L
 	case err != nil:
 		fmt.Fprintf(errw, "yolo host: could not install %s into yolo's floor: %v\n", cmd0, err)
 		return hostTarget{}, 127
+	}
+	if prog.Install.IsPatchedFork() && st.Record != nil {
+		// A PATCHED FORK'S LINE (docs/design/patched-forks.md §7, PF-D11, PF-D53), the one a jail
+		// launch's fork block prints, of the build the FLOOR runs: the series, that build, and the held
+		// suffix while something holds the newest upstream back — or, when the floor runs another build
+		// than the good build, both. A disclosure, so on every launch (OQ-RO3).
+		line, _ := run.PatchedForkLine(floorForkBuild(prog, "").Fork, run.FloorCopy{Commit: st.Record.Revision,
+			Recipe: st.Record.Recipe, Label: st.Record.Version}, "the next `yolo host -- "+cmd0+"`")
+		fmt.Fprintf(errw, "yolo host: %s\n", line)
 	}
 	return hostTarget{Path: st.Launcher, Origin: originFloor}, 0
 }

@@ -17,19 +17,18 @@ import (
 
 	"github.com/mschulkind-oss/yolo-jail/internal/nixchildren"
 	"github.com/mschulkind-oss/yolo-jail/internal/shquote"
+	"github.com/mschulkind-oss/yolo-jail/internal/testsupport"
 )
 
-// standInNix puts a `nix` on PATH that runs until interrupted, marking its start and the interrupt
-// in the directory it returns, and returns that directory and the stand-in's path. It gives up
-// after 30 seconds, so a red run whose nix nothing stops does not leave it looping after the test
-// binary exits.
+// standInNix puts a `nix` on PATH that runs until interrupted (testsupport.UntilInterrupted),
+// marking its start and the interrupt in the directory it returns, and returns that directory and
+// the stand-in's path.
 func standInNix(t *testing.T) (marks, nix string) {
 	t.Helper()
 	bin, marks := t.TempDir(), t.TempDir()
 	nix = filepath.Join(bin, "nix")
-	script := "#!/bin/sh\ntrap " + shquote.Quote("touch "+shquote.Quote(filepath.Join(marks, "interrupted"))+"; echo interrupted >&2; exit 130") + " INT\n" +
-		"touch " + shquote.Quote(filepath.Join(marks, "started")) + "\n" +
-		"i=0; while [ $i -lt 600 ]; do sleep 0.05; i=$((i+1)); done; exit 1\n"
+	script := "#!/bin/sh\n" + testsupport.UntilInterrupted("touch "+shquote.Quote(filepath.Join(marks, "interrupted"))+"; echo interrupted >&2",
+		filepath.Join(marks, "started")) + "\n"
 	must(t, os.WriteFile(nix, []byte(script), 0o755))
 	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
 	return marks, nix

@@ -815,14 +815,16 @@ timing at all: `yolo host --timing -- true` was refused as a jail-launch flag, a
   wrappers make concurrent host commands ordinary; the event lines are single appends, as they
   are in a workspace's file.
 - **`yolo host --` spans every stage before its hand-over:** `host.pack_refresh`,
-  `host.capability_gate`, `host.apply_gate`, `host.compose`, `host.preflight`,
+  `host.capability_gate`, `host.apply_gate` (which includes the check and advance of a [patched
+  extension](../design/patched-extensions.md) the program loads), `host.compose`, `host.preflight`,
   `host.resolve_target` (which includes a first launch's floor install), `host.model_menu`,
   `host.openai_prelaunch`, and `host.services_start` when the launch starts a service or a
   doorway; then the `host.handover` mark. The table, or the quiet line, prints before
   `yolo host: starting …`, which stays the last thing yolo says: after the exec there is no
   process left to print anything, and a resident launch's terminal belongs to the agent.
-- **`yolo host apply` spans** `host_apply.pack_refresh`, `host_apply.render`, and inside the
-  render `host_apply.wrappers` and `host_apply.floor`; `--revert` is `host_apply.revert`. The table
+- **`yolo host apply` spans** `host_apply.pack_refresh`, `host_apply.render` (which includes an
+  acting apply's check and advance of the patched extensions), and inside the render
+  `host_apply.wrappers` and `host_apply.floor`; `--revert` is `host_apply.revert`. The table
   goes to stderr, so `--format json` keeps stdout one document. `yolo --timing host apply` is
   `yolo host apply --timing` ([D19](#why-its-this-way)), and `yolo apply --timing` at any notch but
   the host is refused by name.

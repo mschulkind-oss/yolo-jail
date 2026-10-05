@@ -51,6 +51,11 @@ written into each agent's own settings files, where that agent supports them.
 frozen if you say so, for all of them or one at a time.
 [Agent updates →](guides/packs-and-skills.md#keep-agents-and-packs-up-to-date)
 
+**Keep your patches on the newest release.** Give yolo an upstream and your changes as a patch
+series, for a program or a pi extension. It builds them onto each new release they fit and keeps
+the last good build when they stop fitting.
+[Follow an upstream with a patch series →](guides/patch-series.md)
+
 ## Connect what matters
 
 **Choose how agents log in.** Log in inside the jail once, hand an agent an API key on purpose, or

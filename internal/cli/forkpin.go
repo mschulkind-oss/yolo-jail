@@ -14,6 +14,7 @@ package cli
 import (
 	"fmt"
 	"io"
+	"strings"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/capture"
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
@@ -42,22 +43,37 @@ func pinForks(pr richtext.Printer, errw io.Writer, repin bool) int {
 		return 0
 	}
 	forks := packload.Forks(sel.packs)
+	trees := packload.PatchedTrees(sel.packs)
 	if config.InJail() {
 		if len(forks) > 0 {
 			pr.Printf("[dim]Fork pins are recorded on the host (%s): the next launch there pins a fork "+
 				"that has none, and `yolo pack update` there moves one.[/dim]", packsrc.ForkLockName)
+		}
+		if len(trees) > 0 {
+			pr.Printf("[dim]Patched extensions are checked, replayed and built on the host: `yolo pack update` " +
+				"there checks them.[/dim]")
 		}
 		return 0
 	}
 	lockPath := forkLockPath()
 	store := &packsrc.Store{Dir: paths.PacksDir()}
 	rc := 0
-	var lines, pruned []string
+	var lines, pruned, migrated []string
 	err := packsrc.WithForkLock(store.Dir, lockPath, func(line string) { pr.Printf("[dim]%s[/dim]", line) },
 		func(l *packsrc.ForkLock) (bool, error) {
 			changed := false
 			var keep []string
 			for _, f := range forks {
+				if f.Patched() {
+					// A PATCHED FORK HAS NO PIN (PF-D16): a plain fork's entry left under its key from
+					// before a migration is dropped, and said, apart from the forks that left.
+					if _, pinned := l.Get(f.Key()); pinned {
+						delete(l.Forks, f.Key())
+						migrated = append(migrated, f.Key())
+						changed = true
+					}
+					continue
+				}
 				keep = append(keep, f.Key())
 				prev, pinned := l.Get(f.Key())
 				addr, err := packsrc.Parse(f.Source)
@@ -120,9 +136,24 @@ func pinForks(pr richtext.Printer, errw io.Writer, repin bool) int {
 	for _, gone := range pruned {
 		pr.Printf("[dim]fork %s left the selection — dropped from %s[/dim]", gone, packsrc.ForkLockName)
 	}
+	for _, key := range migrated {
+		pr.Printf("[dim]fork %s is a patched fork now; its plain-fork pin is dropped from %s[/dim]",
+			key, packsrc.ForkLockName)
+	}
 	if err != nil {
 		fmt.Fprintf(errw, "yolo pack: writing %s: %v\n", lockPath, err)
 		return 1
+	}
+	// THE PATCHED FORKS (docs/design/patched-forks.md §8.3), after the fork lock is released — the
+	// fork lock comes before a check record's lock, and nothing here holds both: update checks and
+	// replays every one, install those with no good build.
+	if n := checkPatchedForks(pr, errw, forks, repin); n != 0 {
+		rc = n
+	}
+	// And the PATCHED EXTENSIONS, through the same check and walk by their extension keys
+	// (docs/design/patched-extensions.md §6.1, PF-D12 generalized): no pin, no fork lock.
+	if n := checkPatchedForks(pr, errw, trees, repin); n != 0 {
+		rc = n
 	}
 	return rc
 }
@@ -142,30 +173,51 @@ func ensureForkCheckout(store *packsrc.Store, a packsrc.Addr, commit string) err
 }
 
 // forkStatusLines is `yolo pack status`'s fork section: each selected fork's pin, or why it has
-// none. It returns the lines and whether any fork's pin was made for a source the fork no longer
-// declares — DRIFT, which fails the verb as a pack's drift does. A fork never pinned is reported
-// like a pack never installed, and does not fail it.
-func forkStatusLines() (lines []string, drift bool, err error) {
+// none, and each patched extension's state. It returns the section's header (forkSectionHeader),
+// its lines, and whether any fork's pin was made for a source the fork no longer declares — DRIFT,
+// which fails the verb as a pack's drift does. A fork never pinned is reported like a pack never
+// installed, and does not fail it.
+func forkStatusLines() (header string, lines []string, drift bool, err error) {
 	sel := selectConfiguredHostPacks()
 	if sel.loadErr != nil {
-		return nil, false, nil
+		return "", nil, false, nil
 	}
 	forks := packload.Forks(sel.packs)
-	if len(forks) == 0 {
-		return nil, false, nil
+	trees := packload.PatchedTrees(sel.packs)
+	if len(forks) == 0 && len(trees) == 0 {
+		return "", nil, false, nil
 	}
+	header = forkSectionHeader(forks, trees)
 	// IN A JAIL the lock is not here: it is beside the host's user config, which no jail reads, so
 	// an absent file would read as every fork being unpinned (pinForks' in-jail line, the twin).
 	if config.InJail() {
-		return []string{fmt.Sprintf("[dim]%d %s: the pins are recorded on the host (%s) — run "+
-			"`yolo pack status` there[/dim]", len(forks), plural(len(forks), "fork", "forks"),
-			packsrc.ForkLockName)}, false, nil
+		if len(forks) > 0 {
+			lines = append(lines, fmt.Sprintf("[dim]%d %s: the pins are recorded on the host (%s) — run "+
+				"`yolo pack status` there[/dim]", len(forks), plural(len(forks), "fork", "forks"),
+				packsrc.ForkLockName))
+		}
+		if len(trees) > 0 {
+			lines = append(lines, fmt.Sprintf("[dim]%d patched %s: checked and built on the host — run "+
+				"`yolo pack status` there[/dim]", len(trees), plural(len(trees), "extension", "extensions")))
+		}
+		return header, lines, false, nil
 	}
+	// A PATCHED EXTENSION's state is its check record's, as a patched fork's is (patchedfork.go).
+	defer func() {
+		for _, f := range trees {
+			lines = append(lines, patchedForkStatusLines(f)...)
+		}
+	}()
 	lock, err := packsrc.LoadForkLock(forkLockPath())
 	if err != nil {
-		return nil, false, err
+		return "", nil, false, err
 	}
 	for _, p := range packload.ForkPins(forks, lock) {
+		if p.Fork.Patched() {
+			// No pin by design (PF-D16): its state is its check record's (patchedfork.go).
+			lines = append(lines, patchedForkStatusLines(p.Fork)...)
+			continue
+		}
 		if p.Commit == "" {
 			drift = drift || p.LockedSource != ""
 			lines = append(lines, "[yellow]⚠ "+p.Line()+"[/yellow]")
@@ -174,7 +226,36 @@ func forkStatusLines() (lines []string, drift bool, err error) {
 		lines = append(lines, fmt.Sprintf("%-20s %s [dim]%s — fork of %s's %s, from %s; %s[/dim]",
 			p.Fork.Key(), shortSHA(p.Commit), p.Ref, p.Fork.Base, p.Fork.Bin, p.Fork.Source, forkBuiltState(p)))
 	}
-	return lines, drift, nil
+	return header, lines, drift, nil
+}
+
+// forkSectionHeader is the fork section's header, naming what it lists and where any pin is: only a
+// plain fork has one, in forks.lock.json (FP-D7), while a patched fork (PF-D16) and a patched
+// extension (PPX-D19) have none, their good build being this machine's.
+func forkSectionHeader(forks, trees []packload.Fork) string {
+	plain, patched := 0, 0
+	for _, f := range forks {
+		if f.Patched() {
+			patched++
+		} else {
+			plain++
+		}
+	}
+	var what []string
+	if len(forks) > 0 {
+		what = append(what, "forks")
+	}
+	if len(trees) > 0 {
+		what = append(what, "patched extensions")
+	}
+	note := packsrc.ForkLockName
+	switch {
+	case plain > 0 && (patched > 0 || len(trees) > 0):
+		note = "plain forks' pins in " + packsrc.ForkLockName + "; the patched ones have none"
+	case plain == 0:
+		note = "no pins: each one's good build is this machine's"
+	}
+	return "[bold]" + strings.Join(what, " and ") + "[/bold] [dim](" + note + ")[/dim]"
 }
 
 // forkBuiltState says whether the capture store holds this pin's build for a container jail on

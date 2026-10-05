@@ -42,6 +42,13 @@ func ForkPins(forks []Fork, lock *packsrc.ForkLock) []ForkPin {
 	out := make([]ForkPin, 0, len(forks))
 	for _, f := range forks {
 		p := ForkPin{Fork: f}
+		if f.Patched() {
+			// NO PIN, EVER (PF-D16): a lock entry under a patched fork's key is a plain fork's,
+			// left from before a migration, and is ignored.
+			p.Reason = PatchedForkPinReason
+			out = append(out, p)
+			continue
+		}
 		var e packsrc.ForkLockEntry
 		ok := false
 		if lock != nil {
@@ -121,13 +128,28 @@ func PinForks(forks []Fork, lockPath string, store *packsrc.Store, begin func() 
 	if len(forks) == 0 {
 		return nil
 	}
-	want := make([]packsrc.ForkWant, len(forks))
+	// A PATCHED FORK IS NEVER PINNED (docs/design/patched-forks.md §6.5, PF-D16): it follows its
+	// upstream through a machine-local good build, and forks.lock.json holds no entry for it. It is
+	// kept out HERE, the one pinner every act that readies a fork's program reaches — a launch, the
+	// host floor's install and `yolo capture` — so no caller can pin one at a branch head and build
+	// the upstream unpatched under the fork's name.
+	pins := make([]ForkPin, len(forks))
+	var want []packsrc.ForkWant
+	var at []int
 	for i, f := range forks {
-		want[i] = packsrc.ForkWant{Key: f.Key(), Source: f.Source}
+		if f.Patched() {
+			pins[i] = ForkPin{Fork: f, Reason: PatchedForkPinReason}
+			continue
+		}
+		want = append(want, packsrc.ForkWant{Key: f.Key(), Source: f.Source})
+		at = append(at, i)
+	}
+	if len(want) == 0 {
+		return pins
 	}
 	outcomes := store.PinForks(lockPath, want, packsrc.ForkPinOptions{Begin: begin})
-	pins := make([]ForkPin, len(forks))
-	for i, o := range outcomes {
+	for j, o := range outcomes {
+		i := at[j]
 		p := ForkPin{Fork: forks[i]}
 		if o.Entry.Commit != "" {
 			p.Commit, p.Ref, p.Pinned = o.Entry.Commit, o.Entry.Ref, o.Pinned
@@ -147,6 +169,14 @@ func PinForks(forks []Fork, lockPath string, store *packsrc.Store, begin func() 
 	}
 	return pins
 }
+
+// PatchedForkPinReason is a patched fork's reason wherever a fork's PIN is read: it has none by
+// design (PF-D16). A fresh jail launch never hands it to a jail: the launch's advance decides a
+// patched fork's delivery (patched-forks.md §6.5); the reason names that act. The host floor never
+// reads it either: its patched arm reads the good build where a plain fork's reads the pin
+// (internal/hostfloor's patched.go).
+const PatchedForkPinReason = "it is a patched fork: it follows its upstream with no pin in " +
+	packsrc.ForkLockName + ", and a fresh jail launch checks its upstream and builds it from its series"
 
 // PinnedLine is the one line a caller discloses for a pin it made (Pinned): which fork, at which
 // commit of which source, and what moves it. A launch has no quiet mode (OQ-RO3), and the commit a

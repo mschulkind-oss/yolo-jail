@@ -139,6 +139,9 @@ This works on podman and on Apple Container 1.1.0 or later. On `macos-user`, and
 Container, the fork's program is not delivered yet, and the launch says so. On a Mac, `yolo host`
 runs the copy on your PATH and says why.
 
+If your fork is a few changes on top of someone else's project, yolo can keep them on its newest
+release for you instead: see [Follow an Upstream with a Patch Series](patch-series.md).
+
 ## Check a pack before you trust it
 
 A pack can read files from your home, install programs, and ship a loophole that runs a program on

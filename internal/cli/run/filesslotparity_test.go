@@ -77,7 +77,7 @@ func slotFixture(t *testing.T, contentPack string) (owner, content *packload.Pac
 // jailFilesDests is every home-relative destination the JAIL notch delivers for `set`.
 func jailFilesDests(set []*packload.Pack) []string {
 	var out []string
-	for _, tg := range packFilesTargets(set) {
+	for _, tg := range packFilesTargets(set, nil) {
 		out = append(out, filepath.ToSlash(tg.Dest))
 	}
 	sort.Strings(out)
@@ -205,7 +205,7 @@ func TestAMissingAddressedSourceIsReportedAtBothNotches(t *testing.T) {
 	}
 	set := []*packload.Pack{owner, content}
 
-	targets := packFilesTargets(set)
+	targets := packFilesTargets(set, nil)
 	if len(targets) != 1 || targets[0].Dest != slotFixtureRoot+"/matt" {
 		t.Fatalf("jail targets = %+v, want the one addressed tree at its slot", targets)
 	}

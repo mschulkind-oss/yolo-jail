@@ -41,7 +41,7 @@ func TestFooterAdapterFilesLeaveTheAgentsOwnDirsAlone(t *testing.T) {
 	t.Run("opencode/podman prepares nothing", func(t *testing.T) {
 		packs := []*packload.Pack{officialPack(t, "opencode")}
 		writable := packload.WritableDirs(packs)
-		for _, target := range packFilesTargets(packs) {
+		for _, target := range packFilesTargets(packs, nil) {
 			if rel, ok := packFilesWorkspaceRel(target.Dest, writable, "podman"); ok {
 				t.Errorf("podman now prepares opencode's %s in the workspace overlay (at %s): add podman to "+
 					"opencode's runtimes above, so its placement is pinned there too", target.Dest, rel)
@@ -67,7 +67,7 @@ func TestFooterAdapterFilesLeaveTheAgentsOwnDirsAlone(t *testing.T) {
 					t.Fatal(err)
 				}
 
-				archived := preparePackFiles([]*packload.Pack{p}, wsState, rt)
+				archived := preparePackFiles([]*packload.Pack{p}, nil, wsState, rt)
 				if len(archived) != 0 {
 					t.Errorf("the first launch with the %s pack archived %v: the user's file in %s is not a "+
 						"pack-file mountpoint", c.pack, archived, c.userDir)

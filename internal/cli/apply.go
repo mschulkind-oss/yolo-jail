@@ -211,7 +211,7 @@ func applyAtHost(out, errw io.Writer, color, write, revert bool, stdin io.Reader
 	if rc, refused := refuseHostManagement(errw); refused {
 		return rc
 	}
-	return hostApplyRefreshAndRender(out, errw, color, write, stdin, format)
+	return hostApplyRefreshAndRender(out, errw, color, write, stdin, format, "")
 }
 
 // applyHost renders the configured packs' config surfaces into the invoking user's REAL
@@ -247,15 +247,26 @@ func applyHost(out, errw io.Writer, color bool, write bool, stdin io.Reader) int
 // from. stdin is nil in the JSON branch by construction — the observe posture prompts for
 // nothing, and promptYesNo reads nil as NO, so a document can never be the thing that
 // answered a question.
+//
+// act is the apply's act interrupt (PF-D57): the one its patched extensions' advances ran under,
+// which the floor stage's patched forks' advances share; nil for none.
 func applyHostFormatted(out, errw io.Writer, color bool, write bool, stdin io.Reader,
-	format string) int {
+	format string, act *run.ActInterrupt) int {
+	return applyHostFormattedDeferring(out, errw, color, write, stdin, format, "", act)
+}
+
+// applyHostFormattedDeferring is applyHostFormatted for an apply that runs no patched advance,
+// deferred naming why and the act that does (hostApplySurvey.advanceDeferred); "" runs them.
+func applyHostFormattedDeferring(out, errw io.Writer, color bool, write bool, stdin io.Reader,
+	format, deferred string, act *run.ActInterrupt) int {
 	if !outfmt.IsJSON(format) {
-		return applyHost(out, errw, color, write, stdin)
+		return applyHostSurveyed(out, errw, color, write, stdin,
+			&hostApplySurvey{floorStage: true, advanceDeferred: deferred, act: act})
 	}
 	if jsonRefusedForPosture(format, write) {
 		return refuseJSONForActingApply(errw)
 	}
-	survey := &hostApplySurvey{floorStage: true}
+	survey := &hostApplySurvey{floorStage: true, advanceDeferred: deferred, act: act}
 	rc := applyHostSurveyed(outfmt.Sink(out, format), errw, false, false, nil, survey)
 	return emitHostApplyDoc(out, errw, format, survey, rc)
 }
@@ -781,7 +792,7 @@ func applyHostSurveyed(out, errw io.Writer, color bool, write bool, stdin io.Rea
 			// per-contribution rendering is the auditor's third copy.
 			detail(pr, "%s", packDeps.depLine(c))
 		}
-		if frc := applyHostFiles(pr, errw, p, home, stamp, write, survey); frc != 0 {
+		if frc := applyHostFiles(pr, errw, p, loaded, home, stamp, write, survey); frc != 0 {
 			rc = frc // attributed to p by applyHostFiles itself
 		}
 		// THE DECLARED CONTRACT, read once per invocation and passed down: it is what selects
@@ -847,6 +858,11 @@ func applyHostSurveyed(out, errw io.Writer, color bool, write bool, stdin io.Rea
 		pr, out, stdin, candidates, configured, home, stamp, write, keys, survey); prc != 0 {
 		rc = prc
 		survey.noteStageFailure(stageRetire)
+	}
+	// And the host-private copies of a patched extension no selected pack carries any more, once
+	// the prune above has retired the link that named them (hosttrees.go).
+	if write {
+		sweepDroppedHostTrees(loaded)
 	}
 
 	// Launch wrappers, last: they are the only stage that writes OUTSIDE the composed

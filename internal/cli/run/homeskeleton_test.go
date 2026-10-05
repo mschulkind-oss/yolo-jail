@@ -48,7 +48,7 @@ import (
 func buildSkeletonForTest(t *testing.T, cname string, packs []*packload.Pack, cfg *jsonx.OrderedMap,
 	hostFiles []config.HostFileEntry) string {
 	t.Helper()
-	sk, err := buildHomeSkeleton(paths.HomeSkeletonRoot(cname), packs, cfg, hostFiles)
+	sk, err := buildHomeSkeleton(paths.HomeSkeletonRoot(cname), packs, cfg, hostFiles, nil)
 	if err != nil {
 		t.Fatalf("buildHomeSkeleton: %v", err)
 	}
@@ -399,7 +399,7 @@ func TestSkeletonFailuresNameThePath(t *testing.T) {
 			t.Fatal(err)
 		}
 		root := filepath.Join(blocker, "home")
-		_, err := buildHomeSkeleton(root, nil, nil, nil)
+		_, err := buildHomeSkeleton(root, nil, nil, nil, nil)
 		if err == nil {
 			t.Fatal("a skeleton root that cannot be created must fail the launch")
 		}
@@ -412,7 +412,7 @@ func TestSkeletonFailuresNameThePath(t *testing.T) {
 		// A host_files home-root link on a path core already made a FILE mountpoint:
 		// config validation reserves the name, so only a hand-built entry reaches here.
 		entry := config.HostFileEntry{Path: ".yolo-perf.log", Source: "/host/x", Codec: "raw", Mode: config.HostFileModeReadonly}
-		sk, err := buildHomeSkeleton(paths.HomeSkeletonRoot("yolo-best-effort"), nil, nil, []config.HostFileEntry{entry})
+		sk, err := buildHomeSkeleton(paths.HomeSkeletonRoot("yolo-best-effort"), nil, nil, []config.HostFileEntry{entry}, nil)
 		if err != nil {
 			t.Fatalf("a best-effort entry failed the launch: %v", err)
 		}
@@ -446,7 +446,7 @@ func TestSkeletonFailuresNameThePath(t *testing.T) {
 		if len(problems) != 0 {
 			t.Fatalf("loading pack: %v", problems)
 		}
-		sk, err := buildHomeSkeleton(paths.HomeSkeletonRoot("yolo-redirect-collision"), []*packload.Pack{p}, nil, nil)
+		sk, err := buildHomeSkeleton(paths.HomeSkeletonRoot("yolo-redirect-collision"), []*packload.Pack{p}, nil, nil, nil)
 		if err != nil {
 			t.Fatalf("a pack-driven entry on a redirect name failed the launch: %v", err)
 		}
@@ -471,7 +471,7 @@ func TestSkeletonFailuresNameThePath(t *testing.T) {
 
 	t.Run("escaping path", func(t *testing.T) {
 		sk, err := buildHomeSkeleton(paths.HomeSkeletonRoot("yolo-escape"), nil,
-			newConfig(), []config.HostFileEntry{{Path: "../outside", Codec: "raw", Mode: config.HostFileModeReadonly}})
+			newConfig(), []config.HostFileEntry{{Path: "../outside", Codec: "raw", Mode: config.HostFileModeReadonly}}, nil)
 		if err != nil {
 			t.Fatalf("unexpected fatal error: %v", err)
 		}

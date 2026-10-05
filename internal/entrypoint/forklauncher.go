@@ -109,6 +109,7 @@ func sourceAgentLauncherSegments(inst *packdecl.Install, d ForkDelivery, stampDi
 		"__YOLO_FORK_REASON__", shquote.Quote(d.Reason),
 		"__YOLO_FORKED_BY__", shquote.Quote(inst.ForkedBy),
 		"__YOLO_SOURCE__", shquote.Quote(inst.Source),
+		"__YOLO_FORK_UPDATE_NOTE__", shquote.Quote(forkUpdateNote(inst)),
 		"__YOLO_PRODUCES__", shquote.Join(inst.Produces),
 		"__YOLO_STAMP_DIR__", shquote.Quote(stampDir),
 		"__YOLO_RECEIPTS_FILE__", shquote.Quote(receiptsPath),
@@ -117,8 +118,20 @@ func sourceAgentLauncherSegments(inst *packdecl.Install, d ForkDelivery, stampDi
 		"__YOLO_SERVERS_ENABLED__", shquote.Quote(boolFlag(!servers.empty())),
 		"__YOLO_SERVERS_NPM__", shquote.Quote(servers.npm),
 		"__YOLO_EXEC_PREFIX__", token,
+		// The gate a patched extension this agent loads puts on it (patchedtrees.go, PPX-D18).
+		"__YOLO_TREE_GATE__", shquote.Quote(inst.Gate),
 	}, append(launchFlagSplices(flags), refreshSplices(inst.Refresh)...)...)...)
 	return strings.Split(r.Replace(sourceLauncherTemplate), token)
+}
+
+// forkUpdateNote is what a fork's launcher says in update mode: what moves the fork's build, which
+// for a PATCHED fork is a fresh launch on the host (docs/design/patched-forks.md §7), never a pin.
+func forkUpdateNote(inst *packdecl.Install) string {
+	if inst.IsPatchedFork() {
+		return "a patched fork: a fresh launch on the host checks its upstream and builds what moved " +
+			"('yolo pack update' there checks now), and the jail it starts runs that build"
+	}
+	return "its pin moves it (run 'yolo pack update' on the host, then launch again)"
 }
 
 // sourceLauncherTemplate is the source launcher body. Same splice contract as npmLauncherTemplate:
@@ -169,9 +182,10 @@ export _YOLO_LAUNCHER_ACTIVE="${_YOLO_LAUNCHER_ACTIVE:-}:$BIN"
 mkdir -p "$STAMP_DIR"
 ` + stampMtimeFn + updateBoundShellFn + `
 # A FORK HAS NO UPDATE MODE: its pin moves it, on the host, and the next launch builds the new
-# revision. "yolo pack update" reaches this and is told so.
+# revision — or, for a patched fork, a fresh launch on the host checks its upstream and builds it.
+# "yolo pack update" reaches this and is told so.
 if [ "${YOLO_PACK_UPDATE:-}" = "1" ]; then
-    echo "  $BIN: built from source by fork pack $FORKED_BY — its pin moves it (run 'yolo pack update' on the host, then launch again)" >&2
+    echo "  $BIN: built from source by fork pack $FORKED_BY — "__YOLO_FORK_UPDATE_NOTE__ >&2
     exit 0
 fi
 
@@ -211,7 +225,7 @@ if [ "$SERVERS_ENABLED" = "1" ]; then
     _refresh_servers
 fi
 ` + prelaunchRefreshShellFn + `
-` + agentEnvShellFn + agentAuthPrelaunchShellFn + `
+` + agentEnvShellFn + agentAuthPrelaunchShellFn + treeGateShell + `
 if [ -x "$REAL_BIN" ]; then
     _yolo_launch_argv "$@"
     exec __YOLO_EXEC_PREFIX__"$REAL_BIN" ${YOLO_ARGV[@]+"${YOLO_ARGV[@]}"}

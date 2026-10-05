@@ -31,12 +31,19 @@ var ErrHeld = errors.New("lock held")
 // ErrTimedOut reports a bounded wait that ran out with the lock still taken.
 var ErrTimedOut = errors.New("timed out waiting for the lock")
 
+// ErrCanceled reports a wait its Mode.Cancel ended with the lock still taken.
+var ErrCanceled = errors.New("the wait for the lock was cancelled")
+
 // Mode is how an acquire behaves when the lock is taken.
 type Mode struct {
 	// Wait blocks until the lock is free. Without it the acquire fails at once with ErrHeld.
 	Wait bool
 	// Bound, with Wait, gives up after this long with ErrTimedOut. Zero waits without limit.
 	Bound time.Duration
+	// Cancel, with Wait, gives up with ErrCanceled once it is closed: a launch's patched-fork
+	// advance, whose Ctrl-C ends the wait and starts the jail on the good build
+	// (docs/design/patched-forks.md PF-D25). nil never cancels.
+	Cancel <-chan struct{}
 }
 
 // NoWait fails at once when the lock is taken.
@@ -71,7 +78,7 @@ func Acquire(path string, mode Mode, onWait func(pid int)) (*Lock, error) {
 		if onWait != nil {
 			onWait(Holder(path))
 		}
-		if err := waitFor(f, mode.Bound); err != nil {
+		if err := waitFor(f, mode.Bound, mode.Cancel); err != nil {
 			f.Close()
 			return nil, err
 		}
@@ -84,9 +91,10 @@ func Acquire(path string, mode Mode, onWait func(pid int)) (*Lock, error) {
 	return &Lock{f: f}, nil
 }
 
-// waitFor blocks on f's lock, without limit when bound is zero, else polling until bound.
-func waitFor(f *os.File, bound time.Duration) error {
-	if bound <= 0 {
+// waitFor blocks on f's lock, without limit when bound is zero and nothing can cancel it, else
+// polling until bound or until cancel is closed.
+func waitFor(f *os.File, bound time.Duration, cancel <-chan struct{}) error {
+	if bound <= 0 && cancel == nil {
 		return Flock(int(f.Fd()), syscall.LOCK_EX)
 	}
 	deadline := time.Now().Add(bound)
@@ -98,10 +106,14 @@ func waitFor(f *os.File, bound time.Duration) error {
 		if !errors.Is(err, syscall.EWOULDBLOCK) {
 			return err
 		}
-		if !time.Now().Before(deadline) {
+		if bound > 0 && !time.Now().Before(deadline) {
 			return ErrTimedOut
 		}
-		time.Sleep(pollInterval)
+		select {
+		case <-cancel:
+			return ErrCanceled
+		case <-time.After(pollInterval):
+		}
 	}
 }
 

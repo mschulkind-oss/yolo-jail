@@ -205,6 +205,17 @@ yolo pack install or yolo pack update re-fetches a tag its author re-pointed.
                               to what its ref names now. Run the npm half inside the jail —
                               that is where an agent CLI is installed
   yolo pack status            show locked commits and fork pins, and flag config/lock drift
+  yolo pack rebase <pack>/<bin> [--onto <ref>] [--into <dir>] [--restart]
+                              rebase a PATCHED fork's series (a fork that declares "patches"),
+                              or a patched extension's, named <pack>/<name>, when an upstream
+                              version no longer takes it: clones the upstream
+                              into --into (default ./<pack>-<bin>-rebase), replays the series
+                              onto --onto (default: the newest upstream version above the good
+                              build, which a launch tries first), and stops at the conflict for
+                              you to resolve. It prints the continue
+                              and export commands and writes nothing in the pack; on its own
+                              earlier clone it prints them again, and --restart starts over.
+                              Host only
   yolo pack --help, -h        this text (also 'yolo pack help', and after any verb)
 
 Packs are configured in ~/.config/yolo-jail/config.jsonc under "packs" (USER scope
@@ -242,8 +253,10 @@ func runPack(args []string) int {
 //
 // IT TAKES NO STDIN. It used to, for one reason: the install-time host-access approval
 // prompt, which OQ-TP9 deleted (docs/design/trust-paths.md, 2026-09-04). No `yolo pack`
-// verb asks a question now — `install`/`update` fetch and report, and everything else
-// inspects — so there is no reader to thread.
+// verb asks a question now — `install`/`update` fetch and report, `rebase` fetches too (a
+// patched fork's forced check) and clones the fork's upstream into a directory outside yolo's
+// state directory, `init` scaffolds a pack, and everything else inspects — so there is no
+// reader to thread.
 func packMain(args []string, out, errw io.Writer, color bool) int {
 	if len(args) == 0 || packHelpAsked(args[1:]) {
 		fmt.Fprintln(out, packUsage)
@@ -275,6 +288,8 @@ func packMain(args []string, out, errw io.Writer, color bool) int {
 		return packUpdate(out, errw, color)
 	case "status":
 		return packStatus(out, errw, color)
+	case "rebase":
+		return packRebase(args[1:], out, errw, color)
 	case "-h", "--help", "help":
 		fmt.Fprintln(out, packUsage)
 		return 0
@@ -729,6 +744,11 @@ func packLint(args []string, out, errw io.Writer, color bool) int {
 	pr.Printf("[green]✓[/green] pack ok — %d file(s) stage", len(res.Staged))
 	printPackDeliveries(pr, pack, skillSources, briefingSources)
 	printUnshippedNotes(pr, notes)
+	// A PATCHED EXTENSION NO LIST ENTRY NAMES (docs/design/patched-extensions.md §8.2, PPX-D10): a
+	// warning, not a failure — the tree is built and mounted, and no agent loads it.
+	for _, w := range packload.LintPatchedTrees(pack) {
+		pr.Printf("[yellow]⚠[/yellow] %s", richtext.Escape(w))
+	}
 
 	// Advice: a custom pack whose CONTENT contribution names an `into` an AGENT PACK already
 	// declares is told what that line DOES, which is narrow. Under per-file governance
@@ -953,6 +973,11 @@ func stagedContent(staged []string, pack *packload.Pack, delivered []string) (cl
 			if c.From != "" {
 				sources = append(sources, c.From)
 			}
+		}
+		// A PATCHED fork's or extension's series directory is read by every check and advance
+		// (packsrc.ReadSeries), so it is content the pack ships, never content nothing reads.
+		if c.Patches != "" && (c.IsPatchedFork() || c.IsPatchedExtension()) {
+			sources = append(sources, c.Patches)
 		}
 	}
 
@@ -1749,13 +1774,13 @@ func packStatus(out, errw io.Writer, color bool) int {
 	}
 	// THE FORK PINS (forks.lock.json, FP-D7): each selected fork's pinned commit, or why it has
 	// none. A pin made for a source the fork no longer declares is drift, like a pack's.
-	forkLines, forkDrift, err := forkStatusLines()
+	forkHeader, forkLines, forkDrift, err := forkStatusLines()
 	if err != nil {
 		fmt.Fprintf(errw, "yolo pack status: %v\n", err)
 		return 1
 	}
 	if len(forkLines) > 0 {
-		pr.Printf("[bold]forks[/bold] [dim](%s)[/dim]", packsrc.ForkLockName)
+		pr.Printf("%s", forkHeader)
 		for _, line := range forkLines {
 			pr.Printf("%s", line)
 		}

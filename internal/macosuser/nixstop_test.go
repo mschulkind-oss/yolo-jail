@@ -21,6 +21,7 @@ import (
 
 	"github.com/mschulkind-oss/yolo-jail/internal/nixchildren"
 	"github.com/mschulkind-oss/yolo-jail/internal/shquote"
+	"github.com/mschulkind-oss/yolo-jail/internal/testsupport"
 )
 
 // catchSignal keeps sig from ending the test binary when no arm is installed to catch it, which is
@@ -32,14 +33,11 @@ func catchSignal(t *testing.T, sig os.Signal) {
 	t.Cleanup(func() { signal.Stop(catch) })
 }
 
-// trackedStandInNix runs, through the tracked set, a stand-in nix that runs until interrupted and
-// marks its start and the interrupt in marks. It gives up after 30 seconds, so a red run whose nix
-// nothing stops does not leave it looping after the test binary exits.
+// trackedStandInNix runs, through the tracked set, a stand-in nix that runs until interrupted
+// (testsupport.UntilInterrupted) and marks its start and the interrupt in marks.
 func trackedStandInNix(marks string) error {
-	return nixchildren.Run(exec.Command("sh", "-c",
-		"trap "+shquote.Quote("touch "+shquote.Quote(filepath.Join(marks, "interrupted"))+"; exit 130")+" INT; "+
-			"touch "+shquote.Quote(filepath.Join(marks, "started"))+"; "+
-			"i=0; while [ $i -lt 600 ]; do sleep 0.05; i=$((i+1)); done; exit 1"))
+	return nixchildren.Run(exec.Command("sh", "-c", testsupport.UntilInterrupted(
+		"touch "+shquote.Quote(filepath.Join(marks, "interrupted")), filepath.Join(marks, "started"))))
 }
 
 // awaitStarted waits for the stand-in nix of marks to mark its start, which it does once its

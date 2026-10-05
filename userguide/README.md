@@ -93,6 +93,7 @@ The **[feature index](features.md)** links every feature to the page that covers
 | [Devices and GPUs](guides/devices-and-gpus.md) | USB, serial, NVIDIA and AMD passthrough on Linux |
 | [Storage](guides/storage.md) | What persists, what yolo reclaims, and moving caches |
 | [Writing Your Own Pack](guides/migrating-to-packs.md) | Your setup as a pack, and applying it to your own machine |
+| [Follow an Upstream with a Patch Series](guides/patch-series.md) | Your changes to a program or a pi extension, kept on its newest upstream version |
 | [Your Own Host Service](guides/host-services.md) | Run a program on the host for the jail |
 | [Writing a Loophole](guides/writing-loopholes.md) | The loophole manifest, for pack authors |
 | [Troubleshooting](guides/troubleshooting.md) | Common failures and their fixes |

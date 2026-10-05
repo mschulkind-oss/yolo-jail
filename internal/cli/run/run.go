@@ -317,7 +317,10 @@ func Run(opts Options) (rc int) {
 	// THE FORK PINS, made for a fork the lock does not pin yet (never moved: FP-D18) and disclosed
 	// above the dispatch, so every backend and an attach say which revision each source-built
 	// program is at (OQ-FP6, forkbuild.go).
-	o.forkPinned = o.noteForkPins(staged.packs)
+	o.forkPinned = o.noteForkPins(staged.packs, rt)
+	// THE PATCHED EXTENSIONS' block, above the dispatch beside the forks', and for its reason: every
+	// backend and an attach say what each one is at (docs/design/patched-extensions.md §10).
+	o.patchedTrees = o.notePatchedTrees(staged.packs)
 
 	// PACK LAUNCH FLAGS, ABOVE THE DISPATCH — the same B-0 move pack staging made, for
 	// the same reason. The injection used to sit inside runContainer, which the
@@ -648,8 +651,14 @@ func Run(opts Options) (rc int) {
 		o.noteMacosUserPortKeys(cfg)
 		// A FORK DELIVERS NO PROGRAM ON THIS BACKEND, and says so (FP-D3; forkbuild.go): the build
 		// trigger sits below this arm's return, and no macos-user launch can read the capture
-		// store yet (hand-off H4).
+		// store yet (hand-off H4). The sandbox's own launcher for the program is told the same
+		// reason (macosUserForkWire), so typing it there names this backend and the next step.
 		o.noteMacosUserForks()
+		if wire := o.macosUserForkWire(); wire != "" {
+			launchEnv.Set(entrypoint.ForkBuildsEnv, wire)
+		}
+		// Nor any patched extension (docs/design/patched-extensions.md §11, FP-D3's shape).
+		o.noteMacosUserTrees()
 		// YOLO_STORE_PACKAGES's only consumer (planStorePackages) is below this arm's
 		// return, so on this backend the dial vanished without a line. A NOTICE, not a
 		// refusal — planStorePackages' own ruling for an ineligible launch — and here the
@@ -1329,6 +1338,11 @@ func (o *Options) runContainer(cfg *jsonx.OrderedMap, rt, repoRoot, cname string
 	// and then attaches to it.
 	forkSpan := o.Perf.Span("launch.fork_builds")
 	o.forkDelivered = o.forkDeliveriesFor(rt)
+	// THE TREE ARM, beside the fork builds in their slot and for their reasons (patchedtrees.go;
+	// docs/design/patched-extensions.md §6.1, §8.1): each patched extension's check and advance, and
+	// the per-launch copy its jail mounts read-only. Below every attach site, under the launch lock.
+	o.treeDelivered = o.treeDeliveriesFor(rt)
+	o.noteTreeDeliveries(rt)
 	forkSpan.End()
 
 	// Refresh the per-jail skills + AGENTS/CLAUDE staging from this launch's own pack tree. An
@@ -1652,11 +1666,14 @@ func (o *Options) runContainer(cfg *jsonx.OrderedMap, rt, repoRoot, cname string
 		packStaging:      packStaging,
 		capturesDir:      o.CapturesDir(),
 		forkDeliveries:   o.forkDelivered,
+		patchedTrees:     o.patchedTreesWire(rt),
+		treeDirs:         o.patchedTreeDirs(),
 		wsState:          wsState,
 		durableDir:       o.durableJailPath(),
 		miseStore:        miseStore,
 		cacheDir:         cacheDir,
 		sealed:           o.Sealed,
+		sealedTree:       o.SealedTree,
 		hostTZ:           detectHostTZ(),
 		yoloVersion:      o.yoloVersion(repoRoot),
 		mountTargets:     BindMountTargets(),
@@ -1682,7 +1699,7 @@ func (o *Options) runContainer(cfg *jsonx.OrderedMap, rt, repoRoot, cname string
 	// the argv binding it come from one value; TestRunContainerBuildsTheSkeletonOnTheFreshPath
 	// pins that flow. Apple Container builds none: it binds wsState whole at /home/agent.
 	if rt != "container" { // parity: HonoredBy — Apple Container binds this workspace's own wsState read-write at /home/agent, which needs no mountpoints and holds no other workspace's
-		sk, err := buildHomeSkeleton(paths.HomeSkeletonRoot(cname), in.packs, in.cfg, in.hostFiles)
+		sk, err := buildHomeSkeleton(paths.HomeSkeletonRoot(cname), in.packs, in.cfg, in.hostFiles, in.treeDirs)
 		if err != nil {
 			out.printf("[bold red]%s[/bold red]", err.Error())
 			lock.Close()
@@ -2470,6 +2487,10 @@ func (o *Options) attachExisting(cname, rt, targetCmd string, cfg *jsonx.Ordered
 	// What this attach did NOT deliver: the configured packs, when they differ from the ones
 	// the jail booted with (OQ-PK2 (c)'s notice).
 	o.noteBootedPackSetDiffers(rt, cname, view)
+	// And what it runs of each patched fork and mounts of each patched extension, from what the jail
+	// was handed (patchedforkline.go): the good build may have moved since it booted, and only a
+	// fresh launch delivers a move.
+	o.noteAttachHandedBuilds(view)
 	// And what it did not APPLY: a host-wide daemon's settings the config has changed since it
 	// started. Reported, never restarted, from an attach (noteSingletonSettingsDrift).
 	o.noteSingletonSettingsDrift(cfg)

@@ -18,11 +18,11 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/nixchildren"
 	"github.com/mschulkind-oss/yolo-jail/internal/prune"
 	"github.com/mschulkind-oss/yolo-jail/internal/shquote"
+	"github.com/mschulkind-oss/yolo-jail/internal/testsupport"
 )
 
-// standInNix puts a `nix` on PATH that runs until interrupted, marking its start and the interrupt
-// in the directory it returns. It gives up after 30 seconds, so a red run whose nix nothing stops
-// does not leave it looping after the test binary exits.
+// standInNix puts a `nix` on PATH that runs until interrupted (testsupport.UntilInterrupted),
+// marking its start and the interrupt in the directory it returns.
 func standInNix(t *testing.T) (marks string) {
 	t.Helper()
 	bin, marks := t.TempDir(), t.TempDir()
@@ -35,9 +35,8 @@ func standInNix(t *testing.T) (marks string) {
 
 // standInNixScript is standInNix's program, marking in marks.
 func standInNixScript(marks string) string {
-	return "#!/bin/sh\ntrap " + shquote.Quote("touch "+shquote.Quote(filepath.Join(marks, "interrupted"))+"; exit 130") + " INT\n" +
-		"touch " + shquote.Quote(filepath.Join(marks, "started")) + "\n" +
-		"i=0; while [ $i -lt 600 ]; do sleep 0.05; i=$((i+1)); done; exit 1\n"
+	return "#!/bin/sh\n" + testsupport.UntilInterrupted("touch "+shquote.Quote(filepath.Join(marks, "interrupted")),
+		filepath.Join(marks, "started")) + "\n"
 }
 
 // marked reports whether the stand-in nix of marks has left the mark named name.

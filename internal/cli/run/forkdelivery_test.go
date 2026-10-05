@@ -22,6 +22,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/packsrc"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	yoloruntime "github.com/mschulkind-oss/yolo-jail/internal/runtime"
+	"github.com/mschulkind-oss/yolo-jail/internal/shquote"
 )
 
 // pinFork writes forkLaunchHome's fork pinned at commit into the fork lock.
@@ -38,10 +39,18 @@ func pinFork(t *testing.T, commit string) {
 // `run` argv, and returns that argv (nil when the runtime was never run) and what was printed.
 func fakePodmanLaunch(t *testing.T, mutate func(*Options)) ([]string, string) {
 	t.Helper()
-	ws := t.TempDir()
+	return fakePodmanLaunchIn(t, t.TempDir(), "", mutate)
+}
+
+// fakePodmanLaunchIn is fakePodmanLaunch in workspace ws, with onRun — shell, run by the fake podman
+// at its `run` with the argv as "$@", while the launch's pack tree, skeleton and records exist —
+// after the argv is recorded.
+func fakePodmanLaunchIn(t *testing.T, ws, onRun string, mutate func(*Options)) ([]string, string) {
+	t.Helper()
 	bin, rec := t.TempDir(), t.TempDir()
 	argvFile := filepath.Join(rec, "argv")
-	script := "#!/bin/sh\nif [ \"$1\" = run ]; then printf '%s\\n' \"$@\" > '" + argvFile + "'; fi\nexit 3\n"
+	script := "#!/bin/sh\nif [ \"$1\" = run ]; then printf '%s\\n' \"$@\" > " + shquote.Quote(argvFile) + "\n" +
+		onRun + "\nfi\nexit 3\n"
 	if err := os.WriteFile(filepath.Join(bin, "podman"), []byte(script), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -89,8 +98,8 @@ func TestALaunchBuildsItsPinnedForkAndHandsTheJailTheKey(t *testing.T) {
 	var gotPins []packload.ForkPin
 	var gotPlatform string
 	argv, printed := fakePodmanLaunch(t, func(o *Options) {
-		o.BuildForks = func(pins []packload.ForkPin, platform string) map[string]entrypoint.ForkDelivery {
-			gotPins, gotPlatform = pins, platform
+		o.BuildForks = func(req ForkBuildRequest) map[string]entrypoint.ForkDelivery {
+			gotPins, gotPlatform = req.Pins, req.Platform
 			return map[string]entrypoint.ForkDelivery{"tool": {Key: "k1"}}
 		}
 	})
@@ -110,7 +119,7 @@ func TestAnUnpinnableForkReachesTheJailAsItsReason(t *testing.T) {
 	forkLaunchHome(t, forkPinSource)
 	called := false
 	argv, _ := fakePodmanLaunch(t, func(o *Options) {
-		o.BuildForks = func([]packload.ForkPin, string) map[string]entrypoint.ForkDelivery { called = true; return nil }
+		o.BuildForks = func(ForkBuildRequest) map[string]entrypoint.ForkDelivery { called = true; return nil }
 	})
 	if called {
 		t.Error("the build act was asked to build a fork with no pin")
@@ -128,7 +137,7 @@ func TestACaptureJailTriggersNoForkBuild(t *testing.T) {
 	called := false
 	argv, printed := fakePodmanLaunch(t, func(o *Options) {
 		o.CapturesDir = func() string { return "" }
-		o.BuildForks = func([]packload.ForkPin, string) map[string]entrypoint.ForkDelivery { called = true; return nil }
+		o.BuildForks = func(ForkBuildRequest) map[string]entrypoint.ForkDelivery { called = true; return nil }
 	})
 	if called || forkBuildsInArgv(t, argv) != nil {
 		t.Errorf("a capture jail triggered a fork build (called %v) or was handed decisions", called)
@@ -145,7 +154,7 @@ func TestNoForkIsBuiltBelowTheAppleContainerFloor(t *testing.T) {
 	o := goldenOptions("/ws", t.TempDir())
 	o.CapturesDir = func() string { return "/store" }
 	called := false
-	o.BuildForks = func([]packload.ForkPin, string) map[string]entrypoint.ForkDelivery { called = true; return nil }
+	o.BuildForks = func(ForkBuildRequest) map[string]entrypoint.ForkDelivery { called = true; return nil }
 	o.forkPinned = []packload.ForkPin{{Fork: packload.Fork{Pack: "forkpack", Bin: "tool"}, Commit: "c"}}
 	got := o.forkDeliveriesFor("container")
 	if called || !strings.Contains(got["tool"].Reason, "mounts no capture store") {
@@ -183,7 +192,7 @@ func TestAnAttachTriggersNoForkBuild(t *testing.T) {
 			}
 			return ExecResult{Ran: true, RC: 0}
 		}
-		o.BuildForks = func([]packload.ForkPin, string) map[string]entrypoint.ForkDelivery { called = true; return nil }
+		o.BuildForks = func(ForkBuildRequest) map[string]entrypoint.ForkDelivery { called = true; return nil }
 	})
 	if !strings.Contains(printed, "Attaching to existing jail") {
 		t.Fatalf("the fixture did not attach, so the attach path is unexercised:\n%s", printed)

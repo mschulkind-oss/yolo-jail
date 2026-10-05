@@ -86,8 +86,13 @@ func (f *Floor) noBuildReason(bin, commit, why string) string {
 // it can: its manifest records no runnable program at the fork's program path, or it was built for
 // the jail's home and cannot move out of it. Read from the manifest alone, before a materialize.
 func buildUnusable(p Program, commit string, entry *capture.Entry) string {
+	return buildUnusableAs(p, "fork pack "+p.Install.ForkedBy+"'s build of "+p.Bin()+" at "+buildVersion(commit), entry)
+}
+
+// buildUnusableAs is buildUnusable with the build named as what: a plain fork's by its pin, a
+// patched fork's by its good build (patched.go).
+func buildUnusableAs(p Program, what string, entry *capture.Entry) string {
 	in := p.Install
-	what := "fork pack " + in.ForkedBy + "'s build of " + p.Bin() + " at " + buildVersion(commit)
 	m, err := capture.ReadManifest(entry.Root)
 	if err != nil {
 		return what + " has an unreadable manifest (" + err.Error() + ")"
@@ -175,11 +180,16 @@ func (f *Floor) installFromBuild(ctx context.Context, p Program, dir string) (*R
 		res.Mechanism(), res.Files)
 	rec := &Record{Entry: entryPath, Capture: entry.Key, Revision: commit, Recipe: in.SourceRecipe(),
 		Version: buildVersion(commit)}
-	if !isNodeScript(entryPath) {
-		rec.Exec = []string{entryPath}
+	return f.execRecord(ctx, in, rec)
+}
+
+// execRecord fills rec's Exec for a fork's build materialized at rec.Entry: the program itself, or
+// A NODE SCRIPT started by the floor's own Node, never by the `node` its `#!` would find.
+func (f *Floor) execRecord(ctx context.Context, in packdecl.Install, rec *Record) (*Record, error) {
+	if !isNodeScript(rec.Entry) {
+		rec.Exec = []string{rec.Entry}
 		return rec, nil
 	}
-	// A NODE SCRIPT: started by the floor's own Node, never by the `node` its `#!` would find.
 	v := f.NodeVersion()
 	if !packdecl.SatisfiesNodeFloor(v, in.NodeFloor) {
 		return nil, fmt.Errorf("the floor's Node v%s is below the pack's node_floor %s", v, in.NodeFloor)
@@ -189,6 +199,6 @@ func (f *Floor) installFromBuild(ctx context.Context, p Program, dir string) (*R
 		return nil, err
 	}
 	rec.Node = v
-	rec.Exec = []string{filepath.Join(nodeBin, "node"), entryPath}
+	rec.Exec = []string{filepath.Join(nodeBin, "node"), rec.Entry}
 	return rec, nil
 }

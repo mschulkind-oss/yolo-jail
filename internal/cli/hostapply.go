@@ -20,6 +20,13 @@ import (
 // Both remain. This one used to also own --shell-init, which is removed and now refuses
 // (refuseShellInit).
 func hostApply(args []string, out, errw io.Writer, color bool, stdin io.Reader) int {
+	return hostApplyDeferring(args, out, errw, color, stdin, "")
+}
+
+// hostApplyDeferring is hostApply for an act that runs no patched fork's or patched extension's
+// advance, deferred naming why and the act that does: the host apply `yolo pack update` runs, which
+// builds nothing (PF-D12, PF-D56). "" is `yolo host apply` itself.
+func hostApplyDeferring(args []string, out, errw io.Writer, color bool, stdin io.Reader, deferred string) int {
 	// The format family is read FIRST, off the same argv, for the reason `ps` reads it
 	// before its probes: a rejected value is misuse, and a run that renders first and
 	// refuses afterwards spends the work on an answer nobody gets. See outputformat.go.
@@ -97,7 +104,7 @@ func hostApply(args []string, out, errw io.Writer, color bool, stdin io.Reader) 
 		// running inside a command that wrote nothing (hostmanagementgate.go).
 		var refused bool
 		if rc, refused = refuseHostManagement(errw); !refused {
-			rc = hostApplyRefreshAndRender(out, errw, color, write, stdin, format)
+			rc = hostApplyRefreshAndRender(out, errw, color, write, stdin, format, deferred)
 		}
 	}
 	finish(rc)
@@ -116,13 +123,23 @@ func hostApplyRevert(out, errw io.Writer, color, write bool) int {
 
 // hostApplyRefreshAndRender is the apply proper at both spellings (OQ-7: one operation): the
 // fetch-before-resolve a launch does (hostpackrefresh.go), to stderr so a `--format json`
-// stdout still carries one document and nothing else, then the render, each spanned.
-func hostApplyRefreshAndRender(out, errw io.Writer, color, write bool, stdin io.Reader, format string) int {
+// stdout still carries one document and nothing else, then the render, each spanned. deferred is
+// hostApplyDeferring's: "" for the apply that advances patched extensions, else why this one does not.
+func hostApplyRefreshAndRender(out, errw io.Writer, color, write bool, stdin io.Reader, format, deferred string) int {
 	sp := hostApplySpan("host_apply.pack_refresh")
 	refreshHostPacks(errw)
 	sp.End()
 	defer hostApplySpan("host_apply.render").End()
-	return applyHostFormatted(out, errw, color, write, stdin, format)
+	// THE PATCHED EXTENSIONS' CHECK AND ADVANCE, before the render reads their good builds
+	// (docs/design/patched-extensions.md §8.3, PPX-D11): the acting posture only, since a dry run
+	// checks nothing. Inside the render's span, beside the floor stage's patched forks.
+	// One act (PF-D57): a Ctrl-C that ends an extension's wait here ends the floor stage's patched
+	// forks' waits too.
+	act := &run.ActInterrupt{}
+	if write && deferred == "" {
+		advanceHostTrees(errw, color, "", act)
+	}
+	return applyHostFormattedDeferring(out, errw, color, write, stdin, format, deferred, act)
 }
 
 // hostApplyPerf is the collector of the host apply this process is running, nil outside one and

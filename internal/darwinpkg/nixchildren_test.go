@@ -15,6 +15,7 @@ import (
 
 	"github.com/mschulkind-oss/yolo-jail/internal/nixchildren"
 	"github.com/mschulkind-oss/yolo-jail/internal/shquote"
+	"github.com/mschulkind-oss/yolo-jail/internal/testsupport"
 )
 
 // standInNix puts a `nix` on PATH whose eval runs evalScript and whose build runs buildScript.
@@ -28,13 +29,11 @@ func standInNix(t *testing.T, evalScript, buildScript string) {
 	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
 }
 
-// runsUntilInterrupted is a stand-in step that marks start and interrupt in dir under name. It
-// gives up after 30 seconds, so a red run whose nix nothing tracks — and so nothing stops — does
-// not leave it looping after the test binary exits.
+// runsUntilInterrupted is a stand-in step that runs until interrupted (testsupport.UntilInterrupted)
+// and marks start and interrupt in dir under name.
 func runsUntilInterrupted(dir, name string) string {
 	started, interrupted := filepath.Join(dir, name+"-started"), filepath.Join(dir, name+"-interrupted")
-	return "trap " + shquote.Quote("touch "+shquote.Quote(interrupted)+"; exit 130") + " INT; touch " + shquote.Quote(started) + "; " +
-		"i=0; while [ $i -lt 600 ]; do sleep 0.05; i=$((i+1)); done; exit 1"
+	return testsupport.UntilInterrupted("touch "+shquote.Quote(interrupted), started)
 }
 
 // awaitFile waits for path to exist.

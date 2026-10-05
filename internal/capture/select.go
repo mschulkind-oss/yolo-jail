@@ -49,11 +49,21 @@ type Program struct {
 	// of what selection keys on, so an installer query of a bin never selects a fork's build of
 	// it, and a query for one fork never selects another's: an installer capture's is empty.
 	Source string
+	// Fork is a PATCHED fork's key ("<pack>/<bin>") for an entry its build made
+	// (docs/design/patched-forks.md §6.3, PF-D7), "" for every other entry. A patched build is
+	// selected by its fork, never its source: two forks of one upstream share a source and never
+	// a key, and an edited `?ref=` is the same fork. So its Program carries Fork and no Source, and
+	// no plain fork's query, which carries a Source and no Fork, can select one.
+	Fork string
 }
 
 // String renders a program the way both callers print it: "claude (linux/amd64)", or for a
-// fork's build "pi (linux/amd64, built from git+https://…)".
+// fork's build "pi (linux/amd64, built from git+https://…)", or a patched fork's
+// "pi (linux/amd64, patched fork pi-fork/pi)".
 func (p Program) String() string {
+	if p.Fork != "" {
+		return p.Bin + " (" + p.Platform + ", patched fork " + p.Fork + ")"
+	}
 	if p.Source != "" {
 		return p.Bin + " (" + p.Platform + ", built from " + p.Source + ")"
 	}
@@ -84,6 +94,11 @@ type Record struct {
 	// query checks the selected entry against; "" for an installer capture. Selection itself never
 	// reads them: newest wins per Program, and a caller asking for one revision checks the winner.
 	Revision, Recipe string
+	// Fork, Series, Tree, Tag and Version are a PATCHED fork's build's (the build receipt's
+	// fields of those names): its fork key, which selection keys it on (Program.Fork), the series
+	// digest, the patched tree, and the version tag of the upstream commit with its version. ""
+	// for every other entry.
+	Fork, Series, Tree, Tag, Version string
 	// Time is the receipt's stamp — one-second resolution, which is why the selection has a
 	// tie-break at all. A receipt whose stamp did not parse arrives here as the zero time,
 	// the safe end of the ordering ("I cannot tell" sorts oldest).
@@ -139,6 +154,40 @@ func Select(s *Store, read Records) (map[Program]Selected, error) {
 	return selectFrom(scan), nil
 }
 
+// Program is the program r answers for: (bin, platform, source), or for a PATCHED fork's build
+// (bin, platform, fork) — the one key both selection and its complement, the reap, file r under.
+func (r Record) Program() Program {
+	if r.Fork != "" {
+		return Program{Bin: r.Bin, Platform: r.Platform, Fork: r.Fork}
+	}
+	return Program{Bin: r.Bin, Platform: r.Platform, Source: r.Source}
+}
+
+// Scanned is one complete entry and the candidate records beside it, as a store scan reads them.
+type Scanned struct {
+	// Key is the entry's directory name under entries/.
+	Key string
+	// Records are its records that name a program, in file order.
+	Records []Record
+}
+
+// Scan reads every complete entry's candidate records, in key order: the scan Select chooses
+// from, for a reader that asks a question selection does not — a PATCHED fork's EXACT lookup
+// (docs/design/patched-forks.md §6.3: by its fork and its exact inputs, never newest-then-compare)
+// and the reap of a fork's builds when its good build moves. A torn entry is not listed, and an
+// entry whose receipts cannot be read is listed with no records, as Select reads both.
+func Scan(s *Store, read Records) ([]Scanned, error) {
+	scan, err := scanRecords(s, read)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]Scanned, 0, len(scan))
+	for _, er := range scan {
+		out = append(out, Scanned(er))
+	}
+	return out, nil
+}
+
 // entryRecords is one complete entry and the records beside it that name a program. It is what
 // a store scan yields: gc.go reaps from the SAME scan Select chooses from, so the losers it
 // reports are the ones this selection actually rejected.
@@ -184,7 +233,7 @@ func selectFrom(scan []entryRecords) map[Program]Selected {
 	out := map[Program]Selected{}
 	for _, er := range scan {
 		for _, r := range er.Records {
-			p := Program{Bin: r.Bin, Platform: r.Platform, Source: r.Source}
+			p := r.Program()
 			cur, seen := out[p]
 			if !seen || r.Time.After(cur.Record.Time) ||
 				(r.Time.Equal(cur.Record.Time) && er.Key > cur.Key) {

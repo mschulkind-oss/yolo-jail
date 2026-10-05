@@ -293,3 +293,38 @@ func TestBuildReceiptRoundTrip(t *testing.T) {
 		t.Fatalf("round trip: %+v (%v), want %+v", got, err, want)
 	}
 }
+
+// A PATCHED FORK NEVER TAKES A PLAIN FORK'S RECIPE (PF-D31): a plain fork of the same upstream,
+// build and produces is in the store, and the patched fork's build finds no recipe to ask for it
+// with, so it is not served the unpatched upstream, and buildFork builds nothing under it.
+func TestAPatchedForkIsNeverServedAPlainForksBuild(t *testing.T) {
+	f := forkBuildHome(t)
+	var seen run.Options
+	withFakeCaptureJail(t, fakeBuildJail(t, &seen, probetoolBuilt))
+	var out, errw bytes.Buffer
+	if rc := captureHost([]string{"probetool"}, &out, &errw, false); rc != 0 {
+		t.Fatalf("the plain fork's build: rc=%d\n%s\n%s", rc, out.String(), errw.String())
+	}
+	plain := forkBuild{Fork: f, Commit: forkTestCommit, Platform: captureJailPlatform()}
+	patchedFork := f
+	patchedFork.Patches = "patches"
+	patched := forkBuild{Fork: patchedFork, Commit: forkTestCommit, Platform: captureJailPlatform()}
+	if plain.recipe() == "" || patched.recipe() != "" {
+		t.Fatalf("recipes: plain %q, patched %q; want the plain fork's hash and none for the patched", plain.recipe(), patched.recipe())
+	}
+	store := &capture.Store{Dir: paths.CapturesDir()}
+	// The fixture jail's manifest is linux/arm64's (fakeCaptureJail), as the plain fork's own test reads.
+	if _, _, err := resolveForkBuild(store, "probetool", "linux/arm64", forkTestSource, forkTestCommit, plain.recipe()); err != nil {
+		t.Fatalf("the plain fork's build is not selectable, so the patched lookup below proves nothing: %v", err)
+	}
+	if _, _, err := resolveForkBuild(store, "probetool", "linux/arm64", forkTestSource, forkTestCommit, patched.recipe()); err == nil {
+		t.Error("the patched fork's lookup selected the plain fork's build of the unpatched upstream")
+	} else if !strings.Contains(err.Error(), "asked for by a recipe") {
+		t.Errorf("an empty recipe reached the store's selection instead of matching nothing: %v", err)
+	}
+	withFakeCaptureJail(t, func(run.Options) int { t.Error("a build jail ran for a patched fork"); return 1 })
+	if _, err := buildFork(patched, buildMode{force: true, lock: pidlock.NoWait}, &out, &errw, false); err == nil ||
+		!strings.Contains(err.Error(), "is a patched fork") {
+		t.Errorf("buildFork of a patched fork = %v, want it refused", err)
+	}
+}

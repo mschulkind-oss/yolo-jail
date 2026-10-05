@@ -198,7 +198,7 @@ func TestUnmatchedFilesAudienceAgreesWithPackFilesTargets(t *testing.T) {
 			}
 			reported := len(unmatchedAudiences(loaded)) > 0
 			targeted := false
-			for _, target := range packFilesTargets(loaded) {
+			for _, target := range packFilesTargets(loaded, nil) {
 				if target.Pack == "house" && target.From == "extras/tool.json" {
 					targeted = true
 				}

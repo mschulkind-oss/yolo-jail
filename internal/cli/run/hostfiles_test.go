@@ -145,7 +145,7 @@ func TestHostFileWritableDirArgs(t *testing.T) {
 func stageHostFilesForTest(t *testing.T, wsState string, entries []config.HostFileEntry) string {
 	t.Helper()
 	prepareHostFiles(wsState, entries, nil, nil)
-	sk, err := buildHomeSkeleton(paths.HomeSkeletonRoot("yolo-hostfiles-test"), nil, nil, entries)
+	sk, err := buildHomeSkeleton(paths.HomeSkeletonRoot("yolo-hostfiles-test"), nil, nil, entries, nil)
 	if err != nil {
 		t.Fatalf("buildHomeSkeleton: %v", err)
 	}

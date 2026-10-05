@@ -10,6 +10,7 @@ import (
 
 	"github.com/mschulkind-oss/yolo-jail/internal/nixchildren"
 	"github.com/mschulkind-oss/yolo-jail/internal/shquote"
+	"github.com/mschulkind-oss/yolo-jail/internal/testsupport"
 )
 
 // nixchildren_test.go pins this package's nix call sites to the one set internal/nixchildren
@@ -39,13 +40,10 @@ func awaitTracked(t *testing.T, s *nixchildren.Set, n int) {
 	}
 }
 
-// trapsInterrupt is a stand-in nix that runs until interrupted and says so on stderr, and that
-// creates the file started once its trap is set (awaitStarted). It gives up after 30 seconds, so a
-// red run whose nix nothing tracks — and so nothing stops — does not leave it looping after the
-// test binary exits.
+// trapsInterrupt is a stand-in nix that runs until interrupted (testsupport.UntilInterrupted) and
+// says so on stderr, and that creates the file started once its trap is set (awaitStarted).
 func trapsInterrupt(started string) string {
-	return `trap 'echo interrupted >&2; exit 130' INT; touch ` + shquote.Quote(started) + `; ` +
-		`i=0; while [ $i -lt 600 ]; do sleep 0.05; i=$((i+1)); done; exit 1`
+	return testsupport.UntilInterrupted("echo interrupted >&2", started)
 }
 
 // startMark is where a stand-in of t marks its start: a path in a temp dir of t's own.
@@ -311,8 +309,7 @@ func TestTheStorePathValidityProbeIsTracked(t *testing.T) {
 	s := freshNixChildren(t)
 	marks := t.TempDir()
 	started := filepath.Join(marks, "started")
-	standIn(t, "nix-store", "trap "+shquote.Quote("touch "+shquote.Quote(filepath.Join(marks, "interrupted"))+"; exit 130")+" INT; "+
-		"touch "+shquote.Quote(started)+"; i=0; while [ $i -lt 600 ]; do sleep 0.05; i=$((i+1)); done; exit 1")
+	standIn(t, "nix-store", testsupport.UntilInterrupted("touch "+shquote.Quote(filepath.Join(marks, "interrupted")), started))
 	done := make(chan bool, 1)
 	go func() { done <- nixStorePathValid("/nix/store/aaaa-image.json") }()
 	awaitTracked(t, s, 1)

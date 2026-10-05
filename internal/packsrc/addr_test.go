@@ -192,3 +192,23 @@ func TestCacheKeyDistinguishesRefAndPath(t *testing.T) {
 		keys[a.CacheKey()] = true
 	}
 }
+
+// A PATCHED fork's build identity names the repository and subdirectory and never the ref
+// (docs/design/patched-forks.md §6.3), so two refs of one repository name one build, the subdirectory
+// is kept apart from the root, and what does not parse as git is returned as given.
+func TestBuildSourceDropsTheRefAndKeepsTheSubdirectory(t *testing.T) {
+	for _, tc := range []struct{ raw, want string }{
+		{"git+https://github.com/acme/pi?ref=main", "git+https://github.com/acme/pi"},
+		{"git+https://github.com/acme/pi.git?ref=v1.0.1", "git+https://github.com/acme/pi"},
+		{"git+ssh://git@github.com/acme/mono//tools/pi?ref=main", "git+ssh://git@github.com/acme/mono//tools/pi"},
+		{"file:///abs/pack", "file:///abs/pack"},
+		{"not an address", "not an address"},
+	} {
+		if got := BuildSource(tc.raw); got != tc.want {
+			t.Errorf("BuildSource(%q) = %q, want %q", tc.raw, got, tc.want)
+		}
+	}
+	if _, err := Parse(BuildSource("git+https://github.com/acme/pi?ref=main")); err == nil {
+		t.Error("a build source parses as an address, so a source as written could equal it")
+	}
+}
