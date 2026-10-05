@@ -1155,12 +1155,14 @@ pack ships, and every agent that can use the provider renders that one list
   same step, over a list it composes for its own launch, with the menu kept under
   `~/.local/share/yolo-jail/model-menus/` for as long as a codex reading it runs and never in
   `~/.codex` ([MM-D24](../design/model-lists-and-pickers.md#MM-D24) to
-  [MM-D28](../design/model-lists-and-pickers.md#MM-D28)). It builds one only when the launch
-  names no `-p`, or a `-p` over the provider the config's `profile` selects for codex, because a
-  host `-p` does not choose codex's provider: `yolo host apply` writes that into codex's config
-  for the configured profile alone. A `-p` over another provider gets codex's own menu and a line
-  saying why, and which of the two should win is
-  [OQ-MM5](../design/model-lists-and-pickers.md#OQ-MM5);
+  [MM-D28](../design/model-lists-and-pickers.md#MM-D28)). A host `-p` moves codex onto its
+  provider for that launch: `yolo host -p codex -- codex` hands codex `-c model_provider="openai"`
+  and `-c model="<id>"` right after `codex`, and a `-p` over another provider hands that
+  provider's selection and its `model_providers` row the same way, so your own later `-c` still
+  wins and `~/.codex/config.toml` is never written. The menu follows the provider the `-p`
+  moved codex onto. With no `-p`, codex starts on what `yolo host apply` wrote into its config for
+  the configured profile ([MM-D30](../design/model-lists-and-pickers.md#MM-D30), which decided
+  [OQ-MM5](../design/model-lists-and-pickers.md#OQ-MM5));
 - **pi**'s extension registers exactly the list for `openai-codex`, read from a file yolo writes
   at every jail boot, with the cost, thinking and image facts taken from pi's own catalog. pi gets
   no model scope for it, and its sub-agents may use only the listed ids. A listed model pi's
@@ -1174,9 +1176,11 @@ pack ships, and every agent that can use the provider renders that one list
   `yolo host apply` writes the same list into that file, from the provider table it composes at
   user scope ([OQ-HC1](host-agent-environment.md#oq-hc1), which superseded
   [ML-D8](../design/model-lists-and-pickers.md#ML-D8)), with the switch of the profile the
-  config's `profile` names for pi. A launch's `-p` does not reach that file
-  ([OQ-HC3](host-agent-environment.md#oq-hc3)), so `yolo host -p <profile> -- pi` refuses
-  or not as the configured profile says;
+  config's `profile` names for pi. A launch's `-p` does not change that file
+  ([OQ-HC3](host-agent-environment.md#oq-hc3)): `yolo host -p <profile> -- pi` hands pi the list
+  composed for its own `-p` in `YOLO_PI_OPENAI_CODEX_MODELS`, which the extension reads before the
+  file, beside `--provider`, `--model` and `--models` for the session itself, so it refuses or not
+  as the `-p`'s profile says ([MM-D30](../design/model-lists-and-pickers.md#MM-D30));
 - **opencode** carries the list as rows of its own `openai` provider, a `[1m]` variant naming its
   base as the model it sends, and its menu is exactly the list while the profile's
   `enforce_models` is on, through the `whitelist` that also refuses any other model; off, the rows

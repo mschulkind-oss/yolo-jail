@@ -764,15 +764,27 @@ func hostLaunch(flags hostExecFlags, profile string, cmd []string, out, errw, ra
 	argv := injectHostLaunchFlags(launch.packs, append([]string{cmd[0]}, cmd[1:]...), errw)
 	// THE PROGRAM'S MODEL MENU (docs/design/model-lists-and-pickers.md §14.7, MM-D24 to MM-D28):
 	// the jail launcher's step, run here against the resolved target with the list this launch
-	// composed, and only where the launch's provider is the configured profile's. After the
+	// composed, for the provider the program runs on (MM-D30). After the
 	// binary resolves and the pack's flags are added, so the catalog is the program that runs;
 	// its flag goes right after argv[0], ahead of those flags, and is disclosed in their words.
 	// The menu's lock is held for the program's life: by this process where it stays resident
 	// (the deferred Close), and by the program itself across the exec below.
+	//
+	// THE PROGRAM'S LAUNCH SELECTION first (MM-D30, hostmodelmenu.go): a typed -p whose selection
+	// differs from the configured profile's is handed to a program whose provider lives in its own
+	// config file, as argv right after argv[0] or a variable, disclosed here and set in the
+	// environment below; the menu then follows the provider the program runs on.
 	sp = trace.span("host.model_menu")
-	menu := launch.modelMenu(target, launch.childEnviron(childPath), errw)
-	defer menu.Close()
+	selection := launch.launchSelection(cmd, launch.childEnviron(childPath), func(line string) {
+		fmt.Fprintf(errw, "yolo host: %s\n", line)
+	})
 	asked := argv
+	argv, selectionLines := selection.rewrite(argv)
+	printHostArgvDisclosure(errw, selectionLines, asked, argv)
+	printHostLines(errw, selection.varLines())
+	menu := launch.modelMenu(target, launch.childEnviron(childPath), selection, errw)
+	defer menu.Close()
+	asked = argv
 	argv, menuLines := menu.rewrite(argv)
 	sp.End()
 	printHostArgvDisclosure(errw, menuLines, asked, argv)
@@ -819,6 +831,8 @@ func hostLaunch(flags hostExecFlags, profile string, cmd []string, out, errw, ra
 	// switch and off by default: set in environ here, so the exec and the resident path below
 	// both carry it.
 	environ = hostClaudeView(launch, environ, errw)
+	// The launch selection's variables (MM-D30), disclosed above with its argv.
+	environ = selection.applyEnv(environ)
 	// THE LAUNCH-OWNED SERVICES (docs/design/host-notch-services.md §4.4): started after the
 	// agent resolved on PATH and after the prelaunch, so a missing agent starts nothing and the
 	// OpenAI login exists before the bridge asks for a view; the agent starts only once each
@@ -1116,12 +1130,28 @@ func (c *hostComposition) workerPointedAt(service string) string {
 // different tables for one launch. A jail's channel writes the same three names
 // (run's packChannel.wireTableValues). A fresh map each call.
 func (c *hostComposition) wireTables() map[string]string {
+	set := c.set
+	if c.profile != "" && len(set) == 0 {
+		set = []string{c.profile}
+	}
+	if c.profile == "" {
+		set = nil
+	}
+	return c.wireTablesFor(set)
+}
+
+// configuredWireTables is wireTables with the selection the configured `profile` key makes for this
+// agent in place of the launch's (configuredSet): what `yolo host apply` composes the agent's own
+// files from, over this launch's packs and provider table. The launch selection compares the two
+// (docs/design/model-lists-and-pickers.md MM-D30).
+func (c *hostComposition) configuredWireTables() map[string]string {
+	return c.wireTablesFor(c.configuredSet)
+}
+
+// wireTablesFor is the three wire tables with this agent's entry selecting set ("{}" when nil).
+func (c *hostComposition) wireTablesFor(set []string) map[string]string {
 	use := jsonx.NewOrderedMap()
-	if c.profile != "" {
-		set := c.set
-		if len(set) == 0 {
-			set = []string{c.profile}
-		}
+	if len(set) > 0 {
 		use.Set(c.agent, packload.ProfileSetWire(set))
 	}
 	return map[string]string{
@@ -1350,11 +1380,12 @@ type hostComposition struct {
 	// with its grant widened must spell again (grantRemedy). profile can instead come from
 	// the config `profile` key, which the re-run picks up by itself.
 	typedProfile string
-	// configuredProfile is the primary profile the user-scope `profile` key selects for this
-	// agent, "" when it selects none: profile's value had no -p been typed, which is the one
-	// `yolo host apply` writes into the agent's own config. The model menu builds only where
-	// the two select one provider (docs/design/model-lists-and-pickers.md MM-D25).
-	configuredProfile string
+	// configuredSet is the active set the user-scope `profile` key selects for this agent, its
+	// primary first, nil when it selects none: set's value had no -p been typed, which is the one
+	// `yolo host apply` writes into the agent's own config. The launch selection hands the program
+	// the -p's only where the two compose differently (docs/design/model-lists-and-pickers.md
+	// MM-D30), over configuredWireTables.
+	configuredSet []string
 	// services are the launch-owned services this composition planned (hostServicesStart), or
 	// the one a pairing needs (hostServicesDetect, with no ports or token): zero or one, since
 	// one agent resolves one pairing (docs/design/host-notch-services.md §4.2).
@@ -2302,14 +2333,10 @@ func composeHostVarsWith(cfg *jsonx.OrderedMap, workspace, agent, command, profi
 	c.profile = profileName
 	c.set = set
 	c.typedProfile = profile
-	c.configuredProfile = profileName
+	c.configuredSet = set
 	if profile != "" {
-		// The fold with no -p: what the config alone selects for this agent (MM-D25).
-		if cfgSet := packload.ProfileSets(hostProfileFold(cfg, packs, agent, "").Table)[agent]; len(cfgSet) > 0 {
-			c.configuredProfile = cfgSet[0]
-		} else {
-			c.configuredProfile = ""
-		}
+		// The fold with no -p: what the config alone selects for this agent (MM-D30).
+		c.configuredSet = packload.ProfileSets(hostProfileFold(cfg, packs, agent, "").Table)[agent]
 	}
 	// NO PROFILE KEYS A COMMAND NO PACK INSTALLS (docs/design/credential-sources-separation.md
 	// ES-D5, and OQ-NC5 for the typed -p below). A `profile` entry for `bash` delivered
@@ -3654,7 +3681,15 @@ func hostEnvDelta(agent, profile string, grant *hostGrantRequest, warn func(stri
 		c.workerNotes, c.grantLines()) {
 		disclosure = append(disclosure, block...)
 	}
-	return c.vars, disclosure, nil
+	// THE AGENT'S LAUNCH SELECTION (docs/design/model-lists-and-pickers.md MM-D30): a -p that moves
+	// an agent whose provider lives in its own config file. A selection handed in variables is
+	// exported with the rest; one that needs the agent's argv cannot be, and the line names the
+	// launch that carries it. Each line is a block of its own, as the composition's lines are.
+	var said []string
+	selection := c.launchSelection(nil, c.environ(), func(line string) { said = append(said, line) })
+	vars, lines := selection.scriptVars()
+	disclosure = append(append(disclosure, said...), lines...)
+	return append(append([]agentenv.Var(nil), c.vars...), vars...), disclosure, nil
 }
 
 // hostEnvDefaultAgent is the agent `yolo host env` composes for when no --agent is given:
