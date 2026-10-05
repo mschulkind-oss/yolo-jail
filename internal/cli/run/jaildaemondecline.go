@@ -68,6 +68,12 @@ func (o *Options) noteMacosUserJailDaemonDeclines(declined []loopholes.DeclinedJ
 	// A pack service whose HOST HALF this launch runs (macosuserservices.go) is declined only as
 	// a jail daemon; the line says the service itself runs, so it is never read as off.
 	for i, d := range declined {
+		// A decline whose next step is a container runtime (loopholes.ContainerRuntimeRunsIt ends
+		// it) names the jail notch too when this launch is a guest, where the notch gate refuses a
+		// container runtime alone (containerStepClause, EMP-D5).
+		if strings.HasSuffix(d.Why, loopholes.ContainerRuntimeRunsIt) {
+			lines[i] += o.containerStepClause()
+		}
 		if o.launchServiceRunning(d.Spec.Name) {
 			lines[i] += " (its host half runs for this launch)"
 		}

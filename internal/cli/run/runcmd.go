@@ -62,10 +62,12 @@ type Options struct {
 	Network string
 	// Notch is `--at <jail|guest|host>` as typed on THIS launch: the confinement
 	// notch this invocation asks for, overriding the config's `confinement` key.
-	// "" means the flag was not given and the config decides.
+	// "" means the flag was not given and the config decides. launchNotch (run.go) is
+	// the one reader that folds the two.
 	//
-	// A LAUNCH HONORS ONLY `jail`, and the other two are REFUSED rather than
-	// ignored (refuseUnbuiltNotch, run.go; OQ-DP3 in
+	// A LAUNCH HONORS `jail` everywhere and `guest` on macOS, where it is the
+	// macos-user backend (env-manager plan EMP-D1). A Linux `guest` and `host` are
+	// REFUSED rather than ignored (refuseUnbuiltNotch, run.go; OQ-DP3 in
 	// docs/design/declaration-parity.md). Before this field existed
 	// cli.parseRunArgs had no `--at` case at all, so the token fell to its
 	// default arm and STARTED THE COMMAND: `yolo --at guest -- claude` launched a
@@ -75,6 +77,12 @@ type Options struct {
 	// (docs/plans/notch-convergence.md item 10). A caller setting it directly still
 	// gets refuseUnbuiltNotch's host refusal, as `confinement: host` does.
 	Notch string
+	// atNotch is the notch this launch runs at, Notch folded over the config's `confinement`
+	// (launchNotch), recorded by Run once refuseUnbuiltNotch has passed it. Read by the
+	// macos-user arm's printers that hold no config: at a guest, a next step naming a
+	// container runtime names the jail notch too (containerStepClause). The zero value
+	// reads as the jail notch, which is what every Options built outside Run describes.
+	atNotch config.Confinement
 	// NeverAttach skips the attach-to-running-container branch entirely. NOT a
 	// CLI flag (the old --new was removed 2026-09-06): it is the capture jail's
 	// programmatic "this launch must boot, never re-enter" — a capture runs its

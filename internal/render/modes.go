@@ -75,8 +75,8 @@ func (m ModeSet) Runs(mode string) bool { return m.runs[mode] }
 // every surface — and false in a jail, where `stateful` carries the recording duty.
 func (m ModeSet) Records(mode string) bool { return m.records[mode] }
 
-// Undecided reports that this target's mode policy has not been stated — the `guest` notch
-// until Phase 7 states it, and any Kind with no census entry. An undecided ModeSet runs
+// Undecided reports that this target's mode policy has not been stated — the Linux `guest`
+// notch until Phase 7.2 states it, and any Kind with no census entry. An undecided ModeSet runs
 // nothing and records nothing, so it is the fail-closed answer at every call site: a notch
 // nobody has thought about writes no file and claims no attribution, rather than inheriting
 // the jail's four mechanisms or the host's provenance write.
@@ -292,16 +292,21 @@ var modeCensus = map[notch]ModeSet{
 	{kind: KindHost, ownership: OwnershipNone}:   HostUnmanagedModes(),
 	{kind: KindHost, ownership: OwnershipAssert}: HostAssertModes(),
 	{kind: KindHost, ownership: OwnershipOwn}:    HostOwnedModes(),
-	// GUEST IS DELIBERATELY UNSTATED (env-manager plan Phase 7, Mac-gated). Both of the
+	// GUEST IS DELIBERATELY UNSTATED, and the entry is now the LINUX guest's alone. On macOS
+	// the guest notch is the macos-user backend (env-manager plan Phase 7.1, decision
+	// EMP-D2), which renders through the jail target — render.Jail, this table's KindJail row
+	// — exactly as it does at `confinement: jail`, so no KindGuest Target is built there and
+	// this row is never read for it. The Linux backend (Phase 7.2) is unwritten. Both of the
 	// answers above are mechanically available to it — a guest home is a real home that yolo
-	// nonetheless provisions, so `stateful`'s regeneration premise HOLDS there while the host's
-	// pure-rmw coercion is equally defensible — and that is precisely why it must not be
-	// defaulted into one. Inventing semantics here would re-commit D2's error in the file that
-	// exists to prevent it.
-	{kind: KindGuest}: UndecidedModes("the `guest` notch's mode policy is Phase 7's to state: " +
-		"yolo provisions a real home there, so `stateful`'s regenerate-every-boot premise " +
-		"applies while the host's pure-rmw coercion is equally defensible — neither may be " +
-		"inherited"),
+	// nonetheless provisions, so `stateful`'s regeneration premise HOLDS there while the
+	// host's pure-rmw coercion is equally defensible — and that is precisely why it must not
+	// be defaulted into one. Inventing semantics here would re-commit D2's error in the file
+	// that exists to prevent it.
+	{kind: KindGuest}: UndecidedModes("the Linux `guest` notch's mode policy is Phase 7.2's to " +
+		"state (on macOS the guest notch is the macos-user backend, which renders as the jail " +
+		"does): yolo provisions a real home there, so `stateful`'s regenerate-every-boot " +
+		"premise applies while the host's pure-rmw coercion is equally defensible — neither " +
+		"may be inherited"),
 	// KindUnset is not a notch at all (see its doc): a Target nobody's constructor built has
 	// chosen no confinement level, so it runs nothing.
 	{kind: KindUnset}: UndecidedModes("this target's confinement level was never set by a " +

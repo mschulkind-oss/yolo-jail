@@ -8,6 +8,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/mschulkind-oss/yolo-jail/internal/config"
 )
 
 // env is a getenv over a fixed map, so a billing case states its whole environment.
@@ -155,6 +157,28 @@ func TestNotch(t *testing.T) {
 	os.Unsetenv("YOLO_VERSION") // restored by the t.Setenv cleanup above
 	if got := Notch(); got != NotchHost {
 		t.Errorf("YOLO_VERSION absent: Notch = %q, want %q", got, NotchHost)
+	}
+}
+
+// TestNotchNamesTheGuestFromItsLaunchersMarker is §1.2's guest row: the macOS guest launch sets
+// config.NotchEnv beside YOLO_VERSION (env-manager plan EMP-D4), and the renderer prints `guest`
+// for it, as the briefing and `yolo describe` name that session. The marker only narrows a
+// launched session: without YOLO_VERSION it is no launch, and absence still reads as host.
+func TestNotchNamesTheGuestFromItsLaunchersMarker(t *testing.T) {
+	t.Setenv("YOLO_VERSION", "0.10.0")
+	t.Setenv(config.NotchEnv, "guest")
+	if got := Notch(); got != NotchGuest {
+		t.Errorf("a guest launch's session: Notch = %q, want %q", got, NotchGuest)
+	}
+	t.Setenv(config.NotchEnv, "jail")
+	if got := Notch(); got != NotchJail {
+		t.Errorf("a marker naming the jail: Notch = %q, want %q", got, NotchJail)
+	}
+	t.Setenv(config.NotchEnv, "guest")
+	t.Setenv("YOLO_VERSION", "")
+	if got := Notch(); got != NotchHost {
+		t.Errorf("the guest marker with no launch marker: Notch = %q, want %q — a stray "+
+			"variable must never claim a sandbox", got, NotchHost)
 	}
 }
 

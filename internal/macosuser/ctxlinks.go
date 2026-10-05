@@ -394,7 +394,9 @@ func ContextPreflight(links []ContextLink, user string) []ContextProbe {
 }
 
 // ContextPreflightRefusal is the launch's message for the probes that failed, one line each.
-func ContextPreflightRefusal(failed []ContextProbe) string {
+// step follows its container-runtime step: containerStep's clause, which names the jail notch
+// beside a guest (env-manager plan EMP-D5) and is "" at the jail notch.
+func ContextPreflightRefusal(failed []ContextProbe, step string) string {
 	msg := "[bold red]Refusing the macos-user launch: the sandbox account cannot reach " +
 		"every context mount.[/bold red]\n"
 	for _, p := range failed {
@@ -405,7 +407,7 @@ func ContextPreflightRefusal(failed []ContextProbe) string {
 		"permissions or an ACL refuse it before the\nSeatbelt profile is consulted. Copy the " +
 		"folder under " + SharedRootDefault() + " (cp -R, or a fresh clone there): what is\n" +
 		"created there is shared with the sandbox account as it is created, and a folder moved " +
-		"there is not.\nOr use a container runtime (`runtime: \"podman\"` or `\"container\"`)."
+		"there is not.\nOr use a container runtime (`runtime: \"podman\"` or `\"container\"`)" + step + "."
 }
 
 // StageContextDirCommands stages the context dir for this launch: the composed tree when the

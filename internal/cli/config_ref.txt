@@ -91,15 +91,21 @@
       • [bold]jail[/bold] — a container (podman / Apple Container): namespaces, a disposable
         home, a baked image, NONE of your credentials. The default and what
         `yolo -- <cmd>` gives you.
-      • [bold]guest[/bold] — a real home on the real filesystem, no image, an LSM boundary
-        (Seatbelt on macOS, bwrap+Landlock on Linux), its own separate identity.
+      • [bold]guest[/bold] — a real home on the real filesystem, no image, an LSM boundary.
+        On macOS this is the macos-user backend: a dedicated account under Seatbelt,
+        selected with no "runtime" key. Not built on Linux yet (bwrap+Landlock), where
+        a launch refuses it.
       • [bold]host[/bold] — you, your machine, your dotfiles, your credentials. EXPLICIT
         opt-in only: never inferred, never a fallback. `yolo host apply`
         renders your agent config into your real home.
     The three are presets over composable primitives (separate user / Seatbelt /
     bwrap / namespace); you pick a notch, not a hand-assembled policy.
-    NOTE: guest and host are being built out (env-manager plan); jail is fully
-    supported and is the default, so an absent key is exactly today's behavior.
+    NOTE: jail is the default, so an absent key is exactly today's behavior. A
+    launch runs jail everywhere and guest on macOS; host is not a launch (use
+    `yolo host -- <cmd>` and `yolo apply --at host`). `--at <notch>` on a launch
+    overrides this key for that launch. At guest on macOS, a "runtime" or
+    YOLO_RUNTIME naming podman or container contradicts the notch, and the launch
+    refuses until you drop one.
 
   [bold]runtime[/bold] (string): Isolation MECHANISM inside the jail notch (a hint, not policy).
     Values: "podman", "container", or "macos-user".
@@ -110,9 +116,11 @@
     agent as a dedicated macOS user under Seatbelt: NO VM, no Linux image,
     "packages:" materialized as native darwin nix for THIS Mac's arch (Apple
     Silicon or Intel — the system is derived, not assumed). Fastest startup,
-    but a WEAKER isolation boundary than a container/VM. (Under the confinement
-    dial this is the `guest` notch by another name; `runtime` stays for
-    compatibility and as the in-jail mechanism hint.)
+    but a WEAKER isolation boundary than a container/VM. `confinement: "guest"`
+    selects this same backend on macOS with no "runtime" key; `runtime:
+    "macos-user"` at the jail notch keeps working. The two launch the same
+    sandbox and differ only in the notch `yolo describe`, the agent's
+    briefing and its footer name.
 
   [bold]agents[/bold]: [bold yellow]REMOVED[/bold yellow] — which agents a jail gets is no longer a
     config key of its own.  An agent arrives as a pack, so name the pack that

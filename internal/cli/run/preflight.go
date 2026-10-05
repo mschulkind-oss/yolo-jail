@@ -169,16 +169,25 @@ func (o *Options) refuseUnmetCapabilities(cfg *jsonx.OrderedMap, src *config.Sou
 	return refuse
 }
 
-// resolveRuntime returns the resolved container runtime
-// ('podman' or 'container'), or ("", false) when none is reachable (prints the
-// actionable message; the caller exits 1). YOLO_RUNTIME / config.runtime win
-// (validated against ALL_RUNTIMES) before platform auto-detection.
+// resolveRuntime returns the resolved runtime ('podman', 'container' or 'macos-user'), or
+// ("", false) when none is reachable (prints the actionable message; the caller exits 1).
+// The precedence is the one config.SelectedRuntime states for every runtime reader:
+// YOLO_RUNTIME, then config.runtime (each validated against ALL_RUNTIMES), then the notch's
+// own backend, then platform auto-detection.
+//
+// THE NOTCH'S OWN BACKEND is the guest notch's on macOS: `confinement: "guest"` or `--at
+// guest` selects macos-user with no `runtime` key (config.NotchRuntime; env-manager plan
+// EMP-D1). It ranks below the two explicit inputs, and refuseUnbuiltNotch has already refused
+// an explicit one that contradicts it, so reaching this step means nothing explicit was named.
 func (o *Options) resolveRuntime(cfg *jsonx.OrderedMap) (string, bool) {
 	if env := o.Getenv("YOLO_RUNTIME"); env != "" && inStrSlice(paths.AllRuntimes, env) {
 		return o.validateExplicitRuntime(env, "YOLO_RUNTIME")
 	}
 	if rt := configRuntime(cfg); rt != "" && inStrSlice(paths.AllRuntimes, rt) {
 		return o.validateExplicitRuntime(rt, "yolo-jail.jsonc")
+	}
+	if rt := config.NotchRuntime(o.launchNotch(cfg), o.IsMacOS); rt != "" {
+		return o.validateExplicitRuntime(rt, "confinement")
 	}
 	var candidates []string
 	if o.IsMacOS {

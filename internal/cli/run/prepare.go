@@ -174,9 +174,12 @@ func (o *Options) refreshJailBriefings(cname string, cfg *jsonx.OrderedMap, rt s
 		// /home/agent exactly as before.
 		Home: nativeHomeFor(rt),
 		// The platform this launch runs ON, for the one answer the mechanism does not
-		// carry: a `guest` notch has no backend yet, so its Seatbelt-vs-Landlock spelling
-		// comes from here. `yolo describe` passes paths.IsMacOS for the same input; this
-		// path takes the injectable seam so the briefing stays deterministic in tests.
+		// carry: the Seatbelt-vs-Landlock spelling of a `guest` notch whose mechanism names
+		// no backend (jailcontent.ConfinementProfile). A guest LAUNCH always names one —
+		// macos-user on macOS, and a Linux guest is refused (env-manager plan EMP-D1,
+		// EMP-D3) — so this is the fallback `yolo describe` also needs, which passes
+		// paths.IsMacOS; this path takes the injectable seam so the briefing stays
+		// deterministic in tests.
 		IsMacOS: o.IsMacOS,
 		// THE STANDING CONSTRAINTS OF THIS BACKEND, in the agent's voice. Unset for the
 		// whole life of the field (DP-B21): backendLimits had no production call site, so

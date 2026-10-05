@@ -541,6 +541,9 @@ func TestAtOverridesTheCwdAndIsDisclosedAsTheChooser(t *testing.T) {
 // a third spelling of one notch's status is the drift docs/design/declaration-parity.md
 // exists to name (OQ-DP3), so this compares the two commands' real output.
 func TestAtGuestIsRefusedWithApplysOwnSentence(t *testing.T) {
+	// On Linux, where both verbs refuse: on macOS apply points at the guest launch instead
+	// (guestnotch_test.go).
+	onPlatform(t, false)
 	scratchHostHome(t)
 	t.Setenv("YOLO_VERSION", "")
 	withWorkspaceCwd(t)
@@ -552,8 +555,9 @@ func TestAtGuestIsRefusedWithApplysOwnSentence(t *testing.T) {
 	var applyOut, applyErr bytes.Buffer
 	applyMain([]string{"--at", "guest"}, &applyOut, &applyErr, false, nil)
 
-	configTail := afterVerb(configErr.String()+configOut.String(), "config")
-	applyTail := afterVerb(applyOut.String()+applyErr.String(), "apply")
+	// The SENTENCE, one line: what follows it is each verb's own next step.
+	configTail := firstLine(afterVerb(configErr.String()+configOut.String(), "config"))
+	applyTail := firstLine(afterVerb(applyOut.String()+applyErr.String(), "apply"))
 	if configTail == "" || configTail != applyTail {
 		t.Errorf("the two verbs refuse `guest` with different sentences.\nconfig: %q\napply:  %q\n"+
 			"Both must print render.NotchUnbuilt, parameterised by the verb and nothing else.",

@@ -13,8 +13,9 @@ import (
 // TestGuestNotchSentenceHasExactlyOneHome is the drift guard NotchUnbuilt exists for.
 //
 // Two packages say this sentence — `cli.applyMain` for `yolo apply --at guest` and
-// `run.Run` for a guest-notch LAUNCH (docs/design/declaration-parity.md DP-A12, DP-B16) —
-// and internal/cli imports internal/cli/run, so neither could own the string. OQ-DP3 ruled
+// `run.Run` for a guest-notch LAUNCH, both on Linux since the notch launches on macOS
+// (docs/design/declaration-parity.md DP-A12, DP-B16) — and internal/cli imports
+// internal/cli/run, so neither could own the string. OQ-DP3 ruled
 // the launch gate must reuse apply's sentence VERBATIM, and "verbatim" enforced by two
 // authors reading each other's files is the drift this catalog is a list of. So the
 // property is stronger than equality: the sentence exists ONCE in the tree.
@@ -23,7 +24,7 @@ import (
 // line below), and so may a doc — what must not exist is a second thing a user could be
 // shown.
 func TestGuestNotchSentenceHasExactlyOneHome(t *testing.T) {
-	const distinctive = "is not built yet (env-manager plan Phase 7"
+	const distinctive = "not built yet: the guest notch launches"
 	if !strings.Contains(NotchUnbuilt("apply"), distinctive) {
 		t.Fatalf("the guard's needle no longer appears in NotchUnbuilt(%q) = %q — update "+
 			"the needle, do not delete the guard", "apply", NotchUnbuilt("apply"))
@@ -64,15 +65,21 @@ func TestGuestNotchSentenceHasExactlyOneHome(t *testing.T) {
 // TestNotchUnbuiltNamesTheVerbItWasGiven: the verb is the ONLY thing that varies, which is
 // what makes "verbatim" mean something. A call site that got the phase wrong, or dropped
 // the plan reference, would be a different sentence wearing the same function.
+//
+// And since the guest notch launches on macOS (env-manager plan EMP-D1), the sentence must
+// say WHERE it runs: a refusal that only said "not built" would be false of the Mac a user
+// reads `yolo config --at guest`'s copy on.
 func TestNotchUnbuiltNamesTheVerbItWasGiven(t *testing.T) {
-	for _, verb := range []string{"apply", "launch"} {
+	for _, verb := range []string{"apply", "launch", "config"} {
 		got := NotchUnbuilt(verb)
 		if !strings.HasPrefix(got, verb+" at the guest notch is not built yet") {
 			t.Errorf("NotchUnbuilt(%q) = %q, want it to open with the verb", verb, got)
 		}
-		if !strings.Contains(got, "Phase 7") || !strings.Contains(got, "LSM-confined backend") {
-			t.Errorf("NotchUnbuilt(%q) = %q, want it to name the phase and what it builds",
-				verb, got)
+		for _, want := range []string{"only on macOS", "macos-user", "Phase 7.1", "Phase 7.2", "Landlock"} {
+			if !strings.Contains(got, want) {
+				t.Errorf("NotchUnbuilt(%q) = %q, want it to name %q: where the notch runs, "+
+					"by what, and which phase owes the rest", verb, got, want)
+			}
 		}
 	}
 	// The two differ ONLY by the verb.

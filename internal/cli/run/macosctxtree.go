@@ -327,7 +327,7 @@ func (o *Options) planMacosUserCtxMounts(cfg *jsonx.OrderedMap, packs []*packloa
 		"sandbox's writable places (under /Users/Shared, or outside /Users), a read-write one " +
 		"under " + macosuser.SharedRootDefault() + " (docs/design/context-mounts.md §3). Move " +
 		"the folder there, remove the entry (or the pack) for this workspace, or use a " +
-		"container runtime (`runtime: \"podman\"` or `\"container\"`).")
+		"container runtime (`runtime: \"podman\"` or `\"container\"`)" + o.containerStepClause() + ".")
 	return nil, false
 }
 

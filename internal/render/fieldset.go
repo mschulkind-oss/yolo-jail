@@ -7,7 +7,15 @@ import (
 )
 
 // NotchUnbuilt is the ONE sentence yolo says when a verb is asked to act at the `guest`
-// notch, with `verb` naming the verb the user typed ("apply", "launch").
+// notch where that verb has no guest arm, with `verb` naming the verb the user typed
+// ("apply", "launch", "config").
+//
+// WHERE IT IS SAID, since the guest notch launches on macOS (env-manager plan Phase 7.1,
+// decision EMP-D1): a launch and `yolo apply --at guest` say it on Linux only, because on
+// macOS the first runs the macos-user backend and the second points at that launch; `yolo
+// config --at guest` says it on both. So the sentence names where the notch DOES run, and
+// is true on either platform for every verb that prints it. The next step is each caller's,
+// because the verbs differ in what to do instead.
 //
 // IT LIVES HERE BECAUSE TWO PACKAGES SAY IT AND NEITHER CAN IMPORT THE OTHER.
 // `cli.applyMain` has printed it since Phase 2 (`yolo apply --at guest` → rc 1); the launch
@@ -21,10 +29,11 @@ import (
 // exists to name declarations a surface accepts and does not honor, and the two surfaces
 // disagreeing about one notch by one word is that defect wearing a smaller hat — which is
 // why OQ-DP3 ruled the launch gate must reuse this sentence VERBATIM rather than write its
-// own. TestGuestNotchRefusalsShareOneSentence pins the two call sites to this function.
+// own. TestGuestNotchSentenceHasExactlyOneHome pins the sentence to this function.
 func NotchUnbuilt(verb string) string {
-	return fmt.Sprintf("%s at the guest notch is not built yet (env-manager plan Phase 7 "+
-		"— the LSM-confined backend).", verb)
+	return fmt.Sprintf("%s at the guest notch is not built yet: the guest notch launches "+
+		"only on macOS, as the macos-user backend (env-manager plan Phase 7.1), and its "+
+		"Linux backend, bwrap + Landlock (Phase 7.2), is not written.", verb)
 }
 
 // FieldSet declares which contribution kinds a target can honor, so an inapplicable

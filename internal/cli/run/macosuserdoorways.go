@@ -176,7 +176,7 @@ func (o *Options) noteRefusedDoorways(declined []loopholes.DeclinedJailDaemon) {
 	guestDeclines := guestDeclinedNames(declined)
 	for _, r := range o.refusedDoorways {
 		o.pr(o.Stderr).print(fmt.Sprintf("[yellow]Not opened outside the sandbox: the %q doorway's "+
-			"host argv (pack %q): %s. %s[/yellow]", r.Name, r.Pack, r.Why, guestPlacement(guestDeclines[r.Name])))
+			"host argv (pack %q): %s. %s[/yellow]", r.Name, r.Pack, r.Why, o.guestPlacement(guestDeclines[r.Name])))
 	}
 	o.noteRefusedServiceHosts(guestDeclines)
 }
@@ -191,7 +191,7 @@ func (o *Options) noteRefusedDoorways(declined []loopholes.DeclinedJailDaemon) {
 func (o *Options) noteRefusedServiceHosts(guestDeclines map[string]bool) {
 	for _, r := range o.refusedServiceHosts {
 		o.pr(o.Stderr).print(fmt.Sprintf("[yellow]Not started outside the sandbox: the %q service's "+
-			"host half (pack %q): %s. %s[/yellow]", r.Name, r.Pack, r.Why, guestPlacement(guestDeclines[r.Name])))
+			"host half (pack %q): %s. %s[/yellow]", r.Name, r.Pack, r.Why, o.guestPlacement(guestDeclines[r.Name])))
 	}
 }
 
@@ -207,11 +207,13 @@ func guestDeclinedNames(declined []loopholes.DeclinedJailDaemon) map[string]bool
 // guestPlacement is where a refused host argv's jail daemon goes on macos-user, for the two
 // disclosures above. When the guest declines it too, a daemon a selected pack declared runs
 // nowhere this launch, so the line names the next step: a container backend runs every daemon its
-// payload names (loopholes.ContainerRuntimeRunsIt; docs/reference/happy-path-principle.md).
-func guestPlacement(declinedInGuest bool) string {
+// payload names (loopholes.ContainerRuntimeRunsIt; docs/reference/happy-path-principle.md), at the
+// jail notch when this launch is a guest (containerStepClause, EMP-D5).
+func (o *Options) guestPlacement(declinedInGuest bool) string {
 	if declinedInGuest {
 		return "Its jail daemon is declined in the sandbox too (its Declined: line says why), " +
-			"so nothing serves it this launch; " + loopholes.ContainerRuntimeRunsIt + "."
+			"so nothing serves it this launch; " + loopholes.ContainerRuntimeRunsIt +
+			o.containerStepClause() + "."
 	}
 	return "Its jail daemon runs in the sandbox instead."
 }
