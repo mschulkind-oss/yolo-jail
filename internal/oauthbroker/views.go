@@ -21,6 +21,7 @@ import (
 	"path/filepath"
 	"slices"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/claudeview"
@@ -353,8 +354,11 @@ func relaySource() *jsonx.OrderedMap {
 }
 
 // maintainViewsLocked is the tick's pass over every registration: keep each view current,
-// adopt a /login, honor a /logout, drop a registration whose workspace has gone.
+// adopt a /login, honor a /logout, drop a registration whose workspace has gone. It first marks
+// this process as a broker that keeps host views (markHostViewsKept): only the daemon's tick runs
+// this pass, so the mark names the daemon.
 func (s store) maintainViewsLocked() {
+	markHostViewsKept()
 	regs := loadRegistrations()
 	if len(regs) == 0 {
 		return
@@ -492,6 +496,65 @@ func scopeString(oauth *jsonx.OrderedMap) string {
 		}
 	}
 	return strings.Join(parts, " ")
+}
+
+// hostViewsMarkName is the file in the broker's state dir by which the RUNNING broker says it
+// keeps `yolo host` views current (CL-D28, docs/design/claude-login-without-interception.md). A
+// broker a yolo older than host views started still answers every connection, so nothing a
+// launch can probe tells it apart — and it skips a dir-only registration as unparseable on every
+// tick, so a view `yolo host -- claude` registers with it is written once, at registration, and
+// never refreshed. The launch reads this mark instead (HostViewsKeptBy) and replaces a broker
+// that lacks it.
+const hostViewsMarkName = "host-views.mark"
+
+// hostViewsMark is the mark's content for the broker process pid: the ability's version, so a
+// later change to what a host view needs can bump it, and the pid, so a mark a stopped broker
+// left never vouches for the process that replaced it.
+func hostViewsMark(pid int) string { return "host-views-v1 " + strconv.Itoa(pid) + "\n" }
+
+// hostViewsMarkPath is the mark beside the registrations, "" when the store is not configured.
+func hostViewsMarkPath() string {
+	if ViewRegistryDir == "" {
+		return ""
+	}
+	return filepath.Join(filepath.Dir(ViewRegistryDir), hostViewsMarkName)
+}
+
+// markHostViewsKept writes this process's mark when the file does not already say it, through a
+// temporary file renamed into place, so a launch reading it never sees half of one. Best effort,
+// and quiet but for the debug log: a broker that cannot write it is replaced by the next host
+// launch that wants a view, which says so.
+func markHostViewsKept() {
+	p := hostViewsMarkPath()
+	if p == "" {
+		return
+	}
+	want := hostViewsMark(os.Getpid())
+	if cur, err := os.ReadFile(p); err == nil && string(cur) == want {
+		return
+	}
+	tmp, err := os.CreateTemp(filepath.Dir(p), ".host-views-")
+	if err != nil {
+		logDebug("view: could not mark this broker as keeping host views: %s", err)
+		return
+	}
+	_, werr := tmp.WriteString(want)
+	cerr := tmp.Close()
+	if werr != nil || cerr != nil || os.Rename(tmp.Name(), p) != nil {
+		_ = os.Remove(tmp.Name())
+		logDebug("view: could not mark this broker as keeping host views")
+	}
+}
+
+// HostViewsKeptBy reports whether the broker process pid has marked itself as one that keeps
+// `yolo host` views current. It needs the store configured (ConfigureStore).
+func HostViewsKeptBy(pid int) bool {
+	p := hostViewsMarkPath()
+	if p == "" || pid <= 0 {
+		return false
+	}
+	cur, err := os.ReadFile(p)
+	return err == nil && string(cur) == hostViewsMark(pid)
 }
 
 // RegisterResult is what RegisterView found and did, for the launch to report.

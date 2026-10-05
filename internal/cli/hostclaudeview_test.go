@@ -14,14 +14,33 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
+	"syscall"
 	"testing"
+	"time"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/broker"
 	"github.com/mschulkind-oss/yolo-jail/internal/claudeview"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/loopholes"
 	"github.com/mschulkind-oss/yolo-jail/internal/oauthbroker"
 )
+
+// THE SWITCH IS THE CALLER'S, and this package's host cells run as on a host that never set it,
+// for TestMain's reason about YOLO_VERSION (hostdepstub_test.go): a jail launched with the view on
+// hands its shell YOLO_CLAUDE_CREDENTIAL_VIEW=1 (run/claudecredentialview.go), and so does a
+// developer shell that exports the opt-in, and either would turn every `yolo host -- claude` cell
+// into a view cell. A view cell sets the switch itself (viewShell). And no cell ensures the REAL
+// broker: one that reaches the ensure stands in for it (claudeViewHost), the way depInstallRun is
+// guarded, and this guard fails the view loudly in any cell that forgot.
+func init() {
+	os.Unsetenv(claudeview.SwitchEnv)
+	hostClaudeBrokerEnsure = func(io.Writer) error {
+		return errors.New("test guard: refusing to ensure the real claude-oauth-broker; stand in " +
+			"for hostClaudeBrokerEnsure in this test (claudeViewHost)")
+	}
+}
 
 // viewShell is the invoking shell of a view cell: the switch as given, and no
 // CLAUDE_SECURESTORAGE_CONFIG_DIR of the shell's own (a jail running this suite sets one).
@@ -221,5 +240,210 @@ func TestHostClaudeBesideALaunchOwnedServiceCarriesTheView(t *testing.T) {
 		"host-agents", "claude")
 	if !strings.Contains(string(env), want+"\n") {
 		t.Errorf("the resident agent's environment lacks %s:\n%s\n%s", want, env, errw.String())
+	}
+}
+
+// The broker loophole switched off in the user's config: the switch cannot be honored, the launch
+// says so and names where to look, and nothing is set or started.
+func TestHostClaudeViewWithTheBrokerLoopholeOffSetsNothingAndSaysWhy(t *testing.T) {
+	called := false
+	rc, env, errs := hostGateRunIn(t, `{"packs": ["claude"], "loopholes": `+
+		`{"claude-oauth-broker": {"enabled": false}}}`, viewShell("1"), nil, "claude", func(string) {
+		claudeViewHost(t)
+		hostClaudeBrokerEnsure = func(io.Writer) error { called = true; return nil }
+	})
+	if rc != 0 {
+		t.Fatalf("rc=%d\n%s", rc, errs)
+	}
+	if v := env[claudeview.SecureStorageEnv]; v != "" || called {
+		t.Errorf("with the loophole off the view was set up (env %q, broker ensured %v):\n%s", v, called, errs)
+	}
+	if !strings.Contains(errs, "loophole is not active here") || !strings.Contains(errs, "`yolo loopholes status`") {
+		t.Errorf("the launch did not say the loophole is off and where to look:\n%s", errs)
+	}
+}
+
+// A machine with no shared login yet still gets the view, and the launch says the /login in this
+// session is what enrolls it.
+func TestHostClaudeViewOnAMachineWithNoLoginSaysLoginEnrollsIt(t *testing.T) {
+	rc, env, errs := hostGateRunIn(t, claudeAlone, viewShell("1"), nil, "claude", func(string) {
+		claudeViewHost(t)
+	})
+	if rc != 0 {
+		t.Fatalf("rc=%d\n%s", rc, errs)
+	}
+	if env[claudeview.SecureStorageEnv] == "" {
+		t.Errorf("no view for a machine with no login yet:\n%s", errs)
+	}
+	if !strings.Contains(errs, "this machine has no shared Claude login yet; /login in this session enrolls the machine") {
+		t.Errorf("the launch did not say /login enrolls the machine:\n%s", errs)
+	}
+}
+
+// In a jail the host view is never set up: a nested `yolo host -- claude` keeps the jail's own
+// Claude store. The same call outside a jail does set it, so the guard is the difference.
+func TestHostClaudeViewIsANoOpInAJail(t *testing.T) {
+	hostGateHome(t, claudeAlone, viewShell("1"))
+	claudeViewHost(t)
+	launch := composeHostLaunch("claude", "", nil, func(string) {})
+	var errw bytes.Buffer
+	if got := hostClaudeView(launch, []string{"A=1"}, &errw); envValue(got, claudeview.SecureStorageEnv) == "" {
+		t.Fatalf("setup: outside a jail the view was not set:\n%s", errw.String())
+	}
+	called := false
+	hostClaudeBrokerEnsure = func(io.Writer) error { called = true; return nil }
+	t.Setenv("YOLO_VERSION", "test")
+	errw.Reset()
+	got := hostClaudeView(launch, []string{"A=1"}, &errw)
+	if strings.Join(got, " ") != "A=1" || called || errw.Len() > 0 {
+		t.Errorf("in a jail: env %v, broker ensured %v, said %q", got, called, errw.String())
+	}
+}
+
+// fakeClaudeBroker is the host-wide claude-oauth-broker as the ensure sees it, with no process:
+// its pid file and socket in a temp dir, liveness in a map, a clock the waits advance.
+type fakeClaudeBroker struct {
+	deps    broker.Deps
+	alive   map[int]bool
+	killed  []int
+	spawned int
+	now     time.Time
+	// onSleep runs at each wait the ensure takes (a broker's first tick, say).
+	onSleep func()
+}
+
+// newFakeClaudeBroker readies a broker running as pid (0: none), whose pid file is age old, with
+// the broker's store configured under a temp dir. A spawn starts pid 5151.
+func newFakeClaudeBroker(t *testing.T, pid int, age time.Duration) *fakeClaudeBroker {
+	t.Helper()
+	claudeViewHost(t)
+	dir, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("HOME", dir)
+	t.Setenv("YOLO_BROKER_STATE_DIR", filepath.Join(dir, "state"))
+	if err := os.MkdirAll(filepath.Join(dir, "state"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	oauthbroker.ConfigureStore()
+	f := &fakeClaudeBroker{alive: map[int]bool{}, now: time.Now()}
+	exists := func(p string) bool { _, err := os.Lstat(p); return err == nil }
+	f.deps = broker.Deps{
+		Name:        broker.BrokerLoopholeName,
+		SocketPath:  filepath.Join(dir, "broker.sock"),
+		PIDFilePath: filepath.Join(dir, "broker.pid"),
+		LockPath:    filepath.Join(dir, "broker.lock"),
+		LogPath:     filepath.Join(dir, "broker.log"),
+		Argv:        []string{"yolo-fake-broker"},
+		Now:         func() time.Time { return f.now },
+		Sleep: func(d time.Duration) {
+			f.now = f.now.Add(d)
+			if f.onSleep != nil {
+				f.onSleep()
+			}
+		},
+		PathExists: exists,
+		Reachable:  func(p string, _ time.Duration) bool { return exists(p) },
+		Alive:      func(pid int) bool { return f.alive[pid] },
+		Kill: func(pid int, _ syscall.Signal) error {
+			f.killed = append(f.killed, pid)
+			delete(f.alive, pid)
+			return nil
+		},
+		Pgrep: func() []int { return nil },
+		Spawn: func([]string, string) (int, func() bool, error) {
+			f.spawned++
+			f.alive[5151] = true
+			writeFile(t, filepath.Join(dir, "broker.sock"), "")
+			return 5151, func() bool { return false }, nil
+		},
+	}
+	if pid != 0 {
+		f.alive[pid] = true
+		writeFile(t, f.deps.PIDFilePath, strconv.Itoa(pid)+"\n")
+		writeFile(t, f.deps.SocketPath, "")
+		then := f.now.Add(-age)
+		if err := os.Chtimes(f.deps.PIDFilePath, then, then); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return f
+}
+
+// markAsThisBuilds runs a tick of this build's broker in this process, which marks this
+// process's pid as a broker that keeps host views (oauthbroker.HostViewsKeptBy).
+func markAsThisBuilds() {
+	oauthbroker.BackgroundRefreshTick(oauthbroker.LegacyCredsPath(), oauthbroker.BackgroundRefreshLeadSeconds)
+}
+
+// A BROKER OLDER THAN HOST VIEWS IS NAMED, NOT REPLACED (CL-D28): it would skip this launch's
+// registration on every tick, so the view would be written once and never refreshed. The ensure
+// fails with the command that replaces it (hostClaudeView turns that into its warning and sets
+// nothing), and stops nothing itself: a version difference warns and never kills (HD-D2).
+func TestHostClaudeNamesABrokerOlderThanHostViewsAndStopsNothing(t *testing.T) {
+	f := newFakeClaudeBroker(t, 4242, time.Hour)
+	var errw bytes.Buffer
+	err := ensureHostViewBroker(f.deps, &errw)
+	if err == nil {
+		t.Fatalf("an old broker passed the ensure:\n%s", errw.String())
+	}
+	for _, want := range []string{"(pid 4242) was started by a yolo older than `yolo host` views",
+		"`yolo host-daemon restart claude-oauth-broker` replaces it"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("the ensure's error does not say %q: %v", want, err)
+		}
+	}
+	if len(f.killed) != 0 || f.spawned != 0 {
+		t.Errorf("the ensure touched a shared broker: killed %v, spawned %d", f.killed, f.spawned)
+	}
+}
+
+// A broker this ensure started is this build's: it is used at once, without waiting for a mark.
+func TestHostClaudeUsesTheBrokerItStartedWithoutWaiting(t *testing.T) {
+	f := newFakeClaudeBroker(t, 0, 0)
+	var errw bytes.Buffer
+	if err := ensureHostViewBroker(f.deps, &errw); err != nil || f.spawned != 1 {
+		t.Errorf("ensure = %v with %d spawns, want the one it started used:\n%s", err, f.spawned, errw.String())
+	}
+}
+
+// A broker of this build, which marked itself, is reused and nothing is said.
+func TestHostClaudeKeepsABrokerThatKeepsHostViews(t *testing.T) {
+	f := newFakeClaudeBroker(t, os.Getpid(), time.Hour)
+	markAsThisBuilds()
+	var errw bytes.Buffer
+	if err := ensureHostViewBroker(f.deps, &errw); err != nil {
+		t.Fatalf("ensure: %v\n%s", err, errw.String())
+	}
+	if len(f.killed) != 0 || f.spawned != 0 || errw.Len() > 0 {
+		t.Errorf("a current broker was disturbed: killed %v, spawned %d, said %q", f.killed, f.spawned, errw.String())
+	}
+}
+
+// A broker started moments ago has not ticked yet: the launch waits for its mark rather than
+// taking it for an old one and killing a daemon another launch just started.
+func TestHostClaudeWaitsForAJustStartedBrokersMark(t *testing.T) {
+	f := newFakeClaudeBroker(t, os.Getpid(), 0)
+	f.onSleep = markAsThisBuilds
+	var errw bytes.Buffer
+	if err := ensureHostViewBroker(f.deps, &errw); err != nil {
+		t.Fatalf("ensure: %v\n%s", err, errw.String())
+	}
+	if len(f.killed) != 0 || f.spawned != 0 {
+		t.Errorf("a broker still coming up was replaced: killed %v, spawned %d\n%s", f.killed, f.spawned, errw.String())
+	}
+}
+
+// No broker running once the ensure is done: the view would never be refreshed, so the launch is
+// told, with the command that starts one, and sets nothing (hostClaudeView's warning).
+func TestHostClaudeEnsureThatStartsNoBrokerSaysHowToStartOne(t *testing.T) {
+	f := newFakeClaudeBroker(t, 0, 0)
+	f.deps.Spawn = func([]string, string) (int, func() bool, error) { return 0, nil, errors.New("no exec") }
+	var errw bytes.Buffer
+	err := ensureHostViewBroker(f.deps, &errw)
+	if err == nil || !strings.Contains(err.Error(), "claude-oauth-broker is not running") ||
+		!strings.Contains(err.Error(), "`yolo host-daemon restart claude-oauth-broker` starts it") {
+		t.Errorf("ensure with no broker running = %v, want it said, with the command that starts one", err)
 	}
 }

@@ -557,3 +557,31 @@ func writeFileT(t *testing.T, p, content string) {
 		t.Fatal(err)
 	}
 }
+
+// A BROKER THAT KEEPS HOST VIEWS SAYS SO, naming its own process (CL-D28): the tick that maintains
+// every view, a host view included, writes the mark, so a `yolo host` launch can tell this
+// daemon from one a yolo older than host views started, which skips every dir-only registration
+// as unparseable and would never refresh the view the launch registers. The mark names a pid,
+// so a mark another process left is never read as this one's.
+func TestABrokerTickMarksThatItKeepsHostViews(t *testing.T) {
+	f := newViewFixture(t)
+	if HostViewsKeptBy(os.Getpid()) {
+		t.Fatal("setup: a mark before any tick")
+	}
+	BackgroundRefreshTick(f.legacy, BackgroundRefreshLeadSeconds)
+	if !HostViewsKeptBy(os.Getpid()) {
+		t.Fatal("the tick did not mark this broker as keeping host views")
+	}
+	if HostViewsKeptBy(os.Getpid() + 1) {
+		t.Error("the mark answered for a process that did not write it")
+	}
+	// Under the broker's state dir, beside the registrations, never a workspace's.
+	if _, err := os.Stat(filepath.Join(filepath.Dir(ViewRegistryDir), hostViewsMarkName)); err != nil {
+		t.Errorf("no mark beside the registrations: %v", err)
+	}
+	// An unconfigured store answers no, and writes nothing.
+	ViewRegistryDir = ""
+	if HostViewsKeptBy(os.Getpid()) {
+		t.Error("an unconfigured store vouched for a broker")
+	}
+}

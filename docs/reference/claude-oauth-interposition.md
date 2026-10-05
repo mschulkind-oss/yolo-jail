@@ -1009,7 +1009,10 @@ an implementation decision under the maintainer's delegation, reversible): with
 registers a view in a directory yolo manages, `~/.local/share/yolo-jail/host-agents/claude`, and
 points Claude's store at it with `CLAUDE_SECURESTORAGE_CONFIG_DIR`. The user's own `~/.claude` is
 never written, and nothing in it is copied in, so an MCP server's OAuth login is asked for again in
-such a session. A `/login` there enrolls the machine, as a jail's does. Without the switch nothing
+such a session. A `/login` there enrolls the machine, as a jail's does. A broker that an older
+yolo started never refreshes such a view, so the launch then says the broker is too old, names
+`yolo host-daemon restart claude-oauth-broker`, and leaves Claude on its own login
+([CL-D28](../design/claude-login-without-interception.md#CL-D28)). Without the switch nothing
 changes, which is [OQ-NC7](../plans/notch-convergence.md#OQ-NC7)'s ruling for every default user; making the view host Claude's default is
 this question's answer to give.
 

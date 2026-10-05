@@ -372,6 +372,17 @@ $ yolo claude-auth inspect ~/.claude/.credentials.json > ~/tmp/cv-h-own-before.t
 On a Mac your own login may live in the Keychain and the file may be absent: then the file's
 absence is what H2 compares.
 
+If yolo was upgraded since the host broker started (`just install`, `brew upgrade`), restart the
+broker first:
+
+```console
+$ yolo host-daemon restart claude-oauth-broker
+```
+
+A broker an older yolo started never refreshes a `yolo host` view
+([CL-D28](../../design/claude-login-without-interception.md#CL-D28)). H1's launch would say the
+broker is older than `yolo host` views, name this command, and start Claude on your own login.
+
 ### H1. The launch says what it does, and Claude is logged in
 
 ```console

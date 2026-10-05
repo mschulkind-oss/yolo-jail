@@ -24,6 +24,7 @@ import (
 	"os"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/broker"
 	"github.com/mschulkind-oss/yolo-jail/internal/claudeview"
@@ -33,21 +34,79 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 )
 
-// hostClaudeBrokerEnsure starts the host-wide claude-oauth-broker when none is running, the way a
-// jail launch's brokerEnsure does, with its lines on errw (a host agent's stdout is its own). A
-// variable so a test can stand in for the daemon; the registration after it is real.
+// hostClaudeBrokerEnsure starts the host-wide claude-oauth-broker when none is running, and
+// refuses one too old to keep a host view current (ensureHostViewBroker), with its lines on errw
+// (a host agent's stdout is its own). A variable so a test can stand in for the daemon; the
+// registration after it is real.
 var hostClaudeBrokerEnsure = func(errw io.Writer) error {
-	deps := broker.RealDeps()
+	return ensureHostViewBroker(broker.RealDeps(), errw)
+}
+
+// hostViewsMarkGrace is how long after its spawn a broker has to mark itself as keeping host
+// views (oauthbroker.HostViewsKeptBy) before a launch takes it for one that never will. Its first
+// tick runs as it starts, so a broker of this build marks itself at once unless another process
+// holds the refresh lock; the grace is for a broker another launch started moments ago.
+const hostViewsMarkGrace = 10 * time.Second
+
+// ensureHostViewBroker is the ensure behind hostClaudeBrokerEnsure, over deps: nil when a broker
+// that keeps host views is running once it returns.
+//
+// A BROKER OLDER THAN HOST VIEWS IS NAMED, NOT REPLACED (CL-D28). A live broker a yolo from before
+// CL-D27 started answers every connection, and skips every dir-only registration as unparseable,
+// so the view this launch registers would be written at registration and never refreshed: host
+// Claude would lose its login when that token expires, with nothing saying why. The running
+// broker marks itself when it keeps host views; one that has not, past hostViewsMarkGrace from its
+// spawn, is reported, with the command that replaces it, and the launch sets nothing. It is not
+// stopped here, for HD-D2's reason (docs/design/host-daemon-ownership.md, item 6, and its modes 3
+// and 4): a version difference warns and never kills, since the broker's background refresh is
+// not drained on SIGTERM and a restart could cut a single-use refresh in flight.
+func ensureHostViewBroker(deps broker.Deps, errw io.Writer) error {
 	deps.Out = errw
-	if broker.BrokerIsAlive(deps) {
+	oauthbroker.ConfigureStore()
+	started := false
+	if !broker.BrokerIsAlive(deps) {
+		ensured := broker.EnsureSingleton(deps)
+		if ensured.Stale != nil {
+			return fmt.Errorf("the host-wide broker is running other settings (%s) and could not be "+
+				"restarted; `yolo host-daemon restart %s` restarts it",
+				strings.Join(ensured.Stale.Changed, ", "), broker.BrokerLoopholeName)
+		}
+		started = ensured.Started
+	}
+	if !broker.BrokerIsAlive(deps) {
+		return fmt.Errorf("the host-wide %s is not running, so nothing would keep the view current "+
+			"(its log: %s); `yolo host-daemon restart %s` starts it", broker.BrokerLoopholeName,
+			deps.LogPath, broker.BrokerLoopholeName)
+	}
+	if started {
+		return nil // this build's own broker, spawned just now
+	}
+	pid, _ := broker.BrokerReadPID(deps)
+	if awaitHostViewsMark(deps, pid) {
 		return nil
 	}
-	ensured := broker.EnsureSingleton(deps)
-	if ensured.Stale != nil {
-		return fmt.Errorf("the host-wide broker is running other settings (%s) and could not be "+
-			"restarted", strings.Join(ensured.Stale.Changed, ", "))
+	return fmt.Errorf("the host-wide %s running now (pid %d) was started by a yolo older than "+
+		"`yolo host` views and would never refresh this one; `yolo host-daemon restart %s` "+
+		"replaces it (yolo does not stop a shared broker itself, which could cut a refresh in flight)",
+		broker.BrokerLoopholeName, pid, broker.BrokerLoopholeName)
+}
+
+// awaitHostViewsMark reports whether the broker running as pid has marked itself as keeping host
+// views, waiting for the mark until hostViewsMarkGrace past its pid file's write (its spawn).
+func awaitHostViewsMark(deps broker.Deps, pid int) bool {
+	deadline := deps.Now()
+	if fi, err := os.Stat(deps.PIDFilePath); err == nil {
+		deadline = fi.ModTime().Add(hostViewsMarkGrace)
 	}
-	return nil
+	for {
+		if oauthbroker.HostViewsKeptBy(pid) {
+			return true
+		}
+		if !deps.Now().Before(deadline) {
+			return false
+		}
+		deps.Sleep(broker.SocketPollInterval)
+	}
 }
 
 // hostClaudeView returns environ with the launched Claude pointed at its view, when this launch
