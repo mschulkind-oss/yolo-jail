@@ -206,8 +206,9 @@ yolo pack install or yolo pack update re-fetches a tag its author re-pointed.
                               that is where an agent CLI is installed
   yolo pack status            show locked commits and fork pins, and flag config/lock drift
   yolo pack rebase <pack>/<bin> [--onto <ref>] [--into <dir>] [--restart]
-                              rebase a PATCHED fork's series (a fork that declares "patches")
-                              when an upstream version no longer takes it: clones the upstream
+                              rebase a PATCHED fork's series (a fork that declares "patches"),
+                              or a patched extension's, named <pack>/<name>, when an upstream
+                              version no longer takes it: clones the upstream
                               into --into (default ./<pack>-<bin>-rebase), replays the series
                               onto --onto (default: the newest upstream version above the good
                               build, which a launch tries first), and stops at the conflict for

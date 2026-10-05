@@ -381,7 +381,7 @@ func TestPackRebaseRefusesADirectoryItMustNotTouch(t *testing.T) {
 	}
 	for _, tc := range []struct{ name, into, want string }{
 		{"a directory it did not make", mine, "exists and is not a rebase clone of fork forkpack/tool"},
-		{"another fork's clone", other, "is the rebase clone of fork else/tool"},
+		{"another fork's clone", other, "is the rebase clone of else/tool"},
 		{"the home", f.home, "the rebase clone IS your home directory"},
 		{"yolo's state directory", filepath.Join(paths.PacksDir(), "clone"), "INSIDE yolo's own state directory"},
 		{"a link to yolo's state directory", filepath.Join(link, "clone"), "INSIDE yolo's own state directory"},
@@ -455,8 +455,8 @@ func TestPackRebaseNamesThePatchedForks(t *testing.T) {
 		rc   int
 		want string
 	}{
-		{nil, 2, "name the patched fork to rebase, as <pack>/<bin> — the selected patched fork is forkpack/tool"},
-		{[]string{"forkpack/other"}, 1, "no selected fork is forkpack/other — the selected patched fork is forkpack/tool"},
+		{nil, 2, "name the patched fork or extension to rebase, as <pack>/<bin> or <pack>/<name> — the selected patched fork is forkpack/tool"},
+		{[]string{"forkpack/other"}, 1, "no selected fork or extension is forkpack/other — the selected patched fork is forkpack/tool"},
 		{[]string{"forkpack/tool", "--bogus"}, 2, `unknown flag "--bogus"`},
 		{[]string{"forkpack/tool", "--onto"}, 2, "--onto needs a value"},
 		{[]string{"forkpack/tool", "extra"}, 2, `unexpected argument "extra"`},

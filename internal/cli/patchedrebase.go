@@ -83,8 +83,8 @@ func parseRebaseArgs(args []string, errw io.Writer) (rebaseArgs, int) {
 				"--restart (see `yolo pack --help`)\n", a)
 			return ra, 2
 		case ra.key != "":
-			fmt.Fprintf(errw, "yolo pack rebase: unexpected argument %q — it rebases one patched fork, "+
-				"named as <pack>/<bin>\n", a)
+			fmt.Fprintf(errw, "yolo pack rebase: unexpected argument %q — it rebases one patched fork or extension, "+
+				"named as <pack>/<bin> or <pack>/<name>\n", a)
 			return ra, 2
 		default:
 			ra.key = a
@@ -132,7 +132,7 @@ func packRebase(args []string, out, errw io.Writer, color bool) int {
 		return rc
 	}
 	if config.InJail() {
-		fmt.Fprintf(errw, "yolo pack rebase: a patched fork's upstream mirror, its check record and its "+
+		fmt.Fprintf(errw, "yolo pack rebase: a patched fork's or extension's upstream mirror, its check record and its "+
 			"pack live on the host, not in this jail — run `%s` in a terminal on the host\n", rebaseCommandLine(ra, args))
 		return 1
 	}
@@ -142,7 +142,9 @@ func packRebase(args []string, out, errw io.Writer, color bool) int {
 			paths.UserConfigPath(), rebaseCommandLine(ra, args))
 		return 1
 	}
-	forks := packload.Forks(sel.packs)
+	// A PATCHED EXTENSION is rebased as a patched fork is, addressed by its owner key <pack>/<name>
+	// (patched-extensions.md §9): every conflict line of its check names this verb with that key.
+	forks := append(packload.Forks(sel.packs), packload.PatchedTrees(sel.packs)...)
 	f, rc := pickRebaseFork(forks, ra.key, errw)
 	if rc != 0 {
 		return rc
@@ -176,7 +178,7 @@ func packRebase(args []string, out, errw io.Writer, color bool) int {
 	}
 	switch {
 	case state == packsrc.RebaseDirClone && marker.Owner != f.Key():
-		fmt.Fprintf(errw, "yolo pack rebase: %s is the rebase clone of fork %s, not of %s — name another "+
+		fmt.Fprintf(errw, "yolo pack rebase: %s is the rebase clone of %s, not of %s — name another "+
 			"directory with --into <dir>\n", dir, marker.Owner, f.Key())
 		return 1
 	case state == packsrc.RebaseDirClone && !ra.restart:
@@ -192,39 +194,39 @@ func packRebase(args []string, out, errw io.Writer, color bool) int {
 		}
 		pr.Printf("[dim]%s[/dim]", richtext.Escape("removed the old rebase clone "+dir+", to start over"))
 	case state == packsrc.RebaseDirOther:
-		fmt.Fprintf(errw, "yolo pack rebase: %s exists and is not a rebase clone of fork %s, so it is left "+
+		fmt.Fprintf(errw, "yolo pack rebase: %s exists and is not a rebase clone of %s, so it is left "+
 			"alone — name another directory with --into <dir>, or remove it if an interrupted rebase left it\n",
-			dir, f.Key())
+			dir, f.Label())
 		return 1
 	}
 
 	series, err := f.ReadSeries()
 	if err != nil {
-		fmt.Fprintf(errw, "yolo pack rebase: fork %s: %v\n", f.Key(), err)
+		fmt.Fprintf(errw, "yolo pack rebase: %s: %v\n", f.Label(), err)
 		return 1
 	}
 
 	// 3. THE CHECK, forced, and the target.
 	res := store.CheckPatched(f.CheckWant(series), packsrc.CheckOptions{Force: true, Now: patchedNow,
 		Begin: func() (func(string), func()) {
-			pr.Printf("[dim]%s[/dim]", richtext.Escape("checking fork "+f.Key()+"'s upstream "+f.Source))
+			pr.Printf("[dim]%s[/dim]", richtext.Escape("checking "+f.Label()+"'s upstream "+f.Source))
 			return func(line string) { pr.Printf("[dim]%s[/dim]", richtext.Escape(line)) }, func() {}
 		}})
 	if res.Err != nil {
-		fmt.Fprintf(errw, "yolo pack rebase: fork %s: %v\n", f.Key(), res.Err)
+		fmt.Fprintf(errw, "yolo pack rebase: %s: %v\n", f.Label(), res.Err)
 		return 1
 	}
 	rec, found := res.Record, res.Record.Check
 	if found.FetchErr != "" {
-		fmt.Fprintf(errw, "yolo pack rebase: fork %s: could not fetch %s (%s) — using this machine's copy\n",
-			f.Key(), f.Source, found.FetchErr)
+		fmt.Fprintf(errw, "yolo pack rebase: %s: could not fetch %s (%s) — using this machine's copy\n",
+			f.Label(), f.Source, found.FetchErr)
 	}
 	if found.Problem != "" {
 		if ra.onto == "" {
-			fmt.Fprintf(errw, "yolo pack rebase: fork %s: %s\n", f.Key(), found.Problem)
+			fmt.Fprintf(errw, "yolo pack rebase: %s: %s\n", f.Label(), found.Problem)
 			return 1
 		}
-		fmt.Fprintf(errw, "yolo pack rebase: fork %s: %s — rebasing onto --onto %s anyway\n", f.Key(),
+		fmt.Fprintf(errw, "yolo pack rebase: %s: %s — rebasing onto --onto %s anyway\n", f.Label(),
 			found.Problem, ra.onto)
 	}
 	repo, subdir := mustRepo(f.Source), subdirOf(f.Source)
@@ -236,24 +238,24 @@ func packRebase(args []string, out, errw io.Writer, color bool) int {
 			pr.Printf("[dim]%s[/dim]", richtext.Escape(line))
 		})
 		if err != nil {
-			fmt.Fprintf(errw, "yolo pack rebase: fork %s: %v — name a branch, a tag or a commit of the upstream\n",
-				f.Key(), err)
+			fmt.Fprintf(errw, "yolo pack rebase: %s: %v — name a branch, a tag or a commit of the upstream\n",
+				f.Label(), err)
 			return 1
 		}
 	case hasTarget:
 	case rec.Good != nil:
-		pr.Printf("%s", richtext.Escape("fork "+f.Key()+": nothing upstream is newer than the good build "+
+		pr.Printf("%s", richtext.Escape(f.Label()+": nothing upstream is newer than the good build "+
 			goodLabel(rec.Good)+", which runs this series — no rebase is needed; `--onto <ref>` rebases it "+
 			"onto another upstream commit"))
 		return 0
 	case found.BaseOnBranch:
-		pr.Printf("%s", richtext.Escape("fork "+f.Key()+": no version of the branch is newer than the series' "+
+		pr.Printf("%s", richtext.Escape(f.Label()+": no version of the branch is newer than the series' "+
 			"base "+shortSHA(series.Base)+", which the next fresh launch builds — no rebase is needed; "+
 			"`--onto <ref>` rebases it onto another upstream commit"))
 		return 0
 	default:
-		fmt.Fprintf(errw, "yolo pack rebase: fork %s: %s names nothing this series can be rebased onto — "+
-			"name a commit with --onto <ref>\n", f.Key(), f.Source)
+		fmt.Fprintf(errw, "yolo pack rebase: %s: %s names nothing this series can be rebased onto — "+
+			"name a commit with --onto <ref>\n", f.Label(), f.Source)
 		return 1
 	}
 	// A HOLD holds a fork only with a good build to hold at: with none, a launch checks as ever.
@@ -269,7 +271,7 @@ func packRebase(args []string, out, errw io.Writer, color bool) int {
 	ctx, stop := rebaseInterrupt()
 	defer stop()
 	store.Ctx = ctx
-	pr.Printf("[dim]%s[/dim]", richtext.Escape("cloning "+repo+" into "+dir+" to rebase fork "+f.Key()+
+	pr.Printf("[dim]%s[/dim]", richtext.Escape("cloning "+repo+" into "+dir+" to rebase "+f.Label()+
 		"'s series onto upstream "+target.Label()))
 	rr := rebaseCloneRun(store, packsrc.RebaseOptions{Owner: f.Key(), Repo: repo, Subdir: subdir, Series: series,
 		Target: target, Dir: dir, Now: patchedNow()})
@@ -279,11 +281,11 @@ func packRebase(args []string, out, errw io.Writer, color bool) int {
 	}
 	switch {
 	case rr.Base != nil:
-		fmt.Fprintf(errw, "yolo pack rebase: fork %s: %s\n", f.Key(), rr.Base.Error())
+		fmt.Fprintf(errw, "yolo pack rebase: %s: %s\n", f.Label(), rr.Base.Error())
 		return 1
 	case rr.Err != nil:
-		fmt.Fprintf(errw, "yolo pack rebase: fork %s: could not rebase the series onto %s: %v — the clone is "+
-			"removed, and `yolo pack rebase %s` tries again\n", f.Key(), target.Label(), rr.Err, f.Key())
+		fmt.Fprintf(errw, "yolo pack rebase: %s: could not rebase the series onto %s: %v — the clone is "+
+			"removed, and `yolo pack rebase %s` tries again\n", f.Label(), target.Label(), rr.Err, f.Key())
 		return 1
 	case rr.Clean:
 		for _, line := range rebaseCleanLines(f, rec, res.Inputs, list, series, target, rr) {
@@ -295,7 +297,7 @@ func packRebase(args []string, out, errw io.Writer, color bool) int {
 	if paths == "" {
 		paths = "(no path named)"
 	}
-	pr.Printf("[yellow]%s[/yellow]", richtext.Escape("fork "+f.Key()+": upstream "+target.Label()+
+	pr.Printf("[yellow]%s[/yellow]", richtext.Escape(f.Label()+": upstream "+target.Label()+
 		" does not take the patch series — the rebase stopped in "+dir))
 	pr.Printf("%s", richtext.Escape("  "+rr.Conflict.Member+" conflicts in "+paths))
 	for _, line := range rebaseNextSteps(f, origin, dir, target, rr.Applied, true) {
@@ -327,22 +329,34 @@ func isRebaseDefault(rec *packsrc.CheckRecord, in packsrc.CheckInputs, series st
 	return ok && t.Commit == entry.Commit
 }
 
-// pickRebaseFork is the patched fork key names among forks, or why there is none (with the exit
-// status): a key is required, since each conflict line names it, and a wrong one is answered with
-// the keys there are.
+// pickRebaseFork is the patched fork or patched extension key names among forks, or why there is
+// none (with the exit status): a key is required, since each conflict line names it, and a wrong one
+// is answered with the keys there are.
 func pickRebaseFork(forks []packload.Fork, key string, errw io.Writer) (packload.Fork, int) {
-	var patched []string
+	var patched, trees []string
 	for _, f := range forks {
-		if f.Patched() {
+		switch {
+		case f.IsTree():
+			trees = append(trees, f.Key())
+		case f.Patched():
 			patched = append(patched, f.Key())
 		}
 	}
-	there := "no patched fork is selected (a fork pack's program that declares `patches`)"
+	var there []string
 	if len(patched) > 0 {
-		there = "the selected patched " + plural(len(patched), "fork is ", "forks are ") + strings.Join(patched, ", ")
+		there = append(there, "the selected patched "+plural(len(patched), "fork is ", "forks are ")+strings.Join(patched, ", "))
 	}
+	if len(trees) > 0 {
+		there = append(there, "the selected patched "+plural(len(trees), "extension is ", "extensions are ")+strings.Join(trees, ", "))
+	}
+	if len(there) == 0 {
+		there = []string{"no patched fork or extension is selected (a fork pack's program, or a `files` " +
+			"contribution, that declares `patches`)"}
+	}
+	thereAre := strings.Join(there, "; ")
 	if key == "" {
-		fmt.Fprintf(errw, "yolo pack rebase: name the patched fork to rebase, as <pack>/<bin> — %s\n", there)
+		fmt.Fprintf(errw, "yolo pack rebase: name the patched fork or extension to rebase, as <pack>/<bin> or "+
+			"<pack>/<name> — %s\n", thereAre)
 		return packload.Fork{}, 2
 	}
 	for _, f := range forks {
@@ -356,8 +370,25 @@ func pickRebaseFork(forks []packload.Fork, key string, errw io.Writer) (packload
 		}
 		return f, 0
 	}
-	fmt.Fprintf(errw, "yolo pack rebase: no selected fork is %s — %s\n", key, there)
+	fmt.Fprintf(errw, "yolo pack rebase: no selected fork or extension is %s — %s\n", key, thereAre)
 	return packload.Fork{}, 1
+}
+
+// rebaseKind is what f is, as a line names it: "fork", or "extension" for a patched extension.
+func rebaseKind(f packload.Fork) string {
+	if f.IsTree() {
+		return "extension"
+	}
+	return "fork"
+}
+
+// rebasePackNoun is what a line calls f's own pack: "fork pack", or "pack" for the pack contributing
+// a patched extension.
+func rebasePackNoun(f packload.Fork) string {
+	if f.IsTree() {
+		return "pack"
+	}
+	return "fork pack"
 }
 
 // forkPackOrigin is where a fork pack's own files come from, which decides where a rebased series
@@ -430,9 +461,9 @@ func rebaseDir(f packload.Fork, origin forkPackOrigin, into string, errw io.Writ
 			continue
 		}
 		if r := resolveExistingPrefix(root); underOrEqual(resolved, r) {
-			fmt.Fprintf(errw, "yolo pack rebase: the rebase clone %s would be inside fork pack %s's own "+
+			fmt.Fprintf(errw, "yolo pack rebase: the rebase clone %s would be inside %s %s's own "+
 				"directory %s, which yolo never writes — name a directory outside it with --into <dir>\n",
-				abs, f.Pack, root)
+				abs, rebasePackNoun(f), f.Pack, root)
 			return "", 1
 		}
 	}
@@ -473,7 +504,7 @@ func rebaseCleanLines(f packload.Fork, rec *packsrc.CheckRecord, in packsrc.Chec
 	if rec != nil && rec.Good != nil {
 		hold = patchedForkHold(f)
 	}
-	next := "a fork builds it only once its ?ref= and follow rule name it"
+	next := "a " + rebaseKind(f) + " builds it only once its ?ref= and follow rule name it"
 	switch {
 	case rec != nil && rec.Good != nil && rec.Good.Commit == target.Commit && rec.Good.Series == series.Digest:
 		next = "the good build already runs it"
@@ -486,7 +517,7 @@ func rebaseCleanLines(f packload.Fork, rec *packsrc.CheckRecord, in packsrc.Chec
 	case onList(list, target.Commit):
 		next = "the next fresh launch builds it unless a newer version on its list takes the series"
 	}
-	lines := []string{"[green]fork " + richtext.Escape(f.Key()) + "[/green]: " + richtext.Escape(fmt.Sprintf(
+	lines := []string{"[green]" + richtext.Escape(f.Label()) + "[/green]: " + richtext.Escape(fmt.Sprintf(
 		"upstream %s takes the series as it stands (%d %s, series %s) — %s; nothing to rebase, so the "+
 			"clone is removed", target.Label(), series.Len(), plural(series.Len(), "patch", "patches"),
 		series.ShortDigest(), next))}
@@ -526,7 +557,7 @@ func rebaseRestartLine(ra rebaseArgs, args []string) string {
 func ownCloneLines(store *packsrc.Store, f packload.Fork, origin forkPackOrigin, dir string, m *packsrc.RebaseMarker,
 	restart string) []string {
 	made := patchedAge(patchedNow().Sub(time.Unix(m.At, 0)))
-	lines := []string{"[yellow]" + richtext.Escape("fork "+f.Key()+": "+dir+" is its rebase clone, made "+made+
+	lines := []string{"[yellow]" + richtext.Escape(f.Label()+": "+dir+" is its rebase clone, made "+made+
 		" ago onto upstream "+m.Target.Label()) + "[/yellow]"}
 	again := "[dim]" + richtext.Escape("  `"+restart+"` removes it and rebases the series again from the start") + "[/dim]"
 	switch {
@@ -622,7 +653,7 @@ func rebaseNextSteps(f packload.Fork, origin forkPackOrigin, dir string, target 
 		if a.Path != "" {
 			rel = filepath.Join(filepath.FromSlash(a.Path), rel)
 		}
-		say(then + "publish the rebased series: fork pack " + f.Pack + " is fetched from " + a.Repo + ", and " +
+		say(then + "publish the rebased series: " + rebasePackNoun(f) + " " + f.Pack + " is fetched from " + a.Repo + ", and " +
 			"yolo never writes its copy on this machine, so export into a clone of that repository (or your own) " +
 			"and push it — the second line changes nothing until the rebase is finished:")
 		kind := store.RefKind(a)
@@ -650,7 +681,7 @@ func rebaseNextSteps(f packload.Fork, origin forkPackOrigin, dir string, target 
 				"commit ?ref= takes it once pointed at the pushed commit")
 		}
 	default:
-		say(then + "export it into a fork pack of your own — fork pack " + f.Pack + " is none of your `packs` " +
+		say(then + "export it into a " + rebasePackNoun(f) + " of your own — " + rebasePackNoun(f) + " " + f.Pack + " is none of your `packs` " +
 			"entries, so there is no patch directory of yours to replace:")
 		cmd(guard + " && " + formatPatch("<your pack>/patches"))
 	}
