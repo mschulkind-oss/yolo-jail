@@ -44,6 +44,11 @@ import (
 //   - THE COPY IS CHECKED WHOLE AFTER IT ENDS (PF-D48): a move reaps every build no running jail was
 //     handed, and the floor's copy is no jail's, so an entry reaped under the copy fails the install
 //     rather than becoming a half-copied program.
+//   - THE FLOOR'S OWN COPY SERVES THE ADVANCE (PF-D52): the install act hands the advance its installed
+//     copy when that is a build of the series as it stands (patchedServing), which keeps running
+//     whatever the advance does, so the advance runs as one with a good build serving even after the
+//     good build's store entry is gone. An install whose good build the store no longer holds does not
+//     start, and its failure names the act that builds it (patchedGoneReason).
 
 // PatchedState is what the floor reads of a patched fork's program, offline: no git, no network.
 type PatchedState struct {
@@ -218,7 +223,7 @@ func (f *Floor) ensurePatched(ctx context.Context, p Program) (Status, Outcome, 
 		return st, "", newerRecordError{st.Reason}
 	}
 	if f.advances(p, st) {
-		f.Advance(ctx, p)
+		f.Advance(ctx, p, f.patchedServing(p, st))
 		st = f.Status(p)
 	}
 	switch {
@@ -249,12 +254,20 @@ func (f *Floor) ensurePatched(ctx context.Context, p Program) (Status, Outcome, 
 	case st.Disposition == Provisioned && st.Pending == "":
 		return st, Current, nil
 	}
-	why := st.Reason
-	if st.Pending != "" {
-		why = st.Pending
+	var rec *Record
+	if ps := f.patched(p); ps.Good != nil && ps.Good.Entry == nil {
+		// THE GOOD BUILD IS GONE FROM THE STORE, and the advance above, when this machine runs one, did
+		// not build it again: no install can copy it, so none starts, and the failure names the act
+		// that builds it.
+		err = errors.New(f.patchedGoneReason(p, ps.Good))
+	} else {
+		why := st.Reason
+		if st.Pending != "" {
+			why = st.Pending
+		}
+		f.say("installing %s into yolo's floor (%s): %s", p.Bin(), why, f.describeRecipe(p))
+		rec, err = f.install(ctx, p)
 	}
-	f.say("installing %s into yolo's floor (%s): %s", p.Bin(), why, f.describeRecipe(p))
-	rec, err := f.install(ctx, p)
 	if err != nil {
 		noEntry := noEntryReasonOf(err)
 		if st.Disposition == Provisioned && noEntry == "" && !f.servesANearMiss(p, st.Record) {
@@ -290,6 +303,29 @@ func (f *Floor) ensurePatched(ctx context.Context, p Program) (Status, Outcome, 
 	return f.Status(p), outcome, nil
 }
 
+// patchedServing is the floor's installed copy of p when it serves whatever an advance does — a
+// build of the series as it stands, the copy a failed install keeps (PF-D8) — and nil otherwise:
+// nothing installed, or a near-miss (patchedServesANearMiss), which a failed install removes.
+func (f *Floor) patchedServing(p Program, st Status) *Record {
+	if st.Disposition != Provisioned || st.Record == nil || f.patchedServesANearMiss(p, st.Record) {
+		return nil
+	}
+	return st.Record
+}
+
+// patchedGoneReason is why the floor cannot install good build g, whose store entry is gone, with the
+// act that builds it again: `yolo capture <bin>` on a machine that runs the advance — which builds it
+// whatever a back-off or a hold says, where the next launch's advance may not — and, on one that
+// cannot, the runtime it needs.
+func (f *Floor) patchedGoneReason(p Program, g *PatchedBuild) string {
+	gone := "fork pack " + p.Install.ForkedBy + "'s good build " + g.Label + " is gone from the capture store"
+	if why := f.cannotAdvance(); why != "" {
+		return gone + ", and " + why + runtimeStep(f.Advance != nil, "builds it")
+	}
+	return gone + ", and nothing built it again — `yolo capture " + p.Bin() + "` builds it, and the next `yolo host -- " +
+		p.Bin() + "` installs it"
+}
+
 // removeInstalled takes p's launcher and record out of the floor, as Ensure's failed install of a
 // near-miss does: its launcher leaves bin/, which ends every host agent's PATH (HE-D1), and the
 // install directory stays for the next install to prune (unlinking stops no agent already running).
@@ -323,8 +359,7 @@ func (f *Floor) installFromPatchedBuild(ctx context.Context, p Program, dir stri
 		// The advance said why above, with its next step; this is the floor's half of it.
 		return nil, fmt.Errorf("%s — the next `yolo host -- %s` tries again", ps.Reason, p.Bin())
 	case ps.Good.Entry == nil:
-		return nil, fmt.Errorf("fork pack %s's good build %s is gone from the capture store, and nothing built "+
-			"it again", in.ForkedBy, ps.Good.Label)
+		return nil, errors.New(f.patchedGoneReason(p, ps.Good))
 	}
 	g := ps.Good
 	what := f.patchedWhat(p, g)

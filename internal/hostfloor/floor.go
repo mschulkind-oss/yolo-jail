@@ -234,9 +234,12 @@ type Floor struct {
 	// series and the build of the newest fit in a sealed capture jail, and the move of the good build
 	// once that build is admitted — waiting for it as a launch does (PF-D25: bounded, and a Ctrl-C
 	// ends it on the good build), and returns the state after it. Ensure asks it before it decides,
-	// outside the floor's lock; never Status. nil => no patched fork is advanced here, and none with no
-	// good build in the store has a floor entry.
-	Advance func(ctx context.Context, p Program) PatchedState
+	// outside the floor's lock; never Status. installed is the floor's own copy of p when it is a
+	// build of the series as it stands — the copy a failed install keeps (PF-D8) — and nil otherwise:
+	// it serves whatever the advance does, so the advance runs as one with a good build serving, and
+	// builds no good build that copy already is (PF-D52). nil => no patched fork is advanced here, and
+	// none with no good build in the store has a floor entry.
+	Advance func(ctx context.Context, p Program, installed *Record) PatchedState
 	// Build runs the fork's build act for p at commit (a sealed capture jail; never on the host),
 	// waiting, bounded, for a build of the same key another process is running, as a jail launch
 	// does (FP-D1), and returns the entry it admitted or the one that process did. The entry is

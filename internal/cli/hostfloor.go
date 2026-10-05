@@ -133,8 +133,8 @@ var newHostFloor = func(out io.Writer, progs []hostfloor.Program) *hostfloor.Flo
 		// and capture store — and its install runs the fork's ADVANCE first, the one a fresh jail launch
 		// runs (patchedadvance.go), waiting for it as that launch does (PF-D25).
 		Patched: floorPatchedState,
-		Advance: func(_ context.Context, p hostfloor.Program) hostfloor.PatchedState {
-			floorAdvance(floorForkBuild(p, "").Fork, out)
+		Advance: func(_ context.Context, p hostfloor.Program, installed *hostfloor.Record) hostfloor.PatchedState {
+			floorAdvance(floorForkBuild(p, "").Fork, out, floorServingCopy(installed))
 			return floorPatchedState(p)
 		},
 		Home:   paths.Home(),
@@ -169,10 +169,22 @@ func floorPatchedPlatform() string { return capture.Platform() }
 // floorAdvance is the floor's advance of a patched fork (hostfloor.Floor.Advance): the fresh
 // launch's own (advancePatchedFork) as a LAUNCH — the check throttled, a back-off honored, the wait
 // interruptible while a good build serves (PF-D25) — at the host (advanceOptions.host), its lines on
-// the launch's stderr, as the floor's are. It hands nothing: the floor installs the good build the
-// record names once it returns. A var so a test can count the floor's advances.
-var floorAdvance = func(f packload.Fork, out io.Writer) {
-	advancePatchedFork(f, advanceOptions{platform: floorPatchedPlatform(), out: out, errw: out, launch: true, host: true})
+// the launch's stderr, as the floor's are. installed is the floor's own copy that serves, nil for
+// none (PF-D52). It hands nothing: the floor installs the good build the record names once it
+// returns. A var so a test can count the floor's advances.
+var floorAdvance = func(f packload.Fork, out io.Writer, installed *installedCopy) {
+	advancePatchedFork(f, advanceOptions{platform: floorPatchedPlatform(), out: out, errw: out, launch: true, host: true,
+		installed: installed})
+}
+
+// floorServingCopy is the floor's installed copy the floor hands its advance as serving
+// (hostfloor.Floor.Advance), as the advance reads it: the upstream commit and recipe it is a build
+// of, and its label. nil for none.
+func floorServingCopy(rec *hostfloor.Record) *installedCopy {
+	if rec == nil {
+		return nil
+	}
+	return &installedCopy{commit: rec.Revision, recipe: rec.Recipe, label: rec.Version}
 }
 
 // floorPatchedState is the floor's offline read of a patched fork's program (hostfloor.Floor.Patched):
@@ -529,11 +541,13 @@ func resolveHostLaunchTarget(packs []*packload.Pack, cmd0 string, lp *hostpath.L
 		fmt.Fprintf(errw, "yolo host: could not install %s into yolo's floor: %v\n", cmd0, err)
 		return hostTarget{}, 127
 	}
-	if prog.Install.IsPatchedFork() {
-		// A PATCHED FORK'S LINE (docs/design/patched-forks.md §7, PF-D11), the one a jail launch's fork
-		// block prints: the series, the good build this launch runs, and the held suffix while
-		// something holds the newest upstream back. A disclosure, so on every launch (OQ-RO3).
-		line, _ := run.PatchedForkLine(floorForkBuild(prog, "").Fork, "the next `yolo host -- "+cmd0+"`")
+	if prog.Install.IsPatchedFork() && st.Record != nil {
+		// A PATCHED FORK'S LINE (docs/design/patched-forks.md §7, PF-D11, PF-D50), the one a jail
+		// launch's fork block prints, of the build the FLOOR runs: the series, that build, and the held
+		// suffix while something holds the newest upstream back — or, when the floor runs another build
+		// than the good build, both. A disclosure, so on every launch (OQ-RO3).
+		line, _ := run.PatchedForkLine(floorForkBuild(prog, "").Fork, run.FloorCopy{Commit: st.Record.Revision,
+			Recipe: st.Record.Recipe, Label: st.Record.Version}, "the next `yolo host -- "+cmd0+"`")
 		fmt.Fprintf(errw, "yolo host: %s\n", line)
 	}
 	return hostTarget{Path: st.Launcher, Origin: originFloor}, 0

@@ -240,9 +240,9 @@ func TestTheHostFloorsAdvanceRunsAfterTheRenderGatesObservePass(t *testing.T) {
 		return 0
 	}
 	prevAdvance := floorAdvance
-	floorAdvance = func(f packload.Fork, out io.Writer) {
+	floorAdvance = func(f packload.Fork, out io.Writer, installed *installedCopy) {
 		events = append(events, "advance")
-		prevAdvance(f, out)
+		prevAdvance(f, out, installed)
 	}
 	t.Cleanup(func() { hostApplyGateSurvey, floorAdvance = prevSurvey, prevAdvance })
 	if rc, _, out := fx.hostLaunch(t); rc != 0 {
@@ -261,7 +261,7 @@ func TestHostLaunchOfAPatchedForkOnAMacNamesTheJailThatRunsIt(t *testing.T) {
 	fx.commit(t, "v1.1.0", map[int]string{14: "fourteen"})
 	withFloorPlatform(t, "darwin")
 	prevAdvance := floorAdvance
-	floorAdvance = func(packload.Fork, io.Writer) { t.Error("a Mac's floor ran a patched fork's advance") }
+	floorAdvance = func(packload.Fork, io.Writer, *installedCopy) { t.Error("a Mac's floor ran a patched fork's advance") }
 	t.Cleanup(func() { floorAdvance = prevAdvance })
 	stub := filepath.Join(stubBins(t, "tool"), "tool")
 	rc, target, out := fx.hostLaunch(t)
@@ -309,6 +309,405 @@ func TestAHostWithNoRecordAndNoRuntimeInstallsTheGoodBuildItsStoreHolds(t *testi
 	if _, err := os.Stat(recPath); err == nil {
 		t.Error("the floor's offline read wrote a check record")
 	}
+	// THE FORK'S LINE NAMES WHAT THE FLOOR RUNS (PF-D50): the recovered build, never "no build".
+	if want := ", at v1.1.0 (" + shortSHA(v11) + ")"; !strings.Contains(out, want) ||
+		strings.Contains(out, "no build of it on this machine yet") {
+		t.Errorf("the fork's line does not name the build the floor runs (%q):\n%s", want, out)
+	}
+}
+
+// removeStoreEntry takes a build out of the capture store, as a prune or a wiped store does.
+func removeStoreEntry(t *testing.T, key string) {
+	t.Helper()
+	if key == "" || !storeEntryExists(key) {
+		t.Fatalf("the store holds no entry %q to remove", key)
+	}
+	if err := os.RemoveAll(filepath.Join(paths.CapturesDir(), "entries", key)); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// floorServesGoneEntry is the state PF-D52 is about: the floor's copy of the good build v1.1.0 is
+// current and that build's store entry is gone (a prune, a wiped store), and every build of v1.1.0 or
+// newer fails while the series' base would build — so an advance that took the copy for missing would
+// build the base and move the floor, and the good build under every later jail, backward. It returns
+// v1.1.0's commit and an assertion that a launch ran the floor's copy of it, with wantBuilds builds
+// so far, the good build left where it was, and nothing said missing; it returns the launch's output.
+func floorServesGoneEntry(t *testing.T) (*patchedAdvanceFixture, string, func(when string, wantBuilds int) string) {
+	t.Helper()
+	fx := patchedFloorFixture(t)
+	v11 := fx.commit(t, "v1.1.0", map[int]string{14: "fourteen"})
+	if rc, _, out := fx.hostLaunch(t); rc != 0 {
+		t.Fatalf("the first launch: rc=%d\n%s", rc, out)
+	}
+	removeStoreEntry(t, fx.record(t).Good.Entry)
+	fx.failBuildsOf(t, "fourteen")
+	launcher := filepath.Join(paths.HostFloorDir(), "bin", "tool")
+	return fx, v11, func(when string, wantBuilds int) string {
+		t.Helper()
+		rc, target, out := fx.hostLaunch(t)
+		if rc != 0 || target != launcher || len(fx.builds) != wantBuilds {
+			t.Fatalf("%s: rc=%d target=%s builds=%d, want the floor's copy and %d builds\n%s", when, rc, target,
+				len(fx.builds), wantBuilds, out)
+		}
+		if rec := floorRecord(t, "tool"); rec.Revision != v11 {
+			t.Errorf("%s: the floor runs %s, want its copy of v1.1.0 kept", when, rec.Version)
+		}
+		if g := fx.record(t).Good; g == nil || g.Commit != v11 {
+			t.Errorf("%s: the good build moved to %+v, want v1.1.0", when, g)
+		}
+		for _, bad := range []string{"yolo's floor has no tool", "built at its base", "nothing runs"} {
+			if strings.Contains(out, bad) {
+				t.Errorf("%s: the advance treated the floor's copy as missing (%q):\n%s", when, bad, out)
+			}
+		}
+		return out
+	}
+}
+
+// THE FLOOR'S COPY OF THE GOOD BUILD SERVES WHEN ITS STORE ENTRY IS GONE (PF-D52): the floor holds
+// the good build itself, so its advance treats that copy as what serves. It builds nothing to put the
+// entry back, never builds the series' base in its place, and says nothing is missing. A newer
+// upstream is built as one with a good build serving: through the interruptible child, its lines
+// saying the copy keeps running; when it fails, the next launch inside the back-off builds nothing;
+// and `agent_updates` holding the fork builds nothing either.
+func TestTheFloorsCopyOfTheGoodBuildServesWhenItsStoreEntryIsGone(t *testing.T) {
+	fx, v11, assertServes := floorServesGoneEntry(t)
+	fx.later(10 * time.Minute)
+	assertServes("inside the hour", 1)
+	fx.later(2 * time.Hour)
+	assertServes("past the hour, nothing newer", 1)
+
+	v13 := fx.commit(t, "v1.3.0", map[int]string{14: "fourteen", 20: "twenty"})
+	fx.later(2 * time.Hour)
+	out := assertServes("a newer upstream that fails", 2)
+	if fx.child != 1 {
+		t.Errorf("the newer upstream's build ran outside the interruptible child (%d child builds)", fx.child)
+	}
+	label11 := "v1.1.0 (" + shortSHA(v11) + ")"
+	for _, w := range []string{
+		"upstream moved — v1.3.0 (" + shortSHA(v13) + ") is newer than the good build " + label11,
+		"`yolo host` waits for it, at most 20m0s, and a Ctrl-C starts tool on the good build " + label11 + " + 2 patches instead",
+		"still running " + label11 + " + 2 patches",
+		"`yolo capture tool` retries it now; `yolo host -- tool` retries it after",
+	} {
+		if !strings.Contains(out, w) {
+			t.Errorf("the failed build lacks %q:\n%s", w, out)
+		}
+	}
+	fx.later(10 * time.Minute)
+	assertServes("inside the back-off", 2)
+	fx.writeUserConfig(t, `,"agent_updates":{"forkpack":false}`)
+	fx.later(2 * time.Hour)
+	assertServes("held by agent_updates", 2)
+}
+
+// WHAT A WALK STOPS ON, WHILE THE FLOOR'S COPY SERVES (PF-D52): an upstream that does not take the
+// series, and one the series cannot be replayed onto, each leave the floor's copy running, said as
+// such, with no build of the series' base in its place; and an apply error is replayed again only by
+// the next check (PF-D45), never by every launch inside the hour.
+func TestAWalkThatStopsLeavesTheFloorsCopyServing(t *testing.T) {
+	t.Run("a conflict", func(t *testing.T) {
+		fx, v11, assertServes := floorServesGoneEntry(t)
+		fx.commit(t, "v1.4.0", map[int]string{10: "upstream ten"})
+		fx.later(2 * time.Hour)
+		out := assertServes("an upstream that does not take the series", 1)
+		for _, w := range []string{"upstream v1.4.0 (", "does not take the patch series",
+			"still running v1.1.0 (" + shortSHA(v11) + ") + 2 patches"} {
+			if !strings.Contains(out, w) {
+				t.Errorf("the conflict lacks %q:\n%s", w, out)
+			}
+		}
+	})
+	t.Run("an apply error", func(t *testing.T) {
+		fx, v11, assertServes := floorServesGoneEntry(t)
+		v13 := fx.commit(t, "v1.3.0", map[int]string{14: "fourteen", 20: "twenty"})
+		failFile := filepath.Join(t.TempDir(), "fail")
+		writeFile(t, failFile, v13)
+		patchedGitWrapper(t, failReadingFilesAt(failFile))
+		fx.later(2 * time.Hour)
+		out := assertServes("an apply error", 1)
+		for _, w := range []string{"could not replay the series", "still running v1.1.0 (" + shortSHA(v11) +
+			") + 2 patches; the next check, in an hour, retries it, or `yolo pack update` now"} {
+			if !strings.Contains(out, w) {
+				t.Errorf("the apply error lacks %q:\n%s", w, out)
+			}
+		}
+		fx.later(time.Minute)
+		if out := assertServes("inside the hour after it", 1); strings.Contains(out, "could not replay") {
+			t.Errorf("a launch inside the hour replayed the apply error again:\n%s", out)
+		}
+	})
+	t.Run("a failed fetch", func(t *testing.T) {
+		// A CANDIDATE STILL PENDING WHEN THE NEXT CHECK'S FETCH FAILS (§6.2) is not built until a check
+		// fetches: here v1.3.0, whose build a Ctrl-C ended, and an upstream that has since gone away.
+		fx, _, assertServes := floorServesGoneEntry(t)
+		fx.commit(t, "v1.3.0", map[int]string{14: "fourteen", 20: "twenty"})
+		fx.later(2 * time.Hour)
+		prev := forkBuildChild
+		forkBuildChild = func(ctx context.Context, _ time.Duration, _ string, _ forkBuild, _, _ io.Writer, _ bool) (int, bool) {
+			fx.child++
+			if ctx.Done() == nil {
+				t.Error("the floor's advance built outside an interrupt scope")
+				return 1, false
+			}
+			_ = syscall.Kill(os.Getpid(), syscall.SIGINT)
+			<-ctx.Done()
+			return 130, false
+		}
+		assertServes("a Ctrl-C during v1.3.0's build", 1)
+		forkBuildChild = prev
+		if err := os.Rename(fx.repo, fx.repo+".gone"); err != nil {
+			t.Fatal(err)
+		}
+		fx.later(2 * time.Hour)
+		if out := assertServes("a failed fetch", 1); !strings.Contains(out, "could not check its upstream") {
+			t.Errorf("the failed fetch is not said:\n%s", out)
+		}
+	})
+}
+
+// movedPastTheFloor leaves the floor's copy at the fixture's v1.1.0 while the good build moves to
+// v1.3.0 — as a jail launch's advance moves it — and v1.3.0's store entry then goes, so the floor
+// cannot install it. It returns v1.1.0's and v1.3.0's commits.
+func movedPastTheFloor(t *testing.T, fx *patchedAdvanceFixture) (string, string) {
+	t.Helper()
+	v11 := fx.commit(t, "v1.1.0", map[int]string{14: "fourteen"})
+	if rc, _, out := fx.hostLaunch(t); rc != 0 {
+		t.Fatalf("the first launch: rc=%d\n%s", rc, out)
+	}
+	v13 := fx.commit(t, "v1.3.0", map[int]string{14: "fourteen", 20: "twenty"})
+	fx.later(2 * time.Hour)
+	saved := paths.HostFloorDir() + ".saved" // beside it, so the rename never crosses a filesystem
+	if err := os.Rename(paths.HostFloorDir(), saved); err != nil {
+		t.Fatal(err)
+	}
+	if rc, _, out := fx.hostLaunch(t); rc != 0 || fx.record(t).Good.Commit != v13 {
+		t.Fatalf("the moving launch: rc=%d good=%+v\n%s", rc, fx.record(t).Good, out)
+	}
+	if err := os.RemoveAll(paths.HostFloorDir()); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Rename(saved, paths.HostFloorDir()); err != nil {
+		t.Fatal(err)
+	}
+	removeStoreEntry(t, fx.record(t).Good.Entry)
+	if rec := floorRecord(t, "tool"); rec.Revision != v11 {
+		t.Fatalf("the floor holds %s, want v1.1.0", rec.Version)
+	}
+	return v11, v13
+}
+
+// THE FLOOR'S INSTALLED COPY SERVES WHILE A MOVED GOOD BUILD IS BUILT AGAIN (PF-D52, PF-D8): the
+// good build moved past the floor's copy and its entry went, so the floor's advance builds it again
+// — as one with a good build serving, since the floor's copy keeps running whatever the build does.
+// A Ctrl-C starts that copy; a failed build keeps it and never builds the series' base in its place;
+// and the fork's line names the copy that runs, with the good build it does not.
+func TestTheFloorsInstalledCopyServesWhileAMovedGoodBuildIsBuiltAgain(t *testing.T) {
+	t.Run("a Ctrl-C", func(t *testing.T) {
+		fx := patchedFloorFixture(t)
+		v11, _ := movedPastTheFloor(t, fx)
+		prev := forkBuildChild
+		forkBuildChild = func(ctx context.Context, _ time.Duration, _ string, _ forkBuild, _, _ io.Writer, _ bool) (int, bool) {
+			fx.child++
+			if ctx.Done() == nil {
+				// No interrupt scope holds the Ctrl-C, which would end the launch (and this test binary).
+				t.Error("the floor's advance built outside an interrupt scope")
+				return 1, false
+			}
+			_ = syscall.Kill(os.Getpid(), syscall.SIGINT)
+			select {
+			case <-ctx.Done():
+			case <-time.After(10 * time.Second):
+				t.Error("the Ctrl-C did not reach the floor's advance")
+			}
+			return 130, false
+		}
+		t.Cleanup(func() { forkBuildChild = prev })
+		before := fx.child
+		rc, target, out := fx.hostLaunch(t)
+		if rc != 0 || target != filepath.Join(paths.HostFloorDir(), "bin", "tool") || fx.child != before+1 ||
+			floorRecord(t, "tool").Revision != v11 {
+			t.Fatalf("rc=%d target=%s child builds=%d floor=%s, want the interruptible build and the floor's "+
+				"v1.1.0 started\n%s", rc, target, fx.child-before, floorRecord(t, "tool").Version, out)
+		}
+		installed := "the installed v1.1.0 (" + shortSHA(v11) + ") + 2 patches"
+		for _, w := range []string{"and a Ctrl-C starts tool on " + installed + " instead",
+			"the advance was interrupted — `yolo host` starts tool on " + installed} {
+			if !strings.Contains(out, w) {
+				t.Errorf("the launch does not name the copy that runs (%q):\n%s", w, out)
+			}
+		}
+	})
+	t.Run("a failed build", func(t *testing.T) {
+		fx := patchedFloorFixture(t)
+		v11, v13 := movedPastTheFloor(t, fx)
+		fx.failBuildsOf(t, "twenty") // v1.3.0 fails to build; the series' base would build
+		before := len(fx.builds)
+		rc, target, out := fx.hostLaunch(t)
+		if rc != 0 || target != filepath.Join(paths.HostFloorDir(), "bin", "tool") || len(fx.builds) != before+1 {
+			t.Fatalf("rc=%d target=%s builds=%d, want v1.3.0 tried once and the floor's copy run\n%s", rc, target,
+				len(fx.builds)-before, out)
+		}
+		if rec := floorRecord(t, "tool"); rec.Revision != v11 {
+			t.Errorf("the floor runs %s, want its copy of v1.1.0 kept", rec.Version)
+		}
+		if g := fx.record(t).Good; g == nil || g.Commit != v13 {
+			t.Errorf("the good build moved to %+v, want it left at v1.3.0", g)
+		}
+		label13 := "v1.3.0 (" + shortSHA(v13) + ")"
+		for _, w := range []string{
+			"the build of " + label13 + " + 2 patches failed: the capture jail exited 2 — nothing was stored — still " +
+				"running v1.1.0 (" + shortSHA(v11) + ") + 2 patches",
+			"running the installed v1.1.0 (" + shortSHA(v11) + ") + 2 patches",
+			"`yolo capture tool` builds it",
+			", at v1.1.0 (" + shortSHA(v11) + ") — its good build " + label13 + " is not installed",
+		} {
+			if !strings.Contains(out, w) {
+				t.Errorf("the launch lacks %q:\n%s", w, out)
+			}
+		}
+		if strings.Contains(out, ", at "+label13) {
+			t.Errorf("the fork's line names the good build the floor does not run:\n%s", out)
+		}
+		fx.later(10 * time.Minute)
+		if rc, _, out := fx.hostLaunch(t); rc != 0 || len(fx.builds) != before+1 {
+			t.Errorf("inside the back-off: rc=%d builds=%d, want no build\n%s", rc, len(fx.builds)-before, out)
+		}
+	})
+}
+
+// A BUILD THAT LEFT THE STORE BEFORE ITS MOVE, AT THE HOST (PF-D46), names the floor's copy as what
+// runs (PF-D52), never a missing program: the floor's v1.1.0 keeps serving whatever the advance does.
+func TestABuildThatLeftTheStoreAtTheHostNamesTheFloorsCopy(t *testing.T) {
+	fx := patchedFloorFixture(t)
+	v11 := fx.commit(t, "v1.1.0", map[int]string{14: "fourteen"})
+	if rc, _, out := fx.hostLaunch(t); rc != 0 {
+		t.Fatalf("the first launch: rc=%d\n%s", rc, out)
+	}
+	removeStoreEntry(t, fx.record(t).Good.Entry)
+	store := &capture.Store{Dir: paths.CapturesDir()}
+	staged, err := store.Stage("gone")
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, filepath.Join(capture.TreeDir(staged), ".local", "bin", "tool"), "gone")
+	entry, err := store.AdmitEntry(staged)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.ReapEntry(entry.Key); err != nil {
+		t.Fatal(err)
+	}
+	var out syncBuffer
+	a, early := newAdvance(fx.fork(t), advanceOptions{platform: floorPatchedPlatform(), out: &out, errw: &out,
+		launch: true, host: true, installed: floorServingCopy(floorRecord(t, "tool"))})
+	if early != nil {
+		t.Fatal(early)
+	}
+	a.seq = a.rec.Seq + 1
+	b := forkBuild{Fork: a.f, Commit: v11, Platform: floorPatchedPlatform(), Series: a.series,
+		Entry: packsrc.ListEntry{Commit: v11, Tag: "v1.1.0", Version: "1.1.0"}}
+	a.moved(b, entry, baseNone, false)
+	if want := "`yolo host` runs v1.1.0 (" + shortSHA(v11) + ") + 2 patches"; !strings.Contains(out.String(), want) ||
+		strings.Contains(out.String(), "yolo's floor has no tool") {
+		t.Errorf("the line does not name the floor's copy as what runs (%q):\n%s", want, out.String())
+	}
+}
+
+// THE FLOOR'S COPY SERVES ONLY AS A BUILD OF THE SERIES AS IT STANDS (PF-D52): a copy handed to the
+// advance whose recipe is not the manifest's — the series edited since the floor read it — serves
+// nothing, and the advance runs as one with nothing serving.
+func TestAFloorCopyOfAnotherRecipeServesNoAdvance(t *testing.T) {
+	fx := patchedFloorFixture(t)
+	v11 := fx.commit(t, "v1.1.0", map[int]string{14: "fourteen"})
+	for _, tc := range []struct {
+		recipe string
+		serves bool
+	}{{fx.recipe(t), true}, {"another-recipe", false}} {
+		a, early := newAdvance(fx.fork(t), advanceOptions{platform: floorPatchedPlatform(), out: io.Discard,
+			errw: io.Discard, launch: true, host: true, installed: &installedCopy{commit: v11, recipe: tc.recipe, label: "x"}})
+		if early != nil {
+			t.Fatal(early)
+		}
+		if a.serves() != tc.serves {
+			t.Errorf("a floor copy of recipe %q: serves = %v, want %v", tc.recipe, a.serves(), tc.serves)
+		}
+	}
+}
+
+// A HELD FORK'S ADVANCE OVER THE FLOOR'S COPY OF THE GOOD BUILD BUILDS NOTHING (PF-D19, PF-D52): under
+// `agent_updates` off the floor runs an advance only for an entry it reinstalls (a raised node_floor,
+// say), and with the good build's store entry gone that advance does not build the good build again,
+// held or not: the floor keeps its copy, and its stop names `yolo capture <bin>`.
+func TestAHeldAdvanceOverTheFloorsCopyOfTheGoodBuildBuildsNothing(t *testing.T) {
+	fx, _, _ := floorServesGoneEntry(t)
+	fx.writeUserConfig(t, `,"agent_updates":{"forkpack":false}`)
+	fx.later(2 * time.Hour)
+	var out syncBuffer
+	advancePatchedFork(fx.fork(t), advanceOptions{platform: floorPatchedPlatform(), out: &out, errw: &out, launch: true,
+		host: true, installed: floorServingCopy(floorRecord(t, "tool"))})
+	if len(fx.builds) != 1 || strings.Contains(out.String(), "checking fork") {
+		t.Errorf("a held advance over the floor's copy checked or built (%d builds):\n%s", len(fx.builds), out.String())
+	}
+}
+
+// THE USER'S OWN FAILED EDIT AT THE HOST IS NOT HELD (PF-D23), through the production read: an edit
+// to the fork pack's `build` that does not build leaves no good build serving the manifest, so the
+// floor's copy of the old recipe leaves bin/, `yolo host` does not start it, and the stop names the
+// revert.
+func TestAUsersFailedEditAtTheHostRemovesTheFloorsCopy(t *testing.T) {
+	fx := patchedFloorFixture(t)
+	fx.commit(t, "v1.1.0", map[int]string{14: "fourteen"})
+	launcher := filepath.Join(paths.HostFloorDir(), "bin", "tool")
+	if rc, _, out := fx.hostLaunch(t); rc != 0 {
+		t.Fatalf("the first launch: rc=%d\n%s", rc, out)
+	}
+	writeFile(t, fx.manifest, strings.Replace(mustRead(t, fx.manifest), `"build":"sh build.sh"`,
+		`"build":"sh build2.sh"`, 1))
+	fx.rc = 2
+	fx.later(10 * time.Minute)
+	rc, target, out := fx.hostLaunch(t)
+	if rc != 127 || target != "" {
+		t.Fatalf("a failed edit: rc=%d target=%s, want the launch refused\n%s", rc, target, out)
+	}
+	if _, err := os.Lstat(launcher); !os.IsNotExist(err) {
+		t.Errorf("the old recipe's copy is still in the floor's bin/ (%v)", err)
+	}
+	for _, w := range []string{"so the floor no longer runs it", "reverting the edit brings that build back"} {
+		if !strings.Contains(out, w) {
+			t.Errorf("the failed edit lacks %q:\n%s", w, out)
+		}
+	}
+}
+
+// A GOOD BUILD THAT IS GONE AND DOES NOT BUILD AGAIN STOPS WITH ITS NEXT STEP: the floor holds no
+// copy, the advance's rebuild and the series' base both fail, and the launch's last line names the
+// act that builds it — never an install that claims to build it after the build already failed.
+func TestAGoneGoodBuildThatDoesNotBuildAgainNamesTheNextStep(t *testing.T) {
+	fx := patchedFloorFixture(t)
+	fx.commit(t, "v1.1.0", map[int]string{14: "fourteen"})
+	if rc, _, out := fx.hostLaunch(t); rc != 0 {
+		t.Fatalf("the first launch: rc=%d\n%s", rc, out)
+	}
+	removeStoreEntry(t, fx.record(t).Good.Entry)
+	if err := os.RemoveAll(paths.HostFloorDir()); err != nil {
+		t.Fatal(err)
+	}
+	fx.rc = 1
+	fx.later(10 * time.Minute)
+	rc, _, out := fx.hostLaunch(t)
+	if rc != 127 {
+		t.Fatalf("rc=%d, want the launch refused\n%s", rc, out)
+	}
+	lines := strings.Split(strings.TrimSpace(out), "\n")
+	last := lines[len(lines)-1]
+	if !strings.Contains(last, "could not install tool") || !strings.Contains(last, "`yolo capture tool`") {
+		t.Errorf("the stop does not name its next step:\n%s", last)
+	}
+	if strings.Contains(out, "the install builds it again") {
+		t.Errorf("a line claims the install builds what the advance just failed to:\n%s", out)
+	}
 }
 
 // THE PRODUCTION FLOOR'S PATCHED WIRING IS THE CALL SITE: its Advance runs floorAdvance for the fork
@@ -323,14 +722,18 @@ func TestTheProductionFloorWiresThePatchedAdvanceAndRead(t *testing.T) {
 		t.Fatalf("the selection's floor has no patched tool: %+v", progs)
 	}
 	var advanced []packload.Fork
+	var handed []*installedCopy
 	prevAdvance := floorAdvance
-	floorAdvance = func(f packload.Fork, out io.Writer) { advanced = append(advanced, f); prevAdvance(f, out) }
+	floorAdvance = func(f packload.Fork, out io.Writer, installed *installedCopy) {
+		advanced, handed = append(advanced, f), append(handed, installed)
+		prevAdvance(f, out, installed)
+	}
 	t.Cleanup(func() { floorAdvance = prevAdvance })
 	floor := productionHostFloor(io.Discard, progs)
 	if ps := floor.Patched(p); ps.Recipe == "" || ps.Good != nil {
 		t.Fatalf("before any advance: %+v, want the series read and no good build", ps)
 	}
-	ps := floor.Advance(context.Background(), p)
+	ps := floor.Advance(context.Background(), p, nil)
 	if len(advanced) != 1 || advanced[0].Key() != "forkpack/tool" || advanced[0].Root != fx.forkDir {
 		t.Fatalf("the floor advanced %+v, want forkpack/tool read from %s", advanced, fx.forkDir)
 	}
@@ -339,5 +742,12 @@ func TestTheProductionFloorWiresThePatchedAdvanceAndRead(t *testing.T) {
 	}
 	if again := floor.Patched(p); again.Good == nil || again.Good.Entry.Key != ps.Good.Entry.Key {
 		t.Errorf("the offline read after the advance = %+v", again)
+	}
+	// THE FLOOR'S COPY THAT SERVES reaches the advance as the advance reads it (PF-D52).
+	installed := &hostfloor.Record{Revision: v11, Recipe: ps.Recipe, Version: ps.Good.Label}
+	floor.Advance(context.Background(), p, installed)
+	want := installedCopy{commit: v11, recipe: ps.Recipe, label: ps.Good.Label}
+	if len(handed) != 2 || handed[0] != nil || handed[1] == nil || *handed[1] != want {
+		t.Errorf("the advances were handed %+v, want nothing and then %+v", handed, want)
 	}
 }

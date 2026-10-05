@@ -15,6 +15,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 const (
@@ -38,6 +39,8 @@ type patchedFake struct {
 	bs       *buildStore
 	state    PatchedState
 	advances int
+	// installed is the floor's copy each Advance was handed as serving (nil for none), in order.
+	installed []*Record
 	// advance is what the next Advance does to the state; nil changes nothing (nothing pending, or
 	// a newer upstream that does not take the series).
 	advance func(*patchedFake)
@@ -62,8 +65,9 @@ func patchedWorld(t *testing.T) (*world, *patchedFake) {
 		}
 		return pf.state
 	}
-	w.floor.Advance = func(_ context.Context, p Program) PatchedState {
+	w.floor.Advance = func(_ context.Context, p Program, installed *Record) PatchedState {
 		pf.advances++
+		pf.installed = append(pf.installed, installed)
 		if pf.advance != nil {
 			pf.advance(pf)
 		}
@@ -164,6 +168,43 @@ func TestTheRefreshArmAdvancesAPatchedForkUnderUpdatesAllowed(t *testing.T) {
 	if st, outcome, err := w.floor.Ensure(context.Background(), p); err != nil || outcome != Updated ||
 		st.Record.Revision != forkCommitOne || pf.advances != before+1 {
 		t.Errorf("a moved good build under a hold: %s %v %+v, %d advances", outcome, err, st.Record, pf.advances-before)
+	}
+}
+
+// THE ADVANCE IS HANDED THE FLOOR'S COPY THAT SERVES (PF-D52): nothing on a first install; the
+// installed good build on a refresh; the installed copy a newer good build has moved past, which a
+// failed install keeps; and nothing once the user's edit makes that copy a near-miss, which a failed
+// install removes.
+func TestThePatchedAdvanceIsHandedTheFloorsCopyThatServes(t *testing.T) {
+	w, pf := patchedWorld(t)
+	pf.advance = firstGood
+	p := patchedProgram()
+	if _, _, err := w.floor.Ensure(context.Background(), p); err != nil {
+		t.Fatal(err)
+	}
+	pf.advance = nil
+	if _, _, err := w.floor.Ensure(context.Background(), p); err != nil {
+		t.Fatal(err)
+	}
+	pf.state.Good = &PatchedBuild{Commit: forkCommitTwo, Recipe: patchedRecipeOne, Label: "v1.1.0 (22222222) + 2 patches"}
+	if _, _, err := w.floor.Ensure(context.Background(), p); err != nil {
+		t.Fatal(err)
+	}
+	pf.state = PatchedState{Recipe: patchedRecipeTwo, Reason: "the series changed"}
+	_, _, _ = w.floor.Ensure(context.Background(), p)
+	if len(pf.installed) != 4 {
+		t.Fatalf("%d advances, want 4", len(pf.installed))
+	}
+	if pf.installed[0] != nil {
+		t.Errorf("a first install's advance was handed %+v, want nothing", pf.installed[0])
+	}
+	for i, why := range []string{"the installed good build", "the copy a newer good build moved past"} {
+		if got := pf.installed[i+1]; got == nil || got.Revision != forkCommitOne || got.Recipe != patchedRecipeOne {
+			t.Errorf("the advance over %s was handed %+v, want the floor's v1.0.0", why, got)
+		}
+	}
+	if pf.installed[3] != nil {
+		t.Errorf("the advance over the user's edit was handed %+v, a near-miss, want nothing", pf.installed[3])
 	}
 }
 
@@ -315,6 +356,152 @@ func TestAPatchedForkWithNoFloorEntryNamesWhereItRuns(t *testing.T) {
 	st, _, err = w.floor.Ensure(context.Background(), p)
 	if !errors.Is(err, ErrNoEntry) || !strings.Contains(st.Reason, "whose series cannot be read: patches/0001-a.patch") {
 		t.Errorf("an unreadable series: %s (%s), %v", st.Disposition, st.Reason, err)
+	}
+}
+
+// A COPY FROM ANOTHER REPOSITORY IS A NEAR-MISS (PF-D49): the patched recipe hashes the build and
+// the series, never the repository, so the declaration is what tells a copy of another source apart.
+// A switch of the fork's source whose install fails removes the installed copy rather than keeping
+// it.
+func TestAPatchedForksCopyFromAnotherRepositoryIsNotKept(t *testing.T) {
+	w, pf := patchedWorld(t)
+	pf.advance = firstGood
+	p := patchedProgram()
+	if _, _, err := w.floor.Ensure(context.Background(), p); err != nil {
+		t.Fatal(err)
+	}
+	moved := p
+	moved.Install.Source = "git+https://example.invalid/otherfork?ref=main"
+	pf.advance = func(pf *patchedFake) {
+		// The same series and build at the same commit, from the other repository: not built yet.
+		pf.state.Good = &PatchedBuild{Commit: forkCommitOne, Recipe: patchedRecipeOne, Label: "v1.0.0 (11111111) + 2 patches"}
+	}
+	st, outcome, err := w.floor.Ensure(context.Background(), moved)
+	if err == nil || outcome == Kept || outcome == Current {
+		t.Fatalf("another repository's install failed: %s %v, want the old repository's copy not kept\n%s",
+			outcome, err, w.out.String())
+	}
+	if _, lerr := os.Lstat(w.floor.Launcher("forkcli")); !os.IsNotExist(lerr) {
+		t.Errorf("the old repository's copy is still in bin/ (%v)", lerr)
+	}
+	if st.Disposition == Provisioned {
+		t.Errorf("status after the failure = %s, want the old copy not reported as held", st.Disposition)
+	}
+}
+
+// A RAISED node_floor LEAVES A PATCHED FORK'S COPY PENDING, as it leaves any Node program's: the copy
+// is the good build, on a Node below what the pack now asks for, so the next install runs it on one
+// that meets it.
+func TestARaisedNodeFloorLeavesAPatchedForksCopyPending(t *testing.T) {
+	w, pf := patchedWorld(t)
+	pf.advance = firstGood
+	p := patchedProgram()
+	if _, _, err := w.floor.Ensure(context.Background(), p); err != nil {
+		t.Fatal(err)
+	}
+	raised := p
+	raised.Install.NodeFloor = "99.1"
+	if st := w.floor.Status(raised); st.Disposition != Provisioned ||
+		!strings.Contains(st.Pending, "below the pack's node_floor 99.1") {
+		t.Errorf("a raised node_floor: %s, pending %q, want the copy pending on its Node", st.Disposition, st.Pending)
+	}
+}
+
+// A GOOD BUILD THAT CANNOT LEAVE THE JAIL'S HOME HAS NO FLOOR ENTRY BEFORE ANY INSTALL (§9): the
+// status a dry run and `yolo check` read says so, rather than that an install would put it in place.
+func TestAPatchedForkWhoseGoodBuildCannotLeaveTheJailHasNoFloorEntry(t *testing.T) {
+	w, pf := patchedWorld(t)
+	pf.state.Good = pf.good(forkCommitOne, patchedRecipeOne, "v1.0.0 (11111111) + 2 patches", false)
+	pf.state.Reason = ""
+	st := w.floor.Status(patchedProgram())
+	if st.Disposition != NoEntry || !strings.Contains(st.Reason, "built for the jail's home, /home/agent") {
+		t.Errorf("a good build bound to the jail's home: %s (%s), want no floor entry", st.Disposition, st.Reason)
+	}
+	if pf.advances != 0 {
+		t.Errorf("Status advanced %d times", pf.advances)
+	}
+}
+
+// TWO LAUNCHES TOGETHER INSTALL A PATCHED FORK ONCE: an install that waited for the floor's lock
+// reads the status again under it, finds what the holder installed, and installs nothing itself.
+func TestAPatchedInstallThatWaitedForTheLockFindsTheHoldersInstall(t *testing.T) {
+	w, pf := patchedWorld(t)
+	pf.advance = firstGood
+	p := patchedProgram()
+	if err := w.floor.ensureDir("bin", "programs", "records", "locks"); err != nil {
+		t.Fatal(err)
+	}
+	held, err := acquire(w.floor.lockPath(p.Bin()), false, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	type result struct {
+		outcome Outcome
+		err     error
+	}
+	done := make(chan result, 1)
+	go func() {
+		_, outcome, err := w.floor.Ensure(context.Background(), p)
+		done <- result{outcome, err}
+	}()
+	deadline := time.Now().Add(10 * time.Second)
+	for !strings.Contains(w.out.String(), "waiting for pid") {
+		if time.Now().After(deadline) {
+			held.release()
+			t.Fatalf("the install never waited for the lock:\n%s", w.out.String())
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	// THE HOLDER installs the good build, as the launch that held the lock would.
+	if _, err := w.floor.install(context.Background(), p); err != nil {
+		held.release()
+		t.Fatal(err)
+	}
+	held.release()
+	r := <-done
+	if r.err != nil || r.outcome != Current {
+		t.Fatalf("the waiter: %s %v, want the holder's install found current\n%s", r.outcome, r.err, w.out.String())
+	}
+	b, _ := os.ReadFile(w.floor.receiptsPath())
+	if n := strings.Count(string(b), "\n"); n != 1 {
+		t.Errorf("receipts.jsonl has %d lines, want the holder's one install:\n%s", n, b)
+	}
+}
+
+// A GOOD BUILD GONE FROM THE STORE STOPS WITH THE ACT THAT BUILDS IT AGAIN: a moved good build the
+// floor cannot copy keeps the installed copy, and the line says what puts the build back — `yolo
+// capture <bin>` on a machine that builds, a container runtime on one that cannot.
+func TestAGoneGoodBuildsLineNamesWhatBuildsItAgain(t *testing.T) {
+	for _, tc := range []struct{ name, unavailable, want string }{
+		{"a machine that builds", "", "`yolo capture forkcli` builds it, and the next `yolo host -- forkcli` installs it"},
+		{"a machine that cannot", "no container runtime (podman) is on PATH", "no container runtime (podman) is on " +
+			"PATH — install one (`yolo check` names how on this machine) and the next `yolo host` launch builds it"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			w, pf := patchedWorld(t)
+			pf.advance = firstGood
+			p := patchedProgram()
+			if _, _, err := w.floor.Ensure(context.Background(), p); err != nil {
+				t.Fatal(err)
+			}
+			pf.advance = nil
+			pf.state.Good = &PatchedBuild{Commit: forkCommitTwo, Recipe: patchedRecipeOne, Label: "v1.1.0 (22222222) + 2 patches"}
+			if tc.unavailable != "" {
+				w.floor.CaptureUnavailable = func() string { return tc.unavailable }
+			}
+			first := len(w.out.String())
+			if _, outcome, err := w.floor.Ensure(context.Background(), p); err != nil || outcome != Kept {
+				t.Fatalf("%s %v, want the installed copy kept\n%s", outcome, err, w.out.String())
+			}
+			out := w.out.String()[first:]
+			if !strings.Contains(out, "good build v1.1.0 (22222222) + 2 patches is gone from the capture store") ||
+				!strings.Contains(out, tc.want) {
+				t.Errorf("the kept line does not name what builds it again (%q):\n%s", tc.want, out)
+			}
+			if strings.Contains(out, "installing forkcli into yolo's floor (") {
+				t.Errorf("an install of a build that is not in the store was started:\n%s", out)
+			}
+		})
 	}
 }
 

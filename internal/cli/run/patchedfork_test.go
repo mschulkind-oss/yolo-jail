@@ -198,6 +198,60 @@ func TestTheForkBlockNamesAPatchedForksGoodBuildAndItsHold(t *testing.T) {
 	}
 }
 
+// THE HOST'S LINE NAMES THE BUILD THE FLOOR RUNS (PF-D50): while that is the record's good build, the
+// jail's line; with no good build on the record (a lost record, the floor's copy recovered from the
+// store), that build, plainly, or held while `agent_updates` holds the fork; and with the good build
+// moved past the floor's copy, the copy, and that the good build is not installed.
+func TestTheHostsPatchedForkLineNamesTheBuildTheFloorRuns(t *testing.T) {
+	forkDir := patchedLaunchHome(t)
+	f := packload.Fork{Pack: "forkpack", Base: "basepack", Bin: "tool", Source: patchedSource, Build: "make install",
+		Produces: []string{".local/bin/tool"}, Root: forkDir, Patches: "patches"}
+	series, err := f.ReadSeries()
+	if err != nil {
+		t.Fatal(err)
+	}
+	recipe := forkPatchedRecipe(f, series)
+	floor := FloorCopy{Commit: patchedBase, Recipe: recipe, Label: "v1.0.0 (01234567) + 1 patch"}
+	const rebuilds = "the next `yolo host -- tool`"
+
+	line, warn := PatchedForkLine(f, floor, rebuilds)
+	if !strings.HasSuffix(line, "(series "+series.ShortDigest()+"), at v1.0.0 (01234567)") || warn {
+		t.Errorf("with no record the line is %q (warn %v), want the floor's build named plainly", line, warn)
+	}
+	packs := filepath.Dir(forkDir)
+	writeUserPacks(t, os.Getenv("HOME"), `[{"source":"file://`+filepath.Join(packs, "basepack")+`","name":"basepack"},`+
+		`{"source":"file://`+forkDir+`","name":"forkpack"}], "agent_updates": {"forkpack": false}`)
+	line, warn = PatchedForkLine(f, floor, rebuilds)
+	if !strings.HasSuffix(line, ", at v1.0.0 (01234567); held at v1.0.0 (01234567): `agent_updates` holds pack "+
+		"forkpack, so no launch checks its upstream") || !warn {
+		t.Errorf("held with no record the line is %q (warn %v)", line, warn)
+	}
+
+	newer := strings.Repeat("b", 40)
+	store := patchedPacksStore()
+	setGood := func(commit, tag string) {
+		t.Helper()
+		if err := store.WithCheckRecord(f.Key(), nil, func(r *packsrc.CheckRecord, _ error, _ func() error) (bool, error) {
+			r.Good = &packsrc.GoodBuild{Commit: commit, Tag: tag, Series: series.Digest, Recipe: recipe, Patches: 1, Entry: "k"}
+			return true, nil
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	setGood(patchedBase, "v1.0.0")
+	jail, jailWarn := patchedForkLine(packload.ForkPin{Fork: f}, rebuilds)
+	if line, warn = PatchedForkLine(f, floor, rebuilds); line != jail || warn != jailWarn {
+		t.Errorf("with the floor at the good build the line is %q (warn %v), want the jail's %q (warn %v)", line, warn,
+			jail, jailWarn)
+	}
+	setGood(newer, "v1.1.0")
+	line, warn = PatchedForkLine(f, floor, rebuilds)
+	if !strings.HasSuffix(line, ", at v1.0.0 (01234567) — its good build v1.1.0 (bbbbbbbb) is not installed, so "+
+		"`yolo host` runs this build until it is") || !warn {
+		t.Errorf("with the good build past the floor's copy the line is %q (warn %v)", line, warn)
+	}
+}
+
 // forkPatchedRecipe is a patched fork's recipe under its series, as the advance computes it.
 func forkPatchedRecipe(f packload.Fork, s *packsrc.Series) string {
 	return packdecl.ForkSourcePatchedRecipe(f.Source, f.Build, f.Produces, s.Digest)
