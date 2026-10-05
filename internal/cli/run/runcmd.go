@@ -289,8 +289,9 @@ type Options struct {
 	// MacosUserArm is the macos-user launch's signal arm (macosuserarm.go), made by the front door
 	// so the handler it injects (MacosUserRun) can hand the arm's session runner, Ending and
 	// AgentStarting to the backend, and installed by Run's macos-user arm. A pointer for PerfRef's
-	// reason: Options crosses the launchRunPipeline seam by value. nil makes Run use an arm of its
-	// own, which nothing outside Run reaches (a capture act's launch, a test).
+	// reason: Options crosses the launchRunPipeline seam by value. nil installs no arm (a capture
+	// act's launch, a test), whose handler never asks one: its signals keep their default action
+	// (armMacosUser).
 	MacosUserArm *MacosUserArm
 	// perfReportOnce makes the timing report once per Run invocation — a
 	// POINTER, not an embedded sync.Once, because Options is copied by value

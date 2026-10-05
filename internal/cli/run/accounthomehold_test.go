@@ -90,6 +90,28 @@ func TestAnUnopenableHoldCountsAsLive(t *testing.T) {
 	}
 }
 
+// A HOLD DIRECTORY THAT CANNOT BE MADE is its own refusal: there is no lock file to remove, so the
+// next step it names is the directory's, not a file the launch could never have made.
+func TestAnUnmakeableHoldDirectoryNamesTheDirectory(t *testing.T) {
+	dir := holdDir(t)
+	if err := os.MkdirAll(filepath.Dir(dir), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(dir, nil, 0o644); err != nil { // a file where the directory belongs
+		t.Fatal(err)
+	}
+	_, refusal := holdAccountHomeIn(dir, "/Users/Shared/b", "yolo-b-2222", " (and `--at jail`)", time.Second)
+	for _, want := range []string{"could not make " + dir, "remove the file in its place", "run `yolo` again",
+		`"runtime": "container"`, " (and `--at jail`)."} {
+		if !strings.Contains(refusal, want) {
+			t.Errorf("the refusal does not say %q:\n%s", want, refusal)
+		}
+	}
+	if strings.Contains(refusal, "yolo-b-2222.lock") {
+		t.Errorf("the refusal names a lock file inside a directory that does not exist:\n%s", refusal)
+	}
+}
+
 // THE MUTEX IS BOUNDED: an arrival waits for another's probe, but not for ever, and says so.
 func TestTheProbeMutexIsBounded(t *testing.T) {
 	dir := holdDir(t)

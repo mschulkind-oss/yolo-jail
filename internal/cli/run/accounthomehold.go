@@ -79,7 +79,7 @@ func HoldAccountHome(workspace, cname, step string) (release func(), refusal str
 // holdAccountHomeIn is HoldAccountHome over dir and a mutex bound, for a test.
 func holdAccountHomeIn(dir, workspace, cname, step string, bound time.Duration) (func(), string) {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return nil, accountHomeUnknown(filepath.Join(dir, cname+".lock"), err, step)
+		return nil, accountHomeNoDir(dir, err, step)
 	}
 	mutexPath := filepath.Join(dir, accountHomeMutexName)
 	mutex, err := lockBounded(mutexPath, bound)
@@ -169,6 +169,16 @@ func accountHomeUnknown(path string, err error, step string) string {
 		"(%s: %v), and an unknown answer counts as one. If no macos-user session is running, remove "+
 		"%s and run `yolo` again; or set \"runtime\": \"container\" in this project's "+
 		"yolo-jail.jsonc%s.", path, err, path, step)
+}
+
+// accountHomeNoDir is the refusal for a hold directory that cannot be made. No lock file can exist
+// in it, so its next step is the directory's own.
+func accountHomeNoDir(dir string, err error, step string) string {
+	return fmt.Sprintf("could not make %s, where each macos-user launch records its claim on the "+
+		"sandbox account's home (%v), so this launch cannot tell whether another workspace's session "+
+		"holds it. Make it a directory you can write — remove the file in its place, or make its "+
+		"parent writable by you — and run `yolo` again; or set \"runtime\": \"container\" in this "+
+		"project's yolo-jail.jsonc%s.", dir, err, step)
 }
 
 // lockBounded opens path and takes LOCK_EX on it, waiting at most bound.

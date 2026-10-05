@@ -5,6 +5,7 @@ package run
 // prompt and before the first host service, and asked before the dispatch.
 
 import (
+	"bytes"
 	"fmt"
 	"go/ast"
 	"go/token"
@@ -17,8 +18,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/macosuser"
 	"github.com/mschulkind-oss/yolo-jail/internal/nixchildren"
+	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/perf"
 	"github.com/mschulkind-oss/yolo-jail/internal/shquote"
 	"github.com/mschulkind-oss/yolo-jail/internal/testsupport"
@@ -166,6 +169,40 @@ func TestASetupInterruptEndsTheLaunchWithoutForwarding(t *testing.T) {
 	arm.mu.Unlock()
 	if registered {
 		t.Error("a child started after the ending became the forward target")
+	}
+}
+
+// SETUP, SIGQUIT: absorbed. It does not end the launch, is not forwarded, prints nothing and stops
+// no nix — a stray Ctrl-\ during setup is not a request to stop.
+func TestASetupQuitIsAbsorbed(t *testing.T) {
+	nixchildren.Isolate(t)
+	keepAlive(t, syscall.SIGQUIT)
+	arm, notices := installArm(t, nil)
+	marks := t.TempDir()
+	child := exec.Command("sh", "-c", `trap 'echo QUIT >> "$1"' QUIT; : > "$2"; `+
+		`i=0; while [ $i -lt 200 ]; do sleep 0.05; i=$((i+1)); done`, "sh",
+		filepath.Join(marks, "seen"), filepath.Join(marks, "ready"))
+	if err := child.Start(); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = child.Process.Kill(); _ = child.Wait() })
+	awaitFile(t, filepath.Join(marks, "ready"))
+	defer arm.watchForeground(child.Process)()
+	if err := syscall.Kill(os.Getpid(), syscall.SIGQUIT); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(200 * time.Millisecond)
+	if status, ending := arm.Ending(); ending {
+		t.Errorf("a SIGQUIT in setup ended the launch %d", status)
+	}
+	if len(*notices) != 0 {
+		t.Errorf("a SIGQUIT in setup said %q", *notices)
+	}
+	if got := readSeen(marks); got != "" {
+		t.Errorf("the foreground child was sent %q", got)
+	}
+	if nixchildren.Stopped() {
+		t.Error("a SIGQUIT in setup stopped this process's nix")
 	}
 }
 
@@ -347,5 +384,43 @@ func TestRunInstallsTheMacosUserArmAndAsksItBeforeTheDispatch(t *testing.T) {
 	})
 	if !gated {
 		t.Error("Run asks the arm's Ending without returning on it")
+	}
+}
+
+// A LAUNCH WHOSE CALLER MADE NO ARM IS NOT ARMED. The capture act's launch (internal/cli's
+// capturehost.go, which the host floor's capture reaches too) hands Run a MacosUserRun that never
+// asks the arm's Ending, so an arm Run installed for it would take the signal, print a notice naming
+// `yolo`, stop this process's nix for good, and then let the handler go on to its next step and
+// return success. Its signals keep the action they had before the arm existed.
+func TestALaunchWhoseCallerMadeNoArmIsNotArmed(t *testing.T) {
+	nixchildren.Isolate(t)
+	keepAlive(t, syscall.SIGINT)
+	home := packHome(t)
+	writeUserPacks(t, home, `[]`)
+	ws := t.TempDir()
+	var stdout, stderr bytes.Buffer
+	o := dispatchOptions(t, ws, "macos-user", &stdout, &stderr, nil)
+	if o.MacosUserArm != nil {
+		t.Fatal("the fixture already carries an arm; this test needs a caller that made none")
+	}
+	steps := 0
+	o.MacosUserRun = func(*jsonx.OrderedMap, string, []string, []string, string, string, macosuser.HomeOverlay,
+		macosuser.HostContext, bool, *jsonx.OrderedMap, []packload.BlockedTool, macosuser.JailDaemons) int {
+		steps++
+		if err := syscall.Kill(os.Getpid(), syscall.SIGINT); err != nil {
+			t.Error(err)
+		}
+		time.Sleep(200 * time.Millisecond)
+		steps++
+		return 0
+	}
+	if rc := Run(*o); rc != 0 || steps != 2 {
+		t.Fatalf("Run() = %d after %d steps, want the handler's 0 after both\n%s", rc, steps, stderr.String())
+	}
+	if out := stdout.String() + stderr.String(); strings.Contains(out, "ending this macos-user launch") {
+		t.Errorf("a launch whose caller made no arm was armed, and its notice names a `yolo` the user never ran:\n%s", out)
+	}
+	if nixchildren.Stopped() {
+		t.Error("a signal to a launch whose caller made no arm stopped this process's nix")
 	}
 }

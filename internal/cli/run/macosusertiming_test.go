@@ -58,8 +58,9 @@ func TestAMacosUserLaunchReportsItsTimingAfterItsTeardown(t *testing.T) {
 		t.Fatalf("no timing report for a --timing macos-user launch:\n%s", out)
 	}
 	table := out[header:]
-	for _, row := range []string{"launch.refresh_jail_briefings", "launch.start_loopholes", "launch.macos_user",
-		"shutdown.stop_front.acme-proxy", "shutdown.stop_loopholes"} {
+	for _, row := range []string{"launch.refresh_jail_briefings", "launch.build_home_overlay", "launch.build_ctx_tree",
+		"launch.start_loopholes", "launch.start_doorways", "launch.start_services", "launch.macos_user",
+		"shutdown.stop_front.acme-proxy", "shutdown.stop_loopholes", "shutdown.stop_doorways", "shutdown.stop_services"} {
 		if !strings.Contains(table, row) {
 			t.Errorf("the report has no %s row:\n%s", row, table)
 		}

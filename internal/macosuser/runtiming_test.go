@@ -46,7 +46,7 @@ func TestRunMacosUserSpansEveryStepInOrder(t *testing.T) {
 		t.Fatalf("rc = %d", rc)
 	}
 	got := spanEnds(events)
-	want := []string{"preconditions", "context_preflight", "account_home", "materialize", "host_nix",
+	want := []string{"preconditions", "account_home", "context_preflight", "materialize", "host_nix",
 		"guest_binaries", "ca_trust", "build_plan", "workspace_lock", "session_sweep", "install_profile",
 		"stage", "env_file", "bootstrap", "provision", "start_jail_daemons", "service_probe", "agent",
 		"stop_jail_daemons", "remove_env_file"}
@@ -78,7 +78,7 @@ func TestAFailedMaterializeEndsItsSpanAndStartsNoLaterOne(t *testing.T) {
 		t.Fatalf("rc = %d, want the refusal", rc)
 	}
 	got := spanEnds(events)
-	want := []string{"macos_user.preconditions", "macos_user.context_preflight", "macos_user.account_home",
+	want := []string{"macos_user.preconditions", "macos_user.account_home", "macos_user.context_preflight",
 		"macos_user.materialize"}
 	if !slices.Equal(got, want) {
 		t.Errorf("a refused build's spans: %v, want %v", got, want)

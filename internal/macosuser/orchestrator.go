@@ -94,7 +94,8 @@ type Deps struct {
 	// never nil when it admits, or a refusal that names the live workspace and the next step,
 	// ending with step, the container-runtime clause this launch's notch needs (containerStep).
 	//
-	// Asked BEFORE the native nix build, so a refusal costs seconds, and released when the
+	// Asked BEFORE the native nix build, so a refusal costs seconds, and before the first sudo (the
+	// context preflight's), so a refused launch never prompts for a password; released when the
 	// session's teardown has run. A SEAM for LockWorkspace's reason: the implementation lives in
 	// internal/cli/run (run.HoldAccountHome), which imports this package. nil takes no hold, which
 	// is what the four `yolo macos-*` commands get (RealDeps): none of them lays the links.
@@ -794,21 +795,12 @@ func RunMacosUser(deps Deps, opts Options) int {
 		return 1
 	}
 
-	// THE DAC PREFLIGHT for every context mount this launch delivers (ctxlinks.go;
-	// docs/design/context-mounts.md §3.5), asked here, BEFORE the nix build, for the reason the
-	// preconditions above are: it is cheap, it is a fact about this machine, and a refusal after
-	// a half-hour build is the worst place to learn it. The same probes the plan carries
-	// (BuildRunPlan → ContextPreflight over the same links), which PlanInvariants checks.
-	steps.begin("context_preflight")
-	if !runContextPreflight(deps, out, opts.HostCtx.Links, containerStep(opts.PackEnv)) {
-		return 1
-	}
-
-	// THE ACCOUNT HOME'S HOLD (Deps.HoldAccountHome), the last check before the nix build and for
-	// the preconditions' reason: a launch of another workspace while a session runs here would
-	// repoint the links that session's agent reads through, so it is refused now, in seconds,
-	// rather than after a half-hour build. Held until this function returns — after the session
-	// and after every teardown deferred below, which run first.
+	// THE ACCOUNT HOME'S HOLD (Deps.HoldAccountHome), before the nix build for the preconditions'
+	// reason: a launch of another workspace while a session runs here would repoint the links that
+	// session's agent reads through, so it is refused now, in seconds, rather than after a
+	// half-hour build. And before the context preflight, the first step that may run sudo: the hold
+	// runs none, so a launch it refuses never prompts for a password. Held until this function
+	// returns — after the session and after every teardown deferred below, which run first.
 	steps.begin("account_home")
 	if deps.HoldAccountHome != nil {
 		releaseHome, refusal := deps.HoldAccountHome(opts.Workspace, cnameFor(opts.Workspace),
@@ -818,6 +810,18 @@ func RunMacosUser(deps Deps, opts Options) int {
 			return 1
 		}
 		defer releaseHome()
+	}
+
+	// THE DAC PREFLIGHT for every context mount this launch delivers (ctxlinks.go;
+	// docs/design/context-mounts.md §3.5), asked here, BEFORE the nix build, for the reason the
+	// preconditions above are: it is cheap, it is a fact about this machine, and a refusal after
+	// a half-hour build is the worst place to learn it. The same probes the plan carries
+	// (BuildRunPlan → ContextPreflight over the same links), which PlanInvariants checks. Its
+	// probes run `sudo -u _yolojail`, whose password prompt a Ctrl-C can end: that is the signal's
+	// status, not a refusal.
+	steps.begin("context_preflight")
+	if !runContextPreflight(deps, out, opts.HostCtx.Links, containerStep(opts.PackEnv)) {
+		return deps.endingOr(1)
 	}
 
 	// Materialize the native tool closure for THIS Mac's arch (the acceptance
@@ -1075,7 +1079,8 @@ func RunMacosUser(deps Deps, opts Options) int {
 	// deferred FIRST, so it runs whether the install succeeded or failed half-way: no launch
 	// used to remove its profile, and every one left a file behind.
 	defer func() { teardown.remove(plan.ProfileRemoveCommands) }()
-	// This step holds the launch's first sudo, so its span includes the password prompt.
+	// This step usually holds the launch's first sudo, so its span includes the password prompt
+	// (the context preflight's probes, and a sweep with something to remove, ask first).
 	steps.begin("install_profile")
 	if !deps.InstallRootFile(plan.ProfilePath, plan.Seatbelt, "0444") {
 		if rc, ending := deps.ending(); ending {
@@ -1227,6 +1232,16 @@ func (d Deps) ending() (int, bool) {
 	return d.Ending()
 }
 
+// sayFailed prints msg, a step's failure, unless a signal is ending the launch. A step the signal
+// cut short failed because the signal reached its child — a sudo stopped at its password prompt
+// fails like any refusal — so its message would name a cause that is not the cause; the launch
+// returns the signal's status instead (endingOr).
+func (d Deps) sayFailed(out printer, msg string) {
+	if _, ending := d.ending(); !ending {
+		out.print(msg)
+	}
+}
+
 // endingOr is the status a failed step returns: the signal's, when one is ending the launch (the
 // step most likely failed because the signal reached its child), else rc.
 func (d Deps) endingOr(rc int) int {
@@ -1369,6 +1384,10 @@ func runContextPreflight(deps Deps, out printer, links []ContextLink, step strin
 	var failed []ContextProbe
 	refused := map[string]bool{}
 	for _, p := range ContextPreflight(links, "") {
+		// A signal ending the launch stops the probing: each probe is a sudo that may prompt.
+		if _, ending := deps.ending(); ending {
+			return false
+		}
 		key := p.Link.Dest + "\x00" + p.Link.Source
 		if refused[key] {
 			continue
@@ -1379,7 +1398,7 @@ func runContextPreflight(deps Deps, out printer, links []ContextLink, step strin
 		}
 	}
 	if len(failed) > 0 {
-		out.print(ContextPreflightRefusal(failed, step))
+		deps.sayFailed(out, ContextPreflightRefusal(failed, step))
 		return false
 	}
 	return true
@@ -1431,20 +1450,22 @@ func runProvisionStage(deps Deps, out printer, plan RunPlan) bool {
 		body, ok := deps.ReadFile(log)
 		vetoed = !ok || strings.Contains(body, provision.FailedMarker)
 	}
+	// A stage a signal cut short is reported by none of these (Deps.sayFailed): the launch is ending,
+	// and its caller returns the signal's status whatever this returns.
 	if vetoed && rc == provision.RefusedStatus {
-		out.print("[bold red]Provisioning refused the launch.[/bold red] A selected pack " +
-			"declares something this sandbox cannot provide; the reason is printed above " +
-			"and in " + log + ".")
+		deps.sayFailed(out, "[bold red]Provisioning refused the launch.[/bold red] A selected pack "+
+			"declares something this sandbox cannot provide; the reason is printed above "+
+			"and in "+log+".")
 		return false
 	}
 	if vetoed {
-		out.print("[bold red]Provisioning was aborted.[/bold red] The sandbox is set up " +
-			"but its declared tools were not installed — the log is at " + log + ".")
+		deps.sayFailed(out, "[bold red]Provisioning was aborted.[/bold red] The sandbox is set up "+
+			"but its declared tools were not installed — the log is at "+log+".")
 		return false
 	}
-	out.print("[bold yellow]The provisioning stage could not be started.[/bold yellow] It " +
-		"wrote nothing to " + log + ", so it never ran — sudo, sandbox-exec or the " +
-		"profile, not the tools themselves. Launching anyway: the declared tools are " +
+	deps.sayFailed(out, "[bold yellow]The provisioning stage could not be started.[/bold yellow] It "+
+		"wrote nothing to "+log+", so it never ran — sudo, sandbox-exec or the "+
+		"profile, not the tools themselves. Launching anyway: the declared tools are "+
 		"NOT installed in this sandbox.")
 	return true
 }
@@ -1804,10 +1825,12 @@ func LaunchWriter() io.Writer {
 }
 
 // RealDeps returns Deps backed by real subprocesses / filesystem. runProxy is
-// the TTY-proxy launcher the front door
-// supplies (internal/cli/run's runWithProxy is Linux/macOS-specific);
-// materialize wires internal/darwinpkg's streaming nix build. Both are passed
-// in so this package needs no build-tagged syscall dependencies. color is the
+// the session runner (Deps.RunWithProxy): on a launch, the one its signal arm
+// supplies (internal/cli/run's MacosUserArm.RunSession, a plain foreground exec
+// that absorbs SIGINT and SIGQUIT and forwards SIGTERM and SIGHUP to the
+// command's sudo; darwin has no TTY proxy), nil for a caller that runs no
+// session. materialize wires internal/darwinpkg's streaming nix build. Both are
+// passed in so this package needs no build-tagged syscall dependencies. color is the
 // resolved color capability (the caller's requested color AND a real TTY);
 // it drives ANSI vs. plain output.
 //

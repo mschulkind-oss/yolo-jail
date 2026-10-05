@@ -1339,8 +1339,8 @@ func runRun(args []string) int {
 var launchRunPipeline = run.Run
 
 // macosUserRun is the run.Options.MacosUserRun seam impl: it assembles the
-// real macosuser deps (TTY proxy + native darwin nix materialize) and runs the
-// Seatbelt-sandboxed launch. repoRoot is the yolo-jail checkout root (the nix
+// real macosuser deps (the session runner of the launch's signal arm, and the
+// native darwin nix materialize) and runs the Seatbelt-sandboxed launch. repoRoot is the yolo-jail checkout root (the nix
 // build root for darwin `packages:`); the native-Go bootstrap self-execs the
 // staged yolo binary and needs no source tree. packRoot is the host-side staged
 // pack tree, which the run pipeline staged before dispatching here, and packEnv is the

@@ -9,16 +9,18 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/macosuser"
 )
 
-// TestMacosUserASecondWorkspaceWaitsForTheAccountHome is the account-home hold on the hardware
-// (internal/cli/run's accounthomehold.go; docs/reference/macos-user-home-tiers.md#ht-d15): while a
-// session of workspace A runs, a launch in workspace B is refused before its nix build and before
-// any sudo, naming A and the next steps, and the account home's links still point into A's
-// sidecar; once A's session ends, B launches.
+// TestMacosUserASecondWorkspaceIsRefusedWhileASessionHoldsTheAccountHome is the account-home hold
+// on the hardware (internal/cli/run's accounthomehold.go;
+// docs/reference/macos-user-home-tiers.md#ht-d15): while a session of workspace A runs, a launch in
+// workspace B is refused — not made to wait — before its nix build and before any sudo (the hold is
+// asked ahead of the context-mount preflight, the first step that may run one), naming A and the
+// next steps, and the account home's links still point into A's sidecar; once A's session ends, B
+// launches.
 //
 // The hazard the hold closes is measured on Linux (entrypoint's
 // TestASecondWorkspaceLayoutRepointsTheFirstsLinks: B's layout takes five of A's core links); its
 // consequence for a live session on a Mac is reasoned, not observed.
-func TestMacosUserASecondWorkspaceWaitsForTheAccountHome(t *testing.T) {
+func TestMacosUserASecondWorkspaceIsRefusedWhileASessionHoldsTheAccountHome(t *testing.T) {
 	requireMacosUser(t)
 	packHome(t, `{"packs": []}`)
 	wsA := macosUserWorkspace(t, `{}`)

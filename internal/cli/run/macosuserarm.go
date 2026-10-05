@@ -37,7 +37,8 @@ package run
 // the launch at once — and before its first host service, and disarmed by the defer Run registers
 // first, so it outlasts every teardown and the timing report. The front door makes the arm
 // (NewMacosUserArm) and hands its session runner, its Ending and its AgentStarting to the backend
-// (internal/cli's macosUserRun); Run installs that same arm.
+// (internal/cli's macosUserRun); Run installs that same arm, and none for a caller that made none
+// (armMacosUser says why).
 
 import (
 	"fmt"
@@ -282,18 +283,20 @@ func sigName(sig syscall.Signal) string {
 	return sig.String()
 }
 
-// macosUserArm is this launch's arm: the front door's, or one of the launch's own for a caller that
-// made none (a capture act, a test).
-func (o *Options) macosUserArm() *MacosUserArm {
-	if o.MacosUserArm == nil {
-		o.MacosUserArm = NewMacosUserArm()
-	}
-	return o.MacosUserArm
-}
-
 // armMacosUser installs this launch's macos-user arm, its notice on stderr, and returns the disarm.
+//
+// ONLY THE FRONT DOOR'S ARM IS INSTALLED. A caller that made none — the capture act's launch
+// (internal/cli's capturehost.go, which the host floor's capture reaches too), a test — hands Run a
+// MacosUserRun that never asks the arm, so an arm installed for it would take the signal, print a
+// notice telling the user to run a `yolo` they never typed, stop this process's nix for good
+// (nixchildren.Stop latches), and then watch the handler go on to its next step and return
+// success. Such a caller gets an arm that is never installed, whose Ending is always false, and
+// its signals keep the action they had before the arm existed.
 func (o *Options) armMacosUser() (*MacosUserArm, func()) {
-	arm := o.macosUserArm()
+	if o.MacosUserArm == nil {
+		return NewMacosUserArm(), func() {}
+	}
+	arm := o.MacosUserArm
 	return arm, arm.install(o.Perf, func(line string) {
 		o.pr(o.Stderr).print("[yellow]" + line + "[/yellow]")
 	})
