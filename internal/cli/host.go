@@ -2947,14 +2947,15 @@ func (c *hostComposition) planHostService(e *packload.UnservedAdapterError, pack
 
 // hostViaRoute is what THE VIA TRIGGER's what-if (packload.ViaRoutedServices, HS-D30) says of
 // one host agent on one profile: the service its via or carrier would route it through once
-// served ("" for none), which route that is ("via", or `carrier "<pack>"`), the agent's own config
-// files that carry it (packload.FileCarriedVia, HS-D31; nil when its environment does), and
-// whether the via re-points nothing of it (packload.ViaRouted.NoEffect, HS-D33).
+// served ("" for none) and the pack holding it, which route that is ("via", or `carrier
+// "<pack>"`), the agent's own config files that carry it (packload.FileCarriedVia, HS-D31; nil when
+// its environment does), and whether the via re-points nothing of it (packload.ViaRouted.NoEffect,
+// HS-D33).
 type hostViaRoute struct {
-	service  string
-	route    string
-	files    []string
-	noEffect bool
+	service, pack string
+	route         string
+	files         []string
+	noEffect      bool
 }
 
 // hostViaWhatIf is the via trigger's what-if for agent on profile at the host notch, over the
@@ -2982,7 +2983,7 @@ func hostViaWhatIf(cfg *jsonx.OrderedMap, packs []*packload.Pack,
 		return hostViaRoute{}, err
 	}
 	for _, r := range routed {
-		v := hostViaRoute{service: r.Service, route: r.Route(profile)}
+		v := hostViaRoute{service: r.Service, pack: r.Pack, route: r.Route(profile)}
 		if slices.Contains(r.NoEffect, agent) {
 			v.noEffect = true
 			return v, nil

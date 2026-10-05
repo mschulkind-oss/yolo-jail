@@ -623,6 +623,49 @@ func TestHostApplyWritesNoViaAddressForAViaProfile(t *testing.T) {
 	if !rendered {
 		t.Fatalf("the apply rendered none of pi's config, so this proves nothing:\n%s%s", out.String(), errw.String())
 	}
+	// And it says why, as it does for a bridged selection: pi's route is file-carried, so only a jail
+	// or macos-user launch serves it (HS-D31).
+	report := out.String() + errw.String()
+	for _, want := range []string{"profile pi → bedrock-bridge renders no address for its via here",
+		"pi reads its route from ~/.pi/agent/models.json", "`yolo -p bedrock-bridge -- pi`"} {
+		if !strings.Contains(report, want) {
+			t.Errorf("the apply must say %q:\n%s", want, report)
+		}
+	}
+}
+
+// `yolo host apply` SAYS WHERE A VIA OR CARRIER TAKES EFFECT (HS-D33, OQ-HS3), as it does for a
+// bridged selection: copilot on bedrock-bridge (its via) and on plain bedrock (the carrier) rides
+// the bridge's adapter address at a port `yolo host --` picks per launch, so the apply renders no
+// address for it, starts nothing, and names `yolo host -- copilot` and the host wrappers, where
+// the selection does take effect. Deleting hostinputs' viaSelectionNote call fails this.
+func TestHostApplySaysWhereAViaOrCarrierTakesEffect(t *testing.T) {
+	for _, tc := range []struct{ profile, route string }{
+		{"bedrock-bridge", "its via"},
+		{"bedrock", `its carrier "wire-bridge"`},
+	} {
+		t.Run(tc.profile, func(t *testing.T) {
+			hostComputedHome(t, `{"packs": ["copilot", "bedrock", "wire-bridge"], "profile": {"copilot": "`+tc.profile+`"}, `+
+				`"providers": {"bedrock": {"region": "eu-west-1"}}}`)
+			origStart := startLaunchService
+			startLaunchService = func(*launchservice.Plan, map[string]string) (*launchservice.Running, error) {
+				t.Fatal("yolo host apply started a service")
+				return nil, nil
+			}
+			t.Cleanup(func() { startLaunchService = origStart })
+			var out, errw bytes.Buffer
+			if rc := hostMain([]string{"apply", "--assert"}, &out, &errw, false, strings.NewReader("y\n")); rc != 0 {
+				t.Fatalf("yolo host apply --assert rc=%d\n%s%s", rc, out.String(), errw.String())
+			}
+			report := out.String() + errw.String()
+			for _, want := range []string{"profile copilot → " + tc.profile + " renders no address for " + tc.route + " here",
+				`pack "wire-bridge"'s "wire-bridge" service`, "`yolo host -- copilot` or the host wrappers"} {
+				if !strings.Contains(report, want) {
+					t.Errorf("the apply must say %q:\n%s", want, report)
+				}
+			}
+		})
+	}
 }
 
 // A FETCHED PACK'S HOST HALF NEVER RUNS (OQ-HS4, HS-D27): a fetched pack that takes the bridge's

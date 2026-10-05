@@ -1021,8 +1021,8 @@ launch, for the one agent it runs, stopped when that agent exits). The mechanism
   On macos-user every profiled agent's via counts, pi's included, since that arm renders those
   files per launch. An agent counts only when the via re-points it: agy on `bedrock-bridge`, whose
   config ignores the via, starts nothing at either notch, and the launch says the via has no
-  effect on it ([HS-D33](../design/host-notch-services.md#HS-D33)). `yolo host env` starts
-  nothing either, and names the `yolo host --` launch that serves the route.
+  effect on it ([HS-D33](../design/host-notch-services.md#HS-D33)). `yolo host env` and
+  `yolo host apply` start nothing either, and name the launch that serves the route.
 - **A pack yolo ships, or a local one.** `launchservice.Admit` runs a host half only for a pack
   the embedded set supplied or one at a path on this machine (`packload.Pack.MayRunHostHalf`:
   `Official` or `Local`, [HS-D27](../design/host-notch-services.md#HS-D27)), and only when its
