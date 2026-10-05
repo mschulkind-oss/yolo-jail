@@ -177,7 +177,20 @@ yolo is the thing that turned a directory you trust into a directory an agent wr
 `workspace_readonly` overlays a `:ro` bind per listed path on top of the writable workspace bind.
 Entries must be relative and `..`-free; one that escapes the workspace or does not exist is
 skipped with a warning. **When any entry is active it also locks the workspace config file
-itself**, so a jail session cannot switch its own protection off.
+itself**, the one file the loader resolves (`yolo-jail.jsonc`, or `yolo-jail.json` where that is
+the file), so a jail session cannot edit its own protection out of that file.
+
+> [!WARNING]
+> **The lock is that one file, and the protection can be switched off without touching it**, on
+> every backend. The loader reads more workspace config after it, and a later file wins. A
+> `yolo-jail.local.jsonc` is merged over it and is not locked, so `"workspace_readonly": null`
+> there turns the key off. Nor is a file pulled in with `include_if_found`, which wins over the
+> file naming it; an include the config lists but nobody has created is one the session can
+> create. And where the config is `yolo-jail.json`, a new `yolo-jail.jsonc` beside it is read
+> instead, because the loader tries that name first. **What catches each is the
+> [config-change approval](config-safety.md)**: the next fresh launch diffs the merged workspace
+> config against the copy the human last approved and asks y/N before it runs, so the switch-off
+> is shown to the human rather than blocked.
 
 The entry set that matches the blind cell is the `.git` control plane plus the agent-settings
 paths — `.git/config`, `.git/hooks`, `.git/info`, the agent settings directory, `.mcp.json`, and
@@ -258,10 +271,14 @@ is anywhere else.
 > profile's write allow, which also covers `/tmp`, `/var/folders`, the sandbox home and every
 > read-write context mount's source, so a target there is denied by its physical path. The
 > container backends lock the content the same way, by binding the resolved file `:ro`.
-> ⚠ **Two residuals.** A hard link the session makes to the config under a name of its own is a
-> path no rule names, and so is a link in the middle of a chain of links. Whether Seatbelt lets the
-> hard link be made is recorded, not asserted, by the macOS integration test, and no Mac has run it
-> yet.
+> ⚠ **What it does not cover.** The gaps [above](#locking-the-blind-cell-workspace_readonly) hold
+> here as well: `yolo-jail.local.jsonc` and included files are not locked, and a new
+> `yolo-jail.jsonc` shadows a locked `yolo-jail.json`. Two more are recorded for this backend. A
+> hard link the session makes to the config under a name of its own is a path no rule names, and
+> so is a link in the middle of a chain of links. Whether Seatbelt lets the hard link be made is
+> recorded, not asserted, by the macOS integration test, and no Mac has run it yet. Every one of
+> these changes the config the next launch reads, so the config-change approval shows it before
+> that launch runs, whatever the profile allowed.
 
 > [!NOTE]
 > **A `macos-user` agent writes as a different user than you**, which is the precise condition

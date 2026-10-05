@@ -435,9 +435,15 @@ func (o *Options) noteMacosUserHostByteGaps(delivery macosCtxDelivery) {
 // macOS podman or Apple Container launch, where assembleRunCmd's own three warnings still
 // fire. One backend, one printer.
 //
-// ONE LINE PER DECLARED KEY, and none for a key the config never mentions — so a user who
-// declares nothing sees nothing, which is what keeps this from being the warning
-// OQ-BP-3 says people learn to skip.
+// ONE BLOCK PER DECLARED KEY, and none for a key the config never mentions — so a user who
+// declares none of these keys hears nothing about them, which is what keeps this from being
+// the warning OQ-BP-3 says people learn to skip. `gpu`, `kvm` and `ephemeral_storage` print
+// one warning each, under the condition beside it. `devices` prints up to three kinds of line:
+// one disclosure naming every raw path the profile carves out, one warning per entry the
+// classifier refuses, and one warning for the USB and cgroup forms together.
+//
+// The ONE line not keyed on the config is the host nvim disclosure, which depends on the HOST:
+// it prints whenever ~/.config/nvim exists there, declared or not, because nothing declares it.
 func (o *Options) noteMacosUserPlatformGaps(cfg *jsonx.OrderedMap) {
 	out := o.pr(o.Stderr)
 
@@ -462,11 +468,17 @@ func (o *Options) noteMacosUserPlatformGaps(cfg *jsonx.OrderedMap) {
 				"macos-user[/yellow] — " + r.Reason + "; " + r.Next + ".")
 		}
 		if labels := deviceLabels(other); len(labels) > 0 {
+			// Each form's own container mechanism, because they differ: a USB entry attaches a
+			// device (`--device` on the node lsusb resolves), and a cgroup rule attaches nothing
+			// — it becomes `--device-cgroup-rule`, which only lets the container's device cgroup
+			// open matching device numbers (deviceArgs).
 			out.print("[yellow]Warning: `devices` USB and cgroup entries are not read on " +
-				"macos-user[/yellow] — " + strings.Join(labels, ", ") + ". Both attach a " +
-				"device to a CONTAINER, and this backend starts none; a USB device is reached " +
-				"through macOS itself, which yolo neither attaches nor restricts. To drive a " +
-				"serial adapter from the sandbox, list its /dev/cu.* node instead.")
+				"macos-user[/yellow] — " + strings.Join(labels, ", ") + ". A USB entry attaches " +
+				"a device to a CONTAINER, and a cgroup rule lets a container's device cgroup open " +
+				"the device numbers it matches; this backend starts no container, so neither does " +
+				"anything here. A USB device is reached through macOS itself, which yolo neither " +
+				"attaches nor restricts. To drive a serial adapter from the sandbox, list its " +
+				"/dev/cu.* node instead.")
 		}
 	}
 

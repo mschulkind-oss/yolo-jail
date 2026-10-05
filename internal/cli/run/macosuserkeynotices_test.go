@@ -56,7 +56,8 @@ func macosUserNoticeRun(t *testing.T, cfg string) string {
 // this backend while userguide/guides/macos.md said each was "skipped with a warning" (DP-B36).
 func TestMacosUserNamesThePlatformKeysItDoesNotRead(t *testing.T) {
 	got := macosUserNoticeRun(t, `{
-	  "devices": ["/dev/ttyUSB0", {"usb": "1234:5678", "description": "my probe"}],
+	  "devices": ["/dev/ttyUSB0", {"usb": "1234:5678", "description": "my probe"},
+	              {"cgroup_rule": "c 188:* rwm"}],
 	  "gpu": {"enabled": true},
 	  "kvm": true
 	}`)
@@ -64,13 +65,22 @@ func TestMacosUserNamesThePlatformKeysItDoesNotRead(t *testing.T) {
 	for _, want := range []string{
 		"`devices` USB and cgroup entries are not read on macos-user",
 		"allows device control (ioctl) on /dev/ttyUSB0", // the raw-path entry, carved out
-		"my probe", // the USB entry, by its description
+		"my probe",                // the USB entry, by its description
+		"cgroup rule c 188:* rwm", // the cgroup entry, by its rule
+		// Each form's own container mechanism: a USB entry attaches a device, and a cgroup
+		// rule attaches nothing — it only lets a container's device cgroup open matching
+		// device numbers (assembleRunCmd renders it as --device-cgroup-rule).
+		"A USB entry attaches a device to a CONTAINER",
+		"a cgroup rule lets a container's device cgroup open the device numbers it matches",
 		"`gpu.enabled` is not read on macos-user",
 		"`kvm` is not read on macos-user",
 	} {
 		if !strings.Contains(got, want) {
 			t.Errorf("the launch never mentioned %q:\n%s", want, got)
 		}
+	}
+	if strings.Contains(got, "Both attach a device") {
+		t.Errorf("the notice says a cgroup rule attaches a device, which it never does:\n%s", got)
 	}
 	// The REASON must be this backend's, not the container path's. "not supported on
 	// macOS" is true of podman/Apple Container on a Mac — a Linux VM that cannot see a

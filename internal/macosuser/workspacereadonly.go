@@ -14,12 +14,20 @@ import (
 // the declared entries and, whenever ANY entry is declared, the workspace config file the
 // loader reads (config.ResolveWorkspaceConfigPath: yolo-jail.jsonc, or yolo-jail.json where
 // that is the file). The second half is the lock the container backends perform beside the
-// declared entries (internal/cli/run's workspaceReadonlyMountArgs), so a session cannot switch
-// its own protection off; this backend rendered only the declared entries until 2026-10-04.
+// declared entries (internal/cli/run's workspaceReadonlyMountArgs), so a session cannot edit its
+// own protection out of that file; this backend rendered only the declared entries until
+// 2026-10-04.
 //
 // The container's trigger, exactly: a non-empty list, whatever its entries' validity, and a
-// config file that exists. Neither yolo-jail.local.jsonc nor an included file is locked, on
-// either backend.
+// config file that exists.
+//
+// ⚠ IT LOCKS THAT ONE FILE, and the protection can be switched off without touching it, on
+// either backend. yolo-jail.local.jsonc is merged over it and is not locked (a
+// `"workspace_readonly": null` there turns the key off); nor is a file include_if_found pulls in,
+// which wins over the file naming it; and a new yolo-jail.jsonc beside a locked yolo-jail.json
+// is read instead of it, since ResolveWorkspaceConfigPath tries the `.jsonc` name first. What
+// catches each is the config-change approval at the next fresh launch
+// (docs/reference/config-safety.md), which diffs the MERGED workspace config.
 //
 // A SYMLINKED CONFIG LOCKS ITS TARGET TOO, wherever the target sits: the kernel resolves a
 // write through the link before the policy is consulted, so a deny on the link's name alone
@@ -34,10 +42,11 @@ import (
 // targets is a list of its own because readonlyDenies drops every absolute USER entry, and that
 // refusal stays.
 //
-// ⚠ Two residuals. A HARD LINK the session makes to the config, under a name of its own, is a
-// path no rule here names (recorded, not asserted, by
+// ⚠ Two more gaps are recorded for this backend. A HARD LINK the session makes to the config,
+// under a name of its own, is a path no rule here names (recorded, not asserted, by
 // integration/macosuserworkspacereadonly_test.go). So is a link in the MIDDLE of a chain of
-// links: only the config's own name and the chain's final target are named.
+// links: only the config's own name and the chain's final target are named. The approval above
+// catches both as well, since each changes the config the next launch reads.
 func workspaceReadonlyRels(workspace string, cfg *jsonx.OrderedMap) (rels, targets []string) {
 	declared := cfgStrList(cfg, "workspace_readonly")
 	if len(declared) == 0 {

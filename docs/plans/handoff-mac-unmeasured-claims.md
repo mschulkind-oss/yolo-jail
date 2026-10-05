@@ -266,7 +266,10 @@ a real launch's other output, and that a config declaring **none** of these keys
 > `/dev/cu.*` entry, a raw disk entry, `"ephemeral_storage": "tmpfs"` and a host nvim config, and
 > check that each reads correctly, and that a config declaring none of them prints none.
 > `TestMacosUserBriefingAndLaunchLinesDescribeThisBackend` now asserts the tmpfs line on the
-> nightly. The user guide hedges the device claim to match: a serial device "should work … (not
+> nightly, and two sentences the agent's briefing gained beside them: the unified log is
+> unreadable under `macos_log` off, and device ioctls are refused on any `/dev` node `devices` does
+> not list, each naming the setting the human changes. What the nightly cannot check is whether
+> the log sentence is TRUE, which is the `macos_log` deny's own measurement. The user guide hedges the device claim to match: a serial device "should work … (not
 > yet tried on a Mac)" ([`devices-and-gpus.md`](../../userguide/guides/devices-and-gpus.md)). Drop
 > that hedge once the `declared_device_ioctl_allowed` case passes on `macos-user.yml` and a real
 > USB serial adapter takes `stty -f` from the sandbox.

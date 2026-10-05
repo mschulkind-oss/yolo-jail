@@ -253,6 +253,25 @@ func TestBuildRunPlanHonorsMacosLog(t *testing.T) {
 	}
 }
 
+// MacosLogOff is what the agent's briefing reads to say the log is unreadable, and it must give
+// the answer the launch profile does for every config: absent, each mode, an unknown value and a
+// non-string one. A briefing that says "off" over a profile that lets the log through, or the
+// reverse, is a standing constraint the agent acts on all session.
+func TestMacosLogOffAgreesWithTheLaunchProfile(t *testing.T) {
+	for _, mode := range []any{nil, "off", "user", "full", "bogus", "", 3} {
+		cfg := jsonx.NewOrderedMap()
+		if mode != nil {
+			cfg.Set("macos_log", mode)
+		}
+		profile := BuildRunPlan("/Users/Shared/proj", cfg, nil, []string{"bash"}, "/usr/local/bin/yolo", "",
+			HomeOverlay{}, HostContext{}, jsonx.NewOrderedMap(), nil, nil).Seatbelt
+		denies := strings.Contains(profile, "#seatbelt-test-id:macos-log-off-deny#")
+		if got := MacosLogOff(cfg); got != denies {
+			t.Errorf("macos_log %#v: MacosLogOff = %v, but the launch profile denies the log = %v", mode, got, denies)
+		}
+	}
+}
+
 // mustPrecede asserts that first appears before second, reporting why it matters.
 func mustPrecede(t *testing.T, profile, first, second, why string) {
 	t.Helper()
