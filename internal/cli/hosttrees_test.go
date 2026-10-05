@@ -10,10 +10,12 @@ package cli
 
 import (
 	"bytes"
+	"context"
 	"io"
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -320,5 +322,40 @@ func TestTheHostStopIsOffUnderHostManagementNone(t *testing.T) {
 	fx.writeHostConfig(t, `,"host_management":"none"`)
 	if !hostTreeGate(io.Discard, "tool", fx.home) {
 		t.Error("under host_management none the owner was stopped for a tree the host never renders")
+	}
+}
+
+// AT THE HOST THE ADVANCE'S LINES NAME THE HOST (PPX-D28), never "this jail": the wait line of a build
+// a good build serves beside, and the line of a Ctrl-C that ends it, whose next step is the host's.
+func TestAHostAdvancesLinesNameTheHost(t *testing.T) {
+	fx := newTreeFixture(t, `"f.txt"`)
+	advanceHostTrees(io.Discard, false, "")
+	if len(fx.builds) != 1 {
+		t.Fatalf("the first host advance built %d trees", len(fx.builds))
+	}
+	fx.commit(t, "v1.1.0", map[int]string{14: "fourteen"})
+	fx.now = fx.now.Add(2 * time.Hour)
+	prev := forkBuildChild
+	forkBuildChild = func(ctx context.Context, _ time.Duration, _ string, _ forkBuild, _, _ io.Writer, _ bool) (int, bool) {
+		_ = syscall.Kill(os.Getpid(), syscall.SIGINT)
+		select {
+		case <-ctx.Done():
+		case <-time.After(10 * time.Second):
+			t.Error("the Ctrl-C did not reach the advance")
+		}
+		return 130, false
+	}
+	t.Cleanup(func() { forkBuildChild = prev })
+	var errw syncBuffer
+	advanceHostTrees(&errw, false, "")
+	out := errw.String()
+	if strings.Contains(out, "this jail") {
+		t.Errorf("a host advance's lines name a jail:\n%s", out)
+	}
+	for _, w := range []string{"a Ctrl-C keeps the host on the good build", "the advance was interrupted — the host keeps " +
+		"the good build", "the next `yolo host apply --assert` tries again"} {
+		if !strings.Contains(out, w) {
+			t.Errorf("the host advance lacks %q:\n%s", w, out)
+		}
 	}
 }

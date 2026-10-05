@@ -202,8 +202,8 @@ func advancePatchedFork(f packload.Fork, o advanceOptions) advanceResult {
 	})
 	if sig != nil && !res.built {
 		// Every step that saw the interrupt ended in finish, which handed the good build.
-		a.pr.Printf("[yellow]%s[/yellow]", richtext.Escape(fmt.Sprintf("%s: the advance was interrupted — this "+
-			"jail starts on the good build %s; the next fresh launch tries again", f.Label(), a.goodLine())))
+		a.pr.Printf("[yellow]%s[/yellow]", richtext.Escape(fmt.Sprintf("%s: the advance was interrupted — %s "+
+			"the good build %s; %s tries again", f.Label(), a.staysOn(), a.goodLine(), a.nextAct())))
 	}
 	return res
 }
@@ -262,6 +262,25 @@ func (a *advance) here() string {
 		return "the host"
 	}
 	return "this jail"
+}
+
+// staysOn is what a line says of a good build an interrupted or bounded advance leaves serving:
+// "this jail starts on" at a jail launch, "the host keeps" at the host (PPX-D28), where no jail is
+// starting.
+func (a *advance) staysOn() string {
+	if a.o.host {
+		return "the host keeps"
+	}
+	return "this jail starts on"
+}
+
+// nextAct is the act that tries an interrupted advance again: the next fresh launch, or at the host
+// the next `yolo host apply --assert`, whose acting posture is where the host's advance runs.
+func (a *advance) nextAct() string {
+	if a.o.host {
+		return "the next `yolo host apply --assert`"
+	}
+	return "the next fresh launch"
 }
 
 // run is the advance proper, from the check to the hand.
@@ -679,9 +698,12 @@ func (a *advance) build(b forkBuild, base baseWhy, edited bool) advanceResult {
 	f := a.f
 	switch {
 	case a.serving != nil && a.o.launch:
-		a.say("%s: %s takes the series; building it — this launch waits for it, at most %s, and a Ctrl-C "+
-			"starts this jail on the good build %s instead", f.Label(), b.Entry.Label(), forkBuildWaitBound,
-			run.GoodBuildLabel(a.rec.Good))
+		waits, ctrlC := "this launch waits", "starts this jail on"
+		if a.o.host { // PPX-D28: at `yolo host apply --assert` or `yolo host -- <bin>` no jail is starting
+			waits, ctrlC = "yolo waits", "keeps the host on"
+		}
+		a.say("%s: %s takes the series; building it — %s for it, at most %s, and a Ctrl-C %s the good build %s "+
+			"instead", f.Label(), b.Entry.Label(), waits, forkBuildWaitBound, ctrlC, run.GoodBuildLabel(a.rec.Good))
 	case base == baseNone:
 		a.say("%s: %s takes the series; building it", f.Label(), b.Entry.Label())
 	}
