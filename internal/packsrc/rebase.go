@@ -27,6 +27,13 @@ package packsrc
 //     a member conflicts does `git rebase --onto <target> <base>` run, which stops at that member
 //     with the markers in the work tree, so `git rebase --continue` resumes it.
 //
+// The directory is CLAIMED before the clone: an absent one is made by this run, so one another
+// process made since the inspection is refused, and a clone that is not kept removes only what this
+// run made (RebaseClone). The marker is written once the clone is made and again once the series is
+// applied at its base, with that APPLIED tip, which is what tells a finished rebase from an aborted
+// one, or from a clone a killed run left before its replay ended (RebaseFinished), and what the
+// printed export's guard refuses (RebaseExportGuard).
+//
 // Nothing here writes the fork pack, the pack store's trees or the check record: the caller ran
 // the check, and the clone is the user's. A clone the replay did not leave mid-rebase is removed.
 
@@ -38,6 +45,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"time"
 )
 
@@ -48,8 +56,13 @@ const RebaseMarkerName = "yolo-rebase.json"
 // RebaseMarkerSchema is the marker's schema version.
 const RebaseMarkerSchema = 1
 
-// RebaseBranch is the branch the rebase clone's replay is made on.
-const RebaseBranch = "yolo-rebase"
+// RebaseBranch is the branch the rebase clone's replay is made on, and RebaseBranchRef its full
+// name: what an export reads, never HEAD, which a stopped rebase detaches at a partial replay
+// and a clone not yet replayed leaves on the upstream's default branch.
+const (
+	RebaseBranch    = "yolo-rebase"
+	RebaseBranchRef = "refs/heads/" + RebaseBranch
+)
 
 // RebaseCloneTimeout bounds the rebase clone's network work: the clone and the blob prefetches.
 // Longer than a launch's fetch bound, since a blobless clone of a large upstream is the whole
@@ -68,6 +81,11 @@ type RebaseMarker struct {
 	Target ListEntry `json:"target"`
 	// At is when the clone was made, in unix seconds.
 	At int64 `json:"at"`
+	// Applied is the series as `git am` applied it at its base: the branch's tip before the
+	// rebase, written once the replay has made it. A branch still holding it is no finished
+	// rebase (RebaseFinished), and the printed export refuses it. "" while the clone has not been
+	// replayed, which is no finished rebase either.
+	Applied string `json:"applied,omitempty"`
 }
 
 // RebaseDirState is what a rebase clone's directory holds before a rebase.
@@ -126,6 +144,72 @@ func RebaseInProgress(dir string) bool {
 	return false
 }
 
+// rebaseReadTimeout bounds the offline reads RebaseFinished makes in a rebase clone.
+const rebaseReadTimeout = 30 * time.Second
+
+// RebaseFinished reports whether the rebase clone at dir, whose marker is m, holds a FINISHED
+// rebase, one an export may replace the series with: git records no rebase in progress, its branch
+// holds a commit that neither the marker's target nor the series as applied at its base reaches
+// (the very test the printed export makes before it writes anything, RebaseExportGuard), and the
+// target is an ancestor of the branch, which `git format-patch --base` needs. false for a rebase
+// the user aborted, which leaves the branch at the applied series; for a clone a run left before its
+// replay ended (a SIGKILL, an OOM kill), whose marker names no applied series, or whose branch does
+// not exist; and for a rebase that skipped every member, which leaves nothing above the target. Read
+// in the replay's regime, offline.
+func (s *Store) RebaseFinished(dir string, m *RebaseMarker) bool {
+	if m == nil || m.Applied == "" || m.Target.Commit == "" || RebaseInProgress(dir) {
+		return false
+	}
+	ctx, cancel := context.WithTimeout(s.parentCtx(), rebaseReadTimeout)
+	defer cancel()
+	sc := &scratch{gitBin: s.git(), repo: dir, b: budget{ctx: ctx, d: rebaseReadTimeout}}
+	out, err := sc.git("", "rev-list", "-n", "1", RebaseBranchRef, "--not", m.Target.Commit, m.Applied, "--")
+	if err != nil || strings.TrimSpace(out) == "" {
+		return false
+	}
+	_, code, _ := sc.gitStatus("", "merge-base", "--is-ancestor", m.Target.Commit, RebaseBranchRef)
+	return code == 0
+}
+
+// RebaseExportGuard is the shell test a printed export makes first, so a pasted export changes
+// nothing until the rebase in the clone at dir is finished (RebaseFinished's own first test): the
+// rebase clone's branch holds a commit that neither target nor applied, the series as applied at its
+// base, reaches. A stopped rebase leaves the branch at applied (git moves it only once the rebase
+// finishes), as does an aborted one; a skipped-through one leaves it at target; and a clone with no
+// branch answers nothing. quote quotes dir for the shell.
+func RebaseExportGuard(dir, target, applied string, quote func(string) string) string {
+	return `test -n "$(git -C ` + quote(dir) + " rev-list -n 1 " + RebaseBranchRef + " --not " + target + " " +
+		applied + ` --)"`
+}
+
+// TryLockRebaseDir takes the REBASE DIRECTORY LOCK (a term coined here) for the rebase clone at
+// dir, an exclusive flock in the pack store keyed by the path, without waiting: held is true when
+// another process holds it. `yolo pack rebase` holds it from the inspection of its directory to its
+// end, so a second run on the same directory — a second terminal — neither takes the first run's
+// clone, half made, for its own nor removes it. dir should be resolved, so two spellings of one
+// directory share a lock.
+func (s *Store) TryLockRebaseDir(dir string) (unlock func(), held bool, err error) {
+	path := filepath.Join(s.Dir, "locks", "rebase-"+mirrorSlug(filepath.Clean(dir))+".lock")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return nil, false, err
+	}
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0o644)
+	if err != nil {
+		return nil, false, err
+	}
+	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
+		f.Close()
+		if errors.Is(err, syscall.EWOULDBLOCK) || errors.Is(err, syscall.EAGAIN) {
+			return nil, true, nil
+		}
+		return nil, false, fmt.Errorf("locking %s: %w", path, err)
+	}
+	return func() {
+		_ = syscall.Flock(int(f.Fd()), syscall.LOCK_UN)
+		_ = f.Close()
+	}, false, nil
+}
+
 // RemoveRebaseClone removes the rebase clone of owner at dir (`--restart`), and nothing else: a
 // directory whose marker names another owner, or that has none, is refused.
 func RemoveRebaseClone(dir, owner string) error {
@@ -174,6 +258,9 @@ type RebaseResult struct {
 	Err  error
 	// Kept is whether the clone is left in Dir.
 	Kept bool
+	// Applied is the series as `git am` applied it at its base (RebaseMarker.Applied), set once the
+	// replay made it.
+	Applied string
 	// Git is the git version the replay ran.
 	Git string
 }
@@ -200,19 +287,44 @@ func (s *Store) RebaseClone(o RebaseOptions) (res RebaseResult) {
 		res.Err = fmt.Errorf("%s is not empty, and a rebase clone is made only where nothing is", o.Dir)
 		return res
 	}
-	// WHAT IS REMOVED when the clone is not kept: the directory, when the clone made it; its
-	// contents, when the user made it empty for the clone.
+	// THE CLAIM: an absent directory is made here, before the clone, so one another process made
+	// since the inspection is refused rather than taken for this run's. Two `yolo pack rebase` runs
+	// never share a directory at all: the verb holds its REBASE DIRECTORY LOCK across the inspection
+	// and the clone (TryLockRebaseDir).
+	made := false
+	if state == RebaseDirAbsent {
+		if err := os.MkdirAll(filepath.Dir(o.Dir), 0o777); err != nil {
+			res.Err = err
+			return res
+		}
+		if err := os.Mkdir(o.Dir, 0o777); err != nil {
+			res.Err = fmt.Errorf("making the rebase clone's directory: %w", err)
+			return res
+		}
+		made = true
+	}
+	// WHAT IS REMOVED when the clone is not kept is only what this run made. A clone git made is
+	// all its directory holds, so it goes whole; a clone git refused (the directory filled since the
+	// inspection) made nothing, and a clone that failed removed its own; only one a timeout or a
+	// Ctrl-C killed leaves its git directory, which a --no-checkout clone is all it writes. The
+	// directory itself goes when this run made it and it is empty again: a directory the user
+	// made empty for the clone is left, emptied.
+	cloned, killed := false, false
 	defer func() {
 		if res.Kept {
 			return
 		}
-		if state == RebaseDirAbsent {
-			_ = os.RemoveAll(o.Dir)
-			return
+		switch {
+		case cloned:
+			ents, _ := os.ReadDir(o.Dir)
+			for _, e := range ents {
+				_ = os.RemoveAll(filepath.Join(o.Dir, e.Name()))
+			}
+		case killed:
+			_ = os.RemoveAll(filepath.Join(o.Dir, ".git"))
 		}
-		ents, _ := os.ReadDir(o.Dir)
-		for _, e := range ents {
-			_ = os.RemoveAll(filepath.Join(o.Dir, e.Name()))
+		if made {
+			_ = os.Remove(o.Dir)
 		}
 	}()
 
@@ -222,15 +334,18 @@ func (s *Store) RebaseClone(o RebaseOptions) (res RebaseResult) {
 	nb := budget{ctx: cctx, d: RebaseCloneTimeout}
 	if _, err := s.runIn(nb, "", withFsck("clone", "--template=", "--filter=blob:none", "--no-checkout",
 		"--quiet", "--", o.Repo, o.Dir)...); err != nil {
+		killed = cctx.Err() != nil
 		res.Err = fmt.Errorf("cloning %s: %s", o.Repo, oneLine(err))
 		return res
 	}
+	cloned = true
 	now := o.Now
 	if now.IsZero() {
 		now = time.Now()
 	}
-	if err := writeRebaseMarker(o.Dir, RebaseMarker{Schema: RebaseMarkerSchema, Owner: o.Owner, Repo: o.Repo,
-		Base: o.Series.Base, Target: o.Target, At: now.Unix()}); err != nil {
+	marker := RebaseMarker{Schema: RebaseMarkerSchema, Owner: o.Owner, Repo: o.Repo, Base: o.Series.Base,
+		Target: o.Target, At: now.Unix()}
+	if err := writeRebaseMarker(o.Dir, marker); err != nil {
 		res.Err = err
 		return res
 	}
@@ -263,6 +378,17 @@ func (s *Store) RebaseClone(o RebaseOptions) (res RebaseResult) {
 		res.Base = baseErr
 		return res
 	case err != nil:
+		res.Err = err
+		return res
+	case len(commits) == 0:
+		res.Err = fmt.Errorf("the series applied no commit at its base %s", shortCommit(o.Series.Base))
+		return res
+	}
+	// The applied tip, in the marker before the rebase moves the branch: what tells a finished
+	// rebase from an aborted one, or from a run that stopped here (RebaseFinished).
+	marker.Applied = commits[len(commits)-1]
+	res.Applied = marker.Applied
+	if err := writeRebaseMarker(o.Dir, marker); err != nil {
 		res.Err = err
 		return res
 	}
@@ -328,6 +454,25 @@ func (s *Store) ensureCommit(b budget, gitDir, repo, commit string) error {
 		why += " (fetching it by its id failed: " + oneLine(err) + ")"
 	}
 	return errors.New(why)
+}
+
+// CloneOrigin is the origin URL of the git work tree at dir, read from that tree's own config file
+// with no repository discovery and no config of the user's, or "" when dir holds no such tree. A
+// fetched fork pack's publish steps read it to tell a clone of the pack's repository they printed
+// once from a directory they must not name.
+func (s *Store) CloneOrigin(dir string) string {
+	cfg := filepath.Join(dir, ".git", "config")
+	if fi, err := os.Lstat(cfg); err != nil || !fi.Mode().IsRegular() {
+		return ""
+	}
+	ctx, cancel := context.WithTimeout(s.parentCtx(), rebaseReadTimeout)
+	defer cancel()
+	sc := &scratch{gitBin: s.git(), repo: dir, b: budget{ctx: ctx, d: rebaseReadTimeout}}
+	out, err := sc.git("", "config", "--file", cfg, "--get", "remote.origin.url")
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(out)
 }
 
 // writeRebaseMarker writes m into the clone at dir's git directory.

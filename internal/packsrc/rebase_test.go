@@ -10,9 +10,12 @@ package packsrc
 import (
 	"encoding/json"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/mschulkind-oss/yolo-jail/internal/shquote"
 )
 
 // rebaseFixture is the patched upstream with a v1.1.0 that edits line 11, between the series'
@@ -230,5 +233,110 @@ func TestResolveRebaseTarget(t *testing.T) {
 	}
 	if got := u.store.RefKind(mustAddr(t, u.source("v1.1.0"))); got != "tag" {
 		t.Errorf("RefKind(v1.1.0) = %q", got)
+	}
+}
+
+// wrappedGit is a git that runs body (shell) before it execs the real git with the same arguments.
+// In body, $last is the run's last argument.
+func wrappedGit(t *testing.T, body string) string {
+	t.Helper()
+	real, err := exec.LookPath("git")
+	if err != nil {
+		t.Skip("git not available")
+	}
+	bin := filepath.Join(t.TempDir(), "git")
+	writeTestFile(t, bin, "#!/bin/sh\nfor last; do :; done\n"+body+"\nexec "+shquote.Quote(real)+" \"$@\"\n")
+	if err := os.Chmod(bin, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	return bin
+}
+
+// A CLONE REMOVES ONLY WHAT IT MADE: when another process fills the directory between the
+// inspection and the clone, git refuses to clone there, and what that process wrote stays — in a
+// directory the clone was to make, and in one the user made empty for it.
+func TestARebaseCloneRemovesOnlyWhatItMade(t *testing.T) {
+	u, v11, series := rebaseFixture(t)
+	u.store.Git = wrappedGit(t, `case " $* " in *" clone "*) mkdir -p "$last" && echo theirs > "$last/other-run.txt";; esac`)
+	for _, dir := range []string{filepath.Join(t.TempDir(), "clone"), t.TempDir()} {
+		r := u.rebase(t, series, ListEntry{Commit: v11, Tag: "v1.1.0"}, dir)
+		if r.Err == nil || !strings.Contains(r.Err.Error(), "cloning") || r.Kept {
+			t.Fatalf("rebase into %s = %+v, want the clone refused", dir, r)
+		}
+		if got, err := os.ReadFile(filepath.Join(dir, "other-run.txt")); err != nil || string(got) != "theirs\n" {
+			t.Errorf("the failed clone removed what another process wrote in %s (%v)", dir, err)
+		}
+	}
+}
+
+// A TARGET NO REF OF THE UPSTREAM REACHES (a commit a re-pointed tag named once, or one on a branch
+// since deleted) is fetched into the clone by its id, as a checkout of it would need.
+func TestARebaseCloneFetchesATargetNoRefReaches(t *testing.T) {
+	u, _, series := rebaseFixture(t)
+	gitIn(t, u.repo, "checkout", "-q", "-b", "gone")
+	gone := commitFile(t, u.repo, "f.txt", thirtyLines(map[int]string{25: "gone"}))
+	gitIn(t, u.repo, "checkout", "-q", "main")
+	gitIn(t, u.repo, "branch", "-q", "-D", "gone")
+	gitIn(t, u.repo, "reflog", "expire", "--expire=now", "--all")
+	dir := filepath.Join(t.TempDir(), "clone")
+	r := u.rebase(t, series, ListEntry{Commit: gone}, dir)
+	if r.Err != nil || r.Base != nil || !r.Clean {
+		t.Errorf("rebase onto a commit no ref reaches = %+v (base %v), want it fetched and clean", r, r.Base)
+	}
+}
+
+// A BLOB THE CLONE CANNOT FETCH is an apply error naming the upstream's files, before any replay
+// reads them: the blob prefetch fails here, and the clone is removed.
+func TestARebaseCloneWithBlobsItCannotFetchIsAnApplyError(t *testing.T) {
+	u, v11, series := rebaseFixture(t)
+	u.store.Git = wrappedGit(t, `case " $* " in *" fetch "*" --stdin "*) exit 1;; esac`)
+	dir := filepath.Join(t.TempDir(), "clone")
+	r := u.rebase(t, series, ListEntry{Commit: v11}, dir)
+	if r.Err == nil || !strings.Contains(r.Err.Error(), "could not fetch the upstream's files at") || r.Kept {
+		t.Fatalf("rebase = %+v, want the missing blobs' apply error", r)
+	}
+	mustNotExist(t, dir, "a clone missing its blobs was left")
+}
+
+// THE APPLIED SERIES IS IN THE MARKER, and a finished rebase is told from an aborted one: the
+// conflict's clone records the series as applied at its base; RebaseFinished is false while the
+// rebase is stopped and once it is aborted (the branch back at the applied series), true once the
+// rebase is resolved and continued, and false for a marker that names no applied series.
+func TestRebaseFinishedTellsAFinishedRebase(t *testing.T) {
+	u, v11, series := rebaseFixture(t)
+	dir := filepath.Join(t.TempDir(), "clone")
+	r := u.rebase(t, series, ListEntry{Commit: v11, Tag: "v1.1.0"}, dir)
+	if r.Conflict == nil || r.Applied == "" {
+		t.Fatalf("rebase = %+v, want a conflict with the applied series", r)
+	}
+	_, m, _ := InspectRebaseDir(dir)
+	if m.Applied != r.Applied || gitIn(t, dir, "rev-parse", RebaseBranchRef) != r.Applied {
+		t.Fatalf("the marker's applied series %q, the result's %q, the branch at %q", m.Applied, r.Applied,
+			gitIn(t, dir, "rev-parse", RebaseBranchRef))
+	}
+	if u.store.RebaseFinished(dir, m) {
+		t.Error("a stopped rebase reads as finished")
+	}
+	gitIn(t, dir, "rebase", "--abort")
+	if u.store.RebaseFinished(dir, m) {
+		t.Error("an aborted rebase reads as finished")
+	}
+	r2dir := filepath.Join(t.TempDir(), "clone")
+	u.rebase(t, series, ListEntry{Commit: v11, Tag: "v1.1.0"}, r2dir)
+	_, m2, _ := InspectRebaseDir(r2dir)
+	for RebaseInProgress(r2dir) {
+		writeTestFile(t, filepath.Join(r2dir, "f.txt"), thirtyLines(map[int]string{10: "ten", 11: "eleven", 12: "twelve"}))
+		gitIn(t, r2dir, "add", "f.txt")
+		cmd := exec.Command("git", "-C", r2dir, "-c", "core.editor=true", "rebase", "--continue")
+		cmd.Env = append(os.Environ(), "GIT_EDITOR=true")
+		_ = cmd.Run()
+	}
+	if !u.store.RebaseFinished(r2dir, m2) {
+		t.Error("a resolved and continued rebase does not read as finished")
+	}
+	noApplied := *m2
+	noApplied.Applied = ""
+	if u.store.RebaseFinished(r2dir, &noApplied) {
+		t.Error("a marker naming no applied series reads as finished")
 	}
 }

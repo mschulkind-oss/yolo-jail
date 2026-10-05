@@ -24,6 +24,7 @@ import (
 
 	"github.com/mschulkind-oss/yolo-jail/internal/packsrc"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
+	"github.com/mschulkind-oss/yolo-jail/internal/shquote"
 	"github.com/mschulkind-oss/yolo-jail/internal/testsupport"
 )
 
@@ -89,6 +90,16 @@ func printedCmd(line string) *exec.Cmd {
 	return cmd
 }
 
+// mustMarker is the rebase clone at dir's marker.
+func mustMarker(t *testing.T, dir string) *packsrc.RebaseMarker {
+	t.Helper()
+	state, m, err := packsrc.InspectRebaseDir(dir)
+	if err != nil || state != packsrc.RebaseDirClone {
+		t.Fatalf("%s is no rebase clone (%v, %v)", dir, state, err)
+	}
+	return m
+}
+
 // resolveRebase resolves every stop of the rebase in dir onto v12 by writing f.txt as the member
 // being picked leaves it, then runs the printed continue.
 func resolveRebase(t *testing.T, dir, onto string, cont string) {
@@ -129,20 +140,29 @@ func TestPackRebaseStopsAtTheConflictAndPrintsItsNextSteps(t *testing.T) {
 		t.Fatalf("rebase rc=%d, want 1 for a rebase left to resolve\n%s\n%s", rc, out, errw)
 	}
 	patches := filepath.Join(f.forkDir, "patches")
-	q := func(s string) string { return "'" + s + "'" }
+	q := shquote.QuoteDisplay
+	m := mustMarker(t, dir)
 	for _, w := range []string{
 		"checking fork forkpack/tool's upstream",
 		"fork forkpack/tool: upstream v1.2.0 (" + shortSHA(v12) + ") does not take the patch series — the rebase stopped in " + dir,
 		"  0001-ten.patch conflicts in f.txt",
 		"    git -C " + q(dir) + " rebase --continue\n",
-		"    git -C " + q(dir) + " format-patch --base=" + v12 + " -o " + patches + ".new " + v12 + "..HEAD\n",
-		"    mv " + patches + " " + patches + ".old && mv " + patches + ".new " + patches + " && rm -r " + patches + ".old\n",
+		// THE EXPORT, ONE LINE: the guard, a new directory, the branch exported with `.patch` names
+		// and `a/` `b/` prefixes, and the renames — each only once the one before it succeeded.
+		"    test -n \"$(git -C " + q(dir) + " rev-list -n 1 refs/heads/yolo-rebase --not " + v12 + " " + m.Applied +
+			" --)\" && mkdir " + q(patches+".new") + " && git -C " + q(dir) + " -c format.noprefix=false format-patch " +
+			"--suffix=.patch --base=" + v12 + " -o " + q(patches+".new") + " " + v12 + "..refs/heads/yolo-rebase && mv " +
+			q(patches) + " " + q(patches+".old") + " && mv " + q(patches+".new") + " " + q(patches) + " && rm -r " +
+			q(patches+".old") + "\n",
 		"the next fresh launch builds the new series",
 		"cd " + q(dir) + " && yolo",
 	} {
 		if !strings.Contains(out, w) {
 			t.Errorf("rebase lacks %q:\n%s", w, out)
 		}
+	}
+	if cmds := printedCommands(out); len(cmds) != 2 {
+		t.Errorf("the printed commands are %q, want the continue and the export, one line each", cmds)
 	}
 	if !packsrc.RebaseInProgress(dir) {
 		t.Error("the clone is not mid-rebase")
@@ -172,8 +192,8 @@ func TestARebasedAndExportedSeriesIsBuiltByTheNextLaunch(t *testing.T) {
 		t.Fatalf("rebase rc=%d, want the v1.2.0 conflict the launch held at\n%s\n%s", rc, out, errw)
 	}
 	cmds := printedCommands(out)
-	if len(cmds) != 3 || !strings.HasSuffix(cmds[0], "rebase --continue") {
-		t.Fatalf("the printed commands are %q, want the continue, the export and the rename", cmds)
+	if len(cmds) != 2 || !strings.HasSuffix(cmds[0], "rebase --continue") {
+		t.Fatalf("the printed commands are %q, want the continue and the export", cmds)
 	}
 	resolveRebase(t, dir, v12, cmds[0])
 	// ITS OWN CLONE, THE REBASE DONE: a second run says so and prints the same export again.
@@ -183,7 +203,6 @@ func TestARebasedAndExportedSeriesIsBuiltByTheNextLaunch(t *testing.T) {
 		t.Errorf("the second run on the resolved clone: rc=%d, want the export alone again\n%s\n%s", rc, again, errw)
 	}
 	runPrinted(t, cmds[1])
-	runPrinted(t, cmds[2])
 
 	series := mustSeries(t, fx)
 	if series.Base != v12 || series.Len() != 2 {
@@ -230,11 +249,14 @@ func TestPackRebaseOfAFetchedForkPackPublishesThroughItsRepository(t *testing.T)
 	}
 	clone := filepath.Join(work, "forkpack-pack")
 	repo := "file://" + strings.TrimSuffix(bare, ".git") // the address as the pack store normalizes it
+	q := shquote.QuoteDisplay
 	for _, w := range []string{"fork pack forkpack is fetched from " + repo,
-		"    git clone -b main " + repo + " " + clone + "\n",
-		"-o " + filepath.Join(clone, "patches") + ".new " + v12 + "..HEAD",
-		"    git -C " + clone + " add -A patches && git -C " + clone + " commit -m 'Rebase the patch series onto v1.2.0 (" +
-			shortSHA(v12) + ")' && git -C " + clone + " push\n",
+		"    git clone -b main " + q(repo) + " " + q(clone) + "\n",
+		"-o " + q(filepath.Join(clone, "patches")+".new") + " " + v12 + "..refs/heads/yolo-rebase",
+		// The commit and the push end the export's own line, so a refused export pushes nothing.
+		" && rm -r " + q(filepath.Join(clone, "patches.old")) + " && git -C " + q(clone) + " add -A patches && git -C " +
+			q(clone) + " commit -m 'Rebase the patch series onto v1.2.0 (" + shortSHA(v12) + ")' && git -C " + q(clone) +
+			" push\n",
 		"the pack's refresh at a launch brings the pushed series within the hour, or `yolo pack update` now",
 	} {
 		if !strings.Contains(out, w) {
@@ -242,8 +264,8 @@ func TestPackRebaseOfAFetchedForkPackPublishesThroughItsRepository(t *testing.T)
 		}
 	}
 	cmds := printedCommands(out)
-	if len(cmds) != 5 {
-		t.Fatalf("the printed commands are %q, want the continue, the clone, the export, the rename and the push", cmds)
+	if len(cmds) != 3 {
+		t.Fatalf("the printed commands are %q, want the continue, the clone, and the export with its push", cmds)
 	}
 	resolveRebase(t, dir, v12, cmds[0])
 	for _, c := range cmds[1:] {
@@ -316,7 +338,9 @@ func TestPackRebaseOnItsOwnCloneSaysSoAndRestartStartsOver(t *testing.T) {
 		t.Fatalf("the second rebase rc=%d\n%s\n%s", rc, out, errw)
 	}
 	for _, w := range []string{"fork forkpack/tool: " + dir + " is its rebase clone, made under a minute ago onto upstream v1.2.0 (" + shortSHA(v12) + ")",
-		"rebase --continue", "format-patch --base=" + v12, "`yolo pack rebase forkpack/tool --restart` removes it"} {
+		"rebase --continue", "format-patch --suffix=.patch --base=" + v12,
+		// The restart names the directory the user named: the bare verb would start over elsewhere.
+		"`yolo pack rebase forkpack/tool --into " + shquote.QuoteDisplay(dir) + " --restart` removes it"} {
 		if !strings.Contains(out, w) {
 			t.Errorf("the second rebase lacks %q:\n%s", w, out)
 		}
@@ -346,11 +370,21 @@ func TestPackRebaseRefusesADirectoryItMustNotTouch(t *testing.T) {
 	writeFile(t, filepath.Join(mine, "notes.txt"), "mine\n")
 	other := filepath.Join(t.TempDir(), "other")
 	writeFile(t, filepath.Join(other, ".git", packsrc.RebaseMarkerName), `{"schema":1,"owner":"else/tool"}`)
+	// A link to yolo's state directory, under which the clone's directory is not made yet: the rule
+	// resolves no path that does not exist, so only the resolved prefix finds it.
+	if err := os.MkdirAll(paths.GlobalStorage(), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(t.TempDir(), "state-link")
+	if err := os.Symlink(paths.GlobalStorage(), link); err != nil {
+		t.Fatal(err)
+	}
 	for _, tc := range []struct{ name, into, want string }{
 		{"a directory it did not make", mine, "exists and is not a rebase clone of fork forkpack/tool"},
 		{"another fork's clone", other, "is the rebase clone of fork else/tool"},
 		{"the home", f.home, "the rebase clone IS your home directory"},
 		{"yolo's state directory", filepath.Join(paths.PacksDir(), "clone"), "INSIDE yolo's own state directory"},
+		{"a link to yolo's state directory", filepath.Join(link, "clone"), "INSIDE yolo's own state directory"},
 		{"the fork pack's own directory", filepath.Join(f.forkDir, "clone"), "inside fork pack forkpack's own directory"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -397,6 +431,12 @@ func TestPackRebaseInAJailNamesTheHost(t *testing.T) {
 	rc, out, errw := rebaseVerb(t, "forkpack/tool")
 	if rc != 1 || !strings.Contains(errw, "run `yolo pack rebase forkpack/tool` in a terminal on the host") {
 		t.Errorf("rc=%d\n%s\n%s", rc, out, errw)
+	}
+	// The command the user typed, a conflict line's --onto included, which the bare verb would not
+	// rebase onto; quoted for the shell.
+	rc, out, errw = rebaseVerb(t, "forkpack/tool", "--onto", "v1.2.0", "--into", "my clone")
+	if rc != 1 || !strings.Contains(errw, "run `yolo pack rebase forkpack/tool --onto v1.2.0 --into 'my clone'` in a terminal on the host") {
+		t.Errorf("with --onto: rc=%d\n%s\n%s", rc, out, errw)
 	}
 	if ents, _ := os.ReadDir(cwd); len(ents) != 0 {
 		t.Errorf("the rebase in a jail made %v", ents)
@@ -473,6 +513,14 @@ func TestAConflictBelowTheNewestNamesItsRebaseOnto(t *testing.T) {
 			t.Errorf("update lacks %q:\n%s\n%s", w, out, errw)
 		}
 	}
+	// `yolo pack status` says the same of each recorded conflict.
+	_, out, errw = packVerb(t, "status")
+	for _, w := range []string{"candidate: v1.3.0", "(conflicts in f.txt) — `yolo pack rebase forkpack/tool` rebases the series",
+		"below it: v1.2.0", "(conflicts in f.txt) — `yolo pack rebase forkpack/tool --onto v1.2.0` rebases the series"} {
+		if !strings.Contains(out, w) {
+			t.Errorf("status lacks %q:\n%s\n%s", w, out, errw)
+		}
+	}
 }
 
 // A HOLD THAT DOES NOT TAKE THE SERIES, with nothing to serve: the launch's conflict and its
@@ -499,15 +547,52 @@ func TestAHeldTagThatDoesNotTakeTheSeriesNamesTheRebase(t *testing.T) {
 }
 
 // A HOLD BY `agent_updates` is said: no launch checks the upstream, so a launch builds a rebased
-// series at the good build's commit until the hold lifts.
+// series at the good build's commit until the hold lifts. With no good build there is nothing to
+// hold at — a launch checks as ever — and it is not said.
 func TestPackRebaseSaysAnAgentUpdatesHold(t *testing.T) {
+	hold := "`agent_updates` holds pack forkpack: no launch checks its upstream, so a launch builds the series at " +
+		"the good build's commit until the hold lifts"
+	fx, _, _, first, out, _ := firstAdvance(t)
+	if first.delivery.Key == "" {
+		t.Fatalf("the first advance built nothing:\n%s", out)
+	}
+	fx.writeUserConfig(t, `,"agent_updates":{"forkpack":false}`)
+	_, out, errw := rebaseVerb(t, "forkpack/tool", "--into", filepath.Join(t.TempDir(), "clone"))
+	if !strings.Contains(out, hold) {
+		t.Errorf("rebase lacks %q:\n%s\n%s", hold, out, errw)
+	}
+}
+
+func TestPackRebaseWithNoGoodBuildSaysNoHold(t *testing.T) {
 	f := newPatchedFixture(t, "")
 	f.commit(t, "v1.2.0", map[int]string{11: "eleven"})
 	f.writeUserConfig(t, `,"agent_updates":{"forkpack":false}`)
 	_, out, errw := rebaseVerb(t, "forkpack/tool", "--into", filepath.Join(t.TempDir(), "clone"))
-	if w := "`agent_updates` holds pack forkpack: no launch checks its upstream, so a launch builds the series at " +
-		"the good build's commit until the hold lifts"; !strings.Contains(out, w) {
-		t.Errorf("rebase lacks %q:\n%s\n%s", w, out, errw)
+	if strings.Contains(out, "holds pack forkpack") || !strings.Contains(out, "does not take the patch series") {
+		t.Errorf("with no good build the rebase says a hold, or no conflict:\n%s\n%s", out, errw)
+	}
+}
+
+// A TARGET THAT FITS UNDER A HOLD: the clean line says a launch builds it once the hold lifts —
+// and a launch two hours later does stay on the good build, as said.
+func TestPackRebaseOfATargetThatFitsUnderAHoldSaysTheHold(t *testing.T) {
+	fx := newPatchedAdvanceFixture(t, "")
+	v11 := fx.commit(t, "v1.1.0", map[int]string{14: "fourteen"})
+	if r, out, _ := fx.launch(t, "podman"); r.delivery.Key == "" {
+		t.Fatalf("the first advance built nothing:\n%s", out)
+	}
+	fx.commit(t, "v1.2.0", map[int]string{14: "fourteen", 20: "twenty"})
+	fx.writeUserConfig(t, `,"agent_updates":{"forkpack":false}`)
+	rc, out, errw := rebaseVerb(t, "forkpack/tool", "--into", filepath.Join(t.TempDir(), "clone"))
+	if w := "takes the series as it stands (2 patches, series "; rc != 0 || !strings.Contains(out, w) ||
+		!strings.Contains(out, "a launch builds it once the hold lifts (`agent_updates` holds pack forkpack); nothing to rebase") ||
+		strings.Contains(out, patchedNotBuilt) {
+		t.Errorf("rc=%d, want the clean target and the hold that keeps a launch from it\n%s\n%s", rc, out, errw)
+	}
+	fx.later(2 * time.Hour)
+	fx.launch(t, "podman")
+	if g := fx.record(t).Good; g == nil || g.Commit != v11 {
+		t.Errorf("the held launch moved the good build to %+v, so the line was wrong", g)
 	}
 }
 
@@ -543,8 +628,9 @@ func TestPackRebaseOntoGoesOnPastACheckProblem(t *testing.T) {
 	f.writeManifest(t, "nope", "")
 	dir := filepath.Join(t.TempDir(), "clone")
 	rc, out, errw := rebaseVerb(t, "forkpack/tool", "--into", dir)
-	if rc != 1 || !strings.Contains(errw, "?ref=nope names no branch, tag or commit") || strings.Contains(out, "cloning") {
-		t.Errorf("with no --onto: rc=%d\n%s\n%s", rc, out, errw)
+	if rc != 1 || !strings.Contains(errw, "?ref=nope names no branch, tag or commit") || strings.Contains(out, "cloning") ||
+		strings.Contains(errw, "anyway") || strings.Contains(errw, "names nothing this series can be rebased onto") {
+		t.Errorf("with no --onto: rc=%d, want the check's problem alone\n%s\n%s", rc, out, errw)
 	}
 	rc, out, errw = rebaseVerb(t, "forkpack/tool", "--onto", "v1.1.0", "--into", dir)
 	if rc != 0 || !strings.Contains(errw, "rebasing onto --onto v1.1.0 anyway") ||

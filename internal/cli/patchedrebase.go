@@ -16,8 +16,12 @@ package cli
 //  2. The clone's directory is settled before any network: `--into`, by default
 //     ./<pack>-<bin>-rebase. It is refused where a workspace could not be (the home itself, or
 //     inside yolo's config or state directory) and inside the fork pack's own directory, and when it
-//     exists and is not this fork's clone. On its own clone it says so, prints that clone's next
-//     steps again, and names `--restart`, which removes it and starts over.
+//     exists and is not this fork's clone; and while another run holds its rebase directory lock
+//     (packsrc.Store.TryLockRebaseDir), which this run then holds to its end. On its own clone it
+//     says so and prints that clone's next steps again — the continue while the rebase is stopped,
+//     the export once it is finished (packsrc.Store.RebaseFinished), and for an aborted rebase, or a
+//     clone a run left before its replay ended, that there is nothing to export — and names
+//     `--restart`, on the command line the user typed, which removes it and starts over.
 //  3. It FORCES THE CHECK (§4.1), as `yolo pack update` does, and picks the target: `--onto`, else
 //     the newest entry the next fresh launch's advance would walk to — the held or pending
 //     candidate, or the good build's own commit for an edited series with nothing newer.
@@ -25,6 +29,7 @@ package cli
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -105,15 +110,20 @@ func containsFlag(args []string, flag string) bool {
 	return false
 }
 
-// rebaseInterrupt is the context the verb's git runs under: ended by a Ctrl-C or a SIGTERM, so
-// an interrupted clone is removed rather than left half made. A var so a test can stand one in.
+// rebaseInterrupt is the context the verb's git runs under: ended by a Ctrl-C, a SIGTERM or a
+// SIGHUP (the terminal or the ssh session closed), so an interrupted clone is removed rather than
+// left half made. A var so a test can stand one in.
 var rebaseInterrupt = func() (context.Context, func()) {
-	return signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	return signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM, syscall.SIGHUP)
 }
 
 // rebaseCloneRun makes the rebase clone (packsrc.Store.RebaseClone); a var so a test can end the
 // verb's interrupt context while it runs.
 var rebaseCloneRun = func(s *packsrc.Store, o packsrc.RebaseOptions) packsrc.RebaseResult { return s.RebaseClone(o) }
+
+// removeRebaseClone removes the verb's own clone for --restart (packsrc.RemoveRebaseClone); a var
+// so a test can make the removal fail.
+var removeRebaseClone = packsrc.RemoveRebaseClone
 
 // packRebase is `yolo pack rebase`. See the file doc.
 func packRebase(args []string, out, errw io.Writer, color bool) int {
@@ -121,18 +131,15 @@ func packRebase(args []string, out, errw io.Writer, color bool) int {
 	if rc != 0 {
 		return rc
 	}
-	key := ra.key
-	if key == "" {
-		key = "<pack>/<bin>"
-	}
 	if config.InJail() {
 		fmt.Fprintf(errw, "yolo pack rebase: a patched fork's upstream mirror, its check record and its "+
-			"pack live on the host, not in this jail — run `yolo pack rebase %s` in a terminal on the host\n", key)
+			"pack live on the host, not in this jail — run `%s` in a terminal on the host\n", rebaseCommandLine(ra, args))
 		return 1
 	}
 	sel := selectConfiguredHostPacks()
 	if sel.loadErr != nil {
-		fmt.Fprintf(errw, "yolo pack rebase: %v\n", sel.loadErr)
+		fmt.Fprintf(errw, "yolo pack rebase: %v\n  fix what it names in %s, then run `%s` again\n", sel.loadErr,
+			paths.UserConfigPath(), rebaseCommandLine(ra, args))
 		return 1
 	}
 	forks := packload.Forks(sel.packs)
@@ -143,11 +150,25 @@ func packRebase(args []string, out, errw io.Writer, color bool) int {
 	pr := richtext.Printer{W: out, Color: color}
 	origin := forkPackOriginOf(f)
 
-	// 2. THE CLONE'S DIRECTORY, settled before anything reaches the network.
+	// 2. THE CLONE'S DIRECTORY, settled before anything reaches the network, and held: the rebase
+	// directory lock keeps a second run on it (another terminal) from taking this run's clone,
+	// half made, for its own, or removing it.
 	dir, rc := rebaseDir(f, origin, ra.into, errw)
 	if rc != 0 {
 		return rc
 	}
+	store := patchedForkStore()
+	unlock, held, err := store.TryLockRebaseDir(resolveExistingPrefix(dir))
+	switch {
+	case err != nil:
+		fmt.Fprintf(errw, "yolo pack rebase: %v — name another directory with --into <dir>\n", err)
+		return 1
+	case held:
+		fmt.Fprintf(errw, "yolo pack rebase: another `yolo pack rebase` is working in %s right now — run `%s` "+
+			"again once it has finished, or name another directory with --into <dir>\n", dir, rebaseCommandLine(ra, args))
+		return 1
+	}
+	defer unlock()
 	state, marker, err := packsrc.InspectRebaseDir(dir)
 	if err != nil {
 		fmt.Fprintf(errw, "yolo pack rebase: reading %s: %v — name another directory with --into <dir>\n", dir, err)
@@ -159,13 +180,14 @@ func packRebase(args []string, out, errw io.Writer, color bool) int {
 			"directory with --into <dir>\n", dir, marker.Owner, f.Key())
 		return 1
 	case state == packsrc.RebaseDirClone && !ra.restart:
-		for _, line := range ownCloneLines(f, origin, dir, marker) {
+		for _, line := range ownCloneLines(store, f, origin, dir, marker, rebaseRestartLine(ra, args)) {
 			pr.Printf("%s", line)
 		}
 		return 1
 	case state == packsrc.RebaseDirClone:
-		if err := packsrc.RemoveRebaseClone(dir, f.Key()); err != nil {
-			fmt.Fprintf(errw, "yolo pack rebase: removing the old rebase clone: %v\n", err)
+		if err := removeRebaseClone(dir, f.Key()); err != nil {
+			fmt.Fprintf(errw, "yolo pack rebase: removing the old rebase clone: %v — remove %s yourself, or name "+
+				"another directory with --into <dir>\n", err, dir)
 			return 1
 		}
 		pr.Printf("[dim]%s[/dim]", richtext.Escape("removed the old rebase clone "+dir+", to start over"))
@@ -181,7 +203,6 @@ func packRebase(args []string, out, errw io.Writer, color bool) int {
 		fmt.Fprintf(errw, "yolo pack rebase: fork %s: %v\n", f.Key(), err)
 		return 1
 	}
-	store := patchedForkStore()
 
 	// 3. THE CHECK, forced, and the target.
 	res := store.CheckPatched(f.CheckWant(series), packsrc.CheckOptions{Force: true, Now: patchedNow,
@@ -235,7 +256,8 @@ func packRebase(args []string, out, errw io.Writer, color bool) int {
 			"name a commit with --onto <ref>\n", f.Key(), f.Source)
 		return 1
 	}
-	if hold := patchedForkHold(f); hold != "" {
+	// A HOLD holds a fork only with a good build to hold at: with none, a launch checks as ever.
+	if hold := patchedForkHold(f); hold != "" && rec.Good != nil {
 		pr.Printf("[dim]%s[/dim]", richtext.Escape("  "+hold+": no launch checks its upstream, so a launch "+
 			"builds the series at the good build's commit until the hold lifts"))
 	}
@@ -276,7 +298,7 @@ func packRebase(args []string, out, errw io.Writer, color bool) int {
 	pr.Printf("[yellow]%s[/yellow]", richtext.Escape("fork "+f.Key()+": upstream "+target.Label()+
 		" does not take the patch series — the rebase stopped in "+dir))
 	pr.Printf("%s", richtext.Escape("  "+rr.Conflict.Member+" conflicts in "+paths))
-	for _, line := range rebaseNextSteps(f, origin, dir, target, true) {
+	for _, line := range rebaseNextSteps(f, origin, dir, target, rr.Applied, true) {
 		pr.Printf("%s", line)
 	}
 	return 1
@@ -443,16 +465,26 @@ func underOrEqual(child, base string) bool {
 
 // rebaseCleanLines say that the series takes the target as it stands, what the next fresh launch
 // does about it, and each member already upstream. in is what the check read, list its candidates.
+// Under an `agent_updates` hold with a good build, no launch checks the upstream, and a launch builds
+// the series at the good build's commit alone until the hold lifts.
 func rebaseCleanLines(f packload.Fork, rec *packsrc.CheckRecord, in packsrc.CheckInputs, list []packsrc.ListEntry,
 	series *packsrc.Series, target packsrc.ListEntry, rr packsrc.RebaseResult) []string {
+	hold := ""
+	if rec != nil && rec.Good != nil {
+		hold = patchedForkHold(f)
+	}
 	next := "a fork builds it only once its ?ref= and follow rule name it"
 	switch {
+	case rec != nil && rec.Good != nil && rec.Good.Commit == target.Commit && rec.Good.Series == series.Digest:
+		next = "the good build already runs it"
+	case hold != "" && rec.Good.Commit == target.Commit:
+		next = patchedNotBuilt
+	case hold != "":
+		next = "a launch builds it once the hold lifts (" + hold + ")"
 	case isRebaseDefault(rec, in, series.Digest, target):
 		next = patchedNotBuilt
 	case onList(list, target.Commit):
 		next = "the next fresh launch builds it unless a newer version on its list takes the series"
-	case rec.Good != nil && rec.Good.Commit == target.Commit && rec.Good.Series == series.Digest:
-		next = "the good build already runs it"
 	}
 	lines := []string{"[green]fork " + richtext.Escape(f.Key()) + "[/green]: " + richtext.Escape(fmt.Sprintf(
 		"upstream %s takes the series as it stands (%d %s, series %s) — %s; nothing to rebase, so the "+
@@ -465,24 +497,89 @@ func rebaseCleanLines(f packload.Fork, rec *packsrc.CheckRecord, in packsrc.Chec
 	return lines
 }
 
+// rebaseCommandLine is the verb's command line as the user typed it, for a line that names it to
+// run again or elsewhere: their --onto and --into kept, since the bare verb rebases onto another
+// version and into another directory. With no key typed, the key's placeholder.
+func rebaseCommandLine(ra rebaseArgs, args []string) string {
+	line := shquote.JoinDisplay(append([]string{"yolo", "pack", "rebase"}, args...))
+	if ra.key == "" {
+		line = strings.TrimSpace("yolo pack rebase <pack>/<bin> " + shquote.JoinDisplay(args))
+	}
+	return line
+}
+
+// rebaseRestartLine is the command that starts the clone at the user's directory over: their own
+// command line with --restart.
+func rebaseRestartLine(ra rebaseArgs, args []string) string {
+	if ra.restart {
+		return rebaseCommandLine(ra, args)
+	}
+	ra.restart = true
+	return rebaseCommandLine(ra, append(append([]string{}, args...), "--restart"))
+}
+
 // ownCloneLines are what a second `yolo pack rebase` says on its own clone: that it is there and
-// what it was rebased onto, its next steps again, and `--restart`.
-func ownCloneLines(f packload.Fork, origin forkPackOrigin, dir string, m *packsrc.RebaseMarker) []string {
+// what it was rebased onto; while git records the rebase in progress, its next steps again; once it
+// is finished (packsrc.Store.RebaseFinished), the export; and otherwise — a rebase aborted, or a
+// run that stopped before its replay ended — that it holds nothing to export. Each ends with
+// restart, the command that starts it over.
+func ownCloneLines(store *packsrc.Store, f packload.Fork, origin forkPackOrigin, dir string, m *packsrc.RebaseMarker,
+	restart string) []string {
 	made := patchedAge(patchedNow().Sub(time.Unix(m.At, 0)))
 	lines := []string{"[yellow]" + richtext.Escape("fork "+f.Key()+": "+dir+" is its rebase clone, made "+made+
 		" ago onto upstream "+m.Target.Label()) + "[/yellow]"}
-	lines = append(lines, rebaseNextSteps(f, origin, dir, m.Target, packsrc.RebaseInProgress(dir))...)
-	return append(lines, "[dim]"+richtext.Escape("  `yolo pack rebase "+f.Key()+" --restart` removes it and "+
-		"rebases the series again from the start")+"[/dim]")
+	again := "[dim]" + richtext.Escape("  `"+restart+"` removes it and rebases the series again from the start") + "[/dim]"
+	switch {
+	case packsrc.RebaseInProgress(dir) && m.Applied != "":
+		lines = append(lines, rebaseNextSteps(f, origin, dir, m.Target, m.Applied, true)...)
+	case store.RebaseFinished(dir, m):
+		lines = append(lines, rebaseNextSteps(f, origin, dir, m.Target, m.Applied, false)...)
+	default:
+		lines = append(lines, richtext.Escape("  it holds no finished rebase to export: the rebase there was "+
+			"aborted, or a run stopped before its replay ended"))
+		again = richtext.Escape("  `" + restart + "` removes it and rebases the series again from the start")
+	}
+	return append(lines, again)
+}
+
+// forkPackClone is where a fetched fork pack's publish steps clone the pack's repository: beside the
+// rebase clone at dir, <pack>-pack, or the first of <pack>-pack-2, -3, … when that path holds
+// anything but a clone of repo. exists is true when the path is a clone of repo already, which an
+// earlier rebase's steps left: the steps then update it rather than clone over it.
+func forkPackClone(store *packsrc.Store, dir, pack, repo string) (string, bool) {
+	stem := filepath.Join(filepath.Dir(dir), strings.NewReplacer("/", "-").Replace(pack)+"-pack")
+	for i := 1; ; i++ {
+		p := stem
+		if i > 1 {
+			p = fmt.Sprintf("%s-%d", stem, i)
+		}
+		if _, err := os.Lstat(p); errors.Is(err, os.ErrNotExist) || i >= 1000 {
+			return p, false
+		}
+		if store.CloneOrigin(p) == repo {
+			return p, true
+		}
+	}
 }
 
 // rebaseNextSteps are a stopped rebase's next steps, in order (§8.4 steps 6 and 7): the continue,
 // to run after resolving; the export that replaces the series with no moment where it is empty or
 // partial — into a local pack's own patch directory, or through a clone of a fetched pack's
 // repository, committed and pushed; what then builds it; and that an agent can resolve it in a jail
-// started there. Every path is quoted for the shell it is pasted into.
+// started there. applied is the series as applied at its base (packsrc.RebaseResult.Applied).
+// Every path is quoted for the shell it is pasted into.
+//
+// THE EXPORT IS ONE COMMAND LINE, each step run only once the one before it succeeded, so a pasted
+// block changes nothing until the rebase is finished: it starts with packsrc.RebaseExportGuard,
+// which refuses a branch a stopped or aborted rebase left at the applied series, a skipped-through
+// one, and a clone with no branch; it reads the rebased BRANCH, never HEAD, which a stopped rebase
+// detaches at a partial replay; `mkdir` refuses a <patches>.new an earlier export left, whose files
+// the series would take too; the format-patch writes `.patch` names with `a/` `b/` prefixes whatever
+// the user's git config says (format.suffix, format.noprefix), since the series reads only `.patch`
+// files and `git am` strips one path component; and only then the two renames, the one moment a
+// reader finds no directory. A fetched pack's commit and push end the same line.
 func rebaseNextSteps(f packload.Fork, origin forkPackOrigin, dir string, target packsrc.ListEntry,
-	inProgress bool) []string {
+	applied string, inProgress bool) []string {
 	q := shquote.QuoteDisplay
 	var lines []string
 	cmd := func(s string) { lines = append(lines, "    "+richtext.Escape(s)) }
@@ -495,43 +592,52 @@ func rebaseNextSteps(f packload.Fork, origin forkPackOrigin, dir string, target 
 		say("the rebase there is done")
 		then = ""
 	}
-	// export is the format-patch into <patches>.new and the two renames, the one moment a reader
-	// finds no directory being between them (§8.4: never an empty or a partial series).
-	export := func(patches string) {
-		for _, left := range []string{patches + ".new", patches + ".old"} {
-			if _, err := os.Lstat(left); err == nil {
-				say("first remove " + q(left) + ", which an earlier export left, or the series takes its files too:")
-			}
+	guard := packsrc.RebaseExportGuard(dir, target.Commit, applied, q)
+	formatPatch := func(out string) string {
+		return "git -C " + q(dir) + " -c format.noprefix=false format-patch --suffix=.patch --base=" +
+			target.Commit + " -o " + out + " " + target.Commit + ".." + packsrc.RebaseBranchRef
+	}
+	export := func(patches, tail string) {
+		if _, err := os.Lstat(patches + ".new"); err == nil {
+			say("first remove " + q(patches+".new") + ", which an earlier export left — the export refuses while " +
+				"it is there:")
 		}
-		cmd("git -C " + q(dir) + " format-patch --base=" + target.Commit + " -o " + q(patches+".new") + " " +
-			target.Commit + "..HEAD")
-		cmd("mv " + q(patches) + " " + q(patches+".old") + " && mv " + q(patches+".new") + " " + q(patches) +
-			" && rm -r " + q(patches+".old"))
+		if _, err := os.Lstat(patches + ".old"); err == nil {
+			say("first remove " + q(patches+".old") + ", which an earlier export left:")
+		}
+		cmd(guard + " && mkdir " + q(patches+".new") + " && " + formatPatch(q(patches+".new")) +
+			" && mv " + q(patches) + " " + q(patches+".old") + " && mv " + q(patches+".new") + " " + q(patches) +
+			" && rm -r " + q(patches+".old") + tail)
 	}
 	switch {
 	case origin.local != "":
-		say(then + "replace the series with the rebased one:")
-		export(origin.patches(f))
+		say(then + "replace the series with the rebased one — the line changes nothing until the rebase is finished:")
+		export(origin.patches(f), "")
 		say("the next fresh launch builds the new series")
 	case origin.fetched != nil:
 		a := *origin.fetched
-		clone := filepath.Join(filepath.Dir(dir), strings.NewReplacer("/", "-").Replace(f.Pack)+"-pack")
+		store := patchedForkStore()
+		clone, exists := forkPackClone(store, dir, f.Pack, a.Repo)
 		rel := filepath.FromSlash(f.Patches)
 		if a.Path != "" {
 			rel = filepath.Join(filepath.FromSlash(a.Path), rel)
 		}
 		say(then + "publish the rebased series: fork pack " + f.Pack + " is fetched from " + a.Repo + ", and " +
 			"yolo never writes its copy on this machine, so export into a clone of that repository (or your own) " +
-			"and push it:")
-		kind := patchedForkStore().RefKind(a)
-		branch := ""
-		if kind == "branch" {
-			branch = " -b " + q(a.Ref)
+			"and push it — the second line changes nothing until the rebase is finished:")
+		kind := store.RefKind(a)
+		switch {
+		case exists && kind == "branch":
+			cmd("git -C " + q(clone) + " checkout -q " + q(a.Ref) + " && git -C " + q(clone) + " pull -q --ff-only")
+		case exists:
+			cmd("git -C " + q(clone) + " pull -q --ff-only")
+		case kind == "branch":
+			cmd("git clone -b " + q(a.Ref) + " " + q(a.Repo) + " " + q(clone))
+		default:
+			cmd("git clone " + q(a.Repo) + " " + q(clone))
 		}
-		cmd("git clone" + branch + " " + q(a.Repo) + " " + q(clone))
-		export(filepath.Join(clone, rel))
-		cmd("git -C " + q(clone) + " add -A " + q(rel) + " && git -C " + q(clone) + " commit -m " +
-			q("Rebase the patch series onto "+target.Label()) + " && git -C " + q(clone) + " push")
+		export(filepath.Join(clone, rel), " && git -C "+q(clone)+" add -A "+q(rel)+" && git -C "+q(clone)+
+			" commit -m "+q("Rebase the patch series onto "+target.Label())+" && git -C "+q(clone)+" push")
 		switch kind {
 		case "branch":
 			say("the pack's refresh at a launch brings the pushed series within the hour, or `yolo pack update` " +
@@ -546,8 +652,7 @@ func rebaseNextSteps(f packload.Fork, origin forkPackOrigin, dir string, target 
 	default:
 		say(then + "export it into a fork pack of your own — fork pack " + f.Pack + " is none of your `packs` " +
 			"entries, so there is no patch directory of yours to replace:")
-		cmd("git -C " + q(dir) + " format-patch --base=" + target.Commit + " -o <your pack>/patches " +
-			target.Commit + "..HEAD")
+		cmd(guard + " && " + formatPatch("<your pack>/patches"))
 	}
 	if inProgress {
 		say("an agent can resolve it in a jail started there: cd " + q(dir) + " && yolo")

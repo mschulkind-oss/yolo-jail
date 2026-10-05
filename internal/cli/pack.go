@@ -209,8 +209,9 @@ yolo pack install or yolo pack update re-fetches a tag its author re-pointed.
                               rebase a PATCHED fork's series (a fork that declares "patches")
                               when an upstream version no longer takes it: clones the upstream
                               into --into (default ./<pack>-<bin>-rebase), replays the series
-                              onto --onto (default: the newest upstream version a launch would
-                              take), and stops at the conflict for you to resolve. It prints the continue
+                              onto --onto (default: the newest upstream version above the good
+                              build, which a launch tries first), and stops at the conflict for
+                              you to resolve. It prints the continue
                               and export commands and writes nothing in the pack; on its own
                               earlier clone it prints them again, and --restart starts over.
                               Host only
@@ -251,8 +252,10 @@ func runPack(args []string) int {
 //
 // IT TAKES NO STDIN. It used to, for one reason: the install-time host-access approval
 // prompt, which OQ-TP9 deleted (docs/design/trust-paths.md, 2026-09-04). No `yolo pack`
-// verb asks a question now — `install`/`update` fetch and report, and everything else
-// inspects — so there is no reader to thread.
+// verb asks a question now — `install`/`update` fetch and report, `rebase` fetches too (a
+// patched fork's forced check) and clones the fork's upstream into a directory outside yolo's
+// state directory, `init` scaffolds a pack, and everything else inspects — so there is no
+// reader to thread.
 func packMain(args []string, out, errw io.Writer, color bool) int {
 	if len(args) == 0 || packHelpAsked(args[1:]) {
 		fmt.Fprintln(out, packUsage)

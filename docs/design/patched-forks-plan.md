@@ -231,7 +231,11 @@ tree changed against the map above:
 
 The trap the step found: **a clone's template is its own repository config**, which the replay's
 environment cannot reach, so a clone the replay runs in takes `--template=` as the scratch repository
-does. Left for later steps: the host floor (step 4) and patched extensions, whose conflict lines name
+does. Its review found two more. **No line printed for pasting may depend on the line before it
+having succeeded**: a pasted block runs every line, so the export is one `&&` line behind a test
+that the rebase is finished ([PF-D49](patched-forks.md#PF-D49)). And **`REBASE_HEAD` survives a
+finished rebase** (git 2.55), so neither it nor HEAD tells a finished rebase from a stopped one; the
+rebased branch, which git moves only when the rebase finishes, does. Left for later steps: the host floor (step 4) and patched extensions, whose conflict lines name
 the same verb through the owner key once they have one.
 
 ## Measurements to make
