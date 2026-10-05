@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/entrypoint"
+	"github.com/mschulkind-oss/yolo-jail/internal/packdecl"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/packsrc"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
@@ -319,5 +320,46 @@ func TestAMacosUserLaunchSaysItDeliversNoTree(t *testing.T) {
 	if !strings.Contains(out, "extension "+treeKey+" is not delivered on macos-user") ||
 		!strings.Contains(out, "YOLO_RUNTIME=podman") {
 		t.Errorf("the macos-user launch does not name the undelivered extension:\n%s", out)
+	}
+}
+
+// A DELIVERED TREE GETS A DIRECTORY MOUNTPOINT, in the skeleton or in the workspace overlay, and one
+// with no copy gets none: an empty directory at `into` is one an agent may try to load (§9).
+func TestOnlyADeliveredTreeGetsAMountpoint(t *testing.T) {
+	p := &packload.Pack{Name: "treepack", Root: t.TempDir(), Decl: &packdecl.Manifest{Contributes: []packdecl.Contribution{
+		{Kind: packdecl.KindFiles, Into: treeInto, Source: "git+https://example.invalid/x?ref=main", Patches: "patches"}}}}
+	copyDir := t.TempDir()
+	dirs, files := packFilesSkeletonEntries([]*packload.Pack{p}, map[string]string{treeKey: copyDir})
+	if len(dirs) != 1 || dirs[0] != treeInto || len(files) != 0 {
+		t.Errorf("a delivered tree's skeleton entries = %v, %v; want the directory %s", dirs, files, treeInto)
+	}
+	if dirs, files := packFilesSkeletonEntries([]*packload.Pack{p}, nil); len(dirs)+len(files) != 0 {
+		t.Errorf("an undelivered tree has skeleton entries %v, %v", dirs, files)
+	}
+	targets := packFilesTargets([]*packload.Pack{p}, map[string]string{treeKey: copyDir})
+	if len(targets) != 1 || targets[0].Src != copyDir || targets[0].Tree != treeKey {
+		t.Errorf("targets = %+v, want the copy at %s, never the pack's root", targets, copyDir)
+	}
+}
+
+// THE SKELETON BUILDER takes the delivered trees: the mountpoint is made for one, never for none.
+func TestTheHomeSkeletonMakesADeliveredTreesMountpoint(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	p := &packload.Pack{Name: "treepack", Root: t.TempDir(), Decl: &packdecl.Manifest{Contributes: []packdecl.Contribution{
+		{Kind: packdecl.KindFiles, Into: treeInto, Source: "git+https://example.invalid/x?ref=main", Patches: "patches"}}}}
+	sk, err := buildHomeSkeleton(paths.HomeSkeletonRoot("yolo-tree-skel"), []*packload.Pack{p}, nil, nil,
+		map[string]string{treeKey: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info, err := os.Lstat(filepath.Join(sk.dir, filepath.FromSlash(treeInto))); err != nil || !info.IsDir() {
+		t.Errorf("the skeleton has no directory mountpoint for the delivered tree: %v", err)
+	}
+	none, err := buildHomeSkeleton(paths.HomeSkeletonRoot("yolo-tree-skel-none"), []*packload.Pack{p}, nil, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Lstat(filepath.Join(none.dir, filepath.FromSlash(treeInto))); err == nil {
+		t.Error("the skeleton made a mountpoint for a tree with no copy")
 	}
 }

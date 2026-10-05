@@ -177,14 +177,10 @@ func surfaceOwner(packs []*Pack, key manifest.SurfaceKey) string {
 // LintPatchedTrees is the one lint a patched extension gets at `yolo pack lint` and once at launch
 // (PPX-D10): a warning, naming the line to add, for every patched extension of p that no list entry
 // in p names, so the tree is built and mounted and no agent loads it. Exact equality with
-// `~/<into>`: core reads none of an agent's package grammar. packs is the selection the owning
-// agent pack is looked for in; nil looks only in p.
-func LintPatchedTrees(p *Pack, packs []*Pack) []string {
+// `~/<into>`: core reads none of an agent's package grammar.
+func LintPatchedTrees(p *Pack) []string {
 	if p == nil || p.Decl == nil {
 		return nil
-	}
-	if packs == nil {
-		packs = []*Pack{p}
 	}
 	var out []string
 	for _, c := range p.Decl.Contributions() {

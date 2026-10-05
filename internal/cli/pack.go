@@ -731,7 +731,7 @@ func packLint(args []string, out, errw io.Writer, color bool) int {
 	printUnshippedNotes(pr, notes)
 	// A PATCHED EXTENSION NO LIST ENTRY NAMES (docs/design/patched-extensions.md §8.2, PPX-D10): a
 	// warning, not a failure — the tree is built and mounted, and no agent loads it.
-	for _, w := range packload.LintPatchedTrees(pack, nil) {
+	for _, w := range packload.LintPatchedTrees(pack) {
 		pr.Printf("[yellow]⚠[/yellow] %s", richtext.Escape(w))
 	}
 

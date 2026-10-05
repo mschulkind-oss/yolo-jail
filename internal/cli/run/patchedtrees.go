@@ -140,7 +140,7 @@ func (o *Options) notePatchedTrees(packs []*packload.Pack) []packload.Fork {
 		}
 	}
 	for _, p := range packs {
-		for _, w := range packload.LintPatchedTrees(p, packs) {
+		for _, w := range packload.LintPatchedTrees(p) {
 			out.print("[yellow]Warning: " + richtext.Escape(w) + "[/yellow]")
 		}
 	}

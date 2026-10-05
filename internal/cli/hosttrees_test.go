@@ -263,3 +263,51 @@ func TestApplyAtHostAdvancesInItsActingPostureOnly(t *testing.T) {
 		t.Fatalf("--assert built %d trees:\n%s", len(fx.builds), errw.String())
 	}
 }
+
+// A DROPPED EXTENSION's host copies go once nothing yolo recorded links into them, and stay while
+// a recorded link still does.
+func TestADroppedExtensionsHostCopiesAreSwept(t *testing.T) {
+	fx := newTreeFixture(t, `"f.txt"`)
+	advanceHostTrees(io.Discard, false, "")
+	fx.renderTrees(t, true)
+	target, err := os.Readlink(fx.link())
+	if err != nil {
+		t.Fatal(err)
+	}
+	slugDir := filepath.Dir(target)
+	sweepDroppedHostTrees(nil) // the selection no longer carries it, and its link is still there
+	if !isDir(target) {
+		t.Fatal("a copy a recorded link still names was swept")
+	}
+	if err := os.Remove(fx.link()); err != nil {
+		t.Fatal(err)
+	}
+	sweepDroppedHostTrees(nil)
+	if isDir(slugDir) {
+		t.Error("a dropped extension's copies outlived its link")
+	}
+}
+
+// THE SWEEP'S CALL SITE: an apply that retires a dropped pack's link removes its copies too. Red if
+// the apply stops calling sweepDroppedHostTrees.
+func TestAnApplyThatDropsTheExtensionRemovesItsHostCopies(t *testing.T) {
+	fx := newTreeFixture(t, `"f.txt"`)
+	var errw bytes.Buffer
+	hostApply([]string{"--assert"}, io.Discard, &errw, false, strings.NewReader(""))
+	target, err := os.Readlink(fx.link())
+	if err != nil {
+		t.Fatalf("the first apply rendered no link: %v\n%s", err, errw.String())
+	}
+	other := filepath.Join(fx.packs, "otherpack")
+	writeFile(t, filepath.Join(other, "pack.json"), `{"name":"otherpack","contributes":[]}`)
+	writeFile(t, filepath.Join(fx.home, ".config", "yolo-jail", "config.jsonc"),
+		`{"packs":[{"source":"file://`+other+`","name":"otherpack"}]}`)
+	var out bytes.Buffer
+	hostApply([]string{"--assert"}, &out, &errw, false, strings.NewReader("y\n"))
+	if _, err := os.Lstat(fx.link()); err == nil {
+		t.Fatalf("the dropped pack's link was not retired:\n%s", out.String())
+	}
+	if isDir(filepath.Dir(target)) {
+		t.Errorf("the dropped extension's host copies outlived its retired link:\n%s", out.String())
+	}
+}

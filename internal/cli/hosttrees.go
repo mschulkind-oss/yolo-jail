@@ -340,3 +340,36 @@ func noteHostTreeLines(errw io.Writer, color bool, bin string) {
 		}
 	}
 }
+
+// sweepDroppedHostTrees removes the versioned copies of every patched extension the selection no
+// longer carries, once nothing the files ownership record names links into them: the dropped pack's
+// link is retired by the apply's prune of a dropped pack's output, which runs before this, and a
+// link still in place keeps its tree. Best-effort: a copy left behind costs disk, never a render.
+func sweepDroppedHostTrees(packs []*packload.Pack) {
+	entries, err := os.ReadDir(paths.HostTreesDir())
+	if err != nil {
+		return
+	}
+	live := map[string]bool{}
+	for _, f := range packload.PatchedTrees(packs) {
+		live[run.PatchedCopySlug(f.Key())] = true
+	}
+	man, err := hostskills.LoadManifest(hostSkillsManifestPath())
+	if err != nil {
+		return // an unreadable record proves nothing about which links remain, so nothing goes
+	}
+	linked := map[string]bool{}
+	for dest := range man.Entries {
+		if target, err := os.Readlink(dest); err == nil {
+			if rel, err := filepath.Rel(paths.HostTreesDir(), target); err == nil && !strings.HasPrefix(rel, "..") {
+				linked[strings.SplitN(filepath.ToSlash(rel), "/", 2)[0]] = true
+			}
+		}
+	}
+	for _, e := range entries {
+		if !e.IsDir() || live[e.Name()] || linked[e.Name()] {
+			continue
+		}
+		_ = os.RemoveAll(filepath.Join(paths.HostTreesDir(), e.Name()))
+	}
+}

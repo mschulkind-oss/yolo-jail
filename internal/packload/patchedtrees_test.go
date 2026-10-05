@@ -103,12 +103,12 @@ func TestAPatchedExtensionsHoldPacks(t *testing.T) {
 // `~/<into>`, and is silent once one does.
 func TestThePatchedTreeLintNamesTheListEntryToAdd(t *testing.T) {
 	matt := agentPack(t, "matt", patchedTreeContribution(), piPackagesList("git:github.com/me/pi-subagents"))
-	got := LintPatchedTrees(matt, nil)
+	got := LintPatchedTrees(matt)
 	if len(got) != 1 || !strings.Contains(got[0], `"~/`+treeInto+`"`) || !strings.Contains(got[0], "no agent loads it") {
 		t.Errorf("lint = %q, want one warning naming ~/%s", got, treeInto)
 	}
 	listed := agentPack(t, "matt", patchedTreeContribution(), piPackagesList("~/"+treeInto))
-	if got := LintPatchedTrees(listed, nil); len(got) != 0 {
+	if got := LintPatchedTrees(listed); len(got) != 0 {
 		t.Errorf("a listed tree is linted: %q", got)
 	}
 }
