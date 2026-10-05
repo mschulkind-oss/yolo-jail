@@ -105,7 +105,7 @@ func TestSingletonDepsUsesTheDerivedPaths(t *testing.T) {
 // binary rather than the string "yolo": the jail agent's PATH need not contain
 // `yolo`, and resolving it there is how a spawn silently stopped happening once. And
 // the tail is the `internal daemon` subcommand form, not the retired standalone
-// console-script name that RealPgrepStrays still only recognizes for reaping.
+// console-script name (yolo-claude-oauth-broker-host).
 func TestRealDepsCarriesTheSelfExecBrokerArgv(t *testing.T) {
 	exe, err := os.Executable()
 	if err != nil {

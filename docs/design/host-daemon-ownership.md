@@ -659,7 +659,7 @@ has its own instance of the same problem ([§7](#7-the-jail-side-has-a-superviso
 | :--- | :--- | :--- | :--- |
 | the capability stamp | the broker moving behind a front, 2026-08-19 | [`brokerlifecycle.go`](../../internal/broker/brokerlifecycle.go), `SingletonSpeaksPreamble` | nothing left to detect |
 | "we do not kill it" | **two yolo versions on one host**, which is the standoff itself | same | the standoff stops existing |
-| `BrokerConsoleName` as a second pgrep pattern | the daemon ceasing to be a standalone binary; kept "for one release" | same, `RealPgrepStrays` | unchanged — a stray-hunt is about the past, not the design |
+| the stray hunt finding the retired standalone binary (`yolo-claude-oauth-broker-host`) | the daemon ceasing to be a standalone binary | same, `RealPgrepStrays`, which matches the `--socket` both spawn forms pass rather than a second pattern | unchanged — a stray-hunt is about the past, not the design |
 | `ensureSingleton`'s kill-and-replace | a live singleton predating the private host socket | [`host.go`](../../internal/openaiauthhost/host.go) | no singleton to replace |
 | `PrepareLocked` | one released build that passed a literal `{state}` path | [`openaiauthmigration.go`](../../internal/cli/run/openaiauthmigration.go) | survives — it migrates **state**, which stays shared |
 | `legacySupervisorPIDFiles` | the supervisor binary being renamed to `yolo-jaild` | [`runtime.go`](../../internal/entrypoint/runtime.go) | untouched: jail side |

@@ -41,6 +41,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync/atomic"
@@ -70,21 +71,7 @@ func BrokerSingletonPIDFile() string { return paths.HostSingletonPIDFile(BrokerL
 // BrokerSingletonLock is the Claude broker's spawn lock (see BrokerSingletonSocket).
 func BrokerSingletonLock() string { return paths.HostSingletonLock(BrokerLoopholeName) }
 
-const (
-	BrokerLoopholeName = "claude-oauth-broker"
-
-	// BrokerConsoleName is the LEGACY standalone console-script / Go-binary name
-	// the singleton used to be spawned as. It is retained ONLY as a pgrep
-	// pattern (RealPgrepStrays), so a broker started by a not-yet-upgraded yolo
-	// on the same host is still discoverable for one release. The current spawn
-	// form is `yolo internal daemon claude-oauth-broker` (see BrokerSpawnArgv).
-	BrokerConsoleName = "yolo-claude-oauth-broker-host"
-
-	// BrokerDaemonPattern matches the current spawn form's argv
-	// ("<yolo> internal daemon claude-oauth-broker …") for pgrep. It is the
-	// forward half of the dual-pattern in RealPgrepStrays.
-	BrokerDaemonPattern = "internal daemon claude-oauth-broker"
-)
+const BrokerLoopholeName = "claude-oauth-broker"
 
 // Timing knobs — behavior-identical to the historical hardcoded values in
 // loopholes_runtime (TIGHT poll interval, GENEROUS deadline).
@@ -161,8 +148,9 @@ type Deps struct {
 	Alive func(pid int) bool
 	// Kill sends sig to pid (os.kill). Errors are swallowed by callers.
 	Kill func(pid int, sig syscall.Signal) error
-	// Pgrep returns PIDs of stray broker-host processes (current + legacy spawn
-	// forms; see RealPgrepStrays), already self-filtered (os.getpid() excluded).
+	// Pgrep returns the PIDs of THIS singleton's strays — live processes whose argv
+	// passes its socket as `--socket` (RealPgrepStrays) — already self-filtered
+	// (os.getpid() excluded). BrokerKill falls back to it when the PID file is gone.
 	Pgrep func() []int
 
 	// Spawn launches the broker daemon detached (own session, stdout+stderr to
@@ -223,9 +211,10 @@ func RealDeps() Deps {
 // that, and it has to hold or `yolo broker status`, `yolo check`'s broker section
 // and the run pipeline's front would each ensure or inspect a different file.
 func SingletonDeps(name string, argv []string) Deps {
+	sock := paths.HostSingletonSocket(name)
 	return Deps{
 		Name:        name,
-		SocketPath:  paths.HostSingletonSocket(name),
+		SocketPath:  sock,
 		PIDFilePath: paths.HostSingletonPIDFile(name),
 		LockPath:    paths.HostSingletonLock(name),
 		LogPath:     SingletonLogPath(name),
@@ -240,9 +229,12 @@ func SingletonDeps(name string, argv []string) Deps {
 		Reachable:  SingletonReachable,
 		Alive:      execx.IsAlive,
 		Kill:       func(pid int, sig syscall.Signal) error { return syscall.Kill(pid, sig) },
-		Pgrep:      RealPgrepStrays,
-		Spawn:      realSpawn,
-		Out:        os.Stdout,
+		// Scoped to THIS singleton's socket, never to a spawn form: every singleton got
+		// the Claude broker's pattern here, so stopping any of them without a PID file
+		// SIGTERMed every Claude broker on the machine (strayscope_test.go).
+		Pgrep: func() []int { return RealPgrepStrays(sock) },
+		Spawn: realSpawn,
+		Out:   os.Stdout,
 		// Resolved here, through the one gate, because this layer never probes
 		// the terminal again (see Deps.Color).
 		Color: tty.Color(nil, true, isTTYStdoutReal()),
@@ -733,19 +725,28 @@ func SingletonReachable(socketPath string, timeout time.Duration) bool {
 	return true
 }
 
-// RealPgrepStrays ports _broker_pgrep_strays: PIDs of running broker-host
-// processes the OS knows about, regardless of PID-file state, with our own PID
+// RealPgrepStrays ports _broker_pgrep_strays: PIDs of the running processes serving
+// the singleton at socketPath, regardless of PID-file state, with our own PID
 // filtered out. A missing pgrep / timeout / error yields no PIDs (never an error
 // the "tool absent = no-op" invariant).
 //
-// Dual-pattern for ONE release: the pgrep regex matches BOTH the current spawn
-// form ("<yolo> internal daemon claude-oauth-broker …", BrokerDaemonPattern) AND
-// the legacy standalone binary name (BrokerConsoleName). Without the legacy
-// alternative a broker still running from a pre-self-exec yolo on this host
-// would be invisible to `yolo broker {stop,restart}`, leaking a stray daemon.
-// Drop the legacy alternative next release.
-func RealPgrepStrays() []int {
-	cmd := exec.Command("pgrep", "-f", BrokerDaemonPattern+"|"+BrokerConsoleName)
+// A STRAY IS WHATEVER PASSES THIS SINGLETON'S SOCKET AS `--socket`, and nothing
+// wider. The socket is the singleton's identity: it is derived from the loophole
+// name (paths.HostSingletonSocket), and every spawn form a host-wide daemon has had
+// names it — `<yolo> internal daemon <name> --socket {socket}` from every shipped
+// manifest, and the Claude broker's retired standalone binary
+// (`yolo-claude-oauth-broker-host --socket {socket}`), which is why the second
+// pgrep pattern that binary used to need is gone.
+//
+// It used to match the CLAUDE broker's two spawn forms anywhere on the machine, for
+// every singleton, since SingletonDeps wires this into all of them. So stopping
+// `aws-auth` or `openai-auth-broker` with its PID file gone SIGTERMed every Claude
+// broker on the host, and reported the wrong daemon stopped; and under
+// `go test ./...` one package's cleanup stopped another package's daemon, in a
+// different private singleton directory, mid-test (strayscope_test.go).
+func RealPgrepStrays(socketPath string) []int {
+	// pgrep -f matches an extended regex against the argv joined by spaces.
+	cmd := exec.Command("pgrep", "-f", "(^| )--socket "+regexp.QuoteMeta(socketPath)+"( |$)")
 	out, err := cmd.Output()
 	if err != nil {
 		// Non-zero rc (no match) or spawn failure → nothing to reap.

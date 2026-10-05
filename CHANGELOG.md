@@ -67,6 +67,8 @@ into a jail, and what each launch shows about the code it runs. See
   variable write, a `..` in an argument, or a `:owner` or `:repo` placeholder.
 - A macos-user launch of Codex or Pi no longer refuses when the shared OpenAI credential service
   restarts just as it connects.
+- `yolo host-daemon stop` or `restart` on a host-wide service that was not running, such as
+  `aws-auth`, no longer stops the Claude OAuth broker in its place.
 - On a Mac, a launch and `yolo check` wait up to a minute for a busy Podman machine instead of
   calling it not started after 10 seconds.
 - A launch, `yolo check` or `yolo prune` stopped by a signal sent to yolo alone, such as `kill` or
