@@ -11,8 +11,9 @@ package cli
 //
 // The act, in order:
 //
-//  1. HOST ONLY: a jail has neither the fork's mirror nor its pack, so in a jail it names the
-//     command to run on the host.
+//  1. HOST ONLY, keyed: a jail has neither the fork's mirror, its check record nor its pack, so in
+//     a jail it names the command to run on the host, and the SCRATCH REBASE, `--pack <dir>`, which
+//     rebases a local pack inside the jail's workspace there (patchedrebasescratch.go, PF-D61).
 //  2. The clone's directory is settled before any network: `--into`, by default
 //     ./<pack>-<bin>-rebase. It is refused where a workspace could not be (the home itself, or
 //     inside yolo's config or state directory) and inside the fork pack's own directory, and when it
@@ -47,10 +48,10 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/shquote"
 )
 
-// rebaseArgs is the verb's command line.
+// rebaseArgs is the verb's command line. pack is --pack's directory, the scratch rebase's.
 type rebaseArgs struct {
-	key, onto, into string
-	restart         bool
+	key, onto, into, pack string
+	restart               bool
 }
 
 // parseRebaseArgs reads the verb's command line, or says what is wrong with it (exit 2).
@@ -76,11 +77,15 @@ func parseRebaseArgs(args []string, errw io.Writer) (rebaseArgs, int) {
 			ra.into, ok = value(&i, a)
 		case strings.HasPrefix(a, "--into="):
 			ra.into = strings.TrimPrefix(a, "--into=")
+		case a == "--pack":
+			ra.pack, ok = value(&i, a)
+		case strings.HasPrefix(a, "--pack="):
+			ra.pack = strings.TrimPrefix(a, "--pack=")
 		case a == "--restart":
 			ra.restart = true
 		case strings.HasPrefix(a, "-"):
-			fmt.Fprintf(errw, "yolo pack rebase: unknown flag %q — it takes --onto <ref>, --into <dir> and "+
-				"--restart (see `yolo pack --help`)\n", a)
+			fmt.Fprintf(errw, "yolo pack rebase: unknown flag %q — it takes --onto <ref>, --into <dir>, --pack <dir> "+
+				"and --restart (see `yolo pack --help`)\n", a)
 			return ra, 2
 		case ra.key != "":
 			fmt.Fprintf(errw, "yolo pack rebase: unexpected argument %q — it rebases one patched fork or extension, "+
@@ -93,8 +98,9 @@ func parseRebaseArgs(args []string, errw io.Writer) (rebaseArgs, int) {
 			return ra, 2
 		}
 	}
-	if (ra.onto == "" && containsFlag(args, "--onto")) || (ra.into == "" && containsFlag(args, "--into")) {
-		fmt.Fprintf(errw, "yolo pack rebase: --onto and --into each need a value (see `yolo pack --help`)\n")
+	if (ra.onto == "" && containsFlag(args, "--onto")) || (ra.into == "" && containsFlag(args, "--into")) ||
+		(ra.pack == "" && containsFlag(args, "--pack")) {
+		fmt.Fprintf(errw, "yolo pack rebase: --onto, --into and --pack each need a value (see `yolo pack --help`)\n")
 		return ra, 2
 	}
 	return ra, 0
@@ -125,15 +131,29 @@ var rebaseCloneRun = func(s *packsrc.Store, o packsrc.RebaseOptions) packsrc.Reb
 // so a test can make the removal fail.
 var removeRebaseClone = packsrc.RemoveRebaseClone
 
+// rebaseSite is where a rebase runs, which changes what its lines say: the keyed verb on the host,
+// reading the selected pack and this machine's check record; or the SCRATCH REBASE
+// (patchedrebasescratch.go, which coins the term), which reads the pack in --pack's directory and
+// checks its upstream in a scratch mirror with no check record, in a jail or on the host.
+type rebaseSite struct {
+	// scratch is the scratch rebase; jail is a run in a jail.
+	scratch, jail bool
+}
+
 // packRebase is `yolo pack rebase`. See the file doc.
 func packRebase(args []string, out, errw io.Writer, color bool) int {
 	ra, rc := parseRebaseArgs(args, errw)
 	if rc != 0 {
 		return rc
 	}
+	if ra.pack != "" {
+		return packRebaseScratch(ra, args, out, errw, color)
+	}
 	if config.InJail() {
 		fmt.Fprintf(errw, "yolo pack rebase: a patched fork's or extension's upstream mirror, its check record and its "+
-			"pack live on the host, not in this jail — run `%s` in a terminal on the host\n", rebaseCommandLine(ra, args))
+			"pack live on the host, not in this jail — run `%s` in a terminal on the host; for a local pack inside "+
+			"this jail's workspace, `%s` rebases it here, with a scratch copy of the upstream\n",
+			rebaseCommandLine(ra, args), rebaseCommandLine(ra, args)+" --pack <the pack's directory>")
 		return 1
 	}
 	sel := selectConfiguredHostPacks()
@@ -145,60 +165,25 @@ func packRebase(args []string, out, errw io.Writer, color bool) int {
 	// A PATCHED EXTENSION is rebased as a patched fork is, addressed by its owner key <pack>/<name>
 	// (patched-extensions.md §9): every conflict line of its check names this verb with that key.
 	forks := append(packload.Forks(sel.packs), packload.PatchedTrees(sel.packs)...)
-	f, rc := pickRebaseFork(forks, ra.key, errw)
+	f, rc := pickRebaseFork(forks, ra.key, "", errw)
 	if rc != 0 {
 		return rc
 	}
 	pr := richtext.Printer{W: out, Color: color}
 	origin := forkPackOriginOf(f)
+	site := rebaseSite{}
 
-	// 2. THE CLONE'S DIRECTORY, settled before anything reaches the network, and held: the rebase
-	// directory lock keeps a second run on it (another terminal) from taking this run's clone,
-	// half made, for its own, or removing it.
+	// 2. THE CLONE'S DIRECTORY, settled before anything reaches the network, and held.
 	dir, rc := rebaseDir(f, origin, ra.into, errw)
 	if rc != 0 {
 		return rc
 	}
 	store := patchedForkStore()
-	unlock, held, err := store.TryLockRebaseDir(resolveExistingPrefix(dir))
-	switch {
-	case err != nil:
-		fmt.Fprintf(errw, "yolo pack rebase: %v — name another directory with --into <dir>\n", err)
-		return 1
-	case held:
-		fmt.Fprintf(errw, "yolo pack rebase: another `yolo pack rebase` is working in %s right now — run `%s` "+
-			"again once it has finished, or name another directory with --into <dir>\n", dir, rebaseCommandLine(ra, args))
-		return 1
+	unlock, rc, proceed := claimRebaseDir(pr, errw, store, f, origin, dir, ra, args, site)
+	if !proceed {
+		return rc
 	}
 	defer unlock()
-	state, marker, err := packsrc.InspectRebaseDir(dir)
-	if err != nil {
-		fmt.Fprintf(errw, "yolo pack rebase: reading %s: %v — name another directory with --into <dir>\n", dir, err)
-		return 1
-	}
-	switch {
-	case state == packsrc.RebaseDirClone && marker.Owner != f.Key():
-		fmt.Fprintf(errw, "yolo pack rebase: %s is the rebase clone of %s, not of %s — name another "+
-			"directory with --into <dir>\n", dir, marker.Owner, f.Key())
-		return 1
-	case state == packsrc.RebaseDirClone && !ra.restart:
-		for _, line := range ownCloneLines(store, f, origin, dir, marker, rebaseRestartLine(ra, args)) {
-			pr.Printf("%s", line)
-		}
-		return 1
-	case state == packsrc.RebaseDirClone:
-		if err := removeRebaseClone(dir, f.Key()); err != nil {
-			fmt.Fprintf(errw, "yolo pack rebase: removing the old rebase clone: %v — remove %s yourself, or name "+
-				"another directory with --into <dir>\n", err, dir)
-			return 1
-		}
-		pr.Printf("[dim]%s[/dim]", richtext.Escape("removed the old rebase clone "+dir+", to start over"))
-	case state == packsrc.RebaseDirOther:
-		fmt.Fprintf(errw, "yolo pack rebase: %s exists and is not a rebase clone of %s, so it is left "+
-			"alone — name another directory with --into <dir>, or remove it if an interrupted rebase left it\n",
-			dir, f.Label())
-		return 1
-	}
 
 	series, err := f.ReadSeries()
 	if err != nil {
@@ -229,7 +214,7 @@ func packRebase(args []string, out, errw io.Writer, color bool) int {
 		fmt.Fprintf(errw, "yolo pack rebase: %s: %s — rebasing onto --onto %s anyway\n", f.Label(),
 			found.Problem, ra.onto)
 	}
-	repo, subdir := mustRepo(f.Source), subdirOf(f.Source)
+	repo := mustRepo(f.Source)
 	list := rec.Candidates(res.Inputs)
 	target, hasTarget := rebaseDefaultTarget(rec, res.Inputs, series.Digest)
 	switch {
@@ -271,6 +256,74 @@ func packRebase(args []string, out, errw io.Writer, color bool) int {
 	ctx, stop := rebaseInterrupt()
 	defer stop()
 	store.Ctx = ctx
+	return runRebaseClone(ctx, pr, errw, store, f, origin, dir, series, target, site, "yolo pack rebase "+f.Key(),
+		func(rr packsrc.RebaseResult) []string {
+			return rebaseCleanLines(f, rec, res.Inputs, list, series, target, rr, site)
+		})
+}
+
+// claimRebaseDir is step 2, the clone's directory settled before anything reaches the network, and
+// held: the rebase directory lock, taken in locks' store, keeps a second run on it (another
+// terminal) from taking this run's clone, half made, for its own, or removing it. It says what dir
+// holds and acts on it: proceed is false when the verb ends here, with rc its exit status (a
+// directory it must not touch, or its own clone, whose next steps it prints again); otherwise the
+// caller defers unlock.
+func claimRebaseDir(pr richtext.Printer, errw io.Writer, locks *packsrc.Store, f packload.Fork, origin forkPackOrigin,
+	dir string, ra rebaseArgs, args []string, site rebaseSite) (unlock func(), rc int, proceed bool) {
+	unlock, held, err := locks.TryLockRebaseDir(resolveExistingPrefix(dir))
+	switch {
+	case err != nil:
+		fmt.Fprintf(errw, "yolo pack rebase: %v — name another directory with --into <dir>\n", err)
+		return nil, 1, false
+	case held:
+		fmt.Fprintf(errw, "yolo pack rebase: another `yolo pack rebase` is working in %s right now — run `%s` "+
+			"again once it has finished, or name another directory with --into <dir>\n", dir, rebaseCommandLine(ra, args))
+		return nil, 1, false
+	}
+	state, marker, err := packsrc.InspectRebaseDir(dir)
+	if err != nil {
+		unlock()
+		fmt.Fprintf(errw, "yolo pack rebase: reading %s: %v — name another directory with --into <dir>\n", dir, err)
+		return nil, 1, false
+	}
+	switch {
+	case state == packsrc.RebaseDirClone && marker.Owner != f.Key():
+		unlock()
+		fmt.Fprintf(errw, "yolo pack rebase: %s is the rebase clone of %s, not of %s — name another "+
+			"directory with --into <dir>\n", dir, marker.Owner, f.Key())
+		return nil, 1, false
+	case state == packsrc.RebaseDirClone && !ra.restart:
+		for _, line := range ownCloneLines(locks, f, origin, dir, marker, rebaseRestartLine(ra, args), site) {
+			pr.Printf("%s", line)
+		}
+		unlock()
+		return nil, 1, false
+	case state == packsrc.RebaseDirClone:
+		if err := removeRebaseClone(dir, f.Key()); err != nil {
+			unlock()
+			fmt.Fprintf(errw, "yolo pack rebase: removing the old rebase clone: %v — remove %s yourself, or name "+
+				"another directory with --into <dir>\n", err, dir)
+			return nil, 1, false
+		}
+		pr.Printf("[dim]%s[/dim]", richtext.Escape("removed the old rebase clone "+dir+", to start over"))
+	case state == packsrc.RebaseDirOther:
+		unlock()
+		fmt.Fprintf(errw, "yolo pack rebase: %s exists and is not a rebase clone of %s, so it is left "+
+			"alone — name another directory with --into <dir>, or remove it if an interrupted rebase left it\n",
+			dir, f.Label())
+		return nil, 1, false
+	}
+	return unlock, 0, true
+}
+
+// runRebaseClone is step 4: the clone and the replay, under ctx, the caller's interrupt context,
+// which store.Ctx already carries; then the clean, conflicting or failed answer. clean is the lines
+// a target the series takes as it stands gets, and retry the command that tries again after an apply
+// error.
+func runRebaseClone(ctx context.Context, pr richtext.Printer, errw io.Writer, store *packsrc.Store, f packload.Fork,
+	origin forkPackOrigin, dir string, series *packsrc.Series, target packsrc.ListEntry, site rebaseSite, retry string,
+	clean func(packsrc.RebaseResult) []string) int {
+	repo, subdir := mustRepo(f.Source), subdirOf(f.Source)
 	pr.Printf("[dim]%s[/dim]", richtext.Escape("cloning "+repo+" into "+dir+" to rebase "+f.Label()+
 		"'s series onto upstream "+target.Label()))
 	rr := rebaseCloneRun(store, packsrc.RebaseOptions{Owner: f.Key(), Repo: repo, Subdir: subdir, Series: series,
@@ -285,10 +338,10 @@ func packRebase(args []string, out, errw io.Writer, color bool) int {
 		return 1
 	case rr.Err != nil:
 		fmt.Fprintf(errw, "yolo pack rebase: %s: could not rebase the series onto %s: %v — the clone is "+
-			"removed, and `yolo pack rebase %s` tries again\n", f.Label(), target.Label(), rr.Err, f.Key())
+			"removed, and `%s` tries again\n", f.Label(), target.Label(), rr.Err, retry)
 		return 1
 	case rr.Clean:
-		for _, line := range rebaseCleanLines(f, rec, res.Inputs, list, series, target, rr) {
+		for _, line := range clean(rr) {
 			pr.Printf("%s", line)
 		}
 		return 0
@@ -300,7 +353,7 @@ func packRebase(args []string, out, errw io.Writer, color bool) int {
 	pr.Printf("[yellow]%s[/yellow]", richtext.Escape(f.Label()+": upstream "+target.Label()+
 		" does not take the patch series — the rebase stopped in "+dir))
 	pr.Printf("%s", richtext.Escape("  "+rr.Conflict.Member+" conflicts in "+paths))
-	for _, line := range rebaseNextSteps(f, origin, dir, target, rr.Applied, true) {
+	for _, line := range rebaseNextSteps(f, origin, dir, target, rr.Applied, true, site) {
 		pr.Printf("%s", line)
 	}
 	return 1
@@ -331,8 +384,9 @@ func isRebaseDefault(rec *packsrc.CheckRecord, in packsrc.CheckInputs, series st
 
 // pickRebaseFork is the patched fork or patched extension key names among forks, or why there is
 // none (with the exit status): a key is required, since each conflict line names it, and a wrong one
-// is answered with the keys there are.
-func pickRebaseFork(forks []packload.Fork, key string, errw io.Writer) (packload.Fork, int) {
+// is answered with the keys there are. in is the pack directory the forks were read from, for the
+// scratch rebase, and "" for the selected packs'.
+func pickRebaseFork(forks []packload.Fork, key, in string, errw io.Writer) (packload.Fork, int) {
 	var patched, trees []string
 	for _, f := range forks {
 		switch {
@@ -342,14 +396,25 @@ func pickRebaseFork(forks []packload.Fork, key string, errw io.Writer) (packload
 			patched = append(patched, f.Key())
 		}
 	}
+	which, where := "the selected patched ", ""
+	if in != "" {
+		which, where = "the patched ", " in "+in
+	}
 	var there []string
 	if len(patched) > 0 {
-		there = append(there, "the selected patched "+plural(len(patched), "fork is ", "forks are ")+strings.Join(patched, ", "))
+		there = append(there, which+plural(len(patched), "fork", "forks")+where+plural(len(patched), " is ", " are ")+
+			strings.Join(patched, ", "))
 	}
 	if len(trees) > 0 {
-		there = append(there, "the selected patched "+plural(len(trees), "extension is ", "extensions are ")+strings.Join(trees, ", "))
+		there = append(there, which+plural(len(trees), "extension", "extensions")+where+plural(len(trees), " is ", " are ")+
+			strings.Join(trees, ", "))
 	}
-	if len(there) == 0 {
+	switch {
+	case len(there) > 0:
+	case in != "":
+		there = []string{"the pack in " + in + " declares no patched fork or extension (a fork pack's program, or a " +
+			"`files` contribution, that declares `patches`)"}
+	default:
 		there = []string{"no patched fork or extension is selected (a fork pack's program, or a `files` " +
 			"contribution, that declares `patches`)"}
 	}
@@ -369,6 +434,10 @@ func pickRebaseFork(forks []packload.Fork, key string, errw io.Writer) (packload
 			return packload.Fork{}, 1
 		}
 		return f, 0
+	}
+	if in != "" {
+		fmt.Fprintf(errw, "yolo pack rebase: no fork or extension in %s is %s — %s\n", in, key, thereAre)
+		return packload.Fork{}, 1
 	}
 	fmt.Fprintf(errw, "yolo pack rebase: no selected fork or extension is %s — %s\n", key, thereAre)
 	return packload.Fork{}, 1
@@ -497,9 +566,10 @@ func underOrEqual(child, base string) bool {
 // rebaseCleanLines say that the series takes the target as it stands, what the next fresh launch
 // does about it, and each member already upstream. in is what the check read, list its candidates.
 // Under an `agent_updates` hold with a good build, no launch checks the upstream, and a launch builds
-// the series at the good build's commit alone until the hold lifts.
+// the series at the good build's commit alone until the hold lifts. A scratch rebase reads no check
+// record, so for the newest entry it cannot say whether the good build already runs it (scratchBuilds).
 func rebaseCleanLines(f packload.Fork, rec *packsrc.CheckRecord, in packsrc.CheckInputs, list []packsrc.ListEntry,
-	series *packsrc.Series, target packsrc.ListEntry, rr packsrc.RebaseResult) []string {
+	series *packsrc.Series, target packsrc.ListEntry, rr packsrc.RebaseResult, site rebaseSite) []string {
 	hold := ""
 	if rec != nil && rec.Good != nil {
 		hold = patchedForkHold(f)
@@ -512,6 +582,8 @@ func rebaseCleanLines(f packload.Fork, rec *packsrc.CheckRecord, in packsrc.Chec
 		next = patchedNotBuilt
 	case hold != "":
 		next = "a launch builds it once the hold lifts (" + hold + ")"
+	case isRebaseDefault(rec, in, series.Digest, target) && site.scratch:
+		next = scratchBuilds
 	case isRebaseDefault(rec, in, series.Digest, target):
 		next = patchedNotBuilt
 	case onList(list, target.Commit):
@@ -555,16 +627,16 @@ func rebaseRestartLine(ra rebaseArgs, args []string) string {
 // run that stopped before its replay ended — that it holds nothing to export. Each ends with
 // restart, the command that starts it over.
 func ownCloneLines(store *packsrc.Store, f packload.Fork, origin forkPackOrigin, dir string, m *packsrc.RebaseMarker,
-	restart string) []string {
+	restart string, site rebaseSite) []string {
 	made := patchedAge(patchedNow().Sub(time.Unix(m.At, 0)))
 	lines := []string{"[yellow]" + richtext.Escape(f.Label()+": "+dir+" is its rebase clone, made "+made+
 		" ago onto upstream "+m.Target.Label()) + "[/yellow]"}
 	again := "[dim]" + richtext.Escape("  `"+restart+"` removes it and rebases the series again from the start") + "[/dim]"
 	switch {
 	case packsrc.RebaseInProgress(dir) && m.Applied != "":
-		lines = append(lines, rebaseNextSteps(f, origin, dir, m.Target, m.Applied, true)...)
+		lines = append(lines, rebaseNextSteps(f, origin, dir, m.Target, m.Applied, true, site)...)
 	case store.RebaseFinished(dir, m):
-		lines = append(lines, rebaseNextSteps(f, origin, dir, m.Target, m.Applied, false)...)
+		lines = append(lines, rebaseNextSteps(f, origin, dir, m.Target, m.Applied, false, site)...)
 	default:
 		lines = append(lines, richtext.Escape("  it holds no finished rebase to export: the rebase there was "+
 			"aborted, or a run stopped before its replay ended"))
@@ -607,10 +679,16 @@ func forkPackClone(store *packsrc.Store, dir, pack, repo string) (string, bool) 
 // detaches at a partial replay; `mkdir` refuses a <patches>.new an earlier export left, whose files
 // the series would take too; the format-patch writes `.patch` names with `a/` `b/` prefixes whatever
 // the user's git config says (format.suffix, format.noprefix), since the series reads only `.patch`
-// files and `git am` strips one path component; and only then the two renames, the one moment a
-// reader finds no directory. A fetched pack's commit and push end the same line.
+// files and `git am` strips one path component, and with no `-- <git version>` signature, which
+// changes with the git that exports and is no part of a patch (PF-D62); and only then the two
+// renames, the one moment a reader finds no directory. A fetched pack's commit and push end the
+// same line.
+//
+// A SCRATCH REBASE (site.scratch) exports into the --pack directory, which a launch builds only
+// where `packs` selects it; in a jail (site.jail) the agent that resolves the conflict is already
+// there, so no jail is offered.
 func rebaseNextSteps(f packload.Fork, origin forkPackOrigin, dir string, target packsrc.ListEntry,
-	applied string, inProgress bool) []string {
+	applied string, inProgress bool, site rebaseSite) []string {
 	q := shquote.QuoteDisplay
 	var lines []string
 	cmd := func(s string) { lines = append(lines, "    "+richtext.Escape(s)) }
@@ -625,7 +703,7 @@ func rebaseNextSteps(f packload.Fork, origin forkPackOrigin, dir string, target 
 	}
 	guard := packsrc.RebaseExportGuard(dir, target.Commit, applied, q)
 	formatPatch := func(out string) string {
-		return "git -C " + q(dir) + " -c format.noprefix=false format-patch --suffix=.patch --base=" +
+		return "git -C " + q(dir) + " -c format.noprefix=false format-patch --no-signature --suffix=.patch --base=" +
 			target.Commit + " -o " + out + " " + target.Commit + ".." + packsrc.RebaseBranchRef
 	}
 	export := func(patches, tail string) {
@@ -641,6 +719,11 @@ func rebaseNextSteps(f packload.Fork, origin forkPackOrigin, dir string, target 
 			" && rm -r " + q(patches+".old") + tail)
 	}
 	switch {
+	case origin.local != "" && site.scratch:
+		say(then + "replace the series in " + q(origin.local) + " with the rebased one — the line changes nothing " +
+			"until the rebase is finished:")
+		export(origin.patches(f), "")
+		say("the next fresh launch builds the new series wherever your `packs` selects this pack")
 	case origin.local != "":
 		say(then + "replace the series with the rebased one — the line changes nothing until the rebase is finished:")
 		export(origin.patches(f), "")
@@ -685,7 +768,7 @@ func rebaseNextSteps(f packload.Fork, origin forkPackOrigin, dir string, target 
 			"entries, so there is no patch directory of yours to replace:")
 		cmd(guard + " && " + formatPatch("<your pack>/patches"))
 	}
-	if inProgress {
+	if inProgress && !site.jail {
 		say("an agent can resolve it in a jail started there: cd " + q(dir) + " && yolo")
 	}
 	return lines

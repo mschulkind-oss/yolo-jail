@@ -126,7 +126,8 @@ line in the launch ends with what holds it and what to run:
 yolo also walks back through older versions and builds the newest one your patches do apply to,
 if it is newer than the good build.
 
-`yolo pack rebase <key>` sets up the rebase for you. Run it on your machine, not in a jail:
+`yolo pack rebase <key>` sets up the rebase for you. Run it on your machine; in a jail, see
+[Check or rebase a series in a jail](#check-or-rebase-a-series-in-a-jail):
 
 ```bash
 yolo pack rebase pi-mine/pi
@@ -144,6 +145,21 @@ yolo pack rebase pi-mine/pi
 `--onto <tag or commit>` rebases onto another version, and `--restart` starts a clone over. Running
 the command again on its clone prints its next steps again. It never writes into your pack itself.
 
+## Check or rebase a series in a jail
+
+A jail cannot see your machine's copy of the upstream, or what yolo recorded about it. So two
+commands work from the pack's own folder instead, with a copy of the upstream they fetch for
+themselves and delete when they finish. Both also work on your machine.
+
+- **`yolo pack series check <pack folder>`** says whether each series in the pack still applies: it
+  applies, or the first patch that conflicts and its files. That is what `yolo pack status` would
+  show for the same series. `--onto <tag or commit>` checks that version instead of the newest.
+- **`yolo pack rebase <key> --pack <pack folder>`** sets up the rebase as above, onto the newest
+  version or `--onto`. In a jail the pack folder must be inside the workspace. The export line it
+  prints writes the new series into that folder, as it would on your machine.
+
+Neither command writes into your pack itself, or changes what a launch runs.
+
 ## Commands
 
 | Command | What it does |
@@ -151,7 +167,8 @@ the command again on its clone prints its next steps again. It never writes into
 | `yolo pack update` | Checks every upstream now, applies each series to the newest version, and says whether it applies or which patch conflicts. It builds nothing: the next launch does. |
 | `yolo pack status` | Shows each good build, the newest version and what happened when yolo tried it, what holds it, and when the next check is due. It works offline. |
 | `yolo capture <bin>` or `yolo capture <pack>/<name>` | Checks now and builds the newest version that applies, or rebuilds the good build. |
-| `yolo pack rebase <key>` | Sets up a rebase of the series onto a version it does not apply to, as above. |
+| `yolo pack rebase <key>` | Sets up a rebase of the series onto a version it does not apply to, as above. Add `--pack <pack folder>` to run it from the pack's folder, in a jail too. |
+| `yolo pack series check <pack folder>` | Says whether each series in a pack folder applies to the newest version, or which patch conflicts. It works in a jail. |
 
 To keep running what you have, turn `agent_updates` off for the pack, or put a tag in `?ref=`.
 

@@ -14,7 +14,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 **Patch series for programs and pi extensions.** A pack can name an upstream and your changes as a
 patch series, and yolo builds them onto each new release they fit. When a release conflicts, the
-last good build keeps running and `yolo pack rebase` sets up the fix. It needs git 2.40 or newer on
+last good build keeps running and `yolo pack rebase` sets up the fix, and `yolo pack series check`
+says whether a series still applies; both work in a jail. Patch series need git 2.40 or newer on
 the host. See [Follow an upstream with a patch series](userguide/guides/patch-series.md).
 
 **Claude Code plugins and mods.** A new guide covers the ways to bring a Claude Code plugin or mod
