@@ -2096,14 +2096,21 @@ func (c *hostComposition) credentialGaps(getenv func(string) string) []string {
 
 // platformSwitchConflicts is PP-D1 for this launch's one agent, read from the real home, the
 // file the agent `yolo host` execs reads itself (packload.PlatformSwitchConflicts), with the
-// host's computed-leaf record saying which switch `yolo host apply` wrote there.
+// host's computed-leaf record saying which switch `yolo host apply` wrote there, and the user
+// config saying whether that apply renders here at all (host_management "own"): under "none" it
+// refuses, so a line sending the user to it would repeat at every launch.
 func (c *hostComposition) platformSwitchConflicts() []packload.PlatformSwitchConflict {
 	if c.scope == nil || c.agent == "" {
 		return nil
 	}
 	home := paths.Home()
-	return packload.PlatformSwitchConflicts(c.packs, c.scope.Selection(), c.resolved, c.providers,
+	conflicts := packload.PlatformSwitchConflicts(c.packs, c.scope.Selection(), c.resolved, c.providers,
 		home, c.agent, render.HostLeafWrote(home))
+	renders := config.HostManagementMode() == config.HostManagementOwn
+	for i := range conflicts {
+		conflicts[i].HostApplyRenders = renders
+	}
+	return conflicts
 }
 
 // regionGaps is the region pre-flight (packload.ProviderRegionGaps, OQ-BR6) for this launch,

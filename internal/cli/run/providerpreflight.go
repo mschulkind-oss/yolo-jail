@@ -169,10 +169,14 @@ func (o *Options) notePlatformSwitchConflicts(packs []*packload.Pack, channel *p
 		return
 	}
 	// The host's computed-leaf record says which switch `yolo host apply` wrote into the user's
-	// file for the HOST selection (HC-D25): its line names yolo's write, not the user's.
+	// file for the HOST selection (HC-D25): its line names yolo's write, not the user's. And the
+	// user config says whether that apply renders in this home at all (host_management "own"):
+	// under "none" it refuses, so the line names a removal that runs here instead.
 	home := paths.Home()
+	renders := config.HostManagementMode() == config.HostManagementOwn
 	for _, c := range packload.PlatformSwitchConflicts(packs, channel.scope.Selection(),
 		channel.resolvedProfiles, channel.providers, home, "", render.HostLeafWrote(home)) {
+		c.HostApplyRenders = renders
 		o.pr(o.Stderr).print("[yellow]" + c.Line() + "[/yellow]")
 	}
 }

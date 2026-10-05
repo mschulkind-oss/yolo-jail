@@ -22,7 +22,8 @@ package packload
 // switch holding the recorded value is yolo's, and its line names `yolo host apply`, which clears
 // it once claude's host selection leaves the platform, instead of telling the user to remove a
 // key of theirs. The caller answers from the record (render.HostLeafWrote): this package reads
-// no render target.
+// no render target. Only where a host apply renders (host_management "own"): under "none" the
+// apply refuses, so the line names removing the key by hand, or `--revert` (HostApplyRenders).
 
 import (
 	"fmt"
@@ -54,6 +55,12 @@ type PlatformSwitchConflict struct {
 	// WrittenByYolo is whether the switch holds the value `yolo host apply` recorded writing
 	// there (the host's computed-leaf record), so the key is yolo's and not the user's.
 	WrittenByYolo bool
+	// HostApplyRenders is whether a `yolo host apply` renders in this home: host_management is
+	// "own". The caller sets it from the user config (config.HostManagementMode), which this
+	// package does not read. False under "none" — the unset key since the `assert` retirement
+	// (OQ-CO14) — where the apply refuses, so a switch yolo wrote is named for removal by hand or
+	// by `--revert`, never by an apply that would refuse at every launch.
+	HostApplyRenders bool
 }
 
 // Line is the one line a launch prints for the conflict.
@@ -61,6 +68,18 @@ func (c PlatformSwitchConflict) Line() string {
 	fix := "select a provider of that platform for " + c.Agent
 	if c.Profile != "" {
 		fix = "select one (-p " + c.Profile + ")"
+	}
+	if c.WrittenByYolo && !c.HostApplyRenders {
+		// NOT "set own and apply": own's first apply ADOPTS the file as it finds it, so a switch
+		// the retired `assert` wrote becomes a captured key of the user's rather than going.
+		// `--revert` runs under "none" and takes out the leaf the record names.
+		return fmt.Sprintf("%s: %s sets %s, which `yolo host apply` wrote there for %s's host "+
+			"selection, and it puts %s on its own %s client, but no %s provider is selected for %s, "+
+			"so yolo delivers it none of that platform's credentials: %s, or remove %s from %s by "+
+			"hand, since no host apply renders here while host_management is not \"own\" (`yolo host "+
+			"apply --revert` lists every key yolo wrote, this one included, and takes them out with "+
+			"--assert).", c.Agent, c.File, c.Key, c.Agent, c.Agent, strconv.Quote(c.Platform),
+			strconv.Quote(c.Platform), c.Agent, fix, c.Key, c.File)
 	}
 	if c.WrittenByYolo {
 		return fmt.Sprintf("%s: %s sets %s, which `yolo host apply` wrote there for %s's host "+
@@ -82,7 +101,8 @@ func (c PlatformSwitchConflict) Line() string {
 // gate's own selection) is not of the switch's platform. A surface this pack does not declare, or
 // one with no host layer, has no user copy to read and is skipped, as is a file that is absent or
 // not JSON: the agent reports its own config errors. wrote says which switches yolo's own host
-// apply wrote (WrittenByYolo); nil says none did.
+// apply wrote (WrittenByYolo); nil says none did. HostApplyRenders is left false, for the caller
+// to set on each from the user config.
 func PlatformSwitchConflicts(packs []*Pack, sel GateSelection, resolved map[string]ResolvedProfile,
 	providers *jsonx.OrderedMap, home, agent string, wrote LeafWrote) []PlatformSwitchConflict {
 	var out []PlatformSwitchConflict

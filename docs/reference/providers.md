@@ -1908,6 +1908,13 @@ That apply does remove it: a leaf the settings derive stops asserting is cleared
 still holds the value yolo wrote. A switch you wrote before yolo asserted it, or changed after, is
 never recorded and never removed.
 
+**Where no host apply renders** — `host_management` is `"none"`, which is also the unset key, on a
+home an earlier yolo wrote into — that apply refuses, so the line names removing the key by hand,
+or `yolo host apply --revert`, which takes out the values yolo's records say it wrote, this one
+included ([CO-D16](../design/config-ownership-and-promotion.md#CO-D16)). ⚠ Switching such a home
+straight to `"own"` with claude already off Bedrock does not remove it either: the first owned
+apply adopts the file as it finds it, and the switch becomes a captured key of yours.
+
 The `-p` it offers is a declared profile over a provider of that platform that routes through no
 via service; with none declared it says to select a provider of that platform. It is a disclosure,
 never a refusal: every jail arm prints it beside the provider preflight (the fresh container
