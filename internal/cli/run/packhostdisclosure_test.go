@@ -55,6 +55,10 @@ func TestDisclosureCoversEveryReviewWorthyKind(t *testing.T) {
 		// hooks/mcpServers runs code IN THE JAIL). That is jail-internal — it is what the
 		// jail is — and `pack install` + `pack footprint` are where it is reviewed.
 		packdecl.KindSkills: "a wrapped plugin runs code in the JAIL, not on the host",
+		// files is MayBeReviewWorthy only as a PATCHED EXTENSION, whose one claim is routed per
+		// claim to disclosureRead (disclosureClassOfClaim; TestAPatchedExtensionsClaimIsDisclosedAtLaunch
+		// pins it at launch); every other tree is the pack's own content.
+		packdecl.KindFiles: "review-worthy only as a patched extension, disclosed per claim",
 	}
 	for _, k := range packdecl.KnownKinds() {
 		fp, ok := packdecl.FootprintOf(k)

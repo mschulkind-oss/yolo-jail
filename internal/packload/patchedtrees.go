@@ -214,6 +214,13 @@ func listedAnywhere(p *Pack, entry string) bool {
 // Claim.DisclosureSentence keys its sentence on, in place of a plain tree's "read-only tree".
 const patchedTreeClaimDetailPrefix = "patched extension build: "
 
+// IsPatchedExtension reports whether c is a PATCHED EXTENSION's claim (PPX-D15): the one `files`
+// claim that is review-worthy, which the launch's disclosure routes per claim, as it routes a wrapped
+// plugin's code-running claim.
+func (c Claim) IsPatchedExtension() bool {
+	return c.Kind == packdecl.KindFiles && strings.HasPrefix(c.Detail, patchedTreeClaimDetailPrefix)
+}
+
 // patchedTreeClaimDetail is a patched extension's claim Detail (PPX-D15): the source as written
 // (its ref included), the series — its directory, and its patch count and digest when root's series
 // reads — the follow rule and the build line, so two extensions that differ in any of them render

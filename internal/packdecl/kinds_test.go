@@ -137,6 +137,9 @@ func TestCombineRulesMatchDesign(t *testing.T) {
 func TestReviewWorthyKinds(t *testing.T) {
 	worthy := map[Kind]bool{
 		KindProgram: true, KindState: true, KindReadsHost: true, KindMount: true,
+		// files only as a patched extension, whose tree is an upstream's code built from source
+		// (docs/design/patched-extensions.md PPX-D15).
+		KindFiles: true,
 		// loophole is the only kind review-worthy in EVERY instance, not just some: its
 		// claims are enumerated one per boundary CROSSING
 		// (docs/reference/loophole-system.md#the-crossing-enumeration), so a

@@ -207,3 +207,15 @@ func TestAnAttachSaysAnUnreadableDeliveryRecordOnce(t *testing.T) {
 		t.Errorf("the unreadable record's line names no next step:\n%s", printed)
 	}
 }
+
+// A PATCHED EXTENSION IS DISCLOSED AT EVERY LAUNCH (PPX-D15): its review-marked claim's sentence —
+// the upstream's new code arriving unreviewed, which the agent loading the tree runs — prints with
+// the launch's disclosure, as a patched fork's program claim does, and is classified per claim.
+func TestAPatchedExtensionsClaimIsDisclosedAtLaunch(t *testing.T) {
+	treeLaunchHome(t, true)
+	_, printed := fakePodmanLaunch(t, func(o *Options) { o.BuildTrees = deliverATreeCopy(t) })
+	if !strings.Contains(printed, "DELIVERS a tree built from source at ~/"+treeInto) ||
+		!strings.Contains(printed, "UPSTREAM'S NEW CODE ARRIVES UNREVIEWED") {
+		t.Errorf("the launch does not disclose its patched extension's claim:\n%s", printed)
+	}
+}
