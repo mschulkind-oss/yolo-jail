@@ -3,6 +3,7 @@ package hostfloor
 import (
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"syscall"
 	"testing"
@@ -366,5 +367,55 @@ func TestPrelaunchRefreshThatCannotTakeItsLockSaysSoAndRunsNothing(t *testing.T)
 	if !strings.Contains(out, "yolo host: pi: cannot take the refresh lock ") ||
 		!strings.Contains(out, "a later launch runs it") || strings.Contains(out, "another refresh holds") {
 		t.Errorf("the line does not say the lock cannot be taken, with its step:\n%s", out)
+	}
+}
+
+// signalsItsParentTrapping is a stub body that HANDLES sig, exiting with status when it arrives, and
+// then sends sig to its parent, this test process, so it comes back to the stub forwarded. Its shape
+// is testsupport.UntilInterrupted's, for the reason that helper measured for macOS's /bin/sh (bash
+// 3.2): nothing runs in the foreground, and the trap is set only once the first `wait` has
+// returned. It gives up after about ten seconds with status 0.
+func signalsItsParentTrapping(sig string, status int) string {
+	return "i=0; t=0; while [ $i -le 200 ]; do sleep $t >/dev/null 2>&1 & wait $!; " +
+		"if [ $i -eq 0 ]; then trap 'exit " + strconv.Itoa(status) + "' " + sig + "; kill -" + sig + " $PPID; t=0.05; fi; " +
+		"i=$((i+1)); done"
+}
+
+// A SIGNAL THIS PROCESS RECEIVED DECIDES THE OUTCOME, NOT HOW THE REFRESH THEN EXITED. A refresh that
+// handles the forwarded signal (a shell trap, a node process.on handler) exits with a status of its
+// choosing, 0 included, and the jail's launcher reads neither: its _shielded TERM and HUP traps end
+// the launcher whatever the program exits with, and its _bounded reads a Ctrl-C followed by a zero
+// exit as an interrupted act, not a successful one.
+func TestPrelaunchRefreshOutcomeIsTheSignalThisProcessReceived(t *testing.T) {
+	for _, c := range []struct {
+		name, sig string
+		status    int
+		want      RefreshOutcome
+		signal    syscall.Signal
+	}{
+		{"a SIGTERM the refresh handles with 143", "TERM", 143, RefreshStopped, syscall.SIGTERM},
+		{"a SIGTERM the refresh handles with 0", "TERM", 0, RefreshStopped, syscall.SIGTERM},
+		{"a SIGHUP the refresh handles with 1", "HUP", 1, RefreshStopped, syscall.SIGHUP},
+		{"a Ctrl-C the refresh handles with 1", "INT", 1, RefreshInterrupted, syscall.SIGINT},
+		{"a Ctrl-C the refresh handles with 0", "INT", 0, RefreshInterrupted, syscall.SIGINT},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			w := newRefreshWorld(t, signalsItsParentTrapping(c.sig, c.status))
+			got := w.refresh(refreshProgram(settingsRel))
+			if got.Outcome != c.want || got.Signal != c.signal {
+				t.Fatalf("outcome %v signal %v (status %d), want outcome %v signal %v\n%s",
+					got.Outcome, got.Signal, got.Status, c.want, c.signal, w.out)
+			}
+			if strings.Contains(w.out.String(), "the pre-launch refresh failed") {
+				t.Errorf("a signal this process received was reported as the refresh failing:\n%s", w.out)
+			}
+			// Never recorded as content a refresh succeeded with, so the next launch retries it.
+			if seen, _ := os.ReadDir(filepath.Join(w.f.Dir, "refresh", "pi.seen")); len(seen) != 0 {
+				t.Errorf("a refresh a signal ended recorded its content as seen: %v", seen)
+			}
+			if pidlock.Held(w.f.refreshLockPath("pi")) {
+				t.Error("the lock outlived the refresh")
+			}
+		})
 	}
 }

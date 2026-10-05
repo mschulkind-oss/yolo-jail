@@ -342,6 +342,27 @@ func TestHostPiRefreshStoppedByATerminateEndsTheLaunch(t *testing.T) {
 	}
 }
 
+// A REFRESH THAT HANDLES THE SIGTERM STILL ENDS THE LAUNCH: what decides is the signal yolo host
+// received, not the status the refresh chose on its way out (a shell trap here, a node
+// process.on handler followed by process.exit(143) in the wild), as the jail launcher's _shielded
+// trap ends the launcher whatever the program exits with. The stub's shape is
+// testsupport.UntilInterrupted's, which macOS's /bin/sh needs: nothing in the foreground, the
+// trap set once the first wait has returned.
+func TestHostPiRefreshThatHandlesASIGTERMStillEndsTheLaunch(t *testing.T) {
+	h := newRefreshHost(t, piOnItsPathCopy, "  i=0; t=0; while [ $i -le 200 ]; do sleep $t >/dev/null 2>&1 & wait $!; "+
+		"if [ $i -eq 0 ]; then trap 'exit 143' TERM; kill -TERM $PPID; t=0.05; fi; i=$((i+1)); done")
+	r := h.launch(t)
+	if r.execEnv != nil {
+		t.Fatalf("a SIGTERM the refresh handled still started pi\n%s", r.errs)
+	}
+	if r.rc != 128+15 {
+		t.Errorf("rc=%d, want 143 (SIGTERM)\n%s", r.rc, r.errs)
+	}
+	if strings.Contains(r.errs, "the pre-launch refresh failed") || !strings.Contains(r.errs, "stopped by SIGTERM") {
+		t.Errorf("the stop was said as a failure, or not at all:\n%s", r.errs)
+	}
+}
+
 // THE FLOOR'S OWN COPY IS REFRESHED TOO: a fixture pack's npm program, installed into the floor
 // from the fake registry, declares a refresh; the launch runs it through bin/<bin>, whose fake Node
 // prints the argv it was handed — to the launch's stderr, never its stdout — and then execs that

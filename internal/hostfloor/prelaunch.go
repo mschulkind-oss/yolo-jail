@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"os/signal"
 	"path/filepath"
 	"strings"
 	"syscall"
@@ -74,11 +75,13 @@ const (
 	RefreshFailed
 	// RefreshTimedOut: the refresh outlived its bound and was stopped.
 	RefreshTimedOut
-	// RefreshInterrupted: a Ctrl-C ended the refresh. The program still launches, as the jail's
-	// launcher's does.
+	// RefreshInterrupted: a Ctrl-C (SIGINT) reached this process while the refresh ran, whatever
+	// the refresh then exited with, 0 included: an interrupted refresh is not a successful one. The
+	// program still launches, as the jail's launcher's does.
 	RefreshInterrupted
-	// RefreshStopped: a SIGTERM or SIGHUP this process received ended the refresh. The lock is
-	// released and the caller ends the launch, as that signal asked.
+	// RefreshStopped: a SIGTERM or SIGHUP reached this process while the refresh ran, whatever the
+	// refresh then exited with: one that handles the signal and exits with a status is stopped too.
+	// The lock is released and the caller ends the launch, as that signal asked.
 	RefreshStopped
 )
 
@@ -172,6 +175,18 @@ func (f *Floor) PrelaunchRefresh(p Program, exe string, env []string) RefreshRes
 
 // runRefresh runs exe argv in env under the refresh's bound, its output on the floor's Out nested
 // under the line that started it, and classifies how it ended.
+//
+// A SIGNAL THIS PROCESS RECEIVED OUTRANKS HOW THE REFRESH EXITED. notty forwards SIGINT, SIGTERM and
+// SIGHUP to the refresh, but reports one (notty.Stopped) only when the refresh died of it or was
+// killed for outliving it, and a refresh that handles the signal exits with a status of its own
+// choosing (a shell trap, a node process.on handler followed by process.exit(143)), 0 included.
+// The jail's launcher reads neither: its _shielded TERM and HUP traps end the launcher whatever
+// the program then exits with, and its _bounded reads a Ctrl-C followed by a zero exit as an
+// interrupted act. So the signals are recorded here, beside notty's forwarding (signal.Notify
+// hands each one to every channel registered for it), for the whole run: any SIGTERM or SIGHUP is
+// RefreshStopped by the first of them, and otherwise any SIGINT is RefreshInterrupted. notty's own
+// report is read too, which covers a signal the runtime has not yet handed this channel when the
+// refresh died of it.
 func (f *Floor) runRefresh(exe string, argv, env []string) RefreshResult {
 	cmd := exec.Command(exe, argv...)
 	cmd.Env = env
@@ -180,21 +195,85 @@ func (f *Floor) runRefresh(exe string, argv, env []string) RefreshResult {
 	cmd.Stdout, cmd.Stderr = shown, shown
 	// A process the refresh left behind holding that pipe must not hold the launch with it.
 	cmd.WaitDelay = RefreshKillAfter
-	err := notty.RunBounded(cmd, notty.Bound{Timeout: f.pollTimeout(), KillAfter: RefreshKillAfter})
+	var err error
+	got := signalsDuring(func() {
+		err = notty.RunBounded(cmd, notty.Bound{Timeout: f.pollTimeout(), KillAfter: RefreshKillAfter})
+	})
 	shown.flush()
 	var stopped *notty.Stopped
+	if errors.As(err, &stopped) {
+		got.add(stopped.Signal)
+	}
 	var timedOut *notty.TimedOut
 	switch {
-	case err == nil:
-		return RefreshResult{Outcome: RefreshRan}
-	case errors.As(err, &stopped) && stopped.Signal == syscall.SIGINT:
-		return RefreshResult{Outcome: RefreshInterrupted, Signal: stopped.Signal}
-	case errors.As(err, &stopped):
-		return RefreshResult{Outcome: RefreshStopped, Signal: stopped.Signal}
+	case got.ending != 0:
+		return RefreshResult{Outcome: RefreshStopped, Signal: got.ending}
+	case got.interrupted:
+		return RefreshResult{Outcome: RefreshInterrupted, Signal: syscall.SIGINT}
 	case errors.As(err, &timedOut):
 		return RefreshResult{Outcome: RefreshTimedOut}
+	case err == nil:
+		return RefreshResult{Outcome: RefreshRan}
 	}
 	return RefreshResult{Outcome: RefreshFailed, Status: notty.ExitCode(err)}
+}
+
+// receivedSignals is what signalsDuring saw: the first SIGTERM or SIGHUP, 0 for none, and whether
+// a SIGINT came.
+type receivedSignals struct {
+	ending      syscall.Signal
+	interrupted bool
+}
+
+func (r *receivedSignals) add(sig syscall.Signal) {
+	switch sig {
+	case syscall.SIGTERM, syscall.SIGHUP:
+		if r.ending == 0 {
+			r.ending = sig
+		}
+	case syscall.SIGINT:
+		r.interrupted = true
+	}
+}
+
+// signalsDuring runs run with SIGINT, SIGTERM and SIGHUP recorded as this process receives them,
+// and returns what it received. It is read continuously rather than left in a buffer, so a burst of
+// Ctrl-Cs cannot fill one and push out the SIGTERM that follows it. A signal arriving once run has
+// returned and before the recording stops is recorded too: it still came during the refresh's
+// step, before the launch went on.
+func signalsDuring(run func()) receivedSignals {
+	ch := make(chan os.Signal, 4)
+	signal.Notify(ch, syscall.SIGINT, syscall.SIGTERM, syscall.SIGHUP)
+	var got receivedSignals
+	record := func(s os.Signal) {
+		if sig, ok := s.(syscall.Signal); ok {
+			got.add(sig)
+		}
+	}
+	stop, done := make(chan struct{}), make(chan struct{})
+	go func() {
+		defer close(done)
+		for {
+			select {
+			case s := <-ch:
+				record(s)
+			case <-stop:
+				return
+			}
+		}
+	}()
+	run()
+	signal.Stop(ch)
+	close(stop)
+	<-done
+	for {
+		select {
+		case s := <-ch:
+			record(s)
+		default:
+			return got
+		}
+	}
 }
 
 // The refresh's state, all under refresh/ in the prefix, so no bin name can collide with it.
