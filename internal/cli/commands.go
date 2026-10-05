@@ -1443,8 +1443,11 @@ func macosLaunchDeps(runProxy func(argv []string) int,
 // (a checkout named by YOLO_REPO_ROOT). Named, not inline, for workspaceLockSeam's reason: a
 // test can invoke the wiring.
 //
-// The same two arms, and the same "yolo-jaild present, not merely the directory" check, as the
-// container's resolveJailPrefix: a half-staged directory must build rather than stage nothing.
+// The same two arms as the container's resolveJailPrefix, and a stricter version of its
+// presence check: EVERY macosuser.GuestBinaries member present as a regular file, not merely the
+// directory or one binary. The launch stages the whole set (StageGuestBinaryCommands), so a
+// prebuilt dir short of one member — a bundle staged before the set grew, or a half-staged one —
+// must build rather than fail at the stage copy of the missing name.
 func guestBinariesSeam(repoRoot string) (string, error) {
 	return resolveGuestBinaries(repoRoot, image.BuildGuestPrefix, os.Stderr)
 }
@@ -1453,7 +1456,14 @@ func guestBinariesSeam(repoRoot string) (string, error) {
 func resolveGuestBinaries(repoRoot string, build func(string, io.Writer) (string, []string),
 	stderr io.Writer) (string, error) {
 	prebuilt := macosuser.PrebuiltGuestBinDir(repoRoot)
-	if info, err := os.Stat(filepath.Join(prebuilt, macosuser.JaildName)); err == nil && info.Mode().IsRegular() {
+	complete := true
+	for _, name := range macosuser.GuestBinaries {
+		if info, err := os.Stat(filepath.Join(prebuilt, name)); err != nil || !info.Mode().IsRegular() {
+			complete = false
+			break
+		}
+	}
+	if complete {
 		return prebuilt, nil
 	}
 	fmt.Fprintln(stderr, "Building the sandbox's in-jail binaries (.#guestPrefix) — the flake "+

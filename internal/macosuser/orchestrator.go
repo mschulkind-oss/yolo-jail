@@ -18,6 +18,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/nixchildren"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
+	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/perside"
 	"github.com/mschulkind-oss/yolo-jail/internal/provision"
 	"github.com/mschulkind-oss/yolo-jail/internal/richtext"
@@ -103,9 +104,10 @@ type Deps struct {
 	// GuestBinaries resolves the directory holding the darwin guest binaries
 	// (jaildaemon.go's GuestBinaries) for a flake source: the bundle's prebuilt
 	// bin/darwin-<arch>, else a `nix build .#guestPrefix`. Asked only when the launch has
-	// a jail daemon to run. A SEAM because the build lives in internal/image, which this
-	// package does not import; the front door wires it (internal/cli's guestBinariesSeam).
-	// nil refuses a launch that has a daemon to run, naming why.
+	// a jail daemon to run or carries the endpoint of a guest client (GuestClients). A SEAM
+	// because the build lives in internal/image, which this package does not import; the
+	// front door wires it (internal/cli's guestBinariesSeam). nil refuses such a launch,
+	// naming why.
 	GuestBinaries func(repoRoot string) (string, error)
 	// SetDiskIOPolicy sets THIS process's disk I/O policy (setiopolicy_np, process scope), and
 	// DiskIOPolicy reads it back (getiopolicy_np): the launcher calls them on itself before the
@@ -244,12 +246,18 @@ func (p printer) print(msg string)          { fmt.Fprintln(p.w, richtext.Render(
 func (p printer) printf(f string, a ...any) { p.print(fmt.Sprintf(f, a...)) }
 
 // MacosSandboxEnv returns the extra env layered into the sandbox launch (git
-// identity + TERM/COLORTERM/NO_COLOR). Host credentials never cross.
+// identity + TERM/COLORTERM/NO_COLOR, and the reachability hatch). Host credentials never
+// cross.
 //
 // NO_COLOR crosses for the container's reason (run.Options.noColorEnvArgs): a user
 // who asked the host for no color asked it of the sandbox's programs too, and it
 // crosses only when set — non-empty, the convention's definition
 // (https://no-color.org).
+//
+// YOLO_ALLOW_UNREACHABLE_SERVICES (paths.AllowUnreachableServicesEnv) crosses for the
+// container's reason too: the user types it on the host, and the witness that reads it runs
+// inside the sandbox (serviceprobe.go), so a hatch left on the host would be one the refusal
+// names and nothing honors. Only when set, so an ordinary launch's env file does not grow it.
 func MacosSandboxEnv(deps Deps, cfg *jsonx.OrderedMap) *jsonx.OrderedMap {
 	env := jsonx.NewOrderedMap()
 	if term := deps.Getenv("TERM"); term != "" {
@@ -260,6 +268,9 @@ func MacosSandboxEnv(deps Deps, cfg *jsonx.OrderedMap) *jsonx.OrderedMap {
 	}
 	if tty.NoColor(deps.Getenv) {
 		env.Set(tty.NoColorVar, deps.Getenv(tty.NoColorVar))
+	}
+	if v := deps.Getenv(paths.AllowUnreachableServicesEnv); v != "" {
+		env.Set(paths.AllowUnreachableServicesEnv, v)
 	}
 	for _, pair := range [][2]string{{"YOLO_GIT_NAME", "user.name"}, {"YOLO_GIT_EMAIL", "user.email"}} {
 		if val, ok := deps.GitConfig(pair[1]); ok && val != "" {
@@ -688,7 +699,10 @@ func RunMacosUser(deps Deps, opts Options) int {
 		plainDeps.Color = false
 		// A plan render builds nothing, so the guest binaries are named at the prebuilt
 		// spelling; a launch whose flake source ships none builds `.#guestPrefix` instead.
-		if len(opts.JailDaemons.Names()) > 0 && opts.JailDaemons.GuestBinSource == "" {
+		// Asked under the live launch's condition (guestBinariesWanted), so the plan shows the
+		// staging a launch would do.
+		if daemons, clients := guestBinariesWanted(opts); (len(daemons) > 0 || len(clients) > 0) &&
+			opts.JailDaemons.GuestBinSource == "" {
 			opts.JailDaemons.GuestBinSource = PrebuiltGuestBinDir(opts.RepoRoot)
 		}
 		plan := buildPlan(plainDeps, opts, nil)
@@ -848,23 +862,27 @@ func RunMacosUser(deps Deps, opts Options) int {
 		}
 	}
 
-	// THE GUEST BINARIES (OQ-DP8), resolved only when there is a daemon to run, and FATAL
-	// when they cannot be: the launch has already told its agents these addresses are served
-	// (the served set composed them), so starting the agent without them hands it a pointer
-	// at a dead port — the state steps 3 and 4 exist to end. The same rule as a container
+	// THE GUEST BINARIES (OQ-DP8), resolved only when there is a daemon to run or a guest
+	// client's endpoint to use (guestBinariesWanted), and FATAL when they cannot be: the launch
+	// has already told its agents these addresses are served and these endpoints published, so
+	// starting the agent without them hands it a pointer at a dead port, or an endpoint with no
+	// client to dial it — the state steps 3 and 4 exist to end. The same rule as a container
 	// launch that cannot build its prefix.
-	if len(opts.JailDaemons.Names()) > 0 && opts.JailDaemons.GuestBinSource == "" {
+	if daemons, clients := guestBinariesWanted(opts); (len(daemons) > 0 || len(clients) > 0) &&
+		opts.JailDaemons.GuestBinSource == "" {
 		if deps.GuestBinaries == nil {
-			out.print("[bold red]This build cannot stage the sandbox's jail daemons[/bold red] " +
-				"(no guest-binary resolver is wired).")
+			out.print("[bold red]This build cannot stage the sandbox's in-jail binaries[/bold red] " +
+				"(no guest-binary resolver is wired), and this launch needs them: " +
+				guestNeedPhrase(daemons, clients) + ".")
 			return 1
 		}
 		src, err := deps.GuestBinaries(opts.RepoRoot)
 		if err != nil {
 			out.printf("[bold red]Could not provide the sandbox's in-jail binaries:[/bold red] %s\n"+
-				"[dim]The jail daemons this launch runs (%s) are started by %s inside the "+
-				"sandbox, and there is no copy of it to stage.[/dim]", errStr(err),
-				strings.Join(opts.JailDaemons.Names(), ", "), JaildName)
+				"[dim]This launch needs them because %s, inside the sandbox, and there is no "+
+				"copy to stage. Fix the build above, or switch off the loophole it is for "+
+				"(`\"loopholes\": {\"<name>\": {\"enabled\": false}}`) to launch without it.[/dim]",
+				errStr(err), guestNeedPhrase(daemons, clients))
 			return 1
 		}
 		opts.JailDaemons.GuestBinSource = src
@@ -1027,11 +1045,47 @@ func RunMacosUser(deps Deps, opts Options) int {
 		defer stop()
 	}
 
+	// 3.7 THE HOST-SERVICE WITNESS (serviceprobe.go): every published endpoint the session env
+	// carries, dialled from inside the sandbox as the agent's clients will dial it. After the
+	// jail daemons, the last thing the launch starts, and before the agent, so a service the
+	// sandbox cannot use refuses the launch as it would refuse a container's boot (OQ-R2,
+	// OQ-R4) — the agent never starts holding an endpoint it cannot open. A refusal returns
+	// through every deferred teardown above: the supervisor is stopped and the env files swept.
+	if len(plan.ProbeArgv) > 0 && runServiceProbe(deps, out, plan) == probeRefused {
+		return 1
+	}
+
 	// 4. Launch under the TTY proxy — OUTSIDE the lock. Everything that writes the
 	// per-workspace tier has happened; the agent's own writes are the same ones two
 	// sessions on one workspace already share on every backend.
 	release()
 	return deps.RunWithProxy(plan.LaunchArgv)
+}
+
+// guestBinariesWanted is why this launch stages the guest set (jaildaemon.go): the daemons its
+// payload names, and the guest clients whose endpoint the composed channel carries
+// (GuestClientsIn over PackEnv and SandboxEnv, the two layers a host service's endpoint
+// variable arrives in). Both empty, it stages none and resolves none. The plan builder asks the
+// same question of the layered env, and PlanInvariants refuses a plan whose env carries a
+// client's endpoint with no client staged (guestClientInvariants), which is what a launch that
+// answered no here and yes there would build.
+func guestBinariesWanted(opts Options) (daemons []string, clients []GuestClient) {
+	return opts.JailDaemons.Names(), GuestClientsIn(opts.PackEnv, opts.SandboxEnv)
+}
+
+// guestNeedPhrase says what the guest set is for on this launch, for the refusal that cannot
+// stage it: "the jail daemons this launch runs (x) are started by yolo-jaild", "the agent runs
+// yolo-serial (the serial loophole's client)", or both.
+func guestNeedPhrase(daemons []string, clients []GuestClient) string {
+	var parts []string
+	if len(daemons) > 0 {
+		parts = append(parts, "the jail daemons this launch runs ("+strings.Join(daemons, ", ")+
+			") are started by "+JaildName)
+	}
+	if len(clients) > 0 {
+		parts = append(parts, "the agent runs "+guestClientPhrase(clients))
+	}
+	return strings.Join(parts, ", and ")
 }
 
 // applyDiskIOPolicy sets a declared priority as this process's disk policy and reads it back.
@@ -1252,10 +1306,18 @@ func PrintPlan(w io.Writer, plan RunPlan, problems []string) {
 	// until OQ-DP8, and a dry run is how a user tells them apart.
 	if len(plan.JailDaemonNames) == 0 {
 		p.print("jail daemons: [dim]none run in the sandbox for this launch[/dim]")
+		// The guest set staged for the agent's clients alone, named on the same rule.
+		if len(plan.GuestClients) > 0 {
+			p.printf("  guest bins: %s → %s [dim](for %s)[/dim]", plan.GuestBinSource,
+				GuestBinDir(plan.StagedDir), strings.Join(plan.GuestClients, ", "))
+		}
 	} else {
 		p.printf("jail daemons: %s [dim](confined; %s supervise, as %s)[/dim]",
 			strings.Join(plan.JailDaemonNames, ", "), JaildName, SandboxUser)
 		p.printf("  guest bins: %s → %s", plan.GuestBinSource, GuestBinDir(plan.StagedDir))
+		if len(plan.GuestClients) > 0 {
+			p.printf("  [dim]and for the agent's %s[/dim]", strings.Join(plan.GuestClients, ", "))
+		}
 		p.printf("  env file:   %s [dim](0600, root-owned, read by %s only)[/dim]",
 			plan.DaemonEnvFile, SandboxUser)
 		p.printf("  log:        %s [dim](the supervisor's own stdout and stderr)[/dim]",
@@ -1337,6 +1399,9 @@ func PrintPlan(w io.Writer, plan RunPlan, problems []string) {
 	if len(plan.ProvisionArgv) > 0 {
 		p.print("  sudo " + shquote.JoinDisplay(plan.ProvisionArgv[1:]))
 	}
+	if len(plan.ProbeArgv) > 0 {
+		p.print("  sudo " + shquote.JoinDisplay(plan.ProbeArgv[1:]))
+	}
 	p.print("")
 	// WHAT THE SESSION REMOVES WHEN IT ENDS, its own files only (sessionfiles.go): a session
 	// killed before this leaves them to the next launch's sweep.
@@ -1373,6 +1438,17 @@ func PrintPlan(w io.Writer, plan RunPlan, problems []string) {
 		p.print("  " + shquote.JoinDisplay(plan.JailDaemonArgv))
 		p.print("")
 	}
+	// THE WITNESS, named either way, on the provisioning stage's rule: "this launch enabled no
+	// host service" and "this backend checks none" must read differently.
+	if len(plan.ProbeArgv) == 0 {
+		p.print("[bold]── host-service witness ──[/bold]")
+		p.print("  [dim]skipped — this launch carries no published host-service endpoint[/dim]")
+	} else {
+		p.print("[bold]── host-service witness (confined, before the agent; refuses the launch " +
+			"when the sandbox cannot use a service) ──[/bold]")
+		p.print("  " + shquote.JoinDisplay(plan.ProbeArgv))
+	}
+	p.print("")
 	p.print("[bold]── launch argv ──[/bold]")
 	p.print("  " + shquote.JoinDisplay(plan.LaunchArgv))
 	p.print("")

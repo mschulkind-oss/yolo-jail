@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
+	"github.com/mschulkind-oss/yolo-jail/internal/macosuser"
 	"github.com/mschulkind-oss/yolo-jail/internal/packdecl"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 )
@@ -71,9 +72,36 @@ func TestBackendLimitsTellTheAgentWhatStderrTellsTheHuman(t *testing.T) {
 	if !strings.Contains(got, "writable COPY") {
 		t.Errorf("does not say content is a writable copy:\n%s", got)
 	}
-	// The in-jail loophole clients have nothing to talk to.
-	if !strings.Contains(got, "yolo-ps") {
-		t.Errorf("does not say the loophole clients are inert:\n%s", got)
+	// The Linux-only loopholes' clients are not in this sandbox.
+	if !strings.Contains(got, "yolo-journalctl") || !strings.Contains(got, "yolo-cglimit") {
+		t.Errorf("does not say the Linux-only loopholes' clients are unavailable:\n%s", got)
+	}
+}
+
+// THE CLIENTS THE GUEST STAGES ARE NOT CALLED UNAVAILABLE, AND ARE SAID TO WORK. `yolo-ps` and
+// `yolo-serial` run in the macos-user sandbox whenever their loophole's endpoint is published
+// (macosuser.GuestClients), so a standing briefing line calling them unavailable would have the
+// agent decline a tool it has, all session. Driven over every guest client, so a client added to
+// the set without being moved out of the unavailable sentence fails here.
+func TestBackendLimitsDoNotCallTheGuestClientsUnavailable(t *testing.T) {
+	var line string
+	for _, l := range backendLimits("macos-user", []*packload.Pack{limitPack(t)}, jsonx.NewOrderedMap()) {
+		if strings.Contains(l, "are not available here") {
+			line = l
+		}
+	}
+	if line == "" {
+		t.Fatal("the macos-user briefing no longer says which loophole clients are unavailable")
+	}
+	unavailable, available, _ := strings.Cut(line, ". ")
+	for _, c := range macosuser.GuestClients {
+		if strings.Contains(unavailable, c.Binary) {
+			t.Errorf("the briefing calls %s (the %s loophole's client) unavailable, and the "+
+				"macos-user guest stages it:\n%s", c.Binary, c.Loophole, line)
+		}
+		if !strings.Contains(available, "`"+c.Binary+"`") || !strings.Contains(available, "do run here") {
+			t.Errorf("the briefing does not say %s runs here:\n%s", c.Binary, line)
+		}
 	}
 }
 

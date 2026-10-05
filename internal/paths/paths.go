@@ -159,6 +159,22 @@ const (
 	JailDaemonReadyFDEnv = "YOLO_JAIL_DAEMON_READY_FD"
 )
 
+// SerialEndpointEnv and HostProcessesEndpointEnv are the endpoint variables two in-jail
+// loophole CLIENTS read: `yolo-serial` the serial loophole's, `yolo-ps` the host-processes
+// loophole's. Each is YOLO_SERVICE_<NAME>_ENDPOINT for its loophole's name, the spelling the
+// run pipeline's hostServiceEnvVar produces, composed from the two halves above so the three
+// cannot drift.
+//
+// They are named here, and not inside each client, because a second binary keys on them: the
+// macos-user launch stages a client into its guest exactly when the session env carries the
+// variable that client reads (macosuser.GuestClients). Spelled twice, a renamed client would
+// be staged for a variable it no longer reads, or not staged for the one it does, and either
+// way the sandbox would hold an endpoint and no program that dials it.
+const (
+	SerialEndpointEnv        = ServiceEnvVarPrefix + "SERIAL" + ServiceEnvVarSuffix
+	HostProcessesEndpointEnv = ServiceEnvVarPrefix + "HOST_PROCESSES" + ServiceEnvVarSuffix
+)
+
 // CgdEndpointName MUST be "<BuiltinCgroupLoopholeName>.endpoint" — composed, for
 // exactly the reason recorded above CgdSocketName.
 const CgdEndpointName = BuiltinCgroupLoopholeName + ServiceEndpointExt

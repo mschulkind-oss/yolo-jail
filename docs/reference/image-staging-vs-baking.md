@@ -156,7 +156,7 @@ directories, because a `--read-only` root filesystem cannot grow one and this is
 absence costs pid1. `jailPrefixLinks` bakes `/bin/<name>` → `/opt/yolo-jail/bin/<name>` for each
 name in `shippedBinaries` — a derivation over the *name list* and nothing else, so it is invariant
 across every Go change. Symlinks rather than a PATH entry, because PATH order is spelled in three
-independently written places (`BootPath`, the `.bashrc` export, `macosuser.SandboxPath`) and the
+places (`BootPath`, the `.bashrc` export, `macosuser.SandboxPath`, whose head is `BootPath`'s) and the
 links reach the same names with none of them moving — and keep working for a consumer that
 scrubs PATH and spells `/bin/yolo`.
 
@@ -181,8 +181,8 @@ before making a container at all.
 ### Where the binaries come from
 
 **Flake bundle** *(coined here)* — a directory holding `flake.nix`, `flake.lock` and prebuilt
-Linux binaries under `bin/linux-<arch>/`, and, for the `macos-user` guest, the darwin
-`yolo-jaild` under `bin/darwin-<arch>/` (below). `scripts/stage-source-bundle.sh` produces one for
+Linux binaries under `bin/linux-<arch>/`, and, for the `macos-user` guest, the darwin guest set
+under `bin/darwin-<arch>/` (below). `scripts/stage-source-bundle.sh` produces one for
 `just install` (under `paths.FlakeBundleDir`), the release archive and Homebrew ship one beside
 the binary, and `installPrefix` bakes one *into* the mounted prefix. Not a checkout: a checkout
 has the flake files and no `bin/`.
@@ -225,13 +225,22 @@ make the bundle undiscoverable — and copies them a second time into
 `share/yolo-jail/bin/linux-<arch>/`, which is what gives a nested jail its prebuilt arm.
 
 **The `macos-user` guest's binaries take the same two-way switch.** That backend has no image and
-no container, but it runs a declared jail daemon in its Seatbelt guest, so the flake's
-`guestPrefix` holds `guestBinaries` (`yolo-jaild` alone) built for darwin: copied from a bundle's
+no container, but it runs a declared jail daemon in its Seatbelt guest, and its agent runs the
+clients of the loopholes that work on a Mac, so the flake's `guestPrefix` holds `guestBinaries`
+(`yolo-jaild`, `yolo-serial` and `yolo-ps`) built for darwin: copied from a bundle's
 `bin/darwin-<arch>/` when one ships it, compiled from `goSrc` with `GOOS=darwin` otherwise. The
 script's `GUEST_BINARIES` stages that set for both Mac arches into every release and Homebrew
 bundle, `just install` stages it only on a Mac, and the launch stages it into the sandbox's
 root-owned prefix, never onto a host `PATH`, so the host ship set stays `{yolo}`. A test pins the
 flake's list, the script's and `macosuser.GuestBinaries` together.
+
+The launch stages the whole set, or none of it. It stages it when the launch runs a jail daemon,
+or when the session env carries an endpoint variable one of the two clients reads
+(`YOLO_SERVICE_SERIAL_ENDPOINT`, `YOLO_SERVICE_HOST_PROCESSES_ENDPOINT`: `macosuser.GuestClients`,
+keyed on each client's own variable, `paths.SerialEndpointEnv` and `paths.HostProcessesEndpointEnv`).
+A launch with neither stages nothing, so a launch from a checkout runs no `.#guestPrefix` build
+for nothing. A prebuilt `bin/darwin-<arch>/` is used only when it holds every member; one short of
+a member (a bundle staged before the set grew) builds instead.
 
 The share half is **never the checkout itself**, even though a checkout would satisfy the
 resolver. Mounting it would put the whole working tree inside the jail at a second path and let
@@ -1482,7 +1491,7 @@ values themselves are stated.
 | Prefix mount destinations | `/opt/yolo-jail/bin`, `/opt/yolo-jail/share/yolo-jail` | `JailPrefixBinDir`, `JailPrefixShareDir` (`internal/cli/run/jailprefix.go`) |
 | Container argv entrypoint | `/opt/yolo-jail/bin/yolo-entrypoint` | `JailEntrypointPath` (`internal/cli/run/jailprefix.go`) |
 | Prebuilt binaries in a bundle | `bin/linux-<GOARCH>/`; the `macos-user` guest's under `bin/darwin-<GOARCH>/` | `prebuiltBinDir` (`internal/cli/run/jailprefix.go`); `prebuiltBinDir`, `guestPrebuiltDir` (`flake.nix`); `scripts/stage-source-bundle.sh` |
-| Guest binary set | `yolo-jaild` | `guestBinaries` (`flake.nix`); `GUEST_BINARIES` (`scripts/stage-source-bundle.sh`); `macosuser.GuestBinaries` |
+| Guest binary set | `yolo-jaild`, `yolo-serial`, `yolo-ps` | `guestBinaries` (`flake.nix`); `GUEST_BINARIES` (`scripts/stage-source-bundle.sh`); `macosuser.GuestBinaries` |
 | Shipped binary set | 7 names; `goprobe` excluded | `shippedBinaries` (`flake.nix`); `SHIPPED_BINARIES` (`scripts/stage-source-bundle.sh`) |
 | Go fileset the image build sees | `go.mod`, `go.sum`, `vendor/`, `cmd/`, `internal/`, `packs/` | `goSrc` (`flake.nix`); `version.ImageSourcePaths` adds `flake.nix`, `flake.lock` |
 | Flake source order | `YOLO_REPO_ROOT` → bundle beside the binary → `~/.local/share/yolo-jail/flake-bundle` | `reporoot.Resolve`; `paths.FlakeBundleDir` |

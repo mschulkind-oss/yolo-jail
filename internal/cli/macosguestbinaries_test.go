@@ -11,6 +11,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -28,16 +29,25 @@ func TestMacosLaunchDepsWireTheGuestBinariesAndTheSupervisorStarter(t *testing.T
 	}
 }
 
-// A BUNDLE THAT SHIPS THE GUEST DIR IS USED AS IT IS: no build.
-func TestResolveGuestBinariesPrefersTheBundlesPrebuiltDir(t *testing.T) {
-	root := t.TempDir()
+// writeGuestDir stages names into root's prebuilt guest dir, as a bundle would.
+func writeGuestDir(t *testing.T, root string, names []string) string {
+	t.Helper()
 	dir := macosuser.PrebuiltGuestBinDir(root)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(dir, macosuser.JaildName), []byte("bin"), 0o755); err != nil {
-		t.Fatal(err)
+	for _, name := range names {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte("bin"), 0o755); err != nil {
+			t.Fatal(err)
+		}
 	}
+	return dir
+}
+
+// A BUNDLE THAT SHIPS THE WHOLE GUEST SET IS USED AS IT IS: no build.
+func TestResolveGuestBinariesPrefersTheBundlesPrebuiltDir(t *testing.T) {
+	root := t.TempDir()
+	dir := writeGuestDir(t, root, macosuser.GuestBinaries)
 	got, err := resolveGuestBinaries(root, func(string, io.Writer) (string, []string) {
 		t.Error("built .#guestPrefix although the bundle ships the guest dir")
 		return "", nil
@@ -72,5 +82,37 @@ func TestResolveGuestBinariesBuildsWhenTheSourceShipsNone(t *testing.T) {
 	}, io.Discard)
 	if err == nil || !strings.Contains(err.Error(), "builder failed") {
 		t.Errorf("a failed build did not surface nix's tail: %v", err)
+	}
+}
+
+// A PREBUILT DIR SHORT OF ONE MEMBER BUILDS. The launch stages the WHOLE guest set
+// (StageGuestBinaryCommands), so a bundle staged before the set grew to hold the loophole
+// clients — yolo-jaild alone — would otherwise pass the old "yolo-jaild is there" check and fail
+// at the stage copy of yolo-serial, after the privileged steps began. Each member's absence is
+// asked separately, so the check cannot regress to any one name.
+func TestResolveGuestBinariesBuildsWhenThePrebuiltDirLacksAMember(t *testing.T) {
+	for _, missing := range macosuser.GuestBinaries {
+		t.Run(missing, func(t *testing.T) {
+			root := t.TempDir()
+			var have []string
+			for _, n := range macosuser.GuestBinaries {
+				if n != missing {
+					have = append(have, n)
+				}
+			}
+			writeGuestDir(t, root, have)
+			built := false
+			got, err := resolveGuestBinaries(root, func(string, io.Writer) (string, []string) {
+				built = true
+				return "/nix/store/abc-yolo-jail-guest", nil
+			}, io.Discard)
+			if !built || err != nil || got != "/nix/store/abc-yolo-jail-guest/bin" {
+				t.Errorf("a prebuilt dir without %s resolved to %q, %v (built %v); want the "+
+					".#guestPrefix build", missing, got, err, built)
+			}
+		})
+	}
+	if !slices.Contains(macosuser.GuestBinaries, "yolo-serial") || !slices.Contains(macosuser.GuestBinaries, "yolo-ps") {
+		t.Errorf("the guest set %v lacks a loophole client this test is for", macosuser.GuestBinaries)
 	}
 }

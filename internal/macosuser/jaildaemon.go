@@ -26,6 +26,15 @@ package macosuser
 //     supervisor in a root-owned 0600 file only that account is granted read on — this
 //     backend has no network isolation, so the file's ownership and ACE are the boundary.
 //
+// # The loophole clients the agent runs (the same ruling, one step over)
+//
+// OQ-DP8's principle covers the CLIENTS too: `yolo-serial` and `yolo-ps` would have run in the
+// jail container, so they run on the guest. They are staged into GuestBinDir with yolo-jaild,
+// as one set (GuestBinaries), whenever the session env carries an endpoint one of them reads
+// (GuestClients), and they resolve on the agent's PATH, which SandboxPath gives GuestBinDir.
+// A launch with neither a daemon nor such an endpoint stages none of it, so a checkout launch
+// never builds `.#guestPrefix` for nothing.
+//
 // # What a guest does NOT run
 //
 // The launch decides which of the composed daemons run here (internal/loopholes'
@@ -57,16 +66,89 @@ const jailDaemonsEnv = "YOLO_JAIL_DAEMONS"
 // JaildName is the in-jail daemon dispatcher: the supervisor and every in-jail daemon.
 const JaildName = "yolo-jaild"
 
+// GuestClient is one in-jail loophole CLIENT the guest runs: the binary, the loophole whose
+// host daemon it dials, and the endpoint variable it reads that daemon's endpoint file from.
+//
+// The variable is the CLIENT'S OWN CONTRACT (paths.SerialEndpointEnv is what cmd/yolo-serial
+// reads, paths.HostProcessesEndpointEnv what cmd/yolo-ps reads), and it is the key the launch
+// stages the guest set on: a session env carrying it is a session whose agent may run the
+// client. Keying on the variable rather than on the config means the launch stages a client
+// exactly when its host daemon published, which is the only time the client has anything to
+// dial (the run pipeline sets an endpoint variable only for a service that started).
+type GuestClient struct {
+	Binary      string
+	Loophole    string
+	EndpointEnv string
+}
+
+// GuestClients are the in-jail loophole clients a guest stages, one per loophole that runs on a
+// Mac. yolo-cglimit and yolo-journalctl are not here: their loopholes declare
+// `platforms: ["linux"]`, so no macos-user launch publishes an endpoint either could dial
+// (internal/cli/run's backendlimits.go tells the agent so).
+var GuestClients = []GuestClient{
+	{Binary: "yolo-serial", Loophole: "serial", EndpointEnv: paths.SerialEndpointEnv},
+	{Binary: "yolo-ps", Loophole: "host-processes", EndpointEnv: paths.HostProcessesEndpointEnv},
+}
+
 // GuestBinaries is the guest's darwin in-jail set — only what a guest actually RUNS. It is a
 // subset of flake.nix's shippedBinaries and one of three spellings of the same list
 // (flake.nix guestBinaries, stage-source-bundle.sh GUEST_BINARIES), pinned together by
 // guestbundle_test.go.
 //
-// yolo-jaild is the whole of it. `yolo` is staged separately (StageBinaryCommands, from the
-// running host binary, which is already darwin); yolo-entrypoint is not needed (the guest
-// bootstrap is `yolo internal darwin-bootstrap`); and yolo-ps, yolo-cglimit, yolo-journalctl
-// and yolo-serial are clients of Linux-only loopholes (internal/cli/run's backendlimits.go).
-var GuestBinaries = []string{JaildName}
+// yolo-jaild, the supervisor and every in-jail daemon, then each GuestClients binary. `yolo` is
+// staged separately (StageBinaryCommands, from the running host binary, which is already
+// darwin), and yolo-entrypoint is not needed (the guest bootstrap is `yolo internal
+// darwin-bootstrap`).
+//
+// ONE SET, STAGED WHOLE. A launch that needs any of it stages all of it (StageGuestBinaryCommands),
+// because the members come from one source directory and cost one copy each; splitting the
+// staging per member would buy a few kilobytes of copy for a second selector that could
+// disagree with the first.
+var GuestBinaries = func() []string {
+	out := []string{JaildName}
+	for _, c := range GuestClients {
+		out = append(out, c.Binary)
+	}
+	return out
+}()
+
+// GuestClientsIn returns the GuestClients whose endpoint variable one of envs carries with a
+// non-empty value, in GuestClients' order: the clients this launch's sandbox can use. A nil env
+// carries nothing.
+func GuestClientsIn(envs ...*jsonx.OrderedMap) []GuestClient {
+	var out []GuestClient
+	for _, c := range GuestClients {
+		for _, env := range envs {
+			if env == nil {
+				continue
+			}
+			if v, ok := env.Get(c.EndpointEnv); ok && asStr(v) != "" {
+				out = append(out, c)
+				break
+			}
+		}
+	}
+	return out
+}
+
+// guestClientNames is the clients' binaries, for a plan field and a message.
+func guestClientNames(clients []GuestClient) []string {
+	var out []string
+	for _, c := range clients {
+		out = append(out, c.Binary)
+	}
+	return out
+}
+
+// guestClientPhrase names each client with its loophole, for a refusal or a disclosure:
+// "yolo-serial (the serial loophole's client)".
+func guestClientPhrase(clients []GuestClient) string {
+	parts := make([]string, 0, len(clients))
+	for _, c := range clients {
+		parts = append(parts, c.Binary+" (the "+c.Loophole+" loophole's client)")
+	}
+	return strings.Join(parts, ", ")
+}
 
 // GuestBinDir is the root-owned directory holding every binary the sandbox runs of yolo's
 // own: <stateDir>/bin. StagedYoloPath is in it too, so the one PATH entry SandboxPath derives
@@ -95,8 +177,8 @@ func PrebuiltGuestBinDir(root string) string {
 // srcDir into GuestBinDir, the StageBinaryCommands shape per binary: copy to a temp name,
 // `a+rX`, then an atomic rename — a FRESH INODE, because macOS caches Mach-O code signatures
 // per vnode and an in-place overwrite gets the next exec SIGKILLed. Root-owned, so the
-// sandbox can execute and cannot rewrite what its supervisor runs. nil for an empty srcDir,
-// which is a launch with no jail daemon to run.
+// sandbox can execute and cannot rewrite what its supervisor or its agent runs. nil for an
+// empty srcDir, which is a launch with no jail daemon to run and no guest client's endpoint.
 func StageGuestBinaryCommands(srcDir, sd string) [][]string {
 	if srcDir == "" {
 		return nil
@@ -114,6 +196,45 @@ func StageGuestBinaryCommands(srcDir, sd string) [][]string {
 	return cmds
 }
 
+// guestClientInvariants is PlanInvariants' rule for the guest clients: every GuestClients
+// entry whose endpoint the session env file carries is staged, copy-then-rename, into
+// GuestBinDir, and the agent's PATH carries that directory. Either half missing is a sandbox
+// told where its service is with no program to dial it, which looks healthy until the agent
+// types `yolo-serial` and gets `command not found`.
+func guestClientInvariants(plan RunPlan) []string {
+	var problems []string
+	for _, c := range GuestClients {
+		if v, ok := sandboxEnvFileValue(plan.EnvFileContent, c.EndpointEnv); !ok || v == "" {
+			continue
+		}
+		dst := GuestBinaryPath(c.Binary, plan.StagedDir)
+		staged := false
+		for _, cmd := range plan.StageCommands {
+			if len(cmd) == 4 && cmd[0] == mvBin && cmd[2] == dst+".new" && cmd[3] == dst {
+				staged = true
+			}
+		}
+		if !staged {
+			problems = append(problems, "the session env carries "+c.EndpointEnv+" and the plan "+
+				"stages no "+c.Binary+" into "+GuestBinDir(plan.StagedDir)+"; the agent would be "+
+				"told where the "+c.Loophole+" loophole's daemon is and have no client to dial it")
+		}
+		if len(plan.LaunchArgv) > 0 {
+			onPath := false
+			if v, ok := argvEnvValue(plan.LaunchArgv, "PATH"); ok {
+				for _, dir := range strings.Split(v, ":") {
+					onPath = onPath || dir == GuestBinDir(plan.StagedDir)
+				}
+			}
+			if !onPath {
+				problems = append(problems, "the agent's PATH does not carry "+
+					GuestBinDir(plan.StagedDir)+", so a staged "+c.Binary+" would not resolve")
+			}
+		}
+	}
+	return problems
+}
+
 // JailDaemons is what the run pipeline hands this backend to run in the guest.
 //
 // The zero value runs nothing, which is every launch whose payload names no daemon the guest
@@ -129,6 +250,11 @@ type JailDaemons struct {
 	// GuestBinSource is the directory the darwin guest binaries are copied from: a bundle's
 	// bin/darwin-<arch>, or a `.#guestPrefix` build's bin. The orchestrator resolves it
 	// (Deps.GuestBinaries) before the plan; a plan render names the prebuilt spelling.
+	//
+	// It is the source of the WHOLE guest set, the GuestClients included, so it is filled for a
+	// launch that runs no daemon and carries a client's endpoint too, and the plan stages from
+	// it when either is true. It stays on this struct, beside the payload it began with, because
+	// both triggers are one directory resolved once per launch (resolveGuestBinSource).
 	GuestBinSource string
 }
 

@@ -82,16 +82,27 @@ package entrypoint
 // reports `unsupported` and is never escalated — there is no refusal left for a
 // passt version to appear in.)
 //
-// # Linux only, deliberately
+// # Both backends, each in its own slot
 //
-// RunDarwinBootstrap (darwin.go) does not call this. macos-user is a native
-// sandbox with no network namespace and no pasta, so there is no forwarding hop to
-// get wrong — docs/reference/loopback-tls-reachability.md §8 puts macOS out of scope
-// explicitly.
+// The container boot runs this as its LAST step (bootsteps.go). RunDarwinBootstrap
+// (darwin.go) does not, and could not usefully: that bootstrap runs outside the session's
+// Seatbelt profile, so a probe there could pass where the agent's own client is refused. The
+// macos-user LAUNCH runs it instead, as a confined stage of its own after the guest's jail
+// daemons start and before the agent, as the sandbox account reading the session env file
+// (internal/macosuser/serviceprobe.go, which execs `yolo internal probe-services`, which
+// calls RunServiceProbe).
+//
+// There is no forwarding hop on that backend: the sandbox is a native process on the
+// Mac's own network stack, every host daemon advertises 127.0.0.1, and the launch says
+// `shared`. What the witness catches there is the rest of OQ-R4's fault classes, plus the
+// one only that backend meets, because its sandbox is a different uid from the user who
+// published the endpoint: a file the sandbox account may not read (faultUnreadable). Its
+// wording is the native one (nativeSandbox), never a container's.
 
 import (
 	"errors"
 	"fmt"
+	"io/fs"
 	"net"
 	"path/filepath"
 	"sort"
@@ -192,6 +203,15 @@ const (
 	// faultRejected: reachable, and the listener refused this jail's token — the
 	// file is stale relative to the running listener.
 	faultRejected
+	// faultUnreadable: the endpoint file (or its directory) is there and this jail's
+	// user may not open it — EACCES or EPERM on the stat or the open, a *fs.PathError.
+	// On macos-user that is the launch's cross-uid ACL grant not having taken
+	// (macosuser.EndpointGrantCommands): the file is 0600 under the user who published
+	// it, and the sandbox account reads it only through that entry. It used to fall into
+	// faultUnreachable's default and be reported as a network fault, sending the reader to
+	// a network stack that is not in the path. It escalates like every other class
+	// (OQ-R4): the service is enabled and unusable.
+	faultUnreadable
 )
 
 // reachabilityResult is one probed service's verdict. addr is the ADVERTISED
@@ -204,6 +224,11 @@ type reachabilityResult struct {
 	fault reachabilityFault
 	addr  string
 	err   error
+	// native and user are the two facts the unreadable warning's remedy depends on: whether
+	// this is the macos-user sandbox (nativeSandbox), and the account it runs as ($USER), so
+	// the ACL entry it names is the one the launch grants.
+	native bool
+	user   string
 }
 
 // loopbackDisposition is what the LAUNCHER decided about host-loopback forwarding
@@ -398,10 +423,12 @@ func ProbeServiceReachability(e *Env) {
 	// missing endpoint file printed under a paragraph about pasta sends the reader to
 	// the wrong machine entirely.
 	var unreachable, unusable []string
+	native, user := nativeSandbox(e), e.Getenv("USER")
 	for _, res := range results {
 		if res == nil {
 			continue
 		}
+		res.native, res.user = native, user
 		if res.fault == faultUnreachable {
 			unreachable = append(unreachable, res.svc.name)
 		}
@@ -417,7 +444,7 @@ func ProbeServiceReachability(e *Env) {
 	// for the launches whose disposition can carry one.
 	disposition := launcherLoopbackDisposition(e)
 	if len(unreachable) > 0 {
-		e.warn(reachabilityExplanationFor(disposition))
+		e.warn(reachabilityExplanationFor(disposition, native))
 	}
 	if !disposition.escalates() {
 		// "Unsupported is not broken" (OQ-R3), and "not attributable" is not broken
@@ -442,7 +469,7 @@ func reportUnusableServices(e *Env, d loopbackDisposition, names []string) {
 		e.warn(unusableOverrideNotice(names))
 		return
 	}
-	e.warn(unusableServicesMessage(d, names, reachabilityFatal))
+	e.warn(unusableServicesMessage(d, names, reachabilityFatal, nativeSandbox(e)))
 	if reachabilityFatal {
 		// genFailuresError (boot.go) turns this into the error that aborts the boot
 		// before the agent is ever exec'd — Main runs this probe immediately above
@@ -467,8 +494,8 @@ func reportUnusableServices(e *Env, d loopbackDisposition, names []string) {
 // the only value that could reach it then and flatly false of a launch that never
 // needed any forwarding — and a verdict whose first sentence describes machinery the
 // reader's jail does not have is worse than no verdict.
-func unusableServicesMessage(d loopbackDisposition, names []string, fatal bool) string {
-	body := unusableServicesLead(d, names)
+func unusableServicesMessage(d loopbackDisposition, names []string, fatal, native bool) string {
+	body := unusableServicesLead(d, names, native)
 	if !fatal {
 		return "warning: " + body +
 			"  (OQ-R2 rules this a failed launch; this witness is running in warn mode on\n" +
@@ -493,7 +520,19 @@ func unusableServicesMessage(d loopbackDisposition, names []string, fatal bool) 
 // that refused this jail's token are both here, and calling either one unreachable
 // would send the reader to the network for a file. The per-service warnings above
 // already carry which is which.
-func unusableServicesLead(d loopbackDisposition, names []string) string {
+//
+// A NATIVE SANDBOX gets a shared lead of its own (nativeSandbox): macos-user has no
+// network namespace to share, so "the namespace of whatever launched it" would describe
+// a container to a reader on a Mac.
+func unusableServicesLead(d loopbackDisposition, names []string, native bool) string {
+	if d == dispositionShared && native {
+		return "this sandbox runs on the Mac's own network stack, and " +
+			serviceListPhrase(names) + " unusable from inside it.\n" +
+			"  That is a FAULT rather than a limitation of this Mac: there is no forwarding hop\n" +
+			"  for anything to be missing from — the address is the Mac's own loopback — so the\n" +
+			"  other end is down or never published, its endpoint file is unreadable to the\n" +
+			"  sandbox account, or it answers with a credential this sandbox does not hold.\n"
+	}
 	if d == dispositionShared {
 		return "this jail SHARES the network namespace of whatever launched it, and " +
 			serviceListPhrase(names) + " unusable from inside it.\n" +
@@ -546,11 +585,14 @@ func serviceListPhrase(names []string) string {
 // established anything about the forwarding, so the widest explanation is the only
 // honest one, and it already ends by pointing at the launch output rather than
 // guessing which branch fired.
-func reachabilityExplanationFor(d loopbackDisposition) string {
+func reachabilityExplanationFor(d loopbackDisposition, native bool) string {
 	switch d {
 	case dispositionRequested:
 		return reachabilityFaultExplanation
 	case dispositionShared:
+		if native {
+			return reachabilityNativeExplanation
+		}
 		return reachabilitySharedExplanation
 	case dispositionUnsupported:
 		return reachabilityLimitationExplanation
@@ -587,6 +629,19 @@ const reachabilitySharedExplanation = "" +
 	"  Look at the daemon instead: is it running (`yolo check` where this jail was\n" +
 	"  launched from), and did it republish its endpoint after a restart? For a\n" +
 	"  nested jail that is the jail that launched this one, not the host machine.\n" +
+	"  docs/reference/loopback-tls-reachability.md"
+
+// reachabilityNativeExplanation is the shared diagnosis for a NATIVE sandbox (macos-user),
+// where the shared paragraph above would be wrong in its first clause: there is no
+// --net=host and no podman, so naming them sends a Mac user looking for a container. What
+// stays true is the conclusion — no forwarding hop is in the path, so the daemon on the
+// Mac is the subject — and the place to ask about it is `yolo check` on that Mac.
+const reachabilityNativeExplanation = "" +
+	"  This sandbox is an ordinary process on the Mac's own network stack: there is no\n" +
+	"  container network and no forwarding hop, and the address above is the Mac's own\n" +
+	"  loopback, where the host daemon listens. So nothing about networking is in the\n" +
+	"  path. Look at the daemon instead: is it running (`yolo check` on this Mac), and\n" +
+	"  did it republish its endpoint after a restart?\n" +
 	"  docs/reference/loopback-tls-reachability.md"
 
 // reachabilityLimitationExplanation is the OQ-R3 path: yolo could not ask this
@@ -649,6 +704,48 @@ const reachabilityExplanation = "" +
 	"  not — old passt, an explicit network.mode, a rootful or unrecognised runtime,\n" +
 	"  or YOLO_NO_HOST_LOOPBACK — it said so in this jail's launch output above.\n" +
 	"  docs/reference/loopback-tls-reachability.md is the whole map."
+
+// unreadableRemedy is the next step for an endpoint this jail's user may not read, and it is
+// per backend because the cause is. On macos-user the file is 0600 under the user who
+// published it and the sandbox account reads it through ONE ACL entry the launch stages
+// (macosuser.EndpointGrantCommands: read on the file, search on its directory), so the
+// remedy names that entry and the macOS command that shows it. In a container the jail runs
+// as root over a bind mount, and a refusal there is a mode or an ownership the host left.
+func unreadableRemedy(path string, native bool, user string) string {
+	dir := filepath.Dir(path)
+	if native {
+		if user == "" {
+			user = "the sandbox account"
+		}
+		return "  The file is there and the sandbox account may not open it. The launch grants\n" +
+			"  " + user + " read on it with an ACL entry (`user:" + user + " allow read` on the\n" +
+			"  file, `allow search` on " + dir + "), so that entry did not take.\n" +
+			"  On the Mac, `ls -le " + path + "` and `ls -led " + dir + "` show the\n" +
+			"  entries; relaunch to re-grant them, and report it if they are missing again."
+	}
+	return "  The file is there and this jail's user may not open it: its mode or owner, or its\n" +
+		"  directory's, does not admit this user. `ls -l " + path + "` on the host shows\n" +
+		"  them; relaunch the jail to republish it."
+}
+
+// nativeSandbox reports whether this Env is the macos-user sandbox's rather than a
+// container's: DarwinEnvFrom, the one constructor of a macos-user Env, sets the native
+// platform seams, and GNUStat false (the Mac's BSD userland) is the one only it sets —
+// NewEnv, every container boot's constructor, defaults it true. Read from the Env and not
+// from runtime.GOOS so the Linux unit gate can drive both wordings, and so a container on a
+// Mac (Apple Container, a podman machine), which is Linux inside, keeps the container's.
+func nativeSandbox(e *Env) bool { return !e.GNUStat }
+
+// RunServiceProbe is the witness as a STAGE OF ITS OWN, for the macos-user launch, which has
+// no boot to run it in (internal/macosuser/serviceprobe.go): ProbeServiceReachability, then the
+// boot's own gate over what it recorded, so a refusal here and one at a container's boot are
+// the same decision. nil is "launch": every enabled service usable, or the hatch named and
+// honored. The error is the refusal, whose explanation the witness has already written to
+// e.Stderr.
+func RunServiceProbe(e *Env) error {
+	ProbeServiceReachability(e)
+	return genFailuresError(e)
+}
 
 // enabledServiceEndpoints lists the loopback-TLS services this launch wired up, in
 // a deterministic order (the results are warnings, and Go's map order is not
@@ -794,10 +891,19 @@ func probeService(svc serviceEndpoint, deadline time.Time) *reachabilityResult {
 // so anything they do not claim is a transport failure — which is the case this
 // probe exists for, and therefore the right default rather than an "unknown"
 // bucket nobody would act on.
+//
+// A PERMISSION ERROR IS CLAIMED ONLY ON A PATH (*fs.PathError, the stat or open of the
+// endpoint file or a directory above it): svcendpoint passes those through unattributed
+// (readPathError). The same errno on a socket — a sandbox denying connect(2) — is an
+// *net.OpError, and that IS a transport failure, so a bare errors.Is(err, fs.ErrPermission)
+// would have filed a network deny under "file unreadable".
 func classifyReachability(err error) reachabilityFault {
+	var pathErr *fs.PathError
 	switch {
 	case errors.Is(err, svcendpoint.ErrEndpointMissing), errors.Is(err, svcendpoint.ErrEndpointMalformed):
 		return faultUnpublished
+	case errors.As(err, &pathErr) && errors.Is(pathErr.Err, fs.ErrPermission):
+		return faultUnreadable
 	case errors.Is(err, svcendpoint.ErrAuthRejected):
 		return faultRejected
 	default:
@@ -818,10 +924,20 @@ func reachabilityWarning(res reachabilityResult) string {
 	}
 	switch res.fault {
 	case faultUnpublished:
-		return "warning: host service '" + res.svc.name + "' is enabled but its endpoint file " +
-			res.svc.path + " is missing or incomplete: " + res.err.Error() + "\n" +
-			"  The host-side daemon never published, or this jail's services directory was\n" +
+		why := "  The host-side daemon never published, or this jail's services directory was\n" +
 			"  removed after the container mounted it. Relaunch the jail to republish it."
+		if res.native {
+			// No container mounted anything here: the sandbox reads the file at the path the
+			// host daemon published it, in this session's own services directory.
+			why = "  The host-side daemon never published, or this session's services directory\n" +
+				"  was removed while the launch ran. Relaunch to republish it."
+		}
+		return "warning: host service '" + res.svc.name + "' is enabled but its endpoint file " +
+			res.svc.path + " is missing or incomplete: " + res.err.Error() + "\n" + why
+	case faultUnreadable:
+		return "warning: host service '" + res.svc.name + "' is enabled but its endpoint file " +
+			res.svc.path + " is UNREADABLE from inside this jail: " + res.err.Error() + "\n" +
+			unreadableRemedy(res.svc.path, res.native, res.user)
 	case faultRejected:
 		return "warning: host service '" + res.svc.name + "' at " + target +
 			" rejected this jail's token\n" +
