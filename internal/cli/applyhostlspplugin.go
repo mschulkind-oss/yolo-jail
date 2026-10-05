@@ -37,7 +37,8 @@ package cli
 //   - RETIRED BY ARCHIVE, unconfirmed, when the table renders nothing or no selected pack composes
 //     the destination any more: every byte moved is one yolo wrote, the same asymmetry the skills
 //     retire carries. A destination is judged dead only over a COMPLETE pack set, for
-//     ComposeRequest.PackSetComplete's reason.
+//     ComposeRequest.PackSetComplete's reason, and by the DIRECTORY rather than its path, so a
+//     dropped pack's skills dir that links to a live one is not dead (liveSkillsDirs).
 //
 // Out of scope here: `yolo host apply --revert` (it does not withdraw skills of any kind) and
 // `yolo config render --at host` (it renders config surfaces, and the plugin is not one).
@@ -82,9 +83,7 @@ func applyHostLSPPlugin(pr richtext.Printer, survey *hostApplySurvey, lsp *jsonx
 			rc = 1
 		}
 	}
-	live := map[string]bool{}
 	for _, d := range dests {
-		live[d.Dir] = true
 		path := filepath.Join(d.Dir, jailcontent.LSPPluginDir)
 		if d.IsReserved(jailcontent.LSPPluginDir) {
 			if render {
@@ -99,7 +98,7 @@ func applyHostLSPPlugin(pr richtext.Printer, survey *hostApplySurvey, lsp *jsonx
 			report(writeHostLSPPlugin(path, manifest, lspPluginClaimant(d), freed[path], home, write))
 			continue
 		}
-		if r, ok := retireHostLSPPlugin(path, req, write,
+		if r, ok := retireHostLSPPlugin(path, req, home, write,
 			"your lsp_servers declares no server with a command"); ok {
 			report(r)
 		}
@@ -109,16 +108,52 @@ func applyHostLSPPlugin(pr richtext.Printer, survey *hostApplySurvey, lsp *jsonx
 		// destination is dead only when the whole set says so.
 		return rc
 	}
+	isLive := liveSkillsDirs(dests)
 	for _, dir := range hostSkillsDirs(candidates, home) {
-		if live[dir] {
+		if isLive(dir) {
 			continue
 		}
-		if r, ok := retireHostLSPPlugin(filepath.Join(dir, jailcontent.LSPPluginDir), req, write,
+		if r, ok := retireHostLSPPlugin(filepath.Join(dir, jailcontent.LSPPluginDir), req, home, write,
 			"no selected pack composes skills here any more"); ok {
 			report(r)
 		}
 	}
 	return rc
+}
+
+// liveSkillsDirs answers whether a skills directory is one this apply composes — by its path, or
+// as the same directory under another name. A home often shares one skills tree between tools by a
+// link (`~/.codex/skills -> ~/.claude/skills`), and judged by path alone that link is a destination
+// no selected pack composes: the retire then archived, through it, the plugin the loop above had
+// just written, on every apply.
+//
+// Built AFTER the live loop, since an --assert may have just created a live directory. A live one
+// that does not exist holds nothing to retire, so only the existing ones are compared, and a dir
+// that cannot be stat'd is judged by its path alone — IsLSPPlugin finds nothing there either.
+func liveSkillsDirs(dests []hostskills.Destination) func(dir string) bool {
+	byPath := map[string]bool{}
+	var infos []os.FileInfo
+	for _, d := range dests {
+		byPath[d.Dir] = true
+		if info, err := os.Stat(d.Dir); err == nil {
+			infos = append(infos, info)
+		}
+	}
+	return func(dir string) bool {
+		if byPath[dir] {
+			return true
+		}
+		info, err := os.Stat(dir)
+		if err != nil {
+			return false
+		}
+		for _, l := range infos {
+			if os.SameFile(info, l) {
+				return true
+			}
+		}
+		return false
+	}
 }
 
 // writeHostLSPPlugin delivers the plugin at path, or refuses when something not provably the
@@ -156,7 +191,8 @@ func writeHostLSPPlugin(path string, manifest []byte, claimant string, freed boo
 			return r
 		}
 	case !os.IsNotExist(err):
-		return refuse(fmt.Sprintf("cannot inspect %s: %v", prettyHomePath(home, path), err))
+		return refuse(fmt.Sprintf("cannot inspect %s (%v), so your lsp_servers do not reach this "+
+			"destination", prettyHomePath(home, path), err) + lspPluginIORemedy(home, filepath.Dir(path)))
 	}
 	r.WouldChange = true
 	if !write {
@@ -164,20 +200,29 @@ func writeHostLSPPlugin(path string, manifest []byte, claimant string, freed boo
 		return r
 	}
 	if err := os.MkdirAll(filepath.Dir(manifestPath), 0o755); err != nil {
-		return refuse(fmt.Sprintf("could not create %s: %v", prettyHomePath(home, path), err))
+		return refuse(fmt.Sprintf("could not create %s (%v)", prettyHomePath(home, path), err) +
+			lspPluginIORemedy(home, filepath.Dir(path)))
 	}
 	if err := os.WriteFile(manifestPath, manifest, 0o644); err != nil {
-		return refuse(fmt.Sprintf("could not write %s: %v", prettyHomePath(home, manifestPath), err))
+		return refuse(fmt.Sprintf("could not write %s (%v)", prettyHomePath(home, manifestPath), err) +
+			lspPluginIORemedy(home, filepath.Dir(manifestPath)))
 	}
 	r.Action = hostskills.ActionWrote
 	return r
+}
+
+// lspPluginIORemedy is the next step a failed read or write of the plugin names: the directory
+// whose permissions decide it, then the rerun that delivers the servers.
+func lspPluginIORemedy(home, dir string) string {
+	return " — check that " + prettyHomePath(home, dir) + " is a directory you can write, then run " +
+		"`yolo host apply --assert` again"
 }
 
 // retireHostLSPPlugin archives the plugin at path, and reports false when there is no plugin of
 // yolo's there to retire — absent, the user's own, or a pack's skill of the same name, whose
 // retirement is the skills composition's. The manifest alone decides (IsLSPPlugin): a pack's skill
 // or namespaced subtree named yolo-lsp carries no `lspServers`.
-func retireHostLSPPlugin(path string, req hostskills.ComposeRequest, write bool,
+func retireHostLSPPlugin(path string, req hostskills.ComposeRequest, home string, write bool,
 	why string) (hostskills.Result, bool) {
 	if !jailcontent.IsLSPPlugin(path) {
 		return hostskills.Result{}, false
@@ -190,7 +235,12 @@ func retireHostLSPPlugin(path string, req hostskills.ComposeRequest, write bool,
 	}
 	at, err := hostskills.Archive(req.ArchiveRoot, req.Stamp, lspPluginArchiveAttribution, path)
 	if err != nil {
-		r.Action, r.Detail, r.WouldChange = hostskills.ActionRefused, err.Error(), false
+		// Archive can fail on either side — creating the generation under the archive root, or
+		// removing the original once a cross-device copy landed — so the remedy names both.
+		r.Action, r.WouldChange = hostskills.ActionRefused, false
+		r.Detail = fmt.Sprintf("could not move %s into the archive at %s (%v) — check that you can "+
+			"write both, then run `yolo host apply --assert` again",
+			prettyHomePath(home, path), prettyHomePath(home, string(req.ArchiveRoot)), err)
 		return r, true
 	}
 	r.Action = hostskills.ActionArchived

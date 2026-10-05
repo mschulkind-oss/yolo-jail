@@ -586,7 +586,12 @@ them and says where it cannot:
   pack composes the destination any more, and when `packs` is empty: every byte moved is one
   yolo wrote. It goes under the skills archive, in a `lsp_servers` directory of the apply's
   generation ([LSP-I4](#lsp-i4)). A destination counts as no longer composed only when every
-  configured pack resolved ([LSP-I5](#lsp-i5)).
+  configured pack resolved ([LSP-I5](#lsp-i5)), and only when it is not the same directory as
+  one still composed: with `~/.codex/skills` a link to `~/.claude/skills`, a home selecting
+  claude alone keeps the plugin, since an unselected pack's destination is judged by the
+  directory it is rather than by its path.
+- **A failure names its next step.** A plugin that cannot be inspected, created, written or
+  archived is refused with the directory to check and the `yolo host apply --assert` to rerun.
 - **Owned by its manifest, never a record.** The skills record maps a path to the pack that
   composed it, and the dropped-pack retire reads every owner there as a pack. So the plugin is
   recorded nowhere, and that retire's scan of marked directories skips it by its manifest

@@ -27,6 +27,7 @@ import (
 
 	"github.com/mschulkind-oss/yolo-jail/internal/jailcontent"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
+	"github.com/mschulkind-oss/yolo-jail/internal/richtext"
 	officialpacks "github.com/mschulkind-oss/yolo-jail/packs"
 )
 
@@ -458,6 +459,38 @@ func TestApplyHostBriefingPrependsTheAfterFile(t *testing.T) {
 	}
 }
 
+// A BROADCAST PACK LISTED FIRST DOES NOT HIDE THE `after`. The broadcast reaches ~/.foo/AGENTS.md
+// through a copy the resolver synthesizes, which carries no `after`, and it is the first pack at that
+// path — so a destination whose `after` came from the first pack there, rather than the first
+// contribution carrying one, read none and left ~/mine.md out silently (DP-B26's symptom).
+func TestApplyHostBriefingTakesTheAfterPastABroadcastListedFirst(t *testing.T) {
+	bcastDir := filepath.Join(t.TempDir(), "bcast")
+	writeFile(t, filepath.Join(bcastDir, "pack.json"),
+		`{"name":"bcast","description":"b","contributes":[{"kind":"briefing","from":"briefing/b.md"}]}`)
+	writeFile(t, filepath.Join(bcastDir, "briefing", "b.md"), "Broadcast rule.\n")
+	home := afterFixture(t, "mine.md", `{"source":"file://`+bcastDir+`","name":"bcast"},`)
+	writeFile(t, filepath.Join(home, "mine.md"), "MY OWN RULES\n")
+
+	rc, report := applyWith(t, true, strings.NewReader(""))
+	if rc != 0 {
+		t.Fatalf("host apply --assert rc=%d\n%s", rc, report)
+	}
+	got, err := os.ReadFile(filepath.Join(home, ".foo", "AGENTS.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Not vacuous: the broadcast did reach the destination, so its copy was the first pack there.
+	if !strings.Contains(string(got), "Broadcast rule.") {
+		t.Fatalf("fixture: the broadcast did not reach ~/.foo/AGENTS.md:\n%s", got)
+	}
+	if !strings.HasPrefix(string(got), "MY OWN RULES\n\n---\n\n") {
+		t.Errorf("~/.foo/AGENTS.md does not open with ~/mine.md:\n%s", got)
+	}
+	if n := countLines(report, "~/.foo/AGENTS.md opens with your ~/mine.md"); n != 1 {
+		t.Errorf("want one report line naming ~/mine.md, got %d:\n%s", n, report)
+	}
+}
+
 // EDITING the `after` file re-renders the destination with no prompt: the destination is yolo's
 // own (the record says so), and the file is an input to it like any pack's prose.
 func TestApplyHostBriefingReRendersWhenTheAfterFileChanges(t *testing.T) {
@@ -662,6 +695,38 @@ func TestApplyHostBriefingDoesNotGrowADestinationItsAfterFileLinksTo(t *testing.
 			t.Errorf("apply %d: the destination was prepended to itself (%d bytes, then %d):\n%s",
 				i+1, len(got[0]), len(body), body)
 		}
+	}
+}
+
+// THE SKIP'S REASON NAMES A FILE BY PATH, AND A PATH IS NOT MARKUP. ~/mine.md links to another
+// pack's destination, whose directory a pack may spell with brackets (`into` allows them), so the
+// --verbose line's reason carries that path. Printed unescaped, `[bold]` in it restyled the line
+// and vanished from it, naming a file that does not exist.
+func TestApplyHostBriefingEscapesThePathInTheSkipReason(t *testing.T) {
+	barDir := filepath.Join(t.TempDir(), "bar")
+	const odd = ".b[bold]/AGENTS.md"
+	writeFile(t, filepath.Join(barDir, "pack.json"),
+		`{"name":"bar","description":"b","contributes":[`+
+			`{"kind":"briefing","from":"briefing/prose.md","into":"`+odd+`"}]}`)
+	writeFile(t, filepath.Join(barDir, "briefing", "prose.md"), "Bar rule.\n")
+	home := afterFixture(t, "mine.md", `{"source":"file://`+barDir+`","name":"bar"},`)
+	if err := os.Symlink(filepath.Join(home, filepath.FromSlash(odd)), filepath.Join(home, "mine.md")); err != nil {
+		t.Fatal(err)
+	}
+	if rc, report := applyWith(t, true, strings.NewReader("")); rc != 0 {
+		t.Fatalf("first apply rc=%d\n%s", rc, report)
+	}
+	if _, err := os.Stat(filepath.Join(home, filepath.FromSlash(odd))); err != nil {
+		t.Fatalf("fixture: the first apply did not compose ~/%s: %v", odd, err)
+	}
+
+	verboseReport(t)
+	_, report := applyWith(t, false, nil)
+	want := richtext.Render(richtext.Escape("it is the same file as ~/"+odd+
+		", a briefing destination this apply composes"), false)
+	if countLines(report, `after: "host:mine.md" is not read`, want) != 1 {
+		t.Errorf("--verbose must name the skip once, with ~/%s spelled as it is on disk:\n%s",
+			odd, report)
 	}
 }
 

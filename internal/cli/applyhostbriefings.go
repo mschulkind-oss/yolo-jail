@@ -334,9 +334,11 @@ func reportBriefingOverlays(pr richtext.Printer, dests []entrypoint.HostBriefing
 				"  [cyan]%-20s[/cyan] %s opens with your %s  [dim](after: \"host:%s\")[/dim]",
 				"briefing/after", richtext.Escape(dest), richtext.Escape(src), richtext.Escape(d.After))
 		case entrypoint.OverlayYoloOutput:
+			// ov.Why is escaped like every other value here: it can name another destination by
+			// its path, and a pack may spell one with brackets.
 			detail(pr, "  [dim]%-20s %s: after: \"host:%s\" is not read — %s, and yolo never "+
 				"reads its own output back in[/dim]", "briefing/after", richtext.Escape(dest),
-				richtext.Escape(d.After), ov.Why)
+				richtext.Escape(d.After), richtext.Escape(ov.Why))
 		case entrypoint.OverlayUnread:
 			subject := "the host briefing " + src
 			if ov.Source != d.Path {

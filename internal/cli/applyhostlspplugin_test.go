@@ -14,6 +14,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/hostskills"
 	"github.com/mschulkind-oss/yolo-jail/internal/jailcontent"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 )
@@ -390,4 +391,163 @@ func TestHostApplyKeepsTheLSPPluginWhileAConfiguredPackDoesNotResolve(t *testing
 		t.Errorf("a dry run over an incomplete pack set offered to archive the plugin:\n%s", dry)
 	}
 	mustExist(t, lspPluginManifest(home, ".claude/skills"), "a configured pack did not resolve")
+}
+
+// AN UNSELECTED PACK'S DESTINATION THAT IS A LINK TO A SELECTED ONE is not dead. Sharing one skills
+// tree between tools by a symlink (`~/.codex/skills -> ~/.claude/skills`) is common, and a path
+// comparison read the link as a destination no selected pack composes: every --assert wrote
+// Claude's plugin and then archived the same directory through the link, so Claude never kept its
+// servers, the archive grew a `yolo-lsp.N` per apply, and the dry run always reported a change.
+// The jail stages into fresh directories, so only a real home can meet this.
+func TestHostApplyKeepsTheLSPPluginWhereADroppedDestinationLinksToALiveOne(t *testing.T) {
+	home := lspHostFixture(t, `"claude"`, lspHostServers)
+	claudeSkills := filepath.Join(home, ".claude", "skills")
+	if err := os.MkdirAll(claudeSkills, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(home, ".codex"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(claudeSkills, filepath.Join(home, ".codex", "skills")); err != nil {
+		t.Fatal(err)
+	}
+	verboseReport(t)
+
+	for i := 1; i <= 2; i++ {
+		rc, report := applyWith(t, true, strings.NewReader(""))
+		if rc != 0 {
+			t.Fatalf("apply %d: rc=%d\n%s", i, rc, report)
+		}
+		mustExist(t, lspPluginManifest(home, ".claude/skills"), "~/.codex/skills is ~/.claude/skills")
+		if n := countLines(report, jailcontent.LSPPluginDir, "archived"); n != 0 {
+			t.Errorf("apply %d archived the plugin it had just written, through the link:\n%s", i, report)
+		}
+	}
+	if archivedPlugin(t, home) {
+		t.Errorf("the archive holds the plugin: %v", archivedAll(t, home))
+	}
+	if survey, report := surveyApply(t); survey.Changes() {
+		t.Errorf("a dry run after two asserts would change %v\n%s", survey.Changed, report)
+	}
+}
+
+// THE DRY RUN'S RETIRE MOVES NOTHING, and says what the --assert would: the launch gate runs this
+// observe pass on every `yolo host -- <bin>`, so a dry run that archived would delete the plugin
+// from the home on each wrapped start. The dry-run twin of
+// TestHostApplyArchivesTheLSPPluginWhenTheTableEmpties.
+func TestHostApplyDryRunOnlyReportsTheLSPPluginRetire(t *testing.T) {
+	home := lspHostFixture(t, `"claude"`, lspHostServers)
+	if rc, report := applyWith(t, true, strings.NewReader("")); rc != 0 {
+		t.Fatalf("first assert rc=%d\n%s", rc, report)
+	}
+	writeLSPHostConfig(t, home, `"claude"`, "")
+	verboseReport(t)
+
+	rc, report := applyWith(t, false, nil)
+	if rc != 0 {
+		t.Fatalf("dry run rc=%d\n%s", rc, report)
+	}
+	mustExist(t, lspPluginManifest(home, ".claude/skills"), "a dry run moves nothing")
+	if archivedPlugin(t, home) {
+		t.Errorf("the dry run archived the plugin: %v", archivedAll(t, home))
+	}
+	if n := countLines(report, jailcontent.LSPPluginDir, "would archive"); n != 1 {
+		t.Errorf("want one `would archive` line for the plugin, got %d:\n%s", n, report)
+	}
+	if n := countLines(report, jailcontent.LSPPluginDir, " archived "); n != 0 {
+		t.Errorf("the dry run labelled the retire as done:\n%s", report)
+	}
+}
+
+// A `yolo-lsp` YOLO DID NOT WRITE IS NEVER RETIRED, on either retire path: the table emptying, and
+// a destination no selected pack composes any more. Both archive unconfirmed, so the plugin's own
+// manifest is the only thing between them and the user's directory.
+func TestHostApplyNeverRetiresAYoloLSPItDidNotWrite(t *testing.T) {
+	const theirs = `{"name":"yolo-lsp","lspServers":{"mine":{"command":"mine"}}}`
+	for _, tc := range []struct {
+		name, packs, lsp, skillsDir string
+	}{
+		{"the table is empty", `"claude"`, "", ".claude/skills"},
+		{"no selected pack composes the destination", `"claude"`, lspHostServers, ".codex/skills"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			home := lspHostFixture(t, tc.packs, tc.lsp)
+			mine := lspPluginManifest(home, tc.skillsDir)
+			writeFile(t, mine, theirs)
+			verboseReport(t)
+
+			if _, report := applyWith(t, true, strings.NewReader("")); countLines(report,
+				jailcontent.LSPPluginDir, "archive") != 0 {
+				t.Errorf("the user's own yolo-lsp was offered for retirement:\n%s", report)
+			}
+			if got, err := os.ReadFile(mine); err != nil || string(got) != theirs {
+				t.Errorf("the user's own yolo-lsp was moved or rewritten (err=%v):\n%s", err, got)
+			}
+			if archivedPlugin(t, home) {
+				t.Errorf("the archive holds the user's yolo-lsp: %v", archivedAll(t, home))
+			}
+		})
+	}
+}
+
+// EVERY I/O REFUSAL NAMES ITS NEXT STEP: the directory to check, then the rerun. An --assert that
+// meets one exits 1 with the skills stage failed, so a line that only reported the error left the
+// user with no way forward (the happy-path rule). The failures are made with a regular file where a
+// directory belongs, since permission bits do not stop root, which this suite may run as.
+func TestHostLSPPluginIORefusalsNameTheNextStep(t *testing.T) {
+	const rerun = "then run `yolo host apply --assert` again"
+	manifest := []byte(renderedLSPPlugin(t, lspHostServers))
+	home := t.TempDir()
+	file := func(rel string) string {
+		p := filepath.Join(home, filepath.FromSlash(rel))
+		writeFile(t, p, "not a directory\n")
+		return p
+	}
+
+	t.Run("cannot inspect", func(t *testing.T) {
+		parent := file("inspect")
+		r := writeHostLSPPlugin(filepath.Join(parent, jailcontent.LSPPluginDir), manifest, "", false, home, true)
+		wantRefusal(t, r, "cannot inspect ~/inspect/yolo-lsp", "check that ~/inspect is a directory you can write, "+rerun)
+	})
+	t.Run("could not create", func(t *testing.T) {
+		path := file("create/yolo-lsp")
+		r := writeHostLSPPlugin(path, manifest, "", true, home, true)
+		wantRefusal(t, r, "could not create ~/create/yolo-lsp", "check that ~/create is a directory you can write, "+rerun)
+	})
+	t.Run("could not write", func(t *testing.T) {
+		path := filepath.Join(home, "write", jailcontent.LSPPluginDir)
+		if err := os.MkdirAll(filepath.Join(path, filepath.FromSlash(jailcontent.LSPPluginManifestRel)), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		r := writeHostLSPPlugin(path, manifest, "", true, home, true)
+		wantRefusal(t, r, "could not write ~/write/yolo-lsp/.claude-plugin/plugin.json",
+			"check that ~/write/yolo-lsp/.claude-plugin is a directory you can write, "+rerun)
+	})
+	t.Run("could not archive", func(t *testing.T) {
+		path := filepath.Join(home, "retire", jailcontent.LSPPluginDir)
+		writeFile(t, filepath.Join(path, filepath.FromSlash(jailcontent.LSPPluginManifestRel)), string(manifest))
+		blocked := file("blocked")
+		req := hostskills.ComposeRequest{ArchiveRoot: hostskills.ArchiveRoot(filepath.Join(blocked, "archive")),
+			Stamp: "s"}
+		r, ok := retireHostLSPPlugin(path, req, home, true, "your lsp_servers declares no server with a command")
+		if !ok {
+			t.Fatal("the plugin yolo wrote was not offered for retirement")
+		}
+		wantRefusal(t, r, "could not move ~/retire/yolo-lsp into the archive at ~/blocked/archive",
+			"check that you can write both, "+rerun)
+		mustExist(t, path, "an archive that failed moves nothing")
+	})
+}
+
+// wantRefusal asserts r is a refusal whose line carries every one of want.
+func wantRefusal(t *testing.T, r hostskills.Result, want ...string) {
+	t.Helper()
+	if r.Action != hostskills.ActionRefused || r.WouldChange {
+		t.Errorf("want a refusal that changes nothing, got %s (would change: %v): %s", r.Action, r.WouldChange, r.Detail)
+	}
+	for _, w := range want {
+		if !strings.Contains(r.Detail, w) {
+			t.Errorf("the refusal does not say %q:\n%s", w, r.Detail)
+		}
+	}
 }
