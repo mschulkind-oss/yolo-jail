@@ -743,6 +743,53 @@ func WrapDirUnder(home string) string {
 	return filepath.Join(GeneratedBinDirUnder(home), "wrap")
 }
 
+// HostBlockDir returns $HOME/.local/share/yolo-jail/bin/block — where `yolo host --` keeps the
+// blocked-tool shims it puts first on the PATH of the program it starts
+// (docs/design/host-launch-environment.md HE-D11): one CONTENT-ADDRESSED child per distinct set
+// of scripts, named by their digest, written once and then reused, so two launches with the same
+// blockers share one directory and one with different blockers never edits another's.
+//
+// Under GeneratedBinDir, and so inside the folders every host PATH lookup skips
+// (hostpath.ManagedDirs): a lookup of the program to run, or of a blocker's replacement, never
+// finds a shim. ⚠ NO JAIL MOUNTS IT, for HostFloorDir's reason: the host runs these scripts with
+// the user's authority, so a copy a jail could write would be a file the host executes because of
+// where it sits.
+func HostBlockDir() string { return HostBlockDirUnder(home()) }
+
+// HostBlockDirUnder is HostBlockDir under an EXPLICIT home.
+func HostBlockDirUnder(home string) string {
+	return filepath.Join(GeneratedBinDirUnder(home), "block")
+}
+
+// hostWorkspaceSkillsLeaf is the state-dir child holding the records of the workspace skills
+// links `yolo host --` wrote.
+const hostWorkspaceSkillsLeaf = "host-workspace-skills"
+
+// HostWorkspaceSkillsDir returns $HOME/.local/share/yolo-jail/host-workspace-skills — the RECORD
+// of each link `yolo host -- <agent>` put into a workspace for the workspace skills layer
+// (docs/design/workspace-skills.md WS-D19 to WS-D23): one file per workspace and link, keyed by a
+// digest of the workspace's resolved path and the link's path in it. The record is what makes a
+// link yolo's to refresh or remove, so it is host-side and never in the workspace's own .yolo/,
+// which the repository's agent can write. No jail mounts it.
+func HostWorkspaceSkillsDir() string { return filepath.Join(GlobalStorage(), hostWorkspaceSkillsLeaf) }
+
+// hostAgentsLeaf is the state-dir child holding the stores yolo manages for programs `yolo host
+// --` starts.
+const hostAgentsLeaf = "host-agents"
+
+// HostAgentStoreDir returns $HOME/.local/share/yolo-jail/host-agents/<pack> — a directory yolo
+// manages for the program a pack delivers when `yolo host --` starts it with something of the
+// machine's in place of the user's own: today the Claude credential view behind
+// YOLO_CLAUDE_CREDENTIAL_VIEW (docs/design/claude-login-without-interception.md CL-D27), which
+// the host broker writes and Claude reads through CLAUDE_SECURESTORAGE_CONFIG_DIR. The user's
+// own `~/.claude` is never written.
+//
+// ⚠ NO JAIL MOUNTS IT, and it is created 0700: what sits here is a login the host broker keeps
+// current, and a jail that could write it could hand a host Claude a credential of its choosing.
+func HostAgentStoreDir(pack string) string {
+	return filepath.Join(GlobalStorage(), hostAgentsLeaf, pack)
+}
+
 // GlobalMise returns the shared mise data dir.
 func GlobalMise() string { return filepath.Join(GlobalStorage(), "mise") }
 

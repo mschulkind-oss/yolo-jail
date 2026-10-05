@@ -86,27 +86,32 @@ var refusalReasons = map[packdecl.Kind]string{
 	packdecl.KindLoophole: "a loophole is a host daemon whose only client is a container: " +
 		"with no jail there is no client, no --add-host, no YOLO_JAIL_DAEMONS, and nothing " +
 		"for its endpoint file to be mounted into. Launch a jail to run it",
-	// `service` and `blocked-tool` had NO entry here until 2026-09-13, so both fell to
-	// Refuse's generic fallback — "<kind> is not applicable at this confinement level",
-	// which names the kind and says nothing about it. The real reasons were not missing,
-	// only misplaced: they had been written by hand into internal/cli/config_ref.txt's
-	// host-notch list, where TestEveryHostNotchInapplicableKindHasItsReasonDocumented
-	// keeps them READABLE without making them the thing the code decides by. These two
-	// entries are those rows, word for word (unwrapped, and without the manual's trailing
-	// full stop — the five entries above set that convention).
+	// `service` had NO entry here until 2026-09-13, so it fell to Refuse's generic fallback —
+	// "<kind> is not applicable at this confinement level", which names the kind and says nothing
+	// about it. The real reason was not missing, only misplaced: it had been written by hand into
+	// internal/cli/config_ref.txt's host-notch list, where
+	// TestEveryHostNotchInapplicableKindHasItsReasonDocumented keeps it READABLE without making it
+	// the thing the code decides by. The entry below is that row, word for word (unwrapped, and
+	// without the manual's trailing full stop — the entries above set that convention).
 	//
-	// docs/design/declaration-parity.md DP-B27 / DP-L6. ⚠ Nothing PRINTS either string
-	// today: FieldSet.Refuse has no production caller (DP-B34 — Target.Fields() has none
-	// either), and the host apply's tier-1 line names kinds and points at `yolo
-	// config-ref` rather than quoting a reason. What this closes is the census being
-	// wrong in its own data; the display half is DP-B34's.
-	packdecl.KindBlockedTool: "a blocker is a shim at the head of a JAIL's PATH. " +
-		"Off-container yolo owns no PATH entry to put one in, and editing your shell rc " +
-		"to take one over is a far larger claim than a pack's contribution makes",
-	// The config_ref.txt row, word for word, for blocked-tool's reason: an intercept is the
-	// same file in the same directory, forwarding where a blocker refuses.
-	packdecl.KindIntercept: "an intercept is a forwarding shim at the head of a JAIL's PATH, " +
-		"for blocked-tool's reason: off-container yolo owns no PATH entry to put one in",
+	// `blocked-tool` sat here too, saying "off-container yolo owns no PATH entry to put one in".
+	// That stopped being true of `yolo host --` on 2026-09-29, when HE-D1 had it compose the
+	// child's PATH, and the kind is honored at the host since 2026-10-04 (HE-D11): HostFields
+	// lists it, and its apply-only limit is a hostUnimplemented entry, env's shape.
+	//
+	// docs/design/declaration-parity.md DP-B27 / DP-L6. ⚠ Nothing PRINTS either kind of string
+	// today: FieldSet.Refuse has no production caller (DP-B34 — Target.Fields() has none either),
+	// and the host apply's tier-1 line names kinds and points at `yolo config-ref` rather than
+	// quoting a reason. What this closes is the census being wrong in its own data; the display
+	// half is DP-B34's.
+	//
+	// `intercept` stays refused at both host verbs, for a reason of its own rather than
+	// blocked-tool's old one (boundary-broker.md BB-D17): an intercept layers a permission over a
+	// CLI, and at the host the agent runs as the user, so it can run the real program by its path
+	// and the layer would govern nothing.
+	packdecl.KindIntercept: "an intercept layers a permission over a CLI by putting a forwarder " +
+		"first on a JAIL's PATH; at the host the agent runs as you and can run the real program " +
+		"by its path, so the layer would govern nothing (boundary-broker.md BB-D17)",
 	packdecl.KindService: "a service is a daemon pair plus an endpoint file under the " +
 		"jail's /run. With no jail there is nothing to supervise the jail half and " +
 		"nothing to read the endpoint",
@@ -154,6 +159,14 @@ var hostUnimplemented = map[packdecl.Kind]string{
 		"would mean editing your shell rc, a much larger claim than a pack's env " +
 		"contribution asks for. `yolo host -- <program>` delivers them at launch instead, " +
 		"to that process only",
+	// `blocked-tool` is env's case exactly (HE-D11): a blocker is a shim first on the PATH of a
+	// process yolo starts, and `yolo host -- <program>` starts one and puts the shims there, for
+	// that process only, while `yolo host apply` starts none. Taking over the user's own PATH for
+	// their whole session would mean editing their shell rc, the claim this table refuses for env.
+	packdecl.KindBlockedTool: "a blocker is a shim first on the PATH of a process yolo starts, " +
+		"and `yolo host apply` only configures your tools — it never runs them. Putting one at " +
+		"the head of your whole session's PATH would mean editing your shell rc. `yolo host -- " +
+		"<program>` puts them first on that program's PATH instead, for that process only",
 	// `provider` WAS HERE, and is built (OQ-HC1, docs/reference/host-agent-environment.md): `yolo
 	// host apply` composes the providers table at user scope and runs the derives over it, so
 	// a shipped provider's facts reach pi/models, pi/codex-models, codex/config,
@@ -245,8 +258,11 @@ func HostFields() FieldSet {
 		packdecl.KindSkills:        true,
 		packdecl.KindBriefing:      true,
 		packdecl.KindEnv:           true,
-		packdecl.KindHook:          true,
-		packdecl.KindProgram:       true, // honored but confirm-gated by the caller (OQ-6/7)
+		// blocked-tool is honored for env's reason: `yolo host --` starts the process and owns
+		// its PATH (HE-D11), and apply's limit is the hostUnimplemented entry.
+		packdecl.KindBlockedTool: true,
+		packdecl.KindHook:        true,
+		packdecl.KindProgram:     true, // honored but confirm-gated by the caller (OQ-6/7)
 		// config-list tracks config for config-overlay's reason — its entries land in a
 		// composed surface — and it is honored in the final sense, with no hostUnimplemented
 		// entry: a surface whose mode cannot capture a list path per entry yet refuses the

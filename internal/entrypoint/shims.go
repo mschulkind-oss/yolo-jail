@@ -55,6 +55,11 @@ func GenerateShims(e *Env) error {
 }
 
 // generateBlockers writes one blocking/filtering shim per YOLO_BLOCK_CONFIG entry.
+//
+// The scripts come from RenderBlockers, the one writer the jail, macos-user's bootstrap (which
+// is this function on another Env) and `yolo host --` all render through; this function owns
+// only what is the jail's: where the entries come from, the PATH a replacement must be on, the
+// directory the real grep and find live in, and the block dir the files land in.
 func generateBlockers(e *Env) error {
 	blockJSON := e.Getenv("YOLO_BLOCK_CONFIG")
 	if blockJSON == "" {
@@ -71,91 +76,195 @@ func generateBlockers(e *Env) error {
 		// JSON array), so we decline to act on it.
 		return nil
 	}
-
-	for _, item := range config {
-		cfg, ok := item.(*jsonx.OrderedMap)
-		if !ok {
-			// Non-object entry: real configs are arrays of objects; skip
-			// defensively.
-			continue
-		}
-		name, ok := stringValue(cfg, "name")
-		if !ok || name == "" {
-			continue // a nameless entry has no shim to write
-		}
-		if !packdecl.ValidBinName(name) {
-			// The shim is FILED at filepath.Join(BlockDir, name), and this list arrives
-			// from the assembled config whose workspace half is agent-editable — a name
-			// carrying ".." would write an executable outside the anchor into the jail's
-			// persistent home. ValidateConfig refuses it upstream; this is the
-			// writer-side half.
-			continue
-		}
-		// Default message when the entry supplies none.
-		msg := "Error: tool " + name + " is blocked in this project."
-		if v, present := cfg.Get("message"); present {
-			if s, isStr := v.(string); isStr {
-				msg = s
-			}
-		}
-		sug := ""
-		if v, present := cfg.Get("suggestion"); present {
-			if s, isStr := v.(string); isStr {
-				sug = s
-			}
-		}
-		// A BLOCKER WHOSE REPLACEMENT IS ABSENT IS JUST BREAKAGE. The default
-		// entries block `grep -r` and `find` and tell the agent to use `rg` and
-		// `fd` — which is sound advice on the container backends, where the image
-		// BAKES both, and false on macos-user, which bakes nothing: there the tool
-		// comes from `packages:` or not at all. Measured 2026-09-04 on a real Mac
-		// launch whose `packages:` held only `just` and `fzf`: the shims were
-		// generated, `grep -r` exited 127, and the suggestion named a binary that
-		// did not exist. That is worse than not blocking — the agent loses the
-		// capability AND is sent somewhere empty.
-		//
-		// So a blocker declaring a `replacement` is generated only when that binary
-		// is on the PATH the agent will actually have. An entry with no
-		// `replacement` always generates, which is every custom entry a user has
-		// ever written: the gate is opt-in by declaration, so no existing config
-		// changes behaviour.
-		if repl, present := stringValue(cfg, "replacement"); present && repl != "" &&
-			lookPathIn(agentPath(e), repl) == "" {
+	agent := agentPath(e)
+	scripts := RenderBlockers(config, BlockerRender{
+		LookPath: func(bin string) string { return lookPathIn(agent, bin) },
+		RealBin:  func(name string) (string, bool) { return e.ShimBinPath() + "/" + name, true },
+		NoReplacement: func(name, repl string) {
 			e.warn("not blocking " + name + ": its replacement " + repl +
 				" is not on PATH in this jail, and a block with no working alternative " +
 				"removes the capability instead of redirecting it (add " + repl +
 				" to `packages` to restore the block)")
-			continue
-		}
-		realBin := ""
-		if name == "grep" || name == "find" {
-			realBin = e.ShimBinPath() + "/" + name
-		}
-		blockFlags := stringList(cfg, "block_flags")
-		allowFlags := stringList(cfg, "allow_flags")
-		// ShimContent drops a flag pattern carrying shell syntax (see its docstring:
-		// a `case` glob cannot be quoted, so it is validated). Saying so here is the
-		// half ShimContent cannot do — it has no Env — and a rule that silently
-		// evaporates is a rule the author will keep believing in.
-		for _, key := range []struct {
-			name string
-			pats []string
-		}{{"block_flags", blockFlags}, {"allow_flags", allowFlags}} {
-			if _, dropped := safeCasePatterns(key.pats); len(dropped) > 0 {
-				e.warn("ignoring " + strconv.Itoa(len(dropped)) + " malformed " + key.name +
-					" pattern(s) on blocked tool " + name + " (" + strings.Join(dropped, ", ") +
-					"): a flag pattern may only carry letters, digits and -_.,:=+@%/^!?*[] — " +
-					"anything else would be spliced into the shim as shell syntax")
-			}
-		}
-
-		content := ShimContent(msg, sug, realBin, blockFlags, allowFlags)
-		shimPath := filepath.Join(e.BlockDir(), name)
-		if err := writeExecutable(shimPath, content); err != nil {
+		},
+		Warn: e.warn,
+	})
+	for _, s := range scripts {
+		if err := writeExecutable(filepath.Join(e.BlockDir(), s.Name), s.Content); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+// BlockerScript is one blocked tool's generated script: the file name it is written under in a
+// block dir, and its body.
+type BlockerScript struct {
+	Name    string
+	Content string
+}
+
+// BlockerRender is what RenderBlockers needs from the place the scripts are for.
+type BlockerRender struct {
+	// LookPath finds a binary on the PATH the agent will have, "" when it is not there. It
+	// answers the `replacement` rule.
+	LookPath func(bin string) string
+	// RealBin names the real `grep` or `find` a filter shim (or an allowed invocation) execs,
+	// asked for those two names only. ok=false skips the entry: the caller found no real binary
+	// to pass the allowed invocations to, and has said so itself.
+	RealBin func(name string) (path string, ok bool)
+	// Behind, when set, names the program behind every OTHER blocked name — where that name
+	// resolves on the agent's PATH without the block dir, "" when nothing does — and is what the
+	// shim runs under YOLO_BYPASS_SHIMS=1 (or, with "", says nothing is installed there and exits
+	// 127). It changes only what the hatch does: such an entry stays an unconditional block, its
+	// block_flags and allow_flags read exactly as without it.
+	//
+	// Nil keeps the script every jail has written: past the refusal it runs nothing, so the hatch
+	// exits 0 having done nothing. `yolo host --` sets it (HE-D12,
+	// docs/design/host-launch-environment.md); the jail's boot does not yet, which HE-D12 states.
+	Behind func(name string) string
+	// NoReplacement is told of an entry skipped because its replacement is not on that PATH.
+	// The words are the caller's: the next step differs (a jail adds the replacement to
+	// `packages`, a host launch installs it or names its folder in `host_path`).
+	NoReplacement func(name, replacement string)
+	// Warn receives every other line: the malformed flag patterns an entry carried.
+	Warn func(string)
+}
+
+// RenderBlockers renders the normalized blocked-tool list (YOLO_BLOCK_CONFIG's shape:
+// config.NormalizeBlockedToolsWith's output) into one script per entry, in list order. It
+// writes nothing; every decision about an entry is here, so a jail and a host launch cannot
+// disagree about what one entry blocks.
+//
+// A later entry for a name an earlier one already rendered replaces it, as a second write of the
+// same file in the block dir always did.
+func RenderBlockers(entries []any, r BlockerRender) []BlockerScript {
+	var out []BlockerScript
+	index := map[string]int{}
+	for _, item := range entries {
+		s, ok := renderBlocker(item, r)
+		if !ok {
+			continue
+		}
+		if i, seen := index[s.Name]; seen {
+			out[i] = s
+			continue
+		}
+		index[s.Name] = len(out)
+		out = append(out, s)
+	}
+	return out
+}
+
+// renderBlocker is RenderBlockers for one entry; ok=false writes nothing for it.
+func renderBlocker(item any, r BlockerRender) (BlockerScript, bool) {
+	warn := r.Warn
+	if warn == nil {
+		warn = func(string) {}
+	}
+	cfg, ok := item.(*jsonx.OrderedMap)
+	if !ok {
+		// Non-object entry: real configs are arrays of objects; skip
+		// defensively.
+		return BlockerScript{}, false
+	}
+	name, ok := stringValue(cfg, "name")
+	if !ok || name == "" {
+		return BlockerScript{}, false // a nameless entry has no shim to write
+	}
+	if !packdecl.ValidBinName(name) {
+		// The shim is FILED at filepath.Join(BlockDir, name), and this list arrives
+		// from the assembled config whose workspace half is agent-editable — a name
+		// carrying ".." would write an executable outside the anchor into the jail's
+		// persistent home. ValidateConfig refuses it upstream; this is the
+		// writer-side half.
+		return BlockerScript{}, false
+	}
+	// Default message when the entry supplies none.
+	msg := "Error: tool " + name + " is blocked in this project."
+	if v, present := cfg.Get("message"); present {
+		if s, isStr := v.(string); isStr {
+			msg = s
+		}
+	}
+	sug := ""
+	if v, present := cfg.Get("suggestion"); present {
+		if s, isStr := v.(string); isStr {
+			sug = s
+		}
+	}
+	// A BLOCKER WHOSE REPLACEMENT IS ABSENT IS JUST BREAKAGE. The default
+	// entries block `grep -r` and `find` and tell the agent to use `rg` and
+	// `fd` — which is sound advice on the container backends, where the image
+	// BAKES both, and false on macos-user, which bakes nothing: there the tool
+	// comes from `packages:` or not at all. Measured 2026-09-04 on a real Mac
+	// launch whose `packages:` held only `just` and `fzf`: the shims were
+	// generated, `grep -r` exited 127, and the suggestion named a binary that
+	// did not exist. That is worse than not blocking — the agent loses the
+	// capability AND is sent somewhere empty.
+	//
+	// So a blocker declaring a `replacement` is generated only when that binary
+	// is on the PATH the agent will actually have. An entry with no
+	// `replacement` always generates, which is every custom entry a user has
+	// ever written: the gate is opt-in by declaration, so no existing config
+	// changes behaviour.
+	if repl, present := stringValue(cfg, "replacement"); present && repl != "" &&
+		(r.LookPath == nil || r.LookPath(repl) == "") {
+		if r.NoReplacement != nil {
+			r.NoReplacement(name, repl)
+		}
+		return BlockerScript{}, false
+	}
+	realBin := ""
+	if name == "grep" || name == "find" {
+		p, ok := "", false
+		if r.RealBin != nil {
+			p, ok = r.RealBin(name)
+		}
+		if !ok {
+			return BlockerScript{}, false
+		}
+		// Quoted, because a host launch's real grep can live in a folder whose name a shell
+		// would split. shquote.Quote leaves a plain path bare, so the jail's `/bin/grep` is
+		// byte-for-byte what it was.
+		realBin = shquote.Quote(p)
+	}
+	var hatch []string
+	if realBin == "" && r.Behind != nil {
+		hatch = bypassHatch(name, r.Behind(name))
+	}
+	blockFlags := stringList(cfg, "block_flags")
+	allowFlags := stringList(cfg, "allow_flags")
+	// ShimContent drops a flag pattern carrying shell syntax (see its docstring:
+	// a `case` glob cannot be quoted, so it is validated). Saying so here is the
+	// half ShimContent cannot do — it has no Env — and a rule that silently
+	// evaporates is a rule the author will keep believing in.
+	for _, key := range []struct {
+		name string
+		pats []string
+	}{{"block_flags", blockFlags}, {"allow_flags", allowFlags}} {
+		if _, dropped := safeCasePatterns(key.pats); len(dropped) > 0 {
+			warn("ignoring " + strconv.Itoa(len(dropped)) + " malformed " + key.name +
+				" pattern(s) on blocked tool " + name + " (" + strings.Join(dropped, ", ") +
+				"): a flag pattern may only carry letters, digits and -_.,:=+@%/^!?*[] — " +
+				"anything else would be spliced into the shim as shell syntax")
+		}
+	}
+	return BlockerScript{Name: name, Content: ShimContent(msg, sug, realBin, hatch, blockFlags, allowFlags)}, true
+}
+
+// bypassHatch is what an unconditional block with no real grep or find runs under
+// YOLO_BYPASS_SHIMS=1: the program behind it, quoted (a host's can sit in a folder a shell would
+// split), or, with nothing behind it, the intercept's own answer for that case
+// (InterceptShimContent): say so, and exit 127 as a shell does for a command it cannot find.
+func bypassHatch(name, behind string) []string {
+	if behind != "" {
+		return []string{"exec " + shquote.Quote(behind) + ` "$@"`}
+	}
+	return []string{
+		echoStderr("", "YOLO_BYPASS_SHIMS is set, and no "+name+" is installed behind this block, "+
+			"so there is nothing to run"),
+		"exit 127",
+	}
 }
 
 // echoStderr renders one `echo <literal> >&2` line at the given indent, with the
@@ -211,7 +320,8 @@ func safeCasePatterns(patterns []string) (kept, dropped []string) {
 //     binary. Long-option exact matches (--foo) come first, then a `--*` skip
 //     so unrelated long options pass, then the short patterns.
 //   - Unconditional block: exit 127 with the message (and exec realBin after,
-//     only if realBin is set).
+//     only if realBin is set). With no realBin, hatch is what a YOLO_BYPASS_SHIMS=1
+//     run reaches past the refusal instead (bypassHatch), and nil is nothing at all.
 //
 // THE FROZEN CONTRACT IS WHAT THE SHIM DOES, NOT HOW ITS LITERALS ARE QUOTED. This
 // docstring used to read "msg/sug are embedded verbatim inside `echo \"...\"` — no
@@ -239,7 +349,7 @@ func safeCasePatterns(patterns []string) (kept, dropped []string) {
 //
 // The emitted grammar is otherwise untouched: same lines, same order, same `>&2`,
 // same exit 127.
-func ShimContent(msg, sug, realBin string, blockFlags, allowFlags []string) string {
+func ShimContent(msg, sug, realBin string, hatch []string, blockFlags, allowFlags []string) string {
 	// The dropped lists are discarded HERE and reported THERE: GenerateShims calls
 	// safeCasePatterns a second time purely to warn about what this call will drop,
 	// naming the tool and the patterns (see its loop over block_flags/allow_flags).
@@ -329,6 +439,8 @@ func ShimContent(msg, sug, realBin string, blockFlags, allowFlags []string) stri
 		lines = append(lines, "fi")
 		if realBin != "" {
 			lines = append(lines, "exec "+realBin+` "$@"`)
+		} else {
+			lines = append(lines, hatch...)
 		}
 		lines = append(lines, "")
 	}

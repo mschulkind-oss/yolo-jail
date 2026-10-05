@@ -135,6 +135,9 @@ var hostConfigKeys = map[string]keyCensusEntry{
 	"required_capabilities": {KeyHonored, "`yolo host --` asks OQ-CAP2's gate over the user scope " +
 		"it composes from, after the pack refresh and before its apply gate " +
 		"(refuseHostUnmetCapabilities), refusing as a jail launch does"},
+	"security": {KeyHonored, "the user scope's `blocked_tools` are rendered by `yolo host --` into " +
+		"shims first on the PATH of the program it starts, beside the selected packs' " +
+		"(composeHostBlockers, HE-D11); a workspace's are never read at the host"},
 
 	// ---- Not applicable: the key means nothing off-container -------------------------
 	"mounts": {KeyNotApplicable, "a mount needs a mount namespace, which is unavailable without a " +
@@ -160,8 +163,6 @@ var hostConfigKeys = map[string]keyCensusEntry{
 	"kvm": {KeyNotApplicable, "passes /dev/kvm into a container; at the host it is already yours"},
 	"macos_log": {KeyNotApplicable, "dials what the macos-user sandbox's yolo-log helper may read; " +
 		"the host notch runs no sandbox and installs no helper"},
-	"security": {KeyNotApplicable, "its blocked tools are shims at the head of a JAIL's PATH; " +
-		"off-container yolo owns no PATH entry to put one in"},
 	"mise_tools": {KeyNotApplicable, "a jail composes mise's config from it, and nothing at the " +
 		"host manages your own mise"},
 	"mcp_presets": {KeyNotApplicable, "a preset's command is a wrapper only a jail's boot writes " +

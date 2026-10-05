@@ -9,7 +9,9 @@ package run
 // the one every invocation runs — a fresh container launch, an attach to a running jail, and the
 // macos-user arm — so the layer is re-staged from the workspace as it stands on EVERY entry
 // (OQ-WS1's "refresh on every launch and attach"). The host notch never calls it: `yolo host`
-// renders no workspace's skills into a real home, by ruling (OQ-WS5).
+// renders no workspace's skills into a real home, by ruling (OQ-WS5). What the host does instead
+// is OQ-WS5's other mechanism, one in-workspace link per launch (internal/cli's
+// hostworkspaceskills.go), which reads only this file's source set (WorkspaceSkillDirs).
 
 import (
 	"fmt"

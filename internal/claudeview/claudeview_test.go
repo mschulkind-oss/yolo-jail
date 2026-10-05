@@ -46,6 +46,9 @@ func TestSelectedDefaultsPerRuntimeAndHonorsTheDial(t *testing.T) {
 		{"container", "", false},
 		{"container", "1", true},
 		{"podman", "garbage", false},
+		{HostRuntime, "", false},
+		{HostRuntime, "1", true},
+		{HostRuntime, "0", false},
 	} {
 		if got := Selected(tc.rt, env(tc.val)); got != tc.want {
 			t.Errorf("Selected(%s, %s=%q) = %v, want %v", tc.rt, SwitchEnv, tc.val, got, tc.want)
@@ -227,5 +230,64 @@ func TestAMissingDirectoryIsDirGoneAndEnsureDirCreatesIt(t *testing.T) {
 	}
 	if err := gone.Write([]byte("{}")); err != nil {
 		t.Errorf("Write after EnsureDir: %v", err)
+	}
+}
+
+// TestAHostLocationIsADirectoryYoloManages pins the host notch's view (CL-D27): a Location with an
+// absolute Dir, created 0700, read and written beneath that directory alone, refusing a link
+// where it should be, and with no legacy link to remove.
+func TestAHostLocationIsADirectoryYoloManages(t *testing.T) {
+	home, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("HOME", home)
+	loc := HostLocation("claude")
+	if want := filepath.Join(home, ".local", "share", "yolo-jail", "host-agents", "claude"); loc.Dir != want {
+		t.Fatalf("HostLocation(claude).Dir = %s, want %s", loc.Dir, want)
+	}
+	if !loc.IsHost() || !loc.Valid() || loc.Path() != filepath.Join(loc.Dir, ViewFile) {
+		t.Fatalf("HostLocation = %+v (IsHost %v, Valid %v, Path %s)", loc, loc.IsHost(), loc.Valid(), loc.Path())
+	}
+	if _, err := loc.Read(); !errors.Is(err, ErrDirGone) {
+		t.Errorf("a missing host dir reads as %v, want ErrDirGone", err)
+	}
+	if err := loc.EnsureDir(); err != nil {
+		t.Fatal(err)
+	}
+	if fi, err := os.Stat(loc.Dir); err != nil || fi.Mode().Perm() != 0o700 {
+		t.Errorf("the host dir is %v (%v), want 0700", fi.Mode().Perm(), err)
+	}
+	if err := loc.Write([]byte(`{"claudeAiOauth":{"accessToken":"at"}}`)); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := loc.Read(); err != nil || !strings.Contains(string(got), `"at"`) {
+		t.Errorf("Read = %q, %v", got, err)
+	}
+	if removed, err := loc.RemoveLegacyLink(); removed || err != nil {
+		t.Errorf("RemoveLegacyLink on a host view = %v, %v; there is no hook link there", removed, err)
+	}
+
+	// A link standing where the directory should be is refused, not written through.
+	linked := Location{Dir: filepath.Join(home, "linked")}
+	target := filepath.Join(home, "elsewhere")
+	if err := os.MkdirAll(target, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(target, linked.Dir); err != nil {
+		t.Fatal(err)
+	}
+	if err := linked.Write([]byte("{}")); !errors.Is(err, ErrViewIsLink) {
+		t.Errorf("a write through a linked host dir = %v, want ErrViewIsLink", err)
+	}
+	if entries, _ := os.ReadDir(target); len(entries) != 0 {
+		t.Errorf("the link's target was written: %v", entries)
+	}
+
+	// Neither shape, or both, is not a location.
+	for _, bad := range []Location{{}, {Dir: "relative"}, {Dir: "/abs", Workspace: "/ws", Subdir: "claude"}} {
+		if bad.Valid() {
+			t.Errorf("%+v is Valid", bad)
+		}
 	}
 }

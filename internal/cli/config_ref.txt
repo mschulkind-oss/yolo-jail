@@ -1257,7 +1257,8 @@
                     backend, explicit network.mode, YOLO_NO_HOST_LOOPBACK)
     Only "unsupported"/"unknown" mean the forwarding may genuinely be absent.
 
-  [bold]security.blocked_tools[/bold] (array): Tools to block inside the jail.
+  [bold]security.blocked_tools[/bold] (array): Tools to block inside the jail,
+    and in the program `yolo host --` starts (from your user config only there).
     Simple: ["curl", "wget"]
     Detailed: [{"name": "grep", "message": "Use rg", "suggestion": "rg <pattern>"}]
     A tool name is a BARE NAME — a single PATH segment, no "/", "..",
@@ -1306,6 +1307,16 @@
         ]
       }
     Bypass: Set YOLO_BYPASS_SHIMS=1 in scripts that need blocked tools.
+    AT THE HOST: `yolo host -- <program>` renders the same blockers — the
+    selected packs' and this list from your USER config, never a workspace's —
+    into a directory yolo keeps (~/.local/share/yolo-jail/bin/block/<digest>) and
+    puts it first on that program's PATH, saying so at every launch.  `replacement`
+    is checked against that PATH, and YOLO_BYPASS_SHIMS=1 runs the program found
+    behind each block on it (none found: the shim says so and exits 127).  Two
+    things never meet a block there: a shell that resets PATH (a login shell:
+    macOS's path_helper, Debian's /etc/profile) and an agent's own shell function
+    of the same name (Claude Code's Bash tool defines grep and find, in a jail
+    too).  `yolo host apply` starts nothing and blocks nothing.
 
   [bold]mise_tools[/bold] (object): Extra tools installed via mise in the jail.
     Keys are mise tool names, values are version strings.
@@ -1421,12 +1432,13 @@
                     `node_floor` but no other program field.  `source` is a git address
                     (file:// is refused: a directory has no revision).
       blocked-tool  {bin, message, suggestion, replacement, flags} — refuse a tool
-                    inside the jail and print an alternative.  `flags` limits the block
-                    to matching argv (absent = always); `replacement` names the binary
-                    the suggestion points at, and the block is generated ONLY when that
-                    binary is on the jail's PATH — so a jail without the alternative
-                    keeps the original tool instead of losing both.  Core blocks
-                    nothing by default; the `guardrails` pack ships grep/find.
+                    inside the jail, and in the program `yolo host --` starts, and
+                    print an alternative.  `flags` limits the block to matching argv
+                    (absent = always); `replacement` names the binary the suggestion
+                    points at, and the block is generated ONLY when that binary is on
+                    the agent's PATH — so an agent without the alternative keeps the
+                    original tool instead of losing both.  Core blocks nothing by
+                    default; the `guardrails` pack ships grep/find.
       intercept     {bin, forward} — route a command NAME in the jail to a forwarder
                     the pack declares: ~/.yolo/bin/block/<bin> becomes
                     `exec <forward…> "$@"`, first on PATH, so a bare `<bin>` runs the
@@ -1459,7 +1471,15 @@
                     pack addresses its tree to a name instead of a path — or names
                     neither, and it reaches every skills destination.  skills/ is ONE
                     unit: it broadcasts unless a contribution names it, so adding a
-                    narrower tree beside it keeps it broadcasting.
+                    narrower tree beside it keeps it broadcasting.  `project_dirs`, on a
+                    destination, names the workspace paths its agent reads skills from
+                    (".codex/skills").  A jail mirrors every such directory a repository
+                    has into every destination.  `yolo host -- <agent>`, which renders
+                    nothing into your home from a workspace, instead puts ONE link at
+                    the agent's first path when the repository has none of them,
+                    pointing at the first other agent's skills directory it does have
+                    (.codex/skills -> ../.claude/skills), adds that path to the
+                    workspace's .gitignore once, and says so at every launch.
       briefing      {from, into, after:"host:<path>" to prepend your own file first,
                     agent, agents}.  A pack's prose is every *.md directly inside its
                     briefing/ dir (filename order), plus any file a `from` names.  A root
@@ -1687,12 +1707,14 @@
     follows is that reason, per kind, once.  "Does not apply" means the kind has no meaning off-container
     — it is never a refusal of your apply, which stops nothing and writes your other
     surfaces normally.
-      blocked-tool  a blocker is a shim at the head of a JAIL's PATH.  Off-container yolo
-                    owns no PATH entry to put one in, and editing your shell rc to take
-                    one over is a far larger claim than a pack's contribution makes.
-      intercept     an intercept is a forwarding shim at the head of a JAIL's PATH, for
-                    blocked-tool's reason: off-container yolo owns no PATH entry to put
-                    one in.
+      blocked-tool  a blocker is a shim first on the PATH of a process yolo starts, and
+                    this command starts none.  Putting one at the head of your whole
+                    session's PATH would mean editing your shell rc.  `yolo host --
+                    <program>` puts them first on that program's PATH instead.
+      intercept     an intercept layers a permission over a CLI by putting a forwarder
+                    first on a JAIL's PATH.  At the host the agent runs as you and can
+                    run the real program by its path, so the layer would govern
+                    nothing; `yolo host --` does not put one there either.
       state         state names a jail-writable home subtree — off-container the home
                     simply is writable, so there is nothing to declare.
       reads-host    reads-host carries a host file INTO a jail.  With no jail the file is
@@ -2530,6 +2552,8 @@
     binary that did not exist.
     Once generated, a blocker is unconditional at run time — set
     YOLO_BYPASS_SHIMS=1 for installers and scripts that need the real tool.
+    `yolo host -- <program>` applies the same blockers, from your user config,
+    to the program it starts (see security.blocked_tools).
 
   [bold]Venvs & Python[/bold]
     Venvs are per side: /workspace/.venv (plus any venv path configured in

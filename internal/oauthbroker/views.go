@@ -21,14 +21,16 @@ import (
 	"path/filepath"
 	"slices"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/claudeview"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 )
 
-// viewRegistration is one workspace whose launch selected the credential view. It lives in
-// ViewRegistryDir, which is under BrokerDir and host-only.
+// viewRegistration is one workspace whose launch selected the credential view, or one program
+// `yolo host --` started with it (its Location's Dir set, CL-D27). It lives in ViewRegistryDir,
+// which is under BrokerDir and host-only.
 type viewRegistration struct {
 	claudeview.Location
 	// Runtime and Container say which launch registered it, for `yolo claude-auth status`.
@@ -47,10 +49,33 @@ type viewRegistration struct {
 }
 
 // registrationFile names a location's registration: a digest, so a workspace path never has
-// to be spelled as a file name.
+// to be spelled as a file name. A workspace's keeps the digest it always had, so a registration
+// written before host views existed is still the one its next launch finds; a host view's is a
+// digest of its directory under a prefix no workspace's input can produce (it begins with NUL).
 func registrationFile(loc claudeview.Location) string {
-	sum := sha256.Sum256([]byte(loc.Workspace + "\x00" + loc.Subdir))
+	key := loc.Workspace + "\x00" + loc.Subdir
+	if loc.IsHost() {
+		key = "\x00dir\x00" + loc.Dir
+	}
+	sum := sha256.Sum256([]byte(key))
 	return filepath.Join(ViewRegistryDir, hex.EncodeToString(sum[:8])+".json")
+}
+
+// sortKey orders registrations: workspaces by path, then host views by directory.
+func (r *viewRegistration) sortKey() string {
+	if r.IsHost() {
+		return "\xff" + r.Dir
+	}
+	return r.Workspace + "\x00" + r.Subdir
+}
+
+// signedOutWhere names where a registration's /logout ran, for the log and `yolo claude-auth
+// status`.
+func (r *viewRegistration) signedOutWhere() string {
+	if r.IsHost() {
+		return "in a `yolo host` session"
+	}
+	return "in its jail"
 }
 
 func (r *viewRegistration) save() error {
@@ -92,14 +117,14 @@ func loadRegistrations() []*viewRegistration {
 			continue
 		}
 		var r viewRegistration
-		if err := json.Unmarshal(data, &r); err != nil || r.Workspace == "" || r.Subdir == "" {
+		if err := json.Unmarshal(data, &r); err != nil || !r.Valid() {
 			logWarn("view: registration %s does not parse; skipped", p)
 			continue
 		}
 		r.file = p
 		out = append(out, &r)
 	}
-	sort.Slice(out, func(i, j int) bool { return out[i].Workspace < out[j].Workspace })
+	sort.Slice(out, func(i, j int) bool { return out[i].sortKey() < out[j].sortKey() })
 	return out
 }
 
@@ -329,8 +354,11 @@ func relaySource() *jsonx.OrderedMap {
 }
 
 // maintainViewsLocked is the tick's pass over every registration: keep each view current,
-// adopt a /login, honor a /logout, drop a registration whose workspace has gone.
+// adopt a /login, honor a /logout, drop a registration whose workspace has gone. It first marks
+// this process as a broker that keeps host views (markHostViewsKept): only the daemon's tick runs
+// this pass, so the mark names the daemon.
 func (s store) maintainViewsLocked() {
+	markHostViewsKept()
 	regs := loadRegistrations()
 	if len(regs) == 0 {
 		return
@@ -359,8 +387,8 @@ func (s store) maintainViewLocked(r *viewRegistration) {
 		if err := r.save(); err != nil {
 			logWarn("view: could not record the /logout in %s: %s", r.Path(), err)
 		}
-		logInfo("view: %s was signed out by /logout in its jail; the broker writes it nothing "+
-			"more until that workspace's next launch", r.Path())
+		logInfo("view: %s was signed out by /logout %s; the broker writes it nothing "+
+			"more until its next launch", r.Path(), r.signedOutWhere())
 		return
 	}
 	canonical, err := oauthFromCreds(s.canonical)
@@ -468,6 +496,65 @@ func scopeString(oauth *jsonx.OrderedMap) string {
 		}
 	}
 	return strings.Join(parts, " ")
+}
+
+// hostViewsMarkName is the file in the broker's state dir by which the RUNNING broker says it
+// keeps `yolo host` views current (CL-D28, docs/design/claude-login-without-interception.md). A
+// broker a yolo older than host views started still answers every connection, so nothing a
+// launch can probe tells it apart — and it skips a dir-only registration as unparseable on every
+// tick, so a view `yolo host -- claude` registers with it is written once, at registration, and
+// never refreshed. The launch reads this mark instead (HostViewsKeptBy) and replaces a broker
+// that lacks it.
+const hostViewsMarkName = "host-views.mark"
+
+// hostViewsMark is the mark's content for the broker process pid: the ability's version, so a
+// later change to what a host view needs can bump it, and the pid, so a mark a stopped broker
+// left never vouches for the process that replaced it.
+func hostViewsMark(pid int) string { return "host-views-v1 " + strconv.Itoa(pid) + "\n" }
+
+// hostViewsMarkPath is the mark beside the registrations, "" when the store is not configured.
+func hostViewsMarkPath() string {
+	if ViewRegistryDir == "" {
+		return ""
+	}
+	return filepath.Join(filepath.Dir(ViewRegistryDir), hostViewsMarkName)
+}
+
+// markHostViewsKept writes this process's mark when the file does not already say it, through a
+// temporary file renamed into place, so a launch reading it never sees half of one. Best effort,
+// and quiet but for the debug log: a broker that cannot write it is replaced by the next host
+// launch that wants a view, which says so.
+func markHostViewsKept() {
+	p := hostViewsMarkPath()
+	if p == "" {
+		return
+	}
+	want := hostViewsMark(os.Getpid())
+	if cur, err := os.ReadFile(p); err == nil && string(cur) == want {
+		return
+	}
+	tmp, err := os.CreateTemp(filepath.Dir(p), ".host-views-")
+	if err != nil {
+		logDebug("view: could not mark this broker as keeping host views: %s", err)
+		return
+	}
+	_, werr := tmp.WriteString(want)
+	cerr := tmp.Close()
+	if werr != nil || cerr != nil || os.Rename(tmp.Name(), p) != nil {
+		_ = os.Remove(tmp.Name())
+		logDebug("view: could not mark this broker as keeping host views")
+	}
+}
+
+// HostViewsKeptBy reports whether the broker process pid has marked itself as one that keeps
+// `yolo host` views current. It needs the store configured (ConfigureStore).
+func HostViewsKeptBy(pid int) bool {
+	p := hostViewsMarkPath()
+	if p == "" || pid <= 0 {
+		return false
+	}
+	cur, err := os.ReadFile(p)
+	return err == nil && string(cur) == hostViewsMark(pid)
 }
 
 // RegisterResult is what RegisterView found and did, for the launch to report.

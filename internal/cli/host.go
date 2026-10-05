@@ -732,6 +732,12 @@ func hostLaunch(flags hostExecFlags, profile string, cmd []string, out, errw, ra
 		return rc
 	}
 	target := resolved.Path
+	// THE BLOCKED TOOLS (HE-D11, hostblockers.go): the selected packs' and the user scope's
+	// blocked-tool shims, first on the child's PATH, once the target has resolved — its lookup
+	// above read the PATH without them, as the folders it skips include theirs — and before the
+	// model menu, so every reader of the child's environment below sees the PATH the child gets.
+	// With nothing blocked the PATH is OQ-HE10's exactly.
+	childPath = hostBlockedChildPath(launch, childPath, errw)
 	// argv[0] stays the name the user typed, not the resolved path: agents branch on it
 	// (usage text, `$0`), and handing them an absolute path changes what they print.
 	argv := injectHostLaunchFlags(launch.packs, append([]string{cmd[0]}, cmd[1:]...), errw)
@@ -775,7 +781,17 @@ func hostLaunch(flags hostExecFlags, profile string, cmd []string, out, errw, ra
 	// pointer names, so that one is not missing and is not named. When that launch did not
 	// start (no login, no terminal), the URL is named with that reason, the launch's own.
 	printHostLines(errw, launch.unservedLines(managedHostVars(managed)))
+	// THE WORKSPACE SKILLS LINK (OQ-WS5's B; docs/design/workspace-skills.md WS-D19 to WS-D23,
+	// hostworkspaceskills.go) is the launch's LAST write, made just before each hand-over below:
+	// after every pre-flight, the prelaunch and every launch-owned service and doorway, so a
+	// launch refused at any of them — a bridge that cannot bind included — writes nothing into
+	// the workspace (WS-D19).
+	linkWorkspaceSkills := func() { hostWorkspaceSkills(launch.packs, launch.agent, errw) }
 	environ := launch.childEnviron(childPath)
+	// THE CLAUDE CREDENTIAL VIEW AT THE HOST (CL-D27, hostclaudeview.go), behind the jails' own
+	// switch and off by default: set in environ here, so the exec and the resident path below
+	// both carry it.
+	environ = hostClaudeView(launch, environ, errw)
 	// THE LAUNCH-OWNED SERVICES (docs/design/host-notch-services.md §4.4): started after the
 	// agent resolved on PATH and after the prelaunch, so a missing agent starts nothing and the
 	// OpenAI login exists before the bridge asks for a view; the agent starts only once each
@@ -822,6 +838,7 @@ func hostLaunch(flags hostExecFlags, profile string, cmd []string, out, errw, ra
 				strings.Join(plan.PointedAt(launch.scope.Agent(launch.agent)), ", "), launch.agent, r.Log)
 		}
 		sp.End()
+		linkWorkspaceSkills()
 		// WHAT STARTS, AND FROM WHERE, the last line before the hand-over: a slow agent startup
 		// is then visibly the agent's, not yolo's.
 		trace.handOver()
@@ -832,6 +849,7 @@ func hostLaunch(flags hostExecFlags, profile string, cmd []string, out, errw, ra
 	}
 	// The same line on the exec path — a managed launch that stays resident included, since it
 	// runs the same target.
+	linkWorkspaceSkills()
 	trace.handOver()
 	printHostStartingLine(errw, cmd[0], resolved)
 	if managed != nil {
