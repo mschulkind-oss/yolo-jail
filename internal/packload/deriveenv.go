@@ -175,6 +175,11 @@ func AgentEnv(packs []*Pack, providers *jsonx.OrderedMap, useProfiles map[string
 			composed[k] = v
 		}
 	}
+	// THE AGENT FILES LEAVE THE ENVIRONMENT HERE (agentfiles.go, MM-D33): collected where this
+	// notch writes them, withheld everywhere else, and never a shape var.
+	if err := takeAgentFiles(composed, owner, agent, cfg.files); err != nil {
+		return nil, err
+	}
 	return envVarsOf(composed, owner, agent)
 }
 
@@ -195,6 +200,8 @@ func deriveAgentEnv(script string, owner *Pack, packs []*Pack, providers *jsonx.
 		// The profile's model-list enforcement switch (MM-D5), the same answer the surface
 		// path hands its derives (entrypoint.surfaceSelectionFor).
 		ModelsNotEnforced: !ModelsEnforced(cfg.resolved[profile]),
+		// Whether this notch writes the agent files the pack declares (WithAgentFiles, MM-D33).
+		AgentFiles: cfg.files != nil,
 		// The built-in source's capabilities, resolved the same way the surface path
 		// resolves them (surfaceSelectionFor) — `owner` is by construction the pack bin
 		// ownership would find. It changes nothing HERE, because this ctx carries no
@@ -260,6 +267,8 @@ type agentEnvOpts struct {
 	unserved []Adaptation
 	// set is WithActiveSet's list.
 	set []string
+	// files is WithAgentFiles' destination; nil at a notch that writes no agent files.
+	files *[]AgentFile
 }
 
 // WithActiveSet hands the runner the agent's whole active set (docs/design/active-provider-sets.md

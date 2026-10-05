@@ -21,6 +21,16 @@ the host. See [Follow an upstream with a patch series](userguide/guides/patch-se
 into a jail, and what each launch shows about the code it runs. See
 [Claude Code plugins and mods](userguide/guides/claude-plugins-and-mods.md).
 
+**Copilot shows a provider's whole model list.** In a jail, Copilot's model picker offers every
+model on the provider's list, beside GitHub's own models when you are signed in to GitHub. See
+[a company's model list](userguide/guides/providers-and-models.md#model-menus-and-a-companys-model-list).
+
+### Changed
+
+- yolo no longer ships a Bedrock model list: each agent starts on its own Bedrock default, and
+  Copilot on gpt-oss-120b. To start on a model of your choosing, name it in a profile's `model` or
+  list it under `providers.bedrock.models`.
+
 ### Fixed
 
 - When `yolo host` has no container runtime to capture an agent with, it now says to install one.

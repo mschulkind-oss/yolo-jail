@@ -73,23 +73,57 @@ local function isLocalEndpoint(url)
          string.find(url, "://0%.0%.0%.0")
 end
 
--- narrowedFirst is a provider list's first entry in the order every list consumer shares: the
--- `order` fact (declared before undeclared, read under the alias spelled as the id first), then
--- the id. nil for an empty list.
-local function narrowedFirst(p)
+-- THE MODELS OF A MULTI-MAKER PROVIDER THIS AGENT CAN CALL. callableModels expands a provider's
+-- `models` and `model_options` (for Bedrock, the list a pack's `models` contribution or the
+-- user's `providers.<name>` supplies: packs/bedrock ships none, docs/design/model-lists-and-pickers.md
+-- MM-D32) into the ordered list of the entries this agent's own client can call
+-- (docs/design/bedrock-plumbing.md OQ-BR9). Each entry declares its
+-- maker as the `vendor` fact, and the maker is never parsed out of the id. `makers` is the set
+-- of vendors this agent's client serves, nil meaning every one, and an entry that declares no
+-- vendor (a user's string-form alias) is offered to every agent.
+--
+-- ONE ROW PER ID, as codexModelList builds it (docs/design/model-lists-and-pickers.md ML-D6):
+-- the alias spelled as the id supplies its facts first, and every other alias naming the same
+-- id fills only a fact still missing, in sorted alias order. A row's `facts` are those merged
+-- model_options strings. The rows are ordered by the `order` fact (declared before undeclared),
+-- then by id, so the first row is the provider's declared default among what this agent can
+-- call, which is the fallback OQ-BR9's ruling names: "the first model that agent can call".
+--
+-- ⚠ DUPLICATED VERBATIM in packs/claude/derive.lua, packs/codex/derive.lua,
+-- packs/opencode/derive.lua and packs/pi/derive.lua, and callableModels alone in
+-- packs/copilot/derive.lua, because a derive cannot load another file (the sandbox has no
+-- require and no io). internal/entrypoint/bedrock_model_list_test.go fails when the copies differ.
+local function callableModels(p, makers)
+  if type(p) ~= "table" or type(p.models) ~= "table" then return {} end
   local opts = type(p.model_options) == "table" and p.model_options or {}
-  local function orderOf(id)
-    local own = opts[id]
-    if type(own) == "table" and tonumber(own.order) then return tonumber(own.order) end
-    for alias, target in pairs(p.models or {}) do
-      local f = opts[alias]
-      if target == id and type(f) == "table" and tonumber(f.order) then return tonumber(f.order) end
-    end
-    return nil
+  local aliases = {}
+  for alias in pairs(p.models) do
+    if type(alias) == "string" then table.insert(aliases, alias) end
   end
-  local rows = {}
-  for _, id in pairs(p.models or {}) do
-    if type(id) == "string" and id ~= "" then table.insert(rows, { id = id, order = orderOf(id) }) end
+  table.sort(aliases)
+  local rows, byId = {}, {}
+  local function absorb(id, alias)
+    local r = byId[id]
+    if not r then
+      r = { id = id, facts = {} }
+      byId[id] = r
+      table.insert(rows, r)
+    end
+    local f = type(opts[alias]) == "table" and opts[alias] or {}
+    for k, v in pairs(f) do
+      if r.facts[k] == nil and type(v) == "string" and v ~= "" then r.facts[k] = v end
+    end
+  end
+  for _, alias in ipairs(aliases) do
+    if alias ~= "" and p.models[alias] == alias then absorb(alias, alias) end
+  end
+  for _, alias in ipairs(aliases) do
+    local id = p.models[alias]
+    if type(id) == "string" and id ~= "" and id ~= alias then absorb(id, alias) end
+  end
+  for _, r in ipairs(rows) do
+    r.order = tonumber(r.facts.order)
+    r.vendor = r.facts.vendor
   end
   table.sort(rows, function(a, b)
     if a.order and b.order and a.order ~= b.order then return a.order < b.order end
@@ -97,7 +131,58 @@ local function narrowedFirst(p)
     if b.order and not a.order then return false end
     return a.id < b.id
   end)
-  return rows[1] and rows[1].id
+  local list = {}
+  for _, r in ipairs(rows) do
+    if r.vendor == nil or makers == nil or makers[r.vendor] then table.insert(list, r) end
+  end
+  return list
+end
+
+-- listFirst is a provider list's first entry in the order every list consumer shares
+-- (callableModels: the `order` fact, declared before undeclared, then the id), nil for an empty
+-- list. copilot through the bridge takes every maker, so nothing is filtered.
+local function listFirst(p)
+  local first = callableModels(p, nil)[1]
+  return first and first.id
+end
+
+-- COPILOT'S STARTING MODEL ON BEDROCK (docs/design/model-lists-and-pickers.md MM-D32, MM-D34).
+-- yolo ships no Bedrock model list, so every agent with a Bedrock catalog of its own starts on
+-- that catalog's default. copilot has none, and its environment-variable setup refuses to start
+-- without a model, so on a Bedrock provider whose list names nothing, with no model named, it
+-- starts here: OpenAI's open-weight gpt-oss-120b, as bedrock-runtime spells it in-Region. Among the
+-- cheapest models Bedrock serves ($0.15 / $0.60 per million input / output tokens in the US, as
+-- read 2026-10-05), and served on runtime's chat completions, the route the wire bridge translates
+-- copilot's requests onto (MEASURED 2026-10-05: one signed request from a jail in us-east-1
+-- answered 200). A pack's `models` contribution, the user's own list, or a profile's `model`
+-- replaces it.
+local bedrockStartModel = "openai.gpt-oss-120b-1:0"
+
+-- providersFile is copilot's providers.json (MM-D31, MM-D33) for provider `name`, reached at base
+-- as ptype (wire for an openai type) with key: the provider and one row per entry of its list, in
+-- list order, then `start` when the list does not hold it (a profile's own literal id). Each row's
+-- id is the wire id, so copilot's selection id is `<name>/<id>`; a row carries the entry's display
+-- name and limits where the list declares them, and every row the profile's context window.
+local function providersFile(p, name, base, ptype, wire, key, start, cw)
+  local provider = { name = name, type = ptype, baseUrl = base }
+  if wire then provider.wireApi = wire end
+  if key then provider.apiKey = key end
+  local rows, listed = {}, {}
+  local function row(id, facts)
+    local r = { id = id, provider = name, wireModel = id }
+    if type(facts.name) == "string" and facts.name ~= "" then r.name = facts.name end
+    local window = tonumber(facts.context_window)
+    if window and window > 0 then r.maxContextWindowTokens = window end
+    local output = tonumber(facts.max_tokens)
+    if output and output > 0 then r.maxOutputTokens = output end
+    local prompt = tonumber(cw)
+    if prompt and prompt > 0 then r.maxPromptTokens = prompt end
+    table.insert(rows, r)
+    listed[id] = true
+  end
+  for _, e in ipairs(callableModels(p, nil)) do row(e.id, e.facts) end
+  if start and not listed[start] then row(start, {}) end
+  return { providers = { provider }, models = rows }
 end
 
 yolo.env("copilot", function(ctx)
@@ -157,18 +242,23 @@ yolo.env("copilot", function(ctx)
   -- is the provider's whole menu, and its DEFAULT ENTRY is §7.2's: the profile's `model` when
   -- the list holds it, else the `default` alias, else the list's first entry. An only that drops
   -- the profile's model must not leave copilot on its GitHub login, so the first entry answers.
-  -- Still one model: copilot's environment-variable setup carries one, and the whole list is
-  -- providers.json's to show, after the measurements MM-D10 names.
+  -- copilot's environment-variable setup carries this one model; where the notch writes copilot's
+  -- providers.json (below, MM-D31) the file shows the whole list and this is the one it starts on.
   if not model and p.models_only == true then
-    model = m.default or narrowedFirst(p)
+    model = m.default or listFirst(p)
   end
   -- THROUGH THE BRIDGE TO A PROVIDER OF SEVERAL MAKERS (viaOnly above: the shipped `bedrock`, whose
-  -- list names no `default`, docs/design/model-lists-and-pickers.md ML-D9) copilot still needs one
+  -- list, when a pack or the user supplies one, may name no `default`) copilot still needs one
   -- model, since BYOK refuses to start without one, and the bridge carries every maker on the list
   -- (translating all but Anthropic's). OQ-ML2's rule picks it: the provider's declared default,
   -- else the first model it lists.
   if not model and viaOnly then
-    model = m.default or narrowedFirst(p)
+    model = m.default or listFirst(p)
+  end
+  -- A BEDROCK PROVIDER WHOSE LIST NAMES NOTHING (MM-D32: packs/bedrock ships none) still needs
+  -- copilot's one model, and copilot has no Bedrock catalog to default from: bedrockStartModel.
+  if not model and viaOnly and ctx.selected_platform == "aws-bedrock" then
+    model = bedrockStartModel
   end
   if not model then return {} end
   local out = {
@@ -184,6 +274,7 @@ yolo.env("copilot", function(ctx)
   if cw then
     out.COPILOT_PROVIDER_MAX_PROMPT_TOKENS = tostring(cw)
   end
+  local key
   -- AN ENDPOINT THAT NAMES ITS OWN CREDENTIAL TAKES THAT ONE, over the provider's key: core
   -- composes it onto an address a pack service serves (the wire bridge's), whose service holds
   -- the provider's key itself and demands this launch's caller token of every caller
@@ -191,16 +282,32 @@ yolo.env("copilot", function(ctx)
   -- the service refuses with a clear 401, rather than the provider's key to a loopback port.
   if type(ep) == "table" and ep.api_key_env_name then
     if type(ep.api_key) == "string" and ep.api_key ~= "" then
-      out.COPILOT_PROVIDER_API_KEY = ep.api_key
+      key = ep.api_key
     else
-      out.COPILOT_PROVIDER_API_KEY = "local"
+      key = "local"
     end
   elseif p.api_key then
-    out.COPILOT_PROVIDER_API_KEY = p.api_key
+    key = p.api_key
   elseif type(p.options) == "table" and p.options.api_key then
-    out.COPILOT_PROVIDER_API_KEY = p.options.api_key
+    key = p.options.api_key
   elseif isLocalEndpoint(base) then
-    out.COPILOT_PROVIDER_API_KEY = "local"
+    key = "local"
+  end
+  out.COPILOT_PROVIDER_API_KEY = key
+  -- THE WHOLE LIST, WHERE ONE IS SUPPLIED (docs/design/model-lists-and-pickers.md MM-D31, ruled
+  -- 2026-10-05): a provider whose list names any model, by a pack's declaration, a `models`
+  -- contribution or the user's own `providers.<name>.models`, reaches copilot as its
+  -- providers.json, which shows every entry in its picker. copilot's own help says the file
+  -- replaces the COPILOT_PROVIDER_* variables once it declares anything, so those above stay as the
+  -- delivery wherever no file is written, and in the file's mode a model is selected as
+  -- `<provider>/<id>`. The file's models JOIN GitHub's own: a copilot signed in to GitHub shows
+  -- GitHub's models beside the list, and a GitHub model picked there is GitHub's to serve, which
+  -- the ruling accepts. Only where this notch writes the file (ctx.agent_files: a jail, MM-D33),
+  -- since it carries the key as literal text; at `yolo host` copilot keeps the one model above.
+  if ctx.agent_files and #callableModels(p, nil) > 0 then
+    local name = ctx.selected_provider
+    out.COPILOT_PROVIDERS_CONFIG = providersFile(p, name, base, ptype, wire, key, model, cw)
+    out.COPILOT_MODEL = name .. "/" .. model
   end
   return out
 end)

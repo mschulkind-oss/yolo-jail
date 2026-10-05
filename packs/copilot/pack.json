@@ -3,6 +3,14 @@
     // Where the install hint's name came from, checked 2026-10-02. A cask, so "brew-cask".
     //   brew-cask: https://formulae.brew.sh/api/cask/copilot-cli.json (binary artifact `copilot`)
     {
+      // copilot's providers.json, which shows a provider's whole model list beside GitHub's
+      // (docs/design/model-lists-and-pickers.md MM-D31) and carries the provider's key as literal
+      // text, so the env derive composes it and a jail writes it beside copilot's env file
+      // (MM-D33). At `yolo host`, which writes no agent file, copilot keeps its environment's one
+      // model.
+      "agent_files": {
+        "COPILOT_PROVIDERS_CONFIG": "providers.json"
+      },
       "bin": "copilot",
       "install_hints": {
         "brew-cask": "copilot-cli"

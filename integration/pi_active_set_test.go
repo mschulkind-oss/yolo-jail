@@ -78,7 +78,9 @@ func TestPiRunsOnABedrockEntryAfterItsFirst(t *testing.T) {
 	const region, opus = "eu-west-1", "global.anthropic.claude-opus-5-5"
 
 	dir := writeProject(t, `{}`)
-	packHome(t, `{"packs": ["pi", "zai"], "providers": {"bedrock": {"region": "`+region+`"}}, `+
+	// A list the user supplies: packs/bedrock ships none (docs/design/model-lists-and-pickers.md MM-D32).
+	packHome(t, `{"packs": ["pi", "zai"], "providers": {"bedrock": {"region": "`+region+`", `+
+		`"models": {"global.anthropic.claude-opus-5-5": {"id": "global.anthropic.claude-opus-5-5", "vendor": "anthropic"}, "us.openai.gpt-6.1-sol": {"id": "us.openai.gpt-6.1-sol", "vendor": "openai"}}}}, `+
 		`"env_sources": [{"ZAI_API_KEY": "integration-probe-not-a-real-key"}]}`)
 	// pi's own env file, sourced as pi's launcher sources it; absent when nothing is scoped to pi,
 	// which then reads as no region rather than as a failed launch.

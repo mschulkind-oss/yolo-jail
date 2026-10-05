@@ -155,6 +155,14 @@ func TestHostCopilotOnABedrockBridgeProfileRunsThroughALaunchOwnedBridge(t *test
 			if l.report.Env["COPILOT_PROVIDER_API_KEY"] != plan.Token {
 				t.Errorf("copilot's provider key is not the launch's caller token")
 			}
+			// packs/bedrock ships no list (MM-D32), so copilot starts on its own one open-weight
+			// default (MM-D34), and the host writes no agent file (MM-D33).
+			if got := l.report.Env["COPILOT_MODEL"]; got != "openai.gpt-oss-120b-1:0" {
+				t.Errorf("COPILOT_MODEL = %q, want copilot's Bedrock default openai.gpt-oss-120b-1:0", got)
+			}
+			if got, set := l.report.Env["COPILOT_PROVIDERS_CONFIG"]; set {
+				t.Errorf("COPILOT_PROVIDERS_CONFIG = %q at the host, which writes no agent file", got)
+			}
 			if l.report.WithToken != http.StatusServiceUnavailable {
 				t.Errorf("copilot's request through the bridge got %d, want 503 (the credential fetch "+
 					"fails on loopback): %s", l.report.WithToken, l.report.Body)
@@ -175,6 +183,29 @@ func TestHostCopilotOnABedrockBridgeProfileRunsThroughALaunchOwnedBridge(t *test
 			assertServiceGone(t, l)
 		})
 	}
+}
+
+// A LIST AT THE HOST STAYS ONE MODEL (docs/design/model-lists-and-pickers.md MM-D33): copilot's
+// providers.json carries its key as literal text and is an agent file, which only a jail writes, so
+// at `yolo host` a Bedrock list a user supplies starts copilot on the list's first entry through
+// its environment, bare, and no variable names a file. A jail on the same list writes the file
+// (internal/cli/run's copilotbyok_test.go).
+func TestHostCopilotOnASuppliedBedrockListKeepsItsEnvironmentsOneModel(t *testing.T) {
+	scrubAWS(t)
+	cfg := `{"packs": ["copilot", "bedrock", "wire-bridge"], ` +
+		`"providers": {"bedrock": {"region": "eu-west-1", "models": {"sol": {"id": "us.openai.gpt-6.1-sol", "vendor": "openai"}}}}, ` +
+		`"env_sources": [{"AWS_CONTAINER_CREDENTIALS_FULL_URI": "` + deadLoopbackURL(t) + `"}]}`
+	l := runServiceLaunchAs(t, cfg, []string{"-p", "bedrock-bridge"}, "copilot", "", nil, nil)
+	if l.rc != 0 {
+		t.Fatalf("rc = %d\n%s", l.rc, l.errs)
+	}
+	if got := l.report.Env["COPILOT_MODEL"]; got != "us.openai.gpt-6.1-sol" {
+		t.Errorf("COPILOT_MODEL = %q, want the list's one entry, bare", got)
+	}
+	if got, set := l.report.Env["COPILOT_PROVIDERS_CONFIG"]; set {
+		t.Errorf("COPILOT_PROVIDERS_CONFIG = %q at the host, which writes no agent file", got)
+	}
+	assertServiceGone(t, l)
 }
 
 // A FILE-CARRIED VIA IS NOT SERVED AT `yolo host --` (HS-D31): pi reads its bedrock-bridge route from

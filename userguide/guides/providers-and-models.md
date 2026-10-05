@@ -76,24 +76,27 @@ profile's.
 Two more come with the agent packs, with no extra pack to add:
 
 - **`bedrock`**, in the `bedrock` pack, which the `claude`, `codex`, `opencode` and `pi` packs
-  bring in: AWS Bedrock, for each of those agents through its own Bedrock support. Claude Code
-  uses Anthropic's models there; codex uses OpenAI's; opencode and pi use any model on the list.
-  yolo ships three: Claude Opus 5.5, GPT-6.1 Sol and GPT-6 Astra. codex starts on GPT-6.1 Sol in
-  every Region, opencode and pi on Claude Opus 5.5, and Claude Code on its own Bedrock default,
-  unless your profile names a model. AWS offers GPT-6.1 Sol in its US Regions only for now, so
-  outside the US name another model, such as GPT-6 Astra:
+  bring in: AWS Bedrock, for each of those agents through its own Bedrock support. yolo ships no
+  Bedrock model list: each agent starts on its own Bedrock default model and offers its own
+  menu, whatever its maker put there, unless your profile names a model. If an agent's own
+  default does not work on Bedrock, name one:
 
   ```jsonc
   "profiles": { "astra": { "provider": "bedrock", "model": "global.openai.gpt-6-astra" } }
   ```
 
-  Add a model with its maker, so it reaches only the agents that take that maker (opencode and
-  pi take every maker, Claude Code Anthropic's and codex OpenAI's):
+  Or give the provider a list, each model with its maker, so it reaches only the agents that
+  take that maker (opencode and pi take every maker, Claude Code Anthropic's and codex OpenAI's):
   `"providers": {"bedrock": {"models": {"kimi": {"id": "global.moonshotai.kimi-k3", "vendor": "moonshotai"}}}}`.
+  Codex, opencode and pi then start on the first model on the list they can use, and opencode and
+  pi show the list in their menus. A pack your organization ships can set the list for everyone
+  ([a company's model list](#model-menus-and-a-companys-model-list)).
   Copilot and oh-omp have no Bedrock support of their own, so they reach Bedrock only through
   the wire bridge. `-p bedrock` sends them through it whenever the bridge is in the jail, as it is
   beside Claude Code, and `-p bedrock-bridge` (below) brings the bridge in itself; either way the
-  bridge signs their requests with the credentials described below. Neither pack brings the
+  bridge signs their requests with the credentials described below. Copilot has no Bedrock
+  model of its own to start on, so with no model named it starts on `openai.gpt-oss-120b-1:0`,
+  OpenAI's open-weight gpt-oss-120b, one of Bedrock's cheapest models. Neither pack brings the
   `bedrock` pack in, so beside them alone, list it in `packs`, and list `wire-bridge` too for
   `-p bedrock`. No agent on Bedrock has yet been tested against a real AWS account, through its
   own client or the bridge.
@@ -137,10 +140,12 @@ Two more come with the agent packs, with no extra pack to add:
   client, and so does any profile that adds `"via": "wire-bridge"` to a Bedrock provider. The
   bridge reaches Bedrock in the region the agent was given, found the same three ways, and signs
   every request with your AWS credentials itself. Under it Claude Code can switch between Claude
-  and every other model on the list in one session: a Claude model goes to Bedrock untranslated,
-  so prompt caching and thinking keep working, and any other model is translated. codex,
-  opencode, pi and oh-omp send their own requests through the bridge unchanged, and Copilot
-  starts on the first model on the list. A Bedrock provider of your own that names its own
+  and any other Bedrock model in one session: a Claude model your list names as Anthropic's goes
+  to Bedrock untranslated, so prompt caching and thinking keep working, and any other model is
+  translated, as is every model when you give no list. Name a model in your profile, since Claude
+  Code's own default is not a Bedrock model id. codex, opencode, pi and oh-omp send their own
+  requests through the bridge unchanged, and Copilot starts on your list's first model, or on
+  `openai.gpt-oss-120b-1:0`. A Bedrock provider of your own that names its own
   address in `endpoints` is signed there too, whatever the address, once its `platform` says
   `aws-bedrock`. The bridge signs with a key pair, the `aws-auth` login or a Bedrock API key, and
   not with a profile in `~/.aws`, so in a jail whose only AWS credential is `AWS_PROFILE` it has
@@ -389,7 +394,12 @@ agent allows it:
 | pi | exactly the list | refused |
 | oh-omp | exactly the list | a model typed with `--model` still runs |
 | Codex | on your ChatGPT subscription, exactly the list; on any other provider, its usual menu, starting on the list's default model | not refused |
-| Copilot | its usual menu, starting on the list's default model | not refused; whether it can show the whole list is still being decided |
+| Copilot | in a jail, the whole list, beside GitHub's own models when you are signed in to GitHub; at `yolo host`, the list's default model alone | not refused |
+
+Copilot shows a provider's whole list in a jail whenever the provider has one, narrowed or not.
+It cannot show the list alone: if you are signed in to GitHub with a Copilot plan, GitHub's models
+appear beside it, and a GitHub model you pick there is served by your GitHub account, not by the
+profile's provider. At `yolo host` Copilot starts on the list's default model and shows no list.
 
 When an agent reaches the provider through the wire bridge, the bridge refuses any other model
 too, whatever the agent's own menu allows: pi, opencode, oh-omp or codex on a profile with

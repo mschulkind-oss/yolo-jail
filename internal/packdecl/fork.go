@@ -172,6 +172,7 @@ func forkBaseFields(c Contribution) []forkBaseField {
 		{"platform_regions", base, c.PlatformRegions != nil},
 		{"unlisted_background_models", base, c.UnlistedBackgroundModels},
 		{"exact_menu_refuses", base, c.ExactMenuRefuses != nil},
+		{"agent_files", base, c.AgentFiles != nil},
 	}
 }
 

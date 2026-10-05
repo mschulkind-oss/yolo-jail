@@ -90,6 +90,12 @@ type ScopeInput struct {
 	// its own. Only `yolo host --with-credentials` passes one; nil is every jail launch, whose
 	// answer is therefore unchanged.
 	Grants map[string][]string
+	// AgentFiles says this notch writes AGENT FILES (agentfiles.go, MM-D33): each agent's env
+	// derive is told so, and what it composes under a variable its program declares in
+	// `agent_files` lands in that delivery's Files for the notch's writer. Only the jail notch
+	// sets it (composePackChannel, whose per-agent env writer puts each file beside the agent's
+	// env file); false withholds every such variable, which is the host's answer.
+	AgentFiles bool
 	// UnservedAdaptations are the conversions this notch can never serve
 	// (UnservedAdaptationsAt, at a notch that serves no pack service: the host, macos-user): the ones its
 	// composition left out, and the unselected shipped packs' of the same kind. Handed to every
@@ -192,6 +198,10 @@ type AgentDelivery struct {
 	// (RegionFile, regionfill.go): one list, so every vehicle that delivers the derive's output
 	// delivers the region too.
 	Shape []agentenv.Var
+	// Files are the agent files its env derive composed (agentfiles.go, MM-D33), sorted by
+	// variable: empty unless the notch writes them (ScopeInput.AgentFiles). Never shape vars, so
+	// no vehicle that serializes an environment carries a document as a value.
+	Files []AgentFile
 	// RegionFile is what the region fill read for this agent, nil when it needed nothing from
 	// the file: the region it delivered, or why it delivered none, which the region pre-flight
 	// names (RegionAsk.File).
@@ -273,9 +283,13 @@ func ScopeCredentials(in ScopeInput) (*CredentialScope, error) {
 		if in.NoDerives || profile == "" {
 			continue
 		}
+		opts := []AgentEnvOption{WithResolvedProfiles(in.Resolved),
+			WithUnservedAdaptations(in.UnservedAdaptations), WithActiveSet(d.Set)}
+		if in.AgentFiles {
+			opts = append(opts, WithAgentFiles(&d.Files))
+		}
 		shape, err := AgentEnv(in.Packs, in.Providers, in.Profiles, agent, profile,
-			s.LookupFor(agent), WithResolvedProfiles(in.Resolved),
-			WithUnservedAdaptations(in.UnservedAdaptations), WithActiveSet(d.Set))
+			s.LookupFor(agent), opts...)
 		if err != nil {
 			return nil, err
 		}
@@ -946,7 +960,7 @@ func (d *AgentDelivery) Empty() bool {
 	if d == nil {
 		return true
 	}
-	return d.EnvSources.Len() == 0 && len(d.PackEnv) == 0 && len(d.Shape) == 0
+	return d.EnvSources.Len() == 0 && len(d.PackEnv) == 0 && len(d.Shape) == 0 && len(d.Files) == 0
 }
 
 // DisclosureNotes is what one notch adds to the gate's disclosure, for facts the gate cannot

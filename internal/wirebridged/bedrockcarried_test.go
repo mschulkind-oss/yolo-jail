@@ -21,7 +21,13 @@ import (
 // profile table: the composed providers, the launcher's YOLO_PROFILES and YOLO_USE_PROFILES.
 func plainBedrockEnv(t *testing.T, use map[string]string) (*jsonx.OrderedMap, map[string]packload.ResolvedProfile, map[string]string) {
 	t.Helper()
-	providers, resolved := shippedBridgeTables(t, "")
+	return plainBedrockEnvWith(t, "", use)
+}
+
+// plainBedrockEnvWith is plainBedrockEnv over a user `providers` layer.
+func plainBedrockEnvWith(t *testing.T, user string, use map[string]string) (*jsonx.OrderedMap, map[string]packload.ResolvedProfile, map[string]string) {
+	t.Helper()
+	providers, resolved := shippedBridgeTables(t, user)
 	provJSON, err := jsonx.DumpsCompact(providers)
 	if err != nil {
 		t.Fatal(err)
@@ -89,13 +95,15 @@ func TestPlainBedrockCarriesOnlyTheAgentsWithNoClientOfTheirOwn(t *testing.T) {
 
 // TestPlainBedrockReachesRuntimeForCopilotAndOmp sends one request of each carried agent through
 // the booted plan: copilot's Messages request goes to runtime's chat-completions in copilot's
-// region (its Claude model to runtime's Messages route, untranslated, as under bedrock-bridge),
-// and oh-omp's chat-completions to runtime in its own, each signed with that agent's own pair.
+// region, its starting model too (copilot's open-weight default, MM-D34), its Claude model to
+// runtime's Messages route, untranslated, as under bedrock-bridge, where a list names that model
+// Anthropic's (anthropicOnTheList), and oh-omp's chat-completions to runtime in its own, each
+// signed with that agent's own pair.
 func TestPlainBedrockReachesRuntimeForCopilotAndOmp(t *testing.T) {
 	clearAWS(t)
 	logs := captureDiag(t)
 	up := withUpstream(t)
-	providers, resolved, use := plainBedrockEnv(t, everyAgentOnPlainBedrock)
+	providers, resolved, use := plainBedrockEnvWith(t, anthropicOnTheList, everyAgentOnPlainBedrock)
 	p := planFor(providers, use, resolved)
 	if p.adapter == nil {
 		t.Fatalf("no adapter route on -p bedrock: %s", p.adapterWhy)
@@ -109,6 +117,9 @@ func TestPlainBedrockReachesRuntimeForCopilotAndOmp(t *testing.T) {
 	for _, tc := range []struct{ url, body, wantURL, wantAKID string }{
 		{"http://" + adapter + "/v1/messages",
 			`{"model":"us.openai.gpt-6.1-sol","max_tokens":8,"messages":[{"role":"user","content":"hi"}]}`,
+			"https://bedrock-runtime.eu-west-1.amazonaws.com/openai/v1/chat/completions", "AKIDCOPILOT"},
+		{"http://" + adapter + "/v1/messages",
+			`{"model":"openai.gpt-oss-120b-1:0","max_tokens":8,"messages":[{"role":"user","content":"hi"}]}`,
 			"https://bedrock-runtime.eu-west-1.amazonaws.com/openai/v1/chat/completions", "AKIDCOPILOT"},
 		{"http://" + adapter + "/v1/messages",
 			`{"model":"global.anthropic.claude-opus-5-5","max_tokens":8,"messages":[{"role":"user","content":"hi"}]}`,

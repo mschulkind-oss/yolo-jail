@@ -1,16 +1,21 @@
 package entrypoint
 
-// bedrock_model_list_test.go pins the ONE Bedrock model list (docs/design/bedrock-plumbing.md
-// OQ-BR9, ruled 2026-09-29): packs/bedrock/pack.json declares every model family on the one
-// `bedrock` provider, each entry naming its maker as `vendor`, and each agent that binds Bedrock
-// expands it through one helper, callableModels, filtered to what that agent's own client can
-// call. The consumers' renders are pinned beside each binding; this file pins the declaration's
-// shape and the helper's one text.
+// bedrock_model_list_test.go pins the Bedrock model list's two rulings: OQ-BR9's one helper
+// (docs/design/bedrock-plumbing.md, ruled 2026-09-29), through which each agent that binds Bedrock
+// expands whatever list it is handed, filtered to what that agent's own client can call; and
+// MM-D32 (docs/design/model-lists-and-pickers.md, ruled 2026-10-05, amending ML-D9), which
+// withdrew the list packs/bedrock shipped: yolo ships none, every agent starts on its own Bedrock
+// default, and copilot, which has no Bedrock catalog, on one cheap open-weight model (MM-D34). A
+// pack or the user may still supply a list, and the consumers' renders of one are pinned beside
+// each binding; this file pins that none ships, what each agent then starts on, and the helper's
+// one text.
 
 import (
+	"encoding/json"
+	"io/fs"
+	"os"
+	"path/filepath"
 	"regexp"
-	"sort"
-	"strconv"
 	"strings"
 	"testing"
 
@@ -46,6 +51,18 @@ func TestBedrockModelListHelperIsIdenticalInEveryDerive(t *testing.T) {
 			t.Errorf("packs/%s/derive.lua's Bedrock model-list helper differs from packs/%s/derive.lua's", pack, firstPack)
 		}
 	}
+	// copilot carries callableModels alone (its providers.json rows, MM-D31), with the same
+	// comment, so its copy is held to the same text.
+	alone := regexp.MustCompile(`(?s)-- THE MODELS OF A MULTI-MAKER PROVIDER THIS AGENT CAN CALL\..*?\nlocal function callableModels\(p, makers\)\n.*?\nend\n`)
+	want := alone.FindString(first)
+	p, err := embeddedPack("copilot")
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := alone.FindAllString(packload.DeriveScript(p), -1)
+	if len(got) != 1 || got[0] != want {
+		t.Errorf("packs/copilot/derive.lua's callableModels differs from packs/%s/derive.lua's (%d copies)", firstPack, len(got))
+	}
 }
 
 // shippedBedrockDeclaration is the `bedrock` provider contribution packs/bedrock ships.
@@ -64,108 +81,137 @@ func shippedBedrockDeclaration(t *testing.T) packdecl.ProviderContribution {
 	return packdecl.ProviderContribution{}
 }
 
-// THE DECLARATION'S SHAPE: every shipped entry is keyed by its own id (so a profile's `model`
-// means the same read as an alias or an id, as packs/openai-auth's list does), declares its
-// maker and a display name, and holds a distinct `order`, the only order a Lua `pairs` walk has.
-// At least one entry per maker a binding agent filters on, so each agent's fallback, "the first
-// model that agent can call", exists: anthropic for claude, openai for codex.
-func TestTheShippedBedrockListDeclaresEachEntrysMaker(t *testing.T) {
+// YOLO SHIPS NO BEDROCK MODEL LIST (MM-D32, the maintainer 2026-10-05: *"this is another opinion I
+// don't want to have. we should just leave it unfiltered, whatever defaults you get, and then
+// allow packs to override that if needed"*). The provider declares no models and no model facts,
+// and no shipped pack adds to its list with a `models` contribution, which would be the same
+// opinion shipped from another pack.
+func TestTheShippedBedrockProviderDeclaresNoModelList(t *testing.T) {
 	decl := shippedBedrockDeclaration(t)
-	if len(decl.Models) == 0 {
-		t.Fatal("packs/bedrock ships no models")
+	if len(decl.Models) != 0 || len(decl.ModelOptions) != 0 {
+		t.Errorf("packs/bedrock ships a model list (models %v, model_options %v); MM-D32 ships none",
+			decl.Models, decl.ModelOptions)
 	}
-	if _, has := decl.Models["default"]; has {
-		t.Error("the shipped list declares a `default` alias; its default is its first entry per agent " +
-			"(order), and a `default` would steer claude's own Bedrock client, which OQ-ML2 forbids")
+	all, err := embeddedPackSet()
+	if err != nil {
+		t.Fatal(err)
 	}
-	orders := map[int]string{}
-	makers := map[string]bool{}
-	for alias, id := range decl.Models {
-		if alias != id {
-			t.Errorf("models.%s = %q: a shipped entry is keyed by its own id", alias, id)
-		}
-		facts := decl.ModelOptions[alias]
-		vendor := facts["vendor"]
-		if !packdecl.ValidModelVendor(vendor) {
-			t.Errorf("%s declares vendor %q, want its maker as one lowercase token", id, vendor)
-		}
-		makers[vendor] = true
-		if facts["name"] == "" {
-			t.Errorf("%s declares no display name", id)
-		}
-		n, err := strconv.Atoi(facts["order"])
-		if err != nil {
-			t.Errorf("%s declares order %q, want an integer", id, facts["order"])
-			continue
-		}
-		if prior, dup := orders[n]; dup {
-			t.Errorf("%s and %s both declare order %d", id, prior, n)
-		}
-		orders[n] = id
-	}
-	for _, maker := range []string{"anthropic", "openai"} {
-		if !makers[maker] {
-			t.Errorf("the shipped list has no %s entry, so the agent that calls only that maker has no fallback", maker)
+	for _, p := range all {
+		for _, mc := range p.Decl.ModelsContributions() {
+			if mc.Provider == "bedrock" {
+				t.Errorf("packs/%s shapes the bedrock list (%+v); MM-D32 ships no Bedrock list from any pack", p.Name, mc)
+			}
 		}
 	}
 }
 
-// EVERY AGENT YOLO STARTS ON AN OPENAI MODEL STARTS ON GPT-6.1 SOL, IN EVERY REGION, AND GPT-6
-// SOL IS NOT SHIPPED. The maintainer's ruling of 2026-09-29 (docs/design/bedrock-plumbing.md
-// BR-D19), superseding BR-D17's global-first pick: *"just 6.1 everywhere. Forget the region
-// specificness."* No derive chooses by Region, so the shipped order alone decides: GPT-6.1 Sol is
-// the first OpenAI entry (codex's start model), and Claude Opus 5.5 the first of all (opencode's
-// and pi's). Read with the earlier menu rule (drop GPT-6 Sol where 6.1 exists), GPT-6 Sol leaves
-// the list, since 6.1 is treated as available everywhere. The whole order is pinned, so a new
-// entry moving a start model fails here; a user who needs another model names it in a profile's
-// `model`. The makers are the binding derives' filters: OpenAI's for codex, every maker's for
-// opencode and pi. (claude's own client picks nothing unless a model is named, BR-D9.) The
-// renders themselves are pinned by each agent's `…OnBedrock…` test.
-func TestEachBedrockAgentStartsOnTheRuledModelInEveryRegion(t *testing.T) {
-	decl := shippedBedrockDeclaration(t)
-	type entry struct {
-		id     string
-		vendor string
-		order  int
+// useJSON is a CLI-keyed profile selection as YOLO_USE_PROFILES carries it.
+func useJSON(t *testing.T, use map[string]string) string {
+	t.Helper()
+	raw, err := json.Marshal(use)
+	if err != nil {
+		t.Fatal(err)
 	}
-	var list []entry
-	for alias, id := range decl.Models {
-		facts := decl.ModelOptions[alias]
-		n, _ := strconv.Atoi(facts["order"])
-		list = append(list, entry{id: id, vendor: facts["vendor"], order: n})
+	return string(raw)
+}
+
+// bedrockModelID matches a Bedrock model id anywhere in a rendered value: an optional geographic
+// or global inference prefix, then a maker and a model, as `global.anthropic.claude-opus-5-5`,
+// `us.openai.gpt-6.1-sol` or `openai.gpt-oss-120b-1:0` spell one.
+var bedrockModelID = regexp.MustCompile(`(?:^|[^A-Za-z0-9.])((?:(?:global|us|eu|apac|jp|au|us-gov)\.)?` +
+	`(?:anthropic|openai|amazon|meta|mistral|qwen|deepseek|moonshot|moonshotai|google|nvidia|minimax|zai|cohere|writer)` +
+	`\.[a-z0-9][a-z0-9._:-]*)`)
+
+// EVERY AGENT ON BEDROCK STARTS ON ITS OWN DEFAULT, BUT COPILOT (MM-D32, MM-D34). Every agent pack
+// that reaches Bedrock is selected together, with the wire bridge, and each is put on the shipped
+// `bedrock` profile and then on `bedrock-bridge`. Every file the boot render writes into the jail
+// home, and every variable each agent's env derive composes, is scanned for a Bedrock model id, so
+// a pick under any key is found, not only under the keys this test knows. The one id allowed is
+// copilot's starting model, and only as copilot's COPILOT_MODEL: copilot has no Bedrock catalog to
+// default from, and its BYOK refuses to start without a model.
+func TestNoAgentOnBedrockStartsOnAModelYoloPickedButCopilot(t *testing.T) {
+	bins := map[string]string{"claude": "claude", "codex": "codex", "opencode": "opencode", "pi": "pi",
+		"oh-omp": "omp", "copilot": "copilot"}
+	packs := testPacksForAgent(t, "claude", "codex", "opencode", "pi", "omp", "copilot", "bedrock", "wire-bridge")
+	table, err := packload.ComposeProviders(nil, packs)
+	if err != nil {
+		t.Fatal(err)
 	}
-	sort.Slice(list, func(i, j int) bool { return list[i].order < list[j].order })
-	var ids []string
-	for _, e := range list {
-		ids = append(ids, e.id)
+	resolved, err := packload.ResolveProfiles(packs, nil, table)
+	if err != nil {
+		t.Fatal(err)
 	}
-	want := []string{"global.anthropic.claude-opus-5-5", "us.openai.gpt-6.1-sol", "global.openai.gpt-6-astra"}
-	if strings.Join(ids, " ") != strings.Join(want, " ") {
-		t.Errorf("the shipped Bedrock list, in order, is %v; BR-D19 ships %v", ids, want)
-	}
-	first := func(makers map[string]bool) string {
-		for _, e := range list {
-			if makers == nil || makers[e.vendor] {
-				return e.id
+	none := func(string) (string, bool) { return "", false }
+	for _, profile := range []string{"bedrock", "bedrock-bridge"} {
+		t.Run(profile, func(t *testing.T) {
+			use := map[string]string{}
+			for bin := range bins {
+				use[bin] = profile
 			}
-		}
-		return ""
-	}
-	for agent, tc := range map[string]struct {
-		makers map[string]bool
-		want   string
-	}{
-		"codex":           {map[string]bool{"openai": true}, "us.openai.gpt-6.1-sol"},
-		"opencode and pi": {nil, "global.anthropic.claude-opus-5-5"},
-	} {
-		if got := first(tc.makers); got != tc.want {
-			t.Errorf("%s starts on %q, want %q (BR-D19)", agent, got, tc.want)
-		}
-	}
-	for _, id := range ids {
-		if strings.Contains(id, "openai.gpt-6-sol") {
-			t.Errorf("the shipped list carries GPT-6 Sol (%s): BR-D19 treats GPT-6.1 Sol as available "+
-				"everywhere, and the menu rule drops GPT-6 Sol where 6.1 exists", id)
-		}
+			for bin := range bins {
+				var files []packload.AgentFile
+				vars, err := packload.AgentEnv(packs, table, use, bin, profile, none,
+					packload.WithResolvedProfiles(resolved), packload.WithAgentFiles(&files))
+				if err != nil {
+					t.Fatalf("%s's env derive: %v", bin, err)
+				}
+				if len(files) != 0 {
+					t.Errorf("%s composed agent files %+v with no list supplied", bin, files)
+				}
+				for _, v := range vars {
+					for _, m := range bedrockModelID.FindAllStringSubmatch(v.Value, -1) {
+						if bin == "copilot" && v.Key == "COPILOT_MODEL" && m[1] == copilotBedrockStartModel {
+							continue
+						}
+						t.Errorf("%s's environment names the Bedrock model %s under %s; yolo picks none (MM-D32)", bin, m[1], v.Key)
+					}
+				}
+				if bin == "copilot" {
+					var model string
+					for _, v := range vars {
+						if v.Key == "COPILOT_MODEL" {
+							model = v.Value
+						}
+					}
+					if model != copilotBedrockStartModel {
+						t.Errorf("copilot on %s starts on %q, want its one cheap open-weight default %s (MM-D34)",
+							profile, model, copilotBedrockStartModel)
+					}
+				}
+			}
+
+			e := &Env{Home: t.TempDir(), Workspace: t.TempDir(), Stderr: &strings.Builder{}, Vars: map[string]string{
+				"YOLO_PROVIDERS":    mustCompactJSON(t, table),
+				"YOLO_PROFILES":     mustCompactJSON(t, packload.ProfilesWireTable(resolved)),
+				"YOLO_USE_PROFILES": useJSON(t, use),
+			}}
+			root := t.TempDir()
+			for _, pack := range bins {
+				withCtxRoot(t, root, pack)
+			}
+			ConfigurePackSurfaces(e, packs)
+			if fails := e.GenFailures(); len(fails) != 0 {
+				t.Fatalf("boot render failed: %v\n%s", fails, e.Stderr)
+			}
+			rendered := 0
+			_ = filepath.WalkDir(e.Home, func(path string, d fs.DirEntry, err error) error {
+				if err != nil || d.IsDir() {
+					return nil
+				}
+				raw, err := os.ReadFile(path)
+				if err != nil {
+					return nil
+				}
+				rendered++
+				for _, m := range bedrockModelID.FindAllStringSubmatch(string(raw), -1) {
+					rel, _ := filepath.Rel(e.Home, path)
+					t.Errorf("~/%s names the Bedrock model %s; yolo picks none (MM-D32)", rel, m[1])
+				}
+				return nil
+			})
+			if rendered == 0 {
+				t.Fatal("the boot render wrote nothing, so this scanned nothing")
+			}
+		})
 	}
 }

@@ -9,11 +9,62 @@ package run
 // claims, composed through composePackChannel and argv assembly.
 
 import (
+	"encoding/json"
+	"os"
+	"path/filepath"
+	"reflect"
+	"slices"
 	"testing"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 )
+
+// copilotProvidersPath is where copilot's providers.json sits in a container jail: beside its env
+// file, under the jail home (docs/design/model-lists-and-pickers.md MM-D33).
+const copilotProvidersPath = "/home/agent/.config/yolo-agent-env/copilot.providers.json"
+
+// copilotProvidersFile delivers the launch's channel the way deliverChannel does on podman and
+// returns copilot's providers.json as copilot reads it, and its mode; nil when none was written.
+func copilotProvidersFile(t *testing.T, la assembled) (map[string]any, os.FileMode) {
+	t.Helper()
+	ws := t.TempDir()
+	deliverChannel(ws, "podman", la.in.envChannel(la.o))
+	path := filepath.Join(ws, agentEnvStateDir, "copilot.providers.json")
+	raw, err := os.ReadFile(path)
+	if os.IsNotExist(err) {
+		return nil, 0
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
+	fi, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var doc map[string]any
+	if err := json.Unmarshal(raw, &doc); err != nil {
+		t.Fatalf("copilot's providers.json is not JSON: %v\n%s", err, raw)
+	}
+	return doc, fi.Mode().Perm()
+}
+
+// providersFileModels is the ids of a providers.json's model rows, in file order, each checked to
+// name provider as its provider and its id as its wire model.
+func providersFileModels(t *testing.T, doc map[string]any, provider string) []string {
+	t.Helper()
+	rows, _ := doc["models"].([]any)
+	var ids []string
+	for _, r := range rows {
+		row, _ := r.(map[string]any)
+		id, _ := row["id"].(string)
+		if row["provider"] != provider || row["wireModel"] != id {
+			t.Errorf("model row %v: want provider %q and its id as wireModel", row, provider)
+		}
+		ids = append(ids, id)
+	}
+	return ids
+}
 
 // copilotLaunch is zaiLaunch with the copilot agent pack beside a provider pack, the
 // latter's key hydrated.
@@ -68,12 +119,16 @@ func copilotLaunchAssembled(t *testing.T, provider string, tune func(*Options)) 
 // derive reads every endpoint the composed table carries and prefers the
 // anthropic one, so the bridge is as much copilot's route as claude's — which
 // is why cerebras's `needs` entry names the copilot bin too.
+//
+// CEREBRAS SHIPS A LIST, so in a jail copilot also gets the whole of it as its providers.json
+// (docs/design/model-lists-and-pickers.md MM-D31), beside its env file, the variable pointing
+// there and the start model spelled as the file's selection id, `<provider>/<id>`.
 func TestCopilotByokComposesCerebrasThroughTheBridge(t *testing.T) {
 	la := copilotLaunchAssembled(t, "cerebras", func(o *Options) { o.ProfileName = "cerebras" })
 
 	got := la.channelEnv(t,
 		"COPILOT_PROVIDER_BASE_URL", "COPILOT_PROVIDER_TYPE", "COPILOT_PROVIDER_WIRE_API",
-		"COPILOT_MODEL", "COPILOT_PROVIDER_API_KEY")
+		"COPILOT_MODEL", "COPILOT_PROVIDER_API_KEY", "COPILOT_PROVIDERS_CONFIG")
 	// The key copilot sends to the bridge is the bridge's per-launch caller token, never
 	// the cerebras key: the bridge adds that upstream itself (WB-D18), and a loopback port
 	// is no place to send a provider's credential.
@@ -82,10 +137,11 @@ func TestCopilotByokComposesCerebrasThroughTheBridge(t *testing.T) {
 		t.Fatalf("the launch minted no wire-bridge caller token: %q", la.o.callerTokens)
 	}
 	want := []string{
-		"COPILOT_MODEL=qwen-3.8-27b",
+		"COPILOT_MODEL=cerebras/qwen-3.8-27b",
 		"COPILOT_PROVIDER_API_KEY=" + token,
 		"COPILOT_PROVIDER_BASE_URL=http://127.0.0.1:8214",
 		"COPILOT_PROVIDER_TYPE=anthropic",
+		"COPILOT_PROVIDERS_CONFIG=" + copilotProvidersPath,
 	}
 	if len(got) != len(want) {
 		t.Fatalf("copilot BYOK env = %q, want %q (no WIRE_API on the anthropic type)",
@@ -95,6 +151,21 @@ func TestCopilotByokComposesCerebrasThroughTheBridge(t *testing.T) {
 		if got[i] != want[i] {
 			t.Errorf("copilot BYOK env %d = %q, want %q", i, got[i], want[i])
 		}
+	}
+	doc, mode := copilotProvidersFile(t, la)
+	if doc == nil {
+		t.Fatal("no providers.json was written beside copilot's env file")
+	}
+	if mode != agentEnvFileMode {
+		t.Errorf("providers.json mode = %o, want the env file's %o: it carries a credential", mode, agentEnvFileMode)
+	}
+	wantProvider := []any{map[string]any{"name": "cerebras", "type": "anthropic",
+		"baseUrl": "http://127.0.0.1:8214", "apiKey": token}}
+	if !reflect.DeepEqual(doc["providers"], wantProvider) {
+		t.Errorf("providers.json providers = %v, want %v", doc["providers"], wantProvider)
+	}
+	if ids := providersFileModels(t, doc, "cerebras"); !slices.Equal(ids, []string{"qwen-3.8-27b"}) {
+		t.Errorf("providers.json models = %v, want cerebras's whole list, its one entry", ids)
 	}
 }
 
@@ -108,7 +179,7 @@ func TestCopilotByokPrefersTheAnthropicRoute(t *testing.T) {
 		"COPILOT_PROVIDER_BASE_URL", "COPILOT_PROVIDER_TYPE", "COPILOT_PROVIDER_WIRE_API",
 		"COPILOT_MODEL", "COPILOT_PROVIDER_API_KEY")
 	want := []string{
-		"COPILOT_MODEL=glm-5.3",
+		"COPILOT_MODEL=zai/glm-5.3",
 		"COPILOT_PROVIDER_API_KEY=tok-9",
 		"COPILOT_PROVIDER_BASE_URL=https://api.z.ai/api/anthropic",
 		"COPILOT_PROVIDER_TYPE=anthropic",
@@ -186,7 +257,7 @@ func TestCopilotByokHandlesLocalProviderAndContext(t *testing.T) {
 		"COPILOT_PROVIDER_BASE_URL", "COPILOT_PROVIDER_TYPE", "COPILOT_PROVIDER_WIRE_API",
 		"COPILOT_MODEL", "COPILOT_PROVIDER_API_KEY", "COPILOT_PROVIDER_MAX_PROMPT_TOKENS")
 	want := []string{
-		"COPILOT_MODEL=qwen3.8-27b",
+		"COPILOT_MODEL=local/qwen3.8-27b",
 		"COPILOT_PROVIDER_API_KEY=local",
 		"COPILOT_PROVIDER_BASE_URL=http://host.containers.internal:8080/v1",
 		"COPILOT_PROVIDER_MAX_PROMPT_TOKENS=180224",
@@ -200,5 +271,17 @@ func TestCopilotByokHandlesLocalProviderAndContext(t *testing.T) {
 		if got[i] != want[i] {
 			t.Errorf("copilot local BYOK env %d = %q, want %q", i, got[i], want[i])
 		}
+	}
+	// The user's own one-entry list is a list too, so the file carries it, with the openai
+	// type's wire API, the local dummy key and the context window on its row.
+	doc, _ := copilotProvidersFile(t, la)
+	wantDoc := map[string]any{
+		"providers": []any{map[string]any{"name": "local", "type": "openai", "wireApi": "completions",
+			"baseUrl": "http://host.containers.internal:8080/v1", "apiKey": "local"}},
+		"models": []any{map[string]any{"id": "qwen3.8-27b", "provider": "local", "wireModel": "qwen3.8-27b",
+			"maxPromptTokens": float64(180224)}},
+	}
+	if !reflect.DeepEqual(doc, wantDoc) {
+		t.Errorf("providers.json = %v, want %v", doc, wantDoc)
 	}
 }

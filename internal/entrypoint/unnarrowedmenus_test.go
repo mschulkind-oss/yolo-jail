@@ -89,7 +89,7 @@ func TestTheUnnarrowedMenuLineAgreesWithOpencodesWhitelist(t *testing.T) {
 	}
 	const firstParty = `{"anthropic": {"models": {"claude-x": "claude-x", "claude-y": "claude-y"}}}`
 	const opus, sol = "global.anthropic.claude-opus-5-5", "us.openai.gpt-6.1-sol"
-	narrowed := companyModelsPack(t, `{"kind":"models","provider":"zai","only":["glm-5.3"]},`+
+	narrowed := companyModelsPack(t, bedrockListAdd+`,{"kind":"models","provider":"zai","only":["glm-5.3"]},`+
 		`{"kind":"models","provider":"bedrock","only":["`+opus+`","`+sol+`"]},`+
 		`{"kind":"models","provider":"anthropic","only":["claude-x"]}`)
 	added := companyModelsPack(t, `{"kind":"models","provider":"zai","add":[{"id":"glm-6","vendor":"zai"}]}`)

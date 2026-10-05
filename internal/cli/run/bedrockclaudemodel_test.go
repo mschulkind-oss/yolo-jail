@@ -9,15 +9,30 @@ import (
 )
 
 // bedrockclaudemodel_test.go pins claude's half of the one Bedrock provider
-// (docs/design/bedrock-plumbing.md OQ-BR9, ruled 2026-09-29): packs/bedrock lists models of
-// several makers, and claude's own Bedrock client can call Anthropic's alone, so claude's env
-// derive picks among the entries whose `vendor` is anthropic. With no model named it pins
-// none, because Claude Code starts on an Anthropic model of its own there, a valid session yolo
-// does not steer (docs/design/model-lists-and-pickers.md OQ-ML2). Driven through the assembled
-// launch channel, so it fails if the derive's call site or the pack's list moves.
+// (docs/design/bedrock-plumbing.md OQ-BR9, ruled 2026-09-29): a Bedrock list a pack or the user
+// supplies may hold models of several makers (packs/bedrock ships none since
+// docs/design/model-lists-and-pickers.md MM-D32), and claude's own Bedrock client can call
+// Anthropic's alone, so claude's env derive picks among the entries whose `vendor` is anthropic.
+// With no model named it pins none, because Claude Code starts on an Anthropic model of its own
+// there, a valid session yolo does not steer (OQ-ML2). Driven through the assembled launch
+// channel, so it fails if the derive's call site moves.
 
-// bedrockRegionOnly is a claude launch on the shipped `bedrock` profile whose only user
-// provider fact is the region, so the model list is the pack's own.
+// bedrockSuppliedList is a Bedrock list of two makers in the user's object form, each entry
+// keyed by its id and naming its maker, the shape a company's `models` contribution composes to.
+func bedrockSuppliedList() *jsonx.OrderedMap {
+	m := jsonx.NewOrderedMap()
+	for _, entry := range [][2]string{
+		{"global.anthropic.claude-opus-5-5", "anthropic"}, {"us.openai.gpt-6.1-sol", "openai"}} {
+		e := jsonx.NewOrderedMap()
+		e.Set("id", entry[0])
+		e.Set("vendor", entry[1])
+		m.Set(entry[0], e)
+	}
+	return m
+}
+
+// bedrockRegionOnly is a claude launch on the shipped `bedrock` profile whose user provider
+// facts are the region and models, nil for none: then the list is packs/bedrock's, which is empty.
 func bedrockRegionOnly(models *jsonx.OrderedMap) *jsonx.OrderedMap {
 	bedrock := jsonx.NewOrderedMap()
 	bedrock.Set("region", "us-east-1")
@@ -46,7 +61,7 @@ func TestClaudeOnBedrockStartsOnlyOnAnAnthropicModel(t *testing.T) {
 			"ANTHROPIC_SMALL_FAST_MODEL=" + id}
 	}
 	userDefault := func(id string) *jsonx.OrderedMap {
-		m := jsonx.NewOrderedMap()
+		m := bedrockSuppliedList()
 		m.Set("default", id)
 		return m
 	}
@@ -56,14 +71,18 @@ func TestClaudeOnBedrockStartsOnlyOnAnAnthropicModel(t *testing.T) {
 		profile string // a user profile over bedrock, "" for the shipped one
 		want    []string
 	}{
-		// The shipped list names no `default`, and its first entry is Anthropic's; claude
-		// still pins nothing, since its own Bedrock default is valid.
-		{"the shipped list pins nothing", nil, "", nil},
+		// packs/bedrock ships no list (MM-D32), so claude pins nothing and starts on its own
+		// Bedrock default; a supplied list naming no `default` pins nothing either.
+		{"no list pins nothing", nil, "", nil},
+		{"a supplied list pins nothing", bedrockSuppliedList(), "", nil},
 		// A profile naming an entry claude can call gets it, on every tier.
-		{"a profile naming the Anthropic entry", nil, `{"bedrock": {"provider": "bedrock", "model": "` + opus + `"}}`, pinned(opus)},
+		{"a profile naming the Anthropic entry", bedrockSuppliedList(), `{"bedrock": {"provider": "bedrock", "model": "` + opus + `"}}`, pinned(opus)},
 		// A profile naming an entry of another maker is skipped rather than sent: Messages
 		// serves Claude only, so claude would start on a model it cannot call.
-		{"a profile naming the OpenAI entry", nil, `{"bedrock": {"provider": "bedrock", "model": "` + sol + `"}}`, nil},
+		{"a profile naming the OpenAI entry", bedrockSuppliedList(), `{"bedrock": {"provider": "bedrock", "model": "` + sol + `"}}`, nil},
+		// With no list naming its maker, a profile's id is passed through as written, the
+		// user's own literal: yolo knows no maker it was not told.
+		{"a profile's id no list holds", nil, `{"bedrock": {"provider": "bedrock", "model": "` + sol + `"}}`, pinned(sol)},
 		// The user's `default` alias steers it when it names a model claude can call, which
 		// is the configuration opting in; one naming another maker's model does not.
 		{"a user default claude can call", userDefault(opus), "", pinned(opus)},
@@ -92,8 +111,7 @@ func TestClaudeOnBedrockStartsOnlyOnAnAnthropicModel(t *testing.T) {
 }
 
 // WHAT CLAUDE'S OWN BEDROCK CLIENT CANNOT USE STAYS OUT OF ITS ENVIRONMENT. Three branches of
-// packs/claude's env derive, each driven through the assembled launch channel with the pack's
-// own list:
+// packs/claude's env derive, each driven through the assembled launch channel:
 //
 //   - an anthropic endpoint on a Bedrock provider is the wire bridge's twin of an `openai`
 //     endpoint the user gave it, and claude's own client composes its URL from the region, so
@@ -131,7 +149,7 @@ func TestClaudeOnBedrockTakesNothingItsOwnClientCannotUse(t *testing.T) {
 	})
 
 	t.Run("a tier alias of another maker leaves the tier on the pinned model", func(t *testing.T) {
-		models := jsonx.NewOrderedMap()
+		models := bedrockSuppliedList()
 		models.Set("sonnet", sol)
 		models.Set("haiku", sol)
 		la := assembleWithPacksAssembled(t, bedrockRegionOnly(models), packs,
