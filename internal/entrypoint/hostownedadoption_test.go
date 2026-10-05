@@ -297,6 +297,12 @@ func TestOwnRefusesAKeylessSurface(t *testing.T) {
 	if got := results[0].Action; !strings.HasPrefix(got, "refused:") {
 		t.Errorf("a keyless surface under `own` reported %q, want a refusal", got)
 	}
+	// Its remedy names what is left to the user since the `assert` retirement (CO-D18): leave the
+	// surface to the jail, or keep yolo out with `none` — never the retired value it named.
+	if got := results[0].Action; strings.Contains(got, "assert") ||
+		!strings.Contains(got, "Leave this surface to the jail") || !strings.Contains(got, "host_management: none") {
+		t.Errorf("the keyless refusal's remedy is %q, want the jail or `none`, and never `assert`", got)
+	}
 	after, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatal(err)

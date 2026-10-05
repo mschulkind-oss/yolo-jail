@@ -868,8 +868,9 @@ func hostStatefulRefusal(s manifest.Surface, path string) *rmwRefusedError {
 	if s.Kind() != codec.KindObject {
 		return refuseRMW(s, "`host_management: own` composes the whole file, and a "+
 			"%s surface has no keys to adopt — the first owned render would replace %s "+
-			"outright rather than keeping what it holds (OQ-CO9). Set `host_management: "+
-			"assert` for this home, or leave this surface to the jail; the file is untouched",
+			"outright rather than keeping what it holds (OQ-CO9). Leave this surface to the "+
+			"jail, or set `host_management: none` to keep yolo out of this home's files; the "+
+			"file is untouched",
 			s.Codec, path)
 	}
 	if _, err := decodeSurfaceObject(s, path); err != nil {
