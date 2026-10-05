@@ -324,6 +324,60 @@ INFERRED from [§3](#3-results) and [§4](#4-memory-does-a-vm-give-a-freed-2-gib
   [the design sketch](apple-container-file-cost.md#4-a-design-sketch-vm-local-volumes-for-chosen-workspace-folders).
 - **Docker Desktop** was not measured, by the maintainer's ruling on its licence.
 
+### 5.1 Today against the best open alternative against OrbStack
+
+The maintainer asked (2026-10-05): *"how does orbstack compare to the best open option we found vs
+what we have today?"* "Today" is Apple Container, yolo's macOS backend. The best open
+alternative on a shared folder is libkrun with `permissionSemantics=complete`
+([§6.2](#62-measured-two-of-them)); it is slightly *behind* Apple Container on every row, so on a
+shared folder the best open option measured is the one yolo already has. Every number repeats one
+in [§3](#3-results), [§4](#4-memory-does-a-vm-give-a-freed-2-gib-back) or §6.2 (MEASURED, one run
+each).
+
+**On a shared Mac folder:**
+
+| | Native | **Apple Container (today)** | **libkrun, complete** | **OrbStack** |
+| :--- | ---: | ---: | ---: | ---: |
+| pip install | 4.0 s | 8.4 s | 12.9 s | 5.3 s |
+| create 20k small files | 3.2 s | 11.1 s | 19.3 s | 5.1 s |
+| `stat` 20k files | 0.09 s | 2.2 s | 2.6 s | 0.24 s |
+| read 20k files | 1.3 s | 6.1 s | 8.5 s | 2.2 s |
+| ripgrep the venv | 0.29 s | 1.57 s | 1.58 s | 0.37 s |
+| Django setup | 0.29 s | 0.31 s | 0.45 s | 0.21 s |
+| pytest 2,000, warm | 1.85 s | 1.32 s | 1.54 s | 1.17 s |
+| Postgres init + load | 2.3 s | 11.4 s | 11.6 s | 2.1 s |
+| Postgres rw tps | 15.6k | 4.1k | 3.1k | 7.1k |
+| Postgres ro tps | 121k | 55k | 12k | 108k |
+
+**On the VM's own disk** (libkrun's default semantics, which do not affect its disk):
+
+| | Native | Apple Container | libkrun | OrbStack |
+| :--- | ---: | ---: | ---: | ---: |
+| pip install | 4.0 s | 2.0 s | 1.9 s | 1.8 s |
+| `stat` 20k files | 0.09 s | 0.03 s | 0.04 s | 0.03 s |
+| read 20k files | 1.3 s | 0.09 s | 0.14 s | 0.10 s |
+| pytest 2,000, warm | 1.85 s | 0.90 s | 0.97 s | 0.88 s |
+| Postgres init + load | 2.3 s | 1.3 s | 1.4 s | 1.8 s |
+| Postgres rw tps | 15.6k | 9.2k | 9.2k | 2.9k |
+| Postgres ro tps | 121k | 93k | 146k | 153k |
+
+**Besides speed:**
+
+| | Apple Container | libkrun (Podman Machine) | OrbStack |
+| :--- | :--- | :--- | :--- |
+| A freed 2 GiB returned to macOS | no, until the jail stops | no, even under host memory pressure | yes, within 10 s |
+| A Mac rename seen in the guest | not measured | the file is missing for about 1 s | not measured |
+| Licence | Apache-2.0 | Apache-2.0 | closed source, paid for commercial use |
+| yolo support | yes | yes as podman; `complete` needs a krunkit wrapper | none; needs a Docker-API backend |
+| VMs | one per jail | one per machine, shared by every jail | one, shared by every jail |
+
+Reading it (INFERRED):
+- **Staying open means Apple Container plus VM-local volumes.** Volumes make the folders a user
+  names faster than native. Source in a shared folder stays 1.5 to 9 times slower than OrbStack on
+  file-heavy steps, and memory is still not returned.
+- **OrbStack fixes both** at the price of a closed, paid dependency and a new backend. Its own
+  disk's Postgres write rate, 2,940 tps, is its one row behind the open VMs.
+
 ## 6. Is there an open stack with faster shared folders?
 
 ### 6.1 What a search found
