@@ -163,8 +163,13 @@ func ResolvePack(entry PackEntry, spec ResolvePackSpec) (ResolvedPack, error) {
 	}
 	if out.Pack != nil {
 		// A staged or filtered copy of an embedded pack is still yolo's own
-		// (packload.Pack.Official); nothing else is.
+		// (packload.Pack.Official); nothing else is. A file:// entry, the conventional local pack
+		// included, is content at a path on this machine (packload.Pack.Local), and a staged or
+		// filtered copy of it still is; a git+file:// entry is a fetched pack, whatever its
+		// repository's path. The two decide whether a launch runs the pack's host code
+		// (packload.Pack.MayRunHostHalf; docs/design/host-notch-services.md HS-D27).
 		out.Pack.Official = entry.Embedded()
+		out.Pack.Local = entry.IsLocal() && !entry.Embedded()
 	}
 	return out, nil
 }

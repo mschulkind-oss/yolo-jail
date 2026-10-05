@@ -2,22 +2,31 @@ package run
 
 // macosuserservices.go is the macos-user launch's LAUNCH-OWNED SERVICES
 // (docs/design/host-notch-services.md §4.7; docs/plans/notch-convergence.md OQ-NC1, ruled A).
-// That backend starts no jail daemon and has no network namespace, so a pack service reaches it
-// the way it reaches `yolo host`: its host half runs as this launch's child, outside Seatbelt, on
-// a loopback port this launch picked, answering only this launch's caller token, and stops when
-// the sandboxed command exits. The mechanism is internal/launchservice, the one the host uses:
-// admission (an official pack's host half, named `yolo`), the plan (ports and token), the start
-// and the stop.
+// That backend has no network namespace, so a pack service that serves an agent's pairing reaches
+// it the way it reaches `yolo host`: its host half runs as this launch's child, outside Seatbelt,
+// on a loopback port this launch picked, answering only this launch's caller token, supervised
+// while the sandboxed command runs (restarted on the same port under its restart policy, HS-D28),
+// and stopped when the command exits. The mechanism is internal/launchservice, the one the host
+// uses: admission (the host half of a pack yolo ships or a local one, named `yolo`; HS-D27), the
+// plan (ports and token), the start, the supervision and the stop.
 //
 // THE TRIGGER is the credential gate's own refusal: a profiled agent's pairing through a pack
 // service's adaptation refuses while nothing serves it (packload.UnservedAdapterError), and the
 // channel then plans that service and composes again (composePackChannel's retry). Every profiled
 // agent counts here, not only the launched one, because this backend writes every profiled
 // agent's env file (writeMacosUserAgentEnvFiles) for a shell that starts one later.
+//
+// AND A PURE WORKER WITH NO JAIL DAEMON (HS-D29; a held service no adaptation names): its host
+// half starts here too, beside the command, since nothing else would run it, and the channel is
+// composed against it, so a pack env pointer at it reaches the command. A worker that declares a
+// jail daemon runs that, confined, in the guest instead (planMacosUserWorkers).
 
 import (
 	"errors"
 	"fmt"
+	"io"
+	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
@@ -27,12 +36,45 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/openaiauthhost"
 	"github.com/mschulkind-oss/yolo-jail/internal/openauthclient"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
+	"github.com/mschulkind-oss/yolo-jail/internal/richtext"
+	"github.com/mschulkind-oss/yolo-jail/internal/shquote"
 )
 
 // launchedService is a started launch-owned service, as the macos-user arm uses it.
 type launchedService interface {
 	Stop()
 	PID() int
+	// Supervise watches it while the sandboxed command runs (launchservice.Running.Supervise):
+	// a death is named, and the service restarted on its address under its policy (HS-D28).
+	Supervise(agent string, w io.Writer, prefix string)
+}
+
+// macosUserSupervisionPrefix leads every line a launch-owned service's supervision prints on
+// macos-user: a death and a restart arrive while the sandboxed command owns the terminal, so the
+// line says who is speaking.
+const macosUserSupervisionPrefix = "yolo: "
+
+// macosUserCommandName is what a supervision line calls the sandboxed command: the command after
+// `--`, or, for a bare `yolo`, the login shell the sandbox opens.
+func (o *Options) macosUserCommandName() string {
+	if len(o.Args) > 0 && o.Args[0] != "" {
+		return filepath.Base(o.Args[0])
+	}
+	return "the sandboxed shell"
+}
+
+// noteMacosUserLocalHostCode is the disclosure of host code from a local pack, printed BEFORE it
+// starts outside the sandbox (launchservice.Declared.Local; HS-D27): a pack yolo does not ship,
+// whose argv is the user's own code, run as them on the Mac. what names the declaration ("the
+// \"x\" service's host half"). Never suppressible (docs/reference/report-tiers.md OQ-RO3: the exec
+// banner is the trust boundary); silent for a pack yolo ships, whose start line names it.
+func (o *Options) noteMacosUserLocalHostCode(plan *launchservice.Plan, what string) {
+	if !plan.Local {
+		return
+	}
+	o.pr(o.Stderr).print(fmt.Sprintf("[bold yellow]This launch runs pack code on your machine, outside "+
+		"the sandbox:[/bold yellow] [yellow]%s from pack %q, a local pack yolo does not ship: %s[/yellow]",
+		richtext.Escape(what), plan.Pack, richtext.Escape(shquote.Join(plan.Cmd))))
 }
 
 // startMacosUserService starts one launch-owned service and returns it and its log; a var so a
@@ -125,6 +167,11 @@ func (c *packChannel) launchServiceInput(agents []string) map[string]string {
 // startMacosUserServices starts every planned launch-owned service and says so, one line each,
 // on every launch (a launch has no quiet mode, and this is host code running outside Seatbelt).
 // It returns the stop for the arm to defer, or the refusal naming the service that did not start.
+//
+// EACH ONE IS SUPERVISED FROM ITS START (launchservice.Running.Supervise, HS-D28), on this arm's
+// stderr, so a service that dies while the sandboxed command runs is named and restarted on the
+// address the command was pointed at; the arm's deferred stop is its own teardown and says
+// nothing. A local pack's host half is named, argv and all, before it starts.
 func (o *Options) startMacosUserServices(channel *packChannel) (func(), error) {
 	var running []launchedService
 	stop := func() {
@@ -133,30 +180,147 @@ func (o *Options) startMacosUserServices(channel *packChannel) (func(), error) {
 		}
 	}
 	for _, plan := range o.launchServices {
+		o.noteMacosUserLocalHostCode(plan, fmt.Sprintf("the %q service's host half", plan.Service))
 		r, log, err := startMacosUserService(plan, channel.launchServiceInput(o.launchServiceAgents[plan.Service]))
 		if err != nil {
 			stop()
 			return func() {}, err
 		}
 		running = append(running, r)
-		o.pr(o.Stderr).print(fmt.Sprintf("Started the %q service (pack %q, pid %d) on %s for this "+
-			"launch, outside the sandbox: it answers only this launch's caller token and stops "+
-			"when the command exits. Its log: %s", plan.Service, plan.Pack, r.PID(),
-			strings.Join(o.servicePointedAt(plan, channel), ", "), log))
+		if isWorkerPlan(plan) {
+			o.pr(o.Stderr).print(fmt.Sprintf("Started the %q service (pack %q, pid %d) for this launch, "+
+				"outside the sandbox: %s, handed only this launch's caller token, and stopped when the "+
+				"command exits. Its log: %s", plan.Service, plan.Pack, r.PID(),
+				workerPointedAt(channel, plan.Service), log))
+		} else {
+			o.pr(o.Stderr).print(fmt.Sprintf("Started the %q service (pack %q, pid %d) on %s for this "+
+				"launch, outside the sandbox: it answers only this launch's caller token and stops "+
+				"when the command exits. Its log: %s", plan.Service, plan.Pack, r.PID(),
+				strings.Join(o.servicePointedAt(plan, channel), ", "), log))
+		}
+		r.Supervise(o.macosUserCommandName(), o.Stderr, macosUserSupervisionPrefix)
 	}
 	return stop, nil
 }
 
+// isWorkerPlan reports whether plan is a pure worker's (planMacosUserWorkers): one no address
+// moved for, since no adaptation names its service.
+func isWorkerPlan(plan *launchservice.Plan) bool { return len(plan.Moved) == 0 }
+
 // servicePointedAt is the addresses of plan its agents were pointed at, the only routes it opens:
 // launchservice.Plan.PointedAt over the channel's delivery to each agent whose pairing needed it,
 // the one reading the start line, the dry run's line and `yolo host --` share
-// (docs/design/host-notch-services.md HS-D24).
+// (docs/design/host-notch-services.md HS-D24). A pure worker's plan has none of the launch's, which
+// the dry run's line says in words rather than as an empty list (workerPointedAt).
 func (o *Options) servicePointedAt(plan *launchservice.Plan, channel *packChannel) []string {
+	if isWorkerPlan(plan) {
+		return []string{"no address of the launch's: " + workerPointedAt(channel, plan.Service)}
+	}
 	var deliveries []*packload.AgentDelivery
 	for _, agent := range o.launchServiceAgents[plan.Service] {
 		deliveries = append(deliveries, channel.scope.Agent(agent))
 	}
 	return plan.PointedAt(deliveries...)
+}
+
+// workerPointedAt is how a pure worker's start line and dry-run line name who reaches it: the pack
+// env variables the channel composed `served_by` it, in the shared fold or any profiled agent's
+// (packload.PointersAt), or, with none, that no agent is pointed at it.
+func workerPointedAt(channel *packChannel, service string) string {
+	var vars []string
+	if channel != nil {
+		for _, agent := range append([]string{""}, channel.scope.Agents()...) {
+			for _, v := range packload.PointersAt(channel.scope.FoldFor(agent), service) {
+				if !slices.Contains(vars, v) {
+					vars = append(vars, v)
+				}
+			}
+		}
+	}
+	if len(vars) == 0 {
+		return "a worker no agent is pointed at"
+	}
+	slices.Sort(vars)
+	return "a worker this launch points its agents at through " + strings.Join(vars, ", ")
+}
+
+// planMacosUserWorkers adds to this launch's launch-owned services every PURE WORKER whose host
+// half it runs outside the sandbox (docs/design/host-notch-services.md HS-D29; a held service no
+// adaptation names, so no pairing plans it): one that declares a host half and NO jail daemon,
+// that admission admits (launchservice.Admit: a pack yolo ships or a local one), and that the
+// selection's gate asks for, read off the channel's own selection
+// (packload.UnselectedProfileServedDaemons, the jail payload's filter). A worker that declares a
+// jail daemon is not planned: the guest runs that half, confined
+// (docs/design/jail-daemon-on-macos-user-plan.md JD-9, confinement preferred). added reports that
+// it planned one this launch had not.
+//
+// One with no jail daemon this launch does not start is named in notes, with why and the next
+// step, because nothing else runs it on this backend: a refused host half (the fetched refusal
+// names a local checkout), or a gate no agent's selection delivers. Called by composePackChannel
+// once a composition succeeds, which composes again when added, so a worker is in the served set
+// and the caller tokens the channel composes its pointers with, as a container's jail daemon is;
+// the notes ride the channel to planMacosUserDoorways, which prints them where the arm reports
+// what runs outside the sandbox.
+func (o *Options) planMacosUserWorkers(packs []*packload.Pack, channel *packChannel) (added bool, notes []string) {
+	adapts := map[string]bool{}
+	for _, a := range packload.ServiceAdaptations(packs, nil) {
+		adapts[a.Service] = true
+	}
+	ungated := map[string]packload.ProfileServedDaemon{}
+	if channel != nil {
+		sel := packload.SelectionOfSets(packload.ProfileSets(channel.profiles), channel.resolvedProfiles, channel.providers)
+		for _, u := range packload.UnselectedProfileServedDaemons(packs, sel) {
+			ungated[u.Name] = u
+		}
+	}
+	held, _ := packload.HeldServices(packs)
+	for _, h := range held {
+		s := h.Service
+		if adapts[s.Name] || o.launchServiceRunning(s.Name) ||
+			s.HostDaemon == nil || len(s.HostDaemon.Cmd) == 0 ||
+			(s.JailDaemon != nil && len(s.JailDaemon.Cmd) > 0) {
+			continue
+		}
+		if u, gated := ungated[s.Name]; gated {
+			notes = append(notes, fmt.Sprintf("[dim]Not started: the %q service's host half (pack %q), "+
+				"because %s, which it serves; select one to start it.[/dim]", s.Name, h.Pack,
+				richtext.Escape(unselectedGates(u))))
+			continue
+		}
+		d, err := launchservice.Admit(packs, s.Name)
+		if err != nil {
+			why := err.Error()
+			var adm *launchservice.AdmissionError
+			if errors.As(err, &adm) {
+				why = adm.Why
+			}
+			notes = append(notes, fmt.Sprintf("[yellow]Not started outside the sandbox: the %q service's "+
+				"host half (pack %q): %s. It declares no jail daemon, so nothing runs it this launch."+
+				"[/yellow]", s.Name, h.Pack, richtext.Escape(why)))
+			continue
+		}
+		plan, err := launchservice.NewPlan(packs, d)
+		if err != nil {
+			notes = append(notes, fmt.Sprintf("[yellow]Not started outside the sandbox: the %q service's "+
+				"host half (pack %q): %s.[/yellow]", s.Name, h.Pack, richtext.Escape(err.Error())))
+			continue
+		}
+		o.launchServices = append(o.launchServices, plan)
+		added = true
+	}
+	return added, notes
+}
+
+// noteMacosUserWorkers prints the channel's line for each pure worker this launch does not start
+// (packChannel.workerNotes, planMacosUserWorkers): a disclosure, so no quiet switch
+// (docs/reference/report-tiers.md OQ-RO3). Silent when none.
+func (o *Options) noteMacosUserWorkers(channel *packChannel) {
+	if channel == nil {
+		return
+	}
+	for _, line := range channel.workerNotes {
+		o.pr(o.Stderr).print(line)
+	}
 }
 
 // launchServiceRunning reports whether this launch runs the named service's host half, for the
@@ -168,4 +332,25 @@ func (o *Options) launchServiceRunning(name string) bool {
 		}
 	}
 	return false
+}
+
+// unselectedGates is why a profile-served daemon is not started, in the words
+// noteUnstartedProfileDaemons gives a jail daemon: the platforms no agent's provider is on, and
+// the profiles no agent selected.
+func unselectedGates(u packload.ProfileServedDaemon) string {
+	quote := func(names []string) string {
+		quoted := make([]string, len(names))
+		for i, n := range names {
+			quoted[i] = fmt.Sprintf("%q", n)
+		}
+		return strings.Join(quoted, " or ")
+	}
+	var why []string
+	if len(u.Platforms) > 0 {
+		why = append(why, "no agent's selected provider is on platform "+quote(u.Platforms))
+	}
+	if len(u.Profiles) > 0 {
+		why = append(why, "no agent's selected profile is "+quote(u.Profiles))
+	}
+	return strings.Join(why, ", and ")
 }

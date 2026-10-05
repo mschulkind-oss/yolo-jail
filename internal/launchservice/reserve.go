@@ -20,7 +20,10 @@ package launchservice
 //
 //   - A process the launch starts itself (Start: a pack service's host half, a credential doorway)
 //     is handed the reserved socket as a descriptor, named in ListenFDsEnv, and listens on it
-//     (Listen). Nothing binds after the pick at all.
+//     (Listen). Nothing binds after the pick at all. The launch keeps its own copy for the
+//     service's whole life, so the process that replaces one that died is handed the same,
+//     already-listening socket, and a connection made in between waits in its queue
+//     (Running.Supervise; HS-D28). The port goes free only when the service is gone for good.
 //   - A process the launch does not start (a jail daemon, which its container's or sandbox's
 //     supervisor starts) is not handed a descriptor, which would have to cross that boundary to
 //     every jail daemon (docs/plans/notch-convergence.md NC-D69). So the launch closes the
@@ -161,11 +164,11 @@ func reserve(host string) (*Reserved, error) {
 	return &Reserved{addr: addr, f: os.NewFile(uintptr(fd), "reserved port "+addr)}, nil
 }
 
-// handOver is plan's reservations as Start hands them: the sockets for ExtraFiles from
-// firstListenFD, in address order, and ListenFDsEnv's value naming each.
-func (p *Plan) handOver() ([]*os.File, string) {
+// handOver is a service's reservations as each of its processes is handed them: the sockets for
+// ExtraFiles from firstListenFD, in address order, and ListenFDsEnv's value naming each.
+func handOver(reserved map[string]*Reserved) ([]*os.File, string) {
 	var addrs []string
-	for a, r := range p.reserved {
+	for a, r := range reserved {
 		if r != nil {
 			addrs = append(addrs, a)
 		}
@@ -174,14 +177,25 @@ func (p *Plan) handOver() ([]*os.File, string) {
 	files := make([]*os.File, 0, len(addrs))
 	pairs := make([]string, 0, len(addrs))
 	for i, a := range addrs {
-		files = append(files, p.reserved[a].File())
+		files = append(files, reserved[a].File())
 		pairs = append(pairs, a+"="+strconv.Itoa(firstListenFD+i))
 	}
 	return files, strings.Join(pairs, ",")
 }
 
-// Release releases every reservation of the plan's that Start has not handed over: a plan the
-// launch never starts. Safe on nil and more than once.
+// takeReserved hands the plan's reservations to the Running Start makes of it, which holds them
+// for the service's life (HS-D28) and releases them when the service is gone. The plan holds
+// none afterwards, so a launch releasing every plan it made (internal/cli/run's
+// releaseReservedPorts, before the macos-user sandbox starts) leaves a started service's sockets
+// alone.
+func (p *Plan) takeReserved() map[string]*Reserved {
+	held := p.reserved
+	p.reserved = nil
+	return held
+}
+
+// Release releases every reservation the plan still holds: a plan the launch never starts. A
+// started plan holds none (takeReserved). Safe on nil and more than once.
 func (p *Plan) Release() {
 	if p == nil {
 		return

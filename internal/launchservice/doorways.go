@@ -54,7 +54,7 @@ func AdmitDoorways(packs []*packload.Pack, specs []loopholes.JailDaemonSpec) ([]
 		if packOf == nil {
 			packOf = LoopholePacks(packs)
 		}
-		if _, err := AdmitDoorway(packs, packOf[s.Name], s.Name, s.HostCmd); err != nil {
+		if _, err := AdmitDoorway(packs, packOf[s.Name], s.Name, s.HostCmd, s.Restart); err != nil {
 			why := err.Error()
 			var adm *AdmissionError
 			if errors.As(err, &adm) {

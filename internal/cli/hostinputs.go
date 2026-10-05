@@ -15,6 +15,8 @@ package cli
 //	mcp_servers   the user's own entries, less any that names a jail-only path (named)
 //	lsp_servers   the same, and Claude's yolo-lsp plugin is rendered from it too
 //	              (applyhostlspplugin.go)
+//	(workers)     none: a pack service no adaptation names runs only beside a `yolo host --`
+//	              command (hostPureWorkers), and is named
 //
 // and never an MCP preset (its command is a wrapper only a jail's boot writes), a pack's `mcp`
 // declaration (OQ-MP3), or a workspace's config (P2).
@@ -172,6 +174,13 @@ func composeHostInputs(cfg *jsonx.OrderedMap, packs []*packload.Pack, home strin
 		c.selection = append(c.selection, agent+" → "+strings.Join(set, ","))
 	}
 	vars[entrypoint.UseProfilesWireEnv] = wireJSON(use)
+	// THE PURE WORKERS (hostPureWorkers; docs/design/host-notch-services.md HS-D29): a file holds
+	// no process, so the apply starts none and names each one, as `yolo host env` does, with the
+	// launch that does start it (OQ-HS3). Over every agent's selection the apply renders, the gate
+	// a launch of one of them would ask.
+	if _, notes, _, err := hostPureWorkers(packs, packload.SelectionOfSets(sets, resolved, providers), false); err == nil {
+		c.omitted = append(c.omitted, notes...)
+	}
 
 	servers, omitted := hostServerTable(cfg, "mcp_servers", home)
 	c.omitted = append(c.omitted, omitted...)

@@ -23,17 +23,31 @@ import (
 )
 
 // fakeDoorway is a doorway in miniature, on ServeListener: its listen address is its argv's last
-// word, it answers a request carrying its caller token with the input's UPSTREAM value, and one
-// without it with 401. mode "fail" refuses in its prepare, before anything is bound. It serves
-// the service doorwayServiceEnv names, "door" when that is unset.
+// word, it answers a request carrying its caller token with the input's UPSTREAM value (its pid,
+// at /pid), and one without it with 401. mode "fail" refuses in its prepare, before anything is
+// bound; mode "fail-after-first" serves the first time it runs and refuses every later time,
+// counted in the file doorwayRunsEnv names. It serves the service doorwayServiceEnv names, "door"
+// when that is unset. When doorwayInputModesEnv names a file, each run appends the permission
+// bits of the input file it was handed, read before ServeListener reads and removes it.
 func fakeDoorway(mode string) int {
 	listen := os.Args[len(os.Args)-1]
 	service := os.Getenv(doorwayServiceEnv)
 	if service == "" {
 		service = "door"
 	}
+	if record := os.Getenv(doorwayInputModesEnv); record != "" {
+		if st, err := os.Stat(os.Getenv(InputEnv)); err == nil {
+			appendLine(record, fmt.Sprintf("%o", st.Mode().Perm()))
+		}
+	}
+	runs := 0
+	if counter := os.Getenv(doorwayRunsEnv); counter != "" {
+		data, _ := os.ReadFile(counter)
+		runs = strings.Count(string(data), "\n")
+		appendLine(counter, "run")
+	}
 	return ServeListener(service, listen, func(getenv func(string) string) (func(net.Listener) error, error) {
-		if mode == "fail" {
+		if mode == "fail" || (mode == "fail-after-first" && runs > 0) {
 			return nil, errors.New("the input lacks its upstream\nsecond line")
 		}
 		token, upstream := getenv(paths.ServiceCallerTokenEnv(service)), getenv("UPSTREAM")
@@ -43,10 +57,29 @@ func fakeDoorway(mode string) int {
 					w.WriteHeader(http.StatusUnauthorized)
 					return
 				}
+				if r.URL.Path == "/pid" {
+					fmt.Fprint(w, os.Getpid())
+					return
+				}
 				fmt.Fprint(w, upstream)
 			}))
 		}, nil
 	})
+}
+
+// The files a fakeDoorway run reports into (fakeDoorway).
+const (
+	doorwayInputModesEnv = "LAUNCHSERVICE_TEST_INPUT_MODES"
+	doorwayRunsEnv       = "LAUNCHSERVICE_TEST_DOORWAY_RUNS"
+)
+
+func appendLine(path, line string) {
+	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
+	if err != nil {
+		return
+	}
+	defer f.Close()
+	fmt.Fprintln(f, line)
 }
 
 // doorwayPlan is a doorway's plan at a port reserved as a launch reserves its doorways' (reserve.go).
@@ -123,7 +156,7 @@ func TestADoorwayEndsWhenItsLaunchIsGone(t *testing.T) {
 	if !dials(addr) {
 		t.Fatal("Start returned before the doorway was listening")
 	}
-	_ = r.lifeline.Close() // what the kernel does when the launch process dies
+	_ = r.current().lifeline.Close() // what the kernel does when the launch process dies
 	waitGone(t, r, 5*time.Second)
 	if dials(addr) {
 		t.Error("the doorway still listens after its launch's lifeline closed")
@@ -145,55 +178,66 @@ func TestADoorwayThatCannotPrepareRefusesTheStart(t *testing.T) {
 }
 
 // ADMISSION OVER A PAYLOAD (AdmitDoorways, what the launch and `yolo check` both apply): an
-// official pack's doorway keeps its host argv; a local pack's loses it and is reported, naming
-// its pack; a pack service's daemon and an intercepting loophole's are neither admitted nor
-// refused, since no launch opens either outside; and the caller's slice is not written.
+// official pack's doorway keeps its host argv, and so does a local pack's (HS-D27); a fetched
+// pack's loses it and is reported, naming its pack; a pack service's daemon and an intercepting
+// loophole's are neither admitted nor refused, since no launch opens either outside; and the
+// caller's slice is not written.
 func TestAdmitDoorwaysClearsAndReportsOnlyTheRefusedDoorways(t *testing.T) {
 	loophole := func(n string) string {
 		return `{"kind": "loophole", "from": "loopholes/` + n + `"}`
 	}
 	official := packFrom(t, "creds", `{"name": "creds", "contributes": [`+loophole("creds-door")+`]}`, true)
-	local := packFrom(t, "local", `{"name": "local", "contributes": [`+loophole("acme-door")+`, `+
+	local := localPack(t, "mine", `{"name": "mine", "contributes": [`+loophole("mine-door")+`]}`)
+	fetched := packFrom(t, "fetched", `{"name": "fetched", "contributes": [`+loophole("acme-door")+`, `+
 		loophole("acme-intercept")+`]}`, false)
 	host := []string{"yolo", "internal", "daemon", "x", "--listen", "{listen}"}
 	specs := []loopholes.JailDaemonSpec{
 		{Name: "creds-door", HostCmd: host},
+		{Name: "mine-door", HostCmd: host},
 		{Name: "acme-door", HostCmd: host},
 		{Name: "acme-intercept", HostCmd: host, Intercepts: true},
 		{Name: "wire-bridge", HostCmd: host, Service: true},
 		{Name: "plain"},
 	}
-	got, refused := AdmitDoorways([]*packload.Pack{official, local}, specs)
-	if len(refused) != 1 || refused[0].Name != "acme-door" || refused[0].Pack != "local" ||
-		!strings.Contains(refused[0].Why, "its pack is not one yolo ships") {
-		t.Fatalf("refused = %+v, want the local pack's acme-door alone, with the admission reason", refused)
+	got, refused := AdmitDoorways([]*packload.Pack{official, local, fetched}, specs)
+	if len(refused) != 1 || refused[0].Name != "acme-door" || refused[0].Pack != "fetched" ||
+		!strings.Contains(refused[0].Why, "its pack was fetched") {
+		t.Fatalf("refused = %+v, want the fetched pack's acme-door alone, with the admission reason", refused)
 	}
 	kept := map[string]bool{}
 	for _, s := range got {
 		kept[s.Name] = len(s.HostCmd) > 0
 	}
-	want := map[string]bool{"creds-door": true, "acme-door": false, "acme-intercept": true,
+	want := map[string]bool{"creds-door": true, "mine-door": true, "acme-door": false, "acme-intercept": true,
 		"wire-bridge": true, "plain": false}
 	for name, w := range want {
 		if kept[name] != w {
 			t.Errorf("%s keeps its host argv = %v, want %v", name, kept[name], w)
 		}
 	}
-	if len(specs[1].HostCmd) == 0 {
+	if len(specs[2].HostCmd) == 0 {
 		t.Error("AdmitDoorways cleared the host argv in the caller's slice")
 	}
 }
 
-// A DOORWAY IS ADMITTED BY THE SAME RULE AS A HOST HALF: a pack yolo ships, an argv naming `yolo`.
-// A fetched or local pack's is refused by name, and so is a loophole no selected pack ships.
+// A DOORWAY IS ADMITTED BY THE SAME RULE AS A HOST HALF: a pack yolo ships or a local one, an
+// argv naming `yolo`, and the loophole's restart policy carried. A fetched pack's is refused by
+// name, a later fetched pack of the name included, and so is a loophole no selected pack ships.
 func TestAdmitDoorwayAppliesTheHostHalfRule(t *testing.T) {
 	const manifest = `{"name": "creds", "contributes": [{"kind": "loophole", "from": "loopholes/creds"}]}`
 	official := packFrom(t, "creds", manifest, true)
 	fetched := packFrom(t, "creds", manifest, false)
+	local := localPack(t, "creds", manifest)
 	cmd := []string{"yolo", "internal", "daemon", "creds-adapter", "--listen", "127.0.0.1:1"}
-	d, err := AdmitDoorway([]*packload.Pack{official}, "creds", "creds", cmd)
-	if err != nil || d.Service != "creds" || d.Pack != "creds" || strings.Join(d.Cmd, " ") != strings.Join(cmd, " ") {
+	d, err := AdmitDoorway([]*packload.Pack{official}, "creds", "creds", cmd, "always")
+	if err != nil || d.Service != "creds" || d.Pack != "creds" || strings.Join(d.Cmd, " ") != strings.Join(cmd, " ") ||
+		d.Restart != "always" {
 		t.Fatalf("AdmitDoorway(official) = %+v, %v", d, err)
+	}
+	for _, packs := range [][]*packload.Pack{{local}, {fetched, local}} {
+		if d, err := AdmitDoorway(packs, "creds", "creds", cmd, ""); err != nil || d.Pack != "creds" {
+			t.Errorf("AdmitDoorway(a local pack, the later of its name) = %+v, %v; want it admitted", d, err)
+		}
 	}
 	for name, tc := range map[string]struct {
 		packs []*packload.Pack
@@ -201,14 +245,16 @@ func TestAdmitDoorwayAppliesTheHostHalfRule(t *testing.T) {
 		cmd   []string
 		want  string
 	}{
-		"a fetched pack":  {[]*packload.Pack{fetched}, "creds", cmd, "its pack is not one yolo ships"},
-		"a later fetched": {[]*packload.Pack{official, fetched}, "creds", cmd, "its pack is not one yolo ships"},
-		"not yolo":        {[]*packload.Pack{official}, "creds", []string{"python3", "x"}, "must name `yolo`"},
-		"no pack":         {[]*packload.Pack{official}, "", cmd, "no selected pack ships the loophole"},
-		"no argv":         {[]*packload.Pack{official}, "creds", nil, "declares no host argv"},
+		"a fetched pack":  {[]*packload.Pack{fetched}, "creds", cmd, "its pack was fetched"},
+		"a later fetched": {[]*packload.Pack{official, fetched}, "creds", cmd, "its pack was fetched"},
+		"a fetched after local": {[]*packload.Pack{local, fetched}, "creds", cmd,
+			"select a local checkout of the pack by its file:// path"},
+		"not yolo": {[]*packload.Pack{official}, "creds", []string{"python3", "x"}, "must name `yolo`"},
+		"no pack":  {[]*packload.Pack{official}, "", cmd, "no selected pack ships the loophole"},
+		"no argv":  {[]*packload.Pack{official}, "creds", nil, "declares no host argv"},
 	} {
 		t.Run(name, func(t *testing.T) {
-			_, err := AdmitDoorway(tc.packs, tc.pack, "creds", tc.cmd)
+			_, err := AdmitDoorway(tc.packs, tc.pack, "creds", tc.cmd, "")
 			var adm *AdmissionError
 			if !errors.As(err, &adm) || !strings.Contains(adm.Why, tc.want) {
 				t.Errorf("AdmitDoorway = %v, want an AdmissionError saying %q", err, tc.want)

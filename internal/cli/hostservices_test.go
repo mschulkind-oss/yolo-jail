@@ -14,6 +14,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"io/fs"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -31,6 +32,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/launchservice"
 	"github.com/mschulkind-oss/yolo-jail/internal/openaiauthhost"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
+	"github.com/mschulkind-oss/yolo-jail/packs"
 )
 
 // testFakeAgentArg makes a child of this test binary the fake agent (TestMain).
@@ -572,34 +574,69 @@ func TestHostApplyWritesNoBridgedAddressAndSaysWhy(t *testing.T) {
 	}
 }
 
-// ONLY AN OFFICIAL PACK'S HOST HALF RUNS (OQ-HS4): a local pack that takes the bridge's name and
-// declares the same service with a host half is refused by name at the launch, and nothing starts.
-func TestHostRefusesANonOfficialPacksHostHalfByName(t *testing.T) {
-	pack := filepath.Join(t.TempDir(), "wire-bridge")
-	if err := os.MkdirAll(pack, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	manifest := `{"contributes": [
-  {"kind": "adapter", "adapts": {"from": "openai-responses", "to": "anthropic"}, "address": "http://127.0.0.1:8215"},
-  {"kind": "service", "name": "wire-bridge", "host_daemon": {"cmd": ["yolo", "internal", "daemon", "wire-bridge"]}}]}`
-	if err := os.WriteFile(filepath.Join(pack, "pack.json"), []byte(manifest), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	cfg := `{"packs": ["claude", {"source": "file://` + pack + `", "name": "wire-bridge"}]}`
+// A FETCHED PACK'S HOST HALF NEVER RUNS (OQ-HS4, HS-D27): a fetched pack that takes the bridge's
+// name and declares the same service with a host half is refused by name at the launch, with the
+// next step, and nothing starts.
+func TestHostRefusesAFetchedPacksHostHalfByName(t *testing.T) {
+	src := fetchedBridgeSource(t,
+		`{"kind": "adapter", "adapts": {"from": "openai-responses", "to": "anthropic"}, "address": "http://127.0.0.1:8215"}`)
+	cfg := `{"packs": ["claude", {"source": "` + src + `", "name": "wire-bridge"}]}`
 	origStart := startLaunchService
 	startLaunchService = func(*launchservice.Plan, map[string]string) (*launchservice.Running, error) {
-		t.Fatal("a local pack's host half was started")
+		t.Fatal("a fetched pack's host half was started")
 		return nil, nil
 	}
 	t.Cleanup(func() { startLaunchService = origStart })
 	rc, env, errs := hostGateRun(t, cfg, nil, []string{"-p", "codex"}, "claude")
 	if rc == 0 || env != nil {
-		t.Fatalf("rc = %d: a non-official pack's host half must refuse the launch\n%s", rc, errs)
+		t.Fatalf("rc = %d: a fetched pack's host half must refuse the launch\n%s", rc, errs)
 	}
 	for _, want := range []string{`profile "codex"`, `"wire-bridge" service, which this launch cannot start`,
-		"its pack is not one yolo ships", "`yolo -p claude=codex -- claude`, which is a jail launch"} {
+		"its pack was fetched", "select a local checkout of the pack by its file:// path",
+		"`yolo -p claude=codex -- claude`, which is a jail launch"} {
 		if !strings.Contains(errs, want) {
 			t.Errorf("the refusal must say %q:\n%s", want, errs)
 		}
 	}
+}
+
+// A LOCAL PACK'S HOST HALF RUNS, AND IS NAMED BEFORE IT DOES (HS-D27): a file:// fork of the bridge
+// pack, the user's own copy, holds the bridge's service under the later-wins rule, so `yolo host
+// -p codex -- claude` starts ITS host half, and the launch prints that argv as pack code it is
+// about to run on the machine before the start line. Through hostMain with the real start, the
+// test binary standing in for `yolo`, as the headline runs the shipped bridge.
+func TestHostRunsALocalPacksBridgeHostHalfAndNamesItBeforeItStarts(t *testing.T) {
+	upstream, _ := fakeUpstream(t)
+	fakeHostBroker(t)
+	manifest, err := fs.ReadFile(packs.FS, "wire-bridge/pack.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	fork := filepath.Join(t.TempDir(), "wire-bridge")
+	if err := os.MkdirAll(fork, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(fork, "pack.json"), manifest, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg := `{"packs": ["claude", {"source": "file://` + fork + `", "name": "wire-bridge"}], ` +
+		`"providers": {"openai-codex": {"endpoints": {"openai-responses": {"base_url": "` + upstream.URL + `/codex"}}}}}`
+	l := runServiceLaunch(t, cfg, []string{"-p", "codex"}, "", nil)
+	if l.rc != 0 {
+		t.Fatalf("rc = %d: a local fork's bridge must run\n%s", l.rc, l.errs)
+	}
+	if len(l.started) != 1 || l.started[0].Plan.Service != "wire-bridge" || !l.started[0].Plan.Local {
+		t.Fatalf("started %d services, want the local fork's wire-bridge (Local)\n%s", len(l.started), l.errs)
+	}
+	if l.report.WithToken != http.StatusOK {
+		t.Errorf("the local fork's bridge did not serve claude: %d\n%s", l.report.WithToken, l.errs)
+	}
+	named := strings.Index(l.errs, `yolo host: this launch runs pack code on your machine: the "wire-bridge" `+
+		`service's host half from pack "wire-bridge", a local pack yolo does not ship: yolo internal daemon wire-bridge`)
+	started := strings.Index(l.errs, `yolo host: started the "wire-bridge" service`)
+	if named < 0 || started < 0 || named > started {
+		t.Errorf("the local pack's host argv must be named before its start line (named at %d, started at %d):\n%s",
+			named, started, l.errs)
+	}
+	assertServiceGone(t, l)
 }

@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"slices"
 	"sort"
+	"strconv"
 	"strings"
 	"syscall"
 
@@ -801,6 +802,12 @@ func hostLaunch(flags hostExecFlags, profile string, cmd []string, out, errw, ra
 	// pointer names, so that one is not missing and is not named. When that launch did not
 	// start (no login, no terminal), the URL is named with that reason, the launch's own.
 	printHostLines(errw, launch.unservedLines(managedHostVars(managed)))
+	// THE PURE WORKERS THIS LAUNCH DOES NOT START (hostPureWorkers, HS-D29), one line each and on
+	// every launch: a worker that runs only in a jail, one whose host half is refused, one no gate
+	// of this selection asks for. Silent when there are none.
+	for _, line := range launch.workerNotes {
+		fmt.Fprintf(errw, "yolo host: %s\n", line)
+	}
 	// THE WORKSPACE SKILLS LINK (OQ-WS5's B; docs/design/workspace-skills.md WS-D19 to WS-D23,
 	// hostworkspaceskills.go) is the launch's LAST write, made just before each hand-over below:
 	// after every pre-flight, the prelaunch and every launch-owned service and doorway, so a
@@ -822,7 +829,7 @@ func hostLaunch(flags hostExecFlags, profile string, cmd []string, out, errw, ra
 	// forwards to, fronted for this launch, then the doorway, as the macos-user arm orders them
 	// (HS-D19). The fronts and their session dir close after the agent's parent has stopped the
 	// doorways, when this function returns.
-	if len(launch.services) > 0 || len(launch.doorways.Plans()) > 0 {
+	if len(launch.services) > 0 || len(launch.workers) > 0 || len(launch.doorways.Plans()) > 0 {
 		if managed != nil {
 			environ = managed.Environ(environ)
 		}
@@ -838,8 +845,17 @@ func hostLaunch(flags hostExecFlags, profile string, cmd []string, out, errw, ra
 			return 1
 		}
 		defer stopHostServices()
-		for _, plan := range launch.services {
-			r, err := startLaunchService(plan, launch.serviceInput())
+		// The bridged pairing's service, then the pure workers (HS-D29): each one a child of this
+		// process for the agent's life, a start that fails refusing the launch with the ones
+		// already open stopped. Code from a pack yolo does not ship is named, argv and all, BEFORE
+		// it runs (noteHostHalfFromALocalPack), as the doorways' packs are (run.HostDoorways.Start).
+		for _, plan := range append(append([]*launchservice.Plan(nil), launch.services...), launch.workers...) {
+			noteHostHalfFromALocalPack(errw, plan)
+			input := launch.serviceInput()
+			if slices.Contains(launch.workers, plan) {
+				input = launch.workerInput()
+			}
+			r, err := startLaunchService(plan, input)
 			if err != nil {
 				for _, started := range running {
 					started.Stop()
@@ -849,6 +865,13 @@ func hostLaunch(flags hostExecFlags, profile string, cmd []string, out, errw, ra
 				return 1
 			}
 			running = append(running, r)
+			if slices.Contains(launch.workers, plan) {
+				fmt.Fprintf(errw, "yolo host: started the %q service (pack %q, pid %d) for %s, %s; it is "+
+					"handed only this launch's caller token and stops when %s exits. Its log: %s\n",
+					plan.Service, plan.Pack, r.PID(), launch.agent, launch.workerPointedAt(plan.Service),
+					launch.agent, r.Log)
+				continue
+			}
 			// The addresses the agent's provider environment points it at, the only routes the
 			// service opens (HS-D24): never read out of environ, whose wire tables (FT-D2) name
 			// every address the plan moved.
@@ -987,6 +1010,21 @@ func hostPreflight(launch *hostComposition, errw io.Writer) int {
 // startLaunchService starts one launch-owned service; a var so a test can observe what started.
 var startLaunchService = launchservice.Start
 
+// noteHostHalfFromALocalPack is the disclosure of a service's host half that a pack yolo does not
+// ship declares, printed BEFORE it starts: a local pack's (launchservice.Declared.Local; HS-D27,
+// the only other origin admission lets through), whose argv is the user's own code, run on their
+// machine outside every sandbox. On every launch that starts one, and never suppressible
+// (docs/reference/report-tiers.md OQ-RO3: the exec banner is the trust boundary). Silent for a
+// pack yolo ships, whose start line below names it.
+func noteHostHalfFromALocalPack(errw io.Writer, plan *launchservice.Plan) {
+	if !plan.Local {
+		return
+	}
+	fmt.Fprintf(errw, "yolo host: this launch runs pack code on your machine: the %q service's host "+
+		"half from pack %q, a local pack yolo does not ship: %s\n", plan.Service, plan.Pack,
+		shquote.Join(plan.Cmd))
+}
+
 // hostServiceSignals is the channel a launch with a service reads its signals from, nil for this
 // process's own; a var so a test can deliver one without signalling itself.
 var hostServiceSignals chan os.Signal
@@ -1009,6 +1047,54 @@ func (c *hostComposition) serviceInput() map[string]string {
 		}
 	}
 	return env
+}
+
+// workerInput is what a pure worker of this composition is handed (hostPureWorkers; HS-D29): the
+// three wire tables and the host broker's private socket, as every launch-owned service is, and
+// no provider credential, since no pairing names one the worker serves. The caller token is
+// added by launchservice.Start.
+func (c *hostComposition) workerInput() map[string]string {
+	env := c.wireTables()
+	env[openauthclient.HostSocketEnv] = openaiauthhost.HostSocketPath()
+	return env
+}
+
+// servedSet is what this host launch serves (packload.ServedDaemons): its doorways, the bridged
+// pairing's service and the pure workers it starts (HS-D29), with workerWhy, the reason a pointer
+// at each worker it does not start is withheld (hostPureWorkers).
+func (c *hostComposition) servedSet(workerWhy map[string]string) packload.ServedDaemons {
+	served := c.doorways.Served()
+	if plans := append(append([]*launchservice.Plan(nil), c.services...), c.workers...); len(plans) > 0 {
+		served = launchservice.Served(plans).Plus(served)
+	}
+	return served.WithNotServedWhy(workerWhy)
+}
+
+// callerTokens is the gate's caller tokens for this launch (packload.ScopeInput.CallerTokens): the
+// bridged pairing's service's, each pure worker's and each doorway's, under its variable. nil when
+// the launch runs none.
+func (c *hostComposition) callerTokens() map[string]string {
+	var tokens map[string]string
+	for _, m := range []map[string]string{launchservice.CallerTokens(c.services),
+		launchservice.CallerTokens(c.workers), c.doorways.CallerTokens()} {
+		for k, v := range m {
+			if tokens == nil {
+				tokens = map[string]string{}
+			}
+			tokens[k] = v
+		}
+	}
+	return tokens
+}
+
+// workerPointedAt is how a pure worker's start line names who reaches it: the pack env variables
+// this launch composed into the agent's environment `served_by` it (packload.PointersAt), or, with
+// none, that no agent is pointed at it.
+func (c *hostComposition) workerPointedAt(service string) string {
+	if vars := packload.PointersAt(c.scope.FoldFor(c.agent), service); len(vars) > 0 {
+		return "a worker " + c.agent + " is pointed at through " + strings.Join(vars, ", ")
+	}
+	return "a worker no agent is pointed at"
 }
 
 // wireTables is this launch's three wire tables, serialized and keyed by the names in
@@ -1252,6 +1338,14 @@ type hostComposition struct {
 	// the one a pairing needs (hostServicesDetect, with no ports or token): zero or one, since
 	// one agent resolves one pairing (docs/design/host-notch-services.md §4.2).
 	services []*launchservice.Plan
+	// workers are the PURE WORKERS whose host half this launch starts beside its agent
+	// (hostPureWorkers; docs/design/host-notch-services.md §1.2, HS-D29), planned only by the
+	// front door that runs the agent, and workerNotes the line for every other worker the
+	// selection holds: one that runs only in a jail, one whose host half is refused, one no gate
+	// of the selection asks for, or, at a front door that runs no agent, one that only
+	// `yolo host --` starts.
+	workers     []*launchservice.Plan
+	workerNotes []string
 	// doorways are the credential doorways this launch opens for its agent
 	// (run.PlanHostDoorways; docs/design/host-notch-services.md HS-D15, HS-D21), planned only
 	// by the front door that runs the agent, and the reason each one it leaves closed is closed.
@@ -2380,7 +2474,23 @@ func composeHostVarsWith(cfg *jsonx.OrderedMap, workspace, agent, command, profi
 		return c
 	}
 	c.doorways = doorways
-	hostServed := doorways.Served()
+	// THE PURE WORKERS (docs/design/host-notch-services.md HS-D29): every held service no
+	// adaptation names, whose host half no pairing starts. `yolo host --` starts each one the
+	// gate asks for and admission admits, beside the agent; every other front door, and every
+	// worker this launch does not start, gets a line. BEFORE THE GATE, so a pack env pointer at a
+	// worker this launch starts is served here and composed with the worker's caller token, as a
+	// jail composes one at the worker's jail daemon, and a pointer at one it does not start is
+	// withheld with the worker's own reason. Over the selection the doorways were planned over,
+	// once: a pairing below adds adapter addresses to the provider table and moves no gate, since
+	// a gate reads the profile's name and its provider's declared platform.
+	var workerWhy map[string]string
+	c.workers, c.workerNotes, workerWhy, err = hostPureWorkers(packs,
+		packload.SelectionOfSets(setTable, resolvedProfiles, providers), services == hostServicesStart)
+	if err != nil {
+		c.err = err
+		return c
+	}
+	hostServed := c.servedSet(workerWhy)
 	c.scopeInput = packload.ScopeInput{
 		Packs:     packs,
 		Providers: providers,
@@ -2405,7 +2515,7 @@ func composeHostVarsWith(cfg *jsonx.OrderedMap, workspace, agent, command, profi
 		// binds the port (notch convergence item 2). The jail's vehicles apply the same rule
 		// through the same gate.
 		Served:       &hostServed,
-		CallerTokens: doorways.CallerTokens(),
+		CallerTokens: c.callerTokens(),
 		// THE REGION FILE, the jail's rule (docs/design/bedrock-plumbing.md BR-DIR1): this
 		// agent could read ~/.aws/config itself, and is given its credential profile's region
 		// anyway, so the refusal and the disclosure are one at every notch. The invoking shell is
@@ -2446,21 +2556,14 @@ func composeHostVarsWith(cfg *jsonx.OrderedMap, workspace, agent, command, profi
 		// Via stays inert at the host whatever this launch serves (WG-I12).
 		resolvedProfiles, c.unservedVias = packload.ViaServedAt(resolvedProfiles, packs, packload.NothingServed())
 		c.resolved = resolvedProfiles
-		// The services beside the doorways: the host notch serves both kinds of launch-owned
-		// listener, and each has its own caller token.
-		hostServed = launchservice.Served(c.services).Plus(doorways.Served())
+		// The services beside the doorways and the workers: the host notch serves every kind of
+		// launch-owned process, and each has its own caller token.
+		hostServed = c.servedSet(workerWhy)
 		c.scopeInput.Providers = providers
 		c.scopeInput.Resolved = resolvedProfiles
 		c.scopeInput.UnservedAdaptations = unservedAdaptations
 		c.scopeInput.Served = &hostServed
-		tokens := map[string]string{}
-		for k, v := range launchservice.CallerTokens(c.services) {
-			tokens[k] = v
-		}
-		for k, v := range doorways.CallerTokens() {
-			tokens[k] = v
-		}
-		c.scopeInput.CallerTokens = tokens
+		c.scopeInput.CallerTokens = c.callerTokens()
 		scope, err = packload.ScopeCredentials(c.scopeInput)
 	}
 	if err != nil {
@@ -2693,7 +2796,7 @@ func hostAdapterAddresses() map[string]string {
 // hostServicesDetect, only the record of which service the pairing needs (detected true).
 //
 // THE FOUR REFUSALS HS-D5 NARROWS ES-D18 TO. A service with no host half and a service whose
-// pack yolo does not ship (launchservice.Admit) refuse with the reason; `yolo host env`, which
+// pack was fetched (launchservice.Admit; a local pack's runs, HS-D27) refuse with the reason; `yolo host env`, which
 // owns no process lifetime, refuses naming the launch that would start it (OQ-HS3); and a host
 // half that fails to start is hostExec's (launchservice.Start). A pairing through a pack nothing
 // selects, or a provider no selected pack ships, refuses as before.
@@ -2740,6 +2843,117 @@ func (c *hostComposition) planHostService(e *packload.UnservedAdapterError, pack
 		return nil, err, false
 	}
 	return plan, nil, false
+}
+
+// hostPureWorkers is a host composition's answer to the PURE WORKERS of packs
+// (docs/design/host-notch-services.md §1.2: a held service no adaptation names, so no pairing
+// starts it as §4.2 starts the bridge): the plans of the ones a `yolo host --` launch starts
+// beside its agent (starts), one line for every worker the launch does not start, in the order
+// the services are held (packload.HeldServices), and, keyed by worker, the clause a withheld pack
+// env pointer at one it does not start is named with (packload.ServedDaemons.WithNotServedWhy).
+//
+// A WORKER STARTS when it declares a host half, admission admits it (launchservice.Admit: a pack
+// yolo ships or a local one, an argv naming `yolo`), and the selection's gate asks for it: a
+// worker every pointer at which is gated on a profile or a provider platform runs only when sel
+// delivers one of those gates, as a jail's payload leaves the same daemon out
+// (packload.UnselectedProfileServedDaemons, OQ-CN7 (b)). Its plan reserves no port, since the
+// launch picks no address for it: a pointer at it is composed as its pack declares it, as in a
+// jail. It carries a caller token all the same, in its own input and in a pointer naming
+// `{caller_token}` (HS-D29).
+//
+// THE LINES, one per worker the launch does not start, each a disclosure no switch hides: one
+// declaring only a jail daemon runs only in a jail; a refused host half names why, the fetched
+// refusal's next step included; an ungated one names the selection that starts it; and at a
+// front door that runs no command (`yolo host env`), an admitted one is named as one only
+// `yolo host --` starts (OQ-HS3). A pointer at any of them but the ungated one, whose pointers the
+// gate withholds already, gets the matching clause, so it is never named with the doorway clause
+// that no selection opens it.
+func hostPureWorkers(packs []*packload.Pack, sel packload.GateSelection, starts bool) ([]*launchservice.Plan,
+	[]string, map[string]string, error) {
+	adapts := map[string]bool{}
+	for _, a := range packload.ServiceAdaptations(packs, nil) {
+		adapts[a.Service] = true
+	}
+	ungated := map[string]packload.ProfileServedDaemon{}
+	for _, u := range packload.UnselectedProfileServedDaemons(packs, sel) {
+		ungated[u.Name] = u
+	}
+	var plans []*launchservice.Plan
+	var lines []string
+	why := map[string]string{}
+	held, _ := packload.HeldServices(packs)
+	for _, h := range held {
+		s := h.Service
+		if adapts[s.Name] {
+			continue // a pairing starts it, or refuses for it (planHostService)
+		}
+		if s.HostDaemon == nil || len(s.HostDaemon.Cmd) == 0 {
+			if s.JailDaemon != nil && len(s.JailDaemon.Cmd) > 0 {
+				lines = append(lines, fmt.Sprintf("the %q service (pack %q) runs only in a jail: it "+
+					"declares no host half (`host_daemon`), so `yolo host` starts nothing for it; a "+
+					"container jail runs its jail daemon (`yolo -- <command>`)", s.Name, h.Pack))
+				why[s.Name] = "which runs only in a jail: the service declares no host half " +
+					"(`host_daemon`), so `yolo host` starts nothing for it"
+			}
+			continue
+		}
+		if u, gated := ungated[s.Name]; gated {
+			lines = append(lines, fmt.Sprintf("the %q service (pack %q) is not started: %s",
+				s.Name, h.Pack, workerGateClause(u)))
+			continue
+		}
+		d, err := launchservice.Admit(packs, s.Name)
+		if err != nil {
+			refused := err.Error()
+			var adm *launchservice.AdmissionError
+			if errors.As(err, &adm) {
+				refused = adm.Why
+			}
+			lines = append(lines, fmt.Sprintf("the %q service's host half (pack %q) is not started: %s",
+				s.Name, h.Pack, refused))
+			why[s.Name] = "whose host half this launch does not start: " + refused
+			continue
+		}
+		if !starts {
+			lines = append(lines, fmt.Sprintf("the %q service (pack %q) is a worker no agent's route "+
+				"names: `yolo host -- <command>` starts its host half for that command and stops it when "+
+				"the command exits, and this command runs none (docs/design/host-notch-services.md OQ-HS3)",
+				s.Name, h.Pack))
+			why[s.Name] = "which only a launch that runs a command starts, beside that command, and " +
+				"this command runs none: `yolo host -- <command>` starts it (docs/design/host-notch-services.md OQ-HS3)"
+			continue
+		}
+		plan, err := launchservice.NewPlan(packs, d)
+		if err != nil {
+			return nil, nil, nil, err
+		}
+		plans = append(plans, plan)
+	}
+	return plans, lines, why, nil
+}
+
+// workerGateClause is why a worker whose every pointer is gated is not started, and the selection
+// that starts it, in the jail's words (run's noteUnstartedProfileDaemons).
+func workerGateClause(u packload.ProfileServedDaemon) string {
+	var why []string
+	quote := func(names []string) string {
+		quoted := make([]string, len(names))
+		for i, n := range names {
+			quoted[i] = strconv.Quote(n)
+		}
+		return strings.Join(quoted, " or ")
+	}
+	if len(u.Platforms) > 0 {
+		why = append(why, "this agent's selected provider is not on platform "+quote(u.Platforms))
+	}
+	if len(u.Profiles) > 0 {
+		why = append(why, "its selected profile is not "+quote(u.Profiles))
+	}
+	remedy := "select a provider it serves to start it"
+	if len(u.Profiles) > 0 {
+		remedy = "`-p " + shquote.Quote(u.Profiles[0]) + "` starts it"
+	}
+	return "every pointer at it is gated, and " + strings.Join(why, ", and ") + "; " + remedy
 }
 
 // unservedAdapterRefusal words the gate's *packload.UnservedAdapterError for this notch when the
@@ -3161,7 +3375,8 @@ func hostEnvDelta(agent, profile string, grant *hostGrantRequest, warn func(stri
 	blocks := [][]string{c.selectionLines(), c.profileLines(), refusal}
 	blocks = append(blocks, warnings...)
 	var disclosure []string
-	for _, block := range append(blocks, c.regionLines(), c.credentialScopeLines(), c.unservedLines(nil), c.grantLines()) {
+	for _, block := range append(blocks, c.regionLines(), c.credentialScopeLines(), c.unservedLines(nil),
+		c.workerNotes, c.grantLines()) {
 		disclosure = append(disclosure, block...)
 	}
 	return c.vars, disclosure, nil

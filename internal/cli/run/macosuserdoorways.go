@@ -15,8 +15,9 @@ package run
 //
 // WHAT IS A DOORWAY is declared, never named here: a loophole whose `jail_daemon` declares
 // `host_cmd`, the argv that opens it outside (loopholes.DoorwaysOutside). What may run is the
-// launch-owned mechanism's admission rule (launchservice.AdmitDoorway: a pack yolo ships, an
-// argv naming `yolo`), applied to the payload by launchservice.AdmitDoorways where it is composed
+// launch-owned mechanism's admission rule (launchservice.AdmitDoorway: a pack yolo ships or a
+// local one, never a fetched one, HS-D27; an argv naming `yolo`), applied to the payload by
+// launchservice.AdmitDoorways where it is composed
 // (admitDoorways) and in `yolo check`'s prediction of it, so a refused one is judged as the jail
 // daemon it also is, and the launch and the prediction agree on what is served.
 //
@@ -72,12 +73,18 @@ func (o *Options) admitDoorways(packs []*packload.Pack, specs []loopholes.JailDa
 // (loopholes.DoorwaysOutside over the payload Run composed, specs): each one's admitted host
 // argv resolved to the address the launch settled for its `listen`, behind the caller token the
 // channel composed its clients with. Recorded on o for the decline, which says the doorway runs.
+//
+// IT ALSO NAMES THE PURE WORKERS this launch does not start (noteMacosUserWorkers, HS-D29): the
+// channel's composition planned the ones it starts (planMacosUserWorkers), and this is the arm's
+// one step after that composition and before its start and dry-run split, where the lines about
+// what runs outside the sandbox belong.
 func (o *Options) planMacosUserDoorways(rt string, specs []loopholes.JailDaemonSpec,
 	packs []*packload.Pack, channel *packChannel) []*launchservice.Plan {
+	o.noteMacosUserWorkers(channel)
 	o.launchDoorways = nil
 	packOf := launchservice.LoopholePacks(packs)
 	for _, s := range loopholes.DoorwaysOutside(rt, specs) {
-		d, err := launchservice.AdmitDoorway(packs, packOf[s.Name], s.Name, s.ResolvedHostCmd())
+		d, err := launchservice.AdmitDoorway(packs, packOf[s.Name], s.Name, s.ResolvedHostCmd(), s.Restart)
 		if err != nil {
 			continue // admitDoorways cleared every host argv it refuses; nothing to open
 		}
@@ -115,6 +122,11 @@ func doorwayInput(launchEnv *jsonx.OrderedMap) map[string]string {
 // launch: this is host code running outside Seatbelt, and a launch has no quiet mode. It returns
 // the stop for the arm to defer, or the refusal naming the doorway that did not start, which the
 // launch-owned mechanism's contract makes a refusal before the command runs (§4.5).
+//
+// EACH ONE IS SUPERVISED FROM ITS START (launchservice.Running.Supervise, HS-D28), as a service's
+// host half is (startMacosUserServices): a doorway that dies while the command runs is named and
+// restarted on the address its clients were composed with. A local pack's doorway is named, argv
+// and all, before it opens.
 func (o *Options) startMacosUserDoorways(plans []*launchservice.Plan, launchEnv *jsonx.OrderedMap) (func(), error) {
 	var running []launchedService
 	stop := func() {
@@ -123,6 +135,7 @@ func (o *Options) startMacosUserDoorways(plans []*launchservice.Plan, launchEnv 
 		}
 	}
 	for _, plan := range plans {
+		o.noteMacosUserLocalHostCode(plan, fmt.Sprintf("the %q doorway's host argv", plan.Service))
 		r, log, err := startMacosUserDoorway(plan, doorwayInput(launchEnv))
 		if err != nil {
 			stop()
@@ -133,6 +146,7 @@ func (o *Options) startMacosUserDoorways(plans []*launchservice.Plan, launchEnv 
 			"launch, outside the sandbox: it answers only this launch's caller token, forwards to "+
 			"the host's %q service, and stops when the command exits. Its log: %s", plan.Service,
 			plan.Pack, r.PID(), strings.Join(plan.Addresses(), ", "), plan.Service, log))
+		r.Supervise(o.macosUserCommandName(), o.Stderr, macosUserSupervisionPrefix)
 	}
 	return stop, nil
 }
