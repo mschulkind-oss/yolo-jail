@@ -271,6 +271,7 @@ func materializeHostTree(f packload.Fork, entry *capture.Entry, version string) 
 	_ = os.RemoveAll(tmp)
 	store := &capture.Store{Dir: paths.CapturesDir()}
 	_, err := capture.CopyTree(capture.CopyTreeOptions{Entry: entry, Prefix: packdecl.TreeReservedDir(f.Bin), Dest: tmp})
+	treeCopied(entry.Key) // the seam a jail launch's copy has, where a test reaps the entry as a move would
 	if _, rerr := store.Resolve(entry.Key); rerr != nil {
 		_ = os.RemoveAll(tmp)
 		return fmt.Errorf("%s's build %s was reaped while it was copied — apply again", f.Label(), entry.Key)
@@ -321,10 +322,14 @@ func pruneHostTreeVersions(dir, keep, previous string) {
 	}
 }
 
-// noteHostTreeLines prints a line for each patched extension the launch's agent loads, naming its
-// good build — a disclosure (OQ-RO3), as a jail launch's block is.
-func noteHostTreeLines(errw io.Writer, color bool, bin string) {
-	if !hostTreesBuild() {
+// noteHostTreeLines prints a line for each patched extension the launch's agent loads at the host
+// (its list entry reaches the host) — a disclosure (OQ-RO3), as a jail launch's block is (PPX-D26).
+// It names the build `~/<into>` links to, which is what the agent loads, and, when this machine's
+// good build has moved past it with no render since, that `yolo host apply --assert` renders the good
+// one. On a host that builds no tree (macOS) it says the agent starts without it and names a jail that
+// has it (§9, §11). Silent under `host_management: none`, which writes no link, and in a jail.
+func noteHostTreeLines(errw io.Writer, color bool, bin, home string) {
+	if config.InJail() || config.HostManagementMode() == config.HostManagementNone {
 		return
 	}
 	sel := selectConfiguredHostPacks()
@@ -336,11 +341,51 @@ func noteHostTreeLines(errw io.Writer, color bool, bin string) {
 		if !f.ListedAtHost || !ownerRuns(sel.packs, f, bin) {
 			continue
 		}
-		if _, g, why := hostTreeServing(f); why == "" {
-			pr.Printf("[dim]yolo host: %s at %s + %s[/dim]", richtext.Escape(f.Label()), run.GoodBuildLabel(g),
-				run.PatchCount(g.Patches))
+		if !hostTreesBuild() {
+			pr.Printf("[yellow]%s[/yellow]", richtext.Escape(fmt.Sprintf("yolo host: %s is not delivered on this host — "+
+				"its tree is built for a Linux jail, and a macOS host builds none; %s starts without it. "+
+				"YOLO_RUNTIME=podman yolo -- %s runs it in a jail that has it", f.Label(), bin, bin)))
+			continue
+		}
+		if line := hostTreeLine(f, home); line != "" {
+			pr.Printf("[dim]%s[/dim]", richtext.Escape("yolo host: "+line))
 		}
 	}
+}
+
+// hostTreeLine is f's line at a host launch, read from the link the render owns: "" when
+// `~/<into>` is not a link into f's versioned copies (the stop has already said so when nothing is
+// there, and a path the user owns is the user's).
+func hostTreeLine(f packload.Fork, home string) string {
+	dest := filepath.Join(home, filepath.FromSlash(strings.TrimSuffix(f.Into, "/")))
+	target, err := os.Readlink(dest)
+	if err != nil || filepath.Dir(target) != hostTreeVersionsDir(f) {
+		return ""
+	}
+	linked := filepath.Base(target)
+	entry, g, why := hostTreeServing(f)
+	switch {
+	case entry != nil && entry.Key == linked:
+		return f.Label() + " at " + run.GoodBuildLabel(g) + " + " + run.PatchCount(g.Patches)
+	case entry != nil:
+		return f.Label() + " at " + linkedTreeLabel(linked) + "; " + run.GoodBuildLabel(g) + " + " +
+			run.PatchCount(g.Patches) + " is built, and `yolo host apply --assert` renders it"
+	default:
+		return f.Label() + " at " + linkedTreeLabel(linked) + "; " + why
+	}
+}
+
+// linkedTreeLabel names the build a host link names by its store entry key: its tag and commit from
+// the entry's receipt while the store still holds it, else "the build <key>" — the host keeps its
+// own copy of a build a move has reaped from the store.
+func linkedTreeLabel(key string) string {
+	if e, err := (&capture.Store{Dir: paths.CapturesDir()}).Resolve(key); err == nil {
+		if recs, err := entrypoint.ReadBuildReceipts(capture.ReceiptsPath(e.Root)); err == nil && len(recs) > 0 &&
+			recs[0].Revision != "" {
+			return packsrc.ListEntry{Commit: recs[0].Revision, Tag: recs[0].Tag}.Label()
+		}
+	}
+	return "the build " + key
 }
 
 // sweepDroppedHostTrees removes the versioned copies of every patched extension the selection no

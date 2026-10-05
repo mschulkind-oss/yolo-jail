@@ -19,6 +19,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/capture"
+	"github.com/mschulkind-oss/yolo-jail/internal/cli/run"
 	"github.com/mschulkind-oss/yolo-jail/internal/hostskills"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
@@ -29,6 +31,13 @@ import (
 // fixture's selection, and the tree's list entry on it, so the agent pack owns the tree.
 func (fx *treeFixture) listTreeForAgent(t *testing.T) {
 	t.Helper()
+	fx.listTreeForAgentWith(t, `{"kind":"config-list","surface":"tool/settings","path":"/packages","add":["~/.tool/ext/tool-ext"]}`)
+}
+
+// listTreeForAgentWith is listTreeForAgent with entry, a contribution naming the tree, in place of
+// the config-list.
+func (fx *treeFixture) listTreeForAgentWith(t *testing.T, entry string) {
+	t.Helper()
 	agent := filepath.Join(fx.packs, "agentpack")
 	writeFile(t, filepath.Join(agent, "pack.json"), `{"name":"agentpack","contributes":[`+
 		`{"kind":"program","bin":"tool","via":"npm","package":"tool"},`+
@@ -37,8 +46,7 @@ func (fx *treeFixture) listTreeForAgent(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	manifest := strings.Replace(string(data), `"produces":["f.txt"]}]}`, `"produces":["f.txt"]},`+
-		`{"kind":"config-list","surface":"tool/settings","path":"/packages","add":["~/.tool/ext/tool-ext"]}]}`, 1)
+	manifest := strings.Replace(string(data), `"produces":["f.txt"]}]}`, `"produces":["f.txt"]},`+entry+`]}`, 1)
 	writeFile(t, filepath.Join(fx.treeDir, "pack.json"), manifest)
 	writeFile(t, filepath.Join(fx.home, ".config", "yolo-jail", "config.jsonc"), `{"packs":[`+
 		`{"source":"file://`+agent+`","name":"agentpack"},{"source":"file://`+fx.treeDir+`","name":"treepack"}]}`)
@@ -357,5 +365,139 @@ func TestAHostAdvancesLinesNameTheHost(t *testing.T) {
 		if !strings.Contains(out, w) {
 			t.Errorf("the host advance lacks %q:\n%s", w, out)
 		}
+	}
+}
+
+// THE GOOD-BUILD LINE'S CALL SITE (PPX-D26): `yolo host -- tool` names the build its link names,
+// which is what the agent loads; once the machine's good build has moved past it with no render,
+// the line names the linked build and that `yolo host apply --assert` renders the good one. Red if
+// hostExec stops calling noteHostTreeLines.
+func TestAHostLaunchNamesTheBuildItsLinkNames(t *testing.T) {
+	fx := newTreeFixture(t, `"f.txt"`)
+	fx.listTreeForAgent(t)
+	fx.writeHostConfig(t, `,"host_apply_on_launch":true`)
+	stubBins(t, "tool")
+	captureHostExec(t)
+	var errw bytes.Buffer
+	if rc := hostExec(nil, []string{"tool"}, io.Discard, &errw, nil); rc != 0 {
+		t.Fatalf("rc=%d\n%s", rc, errw.String())
+	}
+	good := patchedRecordOf(t, treeKeyCLI).Good
+	first := "yolo host: extension " + treeKeyCLI + " at " + run.GoodBuildLabel(good) + " + " + run.PatchCount(good.Patches)
+	if !strings.Contains(errw.String(), first) {
+		t.Errorf("the launch does not name the build its link names (%q):\n%s", first, errw.String())
+	}
+	// THE GOOD BUILD MOVES (a jail launch's advance), and the host's link stays where it was.
+	fx.commit(t, "v1.1.0", map[int]string{14: "fourteen"})
+	fx.now = fx.now.Add(2 * time.Hour)
+	if d, out := fx.deliver(t, true); d.Dir == "" {
+		t.Fatalf("the jail launch's advance did not move the good build:\n%s", out)
+	}
+	moved := patchedRecordOf(t, treeKeyCLI).Good
+	fx.writeHostConfig(t, "")
+	errw.Reset()
+	if rc := hostExec(nil, []string{"tool"}, io.Discard, &errw, nil); rc != 0 {
+		t.Fatalf("rc=%d\n%s", rc, errw.String())
+	}
+	if strings.Contains(errw.String(), "at "+run.GoodBuildLabel(moved)) ||
+		!strings.Contains(errw.String(), run.GoodBuildLabel(moved)+" + "+run.PatchCount(moved.Patches)+" is built, and "+
+			"`yolo host apply --assert` renders it") {
+		t.Errorf("the line names the good build where the link names an earlier one:\n%s", errw.String())
+	}
+	// UNDER host_management: none yolo writes no link, and says nothing of one.
+	fx.writeHostConfig(t, `,"host_management":"none"`)
+	errw.Reset()
+	hostExec(nil, []string{"tool"}, io.Discard, &errw, nil)
+	if strings.Contains(errw.String(), "yolo host: extension") {
+		t.Errorf("under host_management none the launch names an extension build:\n%s", errw.String())
+	}
+}
+
+// UNDER host_management: none `yolo host -- tool` advances nothing even with host_apply_on_launch
+// (PPX-D25): that contract renders nothing, so a build would serve no one. Red if hostExec's advance
+// stops reading host_management.
+func TestAHostLaunchUnderHostManagementNoneAdvancesNothing(t *testing.T) {
+	fx := newTreeFixture(t, `"f.txt"`)
+	fx.listTreeForAgent(t)
+	fx.writeHostConfig(t, `,"host_apply_on_launch":true,"host_management":"none"`)
+	stubBins(t, "tool")
+	got := captureHostExec(t)
+	var errw bytes.Buffer
+	if rc := hostExec(nil, []string{"tool"}, io.Discard, &errw, nil); rc != 0 || !got.execed {
+		t.Fatalf("rc=%d, execed %v\n%s", rc, got.execed, errw.String())
+	}
+	if len(fx.builds) != 0 {
+		t.Errorf("under host_management none the launch built %d trees:\n%s", len(fx.builds), errw.String())
+	}
+}
+
+// A HOST COPY WHOSE ENTRY IS REAPED WHILE IT RUNS (PPX-D25) is never renamed in or linked: the
+// copy is checked against the entry's completion marker once it ends.
+func TestAHostCopyWhoseEntryIsReapedIsNeverLinked(t *testing.T) {
+	fx := newTreeFixture(t, `"f.txt"`)
+	advanceHostTrees(io.Discard, false, "")
+	prev := treeCopied
+	treeCopied = func(key string) {
+		if err := (&capture.Store{Dir: paths.CapturesDir()}).ReapEntry(key); err != nil {
+			t.Fatal(err)
+		}
+	}
+	t.Cleanup(func() { treeCopied = prev })
+	out := fx.renderTrees(t, true)
+	if !strings.Contains(out, "was reaped while it was copied") {
+		t.Errorf("the render does not say the build went while it was copied:\n%s", out)
+	}
+	if _, err := os.Lstat(fx.link()); err == nil {
+		t.Error("a copy of a reaped build was linked")
+	}
+	if versions, _ := os.ReadDir(hostTreeVersionsDir(fx.tree(t))); len(versions) != 0 {
+		t.Errorf("a copy of a reaped build was renamed in: %v", versions)
+	}
+}
+
+// A TREE LISTED ONLY IN AN AUTONOMOUS POSTURE LIST reaches no host, so it never stops the owner's host
+// launch (PPX-D26), though nothing renders it there. Red if the stop stops reading where the entry
+// reaches.
+func TestATreeListedOnlyForJailsNeverStopsAHostLaunch(t *testing.T) {
+	fx := newTreeFixture(t, `"f.txt"`)
+	fx.listTreeForAgentWith(t, `{"kind":"autonomy","autonomous":{"lists":[{"surface":"tool/settings",`+
+		`"path":"/packages","add":["~/.tool/ext/tool-ext"]}]}}`)
+	fx.writeHostConfig(t, "")
+	if f := fx.tree(t); f.Owner != "agentpack" || f.ListedAtHost {
+		t.Fatalf("the fixture's tree: owner %q, listed at the host %v", f.Owner, f.ListedAtHost)
+	}
+	stubBins(t, "tool")
+	got := captureHostExec(t)
+	var errw bytes.Buffer
+	if rc := hostExec(nil, []string{"tool"}, io.Discard, &errw, nil); rc != 0 || !got.execed {
+		t.Errorf("rc=%d, execed %v: a tree no host loads stopped the owner's host launch\n%s", rc, got.execed, errw.String())
+	}
+}
+
+// ON A MACOS HOST `yolo host -- tool` starts the owner without the tree, and says so once, naming a
+// jail that has it (§9, §11). Red if hostExec stops calling noteHostTreeLines.
+func TestAMacOSHostLaunchSaysTheOwnerStartsWithoutItsTree(t *testing.T) {
+	fx := newTreeFixture(t, `"f.txt"`)
+	fx.listTreeForAgent(t)
+	fx.writeHostConfig(t, "")
+	prev := hostTreesBuild
+	hostTreesBuild = func() bool { return false }
+	t.Cleanup(func() { hostTreesBuild = prev })
+	stubBins(t, "tool", "other")
+	got := captureHostExec(t)
+	var errw bytes.Buffer
+	if rc := hostExec(nil, []string{"tool"}, io.Discard, &errw, nil); rc != 0 || !got.execed {
+		t.Fatalf("rc=%d, execed %v\n%s", rc, got.execed, errw.String())
+	}
+	for _, w := range []string{"extension " + treeKeyCLI + " is not delivered on this host", "tool starts without it",
+		"YOLO_RUNTIME=podman yolo -- tool"} {
+		if n := strings.Count(errw.String(), w); n != 1 {
+			t.Errorf("the macOS launch says %q %d times, want once:\n%s", w, n, errw.String())
+		}
+	}
+	errw.Reset()
+	hostExec(nil, []string{"other"}, io.Discard, &errw, nil)
+	if strings.Contains(errw.String(), "is not delivered on this host") {
+		t.Errorf("a program that loads no tree was told of one:\n%s", errw.String())
 	}
 }
