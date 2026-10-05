@@ -19,10 +19,11 @@
 //
 // This package decides and acts on ONE program at a time: its disposition (Status), putting
 // it in place (Ensure: first install, the throttled evergreen refresh, a moved declaration),
-// and taking entries back out (Reconcile, Sweep). It knows no pack loader and no config: the
-// caller hands it the programs (Program) and every policy input as a field of Floor, so the
-// launch, `yolo host apply`, `yolo check` and `yolo prune` ask the same questions of the same
-// code without this package importing any of their worlds.
+// taking entries back out (Reconcile, Sweep), and running its declared pre-launch refresh just
+// before a launch execs it, whichever copy that is (PrelaunchRefresh). It knows no pack loader
+// and no config: the caller hands it the programs (Program) and every policy input as a field of
+// Floor, so the launch, `yolo host apply`, `yolo check` and `yolo prune` ask the same questions
+// of the same code without this package importing any of their worlds.
 //
 // Three recipes, per OQ-HP3 and OQ-HP4, and forked-programs-as-packs.md FP-D4:
 //
@@ -49,6 +50,9 @@
 //	  records/<bin>.json          which install bin/<bin> runs, and when it was checked
 //	  receipts.jsonl              one line per install, update or removal
 //	  locks/<name>.lock           one install at a time per program (flock)
+//	  refresh/<bin>.stamp         when a launch last ran <bin>'s pre-launch refresh (prelaunch.go)
+//	  refresh/<bin>.seen/<key>    one per watched content a refresh of <bin> succeeded with
+//	  refresh/<bin>.lock          one pre-launch refresh at a time per program (flock)
 //	  cache/npm/                  npm's download cache
 //	  downloads/                  Node tarballs in flight
 package hostfloor
