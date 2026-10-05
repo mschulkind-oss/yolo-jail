@@ -329,7 +329,9 @@ changes:
 The checkout is [PF §5.1](patched-forks.md#51-where-it-runs)'s replay, copied into the staging
 workspace's `src/`. The wait for another build of the same key, the bound (`forkBuildWaitBound`, 20
 minutes) and the waiter taking the winner's result are [PF-D17](patched-forks.md#PF-D17)'s; whether the
-launch waits at all is [OQ-PFK3](patched-forks.md#OQ-PFK3).
+launch waits at all is [OQ-PFK3](patched-forks.md#OQ-PFK3). One Ctrl-C ends the act's whole wait, the
+extensions' included: an extension whose advance begins after it is handed its good build with no
+check ([PF-D57](patched-forks.md#PF-D57)).
 
 **The admit** keeps the empty-delta refusal and the link check (`linksIntoTheBuild`), and adds three:
 

@@ -133,8 +133,8 @@ var newHostFloor = func(out io.Writer, progs []hostfloor.Program) *hostfloor.Flo
 		// and capture store — and its install runs the fork's ADVANCE first, the one a fresh jail launch
 		// runs (patchedadvance.go), waiting for it as that launch does (PF-D25).
 		Patched: floorPatchedState,
-		Advance: func(_ context.Context, p hostfloor.Program, installed *hostfloor.Record) hostfloor.PatchedState {
-			floorAdvance(floorForkBuild(p, "").Fork, out, floorServingCopy(installed))
+		Advance: func(ctx context.Context, p hostfloor.Program, installed *hostfloor.Record) hostfloor.PatchedState {
+			floorAdvance(floorForkBuild(p, "").Fork, out, floorServingCopy(installed), actInterruptOf(ctx))
 			return floorPatchedState(p)
 		},
 		Home:   paths.Home(),
@@ -170,11 +170,30 @@ func floorPatchedPlatform() string { return capture.Platform() }
 // launch's own (advancePatchedFork) as a LAUNCH — the check throttled, a back-off honored, the wait
 // interruptible while a good build serves (PF-D25) — at the host (advanceOptions.host), its lines on
 // the launch's stderr, as the floor's are. installed is the floor's own copy that serves, nil for
-// none (PF-D55). It hands nothing: the floor installs the good build the record names once it
-// returns. A var so a test can count the floor's advances.
-var floorAdvance = func(f packload.Fork, out io.Writer, installed *installedCopy) {
+// none (PF-D55). act is the verb's act interrupt (PF-D57), which the floor's Ensure carried in its
+// context (withActInterrupt). It hands nothing: the floor installs the good build the record names
+// once it returns. A var so a test can count the floor's advances.
+var floorAdvance = func(f packload.Fork, out io.Writer, installed *installedCopy, act *run.ActInterrupt) {
 	advancePatchedFork(f, advanceOptions{platform: floorPatchedPlatform(), out: out, errw: out, launch: true, host: true,
-		installed: installed})
+		installed: installed, act: act})
+}
+
+// actInterruptKey is the context key the verb's act interrupt rides under through the floor's Ensure,
+// whose Advance it reaches by the context alone (hostfloor.Floor.Advance).
+type actInterruptKey struct{}
+
+// withActInterrupt is ctx carrying act to the floor's Advance (PF-D57); ctx itself for a nil act.
+func withActInterrupt(ctx context.Context, act *run.ActInterrupt) context.Context {
+	if act == nil {
+		return ctx
+	}
+	return context.WithValue(ctx, actInterruptKey{}, act)
+}
+
+// actInterruptOf is the act interrupt ctx carries, nil for none.
+func actInterruptOf(ctx context.Context) *run.ActInterrupt {
+	act, _ := ctx.Value(actInterruptKey{}).(*run.ActInterrupt)
+	return act
 }
 
 // floorServingCopy is the floor's installed copy the floor hands its advance as serving
@@ -394,7 +413,7 @@ func applyHostFloor(pr richtext.Printer, out io.Writer, packs []*packload.Pack, 
 			note(row)
 			continue
 		}
-		after, outcome, err := floor.Ensure(context.Background(), p)
+		after, outcome, err := floor.Ensure(withActInterrupt(context.Background(), survey.actInterrupt()), p)
 		if errors.Is(err, hostfloor.ErrNewerRecord) {
 			// Refused, not failed, in the dry run's words: a newer yolo's record, which Ensure
 			// does not install over. The run still does not complete, so it exits 1.
@@ -492,7 +511,8 @@ type hostTarget struct {
 //
 // The second return is the exit code of a launch this refuses (127: the program is not
 // available), 0 otherwise. In a jail there is no floor: the jail's own launchers are on PATH.
-func resolveHostLaunchTarget(packs []*packload.Pack, cmd0 string, lp *hostpath.Launch, errw io.Writer) (hostTarget, int) {
+func resolveHostLaunchTarget(packs []*packload.Pack, cmd0 string, lp *hostpath.Launch, errw io.Writer,
+	act *run.ActInterrupt) (hostTarget, int) {
 	floorBin := hostFloorBinDir()
 	child := hostChildLaunch(lp)
 	onPath := func() (hostTarget, int) {
@@ -531,7 +551,7 @@ func resolveHostLaunchTarget(packs []*packload.Pack, cmd0 string, lp *hostpath.L
 		return onPath()
 	}
 	floor := newHostFloor(errw, progs)
-	st, _, err := floor.Ensure(context.Background(), prog)
+	st, _, err := floor.Ensure(withActInterrupt(context.Background(), act), prog)
 	switch {
 	case errors.Is(err, hostfloor.ErrNoEntry):
 		// OQ-HE11 is open: keep today's behavior — the launch's PATH — and say, once, that the

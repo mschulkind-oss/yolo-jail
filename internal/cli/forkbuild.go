@@ -350,7 +350,8 @@ func buildForksForLaunch(req run.ForkBuildRequest, out, errw io.Writer, color bo
 			continue
 		}
 		got[p.Fork.Bin] = advancePatchedFork(p.Fork, advanceOptions{platform: platform, runtime: req.Runtime,
-			workspace: req.Workspace, out: out, errw: errw, color: color, launch: true, hand: req.Hand}).delivery
+			workspace: req.Workspace, out: out, errw: errw, color: color, launch: true, hand: req.Hand,
+			act: req.Interrupt}).delivery
 	}
 	var missing []forkBuild
 	for _, p := range plain {
@@ -362,6 +363,19 @@ func buildForksForLaunch(req run.ForkBuildRequest, out, errw io.Writer, color bo
 		missing = append(missing, b)
 	}
 	if len(missing) == 0 {
+		return got
+	}
+	if req.Interrupt.Interrupted() {
+		// A CTRL-C ENDED THIS LAUNCH'S WAIT in a patched fork's advance above (PF-D57): no build is
+		// begun, since each would be a new wait the user had just declined.
+		for _, b := range missing {
+			fmt.Fprintf(errw, "Warning: %s was not built at %s — a Ctrl-C ended this launch's wait for its fork "+
+				"builds, and this launch continues without %s. The next launch builds it.\n", b.Fork.Key(),
+				shortSHA(b.Commit), b.Fork.Bin)
+			got[b.Fork.Bin] = entrypoint.ForkDelivery{Reason: "fork " + b.Fork.Pack + "'s build of commit " +
+				shortSHA(b.Commit) + " was not started: a Ctrl-C ended the launch's wait for its fork builds — " +
+				"the next launch builds it"}
+		}
 		return got
 	}
 	// THE COST IS STATED WHERE IT IS PAID, as auto-capture states its: a source build fetches its

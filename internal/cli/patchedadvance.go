@@ -39,6 +39,12 @@ package cli
 //     starts on the good build; the build itself is bounded at forkBuildWaitBound. A FIRST
 //     advance has nothing to start on, so it runs as a plain fork's build does and a Ctrl-C ends
 //     the launch (§7).
+//   - ONE CTRL-C ENDS THE ACT'S WHOLE WAIT (PF-D57): an act that runs several advances — every
+//     patched fork, then every patched extension, at a jail launch; the extensions, then the
+//     program, at `yolo host`; all of them at `yolo host apply --assert` — shares one act interrupt
+//     (advanceOptions.act), and an advance that begins after a Ctrl-C ended an earlier one checks and
+//     builds nothing: the good build is handed, or, with nothing serving, nothing is, naming the act
+//     that builds it (actStopped).
 //   - `yolo capture <bin>` (force): the check forced, the pending candidate built ignoring a
 //     back-off, and with none pending the good build's own inputs rebuilt; through the swap.
 //   - THE HOST FLOOR'S INSTALL (§9, PF-D14): `yolo host -- <bin>` and `yolo host apply --assert`,
@@ -112,6 +118,11 @@ type advanceOptions struct {
 	// program is a store entry, and for a patched extension. While no store entry of the good build
 	// serves, it does (PF-D55).
 	installed *installedCopy
+	// act is the act this launch's advance is one of (run.ActInterrupt, PF-D57): a jail launch's
+	// fork-build slot, a `yolo host -- <bin>`, a `yolo host apply --assert`. Its interrupt scope is
+	// the act's, and once a Ctrl-C has ended any advance of the act, a later one checks and builds
+	// nothing (actStopped). nil for an advance that is an act of its own.
+	act *run.ActInterrupt
 }
 
 // installedCopy is a copy of the program that runs outside the capture store: the host floor's
@@ -220,13 +231,16 @@ func advancePatchedFork(f packload.Fork, o advanceOptions) advanceResult {
 	if early != nil {
 		return *early
 	}
+	if o.launch && o.act.Interrupted() {
+		return a.actStopped()
+	}
 	if !o.launch || !a.serves() {
 		return a.run()
 	}
 	// A GOOD BUILD SERVES — or the floor's copy does (PF-D55) — so a Ctrl-C ends this advance and the
-	// jail, or `yolo host`, starts on it (PF-D25).
+	// jail, or `yolo host`, starts on it (PF-D25), and the act's later advances begin none (PF-D57).
 	var res advanceResult
-	sig := run.InterruptScope(func(ctx context.Context) {
+	sig := o.act.Scope(func(ctx context.Context) {
 		a.ctx = ctx
 		a.packs.Ctx = ctx
 		res = a.run()
@@ -237,6 +251,26 @@ func advancePatchedFork(f packload.Fork, o advanceOptions) advanceResult {
 			"%s; %s tries again", f.Label(), a.startsOn(), a.servingName(), a.next())))
 	}
 	return res
+}
+
+// actStopped ends an advance that an earlier advance's Ctrl-C in the same act stopped before it began
+// (PF-D57): no check, no replay and no build, since the user asked once to stop waiting for the act.
+// What serves is handed, as the interrupted advance hands its own; with nothing serving, nothing is,
+// and the reason names the act that builds it — a first build would be a new wait, of up to
+// forkBuildWaitBound, that the user had just declined.
+func (a *advance) actStopped() advanceResult {
+	f := a.f
+	if a.serves() {
+		a.dim("%s: not checked — a Ctrl-C ended %s's wait for its patched builds; %s %s, and %s checks it",
+			f.Label(), a.waiter(), a.startsOn(), a.servingName(), a.next())
+		return a.finish(nil, forkBuild{}, 0, nil, "")
+	}
+	a.warn("%s: not built — a Ctrl-C ended %s's wait for its patched builds, and %s; %s builds it, or "+
+		"`yolo capture %s` now", f.Label(), a.waiter(), a.hasNo(), a.next(), f.CaptureArg())
+	r := a.finish(nil, forkBuild{}, 0, nil, fmt.Sprintf("%s was not built: a Ctrl-C ended the wait for its "+
+		"patched builds — %s builds it, or `yolo capture %s` now", f.Label(), a.next(), f.CaptureArg()))
+	r.failed = true
+	return r
 }
 
 // newAdvance reads what f's advance starts from — its series, its recipe, its check record (or one

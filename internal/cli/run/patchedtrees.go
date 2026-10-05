@@ -86,6 +86,10 @@ type TreeBuildRequest struct {
 	BuildFloor string
 	// CopyRoot is the directory each tree's per-launch copy is made in, as <CopyRoot>/<PatchedCopySlug>.
 	CopyRoot string
+	// Interrupt is this launch's act interrupt, the fork builds' (ForkBuildRequest.Interrupt,
+	// PF-D57): once a Ctrl-C has ended a wait in this launch's fork-build slot, each extension's
+	// good build is copied with no check and no build.
+	Interrupt *ActInterrupt
 }
 
 // TreeDelivery is the tree arm's answer for one patched extension this launch.
@@ -202,7 +206,7 @@ func (o *Options) treeDeliveriesFor(rt string) map[string]TreeDelivery {
 	}
 	req := TreeBuildRequest{Trees: o.patchedTrees, Platform: containerJailPlatform(), Runtime: rt,
 		Workspace: o.Workspace, Stdout: o.Stdout, Stderr: o.Stderr, Build: floor == "", BuildFloor: floor,
-		CopyRoot: patchedCopiesDir(o.packTree)}
+		CopyRoot: patchedCopiesDir(o.packTree), Interrupt: o.actInterrupt()}
 	for key, d := range o.BuildTrees(req) {
 		out[key] = d
 	}

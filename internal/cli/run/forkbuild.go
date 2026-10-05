@@ -38,6 +38,11 @@ type ForkBuildRequest struct {
 	// Stdout and Stderr are the launch's own writers, teed into that launch.log (launchlog.go), so
 	// a build's output is there as well as above; nil for the process's streams.
 	Stdout, Stderr io.Writer
+	// Interrupt is this launch's act interrupt (ActInterrupt, PF-D57), shared with its tree arm's
+	// request (TreeBuildRequest.Interrupt): a Ctrl-C that ends one patched fork's wait ends every
+	// later patched fork's and extension's too, and their good builds are handed with no check and no
+	// build. Never nil from a launch.
+	Interrupt *ActInterrupt
 	// Hand records, beside this launch's pack tree, what this launch hands its jail for bin. A
 	// patched fork's advance calls it under the fork's record lock, so the move that reaps the
 	// fork's other builds reads it and never reaps one a launch is about to hand (PF-D20). nil
@@ -112,7 +117,7 @@ func (o *Options) forkDeliveriesFor(rt string) map[string]entrypoint.ForkDeliver
 		return out
 	}
 	req := ForkBuildRequest{Pins: build, Platform: platform, Runtime: rt, Workspace: o.Workspace,
-		Stdout: o.Stdout, Stderr: o.Stderr}
+		Stdout: o.Stdout, Stderr: o.Stderr, Interrupt: o.actInterrupt()}
 	if o.packTree != "" {
 		req.Hand = func(bin string, h HandedFork) error {
 			o.handedForks = append(o.handedForks, bin)
@@ -128,6 +133,16 @@ func (o *Options) forkDeliveriesFor(rt string) map[string]entrypoint.ForkDeliver
 		}
 	}
 	return out
+}
+
+// actInterrupt is this launch's act interrupt (ActInterrupt, PF-D57): one per launch, made by the
+// first of its fork-build slot's two acts to ask, and handed to both, so a Ctrl-C in a patched fork's
+// advance reaches the patched extensions' advances after it.
+func (o *Options) actInterrupt() *ActInterrupt {
+	if o.patchedAct == nil {
+		o.patchedAct = &ActInterrupt{}
+	}
+	return o.patchedAct
 }
 
 // noteMacosUserForks is FP-D3's line: a macos-user launch that carries a fork says it delivers no

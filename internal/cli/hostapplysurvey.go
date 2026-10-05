@@ -29,6 +29,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/cli/run"
 	"github.com/mschulkind-oss/yolo-jail/internal/entrypoint"
 	"github.com/mschulkind-oss/yolo-jail/internal/hostpath"
 	"github.com/mschulkind-oss/yolo-jail/internal/packdecl"
@@ -108,6 +109,9 @@ type hostApplySurvey struct {
 	// naming the act that does; "" for an apply that runs them under --assert. Set only for the host
 	// apply `yolo pack update` runs (PF-D12, PF-D56).
 	advanceDeferred string
+	// act is the apply's act interrupt (PF-D57), shared by the patched extensions' advances before
+	// the render and the floor stage's patched forks' advances; nil for an apply that runs none.
+	act *run.ActInterrupt
 
 	// InSync counts the destinations an --assert would leave exactly as they are.
 	//
@@ -252,6 +256,14 @@ func (s *hostApplySurvey) noteNotch(f notchFacts) {
 	if s != nil {
 		s.notch = f
 	}
+}
+
+// actInterrupt is the apply's act interrupt (PF-D57), nil for none.
+func (s *hostApplySurvey) actInterrupt() *run.ActInterrupt {
+	if s == nil {
+		return nil
+	}
+	return s.act
 }
 
 // noteFloorRefused records bin as a program the floor stage will not install over a newer yolo's

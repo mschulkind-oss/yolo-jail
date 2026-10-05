@@ -613,6 +613,9 @@ type Options struct {
 	// extension key (treeDeliveriesFor).
 	patchedTrees  []packload.Fork
 	treeDelivered map[string]TreeDelivery
+	// patchedAct is this launch's act interrupt (actInterrupt, PF-D57), handed to the fork builds
+	// and the tree arm alike.
+	patchedAct *ActInterrupt
 }
 
 // captureConfigOnTerminate runs the injected E3 capture for a jail that has just

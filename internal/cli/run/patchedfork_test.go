@@ -386,6 +386,65 @@ func TestTheInterruptScopeEndsItsWorkNotTheLaunch(t *testing.T) {
 	}
 }
 
+// AN ACT'S INTERRUPT (PF-D57) records the SIGINT that ended one of its scopes, so the act's later
+// work reads it; a scope no Ctrl-C reached leaves it clear, and a nil act is a plain scope.
+func TestAnActInterruptRemembersTheCtrlCThatEndedOneScope(t *testing.T) {
+	exited := make(chan int, 1)
+	outer := armLaunchSignalsWith(func() {}, func(code int) { exited <- code })
+	defer outer.disarm()
+	act := &ActInterrupt{}
+	act.Scope(func(context.Context) {})
+	if act.Interrupted() {
+		t.Fatal("a scope no Ctrl-C reached left its act interrupted")
+	}
+	sig := act.Scope(func(ctx context.Context) {
+		_ = syscall.Kill(os.Getpid(), syscall.SIGINT)
+		select {
+		case <-ctx.Done():
+		case <-time.After(10 * time.Second):
+			t.Error("the act's scope was not cancelled by a SIGINT")
+		}
+	})
+	if sig != syscall.SIGINT || !act.Interrupted() {
+		t.Errorf("the act's scope returned %v and its act reads interrupted=%v, want the SIGINT remembered", sig,
+			act.Interrupted())
+	}
+	if act.Scope(func(context.Context) {}); !act.Interrupted() {
+		t.Error("a later scope that no Ctrl-C reached cleared the act's interrupt")
+	}
+	var none *ActInterrupt
+	if none.Interrupted() || none.Scope(func(context.Context) {}) != nil {
+		t.Error("a nil act reads as interrupted, or its scope returned a signal no one sent")
+	}
+	select {
+	case code := <-exited:
+		t.Errorf("the launch's arm acted on the act's SIGINT (exit %d)", code)
+	case <-time.After(200 * time.Millisecond):
+	}
+}
+
+// ONE ACT INTERRUPT PER LAUNCH (PF-D57): the fork builds and the tree arm are handed the same one, so
+// a Ctrl-C in a patched fork's advance reaches the patched extensions' advances after it. Red if
+// either request stops carrying it, or the two are handed different ones.
+func TestTheForkBuildsAndTheTreeArmShareTheLaunchsActInterrupt(t *testing.T) {
+	t.Setenv("YOLO_VERSION", "")
+	o := goldenOptions("/ws", t.TempDir())
+	o.CapturesDir = func() string { return "/store" }
+	var forks ForkBuildRequest
+	var trees TreeBuildRequest
+	o.BuildForks = func(r ForkBuildRequest) map[string]entrypoint.ForkDelivery { forks = r; return nil }
+	o.BuildTrees = func(r TreeBuildRequest) map[string]TreeDelivery { trees = r; return nil }
+	o.forkPinned = []packload.ForkPin{{Fork: packload.Fork{Pack: "forkpack", Base: "basepack", Bin: "tool",
+		Patches: "patches"}, Reason: packload.PatchedForkPinReason}}
+	o.patchedTrees = []packload.Fork{{Pack: "treepack", Bin: "tree-ext", Into: ".tool/ext/tree-ext", Patches: "patches"}}
+	o.forkDeliveriesFor("podman")
+	o.treeDeliveriesFor("podman")
+	if forks.Interrupt == nil || trees.Interrupt != forks.Interrupt {
+		t.Errorf("the fork builds were handed act interrupt %p and the tree arm %p, want one, the same", forks.Interrupt,
+			trees.Interrupt)
+	}
+}
+
 // BELOW APPLE CONTAINER'S READ-ONLY FLOOR a patched fork is a plain fork's case (§9): no store is
 // mounted, so no advance runs and the fork is told why.
 func TestNoPatchedForkAdvancesBelowTheAppleContainerFloor(t *testing.T) {

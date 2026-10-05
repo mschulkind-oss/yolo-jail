@@ -568,8 +568,10 @@ func hostExec(flagArgs, cmd []string, out, errw io.Writer, stdin io.Reader) int 
 	// their check and advance BEFORE the gate compares the render, and outside that comparison, so
 	// it sees the build the apply would install — scoped to the owning agent's programs, so a
 	// launch of any other bin waits on no extension's fetch or build.
+	// ONE ACT (PF-D57): a Ctrl-C that ends an extension's wait here ends the program's below too.
+	act := &run.ActInterrupt{}
 	if config.HostApplyOnLaunchEnabled() && config.HostManagementMode() != config.HostManagementNone {
-		advanceHostTrees(errw, colorForWriter(errw), filepath.Base(cmd[0]))
+		advanceHostTrees(errw, colorForWriter(errw), filepath.Base(cmd[0]), act)
 	}
 	if !hostApplyGate(errw, stdin, cmd[0]) {
 		return 1
@@ -681,7 +683,7 @@ func hostExec(flagArgs, cmd []string, out, errw io.Writer, stdin io.Reader) int 
 	// resolved once, here, for both.
 	lp := hostLaunchPath()
 	childPath := hostChildPath(lp, hostFloorBinDir())
-	resolved, rc := resolveHostLaunchTarget(launch.packs, cmd[0], lp, errw)
+	resolved, rc := resolveHostLaunchTarget(launch.packs, cmd[0], lp, errw, act)
 	if rc != 0 {
 		return rc
 	}

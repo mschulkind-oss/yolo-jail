@@ -55,7 +55,7 @@ func deliverTreesForLaunch(req run.TreeBuildRequest, out, errw io.Writer, color 
 func deliverTree(f packload.Fork, req run.TreeBuildRequest, out, errw io.Writer, color bool) run.TreeDelivery {
 	pr := richtext.Printer{W: errw, Color: color}
 	o := advanceOptions{platform: req.Platform, runtime: req.Runtime, workspace: req.Workspace, out: out,
-		errw: errw, color: color, launch: true}
+		errw: errw, color: color, launch: true, act: req.Interrupt}
 	for attempt := 0; ; attempt++ {
 		var r advanceResult
 		if req.Build {

@@ -5,6 +5,7 @@ import (
 	"io"
 	"strings"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/cli/run"
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/hostwrap"
 	"github.com/mschulkind-oss/yolo-jail/internal/outfmt"
@@ -97,10 +98,13 @@ func hostApplyDeferring(args []string, out, errw io.Writer, color bool, stdin io
 	// THE PATCHED EXTENSIONS' CHECK AND ADVANCE, before the render reads their good builds
 	// (docs/design/patched-extensions.md §8.3, PPX-D11): the acting posture only, since a dry run
 	// checks nothing.
+	// One act (PF-D57): a Ctrl-C that ends an extension's wait here ends the floor stage's patched
+	// forks' waits too.
+	act := &run.ActInterrupt{}
 	if write && deferred == "" {
-		advanceHostTrees(errw, color, "")
+		advanceHostTrees(errw, color, "", act)
 	}
-	return applyHostFormattedDeferring(out, errw, color, write, stdin, format, deferred)
+	return applyHostFormattedDeferring(out, errw, color, write, stdin, format, deferred, act)
 }
 
 // refuseShellInit is all that is left of `yolo host apply --shell-init`: a refusal that

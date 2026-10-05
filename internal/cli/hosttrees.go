@@ -68,8 +68,9 @@ var hostTreeAdvance = advancePatchedFork
 
 // advanceHostTrees runs the check and the advance of every patched extension the host's selection
 // carries — only those bin's owning agent pack runs, when bin is not "" — before any render reads
-// them (PPX-D11). Lines go to errw, as every host launch line does.
-func advanceHostTrees(errw io.Writer, color bool, bin string) {
+// them (PPX-D11). Lines go to errw, as every host launch line does. act is the verb's act interrupt
+// (PF-D57), which the patched forks' advances after these read too.
+func advanceHostTrees(errw io.Writer, color bool, bin string, act *run.ActInterrupt) {
 	if !hostTreesBuild() {
 		return
 	}
@@ -82,7 +83,7 @@ func advanceHostTrees(errw io.Writer, color bool, bin string) {
 			continue
 		}
 		hostTreeAdvance(f, advanceOptions{platform: captureJailPlatform(), out: errw, errw: errw, color: color,
-			launch: true, host: true})
+			launch: true, host: true, act: act})
 	}
 }
 

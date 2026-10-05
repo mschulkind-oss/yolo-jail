@@ -77,7 +77,7 @@ func (fx *treeFixture) link() string { return filepath.Join(fx.home, ".tool", "e
 // swaps the link and keeps the previous version, and the next move removes the one before it.
 func TestTheHostRenderLinksTheGoodBuildAndKeepsThePreviousVersion(t *testing.T) {
 	fx := newTreeFixture(t, `"f.txt"`)
-	advanceHostTrees(io.Discard, false, "")
+	advanceHostTrees(io.Discard, false, "", nil)
 	if out := fx.renderTrees(t, false); !strings.Contains(out, "would render") {
 		t.Fatalf("an observe pass over a home with no link does not say it would render:\n%s", out)
 	}
@@ -105,7 +105,7 @@ func TestTheHostRenderLinksTheGoodBuildAndKeepsThePreviousVersion(t *testing.T) 
 	// A MOVE swaps the link and keeps the version it named.
 	fx.commit(t, "v1.1.0", map[int]string{14: "fourteen"})
 	fx.now = fx.now.Add(2 * time.Hour)
-	advanceHostTrees(io.Discard, false, "")
+	advanceHostTrees(io.Discard, false, "", nil)
 	fx.renderTrees(t, true)
 	second, _ := os.Readlink(fx.link())
 	if second == first || !isDir(first) || !isDir(second) {
@@ -114,7 +114,7 @@ func TestTheHostRenderLinksTheGoodBuildAndKeepsThePreviousVersion(t *testing.T) 
 	// THE NEXT MOVE removes the one before the previous.
 	fx.commit(t, "v1.2.0", map[int]string{14: "fourteen", 16: "sixteen"})
 	fx.now = fx.now.Add(2 * time.Hour)
-	advanceHostTrees(io.Discard, false, "")
+	advanceHostTrees(io.Discard, false, "", nil)
 	fx.renderTrees(t, true)
 	third, _ := os.Readlink(fx.link())
 	if third == second || isDir(first) || !isDir(second) {
@@ -125,7 +125,7 @@ func TestTheHostRenderLinksTheGoodBuildAndKeepsThePreviousVersion(t *testing.T) 
 // A PATH THE USER OWNS at `~/<into>` is never taken.
 func TestTheHostRenderNeverTakesAUsersPath(t *testing.T) {
 	fx := newTreeFixture(t, `"f.txt"`)
-	advanceHostTrees(io.Discard, false, "")
+	advanceHostTrees(io.Discard, false, "", nil)
 	if err := os.MkdirAll(fx.link(), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -143,7 +143,7 @@ func TestAMacOSHostRendersNoTreeAndNamesAJail(t *testing.T) {
 	prev := hostTreesBuild
 	hostTreesBuild = func() bool { return false }
 	t.Cleanup(func() { hostTreesBuild = prev })
-	advanceHostTrees(io.Discard, false, "")
+	advanceHostTrees(io.Discard, false, "", nil)
 	if len(fx.builds) != 0 {
 		t.Error("a macOS host advanced a patched extension")
 	}
@@ -176,11 +176,11 @@ func TestHostApplyAdvancesInItsActingPostureOnly(t *testing.T) {
 func TestAHostLaunchAdvancesOnlyItsOwnersTrees(t *testing.T) {
 	fx := newTreeFixture(t, `"f.txt"`)
 	fx.listTreeForAgent(t)
-	advanceHostTrees(io.Discard, false, "claude")
+	advanceHostTrees(io.Discard, false, "claude", nil)
 	if len(fx.builds) != 0 {
 		t.Fatal("`yolo host -- claude` advanced a tree its owner, agentpack, loads")
 	}
-	advanceHostTrees(io.Discard, false, "tool")
+	advanceHostTrees(io.Discard, false, "tool", nil)
 	if len(fx.builds) != 1 {
 		t.Errorf("`yolo host -- tool` built %d trees, want the one its owner loads", len(fx.builds))
 	}
@@ -203,7 +203,7 @@ func TestTheOwningAgentStopsAtTheHostWithoutItsTree(t *testing.T) {
 	if !hostTreeGate(io.Discard, "claude", fx.home) {
 		t.Error("another program was stopped for the owner's tree")
 	}
-	advanceHostTrees(io.Discard, false, "tool")
+	advanceHostTrees(io.Discard, false, "tool", nil)
 	fx.renderTrees(t, true)
 	if !hostTreeGate(io.Discard, "tool", fx.home) {
 		t.Error("the owner was stopped with the tree rendered")
@@ -278,7 +278,7 @@ func TestApplyAtHostAdvancesInItsActingPostureOnly(t *testing.T) {
 // a recorded link still does.
 func TestADroppedExtensionsHostCopiesAreSwept(t *testing.T) {
 	fx := newTreeFixture(t, `"f.txt"`)
-	advanceHostTrees(io.Discard, false, "")
+	advanceHostTrees(io.Discard, false, "", nil)
 	fx.renderTrees(t, true)
 	target, err := os.Readlink(fx.link())
 	if err != nil {
@@ -337,7 +337,7 @@ func TestTheHostStopIsOffUnderHostManagementNone(t *testing.T) {
 // a good build serves beside, and the line of a Ctrl-C that ends it, whose next step is the host's.
 func TestAHostAdvancesLinesNameTheHost(t *testing.T) {
 	fx := newTreeFixture(t, `"f.txt"`)
-	advanceHostTrees(io.Discard, false, "")
+	advanceHostTrees(io.Discard, false, "", nil)
 	if len(fx.builds) != 1 {
 		t.Fatalf("the first host advance built %d trees", len(fx.builds))
 	}
@@ -355,7 +355,7 @@ func TestAHostAdvancesLinesNameTheHost(t *testing.T) {
 	}
 	t.Cleanup(func() { forkBuildChild = prev })
 	var errw syncBuffer
-	advanceHostTrees(&errw, false, "")
+	advanceHostTrees(&errw, false, "", nil)
 	out := errw.String()
 	if strings.Contains(out, "this jail") {
 		t.Errorf("a host advance's lines name a jail:\n%s", out)
@@ -435,7 +435,7 @@ func TestAHostLaunchUnderHostManagementNoneAdvancesNothing(t *testing.T) {
 // copy is checked against the entry's completion marker once it ends.
 func TestAHostCopyWhoseEntryIsReapedIsNeverLinked(t *testing.T) {
 	fx := newTreeFixture(t, `"f.txt"`)
-	advanceHostTrees(io.Discard, false, "")
+	advanceHostTrees(io.Discard, false, "", nil)
 	prev := treeCopied
 	treeCopied = func(key string) {
 		if err := (&capture.Store{Dir: paths.CapturesDir()}).ReapEntry(key); err != nil {

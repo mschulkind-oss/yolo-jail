@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/capture"
+	"github.com/mschulkind-oss/yolo-jail/internal/cli/run"
 	"github.com/mschulkind-oss/yolo-jail/internal/hostfloor"
 	"github.com/mschulkind-oss/yolo-jail/internal/hostfloor/floortest"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
@@ -240,9 +241,9 @@ func TestTheHostFloorsAdvanceRunsAfterTheRenderGatesObservePass(t *testing.T) {
 		return 0
 	}
 	prevAdvance := floorAdvance
-	floorAdvance = func(f packload.Fork, out io.Writer, installed *installedCopy) {
+	floorAdvance = func(f packload.Fork, out io.Writer, installed *installedCopy, act *run.ActInterrupt) {
 		events = append(events, "advance")
-		prevAdvance(f, out, installed)
+		prevAdvance(f, out, installed, act)
 	}
 	t.Cleanup(func() { hostApplyGateSurvey, floorAdvance = prevSurvey, prevAdvance })
 	if rc, _, out := fx.hostLaunch(t); rc != 0 {
@@ -261,7 +262,9 @@ func TestHostLaunchOfAPatchedForkOnAMacNamesTheJailThatRunsIt(t *testing.T) {
 	fx.commit(t, "v1.1.0", map[int]string{14: "fourteen"})
 	withFloorPlatform(t, "darwin")
 	prevAdvance := floorAdvance
-	floorAdvance = func(packload.Fork, io.Writer, *installedCopy) { t.Error("a Mac's floor ran a patched fork's advance") }
+	floorAdvance = func(packload.Fork, io.Writer, *installedCopy, *run.ActInterrupt) {
+		t.Error("a Mac's floor ran a patched fork's advance")
+	}
 	t.Cleanup(func() { floorAdvance = prevAdvance })
 	stub := filepath.Join(stubBins(t, "tool"), "tool")
 	rc, target, out := fx.hostLaunch(t)
@@ -724,9 +727,9 @@ func TestTheProductionFloorWiresThePatchedAdvanceAndRead(t *testing.T) {
 	var advanced []packload.Fork
 	var handed []*installedCopy
 	prevAdvance := floorAdvance
-	floorAdvance = func(f packload.Fork, out io.Writer, installed *installedCopy) {
+	floorAdvance = func(f packload.Fork, out io.Writer, installed *installedCopy, act *run.ActInterrupt) {
 		advanced, handed = append(advanced, f), append(handed, installed)
-		prevAdvance(f, out, installed)
+		prevAdvance(f, out, installed, act)
 	}
 	t.Cleanup(func() { floorAdvance = prevAdvance })
 	floor := productionHostFloor(io.Discard, progs)

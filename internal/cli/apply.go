@@ -24,6 +24,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/cli/run"
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/darwinpkg"
 	"github.com/mschulkind-oss/yolo-jail/internal/entrypoint"
@@ -158,11 +159,13 @@ func applyMain(args []string, out, errw io.Writer, color bool, stdin io.Reader) 
 		}
 		// The same fetch-before-resolve `yolo host apply` does: one operation, two spellings.
 		refreshHostPacks(errw)
-		// And the same patched-extension advance before the render, acting posture only.
+		// And the same patched-extension advance before the render, acting posture only, in the act
+		// the floor stage's patched forks share (PF-D57).
+		act := &run.ActInterrupt{}
 		if assert && !dryRun {
-			advanceHostTrees(errw, color, "")
+			advanceHostTrees(errw, color, "", act)
 		}
-		return applyHostFormatted(out, errw, color, assert && !dryRun, stdin, format)
+		return applyHostFormatted(out, errw, color, assert && !dryRun, stdin, format, act)
 	case config.ConfinementGuest:
 		// render.NotchUnbuilt is the sentence, not a literal: `run.Run` refuses a guest
 		// LAUNCH with the same words (OQ-DP3), and two spellings of one notch's status is
@@ -228,23 +231,26 @@ func applyHost(out, errw io.Writer, color bool, write bool, stdin io.Reader) int
 // from. stdin is nil in the JSON branch by construction — the observe posture prompts for
 // nothing, and promptYesNo reads nil as NO, so a document can never be the thing that
 // answered a question.
+//
+// act is the apply's act interrupt (PF-D57): the one its patched extensions' advances ran under,
+// which the floor stage's patched forks' advances share; nil for none.
 func applyHostFormatted(out, errw io.Writer, color bool, write bool, stdin io.Reader,
-	format string) int {
-	return applyHostFormattedDeferring(out, errw, color, write, stdin, format, "")
+	format string, act *run.ActInterrupt) int {
+	return applyHostFormattedDeferring(out, errw, color, write, stdin, format, "", act)
 }
 
 // applyHostFormattedDeferring is applyHostFormatted for an apply that runs no patched advance,
 // deferred naming why and the act that does (hostApplySurvey.advanceDeferred); "" runs them.
 func applyHostFormattedDeferring(out, errw io.Writer, color bool, write bool, stdin io.Reader,
-	format, deferred string) int {
+	format, deferred string, act *run.ActInterrupt) int {
 	if !outfmt.IsJSON(format) {
 		return applyHostSurveyed(out, errw, color, write, stdin,
-			&hostApplySurvey{floorStage: true, advanceDeferred: deferred})
+			&hostApplySurvey{floorStage: true, advanceDeferred: deferred, act: act})
 	}
 	if jsonRefusedForPosture(format, write) {
 		return refuseJSONForActingApply(errw)
 	}
-	survey := &hostApplySurvey{floorStage: true, advanceDeferred: deferred}
+	survey := &hostApplySurvey{floorStage: true, advanceDeferred: deferred, act: act}
 	rc := applyHostSurveyed(outfmt.Sink(out, format), errw, false, false, nil, survey)
 	return emitHostApplyDoc(out, errw, format, survey, rc)
 }

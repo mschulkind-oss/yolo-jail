@@ -4,7 +4,8 @@ package run
 // Ctrl-C ends one piece of work rather than the launch. Its one user is a patched fork's ADVANCE at a
 // fresh launch (docs/design/patched-forks.md §7, PF-D25): the launch waits for the build of a newer
 // upstream, and a Ctrl-C ends that build and starts the jail on the good build the machine already
-// has.
+// has. An act that runs several advances shares one ActInterrupt across their scopes, so that one
+// Ctrl-C ends the act's whole wait (PF-D57).
 //
 // It is an arm of this process's launch-arm stack (armstack.go), installed innermost for the scope's
 // span, so a signal reaches it and not the launch guard under it. Its arm runs no teardown and
@@ -50,6 +51,43 @@ func InterruptScope(fn func(ctx context.Context)) (interrupted os.Signal) {
 		reraiseSignal(sig)
 	}
 	return sig
+}
+
+// ActInterrupt is AN ACT'S INTERRUPT, a term coined here: one Ctrl-C's reach over a whole act that
+// runs several interrupt scopes in turn — a fresh jail launch's fork-build slot (each patched fork's
+// advance, then each patched extension's), a `yolo host -- <bin>` (its extensions' advances, then its
+// program's), a `yolo host apply --assert` (every extension's, then every patched program's). A
+// Ctrl-C ends the scope it lands in, as InterruptScope does, and the act remembers it, so the act's
+// later work reads Interrupted and starts no wait: the user asked once to stop waiting, for the act,
+// and a launch that waited out every remaining build anyway would need one Ctrl-C per patched item.
+//
+// The zero value is an act no Ctrl-C has reached. A nil act is no act: its Scope is a plain
+// InterruptScope and it never reads as interrupted. Safe for concurrent use.
+type ActInterrupt struct {
+	mu  sync.Mutex
+	sig os.Signal
+}
+
+// Scope runs fn under an interrupt scope (InterruptScope) and returns what that returns, recording a
+// SIGINT that ended fn's work for the act's later work to read.
+func (a *ActInterrupt) Scope(fn func(ctx context.Context)) os.Signal {
+	sig := InterruptScope(fn)
+	if a != nil && sig != nil {
+		a.mu.Lock()
+		a.sig = sig
+		a.mu.Unlock()
+	}
+	return sig
+}
+
+// Interrupted reports whether a Ctrl-C ended one of the act's interrupt scopes; false for a nil act.
+func (a *ActInterrupt) Interrupted() bool {
+	if a == nil {
+		return false
+	}
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.sig != nil
 }
 
 // armInterruptScope installs an interrupt scope's arm as the innermost: every signal routed to it

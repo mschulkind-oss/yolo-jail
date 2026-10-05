@@ -106,9 +106,10 @@ updated fork pi-mine/pi: v1.0.0 (a13d35a7) → v1.0.2 (cd32f772), 7 patches; thi
 ```
 
 - **The first build** happens at the first launch, which waits for it. A Ctrl-C ends that launch.
-- **A newer version** is built at a later launch, which waits for it for up to 20 minutes. A Ctrl-C,
-  or the time running out, starts the jail on the good build instead, and a later launch tries
-  again.
+- **A newer version** is built at a later launch, which waits up to 20 minutes for each build. One
+  Ctrl-C stops the whole wait: every patched program and extension starts on its good build, one
+  with no build yet is left out, and a later launch tries again. When the time runs out, that build
+  counts as failed and the jail starts on the good build.
 - **An attach** to a running jail says which build that jail was handed.
 - In a jail, a pi extension's folder is read-only, and each launch gets its own copy of the good
   build.
