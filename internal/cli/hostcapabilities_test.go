@@ -18,6 +18,7 @@ import (
 func TestHostLaunchAsksTheCapabilityGate(t *testing.T) {
 	cases := []struct {
 		name, cfg, agent string
+		include          string // extra.jsonc's text, for a cfg whose include_if_found names it
 		hatch            bool
 		wantRC           int
 		wantExec         bool
@@ -45,6 +46,12 @@ func TestHostLaunchAsksTheCapabilityGate(t *testing.T) {
 			agent: "true", wantRC: 1, want: []string{
 				"yolo host: refusing to launch: config.required_capabilities: expected a list",
 				"`yolo check` reports the same problem."}},
+		// The value may come from any file of the user scope, so the next step names the one
+		// that holds it, as `yolo check` does, and never config.jsonc by default.
+		{name: "a malformed value in an include is located there", cfg: `{"include_if_found": ["extra.jsonc"]}`,
+			include: `{"required_capabilities": "web_search"}`, agent: "true", wantRC: 1, want: []string{
+				"yolo host: refusing to launch: config.required_capabilities: expected a list",
+				") at ~/.config/yolo-jail/extra.jsonc:1:27, or remove it."}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -53,7 +60,15 @@ func TestHostLaunchAsksTheCapabilityGate(t *testing.T) {
 			} else {
 				t.Setenv(config.AllowUnmetCapabilitiesEnv, "")
 			}
-			rc, env, errs := hostGateRun(t, tc.cfg, nil, nil, tc.agent)
+			rc, env, errs := hostGateRunIn(t, tc.cfg, nil, nil, tc.agent, func(home string) {
+				if tc.include == "" {
+					return
+				}
+				p := filepath.Join(home, ".config", "yolo-jail", "extra.jsonc")
+				if err := os.WriteFile(p, []byte(tc.include), 0o644); err != nil {
+					t.Fatal(err)
+				}
+			})
 			if rc != tc.wantRC || (env != nil) != tc.wantExec {
 				t.Fatalf("rc=%d exec=%v, want rc=%d exec=%v\n%s", rc, env != nil, tc.wantRC, tc.wantExec, errs)
 			}
@@ -67,6 +82,46 @@ func TestHostLaunchAsksTheCapabilityGate(t *testing.T) {
 			}
 		})
 	}
+}
+
+// THE CENSUS READS THE PROFILE THIS LAUNCH RUNS ON, the typed -p over the `profile` key
+// (hostCapabilityLaunch's fold), in both directions: claude's own login declares web_search and
+// the bedrock provider does not, so `-p bedrock -- claude` is refused where `-- claude` launches;
+// pi's own login declares nothing and the openai-codex provider declares web_search, so `-p codex
+// -- pi` passes the gate where `-- pi` is refused (the cells above). A census that dropped the
+// typed -p would get both of these backwards.
+func TestHostCapabilityCensusFoldsTheTypedProfile(t *testing.T) {
+	const refusal = "declares 'web_search'"
+	t.Run("-p bedrock takes claude off its login", func(t *testing.T) {
+		t.Setenv(config.AllowUnmetCapabilitiesEnv, "")
+		rc, env, errs := hostGateRun(t, `{"packs": ["claude"], "required_capabilities": ["web_search"]}`,
+			nil, []string{"-p", "bedrock"}, "claude")
+		if rc != 1 || env != nil || !strings.Contains(errs, refusal) {
+			t.Fatalf("rc=%d exec=%v, want the capability refusal (%q)\n%s", rc, env != nil, refusal, errs)
+		}
+	})
+	t.Run("the profile key does the same", func(t *testing.T) {
+		t.Setenv(config.AllowUnmetCapabilitiesEnv, "")
+		rc, env, errs := hostGateRun(t, `{"packs": ["claude"], "profile": {"claude": "bedrock"}, `+
+			`"required_capabilities": ["web_search"]}`, nil, nil, "claude")
+		if rc != 1 || env != nil || !strings.Contains(errs, refusal) {
+			t.Fatalf("rc=%d exec=%v, want the capability refusal (%q)\n%s", rc, env != nil, refusal, errs)
+		}
+	})
+	t.Run("-p codex gives pi the capability", func(t *testing.T) {
+		t.Setenv(config.AllowUnmetCapabilitiesEnv, "")
+		// The launch may stop further on (a credential pre-flight); only the gate's verdict is
+		// this cell's, and the composition's profile line, which prints after the gate, is the
+		// witness that the launch got past it.
+		_, _, errs := hostGateRun(t, `{"packs": ["pi"], "required_capabilities": ["web_search"]}`,
+			nil, []string{"-p", "codex"}, "pi")
+		if strings.Contains(errs, "required_capabilities") || strings.Contains(errs, "required capabilit") {
+			t.Fatalf("-p codex -- pi met the requirement through the provider, yet the gate spoke:\n%s", errs)
+		}
+		if !strings.Contains(errs, "Profile codex:") {
+			t.Fatalf("-p codex -- pi never reached the composition past the gate:\n%s", errs)
+		}
+	})
 }
 
 // THE GATE ASKS BEFORE THE RENDER GATE: with `host_apply_on_launch` on, a launch the capability
