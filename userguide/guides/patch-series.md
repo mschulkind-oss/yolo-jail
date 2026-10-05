@@ -42,7 +42,8 @@ except that `source` names the **upstream**, not your fork, and `patches` names 
 }
 ```
 
-Select it as you would any pack: `"packs": ["pi", "~/code/pi-mine"]`.
+Check it with `yolo pack lint --online ~/code/pi-mine`, then select it as you would any pack:
+`"packs": ["pi", "~/code/pi-mine"]`.
 
 - **`?ref=`** names the upstream branch to follow. yolo follows that branch's newest version tag.
   On a branch with no version tags, yolo builds your series on the commit it starts from, keeps it
@@ -83,7 +84,7 @@ pi's `packages` list that makes pi load it:
 - **The list entry is `~/` plus `into`**, with no slash at the end. Without it, the folder is built
   and mounted but pi never loads it, and `yolo pack lint` and each launch warn you.
 - **Drop the extension's old `git:` entry in the same edit.** pi would otherwise load the extension
-  twice.
+  twice, and `yolo pack lint` warns when one list has both.
 
 Use the extension's **key**, `<pack>/<name>` (here `subagents-mine/pi-subagents`, the last part of
 `into`), wherever a command below takes a program's name.
@@ -156,6 +157,7 @@ the command again on its clone prints its next steps again. It never writes into
 | `yolo pack status` | Shows each good build, the newest version and what happened when yolo tried it, what holds it, and when the next check is due. It works offline. |
 | `yolo capture <bin>` or `yolo capture <pack>/<name>` | Checks now and builds the newest version that applies, or rebuilds the good build. |
 | `yolo pack rebase <key>` | Sets up a rebase of the series onto a version it does not apply to, as above. |
+| `yolo pack lint [--online] <dir>` | Checks a pack before you select it: each series must be one a launch can read. With `--online` it also checks the upstream in a scratch copy it deletes afterwards: that the ref and the series' base exist, what `follow` finds, and that your patches apply at their base. It works in a jail too. |
 
 To keep running what you have, turn `agent_updates` off for the pack, or put a tag in `?ref=`.
 

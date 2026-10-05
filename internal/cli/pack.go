@@ -181,7 +181,12 @@ yolo pack install or yolo pack update re-fetches a tag its author re-pointed.
                               collide with yours. Components that RUN (hooks, MCP/LSP servers,
                               bin/, workflow scripts, …) are named at init and shown in the
                               pack's footprint.
-  yolo pack lint [dir]        validate the tree AND the pack.json manifest; print its footprint
+  yolo pack lint [--online] [dir]
+                              validate the tree AND the pack.json manifest; print its footprint.
+                              It reads each patched fork's and extension's patch series as a launch
+                              does. --online also checks each upstream in a scratch mirror it
+                              deletes afterwards: that the ref and the series' base exist, what the
+                              follow rule finds, and that the series applies at its base
   yolo pack ls                list configured packs and what each stages
   yolo pack explain <name>    show which files a pack stages, and what it dropped
   yolo pack footprint [ref]   what packs claim on the environment + collisions;
@@ -464,9 +469,18 @@ func writeScaffoldFile(root, rel, content string, out, errw io.Writer) int {
 // than accepted-and-ignored: a flag that silently does nothing is how an author concludes
 // the gate is still there and goes looking for the config key to match it.
 func packLint(args []string, out, errw io.Writer, color bool) int {
-	dir := "."
+	dir, online := ".", false
 	for _, a := range args {
-		dir = a
+		switch {
+		case a == "--online":
+			online = true
+		case strings.HasPrefix(a, "-"):
+			fmt.Fprintf(errw, "yolo pack lint: unknown flag %s — it takes --online and a pack directory: "+
+				"`yolo pack lint [--online] [dir]` (see `yolo pack --help`)\n", a)
+			return 2
+		default:
+			dir = a
+		}
 	}
 	pr := richtext.Printer{W: out, Color: color}
 
@@ -556,6 +570,19 @@ func packLint(args []string, out, errw io.Writer, color bool) int {
 	// missing surface or body is already LoadDir's problem, and the collector would say it again.
 	if len(manifestProblems) == 0 {
 		problems = append(problems, overlayProblems(pack)...)
+	}
+
+	// EVERY PATCH SERIES, read as a launch reads it and in the pack's own directory, as every reader
+	// of a series reads it (packlintseries.go, PF-D63): a series that does not read builds nothing at
+	// any launch, so it fails here, with the read's own remedy. `--online` then asks each upstream,
+	// in a scratch mirror (PF-D64).
+	readSeries, seriesProblems := lintSeries(pack, lintRoot)
+	problems = append(problems, seriesProblems...)
+	var onlineLines []string
+	if online {
+		onlineProblems, lines := lintOnline(pr, readSeries)
+		problems = append(problems, onlineProblems...)
+		onlineLines = lines
 	}
 
 	// WHAT THIS PACK DELIVERS, from the one governance predicate every notch reads
@@ -738,6 +765,8 @@ func packLint(args []string, out, errw io.Writer, color bool) int {
 		// The not-shipped lines print on failure too: a pack failing "does nothing" because its
 		// prose is a root AGENTS.md needs exactly that line to know why.
 		printUnshippedNotes(pr, notes)
+		// And what the online checks found, which took the network to learn.
+		printLines(pr, onlineLines)
 		return 1
 	}
 
@@ -745,10 +774,16 @@ func packLint(args []string, out, errw io.Writer, color bool) int {
 	printPackDeliveries(pr, pack, skillSources, briefingSources)
 	printUnshippedNotes(pr, notes)
 	// A PATCHED EXTENSION NO LIST ENTRY NAMES (docs/design/patched-extensions.md §8.2, PPX-D10): a
-	// warning, not a failure — the tree is built and mounted, and no agent loads it.
+	// warning, not a failure — the tree is built and mounted, and no agent loads it. And one a list
+	// loads twice, from its tree and from a remote entry of the same name (PPX-D34): a warning too,
+	// since the agent still starts.
 	for _, w := range packload.LintPatchedTrees(pack) {
 		pr.Printf("[yellow]⚠[/yellow] %s", richtext.Escape(w))
 	}
+	for _, w := range packload.LintDuplicateLoads(pack) {
+		pr.Printf("[yellow]⚠[/yellow] %s", richtext.Escape(w))
+	}
+	printLines(pr, onlineLines)
 
 	// Advice: a custom pack whose CONTENT contribution names an `into` an AGENT PACK already
 	// declares is told what that line DOES, which is narrow. Under per-file governance
