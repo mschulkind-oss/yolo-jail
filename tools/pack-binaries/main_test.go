@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"errors"
 	"io/fs"
 	"os"
 	"os/exec"
@@ -121,15 +122,25 @@ func runTool(t *testing.T, root string, args ...string) result {
 // runToolOver is runTool with the listing — the packs embed, in production — given.
 func runToolOver(t *testing.T, root string, listing fs.FS, args ...string) result {
 	t.Helper()
+	return runToolWith(t, root, func(d *deps) { d.packs = listing }, args...)
+}
+
+// runToolWith is runTool with the fixture's deps changed by edit first.
+func runToolWith(t *testing.T, root string, edit func(*deps), args ...string) result {
+	t.Helper()
 	var out, errb bytes.Buffer
 	var r result
 	g := hostGo(t)
 	cache := filepath.Join(t.TempDir(), "default-cache")
-	r.code = run(args, &out, &errb, deps{root: root, environ: os.Environ(), packs: listing,
+	d := deps{root: root, environ: os.Environ(), packs: os.DirFS(filepath.Join(root, "packs")),
 		toolchain: func() (string, error) { r.fetched = true; return g, nil },
-		goos:      runtime.GOOS, goarch: runtime.GOARCH,
+		// The fallback is asked for only when the toolchain cannot be had.
+		pathGo: func() (string, error) { return "", errors.New("this test has no go on PATH") },
+		goos:   runtime.GOOS, goarch: runtime.GOARCH,
 		// Never the real home's cache: a seed with no directory fills this one.
-		cacheDir: func() string { return cache }})
+		cacheDir: func() string { return cache }}
+	edit(&d)
+	r.code = run(args, &out, &errb, d)
 	r.stdout, r.stderr = out.String(), errb.String()
 	return r
 }

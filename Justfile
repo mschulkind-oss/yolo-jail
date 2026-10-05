@@ -55,7 +55,9 @@ install:
     # A program an official loophole manifest declares under `binaries` is built from this
     # checkout's cmd/<name> for this machine — its host build, and linux/<arch> for the jail —
     # and admitted to the pack-binary cache every launch reads, as yolo's own binaries are staged
-    # below: NOTHING IS DOWNLOADED but the pinned Go toolchain, once, into the module cache
+    # below: NOTHING IS DOWNLOADED but the pinned Go toolchain, once, into the module cache —
+    # and when even that cannot be fetched, a go on PATH reporting the pinned version seeds
+    # instead, re-pinning nothing (BP-D21)
     # (docs/design/broker-as-a-pack.md BP-D15, OQ-BP7 ruled 2026-10-05: "it has to be built all
     # together, installed all together"). So a from-source or forked tree's jail runs that tree's
     # programs. --repin: a program this tree changed since its pin is re-pinned first (each

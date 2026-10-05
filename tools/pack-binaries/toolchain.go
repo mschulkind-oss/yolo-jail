@@ -66,17 +66,25 @@ func fetchToolchain(hostGo string, environ []string) (string, error) {
 		return "", fmt.Errorf("making %s runnable: %w", info.Dir, err)
 	}
 	goBin := filepath.Join(info.Dir, "bin", "go")
+	if err := checkToolchainVersion(goBin, environ); err != nil {
+		return "", err
+	}
+	return goBin, nil
+}
+
+// checkToolchainVersion refuses a go that does not report exactly Toolchain for this machine.
+func checkToolchainVersion(goBin string, environ []string) error {
 	vcmd := exec.Command(goBin, "version")
 	vcmd.Env = buildEnv(environ, runtime.GOOS, runtime.GOARCH)
 	vout, err := vcmd.Output()
 	if err != nil {
-		return "", fmt.Errorf("%s version: %w", goBin, err)
+		return fmt.Errorf("%s version: %w", goBin, err)
 	}
 	want := "go version " + Toolchain + " " + runtime.GOOS + "/" + runtime.GOARCH
 	if got := strings.TrimSpace(string(vout)); got != want {
-		return "", fmt.Errorf("%s reports %q, want %q", goBin, got, want)
+		return fmt.Errorf("%s reports %q, want %q", goBin, got, want)
 	}
-	return goBin, nil
+	return nil
 }
 
 // downloadEnv is environ with every setting that could skip the checksum database removed, and

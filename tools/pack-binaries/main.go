@@ -80,6 +80,7 @@ func defaultDeps(root string, environ []string) deps {
 			}
 			return fetchToolchain(hostGo, environ)
 		},
+		pathGo:   func() (string, error) { return exec.LookPath("go") },
 		goos:     runtime.GOOS,
 		goarch:   runtime.GOARCH,
 		cacheDir: paths.PackBinariesDir,
@@ -95,6 +96,9 @@ type deps struct {
 	// toolchain returns the go binary builds are made with. It is called only when there is
 	// something to build.
 	toolchain func() (string, error)
+	// pathGo is the go on PATH, which seed alone may build with when toolchain fails and it
+	// reports exactly Toolchain (BP-D21).
+	pathGo func() (string, error)
 	// goos and goarch are the machine seed builds for: a host reference's build for this pair,
 	// a jail reference's for linux on goarch, which is what a launch here asks the cache for
 	// (BP-D3).
@@ -252,6 +256,9 @@ type task struct {
 	built map[string]build
 	// goBin is the toolchain's go, once fetched.
 	goBin string
+	// unfetched is why the toolchain could not be fetched when seed is building with the go on
+	// PATH instead (seedToolchain), and nil otherwise.
+	unfetched error
 }
 
 // want is one declared build and what the manifest says of it.
@@ -573,6 +580,35 @@ func (t *task) machineNeeds(stdout io.Writer) ([]want, []releasematrix.Problem) 
 	return out, problems
 }
 
+// seedToolchain is the go seed builds with: the pinned toolchain, fetched or already in the
+// module cache, or — when it cannot be had, offline or after a Toolchain bump — the go on PATH,
+// if that reports exactly Toolchain (BP-D21). Falling back cannot admit a wrong build, because
+// packbin.Seed admits only bytes whose digest is the pin, and §14.2 measured a go1.26.7 not
+// fetched as the module building the same bytes; what it does lose is the right to re-pin, which
+// seed refuses then (t.unfetched).
+func (t *task) seedToolchain(stdout io.Writer) error {
+	goBin, err := t.d.toolchain()
+	if err == nil {
+		fmt.Fprintf(stdout, "pack-binaries: building with %s (%s)\n", Toolchain, goBin)
+		t.goBin = goBin
+		return nil
+	}
+	pathGo, perr := t.d.pathGo()
+	if perr == nil {
+		perr = checkToolchainVersion(pathGo, t.d.environ)
+	}
+	if perr != nil {
+		return fmt.Errorf("the pinned toolchain %s could not be fetched (%v), and the go on PATH "+
+			"cannot stand in for it (%v) — reach the module proxy once, after which the toolchain "+
+			"is cached, or put %s on PATH", Toolchain, err, perr, Toolchain)
+	}
+	fmt.Fprintf(stdout, "pack-binaries: the pinned toolchain %s could not be fetched (%v); "+
+		"building with the go on PATH (%s), which reports %s, to seed only — a build is admitted "+
+		"only where its digest is the pin\n", Toolchain, err, pathGo, Toolchain)
+	t.goBin, t.unfetched = pathGo, err
+	return nil
+}
+
 // seed is the seed verb: this machine's builds of every official binary, made with the recipe,
 // each admitted to the cache at dir through packbin's verified rename when its digest is the
 // pin (BP-D15). Nothing is downloaded but the pinned toolchain, once, into the module cache.
@@ -589,6 +625,12 @@ func (t *task) seed(tmp, dir string, repin bool, stdout io.Writer) int {
 			t.d.goos, t.d.goarch)
 		return 0
 	}
+	if len(needs) > 0 {
+		if err := t.seedToolchain(stdout); err != nil {
+			fmt.Fprintf(t.stderr, "pack-binaries: %v\npack-binaries: nothing was seeded\n", err)
+			return 1
+		}
+	}
 	for _, n := range needs {
 		if _, err := t.buildOnce(tmp, stdout, n.name, n.platform); err != nil {
 			fmt.Fprintf(t.stderr, "pack-binaries: %v\npack-binaries: nothing was seeded\n", err)
@@ -600,6 +642,15 @@ func (t *task) seed(tmp, dir string, repin bool, stdout io.Writer) int {
 		if t.built[buildKey(n.name, n.platform)].sha256 != n.sum {
 			stale = append(stale, n)
 		}
+	}
+	if len(stale) > 0 && repin && t.unfetched != nil {
+		// A re-pin writes the digests these builds have, and the release builds with the fetched
+		// toolchain: from the PATH's go, the toolchain may be all that moved.
+		fmt.Fprintf(t.stderr, "pack-binaries: not re-pinned: %s could not be fetched (%v), and "+
+			"a digest the go on PATH made is not one the release is known to reproduce — re-run "+
+			"`just install` where the module proxy can be reached; the toolchain is cached after "+
+			"that once\n", Toolchain, t.unfetched)
+		repin = false
 	}
 	if len(stale) > 0 && repin {
 		if t.refusePin() {
