@@ -246,17 +246,69 @@ func TestHostLaunchStripsAnotherLaunchsBlockDir(t *testing.T) {
 }
 
 // In a jail `yolo host` writes no host block dir: the jail's own are already on the PATH it hands
-// down unchanged.
+// down unchanged. The same call, on the same PATH (the fixture's, holding rg and fd), does write
+// one outside a jail, so the guard is what makes the difference.
 func TestHostLaunchInAJailWritesNoBlockDir(t *testing.T) {
 	blockerHostFixture(t, `{"packs": ["guardrails"]}`, "rg", "fd")
-	b := composeHostBlockers(nil, nil, "/usr/bin")
-	if b.dir != "" {
-		t.Fatalf("setup: nothing selected, yet a dir was written: %s", b.dir)
+	launch := composeHostLaunch("yolo-fake-agent", "", nil, func(string) {})
+	childPath := os.Getenv("PATH")
+	if b := composeHostBlockers(launch.cfg, launch.packs, childPath); b.dir == "" ||
+		!strings.HasPrefix(b.path, b.dir+string(os.PathListSeparator)) {
+		t.Fatalf("setup: outside a jail the guardrails blockers wrote no dir: %+v", b)
 	}
 	t.Setenv("YOLO_VERSION", "test")
-	launch := composeHostLaunch("yolo-fake-agent", "", nil, func(string) {})
-	if got := composeHostBlockers(launch.cfg, launch.packs, "/usr/bin"); got.dir != "" || got.path != "/usr/bin" {
+	if got := composeHostBlockers(launch.cfg, launch.packs, childPath); got.dir != "" || got.path != childPath {
 		t.Errorf("in a jail the blockers were written: %+v", got)
+	}
+}
+
+// THE HATCH RUNS THE REAL PROGRAM BEHIND EVERY BLOCK at the host (HE-D12), not grep and find
+// alone: the disclosure says YOLO_BYPASS_SHIMS=1 lets a command through, and a user's own entry
+// under the hatch used to skip its refusal and run nothing, exiting 0, so `YOLO_BYPASS_SHIMS=1
+// curl …` in an agent's script "succeeded" without a byte fetched. A blocked name with nothing
+// behind it says so under the hatch and exits 127.
+func TestHostLaunchsHatchRunsTheProgramBehindEveryBlock(t *testing.T) {
+	_, bin := blockerHostFixture(t, `{"packs": [], "security": {"blocked_tools": `+
+		`["yolo-fixture-tool", "yolo-absent-tool"]}}`)
+	writeFile(t, filepath.Join(bin, "yolo-fixture-tool"), "#!/bin/sh\necho \"real tool ran: $*\"\n")
+	if err := os.Chmod(filepath.Join(bin, "yolo-fixture-tool"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	got, errs := launchCapturing(t)
+	work := t.TempDir()
+	rc, out := runWithEnv(t, got.env, work, "yolo-fixture-tool a b")
+	if rc != 127 || !strings.Contains(out, "yolo-fixture-tool is blocked") {
+		t.Fatalf("the user's block did not refuse: rc=%d %q\n%s", rc, out, errs)
+	}
+	bypass := append(append([]string{}, got.env...), "YOLO_BYPASS_SHIMS=1")
+	rc, out = runWithEnv(t, bypass, work, "yolo-fixture-tool a b")
+	if rc != 0 || out != "real tool ran: a b\n" {
+		t.Errorf("YOLO_BYPASS_SHIMS=1 did not run the real program behind the block: rc=%d %q", rc, out)
+	}
+	rc, out = runWithEnv(t, bypass, work, "yolo-absent-tool")
+	if rc != 127 || !strings.Contains(out, "no yolo-absent-tool is installed behind this block") {
+		t.Errorf("the hatch with nothing behind the block: rc=%d %q, want 127 and the line saying so", rc, out)
+	}
+}
+
+// A real grep or find the shims could pass calls on to is not on the child's PATH: that tool is
+// left unblocked, and the launch says so, as for a missing replacement.
+func TestHostLaunchDoesNotBlockAToolItCannotFind(t *testing.T) {
+	blockerHostFixture(t, `{"packs": ["guardrails"]}`, "rg", "fd")
+	sys := filepath.SplitList(os.Getenv("PATH"))[1]
+	if err := os.Remove(filepath.Join(sys, "grep")); err != nil {
+		t.Fatal(err)
+	}
+	got, errs := launchCapturing(t)
+	if !strings.Contains(errs, "not blocking grep: there is no grep on this launch's PATH to block") {
+		t.Errorf("no line named the missing grep:\n%s", errs)
+	}
+	blockDir := filepath.SplitList(envValue(got.env, "PATH"))[0]
+	if _, err := os.Lstat(filepath.Join(blockDir, "grep")); err == nil {
+		t.Errorf("grep was blocked although there is no grep behind the block: %s", blockDir)
+	}
+	if _, err := os.Stat(filepath.Join(blockDir, "find")); err != nil {
+		t.Errorf("find was not blocked although its real binary and fd are present: %v", err)
 	}
 }
 

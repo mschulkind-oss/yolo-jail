@@ -17,7 +17,8 @@ package cli
 // /etc/profile sets PATH outright) or an agent's own shell function of the same name never meets
 // it — MEASURED in a jail on 2026-10-04: Claude Code 2.1.289's Bash tool defines `grep` and `find`
 // as functions, so its direct commands skip the jail's blockers too. YOLO_BYPASS_SHIMS=1 lets a
-// command through, as in a jail.
+// command through: the real program behind every blocked name, found on the child's PATH like the
+// real grep and find (HE-D12).
 //
 // WHICH CONFIG: the user scope alone, as every input `yolo host` composes from. A workspace's
 // yolo-jail.jsonc is the repository's, and a repository choosing what the user's own shell tools
@@ -99,6 +100,16 @@ func composeHostBlockers(cfg *jsonx.OrderedMap, packs []*packload.Pack, childPat
 				return "", false
 			}
 			return p, true
+		},
+		// What every other blocked name runs under YOLO_BYPASS_SHIMS=1, found the way the real
+		// grep and find are (HE-D12): without it the hatch the disclosure names would skip the
+		// refusal and run nothing, and `YOLO_BYPASS_SHIMS=1 curl …` would "succeed".
+		Behind: func(name string) string {
+			p, err := resolveHostTarget(childPath, name)
+			if err != nil {
+				return ""
+			}
+			return p
 		},
 		NoReplacement: func(name, repl string) {
 			out.notes = append(out.notes, fmt.Sprintf("not blocking %s: its replacement %s is "+

@@ -2,6 +2,7 @@ package entrypoint
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -369,5 +370,82 @@ func TestABlockerQuotesTheRealBinaryItExecs(t *testing.T) {
 		RealBin: func(string) (string, bool) { return "", false },
 	}); len(none) != 0 {
 		t.Errorf("a grep blocker with no real grep was rendered: %+v", none)
+	}
+}
+
+// THE HATCH RUNS WHAT IS BEHIND EVERY BLOCK when the caller says what that is (BlockerRender.Behind,
+// HE-D12): an unconditional block of a name other than grep or find execs the program behind it
+// under YOLO_BYPASS_SHIMS=1, or says nothing is installed there and exits 127, rather than
+// skipping its refusal and running nothing. A caller that passes no Behind (the jail, today) gets
+// the script it always wrote. And a Behind never turns a block into a filter: a custom entry's
+// block_flags keep their unconditional block, as without one.
+func TestABlockerRunsWhatIsBehindItUnderTheHatch(t *testing.T) {
+	dir := t.TempDir()
+	real := filepath.Join(dir, "a dir", "yolo-fixture-tool")
+	if err := os.MkdirAll(filepath.Dir(real), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(real, []byte("#!/bin/sh\necho \"real tool ran: $*\"\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	decoded, err := jsonx.Decode([]byte(`[{"name":"yolo-fixture-tool","message":"tool is blocked"},` +
+		`{"name":"yolo-flagged-tool","message":"flagged is blocked","block_flags":["--danger"]}]`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	entries := decoded.([]any)
+	render := func(behind func(string) string) map[string]string {
+		out := map[string]string{}
+		for _, s := range RenderBlockers(entries, BlockerRender{Behind: behind}) {
+			p := filepath.Join(t.TempDir(), s.Name)
+			if err := os.WriteFile(p, []byte(s.Content), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			out[s.Name] = p
+		}
+		return out
+	}
+	run := func(shim string, bypass bool, args ...string) (int, string) {
+		cmd := exec.Command(shim, args...)
+		cmd.Env = []string{"PATH=/usr/bin:/bin"}
+		if bypass {
+			cmd.Env = append(cmd.Env, "YOLO_BYPASS_SHIMS=1")
+		}
+		out, err := cmd.CombinedOutput()
+		if ee, ok := err.(*exec.ExitError); ok {
+			return ee.ExitCode(), string(out)
+		}
+		if err != nil {
+			t.Fatal(err)
+		}
+		return 0, string(out)
+	}
+
+	behind := render(func(name string) string {
+		if name == "yolo-fixture-tool" {
+			return real
+		}
+		return ""
+	})
+	if rc, out := run(behind["yolo-fixture-tool"], false, "a"); rc != 127 || !strings.Contains(out, "tool is blocked") {
+		t.Errorf("without the hatch: rc=%d %q, want the refusal", rc, out)
+	}
+	if rc, out := run(behind["yolo-fixture-tool"], true, "a", "b c"); rc != 0 || out != "real tool ran: a b c\n" {
+		t.Errorf("the hatch did not run the program behind the block: rc=%d %q", rc, out)
+	}
+	if rc, out := run(behind["yolo-flagged-tool"], true); rc != 127 ||
+		!strings.Contains(out, "YOLO_BYPASS_SHIMS is set, and no yolo-flagged-tool is installed behind this block") {
+		t.Errorf("the hatch with nothing behind: rc=%d %q, want 127 and the line saying so", rc, out)
+	}
+	if rc, _ := run(behind["yolo-flagged-tool"], false, "--safe"); rc != 127 {
+		t.Errorf("a custom entry's block_flags became a filter once a Behind was given (rc=%d)", rc)
+	}
+
+	// No Behind: the scripts are what they always were, nothing after the refusal.
+	for name, p := range render(nil) {
+		body, _ := os.ReadFile(p)
+		if !strings.HasSuffix(string(body), "  exit 127\nfi\n") {
+			t.Errorf("%s changed for a caller passing no Behind:\n%s", name, body)
+		}
 	}
 }

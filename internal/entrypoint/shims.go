@@ -112,6 +112,16 @@ type BlockerRender struct {
 	// asked for those two names only. ok=false skips the entry: the caller found no real binary
 	// to pass the allowed invocations to, and has said so itself.
 	RealBin func(name string) (path string, ok bool)
+	// Behind, when set, names the program behind every OTHER blocked name — where that name
+	// resolves on the agent's PATH without the block dir, "" when nothing does — and is what the
+	// shim runs under YOLO_BYPASS_SHIMS=1 (or, with "", says nothing is installed there and exits
+	// 127). It changes only what the hatch does: such an entry stays an unconditional block, its
+	// block_flags and allow_flags read exactly as without it.
+	//
+	// Nil keeps the script every jail has written: past the refusal it runs nothing, so the hatch
+	// exits 0 having done nothing. `yolo host --` sets it (HE-D12,
+	// docs/design/host-launch-environment.md); the jail's boot does not yet, which HE-D12 states.
+	Behind func(name string) string
 	// NoReplacement is told of an entry skipped because its replacement is not on that PATH.
 	// The words are the caller's: the next step differs (a jail adds the replacement to
 	// `packages`, a host launch installs it or names its folder in `host_path`).
@@ -218,6 +228,10 @@ func renderBlocker(item any, r BlockerRender) (BlockerScript, bool) {
 		// byte-for-byte what it was.
 		realBin = shquote.Quote(p)
 	}
+	var hatch []string
+	if realBin == "" && r.Behind != nil {
+		hatch = bypassHatch(name, r.Behind(name))
+	}
 	blockFlags := stringList(cfg, "block_flags")
 	allowFlags := stringList(cfg, "allow_flags")
 	// ShimContent drops a flag pattern carrying shell syntax (see its docstring:
@@ -235,7 +249,22 @@ func renderBlocker(item any, r BlockerRender) (BlockerScript, bool) {
 				"anything else would be spliced into the shim as shell syntax")
 		}
 	}
-	return BlockerScript{Name: name, Content: ShimContent(msg, sug, realBin, blockFlags, allowFlags)}, true
+	return BlockerScript{Name: name, Content: ShimContent(msg, sug, realBin, hatch, blockFlags, allowFlags)}, true
+}
+
+// bypassHatch is what an unconditional block with no real grep or find runs under
+// YOLO_BYPASS_SHIMS=1: the program behind it, quoted (a host's can sit in a folder a shell would
+// split), or, with nothing behind it, the intercept's own answer for that case
+// (InterceptShimContent): say so, and exit 127 as a shell does for a command it cannot find.
+func bypassHatch(name, behind string) []string {
+	if behind != "" {
+		return []string{"exec " + shquote.Quote(behind) + ` "$@"`}
+	}
+	return []string{
+		echoStderr("", "YOLO_BYPASS_SHIMS is set, and no "+name+" is installed behind this block, "+
+			"so there is nothing to run"),
+		"exit 127",
+	}
 }
 
 // echoStderr renders one `echo <literal> >&2` line at the given indent, with the
@@ -291,7 +320,8 @@ func safeCasePatterns(patterns []string) (kept, dropped []string) {
 //     binary. Long-option exact matches (--foo) come first, then a `--*` skip
 //     so unrelated long options pass, then the short patterns.
 //   - Unconditional block: exit 127 with the message (and exec realBin after,
-//     only if realBin is set).
+//     only if realBin is set). With no realBin, hatch is what a YOLO_BYPASS_SHIMS=1
+//     run reaches past the refusal instead (bypassHatch), and nil is nothing at all.
 //
 // THE FROZEN CONTRACT IS WHAT THE SHIM DOES, NOT HOW ITS LITERALS ARE QUOTED. This
 // docstring used to read "msg/sug are embedded verbatim inside `echo \"...\"` — no
@@ -319,7 +349,7 @@ func safeCasePatterns(patterns []string) (kept, dropped []string) {
 //
 // The emitted grammar is otherwise untouched: same lines, same order, same `>&2`,
 // same exit 127.
-func ShimContent(msg, sug, realBin string, blockFlags, allowFlags []string) string {
+func ShimContent(msg, sug, realBin string, hatch []string, blockFlags, allowFlags []string) string {
 	// The dropped lists are discarded HERE and reported THERE: GenerateShims calls
 	// safeCasePatterns a second time purely to warn about what this call will drop,
 	// naming the tool and the patterns (see its loop over block_flags/allow_flags).
@@ -409,6 +439,8 @@ func ShimContent(msg, sug, realBin string, blockFlags, allowFlags []string) stri
 		lines = append(lines, "fi")
 		if realBin != "" {
 			lines = append(lines, "exec "+realBin+` "$@"`)
+		} else {
+			lines = append(lines, hatch...)
 		}
 		lines = append(lines, "")
 	}

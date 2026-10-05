@@ -1311,11 +1311,12 @@
     selected packs' and this list from your USER config, never a workspace's —
     into a directory yolo keeps (~/.local/share/yolo-jail/bin/block/<digest>) and
     puts it first on that program's PATH, saying so at every launch.  `replacement`
-    is checked against that PATH.  Two things never meet a block there: a shell
-    that resets PATH (a login shell: macOS's path_helper, Debian's /etc/profile)
-    and an agent's own shell function of the same name (Claude Code's Bash tool
-    defines grep and find, in a jail too).  `yolo host apply` starts nothing and
-    blocks nothing.
+    is checked against that PATH, and YOLO_BYPASS_SHIMS=1 runs the program found
+    behind each block on it (none found: the shim says so and exits 127).  Two
+    things never meet a block there: a shell that resets PATH (a login shell:
+    macOS's path_helper, Debian's /etc/profile) and an agent's own shell function
+    of the same name (Claude Code's Bash tool defines grep and find, in a jail
+    too).  `yolo host apply` starts nothing and blocks nothing.
 
   [bold]mise_tools[/bold] (object): Extra tools installed via mise in the jail.
     Keys are mise tool names, values are version strings.
