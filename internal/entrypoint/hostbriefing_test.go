@@ -13,7 +13,9 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
+	"time"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/hostskills"
 	"github.com/mschulkind-oss/yolo-jail/internal/jailcontent"
@@ -23,9 +25,10 @@ import (
 
 // briefingPack builds a pack whose root is a temp dir carrying `prose` as briefing/prose.md — the
 // conventional source (docs/reference/pack-system.md#briefing-directory; a root AGENTS.md is never read) — and which
-// declares a briefing into `into`, `from` omitted. The `after: host:` half is declared too,
-// because that is the shape the shipped packs use and the host render must ignore it (§6a: the
-// host no longer preserves the user's file in place, so there is nothing to prepend).
+// declares a briefing into `into`, `from` omitted. The `after: host:` half is declared too, naming
+// the destination itself, because that is the shape the shipped packs use and the host render
+// must not read it: that file is the one this composition writes (hostBriefingOverlay's skip rule,
+// S3), so prepending it would read yolo's output back in.
 func briefingPack(t *testing.T, name, into, prose string) *packload.Pack {
 	t.Helper()
 	return briefingPackFrom(t, name, into, "", "briefing/prose.md", prose)
@@ -1146,5 +1149,171 @@ func TestComposeHostBriefingsADuplicateSourceComposesOnce(t *testing.T) {
 	got := composedAt(ComposeHostBriefings([]*packload.Pack{dup}, home, "", false), home, ".claude/CLAUDE.md")
 	if got != "Once only.\n" {
 		t.Errorf("~/.claude/CLAUDE.md = %q, want the prose exactly once", got)
+	}
+}
+
+// afterPack is a pack composing prose into `into` whose `after` names the user's own host file
+// `after` — DP-B26's shape: a briefing that opens with a file the user keeps elsewhere.
+func afterPack(t *testing.T, into, after string) *packload.Pack {
+	t.Helper()
+	p := briefingPack(t, "afterpack", into, "Pack prose.\n")
+	p.Decl.Contributes[0].After = "host:" + after
+	return p
+}
+
+// DP-B26: an `after` naming a file other than a destination OPENS the destination with that file,
+// in the jail's bytes (jailcontent.PrependHostBriefing). It was silently ignored at the host.
+func TestComposeHostBriefingsPrependsTheUsersAfterFile(t *testing.T) {
+	home := t.TempDir()
+	if err := os.WriteFile(filepath.Join(home, "mine.md"), []byte("MY RULES\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	packs := []*packload.Pack{afterPack(t, ".foo/AGENTS.md", "mine.md")}
+	dests := ComposeHostBriefings(packs, home, "", false)
+	want, err := jailcontent.PrependHostBriefing(filepath.Join(home, "mine.md"), "Pack prose.\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := composedAt(dests, home, ".foo/AGENTS.md"); got != want {
+		t.Errorf("~/.foo/AGENTS.md = %q, want the jail's prepend %q", got, want)
+	}
+	if len(dests) != 1 || dests[0].Overlay.Outcome != OverlayPrepended || dests[0].After != "mine.md" {
+		t.Errorf("the destination does not say it prepended ~/mine.md: %+v", dests)
+	}
+}
+
+// THE SKIP RULE (S3). An `after` naming a destination this composition writes — the destination
+// itself, as every shipped agent pack declares, or another pack's — is never read, though the file
+// is there: it is about to hold yolo's own output, and a hand-written one there is the adoption
+// gate's to move into the local pack.
+func TestComposeHostBriefingsNeverPrependsADestinationItComposes(t *testing.T) {
+	home := t.TempDir()
+	for _, rel := range []string{".claude/CLAUDE.md", ".foo/AGENTS.md"} {
+		path := filepath.Join(home, filepath.FromSlash(rel))
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte("ALREADY THERE\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	own := briefingPack(t, "claude", ".claude/CLAUDE.md", "Claude prose.\n")
+	other := afterPack(t, ".foo/AGENTS.md", ".claude/CLAUDE.md")
+	for _, d := range ComposeHostBriefings([]*packload.Pack{own, other}, home, "", false) {
+		if strings.Contains(d.Content, "ALREADY THERE") {
+			t.Errorf("%s prepended a destination this apply composes:\n%s", d.Path, d.Content)
+		}
+		if d.Overlay.Outcome != OverlayYoloOutput {
+			t.Errorf("%s: outcome %q, want %q", d.Path, d.Overlay.Outcome, OverlayYoloOutput)
+		}
+	}
+}
+
+// THE RECORD HALF of the skip rule: a file the briefing record lists as yolo's (a destination an
+// earlier apply composed for a pack no longer selected) is not the user's, and the record is what
+// knows it — the bare composition, which carries none, prepends it.
+func TestComposeHostBriefingsForSkipsAFileTheRecordSaysYoloComposed(t *testing.T) {
+	home := t.TempDir()
+	old := filepath.Join(home, "old.md")
+	if err := os.WriteFile(old, []byte("A DROPPED PACK'S PROSE\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	packs := []*packload.Pack{afterPack(t, ".foo/AGENTS.md", "old.md")}
+	req, man := briefingReq(t, home)
+	man.Record(old, HostBriefingOwner)
+
+	dests := ComposeHostBriefingsFor(packs, home, req)
+	if got := composedAt(dests, home, ".foo/AGENTS.md"); strings.Contains(got, "DROPPED") {
+		t.Errorf("a file yolo composed was read back in as the user's:\n%s", got)
+	}
+	if dests[0].Overlay.Outcome != OverlayYoloOutput {
+		t.Errorf("outcome %q, want %q", dests[0].Overlay.Outcome, OverlayYoloOutput)
+	}
+	if got := composedAt(ComposeHostBriefings(packs, home, "", false), home, ".foo/AGENTS.md"); !strings.Contains(got, "DROPPED") {
+		t.Errorf("without the record the file is indistinguishable from the user's, so the bare "+
+			"composition must prepend it — otherwise this test proves nothing about the record: %q", got)
+	}
+}
+
+// NEVER OPEN AN UNREADABLE SOURCE. A dangling link (the file's or an ancestor's), a directory and a
+// FIFO each leave the destination composed without the file and say why — and the FIFO, which a
+// read would block on until something writes into it, must not stall the composition.
+func TestComposeHostBriefingsNeverOpensAnUnreadableAfterFile(t *testing.T) {
+	cases := map[string]func(t *testing.T, home string) string{
+		"dangling link": func(t *testing.T, home string) string {
+			mustAfter(t, os.Symlink(filepath.Join(home, "gone.md"), filepath.Join(home, "mine.md")))
+			return "mine.md"
+		},
+		"dangling ancestor": func(t *testing.T, home string) string {
+			mustAfter(t, os.Symlink(filepath.Join(home, "gone"), filepath.Join(home, "notes")))
+			return "notes/mine.md"
+		},
+		"directory": func(t *testing.T, home string) string {
+			mustAfter(t, os.MkdirAll(filepath.Join(home, "mine.md"), 0o755))
+			return "mine.md"
+		},
+		"fifo": func(t *testing.T, home string) string {
+			mustAfter(t, syscall.Mkfifo(filepath.Join(home, "mine.md"), 0o644))
+			return "mine.md"
+		},
+	}
+	for name, setup := range cases {
+		t.Run(name, func(t *testing.T) {
+			home := t.TempDir()
+			after := setup(t, home)
+			packs := []*packload.Pack{afterPack(t, ".foo/AGENTS.md", after)}
+			done := make(chan []HostBriefingDestination, 1)
+			go func() { done <- ComposeHostBriefings(packs, home, "", false) }()
+			var dests []HostBriefingDestination
+			select {
+			case dests = <-done:
+			case <-time.After(2 * time.Minute):
+				t.Fatal("the composition blocked on the `after` file")
+			}
+			if got := composedAt(dests, home, ".foo/AGENTS.md"); got != "Pack prose.\n" {
+				t.Errorf("want the destination composed without the file, got %q", got)
+			}
+			ov := dests[0].Overlay
+			if ov.Outcome != OverlayUnread || ov.Unread == nil || ov.Unread.Why == "" {
+				t.Errorf("the destination does not say why the file was not read: %+v", ov)
+			}
+		})
+	}
+}
+
+// THE ADOPTION GATE COMPOSES WHAT THE RENDER WRITES. A destination already holding exactly the
+// composition — the user's `after` file prepended — is not an adoption, and the render then leaves
+// it unchanged; were the gate to compare against the composition WITHOUT the file, every home with
+// an `after` file would be asked to adopt its own destination.
+func TestHostBriefingAdoptionsComposeTheBytesTheRenderWrites(t *testing.T) {
+	home := t.TempDir()
+	mustAfter(t, os.WriteFile(filepath.Join(home, "mine.md"), []byte("MY RULES\n"), 0o644))
+	packs := []*packload.Pack{afterPack(t, ".foo/AGENTS.md", "mine.md")}
+	req, man := briefingReq(t, home)
+	composed := composedAt(ComposeHostBriefingsFor(packs, home, req), home, ".foo/AGENTS.md")
+	if !strings.HasPrefix(composed, "MY RULES\n") {
+		t.Fatalf("the fixture's file was not prepended: %q", composed)
+	}
+	dest := filepath.Join(home, ".foo", "AGENTS.md")
+	mustAfter(t, os.MkdirAll(filepath.Dir(dest), 0o755))
+	mustAfter(t, os.WriteFile(dest, []byte(composed), 0o644))
+
+	if got := HostBriefingAdoptions(packs, home, man, req.Base, req.Provenance); len(got) != 0 {
+		t.Errorf("a destination holding exactly the composition was offered for adoption: %+v", got)
+	}
+	results, err := RenderHostBriefings(packs, home, req, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(results) != 1 || results[0].Action != "unchanged" {
+		t.Errorf("the render disagrees with the gate about the bytes: %+v", results)
+	}
+}
+
+// mustAfter fails the test on a fixture error.
+func mustAfter(t *testing.T, err error) {
+	t.Helper()
+	if err != nil {
+		t.Fatal(err)
 	}
 }

@@ -245,7 +245,12 @@ func applyHostBriefings(pr richtext.Printer, out io.Writer, stdin io.Reader,
 		}
 	}
 
+	// The composition the render below writes — same packs, same request, the record not yet
+	// touched by it — read for what became of each destination's `after` file, which the render's
+	// results do not carry (reportBriefingOverlays).
+	composedDests := entrypoint.ComposeHostBriefingsFor(loaded, home, req)
 	bres, berr := entrypoint.RenderHostBriefings(loaded, home, req, !write)
+	written := map[string]entrypoint.HostRenderResult{}
 	for _, r := range bres {
 		// The broken-link rule's report half, as for a config surface (apply.go): a blocker
 		// stated once by its group, attributed to the packs that DECLARE this destination.
@@ -253,6 +258,7 @@ func applyHostBriefings(pr richtext.Printer, out io.Writer, stdin io.Reader,
 			survey.noteBrokenLink(briefingDestinationPacks(loaded, home, r.Path), *r.BrokenLink)
 			continue
 		}
+		written[r.Path] = r
 		survey.note(tierRun, string(packdecl.KindBriefing), r.Surface, r.Path, r.WouldChange)
 		// A settled destination is DETAIL (§4.5): the verdict counts briefing destinations,
 		// and a reader who wants each one by name asks for it. A destination that WOULD
@@ -260,6 +266,7 @@ func applyHostBriefings(pr richtext.Printer, out io.Writer, stdin io.Reader,
 		reportDestination(pr, tierRun, r.WouldChange,
 			"  [cyan]%-20s[/cyan] %s  [dim]%s[/dim]", r.Surface, r.Action, r.Path)
 	}
+	reportBriefingOverlays(pr, composedDests, written, home)
 	if berr != nil {
 		pr.Printf("  [red]briefing   refused[/red] — %v", berr)
 		rc = 1
@@ -293,6 +300,56 @@ func applyHostBriefings(pr richtext.Printer, out io.Writer, stdin io.Reader,
 		}
 	}
 	return rc
+}
+
+// reportBriefingOverlays says what became of each destination's `after: "host:<path>"` file
+// (DP-B26), from the composition the render wrote; written holds the render's result per
+// destination it did not refuse.
+//
+// THREE OUTCOMES REACH THE REPORT, each at its own tier:
+//
+//   - PREPENDED: one line naming the file, printed with the destination's own line when it would
+//     change and under --verbose once settled — the same rule reportDestination applies to the
+//     destination, since the file is part of what changed.
+//   - NOT READ BECAUSE IT IS yolo's OUTPUT: detail only. Every shipped agent pack's `after` names
+//     its own `into`, so this is every home on every run, and it changes nothing.
+//   - UNREAD: a yellow warning on every run, in a jail launch's wording
+//     (internal/cli/run's noteUnreadHostSource): the file is the user's, it is not reaching the
+//     agent, and the remedy is theirs. A warning and never a refusal, as at a launch.
+//
+// An absent file says nothing, for the launch's reason: that is the user not having written one.
+func reportBriefingOverlays(pr richtext.Printer, dests []entrypoint.HostBriefingDestination,
+	written map[string]entrypoint.HostRenderResult, home string) {
+	for _, d := range dests {
+		ov := d.Overlay
+		dest := prettyHomePath(home, d.Path)
+		src := prettyHomePath(home, ov.Source)
+		switch ov.Outcome {
+		case entrypoint.OverlayPrepended:
+			r, ok := written[d.Path]
+			if !ok {
+				continue // refused under the broken-link rule: nothing opens with anything
+			}
+			reportDestination(pr, tierRun, r.WouldChange,
+				"  [cyan]%-20s[/cyan] %s opens with your %s  [dim](after: \"host:%s\")[/dim]",
+				"briefing/after", richtext.Escape(dest), richtext.Escape(src), richtext.Escape(d.After))
+		case entrypoint.OverlayYoloOutput:
+			detail(pr, "  [dim]%-20s %s: after: \"host:%s\" is not read — %s, and yolo never "+
+				"reads its own output back in[/dim]", "briefing/after", richtext.Escape(dest),
+				richtext.Escape(d.After), ov.Why)
+		case entrypoint.OverlayUnread:
+			subject := "the host briefing " + src
+			if ov.Source != d.Path {
+				subject += " for " + dest
+			}
+			line := "Warning: " + subject + " was not read: " + ov.Unread.Why + ". " + dest +
+				" is composed without it."
+			if ov.Unread.Remedy != "" {
+				line += " " + ov.Unread.Remedy + "."
+			}
+			pr.Printf("  [yellow]%s[/yellow]", richtext.Escape(line))
+		}
+	}
 }
 
 // reportBriefingSourceProblems prints each pack's briefing governance problems once per pack.

@@ -31,7 +31,8 @@ package entrypoint
 // (unresolvedLinkOnPath) and along the same chain (linkChainEnd), and a second walker is what
 // docs/design/agent-directory-map.md AM-D5 rules out. A file yolo
 // READS has no write-through exemption: a link to a missing file reads nothing whether or not the
-// target's directory exists.
+// target's directory exists. UnreadHostSource builds the whole read-side question on it — a
+// dangling link, a non-regular file, a read error — for both notches.
 
 import (
 	"fmt"
@@ -147,6 +148,47 @@ func FindDanglingLink(path string) (link, target string, ok bool) {
 		// Resolves to something that cannot be read for another reason (EACCES on the
 		// way, say): the caller's to report as itself.
 		return "", "", false
+	}
+}
+
+// HostSourceSkip is why a host file yolo was declared to READ was not read: a pack's `reads-host`
+// grant or `readsHost` surface, or a briefing's `after: "host:<path>"` file. Why is a clause ("it
+// is a symlink to …, which does not exist"); Remedy is a sentence, "" when no one remedy fits.
+type HostSourceSkip struct {
+	Why    string
+	Remedy string
+}
+
+// UnreadHostSource says why the host file at src (an absolute path) cannot be read, or nil when
+// there is nothing to say: it is a regular file, or nothing is there and no link explains its
+// absence — the user has not created it, the normal state.
+//
+// IT NEVER OPENS src, and that is the point of asking before reading. A dangling link reads as
+// absent (ENOENT), so the read cannot tell it from a file the user never made, and a FIFO would
+// block the read until something writes into it. Both notches ask this first: the jail launch
+// (internal/cli/run's unreadHostSource, which prints the launch line) and the host briefing
+// composition (hostBriefingOverlay). One predicate, so the two say the same thing about one file.
+func UnreadHostSource(src string) *HostSourceSkip {
+	if link, target, ok := FindDanglingLink(src); ok {
+		subject := link + " is"
+		if link == src {
+			subject = "it is"
+		}
+		return &HostSourceSkip{
+			Why:    subject + " a symlink to " + target + ", which does not exist",
+			Remedy: "Restore the target, or remove the link",
+		}
+	}
+	info, err := os.Stat(src)
+	switch {
+	case err == nil && info.Mode().IsRegular():
+		return nil
+	case err == nil:
+		return &HostSourceSkip{Why: "it is not a regular file"}
+	case os.IsNotExist(err):
+		return nil
+	default:
+		return &HostSourceSkip{Why: "it could not be read (" + err.Error() + ")"}
 	}
 }
 

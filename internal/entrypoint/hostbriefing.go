@@ -44,8 +44,15 @@ package entrypoint
 //     the host there is no launch to describe, so it is not there. Because the base is never
 //     empty, yolo owns every destination a selected pack declares, prose or none — the §6a
 //     ruling's "fully generated and controlled", which is also what tells a host agent where it
-//     is. `after: "host:…"` is inert here — it exists to pull the user's file INTO a jail
-//     staging copy, and the host no longer preserves the user's file in place to pull from.
+//     is.
+//   - `after: "host:<path>"` IS HONORED WHERE IT NAMES THE USER'S FILE (DP-B26, under OQ-HC1's
+//     "host parity with the same handling"): the file opens the destination above a `---`, as a
+//     jail launch prepends it (jailcontent.PrependHostBriefing). It is NOT read when it names
+//     yolo's own output — a destination this composition writes (every shipped agent pack's
+//     `after` names its own `into`) or one the briefing record says yolo composed — because yolo
+//     never reads its output back in as input (S3, GeneratedHostBriefings). And it is never OPENED
+//     when it cannot be read as a file (UnreadHostSource): a dangling link, a FIFO, a directory.
+//     See hostBriefingOverlay.
 
 import (
 	"encoding/json"
@@ -119,11 +126,48 @@ type HostBriefingDestination struct {
 	// Packs names the contributing packs in composition order — config order, since that is
 	// the order the caller's pack list arrives in and the order the jail composes.
 	Packs []string
-	// Content is the composed file: the base, then the contributing packs' prose. It is "" only
-	// when the base is empty AND no contributing pack ships prose (in which case yolo owns nothing
-	// here and the destination is left alone or retired) — which the host apply never asks for,
+	// Content is the composed file: the user's `after` file when Overlay prepended it, then the
+	// base, then the contributing packs' prose. It is "" only when the base is empty AND no
+	// contributing pack ships prose (in which case yolo owns nothing here and the destination is
+	// left alone or retired, and no `after` file is read) — which the host apply never asks for,
 	// since its base (HostBriefingRequest.Base) is never empty.
 	Content string
+	// After is the home-relative path the destination's `after: "host:<path>"` names, "" when none
+	// does: the FIRST contribution at this path carrying one, in pack order. A borrower's
+	// synthesized copy (packload.ResolveDestinations) carries no `after`, so it never hides the
+	// declaring pack's.
+	After string
+	// Overlay is what became of the After file.
+	Overlay HostBriefingOverlay
+}
+
+// HostBriefingOverlayOutcome is what a composition did with a destination's `after` file.
+type HostBriefingOverlayOutcome string
+
+const (
+	// OverlayNone: the destination declares no `after: "host:…"`, or the file is absent — the user
+	// has not written one, the normal state, and nothing to say.
+	OverlayNone HostBriefingOverlayOutcome = ""
+	// OverlayPrepended: the file opens the destination, above a `---`.
+	OverlayPrepended HostBriefingOverlayOutcome = "prepended"
+	// OverlayYoloOutput: not read, because the file is yolo's own output (S3). Every shipped agent
+	// pack reaches this, its `after` naming its own `into`.
+	OverlayYoloOutput HostBriefingOverlayOutcome = "yolo's output"
+	// OverlayUnread: the file is there and cannot be read as one; the destination is composed
+	// without it.
+	OverlayUnread HostBriefingOverlayOutcome = "unread"
+)
+
+// HostBriefingOverlay is one destination's `after` file and what became of it, for the report.
+type HostBriefingOverlay struct {
+	// Source is the absolute path the `after` names, "" when the destination names none.
+	Source string
+	// Outcome is what the composition did with it.
+	Outcome HostBriefingOverlayOutcome
+	// Why says, for OverlayYoloOutput, which output of yolo's the file is, as a clause.
+	Why string
+	// Unread, for OverlayUnread, is why the file was not read.
+	Unread *HostSourceSkip
 }
 
 // HostBriefingAdoption is a destination yolo is about to take ownership of that holds prose it
@@ -164,8 +208,28 @@ type HostBriefingAdoption struct {
 //
 // base is the notch's base body (HostBriefingRequest.Base), and every destination's Content opens
 // with it: the file a destination holds is the base followed by its packs' sections, assembled by
-// the one composer both notches use (jailcontent.ComposeBriefingSections).
+// the one composer both notches use (jailcontent.ComposeBriefingSections) — with the user's own
+// `after` file above it where one is honored (hostBriefingOverlay).
+//
+// It composes with NO ownership record, so a file only the record knows as yolo's is not
+// recognised as such. The apply asks ComposeHostBriefingsFor, which carries the record; every
+// production reader in this file composes through that one function's body, so the adoption gate,
+// the render and the prune compose the same bytes.
 func ComposeHostBriefings(packs []*packload.Pack, homeDir, base string, provenance bool) []HostBriefingDestination {
+	return composeHostBriefings(packs, homeDir, base, provenance, nil)
+}
+
+// ComposeHostBriefingsFor is the composition RenderHostBriefings writes for req: its base, its
+// provenance label and its ownership record, which decides whether an `after` file is yolo's own
+// output. The CLI reads it for the report lines naming each destination's `after` file.
+func ComposeHostBriefingsFor(packs []*packload.Pack, homeDir string, req HostBriefingRequest) []HostBriefingDestination {
+	return composeHostBriefings(packs, homeDir, req.Base, req.Provenance, req.Manifest)
+}
+
+// composeHostBriefings is the one body every host composition runs. man is the briefing ownership
+// record, nil for none.
+func composeHostBriefings(packs []*packload.Pack, homeDir, base string, provenance bool,
+	man *hostskills.Manifest) []HostBriefingDestination {
 	var order []string
 	byPath := map[string]*HostBriefingDestination{}
 	sections := map[string][]jailcontent.BriefingSection{}
@@ -176,6 +240,7 @@ func ComposeHostBriefings(packs []*packload.Pack, homeDir, base string, provenan
 		// This pack's contributions to each destination, grouped, in first-appearance order.
 		var paths []string
 		carried := map[string][]packload.GovernedSource{}
+		after := map[string]string{}
 		for _, c := range p.Decl.Contributions() {
 			if c.Kind != packdecl.KindBriefing || c.Into == "" {
 				continue
@@ -184,6 +249,9 @@ func ComposeHostBriefings(packs []*packload.Pack, homeDir, base string, provenan
 			if _, seen := carried[path]; !seen {
 				paths = append(paths, path)
 				carried[path] = nil
+			}
+			if rel := hostAfterPath(c.After); rel != "" && after[path] == "" {
+				after[path] = rel
 			}
 			// A DESTINATION (`agent` set) carries nothing (P5); a content contribution carries
 			// the files it governs, matched back to its governor by source key.
@@ -196,6 +264,9 @@ func ComposeHostBriefings(packs []*packload.Pack, homeDir, base string, provenan
 				d = &HostBriefingDestination{Path: path}
 				byPath[path] = d
 				order = append(order, path)
+			}
+			if d.After == "" {
+				d.After = after[path]
 			}
 			// The destination is recorded even for a pack that ships no prose, because that
 			// pack is still an OWNER: the shipped agent packs declare `briefing` to name the
@@ -214,9 +285,72 @@ func ComposeHostBriefings(packs []*packload.Pack, homeDir, base string, provenan
 	for _, path := range order {
 		d := byPath[path]
 		d.Content = jailcontent.ComposeBriefingSections(base, sections[path], provenance)
+		if d.Content != "" && d.After != "" {
+			d.Content, d.Overlay = hostBriefingOverlay(d, homeDir, byPath, man)
+		}
 		out = append(out, *d)
 	}
 	return out
+}
+
+// hostAfterPath is the home-relative path an `after` names, "" for anything but a non-empty
+// `"host:<path>"` — the only form the field has (run.briefingHostOverlay reads it the same way).
+func hostAfterPath(after string) string {
+	rel, ok := strings.CutPrefix(after, "host:")
+	if !ok {
+		return ""
+	}
+	return rel
+}
+
+// hostBriefingOverlay prepends d's `after` file to its composed content where that file is the
+// user's, and says what it did — the host half of DP-B26.
+//
+// THE SKIP RULE (S3: yolo never reads its own output back in as input), in its order:
+//
+//  1. A DESTINATION IN THIS COMPOSITION — d's own path, which is what every shipped agent pack's
+//     `after` names, or another pack's. That file is about to hold this composition, and a
+//     hand-written one there is the adoption gate's to move into the local pack, which composes it
+//     back in; prepending it as well would deliver the user's prose twice.
+//  2. A FILE THE BRIEFING RECORD LISTS AS yolo's (HostBriefingOwner) — a destination an earlier
+//     apply composed for a pack no longer selected. Its content is packs' prose, not the user's.
+//
+// Then the file is asked about before it is opened (UnreadHostSource): a dangling link, anything
+// but a regular file — a FIFO would stall the apply until something wrote into it — or a read
+// error leaves the destination composed without it, reported as unread. An absent file is the
+// user not having written one, and says nothing.
+//
+// The bytes are the jail's: the file, `\n---\n\n`, then the composition
+// (jailcontent.PrependHostBriefing), so one `after` file reads the same at both notches.
+func hostBriefingOverlay(d *HostBriefingDestination, homeDir string,
+	composed map[string]*HostBriefingDestination, man *hostskills.Manifest) (string, HostBriefingOverlay) {
+	src := filepath.Join(homeDir, filepath.FromSlash(d.After))
+	ov := HostBriefingOverlay{Source: src}
+	if _, ok := composed[src]; ok {
+		ov.Outcome, ov.Why = OverlayYoloOutput, "it is a briefing destination this apply composes"
+		if src == d.Path {
+			ov.Why = "it is this destination, which this apply composes"
+		}
+		return d.Content, ov
+	}
+	if man != nil {
+		if owner, ok := man.Owner(src); ok && owner == HostBriefingOwner {
+			ov.Outcome, ov.Why = OverlayYoloOutput, "an earlier apply composed it"
+			return d.Content, ov
+		}
+	}
+	if skip := UnreadHostSource(src); skip != nil {
+		ov.Outcome, ov.Unread = OverlayUnread, skip
+		return d.Content, ov
+	}
+	out, err := jailcontent.PrependHostBriefing(src, d.Content)
+	switch {
+	case err != nil:
+		ov.Outcome, ov.Unread = OverlayUnread, &HostSourceSkip{Why: "it could not be read (" + err.Error() + ")"}
+	case out != d.Content:
+		ov.Outcome = OverlayPrepended
+	}
+	return out, ov
 }
 
 // sortedUniqueSources is one pack's sources for one destination, deduplicated by pack-relative
@@ -254,7 +388,9 @@ func sortedUniqueSources(in []packload.GovernedSource) []packload.GovernedSource
 func HostBriefingAdoptions(packs []*packload.Pack, homeDir string,
 	man *hostskills.Manifest, base string, provenance bool) []HostBriefingAdoption {
 	var out []HostBriefingAdoption
-	for _, d := range ComposeHostBriefings(packs, homeDir, base, provenance) {
+	// man composes as well as gates: it decides whether an `after` file is yolo's own output, so
+	// the comparison below is against the bytes the render will write.
+	for _, d := range composeHostBriefings(packs, homeDir, base, provenance, man) {
 		if d.Content == "" {
 			continue // nothing would be written, so nothing would be adopted
 		}
@@ -637,7 +773,7 @@ func moveRefused(legacy, target, why string) (*HostRenderResult, error) {
 func RenderHostBriefings(packs []*packload.Pack, homeDir string, req HostBriefingRequest,
 	observe bool) ([]HostRenderResult, error) {
 	var out []HostRenderResult
-	for _, d := range ComposeHostBriefings(packs, homeDir, req.Base, req.Provenance) {
+	for _, d := range ComposeHostBriefingsFor(packs, homeDir, req) {
 		id := hostBriefingSurfaceID(d)
 		if d.Content == "" {
 			out = append(out, HostRenderResult{Surface: id, Path: d.Path,
@@ -735,7 +871,7 @@ func PruneHostBriefings(candidates []*packload.Pack, active map[string]bool, hom
 	}
 	// Liveness is "does anything compose here", which the label cannot change — so the flag's
 	// value is irrelevant and false is passed rather than threaded.
-	for _, d := range ComposeHostBriefings(activePacks, homeDir, req.Base, false) {
+	for _, d := range composeHostBriefings(activePacks, homeDir, req.Base, false, req.Manifest) {
 		if d.Content != "" {
 			live[d.Path] = true
 		}
