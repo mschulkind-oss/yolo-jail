@@ -104,6 +104,11 @@ const (
 // Every method is nil-safe, so a caller that does not want the roll-up passes nil rather than
 // threading an unused value through five signatures.
 type hostApplySurvey struct {
+	// advanceDeferred is why this apply runs no patched fork's or patched extension's advance,
+	// naming the act that does; "" for an apply that runs them under --assert. Set only for the host
+	// apply `yolo pack update` runs (PF-D12, PF-D56).
+	advanceDeferred string
+
 	// InSync counts the destinations an --assert would leave exactly as they are.
 	//
 	// "As they are" is the literal claim, and it deliberately includes a surface the render

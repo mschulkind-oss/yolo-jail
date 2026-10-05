@@ -17,6 +17,13 @@ import (
 // Both remain. This one used to also own --shell-init, which is removed and now refuses
 // (refuseShellInit).
 func hostApply(args []string, out, errw io.Writer, color bool, stdin io.Reader) int {
+	return hostApplyDeferring(args, out, errw, color, stdin, "")
+}
+
+// hostApplyDeferring is hostApply for an act that runs no patched fork's or patched extension's
+// advance, deferred naming why and the act that does: the host apply `yolo pack update` runs, which
+// builds nothing (PF-D12, PF-D56). "" is `yolo host apply` itself.
+func hostApplyDeferring(args []string, out, errw io.Writer, color bool, stdin io.Reader, deferred string) int {
 	// The format family is read FIRST, off the same argv, for the reason `ps` reads it
 	// before its probes: a rejected value is misuse, and a run that renders first and
 	// refuses afterwards spends the work on an answer nobody gets. See outputformat.go.
@@ -90,10 +97,10 @@ func hostApply(args []string, out, errw io.Writer, color bool, stdin io.Reader) 
 	// THE PATCHED EXTENSIONS' CHECK AND ADVANCE, before the render reads their good builds
 	// (docs/design/patched-extensions.md §8.3, PPX-D11): the acting posture only, since a dry run
 	// checks nothing.
-	if write {
+	if write && deferred == "" {
 		advanceHostTrees(errw, color, "")
 	}
-	return applyHostFormatted(out, errw, color, write, stdin, format)
+	return applyHostFormattedDeferring(out, errw, color, write, stdin, format, deferred)
 }
 
 // refuseShellInit is all that is left of `yolo host apply --shell-init`: a refusal that

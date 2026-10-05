@@ -85,10 +85,15 @@ type launcherRunner func(bin, path string) error
 // be asserting the plumbing rather than the rule.
 var programRefresh = refreshProgramsFromOS
 
+// packUpdateBuildsNoPatched is why the host apply `yolo pack update` runs builds no patched fork
+// and no patched extension, naming the acts that do (PF-D12, PF-D56).
+const packUpdateBuildsNoPatched = "`yolo pack update` builds none: `yolo host apply --assert`, or the next " +
+	"`yolo host` launch of it, builds it"
+
 // hostApplyFromPackUpdate runs host apply --assert on the host after packs are updated.
 // A package-level var so tests can intercept or assert that it is called with --assert.
 var hostApplyFromPackUpdate = func(args []string, out, errw io.Writer, color bool, stdin io.Reader) int {
-	return hostApply(args, out, errw, color, stdin)
+	return hostApplyDeferring(args, out, errw, color, stdin, packUpdateBuildsNoPatched)
 }
 
 // packUpdate is `yolo pack update`: everything `install` does, plus the program refresh,

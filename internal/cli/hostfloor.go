@@ -336,6 +336,11 @@ func applyHostFloor(pr richtext.Printer, out io.Writer, packs []*packload.Pack, 
 	progs := floorPrograms(packs)
 	floor := newHostFloor(out, progs)
 	floor.Prefix = "    "
+	if survey != nil && survey.advanceDeferred != "" {
+		// THE ACT BUILDS NONE (PF-D12, PF-D56): the floor installs a good build already admitted, and a
+		// patched fork with none says which act builds it.
+		floor.Advance, floor.NoAdvance = nil, survey.advanceDeferred
+	}
 	rc := 0
 	// note records a row for the machine document (hostApplyDoc.HostFloor), which only the dry
 	// run emits, so the dry run's rows are the ones it carries.
@@ -349,6 +354,12 @@ func applyHostFloor(pr richtext.Printer, out io.Writer, packs []*packload.Pack, 
 		row := hostApplyDocFloorEntry{Bin: p.Bin(), Pack: p.Pack, Disposition: string(st.Disposition),
 			Action: "none", Reason: st.Reason, Launcher: st.Launcher}
 		switch {
+		case st.Disposition == hostfloor.NoEntry && floor.NoAdvance != "" && strings.Contains(st.Reason, floor.NoAdvance):
+			// A patched fork this act builds none of (PF-D56): not the floor's NoEntry, whose launch
+			// runs the copy on the PATH, since a `yolo host` launch of it builds it.
+			pr.Printf("  [cyan]%-20s[/cyan] %s: not installed yet — %s", "host_floor", p.Bin(), st.Reason)
+			note(row)
+			continue
 		case st.Disposition == hostfloor.NoEntry:
 			pr.Printf("  [cyan]%-20s[/cyan] %s: no floor entry — %s; `yolo host -- %s` runs the one on "+
 				"your PATH", "host_floor", p.Bin(), st.Reason, p.Bin())

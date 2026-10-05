@@ -240,6 +240,10 @@ type Floor struct {
 	// builds no good build that copy already is (PF-D55). nil => no patched fork is advanced here, and
 	// none with no good build in the store has a floor entry.
 	Advance func(ctx context.Context, p Program, installed *Record) PatchedState
+	// NoAdvance is why Advance is nil for this act when the act, not the machine, builds no patched
+	// fork, naming the act that does: the host apply `yolo pack update` runs (PF-D12, PF-D56). ""
+	// keeps the machine's reason.
+	NoAdvance string
 	// Build runs the fork's build act for p at commit (a sealed capture jail; never on the host),
 	// waiting, bounded, for a build of the same key another process is running, as a jail launch
 	// does (FP-D1), and returns the entry it admitted or the one that process did. The entry is

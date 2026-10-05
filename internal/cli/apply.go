@@ -230,13 +230,21 @@ func applyHost(out, errw io.Writer, color bool, write bool, stdin io.Reader) int
 // answered a question.
 func applyHostFormatted(out, errw io.Writer, color bool, write bool, stdin io.Reader,
 	format string) int {
+	return applyHostFormattedDeferring(out, errw, color, write, stdin, format, "")
+}
+
+// applyHostFormattedDeferring is applyHostFormatted for an apply that runs no patched advance,
+// deferred naming why and the act that does (hostApplySurvey.advanceDeferred); "" runs them.
+func applyHostFormattedDeferring(out, errw io.Writer, color bool, write bool, stdin io.Reader,
+	format, deferred string) int {
 	if !outfmt.IsJSON(format) {
-		return applyHost(out, errw, color, write, stdin)
+		return applyHostSurveyed(out, errw, color, write, stdin,
+			&hostApplySurvey{floorStage: true, advanceDeferred: deferred})
 	}
 	if jsonRefusedForPosture(format, write) {
 		return refuseJSONForActingApply(errw)
 	}
-	survey := &hostApplySurvey{floorStage: true}
+	survey := &hostApplySurvey{floorStage: true, advanceDeferred: deferred}
 	rc := applyHostSurveyed(outfmt.Sink(out, format), errw, false, false, nil, survey)
 	return emitHostApplyDoc(out, errw, format, survey, rc)
 }

@@ -182,6 +182,8 @@ func (f *Floor) patchedWhat(p Program, g *PatchedBuild) string {
 // advance builds in a jail, as a plain fork's build act does (cannotBuild).
 func (f *Floor) cannotAdvance() string {
 	switch {
+	case f.Advance == nil && f.NoAdvance != "":
+		return f.NoAdvance
 	case f.Advance == nil:
 		return "this yolo runs no patched fork's advance here"
 	case f.CaptureUnavailable != nil:
