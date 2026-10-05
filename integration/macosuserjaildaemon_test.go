@@ -151,16 +151,20 @@ func requireNoGuestSupervisorLeft(t *testing.T, diag func() string) {
 // declares a jail daemon and no host half, from the conventional local pack, runs confined in the
 // guest as a container runs it, instead of being declined as one whose host half runs here. The
 // daemon writes one line and stays up; the probe waits for that line in its log, which the
-// supervisor opens under the sandbox home, and the session's end must stop the supervisor.
+// supervisor opens under the sandbox home, and the session's end must stop the supervisor. The
+// line ends with "token-set" when the service's caller token is in the daemon's environment, so
+// the log records only whether the token arrived, never its value.
 //
 // WHAT ONLY THIS TEST CAN SEE: that the guest's supervisor really starts a service's daemon (the
-// unit tests stop at the payload handed to it), with the service's caller token in its env file.
+// unit tests stop at the payload handed to it), and that the service's caller token, which the
+// unit tests see only in the supervisor's env file, reaches the daemon's environment.
 func TestMacosUserRunsAPackServiceJailDaemonInTheGuest(t *testing.T) {
 	requireMacosUser(t)
 	packHome(t, `{"packs": []}`)
 	writeLocalPackFiles(t, map[string]localPackFile{
 		"pack.json": {body: `{"contributes": [{"kind": "service", "name": "acme-svc",
-			"jail_daemon": {"cmd": ["/bin/sh", "-c", "echo acme-svc-up; exec /bin/sleep 600"]}}]}`},
+			"jail_daemon": {"cmd": ["/bin/sh", "-c",
+				"echo acme-svc-up ${YOLO_SERVICE_ACME_SVC_TOKEN:+token-set}; exec /bin/sleep 600"]}}]}`},
 	})
 	ws := macosUserWorkspace(t, `{}`)
 	logRel := ".local/state/yolo-jail-daemons/acme-svc.log"
@@ -176,8 +180,12 @@ func TestMacosUserRunsAPackServiceJailDaemonInTheGuest(t *testing.T) {
 	if !strings.Contains(r.combined(), "Started acme-svc inside the sandbox") {
 		t.Errorf("the launch did not disclose the guest's service daemon%s", diag())
 	}
-	if b, err := os.ReadFile(hostLog); err != nil || !strings.Contains(string(b), "acme-svc-up") {
+	b, err := os.ReadFile(hostLog)
+	if err != nil || !strings.Contains(string(b), "acme-svc-up") {
 		t.Errorf("the service's daemon did not write its line to %s (err %v)%s", hostLog, err, diag())
+	} else if !strings.Contains(string(b), "acme-svc-up token-set") {
+		t.Errorf("the service's daemon ran without its caller token, YOLO_SERVICE_ACME_SVC_TOKEN, "+
+			"in its environment%s", diag())
 	}
 	requireNoGuestSupervisorLeft(t, diag)
 }
