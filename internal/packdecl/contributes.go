@@ -136,7 +136,7 @@ type Contribution struct {
 	// argv: there is nothing here for a later build to learn, so nothing can be skew.
 	Update []string `json:"update,omitempty"`
 	// Refresh is the program's PRE-LAUNCH REFRESH (a coined term — see the Refresh type):
-	// `"refresh": {"argv": ["update", "--extensions"], "lock": ".pi-shared-npm/.yolo-update.lock"}`
+	// `"refresh": {"argv": ["update", "--extensions"], "lock": ".pi/.yolo-update.lock"}`
 	// for pi. Read only on `program`, and refused on every other kind for `update`'s reason.
 	//
 	// DECLARED BY THE PACK, never keyed on a bin name in core: the launcher templates are
@@ -3014,7 +3014,7 @@ func refreshProblems(field string, r *Refresh) []string {
 	}
 	if r.Lock == "" {
 		return append(problems, field+".lock: required — the home-relative lock directory, "+
-			"inside the store the refresh writes (e.g. \".pi-shared-npm/.yolo-update.lock\"); "+
+			"inside the store the refresh writes (e.g. \".pi/.yolo-update.lock\"); "+
 			"a refresh with no lock is two jails writing one store at once")
 	}
 	before := len(problems)
@@ -3031,7 +3031,7 @@ func refreshProblems(field string, r *Refresh) []string {
 	}
 	if !strings.HasPrefix(path.Base(clean), StoreBookkeepingPrefix) {
 		problems = append(problems, fmt.Sprintf(
-			"%s.lock: %q must be named %s<something> (e.g. \".pi-shared-npm/.yolo-update.lock\") — "+
+			"%s.lock: %q must be named %s<something> (e.g. \".pi/.yolo-update.lock\") — "+
 				"the lock lives inside the store, and only a name with that prefix is known to be "+
 				"yolo's bookkeeping rather than the tool's content; a store holding nothing but an "+
 				"unmarked lock reads as populated, and the shared_directory hook discards a "+

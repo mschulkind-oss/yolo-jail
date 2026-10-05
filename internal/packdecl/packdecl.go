@@ -294,7 +294,9 @@ type Install struct {
 // step docs/design/pi-extension-lifecycle.md §3.2 calls the execution tier: an argv the
 // generated launcher runs the INSTALLED program with, before exec'ing it, to bring up to
 // date what the program manages BESIDE ITSELF. Pi's extension packages are the case that
-// bought it: `pi update --extensions` refreshes the machine-scoped store every jail reads.
+// bought it: `pi update --extensions` refreshes the workspace's own npm prefix and git
+// checkouts (a machine-scoped store every jail read until XB-D14 of
+// docs/design/pi-extension-store-builds.md).
 //
 // It is not the update verb (Install.UpdateVerb), and the two must not be merged. The verb
 // moves the PROGRAM, so it is gated by the program's own pin and stamp; a refresh moves the
@@ -302,7 +304,8 @@ type Install struct {
 // pinned, on a stamp of its own, and never through `yolo pack update`.
 //
 // What the launcher guarantees around it (§3.2–§3.3), none of which the pack can turn off:
-// at most once per UPDATE_INTERVAL on a machine-global stamp; only when the jail's
+// at most once per UPDATE_INTERVAL on a stamp kept beside Lock, so with the lock's scope;
+// only when the jail's
 // `agent_updates` policy lets this pack move; bounded by the launcher's UPDATE_TIMEOUT;
 // stdin from /dev/null and stdout sent to stderr, so it can neither prompt nor pollute a
 // piped launch; and only while holding Lock. Its failure is reported and the program
@@ -313,13 +316,16 @@ type Refresh struct {
 	// string to split — the same reasoning as UpdateVerb. Required and non-empty.
 	Argv []string `json:"argv"`
 	// Lock is the home-relative path of the refresh's LOCK DIRECTORY, taken with a
-	// non-blocking mkdir (§3.3): `.pi-shared-npm/.yolo-update.lock` for pi.
+	// non-blocking mkdir (§3.3): `.pi/.yolo-update.lock` for pi, the workspace's own state.
 	//
 	// ITS PARENT IS THE STORE THE REFRESH WRITES, and that is why a pack declares it rather
-	// than core choosing one: the lock must live where every writer on the machine can see
-	// it, which is the machine-scoped directory the pack itself declared. The launcher never
-	// creates the parent — a missing store is a fault to report, not a directory to invent
-	// in a per-workspace home — and a refresh whose lock it cannot take does not run.
+	// than core choosing one: the lock must live where every writer of that store can see
+	// it, which is a directory the pack itself declared. The refresh's stamp and its
+	// seen-content markers live beside it, in a yolo-named directory of that store
+	// (entrypoint.RefreshStateDirName), so a throttle has the lock's scope (XB-D14 of
+	// docs/design/pi-extension-store-builds.md). The launcher never creates the parent — a
+	// missing store is a fault to report, not a directory to invent in a per-workspace home —
+	// and a refresh whose lock it cannot take does not run.
 	//
 	// ITS NAME MUST START WITH StoreBookkeepingPrefix, because the lock lives inside a store
 	// that other code judges by its contents: a store the shared_directory hook shares holds
@@ -328,7 +334,7 @@ type Refresh struct {
 	// real tree in favor of an empty one. Required.
 	Lock string `json:"lock"`
 	// DueOnChange lists home-relative FILES whose content, when it differs from every
-	// content a refresh has already SUCCEEDED for on this machine, makes the refresh due
+	// content a refresh has already SUCCEEDED for in the lock's store, makes the refresh due
 	// regardless of the hourly stamp: `[".pi/agent/settings.json"]` for pi.
 	//
 	// It exists because the stamp alone lets a program install its add-ons OUTSIDE the lock.

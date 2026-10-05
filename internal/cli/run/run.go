@@ -1889,6 +1889,13 @@ func (o *Options) runContainer(cfg *jsonx.OrderedMap, rt, repoRoot, cname string
 	// is where a user reads what the launch will not do (docs/design/io-priority.md §5.2).
 	o.noteIOPriority(rt, ioprio.FromResources(cfgMap(cfg, "resources")))
 
+	// And a machine-scope folder a selected pack stopped sharing, still in the machine store,
+	// with the command that deletes it (retiredshareddirs.go). Not for a sealed build, whose
+	// output is a build log rather than a launch the user reads.
+	if !o.Sealed {
+		o.noteRetiredSharedDirs(loadedPacks)
+	}
+
 	// Right behind that: what each loaded pack READS from the host this launch. A fetched
 	// pack CAN read the host now (with approval), so the effective host access must be
 	// visible every launch, not just recorded in a lockfile — the transparency half of the

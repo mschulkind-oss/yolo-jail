@@ -22,9 +22,10 @@ is in [the companion's sketch](pi-extension-store-builds-plan.md#landing-the-hel
 `c402dd43` built from the first draft is half withdrawn: its `.pi-shared-git` shared checkout is
 REVERTED, with the boot step that removes the link it left BUILT
 ([§3.10](#310-migration-from-what-c402dd43-shipped)), and its `due_on_change` refresh trigger stays
-([§3.12](#312-the-refresh-trigger-that-stays)). Until something is built, each workspace clones its
-own git extensions, as before `c402dd43`, and the npm half is still live on main as one shared prefix,
-`.pi-shared-npm`, the leak [OQ-5](#OQ-5)'s ruling replaces. **MEASURED** 2026-10-05 by a research
+([§3.12](#312-the-refresh-trigger-that-stays)). Until trees are built, each workspace clones its
+own git extensions, as before `c402dd43`, and since 2026-10-05 installs its own npm extensions too:
+the shared prefix `.pi-shared-npm`, the leak [OQ-5](#OQ-5)'s ruling replaces, is retired on main
+([§3.11](#311-the-npm-store)). **MEASURED** 2026-10-05 by a research
 pass against the held code: its costs per pi exec and three defects, in
 [the companion's §8](pi-extension-store-builds.md#8-if-the-held-store-lands-instead). **UNMEASURED:**
 no real pi has loaded a tree.
@@ -365,8 +366,10 @@ from:".pi/agent/git", at:".pi-shared-git"}` in place of the retired pair
 
 **The machine directory.** `.pi-shared-git` on the host
 (`~/.local/share/yolo-jail/home/.pi-shared-git`) is left in place, per the move-over-delete rule,
-and nothing reads or mounts it any more. No yolo command reports or reclaims it: delete it by hand
-once every jail started before the revert has exited. Its checkouts do not seed the redesign's
+and nothing reads or mounts it any more. No yolo command reclaims it: delete it by hand once every
+jail started before the revert has exited. Since 2026-10-05 a fresh pi launch on a container
+backend that finds it says so, with the `rm -rf`
+([XB-D31](pi-extension-store-builds.md#XB-D31)). Its checkouts do not seed the redesign's
 mirrors.
 
 ### 3.11 The npm store
@@ -384,12 +387,15 @@ for one property is drift.
 [OQ-3](#OQ-3) and [OQ-4](#OQ-4) in the same way the git store did, and it is live today. The earlier
 ruling that shared it ([`pi-extension-lifecycle.md` OQ-1](pi-extension-lifecycle.md#OQ-1), *"one
 version instead of N that drift"*) predates the no-winner ruling, and the two pull apart for any
-pinned version. The companion proposes a first step under every [OQ-6](#OQ-6) option, ahead of any
-tree: retire the shared prefix and move the refresh's lock, stamp and seen markers into each
-workspace's `.pi`. That is [OQ-5](#OQ-5)'s option (c) taken as an interim, so it waits on the
-maintainer's confirmation
+pinned version. The companion's first step under every [OQ-6](#OQ-6) option, ahead of any tree,
+retires the shared prefix and moves the refresh's lock, stamp and seen markers into each
+workspace's `.pi`: [OQ-5](#OQ-5)'s option (c) taken as an interim, confirmed by the maintainer and
+BUILT on 2026-10-05
 ([the companion's §6.3](pi-extension-store-builds.md#63-what-replaces-the-machine-wide-lock-now),
-[XB-D14](pi-extension-store-builds.md#XB-D14)).
+[XB-D14](pi-extension-store-builds.md#XB-D14)). `~/.pi/agent/npm` is per workspace again, the
+`unshare_directory` hook removing the old link as it does for git, and the host's
+`.pi-shared-npm` is left for a human to delete once every jail started before then has exited;
+a fresh launch says so while it is there.
 
 ### 3.12 The refresh trigger that stays
 

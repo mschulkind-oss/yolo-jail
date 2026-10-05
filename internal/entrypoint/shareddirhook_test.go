@@ -23,26 +23,49 @@ import (
 // linkSharedDirectory directly would survive all three. What it does NOT reach is boot.go's
 // own call of RunPackHooks — that needs a whole boot, and nothing in this package has one.
 //
-// It also drives the REAL pi manifest rather than a fixture, so the pack's `at`/`from` and
-// its machine-scope declaration have to keep agreeing (the hook refuses a shared dir the
-// pack never declared, and that refusal is what bounds the cross-workspace leak).
+// It drives a FIXTURE pack rather than a shipped one, because since 2026-09-26 no shipped pack
+// declares the hook: pi's npm store, the only user, became per-commit trees plus a
+// per-workspace prefix (docs/design/pi-git-extension-caching.md OQ-5), and pi now UNSHARES the
+// link this hook made. The fixture is the shape pi declared until then — the same `at`/`from`,
+// the machine-scope declaration, and a refresh lock inside the store — so every case below
+// still exercises that depth and that bookkeeping entry; the hook refuses a shared dir the pack
+// never declared, and that refusal is what bounds the cross-workspace leak.
 
-// sharedDirHook returns the named embedded pack's shared_directory hook, failing the test if
-// the pack stopped requesting one. It must never degrade to a skip: a silently dropped
-// declaration is a jail that quietly goes back to a per-workspace store, which is the drift
-// the machine tier exists to end and which nothing else would notice.
-func sharedDirHook(t *testing.T, pack string) (*packload.Pack, packdecl.Hook) {
+// sharedStoreFixture is that manifest.
+const sharedStoreFixture = `{"name":"storefix","contributes":[
+  {"kind":"program","bin":"storefix","via":"npm","package":"storefix",
+   "refresh":{"argv":["update","--extensions"],"lock":".pi-shared-npm/.yolo-update.lock"}},
+  {"kind":"state","scope":"workspace","at":".pi"},
+  {"kind":"state","scope":"machine","at":".pi-shared-npm","because":"a shared package store (fixture)"},
+  {"kind":"hook","hook":"shared_directory","at":".pi-shared-npm","from":".pi/agent/npm"}]}`
+
+// stageSharedStoreFixture writes the fixture under a fresh pack root and returns the root.
+func stageSharedStoreFixture(t *testing.T) string {
 	t.Helper()
-	p, err := embeddedPack(pack)
-	if err != nil {
+	root := t.TempDir()
+	dir := filepath.Join(root, "storefix")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "pack.json"), []byte(sharedStoreFixture), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return root
+}
+
+// sharedDirHook returns the fixture pack and its shared_directory hook.
+func sharedDirHook(t *testing.T) (*packload.Pack, packdecl.Hook) {
+	t.Helper()
+	p, problems := packload.LoadDir(filepath.Join(stageSharedStoreFixture(t), "storefix"), "storefix")
+	if len(problems) != 0 || p == nil {
+		t.Fatalf("loading the fixture pack: %v", problems)
 	}
 	for _, h := range p.Decl.HookContributions() {
 		if h.Name == HookSharedDirectory {
 			return p, h
 		}
 	}
-	t.Fatalf("%s pack no longer requests %s", pack, HookSharedDirectory)
+	t.Fatalf("the fixture pack declares no %s", HookSharedDirectory)
 	return nil, packdecl.Hook{}
 }
 
@@ -115,7 +138,7 @@ func piRefreshLock(t *testing.T, p *packload.Pack, home string) string {
 			return filepath.Join(home, filepath.FromSlash(in.Refresh.Lock))
 		}
 	}
-	t.Fatal("the pi pack no longer declares a pre-launch refresh")
+	t.Fatal("the fixture pack no longer declares a pre-launch refresh")
 	return ""
 }
 
@@ -148,7 +171,7 @@ func seedStore(t *testing.T, root, marker string) {
 // created and the local path must become a relative symlink into it, because the agent
 // writes through that path the moment it installs anything.
 func TestSharedDirectoryHookLinksWhenNeitherSideExists(t *testing.T) {
-	p, hook := sharedDirHook(t, "pi")
+	p, hook := sharedDirHook(t)
 	e, link, shared := sharedDirEnv(t, hook)
 
 	runHooks(t, e, p)
@@ -204,7 +227,7 @@ func TestSharedDirectoryHookMigratesAPopulatedStoreIntoAnEmptyShared(t *testing.
 		{"shared holds only the refresh lock", true, true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			p, hook := sharedDirHook(t, "pi")
+			p, hook := sharedDirHook(t)
 			e, link, shared := sharedDirEnv(t, hook)
 			if tc.seedShared {
 				if err := os.MkdirAll(shared, 0o755); err != nil {
@@ -268,7 +291,7 @@ func TestSharedDirectoryHookMigratesAPopulatedStoreIntoAnEmptyShared(t *testing.
 // re-installable package tree, not a login. It is still recorded, because "my extensions
 // changed version when I launched" needs a trace.
 func TestSharedDirectoryHookKeepsAPopulatedSharedStore(t *testing.T) {
-	p, hook := sharedDirHook(t, "pi")
+	p, hook := sharedDirHook(t)
 	e, link, shared := sharedDirEnv(t, hook)
 	seedStore(t, shared, "the-machine-store")
 	seedStore(t, link, "this-workspaces-store")
@@ -303,7 +326,7 @@ func TestSharedDirectoryHookKeepsAPopulatedSharedStore(t *testing.T) {
 //     one launch later — a silent failure reported as a success, on a delay.
 func TestAFailedSharedDirectoryCopyLeavesTheLocalStoreAlone(t *testing.T) {
 	t.Run("the copy cannot be marked in progress", func(t *testing.T) {
-		p, hook := sharedDirHook(t, "pi")
+		p, hook := sharedDirHook(t)
 		e, link, shared := sharedDirEnv(t, hook)
 		seedStore(t, link, "the-only-copy")
 		// A DIRECTORY where the mark's file belongs: WriteFile fails EISDIR, for root as
@@ -319,7 +342,7 @@ func TestAFailedSharedDirectoryCopyLeavesTheLocalStoreAlone(t *testing.T) {
 	})
 
 	t.Run("an entry the copy cannot reproduce", func(t *testing.T) {
-		p, hook := sharedDirHook(t, "pi")
+		p, hook := sharedDirHook(t)
 		e, link, shared := sharedDirEnv(t, hook)
 		seedStore(t, link, "the-only-copy")
 		fifo := filepath.Join(link, "node_modules", "odd.sock")
@@ -412,7 +435,7 @@ func assertStoreSurvived(t *testing.T, e *Env, link, marker string) {
 // hook, whose prologue is the same code. What must still hold is the part the data depends
 // on: the local store is not touched, so the remedy is to fix the path and launch again.
 func TestAnUnusableSharedStoreIsAReportedBootFailure(t *testing.T) {
-	p, hook := sharedDirHook(t, "pi")
+	p, hook := sharedDirHook(t)
 	e, link, shared := sharedDirEnv(t, hook)
 	seedStore(t, link, "the-only-copy")
 	// A regular file where the declared machine-scope directory belongs: MkdirAll fails
@@ -430,7 +453,7 @@ func TestAnUnusableSharedStoreIsAReportedBootFailure(t *testing.T) {
 	if len(fails) == 0 {
 		t.Fatal("an unusable machine tier was not reported at all")
 	}
-	if !strings.Contains(strings.Join(fails, "\n"), "hook_pi_"+HookSharedDirectory) {
+	if !strings.Contains(strings.Join(fails, "\n"), "hook_storefix_"+HookSharedDirectory) {
 		t.Errorf("the failure does not name the hook that failed: %v", fails)
 	}
 	if fi, err := os.Lstat(link); err != nil || fi.Mode()&os.ModeSymlink != 0 {
@@ -446,7 +469,7 @@ func TestAnUnusableSharedStoreIsAReportedBootFailure(t *testing.T) {
 // one class a container-only test cannot see: that backend has NO MOUNTS, so the whole
 // mechanism rests on the relative link resolving through a symlinked state dir into the
 // sidecar MIRROR of the machine tier. It drives the real boot entry (RunDarwinBootstrap) with
-// the real pi manifest staged, and reads the store's bytes THROUGH the layout.
+// the fixture manifest staged, and reads the store's bytes THROUGH the layout.
 //
 // Depth is the reason it exists beside the credential twin. The claude case links one level
 // down (`.claude/.credentials.json`, target `../.claude-shared-credentials/…`); this one links
@@ -458,7 +481,7 @@ func TestAnUnusableSharedStoreIsAReportedBootFailure(t *testing.T) {
 // in CI, and the `..` resolution it rests on is physical on both kernels.
 func TestDarwinBootstrapResolvesASharedStoreTwoLevelsDeep(t *testing.T) {
 	home, ws := darwinBootstrapHome(t, map[string]string{
-		"YOLO_PACK_ROOT": stagePackForBootstrap(t, "pi"),
+		"YOLO_PACK_ROOT": stageSharedStoreFixture(t),
 	})
 	sidecar := filepath.Join(ws, ".yolo", "home")
 

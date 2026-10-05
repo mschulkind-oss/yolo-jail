@@ -31,7 +31,7 @@
         "due_on_change": [
           ".pi/agent/settings.json"
         ],
-        "lock": ".pi-shared-npm/.yolo-update.lock"
+        "lock": ".pi/.yolo-update.lock"
       },
       "via": "npm"
     },
@@ -188,14 +188,8 @@
     },
     {
       "at": ".pi-shared-npm",
-      "because": "the extension package store, shared so every workspace on the machine runs one version of an extension instead of N that drift",
-      "kind": "state",
-      "scope": "machine"
-    },
-    {
-      "at": ".pi-shared-npm",
       "from": ".pi/agent/npm",
-      "hook": "shared_directory",
+      "hook": "unshare_directory",
       "kind": "hook"
     },
     {

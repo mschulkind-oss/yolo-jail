@@ -1,6 +1,8 @@
 package entrypoint
 
 import (
+	"path"
+
 	"github.com/mschulkind-oss/yolo-jail/internal/packdecl"
 	"github.com/mschulkind-oss/yolo-jail/internal/shquote"
 )
@@ -9,11 +11,20 @@ import (
 // a term coined for that field): the execution and concurrency tiers of
 // docs/design/pi-extension-lifecycle.md, §3.2 and §3.3.
 //
-// WHAT IT IS FOR. Pi keeps its extension packages in a machine-scoped store every jail reads
-// (§3.1, shipped 2026-09-21). Nothing refreshed that store, so every workspace went on showing
-// Pi's "Package Updates Available" box until a human ran `pi update --extensions` by hand. The
-// refresh is that command, run by the launcher the user just invoked, before the exec — so the
-// in-app check that follows finds the store current.
+// WHAT IT IS FOR. Pi showed its "Package Updates Available" box until a human ran
+// `pi update --extensions` by hand. The refresh is that command, run by the launcher the user
+// just invoked, before the exec — so the in-app check that follows finds the packages current.
+// It was built for a machine-scoped store every jail read (§3.1, shipped 2026-09-21); since
+// XB-D14 of docs/design/pi-extension-store-builds.md pi's npm prefix is per workspace again,
+// and the refresh, its lock and its throttle with it.
+//
+// A THROTTLE HAS ITS LOCK'S SCOPE (that design's §6.2, rule 6). The refresh's stamp and its
+// seen-content markers live in RefreshStateDirName, beside the lock, in the store the lock's
+// parent names: for pi that is the workspace's own `.pi`, so a refresh in one workspace
+// throttles that workspace alone. They lived in the machine-global ~/.cache until XB-D14, where
+// a refresh another workspace ran, or a seen marker it recorded, let a new workspace skip the
+// refresh it needed and left pi's own startup to install every extension into an empty prefix,
+// unlocked.
 //
 // WHY IT IS DECLARED AND NOT KEYED ON "pi". The plan sketch put a `_refresh_pi_extensions`
 // branch into npmLauncherTemplate for binary pi. Both templates are shared by every program,
@@ -66,6 +77,8 @@ const refreshDeclShell = `# The pack's declared PRE-LAUNCH REFRESH (packdecl.Ref
 HAS_REFRESH=__YOLO_HAS_REFRESH__
 REFRESH_ARGV=(__YOLO_REFRESH_ARGV__)
 REFRESH_LOCK_REL=__YOLO_REFRESH_LOCK__
+# The directory beside the lock that holds the refresh's stamp and seen markers (XB-D14).
+REFRESH_STATE_NAME=__YOLO_REFRESH_STATE_NAME__
 # The declared DUE-ON-CHANGE files (packdecl.Refresh.DueOnChange), home-relative. HAS_REFRESH_DUE
 # gates every expansion of the list, for HAS_REFRESH's bash-3.2 reason.
 HAS_REFRESH_DUE=__YOLO_HAS_REFRESH_DUE__
@@ -76,30 +89,43 @@ REFRESH_DUE_ON_CHANGE=(__YOLO_REFRESH_DUE_ON_CHANGE__)
 // the MCP/LSP refresh and immediately before the exec — §3.2's "strictly before exec", and
 // after every step that can change what $REAL_BIN is.
 //
-// It reads the templates' own UPDATE_INTERVAL, UPDATE_TIMEOUT, STALE_LOCK, STAMP_DIR,
-// UPDATES_ENABLED, _stamp_mtime and _bounded rather than defining its own, so a refresh is
-// throttled, bounded and policy-gated by exactly the numbers the program's own update is.
+// It reads the templates' own UPDATE_INTERVAL, UPDATE_TIMEOUT, STALE_LOCK, UPDATES_ENABLED,
+// _stamp_mtime and _bounded rather than defining its own, so a refresh is throttled, bounded
+// and policy-gated by exactly the numbers the program's own update is. It does not read
+// STAMP_DIR: that is the machine-global ~/.cache, and the refresh's throttle is its lock's
+// (RefreshStateDirName).
 // __YOLO_EXEC_PREFIX__ is the npm template's resolved interpreter (a declared node_floor), so a
 // `#!/usr/bin/env node` program is refreshed under the node it is launched under; the native
 // template renders it empty.
 const prelaunchRefreshShellFn = `
 # --- pre-launch refresh (pi-extension-lifecycle.md §3.2, §3.3) -------------------------
-# The stamp is MACHINE-GLOBAL (~/.cache is one truth across workspaces), so one refresh an hour
-# covers the machine-scoped store every jail shares. It throttles EVERYTHING the refresh does,
-# though: what the program refreshes outside that store (for pi, a workspace's own git
-# packages, and whichever package list that workspace's settings name) waits out the same
-# hour. It lives in its own subdirectory so no bin name can collide with it.
-REFRESH_STAMP="$STAMP_DIR/refresh/$BIN.stamp"
+# The stamp has the LOCK'S SCOPE (pi-extension-store-builds.md XB-D14): it lives beside the
+# lock, in the store the lock's parent names, so it throttles exactly the launches the lock
+# excludes. For pi that store is the workspace's own .pi, so one refresh an hour per workspace.
+# Its directory is yolo's bookkeeping inside the store (named, like the lock, with the prefix
+# that tells it from the tool's content), and the bin in each name keeps two programs locking
+# one store from colliding.
 REFRESH_LOCK="$HOME/$REFRESH_LOCK_REL"
 REFRESH_STORE="${REFRESH_LOCK%/*}"
+REFRESH_STATE="$REFRESH_STORE/$REFRESH_STATE_NAME"
+REFRESH_STAMP="$REFRESH_STATE/$BIN.stamp"
 REFRESH_TOKEN=""
 REFRESH_HEARTBEAT=60 # seconds between touches of a HELD lock; STALE_LOCK is ten of them
 REFRESH_BEAT_PID=""
-# One marker per CONTENT KEY a refresh has SUCCEEDED for on this machine (DueOnChange). Beside
-# the stamp, so machine-global like it; keyed by content rather than by workspace, so two
-# workspaces with different settings each refresh once and then stop, instead of taking turns.
-REFRESH_SEEN_DIR="$STAMP_DIR/refresh/$BIN.seen"
+# One marker per CONTENT KEY a refresh has SUCCEEDED for in this store (DueOnChange). Beside
+# the stamp, so with the lock's scope like it; keyed by content, so a store two workspaces with
+# different settings share is refreshed once for each and then stops, instead of taking turns.
+REFRESH_SEEN_DIR="$REFRESH_STATE/$BIN.seen"
 REFRESH_KEY=""
+
+# _refresh_state_dir makes the directory the stamp and the seen markers live in, and never the
+# STORE above it: a missing store is a mount that did not happen, and inventing it in a home
+# would hide that (_take_refresh_lock). So with no store there is nowhere to throttle, and the
+# report of it is said at every launch.
+_refresh_state_dir() {
+    [ -d "$REFRESH_STORE" ] || return 1
+    mkdir -p "$REFRESH_STATE" 2>/dev/null
+}
 
 # _refresh_content_key prints one key for the current content of every declared file: an
 # absent file contributes "absent", so absent and present differ. cksum is POSIX and ships on a
@@ -134,7 +160,8 @@ _refresh_content_unseen_fresh() {
 
 _refresh_record_seen() {
     [ "$HAS_REFRESH_DUE" = "1" ] && [ -n "$REFRESH_KEY" ] || return 0
-    mkdir -p "$REFRESH_SEEN_DIR" 2>/dev/null && : > "$REFRESH_SEEN_DIR/$REFRESH_KEY" 2>/dev/null
+    _refresh_state_dir && mkdir -p "$REFRESH_SEEN_DIR" 2>/dev/null &&
+        : > "$REFRESH_SEEN_DIR/$REFRESH_KEY" 2>/dev/null
 }
 
 _refresh_due() {
@@ -147,7 +174,7 @@ _refresh_due() {
 # _wait_for_refresh_lock is the ONE case a held lock is waited on: this launch's watched
 # content has never been refreshed with, so the program is about to install what it names —
 # and doing that outside the lock, while the holder installs the same thing into the same
-# shared store, is the first-install race DueOnChange exists to close. Bounded by
+# store, is the first-install race DueOnChange exists to close. Bounded by
 # UPDATE_TIMEOUT; returns 0 once the lock is free (and taken by this launcher), 1 on timeout.
 _wait_for_refresh_lock() {
     local waited=0 lrc
@@ -162,7 +189,7 @@ _wait_for_refresh_lock() {
     return 1
 }
 
-_refresh_touch() { mkdir -p "${REFRESH_STAMP%/*}" 2>/dev/null && touch "$REFRESH_STAMP" 2>/dev/null; }
+_refresh_touch() { _refresh_state_dir && touch "$REFRESH_STAMP" 2>/dev/null; }
 
 # _take_refresh_lock returns 0 when this launcher now holds the lock, 1 when another holds it,
 # and 2 when it cannot be taken at all. The STORE is never created here (a plain mkdir, never
@@ -263,9 +290,11 @@ _prelaunch_refresh() {
     fi
     if [ "$lrc" != 0 ]; then
         echo "  ⚠ $BIN: cannot take the refresh lock $REFRESH_LOCK ($REFRESH_STORE is missing or not writable) — skipping the pre-launch refresh." >&2
-        # Stamped, so a store that is simply absent says so once an hour rather than every launch.
-        # The content key is recorded for the same reason: a refresh that can never run must not
-        # turn the change trigger into a warning on every launch.
+        # Stamped where the store can hold a stamp, so a lock path something else occupies says
+        # so once an hour rather than every launch, and the content key is recorded for the same
+        # reason. A store that is missing or refuses writes has nowhere to keep either, so it is
+        # said at every launch (XB-D14): a stamp kept anywhere else would be the machine-wide
+        # throttle that let one jail's failed mount silence another's refresh.
         _refresh_touch || true
         _refresh_record_seen || true
         return 0
@@ -292,6 +321,27 @@ _prelaunch_refresh() {
 _prelaunch_refresh || true
 `
 
+// RefreshStateDirName is the directory, beside a pre-launch refresh's lock in the store the
+// lock's parent names, that holds the refresh's stamp (<bin>.stamp) and its seen-content markers
+// (<bin>.seen/): XB-D14 of docs/design/pi-extension-store-builds.md, "a throttle has its lock's
+// scope". It carries packdecl.StoreBookkeepingPrefix for the lock's own reason: a store's
+// emptiness is judged by its entries (the shared_directory hook), and yolo's bookkeeping must
+// not read as the tool's content. The launcher templates are handed it as a splice, so this
+// constant is the one spelling.
+const RefreshStateDirName = packdecl.StoreBookkeepingPrefix + "refresh"
+
+// RefreshStampRel is the home-relative path of bin's refresh stamp, for the home-relative lock
+// a pack declares.
+func RefreshStampRel(lockRel, bin string) string {
+	return path.Join(path.Dir(lockRel), RefreshStateDirName, bin+".stamp")
+}
+
+// RefreshSeenRel is the home-relative directory of bin's seen-content markers, for the
+// home-relative lock a pack declares.
+func RefreshSeenRel(lockRel, bin string) string {
+	return path.Join(path.Dir(lockRel), RefreshStateDirName, bin+".seen")
+}
+
 // refreshSplices renders the refresh's sentinel pairs for a strings.Replacer, riding on the
 // end of each generator's pair list as launchFlagSplices does. A nil refresh renders the
 // switch off and an empty argv, so a program that declares none carries the function but
@@ -307,6 +357,7 @@ func refreshSplices(r *packdecl.Refresh) []string {
 			"__YOLO_HAS_REFRESH__", shquote.Quote(boolFlag(false)),
 			"__YOLO_REFRESH_ARGV__", "",
 			"__YOLO_REFRESH_LOCK__", shquote.Quote(""),
+			"__YOLO_REFRESH_STATE_NAME__", shquote.Quote(RefreshStateDirName),
 			"__YOLO_HAS_REFRESH_DUE__", shquote.Quote(boolFlag(false)),
 			"__YOLO_REFRESH_DUE_ON_CHANGE__", "",
 		}
@@ -315,6 +366,7 @@ func refreshSplices(r *packdecl.Refresh) []string {
 		"__YOLO_HAS_REFRESH__", shquote.Quote(boolFlag(len(r.Argv) > 0 && r.Lock != "")),
 		"__YOLO_REFRESH_ARGV__", shquote.Join(r.Argv),
 		"__YOLO_REFRESH_LOCK__", shquote.Quote(r.Lock),
+		"__YOLO_REFRESH_STATE_NAME__", shquote.Quote(RefreshStateDirName),
 		// Join, like the argv: a LIST of home-relative files, each one word.
 		"__YOLO_HAS_REFRESH_DUE__", shquote.Quote(boolFlag(len(r.DueOnChange) > 0)),
 		"__YOLO_REFRESH_DUE_ON_CHANGE__", shquote.Join(r.DueOnChange),

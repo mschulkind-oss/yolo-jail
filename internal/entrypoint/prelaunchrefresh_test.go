@@ -25,8 +25,11 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/packdecl"
 )
 
+// probeLockRel is the probe's lock, in a store that is one workspace's own state, as pi's
+// `.pi` is since XB-D14 (docs/design/pi-extension-store-builds.md); a cell that wants a store
+// two jails share links it (newSharedStorePair).
 const (
-	probeLockRel = ".pi-shared-npm/.yolo-update.lock"
+	probeLockRel = ".tool/.yolo-update.lock"
 	probeOwner   = ".yolo-lock-owner"
 )
 
@@ -65,8 +68,8 @@ echo "RAN $*"
 `
 }
 
-// prelaunchProbe is one generated launcher, the fake program it manages, and the machine-scoped
-// store its refresh locks.
+// prelaunchProbe is one generated launcher, the fake program it manages, and the store its
+// refresh locks, which also holds the refresh's stamp and seen markers.
 type prelaunchProbe struct {
 	home, log, stamps, script, realBin, store string
 	native                                    bool
@@ -100,7 +103,7 @@ func newPrelaunchProbe(t *testing.T, native bool) *prelaunchProbe {
 		log:     filepath.Join(home, "argv.log"),
 		stamps:  filepath.Join(home, ".cache", "yolo-agent-stamps"),
 		script:  filepath.Join(home, "launch-tool"),
-		store:   filepath.Join(home, ".pi-shared-npm"),
+		store:   filepath.Join(home, ".tool"),
 		native:  native,
 		updates: true,
 		refresh: &packdecl.Refresh{Argv: []string{"update", "--extensions"}, Lock: probeLockRel},
@@ -123,8 +126,12 @@ func newPrelaunchProbe(t *testing.T, native bool) *prelaunchProbe {
 	return p
 }
 
-func (p *prelaunchProbe) lockPath() string  { return filepath.Join(p.home, probeLockRel) }
-func (p *prelaunchProbe) stampPath() string { return filepath.Join(p.stamps, "refresh", "tool.stamp") }
+func (p *prelaunchProbe) lockPath() string { return filepath.Join(p.home, probeLockRel) }
+
+// stampPath is the refresh's stamp where production names it, beside the lock (XB-D14).
+func (p *prelaunchProbe) stampPath() string {
+	return filepath.Join(p.home, filepath.FromSlash(RefreshStampRel(probeLockRel, "tool")))
+}
 
 // write renders the launcher through the production generator.
 func (p *prelaunchProbe) write(t *testing.T) {
@@ -218,8 +225,9 @@ func backdatePath(t *testing.T, path string, age time.Duration) {
 
 // TestPrelaunchRefreshRunsBeforeTheLaunchUnderTheLock is the tier's whole claim, in both
 // templates: the declared argv reaches the program, BEFORE the exec, while the lock is held;
-// the lock is released afterwards; the machine-global stamp is written; the refresh cannot
-// read the user's terminal; and none of its output reaches the launch's stdout.
+// the lock is released afterwards; the refresh's stamp is written beside its lock and nothing
+// is written to the machine-global stamp dir; the refresh cannot read the user's terminal; and
+// none of its output reaches the launch's stdout.
 func TestPrelaunchRefreshRunsBeforeTheLaunchUnderTheLock(t *testing.T) {
 	for _, native := range []bool{false, true} {
 		t.Run(map[bool]string{false: "npm", true: "native"}[native], func(t *testing.T) {
@@ -244,6 +252,10 @@ func TestPrelaunchRefreshRunsBeforeTheLaunchUnderTheLock(t *testing.T) {
 			}
 			if _, err := os.Stat(p.stampPath()); err != nil {
 				t.Errorf("the refresh must write its own stamp: %v", err)
+			}
+			if _, err := os.Lstat(filepath.Join(p.stamps, "refresh")); !os.IsNotExist(err) {
+				t.Errorf("the refresh wrote into the machine-global stamp dir (err=%v); its "+
+					"throttle has its lock's scope (XB-D14)", err)
 			}
 			if strings.Contains(stdout, "REFRESH-STDOUT") || !strings.Contains(stderr, "REFRESH-STDOUT") {
 				t.Errorf("the refresh's stdout must be sent to stderr, so a piped launch "+
@@ -344,26 +356,35 @@ func TestPrelaunchRefreshBreaksAStaleLock(t *testing.T) {
 // refresh must not run unguarded (flock.go's error path fails open; a write must not), the
 // store must not be invented in a per-workspace home, and the message must not claim another
 // jail is refreshing — the user has a mount to fix, not a wait to sit out.
+//
+// The report is said at EVERY launch, and that changed with XB-D14: the stamp that used to
+// hold it to once an hour lives in the store now, so there is nowhere to write it, and
+// writing it anywhere else is the machine-wide throttle that let one jail's failed mount
+// silence another's refresh. Writing the stamp must not create the store either.
 func TestPrelaunchRefreshReportsAMissingStoreAsSuch(t *testing.T) {
 	p := newPrelaunchProbe(t, false)
 	if err := os.RemoveAll(p.store); err != nil {
 		t.Fatal(err)
 	}
-	stdout, stderr := p.run(t, "")
-	log := p.logLines(t)
-	if countLine(log, "REFRESH") != 0 {
-		t.Errorf("with no store the refresh must not run at all: %v", log)
+	for launch := 1; launch <= 2; launch++ {
+		stdout, stderr := p.run(t, "")
+		log := p.logLines(t)
+		if countLine(log, "REFRESH") != 0 {
+			t.Errorf("launch %d: with no store the refresh must not run at all: %v", launch, log)
+		}
+		if !strings.Contains(stderr, "cannot take the refresh lock") || strings.Contains(stderr, "another refresh holds") {
+			t.Errorf("launch %d: a missing store must be reported as that, not as contention:\n%s", launch, stderr)
+		}
+		if _, err := os.Stat(p.store); !os.IsNotExist(err) {
+			t.Errorf("launch %d: the launcher must never create the store itself (err=%v)", launch, err)
+		}
+		if countLine(log, "LAUNCH:") != launch {
+			t.Errorf("launch %d: the launcher must still exec the program:\n%v\nstdout=%q", launch, log, stdout)
+		}
 	}
-	if !strings.Contains(stderr, "cannot take the refresh lock") || strings.Contains(stderr, "another refresh holds") {
-		t.Errorf("a missing store must be reported as that, not as contention:\n%s", stderr)
+	if _, err := os.Lstat(filepath.Join(p.stamps, "refresh")); !os.IsNotExist(err) {
+		t.Errorf("the report was throttled in the machine-global stamp dir (err=%v)", err)
 	}
-	if _, err := os.Stat(p.store); !os.IsNotExist(err) {
-		t.Errorf("the launcher must never create the store itself (err=%v)", err)
-	}
-	if _, err := os.Stat(p.stampPath()); err != nil {
-		t.Errorf("the report is stamped, so it is said once an hour rather than every launch: %v", err)
-	}
-	assertProgramLaunched(t, log, stdout)
 }
 
 // TestPrelaunchRefreshFailureStillLaunches: a non-zero refresh (§4.2, "npm Registry Outage")
@@ -464,11 +485,31 @@ func TestPrelaunchRefreshLeavesAStolenLockAlone(t *testing.T) {
 
 // newSharedStorePair is two jails with their OWN homes, one shared store (a symlink here, a
 // bind mount in a real jail) and one machine-global stamp dir; both fakes log to A's file.
+// It is the shape of a pack whose refresh lock sits in a machine-scope store, which no shipped
+// pack declares since XB-D14: the throttle then has that store's scope too.
 func newSharedStorePair(t *testing.T) (a, b *prelaunchProbe) {
+	t.Helper()
+	return newProbePair(t, true)
+}
+
+// newWorkspacePair is two workspaces on one machine: their OWN homes and stores, as pi's `.pi`
+// is per workspace, and one machine-global stamp dir (the machine's ~/.cache, which every jail
+// mounts); both fakes log to A's file.
+func newWorkspacePair(t *testing.T) (a, b *prelaunchProbe) {
+	t.Helper()
+	return newProbePair(t, false)
+}
+
+// newProbePair links B's machine stamp dir to A's, and its store too when shareStore is set.
+func newProbePair(t *testing.T, shareStore bool) (a, b *prelaunchProbe) {
 	t.Helper()
 	a = newPrelaunchProbe(t, false)
 	b = newPrelaunchProbe(t, false)
-	for _, link := range []struct{ from, to string }{{b.store, a.store}, {b.stamps, a.stamps}} {
+	links := []struct{ from, to string }{{b.stamps, a.stamps}}
+	if shareStore {
+		links = append(links, struct{ from, to string }{b.store, a.store})
+	}
+	for _, link := range links {
 		if err := os.RemoveAll(link.from); err != nil {
 			t.Fatal(err)
 		}
@@ -568,7 +609,55 @@ func TestConcurrentJailsRefreshTheSharedStoreOnce(t *testing.T) {
 	// And now the stamp A wrote throttles B: the next launch in B does not refresh.
 	b.run(t, "")
 	if n := countLine(logLines(t, a.log), "REFRESH"); n != 1 {
-		t.Errorf("A's stamp is machine-global and must throttle B too (refreshes=%d)", n)
+		t.Errorf("A's stamp lives in the store the two jails share, so it must throttle B "+
+			"too (refreshes=%d)", n)
+	}
+}
+
+// TestARefreshThrottlesOnlyItsOwnWorkspace is XB-D14's second half
+// (docs/design/pi-extension-store-builds.md §6.3): a refresh's stamp and its seen-content
+// markers live beside its lock, so for a store that is one workspace's own state they throttle
+// that workspace alone. Two workspaces on one machine, the machine's ~/.cache shared and the
+// stores not: B refreshes within the hour after A, even for the very content A refreshed with,
+// and then B's own stamp throttles B. With the throttle machine-wide, B skipped its refresh
+// and left the program's own startup to install what B's content names, unlocked.
+func TestARefreshThrottlesOnlyItsOwnWorkspace(t *testing.T) {
+	for _, due := range []bool{false, true} {
+		t.Run(map[bool]string{false: "hourly stamp", true: "seen content"}[due], func(t *testing.T) {
+			a, b := newWorkspacePair(t)
+			if due {
+				for _, p := range []*prelaunchProbe{a, b} {
+					p.refresh.DueOnChange = []string{dueRel}
+					p.setWatched(t, `{"packages":["npm:same"]}`)
+				}
+				// B's own hourly stamp is fresh, so the only thing that can make B due is
+				// content B never refreshed with: this cell isolates where the seen
+				// markers live from where the stamp does.
+				if err := os.MkdirAll(filepath.Dir(b.stampPath()), 0o755); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(b.stampPath(), nil, 0o644); err != nil {
+					t.Fatal(err)
+				}
+			}
+			a.run(t, "")
+			if n := countLine(logLines(t, a.log), "REFRESH"); n != 1 {
+				t.Fatalf("A's first launch should refresh (refreshes=%d)", n)
+			}
+			_, stderr := b.run(t, "")
+			if n := countLine(logLines(t, a.log), "REFRESH"); n != 2 {
+				t.Errorf("workspace B's refresh was throttled by workspace A's (refreshes=%d):\n%s", n, stderr)
+			}
+			b.run(t, "")
+			if n := countLine(logLines(t, a.log), "REFRESH"); n != 2 {
+				t.Errorf("B's own stamp must still throttle B within the hour (refreshes=%d)", n)
+			}
+			for _, p := range []*prelaunchProbe{a, b} {
+				if _, err := os.Stat(p.stampPath()); err != nil {
+					t.Errorf("no stamp beside %s's lock: %v", filepath.Base(p.home), err)
+				}
+			}
+		})
 	}
 }
 
@@ -762,10 +851,13 @@ func TestShippedPiLauncherRefreshesItsExtensions(t *testing.T) {
 		t.Fatalf("the shipped pi launcher does not watch .pi/agent/settings.json")
 	}
 
-	// The real pi's place, with pi's own update stamp fresh so the program is not updated.
+	// The real pi's place, with pi's own update stamp fresh so the program is not updated. The
+	// lock, and the stamp beside it, are in the WORKSPACE's own `.pi` since XB-D14
+	// (docs/design/pi-extension-store-builds.md §6.3): pi's npm prefix is per workspace, so this
+	// workspace's launches are the only ones its refresh has to exclude, or to throttle.
 	realBin := filepath.Join(home, ".npm-global", "bin", "pi")
-	lock := filepath.Join(home, ".pi-shared-npm", ".yolo-update.lock")
-	for _, d := range []string{filepath.Dir(realBin), filepath.Join(home, ".pi-shared-npm"),
+	lock := filepath.Join(home, ".pi", ".yolo-update.lock")
+	for _, d := range []string{filepath.Dir(realBin), filepath.Join(home, ".pi"),
 		filepath.Join(home, ".cache", "yolo-agent-stamps")} {
 		if err := os.MkdirAll(d, 0o755); err != nil {
 			t.Fatal(err)
@@ -790,10 +882,18 @@ func TestShippedPiLauncherRefreshesItsExtensions(t *testing.T) {
 	want := []string{"NODE", "REFRESH", "ARG:update", "ARG:--extensions", "LOCKED", "NODE", "LAUNCH:--version"}
 	if strings.Join(got, "\n") != strings.Join(want, "\n") {
 		t.Errorf("the shipped pi launcher must refresh its extensions under the node it runs "+
-			"under and the shared store's lock, then launch:\n got %q\nwant %q\n%s", got, want, out)
+			"under and its workspace's lock, then launch:\n got %q\nwant %q\n%s", got, want, out)
 	}
-	if _, err := os.Stat(filepath.Join(home, ".cache", "yolo-agent-stamps", "refresh", "pi.stamp")); err != nil {
-		t.Errorf("the refresh stamp is missing: %v", err)
+	const piLock = ".pi/.yolo-update.lock"
+	if _, err := os.Stat(filepath.Join(home, filepath.FromSlash(RefreshStampRel(piLock, "pi")))); err != nil {
+		t.Errorf("the refresh stamp is not in the workspace's .pi beside its lock: %v", err)
+	}
+	if ents, err := os.ReadDir(filepath.Join(home, filepath.FromSlash(RefreshSeenRel(piLock, "pi")))); err != nil || len(ents) != 1 {
+		t.Errorf("the refresh's seen marker is not in the workspace's .pi beside its lock "+
+			"(%d entries, err=%v)", len(ents), err)
+	}
+	if _, err := os.Lstat(filepath.Join(home, ".cache", "yolo-agent-stamps", "refresh")); !os.IsNotExist(err) {
+		t.Errorf("the refresh throttled itself machine-wide, in ~/.cache (err=%v)", err)
 	}
 }
 

@@ -3,7 +3,7 @@ package entrypoint
 // prelaunchrefreshdue_test.go RUNS the pre-launch refresh's DUE-ON-CHANGE trigger
 // (packdecl.Refresh.DueOnChange; docs/design/pi-git-extension-caching.md, "The first-install
 // race"): the refresh is also due when a watched file's CONTENT has never been refreshed with
-// on this machine, and a launch that finds the lock held for content it has never refreshed
+// in the store its lock names, and a launch that finds the lock held for content it has never refreshed
 // waits for the holder instead of letting the program install outside the lock.
 //
 // Same fake program and probe as prelaunchrefresh_test.go: nothing reaches a network and no
@@ -38,7 +38,11 @@ func (p *prelaunchProbe) setWatched(t *testing.T, content string) {
 	}
 }
 
-func (p *prelaunchProbe) seenDir() string { return filepath.Join(p.stamps, "refresh", "tool.seen") }
+// seenDir is the refresh's seen-content markers where production names them, beside its lock
+// (XB-D14).
+func (p *prelaunchProbe) seenDir() string {
+	return filepath.Join(p.home, filepath.FromSlash(RefreshSeenRel(probeLockRel, "tool")))
+}
 
 // The wait loop's poll, as the launcher bakes it and as the waiting cells replace it.
 // The loop counts one unit of UPDATE_TIMEOUT per poll, so under the shortened poll a unit

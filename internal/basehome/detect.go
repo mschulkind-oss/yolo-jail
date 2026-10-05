@@ -191,7 +191,7 @@ func (d Decls) roots(globalHome string) (roots, excluded, unknown []string) {
 
 	if d.SweepUnknownTopLevel {
 		known := map[string]bool{}
-		for _, list := range [][]string{d.StateDirs, d.SharedDirs, d.NonPackDirs} {
+		for _, list := range [][]string{d.StateDirs, d.SharedDirs, d.NonPackDirs, d.RetiredSharedDirs} {
 			for _, p := range list {
 				// The TOP-LEVEL segment: `.config/git` is core's for what it provisions,
 				// and `.config` is what a top-level walk sees.

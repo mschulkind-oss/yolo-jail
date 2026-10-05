@@ -3,14 +3,14 @@ title: "Companion implementation sketch: one keyed build for every pi extension"
 date: 2026-10-05
 status: draft
 stage: SKETCH
-next: "Nothing to build from here yet; steps 1 and 2 need only a real plan against the tree (step 1's unsharing once XB-D14 is confirmed), and steps 3 and 4 wait on OQ-XB1 and OQ-6, as their own headings say"
+next: "Nothing to build from here yet; steps 1 and 2 need only a real plan against the tree (step 1's unsharing, XB-D14, was built 2026-10-05), and steps 3 and 4 wait on OQ-XB1 and OQ-6, as their own headings say"
 ---
 
 # Companion implementation sketch: one keyed build for every pi extension
 
-**Status:** 2026-10-05 — incomplete. Steps 1 and 2 wait on no open question, except step 1's
-unsharing, which waits on the maintainer's confirmation of
-[XB-D14](pi-extension-store-builds.md#XB-D14); step 3 waits on
+**Status:** 2026-10-05 — incomplete. Steps 1 and 2 wait on no open question; step 1's
+unsharing, [XB-D14](pi-extension-store-builds.md#XB-D14), was confirmed and built 2026-10-05;
+step 3 waits on
 [OQ-XB1](pi-extension-store-builds.md#OQ-XB1) and step 4 on
 [OQ-6](pi-git-extension-caching.md#OQ-6), so the sketch carries no `depends-on`, which would block it
 whole. It parks the implementation material of
@@ -20,7 +20,9 @@ wins on behavior, and nobody builds from this sketch.
 ## Step 1: the launcher
 
 - **[XB-D14](pi-extension-store-builds.md#XB-D14), once confirmed, in one change: PG-D23 and the
-  stamp beside the lock.** PG-D23 is part of `3ab39946f` on `held/pi-extension-store`, mixed with the store.
+  stamp beside the lock.** Confirmed and BUILT 2026-10-05
+  ([XB-D29](pi-extension-store-builds.md#XB-D29)–[XB-D33](pi-extension-store-builds.md#XB-D33)
+  record how); the rest of this bullet is the sketch it was built from. PG-D23 is part of `3ab39946f` on `held/pi-extension-store`, mixed with the store.
   Take its npm half by hand: in `packs/pi/pack.json`, drop the `.pi-shared-npm` `state` and its
   `shared_directory` hook, add `{kind:"hook", hook:"unshare_directory", from:".pi/agent/npm",
   at:".pi-shared-npm"}`, and set `refresh.lock` to `.pi/.yolo-update.lock`. Check which hunks of its

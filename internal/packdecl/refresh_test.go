@@ -20,7 +20,7 @@ import (
 func TestRefreshSurvivesDecodeAndProjection(t *testing.T) {
 	m, probs := Decode([]byte(`{"name":"x","contributes":[
 	  {"kind":"program","bin":"pi","via":"npm","package":"@earendil-works/pi-coding-agent",
-	   "refresh":{"argv":["update","--extensions"],"lock":".pi-shared-npm/.yolo-update.lock"}},
+	   "refresh":{"argv":["update","--extensions"],"lock":".pi/.yolo-update.lock"}},
 	  {"kind":"program","bin":"claude","via":"installer","url":"https://claude.ai/install.sh",
 	   "refresh":{"argv":["plugins","sync"],"lock":".claude-shared/.yolo-lock"}},
 	  {"kind":"program","bin":"copilot","via":"npm","package":"@github/copilot"}]}`))
@@ -35,7 +35,7 @@ func TestRefreshSurvivesDecodeAndProjection(t *testing.T) {
 	if pi == nil {
 		t.Fatal("pi's refresh did not survive the projection")
 	}
-	if strings.Join(pi.Argv, " ") != "update --extensions" || pi.Lock != ".pi-shared-npm/.yolo-update.lock" {
+	if strings.Join(pi.Argv, " ") != "update --extensions" || pi.Lock != ".pi/.yolo-update.lock" {
 		t.Errorf("pi's refresh arrived altered: %+v", *pi)
 	}
 	// BOTH vias: the refresh is what the program does to its add-ons, not how it arrived.
@@ -89,7 +89,7 @@ func TestRefreshRefusesMalformedShapes(t *testing.T) {
 		// The lock lives INSIDE the store, so its name must mark it as yolo's bookkeeping, or
 		// a store holding nothing but the lock reads as populated to the shared_directory
 		// hook, which then discards a workspace's real tree (sharedTreeIsEmpty).
-		{"unmarked lock name", `{"argv":["update"],"lock":".pi-shared-npm/update.lock"}`, "must be named .yolo-"},
+		{"unmarked lock name", `{"argv":["update"],"lock":".pi/update.lock"}`, "must be named .yolo-"},
 		{"marked store, unmarked lock", `{"argv":["update"],"lock":".yolo-store/lock"}`, "must be named .yolo-"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

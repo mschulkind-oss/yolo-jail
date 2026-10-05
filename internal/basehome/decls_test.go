@@ -46,16 +46,21 @@ func TestShippedDeclsAreNotEmpty(t *testing.T) {
 			t.Errorf("StateDirs %v is missing %s", d.StateDirs, want)
 		}
 	}
-	// The third is pi's extension package STORE rather than a credential dir, and it needs
-	// the exclusion for the same structural reason: the sweep walks a pack's state dirs, and
-	// `.pi-shared-npm` is machine-scope state whose bytes belong to every workspace at once.
-	// A `node_modules` tree proposed for archiving would be the sweep offering to break every
-	// jail's extensions at once.
-	for _, want := range []string{
-		".claude-shared-credentials", ".gemini-shared-credentials", ".pi-shared-npm",
-	} {
+	for _, want := range []string{".claude-shared-credentials", ".gemini-shared-credentials"} {
 		if !has(d.SharedDirs, want) {
 			t.Errorf("SharedDirs %v is missing %s — its contents would be swept", d.SharedDirs, want)
+		}
+	}
+	// pi's two retired stores, which pi unshares: `.pi-shared-git` since 2026-09-25 and
+	// `.pi-shared-npm` since XB-D14 (docs/design/pi-extension-store-builds.md). A jail an older
+	// yolo launched can still mount either, so the sweep must know them for what they are.
+	for _, want := range []string{".pi-shared-git", ".pi-shared-npm"} {
+		if !has(d.RetiredSharedDirs, want) {
+			t.Errorf("RetiredSharedDirs %v is missing %s — the sweep would read it as an unknown "+
+				"root", d.RetiredSharedDirs, want)
+		}
+		if has(d.SharedDirs, want) {
+			t.Errorf("SharedDirs %v still carries the retired %s", d.SharedDirs, want)
 		}
 	}
 }
@@ -97,6 +102,13 @@ func TestCredentialHookNameIsAKnownHook(t *testing.T) {
 	}
 	if !has(packdecl.KnownHooks, "shared_credentials") {
 		t.Fatalf("packdecl.KnownHooks = %v no longer contains shared_credentials; the derive in "+
+			"decls.go spells it as a literal and must be updated with it", packdecl.KnownHooks)
+	}
+	if len(d.RetiredSharedDirs) == 0 {
+		t.Fatal("no retired shared dirs derived, so the unshare_directory spelling is not being matched")
+	}
+	if !has(packdecl.KnownHooks, "unshare_directory") {
+		t.Fatalf("packdecl.KnownHooks = %v no longer contains unshare_directory; the derive in "+
 			"decls.go spells it as a literal and must be updated with it", packdecl.KnownHooks)
 	}
 }

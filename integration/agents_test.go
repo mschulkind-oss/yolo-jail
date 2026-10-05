@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/entrypoint"
+	"github.com/mschulkind-oss/yolo-jail/internal/packdecl"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/shquote"
 )
@@ -203,10 +205,16 @@ func TestPackInstallsVersionsAndConfigures(t *testing.T) {
 			// machine it is. AGENTS.md allows `--version` probes only, so the refresh's stamp
 			// is touched first, and the output is checked for the refresh's own line so a
 			// drifted stamp path fails here rather than quietly running the vendor's update.
-			refreshStamp := "$HOME/.cache/yolo-agent-stamps/refresh/" + tc.binary + ".stamp"
+			// The stamp is beside the refresh's lock since XB-D14
+			// (docs/design/pi-extension-store-builds.md), named by the launcher's own helper.
+			touchRefresh, refreshStamp := "", ""
+			if r := shippedRefresh(tc.pack, tc.binary); r != nil {
+				refreshStamp = "\"$HOME/" + entrypoint.RefreshStampRel(r.Lock, tc.binary) + "\""
+				touchRefresh = fmt.Sprintf("mkdir -p \"$(dirname %s)\" && touch %s && ", refreshStamp, refreshStamp)
+			}
 			cmd := fmt.Sprintf(
-				"mkdir -p \"$(dirname %s)\" && touch %s && %s%s %s && test -f %s && grep -q '%s' \"$HOME/%s\"",
-				refreshStamp, refreshStamp, seedRefreshSeen(t, tc.pack, tc.binary), tc.binary, tc.versionArg, stamp, tc.marker, tc.configRel,
+				"%s%s%s %s && test -f %s && grep -q '%s' \"$HOME/%s\"",
+				touchRefresh, seedRefreshSeen(t, tc.pack, tc.binary), tc.binary, tc.versionArg, stamp, tc.marker, tc.configRel,
 			) + projectDirsProbe(t, tc.pack, tc.binary)
 			r := runYolo(t, dir, cmd)
 			if r.rc != 0 {
@@ -381,26 +389,33 @@ const (
 // The list is read from the shipped pack's own declaration, so it cannot drift from pack.json.
 func seedRefreshSeen(t *testing.T, pack, bin string) string {
 	t.Helper()
-	var files []string
+	r := shippedRefresh(pack, bin)
+	if r == nil || len(r.DueOnChange) == 0 {
+		return ""
+	}
+	var parts []string
+	for _, f := range r.DueOnChange {
+		parts = append(parts, fmt.Sprintf(
+			`if [ -f "$HOME/%[1]s" ]; then printf '%%s %%s\n' '%[1]s' "$(cksum < "$HOME/%[1]s")"; else printf '%%s absent\n' '%[1]s'; fi`, f))
+	}
+	// Beside the refresh's lock, where the launcher keeps it since XB-D14
+	// (docs/design/pi-extension-store-builds.md), named by the launcher's own helper.
+	seen := "$HOME/" + entrypoint.RefreshSeenRel(r.Lock, bin)
+	return fmt.Sprintf(`k=$({ %s; } | cksum | tr ' ' '-') && mkdir -p "%s" && touch "%s/$k" && `,
+		strings.Join(parts, "; "), seen, seen)
+}
+
+// shippedRefresh is the pre-launch refresh the shipped pack declares on bin, or nil.
+func shippedRefresh(pack, bin string) *packdecl.Refresh {
 	for _, p := range packload.Embedded() {
 		if p.Name != pack {
 			continue
 		}
 		for _, in := range p.Decl.InstallContributions() {
 			if in.Bin == bin && in.Refresh != nil {
-				files = in.Refresh.DueOnChange
+				return in.Refresh
 			}
 		}
 	}
-	if len(files) == 0 {
-		return ""
-	}
-	var parts []string
-	for _, f := range files {
-		parts = append(parts, fmt.Sprintf(
-			`if [ -f "$HOME/%[1]s" ]; then printf '%%s %%s\n' '%[1]s' "$(cksum < "$HOME/%[1]s")"; else printf '%%s absent\n' '%[1]s'; fi`, f))
-	}
-	seen := "$HOME/.cache/yolo-agent-stamps/refresh/" + bin + ".seen"
-	return fmt.Sprintf(`k=$({ %s; } | cksum | tr ' ' '-') && mkdir -p "%s" && touch "%s/$k" && `,
-		strings.Join(parts, "; "), seen, seen)
+	return nil
 }

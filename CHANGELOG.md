@@ -21,6 +21,12 @@ the host. See [Follow an upstream with a patch series](userguide/guides/patch-se
 into a jail, and what each launch shows about the code it runs. See
 [Claude Code plugins and mods](userguide/guides/claude-plugins-and-mods.md).
 
+### Changed
+
+- pi installs its extensions per project, so one jail's update no longer changes another's, and
+  each project's first pi launch installs them again. While the old shared extensions folder is
+  still there, a launch names it and the command that deletes it.
+
 ### Fixed
 
 - When `yolo host` has no container runtime to capture an agent with, it now says to install one.
