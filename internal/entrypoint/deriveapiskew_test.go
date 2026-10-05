@@ -17,7 +17,7 @@ package entrypoint
 //	    <string>:51: attempt to call a non-function object
 //	Error: configure_claude_settings: surface claude/settings: derive: lua transform error:
 //	    <string>:51: attempt to call a non-function object
-//	yolo-entrypoint: refusing to start the jail: 2 config generator(s) failed
+//	yolo-entrypoint: refusing to start the jail: 2 boot step(s) failed
 //
 // Line 51 was packs/claude/derive.lua's `yolo.env("claude", …)`, an API added after that
 // image was baked. Note WHICH surfaces failed: config and settings, whose producers are

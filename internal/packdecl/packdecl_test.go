@@ -15,7 +15,7 @@ import (
 // an older baked image, because the in-jail entrypoint read manifests with
 // DisallowUnknownFields:
 //
-//	yolo-entrypoint: refusing to start the jail: 2 config generator(s) failed:
+//	yolo-entrypoint: refusing to start the jail: 2 boot step(s) failed:
 //	  - load_packs: pack claude: pack.json: json: unknown field "tier"
 //
 // The host CLI and the entrypoint come from different places — the CLI is freshly built or
