@@ -752,10 +752,14 @@ func runCaptureJail(workspace, bin string, argv []string, seal *captureSeal, out
 	// everything after this call in captureHost — read the manifest, refuse an empty delta,
 	// AdmitEntry, receipt — is backend-blind and unchanged.
 	//
-	// ⚠ NOTHING BELOW THIS LINE IS MEASURED ON A MAC. The profile's bytes and both argvs are
-	// unit-pinned; that Seatbelt HONORS the profile is not, and cannot be from Linux. The
-	// probe that settles it is in install-capture.md slice 6 — a capture that silently wrote
-	// to the shared home looks identical to one that did not.
+	// ⚠ WHAT A MAC HAS MEASURED OF THIS, AND WHAT IT HAS NOT. The profile's bytes and both
+	// argvs are unit-pinned. The recording half ran on hardware on 2026-09-11 (the header of
+	// internal/macosuser/capture.go): `yolo capture claude` loaded this profile, drove the vendor
+	// installer and admitted an entry. Still unmeasured on a Mac: that Seatbelt DENIES the shared
+	// home during a capture, since a capture that silently wrote to it looks identical to one
+	// that did not (install-capture.md slice 6's item 3, a case with no green run recorded); the
+	// materialize half; and the host floor's run of a real capture (host-tool-provisioning.md
+	// HP-D2).
 	//
 	// The homeOverlay the pipeline composed is DROPPED here, and that is the capture's
 	// choice rather than an oversight: the overlay is skills and briefing prose for an

@@ -5,14 +5,18 @@ package cli
 import (
 	"bytes"
 	"errors"
+	"fmt"
 	"io"
 	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
+
+	"golang.org/x/sys/unix"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/capture"
 	"github.com/mschulkind-oss/yolo-jail/internal/hostfloor"
@@ -45,20 +49,44 @@ func requireHostConfinement(t *testing.T) int {
 	return abi
 }
 
-// THE HOST CAPTURE, end to end: an installer that writes its program under $HOME and also tries the
-// real home's ~/.ssh is captured on the host; the stray write and read are refused and nothing lands
-// outside the staging home; the entry holds the staging delta alone, relocatable, under the host's
-// origin, which no jail's lookup selects; and the floor materializes it into its own prefix, where it
-// runs with no environment.
+// THE HOST CAPTURE, end to end, through the production chain (captureHost, the supervisor, the
+// confinement, capture-run, the generated launcher, no-terminal), its fixture installer probing each
+// thing the chain is built to withhold:
+//
+//   - the real home's ~/.ssh, for writing and reading: refused, and nothing lands outside staging;
+//   - the user's runtime directory and the account's own home, each somewhere the confinement would
+//     otherwise grant (runLandlockCapture's Exclude): refused;
+//   - a CA bundle under the home that SSL_CERT_FILE names (its Read grant): readable;
+//   - the user's SSH_AUTH_SOCK and GH_TOKEN (hostCaptureEnv at its call site): unset;
+//   - the chain's session (notty at its call site): not the caller's, so it has no terminal of theirs;
+//   - two processes it leaves running, one orphaned and one moved into a session of its own
+//     (capture.Supervise): gone once captureHost returns.
+//
+// The entry holds the staging delta alone, relocatable, under the host's origin, which no jail's
+// lookup selects; and the floor materializes it into its own prefix, where it runs with no
+// environment.
 func TestAHostCaptureConfinesItsInstallerAndTheFloorRunsWhatItLeft(t *testing.T) {
 	requireHostConfinement(t)
-	elsewhere := floortest.ResolvedTemp(t)
+	granted := grantedScratch(t)
 	home := floortest.ResolvedTemp(t)
 	if err := os.MkdirAll(filepath.Join(home, ".ssh"), 0o700); err != nil {
 		t.Fatal(err)
 	}
 	writeFile(t, filepath.Join(home, ".ssh", "id_ed25519"), "secret\n")
-	script := filepath.Join(elsewhere, "install.sh")
+	ca := filepath.Join(home, ".config", "certs", "ca.pem")
+	writeFile(t, ca, "-----BEGIN CERTIFICATE-----\n")
+	runtimeDir := filepath.Join(granted, "runtime")
+	account := filepath.Join(granted, "account")
+	writeFile(t, filepath.Join(runtimeDir, "keyring"), "session secret\n")
+	writeFile(t, filepath.Join(account, ".netrc"), "machine example password hunter2\n")
+	origAccount := accountHomeDir
+	accountHomeDir = func() string { return account }
+	t.Cleanup(func() { accountHomeDir = origAccount })
+	// A unique argument, so a process the installer left running is found by its command line alone.
+	marker := fmt.Sprintf("0.%d", os.Getpid())
+	t.Cleanup(func() { killMarked(marker) })
+	// The installer lives where the confinement lets curl read it: under the real /tmp it could not.
+	script := filepath.Join(granted, "install.sh")
 	writeFile(t, script, `#!/bin/sh
 set -eu
 mkdir -p "$HOME/.local/share/hosttool/v1" "$HOME/.local/bin"
@@ -67,11 +95,22 @@ chmod 755 "$HOME/.local/share/hosttool/v1/hosttool"
 ln -s "$HOME/.local/share/hosttool/v1/hosttool" "$HOME/.local/bin/hosttool"
 if echo pwned > '`+filepath.Join(home, ".ssh", "authorized_keys")+`' 2>/dev/null; then echo "STRAY WRITE LANDED"; else echo "stray write refused"; fi
 if cat '`+filepath.Join(home, ".ssh", "id_ed25519")+`' >/dev/null 2>&1; then echo "STRAY READ LANDED"; else echo "stray read refused"; fi
+if cat '`+filepath.Join(runtimeDir, "keyring")+`' >/dev/null 2>&1; then echo "RUNTIME READ LANDED"; else echo "runtime read refused"; fi
+if cat '`+filepath.Join(account, ".netrc")+`' >/dev/null 2>&1; then echo "ACCOUNT READ LANDED"; else echo "account read refused"; fi
+if cat "$SSL_CERT_FILE" >/dev/null 2>&1; then echo "ca bundle readable"; else echo "CA BUNDLE UNREADABLE"; fi
+echo "env SSH_AUTH_SOCK=${SSH_AUTH_SOCK-unset} GH_TOKEN=${GH_TOKEN-unset}"
+echo "chain-session $(sed 's/.*) //' /proc/$PPID/stat | cut -d' ' -f4)"
+( sleep 61 `+marker+` </dev/null >/dev/null 2>&1 & )
+( yolo internal no-terminal -- sleep 61 `+marker+` </dev/null >/dev/null 2>&1 & )
 `)
 	t.Setenv("HOME", home)
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
+	t.Setenv("XDG_RUNTIME_DIR", runtimeDir)
 	t.Setenv("YOLO_VERSION", "")
-	t.Setenv("SSH_AUTH_SOCK", "/nonexistent/agent.sock")
+	t.Setenv("SSH_AUTH_SOCK", "/run/user/1000/ssh-agent.sock")
+	t.Setenv("GH_TOKEN", "ghp_the_users_own")
+	t.Setenv("SSL_CERT_FILE", ca)
+	elsewhere := floortest.ResolvedTemp(t)
 	pack := filepath.Join(elsewhere, "hostpack")
 	installerURL := (&url.URL{Scheme: "file", Path: script}).String()
 	writeFile(t, filepath.Join(pack, "pack.json"), `{"name":"hostpack","contributes":[`+
@@ -91,14 +130,24 @@ if cat '`+filepath.Join(home, ".ssh", "id_ed25519")+`' >/dev/null 2>&1; then ech
 	if rc := captureHost([]string{"hosttool"}, &out, &errw, false); rc != 0 {
 		t.Fatalf("rc=%d\n%s\n%s", rc, out.String(), errw.String())
 	}
+	if left := markedProcesses(marker); len(left) > 0 {
+		t.Errorf("processes the installer left running outlived the capture: %v", left)
+	}
 	both := out.String() + errw.String()
-	for _, want := range []string{"stray write refused", "stray read refused", "confined by Landlock"} {
+	for _, want := range []string{"stray write refused", "stray read refused", "runtime read refused",
+		"account read refused", "ca bundle readable", "env SSH_AUTH_SOCK=unset GH_TOKEN=unset",
+		"confined by Landlock"} {
 		if !strings.Contains(both, want) {
 			t.Errorf("the capture's output lacks %q:\n%s", want, both)
 		}
 	}
-	if strings.Contains(both, "LANDED") {
-		t.Errorf("the confined installer reached the real home:\n%s", both)
+	if strings.Contains(both, "LANDED") || strings.Contains(both, "UNREADABLE") {
+		t.Errorf("the confined installer reached what the chain withholds, or not what it grants:\n%s", both)
+	}
+	if sid, ok := chainSession(both); !ok {
+		t.Errorf("the installer reported no chain session:\n%s", both)
+	} else if mine, _ := unix.Getsid(0); sid == mine {
+		t.Errorf("the confined chain runs in the caller's session %d, with the caller's terminal", mine)
 	}
 	if _, err := os.Lstat(filepath.Join(home, ".ssh", "authorized_keys")); err == nil {
 		t.Fatal("the installer wrote into the real home's ~/.ssh")
@@ -156,6 +205,69 @@ if cat '`+filepath.Join(home, ".ssh", "id_ed25519")+`' >/dev/null 2>&1; then ech
 	}
 }
 
+// grantedScratch is a directory of this test's own that the host capture's confinement grants for
+// reading unless something excludes it: under /var/tmp, outside both the real /tmp (never granted) and
+// the test's home. A stand-in placed here is refused only by the exclusion under test.
+func grantedScratch(t *testing.T) string {
+	t.Helper()
+	base, err := filepath.EvalSymlinks("/var/tmp")
+	if err != nil || base == "/tmp" || strings.HasPrefix(base, "/tmp/") {
+		t.Fatalf("this test needs a /var/tmp outside /tmp, and this machine's is %q (%v)", base, err)
+	}
+	d, err := os.MkdirTemp(base, "yolo-host-capture-test-")
+	if err != nil {
+		t.Fatalf("this test needs a writable /var/tmp: %v", err)
+	}
+	t.Cleanup(func() { os.RemoveAll(d) })
+	return d
+}
+
+// chainSession reads the session the installer's parent reported ("chain-session <sid>").
+func chainSession(out string) (int, bool) {
+	for _, line := range strings.Split(out, "\n") {
+		if v, ok := strings.CutPrefix(strings.TrimSpace(line), "chain-session "); ok {
+			sid, err := strconv.Atoi(strings.TrimSpace(v))
+			return sid, err == nil
+		}
+	}
+	return 0, false
+}
+
+// markedProcesses lists the live processes whose command line carries marker as one of its words.
+func markedProcesses(marker string) []string {
+	entries, err := os.ReadDir("/proc")
+	if err != nil {
+		return nil
+	}
+	var out []string
+	for _, e := range entries {
+		if _, err := strconv.Atoi(e.Name()); err != nil {
+			continue
+		}
+		b, err := os.ReadFile(filepath.Join("/proc", e.Name(), "cmdline"))
+		if err != nil || !slices.Contains(strings.Split(string(b), "\x00"), marker) {
+			continue
+		}
+		if st, err := os.ReadFile(filepath.Join("/proc", e.Name(), "stat")); err == nil {
+			if i := strings.LastIndexByte(string(st), ')'); i >= 0 && i+2 < len(st) && st[i+2] == 'Z' {
+				continue
+			}
+		}
+		out = append(out, e.Name()+" "+strings.ReplaceAll(strings.TrimRight(string(b), "\x00"), "\x00", " "))
+	}
+	return out
+}
+
+// killMarked kills what markedProcesses finds, so a failing run leaves nothing behind it either.
+func killMarked(marker string) {
+	for _, p := range markedProcesses(marker) {
+		pid, _, _ := strings.Cut(p, " ")
+		if n, err := strconv.Atoi(pid); err == nil {
+			_ = unix.Kill(n, unix.SIGKILL)
+		}
+	}
+}
+
 // THE CONFINED INSTALLER'S ENVIRONMENT is env -i's plus what a download needs: locale, terminal type,
 // proxies and the CA bundles, with HOME the staging home, TMPDIR beside it, and the launcher's
 // directory first on PATH; no token, agent socket, session bus, runtime directory or XDG directory of
@@ -201,7 +313,8 @@ func sorted(s []string) []string {
 }
 
 // THE CONFINING VERB RUNS NOTHING IT CANNOT CONFINE: a malformed policy is misuse, and a policy it
-// cannot build ends it before the exec.
+// cannot build ends it before the exec; its supervisor form refuses misuse and a relative command the
+// same way.
 func TestTheLandlockExecVerbRunsNothingItCannotConfine(t *testing.T) {
 	marker := filepath.Join(floortest.ResolvedTemp(t), "ran")
 	if rc := runLandlockExec([]string{"--rw=relative", "--", "/bin/sh", "-c", "touch " + marker}); rc != 2 {
@@ -209,6 +322,12 @@ func TestTheLandlockExecVerbRunsNothingItCannotConfine(t *testing.T) {
 	}
 	if rc := runLandlockExec([]string{"--rw=/tmp", "--", "sh", "-c", "touch " + marker}); rc != 1 {
 		t.Errorf("a command with no absolute path: rc=%d, want 1", rc)
+	}
+	if rc := runLandlockExec([]string{"--supervise", "/bin/sh", "-c", "touch " + marker}); rc != 2 {
+		t.Errorf("a supervisor with no --: rc=%d, want 2", rc)
+	}
+	if rc := runLandlockExec([]string{"--supervise", "--", "sh", "-c", "touch " + marker}); rc != 1 {
+		t.Errorf("a supervised command with no absolute path: rc=%d, want 1", rc)
 	}
 	if _, err := os.Lstat(marker); err == nil {
 		t.Error("the command ran")

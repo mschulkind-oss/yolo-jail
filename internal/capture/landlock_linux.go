@@ -6,11 +6,15 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"os/exec"
+	"os/signal"
 	"path/filepath"
 	"runtime"
 	"sort"
+	"strconv"
 	"strings"
 	"syscall"
+	"time"
 	"unsafe"
 
 	"golang.org/x/sys/unix"
@@ -33,13 +37,22 @@ import (
 //
 // # What a confined process may do
 //
-//   - write (create, remove, rename, link, truncate) only beneath LandlockPolicy.ReadWrite;
-//   - read and execute only beneath ReadWrite and ReadExec, and read beneath Read;
+//   - write (create, remove, rename, link, truncate) only beneath LandlockPolicy.ReadWrite: for a
+//     host capture, its staging tree, /dev's stand-in devices and /dev/shm (CapturePolicy);
+//   - read and execute only beneath ReadWrite and ReadExec, and read beneath Read: for a host capture,
+//     nothing under the user's home or runtime directory, the real /tmp, or /dev beyond those devices;
+//   - from ABI 5, use a device's ioctls only on a device a ReadWrite grant names;
 //   - create no AF_UNIX socket and set up no io_uring (the seccomp half, below);
 //   - on ABI 6 and later, signal no process outside its own domain.
 //
 // Everything else the kernel allows a process of the user's is allowed: the network in particular,
 // which a vendor installer needs to download what it installs.
+//
+// # How long it may run
+//
+// No longer than the command it was started as. Supervise runs the confining re-exec as the child of
+// a subreaper outside the domain, which kills and reaps whatever the command leaves running once it
+// exits, as stopping a capture jail's container would.
 //
 // # Why a seccomp filter too
 //
@@ -58,9 +71,13 @@ import (
 //
 // Below ABI 3 (Linux 6.2) a confined process may still truncate a file it can name outside its write
 // set, since truncate(2) is a right only ABI 3 knows; LandlockMinABI is 2 because ABI 1 denies every
-// rename across directories, which installers do. Reads outside the excluded branches — every
-// directory not under the user's home or runtime directory — stay open, as they are to any program the
-// user runs; so does the network, and so does writing beneath /tmp.
+// rename across directories, which installers do. Below ABI 5 (Linux 6.10) it may also use the ioctls
+// of a device node it finds outside /dev. Below ABI 6 (Linux 6.12) it may signal any
+// process of the user's — the supervisor among them, so one that kills the supervisor before it exits
+// can leave a process running after the capture. Reads outside the excluded branches — every directory
+// not under the user's home, runtime directory, the real /tmp or /dev — stay open, as they are to any
+// program the user runs; so does the network; and so do reads and writes beneath /dev/shm, where other
+// programs of the user's may keep shared memory.
 
 // LandlockMinABI is the oldest Landlock ABI the host capture runs under: 2 (Linux 5.19), the first in
 // which a confined process may rename and link across directories (LANDLOCK_ACCESS_FS_REFER). Under
@@ -171,12 +188,15 @@ const (
 		unix.LANDLOCK_ACCESS_FS_REMOVE_FILE | unix.LANDLOCK_ACCESS_FS_MAKE_CHAR | unix.LANDLOCK_ACCESS_FS_MAKE_DIR |
 		unix.LANDLOCK_ACCESS_FS_MAKE_REG | unix.LANDLOCK_ACCESS_FS_MAKE_SOCK | unix.LANDLOCK_ACCESS_FS_MAKE_FIFO |
 		unix.LANDLOCK_ACCESS_FS_MAKE_BLOCK | unix.LANDLOCK_ACCESS_FS_MAKE_SYM |
-		unix.LANDLOCK_ACCESS_FS_REFER | unix.LANDLOCK_ACCESS_FS_TRUNCATE
+		unix.LANDLOCK_ACCESS_FS_REFER | unix.LANDLOCK_ACCESS_FS_TRUNCATE | unix.LANDLOCK_ACCESS_FS_IOCTL_DEV
 	// llFile is the subset a rule on a FILE may grant; the rest are about a directory's entries.
 	llFile = unix.LANDLOCK_ACCESS_FS_EXECUTE | unix.LANDLOCK_ACCESS_FS_WRITE_FILE |
-		unix.LANDLOCK_ACCESS_FS_READ_FILE | unix.LANDLOCK_ACCESS_FS_TRUNCATE
+		unix.LANDLOCK_ACCESS_FS_READ_FILE | unix.LANDLOCK_ACCESS_FS_TRUNCATE | unix.LANDLOCK_ACCESS_FS_IOCTL_DEV
 )
 
+// handledFS drops what an older kernel does not know: REFER before ABI 2, TRUNCATE before ABI 3, and
+// before ABI 5 IOCTL_DEV, the device ioctls (a terminal's termios and input queue among them), which
+// from ABI 5 are allowed only on a device a ReadWrite grant names.
 func handledFS(abi int) uint64 {
 	h := uint64(llRead | llExec | llWrite)
 	if abi < 2 {
@@ -184,6 +204,9 @@ func handledFS(abi int) uint64 {
 	}
 	if abi < 3 {
 		h &^= unix.LANDLOCK_ACCESS_FS_TRUNCATE
+	}
+	if abi < 5 {
+		h &^= unix.LANDLOCK_ACCESS_FS_IOCTL_DEV
 	}
 	return h
 }
@@ -254,6 +277,168 @@ func ExecConfined(p LandlockPolicy, argv, env []string) error {
 		return fmt.Errorf("running %s: %w", argv[0], err)
 	}
 	return errors.New("exec returned") // unreachable: a successful exec does not return
+}
+
+// Supervise runs cmd to its end as this process's child, with this process a CHILD SUBREAPER
+// (PR_SET_CHILD_SUBREAPER), and then kills (SIGKILL) and reaps every process still beneath this one,
+// until none is left. It returns cmd's own Wait error, or, when a process outlived the sweep's bound,
+// a *LingeringError naming it.
+//
+// It is the host capture's LIFETIME containment (HP-D18): what a capture jail's teardown gives for
+// free, since stopping a container kills every process in it. A process the confined installer
+// starts in the background, nohup'd or double-forked out of its session with setsid, is reparented
+// to the nearest subreaper ancestor when its parent exits — this one, never init — so it is still
+// found here, and the capture does not leave it running on the host with the network and every read
+// the confinement allows. cmd is the confining step (ExecConfined's re-exec), so this process stays
+// OUTSIDE the confinement's domain: from ABI 6 (LANDLOCK_SCOPE_SIGNAL) nothing confined can signal
+// it. Below ABI 6 a confined process may signal any process of the user's, this one included, so one
+// that kills this one before it exits leaves its descendants to init — the residual HP-D18 states.
+//
+// The signals a terminal's stop sends (SIGINT, SIGTERM, SIGHUP) are passed on to cmd rather than
+// ending this process, so the sweep still runs after a Ctrl-C. cmd's standard streams should be
+// files (this process's own): os/exec copies through a pipe otherwise, and Wait would then wait on
+// whatever background process still holds that pipe, which is what the sweep is for.
+func Supervise(cmd *exec.Cmd) error {
+	if err := unix.Prctl(unix.PR_SET_CHILD_SUBREAPER, 1, 0, 0, 0); err != nil {
+		return fmt.Errorf("becoming the confined command's subreaper: %w", err)
+	}
+	sigs := make(chan os.Signal, 4)
+	signal.Notify(sigs, syscall.SIGINT, syscall.SIGTERM, syscall.SIGHUP)
+	defer signal.Stop(sigs)
+	if err := cmd.Start(); err != nil {
+		return err
+	}
+	done := make(chan struct{})
+	go func() {
+		for {
+			select {
+			case s := <-sigs:
+				_ = cmd.Process.Signal(s)
+			case <-done:
+				return
+			}
+		}
+	}()
+	err := cmd.Wait()
+	close(done)
+	if left := sweepDescendants(os.Getpid(), sweepBound); len(left) > 0 {
+		return &LingeringError{Pids: left, Err: err}
+	}
+	return err
+}
+
+// sweepBound is how long Supervise keeps killing what is left before it reports what will not die: a
+// SIGKILLed process ends as soon as it leaves the kernel, so only one stuck there (a hung mount) lasts.
+const sweepBound = 10 * time.Second
+
+// LingeringError is Supervise's error for processes that outlived its sweep. Each has been sent
+// SIGKILL, which ends it the moment it can act on a signal; none of them can start another process.
+type LingeringError struct {
+	Pids []int
+	// Err is the supervised command's own Wait error.
+	Err error
+}
+
+func (e *LingeringError) Error() string {
+	return fmt.Sprintf("%d process(es) the confined command started were still alive %s after it exited, "+
+		"each sent SIGKILL: %v", len(e.Pids), sweepBound, e.Pids)
+}
+func (e *LingeringError) Unwrap() error { return e.Err }
+
+// sweepDescendants kills every live process beneath pid and reaps what this process can, round after
+// round — a process forked between one round's listing and its kill is found in the next, its parent
+// gone and it reparented here — until a round finds none alive, or bound passes. It returns the pids
+// still alive then.
+func sweepDescendants(pid int, bound time.Duration) []int {
+	deadline := time.Now().Add(bound)
+	for {
+		alive := liveDescendants(pid)
+		for _, d := range alive {
+			_ = unix.Kill(d, unix.SIGKILL)
+		}
+		reapChildren()
+		if len(alive) == 0 {
+			return nil
+		}
+		if time.Now().After(deadline) {
+			return alive
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+}
+
+// reapChildren reaps every child of this process that has exited, without waiting for one that has not.
+func reapChildren() {
+	for {
+		var ws unix.WaitStatus
+		got, err := unix.Wait4(-1, &ws, unix.WNOHANG, nil)
+		if err == unix.EINTR {
+			continue
+		}
+		if err != nil || got <= 0 {
+			return
+		}
+	}
+}
+
+// liveDescendants lists the processes beneath pid that have not exited, from /proc: every process
+// whose chain of parents reaches pid, zombies left out (they have exited, and are reaped by whoever
+// is their parent by then — this process, once the sweep has killed the rest).
+func liveDescendants(pid int) []int {
+	entries, err := os.ReadDir("/proc")
+	if err != nil {
+		return nil
+	}
+	children := map[int][]int{}
+	zombie := map[int]bool{}
+	for _, e := range entries {
+		p, err := strconv.Atoi(e.Name())
+		if err != nil {
+			continue
+		}
+		ppid, state, ok := procParent(p)
+		if !ok {
+			continue
+		}
+		children[ppid] = append(children[ppid], p)
+		zombie[p] = state == 'Z'
+	}
+	var out []int
+	queue := []int{pid}
+	for len(queue) > 0 {
+		p := queue[0]
+		queue = queue[1:]
+		for _, c := range children[p] {
+			queue = append(queue, c)
+			if !zombie[c] {
+				out = append(out, c)
+			}
+		}
+	}
+	sort.Ints(out)
+	return out
+}
+
+// procParent reads a process's parent and state from /proc/<pid>/stat: the fields after the command
+// name, which is parenthesized and may hold spaces and parentheses itself, so the LAST ')' ends it.
+func procParent(pid int) (ppid int, state byte, ok bool) {
+	b, err := os.ReadFile("/proc/" + strconv.Itoa(pid) + "/stat")
+	if err != nil {
+		return 0, 0, false
+	}
+	i := strings.LastIndexByte(string(b), ')')
+	if i < 0 {
+		return 0, 0, false
+	}
+	f := strings.Fields(string(b[i+1:]))
+	if len(f) < 2 || len(f[0]) != 1 {
+		return 0, 0, false
+	}
+	ppid, err = strconv.Atoi(f[1])
+	if err != nil {
+		return 0, 0, false
+	}
+	return ppid, f[0][0], true
 }
 
 // addLandlockRule grants access beneath path. A path that is gone is skipped: a grant of nothing
@@ -365,16 +550,25 @@ type CapturePolicyOptions struct {
 
 // CapturePolicy builds a host capture's LandlockPolicy:
 //
-//   - read and write beneath Staging, beneath /tmp, on /dev's stand-in devices (/dev/null, /dev/zero,
-//     /dev/full, /dev/random, /dev/urandom, /dev/tty) and beneath /dev/shm;
-//   - read and execute beneath every directory of the root except the branches holding Home and
-//     Exclude: the root's entries are listed, an ancestor of an excluded path is descended into and
-//     the same done there, and a symbolic link is left out — what it names is covered, or not, where
-//     it really is, since a rule follows the link it is opened through, and /home → /var/home would
-//     otherwise grant the home;
+//   - read and write beneath Staging, on /dev's stand-in devices (captureDevices) and beneath
+//     /dev/shm (around an excluded branch under it);
+//   - read and execute beneath every directory of the root except /tmp, /dev, and the branches
+//     holding Home and Exclude: the root's entries are listed, an ancestor of an excluded path is
+//     descended into and the same done there, and a symbolic link is left out — what it names is
+//     covered, or not, where it really is, since a rule follows the link it is opened through, and
+//     /home → /var/home would otherwise grant the home;
 //   - read and execute Exec, read Read.
 //
-// /tmp is listed the same way, so a home under /tmp (a test's) stays excluded from it too.
+// NOTHING BENEATH THE REAL /tmp, read or write: yolo keeps state there that only owner-only
+// permissions protect from another process of the same user — a `yolo host` session's endpoint files
+// (an address, a certificate pin and a bearer token each), a launch service's input, the embedded pack
+// tree's fallback — and the installer runs as that user. Its own temporary files go beneath Staging,
+// which its TMPDIR names. Landlock can only allow, so /tmp cannot be granted with yolo's entries carved
+// out: a directory made after the policy was built would be inside the grant.
+//
+// NOTHING ELSE BENEATH /dev: its terminals (/dev/pts/*) are the user's, and a process that could read
+// one could read what is typed there. /dev/fd and /dev/std{in,out,err} are links into /proc/self, so
+// a process's own descriptors still open through them.
 func CapturePolicy(o CapturePolicyOptions) (LandlockPolicy, error) {
 	root := o.Root
 	if root == "" {
@@ -393,13 +587,13 @@ func CapturePolicy(o CapturePolicyOptions) (LandlockPolicy, error) {
 			exclude = append(exclude, resolved(x))
 		}
 	}
-	tmp, dev := resolved(filepath.Join(root, "tmp")), filepath.Join(root, "dev")
+	tmp, dev := resolved(filepath.Join(root, "tmp")), resolved(filepath.Join(root, "dev"))
 	p := LandlockPolicy{ReadWrite: []string{resolved(o.Staging)}}
-	p.ReadWrite = append(p.ReadWrite, coverExcept(tmp, exclude)...)
-	for _, d := range []string{"null", "zero", "full", "random", "urandom", "tty", "shm"} {
+	for _, d := range captureDevices {
 		p.ReadWrite = append(p.ReadWrite, filepath.Join(dev, d))
 	}
-	p.ReadExec = coverExcept(resolved(root), append(append([]string{}, exclude...), tmp))
+	p.ReadWrite = append(p.ReadWrite, coverExcept(resolved(filepath.Join(dev, "shm")), exclude)...)
+	p.ReadExec = coverExcept(resolved(root), append(append([]string{}, exclude...), tmp, dev))
 	for _, f := range o.Exec {
 		p.ReadExec = append(p.ReadExec, resolved(f))
 	}
@@ -408,6 +602,12 @@ func CapturePolicy(o CapturePolicyOptions) (LandlockPolicy, error) {
 	}
 	return p, nil
 }
+
+// captureDevices are the devices under /dev a confined installer may open, for reading and writing:
+// the stand-ins a shell script redirects to and reads from, and the controlling terminal, which a
+// capture's installer has none of (it runs in a session of its own), so opening it answers as it does
+// in a capture jail.
+var captureDevices = []string{"null", "zero", "full", "random", "urandom", "tty"}
 
 // coverExcept lists paths beneath dir whose grants together cover everything under dir except the
 // excluded branches, as CapturePolicy describes. A directory that cannot be listed while descending is

@@ -151,9 +151,10 @@ func runInternal(args []string) int {
 		return macosuser.SessionGuardMain(args[1:])
 	case landlockExecVerb:
 		// The HOST CAPTURE's confinement on Linux (capturelandlock_linux.go,
-		// docs/design/host-tool-provisioning.md HP-D18): this process restricts itself with Landlock
-		// and execs the capture driver, or runs nothing. Hidden: its caller is `yolo capture` on a
-		// machine with no container runtime.
+		// docs/design/host-tool-provisioning.md HP-D18): with --supervise, this process runs the
+		// confinement as a subreaper and kills what it leaves running; otherwise it restricts itself
+		// with Landlock and execs the capture driver. Either runs nothing it cannot. Hidden: its caller
+		// is `yolo capture` on a machine with no container runtime.
 		return runLandlockExec(args[1:])
 	default:
 		fmt.Fprintf(os.Stderr, "yolo internal: unknown command %q\n", args[0])
