@@ -50,7 +50,9 @@ func runWithProxy(cmd []string, onStarted func(*os.Process), onTerminate func(),
 // There is no terminal to put back here: the runtime's own client sets its tty modes.
 func runArmedSession(cmd []string, arm *launchSignalArm, o *Options) (int, error) {
 	c := exec.Command(cmd[0], cmd[1:]...)
-	c.Stdin, c.Stdout, c.Stderr = os.Stdin, os.Stdout, os.Stderr
+	// The session's stdout is the jail's (Options.JailStdout): this process's, unless the caller
+	// named another writer for it.
+	c.Stdin, c.Stdout, c.Stderr = os.Stdin, o.jailStdout(), os.Stderr
 	if len(o.runtimeClientEnv) > 0 {
 		c.Env = append(os.Environ(), o.runtimeClientEnv...)
 	}

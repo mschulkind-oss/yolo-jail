@@ -410,6 +410,14 @@ type Options struct {
 	// nil => os.Stdout / os.Stderr.
 	Stdout io.Writer
 	Stderr io.Writer
+	// JailStdout is where the JAIL'S OWN standard output goes: pid 1's, which the keeper relays
+	// until the jail is ready, and the first session's. nil is this process's stdout, through the
+	// terminal proxy when stdin is a terminal — an agent's session, whose output is the product. A
+	// caller whose jail prints progress for another command names its own writer, and the session
+	// then runs off the proxy, its stdin and stderr still this process's (ttyproxy.Observer.Stdout):
+	// the host floor's capture and build jails, which run before a `yolo host` launch execs an agent
+	// whose stdout is routinely parsed, take this process's stderr (internal/cli's hostJailStdout).
+	JailStdout io.Writer
 	// Stdin is read for the config-change approval prompt. nil => os.Stdin.
 	Stdin io.Reader
 	// Color enables ANSI styling in the human output.
@@ -645,6 +653,15 @@ type Options struct {
 	// patchedAct is this launch's act interrupt (actInterrupt, PF-D57), handed to the fork builds
 	// and the tree arm alike.
 	patchedAct *ActInterrupt
+}
+
+// jailStdout is where the jail's own standard output goes (JailStdout): the writer a caller named,
+// or this process's stdout.
+func (o *Options) jailStdout() io.Writer {
+	if o.JailStdout != nil {
+		return o.JailStdout
+	}
+	return os.Stdout
 }
 
 // captureConfigOnTerminate runs the injected E3 capture for a jail that has just

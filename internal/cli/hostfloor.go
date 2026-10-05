@@ -130,8 +130,8 @@ var newHostFloor = func(out io.Writer, progs []hostfloor.Program) *hostfloor.Flo
 			return entry, err
 		},
 		Build: func(p hostfloor.Program, commit string) (*capture.Entry, error) {
-			return buildFork(floorForkBuild(p, commit),
-				buildMode{lock: pidlock.Mode{Wait: true, Bound: forkBuildWaitBound}}, out, out, false)
+			return buildFork(floorForkBuild(p, commit), buildMode{lock: pidlock.Mode{Wait: true, Bound: forkBuildWaitBound},
+				jailStdout: hostJailStdout()}, out, out, false)
 		},
 		// A PATCHED FORK's program (docs/design/patched-forks.md §9, PF-D14): no pin, so the floor reads
 		// the GOOD BUILD where a plain fork's reads the pin — offline, from this machine's check record
@@ -386,16 +386,28 @@ func floorForkPins(progs []hostfloor.Program) map[string]packload.ForkPin {
 }
 
 // hostFloorCaptureAct is the capture act the production floor runs on Linux: `yolo capture <bin>`
-// itself. A var only so a test can stand in for the jail it boots and still drive the floor's own
-// Capture wiring; nothing but a test reassigns it.
-var hostFloorCaptureAct = captureHost
+// itself, its capture jail's own stdout on this process's stderr (hostJailStdout). A var only so a
+// test can stand in for the jail it boots and still drive the floor's own Capture wiring; nothing
+// but a test reassigns it.
+var hostFloorCaptureAct = func(args []string, out, errw io.Writer, color bool) int {
+	return captureHostWith(args, out, errw, color, captureAct{jailStdout: hostJailStdout()})
+}
 
 // hostFloorCaptureActOn is the capture act under a runtime its caller names for this act alone
-// (captureAct.runtime): the Mac floor's, on macos-user (HP-D2). A var for hostFloorCaptureAct's
-// reason.
+// (captureAct.runtime): the Mac floor's, on macos-user (HP-D2), its jail's stdout on this process's
+// stderr as hostFloorCaptureAct's is. A var for hostFloorCaptureAct's reason.
 var hostFloorCaptureActOn = func(rt string, args []string, out, errw io.Writer, color bool) int {
-	return captureHostWith(args, out, errw, color, captureAct{runtime: rt})
+	return captureHostWith(args, out, errw, color, captureAct{runtime: rt, jailStdout: hostJailStdout()})
 }
+
+// hostJailStdout is where a jail a host verb boots writes its OWN stdout (captureAct.jailStdout):
+// the host floor's capture jail and build jail, and the host's advances' build jails. It is this
+// process's stderr, where that jail's stderr already goes: the verb serves a `yolo host` launch that
+// execs an agent whose stdout is routinely parsed (newHostFloor), and the run pipeline would
+// otherwise relay the jail's stdout to the process's own, ahead of the agent's output. The raw
+// stream, never the launch's teed errw: the jail's output is not yolo's own lines, and the host
+// launch log takes only those (startHostLaunchTrace).
+func hostJailStdout() io.Writer { return os.Stderr }
 
 // captureRuntime is the runtime a `yolo capture` would boot its jail with: YOLO_RUNTIME, then the
 // user config's `runtime`, then the platform default — run's precedence without its probe.

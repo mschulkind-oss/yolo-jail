@@ -125,6 +125,12 @@ type captureAct struct {
 	// inherit. "" is the runtime a launch resolves. The host floor on a Mac names macos-user (HP-D2):
 	// a container capture there records a Linux entry, which a Mac's floor cannot run.
 	runtime string
+	// jailStdout is where the capture jail's OWN stdout goes — pid 1's and the installer's in a
+	// container, the account's commands' on macos-user (run.Options.JailStdout) — when its caller
+	// names a stream for it. nil is this process's stdout, a typed `yolo capture`'s. A host verb
+	// names this process's stderr (hostJailStdout). The host arm needs none: its installer runs on
+	// the act's own out and errw.
+	jailStdout io.Writer
 }
 
 // captureHostWith is captureHost under act.
@@ -235,7 +241,7 @@ func captureHostWith(args []string, out, errw io.Writer, color bool, act capture
 	pr.Printf("[bold]capture[/bold] [cyan]%s[/cyan]  [dim]%s[/dim]", bin, target.URL)
 	runJail := func() int {
 		return runCaptureJail(staging, bin, captureJailArgv(bin), nil, out, errw, color,
-			captureAct{runtime: arm.runtime})
+			captureAct{runtime: arm.runtime, jailStdout: act.jailStdout})
 	}
 	if arm.host() {
 		pr.Printf("[dim]pack %s → this host, its installer confined by Landlock (ABI %d) to a throwaway home; "+
@@ -697,6 +703,16 @@ func runCaptureJail(workspace, bin string, argv []string, seal *captureSeal, out
 		opts.SealedTree = seal.tree
 	}
 	opts.Stdout, opts.Stderr = out, errw
+	// THE JAIL'S OWN STDOUT GOES WHERE THE CALLER SAID (captureAct.jailStdout), or to this process's.
+	// The run pipeline relays pid 1's output and runs the first session — the installer, the build —
+	// on the process's own streams, whatever Stdout it is handed: so without this, a host floor's
+	// capture printed the installer's lines on the stdout of the `yolo host` launch it served, ahead
+	// of the agent's own.
+	var jailStdout io.Writer
+	if len(on) > 0 {
+		jailStdout = on[0].jailStdout
+	}
+	opts.JailStdout = jailStdout
 	// NO CAPTURE STORE IN A CAPTURE JAIL. Every ordinary launch binds the store :ro so a
 	// native launcher can materialize instead of downloading (run/captures.go); this one
 	// must not, and the reason is circularity rather than tidiness. The installer a capture
@@ -785,7 +801,12 @@ func runCaptureJail(workspace, bin string, argv []string, seal *captureSeal, out
 		}
 		deps := macosuser.RealDeps(nil, nil, color)
 		deps.Out = out
-		return macosuser.RunCaptureAct(deps, macosuser.CaptureOptions{
+		// The act's commands — the account's setup, the bootstrap, the driver and the installer it
+		// runs — inherit this process's stdout, unless the caller named the jail's (the Mac floor).
+		if jailStdout != nil {
+			deps.Run = macosuser.RunStdoutTo(jailStdout)
+		}
+		return macCaptureAct(deps, macosuser.CaptureOptions{
 			Bin: bin, Config: cfg, HostPackRoot: packRoot, SandboxEnv: packEnv,
 			BlockedTools: blocked,
 		}, filepath.Join(workspace, captureOutLeaf), dryRun)
@@ -801,6 +822,11 @@ func runCaptureJail(workspace, bin string, argv []string, seal *captureSeal, out
 // its own options and called the store directly would go green with this call deleted.
 // Substituting the pipeline leaves every line above and below it in the test's path.
 var captureRunPipeline = run.Run
+
+// macCaptureAct is the macos-user capture act (macosuser.RunCaptureAct) behind a package var, for
+// captureRunPipeline's reason: a test drives runCaptureJail's own macos-user closure and reads the
+// account runner it composed, without sudo or Seatbelt.
+var macCaptureAct = macosuser.RunCaptureAct
 
 // cleanupCaptureWorkspace removes what the capture jail left on the host.
 //

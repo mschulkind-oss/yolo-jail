@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -88,12 +89,25 @@ func hostUserReal() string {
 // signal arm has published one: a SIGTERM sent to yolo alone reaches no child, so the arm forwards
 // it to the one running here — a sudo prompt, the bootstrap, a provisioning stage that can take
 // minutes — and the launch ends at its next step instead of after it.
-func runReal(argv []string) int {
+func runReal(argv []string) int { return runStdoutTo(os.Stdout, argv) }
+
+// RunStdoutTo is a Deps.Run that is runReal with each command's stdout on w: stdin and stderr are
+// still inherited, so sudo still asks on the real terminal. Its one caller is a capture whose output
+// is another command's progress (the host floor's, on a Mac: internal/cli's captureAct.jailStdout),
+// which hands this process's stderr — an *os.File, so the child inherits that descriptor itself and
+// no pipe comes between it and the terminal.
+func RunStdoutTo(w io.Writer) func(argv []string) int {
+	return func(argv []string) int { return runStdoutTo(w, argv) }
+}
+
+// runStdoutTo runs argv with stdin and stderr inherited and its stdout on w, naming the child to
+// the foreground watch while it runs, and returns the returncode; a start failure yields 1.
+func runStdoutTo(w io.Writer, argv []string) int {
 	if len(argv) == 0 {
 		return 1
 	}
 	cmd := exec.Command(argv[0], argv[1:]...)
-	cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, os.Stdout, os.Stderr
+	cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, w, os.Stderr
 	if err := cmd.Start(); err != nil {
 		return exitCodeOf(err)
 	}

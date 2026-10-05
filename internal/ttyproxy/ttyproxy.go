@@ -6,7 +6,8 @@
 // in one process.
 //
 // Frozen behavior (from docs/reference/ctrl-z-and-the-tty-proxy.md):
-//   - non-TTY stdin -> transparent plain spawn (no pty).
+//   - non-TTY stdin -> transparent plain spawn (no pty), as is a run whose Observer names a
+//     Stdout of its own.
 //   - ^Z suspends the PROXY via TARGETED SIGTSTP to self (NEVER a pgroup-wide
 //     signal — that would stop podman, a jail-visible change); the terminal is
 //     restored to cooked mode and reset (cursor shown, mouse tracking disabled,
@@ -45,6 +46,7 @@ package ttyproxy
 
 import (
 	"errors"
+	"io"
 	"os"
 	"os/exec"
 	"os/signal"
@@ -208,6 +210,13 @@ type Observer struct {
 	// child alone: nothing the proxy spawns later sees it. The one caller is a launch in a herdr
 	// pane, which puts HERDR_AGENT on the runtime client herdr reads (run's herdragent.go).
 	Env []string
+	// Stdout, when set, is where the child's standard output goes in place of this process's own,
+	// and the child then runs WITHOUT the proxy, on a terminal too: the proxy's pty merges the
+	// child's two streams into one, so neither could go anywhere else. Its stdin and stderr stay this
+	// process's. The one caller is a launch whose jail's output is progress of another command's,
+	// never product (run.Options.JailStdout): the host floor's capture and build jails, which run
+	// before the `yolo host` launch execs an agent whose stdout is routinely parsed.
+	Stdout io.Writer
 }
 
 // command builds the child's exec.Cmd, with Env layered over the inherited environment.
@@ -373,7 +382,7 @@ func (h Handle) Kill() { h.s.kill() }
 func RunWithProxyObserved(cmd []string, onStarted func(*os.Process), onTerminate func(), obs Observer) (int, error) {
 	hook := obs.Stage
 	inFd := int(os.Stdin.Fd())
-	if !isatty(inFd) {
+	if obs.Stdout != nil || !isatty(inFd) {
 		return runPlain(cmd, onStarted, obs)
 	}
 
@@ -522,7 +531,10 @@ var afterReturnClaimed func()
 func runPlain(cmd []string, onStarted func(*os.Process), obs Observer) (int, error) {
 	hook := obs.Stage
 	c := obs.command(cmd)
-	c.Stdin, c.Stdout, c.Stderr = os.Stdin, os.Stdout, os.Stderr
+	c.Stdin, c.Stdout, c.Stderr = os.Stdin, io.Writer(os.Stdout), os.Stderr
+	if obs.Stdout != nil {
+		c.Stdout = obs.Stdout
+	}
 	if err := c.Start(); err != nil {
 		return 0, err
 	}

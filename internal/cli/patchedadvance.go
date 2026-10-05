@@ -894,6 +894,12 @@ func (a *advance) build(b forkBuild, base baseWhy, edited bool) advanceResult {
 	startGood := a.goodBuild()
 	a.boundHit, a.ownLock = false, b.lockPath()
 	mode := buildMode{force: a.o.force, packs: a.packs, lock: pidlock.NoWait, replaySpent: a.replaySpent}
+	if a.o.host {
+		// AT THE HOST the build jail's own stdout is this process's stderr (hostJailStdout): a
+		// `yolo host` launch's stdout is the agent's. A child's build jail writes to the child's own
+		// streams, the writers runForkBuildChild hands it.
+		mode.jailStdout = hostJailStdout()
+	}
 	if a.o.launch {
 		mode.lock = pidlock.Mode{Wait: true, Bound: forkBuildWaitBound, Cancel: a.ctx.Done()}
 		mode.afterLock = func() (*capture.Entry, error, bool) { return a.afterLock(b, startGood, startFail) }

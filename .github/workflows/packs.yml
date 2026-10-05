@@ -1,7 +1,8 @@
 name: Pack Installs
 
 # Asks ONE question the every-push gate deliberately does not: do the shipped packs'
-# programs still install from their vendors?
+# programs still install from their vendors — in a jail, and into yolo's host floor
+# (`yolo host -- <bin>`, docs/design/host-tool-provisioning.md)?
 #
 # It is a separate workflow because the trigger is the whole point
 # (docs/reference/agent-install-in-ci.md#three-triggers-matched-to-three-causes — "the trigger should match the causation"):
@@ -39,7 +40,10 @@ on:
   # covers the launch path unconditionally. What this adds over ci.yml is fourteen
   # AGENTS installed in real jails, and the axis that makes that fragile is which
   # image the jail gets — so the filter names the inputs that decide the image, and
-  # nothing else.
+  # nothing else. `internal/hostfloor/**` is the same argument at the host: the
+  # floor's install code — its own Node, its npm, a capture materialized into it — is
+  # what TestHostFloorInstallsTheVendorsRelease installs through, and ci.yml's pinned
+  # floor cells cannot see a vendor's release break it.
   # The two lists are duplicated rather than shared through a YAML anchor. An
   # anchor parses correctly with yq, but GitHub's own workflow parser is not
   # something this repo can test before pushing, and a workflow that fails to parse
@@ -51,6 +55,7 @@ on:
       - 'flake.nix'
       - 'flake.lock'
       - 'internal/image/**'
+      - 'internal/hostfloor/**'
       - '.github/workflows/packs.yml'
   pull_request:
     branches: [main]
@@ -59,6 +64,7 @@ on:
       - 'flake.nix'
       - 'flake.lock'
       - 'internal/image/**'
+      - 'internal/hostfloor/**'
       - '.github/workflows/packs.yml'
   schedule:
     # Weekly, offset from the nightly macOS run (06:40) and the flake.lock bump.
@@ -193,14 +199,20 @@ jobs:
       - name: Load jail image
         run: podman load < /tmp/jail-image.tar
 
-      # -run selects this pack's subtest only, so a red cell names its vendor in the job
-      # name rather than in a log nobody opens. YOLO_TEST_REAL_PACK_INSTALLS is what
-      # un-skips the vendor-install tests; without it they skip themselves and say so
-      # (integration/harness_test.go, requireRealPackInstalls).
+      # -run selects this pack's subtest only, of both vendor-install tests — the jail's
+      # and the host floor's (integration/hostfloor_test.go) — so a red cell names its
+      # vendor in the job name rather than in a log nobody opens. YOLO_TEST_REAL_PACK_INSTALLS
+      # is what un-skips the vendor-install tests; without it they skip themselves and say
+      # so (integration/harness_test.go, requireRealPackInstalls).
+      #
+      # BOTH LEVELS ANCHORED. go test splits -run at each unbracketed `/` and matches each
+      # level unanchored, so the old `TestPackInstallsVersionsAndConfigures/pi` ran
+      # copilot's subtest in the pi job too (`co-pi-lot`). And the alternation has to sit
+      # inside the first level: `A/x|B/x` splits into `A`, `x|B`, `x`.
       - name: Install ${{ matrix.pack }} from its vendor
         run: |
           go test -count=1 -timeout 0 -v ./integration \
-            -run 'TestPackInstallsVersionsAndConfigures/${{ matrix.pack }}'
+            -run '^(TestPackInstallsVersionsAndConfigures|TestHostFloorInstallsTheVendorsRelease)$/^${{ matrix.pack }}$'
         env:
           YOLO_RUNTIME: podman
           YOLO_TEST_REAL_PACK_INSTALLS: "1"
