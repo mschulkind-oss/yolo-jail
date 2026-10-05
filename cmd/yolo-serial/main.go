@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/frameproto"
+	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/svcendpoint"
 )
 
@@ -134,11 +135,14 @@ func flagTokens(fs *flag.FlagSet, a string) int {
 	return 2
 }
 
+// resolveEndpoint reads the endpoint FILE's path: --endpoint, else paths.SerialEndpointEnv,
+// the one spelling the macos-user launch also keys on when it decides to stage this client in
+// its guest (macosuser.GuestClients).
 func resolveEndpoint(custom string) (string, error) {
 	if custom != "" {
 		return custom, nil
 	}
-	if ep := os.Getenv("YOLO_SERVICE_SERIAL_ENDPOINT"); ep != "" {
+	if ep := os.Getenv(paths.SerialEndpointEnv); ep != "" {
 		return ep, nil
 	}
 	return "", errors.New("no endpoint")

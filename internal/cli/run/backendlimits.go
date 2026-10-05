@@ -104,14 +104,19 @@ func backendLimits(rt string, packs []*packload.Pack, cfg *jsonx.OrderedMap) []s
 	// have silently deleted this line from the one backend it is most true of.
 	//
 	// What is still true there is narrower and has nothing to do with inertness: these
-	// three clients belong to loopholes that declare `platforms: ["linux"]`, and their
-	// binaries are not staged into the sandbox at all — `StageBinaryCommands` stages `yolo`
-	// and nothing else. So the agent cannot run them whatever is running on the host.
+	// two clients belong to loopholes that declare `platforms: ["linux"]`, and their
+	// binaries are not staged into the sandbox at all — the guest set is yolo-jaild and the
+	// clients of the loopholes that run on a Mac (macosuser.GuestBinaries). So the agent
+	// cannot run them whatever is running on the host. The guest's own clients (`yolo-serial`,
+	// `yolo-ps`: macosuser.GuestClients) are kept OUT of that sentence and said to work, in one
+	// of their own: the guest stages them whenever their loophole's endpoint is published, so
+	// calling them unavailable would be false of the launch that has them, and an agent on a
+	// Mac told only what is missing would assume the rest of the Linux set is missing too.
 	switch {
-	case rt == "macos-user": // parity: Warned — the three clients belong to Linux-only loopholes and StageBinaryCommands stages only `yolo`, so the sandbox cannot run them whatever the host started
-		out = append(out, "The in-jail loophole clients (`yolo-ps`, `yolo-journalctl`, "+
-			"`yolo-cglimit`) are not available here: they belong to Linux-only loopholes "+
-			"and are not staged into this sandbox. Host services that DO run on this "+
+	case rt == "macos-user": // parity: Warned — the two clients belong to Linux-only loopholes and the guest stages only yolo, yolo-jaild and the Mac-capable loopholes' clients (macosuser.GuestBinaries), so the sandbox cannot run them whatever the host started
+		out = append(out, "The in-jail loophole clients `yolo-journalctl` and `yolo-cglimit` "+
+			"are not available here: they belong to Linux-only loopholes and are not staged "+
+			"into this sandbox. "+guestClientsSentence()+" Host services that DO run on this "+
 			"backend are reachable normally.")
 	case backendInertReason(rt) != "":
 		out = append(out, "No loophole host services are running, so their in-jail clients "+
@@ -170,4 +175,20 @@ func backendLimits(rt string, packs []*packload.Pack, cfg *jsonx.OrderedMap) []s
 		"adapter's `/dev/cu.*` node, say) to `devices` in yolo-jail.jsonc and relaunch; raw disks "+
 		"and packet capture stay refused whatever is listed.")
 	return out
+}
+
+// guestClientsSentence says which in-jail loophole clients DO run in a macos-user sandbox, and
+// when: each macosuser.GuestClients binary, read from that list so a client added to the guest
+// set is named here without anyone remembering this file.
+func guestClientsSentence() string {
+	names := make([]string, 0, len(macosuser.GuestClients))
+	for _, c := range macosuser.GuestClients {
+		names = append(names, "`"+c.Binary+"`")
+	}
+	list := strings.Join(names, " and ")
+	if len(names) > 2 {
+		list = strings.Join(names[:len(names)-1], ", ") + " and " + names[len(names)-1]
+	}
+	return list + " do run here, staged into this sandbox whenever the human has switched " +
+		"their loophole on."
 }

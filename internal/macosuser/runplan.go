@@ -80,9 +80,18 @@ type RunPlan struct {
 	// to (SupervisorLogPath), and the one the launch reads its readiness line from. "" with
 	// no daemon.
 	SupervisorLog string
-	// GuestBinSource is where the darwin guest binaries are copied from ("" with no
-	// daemon), and StageCommands carries the copies into GuestBinDir.
+	// GuestBinSource is where the darwin guest binaries are copied from ("" with no daemon
+	// and no guest client's endpoint), and StageCommands carries the copies into GuestBinDir.
+	// GuestClients names the clients (GuestClients' binaries) whose endpoint the session env
+	// carries, each of which is then staged with the set, so the agent can run it.
 	GuestBinSource string
+	GuestClients   []string
+	// ProbeArgv is the CONFINED host-service witness (serviceprobe.go): `yolo internal
+	// probe-services` under the session's Seatbelt profile, as the sandbox account, reading
+	// the session env file, so it dials each published endpoint exactly as the agent's clients
+	// will. nil when the session env carries no YOLO_SERVICE_*_ENDPOINT, which is every launch
+	// that started no host service, and then it costs nothing.
+	ProbeArgv []string
 	// DaemonEnvFile is the supervisor's own env file, beside EnvFile and delivered the same
 	// way (root-owned 0600 in the 0700 env dir, one `user:` read ACE for the sandbox
 	// account); DaemonEnvFileContent is what to write. Both "" with no daemon.
@@ -472,6 +481,17 @@ func BuildRunPlanWithDaemons(workspace string, cfg *jsonx.OrderedMap, agents, ag
 	// argv's `env -i` list is closed (sandboxEnvPairs).
 	contextDir := StagedCtxRoot(cname, "")
 	sandboxEnv = withEnvVar(sandboxEnv, paths.ContextDirEnv, contextDir)
+	// THE HOST-LOOPBACK DISPOSITION (paths.HostLoopbackEnvVar), which every container launch
+	// emits and this backend did not: `shared`, BY CONSTRUCTION. The sandbox is an ordinary child
+	// of the launcher on the Mac's own network stack, which is why internal/cli/run's
+	// sharesLauncherNetns answers true for macos-user whatever `network.mode` says and every host
+	// daemon advertises 127.0.0.1 here (loopholesruntime.go). The witness reads it to decide
+	// severity (internal/entrypoint's loopbackDisposition), and `shared` escalates (OQ-R5): there
+	// is no forwarding hop for an unusable service to hide behind. Set over every layer, as a fact
+	// of the launch rather than a value a composed layer may change, and HERE rather than in
+	// buildPlan so every plan carries it, the one the probe argv below reads included, and
+	// PlanInvariants can check it.
+	sandboxEnv = withEnvVar(sandboxEnv, paths.HostLoopbackEnvVar, paths.HostLoopbackShared)
 	// THE STAGED PACK TREE AND THE WORKSPACE, NAMED TO THE SESSION, so an in-sandbox `yolo`
 	// reads the jail the way its bootstrap did. `yolo programs` and `yolo pack update` decide
 	// whether they are looking at a jail by YOLO_PACK_ROOT (cli/programs.go states why that
@@ -580,24 +600,43 @@ func BuildRunPlanWithDaemons(workspace string, cfg *jsonx.OrderedMap, agents, ag
 	stageCommands = append(stageCommands, StageContextDirCommands(hostCtx.Tree, ctxLinks, cname, "")...)
 	stageCommands = append(stageCommands, endpointGrantCommands(sandboxEnv)...)
 
+	// THE GUEST'S BINARIES (OQ-DP8; jaildaemon.go), staged as ONE SET when the launch runs a
+	// jail daemon OR its session env carries an endpoint a guest client reads (GuestClientsIn,
+	// keyed on each client's own variable) — so a launch with neither stages nothing and a
+	// checkout launch builds no `.#guestPrefix` for nothing.
+	daemonNames := jailDaemons.Names()
+	guestClients := GuestClientsIn(sandboxEnv)
+	guestSource := ""
+	if len(daemonNames) > 0 || len(guestClients) > 0 {
+		guestSource = jailDaemons.GuestBinSource
+		// The binaries the supervisor, the payload's argvs and the agent's clients name, beside
+		// the staged yolo.
+		stageCommands = append(stageCommands, StageGuestBinaryCommands(guestSource, "")...)
+	}
+
 	// THE GUEST'S JAIL DAEMONS (OQ-DP8, OQ-DP9; jaildaemon.go), composed only when the
 	// launch handed this backend a payload naming at least one — so every artifact below is
-	// absent, not empty, on a launch that runs none.
+	// absent, not empty, on a launch that runs none. The supervisor, its env file and its log
+	// are the daemons' alone: a launch staging the set for a client starts no supervisor.
 	var jailDaemonArgv []string
-	daemonNames := jailDaemons.Names()
-	guestSource, daemonEnvFile, daemonEnvContent, supervisorLog := "", "", "", ""
+	daemonEnvFile, daemonEnvContent, supervisorLog := "", "", ""
 	if len(daemonNames) > 0 {
-		guestSource = jailDaemons.GuestBinSource
 		daemonEnvFile = SandboxDaemonEnvFile(sessionKey, "")
 		daemonEnvContent = SandboxEnvFileContent(jailDaemons.Env)
 		supervisorLog = SupervisorLogPath(workspace)
 		jailDaemonArgv = JailDaemonArgv(profilePath, daemonEnvFile, supervisorLog, "", "", darwinPrefix)
-		// The binaries the supervisor and the payload's argvs name, beside the staged yolo.
-		stageCommands = append(stageCommands, StageGuestBinaryCommands(guestSource, "")...)
 		// Every endpoint the DAEMONS dial is granted too — the same grant the agent's
 		// endpoints get, read off the daemon env for endpointGrantCommands' reason (the env
 		// is the manifest), deduped against the ones already granted.
 		stageCommands = appendNewCommands(stageCommands, endpointGrantCommands(jailDaemons.Env))
+	}
+
+	// THE HOST-SERVICE WITNESS (serviceprobe.go), composed only when the session env carries a
+	// published endpoint, so a launch that started no host service runs no probe. The env file
+	// exists whenever it does (the endpoint variable is in it).
+	var probeArgv []string
+	if carriesServiceEndpoint(sandboxEnv) {
+		probeArgv = ProbeServicesArgv(stagedYolo, profilePath, envFile, "", "", darwinPrefix)
 	}
 
 	// workspace_readonly with the config self-lock the container backends perform, a symlinked
@@ -646,6 +685,8 @@ func BuildRunPlanWithDaemons(workspace string, cfg *jsonx.OrderedMap, agents, ag
 		JailDaemonNames:         daemonNames,
 		SupervisorLog:           supervisorLog,
 		GuestBinSource:          guestSource,
+		GuestClients:            guestClientNames(guestClients),
+		ProbeArgv:               probeArgv,
 		DaemonEnvFile:           daemonEnvFile,
 		DaemonEnvFileContent:    daemonEnvContent,
 		DaemonEnvRemoveCommands: SandboxEnvRemoveCommands(daemonEnvFile),
@@ -1449,6 +1490,8 @@ func PlanInvariants(plan RunPlan) []string {
 	}
 
 	problems = append(problems, jailDaemonInvariants(plan)...)
+	problems = append(problems, guestClientInvariants(plan)...)
+	problems = append(problems, serviceProbeInvariants(plan)...)
 	problems = append(problems, sessionFileInvariants(plan)...)
 	return problems
 }

@@ -35,7 +35,7 @@ import (
 // rewrite semantics.
 func runInternal(args []string) int {
 	if len(args) == 0 {
-		fmt.Fprintln(os.Stderr, "usage: yolo internal <capture-materialize|capture-run|config-dump|fork-build-jail|daemon|darwin-bootstrap|footer|image-copy|installer-check|migrate-host|model-menu|no-terminal|node-floor-launchers|node-floor-satisfied|openai-auth|openai-auth-client|refresh-servers|bundle-dir|scratch-rm|update-check> [args...]")
+		fmt.Fprintln(os.Stderr, "usage: yolo internal <capture-materialize|capture-run|config-dump|fork-build-jail|daemon|darwin-bootstrap|footer|image-copy|installer-check|migrate-host|model-menu|no-terminal|node-floor-launchers|node-floor-satisfied|openai-auth|openai-auth-client|probe-services|refresh-servers|bundle-dir|scratch-rm|update-check> [args...]")
 		return 2
 	}
 	switch args[0] {
@@ -149,6 +149,11 @@ func runInternal(args []string) int {
 		// the launch argv runs inside the sandbox, between the env-file reader and the shell that
 		// execs the agent. Hidden: its caller is that argv, and it runs the command it is handed.
 		return macosuser.SessionGuardMain(args[1:])
+	case macosuser.ProbeServicesVerb:
+		// The macos-user launch's host-service witness (internal/macosuser/serviceprobe.go),
+		// the container boot's last step run as a confined stage of its own. Hidden: its caller
+		// is that stage's argv, inside the sandbox (probeservices.go).
+		return runProbeServices(args[1:], os.Environ(), os.Stderr)
 	default:
 		fmt.Fprintf(os.Stderr, "yolo internal: unknown command %q\n", args[0])
 		return 2

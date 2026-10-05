@@ -499,8 +499,10 @@ func bootSteps() []bootStep {
 				ProbeServiceReachability(b.e)
 				reach.Done("")
 			},
-			notDarwin: "macos-user runs no in-jail half of any host service to probe for; the launch " +
-				"discloses each service it starts",
+			notDarwin: "this bootstrap runs outside the session's Seatbelt profile, so a probe " +
+				"here could pass where the agent's own client is refused; the macos-user launch " +
+				"runs the witness as a confined stage of its own after its jail daemons start " +
+				"(macosuser.ProbeServicesArgv)",
 		},
 	}
 }

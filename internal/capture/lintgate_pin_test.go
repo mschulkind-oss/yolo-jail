@@ -42,6 +42,9 @@ var gateGOARCH = []string{"amd64", "arm64"}
 //
 // Keys are slash-separated paths relative to the repo root.
 var unanalyzedFiles = map[string]string{
+	"cmd/yolo-serial/pty_other.go": "`!linux && !darwin` since the client gained a darwin " +
+		"openPty for the macos-user guest (pty_darwin.go): the completeness arm of its " +
+		"constraint set, for serialdaemon's reason below.",
 	"internal/serialdaemon/serial_other.go": "`!linux && !darwin` is the completeness arm of " +
 		"serialdaemon's constraint set, not a target: the tree does not compile under " +
 		"GOOS=windows at all, so a third lint pass would report a broken build rather than a " +

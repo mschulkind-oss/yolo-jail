@@ -188,10 +188,15 @@ func (o *Options) advertiseHostFor(rt string, cfg *jsonx.OrderedMap) string {
 // ports picked on it (servedaddresses.go, NC-D43), are therefore unverified on that setup.
 // Recorded rather than changed: nothing measured the right answer there.
 //
-// A DISPOSITION IT STILL CANNOT MOVE. assembleRunCmd's paths.HostLoopbackShared is written
-// in the assembler, several hundred lines below the macos-user return, so this backend
-// emits no disposition at all — which is why the widening cannot manufacture the refused
-// launch the pair-drift hazard above describes.
+// THE DISPOSITION IS STATED ONCE MORE, BY THE BACKEND ITSELF. assembleRunCmd's
+// paths.HostLoopbackShared is written in the assembler, below the macos-user return, so this
+// predicate does not emit it there. The macos-user plan builder writes `shared` into the session
+// env on the same by-construction fact this branch returns true for
+// (macosuser.BuildRunPlanWithDaemons), and its confined witness stage escalates on it
+// (macosuser.ProbeServicesArgv, OQ-R5). So the widening CAN now manufacture the refused launch
+// the pair-drift hazard above describes, if this branch and that value ever part: the daemons
+// would advertise a gateway name and the sandbox would refuse every service on it.
+// TestEveryBackendDeclaresALoopbackDisposition's macos-user case holds the two together.
 //
 // WHAT THE ARM STILL PRINTS ITSELF is the inert report on its `--dry-run` path (a plan
 // render crosses no spawn boundary, so it reaches no wrapper) and the JAIL-DAEMON DECLINE on
