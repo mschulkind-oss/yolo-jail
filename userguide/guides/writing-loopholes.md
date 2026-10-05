@@ -357,11 +357,16 @@ When a pack `env` entry tells a client where to find something your loophole mou
 {"kind": "env", "served_by": "my-loophole", "vars": {"MY_SOCKET": "unix:/run/my-loophole/sock"}}
 ```
 
-The variable is then set only in a jail that gets your mounts: a container jail with the loophole
-on and active on that machine. `yolo host` and `macos-user` mount nothing into a jail, and a jail
-with the loophole off gets none of its mounts, so each of these leaves the variable out and says
-so at launch. A client there uses its own default instead, which under `yolo host` is your
-machine's own service. The `audio` pack marks `PULSE_SERVER` and `PIPEWIRE_REMOTE` this way.
+The variable is then set only in a container jail with the loophole on and active on that
+machine. `yolo host` and `macos-user` mount nothing into a jail, and a jail with the loophole off
+gets none of its mounts, so each of these leaves the variable out and says so at launch. A client
+there uses its own default instead, which under `yolo host` is your machine's own service. The
+variable follows the loophole, not each mount: a mount or device whose host path is missing on
+that machine is skipped with a warning, but the variable is still set, naming a path that is not
+there. If that path is in the loophole's folder or your home, name it in
+[`requires.file_exists`](#keys-for-turning-it-on), and a machine without it leaves the loophole
+inactive and the variable out. The `audio` pack marks `PULSE_SERVER` and `PIPEWIRE_REMOTE` this
+way.
 This works only for a loophole that mounts something or runs a jail daemon: an entry marked
 `served_by` a loophole that does neither is never set, even with the loophole on.
 
