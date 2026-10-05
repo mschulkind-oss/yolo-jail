@@ -233,10 +233,12 @@ The options in full:
   `source` and no patches, built and delivered as a patched extension is
   ([the companion's §4](pi-extension-store-builds.md#4-capturing-unmodified-extensions)). Nothing
   is rewritten, so [`OQ-LT2`](../reference/pack-system.md#oq-lt2) stands. An update lands at a fresh jail launch, not at a pi relaunch
-  inside a running jail; a Mac without a container gets pi's own install through the author's
-  fallback; and entries no pack declares, your own `pi install` among them, stay pi's, per workspace,
-  where they no longer leak but are not shared. That last departs from [OQ-5](#OQ-5)'s *"pi's
-  updater touches nothing in a jail"* for those entries.
+  inside a running jail; a tree is mounted read-only, so an extension that writes into its own
+  directory at run time, which pi's own writable install allows, fails there
+  ([the companion's §11](pi-extension-store-builds.md#11-risks)); a Mac without a container gets pi's
+  own install through the author's fallback; and entries no pack declares, your own `pi install`
+  among them, stay pi's, per workspace, where they no longer leak but are not shared. That last
+  departs from [OQ-5](#OQ-5)'s *"pi's updater touches nothing in a jail"* for those entries.
 
 ### 3.3 Resolving at launch
 
@@ -383,9 +385,12 @@ for one property is drift.
 [OQ-3](#OQ-3) and [OQ-4](#OQ-4) in the same way the git store did, and it is live today. The earlier
 ruling that shared it ([`pi-extension-lifecycle.md` OQ-1](pi-extension-lifecycle.md#OQ-1), *"one
 version instead of N that drift"*) predates the no-winner ruling, and the two pull apart for any
-pinned version. Its first step, retiring the shared prefix and moving the refresh's lock into each
-workspace's `.pi`, lands ahead of any tree under every [OQ-6](#OQ-6) option
-([the companion's §6.3](pi-extension-store-builds.md#63-what-replaces-the-machine-wide-lock-now)).
+pinned version. The companion proposes a first step under every [OQ-6](#OQ-6) option, ahead of any
+tree: retire the shared prefix and move the refresh's lock, stamp and seen markers into each
+workspace's `.pi`. That is [OQ-5](#OQ-5)'s option (c) taken as an interim, so it waits on the
+maintainer's confirmation
+([the companion's §6.3](pi-extension-store-builds.md#63-what-replaces-the-machine-wide-lock-now),
+[XB-D14](pi-extension-store-builds.md#XB-D14)).
 
 ### 3.12 The refresh trigger that stays
 
@@ -394,10 +399,14 @@ changed since the last successful refresh, keyed per content
 ([`pack-system.md`](../reference/pack-system.md#program)). Git extensions no longer need it: pi
 never installs them. It still serves npm packages until the npm half of [OQ-5](#OQ-5)'s ruling is
 built, because an npm package newly added within the hour would otherwise be installed by pi's own
-startup, unlocked, and under every [OQ-6](#OQ-6) option it serves what pi still installs itself in
-a workspace: project packages and an in-session `pi install`, and under (c) every entry no pack
-declares. It is
-independent of the store's shape, so it stays either way.
+startup, unlocked, and under every [OQ-6](#OQ-6) option it serves what pi still installs itself
+from the user settings it watches: an in-session `pi install`, and under (c) every entry no pack
+declares. It watches only `~/.pi/agent/settings.json` (READ
+[`packs/pi/pack.json:31-33`](../../packs/pi/pack.json#L31-L33),
+[`prelaunchrefresh.go:109-111`](../../internal/entrypoint/prelaunchrefresh.go#L109-L111)), never a
+project's `.pi/settings.json`, which pi 1.0.1 reads from the starting directory
+(`settings-manager.js:100`), so a project package newly added is still pi's own unlocked startup
+install. It is independent of the store's shape, so it stays either way.
 
 ## 4. Invariants and done conditions
 
@@ -444,17 +453,16 @@ independent of the store's shape, so it stays either way.
    store and its post-merge rewrite, or are they built as patched extensions are, with nothing
    rewritten?**
 
-   Every option ends the machine-wide lock;
-   [the companion's §2](pi-extension-store-builds.md#2-the-verdict-and-five-principles) compares
-   them, [§3.2](#32-pointing-pi-at-a-tree) gives each in full.
+   [The companion's §2](pi-extension-store-builds.md#2-the-verdict-and-five-principles) compares
+   them and [§3.2](#32-pointing-pi-at-a-tree) gives each in full.
 
    - **(a)** Land this store, amending [`OQ-LT2`](../reference/pack-system.md#oq-lt2) so the pi
      pack may rewrite its list. Your own `pi install` is shared, and a pi relaunch updates.
    - **(b)** Land it with a declarative rewrite in `pack.json`, keeping
      [`OQ-LT2`](../reference/pack-system.md#oq-lt2) as written.
    - **(c)** Build them as patched extensions with no patches: on the host, sealed, a read-only copy
-     per jail launch. Updates land at a jail launch; entries no pack declares stay pi's, per
-     workspace, unlike [OQ-5](#OQ-5).
+     per jail launch, which an extension cannot write into. Updates land at a jail launch; entries
+     no pack declares stay pi's, per workspace, unlike [OQ-5](#OQ-5).
 
    <!-- vantage: question id=OQ-6 leaning="(c): it is what the maintainer asked for on 2026-10-05 ('if we can just capture unmodified extensions that would probably be great'). No jail can write what another runs, install scripts run sealed rather than in your jail, nothing is rewritten so OQ-LT2 stands, and one build serves patched and unmodified extensions. Its gap, your own pi install, is unshared but no longer leaks once the npm prefix is per workspace." -->
 
