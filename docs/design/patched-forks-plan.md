@@ -217,6 +217,28 @@ floor's four recipe readers, its refresh arm, `UpdatesAllowed` and `yolo host --
 floor's record); macos-user, which delivers no fork at all yet (FP-D3) and says so for a patched
 fork too; and patched extensions, which reuse the advance through the owner key.
 
+## Patched extensions, steps 2 to 5, landed 2026-10-04
+
+[`patched-extensions.md` §16](patched-extensions.md#16-what-i-would-build-in-order) steps 2 to 5, over
+the shared advance. What the tree changed against the [patched-extension map](#patched-extensions):
+
+| Where | What landed |
+| :--- | :--- |
+| [`packdecl/patchedext.go`](../../internal/packdecl/patchedext.go), [`fork.go`](../../internal/packdecl/fork.go), [`contributes.go`](../../internal/packdecl/contributes.go) | the declaration, its refusals and the owner-key uniqueness; the placement refusal lets the fork fields onto `files` beside `patches` only; `TreeRecipe` |
+| [`packload/patchedtrees.go`](../../internal/packload/patchedtrees.go), [`forks.go`](../../internal/packload/forks.go), [`footprint.go`](../../internal/packload/footprint.go) | a patched extension is a `packload.Fork` with `Into` (and `Owner`, `OwnerForks`, where its entry reaches); `PatchedTrees`, `HoldPacks`, `Label`, `LintPatchedTrees`; the review-marked claim |
+| [`cli/forkbuild.go`](../../internal/cli/forkbuild.go), [`forkbuildchild.go`](../../internal/cli/forkbuildchild.go), [`patchedadvance.go`](../../internal/cli/patchedadvance.go) | the tree's recipe, jail argv, seal and admit; the child's `--tree`; the advance's lines name the extension, and its move reaps without reading delivery records |
+| [`capture/treecopy.go`](../../internal/capture/treecopy.go) | `CopyTree`: one subtree of an entry, reflink or copy, never a hardlink |
+| [`cli/treedelivery.go`](../../internal/cli/treedelivery.go), [`run/patchedtrees.go`](../../internal/cli/run/patchedtrees.go), [`run/packfiles.go`](../../internal/cli/run/packfiles.go) | the tree arm in the fork slot, the per-launch copy and its marker check, the mount from the copy, `YOLO_PATCHED_TREES`, the launch block, the attach line, macos-user's line |
+| [`entrypoint/patchedtrees.go`](../../internal/entrypoint/patchedtrees.go), [`shims.go`](../../internal/entrypoint/shims.go), [`forklauncher.go`](../../internal/entrypoint/forklauncher.go) | the owner's launchers' gate |
+| [`cli/hosttrees.go`](../../internal/cli/hosttrees.go), [`applyhostfiles.go`](../../internal/cli/applyhostfiles.go), [`host.go`](../../internal/cli/host.go), [`hostapply.go`](../../internal/cli/hostapply.go) | the host render, the advance before it, and the host stop |
+| [`cli/capturehost.go`](../../internal/cli/capturehost.go), [`forkpin.go`](../../internal/cli/forkpin.go), [`patchedfork.go`](../../internal/cli/patchedfork.go) | the explicit acts on an extension key |
+
+Left: [PPX-D16](patched-extensions.md#PPX-D16)'s series lint, which needs the upstream's `.gitignore`
+at the base from the replay's scratch repository; step 6, migrating the five and a nested-jail run in
+which a real pi loads a built tree (a human's check, AGENTS.md's no-agent rule); and an integration
+test of a tree through a real build jail, which this stage could not run (parallel stages share the
+session image).
+
 ## Measurements to make
 
 - The maintainer's own pi series against the newest upstream version: the replay's time on the
