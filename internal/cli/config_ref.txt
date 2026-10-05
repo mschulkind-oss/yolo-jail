@@ -1420,6 +1420,18 @@
                     fork supplies only the bytes, and may add `platforms` and
                     `node_floor` but no other program field.  `source` is a git address
                     (file:// is refused: a directory has no revision).
+                    A PATCHED fork adds `patches:"<pack dir>"`, a `git format-patch --base`
+                    series yolo replays onto the UPSTREAM that `source` then names, so
+                    what runs follows that upstream while the series applies and builds;
+                    a newer upstream that conflicts keeps the last good build running.
+                    `follow` picks a branch ref's commit: "release" (default, the newest
+                    semantic-version tag), "release:<prefix>", or "head"; a tag or full
+                    commit holds it.  `follow` is refused without `patches`.  `yolo pack
+                    status` shows the series, the good build and what is pending; `yolo
+                    pack rebase <pack>/<bin>` sets up the fix for a series that stopped
+                    fitting.  Needs git 2.40 on the host.  Export a series from a fork:
+                    git format-patch --base=$(git merge-base <upstream>/main HEAD) \
+                        -o patches <upstream>/main..HEAD
       blocked-tool  {bin, message, suggestion, replacement, flags} — refuse a tool
                     inside the jail and print an alternative.  `flags` limits the block
                     to matching argv (absent = always); `replacement` names the binary
@@ -1496,6 +1508,11 @@
                     your real home rather than bound: only paths yolo's ownership
                     record claims, the previous copy archived first, and a render
                     that cannot prove ownership refuses and touches nothing.
+                    A PATCHED EXTENSION replaces `from` with `source` (the upstream) and
+                    `patches` (a series, as for a patched fork), with optional `build` and
+                    `produces` (paths relative to the built tree): yolo builds the tree on
+                    the host and mounts a read-only copy at `into` (the pi pack's
+                    extensions use it; add the `pi/settings` package entry naming `into`).
       config        {config:[surface...]} — a composed config surface (see below)
       config-overlay {surface:"agent/name", config:{managed:{...}}, profile} — keys on a surface
                     another pack owns.  `managed` is the ONLY body field: a contributor
