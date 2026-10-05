@@ -465,9 +465,9 @@ const maxIgnoreBytes = 1 << 20
 // now was removed by someone, and is not added back.
 func ensureHostSkillsIgnoreLine(ws, line string, wroteBefore bool) (string, bool) {
 	p := filepath.Join(ws, ".gitignore")
-	notRegular := fmt.Sprintf(".gitignore is not a regular file yolo writes, so yolo did not add "+
-		"`%s` to it and `git status` will list the link; add `%s` to your ignore rules yourself to "+
-		"quiet it", line, line)
+	notRegular := fmt.Sprintf(".gitignore is not a regular file yolo can read whole (it is a link, "+
+		"a special file, unreadable, or over 1 MiB), so yolo did not add `%s` to it and `git status` "+
+		"will list the link; add `%s` to your ignore rules yourself to quiet it", line, line)
 	current, err := readRegularNoFollow(p)
 	switch {
 	case errors.Is(err, fs.ErrNotExist):
@@ -487,7 +487,8 @@ func ensureHostSkillsIgnoreLine(ws, line string, wroteBefore bool) (string, bool
 	}
 	f, err := os.OpenFile(p, os.O_WRONLY|os.O_APPEND|os.O_CREATE|unix.O_NOFOLLOW|unix.O_NONBLOCK, 0o644)
 	if err != nil {
-		return notRegular, false
+		return fmt.Sprintf("could not open .gitignore to add `%s` (%s), so `git status` will list "+
+			"the link; add the line yourself to quiet it", line, errnoText(err)), false
 	}
 	defer f.Close()
 	if fi, err := f.Stat(); err != nil || !fi.Mode().IsRegular() {

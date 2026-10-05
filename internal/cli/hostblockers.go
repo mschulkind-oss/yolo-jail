@@ -9,8 +9,8 @@ package cli
 // WHY THE HOST CAN DO THIS NOW. The census used to refuse the kind off-container because "yolo
 // owns no PATH entry to put one in". Since HE-D1, `yolo host --` composes the child's PATH itself
 // (hostChildPath: the launch PATH, then the floor's bin/), so for this verb yolo does own one, for
-// that process only. `yolo host apply` still launches nothing and owns no PATH, so the kind stays
-// unbuilt there (render.HostUnimplemented).
+// that process only. `yolo host apply` still launches nothing and owns no PATH, so it writes no
+// file for the kind, which is delivered at launch only (render.HostAtLaunch).
 //
 // WHAT IT CANNOT PROMISE, and the disclosure says so every launch: the block is a PATH lookup's
 // first hit, so a shell that resets PATH (a login shell on macOS runs path_helper, Debian's
@@ -63,8 +63,29 @@ func hostBlockedChildPath(launch *hostComposition, childPath string, errw io.Wri
 	for _, n := range b.notes {
 		fmt.Fprintf(errw, "yolo host: %s\n", n)
 	}
+	if b.dir != "" && hostBypassSet(launch.environ()) {
+		b.disclosure = append(b.disclosure, hostBypassSetLine)
+	}
 	printHostLines(errw, b.disclosure)
 	return b.path
+}
+
+// hostBypassSetLine is the disclosure's last line when the environment the program is handed
+// already carries the hatch: the shell yolo was started from passes through, and a
+// YOLO_BYPASS_SHIMS exported there (for an installer, say) turns every block into a pass, so a
+// launch saying only what it blocks would be claiming blocks that do nothing.
+const hostBypassSetLine = "  YOLO_BYPASS_SHIMS is set in the environment this launch hands its " +
+	"program, so every one of these blocks lets its command through; unset it for them to apply."
+
+// hostBypassSet reports whether environ carries YOLO_BYPASS_SHIMS with a value: the shims test
+// `-z "$YOLO_BYPASS_SHIMS"`, so any non-empty value is the hatch.
+func hostBypassSet(environ []string) bool {
+	for _, kv := range environ {
+		if v, ok := strings.CutPrefix(kv, "YOLO_BYPASS_SHIMS="); ok && v != "" {
+			return true
+		}
+	}
+	return false
 }
 
 // composeHostBlockers renders and writes the blockers for one launch whose child would get
@@ -125,7 +146,8 @@ func composeHostBlockers(cfg *jsonx.OrderedMap, packs []*packload.Pack, childPat
 	dir, err := writeHostBlockDir(paths.HostBlockDir(), scripts)
 	if err != nil {
 		out.notes = append(out.notes, fmt.Sprintf("could not write the blocked-tool shims "+
-			"(%v), so this launch blocks nothing; `yolo check` reports the state dir's problems", err))
+			"(%v), so this launch blocks nothing; make %s a directory you can write, and the next "+
+			"launch writes them", err, homeTilde(paths.HostBlockDir())))
 		return out
 	}
 	out.dir = dir

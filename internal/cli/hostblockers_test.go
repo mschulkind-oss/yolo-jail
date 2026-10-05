@@ -347,3 +347,60 @@ func TestHostBlockHelperProcess(t *testing.T) {
 	rc := hostExec(nil, []string{"sh", "-c", "grep -r needle ."}, io.Discard, &errw, nil)
 	t.Fatalf("hostExec returned %d instead of exec'ing:\n%s", rc, errw.String())
 }
+
+// A user entry of a pack's name replaces the pack's whole (config.NormalizeBlockedToolsWith), and
+// the disclosure names whose block each one is: the user's list for that name, the pack for the
+// rest.
+func TestHostLaunchNamesTheUsersListForABlockThatReplacesAPacks(t *testing.T) {
+	blockerHostFixture(t, `{"packs": ["guardrails"], "security": {"blocked_tools": `+
+		`[{"name": "grep", "message": "my own grep rule"}]}}`, "rg", "fd")
+	got, errs := launchCapturing(t)
+	for _, want := range []string{"grep (your security.blocked_tools)", "find (the guardrails pack)"} {
+		if !strings.Contains(errs, want) {
+			t.Errorf("the disclosure does not say %q:\n%s", want, errs)
+		}
+	}
+	blockDir := filepath.SplitList(envValue(got.env, "PATH"))[0]
+	if b, err := os.ReadFile(filepath.Join(blockDir, "grep")); err != nil || !strings.Contains(string(b), "my own grep rule") {
+		t.Errorf("the grep shim is not the user's entry (%v):\n%s", err, b)
+	}
+}
+
+// A block dir yolo cannot write blocks nothing: the launch says so, names where to look, and
+// hands the child exactly the PATH it had, never one with an empty entry (the current directory)
+// where the block dir would have gone.
+func TestHostLaunchThatCannotWriteItsBlockDirBlocksNothing(t *testing.T) {
+	blockerHostFixture(t, `{"packs": ["guardrails"]}`, "rg", "fd")
+	writeFile(t, paths.HostBlockDir(), "a file where the block dirs go\n")
+	got, errs := launchCapturing(t)
+	if p, want := envValue(got.env, "PATH"), hostChildPath(hostLaunchPath(), hostFloorBinDir()); p != want {
+		t.Errorf("child PATH = %q, want the unblocked %q", p, want)
+	}
+	if !strings.Contains(errs, "could not write the blocked-tool shims") ||
+		!strings.Contains(errs, "so this launch blocks nothing; make ~/.local/share/yolo-jail/bin/block "+
+			"a directory you can write, and the next launch writes them") {
+		t.Errorf("the launch did not say it blocks nothing, and where to look:\n%s", errs)
+	}
+	if strings.Contains(errs, "blocking grep") {
+		t.Errorf("the launch claimed blocks it could not write:\n%s", errs)
+	}
+}
+
+// A YOLO_BYPASS_SHIMS the invoking shell exported reaches the program (the shell passes through),
+// and with it every block lets its command through: the disclosure says so rather than claiming
+// blocks that do nothing, and says nothing of it when the hatch is not set.
+func TestHostLaunchSaysWhenTheShellAlreadyCarriesTheHatch(t *testing.T) {
+	blockerHostFixture(t, `{"packs": ["guardrails"]}`, "rg", "fd")
+	if _, errs := launchCapturing(t); strings.Contains(errs, "YOLO_BYPASS_SHIMS is set") {
+		t.Errorf("without the hatch the launch said it is set:\n%s", errs)
+	}
+	t.Setenv("YOLO_BYPASS_SHIMS", "1")
+	got, errs := launchCapturing(t)
+	if envValue(got.env, "YOLO_BYPASS_SHIMS") != "1" {
+		t.Fatalf("setup: the shell's hatch did not reach the program")
+	}
+	if !strings.Contains(errs, "YOLO_BYPASS_SHIMS is set in the environment this launch hands its "+
+		"program, so every one of these blocks lets its command through; unset it for them to apply") {
+		t.Errorf("the launch did not say the hatch is already set:\n%s", errs)
+	}
+}

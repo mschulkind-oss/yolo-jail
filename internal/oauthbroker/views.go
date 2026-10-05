@@ -503,8 +503,9 @@ func scopeString(oauth *jsonx.OrderedMap) string {
 // broker a yolo older than host views started still answers every connection, so nothing a
 // launch can probe tells it apart — and it skips a dir-only registration as unparseable on every
 // tick, so a view `yolo host -- claude` registers with it is written once, at registration, and
-// never refreshed. The launch reads this mark instead (HostViewsKeptBy) and replaces a broker
-// that lacks it.
+// never refreshed. The launch reads this mark instead (HostViewsKeptBy): a broker that lacks it is
+// named, with the command that restarts it, and the launch sets no view; it is never stopped from
+// here, since a restart could cut a single-use refresh in flight.
 const hostViewsMarkName = "host-views.mark"
 
 // hostViewsMark is the mark's content for the broker process pid: the ability's version, so a
@@ -522,8 +523,8 @@ func hostViewsMarkPath() string {
 
 // markHostViewsKept writes this process's mark when the file does not already say it, through a
 // temporary file renamed into place, so a launch reading it never sees half of one. Best effort,
-// and quiet but for the debug log: a broker that cannot write it is replaced by the next host
-// launch that wants a view, which says so.
+// and quiet but for the debug log: a broker that cannot write it is taken by the next host launch
+// that wants a view for one older than host views, which says so and names the restart.
 func markHostViewsKept() {
 	p := hostViewsMarkPath()
 	if p == "" {
