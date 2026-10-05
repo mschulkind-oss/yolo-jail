@@ -8,13 +8,18 @@ import (
 	"testing"
 	"time"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
+	"github.com/mschulkind-oss/yolo-jail/internal/macosuser"
+	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/render"
 	"github.com/mschulkind-oss/yolo-jail/internal/reporoot"
 )
 
 // notchgate_test.go pins the refusal docs/design/declaration-parity.md's OQ-DP3 ruled:
-// a launch whose configured `confinement` is not `jail` REFUSES instead of starting a
-// container and then telling the agent it is not in one (DP-B16).
+// a launch at a notch no backend here runs REFUSES instead of starting a container and then
+// telling the agent it is not in one (DP-B16). Since env-manager plan Phase 7.1 (EMP-D1) that
+// is `host` everywhere and `guest` on Linux; on macOS `guest` launches the macos-user backend,
+// which the second half of this file pins.
 //
 // ⚠ THE CALL SITE IS WHAT THESE ASSERT, not the predicate. AGENTS.md's "a test that pins
 // the CALLEE while the CALL SITE is unpinned is not a test" is the exact shape this feature
@@ -34,9 +39,12 @@ import (
 // there quietly rewrite what this file is measuring.
 func notchGateOptions(t *testing.T, ws string, stdout, stderr *bytes.Buffer) *Options {
 	t.Helper()
+	// LINUX, stated rather than left to the zero value: the guest refusal below is the Linux
+	// guest's, and on macOS that notch launches (the darwin tests further down).
 	o := &Options{
 		Workspace: ws,
 		IsLinux:   true,
+		IsMacOS:   false,
 		Stdout:    stdout,
 		Stderr:    stderr,
 	}
@@ -86,8 +94,10 @@ func notchGateWorkspace(t *testing.T, notch string) string {
 	return ws
 }
 
-// TestLaunchRefusesTheGuestNotch: `confinement: guest` stops the launch, with the sentence
-// `yolo apply --at guest` has printed since Phase 2 — VERBATIM, from render.NotchUnbuilt.
+// TestLaunchRefusesTheGuestNotch: on LINUX `confinement: guest` stops the launch, with the
+// sentence `yolo apply --at guest` has printed since Phase 2 — VERBATIM, from
+// render.NotchUnbuilt, which now says the notch launches only on macOS — and names what to run
+// instead: the default jail, or `yolo host -- <cmd>` (EMP-D3).
 //
 // Before OQ-DP3 this value started a container and then had jailcontent.confinementHeader
 // tell the agent "a restricted account on the real machine, NOT a disposable container …
@@ -107,6 +117,14 @@ func TestLaunchRefusesTheGuestNotch(t *testing.T) {
 	if !strings.Contains(stderr.String(), want) {
 		t.Errorf("the guest refusal does not carry render.NotchUnbuilt's sentence.\n"+
 			"want substring: %q\ngot stderr:\n%s", want, stderr.String())
+	}
+	// THE NEXT STEP, both halves: the jail this machine does launch, and the host notch's
+	// exec verb for a user who wanted no sandbox.
+	for _, next := range []string{"Set it to \"jail\"", "yolo host -- <cmd>"} {
+		if !strings.Contains(stderr.String(), next) {
+			t.Errorf("the Linux guest refusal does not name the next step %q:\n%s",
+				next, stderr.String())
+		}
 	}
 	// THE DISCRIMINATOR. This workspace has no repo root, so a launch that reached the
 	// container arm would refuse with that instead. Seeing it here means the notch gate
@@ -177,7 +195,8 @@ func TestLaunchAtTheJailNotchIsNotRefused(t *testing.T) {
 
 // TestLaunchRefusesTheNotchTheFlagAsked is DP-B22's other half: `--at` must be JUDGED, not
 // merely consumed. cli.parseRunArgs folds the flag onto Options.Notch (its own tests pin
-// that); this is the only thing that makes the value mean anything.
+// that); this is the only thing that makes the value mean anything. On LINUX, where `--at
+// guest` has no backend; on macOS it launches (TestMacosGuestNotchFromTheFlagLaunches).
 //
 // The workspace declares NO confinement, so the config resolves to `jail` and a launch
 // reaching the pipeline refuses on the repo root. Every refusal below therefore proves the
@@ -191,6 +210,8 @@ func TestLaunchRefusesTheNotchTheFlagAsked(t *testing.T) {
 		reject string
 	}{
 		{notch: "guest", rc: 1, want: render.NotchUnbuilt("launch")},
+		// And the flag's own next step: drop it, or take the host notch's exec verb.
+		{notch: "guest", rc: 1, want: "yolo host -- <cmd>"},
 		{notch: "host", rc: 1, want: "yolo host -- <cmd>"},
 		// An unknown value fails CLOSED. config.ResolveConfinement answers `jail` for a
 		// value it does not know, so without this a typo'd `--at gest` would silently
@@ -267,5 +288,181 @@ func TestTheFlagOutranksTheConfigWhenBothAreJail(t *testing.T) {
 		t.Errorf("`--at jail` did not override `confinement: guest` — the flag is the "+
 			"per-launch escape valve and must win:\nstdout:\n%s\nstderr:\n%s",
 			stdout.String(), stderr.String())
+	}
+}
+
+// ─── The macOS guest notch (env-manager plan Phase 7.1, EMP-D1) ───
+//
+// On macOS `confinement: "guest"` and `--at guest` launch the macos-user backend with no
+// `runtime` key. Every case drives Run() with Options.IsMacOS set and NO YOLO_RUNTIME, and
+// discriminates on whether the injected macos-user handler was reached: with no runtime named
+// and no container runtime on PATH, a launch that did not select macos-user from the notch
+// refuses with "No container runtime found" instead, and one the gate refused never gets that
+// far. So deleting the darwin arm of refuseUnbuiltNotch, or the notch step of resolveRuntime,
+// fails the routing tests below.
+
+// macosGuestReach is what the macos-user handler saw, read inside the call because the
+// launch's staging is its own.
+type macosGuestReach struct {
+	reached  bool
+	dryRun   bool
+	briefing string
+}
+
+// runMacosGuest runs one macOS launch with the claude pack selected and wsConfig as the
+// workspace config, notch as the typed `--at` ("" for none) and env as the environment
+// (YOLO_RUNTIME unset unless it names it). tweak edits the options last.
+func runMacosGuest(t *testing.T, wsConfig, notch string, env map[string]string, tweak func(*Options)) (int, macosGuestReach, string) {
+	t.Helper()
+	home := packHome(t)
+	writeUserPacks(t, home, `["claude"]`)
+	ws := resolvedGuestWorkspace(t)
+	if err := os.WriteFile(filepath.Join(ws, "yolo-jail.jsonc"), []byte(wsConfig), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var stdout, stderr bytes.Buffer
+	o := dispatchOptions(t, ws, "", &stdout, &stderr, nil)
+	o.IsMacOS, o.IsLinux = true, false
+	o.Notch = notch
+	// The workspace config is new to this machine, so the approval gate would stop the launch
+	// before the backend: grant it, as `--accept-config-changes` does.
+	o.AcceptConfigChanges = true
+	o.Getenv = func(k string) string { return env[k] }
+	var got macosGuestReach
+	o.MacosUserRun = func(_ *jsonx.OrderedMap, _ string, _, _ []string, _, _ string,
+		overlay macosuser.HomeOverlay, _ macosuser.HostContext, dryRun bool,
+		_ *jsonx.OrderedMap, _ []packload.BlockedTool, _ macosuser.JailDaemons) int {
+		got.reached, got.dryRun = true, dryRun
+		if overlay.Tree != "" {
+			if b, err := os.ReadFile(filepath.Join(overlay.Tree, ".claude", "CLAUDE.md")); err == nil {
+				got.briefing = string(b)
+			}
+		}
+		return 0
+	}
+	if tweak != nil {
+		tweak(o)
+	}
+	rc := Run(*o)
+	return rc, got, stdout.String() + stderr.String()
+}
+
+// resolvedGuestWorkspace is a workspace directory with its symlinks resolved where it is
+// minted, so a darwin TMPDIR under /var cannot make two spellings of it.
+func resolvedGuestWorkspace(t *testing.T) string {
+	t.Helper()
+	ws, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	return ws
+}
+
+const guestBriefingHeader = "# YOLO Environment — guest"
+
+// TestMacosGuestNotchLaunchesTheMacosUserBackend: `confinement: "guest"` on macOS, with no
+// `runtime` key and no YOLO_RUNTIME, reaches the macos-user handler, and the briefing it is
+// handed states the guest notch and the shared account (EMP-D1, EMP-D2).
+func TestMacosGuestNotchLaunchesTheMacosUserBackend(t *testing.T) {
+	rc, got, out := runMacosGuest(t, `{"confinement": "guest"}`, "", nil, nil)
+	if rc != 0 || !got.reached {
+		t.Fatalf("a macOS guest launch did not reach the macos-user backend (rc %d) — the notch "+
+			"gate refused it, or resolveRuntime did not take the notch's own backend:\n%s", rc, out)
+	}
+	if strings.Contains(out, "No container runtime found") {
+		t.Errorf("the launch probed for a container runtime, so the notch did not select "+
+			"macos-user:\n%s", out)
+	}
+	if !strings.Contains(got.briefing, guestBriefingHeader) {
+		t.Errorf("the briefing handed to the sandbox does not carry the guest header %q:\n%s",
+			guestBriefingHeader, got.briefing)
+	}
+	if !strings.Contains(got.briefing, "shared by every workspace on this machine") {
+		t.Errorf("the macOS guest briefing does not say the account is shared, which every "+
+			"macos-user launch is:\n%s", got.briefing)
+	}
+}
+
+// TestMacosGuestNotchFromTheFlagLaunches: `--at guest` with no `confinement` key is the same
+// launch, and the briefing still names the guest notch — the flag reaches the one reader that
+// states the notch to the agent (Options.notchConfig), not only the gate.
+func TestMacosGuestNotchFromTheFlagLaunches(t *testing.T) {
+	rc, got, out := runMacosGuest(t, `{}`, "guest", nil, nil)
+	if rc != 0 || !got.reached {
+		t.Fatalf("`--at guest` on macOS did not reach the macos-user backend (rc %d):\n%s", rc, out)
+	}
+	if !strings.Contains(got.briefing, guestBriefingHeader) {
+		t.Errorf("`--at guest` launched the sandbox but the briefing does not name the guest "+
+			"notch, so the agent is told the config's notch instead of the one this launch "+
+			"runs at:\n%s", got.briefing)
+	}
+}
+
+// TestMacosGuestDryRunReachesThePlan: `yolo run --dry-run` is the macos-user backend's own
+// flag, and a guest launch is that backend, so the dry run reaches its plan instead of the
+// container arm's "--dry-run is only supported for the macos-user runtime" refusal.
+func TestMacosGuestDryRunReachesThePlan(t *testing.T) {
+	rc, got, out := runMacosGuest(t, `{"confinement": "guest"}`, "", nil,
+		func(o *Options) { o.DryRun = true })
+	if rc != 0 || !got.reached || !got.dryRun {
+		t.Fatalf("a guest --dry-run on macOS did not reach the macos-user plan (rc %d, reached "+
+			"%v, dry run %v):\n%s", rc, got.reached, got.dryRun, out)
+	}
+}
+
+// TestMacosGuestRefusesAContradictingRuntime: on macOS the guest notch runs on macos-user, so an
+// explicit runtime naming a container runtime is two launches at once — refused, naming both
+// inputs and how to keep each (EMP-D1), before the backend is reached.
+func TestMacosGuestRefusesAContradictingRuntime(t *testing.T) {
+	cases := []struct {
+		name, wsConfig, notch string
+		env                   map[string]string
+		want                  []string
+	}{
+		{"config runtime", `{"confinement": "guest", "runtime": "podman"}`, "", nil,
+			[]string{"`confinement` in your config", "`runtime: \"podman\"` in your config",
+				"remove that `runtime` key", "set `confinement` to \"jail\""}},
+		{"YOLO_RUNTIME", `{"confinement": "guest"}`, "", map[string]string{"YOLO_RUNTIME": "container"},
+			[]string{"YOLO_RUNTIME=container", "unset YOLO_RUNTIME"}},
+		{"the flag", `{"runtime": "podman"}`, "guest", nil,
+			[]string{"the `--at guest` you typed", "`runtime: \"podman\"` in your config",
+				"drop `--at guest`"}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			rc, got, out := runMacosGuest(t, tc.wsConfig, tc.notch, tc.env, nil)
+			if rc != 1 || got.reached {
+				t.Fatalf("a guest launch with a contradicting runtime ran (rc %d, reached %v) — "+
+					"one input was dropped in silence:\n%s", rc, got.reached, out)
+			}
+			for _, want := range append([]string{"Refusing to launch: the guest notch", "Drop one"}, tc.want...) {
+				if !strings.Contains(out, want) {
+					t.Errorf("the contradiction refusal does not say %q:\n%s", want, out)
+				}
+			}
+		})
+	}
+}
+
+// TestMacosGuestAgreesWithAnExplicitMacosUserRuntime is the control for the refusal above:
+// `runtime: "macos-user"` with `confinement: "guest"` names one launch twice, and launches.
+func TestMacosGuestAgreesWithAnExplicitMacosUserRuntime(t *testing.T) {
+	rc, got, out := runMacosGuest(t, `{"confinement": "guest", "runtime": "macos-user"}`, "", nil, nil)
+	if rc != 0 || !got.reached {
+		t.Fatalf("guest with runtime macos-user was refused (rc %d), though the two agree:\n%s", rc, out)
+	}
+}
+
+// TestMacosUserRuntimeAtTheJailNotchStillLaunches: the other spelling of the same backend keeps
+// working, and keeps its own briefing header — the jail notch with no container, not the guest.
+func TestMacosUserRuntimeAtTheJailNotchStillLaunches(t *testing.T) {
+	rc, got, out := runMacosGuest(t, `{"runtime": "macos-user"}`, "", nil, nil)
+	if rc != 0 || !got.reached {
+		t.Fatalf("`runtime: \"macos-user\"` at the jail notch no longer launches (rc %d):\n%s", rc, out)
+	}
+	if strings.Contains(got.briefing, guestBriefingHeader) ||
+		!strings.Contains(got.briefing, "# YOLO Environment — jail (native, no container)") {
+		t.Errorf("a jail-notch macos-user launch's briefing is not the jail-without-a-container "+
+			"header:\n%s", got.briefing)
 	}
 }

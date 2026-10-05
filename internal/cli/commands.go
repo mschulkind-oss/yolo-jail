@@ -1132,7 +1132,9 @@ func checkOptions(args []string, errw io.Writer) (check.Options, bool) {
 }
 
 // detectListingRuntime resolves the runtime for the tolerant listing commands
-// (ps/prune): env > config `runtime` key > platform probe. Loading the config
+// (ps/prune): env > config `runtime` key > the notch's own backend > platform probe
+// (config.SelectedRuntime's order), so a macOS `confinement: "guest"` lists the
+// macos-user sessions its launches run (env-manager plan EMP-D1). Loading the config
 // is the piece `yolo ps` lacked entirely (audit finding 5). Config is loaded
 // loosely (non-strict, warnings dropped) from the given workspace; any load
 // error yields an empty config, so a malformed jsonc degrades to the platform
@@ -1140,11 +1142,7 @@ func checkOptions(args []string, errw io.Writer) (check.Options, bool) {
 func detectListingRuntime(workspace string) string {
 	cfgRT := ""
 	if cfg, err := config.LoadConfig(workspace, false, func(string) {}); err == nil && cfg != nil {
-		if v, ok := cfg.Get("runtime"); ok {
-			if s, ok := v.(string); ok {
-				cfgRT = s
-			}
-		}
+		cfgRT = config.ConfiguredRuntime(cfg, config.ResolveConfinement(cfg), paths.IsMacOS)
 	}
 	return runtime.ResolveRuntime(os.Getenv("YOLO_RUNTIME"), cfgRT, paths.IsMacOS, func(bin string) bool {
 		_, err := exec.LookPath(bin)

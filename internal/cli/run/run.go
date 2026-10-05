@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -769,7 +770,9 @@ func Run(opts Options) (rc int) {
 		if dir := o.claudeSecureStorageDir(rt, cfg, staged.packs, macosuser.SandboxHome()); dir != "" {
 			launchEnv.Set(claudeview.SecureStorageEnv, dir)
 		}
-		staging, err := o.refreshJailBriefings(cname, cfg, rt, staged,
+		// notchConfig, not cfg: the briefing states the notch, and `--at guest` names one the
+		// config's `confinement` key does not (EMP-D1). Everything else here reads cfg.
+		staging, err := o.refreshJailBriefings(cname, o.notchConfig(cfg), rt, staged,
 			appliedIOPriority(rt, o.IsMacOS, cfgMap(cfg, "resources")))
 		if err != nil {
 			o.pr(o.Stderr).printf("[bold red]%s[/bold red]", err.Error())
@@ -2851,8 +2854,9 @@ func resPartsFor(cfg *jsonx.OrderedMap, rt string) []string {
 	return parts
 }
 
-// refuseUnbuiltNotch stops a launch whose notch is anything but `jail`, and reports the
-// exit code and whether it did.
+// refuseUnbuiltNotch stops a launch at a notch no backend here runs, and reports the exit
+// code and whether it did. A launch runs two notches: `jail` on every platform, and `guest` on
+// macOS, where it is the macos-user backend (env-manager plan Phase 7.1, EMP-D1).
 //
 // TWO INPUTS, ONE JUDGEMENT. The notch is the config's `confinement` key, overridden by
 // `--at <notch>` as typed on this launch (Options.Notch). Both were accepted and neither
@@ -2869,43 +2873,39 @@ func resPartsFor(cfg *jsonx.OrderedMap, rt string) []string {
 // it was rendered into. `yolo apply` refused the identical value with rc 1 the whole time,
 // so one config key meant two things depending on which verb read it.
 //
-// REFUSE, NOT HONOR, and not a warning either. Honoring the notch IS env-manager plan
-// Phase 7 (the LSM-confined backend) — this gate is the ~10 lines that stop the notch
-// LOOKING built while that is unwritten. A warning was the weaker option and was not
-// taken: OQ-BP-3 (docs/design/backend-parity.md) is live and says *"a warning people learn
-// to skip is worse than none"*, and a warned launch still hands the agent the contradicting
-// briefing.
+// THE MACOS GUEST IS HONORED, NOT REFUSED. There the briefing's sentences are true: the
+// macos-user backend is a restricted account on the real machine with a home that persists.
+// So a macOS guest passes this gate, and resolveRuntime then selects that backend with no
+// `runtime` key (config.NotchRuntime). What it refuses there is a CONTRADICTION: a
+// YOLO_RUNTIME or `runtime` key naming a container runtime asks for a container at a notch
+// that has none, and honoring either input would silently drop the other (EMP-D1).
+//
+// A LINUX GUEST IS REFUSED, NOT HONORED, and not warned about either. Honoring it is plan
+// Phase 7.2 (bwrap + Landlock), unwritten. A warning was the weaker option and was not taken:
+// OQ-BP-3 (docs/design/backend-parity.md) is live and says *"a warning people learn to skip is
+// worse than none"*, and a warned launch still hands the agent the contradicting briefing.
 //
 // ⚠ WHY REFUSING A CONFIG KEY IS SAFE HERE, when docs/design/declaration-parity.md §10
 // explicitly declines to refuse keys a mechanism has always tolerated (`gpu` on macOS, and
 // the rest): `confinement` is not a mechanism-varying key. It resolves to the same value on
-// every platform and every backend and is enforced by nothing anywhere, so a shared config
-// carried between a Linux box and a Mac loses nothing to this refusal.
+// every platform and every backend, so a shared config carried between a Linux box and a Mac
+// loses nothing it ever had to this refusal: the Mac launches the guest notch, and the Linux
+// box says it cannot and what to run instead.
 //
 // The guest sentence is render.NotchUnbuilt's, VERBATIM — `yolo apply --at guest` has
 // printed it since Phase 2 and the two must not drift (see that function).
 func refuseUnbuiltNotch(o *Options, cfg *jsonx.OrderedMap) (int, bool) {
-	notch := config.ResolveConfinement(cfg)
-	if o.Notch != "" {
+	if o.Notch != "" && !slices.Contains(config.KnownConfinements, config.Confinement(o.Notch)) {
 		// VALIDATED HERE, not in the parser: config.ResolveConfinement answers `jail`
 		// for a value it does not know (validateConfinement is what reports it), so a
 		// typo'd `--at gest` would silently launch a jail — an override that failed
 		// OPEN, which is the shape `yolo apply --at` already refuses with rc 2. Same
 		// code, same vocabulary, so the two spellings of the flag agree.
-		asked := config.Confinement(o.Notch)
-		known := false
-		for _, k := range config.KnownConfinements {
-			if asked == k {
-				known = true
-			}
-		}
-		if !known {
-			o.pr(o.Stderr).printf("[bold red]yolo: --at %q is not a confinement level "+
-				"(jail|guest|host)[/bold red]", o.Notch)
-			return 2, true
-		}
-		notch = asked
+		o.pr(o.Stderr).printf("[bold red]yolo: --at %q is not a confinement level "+
+			"(jail|guest|host)[/bold red]", o.Notch)
+		return 2, true
 	}
+	notch := o.launchNotch(cfg)
 	// WHERE THE VALUE CAME FROM, said in the refusal. A user who typed `--at guest` and
 	// is told to edit `confinement` will go looking for a key they never wrote; a user
 	// whose config carries it and is told to drop a flag will not find the flag. The
@@ -2918,11 +2918,15 @@ func refuseUnbuiltNotch(o *Options, cfg *jsonx.OrderedMap) (int, bool) {
 	}
 	switch notch {
 	case config.ConfinementGuest:
+		if o.IsMacOS {
+			return refuseGuestRuntimeConflict(o, cfg, source)
+		}
 		o.pr(o.Stderr).printf("[bold red]Refusing to launch: %s[/bold red]",
 			render.NotchUnbuilt("launch"))
 		o.pr(o.Stderr).printf("[dim]The notch is %s, and yolo validates it — which is why "+
-			"this reads as a refusal rather than a typo. %s; `yolo describe` prints what "+
-			"each notch would compose.[/dim]", source, fix)
+			"this reads as a refusal rather than a typo. %s; or run the command on the real "+
+			"machine, with no sandbox at all, through `yolo host -- <cmd>`. `yolo describe` "+
+			"prints what each notch would compose.[/dim]", source, fix)
 		return 1, true
 	case config.ConfinementHost:
 		// The host notch is BUILT — it simply is not something a launch does. `yolo host
@@ -2938,6 +2942,74 @@ func refuseUnbuiltNotch(o *Options, cfg *jsonx.OrderedMap) (int, bool) {
 		return 1, true
 	}
 	return 0, false
+}
+
+// refuseGuestRuntimeConflict is the macOS guest's half of the notch gate: the notch runs on
+// macos-user (config.GuestRuntime), so an explicit runtime naming anything else is refused,
+// naming both inputs and how to keep either one. notchSource is the gate's own phrase for
+// where the notch came from.
+//
+// REFUSED RATHER THAN RESOLVED, because each answer drops a declaration silently: the notch
+// winning would ignore a `runtime` the user wrote, and the runtime winning would launch a
+// container at a notch that promises the agent a real account (EMP-D1). Agreement passes:
+// `runtime: "macos-user"` with `confinement: "guest"` is one launch said twice.
+func refuseGuestRuntimeConflict(o *Options, cfg *jsonx.OrderedMap, notchSource string) (int, bool) {
+	rt, src, conflict := config.NotchRuntimeConflict(o.Getenv("YOLO_RUNTIME"), cfg,
+		config.ConfinementGuest, o.IsMacOS)
+	if !conflict {
+		return 0, false
+	}
+	named := "`runtime: \"" + rt + "\"` in your config"
+	keepNotch := "remove that `runtime` key (or set it to \"" + config.GuestRuntime + "\")"
+	if src == config.RuntimeFromEnv {
+		named = "YOLO_RUNTIME=" + rt
+		keepNotch = "unset YOLO_RUNTIME"
+	}
+	keepRuntime := "set `confinement` to \"jail\" or remove it"
+	if o.Notch != "" {
+		keepRuntime = "drop `--at " + o.Notch + "`"
+	}
+	o.pr(o.Stderr).printf("[bold red]Refusing to launch: the guest notch (%s) runs on the "+
+		"%s backend on macOS, and %s asks for %s instead. The two name different launches."+
+		"[/bold red]", notchSource, config.GuestRuntime, named, rt)
+	o.pr(o.Stderr).printf("[dim]Drop one: to launch the guest notch, %s; to launch a %s "+
+		"jail, %s.[/dim]", keepNotch, rt, keepRuntime)
+	return 1, true
+}
+
+// launchNotch is the notch this launch runs at: the config's `confinement`, overridden by a
+// known `--at` (Options.Notch). refuseUnbuiltNotch refuses an unknown `--at` before anything
+// else reads this, which is why an unknown one falls back to the config here rather than
+// failing twice.
+func (o *Options) launchNotch(cfg *jsonx.OrderedMap) config.Confinement {
+	if n := config.Confinement(o.Notch); slices.Contains(config.KnownConfinements, n) {
+		return n
+	}
+	return config.ResolveConfinement(cfg)
+}
+
+// notchConfig is cfg as this launch's notch reads it, for the one reader that states the
+// notch to the agent: the briefing (refreshJailBriefings → BriefingInput.Confinement), which
+// takes the notch from the config's `confinement` key. With no `--at`, or one that agrees
+// with the key, it is cfg itself. Otherwise it is a shallow copy whose `confinement` is the
+// flag's, so `yolo --at guest -- <cmd>` on macOS tells the agent it is at the guest notch,
+// as `confinement: "guest"` does.
+//
+// A COPY, never an edit of cfg: the merged config is also what the config-change approval
+// compares and what the backend records as this launch's boot baseline, and a flag typed
+// on one launch is neither.
+func (o *Options) notchConfig(cfg *jsonx.OrderedMap) *jsonx.OrderedMap {
+	notch := o.launchNotch(cfg)
+	if cfg == nil || notch == config.ResolveConfinement(cfg) {
+		return cfg
+	}
+	cp := jsonx.NewOrderedMap()
+	for _, k := range cfg.Keys() {
+		v, _ := cfg.Get(k)
+		cp.Set(k, v)
+	}
+	cp.Set("confinement", string(notch))
+	return cp
 }
 
 // packSurfacePaths is every destination the loaded packs compose, for the two-writers refusal.

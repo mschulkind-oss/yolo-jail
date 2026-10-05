@@ -170,15 +170,19 @@ func TestPreviewCarriesTheJailCensus(t *testing.T) {
 	}
 }
 
-// GUEST IS REPRESENTABLE AND UNDECIDED (plan §6b D2, Phase 7). This is the inverse of the
-// tests above: the assertion is that guest has NO policy yet, that its emptiness is marked as
-// a pending decision rather than an answer, and that the pending state is fail-closed. When
-// Phase 7 states guest's census, this test is the one that must be rewritten — deliberately,
-// because "guest now has a policy" is exactly the change that should not pass silently.
+// GUEST IS REPRESENTABLE AND UNDECIDED (plan §6b D2, Phase 7.2). This is the inverse of the
+// tests above: the assertion is that the Linux guest has NO policy yet, that its emptiness is
+// marked as a pending decision rather than an answer, and that the pending state is
+// fail-closed. When Phase 7.2 states its census, this test is the one that must be rewritten —
+// deliberately, because "guest now has a policy" is exactly the change that should not pass
+// silently. The macOS guest is not this row's: it renders through render.Jail (EMP-D2).
 func TestGuestModePolicyIsUndecidedNotInherited(t *testing.T) {
-	guest := (Target{Home: "/Users/agent", Workspace: "/Users/matt/code/proj", kind: KindGuest}).Modes()
+	// A LINUX-shaped home: the KindGuest row is the Linux guest's alone since the guest notch
+	// launches on macOS as the macos-user backend, which renders through render.Jail and so
+	// never reaches this row (env-manager plan EMP-D2).
+	guest := (Target{Home: "/home/agent", Workspace: "/home/matt/code/proj", kind: KindGuest}).Modes()
 	if !guest.Undecided() {
-		t.Fatal("guest's mode census is no longer marked undecided. If Phase 7 stated it, " +
+		t.Fatal("guest's mode census is no longer marked undecided. If Phase 7.2 stated it, " +
 			"replace this test with the assertions for that policy — do not just delete it")
 	}
 	// Fail-closed: nothing runs, nothing records. Not the jail's four mechanisms (which the
@@ -191,12 +195,17 @@ func TestGuestModePolicyIsUndecidedNotInherited(t *testing.T) {
 			t.Errorf("an undecided guest must record nothing; it records %q", mode)
 		}
 	}
-	// And the reason names the notch and the phase, so a caller that hits one can say which
-	// decision is missing rather than printing an empty set.
+	// And the reason names the notch, the platform it is still undecided on, and the phase,
+	// so a caller that hits one can say which decision is missing rather than printing an
+	// empty set — and it must not read as if the macOS guest were undecided too, since that one
+	// runs and renders as the jail does.
 	why := guest.Excludes(manifest.ModeStateful)
-	if !strings.Contains(why, "guest") || !strings.Contains(why, "Phase 7") {
-		t.Errorf("guest's exclusion reason must name the notch and where its answer belongs; "+
-			"got %q", why)
+	for _, want := range []string{"guest", "Linux", "Phase 7.2", "macos-user"} {
+		if !strings.Contains(why, want) {
+			t.Errorf("guest's exclusion reason must name %q (the notch, where it is still "+
+				"undecided, where its answer belongs, and what the macOS guest is); got %q",
+				want, why)
+		}
 	}
 	// The regeneration premise, pinned as PROSE because it is the correction that motivated
 	// this file: `stateful` is not jail-shaped because a jail home is disposable (it is not —

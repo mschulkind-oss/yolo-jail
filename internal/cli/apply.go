@@ -120,25 +120,27 @@ func applyMain(args []string, out, errw io.Writer, color bool, stdin io.Reader) 
 	pr := richtext.Printer{W: out, Color: color}
 	// THE FLAG BELONGS TO ONE ROUTE, and every other one refuses it rather than answering a
 	// request for data with prose — which is the failure the flag exists to prevent, and the
-	// shape `yolo broker` already uses for its acting verbs. `--sealed` is a refusal verb,
-	// the guest notch is unbuilt, and the jail notch's apply is a stub pointing at launch:
-	// none of the three has a document to emit, and each would otherwise print a human
-	// report to something that asked for JSON.
+	// shape `yolo broker` already uses for its acting verbs. `--sealed` is a refusal verb, and
+	// at the jail notch and at a macOS guest this verb is a pointer at launch, while a Linux
+	// guest is unbuilt: none of them has a document to emit, and each would otherwise print a
+	// human report to something that asked for JSON.
 	if outfmt.IsJSON(format) && (sealed || notch != config.ConfinementHost) {
 		fmt.Fprintln(errw, "yolo apply: --format json is the HOST notch's dry run "+
 			"(`yolo apply --at host`, or `yolo host apply`). No other notch has a document "+
-			"to emit: guest is unbuilt, and at jail this verb points at launch.")
+			"to emit: at jail, and at guest on macOS, this verb points at launch, and guest "+
+			"has no backend on Linux.")
 		return 2
 	}
 	// --timing TIMES THE HOST NOTCH'S APPLY (perf-logging.md D18), and only that, by the JSON
-	// flag's reasoning above: the guest notch is unbuilt, at jail this verb runs no stage worth a
-	// span (a jail launch's own --timing is where that time goes), and --sealed refuses rather
-	// than applies. Refused by name rather than silently ignored.
+	// flag's reasoning above: at jail and at a macOS guest this verb runs no stage worth a span
+	// (the launch's own --timing is where that time goes), a Linux guest is unbuilt, and
+	// --sealed refuses rather than applies. Refused by name rather than silently ignored.
 	if timing && (sealed || notch != config.ConfinementHost) {
 		fmt.Fprintln(errw, "yolo apply: --timing times the HOST notch's apply (`yolo apply --at "+
 			"host --timing`, or `yolo host apply --timing`). No other route here has a stage to "+
-			"time: guest is unbuilt, --sealed only checks, and at jail this verb points at launch, "+
-			"whose own `yolo --timing -- <cmd>` times it.")
+			"time: --sealed only checks, guest has no backend on Linux, and at jail (and at "+
+			"guest on macOS) this verb points at launch, whose own `yolo --timing -- <cmd>` "+
+			"times it.")
 		return 2
 	}
 	if sealed {
@@ -168,11 +170,18 @@ func applyMain(args []string, out, errw io.Writer, color bool, stdin io.Reader) 
 		finish(rc)
 		return rc
 	case config.ConfinementGuest:
-		// render.NotchUnbuilt is the sentence, not a literal: `run.Run` refuses a guest
+		if paths.IsMacOS {
+			return applyAtMacosGuest(pr, at != "")
+		}
+		// render.NotchUnbuilt is the sentence, not a literal: `run.Run` refuses a Linux guest
 		// LAUNCH with the same words (OQ-DP3), and two spellings of one notch's status is
-		// the drift docs/design/declaration-parity.md exists to name. The bytes this verb
-		// printed before the move are unchanged — the verb is the parameter.
+		// the drift docs/design/declaration-parity.md exists to name. The verb is the
+		// parameter; the next step is this verb's own.
 		pr.Printf("[yellow]%s[/yellow]", render.NotchUnbuilt("apply"))
+		pr.Printf("[dim]Instead: the jail notch, the default, launches here with `yolo -- " +
+			"<cmd>` (`yolo apply` alone points at that launch); `yolo host -- <cmd>` runs a " +
+			"command on the real machine with no sandbox, and `yolo apply --at host` renders " +
+			"your config into your real home.[/dim]")
 		return 1
 	default: // jail
 		_ = dryRun
@@ -197,6 +206,31 @@ func applyMain(args []string, out, errw io.Writer, color bool, stdin io.Reader) 
 		pr.Printf("")
 		return describeMain(nil, out, errw, color)
 	}
+}
+
+// applyAtMacosGuest is `yolo apply` at the guest notch on macOS, where that notch is the
+// macos-user backend (env-manager plan Phase 7.1, EMP-D1): a POINTER at the launch, as the
+// jail notch's apply is, because a macos-user launch is where that backend provisions —
+// it builds the sandbox's nix profile, stages the selected packs and renders their config
+// in the sandbox account's home, then runs the command — and this verb has no no-exec arm
+// for it, at either notch. rc 0, as the jail's pointer is: nothing failed.
+//
+// fromFlag says the notch came from `--at guest` rather than the config, so the launch it
+// points at carries the same flag; a config at `confinement: "guest"` needs none.
+func applyAtMacosGuest(pr richtext.Printer, fromFlag bool) int {
+	launch := "`yolo -- <cmd>`"
+	if fromFlag {
+		launch = "`yolo --at guest -- <cmd>`"
+	}
+	pr.Printf("[bold]apply[/bold] at confinement [cyan]guest[/cyan].")
+	pr.Printf("[dim]At the guest notch on macOS, `yolo apply` provisions nothing itself: "+
+		"that work happens when the sandbox launches. %s runs <cmd> as the macos-user "+
+		"backend's sandbox account under Seatbelt, after building its nix profile, staging "+
+		"the selected packs and rendering their config in that account's home. The programs "+
+		"those packs declare (agent CLIs included) install from their launchers the first "+
+		"time each is run there, not at launch. `yolo describe` prints what the notch "+
+		"composes.[/dim]", launch)
+	return 0
 }
 
 // applyAtHost is `yolo apply`'s host notch: the declared ownership contract decides whether there
@@ -1525,6 +1559,7 @@ const applyUsage = `yolo apply — make this environment match its description, 
                             (at jail: a pointer to the launch, plus what it would stage —
                             declared programs still install on first use, not at launch)
   yolo apply --at <level>   … at a different notch (jail|guest|host) for this run
+                            (at guest: macOS only, a pointer to the macos-user launch)
   yolo apply --at host      render your config into your real home
                             (yolo host apply is the same thing, more typeable)
                             (a DRY RUN by default — prints what would change, writes nothing)

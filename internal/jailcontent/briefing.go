@@ -136,9 +136,10 @@ type BriefingInput struct {
 	Mechanism string
 
 	// IsMacOS is the platform the launch runs ON, used for the one answer no mechanism
-	// carries: a `guest` notch has no backend of its own yet (env-manager Phase 7), so
-	// the platform picks between the Seatbelt and the Landlock spelling of that preset.
-	// Every other combination is decided by Mechanism and ignores this.
+	// carries: a `guest` notch whose caller resolved no mechanism. A macOS guest launch
+	// passes Mechanism "macos-user", which decides it (env-manager plan Phase 7.1); a
+	// Linux guest has no backend (Phase 7.2), so the platform picks the Landlock spelling
+	// of that preset. Every other combination is decided by Mechanism and ignores this.
 	IsMacOS bool
 
 	// Home is the agent's home directory. Empty means `/home/agent`, the container
@@ -229,9 +230,10 @@ func (in BriefingInput) configName() string {
 // the config. So `container` prints the VM, and a NATIVE runtime (macos-user) prints the
 // macOS guest vector — a separate user plus Seatbelt is what that backend composes by
 // definition, and it is the guest notch by another name (no container, no image) whatever
-// the notch is called. isMacOS decides only the guest variant no mechanism names: a `guest`
-// notch has no backend of its own yet (env-manager Phase 7), so the platform's spelling is
-// the best available answer.
+// the notch is called. isMacOS decides only the guest variant no mechanism names: a macOS
+// guest launch names macos-user (env-manager plan Phase 7.1), so this is a reader that
+// resolved no mechanism, or a Linux guest, which has no backend (Phase 7.2) — and the
+// platform's spelling is the best available answer for both.
 //
 // KindUnset FAILS CLOSED, to the host preset — no primitives, autonomy OFF. The briefing
 // reaches this with an unresolvable notch name (config validation rejects one, so getting
@@ -299,7 +301,7 @@ func MechanismHasNoContainer(mechanism string) bool {
 // generated sentence would say "this is the human's REAL machine" as usefully — but the
 // two facts an agent most needs are DERIVED: which primitives actually enforce the
 // boundary, and whether agent autonomy is on. That is what makes the header correct for a
-// notch nobody has enumerated yet (a Linux `guest`, whatever Phase 7 lands): an unrecognized
+// notch nobody has enumerated yet (a Linux `guest`, whatever Phase 7.2 lands): an unrecognized
 // name falls to the default branch and still describes its real enforcement vector instead
 // of asserting a container that may not be there. Same argument that motivated
 // render.KindGuest — a new notch should be a question the code asks, not a branch it
@@ -346,19 +348,32 @@ func confinementHeader(confinement, mechanism string, isMacOS bool) []string {
 			"`/tmp` is this machine's own: it survives an agent restart but may not survive a reboot; put worktrees you need later inside the repository or beside it.",
 		}, enforcementLines(prof)...)
 	case known && notch == render.KindGuest:
-		return append([]string{
+		lines := []string{
 			"# YOLO Environment — guest",
 			"",
 			"You are running at the **guest** confinement level: a restricted account on the",
 			"real machine, NOT a disposable container.",
 			"Your home is real and persists; there is no image and no jail to restart.",
-		}, enforcementLines(prof)...)
+		}
+		if noContainer {
+			// THE MACOS GUEST, which is the macos-user backend (env-manager plan Phase 7.1,
+			// EMP-D1): one account for every workspace on the machine. The same fact the
+			// jail-without-a-container branch below states, in the same words, because it
+			// is the same backend reached by the other notch — and an agent told only that
+			// its home is real would read the whole of it as its own.
+			lines = append(lines,
+				"The account is shared by every workspace on this machine; the state directories",
+				"your packs declare at `scope: workspace` are linked into THIS workspace's own",
+				"sidecar, and anything else you write in the home is not yours alone.")
+		}
+		return append(lines, enforcementLines(prof)...)
 	case known && notch == render.KindJail && noContainer:
 		// THE JAIL NOTCH WITHOUT A CONTAINER. macos-user runs at `confinement: jail`
-		// — the notch dial is a separate axis from the runtime, and `guest` is not
-		// wired yet — but there is no container anywhere in it: the boundary is a
-		// Seatbelt profile around a real account whose home persists and is shared by
-		// every workspace on the machine.
+		// as well as at `guest` — the notch dial is a separate axis from the runtime,
+		// and `runtime: "macos-user"` with no `confinement` key is the jail notch — but
+		// there is no container anywhere in it: the boundary is a Seatbelt profile around
+		// a real account whose home persists and is shared by every workspace on the
+		// machine.
 		//
 		// The header below said "a sandboxed container" there until 2026-09-04, which
 		// is the same dangerous falsehood the default branch was rewritten to avoid,

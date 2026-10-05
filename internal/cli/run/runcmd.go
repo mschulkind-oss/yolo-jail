@@ -62,10 +62,12 @@ type Options struct {
 	Network string
 	// Notch is `--at <jail|guest|host>` as typed on THIS launch: the confinement
 	// notch this invocation asks for, overriding the config's `confinement` key.
-	// "" means the flag was not given and the config decides.
+	// "" means the flag was not given and the config decides. launchNotch (run.go) is
+	// the one reader that folds the two.
 	//
-	// A LAUNCH HONORS ONLY `jail`, and the other two are REFUSED rather than
-	// ignored (refuseUnbuiltNotch, run.go; OQ-DP3 in
+	// A LAUNCH HONORS `jail` everywhere and `guest` on macOS, where it is the
+	// macos-user backend (env-manager plan EMP-D1). A Linux `guest` and `host` are
+	// REFUSED rather than ignored (refuseUnbuiltNotch, run.go; OQ-DP3 in
 	// docs/design/declaration-parity.md). Before this field existed
 	// cli.parseRunArgs had no `--at` case at all, so the token fell to its
 	// default arm and STARTED THE COMMAND: `yolo --at guest -- claude` launched a

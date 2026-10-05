@@ -2,7 +2,7 @@
 title: "Environment-manager implementation plan"
 status: accepted
 stage: DECIDED
-next: "Draft Phase 7's two unstated choices as a proposal with a leaning — the guest notch's mode policy (the KindGuest row in internal/render/modes.go) and which backend a `confinement: guest` launch runs — since neither is written anywhere and 7.1 cannot be built without them"
+next: "Measure 7.1 on a Mac: dispatch macos-user.yml for TestMacosUserGuestNotchLaunchesTheSandbox and record the run in the Phase 7 box; 7.2 (Linux guest) still waits on user-stories Q7"
 depends-on:
   - ../design/environment-manager-user-stories.md
 ---
@@ -11,9 +11,12 @@ depends-on:
 
 **Status:** 2026-07-31 — a plan; **build status re-verified against the tree 2026-08-23**, rows
 corrected 2026-09-24, re-checked 2026-09-30. Phases 0–6 and 9 are built and 8 is built but for
-8.2, which is moot. **Phase 7, the `guest` notch, is the work left, and it has no code yet**: a
-`guest` launch refuses (`refuseUnbuiltNotch`, `internal/cli/run/run.go`), as does
-`yolo apply --at guest` (`internal/cli/apply.go`). 7.2 also waits on
+8.2, which is moot. **Phase 7, the `guest` notch, is half built (2026-10-04).** 7.1, macOS
+`guest`, is built and unmeasured on a Mac: `confinement: "guest"` or `--at guest` launches the
+macos-user backend with no `runtime` key, decided by [EMP-D1](#EMP-D1) and [EMP-D2](#EMP-D2).
+7.2, Linux `guest`, has no code: a Linux launch refuses it (`refuseUnbuiltNotch`,
+`internal/cli/run/run.go`), as does `yolo apply --at guest` there (`internal/cli/apply.go`;
+[EMP-D3](#EMP-D3)), and it also waits on
 [user-stories Q7](../design/environment-manager-user-stories.md#Q7), whether Linux `guest`
 stays a promise. Sequences [`../design/yolo-as-environment-manager.md`](../design/yolo-as-environment-manager.md)
 (the vision — finalized, the maintainer is happy with it) into buildable phases.
@@ -32,13 +35,16 @@ stays a promise. Sequences [`../design/yolo-as-environment-manager.md`](../desig
 > | **4** — `yolo host apply` | ✅ **SHIPPED**, 4.3 included | `internal/cli/applyhostdeps.go` resolves a pack's `program` AND `requires` into the host's real dep state and offers the install; its own package comment records that it **replaces** the static "not run by `apply --host` yet" line this row used to cite, which was *"true and useless: the gate is real, but the line never said WHICH binary was missing"* |
 > | **5** — `--sealed` + closure | ✅ **SHIPPED** — 5.1/5.2/5.4, and **5.3 on 2026-09-12** (`4223ca95`, `yolo config promote`) | none — `applySealed`'s refusal now names `yolo config promote` as a command beside `yolo config reset` |
 > | **6** — dep provisioning | ✅ **SHIPPED** — 6.1/6.2/6.3 (`internal/depcheck/`, `yolo check-deps`), and **6.4's offer by 2026-09-12** (`f94b2c97`, the `yolo host apply --assert` dependency gate) | the offer is ONE prompt, not batched by elevation class; that batching was [`OQ-EM1`](../design/yolo-as-environment-manager.md#OQ-EM1)'s, answered 2026-09-30: not owed |
-> | **7** — the `guest` notch | ❌ **NOT BUILT** — as previously stated | see below |
+> | **7** — the `guest` notch | ⚠️ **PARTIAL** — 7.1 (macOS) built 2026-10-04, unmeasured on a Mac; 7.2 (Linux) not built | see below |
 > | **8** — self-describing briefing | ⚠️ **PARTIAL** — 8.1 shipped (`confinementHeader`, `internal/jailcontent/briefing.go`); **8.2 is MOOT** | the `jail-startup` built-in no longer exists |
 > | **9** — agent autonomy | ✅ **SHIPPED** 2026-08-01 | none |
 >
-> **Phase 7 (the `guest` backend — macOS Seatbelt + Linux bwrap/Landlock) is NOT built**: it
-> needs host capabilities a nested Linux jail cannot exercise, so it is host/Mac-gated and
-> deferred. Two things sharpened since 2026-08-01. **7.1's precondition landed**: the
+> **Phase 7 (the `guest` backend — macOS Seatbelt + Linux bwrap/Landlock) is half built.**
+> 7.1 landed 2026-10-04 as a routing and policy decision on a backend that already shipped
+> ([EMP-D1](#EMP-D1), [EMP-D2](#EMP-D2)), unit-tested on Linux and unmeasured on a Mac. The rest of
+> this paragraph is the 2026-08-23 record, when neither half was built: it needed host
+> capabilities a nested Linux jail cannot exercise, so it was host/Mac-gated and deferred. Two
+> things sharpened since 2026-08-01. **7.1's precondition landed**: the
 > zero-surfaces bug (1.4/G3) was fixed 2026-08-12, so macOS `guest` stages packs, and that
 > staging was measured on a Mac on 2026-09-10 and 2026-09-12 ([runbook item 4](runbooks/macos-user-manual-checks.md#4-content-actually-reached-the-agent)).
 > **7.2 has no code at all**: `bwrap`/`Landlock` appear in Go only as a profile constant
@@ -501,7 +507,26 @@ manifest surface, and (behind a confirm) can run the remedies including `sudo`.
 
 ---
 
-## Phase 7 — Make the `guest` notch actually work  ❌ **NOT BUILT**
+## Phase 7 — Make the `guest` notch actually work  ⚠️ **PARTIAL — 7.1 built 2026-10-04, 7.2 not built**
+
+> [!NOTE]
+> **7.1 is built, and unmeasured on a Mac (2026-10-04).** On macOS `confinement: "guest"` and
+> `--at guest` launch the macos-user backend with no `runtime` key (`config.NotchRuntime`, read by
+> the launch, `yolo check`, `yolo describe` and `yolo ps`/`prune`), and the backend renders what it
+> renders at `confinement: jail`, through `render.Jail` ([EMP-D1](#EMP-D1), [EMP-D2](#EMP-D2)). An
+> explicit `runtime` or YOLO_RUNTIME naming a container contradicts the notch and is refused, naming
+> both. `yolo apply --at guest` there points at the launch, as the jail notch's apply does. The
+> agent's briefing carries the `guest` header, with the shared-account sentence the macos-user
+> header already had. A Linux guest launch, and `yolo apply --at guest` on Linux, refuse with
+> `render.NotchUnbuilt`, which now says the notch launches only on macOS and names the next step
+> ([EMP-D3](#EMP-D3)). Unit tests drive the launch with the platform injected
+> (`internal/cli/run/notchgate_test.go`); the Mac check is
+> `TestMacosUserGuestNotchLaunchesTheSandbox` (`integration/macosuserguestnotch_test.go`), run by
+> `macos-user.yml`. **Not done by 7.1:** `yolo config --at guest` still refuses on both platforms
+> (`internal/cli/configtarget.go`), and `describe` prints the composed primitives it already
+> printed for macos-user.
+>
+> **The record below is 2026-08-23's**, when neither half was built.
 
 > [!WARNING]
 > **Verified 2026-08-23. 7.1's stated precondition landed; 7.2 has no code.** 7.1: the
@@ -526,7 +551,8 @@ manifest surface, and (behind a confirm) can run the remedies including `sudo`.
 
 - **7.1** macOS `guest`: the existing macos-user backend, but rendering surfaces (Phase
   1.4 already fixes the zero-surfaces bug) — separate user + Seatbelt as composed
-  primitives (Phase 2.2).
+  primitives (Phase 2.2). **Built 2026-10-04** as [EMP-D1](#EMP-D1)–[EMP-D3](#EMP-D3);
+  unmeasured on a Mac.
 - **7.2** Linux `guest`: bwrap + Landlock, a real home, no image — "a weaker container,
   no separate user." This is the missing fourth composition the primitive layer (2.2)
   was built to express; it needs no new concept.
@@ -912,6 +938,20 @@ the call site.
   **Answered in the build** (recorded in the consumption check above): the primitive model is
   `internal/render/confinement.go`, and `describe` prints it (`printConfinementVector`,
   `internal/cli/describe.go`).
+
+---
+
+## Decision Ledger
+
+The `EMP-D<n>` ids are this plan's own, coined 2026-10-04 for the decisions Phase 7.1 needed
+("EMP" for environment-manager plan, "D" for decision). The plan's `next` had asked for the
+first two as a proposal with a leaning; each was taken on that leaning.
+
+| ID | Decision | Date | Status |
+| :--- | :--- | :--- | :--- |
+| <a id="EMP-D1"></a>EMP-D1 | *Implementation decision, taken under the maintainer's 2026-10-04 delegation ("make them and build it … adjust later"); reversible.* **Which backend a `confinement: guest` launch runs.** On macOS the guest notch selects the macos-user runtime with no `runtime` key: `config.NotchRuntime` returns it, and every runtime reader weighs it after YOLO_RUNTIME and the `runtime` key and before the platform probe (`config.SelectedRuntime`: the launch's `resolveRuntime`, `yolo check`, `yolo describe`, `yolo ps`/`prune`). An explicit YOLO_RUNTIME or `runtime` naming podman or Apple Container together with guest is REFUSED as a contradiction, naming both inputs and how to keep either (`config.NotchRuntimeConflict`; the launch's notch gate, and a `yolo check` [FAIL]), rather than letting one input silently win. `runtime: "macos-user"` at the jail notch keeps working, and `runtime: "macos-user"` with guest is one launch said twice. `--at guest` is the same launch, and the briefing names the guest notch for it too. | 2026-10-04 | ✅ built, unmeasured on a Mac |
+| <a id="EMP-D2"></a>EMP-D2 | *Implementation decision, taken under the same delegation; reversible.* **The guest notch's mode policy on macOS.** The macOS guest renders exactly what macos-user renders at `confinement: jail`: the bootstrap's `render.Jail` target and its census (`(*Env).renderTarget`, `internal/entrypoint/env.go`), so the render fingerprint is unchanged. No `KindGuest` Target is built for it: `HostFields` and `UndecidedModes` would cut the surfaces the backend renders today. The `KindGuest` row in `internal/render/modes.go` stays undecided and is now the Linux guest's alone (Phase 7.2), its reason saying so. The launch-flag posture follows (`jailLaunchAutonomy`, autonomy on), as does the profile (`render.GuestProfileMacOS`). | 2026-10-04 | ✅ built |
+| <a id="EMP-D3"></a>EMP-D3 | *Implementation decision, taken under the same delegation; reversible.* **A Linux guest keeps refusing**, at the launch and at `yolo apply --at guest`, with `render.NotchUnbuilt`'s one sentence reworded to say the notch launches only on macOS (as the macos-user backend) and that its Linux backend is unwritten. Each caller names its own next step: the default jail, or `yolo host -- <cmd>` for no sandbox. | 2026-10-04 | ✅ built |
 
 ---
 

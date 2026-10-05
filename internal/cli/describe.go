@@ -189,9 +189,10 @@ func printConfinementVector(pr richtext.Printer, prof render.Profile) {
 //
 // materializes says whether anything at this notch BUILDS the profile, and it is what makes
 // the absent-root branch honest. Only the macos-user backend materializes one today
-// (darwinpkg.Materialize has exactly one caller, that backend's run seam); `guest` and `host`
-// have no package layer yet (docs/design/provisioner-evidence.md §3.4, "not orthogonal to
-// confinement: the provisioning primitive below jail"). Without it this branch
+// (darwinpkg.Materialize has exactly one caller, that backend's run seam), which is the macOS
+// guest notch as well as `runtime: "macos-user"` (env-manager plan EMP-D1); `host` and a Linux
+// `guest` have no package layer yet (docs/design/provisioner-evidence.md §3.4, "not orthogonal
+// to confinement: the provisioning primitive below jail"). Without it this branch
 // offered "a launch or `yolo apply` materializes it" at every notch — a remedy that does not
 // exist below jail, and one `yolo apply` does not perform at ANY notch. `check` corrected the
 // same cell for itself (check/section_packageprofile.go's `materializes`), and both follow
@@ -233,16 +234,15 @@ func printPackageProfile(pr richtext.Printer, prof render.Profile, packages []an
 }
 
 // resolvedMechanism resolves the `runtime` a launch would pick, with run()'s own precedence
-// (YOLO_RUNTIME > config > platform probe). Loose by design: describe is a read-only
-// report, so an unreachable runtime is not its problem — `yolo check` is where that is an
-// error, and the tolerant resolver never exits.
+// (YOLO_RUNTIME > config > the notch's own backend > platform probe; config.SelectedRuntime).
+// The notch's backend is what makes a macOS `confinement: "guest"` print the macos-user
+// vector, separate user and Seatbelt, rather than a container's. Loose by design: describe is a
+// read-only report, so an unreachable runtime is not its problem, and neither is an explicit
+// runtime that contradicts the guest notch, which describe reports as the runtime named and a
+// launch refuses (refuseUnbuiltNotch) — `yolo check` is where both are errors, and the
+// tolerant resolver never exits.
 func resolvedMechanism(cfg *jsonx.OrderedMap) string {
-	cfgRT := ""
-	if v, ok := cfg.Get("runtime"); ok {
-		if s, ok := v.(string); ok {
-			cfgRT = s
-		}
-	}
+	cfgRT := config.ConfiguredRuntime(cfg, config.ResolveConfinement(cfg), paths.IsMacOS)
 	return runtimepkg.ResolveRuntime(os.Getenv("YOLO_RUNTIME"), cfgRT, paths.IsMacOS,
 		func(bin string) bool {
 			_, err := exec.LookPath(bin)
