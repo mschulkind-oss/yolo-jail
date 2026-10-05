@@ -22,8 +22,9 @@ import (
 // exists, holds a wrapper for every program the selected packs install (completeness), each
 // wrapper names a yolo that runs from every launcher (staleWrappers), the directory is on PATH,
 // and it WINS there for each wrapper's name (precedence) — and, riding on those, whether
-// host_apply_on_launch's re-check is reachable at all. Its PASS row also says where an IDE or
-// desktop launcher, which never reads the rc, points instead.
+// host_apply_on_launch's re-check is reachable at all. The row that ends it with wrappers on disk
+// (PASS, off PATH, or shadowed) also says where an IDE or desktop launcher, which never reads the
+// rc, points instead, and what host_path that launcher needs.
 //
 // # Why this observation lives HERE and not in apply
 //
@@ -157,14 +158,15 @@ func (o *Options) sectionHostWrappers(r *reporter) {
 		// ONE row for the one cause. The fix leads, as the literal line; what the cause breaks
 		// follows, once each: every bare command, and the launch sync when it is on. The
 		// directory is spelled once, inside the line — the absolute-path escape hatch needs
-		// no second spelling of it.
+		// no second spelling of it (fullPathNote).
 		r.warn("wrapper directory is not on PATH, so no wrapper runs",
 			joinLines(hostwrap.PathLine(dir),
 				"Add that line to your shell rc, below any line that puts ~/.local/bin on "+
 					"PATH, then open a new shell.",
 				"Until then a bare "+orNames(names)+" runs unwrapped, with no composed "+
-					"environment, though each wrapper works by absolute path.",
-				st.gateClause(gateOffPath)))
+					"environment.",
+				st.gateClause(gateOffPath),
+				o.fullPathNote(st)))
 		return
 	}
 
@@ -189,7 +191,8 @@ func (o *Options) sectionHostWrappers(r *reporter) {
 					"named here, then `hash -r` or open a new shell.",
 				"The wrapper directory is on PATH but behind them, so a bare invocation runs "+
 					"the binary unwrapped:\n"+strings.Join(lines, "\n"),
-				st.gateClause(gateAllShadowed)))
+				st.gateClause(gateAllShadowed),
+				o.fullPathNote(st)))
 		return
 	}
 	r.ok("wrapper directory is on PATH and wins for every wrapper (" + joinNames(names) + ")")
@@ -209,6 +212,21 @@ func (st wrapperState) launcherLine() string {
 		target = filepath.Join(st.dir, "<program>") + " (" + orNames(st.names) + ")"
 	}
 	return "point an IDE or desktop launcher that does not read your shell rc at " + target
+}
+
+// fullPathNote is the other way in, for the two rows that end the section with the wrappers on
+// disk but not what a bare name runs (off PATH, shadowed): a wrapper still starts by its absolute
+// path, which is the surface an IDE or desktop launcher is pointed at whatever PATH says, and the
+// host_path that launcher also needs for a program yolo keeps no copy of (launcherHostPathLines).
+// The PASS row says the same as dim lines. Someone who gives a launcher the wrapper's path without
+// adding the PATH line lands on the off-PATH row, which is why the host_path half cannot ride on
+// the PASS row alone.
+//
+// It does not spell the wrapper directory: the row's PATH line already does, once (HE-D2).
+func (o *Options) fullPathNote(st wrapperState) string {
+	return joinLines(append([]string{"A wrapper still starts by its absolute path, which is what " +
+		"to give an IDE or desktop launcher that does not read your shell rc."},
+		o.launcherHostPathLines(st)...)...)
 }
 
 // launcherHostPathLines says, for each wrapped program yolo keeps no copy of on this machine

@@ -984,6 +984,71 @@ func TestHostWrappersOKRowSaysALauncherNeedsHostPathForAProgramYoloKeepsNoCopyOf
 	})
 }
 
+// TestHostWrappersOffPathAndShadowedRowsSayALauncherNeedsHostPath: a wrapper is reached by its
+// absolute path whatever PATH says, so the user an IDE or desktop launcher is pointed at it for is
+// as likely as not one whose wrapper directory is off PATH, or behind claude's own folder. Those
+// rows end the section, so they must carry the full-path pointer and, for a program yolo keeps no
+// copy of (claude on macOS), the host_path that launcher also needs, as the PASS row does. The
+// off-PATH row used to say only that "each wrapper works by absolute path", which is false for
+// claude from such a launcher until host_path names its folder. Neither row respells the wrapper
+// directory (HE-D2's merged row spells it once, in the PATH line).
+func TestHostWrappersOffPathAndShadowedRowsSayALauncherNeedsHostPath(t *testing.T) {
+	const lead = "yolo keeps no copy of claude on this machine, so that launcher also needs host_path"
+	const pointer = "A wrapper still starts by its absolute path, which is what to give an IDE or " +
+		"desktop launcher that does not read your shell rc."
+	run := func(t *testing.T, goos string, pathFor func(wrap, claude string) string) (string, string) {
+		t.Helper()
+		t.Setenv("YOLO_VERSION", "")
+		claudeDir := fakeProgram(t, "claude")
+		o, _, _ := hostManagementFixture(t, `{"host_wrappers": true, "packs": ["claude"]}`,
+			[]string{"claude"}, "")
+		setPath(o, pathFor(wrapDirIn(t), claudeDir))
+		o.HostFloor = floorOn(t, goos)
+		r, out := runPacksThenWrappers(t, o)
+		if r.warned != 1 {
+			t.Errorf("warned = %d, want 1 — one cause, one row:\n%s", r.warned, out)
+		}
+		return out, claudeDir
+	}
+	sep := string(os.PathListSeparator)
+	for _, tc := range []struct {
+		name, headline string
+		pathFor        func(wrap, claude string) string
+	}{
+		{"off PATH", "[WARN] wrapper directory is not on PATH",
+			func(_, claude string) string { return claude }},
+		{"shadowed", "[WARN] 1 wrapper(s) are shadowed by an earlier PATH entry: claude",
+			func(wrap, claude string) string { return claude + sep + wrap }},
+	} {
+		t.Run(tc.name+", darwin", func(t *testing.T) {
+			out, claudeDir := run(t, "darwin", tc.pathFor)
+			note := strings.Join(noteLinesAfter(t, out, tc.headline), "\n")
+			want := lead + " in " + filepath.Join(os.Getenv("HOME"), ".config", "yolo-jail", "config.jsonc") +
+				" to name " + claudeDir + ", the folder this PATH finds it in"
+			for _, w := range []string{pointer, want} {
+				if !strings.Contains(note, w) {
+					t.Errorf("the row must say %q:\n%s", w, out)
+				}
+			}
+			if strings.Contains(out, "each wrapper works by absolute path") {
+				t.Errorf("the row still claims every wrapper works from any launcher:\n%s", out)
+			}
+			if n := strings.Count(out, wrapDirIn(t)); n != 1 {
+				t.Errorf("the wrapper directory is spelled %d times, want 1:\n%s", n, out)
+			}
+		})
+		t.Run(tc.name+", linux", func(t *testing.T) {
+			out, _ := run(t, "linux", tc.pathFor)
+			if !strings.Contains(strings.Join(noteLinesAfter(t, out, tc.headline), "\n"), pointer) {
+				t.Errorf("the row must still point a launcher at the wrapper's absolute path:\n%s", out)
+			}
+			if strings.Contains(out, lead) {
+				t.Errorf("the floor holds claude here, so no launcher needs host_path for it:\n%s", out)
+			}
+		})
+	}
+}
+
 // TestHostApplyOnLaunchOffKeepsTheCauseRowToItself: with the key OFF, the sync is opted out of
 // rather than broken, so the cause row must not claim it cannot fire — the off row already says
 // what is true.
