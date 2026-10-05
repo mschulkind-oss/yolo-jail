@@ -106,6 +106,40 @@ func TestListSessionsAnswersTriStateAndRemovesNothing(t *testing.T) {
 	}
 }
 
+// TestAListingIsNotReadAsAHolderByAnotherListing: two listings run at once — `yolo ps` beside a
+// container launch's housekeeping slot, or a second `yolo ps` — so one listing's probe must never
+// read as a holder to the other. The probe is SHARED for exactly that: a shared lock another
+// descriptor holds leaves a gone session gone. Were the probe exclusive, the second listing would
+// read the first's probe as the session's owner, list an ended session as running, and keep its
+// staging from every sweep.
+func TestAListingIsNotReadAsAHolderByAnotherListing(t *testing.T) {
+	base := t.TempDir()
+	gone := plantSession(t, base, "yolo-ws-0001", "gone",
+		&SessionRecord{Notch: NotchMacosUser, Workspace: "/ws", Name: "yolo-ws-0001"})
+
+	// Another listing's probe, mid-flight: a read-only descriptor of its own holding LOCK_SH.
+	other, err := os.Open(filepath.Join(gone, paths.HostServicesSessionLockName))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = other.Close() })
+	if err := syscall.Flock(int(other.Fd()), syscall.LOCK_SH|syscall.LOCK_NB); err != nil {
+		t.Fatal(err)
+	}
+
+	sessions, ok := ListSessions(base)
+	if !ok || len(sessions) != 1 {
+		t.Fatalf("ListSessions = %+v, %v; want the one session", sessions, ok)
+	}
+	if got := sessions[0].Liveness; got != SessionGone {
+		t.Errorf("with another listing's shared probe on its lock, the ended session reads %s; want %s",
+			got, SessionGone)
+	}
+	if mu, _ := MacosUserSessions(base); len(mu) != 1 || mu[0].Liveness != SessionGone {
+		t.Errorf("MacosUserSessions = %+v; want the one session, gone", mu)
+	}
+}
+
 // TestListSessionsReadsTheRecord: the notch, workspace and name come from the session's record;
 // a dir with no record, or one that does not parse, lists its notch as unknown with no workspace.
 func TestListSessionsReadsTheRecord(t *testing.T) {

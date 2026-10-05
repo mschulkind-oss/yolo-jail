@@ -1,6 +1,7 @@
 package stores
 
 import (
+	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -10,6 +11,7 @@ import (
 
 	"github.com/mschulkind-oss/yolo-jail/internal/macosuser"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
+	"github.com/mschulkind-oss/yolo-jail/internal/prune"
 )
 
 // macosuserrows_test.go pins `yolo stores`'s macos-user section: the backend's root-owned state
@@ -287,6 +289,74 @@ func TestContainerOnlySectionsSayTheyDoNotApplyOnMacosUser(t *testing.T) {
 	o.DetectRuntime = func() string { return "podman" }
 	if s := storeByKey(t, Inventory(o), "nix.install-prefix"); s.Reclaimer.Trigger != "post-launch slot (24h) + yolo prune --apply" {
 		t.Errorf("under podman the install-prefix trigger is %q", s.Reclaimer.Trigger)
+	}
+}
+
+// TestMacosUserRowsNameTheRuntimeThatRunsTheirPass: the stopped-container, image-tarball,
+// interrupted-delivery and image-root passes are a container runtime's, and macos-user's own
+// `yolo prune` prints each as not applicable (prune's TestPruneOnMacosUserAsksNoRuntimeAndExitsZero
+// pins that half). So on macos-user no row those passes reclaim may name the bare
+// `yolo prune --apply` the same Mac's macos-user prune declines to run: each keeps its reclaimer
+// and its yolo verdict, since a container runtime on this Mac runs the pass, and names that
+// runtime's prune as the trigger. Under a container runtime the rows are as they were.
+func TestMacosUserRowsNameTheRuntimeThatRunsTheirPass(t *testing.T) {
+	o, state := testOptions(t)
+	writeFile(t, filepath.Join(state, "cache", "images", "yolo-jail-abc.tar"), 5000)
+	writeFile(t, filepath.Join(state, "containers", "yolo-x-1"), 10)
+	writeFile(t, filepath.Join(state, "image-delivery", "d1", "x"), 10)
+	writeFile(t, filepath.Join(state, "build", "roots", "0123456789abcdef"), 10)
+	containerPasses := map[string]string{
+		"state.containers":     "PruneStoppedContainers",
+		"state.image-delivery": "PruneImageDelivery",
+		"cache.images":         "PruneImageCache",
+		"state.build":          "PruneOrphanImageRoots",
+	}
+
+	o.DetectRuntime = func() string { return "macos-user" }
+	rep := Inventory(o)
+	for key, fn := range containerPasses {
+		s := storeByKey(t, rep, key)
+		if s.Reclaimer.Func != fn || s.Verdict != VerdictYolo {
+			t.Errorf("%s: reclaimer %+v verdict %q; want %s, yolo's, since a container runtime on this Mac runs it",
+				key, s.Reclaimer, s.Verdict, fn)
+		}
+		if strings.HasPrefix(s.Reclaimer.Trigger, "yolo prune --apply") ||
+			!strings.Contains(s.Reclaimer.Trigger, "`YOLO_RUNTIME=container yolo prune --apply`") ||
+			!strings.Contains(s.Reclaimer.Trigger, "YOLO_RUNTIME=podman") {
+			t.Errorf("%s on macos-user names trigger %q; macos-user's `yolo prune` does not run %s, a "+
+				"container runtime's does", key, s.Reclaimer.Trigger, fn)
+		}
+		if !strings.Contains(s.Note, "macos-user's `yolo prune` does not run ") {
+			t.Errorf("%s's note does not say macos-user's prune does not run the pass: %s", key, s.Note)
+		}
+	}
+	// build/ is only partly a container runtime's: its dangling out-links are swept by every
+	// runtime's prune, and the note says so rather than calling the whole dir unreclaimed here.
+	if note := storeByKey(t, rep, "state.build").Note; !strings.Contains(note, "dangling out-links") {
+		t.Errorf("state.build's note does not say macos-user's prune still sweeps its dangling out-links: %s", note)
+	}
+	// The tar row's keep is the container runtimes' own, each named, rather than the keep a
+	// macos-user prune that runs no tar sweep would resolve.
+	if d := storeByKey(t, rep, "cache.images").Reclaimer.Detail; !strings.Contains(d, fmt.Sprintf("keep %d under the container runtime",
+		prune.ResolveImageCacheKeep(prune.ImageCacheKeepUnset, "container"))) ||
+		!strings.Contains(d, fmt.Sprintf("%d under podman", prune.ResolveImageCacheKeep(prune.ImageCacheKeepUnset, "podman"))) {
+		t.Errorf("cache.images on macos-user names detail %q; want each container runtime's keep", d)
+	}
+
+	for _, rt := range []string{"podman", "container"} {
+		o.DetectRuntime = func() string { return rt }
+		rep := Inventory(o)
+		for key := range containerPasses {
+			s := storeByKey(t, rep, key)
+			if s.Reclaimer.Trigger != "yolo prune --apply" || strings.Contains(s.Note, "macos-user") {
+				t.Errorf("under %s, %s names trigger %q and note %q; want the plain `yolo prune --apply`",
+					rt, key, s.Reclaimer.Trigger, s.Note)
+			}
+		}
+		want := fmt.Sprintf("keep %d", prune.ResolveImageCacheKeep(prune.ImageCacheKeepUnset, rt))
+		if d := storeByKey(t, rep, "cache.images").Reclaimer.Detail; d != want {
+			t.Errorf("under %s the tar row's detail is %q, want %q", rt, d, want)
+		}
 	}
 }
 
