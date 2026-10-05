@@ -356,7 +356,7 @@ func TestTheLaunchPathsDeliverThroughTheGate(t *testing.T) {
 }
 
 // A credential the gate WITHHOLDS is not delivered, so it overrides nothing: the env-override
-// pre-flight reads "delivered" off the gate (deliverySource → DeliversEnvSource), and a
+// pre-flight reads "delivered" off the gate (deliverySource → CredentialScope.Delivered), and a
 // token claimed by a provider no agent selected must not refuse a launch whose jail never
 // sees it. The control moves the claim to the selected provider, which delivers the token to
 // the agent beside the pointer it overrides — and that still refuses.

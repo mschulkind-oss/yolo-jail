@@ -150,8 +150,10 @@ func agentEnvDirBeneath(r *os.Root, dir string) error {
 	return r.Chmod(dir, agentEnvDirMode)
 }
 
-// agentsWithOwnValues lists, sorted, the agents this entry's gate scoped anything to — the
-// agents that get a file of their own. Empty for a channel with no scope.
+// agentsWithOwnValues lists, sorted, the agents this entry's gate scoped anything to. Each gets
+// a file of its own when its composition differs from the shared one somewhere
+// (agentEnvFileContent), which a scoped value almost always makes it. Empty for a channel with no
+// scope.
 func (c *packChannel) agentsWithOwnValues() []string {
 	if c == nil || c.scope == nil {
 		return nil
@@ -171,12 +173,14 @@ func (c *packChannel) agentsWithOwnValues() []string {
 // WHAT IT WRITES is the agent's composition where it differs from the shared one (packload's
 // envcompose.go: the shape var over the env_sources it receives over the pack env fold, an
 // env_sources null and a shape tombstone each removing what ranks below): one line per name
-// whose winner for this agent is not the shared composition's, plus a name the two answer alike
-// that another agent's file sets otherwise, which an agent started by that one would inherit.
-// The shared file is sourced first, so a name both answer alike is otherwise left as the jail
-// shell holds it: the container's frozen value, where the shared file's line is a def-form
+// whose winner for this agent is not the shared composition's, and none for a name the two
+// answer alike (sharesWinner). The shared file is sourced first, so such a name is left as the
+// jail shell holds it: the container's frozen value, where the shared file's line is a def-form
 // default or a null it writes nowhere, and the channel's own lines (the wire tables, the caller
-// tokens) are kept for the agent as for every process (sharesWinner).
+// tokens) are kept for the agent as for every process. So no agent's file sets a name to the
+// shared composition's value, and every `case` line for a name the shared composition sets to a
+// non-empty value lists that value: the macos-user MCP view reads the shared value back off the
+// files that way (internal/entrypoint's sharedValueInAgentFiles).
 //
 // THE PRECEDENCE IS "THE USER'S EXPLICIT VALUE WINS" (docs/reference/providers.md
 // OQ-CN8, ruled 2026-09-28). The file is sourced by the agent's launcher, AFTER the user's
@@ -217,6 +221,21 @@ func agentEnvFileContent(channel *packChannel, agent string) string {
 		if slices.Contains(entrypoint.WireTables(), e.Key) {
 			continue
 		}
+		if view.sharesWinner(e) {
+			// THE AGENT'S WINNER IS EVERY PROCESS'S (an unclaimed env_sources value, an env_sources
+			// null, a fold winner), so the shared file already answers it and this file writes no
+			// line. The slot then holds what the shared file left there, the container's frozen
+			// value over a def-form line or a null and the channel's own lines (the wire tables,
+			// the caller tokens) included, which is what a jail shell holds too. Two readings were
+			// built and withdrawn. Reading a frozen value as a stale default gave the agent a second
+			// winner on an attach, the one entry that knows bootEnv. Overriding another agent's
+			// value, for an agent started by that one, wrote the shared value into this file, and
+			// the macos-user MCP view finds the shared value as the guard value no agent's file
+			// sets (internal/entrypoint's sharedValueInAgentFiles), so a server gated on the name
+			// left the shared table. An agent started by another agent keeps that agent's value of
+			// such a name, as it did before the one composition.
+			continue
+		}
 		boot := true
 		if e.Origin == packload.FromProfileEnv && filledRegion(d, e) {
 			// THE REGION FILL'S VALUE (packload's regionfill.go, docs/design/bedrock-plumbing.md
@@ -228,19 +247,6 @@ func agentEnvFileContent(channel *packChannel, agent string) string {
 			boot = false
 		}
 		inherited := channel.inheritedValues(view, agent, e.Key, boot)
-		if view.sharesWinner(e) {
-			// THE AGENT'S WINNER IS EVERY PROCESS'S (an unclaimed env_sources value, an env_sources
-			// null, a fold winner): the slot already holds what the shared file left there, the
-			// container's frozen value over a def-form line or a null and the channel's own lines
-			// (the wire tables, the caller tokens) included, which is what a jail shell holds too.
-			// So the only values to override are another agent's, which an agent started by that
-			// one inherits. Reading a frozen value or a channel line as a stale default here gave
-			// the agent a second winner, and on an attach alone, the one entry that knows bootEnv.
-			inherited = channel.otherAgentsValues(view, agent, e.Key)
-			if len(inherited) == 0 {
-				continue
-			}
-		}
 		if e.Unset {
 			if len(inherited) > 0 {
 				lines.WriteString("case \"${" + e.Key + "-}\" in " + casePatterns(inherited) +
@@ -251,9 +257,6 @@ func agentEnvFileContent(channel *packChannel, agent string) string {
 		// A value equal to the agent's own needs no pattern: overriding it with itself is a
 		// no-op, and leaving it out keeps a name only the agent's value holds def-form.
 		others := slices.DeleteFunc(slices.Clone(inherited), func(v string) bool { return v == e.Value })
-		if v, ok := view.shared.Value(e.Key); ok && v == e.Value && len(others) == 0 {
-			continue // the shared file already sets it, and nothing else yolo set competes
-		}
 		lines.WriteString(exportComposed(e.Key, e.Value, others))
 	}
 	if lines.Len() == 0 {

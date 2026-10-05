@@ -2,7 +2,6 @@ package run
 
 import (
 	"path/filepath"
-	"slices"
 	"sort"
 	"strings"
 
@@ -128,15 +127,13 @@ func writeUserEnvFile(userEnvFile string, userEnv *jsonx.OrderedMap, channel *pa
 		// written nowhere. Writing both lines for one name made the plain fold line win, a pack's
 		// default beating the user's dotenv value in every jail shell.
 		//
-		// A fold winner under a wire table's name is not written either: the tables are the
-		// launch's, written after the composition at every vehicle (the host exec, launchEnv), and
-		// a plain fold line after them here would hand every process a pack's value instead.
-		shared := channel.sharedFoldWinners()
+		// A fold winner under a wire table's name is not written either (channelPackEnv): the
+		// tables are the launch's, written after the composition at every vehicle (the host exec,
+		// launchEnv), and a plain fold line after them here would hand every process a pack's value
+		// instead.
+		shared := channel.channelPackEnv()
 		keys := make([]string, 0, len(shared))
 		for k := range shared {
-			if slices.Contains(entrypoint.WireTables(), k) {
-				continue
-			}
 			if userEnv != nil {
 				if _, assigned := userEnv.Get(k); assigned {
 					continue
@@ -195,6 +192,18 @@ func (c *packChannel) sharedFoldWinners() map[string]string {
 		if e.Origin == packload.FromPackEnv && !e.Unset {
 			out[e.Key] = e.Value
 		}
+	}
+	return out
+}
+
+// channelPackEnv is the pack env the shared file's channel section carries, plain-form: the
+// shared composition's fold winners (sharedFoldWinners) minus every wire table's name, which the
+// section writes as the launch's own table. It is what a container's jail-daemon supervisor
+// inherits as pack env from that section.
+func (c *packChannel) channelPackEnv() map[string]string {
+	out := c.sharedFoldWinners()
+	for _, k := range entrypoint.WireTables() {
+		delete(out, k)
 	}
 	return out
 }
