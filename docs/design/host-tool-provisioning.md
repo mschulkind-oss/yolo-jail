@@ -352,14 +352,17 @@ bytes; none starts an agent beyond `--version`:
   `PATH=/usr/bin:/bin`, fetches the shipped Node tarball from nodejs.org, checks it against the
   digest compiled into yolo, and installs `cowsay@1.6.0` with that release's npm: the pinned
   package the jail's own npm install test uses (`TestPinnedNpmProgramInstallsTheDeclaredVersion`). The test reads the installed version from npm's own `package.json`, checks the
-  prefix's `0700`, and runs the floor's launcher with an empty environment. A second launch then
-  installs and polls nothing, and `yolo host apply --assert` keeps the entry.
+  prefix's `0700`, runs the floor's launcher with an empty environment, and checks that the
+  launch's stdout is the program's output alone. A second launch then installs and polls nothing,
+  and `yolo host apply --assert` keeps the entry.
 - `TestHostFloorRunsARealCaptureOfAnInstallerFixture`, on every push. With no capture on the
   machine, a first `yolo host -- <bin>` runs a real `yolo capture` of a hermetic installer fixture
   in a capture jail. It materializes the entry into the floor, relocates the installer's absolute
-  `/home/agent` link into it, and runs the floor's copy. A second launch, from
-  `PATH=/usr/bin:/bin`, captures nothing. On a Mac with no sandbox account (the macOS nightly's
-  runners), it checks that the launch names `yolo macos-setup` instead.
+  `/home/agent` link into it, and runs the floor's copy. The launch's stdout carries the floor
+  copy's output alone: the capture jail's own output goes to this process's stderr, never into the
+  host launch log, which takes yolo's own lines. A second launch, from `PATH=/usr/bin:/bin`,
+  captures nothing. On a Mac with no sandbox account (the macOS nightly's runners), it checks that
+  the launch names `yolo macos-setup` instead.
 - `TestHostFloorInstallsTheVendorsRelease`, on Pack Installs' triggers (`packs.yml`, Linux x64
   and arm64), with one subtest per shipped program. It installs the vendor's current release into
   the floor and runs it with `--version`: npm packs on the floor's Node, installer packs from a

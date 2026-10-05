@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -83,12 +84,25 @@ func hostUserReal() string {
 // asks and what every child resolves color against — and would copy an agent session's
 // bytes into a 0644 launch.log, which is the one thing that log excludes by name
 // (internal/cli/run/launchlog.go, *What it deliberately does not capture*).
-func runReal(argv []string) int {
+func runReal(argv []string) int { return runStdoutTo(os.Stdout, argv) }
+
+// RunStdoutTo is a Deps.Run that is runReal with each command's stdout on w: stdin and stderr are
+// still inherited, so sudo still asks on the real terminal. Its one caller is a capture whose output
+// is another command's progress (the host floor's, on a Mac: internal/cli's captureAct.jailStdout),
+// which hands this process's stderr — an *os.File, so the child inherits that descriptor itself and
+// no pipe comes between it and the terminal.
+func RunStdoutTo(w io.Writer) func(argv []string) int {
+	return func(argv []string) int { return runStdoutTo(w, argv) }
+}
+
+// runStdoutTo runs argv with stdin and stderr inherited and its stdout on w, and returns the
+// returncode; a start failure yields 1.
+func runStdoutTo(w io.Writer, argv []string) int {
 	if len(argv) == 0 {
 		return 1
 	}
 	cmd := exec.Command(argv[0], argv[1:]...)
-	cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, os.Stdout, os.Stderr
+	cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, w, os.Stderr
 	if err := cmd.Run(); err != nil {
 		return exitCodeOf(err)
 	}

@@ -166,6 +166,10 @@ type buildMode struct {
 	// advance runs it as a child process, so a Ctrl-C ends the build and not the launch
 	// (forkbuildchild.go, PF-D25).
 	runJail func(staging string, b forkBuild) int
+	// jailStdout is where the build jail's own stdout goes (captureAct.jailStdout); nil is this
+	// process's. The host floor's build and the host's advances name this process's stderr
+	// (hostJailStdout).
+	jailStdout io.Writer
 	// packs is the pack store a PATCHED build replays its series in (the launch's, under the
 	// advance's context); nil reads the machine's with the store's default budget.
 	packs *packsrc.Store
@@ -280,7 +284,9 @@ func buildForkUnderLock(b forkBuild, mode buildMode, store *capture.Store, pr ri
 	}
 	runJail := mode.runJail
 	if runJail == nil {
-		runJail = func(staging string, b forkBuild) int { return forkBuildRunJail(staging, b, out, errw, color) }
+		runJail = func(staging string, b forkBuild) int {
+			return forkBuildRunJail(staging, b, out, errw, color, captureAct{jailStdout: mode.jailStdout})
+		}
 	}
 	entry, m, err := captureStaged(store, staging,
 		func() int { return runJail(staging, b) },
@@ -589,9 +595,11 @@ func forkBuildJailArgv(build string) []string {
 // forkBuildRunJail runs b's build in the capture jail UNDER THE SEAL, with the pack selection
 // narrowed to the fork and its base (FP-D9) — or, for a PATCHED EXTENSION, to the contributing pack
 // alone (PPX-D5): its toolchain is the image's, so no agent pack has anything to add to it.
-func forkBuildRunJail(workspace string, b forkBuild, out, errw io.Writer, color bool) int {
+//
+// on, at most one, is what its caller decided of the jail (captureAct), as runCaptureJail takes it.
+func forkBuildRunJail(workspace string, b forkBuild, out, errw io.Writer, color bool, on ...captureAct) int {
 	return runCaptureJail(workspace, b.Fork.Bin, buildJailArgv(b.Fork), &captureSeal{only: sealPacks(b.Fork), tree: sealTree(b.Fork)},
-		out, errw, color)
+		out, errw, color, on...)
 }
 
 // sealPacks are the packs a build jail's selection is narrowed to: a fork and its base, or a

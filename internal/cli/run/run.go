@@ -1991,7 +1991,9 @@ func (o *Options) runContainer(cfg *jsonx.OrderedMap, rt, repoRoot, cname string
 	// arm runs releases it, and so does this launch before each disarm below.
 	o.registerHerdrAgent(loadedPacks, injectedArgs)
 	keeperStarted := false
-	ready := kp.relay(o.Stdout, o.Stderr, os.Stdout, os.Stderr, keeperEvents{
+	// Pid 1's own stdout goes to the jail's (JailStdout): this process's, unless the caller's jail
+	// prints progress for another command — the host floor's capture and build jails.
+	ready := kp.relay(o.Stdout, o.Stderr, o.jailStdout(), os.Stderr, keeperEvents{
 		started: func(pid int) {
 			keeperStarted = true
 			o.pr(o.Stderr).printf("[dim]keeper: started, pid %d[/dim]", pid)

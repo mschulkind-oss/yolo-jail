@@ -263,11 +263,13 @@ copied whole into `/ctx/packs/<name>/`, so a pack can carry its own installer.
   `PATH=/usr/bin:/bin`, on the Node release yolo ships. That tarball comes from nodejs.org and must
   match the digest compiled into yolo, so the cell checks the compiled-in digest for its platform
   against the real bytes, which no other test does. It reads the installed version from npm's own
-  `package.json`, runs the floor's launcher with an empty environment, and checks that a second
-  launch installs and polls nothing.
+  `package.json`, runs the floor's launcher with an empty environment, and checks that the
+  launch's stdout is the program's output alone, and that a second launch installs and polls
+  nothing.
 - **The host floor's capture cell** runs `capture_test.go`'s hermetic installer fixture through a
   first `yolo host -- <bin>`: a real capture jail, the confined materialize into the floor, and the
-  installer's absolute `/home/agent` link relocated into the floor. On a Mac the floor captures
+  installer's absolute `/home/agent` link relocated into the floor. The launch's stdout must hold
+  the floor copy's output alone, with the installer's on stderr. On a Mac the floor captures
   through the macos-user act instead, so with no sandbox account (the macOS nightly's runners) the
   cell checks the launch's refusal, which names `yolo macos-setup`.
 - Both floor cells give the test a private floor and, for the capture cell, a private capture

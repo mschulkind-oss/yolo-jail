@@ -175,6 +175,15 @@ func installPinnedNpmOnTheFloor(t *testing.T, dir, home string) string {
 	if out, err := cmd.CombinedOutput(); err != nil || !strings.Contains(string(out), "< env-i >") {
 		t.Errorf("the floor's launcher does not run with an empty environment: %v\n%s", err, out)
 	}
+	// THE FIRST LAUNCH'S STDOUT IS THE PROGRAM'S ALONE: the floor's npm and Node fetch print on its
+	// stderr, since an agent's stdout is routinely parsed. The same launcher with the same argument
+	// prints exactly what the launch's stdout carried.
+	cmd = exec.Command(filepath.Join(floor, "bin", pinnedNpmBin), "mechanism")
+	cmd.Env = []string{}
+	if own, err := cmd.Output(); err != nil || string(own) != r.stdout {
+		t.Errorf("the first launch's stdout is not the floor's %s alone (%v):\nthe launch's:\n%s\nthe program's:\n%s",
+			pinnedNpmBin, err, r.stdout, own)
+	}
 	return floor
 }
 
@@ -281,6 +290,8 @@ func TestHostFloorRunsARealCaptureOfAnInstallerFixture(t *testing.T) {
 		t.Fatalf("the first `yolo host -- %s` failed: rc %d\nstdout:\n%s\nstderr:\n%s",
 			captureFixtureBin, r.rc, r.stdout, r.stderr)
 	}
+	// Every line of the floor's and of the capture's own is on STDERR, the installer's output with
+	// them: the capture serves the launch, whose stdout is the program's.
 	for _, want := range []string{
 		"no capture of " + captureFixtureBin + " on this machine yet; running `yolo capture " + captureFixtureBin + "`",
 		captureFixtureRan + "-INSTALL", // the pack's installer ran, in the capture jail
@@ -288,13 +299,22 @@ func TestHostFloorRunsARealCaptureOfAnInstallerFixture(t *testing.T) {
 		"materialized " + captureFixtureBin + " from capture ",
 		"starting " + captureFixtureBin + " (yolo's floor copy",
 	} {
-		if !strings.Contains(r.combined(), want) {
-			t.Errorf("the first launch does not say %q:\nstdout:\n%s\nstderr:\n%s", want, r.stdout, r.stderr)
+		if !strings.Contains(r.stderr, want) {
+			t.Errorf("the first launch's stderr does not say %q:\nstdout:\n%s\nstderr:\n%s", want, r.stdout, r.stderr)
 		}
 	}
-	if !hasLine(r.stdout, captureFixtureRan) {
-		t.Errorf("the floor's %s did not run (want a %q line on stdout):\n%s", captureFixtureBin, captureFixtureRan,
-			r.stdout)
+	// AND STDOUT IS THE FLOOR COPY'S ALONE. An agent's stdout is routinely parsed, and the capture
+	// jail's output once reached it ahead of the program's own: the installer's FIXTURE_INODE and
+	// -INSTALL lines (run.Options.JailStdout).
+	for _, never := range []string{captureFixtureRan + "-INSTALL", "FIXTURE_INODE"} {
+		if strings.Contains(r.stdout, never) {
+			t.Errorf("the first launch's stdout carries the capture jail's %q, which belongs on its stderr:\n%s",
+				never, r.stdout)
+		}
+	}
+	if strings.TrimSpace(r.stdout) != captureFixtureRan {
+		t.Errorf("the first launch's stdout is not the floor's %s alone (want the one line %q):\n%s",
+			captureFixtureBin, captureFixtureRan, r.stdout)
 	}
 
 	added := newCaptureEntries(t, store, nil)
@@ -417,7 +437,9 @@ func TestHostFloorInstallsTheVendorsRelease(t *testing.T) {
 			if !strings.Contains(r.stderr, "starting "+tc.binary+" (yolo's floor copy") {
 				t.Errorf("the launch did not run the floor's copy of %s:\n%s", tc.binary, r.stderr)
 			}
-			// Logged, not asserted: a vendor chooses which stream its version goes to.
+			// Logged, not asserted: a vendor chooses which stream its version goes to, and what else it
+			// prints. That nothing but the program writes the launch's stdout — no capture jail's output,
+			// no npm's — is the hermetic cells' to assert, on a fixture whose output is known.
 			t.Logf("%s %s: %s", tc.binary, tc.versionArg, strings.TrimSpace(r.stdout))
 			rec := readFloorRecord(t, floor, tc.binary)
 			switch kind {
