@@ -32,6 +32,7 @@ import (
 	"fmt"
 	"io"
 	"path/filepath"
+	"strings"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/entrypoint"
@@ -352,6 +353,60 @@ func reportBriefingOverlays(pr richtext.Printer, dests []entrypoint.HostBriefing
 			pr.Printf("  [yellow]%s[/yellow]", richtext.Escape(line))
 		}
 	}
+}
+
+// withheldBriefing is one briefing source the host composer leaves out of every destination
+// because its governor `describes` a kind no host verb delivers (entrypoint.HostWithheldKinds,
+// docs/design/boundary-broker.md BB-D69): the pack, the pack-relative file, and those kinds.
+type withheldBriefing struct {
+	pack  string
+	rel   string
+	kinds []packdecl.Kind
+}
+
+// withheldBriefings is every briefing source of the resolved pack set that the host notch
+// withholds, in pack order and then by file, each pack once. It is a fact about the NOTCH and
+// the pack, true in every home that selects the pack, so the apply states it once in its notch
+// line (printNotchFacts) rather than per destination. Governance reads each pack's original
+// declaration, so a ResolveDestinations clone names its own files once.
+func withheldBriefings(loaded []*packload.Pack) []withheldBriefing {
+	var out []withheldBriefing
+	seen := map[string]bool{}
+	for _, p := range loaded {
+		if p == nil || seen[p.Name] {
+			continue
+		}
+		seen[p.Name] = true
+		sources, _ := p.GovernedSources(packdecl.KindBriefing)
+		for _, s := range sources {
+			if kinds := entrypoint.HostWithheldKinds(s); len(kinds) > 0 {
+				out = append(out, withheldBriefing{pack: p.Name, rel: s.Rel, kinds: kinds})
+			}
+		}
+	}
+	return out
+}
+
+// withheldBriefingFact is the notch line's one sentence for ws, "" for none:
+// "github: briefing/gh.md describes intercept, which does not apply at the host — it reaches
+// agents in a jail". Unmarked text; the caller escapes it.
+func withheldBriefingFact(ws []withheldBriefing) string {
+	if len(ws) == 0 {
+		return ""
+	}
+	clauses := make([]string, len(ws))
+	nkinds := 0
+	for i, w := range ws {
+		names := make([]string, len(w.kinds))
+		for j, k := range w.kinds {
+			names[j] = string(k)
+		}
+		nkinds += len(names)
+		clauses[i] = w.pack + ": " + w.rel + " describes " + strings.Join(names, ", ")
+	}
+	return strings.Join(clauses, "; ") + ", which " +
+		plural(nkinds, "does not apply", "do not apply") + " at the host — " +
+		plural(len(ws), "it reaches", "they reach") + " agents in a jail"
 }
 
 // reportBriefingSourceProblems prints each pack's briefing governance problems once per pack.

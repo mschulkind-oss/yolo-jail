@@ -53,6 +53,12 @@ package entrypoint
 //     as the same file through a link — because yolo never reads its output back in as input (S3,
 //     GeneratedHostBriefings). And it is never OPENED when it cannot be read as a file
 //     (UnreadHostSource): a dangling link, a FIFO, a directory. See hostBriefingOverlay.
+//   - PROSE ABOUT A KIND THE HOST DOES NOT DELIVER IS WITHHELD (docs/design/boundary-broker.md
+//     BB-D69). A briefing contribution may declare `describes`, the kinds of its own pack's
+//     contributions its prose is about, and a source whose governor names one no host verb
+//     delivers (render.HostDelivers) is left out of every destination: the github pack's
+//     briefing/gh.md explains the jail's `gh` forwarder, which a real home does not have. The
+//     jail composes it as before. See HostDeliveredBriefing.
 
 import (
 	"encoding/json"
@@ -60,6 +66,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 
@@ -68,6 +75,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/packdecl"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
+	"github.com/mschulkind-oss/yolo-jail/internal/render"
 )
 
 // HostBriefingRequest carries what a host briefing render needs beyond the packs: the ownership
@@ -241,6 +249,9 @@ func composeHostBriefings(packs []*packload.Pack, homeDir, base string, provenan
 		var paths []string
 		carried := map[string][]packload.GovernedSource{}
 		after := map[string]string{}
+		// owner marks the destinations this pack OWNS: every one it reaches, except one it
+		// reaches only to deliver files the `describes` gate withheld (withheldBorrowing).
+		owner := map[string]bool{}
 		for _, c := range p.Decl.Contributions() {
 			if c.Kind != packdecl.KindBriefing || c.Into == "" {
 				continue
@@ -254,11 +265,22 @@ func composeHostBriefings(packs []*packload.Pack, homeDir, base string, provenan
 				after[path] = rel
 			}
 			// A DESTINATION (`agent` set) carries nothing (P5); a content contribution carries
-			// the files it governs, matched back to its governor by source key.
+			// the files it governs, matched back to its governor by source key — less every one
+			// whose governor describes a kind the host does not deliver (HostDeliveredBriefing).
 			sources, _ := p.GovernedBriefingFor(c)
-			carried[path] = append(carried[path], sources...)
+			kept := HostDeliveredBriefing(sources)
+			if !withheldBorrowing(c, sources, kept) {
+				owner[path] = true
+			}
+			carried[path] = append(carried[path], kept...)
 		}
 		for _, path := range paths {
+			if !owner[path] {
+				// Every file this pack routes here is withheld, and the destination is one the
+				// pack only BORROWED: it contributes nothing here, so it is no owner either, and
+				// the report names the destination by the packs whose prose it holds.
+				continue
+			}
 			d, seen := byPath[path]
 			if !seen {
 				d = &HostBriefingDestination{Path: path}
@@ -291,6 +313,65 @@ func composeHostBriefings(packs []*packload.Pack, homeDir, base string, provenan
 		out = append(out, *d)
 	}
 	return out
+}
+
+// HostDeliveredBriefing is the subset of a pack's governed briefing sources the HOST notch
+// delivers: every source but one whose governor `describes` a kind no host verb delivers
+// (HostWithheldKinds, docs/design/boundary-broker.md BB-D69). The order is kept.
+//
+// The jail composer does not ask it (run.packBriefingProses): a jail delivers every kind a
+// shipped pack describes, so the gate is the host's alone, and the cross-notch parity gate
+// (run.TestJailAndHostComposeTheSameBriefing) holds for every pack set that declares none.
+func HostDeliveredBriefing(sources []packload.GovernedSource) []packload.GovernedSource {
+	out := make([]packload.GovernedSource, 0, len(sources))
+	for _, s := range sources {
+		if len(HostWithheldKinds(s)) == 0 {
+			out = append(out, s)
+		}
+	}
+	return out
+}
+
+// HostWithheldKinds is the kinds a briefing source's governor describes
+// (packdecl.Contribution.Describes) that the host notch does not deliver, by the census's one
+// per-kind answer (render.HostDelivers), each once, in declaration order; nil when the host
+// delivers the source. The composer withholds a source this names anything for, and the apply's
+// notch line and `yolo pack lint` name the kinds it returns, so the three cannot disagree.
+func HostWithheldKinds(s packload.GovernedSource) []packdecl.Kind {
+	if len(s.By.Describes) == 0 {
+		return nil
+	}
+	fields := render.HostFields()
+	var out []packdecl.Kind
+	for _, k := range s.By.Describes {
+		if !render.HostDelivers(fields, k) && !slices.Contains(out, k) {
+			out = append(out, k)
+		}
+	}
+	return out
+}
+
+// withheldBorrowing reports whether contribution c reaches its destination ONLY to deliver files
+// the `describes` gate withheld, through a destination the pack did not declare: every one of its
+// sources withheld, and each one's governor naming no `into` of its own, which is how a copy
+// packload.ResolveDestinations synthesized for a broadcast or an addressed contribution looks.
+// Such a pack contributes nothing to that destination at the host, so it is not one of the
+// destination's owners (HostBriefingDestination.Packs): the github pack, borrowing claude's
+// ~/.claude/CLAUDE.md for briefing/gh.md alone, leaves that file claude's.
+//
+// Every other contribution keeps its pack an owner, as it was before the gate: a destination
+// (`agent` set), one with a source the host delivers, one with no source at all (an absent `from`
+// is reported, not unowned), and content naming its own `into`, whose pack declared that path.
+func withheldBorrowing(c packdecl.Contribution, sources, kept []packload.GovernedSource) bool {
+	if c.Agent != "" || len(sources) == 0 || len(kept) > 0 {
+		return false
+	}
+	for _, s := range sources {
+		if s.By.Into != "" {
+			return false
+		}
+	}
+	return true
 }
 
 // hostAfterPath is the home-relative path an `after` names, "" for anything but a non-empty

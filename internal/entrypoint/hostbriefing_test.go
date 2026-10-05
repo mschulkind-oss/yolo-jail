@@ -1501,3 +1501,119 @@ func TestHostBriefingAdoptionsComposeWithTheRecord(t *testing.T) {
 			"adoption — the gate composed without the record: %+v", got)
 	}
 }
+
+// loadValidPack writes a pack tree and loads it through LoadDir, failing on any problem, so a
+// fixture here is a manifest the launch would accept.
+func loadValidPack(t *testing.T, name, manifest string, files map[string]string) *packload.Pack {
+	t.Helper()
+	root := filepath.Join(t.TempDir(), name)
+	files[packdecl.ManifestName] = manifest
+	for rel, body := range files {
+		full := filepath.Join(root, filepath.FromSlash(rel))
+		if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(full, []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	p, probs := packload.LoadDir(root, name)
+	if p == nil || len(probs) > 0 {
+		t.Fatalf("LoadDir(%s): %v", name, probs)
+	}
+	return p
+}
+
+// describesDest is an agent pack declaring ~/.claude/CLAUDE.md, with prose of its own.
+func describesDest(t *testing.T) *packload.Pack {
+	t.Helper()
+	return loadValidPack(t, "claude", `{"name":"claude","contributes":[`+
+		`{"kind":"briefing","agent":"claude","into":".claude/CLAUDE.md"}]}`,
+		map[string]string{"briefing/own.md": "Claude's own prose.\n"})
+}
+
+// destinationAt is the composed destination at home-relative rel.
+func destinationAt(t *testing.T, dests []HostBriefingDestination, home, rel string) HostBriefingDestination {
+	t.Helper()
+	for _, d := range dests {
+		if d.Path == filepath.Join(home, filepath.FromSlash(rel)) {
+			return d
+		}
+	}
+	t.Fatalf("no destination %s in %+v", rel, dests)
+	return HostBriefingDestination{}
+}
+
+// PROSE ABOUT A KIND THE HOST DOES NOT DELIVER IS WITHHELD (docs/design/boundary-broker.md
+// BB-D69), and only that prose: a file describing a kind the host delivers (`config`) and a file
+// no contribution names (the implicit broadcast) still compose, beside the agent pack's own.
+func TestComposeHostBriefingsWithholdsProseAboutAKindTheHostDoesNotDeliver(t *testing.T) {
+	home := t.TempDir()
+	gh := loadValidPack(t, "gh", `{"name":"gh","contributes":[`+
+		`{"kind":"briefing","from":"briefing/forwarder.md","describes":["intercept"]},`+
+		`{"kind":"briefing","from":"briefing/surface.md","describes":["config"]},`+
+		`{"kind":"intercept","bin":"gh","forward":["yolo","gh","--"]},`+
+		`{"kind":"config","config":[{"agent":"gh","name":"own","codec":"json","path":"~/x.json"}]}]}`,
+		map[string]string{
+			"briefing/forwarder.md": "JAIL FORWARDER PROSE\n",
+			"briefing/surface.md":   "Config prose.\n",
+			"briefing/plain.md":     "Implicit prose.\n",
+		})
+	resolved, _ := packload.ResolveDestinations([]*packload.Pack{describesDest(t), gh})
+	d := destinationAt(t, ComposeHostBriefings(resolved, home, "", false), home, ".claude/CLAUDE.md")
+	if strings.Contains(d.Content, "JAIL FORWARDER PROSE") {
+		t.Errorf("prose describing an intercept reached a host destination:\n%s", d.Content)
+	}
+	if want := "Claude's own prose.\n\nImplicit prose.\n\nConfig prose.\n"; d.Content != want {
+		t.Errorf("~/.claude/CLAUDE.md = %q, want %q", d.Content, want)
+	}
+	if strings.Join(d.Packs, "+") != "claude+gh" {
+		t.Errorf("Packs = %v, want claude and gh: gh still contributes prose here", d.Packs)
+	}
+}
+
+// A PACK WHOSE EVERY FILE HERE IS WITHHELD IS NOT AN OWNER of a destination it only borrowed —
+// the github pack's shape, briefing/gh.md alone into claude's file — so the report names the
+// destination claude/briefing. A pack that DECLARES the destination stays its owner, as a pack
+// shipping no prose there always has.
+func TestComposeHostBriefingsAPackWithOnlyWithheldProseOwnsNothingItBorrowed(t *testing.T) {
+	home := t.TempDir()
+	borrower := loadValidPack(t, "borrower", `{"name":"borrower","contributes":[`+
+		`{"kind":"briefing","from":"briefing/gh.md","describes":["intercept"]},`+
+		`{"kind":"intercept","bin":"gh","forward":["yolo","gh","--"]}]}`,
+		map[string]string{"briefing/gh.md": "JAIL FORWARDER PROSE\n"})
+	declarer := loadValidPack(t, "declarer", `{"name":"declarer","contributes":[`+
+		`{"kind":"briefing","from":"briefing/x.md","into":".claude/CLAUDE.md","describes":["intercept"]},`+
+		`{"kind":"intercept","bin":"gx","forward":["yolo","gx","--"]}]}`,
+		map[string]string{"briefing/x.md": "DECLARED JAIL PROSE\n"})
+	resolved, _ := packload.ResolveDestinations([]*packload.Pack{describesDest(t), borrower, declarer})
+	d := destinationAt(t, ComposeHostBriefings(resolved, home, "", false), home, ".claude/CLAUDE.md")
+	if strings.Join(d.Packs, "+") != "claude+declarer" {
+		t.Errorf("Packs = %v, want claude and declarer: borrower contributes nothing here", d.Packs)
+	}
+	if hostBriefingSurfaceID(d) != "claude+declarer/briefing" {
+		t.Errorf("surface = %q", hostBriefingSurfaceID(d))
+	}
+	if d.Content != "Claude's own prose.\n" {
+		t.Errorf("~/.claude/CLAUDE.md = %q, want the agent pack's prose alone", d.Content)
+	}
+}
+
+// The predicate is the census's, per kind: an at-launch kind (env) and a rendered one (skills)
+// gate nothing at the host, and the jail-only kinds do.
+func TestHostWithheldKindsAsksTheCensus(t *testing.T) {
+	src := func(kinds ...packdecl.Kind) packload.GovernedSource {
+		return packload.GovernedSource{By: packdecl.Contribution{Kind: packdecl.KindBriefing, Describes: kinds}}
+	}
+	if got := HostWithheldKinds(src()); got != nil {
+		t.Errorf("no describes = %v, want nil", got)
+	}
+	if got := HostWithheldKinds(src(packdecl.KindEnv, packdecl.KindSkills, packdecl.KindLoophole)); got != nil {
+		t.Errorf("env, skills, loophole = %v, want nil: each is delivered by some host verb", got)
+	}
+	got := HostWithheldKinds(src(packdecl.KindIntercept, packdecl.KindEnv, packdecl.KindState,
+		packdecl.KindIntercept))
+	if len(got) != 2 || got[0] != packdecl.KindIntercept || got[1] != packdecl.KindState {
+		t.Errorf("intercept, env, state, intercept = %v, want [intercept state]", got)
+	}
+}

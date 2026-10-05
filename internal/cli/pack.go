@@ -28,6 +28,7 @@ import (
 	"strings"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
+	"github.com/mschulkind-oss/yolo-jail/internal/entrypoint"
 	"github.com/mschulkind-oss/yolo-jail/internal/packdecl"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/packoverlay"
@@ -1113,6 +1114,7 @@ func printPackDeliveries(pr richtext.Printer, p *packload.Pack, skills, briefing
 				where += fmt.Sprintf("  [dim](contributes[%d])[/dim]", i)
 			}
 		}
+		where += describesGate(src)
 		pr.Printf("  [cyan]%-14s[/cyan] %s → %s", string(src.By.Kind), rel, where)
 	}
 	for _, src := range briefing {
@@ -1134,6 +1136,27 @@ func deliveryAudience(c packdecl.Contribution, implicit bool) string {
 		return strings.Join(c.Agents, ", ")
 	}
 	return "every agent (declared broadcast)"
+}
+
+// describesGate is the listing's note for a source whose governor declares `describes`
+// (docs/design/boundary-broker.md BB-D69), "" for one that declares none: the kinds the prose is
+// delivered only beside, and the notch that leaves it out, by the host composer's own predicate
+// (entrypoint.HostWithheldKinds). Lint takes no config, but whether a kind applies at a notch is
+// the notch's, so the host half is stated whatever pack set selects this one.
+func describesGate(src packload.GovernedSource) string {
+	if len(src.By.Describes) == 0 {
+		return ""
+	}
+	names := make([]string, len(src.By.Describes))
+	for i, k := range src.By.Describes {
+		names[i] = string(k)
+	}
+	note := "only where " + strings.Join(names, ", ") + " " +
+		plural(len(names), "applies", "apply")
+	if withheld := entrypoint.HostWithheldKinds(src); len(withheld) > 0 {
+		note += " — not at the host"
+	}
+	return "  [dim](" + richtext.Escape(note) + ")[/dim]"
 }
 
 // governedDescription names what one content contribution governs, in the advisory's words.

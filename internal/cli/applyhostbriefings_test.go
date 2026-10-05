@@ -760,3 +760,76 @@ func TestApplyHostBriefingSkipsAFileTheRecordListsAtTheRender(t *testing.T) {
 			"~/.claude/CLAUDE.md was read back in:\n--- first\n%s\n--- second\n%s\n%s", first, second, report)
 	}
 }
+
+// A BRIEFING THAT DESCRIBES A JAIL-ONLY KIND IS NOT WRITTEN INTO A REAL HOME (boundary-broker.md
+// BB-D69). The github pack's briefing/gh.md is about its `intercept` (a `gh` forwarder first on a
+// jail's PATH), which does not apply at the host: there `gh` is the user's own. Driven with the
+// REAL shipped claude and github packs, so it fails if the manifest stops declaring the gate, if
+// the composer stops honoring it, or if the report stops saying so. MEASURED before the gate:
+// `yolo host apply --assert` wrote "## `gh` in this jail" into ~/.claude/CLAUDE.md while the
+// notch line in the same run said intercept does not apply.
+func TestApplyHostWithholdsTheGitHubBriefingFromARealHome(t *testing.T) {
+	home := t.TempDir()
+	selectPacks(t, home, `"claude","github"`)
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
+
+	rc, report := applyWith(t, true, nil)
+	if rc != 0 {
+		t.Fatalf("rc=%d\n%s", rc, report)
+	}
+	got, err := os.ReadFile(filepath.Join(home, ".claude", "CLAUDE.md"))
+	if err != nil {
+		t.Fatalf("no briefing written: %v\n%s", err, report)
+	}
+	if strings.Contains(string(got), "~/.yolo/bin/block/gh") {
+		t.Errorf("the host briefing tells the agent about the jail's gh forwarder:\n%s", got)
+	}
+	if !strings.Contains(string(got), "Claude Code's own worktrees") {
+		t.Errorf("the claude pack's own prose must still reach the host briefing:\n%s", got)
+	}
+	// The destination is claude's alone now: github contributes nothing to it at the host.
+	if countLines(report, "claude/briefing", ".claude/CLAUDE.md") != 1 ||
+		strings.Contains(report, "claude+github/briefing") {
+		t.Errorf("the destination line must read claude/briefing, not name github:\n%s", report)
+	}
+	// Said once, by name, in the run's notch facts.
+	if n := strings.Count(report, "briefing/gh.md"); n != 1 {
+		t.Errorf("the report names briefing/gh.md %d times, want once:\n%s", n, report)
+	}
+	if countLines(report, "github", "briefing/gh.md", "describes intercept",
+		"does not apply at the host", "reaches agents in a jail") != 1 {
+		t.Errorf("the notch line must say why briefing/gh.md is withheld:\n%s", report)
+	}
+
+	// And the dry run says the same about the same home, so a preview is not a different answer.
+	rc, report = applyWith(t, false, nil)
+	if rc != 0 {
+		t.Fatalf("observe rc=%d\n%s", rc, report)
+	}
+	if n := strings.Count(report, "briefing/gh.md"); n != 1 {
+		t.Errorf("observe names briefing/gh.md %d times, want once:\n%s", n, report)
+	}
+}
+
+// Under --verbose the withheld file gets the notch's own line, still once.
+func TestApplyHostNamesAWithheldBriefingOnceUnderVerbose(t *testing.T) {
+	home := t.TempDir()
+	selectPacks(t, home, `"claude","github"`)
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
+	t.Setenv("YOLO_VERBOSE", "1")
+
+	rc, report := applyWith(t, false, nil)
+	if rc != 0 {
+		t.Fatalf("rc=%d\n%s", rc, report)
+	}
+	if n := strings.Count(report, "briefing/gh.md"); n != 1 {
+		t.Errorf("the verbose report names briefing/gh.md %d times, want once:\n%s", n, report)
+	}
+	line := "github: briefing/gh.md describes intercept, which does not apply at the host — " +
+		"it reaches agents in a jail"
+	if countLines(report, line) != 1 {
+		t.Errorf("want the line %q:\n%s", line, report)
+	}
+}

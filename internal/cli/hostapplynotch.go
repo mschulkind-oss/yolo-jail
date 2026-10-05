@@ -137,6 +137,11 @@ type notchFacts struct {
 	// list kept here: a key added to the schema is classified there or the build fails, and
 	// once classified it is named here with no new call (inertConfigKeys).
 	InertKeys []string
+	// WithheldBriefings is every briefing file a selected pack ships that the host composer
+	// leaves out of every destination, because it `describes` a kind no host verb delivers
+	// (withheldBriefings, docs/design/boundary-broker.md BB-D69). A fact of the notch and the
+	// pack, so it is stated once here, never per destination.
+	WithheldBriefings []withheldBriefing
 }
 
 // inertConfigKeys is the config-key half of the survey: each top-level key cfg DECLARES whose
@@ -265,6 +270,7 @@ func surveyNotchFacts(loaded []*packload.Pack, fields render.FieldSet,
 	}
 	f.AtLaunch = sortedKinds(from[notchAtLaunch])
 	f.Inapplicable = sortedKinds(from[notchDoesNotApply])
+	f.WithheldBriefings = withheldBriefings(loaded)
 	for k, launched := range from[notchAtLaunch] {
 		if withheld, both := from[notchDoesNotApply][k]; both {
 			if f.splitFrom == nil {
@@ -386,12 +392,12 @@ func hostAdmitsService(loaded []*packload.Pack, service string) bool {
 // delivered at launch; for one it does (service and loophole are refused by the FieldSet and
 // delivered in their other shape), hostNotchOutcomeOf decides per contribution and asks this
 // for nothing.
+//
+// The body is render.HostLeavesUndone, the one predicate the host briefing composer's
+// `describes` gate also asks (through render.HostDelivers), so the notch line and the withheld
+// briefing cannot disagree about which kinds the host leaves undone.
 func notchInapplicable(fields render.FieldSet, k packdecl.Kind) bool {
-	if !fields.Honors(k) {
-		return true
-	}
-	_, unbuilt := render.HostUnimplemented(k)
-	return unbuilt
+	return render.HostLeavesUndone(fields, k)
 }
 
 // notchMayNotApply reports whether some contribution of kind k can land under "does not apply at
@@ -438,6 +444,9 @@ func printNotchFacts(pr richtext.Printer, f notchFacts) {
 		if len(names) > 0 {
 			parts = append(parts, "does not apply at the host: "+strings.Join(names, ", "))
 		}
+		if fact := withheldBriefingFact(f.WithheldBriefings); fact != "" {
+			parts = append(parts, richtext.Escape(fact))
+		}
 		if f.Autonomy {
 			parts = append(parts, "guarded posture — permission prompts stay on")
 		}
@@ -470,6 +479,11 @@ func printNotchFacts(pr richtext.Printer, f notchFacts) {
 		}
 		pr.Printf("  [dim]config that does not apply at the host notch: %s (%s)[/dim]",
 			strings.Join(names, ", "), why)
+	}
+	// One line for every withheld briefing file, whatever their number: which file, and why the
+	// host leaves it out of the destinations below (BB-D69).
+	if fact := withheldBriefingFact(f.WithheldBriefings); fact != "" {
+		pr.Printf("  [dim]%s[/dim]", richtext.Escape(fact))
 	}
 	if f.Autonomy {
 		where := "folded into the config surfaces below"
