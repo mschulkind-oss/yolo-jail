@@ -9,6 +9,7 @@ covers:
   - integration/agents_test.go
   - integration/harness_test.go
   - integration/hostfloor_test.go
+  - integration/macosuserhostfloor_test.go
   - .github/workflows/packs.yml
   - Justfile
 tags: [ci, packs, testing, npm, integration]
