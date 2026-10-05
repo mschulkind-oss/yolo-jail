@@ -114,41 +114,68 @@ func TestMacosUserSaysNothingAboutPlatformKeysNobodyDeclared(t *testing.T) {
 
 // TestMacosUserNamesThePortKeys is DP-L2's stderr half. Before it, the agent was told the
 // network fact (backendLimits, and both port sections suppressed from the briefing) and the
-// human was told nothing — the asymmetry backendlimits.go's header records.
+// human was told nothing — the asymmetry backendlimits.go's header records. Since 2026-10-05 the
+// launch also RELAYS each remap (macosuserportrelay.go), and the notice says so from the same plan.
 func TestMacosUserNamesThePortKeys(t *testing.T) {
 	got := macosUserNoticeRun(t, `{
-	  "network": {"ports": ["3000:3000", "8000:3000"], "forward_host_ports": [5432, "8080:9090"]}
+	  "network": {"ports": ["3000:3000", "8000:3000", "8001:3001/tcp", "8002:3002/udp"],
+	              "forward_host_ports": [5432, "8080:9090"]}
 	}`)
 
 	for _, want := range []string{
-		"`network.ports` is not honored on macos-user",
+		"`network.ports` confines nothing on macos-user",
 		"3000:3000",
-		"`network.forward_host_ports` is not honored on macos-user",
+		"`network.forward_host_ports` on macos-user",
 		"5432",
 	} {
 		if !strings.Contains(got, want) {
 			t.Errorf("the launch never mentioned %q:\n%s", want, got)
 		}
 	}
-	// §5.1.1's entry-form table: an entry whose two numbers MATCH is vacuously satisfied
-	// (binding is publishing on a shared stack), and one that REMAPS is not satisfiable at
-	// all. Both keys must name their remapping entries, because those are the ones whose
-	// author will otherwise wait for a port that never appears.
-	for _, remap := range []string{"8000:3000", "8080:9090"} {
-		idx := strings.Index(got, remap)
-		if idx < 0 {
-			t.Fatalf("the remapping entry %q was not named:\n%s", remap, got)
-		}
-		if !strings.Contains(got[idx:], "REMAP") {
-			t.Errorf("%q is named but not called out as a remap, which is the half that "+
-				"cannot be delivered:\n%s", remap, got)
+	// §5.1.1's entry-form table, corrected: an entry whose two numbers MATCH is vacuously
+	// satisfied (binding is publishing on a shared stack), and a TCP remap is RELAYED — named as
+	// such, a protocol suffix included, which the old classifier dropped ("8001:3001/tcp" was
+	// not named at all). A UDP remap is named as not relayed, with why and the next step.
+	for _, want := range []string{
+		"8000:3000, 8001:3001/tcp are port REMAPs, which this launch relays from outside the sandbox (TCP).",
+		"8080:9090 is a port REMAP, which this launch relays from outside the sandbox (TCP).",
+		"8002:3002/udp is a port REMAP this launch does not relay: the relay carries TCP only",
+		"`runtime: \"podman\"`",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("the notice lacks %q:\n%s", want, got)
 		}
 	}
 	// The fact the key's author most needs and the briefing cannot give them: the listing
 	// confines nothing. Every port the sandbox binds is on this machine's real interfaces,
-	// listed or not.
+	// listed or not — relay or no relay.
 	if !strings.Contains(got, "listed here or not") {
 		t.Errorf("the `ports` notice does not say that the list restricts nothing:\n%s", got)
+	}
+	// AND THE NEXT STEP (every stop names one): what keeps a service private here, qualified when a
+	// relay publishes on a real interface — 8000:3000 does, on 0.0.0.0 — since binding loopback
+	// does not keep that port private.
+	if !strings.Contains(got, "To keep a service on this Mac alone, bind it to `127.0.0.1` in the "+
+		"sandbox, on a port no relay named here publishes on a real interface, or use a container "+
+		"runtime (`runtime: \"podman\"`), whose published ports are the only way in.") {
+		t.Errorf("the `ports` warning names no next step:\n%s", got)
+	}
+	// With nothing relayed, the step is the plain one.
+	same := macosUserNoticeRun(t, `{"network": {"ports": ["3000:3000"]}}`)
+	if !strings.Contains(same, "To keep a service on this Mac alone, bind it to `127.0.0.1` in the "+
+		"sandbox, or use a container runtime") || strings.Contains(same, "no relay named here") {
+		t.Errorf("a same-port `ports` list's warning has the wrong step:\n%s", same)
+	}
+	// A forward list whose every remap is relayed leaves nothing undone, so it is a disclosure,
+	// not a warning; the same list under `network.mode: "host"` is a warning naming the mode.
+	if strings.Contains(got, "Warning: `network.forward_host_ports`") {
+		t.Errorf("a fully delivered forward list was warned about:\n%s", got)
+	}
+	got = macosUserNoticeRun(t, `{"network": {"mode": "host", "forward_host_ports": ["8080:9090"]}}`)
+	if !strings.Contains(got, "Warning: `network.forward_host_ports` is not fully delivered on macos-user") ||
+		!strings.Contains(got, "8080:9090 is a port REMAP this launch does not relay: `network.mode: \"host\"` "+
+			"drops both port keys, as it does on podman; remove it to have the remap relayed.") {
+		t.Errorf("a host-mode forward remap was not warned about with its reason:\n%s", got)
 	}
 }
 
@@ -159,8 +186,10 @@ func TestMacosUserNamesThePortKeys(t *testing.T) {
 func TestMacosUserSaysNothingAboutPortKeysNobodyDeclared(t *testing.T) {
 	for _, cfg := range []string{`{}`, `{"network": {"mode": "bridge"}}`, `{"network": {"ports": []}}`} {
 		got := macosUserNoticeRun(t, cfg)
-		if strings.Contains(got, "not honored on macos-user") {
-			t.Errorf("config %s produced a port notice:\n%s", cfg, got)
+		for _, unwanted := range []string{"`network.ports`", "`network.forward_host_ports`", "relay"} {
+			if strings.Contains(got, unwanted) {
+				t.Errorf("config %s produced a port line (%q):\n%s", cfg, unwanted, got)
+			}
 		}
 	}
 }

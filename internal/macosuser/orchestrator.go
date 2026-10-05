@@ -1214,6 +1214,14 @@ func RunMacosUser(deps Deps, opts Options) int {
 	if rc, ending := deps.ending(); ending {
 		return rc
 	}
+	// THE LAUNCH'S SESSION-LONG HOST LISTENERS (JailDaemons.OnLaunch: the port relays), opened
+	// only now that nothing is left to refuse and no signal is ending the launch, and closed when
+	// the command exits, first of everything deferred above.
+	if opts.JailDaemons.OnLaunch != nil {
+		if stop := opts.JailDaemons.OnLaunch(); stop != nil {
+			defer stop()
+		}
+	}
 	if opts.OnAgentStart != nil {
 		opts.OnAgentStart()
 	}

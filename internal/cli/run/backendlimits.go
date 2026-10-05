@@ -40,11 +40,14 @@ import (
 // on both ends: the human hears it only when they DECLARED a port key, because a warning
 // about a key nobody wrote is the one OQ-BP-3 says readers learn to skip, while the sentence
 // below is unconditional — the agent binds ports whether the config ever mentioned them
-// or not.
+// or not. The REMAPS this launch relays are the other way round, conditional on both ends,
+// and from one plan (planMacosUserPortRelays): the notice names them to the human, and the
+// relay sentence below to the agent.
 
 // backendLimits returns the standing constraints of `rt` for the agent's briefing,
-// or nil when the backend imposes none (every container backend today).
-func backendLimits(rt string, packs []*packload.Pack, cfg *jsonx.OrderedMap) []string {
+// or nil when the backend imposes none (every container backend today). relays are the port
+// remaps this launch relays (macosUserPortPlan), named so the agent can use them.
+func backendLimits(rt string, packs []*packload.Pack, cfg *jsonx.OrderedMap, relays []macosUserPortRelay) []string {
 	if rt != "macos-user" {
 		return nil
 	}
@@ -83,12 +86,12 @@ func backendLimits(rt string, packs []*packload.Pack, cfg *jsonx.OrderedMap) []s
 	// surface composes the human's real file (internal/cli/run/macosctxtree.go).
 	//
 	// Leaving it would be strictly worse than never having written it. The human-facing
-	// warnings it paired with are retired on the same evidence (noteMacosUserHostByteGaps),
-	// and an agent told its config is not the human's would discount preferences that ARE
-	// theirs — a standing constraint that is false is acted on for the whole session, with
-	// no moment of use to correct it at. The remaining asymmetry is the one every backend
-	// has: a grant whose host file does not exist composes from defaults, which needs no
-	// line here because it is not this backend's fact.
+	// warnings it paired with were retired on the same evidence (in the since-deleted
+	// noteMacosUserHostByteGaps), and an agent told its config is not the human's would
+	// discount preferences that ARE theirs — a standing constraint that is false is acted on
+	// for the whole session, with no moment of use to correct it at. The remaining asymmetry
+	// is the one every backend has: a grant whose host file does not exist composes from
+	// defaults, which needs no line here because it is not this backend's fact.
 
 	// Content is a writable copy rather than a read-only mount.
 	if len(packs) > 0 {
@@ -131,10 +134,38 @@ func backendLimits(rt string, packs []*packload.Pack, cfg *jsonx.OrderedMap) []s
 	// There is no namespace on this backend, so binding IS publishing, and `network.ports`
 	// pins nothing: every port this agent opens is open on the machine's real interfaces,
 	// whether or not the config ever mentioned it.
-	out = append(out, "There is no network namespace here: every port you bind is bound on "+
-		"the human's REAL machine, on its real interfaces, listed in `network.ports` or not. "+
-		"Nothing publishes a port and nothing confines one — bind to `127.0.0.1` when you do "+
-		"not mean to expose a service to their network.")
+	//
+	// A `network.ports` RELAY makes two of its words false, so the sentence names the exception
+	// rather than contradicting the relay sentence after it: the relay publishes a port, and one
+	// listening on a real interface exposes the port it dials however the agent binds it, so
+	// "bind to 127.0.0.1" no longer keeps that port private. A false standing constraint is the
+	// worst kind (above): it is acted on for the whole session.
+	publishes := false
+	for _, r := range relays {
+		publishes = publishes || r.key == keyNetworkPorts
+	}
+	exposes := relaysExpose(relays)
+	network := "There is no network namespace here: every port you bind is bound on the human's " +
+		"REAL machine, on its real interfaces, listed in `network.ports` or not. "
+	switch {
+	case exposes:
+		network += "Nothing confines a port, and nothing publishes one but the relays below — bind " +
+			"to `127.0.0.1` when you do not mean to expose a service to their network, except on " +
+			"a port a relay below publishes on a real interface, which is exposed however you bind it."
+	case publishes:
+		network += "Nothing confines a port, and nothing publishes one but the relays below — bind " +
+			"to `127.0.0.1` when you do not mean to expose a service to their network."
+	default:
+		network += "Nothing publishes a port and nothing confines one — bind to `127.0.0.1` when " +
+			"you do not mean to expose a service to their network."
+	}
+	out = append(out, network)
+	// AND THE REMAPS THE LAUNCH RELAYS, which the agent has no other way to learn: the briefing's
+	// port sections are the container mechanism's and stay out (appliedNetMode is "host" here),
+	// and the relays' own lines are on the human's terminal. Only when there is one.
+	if line := relaySentenceForAgent(relays); line != "" {
+		out = append(out, line)
+	}
 
 	// THE USERLAND IS THE MAC'S, and an agent trained mostly on Linux shells reaches for GNU
 	// flags without thinking. UNCONDITIONAL, like the network sentence: whether a GNU build is

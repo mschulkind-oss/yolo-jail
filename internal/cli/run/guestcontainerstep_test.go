@@ -140,8 +140,8 @@ func TestMacosGuestNotesNameTheJailNotchBesideAContainerRuntime(t *testing.T) {
 			want:    1,
 		},
 		// No directory `host_files` case: such an entry is copied into the sandbox now
-		// (buildMacosCtxTree), so its warning, noteMacosUserHostByteGaps, has no caller and no
-		// launch prints it at any notch.
+		// (buildMacosCtxTree), so its warning, the since-deleted noteMacosUserHostByteGaps, is
+		// printed by no launch at any notch.
 		{
 			name: "a fork",
 			setup: func(t *testing.T) {

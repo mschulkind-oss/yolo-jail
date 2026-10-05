@@ -31,12 +31,12 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/version"
 )
 
-// noteMacosUserHostByteGaps (loopholeinert.go) LOST ITS LAST CALLER on 2026-10-05: the one
-// shape it named, a directory `host_files` entry, crosses by copy now (buildMacosCtxTree). It is
-// deleted with its file's next edit, together with this reference and macosCtxDelivery's
-// undeliveredDirs, which only it reads; until then this keeps the dead printer from failing the
-// lint gate's unused-code check.
-var _ = (*Options).noteMacosUserHostByteGaps
+// macosCtxDelivery's undeliveredDirs field LOST ITS LAST READER on 2026-10-05, when
+// noteMacosUserHostByteGaps was deleted: the one shape it named, a directory `host_files` entry,
+// crosses by copy now (buildMacosCtxTree). The field goes with macosctxtree.go's next edit, and
+// this reference with it; until then this keeps the field from failing the lint gate's
+// unused-code check.
+var _ = macosCtxDelivery{}.undeliveredDirs
 
 // Run validates config, resolves the runtime, then either execs into
 // an existing container or launches a fresh one. Returns the process exit code.
@@ -565,6 +565,9 @@ func Run(opts Options) (rc int) {
 		}
 		o.noteCredentialScope(channel)
 		o.noteMacosUserCredentialScope(channel, launched)
+		// THE PORT REMAPS (macosuserportrelay.go): planned once, so the relays this launch opens,
+		// the plan a --dry-run prints and the port-key notice below read one answer.
+		portPlan := o.macosUserPortPlan(rt, cfg)
 		if o.DryRun {
 			// A plan render starts nothing, so the spawn boundary is not crossed: there is
 			// no host EXECUTION to disclose (a line saying otherwise would name daemons this
@@ -592,6 +595,9 @@ func Run(opts Options) (rc int) {
 				o.pr(o.Stderr).print(fmt.Sprintf("Would open the %q doorway (pack %q) on %v for "+
 					"this launch, outside the sandbox, until the command exits: %s", plan.Service,
 					plan.Pack, plan.Addresses(), strings.Join(plan.Cmd, " ")))
+			}
+			for _, r := range portPlan.relays {
+				o.pr(o.Stderr).print(relayDisclosure("Would relay", r))
 			}
 			if openAIAuthLoopholeActive(cfg) {
 				launchEnv.Set(hostServiceEnvVar(openAIAuthBrokerName),
@@ -712,7 +718,7 @@ func Run(opts Options) (rc int) {
 		// The keys that are wrong on THIS backend are wrong for a reason no other
 		// backend shares, so the printer is this backend's.
 		o.noteMacosUserPlatformGaps(cfg)
-		o.noteMacosUserPortKeys(cfg)
+		o.noteMacosUserPortKeys(cfg, portPlan)
 		// A FORK DELIVERS NO PROGRAM ON THIS BACKEND, and says so (FP-D3; forkbuild.go): the build
 		// trigger sits below this arm's return, and no macos-user launch can read the capture
 		// store yet (hand-off H4). The sandbox's own launcher for the program is told the same
@@ -927,7 +933,9 @@ func Run(opts Options) (rc int) {
 		// THE GUEST'S PORTS GO FREE HERE, and no earlier (servedaddresses.go, NC-D69): the
 		// sandbox's supervisor binds the ports this launch reserved for the daemons it runs,
 		// and every listener of this launch's own (the host services' fronts, the doorways and
-		// launch-owned services, which were handed theirs) is bound by now.
+		// launch-owned services, which were handed theirs) is bound by now. The port relays are
+		// not among them: they open inside the backend, when the session starts, and never on a
+		// port this launch picked for a served address (macosUserRelaysAt).
 		o.releaseReservedPorts()
 		// THE HERDR PANE, registered as late as this arm can (herdragent.go), under its signal arm:
 		// a registration made before its config prompt, where no arm runs, outlived a Ctrl-C there.
@@ -947,11 +955,18 @@ func Run(opts Options) (rc int) {
 		}
 		// Composed LAST, after every endpoint variable has landed on launchEnv (the live
 		// path's handles, or a dry run's placeholder), since the daemons dial those files.
+		guest := channel.guestJailDaemons(guestDaemons, launchEnv)
+		// THE PORT REMAPS' RELAYS (macosuserportrelay.go) open when the session starts, inside the
+		// backend (JailDaemons.OnLaunch), and close when the command exits: so a launch refused
+		// anywhere, here or in the backend, or still building its tools, publishes no port. A dry
+		// run opens none, and its plan named each above.
+		if !o.DryRun {
+			guest.OnLaunch = o.macosUserRelaysAt(portPlan.relays)
+		}
 		sp = o.Perf.Span("launch.macos_user")
 		rc = o.MacosUserRun(cfg, o.Workspace, config.SelectedAgents(cfg), agentArgv,
 			repoRoot, staged.root, homeOverlay, ctxDelivery.ctx, o.DryRun,
-			launchEnv, packload.BlockedTools(staged.packs),
-			channel.guestJailDaemons(guestDaemons, launchEnv))
+			launchEnv, packload.BlockedTools(staged.packs), guest)
 		sp.End()
 		// E3 ON THIS ARM (macosusercapture.go): the session is over, so fold its edits to
 		// capture-mode surfaces into their sidecars from the host side, as a container's teardown

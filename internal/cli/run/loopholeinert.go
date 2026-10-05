@@ -360,51 +360,6 @@ func inertLineFor(pack string, note loopholes.InertNote) string {
 // docs/reference/mcp-configuration.md#oq-lsp1). What still warns is `mcp_presets`, from inside
 // the bootstrap (entrypoint.RunDarwinBootstrap), because the preset wrappers are Linux-absolute.
 
-// noteMacosUserHostByteGaps names what carries HOST BYTES into a config surface and did
-// NOT cross on this launch. Since DP-L1 that is one shape only, and the shrinking is the
-// story of this function rather than a detail of it.
-//
-// ⚠ TWO WARNINGS WERE RETIRED HERE ON 2026-09-13, and what retired them is that the gap
-// they named is CLOSED rather than that they became inconvenient. One said pack
-// `reads-host` grants do not cross, so each surface renders from its DEFAULTS layer and
-// "the agent gets a working config file that is not yours". The other said source-bearing
-// `host_files` entries are dropped from the wire entirely. Both were true because the
-// bytes crossed on a /ctx mount and this backend has none; both are now false, because
-// the bytes cross by COPY into a root-owned tree under /var/yolo-jail
-// (internal/cli/run/macosctxtree.go, macosuser.StageCtxCommands). Leaving either would be
-// the failure this file's own rule names: a warning that describes a gap yolo has closed
-// teaches the reader to distrust the warnings that are still true.
-//
-// ⚠ AND THE CARVE-OUT THEY PROPPED UP IS GONE WITH THEM. The old text said this warning
-// was "half of why the jail does not refuse here": the jail's host-layer read fails closed
-// (OQ-CO10), this backend reported `unsupported`, and that was defensible only while the
-// deficiency was SAID. The report now says `supported` whenever a tree was staged
-// (macosuser.hostLayerWire), so a delivered file that the jail cannot read REFUSES the
-// launch here exactly as it does everywhere else. Nothing is being excused any more, so
-// nothing has to be said to excuse it.
-//
-// WHAT SURVIVES is the directory-shaped `host_files` entry, which is DP-D15 rather than
-// DP-L1: it names an arbitrary user tree, a copy does not scale to one, and the ruling
-// there is that a delivery yolo cannot make is stated rather than half-performed. ONE
-// LINE, only when the user declared one — a launch that declared none says nothing, which
-// is what keeps this from being the warning OQ-BP-3 says people learn to skip.
-func (o *Options) noteMacosUserHostByteGaps(delivery macosCtxDelivery) {
-	if len(delivery.undeliveredDirs) == 0 {
-		return
-	}
-	named := make([]string, 0, len(delivery.undeliveredDirs))
-	for _, p := range delivery.undeliveredDirs {
-		named = append(named, "~/"+p)
-	}
-	o.pr(o.Stderr).print("[yellow]Warning: a host_files entry whose `source` is a DIRECTORY " +
-		"does not cross on macos-user[/yellow] — " + strings.Join(named, ", ") + ". This " +
-		"backend has no bind mounts, so host bytes arrive by COPY, and a copy does not " +
-		"scale to an arbitrary tree. Single FILE entries are delivered normally; split the " +
-		"directory into the files you need, or use the Apple Container runtime " +
-		"(runtime: \"container\"), which binds it read-only from Apple Container " +
-		acROBindsFloor + " (older versions skip it with a warning)" + o.containerStepClause() + ".")
-}
-
 // noteMacosUserPlatformGaps names what this backend does with the PLATFORM keys — `devices`,
 // `gpu`, `kvm` and `ephemeral_storage` (docs/design/declaration-parity.md DP-B4, fixed by DP-L10;
 // DP-B5) — and discloses the one host editor config a container launch delivers and this one
@@ -549,23 +504,28 @@ func deviceLabels(entries []any) []string {
 // noteMacosUserPortKeys is the human half of DP-L2 (docs/design/declaration-parity.md
 // §5.1.1 (2)): one stderr line per non-empty `network.ports` / `network.forward_host_ports`.
 //
-// WHAT IT PAIRS WITH. The AGENT already learns this — sharesLauncherNetns answers true for
-// this backend, so appliedNetMode is "host", both port sections fall out of the briefing and
-// backendLimits states the network fact. The human learned nothing at all, which
-// backendlimits.go's header records as the one entry breaking its "one source, two
-// renderings" rule. This is that rendering.
+// WHAT IT PAIRS WITH. The AGENT learns the same facts from its briefing: sharesLauncherNetns
+// answers true for this backend, so appliedNetMode is "host", both port sections fall out of the
+// briefing, and backendLimits states the network fact and names every remap this launch relays.
 //
-// REFUSED AS A KEY, NEVER AS A LAUNCH — run.roBindsUnsupported's shape (refuse the
-// declaration, print the reason, continue). Its force does not carry, and the difference is
-// worth knowing: refusing an Apple Container `:ro` mount REMOVES an exposure, whereas
-// nothing here removes anything, because the sandboxed process binds host ports regardless.
-// The message is the whole deliverable.
+// WHAT EACH LINE SAYS, from the plan the launch acts on (planMacosUserPortRelays), so a line can
+// never call a remap relayed that is not, or the reverse:
 //
-// ⚠ ONLY WHEN NON-EMPTY, and that is what makes this safe where a `network.mode` refusal
-// would not be. Neither key has a default (resolveNetMode answers "bridge" for a launch
-// that names no mode, which is why `mode` is APPLIED as host rather than refused), so this
-// cannot fire on a launch that never mentioned networking.
-func (o *Options) noteMacosUserPortKeys(cfg *jsonx.OrderedMap) {
+//   - `ports`: that listing a port confines nothing — the sandbox is on the launcher's own stack,
+//     so every port it binds is on this machine's real interfaces, listed here or not. A WARNING
+//     for that reason alone, whatever else is delivered, because on a container `ports` is the
+//     whole exposure surface and here it is none of it. It ends with the step that keeps a
+//     service private: bind it to 127.0.0.1 (on a port no relay publishes on a real interface,
+//     when one does), or use a container runtime.
+//   - `forward_host_ports`: that a same-port entry needs no hop. A disclosure when every remap in
+//     it is relayed, since nothing is then left undone; a warning when one is not.
+//   - Both: the remaps this launch relays (each relay names itself as it opens, or warns that it
+//     could not), and each one it does not, with why and the step that would have it relayed.
+//
+// ⚠ ONLY WHEN NON-EMPTY. Neither key has a default (resolveNetMode answers "bridge" for a launch
+// that names no mode, which is why `mode` is APPLIED as host rather than refused), so this cannot
+// fire on a launch that never mentioned networking.
+func (o *Options) noteMacosUserPortKeys(cfg *jsonx.OrderedMap, plan macosUserPortPlan) {
 	netSec := cfgMap(cfg, "network")
 	if netSec == nil {
 		return
@@ -573,30 +533,84 @@ func (o *Options) noteMacosUserPortKeys(cfg *jsonx.OrderedMap) {
 	out := o.pr(o.Stderr)
 
 	if ports := asAnyList(mapGet(netSec, "ports")); len(ports) > 0 {
-		msg := "[yellow]Warning: `network.ports` is not honored on macos-user[/yellow] — " +
-			strings.Join(portLabels(ports), ", ") + ". The sandbox runs on the launcher's " +
-			"own network stack, so a port it binds IS published on this machine's real " +
-			"interfaces — listed here or not. Nothing is mapped and nothing is confined " +
-			"to a bind address."
-		if remapped := remappedPorts(ports); len(remapped) > 0 {
-			msg += " " + strings.Join(remapped, ", ") + " asks for a port REMAP, which " +
-				"needs a second stack to land on and cannot be delivered at all: the " +
-				"process is reachable on the port it binds."
+		// THE NEXT STEP, after whatever the plan relays: what keeps a service private here, and
+		// the backend where listing a port is the whole exposure. Binding loopback is not enough
+		// for a port a relay publishes on a real interface, so then the step says so.
+		step := " To keep a service on this Mac alone, bind it to `127.0.0.1` in the sandbox"
+		if relaysExpose(plan.relays) {
+			step += ", on a port no relay named here publishes on a real interface"
 		}
-		out.print(msg)
+		step += ", or use a container runtime (`runtime: \"podman\"`), whose published ports are " +
+			"the only way in."
+		out.print("[yellow]Warning: `network.ports` confines nothing on macos-user[/yellow] — " +
+			strings.Join(portLabels(ports), ", ") + ". The sandbox runs on the launcher's own " +
+			"network stack, so a port it binds IS published on this machine's real interfaces — " +
+			"listed here or not — and nothing pins one to a bind address." +
+			plan.remapSentences(keyNetworkPorts) + step)
 	}
 
 	if fwd := asAnyList(mapGet(netSec, "forward_host_ports")); len(fwd) > 0 {
-		msg := "[yellow]Warning: `network.forward_host_ports` is not honored on " +
-			"macos-user[/yellow] — " + strings.Join(portLabels(fwd), ", ") + ". There is " +
-			"no hop to make: the sandbox is already on this machine's stack, so " +
-			"`localhost:<port>` inside it is this machine's port."
-		if remapped := remappedPorts(fwd); len(remapped) > 0 {
-			msg += " " + strings.Join(remapped, ", ") + " asks for a port REMAP, which " +
-				"needs a second loopback to land on and is not delivered."
+		body := strings.Join(portLabels(fwd), ", ") + ". A same-port entry needs no hop: the " +
+			"sandbox is already on this machine's stack, so `localhost:<port>` inside it is this " +
+			"machine's port." + plan.remapSentences(keyForwardHostPorts)
+		if plan.hasUnrelayed(keyForwardHostPorts) {
+			out.print("[yellow]Warning: `network.forward_host_ports` is not fully delivered on " +
+				"macos-user[/yellow] — " + body)
+		} else {
+			out.print("[dim]`network.forward_host_ports` on macos-user — " + body + "[/dim]")
 		}
-		out.print(msg)
 	}
+}
+
+// remapSentences says what the plan does with key's remaps: the ones it relays, then each reason
+// some are not, with the entries it covers. Empty when key has no remap.
+func (p macosUserPortPlan) remapSentences(key string) string {
+	var relayed []string
+	for _, r := range p.relays {
+		if r.key == key {
+			relayed = append(relayed, r.entry)
+		}
+	}
+	var whys []string
+	byWhy := map[string][]string{}
+	for _, u := range p.unrelayed {
+		if u.key != key {
+			continue
+		}
+		if _, seen := byWhy[u.why]; !seen {
+			whys = append(whys, u.why)
+		}
+		byWhy[u.why] = append(byWhy[u.why], u.entry)
+	}
+	var s string
+	if len(relayed) > 0 {
+		s += " " + strings.Join(relayed, ", ") + pluralIs(relayed, " is a port REMAP", " are port REMAPs") +
+			", which this launch relays from outside the sandbox (TCP)."
+	}
+	for _, why := range whys {
+		entries := byWhy[why]
+		s += " " + strings.Join(entries, ", ") + pluralIs(entries, " is a port REMAP", " are port REMAPs") +
+			" this launch does not relay: " + why + "."
+	}
+	return s
+}
+
+// hasUnrelayed reports whether any remap of key goes undelivered.
+func (p macosUserPortPlan) hasUnrelayed(key string) bool {
+	for _, u := range p.unrelayed {
+		if u.key == key {
+			return true
+		}
+	}
+	return false
+}
+
+// pluralIs picks one or many by the length of items.
+func pluralIs(items []string, one, many string) string {
+	if len(items) == 1 {
+		return one
+	}
+	return many
 }
 
 // portLabels renders port entries as the user wrote them.
@@ -606,40 +620,4 @@ func portLabels(entries []any) []string {
 		out = append(out, pyStrCoerce(e))
 	}
 	return out
-}
-
-// remappedPorts names the entries whose two port numbers DIFFER — the only entries that are
-// not vacuously satisfied by a shared stack (§5.1.1's entry-form table).
-//
-// ONE CLASSIFIER FOR BOTH KEYS, and it is correct for both despite their opposite orders:
-// `ports` is [IP:]HOST:JAIL and `forward_host_ports` is JAIL:HOST, but this asks only
-// whether the two numbers differ, which is order-free. An entry with one number, or with a
-// non-numeric field, is not a remap and is not named.
-func remappedPorts(entries []any) []string {
-	var out []string
-	for _, e := range entries {
-		s := pyStrCoerce(e)
-		fields := strings.Split(s, ":")
-		if len(fields) < 2 {
-			continue
-		}
-		a, b := fields[len(fields)-2], fields[len(fields)-1]
-		if a != b && isAllDigits(a) && isAllDigits(b) {
-			out = append(out, s)
-		}
-	}
-	return out
-}
-
-// isAllDigits reports whether s is a non-empty run of ASCII digits.
-func isAllDigits(s string) bool {
-	if s == "" {
-		return false
-	}
-	for _, r := range s {
-		if r < '0' || r > '9' {
-			return false
-		}
-	}
-	return true
 }
