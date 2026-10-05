@@ -282,7 +282,7 @@ func TestPlanInvariantsCatchAContextLinkThatIsNotBacked(t *testing.T) {
 		}, "has no read allow"},
 		{"a read-write link with no write allow", func(p *RunPlan) {
 			p.Seatbelt = SeatbeltProfileWithContext(p.Workspace, SandboxHome(), nil, HomeReadonly{},
-				[]ContextLink{roLink, {Dest: rwLink.Dest, Source: rwLink.Source, Dir: true}})
+				[]ContextLink{roLink, {Dest: rwLink.Dest, Source: rwLink.Source, Dir: true}}, nil, "off")
 		}, "allows no write"},
 		{"no link staged", func(p *RunPlan) {
 			var kept [][]string

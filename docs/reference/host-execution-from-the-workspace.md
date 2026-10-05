@@ -223,8 +223,8 @@ zero; for one whose agents branch and push it is one convention, not a broken wo
 
 | Control | `podman` | `container` (Apple) | `macos-user` |
 | :--- | :--- | :--- | :--- |
-| `workspace_readonly` | ✅ enforced | ✅ from `container` 1.1.0; below it `:ro` is ignored — **warns loudly**, and cannot skip the paths, since they live inside the writable workspace bind ([`backend-parity.md` §5.3](../design/backend-parity.md#53-the-premise-under-defects-11-and-13-was-measured-and-inverted)) | ✅ enforced as Seatbelt denies |
-| Per-side shadowing | ✅ enforced | ✅ (a mount, not a `:ro` mount) | ❌ **no equivalent exists** — warns |
+| `workspace_readonly` | ✅ enforced | ✅ from `container` 1.1.0; below it `:ro` is ignored — **warns loudly**, and cannot skip the paths, since they live inside the writable workspace bind ([`backend-parity.md` §5.3](../design/backend-parity.md#53-the-premise-under-defects-11-and-13-was-measured-and-inverted)) | ✅ enforced as Seatbelt denies, the config self-lock included |
+| Per-side shadowing | ✅ enforced | ✅ (a mount, not a `:ro` mount) | ❌ **no equivalent exists** — warns, naming each shared path; uv alone is redirected to a venv of its own |
 | `core.hooksPath` redirect | ✅ | ✅ | ✅ — a git config key, backend-independent |
 | mise `paranoid`, host-side | ✅ | ✅ | ✅ — host-side, backend-independent |
 
@@ -241,13 +241,27 @@ is anywhere else.
 > contents at one path* — the host's `node_modules` and the jail's, simultaneously. That is a
 > mount-namespace capability. Seatbelt is a permission filter: it can deny access to a path, but
 > it cannot make one path resolve to two directories. So the invisible-and-standing class has no
-> fix on `macos-user`, and the backend says so at launch rather than accepting the key silently.
+> fix on `macos-user`, and the backend says so at launch rather than accepting the key silently:
+> one warning names every `per_side_paths` entry, and each default the workspace uses (a
+> `node_modules` or `.venv` that exists, or the manifest that would make one, and a venv path its
+> mise config declares). The one tool that can be pointed elsewhere is: the launch sets
+> `UV_PROJECT_ENVIRONMENT=.venv-macos-user`, so a sandbox `uv` keeps a venv of its own beside the
+> host's, and the warning says so. `python -m venv`, poetry, pipenv and mise's `_.python.venv`
+> still use the shared path, and nothing redirects `node_modules`.
 
-> [!WARNING]
-> **The config self-lock is a container-path behavior.** On `macos-user` the declared entries
-> render as denies, but the workspace config file itself is not among them — so the "a session
-> cannot switch its own protection off" property does not hold there. Do not assume the two
-> backends enforce the same set.
+> [!NOTE]
+> **The config self-lock holds on `macos-user` too, since 2026-10-04.** Any active entry adds the
+> workspace config file the loader reads (`yolo-jail.jsonc`, or `yolo-jail.json` where that is the
+> file) to the same deny form as the declared entries, and, when that file is a symbolic link, its
+> target as well, because the kernel resolves a write through the link before the policy is
+> consulted. The target is locked wherever it sits: outside the workspace is not outside the
+> profile's write allow, which also covers `/tmp`, `/var/folders`, the sandbox home and every
+> read-write context mount's source, so a target there is denied by its physical path. The
+> container backends lock the content the same way, by binding the resolved file `:ro`.
+> ⚠ **Two residuals.** A hard link the session makes to the config under a name of its own is a
+> path no rule names, and so is a link in the middle of a chain of links. Whether Seatbelt lets the
+> hard link be made is recorded, not asserted, by the macOS integration test, and no Mac has run it
+> yet.
 
 > [!NOTE]
 > **A `macos-user` agent writes as a different user than you**, which is the precise condition
@@ -357,17 +371,19 @@ also cost either a workflow change or a behaviour yolo cannot enforce.
 
 ## Current values
 
-Verified at `40915b60`. The prose above explains what each of these is for; this table is the
-only place the values themselves are stated.
+The prose above explains what each of these is for; this table is the only place the values
+themselves are stated, and each row names the code that defines its value, which is what to
+check it against.
 
 | Value | Setting | Defined in |
 | :--- | :--- | :--- |
 | Blind-cell lock key | `workspace_readonly` (list of workspace-relative paths) | `yolo config-ref`, `internal/cli/run/mounts.go` |
-| Self-lock | the workspace config file is bound `:ro` whenever any entry is active (container backends) | `Options.workspaceReadonlyMountArgs` |
-| Per-side shadow key | `per_side_paths`; defaults `.venv` ∪ `node_modules` ∪ the mise-config venv path | `Options.venvShadowMountArgs` |
+| Self-lock | the workspace config file is bound `:ro` whenever any entry is active (container backends), or added to the deny form (macos-user, 2026-10-04) | `Options.workspaceReadonlyMountArgs`, `macosuser.workspaceReadonlyRels` |
+| Per-side shadow key | `per_side_paths`; defaults `.venv` ∪ `node_modules` ∪ the mise-config venv path | `perside.ShadowCandidates` |
 | Shadow backing store | `<workspace state>/venv-shadows/`, with `/` rendered `__` | `Options.venvShadowMountArgs` |
+| macos-user uv venv | `UV_PROJECT_ENVIRONMENT=.venv-macos-user`, relative to each project root, under any value the user's env layers set (2026-10-04) | `macosuser.buildPlan` |
 | Port publishing | `network.ports` (`"HOST:JAIL"`) | `yolo config-ref` |
-| macos-user rendering | one `(deny file-write* …)` form, one `(subpath …)` clause per entry, appended after the writable-set allow | `macosuser.readonlyDenies` |
+| macos-user rendering | one `(deny file-write* …)` form, one `(subpath …)` clause per entry, and a `(literal …)` clause for a symlinked config's target outside the workspace, appended after the writable-set allow | `macosuser.readonlyDenies` |
 | Entry validation | relative, `..`-free, must exist, must stay inside the workspace; offenders skipped with a warning | `internal/config/validate.go`, `internal/cli/run/mounts.go` |
 
 ## Sources

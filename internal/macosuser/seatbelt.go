@@ -81,8 +81,29 @@ import (
 // reason: after the writable-set allow that re-opens the sandbox home, and before
 // anything that could re-open it again (nothing does). The zero value renders nothing, so
 // a launch that delivered no content gets the profile it always got.
+//
+// # config.devices: A DECLARED DEVICE NODE GETS ITS CONTROL CALLS BACK (devices.go)
+//
+// The `file-ioctl` restriction above is what made a serial adapter unusable here: an `open`
+// of /dev/cu.* already succeeds (reads are under `(allow default)` and /dev is in the
+// writable set), and every tcsetattr on it is an ioctl. A raw-path `devices` entry the
+// classifier admits (DeviceIoctlPaths) is re-allowed `file-ioctl` alone, LAST, after the deny
+// it overrides (`#seatbelt-test-id:device-ioctl-allow#`). None declared renders nothing.
+//
+// # config.macos_log "off" (the default): THE UNIFIED LOG IS UNREADABLE
+//
+// It used to be advisory: "off" made the `yolo-log` helper a stub while the sandbox could run
+// /usr/bin/log itself. Under "off" the profile now denies reads of the log store and the
+// lookup of the service a live stream connects to (macosLogDenies), and nothing later
+// re-allows either. "user" and "full" render no rule, so their profiles are the ones they
+// always got. OQ-AS1's incremental-deny leaning (docs/research/agent-safehouse.md), taken as an
+// implementation decision; the store paths and the service name are INFERRED and their proof
+// is integration/macosuserseatbelt_test.go's.
+//
+// SeatbeltProfile is the profile of a launch with no context mount, no declared device and
+// macos_log at its default, "off".
 func SeatbeltProfile(workspace, sandboxHome string, readonlyRels []string, homeReadonly HomeReadonly) string {
-	return SeatbeltProfileWithContext(workspace, sandboxHome, readonlyRels, homeReadonly, nil)
+	return SeatbeltProfileWithContext(workspace, sandboxHome, readonlyRels, homeReadonly, nil, nil, "off")
 }
 
 // profileWritableRoots is the writable set's fixed half: what the profile re-allows for
@@ -109,7 +130,20 @@ const bootVolume = "/Volumes/Macintosh HD"
 //
 // and each source under /Users/Shared/ adds its intermediate directories to the ancestor
 // literals: the traversal the workspace needed, with the siblings still denied.
-func SeatbeltProfileWithContext(workspace, sandboxHome string, readonlyRels []string, homeReadonly HomeReadonly, ctx []ContextLink) string {
+//
+// devices is config.devices' raw-path entries (deviceIoctlAllow) and macosLog the config's
+// macos_log value as read (macosLogMode: absent is "off"); see SeatbeltProfile for both.
+//
+// It renders no config TARGET outside the workspace: that is read off the workspace on disk,
+// so BuildRunPlan, which reads it (workspaceReadonlyRels), calls seatbeltProfile itself.
+func SeatbeltProfileWithContext(workspace, sandboxHome string, readonlyRels []string, homeReadonly HomeReadonly, ctx []ContextLink, devices []string, macosLog string) string {
+	return seatbeltProfile(workspace, sandboxHome, readonlyRels, nil, homeReadonly, ctx, devices, macosLog)
+}
+
+// seatbeltProfile is the one profile builder. readonlyTargets is the absolute half of
+// workspace_readonly's lock, a symlinked config's target outside the workspace
+// (workspaceReadonlyRels), rendered into the same deny form as readonlyRels (readonlyDenies).
+func seatbeltProfile(workspace, sandboxHome string, readonlyRels, readonlyTargets []string, homeReadonly HomeReadonly, ctx []ContextLink, devices []string, macosLog string) string {
 	if sandboxHome == "" {
 		sandboxHome = SandboxHome()
 	}
@@ -135,7 +169,7 @@ func SeatbeltProfileWithContext(workspace, sandboxHome string, readonlyRels []st
 		"    (subpath " + home + ")\n" +
 		strings.TrimSuffix(writable.String(), "\n") + ")\n" +
 		contextWriteAllow(ctx) +
-		readonlyDenies(workspace, readonlyRels) +
+		readonlyDenies(workspace, readonlyRels, readonlyTargets) +
 		homeReadonlyDenies(homeReadonly) +
 		contextReadonlyDeny(ctx) +
 		"\n" +
@@ -177,6 +211,7 @@ func SeatbeltProfileWithContext(workspace, sandboxHome string, readonlyRels []st
 		";;     readable while denying the pair above (agent-safehouse.md §8.2.3) ---\n" +
 		";; #seatbelt-test-id:system-keychains-deny#\n" +
 		"(deny file-read* (subpath \"/System/Library/Keychains\"))\n" +
+		macosLogDenies(macosLog) +
 		"\n" +
 		";; --- Process introspection the agent's tooling needs ---\n" +
 		"(allow process-info*)\n" +
@@ -205,13 +240,55 @@ func SeatbeltProfileWithContext(workspace, sandboxHome string, readonlyRels []st
 		"    (literal \"/dev/tty\")\n" +
 		"    (literal \"/dev/ptmx\")\n" +
 		"    (regex #\"^/dev/ttys[0-9]\")\n" +
-		"    (regex #\"^/dev/pty[a-z0-9]\"))\n"
+		"    (regex #\"^/dev/pty[a-z0-9]\"))\n" +
+		deviceIoctlAllow(devices)
+}
+
+// macosLogOff reports whether a macos_log value leaves the log unreadable: "off" itself, and
+// every value MacosLogWrapperScript rewrites to it (anything config.MacosLogModes does not
+// list, the empty string included). One lookup with the helper, so the stub and the deny are
+// never handed two different readings of one value.
+func macosLogOff(mode string) bool {
+	if _, ok := macosLogModes[mode]; !ok {
+		return true
+	}
+	return mode == "off"
+}
+
+// macosLogDenies renders the macos_log "off" rules, or "" for "user" and "full", whose profiles
+// stay byte-identical to the ones they always got.
+//
+//   - file-read* of the two stores `log show` reads: the persisted entries under
+//     /private/var/db/diagnostics and the format strings under /private/var/db/uuidtext.
+//     Physical paths, because the kernel resolves /var before the policy is consulted.
+//   - mach-lookup of com.apple.diagnosticd, the service `log stream` connects to. A program
+//     writes its own log through logd, which no rule here names; that denying diagnosticd costs
+//     a logging program nothing is part of what is unmeasured.
+//
+// Placed after every file-read re-allow in the profile (the workspace's, the context mounts')
+// so none can re-open the stores; nothing after it allows a mach-lookup. ⚠ INFERRED, never
+// loaded on a Mac: the two store paths and the service name. Their runtime proof is the
+// macos_log cases in integration/macosuserseatbelt_test.go, with a "user" profile as control.
+func macosLogDenies(mode string) string {
+	if !macosLogOff(mode) {
+		return ""
+	}
+	return ";; --- config.macos_log is \"off\": the unified log is unreadable from the sandbox,\n" +
+		";;     not only through the yolo-log helper.  Its stores, then its live stream.\n" +
+		";;     Nothing below re-allows a file read or a mach lookup. ---\n" +
+		";; #seatbelt-test-id:macos-log-off-deny#\n" +
+		"(deny file-read*\n" +
+		"    (subpath \"/private/var/db/diagnostics\")\n" +
+		"    (subpath \"/private/var/db/uuidtext\"))\n" +
+		";; #seatbelt-test-id:macos-log-off-stream-deny#\n" +
+		"(deny mach-lookup (global-name \"com.apple.diagnosticd\"))\n"
 }
 
 // readonlyDenies renders the config.workspace_readonly block: ONE
 // `(deny file-write* …)` form carrying one `(subpath "<ws>/<rel>")` clause per
-// entry, or "" when there are none, so a profile without the key is
-// byte-identical to the one this backend emitted before the key was wired.
+// entry, then one `(literal "<target>")` per config target outside the workspace
+// (workspaceReadonlyRels), or "" when there are none, so a profile without the key
+// is byte-identical to the one this backend emitted before the key was wired.
 //
 // The "one deny per entry" spelling this comment carried until 2026-08-23 was
 // wrong, and it had already been copied into
@@ -221,8 +298,8 @@ func SeatbeltProfileWithContext(workspace, sandboxHome string, readonlyRels []st
 // profile: both positions are correct (nothing later re-allows file-write*), and
 // keeping the whole write policy — deny all, allow the agent's set, re-deny the
 // carve-outs — readable as one unit is worth more than the freedom to append.
-func readonlyDenies(workspace string, rels []string) string {
-	if len(rels) == 0 {
+func readonlyDenies(workspace string, rels, targets []string) string {
+	if len(rels) == 0 && len(targets) == 0 {
 		return ""
 	}
 	var b strings.Builder
@@ -237,6 +314,18 @@ func readonlyDenies(workspace string, rels []string) string {
 			continue
 		}
 		b.WriteString("    (subpath " + sbplStr(path.Join(workspace, rel)) + ")\n")
+	}
+	// A symlinked workspace config's target outside the workspace (workspaceReadonlyRels):
+	// yolo's own derivation, never a user entry, so it is the one absolute path this form
+	// carries. A `literal`, since the target is a file. A path that is not absolute is a deny
+	// the kernel never matches, so it is dropped rather than rendered as protection.
+	seen := map[string]bool{}
+	for _, t := range targets {
+		if !strings.HasPrefix(t, "/") || seen[path.Clean(t)] {
+			continue
+		}
+		seen[path.Clean(t)] = true
+		b.WriteString("    (literal " + sbplStr(path.Clean(t)) + ")\n")
 	}
 	if b.Len() == 0 {
 		return ""

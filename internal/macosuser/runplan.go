@@ -555,12 +555,18 @@ func BuildRunPlanWithDaemons(workspace string, cfg *jsonx.OrderedMap, agents, ag
 		stageCommands = appendNewCommands(stageCommands, endpointGrantCommands(jailDaemons.Env))
 	}
 
+	// workspace_readonly with the config self-lock the container backends perform, a symlinked
+	// config's target included wherever it sits (workspacereadonly.go).
+	readonlyRels, readonlyTargets := workspaceReadonlyRels(workspace, cfg)
+
 	return RunPlan{
 		Workspace:   workspace,
 		Cname:       cname,
 		ProfilePath: profilePath,
-		Seatbelt: SeatbeltProfileWithContext(workspace, SandboxHome(),
-			cfgStrList(cfg, "workspace_readonly"), homeReadonly, ctxLinks),
+		// workspace_readonly and its config lock, each raw-path `devices` entry's ioctl
+		// carve-out (devices.go), and macos_log, whose "off" is a deny (SeatbeltProfile).
+		Seatbelt: seatbeltProfile(workspace, SandboxHome(), readonlyRels, readonlyTargets,
+			homeReadonly, ctxLinks, cfgStrList(cfg, "devices"), macosLogMode(cfg)),
 		StagedDir:  stateDir,
 		StagedYolo: stagedYolo,
 		// Binary first, then the pack trees, then the content overlay, then the context

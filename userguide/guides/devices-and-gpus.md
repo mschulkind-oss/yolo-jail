@@ -3,11 +3,15 @@
 Give the agent hardware: USB and serial devices, NVIDIA or AMD GPUs, and `/dev/kvm`.
 
 > [!NOTE]
-> **Everything on this page is Linux-only**, on Podman. On a Mac, a jail runs inside a Linux VM
+> **This page is about Linux, on Podman.** On a Mac, a container jail runs inside a Linux VM
 > that has no access to the Mac's USB devices or GPU; the settings are skipped with a warning and
 > the jail still starts. On `macos-user` the agent is an ordinary Mac program, so Mac GPU programs
-> using Metal should work as they do outside yolo. For a USB serial device on a Mac, the `serial`
-> loophole should work on Podman; see [Host Access and Loopholes](loopholes.md).
+> using Metal should work as they do outside yolo, and a serial device should work by naming its
+> node (not yet tried on a Mac): list `/dev/cu.usbserial-…` (`ls /dev/cu.*` shows the ones plugged
+> in) in `devices`, and the sandbox may configure it, which it otherwise refuses. The launch says
+> which nodes it allowed. Raw disks stay refused there, and USB and cgroup entries are not read.
+> For a USB serial device in a Podman jail on a Mac, the `serial` loophole should work; see
+> [Host Access and Loopholes](loopholes.md).
 
 ## Device Passthrough
 

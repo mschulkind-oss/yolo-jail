@@ -4,6 +4,8 @@ import (
 	"regexp"
 	"strings"
 	"testing"
+
+	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 )
 
 // THE THREE DENIES TAKEN FROM AGENT SAFEHOUSE (docs/research/agent-safehouse.md §8.2),
@@ -163,6 +165,90 @@ func TestSeatbeltNewDeniesFollowTheWritableSet(t *testing.T) {
 		if strings.Index(p, later) < last {
 			t.Errorf("%q precedes the last file-write allow; the profile's write policy "+
 				"is meant to read as one unit ending at the readonly denies", later)
+		}
+	}
+}
+
+// macosLogDenyRules are the two rules macos_log "off" adds, by the text the profile carries.
+var macosLogDenyRules = []string{
+	"#seatbelt-test-id:macos-log-off-deny#",
+	`(subpath "/private/var/db/diagnostics")`,
+	`(subpath "/private/var/db/uuidtext")`,
+	"#seatbelt-test-id:macos-log-off-stream-deny#",
+	`(deny mach-lookup (global-name "com.apple.diagnosticd"))`,
+}
+
+// TestSeatbeltMacosLogOffDeniesTheLog: "off" (and every value the yolo-log helper reads as
+// off) denies the log's stores and its stream service; "user" and "full" emit neither rule, so
+// their profiles are the ones they always were.
+func TestSeatbeltMacosLogOffDeniesTheLog(t *testing.T) {
+	gen := func(mode string) string {
+		return SeatbeltProfileWithContext("/Users/Shared/proj", "", []string{"vendored"}, HomeReadonly{},
+			nil, nil, mode)
+	}
+	for _, mode := range []string{"off", "", "bogus"} {
+		p := gen(mode)
+		for _, want := range macosLogDenyRules {
+			if !strings.Contains(p, want) {
+				t.Errorf("macos_log %q: the profile lacks %q\n%s", mode, want, p)
+			}
+		}
+	}
+	for _, mode := range []string{"user", "full"} {
+		p := gen(mode)
+		for _, rule := range macosLogDenyRules {
+			if strings.Contains(p, rule) {
+				t.Errorf("macos_log %q asked for the log and the profile still carries %q\n%s", mode, rule, p)
+			}
+		}
+		// Exactly the off profile with the two rules taken out, so nothing else moved.
+		if want := strings.Replace(gen("off"), macosLogDenies("off"), "", 1); p != want {
+			t.Errorf("macos_log %q's profile differs from off's by more than the log rules", mode)
+		}
+	}
+	if SeatbeltProfile("/Users/Shared/proj", "", []string{"vendored"}, HomeReadonly{}) != gen("off") {
+		t.Error("SeatbeltProfile is not the default launch's profile: macos_log defaults to off")
+	}
+}
+
+// TestSeatbeltMacosLogDenyIsNotReopened: SBPL is last-match-wins, so a file-read allow AFTER
+// the store deny whose filter covers /private/var/db would make it inert, with the directive
+// still in the file. Nothing after it may allow a file read or a mach lookup at all.
+func TestSeatbeltMacosLogDenyIsNotReopened(t *testing.T) {
+	p := SeatbeltProfileWithContext("/Users/Shared/proj", "", []string{"vendored"}, sampleHomeReadonly(),
+		[]ContextLink{{Dest: "/ctx/lib", Source: "/Users/Shared/ci/lib", Dir: true}},
+		[]string{"/dev/cu.usbserial-1"}, "off")
+	at := strings.Index(p, "#seatbelt-test-id:macos-log-off-deny#")
+	if at < 0 {
+		t.Fatalf("no macos_log deny in the default profile\n%s", p)
+	}
+	tail := p[at:]
+	for _, reopen := range []string{"(allow file-read", "(allow mach-lookup", "(allow default"} {
+		if strings.Contains(tail, reopen) {
+			t.Errorf("%q follows the macos_log deny and can re-open it\n%s", reopen, tail)
+		}
+	}
+	// And after every read re-allow above it: the workspace's and the context mounts'.
+	mustPrecede(t, p, "#seatbelt-test-id:context-read-allow#", "#seatbelt-test-id:macos-log-off-deny#",
+		"a context source's read allow below the deny would re-open the store for a source naming it")
+	mustPrecede(t, p, "#seatbelt-test-id:workspace-read-allow#", "#seatbelt-test-id:macos-log-off-deny#",
+		"the workspace read allow below the deny would be a later match")
+}
+
+// THE CALL SITE: the profile a launch installs follows the config's macos_log. Fails if
+// BuildRunPlanWithDaemons stops handing macosLogMode(cfg) to the generator.
+func TestBuildRunPlanHonorsMacosLog(t *testing.T) {
+	plan := func(mode string) string {
+		cfg := jsonx.NewOrderedMap()
+		if mode != "" {
+			cfg.Set("macos_log", mode)
+		}
+		return BuildRunPlan("/Users/Shared/proj", cfg, nil, []string{"bash"}, "/usr/local/bin/yolo", "",
+			HomeOverlay{}, HostContext{}, jsonx.NewOrderedMap(), nil, nil).Seatbelt
+	}
+	for mode, want := range map[string]bool{"": true, "off": true, "user": false, "full": false} {
+		if got := strings.Contains(plan(mode), "#seatbelt-test-id:macos-log-off-deny#"); got != want {
+			t.Errorf("macos_log %q: the launch profile denies the log = %v, want %v", mode, got, want)
 		}
 	}
 }

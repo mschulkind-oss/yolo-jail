@@ -6,6 +6,7 @@ import (
 	"io"
 	"math"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -16,6 +17,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/nixchildren"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
+	"github.com/mschulkind-oss/yolo-jail/internal/perside"
 	"github.com/mschulkind-oss/yolo-jail/internal/provision"
 	"github.com/mschulkind-oss/yolo-jail/internal/richtext"
 	"github.com/mschulkind-oss/yolo-jail/internal/shquote"
@@ -363,6 +365,16 @@ func buildPlan(deps Deps, opts Options, darwin *Darwin) RunPlan {
 	if opts.Workspace != "" {
 		env.Set("MISE_TRUSTED_CONFIG_PATHS", resolvePathAbs(opts.Workspace))
 	}
+	// uv's PROJECT VENV, KEPT OFF THE HOST'S. The container backends shadow `.venv` per side
+	// with a mount; this backend has no mount namespace, so a sandbox `uv sync` would find the
+	// host's `.venv`, whose interpreter links point into a home the sandbox cannot read, and
+	// rebuild it in place — breaking the host's. UV_PROJECT_ENVIRONMENT moves uv alone to a
+	// directory of its own. RELATIVE, so uv resolves it against each project root it is run
+	// in (a monorepo's members each get theirs), and uv writes a `*` .gitignore inside it, so
+	// git never shows it. VIRTUAL_ENV is deliberately not set: it would steer every other tool
+	// too. Here, before PackEnv, env_sources and SandboxEnv, so a value the user set wins, and
+	// the per-side disclosure below reports the value that won.
+	env.Set(uvProjectEnvironmentVar, uvProjectEnvironment)
 	// `resources.cpus`, COOPERATIVELY: the parallelism defaults of the common build tools, set
 	// to the declared count (CooperativeCPUVars says which, and the one rule that picks them).
 	// Here, before PackEnv, env_sources and SandboxEnv, for MISE_TRUSTED_CONFIG_PATHS's reason:
@@ -392,26 +404,8 @@ func buildPlan(deps Deps, opts Options, darwin *Darwin) RunPlan {
 	// (the container path wires the same warn callback; a no-op here would
 	// silently drop the line).
 	out := printer{w: deps.Out, color: deps.Color}
-	// `per_side_paths` cannot be honoured here and must SAY so. Unlike
-	// `workspace_readonly` — whose policy this backend can express natively, and now
-	// does (SeatbeltProfile's readonlyRels) — a per-side path needs the host and the
-	// sandbox to see DIFFERENT contents at one path. That is a mount-namespace
-	// capability; Seatbelt filters permissions and cannot fork a path, so there is no
-	// SBPL spelling of it and no prospect of one.
-	//
-	// The warning matters more since 2026-08-23, when `node_modules` joined the
-	// DEFAULT shadow set (internal/cli/run/mounts.go): every Node workspace now gets
-	// a protection on the container backends that is absent here, with nothing in the
-	// config to hint at the difference. Shipping that silently would repeat exactly
-	// the defect the workspace_readonly wiring above exists to fix.
-	// See docs/reference/host-execution-from-the-workspace.md §5.5.
-	if perSide := cfgStrList(opts.Config, "per_side_paths"); len(perSide) > 0 {
-		out.print("[yellow]Warning: per_side_paths is NOT enforced on macos-user[/yellow] — " +
-			"per-side shadowing needs a mount namespace and this backend has none, so " +
-			"the host and the sandbox share these paths: " + strings.Join(perSide, ", "))
-	}
 	// THE REST OF WHAT THIS BACKEND CANNOT DO, said at the same boundary and for the
-	// same reason as per_side_paths above. Each of these renders, validates and reads
+	// same reason as per_side_paths below. Each of these renders, validates and reads
 	// exactly like it does on a container backend, and then does nothing here — which
 	// is the silent-drop shape the sweep behind #39 found ten more of. The `resources`
 	// lines are printed below, once the env layers have run, because the cpus line reports
@@ -443,6 +437,15 @@ func buildPlan(deps Deps, opts Options, darwin *Darwin) RunPlan {
 			env.Set(k, v)
 		}
 	}
+	// THE PER-SIDE SET IS SHARED HERE, and the launch must SAY so (DP-D2 holds: a per-side
+	// path needs the host and the sandbox to see DIFFERENT contents at one path, which is a
+	// mount-namespace capability Seatbelt cannot express). Since `node_modules` joined the
+	// DEFAULT set on 2026-08-23 that is every Node workspace, so the old line — printed only for
+	// a user's own per_side_paths entries — was silent about the paths that matter most. One
+	// disclosure (OQ-DP5 (a)), a warning (OQ-HX6), naming every user entry and each default the
+	// workspace actually uses (perSideSharedPaths). After the env layers, because it reports
+	// the uv redirect that won.
+	printPerSideDisclosure(out, opts.Workspace, opts.Config, env)
 	printResourceDispositions(out, resources, env)
 	// THE JAIL MARKER, the one variable every container launch sets (`-e YOLO_VERSION=` in
 	// internal/cli/run's commonEnvBlock) and this backend did not (docs/design/agent-footer.md
@@ -481,6 +484,85 @@ func buildPlan(deps Deps, opts Options, darwin *Darwin) RunPlan {
 	return BuildRunPlanWithDaemons(opts.Workspace, opts.Config, opts.Agents, opts.AgentArgv,
 		selfExe, opts.HostPackRoot, opts.HostHomeOverlay, opts.HostCtx, env, darwin,
 		opts.BlockedTools, opts.JailDaemons, floors)
+}
+
+// uvProjectEnvironment is where a sandbox `uv` keeps a project's venv, relative to the project
+// root (buildPlan says why), and uvProjectEnvironmentVar the variable uv reads it from.
+const (
+	uvProjectEnvironmentVar = "UV_PROJECT_ENVIRONMENT"
+	uvProjectEnvironment    = ".venv-macos-user"
+)
+
+// perSideManifests are the files whose presence says a workspace USES a default per-side path
+// before the directory exists: a Node project's package.json makes a node_modules, a Python
+// project's manifest a .venv. A default the workspace neither has nor would make is not named,
+// so a workspace that is neither hears nothing (the OQ-BP-3 rule: a warning about something
+// the user never had is the one they learn to skip).
+var perSideManifests = map[string][]string{
+	"node_modules": {"package.json"},
+	".venv":        {"pyproject.toml", "requirements.txt", "Pipfile"},
+}
+
+// perSideSharedPaths is the per-side set this launch shares with the host, in the order the
+// disclosure names it: each default (perside.DefaultRels) that exists in the workspace or whose
+// manifest does — the venv path a mise config declares always does, that config being its
+// manifest — then every user per_side_paths entry, as written and whether or not it exists.
+// python reports whether a Python venv is among them, which is what the uv clause is about.
+func perSideSharedPaths(workspace string, cfg *jsonx.OrderedMap) (shared []string, python bool) {
+	seen := map[string]bool{}
+	add := func(rel string) {
+		if !seen[rel] {
+			seen[rel] = true
+			shared = append(shared, rel)
+		}
+	}
+	exists := func(rel string) bool {
+		_, err := os.Lstat(filepath.Join(workspace, rel))
+		return err == nil
+	}
+	miseVenv, miseDeclared := perside.MiseConfigVenvPathFromDir(workspace)
+	for _, rel := range perside.DefaultRels(workspace) {
+		used := exists(rel) || (miseDeclared && rel == miseVenv)
+		for _, m := range perSideManifests[rel] {
+			used = used || exists(m)
+		}
+		if used {
+			add(rel)
+			python = python || rel == ".venv" || (miseDeclared && rel == miseVenv)
+		}
+	}
+	for _, rel := range perside.UserRels(cfg) {
+		add(rel)
+	}
+	return shared, python
+}
+
+// printPerSideDisclosure prints the per-side line, or nothing when the launch shares none of
+// the set (buildPlan says why it exists). env is the layered launch env, so the uv clause names
+// the redirect that won.
+func printPerSideDisclosure(out printer, workspace string, cfg *jsonx.OrderedMap, env *jsonx.OrderedMap) {
+	shared, python := perSideSharedPaths(workspace, cfg)
+	if len(shared) == 0 {
+		return
+	}
+	msg := "[yellow]Warning: per-side paths are SHARED with the host on macos-user[/yellow] — " +
+		strings.Join(shared, ", ") + ". A container gives the host and the jail their own copy of " +
+		"each by mounting over it, and this backend has no mount namespace, so the sandbox " +
+		"installs into the same directories your host tools read."
+	if python {
+		uv := ""
+		if v, ok := env.Get(uvProjectEnvironmentVar); ok {
+			uv = asStr(v)
+		}
+		if uv == uvProjectEnvironment {
+			msg += " uv is redirected to " + uvProjectEnvironment + " (" + uvProjectEnvironmentVar + ")"
+		} else {
+			msg += " uv uses " + uvProjectEnvironmentVar + "=" + uv + ", which your own environment set"
+		}
+		msg += "; `python -m venv`, poetry, pipenv and mise's `_.python.venv` still use the shared path."
+	}
+	out.print(msg + " Where the two sides must not share them, use a container runtime " +
+		"(podman, or Apple Container), which shadows each per side.")
 }
 
 // printResourceDispositions says, at launch and in a dry run, what this backend does with each
