@@ -459,6 +459,38 @@ func TestApplyHostBriefingPrependsTheAfterFile(t *testing.T) {
 	}
 }
 
+// A BROADCAST PACK LISTED FIRST DOES NOT HIDE THE `after`. The broadcast reaches ~/.foo/AGENTS.md
+// through a copy the resolver synthesizes, which carries no `after`, and it is the first pack at that
+// path — so a destination whose `after` came from the first pack there, rather than the first
+// contribution carrying one, read none and left ~/mine.md out silently (DP-B26's symptom).
+func TestApplyHostBriefingTakesTheAfterPastABroadcastListedFirst(t *testing.T) {
+	bcastDir := filepath.Join(t.TempDir(), "bcast")
+	writeFile(t, filepath.Join(bcastDir, "pack.json"),
+		`{"name":"bcast","description":"b","contributes":[{"kind":"briefing","from":"briefing/b.md"}]}`)
+	writeFile(t, filepath.Join(bcastDir, "briefing", "b.md"), "Broadcast rule.\n")
+	home := afterFixture(t, "mine.md", `{"source":"file://`+bcastDir+`","name":"bcast"},`)
+	writeFile(t, filepath.Join(home, "mine.md"), "MY OWN RULES\n")
+
+	rc, report := applyWith(t, true, strings.NewReader(""))
+	if rc != 0 {
+		t.Fatalf("host apply --assert rc=%d\n%s", rc, report)
+	}
+	got, err := os.ReadFile(filepath.Join(home, ".foo", "AGENTS.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Not vacuous: the broadcast did reach the destination, so its copy was the first pack there.
+	if !strings.Contains(string(got), "Broadcast rule.") {
+		t.Fatalf("fixture: the broadcast did not reach ~/.foo/AGENTS.md:\n%s", got)
+	}
+	if !strings.HasPrefix(string(got), "MY OWN RULES\n\n---\n\n") {
+		t.Errorf("~/.foo/AGENTS.md does not open with ~/mine.md:\n%s", got)
+	}
+	if n := countLines(report, "~/.foo/AGENTS.md opens with your ~/mine.md"); n != 1 {
+		t.Errorf("want one report line naming ~/mine.md, got %d:\n%s", n, report)
+	}
+}
+
 // EDITING the `after` file re-renders the destination with no prompt: the destination is yolo's
 // own (the record says so), and the file is an input to it like any pack's prose.
 func TestApplyHostBriefingReRendersWhenTheAfterFileChanges(t *testing.T) {

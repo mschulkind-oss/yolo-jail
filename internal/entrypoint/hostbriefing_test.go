@@ -1226,12 +1226,85 @@ func TestComposeHostBriefingsForSkipsAFileTheRecordSaysYoloComposed(t *testing.T
 	if got := composedAt(dests, home, ".foo/AGENTS.md"); strings.Contains(got, "DROPPED") {
 		t.Errorf("a file yolo composed was read back in as the user's:\n%s", got)
 	}
-	if dests[0].Overlay.Outcome != OverlayYoloOutput {
-		t.Errorf("outcome %q, want %q", dests[0].Overlay.Outcome, OverlayYoloOutput)
+	// The record's own clause, so the skip is pinned to the record by path and not only to the
+	// identity check that also matches this existing file.
+	if ov := dests[0].Overlay; ov.Outcome != OverlayYoloOutput || ov.Why != "an earlier apply composed it" {
+		t.Errorf("outcome %q (%q), want %q (%q)", ov.Outcome, ov.Why, OverlayYoloOutput,
+			"an earlier apply composed it")
 	}
 	if got := composedAt(ComposeHostBriefings(packs, home, "", false), home, ".foo/AGENTS.md"); !strings.Contains(got, "DROPPED") {
 		t.Errorf("without the record the file is indistinguishable from the user's, so the bare "+
 			"composition must prepend it — otherwise this test proves nothing about the record: %q", got)
+	}
+}
+
+// THE FIRST CONTRIBUTION CARRYING AN `after` DECIDES a destination's — not the first pack at the
+// path, nor the last contribution carrying one — within one pack and across packs. A broadcast's
+// synthesized copy carries none (packload.ResolveDestinations), so whichever pack is listed first
+// at a path is no guide; and two `after`s at one path is a choice the declaration order makes.
+func TestComposeHostBriefingsTakesTheFirstContributionCarryingAnAfter(t *testing.T) {
+	carrying := func(t *testing.T, name string, afters ...string) *packload.Pack {
+		p := briefingPack(t, name, ".foo/AGENTS.md", name+" prose.\n")
+		first := p.Decl.Contributes[0]
+		p.Decl.Contributes = nil
+		for _, a := range afters {
+			c := first
+			c.After = "" // briefingPack's own `after` names its destination
+			if a != "" {
+				c.After = "host:" + a
+			}
+			p.Decl.Contributes = append(p.Decl.Contributes, c)
+		}
+		return p
+	}
+	cases := map[string]func(t *testing.T) []*packload.Pack{
+		"within one pack": func(t *testing.T) []*packload.Pack {
+			return []*packload.Pack{carrying(t, "one", "", "first.md", "second.md")}
+		},
+		"across packs": func(t *testing.T) []*packload.Pack {
+			return []*packload.Pack{carrying(t, "none", ""), carrying(t, "a", "first.md"),
+				carrying(t, "b", "second.md")}
+		},
+	}
+	for name, packs := range cases {
+		t.Run(name, func(t *testing.T) {
+			home := t.TempDir()
+			for _, f := range []string{"first.md", "second.md"} {
+				mustAfter(t, os.WriteFile(filepath.Join(home, f), []byte(strings.ToUpper(f)+"\n"), 0o644))
+			}
+			dests := ComposeHostBriefings(packs(t), home, "", false)
+			if len(dests) != 1 || dests[0].After != "first.md" {
+				t.Fatalf("want one destination whose after is first.md, got %+v", dests)
+			}
+			if got := dests[0].Content; !strings.HasPrefix(got, "FIRST.MD\n\n---\n\n") ||
+				strings.Contains(got, "SECOND.MD") {
+				t.Errorf("~/.foo/AGENTS.md does not open with first.md alone:\n%s", got)
+			}
+		})
+	}
+}
+
+// A RECORDED PATH THAT IS NOW A DANGLING LINK is still yolo's output, and is skipped as one, not
+// warned about as an unreadable file of the user's: the record is what proves ownership, and no
+// identity check can match a link to nowhere. Restoring the target would only make the file yolo's
+// skipped output again, so the unread warning's "Restore the target, or remove the link" would send
+// the user to fix something that changes nothing.
+func TestComposeHostBriefingsForSkipsARecordedPathThatIsADanglingLink(t *testing.T) {
+	home := t.TempDir()
+	old := filepath.Join(home, "old.md")
+	mustAfter(t, os.Symlink(filepath.Join(home, "gone.md"), old))
+	packs := []*packload.Pack{afterPack(t, ".foo/AGENTS.md", "old.md")}
+	req, man := briefingReq(t, home)
+	man.Record(old, HostBriefingOwner)
+
+	dests := ComposeHostBriefingsFor(packs, home, req)
+	if ov := dests[0].Overlay; ov.Outcome != OverlayYoloOutput || ov.Unread != nil {
+		t.Errorf("outcome %q (unread %v), want %q: a recorded path is yolo's whatever it holds now",
+			ov.Outcome, ov.Unread, OverlayYoloOutput)
+	}
+	// Without the record it is an unreadable file of the user's, which is the case being told apart.
+	if ov := ComposeHostBriefings(packs, home, "", false)[0].Overlay; ov.Outcome != OverlayUnread {
+		t.Errorf("fixture: without the record a dangling link must read as unread, got %q", ov.Outcome)
 	}
 }
 
