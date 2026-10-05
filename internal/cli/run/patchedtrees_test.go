@@ -34,6 +34,13 @@ const (
 // when listed.
 func treeLaunchHome(t *testing.T, listed bool) string {
 	t.Helper()
+	return treeLaunchHomeAt(t, listed, treeInto, "")
+}
+
+// treeLaunchHomeAt is treeLaunchHome with the tree at into and agentExtra appended to the agent
+// pack's contributions.
+func treeLaunchHomeAt(t *testing.T, listed bool, into, agentExtra string) string {
+	t.Helper()
 	home := packHome(t)
 	t.Setenv("YOLO_VERSION", "")
 	t.Setenv("YOLO_PACK_ROOT", "")
@@ -48,12 +55,13 @@ func treeLaunchHome(t *testing.T, listed bool) string {
 		}
 	}
 	write("agentpack/pack.json", `{"contributes":[{"kind":"program","bin":"tool","via":"npm","package":"tool"},
-		{"kind":"config","config":[{"agent":"tool","name":"settings","codec":"json","path":"~/.tool/settings.json"}]}]}`)
+		{"kind":"config","config":[{"agent":"tool","name":"settings","codec":"json","path":"~/.tool/settings.json"}]}`+
+		agentExtra+`]}`)
 	list := ""
 	if listed {
-		list = `,{"kind":"config-list","surface":"tool/settings","path":"/packages","add":["~/` + treeInto + `"]}`
+		list = `,{"kind":"config-list","surface":"tool/settings","path":"/packages","add":["~/` + into + `"]}`
 	}
-	write("treepack/pack.json", `{"contributes":[{"kind":"files","into":"`+treeInto+`",
+	write("treepack/pack.json", `{"contributes":[{"kind":"files","into":"`+into+`",
 		"source":"git+https://example.invalid/tree-ext?ref=main","patches":"patches"}`+list+`]}`)
 	write("treepack/patches/0001-x.patch", "From 0123456789abcdef0123456789abcdef01234567 Mon Sep 17 00:00:00 2001\n"+
 		"Subject: [PATCH] x\n\n---\n\nbase-commit: 0123456789abcdef0123456789abcdef01234567\n")
