@@ -615,7 +615,10 @@ func buildJailArgv(f packload.Fork) []string {
 // STEP: the checkout, links kept as links, copied into the reserved directory under ~/.local
 // (packdecl.TreeReservedDir), which the capture driver already walks.
 //
-// The build line runs in a subshell, so a `cd` inside it cannot move the copy's source.
+// The build line runs in a subshell, so a `cd` inside it cannot move the copy's source, and on lines
+// of its own inside it: a build line ending in a `# comment`, which a fork's build takes, would
+// otherwise comment out the subshell's close and the final copy, and bash would refuse the script.
+// A build line holds no newline (packdecl refuses one), so it cannot close the subshell early.
 func treeBuildJailArgv(build, name string) []string {
 	src := path.Join(containerWorkspace, forkSourceLeaf)
 	toolchain := shquote.Quote(path.Join(containerWorkspace, forkToolchainLeaf))
@@ -624,7 +627,7 @@ func treeBuildJailArgv(build, name string) []string {
 		"export PATH=/bin:/usr/bin:\"$PATH\"\n" +
 		"cd " + shquote.Quote(src)
 	if strings.TrimSpace(build) != "" {
-		script += " && ( " + build + " )"
+		script += " && (\n" + build + "\n)"
 	}
 	script += " && mkdir -p \"$HOME\"/" + shquote.Quote(packdecl.TreeReservedRoot) +
 		" && cp -a " + shquote.Quote(src) + " \"$HOME\"/" + shquote.Quote(packdecl.TreeReservedDir(name))

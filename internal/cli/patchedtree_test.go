@@ -320,22 +320,45 @@ func TestTheChildBuildJailRunsATreesBuild(t *testing.T) {
 }
 
 // THE TREE'S JAIL SCRIPT is valid shell, quotes what it pastes, and runs the build line in a subshell
-// only when there is one.
+// only when there is one — on lines of its own, so a build line a fork's build would take, a trailing
+// `# comment` included, cannot comment out the subshell's close and the final copy.
 func TestATreesBuildJailScript(t *testing.T) {
 	if _, err := exec.LookPath("bash"); err != nil {
 		t.Skip("bash not found")
 	}
-	for _, build := range []string{"", "npm ci && npm run build"} {
+	for _, build := range []string{"", "npm ci && npm run build", "npm ci --ignore-scripts # no lifecycle scripts"} {
 		argv := treeBuildJailArgv(build, "tool ext")
 		script := argv[len(argv)-1]
 		if out, err := exec.Command("bash", "-n", "-c", script).CombinedOutput(); err != nil {
 			t.Errorf("build %q: the script does not parse: %v\n%s\n%s", build, err, out, script)
 		}
-		if strings.Contains(script, "( )") || (build != "" && !strings.Contains(script, "( "+build+" )")) {
+		if strings.Contains(script, "(\n\n)") || (build != "" && !strings.Contains(script, "(\n"+build+"\n)")) {
 			t.Errorf("build %q: the script's build line is %q", build, script)
 		}
 		if !strings.Contains(script, "'"+packdecl.TreeReservedDir("tool ext")+"'") {
 			t.Errorf("the reserved directory is not quoted: %s", script)
+		}
+	}
+}
+
+// THE FINAL COPY RUNS AFTER A BUILD LINE ENDING IN A COMMENT: the script, run for real with the
+// checkout and the home stood in, leaves the reserved directory holding the checkout.
+func TestATreesFinalCopyRunsAfterACommentedBuildLine(t *testing.T) {
+	if _, err := exec.LookPath("bash"); err != nil {
+		t.Skip("bash not found")
+	}
+	ws, home := t.TempDir(), t.TempDir()
+	writeFile(t, filepath.Join(ws, forkSourceLeaf, "index.js"), "x")
+	argv := treeBuildJailArgv("touch built # and nothing else", "tool-ext")
+	script := strings.ReplaceAll(argv[len(argv)-1], containerWorkspace, ws)
+	cmd := exec.Command("bash", "-c", script)
+	cmd.Env = append(os.Environ(), "HOME="+home)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("the script failed: %v\n%s\n%s", err, out, script)
+	}
+	for _, leaf := range []string{"index.js", "built"} {
+		if _, err := os.Stat(filepath.Join(home, filepath.FromSlash(packdecl.TreeReservedDir("tool-ext")), leaf)); err != nil {
+			t.Errorf("the final copy did not run after the build line: %v", err)
 		}
 	}
 }
