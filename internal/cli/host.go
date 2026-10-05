@@ -753,6 +753,20 @@ func hostLaunch(flags hostExecFlags, profile string, cmd []string, out, errw, ra
 		return rc
 	}
 	target := resolved.Path
+	// THE PROGRAM'S PRE-LAUNCH REFRESH (packdecl.Refresh; docs/design/host-tool-provisioning.md
+	// HP-D19, hostfloor/prelaunch.go): pi's `update --extensions`, run against the target that
+	// resolved — the floor's copy, a PATH copy or a path given — before the model menu and the
+	// OpenAI prelaunch, as the jail's launcher runs it, and before the blocked tools join the
+	// child's PATH, since the jail runs it with them bypassed. A failure is a line and the launch
+	// goes on; a SIGTERM or SIGHUP that stopped it ends the launch. Spanned only where it can run.
+	if prog, progs, ok := hostRefreshProgram(launch.packs, cmd[0]); ok {
+		sp = trace.span("host.prelaunch_refresh")
+		rc := hostPrelaunchRefresh(launch, prog, progs, target, childPath, errw)
+		sp.End()
+		if rc != 0 {
+			return rc
+		}
+	}
 	// THE BLOCKED TOOLS (HE-D11, hostblockers.go): the selected packs' and the user scope's
 	// blocked-tool shims, first on the child's PATH, once the target has resolved — its lookup
 	// above read the PATH without them, as the folders it skips include theirs — and before the

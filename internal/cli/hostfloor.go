@@ -10,7 +10,9 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"syscall"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/agentenv"
 	"github.com/mschulkind-oss/yolo-jail/internal/capture"
 	"github.com/mschulkind-oss/yolo-jail/internal/cli/run"
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
@@ -776,6 +778,74 @@ func hostChildPath(lp *hostpath.Launch, floorBin string) string {
 		out = append(out, d)
 	}
 	return strings.Join(out, string(os.PathListSeparator))
+}
+
+// hostRefreshProgram is the program whose PRE-LAUNCH REFRESH (packdecl.Refresh, a coined term) a
+// `yolo host -- <cmd0>` runs before its exec, and the selection's floor programs it was found among:
+// the selected packs' declaration of cmd0's base name, the first one winning as the floor's and the
+// jail launcher generator's do, when that declaration has a refresh. Whichever copy the launch
+// execs, so a target given as a path or found on the launch PATH is refreshed too
+// (docs/design/host-tool-provisioning.md HP-D19). Never in a jail, whose own launcher on PATH runs
+// the refresh (internal/entrypoint's prelaunchrefresh.go) and whose state this would not be.
+func hostRefreshProgram(packs []*packload.Pack, cmd0 string) (hostfloor.Program, []hostfloor.Program, bool) {
+	if config.InJail() {
+		return hostfloor.Program{}, nil, false
+	}
+	progs := floorPrograms(packs)
+	prog, ok := floorProgram(progs, filepath.Base(cmd0))
+	if !ok || prog.Install.Refresh == nil {
+		return hostfloor.Program{}, nil, false
+	}
+	return prog, progs, true
+}
+
+// hostPrelaunchRefresh runs prog's pre-launch refresh against target, the binary the launch is about
+// to exec, through the machine's floor (Floor.PrelaunchRefresh: its stamp, its lock and the
+// `agent_updates` policy), in the environment refreshEnviron builds, its lines and its output on
+// errw. It returns 0 to go on — a refresh that failed, timed out or was interrupted with Ctrl-C
+// included, since launching the program outranks refreshing it — and the status to end the launch
+// with when a SIGTERM or SIGHUP stopped the refresh, as the jail's launcher ends.
+func hostPrelaunchRefresh(launch *hostComposition, prog hostfloor.Program, progs []hostfloor.Program,
+	target, childPath string, errw io.Writer) int {
+	res := newHostFloor(errw, progs).PrelaunchRefresh(prog, target, launch.refreshEnviron(childPath))
+	if res.Outcome != hostfloor.RefreshStopped {
+		return 0
+	}
+	name := res.Signal.String()
+	switch res.Signal {
+	case syscall.SIGTERM:
+		name = "SIGTERM"
+	case syscall.SIGHUP:
+		name = "SIGHUP"
+	}
+	fmt.Fprintf(errw, "yolo host: %s: the pre-launch refresh was stopped by %s, so the launch ends here "+
+		"without starting %s; run it again to start %s\n", prog.Bin(), name, prog.Bin(), prog.Bin())
+	return 128 + int(res.Signal)
+}
+
+// refreshEnviron is the environment a launch's pre-launch refresh runs in: the one this process
+// inherited, with the composition's REMOVALS applied and none of what it SETS, then the child's
+// PATH. The jail's launcher runs its refresh before it sources the agent's own env file, because
+// the refresh needs no credential and should run holding none (internal/entrypoint's agentenv.go);
+// here the composition is that file, so a credential it scopes to the program reaches the program
+// alone. The removals still apply, so the refresh never sees a name the program would not. The
+// PATH is the child's before the blocked tools join it: the jail runs its refresh with the blockers
+// bypassed (YOLO_BYPASS_SHIMS=1), as it does every installer.
+func (c *hostComposition) refreshEnviron(childPath string) []string {
+	var removals []agentenv.Var
+	for _, v := range c.vars {
+		if v.Unset {
+			removals = append(removals, v)
+		}
+	}
+	env := agentenv.Apply(os.Environ(), removals)
+	out := make([]string, 0, len(env)+1)
+	for _, kv := range env {
+		if !strings.HasPrefix(kv, "PATH=") {
+			out = append(out, kv)
+		}
+	}
+	return append(out, "PATH="+childPath)
 }
 
 // childEnviron is environ() with the child's PATH overlaid LAST — after every pack env, profile
