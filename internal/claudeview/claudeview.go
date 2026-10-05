@@ -128,8 +128,11 @@ var LegacyLinkTarget = filepath.Join("..", ".claude-shared-credentials", ViewFil
 // refresh (a temp file renamed over the path) replaced the link with a private file, the next
 // boot discarded that file in favor of the shared one, and the shared one held the refresh token
 // the save had already spent: a login on every launch after the first refresh, on the two
-// backends no broker serves. A VIEW launch never sets it, since the view is a file at ViewRel
-// that Claude must read instead. Deleted with the view's switch and the shared directory (CL-D7).
+// backends no broker serves. A jail's VIEW launch never sets it, since the view is a file at
+// ViewRel that Claude must read instead. The host's view launch is the exception: it sets it to
+// the directory yolo manages (HostLocation, CL-D27), because there the file at ViewRel is the
+// user's own login and is never written. Deleted with the view's switch and the shared directory
+// (CL-D7).
 const SecureStorageEnv = "CLAUDE_SECURESTORAGE_CONFIG_DIR"
 
 // HostSubdir is the name of the workspace overlay directory, under <workspace>/.yolo/home, that

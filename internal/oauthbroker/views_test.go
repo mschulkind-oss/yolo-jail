@@ -585,3 +585,48 @@ func TestABrokerTickMarksThatItKeepsHostViews(t *testing.T) {
 		t.Error("an unconfigured store vouched for a broker")
 	}
 }
+
+// Host views are ONE PER DIRECTORY: two packs' stores are two registrations, each named by a
+// digest of its own directory, listed after every workspace's; a /logout in a host session is said
+// to have run there, not in a jail; and a store whose directory was removed is dropped on the next
+// tick, which is how the runbook's H9 puts one back.
+func TestHostViewsAreOnePerDirectoryAndGoWithTheirDirectory(t *testing.T) {
+	f := newViewFixture(t)
+	writeLogin(t, CanonicalPath, "AT_machine", "RT_machine", nowMS()+7*3600_000, nil)
+	alpha := f.workspace(t, "alpha")
+	claude := f.hostView(t, "claude")
+	other := f.hostView(t, "other")
+	if registrationFile(claude) == registrationFile(other) {
+		t.Fatalf("two host views share one registration file: %s", registrationFile(claude))
+	}
+	assertView(t, claude, "AT_machine")
+	assertView(t, other, "AT_machine")
+	var order []string
+	for _, r := range loadRegistrations() {
+		order = append(order, r.Path())
+	}
+	if want := []string{alpha.Path(), claude.Path(), other.Path()}; strings.Join(order, " ") != strings.Join(want, " ") {
+		t.Errorf("registrations in the order %v, want the workspace's, then each host view's by directory: %v", order, want)
+	}
+
+	// /logout in the claude host session: Claude rewrites the store without claudeAiOauth.
+	writeFileT(t, claude.Path(), `{"mcpOAuth": {}}`)
+	BackgroundRefreshTick(f.legacy, BackgroundRefreshLeadSeconds)
+	var b strings.Builder
+	if err := DescribeStore(&b); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(b.String(), "SIGNED OUT by /logout in a `yolo host` session until its next launch") {
+		t.Errorf("status does not say the host store was signed out in a host session:\n%s", b.String())
+	}
+
+	if err := os.RemoveAll(other.Dir); err != nil {
+		t.Fatal(err)
+	}
+	BackgroundRefreshTick(f.legacy, BackgroundRefreshLeadSeconds)
+	for _, r := range loadRegistrations() {
+		if r.Dir == other.Dir {
+			t.Errorf("the registration of a host store whose directory was removed survived a tick: %+v", r)
+		}
+	}
+}

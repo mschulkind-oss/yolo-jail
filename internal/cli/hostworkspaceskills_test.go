@@ -158,6 +158,39 @@ func TestHostLaunchDoesNotAddBackAnIgnoreLineTheUserRemoved(t *testing.T) {
 	}
 }
 
+// A line yolo did NOT write — a teammate's commit, or the user's own edit, put it there before the
+// first launch — is respected the same way once it is removed: the user who takes it out is not
+// fought (OQ-WS6's leaning (a), WS-D22), and the line saying so claims nothing about who wrote it.
+func TestHostLaunchDoesNotAddBackAnIgnoreLineItFoundAndTheUserRemoved(t *testing.T) {
+	f := newWSSkillsFixture(t)
+	f.gitRepo(t)
+	f.skill(t, ".claude/skills/review")
+	writeFile(t, f.path(".gitignore"), "/.codex/skills\n")
+	rc, errs := f.launch(t)
+	if rc != 0 || readlinkOr(t, f.path(".codex/skills")) != "../.claude/skills" {
+		t.Fatalf("setup: rc=%d, no link:\n%s", rc, errs)
+	}
+	if got := readOr(f.path(".gitignore")); got != "/.codex/skills\n" {
+		t.Fatalf("setup: a line already there was written again: %q", got)
+	}
+	if strings.Contains(errs, "added `/.codex/skills`") {
+		t.Errorf("a launch that found the line in place said it added it:\n%s", errs)
+	}
+	const left = "# we commit the link now\n"
+	writeFile(t, f.path(".gitignore"), left)
+	_, errs = f.launch(t)
+	if got := readOr(f.path(".gitignore")); got != left {
+		t.Errorf("the line the user removed was added back: %q", got)
+	}
+	if !strings.Contains(errs, "`/.codex/skills` was in .gitignore and has been removed, so yolo "+
+		"leaves it out and `git status` will list the link") {
+		t.Errorf("the launch did not say it left the line out:\n%s", errs)
+	}
+	if strings.Contains(errs, "yolo added") || strings.Contains(errs, "added `/.codex/skills`") {
+		t.Errorf("the launch claims yolo added a line it found there:\n%s", errs)
+	}
+}
+
 // (d) The repository's own directory for the agent, or another path the agent reads, is left alone
 // and nothing is written.
 func TestHostLaunchLeavesARepositorysOwnAgentPathAlone(t *testing.T) {
@@ -253,7 +286,7 @@ func TestHostLaunchWritesThroughNoLink(t *testing.T) {
 		if got := readOr(target); got != "keep\n" {
 			t.Errorf("the .gitignore link's target was written: %q", got)
 		}
-		if !strings.Contains(errs, ".gitignore is not a regular file yolo writes") ||
+		if !strings.Contains(errs, ".gitignore is not a regular file yolo can read whole") ||
 			!strings.Contains(errs, "add `/.codex/skills` to your ignore rules yourself to quiet it") {
 			t.Errorf("the skipped ignore line, and its next step, were not said:\n%s", errs)
 		}
@@ -532,5 +565,199 @@ func TestHostLaunchRefreshesItsLinkWhenTheChosenSourceChanges(t *testing.T) {
 	}
 	if !strings.Contains(errs, "refreshed the link .codex/skills -> ../.claude/skills") {
 		t.Errorf("the launch did not say it refreshed the link:\n%s", errs)
+	}
+}
+
+// The record is keyed by the workspace's RESOLVED path: a launch from a linked spelling of the
+// directory and one from its real path are one workspace, so the second takes the first's link as
+// yolo's own and keeps it, rather than reading it as the repository's.
+func TestHostLaunchKeysItsLinkByTheWorkspacesResolvedPath(t *testing.T) {
+	f := newWSSkillsFixture(t)
+	f.gitRepo(t)
+	f.skill(t, ".claude/skills/review")
+	real, err := filepath.EvalSymlinks(f.ws)
+	if err != nil {
+		t.Fatal(err)
+	}
+	alias := filepath.Join(t.TempDir(), "alias")
+	if err := os.Symlink(real, alias); err != nil {
+		t.Fatal(err)
+	}
+	t.Chdir(alias)
+	if rc, errs := f.launch(t); rc != 0 || readlinkOr(t, f.path(".codex/skills")) != "../.claude/skills" {
+		t.Fatalf("setup: the launch from the linked spelling (rc=%d) placed no link:\n%s", rc, errs)
+	}
+	t.Chdir(real)
+	_, errs := f.launch(t)
+	if !strings.Contains(errs, "kept the link .codex/skills -> ../.claude/skills") {
+		t.Errorf("from the real path the launch did not take its own link as yolo's:\n%s", errs)
+	}
+}
+
+// A line yolo added and the user removed stays out across the link's removal and its return: the
+// record keeps that the line was seen while no link stands (WS-D22).
+func TestHostLaunchKeepsARemovedIgnoreLineOutAfterItsLinkWentAndCameBack(t *testing.T) {
+	f := newWSSkillsFixture(t)
+	f.gitRepo(t)
+	f.skill(t, ".claude/skills/review")
+	if rc, errs := f.launch(t); rc != 0 || readOr(f.path(".gitignore")) != "/.codex/skills\n" {
+		t.Fatalf("setup: rc=%d, .gitignore %q:\n%s", rc, readOr(f.path(".gitignore")), errs)
+	}
+	if err := os.RemoveAll(f.path(".claude")); err != nil {
+		t.Fatal(err)
+	}
+	if _, errs := f.launch(t); readlinkOr(t, f.path(".codex/skills")) != "" {
+		t.Fatalf("setup: the link outlived its source:\n%s", errs)
+	}
+	writeFile(t, f.path(".gitignore"), "# mine\n")
+	f.skill(t, ".claude/skills/review")
+	_, errs := f.launch(t)
+	if readlinkOr(t, f.path(".codex/skills")) != "../.claude/skills" {
+		t.Fatalf("the link did not come back with its source:\n%s", errs)
+	}
+	if got := readOr(f.path(".gitignore")); got != "# mine\n" {
+		t.Errorf("the line the user removed was added back once the link returned: %q", got)
+	}
+	if !strings.Contains(errs, "has been removed, so yolo leaves it out") {
+		t.Errorf("the launch did not say it left the line out:\n%s", errs)
+	}
+}
+
+// Run in a subdirectory of a git work tree, the launch finds the work tree above it and writes the
+// line into that directory's own .gitignore, where `/.codex/skills` names the link.
+func TestHostLaunchInASubdirectoryOfAWorkTreeIgnoresTheLinkThere(t *testing.T) {
+	f := newWSSkillsFixture(t)
+	f.gitRepo(t)
+	f.skill(t, filepath.Join("pkg", ".claude", "skills", "review"))
+	t.Chdir(f.path("pkg"))
+	rc, errs := f.launch(t)
+	if rc != 0 || readlinkOr(t, f.path("pkg/.codex/skills")) != "../.claude/skills" {
+		t.Fatalf("rc=%d, no link in the subdirectory:\n%s", rc, errs)
+	}
+	if got := readOr(f.path("pkg/.gitignore")); got != "/.codex/skills\n" {
+		t.Errorf("pkg/.gitignore = %q, want the line, since the work tree's .git is above it:\n%s", got, errs)
+	}
+	if _, err := os.Lstat(f.path(".gitignore")); err == nil {
+		t.Errorf("the work tree's root .gitignore was written; the launch ran in pkg")
+	}
+}
+
+// A second spelling of the chosen source (a committed link to it under another agent's path) is
+// the same directory, not another source: it is not named as one the agent is not handed.
+func TestHostLaunchDoesNotNameASecondSpellingOfItsSourceAsDropped(t *testing.T) {
+	f := newWSSkillsFixture(t)
+	f.gitRepo(t)
+	f.skill(t, ".claude/skills/review")
+	if err := os.MkdirAll(f.path(".github"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("../.claude/skills", f.path(".github/skills")); err != nil {
+		t.Fatal(err)
+	}
+	_, errs := f.launch(t)
+	if got := readlinkOr(t, f.path(".codex/skills")); got != "../.claude/skills" {
+		t.Fatalf(".codex/skills -> %q, want ../.claude/skills:\n%s", got, errs)
+	}
+	if strings.Contains(errs, "also holds skills") {
+		t.Errorf("a link to the chosen source was named as a source codex is not handed:\n%s", errs)
+	}
+}
+
+// An agent whose skills destination declares no project_dirs reads no repository's skills, so
+// there is no path to link: nothing is written or said (oh-omp's, which declares none).
+func TestHostWorkspaceSkillsWritesNothingForAnAgentWithNoProjectDirs(t *testing.T) {
+	f := newWSSkillsFixtureFor(t, `{"packs": ["omp"]}`, "oh-omp")
+	f.gitRepo(t)
+	f.skill(t, ".claude/skills/review")
+	packs := composeHostLaunch("oh-omp", "", nil, func(string) {}).packs
+	var errw bytes.Buffer
+	hostWorkspaceSkills(packs, "oh-omp", &errw)
+	entries, err := os.ReadDir(f.ws)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range entries {
+		if e.Name() != ".git" && e.Name() != ".claude" {
+			t.Errorf("a launch of an agent with no project skills path wrote %s", e.Name())
+		}
+	}
+	if errw.Len() > 0 {
+		t.Errorf("it said something: %s", errw.String())
+	}
+}
+
+// A .codex that leaves the workspace is the repository's arrangement, whatever is behind it: the
+// launch cannot see .codex/skills without following the link out of the tree, so it counts the
+// path as present and writes and says nothing.
+func TestHostLaunchLeavesAnAgentDirThatLeavesTheWorkspaceAlone(t *testing.T) {
+	f := newWSSkillsFixture(t)
+	f.gitRepo(t)
+	f.skill(t, ".claude/skills/review")
+	outside := t.TempDir()
+	if err := os.Symlink(outside, f.path(".codex")); err != nil {
+		t.Fatal(err)
+	}
+	_, errs := f.launch(t)
+	if entries, _ := os.ReadDir(outside); len(entries) != 0 {
+		t.Errorf("the launch wrote into the directory .codex leads out to: %v", entries)
+	}
+	if _, err := os.Lstat(f.path(".gitignore")); err == nil {
+		t.Errorf("a .gitignore was written although nothing was linked")
+	}
+	if strings.Contains(errs, "workspace skills") {
+		t.Errorf("a launch that left the repository's .codex alone said something about it:\n%s", errs)
+	}
+}
+
+// A .gitignore larger than yolo reads is not appended to: the launch leaves it byte for byte and
+// names the line to add by hand.
+func TestHostLaunchDoesNotAppendToAnIgnoreFileLargerThanItReads(t *testing.T) {
+	f := newWSSkillsFixture(t)
+	f.gitRepo(t)
+	f.skill(t, ".claude/skills/review")
+	big := strings.Repeat("# a long, generated ignore file\n", maxIgnoreBytes/32+64)
+	writeFile(t, f.path(".gitignore"), big)
+	_, errs := f.launch(t)
+	if readlinkOr(t, f.path(".codex/skills")) != "../.claude/skills" {
+		t.Fatalf("no link:\n%s", errs)
+	}
+	if got := readOr(f.path(".gitignore")); got != big {
+		t.Errorf("a .gitignore over %d bytes was written (%d bytes now)", maxIgnoreBytes, len(got))
+	}
+	if !strings.Contains(errs, "over 1 MiB") ||
+		!strings.Contains(errs, "add `/.codex/skills` to your ignore rules yourself to quiet it") {
+		t.Errorf("the launch did not say why it left .gitignore alone, and the next step:\n%s", errs)
+	}
+}
+
+// A .gitignore yolo can read but not open for the append (read-only to the user) is left byte for
+// byte, and the launch names the errno and the manual step, not the not-a-regular-file line. Root
+// opens a 0444 file for writing regardless, so the cell needs an unprivileged run: CI's check-go
+// and check-macos, or a jail's test binary run under an unprivileged uid.
+func TestHostLaunchSaysWhenItCannotOpenTheIgnoreFileForTheAppend(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root opens a read-only .gitignore for writing; run unprivileged")
+	}
+	f := newWSSkillsFixture(t)
+	f.gitRepo(t)
+	f.skill(t, ".claude/skills/review")
+	writeFile(t, f.path(".gitignore"), "# mine\n")
+	if err := os.Chmod(f.path(".gitignore"), 0o444); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(f.path(".gitignore"), 0o644) })
+	_, errs := f.launch(t)
+	if readlinkOr(t, f.path(".codex/skills")) != "../.claude/skills" {
+		t.Fatalf("no link:\n%s", errs)
+	}
+	if got := readOr(f.path(".gitignore")); got != "# mine\n" {
+		t.Errorf("a .gitignore yolo could not open for writing changed: %q", got)
+	}
+	if !strings.Contains(errs, "could not open .gitignore to add `/.codex/skills` (permission denied), "+
+		"so `git status` will list the link; add the line yourself to quiet it") {
+		t.Errorf("the launch did not name the open failure and the next step:\n%s", errs)
+	}
+	if strings.Contains(errs, "not a regular file") {
+		t.Errorf("a read-only regular .gitignore was reported as not a regular file:\n%s", errs)
 	}
 }

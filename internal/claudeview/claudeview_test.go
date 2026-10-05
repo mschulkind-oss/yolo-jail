@@ -252,6 +252,11 @@ func TestAHostLocationIsADirectoryYoloManages(t *testing.T) {
 	if _, err := loc.Read(); !errors.Is(err, ErrDirGone) {
 		t.Errorf("a missing host dir reads as %v, want ErrDirGone", err)
 	}
+	// No hook ever ran in yolo's own directory, so there is no legacy link to look for: the
+	// question costs no read, and its answer is the same before the directory exists.
+	if removed, err := loc.RemoveLegacyLink(); removed || err != nil {
+		t.Errorf("RemoveLegacyLink on a host view with no directory yet = %v, %v; want false, nil", removed, err)
+	}
 	if err := loc.EnsureDir(); err != nil {
 		t.Fatal(err)
 	}
@@ -276,6 +281,10 @@ func TestAHostLocationIsADirectoryYoloManages(t *testing.T) {
 	}
 	if err := os.Symlink(target, linked.Dir); err != nil {
 		t.Fatal(err)
+	}
+	if err := linked.EnsureDir(); !errors.Is(err, ErrViewIsLink) {
+		t.Errorf("EnsureDir over a linked host dir = %v, want ErrViewIsLink: the registration fails "+
+			"rather than writing through it", err)
 	}
 	if err := linked.Write([]byte("{}")); !errors.Is(err, ErrViewIsLink) {
 		t.Errorf("a write through a linked host dir = %v, want ErrViewIsLink", err)

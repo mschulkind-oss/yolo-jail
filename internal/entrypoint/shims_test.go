@@ -449,3 +449,22 @@ func TestABlockerRunsWhatIsBehindItUnderTheHatch(t *testing.T) {
 		}
 	}
 }
+
+// A later entry for a name an earlier one already rendered replaces it, as a second write of the
+// same file in the block dir always did: one script per name, at the first one's place, with the
+// later entry's body. A host launch names its block dir by the scripts, so a duplicate kept twice
+// would name a different dir and print the name twice in its disclosure.
+func TestRenderBlockersKeepsOneScriptPerNameTheLaterEntrys(t *testing.T) {
+	decoded, err := jsonx.Decode([]byte(`[{"name":"curl","message":"first curl rule"},` +
+		`{"name":"wget","message":"wget rule"},{"name":"curl","message":"second curl rule"}]`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := RenderBlockers(decoded.([]any), BlockerRender{})
+	if len(got) != 2 || got[0].Name != "curl" || got[1].Name != "wget" {
+		t.Fatalf("RenderBlockers = %+v, want curl then wget, once each", got)
+	}
+	if !strings.Contains(got[0].Content, "second curl rule") || strings.Contains(got[0].Content, "first curl rule") {
+		t.Errorf("curl's script is not the later entry's:\n%s", got[0].Content)
+	}
+}

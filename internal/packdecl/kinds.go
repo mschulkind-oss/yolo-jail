@@ -310,7 +310,7 @@ const (
 	// starts (docs/design/host-launch-environment.md HE-D11): that launch composes the child's
 	// PATH, so it renders the same shims through the same writer (entrypoint.RenderBlockers) into
 	// a directory yolo keeps on the host and puts it first. `yolo host apply` starts no process
-	// and owns no PATH, so the kind is honored-but-unbuilt there (render.HostUnimplemented).
+	// and owns no PATH, so the kind is delivered at launch only there (render.HostAtLaunch).
 	//
 	// A PACK CONCERN, not a core one, since 2026-09-04. Core used to block `grep -r`
 	// and `find` by DEFAULT — a default that silently assumed the image bakes `rg` and

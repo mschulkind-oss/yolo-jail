@@ -447,3 +447,35 @@ func TestHostClaudeEnsureThatStartsNoBrokerSaysHowToStartOne(t *testing.T) {
 		t.Errorf("ensure with no broker running = %v, want it said, with the command that starts one", err)
 	}
 }
+
+// A /logout in an earlier host session signed the managed store out of the machine's login (the
+// broker writes it nothing more); the next launch registers it again, says it signs the store back
+// in, names the machine-wide sign-out, and the view holds the machine's login again.
+func TestHostClaudeViewAfterALogoutInItsSessionSaysItSignsTheStoreBackIn(t *testing.T) {
+	home := hostGateHome(t, claudeAlone, viewShell("1"))
+	claudeViewHost(t)
+	writeClaudeLogin(t, filepath.Join(home, ".local", "share", "yolo-jail", "state",
+		"claude-oauth-broker", "claude-credentials.json"), "AT_machine", "RT_machine")
+	launch := composeHostLaunch("claude", "", nil, func(string) {})
+	var errw bytes.Buffer
+	dir := envValue(hostClaudeView(launch, nil, &errw), claudeview.SecureStorageEnv)
+	if dir == "" {
+		t.Fatalf("setup: no view:\n%s", errw.String())
+	}
+	view := filepath.Join(dir, claudeview.ViewFile)
+	// /logout in that session: Claude rewrites its store without claudeAiOauth.
+	writeFile(t, view, `{"mcpOAuth": {}}`)
+	markAsThisBuilds() // the broker's tick, which records the sign-out
+	errw.Reset()
+	if got := envValue(hostClaudeView(launch, nil, &errw), claudeview.SecureStorageEnv); got != dir {
+		t.Fatalf("the relaunch's view is %q, want %q:\n%s", got, dir, errw.String())
+	}
+	if !strings.Contains(errw.String(), "/logout in an earlier `yolo host -- claude` had signed this store "+
+		"out of the machine's login; this launch signs it back in. `yolo claude-auth logout` signs the "+
+		"whole machine out") {
+		t.Errorf("the relaunch did not say it signs the store back in:\n%s", errw.String())
+	}
+	if b, _ := os.ReadFile(view); !strings.Contains(string(b), "AT_machine") {
+		t.Errorf("the store was not signed back in to the machine's login:\n%s", b)
+	}
+}
