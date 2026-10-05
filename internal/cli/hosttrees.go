@@ -448,13 +448,16 @@ func hostTreeLinkSlug(dest string) string {
 // whatever the selection carries — a revert is the user taking yolo out of the home. observe reports
 // the links it would remove and writes nothing. The links come back sorted. A plain `files` tree's
 // output is not this arm's: the revert withdraws keys, and leaves those as it always has.
-func revertHostTreeLinks(observe bool) ([]string, error) {
+//
+// A record that cannot be read proves nothing is yolo's, so nothing is removed, and warn says so,
+// naming the record and what to do; it fails no revert, whose keys are another record's.
+func revertHostTreeLinks(observe bool) (links []string, warn string, err error) {
 	manPath := hostSkillsManifestPath()
-	man, err := hostskills.LoadManifest(manPath)
-	if err != nil {
-		return nil, err
+	man, lerr := hostskills.LoadManifest(manPath)
+	if lerr != nil {
+		return nil, fmt.Sprintf("the files ownership record %s cannot be read (%v), so no patched extension's "+
+			"link is removed — repair or remove that file and re-run this, or remove a link at ~/<into> by hand", manPath, lerr), nil
 	}
-	var links []string
 	for dest := range man.Entries {
 		if hostTreeLinkSlug(dest) != "" {
 			links = append(links, dest)
@@ -462,17 +465,17 @@ func revertHostTreeLinks(observe bool) ([]string, error) {
 	}
 	sort.Strings(links)
 	if observe || len(links) == 0 {
-		return links, nil
+		return links, "", nil
 	}
 	for _, dest := range links {
 		if err := os.Remove(dest); err != nil && !errors.Is(err, fs.ErrNotExist) {
-			return links, err
+			return links, "", err
 		}
 		man.Forget(dest)
 	}
 	if err := man.Save(manPath); err != nil {
-		return links, err
+		return links, "", err
 	}
 	sweepUnlinkedHostTrees(nil, man)
-	return links, nil
+	return links, "", nil
 }

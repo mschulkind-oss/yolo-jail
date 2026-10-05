@@ -106,7 +106,10 @@ func hostRevert(out, errw io.Writer, color bool, write bool) int {
 	}
 	// THE PATCHED EXTENSIONS' LINKS (hosttrees.go, docs/design/patched-extensions.md §8.3): each one
 	// the render owns goes, and the host's versioned copies with it.
-	links, lerr := revertHostTreeLinks(!write)
+	links, warn, lerr := revertHostTreeLinks(!write)
+	if warn != "" {
+		pr.Printf("[yellow]Warning: %s[/yellow]", richtext.Escape(warn))
+	}
 	for _, l := range links {
 		action := "would remove the link"
 		if write {

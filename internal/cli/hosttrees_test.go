@@ -539,3 +539,25 @@ func TestARevertRemovesAPatchedExtensionsLinkAndItsCopies(t *testing.T) {
 		t.Errorf("the revert's summary does not count the link:\n%s", out.String())
 	}
 }
+
+// AN UNREADABLE FILES RECORD fails no revert: the keys are still withdrawn, nothing the record
+// cannot prove is yolo's is removed, and the line names the record and what to do.
+func TestARevertOverAnUnreadableFilesRecordRemovesNoLinkAndSaysSo(t *testing.T) {
+	fx := newTreeFixture(t, `"f.txt"`)
+	var out, errw bytes.Buffer
+	hostApply([]string{"--assert"}, io.Discard, &errw, false, strings.NewReader(""))
+	if _, err := os.Readlink(fx.link()); err != nil {
+		t.Fatalf("the apply rendered no link: %v\n%s", err, errw.String())
+	}
+	writeFile(t, hostSkillsManifestPath(), "{not json")
+	if rc := hostMain([]string{"apply", "--revert", "--assert"}, &out, &errw, false, nil); rc != 0 {
+		t.Fatalf("the revert rc=%d over an unreadable files record\n%s%s", rc, out.String(), errw.String())
+	}
+	if _, err := os.Lstat(fx.link()); err != nil {
+		t.Error("the revert removed a link an unreadable record cannot prove is yolo's")
+	}
+	if !strings.Contains(out.String()+errw.String(), hostSkillsManifestPath()) ||
+		!strings.Contains(out.String()+errw.String(), "no patched extension's link is removed") {
+		t.Errorf("the revert does not say why it left the link, naming the record:\n%s%s", out.String(), errw.String())
+	}
+}
