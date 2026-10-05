@@ -3,6 +3,23 @@
     {
       "bin": "oh-omp",
       "kind": "program",
+      // How `yolo host -p <profile> -- oh-omp` moves oh-omp's scope for one launch without
+      // touching ~/.oh-omp/agent/config.yml (docs/design/model-lists-and-pickers.md MM-D30): the
+      // settings derive's one selection key, enabledModels under an `only`, as --models, which
+      // 0.15.3 reads in its place (`parsedArgs.models ?? settings.get("enabledModels")`, read in
+      // the shipped binary, never run) and splits on commas.
+      "launch_selection": {
+        "flags": [
+          {
+            "argv": [
+              "--models",
+              "{value}"
+            ],
+            "key": "enabledModels"
+          }
+        ],
+        "surface": ".oh-omp/agent/config.yml"
+      },
       "package": "@oh-labs/oh-omp@0.15.3",
       "platforms": [
         "darwin/arm64",

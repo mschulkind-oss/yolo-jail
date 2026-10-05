@@ -13,6 +13,42 @@
         "dnf": "pi-coding-agent"
       },
       "kind": "program",
+      // How `yolo host -p <profile> -- pi` moves pi for one launch without touching
+      // ~/.pi/agent/settings.json (docs/design/model-lists-and-pickers.md MM-D30): the settings
+      // derive's selection as pi's own flags, --provider and --model choosing the session's model
+      // and --models replacing enabledModels (MEASURED on pi 1.0.1); and the two model-list files
+      // pi's extensions read, as this launch composes them, in the variables those extensions read
+      // before the files (extensions/yolo-openai-auth.js, extensions/yolo-model-lists.js).
+      "launch_selection": {
+        "flags": [
+          {
+            "argv": [
+              "--provider",
+              "{value}"
+            ],
+            "key": "defaultProvider"
+          },
+          {
+            "argv": [
+              "--model",
+              "{value}"
+            ],
+            "key": "defaultModel"
+          },
+          {
+            "argv": [
+              "--models",
+              "{value}"
+            ],
+            "key": "enabledModels"
+          }
+        ],
+        "surface": ".pi/agent/settings.json",
+        "surfaces": {
+          ".pi/agent/yolo-model-lists.json": "YOLO_PI_MODEL_LISTS",
+          ".pi/agent/yolo-openai-codex-models.json": "YOLO_PI_OPENAI_CODEX_MODELS"
+        }
+      },
       "model_catalog": [
         "node_modules/@earendil-works/pi-ai/dist/providers/data/*.json"
       ],

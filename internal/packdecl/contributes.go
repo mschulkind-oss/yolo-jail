@@ -349,6 +349,11 @@ type Contribution struct {
 	// launcher templates are shared by every program, and the argv, the catalog's shape and the
 	// flag that names a catalog file are facts about a release of one program.
 	ModelMenu *ModelMenu `json:"model_menu,omitempty"`
+	// LaunchSelection is how one `yolo host -p` launch hands this PROGRAM the selection its config
+	// surface's derive composes, as argv words or a variable instead of a file (a coined term —
+	// see the LaunchSelection type, in packdecl.go, which carries the grammar;
+	// docs/design/model-lists-and-pickers.md MM-D30). `program` only, any `via`.
+	LaunchSelection *LaunchSelection `json:"launch_selection,omitempty"`
 	// After, as `"host:<path>"` on a `briefing`, prepends the user's own host file to the
 	// jail's composed briefing (run.briefingHostOverlay → jailcontent.PrependHostBriefing) — so a
 	// personal AGENTS.md outranks anything a pack ships INSIDE A JAIL.
@@ -1185,6 +1190,8 @@ func (m *Manifest) InstallContributions() []Install {
 			}
 			in.ModelMenu = &m
 		}
+		// The launch selection too, for the model menu's reason, and copied for Refresh's.
+		in.LaunchSelection = c.LaunchSelection.clone()
 		switch c.Via {
 		case "npm":
 			in.Package = c.Package
@@ -3413,6 +3420,8 @@ func validateContribution(label string, c Contribution) []string {
 	problems = append(problems, modelCatalogProblems(label, c)...)
 	// `model_menu` is a program's alone: the launcher runs it before exec'ing the program.
 	problems = append(problems, modelMenuProblems(label, c)...)
+	// `launch_selection` is a program's alone: it hands one launch of the program its selection.
+	problems = append(problems, launchSelectionProblems(label, c)...)
 	// `exact_menu_refuses` is a program's alone: it says how that program's model menu narrows.
 	problems = append(problems, exactMenuProblems(label, c)...)
 	// `reserved` is skills' alone, refused in `profile`'s position and for `profile`'s reason:

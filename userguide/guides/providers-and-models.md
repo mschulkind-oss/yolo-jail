@@ -330,12 +330,18 @@ out, and yolo says so each time Codex starts; updating Codex brings it back. On 
 Codex keeps its usual menu.
 
 `yolo host -- codex` shows the same menu when your config's `profile` picks your ChatGPT
-subscription for Codex (`"profile": {"codex": "codex"}`), and yolo keeps the menu in its own
-folder, never in your `~/.codex`. There, a `-p` does not change which provider Codex runs on:
-Codex reads that from its own config, which `yolo host apply` writes for the profile your config
-names. So a `-p` naming another provider than that one leaves Codex's usual menu in place, and
-yolo says why each time. To use yolo's menu at the host, set `profile` for Codex in your config
-and run `yolo host apply`.
+subscription for Codex (`"profile": {"codex": "codex"}`), and so does `yolo host -p codex -- codex`
+whatever your config picks. yolo keeps the menu in its own folder, never in your `~/.codex`.
+
+On your own machine a `-p` moves an agent that keeps its provider in its own settings file, Codex,
+opencode, pi and oh-omp, for that one launch, as it does in a jail, without editing that file.
+`yolo host -p zai -- pi` starts pi on z.ai and `yolo host -p codex -- codex` starts Codex on your
+ChatGPT subscription; the next launch without `-p` is back on what your config picks. yolo hands
+the choice to the agent on its command line, or for opencode in `OPENCODE_CONFIG_CONTENT`, and the
+launch shows exactly what it added. An option of your own typed after the agent's name still wins.
+`yolo host env -p` can carry the choice only for opencode; for the others it names the
+`yolo host -p` command that does. To change the provider an agent starts on every time, set
+`profile` for it in your config and run `yolo host apply`.
 
 opencode on your ChatGPT subscription (`yolo -p codex -- opencode`) shows the same models in
 `/models`, with the 1M-context variants as models of their own, and runs no other one there while
@@ -348,8 +354,8 @@ resume that was saved on another model continues on a different one, with pi say
 restore the model. That holds when you launch with no profile too. To use a model yolo does not
 list there, add it to `providers.openai-codex.models` in your config, or launch with a profile
 that sets `"enforce_models": false`. Under `yolo host`, pi reads both from a file
-`yolo host apply` writes for the profile your config's `profile` names for pi, and a `-p` on the
-launch does not change it, so make the change in your config and run `yolo host apply`.
+`yolo host apply` writes for the profile your config's `profile` names for pi, and a
+`yolo host -p` launch hands pi the list for its own profile instead, for that launch only.
 
 A model you pick with `/model` stays picked at the next launch on your ChatGPT subscription and on
 a list a pack narrowed with `only` (below), as long as the profile's `enforce_models` is on, which

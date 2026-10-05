@@ -288,6 +288,10 @@ type Install struct {
 	// Contribution field of the same name carries the reasoning; the generated launcher is its
 	// one reader (MM-D9, MM-D22).
 	ModelMenu *ModelMenu `json:"model_menu,omitempty"`
+	// LaunchSelection is how one `yolo host -p` launch hands the program the selection its config
+	// surface's derive composes, nil when it declares none. The LaunchSelection type carries the
+	// grammar; `yolo host --` is its one reader (docs/design/model-lists-and-pickers.md MM-D30).
+	LaunchSelection *LaunchSelection `json:"launch_selection,omitempty"`
 }
 
 // Refresh declares a program's PRE-LAUNCH REFRESH — a term coined here (2026-09-25) for the
@@ -882,4 +886,244 @@ func knownHook(name string) bool {
 		}
 	}
 	return false
+}
+
+// The two placeholders a LaunchSelection argv word spells: LaunchSelectionValue for a value, and
+// LaunchSelectionKey for the dotted path of the leaf whose value it is (the `each` form only).
+const (
+	LaunchSelectionValue = "{value}"
+	LaunchSelectionKey   = "{key}"
+)
+
+// LaunchSelection declares a program's LAUNCH SELECTION — a term coined here (2026-10-05) for the
+// selection a program's config-surface derive composes for ONE `yolo host` launch, handed to that
+// launch's process as argv words or environment variables instead of being written into the
+// program's config files (docs/design/model-lists-and-pickers.md MM-D30, OQ-MM5). It is what lets a
+// `yolo host -p <profile> -- <bin>` move a program whose provider and model live in its own config
+// file (codex's `model_provider`, opencode's `model`, pi's `defaultProvider`), which only `yolo
+// host apply` writes, and only for the configured profile (host-agent-environment.md OQ-HC3).
+//
+// WHAT IS HANDED, all of it composed by the pack's own derive over the launch's own tables, as a
+// jail's boot composes it (MM-D24's one code path), and none of it written:
+//
+//   - the reserved `selection` namespace the derive returns for Surface (agentcfg.SelectionKey),
+//     with Defaults filling a key it omits;
+//   - when Rows is set, each row of Surface's Rows.Table whose key a Rows.NamedBy selection value
+//     names (a provider entry the selection points at), since the program reads the selection
+//     against rows the configured file may not hold;
+//   - when Surfaces is set, each further computed surface's whole content, as this launch's
+//     derive composes it, in the variable that surface names.
+//
+// HOW, by exactly one of three forms, each a fact about how a release of the program reads a
+// one-launch override, so the words are the pack's (AGENTS.md, "Core does not know what an agent
+// is"):
+//
+//   - Each: argv words repeated for every leaf of the selection and the rows, `{key}` the leaf's
+//     dotted path and `{value}` its value in Surface's codec: `["-c", "{key}={value}"]` for codex,
+//     whose `-c` takes a dotted TOML path and a TOML value.
+//   - Flags: argv words per selection key, `{value}` the value as a plain word, an array's items
+//     joined by commas: `--provider {value}` for pi. A key no entry names is not handed.
+//   - Env: one variable that receives the selection and the rows as one document in Surface's
+//     codec: OPENCODE_CONFIG_CONTENT for opencode.
+//
+// WHAT THE LAUNCH GUARANTEES around it, none of which the pack can turn off: it hands anything
+// only when a `-p` was typed and what it would hand differs from what the configured profile
+// composes, so a wrapped launch and a bare `yolo host --` leave the program on its file; argv
+// words go right after argv[0], so a user's own later flag of the same name still wins; every
+// handoff is disclosed (a launch has no quiet mode); YOLO_NO_LAUNCH_FLAGS=1 skips it and says so;
+// in a jail it does nothing, the jail's own render having written the -p's selection already; and
+// `yolo host env`, which carries no argv, exports the env form and names the launch for the others.
+type LaunchSelection struct {
+	// Surface is the home-relative path of the program's config surface whose derive composes the
+	// selection: `.codex/config.toml` for codex. The path must be one of the pack's own `config`
+	// surfaces, which the launch checks when it runs the derive.
+	Surface string `json:"surface"`
+	// Each is the per-leaf argv form. See the type.
+	Each []string `json:"each,omitempty"`
+	// Flags is the per-key argv form, in the order the words are handed. See the type.
+	Flags []LaunchSelectionFlag `json:"flags,omitempty"`
+	// Env is the document form's variable name. See the type.
+	Env string `json:"env,omitempty"`
+	// Rows, when set, is the table whose entries the selection names, handed beside it.
+	Rows *LaunchSelectionRows `json:"rows,omitempty"`
+	// Defaults are selection keys and the value handed when the launch's selection omits one,
+	// standing for what a jail's render does by clearing a key yolo wrote earlier (the selection's
+	// deselect rule): `{"model_provider": "openai"}` for codex, whose subscription selection names
+	// no provider and whose file may name another.
+	Defaults map[string]string `json:"defaults,omitempty"`
+	// Surfaces maps a further config surface's home-relative path to the variable that carries
+	// its content for this launch: pi's model-list files, which pi's extensions read from the
+	// variable before the file. Each path must be a computed surface of the pack.
+	Surfaces map[string]string `json:"surfaces,omitempty"`
+}
+
+// LaunchSelectionFlag is one selection key's argv words in the Flags form.
+type LaunchSelectionFlag struct {
+	// Key is the selection key handed: `defaultProvider` for pi.
+	Key string `json:"key"`
+	// Argv is the words, one holding LaunchSelectionValue: `["--provider", "{value}"]`.
+	Argv []string `json:"argv"`
+}
+
+// LaunchSelectionRows names the rows a selection points at.
+type LaunchSelectionRows struct {
+	// Table is Surface's top-level table of rows keyed by provider: `model_providers` for codex.
+	Table string `json:"table"`
+	// NamedBy is the selection keys whose value (or, for an array, whose items) name a row of
+	// Table: `["model_provider"]` for codex. A name with no row hands none.
+	NamedBy []string `json:"named_by"`
+}
+
+// launchSelectionProblems refuses a `launch_selection` no launch could hand: on a kind with no
+// program, with a surface path that is not a clean home-relative file path, with no form or more
+// than one, a form whose words never carry a value (or, for `each`, never name the leaf), a row
+// declaration the Flags form has no word for, an empty key or variable name, or two surfaces
+// handed in one variable.
+func launchSelectionProblems(label string, c Contribution) []string {
+	ls := c.LaunchSelection
+	if ls == nil {
+		return nil
+	}
+	if c.Kind != KindProgram {
+		return []string{fmt.Sprintf("%s: kind %q does not take \"launch_selection\" — it hands a "+
+			"PROGRAM's selection to one launch of it, so only \"program\" has a launch to hand it to",
+			label, c.Kind)}
+	}
+	var problems []string
+	add := func(format string, args ...any) {
+		problems = append(problems, fmt.Sprintf("%s: \"launch_selection\" "+format, append([]any{label}, args...)...))
+	}
+	if prob := homeRelativeFileProblem(ls.Surface); prob != "" {
+		add("\"surface\" %s", prob)
+	}
+	forms := 0
+	for _, set := range []bool{len(ls.Each) > 0, len(ls.Flags) > 0, ls.Env != ""} {
+		if set {
+			forms++
+		}
+	}
+	switch {
+	case forms == 0:
+		add("names no way to hand the selection: give exactly one of \"each\", \"flags\" or \"env\"")
+	case forms > 1:
+		add("names more than one way to hand the selection: give exactly one of \"each\", \"flags\" or \"env\"")
+	}
+	words := func(field string, argv []string, needKey bool) {
+		value, key := false, false
+		for _, w := range argv {
+			if w == "" {
+				add("%s has an empty word", field)
+			}
+			value = value || strings.Contains(w, LaunchSelectionValue)
+			key = key || strings.Contains(w, LaunchSelectionKey)
+		}
+		if !value {
+			add("%s must carry the value with %q in one of its words", field, LaunchSelectionValue)
+		}
+		if needKey && !key {
+			add("%s must name the leaf with %q in one of its words, or every leaf is handed the same words",
+				field, LaunchSelectionKey)
+		}
+	}
+	if len(ls.Each) > 0 {
+		words("\"each\"", ls.Each, true)
+	}
+	flagged := map[string]bool{}
+	for i, f := range ls.Flags {
+		field := fmt.Sprintf("\"flags\"[%d]", i)
+		if f.Key == "" {
+			add("%s names no \"key\"", field)
+		} else if flagged[f.Key] {
+			add("%s hands key %q a second time", field, f.Key)
+		}
+		flagged[f.Key] = true
+		if len(f.Argv) == 0 {
+			add("%s has no \"argv\"", field)
+			continue
+		}
+		words(field+".argv", f.Argv, false)
+	}
+	if ls.Env != "" && !ValidEnvName(ls.Env) {
+		add("\"env\" %q is not a variable name (must match [A-Za-z_][A-Za-z0-9_]*)", ls.Env)
+	}
+	if r := ls.Rows; r != nil {
+		if r.Table == "" {
+			add("\"rows\" names no \"table\"")
+		}
+		if len(r.NamedBy) == 0 {
+			add("\"rows\" names no \"named_by\" key, so no row is ever named")
+		}
+		for _, k := range r.NamedBy {
+			if k == "" {
+				add("\"rows\".\"named_by\" has an empty key")
+			}
+		}
+		if len(ls.Flags) > 0 {
+			add("\"rows\" cannot be handed by \"flags\", which hand selection keys one by one and have " +
+				"no word for a row: use \"each\" or \"env\", or drop \"rows\"")
+		}
+	}
+	for _, k := range sortedKeys(ls.Defaults) {
+		switch {
+		case k == "":
+			add("\"defaults\" has an empty key")
+		case ls.Defaults[k] == "":
+			add("\"defaults\" gives %q an empty value", k)
+		case len(ls.Flags) > 0 && !flagged[k]:
+			add("\"defaults\" names %q, which no \"flags\" entry hands", k)
+		}
+	}
+	vars := map[string]string{}
+	if ls.Env != "" {
+		vars[ls.Env] = "\"env\""
+	}
+	for _, p := range sortedKeys(ls.Surfaces) {
+		name := ls.Surfaces[p]
+		if prob := homeRelativeFileProblem(p); prob != "" {
+			add("\"surfaces\" path %q %s", p, prob)
+		} else if p == ls.Surface {
+			add("\"surfaces\" names %q, the selection's own surface, whose selection is handed already", p)
+		}
+		if !ValidEnvName(name) {
+			add("\"surfaces\" gives %q the variable %q, which is not a variable name "+
+				"(must match [A-Za-z_][A-Za-z0-9_]*)", p, name)
+			continue
+		}
+		if prev, dup := vars[name]; dup {
+			add("\"surfaces\" hands %q in %s, which %s already uses", p, name, prev)
+			continue
+		}
+		vars[name] = fmt.Sprintf("%q", p)
+	}
+	return problems
+}
+
+// clone is a deep copy, so a consumer that edits its Install cannot reach back into the manifest.
+func (ls *LaunchSelection) clone() *LaunchSelection {
+	if ls == nil {
+		return nil
+	}
+	out := &LaunchSelection{Surface: ls.Surface, Env: ls.Env, Each: append([]string(nil), ls.Each...)}
+	if len(out.Each) == 0 {
+		out.Each = nil
+	}
+	for _, f := range ls.Flags {
+		out.Flags = append(out.Flags, LaunchSelectionFlag{Key: f.Key, Argv: append([]string(nil), f.Argv...)})
+	}
+	if ls.Rows != nil {
+		out.Rows = &LaunchSelectionRows{Table: ls.Rows.Table, NamedBy: append([]string(nil), ls.Rows.NamedBy...)}
+	}
+	if ls.Defaults != nil {
+		out.Defaults = make(map[string]string, len(ls.Defaults))
+		for k, v := range ls.Defaults {
+			out.Defaults[k] = v
+		}
+	}
+	if ls.Surfaces != nil {
+		out.Surfaces = make(map[string]string, len(ls.Surfaces))
+		for k, v := range ls.Surfaces {
+			out.Surfaces[k] = v
+		}
+	}
+	return out
 }

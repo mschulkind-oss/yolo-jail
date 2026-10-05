@@ -3,9 +3,10 @@ package cli
 // hostmodelmenu_test.go pins codex's model menu at `yolo host --` (docs/design/model-lists-and-
 // pickers.md §14.7, MM-D24 to MM-D28) at its call site, hostExec, through hostMain with the exec
 // replaced: the shipped codex pack, a stub codex on PATH that prints a catalog for `debug models
-// --bundled` and counts each read, and the argv the exec was handed. Deleting the step's call in
-// hostExec, the list derive, the agreement check or the lock hand-over fails one of these. No codex
-// runs and nothing is sent anywhere.
+// --bundled` and counts each read, and the argv the exec was handed. With them, codex's LAUNCH
+// SELECTION (MM-D30): what a host -p hands codex in place of the file it cannot write. Deleting
+// either step's call in hostExec, the list derive, the selection's comparison or the lock
+// hand-over fails one of these. No codex runs and nothing is sent anywhere.
 
 import (
 	"bytes"
@@ -16,6 +17,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"runtime"
+	"slices"
 	"strconv"
 	"strings"
 	"syscall"
@@ -23,6 +25,7 @@ import (
 
 	"github.com/mschulkind-oss/yolo-jail/internal/entrypoint"
 	"github.com/mschulkind-oss/yolo-jail/internal/modelmenu"
+	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"golang.org/x/sys/unix"
 )
@@ -213,40 +216,177 @@ func TestHostCodexOnTheConfiguredSubscriptionGetsYolosMenu(t *testing.T) {
 	}
 }
 
-// A -p OVER ANOTHER PROVIDER THAN THE CONFIGURED ONE GETS NO MENU (MM-D25): at the host the -p
-// does not move codex, so a menu for the -p's provider could list models codex is not running on.
-// The launch says why and runs codex as typed, without reading its catalog; a -p over the
-// configured provider still gets the menu.
-func TestHostCodexWithAPOverAnotherProviderGetsNoMenu(t *testing.T) {
-	for _, tc := range []struct {
-		name, cfg, why string
-	}{
+// A -p OVER ANOTHER PROVIDER MOVES CODEX ONTO IT, AND THE MENU FOLLOWS (MM-D30, OQ-MM5 on its
+// leaning B; this inverts MM-D25's no-menu rule): `yolo host -p codex -- codex` with the config on
+// zai, or naming no profile, hands codex the subscription's selection as `-c` right after argv[0],
+// the declared `openai` standing for the model_provider a jail's render would clear, and the
+// subscription's menu after it, both disclosed; and writes none of it: the user's
+// ~/.codex/config.toml is byte-identical, and no file in the home but the menu names the model.
+func TestHostCodexMovesOntoAPOverAnotherProviderAndGetsItsMenu(t *testing.T) {
+	for _, tc := range []struct{ name, cfg string }{
 		{"config names another provider", `{"packs": ["codex", "zai"], "profile": {"codex": "zai"}, ` +
-			`"env_sources": [{"ZAI_API_KEY": "k"}]}`, "the profile your config names for codex (zai) selects zai"},
-		{"config names none", `{"packs": ["codex"]}`, "your config names no profile for codex"},
+			`"env_sources": [{"ZAI_API_KEY": "k"}]}`},
+		{"config names none", `{"packs": ["codex"]}`},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			l := runHostMenu(t, "", tc.cfg, nil, []string{"-p", "codex"}, "exec", "hi")
+			home := hostGateHome(t, tc.cfg, nil)
+			own := "model_provider = \"zai\"\nmodel = \"glm-5.3\"\n"
+			writeFile(t, filepath.Join(home, ".codex", "config.toml"), own)
+			l := runHostMenu(t, home, "", nil, []string{"-p", "codex"}, "exec", "hi")
 			if l.rc != 0 || l.argv == nil {
 				t.Fatalf("rc=%d, exec reached=%v\n%s", l.rc, l.argv != nil, l.errs)
 			}
-			if !reflect.DeepEqual(l.argv, []string{"codex", "exec", "hi"}) || l.catalogReads != 0 {
-				t.Errorf("codex got %q after %d catalog reads, want its own argv and none", l.argv, l.catalogReads)
+			menu := menuPathIn(l.argv)
+			want := []string{"codex", "-c", "model_catalog_json=" + menu, "-c", `model="gpt-6.1-sol"`,
+				"-c", `model_provider="openai"`, "exec", "hi"}
+			if menu == "" || !reflect.DeepEqual(l.argv, want) || l.catalogReads != 1 {
+				t.Fatalf("codex got %q after %d catalog reads, want %q\n%s", l.argv, l.catalogReads, want, l.errs)
 			}
 			for _, want := range []string{
-				"yolo host: codex gets no model menu from yolo this launch: -p codex selects openai-codex, while " + tc.why,
-				"OQ-MM5",
-				"codex shows its own model menu.",
+				"  added by pack codex: -c model=\"gpt-6.1-sol\" -c model_provider=\"openai\" (-p codex's " +
+					"selection for codex, for this launch only, its config files untouched: model=gpt-6.1-sol, " +
+					"model_provider=openai)",
+				"(codex's model menu: yolo's models for openai-codex",
 			} {
 				if !strings.Contains(l.errs, want) {
 					t.Errorf("stderr lacks %q:\n%s", want, l.errs)
 				}
 			}
+			if strings.Contains(l.errs, "gets no model menu") {
+				t.Errorf("the menu was refused for a -p that moved codex:\n%s", l.errs)
+			}
+			if got, _ := os.ReadFile(filepath.Join(home, ".codex", "config.toml")); string(got) != own {
+				t.Errorf("~/.codex/config.toml changed:\n%s", got)
+			}
+			// The menu names the model, the stub's catalog and the launch log's disclosure do too;
+			// nothing else may.
+			assertNoFileNames(t, home, "gpt-6.1-sol", filepath.Dir(menu), filepath.Join(home, "catalog.json"),
+				filepath.Join(home, ".local", "share", "yolo-jail", "logs"))
 		})
 	}
-	agree := runHostMenu(t, "", codexOnTheSubscription, nil, []string{"-p", "codex"})
-	if menuPathIn(agree.argv) == "" || strings.Contains(agree.errs, "gets no model menu") {
-		t.Errorf("-p codex over the configured subscription exec'd %q, want the menu\n%s", agree.argv, agree.errs)
+}
+
+// assertNoFileNames fails for any file under root, outside skip, whose content holds word: a launch
+// that hands a selection must not have written it anywhere, a managed CODEX_HOME included.
+func assertNoFileNames(t *testing.T, root, word string, skip ...string) {
+	t.Helper()
+	_ = filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
+		if err != nil || d.IsDir() {
+			return nil
+		}
+		for _, s := range skip {
+			if path == s || strings.HasPrefix(path, s+string(os.PathSeparator)) {
+				return nil
+			}
+		}
+		if data, err := os.ReadFile(path); err == nil && strings.Contains(string(data), word) {
+			t.Errorf("%s holds %q: the launch wrote its selection to a file", path, word)
+		}
+		return nil
+	})
+}
+
+// A -p OVER A PROVIDER OF THE USER'S OWN hands codex its provider, model and row, every key of the
+// row as one `-c`, so codex finds the row whether or not `yolo host apply` wrote it; no list, so
+// no menu, and codex's catalog is not read.
+func TestHostCodexMovesOntoAUserProviderWithItsRow(t *testing.T) {
+	cfg := `{"packs": ["codex"], "profile": {"codex": "codex"}, ` +
+		`"providers": {"acme": {"endpoints": {"openai": {"base_url": "https://acme.example/v1"}}, ` +
+		`"api_key_env_name": "ACME_KEY", "models": {"default": "acme-1"}}}, ` +
+		`"profiles": {"acme": {"provider": "acme"}}, "env_sources": [{"ACME_KEY": "k"}]}`
+	l := runHostMenu(t, "", cfg, nil, []string{"-p", "acme"}, "exec")
+	if l.rc != 0 || l.argv == nil {
+		t.Fatalf("rc=%d, exec reached=%v\n%s", l.rc, l.argv != nil, l.errs)
+	}
+	for _, want := range []string{`model_provider="acme"`, `model="acme-1"`,
+		`model_providers.acme.base_url="https://acme.example/v1"`, `model_providers.acme.env_key="ACME_KEY"`,
+		`model_providers.acme.wire_api="responses"`, `model_providers.acme.name="acme"`} {
+		if i := slices.Index(l.argv, want); i < 1 || l.argv[i-1] != "-c" {
+			t.Errorf("codex got %q, which lacks -c %s\n%s", l.argv, want, l.errs)
+		}
+	}
+	if menuPathIn(l.argv) != "" || l.catalogReads != 0 || l.argv[len(l.argv)-1] != "exec" {
+		t.Errorf("codex on acme got %q after %d catalog reads, want no menu and its own argv last",
+			l.argv, l.catalogReads)
+	}
+}
+
+// NO -p, OR ONE THAT AGREES, HANDS NOTHING: codex starts on its file, so a model the user chose in
+// codex since `yolo host apply` wrote it stands. A -p codex over the configured subscription runs
+// exactly what a bare launch does.
+func TestHostCodexOnAnAgreeingPGetsNoSelection(t *testing.T) {
+	agree := runHostMenu(t, "", codexOnTheSubscription, nil, []string{"-p", "codex"}, "exec")
+	menu := menuPathIn(agree.argv)
+	if want := []string{"codex", "-c", "model_catalog_json=" + menu, "exec"}; menu == "" ||
+		!reflect.DeepEqual(agree.argv, want) {
+		t.Errorf("-p codex over the configured subscription exec'd %q, want %q\n%s", agree.argv, want, agree.errs)
+	}
+	if strings.Contains(agree.errs, "selection for codex") {
+		t.Errorf("an agreeing -p disclosed a selection:\n%s", agree.errs)
+	}
+}
+
+// A USER'S OWN LATER -c STILL WINS (MM-D22's rule, MM-D30): the selection's words go right after
+// argv[0], so the user's `-c model=...` typed after them is the one codex applies.
+func TestHostCodexLetsTheUsersOwnLaterDashCWin(t *testing.T) {
+	l := runHostMenu(t, "", `{"packs": ["codex"]}`, nil, []string{"-p", "codex"}, "-c", `model="mine"`, "exec")
+	yolo, user := slices.Index(l.argv, `model="gpt-6.1-sol"`), slices.Index(l.argv, `model="mine"`)
+	if yolo < 0 || user < 0 || yolo > user {
+		t.Errorf("codex got %q: the selection's model must come before the user's own\n%s", l.argv, l.errs)
+	}
+}
+
+// WHERE A -p CANNOT MOVE CODEX IT SAYS SO and codex starts on its file: zai composes no selection
+// codex can run on (chat completions only), and YOLO_NO_LAUNCH_FLAGS=1 skips the handoff. Each line
+// names the next step, and neither launch reads a catalog for a provider codex is not on.
+func TestHostCodexSaysWhenAPCannotMoveIt(t *testing.T) {
+	zai := runHostMenu(t, "", `{"packs": ["codex", "zai"], "profile": {"codex": "codex"}, `+
+		`"env_sources": [{"ZAI_API_KEY": "k"}]}`, nil, []string{"-p", "zai"}, "exec")
+	if !reflect.DeepEqual(zai.argv, []string{"codex", "exec"}) || zai.catalogReads != 0 {
+		t.Errorf("-p zai exec'd %q after %d catalog reads, want codex's own argv", zai.argv, zai.catalogReads)
+	}
+	for _, want := range []string{"-p zai gives codex no selection",
+		"so codex starts on the selection its own config holds (~/.codex/config.toml)",
+		"name it in your config (\"profile\": {\"codex\": \"zai\"}) and run `yolo host apply`"} {
+		if !strings.Contains(zai.errs, want) {
+			t.Errorf("stderr lacks %q:\n%s", want, zai.errs)
+		}
+	}
+	off := runHostMenu(t, "", `{"packs": ["codex"]}`, map[string]string{entrypoint.NoLaunchFlagsEnv: "1"},
+		[]string{"-p", "codex"}, "exec")
+	if !reflect.DeepEqual(off.argv, []string{"codex", "exec"}) || off.catalogReads != 0 {
+		t.Errorf("with %s=1 codex got %q after %d catalog reads, want its own argv", entrypoint.NoLaunchFlagsEnv,
+			off.argv, off.catalogReads)
+	}
+	if !strings.Contains(off.errs, entrypoint.NoLaunchFlagsEnv+"=1 is set") {
+		t.Errorf("the skipped handoff was not said:\n%s", off.errs)
+	}
+}
+
+// A PROGRAM WHOSE PACK DECLARES NO LAUNCH SELECTION keeps MM-D25's rule for its menu: a -p over
+// another provider than its configured one does not move it, so no menu is built for the -p, and
+// the line names why and the next step; over the same provider, and with no -p, the menu builds.
+func TestTheMenuOfAProgramWithNoLaunchSelectionFollowsOnlyItsFile(t *testing.T) {
+	resolved := map[string]packload.ResolvedProfile{"sub": {Provider: "openai-codex"}, "z": {Provider: "zai"}}
+	none := &hostSelection{bin: "tool"}
+	c := &hostComposition{agent: "tool", resolved: resolved, typedProfile: "sub", profile: "sub",
+		configuredSet: []string{"z"}}
+	line, follows := c.menuFollowsTheLaunch(none)
+	if follows || !strings.Contains(line, "tool's pack declares no launch_selection") ||
+		!strings.Contains(line, "run `yolo host apply`") {
+		t.Errorf("a -p over another provider: follows=%v, line %q", follows, line)
+	}
+	c.configuredSet = []string{"sub"}
+	if _, follows := c.menuFollowsTheLaunch(none); !follows {
+		t.Error("a -p over the configured provider must build the menu")
+	}
+	c.typedProfile = ""
+	if _, follows := c.menuFollowsTheLaunch(nil); !follows {
+		t.Error("no -p must build the menu")
+	}
+	c.typedProfile, c.configuredSet = "sub", []string{"z"}
+	if line, follows := c.menuFollowsTheLaunch(&hostSelection{declared: true}); follows || line != "" {
+		t.Errorf("a declared selection that did not move the program: follows=%v line=%q, want neither", follows, line)
 	}
 }
 
@@ -293,6 +433,26 @@ func TestHostManagedCodexHoldsTheMenusLockWhileItRuns(t *testing.T) {
 	}
 	if held, _ := probeMenuLock(t, filepath.Join(filepath.Dir(menu), modelmenu.LiveLockFile)); held {
 		t.Error("the lock outlived the managed launch")
+	}
+}
+
+// A MANAGED LAUNCH IS MOVED BY ITS ARGV TOO: the managed CODEX_HOME's config.toml is rebuilt from
+// the user's own (openaiauthhost, unchanged by MM-D30), so the -p's selection reaches a managed codex
+// only through the words the launch hands it, which run ahead of the managed rewrite's.
+func TestHostManagedCodexGetsTheSelectionInItsArgv(t *testing.T) {
+	home := hostGateHome(t, `{"packs": ["codex", "zai"], "profile": {"codex": "zai"}, `+
+		`"env_sources": [{"ZAI_API_KEY": "k"}]}`, nil)
+	fake := &lockProbingManagedLaunch{t: t}
+	orig := prepareOpenAIAuthHost
+	prepareOpenAIAuthHost = func(hostPrelaunch, io.Writer) (managedOpenAIHostLaunch, error) { return fake, nil }
+	t.Cleanup(func() { prepareOpenAIAuthHost = orig })
+	l := runHostMenu(t, home, "", nil, []string{"-p", "codex"}, "exec")
+	if l.rc != 23 || !fake.ran {
+		t.Fatalf("the managed launch was not reached: rc=%d\n%s", l.rc, l.errs)
+	}
+	if !slices.Contains(fake.argv, `model_provider="openai"`) || !slices.Contains(fake.argv, `model="gpt-6.1-sol"`) ||
+		fake.argv[1] != fakeManagedArgvFlag {
+		t.Errorf("the managed codex ran %q, want the managed rewrite first and the selection's -c after it", fake.argv)
 	}
 }
 
@@ -381,5 +541,11 @@ func TestHostCodexInAJailLeavesTheMenuToTheJailsLauncher(t *testing.T) {
 	}
 	if _, err := os.Stat(paths.HostModelMenusDirUnder(home)); !os.IsNotExist(err) {
 		t.Errorf("an in-jail launch created %s (%v)", paths.HostModelMenusDirUnder(home), err)
+	}
+	// Nor a launch selection (MM-D30): the jail's own render wrote the jail launch's selection into
+	// codex's file, and a host-composed one would come later in the argv and win.
+	moved := runHostMenu(t, home, "", nil, []string{"-p", "codex"}, "exec")
+	if !reflect.DeepEqual(moved.argv, []string{"codex", "exec"}) {
+		t.Errorf("in a jail -p codex handed codex %q, want its own argv", moved.argv)
 	}
 }

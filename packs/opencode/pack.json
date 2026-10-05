@@ -15,6 +15,21 @@
         "pacman": "opencode"
       },
       "kind": "program",
+      // How `yolo host -p <profile> -- opencode` moves opencode for one launch without touching
+      // ~/.config/opencode/opencode.json (docs/design/model-lists-and-pickers.md MM-D30): the
+      // config derive's selection (model, small_model, enabled_providers) and the provider rows
+      // enabled_providers names, as one JSON document in OPENCODE_CONFIG_CONTENT, which opencode
+      // merges over its config files (MEASURED on opencode 1.18.34 for model and small_model).
+      "launch_selection": {
+        "env": "OPENCODE_CONFIG_CONTENT",
+        "rows": {
+          "named_by": [
+            "enabled_providers"
+          ],
+          "table": "provider"
+        },
+        "surface": ".config/opencode/opencode.json"
+      },
       "package": "opencode-ai",
       "platform_regions": [
         {

@@ -109,19 +109,27 @@ async function brokerLogin(signal) {
 // the same list.
 const CODEX_LIST_FILE = join(homedir(), ".pi", "agent", "yolo-openai-codex-models.json");
 
+// THE LAUNCH'S OWN LIST, READ FIRST. `yolo host -p <profile> -- pi` composes this file's content
+// for its own -p and hands it in this variable, never writing the file, which `yolo host apply`
+// renders for the configured profile alone (packs/pi/pack.json's `launch_selection`;
+// docs/design/model-lists-and-pickers.md MM-D30). Set, it is what pi registers; unset, the file is.
+const CODEX_LIST_ENV = "YOLO_PI_OPENAI_CODEX_MODELS";
+
 // The pi api every openai-codex model runs on, which this registration names.
 const CODEX_API = "openai-codex-responses";
 
 // readCodexModelList returns the rendered entries and the file's `enforce` flag, or no entries
-// when the file is missing, is not JSON, or holds no `models` array. No entries is never an
-// error: it registers no models of our own, and pi then keeps its built-in openai-codex catalog,
-// so login never depends on the file. `enforce` is the switch of the profile that governs the
-// list (enforce_models, on unless the profile says false; docs/design/model-lists-and-pickers.md
-// MM-D5), which the derive writes beside the list; anything but `true` refuses nothing.
+// when the launch's variable and the file are missing, are not JSON, or hold no `models` array. No
+// entries is never an error: it registers no models of our own, and pi then keeps its built-in
+// openai-codex catalog, so login never depends on the file. `enforce` is the switch of the profile
+// that governs the list (enforce_models, on unless the profile says false;
+// docs/design/model-lists-and-pickers.md MM-D5), which the derive writes beside the list; anything
+// but `true` refuses nothing. The variable, when set, is read instead of the file.
 function readCodexModelList() {
 	let parsed;
 	try {
-		parsed = JSON.parse(readFileSync(CODEX_LIST_FILE, "utf8"));
+		const fromLaunch = process.env[CODEX_LIST_ENV];
+		parsed = JSON.parse(fromLaunch ? fromLaunch : readFileSync(CODEX_LIST_FILE, "utf8"));
 	} catch {
 		return { list: [], enforce: false };
 	}
