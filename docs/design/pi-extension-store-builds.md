@@ -3,7 +3,7 @@ title: "One keyed build for every pi extension: in parallel, published by rename
 date: 2026-10-05
 status: in-review
 stage: DESIGN
-next: "Confirm XB-D27 (the reading of OQ-2) and rule pi-extension-lifecycle.md OQ-4; build OQ-6 (c) and XB-D14 now (ruled 2026-10-05), with §14's steps 1 and 2 (the launcher's refresh fixes, the parallel advance)"
+next: "Build OQ-6 (c), XB-D14 and XB-D28 (all ruled or confirmed 2026-10-05), with §14's steps 1 and 2 (the launcher's refresh fixes, the parallel advance); no ruling is open here"
 tags: [pi, extensions, packs, builds, parallelism, locks, updates, startup]
 summary: "The maintainer asked on 2026-10-05 for parallel extension installs and updates, for unmodified extensions to be captured, for no machine-wide lock, for updates at launch by default with an option to update in the background for the next launch, and for a profile of pi's startup. This companion to the extension store's design proposes that an unmodified extension be built exactly as a patched one is, with no patches: on the host, in the sealed build jail, each key under its own lock, all keys at once, published by rename and handed to each fresh jail as a read-only copy. That retires the held in-jail store, its post-merge rewrite and the one machine-wide lock in pi's path, and it restates OQ-6 around that choice. It also records the update-timing ruling and the profile's ranked findings."
 vantage:
@@ -48,9 +48,8 @@ after it holds under either answer unless it says otherwise.
 
 **Needs your ruling:** [OQ-6](pi-git-extension-caching.md#OQ-6) (c) and [OQ-XB1](#OQ-XB1) (A, widened
 to captures) were ruled 2026-10-05, and [XB-D14](#XB-D14) confirmed. [`pi-extension-lifecycle.md` OQ-4](pi-extension-lifecycle.md#OQ-4)
-rides with [OQ-6](pi-git-extension-caching.md#OQ-6) ([§4.4](#44-entries-no-pack-declares)). One
-ledger row still needs your one-line confirmation: [XB-D27](#XB-D27), my reading of your
-update-timing ruling against [OQ-2](pi-git-extension-caching.md#OQ-2).
+rides with [OQ-6](pi-git-extension-caching.md#OQ-6) ([§4.4](#44-entries-no-pack-declares)). [XB-D27](#XB-D27), the reading of
+your update-timing ruling against [OQ-2](pi-git-extension-caching.md#OQ-2), was confirmed the same day.
 
 **Reads with:**
 - [`pi-git-extension-caching.md`](pi-git-extension-caching.md): the held store, its rulings
@@ -778,5 +777,5 @@ of that day is recorded in [§7.1](#71-the-ruling). Rows marked *under (c)* appl
 | <a id="XB-D24"></a>XB-D24 | **A program may declare probe arguments; an invocation whose first argument is one runs no hourly update of the program, no MCP server refresh, no pre-launch refresh, no tree gate and no tree step. A cold install still runs, since without it nothing answers. pi declares `--version` and `-v`, which pi 1.0.1 answers right after parsing its arguments, before it resolves a package or loads an extension (READ `dist/main.js:500-503`).** Not `--help` or `-h`: pi answers those only after building the whole runtime, which resolves every package, installs a missing one with no lock and loads every extension (READ `main.js:697-715`, `core/resource-loader.js:363`, `core/package-manager.js:1014-1019`), so skipping the refresh for them would hand a first install to that unlocked path, and skipping the gate would let pi's loader try a tree that was not handed (INFERRED) | 2026-10-05 | [§9](#9-the-startup-profile) | — |
 | <a id="XB-D25"></a>XB-D25 | **The tree gate runs first in every launcher template, right after the update mode's exit and before any install, update or refresh**, amending [PPX-D24](patched-extensions.md#PPX-D24)'s "after the install and the refresh": a launch the gate stops pays for nothing | 2026-10-05 | [§3](#3-what-exists-today-precisely) | — |
 | <a id="XB-D26"></a>XB-D26 | **A refresh that fails on new settings content records when it failed; that content is due again only once the failure is older than `UPDATE_INTERVAL`** | 2026-10-05 | [§3](#3-what-exists-today-precisely) | — |
-| <a id="XB-D27"></a>XB-D27 | *Awaits the maintainer's confirmation: it reads his ruling, it is not his words.* **For a pack set to `"next-launch"`, the update-timing ruling amends [OQ-2](pi-git-extension-caching.md#OQ-2)'s "what you get in a launch should not depend on the state of other launches": which admitted build a launch gets may depend on what an earlier launch's background advance finished.** Once confirmed, [OQ-2](pi-git-extension-caching.md#OQ-2)'s row in the store's design notes the amendment | 2026-10-05 | [§7.1](#71-the-ruling) | — |
+| <a id="XB-D27"></a>XB-D27 | *Confirmed by the maintainer 2026-10-05:* *"I'm ok with this, it's kinda like caching but not quite. it's incidental and approaches the same state."* **For a pack set to `"next-launch"`, the update-timing ruling amends [OQ-2](pi-git-extension-caching.md#OQ-2)'s "what you get in a launch should not depend on the state of other launches": which admitted build a launch gets may depend on what an earlier launch's background advance finished.** Once confirmed, [OQ-2](pi-git-extension-caching.md#OQ-2)'s row in the store's design notes the amendment | 2026-10-05 | [§7.1](#71-the-ruling) | — |
 | <a id="XB-D28"></a>XB-D28 | **Ruled in review ([OQ-XB1](#OQ-XB1) A, widened):** in the background update mode, everything yolo builds or captures updates in the background; only what neither delivers (pi's refresh of hand-installed extensions) stays in front | 2026-10-05 | [OQ-XB1](#OQ-XB1) | pending |
