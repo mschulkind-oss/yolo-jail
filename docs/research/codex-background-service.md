@@ -592,14 +592,19 @@ so the host broker can serve it without touching the user's own `~/.codex`
   [§2.7](#27-the-model-list-and-the-refresh-live-in-the-daemon): the daemon's version, not the cache.
 - **The host agent floor** — the set of agents yolo guarantees on the host, installed into a
   yolo-owned prefix ([`host-tool-provisioning.md`](../design/host-tool-provisioning.md#defined-terms)) —
-  is ruled and not built. Codex is in it by materializing a capture
-  ([OQ-HP3](../design/host-tool-provisioning.md#OQ-HP3)). Three consequences follow (INFERRED):
+  holds codex on Linux since 2026-10-05, materialized from the machine's capture
+  ([OQ-HP3](../design/host-tool-provisioning.md#OQ-HP3),
+  [HP-D17](../design/host-tool-provisioning.md#HP-D17)); on macOS it waits for the host capture. Three
+  consequences follow (INFERRED unless marked):
   - The capture must keep the complete package layout, or Codex 0.157 and later refuses to open at
-    the host while the daemon is on.
+    the host while the daemon is on. A capture walks `~/.codex/packages/standalone` as one of its
+    surfaces (READ: `paths.InstalledProgramSurfaces`).
   - A copy outside `CODEX_HOME/packages/standalone/releases` cannot run `codex update`, so the floor
-    updates by re-capturing and never through the pack's `update` verb.
+    updates by re-capturing and never through the pack's `update` verb. Built: it captures again once
+    its newest capture is a day old, and installs only a newer release
+    ([HP-D16](../design/host-tool-provisioning.md#HP-D16)).
   - A floor update moves the CLI and not the daemon package, so with the daemon on, the floor would
-    also have to run `codex app-server daemon update --from-cli --yes` after each update.
+    also have to run `codex app-server daemon update --from-cli --yes` after each update. Not built.
 - **Not affected:** the user's own `codex` in `~/.codex`, which is a different socket and a
   different daemon. So are Pi and Claude on the `openai-codex` provider, which talk to OpenAI
   directly and run no Codex daemon.

@@ -48,6 +48,16 @@ var ShippedNodeSHA256 = map[string]string{
 	"darwin-arm64": "bed7eea5325e1108f32ce5228ddd6a5f0f08a499ee42aa7442aea583702f6057",
 }
 
+// officialNodeLoader is the dynamic loader Node's official build for each Linux platform asks for
+// (its PT_INTERP; MEASURED for ShippedNodeVersion's tarballs). It is compiled in so the floor can
+// tell before any download whether this machine can start that build at all (HP-D15, noEntryReason),
+// and an install checks the extracted node against it (ensureNode). A darwin build asks for none
+// that yolo checks: Mach-O names dyld, which every Mac has.
+var officialNodeLoader = map[string]string{
+	"linux-x64":   "/lib64/ld-linux-x86-64.so.2",
+	"linux-arm64": "/lib/ld-linux-aarch64.so.1",
+}
+
 // DefaultNodeDistURL is Node's official release distribution.
 const DefaultNodeDistURL = "https://nodejs.org/dist"
 
@@ -192,6 +202,21 @@ func (f *Floor) ensureNode(ctx context.Context, v string) (string, error) {
 	for _, need := range []string{"node", "npm"} {
 		if _, err := os.Stat(filepath.Join(scratch, "bin", need)); err != nil {
 			return "", fmt.Errorf("%s holds no bin/%s", name, need)
+		}
+	}
+	// THE LOADER IT ASKS FOR (HP-D15), read from the node just extracted: the one compiled in, or
+	// none, or the check that kept a machine without it from downloading this build checked the
+	// wrong file. A fork's Node script reaches here with no such check first (execRecord), so the
+	// loader itself is asked about too.
+	if interp, err := elfInterp(filepath.Join(scratch, "bin", "node")); err == nil {
+		if want, ok := officialNodeLoader[plat]; ok && interp != "" && interp != want {
+			return "", fmt.Errorf("%s's node asks for the dynamic loader %q, not %s as this yolo expects of "+
+				"Node's official %s build, so this yolo cannot tell whether the machine can start it — refusing "+
+				"to install it; `yolo update` brings a yolo that knows, and if none does, it is a yolo bug to report",
+				name, interp, want, plat)
+		}
+		if why := f.loaderProblem(interp); why != "" {
+			return "", &noEntryError{reason: "Node's official " + plat + " build " + why}
 		}
 	}
 	if err := os.WriteFile(filepath.Join(scratch, completeMarker), nil, 0o600); err != nil {

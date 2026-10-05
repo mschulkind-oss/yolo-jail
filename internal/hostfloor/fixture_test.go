@@ -16,6 +16,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/capture"
 	"github.com/mschulkind-oss/yolo-jail/internal/hostfloor/floortest"
 	"github.com/mschulkind-oss/yolo-jail/internal/packdecl"
+	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 )
 
 // world is one test's fake distribution, registry and floor.
@@ -89,8 +90,24 @@ func newWorldOn(t *testing.T, dist *floortest.Dist) *world {
 		Hints:  worldHints(root),
 		Out:    w.out,
 		Prefix: "yolo host: ",
+		// The world's own filesystem root for the loader check (HP-D15), holding each loader
+		// Node's official Linux builds ask for, so no test's answer depends on what this machine
+		// keeps in /lib64 — a NixOS machine without nix-ld included.
+		Root: loaderSysroot(t, filepath.Join(root, "sysroot")),
 	}
 	return w
+}
+
+// loaderSysroot makes dir a filesystem root holding a plain file at each dynamic loader Node's
+// official Linux builds ask for (officialNodeLoader), and returns it.
+func loaderSysroot(t *testing.T, dir string) string {
+	t.Helper()
+	for _, loader := range officialNodeLoader {
+		p := filepath.Join(dir, filepath.FromSlash(loader))
+		must(t, os.MkdirAll(filepath.Dir(p), 0o755))
+		must(t, os.WriteFile(p, []byte("a dynamic loader\n"), 0o755))
+	}
+	return dir
 }
 
 // worldHints is the Floor.Hints a world hands in: HintLocations with each folder outside home moved
@@ -210,30 +227,61 @@ type clock struct{ t time.Time }
 
 func (c *clock) now() time.Time { return c.t }
 
-// addLinkedOut admits a capture shaped like codex's: ~/.local/bin/<bin> an absolute link into
-// ~/.<bin>/…, which no capture surface records, so the entry holds the link and nothing it names.
+// addLinkedOut admits a capture shaped like a HYPOTHETICAL vendor's: ~/.local/bin/<bin> an absolute
+// link into ~/.<bin>/app/…, which no capture surface records, so the entry holds the link and
+// nothing it names. It records every surface this yolo captures, so nothing a recapture could add is
+// missing from it. (codex's installer once looked like this to the floor, before
+// ~/.codex/packages/standalone was a surface; realcapture_test.go has codex's own shape.)
 func (c *captureStore) addLinkedOut(bin string) *capture.Entry {
+	c.t.Helper()
+	return c.addLinkedOutAs(bin, "/home/agent/."+bin+"/app/current/bin/"+bin, allSurfaces(), true)
+}
+
+// addStaleCodex admits codex's capture as a machine recorded it on 2026-09-09: before captures
+// scanned their contents (so for the jail's home only), and before ~/.codex/packages/standalone was a
+// surface, so it holds ~/.local/bin/codex, a link to the program, and nothing the link leads to.
+func (c *captureStore) addStaleCodex() *capture.Entry {
+	c.t.Helper()
+	return c.addLinkedOutAs("codex", "/home/agent/.codex/packages/standalone/current/bin/codex",
+		[]string{".npm-global", ".local", "go"}, false)
+}
+
+// addLinkedOutAs admits a capture holding ~/.local/bin/<bin> alone, an absolute link to target,
+// recording surfaces; relocatable says whether its manifest records the full scan.
+func (c *captureStore) addLinkedOutAs(bin, target string, surfaces []string, relocatable bool) *capture.Entry {
 	t := c.t
 	t.Helper()
 	staged, err := c.store.Stage(bin + "-linked-out")
 	must(t, err)
 	tree := capture.TreeDir(staged)
 	must(t, os.MkdirAll(filepath.Join(tree, ".local", "bin"), 0o755))
-	target := "/home/agent/." + bin + "/packages/standalone/current/bin/" + bin
 	must(t, os.Symlink(target, filepath.Join(tree, ".local", "bin", bin)))
-	must(t, capture.WriteManifest(staged, &capture.Manifest{
+	m := &capture.Manifest{
 		Schema: capture.ManifestSchema, Home: "/home/agent", Platform: capture.Platform(),
-		Surfaces: []string{".local"}, Excluded: []string{},
+		Surfaces: surfaces, Excluded: []string{},
 		Entries: []capture.ManifestEntry{
 			{Path: ".local", Kind: capture.KindDir, Mode: "0755"},
 			{Path: ".local/bin", Kind: capture.KindDir, Mode: "0755"},
 			{Path: ".local/bin/" + bin, Kind: capture.KindSymlink, Target: target},
 		},
 		AbsoluteRefs: []capture.AbsoluteRef{{Path: ".local/bin/" + bin, Kind: capture.RefSymlinkTarget, Value: target}},
-		RefScan:      capture.RefScanFull, Relocatable: true,
-	}))
+		RefScan:      capture.RefScanSymlinks,
+	}
+	if relocatable {
+		m.RefScan, m.Relocatable = capture.RefScanFull, true
+	}
+	must(t, capture.WriteManifest(staged, m))
 	entry, err := c.store.AdmitEntry(staged)
 	must(t, err)
 	c.byBin[bin] = entry
 	return entry
+}
+
+// allSurfaces is every capture surface this yolo records, as a manifest lists them.
+func allSurfaces() []string {
+	var out []string
+	for _, s := range paths.InstalledProgramSurfaces() {
+		out = append(out, filepath.ToSlash(s.HomeRel))
+	}
+	return out
 }

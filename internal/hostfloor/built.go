@@ -66,6 +66,12 @@ func (f *Floor) buildProvisionable(st Status) Status {
 	if err == nil {
 		if why := buildUnusable(p, commit, entry); why != "" {
 			st.Disposition, st.Reason = NoEntry, why
+		} else if why := f.storeProgramLoaderProblem(entry, p.Install.ProgramPath()); why != "" {
+			// Its program's dynamic loader, read from the store before anything is materialized
+			// (HP-D15): a build made in the jail asks for the loader the jail has.
+			st.Disposition = NoEntry
+			st.Reason = "fork pack " + p.Install.ForkedBy + "'s build of " + p.Bin() + " at " + buildVersion(commit) +
+				" " + why
 		}
 		return st
 	}
@@ -73,6 +79,24 @@ func (f *Floor) buildProvisionable(st Status) Status {
 		st.Disposition, st.Reason = NoEntry, f.noBuildReason(p.Bin(), commit, why)
 	}
 	return st
+}
+
+// storeProgramLoaderProblem is programLoaderProblem for the program a store entry holds at the
+// home-relative rel, its links resolved through the entry's manifest (programInManifest): "" when
+// the manifest holds no program there, which the caller's own check reports.
+func (f *Floor) storeProgramLoaderProblem(entry *capture.Entry, rel string) string {
+	if !f.probesLoaders() {
+		return ""
+	}
+	m, err := capture.ReadManifest(entry.Root)
+	if err != nil {
+		return ""
+	}
+	final, why := programInManifest(m, rel)
+	if why != "" {
+		return ""
+	}
+	return f.programLoaderProblem(filepath.Join(entry.Tree, filepath.FromSlash(final)))
 }
 
 // noBuildReason is the no-floor-entry reason for a fork the store has no build of at commit, on a
@@ -97,7 +121,7 @@ func buildUnusableAs(p Program, what string, entry *capture.Entry) string {
 	if err != nil {
 		return what + " has an unreadable manifest (" + err.Error() + ")"
 	}
-	if why := programInManifest(m, in.ProgramPath()); why != "" {
+	if _, why := programInManifest(m, in.ProgramPath()); why != "" {
 		return what + " cannot run outside a jail: " + why
 	}
 	if !m.Relocatable {

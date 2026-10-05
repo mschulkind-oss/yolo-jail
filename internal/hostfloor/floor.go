@@ -169,6 +169,11 @@ const (
 	// DefaultUpdateInterval is the jail launcher's UPDATE_INTERVAL: at most one evergreen
 	// poll per program per hour, at the program's own invocation.
 	DefaultUpdateInterval = time.Hour
+	// DefaultCaptureRefreshAge is how old the machine's newest capture of an installer program
+	// may be before the evergreen refresh runs the capture act again to look for a newer release
+	// (HP-D16). An npm poll is one registry request; a capture boots a jail and runs the vendor's
+	// installer, so it is asked for once a day rather than once an hour.
+	DefaultCaptureRefreshAge = 24 * time.Hour
 )
 
 // Floor is one host prefix and every input its decisions read. The zero values of the func
@@ -264,8 +269,13 @@ type Floor struct {
 	Out io.Writer
 	// Prefix starts every line this package prints ("yolo host: ").
 	Prefix string
-	// InstallTimeout, PollTimeout and UpdateInterval override the defaults above.
-	InstallTimeout, PollTimeout, UpdateInterval time.Duration
+	// Root is the filesystem root a program's dynamic loader is looked up under (elfinterp.go,
+	// HP-D15). "" => "/". A test hands in a directory of its own, which also makes the check run
+	// where it otherwise would not: a Linux floor tested on a Mac.
+	Root string
+	// InstallTimeout, PollTimeout and UpdateInterval override the defaults above, and
+	// CaptureRefreshAge DefaultCaptureRefreshAge.
+	InstallTimeout, PollTimeout, UpdateInterval, CaptureRefreshAge time.Duration
 }
 
 func (f *Floor) now() time.Time {
@@ -306,6 +316,13 @@ func (f *Floor) updateInterval() time.Duration {
 		return f.UpdateInterval
 	}
 	return DefaultUpdateInterval
+}
+
+func (f *Floor) captureRefreshAge() time.Duration {
+	if f.CaptureRefreshAge > 0 {
+		return f.CaptureRefreshAge
+	}
+	return DefaultCaptureRefreshAge
 }
 
 // BinDir is the prefix's bin/: the one directory of it a host launch puts on the agent's PATH,
@@ -446,10 +463,40 @@ func buildVersion(commit string) string { return "commit " + shortCommit(commit)
 // ErrNoEntry wraps the refusal Ensure returns for a program the floor cannot hold.
 var ErrNoEntry = errors.New("no floor entry")
 
-// noEntryReason is why the floor cannot hold p on this machine, or "" when it can. It never
-// touches the prefix or the capture store: it is a fact about the declaration, the configuration
-// (a fork's pin, which ForkPin answers, among it) and the platform.
+// noEntryReason is why the floor cannot hold p on this machine, or "" when it can. It writes
+// nothing and never reads the capture store: it is a fact about the declaration, the configuration
+// (a fork's pin, which ForkPin answers, among it) and the platform, the dynamic loader the floor's
+// copy asks for included (HP-D15) — Node's official build's for an npm program, and for an
+// installed copy of any other the one its own file names, which is the one read of the prefix here.
+// So a copy whose loader went away has no floor entry, and `yolo host apply --assert` removes it
+// (Reconcile) as it does any other the floor can no longer hold.
 func (f *Floor) noEntryReason(p Program) string {
+	if why := f.recipeNoEntryReason(p); why != "" {
+		return why
+	}
+	return f.installedLoaderReason(p.Bin())
+}
+
+// installedLoaderReason is why the floor's installed copy of bin cannot start on this machine — the
+// dynamic loader the file its record starts asks for is missing, or is NixOS's stub — or "" when it
+// can, or when nothing is installed.
+func (f *Floor) installedLoaderReason(bin string) string {
+	if !f.probesLoaders() {
+		return ""
+	}
+	rec, err := f.readRecord(bin)
+	if err != nil || rec == nil || len(rec.Exec) == 0 {
+		return ""
+	}
+	if why := f.programLoaderProblem(rec.Exec[0]); why != "" {
+		return "its copy in yolo's floor (" + rec.Version + ") " + why
+	}
+	return ""
+}
+
+// recipeNoEntryReason is noEntryReason's half that reads nothing but the declaration, the
+// configuration and the platform.
+func (f *Floor) recipeNoEntryReason(p Program) string {
 	in := p.Install
 	if f.Include != nil && !f.Include(p.Pack) {
 		return "the user config's `host_floor` leaves pack " + p.Pack + " out of the floor"
@@ -462,9 +509,16 @@ func (f *Floor) noEntryReason(p Program) string {
 	}
 	switch in.Kind {
 	case "npm":
-		if _, ok := nodePlatform(f.GOOS, f.GOARCH); !ok {
+		plat, ok := nodePlatform(f.GOOS, f.GOARCH)
+		if !ok {
 			return "Node publishes no official build for " + f.GOOS + "/" + f.GOARCH +
 				", so the floor has no interpreter to run it on"
+		}
+		// THE INTERPRETER'S LOADER, before any download (HP-D15): Node's official Linux build
+		// cannot start without it, so a machine that lacks it gets the copy on PATH, not a fetched
+		// tarball that exits 127.
+		if why := f.loaderProblem(officialNodeLoader[plat]); why != "" {
+			return "the floor runs it on Node's official " + plat + " build, which " + why
 		}
 		return ""
 	case "native":
@@ -580,9 +634,10 @@ func (f *Floor) buildPending(p Program, rec *Record) string {
 // provisionable turns a Missing installer or source-built program into NoEntry when this machine
 // can neither materialize it (the store has no entry for it) nor capture or build one (no
 // container runtime): the floor cannot provision it HERE, so a launch looks for it on PATH
-// (OQ-HE11) instead of failing an install. It reads the store offline, never the network. A
-// provisioned entry never comes through here: the floor already holds it, whatever the store says
-// now.
+// (OQ-HE11) instead of failing an install. So is one whose store entry holds no program that runs
+// here: none outside a jail, or one asking for a dynamic loader this machine lacks (HP-D15). It
+// reads the store offline, never the network. A provisioned entry never comes through here: the
+// floor already holds it, whatever the store says now.
 func (f *Floor) provisionable(st Status) Status {
 	if st.Program.Install.Kind == packdecl.InstallKindSource {
 		return f.buildProvisionable(st)
@@ -590,27 +645,41 @@ func (f *Floor) provisionable(st Status) Status {
 	if st.Program.Install.Kind != "native" || f.ResolveCapture == nil {
 		return st
 	}
-	entry, err := f.ResolveCapture(st.Program.Bin())
+	bin := st.Program.Bin()
+	entry, err := f.ResolveCapture(bin)
 	if err == nil {
-		if why := capturedProgram(entry, st.Program.Bin()); why != "" {
-			st.Disposition = NoEntry
-			st.Reason = "the capture of " + st.Program.Bin() + " on this machine cannot run outside a jail: " + why
-			return st
-		}
-		// An entry recorded before captures scanned their contents moves out of /home/agent only
-		// by being captured again (HP-D7), which needs what any capture needs.
-		if !captureRelocatable(entry) {
+		// A CAPTURE THE INSTALL RECAPTURES is judged as that, BEFORE its program (HP-D17): an entry
+		// recorded before captures scanned their contents moves out of /home/agent only by being
+		// captured again (HP-D7), and one recorded before a capture surface existed may hold no
+		// program the recapture would not record — codex's, whose ~/.local/bin/codex links into
+		// ~/.codex/packages/standalone. The recapture needs what any capture needs.
+		if stale := recaptureReason(entry, bin); stale != "" {
 			if why := f.cannotCapture(); why != "" {
 				st.Disposition = NoEntry
-				st.Reason = "the capture of " + st.Program.Bin() + " on this machine was recorded for a " +
-					"jail's home only, and " + why + runtimeStep(f.Capture != nil, "recaptures it")
+				st.Reason = "the capture of " + bin + " on this machine " + stale + ", and " + why +
+					runtimeStep(f.Capture != nil, "recaptures it")
+				return st
 			}
+			st.Reason += "; the capture of " + bin + " on this machine " + stale + ", and the install " +
+				"recaptures it"
+			return st
+		}
+		final, why := capturedProgram(entry, bin)
+		if why != "" {
+			st.Disposition = NoEntry
+			st.Reason = "the capture of " + bin + " on this machine cannot run outside a jail: " + why
+			return st
+		}
+		// Its program's dynamic loader, read from the store before anything is materialized.
+		if why := f.programLoaderProblem(filepath.Join(entry.Tree, filepath.FromSlash(final))); why != "" {
+			st.Disposition = NoEntry
+			st.Reason = "the capture of " + bin + " on this machine " + why
 		}
 		return st
 	}
 	if why := f.cannotCapture(); why != "" {
 		st.Disposition = NoEntry
-		st.Reason = "there is no capture of " + st.Program.Bin() + " on this machine, and " + why +
+		st.Reason = "there is no capture of " + bin + " on this machine, and " + why +
 			runtimeStep(f.Capture != nil, "captures it")
 	}
 	return st

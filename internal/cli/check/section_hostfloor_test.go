@@ -60,12 +60,25 @@ func hostFloorCheckFixture(t *testing.T, userConfig string) (*Options, *hostfloo
 	}
 	dist := floortest.NewDist(t)
 	dist.Publish("floorcli-pkg", "1.0.0", "bin=floorcli")
+	// A filesystem root of the fixture's own for the loader check (HP-D15), holding each loader
+	// Node's official Linux builds ask for, so no row depends on this machine's /lib64.
+	root := floortest.ResolvedTemp(t)
+	for _, loader := range []string{"/lib64/ld-linux-x86-64.so.2", "/lib/ld-linux-aarch64.so.1"} {
+		p := filepath.Join(root, filepath.FromSlash(loader))
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte("a dynamic loader\n"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
 	floor := &hostfloor.Floor{
 		Dir: paths.HostFloorDir(), GOOS: dist.GOOS, GOARCH: dist.GOARCH,
 		Node: hostfloor.NodeDist{BaseURL: dist.URL, Shipped: floortest.Shipped,
 			Pinned: map[string]string{dist.Platform: dist.SHA256}},
 		Environ: append(os.Environ(), dist.Environ()...),
 		Home:    home,
+		Root:    root,
 	}
 	o := &Options{Getenv: func(k string) string {
 		if k == "PATH" {
@@ -192,5 +205,25 @@ func TestCheckNamesADeselectedEntryOfAProgramWithNoFloorEntry(t *testing.T) {
 		if !strings.Contains(out, want) {
 			t.Errorf("section lacks %q:\n%s", want, out)
 		}
+	}
+}
+
+// TestCheckNamesTheLoaderAProgramLacksAndTheNixLDStep: on a Linux host with no dynamic loader for
+// Node's official build (NixOS without nix-ld, a musl system), an npm agent has no floor entry, and
+// the row says why — the loader, the two kinds of host, the nix-ld step — and that the copy on the
+// PATH runs instead. Ungraded, as every no-floor-entry row is: a fact about this machine.
+func TestCheckNamesTheLoaderAProgramLacksAndTheNixLDStep(t *testing.T) {
+	o, floor, _, hand := hostFloorCheckFixture(t, `{}`)
+	floor.GOOS, floor.Root = "linux", floortest.ResolvedTemp(t)
+	out, r := runHostFloorSection(o)
+	for _, want := range []string{"floorcli — no floor entry: the floor runs it on Node's official linux-",
+		"needs the dynamic loader ", "(a NixOS host without nix-ld, or a musl system)", "programs.nix-ld.enable = true;",
+		"runs the one on the PATH it is started with, then host_path's folders (here, " + hand + ")"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("section lacks %q:\n%s", want, out)
+		}
+	}
+	if r.warned != 0 || r.failed != 0 {
+		t.Errorf("a program this machine cannot start graded (%d warn, %d fail)", r.warned, r.failed)
 	}
 }
