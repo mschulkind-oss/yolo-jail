@@ -329,8 +329,17 @@ func (a *hostLeafAttribution) rerun(input string) (map[string]any, bool) {
 	return out, true
 }
 
-// label is the overwrite line for the leaf at path: "<key> (computed from your <inputs>)", or
-// "<key> (computed by its pack)" for a leaf no input of the user's moves.
+// label is the overwrite line for the leaf at path: "<key> (selected by your profile)" for a
+// key the profile's SELECTION writes, "<key> (computed from your <inputs>)" for any other leaf,
+// or "<key> (computed by its pack)" for a leaf no input of the user's moves.
+//
+// THE SELECTION IS TOLD APART because what happens to the user's value next differs. A selection
+// key (pi's defaultModel) is written on the activation edge, so a pick of theirs made after it
+// stands on every later apply (HC-D17); a derive leaf computed from the same profile (pi-subagents'
+// subagents.defaultModel) is written on EVERY apply, so their pick there does not. The CLI's
+// remedy group promises the first and must not promise it of the second, which it did while both
+// read "computed from your profile" (MEASURED 2026-10-05: the dry run said the user's subagent
+// model would stand, and the apply replaced it).
 func (a *hostLeafAttribution) label(path []string) string {
 	key := strings.Join(path, ".")
 	base, _ := derivedLeaf(a.base, path)
@@ -350,17 +359,33 @@ func (a *hostLeafAttribution) label(path []string) string {
 	if len(from) > 1 && from[0] == "profile" && from[1] == manifest.SourceProviders {
 		from = append(from[:1], from[2:]...)
 	}
+	if len(from) > 0 && from[0] == "profile" && a.selected(path) {
+		return key + SelectedByProfileLabel
+	}
 	if len(from) == 0 {
 		return key + ComputedByPackLabel
 	}
 	return key + ComputedFromLabel + joinInputs(from) + ")"
 }
 
-// The two computed-overwrite label forms, exported so the CLI's report reads the same
-// spelling the render writes (splitOverwriteLabel) rather than a copy of it.
+// selected reports whether path is a key the derive's selection namespace carries
+// (agentcfg.SelectionKey): a top-level key the write lifts from it, edge-triggered, as opposed
+// to a leaf the derive asserts on every apply. derivedLeaf reads such a key there too.
+func (a *hostLeafAttribution) selected(path []string) bool {
+	if len(path) != 1 {
+		return false
+	}
+	_, selection, _ := agentcfg.TakeSelection(a.base)
+	_, ok := selection[path[0]]
+	return ok
+}
+
+// The computed-overwrite label forms, exported so the CLI's report reads the same spelling the
+// render writes (splitOverwriteLabel) rather than a copy of it.
 const (
-	ComputedFromLabel   = " (computed from your "
-	ComputedByPackLabel = " (computed by its pack)"
+	SelectedByProfileLabel = " (selected by your profile)"
+	ComputedFromLabel      = " (computed from your "
+	ComputedByPackLabel    = " (computed by its pack)"
 )
 
 // joinInputs names inputs as a label does: "profile", "profile and providers",
@@ -399,10 +424,31 @@ func computedOverwritePaths(existing *jsonx.OrderedMap, leaves, managed map[stri
 	collectOverwritePaths(existing, leaves, nil, &paths)
 	out := paths[:0]
 	for _, p := range paths {
-		if layerAssertsPath(managed, strings.Join(p, ".")) {
+		if layerAssertsSegments(managed, p) {
 			continue
 		}
 		out = append(out, p)
 	}
 	return out
+}
+
+// layerAssertsSegments is layerAssertsPath over a key's SEGMENTS, so a key that itself contains a
+// dot (pi's "archimedes.sessionName") is looked up as the one key it is rather than split in two.
+func layerAssertsSegments(m map[string]any, p []string) bool {
+	cur := m
+	for i, seg := range p {
+		v, present := cur[seg]
+		if !present {
+			return false
+		}
+		if i == len(p)-1 {
+			return true
+		}
+		next, isMap := v.(map[string]any)
+		if !isMap {
+			return true // an ancestor asserts this whole branch
+		}
+		cur = next
+	}
+	return false
 }

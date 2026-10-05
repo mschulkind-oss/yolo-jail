@@ -200,9 +200,9 @@ func TestYoloHostApplyAssertWritesTheOmpYAMLCatalog(t *testing.T) {
 }
 
 // A VALUE OF YOURS A COMPUTED LEAF REPLACES IS ITS OWN REMEDY GROUP, naming the input in your
-// config it is computed from, and — for a profile's selection — that a pick of yours after the
-// first activation stands (HC-D17). Before 2026-10-04 the profile replaced pi's defaultModel
-// and no group, no line and no count said so.
+// config it is computed from, and — for a key the profile's selection writes — that a pick of
+// yours after the first activation stands (HC-D17). Before 2026-10-04 the profile replaced pi's
+// defaultModel and no group, no line and no count said so.
 func TestHostApplyGroupsAComputedOverwriteUnderItsInput(t *testing.T) {
 	home := hostComputedHome(t, `{"packs":["pi"],"profile":{"pi":"codex"}}`)
 	writeFile(t, filepath.Join(home, ".pi", "agent", "settings.json"),
@@ -211,13 +211,60 @@ func TestHostApplyGroupsAComputedOverwriteUnderItsInput(t *testing.T) {
 	hostMain([]string{"apply"}, &out, &errw, false, strings.NewReader(""))
 	report := out.String() + errw.String()
 	for _, want := range []string{
-		"by what yolo computes from your profile",
-		"defaultModel in ~/.pi/agent/settings.json",
+		"by what your profile selects: defaultModel in ~/.pi/agent/settings.json",
 		"change or remove `profile` in ~/.config/yolo-jail/config.jsonc",
 		"a pick of your own after that",
 	} {
 		if !strings.Contains(report, want) {
 			t.Errorf("the dry run's computed-overwrite group lacks %q:\n%s", want, report)
 		}
+	}
+}
+
+// A VALUE YOUR PROFILE RECOMPUTES ON EVERY APPLY IS NOT PROMISED TO STAND. pi-subagents'
+// subagents.defaultModel is computed from your profile and written on every apply, so a pick of
+// yours there is replaced each time; only the selection keys (defaultModel, defaultProvider) are
+// edge-triggered (HC-D17). MEASURED before 2026-10-05 (the reviewer's probe): the dry run named
+// subagents.defaultModel under "a pick of your own after that (your agent's /model) stands on
+// every later apply", and the apply then replaced it.
+func TestHostApplyDoesNotPromiseARecomputedValueStands(t *testing.T) {
+	home := hostComputedHome(t, `{"packs":["pi"],"profile":{"pi":"codex"}}`)
+	apply := func(args ...string) string {
+		t.Helper()
+		var out, errw bytes.Buffer
+		hostMain(append([]string{"apply"}, args...), &out, &errw, false, strings.NewReader("y\ny\ny\n"))
+		return out.String() + errw.String()
+	}
+	apply("--assert")
+	settings := filepath.Join(home, ".pi", "agent", "settings.json")
+	doc := readJSONAt(t, home, ".pi/agent/settings.json")
+	sub, _ := doc["subagents"].(map[string]any)
+	if sub == nil || sub["defaultModel"] == nil {
+		t.Fatalf("fixture: the apply wrote no subagents.defaultModel: %v", doc)
+	}
+	sub["defaultModel"] = "my-own-subagent-model"
+	raw, err := json.Marshal(doc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, settings, string(raw))
+
+	report := apply()
+	for _, want := range []string{
+		"by what yolo computes from your profile: subagents.defaultModel in ~/.pi/agent/settings.json",
+		"change or remove `profile` in ~/.config/yolo-jail/config.jsonc",
+	} {
+		if !strings.Contains(report, want) {
+			t.Errorf("the dry run's recomputed-overwrite group lacks %q:\n%s", want, report)
+		}
+	}
+	if strings.Contains(report, "a pick of your own after that") {
+		t.Errorf("the dry run promises a recomputed value of yours stands:\n%s", report)
+	}
+	apply("--assert")
+	after, _ := readJSONAt(t, home, ".pi/agent/settings.json")["subagents"].(map[string]any)
+	if after["defaultModel"] == "my-own-subagent-model" {
+		t.Errorf("fixture: the derive no longer re-writes subagents.defaultModel, so this test "+
+			"no longer tells the two groups apart: %v", after)
 	}
 }

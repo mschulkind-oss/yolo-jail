@@ -454,8 +454,7 @@ func TestTheOverwriteReportNamesAComputedLeaf(t *testing.T) {
 				}
 				return resultFor(t, results, "pi/settings")
 			}
-			if got := strings.Join(preview().Overwrites, "; "); !strings.Contains(got,
-				"defaultModel (computed from your profile)") {
+			if got := preview().Overwrites; !hasLine(got, "defaultModel (selected by your profile)") {
 				t.Fatalf("the profile's first activation replaces your defaultModel and the "+
 					"report does not say so, or not from what: %q", got)
 			}
@@ -469,6 +468,82 @@ func TestTheOverwriteReportNamesAComputedLeaf(t *testing.T) {
 			}
 		})
 	}
+}
+
+// A SELECTION KEY AND A RECOMPUTED LEAF ARE LABELLED APART, under both contracts, because what
+// happens to a pick of yours afterwards differs. pi's top-level defaultModel comes from the
+// profile's selection namespace, written on the activation edge, so your own later pick stands
+// (HC-D17); pi-subagents' subagents.defaultModel is a leaf the derive computes from the same
+// profile and writes on every apply. Both read "(computed from your profile)" until 2026-10-05,
+// and the CLI attached "a pick of your own after that stands" to both — MEASURED (the reviewer's
+// probe): your subagent model was replaced on the next apply, under a line saying it would stand.
+func TestTheOverwriteReportTellsASelectionKeyFromARecomputedLeaf(t *testing.T) {
+	for _, ownership := range []render.HostOwnership{render.OwnershipAssert, render.OwnershipOwn} {
+		t.Run(ownership.String(), func(t *testing.T) {
+			t.Setenv("YOLO_CTX_ROOT", t.TempDir())
+			home := t.TempDir()
+			settings := filepath.Join(home, ".pi", "agent", "settings.json")
+			writeTestFile(t, settings, `{"theme": "dark", "defaultModel": "before-yolo"}`)
+			packs := testPacksForAgent(t, "pi")
+			in := hostTestInputs(t, packs, map[string]string{"pi": "codex"}, nil, nil)
+			preview := func() []string {
+				t.Helper()
+				results, err := RenderHostPack(packs[0], home, ownership, true,
+					packoverlay.Collect(packs, false, nil), in)
+				if err != nil {
+					t.Fatal(err)
+				}
+				return resultFor(t, results, "pi/settings").Overwrites
+			}
+			if got := preview(); !hasLine(got, "defaultModel (selected by your profile)") {
+				t.Fatalf("the activation's defaultModel is not labelled as the profile's "+
+					"selection: %q", got)
+			}
+			hostRenderWith(t, home, ownership, in, "pi", "pi/settings")
+			doc := decodeJSONFile(t, settings)
+			sub, _ := doc["subagents"].(map[string]any)
+			if sub == nil || sub["defaultModel"] == nil {
+				t.Fatalf("fixture: the apply wrote no subagents.defaultModel: %v", doc)
+			}
+			doc["defaultModel"] = "my-pick"
+			sub["defaultModel"] = "my-subagent-pick"
+			raw, _ := json.Marshal(doc)
+			writeTestFile(t, settings, string(raw))
+
+			got := preview()
+			if !hasLine(got, "subagents.defaultModel (computed from your profile)") {
+				t.Errorf("the recomputed subagents.defaultModel is not reported as computed "+
+					"from your profile: %q", got)
+			}
+			for _, line := range got {
+				if strings.HasPrefix(line, "defaultModel ") ||
+					strings.Contains(line, "subagents.defaultModel (selected") {
+					t.Errorf("a selection label on the wrong key, or your own later pick "+
+						"reported as replaced: %q", got)
+				}
+			}
+			// What the labels promise is what the write does.
+			hostRenderWith(t, home, ownership, in, "pi", "pi/settings")
+			doc = decodeJSONFile(t, settings)
+			if doc["defaultModel"] != "my-pick" {
+				t.Errorf("your own later defaultModel pick did not stand: %v", doc)
+			}
+			if sub, _ := doc["subagents"].(map[string]any); sub["defaultModel"] == "my-subagent-pick" {
+				t.Errorf("fixture: the derive no longer re-writes subagents.defaultModel, so this "+
+					"test no longer tells the two labels apart: %v", doc)
+			}
+		})
+	}
+}
+
+// hasLine reports whether lines holds want exactly.
+func hasLine(lines []string, want string) bool {
+	for _, l := range lines {
+		if l == want {
+			return true
+		}
+	}
+	return false
 }
 
 // AND A LEAF THE DERIVE RE-ASSERTS EVERY APPLY: claude/settings' env.ENABLE_LSP_TOOL, from
@@ -637,5 +712,35 @@ func TestTheHostMCPInputIsFilteredPerSurfaceAgent(t *testing.T) {
 	}
 	if !strings.Contains(strings.Join(claude.InputSkips, " "), `"keyed"`) {
 		t.Errorf("the skip for claude is not named: %v", claude.InputSkips)
+	}
+}
+
+// A KEY THE SURFACE'S MANAGED LAYER ALSO ASSERTS IS LEFT OUT OF THE COMPUTED REPORT: managed
+// outranks computed (§5), so the file gets managed's value, and managedOverwrites has already
+// named the key. Listed here too, it was reported twice, once under a computed label for a layer
+// that did not win. A key holding a dot is one key, looked up whole.
+func TestComputedOverwritePathsLeavesOutAManagedKey(t *testing.T) {
+	existing := jsonx.NewOrderedMap()
+	env := jsonx.NewOrderedMap()
+	env.Set("ENABLE_LSP_TOOL", "0")
+	env.Set("OTHER", "mine")
+	existing.Set("env", env)
+	existing.Set("model", "mine")
+	existing.Set("archimedes.sessionName", "mine")
+	leaves := map[string]any{
+		"env":                    map[string]any{"ENABLE_LSP_TOOL": "1", "OTHER": "computed"},
+		"model":                  "computed",
+		"archimedes.sessionName": "computed",
+	}
+	managed := map[string]any{
+		"env":                    map[string]any{"ENABLE_LSP_TOOL": "the pack's"},
+		"archimedes.sessionName": "the pack's",
+	}
+	var got []string
+	for _, p := range computedOverwritePaths(existing, leaves, managed) {
+		got = append(got, strings.Join(p, "/"))
+	}
+	if want := "env/OTHER,model"; strings.Join(got, ",") != want {
+		t.Errorf("computedOverwritePaths = %v, want %s (the managed keys left out)", got, want)
 	}
 }

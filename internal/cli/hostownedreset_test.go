@@ -885,6 +885,12 @@ func TestOwnedHostResetRefusesWhileAnApplyHoldsTheLock(t *testing.T) {
 	if !strings.Contains(errw.String(), "again once it has finished") {
 		t.Errorf("the refusal does not name the next step:\n%s", errw.String())
 	}
+	// It names the lock's takers as they are: an explicit `yolo host apply` takes no lock, so
+	// "another `yolo host apply` is writing this home" named the one writer it cannot be.
+	if !strings.Contains(errw.String(), "a `yolo host -- <agent>` launch's apply, or another "+
+		"`yolo config reset` or `capture`") || strings.Contains(errw.String(), "another `yolo host apply`") {
+		t.Errorf("the refusal does not name who holds the lock:\n%s", errw.String())
+	}
 	if capturedKeysAt(t, filepath.Join(store, "claude-settings.overlay.json")) == 0 {
 		t.Errorf("a refused reset discarded the captured edit")
 	}

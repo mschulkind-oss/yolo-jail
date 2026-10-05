@@ -432,6 +432,31 @@ func TestHostRenderRefusesUnparseableJSON(t *testing.T) {
 	}
 }
 
+// A JSON FILE THAT IS NOT AN OBJECT IS REFUSED WITH THE WAY ON, and left as it is: there are no
+// keys to merge into, and the refusal said only that until 2026-10-05.
+func TestHostRenderRefusesANonObjectJSONFileNamingTheNextStep(t *testing.T) {
+	home := t.TempDir()
+	settings := filepath.Join(home, ".claude", "settings.json")
+	writeTestFile(t, settings, `["not", "an", "object"]`)
+	claude, err := embeddedPack("claude")
+	if err != nil {
+		t.Fatal(err)
+	}
+	results, rerr := RenderHostPack(claude, home, render.OwnershipAssert, false, nil, nil)
+	if rerr != nil {
+		t.Fatal(rerr)
+	}
+	r := resultFor(t, results, "claude/settings")
+	if !strings.Contains(r.Action, "not an object") ||
+		!strings.Contains(r.Action, "move it aside (yolo then writes a fresh one) or make its "+
+			"top level an object, and re-run") {
+		t.Errorf("the refusal does not name the next step: %q", r.Action)
+	}
+	if got := string(mustRead(t, settings)); got != `["not", "an", "object"]` {
+		t.Errorf("a refused surface must be untouched: %s", got)
+	}
+}
+
 // ONE refused surface must not abort the pack: every other surface still renders. A refusal
 // is a deliberate non-write, so treating it as a pack-level error would cost the user the
 // surfaces yolo CAN render because of one file it cannot parse. copilot is the case with three
@@ -740,7 +765,9 @@ func TestRMWYAMLRefusesWhatItCannotWriteBack(t *testing.T) {
 		{"an unquoted date", "when: 2026-10-04\n", "quote it"},
 		{"a binary value", "blob: !!binary aGk=\n", "!!binary"},
 		{"a duplicate key", "a: 1\na: 2\n", "twice"},
-		{"not a mapping", "- a\n- b\n", "not a mapping"},
+		{"not a mapping", "- a\n- b\n", "not a mapping, so there are no keys to merge into — " +
+			"refusing to replace it (the file is untouched); move it aside (yolo then writes a " +
+			"fresh one) or make its top level a mapping, and re-run"},
 		{"invalid", "a: [unterminated\n", "not valid YAML"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -803,6 +830,33 @@ func TestOwnedHostRenderReportsYAMLCommentLoss(t *testing.T) {
 	}
 	if strings.Contains(joined, "header") {
 		t.Errorf("a yaml file is told it gains a generated header, which yolo writes on TOML only: %v", r.Formatting)
+	}
+}
+
+// AND A YAML FILE WHOSE ONLY `#` IS NO COMMENT IS NOT TOLD IT LOSES ONE. The `own` arm asks the
+// YAML parser (yamlHasComments) of a yaml surface; the TOML scanner it asked before reads the `#`
+// inside a block scalar as a comment, and configResultTier would then file the destination as one
+// that loses something of yours, on every apply, for nothing.
+func TestOwnedHostRenderAsksTheYAMLParserAboutComments(t *testing.T) {
+	const blockScalar = "theme: dark\nnote: |\n  # not a comment\n"
+	if !tomlHasComments([]byte(blockScalar)) {
+		t.Fatalf("fixture: the TOML scanner no longer misreads this file, so it tells nothing apart")
+	}
+	t.Setenv("YOLO_CTX_ROOT", t.TempDir())
+	home := t.TempDir()
+	writeTestFile(t, filepath.Join(home, ".oh-omp", "agent", "config.yml"), blockScalar)
+	packs := testPacksForAgent(t, "omp")
+	results, err := RenderHostPack(packs[0], home, render.OwnershipOwn, true, nil,
+		hostTestInputs(t, packs, nil, nil, nil))
+	if err != nil {
+		t.Fatal(err)
+	}
+	r := resultFor(t, results, "oh-omp/settings")
+	if strings.HasPrefix(r.Action, "refused") {
+		t.Fatalf("fixture: the owned render refused the file: %q", r.Action)
+	}
+	if len(r.Formatting) != 0 {
+		t.Errorf("a yaml file with no comment is told its comments are lost: %v", r.Formatting)
 	}
 }
 

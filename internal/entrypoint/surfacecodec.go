@@ -161,7 +161,9 @@ func decodeSurfaceBytes(surface manifest.Surface, path string, raw []byte) (*jso
 		m, isObj := decoded.(*jsonx.OrderedMap)
 		if !isObj {
 			return nil, refuseRMW(surface, "%s is valid JSON but not an object, so there "+
-				"are no keys to merge into — refusing to replace it", path)
+				"are no keys to merge into — refusing to replace it (the file is untouched); "+
+				"move it aside (yolo then writes a fresh one) or make its top level an object, "+
+				"and re-run", path)
 		}
 		return m, nil
 	case "toml":

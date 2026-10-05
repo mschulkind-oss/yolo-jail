@@ -340,10 +340,13 @@ func adoptedSkillGroup(s *hostApplySurvey, home string, write bool) (remedyGroup
 //   - The surface's OWN managed layer wrote it. That layer outranks everything but computed, so no
 //     declaration keeps the user's value at this notch, and the group says so with no `⚠` (P2).
 //   - A COMPUTED leaf wrote it: the pack's derive, over the user's own inputs (OQ-HC1). The input
-//     is in the user config, so the remedy names it there — and a value the `profile` selects is
-//     written only when that profile is first activated in the home, so a pick of the user's own
-//     after that stands (HC-D17), which the group says rather than leave them to re-pick in vain.
-//     A leaf no input of theirs moves has no remedy, and says so.
+//     is in the user config, so the remedy names it there. A leaf no input of theirs moves has no
+//     remedy, and says so.
+//   - The profile's SELECTION wrote it (selectedWinner): a computed key too, but written only when
+//     that profile is first activated in the home, so a pick of the user's own after that stands
+//     (HC-D17), which this group alone says rather than leave them to re-pick in vain. A leaf the
+//     derive computes from the same profile is re-written on every apply, so the computed group
+//     must not say it — it did, until 2026-10-05, for pi-subagents' subagents.defaultModel.
 //
 // Each item names its file, so the group is the one place the loss is stated (the per-surface
 // `⚠ overwrote …` line that repeated it is gone).
@@ -380,6 +383,10 @@ func replacedValueGroups(s *hostApplySurvey, home string, write bool) []remedyGr
 		}
 		sort.Strings(items)
 		g := remedyGroup{Class: remedyClassValueReplaced, Items: items, VerdictTerm: "value"}
+		if w == selectedWinner {
+			out = append(out, selectedValueGroup(g, len(vals), verbFor(len(vals)), home))
+			continue
+		}
 		if inputs, computed := strings.CutPrefix(w, computedWinner); computed {
 			out = append(out, computedValueGroup(g, inputs, len(vals), verbFor(len(vals)), home))
 			continue
@@ -430,14 +437,23 @@ func computedValueGroup(g remedyGroup, inputs string, n int, verb, home string) 
 	g.Remedy = fmt.Sprintf("to keep yours, change or remove %s in %s, then apply again",
 		joinWords(keys, "or"), prettyHomePath(home, userConfigPathIn(home)))
 	g.Warn = true
-	for _, name := range names {
-		if name == "profile" {
-			// HC-D17: the selection is edge-triggered, so this is the one apply that replaces it.
-			g.Note = "a value your `profile` selects is written when that profile is first " +
-				"activated in this home; a pick of your own after that (your agent's /model) " +
-				"stands on every later apply"
-		}
-	}
+	return g
+}
+
+// selectedValueGroup is replacedValueGroups' group for the values the profile's SELECTION
+// replaced. The remedy is the computed group's for `profile`; what it adds is HC-D17's note, true
+// of a selection key alone: the selection is edge-triggered, so this is the one apply that
+// replaces the value, and a pick of the user's own after it stands.
+func selectedValueGroup(g remedyGroup, n int, verb, home string) remedyGroup {
+	g.Key = "profile"
+	g.Headline = fmt.Sprintf("%d %s of yours %s by what your profile selects",
+		n, plural(n, "value", "values"), verb)
+	g.Remedy = fmt.Sprintf("to keep yours, change or remove `profile` in %s, then apply again",
+		prettyHomePath(home, userConfigPathIn(home)))
+	g.Warn = true
+	g.Note = "a value your `profile` selects is written when that profile is first " +
+		"activated in this home; a pick of your own after that (your agent's /model) " +
+		"stands on every later apply"
 	return g
 }
 
