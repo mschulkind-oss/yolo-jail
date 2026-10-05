@@ -25,8 +25,8 @@ import (
 )
 
 // BOTH SIDES OF THE BRANCH, as the observable file. An rmw render writes a record at the
-// notch whose census says rmw is its recording mode (host) and no record where another mode
-// carries that duty (jail) — the asymmetry `config diff` reports and the one the anti-
+// notch whose census says rmw is a recording mode (an owned host) and no record where another
+// mode carries that duty (jail) — the asymmetry `config diff` reports and the one the anti-
 // laundering pass depends on.
 func TestRMWProvenanceFollowsTheTargetsModeCensus(t *testing.T) {
 	surface := manifest.Surface{
@@ -35,19 +35,21 @@ func TestRMWProvenanceFollowsTheTargetsModeCensus(t *testing.T) {
 		Managed: map[string]any{"telemetry": false},
 	}
 
-	// HOST under `assert`: rmw is the only mode, so it records. The contract is STATED here
-	// because the census is a function of it — a host Env assembled without one is undecided
-	// and writes nothing, which is the fail-closed answer and not this test's subject.
+	// HOST under `own`, the one writing contract: it runs rmw for a surface its pack declares
+	// `rmw`, and its census says rmw records there. The contract
+	// is STATED here because the census is a function of it — a host Env assembled without one
+	// is undecided and writes nothing, which is the fail-closed answer and not this test's
+	// subject.
 	eh := &Env{Home: t.TempDir(), Vars: map[string]string{},
-		hostTarget: true, hostOwnership: render.OwnershipAssert}
+		hostTarget: true, hostOwnership: render.OwnershipOwn}
 	if err := renderSurfaceRMWSurface(eh, surface, nil, nil); err != nil {
 		t.Fatalf("host render: %v", err)
 	}
 	if _, found := hostProvenance(t, eh.Home, "census", "settings"); !found {
 		t.Error("the HOST notch wrote no provenance record for an rmw render. Its census says " +
-			"rmw IS its recording mode — rmw is the only mode there, so \"rmw records nothing\" " +
-			"degenerates into \"the host records nothing\", and a key a dropped pack contributed " +
-			"comes back attributed to the user")
+			"rmw IS a recording mode there — the record is the only memory of which keys yolo " +
+			"wrote into a file rmw re-reads as the user's, so without it a key a dropped pack " +
+			"contributed comes back attributed to the user")
 	}
 
 	// JAIL: `stateful` carries the recording duty, so an rmw surface keeps no sidecar and
@@ -67,8 +69,8 @@ func TestRMWProvenanceFollowsTheTargetsModeCensus(t *testing.T) {
 	// fourth notch: if the writer went back to comparing against render.KindHost these two
 	// would still agree today and diverge the moment a notch's census said something its Kind
 	// equality could not express.
-	if !render.Host(eh.Home, nil, render.OwnershipAssert).Modes().Records(manifest.ModeRMW) {
-		t.Error("the host census no longer says rmw records — the writer's behavior above and " +
+	if !render.Host(eh.Home, nil, render.OwnershipOwn).Modes().Records(manifest.ModeRMW) {
+		t.Error("the owned host's census no longer says rmw records — the writer's behavior above and " +
 			"the census it reads have come apart")
 	}
 	if render.Jail(ej.Home, ej.Workspace, nil).Modes().Records(manifest.ModeRMW) {
@@ -87,7 +89,7 @@ func TestHostCensusIsWhatKeepsADroppedPacksKeyAttributable(t *testing.T) {
 	dropme := overlayContributorPack(t, "dropme", map[string]any{"fileSuggestion": "run-fzf"})
 
 	overlays := packoverlay.Collect([]*packload.Pack{owner, dropme}, false, nil)
-	if _, err := RenderHostPack(owner, home, render.OwnershipAssert, false, overlays, nil); err != nil {
+	if _, err := RenderHostPack(owner, home, render.OwnershipOwn, false, overlays, nil); err != nil {
 		t.Fatalf("first apply: %v", err)
 	}
 	first, found := hostProvenance(t, home, "acme", "settings")

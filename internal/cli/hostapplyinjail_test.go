@@ -61,7 +61,7 @@ var hostApplySpellings = []struct {
 func TestAHostApplyRefusesInsideAJail(t *testing.T) {
 	for _, sp := range hostApplySpellings {
 		t.Run(sp.name, func(t *testing.T) {
-			home := hostComputedHome(t, `{"packs": ["pi"]`+sp.cfg+`}`)
+			home := hostComputedHome(t, `{"packs": ["pi"], "host_management": "own"`+sp.cfg+`}`)
 			t.Setenv("YOLO_VERSION", "0.0.0-in-a-jail")
 			before := hashTree(t, home)
 			var out, errw bytes.Buffer
@@ -117,14 +117,16 @@ func TestHostApplyHelpAnswersInsideAJail(t *testing.T) {
 }
 
 // THE CONTROL: with no jail marker the same writing applies write, at both call sites, so the
-// refusal above is the marker's doing and not a fixture that never writes.
+// refusal above is the marker's doing and not a fixture that never writes. Both declare
+// `host_management: "own"`: the unset key is `none` since the `assert` retirement (OQ-CO14),
+// under which an apply off the jail refuses too, for its own reason.
 func TestAHostApplyStillWritesOnTheHost(t *testing.T) {
 	for _, sp := range hostApplySpellings {
 		if sp.name != "host apply --assert" && sp.name != "apply --at host --assert" {
 			continue
 		}
 		t.Run(sp.name, func(t *testing.T) {
-			home := hostComputedHome(t, `{"packs": ["pi"]}`)
+			home := hostComputedHome(t, `{"packs": ["pi"], "host_management": "own"}`)
 			before := hashTree(t, home)
 			var out, errw bytes.Buffer
 			if rc := sp.run(&out, &errw); rc != 0 {

@@ -6,7 +6,9 @@ package cli
 // and hand them to the render, so your MCP servers, LSP servers, providers and selected model
 // reach host agents' files as they reach a jail's. Each test goes through the real command, in a
 // temp HOME with YOLO_CTX_ROOT pointed at an empty dir, so deleting the composition from
-// applyHostSurveyed or configRenderHost fails it.
+// applyHostSurveyed or configRenderHost fails it. Every user config declares
+// `host_management: "own"`: the unset key is `none` since the `assert` retirement (OQ-CO14),
+// under which the host composes nothing and none of these front doors renders a layer.
 
 import (
 	"bytes"
@@ -54,7 +56,7 @@ func readJSONAt(t *testing.T, home, rel string) map[string]any {
 // `profile` selecting the codex profile. Every derived pi surface gets its computed layer,
 // and the inputs the host does not carry — a preset, an entry naming a jail path — are named.
 func TestYoloHostApplyAssertWritesTheComputedLayer(t *testing.T) {
-	home := hostComputedHome(t, `{"packs":["pi"],
+	home := hostComputedHome(t, `{"packs":["pi"],"host_management":"own",
 		"mcp_servers":{"tavily":{"command":"npx","args":["-y","tavily-mcp"]},
 		               "jailed":{"command":"/workspace/bin/mcp"}},
 		"mcp_presets":["sequential-thinking"],
@@ -99,12 +101,14 @@ func TestYoloHostApplyAssertWritesTheComputedLayer(t *testing.T) {
 // writes it into claude's file, and a second launch finds nothing to do.
 func TestTheWrapperAutoApplyWritesTheComputedLayer(t *testing.T) {
 	home := gateFixture(t, true)
+	writeFile(t, filepath.Join(home, ".config", "yolo-jail", "config.jsonc"),
+		`{"packs":["claude"],"host_management":"own","host_apply_on_launch":true}`)
 	t.Setenv("YOLO_CTX_ROOT", t.TempDir())
 	if rc, report := applyWith(t, true, nil); rc != 0 {
 		t.Fatalf("assert apply rc=%d\n%s", rc, report)
 	}
 	writeFile(t, filepath.Join(home, ".config", "yolo-jail", "config.jsonc"),
-		`{"packs":["claude"],"host_apply_on_launch":true,
+		`{"packs":["claude"],"host_management":"own","host_apply_on_launch":true,
 		  "mcp_servers":{"tavily":{"command":"npx","args":["-y","tavily-mcp"]}}}`)
 
 	var out, errw bytes.Buffer
@@ -132,7 +136,7 @@ func TestTheWrapperAutoApplyWritesTheComputedLayer(t *testing.T) {
 // `yolo config render --at host` shows the computed layer's content — the bytes host apply
 // would write, derive included — and `yolo config ls --at host` lists the layer.
 func TestConfigRenderAndLsAtHostShowTheComputedLayer(t *testing.T) {
-	hostComputedHome(t, `{"packs":["pi"],"mcp_servers":{"tavily":{"command":"npx"}}}`)
+	hostComputedHome(t, `{"packs":["pi"],"host_management":"own","mcp_servers":{"tavily":{"command":"npx"}}}`)
 	rc, out, errs := runConfigVerb(t, "render", "pi/mcp", "--at", "host")
 	if rc != 0 {
 		t.Fatalf("config render --at host rc=%d\n%s%s", rc, out, errs)
@@ -163,11 +167,14 @@ func TestTheJailPrefixHasOneSpelling(t *testing.T) {
 	}
 }
 
-// THE REAL `yolo host apply --assert` WRITES oh-omp's YAML CATALOG, under the default contract,
-// and asks first when it would drop a provider you added by hand (HC-D8's first-apply prompt).
-// Until 2026-10-04 both oh-omp surfaces were refused there: "no RMW encoder for codec yaml".
+// THE REAL `yolo host apply --assert` WRITES oh-omp's YAML CATALOG, under `own`, and asks first
+// when it would drop a provider you added by hand (HC-D8's first-apply prompt). Until 2026-10-04
+// both oh-omp surfaces were refused under the retired `assert`: "no RMW encoder for codec yaml".
+// Neither surface declares `rmw`, so `own` composes both whole and the "no RMW" check below is a
+// guard rather than the codec's pin; the rmw arm's yaml encoder is pinned at the writer
+// (internal/entrypoint/hostrmwcodec_test.go's yaml cells).
 func TestYoloHostApplyAssertWritesTheOmpYAMLCatalog(t *testing.T) {
-	home := hostComputedHome(t, `{"packs":["omp","cerebras"]}`)
+	home := hostComputedHome(t, `{"packs":["omp","cerebras"],"host_management":"own"}`)
 	models := filepath.Join(home, ".oh-omp", "agent", "models.yml")
 	mine := "# my catalog\nproviders:\n  mine:\n    baseUrl: http://127.0.0.1:9/v1\n" +
 		"    api: openai-completions\n"
@@ -204,7 +211,7 @@ func TestYoloHostApplyAssertWritesTheOmpYAMLCatalog(t *testing.T) {
 // yours after the first activation stands (HC-D17). Before 2026-10-04 the profile replaced pi's
 // defaultModel and no group, no line and no count said so.
 func TestHostApplyGroupsAComputedOverwriteUnderItsInput(t *testing.T) {
-	home := hostComputedHome(t, `{"packs":["pi"],"profile":{"pi":"codex"}}`)
+	home := hostComputedHome(t, `{"packs":["pi"],"host_management":"own","profile":{"pi":"codex"}}`)
 	writeFile(t, filepath.Join(home, ".pi", "agent", "settings.json"),
 		`{"theme":"dark","defaultModel":"before-yolo"}`)
 	var out, errw bytes.Buffer
@@ -228,7 +235,7 @@ func TestHostApplyGroupsAComputedOverwriteUnderItsInput(t *testing.T) {
 // subagents.defaultModel under "a pick of your own after that (your agent's /model) stands on
 // every later apply", and the apply then replaced it.
 func TestHostApplyDoesNotPromiseARecomputedValueStands(t *testing.T) {
-	home := hostComputedHome(t, `{"packs":["pi"],"profile":{"pi":"codex"}}`)
+	home := hostComputedHome(t, `{"packs":["pi"],"host_management":"own","profile":{"pi":"codex"}}`)
 	apply := func(args ...string) string {
 		t.Helper()
 		var out, errw bytes.Buffer

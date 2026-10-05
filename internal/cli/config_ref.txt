@@ -788,8 +788,8 @@
     used to leave exactly that half-configured host, and `yolo doctor` said nothing.
     An explicit [bold]false[/bold] still wins: if you want yolo to own your config files
     and refuse to have anything put on your PATH, say so and it is honored.
-    [bold]"assert" does NOT enable them[/bold] — it is host_management's own unset default,
-    so deriving from it would put a PATH claim on every machine that declared nothing.
+    Only a WRITTEN "own" enables them: an unset host_management ("none") never does,
+    so no PATH claim lands on a machine that declared nothing.
     When on, `yolo host apply` writes one small wrapper per
     program your selected packs install into
     [bold]~/.local/share/yolo-jail/bin/wrap[/bold], each a three-line `exec` into
@@ -832,7 +832,7 @@
     config files and what your packs NOW say drift apart in silence.  With this enabled,
     a launch through a generated wrapper (see [bold]host_wrappers[/bold] above) checks first:
     if a re-apply would change nothing it execs straight through; if drift is detected
-    under active host management (`assert` or `own`), it automatically synchronizes
+    under active host management (`own`), it automatically synchronizes
     host configuration before launch (printing `yolo host: synchronized host configuration (<targets>)`
     to stderr) and execs without pausing for confirmation.
 
@@ -890,9 +890,9 @@
     Example (~/.config/yolo-jail/config.jsonc):
       "host_apply_on_launch": true
 
-  [bold]host_management[/bold] ("none" | "assert" | "own"): Who owns the config files
-    yolo renders into your REAL home.  Default [bold]"assert"[/bold] -- today's behavior, so an
-    upgrade changes nothing until you write the key.
+  [bold]host_management[/bold] ("none" | "own"): Who owns the config files yolo renders
+    into your REAL home.  Default [bold]"none"[/bold] -- yolo writes nothing there until you
+    write "own".
 
     Ownership is DECLARED here, never inferred from where a file happens to live.
     The value selects the surface mode the host notch renders in:
@@ -900,41 +900,48 @@
       "none"    yolo writes nothing.  `yolo host apply` REFUSES, naming this key,
                 and a wrapped launch has no render to re-check, so
                 [bold]host_apply_on_launch[/bold] becomes a no-op rather than a nag.
-      "assert"  shared: yolo owns the keys your packs declare and rewrites only
-                those; every other key in the file is yours and is left byte for
-                byte.  This is what `yolo host apply` has always done, and writing
-                the value changes nothing about what it writes.
+                This is also what an UNSET key means.
       "own"     yolo owns the file -- it is derived output, composed whole from
                 your packs and reproducible by deleting it and applying again.
                 Your edits are CAPTURED, into a store beside the provenance record
                 at ~/.local/share/yolo-jail/host-capture/, and re-applied on top of
                 every later render -- so the file stays yours to edit even though
-                yolo composes it.  Switching a home you have been asserting into
-                over to "own" changes ZERO bytes: the first owned render adopts
-                what the file already holds.  `yolo config reset <agent>` is the
-                way to discard those captured edits, and it works host-side under
-                this value alone.
+                yolo composes it.  The first owned render ADOPTS what the file
+                already holds, and copies the file as it found it once, into
+                ~/.local/share/yolo-jail/archive/config/.  A key you keep by hand
+                belongs in a pack: `yolo config promote` declares a captured key
+                into your local pack.  `yolo config reset <agent>` is the way to
+                discard captured edits, and it works host-side under this value alone.
+
+    [bold]"assert" is RETIRED.[/bold]  It was shared ownership: yolo rewrote the keys your
+    packs declare and left the rest.  A config that still says "assert" is REFUSED,
+    with a message naming the two values left -- `yolo host apply`, a wrapped
+    `yolo host` launch, `yolo pack update` and every jail launch stop on it, and
+    `yolo check` reports it.  Write "none" (or delete the key) or "own".  A home
+    yolo wrote into under "assert" is left exactly as it was: nothing rewrites it
+    under "none", a jail still reads the keys yolo wrote there as yolo's rather
+    than yours, and "own" takes it over with the one-time copy above.
 
     [bold yellow]The key enables the mechanism.  It does not grant the approval.[/bold yellow]  Same ruling
     as [bold]host_apply_on_launch[/bold] above: it selects HOW the host renders, and every
     individual write still goes through the confirmation it always did.
 
-    Under "assert", keeping ~/.claude/settings.json in a dotfiles repo is coherent
-    but mixes two authorships; the apply is idempotent, so the diff is stable after
-    the first one.  Under "own" the file is derived and belongs in .gitignore --
-    what goes in the dotfiles repo is the pack.
+    Under "own" the file is derived and belongs in .gitignore -- what goes in the
+    dotfiles repo is the pack.
 
-    [bold]--revert[/bold] (`yolo host apply --revert`) is the way back out under "assert": it
-    removes the keys yolo asserted, on the authority of the provenance record it
-    wrote beside them, and deletes that record -- so a later apply is a FIRST apply
-    again.  A key you set yourself is never touched.  It is a dry run until
-    --assert, and it REMOVES what yolo wrote rather than restoring what was there
-    before.  It keeps a default that is an empty object or list, such as pi's
-    `"providers": {}`, since that is the shape the agent's file needs, and names
-    each one.  Refused under "own" (the file is derived -- `yolo config reset` it,
-    or delete it) and under "none" (yolo wrote nothing).
+    [bold]--revert[/bold] (`yolo host apply --revert`) takes yolo back out of your home: it
+    removes the keys yolo wrote, on the authority of the provenance record it
+    wrote beside them, and deletes that record -- so a later owned apply is a FIRST
+    apply again.  A key you set yourself is never touched.  It runs under "none",
+    the default, which is how a home yolo wrote into under "assert" (or under
+    "own", before you switched back) becomes purely yours again.  It is a dry run
+    until --assert, and it REMOVES what yolo wrote rather than restoring what was
+    there before.  It keeps a default that is an empty object or list, such as
+    pi's `"providers": {}`, since that is the shape the agent's file needs, and
+    names each one.  Refused under "own" (the next apply would compose those keys
+    back -- set "none" first, or delete the file).
 
-    An UNSET key is the default, not a fourth value, and it bites in exactly one
+    An UNSET key is the default, not a third value, and it bites in exactly one
     place: `yolo apply --sealed` refuses while it is unset, beside the undeclared
     inputs it already refuses for.  An environment whose host-ownership contract is
     unstated is not sealed.
@@ -944,9 +951,9 @@
     with the repo and is agent-editable, so it must never make that claim for you.
     A workspace value is a `yolo check` error, and is never read.  A user config
     that cannot be READ yields "none" -- a declaration nobody could read has granted
-    nothing -- while an absent key yields "assert".
+    nothing -- as does an absent key.
     Example (~/.config/yolo-jail/config.jsonc):
-      "host_management": "assert"
+      "host_management": "own"
 
   [bold]promotion_target[/bold] ("local" | "pack:<name>"): Where `yolo config promote`
     writes when you omit `--to`.  Default [bold]"local"[/bold], the conventional personal
@@ -958,8 +965,7 @@
 
     The named pack must be configured and writable when you promote; yolo checks
     that at the promotion itself.  [bold]--to[/bold] always overrides this default for one
-    command.  `host` cannot be the default: writing real-home settings remains an
-    explicit `--to host` decision every time.
+    command.  (`--to host` is retired with host_management "assert", and refused.)
 
     [bold yellow]Scope: user config only[/bold yellow] (~/.config/yolo-jail/config.jsonc). Captured
     settings are personal, and a workspace is writable by the agent running in its

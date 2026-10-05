@@ -81,10 +81,11 @@ func TestHostLaunchRefusesTheRetiredUseProfilesKey(t *testing.T) {
 // `yolo host apply` folds "*" over the agents its packs install: pi on the codex profile
 // through "*" writes pi's provider and model into the real home, as the named entry does in
 // TestYoloHostApplyAssertWritesTheComputedLayer. Handing composeHostInputs' fold no packs
-// leaves "*" reaching nothing, and pi's settings unwritten.
+// leaves "*" reaching nothing, and pi's settings unwritten. The config declares
+// `host_management: "own"`, without which (OQ-CO14's unset `none`) the apply writes nothing.
 func TestYoloHostApplyFoldsTheProfileKeysDefault(t *testing.T) {
 	for name, sel := range map[string]string{"string form": `"codex"`, "\"*\"": `{"*": "codex"}`} {
-		home := hostComputedHome(t, `{"packs":["pi"], "profile":`+sel+`}`)
+		home := hostComputedHome(t, `{"packs":["pi"], "host_management": "own", "profile":`+sel+`}`)
 		var out, errw bytes.Buffer
 		if rc := hostMain([]string{"apply", "--assert"}, &out, &errw, false, strings.NewReader("y\n")); rc != 0 {
 			t.Fatalf("%s: yolo host apply --assert rc=%d\n%s%s", name, rc, out.String(), errw.String())
@@ -102,12 +103,15 @@ func TestYoloHostApplyFoldsTheProfileKeysDefault(t *testing.T) {
 // silently ignored, and an --assert then deselected the profile an earlier apply had written
 // into the real home. Each case starts from a home the key applied pi's codex profile into, then
 // respells the selection under the old key; the refusal must name it and the home must keep
-// what the earlier apply wrote.
+// what the earlier apply wrote. Both configs declare `host_management: "own"`: under the unset
+// key (`none` since OQ-CO14) nothing renders to refuse, and the earlier apply writes nothing.
 func TestEveryHostRenderRefusesTheRetiredUseProfilesKey(t *testing.T) {
-	const retired = `{"packs":["pi"], "host_apply_on_launch": true, "use_profiles": {"pi": "codex"}}`
+	const retired = `{"packs":["pi"], "host_management": "own", "host_apply_on_launch": true, ` +
+		`"use_profiles": {"pi": "codex"}}`
 	applied := func(t *testing.T) string {
 		t.Helper()
-		home := hostComputedHome(t, `{"packs":["pi"], "host_apply_on_launch": true, "profile": {"pi": "codex"}}`)
+		home := hostComputedHome(t, `{"packs":["pi"], "host_management": "own", "host_apply_on_launch": true, `+
+			`"profile": {"pi": "codex"}}`)
 		var out, errw bytes.Buffer
 		if rc := hostMain([]string{"apply", "--assert"}, &out, &errw, false, strings.NewReader("y\n")); rc != 0 {
 			t.Fatalf("fixture: yolo host apply --assert rc=%d\n%s%s", rc, out.String(), errw.String())

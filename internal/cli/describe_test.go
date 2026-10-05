@@ -317,7 +317,7 @@ func TestApplySealedClosure(t *testing.T) {
 	// test can no longer tell its own two refusals apart (see
 	// TestApplySealedRefusesAnUnsetHostManagement, which owns that one).
 	writeFile(t, filepath.Join(home, ".config", "yolo-jail", "config.jsonc"),
-		`{"host_management":"assert"}`)
+		`{"host_management":"own"}`)
 
 	// Clean: no local.jsonc, no capture sidecars → sealed (rc 0).
 	var out, errw bytes.Buffer
@@ -387,8 +387,11 @@ func TestApplyHostRMW(t *testing.T) {
 	writeFile(t, filepath.Join(packDir, "pack.json"), `{"name":"hp","contributes":[
 	  {"kind":"config","config":[{"agent":"hp","name":"settings","codec":"json","path":"~/.hp/settings.json","mode":"rmw","managed":{"telemetry":false}}]},
 	  {"kind":"mount","host":"refs","into":"refs"}]}`)
+	// `host_management: "own"`: the unset key is `none` since the `assert` retirement
+	// (OQ-CO14), and `apply --at host` refuses under it. The surface declares `rmw`, so `own`
+	// runs the read-modify-write this test is about.
 	writeFile(t, filepath.Join(home, ".config", "yolo-jail", "config.jsonc"),
-		`{"packs":["file://`+packDir+`"],"confinement":"host"}`)
+		`{"packs":["file://`+packDir+`"],"confinement":"host","host_management":"own"}`)
 
 	// A pre-existing user key that RMW must preserve.
 	writeFile(t, filepath.Join(home, ".hp", "settings.json"), `{"myOwnKey":"keep","telemetry":true}`)

@@ -264,7 +264,7 @@ above the overlay beat it and the layers below it lose:
 removes a key deliberately, and reinstating it would undo a decision that boot just made. The
 losing half is the case that matters for the user, and it shipped backwards for one day
 (2026-09-12): a file holding `"theme": null` against a pack whose `defaults` says `"system"` kept
-the null under `assert` — rmw fills a default only where the key is **absent**, and a null-valued
+the null under `assert` (the rmw arm, which the retired `assert` ran for every surface) — rmw fills a default only where the key is **absent**, and a null-valued
 key is present — and took the default under `own`. That is a value changing across a switch that
 [§11](../design/config-ownership-and-promotion.md#11-success-criteria) says keeps every value.
 The control settles the direction: the same file holding `"theme": "dark"` keeps `"dark"`, because

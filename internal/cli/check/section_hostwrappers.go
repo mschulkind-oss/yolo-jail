@@ -147,8 +147,8 @@ func (o *Options) sectionHostWrappers(r *reporter) {
 			"by its full path."
 		if st.managementNone {
 			fix = "`yolo host apply --assert` rewrites them to name the yolo you run now, once " +
-				"host_management in " + paths.UserConfigPath() + " is \"assert\" (under \"none\" " +
-				"it refuses); or turn host_wrappers off."
+				"host_management in " + paths.UserConfigPath() + " is \"own\" (under \"none\", " +
+				"the default, it refuses); or turn host_wrappers off."
 		}
 		r.warn(fmt.Sprintf("%d wrapper(s) cannot start yolo from every launcher: %s",
 			len(st.stale), joinNames(staleNames(st.stale))),
@@ -540,15 +540,29 @@ func shadowedNames(sh []hostwrap.Shadow) []string {
 // what `yolo config-ref` is for; this is where the key's INTERACTION with the wrappers on
 // their PATH is observable.
 //
-// [OK] for "assert", including when nobody wrote the key: an unset key IS "assert" by ruling
-// (OQ-CO2), and saying so is how a reader learns that the silent default is a decision rather
-// than an absence.
+// `none` is also the UNSET state since the `assert` retirement (OQ-CO14), so the row says which
+// it read — a key written "none" or no key at all — and its remedy names `own`, the one value
+// that renders. It named `"assert"` until then. A config still SAYING "assert" is a [FAIL] of its
+// own, with config's retirement message (HostManagementRetired), and absorbs the generation rows
+// for `none`'s reason: the value writes nothing.
 func hostManagementRow(r *reporter, st wrapperState) (absorbedGeneration bool) {
-	switch config.HostManagementMode() {
+	if retired := config.HostManagementRetired(); retired != "" {
+		r.fail(`host_management is "assert", which is retired — `+"`yolo host apply`"+
+			" refuses, and no wrapper is regenerated", retired)
+		return true
+	}
+	mode, declared := config.HostManagementDeclared()
+	switch mode {
 	case config.HostManagementNone:
-		why := "The key says your agents' config files are entirely yours, and yolo honors it " +
+		state := `host_management is "none"`
+		if !declared {
+			state = `host_management is unset ("none")`
+		}
+		why := "\"none\" says your agents' config files are entirely yours, and yolo honors it " +
 			"by writing nothing at all — the wrapper directory included, which the same " +
 			"command generates."
+		fix := "Set host_management to \"own\" in " + paths.UserConfigPath() + " and run " +
+			"`yolo host apply --assert`, or turn host_wrappers off."
 		readable := st.dirErr == nil || os.IsNotExist(st.dirErr)
 		if readable && (len(st.names) == 0 || len(st.missing) > 0) {
 			unwrapped := st.missing
@@ -562,24 +576,17 @@ func hostManagementRow(r *reporter, st wrapperState) (absorbedGeneration bool) {
 			if len(unwrapped) > 0 {
 				forClause = " for " + joinNames(unwrapped)
 			}
-			r.warn("host_management is \"none\", so `yolo host apply` refuses and no wrapper "+
-				"is generated"+forClause,
-				joinLines("Set host_management to \"assert\" in "+paths.UserConfigPath()+
-					" and run `yolo host apply --assert`, or turn host_wrappers off.",
-					why, st.gateClause(gateNone)))
+			r.warn(state+", so `yolo host apply` refuses and no wrapper is generated"+forClause,
+				joinLines(fix, why, st.gateClause(gateNone)))
 			return true
 		}
-		r.warn("host_management is \"none\" — `yolo host apply` refuses, so these wrappers "+
-			"are never regenerated",
-			joinLines("Set host_management to \"assert\" in "+paths.UserConfigPath()+" to have "+
-				"yolo own the keys your packs declare, or turn host_wrappers off.", why,
-				st.gateClause(gateNone)))
+		r.warn(state+" — `yolo host apply` refuses, so these wrappers are never regenerated",
+			joinLines("Set host_management to \"own\" in "+paths.UserConfigPath()+" to have "+
+				"yolo compose your agents' config files from your packs, or turn host_wrappers off.",
+				why, st.gateClause(gateNone)))
 	case config.HostManagementOwn:
 		r.ok("host_management is \"own\" — yolo composes these files whole and captures your " +
 			"edits, so they are derived output: delete one and the next apply reproduces it")
-	default:
-		r.ok("host_management is \"assert\" — yolo owns the keys your packs declare and " +
-			"rewrites only those; every other key in those files is yours and is left alone")
 	}
 	return false
 }

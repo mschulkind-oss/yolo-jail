@@ -16,6 +16,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/agentcfg/manifest"
 	"github.com/mschulkind-oss/yolo-jail/internal/packdecl"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/packoverlay"
@@ -363,13 +364,20 @@ func listResultFor(results []HostRenderResult, surface string) (HostRenderResult
 	return HostRenderResult{}, false
 }
 
-// The same five behaviours at the host, under both contracts: `assert` renders the surface
-// through rmw (the insert record), `own` through stateful (the list-capture sidecar).
+// hostListModes is the two mechanisms an owned host runs a config-list target through: a
+// surface its pack declares `rmw` (the insert record) and one declaring nothing, which composes
+// `stateful` (the list-capture sidecar). Until the `assert` retirement (OQ-CO14) these were the
+// two CONTRACTS' mechanisms, the retired `assert` forcing every surface through rmw; under `own`
+// the pack's declaration picks, so both stay reachable at the host.
+var hostListModes = []struct{ name, mode string }{{"rmw", manifest.ModeRMW}, {"stateful", ""}}
+
+// The same five behaviours at the host, through both of its mechanisms.
 func TestHostConfigListLifecycle(t *testing.T) {
-	for _, ownership := range []render.HostOwnership{render.OwnershipAssert, render.OwnershipOwn} {
-		t.Run(ownership.String(), func(t *testing.T) {
+	for _, m := range hostListModes {
+		t.Run(m.name, func(t *testing.T) {
+			ownership := render.OwnershipOwn
 			home := t.TempDir()
-			owner := listOwnerPack(t, "", nil)
+			owner := listOwnerPack(t, m.mode, nil)
 			results := applyHostPacks(t, home, ownership, false, owner, personalPack(t))
 			wantPackages(t, home, "npm:owner-a", "npm:owner-b", listKilo)
 			if r, ok := listResultFor(results, "pi/settings"); !ok || !reflect.DeepEqual(r.Lists, []string{"personal"}) {
@@ -400,8 +408,9 @@ func TestHostConfigListLifecycle(t *testing.T) {
 // dropped": an entry already in the real file before the first apply is the user's, never
 // recorded as inserted, and it survives the drop.
 func TestHostConfigListNeverRemovesTheUsersOwnMatchingEntry(t *testing.T) {
-	for _, ownership := range []render.HostOwnership{render.OwnershipAssert, render.OwnershipOwn} {
-		t.Run(ownership.String(), func(t *testing.T) {
+	for _, m := range hostListModes {
+		t.Run(m.name, func(t *testing.T) {
+			ownership := render.OwnershipOwn
 			home := t.TempDir()
 			path := filepath.Join(home, listSettings)
 			if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
@@ -410,7 +419,7 @@ func TestHostConfigListNeverRemovesTheUsersOwnMatchingEntry(t *testing.T) {
 			if err := os.WriteFile(path, []byte(`{"packages":["npm:mine","`+listKilo+`"]}`), 0o644); err != nil {
 				t.Fatal(err)
 			}
-			owner := listOwnerPack(t, "", nil)
+			owner := listOwnerPack(t, m.mode, nil)
 			applyHostPacks(t, home, ownership, false, owner, personalPack(t))
 			applyHostPacks(t, home, ownership, false, owner)
 			if got := packagesAt(t, home); !containsString(got, listKilo) || !containsString(got, "npm:mine") {
@@ -429,20 +438,24 @@ func containsString(list []any, s string) bool {
 	return false
 }
 
-// OQ-AL2 and the managed floor, at the host.
+// OQ-AL2 and the managed floor, at the host, through both of its mechanisms.
 func TestHostConfigListPrecedence(t *testing.T) {
-	home := t.TempDir()
-	replacer := &packload.Pack{Name: "replacer", Decl: &packdecl.Manifest{
-		Contributes: []packdecl.Contribution{{Kind: packdecl.KindConfigOverlay, Surface: "pi/settings",
-			Raw: json.RawMessage(`{"managed":{"packages":["npm:only"]}}`)}},
-	}}
-	applyHostPacks(t, home, render.OwnershipAssert, false, listOwnerPack(t, "", nil), replacer, personalPack(t))
-	wantPackages(t, home, "npm:only", listKilo, "npm:owner-a")
+	for _, m := range hostListModes {
+		t.Run(m.name, func(t *testing.T) {
+			home := t.TempDir()
+			replacer := &packload.Pack{Name: "replacer", Decl: &packdecl.Manifest{
+				Contributes: []packdecl.Contribution{{Kind: packdecl.KindConfigOverlay, Surface: "pi/settings",
+					Raw: json.RawMessage(`{"managed":{"packages":["npm:only"]}}`)}},
+			}}
+			applyHostPacks(t, home, render.OwnershipOwn, false, listOwnerPack(t, m.mode, nil), replacer, personalPack(t))
+			wantPackages(t, home, "npm:only", listKilo, "npm:owner-a")
 
-	home2 := t.TempDir()
-	applyHostPacks(t, home2, render.OwnershipAssert, false,
-		listOwnerPack(t, "", map[string]any{"managed": map[string]any{"packages": []any{"pinned"}}}), personalPack(t))
-	wantPackages(t, home2, "pinned")
+			home2 := t.TempDir()
+			applyHostPacks(t, home2, render.OwnershipOwn, false,
+				listOwnerPack(t, m.mode, map[string]any{"managed": map[string]any{"packages": []any{"pinned"}}}), personalPack(t))
+			wantPackages(t, home2, "pinned")
+		})
+	}
 }
 
 // The refusal at the host is a `refused: config-list …` row naming the surface and its mode,
@@ -452,7 +465,7 @@ func TestHostConfigListRefusalRow(t *testing.T) {
 	owner := listOwnerPack(t, "", map[string]any{"name": "hosts", "codec": "lines",
 		"path": "~/.pi/hosts", "defaults": nil})
 	for _, observe := range []bool{true, false} {
-		results := applyHostPacks(t, home, render.OwnershipAssert, observe, owner,
+		results := applyHostPacks(t, home, render.OwnershipOwn, observe, owner,
 			listContributorPack(t, "personal", "pi/hosts", "/x", "b"))
 		r, ok := listResultFor(results, "pi/hosts")
 		if !ok || !strings.HasPrefix(r.Action, "refused: config-list on pi/hosts") ||
@@ -467,7 +480,9 @@ func TestHostConfigListRefusalRow(t *testing.T) {
 
 // A type conflict at the host (pack-system.md#config-list-type-conflict): an agent-owned file
 // holding a non-array at the path is refused as a row (the file untouched), not rewritten and
-// not aborting the apply.
+// not aborting the apply. Agent-owned is what an `rmw` declaration means, so the owner declares
+// it: under `own` a surface declaring nothing composes `stateful` and adopts the file instead
+// (TestHostConfigListTypeConflictUnderOwnIsARefusedRow is that mechanism's conflict).
 func TestHostConfigListTypeConflictIsARefusedRow(t *testing.T) {
 	home := t.TempDir()
 	path := filepath.Join(home, listSettings)
@@ -479,7 +494,7 @@ func TestHostConfigListTypeConflictIsARefusedRow(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, observe := range []bool{true, false} {
-		results := applyHostPacks(t, home, render.OwnershipAssert, observe, listOwnerPack(t, "", nil), personalPack(t))
+		results := applyHostPacks(t, home, render.OwnershipOwn, observe, listOwnerPack(t, manifest.ModeRMW, nil), personalPack(t))
 		if r, _ := listResultFor(results, "pi/settings"); !strings.HasPrefix(r.Action, "refused: ") ||
 			!strings.Contains(r.Action, "/packages") {
 			t.Fatalf("observe=%v: result = %+v, want a refusal naming the path", observe, r)
@@ -491,13 +506,19 @@ func TestHostConfigListTypeConflictIsARefusedRow(t *testing.T) {
 }
 
 // REVERT removes exactly the entries yolo inserted: the user's own entries and the owner's
-// defaults stay, and the insert record goes with the provenance record.
+// defaults stay, and the insert record goes with the provenance record. The insert record is
+// rmw's, so the owner declares `rmw`: under `own` a surface declaring nothing composes
+// `stateful`, which keeps no insert record, and the last check would pass vacuously.
 func TestHostConfigListRevertRemovesOnlyInsertedEntries(t *testing.T) {
 	home := t.TempDir()
-	owner := listOwnerPack(t, "", nil)
-	applyHostPacks(t, home, render.OwnershipAssert, false, owner, personalPack(t))
+	owner := listOwnerPack(t, manifest.ModeRMW, nil)
+	applyHostPacks(t, home, render.OwnershipOwn, false, owner, personalPack(t))
 	editSettings(t, home, appendInstalled)
-	applyHostPacks(t, home, render.OwnershipAssert, false, owner, personalPack(t))
+	applyHostPacks(t, home, render.OwnershipOwn, false, owner, personalPack(t))
+	record := render.Host(home, nil, render.OwnershipOwn).ListRecordPath("pi", "settings")
+	if _, err := os.Stat(record); err != nil {
+		t.Fatalf("fixture premise — the rmw apply left no insert record to revert: %v", err)
+	}
 
 	rev, err := RevertHostRender([]*packload.Pack{owner}, home, false)
 	if err != nil {
@@ -514,7 +535,7 @@ func TestHostConfigListRevertRemovesOnlyInsertedEntries(t *testing.T) {
 	if containsString(got, listKilo) || !containsString(got, listInstalled) {
 		t.Fatalf("after revert packages = %#v, want the inserted entry gone and the user's kept", got)
 	}
-	if _, err := os.Stat(render.Host(home, nil, render.OwnershipAssert).ListRecordPath("pi", "settings")); !os.IsNotExist(err) {
+	if _, err := os.Stat(record); !os.IsNotExist(err) {
 		t.Fatalf("the insert record survived the revert (err=%v)", err)
 	}
 }
@@ -553,20 +574,21 @@ func TestJailConfigListDeleteThenRecreateKeepsWhatTheUserWrote(t *testing.T) {
 
 // A MANAGED WINDOW is not a user removal. While managed holds the list path the file carries
 // managed's array, not yolo's inserted entries; once managed lets go, the contributed entries
-// return — at `assert` (rmw) exactly as at `own` (stateful), which recomposes.
+// return — through rmw exactly as through stateful, which recomposes.
 func TestHostConfigListManagedWindowDeclinesNothing(t *testing.T) {
-	for _, ownership := range []render.HostOwnership{render.OwnershipAssert, render.OwnershipOwn} {
-		t.Run(ownership.String(), func(t *testing.T) {
+	for _, m := range hostListModes {
+		t.Run(m.name, func(t *testing.T) {
+			ownership := render.OwnershipOwn
 			home := t.TempDir()
-			applyHostPacks(t, home, ownership, false, listOwnerPack(t, "", nil), personalPack(t))
+			applyHostPacks(t, home, ownership, false, listOwnerPack(t, m.mode, nil), personalPack(t))
 			applyHostPacks(t, home, ownership, false,
-				listOwnerPack(t, "", map[string]any{"managed": map[string]any{"packages": []any{"pinned"}}}), personalPack(t))
+				listOwnerPack(t, m.mode, map[string]any{"managed": map[string]any{"packages": []any{"pinned"}}}), personalPack(t))
 			wantPackages(t, home, "pinned")
-			applyHostPacks(t, home, ownership, false, listOwnerPack(t, "", nil), personalPack(t))
+			applyHostPacks(t, home, ownership, false, listOwnerPack(t, m.mode, nil), personalPack(t))
 			if got := packagesAt(t, home); !containsString(got, listKilo) {
 				t.Fatalf("after managed let go packages = %#v — the contributed entry was declined though the user never removed it", got)
 			}
-			if ownership == render.OwnershipAssert {
+			if m.mode == manifest.ModeRMW {
 				rec := readSidecar(t, render.Host(home, nil, ownership).ListRecordPath("pi", "settings"))
 				var recs map[string]map[string]any
 				if err := json.Unmarshal([]byte(rec), &recs); err != nil {
@@ -599,14 +621,14 @@ func TestConfigListRMWDeletedFileOrKeyDeclinesNothing(t *testing.T) {
 	} {
 		t.Run("host/"+tc.name, func(t *testing.T) {
 			home := t.TempDir()
-			owner := listOwnerPack(t, "", nil)
-			applyHostPacks(t, home, render.OwnershipAssert, false, owner, personalPack(t))
+			owner := listOwnerPack(t, manifest.ModeRMW, nil)
+			applyHostPacks(t, home, render.OwnershipOwn, false, owner, personalPack(t))
 			tc.erase(t, home)
-			applyHostPacks(t, home, render.OwnershipAssert, false, owner, personalPack(t))
+			applyHostPacks(t, home, render.OwnershipOwn, false, owner, personalPack(t))
 			if got := packagesAt(t, home); !containsString(got, listKilo) {
 				t.Fatalf("packages = %#v — the contributed entry did not come back", got)
 			}
-			if rec := readSidecar(t, render.Host(home, nil, render.OwnershipAssert).ListRecordPath("pi", "settings")); strings.Contains(rec, `"declined": [
+			if rec := readSidecar(t, render.Host(home, nil, render.OwnershipOwn).ListRecordPath("pi", "settings")); strings.Contains(rec, `"declined": [
       "`+listKilo) {
 				t.Fatalf("a deleted %s declined the entry: %s", tc.name, rec)
 			}
@@ -641,7 +663,7 @@ func TestConfigListRMWBlockedParentIsRefusedAndTheFileUntouched(t *testing.T) {
 			t.Fatal(err)
 		}
 		for _, observe := range []bool{true, false} {
-			results := applyHostPacks(t, home, render.OwnershipAssert, observe, listOwnerPack(t, "", nil), models)
+			results := applyHostPacks(t, home, render.OwnershipOwn, observe, listOwnerPack(t, manifest.ModeRMW, nil), models)
 			r, _ := listResultFor(results, "pi/settings")
 			if !strings.HasPrefix(r.Action, "refused: ") || !strings.Contains(r.Action, "/models holds a string") {
 				t.Fatalf("observe=%v: result = %+v, want a refusal naming the blocking ancestor", observe, r)
@@ -725,38 +747,33 @@ func TestHostConfigListRevertUnderOwnKeepsTheUsersEntries(t *testing.T) {
 	})
 }
 
-// A HOST OWNERSHIP SWITCH keeps a pack drop working: the entries yolo inserted under one
-// contract are still yolo's under the other, so dropping the pack removes them, while the
-// user's own entry stays.
+// A HOST OWNERSHIP SWITCH keeps a pack drop working: the entries the retired `assert` inserted
+// into a home (rmw's insert record) are still yolo's once that home is switched to `own`, which
+// composes the surface `stateful`, so dropping the pack removes them while the user's own entry
+// stays. The reverse switch, `own` to `assert`, went with the value (OQ-CO14).
 func TestHostConfigListOwnershipSwitchKeepsTheDropWorking(t *testing.T) {
-	for _, order := range [][2]render.HostOwnership{
-		{render.OwnershipAssert, render.OwnershipOwn},
-		{render.OwnershipOwn, render.OwnershipAssert},
-	} {
-		t.Run(order[0].String()+"-then-"+order[1].String(), func(t *testing.T) {
-			home := t.TempDir()
-			owner := listOwnerPack(t, "", nil)
-			applyHostPacks(t, home, order[0], false, owner, personalPack(t))
-			editSettings(t, home, appendInstalled)
-			applyHostPacks(t, home, order[0], false, owner, personalPack(t))
-			applyHostPacks(t, home, order[1], false, owner, personalPack(t))
-			wantPackages(t, home, "npm:owner-a", "npm:owner-b", listKilo, listInstalled)
-			applyHostPacks(t, home, order[1], false, owner) // the personal pack is dropped
-			wantPackages(t, home, "npm:owner-a", "npm:owner-b", listInstalled)
-		})
-	}
+	home := t.TempDir()
+	owner := listOwnerPack(t, "", nil)
+	applyHostPacks(t, home, render.OwnershipOwn, false, asRetiredAssert(t, owner), personalPack(t))
+	editSettings(t, home, appendInstalled)
+	applyHostPacks(t, home, render.OwnershipOwn, false, asRetiredAssert(t, owner), personalPack(t))
+	requireListInsertRecord(t, home)
+	applyHostPacks(t, home, render.OwnershipOwn, false, owner, personalPack(t))
+	wantPackages(t, home, "npm:owner-a", "npm:owner-b", listKilo, listInstalled)
+	applyHostPacks(t, home, render.OwnershipOwn, false, owner) // the personal pack is dropped
+	wantPackages(t, home, "npm:owner-a", "npm:owner-b", listInstalled)
 }
 
 // REVERT of a key ONLY the list created: the owner declares no `packages`, so once yolo's
 // inserted entries are withdrawn the key is yolo's creation and is deleted — rendered twice
 // first, so the second render's `config-list` label has to survive the `host` guess
-// (keepListCreated).
+// (keepListCreated, the rmw arm's provenance pass — hence an owner declaring `rmw`).
 func TestHostConfigListRevertDeletesAKeyOnlyTheListCreated(t *testing.T) {
 	home := t.TempDir()
-	owner := listOwnerPack(t, "", map[string]any{"defaults": map[string]any{"theme": "dark"}})
+	owner := listOwnerPack(t, manifest.ModeRMW, map[string]any{"defaults": map[string]any{"theme": "dark"}})
 	contrib := listContributorPack(t, "personal", "pi/settings", "/packages", listKilo)
-	applyHostPacks(t, home, render.OwnershipAssert, false, owner, contrib)
-	applyHostPacks(t, home, render.OwnershipAssert, false, owner, contrib)
+	applyHostPacks(t, home, render.OwnershipOwn, false, owner, contrib)
+	applyHostPacks(t, home, render.OwnershipOwn, false, owner, contrib)
 	if _, err := RevertHostRender([]*packload.Pack{owner}, home, false); err != nil {
 		t.Fatal(err)
 	}
@@ -768,7 +785,7 @@ func TestHostConfigListRevertDeletesAKeyOnlyTheListCreated(t *testing.T) {
 // An `unrendered` target at the host is inert and named as a skipped row.
 func TestHostConfigListUnrenderedTargetIsASkippedRow(t *testing.T) {
 	home := t.TempDir()
-	results := applyHostPacks(t, home, render.OwnershipAssert, false, listOwnerPack(t, "unrendered", nil), personalPack(t))
+	results := applyHostPacks(t, home, render.OwnershipOwn, false, listOwnerPack(t, "unrendered", nil), personalPack(t))
 	var rows []string
 	for _, r := range results {
 		rows = append(rows, r.Surface+": "+r.Action)
@@ -782,23 +799,27 @@ func TestHostConfigListUnrenderedTargetIsASkippedRow(t *testing.T) {
 	}
 }
 
-// ...and a contributed entry the user REMOVED under one contract stays removed under the
-// other: `assert` records it declined, `own` records it as a per-entry removal, and each
-// reads the other's record.
+// ...and a contributed entry the user REMOVED from a home the retired `assert` wrote into stays
+// removed once it is switched to `own`: `assert` recorded it declined (rmw's insert record), and
+// `own`'s stateful render reads that record. The reverse switch went with the value (OQ-CO14).
 func TestHostConfigListOwnershipSwitchKeepsTheUsersRemoval(t *testing.T) {
-	for _, order := range [][2]render.HostOwnership{
-		{render.OwnershipAssert, render.OwnershipOwn},
-		{render.OwnershipOwn, render.OwnershipAssert},
-	} {
-		t.Run(order[0].String()+"-then-"+order[1].String(), func(t *testing.T) {
-			home := t.TempDir()
-			owner := listOwnerPack(t, "", nil)
-			applyHostPacks(t, home, order[0], false, owner, personalPack(t))
-			editSettings(t, home, removeEntry(listKilo))
-			applyHostPacks(t, home, order[0], false, owner, personalPack(t))
-			applyHostPacks(t, home, order[1], false, owner, personalPack(t))
-			applyHostPacks(t, home, order[1], false, owner, personalPack(t))
-			wantPackages(t, home, "npm:owner-a", "npm:owner-b")
-		})
+	home := t.TempDir()
+	owner := listOwnerPack(t, "", nil)
+	applyHostPacks(t, home, render.OwnershipOwn, false, asRetiredAssert(t, owner), personalPack(t))
+	editSettings(t, home, removeEntry(listKilo))
+	applyHostPacks(t, home, render.OwnershipOwn, false, asRetiredAssert(t, owner), personalPack(t))
+	requireListInsertRecord(t, home)
+	applyHostPacks(t, home, render.OwnershipOwn, false, owner, personalPack(t))
+	applyHostPacks(t, home, render.OwnershipOwn, false, owner, personalPack(t))
+	wantPackages(t, home, "npm:owner-a", "npm:owner-b")
+}
+
+// requireListInsertRecord is the switch tests' premise: the retired `assert`'s applies left rmw's
+// insert record for pi/settings, so the `own` render after them has another mechanism's record
+// to read rather than its own.
+func requireListInsertRecord(t *testing.T, home string) {
+	t.Helper()
+	if _, err := os.Stat(render.Host(home, nil, render.OwnershipOwn).ListRecordPath("pi", "settings")); err != nil {
+		t.Fatalf("fixture premise — the retired assert's apply left no insert record: %v", err)
 	}
 }

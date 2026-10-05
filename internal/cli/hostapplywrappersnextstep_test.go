@@ -17,15 +17,17 @@ func TestAWrappersFailureNamesItsNextStep(t *testing.T) {
 	for _, write := range []bool{false, true} {
 		name := "dry run"
 		if write {
-			name = "assert"
+			name = "--assert"
 		}
 		t.Run(name, func(t *testing.T) {
 			defaultReport(t)
 			home := t.TempDir()
 			t.Setenv("HOME", home)
 			t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
+			// `own`: the next step this failure names, `yolo host apply --assert`, refuses under
+			// the unset key, which is `none` since the `assert` retirement (OQ-CO14).
 			writeFile(t, filepath.Join(home, ".config", "yolo-jail", "config.jsonc"),
-				`{"packs":["claude"],"host_wrappers":true}`)
+				`{"packs":["claude"],"host_management":"own","host_wrappers":true}`)
 			stubDeclaredBins(t)
 			dir := paths.WrapDirUnder(home)
 			writeFile(t, dir, "not a directory\n")

@@ -20,6 +20,7 @@ import (
 
 	"github.com/mschulkind-oss/yolo-jail/internal/agentcfg/manifest"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
+	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/render"
 	"github.com/mschulkind-oss/yolo-jail/internal/tomlx"
 )
@@ -39,15 +40,19 @@ func codexHostHome(t *testing.T, content string) (string, string) {
 	return home, path
 }
 
-// renderCodexHost runs the shipped codex pack at the host notch (what `yolo host apply
-// --assert` does) and returns the codex/config result.
+// renderCodexHost runs the shipped codex pack at an owned host notch (what `yolo host apply
+// --assert` does) and returns the codex/config result. Its surfaces are re-declared `rmw`
+// (declaredRMW), because the RMW mechanism is this file's subject: the retired `assert` ran it
+// for every surface, and `own` runs it for a surface its pack declares `rmw`, while
+// codex/config as shipped composes `stateful` there.
 func renderCodexHost(t *testing.T, home string, observe bool) HostRenderResult {
 	t.Helper()
 	codex, err := embeddedPack("codex")
 	if err != nil {
 		t.Fatalf("embedded codex: %v", err)
 	}
-	results, rerr := RenderHostPack(codex, home, render.OwnershipAssert, observe, nil, nil)
+	codex = declaredRMW(t, []*packload.Pack{codex}, "codex", true)[0]
+	results, rerr := RenderHostPack(codex, home, render.OwnershipOwn, observe, nil, nil)
 	if rerr != nil {
 		t.Fatalf("RenderHostPack: %v", rerr)
 	}
@@ -364,96 +369,114 @@ func TestHostRenderCodexTOMLQuietWithoutComments(t *testing.T) {
 	}
 }
 
-// A JSON surface never warns about comments (JSON has no comment syntax).
+// A JSON surface never warns about comments (JSON has no comment syntax), through either of an
+// owned host's mechanisms.
 func TestHostRenderJSONSurfaceNeverWarnsComments(t *testing.T) {
-	home := t.TempDir()
-	settings := filepath.Join(home, ".claude", "settings.json")
-	if err := os.MkdirAll(filepath.Dir(settings), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(settings, []byte(`{"preferences":{"theme":"dark"}}`), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	claude, err := embeddedPack("claude")
-	if err != nil {
-		t.Fatal(err)
-	}
-	results, rerr := RenderHostPack(claude, home, render.OwnershipAssert, true, nil, nil)
-	if rerr != nil {
-		t.Fatal(rerr)
-	}
-	for _, r := range results {
-		if len(r.Formatting) != 0 {
-			t.Errorf("%s: json surfaces have no comments to lose: %v", r.Surface, r.Formatting)
-		}
+	for _, m := range hostMechanisms {
+		t.Run(m.name, func(t *testing.T) {
+			home := t.TempDir()
+			settings := filepath.Join(home, ".claude", "settings.json")
+			if err := os.MkdirAll(filepath.Dir(settings), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(settings, []byte(`{"preferences":{"theme":"dark"}}`), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			claude, err := embeddedPack("claude")
+			if err != nil {
+				t.Fatal(err)
+			}
+			claude = declaredRMW(t, []*packload.Pack{claude}, "claude", m.rmw)[0]
+			results, rerr := RenderHostPack(claude, home, render.OwnershipOwn, true, nil, nil)
+			if rerr != nil {
+				t.Fatal(rerr)
+			}
+			for _, r := range results {
+				if len(r.Formatting) != 0 {
+					t.Errorf("%s: json surfaces have no comments to lose: %v", r.Surface, r.Formatting)
+				}
+			}
+		})
 	}
 }
 
 // An unparseable JSON file is refused for the same reason an unparseable TOML one is: the
 // read cannot see the keys, so the write cannot preserve them. This was the JSON half of the
 // same bug — loadObject returned {} for a truncated ~/.claude/settings.json and the render
-// replaced the whole file.
+// replaced the whole file. Through either of an owned host's mechanisms: `stateful` cannot
+// adopt a file it cannot read either.
 func TestHostRenderRefusesUnparseableJSON(t *testing.T) {
-	home := t.TempDir()
-	settings := filepath.Join(home, ".claude", "settings.json")
-	if err := os.MkdirAll(filepath.Dir(settings), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	broken := `{"preferences":{"theme":"dark"` // truncated
-	if err := os.WriteFile(settings, []byte(broken), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	claude, err := embeddedPack("claude")
-	if err != nil {
-		t.Fatal(err)
-	}
-	results, rerr := RenderHostPack(claude, home, render.OwnershipAssert, false, nil, nil)
-	if rerr != nil {
-		t.Fatal(rerr)
-	}
-	var found bool
-	for _, r := range results {
-		if r.Surface == "claude/settings" {
-			found = true
-			if !strings.HasPrefix(r.Action, "refused:") {
-				t.Errorf("action = %q, want a refusal for unparseable JSON", r.Action)
+	for _, m := range hostMechanisms {
+		t.Run(m.name, func(t *testing.T) {
+			home := t.TempDir()
+			settings := filepath.Join(home, ".claude", "settings.json")
+			if err := os.MkdirAll(filepath.Dir(settings), 0o755); err != nil {
+				t.Fatal(err)
 			}
-		}
-	}
-	if !found {
-		t.Fatalf("no claude/settings result: %+v", results)
-	}
-	after, err := os.ReadFile(settings)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if string(after) != broken {
-		t.Errorf("a refused surface must be untouched:\nbefore %s\nafter  %s", broken, after)
+			broken := `{"preferences":{"theme":"dark"` // truncated
+			if err := os.WriteFile(settings, []byte(broken), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			claude, err := embeddedPack("claude")
+			if err != nil {
+				t.Fatal(err)
+			}
+			claude = declaredRMW(t, []*packload.Pack{claude}, "claude", m.rmw)[0]
+			results, rerr := RenderHostPack(claude, home, render.OwnershipOwn, false, nil, nil)
+			if rerr != nil {
+				t.Fatal(rerr)
+			}
+			var found bool
+			for _, r := range results {
+				if r.Surface == "claude/settings" {
+					found = true
+					if !strings.HasPrefix(r.Action, "refused:") {
+						t.Errorf("action = %q, want a refusal for unparseable JSON", r.Action)
+					}
+				}
+			}
+			if !found {
+				t.Fatalf("no claude/settings result: %+v", results)
+			}
+			after, err := os.ReadFile(settings)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if string(after) != broken {
+				t.Errorf("a refused surface must be untouched:\nbefore %s\nafter  %s", broken, after)
+			}
+		})
 	}
 }
 
 // A JSON FILE THAT IS NOT AN OBJECT IS REFUSED WITH THE WAY ON, and left as it is: there are no
-// keys to merge into, and the refusal said only that until 2026-10-05.
+// keys to merge into, and the refusal said only that until 2026-10-05. Through either of an
+// owned host's mechanisms.
 func TestHostRenderRefusesANonObjectJSONFileNamingTheNextStep(t *testing.T) {
-	home := t.TempDir()
-	settings := filepath.Join(home, ".claude", "settings.json")
-	writeTestFile(t, settings, `["not", "an", "object"]`)
-	claude, err := embeddedPack("claude")
-	if err != nil {
-		t.Fatal(err)
-	}
-	results, rerr := RenderHostPack(claude, home, render.OwnershipAssert, false, nil, nil)
-	if rerr != nil {
-		t.Fatal(rerr)
-	}
-	r := resultFor(t, results, "claude/settings")
-	if !strings.Contains(r.Action, "not an object") ||
-		!strings.Contains(r.Action, "move it aside (yolo then writes a fresh one) or make its "+
-			"top level an object, and re-run") {
-		t.Errorf("the refusal does not name the next step: %q", r.Action)
-	}
-	if got := string(mustRead(t, settings)); got != `["not", "an", "object"]` {
-		t.Errorf("a refused surface must be untouched: %s", got)
+	for _, m := range hostMechanisms {
+		t.Run(m.name, func(t *testing.T) {
+			home := t.TempDir()
+			settings := filepath.Join(home, ".claude", "settings.json")
+			writeTestFile(t, settings, `["not", "an", "object"]`)
+			claude, err := embeddedPack("claude")
+			if err != nil {
+				t.Fatal(err)
+			}
+			claude = declaredRMW(t, []*packload.Pack{claude}, "claude", m.rmw)[0]
+			results, rerr := RenderHostPack(claude, home, render.OwnershipOwn, false, nil, nil)
+			if rerr != nil {
+				t.Fatal(rerr)
+			}
+			r := resultFor(t, results, "claude/settings")
+			if !strings.Contains(r.Action, "not an object") ||
+				!strings.Contains(r.Action, "move it aside (yolo then writes a fresh one) or make its "+
+					"top level an object, and re-run") {
+				t.Errorf("the refusal does not name the next step: %q", r.Action)
+			}
+			if got := string(mustRead(t, settings)); got != `["not", "an", "object"]` {
+				t.Errorf("a refused surface must be untouched: %s", got)
+			}
+		})
 	}
 }
 
@@ -474,7 +497,7 @@ func TestHostRenderRefusalDoesNotAbortThePack(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	results, rerr := RenderHostPack(copilot, home, render.OwnershipAssert, false, nil, nil)
+	results, rerr := RenderHostPack(copilot, home, render.OwnershipOwn, false, nil, nil)
 	if rerr != nil {
 		t.Fatalf("a refusal must not surface as a pack-level error: %v", rerr)
 	}
@@ -630,7 +653,7 @@ func TestTOMLHasComments(t *testing.T) {
 // ── yaml ─────────────────────────────────────────────────────────────────────────────────
 //
 // The `yaml` arm of the codec boundary (yamltrivia.go). Its first user is oh-omp, whose
-// models.yml and config.yml every `yolo host apply` under the default contract refused with
+// models.yml and config.yml every `yolo host apply` under the then-default `assert` refused with
 // "no RMW encoder for codec yaml" (MEASURED 2026-10-04, omp + cerebras). These run the writer
 // itself — renderSurfaceRMWSurface, the call both notches make — over a synthetic surface, so
 // deleting either arm in surfacecodec.go fails them.

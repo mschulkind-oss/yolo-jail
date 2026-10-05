@@ -172,6 +172,14 @@ things stay behind, and the report names each one: an MCP preset, a server whose
 that exists only inside a jail (such as `/workspace/...`), and a profile that needs a jail's
 service, such as claude's `codex` profile.
 
+**First, let yolo write there.** Your real home is yours until you say otherwise:
+`host_management` is `"none"` by default, and `yolo host apply` refuses. Set it in your user config,
+`~/.config/yolo-jail/config.jsonc`:
+
+```jsonc
+"host_management": "own"
+```
+
 ### Step 1: preview
 
 `yolo host apply` is a dry run unless you add `--assert`. It prints what would change and writes
@@ -212,8 +220,11 @@ print the full content, so before your first `--assert` read what your packs man
 $ yolo host apply --assert
 ```
 
-yolo rewrites only the keys your packs manage and leaves every other key in the file exactly as it
-was. Run it again whenever you change a pack; it is safe to repeat.
+yolo writes each file from your packs. The first time it writes one, it copies the file as it was
+into `~/.local/share/yolo-jail/archive/config/` and keeps the keys already in it as your own edits,
+laid back over every render, so a key you set stays set unless a pack manages it. Run it again
+whenever you change a pack; it is safe to repeat. To keep a key you set by hand in every jail too,
+`yolo config promote` declares it in your local pack.
 
 Two things to know:
 
@@ -231,21 +242,23 @@ Two things to know:
   the apply warns about it, because writing a secret into a file yolo does not own would defeat
   `env_sources`. Use `yolo host -- <agent>` to hand an agent its keys (Step 4).
 
-**Taking yolo back out.** `yolo host apply --revert` removes the keys yolo wrote, using the record
-it keeps of what it wrote, and never touches a key you set yourself. It is a dry run until you add
-`--assert`. It removes what yolo wrote; it cannot restore what a key held before, because nothing
-kept a copy.
+**Taking yolo back out.** Set `host_management` back to `"none"` (or delete it), then run
+`yolo host apply --revert`. It removes the keys yolo wrote, using the record it keeps of what it
+wrote, and never touches a key you set yourself. It is a dry run until you add `--assert`. It
+removes what yolo wrote; to see the file as it was before yolo first wrote it, look in
+`~/.local/share/yolo-jail/archive/config/`.
 
 **Choosing how much yolo owns.** `host_management` in your user config decides it:
 
 | Value | What yolo does in your real home |
 |---|---|
-| `"assert"` (today's default) | Sets only the keys your packs declare, as above |
+| `"none"` (the default) | Writes nothing; `yolo host apply` refuses |
 | `"own"` | Writes each file whole from your packs, and keeps your own edits by recording them and laying them back over each render |
-| `"none"` | Writes nothing; `yolo host apply` refuses |
 
-The default is planned to change to `"none"` in a later release, so a new install writes nothing to
-your home until you ask it to.
+`"assert"`, which set only the keys your packs declare, is retired. A config that still says it is
+refused, with a message naming the two values. A home it wrote into stays exactly as it was: set
+`"own"` to have yolo take the files over (it copies each one first), or keep `"none"` and run
+`yolo host apply --revert` to take yolo's keys out.
 
 ### Step 3: make sure the host has the tools your packs need
 

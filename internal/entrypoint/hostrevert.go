@@ -113,10 +113,14 @@ func RevertHostRender(candidates []*packload.Pack, homeDir string, observe bool)
 	// rather than a second path derivation free to drift.
 	//
 	// NO `host_management` CONTRACT, deliberately: nothing on this walk asks the mode census,
-	// and the provenance record's location does not depend on the contract (both `assert` and
-	// `own` keep it under host-provenance/, §6.2). A revert is an rmw-shaped operation — it
-	// exists because rmw cannot express removal — so under `own` the render withdraws a
-	// dropped pack's keys by regenerating without them, and this verb has nothing to add.
+	// and the provenance record's location does not depend on the contract (`own` keeps it
+	// under host-provenance/, §6.2, where the retired `assert` kept it). That independence is
+	// what lets the CLI run a revert under `none` on a home `assert` wrote into (OQ-CO14). A
+	// revert is an rmw-shaped operation — it exists because rmw cannot express removal. Under
+	// `own` a composed surface withdraws a dropped key by regenerating without it, and the CLI
+	// refuses this verb there; ⚠ an `rmw`-declared surface at an owned host keeps a key yolo
+	// stopped writing as `retired:…` until a revert under `none` takes it out (a dropped PACK's
+	// keys are pruned by PruneHostOverlayKeys at the apply).
 	e := &Env{Home: homeDir, Vars: map[string]string{}, hostTarget: true}
 
 	var out HostRevert

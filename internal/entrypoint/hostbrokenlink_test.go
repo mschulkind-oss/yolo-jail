@@ -35,63 +35,62 @@ func linkIntoMissingDir(t *testing.T, path string) string {
 	return target
 }
 
-func renderPiResults(t *testing.T, home string, observe bool, own render.HostOwnership) []HostRenderResult {
+func renderPiResults(t *testing.T, home string, observe bool) []HostRenderResult {
 	t.Helper()
 	pi, err := embeddedPack("pi")
 	if err != nil {
 		t.Fatal(err)
 	}
-	results, err := RenderHostPack(pi, home, own, observe, nil, nil)
+	results, err := RenderHostPack(pi, home, render.OwnershipOwn, observe, nil, nil)
 	if err != nil {
 		t.Fatalf("RenderHostPack(pi) failed the whole pack over one destination: %v", err)
 	}
 	return results
 }
 
-// THE MAINTAINER'S CASE, in both postures and under both writing contracts: the surface is refused
-// by name with its link and target, the pack still renders, the link is left exactly as it was, and
-// nothing is created at the target.
+// THE MAINTAINER'S CASE, in both postures, under `own` (the one writing contract since the `assert`
+// retirement, OQ-CO14; the rule runs ahead of the mechanism split, so it is the same for every
+// surface's mode): the surface is refused by name with its link and target, the pack still renders,
+// the link is left exactly as it was, and nothing is created at the target.
 func TestABrokenLinkDestinationIsRefusedByNameAndDoesNotFailThePack(t *testing.T) {
-	for _, own := range []render.HostOwnership{render.OwnershipAssert, render.OwnershipOwn} {
-		for _, observe := range []bool{true, false} {
-			home := t.TempDir()
-			path := filepath.Join(home, ".pi", "agent", "settings.json")
-			target := linkIntoMissingDir(t, path)
+	for _, observe := range []bool{true, false} {
+		home := t.TempDir()
+		path := filepath.Join(home, ".pi", "agent", "settings.json")
+		target := linkIntoMissingDir(t, path)
 
-			results := renderPiResults(t, home, observe, own)
-			r := resultFor(t, results, "pi/settings")
-			if r.BrokenLink == nil {
-				t.Fatalf("own=%v observe=%v: pi/settings through a link into a missing directory: "+
-					"Action=%q BrokenLink=nil; want a broken-link refusal", own, observe, r.Action)
+		results := renderPiResults(t, home, observe)
+		r := resultFor(t, results, "pi/settings")
+		if r.BrokenLink == nil {
+			t.Fatalf("observe=%v: pi/settings through a link into a missing directory: "+
+				"Action=%q BrokenLink=nil; want a broken-link refusal", observe, r.Action)
+		}
+		if r.BrokenLink.Link != path || r.BrokenLink.Target != target {
+			t.Errorf("observe=%v: BrokenLink=%+v, want link %s target %s",
+				observe, *r.BrokenLink, path, target)
+		}
+		if !strings.HasPrefix(r.Action, "refused: ") || !strings.Contains(r.Action, target) {
+			t.Errorf("observe=%v: Action=%q; want a refusal naming the target",
+				observe, r.Action)
+		}
+		if r.WouldChange {
+			t.Errorf("observe=%v: a refused destination reported WouldChange", observe)
+		}
+		if got, err := os.Readlink(path); err != nil || got != target {
+			t.Errorf("observe=%v: the link was touched: readlink=%q err=%v", observe, got, err)
+		}
+		if _, err := os.Stat(filepath.Dir(target)); !os.IsNotExist(err) {
+			t.Errorf("observe=%v: the render created the link's missing directory "+
+				"(stat: %v)", observe, err)
+		}
+		// The rest of the pack rendered: some other pi surface has an ordinary result.
+		others := 0
+		for _, o := range results {
+			if o.Surface != "pi/settings" && o.BrokenLink == nil {
+				others++
 			}
-			if r.BrokenLink.Link != path || r.BrokenLink.Target != target {
-				t.Errorf("own=%v observe=%v: BrokenLink=%+v, want link %s target %s",
-					own, observe, *r.BrokenLink, path, target)
-			}
-			if !strings.HasPrefix(r.Action, "refused: ") || !strings.Contains(r.Action, target) {
-				t.Errorf("own=%v observe=%v: Action=%q; want a refusal naming the target",
-					own, observe, r.Action)
-			}
-			if r.WouldChange {
-				t.Errorf("own=%v observe=%v: a refused destination reported WouldChange", own, observe)
-			}
-			if got, err := os.Readlink(path); err != nil || got != target {
-				t.Errorf("own=%v observe=%v: the link was touched: readlink=%q err=%v", own, observe, got, err)
-			}
-			if _, err := os.Stat(filepath.Dir(target)); !os.IsNotExist(err) {
-				t.Errorf("own=%v observe=%v: the render created the link's missing directory "+
-					"(stat: %v)", own, observe, err)
-			}
-			// The rest of the pack rendered: some other pi surface has an ordinary result.
-			others := 0
-			for _, o := range results {
-				if o.Surface != "pi/settings" && o.BrokenLink == nil {
-					others++
-				}
-			}
-			if others == 0 {
-				t.Errorf("own=%v observe=%v: no other pi surface rendered", own, observe)
-			}
+		}
+		if others == 0 {
+			t.Errorf("observe=%v: no other pi surface rendered", observe)
 		}
 	}
 }

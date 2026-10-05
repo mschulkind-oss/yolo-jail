@@ -12,6 +12,10 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/mschulkind-oss/yolo-jail/internal/json5"
+	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
+	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 )
 
 func TestHostLaunchNamesAUsersOwnBedrockSwitch(t *testing.T) {
@@ -59,11 +63,18 @@ func TestHostLaunchNamesAUsersOwnBedrockSwitch(t *testing.T) {
 // another provider while the host selection is still Bedrock names the key as yolo's, and the
 // apply that moves claude's host selection off Bedrock removes it, after which no line prints.
 // Before, the key stayed forever and the line told the user to remove a key of theirs.
+//
+// THE LEAF RECORD IS THE rmw ARM'S, so the fixture is claude with its settings surface declaring
+// `"mode": "rmw"` (claudeForkWithRMWSettings) under `host_management: "own"`. The shipped surface
+// declares no mode, so `own` composes it whole and writes no leaf record; the retired `assert`
+// read-modify-wrote every surface, which is how this ran over the shipped pack before OQ-CO14.
 func TestHostApplyRemovesTheBedrockSwitchItWroteAndTheLineSaysWhoWroteIt(t *testing.T) {
 	const providers = `"providers": {"bedrock": {"region": "us-west-2"},
 	  "mine": {"endpoints": {"anthropic": {"base_url": "https://anthropic.example"}}}},
 	  "profiles": {"mine": {"provider": "mine"}}`
-	home := hostGateHome(t, `{"packs": ["claude"], "profile": {"claude": "bedrock"}, `+providers+`}`, nil)
+	fork := claudeForkWithRMWSettings(t)
+	home := hostGateHome(t, `{"packs": ["`+fork+`"], "host_management": "own", "profile": {"claude": "bedrock"}, `+
+		providers+`}`, nil)
 	// `yolo host apply` refuses while a declared program is missing, and `claude` is on this
 	// development jail's PATH but not on CI's: stub it, or the test passes only here.
 	stubDeclaredBins(t)
@@ -99,7 +110,8 @@ func TestHostApplyRemovesTheBedrockSwitchItWroteAndTheLineSaysWhoWroteIt(t *test
 	}
 
 	// The host selection leaves Bedrock: the apply removes what it wrote, and nothing is named.
-	userCfg(t, home, `{"packs": ["claude"], "profile": {"claude": "mine"}, `+providers+`}`)
+	userCfg(t, home, `{"packs": ["`+fork+`"], "host_management": "own", "profile": {"claude": "mine"}, `+
+		providers+`}`)
 	if got := apply(); strings.Contains(got, `"CLAUDE_CODE_USE_BEDROCK"`) {
 		t.Errorf("host apply with claude off Bedrock must remove the switch it wrote:\n%s", got)
 	}
@@ -107,4 +119,70 @@ func TestHostApplyRemovesTheBedrockSwitchItWroteAndTheLineSaysWhoWroteIt(t *test
 		strings.Contains(errs, "sets CLAUDE_CODE_USE_BEDROCK") {
 		t.Errorf("with the switch gone, no line: rc=%d\n%s", rc, errs)
 	}
+}
+
+// claudeForkWithRMWSettings is a copy of the shipped claude pack, configured by path, whose
+// claude/settings surface declares `"mode": "rmw"`, so `own` runs the rmw arm over it — the arm
+// that keeps the host's computed-leaf record (HC-D25) — where the shipped surface composes whole.
+func claudeForkWithRMWSettings(t *testing.T) string {
+	t.Helper()
+	var claude *packload.Pack
+	for _, p := range packload.Embedded() {
+		if p.Name == "claude" {
+			claude = p
+		}
+	}
+	if claude == nil {
+		t.Fatal("fixture: no shipped claude pack")
+	}
+	fork := filepath.Join(t.TempDir(), "claude")
+	if err := os.CopyFS(fork, os.DirFS(claude.Root)); err != nil {
+		t.Fatal(err)
+	}
+	manifest := filepath.Join(fork, "pack.json")
+	doc, err := json5.Decode([]byte(readFileT(t, manifest)))
+	decl, _ := doc.(*jsonx.OrderedMap)
+	if err != nil || decl == nil {
+		t.Fatalf("fixture: the shipped claude pack.json: %v", err)
+	}
+	found := 0
+	contributes, _ := decl.Get("contributes")
+	list, _ := contributes.([]any)
+	for _, c := range list {
+		c, _ := c.(*jsonx.OrderedMap)
+		if c == nil {
+			continue
+		}
+		if kind, _ := c.Get("kind"); kind != "config" {
+			continue
+		}
+		surfaces, _ := c.Get("config")
+		inner, _ := surfaces.([]any)
+		for _, s := range inner {
+			s, _ := s.(*jsonx.OrderedMap)
+			if s == nil {
+				continue
+			}
+			if name, _ := s.Get("name"); name != "settings" {
+				continue
+			}
+			if mode, declared := s.Get("mode"); declared {
+				t.Fatalf("fixture: claude/settings already declares a mode (%v)", mode)
+			}
+			s.Set("mode", "rmw")
+			found++
+		}
+	}
+	if found != 1 {
+		t.Fatalf("fixture: %d claude/settings config surfaces in the shipped pack, want 1", found)
+	}
+	out, err := jsonx.DumpsIndent(decl, 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(manifest, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, manifest, out+"\n")
+	return fork
 }

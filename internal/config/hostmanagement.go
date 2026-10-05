@@ -17,12 +17,10 @@ type HostManagement string
 
 const (
 	// HostManagementNone: the user owns their files entirely. Host surfaces are
-	// `unrendered`, and `yolo host apply` refuses, naming this key.
+	// `unrendered`, and `yolo host apply` refuses, naming this key. It is also the UNSET
+	// state since the `assert` retirement (OQ-CO14, §4.5), so a home yolo wrote into under
+	// `assert` keeps exactly the bytes `assert` last rendered and nothing rewrites them.
 	HostManagementNone HostManagement = "none"
-	// HostManagementAssert: shared ownership. Host surfaces are `rmw` — yolo owns the keys
-	// it declares and the user owns the rest. This is shipped behavior, and the unset
-	// state (§4.3).
-	HostManagementAssert HostManagement = "assert"
 	// HostManagementOwn: yolo owns the file; it is derived output. Host surfaces compose
 	// whole-file and capture edits, exactly as a jail's do — the render keeps its capture
 	// sidecars in the state-dir store render.Target.SidecarDir resolves for the host notch,
@@ -30,12 +28,20 @@ const (
 	HostManagementOwn HostManagement = "own"
 )
 
-// KnownHostManagements is the accepted value set, in the order the three are explained —
+// retiredHostManagementAssert is the value OQ-CO14 RETIRED (ruled 2026-10-05, building the
+// 2026-09-20 ruling in config-ownership-and-promotion.md §4.5). It was shared ownership: yolo
+// read-modify-wrote the keys its packs declare into a file the user also wrote.
+//
+// It is kept ONLY so a config still spelling it earns its own targeted refusal rather than the
+// generic "is not one of" error every other unusable value gets — the shape every retired
+// spelling in this config takes (retiredTopLevelConfigKeys). It is not a value: it resolves to
+// `none` like any other unusable value (hostManagementValue), and nothing renders under it.
+const retiredHostManagementAssert = "assert"
+
+// KnownHostManagements is the accepted value set, in the order the two are explained —
 // least yolo involvement first. It is what the validator's message enumerates, so there is
 // one list rather than a constant set and a hand-written sentence that drift apart.
-var KnownHostManagements = []HostManagement{
-	HostManagementNone, HostManagementAssert, HostManagementOwn,
-}
+var KnownHostManagements = []HostManagement{HostManagementNone, HostManagementOwn}
 
 // HostManagementMode reports the declared host ownership contract.
 //
@@ -58,21 +64,25 @@ var KnownHostManagements = []HostManagement{
 // user config could not be read", so a reader built on it cannot tell the two apart — and
 // §4.2 gives them opposite answers:
 //
-//   - ABSENT KEY (including no config file at all) ⇒ `assert`. That is today's behavior, so
-//     upgrade day changes nothing for anyone and nobody is interrupted to be told so
-//     (OQ-CO2). The unset state is not a fourth value; the default carries the migration.
-//   - UNREADABLE OR UNPARSEABLE CONFIG ⇒ `none`. Fail closed: a declaration nobody could
-//     read has granted no write claim, and `none` is the value that writes nothing.
+//   - ABSENT KEY (including no config file at all) ⇒ `none`, with declared=false. Since the
+//     `assert` retirement the unset state writes nothing (OQ-CO14, ruled 2026-10-05): no
+//     prompt and no notice at upgrade, and a home yolo asserted into keeps the bytes `assert`
+//     last rendered. The unset state is still not a third value — `yolo apply --sealed` is
+//     the one reader that tells it apart, through the second return.
+//   - UNREADABLE OR UNPARSEABLE CONFIG ⇒ `none`, with declared=false. Fail closed: a
+//     declaration nobody could read has granted no write claim.
 //
-// So the load is STRICT (loadUserScopeConfig's error return, the same posture LoadHostFiles
-// takes) and the two cases are distinguished explicitly. ⚠ Do not infer the direction from
-// the construction: `agent_updates` reads user scope through the same boundary and fails
-// OPEN, because it is an opt-OUT. The direction is a per-key choice each key must state.
+// The two absences give the same MODE now, and the load stays STRICT anyway
+// (loadUserScopeConfig's error return, the same posture LoadHostFiles takes): the direction
+// is a per-key choice each key must state, and `agent_updates` reads user scope through the
+// same boundary and fails OPEN, because it is an opt-OUT. A reader rebuilt on the shared
+// lenient helper would be right today by coincidence and wrong the day the default moves.
 //
-// A PRESENT BUT UNUSABLE VALUE — a typo, a bool, a JSON object — is `none` for the same
-// reason: it is a declaration that could not be read. It is never silently `assert`, which
-// would make a misspelled `"asert"` indistinguishable from a working declaration.
-// ValidateConfig reports the value itself through its own channel.
+// A PRESENT BUT UNUSABLE VALUE — a typo, a bool, a JSON object, and the retired `"assert"` —
+// is `none` for the same reason: it is a declaration that could not be read, and never a
+// value yolo writes under. ValidateConfig reports the value itself through its own channel,
+// and the retired spelling gets its own message there and at every host verb that would have
+// written (HostManagementRetired).
 func HostManagementMode() HostManagement {
 	mode, _ := HostManagementDeclared()
 	return mode
@@ -83,8 +93,8 @@ func HostManagementMode() HostManagement {
 // The second return is what `yolo apply --sealed` needs and nothing else does (§4.3 item 3):
 // an environment whose host-ownership contract is unstated is not sealed, and that is the
 // ONE place the unset state bites. Every other caller wants the mode, in which unset and
-// `assert` are the same answer by ruling — so the distinction is offered here rather than
-// left for each caller to re-derive from the file.
+// `none` are the same answer by ruling (OQ-CO14) — so the distinction is offered here rather
+// than left for each caller to re-derive from the file.
 //
 // An unreadable config reports declared=false as well as `none`: this cannot prove a
 // declaration it could not read, and `--sealed`'s whole question is whether one exists.
@@ -109,7 +119,7 @@ func HostManagementDeclared() (HostManagement, bool) {
 func hostManagementValue(cfg *jsonx.OrderedMap) (HostManagement, bool) {
 	v, present := cfg.Get(hostManagementKey)
 	if !present || v == nil {
-		return HostManagementAssert, false
+		return HostManagementNone, false
 	}
 	s, ok := v.(string)
 	if !ok {
@@ -123,13 +133,52 @@ func hostManagementValue(cfg *jsonx.OrderedMap) (HostManagement, bool) {
 	return HostManagementNone, false
 }
 
+// HostManagementRetired is the targeted refusal for a USER config that still says the retired
+// `"assert"` (OQ-CO14 face 1), or "" when it does not. Every host verb that would have written
+// under `assert` prints it in place of its `none` sentence — `yolo host apply` in both
+// spellings, `--revert`, a wrapped `yolo host -- <bin>` launch and `yolo pack update`'s host
+// half — because the value resolves to `none` (hostManagementValue) and a refusal saying
+// `"none"` to a user whose file says `"assert"` would be a sentence about a file they did not
+// write. ValidateConfig prints the same text through hostManagementProblem.
+//
+// Read from user scope like the mode, strictly: an unreadable config is not a retired value.
+func HostManagementRetired() string {
+	p := paths.UserConfigPath()
+	cfg, err := loadUserScopeConfig(p, p, true, func(string) {})
+	if err != nil || cfg == nil {
+		return ""
+	}
+	v, _ := cfg.Get(hostManagementKey)
+	if s, ok := v.(string); ok && s == retiredHostManagementAssert {
+		return retiredHostManagementProblem()
+	}
+	return ""
+}
+
+// retiredHostManagementProblem is the retirement message's body, after each reader's own
+// prefix (`config.host_management: ` in validation, `yolo host apply: host_management: ` at a
+// verb). It names both values left, what each does to a home `assert` wrote into, and the verb
+// that goes with each: `--revert` under `none`, `yolo config promote` before `own`.
+func retiredHostManagementProblem() string {
+	return `"assert" is RETIRED — it shared your agents' config files between you and yolo, ` +
+		`and two values are left. "none", the default, has yolo write nothing into your home ` +
+		`and leave those files as they are (` + "`yolo host apply --revert`" + ` takes out ` +
+		`the keys yolo wrote); "own" has yolo compose them whole from your packs (` +
+		"`yolo config promote`" + ` first declares a key you keep by hand into your local ` +
+		`pack). Set one in ` + paths.UserConfigPath() + `, or delete the key for "none".`
+}
+
 // hostManagementProblem reports why a value is not a usable `host_management`, or "" when it
 // is fine. Shared by the validator and by nothing else today; it exists as a function so the
-// accepted values are stated once, from KnownHostManagements.
+// accepted values are stated once, from KnownHostManagements. The retired `"assert"` is the
+// one value with a message of its own.
 func hostManagementProblem(v any) string {
 	s, ok := v.(string)
 	if !ok {
 		return "expected one of " + hostManagementList() + " (got " + pyReprValue(v) + ")"
+	}
+	if s == retiredHostManagementAssert {
+		return retiredHostManagementProblem()
 	}
 	for _, known := range KnownHostManagements {
 		if HostManagement(s) == known {
@@ -139,7 +188,7 @@ func hostManagementProblem(v any) string {
 	return pyReprValue(v) + " is not one of " + hostManagementList()
 }
 
-// hostManagementList renders the accepted values for a message: `"none"`, `"assert"`, `"own"`.
+// hostManagementList renders the accepted values for a message: `"none"`, `"own"`.
 func hostManagementList() string {
 	out := ""
 	for i, known := range KnownHostManagements {

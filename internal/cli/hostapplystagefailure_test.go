@@ -35,6 +35,33 @@ func verdictLine(report string) string {
 	return verdict
 }
 
+// declareHostOwn adds `"host_management": "own"` to the user config a fixture wrote, unless it
+// already declares the key. Every case below runs `yolo host apply` through its command entry
+// (dryRunDoc), and since the `assert` retirement (OQ-CO14) the unset key is `none`, at which the
+// verb refuses before any stage runs — so no stage could fail and no document would be emitted.
+// It edits the file the setup wrote rather than each setup's own spelling of it, because the
+// setups borrow fixtures from other files that write theirs with the key unset.
+func declareHostOwn(t *testing.T) {
+	t.Helper()
+	path := paths.UserConfigPath()
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("fixture bug: no user config to declare `own` in: %v", err)
+	}
+	body := strings.TrimSpace(string(data))
+	if strings.Contains(body, `"host_management"`) {
+		return
+	}
+	rest, ok := strings.CutPrefix(body, "{")
+	if !ok {
+		t.Fatalf("fixture bug: the user config is not an object:\n%s", data)
+	}
+	if !strings.HasPrefix(strings.TrimSpace(rest), "}") {
+		rest = "," + rest
+	}
+	writeFile(t, path, `{"host_management":"own"`+rest)
+}
+
 // dryRunDoc runs `yolo host apply --format json` and returns its document, whatever the exit code.
 func dryRunDoc(t *testing.T) hostApplyDoc {
 	t.Helper()
@@ -101,6 +128,7 @@ func TestAFailedHostApplyStageReachesTheVerdict(t *testing.T) {
 		{"", "retire", "", func(t *testing.T) string {
 			// A dropped pack's output, confirmed for retirement, with a file where its archive goes.
 			home, _ := dropFixture(t, dropPackJSON)
+			declareHostOwn(t)
 			applyThenDrop(t, home)
 			writeFile(t, string(hostArchiveRoot(archiveBucketRetired)), "not a directory\n")
 			return "y\n"
@@ -120,6 +148,7 @@ func TestAFailedHostApplyStageReachesTheVerdict(t *testing.T) {
 		// nothing to apply, and nothing left to retire." over either one failing.
 		{"retire, with no packs", "retire", "", func(t *testing.T) string {
 			home, _ := dropFixture(t, dropPackJSON)
+			declareHostOwn(t)
 			if rc, report := applyWith(t, true, nil); rc != 0 {
 				t.Fatalf("first apply rc=%d\n%s", rc, report)
 			}
@@ -130,6 +159,7 @@ func TestAFailedHostApplyStageReachesTheVerdict(t *testing.T) {
 		{"briefing, with no packs", "briefing", "", func(t *testing.T) string {
 			// The composed briefing a dropped pack left, with a file where its archive goes.
 			home, _ := dropFixture(t, dropPackJSON)
+			declareHostOwn(t)
 			if rc, report := applyWith(t, true, nil); rc != 0 {
 				t.Fatalf("first apply rc=%d\n%s", rc, report)
 			}
@@ -155,6 +185,7 @@ func TestAFailedHostApplyStageReachesTheVerdict(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			defaultReport(t)
 			stdin := c.setup(t)
+			declareHostOwn(t)
 			clause := "the " + c.stage + " stage"
 			if c.says != "" {
 				clause = c.says
@@ -262,10 +293,12 @@ func TestAnInputsRefusalIsARefusalInTheDocument(t *testing.T) {
 	// variable's presence.
 	t.Setenv("YOLO_VERSION", "")
 	os.Unsetenv("YOLO_VERSION")
-	// The retired `use_profiles` key: every launch refuses it, and so does the host apply.
+	// The retired `use_profiles` key: every launch refuses it, and so does the host apply — under
+	// `own`, since the unset key is `none` (OQ-CO14), at which the verb refuses before composing
+	// any input.
 	selectPacks(t, home, `"claude"`)
 	writeFile(t, filepath.Join(home, ".config", "yolo-jail", "config.jsonc"),
-		`{"packs":["claude"],"use_profiles":{"claude":"bedrock"}}`)
+		`{"packs":["claude"],"host_management":"own","use_profiles":{"claude":"bedrock"}}`)
 
 	doc := dryRunDoc(t)
 	if doc.Outcome != outcomeRefused || len(doc.FailedStages) != 1 || doc.FailedStages[0] != stageInputs {

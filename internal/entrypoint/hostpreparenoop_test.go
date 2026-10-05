@@ -47,7 +47,7 @@ func shippedSurfacesForPrepare(t *testing.T) []manifest.Surface {
 // unconditional substitution gave. That is the behavior-preservation claim
 // render.Target.Prepare's docstring makes.
 func TestTheHostNotchNeverHadAPlaceholderToBind(t *testing.T) {
-	host := render.Host(t.TempDir(), nil, render.OwnershipAssert)
+	host := render.Host(t.TempDir(), nil, render.OwnershipOwn)
 	for _, s := range shippedSurfacesForPrepare(t) {
 		pruned, _ := PruneWorkspaceKeyed(s)
 		// What the host render does today: the target binds nothing.
@@ -75,7 +75,7 @@ func TestTheHostNotchNeverHadAPlaceholderToBind(t *testing.T) {
 // i.e. a surface the old unconditional substitution really would have rewritten at the
 // host notch, which is the whole thing the prune is there to have already removed.
 func TestSomeShippedSurfaceIsWorkspaceKeyed(t *testing.T) {
-	host := render.Host(t.TempDir(), nil, render.OwnershipAssert)
+	host := render.Host(t.TempDir(), nil, render.OwnershipOwn)
 	keyed := 0
 	for _, s := range shippedSurfacesForPrepare(t) {
 		if !reflect.DeepEqual(host.Prepare(s).Defaults,

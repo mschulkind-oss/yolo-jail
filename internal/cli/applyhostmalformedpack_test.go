@@ -190,10 +190,13 @@ func TestApplyHostJSONCarriesAMalformedPacksProblems(t *testing.T) {
 
 // THE LAUNCH GATE (`yolo host -- <bin>` with host management on) renders NOTHING over a
 // malformed pack and names it with its problem — the incomplete-set disposition — and refuses the
-// launch, as every launch-shaped verb does (NC-D5).
+// launch, as every launch-shaped verb does (NC-D5). Host management is on as `own`: the unset
+// key is `none` since the `assert` retirement (OQ-CO14), under which the gate is a no-op for any
+// pack set and the clean control could not tell the refusal from a gate that never runs.
 func TestHostApplyGateRendersNothingOverAMalformedPack(t *testing.T) {
 	for _, malformed := range []bool{true, false} {
-		home, _ := malformedPackHome(t, "", malformed, `,"host_apply_on_launch":true`)
+		home, _ := malformedPackHome(t, "", malformed,
+			`,"host_management":"own","host_apply_on_launch":true`)
 		t.Setenv("YOLO_VERSION", "")
 		setGateTTY(t, false)
 		if lock := tryHostApplyLock(home); lock != nil {

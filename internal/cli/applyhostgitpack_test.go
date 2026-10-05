@@ -108,9 +108,13 @@ const neverFetchedGitSource = "git+file:///nonexistent/yolo-test/never-fetched.g
 // hookHome is gitPackHome with the launch hook opted in and the environment neutralized as
 // gateFixture neutralizes it. The hook's own lock file is taken and released once first: the
 // lock is the hook's, written on every gated launch, and is not a render.
+//
+// Under `host_management: "own"`: the unset key is `none` since the `assert` retirement
+// (OQ-CO14), and under `none` the hook renders nothing for any pack set, so "it rendered
+// nothing over an incomplete set" would hold of a hook that never looked at the set.
 func hookHome(t *testing.T, src string) string {
 	t.Helper()
-	home := gitPackHome(t, src, `,"host_apply_on_launch":true`)
+	home := gitPackHome(t, src, `,"host_management":"own","host_apply_on_launch":true`)
 	t.Setenv("YOLO_VERSION", "")
 	setGateTTY(t, false)
 	if lock := tryHostApplyLock(home); lock != nil {

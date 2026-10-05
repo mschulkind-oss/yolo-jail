@@ -40,7 +40,11 @@ func changedPath(s *hostApplySurvey, path string) bool {
 
 func TestAHostApplyCountsAFileItCreatesAsAChange(t *testing.T) {
 	home := t.TempDir()
-	selectPacks(t, home, `"pi"`)
+	// `own`, the one contract that renders a config file: the unset key is `none` since the
+	// `assert` retirement (OQ-CO14), under which no file is created to be counted.
+	writeFile(t, filepath.Join(home, ".config", "yolo-jail", "config.jsonc"),
+		`{"packs":["pi"],"host_management":"own"}`)
+	stubDeclaredBins(t)
 	t.Setenv("HOME", home)
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
 	created := filepath.Join(home, ".pi", "agent", "yolo-openai-codex-models.json")

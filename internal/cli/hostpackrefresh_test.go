@@ -19,6 +19,8 @@ import (
 // nobody installed before they resolve it, and the read-only surfaces (`yolo check`,
 // `yolo host env`) never fetch. Each positive test fails when its call to refreshHostPacks is
 // deleted: the pack is then "never fetched" and the render refuses, or nothing is recorded.
+// The apply tests declare `host_management: "own"`: the unset key is `none` since OQ-CO14, and
+// `yolo host apply` refuses under it before any pack is fetched.
 
 // neverInstalledGitPackHome is gitPackHome over a REAL git repo, not installed — the state a
 // user is in the moment they add a git pack to `packs`.
@@ -57,7 +59,7 @@ func lockedCommit(t *testing.T, name string) string {
 // `yolo host apply --assert` renders a git pack that was never installed: the command fetched
 // it first, and said so on stderr.
 func TestHostApplyFetchesANeverInstalledGitPack(t *testing.T) {
-	home := neverInstalledGitPackHome(t, "")
+	home := neverInstalledGitPackHome(t, `,"host_management":"own"`)
 	var out, errw bytes.Buffer
 	rc := hostMain([]string{"apply", "--assert"}, &out, &errw, false, strings.NewReader("y\n"))
 	report := out.String() + errw.String()
@@ -74,7 +76,7 @@ func TestHostApplyFetchesANeverInstalledGitPack(t *testing.T) {
 
 // The systematic spelling is the same operation (OQ-7), so it fetches too.
 func TestApplyAtHostFetchesANeverInstalledGitPack(t *testing.T) {
-	home := neverInstalledGitPackHome(t, "")
+	home := neverInstalledGitPackHome(t, `,"host_management":"own"`)
 	var out, errw bytes.Buffer
 	rc := applyMain([]string{"--at", "host", "--assert"}, &out, &errw, false, strings.NewReader("y\n"))
 	report := out.String() + errw.String()
@@ -88,7 +90,7 @@ func TestApplyAtHostFetchesANeverInstalledGitPack(t *testing.T) {
 
 // In JSON mode the disclosure goes to stderr, so stdout is still exactly one document.
 func TestHostApplyJSONKeepsTheFetchDisclosureOffStdout(t *testing.T) {
-	neverInstalledGitPackHome(t, "")
+	neverInstalledGitPackHome(t, `,"host_management":"own"`)
 	var out, errw bytes.Buffer
 	if rc := hostMain([]string{"apply", "--format", "json"}, &out, &errw, false, nil); rc != 0 {
 		t.Fatalf("rc=%d\n%s%s", rc, out.String(), errw.String())

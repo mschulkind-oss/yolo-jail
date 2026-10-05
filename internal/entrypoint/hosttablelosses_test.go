@@ -1,8 +1,8 @@
 package entrypoint
 
 // hosttablelosses_test.go pins the host apply's per-entry loss report against what the write
-// does, over EVERY shipped surface that has a yolo-owned table at the host (hostTableKeys), in
-// both `host_management` contracts.
+// does, over EVERY shipped surface that has a yolo-owned table at the host (hostTableKeys),
+// through each mechanism an owned host renders it with (hostTableRuns).
 //
 // It generalizes hostownedlosses_test.go (HC-D5), whose seeds held two entries per table. Two
 // is exactly the size a wholesale table write could not get wrong: regenerateManagedTables
@@ -162,9 +162,9 @@ func tableContributor(t *testing.T, c hostTableSurface, entry string) *packload.
 	}}
 }
 
-// runHostTableApply observes and then asserts one surface's pack into home, returning the
-// losses each reported and the tables before and after the write.
-func runHostTableApply(t *testing.T, c hostTableSurface, home string, ownership render.HostOwnership,
+// runHostTableApply observes and then asserts one surface's pack into an owned home,
+// returning the losses each reported and the tables before and after the write.
+func runHostTableApply(t *testing.T, c hostTableSurface, home string,
 	extra *packload.Pack) (observed, asserted []string, before, after map[string]string) {
 	t.Helper()
 	path := seedHostTables(t, c, home)
@@ -176,12 +176,12 @@ func runHostTableApply(t *testing.T, c hostTableSurface, home string, ownership 
 	id := c.surface.Agent + "/" + c.surface.Name
 	before = hostTableState(t, c.surface, path, c.tables)
 
-	obs, err := RenderHostPack(c.pack, home, ownership, true, overlays, nil)
+	obs, err := RenderHostPack(c.pack, home, render.OwnershipOwn, true, overlays, nil)
 	if err != nil {
 		t.Fatalf("observe RenderHostPack(%s): %v", c.pack.Name, err)
 	}
 	observed = resultFor(t, obs, id).EntryLosses
-	res, err := RenderHostPack(c.pack, home, ownership, false, overlays, nil)
+	res, err := RenderHostPack(c.pack, home, render.OwnershipOwn, false, overlays, nil)
 	if err != nil {
 		t.Fatalf("assert RenderHostPack(%s): %v", c.pack.Name, err)
 	}
@@ -194,25 +194,36 @@ func runHostTableApply(t *testing.T, c hostTableSurface, home string, ownership 
 	return observed, asserted, before, after
 }
 
-// hostTableRuns is every (surface, contract) pair a host apply renders. A pair the contract's
-// census refuses (`own` runs no `computed` surface, OQ-CO9) is left out: that refusal writes
-// nothing and reports nothing, and render's own tests pin it.
+// hostTableRuns is every (surface, mechanism) pair an owned host renders: each surface as
+// shipped, and again re-declared `rmw` (declaredRMW) where that is a different mechanism — the
+// rmw arm's wholesale table write, regenerateManagedTables, is where the skipped-delete defect
+// lived, and every surface took it under the retired `assert` (OQ-CO14). A declaration the
+// census runs no mechanism for is left out: that refusal writes nothing and reports nothing,
+// and render's own tests pin it.
 type hostTableRun struct {
 	hostTableSurface
-	ownership render.HostOwnership
-	label     string
+	label string
 }
 
 func hostTableRuns(t *testing.T) []hostTableRun {
 	t.Helper()
+	modes := render.Host(t.TempDir(), nil, render.OwnershipOwn).Modes()
 	var out []hostTableRun
 	for _, c := range shippedHostTableSurfaces(t) {
-		for _, ownership := range []render.HostOwnership{render.OwnershipAssert, render.OwnershipOwn} {
-			if _, runs := render.Host(t.TempDir(), nil, ownership).Modes().Mechanism(c.surface.Mode); !runs {
+		seen := map[string]bool{}
+		for _, m := range hostMechanisms {
+			run := c
+			if m.rmw {
+				run.pack = declaredRMW(t, []*packload.Pack{c.pack}, c.pack.Name, true)[0]
+				run.surface.Mode = manifest.ModeRMW
+			}
+			mechanism, runs := modes.Mechanism(run.surface.ResolvedMode())
+			if !runs || seen[mechanism] {
 				continue
 			}
-			out = append(out, hostTableRun{hostTableSurface: c, ownership: ownership,
-				label: c.surface.Agent + "/" + c.surface.Name + "/" + ownership.String()})
+			seen[mechanism] = true
+			out = append(out, hostTableRun{hostTableSurface: run,
+				label: c.surface.Agent + "/" + c.surface.Name + "/" + mechanism})
 		}
 	}
 	return out
@@ -228,7 +239,7 @@ func TestEveryHostTableLossReportMatchesTheWriteWithNothingConfigured(t *testing
 	for _, run := range hostTableRuns(t) {
 		t.Run(run.label, func(t *testing.T) {
 			observed, asserted, before, after := runHostTableApply(t, run.hostTableSurface,
-				t.TempDir(), run.ownership, nil)
+				t.TempDir(), nil)
 			requireReportMatchesWrite(t, run.label+" dry run", before, after, observed)
 			requireReportMatchesWrite(t, run.label+" --assert", before, after, asserted)
 		})
@@ -242,7 +253,7 @@ func TestEveryHostTableLossReportMatchesTheWriteWithAnEntryConfigured(t *testing
 		t.Run(run.label, func(t *testing.T) {
 			contributor := tableContributor(t, run.hostTableSurface, configuredTableEntry)
 			observed, asserted, before, after := runHostTableApply(t, run.hostTableSurface,
-				t.TempDir(), run.ownership, contributor)
+				t.TempDir(), contributor)
 			requireReportMatchesWrite(t, run.label+" dry run", before, after, observed)
 			requireReportMatchesWrite(t, run.label+" --assert", before, after, asserted)
 		})
@@ -257,7 +268,7 @@ func TestAHostTableWriteKeepsOnlyTheConfiguredEntry(t *testing.T) {
 		t.Run(run.label, func(t *testing.T) {
 			contributor := tableContributor(t, run.hostTableSurface, configuredTableEntry)
 			_, _, before, after := runHostTableApply(t, run.hostTableSurface, t.TempDir(),
-				run.ownership, contributor)
+				contributor)
 			if len(before) != len(run.tables)*len(seededTableEntries) {
 				t.Fatalf("fixture premise: the seed was not read back whole: %v", before)
 			}

@@ -576,8 +576,12 @@ func TestHostComposedBriefingIsNotDeliveredTwice(t *testing.T) {
 	dir := writeProject(t, `{}`)
 	// `host_floor: false`: a writing host apply provisions the host agent floor, which for
 	// claude means a `yolo capture` of its vendor installer — a download this test's subject has
-	// nothing to do with, and one a CI runner may not be able to make.
-	packHome(t, `{"packs": ["claude", "file://`+pack+`"], "host_floor": false}`)
+	// nothing to do with, and one a CI runner may not be able to make. `host_management: own`:
+	// since the `assert` retirement (OQ-CO14) an unset key is `none` and the apply refuses, so
+	// the host write this test's precondition needs is `own`'s; `host_wrappers: false` keeps the
+	// wrappers `own` would derive out of a test about the briefing.
+	packHome(t, `{"packs": ["claude", "file://`+pack+`"], "host_floor": false, `+
+		`"host_management": "own", "host_wrappers": false}`)
 	// The claude pack declares `program claude`, and since the dependency gate landed a declared
 	// binary that is MISSING refuses a writing host apply outright
 	// (docs/reference/report-tiers.md's dependency rule). Whether the machine running the suite

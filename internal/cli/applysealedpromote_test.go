@@ -27,7 +27,7 @@ func TestApplySealedNamesThePromoteVerb(t *testing.T) {
 	// host_management declared, so the ONLY outstanding input is the overlay below —
 	// otherwise the refusal list carries a second entry and this test would pass on it.
 	writeFile(t, filepath.Join(home, ".config", "yolo-jail", "config.jsonc"),
-		`{"host_management":"assert"}`)
+		`{"host_management":"own"}`)
 
 	s, ok := surfaceManifest().Lookup("claude", "settings")
 	if !ok {

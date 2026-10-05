@@ -37,15 +37,30 @@ func listPack(t *testing.T, home, name, contributes string) string {
 
 // listWorld is a temp HOME whose config selects `packs` (the literal JSON array body), with
 // the cwd in a fresh workspace. It returns the home and the workspace's capture store.
+//
+// It leaves `host_management` UNSET, which is `none` since the `assert` retirement (OQ-CO14):
+// the host notch renders no config surface under it. A test reading the host notch takes
+// listWorldUnder(t, "own", …).
 func listWorld(t *testing.T, packs func(home string) string) (home, store string) {
+	t.Helper()
+	return listWorldUnder(t, "", packs)
+}
+
+// listWorldUnder is listWorld with `host_management` declared as mgmt, or left unset when mgmt
+// is "".
+func listWorldUnder(t *testing.T, mgmt string, packs func(home string) string) (home, store string) {
 	t.Helper()
 	home = t.TempDir()
 	t.Setenv("HOME", home)
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
 	t.Setenv("YOLO_VERSION", "")
 	t.Setenv("YOLO_USE_PROFILES", "")
+	declared := ""
+	if mgmt != "" {
+		declared = `"host_management":"` + mgmt + `",`
+	}
 	writeFile(t, filepath.Join(home, ".config", "yolo-jail", "config.jsonc"),
-		`{"packs":[`+packs(home)+`]}`)
+		`{`+declared+`"packs":[`+packs(home)+`]}`)
 	_, store = withWorkspaceCwd(t)
 	return home, store
 }
@@ -290,7 +305,9 @@ func TestConfigLsCountsAListOnlyCapture(t *testing.T) {
 }
 
 // `host apply` names the packs appending entries to a surface, and leads an ownerless list's
-// line — and a malformed one's refusal — with `config-list`, the kind the author wrote.
+// line — and a malformed one's refusal — with `config-list`, the kind the author wrote. Under
+// `host_management: "own"`: the unset key is `none` since the `assert` retirement (OQ-CO14),
+// under which the host composes no config surface and no list has an owner to append to.
 func TestHostApplyNamesListContributorsOrphansAndProblems(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
@@ -302,7 +319,7 @@ func TestHostApplyNamesListContributorsOrphansAndProblems(t *testing.T) {
 		`"path":"/extras","add":["one"]}`)
 	orphan := listPack(t, home, "stray", `{"kind":"config-list","surface":"nobody/settings",`+
 		`"path":"/extras","add":["one"]}`)
-	selectPacks(t, home, owner+","+lister+","+orphan)
+	selectPacksWith(t, home, owner+","+lister+","+orphan, `,"host_management":"own"`)
 	verboseReport(t)
 
 	rc, report := applyWith(t, false, nil)
@@ -321,7 +338,7 @@ func TestHostApplyNamesListContributorsOrphansAndProblems(t *testing.T) {
 
 	bogus := listPack(t, home, "bogus", `{"kind":"config-list","surface":"noslash",`+
 		`"path":"/extras","add":["one"]}`)
-	selectPacks(t, home, owner+","+bogus)
+	selectPacksWith(t, home, owner+","+bogus, `,"host_management":"own"`)
 	rc, report = applyWith(t, false, nil)
 	if rc == 0 {
 		t.Errorf("a malformed list must fail the apply:\n%s", report)

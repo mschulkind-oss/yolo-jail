@@ -97,7 +97,7 @@ func TestApplySealedStatesTheCaptureCeiling(t *testing.T) {
 	// Declared, so the unset-`host_management` refusal cannot supply the output this test
 	// reads (it names no capture at all, and the assertion would pass vacuously).
 	writeFile(t, filepath.Join(home, ".config", "yolo-jail", "config.jsonc"),
-		`{"host_management":"assert"}`)
+		`{"host_management":"own"}`)
 
 	s, ok := surfaceManifest().Lookup("claude", "settings")
 	if !ok {

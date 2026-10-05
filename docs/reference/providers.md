@@ -2074,7 +2074,7 @@ above explains what each is for; this table is the only place the exact spelling
 | Selection table env var | `YOLO_USE_PROFILES` | same |
 | Resolved-profiles env var | `YOLO_PROFILES` | same |
 | Selection namespace key | `selection` | `agentcfg.SelectionKey` |
-| Selection record path | `<workspace>/.yolo/prism/<agent>-<name>.selection.json` in a jail; at the host notch, the state dir's host-capture store under `host_management: own` and the provenance dir under `assert` ([OQ-HC3](host-agent-environment.md#oq-hc3)); none under `none` | `render.Target.SelectionPath` |
+| Selection record path | `<workspace>/.yolo/prism/<agent>-<name>.selection.json` in a jail; at the host notch, the state dir's host-capture store under `host_management: own` ([OQ-HC3](host-agent-environment.md#oq-hc3); the retired `assert` kept it in the provenance dir); none under `none` | `render.Target.SelectionPath` |
 | Deselection clear's log line | `selection: cleared <agent>/<surface> <key> (was <value as JSON>): yolo's selection no longer sets it`, one per cleared key whose value left the file, the value cut at 200 bytes with a trailing `…`. A key is cleared when its profile is deselected, or when a derive stops naming it while the profile stays active | `entrypoint.noteSelectionClears` |
 | Where that line goes | `<workspace>/.yolo/boot.log` (the previous boot's is `boot.log.prev`); never the terminal | `entrypoint.bootLogName`, `Env.note` |
 | Id-writing surfaces with a host layer | pi's `settings` (`~/.pi/agent/settings.json`) only; codex's `config.toml` and opencode's `opencode.json` declare no `readsHost` | `packs/{pi,codex,opencode}/pack.json` |

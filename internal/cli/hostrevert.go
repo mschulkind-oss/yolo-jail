@@ -19,11 +19,19 @@ package cli
 // --assert writes. A prompt on top of that would ask the same question twice, which is the
 // prompt fatigue confirmHostLosses' own docstring refuses to build.
 //
-// # Refused under `own` and `none`, and for different reasons
+// # It RUNS under `none`, and is refused under `own` and the retired `"assert"`
 //
-// Both refusals name the value that decided them, because they are not the same problem: at
-// `none` yolo has written nothing to withdraw, and at `own` the file is derived output whose
-// removal is a delete-and-re-apply rather than a key-by-key retreat.
+// `none` is the unset state since the `assert` retirement (OQ-CO14), and a home `assert` wrote
+// into keeps every key it last rendered: the ruling leaves the file exactly as it was, with no
+// prompt and no notice. This verb is the one way back from there to a file purely the user's,
+// so it runs under `none` on the authority of the provenance record that render left — which
+// does not depend on the contract — and says "nothing to revert" on a home with no record. It
+// used to refuse under `none` and name `"assert"` as the way to reach it, which once the value
+// went would have left no value under which yolo's keys could come out.
+//
+// Under `own` it is still refused, and the refusal names `none`: the file is derived output, so
+// a key-by-key retreat would be undone by the next apply composing the same keys back. The
+// way out of an owned file is to stop declaring it — set `none`, then revert.
 
 import (
 	"fmt"
@@ -38,24 +46,19 @@ import (
 )
 
 // hostRevertRefusal is the message for an ownership contract under which a revert is not the
-// operation the user wants, or "" when it may proceed.
+// operation the user wants, or "" when it may proceed — which it may under `none`, set or
+// unset (see the file comment).
 //
 // SEPARATE FROM hostManagementRefusal, rather than reusing it, because that one's sentences
-// are about a render that will not happen and would be actively misleading here: telling
-// someone who typed `--revert` that "nothing was written" as though it described this run
-// hides the fact that it describes the whole history of the home.
+// are about a render that will not happen and would be actively misleading here.
 func hostRevertRefusal(mode config.HostManagement) string {
 	switch mode {
-	case config.HostManagementNone:
-		return "`host_management` is \"none\" in " + paths.UserConfigPath() + ", so yolo has " +
-			"written nothing into your home and there is nothing to revert.\n" +
-			"  If yolo DID write there under an earlier value, set the key back to \"assert\" " +
-			"and re-run this to take those keys out."
 	case config.HostManagementOwn:
 		return "`host_management` is \"own\" in " + paths.UserConfigPath() + ", which says " +
-			"these files are derived output — the way out of an owned file is to stop " +
-			"declaring it and delete it, not to retreat key by key.\n" +
-			"  Set the key to \"assert\" if you want a key-level revert of what yolo asserted."
+			"these files are derived output, so the next apply would compose back every key a " +
+			"revert took out.\n" +
+			"  To withdraw yolo key by key, set the key to \"none\" (or delete it) and re-run " +
+			"this; to keep a file owned and lose one key, take it out of the pack that declares it."
 	}
 	return ""
 }
@@ -63,6 +66,9 @@ func hostRevertRefusal(mode config.HostManagement) string {
 // refuseHostRevert stops a revert the declared contract does not permit. EXIT 1, not 2, for
 // refuseHostManagement's reason: nothing about the argv is wrong.
 func refuseHostRevert(errw io.Writer) (int, bool) {
+	if rc, refused := retiredHostManagementRefusal(errw, "yolo host apply --revert"); refused {
+		return rc, true
+	}
 	msg := hostRevertRefusal(config.HostManagementMode())
 	if msg == "" {
 		return 0, false
@@ -139,8 +145,8 @@ func hostRevert(out, errw io.Writer, color bool, write bool) int {
 	}
 	pr.Printf("[green]removed %d key(s) across %d surface(s)%s[/green] — yolo no longer has a "+
 		"record of this home.", len(result.Keys), len(result.Records), treeNote)
-	pr.Printf("[dim]A later `yolo host apply --assert` is a FIRST apply again, and asks " +
-		"before replacing anything it finds.[/dim]")
+	pr.Printf("[dim]If you later set host_management to \"own\", its first `yolo host apply " +
+		"--assert` is a FIRST apply again, and asks before replacing anything it finds.[/dim]")
 	return 0
 }
 

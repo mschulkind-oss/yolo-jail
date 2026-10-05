@@ -14,6 +14,13 @@ import (
 
 // hostWrappersFixture sets up a temp HOME with a user config and (optionally) generated
 // wrappers, then returns Options wired to a controllable PATH.
+//
+// The opt-in config also DECLARES `host_management: "own"`, the one value under which an apply
+// regenerates the wrappers. Since the `assert` retirement (OQ-CO14) an unset key means "none",
+// whose row warns and absorbs the generation rows, so a fixture leaving it unset would test the
+// ownership contract instead of the wrappers. The tests whose subject IS that contract write
+// their own config over this one. `own` with `host_wrappers` written true derives nothing extra:
+// host_apply_on_launch derives from host_wrappers, as it did before.
 func hostWrappersFixture(t *testing.T, optIn bool, wrappers []string, pathEnv string) (*Options, *reporter, *bytes.Buffer) {
 	t.Helper()
 	home := t.TempDir()
@@ -25,7 +32,7 @@ func hostWrappersFixture(t *testing.T, optIn bool, wrappers []string, pathEnv st
 	}
 	body := `{"host_wrappers": false}`
 	if optIn {
-		body = `{"host_wrappers": true}`
+		body = `{"host_wrappers": true, "host_management": "own"}`
 	}
 	if err := os.WriteFile(cfg, []byte(body), 0o644); err != nil {
 		t.Fatal(err)
@@ -159,7 +166,8 @@ func TestHostWrappersPassesWhenOnPath(t *testing.T) {
 	o.sectionHostWrappers(r)
 	// THREE passes: the wrap dir being on PATH, plus the two host-key rows that share this
 	// section because they share its coverage boundary — hostManagementRow (who owns the
-	// files this apply writes) and hostApplyOnLaunchRow (when a re-render is checked).
+	// files this apply writes: the fixture's "own") and hostApplyOnLaunchRow (when a re-render
+	// is checked).
 	if r.passed != 3 || r.warned != 0 {
 		t.Errorf("passed=%d warned=%d, want 3/0:\n%s", r.passed, r.warned, buf.String())
 	}
@@ -186,7 +194,7 @@ func TestHostApplyOnLaunchRowSaysItIsOffAndHowToLearn(t *testing.T) {
 	if err := os.MkdirAll(filepath.Dir(cfg), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	body := `{"host_wrappers": true, "host_apply_on_launch": false}`
+	body := `{"host_wrappers": true, "host_management": "own", "host_apply_on_launch": false}`
 	if err := os.WriteFile(cfg, []byte(body), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -222,11 +230,13 @@ func TestHostApplyOnLaunchRowSaysItIsOffAndHowToLearn(t *testing.T) {
 }
 
 // TestHostApplyOnLaunchRowDefaultsToOnWhenWrappersEnabled verifies that host_wrappers: true
-// defaults host_apply_on_launch to on without needing an explicit key.
+// defaults host_apply_on_launch to on without needing an explicit key. host_management is "own",
+// under which the gate runs at all ("none", the unset state, makes it a no-op); host_wrappers is
+// written, so the derivation tested is the wrappers -> apply-on-launch link alone.
 func TestHostApplyOnLaunchRowDefaultsToOnWhenWrappersEnabled(t *testing.T) {
 	// The wrap dir is on PATH: "synchronizes automatically" is a claim the row may only make
 	// when a wrapper can actually reach the gate.
-	o, r, buf := hostManagementFixture(t, `{"host_wrappers": true}`, []string{"claude"}, "<WRAP>")
+	o, r, buf := hostManagementFixture(t, `{"host_wrappers": true, "host_management": "own"}`, []string{"claude"}, "<WRAP>")
 	o.sectionHostWrappers(r)
 	out := buf.String()
 	if !strings.Contains(out, "host_apply_on_launch is on") {
@@ -247,7 +257,7 @@ func TestHostApplyOnLaunchRowSaysItIsOn(t *testing.T) {
 	if err := os.MkdirAll(filepath.Dir(cfg), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	body := `{"host_wrappers": true, "host_apply_on_launch": true}`
+	body := `{"host_wrappers": true, "host_management": "own", "host_apply_on_launch": true}`
 	if err := os.WriteFile(cfg, []byte(body), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -363,25 +373,159 @@ func TestHostManagementRowPassesUnderOwn(t *testing.T) {
 	}
 }
 
-// TestHostManagementRowSaysAssertWhenUnset: an unset key IS "assert" by ruling (OQ-CO2), and
-// saying so is how a reader learns the silent default is a decision rather than an absence.
-// [PASS], not silence — yolo is writing into their real home either way.
-func TestHostManagementRowSaysAssertWhenUnset(t *testing.T) {
-	o, r, buf := hostWrappersFixture(t, true, []string{"claude"}, "/bin")
-	o.sectionHostWrappers(r)
-	out := buf.String()
-	if !strings.Contains(out, `host_management is "assert"`) {
-		t.Errorf("an unset key must still report the contract it means:\n%s", out)
+// TestHostManagementRowSaysNoneWhenUnset: since the `assert` retirement (OQ-CO14) an unset key
+// IS "none", and the row says it read no key rather than a key written "none" — the reader who
+// never wrote one must learn that the silent default is a decision, and which one. It is a
+// [WARN] like a written "none": nothing regenerates the wrappers either way. It used to be a
+// [PASS] saying `host_management is "assert"`, when unset meant that.
+//
+// Both of the none row's branches carry the unset wording: the one that absorbs the generation
+// rows (no wrapper on disk) and the one beside wrappers nothing regenerates.
+func TestHostManagementRowSaysNoneWhenUnset(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		wrappers []string
+		headline string
+		warned   int
+	}{
+		// The none row absorbs the missing-directory row, and the directory being off PATH
+		// is never reached: one row.
+		{"no wrapper on disk", nil,
+			`[WARN] host_management is unset ("none"), so ` + "`yolo host apply`" +
+				` refuses and no wrapper is generated`, 1},
+		// The none row and the not-on-PATH row: two causes.
+		{"wrappers on disk", []string{"claude"},
+			`[WARN] host_management is unset ("none") — ` + "`yolo host apply`" +
+				` refuses, so these wrappers are never regenerated`, 2},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			o, r, buf := hostManagementFixture(t, `{"host_wrappers": true}`, tc.wrappers, "/bin")
+			o.sectionHostWrappers(r)
+			out := buf.String()
+			if !strings.Contains(out, tc.headline) {
+				t.Errorf("an unset key must report the contract it means, saying it is unset "+
+					"(%q):\n%s", tc.headline, out)
+			}
+			if strings.Contains(out, `host_management is "none"`) {
+				t.Errorf("nobody wrote \"none\", so the row must not say the key is written:\n%s", out)
+			}
+			if strings.Contains(out, `"assert"`) {
+				t.Errorf("unset no longer means the retired \"assert\":\n%s", out)
+			}
+			if r.warned != tc.warned {
+				t.Errorf("warned = %d, want %d:\n%s", r.warned, tc.warned, out)
+			}
+		})
 	}
-	// ONE: the not-on-PATH row, which also says the sync cannot fire — nothing about assert.
-	if r.warned != 1 {
-		t.Errorf("warned = %d, want 1 (not-on-PATH):\n%s",
-			r.warned, out)
+}
+
+// TestHostManagementNoneRowsRemedyNameOwn: under "none" the row's remedy is the value that
+// renders, and since the `assert` retirement (OQ-CO14) that is "own" alone — a remedy naming
+// "assert" would send the user to a value every host verb now refuses. Both branches have a
+// remedy of their own, so both are pinned, as the first note line (the fix leads).
+func TestHostManagementNoneRowsRemedyNameOwn(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		wrappers []string
+		headline string
+		// fix is the remedy, after "Set host_management to "own" in <user config>".
+		fix string
+	}{
+		{"no wrapper on disk", nil,
+			`[WARN] host_management is "none", so ` + "`yolo host apply`" + ` refuses`,
+			" and run `yolo host apply --assert`, or turn host_wrappers off."},
+		{"wrappers on disk", []string{"claude"},
+			`[WARN] host_management is "none" — ` + "`yolo host apply`" + ` refuses`,
+			" to have yolo compose your agents' config files from your packs, or turn " +
+				"host_wrappers off."},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			o, r, buf := hostManagementFixture(t, `{"host_wrappers": true, "host_management": "none"}`,
+				tc.wrappers, "/bin")
+			o.sectionHostWrappers(r)
+			out := buf.String()
+			note := noteLinesAfter(t, out, tc.headline)
+			want := `Set host_management to "own" in ` +
+				filepath.Join(os.Getenv("HOME"), ".config", "yolo-jail", "config.jsonc") + tc.fix
+			if len(note) == 0 || strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(note[0]), "->")) != want {
+				t.Errorf("the none row's first note line must be the remedy naming \"own\" (%q):\n%s",
+					want, out)
+			}
+			if strings.Contains(out, `"assert"`) {
+				t.Errorf("a remedy names the retired \"assert\":\n%s", out)
+			}
+		})
+	}
+}
+
+// TestHostManagementRowFailsOnTheRetiredAssert: a user config still SAYING "assert" is not read
+// as "none" by this row, even though the value resolves to none (config.HostManagementMode): a
+// row telling a user whose file says "assert" that the key is "none" or unset would be a
+// sentence about a file they did not write. It is a [FAIL] whose note is config's retirement
+// message — the one message every host verb prints for the value (HostManagementRetired),
+// naming the two values left and the verb that goes with each.
+//
+// And it absorbs the generation rows, for `none`'s reason: nothing renders under the value, so
+// "run `yolo host apply --assert`" beside it is a remedy that refuses. Both generation rows are
+// pinned: the missing directory, and the completeness row for a program added since.
+func TestHostManagementRowFailsOnTheRetiredAssert(t *testing.T) {
+	const headline = `[FAIL] host_management is "assert", which is retired`
+	for _, tc := range []struct {
+		name     string
+		packs    string
+		wrappers []string
+		pathEnv  string
+		// absorbed is the generation row's text the retired row must have taken over.
+		absorbed string
+	}{
+		{"no wrapper directory", `["claude"]`, nil, "/bin", "no wrapper directory exists yet"},
+		{"a program added since", `["claude", "pi"]`, []string{"claude"}, "<WRAP>", "have no wrapper: pi"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			o, _, _ := hostManagementFixture(t,
+				`{"host_wrappers": true, "host_management": "assert", "packs": `+tc.packs+`}`,
+				tc.wrappers, tc.pathEnv)
+			r, out := runPacksThenWrappers(t, o)
+			if r.failed != 1 {
+				t.Errorf("failed = %d, want 1 — the retired value is a [FAIL]:\n%s", r.failed, out)
+			}
+			if r.warned != 0 {
+				t.Errorf("warned = %d, want 0 — the retired value is the one cause:\n%s", r.warned, out)
+			}
+			note := strings.Join(noteLinesAfter(t, out, headline), "\n")
+			for _, want := range []string{
+				`"assert" is RETIRED`,
+				`"none", the default`,
+				`"own" has yolo compose them whole`,
+				"`yolo config promote`",
+				"`yolo host apply --revert`",
+				filepath.Join(os.Getenv("HOME"), ".config", "yolo-jail", "config.jsonc"),
+			} {
+				if !strings.Contains(note, want) {
+					t.Errorf("the retired row's note must carry the retirement message (%q):\n%s",
+						want, out)
+				}
+			}
+			if strings.Contains(out, tc.absorbed) {
+				t.Errorf("a generation row offered the apply that refuses beside the retired row:\n%s", out)
+			}
+			for _, bad := range []string{`host_management is "none"`, `host_management is unset`} {
+				if strings.Contains(out, bad) {
+					t.Errorf("the file says \"assert\", so no row may say %q:\n%s", bad, out)
+				}
+			}
+			// The value resolves to none, so the launch gate is a no-op and nothing syncs.
+			if strings.Contains(out, "synchronizes host configuration automatically") {
+				t.Errorf("no launch syncs under the retired value:\n%s", out)
+			}
+		})
 	}
 }
 
 // hostManagementFixture is hostWrappersFixture with an arbitrary user config body, for the
-// DERIVED cases — where `host_wrappers` is absent and `host_management` decides.
+// DERIVED cases — where `host_wrappers` is absent and `host_management` decides — and for any
+// test that needs keys beside the opt-in. A body whose test is not about the ownership contract
+// declares `"host_management": "own"`, for the reason hostWrappersFixture's opt-in does.
 func hostManagementFixture(t *testing.T, body string, wrappers []string, pathEnv string) (*Options, *reporter, *bytes.Buffer) {
 	t.Helper()
 	home := t.TempDir()
@@ -479,14 +623,26 @@ func TestHostManagementOwnPassesOncePathIsRight(t *testing.T) {
 	}
 }
 
-// ⚠ `assert` must stay silent. It is host_management's own UNSET default, so deriving wrappers from
-// it would turn a PATH claim on — and this section on — for every user who has declared nothing.
-func TestHostManagementAssertStaysSilent(t *testing.T) {
-	o, r, buf := hostManagementFixture(t, `{"host_management": "assert"}`, nil, "/bin")
-	o.sectionHostWrappers(r)
-	if buf.Len() != 0 || r.warned != 0 || r.passed != 0 {
-		t.Errorf("assert must not derive wrappers — it is the unset default, so this would nag "+
-			"everyone:\n%s", buf.String())
+// ⚠ Only a WRITTEN "own" derives the section; every other host_management state stays silent with
+// host_wrappers unset. The unset key is the one that matters: deriving wrappers from it would turn
+// a PATH claim on — and this section on — for every user who has declared nothing. "none" says
+// yolo writes nothing, and the retired "assert" resolves to none (validation reports the value
+// itself, through its own channel). This test said "assert" stays silent while that was the
+// unset default; the retirement (OQ-CO14) made the unset key none, and the rule is unchanged.
+func TestHostManagementOnlyOwnDerivesTheSection(t *testing.T) {
+	for _, body := range []string{
+		`{}`,
+		`{"host_management": "none"}`,
+		`{"host_management": "assert"}`,
+	} {
+		t.Run(body, func(t *testing.T) {
+			o, r, buf := hostManagementFixture(t, body, nil, "/bin")
+			o.sectionHostWrappers(r)
+			if buf.Len() != 0 || r.warned != 0 || r.passed != 0 || r.failed != 0 {
+				t.Errorf("only a written \"own\" derives wrappers — anything else would nag "+
+					"users who never asked for them:\n%s", buf.String())
+			}
+		})
 	}
 }
 
@@ -536,7 +692,7 @@ func runPacksThenWrappers(t *testing.T, o *Options) (*reporter, string) {
 // would be added. A program with no wrapper never passes the launch gate, so it never
 // self-syncs — the one launch that most needs the gate is the one that skips it.
 func TestHostWrappersWarnsWhenASelectedProgramHasNoWrapper(t *testing.T) {
-	o, _, _ := hostManagementFixture(t, `{"host_wrappers": true, "packs": ["claude", "pi"]}`,
+	o, _, _ := hostManagementFixture(t, `{"host_wrappers": true, "host_management": "own", "packs": ["claude", "pi"]}`,
 		[]string{"claude"}, "<WRAP>")
 	r, out := runPacksThenWrappers(t, o)
 
@@ -554,7 +710,7 @@ func TestHostWrappersWarnsWhenASelectedProgramHasNoWrapper(t *testing.T) {
 // TestHostWrappersCompleteSetPasses: every selected program has a wrapper and each wins, so
 // nothing warns and the section says so.
 func TestHostWrappersCompleteSetPasses(t *testing.T) {
-	o, _, _ := hostManagementFixture(t, `{"host_wrappers": true, "packs": ["claude"]}`,
+	o, _, _ := hostManagementFixture(t, `{"host_wrappers": true, "host_management": "own", "packs": ["claude"]}`,
 		[]string{"claude"}, "<WRAP>")
 	r, out := runPacksThenWrappers(t, o)
 	if r.warned != 0 {
@@ -568,7 +724,7 @@ func TestHostWrappersCompleteSetPasses(t *testing.T) {
 // TestHostWrappersNamesTheSelectedProgramsWhenNoneAreGenerated: with the pack set known, the
 // "no wrappers yet" row stops guessing between two causes and names the programs.
 func TestHostWrappersNamesTheSelectedProgramsWhenNoneAreGenerated(t *testing.T) {
-	o, _, _ := hostManagementFixture(t, `{"host_wrappers": true, "packs": ["claude"]}`,
+	o, _, _ := hostManagementFixture(t, `{"host_wrappers": true, "host_management": "own", "packs": ["claude"]}`,
 		nil, "/bin")
 	_, out := runPacksThenWrappers(t, o)
 	if !strings.Contains(out, "(claude)") {
@@ -581,7 +737,7 @@ func TestHostWrappersNamesTheSelectedProgramsWhenNoneAreGenerated(t *testing.T) 
 // OnPath asks only "is the dir on PATH", never "does it win". The ruled rule is "Prepend, not
 // append" (docs/reference/host-agent-environment.md).
 func TestHostWrappersWarnsWhenAWrapperIsShadowed(t *testing.T) {
-	o, _, _ := hostManagementFixture(t, `{"host_wrappers": true}`, []string{"claude"}, "")
+	o, _, _ := hostManagementFixture(t, `{"host_wrappers": true, "host_management": "own"}`, []string{"claude"}, "")
 	dir := wrapDirIn(t)
 	ahead := fakeProgram(t, "claude")
 	setPath(o, ahead+string(os.PathListSeparator)+dir)
@@ -619,7 +775,7 @@ func TestHostWrappersWarnsWhenAWrapperIsShadowed(t *testing.T) {
 // shadow warns, and the gate row PASSES naming the wrapper that does reach it, because a
 // wrapped launch of that program runs the apply that regenerates the set.
 func TestHostWrappersPartialShadowStillReachesTheGate(t *testing.T) {
-	o, _, _ := hostManagementFixture(t, `{"host_wrappers": true}`, []string{"claude", "pi"}, "")
+	o, _, _ := hostManagementFixture(t, `{"host_wrappers": true, "host_management": "own"}`, []string{"claude", "pi"}, "")
 	dir := wrapDirIn(t)
 	ahead := fakeProgram(t, "claude")
 	setPath(o, ahead+string(os.PathListSeparator)+dir)
@@ -647,7 +803,7 @@ func TestHostWrappersPartialShadowStillReachesTheGate(t *testing.T) {
 // being a symlink to /private/var). Comparing spellings called that "NOT on PATH", or a
 // wrapper shadowed by itself; comparing files is what the shell does.
 func TestHostWrappersSymlinkedPathSpellingWins(t *testing.T) {
-	o, _, _ := hostManagementFixture(t, `{"host_wrappers": true}`, []string{"claude"}, "")
+	o, _, _ := hostManagementFixture(t, `{"host_wrappers": true, "host_management": "own"}`, []string{"claude"}, "")
 	home := os.Getenv("HOME")
 	alias := filepath.Join(t.TempDir(), "home-alias")
 	if err := os.Symlink(home, alias); err != nil {
@@ -702,7 +858,7 @@ func TestHostApplyOnLaunchRowWarnsWhenNoWrapperCanReachTheGate(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			o, _, _ := hostManagementFixture(t, `{"host_wrappers": true}`, tc.wrappers, "")
+			o, _, _ := hostManagementFixture(t, `{"host_wrappers": true, "host_management": "own"}`, tc.wrappers, "")
 			if tc.unreadable {
 				if err := os.MkdirAll(filepath.Dir(wrapDirIn(t)), 0o755); err != nil {
 					t.Fatal(err)
@@ -768,7 +924,7 @@ func writeWrapperNaming(t *testing.T, yolo string, bins ...string) {
 // from every launcher. The row names the file and the apply that rewrites it, whatever PATH says,
 // and — the only wrapper being the one that wins — is why the launch sync cannot fire.
 func TestHostWrappersWarnsWhenAWrapperNamesAYoloThatIsGone(t *testing.T) {
-	o, r, buf := hostManagementFixture(t, `{"host_wrappers": true}`, []string{"claude"}, "<WRAP>")
+	o, r, buf := hostManagementFixture(t, `{"host_wrappers": true, "host_management": "own"}`, []string{"claude"}, "<WRAP>")
 	gone := filepath.Join(t.TempDir(), "Cellar", "yolo", "0.9", "bin", "yolo")
 	writeWrapperNaming(t, gone, "claude")
 	o.sectionHostWrappers(r)
@@ -800,7 +956,7 @@ func TestHostWrappersWarnsWhenAWrapperNamesAYoloThatIsGone(t *testing.T) {
 
 // TestHostWrappersWarnsWhenAWrapperYoloCannotRun: present but not executable is the same cause.
 func TestHostWrappersWarnsWhenAWrapperYoloCannotRun(t *testing.T) {
-	o, r, buf := hostManagementFixture(t, `{"host_wrappers": true}`, []string{"claude"}, "<WRAP>")
+	o, r, buf := hostManagementFixture(t, `{"host_wrappers": true, "host_management": "own"}`, []string{"claude"}, "<WRAP>")
 	plain := filepath.Join(t.TempDir(), "yolo")
 	if err := os.WriteFile(plain, []byte("not a program\n"), 0o644); err != nil {
 		t.Fatal(err)
@@ -819,7 +975,7 @@ func TestHostWrappersWarnsWhenAWrapperYoloCannotRun(t *testing.T) {
 // TestHostWrappersPassesAWrapperNamingAYoloThatRuns: the yolo the wrapper names runs, so there is
 // nothing to say about it.
 func TestHostWrappersPassesAWrapperNamingAYoloThatRuns(t *testing.T) {
-	o, r, buf := hostManagementFixture(t, `{"host_wrappers": true}`, []string{"claude"}, "<WRAP>")
+	o, r, buf := hostManagementFixture(t, `{"host_wrappers": true, "host_management": "own"}`, []string{"claude"}, "<WRAP>")
 	writeWrapperNaming(t, filepath.Join(fakeProgram(t, "yolo"), "yolo"), "claude")
 	o.sectionHostWrappers(r)
 	if r.warned != 0 {
@@ -834,7 +990,7 @@ func TestHostWrappersPassesAWrapperNamingAYoloThatRuns(t *testing.T) {
 // runs, so a wrapped launch of pi still reaches the gate and the gate row passes through pi
 // alone, while claude's row says what to fix.
 func TestHostWrappersGateRowNamesOnlyTheWrappersThatReachYolo(t *testing.T) {
-	o, r, buf := hostManagementFixture(t, `{"host_wrappers": true}`, []string{"claude", "pi"}, "<WRAP>")
+	o, r, buf := hostManagementFixture(t, `{"host_wrappers": true, "host_management": "own"}`, []string{"claude", "pi"}, "<WRAP>")
 	writeWrapperNaming(t, filepath.Join(t.TempDir(), "gone", "yolo"), "claude")
 	writeWrapperNaming(t, filepath.Join(fakeProgram(t, "yolo"), "yolo"), "pi")
 	o.sectionHostWrappers(r)
@@ -860,7 +1016,7 @@ func TestHostWrappersGateRowNamesOnlyTheWrappersThatReachYolo(t *testing.T) {
 func TestHostWrappersWarnsAboutAWrapperAnOlderYoloWrote(t *testing.T) {
 	headline := "[WARN] 1 wrapper(s) cannot start yolo from every launcher: claude"
 	t.Run("yolo on this PATH", func(t *testing.T) {
-		o, r, buf := hostManagementFixture(t, `{"host_wrappers": true}`, []string{"claude"}, "")
+		o, r, buf := hostManagementFixture(t, `{"host_wrappers": true, "host_management": "own"}`, []string{"claude"}, "")
 		writeWrapperNaming(t, "yolo", "claude")
 		yoloDir := fakeProgram(t, "yolo")
 		setPath(o, wrapDirIn(t)+string(os.PathListSeparator)+yoloDir)
@@ -882,7 +1038,7 @@ func TestHostWrappersWarnsAboutAWrapperAnOlderYoloWrote(t *testing.T) {
 		}
 	})
 	t.Run("no yolo on this PATH", func(t *testing.T) {
-		o, r, buf := hostManagementFixture(t, `{"host_wrappers": true}`, []string{"claude"}, "<WRAP>")
+		o, r, buf := hostManagementFixture(t, `{"host_wrappers": true, "host_management": "own"}`, []string{"claude"}, "<WRAP>")
 		writeWrapperNaming(t, "yolo", "claude")
 		o.sectionHostWrappers(r)
 		out := buf.String()
@@ -901,23 +1057,38 @@ func TestHostWrappersWarnsAboutAWrapperAnOlderYoloWrote(t *testing.T) {
 
 // TestHostWrappersStaleYoloUnderNoneNamesTheKeyItWaitsOn: under host_management "none" the apply
 // refuses, so the stale row's fix says what the apply needs first instead of offering one that
-// refuses.
+// refuses — and the value it needs is "own", the one that renders since the `assert` retirement
+// (OQ-CO14). The fix named "assert" until then. "none" is also the unset state, so an unset key
+// takes the same fix.
 func TestHostWrappersStaleYoloUnderNoneNamesTheKeyItWaitsOn(t *testing.T) {
-	o, _, buf := hostManagementFixture(t, `{"host_wrappers": true, "host_management": "none"}`,
-		[]string{"claude"}, "<WRAP>")
-	writeWrapperNaming(t, filepath.Join(t.TempDir(), "gone", "yolo"), "claude")
-	o.sectionHostWrappers(newReporter(buf, false))
-	note := strings.Join(noteLinesAfter(t, buf.String(),
-		"[WARN] 1 wrapper(s) cannot start yolo from every launcher: claude"), "\n")
-	if !strings.Contains(note, `once host_management in`) || !strings.Contains(note, `under "none" it refuses`) {
-		t.Errorf("under none the fix must name the key the apply waits on:\n%s", buf.String())
+	for _, body := range []string{
+		`{"host_wrappers": true, "host_management": "none"}`,
+		`{"host_wrappers": true}`,
+	} {
+		t.Run(body, func(t *testing.T) {
+			o, _, buf := hostManagementFixture(t, body, []string{"claude"}, "<WRAP>")
+			writeWrapperNaming(t, filepath.Join(t.TempDir(), "gone", "yolo"), "claude")
+			o.sectionHostWrappers(newReporter(buf, false))
+			note := noteLinesAfter(t, buf.String(),
+				"[WARN] 1 wrapper(s) cannot start yolo from every launcher: claude")
+			want := "once host_management in " +
+				filepath.Join(os.Getenv("HOME"), ".config", "yolo-jail", "config.jsonc") +
+				` is "own" (under "none", the default, it refuses); or turn host_wrappers off.`
+			if len(note) == 0 || !strings.Contains(note[0], want) {
+				t.Errorf("under none the fix must lead, naming \"own\" as the value the apply "+
+					"waits on (%q):\n%s", want, buf.String())
+			}
+			if strings.Contains(buf.String(), `"assert"`) {
+				t.Errorf("a fix names the retired \"assert\":\n%s", buf.String())
+			}
+		})
 	}
 }
 
 // TestHostWrappersOKRowNamesTheDirectorysProgramSlot: with several wrappers, the IDE pointer
 // names the directory's <program> slot and the programs in it.
 func TestHostWrappersOKRowNamesTheDirectorysProgramSlot(t *testing.T) {
-	o, r, buf := hostManagementFixture(t, `{"host_wrappers": true}`, []string{"claude", "pi"}, "<WRAP>")
+	o, r, buf := hostManagementFixture(t, `{"host_wrappers": true, "host_management": "own"}`, []string{"claude", "pi"}, "<WRAP>")
 	o.sectionHostWrappers(r)
 	want := "point an IDE or desktop launcher that does not read your shell rc at " +
 		filepath.Join(wrapDirIn(t), "<program>") + " (claude or pi)"
@@ -952,7 +1123,7 @@ func TestHostWrappersOKRowSaysALauncherNeedsHostPathForAProgramYoloKeepsNoCopyOf
 		if userConfig != "" {
 			userConfig = strings.ReplaceAll(userConfig, "<CLAUDE>", claudeDir)
 		} else {
-			userConfig = `{"host_wrappers": true, "packs": ["claude"]}`
+			userConfig = `{"host_wrappers": true, "host_management": "own", "packs": ["claude"]}`
 		}
 		o, _, _ := hostManagementFixture(t, userConfig, []string{"claude"}, "")
 		setPath(o, wrapDirIn(t)+string(os.PathListSeparator)+claudeDir)
@@ -977,7 +1148,7 @@ func TestHostWrappersOKRowSaysALauncherNeedsHostPathForAProgramYoloKeepsNoCopyOf
 		}
 	})
 	t.Run("darwin, host_path names the folder", func(t *testing.T) {
-		out, _ := run(t, "darwin", `{"host_wrappers": true, "packs": ["claude"], "host_path": ["<CLAUDE>"]}`)
+		out, _ := run(t, "darwin", `{"host_wrappers": true, "host_management": "own", "packs": ["claude"], "host_path": ["<CLAUDE>"]}`)
 		if strings.Contains(out, lead) {
 			t.Errorf("host_path already names claude's folder:\n%s", out)
 		}
@@ -1000,7 +1171,7 @@ func TestHostWrappersOffPathAndShadowedRowsSayALauncherNeedsHostPath(t *testing.
 		t.Helper()
 		t.Setenv("YOLO_VERSION", "")
 		claudeDir := fakeProgram(t, "claude")
-		o, _, _ := hostManagementFixture(t, `{"host_wrappers": true, "packs": ["claude"]}`,
+		o, _, _ := hostManagementFixture(t, `{"host_wrappers": true, "host_management": "own", "packs": ["claude"]}`,
 			[]string{"claude"}, "")
 		setPath(o, pathFor(wrapDirIn(t), claudeDir))
 		o.HostFloor = floorOn(t, goos)
@@ -1084,7 +1255,7 @@ func TestHostWrappersPointsNoLauncherAtAWrapperThatCannotStartYolo(t *testing.T)
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Setenv("YOLO_VERSION", "")
-			o, _, _ := hostManagementFixture(t, `{"host_wrappers": true, "packs": ["claude"]}`,
+			o, _, _ := hostManagementFixture(t, `{"host_wrappers": true, "host_management": "own", "packs": ["claude"]}`,
 				[]string{"claude"}, "")
 			if tc.bare {
 				writeWrapperNaming(t, "yolo", "claude")
@@ -1125,7 +1296,7 @@ func TestHostWrappersPointsALauncherOnlyAtTheWrappersThatStartYolo(t *testing.T)
 		return o, r, buf
 	}
 	t.Run("on PATH", func(t *testing.T) {
-		o, r, buf := setUp(t, `{"host_wrappers": true}`, "<WRAP>")
+		o, r, buf := setUp(t, `{"host_wrappers": true, "host_management": "own"}`, "<WRAP>")
 		o.sectionHostWrappers(r)
 		out := buf.String()
 		want := "point an IDE or desktop launcher that does not read your shell rc at " +
@@ -1138,7 +1309,7 @@ func TestHostWrappersPointsALauncherOnlyAtTheWrappersThatStartYolo(t *testing.T)
 		}
 	})
 	t.Run("off PATH", func(t *testing.T) {
-		o, r, buf := setUp(t, `{"host_wrappers": true}`, t.TempDir())
+		o, r, buf := setUp(t, `{"host_wrappers": true, "host_management": "own"}`, t.TempDir())
 		o.sectionHostWrappers(r)
 		out := buf.String()
 		note := strings.Join(noteLinesAfter(t, out, "[WARN] wrapper directory is not on PATH"), "\n")
@@ -1153,7 +1324,7 @@ func TestHostWrappersPointsALauncherOnlyAtTheWrappersThatStartYolo(t *testing.T)
 	// no copy of claude must still not produce claude's line.
 	t.Run("on PATH, darwin", func(t *testing.T) {
 		t.Setenv("YOLO_VERSION", "")
-		o, _, _ := setUp(t, `{"host_wrappers": true, "packs": ["claude", "pi"]}`, "")
+		o, _, _ := setUp(t, `{"host_wrappers": true, "host_management": "own", "packs": ["claude", "pi"]}`, "")
 		claudeDir := fakeProgram(t, "claude")
 		setPath(o, wrapDirIn(t)+string(os.PathListSeparator)+claudeDir)
 		o.HostFloor = floorOn(t, "darwin")
@@ -1173,7 +1344,7 @@ func TestHostWrappersPointsALauncherOnlyAtTheWrappersThatStartYolo(t *testing.T)
 // what is true.
 func TestHostApplyOnLaunchOffKeepsTheCauseRowToItself(t *testing.T) {
 	o, r, buf := hostManagementFixture(t,
-		`{"host_wrappers": true, "host_apply_on_launch": false}`, []string{"claude"}, "/bin")
+		`{"host_wrappers": true, "host_management": "own", "host_apply_on_launch": false}`, []string{"claude"}, "/bin")
 	o.sectionHostWrappers(r)
 	out := buf.String()
 	if !strings.Contains(out, "host_apply_on_launch is off") {

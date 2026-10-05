@@ -253,7 +253,9 @@ func TestOneCtrlCInAPatchedForksBuildEndsTheTreeArmsWait(t *testing.T) {
 
 // hostForkAndTree is the patched-fork floor fixture with a patched extension its base pack owns: the
 // base declares tool's settings surface, and the extension's list entry is on it, so `yolo host --
-// tool` advances the extension, then installs the fork's program; `host_apply_on_launch` is on.
+// tool` advances the extension, then installs the fork's program; `host_apply_on_launch` is on, under
+// `host_management: "own"` — the unset key is `none` since the `assert` retirement (OQ-CO14), under
+// which a host launch advances no extension and `yolo host apply` refuses before its floor stage.
 func hostForkAndTree(t *testing.T) *patchedAdvanceFixture {
 	t.Helper()
 	fx := patchedFloorFixture(t)
@@ -266,7 +268,8 @@ func hostForkAndTree(t *testing.T) *patchedAdvanceFixture {
 	writeFile(t, filepath.Join(fx.home, ".config", "yolo-jail", "config.jsonc"), `{"packs":[`+
 		`{"source":"file://`+filepath.Join(fx.packs, "basepack")+`","name":"basepack"},`+
 		`{"source":"file://`+fx.forkDir+`","name":"forkpack"},`+
-		`{"source":"file://`+filepath.Join(fx.packs, "treepack")+`","name":"treepack"}],"host_apply_on_launch":true}`)
+		`{"source":"file://`+filepath.Join(fx.packs, "treepack")+`","name":"treepack"}],`+
+		`"host_management":"own","host_apply_on_launch":true}`)
 	return fx
 }
 

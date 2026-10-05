@@ -61,9 +61,9 @@ func criterionPack(t *testing.T, codecName, path string) *packload.Pack {
 	}}
 }
 
-// criterionHome seeds a home with the agent's own file and applies ONCE under `assert`, so
-// what comes back is a home already applying under `assert` — the state the criterion is
-// about — plus the bytes that home holds.
+// criterionHome seeds a home with the agent's own file and applies ONCE as the retired `assert`
+// did (renderAsRetiredAssert), so what comes back is a home `assert` applied into before the
+// retirement — the state the criterion is about — plus the bytes that home holds.
 func criterionHome(t *testing.T, codecName, rel, seed string) (home, path string, asserted []byte) {
 	t.Helper()
 	home = t.TempDir()
@@ -74,9 +74,7 @@ func criterionHome(t *testing.T, codecName, rel, seed string) (home, path string
 	if err := os.WriteFile(path, []byte(seed), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := RenderHostPack(criterionPack(t, codecName, "~/"+rel), home, render.OwnershipAssert, false, nil, nil); err != nil {
-		t.Fatalf("first --assert apply: %v", err)
-	}
+	renderAsRetiredAssert(t, criterionPack(t, codecName, "~/"+rel), home, nil, nil)
 	asserted, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatalf("read the assert baseline: %v", err)
@@ -116,7 +114,7 @@ func TestSwitchingToOwnPreservesKeysAndValues(t *testing.T) {
 			name:  "json key order",
 			codec: "json",
 			rel:   ".acme/settings.json",
-			axis:  "JSON key order at every depth (own sorts; assert keeps the file's own)",
+			axis:  "JSON key order at every depth (own sorts; the retired assert kept the file's own)",
 			seed: `{
   "zebra": "written last, sorted first",
   "apiKeyHelper": "/usr/local/bin/acme-key.sh",

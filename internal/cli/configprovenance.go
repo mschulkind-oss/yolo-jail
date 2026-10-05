@@ -242,9 +242,10 @@ func listContributionRows(t configTarget, s manifest.Surface, lists []agentcfg.L
 // winners / reason is meaningful: a non-nil map means measured, and a non-empty reason
 // names WHICH absence this is.
 //
-// The host notch is the simple case and the reason this function exists: `yolo host apply` is
-// pure RMW at every mode, and it records a winner for every surface it writes, so there is
-// exactly one question — has an apply asserted yet? The jail notch has the mode split,
+// The host notch is the simple case and the reason this function exists: `yolo host apply`
+// records a winner for every surface it writes, through either mechanism an owned host runs
+// (and the retired `assert`'s rmw recorded too), so there is exactly one question — has an
+// apply written it yet? The remedy depends on the contract: under `none` that apply refuses. The jail notch has the mode split,
 // because an `rmw`/`computed` surface in a jail keeps no record by design (§8) and that
 // must not read as a loss.
 //
@@ -262,9 +263,14 @@ func surfaceProvenance(t configTarget, s manifest.Surface) (winners map[string]s
 		if w := readProvenance(t.provenanceFile(s.Agent, s.Name)); w != nil {
 			return w, notch.String(), ""
 		}
-		// No mode split here: the host render is pure RMW and records every surface it
-		// writes, so an absent record means no apply has asserted this surface — which has
-		// a remedy, unlike the by-design absences below.
+		// No mode split here: the host render records every surface it writes, so an absent
+		// record means no apply has written this surface — which has a remedy, unlike the
+		// by-design absences below. Under any contract but `own` the apply refuses, so the
+		// remedy is the key rather than a command that would refuse (OQ-CO14).
+		if t.ownership != render.OwnershipOwn {
+			return nil, notch.String(), "yolo has not rendered it into this home, and under " +
+				"`host_management` \"none\" it does not; set \"own\" and run `yolo host apply --assert`"
+		}
 		return nil, notch.String(), "no `yolo host apply --assert` has rendered it yet"
 	case render.KindJail:
 		if w := readProvenance(t.provenanceFile(s.Agent, s.Name)); w != nil {

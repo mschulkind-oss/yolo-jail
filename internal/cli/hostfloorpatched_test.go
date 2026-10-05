@@ -226,11 +226,12 @@ func TestHostApplyAdvancesAPatchedForkOnlyUnderAssert(t *testing.T) {
 // THE FLOOR'S ADVANCE IS OUTSIDE THE HOST-RENDER GATE'S OBSERVE PASS (the plan's trap): the gate
 // surveys the render first, within its one-second budget, and the advance — a fetch and a build —
 // runs after that survey has returned, never inside it, so a check can neither blow the budget nor be
-// compared against.
+// compared against. The config declares `host_management: "own"`: the unset key is `none` since
+// OQ-CO14, under which the gate surveys nothing and the order would go unobserved.
 func TestTheHostFloorsAdvanceRunsAfterTheRenderGatesObservePass(t *testing.T) {
 	fx := patchedFloorFixture(t)
 	fx.commit(t, "v1.1.0", map[int]string{14: "fourteen"})
-	fx.writeUserConfig(t, `,"host_apply_on_launch":true`)
+	fx.writeUserConfig(t, `,"host_management":"own","host_apply_on_launch":true`)
 	var events []string
 	prevSurvey := hostApplyGateSurvey
 	hostApplyGateSurvey = func(out, errw io.Writer, color, write bool, stdin io.Reader, s *hostApplySurvey) int {

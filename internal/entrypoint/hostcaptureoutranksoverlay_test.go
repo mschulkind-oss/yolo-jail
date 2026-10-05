@@ -92,14 +92,20 @@ func canonicalJSON(t *testing.T, s string) string {
 	return string(b)
 }
 
-func renderClaudeWithOverlay(t *testing.T, home string, own render.HostOwnership, observe bool) HostRenderResult {
+// renderClaudeWithOverlay renders claude/settings at an owned host with matt's overlay. rmw
+// re-declares every claude surface `rmw` (asRetiredAssert's copy, used here for exactly that and
+// not for an asserted home), so the surface runs the rmw arm instead of composing `stateful`.
+func renderClaudeWithOverlay(t *testing.T, home string, rmw, observe bool) HostRenderResult {
 	t.Helper()
 	claude, err := embeddedPack("claude")
 	if err != nil {
 		t.Fatal(err)
 	}
+	if rmw {
+		claude = asRetiredAssert(t, claude)
+	}
 	overlays := packoverlay.Collect([]*packload.Pack{claude, notificationOverlayPack(t)}, false, nil)
-	results, err := RenderHostPack(claude, home, own, observe, overlays, nil)
+	results, err := RenderHostPack(claude, home, render.OwnershipOwn, observe, overlays, nil)
 	if err != nil {
 		t.Fatalf("RenderHostPack: %v", err)
 	}
@@ -125,7 +131,7 @@ func TestUnderOwnACapturedEditKeptOverAnOverlayIsNotReportedAsOverwritten(t *tes
 
 	for run := 1; run <= 3; run++ {
 		observe := run == 3
-		r := renderClaudeWithOverlay(t, home, render.OwnershipOwn, observe)
+		r := renderClaudeWithOverlay(t, home, false, observe)
 		if got := notificationInFile(t, path); got != want {
 			t.Fatalf("run %d: fixture premise — the captured edit outranks the overlay, so the file "+
 				"keeps the user's hook; got %s", run, got)
@@ -150,19 +156,20 @@ func TestUnderOwnACapturedEditKeptOverAnOverlayIsNotReportedAsOverwritten(t *tes
 	}
 }
 
-// THE CONTROL: under `assert` the overlay IS written over the user's value, so the overwrite is
-// real and reported, and nothing is kept.
-func TestUnderAssertAnOverlayOverwriteIsStillReported(t *testing.T) {
+// THE CONTROL: through the rmw arm — a surface its pack declares `rmw`, which an owned host still
+// runs (and every surface ran under the retired `assert`) — nothing is captured, so the overlay
+// IS written over the user's value, the overwrite is real and reported, and nothing is kept.
+func TestThroughRMWAnOverlayOverwriteIsStillReported(t *testing.T) {
 	home := t.TempDir()
 	path := seedClaudeSettings(t, home)
-	r := renderClaudeWithOverlay(t, home, render.OwnershipAssert, false)
+	r := renderClaudeWithOverlay(t, home, true, false)
 	if got, want := notificationInFile(t, path), canonicalJSON(t, packsNotification); got != want {
-		t.Fatalf("fixture premise — under assert the overlay lands; got %s", got)
+		t.Fatalf("fixture premise — through rmw the overlay lands; got %s", got)
 	}
 	if !mentions(r.Overwrites, "hooks.Notification") {
 		t.Errorf("Overwrites=%v; the overlay replaced the user's value and must say so", r.Overwrites)
 	}
 	if len(r.Kept) != 0 {
-		t.Errorf("Kept=%v under assert, where no captured edit exists", r.Kept)
+		t.Errorf("Kept=%v through rmw, where no captured edit exists", r.Kept)
 	}
 }

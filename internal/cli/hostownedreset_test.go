@@ -1,8 +1,8 @@
 package cli
 
 // hostownedreset_test.go pins host-side `yolo config reset` and `yolo config capture` across
-// the three `host_management` values (docs/design/config-ownership-and-promotion.md §6.1,
-// §6.3.3, OQ-CO3).
+// the two `host_management` values, the unset key and the retired `"assert"`
+// (docs/design/config-ownership-and-promotion.md §6.1, §6.3.3, OQ-CO3, OQ-CO14).
 //
 // # Why `own` unlocks reset, and why that is not parity
 //
@@ -12,8 +12,10 @@ package cli
 // silent no-op. So an owned home whose reset refused would have an adoption path with nothing
 // to discard against, which is why §10's `own` step lands the two together.
 //
-// Under `none` and `assert` the refusal stays: the guard's premise is a file yolo does not own
-// in this context, and those two contracts are that premise.
+// Under `none` the refusal stays: the guard's premise is a file yolo does not own in this
+// context, and that contract is that premise. It is also the unset key's since the `assert`
+// retirement (OQ-CO14), and the retired `"assert"` resolves to it too, so all three are refused
+// alike; the retired `assert`, shared ownership, was the other contract with no capture store.
 //
 // Capture joined reset under `own` on 2026-10-04 (OQ-CO3, ruled yes-under-own): its premise is
 // a credential copied into the WORKSPACE tree, and under `own` it writes the host's own 0600
@@ -33,8 +35,9 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/render"
 )
 
-// hostResetFixture builds a scratch real home under the named contract, seeds the host capture
-// store with an edit, and leaves the surface file holding that edit.
+// hostResetFixture builds a scratch real home under the named contract ("" leaves the key
+// unset), seeds the host capture store with an edit, and leaves the surface file holding that
+// edit.
 //
 // HOST-SIDE, which is the default on a bare runner: surfacesAreLocal() reads YOLO_VERSION and
 // the /workspace mount, and this deliberately does NOT stub it — the whole subject is what the
@@ -44,8 +47,11 @@ func hostResetFixture(t *testing.T, mode string) (home, store, surfacePath strin
 	home = t.TempDir()
 	t.Setenv("HOME", home)
 	t.Setenv("YOLO_VERSION", "")
-	writeFile(t, filepath.Join(home, ".config", "yolo-jail", "config.jsonc"),
-		`{"packs":["claude"],"host_management":"`+mode+`"}`)
+	cfg := `{"packs":["claude"]}`
+	if mode != "" {
+		cfg = `{"packs":["claude"],"host_management":"` + mode + `"}`
+	}
+	writeFile(t, filepath.Join(home, ".config", "yolo-jail", "config.jsonc"), cfg)
 
 	s, ok := surfaceManifest().Lookup("claude", "settings")
 	if !ok {
@@ -126,12 +132,14 @@ func TestHostSideResetWorksUnderOwn(t *testing.T) {
 	}
 }
 
-// UNDER `none` AND `assert`, RESET STILL REFUSES, and leaves both the store and the file
-// alone. This is the half that keeps the exemption an ownership statement rather than a hole:
-// truncating a real dotfile the user owns is the Phase-0 data loss the guard exists for.
-func TestHostSideResetRefusesUnderNoneAndAssert(t *testing.T) {
-	for _, mode := range []string{"none", "assert"} {
-		t.Run(mode, func(t *testing.T) {
+// WITHOUT `own`, RESET STILL REFUSES, and leaves both the store and the file alone: under
+// `none`, under the unset key (which is `none` since OQ-CO14), and under the retired `"assert"`,
+// which resolves to `none` and must not unlock anything. This is the half that keeps the
+// exemption an ownership statement rather than a hole: truncating a real dotfile the user owns
+// is the Phase-0 data loss the guard exists for.
+func TestHostSideResetRefusesWithoutOwn(t *testing.T) {
+	for name, mode := range map[string]string{"none": "none", "unset": "", "the retired assert": "assert"} {
+		t.Run(name, func(t *testing.T) {
 			_, store, surfacePath := hostResetFixture(t, mode)
 			before, err := os.ReadFile(surfacePath)
 			if err != nil {
@@ -140,20 +148,20 @@ func TestHostSideResetRefusesUnderNoneAndAssert(t *testing.T) {
 
 			var out, errw bytes.Buffer
 			if rc := configReset(hostTargetForTest(), []string{"claude/settings"}, &out, &errw, false); rc != 1 {
-				t.Fatalf("reset under %q: rc=%d, want 1\n%s%s", mode, rc, out.String(), errw.String())
+				t.Fatalf("reset under %s: rc=%d, want 1\n%s%s", name, rc, out.String(), errw.String())
 			}
 			if !strings.Contains(errw.String(), "refusing") {
-				t.Errorf("reset under %q did not say it was refusing:\n%s", mode, errw.String())
+				t.Errorf("reset under %s did not say it was refusing:\n%s", name, errw.String())
 			}
 			if _, err := os.Stat(filepath.Join(store, "claude-settings.overlay.json")); err != nil {
-				t.Errorf("a refused reset deleted a sidecar under %q: %v", mode, err)
+				t.Errorf("a refused reset deleted a sidecar under %s: %v", name, err)
 			}
 			after, err := os.ReadFile(surfacePath)
 			if err != nil {
 				t.Fatal(err)
 			}
 			if string(after) != string(before) {
-				t.Errorf("a refused reset truncated the user's file under %q:\n%s", mode, after)
+				t.Errorf("a refused reset truncated the user's file under %s:\n%s", name, after)
 			}
 		})
 	}
@@ -161,19 +169,24 @@ func TestHostSideResetRefusesUnderNoneAndAssert(t *testing.T) {
 
 // --force STILL REACHES IT, at every contract. The flag overrides a REFUSAL and is unrelated to
 // the ownership contract, so `own` must not have turned it into the only way in — or into a
-// second, quieter path that skips the store the exemption resolves.
-func TestHostSideResetForceStillWorksUnderAssert(t *testing.T) {
-	_, store, _ := hostResetFixture(t, "assert")
-	var out, errw bytes.Buffer
-	if rc := configReset(hostTargetForTest(), []string{"claude/settings", "--force"}, &out, &errw, false); rc != 0 {
-		t.Fatalf("reset --force under `assert`: rc=%d\n%s%s", rc, out.String(), errw.String())
-	}
-	// It resolved the WORKSPACE tree, not the host store: --force is the old escape hatch and
-	// its meaning has not moved. The store's files are still there because nothing under
-	// `assert` keeps one — that contract composes no whole file.
-	if _, err := os.Stat(filepath.Join(store, "claude-settings.overlay.json")); err != nil {
-		t.Errorf("--force under `assert` reached the host capture store, which that contract "+
-			"does not keep: %v", err)
+// second, quieter path that skips the store the exemption resolves. Under `none`, written or
+// unset (the unset state since OQ-CO14; this ran under the retired `assert` before).
+func TestHostSideResetForceStillWorksUnderNone(t *testing.T) {
+	for name, mode := range map[string]string{"none": "none", "unset": ""} {
+		t.Run(name, func(t *testing.T) {
+			_, store, _ := hostResetFixture(t, mode)
+			var out, errw bytes.Buffer
+			if rc := configReset(hostTargetForTest(), []string{"claude/settings", "--force"}, &out, &errw, false); rc != 0 {
+				t.Fatalf("reset --force under %s: rc=%d\n%s%s", name, rc, out.String(), errw.String())
+			}
+			// It resolved the WORKSPACE tree, not the host store: --force is the old escape
+			// hatch and its meaning has not moved. The store's files are still there because
+			// nothing under `none` keeps one — that contract composes nothing.
+			if _, err := os.Stat(filepath.Join(store, "claude-settings.overlay.json")); err != nil {
+				t.Errorf("--force under %s reached the host capture store, which that contract "+
+					"does not keep: %v", name, err)
+			}
+		})
 	}
 }
 
@@ -203,22 +216,34 @@ func TestHostSideCaptureWorksUnderOwn(t *testing.T) {
 	}
 }
 
-// UNDER `none` AND `assert` CAPTURE IS STILL REFUSED — there is no store to capture into — and
+// WITHOUT `own` CAPTURE IS STILL REFUSED — there is no store to capture into — under `none`,
+// the unset key (`none` since OQ-CO14) and the retired `"assert"` (which resolves to `none`), and
 // --force no longer pretends otherwise: it reached a capture that found no baseline and called
 // every surface "never rendered here". The refusal names the contract that keeps a store.
-func TestHostSideCaptureStillRefusedUnderAssertAndNone(t *testing.T) {
-	for _, mode := range []string{"assert", "none"} {
+func TestHostSideCaptureStillRefusedWithoutOwn(t *testing.T) {
+	// The value the refusal says it read, in the user's own terms: an unset key and the retired
+	// "assert" both resolve to `none` (OQ-CO14), and the sentence names which one the file holds
+	// rather than "none" for a file that does not say it.
+	saysItRead := map[string]string{
+		"none":               "under `host_management: \"none\"` yolo",
+		"unset":              "under an unset `host_management` (\"none\") yolo",
+		"the retired assert": "under the retired `host_management: \"assert\"`, read as \"none\", yolo",
+	}
+	for name, mode := range map[string]string{"none": "none", "unset": "", "the retired assert": "assert"} {
 		for _, args := range [][]string{{"claude/settings"}, {"claude/settings", "--force"}} {
-			t.Run(mode+" "+strings.Join(args, " "), func(t *testing.T) {
+			t.Run(name+" "+strings.Join(args, " "), func(t *testing.T) {
 				_, store, surfacePath := hostResetFixture(t, mode)
 				before := mustReadFile(t, surfacePath)
 				overlayBefore := mustReadFile(t, filepath.Join(store, "claude-settings.overlay.json"))
 				var out, errw bytes.Buffer
 				if rc := configCapture(hostTargetForTest(), args, &out, &errw, false); rc != 1 {
-					t.Fatalf("capture under %q: rc=%d, want 1\n%s%s", mode, rc, out.String(), errw.String())
+					t.Fatalf("capture under %s: rc=%d, want 1\n%s%s", name, rc, out.String(), errw.String())
 				}
 				if !strings.Contains(errw.String(), `"host_management": "own"`) {
 					t.Errorf("the refusal does not name the contract that keeps a store:\n%s", errw.String())
+				}
+				if !strings.Contains(errw.String(), saysItRead[name]) {
+					t.Errorf("the refusal does not say it read %q:\n%s", saysItRead[name], errw.String())
 				}
 				if strings.Contains(errw.String(), "--force") {
 					t.Errorf("the refusal offers --force, which does nothing here:\n%s", errw.String())

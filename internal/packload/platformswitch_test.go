@@ -76,7 +76,10 @@ func TestAUsersOwnSwitchConflictsOnlyWhenTheSelectionDoesNotServeIt(t *testing.T
 	}
 	// A SWITCH yolo WROTE (HC-D25): the host's computed-leaf record names the pointer with the
 	// value the file holds, so the conflict is yolo's and its line names `yolo host apply`; a
-	// record naming another value, or none, leaves the switch the user's.
+	// record naming another value, or none, leaves the switch the user's. The record is planted
+	// where the host's rmw arm writes it, under the owned contract's target: the path is the
+	// same whatever the contract (render.HostLeafWrote reads it unstated), so this is also where
+	// a record the retired `assert` left on claude/settings sits.
 	for _, tc := range []struct {
 		file, record string
 		yolos        bool
@@ -89,7 +92,7 @@ func TestAUsersOwnSwitchConflictsOnlyWhenTheSelectionDoesNotServeIt(t *testing.T
 		h := t.TempDir()
 		writeSettings(t, h, `{"env":{"CLAUDE_CODE_USE_BEDROCK":`+tc.file+`}}`)
 		if tc.record != "" {
-			rec := render.Host(h, nil, render.OwnershipAssert).LeafRecordPath("claude", "settings")
+			rec := render.Host(h, nil, render.OwnershipOwn).LeafRecordPath("claude", "settings")
 			if err := os.MkdirAll(filepath.Dir(rec), 0o755); err != nil {
 				t.Fatal(err)
 			}

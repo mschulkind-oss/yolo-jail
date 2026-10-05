@@ -37,7 +37,11 @@ func TestApplyHostAccountsForEveryDeclaredKind(t *testing.T) {
 	if err := os.MkdirAll(cfgDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	cfg := `{"packs":[{"source":"file://` + packDir + `","name":"census"}]}`
+	// `own` declared: the unset key is `none` since the `assert` retirement (OQ-CO14), under
+	// which the host composes no config surface, so the config-overlay and config-list kinds
+	// would have no surface of their own to be accounted against. The census asks about the
+	// kinds, not the contract, so it runs under the one value that renders.
+	cfg := `{"host_management":"own","packs":[{"source":"file://` + packDir + `","name":"census"}]}`
 	if err := os.WriteFile(filepath.Join(cfgDir, "config.jsonc"), []byte(cfg), 0o644); err != nil {
 		t.Fatal(err)
 	}

@@ -19,6 +19,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/agentcfg/manifest"
 	"github.com/mschulkind-oss/yolo-jail/internal/packdecl"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/packoverlay"
@@ -26,9 +27,10 @@ import (
 )
 
 // postureOverlayOwner is pi's settings surface with a managed key the contributor also sets,
-// so the precedence the posture overlay folds at is observable.
-func postureOverlayOwner(t *testing.T) *packload.Pack {
-	return listOwnerPack(t, "", map[string]any{"managed": map[string]any{"owned": "by-pi"}})
+// so the precedence the posture overlay folds at is observable. mode is the surface's declared
+// mode: "" (`stateful`) or `rmw`, the two arms an owned host renders through.
+func postureOverlayOwner(t *testing.T, mode string) *packload.Pack {
+	return listOwnerPack(t, mode, map[string]any{"managed": map[string]any{"owned": "by-pi"}})
 }
 
 // piSettingsPatch is one posture `config` entry on pi/settings.
@@ -67,7 +69,7 @@ var (
 // from Collect, or derive the boot's bit from anything but its target, and one of them moves.
 func TestJailBootRendersOnlyTheAutonomousPostureOverlay(t *testing.T) {
 	e, errw := overlayRenderEnv(t)
-	bootJail(t, e, postureOverlayOwner(t), postureOverlayContributor(t, jailOnlyKeys, hostOnlyKeys))
+	bootJail(t, e, postureOverlayOwner(t, ""), postureOverlayContributor(t, jailOnlyKeys, hostOnlyKeys))
 	got := readRenderedJSON(t, e.Home, listSettings)
 	if got["jailOnly"] != "yes" {
 		t.Errorf("the autonomous posture's key is absent from the jail's pi settings: %#v", got)
@@ -88,19 +90,36 @@ func TestJailBootRendersOnlyTheAutonomousPostureOverlay(t *testing.T) {
 	}
 }
 
-// THE HOST HALF, under both writing contracts: the guarded scalar and object land in the real
-// file and are recorded `config-overlay:matt`, the record every later host verb reads; the
-// jail-only key does not land. Then the posture stops selecting them — the author moves the
-// keys to the autonomous posture — and each contract disposes of them the way it disposes of
-// every key yolo force-wrote: `own` regenerates without it; `assert` keeps it in the user's file
-// as `retired:config-overlay:matt`, and `yolo host apply --revert` (RevertHostRender) removes it.
+// THE HOST HALF: the guarded scalar and object land in the real file and are recorded
+// `config-overlay:matt`, the record every later host verb reads; the jail-only key does not
+// land. Then the posture stops selecting them — the author moves the keys to the autonomous
+// posture — and each home disposes of them the way it disposes of every key yolo force-wrote:
+// an owned home (`host_management: "own"`) regenerates without it; a home the retired `assert`
+// wrote keeps it in the user's file as `retired:config-overlay:matt`, and
+// `yolo host apply --revert` (RevertHostRender), which runs on such a home under `none`, removes
+// it.
 func TestHostApplyWritesAGuardedPostureOverlayAndCanRemoveIt(t *testing.T) {
-	for _, ownership := range []render.HostOwnership{render.OwnershipAssert, render.OwnershipOwn} {
-		t.Run(ownership.String(), func(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		// apply is one writing host apply of packs into home.
+		apply func(t *testing.T, home string, packs ...*packload.Pack)
+		// asserted is the retired `assert`'s home, whose keys stay until --revert.
+		asserted bool
+	}{
+		{"own", func(t *testing.T, home string, packs ...*packload.Pack) {
+			applyHostPacks(t, home, render.OwnershipOwn, false, packs...)
+		}, false},
+		{"a home the retired assert wrote", func(t *testing.T, home string, packs ...*packload.Pack) {
+			set := packoverlay.Collect(packs, false, nil)
+			for _, p := range packs {
+				renderAsRetiredAssert(t, p, home, set, nil)
+			}
+		}, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
 			home := t.TempDir()
-			owner := postureOverlayOwner(t)
-			applyHostPacks(t, home, ownership, false, owner,
-				postureOverlayContributor(t, jailOnlyKeys, hostOnlyKeys))
+			owner := postureOverlayOwner(t, "")
+			tc.apply(t, home, owner, postureOverlayContributor(t, jailOnlyKeys, hostOnlyKeys))
 			got := readRenderedJSON(t, home, listSettings)
 			if got["hostOnly"] != true || !reflect.DeepEqual(got["gate"], map[string]any{"mode": "ask"}) {
 				t.Fatalf("the guarded posture's keys are not in the host file: %#v", got)
@@ -111,7 +130,7 @@ func TestHostApplyWritesAGuardedPostureOverlayAndCanRemoveIt(t *testing.T) {
 			if got["owned"] != "by-pi" {
 				t.Errorf("owned = %v: the owner's managed key must win at the host too", got["owned"])
 			}
-			provPath := render.Host(home, nil, ownership).ProvenancePath("pi", "settings")
+			provPath := render.Host(home, nil, render.OwnershipOwn).ProvenancePath("pi", "settings")
 			if rec := readSidecar(t, provPath); !strings.Contains(rec, "hostOnly\tconfig-overlay:matt") ||
 				!strings.Contains(rec, "gate\tconfig-overlay:matt") {
 				t.Errorf("the provenance record does not attribute the posture overlay's keys:\n%s", rec)
@@ -119,23 +138,23 @@ func TestHostApplyWritesAGuardedPostureOverlayAndCanRemoveIt(t *testing.T) {
 
 			// The posture stops selecting the keys.
 			moved := postureOverlayContributor(t, hostOnlyKeys, nil)
-			applyHostPacks(t, home, ownership, false, owner, moved)
+			tc.apply(t, home, owner, moved)
 			got = readRenderedJSON(t, home, listSettings)
-			if ownership == render.OwnershipOwn {
+			if !tc.asserted {
 				if _, kept := got["hostOnly"]; kept {
 					t.Errorf("own: the next apply kept a key no layer claims: %#v", got)
 				}
 				return
 			}
 			if rec := readSidecar(t, provPath); !strings.Contains(rec, "hostOnly\tretired:config-overlay:matt") {
-				t.Fatalf("assert: the unselected key is not recorded as yolo's retired output:\n%s", rec)
+				t.Fatalf("assert's home: the unselected key is not recorded as yolo's retired output:\n%s", rec)
 			}
 			if _, err := RevertHostRender([]*packload.Pack{owner, moved}, home, false); err != nil {
 				t.Fatalf("RevertHostRender: %v", err)
 			}
 			if data, err := os.ReadFile(home + "/" + listSettings); err != nil ||
 				strings.Contains(string(data), "hostOnly") {
-				t.Errorf("assert: --revert left the retired posture overlay key (err=%v):\n%s", err, data)
+				t.Errorf("assert's home: --revert left the retired posture overlay key (err=%v):\n%s", err, data)
 			}
 		})
 	}
@@ -144,13 +163,19 @@ func TestHostApplyWritesAGuardedPostureOverlayAndCanRemoveIt(t *testing.T) {
 // THE PACK DROP (R3). A pack that wrote a host-only scalar through its guarded posture and is
 // then dropped from `packs` leaves a key PruneHostOverlayKeys removes, because its record reads
 // `config-overlay:matt` exactly as a config-overlay's does.
+//
+// The owner declares `rmw`, the arm an owned host still runs for that declaration and the one a
+// dropped pack's key can outlive an apply in: rmw re-reads the file as its `host` layer, so the
+// key stays and the record carries it forward as `retired:config-overlay:matt` for this pass to
+// find. A `stateful` owner regenerates without the key on the very next apply, leaving this pass
+// nothing to remove.
 func TestADroppedPacksPostureOverlayKeyIsPruned(t *testing.T) {
 	home := t.TempDir()
-	owner := postureOverlayOwner(t)
-	applyHostPacks(t, home, render.OwnershipAssert, false, owner,
+	owner := postureOverlayOwner(t, manifest.ModeRMW)
+	applyHostPacks(t, home, render.OwnershipOwn, false, owner,
 		postureOverlayContributor(t, nil, hostOnlyKeys))
 	remaining := []*packload.Pack{owner}
-	applyHostPacks(t, home, render.OwnershipAssert, false, remaining...)
+	applyHostPacks(t, home, render.OwnershipOwn, false, remaining...)
 	removed, err := PruneHostOverlayKeys(remaining, map[string]bool{"pi": true},
 		packoverlay.Collect(remaining, false, nil), home, false)
 	if err != nil {
@@ -185,7 +210,7 @@ func TestHostRenderNoLongerRowsAPostureOverlayAsFoldedNowhere(t *testing.T) {
 	}
 	contributor.Decl.Contributes = append(contributor.Decl.Contributes,
 		packdecl.Contribution{Kind: packdecl.KindConfig, Raw: own})
-	results := applyHostPacks(t, home, render.OwnershipAssert, false, contributor)
+	results := applyHostPacks(t, home, render.OwnershipOwn, false, contributor)
 	for _, r := range results {
 		if strings.Contains(r.Action, "does not declare") {
 			t.Errorf("a posture overlay became a dead-patch row: %+v", r)
@@ -193,21 +218,22 @@ func TestHostRenderNoLongerRowsAPostureOverlayAsFoldedNowhere(t *testing.T) {
 	}
 }
 
-// A GUARDED POSTURE OVERLAY'S ARRAY AND THE USER'S OWN LIST, under each writing contract
-// (docs/reference/pack-system.md#autonomy). An array replaces the file's array whole (RFC 7386),
-// and the overlay folds BELOW capture: under `assert` rmw writes it over the user's list, at the
-// first apply and after a later edit alike; under `own` the user's list is the capture, which
+// A GUARDED POSTURE OVERLAY'S ARRAY AND THE USER'S OWN LIST, under each arm an owned host
+// renders through (docs/reference/pack-system.md#autonomy). An array replaces the file's array
+// whole (RFC 7386), and the overlay folds BELOW capture: on a surface declaring `rmw` the rmw arm
+// writes it over the user's list, at the first apply and after a later edit alike (as the retired
+// `assert` did for every surface); on a `stateful` one the user's list is the capture, which
 // outranks it, so the user's list stays and an edit to it survives the next apply. Contrast
 // claude's guarded `managed` array, which outranked both (internal/cli/hostguardeddirs_test.go).
 func TestAGuardedPostureOverlayArrayAndTheUsersOwnList(t *testing.T) {
 	for _, tc := range []struct {
-		ownership    render.HostOwnership
+		mode         string
 		first, later []any
 	}{
-		{render.OwnershipAssert, []any{"from-the-pack"}, []any{"from-the-pack"}},
-		{render.OwnershipOwn, []any{"users-first"}, []any{"users-later"}},
+		{manifest.ModeRMW, []any{"from-the-pack"}, []any{"from-the-pack"}},
+		{manifest.ModeStateful, []any{"users-first"}, []any{"users-later"}},
 	} {
-		t.Run(tc.ownership.String(), func(t *testing.T) {
+		t.Run(tc.mode, func(t *testing.T) {
 			home := t.TempDir()
 			path := home + "/" + listSettings
 			writeSettings := func(body string) {
@@ -220,11 +246,11 @@ func TestAGuardedPostureOverlayArrayAndTheUsersOwnList(t *testing.T) {
 				}
 			}
 			writeSettings(`{"dirs":["users-first"]}`)
-			owner := postureOverlayOwner(t)
+			owner := postureOverlayOwner(t, tc.mode)
 			contributor := postureOverlayContributor(t, nil,
 				map[string]any{"dirs": []any{"from-the-pack"}})
 
-			applyHostPacks(t, home, tc.ownership, false, owner, contributor)
+			applyHostPacks(t, home, render.OwnershipOwn, false, owner, contributor)
 			if got := readRenderedJSON(t, home, listSettings)["dirs"]; !reflect.DeepEqual(got, tc.first) {
 				t.Errorf("first apply: dirs = %#v, want %#v", got, tc.first)
 			}
@@ -237,7 +263,7 @@ func TestAGuardedPostureOverlayArrayAndTheUsersOwnList(t *testing.T) {
 				t.Fatal(err)
 			}
 			writeSettings(string(body))
-			applyHostPacks(t, home, tc.ownership, false, owner, contributor)
+			applyHostPacks(t, home, render.OwnershipOwn, false, owner, contributor)
 			if got := readRenderedJSON(t, home, listSettings)["dirs"]; !reflect.DeepEqual(got, tc.later) {
 				t.Errorf("after the user's edit: dirs = %#v, want %#v", got, tc.later)
 			}

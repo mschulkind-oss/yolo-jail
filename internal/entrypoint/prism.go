@@ -163,8 +163,21 @@ func writeSelectionRecord(e *Env, agent, name string, record map[string]any) {
 			": " + err.Error())
 		return
 	}
-	if err := writeSidecar(e.renderTarget(), prismSelectionRecordPath(e, agent, name),
-		string(data)+"\n"); err != nil {
+	// THE STORE MAY NOT EXIST YET. At an owned host the record lives in the capture store
+	// (render.Target.SelectionPath), and only a `stateful` render creates that directory — so an
+	// `rmw`-declared surface rendered first, or alone, had nowhere to write, the write failed
+	// with a warning, and every later apply re-asserted the selection over the user's own pick.
+	// Under the retired `assert` the record sat beside the provenance record, whose writer makes
+	// its directory; since OQ-CO14 `own` is the only contract that renders, so this is its path.
+	t := e.renderTarget()
+	if recPath != "" {
+		if err := os.MkdirAll(filepath.Dir(recPath), t.SidecarDirMode()); err != nil {
+			e.warn("warning: could not create the directory for the selection record of " +
+				agent + "/" + name + ": " + err.Error())
+			return
+		}
+	}
+	if err := writeSidecar(t, recPath, string(data)+"\n"); err != nil {
 		e.warn("warning: could not write the selection record for " + agent + "/" + name +
 			": " + err.Error())
 	}
@@ -906,7 +919,7 @@ func renderSurfaceRMWSurface(e *Env, surface manifest.Surface, computed map[stri
 	// noteRepairedValues for why this is never suppressible.
 	noteRepairs(e, r.repairs, "the file")
 	// Record which layer won each key — at the notches whose census says THIS MECHANISM is
-	// the one that records (render.ModeSet). True at the host, false in a jail, and the
+	// the one that records (render.ModeSet). True at an owned host, false in a jail, and the
 	// asymmetry is precisely the shape of the bug it fixes.
 	//
 	// In a JAIL, `rmw` keeping no sidecar is a documented design decision
@@ -915,10 +928,12 @@ func renderSurfaceRMWSurface(e *Env, surface manifest.Surface, computed map[stri
 	// surface is expected, `config diff` says exactly that, and adding one here would both
 	// falsify that message and put a new write on the A12-fatal boot path for no gain.
 	//
-	// At the HOST notch rmw is not one mode among four — it is the ONLY mode
-	// (`yolo host apply` is pure RMW by resolved decision, OQ-4). So "rmw records nothing"
-	// there means "the host records nothing", which is what left `config diff` inferring a
-	// winner from declarations and reporting an overlay as having LOST a key it in fact WON.
+	// At the HOST notch the record is the only per-home mark yolo leaves for an rmw surface,
+	// and `--revert` consumes it. Under the retired `assert` rmw was the ONLY mode there (pure
+	// RMW by resolved decision, OQ-4), so "rmw records nothing" meant "the host records
+	// nothing", which is what left `config diff` inferring a winner from declarations and
+	// reporting an overlay as having LOST a key it in fact WON. Under `own` a surface its pack
+	// declares `rmw` still runs here, and records for the same reasons (render.HostOwnedModes).
 	//
 	// ASKED OF THE CENSUS rather than of the Kind (plan §6b D2 / Q8). This was
 	// `KindOf() == render.KindHost` — the codebase's only live KindHost special-case — and
@@ -1925,12 +1940,12 @@ func writeListRecord(e *Env, surface manifest.Surface, o rmwListOutcome) {
 }
 
 // writeStatefulInsertRecord keeps the `rmw` insert record current beside a STATEFUL surface
-// at the HOST, where `host_management` can switch the same file between the two mechanisms:
-// `assert` renders it through rmw, which reads this record to know which entries yolo put
-// there, and `own` adopts through it (agentcfg.StatefulInputs.InsertRecordJSON). Without it a
-// switch in either direction turns every contributed entry into the user's, and a later pack
-// drop removes nothing. It is also what lets `yolo host apply --revert` withdraw exactly the
-// inserted entries under `own`. A jail never switches contracts, so it writes none.
+// at the HOST, the record the rmw arm reads to know which entries yolo put there: `own` adopts
+// through it (agentcfg.StatefulInputs.InsertRecordJSON), and a home the retired `assert` wrote
+// into — through rmw — left one an owned apply reads the same way. Without it a switch turns
+// every contributed entry into the user's, and a later pack drop removes nothing. It is also
+// what lets `yolo host apply --revert`, run under `none` after an owned apply, withdraw exactly
+// the inserted entries. A jail never switches contracts, so it writes none.
 // Best-effort and warned, like writeListRecord: a lost record only claims less.
 func writeStatefulInsertRecord(e *Env, surface manifest.Surface, out *agentcfg.StatefulOutput) {
 	t := e.renderTarget()

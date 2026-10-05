@@ -75,7 +75,7 @@ func hostRenderClaude(t *testing.T, home string, observe bool, contributors ...*
 		t.Fatalf("embedded claude: %v", err)
 	}
 	overlays := packoverlay.Collect(append([]*packload.Pack{claude}, contributors...), false, nil)
-	results, err := RenderHostPack(claude, home, render.OwnershipAssert, observe, overlays, nil)
+	results, err := RenderHostPack(claude, home, render.OwnershipOwn, observe, overlays, nil)
 	if err != nil {
 		t.Fatalf("RenderHostPack: %v", err)
 	}
@@ -179,7 +179,7 @@ func TestHostConfigSkippedWhenOnlyWorkspaceKeyed(t *testing.T) {
 	probe := &packload.Pack{Name: "probe", Decl: &packdecl.Manifest{
 		Contributes: []packdecl.Contribution{{Kind: packdecl.KindConfig, Raw: raw}},
 	}}
-	results, err := RenderHostPack(probe, home, render.OwnershipAssert, false, nil, nil)
+	results, err := RenderHostPack(probe, home, render.OwnershipOwn, false, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

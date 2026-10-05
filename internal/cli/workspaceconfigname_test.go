@@ -41,7 +41,7 @@ func TestApplySealedRefusesTheJSONLocalConfig(t *testing.T) {
 	writeFile(t, filepath.Join(repo, "yolo-jail.json"), `{"packs":["claude"]}`)
 	writeFile(t, filepath.Join(repo, ".yolo", "keep"), "x")
 	writeFile(t, filepath.Join(home, ".config", "yolo-jail", "config.jsonc"),
-		`{"host_management":"assert"}`)
+		`{"host_management":"own"}`)
 	writeFile(t, filepath.Join(repo, "yolo-jail.local.json"), `{"packages":["ripgrep"]}`)
 
 	var out, errw bytes.Buffer

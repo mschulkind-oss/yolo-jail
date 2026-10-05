@@ -9,6 +9,11 @@ package cli
 //
 // The pack is the design's motivating manifest, verbatim: a personal pack owning no surface,
 // whose guarded posture adds pi-automode to pi's `packages`.
+//
+// Every user config declares `host_management: "own"`: the unset key is `none` since the
+// `assert` retirement (OQ-CO14), under which the host notch composes no config surface, so no
+// posture list has a surface to land in or to be counted as folding into. pi/settings declares
+// no mode, so `own` composes it whole through `stateful`, which keeps the insert record too.
 
 import (
 	"encoding/json"
@@ -50,7 +55,8 @@ func TestHostApplyAssertWritesAGuardedPostureList(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
-	selectPacks(t, home, `"pi",`+listPack(t, home, "matt", automodePack))
+	selectPacksWith(t, home, `"pi",`+listPack(t, home, "matt", automodePack),
+		`,"host_management":"own"`)
 	verboseReport(t) // the per-surface contributor line is the --verbose view's
 
 	rc, report := applyWith(t, true, nil)
@@ -64,7 +70,7 @@ func TestHostApplyAssertWritesAGuardedPostureList(t *testing.T) {
 	if got := hostPiPackages(t, home); !reflect.DeepEqual(got, []any{automodeEntry}) {
 		t.Errorf("packages = %#v, want exactly the guarded posture's entry", got)
 	}
-	rec, err := os.ReadFile(render.Host(home, nil, render.OwnershipAssert).ListRecordPath("pi", "settings"))
+	rec, err := os.ReadFile(render.Host(home, nil, render.OwnershipOwn).ListRecordPath("pi", "settings"))
 	if err != nil || !strings.Contains(string(rec), automodeEntry) {
 		t.Errorf("the insert record does not name the entry (err=%v):\n%s", err, rec)
 	}
@@ -84,7 +90,7 @@ func TestHostApplyNotchLineCountsAPostureListAsAFold(t *testing.T) {
 		`"managed":{"k":"v"}}]}`)
 	lister := listPack(t, home, "matt", `{"kind":"autonomy","guarded":{"lists":[`+
 		`{"surface":"acme/settings","path":"/extras","add":["host-only"]}]}}`)
-	selectPacks(t, home, owner+","+lister)
+	selectPacksWith(t, home, owner+","+lister, `,"host_management":"own"`)
 
 	// Fixture guard: the whole test is vacuous if any selected pack's guarded posture has a
 	// config patch, because that alone makes the line say "folded".
@@ -111,7 +117,8 @@ func TestHostApplyNotchLineDoesNotCountAnOrphanedPostureList(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
-	selectPacks(t, home, listPack(t, home, "matt", automodePack))
+	selectPacksWith(t, home, listPack(t, home, "matt", automodePack),
+		`,"host_management":"own"`)
 
 	rc, report := applyWith(t, false, nil)
 	if rc != 0 {
@@ -139,7 +146,7 @@ func TestHostApplyRefusesAMalformedPostureListUnderItsOwnKind(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
 	bogus := listPack(t, home, "bogus", `{"kind":"autonomy","guarded":{"lists":[`+
 		`{"surface":"noslash","path":"/packages","add":["x"]}]}}`)
-	selectPacks(t, home, `"pi",`+bogus)
+	selectPacksWith(t, home, `"pi",`+bogus, `,"host_management":"own"`)
 
 	rc, report := applyWith(t, false, nil)
 	if rc == 0 {
@@ -155,7 +162,7 @@ func TestHostApplyRefusesAMalformedPostureListUnderItsOwnKind(t *testing.T) {
 // guarded entry and `--at jail` does not — with no change to either verb, which is what this
 // pins: a verb that fixed its bit would print one answer at both.
 func TestConfigRenderAndLsFollowAPostureListsNotch(t *testing.T) {
-	listWorld(t, func(home string) string {
+	listWorldUnder(t, "own", func(home string) string {
 		return `"pi",` + listPack(t, home, "matt", automodePack)
 	})
 

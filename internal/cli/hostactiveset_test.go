@@ -298,9 +298,11 @@ func TestHostRefusesAnOverrideOfAPointerALaterEntryGates(t *testing.T) {
 
 // `yolo host apply` renders the profile key's set into pi's own files (§4.9), through the real
 // command: the start pair is the primary's and the scoped list spans both providers, and the
-// report names the selection as the set.
+// report names the selection as the set. This and the two other `yolo host apply` tests in this
+// file declare `host_management: "own"`: the unset key is `none` since the `assert` retirement
+// (OQ-CO14), and the verb refuses under it.
 func TestHostApplyRendersPisSet(t *testing.T) {
-	home := hostComputedHome(t, `{"packs":["pi","zai","openrouter"],
+	home := hostComputedHome(t, `{"packs":["pi","zai","openrouter"],"host_management":"own",
 		"profile":{"pi":["zai","openrouter"]}}`)
 	var out, errw bytes.Buffer
 	if rc := hostMain([]string{"apply", "--assert"}, &out, &errw, false, strings.NewReader("y\n")); rc != 0 {
@@ -334,7 +336,7 @@ func TestHostApplyRendersPisSet(t *testing.T) {
 // named on the report, and pi's settings.json carries no selection from it. Deleting the
 // omission branch in composeHostInputs writes defaultProvider zai.
 func TestHostApplyLeavesOutASetItCannotRender(t *testing.T) {
-	home := hostComputedHome(t, `{"packs":["pi","zai"],
+	home := hostComputedHome(t, `{"packs":["pi","zai"],"host_management":"own",
 		"profiles":{"zai-fast":{"provider":"zai"}},
 		"profile":{"pi":["zai","zai-fast"]}}`)
 	var out, errw bytes.Buffer
@@ -533,7 +535,7 @@ func TestHostEnvHandsTheSelectionAScriptCanCarry(t *testing.T) {
 // real command: `enabled_providers` names both entries, the primary first, and `model` is the
 // primary's.
 func TestHostApplyRendersOpencodesSet(t *testing.T) {
-	home := hostComputedHome(t, `{"packs":["opencode","zai","openrouter"],
+	home := hostComputedHome(t, `{"packs":["opencode","zai","openrouter"],"host_management":"own",
 		"profile":{"opencode":["zai","openrouter"]}}`)
 	var out, errw bytes.Buffer
 	if rc := hostMain([]string{"apply", "--assert"}, &out, &errw, false, strings.NewReader("y\n")); rc != 0 {

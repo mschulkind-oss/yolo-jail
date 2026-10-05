@@ -21,6 +21,11 @@ the host. See [Follow an upstream with a patch series](userguide/guides/patch-se
 into a jail, and what each launch shows about the code it runs. See
 [Claude Code plugins and mods](userguide/guides/claude-plugins-and-mods.md).
 
+### Changed
+
+- `host_management` now defaults to `"none"`, and `"assert"` is refused: to keep `yolo host apply`
+  writing your agents' config files, set `"host_management": "own"`.
+
 ### Fixed
 
 - When `yolo host` has no container runtime to capture an agent with, it now says to install one.

@@ -253,7 +253,7 @@ func TestPiMcpTrust(t *testing.T) {
 		t.Setenv("YOLO_CTX_ROOT", t.TempDir())
 		home := t.TempDir()
 		in := hostTestInputs(t, testPacksForAgent(t, "pi"), nil, tavily(), nil)
-		if r := hostRenderWith(t, home, render.OwnershipAssert, in, "pi", "pi/mcp"); r.Action != "rendered" {
+		if r := hostRenderWith(t, home, render.OwnershipOwn, in, "pi", "pi/mcp"); r.Action != "rendered" {
 			t.Fatalf("pi/mcp at the host: %q", r.Action)
 		}
 		jsonAt(t, home, piMCPRel, "mcpServers", "tavily", "command")
@@ -264,40 +264,37 @@ func TestPiMcpTrust(t *testing.T) {
 	})
 }
 
-// AT THE HOST YOUR OWN ENTRIES STAY TOO, under both contracts: pi/mcp is not declared in full, so
-// `assert` writes yolo's servers beside yours rather than replacing the table, and `own`'s first
-// render adopts the file (with its one-time archive). host apply deletes nothing, so a real
-// mcp-adapter.json is left exactly as it was.
+// AT THE HOST YOUR OWN ENTRIES STAY TOO: an owned host's first render of pi/mcp adopts the file
+// (with its one-time archive), so yolo's servers land beside yours rather than replacing the
+// table. host apply deletes nothing, so a real mcp-adapter.json is left exactly as it was. (The
+// retired `assert` reached the same file by writing yolo's servers in through rmw; `own` is the
+// one writing contract left.)
 func TestPiMcpHostApplyKeepsYourOwnEntries(t *testing.T) {
-	for _, ownership := range []render.HostOwnership{render.OwnershipAssert, render.OwnershipOwn} {
-		t.Run(ownership.String(), func(t *testing.T) {
-			t.Setenv("YOLO_CTX_ROOT", t.TempDir())
-			home := t.TempDir()
-			plant(t, home, piMCPRel, `{"mcpServers":{"mine":{"command":"mine"}},"autoEnableCodemode":false}`)
-			const adapter = `{"mcpServers":{"tavily":{"command":"npx","args":["-y","tavily-mcp"]}}}`
-			adapterPath := plant(t, home, piAdapterRel, adapter)
-			in := hostTestInputs(t, testPacksForAgent(t, "pi"), nil, tavily(), nil)
-			r := hostRenderWith(t, home, ownership, in, "pi", "pi/mcp")
-			if r.Action != "rendered" {
-				t.Fatalf("pi/mcp at the host: %q", r.Action)
-			}
-			if len(r.EntryLosses) != 0 {
-				t.Errorf("host apply names a loss in your mcp.json: %v", r.EntryLosses)
-			}
-			if got := jsonAt(t, home, piMCPRel, "mcpServers", "mine", "command"); got != "mine" {
-				t.Errorf("your own server in mcp.json was changed: %v", got)
-			}
-			if got := jsonAt(t, home, piMCPRel, "autoEnableCodemode"); got != false {
-				t.Errorf("your autoEnableCodemode was changed: %v", got)
-			}
-			jsonAt(t, home, piMCPRel, "mcpServers", "tavily", "command")
-			if ownership == render.OwnershipOwn && r.Archived == "" {
-				t.Errorf("the first owned render adopted your mcp.json without its one-time archive")
-			}
-			if got, err := os.ReadFile(adapterPath); err != nil || string(got) != adapter {
-				t.Errorf("host apply changed your mcp-adapter.json (err %v):\n%s", err, got)
-			}
-		})
+	t.Setenv("YOLO_CTX_ROOT", t.TempDir())
+	home := t.TempDir()
+	plant(t, home, piMCPRel, `{"mcpServers":{"mine":{"command":"mine"}},"autoEnableCodemode":false}`)
+	const adapter = `{"mcpServers":{"tavily":{"command":"npx","args":["-y","tavily-mcp"]}}}`
+	adapterPath := plant(t, home, piAdapterRel, adapter)
+	in := hostTestInputs(t, testPacksForAgent(t, "pi"), nil, tavily(), nil)
+	r := hostRenderWith(t, home, render.OwnershipOwn, in, "pi", "pi/mcp")
+	if r.Action != "rendered" {
+		t.Fatalf("pi/mcp at the host: %q", r.Action)
+	}
+	if len(r.EntryLosses) != 0 {
+		t.Errorf("host apply names a loss in your mcp.json: %v", r.EntryLosses)
+	}
+	if got := jsonAt(t, home, piMCPRel, "mcpServers", "mine", "command"); got != "mine" {
+		t.Errorf("your own server in mcp.json was changed: %v", got)
+	}
+	if got := jsonAt(t, home, piMCPRel, "autoEnableCodemode"); got != false {
+		t.Errorf("your autoEnableCodemode was changed: %v", got)
+	}
+	jsonAt(t, home, piMCPRel, "mcpServers", "tavily", "command")
+	if r.Archived == "" {
+		t.Errorf("the first owned render adopted your mcp.json without its one-time archive")
+	}
+	if got, err := os.ReadFile(adapterPath); err != nil || string(got) != adapter {
+		t.Errorf("host apply changed your mcp-adapter.json (err %v):\n%s", err, got)
 	}
 }
 

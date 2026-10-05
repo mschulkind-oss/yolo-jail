@@ -76,10 +76,13 @@ func TestAnAttachNamesAUsersOwnBedrockSwitch(t *testing.T) {
 	}
 
 	// A SWITCH yolo WROTE (HC-D25): with the host's computed-leaf record naming the value the file
-	// holds, the line is the one naming `yolo host apply`'s write, never the user-owned one.
+	// holds, the line is the one naming `yolo host apply`'s write, never the user-owned one. The
+	// record is planted at the owned contract's path, which is every contract's (the reader,
+	// render.HostLeafWrote, resolves it unstated), so a record the retired `assert` left reads
+	// the same.
 	o, cfg, channel, stderr = attachFixture(t, currentJailEnv, packs, emptyEnv(), nil)
 	writeHostClaudeSettings(t, os.Getenv("HOME"), `{"env": {"CLAUDE_CODE_USE_BEDROCK": "1"}}`)
-	rec := render.Host(os.Getenv("HOME"), nil, render.OwnershipAssert).LeafRecordPath("claude", "settings")
+	rec := render.Host(os.Getenv("HOME"), nil, render.OwnershipOwn).LeafRecordPath("claude", "settings")
 	if err := os.MkdirAll(filepath.Dir(rec), 0o755); err != nil {
 		t.Fatal(err)
 	}

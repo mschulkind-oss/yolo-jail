@@ -12,6 +12,12 @@ import (
 // revertFixture is a scratch home with one pack owning one rmw surface, applied once so the
 // provenance record exists — the state a revert is about.
 //
+// mode is the contract the APPLY runs under, and since the `assert` retirement (OQ-CO14) that is
+// "own": the one value that writes, which runs the rmw arm for this rmw-declared surface — the
+// same writer and the same record a pre-retirement `assert` apply left. The REVERT then runs
+// under the contract a test sets with setHostManagement: `none`, or the key unset, which is the
+// state OQ-CO14 leaves a home `assert` wrote into.
+//
 // The surface deliberately carries all three kinds of key by the time the apply is done: one
 // the user wrote and nothing declares (`myOwnKey`, recorded `host`), one the pack asserts
 // (`telemetry`, recorded `managed`), and one yolo filled because the file did not have it
@@ -43,6 +49,31 @@ func revertFixture(t *testing.T, mode string) (home, surface, record string) {
 	return home, surface, record
 }
 
+// setHostManagement rewrites the user config's key to mode, keeping everything else; "" unsets
+// it — `none` since OQ-CO14, and the state every home yolo asserted into is in after the upgrade.
+func setHostManagement(t *testing.T, home, mode string) {
+	t.Helper()
+	cfg := filepath.Join(home, ".config", "yolo-jail", "config.jsonc")
+	data, err := os.ReadFile(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var m map[string]any
+	if err := json.Unmarshal(data, &m); err != nil {
+		t.Fatalf("the fixture config is not JSON: %v\n%s", err, data)
+	}
+	if mode == "" {
+		delete(m, "host_management")
+	} else {
+		m["host_management"] = mode
+	}
+	out, err := json.Marshal(m)
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, cfg, string(out))
+}
+
 // applyOnce runs the writing apply the revert will later undo.
 func applyOnce(t *testing.T) {
 	t.Helper()
@@ -59,9 +90,16 @@ func applyOnce(t *testing.T) {
 //
 // The `host` line is the safety property: a key the user set themselves is never eligible,
 // however the revert widens the set otherwise.
+//
+// THE REVERT RUNS WITH THE KEY UNSET, which is the point since OQ-CO14: a home yolo wrote into
+// and whose key nobody wrote reads as `none` now, and `--revert` is the one way back from there
+// to a file purely the user's. It used to refuse under `none` and name "assert" as the way to
+// reach it; deleting that refusal's replacement — the revert running under `none` — turns this
+// red at the first rc check.
 func TestHostRevertRemovesOnlyWhatYoloWrote(t *testing.T) {
-	_, surface, record := revertFixture(t, "assert")
+	home, surface, record := revertFixture(t, "own")
 	applyOnce(t)
+	setHostManagement(t, home, "")
 
 	rec, err := os.ReadFile(record)
 	if err != nil {
@@ -125,11 +163,13 @@ func TestHostRevertRemovesOnlyWhatYoloWrote(t *testing.T) {
 
 // TestApplyRevertActsAtTheHostNotch is the SAME operation through the systematic spelling.
 // Both are one verb (OQ-7), and it is pinned separately because the refusal path alone cannot
-// see this route: under `none`/`own` the ordinary apply refuses too, so only an ACTING revert
-// distinguishes the wiring from its absence.
+// see this route: under `none` the ordinary apply refuses, so only an ACTING revert distinguishes
+// the wiring from its absence. The key is written "none" here, the explicit twin of the unset
+// key the test above reverts under.
 func TestApplyRevertActsAtTheHostNotch(t *testing.T) {
-	_, surface, record := revertFixture(t, "assert")
+	home, surface, record := revertFixture(t, "own")
 	applyOnce(t)
+	setHostManagement(t, home, "none")
 
 	var out, errw bytes.Buffer
 	if rc := applyMain([]string{"--at", "host", "--revert"}, &out, &errw, false, nil); rc != 0 {
@@ -177,16 +217,21 @@ func TestApplyRevertActsAtTheHostNotch(t *testing.T) {
 // The control is the second half: without a revert, a re-apply into the same home does NOT
 // claim a first apply — so the assertion is measuring the deletion rather than a string the
 // report always prints.
+//
+// The revert runs under `none` and the re-apply under `own`, the one round trip the two
+// contracts left allow: `--revert` refuses under `own` (TestHostRevertIsRefusedUnderOwn).
 func TestHostRevertMakesTheNextApplyAFirstApplyAgain(t *testing.T) {
 	firstApplyReported := func(t *testing.T, revert bool) bool {
 		t.Helper()
-		revertFixture(t, "assert")
+		home, _, _ := revertFixture(t, "own")
 		applyOnce(t)
 		if revert {
+			setHostManagement(t, home, "none")
 			var o, e bytes.Buffer
 			if rc := hostMain([]string{"apply", "--revert", "--assert"}, &o, &e, false, nil); rc != 0 {
 				t.Fatalf("revert rc=%d: %s%s", rc, o.String(), e.String())
 			}
+			setHostManagement(t, home, "own")
 		}
 		var out, errw bytes.Buffer
 		if rc := applyMain([]string{"--at", "host", "--assert"}, &out, &errw, false, nil); rc != 0 {
@@ -210,75 +255,70 @@ func TestHostRevertMakesTheNextApplyAFirstApplyAgain(t *testing.T) {
 	}
 }
 
-// TestHostRevertIsRefusedUnderNoneAndOwn pins both refusals and both CALL SITES: `yolo host
-// apply --revert` and `yolo apply --at host --revert` are one operation, so a contract that
-// stopped one and not the other would have a way around it.
+// TestHostRevertIsRefusedUnderOwn pins the refusal and both CALL SITES: `yolo host apply
+// --revert` and `yolo apply --at host --revert` are one operation, so a contract that stopped one
+// and not the other would have a way around it.
 //
-// The home is APPLIED FIRST, under `assert`, so there is genuinely something to revert when
-// the key changes — otherwise a refusal and a no-op would be indistinguishable.
-func TestHostRevertIsRefusedUnderNoneAndOwn(t *testing.T) {
-	for _, mode := range []string{"none", "own"} {
-		t.Run(mode, func(t *testing.T) {
-			home, surface, record := revertFixture(t, "assert")
-			applyOnce(t)
-			before, err := os.ReadFile(surface)
-			if err != nil {
-				t.Fatal(err)
+// It was TestHostRevertIsRefusedUnderNoneAndOwn. `none` left the loop with the `assert`
+// retirement (OQ-CO14): the revert RUNS there now, since a home `assert` wrote into reads as
+// `none` and the revert is its one way back (TestHostRevertRemovesOnlyWhatYoloWrote). What is left
+// is `own`, and its refusal is the message OQ-CO14 rewrote: it named "assert" as the way to a
+// key-level revert, and names "none" now — never the retired value.
+//
+// The home is APPLIED FIRST, so there is genuinely something to revert — otherwise a refusal and
+// a no-op would be indistinguishable.
+func TestHostRevertIsRefusedUnderOwn(t *testing.T) {
+	_, surface, record := revertFixture(t, "own")
+	applyOnce(t)
+	before, err := os.ReadFile(surface)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, run := range []func(o, e *bytes.Buffer) int{
+		func(o, e *bytes.Buffer) int {
+			return hostMain([]string{"apply", "--revert", "--assert"}, o, e, false, nil)
+		},
+		func(o, e *bytes.Buffer) int {
+			return applyMain([]string{"--at", "host", "--revert", "--assert"}, o, e, false, nil)
+		},
+	} {
+		var out, errw bytes.Buffer
+		if rc := run(&out, &errw); rc != 1 {
+			t.Fatalf("revert under own: rc=%d, want 1\n%s%s", rc, out.String(), errw.String())
+		}
+		msg := errw.String()
+		for _, want := range []string{"host_management", `is "own"`, `set the key to "none"`} {
+			if !strings.Contains(msg, want) {
+				t.Errorf("the refusal does not say %q:\n%s", want, msg)
 			}
-			// Now declare the value that refuses, keeping the same pack.
-			cfg := filepath.Join(home, ".config", "yolo-jail", "config.jsonc")
-			data, err := os.ReadFile(cfg)
-			if err != nil {
-				t.Fatal(err)
-			}
-			writeFile(t, cfg, strings.Replace(string(data),
-				`"host_management":"assert"`, `"host_management":"`+mode+`"`, 1))
-
-			for _, run := range []func(o, e *bytes.Buffer) int{
-				func(o, e *bytes.Buffer) int {
-					return hostMain([]string{"apply", "--revert", "--assert"}, o, e, false, nil)
-				},
-				func(o, e *bytes.Buffer) int {
-					return applyMain([]string{"--at", "host", "--revert", "--assert"}, o, e, false, nil)
-				},
-			} {
-				var out, errw bytes.Buffer
-				if rc := run(&out, &errw); rc != 1 {
-					t.Fatalf("revert under %q: rc=%d, want 1\n%s%s",
-						mode, rc, out.String(), errw.String())
-				}
-				if !strings.Contains(errw.String(), "host_management") ||
-					!strings.Contains(errw.String(), mode) {
-					t.Errorf("the refusal must name the key and the value that decided it:\n%s",
-						errw.String())
-				}
-				// IT MUST BE THE REVERT'S OWN REFUSAL, not the render's. Both refuse under
-				// these two values and both name the key, so without this the test passes
-				// with the --revert route deleted and the command falling through to the
-				// ordinary apply — measured, which is why the assertion is here.
-				if !strings.Contains(errw.String(), "--revert") {
-					t.Errorf("the refusal is the RENDER's, so a deleted --revert route would "+
-						"be indistinguishable from a working one:\n%s", errw.String())
-				}
-			}
-			after, err := os.ReadFile(surface)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if string(before) != string(after) {
-				t.Errorf("a refused revert wrote to the surface:\n%s", after)
-			}
-			if _, err := os.Stat(record); err != nil {
-				t.Errorf("a refused revert deleted the provenance record: %v", err)
-			}
-		})
+		}
+		if strings.Contains(msg, "assert") {
+			t.Errorf("the refusal still names the retired \"assert\":\n%s", msg)
+		}
+		// IT MUST BE THE REVERT'S OWN REFUSAL, not the render's: without this the test passes
+		// with the --revert route deleted and the command falling through to the ordinary
+		// apply — measured, which is why the assertion is here.
+		if !strings.Contains(msg, "--revert") {
+			t.Errorf("the refusal is the RENDER's, so a deleted --revert route would "+
+				"be indistinguishable from a working one:\n%s", msg)
+		}
+	}
+	after, err := os.ReadFile(surface)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(before) != string(after) {
+		t.Errorf("a refused revert wrote to the surface:\n%s", after)
+	}
+	if _, err := os.Stat(record); err != nil {
+		t.Errorf("a refused revert deleted the provenance record: %v", err)
 	}
 }
 
 // TestHostRevertOnAHomeYoloNeverTouched: no record means nothing to revert, and saying so is
 // not the same as reporting a clean removal of nothing.
 func TestHostRevertOnAHomeYoloNeverTouched(t *testing.T) {
-	_, surface, _ := revertFixture(t, "assert")
+	_, surface, _ := revertFixture(t, "")
 	var out, errw bytes.Buffer
 	if rc := hostMain([]string{"apply", "--revert", "--assert"}, &out, &errw, false, nil); rc != 0 {
 		t.Fatalf("rc=%d: %s%s", rc, out.String(), errw.String())
@@ -306,7 +346,8 @@ func TestHostRevertFindsSurfacesAfterThePackIsDropped(t *testing.T) {
 	t.Setenv("HOME", home)
 	t.Setenv("YOLO_VERSION", "")
 	cfg := filepath.Join(home, ".config", "yolo-jail", "config.jsonc")
-	writeFile(t, cfg, `{"packs":["claude"],"confinement":"host","host_management":"assert"}`)
+	writeFile(t, cfg, `{"packs":["claude"],"confinement":"host","host_management":"own",`+
+		`"host_wrappers":false}`)
 	stubDeclaredBins(t)
 	applyOnce(t)
 
@@ -314,8 +355,8 @@ func TestHostRevertFindsSurfacesAfterThePackIsDropped(t *testing.T) {
 	if _, err := os.Stat(settings); err != nil {
 		t.Fatalf("setup wrote no claude settings: %v", err)
 	}
-	// The most complete drop there is.
-	writeFile(t, cfg, `{"packs":[],"confinement":"host","host_management":"assert"}`)
+	// The most complete drop there is — packs emptied, and the key with them (`none`).
+	writeFile(t, cfg, `{"packs":[],"confinement":"host"}`)
 
 	var out, errw bytes.Buffer
 	if rc := hostMain([]string{"apply", "--revert", "--assert"}, &out, &errw, false, nil); rc != 0 {
@@ -343,7 +384,7 @@ func TestHostRevertFindsSurfacesAfterThePackIsDropped(t *testing.T) {
 // revert replaces — and it is removed now (HE-D1), so it refuses on its own; the case stays so
 // that a revert beside it still edits no shell rc.
 func TestHostRevertRefusesTheFlagsItCannotShare(t *testing.T) {
-	home, _, _ := revertFixture(t, "assert")
+	home, _, _ := revertFixture(t, "")
 	rc := filepath.Join(home, ".bashrc")
 	writeFile(t, rc, "# untouched\n")
 	t.Setenv("SHELL", "/bin/bash")
@@ -366,7 +407,7 @@ func TestHostRevertRefusesTheFlagsItCannotShare(t *testing.T) {
 // TestApplyRevertIsTheHostNotchs: the verb consumes the HOST provenance record, which is the
 // only notch that keeps one. Naming that beats silently reverting nothing at the jail notch.
 func TestApplyRevertIsTheHostNotchs(t *testing.T) {
-	revertFixture(t, "assert")
+	revertFixture(t, "")
 	var out, errw bytes.Buffer
 	if rc := applyMain([]string{"--revert", "--at", "jail"}, &out, &errw, false, nil); rc != 2 {
 		t.Fatalf("rc=%d, want 2\n%s%s", rc, out.String(), errw.String())
@@ -387,9 +428,10 @@ func TestHostRevertKeepsAnEmptyDefaultAndSaysSo(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
 	t.Setenv("YOLO_VERSION", "")
 	writeFile(t, filepath.Join(home, ".config", "yolo-jail", "config.jsonc"),
-		`{"packs":["pi"],"host_management":"assert"}`)
+		`{"packs":["pi"],"host_management":"own","host_wrappers":false}`)
 	stubDeclaredBins(t)
 	applyOnce(t)
+	setHostManagement(t, home, "none")
 	models := filepath.Join(home, ".pi", "agent", "models.json")
 
 	var out, errw bytes.Buffer

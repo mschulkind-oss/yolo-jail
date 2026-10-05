@@ -1564,13 +1564,15 @@ func applySealed(out, errw io.Writer, color bool) int {
 				"is unknown: %v", err))
 	}
 
-	// (3) the host-ownership contract, unstated.
-	if _, declared := config.HostManagementDeclared(); !declared {
+	// (3) the host-ownership contract, unstated — or spelled with the retired "assert", which
+	// states nothing yolo can read (OQ-CO14 face 1) and so gets that refusal's own words.
+	if msg := config.HostManagementRetired(); msg != "" {
+		refusals = append(refusals, "host_management: "+msg)
+	} else if _, declared := config.HostManagementDeclared(); !declared {
 		refusals = append(refusals,
 			"`host_management` is unset, so who owns the config files in your real home is "+
-				"undeclared (it behaves as \"assert\"). Write one of \"none\", \"assert\" or "+
-				"\"own\" into "+paths.UserConfigPath()+" to seal; `yolo config-ref` says what "+
-				"each one means.")
+				"undeclared (it behaves as \"none\"). Write \"none\" or \"own\" into "+
+				paths.UserConfigPath()+" to seal; `yolo config-ref` says what each one means.")
 	}
 
 	if len(refusals) > 0 {
@@ -1602,7 +1604,7 @@ const applyUsage = `yolo apply — make this environment match its description, 
   yolo apply --at host --revert   take yolo back OUT: remove the keys it asserted, on the
                             authority of the provenance record it wrote, and forget the home.
                             Your own keys are never touched. A DRY RUN until --assert.
-                            Needs host_management "assert"; refused at none/own.
+                            Runs at host_management none (the default); refused at own.
   yolo apply --sealed       refuse if any UNDECLARED input shaped the environment
                             (yolo-jail.local.jsonc, an outstanding capture overlay,
                             an unset host_management)

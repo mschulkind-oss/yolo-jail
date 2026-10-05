@@ -126,7 +126,7 @@ func TestHostRenderLeavesAPatchNamingNoSurfaceToTheCollector(t *testing.T) {
 			t.Errorf("%s: want the collector's autonomy orphan=%v, got %+v", c.label, c.typo, set.Orphans)
 		}
 		home := t.TempDir()
-		results, err := RenderHostPack(p, home, render.OwnershipAssert, false, set, nil)
+		results, err := RenderHostPack(p, home, render.OwnershipOwn, false, set, nil)
 		if err != nil {
 			t.Fatalf("%s: RenderHostPack: %v", c.label, err)
 		}

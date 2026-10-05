@@ -1,8 +1,10 @@
 package entrypoint
 
 // hostownedadoption_test.go is the BYTE-INVARIANT case of §11's criterion, measured: switching
-// a home already applying under `host_management: assert` to `own` changes nothing in the file
-// (docs/design/config-ownership-and-promotion.md §11, §6.3.1).
+// a home yolo asserted into under the retired `host_management: assert` to `own` changes nothing
+// in the file (docs/design/config-ownership-and-promotion.md §11, §6.3.1). The switch is the one
+// OQ-CO14 leaves such a home: its unset key reads as `none` and the file stays as `assert` left
+// it, until the user writes `own`.
 //
 // ⚠ BYTE INVARIANCE IS NO LONGER THE CRITERION — it is a STRONGER property this one fixture
 // happens to have, and keeping it asserted here is the point. OQ-CO12 relaxed §11 to
@@ -14,8 +16,8 @@ package entrypoint
 // absent from the fixture by construction.
 //
 // It is the SAME FIXTURE hostassertbaseline_test.go pins, and that is the whole method. That
-// file states the bytes an `assert` home holds; this one renders the identical pack into the
-// identical home under the other contract and compares. Two fixtures could each be right about
+// file states the bytes an `assert` home holds (built by renderAsRetiredAssert); this one
+// renders the identical pack into the identical home under `own` and compares. Two fixtures could each be right about
 // their own notch while the switch between them lost a key — which is exactly the defect §6.3.1
 // measured, so the criterion has to be one home crossing one boundary.
 //
@@ -47,7 +49,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/render"
 )
 
-// THE BYTE-INVARIANT CASE. A home applying under `assert` is switched to `own`, and the file
+// THE BYTE-INVARIANT CASE. A home yolo asserted into is switched to `own`, and the file
 // does not move — not "keeps its keys", not "still parses": the same bytes. §11 asks for less
 // than this (keys and values, OQ-CO12); this fixture delivers more, and the surplus is what
 // catches a dropped leaf without having to name the leaf.
@@ -66,7 +68,7 @@ func TestSwitchingToOwnKeepsACanonicalFileByteIdentical(t *testing.T) {
 	// Sanity: the home really is at the pinned baseline, so a failure below is about the
 	// SWITCH rather than about the baseline having moved underneath it.
 	if string(before) != assertBaselineBytes {
-		t.Fatalf("the assert baseline moved; fix TestHostAssertLeavesTheAdoptionBaseline "+
+		t.Fatalf("the assert baseline moved; fix TestTheRetiredAssertLeftTheAdoptionBaseline "+
 			"first:\n%s", before)
 	}
 
@@ -168,7 +170,7 @@ func TestOwnedObserveReportsUnchangedAndWritesNothing(t *testing.T) {
 }
 
 // THE CAPTURE STORE, after a real owned apply: the three capture files live in the host store
-// and the provenance record stays where `assert` writes it (§6.2's two directories, two
+// and the provenance record stays where `assert` wrote it (§6.2's two directories, two
 // lifetimes). The selection record is absent because this surface writes no selection — the
 // one of the three that is written only on demand.
 func TestOwnedRenderWritesTheHostCaptureStore(t *testing.T) {
@@ -226,19 +228,19 @@ func TestOwnedRenderWritesTheHostCaptureStore(t *testing.T) {
 			"next render:\n%s", data)
 	}
 
-	// And the provenance record did NOT move into the store. `--revert` reads it for an
-	// `assert` home too, so folding it in would make reverting depend on a dir only `own`
-	// creates.
+	// And the provenance record did NOT move into the store. `--revert` reads it under `none`
+	// for a home the retired `assert` wrote into, so folding it in would make reverting depend
+	// on a dir only `own` creates.
 	if _, found := hostProvenance(t, home, "acme", "settings"); !found {
 		t.Error("no provenance record under host-provenance/ — the `own` census records " +
 			"`stateful`, and --revert consumes that record at every contract")
 	}
 }
 
-// THE CENSUS IS WHAT PICKED THE MECHANISM, and this is the pin
-// TestHostRenderRunsTheMechanismTheCensusNames is for `assert`: the contract answers
-// `stateful`, and the render left stateful's own signature — a capture store, which rmw never
-// writes.
+// THE CENSUS IS WHAT PICKED THE MECHANISM, over a home yolo asserted into:
+// TestHostRenderRunsTheMechanismTheCensusNames states it from fresh homes, and this is the
+// switch — the contract answers `stateful`, and the render left stateful's own signature, a
+// capture store, which the rmw arm `assert` ran never writes.
 func TestOwnedHostRenderRunsTheMechanismTheCensusNames(t *testing.T) {
 	home, _ := assertBaselineHome(t)
 	mechanism, decided := render.Host(home, nil, render.OwnershipOwn).

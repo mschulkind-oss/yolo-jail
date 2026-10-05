@@ -127,8 +127,8 @@ func hostApplyGate(errw io.Writer, stdin io.Reader, bin string) bool {
 	//
 	// ⚠ `own` USED TO SHARE THIS EXIT and no longer does. While whole-file composition was
 	// unbuilt the apply this gate offers to run refused, so prompting would have stopped
-	// launches over a question with no yes; now it renders, so an owned home goes stale exactly
-	// the way an asserted one does — and MORE consequentially, since under `own` the file is
+	// launches over a question with no yes; now it renders, so an owned home goes stale as an
+	// asserted one did — and MORE consequentially, since under `own` the file is
 	// derived output and a stale render is a file that disagrees with its own definition.
 	// Whatever renders is what this checks.
 	//
@@ -270,7 +270,8 @@ func hostApplyGate(errw io.Writer, stdin io.Reader, bin string) bool {
 	}
 
 	// ZERO-PROMPT AUTO-APPLY (docs/reference/host-apply-staleness.md OQ-2).
-	// For all routine synchronizations under assert and own, apply changes automatically
+	// For all routine synchronizations under `own` (the one contract that renders since the
+	// `assert` retirement, OQ-CO14), apply changes automatically
 	// without prompting, emit a single stderr notice, and launch immediately. The user's stdin
 	// is NOT handed down: nothing above left a question for this apply to ask.
 	return hostApplyGateApply(errw, bin, home)

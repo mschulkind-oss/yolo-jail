@@ -176,8 +176,9 @@ that placement:
    PATH a bare `claude` gets the config and none of the environment it assumes. Declaring `own` and
    nothing else left exactly that half-configured host, and `yolo doctor` was silent about it because
    [the section that reports this state](#apply-reports-actions-check-reports-state) short-circuits on the opt-in.
-   An explicit `false` still wins. ⚠ `"assert"` does **not** derive, because it is `host_management`'s
-   own unset default — deriving from it would put a PATH claim on every machine that declared nothing.
+   An explicit `false` still wins. ⚠ Only a WRITTEN `"own"` derives; the unset key (`"none"` since
+   the `assert` retirement) does not — deriving from it would put a PATH claim on every machine that
+   declared nothing.
 
    **`yolo host wrappers enable`/`disable` are DELETED** (they now refuse, naming the derivation). A
    verb whose whole effect was writing one boolean into the user's config made yolo a second writer
@@ -458,8 +459,8 @@ entry at composition, so one bad entry costs only that entry).
 wrote ([`OQ-PSW2`](providers.md#oq-psw2)), so a later `/model` pick of yours stands. At the host
 the real file is the only layer below, so a file value the selection record does not hold is
 outranked by the first activation, and a recorded key whose value differs is your own pick.
-Under `assert` the selection record lives beside the provenance record; under `own`, in the
-capture store.
+Under `own` the selection record lives in the capture store (the retired `assert`, which had no
+store, kept it beside the provenance record).
 
 **Under `host_management: own`, a `computed` surface renders through `stateful`**
 ([`OQ-HC2`](#oq-hc2)), so the first owned render adopts the file rather than replacing it; a
@@ -483,9 +484,10 @@ reported as an overwrite, because the overwrite report reads the declared layers
 MEASURED after the build (2026-09-28): `yolo config render --at host` for `codex` and `opencode`
 (codex's selected model, opencode's provider row, `model` and `small_model`), and each of the
 build's tests failing with its call site removed. UNMEASURED: no agent has been started against a
-file a host apply wrote, and whether `oh-omp/models` (a yaml surface) renders under `assert` is
-unchecked: the build's account said its `rmw` arm had no yaml encoder, and the tree at `d4e435a3`
-registers a yaml object codec that arm accepts.
+file a host apply wrote, and whether `oh-omp/models` (a yaml surface) rendered under the retired
+`assert` was never checked: the build's account said its `rmw` arm had no yaml encoder, and the tree
+at `d4e435a3` registers a yaml object codec that arm accepts. Under `own` it renders through
+`stateful`.
 
 ## The launch PATH, and which copy of a program runs
 
@@ -759,7 +761,7 @@ explains what each of these is for; this table is the only place the values them
 
 | Value | Setting | Defined in |
 | :--- | :--- | :--- |
-| Opt-in key | `host_wrappers` (boolean, user scope) — **unset DERIVES from `host_management`: on at `"own"`, off otherwise.** An explicit `false` wins; `"assert"` does not derive, being host_management's own unset default | `config.HostWrappersEnabled`, documented by `yolo config-ref` |
+| Opt-in key | `host_wrappers` (boolean, user scope) — **unset DERIVES from `host_management`: on at `"own"`, off otherwise.** An explicit `false` wins; the unset key (`"none"`) does not derive | `config.HostWrappersEnabled`, documented by `yolo config-ref` |
 | Host wrapper dir | `<host state>/bin/wrap` | `paths.WrapDir`, `paths.WrapDirUnder` |
 | Generated-bin parent | `<host state>/bin` | `paths.GeneratedBinDir` |
 | Jail blocker dir (first on PATH) | `~/.yolo/bin/block` | `entrypoint.BootPath` |

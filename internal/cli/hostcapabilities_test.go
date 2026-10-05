@@ -128,7 +128,9 @@ func TestHostCapabilityCensusFoldsTheTypedProfile(t *testing.T) {
 // gate refuses leaves the home exactly as it found it, rather than auto-applying a render of the
 // config it is about to refuse (hostapplygate.go's "a config the launch refuses is not rendered
 // first"). The control launch, with the requirement met, does render: the hook is live, so the
-// first assertion is about the order and not about a hook that never runs.
+// first assertion is about the order and not about a hook that never runs. Both cells declare
+// `host_management: "own"`: the unset key is `none` since OQ-CO14, under which the hook renders
+// nothing in EITHER cell and the control could not tell the order from a hook that never runs.
 func TestARefusedCapabilityLaunchRendersNothingFirst(t *testing.T) {
 	for _, tc := range []struct {
 		name, require string
@@ -139,7 +141,8 @@ func TestARefusedCapabilityLaunchRendersNothingFirst(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Setenv(config.AllowUnmetCapabilitiesEnv, "")
-			cfg := `{"packs": ["pi"], "host_apply_on_launch": true, "required_capabilities": ` + tc.require + `}`
+			cfg := `{"packs": ["pi"], "host_management": "own", "host_apply_on_launch": true, ` +
+				`"required_capabilities": ` + tc.require + `}`
 			var before string
 			rc, env, errs := hostGateRunIn(t, cfg, nil, nil, "pi", func(home string) {
 				stubDeclaredBins(t)

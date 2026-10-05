@@ -282,11 +282,12 @@ func TestHostNamesAJailOnlyWorkerAndAnUngatedOne(t *testing.T) {
 }
 
 // `yolo host apply` WRITES FILES, WHICH HOLD NO PROCESS, so it starts no worker and names each
-// one with the launch that does (OQ-HS3), as `yolo host env` does.
+// one with the launch that does (OQ-HS3), as `yolo host env` does. The config declares
+// `host_management: "own"`: under the unset key (`none` since OQ-CO14) the apply refuses first.
 func TestHostApplyNamesAPureWorkerItDoesNotStart(t *testing.T) {
 	pack := filepath.Join(t.TempDir(), "acme")
 	writeFile(t, filepath.Join(pack, "pack.json"), workerManifest("acme-worker"))
-	hostComputedHome(t, `{"packs": ["claude", {"source": "file://`+pack+`", "name": "acme"}]}`)
+	hostComputedHome(t, `{"packs": ["claude", {"source": "file://`+pack+`", "name": "acme"}], "host_management": "own"}`)
 	origStart := startLaunchService
 	startLaunchService = func(*launchservice.Plan, map[string]string) (*launchservice.Running, error) {
 		t.Fatal("yolo host apply started a worker")

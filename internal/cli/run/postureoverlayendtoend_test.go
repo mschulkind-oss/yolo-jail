@@ -3,7 +3,7 @@ package run
 // postureoverlayendtoend_test.go drives OQ-3's host-only SCALAR end to end
 // (docs/design/notch-scoped-config-contributions.md NS-D19 to NS-D24), through the same three
 // production steps as hostlayerendtoend_test.go and with nothing hand-written between them:
-// the host assert (RenderHostPack over a host-posture Collect), each backend's launcher, then
+// the host apply under `own` (RenderHostPack over a host-posture Collect), each backend's launcher, then
 // the jail boot (ConfigurePackSurfaces) handed that launcher's wire and bytes.
 //
 // The personal pack's guarded posture sets a scalar in pi's settings — a surface the shipped
@@ -36,7 +36,8 @@ func piSettingsAt(t *testing.T, home string) map[string]any {
 	return m
 }
 
-// THE HOST-ONLY SCALAR, FROM THE ASSERT TO THE BOOT. Delete the posture overlays from Collect
+// THE HOST-ONLY SCALAR, FROM THE HOST APPLY TO THE BOOT. The apply is `own`'s, the one contract
+// that writes since the `assert` retirement (OQ-CO14). Delete the posture overlays from Collect
 // and the host never gets the scalar; place them regardless of the posture bit and the jail
 // does; drop the render label from either launcher and the host file's scalar composes into
 // the jail as the user's own.
@@ -44,9 +45,9 @@ func TestAHostOnlyScalarReachesTheHostAndNoJailLaunchedAfterIt(t *testing.T) {
 	for _, l := range e2eLaunchers {
 		t.Run(l.name, func(t *testing.T) {
 			home, loaded := e2eHomeWith(t, e2eHostScalar)
-			e2eHostAssert(t, home, loaded)
+			e2eHostOwn(t, home, loaded)
 			if got := piSettingsAt(t, home)["hostOnlyScalar"]; got != "on-the-host" {
-				t.Fatalf("host hostOnlyScalar after the assert = %v, want the guarded posture's value", got)
+				t.Fatalf("host hostOnlyScalar after the apply = %v, want the guarded posture's value", got)
 			}
 
 			wire, ctxRoot := l.launch(t, loaded)
@@ -55,7 +56,7 @@ func TestAHostOnlyScalarReachesTheHostAndNoJailLaunchedAfterIt(t *testing.T) {
 			}
 			jailHome, log := e2eBootHome(t, loaded, ctxRoot, wire)
 			if got, leaked := piSettingsAt(t, jailHome)["hostOnlyScalar"]; leaked {
-				t.Errorf("a jail launched after the assert has hostOnlyScalar = %v — the host-only "+
+				t.Errorf("a jail launched after the apply has hostOnlyScalar = %v — the host-only "+
 					"scalar reached it", got)
 			}
 			if !strings.Contains(log, "baseline and not a layer") {
@@ -65,7 +66,7 @@ func TestAHostOnlyScalarReachesTheHostAndNoJailLaunchedAfterIt(t *testing.T) {
 	}
 }
 
-// THE TWIN, without the label: the same pack in a home never asserted into. The jail still
+// THE TWIN, without the label: the same pack in a home never written into. The jail still
 // lacks the scalar, because the jail's posture never selects it — which is what makes the case
 // above about the posture AND the label, rather than about a missing host file.
 func TestAHostOnlyScalarIsAbsentFromAJailWhoseHostWasNeverAsserted(t *testing.T) {

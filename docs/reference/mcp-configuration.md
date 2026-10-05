@@ -382,10 +382,12 @@ the rulings are [AM-R1 and AM-R2](../design/agent-directory-map.md#13-decision-l
   `args`, to an empty string when unset, so a server that relied on that behaves differently.
 - **At the host**, `yolo host apply` writes your `mcp_servers` here per server, beside the
   servers you added with `pi mcp add`, which stay
-  ([the host write is per key](host-agent-environment.md#the-host-write-is-per-key)). Under
-  `host_management: assert`, a server you drop from `mcp_servers` loses the fields yolo wrote, and
-  its emptied entry, `{}`, stays, which pi reports and skips as above (MEASURED 2026-10-01 with a
-  scratch test through `RenderHostPack`). ⚠ `yolo host apply --revert` removes the whole
+  ([the host write is per key](host-agent-environment.md#the-host-write-is-per-key)). Under the
+  rmw arm (every surface under the retired `host_management: assert`), a server you drop from
+  `mcp_servers` lost the fields yolo wrote, and its emptied entry, `{}`, stayed, which pi reports
+  and skips as above (MEASURED 2026-10-01 with a scratch test through `RenderHostPack`); under
+  `own`, `pi/mcp` composes through `stateful`, and a home `assert` wrote into may still hold such
+  an entry. ⚠ `yolo host apply --revert` removes the whole
   `mcpServers` key, your servers with yolo's, because its record is kept per top-level key
   (MEASURED the same way, through `RevertHostRender`); its dry run lists `pi/mcp` `mcpServers`
   before anything is removed. Host apply deletes nothing, so a `mcp-adapter.json` at the host is
@@ -772,7 +774,8 @@ duplicate each other.
 - 💬 <a id="oq-mc1"></a>**[`OQ-MC1`](#oq-mc1) — does the host own `mcp.json`'s server table per
   server, or whole?** Filed 2026-10-02. Today each server is yolo's or yours, which leaves the
   two faults [pi's own file](#pis-mcp-files) records at the host: an emptied `{}` entry under
-  `assert`, and a `--revert` that removes your servers with yolo's.
+  the rmw arm (as the retired `assert` ran it), and a `--revert` that removes your servers with
+  yolo's.
 
   - **(a) Per server, and fix both.** `--revert` removes only the servers yolo wrote, and an
     entry yolo empties is deleted. *You keep:* the servers you add with `pi mcp add`.
