@@ -7,6 +7,7 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -114,6 +115,11 @@ type Deps struct {
 	// nil means this build cannot set one, which the launch reports like a failed set.
 	SetDiskIOPolicy func(policy int) error
 	DiskIOPolicy    func() (int, error)
+	// HostCPUs is this Mac's logical CPU count (runtime.NumCPU), which is what every
+	// CooperativeCPUVars variable already defaults to unset: resources.cpus's defaults are
+	// capped at it, so they can only lower parallelism (cooperativeCPUCount). nil, or a count
+	// below 1, caps nothing.
+	HostCPUs func() int
 	// StartBackground starts argv in the background, in a process group of its own, with
 	// no terminal, and returns its handle: the stop that ends it (idempotent, never nil on
 	// success), a channel closed when it exits, and what it wrote on its own stdout and
@@ -283,10 +289,11 @@ func unenforcedResourceKeys(res *jsonx.OrderedMap) []string {
 
 // CooperativeCPUVars are the variables `resources.cpus` sets for the session, and they are
 // chosen by ONE RULE: each is a variable whose unset default is the machine's CPU count, so
-// setting it to the declared count can only LOWER a program's parallelism, never raise it.
-// That rule is why MAKEFLAGS and CMAKE_BUILD_PARALLEL_LEVEL are not here: make's default is
-// one job, so `-j4` would turn a serial build parallel (docs/design/declaration-parity.md
-// ledger). Each is a default, under every value the user's own env layers set.
+// setting it to the declared count, capped at that count (cooperativeCPUCount), can only
+// LOWER a program's parallelism, never raise it. That rule is why MAKEFLAGS and
+// CMAKE_BUILD_PARALLEL_LEVEL are not here: make's default is one job, so `-j4` would turn a
+// serial build parallel (docs/design/declaration-parity.md ledger). Each is a default, under
+// every value the user's own env layers set.
 //
 //   - GOMAXPROCS: the Go runtime's OS threads running Go code, and `go build -p`'s default.
 //   - CARGO_BUILD_JOBS: cargo's parallel rustc jobs.
@@ -342,6 +349,27 @@ func CooperativeCPUs(res *jsonx.OrderedMap) (int, bool) {
 	return n, true
 }
 
+// cooperativeCPUCount is the value the CooperativeCPUVars defaults are set to: the declared
+// whole count, capped at host, the Mac's own CPU count, which is what each of them already
+// defaults to unset. Without the cap a declaration written for a bigger machine would RAISE
+// parallelism here (GOMAXPROCS=32 on an 8-CPU Mac runs 32 Ps), which the rule that picks them
+// forbids; at the cap they change nothing. A host below 1 (unknown) caps nothing. capped
+// reports whether the cap applied, for the disclosure.
+func cooperativeCPUCount(declared, host int) (n int, capped bool) {
+	if host >= 1 && declared > host {
+		return host, true
+	}
+	return declared, false
+}
+
+// hostCPUs is deps.HostCPUs' answer, 0 (cap nothing) when the seam is not wired.
+func hostCPUs(deps Deps) int {
+	if deps.HostCPUs == nil {
+		return 0
+	}
+	return deps.HostCPUs()
+}
+
 // buildPlan starts from the sandbox env, layers the composed channel (PackEnv, which
 // carries the gate-narrowed env_sources last), layers the caller's sandbox_env, sets the
 // jail marker over all of them, then builds the plan.
@@ -376,12 +404,14 @@ func buildPlan(deps Deps, opts Options, darwin *Darwin) RunPlan {
 	// the per-side disclosure below reports the value that won.
 	env.Set(uvProjectEnvironmentVar, uvProjectEnvironment)
 	// `resources.cpus`, COOPERATIVELY: the parallelism defaults of the common build tools, set
-	// to the declared count (CooperativeCPUVars says which, and the one rule that picks them).
-	// Here, before PackEnv, env_sources and SandboxEnv, for MISE_TRUSTED_CONFIG_PATHS's reason:
-	// a value the user set in any of those wins, and the disclosure below reports the value
-	// that won.
+	// to the declared count, capped at this Mac's (CooperativeCPUVars says which, and the one
+	// rule that picks them; cooperativeCPUCount, why the cap). Here, before PackEnv,
+	// env_sources and SandboxEnv, for MISE_TRUSTED_CONFIG_PATHS's reason: a value the user set
+	// in any of those wins, and the disclosure below reports the value that won.
 	resources := cfgSection(opts.Config, "resources")
-	if n, ok := CooperativeCPUs(resources); ok {
+	host := hostCPUs(deps)
+	if declared, ok := CooperativeCPUs(resources); ok {
+		n, _ := cooperativeCPUCount(declared, host)
 		for _, k := range CooperativeCPUVars {
 			env.Set(k, strconv.Itoa(n))
 		}
@@ -446,7 +476,7 @@ func buildPlan(deps Deps, opts Options, darwin *Darwin) RunPlan {
 	// workspace actually uses (perSideSharedPaths). After the env layers, because it reports
 	// the uv redirect that won.
 	printPerSideDisclosure(out, opts.Workspace, opts.Config, env)
-	printResourceDispositions(out, resources, env)
+	printResourceDispositions(out, resources, env, host)
 	// THE JAIL MARKER, the one variable every container launch sets (`-e YOLO_VERSION=` in
 	// internal/cli/run's commonEnvBlock) and this backend did not (docs/design/agent-footer.md
 	// OQ-FT13). config.InJail() and the probes that copy it read it, so without it every
@@ -567,18 +597,25 @@ func printPerSideDisclosure(out printer, workspace string, cfg *jsonx.OrderedMap
 
 // printResourceDispositions says, at launch and in a dry run, what this backend does with each
 // declared `resources` key: the cooperative cpus defaults with the values that won (env is the
-// layered launch env), the sampled memory guard and its holes, and the keys still read and
-// ignored. A launch that declares none prints nothing. resources.io says nothing here: it is
-// applied, and the launch speaks only if the set fails (RunMacosUser).
-func printResourceDispositions(out printer, res, env *jsonx.OrderedMap) {
+// layered launch env) and the cap at host's CPU count when it applied, the sampled memory
+// guard and its holes, and the keys still read and ignored. A launch that declares none prints
+// nothing. resources.io says nothing here: it is applied, and the launch speaks only if the
+// set fails (RunMacosUser).
+func printResourceDispositions(out printer, res, env *jsonx.OrderedMap, host int) {
 	if n, ok := CooperativeCPUs(res); ok {
 		pairs := make([]string, 0, len(CooperativeCPUVars))
 		for _, k := range CooperativeCPUVars {
 			v, _ := env.Get(k)
 			pairs = append(pairs, k+"="+asStr(v))
 		}
+		capNote := ""
+		if _, capped := cooperativeCPUCount(n, host); capped {
+			capNote = fmt.Sprintf(" (capped at this Mac's %d CPUs, the count each one already "+
+				"defaults to)", host)
+		}
 		out.printf("[yellow]resources.cpus (%d) is honored cooperatively on macos-user[/yellow] — "+
-			"%s for the session; a program that ignores them is not limited.", n, strings.Join(pairs, ", "))
+			"%s for the session%s; a program that ignores them is not limited.", n,
+			strings.Join(pairs, ", "), capNote)
 	}
 	if g := SessionGuardFor(res); g.Enabled() {
 		out.printf("[yellow]resources.memory (%s) is guarded by sampling on macos-user, not enforced "+
@@ -591,9 +628,13 @@ func printResourceDispositions(out printer, res, env *jsonx.OrderedMap) {
 	// concurrent sessions on the shared _yolojail account (DP-D1): a cap a user believes in but
 	// that does not hold is worse than a documented absence, so this warns.
 	if keys := unenforcedResourceKeys(res); len(keys) > 0 {
+		verb := " are"
+		if len(keys) == 1 {
+			verb = " is" // usually pids_limit alone, the one key no mechanism here acts on
+		}
 		out.print("[yellow]Warning: resources are NOT enforced on macos-user[/yellow] — " +
 			"macOS has no cgroups and there is no VM to size, so " + strings.Join(keys, ", ") +
-			" are read and ignored. The agent runs with your user's own limits.")
+			verb + " read and ignored. The agent runs with your user's own limits.")
 	}
 }
 
@@ -1375,6 +1416,7 @@ func RealDeps(runProxy func(argv []string) int, materialize func(repoRoot string
 		StartBackground:   startBackgroundReal,
 		SetDiskIOPolicy:   ioprio.SetProcessDiskPolicy,
 		DiskIOPolicy:      ioprio.GetProcessDiskPolicy,
+		HostCPUs:          runtime.NumCPU,
 		HostNix:           hostNixReal,
 		NodeFloorMet:      entrypoint.PackageFloorMeets,
 		TakenIDs:          takenIDsReal,

@@ -115,8 +115,10 @@ type RunPlan struct {
 	// sampling (sessionguard.go); the zero value runs no guard and leaves the argv untouched.
 	SessionGuard SessionGuard
 	// CooperativeCPUs is ceil(resources.cpus), at least 1, when cpus is declared, and 0 when
-	// it is not: the value the parallelism variables (CooperativeCPUVars) default to in the
-	// session env file, below any value the user's own env layers set.
+	// it is not: the DECLARED count the parallelism variables (CooperativeCPUVars) default
+	// from in the session env file, below any value the user's own env layers set. The file
+	// holds the values themselves, which buildPlan caps at the Mac's own CPU count
+	// (cooperativeCPUCount), so PrintPlan prints this number beside the values the file holds.
 	CooperativeCPUs int
 	// HomeReadonly is what Seatbelt was told to write-protect in the sandbox home: every
 	// staged skills dir and briefing this launch delivered, at the PHYSICAL path the kernel

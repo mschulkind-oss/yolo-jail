@@ -225,7 +225,7 @@ func TestMacosUserSaysResourcesAndRelocationsAreIgnored(t *testing.T) {
 	out := r.combined()
 
 	for _, want := range []string{
-		"resources are NOT enforced on macos-user", "so pids_limit are read and ignored",
+		"resources are NOT enforced on macos-user", "so pids_limit is read and ignored",
 		"cache_relocations are NOT implemented on macos-user", subdir,
 	} {
 		if !strings.Contains(out, want) {

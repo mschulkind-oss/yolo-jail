@@ -72,12 +72,57 @@ func TestMacosUserResourcesLineNamesOnlyWhatIsIgnored(t *testing.T) {
 		t.Errorf("io, cpus and memory are all acted on, yet the line says %q", line)
 	}
 	line := resourcesLine(t, resourcesOf("io", "idle", "cpus", 2, "memory", "8g", "pids_limit", 100))
-	if !strings.Contains(line, "so pids_limit are read") {
-		t.Errorf("pids_limit must still be named: %q", line)
+	if !strings.Contains(line, "so pids_limit is read and ignored") {
+		t.Errorf("pids_limit must still be named, as one key: %q", line)
 	}
 	for _, k := range []string{"io", "cpus", "memory"} {
 		if strings.Contains(line, k+",") || strings.Contains(line, ", "+k) {
 			t.Errorf("the line names %s, which this backend acts on: %q", k, line)
+		}
+	}
+	// Two keys take the plural: a cpus neither reader can use is named beside pids_limit.
+	if line := resourcesLine(t, resourcesOf("cpus", "many", "pids_limit", 100)); !strings.Contains(line, "so cpus, pids_limit are read and ignored") {
+		t.Errorf("two ignored keys: %q", line)
+	}
+}
+
+// TestTheCPUDefaultsAreCappedAtTheHostsCPUs: each CooperativeCPUVars variable defaults, unset,
+// to this Mac's CPU count, so a declared count above it would RAISE parallelism (GOMAXPROCS=16
+// on a 4-CPU Mac runs 16 Ps), which the one rule that picks them forbids. Above the count the
+// four are the count, and the disclosure says why; at or below it they are the declaration; a
+// count the seam cannot give caps nothing.
+func TestTheCPUDefaultsAreCappedAtTheHostsCPUs(t *testing.T) {
+	run := func(cpus any, host func() int) (RunPlan, string) {
+		var buf bytes.Buffer
+		deps := mockDeps(nil)
+		deps.Out = &buf
+		deps.HostCPUs = host
+		opts := newOpts("/Users/Shared/proj")
+		opts.Config.Set("resources", resourcesOf("cpus", cpus))
+		return buildPlan(deps, opts, nil), buf.String()
+	}
+	four := func() int { return 4 }
+	plan, out := run(16, four)
+	for _, k := range CooperativeCPUVars {
+		if v, _ := sandboxEnvFileValue(plan.EnvFileContent, k); v != "4" {
+			t.Errorf("cpus 16 on a 4-CPU host: %s = %q, want 4", k, v)
+		}
+	}
+	if !strings.Contains(out, "resources.cpus (16) is honored cooperatively") ||
+		!strings.Contains(out, "GOMAXPROCS=4") || !strings.Contains(out, "capped at this Mac's 4 CPUs") {
+		t.Errorf("a capped count must be disclosed with the cap:\n%s", out)
+	}
+	for _, tc := range []struct {
+		cpus any
+		host func() int
+		want string
+	}{{3, four, "3"}, {4, four, "4"}, {16, nil, "16"}, {16, func() int { return 0 }, "16"}} {
+		plan, out := run(tc.cpus, tc.host)
+		if v, _ := sandboxEnvFileValue(plan.EnvFileContent, "GOMAXPROCS"); v != tc.want {
+			t.Errorf("cpus %v: GOMAXPROCS = %q, want %s", tc.cpus, v, tc.want)
+		}
+		if strings.Contains(out, "capped at") {
+			t.Errorf("cpus %v: an uncapped count says it was capped:\n%s", tc.cpus, out)
 		}
 	}
 }
