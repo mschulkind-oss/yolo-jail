@@ -80,8 +80,10 @@ this loophole, which runs no jail daemon but binds the sockets, and a launch ser
 where its container argv carries the binds
 ([LP-D1](../../docs/design/loophole-packaging.md#LP-D1)): a podman jail on Linux with the loophole
 on. `yolo host`, macos-user, a Mac, and a jail with the loophole off leave both variables out and
-name them at launch. One gap is left: with the loophole on, a host with no `pipewire-0` still gets
-`PIPEWIRE_REMOTE`, because a missing socket skips only its own bind.
+name them at launch. With the loophole on, a host missing one of the sockets still gets that
+socket's variable, because a missing socket skips only its own bind. And re-entering a running
+jail after switching the loophole on or off sets or leaves out both variables by the new switch,
+while the jail keeps the binds it started with (both recorded in LP-D1).
 
 ## Off by default
 

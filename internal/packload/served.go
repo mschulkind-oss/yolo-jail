@@ -16,7 +16,7 @@ package packload
 // the one agent it runs (HS-D21, internal/cli/run's hostdoorways.go). internal/loopholes'
 // ServedJailDaemons is the one answer to which of a payload's daemons a runtime serves. An address
 // such a daemon serves is SERVED exactly when the daemon is. A loophole that declares no jail
-// daemon but binds host sockets or devices into a jail (a bound loophole, notBoundWhy) is served
+// daemon but binds host sockets or devices into a jail (a BOUND LOOPHOLE, LP-D1's term) is served
 // by name at a notch whose container argv carries its binds (internal/loopholes' JailBoundNames):
 // never at the host, never on macos-user, and on a container runtime only while it is active
 // (docs/design/loophole-packaging.md LP-D1).
@@ -137,12 +137,13 @@ func (s ServedDaemons) notServedWhy(daemon string) string {
 	}
 }
 
-// notBoundWhy is notServedWhy for a BOUND LOOPHOLE (a term this file coins): a loophole that
-// serves its clients by binding host sockets or devices into a jail, declaring no `jail_daemon`
-// (loopholes' JailBoundNames, docs/design/loophole-packaging.md LP-D1). A pointer `served_by` one
-// names a path that exists only in a jail whose argv carried the binds, so the clause says why
-// this launch has none, ending in what a client does without the pointer: at the host it reaches
-// the host's own server at its default path, which a pointer at a jail path would only defeat.
+// notBoundWhy is notServedWhy for a BOUND LOOPHOLE (a term docs/design/loophole-packaging.md
+// LP-D1 coins): a loophole that serves its clients by binding host sockets or devices into a
+// jail, declaring no `jail_daemon` (loopholes' JailBoundNames applies it). A pointer `served_by`
+// one names a path that exists only in a jail whose argv carried the binds, so the clause says
+// why this launch has none, ending in what a client does without the pointer: at the host it
+// reaches the host's own server at its default path, which a pointer at a jail path would only
+// defeat.
 func (s ServedDaemons) notBoundWhy(loophole string) string {
 	if why := s.notServed[loophole]; why != "" {
 		return why + ", so nothing would answer it"
