@@ -811,21 +811,39 @@ eq(await oauth.toAuth(refreshed), { apiKey: "access-4" }, "the request auth of a
 }
 
 // A TOKEN NEAR ITS END IS ASKED FOR AGAIN: the reuse ends where pi would refresh a stored login,
-// five minutes before expiry, so a request never runs on a token about to lapse.
+// five minutes before expiry, so a request never runs on a token about to lapse. Both sides of the
+// window are pinned (docs/design/pi-host-openai-auth.md PH-D3): a token with four minutes left is
+// fetched again, and one with six is reused, so a window much longer than five minutes, which
+// would quietly turn the reuse off and run the client on every request, fails as surely as a
+// shorter one.
 func TestPiOpenAIAuthHostRouteAsksAgainForATokenNearItsEnd(t *testing.T) {
-	f := newPiExtensionFixture(t)
-	f.builtinStub(t)
-	f.fakeClient(t, piHostRouteClient)
-	soon := time.Now().Add(4 * time.Minute).UnixMilli()
-	f.output(t, piHostRoute, `
+	for _, tc := range []struct {
+		left  time.Duration
+		keys  string
+		calls int
+	}{
+		{left: 4 * time.Minute, keys: `["access-1","access-2"]`, calls: 2},
+		{left: 6 * time.Minute, keys: `["access-1","access-1"]`, calls: 1},
+	} {
+		t.Run(tc.left.String()+" left", func(t *testing.T) {
+			f := newPiExtensionFixture(t)
+			f.builtinStub(t)
+			f.fakeClient(t, piHostRouteClient)
+			expires := time.Now().Add(tc.left).UnixMilli()
+			f.output(t, piHostRoute, `
 import extension from "./extension.mjs";
 let provider;
 await extension({ registerProvider(p) { provider = p; }, on() {} });
 const signal = new AbortController().signal;
 const keys = [];
 for (let i = 0; i < 2; i++) keys.push((await provider.auth.apiKey.resolve({ ctx: {}, signal })).auth.apiKey);
-if (JSON.stringify(keys) !== JSON.stringify(["access-1", "access-2"])) throw new Error("keys = " + JSON.stringify(keys));
-`, fmt.Sprintf("EXPIRES_AT=%d", soon))
+if (JSON.stringify(keys) !== process.env.WANT_KEYS) throw new Error("keys = " + JSON.stringify(keys) + ", want " + process.env.WANT_KEYS);
+`, fmt.Sprintf("EXPIRES_AT=%d", expires), "WANT_KEYS="+tc.keys)
+			if got := strings.Count(f.calls(t), "internal openai-auth-client token\n"); got != tc.calls {
+				t.Errorf("token calls from two resolves = %d, want %d; calls:\n%s", got, tc.calls, f.calls(t))
+			}
+		})
+	}
 }
 
 // THE LIST AND THE REFUSAL RIDE ON THE NATIVE PROVIDER. A native registration replaces the
