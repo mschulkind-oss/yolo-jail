@@ -354,7 +354,13 @@ jobs:
     # keep the raise honest: `Install Podman` and `Load jail image` each carry their own cap
     # below, so a genuine hang still fails against its own step rather than burning 75
     # minutes to say "cancelled" with no step named.
-    timeout-minutes: 75
+    #
+    # 140, up from 75 on 2026-10-05, and the test step now carries its own cap. The 75 was
+    # hit by work again: run 37318999124's shards 5 and 6 were cancelled with no failing test,
+    # shard 6 after `Install Podman` took 13 minutes and `Load jail image` 28, leaving its tests
+    # 24 of the 75. The job cap is now the sum of its parts' own caps (35 + 35 + 60, plus the
+    # short steps), so it can no longer fire before a step's own cap names the step that hung.
+    timeout-minutes: 140
     steps:
       - uses: actions/checkout@v7
         with:
@@ -782,6 +788,8 @@ jobs:
           echo "pattern=^($(paste -sd'|' /tmp/my-tests))$" >> "$GITHUB_OUTPUT"
 
       - name: Integration tests (macOS + Podman)
+        # Its own cap, so a hung test set fails here, named, rather than at the job's.
+        timeout-minutes: 60
         run: go test -count=1 -timeout 0 -v -run '${{ steps.shard.outputs.pattern }}' ./integration
         env:
           YOLO_RUNTIME: podman
