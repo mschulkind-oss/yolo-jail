@@ -91,12 +91,30 @@ func Run(opts Options) (rc int) {
 	// (through the workspace bind), so either can be a link the last jail left: every host
 	// write below it would follow it, and podman would bind whatever the bind sources under
 	// it then resolve to (wsstatebeneath.go, linkedWorkspaceState).
+	//
+	// TWO NEXT STEPS, because the launch cannot tell who made the link (jail-home.md, OQ-JH1):
+	// `rm` is right for a link the jail left, and wrong for a directory the user moved on
+	// purpose, whose next launch would start from an empty one and strand the moved state. So
+	// the refusal names where the link points and the move that brings it back.
 	if linked := linkedWorkspaceState(o.Workspace); linked != "" {
-		o.pr(o.Stderr).print("[bold red]Refusing to launch: " + linked + " is a symbolic " +
-			"link. The jail can write this workspace's .yolo, so a link there would carry " +
-			"the launcher's writes, and the container's binds, to wherever it points.[/bold red]")
-		o.pr(o.Stderr).print("[dim]Remove the link (rm " + shquote.Quote(linked) + "); yolo recreates the " +
-			"directory on the next launch. There is no override for this one.[/dim]")
+		target := linkedStateTarget(linked)
+		to := ""
+		if target != "" {
+			to = " to " + richtext.Escape(target)
+		}
+		o.pr(o.Stderr).print("[bold red]Refusing to launch: " + richtext.Escape(linked) +
+			" is a symbolic link" + to + ". The jail can write this workspace's .yolo, so a " +
+			"link there would carry the launcher's writes, and the container's binds, to " +
+			"wherever it points.[/bold red]")
+		remedy := "If the jail left that link, remove it (rm " + richtext.Escape(shquote.Quote(linked)) +
+			"); yolo recreates the directory on the next launch."
+		if target != "" {
+			remedy += " If you moved the directory to " + richtext.Escape(target) + " yourself, " +
+				"move it back instead, so its contents come with it: rm " +
+				richtext.Escape(shquote.Quote(linked)) + " && mv " +
+				richtext.Escape(shquote.Quote(target)) + " " + richtext.Escape(shquote.Quote(linked)) + "."
+		}
+		o.pr(o.Stderr).print("[dim]" + remedy + " There is no override for this one.[/dim]")
 		return 1
 	}
 

@@ -74,6 +74,8 @@ into a jail, and what each launch shows about the code it runs. See
   included.
 - A launch, or `yolo check`, no longer hangs for good, printing nothing, when nix prints one very
   long line while it builds the jail's image, yolo's own binaries, or a macOS sandbox's packages.
+- A launch refused because a project's `.yolo` folder is a symbolic link now says where the link
+  points and how to move a folder you moved there yourself back, not only how to delete the link.
 
 ## [0.11.1] - 2026-10-02
 
