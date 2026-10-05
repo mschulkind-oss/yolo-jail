@@ -273,7 +273,7 @@ func TestHostPiRefreshSkipsAHeldLockWithOneLine(t *testing.T) {
 }
 
 // THE REFRESH CARRIES NO CREDENTIAL THE COMPOSITION SCOPES TO PI: the jail's launcher runs it
-// before it sources pi's own env file, and here the composition is that file.
+// before it sources pi's own env file, which is where the gate puts what it scopes to pi alone.
 func TestHostPiRefreshRunsWithoutTheCredentialsComposedForPi(t *testing.T) {
 	h := newRefreshHost(t, `{"packs": ["pi", "zai"], "host_floor": {"pi": false}, `+
 		`"env_sources": [{"ZAI_API_KEY": "tok-host"}]}`, "")
@@ -293,6 +293,49 @@ func TestHostPiRefreshRunsWithoutTheCredentialsComposedForPi(t *testing.T) {
 	// And the child's PATH, the one pi is exec'd with, floor bin/ last.
 	if len(got) > 0 && !strings.Contains(got[0], "|PATH="+filepath.Dir(h.stub)+string(os.PathListSeparator)) {
 		t.Errorf("the refresh did not run on the child's PATH: %q", got[0])
+	}
+}
+
+// THE REFRESH RUNS IN WHAT EVERY PROCESS RECEIVES, AND IN NOTHING SCOPED TO PI. In a jail the
+// refresh inherits the shared yolo-user-env.sh, which every process there gets: the ungated pack
+// env (pi's own PI_TELEMETRY=0) and the env_sources values no provider claims (a proxy, a CA
+// bundle, a registry), which a refresh behind a proxy cannot do without. Only what the credential
+// gate scopes to pi is in pi's own file, which its launcher sources after the refresh. And every
+// removal applies, an env_sources null taking the invoking shell's value out, so the refresh never
+// holds a name pi would not.
+func TestHostPiRefreshRunsInTheCompositionEveryProcessReceives(t *testing.T) {
+	h := newRefreshHost(t, `{"packs": ["pi", "zai"], "host_floor": {"pi": false}, "env_sources": [`+
+		`{"ZAI_API_KEY": "tok-host", "HTTPS_PROXY": "http://proxy.example:3128", "REVIEW_SECRET": null}]}`, "")
+	h.setStub(t, `  echo "env PI_TELEMETRY=${PI_TELEMETRY-unset}|HTTPS_PROXY=${HTTPS_PROXY-unset}|`+
+		`REVIEW_SECRET=${REVIEW_SECRET-unset}|ZAI_API_KEY=${ZAI_API_KEY-unset}" >> '`+h.log+`'`)
+	t.Setenv("REVIEW_SECRET", "from-shell")
+	// None may come from the shell this test runs in (a jail exports PI_TELEMETRY itself), so an
+	// unset one in the refresh is one yolo did not set.
+	for _, k := range []string{"PI_TELEMETRY", "HTTPS_PROXY", "ZAI_API_KEY"} {
+		t.Setenv(k, "")
+		os.Unsetenv(k)
+	}
+	r := h.launch(t, "-p", "zai")
+	if r.rc != 0 || r.execEnv == nil {
+		t.Fatalf("yolo host -p zai -- pi: rc=%d\n%s", r.rc, r.errs)
+	}
+	var got string
+	for _, e := range h.entries(t) {
+		if strings.HasPrefix(e, "env ") {
+			got = e
+		}
+	}
+	want := "env PI_TELEMETRY=0|HTTPS_PROXY=http://proxy.example:3128|REVIEW_SECRET=unset|ZAI_API_KEY=unset"
+	if got != want {
+		t.Errorf("the refresh ran in\n  %q\nwant\n  %q", got, want)
+	}
+	// The same composition hands pi all of it, its zai key included, and the null's removal.
+	if r.execEnv["PI_TELEMETRY"] != "0" || r.execEnv["HTTPS_PROXY"] != "http://proxy.example:3128" ||
+		r.execEnv["ZAI_API_KEY"] != "tok-host" {
+		t.Errorf("setup: the exec was not handed the composition: %v", r.execEnv)
+	}
+	if v, ok := r.execEnv["REVIEW_SECRET"]; ok {
+		t.Errorf("setup: the env_sources null left pi the shell's value %q", v)
 	}
 }
 

@@ -824,21 +824,31 @@ func hostPrelaunchRefresh(launch *hostComposition, prog hostfloor.Program, progs
 }
 
 // refreshEnviron is the environment a launch's pre-launch refresh runs in: the one this process
-// inherited, with the composition's REMOVALS applied and none of what it SETS, then the child's
-// PATH. The jail's launcher runs its refresh before it sources the agent's own env file, because
-// the refresh needs no credential and should run holding none (internal/entrypoint's agentenv.go);
-// here the composition is that file, so a credential it scopes to the program reaches the program
-// alone. The removals still apply, so the refresh never sees a name the program would not. The
-// PATH is the child's before the blocked tools join it: the jail runs its refresh with the blockers
-// bypassed (YOLO_BYPASS_SHIMS=1), as it does every installer.
+// inherited, with the part of the program's own composition that EVERY process of the launch
+// receives applied over it, then the child's PATH. That part is each entry whose winner is the
+// credential gate's shared composition's too (packload.CredentialScope.SharedEnv): the ungated pack
+// env, such as pi's PI_TELEMETRY=0, the env_sources values no provider claims, such as a proxy, a
+// CA bundle or a registry, and the env_sources removals. It is what a jail's refresh holds. The
+// jail's shared file reaches every process there, the launcher's refresh included; an entry whose
+// winner for the agent differs from the shared one (its provider's claimed credentials, its
+// profile-gated pack env, its env derive's shape vars and their tombstones) is in the agent's own
+// file instead (internal/cli/run's agentEnvFileContent, by the same comparison), which the launcher
+// sources after the refresh, because the refresh needs no credential and should run holding none
+// (internal/entrypoint's agentenv.go). So a credential the composition scopes to the program
+// reaches the program alone, and the refresh holds no value of yolo's the program does not: what the
+// program's environment keeps out (a service-only doorway pointer, a wire table under a composed
+// name) is not in its vars to begin with. The PATH is the child's before the blocked tools join it:
+// the jail runs its refresh with the blockers bypassed (YOLO_BYPASS_SHIMS=1), as it does every
+// installer.
 func (c *hostComposition) refreshEnviron(childPath string) []string {
-	var removals []agentenv.Var
+	shared := c.scope.SharedEnv()
+	var everyProcess []agentenv.Var
 	for _, v := range c.vars {
-		if v.Unset {
-			removals = append(removals, v)
+		if s, ok := shared.Lookup(v.Key); ok && s.Unset == v.Unset && s.Value == v.Value {
+			everyProcess = append(everyProcess, v)
 		}
 	}
-	env := agentenv.Apply(os.Environ(), removals)
+	env := agentenv.Apply(os.Environ(), everyProcess)
 	out := make([]string, 0, len(env)+1)
 	for _, kv := range env {
 		if !strings.HasPrefix(kv, "PATH=") {
