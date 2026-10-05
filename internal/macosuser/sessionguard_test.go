@@ -205,8 +205,12 @@ type guardRun struct {
 	rssKiB  int64
 	psCalls int
 	psErr   error
-	stdout  syncBuf
-	stderr  syncBuf
+	// ready, when set, keeps the child out of the fake table until its stdout holds this
+	// text. A child that must arm a trap before the guard judges it prints it once armed;
+	// otherwise a loaded machine slow to start sh lets the first sample stop it unarmed.
+	ready  string
+	stdout syncBuf
+	stderr syncBuf
 }
 
 // newGuardRun returns the seams for one run, the child at rssKiB resident in the fake table
@@ -239,7 +243,8 @@ func newGuardRun(t *testing.T, rssKiB int64) (*guardRun, guardSeams) {
 				return "", 0, g.psErr
 			}
 			table := fmt.Sprintf("%d 1 4000\n77777 %d 999999999\n", os.Getpid(), os.Getpid())
-			if g.child != 0 && syscall.Kill(g.child, 0) == nil {
+			armed := g.ready == "" || strings.Contains(g.stdout.String(), g.ready)
+			if g.child != 0 && armed && syscall.Kill(g.child, 0) == nil {
 				table += fmt.Sprintf("%d %d %d\n", g.child, os.Getpid(), g.rssKiB)
 			}
 			return table, 77777, nil
@@ -403,9 +408,11 @@ func TestTheGuardStopsTheLargestProcessWithTermThenKill(t *testing.T) {
 		t.Errorf("a process that left on SIGTERM got a SIGKILL line, or the reader was chosen:\n%s", errText)
 	}
 
-	// A child that ignores SIGTERM gets SIGKILL after the grace.
+	// A child that ignores SIGTERM gets SIGKILL after the grace. It joins the table only once
+	// its trap is armed, so the SIGTERM always finds the trap in place.
 	g, s = newGuardRun(t, 200<<10)
-	if n := waitRC(t, runGuard(fastGuard, []string{"sh", "-c", "trap '' TERM; while :; do sleep 0.02; done"}, s)); n != 128+int(syscall.SIGKILL) {
+	g.ready = "armed"
+	if n := waitRC(t, runGuard(fastGuard, []string{"sh", "-c", "trap '' TERM; echo armed; while :; do sleep 0.02; done"}, s)); n != 128+int(syscall.SIGKILL) {
 		t.Errorf("rc = %d, want 128+SIGKILL", n)
 	}
 	pid = g.childPid()
