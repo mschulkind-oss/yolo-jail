@@ -2,9 +2,13 @@ package macosuser
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
+	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"syscall"
@@ -191,10 +195,13 @@ func (b *syncBuf) String() string {
 // guardRun is one run of the real loop: a real child process under /bin/sh, a fake process
 // table built from that child's real pid, and a fake signal source the test writes to.
 type guardRun struct {
-	mu      sync.Mutex
-	sigs    chan<- os.Signal
-	child   int
-	kills   []string
+	mu    sync.Mutex
+	sigs  chan<- os.Signal
+	child int
+	kills []string
+	// events is the order the loop touched the process: "notify <signals>", "start",
+	// "ignore <signals>", each signal list sorted by number.
+	events  []string
 	rssKiB  int64
 	psCalls int
 	psErr   error
@@ -216,11 +223,12 @@ func newGuardRun(t *testing.T, rssKiB int64) (*guardRun, guardSeams) {
 			c := exec.Command(argv[0], argv[1:]...)
 			c.Stdout = &g.stdout
 			err := c.Start()
+			g.mu.Lock()
+			g.events = append(g.events, "start")
 			if err == nil {
-				g.mu.Lock()
 				g.child = c.Process.Pid
-				g.mu.Unlock()
 			}
+			g.mu.Unlock()
 			return c, err
 		},
 		ps: func() (string, int, error) {
@@ -243,17 +251,38 @@ func newGuardRun(t *testing.T, rssKiB int64) (*guardRun, guardSeams) {
 			return syscall.Kill(pid, sig)
 		},
 		alive: func(pid int) bool { return syscall.Kill(pid, 0) == nil },
-		notify: func(c chan<- os.Signal, _ ...os.Signal) {
+		notify: func(c chan<- os.Signal, sig ...os.Signal) {
 			g.mu.Lock()
 			g.sigs = c
+			g.events = append(g.events, "notify "+signalList(sig))
 			g.mu.Unlock()
 		},
-		stop:   func(chan<- os.Signal) {},
-		ignore: func(...os.Signal) {},
+		stop: func(chan<- os.Signal) {},
+		ignore: func(sig ...os.Signal) {
+			g.mu.Lock()
+			g.events = append(g.events, "ignore "+signalList(sig))
+			g.mu.Unlock()
+		},
 		self:   os.Getpid(),
 		stderr: &g.stderr,
 	}
 	return g, s
+}
+
+// signalList renders a signal list in number order, so a test compares sets.
+func signalList(sigs []os.Signal) string {
+	nums := make([]int, 0, len(sigs))
+	for _, s := range sigs {
+		nums = append(nums, int(s.(syscall.Signal)))
+	}
+	sort.Ints(nums)
+	return fmt.Sprint(nums)
+}
+
+func (g *guardRun) eventLog() []string {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	return append([]string(nil), g.events...)
 }
 
 func (g *guardRun) killLog() string {
@@ -394,6 +423,123 @@ func TestTheGuardSaysOnceWhenItCannotReadTheTable(t *testing.T) {
 	}
 	if g.killLog() != "" || g.psCalls < 2 {
 		t.Errorf("kills %q after %d reads; want none, and the guard to keep trying", g.killLog(), g.psCalls)
+	}
+}
+
+// TestTheGuardCatchesTheTerminalSignalsAndIgnoresJobControlAfterTheStart pins the loop's two
+// signal calls, their lists and their order. SIGINT, SIGQUIT, SIGTERM and SIGHUP are CAUGHT,
+// before the child starts: the guard shares the agent's process group, so a ^C or ^\ reaches
+// it too, and an uncaught one would kill it by default action. SIGTTOU and SIGTTIN are IGNORED,
+// and only after the start, because an ignored disposition survives exec and the agent must
+// not inherit one.
+func TestTheGuardCatchesTheTerminalSignalsAndIgnoresJobControlAfterTheStart(t *testing.T) {
+	g, s := newGuardRun(t, 1)
+	if rc := waitRC(t, runGuard(fastGuard, []string{"sh", "-c", "exit 0"}, s)); rc != 0 {
+		t.Fatalf("rc = %d, want 0", rc)
+	}
+	want := []string{
+		"notify " + signalList([]os.Signal{syscall.SIGINT, syscall.SIGQUIT, syscall.SIGTERM, syscall.SIGHUP}),
+		"start",
+		"ignore " + signalList([]os.Signal{syscall.SIGTTOU, syscall.SIGTTIN}),
+	}
+	if got := g.eventLog(); fmt.Sprint(got) != fmt.Sprint(want) {
+		t.Errorf("the loop's signal calls were %q, want %q (signals by number)", got, want)
+	}
+}
+
+// sessionGuardHelperEnv marks the test binary re-executed as the real guard.
+const sessionGuardHelperEnv = "YOLO_TEST_SESSION_GUARD_MAIN"
+
+// TestSessionGuardMainHelper is not a test of its own: it is this test binary re-executed as
+// `yolo internal session-guard`, the production entry point with the production seams, for
+// TestTheRealGuardSurvivesTheTerminalsSignals. Its arguments are the words after the first
+// `--` on the command line.
+func TestSessionGuardMainHelper(t *testing.T) {
+	if os.Getenv(sessionGuardHelperEnv) != "1" {
+		t.Skip("the real guard's own process; TestTheRealGuardSurvivesTheTerminalsSignals runs it")
+	}
+	args := os.Args
+	for i, a := range args {
+		if a == "--" {
+			args = args[i+1:]
+			break
+		}
+	}
+	os.Exit(SessionGuardMain(args))
+}
+
+// TestTheRealGuardSurvivesTheTerminalsSignals sends REAL signals to a REAL guard process, so
+// signal.Notify and signal.Ignore themselves are under test rather than a fake that records
+// what they were handed. The guard's position is why it matters: it shares the agent's process
+// group, so the terminal's ^C (SIGINT) and ^\ (SIGQUIT) reach it as well as the agent. Uncaught,
+// either would end it by default action, and sudo would see its command die while the agent
+// kept the terminal; a SIGTTIN or SIGTTOU at default action would stop it, and a stopped guard
+// neither samples nor reaps. So each signal goes to the guard alone, and the guard must still
+// be there to reap its child, must not have passed any of them on, and must exit with the
+// child's own status.
+func TestTheRealGuardSurvivesTheTerminalsSignals(t *testing.T) {
+	if _, err := exec.LookPath("sh"); err != nil {
+		t.Skip("no sh")
+	}
+	done := filepath.Join(t.TempDir(), "done")
+	script := `trap 'echo GOT-INT' INT; trap 'echo GOT-QUIT' QUIT; echo up; ` +
+		`while [ ! -e "$1" ]; do sleep 0.02; done; exit 9`
+	cmd := exec.Command(os.Args[0], "-test.run=^TestSessionGuardMainHelper$", "--",
+		"--memory", strconv.FormatInt(1<<40, 10), "--interval", "50ms", "--",
+		"sh", "-c", script, "sh", done)
+	cmd.Env = append(os.Environ(), sessionGuardHelperEnv+"=1")
+	var stdout, stderr syncBuf
+	cmd.Stdout, cmd.Stderr = &stdout, &stderr
+	// A process group of its own, whose parent (this process) sits in another group of the
+	// same session, so the group is not orphaned: a SIGTTIN at default action then really
+	// stops it instead of being discarded, and the ignore is what keeps it running.
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	guard := cmd.Process.Pid
+	exited := make(chan error, 1)
+	go func() { exited <- cmd.Wait() }()
+	t.Cleanup(func() {
+		_ = os.WriteFile(done, nil, 0o644)
+		_ = syscall.Kill(-guard, syscall.SIGCONT)
+		_ = syscall.Kill(-guard, syscall.SIGKILL)
+	})
+
+	waitFor(t, func() bool { return strings.Contains(stdout.String(), "up") })
+	// The ignore follows the start at once; a child printing "up" can only just beat it.
+	time.Sleep(200 * time.Millisecond)
+	for _, sig := range []syscall.Signal{syscall.SIGINT, syscall.SIGQUIT, syscall.SIGTTIN, syscall.SIGTTOU} {
+		if err := syscall.Kill(guard, sig); err != nil {
+			break // already gone, and reaped: its status below says what ended it
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	if err := os.WriteFile(done, nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	select {
+	case err := <-exited:
+		var ee *exec.ExitError
+		switch {
+		case err == nil:
+			t.Errorf("the guard exited 0, want the child's 9")
+		case errors.As(err, &ee):
+			if ws, ok := ee.Sys().(syscall.WaitStatus); ok && ws.Signaled() {
+				t.Errorf("the guard died of %v, a signal it must survive.\nstderr:\n%s", ws.Signal(), stderr.String())
+			} else if ee.ExitCode() != 9 {
+				t.Errorf("the guard exited %d, want the child's 9.\nstderr:\n%s", ee.ExitCode(), stderr.String())
+			}
+		default:
+			t.Errorf("waiting on the guard: %v", err)
+		}
+	case <-time.After(15 * time.Second):
+		t.Fatalf("the guard did not return within 15s of its child's exit: a SIGTTIN or SIGTTOU "+
+			"stopped it.\nstderr:\n%s", stderr.String())
+	}
+	if out := stdout.String(); strings.Contains(out, "GOT-INT") || strings.Contains(out, "GOT-QUIT") {
+		t.Errorf("the guard passed a terminal signal on to the child, which got its own copy: %q", out)
 	}
 }
 
