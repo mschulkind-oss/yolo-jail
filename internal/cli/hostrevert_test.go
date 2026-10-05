@@ -220,10 +220,18 @@ func TestApplyRevertActsAtTheHostNotch(t *testing.T) {
 //
 // The revert runs under `none` and the re-apply under `own`, the one round trip the two
 // contracts left allow: `--revert` refuses under `own` (TestHostRevertIsRefusedUnderOwn).
+//
+// AND THE DEFAULTS COME BACK (CO-D13), which is what "a first apply again" has to mean for the
+// user: the fixture adds a `stateful` surface carrying a declared default, composed under `own`
+// with its capture store. Before CO-D13 the revert left that store's baseline and captures behind,
+// so the owned apply after it read the reverted file as edits against the old baseline and wrote
+// `"theme": null` — the default the revert took out, replayed as the user's deletion — while the
+// report said "first apply".
 func TestHostRevertMakesTheNextApplyAFirstApplyAgain(t *testing.T) {
-	firstApplyReported := func(t *testing.T, revert bool) bool {
+	firstApplyReported := func(t *testing.T, revert bool) (bool, map[string]any) {
 		t.Helper()
 		home, _, _ := revertFixture(t, "own")
+		addStatefulRevertSurface(t, home)
 		applyOnce(t)
 		if revert {
 			setHostManagement(t, home, "none")
@@ -231,18 +239,23 @@ func TestHostRevertMakesTheNextApplyAFirstApplyAgain(t *testing.T) {
 			if rc := hostMain([]string{"apply", "--revert", "--assert"}, &o, &e, false, nil); rc != 0 {
 				t.Fatalf("revert rc=%d: %s%s", rc, o.String(), e.String())
 			}
+			if theme, left := readJSONMap(t, filepath.Join(home, ".rv", "state.json"))["theme"]; left {
+				t.Fatalf("fixture premise — the revert takes the default out: theme = %v", theme)
+			}
 			setHostManagement(t, home, "own")
 		}
 		var out, errw bytes.Buffer
 		if rc := applyMain([]string{"--at", "host", "--assert"}, &out, &errw, false, nil); rc != 0 {
 			t.Fatalf("re-apply rc=%d: %s%s", rc, out.String(), errw.String())
 		}
-		return strings.Contains(out.String(), "first apply of a surface into this home")
+		return strings.Contains(out.String(), "first apply of a surface into this home"),
+			readJSONMap(t, filepath.Join(home, ".rv", "state.json"))
 	}
 
 	var after, control bool
-	t.Run("after a revert", func(t *testing.T) { after = firstApplyReported(t, true) })
-	t.Run("control", func(t *testing.T) { control = firstApplyReported(t, false) })
+	var afterDoc map[string]any
+	t.Run("after a revert", func(t *testing.T) { after, afterDoc = firstApplyReported(t, true) })
+	t.Run("control", func(t *testing.T) { control, _ = firstApplyReported(t, false) })
 
 	if !after {
 		t.Error("the apply after a revert did not treat the home as a first apply — deleting " +
@@ -253,6 +266,40 @@ func TestHostRevertMakesTheNextApplyAFirstApplyAgain(t *testing.T) {
 		t.Error("a re-apply with NO revert also reported a first apply, so the assertion " +
 			"above is measuring a string the report always prints rather than the deletion")
 	}
+	if afterDoc["theme"] != "system" {
+		t.Errorf("the owned apply after the revert did not write the declared default back: %v — "+
+			"the revert left the capture store, and the apply replayed its removal as yours", afterDoc)
+	}
+}
+
+// addStatefulRevertSurface adds to revertFixture's pack a surface declaring no mode — `stateful`,
+// composed whole under `own` with a capture store — carrying one declared default.
+func addStatefulRevertSurface(t *testing.T, home string) {
+	t.Helper()
+	cfg := readJSONMap(t, filepath.Join(home, ".config", "yolo-jail", "config.jsonc"))
+	packs, _ := cfg["packs"].([]any)
+	src, _ := packs[0].(string)
+	packDir := strings.TrimPrefix(src, "file://")
+	writeFile(t, filepath.Join(packDir, "pack.json"), `{"name":"rv","contributes":[
+	  {"kind":"config","config":[{"agent":"rv","name":"settings","codec":"json",
+	    "path":"~/.rv/settings.json","mode":"rmw",
+	    "defaults":{"fillMe":"byYolo"},"managed":{"telemetry":false}},
+	   {"agent":"rv","name":"state","codec":"json","path":"~/.rv/state.json",
+	    "defaults":{"theme":"system"}}]}]}`)
+}
+
+// readJSONMap decodes a JSON object file.
+func readJSONMap(t *testing.T, path string) map[string]any {
+	t.Helper()
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var m map[string]any
+	if err := json.Unmarshal(data, &m); err != nil {
+		t.Fatalf("%s: %v\n%s", path, err, data)
+	}
+	return m
 }
 
 // TestHostRevertIsRefusedUnderOwn pins the refusal and both CALL SITES: `yolo host apply

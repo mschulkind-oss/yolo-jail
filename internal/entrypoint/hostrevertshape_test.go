@@ -107,7 +107,9 @@ func shapeDefaultPack(t *testing.T) *packload.Pack {
 }
 
 // THE RULE, generically: the empty object and the empty array stay, the scalar goes; and a
-// default the user has since filled is content, not shape, so it goes too.
+// default the user has since filled is the user's, so it stays too — kept as the user's value, not
+// as shape. Until CO-D12 that last case went ("content, not shape"): under `none` no apply relabels
+// a filled default as the user's, so the revert took the user's entries with yolo's empty table.
 func TestARevertKeepsOnlyEmptyDefaultsStillAtTheirDeclaredValue(t *testing.T) {
 	p := shapeDefaultPack(t)
 	home := t.TempDir()
@@ -132,8 +134,8 @@ func TestARevertKeepsOnlyEmptyDefaultsStillAtTheirDeclaredValue(t *testing.T) {
 		t.Errorf("the revert names %d kept keys, want the two empty defaults: %+v", len(rev.Kept), rev.Kept)
 	}
 
-	// Filled since the apply: `table` holds the user's entry, so it is no longer the shape the
-	// pack declares, and the revert takes it as it takes any key yolo's record attributes.
+	// Filled since the apply: `table` holds the user's entry, so it is no longer the default the
+	// pack declares — it is the user's, and the revert leaves it and says so.
 	home = t.TempDir()
 	if _, err := RenderHostPack(p, home, render.OwnershipOwn, false, nil, nil); err != nil {
 		t.Fatalf("apply: %v", err)
@@ -142,10 +144,20 @@ func TestARevertKeepsOnlyEmptyDefaultsStillAtTheirDeclaredValue(t *testing.T) {
 	if err := os.WriteFile(path, []byte(`{"table":{"mine":1},"list":[],"fillMe":"byYolo"}`), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := RevertHostRender([]*packload.Pack{p}, home, false); err != nil {
+	rev, err = RevertHostRender([]*packload.Pack{p}, home, false)
+	if err != nil {
 		t.Fatalf("revert: %v", err)
 	}
-	if doc := decodeJSONFile(t, path); doc["table"] != nil {
-		t.Errorf("a default holding the user's content was kept as if it were shape: %v", doc)
+	if table, _ := decodeJSONFile(t, path)["table"].(map[string]any); table["mine"] != float64(1) {
+		t.Errorf("a default the user filled was taken out: %v", decodeJSONFile(t, path))
+	}
+	named := false
+	for _, k := range rev.Kept {
+		if k.Key == "table" {
+			named = k.Why != "" && k.Why != keptWhyShape
+		}
+	}
+	if !named {
+		t.Errorf("the filled default is not reported as kept for being the user's: %+v", rev.Kept)
 	}
 }

@@ -107,9 +107,36 @@ func writeSidecar(t render.Target, path, content string) error {
 func readSelectionRecord(e *Env, agent, name string) map[string]any {
 	data, err := os.ReadFile(prismSelectionRecordPath(e, agent, name))
 	if err != nil {
+		// THE RECORD THE RETIRED `assert` KEPT, read when the capture store has none (CO-D14). A
+		// home `assert` wrote into kept it beside the provenance record; without this read the
+		// first owned apply found no record, read the user's own model pick as unrecorded, and
+		// a re-selection moved it — the "a pick of your own after that stands" its warning
+		// promises was false for exactly that home. Read-only: the owned write lands in the
+		// capture store, which wins from then on, and `--revert` removes the old file.
+		if legacy := legacySelectionRecordPath(e, agent, name); legacy != "" {
+			if data, lerr := os.ReadFile(legacy); lerr == nil {
+				return agentcfg.ParseSelectionRecord(data)
+			}
+		}
 		return nil
 	}
 	return agentcfg.ParseSelectionRecord(data)
+}
+
+// legacySelectionRecordPath is where the retired `assert` kept a host surface's selection record —
+// beside the provenance record, since that contract had no capture store — or "" off the host
+// notch. Nothing writes it any more (render.Target.SelectionPath is the capture store's alone);
+// readSelectionRecord falls back to it and `--revert` removes it.
+func legacySelectionRecordPath(e *Env, agent, name string) string {
+	t := e.renderTarget()
+	if t.KindOf() != render.KindHost {
+		return ""
+	}
+	dir := t.ProvenanceDir()
+	if dir == "" {
+		return ""
+	}
+	return filepath.Join(dir, agent+"-"+name+".selection.json")
 }
 
 // noteSelectionClears records, in the boot log only, each key a deselect cleared out of the

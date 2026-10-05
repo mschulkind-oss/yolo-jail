@@ -100,11 +100,20 @@ func hostRevert(out, errw io.Writer, color bool, write bool) int {
 	}
 	// The keys of yolo's the revert LEAVES, named for the reason the removals are: after it
 	// the file still holds them, and a report listing only removals would read as if nothing
-	// of yolo's remained. An empty default is the shape the pack declares its file needs
-	// (entrypoint.keptShapeDefault), so taking it out would leave a file its agent rejects.
+	// of yolo's remained. Each says why (entrypoint.HostRevertedKey.Why): an empty default the
+	// agent's file needs, or a value that no longer holds what yolo wrote — the user's (CO-D12).
 	for _, k := range result.Kept {
-		pr.Printf("  [dim]%-20s keeps %s (%s: an empty default, the shape the pack declares "+
-			"this file needs)  %s[/dim]", k.Surface, k.Key, k.Layer, k.Path)
+		pr.Printf("  [dim]%-20s keeps %s (%s: %s)  %s[/dim]", k.Surface, k.Key, k.Layer,
+			richtext.Escape(k.Why), k.Path)
+	}
+	// The capture-store files and the old selection record the revert removes with the
+	// records, so a later owned apply is a first apply again (CO-D13, CO-D14).
+	for _, f := range result.Forgotten {
+		verb := "would forget"
+		if write {
+			verb = "forgot"
+		}
+		pr.Printf("  [dim]%-20s %s %s[/dim]", "record", verb, f)
 	}
 	if rerr != nil {
 		fmt.Fprintf(errw, "yolo host apply --revert: %v\n", rerr)
