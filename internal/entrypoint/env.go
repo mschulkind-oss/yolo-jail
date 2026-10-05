@@ -138,7 +138,8 @@ type Env struct {
 	// sessionEnvKeys names the keys hydrateEnvFromSessionEnvFile put into Vars from the
 	// macos-user session env file — the LAUNCHED agent's environment, which carries the values
 	// the credential gate scoped to that agent alongside the shared ones. loadMCPTables reads it
-	// to keep a scoped value out of the shared view (scopedMCPView). Nil on every other boot.
+	// to rebuild the shared composition from the per-agent files (scopedMCPView). Nil on every
+	// other boot.
 	sessionEnvKeys map[string]struct{}
 	// orphanFS is where the orphan finders read and the removal act unlinks
 	// (orphanFiles): nil, the plain filesystem, everywhere but the macos-user bootstrap's

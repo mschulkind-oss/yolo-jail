@@ -261,30 +261,35 @@ func TestAnEnvSourcesDefaultCannotTurnOnTheContainerAutoprune(t *testing.T) {
 // macos-user the session env file is the LAUNCHED agent's environment, so it carries that
 // agent's scoped values too — the ones the launch also writes to its per-agent file
 // (~/.config/yolo-agent-env/<agent>.sh). Hydrated into the shared view, a server gated on one
-// was written into every agent's config and the "configured only for" notice was lost. A key
-// some agent's file names is therefore not taken from the session file for the shared view or
-// for any agent's fallback; the agent whose file sets it still gets the server. Both of the
-// writer's line shapes are covered: the def-form default and the `case` a composed value takes
-// when yolo set its name elsewhere.
+// was written into every agent's config and the "configured only for" notice was lost. Such a
+// key leaves the shared view, and the agents whose own file sets it still get the server. Both
+// of the writer's line shapes for a value nothing shares are covered: the def-form default, and
+// the `case` each of two agents' files takes when both profiles compose the name (each lists
+// the other's value). pi's file names something else, so pi stands for every agent without the
+// value. A shared value one profile also composes is the other side of this rule
+// (TestTheMacosUserMCPGateAnswersAsTheContainerDoes).
 //
 // MUTATION: make loadMCPTables ask e.Lookup instead of the scoped view, and zai is shared.
 func TestASessionValueScopedToOneAgentStaysInItsMCPTable(t *testing.T) {
-	for _, form := range []struct{ name, line string }{
-		{"def-form", "export ZAI_API_KEY=${ZAI_API_KEY:-'k'}"},
-		{"case-form", `case "${ZAI_API_KEY-}" in ''|'inherited') export ZAI_API_KEY='k' ;; esac`},
+	for _, form := range []struct {
+		name   string
+		files  map[string]string
+		holder string
+	}{
+		{"def-form", map[string]string{
+			"claude": "export ZAI_API_KEY=${ZAI_API_KEY:-'k'}",
+		}, "claude"},
+		{"case-form", map[string]string{
+			"claude": `case "${ZAI_API_KEY-}" in ''|'c') export ZAI_API_KEY='k' ;; esac`,
+			"codex":  `case "${ZAI_API_KEY-}" in ''|'k') export ZAI_API_KEY='c' ;; esac`,
+		}, "claude, codex"},
 	} {
 		t.Run(form.name, func(t *testing.T) {
 			home := resolvedDir(t)
-			agentDir := filepath.Join(home, AgentEnvDirRel)
-			if err := os.MkdirAll(agentDir, 0o755); err != nil {
-				t.Fatal(err)
+			for agent, line := range form.files {
+				writeAgentEnvFile(t, home, agent, line+"\n")
 			}
-			if err := os.WriteFile(filepath.Join(agentDir, "claude.sh"), []byte(form.line+"\n"), 0o600); err != nil {
-				t.Fatal(err)
-			}
-			if err := os.WriteFile(filepath.Join(agentDir, "codex.sh"), []byte("export OTHER=${OTHER:-'o'}\n"), 0o600); err != nil {
-				t.Fatal(err)
-			}
+			writeAgentEnvFile(t, home, "pi", "export OTHER=${OTHER:-'o'}\n")
 			session := writeSessionEnvFile(t, "export ZAI_API_KEY='k'\nexport GITHUB_TOKEN='ghp_fake'\n")
 			e := DarwinEnvFrom(map[string]string{
 				"JAIL_HOME": home,
@@ -299,18 +304,18 @@ func TestASessionValueScopedToOneAgentStaysInItsMCPTable(t *testing.T) {
 			tables := loadMCPTables(e)
 
 			if _, ok := tables.shared.Get("zai"); ok {
-				t.Errorf("a server gated on claude's scoped value is in the shared MCP table\n%s", term.String())
+				t.Errorf("a server gated on a scoped value is in the shared MCP table\n%s", term.String())
 			}
-			if _, ok := tables.perAgent["codex"].Get("zai"); ok {
-				t.Errorf("codex's table carries a server gated on claude's scoped value\n%s", term.String())
+			if _, ok := tables.perAgent["pi"].Get("zai"); ok {
+				t.Errorf("pi's table carries a server gated on another agent's scoped value\n%s", term.String())
 			}
-			if form.name == "def-form" {
-				if _, ok := tables.perAgent["claude"].Get("zai"); !ok {
-					t.Errorf("claude's own table lost the server its file's value satisfies\n%s", term.String())
+			for agent := range form.files {
+				if _, ok := tables.perAgent[agent].Get("zai"); !ok {
+					t.Errorf("%s's own table lost the server its file's value satisfies\n%s", agent, term.String())
 				}
-				if !strings.Contains(term.String(), "notice: MCP server 'zai' configured only for claude") {
-					t.Errorf("the per-agent notice is missing:\n%s", term.String())
-				}
+			}
+			if !strings.Contains(term.String(), "notice: MCP server 'zai' configured only for "+form.holder+" ") {
+				t.Errorf("the per-agent notice does not name %s:\n%s", form.holder, term.String())
 			}
 			if _, ok := tables.shared.Get("gh"); !ok {
 				t.Errorf("the shared env_sources value no agent file names was dropped from the shared table\n%s",

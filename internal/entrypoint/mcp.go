@@ -1,9 +1,8 @@
 package entrypoint
 
 import (
-	"os"
 	"path/filepath"
-	"regexp"
+	"sort"
 	"strings"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
@@ -283,8 +282,10 @@ type mcpTables struct {
 //
 // "The boot's environment" is scopedMCPView's, not e's own, and on the container the two are
 // the same. On macos-user the bootstrap also hydrated the session env file, which is the
-// LAUNCHED agent's environment and so carries that agent's scoped values too; the view leaves
-// those out, so they reach the agent whose file sets them and no other.
+// LAUNCHED agent's environment and so carries that agent's scoped values too; the view is the
+// shared composition the container's boot environment holds, rebuilt from the per-agent files,
+// so a scoped value reaches the agents whose file sets it and no other, and a shared one every
+// agent.
 func loadMCPTables(e *Env) mcpTables {
 	view := scopedMCPView(e)
 	shared, skipped := e.mcpServersWith(view.Lookup)
@@ -312,71 +313,119 @@ func loadMCPTables(e *Env) mcpTables {
 	return t
 }
 
-// scopedMCPView is the environment loadMCPTables asks for the jail-wide table, and under each
-// agent's own file: e itself, unless the macos-user bootstrap hydrated a session env file
-// (e.sessionEnvKeys) holding a key some agent's per-agent env file names. Such a key is dropped
-// from the view, because the file it came from is one agent's launch environment: the
-// credential gate scoped the value to that agent, which is why its per-agent file sets it too
-// (the launch writes every profiled agent's file before the bootstrap runs). Taken into the
-// shared view it put a server gated on it in every agent's config and lost the "configured only
-// for" notice; dropped, the server reaches the agents whose file sets the key, as it does in a
-// container, whose boot environment never holds a scoped value.
+// scopedMCPView is the environment loadMCPTables asks, for the jail-wide table and under each
+// agent's own file: e itself, except on the macos-user bootstrap, which hydrated a session env
+// file (e.sessionEnvKeys). That file is the LAUNCHED agent's environment: the shared
+// composition a container's boot environment holds, plus everything the credential gate scoped
+// to that agent, which is also written to that agent's own env file (the launch writes every
+// profiled agent's file before the bootstrap runs). The view is the shared composition alone,
+// rebuilt from the files, so every table is the container's:
 //
-// A key BOTH shared and named by some agent's file is dropped too, which can only withhold a
-// server, never grant one (fail closed), and the notice then names the agents that have it.
+//   - A session key no agent's file names is the shared composition's, and stays.
+//   - A session key some agent's file names stays only where the files show the shared
+//     composition sets it, at the value it sets there (sharedValueInAgentFiles), and otherwise
+//     leaves the view: the session's value may be the launched agent's own. Each agent's table
+//     then asks its own file over the view, as its launcher will.
 //
-// The view is a separate Env holding only what agentEnvLookup and Lookup read (the home and
-// the variables), so nothing the gate does writes through it.
+// Leaving a key out can only withhold a server, from the agents whose own file does not set
+// the key, never grant one. It withholds wrongly in one shape alone, where every value the
+// files' `case` lines list for the key is also some other agent's own, which needs two or more
+// profiles to set the key to the shared value itself (sharedValueInAgentFiles says why). Both
+// rules read the files the launch wrote, and that writer is best-effort: a profiled agent's file
+// it failed to write leaves that agent's values looking shared. The view is a separate Env
+// holding only what agentEnvLookup and Lookup read (the home and the variables), so nothing the
+// gate does writes through it.
 func scopedMCPView(e *Env) *Env {
 	if len(e.sessionEnvKeys) == 0 {
 		return e
 	}
-	scoped := agentEnvFileNames(e)
-	var drop []string
+	files := map[string][]agentEnvLine{}
+	for _, agent := range agentsWithEnvFiles(e) {
+		files[agent] = readAgentEnvFile(e.Home, agent)
+	}
+	var vars map[string]string
 	for k := range e.sessionEnvKeys {
-		if scoped[k] {
-			drop = append(drop, k)
+		shared, named := sharedValueInAgentFiles(files, k)
+		if !named {
+			continue
+		}
+		if vars == nil {
+			vars = make(map[string]string, len(e.Vars))
+			for vk, vv := range e.Vars {
+				vars[vk] = vv
+			}
+		}
+		if shared != "" {
+			vars[k] = shared
+		} else {
+			delete(vars, k)
 		}
 	}
-	if len(drop) == 0 {
+	if vars == nil {
 		return e
-	}
-	vars := make(map[string]string, len(e.Vars))
-	for k, v := range e.Vars {
-		vars[k] = v
-	}
-	for _, k := range drop {
-		delete(vars, k)
 	}
 	return &Env{Home: e.Home, Vars: vars}
 }
 
-// agentEnvFileNameRe finds each variable a per-agent env file line sets or removes: the
-// writer's def-form and plain exports, the `case … ) export K=… ;; esac` a composed value
-// takes when yolo set its name elsewhere, and `unset K` in either shape
-// (internal/cli/run's agentEnvFileContent). Matching a name inside a quoted value as well can
-// only drop one more key from the shared view, which withholds rather than grants.
-var agentEnvFileNameRe = regexp.MustCompile(`(?:^|[^A-Za-z0-9_])(?:export|unset)\s+([A-Za-z_][A-Za-z0-9_]*)`)
-
-// agentEnvFileNames is the set of variable names any agent's env file under this home sets or
-// removes (agentsWithEnvFiles; scopedMCPView says why). A file it cannot read names nothing.
-func agentEnvFileNames(e *Env) map[string]bool {
-	out := map[string]bool{}
-	for _, agent := range agentsWithEnvFiles(e) {
-		data, err := os.ReadFile(AgentEnvFile(e.Home, agent))
-		if err != nil {
-			continue
-		}
-		for _, line := range splitLines(string(data)) {
-			if strings.HasPrefix(strings.TrimSpace(line), "#") {
+// sharedValueInAgentFiles is the value the shared composition sets key to, as the per-agent
+// env files show it, and whether any file names key at all ("" and true: named, and not shown
+// to be shared).
+//
+// It reads the writer's `case` line (agentEnvLine). The writer gives a composed value that form
+// when yolo set its name elsewhere this entry, and the line lists every value set there
+// (internal/cli/run's inheritedValues): the shared composition's, and the value each OTHER
+// agent's profile composes, which that agent's own file sets too. (Its third source, a running
+// container's environment on an attach, is never one here: this view is the macos-user
+// bootstrap's.) So a listed value that no other agent's file sets key to is the shared
+// composition's. A def-form line says yolo set the name nowhere else, and a claimed
+// env_sources value is never shared, so neither shows a shared value. Where every listed value
+// is also another agent's own, the shared value cannot be told from theirs, and none is
+// returned.
+func sharedValueInAgentFiles(files map[string][]agentEnvLine, key string) (string, bool) {
+	agents := make([]string, 0, len(files))
+	for agent := range files {
+		agents = append(agents, agent)
+	}
+	sort.Strings(agents)
+	named := false
+	setBy := map[string]map[string]bool{} // value → agents whose file sets key to it
+	for _, agent := range agents {
+		for _, l := range files[agent] {
+			if l.key != key {
 				continue
 			}
-			for _, m := range agentEnvFileNameRe.FindAllStringSubmatch(line, -1) {
-				out[m[1]] = true
+			named = true
+			if !l.unset {
+				if setBy[l.value] == nil {
+					setBy[l.value] = map[string]bool{}
+				}
+				setBy[l.value][agent] = true
 			}
 		}
 	}
-	return out
+	for _, agent := range agents {
+		for _, l := range files[agent] {
+			if l.key != key || !l.cased {
+				continue
+			}
+			for _, v := range l.guard {
+				if v != "" && !setByAnother(setBy[v], agent) {
+					return v, true
+				}
+			}
+		}
+	}
+	return "", named
+}
+
+// setByAnother reports whether an agent other than agent is in by.
+func setByAnother(by map[string]bool, agent string) bool {
+	for other := range by {
+		if other != agent {
+			return true
+		}
+	}
+	return false
 }
 
 // contains reports whether list holds s.
