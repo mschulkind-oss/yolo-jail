@@ -270,6 +270,51 @@ Left: macos-user delivery, [OQ-PFK5](patched-forks.md#OQ-PFK5), which waits on
 and a hardware run of a host floor install, since every floor test here stands in for the build
 jail.
 
+## Patched extensions, steps 2 to 5, landed 2026-10-04
+
+[`patched-extensions.md` §16](patched-extensions.md#16-what-i-would-build-in-order) steps 2 to 5, over
+the shared advance. What the tree changed against the [patched-extension map](#patched-extensions):
+
+| Where | What landed |
+| :--- | :--- |
+| [`packdecl/patchedext.go`](../../internal/packdecl/patchedext.go), [`fork.go`](../../internal/packdecl/fork.go), [`contributes.go`](../../internal/packdecl/contributes.go) | the declaration, its refusals and the owner-key uniqueness; the placement refusal lets the fork fields onto `files` beside `patches` only; `TreeRecipe` |
+| [`packload/patchedtrees.go`](../../internal/packload/patchedtrees.go), [`forks.go`](../../internal/packload/forks.go), [`footprint.go`](../../internal/packload/footprint.go) | a patched extension is a `packload.Fork` with `Into` (and `Owner`, `OwnerForks`, where its entry reaches); `PatchedTrees`, `HoldPacks`, `Label`, `LintPatchedTrees`; the review-marked claim |
+| [`cli/forkbuild.go`](../../internal/cli/forkbuild.go), [`forkbuildchild.go`](../../internal/cli/forkbuildchild.go), [`patchedadvance.go`](../../internal/cli/patchedadvance.go) | the tree's recipe, jail argv, seal and admit; the child's `--tree`; the advance's lines name the extension, and its move reaps without reading delivery records |
+| [`capture/treecopy.go`](../../internal/capture/treecopy.go) | `CopyTree`: one subtree of an entry, reflink or copy, never a hardlink |
+| [`cli/treedelivery.go`](../../internal/cli/treedelivery.go), [`run/patchedtrees.go`](../../internal/cli/run/patchedtrees.go), [`run/packfiles.go`](../../internal/cli/run/packfiles.go) | the tree arm in the fork slot, the per-launch copy and its marker check, the mount from the copy, `YOLO_PATCHED_TREES`, the launch block, the attach line, macos-user's line |
+| [`entrypoint/patchedtrees.go`](../../internal/entrypoint/patchedtrees.go), [`shims.go`](../../internal/entrypoint/shims.go), [`forklauncher.go`](../../internal/entrypoint/forklauncher.go) | the owner's launchers' gate |
+| [`cli/hosttrees.go`](../../internal/cli/hosttrees.go), [`applyhostfiles.go`](../../internal/cli/applyhostfiles.go), [`host.go`](../../internal/cli/host.go), [`hostapply.go`](../../internal/cli/hostapply.go) | the host render, the advance before it, and the host stop |
+| [`cli/capturehost.go`](../../internal/cli/capturehost.go), [`forkpin.go`](../../internal/cli/forkpin.go), [`patchedfork.go`](../../internal/cli/patchedfork.go) | the explicit acts on an extension key |
+
+Run once by hand, 2026-10-04, in a nested jail from a throwaway workspace with a scratch `HOME`
+(`env -u YOLO_VERSION`, `YOLO_NO_AUTO_IMAGE_REAP=1`, `YOLO_REPO_ROOT` at the stage's worktree), with a
+local upstream of two files, a one-patch series and an agent pack owning a `packages` list: the first
+launch replayed the series, built the tree in a real sealed build jail (its admit passing on the real
+capture manifest, 6 paths), and the jail read the patched file at `~/<into>`, found it read-only,
+and was handed `YOLO_PATCHED_TREES` with the build and an empty gate; a second launch inside the
+hour ran no git and mounted the same build; and after the build line was edited to `false`, the
+failed build left nothing mounted, the earlier mountpoint retired, and the agent's launcher carrying
+the stop with the host's reason.
+
+Corrected in review the same day: a build line ending in a `# comment` no longer comments out the
+subshell's close and the final copy, the line sitting on lines of its own; a patched extension's claim
+is disclosed at launch ([PPX-D29](patched-extensions.md#PPX-D29)); its build jail no longer reports
+the contributing pack's own list entry as ownerless ([PPX-D30](patched-extensions.md#PPX-D30)); a
+revert removes the host's link and copies ([PPX-D31](patched-extensions.md#PPX-D31)); `yolo host --
+<bin>` names the build its link names, is silent under `host_management: none`, and on a macOS host
+says the agent starts without the tree ([PPX-D25](patched-extensions.md#PPX-D25),
+[PPX-D26](patched-extensions.md#PPX-D26)); a host advance's wait and interrupt lines name the host;
+an attach reads the delivery record once and says an unreadable one once, with its next step; and
+`yolo pack status` heads its section for what it lists, which the commit before said it did and did
+not. Five launch call sites, four host ones and the native launcher's gate gained the tests that fail
+with each deleted.
+
+Left: [PPX-D16](patched-extensions.md#PPX-D16)'s series lint, which needs the upstream's `.gitignore`
+at the base from the replay's scratch repository; step 6, migrating the five and a nested-jail run in
+which a real pi loads a built tree (a human's check, AGENTS.md's no-agent rule); and an integration
+test of a tree through a real build jail, which this stage could not run (parallel stages share the
+session image).
+
 ## Measurements to make
 
 - The maintainer's own pi series against the newest upstream version: the replay's time on the

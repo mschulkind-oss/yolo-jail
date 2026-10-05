@@ -57,7 +57,7 @@ func mustReadFile(t *testing.T, p string) string {
 func footerLikePack(t *testing.T) (*packload.Pack, packFilesTarget) {
 	t.Helper()
 	p := workspaceFilesPack(t, "footer-like", "index.js", ".oh-omp/agent/extensions/yolo-footer/index.js", ".oh-omp")
-	targets := packFilesTargets([]*packload.Pack{p})
+	targets := packFilesTargets([]*packload.Pack{p}, nil)
 	if len(targets) != 1 || !isFile(targets[0].Src) {
 		t.Fatalf("the fixture pack resolves to %+v, want one single-file target", targets)
 	}
@@ -172,7 +172,7 @@ func TestPreparePackFilesMakesNoMountpointOutsideTheOverlay(t *testing.T) {
 			hostDir := t.TempDir()
 			symlinkAt(t, hostDir, filepath.Join(wsState, linked))
 
-			preparePackFiles([]*packload.Pack{pack}, wsState, "podman")
+			preparePackFiles([]*packload.Pack{pack}, nil, wsState, "podman")
 
 			if entries, _ := os.ReadDir(hostDir); len(entries) != 0 {
 				t.Errorf("preparePackFiles created %v in a host directory through the jail's link at %s",
@@ -182,7 +182,7 @@ func TestPreparePackFilesMakesNoMountpointOutsideTheOverlay(t *testing.T) {
 	}
 	t.Run("no link", func(t *testing.T) {
 		wsState := filepath.Join(t.TempDir(), ".yolo", "home")
-		preparePackFiles([]*packload.Pack{pack}, wsState, "podman")
+		preparePackFiles([]*packload.Pack{pack}, nil, wsState, "podman")
 		if !fileIsEmptyRegular(filepath.Join(wsState, rel)) {
 			t.Errorf("preparePackFiles no longer creates the mountpoint at %s", rel)
 		}

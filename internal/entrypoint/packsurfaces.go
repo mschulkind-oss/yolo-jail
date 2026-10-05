@@ -231,8 +231,12 @@ func reportOverlayResolution(e *Env, overlays *packoverlay.OverlaySet) {
 		problem := prob
 		genStep(e, "pack_config_overlays", func() error { return fmt.Errorf("%s", problem) })
 	}
-	for _, orphan := range overlays.Orphans {
-		e.warn(fmt.Sprintf("%s  %s (pack %s)", orphan.KindName(), orphan.Reason(), orphan.Pack))
+	// Not in a patched extension's build jail (TreeBuildEnv), whose seal leaves every list of the
+	// contributing pack ownerless by construction; the user's own jails name each one.
+	if e.Getenv(TreeBuildEnv) == "" {
+		for _, orphan := range overlays.Orphans {
+			e.warn(fmt.Sprintf("%s  %s (pack %s)", orphan.KindName(), orphan.Reason(), orphan.Pack))
+		}
 	}
 	for _, applied := range overlays.Applied() {
 		e.warn(fmt.Sprintf("%s: config-overlay keys from %s (yolo config diff %s)",

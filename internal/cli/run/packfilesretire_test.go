@@ -56,7 +56,7 @@ func TestRetireNeverRemovesThroughAPlantedLink(t *testing.T) {
 			symlinkAt(t, host, filepath.Join(filepath.Dir(wsState), at.link))
 			forgeRetireManifest(t, wsState, rel, hostFileBody)
 
-			preparePackFiles(nil, wsState, "podman")
+			preparePackFiles(nil, nil, wsState, "podman")
 
 			if got, err := os.ReadFile(hostFile); err != nil || string(got) != hostFileBody {
 				t.Errorf("the retire loop removed the host file through the jail's link at %s: %q, %v",
@@ -70,7 +70,7 @@ func TestRetireNeverRemovesThroughAPlantedLink(t *testing.T) {
 			symlinkAt(t, filepath.Join(dir, "created-by-the-follow"), filepath.Join(filepath.Dir(wsState), at.link))
 			forgeRetireManifest(t, wsState, rel, hostFileBody)
 
-			preparePackFiles(nil, wsState, "podman")
+			preparePackFiles(nil, nil, wsState, "podman")
 
 			assertEmptyDir(t, dir, "a dangling link at "+at.link)
 		})
@@ -81,7 +81,7 @@ func TestRetireNeverRemovesThroughAPlantedLink(t *testing.T) {
 		symlinkAt(t, hostFile, filepath.Join(wsState, rel))
 		forgeRetireManifest(t, wsState, rel, hostFileBody)
 
-		preparePackFiles(nil, wsState, "podman")
+		preparePackFiles(nil, nil, wsState, "podman")
 
 		if got, err := os.ReadFile(hostFile); err != nil || string(got) != hostFileBody {
 			t.Errorf("the retire loop removed the host file behind the jail's link: %q, %v", got, err)
@@ -93,7 +93,7 @@ func TestRetireNeverRemovesThroughAPlantedLink(t *testing.T) {
 		symlinkAt(t, filepath.Join(dir, "created-by-the-follow"), filepath.Join(wsState, rel))
 		forgeRetireManifest(t, wsState, rel, hostFileBody)
 
-		preparePackFiles(nil, wsState, "podman")
+		preparePackFiles(nil, nil, wsState, "podman")
 
 		assertEmptyDir(t, dir, "a dangling link at the recorded path")
 	})
@@ -126,7 +126,7 @@ func TestRetireNeverRemovesThroughALinkSwappedInAfterTheCheck(t *testing.T) {
 			}
 			t.Cleanup(func() { packFilesBeforeRetire = nil })
 
-			preparePackFiles(nil, wsState, "podman")
+			preparePackFiles(nil, nil, wsState, "podman")
 
 			if !swapped {
 				t.Fatal("the retire loop never reached the removal: the fixture is not exercising the race")
@@ -143,7 +143,7 @@ func TestRetireNeverRemovesThroughALinkSwappedInAfterTheCheck(t *testing.T) {
 		writeFixture(t, filepath.Join(filepath.Dir(wsState), packFilesMountpointManifestName),
 			`{"version":1,"entries":{"`+filepath.ToSlash(rel)+`":{"kind":"file"},"pi/empty-dir":{"kind":"dir"}}}`)
 
-		preparePackFiles(nil, wsState, "podman")
+		preparePackFiles(nil, nil, wsState, "podman")
 
 		for _, p := range []string{rel, filepath.Join("pi", "empty-dir")} {
 			if _, err := os.Lstat(filepath.Join(wsState, p)); !os.IsNotExist(err) {

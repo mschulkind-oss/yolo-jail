@@ -514,6 +514,12 @@ type Options struct {
 	// which imports this package; the front door injects it. nil builds nothing, and every fork
 	// then reaches its jail with the reason that says so.
 	BuildForks func(req ForkBuildRequest) map[string]entrypoint.ForkDelivery
+	// BuildTrees is the TREE ARM's act (docs/design/patched-extensions.md §6.1, §8.1;
+	// patchedtrees.go): for every patched extension in the request, the check and the advance
+	// (unless the request says this launch builds nothing), then the per-launch copy of the good
+	// build beside this launch's pack tree, by extension key. Injected for BuildForks' reason, and
+	// nil builds and copies nothing, each tree reaching its jail with the reason that says so.
+	BuildTrees func(req TreeBuildRequest) map[string]TreeDelivery
 	// Sealed is THE SEAL (docs/design/forked-programs-as-packs.md FP-D9; seal.go): this launch is
 	// a fork BUILD, whose command is arbitrary code from a repository a pack named, so the jail is
 	// handed no credential and nothing that writes outside its own workspace and home. Every
@@ -523,6 +529,10 @@ type Options struct {
 	// directly. seal.go lists the sites. Set by the build act alone (internal/cli's forkbuild.go);
 	// false for every other launch, `yolo capture` of an installer included.
 	Sealed bool
+	// SealedTree is, under the seal, the name of the PATCHED EXTENSION this launch builds, "" for a
+	// fork's build: the jail is told it (entrypoint.TreeBuildEnv), since its selection is the
+	// contributing pack alone (docs/design/patched-extensions.md PPX-D5, PPX-D30).
+	SealedTree string
 	// OnlyPacks, when non-nil, narrows this launch's `packs` entries to the ones named here, before
 	// the selection closure runs (so the packs those entries need or fork still join). The build
 	// act sets it to the fork and its configured base (FP-D9: a build that works only while some
@@ -598,6 +608,11 @@ type Options struct {
 	// handedForks are the bins a patched fork's advance recorded itself, under its record lock
 	// (ForkBuildRequest.Hand), which the trigger's own record of the rest leaves as they are.
 	handedForks []string
+	// patchedTrees are this launch's patched extensions, read above the dispatch
+	// (notePatchedTrees), and treeDelivered what the tree arm handed the jail for each, by
+	// extension key (treeDeliveriesFor).
+	patchedTrees  []packload.Fork
+	treeDelivered map[string]TreeDelivery
 }
 
 // captureConfigOnTerminate runs the injected E3 capture for a jail that has just

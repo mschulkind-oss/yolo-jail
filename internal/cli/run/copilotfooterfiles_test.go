@@ -36,7 +36,7 @@ func TestCopilotFooterScriptLeavesCopilotStateAlone(t *testing.T) {
 				t.Fatal(err)
 			}
 
-			archived := preparePackFiles([]*packload.Pack{copilot}, wsState, rt)
+			archived := preparePackFiles([]*packload.Pack{copilot}, nil, wsState, rt)
 			if len(archived) != 0 {
 				t.Errorf("the first launch with the copilot pack archived %v: copilot's own state is not a pack-file mountpoint", archived)
 			}

@@ -743,6 +743,11 @@ func packLint(args []string, out, errw io.Writer, color bool) int {
 	pr.Printf("[green]✓[/green] pack ok — %d file(s) stage", len(res.Staged))
 	printPackDeliveries(pr, pack, skillSources, briefingSources)
 	printUnshippedNotes(pr, notes)
+	// A PATCHED EXTENSION NO LIST ENTRY NAMES (docs/design/patched-extensions.md §8.2, PPX-D10): a
+	// warning, not a failure — the tree is built and mounted, and no agent loads it.
+	for _, w := range packload.LintPatchedTrees(pack) {
+		pr.Printf("[yellow]⚠[/yellow] %s", richtext.Escape(w))
+	}
 
 	// Advice: a custom pack whose CONTENT contribution names an `into` an AGENT PACK already
 	// declares is told what that line DOES, which is narrow. Under per-file governance
@@ -967,6 +972,11 @@ func stagedContent(staged []string, pack *packload.Pack, delivered []string) (cl
 			if c.From != "" {
 				sources = append(sources, c.From)
 			}
+		}
+		// A PATCHED fork's or extension's series directory is read by every check and advance
+		// (packsrc.ReadSeries), so it is content the pack ships, never content nothing reads.
+		if c.Patches != "" && (c.IsPatchedFork() || c.IsPatchedExtension()) {
+			sources = append(sources, c.Patches)
 		}
 	}
 
@@ -1763,13 +1773,13 @@ func packStatus(out, errw io.Writer, color bool) int {
 	}
 	// THE FORK PINS (forks.lock.json, FP-D7): each selected fork's pinned commit, or why it has
 	// none. A pin made for a source the fork no longer declares is drift, like a pack's.
-	forkLines, forkDrift, err := forkStatusLines()
+	forkHeader, forkLines, forkDrift, err := forkStatusLines()
 	if err != nil {
 		fmt.Fprintf(errw, "yolo pack status: %v\n", err)
 		return 1
 	}
 	if len(forkLines) > 0 {
-		pr.Printf("[bold]forks[/bold] [dim](%s)[/dim]", packsrc.ForkLockName)
+		pr.Printf("%s", forkHeader)
 		for _, line := range forkLines {
 			pr.Printf("%s", line)
 		}

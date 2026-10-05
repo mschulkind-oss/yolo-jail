@@ -83,28 +83,28 @@ func checkPatchedForks(pr richtext.Printer, errw io.Writer, forks []packload.For
 func checkPatchedFork(pr richtext.Printer, errw io.Writer, store *packsrc.Store, f packload.Fork) int {
 	series, err := f.ReadSeries()
 	if err != nil {
-		fmt.Fprintf(errw, "yolo pack: fork %s: %v\n", f.Key(), err)
+		fmt.Fprintf(errw, "yolo pack: %s: %v\n", f.Label(), err)
 		return 1
 	}
 	res := store.CheckPatched(f.CheckWant(series), packsrc.CheckOptions{Force: true, Now: patchedNow,
 		Begin: func() (func(string), func()) {
-			pr.Printf("[dim]checking fork %s's upstream %s[/dim]", f.Key(), f.Source)
+			pr.Printf("[dim]checking %s's upstream %s[/dim]", f.Label(), f.Source)
 			return func(line string) { pr.Printf("[dim]%s[/dim]", line) }, func() {}
 		}})
 	if res.Err != nil {
-		fmt.Fprintf(errw, "yolo pack: fork %s: %v\n", f.Key(), res.Err)
+		fmt.Fprintf(errw, "yolo pack: %s: %v\n", f.Label(), res.Err)
 		return 1
 	}
 	rec, found := res.Record, res.Record.Check
 	rc := 0
 	if found.FetchErr != "" {
 		// The explicit act asked for the network and did not get it, as a pack's failed install.
-		fmt.Fprintf(errw, "yolo pack: fork %s: could not fetch %s (%s) — using this machine's copy\n",
-			f.Key(), f.Source, found.FetchErr)
+		fmt.Fprintf(errw, "yolo pack: %s: could not fetch %s (%s) — using this machine's copy\n",
+			f.Label(), f.Source, found.FetchErr)
 		rc = 1
 	}
 	if found.Problem != "" {
-		fmt.Fprintf(errw, "yolo pack: fork %s: %s\n", f.Key(), found.Problem)
+		fmt.Fprintf(errw, "yolo pack: %s: %s\n", f.Label(), found.Problem)
 		return 1
 	}
 	list := rec.Candidates(res.Inputs)
@@ -118,18 +118,18 @@ func checkPatchedFork(pr richtext.Printer, errw io.Writer, store *packsrc.Store,
 	if len(list) == 0 {
 		switch {
 		case first:
-			fmt.Fprintf(errw, "yolo pack: fork %s: %s names nothing this series can be built at — the "+
+			fmt.Fprintf(errw, "yolo pack: %s: %s names nothing this series can be built at — the "+
 				"branch does not contain the series' base %s; follow the branch the series was made "+
-				"on, or hold at a tag or a commit\n", f.Key(), f.Source, shortSHA(series.Base))
+				"on, or hold at a tag or a commit\n", f.Label(), f.Source, shortSHA(series.Base))
 			return 1
 		default:
-			pr.Printf("[dim]fork %s: nothing upstream is newer than the good build %s[/dim]", f.Key(), goodLabel(rec.Good))
+			pr.Printf("[dim]%s: nothing upstream is newer than the good build %s[/dim]", f.Label(), goodLabel(rec.Good))
 			return rc
 		}
 	}
 	w := store.WalkSeries(mustRepo(f.Source), subdirOf(f.Source), series, list, packsrc.WalkOptions{})
 	if err := store.RecordWalk(f.Key(), series.Digest, patchedYoloVersion(), w, patchedNow()); err != nil {
-		fmt.Fprintf(errw, "yolo pack: fork %s: recording the replay: %v\n", f.Key(), err)
+		fmt.Fprintf(errw, "yolo pack: %s: recording the replay: %v\n", f.Label(), err)
 		rc = 1
 	}
 	for _, line := range walkReport(f, series, rec, w, atBase) {
@@ -153,10 +153,10 @@ func walkReport(f packload.Fork, series *packsrc.Series, rec *packsrc.CheckRecor
 	var lines []string
 	switch {
 	case w.Base != nil:
-		return []string{fmt.Sprintf("[yellow]⚠ fork %s: %s[/yellow]", f.Key(), w.Base.Error())}
+		return []string{fmt.Sprintf("[yellow]⚠ %s: %s[/yellow]", f.Label(), w.Base.Error())}
 	case w.Err != nil:
-		return []string{fmt.Sprintf("[yellow]⚠ fork %s: could not replay the series: %v — `yolo pack "+
-			"update` retries[/yellow]", f.Key(), w.Err)}
+		return []string{fmt.Sprintf("[yellow]⚠ %s: could not replay the series: %v — `yolo pack "+
+			"update` retries[/yellow]", f.Label(), w.Err)}
 	}
 	var fit *packsrc.ReplayResult
 	if w.Fit >= 0 {
@@ -180,17 +180,17 @@ func walkReport(f packload.Fork, series *packsrc.Series, rec *packsrc.CheckRecor
 			case i > 0:
 				what = "the newest fit, " + what + ","
 			}
-			lines = append(lines, fmt.Sprintf("[green]fork %s[/green]: %s takes the series (%d %s, series %s): "+
-				"applies — %s", f.Key(), what, series.Len(), plural(series.Len(), "patch", "patches"),
+			lines = append(lines, fmt.Sprintf("[green]%s[/green]: %s takes the series (%d %s, series %s): "+
+				"applies — %s", f.Label(), what, series.Len(), plural(series.Len(), "patch", "patches"),
 				series.ShortDigest(), patchedNotBuilt))
 		case r.Err != nil:
-			lines = append(lines, fmt.Sprintf("[yellow]⚠ fork %s: could not replay the series onto %s: %v — "+
-				"`yolo pack update` retries[/yellow]", f.Key(), r.Entry.Label(), r.Err))
+			lines = append(lines, fmt.Sprintf("[yellow]⚠ %s: could not replay the series onto %s: %v — "+
+				"`yolo pack update` retries[/yellow]", f.Label(), r.Entry.Label(), r.Err))
 		}
 	}
 	if w.Fit < 0 && w.Err == nil && len(w.Results) > 0 && w.Results[len(w.Results)-1].Err == nil {
-		lines = append(lines, fmt.Sprintf("[yellow]⚠ fork %s: no upstream version on the list takes the "+
-			"series[/yellow] — %s", f.Key(), heldAt(rec, series, nil)))
+		lines = append(lines, fmt.Sprintf("[yellow]⚠ %s: no upstream version on the list takes the "+
+			"series[/yellow] — %s", f.Label(), heldAt(rec, series, nil)))
 	}
 	return lines
 }
@@ -205,7 +205,7 @@ func conflictMessage(f packload.Fork, series *packsrc.Series, rec *packsrc.Check
 		paths = "(no path named)"
 	}
 	return []string{
-		fmt.Sprintf("[yellow]fork %s: upstream %s does not take the patch series —[/yellow]", f.Key(), r.Entry.Label()),
+		fmt.Sprintf("[yellow]%s: upstream %s does not take the patch series —[/yellow]", f.Label(), r.Entry.Label()),
 		fmt.Sprintf("  %s conflicts in %s", r.Conflict.Member, paths),
 		"  " + heldAt(rec, series, fit),
 		"  rebase the series: " + rebaseCommand(f, r.Entry, isDefault),
@@ -280,6 +280,9 @@ func patchedForkStatusLines(f packload.Fork) []string {
 	}
 	refKind := patchedRefKind(f, rec, in)
 	head := fmt.Sprintf("%-20s patched fork of %s's %s, from %s, ", f.Key(), f.Base, f.Bin, f.Source)
+	if f.IsTree() {
+		head = fmt.Sprintf("%-20s patched extension at ~/%s, from %s, ", f.Key(), strings.TrimSuffix(f.Into, "/"), f.Source)
+	}
 	switch refKind {
 	case "tag", "commit":
 		head += "held at that " + refKind

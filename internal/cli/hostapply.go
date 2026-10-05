@@ -87,6 +87,12 @@ func hostApply(args []string, out, errw io.Writer, color bool, stdin io.Reader) 
 	// Fetch-before-resolve, as a launch does (hostpackrefresh.go). To stderr, so a
 	// `--format json` stdout still carries one document and nothing else.
 	refreshHostPacks(errw)
+	// THE PATCHED EXTENSIONS' CHECK AND ADVANCE, before the render reads their good builds
+	// (docs/design/patched-extensions.md §8.3, PPX-D11): the acting posture only, since a dry run
+	// checks nothing.
+	if write {
+		advanceHostTrees(errw, color, "")
+	}
 	return applyHostFormatted(out, errw, color, write, stdin, format)
 }
 

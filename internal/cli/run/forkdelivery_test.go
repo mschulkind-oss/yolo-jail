@@ -22,6 +22,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/packsrc"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	yoloruntime "github.com/mschulkind-oss/yolo-jail/internal/runtime"
+	"github.com/mschulkind-oss/yolo-jail/internal/shquote"
 )
 
 // pinFork writes forkLaunchHome's fork pinned at commit into the fork lock.
@@ -38,10 +39,18 @@ func pinFork(t *testing.T, commit string) {
 // `run` argv, and returns that argv (nil when the runtime was never run) and what was printed.
 func fakePodmanLaunch(t *testing.T, mutate func(*Options)) ([]string, string) {
 	t.Helper()
-	ws := t.TempDir()
+	return fakePodmanLaunchIn(t, t.TempDir(), "", mutate)
+}
+
+// fakePodmanLaunchIn is fakePodmanLaunch in workspace ws, with onRun — shell, run by the fake podman
+// at its `run` with the argv as "$@", while the launch's pack tree, skeleton and records exist —
+// after the argv is recorded.
+func fakePodmanLaunchIn(t *testing.T, ws, onRun string, mutate func(*Options)) ([]string, string) {
+	t.Helper()
 	bin, rec := t.TempDir(), t.TempDir()
 	argvFile := filepath.Join(rec, "argv")
-	script := "#!/bin/sh\nif [ \"$1\" = run ]; then printf '%s\\n' \"$@\" > '" + argvFile + "'; fi\nexit 3\n"
+	script := "#!/bin/sh\nif [ \"$1\" = run ]; then printf '%s\\n' \"$@\" > " + shquote.Quote(argvFile) + "\n" +
+		onRun + "\nfi\nexit 3\n"
 	if err := os.WriteFile(filepath.Join(bin, "podman"), []byte(script), 0o755); err != nil {
 		t.Fatal(err)
 	}

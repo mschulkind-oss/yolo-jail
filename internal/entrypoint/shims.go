@@ -380,6 +380,9 @@ func GenerateAgentLaunchers(e *Env) error {
 	// The host's fork decisions (ForkBuildsEnv), read ONCE, like the capture store: every source
 	// launcher bakes its own bin's.
 	forks := forkDeliveries(e)
+	// And its patched-extension decisions (PatchedTreesEnv): the launchers of a pack that owns a
+	// tree with nothing to serve stop before exec (PPX-D18).
+	trees := patchedTrees(e)
 
 	packs, err := LoadJailPacks(e)
 	if err != nil {
@@ -400,8 +403,10 @@ func GenerateAgentLaunchers(e *Env) error {
 		// this slice to one decision per pack would drop launchers a pack asked for —
 		// TestBothInstallShapesGetALauncher (launcherdir_test.go) is that pin.
 		installs, _ := p.HonoredInstalls()
+		gate := treeGateFor(trees, p.Name)
 		for i := range installs {
 			inst := &installs[i]
+			inst.Gate = gate
 			if !packdecl.ValidBinName(inst.Bin) {
 				// The launcher is FILED at filepath.Join(LaunchDir, bin); a traversal
 				// bin would write outside the anchor into the jail's persistent home.
@@ -582,6 +587,8 @@ func npmAgentLauncherSegments(pack string, inst *packdecl.Install, stampDir, rec
 		//
 		// Spliced as the split token here; npmAgentLauncher joins the segments with the prefix.
 		"__YOLO_EXEC_PREFIX__", token,
+		// The gate a patched extension this agent loads puts on it (patchedtrees.go, PPX-D18).
+		"__YOLO_TREE_GATE__", shquote.Quote(inst.Gate),
 	}, append(append(launchFlagSplices(flags), refreshSplices(inst.Refresh)...), modelMenuSplices(inst.ModelMenu)...)...)...)
 	return strings.Split(r.Replace(npmLauncherTemplate), token)
 }
@@ -672,6 +679,8 @@ func nativeAgentLauncher(pack string, inst *packdecl.Install, stampDir, receipts
 		// this sentinel is the resolved node interpreter. A native program is exec'd directly,
 		// so here it renders nothing.
 		"__YOLO_EXEC_PREFIX__", "",
+		// The gate a patched extension this agent loads puts on it (patchedtrees.go, PPX-D18).
+		"__YOLO_TREE_GATE__", shquote.Quote(inst.Gate),
 	}, append(append(launchFlagSplices(flags), refreshSplices(inst.Refresh)...), modelMenuSplices(inst.ModelMenu)...)...)...)
 	return r.Replace(nativeLauncherTemplate)
 }
@@ -1519,7 +1528,7 @@ if [ "$SERVERS_ENABLED" = "1" ]; then
     _refresh_servers
 fi
 ` + prelaunchRefreshShellFn + `
-` + agentEnvShellFn + agentAuthPrelaunchShellFn + modelMenuShellFn + `
+` + agentEnvShellFn + agentAuthPrelaunchShellFn + modelMenuShellFn + treeGateShell + `
 if [ -x "$REAL_BIN" ]; then
     _yolo_launch_argv "$@"
     _yolo_model_menu
@@ -2194,7 +2203,7 @@ if [ "$SERVERS_ENABLED" = "1" ]; then
 fi
 
 ` + prelaunchRefreshShellFn + `
-` + agentEnvShellFn + agentAuthPrelaunchShellFn + modelMenuShellFn + `
+` + agentEnvShellFn + agentAuthPrelaunchShellFn + modelMenuShellFn + treeGateShell + `
 if [ -x "$REAL_BIN" ]; then
     _yolo_launch_argv "$@"
     _yolo_model_menu

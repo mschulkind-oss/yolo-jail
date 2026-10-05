@@ -60,8 +60,15 @@ var errForkBuildChildFromTest = errors.New("a test binary does not self-exec the
 
 // forkBuildChildArgv is the child's arguments for b's build in staging.
 func forkBuildChildArgv(staging string, b forkBuild, color bool) []string {
-	argv := []string{"internal", forkBuildJailVerb, "--workspace=" + staging, "--bin=" + b.Fork.Bin,
-		"--only=" + b.Fork.Pack, "--only=" + b.Fork.Base}
+	argv := []string{"internal", forkBuildJailVerb, "--workspace=" + staging, "--bin=" + b.Fork.Bin}
+	if b.Fork.IsTree() {
+		// A PATCHED EXTENSION's build jail: the tree's final copy, and the seal narrowed to the
+		// contributing pack (PPX-D5).
+		argv = append(argv, "--tree="+b.Fork.Bin)
+	}
+	for _, p := range sealPacks(b.Fork) {
+		argv = append(argv, "--only="+p)
+	}
 	if color {
 		argv = append(argv, "--color")
 	}
@@ -127,7 +134,7 @@ func exitStatus(err error) int {
 // the packs named (forkBuildRunJail's jail, run here as a child of the launch that staged it).
 // Hidden: its caller is the advance.
 func runForkBuildJail(args []string, out, errw io.Writer) int {
-	var workspace, bin, build string
+	var workspace, bin, build, tree string
 	var only []string
 	color := false
 	for i := 0; i < len(args); i++ {
@@ -140,6 +147,8 @@ func runForkBuildJail(args []string, out, errw io.Writer) int {
 			workspace = strings.TrimPrefix(a, "--workspace=")
 		case strings.HasPrefix(a, "--bin="):
 			bin = strings.TrimPrefix(a, "--bin=")
+		case strings.HasPrefix(a, "--tree="):
+			tree = strings.TrimPrefix(a, "--tree=")
 		case strings.HasPrefix(a, "--only="):
 			only = append(only, strings.TrimPrefix(a, "--only="))
 		case a == "--color":
@@ -149,9 +158,14 @@ func runForkBuildJail(args []string, out, errw io.Writer) int {
 			return 2
 		}
 	}
-	if workspace == "" || bin == "" || build == "" || len(only) == 0 {
-		fmt.Fprintln(errw, "usage: yolo internal fork-build-jail --workspace=DIR --bin=NAME --only=PACK... [--color] -- BUILD")
+	// A tree's build line is optional (PPX-D3): its jail still copies the checkout and is admitted.
+	if workspace == "" || bin == "" || (build == "" && tree == "") || len(only) == 0 {
+		fmt.Fprintln(errw, "usage: yolo internal fork-build-jail --workspace=DIR --bin=NAME [--tree=NAME] --only=PACK... [--color] -- BUILD")
 		return 2
 	}
-	return runCaptureJail(workspace, bin, forkBuildJailArgv(build), &captureSeal{only: only}, out, errw, color)
+	argv := forkBuildJailArgv(build)
+	if tree != "" {
+		argv = treeBuildJailArgv(build, tree)
+	}
+	return runCaptureJail(workspace, bin, argv, &captureSeal{only: only, tree: tree}, out, errw, color)
 }

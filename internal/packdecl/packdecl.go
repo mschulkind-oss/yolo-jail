@@ -279,6 +279,11 @@ type Install struct {
 	// ForkRoot is the fork pack's root directory (Contribution.ForkRoot), which a patched fork's
 	// Patches is relative to; "" for every program that is not a fork's. Never serialized.
 	ForkRoot string `json:"-"`
+	// Gate is NOT a manifest field, and no manifest can set it: the jail's launcher generator sets
+	// it on its copy of an OWNING AGENT PACK's program when a patched extension that agent loads
+	// has no build this launch (docs/design/patched-extensions.md PPX-D18), and the launcher stops
+	// before exec with it. "" for every program that may start.
+	Gate string `json:"-"`
 	// ModelMenu is the program's declared model menu, nil when it declares none. The
 	// Contribution field of the same name carries the reasoning; the generated launcher is its
 	// one reader (MM-D9, MM-D22).

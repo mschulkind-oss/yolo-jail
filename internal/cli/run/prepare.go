@@ -464,7 +464,7 @@ func (o *Options) prepareWsState(cfg *jsonx.OrderedMap, loadedPacks []*packload.
 	// ones outside every writable dir, and every skills and briefing destination, are the
 	// podman skeleton's (packFilesSkeletonEntries, buildHomeSkeleton). preparePackFiles
 	// follows the same per-backend layout itself (packFilesWorkspaceRel).
-	for _, archived := range preparePackFiles(loadedPacks, wsState, rt) {
+	for _, archived := range preparePackFiles(loadedPacks, o.patchedTreeDirs(), wsState, rt) {
 		o.pr(o.Stdout).printf("[yellow]Archived an unclaimed zero-byte legacy pack-file mountpoint: %s[/yellow]", archived)
 	}
 

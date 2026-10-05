@@ -90,6 +90,19 @@ type Fork struct {
 	// Patches and Follow are a PATCHED fork's (docs/design/patched-forks.md): the series directory,
 	// relative to Root, and the follow rule as written. Both "" for a plain fork.
 	Patches, Follow string
+	// Into is a PATCHED EXTENSION's home-relative landing (docs/design/patched-extensions.md;
+	// patchedtrees.go), "" for every fork of a program. With it set the value is an extension:
+	// Bin is its name, the last segment of Into; Base is ""; and Produces are tree-relative.
+	Into string
+	// Owner is a patched extension's OWNING AGENT PACK (PPX-D4), "" when no list entry names its
+	// tree; OwnerForks are the selection's fork packs of the owner's programs, whose
+	// `agent_updates` holds it too (PPX-D9).
+	Owner      string
+	OwnerForks []string
+	// ListedInJail and ListedAtHost say where the owner's list entry naming the tree reaches: a
+	// `config-list` reaches both, an autonomous posture list every jail, a guarded one the host
+	// alone (PPX-D12: the launchers stop only at a notch the entry reaches).
+	ListedInJail, ListedAtHost bool
 }
 
 // Key is the fork's identity in the fork lock and everywhere a fork is named by one string:
