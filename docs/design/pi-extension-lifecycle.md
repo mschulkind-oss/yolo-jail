@@ -3,7 +3,7 @@ title: "Pi extensions want machine-scoped storage and pre-launch refreshes acros
 date: 2026-09-17
 status: in-review
 stage: DESIGN
-next: "Rule OQ-4, which hangs on pi-git-extension-caching.md's OQ-6: its ruled npm trees make every rewritten entry a local package, which pi 0.99.2 loads without installing, so (a) builds nothing they would delete"
+next: "Document OQ-4's ruling (2026-10-05) in the pi user guide: two sessions may both install a hand-added package, as on any machine; nothing else waits on this doc"
 tags: [pi, extensions, updates, packages, machine-tier, launchers]
 summary: "Architecture for managing Pi package and extension lifecycles across multiple YOLO jails: machine-scoped extension storage, rate-limited pre-launch updates, and cross-jail concurrency control."
 vantage:
@@ -60,8 +60,8 @@ fall back to running the existing installed extension version.
 
 **Start at [§3](#3-the-proposed-architecture)** — the storage and execution split. The rest falls out of it.
 
-**Needs your ruling:** **[OQ-4](#OQ-4)**, filed 2026-09-25 by the build: who installs a package
-the refresh did not reach (throttled, contended, or an exact pin), and under what lock. The
+**Needs your ruling:** none. [OQ-4](#OQ-4), who installs a package the refresh did not reach, was
+ruled 2026-10-05: accept the race and document it. The
 first three were ruled 2026-09-20; see
 [§7](#7-decision-ledger). ✅ **The one check owed before the build is DONE (2026-09-22)**:
 `pi update --extensions` is REAL — parsed by the installed pi 0.87.0's argv handler, accepted only
@@ -526,7 +526,11 @@ cases go with it. The rewrite is that design's post-fold hook (PG-D2), and it wa
 [OQ-6](pi-git-extension-caching.md#OQ-6). So [OQ-4](#OQ-4) hangs on that ruling: (a) is the
 one option here that builds nothing the redesign would delete, the question closes
 when the npm half of [OQ-5](pi-git-extension-caching.md#OQ-5) lands, and it comes back only if
-[OQ-6](pi-git-extension-caching.md#OQ-6) is ruled against the rewrite.
+[OQ-6](pi-git-extension-caching.md#OQ-6) is ruled against the rewrite. [OQ-6](pi-git-extension-caching.md#OQ-6),
+restated on 2026-10-05, leans that way, to building pack-declared extensions as patched ones are; under it this
+question comes back narrowed. With the npm prefix per workspace, the unlocked install can race only
+another pi session of the same workspace, and only for an entry no pack declares
+([`pi-extension-store-builds.md` §4.4](pi-extension-store-builds.md#44-entries-no-pack-declares)).
 
 ---
 
@@ -643,7 +647,7 @@ when the npm half of [OQ-5](pi-git-extension-caching.md#OQ-5) lands, and it come
    > so the in-app check sees the installed package matching `@latest` and passes cleanly.
    > Suppressing it artificially buys little and costs a pinned-version mechanism nobody asked for.
 
-4. 💬 <a id="OQ-4"></a>**[OQ-4](#OQ-4): who installs a package the refresh did not reach, and under what lock?**
+4. ✅ <a id="OQ-4"></a>**[OQ-4](#OQ-4): who installs a package the refresh did not reach, and under what lock?**
    Filed 2026-09-25 by the build of [§3.2](#32-execution-tier-pre-launch-auto-refresh), and widened
    the same day in review from exact pins to every package the refresh did not reach. It is
    **open**.
@@ -657,7 +661,6 @@ when the npm half of [OQ-5](pi-git-extension-caching.md#OQ-5) lands, and it come
    - **(c) Have the launcher pre-install exact pins itself, under the lock.**
    - **(d) Have a contended launch wait, bounded, for the holder before it execs Pi.**
 
-   <!-- vantage: question id=OQ-4 leaning="(a) Accept and document: the unlocked install happens only while a configured package is missing from the store or outside its range, and it closes once one install lands. No shipped pack declares a Pi package today." -->
 
    _Leaning (the builder's, restated after review; not a ruling):_ (a) for now. The window is
    bounded per package: it opens while that package is missing from the store or outside its
@@ -666,6 +669,9 @@ when the npm half of [OQ-5](pi-git-extension-caching.md#OQ-5) lands, and it come
    first declares one through `config-list` on `pi/settings`.
 
    **Answer:**
+   > **Ruled in review 2026-10-05, (a):** accept it and document it. *"I don't really care if it's
+   > par for the course anyway."* Two pi sessions starting together may both install a hand-added
+   > package, as on any machine pi runs on; after XB-D14 the race stays inside one workspace.
 
 ---
 
@@ -676,4 +682,4 @@ when the npm half of [OQ-5](pi-git-extension-caching.md#OQ-5) lands, and it come
 | **OQ-1** | **Machine-scoped storage.** Extensions are shared tool capabilities like global binaries; per-workspace copies waste disk and, load-bearingly, create cross-jail version drift | 2026-09-20 | [§6](#6-open-questions) | **yes**, 2026-09-21 — `packs/pi` declares `.pi-shared-npm` at `scope: "machine"` plus a `shared_directory` hook (NOT `shared_extension_storage`; see [§3.1](#31-storage-tier-decoupling-packages-from-session-state)) **MEASURED in a nested jail 2026-09-21**: `~/.pi/agent/npm -> ../../.pi-shared-npm`, resolving and writable, and a write inside the jail landed at the LAUNCHER's `~/.local/share/yolo-jail/home/.pi-shared-npm/` — so the store is genuinely machine-scoped across the boundary, which is the cross-jail drift the ruling is about. |
 | **OQ-2** | **Option (c).** YOLO resolves and PINS through `internal/packsrc` + `packs.lock.json`; the launcher only materializes, under a non-blocking lock. Pi keeps the package-manager half; the VERSION CHOICE moves to YOLO, the seam a distributor must own since no ecosystem here ships a lockfile or rollback. ✅ The pack resolver that (c) would extend ships (it resolves packs, not Pi packages), and the materializer's `pi update --extensions` flag is **VERIFIED** — parsed by pi 0.87.0 only under `update`, and non-interactive (read statically from the bundle, 2026-09-22). ⚠ Still unknown, because a static read cannot see them: its exit code and its behaviour offline | 2026-09-20 | [§6](#6-open-questions), [Alternative D](#alternative-d-resolve-and-pin-through-yolos-existing-pack-source-store) | **partly, 2026-09-25: the materializer only, unit-tested, not yet observed in a jail.** `packs/pi` declares `"refresh": {"argv": ["update", "--extensions"], "lock": ".pi-shared-npm/.yolo-update.lock"}` on its `program`, and [`prelaunchrefresh.go`](../../internal/entrypoint/prelaunchrefresh.go) renders it into both launcher templates: stamp-throttled, `agent_updates`-gated, bounded, stdin from `/dev/null`, stdout to stderr, and run under the heartbeated lock of [§3.3](#33-concurrency-tier-cross-jail-mutual-exclusion). [`prelaunchrefresh_test.go`](../../internal/entrypoint/prelaunchrefresh_test.go) pins it, including a two-home contention cell and a call-site cell that goes through the shipped manifest. ⚠ **The resolve-and-pin half is not built.** Nothing in YOLO resolves or records a Pi package version, so the version choice is still Pi's and the registry's. ⚠ The lock covers the refresh only: Pi's own startup installs a package the refresh did not reach, including every exact pin, with no lock ([OQ-4](#OQ-4)) |
 | **OQ-3** | **Leave Pi's in-app notification untouched.** The pre-launch update runs before the TUI starts, so the check passes cleanly in the normal path. ⚠ The caveat that a correctly pinned older extension WILL trigger the warning was **corrected 2026-09-25**: by static reading of pi 0.87.1, `checkForAvailableUpdates` skips exact pins and compares a range only within that range, so the two rulings do not pull against each other | 2026-09-20 | [§6](#6-open-questions) | **n/a** — nothing to build. The refresh adds no suppression, which is this ruling |
-| **OQ-4** | — **open.** Who installs a package the refresh did not reach, and under what lock. Pi's own startup `resolve()` installs any configured package missing from the shared store, pinned or not, with no lock. It gets there first when the refresh is throttled (machine-global stamp, per-workspace package list), when the launch is contended, and for every exact pin, which `pi update --extensions` skips. The builder leans toward (a), accept and document | — | [§6](#6-open-questions) | — |
+| **OQ-4** | **(a), ruled in review:** accept and document the race between two sessions installing a hand-added package; it is any pi user's, and after XB-D14 it stays inside one workspace | 2026-10-05 | [OQ-4](#OQ-4) | docs only |

@@ -3,7 +3,7 @@ title: "Emptying bundled_loopholes/ — the broker, the identity rule, and the p
 date: 2026-08-15
 status: in-review
 stage: DESIGN
-next: "Rule OQ-BP7, what main pins between releases; it gates §14.4 step 7 only, and no shipped manifest declares a binary yet"
+next: "Build §14.4 step 7 as OQ-BP7 ruled 2026-10-05: main pins its own build of each official program, and just install builds them from the tree with no download; no shipped manifest declares a binary yet"
 tags: [loopholes, packs, broker, claude, identity, binaries]
 summary: "How the Claude OAuth broker became a contribution of packs/claude and the bundled loophole channel was deleted (built 2026-08-19), the connection-preamble identity rule that replaced the per-jail relay, and the pack-shipped binary capability that was committed to the same sprint: its mechanism, a digest-pinned download cached with its exec bit, was built on 2026-09-30, and its release matrix, decided the same day, is built but for one step: the four platforms yolo ships to, the tag's own GitHub release, and a reproducible build whose digest a pin tool commits before the tag and every release gate checks. One question is open, what main pins between releases."
 ---
@@ -12,7 +12,7 @@ summary: "How the Claude OAuth broker became a contribution of packs/claude and 
 
 **Status:** 2026-09-30: one ruling owed, [OQ-BP7](#OQ-BP7). **The broker move is built** (2026-08-19; measured that day, and [§13](#13-what-empty-the-channel-actually-required--measured-2026-08-19) records what emptying the channel actually required), and **the pack-shipped-binary capability is built as a mechanism and not as a release** (2026-09-30, [BP-D1](#BP-D1) to [BP-D6](#BP-D6); [§3.1](#31-what-is-actually-unresolved-here)'s *Built* note says what): a loophole manifest declares a program's builds under `binaries`, `yolo pack install` fetches and verifies them, and the launch runs them from the cache. The **release matrix** [OQ-BP1](#decision-ledger) put on the critical path is decided ([§14](#14-the-release-matrix), [BP-D7](#BP-D7) to [BP-D9](#BP-D9)) and built but for its last step (2026-09-30, [BP-D10](#BP-D10) to [BP-D14](#BP-D14); [§14.4](#144-the-plan-in-order)'s *Built* note says what): which platforms yolo's own release builds for an official pack's binary, where it publishes them, and how each digest reaches the manifest embedded in the same release. No shipped manifest declares a binary yet (re-checked 2026-09-30). The first one is held to the matrix by a short-suite census, pinned by `just pin-pack-binaries`, and rebuilt and compared by `just release`, by the release before it uploads, and by PyPI's gate. What main pins between two releases, the last step, waits on [OQ-BP7](#OQ-BP7). ⚠ **[OQ-BP5](#OQ-BP5) and [OQ-BP6](#OQ-BP6) were written against a trust model that has since changed**: the fetched-pack approval prompt and every origin refusal were deleted on 2026-09-04 ([`OQ-TP9`](trust-paths.md#decision-ledger)), so [§3.1](#31-what-is-actually-unresolved-here)'s "two gates" and the `InstallerURL` precedent both questions lean on no longer exist in the tree — see the note under each. Both were settled on 2026-09-30.
 
-**Needs your ruling:** [OQ-BP7](#OQ-BP7), what main's tree pins for an official binary between two releases. It blocks one step of [§14.4](#144-the-plan-in-order)'s plan, the last.
+**Needs your ruling:** none. [OQ-BP7](#OQ-BP7) was ruled 2026-10-05: main pins its own build, built and installed with the tree. It releases the last step of [§14.4](#144-the-plan-in-order)'s plan.
 
 All five sequencing steps are in the tree and `bundled_loopholes/` is DELETED — the directory, its `embed.go`, `internal/loopholes/embedfallback.go`, and the `BundledLoopholesDir` / `SourceBundled` / `IncludeBundled` / `loadFromDir` vocabulary that read it. Step 5 landed as one commit: the manifest is now `packs/claude/loopholes/claude-oauth-broker/`, declared by `packs/claude/pack.json` as `{"kind": "loophole", "from": "loopholes/claude-oauth-broker"}` ([OQ-A10](../reference/loophole-system.md#why-its-this-way) — a contribution of the agent pack, not a pack of its own); `loopholes.ReservedLoopholeNames` is **deleted whole**, because the broker was the last name in it; `requires.command_on_path: "claude"` is deleted from the manifest (R3, free under R6); and `run.brokerLoopholeActive` gained the ORIGIN GATE it was allowed to skip only while the record was bundled. Three consequences worth carrying forward are in [§13](#13-what-empty-the-channel-actually-required--measured-2026-08-19). Code claims verified against the tree on 2026-08-15 unless dated otherwise.
 
@@ -942,6 +942,7 @@ made building its steps 1 to 6, also that day. The `Built` column was read from 
 | <a id="BP-D12"></a>BP-D12 | *Implementation decision*, under [BP-D9](#BP-D9). **The toolchain is `go1.26.7`, fetched by `go mod download -json golang.org/toolchain@v0.0.1-go1.26.7.<goos>-<goarch>` run by the go on PATH from an empty directory, with `GOENV=off`, `GOTOOLCHAIN=local`, `GOWORK=off`, and `GOSUMDB=off` overridden**, then made runnable in the order the go command's own toolchain switch uses, and refused unless its `go version` names that version. **Why:** `go1.26.7` is the version [§14.2](#142-what-was-measured) measured reproducible. Setting `GOTOOLCHAIN=go1.26.7` would not do: the go command does not switch when it already is that version, so it would build with the PATH's go, which [BP-D9](#BP-D9) rules out. `GOENV=off` because an empty environment variable does not override the go env file, so it is the only way to know no `GONOSUMDB`, `GOPRIVATE`, `GOINSECURE` or `GOFLAGS` there skips the checksum database. `GOPROXY`, and a `GOSUMDB` naming another database, are honored. Reversible | 2026-09-30 | [§14.4](#144-the-plan-in-order) | ✅ |
 | <a id="BP-D13"></a>BP-D13 | *Implementation decision*, under [BP-D9](#BP-D9). **The recipe's environment keeps every variable except the `GO*` and `CGO_*` ones, keeps of those only `GOCACHE`, `GOMODCACHE`, `GOPATH` and `GOTMPDIR`, and sets `GOENV=off`, `GOTOOLCHAIN=local`, `GOWORK=off`, `CGO_ENABLED=0`, the platform, and `GOAMD64=v1` or `GOARM64=v8.0`.** A build is written under the binary's own name. **Why:** a list of what to keep also covers a variable Go adds later, where a list of what to drop would miss it; `GOFIPS140`, which selects the cryptographic module a program links, is one the design did not name. The four kept say only where a cache or scratch directory is, which [§14.2](#142-what-was-measured) measured does not move the bytes. The explicit levels are the defaults (measured 2026-09-30: the same digest with and without them, and the same from the toolchain module and the jail's `go1.26.7`); the file name is the one the cache keeps. Reversible | 2026-09-30 | [§14.3](#143-what-the-release-builds-where-it-puts-it-and-how-the-digest-gets-in) | ✅ |
 | <a id="BP-D14"></a>BP-D14 | *Implementation decision*, under [BP-D8](#BP-D8) and [BP-D9](#BP-D9). **`stage` writes into `bundle/pack-binaries`, refuses a directory that is not empty, and makes it even when there is nothing to stage; goreleaser names it under both `release.extra_files` and `checksum.extra_files`. The program check is a walk of this module's imports with `go/build`, under each platform's build constraints, test files excluded, compiling nothing.** **Why:** `bundle/` is already git-ignored and outside `dist/`; everything in the directory is uploaded, so a leftover would be published as if this run had built it. goreleaser v2.18.2 computes `checksums.txt` before it uploads and reads only its own `extra_files` there, so the release's list alone would leave the files out of it, and a glob with a wildcard that matches nothing is no error (read in its source and `fileglob` v1.4.1's). The walk lets the short suite ask the embed question of every platform; `TestEmbedChainAgreesWithTheMeasuredTree` holds it to [§14.2](#142-what-was-measured)'s measurement of which programs link the embed. Reversible | 2026-09-30 | [§14.4](#144-the-plan-in-order) | ✅ |
+| <a id="BP-D15"></a>BP-D15 | **Ruled in review ([OQ-BP7](#OQ-BP7) B, not C):** main pins its own build of each official program; `just install` builds them from the tree, with no download, as it stages yolo's own binaries; no per-push prerelease | 2026-10-05 | [OQ-BP7](#OQ-BP7) | pending |
 
 > [!WARNING]
 > **[OQ-BP3](#decision-ledger) is superseded, not wrong, and it comes back if the goal shrinks.** The *broker* needs
@@ -1040,7 +1041,7 @@ new broker.
   installs. Cost: a second publication channel, carrying programs no release vouched for, written
   by CI on every push to main.
 
-3. 💬 <a id="OQ-BP7"></a>**[OQ-BP7](#OQ-BP7) — between two releases, does main pin the last release's build of an official binary, or its own?**
+3. ✅ <a id="OQ-BP7"></a>**[OQ-BP7](#OQ-BP7) — between two releases, does main pin the last release's build of an official binary, or its own?**
 
    This decides what a build from source promises about an official binary, and it
    blocks step 7 of [§14.4](#144-the-plan-in-order) and nothing else. The scenario that poses it, and each option in full
@@ -1050,7 +1051,6 @@ new broker.
    - **B — The tree's own build, checked on every change.**
    - **C — The tree's own build, published on every push.**
 
-   <!-- vantage: question id=OQ-BP7 leaning="B: main pins its own build, kept current by a check-ci rebuild and seeded into the cache by just install, so a from-source jail runs the tree's program as it runs every other binary yolo puts in a jail, and nothing is published outside a release." -->
 
    _Leaning:_ **B.** It keeps the rule that a build from source runs the tree, which `SourceSkew`
    enforces for every other binary yolo puts in a jail, and it keeps publication at the release. A
@@ -1058,4 +1058,10 @@ new broker.
    nothing saying so; C publishes code no release vouched for.
 
    **Answer:**
-   > _(empty — fill in when decided)_
+   > **Ruled in review 2026-10-05, B without C, in the maintainer's words:** *"We need freedom to just
+   > fork, change things, install, and have it all work. We can't rely on some detached tagging push,
+   > download help, or whatever thing. It has to be built all together, installed all together, just like
+   > we build the YOLO binaries and stage them … I don't see why we would need to have pre-releases on every
+   > push."* Main pins its own build: `just install` builds every official program from the tree into the
+   > cache with no download, so a from-source or forked tree runs its own programs; `just check-ci` refuses
+   > a pin the tree no longer reproduces, naming the pin command. No per-push prerelease.

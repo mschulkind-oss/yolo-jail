@@ -59,7 +59,7 @@ fires on `AWS_PROFILE` for every claude-pack user.
 [§5](#5-the-host-half-is-built-what-shipping-it-takes), and for the ruled multi-provider grant,
 [§5.1](#51-the-explicit-grant---with-credentials-built).
 
-**Needs your ruling:** [OQ-ES5](#OQ-ES5)'s jail half and [OQ-ES6](#OQ-ES6).
+**Needs your ruling:** [OQ-ES6](#OQ-ES6). [OQ-ES5](#OQ-ES5)'s jail half was ruled 2026-10-05.
 The first's host half is ruled; the second asks for an exception to
 [OQ-BR4](../reference/providers.md#oq-br4).
 
@@ -546,10 +546,9 @@ works:
    _Leaning, should it open:_ User scope only, for the reason in
    [§8](#8-what-this-does-not-license).
 
-5. 💬 <a id="OQ-ES5"></a>**OQ-ES5: An explicit grant for a command `-p` cannot reach?** — **the host half RULED
-   2026-09-27; the jail half open**
+5. ✅ <a id="OQ-ES5"></a>**OQ-ES5: An explicit grant for a command `-p` cannot reach?** — **the host half RULED
+   2026-09-27; the jail half RULED 2026-10-05**
 
-   <!-- vantage: question id=OQ-ES5 leaning="Jail half, (A): the same --with-credentials flag at every notch. In a jail or a macos-user jail it hands the one launched command the named providers' claimed env_sources values, keys only, carried in that entry's exec environment, disclosed on every entry and never in config, as the host ruling has it, by the parity direction ('host is supposed to act like everywhere else'). (B) keeps it host-only, with the hand-sourced per-agent file as the jail's only route." -->
 
    The filed cases and options, (i) and (ii), are in the [background](#background-to-oq-es5); the
    note under the Answer restates the options as (A) and (B).
@@ -592,8 +591,15 @@ works:
    > - **HOST ONLY.** A jail launch does not accept it, and a jail launch given the flag refuses,
    >   naming that it is host-only.
    >
-   > **The jail half stays open:** whether a jail shell or a macos-user shell gets a grant, and
-   > whether it is this flag, is not ruled. The `--all-credentials` rejection above is overtaken
+   > **The JAIL half ruled in review 2026-10-05, none of the options as written.** The maintainer:
+   > *"The jail shouldn't be able to discover credentials from outside that it wasn't launched with.
+   > But you should be able to run a jail with whatever set of credentials you want. Like that should
+   > be the same."* So `--with-credentials` works at a jail launch as it does at `yolo host`, at every
+   > notch, and the set is fixed when the jail is launched: the jail holds exactly the credentials it
+   > was launched with and can fetch no others later. The "HOST ONLY" bullet above is superseded.
+   > *Read from the ruling, not separately ruled:* the granted set is the jail's, so a later session
+   > attached to that jail has it too, and an attach that asks for credentials the running jail was
+   > not launched with is refused, naming a fresh launch (stop the jail, relaunch with the flag). The `--all-credentials` rejection above is overtaken
    > for the host by `all` as a value of the one explicit flag ([§7](#7-alternatives-considered)).
 
    > [!NOTE]
@@ -705,6 +711,8 @@ though, `AWS_PROFILE` selects the user's own SSO credentials, so it is not a har
 | ID | Ruling / Decision | Date | Settled in | Built |
 | :--- | :--- | :--- | :--- | :--- |
 | OQ-ES5 | **The host half, ruled by the maintainer.** `yolo host --with-credentials <provider[,provider...]\|all> -- <cmd>`, and the same flag on `yolo host env`, hands one command the named providers' claimed `env_sources` values: keys only, no profile routing and no shape variables. `all` is every composed provider that claims a value. Disclosed on every run, names only. An unknown provider refuses, naming the known ones; a named provider with no value is reported. It combines with `-p`. Nothing else implies it. HOST ONLY: a jail launch given it refuses, naming that it is host-only. `env_sources` stays the one store. The jail half is open | 2026-09-27 | [OQ-ES5](#OQ-ES5) | ✅ 2026-09-27, as ES-D13 to ES-D17 |
+| [OQ-ES5](#OQ-ES5) (jail half) | **Ruled in review, none of the options as written:** `--with-credentials` works at a jail launch at every notch, and a jail holds exactly the credentials it was launched with; an attach asking for others is refused, naming a fresh launch (read from the ruling) | 2026-10-05 | [OQ-ES5](#OQ-ES5) | pending |
+| [OQ-ES5](#OQ-ES5) (attach `-p`) | **Ruled in review, keep today's behavior:** an attach with `-p <profile>` still delivers that profile's provider key into the jail, and the docs and disclosure say so plainly. *"B is fine. I just don't want it to be by default loaded so another agent is incentivized to find it. this still protects this. it's not a adversarial type of thing."* The launch-time rule stands for what is loaded by default | 2026-10-05 | the walkthrough | pending (docs and the disclosure line) |
 | OQ-ES3 | *Answered by the tree, not ruled.* Filed as question 3: "how should an arbitrary command request provider credentials?" At the host, `yolo host -p <profile> -- <cmd>` already delivers that profile's claimed `env_sources` values to any command and discloses it as `<cmd> only`. ES-D1 to ES-D5 finish it. The jail and multi-provider half is [OQ-ES5](#OQ-ES5); the CLI-less half is [OQ-ES7](#OQ-ES7) | 2026-09-27 | [§5](#5-the-host-half-is-built-what-shipping-it-takes) | ✅ behavior at `8da7840d`; pinned `595f9022` |
 | OQ-ES1 | **Answered by [OQ-ES5](#OQ-ES5)'s host ruling:** no split. `env_sources` stays the one credential store. The maintainer: *"this is the credential store and it needs to be able to be shared because I don't want to put it in multiple places"*, approving a solution that kept the one store (*"I like the rest of the solution a lot"*). The filed surprise is met by the disclosure's remedies and the explicit grant | 2026-09-30 | [OQ-ES1](#OQ-ES1) | ✅ nothing to build: `env_sources` is already the one store |
 | [OQ-ES2](#OQ-ES2), [OQ-ES4](#OQ-ES4) | **Moot** by [OQ-ES1](#OQ-ES1)'s no, as each said on filing: with no split, there is no claimed-name refusal to design and no `credential_sources` scope | 2026-09-30 | [OQ-ES2](#OQ-ES2), [OQ-ES4](#OQ-ES4) | — |

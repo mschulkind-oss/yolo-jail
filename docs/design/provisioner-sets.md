@@ -106,7 +106,7 @@ The survey that forced all of it — the inventory, the coverage matrix, the nix
 [`provisioner-evidence.md`](provisioner-evidence.md), and you need it to **check** the argument
 rather than to follow it.
 
-**Needs your ruling:** [`OQ-PS5`](#OQ-PS5) (asked only if [`OQ-PS11`](#OQ-PS11) is ruled (a)), [`OQ-PS7`](#OQ-PS7), [`OQ-PS11`](#OQ-PS11), [`OQ-NX4`](#OQ-NX4), [`OQ-NX8`](#OQ-NX8), [`OQ-PS14`](#OQ-PS14), [`OQ-PS15`](#OQ-PS15).
+**Needs your ruling:** [`OQ-PS5`](#OQ-PS5) (asked only if [`OQ-PS11`](#OQ-PS11) is ruled (a)), [`OQ-PS11`](#OQ-PS11), [`OQ-NX4`](#OQ-NX4), [`OQ-NX8`](#OQ-NX8), [`OQ-PS14`](#OQ-PS14), [`OQ-PS15`](#OQ-PS15).
 
 > [!NOTE]
 > **Scope note — this doc absorbed
@@ -1776,7 +1776,7 @@ recommendation the doc rests on.
    > holds in the form the rulings give it: the pack does not rank its recipes, yolo's default does,
    > and the user's override can re-rank them.
 
-4. 💬 <a id="OQ-PS7"></a>**OQ-PS7: Is the override per-package, or per-environment only?** *"Claude from brew"* is
+4. ✅ <a id="OQ-PS7"></a>**OQ-PS7: Is the override per-package, or per-environment only?** *"Claude from brew"* is
    the maintainer's own example and needs **per-package** grain; *"we don't want to overwhelm the
    user with package choices"* pushes toward **per-environment only**. Both sentences are his and
    they pull apart, which is the whole of this question. Its former second half — how much
@@ -1791,10 +1791,11 @@ recommendation the doc rests on.
    rarely-read key is how *"don't overwhelm"* and *"claude from brew"* are both true.
    Per-environment, never global, because a jail's list must not be a host's (P2).
 
-   <!-- vantage: question id=OQ-PS7 leaning="A per-environment ordered list as the advertised surface, with a per-package override that exists but is not advertised — that is how 'claude from brew' and 'don't overwhelm the user' are both satisfied. Per-environment rather than global, because a jail's list must not be a host's." -->
 
    **Answer:**
-   > _(empty — fill in when decided)_
+   > **Ruled in review 2026-10-05, as leaned (A):** a per-environment ordered list is the advertised
+   > surface, with a per-package override that exists but is not advertised. Per-environment, never
+   > global: a jail's list is not a host's.
 
 5. ✅ <a id="OQ-PS8"></a>**OQ-PS8: How is a vendor installer made non-interactive — core detaches the tty, or a
    recipe names the variable?**
@@ -2748,3 +2749,4 @@ inherited from the retired doc with their rulings intact.
 | <a id="PS-D6"></a>PS-D6 | *Implementation decision, reversible, inside [`PS-D4`](#PS-D4)'s open choice:* **the body check keeps two implementations, held to one table.** The jail's launcher keeps its shell check (`_installer_body_kind`), and the host's remedy runs a Go one (`internal/installerbody`, through `yolo internal installer-check`). `installerbody.Fixtures` is the table both answer to, and a parity test cuts the shell function out of the rendered launcher and runs every fixture through both. **Why:** the launcher's check must work where no `yolo` is on the PATH and under macOS's stock bash 3.2, so a shell copy stays whatever the host does, and the host cannot use that copy, because the prompt prints the exact command and a forty-line shell function inside it is not a command anyone can read before answering. One table catches a rule changed in one copy and not the other, which is the drift a second implementation risks. The host remedy spells the check as bare `yolo`, found on the PATH the install runs with; where there is none, the `&&` chain runs nothing | 2026-09-30 | [`OQ-PS13`](#OQ-PS13) |
 | <a id="PS-D7"></a>PS-D7 | *Implementation decision, reversible, inside [`PS-D1`](#PS-D1):* **the jail's launcher asks whether `yolo internal no-terminal` exists before running its installer through it**, by running `yolo internal no-terminal -- true`. Where no `yolo` has the verb, the installer keeps its `/dev/null` stdin, loses only the terminal half, and the launcher prints one line saying so. The verb forwards an interrupt, terminate or hangup to the installer while it waits, since a process in its own session no longer gets the terminal's Ctrl-C, and when the installer dies of one it forwarded, the verb dies of that signal too (`notty.WrapperExit`): bash abandons a script on a Ctrl-C only when the command it waits on died of SIGINT, so a verb that exited 130 instead let the launcher go on to its stamp, an update receipt and the agent. For the same reason the host's dependency gate stops the run at an install a forwarded signal ended (`notty.Stopped`), with that signal's status and nothing written, rather than re-probing and carrying on. **Why:** a shell cannot drop its controlling terminal itself, and `setsid(1)` is not on a stock Mac, so the detach is yolo's. The jail's own `yolo` is the launcher's build on both backends, so the probe costs one process start on a path that downloads a vendor script anyway, while a `yolo` older than the launcher (a test host, a skewed install) would otherwise leave the installer never run. ⚠ **Narrowed 2026-10-01 by [`OQ-PD22`](program-delivery.md#decision-ledger)** for an UPDATE on the jail's launch path: there a Ctrl-C ends the installer re-run (or the update verb) and the launcher runs the installed version, saying so, with no receipt for what the stopped installer left. A Ctrl-C at a cold install, which has nothing to run, still ends the launcher | 2026-09-30 · narrowed 2026-10-01 | [`OQ-PS8`](#OQ-PS8) |
 | <a id="PS-D8"></a>PS-D8 | *Implementation decision, reversible, fixing the defect [`OQ-PS9`](#OQ-PS9)'s answer names:* **`detectManager` probes `nix` last, on the caller's lookup like every other manager, and returns no manager when it finds none.** It used to return `nix` by elimination, so on a host with none of brew, apt, dnf or pacman, `yolo check-deps` and `yolo host apply` offered `nix profile install` (as the remedy, or as the alternative beside a pack's own installer) while `yolo check` reported nix missing. With no manager, a hint is never the remedy: a pack's own installer still leads, with no package-manager alternative, and a binary with only hints is missing with no remedy, its line saying no package manager yolo knows is on the PATH (`depcheck.NoManager`, which both reports print). A binary declaring no hint at all keeps its no-hint line in both reports, since no manager would install it. The probe order is unchanged, so a host with another manager gets the same answer as before. **Why:** a remedy may not name a manager the host lacks, and that needs no ruling. Whether the no-manager line should go on to help install nix is [`OQ-PS9`](#OQ-PS9)'s *yes in principle, not now*, so it says only what is missing. **Built 2026-09-30** (`internal/depcheck`; `TestApplyHostOffersNoManagerThePathLacks` and `TestCheckDepsOffersNoManagerThePathLacks` drive both reports) | 2026-09-30 | [`OQ-PS9`](#OQ-PS9) |
+| <a id="PS-D9"></a>PS-D9 | **Ruled in review, as leaned ([`OQ-PS7`](#OQ-PS7) A): one ordered provisioner list per environment is the advertised surface, plus an unadvertised per-package override** | 2026-10-05 | [`OQ-PS7`](#OQ-PS7) |
