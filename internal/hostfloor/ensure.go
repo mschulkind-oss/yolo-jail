@@ -331,9 +331,11 @@ func newerCapture(in packdecl.Install, rec *Record, entry *capture.Entry) string
 // recaptureWhenOld is the installer recipe's evergreen poll (HP-D16): when the machine's newest
 // capture of p is older than the capture-refresh age, and this machine can capture, it says so, runs
 // the capture act once, and returns the newer release that capture stored, "" for none (the same
-// release, or an older one). The capture runs the vendor's installer in a throwaway jail, as every
-// `yolo capture` does: never the vendor's update verb, never against the real home (OQ-HP3 ruled
-// that out). A machine with no capture act or no runtime asks nothing, and keeps what it runs.
+// release, or an older one). The capture runs the vendor's installer as every `yolo capture` on this
+// machine does (captureHow: a throwaway jail, the macos-user sandbox account, or Landlock on a Linux
+// host with no runtime, HP-D2 and HP-D18): never the vendor's update verb, never against the real
+// home (OQ-HP3 ruled that out). A machine that cannot capture (cannotCapture) asks nothing, and
+// keeps what it runs.
 func (f *Floor) recaptureWhenOld(p Program, rec *Record) (string, error) {
 	if f.Capture == nil || f.ResolveCapture == nil || f.cannotCapture(p.Bin(), "recaptures it") != "" {
 		return "", nil
@@ -342,10 +344,11 @@ func (f *Floor) recaptureWhenOld(p Program, rec *Record) (string, error) {
 	if age < f.captureRefreshAge() {
 		return "", nil
 	}
-	// SAID BEFORE THE CAPTURE, which boots a jail and runs the vendor's installer, so a launch that
-	// waits for it says whose wait it is (HP-D13; a launch has no quiet mode, OQ-RO3).
+	// SAID BEFORE THE CAPTURE, which runs the vendor's installer (in a jail, or confined on the
+	// host), so a launch that waits for it says whose wait it is and how the capture runs (HP-D13; a
+	// launch has no quiet mode, OQ-RO3).
 	f.say("%s %s in yolo's floor is from a capture made %s ago; running `yolo capture %s` to look for "+
-		"a newer release (a throwaway jail runs its installer once)", p.Bin(), rec.Version, roughAge(age), p.Bin())
+		"a newer release (%s)", p.Bin(), rec.Version, roughAge(age), p.Bin(), f.captureHow())
 	entry, err := f.recapture(p.Bin())
 	if err != nil {
 		return "", err

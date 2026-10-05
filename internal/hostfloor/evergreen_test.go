@@ -407,3 +407,24 @@ func TestTwoNamesWithOneReleaseNumberFollowTheStore(t *testing.T) {
 		t.Errorf("the floor's codex prints %q", got)
 	}
 }
+
+// TestTheEvergreenRecaptureSaysHowItsCaptureRuns: the line before the day-old recapture names how
+// the capture act runs on this machine (Floor.CaptureHow), as the first capture's line does — on a
+// Mac the macos-user sandbox account and its sudo, on a Linux host with no runtime the Landlock
+// confinement — rather than a throwaway jail neither of those boots.
+func TestTheEvergreenRecaptureSaysHowItsCaptureRuns(t *testing.T) {
+	e := newEvergreenWorld(t)
+	how := "the test's own capture act runs its installer once"
+	e.floor.CaptureHow = func() string { return how }
+	e.clk.t = e.clk.t.Add(25 * time.Hour)
+	if _, outcome, err := e.ensure(); err != nil || outcome != Updated || e.captures != 1 {
+		t.Fatalf("Ensure = %s %v after %d captures\n%s", outcome, err, e.captures, e.out.String())
+	}
+	out := e.out.String()
+	if want := "to look for a newer release (" + how + ")"; !strings.Contains(out, want) {
+		t.Errorf("the recapture's line does not say how its capture runs (want %q):\n%s", want, out)
+	}
+	if strings.Contains(out, "throwaway jail") {
+		t.Errorf("the recapture's line names a throwaway jail this capture act does not boot:\n%s", out)
+	}
+}
