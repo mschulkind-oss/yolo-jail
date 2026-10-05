@@ -417,3 +417,28 @@ func TestHostModelMenusRowIsYolosOwn(t *testing.T) {
 			row.Verdict, row.Reclaimer, row.Bytes)
 	}
 }
+
+// THE HOST'S PATCHED-EXTENSION TREES ARE YOLO'S OWN (docs/design/patched-extensions.md §8.3): the
+// row for paths.HostTreesDir's leaf says what bounds it, and offers the user nothing to delete —
+// the host agent loads these trees through the links `yolo host apply` owns, so a deletion the
+// listing invited would leave those links dangling.
+func TestHostTreesRowIsYolosOwn(t *testing.T) {
+	leaf := filepath.Base(paths.HostTreesDirUnder("/h"))
+	o, state := testOptions(t)
+	writeFile(t, filepath.Join(state, leaf, "matt--x-12345678", "entrykey", "index.js"), 12)
+	rows := stateStores(o, nil)
+	var row *Store
+	for i := range rows {
+		if rows[i].Key == "state."+leaf {
+			row = &rows[i]
+		}
+	}
+	if row == nil {
+		t.Fatalf("no state.%s row in %v", leaf, rows)
+	}
+	if row.Verdict != VerdictYolo || !strings.Contains(row.Reclaimer.Detail, "self-bounded") ||
+		!strings.Contains(row.Reclaimer.Trigger, "yolo host apply --assert") || row.Bytes != 12 {
+		t.Errorf("host-trees row = verdict %q, reclaimer %+v, %d bytes; want yolo's own, self-bounded at "+
+			"`yolo host apply --assert`, 12", row.Verdict, row.Reclaimer, row.Bytes)
+	}
+}

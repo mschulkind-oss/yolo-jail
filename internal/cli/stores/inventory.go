@@ -295,6 +295,13 @@ var stateReclaimers = map[string]Reclaimer{
 	// that writes a new menu removes a program's others once no program holding one runs
 	// (modelmenu.Request.WriteIn), so no sweep of prune's has anything to add.
 	"model-menus": {Detail: "self-bounded: a `yolo host --` that writes a new menu removes the program's others once no program holding one runs", Trigger: "the next `yolo host --` that writes a menu"},
+	// The host's copies of each patched extension's good build (paths.HostTreesDir;
+	// docs/design/patched-extensions.md §8.3), which the links `yolo host apply` owns at `~/<into>`
+	// name and the host agent loads. Self-bounded: a render keeps the build its link names and the
+	// one before (pruneHostTreeVersions), `yolo host apply --assert` removes a dropped extension's
+	// copies once no recorded link names them (sweepDroppedHostTrees), and `--revert` removes them
+	// all — so no sweep of prune's has anything to add, and a user deleting them leaves dangling links.
+	"host-trees": {Detail: "self-bounded: each patched extension keeps the build its link names and the one before; a dropped extension's copies go at `yolo host apply --assert`, all of them at `yolo host apply --revert`", Trigger: "yolo host apply --assert"},
 }
 
 // stateStores inventories the direct children of the state dir, one row each.
