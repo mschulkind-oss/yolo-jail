@@ -23,6 +23,9 @@ Export your changes from a checkout of your fork, naming the upstream commit the
 git format-patch --base=$(git merge-base upstream/main HEAD) -o ~/code/pi-mine/patches upstream/main..HEAD
 ```
 
+Exporting the same changes again later, from amended commits or with another version of git, is
+not a change to your series: yolo keeps the build it has.
+
 Then write a pack beside the series. It looks like a [fork pack](packs-and-skills.md#run-your-own-fork-of-a-program),
 except that `source` names the **upstream**, not your fork, and `patches` names the series:
 
@@ -42,7 +45,8 @@ except that `source` names the **upstream**, not your fork, and `patches` names 
 Select it as you would any pack: `"packs": ["pi", "~/code/pi-mine"]`.
 
 - **`?ref=`** names the upstream branch to follow. yolo follows that branch's newest version tag.
-  Add `"follow": "head"` to follow every commit instead, which an upstream with no tags needs, or
+  On a branch with no version tags, yolo builds your series on the commit it starts from, keeps it
+  there until a tag appears, and says so. Add `"follow": "head"` to follow every commit instead, or
   `"follow": "release:<prefix>"` for tags with a prefix.
 - **A tag or a commit in `?ref=`** holds the program at that version: yolo still applies your
   patches to it and builds it, but never moves it.

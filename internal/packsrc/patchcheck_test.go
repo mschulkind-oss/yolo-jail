@@ -85,8 +85,8 @@ func TestABasePastTheNewestVersionListsNothing(t *testing.T) {
 
 	res := u.check(t, u.want(t, "main", ""), false)
 	f := res.Record.Check
-	if len(f.List) != 0 || !f.BaseOnBranch || f.Problem != "" {
-		t.Errorf("check = %+v, want an empty list with the base on the branch", f)
+	if len(f.List) != 0 || !f.BaseOnBranch || f.Problem != "" || f.NoVersion != "" {
+		t.Errorf("check = %+v, want an empty list with the base on the branch, and no note (PF-D60)", f)
 	}
 }
 
@@ -514,27 +514,43 @@ func TestAnEditedFollowIsCutAtTheGoodBuildsCommit(t *testing.T) {
 	}
 }
 
-// A BRANCH WITH NO VERSION TAG AT ALL IS A REF PROBLEM under a release rule (§8.1, PF-D27), told
-// apart from versions that all predate the base: the reason names `follow: "head"` and a hold, and
-// `follow: "head"` lists the tip. A release:<prefix> rule over tags of another name is the same.
-func TestABranchWithNoVersionTagIsARefProblem(t *testing.T) {
+// A BRANCH WITH NO VERSION TAG AT ALL IS AN EMPTY LIST under a release rule (PF-D60), as one whose
+// versions all predate the series' base is, so a first advance builds the base: no problem, and a
+// note saying why, which a reader completes with where the fork stays and which names
+// `follow: "head"`. `follow: "head"` lists the tip and carries no note. A release:<prefix> rule over
+// tags of another name is the same.
+func TestABranchWithNoVersionTagIsAnEmptyListThatSaysWhy(t *testing.T) {
 	u := newPatchedUpstream(t)
 	gitIn(t, u.repo, "tag", "-d", "v1.0.0")
 	u.release(t, "nightly", map[int]string{14: "fourteen"})
 	tip := u.release(t, "", map[int]string{14: "fourteen", 20: "twenty"})
 	res := u.check(t, u.want(t, "main", ""), true)
 	f := res.Record.Check
-	if len(f.List) != 0 || !strings.Contains(f.Problem, "carries no version tag that `follow: \"release\"` reads") ||
-		!strings.Contains(f.Problem, "`follow: \"head\"`") || !strings.Contains(f.Problem, "hold at") {
-		t.Errorf("a tagless branch under release = %+v, want the ref problem naming head and a hold", f)
+	if len(f.List) != 0 || f.Problem != "" || !f.BaseOnBranch ||
+		!strings.Contains(f.NoVersion, "carries no version tag that `follow: \"release\"` reads") {
+		t.Errorf("a tagless branch under release = %+v, want an empty list with the note, the base on it", f)
+	}
+	line := f.NoVersionLine("the series' base 1234abcd")
+	for _, w := range []string{f.NoVersion + ", so what runs stays at the series' base 1234abcd until a tag appears or " +
+		"`follow` changes", "`follow: \"head\"` follows the branch's commits"} {
+		if !strings.Contains(line, w) {
+			t.Errorf("the note's line lacks %q:\n%s", w, line)
+		}
 	}
 	res = u.check(t, u.want(t, "main", "head"), true)
-	if got := listLabels(res.Record.Check.List); got != shortCommit(tip)+"*" || res.Record.Check.Problem != "" {
-		t.Errorf("under head the tagless branch lists %q (%s), want its tip", got, res.Record.Check.Problem)
+	if got := listLabels(res.Record.Check.List); got != shortCommit(tip)+"*" || res.Record.Check.Problem != "" ||
+		res.Record.Check.NoVersion != "" {
+		t.Errorf("under head the tagless branch lists %q (%+v), want its tip and no note", got, res.Record.Check)
 	}
 	u.release(t, "v2.0.0", map[int]string{14: "fourteen", 20: "twenty", 21: "x"})
 	res = u.check(t, u.want(t, "main", "release:agent@"), true)
-	if f := res.Record.Check; !strings.Contains(f.Problem, "`follow: \"release:agent@\"` reads (a tag named `agent@`") {
-		t.Errorf("release:agent@ over v-tags = %+v, want the ref problem naming the prefix", f)
+	if f := res.Record.Check; f.Problem != "" || len(f.List) != 0 ||
+		!strings.Contains(f.NoVersion, "`follow: \"release:agent@\"` reads (a tag named `agent@`") {
+		t.Errorf("release:agent@ over v-tags = %+v, want the note naming the prefix", f)
+	}
+	// THE FIRST VERSION TAG ENDS THE NOTE: the release rule lists it.
+	res = u.check(t, u.want(t, "main", ""), true)
+	if f := res.Record.Check; f.Problem != "" || f.NoVersion != "" || listLabels(f.List) != "v2.0.0" {
+		t.Errorf("once v2.0.0 is tagged the check = %+v, want it listed and no note", f)
 	}
 }

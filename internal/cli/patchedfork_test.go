@@ -401,28 +401,33 @@ func TestPackStatusAfterAnEditNamesNoStaleCandidate(t *testing.T) {
 	}
 }
 
-// A TAGLESS UPSTREAM UNDER THE DEFAULT RULE is a ref problem, never a silent stay at the series'
-// base (§8.1, PF-D27): update fails naming `follow: "head"` and a hold, and status says the same.
-func TestPackUpdateOnATaglessUpstreamNamesFollowHead(t *testing.T) {
+// A TAGLESS UPSTREAM UNDER THE DEFAULT RULE builds the series' base (PF-D60, amending PF-D27), as a
+// branch whose versions all predate the base does, and never silently: update replays the base and
+// says the series stays there until a tag appears or `follow` changes, naming `follow: "head"`, and
+// status says the same whenever it is asked.
+func TestPackUpdateOnATaglessUpstreamReplaysTheBaseAndSaysWhy(t *testing.T) {
 	f := newPatchedFixture(t, "")
 	upstreamGit(t, f.repo, "tag", "-d", "v1.0.0")
 	f.commitMsg(t, "untagged one", "", map[int]string{14: "fourteen"})
 	f.commitMsg(t, "untagged two", "", map[int]string{14: "fourteen", 20: "twenty"})
 	rc, out, errw := packVerb(t, "update")
-	if rc == 0 {
-		t.Errorf("update exited 0 on a branch release reads no version on:\n%s", out)
+	if rc != 0 {
+		t.Errorf("update rc=%d on a tagless branch, whose base builds:\n%s\n%s", rc, out, errw)
 	}
-	for _, w := range []string{"carries no version tag that `follow: \"release\"` reads", "`follow: \"head\"`"} {
-		if !strings.Contains(errw, w) {
-			t.Errorf("update lacks %q:\n%s", w, errw)
+	stays := "so what runs stays at the series' base " + shortSHA(f.base) + " until a tag appears or `follow` changes"
+	for _, w := range []string{"fork forkpack/tool: ?ref=main of ", "carries no version tag that `follow: \"release\"` reads",
+		stays, "`follow: \"head\"` follows the branch's commits",
+		"the series' base " + shortSHA(f.base) + " (no version of the branch contains it) takes the series"} {
+		if !strings.Contains(out, w) {
+			t.Errorf("update lacks %q:\n%s\n%s", w, out, errw)
 		}
 	}
-	if strings.Contains(out, "takes the series") {
-		t.Errorf("update replayed a candidate a tagless branch under release does not name:\n%s", out)
-	}
 	_, out, _ = packVerb(t, "status")
-	if !strings.Contains(out, "`follow: \"head\"` follows the branch's commits") {
-		t.Errorf("status does not name follow head for a tagless branch:\n%s", out)
+	for _, w := range []string{"carries no version tag that `follow: \"release\"` reads", stays,
+		"`follow: \"head\"` follows the branch's commits"} {
+		if !strings.Contains(out, w) {
+			t.Errorf("status lacks %q:\n%s", w, out)
+		}
 	}
 }
 

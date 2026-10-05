@@ -24,10 +24,15 @@ package packsrc
 //     it records describes the bytes it applied.
 //
 // The SERIES DIGEST (a term coined in the design, §3.2) is the sha256 of the JSON array of
-// [name, sha256 of the file's bytes] pairs in series order: JSON for the reason ForkRecipe uses
-// it, since no separator can be spelled inside a value.
+// [name, sha256 of the file's digested bytes] pairs in series order: JSON for the reason ForkRecipe
+// uses it, since no separator can be spelled inside a value. A file's DIGESTED BYTES (coined here,
+// PF-D61) are its bytes less the two parts `git format-patch` writes differently for an unchanged
+// patch, so exporting the same patches again is no edit (digestedBytes). The LEGACY DIGEST is the
+// same array over each file's raw bytes, the digest before PF-D61, which a good build recorded then
+// names until it is re-keyed (PF-D62).
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -64,13 +69,17 @@ type Series struct {
 	// Digest is the series digest, over every file the read took: the cover letter, when there is
 	// one, and the members, in series order.
 	Digest string
+	// LegacyDigest is the digest the same files had before PF-D61, over their raw bytes: what a good
+	// build recorded before then names, which the re-key moves to Digest (PF-D62). Nothing records it.
+	LegacyDigest string
 }
 
 // SeriesMember is one patch of a series, with the bytes the read took.
 type SeriesMember struct {
 	Name string
 	Data []byte
-	// Sum is the sha256 of Data, in hex.
+	// Sum is the sha256, in hex, of Data's digested bytes (digestedBytes): what the series digest
+	// takes of the file.
 	Sum string
 }
 
@@ -191,7 +200,7 @@ func ReadSeries(packRoot, rel string) (*Series, error) {
 				"makes the series' commits", Fix: "export the commit with `git format-patch` rather " +
 				"than `diff -u` or `git diff`"}
 		}
-		sum := sha256.Sum256(data)
+		sum := sha256.Sum256(digestedBytes(data))
 		m := SeriesMember{Name: name, Data: data, Sum: hex.EncodeToString(sum[:])}
 		read = append(read, m)
 		if !strings.Contains(string(data), "\ndiff --git ") {
@@ -232,7 +241,47 @@ func ReadSeries(packRoot, rel string) (*Series, error) {
 	}
 	s.Base = base
 	s.Digest = SeriesDigest(read)
+	s.LegacyDigest = legacySeriesDigest(read)
 	return s, nil
+}
+
+// legacySeriesDigest is the series digest as yolo computed it before PF-D61: over each file's raw
+// bytes, the mbox first line and the signature included.
+func legacySeriesDigest(read []SeriesMember) string {
+	raw := make([]SeriesMember, len(read))
+	for i, m := range read {
+		sum := sha256.Sum256(m.Data)
+		raw[i] = SeriesMember{Name: m.Name, Sum: hex.EncodeToString(sum[:])}
+	}
+	return SeriesDigest(raw)
+}
+
+// gitSignatureSep opens the signature `git format-patch` appends to each file it writes: the line
+// "-- ", then the signature, the git version by default, then a blank line.
+var gitSignatureSep = []byte("\n-- \n")
+
+// digestedBytes is what the series digest takes of a series file (PF-D61): its bytes less the two
+// parts `git format-patch` writes differently for an unchanged patch — the mbox
+// "From <commit> Mon Sep 17 00:00:00 2001" first line, which names the commit the patch was exported
+// from and so moves with every rebase or amend; and the signature trailer
+// "-- \n<git version>\n\n", which moves with the exporter's git. The trailer is taken out only
+// where it is git's own: it ends the file, and its one line opens with a digit, as every git
+// version does. No line of a diff opens with a digit, so a hunk whose last line removes the line
+// "- " (and so reads "-- ") is never taken for one; a custom `--signature` stays in.
+func digestedBytes(data []byte) []byte {
+	if mailFormat(data) {
+		_, rest, _ := bytes.Cut(data, []byte("\n"))
+		data = rest
+	}
+	i := bytes.LastIndex(data, gitSignatureSep)
+	if i < 0 {
+		return data
+	}
+	line, tail, ok := bytes.Cut(data[i+len(gitSignatureSep):], []byte("\n"))
+	if ok && len(line) > 0 && line[0] >= '0' && line[0] <= '9' && (len(tail) == 0 || string(tail) == "\n") {
+		return data[:i+1]
+	}
+	return data
 }
 
 // isCoverLetterName reports whether a series file is named as `git format-patch --cover-letter`

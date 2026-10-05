@@ -39,6 +39,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/cli/run"
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/packsrc"
@@ -216,7 +217,7 @@ func packRebase(args []string, out, errw io.Writer, color bool) int {
 		fmt.Fprintf(errw, "yolo pack rebase: %s: %v\n", f.Label(), res.Err)
 		return 1
 	}
-	rec, found := res.Record, res.Record.Check
+	rec, found := run.RekeyLegacyGood(store, f, series, res.Record), res.Record.Check
 	if found.FetchErr != "" {
 		fmt.Fprintf(errw, "yolo pack rebase: %s: could not fetch %s (%s) — using this machine's copy\n",
 			f.Label(), f.Source, found.FetchErr)
@@ -625,7 +626,7 @@ func rebaseNextSteps(f packload.Fork, origin forkPackOrigin, dir string, target 
 	}
 	guard := packsrc.RebaseExportGuard(dir, target.Commit, applied, q)
 	formatPatch := func(out string) string {
-		return "git -C " + q(dir) + " -c format.noprefix=false format-patch --suffix=.patch --base=" +
+		return "git -C " + q(dir) + " -c format.noprefix=false format-patch --suffix=.patch --no-signature --base=" +
 			target.Commit + " -o " + out + " " + target.Commit + ".." + packsrc.RebaseBranchRef
 	}
 	export := func(patches, tail string) {

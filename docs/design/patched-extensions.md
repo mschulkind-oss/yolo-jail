@@ -559,7 +559,8 @@ For each extension:
      export keeps all 22 members and its `base-commit:` line, replays at its base, and the declared
      `build` then rebuilds the fork's committed `dist/` byte for byte, 118 of 118 files.
    - For `pi-background-tasks`, declare `follow: "head"`: its upstream has no tags
-     ([§12](#12-dependencies)).
+     ([§12](#12-dependencies)), so the default rule leaves it at its series' base
+     ([PF-D60](patched-forks.md#PF-D60)).
 2. In one edit, add the `files` contribution and replace the extension's `git:` entry with
    `~/<into>`. Leaving both loads it twice.
 3. Launch.

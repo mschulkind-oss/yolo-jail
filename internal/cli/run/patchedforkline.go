@@ -72,7 +72,7 @@ func patchedForkLineOf(f packload.Fork, floor *FloorCopy, rebuilds string) (stri
 	if config.InJail() {
 		return head + " — checked and built on the host", false
 	}
-	rec, err := patchedPacksStore().LoadCheckRecord(f.Key())
+	rec, err := LoadPatchedRecord(patchedPacksStore(), f, series)
 	var g *packsrc.GoodBuild
 	if err == nil {
 		g = rec.Good

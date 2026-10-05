@@ -96,7 +96,7 @@ func checkPatchedFork(pr richtext.Printer, errw io.Writer, store *packsrc.Store,
 		fmt.Fprintf(errw, "yolo pack: %s: %v\n", f.Label(), res.Err)
 		return 1
 	}
-	rec, found := res.Record, res.Record.Check
+	rec, found := run.RekeyLegacyGood(store, f, series, res.Record), res.Record.Check
 	rc := 0
 	if found.FetchErr != "" {
 		// The explicit act asked for the network and did not get it, as a pack's failed install.
@@ -107,6 +107,10 @@ func checkPatchedFork(pr richtext.Printer, errw io.Writer, store *packsrc.Store,
 	if found.Problem != "" {
 		fmt.Fprintf(errw, "yolo pack: %s: %s\n", f.Label(), found.Problem)
 		return 1
+	}
+	if found.NoVersion != "" {
+		// A RELEASE RULE OVER A BRANCH WITH NO VERSION TAG (PF-D60): an empty list, and where it stays.
+		pr.Printf("[yellow]⚠ %s[/yellow]", richtext.Escape(f.Label()+": "+found.NoVersionLine(stayAt(rec, series))))
 	}
 	list := rec.Candidates(res.Inputs)
 	first := rec.Good == nil
@@ -250,6 +254,15 @@ func heldAt(rec *packsrc.CheckRecord, series *packsrc.Series, fit *packsrc.Repla
 	return "nothing runs yet, and nothing on the list takes the series"
 }
 
+// stayAt is where a fork whose release rule finds no version tag stays (PF-D60), as its note names
+// it: the good build, or with none the series' base, which a first advance builds.
+func stayAt(rec *packsrc.CheckRecord, series *packsrc.Series) string {
+	if rec != nil && rec.Good != nil {
+		return "the good build " + goodLabel(rec.Good)
+	}
+	return "the series' base " + shortSHA(series.Base)
+}
+
 // goodLabel is a good build as a line names it: its tag and short commit, or the commit alone.
 func goodLabel(g *packsrc.GoodBuild) string {
 	return packsrc.ListEntry{Commit: g.Commit, Tag: g.Tag}.Label()
@@ -279,7 +292,7 @@ func subdirOf(source string) string {
 // read from the check record, the series and the store, never git.
 func patchedForkStatusLines(f packload.Fork) []string {
 	series, serr := f.ReadSeries()
-	rec, rerr := patchedForkStore().LoadCheckRecord(f.Key())
+	rec, rerr := run.LoadPatchedRecord(patchedForkStore(), f, series) // nil series: no re-key
 	var in packsrc.CheckInputs
 	if serr == nil {
 		in, _, _, _ = f.CheckWant(series).Inputs()
@@ -412,6 +425,10 @@ func candidateLines(f packload.Fork, rec *packsrc.CheckRecord, series *packsrc.S
 	}
 	if found.Problem != "" {
 		return append(lines, "[yellow]  ⚠ "+found.Problem+"[/yellow]")
+	}
+	if found.NoVersion != "" {
+		// A RELEASE RULE OVER A BRANCH WITH NO VERSION TAG (PF-D60), said whenever status is asked.
+		lines = append(lines, "[yellow]  ⚠ "+richtext.Escape(found.NoVersionLine(stayAt(rec, series)))+"[/yellow]")
 	}
 	list := rec.Candidates(in)
 	if len(list) == 0 {
