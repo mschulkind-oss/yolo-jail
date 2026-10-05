@@ -34,6 +34,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/packsrc"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/shquote"
+	"github.com/mschulkind-oss/yolo-jail/internal/testsupport"
 )
 
 // patchedTestPlatform is the platform the fake build jail's manifest reports: a container capture
@@ -558,8 +559,9 @@ func TestTheChildBuildJailRunsTheSealedBuildJail(t *testing.T) {
 // told apart, since only a build past it is a failed build.
 func TestTheChildBuildJailIsStoppedByTheScopeAndTheBound(t *testing.T) {
 	prev := forkBuildChildCommand
+	started := filepath.Join(t.TempDir(), "started")
 	forkBuildChildCommand = func([]string) (*exec.Cmd, error) {
-		return exec.Command("sh", "-c", "trap 'exit 130' INT; while :; do sleep 0.1; done"), nil
+		return exec.Command("sh", "-c", testsupport.UntilInterrupted(":", started)), nil
 	}
 	t.Cleanup(func() { forkBuildChildCommand = prev })
 	ctx, cancel := context.WithCancel(context.Background())
