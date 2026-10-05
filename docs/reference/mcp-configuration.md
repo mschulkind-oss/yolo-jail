@@ -715,7 +715,7 @@ its footprint:
 
 | Contribution | What it does |
 | :--- | :--- |
-| `program` `chrome-devtools-mcp` (npm, Node floor 22.12) | the server. A jail's and macos-user's lazy launcher installs it on first use and keeps it current; at the host `yolo host apply --assert` or the first `yolo host -- <agent>` installs it into yolo's floor |
+| `program` `chrome-devtools-mcp` (npm, Node floor 22.12) | the server. In a jail and on macos-user every agent's launcher installs it before the agent starts and keeps it current on the agent's own trigger; the program's launcher, which the server runs through, installs it only if nothing has and never updates it by itself, since it runs while the client waits ([MP-D9](../design/mcp-presets-removal.md#MP-D9)). At the host `yolo host apply --assert` or the first `yolo host -- <agent>` installs it into yolo's floor |
 | `files` `.local/share/yolo-chrome-devtools/chrome-devtools-mcp-wrapper` | the script the entry runs, off PATH ([MP-D1](../design/mcp-presets-removal.md#MP-D1)) |
 | `mcp` `chrome-devtools` | `/bin/sh` and the wrapper's path under the notch's home. `/bin/sh`, because a pack selected by its bare name carries no exec bit |
 | `autonomy` | the jail-only chrome flags on the AUTONOMOUS posture's launch flags for the program: `--headless`, `--isolated` and three `--chrome-arg=` flags (`--no-sandbox`, `--disable-setuid-sandbox`, `--disable-gpu`). A jail's launcher adds them to every start; the GUARDED posture, the host's, adds none, so Chrome keeps its own sandbox and opens a window there ([MP-D2](../design/mcp-presets-removal.md#MP-D2)) |

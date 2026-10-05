@@ -204,7 +204,10 @@ func TestWorkspaceMcpConfigsAreIsolated(t *testing.T) {
 // ~/.claude.json, each running the pack's wrapper under the jail's home through /bin/sh, with no
 // core branch naming any of the three; that the wrapper is where the entry says and reports the
 // server and the image's chromium; and that `mcp_servers: {"chrome-devtools": null}` removes it
-// from all three. `--check` starts nothing and installs nothing.
+// from all three. `--check` starts nothing and installs nothing. It also reads the launchers the
+// boot generated (mcp-presets-removal.md MP-D9): an agent's carries the server's program in the
+// refresh it runs before exec, and the program's own carries no update of its own; with the null,
+// the agent's carries nothing for it.
 func TestMcpChromeDevtoolsPackReachesEveryAgent(t *testing.T) {
 	requireJail(t)
 	probe := `python - <<'PY'
@@ -218,6 +221,13 @@ codex = (home / '.codex/config.toml').read_text()
 print('COPILOT=' + str(copilot.get('chrome-devtools', {}).get('args') == [wrapper]))
 print('CLAUDE=' + str(claude.get('chrome-devtools', {}).get('command') == '/bin/sh'))
 print('CODEX=' + str('chrome-devtools' in codex and wrapper in codex))
+def baked(name, var):
+    for line in (home / '.yolo/bin/launch' / name).read_text().splitlines():
+        if line.startswith(var + '='):
+            return line.split('=', 1)[1]
+    return 'none'
+print('AGENT_REFRESHES=' + str('chrome-devtools-mcp' in baked('claude', 'SERVERS_NPM')))
+print('SERVER_UPDATES=' + baked('chrome-devtools-mcp', 'UPDATES_ENABLED'))
 PY
 /bin/sh /home/agent/.local/share/yolo-chrome-devtools/chrome-devtools-mcp-wrapper --check || true`
 
@@ -228,6 +238,7 @@ PY
 		t.Fatalf("expected rc 0, got %d\n%s", r.rc, r.stderr)
 	}
 	for _, want := range []string{"COPILOT=True", "CLAUDE=True", "CODEX=True",
+		"AGENT_REFRESHES=True", "SERVER_UPDATES=0",
 		"chrome-devtools-mcp: /home/agent/.yolo/bin/launch/chrome-devtools-mcp", "browser: /"} {
 		if !strings.Contains(r.stdout, want) {
 			t.Errorf("selected: no %q\nstdout=%q\nstderr=%q", want, r.stdout, r.stderr)
@@ -240,7 +251,7 @@ PY
 	if r.rc != 0 {
 		t.Fatalf("expected rc 0, got %d\n%s", r.rc, r.stderr)
 	}
-	for _, want := range []string{"COPILOT=False", "CLAUDE=False", "CODEX=False"} {
+	for _, want := range []string{"COPILOT=False", "CLAUDE=False", "CODEX=False", "AGENT_REFRESHES=False"} {
 		if !strings.Contains(r.stdout, want) {
 			t.Errorf("nulled: no %q\nstdout=%q", want, r.stdout)
 		}
