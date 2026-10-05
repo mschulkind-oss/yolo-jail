@@ -122,9 +122,16 @@ fails ([agent-directory-map.md §4.2](../design/agent-directory-map.md#42-each-v
 > Every shipped agent pack declares `after` equal to its own `into`, so this was every nested
 > jail. A prepend source that is not a destination is still prepended in a jail.
 
-`after: "host:…"` is **jail-only**: at the `yolo host apply` notch the path it names *is* the
-generated destination, so the host render ignores it outright. It is no longer origin-gated —
-a fetched pack's `after` is honored like anyone else's.
+`after: "host:…"` is **honored at the host too, where it names the user's own file**
+([DP-B26](../design/declaration-parity.md#54-the-host-notch-and-the-entry-point)): `yolo host
+apply` opens the destination with it, above the same `---`, in the jail's bytes. It is not read
+when it names yolo's own output — a destination the apply composes, which is what every shipped
+agent pack's `after` names (its own `into`), or a file the briefing record lists as yolo's, by
+its path or as the same file through a link — and it is never opened when it cannot be read as
+a file: the three cases above, each a warning in the launch's words, the destination composed
+without it. A prepended file is named once in the report; a skip as yolo's output is `--verbose`
+only, since every shipped pack reaches it. It is no longer origin-gated — a fetched pack's
+`after` is honored like anyone else's.
 
 **2. The jail-managed body** — one document describing this specific jail, deliberately
 limited to what an agent *cannot* discover through its own mechanisms, with inline manuals
@@ -718,9 +725,15 @@ destination's staging dir, and nothing is ever written into the workspace.
 - **Re-read on every invocation**, attach included, so an edit under a declared path reaches the
   next `yolo` command against a running jail — the same tree the agent there already reads live.
   Each source that delivered anything gets one `Workspace skills from <dir> mirrored into …` line.
-- **Containers and `macos-user` only.** macos-user receives it through the same composed tree it
-  copies; the host notch never does, by ruling
-  ([`OQ-WS5`](#oq-ws5)).
+- **The mirror is containers' and `macos-user`'s only.** macos-user receives it through the same
+  composed tree it copies; the host notch never does, by ruling ([`OQ-WS5`](#oq-ws5)). What the
+  host gets instead, since 2026-10-04, is one link: `yolo host -- <agent>` in a repository that
+  has none of the agent's own project skills paths puts a relative symlink at the first of them,
+  pointing at the first skills directory the repository keeps under another agent's path
+  (`.codex/skills -> ../.claude/skills`), after the same reader has checked that directory, and
+  adds the link to the directory's `.gitignore` once
+  ([WS-D19](../design/workspace-skills.md#WS-D19) to [WS-D23](../design/workspace-skills.md#WS-D23);
+  [`OQ-WS6`](../design/workspace-skills.md#OQ-WS6) decided on its leaning (a)).
 
 After both layers, yolo writes its **own LSP plugin** into every skills destination, rendered
 from `lsp_servers`, or removes it when that list is empty. This is not a third content layer: it
@@ -781,8 +794,10 @@ gated on at least one briefing having actually been written. See
 ## Customizing, in practice
 
 - **All jails, one destination:** edit the host-level file that destination's `after` names.
-  Prepended everywhere, and live-refreshes — on a machine where `yolo host apply` has run, put
-  it in the local pack instead.
+  Prepended in every jail, and live-refreshes. Where `after` names the destination itself, as
+  every shipped agent pack's does, on a machine where `yolo host apply` has run put it in the
+  local pack instead; an `after` naming a file of its own (`host:mine.md`) opens that destination
+  at the host as well.
 - **All jails, every destination:** `agents_md_extra` in the user config.
 - **One workspace:** `agents_md_extra` in the workspace config, or the repo's own checked-in
   project-level file, which yolo does not touch. A repo's skills under any agent's project path
@@ -843,7 +858,7 @@ only place the values themselves are stated.
 | Staging directory, per jail | `<machine storage>/agents/<container-name>/` | `paths.AgentsDir`, `jailcontent.PrepareSkills` |
 | Briefing staging filename | `briefing-<RFC 6901-escaped destination>` | `run.briefingStagingName` |
 | Skills staging subdirectory | `skills-<pack>` | `jailcontent.SkillStagingName` |
-| Host-briefing prepend selector | `after: "host:<home-relative path>"` on a `briefing` contribution | `packdecl` (`Contribution.After`), `run.briefingHostOverlay` |
+| Host-briefing prepend selector | `after: "host:<home-relative path>"` on a `briefing` contribution | `packdecl` (`Contribution.After`), `run.briefingHostOverlay`; at the host, `entrypoint.hostBriefingOverlay` |
 | Ownership record gating the prepend | the host-briefing manifest under the user's config dir | `entrypoint.HostBriefingManifestPath`, `HostBriefingOwner` |
 | Pack prose sources | every `*.md` directly inside a pack's `briefing/`, plus any file a `from` names; one governing contribution each | `packload.GovernedSources`, `run.packBriefingProses` |
 | Per-pack label (off by default) | `<!-- from pack: NAME -->`, when `briefing_provenance: true` | `jailcontent.ComposeBriefingSections` (both notches); `config.BriefingProvenance` |
@@ -883,7 +898,7 @@ their own rules. The audience model's principles `P1`–`P5` are in the body, un
 | <a id="oq-ws2"></a>[`OQ-WS2`](#oq-ws2) | **The workspace is the lowest layer**: it adds names and never shadows a built-in, shared-pack or local-pack skill, and every shadowed name is disclosed (2026-09-27) | It is the one source a clone populates and an agent edits, so it must never be able to replace a jail-management skill such as `configuring-the-jail`. |
 | <a id="oq-ws3"></a>[`OQ-WS3`](#oq-ws3) | **The source set is every shipped agent pack's declared project-scope path, whether or not the pack is selected**; core names none (2026-09-27) | The maintainer: *"I want it to be from the world of agents. Like if I clone an open source project and I trust that person, like I still want these skills."* Keying on the selected packs would miss a repo whose convention belongs to an agent nobody here runs. |
 | <a id="oq-ws4"></a>[`OQ-WS4`](#oq-ws4) | **The staged mirror alone**, in containers and on macos-user; in-workspace links are a host-notch tool only (2026-09-27) | A mirror writes nothing into the repo ([P4](#ws-p4)). The same ruling closed [`OQ-ACP2`](../plans/agent-config-packs.md#-oq-acp2--whether-opencodes-skills-gap-should-be-closed-by-writing-into-workspace): yolo does not write into the workspace for skills. |
-| <a id="oq-ws5"></a>[`OQ-WS5`](#oq-ws5) | **The host notch is out of v1** (2026-09-27); its one mechanism, links written into the repo, and how they are kept out of git ([`OQ-WS6`](../design/workspace-skills.md#OQ-WS6)) are deferred with it | A host render's content is a function of the user's configuration and installed packs, never of the directory it runs from, so a staged mirror into a real home is ruled out; a host half could only write links into the repo under `yolo host --`, which waits on its own ruling. |
+| <a id="oq-ws5"></a>[`OQ-WS5`](#oq-ws5) | **The host notch is out of v1** (2026-09-27); its one mechanism, links written into the repo, and how they are kept out of git ([`OQ-WS6`](../design/workspace-skills.md#OQ-WS6)) were deferred with it, and built after v1 on 2026-10-04 under the maintainer's delegation ([WS-D19](../design/workspace-skills.md#WS-D19) to [WS-D23](../design/workspace-skills.md#WS-D23)) | A host render's content is a function of the user's configuration and installed packs, never of the directory it runs from, so a staged mirror into a real home is ruled out; a host half could only write links into the repo under `yolo host --`, which waits on its own ruling. |
 | <a id="oq-ws7"></a>[`OQ-WS7`](#oq-ws7) | **A per-launch cap on what the layer copies**, set where no real skill set meets it; a skill that would cross it is refused whole and named (2026-09-28) | Symlinks cost nothing to commit, so a clone could make a launch write many times its own size into every destination. |
 | <a id="ba-r1"></a>[`R1`](#ba-r1) | An addressed contribution that matches no destination of its kind is **reported, not refused** | The addressing pack's `agents` is correct; the fix belongs to the owning pack. Refusing would punish the wrong author, and the fatal half is P3's. Both notches print the report: `yolo host apply` and the jail launch ([two severities](#two-severities-an-unknown-name-is-fatal-an-unmatched-destination-is-reported)). |
 | <a id="ba-r2"></a>[`R2`](#ba-r2) | The destination enumeration and the staging-name encoding live in one place each, called by both halves | A mismatch does not fail the launch — podman binds an absent file source happily — so the failure is a *blank briefing*, which nothing reports. Coupling by comment had already let the two drift. |

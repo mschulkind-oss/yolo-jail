@@ -50,8 +50,8 @@ host or an outside account follows under [External waits](#external-waits).
 9. Rulings that hold a defect's fix: [the Kilo special-casing in two derives](../design/gateway-provider-packs.md), while claude gives every
    Kilo model without a declared window a 1M-token context; [whether a hatch reaches a required daemon's refusal](../reference/loopback-tls-reachability.md#OQ-R8),
    which the documented one cannot; [`--no-daemon` for every in-jail `codex`](../research/codex-background-service.md#OQ-CDX3), since `codex agents`
-   there still starts the daemon yolo turns off; [how host pi gets its OpenAI subscription credential](../design/pi-host-openai-auth.md), since
-   `yolo host -- pi` on the `codex` profile lists no ChatGPT model; [who owns the host's pi `mcp.json` server table](../reference/mcp-configuration.md#OQ-MC1)
+   there still starts the daemon yolo turns off; [whose OpenAI login host pi uses when you have your own](../design/pi-host-openai-auth.md#OQ-3),
+   since its first refresh under `yolo host` replaces it; [who owns the host's pi `mcp.json` server table](../reference/mcp-configuration.md#OQ-MC1)
    and [an old pi or a leftover `mcp-adapter.json` there](../reference/mcp-configuration.md#OQ-MC2), since `--revert` removes the servers you added
    with `pi mcp add`; and [what backs an Apple Container jail's `/mise`](../research/macos-backend-performance.md#OQ-MB1), since while one such
    jail runs a jail in another workspace cannot start, which also stopped the 2026-10-03 Apple Container run's keeper sweep measure.
@@ -115,8 +115,8 @@ host or an outside account follows under [External waits](#external-waits).
     which the plain-words rewrite of the provider reference waits on.
 23. [Decide whether a jail shell gets the credential grant](../design/credential-sources-separation.md) — a jail's
     `--with-credentials` and [its build sketch](../design/credential-sources-separation-plan.md) wait on it.
-24. [Rule one env composition order](notch-convergence.md), and [whether every jail on a machine shares one Claude login](../reference/claude-oauth-interposition.md#OQ-CI1)
-    — one variable's value depends on how the agent starts, and the login's leaning, drafted 2026-10-02, lets `yolo host -- claude`
+24. [Rule whether the host's env composition keeps the shell's value](notch-convergence.md#OQ-NC13), and [whether every jail on a machine shares one Claude login](../reference/claude-oauth-interposition.md#OQ-CI1)
+    — at the host yolo's value of a variable still replaces your shell's, and the login's leaning, drafted 2026-10-02, lets `yolo host -- claude`
     join it, reopening the plan's host-claude ruling; its other held items wait on the workspace-config and jail-credential
     rulings above and the `assert` ruling next.
 25. [Settle what retiring `host_management: "assert"` does to configs on it](../design/config-ownership-and-promotion.md)
@@ -146,87 +146,85 @@ host or an outside account follows under [External waits](#external-waits).
     would supersede [the traps design](../design/pack-declared-file-diagnostics.md), so rule it before building either.
 35. [Rule what triggers an in-jail build's GC root, and whether `gcroots/auto` may be bound in](../design/in-jail-nix-roots.md) — yolo's
     own in-jail roots are registered under the host's spelling now, and a root a user or an agent makes is still dead on arrival.
-36. [Approve the host capability gate](../design/declaration-parity.md) (DP-B46: `yolo host --` skips the capability gate a jail
-    launch applies) — a nod, not a ruling, and the last item of that census.
-37. [Rule how macos-user reaches the capture store](install-capture.md) and [whether integration sharding unparks](integration-parallelism.md)
+36. [Rule how macos-user reaches the capture store](install-capture.md) and [whether integration sharding unparks](integration-parallelism.md)
     with [the test suite's two other levers](test-suite-speed.md), and [name the real forked program](../design/forked-programs-as-packs.md)
     — the host notch's floor arms are built on a stand-in fork, and the real one is the last input step 7 needs.
-38. [Rule how a jail reaches a worktree's `.git` outside it](../research/herdr-integration.md#OQ-HR3), with [a jail pane after a herdr
+37. [Rule how a jail reaches a worktree's `.git` outside it](../research/herdr-integration.md#OQ-HR3), with [a jail pane after a herdr
     restart](../research/herdr-integration.md#OQ-HR2) and [a jailed agent driving herdr](../research/herdr-integration.md#OQ-HR4) — the
     2026-10-01 measurement put the herdr questions on facts: a read-only bind refuses every commit, a read-write one lets a jail prune the worktree.
-39. Calls the 2026-10-01 groundwork left at one decision each: [mise's prune record](../design/minimal-disk-footprint.md),
+38. Calls the 2026-10-01 groundwork left at one decision each: [mise's prune record](../design/minimal-disk-footprint.md),
     [colliding attribute paths](../design/package-nested-attribute-paths.md), [pi's package loader](../design/pack-pi-resources.md),
     [who installs a pi package the refresh missed](../design/pi-extension-lifecycle.md), [the `:ro` degradation rows](../design/composed-file-permissions.md),
     [whether messages name the guide's URL](../design/docs-website.md#OQ-DW3), [the macOS nix build sandbox](../design/macos-user-build-step-threat-model.md),
     [copilot's updater](native-installer-migration.md), [whether array-append pinning closes](BACKLOG.md#E5), [the pack system's other calls](../reference/pack-system.md),
     [relocating `.yolo` by a link](../reference/jail-home.md#OQ-JH1) and, once the Mac runs' read-back records its cases,
     [context sources inside a home](../design/context-mounts.md) — each has its facts and a leaning, so each is a short sitting.
-40. [Rule whether yolo may hold an editor preference](../design/baked-editor-preference.md) — the maintainer asked
+39. [Rule whether yolo may hold an editor preference](../design/baked-editor-preference.md) — the maintainer asked
     for it, and its first ruling decides the rest and an image change every jail pays.
-41. [Build the rest of the broker's step 2](../design/boundary-broker.md#11-recommendation-and-the-first-build-slice) — first
+40. [Build the rest of the broker's step 2](../design/boundary-broker.md#11-recommendation-and-the-first-build-slice) — first
     among the builds because the maintainer put the broker on the plate for the week of 2026-09-28, and only its
     no-notifier notice and its ping wait on a ruling or another design.
-42. Speed builds the maintainer asked for on 2026-10-04, next among the builds since neither holds other work:
+41. Speed builds the maintainer asked for on 2026-10-04, next among the builds since neither holds other work:
     [Apple Container's stock-image skip, then the same skip for a launch declaring `packages:`](../reference/image-staging-vs-baking.md), as the nix
     build that finds nothing to do is 3.2 to 3.5 s of Apple Container's 6.9 s fresh launch and a median 1.7 s per launch of this repository,
     which declares `packages:` (33 builds in its host perf log, 2026-09-14 to 2026-10-04, not in the repository), and the second also covers
     Apple Container launches that declare `packages:`; and [Apple-silicon Podman Machines pinned to applehv](../research/macos-vm-runtime-comparison.md#32-on-a-shared-mac-folder),
     as Podman's own installer gives a new machine libkrun, the slowest shared folder measured.
-43. Builds and small steps no ruling holds, after the broker and the speed builds since none holds other work: [a provider set's two gaps](../design/active-provider-sets.md#13-what-was-built-2026-09-29), where
+42. Builds and small steps no ruling holds, after the broker and the speed builds since none holds other work: [a provider set's two gaps](../design/active-provider-sets.md#13-what-was-built-2026-09-29), where
     the overlay modifier and the host remedy line read only the set's primary; [the empty-list line in `yolo check`](../design/model-lists-and-pickers.md#72-composition-rules);
     [the `boot.log` half of TP10's disclosure](../design/trust-paths.md#outstanding-work); [macos-user's item 2 twin](handoff-macos-user-open-threads.md);
     [Group B of the CLI's color pass](cli-visual-polish.md); [the unit suite's clock waits](test-suite-speed.md#unit-tests-one-package-sets-the-wall-time-and-five-of-its-tests-are-waiting-on-clocks);
     [the Bedrock user-guide recipes](../design/bedrock-plumbing.md#12-what-i-would-build-in-order); [the disk levers' re-measure](../design/disk-levers-and-backfill.md),
     its jail half now; and graduating [the extension model defaults](../research/extension-model-defaults.md) into the provider reference.
-44. [Make the Chrome DevTools MCP server work at `yolo host`](../design/mcp-presets-removal.md#5-the-chrome-devtools-inventory--what-the-pack-carries-what-the-image-keeps)
+43. [Make the Chrome DevTools MCP server work at `yolo host`](../design/mcp-presets-removal.md#5-the-chrome-devtools-inventory--what-the-pack-carries-what-the-image-keeps)
     — the maintainer wants it, after the week's work (2026-09-30); host apply expands no MCP preset
     ([HC-D16](../design/host-computed-layer.md#HC-D16)), and the host agent floor now gives yolo a prefix to put one in.
     Build one path for every host, per the [fill-the-matrix principle](../reference/fill-the-matrix-principle.md).
-45. Rulings nothing shipped waits on. Gating one later step: [the host-file permission asymmetry](BACKLOG.md#E2) with [its host-side
+44. Rulings nothing shipped waits on. Gating one later step: [the host-file permission asymmetry](BACKLOG.md#E2) with [its host-side
     twin](pack-host-management-plan.md) in one sitting, [the jail's skills fan-out](BACKLOG.md#OQ-S4), [pack binary pins](../design/broker-as-a-pack.md),
     [loophole env and guest fields](../design/loophole-packaging.md), [workspace MCP files](../design/workspace-mcp-sources.md), [the backend census](../design/backend-parity.md),
     [Seatbelt deny-default](../research/agent-safehouse.md), [host apply's posture](../design/host-render-target.md), [the I/O priority default](../design/io-priority.md).
     Only closing a document: [an unmatched-reference hatch](../design/reference-mismatch-diagnostics.md), [path mirroring](../design/workspace-path-mirroring.md),
     [pack telemetry](agent-config-packs.md), [AWS's key pair](../design/agent-auth-modes.md#OQ-9), [stateful-surface comments](BACKLOG.md#OQ-E4),
     [the upstream mise issue](../design/jail-state-separation-design.md).
-46. The four calls the 2026-09-26 open-source audit left to the maintainer: whether one public research doc stays
+45. The four calls the 2026-09-26 open-source audit left to the maintainer: whether one public research doc stays
     public, the scratch-directory `.gitignore` entries, a `last-release` recipe from the template, and when to retire
     the Python-version migration; the audit's report is outside this repository, so this is their only record.
 
 ## External waits
 
-47. One session at a Mac, with `sudo`'s password and the runner stopped, completes [the benchmark](../research/macos-backend-performance.md#8-results):
+46. One session at a Mac, with `sudo`'s password and the runner stopped, completes [the benchmark](../research/macos-backend-performance.md#8-results):
     [auto-capture](../design/program-delivery.md#decision-ledger) on current main, once about 90% of an Apple Container launch, macos-user's
     `go test`, new binaries' first run with and without the developer-tool setting, Podman Machine through yolo on the Mac's applehv machine,
     and [NFS from macOS's own `nfsd`](../research/macos-vm-runtime-comparison.md#6-is-there-an-open-stack-with-faster-shared-folders), the one open shared-folder
     candidate left, since libkrun with complete permission semantics and QEMU's virtiofsd port did not beat VZ's share — first among the waits,
     as [the comparison's refresh](../reference/macos-no-vm-direction.md#when-to-refresh-this) waits on it; it measures the build skip and spans if landed, waiting for neither.
-48. Someone at the runner Mac upgrades `container` from 1.1.0 to 1.5.0 (its kernel prompt is interactive), so the next
+47. Someone at the runner Mac upgrades `container` from 1.1.0 to 1.5.0 (its kernel prompt is interactive), so the next
     `apple-container.yml` dispatch reruns [the two-jail check](../research/macos-backend-performance.md#7-found-on-the-way-two-apple-container-jails-may-mount-one-ext4-disk), which every parity run on 1.1.0 since 2026-10-03 has failed;
     the VM-local probe needs the maintainer's push and one dispatch, after the upgrade for answers that hold on 1.5.0.
-49. A human with a subscription login clears [Claude's login without interception](../design/claude-login-without-interception.md)
+48. A human with a subscription login clears [Claude's login without interception](../design/claude-login-without-interception.md)
     by running [its runbook](runbooks/claude-credential-view-measures.md), on a Mac and for a day on a rootless host,
     and [the OpenAI service](../design/openai-auth-broker-plan.md) by recording one browser login and one shared expiry.
-50. One session at a Mac clears [the host capture for installer agents](../design/host-tool-provisioning.md), which runs
+49. One session at a Mac clears [the host capture for installer agents](../design/host-tool-provisioning.md), which runs
     each vendor installer under Seatbelt; the hosted Mac job runs no vendor install until [OQ-CI7](../reference/agent-install-in-ci.md#OQ-CI7) says it may.
-51. A real rootless Linux host, which a nested jail is not, clears [a real reboot](../design/podman-reboot-readiness.md#testing-and-the-real-host-check),
+50. A real rootless Linux host, which a nested jail is not, clears [a real reboot](../design/podman-reboot-readiness.md#testing-and-the-real-host-check),
     [a low-space collection with a jail up](storage-lifecycle.md) and [the keeper's scope move and logout](../design/jail-lifetime-last-session-wins.md#8-what-done-looks-like).
-52. One live agent session per check, which no test may start, clears [the footer](../design/agent-footer.md#21-as-built),
+51. One live agent session per check, which no test may start, clears [the footer](../design/agent-footer.md#21-as-built),
     [Claude's LSP plugin](../reference/mcp-configuration.md#lsp-claudes-route-is-a-generated-plugin), [the via route](../design/wire-bridge-gateway.md#41-how-it-is-built),
     [menus under a model list](../design/model-lists-and-pickers.md#13-build-order-and-what-done-looks-like), [a switch inside a provider set](../design/active-provider-sets.md#9-what-done-looks-like),
     [Copilot's config migration](../design/agent-directory-map.md#74-copilot), [a Kilo session](../design/gateway-provider-packs.md), [the restart prompt at a
     real terminal](../design/attach-skew-and-contract-guardrails.md) and [a codex, opencode and pi turn on Bedrock](../design/bedrock-plumbing.md#8-behaviour-this-design-fixes) under `aws-auth`'s SSO.
-53. A human with the cloud account clears [a request under a Bedrock API key or a static key pair](../design/bedrock-plumbing.md#64-the-credential-three-are-supported),
+52. A human with the cloud account clears [a request under a Bedrock API key or a static key pair](../design/bedrock-plumbing.md#64-the-credential-three-are-supported),
     [an SSO lapse mid-turn](../design/sso-backed-bedrock.md#11-evidence-and-how-to-re-check-it), [settings-only Bedrock mode](../reference/providers.md#two-channels-split-by-payload-type),
     [an AgentCore gateway](../design/bedrock-web-search.md) and [a Claude usage-limit response](../design/wire-bridge-gateway.md#5-part-4--the-subscription-arm-and-opt-in-failover-ruled).
-54. The maintainer's own commits and launches clear [the `matt` pack's `briefing/`](../reference/pack-system.md#briefing),
+53. The maintainer's own commits and launches clear [the `matt` pack's `briefing/`](../reference/pack-system.md#briefing),
     [its posture list at the host](../design/notch-scoped-config-contributions.md#5-fastest-path-to-the-motivating-case),
     [a dropped pack's host output](../reference/pack-system.md#retiring-a-dropped-packs-host-output), [the fzf pack's adoption](handoff-fzf-pack-adoption.md),
     [the listen-port fix where reported](../reference/wire-bridge.md#what-can-hold-the-listen-port-before-the-bridge-does) and
     [the runner Mac's change that let published ports hold](runbooks/mac-actions-runner.md), for its runbook.
-55. A live `llama-server` and one manual agent turn per row clear [the `llamacpp` provider](../../packs/llamacpp/README.md),
+54. A live `llama-server` and one manual agent turn per row clear [the `llamacpp` provider](../../packs/llamacpp/README.md),
     whose per-agent spellings are read from each agent's code and have never met a server; copilot is the one to try first.
-56. The maintainer files the upstream reports drafted with the VM-local design, on [VZ's virtio-fs having no cache policy](../research/apple-container-file-cost.md#21-per-file-cost-not-bandwidth)
+55. The maintainer files the upstream reports drafted with the VM-local design, on [VZ's virtio-fs having no cache policy](../research/apple-container-file-cost.md#21-per-file-cost-not-bandwidth)
     and on [VZ keeping freed guest memory](../research/macos-vm-memory-reclaim.md#5-adding-it-to-apple-container-ourselves)
     — last, since only Apple can ship either fix and nothing in yolo waits on one.
 

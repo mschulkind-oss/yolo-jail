@@ -539,9 +539,10 @@ thereafter mediates **every** invocation, which is what keeps an agent dependenc
 The launcher goes in `~/.yolo/bin/launch/<bin>`, which is **second** on PATH: immediately
 after the blocked-tool shims (which stay first, because interception must outrank
 installation) and **ahead of every install prefix**, and so ahead of `/bin`.
-`entrypoint.BootPath` is the authority for that order, and there are two more
-independently-written copies of it — the `.bashrc` export, compared to `BootPath` entry by
-entry by `TestBashrcPathMatchesBootPathOrder`, and `macosuser.SandboxPath`.
+`entrypoint.BootPath` is the authority for that order. The `.bashrc` export is a second,
+independently-written copy, compared to `BootPath` entry by entry by
+`TestBashrcPathMatchesBootPathOrder`. `macosuser.SandboxPath` takes its head from
+`entrypoint.HomePathDirs`, the function `BootPath` is built from.
 
 > [!WARNING]
 > **This position is load-bearing and the obvious alternative is a defect.** Ordering the
@@ -966,8 +967,10 @@ every destination as the lowest layer; and a destination whose own list names a 
 copy of it, because its agent reads it natively — nor a copy of any skill whose name that
 directory carries, from any other. Each entry must be clean, relative, inside the
 workspace and outside `.git` and `.yolo`; the field is refused on any other kind and on a content
-entry. The host notch ignores it — `yolo host apply` never writes a workspace's skills into a
-real home ([`OQ-WS5`](agent-briefings.md#oq-ws5)). What each shipped pack declares is
+entry. `yolo host apply` ignores it — it never writes a workspace's skills into a real home
+([`OQ-WS5`](agent-briefings.md#oq-ws5)) — and `yolo host -- <agent>` reads it to place one link
+at the agent's first declared path when the repository has none of them
+([WS-D20](../design/workspace-skills.md#WS-D20)). What each shipped pack declares is
 pinned in `internal/packload/projectskilldirs_test.go` and witnessed against the installed agent
 by `integration/agents_test.go`'s probe, wherever the agent's bundle names the path at project
 scope as text; the probe lists the rows it cannot witness and where each was measured instead.
@@ -1216,9 +1219,11 @@ addressed contributions in the scaffold's `README.md`, which ships nowhere.
 > records the asymmetry as deliberate. Name an audience with `agents` to narrow at both notches.
 
 `after: "host:<path>"` prepends the user's own briefing at that host path ahead of the
-composed content, so the user's own file still outranks the pack's. It is **jail-only**:
-at the host notch the path it names IS the generated destination, so there is no
-user-maintained file left to prepend.
+composed content, so the user's own file still outranks the pack's. `yolo host apply` honors it
+the same way when the path names the user's own file, and skips it when the path names a
+destination the apply composes — every shipped agent pack's `after` names its own `into` — or a
+file the briefing record lists as yolo's, whether by its path or as the same file through a link
+(`entrypoint.hostBriefingOverlay`).
 
 > [!WARNING]
 > **"The user's own" is CHECKED, not assumed.** Once a machine has run `yolo apply --at
@@ -1421,7 +1426,11 @@ a `~/.aws` grant may
 rules are `packdecl.EnvOverride`'s doc comment.
 
 An `env` contribution whose variables point a client at a yolo jail daemon declares that daemon
-as **`served_by`**: the loophole's name for a loophole's `jail_daemon`, or the service's name. The
+as **`served_by`**: the loophole's name for a loophole's `jail_daemon`, or the service's name. A
+loophole that runs no jail daemon but binds host sockets or devices into the jail (a **bound
+loophole**, [`loophole-packaging.md` LP-D1](../design/loophole-packaging.md#LP-D1)) is named the
+same way, and is served wherever a container launch's argv carries its binds: never at `yolo host`
+or on macos-user, which bind nothing, and not in a jail with the loophole off. The
 variables are then delivered only where that daemon is served: in a container launch whose
 payload includes it, in the macos-user guest or at the doorway that launch opens for it, and at
 `yolo host` at the doorway it opens for its one agent, aws-auth's for an agent on a Bedrock
@@ -1431,8 +1440,9 @@ loophole left disabled or `yolo host env`, which runs no process. An address not
 dead pointer, and on a shared loopback it
 hands the client's request to whoever binds the port first
 ([notch convergence §2.4](../plans/notch-convergence.md#24-the-addresses-those-secrets-protect-are-composed-not-literal)).
-`packs/codex` declares it on `CODEX_REFRESH_TOKEN_URL_OVERRIDE`, and `packs/aws-auth` on its
-Bedrock pointer. `overridden_by` is not evaluated for a contribution the launch leaves out.
+`packs/codex` declares it on `CODEX_REFRESH_TOKEN_URL_OVERRIDE`, `packs/aws-auth` on its
+Bedrock pointer, and `packs/audio` on `PULSE_SERVER` and `PIPEWIRE_REMOTE`. `overridden_by` is not
+evaluated for a contribution the launch leaves out.
 
 #### `hook`
 
@@ -3722,7 +3732,7 @@ only place the values themselves are stated.
 | Conventional skills source | `skills/` | `packdecl.Contribution.SkillsSource` |
 | Blocker dir (first on PATH) | `~/.yolo/bin/block` | `entrypoint.BootPath` |
 | Launcher dir (second on PATH) | `~/.yolo/bin/launch` | `entrypoint.BootPath` |
-| PATH order | `block : launch : $NPM_CONFIG_PREFIX/bin : <mise-shims> : $GOPATH/bin : $HOME/.local/bin : /run/yolo/packages/bin : /bin : /usr/bin` | `entrypoint.BootPath` (and two independently-written copies: the `.bashrc` export, `macosuser.SandboxPath`) |
+| PATH order | `block : launch : $NPM_CONFIG_PREFIX/bin : <mise-shims> : $GOPATH/bin : $HOME/.local/bin : /run/yolo/packages/bin : /bin : /usr/bin` | `entrypoint.BootPath` (and one independently-written copy, the `.bashrc` export; `macosuser.SandboxPath` takes its head from `entrypoint.HomePathDirs`) |
 | Shim bypass | `YOLO_BYPASS_SHIMS=1` | `internal/entrypoint` |
 | Unversioned npm launcher poll | hourly | `entrypoint` launcher generation |
 | `install_hints` managers | `brew`, `brew-cask`, `apt`, `dnf`, `pacman`, `nix` | `packdecl` install-hints validation |
