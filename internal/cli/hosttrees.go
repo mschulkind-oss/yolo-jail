@@ -28,7 +28,13 @@ package cli
 //     link names against the good build the record names.
 //
 // macOS hosts build no tree (the build is the jail's Linux platform): the render says so once,
-// naming a jail that has the extension.
+// naming a jail that has the extension, and so does `yolo host -- <bin>` of the owning agent,
+// which starts without it (noteHostTreeLines).
+//
+// # A revert
+//
+// `yolo host apply --revert` removes every link the `files` ownership record names into the
+// versioned copies, and the copies with it (revertHostTreeLinks, PPX-D31).
 
 import (
 	"errors"
