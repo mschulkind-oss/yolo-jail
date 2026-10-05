@@ -3,7 +3,7 @@ title: "Notch convergence — one code path per concern, and the loopback servic
 date: 2026-09-28
 status: in-review
 stage: DESIGN
-next: "Rule OQ-NC12 — item 16, one ordered env composition at every vehicle, waits on it; OQ-NC13 was ruled 2026-10-05 (A: at the host what yolo composes wins over the shell)"
+next: "Build OQ-NC12's launch disclosure of a shadowed value (ruled 2026-10-05); the order itself lands with the parity build (B17)"
 depends-on:
   - ../design/credential-sources-separation.md#OQ-ES5
   - ../research/agent-safehouse.md#OQ-AS3
@@ -52,7 +52,7 @@ premise is retired.
 **Start at [§2](#2-security-first-the-boundary-that-is-not-one)**, the only part that is urgent, then
 [§4](#4-the-ordered-build-list).
 
-**Needs your ruling:** [OQ-NC12](#OQ-NC12) ([OQ-NC13](#OQ-NC13) ruled 2026-10-05), filed 2026-09-30 because item 16's gate, [`OQ-CN8`](../reference/providers.md#oq-cn8), is built and decided less than the item needs ([NC-D68](#NC-D68)). [OQ-NC2](#OQ-NC2), reopened for a fix without hosts-file interception, was found answered on 2026-09-30 by [OQ-CL1](../design/claude-login-without-interception.md#OQ-CL1): the credential view deletes the terminator at every notch. Also ruled 2026-09-28: [OQ-NC3](#OQ-NC3) (keep autonomy, disclosed) and [OQ-NC10](#OQ-NC10) (retire the unread variable). Ruled 2026-09-28: [OQ-NC1](#OQ-NC1) (run services at every notch), [OQ-NC6](#OQ-NC6) (credential-routing provider fields are user-scope only), [OQ-NC7](#OQ-NC7) (host claude keeps its own login for now), and by parity [OQ-NC4](#OQ-NC4), [OQ-NC5](#OQ-NC5), [OQ-NC8](#OQ-NC8), [OQ-NC9](#OQ-NC9), [OQ-NC11](#OQ-NC11).
+**Needs your ruling:** none: [OQ-NC12](#OQ-NC12) and [OQ-NC13](#OQ-NC13) were ruled 2026-10-05, filed 2026-09-30 because item 16's gate, [`OQ-CN8`](../reference/providers.md#oq-cn8), is built and decided less than the item needs ([NC-D68](#NC-D68)). [OQ-NC2](#OQ-NC2), reopened for a fix without hosts-file interception, was found answered on 2026-09-30 by [OQ-CL1](../design/claude-login-without-interception.md#OQ-CL1): the credential view deletes the terminator at every notch. Also ruled 2026-09-28: [OQ-NC3](#OQ-NC3) (keep autonomy, disclosed) and [OQ-NC10](#OQ-NC10) (retire the unread variable). Ruled 2026-09-28: [OQ-NC1](#OQ-NC1) (run services at every notch), [OQ-NC6](#OQ-NC6) (credential-routing provider fields are user-scope only), [OQ-NC7](#OQ-NC7) (host claude keeps its own login for now), and by parity [OQ-NC4](#OQ-NC4), [OQ-NC5](#OQ-NC5), [OQ-NC8](#OQ-NC8), [OQ-NC9](#OQ-NC9), [OQ-NC11](#OQ-NC11).
 
 **Reads with:** [`wire-bridge.md`](../reference/wire-bridge.md#wb-d4) (WB-D4, the premise
 [§2](#2-security-first-the-boundary-that-is-not-one) retires),
@@ -852,7 +852,7 @@ is reported verified only against a real rootless host or CI, with
     > **Built** `45c53ed1` ([NC-D52](#NC-D52) to [NC-D56](#NC-D56)). [S5](BACKLOG.md#S5) is marked
     > answered by this ruling, and its launch-warning option is superseded.
 
-12. 💬 <a id="OQ-NC12"></a>**OQ-NC12: When two of yolo's own sources set one variable, which wins?**
+12. ✅ <a id="OQ-NC12"></a>**OQ-NC12: When two of yolo's own sources set one variable, which wins?**
     The three sources, how each vehicle orders them today (MEASURED), and each option's
     reasoning and cost in full: [row C3's first question](#row-c3-which-of-yolos-own-sources-wins).
     This decides the first half of item 16.
@@ -862,7 +862,6 @@ is reported verified only against a real rootless host or CI, with
     - **C — The per-agent file's order today:** `env_sources`, then the fold, then the shape var,
       with the other two vehicles moved to it.
 
-    <!-- vantage: question id=OQ-NC12 leaning="A: the shape var, then env_sources, then the pack env fold, at every vehicle; the most specific source wins, and a user who wants a dotenv value to beat a profile has the per-command spelling OQ-CN8 makes win." -->
 
     _Leaning:_ A. A profile is chosen per agent or per launch, so its derive's value is the more
     specific intent, the reasoning pv-oq-8 applies inside the fold. The case B protects, a value
@@ -870,7 +869,11 @@ is reported verified only against a real rootless host or CI, with
     [`OQ-CN8`](../reference/providers.md#oq-cn8) keeps.
 
     **Answer:**
-    > _(empty — fill in when decided)_
+    > **Ruled in review 2026-10-05, A, with a disclosure:** *"can we do A and then disclose at every
+    > launch if something was shadowed in that way? that's probably best."* Everywhere, the profile wins,
+    > then the `env_sources` keys file, then the pack's default; and every launch says which value it
+    > shadowed, naming the losing source. Both ways of starting an agent on macos-user give the same
+    > answer. The order was built on the leaning by the parity build's B17; the disclosure is new.
 
 13. ✅ <a id="OQ-NC13"></a>**OQ-NC13: Does the host keep a value the user's shell already has, as a
     jail does?** Background, and each option in full:
@@ -981,3 +984,4 @@ is reported verified only against a real rootless host or CI, with
 | <a id="NC-D69"></a>NC-D69 | *Implementation decision, fixing a fault in [NC-D43](#NC-D43).* **A picked port stays held until the process that serves it has it.** The pick bound port 0 and let the port go at once, so the kernel could hand it to whatever bound port 0 next, the same launch included: it fronts its host services, each on a port-0 listener, between the pick and the daemon's start. The daemon's bind then failed with "address already in use", and the launch was refused. Seen as unit-test flakes; the one recorded ([test-suite-speed.md](test-suite-speed.md)) is a macos-user launch under test whose Codex doorway lost its port to the claude broker's front. Each pick is now a **reserved port**, a term coined in `internal/launchservice`'s `reserve.go`: a socket bound to the port and never listened on, so nothing else can bind it, explicitly or as a port-0 pick, and a connection to it is refused as one to a free port is. A doorway the launch opens itself takes its reservation into its plan and is handed it at its start ([HS-D26](../design/host-notch-services.md#HS-D26)). Every other one is released only immediately before the process that starts the jail's daemons: on macos-user just before the sandbox starts, once every listener of the launch's own is bound, and on a container by its keeper, which is handed them ([NC-D70](#NC-D70)). An attach releases what it picked when it adopts the running jail's map. What is left is a process outside the launch binding the port between the release and the daemon's bind, which fails closed as NC-D43 says. For a container jail that window is the container's start and its boot up to the jail-daemon supervisor (`start_jail_daemon_supervisor` is one of the boot's last steps), so what this removes from it is the launch's and the keeper's own listeners, not the boot. Closing that too would mean handing the socket across the container or sandbox boundary to every jail daemon, which is not built | 2026-10-01 | [§2.4](#24-the-addresses-those-secrets-protect-are-composed-not-literal) | ✅ `TestAMacosUserDoorwaysPickedPortIsStillItsOwnWhenAnotherListenerAsksFirst`, `TestASharedNamespaceLaunchHoldsEveryPortItPickedUntilItReleasesThem`, `TestTheMacosUserGuestDaemonsPickedPortIsFreeWhenTheSandboxStarts`, `TestAnAttachComposesForTheRunningJailsServedAddresses` |
 | <a id="NC-D70"></a>NC-D70 | *Implementation decision, [NC-D69](#NC-D69) at a container launch.* **The jail's reserved ports are handed to its keeper, which lets them go just before it starts the container.** The fresh launch spawns the keeper before any host service exists, and the keeper then fronts each host service on a port-0 listener before it starts the container ([the keeper design, §9.1](../design/jail-lifetime-last-session-wins.md#91-what-starts-it)). On a shared namespace those fronts bind the loopback the jail's daemons will bind, so a launch that let its reservations go at the spawn would still have one of them handed to a front. So `startKeeper` passes each reservation's socket in `ExtraFiles` after the launch lock, named by one `--reserved-fd` each, and closes its own copies; the keeper marks them close-on-exec at once, as it does its other descriptors ([JL-D29](../design/jail-lifetime-last-session-wins.md#JL-D29)), and closes them after its host services and the credential view and before the container's main process, or at any end before that. Chosen over releasing them when the keeper reports progress, which would race the jail's boot. ⚠ What this cannot change, and a nested jail cannot show: a foreign process binding the port between the keeper's release and the daemon's bind still wins it. The nested jail is a shared namespace, so it exercises the hand-over itself (`TestTwoJailsOnOneLoopbackServeOnTheirOwnPorts`), but `network.mode: "host"` on a real rootless host is verified only there or by CI, and on a macOS podman machine the reservation is on the Mac's loopback, not the VM's ([NC-D43](#NC-D43)) | 2026-10-01 | [§2.4](#24-the-addresses-those-secrets-protect-are-composed-not-literal) | ✅ `TestTheKeeperHoldsTheJailsReservedPortsUntilItStartsTheContainer`, `TestTheKeeperReleasesTheReservedPortsAfterItsHostServicesAndBeforeTheContainer`, `TestTheKeepersArgvNamesEachReservedPortWhereTheSpawnHandsIt` |
 | [OQ-NC13](#OQ-NC13) | **Maintainer ruling, A, against the leaning:** at `yolo host` what yolo composes (profiles, `env_sources`) wins over the user's shell, which has no say over a composed name; the host keeps the jail's boundary, where `env_sources` is the way in | 2026-10-05 | [§6](#6-open-questions) | ✅ today's host behavior |
+| [OQ-NC12](#OQ-NC12) | **Maintainer ruling, A, plus a disclosure:** the profile wins, then `env_sources`, then the pack default, at every vehicle, and every launch names a value it shadowed and its source | 2026-10-05 | [§6](#6-open-questions) | the order: the parity build (B17); the disclosure: pending |
