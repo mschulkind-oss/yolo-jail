@@ -5,7 +5,7 @@ status: draft
 stage: SKETCH
 tags: [plan, packs, programs, forks, build]
 summary: "Where the patched-fork mode's code would land, for programs and for pi extensions, read against the tree at 026fca672 and 48491fd4a, and the traps found while designing it. A parking lot for the designs, not a hand-off: nothing here may be built from while it is a sketch."
-next: "The build started 2026-10-04 works from this map; record what the tree changed as each step lands, then graduate it into the designs' status lines"
+next: "Built and integrated at e87f1ba88 (2026-10-05); what is left is the maintainer's: his test with the migration kit, OQ-PFK5, PPX-D16's lint, and graduating this map into a system reference once the build is on main"
 depends-on:
   - patched-forks.md
   - patched-extensions.md
@@ -13,8 +13,10 @@ depends-on:
 
 # Patched forks — implementation sketch
 
-**Status:** 2026-10-03, extended 2026-10-04 to patched extensions — incomplete, and unstable while
-questions are open.
+**Status:** 2026-10-03, extended 2026-10-04 to patched extensions. Built 2026-10-04: patched forks'
+steps 1 to 4 and patched extensions' steps 2 to 5, each recorded below as it landed, and integrated
+on 2026-10-05 at `e87f1ba88` ([Integration](#integration-landed-2026-10-05)). Open:
+[OQ-PFK5](patched-forks.md#OQ-PFK5), macos-user delivery, which is the maintainer's.
 
 **Designs:** [`patched-forks.md`](patched-forks.md), and [`patched-extensions.md`](patched-extensions.md),
 which shares its implementation through the owner key ([PF-D22](patched-forks.md#PF-D22)).
@@ -315,10 +317,45 @@ which a real pi loads a built tree (a human's check, AGENTS.md's no-agent rule);
 test of a tree through a real build jail, which this stage could not run (parallel stages share the
 session image).
 
+## Integration, landed 2026-10-05
+
+Steps 3 and 4 and the patched extensions were built in parallel from step 2 and merged in that
+order. Step 4's ledger rows, which took the same free ids as step 3's, moved up by three (PF-D50 to
+PF-D55). The advance's lines kept one set of words for the three places it runs: a jail launch,
+the host floor's install of a patched fork (`yolo host`, and its next `yolo host -- <bin>`), and
+the host's render of a patched extension (the host, and its next `yolo host apply --assert`).
+
+Integrating found two defects that no single branch could, and fixed both:
+
+- **`yolo pack rebase` refused a patched extension's key**, which every extension's conflict line
+  names: step 3 read only the forks of programs ([PPX-D32](patched-extensions.md#PPX-D32)).
+- **`yolo pack update` built and moved the good build** on a Linux host, through the `yolo host
+  apply --assert` it runs, which both step 4 and the extensions had taught to advance. The patched
+  fork integration test caught it: its next launch disclosed no move
+  ([PF-D56](patched-forks.md#PF-D56)).
+
+[`integration/patchedextension_test.go`](../../integration/patchedextension_test.go) is the
+extensions' container-level cell, the one their build could not run: a tree built in a real sealed
+jail, mounted read-only where the agent's list names it, handed to the jail, disclosed, then held
+at a conflict whose printed `yolo pack rebase` stops at it.
+
+**The trap the maintainer's own series found:** a fork whose history has merges does not export as
+one `git format-patch` range at its merge base. Where it merged upstream releases (his pi fork),
+`format-patch` refuses, its base not being an ancestor of every commit in the range; where it merged
+two of its own branches (his `pi-dynamic-workflows`), the series does not apply at its base. The
+migration kit exports such a fork as its first-parent chain, each merge one member, and for the pi
+fork the integration merge's whole diff against the upstream release as the first; both then
+apply at their base and reproduce the fork's tree.
+
 ## Measurements to make
 
 - The maintainer's own pi series against the newest upstream version: the replay's time on the
   host, and the build time the design quotes from a stand-in and one host log.
 - The prefetch of one pi commit into a blobless mirror of the GitHub remote, which the store measured
   at 4.9 s for a commit of 2,992 files ([`store.go:756-768`](../../internal/packsrc/store.go#L756-L768));
-  the design's blobless measurement used a `file://` remote.
+  the design's blobless measurement used a `file://` remote. MEASURED 2026-10-05, in part: the first
+  `yolo pack update` of the maintainer's pi series against a cold blobless mirror of
+  `github.com/earendil-works/pi` stopped at the replay's 60 s bound, an apply error; the next,
+  with the mirror warm, replayed three versions in about 7 s for the whole command. A first launch
+  that meets the cold case builds the series' base ([PF-D45](patched-forks.md#PF-D45)), which for
+  this series is also its newest fit.
