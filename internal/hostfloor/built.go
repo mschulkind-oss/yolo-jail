@@ -66,6 +66,13 @@ func (f *Floor) buildProvisionable(st Status) Status {
 	if err == nil {
 		if why := buildUnusable(p, commit, entry); why != "" {
 			st.Disposition, st.Reason = NoEntry, why
+		} else if why := f.storeProgramLoaderProblem(entry, p.Install.ProgramPath()); why != "" {
+			// Its program's dynamic loader, read from the store before anything is materialized
+			// (HP-D15): a build made in the jail asks for the loader the jail has, and a Node script
+			// for the one Node's official build asks for.
+			st.Disposition = NoEntry
+			st.Reason = "fork pack " + p.Install.ForkedBy + "'s build of " + p.Bin() + " at " + buildVersion(commit) +
+				" " + why
 		}
 		return st
 	}
@@ -73,6 +80,35 @@ func (f *Floor) buildProvisionable(st Status) Status {
 		st.Disposition, st.Reason = NoEntry, f.noBuildReason(p.Bin(), commit, why)
 	}
 	return st
+}
+
+// storeProgramLoaderProblem says why the program a fork's store entry holds at the home-relative
+// rel cannot start on this machine, its links resolved through the entry's manifest
+// (programInManifest), as a clause that follows the build's name — "" when it can, and when the
+// manifest holds no program there, which the caller's own check reports. A program asks for its own
+// loader (programLoaderProblem), and A NODE SCRIPT for Node's official build's, the build execRecord
+// runs it on: a script names no loader itself, so without this a machine lacking Node's would
+// materialize it and fetch Node on every launch, only to refuse it once the tarball was in.
+func (f *Floor) storeProgramLoaderProblem(entry *capture.Entry, rel string) string {
+	if !f.probesLoaders() {
+		return ""
+	}
+	m, err := capture.ReadManifest(entry.Root)
+	if err != nil {
+		return ""
+	}
+	final, why := programInManifest(m, rel)
+	if why != "" {
+		return ""
+	}
+	program := filepath.Join(entry.Tree, filepath.FromSlash(final))
+	if isNodeScript(program) {
+		if why := f.nodeLoaderProblem(); why != "" {
+			return "is a Node script, and " + why
+		}
+		return ""
+	}
+	return f.programLoaderProblem(program)
 }
 
 // noBuildReason is the no-floor-entry reason for a fork the store has no build of at commit, on a
@@ -97,7 +133,7 @@ func buildUnusableAs(p Program, what string, entry *capture.Entry) string {
 	if err != nil {
 		return what + " has an unreadable manifest (" + err.Error() + ")"
 	}
-	if why := programInManifest(m, in.ProgramPath()); why != "" {
+	if _, why := programInManifest(m, in.ProgramPath()); why != "" {
 		return what + " cannot run outside a jail: " + why
 	}
 	if !m.Relocatable {
@@ -189,6 +225,13 @@ func (f *Floor) execRecord(ctx context.Context, in packdecl.Install, rec *Record
 	if !isNodeScript(rec.Entry) {
 		rec.Exec = []string{rec.Entry}
 		return rec, nil
+	}
+	// NODE'S LOADER, BEFORE NODE IS FETCHED (HP-D15): the floor's status checks the store's build
+	// first where it can (buildProvisionable), and this is the check every fork's install reaches,
+	// a patched fork's and a build the install itself just made included, so no launch downloads a
+	// Node this machine cannot start.
+	if why := f.nodeLoaderProblem(); why != "" {
+		return nil, &noEntryError{reason: "the build of " + in.Bin + " (" + rec.Version + ") is a Node script, and " + why}
 	}
 	v := f.NodeVersion()
 	if !packdecl.SatisfiesNodeFloor(v, in.NodeFloor) {

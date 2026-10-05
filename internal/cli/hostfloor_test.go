@@ -49,8 +49,8 @@ func disarmTheHostFloor() {
 
 // withTestFloor gives this test the PRODUCTION floor wiring — the prefix under HOME, the
 // user-scope `host_floor` and `agent_updates`, the capture store — with its Node taken from a fake
-// distribution and its npm the fake registry's, and no capture or build act. It returns the distribution,
-// whose registry the test publishes into.
+// distribution and its npm the fake registry's, no capture or build act, and a filesystem root of its
+// own for the loader check. It returns the distribution, whose registry the test publishes into.
 func withTestFloor(t *testing.T) *floortest.Dist {
 	t.Helper()
 	return withTestFloorOn(t, floortest.NewDist(t))
@@ -67,6 +67,7 @@ func withLinuxTestFloor(t *testing.T) *floortest.Dist {
 // so any Node the floor fetches is one the distribution serves, on a Mac too.
 func withTestFloorOn(t *testing.T, dist *floortest.Dist) *floortest.Dist {
 	t.Helper()
+	root := floorLoaderRoot(t)
 	orig := newHostFloor
 	newHostFloor = func(out io.Writer, progs []hostfloor.Program) *hostfloor.Floor {
 		f := productionHostFloor(out, progs)
@@ -83,10 +84,24 @@ func withTestFloorOn(t *testing.T, dist *floortest.Dist) *floortest.Dist {
 		f.Advance = func(_ context.Context, p hostfloor.Program, _ *hostfloor.Record) hostfloor.PatchedState {
 			return hostfloor.PatchedState{Reason: "test guard: refusing to advance " + p.Bin()}
 		}
+		f.Root = root
 		return f
 	}
 	t.Cleanup(func() { newHostFloor = orig })
 	return dist
+}
+
+// floorLoaderRoot is a filesystem root holding a plain file at each dynamic loader Node's official
+// Linux builds ask for (hostfloor's officialNodeLoader: x86-64's and arm64's), so the test floor's
+// loader check (Floor.Root, HP-D15) answers the same on every machine — a NixOS one without nix-ld
+// included.
+func floorLoaderRoot(t *testing.T) string {
+	t.Helper()
+	root := floortest.ResolvedTemp(t)
+	for _, loader := range []string{"/lib64/ld-linux-x86-64.so.2", "/lib/ld-linux-aarch64.so.1"} {
+		writeFile(t, filepath.Join(root, filepath.FromSlash(loader)), "a dynamic loader\n")
+	}
+	return root
 }
 
 // floorLaunchFixture is a host whose user config selects one fixture pack declaring
@@ -215,6 +230,43 @@ func TestHostLaunchOfAProgramTheFloorCannotHoldRunsThePATHCopyAndSaysSo(t *testi
 	}
 	if len(dist.NpmCalls("install")) != 0 {
 		t.Error("a program the floor may not hold was installed")
+	}
+	if _, err := os.Stat(paths.HostFloorDir()); err == nil {
+		t.Errorf("the launch created %s for a program with no floor entry", paths.HostFloorDir())
+	}
+}
+
+// TestHostLaunchOnAMachineWithoutTheFloorsLoaderRunsThePATHCopyAndNamesTheStep is HP-D15 at the call
+// site: on a Linux host whose filesystem has no dynamic loader for Node's official build (NixOS
+// without nix-ld, a musl system), the floor has no entry for an npm agent, so `yolo host` runs the
+// copy on the caller's PATH — the no-copy line naming the loader and the nix-ld step, the hand-over
+// line saying where the copy came from — and downloads nothing.
+func TestHostLaunchOnAMachineWithoutTheFloorsLoaderRunsThePATHCopyAndNamesTheStep(t *testing.T) {
+	dist, handInstalled := floorLaunchFixture(t, "")
+	withLinuxTestFloor(t)
+	bare := floortest.ResolvedTemp(t)
+	orig := newHostFloor
+	newHostFloor = func(out io.Writer, progs []hostfloor.Program) *hostfloor.Floor {
+		f := orig(out, progs)
+		f.Root = bare
+		return f
+	}
+	t.Cleanup(func() { newHostFloor = orig })
+	got := captureHostExec(t)
+	var errw bytes.Buffer
+	if rc := hostExec(nil, []string{"floorcli"}, io.Discard, &errw, nil); rc != 0 || got.target != handInstalled {
+		t.Fatalf("rc=%d target=%s, want the PATH copy %s\n%s", rc, got.target, handInstalled, errw.String())
+	}
+	for _, want := range []string{"yolo host: yolo has no copy of floorcli on this machine (the floor runs it on " +
+		"Node's official linux-", "needs the dynamic loader ", "a NixOS host without nix-ld, or a musl system",
+		"programs.nix-ld.enable = true;", "; looking for it on your PATH\n",
+		"yolo host: starting floorcli (from your PATH, "} {
+		if !strings.Contains(errw.String(), want) {
+			t.Errorf("stderr lacks %q:\n%s", want, errw.String())
+		}
+	}
+	if len(dist.NpmCalls("install")) != 0 {
+		t.Error("a program whose interpreter cannot start here was installed")
 	}
 	if _, err := os.Stat(paths.HostFloorDir()); err == nil {
 		t.Errorf("the launch created %s for a program with no floor entry", paths.HostFloorDir())

@@ -648,30 +648,127 @@ func TestOtherCopiesWithNoHintsLooksAtTheCompiledList(t *testing.T) {
 	}
 }
 
-// TestACaptureThatHoldsNoRunnableProgramIsNoFloorEntry: codex's installer leaves ~/.local/bin/codex
-// a link into ~/.codex, which no capture records. Its capture can never run outside the jail that
-// made it, so the floor has no entry for it — whether the store already holds that capture, or the
-// install makes it — and nothing is materialized.
+// TestACaptureThatHoldsNoRunnableProgramIsNoFloorEntry: a hypothetical vendor's installer leaves
+// ~/.local/bin/vendorcli a link into ~/.vendorcli, which no capture surface records. Its capture can
+// never run outside the jail that made it, so the floor has no entry for it — whether the store
+// already holds that capture, or the install makes it — and nothing is materialized. The capture
+// records every current surface, so a recapture could add nothing: none runs from the store's.
+// (codex was this program until its payload became a surface: realcapture_test.go.)
 func TestACaptureThatHoldsNoRunnableProgramIsNoFloorEntry(t *testing.T) {
 	w := newLinuxWorld(t)
-	codex := installerProgram("codex", "codex")
+	vendor := installerProgram("vendorcli", "vendorcli")
 
 	cs := newCaptureStore(t)
 	w.floor.ResolveCapture = cs.resolve
-	cs.addLinkedOut("codex")
-	st := w.floor.Status(codex)
+	cs.addLinkedOut("vendorcli")
+	captures := 0
+	w.floor.Capture = func(bin string) error { captures++; cs.addLinkedOut(bin); return nil }
+	st := w.floor.Status(vendor)
 	if st.Disposition != NoEntry || !strings.Contains(st.Reason, "which the capture did not record") {
 		t.Fatalf("with the store's capture: %s (%s)", st.Disposition, st.Reason)
+	}
+	if _, _, err := w.floor.Ensure(context.Background(), vendor); !errors.Is(err, ErrNoEntry) || captures != 0 {
+		t.Fatalf("with the store's capture: Ensure = %v after %d captures, want no floor entry and none", err, captures)
 	}
 
 	fresh := newCaptureStore(t)
 	w.floor.ResolveCapture = fresh.resolve
 	w.floor.Capture = func(bin string) error { fresh.addLinkedOut(bin); return nil }
-	st, _, err := w.floor.Ensure(context.Background(), codex)
+	st, _, err := w.floor.Ensure(context.Background(), vendor)
 	if !errors.Is(err, ErrNoEntry) || st.Disposition != NoEntry || !strings.Contains(st.Reason, "cannot run outside a jail") {
 		t.Fatalf("when the install makes the capture: err %v, %s (%s)", err, st.Disposition, st.Reason)
 	}
-	if dirs, _ := os.ReadDir(w.floor.programsDir("codex")); len(dirs) != 0 {
+	if dirs, _ := os.ReadDir(w.floor.programsDir("vendorcli")); len(dirs) != 0 {
 		t.Errorf("an unusable capture left %d install directories", len(dirs))
+	}
+}
+
+// THE STALE CODEX CAPTURE (HP-D7's revision): a store holding codex's capture as a machine recorded
+// it on 2026-09-09 — before captures scanned their contents, and before ~/.codex/packages/standalone
+// was a surface, so it holds a ~/.local/bin/codex that leads nowhere it recorded — has codex MISSING,
+// not "no floor entry": the install recaptures it first, once, the new capture holds the program,
+// and the floor runs it. Judged by its program first, as it was, the entry was no floor entry for
+// good, and the one act that fixes it never ran. A machine that cannot capture has no floor entry
+// for it, naming the runtime that ends that.
+func TestAStaleCodexCaptureIsRecapturedBeforeItsProgramIsJudged(t *testing.T) {
+	const unavailable = "no container runtime (podman) is on PATH"
+	codex := codexProgram()
+	w := newLinuxWorld(t)
+	cs := newCaptureStore(t)
+	cs.addStaleCodex()
+	w.floor.ResolveCapture = cs.resolve
+	captures := 0
+	w.floor.Capture = func(bin string) error {
+		captures++
+		realCodexCapture(t, cs, "0.158.0")
+		return nil
+	}
+	if st := w.floor.Status(codex); st.Disposition != Missing ||
+		!strings.Contains(st.Reason, "was recorded for a jail's home only, and the install recaptures it") {
+		t.Fatalf("Status = %s (%s), want missing: the install recaptures it", st.Disposition, st.Reason)
+	}
+	st, outcome, err := w.floor.Ensure(context.Background(), codex)
+	if err != nil || outcome != Installed || st.Record.Version != codexRelease("0.158.0") {
+		t.Fatalf("Ensure = %s %+v %v\n%s", outcome, st.Record, err, w.out.String())
+	}
+	if captures != 1 || !strings.Contains(w.out.String(), "recorded for a jail's home only; recapturing it so the floor can use it") {
+		t.Errorf("%d captures, want the one, said first:\n%s", captures, w.out.String())
+	}
+	cmd := exec.Command(st.Launcher, "--version")
+	cmd.Env = []string{}
+	if got, err := cmd.CombinedOutput(); err != nil || string(got) != "codex-cli 0.158.0\n" {
+		t.Errorf("running the floor's codex: %q %v", got, err)
+	}
+
+	other := newLinuxWorld(t)
+	stale := newCaptureStore(t)
+	stale.addStaleCodex()
+	other.floor.ResolveCapture = stale.resolve
+	other.floor.Capture = func(string) error { t.Fatal("a capture ran on a machine that cannot"); return nil }
+	other.floor.CaptureUnavailable = func() string { return unavailable }
+	want := "the capture of codex on this machine was recorded for a jail's home only, and " + unavailable +
+		" — install one (`yolo check` names how on this machine) and the next `yolo host` launch recaptures it"
+	if st := other.floor.Status(codex); st.Disposition != NoEntry || st.Reason != want {
+		t.Errorf("with no runtime: %s\n  %s\nwant no floor entry\n  %s", st.Disposition, st.Reason, want)
+	}
+}
+
+// A CAPTURE MADE WITH THE FULL SCAN, BUT BEFORE THE SURFACE ITS PROGRAM IS IN EXISTED, holds no
+// program, and a new capture would: so it too is missing, and the install recaptures it once.
+// Only a surface the program's links lead into counts — a capture missing some other surface, whose
+// program leads out of every surface, stays no floor entry (TestACaptureThatHoldsNoRunnableProgram…).
+func TestACaptureRecordedBeforeTheSurfaceItsProgramIsInIsRecapturedOnce(t *testing.T) {
+	codex := codexProgram()
+	preSurface := func(cs *captureStore) {
+		cs.addLinkedOutAs("codex", "/home/agent/.codex/packages/standalone/current/bin/codex",
+			[]string{".npm-global", ".local", "go"}, true)
+	}
+	w := newLinuxWorld(t)
+	cs := newCaptureStore(t)
+	preSurface(cs)
+	w.floor.ResolveCapture = cs.resolve
+	captures := 0
+	w.floor.Capture = func(bin string) error {
+		captures++
+		realCodexCapture(t, cs, "0.158.0")
+		return nil
+	}
+	if st := w.floor.Status(codex); st.Disposition != Missing || !strings.Contains(st.Reason,
+		"was recorded before captures kept ~/.codex/packages/standalone, where its ~/.local/bin/codex leads, "+
+			"and the install recaptures it") {
+		t.Fatalf("Status = %s (%s), want missing: the install recaptures it", st.Disposition, st.Reason)
+	}
+	if _, outcome, err := w.floor.Ensure(context.Background(), codex); err != nil || outcome != Installed || captures != 1 {
+		t.Fatalf("Ensure = %s %v after %d captures, want installed after one\n%s", outcome, err, captures, w.out.String())
+	}
+
+	other := newLinuxWorld(t)
+	none := newCaptureStore(t)
+	preSurface(none)
+	other.floor.ResolveCapture = none.resolve
+	other.floor.Capture = func(string) error { t.Fatal("a capture ran on a machine that cannot"); return nil }
+	other.floor.CaptureUnavailable = func() string { return "no container runtime (podman) is on PATH" }
+	if st := other.floor.Status(codex); st.Disposition != NoEntry || !strings.Contains(st.Reason, "recaptures it") {
+		t.Errorf("with no runtime: %s (%s), want no floor entry naming the step", st.Disposition, st.Reason)
 	}
 }
