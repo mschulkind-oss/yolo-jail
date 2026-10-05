@@ -43,6 +43,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -53,6 +54,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/packbin"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/releasematrix"
+	"github.com/mschulkind-oss/yolo-jail/packs"
 )
 
 func main() {
@@ -81,6 +83,7 @@ func defaultDeps(root string, environ []string) deps {
 		goos:     runtime.GOOS,
 		goarch:   runtime.GOARCH,
 		cacheDir: paths.PackBinariesDir,
+		packs:    packs.FS,
 	}
 }
 
@@ -100,6 +103,9 @@ type deps struct {
 	// on this machine reads (paths.PackBinariesDir, which internal/loopholes' BinaryCacheDir
 	// resolves against too).
 	cacheDir func() string
+	// packs is the packs tree whose loophole manifests the tool reads: in production the packs
+	// embed, which `go run` compiles from the checkout it runs in.
+	packs fs.FS
 }
 
 const usage = `usage: pack-binaries pin [<version>]
@@ -275,7 +281,24 @@ func (t *task) prepare() error {
 	if err := checkRoot(t.d.root); err != nil {
 		return err
 	}
-	all, err := releasematrix.Manifests(os.DirFS(filepath.Join(t.d.root, "packs")))
+	// THE EMBED'S MANIFESTS, not every directory under packs/: what `go install` builds into
+	// yolo from this same tree, uncommitted edits included, and nothing it would leave out — a
+	// pack the embed does not list cannot stop an install (BP-D20). Pins are still written to
+	// the tree's files, at the same paths.
+	var all []releasematrix.Entry
+	var err error
+	if t.verb == "seed" {
+		// The install's read skips, rather than refuses, a loophole directory it cannot read:
+		// yolo loads only what a pack.json names, tolerantly, and the gates refuse it anyway.
+		var unread []error
+		all, unread, err = releasematrix.ManifestsTolerant(t.d.packs)
+		for _, u := range unread {
+			fmt.Fprintf(t.stderr, "pack-binaries: skipped %v — nothing in it is seeded; "+
+				"`just check-ci` refuses it until it is a manifest or gone\n", u)
+		}
+	} else {
+		all, err = releasematrix.Manifests(t.d.packs)
+	}
 	if err != nil {
 		return err
 	}

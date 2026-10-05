@@ -358,6 +358,7 @@ func TestSeedDefaultsToTheCacheEveryLaunchReads(t *testing.T) {
 	d := defaultDeps(root, os.Environ())
 	g := hostGo(t)
 	d.toolchain = func() (string, error) { return g, nil } // never download in a test
+	d.packs = os.DirFS(filepath.Join(root, "packs"))       // the fixture's tree, not this one's
 	var out, errb bytes.Buffer
 	if code := run([]string{"seed"}, &out, &errb, d); code != 0 {
 		t.Fatalf("seed: exit %d\n%s%s", code, out.String(), errb.String())

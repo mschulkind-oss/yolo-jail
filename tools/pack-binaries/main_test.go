@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -9,6 +10,7 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+	"testing/fstest"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/loopholedecl"
 	"github.com/mschulkind-oss/yolo-jail/internal/releasematrix"
@@ -112,11 +114,18 @@ type result struct {
 
 func runTool(t *testing.T, root string, args ...string) result {
 	t.Helper()
+	// A fixture checkout's own packs/ stands in for the embed `go run` would compile from it.
+	return runToolOver(t, root, os.DirFS(filepath.Join(root, "packs")), args...)
+}
+
+// runToolOver is runTool with the listing — the packs embed, in production — given.
+func runToolOver(t *testing.T, root string, listing fs.FS, args ...string) result {
+	t.Helper()
 	var out, errb bytes.Buffer
 	var r result
 	g := hostGo(t)
 	cache := filepath.Join(t.TempDir(), "default-cache")
-	r.code = run(args, &out, &errb, deps{root: root, environ: os.Environ(),
+	r.code = run(args, &out, &errb, deps{root: root, environ: os.Environ(), packs: listing,
 		toolchain: func() (string, error) { r.fetched = true; return g, nil },
 		goos:      runtime.GOOS, goarch: runtime.GOARCH,
 		// Never the real home's cache: a seed with no directory fills this one.
@@ -222,7 +231,7 @@ func TestEveryBuildIsMadeWithTheToolchain(t *testing.T) {
 	toolchain := filepath.Join(dir, "toolchain", "bin", "go")
 	for _, verb := range []string{"pin", "check"} {
 		var out, errb bytes.Buffer
-		code := run([]string{verb, "0.2.0"}, &out, &errb, deps{root: root, environ: os.Environ(),
+		code := run([]string{verb, "0.2.0"}, &out, &errb, deps{root: root, environ: os.Environ(), packs: os.DirFS(filepath.Join(root, "packs")),
 			toolchain: func() (string, error) { return toolchain, nil }})
 		if code != 0 {
 			t.Fatalf("%s: exit %d\n%s%s", verb, code, out.String(), errb.String())
@@ -391,24 +400,35 @@ func TestUsageAndRefusals(t *testing.T) {
 	}
 }
 
-// The tool reads the checkout's packs/, since it writes what it read; the census reads the
-// embed, since that is what a release carries. They must be the same manifests.
+// The tool lists the embed, as the census does (BP-D20), and writes each pin into the checkout's
+// file at the entry's path, so every manifest the embed carries must be that file, byte for
+// byte. A pack on disk that the embed does not list is nothing either of them reads.
 func TestTheToolReadsTheManifestsTheEmbedCarries(t *testing.T) {
-	disk, err := releasematrix.Manifests(os.DirFS(filepath.Join("..", "..", "packs")))
-	if err != nil {
-		t.Fatal(err)
-	}
 	embedded, err := releasematrix.Manifests(packs.FS)
 	if err != nil {
 		t.Fatal(err)
 	}
-	paths := func(es []releasematrix.Entry) (out []string) {
-		for _, e := range es {
-			out = append(out, e.Path)
+	if len(embedded) == 0 {
+		t.Fatal("the embed carries no loophole manifest")
+	}
+	for _, e := range embedded {
+		disk, err := os.ReadFile(filepath.Join("..", "..", filepath.FromSlash(e.Path)))
+		if err != nil {
+			t.Errorf("%s is in the embed and not in the checkout, so pin has no file to write: %v", e.Path, err)
+			continue
 		}
-		return out
+		rel := strings.TrimPrefix(e.Path, "packs/")
+		if emb, _ := fs.ReadFile(packs.FS, rel); !reflect.DeepEqual(disk, emb) {
+			t.Errorf("%s differs between the checkout and the embed", e.Path)
+		}
 	}
-	if len(disk) == 0 || !reflect.DeepEqual(paths(disk), paths(embedded)) {
-		t.Errorf("the checkout carries %v, and the embed %v", paths(disk), paths(embedded))
+}
+
+// mapFS is an in-memory packs tree, keyed by slash path.
+func mapFS(files map[string][]byte) fs.FS {
+	m := fstest.MapFS{}
+	for p, b := range files {
+		m[p] = &fstest.MapFile{Data: b, Mode: 0o444}
 	}
+	return m
 }
