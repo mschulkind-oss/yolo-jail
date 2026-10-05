@@ -237,8 +237,12 @@ func TestKeptPidsSurvivesAParentCycle(t *testing.T) {
 
 // TestTimeoutMessagesKeepTheFrozenForm: the production formatter, not a copy of it,
 // yields the frozen GNU bytes TestTreeTimeoutStderrGolden spells out, and the same form
-// for the BSD snapshot.
+// for the BSD snapshot. TestBlackboxTreeDeadlineKeepsTheFrozenMessage shortens the
+// deadline to reach the call sites, so the production 15 is asserted here.
 func TestTimeoutMessagesKeepTheFrozenForm(t *testing.T) {
+	if treeDeadlineSeconds != 15 {
+		t.Fatalf("treeDeadlineSeconds = %d, want the frozen 15", treeDeadlineSeconds)
+	}
 	gnu := (&psTimeoutError{argv: gnuTreeArgv, secs: treeDeadlineSeconds}).Error()
 	if want := "Command '['ps', '-eo', 'pid,ppid,comm,args', '--forest']' timed out after 15 seconds"; gnu != want {
 		t.Errorf("GNU timeout = %q, want %q", gnu, want)
@@ -289,9 +293,55 @@ func TestSelfCheckAsksTheHostsPS(t *testing.T) {
 // snapshot). Reducing SelfCheck to the settings check alone kept every other test green.
 func TestMainSelfCheckAsksTheHostsPS(t *testing.T) {
 	t.Setenv("PATH", fakePS(t, "exit 1\n"))
-	if rc := Main([]string{"--self-check"}); rc != 1 {
-		t.Errorf("--self-check with a ps that answers nothing = %d, want 1: the doctor must "+
-			"ask the host's ps, not only read the settings file", rc)
+	if rc, out := mainSelfCheck(t); rc != 1 {
+		t.Errorf("--self-check with a ps that answers nothing = %d\n%s\nwant 1: the doctor must "+
+			"ask the host's ps, not only read the settings file", rc, out)
+	}
+}
+
+// mainSelfCheck runs Main --self-check, the doctor_cmd's own path, with stdout captured.
+func mainSelfCheck(t *testing.T) (int, string) {
+	t.Helper()
+	f, err := os.CreateTemp(t.TempDir(), "stdout")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+	prev := os.Stdout
+	os.Stdout = f
+	rc := Main([]string{"--self-check"})
+	os.Stdout = prev
+	out, err := os.ReadFile(f.Name())
+	if err != nil {
+		t.Fatal(err)
+	}
+	return rc, string(out)
+}
+
+// TestMainSelfCheckAsksGNUOnLinux and TestMainSelfCheckAsksBSDOnDarwin pin WHICH question
+// the production self-check asks, which no other test does: each fake ps answers only its
+// own dialect's queries, with $PPID (this test process), and refuses the other's. GNU
+// procps also answers `ps -ax -o pid=,ucomm=`, so a self-check that always asked the BSD
+// question would pass on Linux while never testing the `-C` GNU list mode is built on.
+func TestMainSelfCheckAsksGNUOnLinux(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("the GNU probe names this process from /proc/<pid>/comm")
+	}
+	withHostOS(t, "linux")
+	t.Setenv("PATH", fakePS(t, "case \"$*\" in\n  '-o pid= -C '*) echo \"$PPID\" ;;\n  *) exit 1 ;;\nesac\n"))
+	if rc, out := mainSelfCheck(t); rc != 0 || !strings.Contains(out, "answers the GNU procps queries") {
+		t.Errorf("--self-check on Linux = %d\n%s\nwant 0 and the GNU OK line: the probe must ask -C", rc, out)
+	}
+}
+
+func TestMainSelfCheckAsksBSDOnDarwin(t *testing.T) {
+	withHostOS(t, "darwin")
+	t.Setenv("PATH", fakePS(t, "case \"$*\" in\n"+
+		"  '-ax -o pid=') echo \"$PPID\" ;;\n"+
+		"  '-ax -o pid=,ucomm=') printf '%s hostprocesses.t\\n' \"$PPID\" ;;\n"+
+		"  *) exit 1 ;;\nesac\n"))
+	if rc, out := mainSelfCheck(t); rc != 0 || !strings.Contains(out, "answers the BSD queries") {
+		t.Errorf("--self-check on darwin = %d\n%s\nwant 0 and the BSD OK line: the probe must ask the BSD snapshot", rc, out)
 	}
 }
 
