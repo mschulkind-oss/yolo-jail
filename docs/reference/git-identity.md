@@ -170,9 +170,12 @@ host that has none. So the replay follows the rule a deselected provider follows
 - **A key the host cleared before the record existed has no record and stays.** Remove it inside
   the jail with `git config --global --unset-all user.email` (or `user.name`).
 
-`gitidentityclear_test.go` pins each row and each refusal of the record against the real
-bootstrap and real git, and `TestConfigureGitWritesOnlyThroughTheLayoutsOwnLinks` the refused
-link at the record.
+`gitidentityclear_test.go` pins each row, and that a launch with nothing to clear says nothing,
+through the real bootstrap and real git. It pins each refusal of the record and each failed read
+or write with real git too: the unparseable record through the bootstrap, and the directory, the
+FIFO and the failing git by calling `configureGit` directly, the failing git being a wrapper that
+fails the one call under test. `TestConfigureGitWritesOnlyThroughTheLayoutsOwnLinks` pins the
+refused link at the record, through the bootstrap.
 
 ## The writable sibling, and the alias that still lies
 

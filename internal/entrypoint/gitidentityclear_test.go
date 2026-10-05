@@ -138,34 +138,62 @@ func TestAGitIdentityTheHostStopsSettingLeavesTheMacosUserJail(t *testing.T) {
 	}
 }
 
+// wantNothingSaidAboutTheIdentity fails if a launch's terminal output mentions the git identity
+// or its record: what every warning forwardIdentity and configureGit can print names.
+func wantNothingSaidAboutTheIdentity(t *testing.T, when, said string) {
+	t.Helper()
+	for _, word := range []string{"user.email", "user.name", "yolo-forwarded", "git identity"} {
+		if strings.Contains(said, word) {
+			t.Errorf("%s: the launch said something about %s, and should have said nothing:\n%s", when, word, said)
+		}
+	}
+}
+
 // (b) AN IDENTITY THE USER SET IN THE JAIL STAYS, launch after launch, whether the host never
-// set one or set one the user then changed.
+// set one or set one the user then changed. And a launch with nothing to clear SAYS nothing.
 //
 // The first case fails on an unset of every key the host leaves out; the second on a clear that
 // unsets a recorded key whatever value the file holds now (no --fixed-value), which deleted the
 // user's own address because yolo had once forwarded a different one.
+//
+// Both fail if a key the record holds no entry for (git exits 1, with no record at all and with
+// a record that lacks the key) is read as a failed read: every launch from a host that sets no
+// name or email then warned once per key.
 func TestAGitIdentityTheUserSetInTheMacosUserJailIsKept(t *testing.T) {
 	const mine = "mine@example.com"
 	t.Run("on a host that never set one", func(t *testing.T) {
 		h := newIdentityHome(t)
-		h.launch(t, nil)
+		said, _ := h.launch(t, nil)
+		wantNothingSaidAboutTheIdentity(t, "a first launch from a host with no identity", said)
 		h.setByHand(t, "user.email", mine)
-		h.launch(t, nil)
-		h.launch(t, nil)
+		for _, when := range []string{"a second launch", "a third launch"} {
+			said, _ = h.launch(t, nil)
+			wantNothingSaidAboutTheIdentity(t, when+" from a host with no identity", said)
+		}
 		h.wantValue(t, "after two launches from a host with no email", "user.email", mine)
 	})
 	t.Run("over the one yolo forwarded", func(t *testing.T) {
 		h := newIdentityHome(t)
 		h.launch(t, forwardedBoth)
 		h.setByHand(t, "user.email", mine)
-		_, logged := h.launch(t, nil)
-		h.launch(t, nil)
+		said, logged := h.launch(t, nil)
+		wantNothingSaidAboutTheIdentity(t, "the launch that kept the user's email", said)
+		said, _ = h.launch(t, nil)
+		wantNothingSaidAboutTheIdentity(t, "a launch after the record dropped both keys", said)
 		h.wantValue(t, "after two launches from a host that stopped setting it", "user.email", mine)
 		// The name was not touched, so it is still yolo's and goes.
 		h.wantAbsent(t, "the untouched key beside it", "user.name")
 		if !strings.Contains(logged, "kept user.email") {
 			t.Errorf("the launch did not log that the user's email was kept:\n%s", logged)
 		}
+
+		// A KEEP DROPS THE CLAIM TOO (row 3 of the rule table in docs/reference/git-identity.md).
+		// The address yolo once forwarded, typed by the user after the keep, is the user's, and a
+		// launch from a host that still sets none keeps it. It fails if the exit-5 arm of the
+		// clear leaves the key in the record: that launch removes the user's address.
+		h.setByHand(t, "user.email", firstEmail)
+		h.launch(t, nil)
+		h.wantValue(t, "the address yolo once forwarded, typed by the user after a keep", "user.email", firstEmail)
 	})
 }
 
