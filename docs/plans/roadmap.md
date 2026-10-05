@@ -40,9 +40,8 @@ host or an outside account follows under [External waits](#external-waits).
    retires it once a release ships past the 2026-09-25 deletion (0.11.0 did, on 2026-09-28), and [a pack's agent-CLI pin](../design/program-delivery.md#OQ-PD21) ride in the same sitting.
 5. [Rule whether an agent CLI updates once per machine](../design/program-delivery.md#OQ-PD23) — each workspace downloads every
    release itself, and the hourly stamp all workspaces share can keep one on an old version while another keeps it fresh.
-6. [Rule whether the jail's config copy keeps other workspaces' widening entries](../design/boundary-broker.md#OQ-BB11) — `.yolo/config-assembled.json`,
-   which a jail can read, holds every workspace's `brokered` entries today; rule it with
-   [how a host daemon hands the launching terminal a line](../design/boundary-broker.md), which the write path's notice waits on.
+6. [Rule how a host daemon hands the launching terminal a line](../design/boundary-broker.md#OQ-BB10) — the broker's
+   no-notifier notice waits on it, and so does saying an untested host `gh` version at launch.
 7. [Rule whether a pack service's in-jail daemon is disclosed](../design/trust-paths.md#OQ-TP11) — the wire bridge runs
    inside every claude jail and no launch line names it, though disclosure is today's whole trust boundary.
 8. [Rule whether copilot and oh-omp alone get `-p bedrock`](../design/bedrock-plumbing.md#OQ-BR24) — either agent by itself
@@ -165,7 +164,9 @@ host or an outside account follows under [External waits](#external-waits).
     for it, and its first ruling decides the rest and an image change every jail pays.
 41. [Build the rest of the broker's step 2](../design/boundary-broker.md#11-recommendation-and-the-first-build-slice) — first
     among the builds because the maintainer put the broker on the plate for the week of 2026-09-28, and only its
-    no-notifier notice and its ping wait on a ruling or another design.
+    no-notifier notice and its ping wait on a ruling or another design. Beside it,
+    [move the widening entry into the workspace config](../design/workspace-widening.md), ruled 2026-10-05: an agent
+    asks for a repository and the human approves it at the next launch. Next, complete its plan sketch, then build.
 42. Speed builds the maintainer asked for on 2026-10-04, next among the builds since neither holds other work:
     [Apple Container's stock-image skip, then the same skip for a launch declaring `packages:`](../reference/image-staging-vs-baking.md), as the nix
     build that finds nothing to do is 3.2 to 3.5 s of Apple Container's 6.9 s fresh launch and a median 1.7 s per launch of this repository,
