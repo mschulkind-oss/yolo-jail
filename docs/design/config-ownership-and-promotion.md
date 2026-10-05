@@ -3,7 +3,7 @@ title: "Who owns the config file — declared host management, and the way out o
 date: 2026-09-09
 status: in-review
 stage: DESIGN
-next: "Rule OQ-CO14, whose leaning was drafted 2026-10-01 (refuse a config that says assert; at an asserted home with the key unset, name own and --revert where the user acts); the assert retirement's build starts by ruling it"
+next: "Build the assert retirement as OQ-CO14 ruled 2026-10-05: refuse a config that says assert, naming none and own; the unset default becomes none with no prompt or notice; the provenance mark stays; rewrite the two refusals that name assert"
 tags: [design, config, host, capture, packs, ownership]
 summary: "yolo decides who owns an agent's config file by inferring it from the confinement notch, and the inference is wrong for anyone who adopted `yolo host apply`. Declare ownership in the user config instead, make the host render like a jail when it is owned, and build the promotion path that turns a captured in-jail edit into a declared one — the verb a shipped message already advises and nothing implements."
 vantage:
@@ -14,7 +14,7 @@ vantage:
 
 **Status:** 2026-09-25 — the bulk was built 2026-09-12 and amended twice on 2026-09-20, and the first amendment's follow-on [`CO13`](#13-decision-ledger) was built 2026-09-25; but [`OQ-CO14`](#oq-co14) now owes a ruling, which is why the stage names the ruling rather than the code.
 
-**Needs your ruling:** [`OQ-CO14`](#oq-co14) (what retiring `assert` does to a config, and a home, already on it). Two smaller ones, both opened 2026-09-25 by the `CO13` build and neither blocking anything: [`OQ-CO15`](#oq-co15) (what the jail's `rmw` arm does with a table not declared in full) and [`OQ-CO16`](#oq-co16) (whether the provider catalogs stay declared in full).
+**Needs your ruling:** [`OQ-CO14`](#oq-co14) was ruled 2026-10-05. Two smaller ones, both opened 2026-09-25 by the `CO13` build and neither blocking anything: [`OQ-CO15`](#oq-co15) (what the jail's `rmw` arm does with a table not declared in full) and [`OQ-CO16`](#oq-co16) (whether the provider catalogs stay declared in full).
 
 **The first amendment narrowed the adoption drop.** It no longer takes a computed table that
 asserts nothing, *wholesale against `computed`* is withdrawn as the general rule, and the half
@@ -2778,7 +2778,7 @@ over. MEASURED 2026-09-20:
 either order — and if the retirement lands first, whoever builds `CO13` has one fewer host
 contract to make the declaration agree across.
 
-### <a id="oq-co14"></a>💬 [`OQ-CO14`](#oq-co14) — what the retirement does to a config already on `assert` — **OPEN**
+### <a id="oq-co14"></a>✅ [`OQ-CO14`](#oq-co14) — what the retirement does to a config already on `assert` — **RULED 2026-10-05**
 
 **Opened 2026-09-20 by the ruling in [§4.5](#45-retiring-assert--the-two-value-key).** It is a
 question and not an implementation shape by this section's own test — *do the alternatives
@@ -2832,7 +2832,6 @@ a developer who has written the key is unaffected by either face.
   every key yolo wrote into a jail as the user's own `host` layer: the laundering that
   [the `retired:` label](../reference/pack-system.md#the-retired-provenance-label) exists to stop.
 
-<!-- vantage: question id=OQ-CO14 leaning="Face 1: refuse with a targeted message naming own (with yolo config promote) and none, as every retired spelling in this config is refused. Face 2: no upgrade prompt, but on a home that carries yolo's provenance record the none refusal and yolo check name own and --revert, --revert runs under none there, and the retirement never clears the mark itself." -->
 
 _Leaning:_ **Face 1: refuse, with a message of its own.** It names `own`, with `yolo config
 promote` for the keys the user keeps by hand, and `none`. That is the shape every retired
@@ -2849,7 +2848,18 @@ yolo has written. Whoever builds this also rewrites the two refusals above, whic
 name a value that no longer exists.
 
 **Answer:**
-> _(empty — fill in when decided)_
+> **Ruled in review 2026-10-05, in the maintainer's words:** *"Whichever mode you choose, none or
+> own, is going to just have to be able to go from that state in some fashion. Which means if you flip
+> to none, I think our job is done. We just leave it with whatever the assert used to render there. And
+> if it is flipped to own, then I guess we'll see a file that doesn't match … you're just going to lose
+> your changes, so it's just silent or whatever yolo host apply does when it's going to overwrite
+> things."* So: **face 1**, a config that says `"assert"`, is refused with a message naming the two
+> values left, `none` and `own`. **Face 2**, a home yolo asserted into with the key unset: the unset
+> default is now `none`, with no prompt and no notice, and the file stays as `assert` last rendered it.
+> Choosing `own` later takes the file over the way `yolo host apply` always does, archiving the old one
+> once. *Read from the ruling, not separately ruled:* the provenance mark stays, so a jail keeps
+> treating the keys yolo wrote as yolo's rather than as the user's own; and the two refusals that
+> name `"assert"` are rewritten to name `none` and `own`.
 
 ⚠ **Two open questions are not two outstanding items, and the questions are kept apart from the
 residue on purpose.**
@@ -3040,6 +3050,7 @@ and its residue is the larger of the two.
 
 | ID | Ruling / Decision | Date | Settled in | Built |
 | :--- | :--- | :--- | :--- | :--- |
+| [`OQ-CO14`](#oq-co14) | **Ruled in review:** a config saying `"assert"` is refused naming `none` and `own`; on an asserted home with the key unset the default becomes `none` with no prompt or notice and the file is left as rendered; `own` later takes it over as `host apply` always does; the provenance mark stays (read from the ruling) | 2026-10-05 | [`OQ-CO14`](#oq-co14) | pending (the `assert` retirement build) |
 | [`OQ-CO1`](#13-decision-ledger) | ⛔ **REVERSED 2026-09-20 — two values (`none`/`own`), and `none` is the default** ([§4.5](#45-retiring-assert--the-two-value-key)). *The 2026-09-10 ruling, kept verbatim:* **Three values** (`none`/`assert`/`own`). `assert` is shipped behavior with real users, so collapsing it is either a regression or a forced escalation to `own`. The cost — one more thing to explain — is paid down by [`OQ-CO2`](#13-decision-ledger) removing the prompt that would have explained it. Alternative C in [§8](#8-alternatives-considered) resolves as rejected. *Why it could be reversed without having been wrong:* the escalation it feared was forced only because `yolo config promote` did not exist yet (it shipped two days later), and its balance weighs migration cost while naming no engine mechanism — [§4.5](#45-retiring-assert--the-two-value-key) has the dating and [§4.5.2](#452-what-the-ruling-does-not-delete--the-mechanism-tally-corrected) corrects the mechanism tally the reversal is tempted to overstate. Alternative C's conditional rejection resolves as **substantially adopted** | 2026-09-10, reversed 2026-09-20 | [§4.1](#41-the-key), [§4.5](#45-retiring-assert--the-two-value-key) | ✅ **for the reversed ruling** — `config.KnownHostManagements` holds the three and the validator's message enumerates that same list. ⬜ **the reversal is unbuilt**, and its steps are in [§4.5](#45-retiring-assert--the-two-value-key) |
 | [`OQ-CO2`](#13-decision-ledger) | **Neither prompt nor notice** — the unset state is `assert`, silently. Each value explains itself at the point of the act; `apply --sealed` is the one place an unset key bites. *Against the leaning:* the ambiguity this design fixes was **inference**, not silence, so a documented default that equals today's behavior is declared in the only sense that matters. ⚠ **Its stated ground expires with [`OQ-CO1`](#13-decision-ledger)'s reversal** — `none` is not today's behaviour, so the silence has to be re-argued rather than inherited. The conclusion is not withdrawn here; it is [`OQ-CO14`](#13-decision-ledger)'s to re-rule | 2026-09-10 | [§4.3](#43-the-unset-state-and-what-happens-to-everyone-already-running) | ✅ `config.HostManagementDeclared` gives the two absences different answers — absent ⇒ `assert`, silently; unreadable ⇒ `none` — and `TestApplySealedRefusesAnUnsetHostManagement` pins the one place an unset key bites |
 | [`OQ-CO3`](#13-decision-ledger) | **Yes, host-side capture under `own` only** — and it is a precondition of adoption, not an added capability: capture-then-regenerate is what makes the first owned render reproduce the file. The refusal stays for `none` and `assert`. Reverses env-manager plan [`OQ-4`](../plans/environment-manager-plan.md#open-questions-to-resolve-before-their-phase)/[`OQ-5`](../plans/environment-manager-plan.md#open-questions-to-resolve-before-their-phase) — see [§3](#3-the-diagnosis--one-asymmetry-three-unrelated-justifications). | 2026-09-10 | [§6.2](#62-host-capture-and-the-privacy-ruling-it-has-to-answer-to), [§6.3.1](#631-adoption-is-capture-then-regenerate) | ✅ the owned render's capture store (the one `render.Target.SidecarDir` resolves for the host notch) and host-side `reset`, both keyed off `configTarget.hostOwned` (named `hostOwnsSurfaces` until 2026-09-18) — ⚠ **with one deliberate narrowing**: the `config capture` VERB stays refused host-side even under `own`, because `refuseHostSideWrite` rests that half on privacy rather than on ownership |

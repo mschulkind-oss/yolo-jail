@@ -40,7 +40,7 @@ words it, when step 1 was built.
 macos-specific hangs off it. The one open question, [OQ-CX7](#OQ-CX7), is how far that delivery
 may reach into a user's home.
 
-**Needs your ruling:** [OQ-CX7](#OQ-CX7) only. Triaged 2026-09-30: [OQ-CX3](#OQ-CX3) and
+**Needs your ruling:** none. [OQ-CX7](#OQ-CX7) was ruled 2026-10-05: refuse. Triaged 2026-09-30: [OQ-CX3](#OQ-CX3) and
 [OQ-CX5](#OQ-CX5) are answered by earlier rulings, and [OQ-CX1](#OQ-CX1), [OQ-CX2](#OQ-CX2),
 [OQ-CX4](#OQ-CX4), [OQ-CX6](#OQ-CX6), [OQ-CX8](#OQ-CX8) and [OQ-CX9](#OQ-CX9) are decided as
 reversible implementation choices, [CX-D1](#CX-D1) to [CX-D6](#CX-D6) in the
@@ -634,7 +634,7 @@ Each one must show:
    > launch and backend under this name, because macos-user has no `/ctx`, so a variable is the
    > only spelling pack text and agents can share.
 
-7. 💬 <a id="OQ-CX7"></a>**[OQ-CX7](#OQ-CX7): sources inside a real user home on macos-user.**
+7. ✅ <a id="OQ-CX7"></a>**[OQ-CX7](#OQ-CX7): sources inside a real user home on macos-user.**
 
    - **(a)** Refuse, as v1 does.
    - **(b)** An opt-in per-source ACL grant with a recorded cleanup ledger
@@ -647,10 +647,14 @@ Each one must show:
    deliberately, and whether a `literal` allows listing the directory is unmeasured. (b) is [§6.1](declaration-parity.md#61-dp-l1-the-mechanism-is-a-copy-and-what-nobody-has-measured)'s
    declined consent surface. If the refusal proves intolerable, prefer (b) over (c).
 
-   <!-- vantage: question id=OQ-CX7 leaning="(a) for v1: refuse home-sited sources. (c) extends ancestorLiterals into homes, which it deliberately refuses; (b) is §6.1's declined consent surface. If the refusal proves intolerable, prefer (b) over (c)." -->
 
    **Answer:**
-   > _(empty — fill in when decided)_
+   > **Ruled in review 2026-10-05, (a):** refuse. The maintainer: *"I don't want to start setting ACLs
+   > or whatever on files and home directories and changing permissions, so I think this means that it's
+   > just not going to be allowed right now. If you want to share something, you must put it in a shared
+   > location, and I think that's going to solidify mental models as well as a benefit. And I also don't
+   > want this clone. That could be very slow."* (b), the per-folder ACL grant, and a per-launch APFS
+   > clone of the folder are both rejected.
 
 8. ✅ <a id="OQ-CX8"></a>**[OQ-CX8](#OQ-CX8): `/Volumes` and TCC-protected sources.**
    ([§3.6](#36-volumes-and-tcc).)
@@ -708,6 +712,7 @@ Each one must show:
 | <a id="CX-D20"></a>**CX-D20** | *Implementation decision, reversible, superseding part of [CX-D10](#CX-D10):* the macos-user banner discloses a pack `mount` again, as a container's does, because the read now happens; `run.notePackHostAccessExcept`, DP-B2's exception, is deleted. A single-FILE pack `mount` is delivered by link like a directory, so CX-D10's refusal of that form is retired. `run.appliedCtxMounts` is deleted: its last arm was macos-user's nil, and that backend now briefs what its own decider delivers (`run.briefedCtxMounts` → `run.macosCtxLinks`) | 2026-10-01 | [§3.1](#31-does-dp-d15-still-hold), [§3.8](#38-what-the-briefing-says) |
 | <a id="CX-D21"></a>**CX-D21** | *Implementation decision, reversible:* a link does not set `YOLO_CTX_ROOT` or change the host-layer report. Links are what the agent opens, not inputs the entrypoint composes from, so a launch with links and no composed tree stages the context dir empty plus its links and still reports `unsupported`. The links ride the composed tree's `.new`-then-swap (`macosuser.StageContextDirCommands`), made after its recursive `chmod`, so no `chmod -R` ever meets a link into the user's files | 2026-10-01 | [§3.2](#32-where-the-bytes-are-named) |
 | <a id="CX-D22"></a>**CX-D22** | *Implementation decision, reversible:* on macos-user the briefing lists each entry at its path under the context dir and adds one sentence stating [§3.7](#37-what-cannot-be-matched)'s two deltas: tools that resolve paths print the host path, and a subfolder the sandbox account may not read stays unreadable. The [§2.4](#24-disclosure) line prints where the links are handed to the backend (`run.noteMacosUserRWMounts`), naming the context-dir path; it has no ownership sentence, since there is no podman | 2026-10-01 | [§2.4](#24-disclosure), [§3.8](#38-what-the-briefing-says) |
+| <a id="CX-D23"></a>**CX-D23** | **Ruled in review ([OQ-CX7](#OQ-CX7) a):** a context source inside a real home stays refused on macos-user; a source to share goes in a shared location. No ACL grant on the user's files or home, and no per-launch clone | 2026-10-05 | [OQ-CX7](#OQ-CX7) | ✅ the v1 refusal stands |
 
 ## Appendix A: Evidence
 

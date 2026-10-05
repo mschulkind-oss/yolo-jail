@@ -3,7 +3,7 @@ title: "Notch convergence — one code path per concern, and the loopback servic
 date: 2026-09-28
 status: in-review
 stage: DESIGN
-next: "Rule OQ-NC12 and OQ-NC13 — item 16, one ordered env composition at every vehicle, waits on both"
+next: "Rule OQ-NC12 — item 16, one ordered env composition at every vehicle, waits on it; OQ-NC13 was ruled 2026-10-05 (A: at the host what yolo composes wins over the shell)"
 depends-on:
   - ../design/credential-sources-separation.md#OQ-ES5
   - ../research/agent-safehouse.md#OQ-AS3
@@ -52,7 +52,7 @@ premise is retired.
 **Start at [§2](#2-security-first-the-boundary-that-is-not-one)**, the only part that is urgent, then
 [§4](#4-the-ordered-build-list).
 
-**Needs your ruling:** [OQ-NC12](#OQ-NC12) and [OQ-NC13](#OQ-NC13), filed 2026-09-30 because item 16's gate, [`OQ-CN8`](../reference/providers.md#oq-cn8), is built and decided less than the item needs ([NC-D68](#NC-D68)). [OQ-NC2](#OQ-NC2), reopened for a fix without hosts-file interception, was found answered on 2026-09-30 by [OQ-CL1](../design/claude-login-without-interception.md#OQ-CL1): the credential view deletes the terminator at every notch. Also ruled 2026-09-28: [OQ-NC3](#OQ-NC3) (keep autonomy, disclosed) and [OQ-NC10](#OQ-NC10) (retire the unread variable). Ruled 2026-09-28: [OQ-NC1](#OQ-NC1) (run services at every notch), [OQ-NC6](#OQ-NC6) (credential-routing provider fields are user-scope only), [OQ-NC7](#OQ-NC7) (host claude keeps its own login for now), and by parity [OQ-NC4](#OQ-NC4), [OQ-NC5](#OQ-NC5), [OQ-NC8](#OQ-NC8), [OQ-NC9](#OQ-NC9), [OQ-NC11](#OQ-NC11).
+**Needs your ruling:** [OQ-NC12](#OQ-NC12) ([OQ-NC13](#OQ-NC13) ruled 2026-10-05), filed 2026-09-30 because item 16's gate, [`OQ-CN8`](../reference/providers.md#oq-cn8), is built and decided less than the item needs ([NC-D68](#NC-D68)). [OQ-NC2](#OQ-NC2), reopened for a fix without hosts-file interception, was found answered on 2026-09-30 by [OQ-CL1](../design/claude-login-without-interception.md#OQ-CL1): the credential view deletes the terminator at every notch. Also ruled 2026-09-28: [OQ-NC3](#OQ-NC3) (keep autonomy, disclosed) and [OQ-NC10](#OQ-NC10) (retire the unread variable). Ruled 2026-09-28: [OQ-NC1](#OQ-NC1) (run services at every notch), [OQ-NC6](#OQ-NC6) (credential-routing provider fields are user-scope only), [OQ-NC7](#OQ-NC7) (host claude keeps its own login for now), and by parity [OQ-NC4](#OQ-NC4), [OQ-NC5](#OQ-NC5), [OQ-NC8](#OQ-NC8), [OQ-NC9](#OQ-NC9), [OQ-NC11](#OQ-NC11).
 
 **Reads with:** [`wire-bridge.md`](../reference/wire-bridge.md#wb-d4) (WB-D4, the premise
 [§2](#2-security-first-the-boundary-that-is-not-one) retires),
@@ -872,7 +872,7 @@ is reported verified only against a real rootless host or CI, with
     **Answer:**
     > _(empty — fill in when decided)_
 
-13. 💬 <a id="OQ-NC13"></a>**OQ-NC13: Does the host keep a value the user's shell already has, as a
+13. ✅ <a id="OQ-NC13"></a>**OQ-NC13: Does the host keep a value the user's shell already has, as a
     jail does?** Background, and each option in full:
     [row C3's second question](#row-c3-the-host-and-the-users-shell). This decides the second half
     of item 16.
@@ -884,14 +884,21 @@ is reported verified only against a real rootless host or CI, with
     - **C — The shell's value wins, with no record.** A value from an old `eval` then beats a
       changed profile until the user runs the `eval` again.
 
-    <!-- vantage: question id=OQ-NC13 leaning="B: the shell's value wins at the host too, and yolo host env records what it exported so a stale value it left is replaced, which is the jail's rule whole at the host." -->
 
     _Leaning:_ B. It is the jail's rule at the host, which "host is supposed to act like everywhere
     else" asks for. The record is the one thing the host lacks to apply the rule's second half. A
     keeps the two notches apart for no gain a user sees, and C drops half of the ruling.
 
     **Answer:**
-    > _(empty — fill in when decided)_
+    > **Ruled in review 2026-10-05, A, against the leaning.** The maintainer: *"we should have some sort
+    > of boundary here. If you're talking about environment variables on the host, they don't get
+    > silently passed into the jail, but in the jail config you can list environment sources, you can
+    > inject things in. So in the same way at the host, I guess the environment sources should win, and
+    > if you really take that parallel, then existing environment variables should have absolutely no
+    > impact, which does seem kind of right."* At `yolo host`, what yolo composes (profiles,
+    > `env_sources`) wins over a value the user's shell already has, and the shell's value has no say
+    > over a name yolo composes. Not ruled here: scrubbing the rest of the shell's environment
+    > (`PATH`, `SSH_AUTH_SOCK` and the like) at the host.
 
 ## 7. Decision Ledger
 
@@ -973,3 +980,4 @@ is reported verified only against a real rootless host or CI, with
 | <a id="NC-D68"></a>NC-D68 | *Decision, reconciling item 16 with [`OQ-CN8`](../reference/providers.md#oq-cn8) on 2026-09-30.* Item 16 **stays gated**. Row C3 named that question as the one that "picks the order", but the ruling decided one relation for one vehicle: the user's explicit value beats yolo's in the per-agent file, the launcher-sourced one. It decided neither the order among yolo's own sources, which the three vehicles answer three ways ([OQ-NC12](#OQ-NC12)'s table, MEASURED by a scratch test), nor whether the host exec, which composes over the shell, honors the user's value at all ([OQ-NC13](#OQ-NC13)). Both are filed here, because C3 is this plan's row and [`providers.md`'s credential gate](../reference/providers.md#the-credential-gate) is built with nothing open. Found while measuring: CN-D21's grammar changed the per-agent file's own order as a side effect. Its lines defer to a value already set, so the first line now wins, and a claimed `env_sources` value and a gated env value beat the shape var there, where before the shape var won, as it still does at the host. Recorded, not changed: no ruling says which order is right, and that is [OQ-NC12](#OQ-NC12). No code moves in this row | 2026-09-30 | [§4](#4-the-ordered-build-list), item 16 | — |
 | <a id="NC-D69"></a>NC-D69 | *Implementation decision, fixing a fault in [NC-D43](#NC-D43).* **A picked port stays held until the process that serves it has it.** The pick bound port 0 and let the port go at once, so the kernel could hand it to whatever bound port 0 next, the same launch included: it fronts its host services, each on a port-0 listener, between the pick and the daemon's start. The daemon's bind then failed with "address already in use", and the launch was refused. Seen as unit-test flakes; the one recorded ([test-suite-speed.md](test-suite-speed.md)) is a macos-user launch under test whose Codex doorway lost its port to the claude broker's front. Each pick is now a **reserved port**, a term coined in `internal/launchservice`'s `reserve.go`: a socket bound to the port and never listened on, so nothing else can bind it, explicitly or as a port-0 pick, and a connection to it is refused as one to a free port is. A doorway the launch opens itself takes its reservation into its plan and is handed it at its start ([HS-D26](../design/host-notch-services.md#HS-D26)). Every other one is released only immediately before the process that starts the jail's daemons: on macos-user just before the sandbox starts, once every listener of the launch's own is bound, and on a container by its keeper, which is handed them ([NC-D70](#NC-D70)). An attach releases what it picked when it adopts the running jail's map. What is left is a process outside the launch binding the port between the release and the daemon's bind, which fails closed as NC-D43 says. For a container jail that window is the container's start and its boot up to the jail-daemon supervisor (`start_jail_daemon_supervisor` is one of the boot's last steps), so what this removes from it is the launch's and the keeper's own listeners, not the boot. Closing that too would mean handing the socket across the container or sandbox boundary to every jail daemon, which is not built | 2026-10-01 | [§2.4](#24-the-addresses-those-secrets-protect-are-composed-not-literal) | ✅ `TestAMacosUserDoorwaysPickedPortIsStillItsOwnWhenAnotherListenerAsksFirst`, `TestASharedNamespaceLaunchHoldsEveryPortItPickedUntilItReleasesThem`, `TestTheMacosUserGuestDaemonsPickedPortIsFreeWhenTheSandboxStarts`, `TestAnAttachComposesForTheRunningJailsServedAddresses` |
 | <a id="NC-D70"></a>NC-D70 | *Implementation decision, [NC-D69](#NC-D69) at a container launch.* **The jail's reserved ports are handed to its keeper, which lets them go just before it starts the container.** The fresh launch spawns the keeper before any host service exists, and the keeper then fronts each host service on a port-0 listener before it starts the container ([the keeper design, §9.1](../design/jail-lifetime-last-session-wins.md#91-what-starts-it)). On a shared namespace those fronts bind the loopback the jail's daemons will bind, so a launch that let its reservations go at the spawn would still have one of them handed to a front. So `startKeeper` passes each reservation's socket in `ExtraFiles` after the launch lock, named by one `--reserved-fd` each, and closes its own copies; the keeper marks them close-on-exec at once, as it does its other descriptors ([JL-D29](../design/jail-lifetime-last-session-wins.md#JL-D29)), and closes them after its host services and the credential view and before the container's main process, or at any end before that. Chosen over releasing them when the keeper reports progress, which would race the jail's boot. ⚠ What this cannot change, and a nested jail cannot show: a foreign process binding the port between the keeper's release and the daemon's bind still wins it. The nested jail is a shared namespace, so it exercises the hand-over itself (`TestTwoJailsOnOneLoopbackServeOnTheirOwnPorts`), but `network.mode: "host"` on a real rootless host is verified only there or by CI, and on a macOS podman machine the reservation is on the Mac's loopback, not the VM's ([NC-D43](#NC-D43)) | 2026-10-01 | [§2.4](#24-the-addresses-those-secrets-protect-are-composed-not-literal) | ✅ `TestTheKeeperHoldsTheJailsReservedPortsUntilItStartsTheContainer`, `TestTheKeeperReleasesTheReservedPortsAfterItsHostServicesAndBeforeTheContainer`, `TestTheKeepersArgvNamesEachReservedPortWhereTheSpawnHandsIt` |
+| [OQ-NC13](#OQ-NC13) | **Maintainer ruling, A, against the leaning:** at `yolo host` what yolo composes (profiles, `env_sources`) wins over the user's shell, which has no say over a composed name; the host keeps the jail's boundary, where `env_sources` is the way in | 2026-10-05 | [§6](#6-open-questions) | ✅ today's host behavior |
