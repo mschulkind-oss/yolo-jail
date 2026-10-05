@@ -2437,9 +2437,10 @@ func composeHostVarsWith(cfg *jsonx.OrderedMap, workspace, agent, command, profi
 	// adapter address) names the port this launch picked. An agent whose own config FILE carries the
 	// via (pi's models.json, opencode's, oh-omp's, codex's) keeps it cleared and is told why: a host
 	// launch renders no per-launch file. `yolo host env`, `yolo host apply` and the footer stay
-	// inert (WG-I12 as WG-I46 narrowed it).
-	if services == hostServicesStart {
-		plan, err := c.planHostViaService(cfg, packs, userProfiles, profileName)
+	// inert (WG-I12 as WG-I46 narrowed it); `yolo host env` asks the same what-if only to say where
+	// such a route does take effect (viaWhy), since it starts nothing.
+	if services == hostServicesStart || services == hostServicesRefuse {
+		plan, err := c.planHostViaService(cfg, packs, userProfiles, profileName, services)
 		if err != nil {
 			c.err = err
 			return c
@@ -2944,29 +2945,33 @@ func (c *hostComposition) planHostService(e *packload.UnservedAdapterError, pack
 	return plan, nil, false
 }
 
-// planHostViaService is the `yolo host --` half of THE VIA TRIGGER (docs/design/host-notch-services.md
-// HS-D30, HS-D31; packload.ViaRoutedServices, the what-if macos-user asks too): the plan of the pack
-// service that serving would route this launch's agent through, by profile's `via` or by its carrier
-// (WG-I44), nil when none would. Admission is launchservice.Admit's, a fetched pack's host half
-// included, and a service it refuses is no candidate.
-//
-// WHICH AGENTS IT SERVES (HS-D31): the what-if's derives say where the agent's config carries the
-// via URL (packload.FileCarriedVia over packload.DerivedViaPointers). An agent whose own config FILE
-// carries it is not served here, since a host launch renders no per-launch file (OQ-HS3) and a URL
-// at this launch's port written into ~/.pi/agent/models.json would outlive the launch; its via stays
-// cleared and the "Not set at this notch" block says why (viaWhy). One whose environment alone
-// carries the route, or nothing does (claude and copilot, which ride the adapter address composed
-// for the via, gated on ctx.via_url), is served.
-func (c *hostComposition) planHostViaService(cfg *jsonx.OrderedMap, packs []*packload.Pack,
-	userProfiles map[string]packload.UserProfile, profile string) (*launchservice.Plan, error) {
+// hostViaRoute is what THE VIA TRIGGER's what-if (packload.ViaRoutedServices, HS-D30) says of
+// one host agent on one profile: the service its via or carrier would route it through once
+// served ("" for none), which route that is ("via", or `carrier "<pack>"`), the agent's own config
+// files that carry it (packload.FileCarriedVia, HS-D31; nil when its environment does), and
+// whether the via re-points nothing of it (packload.ViaRouted.NoEffect, HS-D33).
+type hostViaRoute struct {
+	service  string
+	route    string
+	files    []string
+	noEffect bool
+}
+
+// hostViaWhatIf is the via trigger's what-if for agent on profile at the host notch, over the
+// user's providers, adapter overrides and profiles: the one reading `yolo host --` plans by,
+// `yolo host env` names where the route takes effect by, and `yolo host apply` says the same by
+// (hostinputs.go). Admission is launchservice.Admit's, a fetched pack's host half included, and a
+// service it refuses is no candidate. The zero value when no service would route the agent.
+func hostViaWhatIf(cfg *jsonx.OrderedMap, packs []*packload.Pack,
+	userProfiles map[string]packload.UserProfile, agent, profile string) (hostViaRoute, error) {
 	if profile == "" {
-		return nil, nil
+		return hostViaRoute{}, nil
 	}
 	var user *jsonx.OrderedMap
 	if v, ok := cfg.Get("providers"); ok {
 		user, _ = v.(*jsonx.OrderedMap)
 	}
-	active := map[string]string{c.agent: profile}
+	active := map[string]string{agent: profile}
 	routed, err := packload.ViaRoutedServices(packload.ViaWhatIf{User: user, Packs: packs,
 		Addresses: hostAdapterAddresses(), Served: packload.NothingServed().AtHost(), Profiles: userProfiles,
 		Active: active}, func(service string) bool {
@@ -2974,35 +2979,87 @@ func (c *hostComposition) planHostViaService(cfg *jsonx.OrderedMap, packs []*pac
 		return aerr == nil
 	})
 	if err != nil {
-		return nil, err
+		return hostViaRoute{}, err
 	}
 	for _, r := range routed {
-		files, err := packload.FileCarriedVia(packs, r, c.agent, active)
-		if err != nil {
-			return nil, err
+		v := hostViaRoute{service: r.Service, route: r.Route(profile)}
+		if slices.Contains(r.NoEffect, agent) {
+			v.noEffect = true
+			return v, nil
 		}
-		if len(files) > 0 {
-			if c.viaWhy == nil {
-				c.viaWhy = map[string]string{}
-			}
-			route := "via"
-			if rp := r.Resolved[profile]; rp.Via == "" {
-				route = "carrier " + strconv.Quote(rp.Carrier)
-			}
-			c.viaWhy[profile] = fmt.Sprintf("profile %q's %s — %s reads its route from %s, its own "+
-				"config, and `yolo host --` renders no per-launch file, so the %q service is not started "+
-				"for it and %s keeps its own client (docs/design/host-notch-services.md HS-D31); a jail or "+
-				"a macos-user launch serves it: `yolo -p %s -- %s`", profile, route, c.agent,
-				strings.Join(files, ", "), r.Service, c.agent, shquote.Quote(profile), shquote.Quote(c.agent))
+		if !slices.Contains(r.Agents, agent) {
 			continue
 		}
-		d, err := launchservice.Admit(packs, r.Service)
-		if err != nil {
-			continue // ViaRoutedServices admitted it; nothing changed in between
+		if v.files, err = packload.FileCarriedVia(packs, r, agent, active); err != nil {
+			return hostViaRoute{}, err
 		}
-		return launchservice.NewPlan(packs, d)
+		return v, nil
 	}
-	return nil, nil
+	return hostViaRoute{}, nil
+}
+
+// planHostViaService is the host half of THE VIA TRIGGER (docs/design/host-notch-services.md
+// HS-D30, HS-D31; hostViaWhatIf, the what-if macos-user asks too): for `yolo host --`
+// (hostServicesStart), the plan of the pack service that serving would route this launch's agent
+// through, by profile's `via` or by its carrier (WG-I44), nil when none would; for `yolo host env`
+// (hostServicesRefuse), nil always, with the line saying where such a route takes effect.
+//
+// WHICH AGENTS IT SERVES (HS-D31): the what-if's derives say where the agent's config carries the
+// via URL (packload.FileCarriedVia over packload.DerivedViaPointers). An agent whose own config FILE
+// carries it is not served here, since a host launch renders no per-launch file (OQ-HS3) and a URL
+// at this launch's port written into ~/.pi/agent/models.json would outlive the launch; its via stays
+// cleared and the "Not set at this notch" block says why (viaWhy). One whose environment alone
+// carries the route (claude and copilot, which ride the adapter address composed for the via, gated
+// on ctx.via_url) is served. One the via re-points nothing of (agy) starts nothing, and is told so.
+// `yolo host env` runs no process, so a route `yolo host --` would serve is named with the launch
+// that serves it.
+func (c *hostComposition) planHostViaService(cfg *jsonx.OrderedMap, packs []*packload.Pack,
+	userProfiles map[string]packload.UserProfile, profile string, mode hostServicesMode) (*launchservice.Plan, error) {
+	v, err := hostViaWhatIf(cfg, packs, userProfiles, c.agent, profile)
+	if err != nil && mode != hostServicesStart {
+		return nil, nil // a derive that cannot run is the launch's to refuse over; host env only names
+	}
+	if err != nil || v.service == "" {
+		return nil, err
+	}
+	why := ""
+	switch {
+	case v.noEffect:
+		why = fmt.Sprintf("profile %q's %s — %s", profile, v.route, packload.ViaNoEffect(v.route, c.agent, v.service))
+	case len(v.files) > 0:
+		why = fmt.Sprintf("profile %q's %s — %s reads its route from %s, its own "+
+			"config, and `yolo host --` renders no per-launch file, so the %q service is not started "+
+			"for it and %s keeps its own client (docs/design/host-notch-services.md HS-D31); a jail or "+
+			"a macos-user launch serves it: `yolo -p %s -- %s`", profile, v.route, c.agent,
+			strings.Join(v.files, ", "), v.service, c.agent, shquote.Quote(profile), shquote.Quote(c.agent))
+	case mode != hostServicesStart:
+		why = fmt.Sprintf("profile %q's %s — the %q service carries %s's route, and this command runs "+
+			"no process for it to live beside, so it is not started here and %s is not routed through "+
+			"it (docs/design/host-notch-services.md HS-D30, OQ-HS3). `%s` starts it for that launch and "+
+			"stops it when %s exits", profile, v.route, v.service, c.agent, c.agent,
+			c.viaLaunchSpelling(), c.agent)
+	}
+	if why != "" {
+		if c.viaWhy == nil {
+			c.viaWhy = map[string]string{}
+		}
+		c.viaWhy[profile] = why
+		return nil, nil
+	}
+	d, err := launchservice.Admit(packs, v.service)
+	if err != nil {
+		return nil, nil // hostViaWhatIf admitted it; nothing changed in between
+	}
+	return launchservice.NewPlan(packs, d)
+}
+
+// viaLaunchSpelling is the `yolo host --` launch of this composition's agent that serves its via
+// or carrier: the -p as typed, or none when the user's `profile` key selected the profile.
+func (c *hostComposition) viaLaunchSpelling() string {
+	if c.typedProfile != "" {
+		return "yolo host -p " + shquote.Quote(c.typedProfile) + " -- " + shquote.Quote(c.agent)
+	}
+	return "yolo host -- " + shquote.Quote(c.agent)
 }
 
 // hostViaServedAt is packload.ViaServedAt over this launch's served set, then the vias and carriers

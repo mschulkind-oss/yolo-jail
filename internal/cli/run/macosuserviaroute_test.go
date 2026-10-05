@@ -273,3 +273,85 @@ func TestMacosUserRefusesAViaTheBridgeServesNoRouteFor(t *testing.T) {
 		}
 	}
 }
+
+// THE MIXED LAUNCH (HS-D24, HS-D30): claude on cerebras pairs through the bridge's adapter, and pi on
+// bedrock-bridge rides its via, so ONE bridge serves both. The via trigger plans it first, for pi,
+// so the adapter pairing plans nothing and launchServiceAgents names pi alone; the bridge still
+// carries claude, whose ANTHROPIC_BASE_URL names the plan's moved 8214. So the start line names
+// both routes the bridge serves (claude's moved 8214, pi's moved 8216) and nothing else, and the
+// bridge's input carries claude's CEREBRAS_API_KEY, which it signs claude's requests with.
+// Deleting serviceAgents from servicePointedAt, or from startMacosUserServices' input, fails this.
+func TestTheMacosUserBridgeServingAViaAndAnAdapterPairingNamesBothAndCarriesBothCredentials(t *testing.T) {
+	o, stderr, _ := overrideNativeLaunch(t, `{"packs": ["claude", "cerebras", "pi", "bedrock", "wire-bridge"], `+
+		`"profile": {"claude": "cerebras", "pi": "bedrock-bridge"}`+bedrockRegionMember+
+		inEnvSources(map[string]string{"CEREBRAS_API_KEY": "csk-test"})+`}`, shellWith(nil))
+	o.Args = []string{"claude"}
+	o.ProfileName = ""
+	var started []*launchservice.Plan
+	var inputs []map[string]string
+	stopped := 0
+	orig := startMacosUserService
+	startMacosUserService = func(p *launchservice.Plan, env map[string]string) (launchedService, string, error) {
+		started = append(started, p)
+		inputs = append(inputs, env)
+		return fakeLaunched{&stopped}, "/log/launch-service-wire-bridge.log", nil
+	}
+	t.Cleanup(func() { startMacosUserService = orig })
+	if rc := Run(*o); rc != 0 {
+		t.Fatalf("Run() = %d\n%s", rc, stderr.String())
+	}
+	if len(started) != 1 || started[0].Service != "wire-bridge" {
+		t.Fatalf("started %v, want the wire bridge once\n%s", started, stderr.String())
+	}
+	plan := started[0]
+	claude, pi, other := plan.Moved["127.0.0.1:8214"], plan.Moved["127.0.0.1:8216"], plan.Moved["127.0.0.1:8215"]
+	if claude == "" || pi == "" || other == "" {
+		t.Fatalf("the plan did not move the bridge's three addresses: %v", plan.Moved)
+	}
+	var line string
+	for _, l := range strings.Split(stderr.String(), "\n") {
+		if strings.Contains(l, `Started the "wire-bridge" service`) {
+			line = l
+		}
+	}
+	want := []string{claude, pi}
+	if pi < claude {
+		want = []string{pi, claude}
+	}
+	if !strings.Contains(line, " on "+strings.Join(want, ", ")+" for this launch") {
+		t.Errorf("the start line must name claude's %s and pi's %s, and nothing else (not %s):\n%s",
+			claude, pi, other, stderr.String())
+	}
+	if got := inputs[0]["CEREBRAS_API_KEY"]; got != "csk-test" {
+		t.Errorf("the bridge's input carries CEREBRAS_API_KEY=%q, want claude's key, which it signs claude's requests with", got)
+	}
+}
+
+// A VIA THAT RE-POINTS NOTHING STARTS NOTHING ON MACOS-USER (HS-D33): agy on
+// bedrock-bridge has a via URL, but its config ignores it and names no address of the bridge, so
+// the bridge would carry none of agy's requests. The launch starts no host process outside the
+// sandbox for it and says the via has no effect on agy, where it used to start the bridge on three
+// addresses nothing pointed at. Counting every agent ViaFor names (packload.ViaRoutedServices), or
+// planning a service whose Agents is empty (planMacosUserViaServices), fails this.
+func TestTheMacosUserArmStartsNoBridgeForAViaThatRePointsNothing(t *testing.T) {
+	o, stderr, seen := overrideNativeLaunch(t, `{"packs": ["agy", "bedrock", "wire-bridge"]`+bedrockRegionMember+`}`,
+		shellWith(nil))
+	o.Args = []string{"agy"}
+	o.ProfileName = "bedrock-bridge"
+	orig := startMacosUserService
+	startMacosUserService = func(p *launchservice.Plan, _ map[string]string) (launchedService, string, error) {
+		t.Errorf("the launch started %q for agy, whose config the via re-points nothing of", p.Service)
+		return fakeLaunched{new(int)}, "", nil
+	}
+	t.Cleanup(func() { startMacosUserService = orig })
+	if rc := Run(*o); rc != 0 || !seen.reached {
+		t.Fatalf("Run() = %d, reached = %v\n%s", rc, seen.reached, stderr.String())
+	}
+	if !strings.Contains(stderr.String(), `Warning: profile "bedrock-bridge" (active for agy): its via — agy's config does not `+
+		`point it at the "wire-bridge" service, so the via has no effect on agy`) {
+		t.Errorf("the launch must say the via has no effect on agy:\n%s", stderr.String())
+	}
+	if strings.Contains(stderr.String(), `Started the "wire-bridge" service`) {
+		t.Errorf("the launch started the bridge:\n%s", stderr.String())
+	}
+}

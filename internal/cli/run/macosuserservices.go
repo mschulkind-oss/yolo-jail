@@ -158,20 +158,33 @@ func (o *Options) planMacosUserService(err error, packs []*packload.Pack) (bool,
 // first composition already serves the via; a service this launch serves already, by an earlier
 // plan or in its guest, is no candidate. Every profiled agent counts (the package doc says why,
 // and what a concurrent session risks).
+//
+// A service whose via or carrier re-points none of the agents it names (ViaRouted.NoEffect only:
+// agy on bedrock-bridge) is not planned, so no host process starts outside the sandbox that no
+// agent reaches; notes names each such agent, for the arm to print where it reports what runs
+// outside the sandbox (noteMacosUserWorkers).
 func (o *Options) planMacosUserViaServices(cfg *jsonx.OrderedMap, packs []*packload.Pack,
-	profiles *jsonx.OrderedMap, userProfiles map[string]packload.UserProfile, served packload.ServedDaemons) error {
+	profiles *jsonx.OrderedMap, userProfiles map[string]packload.UserProfile,
+	served packload.ServedDaemons) (notes []string, err error) {
 	addresses, _ := config.LoadAdapterAddresses(nil)
+	active := packload.ProfileTable(profiles)
 	routed, err := packload.ViaRoutedServices(packload.ViaWhatIf{User: cfgMap(cfg, "providers"), Packs: packs,
-		Addresses: addresses, Served: served, Profiles: userProfiles, Active: packload.ProfileTable(profiles)},
+		Addresses: addresses, Served: served, Profiles: userProfiles, Active: active},
 		func(service string) bool {
 			_, aerr := launchservice.Admit(packs, service)
 			return aerr == nil
 		})
 	if err != nil {
-		return err
+		return nil, err
 	}
 	for _, r := range routed {
 		if o.launchServiceRunning(r.Service) {
+			continue
+		}
+		if len(r.Agents) == 0 {
+			for _, line := range r.NoEffectLines(active) {
+				notes = append(notes, "[yellow]Warning: "+richtext.Escape(line)+"[/yellow]")
+			}
 			continue
 		}
 		d, aerr := launchservice.Admit(packs, r.Service)
@@ -180,7 +193,7 @@ func (o *Options) planMacosUserViaServices(cfg *jsonx.OrderedMap, packs []*packl
 		}
 		plan, perr := launchservice.NewPlan(packs, d)
 		if perr != nil {
-			return perr
+			return nil, perr
 		}
 		o.launchServices = append(o.launchServices, plan)
 		if o.launchServiceAgents == nil {
@@ -188,7 +201,7 @@ func (o *Options) planMacosUserViaServices(cfg *jsonx.OrderedMap, packs []*packl
 		}
 		o.launchServiceAgents[plan.Service] = append(o.launchServiceAgents[plan.Service], r.Agents...)
 	}
-	return nil
+	return notes, nil
 }
 
 // checkServedViaRoutes is the via gate (wirebridged.ViaRouteGate, WG-I13 to WG-I15) over the tables
@@ -345,26 +358,27 @@ func (o *Options) startMacosUserServices(channel *packChannel) (func(), error) {
 func isWorkerPlan(plan *launchservice.Plan) bool { return len(plan.Moved) == 0 }
 
 // servicePointedAt is the addresses of plan its agents were pointed at, the only routes it opens:
-// launchservice.Plan.PointedAt over the channel's delivery to each agent whose pairing needed it,
-// the one reading the start line, the dry run's line and `yolo host --` share
+// launchservice.Plan.RoutedAt over the channel's delivery to each agent the service carries
+// (serviceAgents, whichever trigger planned it) and the via URLs of the agents whose config the
+// via re-points, the one reading the start line, the dry run's line and `yolo host --` share
 // (docs/design/host-notch-services.md HS-D24). A pure worker's plan has none of the launch's, which
 // the dry run's line says in words rather than as an empty list (workerPointedAt).
 func (o *Options) servicePointedAt(plan *launchservice.Plan, channel *packChannel) []string {
 	if isWorkerPlan(plan) {
 		return []string{"no address of the launch's: " + workerPointedAt(channel, plan.Service)}
 	}
+	// Every agent the service carries (serviceAgents, the set whose credentials it is handed), not
+	// only the one whose pairing planned it: a bridge the via trigger planned for pi also serves
+	// claude's adapter pairing, which then planned nothing of its own.
 	var deliveries []*packload.AgentDelivery
-	for _, agent := range o.launchServiceAgents[plan.Service] {
+	for _, agent := range o.serviceAgents(plan, channel) {
 		deliveries = append(deliveries, channel.scope.Agent(agent))
 	}
 	// A via route the agent's config file carries is named by its via URL, which no Shape holds
 	// (launchservice.Plan.RoutedAt, HS-D30).
 	var viaURLs []string
-	for agent, u := range viaURLsThrough(channel, plan.Service) {
+	for _, u := range viaURLsThrough(channel, plan.Service) {
 		viaURLs = append(viaURLs, u)
-		if !slices.Contains(o.launchServiceAgents[plan.Service], agent) {
-			deliveries = append(deliveries, channel.scope.Agent(agent))
-		}
 	}
 	return plan.RoutedAt(viaURLs, deliveries...)
 }
@@ -458,13 +472,15 @@ func (o *Options) planMacosUserWorkers(packs []*packload.Pack, channel *packChan
 }
 
 // noteMacosUserWorkers prints the channel's line for each pure worker this launch does not start
-// (packChannel.workerNotes, planMacosUserWorkers): a disclosure, so no quiet switch
-// (docs/reference/report-tiers.md OQ-RO3). Silent when none.
+// (packChannel.workerNotes, planMacosUserWorkers), after the line for each agent whose via starts
+// nothing because it re-points nothing of the agent (packChannel.viaNotes,
+// planMacosUserViaServices): a disclosure, so no quiet switch (docs/reference/report-tiers.md
+// OQ-RO3). Silent when none.
 func (o *Options) noteMacosUserWorkers(channel *packChannel) {
 	if channel == nil {
 		return
 	}
-	for _, line := range channel.workerNotes {
+	for _, line := range append(append([]string(nil), channel.viaNotes...), channel.workerNotes...) {
 		o.pr(o.Stderr).print(line)
 	}
 }

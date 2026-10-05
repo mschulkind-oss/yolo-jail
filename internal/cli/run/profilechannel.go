@@ -56,6 +56,11 @@ type packChannel struct {
 	// HS-D29), recorded when the composition planned the workers and printed where the arm opens
 	// its doorways (planMacosUserDoorways). nil on every other runtime.
 	workerNotes []string
+	// viaNotes is the line, one per agent, for every profiled agent whose via or carrier names a
+	// pack service that this macos-user launch does not plan because the via re-points nothing of
+	// the agent (planMacosUserViaServices, packload.ViaRouted.NoEffect), printed beside workerNotes.
+	// nil on every other runtime.
+	viaNotes []string
 	// providers is the composed provider table (composedProviders): user `providers`
 	// entries over every selected pack's `kind: "provider"` service facts. Emitted as
 	// YOLO_PROVIDERS and read by the env derive below.
@@ -180,10 +185,13 @@ func (o *Options) composePackChannel(cfg *jsonx.OrderedMap, packs []*packload.Pa
 	// carrier routes an agent through a pack service only once the launch runs its host half, and
 	// it refuses nothing while the service is unserved, so the launch asks first and plans the
 	// service when serving it would route some profiled agent through it.
+	var viaNotes []string
 	if o.runtime == "macos-user" { // parity: HonoredBy — a container runs the via's service as a jail daemon; macos-user its host half (macosuserservices.go)
-		if err := o.planMacosUserViaServices(cfg, packs, profiles, userProfiles, o.servedDaemons(specs)); err != nil {
+		notes, err := o.planMacosUserViaServices(cfg, packs, profiles, userProfiles, o.servedDaemons(specs))
+		if err != nil {
 			return nil, err
 		}
+		viaNotes = notes
 	}
 	// ONE RETRY PER LAUNCH-OWNED SERVICE (macosuserservices.go): on macos-user a pairing through a
 	// pack service's adaptation refuses at the gate below until this launch plans that service's
@@ -207,6 +215,7 @@ func (o *Options) composePackChannel(cfg *jsonx.OrderedMap, packs []*packload.Pa
 		if err == nil || o.runtime != "macos-user" || tries > len(packs) { // parity: HonoredBy — a container runs the service's jail daemon; macos-user its host half (macosuserservices.go)
 			if c != nil {
 				c.bareNote = fold.BareListNote(fold.BareFrom == profileFoldFromKey)
+				c.viaNotes = viaNotes
 			}
 			// THE VIA GATE OVER THE VIAS THIS LAUNCH SERVES (checkViaRoutes' rule, WG-I13 to WG-I15): on
 			// macos-user that pre-flight runs before the channel plans a launch-owned service, so it

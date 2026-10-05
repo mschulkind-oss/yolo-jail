@@ -8,6 +8,7 @@ package cli
 // through it, unless the agent's own config file carries the route.
 
 import (
+	"bytes"
 	"net"
 	"net/http"
 	"net/url"
@@ -215,18 +216,27 @@ func TestHostPiOnABedrockBridgeProfileStartsNoBridgeAndSaysItIsFileCarried(t *te
 }
 
 // THE AWS DOORWAY OPENS FOR THE BRIDGE THAT CARRIES COPILOT, AND ITS POINTER IS THE BRIDGE'S ALONE
-// (HS-D32, narrowing HS-D23): copilot on `-p bedrock-bridge` with aws-auth enabled. The launch opens
-// aws-auth's doorway, which HS-D23 kept closed for an agent with no Bedrock client, because the
-// bridge signs copilot's requests with it; the bridge's input carries the doorway's pointer and its
-// caller token, copilot's environment carries neither, and the launch says so.
+// (HS-D32, narrowing HS-D23): copilot on `-p bedrock-bridge` (the profile's via) and on plain
+// `-p bedrock` (the carrier, WG-I44) with aws-auth enabled. The launch opens aws-auth's doorway,
+// which HS-D23 kept closed for an agent with no Bedrock client, because the bridge signs copilot's
+// requests with it; the bridge's input carries the doorway's pointer and its caller token,
+// copilot's environment carries neither, and the launch says so. The profile line counts the
+// pointer the bridge alone is handed as delivered (profileLines' Reaches), so it warns of no
+// missing credential: on `-p bedrock`, the carrier, dropping that clause prints one.
 func TestHostOpensTheAWSDoorwayForTheBridgeCarryingCopilot(t *testing.T) {
+	for _, profile := range []string{"bedrock-bridge", "bedrock"} {
+		t.Run(profile, func(t *testing.T) { hostOpensTheAWSDoorwayForTheBridgeCarryingCopilot(t, profile) })
+	}
+}
+
+func hostOpensTheAWSDoorwayForTheBridgeCarryingCopilot(t *testing.T, profile string) {
 	scrubAWS(t)
 	cfg := `{"packs": ["copilot", "bedrock", "wire-bridge"], ` +
 		`"providers": {"bedrock": {"region": "eu-west-1"}}, ` +
 		`"loopholes": {"aws-auth": {"enabled": true, "settings": {"profile": "` + doorwayProfile +
 		`", "unnarrowed": true}}}}`
 	inputs := map[string]map[string]string{}
-	l := runDoorwayLaunchAfter(t, cfg, nil, []string{"-p", "bedrock-bridge"}, "copilot", func() {
+	l := runDoorwayLaunchAfter(t, cfg, nil, []string{"-p", profile}, "copilot", func() {
 		inner := startLaunchService
 		startLaunchService = func(p *launchservice.Plan, env map[string]string) (*launchservice.Running, error) {
 			inputs[p.Service] = env
@@ -263,5 +273,83 @@ func TestHostOpensTheAWSDoorwayForTheBridgeCarryingCopilot(t *testing.T) {
 		if !strings.Contains(l.errs, want) {
 			t.Errorf("the launch must say %q:\n%s", want, l.errs)
 		}
+	}
+	if strings.Contains(l.errs, "delivers copilot no credential") {
+		t.Errorf("the launch warns that copilot gets no credential, though the bridge carrying it is "+
+			"handed the doorway's pointer:\n%s", l.errs)
+	}
+}
+
+// A VIA THAT RE-POINTS NOTHING STARTS NOTHING (HS-D33): agy on bedrock-bridge has
+// a via URL, but its derive reads none and its environment names no address of the bridge, so the
+// bridge would carry none of its requests. `yolo host -- agy` starts no host process outside every
+// sandbox for it, execs agy, and says the via has no effect on agy, where it used to start the
+// bridge on three addresses nothing pointed at. Counting every agent ViaFor names
+// (packload.ViaRoutedServices) fails this.
+func TestHostAgyOnABedrockBridgeProfileStartsNoBridge(t *testing.T) {
+	scrubAWS(t)
+	l := runServiceLaunchAs(t, `{"packs": ["agy", "bedrock", "wire-bridge"], "providers": {"bedrock": {"region": "eu-west-1"}}}`,
+		[]string{"-p", "bedrock-bridge"}, "agy", "", nil, nil)
+	if l.rc != 0 || len(l.started) != 0 || !l.execed {
+		t.Fatalf("rc = %d, started %d, exec'd %v; want an exec and no bridge\n%s", l.rc, len(l.started), l.execed, l.errs)
+	}
+	for _, want := range []string{`profile "bedrock-bridge"'s via — agy's config does not point it at the "wire-bridge" service`,
+		"the via has no effect on agy"} {
+		if !strings.Contains(l.errs, want) {
+			t.Errorf("the launch must say %q:\n%s", want, l.errs)
+		}
+	}
+	for _, bad := range []string{`started the "wire-bridge" service`, `through pack "wire-bridge"'s via route`} {
+		if strings.Contains(l.errs, bad) {
+			t.Errorf("the launch must not say %q:\n%s", bad, l.errs)
+		}
+	}
+}
+
+// `yolo host env` NAMES THE LAUNCH THAT SERVES A VIA OR CARRIER (HS-D33, OQ-HS3): copilot on
+// `-p bedrock-bridge` (its via) and on plain `-p bedrock` (the carrier) is carried by the bridge at
+// `yolo host --`, which host env cannot start, running no process. Its "Not set at this notch" line
+// says so and names the launch that works, `yolo host -p <profile> -- copilot`, or `yolo host --
+// copilot` when the user's `profile` key selected it, in place of the notch's line, which named no
+// command. The env script is still written and starts no service.
+func TestHostEnvNamesTheLaunchThatServesAViaOrCarrier(t *testing.T) {
+	for _, tc := range []struct {
+		name, profile, member string
+		args                  []string
+		spell                 string
+	}{
+		{"via", "bedrock-bridge", "", []string{"-p", "bedrock-bridge"}, "`yolo host -p bedrock-bridge -- copilot`"},
+		{"carrier", "bedrock", "", []string{"-p", "bedrock"}, "`yolo host -p bedrock -- copilot`"},
+		{"profile key", "bedrock-bridge", `, "profile": {"copilot": "bedrock-bridge"}`, nil, "`yolo host -- copilot`"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			scrubAWS(t)
+			hostGateHome(t, `{"packs": ["copilot", "bedrock", "wire-bridge"], "providers": {"bedrock": {"region": "eu-west-1"}}`+
+				tc.member+`}`, nil)
+			origStart := startLaunchService
+			startLaunchService = func(*launchservice.Plan, map[string]string) (*launchservice.Running, error) {
+				t.Fatal("yolo host env started a service")
+				return nil, nil
+			}
+			t.Cleanup(func() { startLaunchService = origStart })
+			var out, errw bytes.Buffer
+			rc := hostMain(append([]string{"env", "--agent", "copilot"}, tc.args...), &out, &errw, false, nil)
+			if rc != 0 {
+				t.Fatalf("rc = %d\n%s", rc, errw.String())
+			}
+			route := `profile "` + tc.profile + `"'s via`
+			if tc.profile == "bedrock" {
+				route = `profile "bedrock"'s carrier "wire-bridge"`
+			}
+			for _, want := range []string{route + ` — the "wire-bridge" service carries copilot's route`,
+				"this command runs no process for it to live beside", tc.spell + " starts it for that launch"} {
+				if !strings.Contains(errw.String(), want) {
+					t.Errorf("host env must say %q:\n%s", want, errw.String())
+				}
+			}
+			if strings.Contains(errw.String(), `profile "`+tc.profile+`"'s via — its service does not run here`) {
+				t.Errorf("host env still gives the notch's line, which names no command:\n%s", errw.String())
+			}
+		})
 	}
 }

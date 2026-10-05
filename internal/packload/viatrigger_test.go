@@ -57,6 +57,39 @@ func TestViaRoutedServicesFiresForAViaAndACarrier(t *testing.T) {
 	}
 }
 
+// THE TRIGGER COUNTS ONLY AN AGENT THE VIA RE-POINTS (HS-D33): agy on
+// bedrock-bridge has a via URL, but its derive carries it nowhere and its environment names no
+// address of the bridge, so serving the bridge would carry none of its requests. agy is named as a
+// via with no effect and routes nothing, so no launch starts a host process for it; beside pi, the
+// bridge routes pi alone. claude and copilot, which ride the bridge's adapter address their
+// environment names rather than the via URL, still count.
+func TestViaRoutedServicesCountsOnlyAnAgentTheViaRePoints(t *testing.T) {
+	admit := func(string) bool { return true }
+	for _, tc := range []struct {
+		active        map[string]string
+		agents, inert string
+	}{
+		{map[string]string{"agy": "bedrock-bridge"}, "", "agy"},
+		{map[string]string{"agy": "bedrock-bridge", "pi": "bedrock-bridge"}, "pi", "agy"},
+		{map[string]string{"claude": "bedrock-bridge"}, "claude", ""},
+		{map[string]string{"copilot": "bedrock-bridge"}, "copilot", ""},
+	} {
+		routed, err := ViaRoutedServices(viaWhatIf(t, tc.active), admit)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(routed) != 1 || routed[0].Service != "wire-bridge" {
+			t.Fatalf("%v: routed %+v, want the bridge's one answer", tc.active, routed)
+		}
+		if got := strings.Join(routed[0].Agents, ","); got != tc.agents {
+			t.Errorf("%v: the bridge routes [%s], want [%s]", tc.active, got, tc.agents)
+		}
+		if got := strings.Join(routed[0].NoEffect, ","); got != tc.inert {
+			t.Errorf("%v: the via has no effect on [%s], want [%s]", tc.active, got, tc.inert)
+		}
+	}
+}
+
 // THE WHAT-IF TABLES ARE THE SERVED ONES: the carrier copilot rides exists in them, and pi's via
 // base is the declared address the plan then moves.
 func TestViaRoutedServicesHandsBackTheServedTables(t *testing.T) {

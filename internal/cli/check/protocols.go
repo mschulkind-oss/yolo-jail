@@ -111,6 +111,7 @@ func protocolPairingGap(packs []*packload.Pack, merged *jsonx.OrderedMap, served
 	// the service a via or a carrier routes a profiled agent through once served, and composes
 	// against it, so the via is served there and the via gate below asks of it, as the launch does.
 	// The same what-if the launch asks (packload.ViaRoutedServices), with its admission.
+	var noEffect []string
 	if served.RunsLaunchOwnedServices() {
 		routed, rerr := packload.ViaRoutedServices(packload.ViaWhatIf{User: subMap(merged, "providers"),
 			Packs: packs, Addresses: addresses, Served: served, Profiles: declared, Active: profiles},
@@ -118,11 +119,17 @@ func protocolPairingGap(packs []*packload.Pack, merged *jsonx.OrderedMap, served
 				_, aerr := launchservice.Admit(packs, service)
 				return aerr == nil
 			})
-		if rerr == nil && len(routed) > 0 {
-			names := make([]string, 0, len(routed))
-			for _, r := range routed {
+		// A service whose via re-points none of the agents it names is not planned (ViaRouted.NoEffect),
+		// and the launch says so of each agent, which check predicts in the launch's words.
+		var names []string
+		for _, r := range routed {
+			if len(r.Agents) > 0 {
 				names = append(names, r.Service)
+				continue
 			}
+			noEffect = append(noEffect, r.NoEffectLines(profiles)...)
+		}
+		if rerr == nil && len(names) > 0 {
 			served = served.Plus(packload.ServedByLaunch(names))
 			if p, u, cerr := packload.ComposeProvidersAt(subMap(merged, "providers"), packs, addresses, served); cerr == nil {
 				if r, perr := packload.ResolveProfiles(packs, declared, p); perr == nil {
@@ -162,5 +169,5 @@ func protocolPairingGap(packs []*packload.Pack, merged *jsonx.OrderedMap, served
 	for _, refusal := range viaRefusals {
 		errs = append(errs, "This launch will be REFUSED: "+refusal.Error())
 	}
-	return errs, viaNotices
+	return errs, append(viaNotices, noEffect...)
 }

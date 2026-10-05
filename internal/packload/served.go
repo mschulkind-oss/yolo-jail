@@ -30,6 +30,7 @@ package packload
 // serves is left out, and a pairing that needed it refuses by name (ES-D18, generalized).
 
 import (
+	"fmt"
 	"net/url"
 	"slices"
 	"sort"
@@ -488,9 +489,17 @@ type ViaWhatIf struct {
 // what-if tables that said so: the provider table and the resolved profiles composed with the
 // service served, at its declared addresses.
 type ViaRouted struct {
-	Service   string
-	Pack      string
-	Agents    []string
+	Service string
+	Pack    string
+	// Agents are the agents serving the service would carry: each one's via or carrier names
+	// the service and its config is RE-POINTED through it (ViaRePoints). A launch plans the
+	// service only for these.
+	Agents []string
+	// NoEffect are the agents whose via or carrier names the service but whose config it
+	// re-points nothing of (agy on bedrock-bridge, whose derive reads no via URL and whose
+	// environment names no address of the bridge): serving the service would carry none of their
+	// requests, so no launch starts it for them (ViaNoEffect says so), sorted.
+	NoEffect  []string
 	Providers *jsonx.OrderedMap
 	Resolved  map[string]ResolvedProfile
 }
@@ -498,9 +507,18 @@ type ViaRouted struct {
 // ViaRoutedServices is THE VIA TRIGGER of a launch that runs pack services as launch-owned host
 // halves (docs/design/host-notch-services.md HS-D30; wire-bridge-gateway.md WG-I46): every held
 // service that declares a `via_address`, that in.Served does not serve already, and that admit
-// admits, for which a what-if composition with that service served routes some agent of
-// in.Active through it, by its profile's own `via` or by its carrier (ResolvedProfile.ViaFor,
-// WG-I44), in service order, each with the agents it routes, sorted.
+// admits, for which a what-if composition with that service served names it as the route of some
+// agent of in.Active, by its profile's own `via` or by its carrier (ResolvedProfile.ViaFor,
+// WG-I44), in service order, each with the agents it routes and the ones it would not (Agents,
+// NoEffect), sorted. A launch plans a service only when its Agents is non-empty.
+//
+// ROUTED MEANS RE-POINTED (docs/design/host-notch-services.md HS-D33; WG-I15's word, widened to
+// the adapter address): an agent counts only when serving the service would carry its requests,
+// its derived config carrying its via URL (DerivedViaPointers: pi, opencode, oh-omp, codex) or its
+// environment naming an address of the service (ViaRePoints: claude and copilot, which ride the
+// `for_via` adapter address). An agent whose profile names the via and whose config ignores it
+// (agy) is NoEffect, so no launch starts a host process outside every sandbox that nothing
+// reaches.
 //
 // BESIDE THE ADAPTER TRIGGER, NOT THROUGH IT. The adapter trigger is the credential gate's refusal
 // (UnservedAdapterError), and a via refuses nothing: ViaServedAt clears a via whose service is
@@ -544,20 +562,136 @@ func ViaRoutedServices(in ViaWhatIf, admit func(service string) bool) ([]ViaRout
 		if err != nil {
 			return nil, err
 		}
-		var routed []string
+		addresses := serviceHostPorts(in.Packs, in.Addresses, served, h.Pack, name)
+		var routed, inert []string
 		for _, agent := range agents {
 			r := resolved[in.Active[agent]]
-			if via, _ := r.ViaFor(agent); via != "" && viaServiceName(in.Packs, via) == name &&
-				ViaURLFor(r, agent) != "" {
+			if via, _ := r.ViaFor(agent); via == "" || viaServiceName(in.Packs, via) != name ||
+				ViaURLFor(r, agent) == "" {
+				continue
+			}
+			// A derive that cannot run is counted as routed, as before this reading: the launch's
+			// via gate names it, and the boot runs the same derive and refuses over it.
+			if moved, err := ViaRePoints(in.Packs, providers, in.Active, resolved, agent, addresses); err != nil || moved {
 				routed = append(routed, agent)
+			} else {
+				inert = append(inert, agent)
 			}
 		}
-		if len(routed) > 0 {
-			out = append(out, ViaRouted{Service: name, Pack: h.Pack, Agents: routed,
+		if len(routed) > 0 || len(inert) > 0 {
+			out = append(out, ViaRouted{Service: name, Pack: h.Pack, Agents: routed, NoEffect: inert,
 				Providers: providers, Resolved: resolved})
 		}
 	}
 	return out, nil
+}
+
+// ViaRePoints reports whether agent's config, under the tables a launch composed, is RE-POINTED
+// through the service whose served addresses are addresses (`host:port`s) by its via or its
+// carrier: some derive carries its via URL (DerivedViaPointers), or its env derive's output (the
+// Shape a launch composes for it, AgentDelivery.Shape) names one of addresses, an occurrence no
+// further digit follows. The second is how claude and copilot ride a via or a carrier: their
+// derive reads ctx.via_url only as a gate and points them at the `for_via` adapter address
+// (WG-I39). false for an agent with no via URL. A derive error is returned, the agent unread.
+func ViaRePoints(packs []*Pack, providers *jsonx.OrderedMap, useProfiles map[string]string,
+	resolved map[string]ResolvedProfile, agent string, addresses []string) (bool, error) {
+	pointers, err := DerivedViaPointers(packs, providers, useProfiles, resolved, agent)
+	if err != nil || len(pointers) > 0 {
+		return len(pointers) > 0, err
+	}
+	if len(addresses) == 0 {
+		return false, nil
+	}
+	named, err := derivedPointers(packs, providers, useProfiles, resolved, agent, func(_, v string) bool {
+		return namesHostPort(v, addresses)
+	})
+	if err != nil {
+		return false, err
+	}
+	for _, p := range named {
+		if p.Surface == "" {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+// serviceHostPorts is the `host:port` of every address service (of pack) serves under served:
+// each adaptation of it at the user's override and at its declared address, and its via address,
+// each at its served address (ServedDaemons.ServedURL), deduplicated.
+func serviceHostPorts(packs []*Pack, addresses map[string]string, served ServedDaemons, pack, service string) []string {
+	var raw []string
+	for _, over := range []map[string]string{addresses, nil} {
+		for _, a := range ServiceAdaptations(packs, over) {
+			if a.Service == service {
+				raw = append(raw, a.Address)
+			}
+		}
+	}
+	if viaServiceName(packs, pack) == service {
+		if via, _ := ViaServiceAddress(packs, pack); via != "" {
+			raw = append(raw, via)
+		}
+	}
+	var out []string
+	for _, r := range raw {
+		u, err := url.Parse(served.ServedURL(r))
+		if err != nil || u.Host == "" || slices.Contains(out, u.Host) {
+			continue
+		}
+		out = append(out, u.Host)
+	}
+	return out
+}
+
+// namesHostPort reports whether value names one of hostPorts: an occurrence of it that no further
+// digit follows, so 127.0.0.1:4313 is not named by a URL on 127.0.0.1:43137.
+func namesHostPort(value string, hostPorts []string) bool {
+	for _, hp := range hostPorts {
+		for rest := value; ; {
+			i := strings.Index(rest, hp)
+			if i < 0 {
+				break
+			}
+			rest = rest[i+len(hp):]
+			if rest == "" || rest[0] < '0' || rest[0] > '9' {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// Route is how profile, resolved in the what-if, reaches r's service: "via" for its own `via`, or
+// `carrier "<pack>"` for the carrier of an agent with no client of the platform (WG-I44).
+func (r ViaRouted) Route(profile string) string {
+	if rp := r.Resolved[profile]; rp.Via == "" && rp.Carrier != "" {
+		return "carrier " + strconv.Quote(rp.Carrier)
+	}
+	return "via"
+}
+
+// NoEffectLines is the line for each agent of r.NoEffect, on its profile in active (the
+// what-if's agent-to-profile table): what a launch that plans r's service for none of its agents
+// says instead, and what `yolo check` predicts it says (ViaNoEffect).
+func (r ViaRouted) NoEffectLines(active map[string]string) []string {
+	var out []string
+	for _, agent := range r.NoEffect {
+		route := r.Route(active[agent])
+		out = append(out, fmt.Sprintf("profile %q (active for %s): its %s — %s", active[agent], agent,
+			route, ViaNoEffect(route, agent, r.Service)))
+	}
+	return out
+}
+
+// ViaNoEffect is the clause a launch that runs pack services as launch-owned host halves gives an
+// agent of ViaRouted.NoEffect: route is "via", or `carrier "<pack>"` for a profile's carrier. The
+// service is not started for it, and nothing about the agent changes, so the clause names no next
+// step: no notch routes such an agent through the service, a container's included.
+func ViaNoEffect(route, agent, service string) string {
+	return fmt.Sprintf("%s's config does not point it at the %q service, so the %s has no effect on "+
+		"%s (its config is what it would be without it) and the service is not started for it "+
+		"(docs/design/host-notch-services.md HS-D30)", agent, service, route, agent)
 }
 
 // FileCarriedVia is the config files through which agent's own derived config carries its via URL
