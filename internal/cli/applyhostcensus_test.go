@@ -164,6 +164,9 @@ func writeCensusPack(t *testing.T, dir string) {
 		// contributions of the kinds that own those channels, so a minimal selection is
 		// the whole kind now.
 		packdecl.KindProfile: `{"kind":"profile","name":"census","provider":"census"}`,
+		// mcp is one server entry composed into mcp_servers; its `~/` word is joined to the home.
+		packdecl.KindMCP: `{"kind":"mcp","name":"censusmcp","bin":"censusbin",` +
+			`"config":{"command":"/bin/sh","args":["~/.census/files/marker.txt"]}}`,
 	}
 
 	var entries []string

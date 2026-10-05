@@ -96,6 +96,7 @@ func ValidateConfig(config *jsonx.OrderedMap, workspace string, resolver Loophol
 	validateLSPServers(config, errs)
 	validateMCPPresets(config, errs)
 	validateMCPServers(config, errs)
+	validatePackMCPServers(errs)
 	validateProviders(config, workspace, errs, warns)
 	validateAgentProfilesRetired(config, errs, warns)
 	validateUseProfilesRetired(config, errs, warns)
@@ -1167,6 +1168,19 @@ func validateMCPServers(config *jsonx.OrderedMap, errs *[]string) {
 			sort.Strings(names)
 			add(errs, fmt.Sprintf("config.mcp_servers: multiple servers declare provides %q (%s). Ambiguous capability resolution.", capName, strings.Join(names, ", ")))
 		}
+	}
+}
+
+// validatePackMCPServers refuses an MCP server name two selected packs ship (packdecl.KindMCP is
+// sole-owned by server name): the composed mcp_servers table is keyed by it, so the composer's
+// later-wins rule would hand every agent one pack's server under a name the other pack also
+// claims, with nothing said. The selection is the user scope's (resolveSelectedPacks, the one
+// validation reserves names for), so the launch and `yolo check` refuse alike; a selection that
+// cannot be read refuses nothing here, its own failure being louder elsewhere.
+func validatePackMCPServers(errs *[]string) {
+	packs, _ := resolveSelectedPacks()
+	for _, msg := range packload.MCPNameCollisions(packs) {
+		add(errs, "config.packs: "+msg)
 	}
 }
 

@@ -679,6 +679,10 @@ func resolveHostLaunchTarget(packs []*packload.Pack, cmd0 string, lp *hostpath.L
 	}
 	floor := newHostFloor(errw, progs)
 	st, _, err := floor.Ensure(withActInterrupt(context.Background(), act), prog)
+	if err == nil || errors.Is(err, hostfloor.ErrNoEntry) {
+		// The agent starts: so do the MCP servers its config names (HC-D28).
+		ensureMCPPrograms(packs, progs, floor, cmd0, errw, act)
+	}
 	switch {
 	case errors.Is(err, hostfloor.ErrNoEntry):
 		// OQ-HE11 is open: keep today's behavior — the launch's PATH — and say, once, that the
@@ -709,6 +713,46 @@ func resolveHostLaunchTarget(packs []*packload.Pack, cmd0 string, lp *hostpath.L
 		fmt.Fprintf(errw, "yolo host: %s\n", line)
 	}
 	return hostTarget{Path: st.Launcher, Origin: originFloor}, 0
+}
+
+// ensureMCPPrograms is decision HC-D28 (docs/design/host-computed-layer.md): a `yolo host --
+// <agent>` launch also makes sure yolo's floor holds every program a selected pack's MCP server
+// runs (the `mcp` contribution's `bin`), since the agent starts that server whenever it starts
+// and the host has no lazy launcher to install it on first use, as a jail does. Only a server the
+// host's table carries counts (hostMCPPacks: a fetched pack's is not written there), and never
+// cmd0, which the caller has just ensured. Nothing here refuses the launch: a program the floor
+// cannot hold, or an install that fails, is one line naming what then happens and the next step,
+// and the agent starts without that server rather than not at all — a missing MCP server is no
+// reason to refuse an agent (mcp-presets-removal.md §9.1).
+func ensureMCPPrograms(packs []*packload.Pack, progs []hostfloor.Program, floor *hostfloor.Floor,
+	cmd0 string, errw io.Writer, act *run.ActInterrupt) {
+	composed, _ := hostMCPPacks(packs)
+	seen := map[string]bool{cmd0: true}
+	for _, held := range packload.HeldMCPServers(composed) {
+		bin, server := held.Server.Bin, held.Server.Name
+		if bin == "" || seen[bin] {
+			continue
+		}
+		seen[bin] = true
+		prog, ok := floorProgram(progs, bin)
+		if !ok {
+			fmt.Fprintf(errw, "yolo host: MCP server %s runs %s, which no selected pack installs; it "+
+				"starts only if %s is on the agent's PATH — select the pack that ships it in `packs`\n",
+				server, bin, bin)
+			continue
+		}
+		st, _, err := floor.Ensure(withActInterrupt(context.Background(), act), prog)
+		switch {
+		case errors.Is(err, hostfloor.ErrNoEntry):
+			fmt.Fprintf(errw, "yolo host: yolo has no copy of %s %s (%s), which MCP server %s runs; "+
+				"the server looks for it on the agent's PATH\n", bin, noCopyWhere(floor.GOOS, prog),
+				st.Reason, server)
+		case err != nil:
+			fmt.Fprintf(errw, "yolo host: could not install %s, which MCP server %s runs, into yolo's "+
+				"floor: %v — the agent starts without that server; `yolo host apply --assert` "+
+				"installs it\n", bin, server, err)
+		}
+	}
 }
 
 // noCopyWhere names the machine the no-copy line is about. goos is the floor's own platform

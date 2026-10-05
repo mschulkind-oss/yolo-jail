@@ -1713,6 +1713,24 @@
                     agent is paired through the service, and stops when that agent exits;
                     only a pack yolo ships may declare one that runs, and a fetched or
                     local pack's is refused by name (host-notch-services.md OQ-HS4).
+      mcp           {name, bin, config:{command, args, env, requires_env, provides}} —
+                    ONE MCP SERVER ENTRY composed into `mcp_servers`, which every
+                    selected agent's MCP file renders in its own dialect.  `config` is
+                    the entry in exactly the shape you write one under mcp_servers.  A
+                    `command` or `args` word starting "~/" is a path under the home of
+                    the agent it renders for — /home/agent in a container jail, the
+                    sandbox account's home on macos-user, yours at the host — and yolo
+                    writes it absolute, since an MCP client starts servers with a
+                    scrubbed environment.  `env` values are literal.  Your own
+                    `mcp_servers.<name>` entry merges over the pack's per field, and
+                    null removes it.  `bin` names the `program` the server runs, which
+                    `yolo host -- <agent>` installs into yolo's host floor beside the
+                    agent.  The name is sole-owned: two selected packs shipping one
+                    refuse a jail launch and `yolo check` (at the host the later pack
+                    in `packs` holds it).  At the host only a pack yolo ships or one at
+                    a path on this machine has its entry written; a fetched pack's is
+                    left out and named.  The `chrome-devtools` pack is the shipped
+                    instance.
     AT LAUNCH ONLY (`yolo host -- <program>`): at the host notch the kinds below are
     delivered to the program yolo starts, for that process only, and `yolo host apply`
     writes no file for them: what each declares reaches an agent through its process
@@ -1782,13 +1800,15 @@
     WHAT A HOST APPLY COMPUTES, as a jail does: `yolo host apply`, and the automatic
     apply a wrapped launch runs, run each pack's derives over inputs composed from
     your USER config alone — the providers table (your `providers` over the selected
-    packs' provider facts), your `mcp_servers`, your `lsp_servers`, and the selection
-    your `profile` key names.  So the provider facts reach `pi/models`,
-    `pi/codex-models`, `codex/config`, `opencode/config` and `oh-omp/models` at the
-    host too, pi registers the declared openai-codex list, and every agent's MCP and
-    LSP files carry your servers.  Never an MCP preset (its command is a wrapper only
-    a jail writes), a pack's `mcp` declaration, a workspace's config, or a value naming
-    a path only a jail has: each is left out and named.  A table a derive declares in
+    packs' provider facts), the MCP servers (your `mcp_servers` over the selected
+    packs' `mcp` entries), your `lsp_servers`, and the selection your `profile` key
+    names.  So the provider facts reach `pi/models`, `pi/codex-models`,
+    `codex/config`, `opencode/config` and `oh-omp/models` at the host too, pi
+    registers the declared openai-codex list, and every agent's MCP and LSP files
+    carry those servers.  Never an MCP preset (its command is a wrapper only a jail
+    writes; the `chrome-devtools` pack carries that server to the host), a fetched
+    pack's `mcp` entry (its command would run unconfined as you), a workspace's
+    config, or a value naming a path only a jail has: each is left out and named.  A table a derive declares in
     full is yolo's there, as in a jail, so an entry you added by hand to one is
     dropped — confirmed first, the first time — unless your config declares it.
     That selection is applied edge-triggered: written when the chosen profile
@@ -2134,20 +2154,25 @@
     Invalid: enabling a preset here and null-removing it in the same config file.
     Jail only: a preset's command is a wrapper a jail's boot writes, so `yolo host
     apply` writes no preset into your real home and names each one it leaves out.
+    For chrome-devtools add "chrome-devtools" to `packs` instead: the pack gives the
+    same server at the host, in a jail and on macos-user, and where both are on its
+    entry replaces the preset's.
     Example: ["chrome-devtools", "sequential-thinking"]
 
   [bold]mcp_servers[/bold] (object): Custom MCP servers for Copilot, Claude, and Codex.
     Add custom servers, or set a preset/inherited server to [bold]null[/bold] to disable it.
+    A selected pack's `mcp` entry (the `chrome-devtools` pack's, say) is composed
+    under this table: an entry of yours with its name merges over it per field, and
+    [bold]null[/bold] removes it.
     Each key is a server name; value is an object with:
       • command (string, required): Binary name (on PATH) or absolute path.
       • args (array of strings): Args passed to the MCP server. Default: [].
       • env (object of string→string): Environment variables passed only to
         this MCP server's process. Use for per-server secrets and config so
         they don't leak into the jail-wide env. Default: {}.
-        [bold]${VAR}[/bold] references are expanded against the jail's startup env
-        (after [bold]env_sources[/bold] is loaded), so a secret can live in one
-        unsynced file and be scoped to a single server. Undefined names
-        are left as the literal [bold]${VAR}[/bold] and logged as a warning.
+        Values are written LITERALLY: yolo expands no [bold]${VAR}[/bold], so a
+        reference reaches the agent's config as written, for the agent to resolve
+        from its own environment (which [bold]env_sources[/bold] hydrates).
       • provides (string): the named JOB this server implements, e.g.
         "web_search".  Two things read it, and they are different questions.
         DELIVERY: the authentication source your launch resolves to — the

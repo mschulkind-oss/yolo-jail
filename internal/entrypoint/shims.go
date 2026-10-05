@@ -482,13 +482,6 @@ func GenerateAgentLaunchers(e *Env) error {
 	// path and the declared mise set are the same for every pack. See launchercollision.go
 	// for why the scope is what it is — a wider one turns evergreen off silently.
 	probePath, miseBins := imageProbePath(e), declaredMiseBins(e)
-	// The yolo-INSTALLED MCP server set, computed ONCE for the same reason the probe
-	// path is: it is jail-global, not per-pack. §3.5 phrases the scope per agent ("an agent
-	// whose config names that server"), and in this tree that narrowing is the identity —
-	// YOLO_MCP_PRESETS is a jail-global key and every agent's surface renders from one
-	// table. See serverrefresh.go's header for where a per-pack set would
-	// enter if that ever changes.
-	servers := ServerRefreshSpecs(e)
 	// The host's fork decisions (ForkBuildsEnv), read ONCE, like the capture store: every source
 	// launcher bakes its own bin's.
 	forks := forkDeliveries(e)
@@ -499,6 +492,21 @@ func GenerateAgentLaunchers(e *Env) error {
 	packs, err := LoadJailPacks(e)
 	if err != nil {
 		return err
+	}
+	// The yolo-INSTALLED MCP server set, computed ONCE for the same reason the probe
+	// path is: it is jail-global, not per-pack. §3.5 phrases the scope per agent ("an agent
+	// whose config names that server"), and in this tree that narrowing is the identity —
+	// YOLO_MCP_PRESETS is a jail-global key, YOLO_MCP_SERVERS one composed table, and every
+	// agent's surface renders from that one table. See serverrefresh.go's header for where a
+	// per-agent set would enter if that ever changes.
+	servers := ServerRefreshSpecs(e, packs)
+	// A SERVER TAKES ITS AGENT'S TRIGGER (§3.5, OQ-PD12a): the program a pack's `mcp` server runs
+	// is installed and refreshed by every agent's launcher before that agent execs, so its own
+	// launcher, which the agent starts at connect time, moves nothing on its own invocation and
+	// refreshes no servers. A program the refresh does not carry keeps its own trigger.
+	serverBins := map[string]bool{}
+	for _, inst := range packMCPServerPrograms(e, packs) {
+		serverBins[inst.Bin] = true
 	}
 	for _, p := range packs {
 		// HonoredInstalls refuses NOTHING, and the discarded second return is always nil.
@@ -558,11 +566,15 @@ func GenerateAgentLaunchers(e *Env) error {
 				// that repeats one bin across two of its OWN contributions.
 				continue
 			}
+			updates, launcherSet := agentUpdatesAllows(e, p.Name), servers
+			if serverBins[inst.Bin] {
+				updates, launcherSet = false, launcherServers{}
+			}
 			var launcher string
 			switch inst.Kind {
 			case "npm":
 				segments := npmAgentLauncherSegments(p.Name, inst, stampDir, receiptsFile(e),
-					agentUpdatesAllows(e, p.Name), servers, launchFlagsFor(e, packs, inst.Bin))
+					updates, launcherSet, launchFlagsFor(e, packs, inst.Bin))
 				prefix := nodeExecPrefix(inst.NodeFloor)
 				launcher = strings.Join(segments, prefix)
 				// AR-L5: a declared floor nothing met at generation leaves the render's segments
@@ -574,7 +586,7 @@ func GenerateAgentLaunchers(e *Env) error {
 				}
 			case "native":
 				launcher = nativeAgentLauncher(p.Name, inst, stampDir, receiptsFile(e), capturesDir(e),
-					agentUpdatesAllows(e, p.Name), servers, launchFlagsFor(e, packs, inst.Bin))
+					updates, launcherSet, launchFlagsFor(e, packs, inst.Bin))
 			case packdecl.InstallKindSource:
 				// A FORK's program (docs/design/forked-programs-as-packs.md): built from source
 				// in a sealed capture jail on the host, and materialized here from the store key
@@ -582,7 +594,7 @@ func GenerateAgentLaunchers(e *Env) error {
 				// fallback, because a jail that ran the upstream program under the fork's name
 				// would be the wrong program looking like the right one.
 				segments := sourceAgentLauncherSegments(inst, forkDeliveryFor(forks, inst.Bin), stampDir,
-					forkKeyDir(e), receiptsFile(e), capturesDir(e), agentUpdatesAllows(e, p.Name), servers,
+					forkKeyDir(e), receiptsFile(e), capturesDir(e), updates, launcherSet,
 					launchFlagsFor(e, packs, inst.Bin))
 				prefix := nodeExecPrefix(inst.NodeFloor)
 				launcher = strings.Join(segments, prefix)
@@ -1422,7 +1434,10 @@ _do_install() {
     echo "  Installing $SPEC..." >&2
     # Clean stale npm temp dirs that cause ENOTEMPTY
     rm -rf "$NPM_CONFIG_PREFIX"/lib/node_modules/${PKG%%/*}/.${PKG##*/}-* 2>/dev/null
-    if YOLO_BYPASS_SHIMS=1 npm install -g __YOLO_EXTRA__--prefer-online "$SPEC" 2>&1; then
+    # npm's output goes to STDERR: stdout is the program's, and for an MCP server a protocol its
+    # client reads from the first byte, so an install's "added 1 package" there is a corrupt
+    # handshake (and, for any program, a corrupt pipeline).
+    if YOLO_BYPASS_SHIMS=1 npm install -g __YOLO_EXTRA__--prefer-online "$SPEC" >&2; then
         # Record what we ASKED for, and ONLY once npm agreed to it. It lets a later run tell
         # "the DECLARATION moved" from "the registry moved" with a local file read and no
         # network — the only question a pinned package still has to answer.
@@ -2109,7 +2124,8 @@ _run_installer() {
         return 1
     fi
     local irc=0
-    _run_without_terminal bash "$script" 2>&1 || irc=$?
+    # The installer's output goes to STDERR, for the npm template's reason: stdout is the program's.
+    _run_without_terminal bash "$script" >&2 || irc=$?
     rm -f "$script"
     touch "$STAMP"
     # A Ctrl-C stopped the installer partway, so what it left is not an install a receipt may
@@ -2397,7 +2413,8 @@ if [ ! -x "$REAL_BIN" ]; then
         # is still the -x test below, unchanged: this captures the status to decide whether
         # to RECORD, never whether to proceed.
         pm_rc=0
-        YOLO_BYPASS_SHIMS=1 npm install -g --prefer-online "$SPEC" 2>&1 || pm_rc=$?
+        # To STDERR, for the agent launchers' reason: stdout is pnpm's.
+        YOLO_BYPASS_SHIMS=1 npm install -g --prefer-online "$SPEC" >&2 || pm_rc=$?
         if [ "$pm_rc" = 0 ]; then
             # No "resolved": reading the installed version means indexing node_modules by
             # package NAME, and this body deliberately carries only the spec (see above).

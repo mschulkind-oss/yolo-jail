@@ -477,7 +477,7 @@ func TestTheServerSetIgnoresTheMCPServerTable(t *testing.T) {
 			`"local":{"command":"/workspace/mine.py"}}`,
 		"YOLO_MCP_PRESETS": `["chrome-devtools"]`,
 	})
-	got := ServerRefreshSpecs(e)
+	got := ServerRefreshSpecs(e, nil)
 	if strings.Contains(got.npm, "tavily") || strings.Contains(got.npm, "mine.py") {
 		t.Errorf("the refresh set reached into mcp_servers (%q). Those entries are the "+
 			"UNMANAGED tier — an `npx -y pkg@latest` argv is current every spawn", got.npm)
@@ -505,7 +505,7 @@ func TestTheServerSetIgnoresTheRetiredLSPInputs(t *testing.T) {
 		"YOLO_LSP_NPM_INSTALL": "pyright",
 		"YOLO_LSP_GO_INSTALL":  "golang.org/x/tools/gopls@latest",
 	})
-	if got := ServerRefreshSpecs(e); !got.empty() {
+	if got := ServerRefreshSpecs(e, nil); !got.empty() {
 		t.Errorf("the refresh set carries %q with no MCP preset enabled; a retired LSP "+
 			"input reached it", got.npm)
 	}

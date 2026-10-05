@@ -79,6 +79,9 @@ var shippedDelivery = map[string]struct {
 	// same channel `pi update --self` would reach and the one measured to work here. Running
 	// the verb on top would be an unmeasured second path to one answer.
 	"pi": {"pi", "npm", "@earendil-works/pi-coding-agent", ""},
+	// NO AGENT: an MCP server the chrome-devtools pack's `mcp` entry runs. npm is the only
+	// channel its vendor publishes, and the registry's latest is what it documents installing.
+	"chrome-devtools-mcp": {"chrome-devtools", "npm", "chrome-devtools-mcp", ""},
 }
 
 // stageShippedPacks materializes the embedded official packs where the boot path expects

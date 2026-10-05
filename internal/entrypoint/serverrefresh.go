@@ -9,6 +9,10 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
+	"github.com/mschulkind-oss/yolo-jail/internal/packdecl"
+	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 )
 
 // serverrefresh.go is the TRANSITIVE half of evergreen agent updates — the MCP servers a
@@ -30,10 +34,19 @@ import (
 //
 // Only the servers YOLO INSTALLS. An `mcp_servers` entry whose argv is `npx -y <pkg>@latest`
 // resolves on every spawn and is already current — §6.1's *unmanaged* tier, where refreshing
-// would be inventing management this design declines. What actually freezes is the
-// bootstrap-installed set: the npm packages the enabled MCP presets need
-// (`mcpPresetNpmPackages`). `serverRefreshSet` is the one place that set is derived, and it
-// derives it from the same declaration the bootstrap installs from.
+// would be inventing management this design declines. What actually freezes is the set yolo
+// installs: the npm packages the enabled MCP presets need (`mcpPresetNpmPackages`, which the
+// bootstrap installs), and the npm `program` each selected pack's `mcp` server runs
+// (`packMCPServerPrograms`, which nothing installs at boot: absent until an agent's launcher
+// installs it here, before that agent execs and spawns the server). `serverRefreshSet` is the
+// one place that set is derived, from the declarations those installs read.
+//
+// A PACK SERVER'S PROGRAM HAS A LAUNCHER OF ITS OWN, and the server reaches the program
+// through it (the launcher bakes the jail posture's launch flags). That launcher is generated
+// with no update trigger and no server set of its own (GenerateAgentLaunchers): it runs at
+// connect time, inside the agent's spawn, which is exactly where this file's one constraint
+// says nothing may move. Its cold-install arm stays, for a server started with no agent's
+// launcher in front of it.
 //
 // LANGUAGE SERVERS ARE NOT IN IT ANY MORE. They were — the LSP recipe table's npm and go
 // arms, tracked by the `~/.yolo-installed-lsps` sentinel — until the table and every install
@@ -45,11 +58,12 @@ import (
 //
 // §3.5 says the refresh happens for *"an agent whose config names that server"*, and notes
 // that the set is a rendered per-agent fact rather than something to infer. In this tree it
-// is the same set for every agent: `YOLO_MCP_PRESETS` is a jail-global key,
-// and `Env.LoadMCPServers` builds one table that every agent's surface renders from. So every
-// launcher is handed the same list, and the narrowing costs nothing because there is nothing
-// to narrow. If MCP presets ever become per-pack, `serverRefreshSet` grows a pack argument
-// and nothing else here changes.
+// is the same set for every agent: `YOLO_MCP_PRESETS` is a jail-global key, a pack's `mcp`
+// entry is composed into the one `YOLO_MCP_SERVERS` table the host hands the jail, and
+// `Env.LoadMCPServers` builds one table from both that every agent's surface renders from. So
+// every launcher is handed the same list, and the narrowing costs nothing because there is
+// nothing to narrow. If that table ever becomes per-agent, `serverRefreshSet` grows an agent
+// argument and nothing else here changes.
 //
 // # ABSENT and STALE are different acts
 //
@@ -98,9 +112,9 @@ const ServerRefreshInterval = 3600
 // a fifth of what it says.
 const ServerRefreshTimeout = 60
 
-// serverKind names the resolver the bootstrap installs servers with. npm is the only one
-// left: the go kind served the deleted LSP recipe's go arm alone. It is not a `via`: no pack
-// contributes a server, and nothing here reads packdecl.
+// serverKind names the resolver servers are installed with. npm is the only one left: the go
+// kind served the deleted LSP recipe's go arm alone. It is not a `via`: a pack server's program
+// joins the set only when its `via` is npm (packMCPServerPrograms), and is then one more npm spec.
 type serverKind string
 
 const serverNpm serverKind = "npm"
@@ -152,14 +166,19 @@ func (p serverPkg) installArgv() []string {
 	return []string{"npm", "install", "-g", "--prefer-online", p.spec}
 }
 
-// serverRefreshSet derives the yolo-INSTALLED server set for this jail: the MCP presets'
-// npm packages, deduplicated in order.
-func serverRefreshSet(e *Env) []serverPkg {
+// serverRefreshSet derives the yolo-INSTALLED server set for this jail: the MCP presets' npm
+// packages, then the npm program each of packs' held `mcp` servers runs, deduplicated by
+// declaration in that order (a preset and the pack replacing it name one package).
+func serverRefreshSet(e *Env, packs []*packload.Pack) []serverPkg {
 	nodeModules := filepath.Join(e.NpmPrefix, "lib", "node_modules")
 
+	specs := strings.Fields(mcpPresetNpmPackages(e))
+	for _, inst := range packMCPServerPrograms(e, packs) {
+		specs = append(specs, inst.Package)
+	}
 	var out []serverPkg
 	seen := map[string]bool{}
-	for _, spec := range strings.Fields(mcpPresetNpmPackages(e)) {
+	for _, spec := range specs {
 		if seen[spec] {
 			continue
 		}
@@ -173,6 +192,72 @@ func serverRefreshSet(e *Env) []serverPkg {
 		})
 	}
 	return out
+}
+
+// packMCPServerPrograms is the npm `program` of packs that each held `mcp` server's `bin` names
+// (packload.HeldMCPServers), for a server this jail's composed YOLO_MCP_SERVERS still carries:
+// the host composes every selected pack's entry into that table and leaves a user's `null` in it
+// as a removal, so a name absent or null there is a server no agent here starts, and an older
+// host that composed no table renders none. One per bin, in declaration order; the program is
+// the first declaration of that bin, the one GenerateAgentLaunchers writes a launcher for.
+//
+// Only an npm program with no declared install flags: the refresh hands `npm install -g` the
+// declared package alone (serverPkg.installArgv), and the baked list has no room for flags, so a
+// program that declares some is left to its own launcher, which carries them, and keeps that
+// launcher's trigger. An installer program is left the same way: the refresh has no arm for it.
+func packMCPServerPrograms(e *Env, packs []*packload.Pack) []packdecl.Install {
+	held := composedMCPServerNames(e)
+	if len(held) == 0 {
+		return nil
+	}
+	programs := map[string]packdecl.Install{}
+	for _, p := range packs {
+		installs, _ := p.HonoredInstalls()
+		for _, inst := range installs {
+			if _, dup := programs[inst.Bin]; !dup {
+				programs[inst.Bin] = inst
+			}
+		}
+	}
+	var out []packdecl.Install
+	seen := map[string]bool{}
+	for _, s := range packload.HeldMCPServers(packs) {
+		bin := s.Server.Bin
+		if bin == "" || seen[bin] || !held[s.Server.Name] {
+			continue
+		}
+		inst, ok := programs[bin]
+		if !ok || inst.Kind != "npm" || len(inst.Flags) > 0 {
+			continue
+		}
+		seen[bin] = true
+		out = append(out, inst)
+	}
+	return out
+}
+
+// composedMCPServerNames is each server YOLO_MCP_SERVERS carries as an entry: not a null, which
+// is a removal, and not a malformed value, which the render drops (mcpServersWith).
+func composedMCPServerNames(e *Env) map[string]bool {
+	raw := e.Getenv("YOLO_MCP_SERVERS")
+	if raw == "" {
+		return nil
+	}
+	decoded, err := jsonx.Decode([]byte(raw))
+	if err != nil {
+		return nil
+	}
+	table, ok := decoded.(*jsonx.OrderedMap)
+	if !ok {
+		return nil
+	}
+	names := map[string]bool{}
+	for _, name := range table.Keys() {
+		if v, _ := table.Get(name); v != nil {
+			_, names[name] = v.(*jsonx.OrderedMap)
+		}
+	}
+	return names
 }
 
 // launcherServers is the baked MCP server set, as a generated launcher carries it.
@@ -204,9 +289,9 @@ func (s launcherServers) empty() bool { return s.npm == "" }
 // that may be empty needs no gate. Splitting on whitespace loses nothing: the bootstrap
 // already word-splits the list unquoted (`for pkg in $YOLO_MCP_NPM`), so a package name
 // containing a space has never been installable by yolo in the first place.
-func ServerRefreshSpecs(e *Env) launcherServers {
+func ServerRefreshSpecs(e *Env, packs []*packload.Pack) launcherServers {
 	var npmList []string
-	for _, p := range serverRefreshSet(e) {
+	for _, p := range serverRefreshSet(e, packs) {
 		npmList = append(npmList, p.spec)
 	}
 	return launcherServers{npm: strings.Join(npmList, " ")}

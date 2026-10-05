@@ -414,6 +414,14 @@ func HostFields() FieldSet {
 		// packload.ComposeProviders composes, which `yolo host apply` and `yolo host --`
 		// compose too.
 		packdecl.KindModels: true,
+		// mcp is honored and built for provider's reason, one table over: `yolo host apply`
+		// composes each selected pack's entry under your own `mcp_servers`, joined to your home,
+		// and every surface's derive renders the composed table (cli's composeHostInputs). It
+		// revises HC-D6 and HC-D16 (docs/design/host-computed-layer.md), whose reason — the
+		// wrapper and the npm prefix only a jail has — the host floor answered: a pack's program
+		// is installed in it, and a pack's wrapper is a `files` tree written into the home. A
+		// fetched pack's entry is left out and named there, its command being host code (HC-D26).
+		packdecl.KindMCP: true,
 		// adapter is provider's constant companion and gets provider's answer, for
 		// provider's reason: it declares an ADDRESS, and an address reaches an agent through
 		// the providers table a LAUNCH composes, never through a file this command writes.

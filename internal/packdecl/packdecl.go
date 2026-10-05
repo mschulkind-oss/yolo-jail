@@ -684,6 +684,7 @@ func DecodeTolerant(data []byte) (m *Manifest, problems, skipped []string) {
 			firstAutonomy = i
 		}
 		problems = append(problems, validateContributionAt(i, c)...)
+		problems = append(problems, mcpContributionProblems(fmt.Sprintf("contributes[%d]", i), c)...)
 		kept = append(kept, c)
 	}
 	if len(skipped) > 0 {
@@ -771,7 +772,8 @@ func (m *Manifest) Validate() []string {
 	problems := m.validateSkillsTier()
 	problems = append(problems, m.validateSupersedes()...)
 	problems = append(problems, m.validateNeeds()...)
-	return append(problems, m.validateContributions()...)
+	problems = append(problems, m.validateContributions()...)
+	return append(problems, m.validateMCP()...)
 }
 
 // validateSkillsTier rejects a misspelled `skills_tier`.
@@ -1171,4 +1173,179 @@ func (ls *LaunchSelection) TakesSubcommand(argv []string) bool {
 		}
 	}
 	return false
+}
+
+// MCPHomePrefix begins an `mcp` entry's `command` or `args` word that names a path under the home
+// of the notch the entry renders for: `~/.local/share/x/wrapper`. The composer replaces the `~`
+// with that home (packload.ComposeMCPServers), because an MCP client spawns its servers with a
+// scrubbed environment and so needs an absolute path, and the home differs per notch: /home/agent in
+// a container jail, the sandbox account's home on macos-user, your own at `yolo host`. It is the
+// whole path vocabulary the kind has (docs/design/mcp-presets-removal.md OQ-MP4).
+const MCPHomePrefix = "~/"
+
+// mcpEntryKeys is the field set of an `mcp` contribution's entry: the keys a user's own
+// `mcp_servers` entry takes (the config package's knownMCPServerKeys, which this package may not
+// import, and TestTheMCPKindCarriesEveryMCPServerKey there pins the two together), so a pack's
+// server is never second-class to a hand-written one, nor able to say what one cannot
+// (mcp-presets-removal.md §6.2, risk R2).
+var mcpEntryKeys = []string{"args", "command", "env", "provides", "requires_env"}
+
+// MCPEntryKeys returns mcpEntryKeys, sorted, for the test that pins it against the config's set.
+func MCPEntryKeys() []string { return append([]string(nil), mcpEntryKeys...) }
+
+// MCPContribution is one `mcp` contribution: the server's name, the program it runs (Bin, "" for
+// none named), and its entry as declared (Entry, a JSON object in mcp_servers' shape, `~/` words
+// not yet joined to any home).
+type MCPContribution struct {
+	Name  string
+	Bin   string
+	Entry json.RawMessage
+}
+
+// MCPContributions returns every `mcp` contribution, in declaration order.
+func (m *Manifest) MCPContributions() []MCPContribution {
+	var out []MCPContribution
+	for _, c := range m.Contributions() {
+		if c.Kind != KindMCP {
+			continue
+		}
+		out = append(out, MCPContribution{Name: c.Name, Bin: c.Bin,
+			Entry: append(json.RawMessage(nil), c.Raw...)})
+	}
+	return out
+}
+
+// mcpContributionProblems checks one `mcp` contribution: a server name, a `bin` that is a bare
+// program name, and an entry an MCP client could start — an object whose keys are mcp_servers'
+// own, a non-empty `command`, string `args`, string `env` values under variable names, variable
+// names in `requires_env`, a non-empty `provides`, and every `~/` word a clean path under the
+// home. Run on both decode paths: an entry malformed in a way every build understands is a
+// problem at either end of the version boundary. nil on any other kind.
+func mcpContributionProblems(label string, c Contribution) []string {
+	if c.Kind != KindMCP {
+		return nil
+	}
+	var problems []string
+	add := func(format string, args ...any) {
+		problems = append(problems, fmt.Sprintf("%s: "+format, append([]any{label}, args...)...))
+	}
+	switch {
+	case c.Name == "":
+		add("kind \"mcp\" needs \"name\", the server's name — the key it lands under in mcp_servers")
+	case strings.TrimSpace(c.Name) != c.Name || strings.IndexFunc(c.Name, func(r rune) bool {
+		return r <= ' ' || r == 0x7f
+	}) >= 0:
+		add("kind \"mcp\" name %q must hold no whitespace or control characters — it is a key "+
+			"every agent's config file spells", c.Name)
+	}
+	if c.Bin != "" && !ValidBinName(c.Bin) {
+		add("\"bin\" must be a bare program name — no \"/\", \"..\", \":\" or absolute path (%s)", c.Bin)
+	}
+	if len(c.Raw) == 0 {
+		add("kind \"mcp\" needs \"config\", the server's entry in mcp_servers' shape: " +
+			"{\"command\": \"<program>\", \"args\": [...]}")
+		return problems
+	}
+	var entry map[string]json.RawMessage
+	if err := json.Unmarshal(c.Raw, &entry); err != nil || entry == nil {
+		add("kind \"mcp\" \"config\" must be an object — the server's entry in mcp_servers' shape")
+		return problems
+	}
+	for _, k := range sortedKeys(entry) {
+		known := false
+		for _, want := range mcpEntryKeys {
+			known = known || k == want
+		}
+		if !known {
+			add("\"config\" has %q, which no mcp_servers entry takes (expected one of %s)",
+				k, strings.Join(mcpEntryKeys, ", "))
+		}
+	}
+	homeWord := func(field, w string) {
+		if w == "~" {
+			add("%s %q names the home itself: write %q followed by the path under it", field, w, MCPHomePrefix)
+			return
+		}
+		rest, ok := strings.CutPrefix(w, MCPHomePrefix)
+		if !ok {
+			return
+		}
+		if rest == "" {
+			add("%s %q names the home itself: write the path under it after %q", field, w, MCPHomePrefix)
+			return
+		}
+		problems = appendPathProblems(problems, label+": "+field, rest)
+	}
+	var command string
+	if raw, ok := entry["command"]; !ok {
+		add("\"config\" needs \"command\", the program the agent's MCP client starts")
+	} else if err := json.Unmarshal(raw, &command); err != nil || strings.TrimSpace(command) == "" {
+		add("\"config\".\"command\" must be a non-empty string")
+	} else {
+		homeWord("\"config\".\"command\"", command)
+	}
+	if raw, ok := entry["args"]; ok {
+		var args []string
+		if err := json.Unmarshal(raw, &args); err != nil {
+			add("\"config\".\"args\" must be a list of strings")
+		}
+		for i, a := range args {
+			homeWord(fmt.Sprintf("\"config\".\"args\"[%d]", i), a)
+		}
+	}
+	if raw, ok := entry["env"]; ok {
+		var env map[string]string
+		if err := json.Unmarshal(raw, &env); err != nil {
+			add("\"config\".\"env\" must be an object of string values — literal, as every env value is")
+		}
+		for _, k := range sortedKeys(env) {
+			if !ValidEnvName(k) {
+				add("\"config\".\"env\" key %q is not a variable name (must match [A-Za-z_][A-Za-z0-9_]*)", k)
+			}
+		}
+	}
+	if raw, ok := entry["requires_env"]; ok {
+		var names []string
+		if err := json.Unmarshal(raw, &names); err != nil {
+			add("\"config\".\"requires_env\" must be a list of variable names")
+		}
+		for i, n := range names {
+			if !ValidEnvName(n) {
+				add("\"config\".\"requires_env\"[%d] %q is not a variable name (must match "+
+					"[A-Za-z_][A-Za-z0-9_]*)", i, n)
+			}
+		}
+	}
+	if raw, ok := entry["provides"]; ok {
+		var provides string
+		if err := json.Unmarshal(raw, &provides); err != nil || strings.TrimSpace(provides) == "" {
+			add("\"config\".\"provides\" must be a non-empty string, the capability the server provides")
+		}
+	}
+	return problems
+}
+
+// validateMCP is the strict path's `mcp` check: each contribution's own problems, then a server
+// name one pack declares twice, which would land two entries on one key with the second silently
+// replacing the first. DecodeTolerant runs the per-contribution half itself, in its loop.
+func (m *Manifest) validateMCP() []string {
+	var problems []string
+	seen := map[string]int{}
+	for i, c := range m.Contributes {
+		if c.Kind != KindMCP {
+			continue
+		}
+		problems = append(problems, mcpContributionProblems(fmt.Sprintf("contributes[%d]", i), c)...)
+		if c.Name == "" {
+			continue
+		}
+		if first, dup := seen[c.Name]; dup {
+			problems = append(problems, fmt.Sprintf("contributes[%d]: MCP server %q is already "+
+				"declared at contributes[%d] — a server name is the key its entry lands under, so "+
+				"the second declaration would silently replace the first", i, c.Name, first))
+			continue
+		}
+		seen[c.Name] = i
+	}
+	return problems
 }

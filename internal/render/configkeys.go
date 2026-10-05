@@ -107,7 +107,8 @@ var hostConfigKeys = map[string]keyCensusEntry{
 		"the jail daemons themselves have no client off-container, and an inline loophole is named " +
 		"by entry as not applying"},
 	"mcp_servers": {KeyHonored, "composed into every agent's MCP files by `yolo host apply` " +
-		"(composeHostInputs), less an entry naming a path only a jail has, which it names"},
+		"(composeHostInputs), over the selected packs' `mcp` entries, less an entry naming a path " +
+		"only a jail has, which it names"},
 	"lsp_servers": {KeyHonored, "composed into every agent's LSP files by `yolo host apply` " +
 		"(composeHostInputs), Claude's as the yolo-lsp plugin in every skills destination " +
 		"(applyHostLSPPlugin), less an entry naming a path only a jail has, which it names"},
@@ -177,7 +178,8 @@ var hostConfigKeys = map[string]keyCensusEntry{
 	"mise_tools": {KeyNotApplicable, "a jail composes mise's config from it, and nothing at the " +
 		"host manages your own mise"},
 	"mcp_presets": {KeyNotApplicable, "a preset's command is a wrapper only a jail's boot writes " +
-		"(HC-D6), so `yolo host apply` writes none and names each one it leaves out"},
+		"(HC-D27), so `yolo host apply` writes none and names each one it leaves out; the " +
+		"chrome-devtools pack carries that server to the host, in a jail and on macos-user"},
 	// `brokered` is read only by a jail launch, which writes its workspace's entry into the
 	// GitHub broker's scope file (run's writeScopeFiles, through config.BrokeredWidening), and
 	// by `yolo check`'s report of that launch; no host-notch verb starts the broker.
