@@ -200,3 +200,42 @@ func TestMacosUserEmptyUserScopeRemovesOnlyTheGeneratedFile(t *testing.T) {
 		t.Errorf("a launch removed or changed the agent's own %s (err %v): %q", stale, err, b)
 	}
 }
+
+// THE RENDER'S WARNINGS reach this arm too (inheritedScope): a key the inherit census does not
+// classify is dropped from the sandbox's user scope and named on the launch's output, as the
+// container path names it. Called on the arm's helper rather than through Run, because validation
+// refuses an unknown top-level key before any launch gets this far; the arm's call of the helper is
+// TestMacosUserOverlayCarriesTheInheritedUserScope's. Fails if macosUserInheritedScope renders the
+// files without going through inheritedScope, which is where both warnings live.
+func TestMacosUserArmWarnsAboutUnclassifiedInheritKeys(t *testing.T) {
+	home := packHome(t)
+	dir := filepath.Join(home, ".config", "yolo-jail")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	const key = "zz_unclassified_key"
+	if err := os.WriteFile(filepath.Join(dir, "config.jsonc"),
+		[]byte(`{"packs": ["claude"], "`+key+`": 1}`+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	ws := floortest.ResolvedTemp(t)
+
+	var stdout, stderr bytes.Buffer
+	o := dispatchOptions(t, ws, "macos-user", &stdout, &stderr, nil)
+	core := o.macosUserInheritedScope("macos-user")
+
+	if !strings.Contains(stdout.String(), "no inherit classification") || !strings.Contains(stdout.String(), key) {
+		t.Errorf("the macos-user arm dropped %s from the sandbox's user scope without saying so:\n"+
+			"stdout:\n%s\nstderr:\n%s", key, stdout.String(), stderr.String())
+	}
+	// The rest of the user scope is still delivered, without the dropped key.
+	var body string
+	for _, f := range core {
+		if f.Rel == inheritPreflightRel {
+			body = string(f.Body)
+		}
+	}
+	if !strings.Contains(body, `"claude"`) || strings.Contains(body, key) {
+		t.Errorf("the delivered user scope should keep the packs and drop %s:\n%s", key, body)
+	}
+}

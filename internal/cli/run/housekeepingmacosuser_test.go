@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	goruntime "runtime"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -50,9 +51,15 @@ func fakeMacosUserRun(fn func(macosUserCall) int) func(*jsonx.OrderedMap, string
 // store under the current HOME, oldest first, and returns their names.
 func seedRetiredLoopholeGenerations(t *testing.T, n int) []string {
 	t.Helper()
+	return seedRetiredLoopholeGenerationsFrom(t, time.Date(2026, 9, 1, 12, 0, 0, 0, time.UTC), n)
+}
+
+// seedRetiredLoopholeGenerationsFrom is seedRetiredLoopholeGenerations with the first
+// generation's stamp given, an hour apart from there, for a test that seeds twice.
+func seedRetiredLoopholeGenerationsFrom(t *testing.T, base time.Time, n int) []string {
+	t.Helper()
 	archive := filepath.Join(paths.GlobalStorage(), "state", prune.RetiredLoopholeStateDir)
 	var names []string
-	base := time.Date(2026, 9, 1, 12, 0, 0, 0, time.UTC)
 	for i := 0; i < n; i++ {
 		name := base.Add(time.Duration(i) * time.Hour).Format("20060102-150405")
 		if err := os.MkdirAll(filepath.Join(archive, name, "some-loophole"), 0o755); err != nil {
@@ -151,6 +158,81 @@ func TestMacosUserLaunchRunsItsHousekeepingSlot(t *testing.T) {
 	// on a container launch of the same Mac by a day.
 	if got, want := strings.Join(reapStamps(t), ","), "last-cache-reap,last-loophole-state-reap"; got != want {
 		t.Errorf("the macos-user slot left the stamps %q, want %q", got, want)
+	}
+}
+
+// THE CLASS'S OWN DEBOUNCE (BF-D3 (1)): a second macos-user launch inside the interval leaves the
+// retired generations seeded since the first alone. Fails if reapRetiredLoopholeState stops
+// consulting its stamp, which would walk and reap the archive on every launch.
+func TestMacosUserRetiredLoopholeStateReapIsDebounced(t *testing.T) {
+	home := packHome(t)
+	writeUserPacks(t, home, `[]`)
+	ws := t.TempDir()
+	first := seedRetiredLoopholeGenerations(t, 5)
+
+	launch := func() {
+		t.Helper()
+		var stdout, stderr bytes.Buffer
+		// The same clock on both launches (dispatchOptions' fixed o.Now), so the second falls
+		// inside the interval the first launch's stamp opened.
+		o := dispatchOptions(t, ws, "macos-user", &stdout, &stderr, nil)
+		o.MacosUserRun = fakeMacosUserRun(func(macosUserCall) int { return 0 })
+		if rc := Run(*o); rc != 0 {
+			t.Fatalf("Run() = %d\nstderr:\n%s", rc, stderr.String())
+		}
+		housekeepingSlots.Wait()
+	}
+	launch()
+	if got := remainingRetiredGenerations(t); strings.Join(got, ",") != strings.Join(first[2:], ",") {
+		t.Fatalf("the first launch left %v, want the newest %d %v", got, hostArchiveKeepInSlot, first[2:])
+	}
+	if !slices.Contains(reapStamps(t), "last-loophole-state-reap") {
+		t.Fatalf("the first launch wrote no last-loophole-state-reap stamp: %v", reapStamps(t))
+	}
+
+	second := seedRetiredLoopholeGenerationsFrom(t, time.Date(2026, 9, 2, 12, 0, 0, 0, time.UTC), 5)
+	launch()
+	got := remainingRetiredGenerations(t)
+	for _, name := range second {
+		if !slices.Contains(got, name) {
+			t.Errorf("a second launch inside the debounce interval reaped %s (left %v): the class "+
+				"ran again on a stamp that says it is not due", name, got)
+		}
+	}
+}
+
+// THE OPT-OUT: YOLO_NO_AUTO_IMAGE_REAP turns the automatic classes off on this arm too (storage.md
+// says so for every launch), so the archive is left whole and the class leaves no stamp that would
+// delay the first pass after the opt-out is lifted. Fails if reapRetiredLoopholeState stops
+// honoring it.
+func TestMacosUserRetiredLoopholeStateReapHonorsTheOptOut(t *testing.T) {
+	home := packHome(t)
+	writeUserPacks(t, home, `[]`)
+	ws := t.TempDir()
+	seeded := seedRetiredLoopholeGenerations(t, 5)
+
+	var stdout, stderr bytes.Buffer
+	o := dispatchOptions(t, ws, "macos-user", &stdout, &stderr, nil)
+	getenv := o.Getenv
+	o.Getenv = func(k string) string {
+		if k == autoReapOptOutEnv {
+			return "1"
+		}
+		return getenv(k)
+	}
+	o.MacosUserRun = fakeMacosUserRun(func(macosUserCall) int { return 0 })
+	if rc := Run(*o); rc != 0 {
+		t.Fatalf("Run() = %d\nstderr:\n%s", rc, stderr.String())
+	}
+	housekeepingSlots.Wait()
+
+	if got := remainingRetiredGenerations(t); strings.Join(got, ",") != strings.Join(seeded, ",") {
+		t.Errorf("with %s=1 a macos-user launch left %v of %v: the opt-out did not stop the reap",
+			autoReapOptOutEnv, got, seeded)
+	}
+	if slices.Contains(reapStamps(t), "last-loophole-state-reap") {
+		t.Errorf("with %s=1 a macos-user launch stamped the loophole-state class: %v",
+			autoReapOptOutEnv, reapStamps(t))
 	}
 }
 
