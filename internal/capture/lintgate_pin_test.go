@@ -3,10 +3,10 @@ package capture
 // lintgate_pin_test.go is the CROSS-LANGUAGE call-site pin for this repo's cross-GOOS
 // lint gate.
 //
-// internal/capture is one of the two packages that made the gate necessary. clone_other.go
-// is a `//go:build !linux` refusal, and under GOOS=darwin it is the cloneFile that
-// materialize's reflink arm calls — so everything the analyzers say about that arm on a
-// Mac is said about a DIFFERENT function than the one they read on Linux. Nothing in Go's
+// internal/capture is one of the two packages that made the gate necessary. Its reflink arm
+// is split by GOOS — clone_linux.go's FICLONE and clone_darwin.go's clonefile(2), which
+// replaced a `//go:build !linux` refusal — so everything the analyzers say about that arm on
+// a Mac is said about a DIFFERENT function than the one they read on Linux. Nothing in Go's
 // toolchain looks past a build constraint it did not select, so for as long as the gate
 // ran one GOOS, every non-linux half in the tree was unanalyzed and the findings waited for
 // whoever built from source on macOS first (GitHub issue #42).

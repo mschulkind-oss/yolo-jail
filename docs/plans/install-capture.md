@@ -62,7 +62,7 @@ wrong one to sequence on.
 | :--- | :--- |
 | `internal/treedigest/` | **new** — `treeDigest`/`treeDigestSkipping` lifted out of `internal/hostskills/compose.go:958,964` verbatim |
 | `internal/hostskills/compose.go` | call the new package; delete the local copies |
-| `internal/capture/` | **new** — `store.go` (layout, admit, resolve, completion marker), `manifest.go` (delta manifest + capture receipt), `materialize.go` (~~hardlink, EXDEV → copy~~ ⚠ *reflink → hardlink → copy, per slice 4(a)*), `clone_linux.go`/`clone_other.go` (**new**, slice 4 — the `FICLONE` primitive and the statfs filesystem name a copy fallback owes its reader), `inner.go` (the backend-neutral driver), `gc.go` (~~`PruneUnreferencedCaptures(root, keep, olderThan, apply, now)`~~ ⚠ *shipped as `PruneSupersededCaptures(root, read, apply)` — no `keep`, no age floor, `K = 1`*), `select.go` (**new**, slice 5 — the selection rule `gc.go` is the complement of, moved out of `resolveCaptureFor` so there is one of it: see 5(a)/(b)) |
+| `internal/capture/` | **new** — `store.go` (layout, admit, resolve, completion marker), `manifest.go` (delta manifest + capture receipt), `materialize.go` (~~hardlink, EXDEV → copy~~ ⚠ *reflink → hardlink → copy, per slice 4(a)*), `clone_linux.go`/`clone_darwin.go` (**new**, slice 4 — the `FICLONE` primitive and the statfs filesystem name a copy fallback owes its reader; ⚠ *the darwin half, APFS's `clonefile(2)`, replaced the `clone_other.go` refusal 2026-10-05*), `inner.go` (the backend-neutral driver), `gc.go` (~~`PruneUnreferencedCaptures(root, keep, olderThan, apply, now)`~~ ⚠ *shipped as `PruneSupersededCaptures(root, read, apply)` — no `keep`, no age floor, `K = 1`*), `select.go` (**new**, slice 5 — the selection rule `gc.go` is the complement of, moved out of `resolveCaptureFor` so there is one of it: see 5(a)/(b)) |
 | `internal/paths/paths.go` | **new** `CapturesDir()` + `CapturesDirUnder(home)`, beside `PacksDir` (`:423`); **new** `HomeSurfaces()` — the capture/dedupe surface pair list, per slice 2's correction (a); **new** `GlobalStorageRel()` and `WorkspaceStateDir`/`WorkspaceHomeState`, per slice 3's corrections (a) and (b) |
 | `internal/prune/prune.go` | derive `dedupeSubtrees` from `paths.HomeSurfaces()` rather than re-typing it |
 | `internal/storage/ensure.go` | add `CapturesDir()` to the boot `MkdirAll` list (`:44`) |
@@ -366,6 +366,22 @@ wrong one to sequence on.
    take, not a theoretical arm, which is why it is LOUD and names both filesystems (`fsName`, by
    statfs magic). An arm that answers "not here" is retired for the whole run rather than retried
    per file: on ext4 that is one failed ioctl instead of one per file across thousands.
+   ⚠ *Added 2026-10-05: on macOS the reflink arm is APFS's `clonefile(2)` (`clone_darwin.go`),
+   tried first like `FICLONE`, and the clone is its own inode with the manifest's mode. It clones
+   within one APFS volume only: another volume is `EXDEV`, a filesystem without clones `ENOTSUP`,
+   and both retire the arm; `fsName` names the filesystem there too (statfs's `apfs`, `hfs`).
+   Implementation decisions, taken under the maintainer's 2026-10-04 delegation ("make them and
+   build it … adjust later"); reversible: `EPERM` also retires the arm, because Seatbelt answers a
+   denied operation that way and the hardlink or copy arm may still be allowed; the clone is made with
+   `CLONE_NOOWNERCOPY`, so even root gets a file of its own rather than the store owner's; and
+   `clone_other.go`, the refusal for every other GOOS, is deleted rather than kept for the GOOS
+   values beyond Linux and macOS, since the tree builds for none of them (MEASURED 2026-10-05
+   before the deletion: `go build ./...` fails for all eight tried, freebsd and windows among
+   them) and the lint gate analyzes neither. On darwin the arm is reached today only by
+   `CopyTree`, a patched extension's per-launch copy on a Mac running a container backend;
+   `Materialize` reaches it there once
+   [H4](#hand-offs--what-is-not-wired-and-the-exact-line-that-wires-it) or the macOS host floor
+   lands.*
 
    **(d) REFLINK DOWNGRADES THE PLAN'S SHARPEST TRAP.** The Traps section warns that a hardlinked
    CAS file *is* the running program's bytes, so an installer opening one for write corrupts every
@@ -748,9 +764,11 @@ wrong one to sequence on.
 
    NOT MEASURED: **no Mac has run any of it.** The two Linux temp dirs stand in for
    `/Users/Shared/yolo-captures/<bin>/home` and `/Users/_yolojail`. Also unmeasured on darwin:
-   whether `link(2)` from a store owned by the invoking user into the sandbox user's sidecar
-   succeeds, since darwin has no reflink wired (`clone_other.go`) and so takes the hardlink or
-   copy arm.
+   what a materialize from a store owned by the invoking user into the sandbox user's sidecar,
+   under Seatbelt, gets from `clonefile(2)`, which is tried first there since 2026-10-05
+   (`clone_darwin.go`), and then from `link(2)`. Either can succeed, answer `EPERM` (the chain
+   falls to the next arm) or answer `EXDEV` (a store on another volume). The clone's unit tests
+   run on check-macos's Mac, same-user and unsandboxed.
 
    **H4. No `macos-user` launch can reach the store. — OPEN, needs a ruling.** Found while landing
    H2. The generated launcher materializes only when a store path was baked into it
@@ -870,7 +888,7 @@ wrong one to sequence on.
       `capture-materialize` prints its relocation line naming
       `/Users/Shared/yolo-captures/claude/home`, that `~/.local/bin/claude` links under
       `/Users/_yolojail`, that `claude --version` runs, and which arm placed the files (the line
-      names it; `hardlink` or `copy` on darwin, since no reflink is wired there).
+      names it: `reflink` where `clonefile(2)` succeeds, else `hardlink` or `copy`).
 
 7. **Auto-capture on first launch, DEFAULT ON. — LANDED 2026-09-04.** Ruled 2026-09-04 as
    [OQ-PD18](../design/program-delivery.md#decision-ledger) — *"I want (d) default on."* Until this

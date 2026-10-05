@@ -4,13 +4,16 @@ package capture
 
 import (
 	"fmt"
+	"io/fs"
 	"os"
 
 	"golang.org/x/sys/unix"
 )
 
 // clone_linux.go is the REFLINK primitive materialize is built on, plus the filesystem
-// name a fallback has to report.
+// name a fallback has to report. clone_darwin.go is the macOS half, APFS's clonefile(2), and it
+// rests on the own-inode half of the argument below only: on a Mac no bind mount separates the
+// store from a home, so the mount gives link(2) no reason to fail there as it does in a jail.
 //
 // # Why reflink and not link(2)
 //
@@ -48,6 +51,39 @@ import (
 // It is a distinct error from a real I/O failure: the first retires the mechanism for the
 // rest of the run, the second fails the materialize.
 var errCloneUnsupported = fmt.Errorf("reflink is not supported here")
+
+// reflinkFile is the chain's reflink arm on Linux (reflinkOne): dst, which must not exist, is
+// made a FICLONE of src and given perm.
+//
+// FICLONE works on two open descriptors, so this half opens both and creates the destination
+// itself. The macOS half's clonefile(2) creates its own destination, which is why the split is
+// the whole per-file act rather than the ioctl alone.
+func reflinkFile(src, dst string, perm fs.FileMode) error {
+	sf, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer sf.Close()
+	// O_EXCL: replaceable() already unlinked anything here, so a destination that
+	// exists now is a race or a bug, and clobbering it would be the wrong answer.
+	df, err := os.OpenFile(dst, os.O_WRONLY|os.O_CREATE|os.O_EXCL, perm)
+	if err != nil {
+		return err
+	}
+	if cerr := cloneFile(df, sf); cerr != nil {
+		df.Close()
+		// The destination was created by THIS call and holds nothing anyone
+		// wants; leaving it behind would make the hardlink arm fail EEXIST.
+		_ = os.Remove(dst)
+		return cerr
+	}
+	if cerr := df.Close(); cerr != nil {
+		return cerr
+	}
+	// Its own inode, so the manifest's mode is safe to assert (O_CREATE's is
+	// masked by umask).
+	return os.Chmod(dst, perm)
+}
 
 // cloneFile makes dst a reflink (copy-on-write clone) of src.
 //
