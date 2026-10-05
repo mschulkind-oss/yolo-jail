@@ -932,9 +932,13 @@
     dotfiles repo is the pack.
 
     [bold]--revert[/bold] (`yolo host apply --revert`) takes yolo back out of your home: it
-    removes the keys yolo wrote, on the authority of the provenance record it
-    wrote beside them, and deletes that record -- so a later owned apply is a FIRST
-    apply again.  A key you set yourself is never touched.  It runs under "none",
+    removes the values yolo wrote, on the authority of the records it keeps beside
+    them, and deletes those records and its capture store for each file -- so a
+    later owned apply is a FIRST apply again.  A value you set yourself is never
+    touched: not one beside yolo's inside a setting yolo also writes (your own
+    variable in `env`), and not one yolo wrote that you have changed since (a
+    default, a model you picked).  The dry run names each value it keeps, and why.
+    It runs under "none",
     the default, which is how a home yolo wrote into under "assert" (or under
     "own", before you switched back) becomes purely yours again.  It is a dry run
     until --assert, and it REMOVES what yolo wrote rather than restoring what was

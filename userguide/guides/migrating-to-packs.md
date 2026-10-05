@@ -243,10 +243,11 @@ Two things to know:
   `env_sources`. Use `yolo host -- <agent>` to hand an agent its keys (Step 4).
 
 **Taking yolo back out.** Set `host_management` back to `"none"` (or delete it), then run
-`yolo host apply --revert`. It removes the keys yolo wrote, using the record it keeps of what it
-wrote, and never touches a key you set yourself. It is a dry run until you add `--assert`. It
-removes what yolo wrote; to see the file as it was before yolo first wrote it, look in
-`~/.local/share/yolo-jail/archive/config/`.
+`yolo host apply --revert`. It removes the values yolo wrote, using the record it keeps of what it
+wrote, and never touches a value you set yourself, including one you changed after yolo wrote it
+and one you added inside a setting yolo also writes; the dry run names each value it keeps and
+why. It is a dry run until you add `--assert`. It removes what yolo wrote; to see the file as it
+was before yolo first wrote it, look in `~/.local/share/yolo-jail/archive/config/`.
 
 **Choosing how much yolo owns.** `host_management` in your user config decides it:
 
