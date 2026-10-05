@@ -37,6 +37,14 @@ package run
 // the sandbox at the same place under that copy as it is under the host tree, and
 // placeModuleDirsInGuest resolves the token there (docs/design/jail-daemon-on-macos-user-plan.md
 // JD-10).
+//
+// ⚠ THAT COPY IS ONE PER WORKSPACE, NOT PER LAUNCH, unlike a container's pack tree (OQ-PK2):
+// StagedPackRoot is keyed by the jail name alone, and every launch of the workspace replaces it.
+// The bootstrap reads it once; a guest daemon runs from it for the whole session. So a second
+// session of the workspace swaps the folder under the first one's module-dir daemon, whose next
+// restart runs the second launch's copy, or finds nothing when that launch dropped the pack.
+// JD-10 records it and its follow-up, a per-launch copy reaped once no session holds it, which
+// needs internal/macosuser's pack staging.
 
 import (
 	"os"
