@@ -284,7 +284,9 @@ that names `{jail_loophole_dir}`, like the example above, runs there from yolo's
 loophole's folder, so the program it names must be one a Mac can run: a script, or a macOS
 build. A Linux executable is one the sandbox cannot run, and the launch then says the helper runs
 nowhere and that a container runtime runs it (`YOLO_RUNTIME=podman` or `YOLO_RUNTIME=container`
-for one launch).
+for one launch). That copy is shared by every session of the workspace, and each new launch
+replaces it, so a second terminal's launch of the same workspace swaps the folder under the first
+one's running helper: when that helper restarts, it runs the newer copy.
 
 ### A program your pack downloads
 
