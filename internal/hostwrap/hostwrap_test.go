@@ -174,6 +174,33 @@ func TestSpellingPrefersAPathEntryNamingTheSameFile(t *testing.T) {
 	}
 }
 
+// TestRunningSpellsTheRunningFileThroughAPathLink pins Running's call into Spelling, which
+// TestSpellingPrefersAPathEntryNamingTheSameFile cannot: that test hands Spelling an exe of its
+// own. Here the file is this process's own (os.Executable), and the PATH holds a `yolo` link to
+// it, the Homebrew shape; Running must bake the link, not the file it resolves to. It fails if
+// Running stops passing the executable and PATH through Spelling.
+func TestRunningSpellsTheRunningFileThroughAPathLink(t *testing.T) {
+	exe, err := os.Executable()
+	if err != nil {
+		t.Skipf("os.Executable cannot answer here: %v", err)
+	}
+	linkDir := filepath.Join(realTemp(t), "bin")
+	if err := os.MkdirAll(linkDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(linkDir, "yolo")
+	if err := os.Symlink(exe, link); err != nil {
+		t.Fatal(err)
+	}
+	if got := Running(linkDir); got != link {
+		t.Errorf("Running = %q, want the PATH link %q to the running file", got, link)
+	}
+	// With no PATH entry naming the running file, the file itself is the answer.
+	if got, want := Running(realTemp(t)), filepath.Clean(exe); got != want {
+		t.Errorf("Running over a PATH without it = %q, want the executable %q", got, want)
+	}
+}
+
 // TestPlanKeepsAnotherSpellingOfTheSameYolo: the launch gate's apply runs from whatever PATH
 // started the agent, so a wrapper naming the same yolo through another spelling must not be
 // Rewritten — or every launch from the other shell would rewrite the wrappers and say so.

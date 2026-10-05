@@ -48,6 +48,43 @@ func TestHostApplyWrappersNameTheApplyingYoloByPath(t *testing.T) {
 	}
 }
 
+// TestHostApplyWrappersSpellTheRunningYoloThroughPath pins hostWrapperYolo's DEFAULT, which every
+// other test here replaces: the yolo it names is the running one (this test binary) as this
+// process's PATH spells it. With a `yolo` link to the running file first on PATH, the Homebrew
+// shape, the wrapper must name the link, the stable spelling an upgrade keeps, rather than the
+// file it resolves to. It fails if the default stops handing hostwrap.Running this PATH.
+func TestHostApplyWrappersSpellTheRunningYoloThroughPath(t *testing.T) {
+	exe, err := os.Executable()
+	if err != nil {
+		t.Skipf("os.Executable cannot answer here: %v", err)
+	}
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Chdir(t.TempDir())
+	userCfg(t, home, `{"packs": ["claude"], "host_wrappers": true}`)
+	stubDeclaredBins(t)
+	linkRoot, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(linkRoot, "yolo")
+	if err := os.Symlink(exe, link); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", linkRoot+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	var out, errw bytes.Buffer
+	applyHost(&out, &errw, false, true, strings.NewReader(""))
+	body, err := os.ReadFile(filepath.Join(paths.WrapDirUnder(home), "claude"))
+	if err != nil {
+		t.Fatalf("no wrapper generated: %v\nstdout:\n%s\nstderr:\n%s", err, out.String(), errw.String())
+	}
+	if named, ok := hostwrap.NamedYolo(string(body), "claude"); !ok || named != link {
+		t.Errorf("the wrapper names %q (%v), want the PATH link %q to the running yolo:\n%s",
+			named, ok, link, body)
+	}
+}
+
 // TestHostApplyDryRunPlansAgainstTheApplyingYolo: an observing apply plans with the same yolo a
 // writing one writes, so a wrapper naming another file is reported as one it would rewrite, and
 // the dry run and the launch gate's survey see the change the next --assert makes.
