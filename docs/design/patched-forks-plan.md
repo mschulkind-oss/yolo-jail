@@ -233,6 +233,16 @@ the shared advance. What the tree changed against the [patched-extension map](#p
 | [`cli/hosttrees.go`](../../internal/cli/hosttrees.go), [`applyhostfiles.go`](../../internal/cli/applyhostfiles.go), [`host.go`](../../internal/cli/host.go), [`hostapply.go`](../../internal/cli/hostapply.go) | the host render, the advance before it, and the host stop |
 | [`cli/capturehost.go`](../../internal/cli/capturehost.go), [`forkpin.go`](../../internal/cli/forkpin.go), [`patchedfork.go`](../../internal/cli/patchedfork.go) | the explicit acts on an extension key |
 
+Run once by hand, 2026-10-04, in a nested jail from a throwaway workspace with a scratch `HOME`
+(`env -u YOLO_VERSION`, `YOLO_NO_AUTO_IMAGE_REAP=1`, `YOLO_REPO_ROOT` at the stage's worktree), with a
+local upstream of two files, a one-patch series and an agent pack owning a `packages` list: the first
+launch replayed the series, built the tree in a real sealed build jail (its admit passing on the real
+capture manifest, 6 paths), and the jail read the patched file at `~/<into>`, found it read-only,
+and was handed `YOLO_PATCHED_TREES` with the build and an empty gate; a second launch inside the
+hour ran no git and mounted the same build; and after the build line was edited to `false`, the
+failed build left nothing mounted, the earlier mountpoint retired, and the agent's launcher carrying
+the stop with the host's reason.
+
 Left: [PPX-D16](patched-extensions.md#PPX-D16)'s series lint, which needs the upstream's `.gitignore`
 at the base from the replay's scratch repository; step 6, migrating the five and a nested-jail run in
 which a real pi loads a built tree (a human's check, AGENTS.md's no-agent rule); and an integration
