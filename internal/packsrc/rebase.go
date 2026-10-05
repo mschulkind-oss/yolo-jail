@@ -274,8 +274,7 @@ func (s *Store) RebaseClone(o RebaseOptions) (res RebaseResult) {
 		return res
 	}
 	if !gitAtLeast(gitVer, replayMinGit) {
-		res.Err = fmt.Errorf("replaying a patch series needs git %d.%d or newer (`git merge-tree "+
-			"--merge-base`), and this host's git is %s — update git", replayMinGit[0], replayMinGit[1], gitVer)
+		res.Err = &GitTooOldError{Have: gitVer}
 		return res
 	}
 	state, _, err := InspectRebaseDir(o.Dir)

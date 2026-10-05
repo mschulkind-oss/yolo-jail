@@ -25,6 +25,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/packsrc"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/richtext"
+	"github.com/mschulkind-oss/yolo-jail/internal/shquote"
 	"github.com/mschulkind-oss/yolo-jail/internal/testsupport"
 )
 
@@ -153,6 +154,34 @@ func patchedRecord(t *testing.T) *packsrc.CheckRecord {
 		t.Fatalf("the check record: %v", err)
 	}
 	return r
+}
+
+// UPDATE UNDER A GIT TOO OLD FOR THE REPLAY names updating git as the step (PF-D58), not a retry of
+// itself that meets the same git, and fails.
+func TestPackUpdateUnderAnOldGitNamesUpdatingGit(t *testing.T) {
+	f := newPatchedFixture(t, "")
+	f.commit(t, "v1.1.0", map[int]string{14: "fourteen"})
+	realGit, err := exec.LookPath("git")
+	if err != nil {
+		t.Skip("git not on PATH")
+	}
+	bin := t.TempDir()
+	writeFile(t, filepath.Join(bin, "git"), "#!/bin/sh\nif [ \"$1\" = version ]; then echo \"git version 2.39.5\"; exit 0; fi\n"+
+		"exec "+shquote.Quote(realGit)+" \"$@\"\n")
+	if err := os.Chmod(filepath.Join(bin, "git"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	prev := patchedForkStore
+	patchedForkStore = func() *packsrc.Store { s := prev(); s.Git = filepath.Join(bin, "git"); return s }
+	t.Cleanup(func() { patchedForkStore = prev })
+	rc, out, errw := packVerb(t, "update")
+	if rc == 0 {
+		t.Errorf("update under git 2.39.5 succeeded\n%s\n%s", out, errw)
+	}
+	if !strings.Contains(out, "needs git 2.40 or newer (`git merge-tree --merge-base`), and this host's git is 2.39.5 — "+
+		"update git, then run `yolo pack update` again") || strings.Contains(out, "`yolo pack update` retries") {
+		t.Errorf("update does not name updating git as the step:\n%s", out)
+	}
 }
 
 // UPDATE CHECKS AND REPLAYS: the candidate is the newest version, the series takes it, the outcome

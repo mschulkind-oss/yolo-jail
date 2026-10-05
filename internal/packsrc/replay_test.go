@@ -7,6 +7,7 @@ package packsrc
 // take its own series, a blob the mirror cannot get, and the replay's own config regime.
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -269,6 +270,29 @@ func mustAddr(t *testing.T, s string) Addr {
 		t.Fatal(err)
 	}
 	return a
+}
+
+// A GIT TOO OLD FOR THE REPLAY is a GitTooOldError at the walk and at the rebase clone alike, before
+// either runs anything: it names the git it found and the one it needs, so a caller can name updating
+// git as the next step rather than a retry that meets the same git.
+func TestAGitTooOldForTheReplayIsAGitTooOldError(t *testing.T) {
+	u, v11, series := rebaseFixture(t)
+	u.store.Git = wrappedGit(t, `if [ "$1" = version ]; then echo "git version 2.39.5"; exit 0; fi`)
+	w := u.store.WalkSeries(mustAddr(t, u.source("main")).Repo, "", series, []ListEntry{{Commit: v11}}, WalkOptions{})
+	r := u.rebase(t, series, ListEntry{Commit: v11}, filepath.Join(t.TempDir(), "clone"))
+	for what, err := range map[string]error{"the walk": w.Err, "the rebase clone": r.Err} {
+		var old *GitTooOldError
+		if !errors.As(err, &old) || old.Have != "2.39.5" {
+			t.Errorf("%s under git 2.39.5 returned %v, want a GitTooOldError naming 2.39.5", what, err)
+			continue
+		}
+		if msg := err.Error(); !strings.Contains(msg, "needs git 2.40 or newer") || !strings.Contains(msg, "this host's git is 2.39.5") {
+			t.Errorf("%s's error says %q", what, msg)
+		}
+	}
+	if len(w.Results) != 0 || r.Kept {
+		t.Errorf("an old git replayed %d entries or kept a clone (%v)", len(w.Results), r.Kept)
+	}
 }
 
 func TestGitAtLeast(t *testing.T) {

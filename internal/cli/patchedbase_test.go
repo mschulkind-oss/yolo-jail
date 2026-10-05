@@ -334,3 +334,50 @@ func (fx *patchedAdvanceFixture) recipe(t *testing.T) string {
 	t.Helper()
 	return forkBuild{Fork: fx.fork(t), Series: mustSeries(t, fx)}.recipe()
 }
+
+// A GIT TOO OLD FOR THE REPLAY names updating git as the next step (PF-D58): the series' base is not
+// tried, since it would meet the same git, and neither the launch's line nor the jail's reason offers
+// a retry that cannot help. With a good build serving, the jail starts on it and the line says when the
+// series is replayed again once git is updated.
+func TestAnOldGitOnTheHostNamesUpdatingGitAsTheNextStep(t *testing.T) {
+	fx := newPatchedAdvanceFixture(t, "")
+	fx.commit(t, "v1.1.0", map[int]string{14: "fourteen"})
+	oldGit := `if [ "$1" = version ]; then echo "git version 2.39.5"; exit 0; fi`
+	prev := patchedAdvanceStore
+	patchedGitWrapper(t, oldGit)
+	r, out, _ := fx.launch(t, "podman")
+	if len(fx.builds) != 0 || r.delivery.Key != "" {
+		t.Fatalf("under git 2.39.5 the launch built %d and handed %+v\n%s", len(fx.builds), r.delivery, out)
+	}
+	if !strings.Contains(out, "needs git 2.40 or newer (`git merge-tree --merge-base`), and this host's git is 2.39.5 — "+
+		"this jail has no tool; update git, and the next fresh launch builds it") {
+		t.Errorf("the launch does not name updating git as the next step:\n%s", out)
+	}
+	for _, stale := range []string{"building it at its base", "retries it", "`yolo pack update` now"} {
+		if strings.Contains(out, stale) {
+			t.Errorf("the launch offers %q, which meets the same git:\n%s", stale, out)
+		}
+	}
+	if why := r.delivery.Reason; !strings.Contains(why, "update git on the host, and the next fresh launch builds it") ||
+		strings.Contains(why, "tries again") {
+		t.Errorf("the jail is told %q, want updating git on the host named", why)
+	}
+
+	// With a good build serving, the jail starts on it.
+	patchedAdvanceStore = prev
+	good, _, _ := fx.launch(t, "podman")
+	if good.delivery.Key == "" {
+		t.Fatal("with a current git the launch built nothing")
+	}
+	fx.commit(t, "v1.3.0", map[int]string{14: "fourteen", 20: "twenty"})
+	fx.later(2 * time.Hour)
+	patchedGitWrapper(t, oldGit)
+	r, out, _ = fx.launch(t, "podman")
+	if r.delivery.Key != good.delivery.Key || len(fx.builds) != 1 {
+		t.Fatalf("under git 2.39.5 the serving launch handed %+v after %d builds\n%s", r.delivery, len(fx.builds), out)
+	}
+	if !strings.Contains(out, "this host's git is 2.39.5 — still running v1.1.0") ||
+		!strings.Contains(out, "; update git, then the next check, in an hour, retries it, or `yolo pack update` now") {
+		t.Errorf("the serving launch does not name updating git, then the retry:\n%s", out)
+	}
+}

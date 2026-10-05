@@ -180,6 +180,11 @@ To keep running what you have, turn `agent_updates` off for the pack, or put a t
 On a Linux host under host management, `yolo pack update` also runs `yolo host apply --assert`. That
 run installs only builds that already exist; it builds nothing new.
 
+Everywhere, applying your patches needs **git 2.40 or newer** on your machine (the host, not the
+jail). Run `git --version` to check. Debian 12's and Ubuntu 22.04's git are older, and so is the git
+in Apple's Xcode 16 Command Line Tools; Homebrew's `git` is new enough. With an older git, nothing is
+built, and the launch says to update git.
+
 ## Going back to a fork
 
 Remove the patched pack from `packs`, and select your fork pack again. An older yolo does not read a

@@ -492,6 +492,10 @@ func (a *advance) run() advanceResult {
 		a.warn("%s: %s", f.Label(), w.Base.Error())
 		return a.serveOr(fmt.Sprintf("%s's series does not apply at its own base (%s)", f.Label(), w.Base.Error()))
 	case w.Fit < 0:
+		var old *packsrc.GitTooOldError
+		if errors.As(w.Err, &old) {
+			return a.gitTooOld(old)
+		}
 		if err := a.walkErr(w); err != nil {
 			a.warn("%s: could not replay the series: %v — %s; %s", f.Label(), err, a.runsNow(), a.retryStep())
 			return a.serveOr(fmt.Sprintf("%s's series could not be replayed on the host (%v)", f.Label(), err))
@@ -501,6 +505,24 @@ func (a *advance) run() advanceResult {
 	fit := w.Results[w.Fit]
 	return a.build(forkBuild{Fork: f, Commit: fit.Entry.Commit, Platform: a.o.platform, Series: a.series,
 		Entry: a.entryWithVersion(fit.Entry)}, base, edited)
+}
+
+// gitTooOld ends an advance whose walk refused this host's git as too old for the replay (PF-D58).
+// Every replay, the series' base included, meets the same git, so the next step is updating it: the
+// line says so in place of a retry, and so does the reason the jail is handed. With a good build
+// serving, the walk's apply error holds a re-walk to the next check, which the line names after the
+// update.
+func (a *advance) gitTooOld(e *packsrc.GitTooOldError) advanceResult {
+	f := a.f
+	next := "update git, and " + a.next() + " builds it"
+	if a.serves() {
+		next = "update git, then " + a.retryStep()
+	}
+	a.warn("%s: %s, and this host's git is %s — %s; %s", f.Label(), e.Need(), e.Have, a.runsNow(), next)
+	r := a.finish(nil, forkBuild{}, 0, nil, fmt.Sprintf("%s's series could not be replayed on the host (%s, and "+
+		"the host's git is %s) — update git on the host, and %s builds it", f.Label(), e.Need(), e.Have, a.next()))
+	r.failed = true
+	return r
 }
 
 // baseEntry is the series' base as an entry of the walk's list: the list's own entry for it when the

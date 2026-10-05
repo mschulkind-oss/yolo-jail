@@ -48,8 +48,9 @@ var patchedNow = time.Now
 const patchedNotBuilt = "the next fresh launch builds it"
 
 // patchedForkStore is the pack store the verbs check through: the user's own terminal, so not the
-// launch's detached store, and the store's default budget.
-func patchedForkStore() *packsrc.Store { return &packsrc.Store{Dir: paths.PacksDir()} }
+// launch's detached store, and the store's default budget. A var so a test can hand it a git of its
+// own, as patchedAdvanceStore's tests do.
+var patchedForkStore = func() *packsrc.Store { return &packsrc.Store{Dir: paths.PacksDir()} }
 
 // patchedForkHold is what holds a patched fork's upstream at the good build, "" when nothing does:
 // `agent_updates` off for the fork pack or for its base (PF-D19), as a launch reads it.
@@ -151,9 +152,14 @@ func checkPatchedFork(pr richtext.Printer, errw io.Writer, store *packsrc.Store,
 func walkReport(f packload.Fork, series *packsrc.Series, rec *packsrc.CheckRecord, w packsrc.WalkResult,
 	atBase bool) []string {
 	var lines []string
+	var old *packsrc.GitTooOldError
 	switch {
 	case w.Base != nil:
 		return []string{fmt.Sprintf("[yellow]⚠ %s: %s[/yellow]", f.Label(), w.Base.Error())}
+	case errors.As(w.Err, &old):
+		// A GIT TOO OLD FOR THE REPLAY (PF-D58): a retry meets the same git, so the step is updating it.
+		return []string{fmt.Sprintf("[yellow]⚠ %s: %s, and this host's git is %s — update git, then run `yolo "+
+			"pack update` again[/yellow]", f.Label(), old.Need(), old.Have)}
 	case w.Err != nil:
 		return []string{fmt.Sprintf("[yellow]⚠ %s: could not replay the series: %v — `yolo pack "+
 			"update` retries[/yellow]", f.Label(), w.Err)}

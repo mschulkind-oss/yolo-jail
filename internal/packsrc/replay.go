@@ -59,6 +59,26 @@ const ReplayTimeout = 60 * time.Second
 // replayMinGit is the oldest git whose merge-tree takes --merge-base.
 var replayMinGit = [2]int{2, 40}
 
+// GitTooOldError is the replay's refusal of a git older than replayMinGit, before it runs anything:
+// the walk and the rebase clone both return it. It is its own type so a caller names updating git as
+// the next step, where a retry would meet the same git (docs/design/patched-forks.md PF-D58).
+type GitTooOldError struct {
+	// Have is the git this host runs, as `git version` names it.
+	Have string
+}
+
+// Error names what the replay needs, what this host has, and the fix.
+func (e *GitTooOldError) Error() string {
+	return e.Need() + ", and this host's git is " + e.Have + " — update git"
+}
+
+// Need is what the replay needs: "replaying a patch series needs git 2.40 or newer (`git merge-tree
+// --merge-base`)".
+func (e *GitTooOldError) Need() string {
+	return fmt.Sprintf("replaying a patch series needs git %d.%d or newer (`git merge-tree --merge-base`)",
+		replayMinGit[0], replayMinGit[1])
+}
+
 // ReplayResult is one entry's replay.
 type ReplayResult struct {
 	Entry ListEntry
@@ -153,8 +173,7 @@ func (s *Store) WalkSeries(repo, subdir string, series *Series, list []ListEntry
 		return res
 	}
 	if !gitAtLeast(gitVer, replayMinGit) {
-		res.Err = fmt.Errorf("replaying a patch series needs git %d.%d or newer (`git merge-tree "+
-			"--merge-base`), and this host's git is %s — update git", replayMinGit[0], replayMinGit[1], gitVer)
+		res.Err = &GitTooOldError{Have: gitVer}
 		return res
 	}
 	unlock, err := s.lockMirror(repo, opts.Waiting)
