@@ -32,7 +32,25 @@ func TestPackLintNamesTheDescribesGateOnTheDeliveryLine(t *testing.T) {
 		t.Errorf("lint does not name the gate on briefing/gh.md's delivery:\n%s", report)
 	}
 
-	// A kind the host delivers gates nothing there, and the note says only the gate.
+	// A kind the host delivers in every shape gates nothing there, and the note says only the
+	// gate: a `config` surface `yolo host apply` renders.
+	plain := t.TempDir()
+	writeFile(t, filepath.Join(plain, "briefing", "surface.md"), "About the surface.\n")
+	writeFile(t, filepath.Join(plain, "pack.json"), `{"name":"p","contributes":[`+
+		`{"kind":"briefing","from":"briefing/surface.md","describes":["config"]},`+
+		`{"kind":"config","config":[{"agent":"p","name":"own","codec":"json","path":"~/x.json"}]}]}`)
+	rc, report = lintReport(t, plain)
+	if rc != 0 {
+		t.Fatalf("lint rc=%d:\n%s", rc, report)
+	}
+	if !hasLine(report, "briefing/surface.md", "(only where config applies)") ||
+		strings.Contains(report, "at the host") {
+		t.Errorf("a config-gated briefing holds at the host, and lint must not say otherwise:\n%s", report)
+	}
+
+	// A kind whose host answer depends on the contribution (an env var, a loophole) is one lint
+	// cannot settle with no pack set, so it names what the answer turns on, and never "not at the
+	// host": `yolo host apply` decides it per contribution.
 	other := t.TempDir()
 	writeFile(t, filepath.Join(other, "briefing", "env.md"), "About the env.\n")
 	writeFile(t, filepath.Join(other, "pack.json"), `{"name":"p","contributes":[`+
@@ -42,8 +60,9 @@ func TestPackLintNamesTheDescribesGateOnTheDeliveryLine(t *testing.T) {
 	if rc != 0 {
 		t.Fatalf("lint rc=%d:\n%s", rc, report)
 	}
-	if !hasLine(report, "briefing/env.md", "(only where env applies)") ||
+	if !hasLine(report, "briefing/env.md",
+		"(only where env applies — at the host, only if `yolo host --` delivers this pack's env)") ||
 		strings.Contains(report, "not at the host") {
-		t.Errorf("an env-gated briefing holds at the host, and lint must not say otherwise:\n%s", report)
+		t.Errorf("lint must say an env-gated briefing turns on the pack's env at the host:\n%s", report)
 	}
 }

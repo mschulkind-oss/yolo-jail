@@ -832,4 +832,10 @@ func TestApplyHostNamesAWithheldBriefingOnceUnderVerbose(t *testing.T) {
 	if countLines(report, line) != 1 {
 		t.Errorf("want the line %q:\n%s", line, report)
 	}
+	// Nothing of github's merges into ~/.claude/CLAUDE.md at the host, so the destinations
+	// report must not say it does (reportInferredDestinations asks the composer's own gate).
+	if strings.Contains(report, "github declares no destination — merging") {
+		t.Errorf("the report says github's briefing merges into a destination it is withheld "+
+			"from:\n%s", report)
+	}
 }

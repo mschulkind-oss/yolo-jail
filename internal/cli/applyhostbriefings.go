@@ -106,9 +106,15 @@ func localPackDirUnder(home string) string {
 // the local pack's prose sat in a file no reader reads, so its broadcast is not in that set. nil
 // means "no reload available", which is correct for the no-packs-configured caller and fails
 // safe everywhere else (the pre-migration set is still rendered).
+//
+// `delivery` is the `describes` gate's census (hostDelivery), computed over `loaded` by the
+// caller, which names the same answer in its notch line. A reload keeps it: the packs a reload
+// finds again are the ones it was taken over, and the one a migration creates (the local pack,
+// holding the user's own prose) is answered per kind (entrypoint.HostDelivery).
 func applyHostBriefings(pr richtext.Printer, out io.Writer, stdin io.Reader,
 	loaded, candidates []*packload.Pack, active map[string]bool, complete bool,
-	home, stamp string, write bool, reload func() []*packload.Pack, survey *hostApplySurvey) int {
+	home, stamp string, write bool, reload func() []*packload.Pack,
+	delivery entrypoint.HostDelivery, survey *hostApplySurvey) int {
 	manPath := hostBriefingManifestPath(home)
 	man, err := hostskills.LoadManifest(manPath)
 	if err != nil {
@@ -132,6 +138,8 @@ func applyHostBriefings(pr richtext.Printer, out io.Writer, stdin io.Reader,
 		// ahead of every destination's pack prose — what a jail's BriefingContent and
 		// agents_md_extra are to a jail's destinations.
 		Base: jailcontent.HostBriefingBase(config.AgentsMDExtraUser(), paths.IsMacOS),
+		// The `describes` gate's census (BB-D69), the one the notch line above was printed from.
+		Delivery: delivery,
 	}
 
 	rc := 0
@@ -200,7 +208,8 @@ func applyHostBriefings(pr richtext.Printer, out io.Writer, stdin io.Reader,
 		reresolve()
 	}
 
-	adoptions := entrypoint.HostBriefingAdoptions(loaded, home, man, req.Base, req.Provenance)
+	adoptions := entrypoint.HostBriefingAdoptions(loaded, home, man, req.Base, req.Provenance,
+		req.Delivery)
 	if len(adoptions) > 0 {
 		if !write {
 			// A QUESTION THE --assert WILL ASK — see the skills adoption's twin.
@@ -356,8 +365,9 @@ func reportBriefingOverlays(pr richtext.Printer, dests []entrypoint.HostBriefing
 }
 
 // withheldBriefing is one briefing source the host composer leaves out of every destination
-// because its governor `describes` a kind no host verb delivers (entrypoint.HostWithheldKinds,
-// docs/design/boundary-broker.md BB-D69): the pack, the pack-relative file, and those kinds.
+// because its governor `describes` a kind of its pack's own that the host does not deliver
+// (entrypoint.HostWithheldKinds over hostDelivery's census, docs/design/boundary-broker.md
+// BB-D69): the pack, the pack-relative file, and those kinds.
 type withheldBriefing struct {
 	pack  string
 	rel   string
@@ -368,8 +378,9 @@ type withheldBriefing struct {
 // withholds, in pack order and then by file, each pack once. It is a fact about the NOTCH and
 // the pack, true in every home that selects the pack, so the apply states it once in its notch
 // line (printNotchFacts) rather than per destination. Governance reads each pack's original
-// declaration, so a ResolveDestinations clone names its own files once.
-func withheldBriefings(loaded []*packload.Pack) []withheldBriefing {
+// declaration, so a ResolveDestinations clone names its own files once. delivery is the census the
+// composer withholds by (HostBriefingRequest.Delivery), so this names exactly what it leaves out.
+func withheldBriefings(loaded []*packload.Pack, delivery entrypoint.HostDelivery) []withheldBriefing {
 	var out []withheldBriefing
 	seen := map[string]bool{}
 	for _, p := range loaded {
@@ -379,7 +390,7 @@ func withheldBriefings(loaded []*packload.Pack) []withheldBriefing {
 		seen[p.Name] = true
 		sources, _ := p.GovernedSources(packdecl.KindBriefing)
 		for _, s := range sources {
-			if kinds := entrypoint.HostWithheldKinds(s); len(kinds) > 0 {
+			if kinds := entrypoint.HostWithheldKinds(delivery, p.Name, s); len(kinds) > 0 {
 				out = append(out, withheldBriefing{pack: p.Name, rel: s.Rel, kinds: kinds})
 			}
 		}

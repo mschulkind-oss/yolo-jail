@@ -417,12 +417,18 @@ type Contribution struct {
 	// slot mechanism; the first two are the ones with a conventional source.)
 	Agents []string `json:"agents,omitempty"`
 	// Describes names the KINDS OF THIS PACK'S OWN CONTRIBUTIONS that a `briefing` content
-	// contribution's prose is about, and delivers that prose only where every one of them
-	// applies (docs/design/boundary-broker.md BB-D69). `{"kind": "briefing", "from":
-	// "briefing/gh.md", "describes": ["intercept"]}` is the github pack's: the file explains the
-	// `gh` forwarder its `intercept` puts first on a jail's PATH, so it reaches every agent in a
-	// jail and none at the host, where that forwarder does not exist and `gh` is the user's own.
-	// Absent means the prose holds wherever the contribution delivers, as before.
+	// contribution's prose is about, and delivers that prose at the host only where, for every
+	// one of them, some contribution of that kind the pack declares applies there
+	// (docs/design/boundary-broker.md BB-D69). `{"kind": "briefing", "from": "briefing/gh.md",
+	// "describes": ["intercept"]}` is the github pack's: the file explains the `gh` forwarder its
+	// `intercept` puts first on a jail's PATH, so it reaches every agent in a jail and none at the
+	// host, where that forwarder does not exist and `gh` is the user's own. Absent means the prose
+	// holds wherever the contribution delivers, as before.
+	//
+	// The answer is the pack's CONTRIBUTION's, not the kind's: a kind delivered at `yolo host --`
+	// may have a shape the host delivers nowhere (a loophole with no doorway, an env var a
+	// jail-only daemon serves), and prose about the pack's own loophole is withheld when that
+	// loophole is the undelivered shape, as the apply's notch line says it is.
 	//
 	// `briefing` CONTENT ONLY. Refused on every other kind, and on a briefing DESTINATION
 	// (`agent` set), which sources nothing to gate (P5). Every entry must be a kind, never
@@ -445,9 +451,11 @@ type Contribution struct {
 	// # What reads it
 	//
 	// The HOST briefing composer (entrypoint.ComposeHostBriefings) withholds a source whose
-	// governor describes a kind the host notch does not deliver (render.HostDelivers), `yolo
-	// host apply` names each withheld file once in its notch line, and `yolo pack lint` names the
-	// gate beside the delivery. The jail composer does not read it.
+	// governor describes a kind the host notch does not deliver for the pack, by the census `yolo
+	// host apply` builds per contribution from its notch line (entrypoint.HostDelivery), and that
+	// apply names each withheld file once in its notch line. `yolo pack lint`, which has no pack
+	// set, names the gate beside the delivery and settles only a kind no host verb delivers in any
+	// shape (render.HostDelivers). The jail composer does not read it.
 	Describes []Kind `json:"describes,omitempty"`
 
 	// Tier is a TOMBSTONE for the per-contribution tier S2 removed: it declared a GLOBAL
