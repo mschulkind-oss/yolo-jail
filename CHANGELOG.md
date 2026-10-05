@@ -17,6 +17,10 @@ patch series, and yolo builds them onto each new release they fit. When a releas
 last good build keeps running and `yolo pack rebase` sets up the fix. It needs git 2.40 or newer on
 the host. See [Follow an upstream with a patch series](userguide/guides/patch-series.md).
 
+**Provider keys for a whole jail.** `yolo --with-credentials <provider>` now starts a jail holding
+those providers' keys from `env_sources`, as `yolo host --with-credentials` hands them to one
+command. See [Give a shell a provider's key](userguide/guides/providers-and-models.md#give-a-shell-a-providers-key).
+
 **Claude Code plugins and mods.** A new guide covers the ways to bring a Claude Code plugin or mod
 into a jail, and what each launch shows about the code it runs. See
 [Claude Code plugins and mods](userguide/guides/claude-plugins-and-mods.md).

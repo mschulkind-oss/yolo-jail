@@ -339,7 +339,7 @@ func TestTheFreshLaunchRunsTheJailAsAHoldAndItsFirstSessionByExec(t *testing.T) 
 			"detach", "endSession":
 			firstPos(name, call.Pos())
 		case "stopJail", "teardownAfterExit", "startLoopholes", "startLoopholesDisclosed",
-			"startPlannedLoopholes", "startPortForwards", "startJailMain":
+			"startPlannedLoopholes", "startPortForwards", "startJailMain", "startJailMainWithEnv":
 			t.Errorf("runContainer calls %s: the keeper owns the jail's host services and its end, "+
 				"and the first session's launcher never stops the jail (JL-D4)", name)
 		case "runWithProxy":

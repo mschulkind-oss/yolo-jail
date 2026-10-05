@@ -345,7 +345,9 @@ func (k *keeper) run() int {
 	k.record = keeperRecord{PID: k.pid, Started: time.Now(),
 		Workspace: p.Workspace, Runtime: p.Runtime, Skeleton: p.Skeleton, PackTree: p.PackTree,
 		ScratchVolumes: p.ScratchVolumes, ForwardDir: p.ForwardDir, SocketsDir: p.SocketsDir,
-		Scope: k.scope, Log: keeperLogPath(p.Cname)}
+		Scope: k.scope, Log: keeperLogPath(p.Cname),
+		// What the jail is launched with, names only, for every attach to read (ES-D33).
+		Grant: p.Grant}
 	k.recorded = true
 	err = writeKeeperRecord(p.Cname, k.record)
 	k.recMu.Unlock()
@@ -390,8 +392,10 @@ func (k *keeper) run() int {
 
 	// THE CONTAINER. The launch's argv, with the services' endpoint pairs inserted before the image,
 	// exactly where the fresh path used to insert them.
+	// The jail's --with-credentials values ride THIS client's environment alone, the argv naming
+	// each as a bare `-e NAME` (ES-D32): no host service above inherited them.
 	runCmd := insertHostServiceEnv(append([]string{}, p.RunCmd...), p.ImageRef, k.handles)
-	jm, err := startJailMain(runCmd, keeperStream{k.sink, frameJailStdout},
+	jm, err := startJailMainWithEnv(runCmd, p.GrantEnv, keeperStream{k.sink, frameJailStdout},
 		keeperStream{k.sink, frameJailStderr}, func() { o.Perf.Mark("jail_main.exited") })
 	if err != nil {
 		o.pr(o.Stdout).printf("[bold red]Configured runtime '%s' not found on PATH.[/bold red]", p.Runtime)

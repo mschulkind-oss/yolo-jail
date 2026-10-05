@@ -2,7 +2,7 @@
 title: "Credential sources: implementation sketch"
 status: draft
 stage: SKETCH
-next: "Once the design rules a jail shell's grant (depends-on), turn §3's jail entry into build steps: start at refuseHostOnlyFlags in internal/cli"
+next: "Once the design rules OQ-ES6 (depends-on), turn §3's shared-name entry into build steps"
 depends-on:
   - credential-sources-separation.md#OQ-ES5
   - credential-sources-separation.md#OQ-ES6
@@ -18,7 +18,8 @@ it names, except [§3](#3-blocked-on-the-other-open-questions)'s [OQ-ES5](creden
 the same day (ES-D13 to ES-D17). [§2](#2-only-if-the-split-is-ruled-in) is moot since 2026-09-30,
 when the design's [OQ-ES1](credential-sources-separation.md#OQ-ES1) was answered no, and so is
 [§3](#3-blocked-on-the-other-open-questions)'s [OQ-ES7](credential-sources-separation.md#OQ-ES7)
-entry. What is left waits on [OQ-ES5](credential-sources-separation.md#OQ-ES5)'s jail half and
+entry. [OQ-ES5](credential-sources-separation.md#OQ-ES5)'s jail half was ruled and built
+2026-10-05 (the design's ES-D31 to ES-D36). What is left waits on
 [OQ-ES6](credential-sources-separation.md#OQ-ES6). Codebase facts were verified at `8da7840d`.
 
 > **Precedence.** This sketch accompanies
@@ -84,16 +85,17 @@ the shared file is narrowed where `deliverChannel` calls `writeUserEnvFile`, not
 - **[OQ-ES5](credential-sources-separation.md#OQ-ES5)**, a provider-naming grant flag. **Its
   host half is ruled and BUILT** (2026-09-27, the design's
   [§5.1](credential-sources-separation.md#51-the-explicit-grant---with-credentials-built)): the
-  sibling input is `ScopeInput.Grants`, fed from `parseHostExecFlags` and `hostEnv`, and a jail
-  launch refuses the flag (`refuseHostOnlyFlags`). The jail half is still open, and would land in
-  two places:
-  - the jail: only the `--` command's exec environment for that entry, never `deliverChannel`'s
-    files, because an attach rewrites the directory whole
-    ([CN-D7](provider-credential-scope.md#CN-D7));
-  - macos-user: `launchEnv`.
-
-  In the jail the flag joins `runFlags` (`internal/cli`), and its disclosure is not
-  suppressible ([`OQ-RO3`](../reference/report-tiers.md#why-its-this-way)).
+  sibling input is `ScopeInput.Grants`, fed from `parseHostExecFlags` and `hostEnv`. **Its jail
+  half is ruled and BUILT** (2026-10-05, the design's
+  [§5.2](credential-sources-separation.md#52-the-jail-half---with-credentials-at-a-jail-launch-built)),
+  not as this sketch guessed: the ruling makes the set the jail's, so it is held by every
+  process of the jail for its life rather than by one entry's `--` command. It still never rides
+  `deliverChannel`'s files, which an attach rewrites whole
+  ([CN-D7](provider-credential-scope.md#CN-D7)): a bare `-e NAME` on the container argv with
+  the value in the runtime client's environment, and on macos-user `launchEnv`, which the
+  session env file carries. The flag joined `runFlags`, `refuseHostOnlyFlags` is deleted, and
+  its disclosure is not suppressible
+  ([`OQ-RO3`](../reference/report-tiers.md#why-its-this-way)).
 - **[OQ-ES6](credential-sources-separation.md#OQ-ES6)**, a user-scope shared-name
   acknowledgment. It would be read through `UserScopeConfig`, never the merged config. The gate
   would treat an acknowledged name as unclaimed for `SharedEnvSources` and `EnvSourcesFor`, and

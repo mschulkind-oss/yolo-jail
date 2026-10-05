@@ -29,9 +29,11 @@ func (o *Options) noteCredentialScope(channel *packChannel) {
 	for _, l := range channel.scope.RegionLines() {
 		out.print(richtext.Escape(l))
 	}
-	// The one disclosure renderer, the host's too; the jail adds no notes (ES-D2 keeps its
-	// wording until OQ-ES5 decides whether a jail shell has a remedy).
-	lines := channel.scope.DisclosureWith(packload.DisclosureNotes{})
+	// The one disclosure renderer, the host's too. The jail's one note is its own grant, when its
+	// processes hold one (o.heldGrant, jailgrant.go): a granted name is every process's, never
+	// "withheld from every process". Its remedy stays unwritten: a running jail takes no grant
+	// later, and the fresh launch that does is named by the attach's refusal (ES-D33).
+	lines := channel.scope.DisclosureWith(o.grantDisclosureNotes())
 	if len(lines) == 0 {
 		return
 	}

@@ -588,22 +588,7 @@ func (s *CredentialScope) GrantedTo(agent string) []GrantedProvider {
 	if d == nil || len(d.Granted) == 0 {
 		return nil
 	}
-	out := make([]GrantedProvider, 0, len(d.Granted))
-	for _, p := range d.Granted {
-		g := GrantedProvider{Provider: p}
-		for name, claimants := range s.claims {
-			if slices.Contains(claimants, p) {
-				g.Claims = append(g.Claims, name)
-			}
-		}
-		sort.Strings(g.Claims)
-		for _, k := range s.envSources.Keys() {
-			if slices.Contains(s.claims[k], p) {
-				g.Delivered = append(g.Delivered, k)
-			}
-		}
-		out = append(out, g)
-	}
+	out, _ := s.GrantFor(d.Granted)
 	return out
 }
 
@@ -950,11 +935,20 @@ func (d *AgentDelivery) Empty() bool {
 }
 
 // DisclosureNotes is what one notch adds to the gate's disclosure, for facts the gate cannot
-// know: how a withheld credential can be received there, and what the launched process already
-// holds. The zero value adds nothing, and is the jail's wording, which
-// docs/design/credential-sources-separation.md ES-D2 leaves unchanged until OQ-ES5 decides
-// whether a jail shell has a remedy at all.
+// know: how a withheld credential can be received there, what the launched process already
+// holds, and what a jail's own grant holds. The zero value adds nothing, and is the wording of a
+// jail launched with no grant (docs/design/credential-sources-separation.md ES-D2).
 type DisclosureNotes struct {
+	// Granted reports whether name is held by a grant EVERY process of the launch shares: a
+	// jail's --with-credentials, which the jail holds for its whole life, or a macos-user
+	// session's (OQ-ES5's jail half; ES-D31). Such a name is withheld from no process, so its
+	// line names GrantHolder as its recipients, never "withheld", and names no remedy; and the
+	// head line names the grant as a recipient rule. Nil holds nothing: the host's case, whose
+	// grant is a recipient of the gate itself (ScopeInput.Grants).
+	Granted func(name string) bool
+	// GrantHolder names the processes a Granted name reaches, for its line: "every process in
+	// this jail". Read only when Granted is set.
+	GrantHolder string
 	// Remedy words how a withheld group's names can be received, given the providers that
 	// claim them (sorted), as a sentence appended to that group's line. "" appends nothing.
 	// The host notch names its typed `-p` (ES-D2).
@@ -1015,7 +1009,11 @@ func (s *CredentialScope) DisclosureWith(notes DisclosureNotes) []string {
 			recipients: strings.Join(recipients, ", ")}
 		// Only a withheld name can be misreported by the process's own copy: a delivered one
 		// is the env_sources value, which beats it.
-		if g.recipients == "" {
+		if notes.Granted != nil && notes.Granted(k) {
+			// HELD BY EVERY PROCESS, by the launch's own grant: an agent whose profile selects the
+			// provider holds it too, so the grant is the line's whole answer.
+			g.held, g.recipients = "granted", ""
+		} else if g.recipients == "" {
 			switch {
 			case notes.Inherited != nil && notes.Inherited(k):
 				g.held = "inherited"
@@ -1055,11 +1053,20 @@ func (s *CredentialScope) DisclosureWith(notes DisclosureNotes) []string {
 			return rank(groups[order[i]].claimants) < rank(groups[order[j]].claimants)
 		})
 	}
-	lines := []string{s.disclosureRule()}
+	granted := false
+	for _, key := range order {
+		if groups[key].held == "granted" {
+			granted = true
+		}
+	}
+	lines := []string{s.disclosureRule(granted)}
 	for _, key := range order {
 		g := groups[key]
 		names := strings.Join(g.names, ", ")
 		switch {
+		case g.held == "granted":
+			lines = append(lines, "  "+names+" (provider "+g.providers+"): "+notes.GrantHolder+
+				", by its --with-credentials grant")
 		case g.held == "inherited":
 			lines = append(lines, "  "+names+" (provider "+g.providers+"): not added by yolo — "+
 				"no agent in this launch selected it, so the invoking shell's own value passes through")
@@ -1085,10 +1092,15 @@ func (s *CredentialScope) DisclosureWith(notes DisclosureNotes) []string {
 }
 
 // disclosureRule is the disclosure's head line: the rule every line under it follows. Under a
-// grant (ScopeInput.Grants) a process no profile selects is a recipient too, so the rule names
-// the grant beside the profile (credential-sources-separation.md ES-D22). Otherwise, as at every
-// jail launch, the recipients are the agents whose profile selects the provider.
-func (s *CredentialScope) disclosureRule() string {
+// grant (ScopeInput.Grants, or a jail's own, whose lines notesGranted says are present) a process
+// no profile selects is a recipient too, so the rule names the grant beside the profile
+// (credential-sources-separation.md ES-D22). Otherwise, as at every jail launched with no grant,
+// the recipients are the agents whose profile selects the provider.
+func (s *CredentialScope) disclosureRule(notesGranted bool) string {
+	if notesGranted {
+		return "Credential scope: a provider's credential reaches only the processes whose " +
+			"profile selects it or whose --with-credentials grant names it."
+	}
 	for _, d := range s.agents {
 		if len(d.Granted) > 0 {
 			return "Credential scope: a provider's credential reaches only the processes whose " +

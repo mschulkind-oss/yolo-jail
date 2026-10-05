@@ -435,6 +435,13 @@ func (o *Options) assembleRunCmd(in *assembleInput) []string {
 	}
 
 	// --- Common env block (frozen order) ---
+	// THE JAIL'S --with-credentials GRANT (jailgrant.go, ES-D32), on both container backends: each
+	// granted NAME as a bare `-e NAME`, never its value, which the runtime client takes from its own
+	// environment (the keeper's startJailMainWithEnv). Frozen into the container, so the jail holds
+	// the set for its whole life and every exec session inherits it, and no attach can add to it.
+	// BEFORE every `-e` yolo writes itself: a later `-e` of one name wins, so a provider claiming a
+	// name yolo sets (HOME, PATH) cannot replace yolo's value.
+	runCmd = append(runCmd, o.jailGrant.envArgs()...)
 	runCmd = append(runCmd, o.commonEnvBlock(in, blockedConfigJSON, netMode)...)
 	// THE CONTEXT DIR (docs/design/context-mounts.md CX-D4), on both container backends and on
 	// EVERY launch: /ctx is where every context mount lands here, and the directory exists

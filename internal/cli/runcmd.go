@@ -18,7 +18,6 @@ package cli
 // property cli.go's top-level help branch documents for itself.
 
 import (
-	"fmt"
 	"io"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/cli/run"
@@ -62,9 +61,29 @@ Flags:
                      repeatable) selects it for the named CLI only. A -p beats the
                      config's 'profile' key, the persistent spelling that takes the
                      same forms ('yolo config-ref'), for each CLI it selects for;
-                     every CLI no -p selects for keeps the key's selection. At the
-                     host an arbitrary command gets a provider's key only from
-                     'yolo host --with-credentials <provider> -- <cmd>'.
+                     every CLI no -p selects for keeps the key's selection. A command
+                     no profile reaches (bash, curl) gets a provider's key from
+                     --with-credentials, below, at every notch.
+  --with-credentials <provider[,provider...]|all>
+                     GRANT this jail the named providers' claimed env_sources
+                     credentials, exactly as 'yolo host --with-credentials' grants
+                     its command: KEYS ONLY, no profile is selected and nothing is
+                     re-pointed (no base URL, no model). 'all' is every composed
+                     provider that claims a value in env_sources. Repeatable; also
+                     --with-credentials=<list>. It combines with -p: an agent keeps
+                     its profile and also holds the granted keys. THE SET IS FIXED
+                     WHEN THE JAIL IS LAUNCHED: every process in the jail holds it,
+                     so this session, every session attached to it later and
+                     everything each one starts inherit it, and an attach asking
+                     for a provider the running jail was not launched with is
+                     refused ('yolo stop', then launch again with the flag); one
+                     naming the jail's set, part of it, or nothing enters. On
+                     macos-user each invocation is its own session and holds its
+                     own grant. Every entry names what is granted, by name, never
+                     by value. An unknown provider refuses, naming the known ones;
+                     a named provider env_sources holds no value for is reported.
+                     Nothing else implies it: not -p, not the profile key, not any
+                     YOLO_ALLOW_* variable, and no config key.
   A value flag with no value (a trailing -p, '-p --', '--profile=') is refused,
   exit 2, as 'yolo host' refuses it.
   --timing           Report this launch's performance timings, start to shell return:
@@ -95,6 +114,7 @@ Examples:
   yolo -- claude                      # run claude in it
   yolo -- bash -lc 'just test-fast'   # one command, then exit
   yolo -p zai -- claude               # ... on the zai profile, this launch only
+  yolo --with-credentials zai -- bash # a jail holding zai's key, keys only
   yolo --timing -- true               # what did this launch spend its time on?
 
 Global options are listed by 'yolo --help'; the full config reference is
@@ -121,7 +141,8 @@ Global options are listed by 'yolo --help'; the full config reference is
 // before the fourth author makes it differently. Ruled by OQ-RO3, 2026-09-11; pinned by
 // TestTheLaunchHasNoQuietFlag. `YOLO_NO_BANNER` is the one pre-existing hatch and it is
 // deliberately narrow — it silences the version line and nothing else.
-var runFlags = []string{"--profile", "--timing", "--dry-run", "--network", "--accept-config-changes", "--at"}
+var runFlags = []string{"--profile", "--timing", "--dry-run", "--network", "--accept-config-changes", "--at",
+	"--with-credentials"}
 
 // runKnownFlags is runFlags plus the spellings that are not policy: the short forms, help, and the
 // global --verbose the front door strips before subcommand resolution (included so a launch that
@@ -133,32 +154,6 @@ var runFlags = []string{"--profile", "--timing", "--dry-run", "--network", "--ac
 func runKnownFlags() []string {
 	return append(append([]string(nil), runFlags...),
 		"-p", "--help", "-h", "--verbose", "-v", "run")
-}
-
-// refuseHostOnlyFlags refuses a jail launch given a flag only `yolo host` takes, naming that it
-// is host-only and the host spelling that does take it. parsed is parseRunArgs' reading of the
-// launch, whose value-flag reader consumed the flag only among yolo's own tokens, so a wrapped
-// program's own `--with-credentials` is never read as yolo's.
-//
-// ONE SUCH FLAG TODAY, the grant (docs/design/credential-sources-separation.md OQ-ES5): it was
-// ruled for the host on 2026-09-27 and its jail half is still open, so a jail launch must not
-// quietly accept it, and an "unknown flag" refusal would hide that the flag exists and where.
-// It exits 2 like every other misuse refusal (refuseUnknownFlags).
-func refuseHostOnlyFlags(parsed runArgv, errw io.Writer) bool {
-	if parsed.grant == nil {
-		return false
-	}
-	value := parsed.grant[0]
-	if value == "" {
-		value = "<provider[,provider...]|all>"
-	}
-	fmt.Fprintf(errw, "yolo run: %s is HOST-ONLY: it grants providers' claimed env_sources "+
-		"credentials to the one command `yolo host` runs, and a jail launch does not take it "+
-		"(whether a jail shell gets a grant is still open, OQ-ES5).\n"+
-		"  At the host: `yolo host %s %s -- <command>`, or "+
-		"`eval \"$(yolo host env %s %s)\"` for a shell.\n",
-		withCredentialsFlag, withCredentialsFlag, value, withCredentialsFlag, value)
-	return true
 }
 
 // applyProfileValue reads one -p/--profile value: "cli=name" (comma-separated,
@@ -262,11 +257,6 @@ type runArgv struct {
 	// readValueFlag), nil when none was. runRun refuses it with exit 2, the host's code for
 	// the same typo.
 	misuse error
-	// grant is every --with-credentials value as typed, in order ("" for one given no
-	// value), nil when the flag was not given. HOST-ONLY: runRun refuses a jail launch that
-	// carries it (refuseHostOnlyFlags). It is read here, by the one value-flag reader, so its
-	// value is consumed like every other flag's and never read as the command.
-	grant []string
 }
 
 // parseRunArgs folds run's flags and its post-`--` command out of args (the
@@ -363,11 +353,24 @@ func parseRunArgs(args []string, opts *run.Options) runArgv {
 			}
 			continue
 		}
-		// The host-only grant: consumed so its value is never the command, and recorded
-		// for runRun's host-only refusal, which names it even when no value was given.
-		if f, ok := readValueFlag(args, i, withCredentialsFlag); ok {
+		// THE GRANT (docs/design/credential-sources-separation.md OQ-ES5's jail half, ruled
+		// 2026-10-05): the host's flag, read in the host's grammar (addGrantValue: comma lists,
+		// repeatable, an empty element refused as misuse) into the one field the launch reads it
+		// from. Spelled as a LITERAL for TestRunUsageListsEveryRunFlag's reason, beside
+		// --accept-config-changes below; TestTheJailGrantFlagIsTheHostsSpelling pins it to
+		// withCredentialsFlag, the host's spelling.
+		if f, ok := readValueFlag(args, i, "--with-credentials"); ok {
 			i = f.last
-			parsed.grant = append(parsed.grant, f.value)
+			if v, ok := value(f); ok {
+				var req hostGrantRequest
+				if err := addGrantValue(&req, v); err != nil {
+					if parsed.misuse == nil {
+						parsed.misuse = err
+					}
+				} else {
+					opts.WithCredentials = append(opts.WithCredentials, req.names...)
+				}
+			}
 			continue
 		}
 		switch {

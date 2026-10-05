@@ -165,7 +165,13 @@ func TestTheKeeperReleasesTheReservedPortsAfterItsHostServicesAndBeforeTheContai
 			t.Errorf("keeper.run lets the reserved ports go before %s, whose listeners could then be handed one", before)
 		}
 	}
-	if p, ok := pos["startJailMain"]; !ok || p < release {
+	// startJailMainWithEnv since the jail's --with-credentials values ride the client's environment
+	// (jailgrant.go, ES-D32); either spelling starts the container.
+	p, ok := pos["startJailMainWithEnv"]
+	if !ok {
+		p, ok = pos["startJailMain"]
+	}
+	if !ok || p < release {
 		t.Error("keeper.run starts the container before it lets the reserved ports go, so the jail's daemons cannot bind them")
 	}
 }

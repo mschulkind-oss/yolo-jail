@@ -347,9 +347,11 @@ over is reported. On such a run, a withheld line names the same run with the cla
 the grant, such as `yolo host --with-credentials zai,cerebras -- usage-bar`, rather than a `-p`,
 which would replace the typed profile and drop the grant
 ([ES-D23](../design/credential-sources-separation.md#10-decision-ledger)). An unknown provider
-refuses, naming the known ones. Only the typed flag grants, and a jail launch given it refuses as host-only
-([OQ-ES5](../design/credential-sources-separation.md#OQ-ES5), ruled for the host;
-[ES-D13 to ES-D17](../design/credential-sources-separation.md#10-decision-ledger)).
+refuses, naming the known ones. Only the typed flag grants
+([OQ-ES5](../design/credential-sources-separation.md#OQ-ES5);
+[ES-D13 to ES-D16](../design/credential-sources-separation.md#10-decision-ledger)). A jail launch
+takes the same flag since 2026-10-05, and the jail holds the set for its whole life
+([§5.2](../design/credential-sources-separation.md#52-the-jail-half---with-credentials-at-a-jail-launch-built)).
 
 **A profile the wire bridge serves starts the bridge for that launch.** `yolo host -p cerebras --
 claude` and `yolo host -p codex -- claude` start the bridge's host half as the launch's own

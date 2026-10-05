@@ -378,6 +378,14 @@ func Run(opts Options) (rc int) {
 		o.printProviderRefusal([]string{"Refusing to launch: " + err.Error()})
 		return 1
 	}
+	// THE --with-credentials GRANT, resolved over that one composition (jailgrant.go; OQ-ES5's jail
+	// half): above the dispatch, so an unknown provider refuses at every backend before either arm
+	// starts a thing, in the words the host refuses it with, and an attach below compares the same
+	// resolution against what the running jail holds.
+	if err := o.resolveJailGrant(channel); err != nil {
+		o.printProviderRefusal([]string{"Refusing to launch: " + err.Error()})
+		return 1
+	}
 	injectedArgs := o.Args
 	if len(injectedArgs) > 0 {
 		injectedArgs = o.injectLaunchFlagsDisclosed(staged.packs, injectedArgs)
@@ -512,6 +520,11 @@ func Run(opts Options) (rc int) {
 		// starts (launchEnv's doc; noteMacosUserCredentialScope says so on the terminal).
 		launched := filepath.Base(agentArgv[0])
 		launchEnv := channel.launchEnv(launched)
+		// THE SESSION'S --with-credentials GRANT (jailgrant.go, ES-D32): on the launch env, which
+		// this backend writes into the root-owned per-session env file, and never through the
+		// channel, whose per-agent half the arm also writes under <workspace>/.yolo/home below.
+		o.jailGrant.applyTo(launchEnv)
+		o.heldGrant = o.jailGrant
 		// THE NOTCH, told to the session (config.NotchEnv; env-manager plan EMP-D4). YOLO_VERSION,
 		// which the backend sets on every launch, says jail; a guest says so beside it, so the
 		// agent footer names the notch the briefing names (docs/design/agent-footer.md §1.2), and
@@ -536,6 +549,7 @@ func Run(opts Options) (rc int) {
 			launchEnv.Set(k, v)
 		}
 		o.noteCredentialScope(channel)
+		o.noteHeldGrant(grantMacosUserSession, launched, channelProfiled(channel))
 		o.noteMacosUserCredentialScope(channel, launched)
 		if o.DryRun {
 			// A plan render starts nothing, so the spawn boundary is not crossed: there is
@@ -1475,7 +1489,12 @@ func (o *Options) runContainer(cfg *jsonx.OrderedMap, rt, repoRoot, cname string
 	// attach performs to deliver a different profile into a running jail.
 	userEnv := channel.userEnv
 	deliverChannel(wsState, rt, channel)
+	// THE JAIL THIS LAUNCH STARTS HOLDS ITS GRANT (jailgrant.go): named beside the gate's lines,
+	// which say a granted name is every process's. An attach that restarted the jail reaches here
+	// too, so the grant is this launch's own, never the stopped jail's.
+	o.heldGrant = o.jailGrant
 	o.noteCredentialScope(channel)
+	o.noteHeldGrant(grantFreshJail, "", channelProfiled(channel))
 	// What this launch's jail-daemon payload left out because no profile selects it (OQ-CN7
 	// (b)). Here, on the fresh path, because only a fresh launch starts daemons: an attach's
 	// selection starts none, and settles a daemon it needs and the jail lacks as skew instead.
@@ -2342,6 +2361,15 @@ func (o *Options) attachExisting(cname, rt, targetCmd string, cfg *jsonx.Ordered
 	// is visible at a glance (audit §B#4.
 	baked, _ := runtime.BakedYoloVersionFromInspectEnv(envLines)
 	o.emitLaunchBanner(rt, cname, nil, baked)
+	// THE JAIL'S GRANT IS THE ONE IT WAS LAUNCHED WITH (jailgrant.go, ES-D33): this session holds
+	// it, and asks for no other. A request the running jail does not hold is refused before anything
+	// is written, naming the fresh launch; a subset of it, or the same set, or none, goes ahead.
+	runningGrant, grantKnown := runningJailGrant(cname)
+	if o.refuseGrantTheJailLacks(cname, runningGrant, grantKnown) {
+		releaseLock()
+		return 1, false
+	}
+	o.heldGrant = runningGrant
 	// THE RUNNING JAIL'S PACKS, before the gate: what this entry delivers is composed over
 	// them, and the gate asks whether the jail can receive what this entry delivers. A jail
 	// whose tree will not load, or whose packs cannot serve what this entry selects, is a known
@@ -2507,6 +2535,9 @@ func (o *Options) attachExisting(cname, rt, targetCmd string, cfg *jsonx.Ordered
 	}
 	// The launch's fate is known: it attaches (launchrecord.go).
 	o.recordLaunchOutcome(launchAttached, -1)
+	// WHAT THIS SESSION HOLDS OF THE JAIL'S GRANT, on every attach to a jail launched with one,
+	// whether or not this entry typed the flag or delivers its channel (jailgrant.go).
+	o.noteHeldGrant(grantAttach, "", channelProfiled(channel))
 	// What this attach did NOT deliver: the configured packs, when they differ from the ones
 	// the jail booted with (OQ-PK2 (c)'s notice).
 	o.noteBootedPackSetDiffers(rt, cname, view)

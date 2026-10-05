@@ -735,9 +735,20 @@ that writes a launch's environment for one notch or backend. There are three:
     ([ES-D22 and ES-D23](../design/credential-sources-separation.md#10-decision-ledger)). An unknown provider
     refuses, naming the composed ones. It combines with `-p`: an agent keeps its profile and
     also receives the granted keys. Only the typed flag grants. `-p`, the `profile` key, a
-    `YOLO_ALLOW_*` variable and config cannot, and a jail launch given the flag refuses as
-    host-only ([OQ-ES5](../design/credential-sources-separation.md#OQ-ES5), ruled for the host;
-    [ES-D13 to ES-D17](../design/credential-sources-separation.md#10-decision-ledger)).
+    `YOLO_ALLOW_*` variable and config cannot
+    ([OQ-ES5](../design/credential-sources-separation.md#OQ-ES5);
+    [ES-D13 to ES-D16](../design/credential-sources-separation.md#10-decision-ledger)).
+  - **At a jail launch the same flag grants the jail** (OQ-ES5's jail half, 2026-10-05).
+    `yolo --with-credentials zai -- bash` starts a jail whose every process holds those claimed
+    values, keys only, for the jail's life: the session it starts, every session attached later,
+    and everything each one starts. The grant is no recipient of the gate: it rides the
+    container's frozen environment (a bare `-e NAME` on the argv, the value in the runtime
+    client's environment) or, on macos-user, the root-owned per-session env file, and never a
+    per-agent file. The gate's lines name a granted key as every process's. The keeper's start
+    record names the set, so an attach asking for a provider or a name the running jail was not
+    launched with is refused, naming `yolo stop` and the fresh launch
+    ([§5.2](../design/credential-sources-separation.md#52-the-jail-half---with-credentials-at-a-jail-launch-built),
+    [ES-D31 to ES-D36](../design/credential-sources-separation.md#10-decision-ledger)).
 
 Every arm discloses what it scoped or withheld, by name and never by value
 (`CredentialScope.Disclosure`; the host notch adds its remedy and its shell note through
