@@ -200,8 +200,9 @@ func hostWorkspaceSkillsIn(ws string, d hostSkillsDest, sourceSet []string, home
 	// 3. P5: the jail's reader, over the chosen directory alone. Fail closed.
 	check, err := jailcontent.CheckWorkspaceSkillSource(ws, chosen)
 	if err != nil {
-		lines = append(lines, fmt.Sprintf("could not check %s (%s), so yolo puts no link at %s",
-			chosen, errnoText(err), link))
+		lines = append(lines, fmt.Sprintf("could not check %s (%s), so yolo puts no link at %s; "+
+			"yolo checks a copy under %s; make it writable, or point TMPDIR at a folder that is, and "+
+			"the next launch checks again", chosen, errnoText(err), link, os.TempDir()))
 		removeOurs("its source could not be checked")
 		return lines
 	}
@@ -226,13 +227,14 @@ func hostWorkspaceSkillsIn(ws string, d hostSkillsDest, sourceSet []string, home
 	case ours && rec.Target == target:
 	case ours:
 		if err := removeOwnLink(rootFD, link, &hostSkillsRecord{Target: rec.Target}); err != nil {
-			lines = append(lines, fmt.Sprintf("could not refresh the link yolo put at %s (%s)",
-				link, errnoText(err)))
+			lines = append(lines, fmt.Sprintf("could not refresh the link yolo put at %s (%s); "+
+				"remove %s and the next launch places it again", link, errnoText(err), link))
 			return lines
 		}
 		if err := symlinkBeside(rootFD, link, target); err != nil {
-			lines = append(lines, fmt.Sprintf("could not refresh the link yolo put at %s (%s)",
-				link, errnoText(err)))
+			lines = append(lines, fmt.Sprintf("could not refresh the link yolo put at %s (%s), so "+
+				"it is gone; the next launch places it again, or create %s yourself", link,
+				errnoText(err), link))
 			rec.Target = ""
 			saveOrDropHostSkillsRecord(rec)
 			return lines
@@ -241,7 +243,13 @@ func hostWorkspaceSkillsIn(ws string, d hostSkillsDest, sourceSet []string, home
 	default:
 		created, err := placeLinkNoFollow(rootFD, link, target)
 		if err != nil {
-			lines = append(lines, fmt.Sprintf("put no link at %s: %s", link, err))
+			step := "once that is fixed the next launch places it"
+			var lp errLinkedParent
+			if errors.As(err, &lp) {
+				step = "make " + lp.rel + " a real directory and the next launch places it"
+			}
+			lines = append(lines, fmt.Sprintf("put no link at %s: %s; %s, or create %s yourself",
+				link, err, step, link))
 			return lines
 		}
 		rec.CreatedDirs = created
@@ -458,7 +466,8 @@ const maxIgnoreBytes = 1 << 20
 func ensureHostSkillsIgnoreLine(ws, line string, wroteBefore bool) (string, bool) {
 	p := filepath.Join(ws, ".gitignore")
 	notRegular := fmt.Sprintf(".gitignore is not a regular file yolo writes, so yolo did not add "+
-		"`%s` to it and `git status` will list the link", line)
+		"`%s` to it and `git status` will list the link; add `%s` to your ignore rules yourself to "+
+		"quiet it", line, line)
 	current, err := readRegularNoFollow(p)
 	switch {
 	case errors.Is(err, fs.ErrNotExist):
@@ -473,7 +482,8 @@ func ensureHostSkillsIgnoreLine(ws, line string, wroteBefore bool) (string, bool
 	}
 	if wroteBefore {
 		return fmt.Sprintf("yolo added `%s` to .gitignore once and it has been removed, so yolo "+
-			"leaves it out and `git status` will list the link", line), false
+			"leaves it out and `git status` will list the link; add it back yourself to quiet it",
+			line), false
 	}
 	f, err := os.OpenFile(p, os.O_WRONLY|os.O_APPEND|os.O_CREATE|unix.O_NOFOLLOW|unix.O_NONBLOCK, 0o644)
 	if err != nil {
@@ -489,7 +499,7 @@ func ensureHostSkillsIgnoreLine(ws, line string, wroteBefore bool) (string, bool
 	}
 	if _, err := f.WriteString(add); err != nil {
 		return fmt.Sprintf("could not add `%s` to .gitignore (%s), so `git status` will list the "+
-			"link", line, errnoText(err)), false
+			"link; add the line yourself to quiet it", line, errnoText(err)), false
 	}
 	return fmt.Sprintf("added `%s` to .gitignore, so git does not list the link; commit that "+
 		"line once and every clone is quiet", line), true

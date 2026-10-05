@@ -782,9 +782,11 @@ func hostLaunch(flags hostExecFlags, profile string, cmd []string, out, errw, ra
 	// start (no login, no terminal), the URL is named with that reason, the launch's own.
 	printHostLines(errw, launch.unservedLines(managedHostVars(managed)))
 	// THE WORKSPACE SKILLS LINK (OQ-WS5's B; docs/design/workspace-skills.md WS-D19 to WS-D23,
-	// hostworkspaceskills.go): after every pre-flight and the prelaunch, so a launch that is
-	// refused writes nothing into the workspace, and before the environment is handed over.
-	hostWorkspaceSkills(launch.packs, launch.agent, errw)
+	// hostworkspaceskills.go) is the launch's LAST write, made just before each hand-over below:
+	// after every pre-flight, the prelaunch and every launch-owned service and doorway, so a
+	// launch refused at any of them — a bridge that cannot bind included — writes nothing into
+	// the workspace (WS-D19).
+	linkWorkspaceSkills := func() { hostWorkspaceSkills(launch.packs, launch.agent, errw) }
 	environ := launch.childEnviron(childPath)
 	// THE CLAUDE CREDENTIAL VIEW AT THE HOST (CL-D27, hostclaudeview.go), behind the jails' own
 	// switch and off by default: set in environ here, so the exec and the resident path below
@@ -836,6 +838,7 @@ func hostLaunch(flags hostExecFlags, profile string, cmd []string, out, errw, ra
 				strings.Join(plan.PointedAt(launch.scope.Agent(launch.agent)), ", "), launch.agent, r.Log)
 		}
 		sp.End()
+		linkWorkspaceSkills()
 		// WHAT STARTS, AND FROM WHERE, the last line before the hand-over: a slow agent startup
 		// is then visibly the agent's, not yolo's.
 		trace.handOver()
@@ -846,6 +849,7 @@ func hostLaunch(flags hostExecFlags, profile string, cmd []string, out, errw, ra
 	}
 	// The same line on the exec path — a managed launch that stays resident included, since it
 	// runs the same target.
+	linkWorkspaceSkills()
 	trace.handOver()
 	printHostStartingLine(errw, cmd[0], resolved)
 	if managed != nil {
