@@ -32,8 +32,8 @@ package run
 // manifest key this build does not know, a supersession nothing matches, a retired user loophole)
 // through the loopholes package's one sink, each distinct line once per process. Every verb that
 // discovers loopholes says them that way: a jail launch, `yolo host --`'s doorways, `yolo check`.
-// So `yolo host apply` says them too, on stderr just above its notch line, whose loophole outcome
-// they explain (TestHostApplySaysLoopholeDiscoveryWarningsOnStderrAboveTheNotchLine), and so does
+// So `yolo host apply` says them too, on stderr before its notch line (its destinations report can
+// fall between them), whose loophole outcome they explain (TestHostApplySaysLoopholeDiscoveryWarningsOnStderrAboveTheNotchLine), and so does
 // `yolo host --`'s launch gate when `host_apply_on_launch` is on, since it runs the apply's
 // observe pass (internal/cli's hostapplygate.go). They are not the report's lines: the sink is
 // process-wide, and swapping it for one apply would race with that gate, whose observe pass runs
