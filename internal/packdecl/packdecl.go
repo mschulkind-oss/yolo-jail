@@ -573,8 +573,10 @@ func (m *Manifest) retiredFieldProblems() []string {
 	return problems
 }
 
-// DecodeTolerant parses a manifest, IGNORING fields — and SKIPPING contribution kinds —
-// this build does not know.
+// DecodeTolerant parses a manifest, SKIPPING the contributions whose kind, `via` or field this
+// build does not know, and IGNORING a pack-wide field it does not know, each reported in
+// `skipped` (a contribution of a kind that only restricts is kept without the field instead:
+// DecodeForUse, which the host's use read runs, says which).
 //
 // The strictness in Decode is right for authoring — a misspelled key that silently does
 // nothing is the worst outcome for a pack author — but it is wrong across a VERSION
@@ -625,6 +627,14 @@ func DecodeTolerant(data []byte) (m *Manifest, problems, skipped []string) {
 	if err := json.Unmarshal(clean, &man); err != nil {
 		return nil, []string{ManifestName + ": " + err.Error()}, nil
 	}
+	// A FIELD this build does not know, which json.Unmarshal above ignores, is the same class as
+	// an unknown kind one level down, and is read as the host's use read reads it
+	// (DecodeForUse, docs/design/patched-forks.md PF-D60 and PF-D61), so a jail renders what
+	// its launch said it would: the contribution holding it is skipped and named, unless its
+	// kind only restricts the agent, which is kept without the field. It used to be ignored in
+	// silence here, which rendered a contribution with half its declaration, and that half could
+	// be one validation refuses, which failed the boot.
+	fields, skipped := unknownFields(clean)
 	problems = append(man.validateSkillsTier(), man.validateSupersedes()...)
 	problems = append(problems, man.validateNeeds()...)
 	kept := make([]Contribution, 0, len(man.Contributes))
@@ -642,10 +652,7 @@ func DecodeTolerant(data []byte) (m *Manifest, problems, skipped []string) {
 						"rendered, and no build will render it again. %s", i, c.Kind, msg))
 				continue
 			}
-			skipped = append(skipped, fmt.Sprintf(
-				"contributes[%d]: skipping unknown kind %q — this build does not know it, "+
-					"so the contribution is not rendered (version skew; a build that "+
-					"knows the kind will render it)", i, c.Kind))
+			skipped = append(skipped, unknownKindNote(i, c.Kind))
 			continue
 		}
 		if msg := RetiredHook(c.Hook); msg != "" {
@@ -663,6 +670,12 @@ func DecodeTolerant(data []byte) (m *Manifest, problems, skipped []string) {
 		if note := unknownViaSkip(i, c); note != "" {
 			skipped = append(skipped, note)
 			continue
+		}
+		if note, keep := unknownFieldSkip(i, c, fieldAt(fields, i)); note != "" {
+			skipped = append(skipped, note)
+			if !keep {
+				continue
+			}
 		}
 		if trimmed, notes := unknownWireAPISkip(i, c); len(notes) > 0 {
 			skipped = append(skipped, notes...)

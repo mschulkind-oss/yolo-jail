@@ -1159,7 +1159,15 @@ func (c *hostComposition) envOverrideLines(getenv func(string) string) (refusal 
 // one each, as a jail launch prints them (WB-D12: a pack no config line named never joins a
 // launch in silence).
 func (c *hostComposition) selectionLines() []string {
-	return append([]string(nil), c.selection.causes...)
+	lines := append([]string(nil), c.selection.causes...)
+	// Then each contribution the selection's use read skipped, or kept without a field, because
+	// this yolo cannot read it (docs/design/patched-forks.md PF-D60): the line a jail launch
+	// prints for it (run's noteSkippedContributions), at this notch's front doors. A disclosure,
+	// so `yolo host --` and `yolo host env` both print it (OQ-RO3).
+	for _, note := range c.selection.skewNotes() {
+		lines = append(lines, "Warning: "+note)
+	}
+	return lines
 }
 
 // hostGrant is a --with-credentials request resolved against this launch's composed provider

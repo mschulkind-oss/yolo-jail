@@ -136,9 +136,10 @@ func TestPostureListEmptyAddIsANoOp(t *testing.T) {
 // ACROSS THE VERSION BOUNDARY. A well-formed posture list decodes on the tolerant path with no
 // problem, and a malformed one is refused there too — both builds understand a list with no
 // "add". And the property the design's skew row rests on (§4.5): a posture field THIS build
-// does not know is dropped silently by the tolerant decoder, never a problem and never a skip.
-// That is what an entrypoint older than `lists` does with `lists` — the entry renders nowhere,
-// which fails closed.
+// does not know is dropped by the tolerant decoder, never a problem and never a skip of the
+// autonomy contribution, which only restricts (docs/design/patched-forks.md PF-D61). That is what
+// an entrypoint older than `lists` does with `lists` — the entry renders nowhere, which fails
+// closed. Since PF-D60 the drop is named rather than silent.
 func TestPostureListTolerantPath(t *testing.T) {
 	good := `{"name":"p","contributes":[{"kind":"autonomy",` +
 		`"guarded":{"lists":[{"surface":"pi/settings","path":"/packages","add":["x"]}]}}]}`
@@ -158,12 +159,16 @@ func TestPostureListTolerantPath(t *testing.T) {
 	newer := `{"name":"p","contributes":[{"kind":"autonomy",` +
 		`"guarded":{"lists_from_a_newer_build":[{"surface":"pi/settings"}]}}]}`
 	m, problems, skipped = DecodeTolerant([]byte(newer))
-	if len(problems) != 0 || len(skipped) != 0 {
-		t.Fatalf("an unknown posture field must be dropped silently across the version "+
-			"boundary: problems=%v skipped=%v", problems, skipped)
+	if len(problems) != 0 || len(skipped) != 1 ||
+		!strings.Contains(skipped[0], `keeping the autonomy contribution without its unknown field "lists_from_a_newer_build"`) {
+		t.Fatalf("an unknown posture field must be dropped across the version boundary, the "+
+			"autonomy contribution kept and the drop named: problems=%v skipped=%v", problems, skipped)
 	}
 	if got := m.ListContributions(); len(got) != 0 {
 		t.Errorf("an unknown posture field produced lists: %+v", got)
+	}
+	if m.AutonomyContributions() == nil {
+		t.Error("the autonomy contribution was dropped with the field it could not read")
 	}
 }
 

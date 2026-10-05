@@ -79,12 +79,17 @@ func TestHostLaunchNamesTheMalformedPackDeclaringTheSelectedProfile(t *testing.T
 
 // A MANIFEST THAT DOES NOT DECODE refuses the launch the same way, naming the pack; with no
 // unusable pack, a profile nothing declares keeps the plain undeclared message.
+//
+// "Does not decode" is a value of the wrong type: one every build refuses. A field from a newer
+// yolo used to stand in for it here, and no longer does — a host launch reads such a pack and names
+// what it skips (docs/design/patched-forks.md PF-D60, pinned by
+// TestHostLaunchRunsAPackWithAFieldFromANewerYolo).
 func TestHostLaunchNamesAnUnusablePackBeforeAnUndeclaredProfile(t *testing.T) {
 	for _, broken := range []bool{true, false} {
 		_, dir := malformedPackHome(t, "", false, `,"profile":{"claude":"bp"}`)
 		if broken {
 			writeFile(t, filepath.Join(dir, "pack.json"),
-				`{"name":"bad","fieldFromANewerYolo":1,"contributes":[`+
+				`{"name":"bad","description":1,"contributes":[`+
 					strings.TrimSuffix(badProfileContribs, ",")+`]}`)
 		}
 		rc, reached, errw := hostExecRun(t, "claude")

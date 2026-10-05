@@ -69,9 +69,10 @@ type ResolvePackSpec struct {
 type ResolvedPack struct {
 	// Pack is the loaded pack, nil when packload.LoadDir could not load one (Problems says why).
 	Pack *packload.Pack
-	// Problems are LoadDir's problems over the tree the filters leave, each prefixed
+	// Problems are LoadDirForUse's problems over the tree the filters leave, each prefixed
 	// "pack <name>: ". A launch refuses a pack that has any; each caller keeps its own
-	// disposition.
+	// disposition. A contribution this build cannot read is no problem: it is skipped and
+	// named in Pack.SkewNotes.
 	Problems []string
 	// Staged is what the filters kept and dropped: the copy's in STAGE mode, the check's in
 	// DECLARATION mode. Nil only for an embedded pack read in place (unfiltered, declaration).
@@ -157,7 +158,10 @@ func ResolvePack(entry PackEntry, spec ResolvePackSpec) (ResolvedPack, error) {
 	if err != nil {
 		return fail(err)
 	}
-	out.Pack, out.Problems = packload.LoadDir(loadFrom, entry.Name)
+	// A USE READ (packload.LoadDirForUse): every notch and verb acts on what this resolves, so a
+	// contribution this build cannot read is skipped and named in Pack.SkewNotes rather than
+	// failing the pack (docs/design/patched-forks.md PF-D60). Each caller says so its own way.
+	out.Pack, out.Problems = packload.LoadDirForUse(loadFrom, entry.Name)
 	if out.Pack != nil && loadFrom != root {
 		out.Pack.SourceRoot = root
 	}

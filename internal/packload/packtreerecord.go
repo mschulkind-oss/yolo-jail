@@ -18,6 +18,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 // PackTreeRecordName is the record's file name, at the tree's top level, where the boot's
@@ -32,6 +33,14 @@ type PackTreeEntry struct {
 	Name string `json:"name"`
 	// Dir is the pack's directory, relative to the tree, slash-separated.
 	Dir string `json:"dir"`
+	// Skipped are the version-skew notes the launch already printed for this pack (Pack.SkewNotes
+	// without their "pack <name>: " prefix, since the boot names a pack by its directory): what
+	// the use read skipped, kept without a field, or ignored (docs/design/patched-forks.md
+	// PF-D60). The boot reads the same skips from the same manifest, and logs a note found here
+	// to boot.log only rather than printing the launch's line a second time; a note the launch
+	// did not print, as from an entrypoint of another build, still warns. Absent from a tree an
+	// older launch staged, and ignored by an older boot.
+	Skipped []string `json:"skipped,omitempty"`
 }
 
 type packTreeRecord struct {
@@ -47,7 +56,11 @@ func WritePackTreeRecord(root string, packs []*Pack) error {
 		if err != nil || !filepath.IsLocal(rel) {
 			return fmt.Errorf("packs: pack %s was loaded from %s, outside its tree %s", p.Name, p.Root, root)
 		}
-		rec.Packs = append(rec.Packs, PackTreeEntry{Name: p.Name, Dir: filepath.ToSlash(rel)})
+		entry := PackTreeEntry{Name: p.Name, Dir: filepath.ToSlash(rel)}
+		for _, note := range p.SkewNotes {
+			entry.Skipped = append(entry.Skipped, strings.TrimPrefix(note, "pack "+p.Name+": "))
+		}
+		rec.Packs = append(rec.Packs, entry)
 	}
 	data, err := json.MarshalIndent(rec, "", "  ")
 	if err != nil {

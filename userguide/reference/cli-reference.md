@@ -65,7 +65,11 @@ yolo pack update             # re-fetch git packs, and update agents installed f
 yolo pack status             # the commits you are pinned to
 yolo pack init <dir>         # start a pack of your own
 yolo pack lint <dir>         # check it
+yolo features                # what this yolo can read in a pack, such as patch-series
 ```
+
+A launch leaves out any part of a pack this yolo cannot read, such as a field a newer yolo added,
+and says which part; `yolo pack lint` refuses the same field, so a misspelling is still caught.
 
 See [Packs and Skills](../guides/packs-and-skills.md) and
 [Writing Your Own Pack](../guides/migrating-to-packs.md).

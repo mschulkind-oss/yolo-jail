@@ -918,7 +918,20 @@ func (o *Options) stagePackEntry(entry config.PackEntry, dest string) (*packload
 	if res.Pack == nil {
 		return nil, fmt.Errorf("packs: %s: could not be loaded", entry.Name)
 	}
+	o.noteSkippedContributions(res.Pack)
 	return res.Pack, nil
+}
+
+// noteSkippedContributions prints, to stderr, one line per contribution of p this yolo cannot
+// read and skipped (or, for a kind that only restricts, kept without the field it cannot read),
+// and per pack-wide field it ignored: Pack.SkewNotes from the use read (packload.LoadDirForUse,
+// docs/design/patched-forks.md PF-D60). A DISCLOSURE, so no quiet switch (OQ-RO3): the launch
+// goes on without what the line names, and the line is the only place that says so. The jail's
+// boot reads the same skips and logs them without repeating them (packload.PackTreeEntry.Skipped).
+func (o *Options) noteSkippedContributions(p *packload.Pack) {
+	for _, note := range p.SkewNotes {
+		o.pr(o.Stderr).print("[yellow]Warning: " + note + "[/yellow]")
+	}
 }
 
 // packBriefingProses is every briefing prose this pack delivers into a JAIL — one entry per

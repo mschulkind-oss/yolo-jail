@@ -128,7 +128,7 @@ func loadPackRootAsStaged(e *Env, root string) ([]*packload.Pack, error) {
 		var packs []*packload.Pack
 		for _, entry := range rec {
 			dir := filepath.Join(root, filepath.FromSlash(entry.Dir))
-			p, err := loadJailPack(e, dir, filepath.Base(dir))
+			p, err := loadJailPack(e, dir, filepath.Base(dir), entry.Skipped)
 			if err != nil {
 				return nil, err
 			}
@@ -159,7 +159,7 @@ func loadPackRootAsStaged(e *Env, root string) ([]*packload.Pack, error) {
 			if !ent.IsDir() || ent.Name() == "_official" {
 				continue
 			}
-			p, err := loadJailPack(e, filepath.Join(dir, ent.Name()), ent.Name())
+			p, err := loadJailPack(e, filepath.Join(dir, ent.Name()), ent.Name(), nil)
 			if err != nil {
 				return nil, err
 			}
@@ -170,10 +170,15 @@ func loadPackRootAsStaged(e *Env, root string) ([]*packload.Pack, error) {
 }
 
 // loadJailPack loads one staged pack directory under name, refusing a manifest problem (A12).
-func loadJailPack(e *Env, dir, name string) (*packload.Pack, error) {
+// disclosed are the skew notes the launch already printed for it (packload.PackTreeEntry.Skipped).
+func loadJailPack(e *Env, dir, name string, disclosed []string) (*packload.Pack, error) {
 	p, problems := packload.LoadDir(dir, name)
 	if len(problems) > 0 {
 		return nil, fmt.Errorf("pack %s: %s", name, problems[0])
+	}
+	said := make(map[string]bool, len(disclosed))
+	for _, note := range disclosed {
+		said[note] = true
 	}
 	// A contribution whose KIND this build does not know was skipped, not
 	// fatal (docs/reference/loophole-system.md#strict-and-tolerant-and-why-both):
@@ -186,7 +191,17 @@ func loadJailPack(e *Env, dir, name string) (*packload.Pack, error) {
 	// contribution printed five identical lines. The note is a property of the
 	// staged manifest, not of the reader that noticed it, and a reader added
 	// tomorrow must not make it six.
+	//
+	// A note the LAUNCH already printed (the host's use read skips what this read skips,
+	// docs/design/patched-forks.md PF-D60, and the tree's record lists what it printed) goes to
+	// boot.log only, so a skip is one line on the terminal, not one from each half. Matched
+	// without the "pack <name>: " prefix, since the launch names a pack by its config name and
+	// this side by its directory.
 	for _, note := range p.SkewNotes {
+		if said[strings.TrimPrefix(note, "pack "+name+": ")] {
+			e.noteOnce(note)
+			continue
+		}
 		e.warnOnce(note)
 	}
 	return p, nil

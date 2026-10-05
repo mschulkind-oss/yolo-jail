@@ -1381,6 +1381,14 @@
     commit SHA is never re-fetched by a launch, so a pin is how to freeze a pack that
     carries host code (only an explicit `yolo pack install`/`update` follows a
     re-pointed tag).
+    [bold]A pack written for a newer yolo:[/bold] a contribution holding a kind, a `via` or a
+    field this yolo does not know is left out of every launch, which prints one line naming
+    the pack, the contribution and the field; a field outside every contribution is ignored
+    and named the same way.  A `blocked-tool`, `intercept` or `autonomy` contribution only
+    restricts, so it is kept without the field instead.  `yolo check` warns about each one,
+    `yolo host apply --assert` writes nothing while one is left out, and `yolo pack lint`
+    refuses the field, so a misspelling is still caught.  `yolo features` lists what this
+    yolo reads, such as patch-series, patched-extensions, kind:<kind> and via:<via>.
     A pack.json declares effects as a "contributes" list, one entry per effect with a
     "kind" from the closed set:
       program       a tool on PATH: {bin, via:"npm"|"installer"|"source", package|url, flags}
@@ -1509,10 +1517,19 @@
                     record claims, the previous copy archived first, and a render
                     that cannot prove ownership refuses and touches nothing.
                     A PATCHED EXTENSION replaces `from` with `source` (the upstream) and
-                    `patches` (a series, as for a patched fork), with optional `build` and
-                    `produces` (paths relative to the built tree): yolo builds the tree on
-                    the host and mounts a read-only copy at `into` (the pi pack's
-                    extensions use it; add the `pi/settings` package entry naming `into`).
+                    `patches` (a series, as for a patched fork), with optional `follow`
+                    (as for a patched fork), `build` and `produces` (paths relative to the
+                    built tree): yolo builds the tree on the host and mounts a read-only
+                    copy at `into` (the pi pack's extensions use it).  Put it at
+                    `into: ".pi/agent/yolo-patched/<name>"`, outside ~/.pi/agent/extensions/
+                    where pi would also find it by itself.  pi loads it only through a
+                    `config-list` entry in `pi/settings` `/packages` that is ~/ plus `into`
+                    (~/.pi/agent/yolo-patched/<name>), or a path under it, with no slash at
+                    the end; without one the tree is built and mounted, pi never loads it,
+                    and `yolo pack lint` and each launch say so.  Drop the extension's old
+                    `git:` entry in the same edit, or pi loads it twice.  Its key in
+                    `yolo pack rebase` and `yolo capture` is <pack>/<name>, <name> being
+                    the last part of `into`.
       config        {config:[surface...]} — a composed config surface (see below)
       config-overlay {surface:"agent/name", config:{managed:{...}}, profile} — keys on a surface
                     another pack owns.  `managed` is the ONLY body field: a contributor

@@ -185,6 +185,20 @@ func (e *Env) warnOnce(msg string) {
 	e.warn(msg)
 }
 
+// noteOnce is warnOnce for a finding the terminal has already been told: written to the boot log
+// only (note), at most once per Env for any given text. It is how a skew note the launch printed
+// (packload.PackTreeEntry.Skipped) stays on the record without a second terminal line.
+func (e *Env) noteOnce(msg string) {
+	key := "note\x00" + msg
+	if e.warnedOnce == nil {
+		e.warnedOnce = make(map[string]struct{})
+	} else if _, seen := e.warnedOnce[key]; seen {
+		return
+	}
+	e.warnedOnce[key] = struct{}{}
+	e.note(msg)
+}
+
 // note writes a line to the boot log ONLY, never the terminal. Use it for the
 // positive record — "this check ran, and here is what it found" — that a reader of
 // the log needs and a user watching a healthy launch does not. See Env.LogOnly.
