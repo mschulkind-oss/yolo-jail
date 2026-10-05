@@ -31,12 +31,12 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/version"
 )
 
-// noteMacosUserHostByteGaps (loopholeinert.go) LOST ITS LAST CALLER on 2026-10-05: the one
-// shape it named, a directory `host_files` entry, crosses by copy now (buildMacosCtxTree). It is
-// deleted with its file's next edit, together with this reference and macosCtxDelivery's
-// undeliveredDirs, which only it reads; until then this keeps the dead printer from failing the
-// lint gate's unused-code check.
-var _ = (*Options).noteMacosUserHostByteGaps
+// macosCtxDelivery's undeliveredDirs field LOST ITS LAST READER on 2026-10-05, when
+// noteMacosUserHostByteGaps was deleted: the one shape it named, a directory `host_files` entry,
+// crosses by copy now (buildMacosCtxTree). The field goes with macosctxtree.go's next edit, and
+// this reference with it; until then this keeps the field from failing the lint gate's
+// unused-code check.
+var _ = macosCtxDelivery{}.undeliveredDirs
 
 // Run validates config, resolves the runtime, then either execs into
 // an existing container or launches a fresh one. Returns the process exit code.
@@ -537,6 +537,9 @@ func Run(opts Options) (rc int) {
 		}
 		o.noteCredentialScope(channel)
 		o.noteMacosUserCredentialScope(channel, launched)
+		// THE PORT REMAPS (macosuserportrelay.go): planned once, so the relays this launch opens,
+		// the plan a --dry-run prints and the port-key notice below read one answer.
+		portPlan := o.macosUserPortPlan(rt, cfg)
 		if o.DryRun {
 			// A plan render starts nothing, so the spawn boundary is not crossed: there is
 			// no host EXECUTION to disclose (a line saying otherwise would name daemons this
@@ -564,6 +567,9 @@ func Run(opts Options) (rc int) {
 				o.pr(o.Stderr).print(fmt.Sprintf("Would open the %q doorway (pack %q) on %v for "+
 					"this launch, outside the sandbox, until the command exits: %s", plan.Service,
 					plan.Pack, plan.Addresses(), strings.Join(plan.Cmd, " ")))
+			}
+			for _, r := range portPlan.relays {
+				o.pr(o.Stderr).print(relayDisclosure("Would relay", r))
 			}
 			if openAIAuthLoopholeActive(cfg) {
 				launchEnv.Set(hostServiceEnvVar(openAIAuthBrokerName),
@@ -666,7 +672,7 @@ func Run(opts Options) (rc int) {
 		// The keys that are wrong on THIS backend are wrong for a reason no other
 		// backend shares, so the printer is this backend's.
 		o.noteMacosUserPlatformGaps(cfg)
-		o.noteMacosUserPortKeys(cfg)
+		o.noteMacosUserPortKeys(cfg, portPlan)
 		// A FORK DELIVERS NO PROGRAM ON THIS BACKEND, and says so (FP-D3; forkbuild.go): the build
 		// trigger sits below this arm's return, and no macos-user launch can read the capture
 		// store yet (hand-off H4). The sandbox's own launcher for the program is told the same
@@ -852,11 +858,18 @@ func Run(opts Options) (rc int) {
 		// run starts nothing, and Run's deferred record says so.
 		if !o.DryRun {
 			o.recordLaunchOutcome(launchStarted, -1)
+			// THE PORT REMAPS' RELAYS (macosuserportrelay.go), opened once the launch's fate is
+			// known, so a launch refused above opens no port, and before the reserved ports go
+			// free below, so a relay never takes one a guest daemon was promised. None refuses:
+			// one whose port is taken warns and is skipped. Each closes, with its live
+			// connections, when the command returns.
+			stopRelays := o.startMacosUserPortRelays(portPlan.relays)
+			defer stopRelays()
 		}
 		// THE GUEST'S PORTS GO FREE HERE, and no earlier (servedaddresses.go, NC-D69): the
 		// sandbox's supervisor binds the ports this launch reserved for the daemons it runs,
 		// and every listener of this launch's own (the host services' fronts, the doorways and
-		// launch-owned services, which were handed theirs) is bound by now.
+		// launch-owned services, which were handed theirs, and the port relays) is bound by now.
 		o.releaseReservedPorts()
 		// THE HERDR PANE, registered as late as this arm can (herdragent.go): it has no signal
 		// arm, so a registration made before its config prompt outlived a Ctrl-C there.

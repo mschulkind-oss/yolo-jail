@@ -184,11 +184,12 @@ func (o *Options) refreshJailBriefings(cname string, cfg *jsonx.OrderedMap, rt s
 		// THE STANDING CONSTRAINTS OF THIS BACKEND, in the agent's voice. Unset for the
 		// whole life of the field (DP-B21): backendLimits had no production call site, so
 		// the "What this environment does NOT do for you" section never rendered once —
-		// while run.noteMacosUserHostByteGaps' no-refusal carve-out says in as many words
-		// that it "is only defensible while the deficiency is SAID — here, and in the
-		// agent's own briefing (backendLimits)". Half of a shipped ruling's stated
-		// precondition did not execute.
-		BackendLimits: backendLimits(rt, staged.packs, cfg),
+		// while the no-refusal carve-out of run.noteMacosUserHostByteGaps (since deleted) said
+		// in as many words that it "is only defensible while the deficiency is SAID — here,
+		// and in the agent's own briefing (backendLimits)". Half of a shipped ruling's stated
+		// precondition did not execute. The port remaps come from the plan the macos-user arm
+		// relays (macosUserPortPlan), which reads the same config and resolved mode.
+		BackendLimits: backendLimits(rt, staged.packs, cfg, o.macosUserPortPlan(rt, cfg).relays),
 		Handoff:       handoff,
 		// An attach that went ahead under the attach-skew acknowledgment, and only that: what the
 		// jail could not take, for the session this attach starts (SK-D15). Nil otherwise.

@@ -51,7 +51,7 @@ func workspaceStatePack(t *testing.T) *packload.Pack {
 // the reader to skip it.
 func TestBackendLimitsAreEmptyForContainerBackends(t *testing.T) {
 	for _, rt := range []string{"podman", "container"} {
-		if got := backendLimits(rt, []*packload.Pack{limitPack(t)}, jsonx.NewOrderedMap()); len(got) != 0 {
+		if got := backendLimits(rt, []*packload.Pack{limitPack(t)}, jsonx.NewOrderedMap(), nil); len(got) != 0 {
 			t.Errorf("%s: got %d limits, want none: %v", rt, len(got), got)
 		}
 	}
@@ -61,7 +61,7 @@ func TestBackendLimitsAreEmptyForContainerBackends(t *testing.T) {
 // launch to stderr, where the human reads it and the agent never does.
 func TestBackendLimitsTellTheAgentWhatStderrTellsTheHuman(t *testing.T) {
 	got := strings.Join(backendLimits("macos-user",
-		[]*packload.Pack{limitPack(t)}, jsonx.NewOrderedMap()), "\n")
+		[]*packload.Pack{limitPack(t)}, jsonx.NewOrderedMap(), nil), "\n")
 
 	// The home is machine-wide: an agent believing it is its own writes project state
 	// into a directory every other workspace reads.
@@ -85,7 +85,7 @@ func TestBackendLimitsTellTheAgentWhatStderrTellsTheHuman(t *testing.T) {
 // the set without being moved out of the unavailable sentence fails here.
 func TestBackendLimitsDoNotCallTheGuestClientsUnavailable(t *testing.T) {
 	var line string
-	for _, l := range backendLimits("macos-user", []*packload.Pack{limitPack(t)}, jsonx.NewOrderedMap()) {
+	for _, l := range backendLimits("macos-user", []*packload.Pack{limitPack(t)}, jsonx.NewOrderedMap(), nil) {
 		if strings.Contains(l, "are not available here") {
 			line = l
 		}
@@ -109,7 +109,7 @@ func TestBackendLimitsDoNotCallTheGuestClientsUnavailable(t *testing.T) {
 // content — so only the backend's own standing facts survive. A limit list that reported
 // constraints a jail does not have would be the same overclaim in a new place.
 func TestBackendLimitsScaleWithWhatIsActuallyThere(t *testing.T) {
-	got := backendLimits("macos-user", nil, jsonx.NewOrderedMap())
+	got := backendLimits("macos-user", nil, jsonx.NewOrderedMap(), nil)
 	joined := strings.Join(got, "\n")
 	if strings.Contains(joined, "SHARED by every workspace") {
 		t.Errorf("claimed shared state dirs for a jail with no packs:\n%s", joined)
@@ -134,7 +134,7 @@ func TestBackendLimitsScaleWithWhatIsActuallyThere(t *testing.T) {
 // feature.
 func TestBackendLimitsNoLongerCallTheAgentConfigADefault(t *testing.T) {
 	got := strings.Join(backendLimits("macos-user",
-		[]*packload.Pack{limitPack(t)}, jsonx.NewOrderedMap()), "\n")
+		[]*packload.Pack{limitPack(t)}, jsonx.NewOrderedMap(), nil), "\n")
 
 	if strings.Contains(got, "DEFAULTS") {
 		t.Errorf("the briefing still tells the agent its config was rendered from defaults, "+
@@ -159,7 +159,7 @@ func TestBackendLimitsNoLongerCallTheAgentConfigADefault(t *testing.T) {
 // two tiers can tell them apart.
 func TestBackendLimitsDoNotCallWorkspaceStateShared(t *testing.T) {
 	got := strings.Join(backendLimits("macos-user",
-		[]*packload.Pack{workspaceStatePack(t)}, jsonx.NewOrderedMap()), "\n")
+		[]*packload.Pack{workspaceStatePack(t)}, jsonx.NewOrderedMap(), nil), "\n")
 
 	if strings.Contains(got, "SHARED by every workspace") {
 		t.Errorf("a scope:workspace state dir is linked into this workspace's own sidecar, "+
@@ -181,7 +181,7 @@ func TestBackendLimitsDoNotCallWorkspaceStateShared(t *testing.T) {
 // any declaration.
 func TestBackendLimitsSayBindingIsPublishingWithNoNamespace(t *testing.T) {
 	for _, packs := range [][]*packload.Pack{nil, {limitPack(t)}} {
-		got := strings.Join(backendLimits("macos-user", packs, jsonx.NewOrderedMap()), "\n")
+		got := strings.Join(backendLimits("macos-user", packs, jsonx.NewOrderedMap(), nil), "\n")
 		if !strings.Contains(got, "no network namespace") {
 			t.Errorf("does not tell the agent there is no network namespace:\n%s", got)
 		}
@@ -191,7 +191,7 @@ func TestBackendLimitsSayBindingIsPublishingWithNoNamespace(t *testing.T) {
 	}
 	// And no container backend gains it: there the usual reading is the correct one.
 	for _, rt := range []string{"podman", "container"} {
-		if got := strings.Join(backendLimits(rt, nil, jsonx.NewOrderedMap()), "\n"); got != "" {
+		if got := strings.Join(backendLimits(rt, nil, jsonx.NewOrderedMap(), nil), "\n"); got != "" {
 			t.Errorf("%s gained a standing limit: %s", rt, got)
 		}
 	}
@@ -202,7 +202,7 @@ func TestBackendLimitsSayBindingIsPublishingWithNoNamespace(t *testing.T) {
 // without packs, and never on a container backend, whose userland is GNU.
 func TestBackendLimitsSayTheUserlandIsBSD(t *testing.T) {
 	for _, packs := range [][]*packload.Pack{nil, {limitPack(t)}} {
-		got := strings.Join(backendLimits("macos-user", packs, jsonx.NewOrderedMap()), "\n")
+		got := strings.Join(backendLimits("macos-user", packs, jsonx.NewOrderedMap(), nil), "\n")
 		for _, want := range []string{"the Mac's own BSD tools", "unless `packages:` or a mise tool",
 			"`sed -i ''`", "`find -printf`", "`grep -P`", "`tar --wildcards`", "Write portable invocations"} {
 			if !strings.Contains(got, want) {
@@ -211,7 +211,7 @@ func TestBackendLimitsSayTheUserlandIsBSD(t *testing.T) {
 		}
 	}
 	for _, rt := range []string{"podman", "container"} {
-		if got := strings.Join(backendLimits(rt, nil, jsonx.NewOrderedMap()), "\n"); strings.Contains(got, "BSD") {
+		if got := strings.Join(backendLimits(rt, nil, jsonx.NewOrderedMap(), nil), "\n"); strings.Contains(got, "BSD") {
 			t.Errorf("%s was told its userland is BSD: %s", rt, got)
 		}
 	}
@@ -251,9 +251,53 @@ func TestBackendLimitsNameTheLogAndDeviceSettings(t *testing.T) {
 		}
 	}
 	for _, rt := range []string{"podman", "container"} {
-		got := strings.Join(backendLimits(rt, nil, jsonx.NewOrderedMap()), "\n")
+		got := strings.Join(backendLimits(rt, nil, jsonx.NewOrderedMap(), nil), "\n")
 		if strings.Contains(got, logLine) || strings.Contains(got, devLine) {
 			t.Errorf("%s was told about the macos-user log or device refusal: %s", rt, got)
 		}
+	}
+}
+
+// THE REMAPS THE LAUNCH RELAYS reach the agent, which reads no stderr: one sentence naming each in
+// the direction the agent uses it, only when there is one, and only on macos-user.
+func TestBackendLimitsNameTheRelayedRemaps(t *testing.T) {
+	netSec := jsonx.NewOrderedMap()
+	netSec.Set("ports", []any{"8000:3000", "3001:3001"})
+	netSec.Set("forward_host_ports", []any{"8080:9090", 5432})
+	cfg := newConfig("network", netSec)
+	relays := planMacosUserPortRelays(cfg, "").relays
+
+	got := strings.Join(backendLimits("macos-user", nil, cfg, relays), "\n")
+	for _, want := range []string{
+		"This launch relays the config's port remaps from outside the sandbox, over TCP and for this session only",
+		"`localhost:8080` here reaches the host's port 9090 (`network.forward_host_ports` entry 8080:9090)",
+		"your `127.0.0.1:3000` is also published at the host's `0.0.0.0:8000` (`network.ports` entry 8000:3000)",
+		"A relay whose host port was already taken at launch is not running",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("the relay sentence lacks %q:\n%s", want, got)
+		}
+	}
+	for _, unwanted := range []string{"3001", "5432"} {
+		if strings.Contains(got, unwanted) {
+			t.Errorf("a same-port entry (%s) was named as relayed:\n%s", unwanted, got)
+		}
+	}
+	if got := strings.Join(backendLimits("macos-user", nil, cfg, nil), "\n"); strings.Contains(got, "relays") {
+		t.Errorf("a launch relaying nothing was told it relays:\n%s", got)
+	}
+	if got := backendLimits("podman", nil, cfg, relays); len(got) != 0 {
+		t.Errorf("podman gained a limits section from relays it never opens: %v", got)
+	}
+
+	// And through the briefing a launch composes, from the plan the launch acts on: the relay
+	// sentence is there for the default bridge, and gone for a typed `--network host`, which
+	// drops both keys — so refreshJailBriefings must read the RESOLVED mode, not the config's.
+	if got := macosUserBriefing(t, appliedTestConfig("network", netSec)); !strings.Contains(got, "`localhost:8080` here reaches") {
+		t.Errorf("the composed briefing does not name the relayed remap:\n%s", got)
+	}
+	got = macosUserBriefingWith(t, appliedTestConfig("network", netSec), func(o *Options) { o.Network = "host" })
+	if strings.Contains(got, "relays the config's port remaps") {
+		t.Errorf("a `--network host` briefing names remaps the launch does not relay:\n%s", got)
 	}
 }

@@ -468,10 +468,16 @@ func TestMacosUserBriefingSaysHostNetworkingAndAdvertisesNoPorts(t *testing.T) {
 				section, got)
 		}
 	}
-	// The `8000:3000` row is the sharpest case: the mapping is not merely unwired, it is
-	// unsatisfiable — the agent's port 3000 is 3000 on the machine, not 8000.
-	if strings.Contains(got, "8000") {
-		t.Errorf("stated a port mapping nothing performs:\n%s", got)
+	// The `8000:3000` row: since 2026-10-05 the launch RELAYS the remap from outside the sandbox
+	// (macosuserportrelay.go), so the briefing names it — in the standing-constraints section the
+	// relay plan feeds (backendLimits, through refreshJailBriefings), never as a port section,
+	// and nowhere else.
+	relay := "your `127.0.0.1:3000` is also published at the host's `0.0.0.0:8000` (`network.ports` entry 8000:3000)"
+	if !strings.Contains(got, relay) {
+		t.Errorf("the briefing does not name the remap the launch relays (want %q):\n%s", relay, got)
+	}
+	if n := strings.Count(got, "8000"); n != 2 {
+		t.Errorf("the briefing mentions 8000 %d times, want only the relay sentence's two:\n%s", n, got)
 	}
 }
 
@@ -543,9 +549,9 @@ func TestMacosUserBriefingStatesNoResourceLimits(t *testing.T) {
 // DP-B21 / DP-L9, THE CALL SITE. backendLimits had no production caller for its whole
 // life, so "What this environment does NOT do for you" — the section carrying every
 // macos-user constraint an agent reasons wrongly without — had never rendered once. That
-// is a stated precondition of a shipped ruling: noteMacosUserHostByteGaps' no-refusal
-// carve-out says it "is only defensible while the deficiency is SAID — here, and in the
-// agent's own briefing (backendLimits)".
+// was a stated precondition of a shipped ruling: the no-refusal carve-out of
+// noteMacosUserHostByteGaps (since deleted) said it "is only defensible while the deficiency
+// is SAID — here, and in the agent's own briefing (backendLimits)".
 //
 // Asserted through the WRITTEN briefing rather than through backendLimits, which is the
 // whole point: the unit tests in backendlimits_test.go were green throughout, because the

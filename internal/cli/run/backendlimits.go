@@ -40,11 +40,14 @@ import (
 // on both ends: the human hears it only when they DECLARED a port key, because a warning
 // about a key nobody wrote is the one OQ-BP-3 says readers learn to skip, while the sentence
 // below is unconditional — the agent binds ports whether the config ever mentioned them
-// or not.
+// or not. The REMAPS this launch relays are the other way round, conditional on both ends,
+// and from one plan (planMacosUserPortRelays): the notice names them to the human, and the
+// relay sentence below to the agent.
 
 // backendLimits returns the standing constraints of `rt` for the agent's briefing,
-// or nil when the backend imposes none (every container backend today).
-func backendLimits(rt string, packs []*packload.Pack, cfg *jsonx.OrderedMap) []string {
+// or nil when the backend imposes none (every container backend today). relays are the port
+// remaps this launch relays (macosUserPortPlan), named so the agent can use them.
+func backendLimits(rt string, packs []*packload.Pack, cfg *jsonx.OrderedMap, relays []macosUserPortRelay) []string {
 	if rt != "macos-user" {
 		return nil
 	}
@@ -83,12 +86,12 @@ func backendLimits(rt string, packs []*packload.Pack, cfg *jsonx.OrderedMap) []s
 	// surface composes the human's real file (internal/cli/run/macosctxtree.go).
 	//
 	// Leaving it would be strictly worse than never having written it. The human-facing
-	// warnings it paired with are retired on the same evidence (noteMacosUserHostByteGaps),
-	// and an agent told its config is not the human's would discount preferences that ARE
-	// theirs — a standing constraint that is false is acted on for the whole session, with
-	// no moment of use to correct it at. The remaining asymmetry is the one every backend
-	// has: a grant whose host file does not exist composes from defaults, which needs no
-	// line here because it is not this backend's fact.
+	// warnings it paired with were retired on the same evidence (in the since-deleted
+	// noteMacosUserHostByteGaps), and an agent told its config is not the human's would
+	// discount preferences that ARE theirs — a standing constraint that is false is acted on
+	// for the whole session, with no moment of use to correct it at. The remaining asymmetry
+	// is the one every backend has: a grant whose host file does not exist composes from
+	// defaults, which needs no line here because it is not this backend's fact.
 
 	// Content is a writable copy rather than a read-only mount.
 	if len(packs) > 0 {
@@ -135,6 +138,12 @@ func backendLimits(rt string, packs []*packload.Pack, cfg *jsonx.OrderedMap) []s
 		"the human's REAL machine, on its real interfaces, listed in `network.ports` or not. "+
 		"Nothing publishes a port and nothing confines one — bind to `127.0.0.1` when you do "+
 		"not mean to expose a service to their network.")
+	// AND THE REMAPS THE LAUNCH RELAYS, which the agent has no other way to learn: the briefing's
+	// port sections are the container mechanism's and stay out (appliedNetMode is "host" here),
+	// and the relays' own lines are on the human's terminal. Only when there is one.
+	if line := relaySentenceForAgent(relays); line != "" {
+		out = append(out, line)
+	}
 
 	// THE USERLAND IS THE MAC'S, and an agent trained mostly on Linux shells reaches for GNU
 	// flags without thinking. UNCONDITIONAL, like the network sentence: whether a GNU build is
