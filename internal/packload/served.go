@@ -70,7 +70,8 @@ type ServedDaemons struct {
 	host bool
 	// notServed is why this launch leaves a named daemon unserved, keyed by daemon name, where
 	// the launch knows a reason the notch alone does not say (WithNotServedWhy): the loophole
-	// is disabled, or the front door owns no process lifetime to open a doorway for.
+	// is disabled, or the front door owns no process lifetime to open a doorway for. A pointer
+	// at a BOUND LOOPHOLE never reads it (notBoundWhy says why).
 	notServed map[string]string
 	// mountsNothing marks a jail notch that binds nothing into its jail (MountsNothing):
 	// macos-user, whose Seatbelt sandbox is a process on the host's own filesystem. A pointer at
@@ -144,19 +145,20 @@ func (s ServedDaemons) notServedWhy(daemon string) string {
 // why this launch has none, ending in what a client does without the pointer: at the host it
 // reaches the host's own server at its default path, which a pointer at a jail path would only
 // defeat.
+//
+// THE NOTCH DECIDES, never the launch's reason (notServed). That map says why a launch did not
+// run a jail daemon or open a doorway, and a bound loophole has neither: at `yolo host --` it
+// holds a doorway's reason for every profile-served name (internal/cli/run's PlanHostDoorways),
+// a gated pointer at a bound loophole included, and its next step ("`yolo host --` opens its
+// doorway ... once ... enabled") is one no switch takes for a bind. A set that runs nothing is
+// the host's answer (NothingServed), so it gets the host's clause.
 func (s ServedDaemons) notBoundWhy(loophole string) string {
-	if why := s.notServed[loophole]; why != "" {
-		return why + ", so nothing would answer it"
-	}
 	switch {
-	case s.host:
+	case s.host || !s.runs:
 		return "and the host has no jail to bind it into, so a client here reaches the host's own " +
 			"server at its default path instead"
 	case s.mountsNothing:
 		return "which the macos-user sandbox does not have: it binds nothing into the jail, so " +
-			"nothing would answer it"
-	case !s.runs:
-		return "which nothing binds here: only a container jail carries a loophole's binds, so " +
 			"nothing would answer it"
 	default:
 		return "which this launch did not bind: the loophole is off (`\"loopholes\": {" +

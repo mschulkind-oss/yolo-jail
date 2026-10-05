@@ -650,3 +650,43 @@ func servedByFixturePack(t *testing.T, name, decl string) *packload.Pack {
 	}
 	return loadPack(t, root)
 }
+
+// A NOTCH THAT BINDS NOTHING OUTRANKS ANY REASON A LAUNCH GIVES (docs/design/loophole-packaging.md
+// LP-D1). At `yolo host --` the launch's served set carries a reason for every profile-served name
+// it did not open a doorway for (internal/cli/run's PlanHostDoorways), a gated pointer `served_by`
+// a bound loophole included, and that reason is a doorway's: "`yolo host --` opens its doorway for
+// this agent once ... sets `"loopholes": {...: {"enabled": true}}`". No switch gives the host a jail
+// to bind into, so a bound pointer there gets the host's own clause, and on macos-user the sandbox's.
+// The zero value is the host's answer too (NothingServed), so it words a bound pointer as the host
+// does.
+func TestABoundPointersNotchClauseOutranksTheLaunchsReason(t *testing.T) {
+	const head = `PIPEWIRE_REMOTE, PULSE_SERVER — points at what the "audio" loophole binds into a jail, `
+	const hostClause = head + "and the host has no jail to bind it into, so a client here reaches the host's own server"
+	doorwayWhy := map[string]string{audioLoopholeName: "which this launch does not open, because loophole " +
+		`"audio" is disabled: ` + "`yolo host --`" + ` opens its doorway for this agent once ` +
+		`config.jsonc sets ` + "`" + `"loopholes": {"audio": {"enabled": true}}` + "`"}
+	for _, tc := range []struct {
+		name   string
+		served packload.ServedDaemons
+		want   string
+	}{
+		{"the host", packload.NothingServed().AtHost().WithNotServedWhy(doorwayWhy), hostClause},
+		{"the host with a doorway open", packload.ServedByLaunch([]string{"aws-auth"}).AtHost().
+			WithNotServedWhy(doorwayWhy), hostClause},
+		{"macos-user", packload.ServedInJail(nil).MountsNothing().WithNotServedWhy(doorwayWhy),
+			head + "which the macos-user sandbox does not have: it binds nothing into the jail"},
+		{"a set that runs nothing", packload.NothingServed(), hostClause},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			lines := strings.Join(packload.UnservedLines(audioScope(t, tc.served), nil, nil), "\n")
+			if !strings.Contains(lines, tc.want) {
+				t.Errorf("the withheld line does not say %q:\n%s", tc.want, lines)
+			}
+			for _, wrong := range []string{"opens its doorway", "is disabled", "did not bind"} {
+				if strings.Contains(lines, wrong) {
+					t.Errorf("the withheld line says %q, a next step no switch takes at this notch:\n%s", wrong, lines)
+				}
+			}
+		})
+	}
+}
