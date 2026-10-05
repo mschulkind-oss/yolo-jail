@@ -18,14 +18,21 @@ import (
 // (h) and the concurrency guarantee (i). A mocked git would pass while the real invocations
 // were wrong, which is the only failure mode that matters for a fetch.
 
-// gitIn runs git in dir with a clean environment and a fixed identity, returning stdout.
+// gitTestEnv is the environment every fixture git runs in: a clean, hermetic environment and a
+// fixed identity, so a commit a test makes never depends on the machine's git configuration (a
+// runner with no identity configured otherwise fails every commit with "Author identity unknown").
+func gitTestEnv() []string {
+	return append(testsupport.HermeticGitEnv(CleanGitEnv(os.Environ())),
+		"GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@e",
+		"GIT_COMMITTER_NAME=t", "GIT_COMMITTER_EMAIL=t@e")
+}
+
+// gitIn runs git in dir in gitTestEnv, returning stdout.
 func gitIn(t *testing.T, dir string, args ...string) string {
 	t.Helper()
 	cmd := exec.Command("git", args...)
 	cmd.Dir = dir
-	cmd.Env = append(testsupport.HermeticGitEnv(CleanGitEnv(os.Environ())),
-		"GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@e",
-		"GIT_COMMITTER_NAME=t", "GIT_COMMITTER_EMAIL=t@e")
+	cmd.Env = gitTestEnv()
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("git %v: %v\n%s", args, err, out)

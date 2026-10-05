@@ -326,11 +326,18 @@ func TestRebaseFinishedTellsAFinishedRebase(t *testing.T) {
 	r2dir := filepath.Join(t.TempDir(), "clone")
 	u.rebase(t, series, ListEntry{Commit: v11, Tag: "v1.1.0"}, r2dir)
 	_, m2, _ := InspectRebaseDir(r2dir)
-	for RebaseInProgress(r2dir) {
+	// Each member conflicts in turn, so a continue that stops at the next member exits non-zero
+	// and the loop resolves that one too. The continue runs in the fixtures' environment, whose
+	// fixed identity it needs to commit, and the loop is bounded: a continue that cannot commit
+	// leaves the rebase where it was, and an unbounded loop then spins until the package times out.
+	for i := 0; RebaseInProgress(r2dir); i++ {
+		if i == 10 {
+			t.Fatal("the rebase is still in progress after 10 continues")
+		}
 		writeTestFile(t, filepath.Join(r2dir, "f.txt"), thirtyLines(map[int]string{10: "ten", 11: "eleven", 12: "twelve"}))
 		gitIn(t, r2dir, "add", "f.txt")
 		cmd := exec.Command("git", "-C", r2dir, "-c", "core.editor=true", "rebase", "--continue")
-		cmd.Env = append(os.Environ(), "GIT_EDITOR=true")
+		cmd.Env = append(gitTestEnv(), "GIT_EDITOR=true")
 		_ = cmd.Run()
 	}
 	if !u.store.RebaseFinished(r2dir, m2) {
