@@ -404,3 +404,107 @@ func TestHostLaunchSaysWhenTheShellAlreadyCarriesTheHatch(t *testing.T) {
 		t.Errorf("the launch did not say the hatch is already set:\n%s", errs)
 	}
 }
+
+// THE CHILD'S PATH IS THE ONE EVERY BLOCKER LOOKUP READS (HE-D11, HE-D12): the replacement rule,
+// the real grep and find, and the program behind every other block are all found on the PATH the
+// program is handed — the launch PATH, `host_path`'s folders included, then the floor's bin/ —
+// never on the shell's PATH alone. So rg, fd, grep, find and a user-blocked tool that live only in
+// a `host_path` folder are found there: grep and find are blocked, a grep the shim lets through is
+// the host_path one, and the hatch runs the host_path tool. It is the advice the missing-
+// replacement note gives ("name its folder in `host_path`"), held to.
+func TestHostLaunchFindsEveryBlockersProgramsOnTheHostPathFolders(t *testing.T) {
+	home, _ := blockerHostFixture(t, `{"packs": ["guardrails"], "host_path": ["~/tools/bin"], `+
+		`"security": {"blocked_tools": ["yolo-fixture-tool"]}}`)
+	sys := filepath.SplitList(os.Getenv("PATH"))[1]
+	realGrep, err := os.Readlink(filepath.Join(sys, "grep"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	realFind, err := os.Readlink(filepath.Join(sys, "find"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"grep", "find"} {
+		if err := os.Remove(filepath.Join(sys, name)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	tools := filepath.Join(home, "tools", "bin")
+	for name, body := range map[string]string{
+		"rg":                "#!/bin/sh\nexit 0\n",
+		"fd":                "#!/bin/sh\nexit 0\n",
+		"grep":              "#!/bin/sh\necho 'host_path grep ran'\nexec " + realGrep + " \"$@\"\n",
+		"find":              "#!/bin/sh\nexec " + realFind + " \"$@\"\n",
+		"yolo-fixture-tool": "#!/bin/sh\necho \"host_path tool ran: $*\"\n",
+	} {
+		writeFile(t, filepath.Join(tools, name), body)
+		if err := os.Chmod(filepath.Join(tools, name), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	got, errs := launchCapturing(t)
+	childPath := envValue(got.env, "PATH")
+	if !strings.Contains(childPath, tools) {
+		t.Fatalf("setup: the host_path folder %s is not on the child's PATH %s", tools, childPath)
+	}
+	if strings.Contains(errs, "not blocking") {
+		t.Errorf("a blocker's program in a host_path folder was read as missing:\n%s", errs)
+	}
+	blockDir := filepath.SplitList(childPath)[0]
+	if filepath.Dir(blockDir) != paths.HostBlockDir() {
+		t.Fatalf("the child's PATH does not start with a block dir: %s\n%s", childPath, errs)
+	}
+	for _, name := range []string{"grep", "find", "yolo-fixture-tool"} {
+		if _, err := os.Stat(filepath.Join(blockDir, name)); err != nil {
+			t.Errorf("%s is not blocked although everything it needs is in host_path (%v):\n%s", name, err, errs)
+		}
+	}
+
+	work := t.TempDir()
+	writeFile(t, filepath.Join(work, "hay.txt"), "the needle is here\n")
+	rc, out := runWithEnv(t, got.env, work, "grep -r needle .")
+	if rc != 127 || !strings.Contains(out, "grep's recursive mode is blocked") {
+		t.Errorf("grep -r: rc=%d, want 127 and the guardrails message:\n%s", rc, out)
+	}
+	rc, out = runWithEnv(t, got.env, work, "grep needle hay.txt")
+	if rc != 0 || !strings.Contains(out, "host_path grep ran") || !strings.Contains(out, "the needle is here") {
+		t.Errorf("a single-file grep did not reach the host_path grep: rc=%d\n%s", rc, out)
+	}
+	bypass := append(append([]string{}, got.env...), "YOLO_BYPASS_SHIMS=1")
+	rc, out = runWithEnv(t, bypass, work, "yolo-fixture-tool a b")
+	if rc != 0 || out != "host_path tool ran: a b\n" {
+		t.Errorf("YOLO_BYPASS_SHIMS=1 did not run the host_path program behind the block: rc=%d %q", rc, out)
+	}
+}
+
+// The hatch line belongs to a launch that blocks something: with YOLO_BYPASS_SHIMS exported and
+// nothing blocked — nothing configured, or a block dir yolo could not write — the launch names no
+// blocks the hatch lets through, since there are none.
+func TestHostLaunchWithNothingBlockedSaysNothingOfTheHatch(t *testing.T) {
+	for _, tc := range []struct {
+		name, cfg  string
+		unwritable bool
+	}{
+		{"nothing configured", `{"packs": []}`, false},
+		{"block dir unwritable", `{"packs": ["guardrails"]}`, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			blockerHostFixture(t, tc.cfg, "rg", "fd")
+			if tc.unwritable {
+				writeFile(t, paths.HostBlockDir(), "a file where the block dirs go\n")
+			}
+			t.Setenv("YOLO_BYPASS_SHIMS", "1")
+			got, errs := launchCapturing(t)
+			if envValue(got.env, "YOLO_BYPASS_SHIMS") != "1" {
+				t.Fatalf("setup: the shell's hatch did not reach the program")
+			}
+			if p, want := envValue(got.env, "PATH"), hostChildPath(hostLaunchPath(), hostFloorBinDir()); p != want {
+				t.Fatalf("setup: something was blocked: child PATH = %s, want %s\n%s", p, want, errs)
+			}
+			if strings.Contains(errs, "YOLO_BYPASS_SHIMS is set") {
+				t.Errorf("a launch that blocks nothing said the hatch lets its blocks through:\n%s", errs)
+			}
+		})
+	}
+}

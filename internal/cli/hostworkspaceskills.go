@@ -71,15 +71,17 @@ type hostSkillsDest struct {
 	dirs  []string // workspace-relative, cleaned, slash-separated
 }
 
-// hostSkillsRecord is what yolo remembers of one link it wrote into one workspace. Target "" is
-// a record whose link is gone but whose ignore line yolo wrote, kept so the line is not added
-// back after the user removed it.
+// hostSkillsRecord is what yolo remembers of one link it wrote into one workspace. IgnoreSeen is
+// that the link's ignore line has stood in .gitignore at a launch that placed or kept the link —
+// yolo wrote it, or found it there (a teammate's commit, the user's own edit) — so a line gone
+// later was removed by someone and is not added back, whoever wrote it. Target "" is a record
+// whose link is gone but whose ignore line was seen, kept so the line stays out.
 type hostSkillsRecord struct {
-	Workspace     string   `json:"workspace"`
-	Link          string   `json:"link"`
-	Target        string   `json:"target,omitempty"`
-	CreatedDirs   []string `json:"created_dirs,omitempty"`
-	IgnoreWritten bool     `json:"ignore_written,omitempty"`
+	Workspace   string   `json:"workspace"`
+	Link        string   `json:"link"`
+	Target      string   `json:"target,omitempty"`
+	CreatedDirs []string `json:"created_dirs,omitempty"`
+	IgnoreSeen  bool     `json:"ignore_seen,omitempty"`
 }
 
 // hostWorkspaceSkills is the one call hostLaunch makes: the link for agent in the current
@@ -260,10 +262,10 @@ func hostWorkspaceSkillsIn(ws string, d hostSkillsDest, sourceSet []string, home
 	// 5. The ignore line, inside a git work tree only.
 	ignoreLine := ""
 	if insideGitWorkTree(ws) {
-		var wrote bool
-		ignoreLine, wrote = ensureHostSkillsIgnoreLine(ws, "/"+link, rec.IgnoreWritten)
-		if wrote {
-			rec.IgnoreWritten = true
+		var inPlace bool
+		ignoreLine, inPlace = ensureHostSkillsIgnoreLine(ws, "/"+link, rec.IgnoreSeen)
+		if inPlace {
+			rec.IgnoreSeen = true
 		}
 	}
 	saveOrDropHostSkillsRecord(rec)
@@ -461,9 +463,10 @@ func insideGitWorkTree(ws string) bool {
 const maxIgnoreBytes = 1 << 20
 
 // ensureHostSkillsIgnoreLine appends line to ws/.gitignore once, and returns what to say about it
-// and whether it wrote it. wroteBefore is the record's: a line yolo added once and that is gone
-// now was removed by someone, and is not added back.
-func ensureHostSkillsIgnoreLine(ws, line string, wroteBefore bool) (string, bool) {
+// and whether the line is in place now, found there or written. seenBefore is the record's: a line
+// that stood there once, whoever put it there, and is gone now was removed by someone, and is not
+// added back (OQ-WS6's leaning (a): a user who removes the line is not fought).
+func ensureHostSkillsIgnoreLine(ws, line string, seenBefore bool) (string, bool) {
 	p := filepath.Join(ws, ".gitignore")
 	notRegular := fmt.Sprintf(".gitignore is not a regular file yolo can read whole (it is a link, "+
 		"a special file, unreadable, or over 1 MiB), so yolo did not add `%s` to it and `git status` "+
@@ -477,13 +480,12 @@ func ensureHostSkillsIgnoreLine(ws, line string, wroteBefore bool) (string, bool
 	}
 	for _, l := range strings.Split(string(current), "\n") {
 		if strings.TrimSpace(l) == line {
-			return "", false
+			return "", true
 		}
 	}
-	if wroteBefore {
-		return fmt.Sprintf("yolo added `%s` to .gitignore once and it has been removed, so yolo "+
-			"leaves it out and `git status` will list the link; add it back yourself to quiet it",
-			line), false
+	if seenBefore {
+		return fmt.Sprintf("`%s` was in .gitignore and has been removed, so yolo leaves it out and "+
+			"`git status` will list the link; add it back yourself to quiet it", line), false
 	}
 	f, err := os.OpenFile(p, os.O_WRONLY|os.O_APPEND|os.O_CREATE|unix.O_NOFOLLOW|unix.O_NONBLOCK, 0o644)
 	if err != nil {
@@ -552,11 +554,11 @@ func loadHostSkillsRecord(ws, link string) *hostSkillsRecord {
 }
 
 // saveOrDropHostSkillsRecord writes rec, or removes it when it remembers nothing: no link and no
-// ignore line yolo wrote. Best effort: a record that cannot be written leaves a link yolo will
+// ignore line seen. Best effort: a record that cannot be written leaves a link yolo will
 // treat as the repository's next time, which writes nothing over it.
 func saveOrDropHostSkillsRecord(rec *hostSkillsRecord) {
 	p := hostSkillsRecordPath(rec.Workspace, rec.Link)
-	if rec.Target == "" && !rec.IgnoreWritten {
+	if rec.Target == "" && !rec.IgnoreSeen {
 		_ = os.Remove(p)
 		return
 	}

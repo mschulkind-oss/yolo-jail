@@ -158,6 +158,39 @@ func TestHostLaunchDoesNotAddBackAnIgnoreLineTheUserRemoved(t *testing.T) {
 	}
 }
 
+// A line yolo did NOT write — a teammate's commit, or the user's own edit, put it there before the
+// first launch — is respected the same way once it is removed: the user who takes it out is not
+// fought (OQ-WS6's leaning (a), WS-D22), and the line saying so claims nothing about who wrote it.
+func TestHostLaunchDoesNotAddBackAnIgnoreLineItFoundAndTheUserRemoved(t *testing.T) {
+	f := newWSSkillsFixture(t)
+	f.gitRepo(t)
+	f.skill(t, ".claude/skills/review")
+	writeFile(t, f.path(".gitignore"), "/.codex/skills\n")
+	rc, errs := f.launch(t)
+	if rc != 0 || readlinkOr(t, f.path(".codex/skills")) != "../.claude/skills" {
+		t.Fatalf("setup: rc=%d, no link:\n%s", rc, errs)
+	}
+	if got := readOr(f.path(".gitignore")); got != "/.codex/skills\n" {
+		t.Fatalf("setup: a line already there was written again: %q", got)
+	}
+	if strings.Contains(errs, "added `/.codex/skills`") {
+		t.Errorf("a launch that found the line in place said it added it:\n%s", errs)
+	}
+	const left = "# we commit the link now\n"
+	writeFile(t, f.path(".gitignore"), left)
+	_, errs = f.launch(t)
+	if got := readOr(f.path(".gitignore")); got != left {
+		t.Errorf("the line the user removed was added back: %q", got)
+	}
+	if !strings.Contains(errs, "`/.codex/skills` was in .gitignore and has been removed, so yolo "+
+		"leaves it out and `git status` will list the link") {
+		t.Errorf("the launch did not say it left the line out:\n%s", errs)
+	}
+	if strings.Contains(errs, "yolo added") || strings.Contains(errs, "added `/.codex/skills`") {
+		t.Errorf("the launch claims yolo added a line it found there:\n%s", errs)
+	}
+}
+
 // (d) The repository's own directory for the agent, or another path the agent reads, is left alone
 // and nothing is written.
 func TestHostLaunchLeavesARepositorysOwnAgentPathAlone(t *testing.T) {
@@ -562,7 +595,7 @@ func TestHostLaunchKeysItsLinkByTheWorkspacesResolvedPath(t *testing.T) {
 }
 
 // A line yolo added and the user removed stays out across the link's removal and its return: the
-// record keeps what yolo wrote while no link stands (WS-D22).
+// record keeps that the line was seen while no link stands (WS-D22).
 func TestHostLaunchKeepsARemovedIgnoreLineOutAfterItsLinkWentAndCameBack(t *testing.T) {
 	f := newWSSkillsFixture(t)
 	f.gitRepo(t)
@@ -694,5 +727,37 @@ func TestHostLaunchDoesNotAppendToAnIgnoreFileLargerThanItReads(t *testing.T) {
 	if !strings.Contains(errs, "over 1 MiB") ||
 		!strings.Contains(errs, "add `/.codex/skills` to your ignore rules yourself to quiet it") {
 		t.Errorf("the launch did not say why it left .gitignore alone, and the next step:\n%s", errs)
+	}
+}
+
+// A .gitignore yolo can read but not open for the append (read-only to the user) is left byte for
+// byte, and the launch names the errno and the manual step, not the not-a-regular-file line. Root
+// opens a 0444 file for writing regardless, so the cell needs an unprivileged run: CI's check-go
+// and check-macos, or a jail's test binary run under an unprivileged uid.
+func TestHostLaunchSaysWhenItCannotOpenTheIgnoreFileForTheAppend(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root opens a read-only .gitignore for writing; run unprivileged")
+	}
+	f := newWSSkillsFixture(t)
+	f.gitRepo(t)
+	f.skill(t, ".claude/skills/review")
+	writeFile(t, f.path(".gitignore"), "# mine\n")
+	if err := os.Chmod(f.path(".gitignore"), 0o444); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(f.path(".gitignore"), 0o644) })
+	_, errs := f.launch(t)
+	if readlinkOr(t, f.path(".codex/skills")) != "../.claude/skills" {
+		t.Fatalf("no link:\n%s", errs)
+	}
+	if got := readOr(f.path(".gitignore")); got != "# mine\n" {
+		t.Errorf("a .gitignore yolo could not open for writing changed: %q", got)
+	}
+	if !strings.Contains(errs, "could not open .gitignore to add `/.codex/skills` (permission denied), "+
+		"so `git status` will list the link; add the line yourself to quiet it") {
+		t.Errorf("the launch did not name the open failure and the next step:\n%s", errs)
+	}
+	if strings.Contains(errs, "not a regular file") {
+		t.Errorf("a read-only regular .gitignore was reported as not a regular file:\n%s", errs)
 	}
 }
