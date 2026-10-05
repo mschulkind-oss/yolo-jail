@@ -892,13 +892,16 @@ func (r *ownedHostRender) capture(pr richtext.Printer, t configTarget, s manifes
 // holdOwnedHostLock takes the host-apply lock for a `yolo config` verb writing an owned real home
 // (reset, capture), or refuses with the command to run again. Not waited for, as the launch gate
 // does not wait: a held lock is another process writing this home, and the verb is simply run
-// again once it is done. what is the refusal's opening ("not reset").
+// again once it is done. what is the refusal's opening ("not reset"). The refusal names the
+// lock's takers as they are — a gated launch's apply, another reset or capture — and not an
+// explicit `yolo host apply`, which takes no lock (hostapplygate.go).
 func holdOwnedHostLock(t configTarget, cmd, what, identity string, errw io.Writer) (*hostApplyLock,
 	bool) {
 	lock := tryHostApplyLock(t.store.Home)
 	if lock == nil {
-		fmt.Fprintf(errw, "yolo config %s: %s — another `yolo host apply` is writing this home "+
-			"right now (or its lock under %s cannot be taken). Run `yolo config %s %s --at host` "+
+		fmt.Fprintf(errw, "yolo config %s: %s — another yolo process is writing this home right "+
+			"now (a `yolo host -- <agent>` launch's apply, or another `yolo config reset` or "+
+			"`capture`), or its lock under %s cannot be taken. Run `yolo config %s %s --at host` "+
 			"again once it has finished.\n", cmd, what,
 			prettyHomePath(t.store.Home, filepath.Dir(hostApplyLockPath(t.store.Home))), cmd,
 			identity)

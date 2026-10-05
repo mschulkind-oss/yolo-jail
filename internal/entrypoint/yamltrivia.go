@@ -96,7 +96,8 @@ func decodeYAMLObject(surface manifest.Surface, path string, raw []byte) (*jsonx
 	}
 	if root.Kind != yaml.MappingNode {
 		return nil, refuseRMW(surface, "%s is valid YAML but not a mapping, so there are no "+
-			"keys to merge into — refusing to replace it", path)
+			"keys to merge into — refusing to replace it (the file is untouched); move it aside "+
+			"(yolo then writes a fresh one) or make its top level a mapping, and re-run", path)
 	}
 	v, err := yamlNodeValue(root, nil)
 	if err != nil {

@@ -435,7 +435,8 @@ func configResultTier(r entrypoint.HostRenderResult) reportTier {
 
 // replacedValue is one value of the user's a render replaces: the key, the surface and file it
 // sits in, and the WINNER — the pack whose config-overlay wrote it, "" for a managed key of the
-// surface's own pack, or computedWinner plus the inputs for a computed leaf (splitOverwriteLabel).
+// surface's own pack, computedWinner plus the inputs for a computed leaf, or selectedWinner for a
+// key the profile's selection wrote (splitOverwriteLabel).
 type replacedValue struct {
 	Key, Winner, Surface, Path string
 }
@@ -447,15 +448,25 @@ type replacedValue struct {
 // (packdecl.ValidPackName, through ValidBinName).
 const computedWinner = "computed:"
 
+// selectedWinner is the winner of a value the profile's SELECTION replaced: a computed key, but
+// one written on the activation edge, so a pick of the user's after it stands (HC-D17) — which is
+// what its remedy group says and the computed group's must not. Not under computedWinner's
+// prefix, so no reader of that prefix takes it for a leaf the derive re-writes on every apply.
+const selectedWinner = "selected:profile"
+
 // splitOverwriteLabel splits one HostRenderResult.Overwrites entry into the key and its winner:
 // "<key>" is the owning pack's managed layer (""), "<key> (config-overlay from <pack>)" the
-// pack, and "<key> (computed from your <inputs>)" or "<key> (computed by its pack)" a computed
-// leaf (computedWinner plus the inputs, or alone). The computed spellings are the render's own
+// pack, "<key> (selected by your profile)" the profile's selection (selectedWinner), and
+// "<key> (computed from your <inputs>)" or "<key> (computed by its pack)" a computed leaf
+// (computedWinner plus the inputs, or alone). The computed spellings are the render's own
 // constants, so the two packages cannot drift apart on them.
 func splitOverwriteLabel(label string) (key, winner string) {
 	const mark = " (config-overlay from "
 	if i := strings.LastIndex(label, mark); i >= 0 && strings.HasSuffix(label, ")") {
 		return label[:i], label[i+len(mark) : len(label)-1]
+	}
+	if k, ok := strings.CutSuffix(label, entrypoint.SelectedByProfileLabel); ok {
+		return k, selectedWinner
 	}
 	if k, ok := strings.CutSuffix(label, entrypoint.ComputedByPackLabel); ok {
 		return k, computedWinner
