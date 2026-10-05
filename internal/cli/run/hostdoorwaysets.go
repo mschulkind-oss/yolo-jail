@@ -37,8 +37,10 @@ package run
 // `yolo host --`'s launch gate when `host_apply_on_launch` is on, since it runs the apply's
 // observe pass (internal/cli's hostapplygate.go). They are not the report's lines: the sink is
 // process-wide, and swapping it for one apply would race with that gate, whose observe pass runs
-// on a goroutine the launch can abandon while it discovers doorways of its own. Routing them into
-// the report takes a per-call sink in loopholes.DiscoverOptions, which is not built.
+// on a goroutine the launch can abandon while it discovers doorways of its own. That same pair is
+// why the loader's once rule is one locked step (loopholes' warnf), pinned by
+// TestTheApplysDoorwaySurveyAndALaunchsPlanDiscoverAtOnce under -race. Routing them into the
+// report takes a per-call sink in loopholes.DiscoverOptions, which is not built.
 //
 // Implementation decisions, taken under the maintainer's 2026-10-04 delegation, reversible
 // (docs/design/declaration-parity.md's ledger).

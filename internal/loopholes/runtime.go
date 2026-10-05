@@ -6,6 +6,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -34,8 +35,9 @@ var (
 	// saidWarnings is the set of lines already said, and it is why warnf below is a
 	// function rather than the swappable var it used to be: the dedup has to sit ABOVE
 	// the sink, or a test that installs its own sink would measure a different rule than
-	// the one that ships.
+	// the one that ships. saidMu guards it, since two discoveries can run at once (warnf).
 	saidWarnings = map[string]bool{}
+	saidMu       sync.Mutex
 )
 
 // warnf reports a diagnostic, SAYING EACH DISTINCT LINE ONCE.
@@ -58,19 +60,35 @@ var (
 // launch). The one exception is the in-process capture sub-launch, and it costs nothing:
 // each launch's messages name its OWN staging root, so two launches collide on a line only
 // when they are reporting the same missing directory — the same fact, said once.
+//
+// ONE PROCESS CAN DISCOVER ON TWO GOROUTINES AT ONCE, so the check and the set are one locked
+// step. `yolo host --` with `host_apply_on_launch` on runs the apply's observe pass on a
+// goroutine it abandons after its budget (internal/cli's surveyHostApplyWithinBudget), and both
+// that pass (run.HostDoorwayLoopholes) and the launch it lets carry on (run.PlanHostDoorways)
+// discover loopholes. Unlocked, a module dir that warns made the two read and write this map at
+// once, which the Go runtime may answer by killing the process. The sink is called after the
+// lock is released, so a slow stderr holds up no other discovery's dedup.
 func warnf(format string, args ...any) {
 	msg := fmt.Sprintf(format, args...)
+	saidMu.Lock()
 	if saidWarnings[msg] {
+		saidMu.Unlock()
 		return
 	}
 	saidWarnings[msg] = true
-	warnSink(msg)
+	sink := warnSink
+	saidMu.Unlock()
+	sink(msg)
 }
 
 // resetSaidWarnings forgets what has been said. For tests, which must each measure the
 // rule from a clean slate — a line another test already said would otherwise be silent
 // here, which is a false green in the direction that matters.
-func resetSaidWarnings() { saidWarnings = map[string]bool{} }
+func resetSaidWarnings() {
+	saidMu.Lock()
+	defer saidMu.Unlock()
+	saidWarnings = map[string]bool{}
+}
 
 // (podman) path; pass "container" for Apple Container (which skips any loophole
 // declaring `intercepts`). It is side-effect free and idempotent.

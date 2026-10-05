@@ -1710,8 +1710,8 @@
     writes no file for them: what each declares reaches an agent through its process
     (an environment, a PATH, the providers table, a child daemon), never through a
     config file.  The report names them in one clause; this is how each arrives.  An
-    env var, a service and a loophole also have a shape the host delivers nowhere,
-    listed under the next heading, so one kind can be named in both.
+    env var, an adapter, a service and a loophole also have a shape the host delivers
+    nowhere, listed under the next heading, so one kind can be named in both.
       env           an env var applies to a process yolo starts: `yolo host --
                     <program>` delivers it to that process only, and `yolo host env`
                     prints it.  Setting it for your whole session would mean editing
@@ -1751,6 +1751,10 @@
                     loophole's socket path, which only a jail binds (audio's), or a
                     loophole with no doorway — is withheld at `yolo host --`, which
                     names it: a client at the host reaches its own server instead.
+      adapter       an adapter whose address its own pack's service answers, when that
+                    service has no host half (`host_daemon`) or is in a pack yolo does
+                    not ship: nothing at the host serves the address, so `yolo host --`
+                    refuses a pairing through it and names the service.
       hook          the shipped hooks are jail provisioning steps — a credential or
                     package-store symlink into the machine tier, and per-jail history.
                     Off-container each is either meaningless or a mutation of real user

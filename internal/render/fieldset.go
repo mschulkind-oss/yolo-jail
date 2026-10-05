@@ -202,14 +202,16 @@ var hostUnimplemented = map[packdecl.Kind]string{
 // the defect this map closes — `yolo host apply` printed env, adapter, service and loophole as
 // not applying at the host while `yolo host -- env` printed the pack env vars.
 //
-// THREE OF THE FIVE HAVE A SHAPE THE HOST DOES NOT DELIVER, so the apply decides PER
+// FOUR OF THE FIVE HAVE A SHAPE THE HOST DOES NOT DELIVER, so the apply decides PER
 // CONTRIBUTION (cli's hostNotchOutcomeOf) and a kind may land in both of its groups:
 //
 //   - env: a variable `served_by` a daemon the host notch does not serve (hostWithheldAtLaunch).
+//   - adapter: one whose address its own pack's service answers, when that service has no host
+//     half the gate admits (hostWithheldAtLaunch).
 //   - service: one with no host half, or a host half the official-pack gate refuses
 //     (launchservice.Admit); refusalReasons states it, the kind not being honored.
 //   - loophole: one with no doorway for a notch without a jail (refusalReasons, likewise).
-//   - adapter and blocked-tool: none — every contribution is delivered.
+//   - blocked-tool: none — every contribution is delivered.
 //
 // service and loophole stay out of HostFields: the FieldSet census says what a host TARGET
 // renders, and nothing renders either kind into a home.
@@ -241,7 +243,7 @@ var hostAtLaunch = map[packdecl.Kind]string{
 }
 
 // hostWithheldAtLaunch is the shape of an at-launch kind the host notch does NOT deliver, for
-// a kind the host FieldSet honors (so refusalReasons cannot state it). Only `env` has one:
+// a kind the host FieldSet honors (so refusalReasons cannot state it): `env` and `adapter`.
 // service's and loophole's undelivered shapes are their refusalReasons entries.
 var hostWithheldAtLaunch = map[packdecl.Kind]string{
 	// docs/plans/notch-convergence.md NC-D16's one "served at this notch" predicate
@@ -254,6 +256,15 @@ var hostWithheldAtLaunch = map[packdecl.Kind]string{
 		"loophole's socket path, which only a jail binds (audio's), or a loophole with no doorway " +
 		"— is withheld at `yolo host --` and named there: a client at the host reaches its own " +
 		"server instead",
+	// packload.Adaptation.Service: an adapter's address is answered by its own pack's service
+	// when the pack declares one, and the host runs that service only through a host half the
+	// launch's gate admits (launchservice.Admit, OQ-HS4). Without one, the composition leaves the
+	// address out and `yolo host --` refuses a pairing through it, naming the service. No shipped
+	// pack has this shape: wire-bridge's service has an admitted host half.
+	packdecl.KindAdapter: "an adapter whose address its own pack's service answers, when that " +
+		"service has no host half (`host_daemon`) or is in a pack yolo does not ship: nothing at " +
+		"the host serves the address, so `yolo host --` refuses a pairing through it and names " +
+		"the service",
 }
 
 // HostAtLaunch returns the reason `yolo host -- <program>` delivers a kind at the host notch
@@ -364,7 +375,8 @@ func HostFields() FieldSet {
 		// adapter is provider's constant companion and gets provider's answer, for
 		// provider's reason: it declares an ADDRESS, and an address reaches an agent through
 		// the providers table a LAUNCH composes, never through a file this command writes.
-		// hostAtLaunch states where it is delivered.
+		// hostAtLaunch states where it is delivered, and hostWithheldAtLaunch the shape that is
+		// not (an address only a service with no admitted host half answers).
 		packdecl.KindAdapter: true,
 		// profile is honored in the sense the census means — since OQ-PT8 it IS a
 		// selection (`name` + `provider`), not a patch of its own, so there is nothing to

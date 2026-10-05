@@ -16,6 +16,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
@@ -192,4 +193,51 @@ func TestHostInlineLoopholesNamesTheEnabledOnesWithADaemon(t *testing.T) {
 	if got := HostInlineLoopholes(newConfig(), doorwayPacks(t)); got != nil {
 		t.Errorf("a config with no loopholes block names %v", got)
 	}
+}
+
+// TestTheApplysDoorwaySurveyAndALaunchsPlanDiscoverAtOnce is the production pair behind the
+// loopholes package's locked once rule (warnf): `yolo host --` with `host_apply_on_launch` on runs
+// the apply's observe pass, HostDoorwayLoopholes included, on a goroutine the launch gate abandons
+// after its budget, and the launch carries on into PlanHostDoorways. Both discover, and a module
+// that does not load makes both warn. `go test -race` is this test's detector: before the lock it
+// reported the two warnf calls reading and writing one map, which the Go runtime may answer by
+// killing the launch ("concurrent map read and map write").
+func TestTheApplysDoorwaySurveyAndALaunchsPlanDiscoverAtOnce(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
+	emptyLoopholeDirs(t)
+	packs := doorwayPacks(t)
+	removed := false
+	for _, p := range packs {
+		if p.Name == "openai-auth" {
+			// A module dir that is gone, so discovery warns on both goroutines.
+			if err := os.RemoveAll(filepath.Join(p.Root, "loopholes", "openai-auth-broker")); err != nil {
+				t.Fatal(err)
+			}
+			removed = true
+		}
+	}
+	if !removed {
+		t.Fatal("fixture bug: no openai-auth pack to break, so neither discovery warns")
+	}
+	sel := packload.GateSelection{Profiles: map[string]string{"pi": "bedrock"},
+		Platforms: map[string]string{"pi": "aws-bedrock"}}
+	var wg sync.WaitGroup
+	start := make(chan struct{})
+	wg.Add(2)
+	go func() {
+		defer wg.Done()
+		<-start
+		_ = HostDoorwayLoopholes(nil, packs)
+	}()
+	go func() {
+		defer wg.Done()
+		<-start
+		if d, err := PlanHostDoorways(nil, packs, sel, false, "yolo host --"); err == nil {
+			d.Release()
+		}
+	}()
+	close(start)
+	wg.Wait()
 }
