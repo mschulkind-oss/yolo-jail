@@ -904,23 +904,46 @@ The inert report hangs off the **same spawn boundary** as the execution disclosu
 everything a user must know before host code runs — *or before concluding that it did* — belongs
 in one place.
 
-### At the host target, there is no jail
+<a id="at-the-host-target-there-is-no-jail"></a>
 
-`yolo host apply` does not apply a loophole contribution — its report names `loophole` among
-the kinds that do not apply at the host notch and points at `yolo config-ref`, which carries the
-reason — and the **naive reason is backwards**: a loophole's effect *is* on the host, so "not
-applicable off-container" reads as obviously wrong. The honest reason is the inverse, and it is
-spelled out (in `config-ref`, and as the kind's entry in `render`'s refusal reasons) rather than
-left to a generic line:
+### At the host target, a credential doorway opens at launch
 
-> A loophole is a host daemon whose only client is a container. With no jail there is no client,
-> nothing to add a host entry for, no jail daemon payload, and nothing for the endpoint file to be
-> mounted into.
+`yolo host apply` writes no file for a loophole contribution, and its report names each one in
+one of two clauses, per contribution, pointing at `yolo config-ref` for the reason:
 
-Refused because its **counterparty** is missing, not because its mechanism is. **And the refusal
+- **At launch only.** A credential loophole whose `jail_daemon` declares a `host_cmd`, in a pack
+  yolo ships, has a client off-container, the agent `yolo host --` runs: its **doorway** opens at
+  `yolo host -- <program>` for the agent whose selection asks for it, and closes when that agent
+  exits ([HS-D15](../design/host-notch-services.md#HS-D15), built at the host by
+  [HS-D21](../design/host-notch-services.md#HS-D21)). *Doorway* is that ruling's word for the thin
+  adapter an agent's client talks to, which checks the launch's caller token and forwards to the
+  host daemon. The apply decides this with the launch's own composition and admission check
+  (`run.HostDoorwayLoopholes` re-runs `run.PlanHostDoorways`'), so it names what an enabled
+  loophole gets at `yolo host --` rather than what one launch opens. It differs from a launch in
+  two ways. Every selected pack's loophole is read as switched on, because the `enabled` switch
+  turns a loophole off at every notch alike, and a launch whose agent asks for a disabled one
+  names the switch. And there is no selection filter, since the apply runs no agent, so
+  `openai-auth-broker` is named: a launch opens its doorway for no selection
+  ([HS-D22](../design/host-notch-services.md#HS-D22)), and `yolo host -- codex` serves that
+  address from its own managed launch instead ([HS-D20](../design/host-notch-services.md#HS-D20)).
+- **Does not apply.** Every other loophole, and the reason is not the naive one. A loophole's
+  effect *is* on the host, so "not applicable off-container" reads as obviously wrong. The honest
+  reason is the inverse, and it is spelled out (in `config-ref`, and as the kind's entry in
+  `render`'s refusal reasons) rather than left to a generic line:
+
+  > A loophole with no doorway for a notch without a jail is a host daemon whose only client is a
+  > container. With no jail there is no client, nothing to add a host entry for, no jail daemon
+  > payload, and nothing for the endpoint file to be mounted into.
+
+  An **inline loophole** of the user's (a `loopholes.<name>` entry with a `command` and no
+  manifest) is one too, and since the `loopholes` key itself is honored at the host, the report
+  names each enabled one by entry (`run.HostInlineLoopholes`).
+
+Declined because its **counterparty** is missing, not because its mechanism is. **And the decline
 is a feature for the trust story**: the one command that mutates the real machine deliberately
-runs no pack hooks either, so *"selecting this pack runs a daemon"* stays a statement about
-launching a jail rather than about applying a config.
+runs no pack hooks either, and even a doorway lives only for the one agent a launch runs, so
+*"selecting this pack runs a daemon"* stays a statement about launching rather than about applying
+a config.
 
 > [!WARNING]
 > **The jail-side census must EXCLUDE `loophole` explicitly rather than derive it.** A

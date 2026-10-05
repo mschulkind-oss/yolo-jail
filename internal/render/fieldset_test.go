@@ -131,11 +131,12 @@ func TestServiceAndInterceptCarryTheirOwnRefusalReason(t *testing.T) {
 	}
 }
 
-// TestBlockedToolIsHonoredAtTheHostAndUnbuiltForApply pins HE-D11 in the census: `yolo host --`
+// TestBlockedToolIsHonoredAtTheHostAndDeliveredAtLaunch pins HE-D11 in the census: `yolo host --`
 // puts the blockers first on the PATH of the program it starts, so the kind is honored at the
-// host, and `yolo host apply`, which starts nothing, carries env's honored-but-unbuilt shape and
-// says what does deliver it.
-func TestBlockedToolIsHonoredAtTheHostAndUnbuiltForApply(t *testing.T) {
+// host, and delivered AT LAUNCH ONLY (report-tiers.md): `yolo host apply`, which starts nothing,
+// writes no file for it, and that is no longer an honored-but-unbuilt entry, which the apply's
+// notch line reads as "does not apply at the host".
+func TestBlockedToolIsHonoredAtTheHostAndDeliveredAtLaunch(t *testing.T) {
 	fields := HostFields()
 	if !fields.Honors(packdecl.KindBlockedTool) {
 		t.Fatalf("blocked-tool is refused at the host, but `yolo host --` renders it (HE-D11): %q",
@@ -144,14 +145,101 @@ func TestBlockedToolIsHonoredAtTheHostAndUnbuiltForApply(t *testing.T) {
 	if r := fields.Refuse(packdecl.KindBlockedTool); r != "" {
 		t.Errorf("an honored kind has a refusal reason: %q", r)
 	}
-	reason, unbuilt := HostUnimplemented(packdecl.KindBlockedTool)
-	if !unbuilt {
-		t.Fatal("blocked-tool has no honored-but-unbuilt entry, so `yolo host apply` would " +
-			"render it in silence — and apply starts no process to put a shim in front of")
+	reason, ok := HostAtLaunch(packdecl.KindBlockedTool)
+	if !ok {
+		t.Fatal("blocked-tool is not delivered at launch, so the apply's notch line would name it " +
+			"as not applying at the host while `yolo host --` puts the blockers on the PATH")
 	}
 	for _, want := range []string{"`yolo host apply`", "`yolo host -- <program>`"} {
 		if !strings.Contains(reason, want) {
-			t.Errorf("blocked-tool's apply reason does not name %s: %q", want, reason)
+			t.Errorf("blocked-tool's at-launch reason does not name %s: %q", want, reason)
+		}
+	}
+}
+
+// TestTheAtLaunchKindsLeftTheUnbuiltMap is the regression half of the at-launch outcome: env,
+// adapter and blocked-tool sat in hostUnimplemented, which the apply's notch line reads through
+// notchInapplicable, so `yolo host apply` named them as not applying at the host while
+// `yolo host -- <program>` delivered every one. A kind is in at most one of the two maps.
+func TestTheAtLaunchKindsLeftTheUnbuiltMap(t *testing.T) {
+	for _, k := range []packdecl.Kind{packdecl.KindEnv, packdecl.KindAdapter, packdecl.KindBlockedTool} {
+		if why, unbuilt := HostUnimplemented(k); unbuilt {
+			t.Errorf("%s is honored-but-unbuilt at the host (%q), but `yolo host --` delivers it: "+
+				"it belongs in hostAtLaunch", k, why)
+		}
+		if _, ok := HostAtLaunch(k); !ok {
+			t.Errorf("%s is not delivered at launch", k)
+		}
+	}
+	for k := range hostAtLaunch {
+		if _, unbuilt := hostUnimplemented[k]; unbuilt {
+			t.Errorf("%s is in both hostAtLaunch and hostUnimplemented — one kind, two answers", k)
+		}
+	}
+	// hook is what is left, and it is the end state's last entry rather than an at-launch kind:
+	// `yolo host --` runs no pack hook either.
+	if _, unbuilt := HostUnimplemented(packdecl.KindHook); !unbuilt {
+		t.Error("hook left hostUnimplemented, but no host verb runs a pack hook")
+	}
+	if _, ok := HostAtLaunch(packdecl.KindHook); ok {
+		t.Error("hook is named as delivered at launch, and `yolo host --` runs no pack hook")
+	}
+}
+
+// TestEveryHostAtLaunchKindIsHonoredOrRefusedWithItsOwnReason: an at-launch kind is either one
+// the host FieldSet honors (env, adapter, blocked-tool) or one it refuses with a reason of its
+// own for the shape the host does not deliver (service, loophole). A kind honored and carrying
+// a withheld shape names it in hostWithheldAtLaunch, since Refuse cannot.
+func TestEveryHostAtLaunchKindIsHonoredOrRefusedWithItsOwnReason(t *testing.T) {
+	fields := HostFields()
+	if len(hostAtLaunch) < 2 {
+		t.Fatalf("hostAtLaunch has %d entries — the test below checks nothing", len(hostAtLaunch))
+	}
+	for k := range hostAtLaunch {
+		if fields.Honors(k) {
+			continue
+		}
+		got := fields.Refuse(k)
+		if got == "" || strings.Contains(got, "is not applicable at this confinement level") {
+			t.Errorf("%s is delivered at launch and refused by the FieldSet, and its refusal does "+
+				"not say which shape the host leaves undone: %q", k, got)
+		}
+	}
+	for k := range hostWithheldAtLaunch {
+		if _, ok := hostAtLaunch[k]; !ok {
+			t.Errorf("%s has a withheld shape but no delivered one: hostWithheldAtLaunch is the "+
+				"other half of an at-launch kind, never a kind of its own", k)
+		}
+		if !fields.Honors(k) {
+			t.Errorf("%s has a hostWithheldAtLaunch entry and is refused by the FieldSet, whose "+
+				"refusal reason already states it", k)
+		}
+	}
+	// The "Launch a jail to run it" remedy was a notch fact wearing a warning's word (P2), and
+	// it was false of a credential loophole, whose doorway `yolo host --` opens.
+	for _, k := range []packdecl.Kind{packdecl.KindLoophole, packdecl.KindService} {
+		if r := fields.Refuse(k); strings.Contains(r, "Launch a jail") {
+			t.Errorf("%s's reason still tells the reader to launch a jail: %q", k, r)
+		}
+	}
+}
+
+// TestHostAtLaunchReasonsNameTheLaunchAndTheApply holds each at-launch reason to the shape
+// TestEnvAndLaunchRefusalsBlameTheCommandNotTheNotch held env's honored-but-unbuilt one to: it
+// names the verb that delivers it and the one that writes no file, and does not blame the notch,
+// since the notch does deliver it.
+func TestHostAtLaunchReasonsNameTheLaunchAndTheApply(t *testing.T) {
+	for k, why := range hostAtLaunch {
+		for _, want := range []string{"`yolo host -- <program>`", "`yolo host apply`"} {
+			if !strings.Contains(why, want) {
+				t.Errorf("%s: the at-launch reason does not name %s: %q", k, want, why)
+			}
+		}
+		for _, blames := range []string{"off-container", "below jail", "without a container"} {
+			if strings.Contains(why, blames) {
+				t.Errorf("%s: the at-launch reason blames the notch (%q), which delivers it: %q",
+					k, blames, why)
+			}
 		}
 	}
 }

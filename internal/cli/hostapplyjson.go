@@ -27,8 +27,8 @@ package cli
 //
 // # What it deliberately does not carry
 //
-// THE KIND-REFUSAL PROSE. The document names the kinds that do not apply at this notch and
-// stops there, because rationale is not data (the report vocabulary): the reasons live in the
+// THE KIND-REFUSAL PROSE. The document names the kinds that do not apply at this notch, and the
+// ones `yolo host --` delivers at launch, and stops there, because rationale is not data (the report vocabulary): the reasons live in the
 // manual, under a drift gate, and no terminal view prints them at any verbosity either.
 //
 // THE USER'S OWN VALUES — the remedy contract's first forbidden thing, in every view: a config
@@ -66,6 +66,11 @@ type hostApplyDoc struct {
 	// InapplicableKinds names the contribution kinds this notch does nothing with. Names
 	// only — see the header.
 	InapplicableKinds []string `json:"inapplicable_kinds"`
+	// AtLaunchKinds names the contribution kinds `yolo host -- <program>` delivers and this
+	// command writes no file for (report-tiers.md's AT LAUNCH ONLY). A kind may be in both lists,
+	// each for its own contributions (a loophole with a doorway, and one whose only client is a
+	// container). Names only.
+	AtLaunchKinds []string `json:"at_launch_kinds"`
 	// FailedPacks are the packs whose render errored. A blocker that decides the outcome, and
 	// the reason every count below may be missing a pack's worth of surfaces.
 	FailedPacks []string `json:"failed_packs"`
@@ -231,6 +236,7 @@ func buildHostApplyDoc(s *hostApplySurvey) hostApplyDoc {
 		// special-case the run that found nothing — which is the same rule that makes a
 		// zero-packs run emit a document at all rather than nothing (machine consumers).
 		InapplicableKinds: emptyIfNil(s.InapplicableKinds()),
+		AtLaunchKinds:     emptyIfNil(s.AtLaunchKinds()),
 		FailedPacks:       emptyIfNil(s.FailedPacks()),
 		FailedStages:      emptyIfNil(s.StageFailures()),
 		UnresolvedPacks:   append([]unresolvedPack{}, s.UnresolvedPacks()...),

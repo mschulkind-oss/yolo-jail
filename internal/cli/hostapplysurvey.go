@@ -221,8 +221,8 @@ type hostApplySurvey struct {
 	// nothing" with a different next action, which an empty Changed set cannot distinguish.
 	home      string
 	zeroPacks bool
-	// notch is the tier-1 half of the report: the kinds this notch does nothing with and whether
-	// any pack declares `autonomy`. Recorded for the machine document (machine consumers), which
+	// notch is the tier-1 half of the report: the kinds this notch does nothing with, the ones
+	// `yolo host --` delivers at launch, and whether any pack declares `autonomy`. Recorded for the machine document (machine consumers), which
 	// names the kinds and carries none of their prose — rationale is not data.
 	notch notchFacts
 }
@@ -301,6 +301,21 @@ func (s *hostApplySurvey) InapplicableKinds() []string {
 	}
 	out := make([]string, 0, len(s.notch.Inapplicable))
 	for _, k := range s.notch.Inapplicable {
+		out = append(out, string(k))
+	}
+	return out
+}
+
+// AtLaunchKinds names the contribution kinds `yolo host -- <program>` delivers and this command
+// writes no file for (the report vocabulary's AT LAUNCH ONLY), sorted as the census collected
+// them. Names only, as InapplicableKinds's are; a kind may be in both, each for its own
+// contributions.
+func (s *hostApplySurvey) AtLaunchKinds() []string {
+	if s == nil {
+		return nil
+	}
+	out := make([]string, 0, len(s.notch.AtLaunch))
+	for _, k := range s.notch.AtLaunch {
 		out = append(out, string(k))
 	}
 	return out

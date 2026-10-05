@@ -97,13 +97,20 @@ var hostConfigKeys = map[string]keyCensusEntry{
 		"provider composition (LoadAdapterAddresses)"},
 	"env_sources": {KeyHonored, "the dotenv files and values `yolo host --` and `yolo host env` " +
 		"deliver through the credential gate"},
+	// Honored as a KEY, and its one undone entry shape is named PER ENTRY rather than here: an
+	// inline loophole (an entry with a `command` and no manifest) is a host daemon whose only
+	// client is a jail, and `yolo host apply` names each enabled one on its notch line
+	// (cli.inertInlineLoopholes, run.HostInlineLoopholes), as it names a source-bearing
+	// host_files entry by destination.
 	"loopholes": {KeyHonored, "`yolo host --` opens an enabled loophole's doorway for the agent whose " +
 		"selection asks for one (PlanHostDoorways), and a loophole's settings feed the region fill; " +
-		"the jail daemons themselves have no client off-container"},
+		"the jail daemons themselves have no client off-container, and an inline loophole is named " +
+		"by entry as not applying"},
 	"mcp_servers": {KeyHonored, "composed into every agent's MCP files by `yolo host apply` " +
 		"(composeHostInputs), less an entry naming a path only a jail has, which it names"},
 	"lsp_servers": {KeyHonored, "composed into every agent's LSP files by `yolo host apply` " +
-		"(composeHostInputs), less an entry naming a path only a jail has, which it names"},
+		"(composeHostInputs), Claude's as the yolo-lsp plugin in every skills destination " +
+		"(applyHostLSPPlugin), less an entry naming a path only a jail has, which it names"},
 	"host_files": {KeyHonored, "a source-less entry is written into your real home by `yolo host " +
 		"apply`; one with a source mirrors a host file into a jail and is named by destination"},
 	"host_management": {KeyHonored, "the ownership contract `yolo host apply` renders your real " +
@@ -140,8 +147,12 @@ var hostConfigKeys = map[string]keyCensusEntry{
 		"(composeHostBlockers, HE-D11); a workspace's are never read at the host"},
 
 	// ---- Not applicable: the key means nothing off-container -------------------------
-	"mounts": {KeyNotApplicable, "a mount needs a mount namespace, which is unavailable without a " +
-		"container; at the host the folder is already where you are"},
+	// A GRANT, not a mechanism (docs/design/yolo-as-environment-manager.md §4: "the grants stay
+	// where they are … at lower notches they are inert"). The reason used to be "a mount needs a
+	// mount namespace", false of macos-user, which links a context mount into its sandbox with
+	// none.
+	"mounts": {KeyNotApplicable, "a mount grants a jail a host folder through the jail's wall; at " +
+		"the host there is no wall, and the folder is already where you are"},
 	"workspace_readonly": {KeyNotApplicable, "locks workspace paths read-only inside a jail; at the " +
 		"host the workspace is your own directory"},
 	"per_side_paths": {KeyNotApplicable, "shadow-mounts a jail's own copy over workspace paths, so " +

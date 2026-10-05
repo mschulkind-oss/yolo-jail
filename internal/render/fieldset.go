@@ -64,9 +64,19 @@ func (f FieldSet) Refuse(k packdecl.Kind) string {
 }
 
 // refusalReasons is the census reason per kind, used when a non-jail target refuses one.
+//
+// `service` and `loophole` have a second shape, the one the host notch DOES deliver (a service's
+// host half, a loophole's credential doorway), and that shape's reason is hostAtLaunch's below:
+// their entries here describe only the shape no host verb delivers, because a contribution of
+// either kind is told apart per contribution (cli's hostNotchOutcomeOf), not per kind.
 var refusalReasons = map[packdecl.Kind]string{
-	packdecl.KindProgram:   "install is refused below jail (a pack must not mutate a real toolchain unprompted)",
-	packdecl.KindMount:     "mount needs a mount namespace — unavailable without a container",
+	packdecl.KindProgram: "install is refused below jail (a pack must not mutate a real toolchain unprompted)",
+	// A GRANT THROUGH A JAIL'S WALL, not a missing mechanism (docs/design/yolo-as-environment-manager.md
+	// §4: the grants are "negotiating a boundary rather than creating one, so at lower notches
+	// they are inert"). The old reason, "needs a mount namespace", was false of macos-user, which
+	// delivers a context mount with no mount namespace at all (DP-B34's reason text).
+	packdecl.KindMount: "mount grants a jail a host folder through the jail's wall — at the host " +
+		"there is no wall, and the folder is already where you are",
 	packdecl.KindReadsHost: "reads-host carries a host file INTO a jail — meaningless when there is no jail",
 	packdecl.KindState:     "state names a jail-writable home subtree — off-container the home simply is writable",
 	// `loophole` needs its own reason, and the reason is the INVERSE of the generic line.
@@ -78,32 +88,42 @@ var refusalReasons = map[packdecl.Kind]string{
 	// there is no client for the daemon, no `--add-host` to write, no YOLO_JAIL_DAEMONS to
 	// populate, and nothing for the endpoint file to be mounted into.
 	//
-	// And the refusal is a FEATURE of the trust story rather than a limitation to fix later.
+	// ONE SHAPE ONLY since the doorway rule (docs/design/host-notch-services.md HS-D15, built at
+	// `yolo host --` by HS-D21): a credential loophole whose `jail_daemon` declares a `host_cmd`
+	// has a client off-container, the agent `yolo host --` runs, and its doorway opens there
+	// (hostAtLaunch). What is left here is every other loophole, whose only client is a
+	// container. The sentence used to end "Launch a jail to run it", a remedy for a problem the
+	// reader of a notch fact does not have (report-tiers.md P2).
+	//
+	// And the decline is a FEATURE of the trust story rather than a limitation to fix later.
 	// `yolo host apply` is the one command that mutates the real machine, and it deliberately
-	// runs no pack `hook` for the same reason. A loophole refused here means "selecting this
-	// pack runs a daemon" is a statement about LAUNCHING A JAIL, not about applying a
-	// config — which keeps the blast radius attached to a command the user runs deliberately.
-	packdecl.KindLoophole: "a loophole is a host daemon whose only client is a container: " +
-		"with no jail there is no client, no --add-host, no YOLO_JAIL_DAEMONS, and nothing " +
-		"for its endpoint file to be mounted into. Launch a jail to run it",
+	// runs no pack `hook` for the same reason. Even a doorway opens only for the life of the one
+	// agent a launch runs, which keeps "selecting this pack runs a daemon" a statement about
+	// LAUNCHING, not about applying a config.
+	packdecl.KindLoophole: "a loophole with no doorway for a notch without a jail (`jail_daemon.host_cmd`) " +
+		"is a host daemon whose only client is a container: with no jail there is no client, no " +
+		"--add-host, no YOLO_JAIL_DAEMONS, and nothing for its endpoint file to be mounted into",
 	// `service` had NO entry here until 2026-09-13, so it fell to Refuse's generic fallback —
 	// "<kind> is not applicable at this confinement level", which names the kind and says nothing
-	// about it. The real reason was not missing, only misplaced: it had been written by hand into
-	// internal/cli/config_ref.txt's host-notch list, where
+	// about it (docs/design/declaration-parity.md DP-B27 / DP-L6). Its reason was not missing,
+	// only misplaced, in internal/cli/config_ref.txt's host-notch list, where
 	// TestEveryHostNotchInapplicableKindHasItsReasonDocumented keeps it READABLE without making it
-	// the thing the code decides by. The entry below is that row, word for word (unwrapped, and
-	// without the manual's trailing full stop — the entries above set that convention).
+	// the thing the code decides by.
+	//
+	// Since 2026-09-28 a service's HOST HALF runs at `yolo host --` beside the one agent paired
+	// through it (docs/design/host-notch-services.md OQ-NC1, OQ-HS4), which is hostAtLaunch's
+	// entry; this one names the shape the host runs nothing for, a service with no host half or
+	// one only an official pack's gate refuses.
 	//
 	// `blocked-tool` sat here too, saying "off-container yolo owns no PATH entry to put one in".
 	// That stopped being true of `yolo host --` on 2026-09-29, when HE-D1 had it compose the
 	// child's PATH, and the kind is honored at the host since 2026-10-04 (HE-D11): HostFields
-	// lists it, and its apply-only limit is a hostUnimplemented entry, env's shape.
+	// lists it, and `yolo host --` delivers it (hostAtLaunch).
 	//
-	// docs/design/declaration-parity.md DP-B27 / DP-L6. ⚠ Nothing PRINTS either kind of string
-	// today: FieldSet.Refuse has no production caller (DP-B34 — Target.Fields() has none either),
-	// and the host apply's tier-1 line names kinds and points at `yolo config-ref` rather than
-	// quoting a reason. What this closes is the census being wrong in its own data; the display
-	// half is DP-B34's.
+	// ⚠ Nothing PRINTS any of these strings: FieldSet.Refuse has no production caller (DP-B34 —
+	// Target.Fields() has none either), and the host apply's tier-1 line names kinds and points at
+	// `yolo config-ref` rather than quoting a reason. What the entries keep right is the census's
+	// own data, and the manual the drift gate compares it with.
 	//
 	// `intercept` stays refused at both host verbs, for a reason of its own rather than
 	// blocked-tool's old one (boundary-broker.md BB-D17): an intercept layers a permission over a
@@ -112,9 +132,9 @@ var refusalReasons = map[packdecl.Kind]string{
 	packdecl.KindIntercept: "an intercept layers a permission over a CLI by putting a forwarder " +
 		"first on a JAIL's PATH; at the host the agent runs as you and can run the real program " +
 		"by its path, so the layer would govern nothing (boundary-broker.md BB-D17)",
-	packdecl.KindService: "a service is a daemon pair plus an endpoint file under the " +
-		"jail's /run. With no jail there is nothing to supervise the jail half and " +
-		"nothing to read the endpoint",
+	packdecl.KindService: "a service with no host half (`host_daemon`), or one a pack yolo does not " +
+		"ship declares, is a daemon pair plus an endpoint file under the jail's /run. With no " +
+		"jail there is nothing to supervise the jail half and nothing to read the endpoint",
 }
 
 // hostUnimplemented names the kinds a host target's FieldSet HONORS but whose renderer is
@@ -138,48 +158,15 @@ var refusalReasons = map[packdecl.Kind]string{
 // it shows up as that surface's own line. The caller prints the contributing packs there
 // (HostRenderResult.Overlays) and names an ownerless overlay in its own line, so the kind
 // still produces output on every path; it just is not this map's kind of output.
+//
+// `env`, `adapter` and `blocked-tool` were here too, each saying "`yolo host apply` never
+// starts a process, and `yolo host -- <program>` delivers it". That is not a kind the HOST
+// NOTCH leaves undone, it is one this COMMAND writes no file for, and the apply's notch line
+// printing it under "does not apply at the host" contradicted the launch that delivers it. They
+// moved to hostAtLaunch on 2026-10-04, whose outcome is a different clause of the line. (`launch`
+// sat here before them for the same missing verb; that kind is retired, its flags declared inside
+// an `autonomy` posture, which the host notch selects rather than leaves unbuilt.)
 var hostUnimplemented = map[packdecl.Kind]string{
-	// `env` is honored by the census and unbuilt for ONE reason, and the wording has to name
-	// it precisely (plan §6b D3): `yolo host apply` never launches a process. It is a limit
-	// of this COMMAND, not of the notch. The old text — "the only place to set these
-	// off-container is your shell profile" — read as a fact about being off-container, which
-	// it is not: at `guest` yolo already execs the agent (macos-user does it today), and
-	// `yolo --at host -- <cmd>` (design §4.1) would make it renderable at the host notch too,
-	// because then yolo is the one spawning the process and can carry an environment. A
-	// `guest` target inheriting the old sentence would refuse a kind it can honor, which is
-	// exactly the silent-inheritance failure the explicit Kind exists to stop.
-	//
-	// `launch` used to sit here saying the same thing about the same missing verb, since its
-	// flags also need a process. The KIND is retired — launch flags are declared inside an
-	// `autonomy` posture now — and `autonomy` is not honored-but-unbuilt at a host target: it
-	// is the kind the host notch SELECTS (the guarded posture), which is a different answer
-	// and lives in the notch policy rather than in this table.
-	packdecl.KindEnv: "env vars apply to a process yolo starts, and `yolo host apply` only " +
-		"configures your tools — it never runs them. Setting them for your whole session " +
-		"would mean editing your shell rc, a much larger claim than a pack's env " +
-		"contribution asks for. `yolo host -- <program>` delivers them at launch instead, " +
-		"to that process only",
-	// `blocked-tool` is env's case exactly (HE-D11): a blocker is a shim first on the PATH of a
-	// process yolo starts, and `yolo host -- <program>` starts one and puts the shims there, for
-	// that process only, while `yolo host apply` starts none. Taking over the user's own PATH for
-	// their whole session would mean editing their shell rc, the claim this table refuses for env.
-	packdecl.KindBlockedTool: "a blocker is a shim first on the PATH of a process yolo starts, " +
-		"and `yolo host apply` only configures your tools — it never runs them. Putting one at " +
-		"the head of your whole session's PATH would mean editing your shell rc. `yolo host -- " +
-		"<program>` puts them first on that program's PATH instead, for that process only",
-	// `provider` WAS HERE, and is built (OQ-HC1, docs/reference/host-agent-environment.md): `yolo
-	// host apply` composes the providers table at user scope and runs the derives over it, so
-	// a shipped provider's facts reach pi/models, pi/codex-models, codex/config,
-	// opencode/config and oh-omp/models at the host as in a jail. Like config-overlay it
-	// renders INVISIBLY — into the files of the surfaces that carry it.
-	// adapter rides provider's channel and hits the same limit of the same COMMAND: the
-	// address it declares is composed INTO the providers table, so it reaches an agent the
-	// moment one is launched and never through a config file. Same sentence, same verb
-	// missing.
-	packdecl.KindAdapter: "an adapter's address is composed into the providers table a " +
-		"LAUNCH carries, and `yolo host apply` only configures your tools — it never runs " +
-		"one, so nothing is pointed anywhere. `yolo host -- <program>` (or a jail launch) " +
-		"resolves the pairing instead",
 	// Every shipped hook is jail plumbing: the shared_* pair symlinks a credentials file
 	// or a package-store directory into a machine-global dir, and per_jail_history
 	// isolates a history file PER JAIL. Off-container each is either meaningless or a
@@ -192,10 +179,98 @@ var hostUnimplemented = map[packdecl.Kind]string{
 	packdecl.KindHook: "hooks are jail provisioning steps (a credential or package-store " +
 		"symlink into the machine tier, per-jail history) — `yolo host apply` does not run " +
 		"them against your real home",
+	// `provider` WAS HERE, and is built (OQ-HC1, docs/reference/host-agent-environment.md): `yolo
+	// host apply` composes the providers table at user scope and runs the derives over it, so
+	// a shipped provider's facts reach pi/models, pi/codex-models, codex/config,
+	// opencode/config and oh-omp/models at the host as in a jail. Like config-overlay it
+	// renders INVISIBLY — into the files of the surfaces that carry it.
+	//
 	// `profile` WAS HERE, and is built (OQ-HC3): `yolo host apply` applies the selection your
 	// user-scope `profile` names, by the jail's edge-triggered rule, and gates each
 	// profile-gated config-overlay on the same table. A one-launch `-p` still has no meaning
 	// here, since this command launches nothing.
+}
+
+// hostAtLaunch names the kinds the HOST NOTCH delivers to the process `yolo host -- <program>`
+// starts and `yolo host apply` writes no file for — what docs/reference/report-tiers.md's report
+// vocabulary calls AT LAUNCH ONLY (a term coined there on 2026-10-04): what each declares reaches
+// an agent through its PROCESS (an environment, a PATH, the providers table a launch composes, a
+// child daemon, a loopback listener) and never through a file this command could write.
+//
+// THE UNIT IS THE NOTCH, as the config-key table's is (declaration-parity.md DP-I1): a kind
+// some host verb delivers is not one the host "does not apply", and the apply saying it was is
+// the defect this map closes — `yolo host apply` printed env, adapter, service and loophole as
+// not applying at the host while `yolo host -- env` printed the pack env vars.
+//
+// THREE OF THE FIVE HAVE A SHAPE THE HOST DOES NOT DELIVER, so the apply decides PER
+// CONTRIBUTION (cli's hostNotchOutcomeOf) and a kind may land in both of its groups:
+//
+//   - env: a variable `served_by` a daemon the host notch does not serve (hostWithheldAtLaunch).
+//   - service: one with no host half, or a host half the official-pack gate refuses
+//     (launchservice.Admit); refusalReasons states it, the kind not being honored.
+//   - loophole: one with no doorway for a notch without a jail (refusalReasons, likewise).
+//   - adapter and blocked-tool: none — every contribution is delivered.
+//
+// service and loophole stay out of HostFields: the FieldSet census says what a host TARGET
+// renders, and nothing renders either kind into a home.
+var hostAtLaunch = map[packdecl.Kind]string{
+	packdecl.KindEnv: "env vars apply to a process yolo starts: `yolo host -- <program>` " +
+		"delivers them to that process only, and `yolo host env` prints them. `yolo host apply` " +
+		"starts none, and setting them for your whole session would mean editing your shell rc",
+	// docs/design/host-launch-environment.md HE-D11: `yolo host -- <program>` applies blocked
+	// tools and `yolo host apply` blocks nothing, since it starts no process, which is env's case.
+	packdecl.KindBlockedTool: "a blocker is a shim first on the PATH of a process yolo starts: " +
+		"`yolo host -- <program>` puts them first on that program's PATH, for that process only. " +
+		"`yolo host apply` starts none, and putting one at the head of your whole session's PATH " +
+		"would mean editing your shell rc",
+	// adapter rides provider's channel: the address it declares is composed INTO the providers
+	// table a launch carries, so it reaches an agent the moment one is launched and never
+	// through a config file.
+	packdecl.KindAdapter: "an adapter's address is composed into the providers table a launch " +
+		"carries, so `yolo host -- <program>` points its agent there, starting the pack service " +
+		"that answers it when one does; `yolo host apply` writes it into no file",
+	// docs/design/host-notch-services.md OQ-NC1 (A) and OQ-HS4.
+	packdecl.KindService: "a service's host half (`host_daemon`, in a pack yolo ships) runs at " +
+		"`yolo host -- <program>` beside the one agent paired through it, and stops when that " +
+		"agent exits; `yolo host apply` runs no process for it to live beside",
+	// docs/design/host-notch-services.md HS-D15 (the doorway rule) and HS-D21.
+	packdecl.KindLoophole: "a credential loophole's doorway (`jail_daemon.host_cmd`, in a pack " +
+		"yolo ships) opens at `yolo host -- <program>` for the agent whose selection asks for it, " +
+		"once the loophole is enabled, and closes when that agent exits; `yolo host apply` runs " +
+		"no process for it to live beside",
+}
+
+// hostWithheldAtLaunch is the shape of an at-launch kind the host notch does NOT deliver, for
+// a kind the host FieldSet honors (so refusalReasons cannot state it). Only `env` has one:
+// service's and loophole's undelivered shapes are their refusalReasons entries.
+var hostWithheldAtLaunch = map[packdecl.Kind]string{
+	// docs/plans/notch-convergence.md NC-D16's one "served at this notch" predicate
+	// (packload/served.go): the host serves no jail daemon but the doorways and the pack
+	// services a launch opens, so a pointer at any other is withheld and named at launch. The
+	// shipped case is audio's (LP-D1, docs/design/loophole-packaging.md): a bound loophole's
+	// socket path exists only in a jail that binds it, and a client at the host reaches its
+	// own server at the default path instead.
+	packdecl.KindEnv: "a variable `served_by` a daemon the host does not serve — a bound " +
+		"loophole's socket path, which only a jail binds (audio's), or a loophole with no doorway " +
+		"— is withheld at `yolo host --` and named there: a client at the host reaches its own " +
+		"server instead",
+}
+
+// HostAtLaunch returns the reason `yolo host -- <program>` delivers a kind at the host notch
+// that `yolo host apply` writes no file for (report-tiers.md's AT LAUNCH ONLY), and ok=false for
+// any other kind. A kind it names may still have a shape the host does not deliver
+// (HostWithheldAtLaunch, and FieldSet.Refuse for a kind the FieldSet does not honor): the apply
+// decides per contribution.
+func HostAtLaunch(k packdecl.Kind) (string, bool) {
+	r, ok := hostAtLaunch[k]
+	return r, ok
+}
+
+// HostWithheldAtLaunch returns the reason a contribution of an at-launch kind the host FieldSet
+// honors is not delivered at the host, ok=false for a kind with no such shape.
+func HostWithheldAtLaunch(k packdecl.Kind) (string, bool) {
+	r, ok := hostWithheldAtLaunch[k]
+	return r, ok
 }
 
 // HostUnimplemented returns the reason a kind is honored-but-unbuilt at a host target, and
@@ -244,7 +319,7 @@ var jailRenderedElsewhere = map[packdecl.Kind]bool{
 }
 
 // HostFields is the reduced set a host/guest target honors: the composed-config and
-// prose kinds port; env is static; program is confirm-gated (honored, but the CALLER
+// prose kinds port; env is delivered at launch (hostAtLaunch); program is confirm-gated (honored, but the CALLER
 // gates it — the FieldSet says it applies); the provisioning kinds are refused. This
 // is §2.1's census as executable data.
 //
@@ -259,7 +334,7 @@ func HostFields() FieldSet {
 		packdecl.KindBriefing:      true,
 		packdecl.KindEnv:           true,
 		// blocked-tool is honored for env's reason: `yolo host --` starts the process and owns
-		// its PATH (HE-D11), and apply's limit is the hostUnimplemented entry.
+		// its PATH (HE-D11), so it is delivered at launch (hostAtLaunch).
 		packdecl.KindBlockedTool: true,
 		packdecl.KindHook:        true,
 		packdecl.KindProgram:     true, // honored but confirm-gated by the caller (OQ-6/7)
@@ -289,7 +364,7 @@ func HostFields() FieldSet {
 		// adapter is provider's constant companion and gets provider's answer, for
 		// provider's reason: it declares an ADDRESS, and an address reaches an agent through
 		// the providers table a LAUNCH composes, never through a file this command writes.
-		// Honored-but-unbuilt below states that limit.
+		// hostAtLaunch states where it is delivered.
 		packdecl.KindAdapter: true,
 		// profile is honored in the sense the census means — since OQ-PT8 it IS a
 		// selection (`name` + `provider`), not a patch of its own, so there is nothing to

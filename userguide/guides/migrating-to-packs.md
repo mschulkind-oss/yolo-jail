@@ -194,9 +194,13 @@ What to look for:
   skills folder from your packs. Nothing is deleted; anything that cannot be moved is archived.
   Afterwards, add a skill to `~/.config/yolo-jail/local/skills/`, not to an agent's own folder,
   or the next apply will offer to move it again.
-- **What does not apply at the host.** Some kinds, such as `state`, `mount` and `loophole`, only
-  mean something in a jail, and so do settings in your user config such as `mounts`, `network`,
-  `resources` and `packages`. The report names them all in one line.
+- **What applies at launch only, and what does not apply at the host.** Some of what your packs
+  declare reaches an agent only when yolo starts it, such as pack environment variables and the
+  credential helper a loophole like `aws-auth` opens: `yolo host -- <agent>` delivers them, and
+  the apply writes no file for them. Other kinds, such as `state` and `mount`, only mean
+  something in a jail, and so do settings in your user config such as `mounts`, `network`,
+  `resources` and `packages`, and a loophole you wrote yourself with a `command`. The report
+  names both groups on one line.
 
 `--verbose` lists every file it checked. The dry run names the keys it would overwrite but does not
 print the full content, so before your first `--assert` read what your packs manage:
