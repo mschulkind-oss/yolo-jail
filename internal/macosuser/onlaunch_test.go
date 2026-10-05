@@ -148,3 +148,30 @@ func TestOnLaunchNeverRunsForARefusedLaunchOrADryRun(t *testing.T) {
 		})
 	}
 }
+
+// A SIGNAL AT THE LAST BOUNDARY (the release of the workspace lock, after every step that can
+// refuse) ends the launch without running the hook: the arm's Ending is asked first, so no port
+// relay opens for a session that never starts. Fails if the hook's call moves above that check.
+func TestOnLaunchNeverRunsForALaunchASignalEnded(t *testing.T) {
+	var rec []string
+	d := mockDeps(&rec)
+	flip := endingAfter(&d)
+	d.LockWorkspace = func(string, string) func() { return flip }
+	var buf bytes.Buffer
+	d.Out = &buf
+	o := newOpts(probeWS)
+	called := false
+	o.JailDaemons.OnLaunch = func() func() {
+		called = true
+		return nil
+	}
+	if rc := RunMacosUser(d, o); rc != 143 {
+		t.Fatalf("rc = %d, want 143 (the signal's status)\n%s\n%s", rc, buf.String(), strings.Join(rec, "\n"))
+	}
+	if called {
+		t.Errorf("the session-start hook ran for a launch a signal ended:\n%s", strings.Join(rec, "\n"))
+	}
+	if onLaunchRecIndex(rec, "proxy:") >= 0 {
+		t.Errorf("the session ran after the signal:\n%s", strings.Join(rec, "\n"))
+	}
+}

@@ -260,8 +260,9 @@ type JailDaemons struct {
 	// step that can refuse the launch (the preconditions, the nix builds, the bootstrap, the
 	// provisioning stage, this supervisor's start and the host-service witness) has passed and
 	// the workspace lock is released. What it returns runs once the command has exited, before
-	// the supervisor stops; nil returns nothing to run. Never on a dry run or a refusal. It must
-	// return promptly: the session waits for it.
+	// the supervisor stops; nil returns nothing to run. Never on a dry run, a refusal, or a launch
+	// a signal ended first (the arm's Ending is asked before it). It must return promptly: the
+	// session waits for it.
 	//
 	// The run pipeline's port relays open here (internal/cli/run's macosuserportrelay.go), so a
 	// launch refused at any step, or still building its tools, publishes no port. It rides on
