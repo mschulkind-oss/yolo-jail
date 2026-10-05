@@ -243,6 +243,19 @@ hour ran no git and mounted the same build; and after the build line was edited 
 failed build left nothing mounted, the earlier mountpoint retired, and the agent's launcher carrying
 the stop with the host's reason.
 
+Corrected in review the same day: a build line ending in a `# comment` no longer comments out the
+subshell's close and the final copy, the line sitting on lines of its own; a patched extension's claim
+is disclosed at launch ([PPX-D29](patched-extensions.md#PPX-D29)); its build jail no longer reports
+the contributing pack's own list entry as ownerless ([PPX-D30](patched-extensions.md#PPX-D30)); a
+revert removes the host's link and copies ([PPX-D31](patched-extensions.md#PPX-D31)); `yolo host --
+<bin>` names the build its link names, is silent under `host_management: none`, and on a macOS host
+says the agent starts without the tree ([PPX-D25](patched-extensions.md#PPX-D25),
+[PPX-D26](patched-extensions.md#PPX-D26)); a host advance's wait and interrupt lines name the host;
+an attach reads the delivery record once and says an unreadable one once, with its next step; and
+`yolo pack status` heads its section for what it lists, which the commit before said it did and did
+not. Five launch call sites, four host ones and the native launcher's gate gained the tests that fail
+with each deleted.
+
 Left: [PPX-D16](patched-extensions.md#PPX-D16)'s series lint, which needs the upstream's `.gitignore`
 at the base from the replay's scratch repository; step 6, migrating the five and a nested-jail run in
 which a real pi loads a built tree (a human's check, AGENTS.md's no-agent rule); and an integration
