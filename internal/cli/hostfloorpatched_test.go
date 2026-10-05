@@ -309,7 +309,7 @@ func TestAHostWithNoRecordAndNoRuntimeInstallsTheGoodBuildItsStoreHolds(t *testi
 	if _, err := os.Stat(recPath); err == nil {
 		t.Error("the floor's offline read wrote a check record")
 	}
-	// THE FORK'S LINE NAMES WHAT THE FLOOR RUNS (PF-D50): the recovered build, never "no build".
+	// THE FORK'S LINE NAMES WHAT THE FLOOR RUNS (PF-D53): the recovered build, never "no build".
 	if want := ", at v1.1.0 (" + shortSHA(v11) + ")"; !strings.Contains(out, want) ||
 		strings.Contains(out, "no build of it on this machine yet") {
 		t.Errorf("the fork's line does not name the build the floor runs (%q):\n%s", want, out)
@@ -327,7 +327,7 @@ func removeStoreEntry(t *testing.T, key string) {
 	}
 }
 
-// floorServesGoneEntry is the state PF-D52 is about: the floor's copy of the good build v1.1.0 is
+// floorServesGoneEntry is the state PF-D55 is about: the floor's copy of the good build v1.1.0 is
 // current and that build's store entry is gone (a prune, a wiped store), and every build of v1.1.0 or
 // newer fails while the series' base would build — so an advance that took the copy for missing would
 // build the base and move the floor, and the good build under every later jail, backward. It returns
@@ -365,7 +365,7 @@ func floorServesGoneEntry(t *testing.T) (*patchedAdvanceFixture, string, func(wh
 	}
 }
 
-// THE FLOOR'S COPY OF THE GOOD BUILD SERVES WHEN ITS STORE ENTRY IS GONE (PF-D52): the floor holds
+// THE FLOOR'S COPY OF THE GOOD BUILD SERVES WHEN ITS STORE ENTRY IS GONE (PF-D55): the floor holds
 // the good build itself, so its advance treats that copy as what serves. It builds nothing to put the
 // entry back, never builds the series' base in its place, and says nothing is missing. A newer
 // upstream is built as one with a good build serving: through the interruptible child, its lines
@@ -402,7 +402,7 @@ func TestTheFloorsCopyOfTheGoodBuildServesWhenItsStoreEntryIsGone(t *testing.T) 
 	assertServes("held by agent_updates", 2)
 }
 
-// WHAT A WALK STOPS ON, WHILE THE FLOOR'S COPY SERVES (PF-D52): an upstream that does not take the
+// WHAT A WALK STOPS ON, WHILE THE FLOOR'S COPY SERVES (PF-D55): an upstream that does not take the
 // series, and one the series cannot be replayed onto, each leave the floor's copy running, said as
 // such, with no build of the series' base in its place; and an apply error is replayed again only by
 // the next check (PF-D45), never by every launch inside the hour.
@@ -498,7 +498,7 @@ func movedPastTheFloor(t *testing.T, fx *patchedAdvanceFixture) (string, string)
 	return v11, v13
 }
 
-// THE FLOOR'S INSTALLED COPY SERVES WHILE A MOVED GOOD BUILD IS BUILT AGAIN (PF-D52, PF-D8): the
+// THE FLOOR'S INSTALLED COPY SERVES WHILE A MOVED GOOD BUILD IS BUILT AGAIN (PF-D55, PF-D8): the
 // good build moved past the floor's copy and its entry went, so the floor's advance builds it again
 // — as one with a good build serving, since the floor's copy keeps running whatever the build does.
 // A Ctrl-C starts that copy; a failed build keeps it and never builds the series' base in its place;
@@ -578,7 +578,7 @@ func TestTheFloorsInstalledCopyServesWhileAMovedGoodBuildIsBuiltAgain(t *testing
 }
 
 // A BUILD THAT LEFT THE STORE BEFORE ITS MOVE, AT THE HOST (PF-D46), names the floor's copy as what
-// runs (PF-D52), never a missing program: the floor's v1.1.0 keeps serving whatever the advance does.
+// runs (PF-D55), never a missing program: the floor's v1.1.0 keeps serving whatever the advance does.
 func TestABuildThatLeftTheStoreAtTheHostNamesTheFloorsCopy(t *testing.T) {
 	fx := patchedFloorFixture(t)
 	v11 := fx.commit(t, "v1.1.0", map[int]string{14: "fourteen"})
@@ -615,7 +615,7 @@ func TestABuildThatLeftTheStoreAtTheHostNamesTheFloorsCopy(t *testing.T) {
 	}
 }
 
-// THE FLOOR'S COPY SERVES ONLY AS A BUILD OF THE SERIES AS IT STANDS (PF-D52): a copy handed to the
+// THE FLOOR'S COPY SERVES ONLY AS A BUILD OF THE SERIES AS IT STANDS (PF-D55): a copy handed to the
 // advance whose recipe is not the manifest's — the series edited since the floor read it — serves
 // nothing, and the advance runs as one with nothing serving.
 func TestAFloorCopyOfAnotherRecipeServesNoAdvance(t *testing.T) {
@@ -636,7 +636,7 @@ func TestAFloorCopyOfAnotherRecipeServesNoAdvance(t *testing.T) {
 	}
 }
 
-// A HELD FORK'S ADVANCE OVER THE FLOOR'S COPY OF THE GOOD BUILD BUILDS NOTHING (PF-D19, PF-D52): under
+// A HELD FORK'S ADVANCE OVER THE FLOOR'S COPY OF THE GOOD BUILD BUILDS NOTHING (PF-D19, PF-D55): under
 // `agent_updates` off the floor runs an advance only for an entry it reinstalls (a raised node_floor,
 // say), and with the good build's store entry gone that advance does not build the good build again,
 // held or not: the floor keeps its copy, and its stop names `yolo capture <bin>`.
@@ -743,7 +743,7 @@ func TestTheProductionFloorWiresThePatchedAdvanceAndRead(t *testing.T) {
 	if again := floor.Patched(p); again.Good == nil || again.Good.Entry.Key != ps.Good.Entry.Key {
 		t.Errorf("the offline read after the advance = %+v", again)
 	}
-	// THE FLOOR'S COPY THAT SERVES reaches the advance as the advance reads it (PF-D52).
+	// THE FLOOR'S COPY THAT SERVES reaches the advance as the advance reads it (PF-D55).
 	installed := &hostfloor.Record{Revision: v11, Recipe: ps.Recipe, Version: ps.Good.Label}
 	floor.Advance(context.Background(), p, installed)
 	want := installedCopy{commit: v11, recipe: ps.Recipe, label: ps.Good.Label}

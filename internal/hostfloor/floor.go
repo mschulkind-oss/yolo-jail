@@ -237,7 +237,7 @@ type Floor struct {
 	// outside the floor's lock; never Status. installed is the floor's own copy of p when it is a
 	// build of the series as it stands — the copy a failed install keeps (PF-D8) — and nil otherwise:
 	// it serves whatever the advance does, so the advance runs as one with a good build serving, and
-	// builds no good build that copy already is (PF-D52). nil => no patched fork is advanced here, and
+	// builds no good build that copy already is (PF-D55). nil => no patched fork is advanced here, and
 	// none with no good build in the store has a floor entry.
 	Advance func(ctx context.Context, p Program, installed *Record) PatchedState
 	// Build runs the fork's build act for p at commit (a sealed capture jail; never on the host),

@@ -300,7 +300,7 @@ func (s *Store) Resolve(key string) (*Entry, error) {
 // the store. A reap removes the marker FIRST (reapEntry), so a copy of e's tree checked with this
 // AFTER it ends is a copy of a whole entry whenever this says true — the one check a reader needs
 // that, unlike a materialize into a jail, has no vendor installer to fall back to when an entry is
-// reaped under it (docs/design/patched-forks.md PF-D48: the host floor's copy of a patched fork's
+// reaped under it (docs/design/patched-forks.md PF-D51: the host floor's copy of a patched fork's
 // build, whose move reaps every build no running jail was handed).
 func (e *Entry) Complete() bool {
 	if e == nil || e.Root == "" {

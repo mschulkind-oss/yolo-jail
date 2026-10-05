@@ -47,7 +47,7 @@ package cli
 //     host` and its next launch rather than a jail (advanceOptions.host), and which hands nothing:
 //     the floor installs the good build the record names once the advance returns. The floor's own
 //     installed copy of the series as it stands serves as a good build does (advanceOptions.installed,
-//     PF-D52): it keeps running whatever the advance does, so the advance is interruptible, honors a
+//     PF-D55): it keeps running whatever the advance does, so the advance is interruptible, honors a
 //     back-off and never builds the series' base in its place, and a good build that copy already is
 //     is not built again for want of its store entry.
 //
@@ -104,11 +104,11 @@ type advanceOptions struct {
 	// --assert`. With launch set, it is a launch's advance in every rule (the check throttled, a
 	// back-off honored, the wait interruptible while a good build serves: PF-D25); only its lines
 	// differ, naming `yolo host` and its next launch where a jail's name this jail and the next
-	// fresh launch (PF-D47).
+	// fresh launch (PF-D50).
 	host bool
 	// installed is the host floor's own copy of the program when it is a build of the series as it
 	// stands — the copy a failed install keeps (PF-D8) — nil otherwise, and always for a jail, whose
-	// program is a store entry. While no store entry of the good build serves, it does (PF-D52).
+	// program is a store entry. While no store entry of the good build serves, it does (PF-D55).
 	installed *installedCopy
 }
 
@@ -168,7 +168,7 @@ type advance struct {
 	ctx    context.Context // the interrupt scope's, Background outside one
 	// serving is the good build the advance started with, when it serves (its store entry).
 	serving *capture.Entry
-	// installed is the host floor's copy that serves when no store entry does (PF-D52): set only with
+	// installed is the host floor's copy that serves when no store entry does (PF-D55): set only with
 	// serving nil, and only when it is a build of the recipe as it stands.
 	installed *installedCopy
 	rec       *packsrc.CheckRecord
@@ -218,7 +218,7 @@ func advancePatchedFork(f packload.Fork, o advanceOptions) advanceResult {
 	if !o.launch || !a.serves() {
 		return a.run()
 	}
-	// A GOOD BUILD SERVES — or the floor's copy does (PF-D52) — so a Ctrl-C ends this advance and the
+	// A GOOD BUILD SERVES — or the floor's copy does (PF-D55) — so a Ctrl-C ends this advance and the
 	// jail, or `yolo host`, starts on it (PF-D25).
 	var res advanceResult
 	sig := run.InterruptScope(func(ctx context.Context) {
@@ -257,7 +257,7 @@ func newAdvance(f packload.Fork, o advanceOptions) (*advance, *advanceResult) {
 		a.serving = a.exactGood(a.rec.Good)
 	}
 	if a.serving == nil && o.installed != nil && o.installed.recipe == a.recipe {
-		// THE FLOOR'S COPY SERVES (PF-D52): no store entry of the good build does, and the floor holds
+		// THE FLOOR'S COPY SERVES (PF-D55): no store entry of the good build does, and the floor holds
 		// a build of the series as it stands, which keeps running whatever this advance does.
 		a.installed = o.installed
 	}
@@ -265,11 +265,11 @@ func newAdvance(f packload.Fork, o advanceOptions) (*advance, *advanceResult) {
 }
 
 // serves reports whether something runs while this advance does not move: the good build's store
-// entry, or the floor's installed copy (PF-D52).
+// entry, or the floor's installed copy (PF-D55).
 func (a *advance) serves() bool { return a.serving != nil || a.installed != nil }
 
 // installedIsGood reports whether the floor's copy that serves is the good build itself, whose store
-// entry is then not built again for it (PF-D52).
+// entry is then not built again for it (PF-D55).
 func (a *advance) installedIsGood() bool {
 	g := a.goodBuild()
 	return a.installed != nil && g != nil && a.installed.commit == g.Commit && a.installed.recipe == g.Recipe
@@ -384,7 +384,7 @@ func (a *advance) run() advanceResult {
 	if a.serving == nil && good != nil && !onList(list, good.Commit) && !a.installedIsGood() {
 		// THE EDIT, OR THE GOOD BUILD'S ENTRY GONE (§6.1's series and recipe rows, §8.1): with nothing
 		// newer that fits, the candidate is the good build's own commit, with the series and recipe
-		// as they stand — unless the floor's copy that serves is that build (PF-D52), which needs no
+		// as they stand — unless the floor's copy that serves is that build (PF-D55), which needs no
 		// store entry to run.
 		list = append(list, goodEntry(good))
 	}
@@ -493,7 +493,7 @@ func (a *advance) runsNow() string {
 	return a.hasNo()
 }
 
-// THE NOTCH'S WORDS (PF-D47): what this advance's lines call the place the program runs, and the
+// THE NOTCH'S WORDS (PF-D50): what this advance's lines call the place the program runs, and the
 // act that tries again — a jail and its next fresh launch, or `yolo host` and its next launch of the
 // program, whose floor installs what the advance leaves (advanceOptions.host).
 

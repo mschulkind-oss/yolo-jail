@@ -171,7 +171,7 @@ func TestTheRefreshArmAdvancesAPatchedForkUnderUpdatesAllowed(t *testing.T) {
 	}
 }
 
-// THE ADVANCE IS HANDED THE FLOOR'S COPY THAT SERVES (PF-D52): nothing on a first install; the
+// THE ADVANCE IS HANDED THE FLOOR'S COPY THAT SERVES (PF-D55): nothing on a first install; the
 // installed good build on a refresh; the installed copy a newer good build has moved past, which a
 // failed install keeps; and nothing once the user's edit makes that copy a near-miss, which a failed
 // install removes.
@@ -292,7 +292,7 @@ func TestAMovedGoodBuildThatCannotLeaveTheJailHasNoFloorEntry(t *testing.T) {
 	}
 }
 
-// THE COPY IS CHECKED WHOLE AFTER IT ENDS (PF-D48): an entry another advance's move reaped while the
+// THE COPY IS CHECKED WHOLE AFTER IT ENDS (PF-D51): an entry another advance's move reaped while the
 // floor copied it — its completion marker the reap's first removal — fails the install, never
 // installed as a half-copied program.
 func TestTheFloorsCopyOfAPatchedBuildIsCheckedWholeAfterItEnds(t *testing.T) {
@@ -359,7 +359,7 @@ func TestAPatchedForkWithNoFloorEntryNamesWhereItRuns(t *testing.T) {
 	}
 }
 
-// A COPY FROM ANOTHER REPOSITORY IS A NEAR-MISS (PF-D49): the patched recipe hashes the build and
+// A COPY FROM ANOTHER REPOSITORY IS A NEAR-MISS (PF-D52): the patched recipe hashes the build and
 // the series, never the repository, so the declaration is what tells a copy of another source apart.
 // A switch of the fork's source whose install fails removes the installed copy rather than keeping
 // it.

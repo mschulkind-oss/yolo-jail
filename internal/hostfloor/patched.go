@@ -41,10 +41,10 @@ import (
 //     as FP-D17 removes a plain fork's build at a moved pin.
 //   - A MOVED GOOD BUILD THAT CANNOT LEAVE THE JAIL'S HOME HAS NO FLOOR ENTRY (§9), whatever the
 //     floor ran before: its install's no-entry answer removes the installed copy too.
-//   - THE COPY IS CHECKED WHOLE AFTER IT ENDS (PF-D48): a move reaps every build no running jail was
+//   - THE COPY IS CHECKED WHOLE AFTER IT ENDS (PF-D51): a move reaps every build no running jail was
 //     handed, and the floor's copy is no jail's, so an entry reaped under the copy fails the install
 //     rather than becoming a half-copied program.
-//   - THE FLOOR'S OWN COPY SERVES THE ADVANCE (PF-D52): the install act hands the advance its installed
+//   - THE FLOOR'S OWN COPY SERVES THE ADVANCE (PF-D55): the install act hands the advance its installed
 //     copy when that is a build of the series as it stands (patchedServing), which keeps running
 //     whatever the advance does, so the advance runs as one with a good build serving even after the
 //     good build's store entry is gone. An install whose good build the store no longer holds does not
@@ -379,7 +379,7 @@ func (f *Floor) installFromPatchedBuild(ctx context.Context, p Program, dir stri
 	if err != nil {
 		return nil, fmt.Errorf("materializing the build of %s: %w", p.Bin(), err)
 	}
-	// THE ENTRY IS STILL WHOLE (PF-D48): another advance's move reaps, marker first, every build no
+	// THE ENTRY IS STILL WHOLE (PF-D51): another advance's move reaps, marker first, every build no
 	// running jail was handed, and this copy is no jail's.
 	if !g.Entry.Complete() {
 		return nil, fmt.Errorf("the build %s left the capture store while it was copied (another launch moved "+

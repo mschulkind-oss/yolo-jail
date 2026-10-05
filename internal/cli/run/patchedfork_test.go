@@ -198,7 +198,7 @@ func TestTheForkBlockNamesAPatchedForksGoodBuildAndItsHold(t *testing.T) {
 	}
 }
 
-// THE HOST'S LINE NAMES THE BUILD THE FLOOR RUNS (PF-D50): while that is the record's good build, the
+// THE HOST'S LINE NAMES THE BUILD THE FLOOR RUNS (PF-D53): while that is the record's good build, the
 // jail's line; with no good build on the record (a lost record, the floor's copy recovered from the
 // store), that build, plainly, or held while `agent_updates` holds the fork; and with the good build
 // moved past the floor's copy, the copy, and that the good build is not installed.

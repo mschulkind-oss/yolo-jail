@@ -224,25 +224,25 @@ and the macos-user lines. What the tree changed against the map above:
 
 | Where | What landed |
 | :--- | :--- |
-| [`hostfloor/patched.go`](../../internal/hostfloor/patched.go), [`floor.go`](../../internal/hostfloor/floor.go), [`ensure.go`](../../internal/hostfloor/ensure.go), [`built.go`](../../internal/hostfloor/built.go) | the patched arm: `Floor.Patched` (the offline read) and `Floor.Advance`; the four recipe readers on the good build (`patchedServesANearMiss`, `patchedPending`, the install from the good build's entry, its record); `ensurePatched`, whose advance is the refresh arm under `UpdatesAllowed` for the fork pack and its base ([PF-D47](patched-forks.md#PF-D47), [PF-D49](patched-forks.md#PF-D49)); the copy checked whole ([PF-D48](patched-forks.md#PF-D48)); a Mac's no-copy line names a jail ([PF-D51](patched-forks.md#PF-D51)) |
-| [`cli/hostfloor.go`](../../internal/cli/hostfloor.go), [`cli/patchedadvance.go`](../../internal/cli/patchedadvance.go) | `floorAdvance` (the fresh launch's advance as a launch, at the host: `advanceOptions.host`) and `floorPatchedState`; `recoverGoodBuild`, which writes nothing; the fork's line at `yolo host -- <bin>` ([PF-D50](patched-forks.md#PF-D50)); `hostFloorPatchedReason` retired |
+| [`hostfloor/patched.go`](../../internal/hostfloor/patched.go), [`floor.go`](../../internal/hostfloor/floor.go), [`ensure.go`](../../internal/hostfloor/ensure.go), [`built.go`](../../internal/hostfloor/built.go) | the patched arm: `Floor.Patched` (the offline read) and `Floor.Advance`; the four recipe readers on the good build (`patchedServesANearMiss`, `patchedPending`, the install from the good build's entry, its record); `ensurePatched`, whose advance is the refresh arm under `UpdatesAllowed` for the fork pack and its base ([PF-D50](patched-forks.md#PF-D50), [PF-D52](patched-forks.md#PF-D52)); the copy checked whole ([PF-D51](patched-forks.md#PF-D51)); a Mac's no-copy line names a jail ([PF-D54](patched-forks.md#PF-D54)) |
+| [`cli/hostfloor.go`](../../internal/cli/hostfloor.go), [`cli/patchedadvance.go`](../../internal/cli/patchedadvance.go) | `floorAdvance` (the fresh launch's advance as a launch, at the host: `advanceOptions.host`) and `floorPatchedState`; `recoverGoodBuild`, which writes nothing; the fork's line at `yolo host -- <bin>` ([PF-D53](patched-forks.md#PF-D53)); `hostFloorPatchedReason` retired |
 | [`packdecl`](../../internal/packdecl/packdecl.go), [`packload/forks.go`](../../internal/packload/forks.go), [`packsrc/addr.go`](../../internal/packsrc/addr.go), [`capture/store.go`](../../internal/capture/store.go) | `Install.ForkRoot`, set by the fork rewrite; `packsrc.BuildSource`, which `cli.patchedBuildSource` now is; `capture.Entry.Complete` |
-| [`run/forkbuild.go`](../../internal/cli/run/forkbuild.go), [`run/run.go`](../../internal/cli/run/run.go), [`macosuser/runplan.go`](../../internal/macosuser/runplan.go) | macos-user: the warning names a patched fork and both container backends, the sandbox is handed each fork's reason through `YOLO_FORK_BUILDS`, and the fork block's edited-series clause names a container backend's launch ([PF-D51](patched-forks.md#PF-D51)) |
+| [`run/forkbuild.go`](../../internal/cli/run/forkbuild.go), [`run/run.go`](../../internal/cli/run/run.go), [`macosuser/runplan.go`](../../internal/macosuser/runplan.go) | macos-user: the warning names a patched fork and both container backends, the sandbox is handed each fork's reason through `YOLO_FORK_BUILDS`, and the fork block's edited-series clause names a container backend's launch ([PF-D54](patched-forks.md#PF-D54)) |
 
 The traps above held as written for programs. The host-render gate's trap, written for patched
 extensions, is met by placement: the floor's install runs in `resolveHostLaunchTarget`, after
 `hostApplyGate` returns, and only for the program being launched (`TestTheHostFloorsAdvanceRunsAfterTheRenderGatesObservePass`).
 Patched extensions still need the advance before the gate, because their advance changes the render.
 The plan's seam for this step ("`launch` false, a host platform, a hand that writes the floor's
-record") was taken as `launch` true and no hand ([PF-D47](patched-forks.md#PF-D47),
-[PF-D48](patched-forks.md#PF-D48)).
+record") was taken as `launch` true and no hand ([PF-D50](patched-forks.md#PF-D50),
+[PF-D51](patched-forks.md#PF-D51)).
 
 Corrected in review the same day: the advance decided what serves from the capture store alone,
 so the floor's own installed copy counted for nothing once the good build's store entry was gone,
 and the fork's line read the check record rather than what the floor runs. The floor now hands its
-advance the installed copy that serves ([PF-D52](patched-forks.md#PF-D52)), an install whose good
+advance the installed copy that serves ([PF-D55](patched-forks.md#PF-D55)), an install whose good
 build has no store entry stops on `yolo capture <bin>` instead of starting, and the line names the
-floor's build ([PF-D50](patched-forks.md#PF-D50)).
+floor's build ([PF-D53](patched-forks.md#PF-D53)).
 
 Left: macos-user delivery, [OQ-PFK5](patched-forks.md#OQ-PFK5), which waits on
 [`install-capture.md`'s hand-off H4](../plans/install-capture.md#hand-offs--what-is-not-wired-and-the-exact-line-that-wires-it);

@@ -170,7 +170,7 @@ func floorPatchedPlatform() string { return capture.Platform() }
 // launch's own (advancePatchedFork) as a LAUNCH — the check throttled, a back-off honored, the wait
 // interruptible while a good build serves (PF-D25) — at the host (advanceOptions.host), its lines on
 // the launch's stderr, as the floor's are. installed is the floor's own copy that serves, nil for
-// none (PF-D52). It hands nothing: the floor installs the good build the record names once it
+// none (PF-D55). It hands nothing: the floor installs the good build the record names once it
 // returns. A var so a test can count the floor's advances.
 var floorAdvance = func(f packload.Fork, out io.Writer, installed *installedCopy) {
 	advancePatchedFork(f, advanceOptions{platform: floorPatchedPlatform(), out: out, errw: out, launch: true, host: true,
@@ -542,7 +542,7 @@ func resolveHostLaunchTarget(packs []*packload.Pack, cmd0 string, lp *hostpath.L
 		return hostTarget{}, 127
 	}
 	if prog.Install.IsPatchedFork() && st.Record != nil {
-		// A PATCHED FORK'S LINE (docs/design/patched-forks.md §7, PF-D11, PF-D50), the one a jail
+		// A PATCHED FORK'S LINE (docs/design/patched-forks.md §7, PF-D11, PF-D53), the one a jail
 		// launch's fork block prints, of the build the FLOOR runs: the series, that build, and the held
 		// suffix while something holds the newest upstream back — or, when the floor runs another build
 		// than the good build, both. A disclosure, so on every launch (OQ-RO3).

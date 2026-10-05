@@ -43,7 +43,7 @@ type FloorCopy struct{ Commit, Recipe, Label string }
 
 // PatchedForkLine is a patched fork's line as `yolo host -- <bin>` prints it once the floor installed
 // the program (docs/design/patched-forks.md §7: every fork line names the series, and a later launch
-// carries the held suffix), and whether it is a warning. It names floor, the build that runs (PF-D50):
+// carries the held suffix), and whether it is a warning. It names floor, the build that runs (PF-D53):
 // while that is the good build, the jail's fork-block line, with rebuilds naming the act that builds
 // an edited series there; otherwise that build, and the good build when the record names one.
 func PatchedForkLine(f packload.Fork, floor FloorCopy, rebuilds string) (string, bool) {
@@ -95,7 +95,7 @@ func patchedForkLineOf(f packload.Fork, floor *FloorCopy, rebuilds string) (stri
 }
 
 // floorCopyLine is the host's line while the floor runs a build the check record does not name as its
-// good build (PF-D50): the copy a failed install of a moved good build keeps (PF-D8), named with that
+// good build (PF-D53): the copy a failed install of a moved good build keeps (PF-D8), named with that
 // good build; or, with no good build on the record, the one the floor installed from the capture
 // store, which a lost record costs nothing of (§6.2).
 func floorCopyLine(f packload.Fork, head string, floor FloorCopy, g *packsrc.GoodBuild) (string, bool) {
