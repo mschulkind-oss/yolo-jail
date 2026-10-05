@@ -121,8 +121,12 @@ func dialectFor(goos string) dialect {
 	return gnuPS
 }
 
-// psDeadlineSeconds bounds each ps the BSD arm runs and parses itself: the same 30
-// seconds ExecAllowlisted gives the ps whose output it streams.
+// psDeadlineSeconds bounds the ps runs the daemon parses itself outside tree mode
+// (treeDeadlineSeconds), TOGETHER rather than each: BSD list mode's name-free listing,
+// snapshot and header query share one 30-second context, as do the self-check's probes,
+// and BSD pid mode's one lookup has its own. So a timeout names the ps that was running
+// when the shared deadline passed, which may itself have run for less. The ps whose
+// output ExecAllowlisted streams gets its own 30 seconds.
 const psDeadlineSeconds = 30
 
 // bsdListSnapshotArgv is the one question the BSD list mode asks about EVERY process:
@@ -405,11 +409,13 @@ func handleList(s *hostservice.Session, visible map[string]struct{}, fields []st
 // pids, and nothing else, go to `ps -o <fields> -p <pid,…>` through ExecAllowlisted,
 // whose allowlist is exactly that argv.
 //
-// TWO EXECS WHERE GNU NEEDS ONE, so there is a window GNU's `-C` does not have: a pid
-// the snapshot matched can exit and be REUSED before the second ps runs. It is the
-// window pid mode has always had between reading a name and running its own ps, and on
-// darwin it is narrower than it sounds, since pids are handed out in sequence and reuse
-// within one request needs the whole pid space to wrap in between.
+// MORE THAN ONE EXEC WHERE GNU NEEDS ONE: bsdSnapshot's name-free listing and snapshot,
+// then the streamed ps, or the header query when nothing matched. So there is a window
+// GNU's `-C` does not have: a pid the snapshot matched can exit and be REUSED before the
+// streamed ps runs. It is the window pid mode has always had between reading a name and
+// running its own ps, and on darwin it is narrower than it sounds, since pids are handed
+// out in sequence and reuse within one request needs the whole pid space to wrap in
+// between.
 //
 // No match keeps GNU's answer, the column header and exit 1, which is what
 // `ps -o … -C <comm>` prints when nothing has that name (bsdHeaderOnly).

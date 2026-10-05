@@ -134,16 +134,17 @@ var bsdTreeSnapshotArgv = []string{"ps", "-ax", "-o", "pid=,ppid=,ucomm="}
 
 // handleTreeBSD is tree mode on BSD ps, which has no --forest, so the forest is built
 // here: the bsdTreeSnapshotArgv snapshot, read against the name-free pid listing
-// (bsdSnapshot), gives the shape and the names, every
-// allowlisted process and all of its descendants are kept (GNU tree mode's set), and
-// one `ps -o pid=,args= -p <kept pids>` supplies their command lines.
+// (bsdSnapshot), gives the shape and the names, every allowlisted process and all of its
+// descendants are kept (GNU tree mode's set), and one `ps -o pid=,args= -p <kept pids>`
+// supplies their command lines.
 //
-// TWO EXECS RATHER THAN ONE `ps -axo pid,ppid,ucomm,args`, because that line cannot be
-// split: a ucomm may contain spaces (`Google Chrome He`), and so may the args after it,
-// so no column boundary is recoverable from the text. With the name LAST in the first
-// query and the args LAST in the second, each is simply the rest of its line. A kept
-// process gone by the second query keeps its row, with `(ucomm)` for its args, the form
-// BSD ps itself prints for a command line it cannot read.
+// TWO QUERIES RATHER THAN ONE `ps -axo pid,ppid,ucomm,args` (bsdSnapshot's name-free
+// listing aside), because that line cannot be split: a ucomm may contain spaces
+// (`Google Chrome He`), and so may the args after it, so no column boundary is
+// recoverable from the text. With the name LAST in the first query and the args LAST in
+// the second, each is simply the rest of its line. A kept process gone by the second
+// query keeps its row, with `(ucomm)` for its args, the form BSD ps itself prints for a
+// command line it cannot read.
 //
 // The output keeps GNU's shape, a header and then rows whose name and args columns
 // carry --forest's own glyphs (` \_ `, ` |  `), with one deliberate difference: rows
