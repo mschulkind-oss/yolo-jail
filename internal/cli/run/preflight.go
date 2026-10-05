@@ -468,16 +468,23 @@ func printScopeBlock(out printer, block []string) {
 // hiccuped: without the assembled copy the in-jail read degrades to the documented
 // re-assemble, and without the baseline `drift` reports "cannot determine" rather
 // than a false "no drift". Neither degradation is worth refusing a launch over.
-func (o *Options) writeLaunchConfigArtifacts(cfg *jsonx.OrderedMap) {
+//
+// It returns the digest of the baseline it wrote, "" when it wrote none. The macos-user arm
+// hands it to its session (config.BootBaselineDigestEnv says why that backend needs it); the
+// container arm ignores it, since its baseline cannot be replaced while its jail runs.
+func (o *Options) writeLaunchConfigArtifacts(cfg *jsonx.OrderedMap) (baselineDigest string) {
 	out := o.pr(o.Stdout)
 	if err := config.WriteAssembledConfig(o.Workspace, cfg); err != nil {
 		out.printf("[dim]Warning: could not write the assembled config for the jail: %s[/dim]", err.Error())
 	}
 	if wsCfg, wsErr := config.LoadWorkspaceConfig(o.Workspace, false, func(string) {}); wsErr == nil {
-		if err := config.WriteWorkspaceBootBaseline(o.Workspace, wsCfg); err != nil {
+		d, err := config.WriteWorkspaceBootBaseline(o.Workspace, wsCfg)
+		if err != nil {
 			out.printf("[dim]Warning: could not write config drift baseline: %s[/dim]", err.Error())
 		}
+		return d
 	}
+	return ""
 }
 
 // printConfigDiff renders a unified config diff in the launcher's colours. Shared

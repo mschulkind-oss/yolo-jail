@@ -64,8 +64,25 @@ import (
 // the selection's scope:workspace state list, which is what decides where each
 // destination physically lands once the bootstrap lays the home-tier layout.
 func buildMacosHomeOverlay(staging string, packs []*packload.Pack, warn func(string)) (macosuser.HomeOverlay, error) {
-	tree, dests, err := buildMacosHomeOverlayFor(staging, packSkillTargets(packs),
-		briefingDestinations(packs), packFilesTargets(packs, nil), warn)
+	return buildMacosHomeOverlayWith(staging, packs, nil, warn)
+}
+
+// overlayFile is one file CORE composes for the sandbox home — not a pack's, so no declaration
+// list names it — delivered through the overlay at Rel, its home-relative path, with Body as its
+// bytes. The one today is the generated user scope (macosUserInheritedScope), which the container
+// path mounts as a single `:ro` file and this backend can only copy.
+type overlayFile struct {
+	Rel  string
+	Body []byte
+}
+
+// buildMacosHomeOverlayWith is buildMacosHomeOverlay with core's own files laid in beside the
+// packs' content. Each is a destination of its own in the list the tree carries, so the bootstrap
+// installs it as it installs a briefing (replacing that one file, and nothing beside it) and the
+// Seatbelt profile write-protects it (macosuser.ResolveHomeReadonly), which is this backend's `:ro`.
+func buildMacosHomeOverlayWith(staging string, packs []*packload.Pack, core []overlayFile, warn func(string)) (macosuser.HomeOverlay, error) {
+	tree, dests, err := buildMacosHomeOverlayTree(staging, packSkillTargets(packs),
+		briefingDestinations(packs), packFilesTargets(packs, nil), core, warn)
 	if err != nil || tree == "" {
 		return macosuser.HomeOverlay{}, err
 	}
@@ -82,6 +99,13 @@ func buildMacosHomeOverlay(staging string, packs []*packload.Pack, warn func(str
 // routing it through pack parsing would test the parser instead.
 func buildMacosHomeOverlayFor(staging string, skills []jailcontent.SkillTarget,
 	briefings []briefingDest, files []packFilesTarget, warn func(string)) (string, []string, error) {
+	return buildMacosHomeOverlayTree(staging, skills, briefings, files, nil, warn)
+}
+
+// buildMacosHomeOverlayTree is buildMacosHomeOverlayFor with core's files (overlayFile) laid
+// out last, each at its own destination.
+func buildMacosHomeOverlayTree(staging string, skills []jailcontent.SkillTarget,
+	briefings []briefingDest, files []packFilesTarget, core []overlayFile, warn func(string)) (string, []string, error) {
 	overlay := filepath.Join(staging, "home-overlay")
 	// Rebuilt from scratch every launch: a destination that LEAVES the config must
 	// stop being delivered, and an overlay that only ever accumulated would keep
@@ -145,8 +169,22 @@ func buildMacosHomeOverlayFor(staging string, skills []jailcontent.SkillTarget,
 		written = append(written, t.Dest)
 	}
 
+	// CORE'S OWN FILES, each a destination of its own: written by this loop, so listed exactly
+	// when its content is in the tree, as everything above.
+	for _, f := range core {
+		dst := filepath.Join(overlay, filepath.FromSlash(f.Rel))
+		if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
+			return "", nil, err
+		}
+		if err := os.WriteFile(dst, f.Body, 0o644); err != nil {
+			return "", nil, fmt.Errorf("staging %s: %w", f.Rel, err)
+		}
+		written = append(written, f.Rel)
+	}
+
 	if len(written) == 0 {
-		// Nothing to deliver — no packs, or none declaring skills, briefings or files.
+		// Nothing to deliver — no packs, or none declaring skills, briefings or files, and no
+		// file of core's.
 		// Returning "" rather than an empty dir keeps the staging and the bootstrap
 		// step off the launch entirely, so a bare `yolo -- bash` pays nothing.
 		_ = os.RemoveAll(overlay)

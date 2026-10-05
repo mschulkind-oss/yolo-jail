@@ -219,6 +219,79 @@ func (o *Options) runHousekeeping(rt string, reclaimConsent bool, cname string) 
 	})
 }
 
+// startMacosUserHousekeeping starts the macos-user arm's housekeeping slot on its own goroutine,
+// once per launch, with the consent the arm's offer returned. Like the container's slot it is
+// never waited on: it dies at the launch's exit, restartable by design.
+//
+// NEVER AFTER THE BACKEND RETURNS: the pass can take a minute or two (housekeeping.slot measured
+// 62 s and 116 s on a real host), and run there it would hold the user's prompt after the agent
+// exited. Its right moment is when the backend's agent starts, once the backend has released the
+// workspace lock: a hook the backend does not have yet, which this function is shaped to be
+// handed to. Until then the arm calls it just before dispatching to the backend, so the pass can
+// overlap the backend's setup (its nix build and bootstrap). It writes nothing to the terminal
+// there either, and that setup reads neither class it runs.
+func (o *Options) startMacosUserHousekeeping(reclaimConsent bool) {
+	housekeepingSlots.Go(func() { safeRun(func() { o.runMacosUserHousekeeping(reclaimConsent) }) })
+}
+
+// runMacosUserHousekeeping is the macos-user arm's slot body: two of the container slot's
+// classes, as one pass under the same pass lock and per-deletion guard as the container's
+// (withHousekeepingPass). Only one of them grows on this backend, the retired loophole state; the
+// other is the shared cache, which this backend does not write and container jails on the same
+// Mac fill.
+//
+// TWO CLASSES, and which ones is decided BY RUNTIME, not by asking anything:
+//
+//   - the shared cache's age purge (measureAndPurgeCache, OQ-BF1's offered tier): measured here
+//     for the next launch's offer, purged only on consent. A macos-user sandbox keeps its caches
+//     in its own account home, so on a Mac running only this backend the measurement is small and
+//     no offer appears; a Mac that also runs containers fills the shared cache, and a macos-user
+//     launch offers it like any other launch.
+//   - retired loophole-state generations (reapRetiredLoopholeState): written by every launch's
+//     retirement pass, on every backend.
+//
+// EVERY OTHER CLASS OF THE CONTAINER SLOT IS LEFT OUT, with no probe and no note, because none of
+// their stores grows on this backend and each of their gates asks a container runtime: images,
+// superseded store outputs, flake-bundle generations (liveness-gated — a container on the same Mac
+// may mount one), agent staging (its sweep needs the container runtime's live set, and a session's
+// own staging is kept by prune.SessionStagingNames when a container launch's slot runs), image
+// tars (this backend writes none, and a stamp written here would delay a podman keep-0 pass by a
+// day) and scratch volumes. Agent logs are durable user data and the embedded pack trees are a
+// `yolo prune` class, on every backend.
+func (o *Options) runMacosUserHousekeeping(reclaimConsent bool) {
+	sp := o.Perf.Span("housekeeping.slot")
+	defer sp.End()
+	o.withHousekeepingPass(func(guard prune.Guard) {
+		o.measureAndPurgeCache(reclaimConsent, guard)
+		o.reapRetiredLoopholeState(guard)
+	})
+}
+
+// reapRetiredLoopholeState is the retired loophole-state class on its own debounce stamp, for the
+// slot that has no container runtime to ask (runMacosUserHousekeeping). The container slot reaps
+// the same archive inside reapSmallAutomaticClasses, whose staging sweep needs the runtime's live
+// set; this class needs none — a retired generation belongs to a pack no launch selects any more,
+// and the keep is by age order (prune.PruneRetiredLoopholeStateGuarded).
+func (o *Options) reapRetiredLoopholeState(guard prune.Guard) {
+	if o.inJail() {
+		return
+	}
+	if o.Getenv(autoReapOptOutEnv) != "" {
+		return
+	}
+	due, done := o.classDebounce("loophole-state")
+	if !due {
+		return
+	}
+	_, gens, _ := prune.PruneRetiredLoopholeStateGuarded(filepath.Join(paths.GlobalStorage(), "state"),
+		hostArchiveKeepInSlot, true, guard)
+	done()
+	if gens > 0 {
+		o.housekeepingNote("loophole state: reclaimed %d retired generation(s), keeping the newest %d",
+			gens, hostArchiveKeepInSlot)
+	}
+}
+
 // measureAndPurgeCache is the offered tier's SLOT half (§5.3, "measure late,
 // offer early"): it walks the host cache, stamps what it found for the NEXT
 // launch to offer on, and purges only if this launch already has consent.

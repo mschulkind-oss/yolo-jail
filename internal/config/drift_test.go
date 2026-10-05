@@ -1,7 +1,9 @@
 package config
 
 import (
+	"errors"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -23,7 +25,7 @@ func TestWorkspaceDriftInSync(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := WriteWorkspaceBootBaseline(ws, wsCfg); err != nil {
+	if _, err := WriteWorkspaceBootBaseline(ws, wsCfg); err != nil {
 		t.Fatal(err)
 	}
 
@@ -45,7 +47,7 @@ func TestWorkspaceDriftDetectsEdit(t *testing.T) {
 	ws := t.TempDir()
 	writeWSConfig(t, ws, `{"packs":["claude"],"resources":{"pids_limit":4096}}`)
 	wsCfg, _ := LoadWorkspaceConfig(ws, false, func(string) {})
-	if err := WriteWorkspaceBootBaseline(ws, wsCfg); err != nil {
+	if _, err := WriteWorkspaceBootBaseline(ws, wsCfg); err != nil {
 		t.Fatal(err)
 	}
 
@@ -93,7 +95,7 @@ func TestWorkspaceDriftIgnoresCosmeticReorder(t *testing.T) {
 	ws := t.TempDir()
 	writeWSConfig(t, ws, `{"packs":["claude"],"resources":{"pids_limit":4096}}`)
 	wsCfg, _ := LoadWorkspaceConfig(ws, false, func(string) {})
-	if err := WriteWorkspaceBootBaseline(ws, wsCfg); err != nil {
+	if _, err := WriteWorkspaceBootBaseline(ws, wsCfg); err != nil {
 		t.Fatal(err)
 	}
 
@@ -120,7 +122,7 @@ func TestBootBaselineIsDistinctFromSnapshot(t *testing.T) {
 	}
 	m := jsonx.NewOrderedMap()
 	m.Set("packs", []any{"claude"})
-	if err := WriteWorkspaceBootBaseline(ws, m); err != nil {
+	if _, err := WriteWorkspaceBootBaseline(ws, m); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := os.Stat(WorkspaceConfigBootPath(ws)); err != nil {
@@ -129,5 +131,71 @@ func TestBootBaselineIsDistinctFromSnapshot(t *testing.T) {
 	// The merged assembled config must NOT have been written by the baseline call.
 	if _, err := os.Stat(WorkspaceAssembledConfigPath(ws)); !os.IsNotExist(err) {
 		t.Errorf("writing the boot baseline must not touch config-assembled.json (err=%v)", err)
+	}
+}
+
+// A session that carries its own baseline's digest (BootBaselineDigestEnv) refuses to compare
+// against a baseline a LATER launch of its workspace wrote, rather than answering "in sync" about
+// a config it never ran. That is the macos-user case: every invocation there is a fresh launch,
+// and the launch lock is released before the agent, so a second session rewrites the file under
+// the first.
+func TestWorkspaceDriftRefusesAReplacedBaseline(t *testing.T) {
+	ws, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	// In the session: a jail, whose own workspace is ws.
+	t.Setenv("YOLO_VERSION", "test")
+	t.Setenv("YOLO_WORKSPACE", ws)
+	writeWSConfig(t, ws, `{"packages":["jq"]}`)
+	first, _ := LoadWorkspaceConfig(ws, false, func(string) {})
+	d, err := WriteWorkspaceBootBaseline(ws, first)
+	if err != nil || d == "" {
+		t.Fatalf("WriteWorkspaceBootBaseline returned digest %q, err %v", d, err)
+	}
+	t.Setenv(BootBaselineDigestEnv, d)
+	if _, drift, ok, err := WorkspaceConfigDrift(ws); err != nil || !ok || drift {
+		t.Fatalf("against its own baseline: drift=%v ok=%v err=%v, want in sync", drift, ok, err)
+	}
+
+	// A second launch, after an edit, freezes the edited config.
+	writeWSConfig(t, ws, `{"packages":["ripgrep"]}`)
+	second, _ := LoadWorkspaceConfig(ws, false, func(string) {})
+	if _, err := WriteWorkspaceBootBaseline(ws, second); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, ok, err := WorkspaceConfigDrift(ws); ok || !errors.Is(err, ErrBaselineReplaced) {
+		t.Errorf("a replaced baseline: ok=%v err=%v, want ErrBaselineReplaced", ok, err)
+	}
+
+	// THE CONTROL: without the digest, the same files give the false "in sync" this exists for.
+	t.Setenv(BootBaselineDigestEnv, "")
+	if _, drift, ok, err := WorkspaceConfigDrift(ws); err != nil || !ok || drift {
+		t.Errorf("control without the digest: drift=%v ok=%v err=%v, want the false in-sync", drift, ok, err)
+	}
+
+	// And only for the session's own workspace: the digest says nothing about another one's.
+	t.Setenv(BootBaselineDigestEnv, d)
+	t.Setenv("YOLO_WORKSPACE", filepath.Join(ws, "elsewhere"))
+	if _, _, ok, err := WorkspaceConfigDrift(ws); err != nil || !ok {
+		t.Errorf("another workspace's baseline was judged by this session's digest: ok=%v err=%v", ok, err)
+	}
+}
+
+// The digest is of the bytes the reader compares: the file's content, trailing newline stripped.
+func TestTheBootBaselineDigestIsOfTheFileOnDisk(t *testing.T) {
+	ws := t.TempDir()
+	writeWSConfig(t, ws, `{"packages":["jq"]}`)
+	cfg, _ := LoadWorkspaceConfig(ws, false, func(string) {})
+	d, err := WriteWorkspaceBootBaseline(ws, cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, err := os.ReadFile(WorkspaceConfigBootPath(ws))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := baselineDigest(string(b)); got != d {
+		t.Errorf("the digest of %s is %s, the writer returned %s", WorkspaceConfigBootPath(ws), got, d)
 	}
 }

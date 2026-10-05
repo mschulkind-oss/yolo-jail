@@ -163,3 +163,42 @@ func TestMacosUserContentProbeReadsARealLayout(t *testing.T) {
 		}
 	}
 }
+
+// THE INHERITED USER SCOPE ON A REAL LAUNCH (OQ-LP9): the generated ~/.config/yolo-jail/config.jsonc
+// a container mounts as a single `:ro` file arrives in the sandbox through the home overlay, carries
+// the user's packs, is what an in-sandbox `yolo pack ls` reads as its user scope, and is
+// write-protected — while the directory around it stays the agent's own (R8), so a --user-layer
+// file can be written beside it. Unit-pinned on Linux (run.TestMacosUserOverlayCarriesTheInheritedUserScope,
+// entrypoint.TestDarwinOverlayInstallsTheInheritedUserScopeBesideTheAgentsOwnFiles); only a Mac
+// shows the kernel refusing the write.
+func TestMacosUserInheritedUserScopeArrivesReadOnly(t *testing.T) {
+	requireMacosUser(t)
+	packHome(t, `{"packs": ["claude"]}`)
+	ws := macosUserWorkspace(t, `{}`)
+	r := runMacosUser(t, ws, strings.Join([]string{
+		`f="$HOME/.config/yolo-jail/config.jsonc"`,
+		`echo "=== SCOPE ==="`,
+		`if grep -q '"claude"' "$f" 2>/dev/null; then echo "file|PACKS"; else echo "file|MISSING"; fi`,
+		`if yolo pack ls 2>&1 | grep -q claude; then echo "pack-ls|CLAUDE"; else echo "pack-ls|NONE"; fi`,
+		`if ( printf '' >> "$f" ) 2>/dev/null; then echo "append|ALLOWED"; else echo "append|DENIED"; fi`,
+		`if ( mv "$f" "$f.yolo-it" ) 2>/dev/null; then mv "$f.yolo-it" "$f"; echo "rename|ALLOWED"; else echo "rename|DENIED"; fi`,
+		`if ( printf '{}\n' > "$HOME/.config/yolo-jail/layer.jsonc" && rm "$HOME/.config/yolo-jail/layer.jsonc" ) 2>/dev/null; then echo "layer|ALLOWED"; else echo "layer|DENIED"; fi`,
+		`echo "=== END SCOPE ==="`,
+	}, "\n"))
+	if r.rc != 0 || !strings.Contains(r.stdout, "=== END SCOPE ===") {
+		t.Fatalf("the macos-user launch did not run its probe (rc %d).\nstdout:\n%s\nstderr:\n%s",
+			r.rc, r.stdout, r.stderr)
+	}
+	got := macosUserHomeProbeFields(t, r.stdout, "SCOPE")
+	for key, want := range map[string]string{
+		"file":    "PACKS",
+		"pack-ls": "CLAUDE",
+		"append":  "DENIED",
+		"rename":  "DENIED",
+		"layer":   "ALLOWED",
+	} {
+		if got[key] != want {
+			t.Errorf("%s|%s, want %s\nfull output:\n%s", key, got[key], want, r.stdout)
+		}
+	}
+}

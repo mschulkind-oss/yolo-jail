@@ -460,6 +460,14 @@ func Run(opts Options) (rc int) {
 		if !o.DryRun && !o.checkConfigChanges(wsCfg, cfg, rt) {
 			return 1
 		}
+		// THE OFFERED TIER (disk-levers-and-backfill.md §5.3's trigger), on this arm too: beside
+		// the approval prompt, while the terminal is still ours and before any setup, reading
+		// what the last launch's housekeeping pass measured. Its answer goes to this launch's
+		// slot (startMacosUserHousekeeping, below). A dry run starts no slot, so it offers nothing.
+		reclaimConsent := false
+		if !o.DryRun {
+			reclaimConsent = o.maybeOfferReclaim()
+		}
 		// Same notice as the container paths: a brand-new macos-user user has no packs
 		// either, and the native backend is where a "where is my agent?" is hardest to
 		// diagnose (no image, no provisioning output to read back).
@@ -809,6 +817,21 @@ func Run(opts Options) (rc int) {
 		// is everything above: the pack tree is this launch's own (packtree.go), so its
 		// staging and the host daemons started from it above cannot race another launch's.
 		o.holdLaunchLock(cname)
+		// THE LAUNCH'S CONFIG ARTIFACTS, on this backend too, and under the lock as the container
+		// arm writes them: the merged config an in-sandbox `yolo config dump` reads back, and the
+		// workspace baseline an in-sandbox `yolo config drift` compares against. Every invocation
+		// here is a fresh launch, and the lock is released before the agent starts, so a later
+		// launch of the workspace can rewrite the baseline under this session: the session carries
+		// its own baseline's digest, and drift refuses to answer about one it did not start from
+		// (config.BootBaselineDigestEnv). ⚠ RESIDUAL, stated rather than fixed: the merged config
+		// carries no such digest, so after a later launch of the workspace every in-sandbox read
+		// of its merged config (`config dump`, `yolo check`, `pack ls`) reports THAT launch's,
+		// not this session's. A dry run launches nothing.
+		if !o.DryRun {
+			if d := o.writeLaunchConfigArtifacts(cfg); d != "" {
+				launchEnv.Set(config.BootBaselineDigestEnv, d)
+			}
+		}
 		// THE DURABLE DIR, on this backend too: every invocation here is a fresh launch. It is
 		// the workspace's own `.yolo/durable` at its real path, inside the Seatbelt write set
 		// with the rest of the workspace, and it reaches the sandbox through the launch env
@@ -835,8 +858,12 @@ func Run(opts Options) (rc int) {
 			o.pr(o.Stderr).printf("[bold red]%s[/bold red]", err.Error())
 			return 1
 		}
+		// THE INHERITED USER SCOPE rides in the overlay as a file of core's (OQ-LP9,
+		// macosUserInheritedScope): the generated ~/.config/yolo-jail/config.jsonc every in-sandbox
+		// `yolo check`, `pack` and `loopholes` reads as its user scope, write-protected like the
+		// rest of the overlay. A dry run composes it too, for the overlay's reason.
 		sp = o.Perf.Span("launch.build_home_overlay")
-		homeOverlay, err = buildMacosHomeOverlay(staging, staged.packs, func(line string) {
+		homeOverlay, err = buildMacosHomeOverlayWith(staging, staged.packs, o.macosUserInheritedScope(rt), func(line string) {
 			o.pr(o.Stdout).print("[yellow]" + line + "[/yellow]")
 		})
 		sp.End()
@@ -911,6 +938,13 @@ func Run(opts Options) (rc int) {
 		if status, ending := arm.Ending(); ending {
 			return status
 		}
+		// THE HOUSEKEEPING SLOT (OQ-BF5), on this arm too (runMacosUserHousekeeping says which
+		// classes): on its own goroutine, never waited on, and never after the backend returns,
+		// where it would hold the prompt (startMacosUserHousekeeping says where it belongs).
+		// Below the arm's Ending, so a launch a signal ended starts no pass it would then abandon.
+		if !o.DryRun {
+			o.startMacosUserHousekeeping(reclaimConsent)
+		}
 		// Composed LAST, after every endpoint variable has landed on launchEnv (the live
 		// path's handles, or a dry run's placeholder), since the daemons dial those files.
 		sp = o.Perf.Span("launch.macos_user")
@@ -919,6 +953,12 @@ func Run(opts Options) (rc int) {
 			launchEnv, packload.BlockedTools(staged.packs),
 			channel.guestJailDaemons(guestDaemons, launchEnv))
 		sp.End()
+		// E3 ON THIS ARM (macosusercapture.go): the session is over, so fold its edits to
+		// capture-mode surfaces into their sidecars from the host side, as a container's teardown
+		// does, before anyone asks `yolo config diff`. A dry run started no session.
+		if !o.DryRun {
+			o.captureMacosUserConfig(cname, rt)
+		}
 		return rc
 	}
 	// AUTO-CAPTURE is not in this slot any more: it runs on the fresh-launch path inside

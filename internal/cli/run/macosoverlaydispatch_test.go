@@ -4,12 +4,16 @@ import (
 	"bytes"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/config"
+	"github.com/mschulkind-oss/yolo-jail/internal/hostfloor/floortest"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/macosuser"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
+	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 )
 
 // THE DISPATCH HALF of content delivery: run.Run must COMPOSE the overlay and hand
@@ -93,5 +97,145 @@ func TestMacosUserDryRunStillComposesTheOverlay(t *testing.T) {
 	if gotOverlay.Tree == "" {
 		t.Errorf("--dry-run composed no overlay, so the plan it prints omits the content "+
 			"staging a real launch performs\nstderr:\n%s", stderr.String())
+	}
+}
+
+// THE INHERITED USER SCOPE (OQ-LP9) on this arm: the generated ~/.config/yolo-jail/config.jsonc
+// a container mounts as a single `:ro` file rides in the overlay as a destination of its own, so
+// the bootstrap installs it and the Seatbelt profile write-protects it. Before, the sandbox had no
+// user scope at all: an in-sandbox `yolo pack ls` listed no packs and `yolo check` judged no user
+// config. Fails if the arm stops handing the overlay builder the rendered files.
+func TestMacosUserOverlayCarriesTheInheritedUserScope(t *testing.T) {
+	home := packHome(t)
+	writeUserPacks(t, home, `["claude"]`)
+	ws := floortest.ResolvedTemp(t)
+
+	for _, dryRun := range []bool{false, true} {
+		var stdout, stderr bytes.Buffer
+		o := dispatchOptions(t, ws, "macos-user", &stdout, &stderr, nil)
+		o.DryRun = dryRun
+		var got macosUserCall
+		o.MacosUserRun = fakeMacosUserRun(func(c macosUserCall) int {
+			got = c
+			return 0
+		})
+		if rc := Run(*o); rc != 0 {
+			t.Fatalf("Run(dryRun=%v) = %d\nstderr:\n%s", dryRun, rc, stderr.String())
+		}
+		if !slices.Contains(got.overlay.Dests, inheritPreflightRel) {
+			t.Fatalf("dryRun=%v: the overlay's destinations %v do not name %s, so the sandbox "+
+				"gets no user scope", dryRun, got.overlay.Dests, inheritPreflightRel)
+		}
+		body, err := os.ReadFile(filepath.Join(got.overlay.Tree, filepath.FromSlash(inheritPreflightRel)))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !strings.HasPrefix(string(body), inheritHeaderFirstLine()) || !strings.Contains(string(body), `"claude"`) {
+			t.Errorf("dryRun=%v: the delivered user scope lacks the generated header or the user's "+
+				"packs:\n%s", dryRun, body)
+		}
+		// R2: this backend cannot nest, so the nested-launch file is never delivered.
+		if slices.Contains(got.overlay.Dests, inheritNestedRel) {
+			t.Errorf("dryRun=%v: the overlay delivers %s on a backend that cannot nest", dryRun, inheritNestedRel)
+		}
+		// WRITE-PROTECTED: the profile's content rules name the file where the layout puts it.
+		ro := macosuser.ResolveHomeReadonly(macosuser.SandboxHome(), ws, got.overlay.WorkspaceDirs, got.overlay.Dests)
+		want := filepath.Join(paths.WorkspaceHomeState(ws), "config", "yolo-jail", "config.jsonc")
+		if !slices.Contains(ro.Paths, want) {
+			t.Errorf("dryRun=%v: the Seatbelt content rules %v do not protect %s", dryRun, ro.Paths, want)
+		}
+	}
+}
+
+// A user config with nothing to inherit delivers no file — and a launch removes the one a previous
+// launch installed in the sidecar, which the overlay install would otherwise leave serving a stale
+// user scope. Only that file: one an agent wrote at the path, without the generated header, stays.
+// A dry run removes nothing.
+func TestMacosUserEmptyUserScopeRemovesOnlyTheGeneratedFile(t *testing.T) {
+	packHome(t) // no user config at all: nothing to inherit
+	ws := floortest.ResolvedTemp(t)
+	stale := filepath.Join(paths.WorkspaceHomeState(ws), "config", "yolo-jail", "config.jsonc")
+	plant := func(body string) {
+		t.Helper()
+		if err := os.MkdirAll(filepath.Dir(stale), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(stale, []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	launch := func(dryRun bool) macosUserCall {
+		t.Helper()
+		var stdout, stderr bytes.Buffer
+		o := dispatchOptions(t, ws, "macos-user", &stdout, &stderr, nil)
+		o.DryRun = dryRun
+		var got macosUserCall
+		o.MacosUserRun = fakeMacosUserRun(func(c macosUserCall) int {
+			got = c
+			return 0
+		})
+		if rc := Run(*o); rc != 0 {
+			t.Fatalf("Run(dryRun=%v) = %d\nstderr:\n%s", dryRun, rc, stderr.String())
+		}
+		return got
+	}
+	generated := config.InheritHeader(config.InheritPreflight, "2026-10-01T00:00:00Z") + `{"packs": ["claude"]}` + "\n"
+
+	plant(generated)
+	if got := launch(true); slices.Contains(got.overlay.Dests, inheritPreflightRel) {
+		t.Fatalf("a user config with nothing to inherit delivered %s", inheritPreflightRel)
+	}
+	if _, err := os.Stat(stale); err != nil {
+		t.Fatalf("a --dry-run removed %s (%v); a plan render removes nothing", stale, err)
+	}
+	launch(false)
+	if _, err := os.Stat(stale); err == nil {
+		t.Errorf("the generated %s a previous launch installed survived a launch that renders none", stale)
+	}
+
+	agents := `{"packs": ["mine"]}` + "\n"
+	plant(agents)
+	launch(false)
+	if b, err := os.ReadFile(stale); err != nil || string(b) != agents {
+		t.Errorf("a launch removed or changed the agent's own %s (err %v): %q", stale, err, b)
+	}
+}
+
+// THE RENDER'S WARNINGS reach this arm too (inheritedScope): a key the inherit census does not
+// classify is dropped from the sandbox's user scope and named on the launch's output, as the
+// container path names it. Called on the arm's helper rather than through Run, because validation
+// refuses an unknown top-level key before any launch gets this far; the arm's call of the helper is
+// TestMacosUserOverlayCarriesTheInheritedUserScope's. Fails if macosUserInheritedScope renders the
+// files without going through inheritedScope, which is where both warnings live.
+func TestMacosUserArmWarnsAboutUnclassifiedInheritKeys(t *testing.T) {
+	home := packHome(t)
+	dir := filepath.Join(home, ".config", "yolo-jail")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	const key = "zz_unclassified_key"
+	if err := os.WriteFile(filepath.Join(dir, "config.jsonc"),
+		[]byte(`{"packs": ["claude"], "`+key+`": 1}`+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	ws := floortest.ResolvedTemp(t)
+
+	var stdout, stderr bytes.Buffer
+	o := dispatchOptions(t, ws, "macos-user", &stdout, &stderr, nil)
+	core := o.macosUserInheritedScope("macos-user")
+
+	if !strings.Contains(stdout.String(), "no inherit classification") || !strings.Contains(stdout.String(), key) {
+		t.Errorf("the macos-user arm dropped %s from the sandbox's user scope without saying so:\n"+
+			"stdout:\n%s\nstderr:\n%s", key, stdout.String(), stderr.String())
+	}
+	// The rest of the user scope is still delivered, without the dropped key.
+	var body string
+	for _, f := range core {
+		if f.Rel == inheritPreflightRel {
+			body = string(f.Body)
+		}
+	}
+	if !strings.Contains(body, `"claude"`) || strings.Contains(body, key) {
+		t.Errorf("the delivered user scope should keep the packs and drop %s:\n%s", key, body)
 	}
 }
