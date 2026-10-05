@@ -1049,6 +1049,125 @@ func TestHostWrappersOffPathAndShadowedRowsSayALauncherNeedsHostPath(t *testing.
 	}
 }
 
+// TestHostWrappersPointsNoLauncherAtAWrapperThatCannotStartYolo: the stale-yolo row says a wrapper
+// cannot start yolo from every launcher, so no later row may tell an IDE or desktop launcher to use
+// that wrapper — one section giving both answers is the defect. Every row that ends the section with
+// wrappers on disk (PASS, off PATH, shadowed) leaves out the pointer, and the host_path line that
+// rides on it, when the only wrapper is stale: the stale row's `yolo host apply --assert` comes
+// first, and the next check points the launcher once it has run. Both kinds of stale wrapper are
+// covered: one naming a yolo that is gone, and one an older yolo wrote that finds yolo through PATH.
+func TestHostWrappersPointsNoLauncherAtAWrapperThatCannotStartYolo(t *testing.T) {
+	const passPointer = "point an IDE or desktop launcher"
+	const notePointer = "still starts by its absolute path"
+	const hostPathLead = "yolo keeps no copy of claude on this machine"
+	staleHeadline := "[WARN] 1 wrapper(s) cannot start yolo from every launcher: claude"
+	sep := string(os.PathListSeparator)
+	for _, tc := range []struct {
+		name string
+		// bare is a wrapper an older yolo wrote, naming `yolo` bare; otherwise it names a yolo
+		// that is gone.
+		bare    bool
+		pathFor func(wrap, claude, yolo string) string
+		// row is the row that ends the section.
+		row string
+	}{
+		{name: "gone yolo, on PATH", row: "[PASS] wrapper directory is on PATH",
+			pathFor: func(wrap, claude, _ string) string { return wrap + sep + claude }},
+		{name: "gone yolo, off PATH", row: "[WARN] wrapper directory is not on PATH",
+			pathFor: func(_, claude, _ string) string { return claude }},
+		{name: "gone yolo, shadowed", row: "[WARN] 1 wrapper(s) are shadowed by an earlier PATH entry: claude",
+			pathFor: func(wrap, claude, _ string) string { return claude + sep + wrap }},
+		{name: "bare yolo, on PATH", bare: true, row: "[PASS] wrapper directory is on PATH",
+			pathFor: func(wrap, claude, yolo string) string { return wrap + sep + claude + sep + yolo }},
+		{name: "bare yolo, off PATH", bare: true, row: "[WARN] wrapper directory is not on PATH",
+			pathFor: func(_, claude, yolo string) string { return claude + sep + yolo }},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv("YOLO_VERSION", "")
+			o, _, _ := hostManagementFixture(t, `{"host_wrappers": true, "packs": ["claude"]}`,
+				[]string{"claude"}, "")
+			if tc.bare {
+				writeWrapperNaming(t, "yolo", "claude")
+			} else {
+				writeWrapperNaming(t, filepath.Join(t.TempDir(), "gone", "yolo"), "claude")
+			}
+			claudeDir, yoloDir := fakeProgram(t, "claude"), fakeProgram(t, "yolo")
+			setPath(o, tc.pathFor(wrapDirIn(t), claudeDir, yoloDir))
+			// darwin's floor keeps no copy of claude, so a launcher pointed at a wrapper that could
+			// start yolo would also be told it needs host_path.
+			o.HostFloor = floorOn(t, "darwin")
+			_, out := runPacksThenWrappers(t, o)
+			if !strings.Contains(out, staleHeadline) {
+				t.Fatalf("the stale-yolo row is missing:\n%s", out)
+			}
+			if !strings.Contains(out, tc.row) {
+				t.Fatalf("the row %q that ends the section is missing:\n%s", tc.row, out)
+			}
+			for _, bad := range []string{passPointer, notePointer, hostPathLead} {
+				if strings.Contains(out, bad) {
+					t.Errorf("a launcher is pointed at the wrapper the row above says cannot start "+
+						"yolo (%q):\n%s", bad, out)
+				}
+			}
+		})
+	}
+}
+
+// TestHostWrappersPointsALauncherOnlyAtTheWrappersThatStartYolo: claude's yolo is gone and pi's
+// runs, so an IDE or desktop launcher can be pointed at pi's wrapper and not at claude's — on the
+// PASS row by name, and on the off-PATH row by naming the wrapper that is the exception.
+func TestHostWrappersPointsALauncherOnlyAtTheWrappersThatStartYolo(t *testing.T) {
+	setUp := func(t *testing.T, body, pathEnv string) (*Options, *reporter, *bytes.Buffer) {
+		t.Helper()
+		o, r, buf := hostManagementFixture(t, body, []string{"claude", "pi"}, pathEnv)
+		writeWrapperNaming(t, filepath.Join(t.TempDir(), "gone", "yolo"), "claude")
+		writeWrapperNaming(t, filepath.Join(fakeProgram(t, "yolo"), "yolo"), "pi")
+		return o, r, buf
+	}
+	t.Run("on PATH", func(t *testing.T) {
+		o, r, buf := setUp(t, `{"host_wrappers": true}`, "<WRAP>")
+		o.sectionHostWrappers(r)
+		out := buf.String()
+		want := "point an IDE or desktop launcher that does not read your shell rc at " +
+			filepath.Join(wrapDirIn(t), "pi")
+		if !strings.Contains(out, want) {
+			t.Errorf("want %q in:\n%s", want, out)
+		}
+		if strings.Contains(out, "<program>") || strings.Contains(out, filepath.Join(wrapDirIn(t), "claude")) {
+			t.Errorf("claude's wrapper cannot start yolo, so the pointer must not name it:\n%s", out)
+		}
+	})
+	t.Run("off PATH", func(t *testing.T) {
+		o, r, buf := setUp(t, `{"host_wrappers": true}`, t.TempDir())
+		o.sectionHostWrappers(r)
+		out := buf.String()
+		note := strings.Join(noteLinesAfter(t, out, "[WARN] wrapper directory is not on PATH"), "\n")
+		want := "Every wrapper but claude still starts by its absolute path, which is what to give an " +
+			"IDE or desktop launcher that does not read your shell rc."
+		if !strings.Contains(note, want) {
+			t.Errorf("want %q in the off-PATH row:\n%s", want, out)
+		}
+	})
+	// The host_path line is about "that launcher", the one the pointer sends to a wrapper, so it
+	// follows the pointer: with pi's wrapper pointable beside a stale claude, darwin's floor keeping
+	// no copy of claude must still not produce claude's line.
+	t.Run("on PATH, darwin", func(t *testing.T) {
+		t.Setenv("YOLO_VERSION", "")
+		o, _, _ := setUp(t, `{"host_wrappers": true, "packs": ["claude", "pi"]}`, "")
+		claudeDir := fakeProgram(t, "claude")
+		setPath(o, wrapDirIn(t)+string(os.PathListSeparator)+claudeDir)
+		o.HostFloor = floorOn(t, "darwin")
+		_, out := runPacksThenWrappers(t, o)
+		if !strings.Contains(out, "point an IDE or desktop launcher that does not read your shell rc at "+
+			filepath.Join(wrapDirIn(t), "pi")) {
+			t.Fatalf("the pointer must name pi's wrapper:\n%s", out)
+		}
+		if strings.Contains(out, "yolo keeps no copy of claude on this machine") {
+			t.Errorf("claude's wrapper is not pointable, so no host_path line may be about it:\n%s", out)
+		}
+	})
+}
+
 // TestHostApplyOnLaunchOffKeepsTheCauseRowToItself: with the key OFF, the sync is opted out of
 // rather than broken, so the cause row must not claim it cannot fire — the off row already says
 // what is true.
