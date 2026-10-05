@@ -15,7 +15,7 @@ graduated on 2026-08-13 and its as-built account is
 [`../reference/loophole-system.md`](../reference/loophole-system.md); what stays here is the two
 questions that never got a ruling.
 
-**Needs your ruling:** [OQ-LP5](#oq-lp5), [OQ-LP7](#oq-lp7).
+**Needs your ruling:** [OQ-LP5](#OQ-LP5), [OQ-LP7](#OQ-LP7).
 
 > [!IMPORTANT]
 > **The design is BUILT, and this file is no longer where it is described.**
@@ -55,7 +55,7 @@ Both are cheap to rule and expensive to discover later. Neither blocks anything 
 
 ### `jail_env` and the pack-shipped subset
 
-Background to [OQ-LP5](#oq-lp5).
+Background to [OQ-LP5](#OQ-LP5).
 
 The pack-shipped subset refuses `jail_env` because it emits container environment variables
 into the same target namespace the `env` contribution kind claims, and cross-kind collisions
@@ -83,7 +83,7 @@ paid in the shipped tree rather than in prospect.
 
 ### `guest` and `HostFields()`
 
-Background to [OQ-LP7](#oq-lp7).
+Background to [OQ-LP7](#OQ-LP7).
 
 A loophole is **incoherent at the `host` target** — it is a host daemon whose only client is a
 container, so with no jail there is no client and nothing for the endpoint file to be mounted
@@ -117,7 +117,7 @@ is live on the very backend this question is about.
 
 ## Open questions
 
-#### <a id="oq-lp5"></a>💬 **[OQ-LP5](#oq-lp5)** — does `jail_env` stay refused for pack-shipped loopholes?
+#### <a id="OQ-LP5"></a>💬 **[OQ-LP5](#OQ-LP5)** — does `jail_env` stay refused for pack-shipped loopholes?
 
 <!-- vantage: question id=OQ-LP5 leaning="Keep the refusal: audio wants conditional env and tolerates the unconditional form, and a cost one consumer absorbs is not yet a reason for a cross-kind collision pass. Revisit at the first pack that cannot absorb it." -->
 
@@ -136,7 +136,7 @@ a reason for a cross-kind collision pass. Revisit at the first pack that **canno
 **Answer:**
 > _(empty — fill in when decided)_
 
-#### <a id="oq-lp7"></a>💬 **[OQ-LP7](#oq-lp7)** — does `guest` get its own field census, or keep borrowing `HostFields()`?
+#### <a id="OQ-LP7"></a>💬 **[OQ-LP7](#OQ-LP7)** — does `guest` get its own field census, or keep borrowing `HostFields()`?
 
 <!-- vantage: question id=OQ-LP7 leaning="Split the census when the guest notch lands, and not before: the funnel is wrong for a reason, but a third field set with zero consumers grows the vocabulary faster than the system it describes." -->
 

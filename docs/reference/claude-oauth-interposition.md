@@ -928,7 +928,7 @@ easy to over-read:
 
 ## Sharing the login: what each choice keeps and pays
 
-[OQ-CI1](#oq-ci1) asks whether every jail on a machine should share one Claude login, because
+[OQ-CI1](#OQ-CI1) asks whether every jail on a machine should share one Claude login, because
 every mechanism above exists to share it. Two things have moved since it was first asked: a ruling
 changed what sharing costs, and a measurement changed how often anyone pays for a login.
 
@@ -1047,11 +1047,11 @@ one login per workspace into one per machine.
 ## Open question
 
 > [!NOTE]
-> **Two reference docs define an `oq-ci1` anchor.** [This doc's](#oq-ci1) asks whether the Claude
+> **Two reference docs define a `CI1` anchor, in different case.** [This doc's](#OQ-CI1) asks whether the Claude
 > credential should be shared at all. [`agent-install-in-ci.md#oq-ci1`](agent-install-in-ci.md#oq-ci1)
 > is an unrelated CI-pinning ruling. Cite either one as a file-qualified link, never as bare text.
 
-### <a id="oq-ci1"></a>💬 [`OQ-CI1`](#oq-ci1) — should the credential be shared at all?
+### <a id="OQ-CI1"></a>💬 [`OQ-CI1`](#OQ-CI1) — should the credential be shared at all?
 
 <!-- vantage: question id=OQ-CI1 leaning="B, on the view's schedule. Keep one login per machine, and let `yolo host -- claude` read a view of it once the view's measures pass, as `yolo host -- codex` already shares the OpenAI login; a host claude that yolo did not launch keeps its own. The maintainer approved a jail's `/login` enrolling the machine, and on 2026-10-02 asked whether the host shares it yet. Cost: a dead login stops every jail and the host's yolo-launched claude together, and nothing warns ahead of it until something reads `refreshTokenExpiresAt`." -->
 

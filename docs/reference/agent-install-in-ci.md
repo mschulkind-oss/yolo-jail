@@ -360,7 +360,7 @@ The macOS nightly shards the whole `./integration` package but never sets
 test do run, so the podman-VM install path is exercised on macOS by the pinned fixtures only
 (INFERRED from the workflow's env; not observed in a run log for this stamp).
 
-<a id="what-a-vendor-install-on-a-mac-costs"></a>**What a vendor install on a Mac would cost.** [OQ-CI7](#oq-ci7)'s
+<a id="what-a-vendor-install-on-a-mac-costs"></a>**What a vendor install on a Mac would cost.** [OQ-CI7](#OQ-CI7)'s
 options, stakes and leaning were drafted 2026-10-01, from the workflows at `d4e435a3` and the runs named
 below. Three facts set the price:
 
@@ -395,9 +395,9 @@ The options in full, with what each one pays:
   A vendor's darwin breakage then turns a scheduled run red, which no push waits on.
 - **(d) Both (b) and (c).**
 
-[OQ-CI7](#oq-ci7) asks which of them to take:
+[OQ-CI7](#OQ-CI7) asks which of them to take:
 
-- 💬 <a id="oq-ci7"></a>**[`OQ-CI7`](#oq-ci7) — should the macOS nightly run any vendor agent
+- 💬 <a id="OQ-CI7"></a>**[`OQ-CI7`](#OQ-CI7) — should the macOS nightly run any vendor agent
   install at all?**
 
   <!-- vantage: question id=OQ-CI7 leaning="(c): vendor installs on the macos-user workflow, per pack and hard-failing, via: npm packs first. darwin is the one platform whose vendor bytes no CI job installs, and the npm half is the one never measured on a Mac, while the podman nightly would re-install linux-x64 bytes Pack Installs already covers, at the highest setup cost." -->
@@ -484,8 +484,8 @@ Rulings a maintainer reading only the normative text would otherwise undo. [OQ-C
 `.github/workflows/packs.yml`. The CI runs named here are the evidence each ruling was settled on.
 
 > [!NOTE]
-> **Two reference docs define an `oq-ci1` anchor.** [This doc's](#oq-ci1) is the CI-pinning
-> ruling. [`claude-oauth-interposition.md#oq-ci1`](claude-oauth-interposition.md#oq-ci1) is an
+> **Two reference docs define a `CI1` anchor, in different case.** [This doc's](#oq-ci1) is the CI-pinning
+> ruling. [`claude-oauth-interposition.md#OQ-CI1`](claude-oauth-interposition.md#OQ-CI1) is an
 > unrelated open question about sharing the Claude credential. Cite either one as a file-qualified
 > link, never as bare text.
 
