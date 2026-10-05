@@ -115,6 +115,19 @@ type CheckFound struct {
 	// Problem is why the check names no candidate at all, one line with its next step: a ref that
 	// is HEAD or an abbreviated commit, one that names nothing, a base the upstream lacks.
 	Problem string `json:"problem,omitempty"`
+	// NoVersion is set when a release rule finds no version tag on the followed branch at all
+	// (PF-D60): the list is empty, as it is when every version predates the series' base, so a first
+	// advance builds the base, and this says why, one line naming what the rule reads. NoVersionLine
+	// completes it with where the fork stays. "" otherwise.
+	NoVersion string `json:"no_version,omitempty"`
+}
+
+// NoVersionLine is the line that says, once at a launch and in `yolo pack status`, why a release
+// rule follows nothing here (PF-D60): the note, that what runs stays at what at names until a tag
+// appears or `follow` changes, and the spelling that follows the branch's commits instead.
+func (f *CheckFound) NoVersionLine(at string) string {
+	return f.NoVersion + ", so what runs stays at " + at + " until a tag appears or `follow` changes — " +
+		"`follow: \"head\"` follows the branch's commits"
 }
 
 // ListEntry is one entry of the walk's list.
@@ -196,6 +209,30 @@ type EntryOutcome struct {
 	Error string `json:"error,omitempty"`
 	Count int    `json:"count,omitempty"`
 	At    int64  `json:"at,omitempty"`
+}
+
+// RekeySeries moves what the record holds under one series digest and recipe to another (PF-D62):
+// the good build, when it is a build of that series and recipe, and every outcome recorded for that
+// series, a failed build's recipe with it. It reports whether anything moved. The two digests name
+// the same files, so nothing recorded under the one is wrong under the other.
+func (r *CheckRecord) RekeySeries(oldSeries, oldRecipe, newSeries, newRecipe string) bool {
+	changed := false
+	if g := r.Good; g != nil && g.Series == oldSeries && g.Recipe == oldRecipe {
+		g.Series, g.Recipe = newSeries, newRecipe
+		changed = true
+	}
+	for i := range r.Outcomes {
+		o := &r.Outcomes[i]
+		if o.Series != oldSeries {
+			continue
+		}
+		o.Series = newSeries
+		if o.Recipe == oldRecipe {
+			o.Recipe = newRecipe
+		}
+		changed = true
+	}
+	return changed
 }
 
 // checkRecordPath is where owner's record lives in the store at dir.

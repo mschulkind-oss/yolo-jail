@@ -164,7 +164,7 @@ func patchedTreeLine(f packload.Fork) (string, bool) {
 	if config.InJail() {
 		return head + " — checked and built on the host", false
 	}
-	rec, err := patchedPacksStore().LoadCheckRecord(f.Key())
+	rec, err := LoadPatchedRecord(patchedPacksStore(), f, series)
 	if err != nil || rec.Good == nil {
 		return head + " — no build of it on this machine yet", true
 	}

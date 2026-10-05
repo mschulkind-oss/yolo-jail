@@ -222,7 +222,7 @@ func floorPatchedState(p hostfloor.Program) hostfloor.PatchedState {
 	platform := floorPatchedPlatform()
 	store := &capture.Store{Dir: paths.CapturesDir()}
 	var g *packsrc.GoodBuild
-	if rec, err := patchedForkStore().LoadCheckRecord(f.Key()); err == nil && rec.Good != nil {
+	if rec, err := run.LoadPatchedRecord(patchedForkStore(), f, series); err == nil && rec.Good != nil {
 		g = rec.Good
 	} else {
 		g = recoverGoodBuild(store, f.Key(), platform, recipe, series.Len())

@@ -151,7 +151,7 @@ func TestPackRebaseStopsAtTheConflictAndPrintsItsNextSteps(t *testing.T) {
 		// and `a/` `b/` prefixes, and the renames — each only once the one before it succeeded.
 		"    test -n \"$(git -C " + q(dir) + " rev-list -n 1 refs/heads/yolo-rebase --not " + v12 + " " + m.Applied +
 			" --)\" && mkdir " + q(patches+".new") + " && git -C " + q(dir) + " -c format.noprefix=false format-patch " +
-			"--suffix=.patch --base=" + v12 + " -o " + q(patches+".new") + " " + v12 + "..refs/heads/yolo-rebase && mv " +
+			"--suffix=.patch --no-signature --base=" + v12 + " -o " + q(patches+".new") + " " + v12 + "..refs/heads/yolo-rebase && mv " +
 			q(patches) + " " + q(patches+".old") + " && mv " + q(patches+".new") + " " + q(patches) + " && rm -r " +
 			q(patches+".old") + "\n",
 		"the next fresh launch builds the new series",
@@ -338,7 +338,7 @@ func TestPackRebaseOnItsOwnCloneSaysSoAndRestartStartsOver(t *testing.T) {
 		t.Fatalf("the second rebase rc=%d\n%s\n%s", rc, out, errw)
 	}
 	for _, w := range []string{"fork forkpack/tool: " + dir + " is its rebase clone, made under a minute ago onto upstream v1.2.0 (" + shortSHA(v12) + ")",
-		"rebase --continue", "format-patch --suffix=.patch --base=" + v12,
+		"rebase --continue", "format-patch --suffix=.patch --no-signature --base=" + v12,
 		// The restart names the directory the user named: the bare verb would start over elsewhere.
 		"`yolo pack rebase forkpack/tool --into " + shquote.QuoteDisplay(dir) + " --restart` removes it"} {
 		if !strings.Contains(out, w) {

@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -33,20 +34,35 @@ func TestReadSeriesReadsTheMembersInOrderWithTheirBase(t *testing.T) {
 		t.Errorf("base = %s, want %s from the first member's base-commit line", s.Base, u.base)
 	}
 	// THE DIGEST is the sha256 of the JSON [name, content sha256] list, recomputed here from the
-	// files themselves.
-	var pairs [][2]string
+	// files themselves: each one's content less its mbox "From <commit>" first line and the
+	// "-- \n<git version>\n\n" signature git appends (PF-D61). THE LEGACY DIGEST is the same list
+	// over each file's raw bytes, the digest before PF-D61.
+	var pairs, rawPairs [][2]string
 	for _, n := range names {
 		data, err := os.ReadFile(filepath.Join(u.pack, "patches", n))
 		if err != nil {
 			t.Fatal(err)
 		}
-		sum := sha256.Sum256(data)
+		raw := sha256.Sum256(data)
+		rawPairs = append(rawPairs, [2]string{n, hex.EncodeToString(raw[:])})
+		_, body, _ := strings.Cut(string(data), "\n")
+		i := strings.LastIndex(body, "\n-- \n")
+		if i < 0 {
+			t.Fatalf("%s carries no signature, so the fixture does not exercise its removal", n)
+		}
+		sum := sha256.Sum256([]byte(body[:i+1]))
 		pairs = append(pairs, [2]string{n, hex.EncodeToString(sum[:])})
 	}
-	canonical, _ := json.Marshal(pairs)
-	sum := sha256.Sum256(canonical)
-	if want := hex.EncodeToString(sum[:]); s.Digest != want {
+	digestOf := func(pairs [][2]string) string {
+		canonical, _ := json.Marshal(pairs)
+		sum := sha256.Sum256(canonical)
+		return hex.EncodeToString(sum[:])
+	}
+	if want := digestOf(pairs); s.Digest != want {
 		t.Errorf("digest = %s, want %s", s.Digest, want)
+	}
+	if want := digestOf(rawPairs); s.LegacyDigest != want {
+		t.Errorf("legacy digest = %s, want %s", s.LegacyDigest, want)
 	}
 	// A rename changes it: the digest is a function of what the directory lists.
 	if err := os.Rename(filepath.Join(u.pack, "patches", names[1]), filepath.Join(u.pack, "patches", "0002-renamed.patch")); err != nil {
@@ -283,5 +299,91 @@ func TestReadMemberRefusesAnInPackLink(t *testing.T) {
 	}
 	if _, err := readMember(root, "b.txt", MaxSeriesBytes); err != nil {
 		t.Errorf("readMember over a regular file: %v", err)
+	}
+}
+
+// A RE-EXPORT OF THE SAME PATCHES HAS THE SAME DIGEST (PF-D61): exported again after
+// `git commit --amend --no-edit` on every commit, which moves each mbox "From <commit>" line, and
+// with another git's signature, or none, the series digest is the one the first export had; the
+// raw bytes differ each time, so the test exercises what it names. A one-character change to a
+// hunk still changes it.
+func TestAReExportOfTheSamePatchesHasTheSameDigest(t *testing.T) {
+	repo := gitRepo(t, map[string]string{"f.txt": thirtyLines(nil)})
+	base := gitIn(t, repo, "rev-parse", "HEAD")
+	gitIn(t, repo, "checkout", "-q", "-b", "fork")
+	commitFile(t, repo, "f.txt", thirtyLines(map[int]string{10: "ten"}))
+	commitFile(t, repo, "f.txt", thirtyLines(map[int]string{10: "ten", 12: "twelve"}))
+	pack := t.TempDir()
+	export := func(dir string, extra ...string) *Series {
+		t.Helper()
+		args := append([]string{"format-patch", "-q", "--base=" + base, "-o", filepath.Join(pack, dir)}, extra...)
+		gitIn(t, repo, append(args, base+"..fork")...)
+		s, err := ReadSeries(pack, dir)
+		if err != nil {
+			t.Fatalf("ReadSeries(%s): %v", dir, err)
+		}
+		return s
+	}
+	first := export("first")
+	before := gitIn(t, repo, "rev-parse", "fork")
+	amend := exec.Command("git", "rebase", "-q", "--exec", "git commit -q --amend --no-edit", base)
+	amend.Dir = repo
+	amend.Env = append(gitTestEnv(), "GIT_COMMITTER_DATE=2033-05-18T03:33:20+00:00")
+	if out, err := amend.CombinedOutput(); err != nil {
+		t.Fatalf("amending every commit: %v\n%s", err, out)
+	}
+	if after := gitIn(t, repo, "rev-parse", "fork"); after == before {
+		t.Fatal("amending every commit left the branch where it was, so no From line moves")
+	}
+	for name, s := range map[string]*Series{
+		"amended":       export("amended"),
+		"another git":   export("another-git", "--signature=9.99.0"),
+		"no signature":  export("unsigned", "--no-signature"),
+		"both, amended": export("both", "--signature=2.39.5 (Apple Git-154)"),
+	} {
+		if s.LegacyDigest == first.LegacyDigest {
+			t.Errorf("%s: the re-export wrote the very same bytes, so it tests nothing", name)
+		}
+		if s.Digest != first.Digest {
+			t.Errorf("%s: digest %s, want the first export's %s", name, s.ShortDigest(), first.ShortDigest())
+		}
+	}
+	p := filepath.Join(pack, "first", first.Members[1].Name)
+	data, err := os.ReadFile(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	edited := strings.Replace(string(data), "+twelve\n", "+twelvE\n", 1)
+	if edited == string(data) {
+		t.Fatalf("%s carries no +twelve hunk line to change", p)
+	}
+	writeTestFile(t, p, edited)
+	if again, err := ReadSeries(pack, "first"); err != nil || again.Digest == first.Digest {
+		t.Errorf("a one-character change to a hunk left the digest %s (err %v)", first.ShortDigest(), err)
+	}
+}
+
+// THE DIGEST TAKES OUT ONLY WHAT GIT WRITES FOR THE SAME PATCH (PF-D61): the mbox first line, and a
+// signature trailer that ends the file and whose one line opens with a digit, as a git version
+// does. A trailer anything else could be — a hunk whose last line removes "- ", a custom
+// signature, a base line, a trailer with more after it — stays in.
+func TestTheDigestTakesOutOnlyGitsOwnSignature(t *testing.T) {
+	const from = "From " + "0123456789abcdef0123456789abcdef01234567" + " Mon Sep 17 00:00:00 2001\n"
+	const body = "Subject: [PATCH] x\n\n---\ndiff --git a/f b/f\n--- a/f\n+++ b/f\n@@ -1,2 +1,1 @@\n"
+	for _, tc := range []struct {
+		name, in, want string
+	}{
+		{"git's signature", from + body + "-- \n 2\n-- \n2.43.0\n\n", body + "-- \n 2\n"},
+		{"Apple git's", from + body + "+x\n-- \n2.39.5 (Apple Git-154)\n\n", body + "+x\n"},
+		{"its blank line trimmed", from + body + "+x\n-- \n2.43.0\n", body + "+x\n"},
+		{"after the base line", from + body + "+x\n\nbase-commit: abc\n-- \n2.43.0\n\n", body + "+x\n\nbase-commit: abc\n"},
+		{"a hunk ending on -- ", from + body + "-- \n 2\n", body + "-- \n 2\n"},
+		{"a custom signature", from + body + "+x\n-- \nMatt\n\n", body + "+x\n-- \nMatt\n\n"},
+		{"a base line after -- ", from + body + "-- \nbase-commit: abc\n", body + "-- \nbase-commit: abc\n"},
+		{"more after the trailer", from + body + "+x\n-- \n2.43.0\n\n+y\n", body + "+x\n-- \n2.43.0\n\n+y\n"},
+	} {
+		if got := string(digestedBytes([]byte(tc.in))); got != tc.want {
+			t.Errorf("%s: digested %q, want %q", tc.name, got, tc.want)
+		}
 	}
 }
