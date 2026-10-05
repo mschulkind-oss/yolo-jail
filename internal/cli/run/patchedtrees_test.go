@@ -217,6 +217,12 @@ func TestANestedLaunchDeliversNoTreeAndNamesTheHost(t *testing.T) {
 	if called || !strings.Contains(o.treeDelivered[treeKey].Reason, "built on the host") {
 		t.Errorf("in a jail: called %v, delivered %+v", called, o.treeDelivered)
 	}
+	var stderr strings.Builder
+	o.Stderr = &stderr
+	o.noteTreeDeliveries("podman")
+	if !strings.Contains(stderr.String(), "is not mounted in this jail") || strings.Contains(stderr.String(), "YOLO_RUNTIME=podman") {
+		t.Errorf("a nested launch's line = %q, want the host named and no runtime to switch to", stderr.String())
+	}
 	if o.patchedTreesWire("podman")[treeKey].Stop {
 		t.Error("a nested launch, which builds no tree, stopped the owner")
 	}

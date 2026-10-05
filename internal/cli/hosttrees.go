@@ -96,13 +96,15 @@ func ownerRuns(packs []*packload.Pack, f packload.Fork, bin string) bool {
 	return false
 }
 
-// hostTreeGate is PPX-D18 at `yolo host -- <bin>`: the launch of an owning agent stops when a tree
+// hostTreeGate is PPX-D18 at `yolo host -- <bin>`, under any `host_management` but `none`: the launch of an owning agent stops when a tree
 // it loads at the host — its list entry reaches the host — is not there to load: `~/<into>` names
 // no directory, because nothing has built it or no apply has rendered it. It names the extension,
 // the cause and the next step, and returns false to stop the launch. Silent where the host builds
 // no tree (macOS, a jail), which is exempt.
 func hostTreeGate(errw io.Writer, bin, home string) bool {
-	if !hostTreesBuild() {
+	// Under `host_management: none` yolo writes nothing into the home, so no link is ever there:
+	// that contract delivers no tree at the host, and stops nothing for one.
+	if !hostTreesBuild() || config.HostManagementMode() == config.HostManagementNone {
 		return true
 	}
 	sel := selectConfiguredHostPacks()

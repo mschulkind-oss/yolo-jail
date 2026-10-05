@@ -269,10 +269,14 @@ func (o *Options) noteTreeDeliveries(rt string) {
 		keys = append(keys, k)
 	}
 	sort.Strings(keys)
+	next := " A podman jail builds it: YOLO_RUNTIME=podman."
+	if config.InJail() {
+		next = "" // the reason names the host, which is the next step from inside a jail
+	}
 	for _, k := range keys {
 		if d := o.treeDelivered[k]; d.Dir == "" {
 			o.pr(o.Stderr).print("[yellow]Warning: extension " + richtext.Escape(k) + " is not mounted in this jail[/yellow] — " +
-				richtext.Escape(d.Reason) + "; the agent starts without it. A podman jail builds it: YOLO_RUNTIME=podman.")
+				richtext.Escape(d.Reason) + "; the agent starts without it." + next)
 		}
 	}
 }

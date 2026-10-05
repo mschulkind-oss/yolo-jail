@@ -311,3 +311,14 @@ func TestAnApplyThatDropsTheExtensionRemovesItsHostCopies(t *testing.T) {
 		t.Errorf("the dropped extension's host copies outlived its retired link:\n%s", out.String())
 	}
 }
+
+// UNDER host_management: none the host renders nothing, so no link is ever there, and the owner is
+// never stopped for one.
+func TestTheHostStopIsOffUnderHostManagementNone(t *testing.T) {
+	fx := newTreeFixture(t, `"f.txt"`)
+	fx.listTreeForAgent(t)
+	fx.writeHostConfig(t, `,"host_management":"none"`)
+	if !hostTreeGate(io.Discard, "tool", fx.home) {
+		t.Error("under host_management none the owner was stopped for a tree the host never renders")
+	}
+}
