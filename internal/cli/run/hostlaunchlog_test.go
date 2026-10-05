@@ -96,3 +96,33 @@ func globLines(want, got string) bool {
 	}
 	return true
 }
+
+// THE REDACTOR NAMES A PROJECT, AND ONLY A PROJECT, `<cwd>` (podman-reboot-readiness.md PR-D26):
+// the directory the command ran in, or a path under it, in either spelling a line gives it, while a
+// sibling sharing its prefix is left whole. Run from the root, the home or a directory above the
+// home, a launch's directory names no project, and rewriting it would hide every path under the
+// home a line names, so the redactor leaves such a line alone. A program typed as a path is named
+// by its base name in each spelling: as typed, absolute, and under the home.
+func TestTheHostLaunchRedactorNamesOnlyAProjectDirectory(t *testing.T) {
+	const home = "/h/u"
+	for _, tc := range []struct {
+		name, ws, program, line, want string
+	}{
+		{"a path under the project", "/h/u/proj", "tool", "searched /h/u/proj/bin", "searched <cwd>/bin"},
+		{"the project under ~", "/h/u/proj", "tool", "in ~/proj, ok", "in <cwd>, ok"},
+		{"the project itself, at the end", "/h/u/proj", "tool", "ran in /h/u/proj", "ran in <cwd>"},
+		{"a sibling sharing its prefix", "/h/u/proj", "tool", "see /h/u/project2/x", "see /h/u/project2/x"},
+		{"run from the home", home, "tool", "searched /h/u/proj/bin and ~/x", "searched /h/u/proj/bin and ~/x"},
+		{"run from the root", "/", "tool", "ran in / (searched /usr/bin)", "ran in / (searched /usr/bin)"},
+		{"run from above the home", "/h", "tool", "searched /h/u/bin", "searched /h/u/bin"},
+		{"a program typed as a path, absolute", "/h/u/proj", "./sp/tool", "starting /h/u/proj/sp/tool", "starting tool"},
+		{"a program typed as a path, under ~", "/h/u/proj", "./sp/tool", "starting ~/proj/sp/tool", "starting tool"},
+		{"a program typed as a path, as typed", "/h/u/proj", "./sp/tool", "exec ./sp/tool: denied", "exec tool: denied"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := hostLaunchRedactor(tc.ws, tc.program, home)(tc.line); got != tc.want {
+				t.Errorf("hostLaunchRedactor(%q, %q)(%q) = %q, want %q", tc.ws, tc.program, tc.line, got, tc.want)
+			}
+		})
+	}
+}

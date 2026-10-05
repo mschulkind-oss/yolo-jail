@@ -803,8 +803,9 @@ timing at all: `yolo host --timing -- true` was refused as a jail-launch flag, a
 
 - **The same gates.** The recording and reporting gates are the launch's own, asked of the same
   inputs: `--timing` or a typed `--verbose` records and prints; `perf_logging: true`, `YOLO_TIMING`
-  and `YOLO_VERBOSE` in the environment record silently and print one line naming the file. With
-  no opt-in nothing is collected and nothing is written.
+  and `YOLO_VERBOSE` in the environment record silently and print one line naming the file, plain
+  where the jail launch's is dim ([D20](#why-its-this-way)). With no opt-in nothing is collected
+  and nothing is written.
 - **A machine-wide file, never the directory the command ran in.** A host command has no
   workspace: it runs wherever it was typed, the home included, and a `.yolo` minted in the home
   breaks every later `yolo config` verb's workspace walk. So the spans go to
@@ -1164,6 +1165,7 @@ is the only place the exact values and spellings are stated.
 | Host perf log | `<workspace>/.yolo/host-perf.log` | `run.HostPerfLogName`, `paths.WorkspaceStateDir` |
 | Host notch perf log (`yolo host --`, `yolo host apply`), its trim lock beside it | `~/.local/share/yolo-jail/logs/host-notch-perf.log`, `host-notch-perf.log.lock` | `run.HostNotchPerfLogName`, `run.HostNotchPerfLogPath` |
 | Host notch run label | `jail=host:<paths.JailShortHash of the directory's container name>` | `run.hostNotchLabel` |
+| Host notch quiet line (plain, D20) | `yolo: timings recorded in <file> (--timing prints them)` | `run.HostNotchTiming.Report` |
 | Host notch report headers | `yolo host timing (to the hand-over):`, `yolo host apply timing (rc <n>):` | `cli.hostLaunchTrace.handOver`, `cli.startHostApplyTiming` |
 | Host notch spans | `host.{pack_refresh,capability_gate,apply_gate,compose,preflight,resolve_target,model_menu,openai_prelaunch,services_start}`, mark `host.handover`; `host_apply.{pack_refresh,render,wrappers,floor,revert}` | `cli.hostLaunch`, `cli.hostApplyRefreshAndRender`, `cli.hostApplyRevert`, `cli.applyHostSurveyed` |
 | Jail perf log | `~/.yolo-perf.log` in the jail, backed by `<workspace>/.yolo/home/yolo-perf.log` | `internal/entrypoint` (`perfLog.dump`), `internal/cli/run` mount args |
@@ -1234,3 +1236,4 @@ defence.
 | D15 — Window A attribution RECORDS (every opt-in) while the table PRINTS (the typed flags) | D12 reads as "attribution is part of the report", and it shipped that way. But D12 governs what prints, and Window A is the one measurement a user cannot ask for in advance — they learn it was slow by waiting through it, after the launch that could have measured it is over. The cost is one bounded exec per quiet quit; the alternative was a number yolo could go and get, and chose not to write down |
 | D18 — the host notch is timed by the launch's gates, into a machine-wide file. *Implementation decision, taken under the maintainer's 2026-10-04 delegation ("make them and build it … adjust later"); reversible* | Refusing `--timing` at the host left the one notch with no instrument, and "times a jail launch" was the census's whole reason for `perf_logging` doing nothing there. The gates are asked of an `Options` holding only what they read, so the two notches cannot classify an opt-in differently. The file is under `~/.local/share/yolo-jail/logs/` and not in the directory the command ran in, because a `.yolo` minted in the home breaks the workspace walk, and its header names the directory by the short code `launches.log` uses ([OQ-PR3](../design/podman-reboot-readiness.md#OQ-PR3)), never its path. A separate file from any workspace's `host-perf.log`, so a host command's runs are never mistaken for a jail launch's |
 | D19 — `yolo --timing host apply` is `yolo host apply --timing`. *Implementation decision, taken under the maintainer's 2026-10-04 delegation; reversible* | The front door leaves a flag typed before `host` for the host verb, as it leaves `-p` for the exec half, and `--timing` is the one flag both host verbs take, so the request has one meaning. Refusing it, naming the other spelling, was the alternative; moving it is the next step the refusal would have named |
+| D20 — the host notch's quiet line is plain. *Implementation decision, taken under the maintainer's 2026-10-04 delegation ("make them and build it … adjust later"); reversible* | The jail launch dims its `yolo: timings recorded in` line, and matching it is the obvious edit. `yolo host --` and `yolo host apply` write their stderr through no markup printer (their colored output, where they have any, is a stdout report), so one dim line would need the color gate ([`cli-color.md`](cli-color.md)) asked of stderr for that line alone. The host launch log strips ANSI either way |
