@@ -22,7 +22,10 @@ import (
 //   - the command ran as the sandbox account, so the launch reached the macos-user backend
 //     rather than a container or a refusal;
 //   - the claude pack's surfaces arrived: ~/.claude/settings.json is in the sandbox home;
-//   - the briefing states the guest notch: ~/.claude/CLAUDE.md carries the guest header line.
+//   - the briefing states the guest notch: ~/.claude/CLAUDE.md carries the guest header line;
+//   - so does the agent footer: the session carries YOLO_CONFINEMENT=guest (EMP-D4), and the
+//     staged `yolo internal footer` prints `guest` for `{yolo.notch}`, where a jail-notch
+//     macos-user session prints `jail` (macosuserfooter_test.go).
 func TestMacosUserGuestNotchLaunchesTheSandbox(t *testing.T) {
 	requireMacosUser(t)
 	packHome(t, `{"packs": ["claude"]}`)
@@ -32,6 +35,8 @@ func TestMacosUserGuestNotchLaunchesTheSandbox(t *testing.T) {
 		`echo "user|$(id -un)"`,
 		`if [ -f "$HOME/.claude/settings.json" ]; then echo "settings|PRESENT"; else echo "settings|ABSENT"; fi`,
 		`if grep -Fxq '# YOLO Environment — guest' "$HOME/.claude/CLAUDE.md" 2>/dev/null; then echo "header|GUEST"; else echo "header|OTHER"; fi`,
+		`echo "marker|${YOLO_CONFINEMENT:-unset}"`,
+		`echo "footer|$(yolo internal footer --template '{yolo.notch}' </dev/null 2>&1)"`,
 		`echo "=== END GUEST ==="`,
 		`echo "=== END ==="`,
 	}, "\n")
@@ -55,5 +60,13 @@ func TestMacosUserGuestNotchLaunchesTheSandbox(t *testing.T) {
 	if got["header"] != "GUEST" {
 		t.Errorf("~/.claude/CLAUDE.md does not carry the guest header line, so the agent is "+
 			"told some other notch than the one it runs at (%s):\n%s", got["header"], r.combined())
+	}
+	if got["marker"] != "guest" {
+		t.Errorf("the guest session's YOLO_CONFINEMENT = %q, want guest: the launch env did not "+
+			"reach the session env file:\n%s", got["marker"], r.combined())
+	}
+	if got["footer"] != "guest" {
+		t.Errorf("the agent footer's notch in the guest session = %q, want guest:\n%s",
+			got["footer"], r.combined())
 	}
 }

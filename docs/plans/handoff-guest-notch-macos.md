@@ -82,6 +82,9 @@ isolation but real credentials has nothing to select — they take `host` and lo
 The design calls this "a three-notch story with a broken middle" and Phase 7 is where it gets
 fixed. On macOS it is (2026-10-04): the middle notch is the macos-user backend, rendering what
 that backend renders at `confinement: jail` ([EMP-D2](environment-manager-plan.md#EMP-D2)). The
+session is told its notch, so the agent footer says `guest`
+([EMP-D4](environment-manager-plan.md#EMP-D4)), and the backend's "use a container runtime"
+steps name the jail notch with it there ([EMP-D5](environment-manager-plan.md#EMP-D5)). The
 one Mac step left is to run `TestMacosUserGuestNotchLaunchesTheSandbox`
 (`integration/macosuserguestnotch_test.go`) through `macos-user.yml`. On Linux the notch is still
 refused, naming the jail and `yolo host -- <cmd>` instead

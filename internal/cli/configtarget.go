@@ -216,9 +216,25 @@ func resolveConfigTarget(at string) (configTarget, string) {
 	default:
 		// render.NotchUnbuilt is the SENTENCE, not a literal: `yolo apply --at guest` and the
 		// launch gate both say it, and three spellings of one notch's status is the drift
-		// docs/design/declaration-parity.md exists to name (OQ-DP3).
-		return configTarget{}, render.NotchUnbuilt("config")
+		// docs/design/declaration-parity.md exists to name (OQ-DP3). The next step is this
+		// verb's own, on a line of its own so the sentence line stays the shared one.
+		return configTarget{}, render.NotchUnbuilt("config") + "\n" + guestConfigNextStep()
 	}
+}
+
+// guestConfigNextStep is what `yolo config --at guest` names instead of the notch it cannot read:
+// the two it can. On macOS the guest notch renders as the jail notch does, through the macos-user
+// backend's render.Jail target (env-manager plan EMP-D2), and `--at jail` resolves a
+// `confinement: "guest"` workspace's runtime as macos-user (detectListingRuntime), so it reads
+// what that workspace's guest launches wrote.
+func guestConfigNextStep() string {
+	jail := "`yolo config --at jail` reads this workspace's jail"
+	if paths.IsMacOS {
+		jail = "`yolo config --at jail` reads this workspace's jail, which for a " +
+			"`confinement: \"guest\"` workspace is its sandbox: on macOS the guest notch renders " +
+			"as the jail notch does"
+	}
+	return jail + ", and `--at host` reads your real home."
 }
 
 // notchNames is the selectable notches' names, for a refusal that lists what it would have

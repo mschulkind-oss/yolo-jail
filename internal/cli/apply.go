@@ -178,10 +178,18 @@ func applyMain(args []string, out, errw io.Writer, color bool, stdin io.Reader) 
 		// the drift docs/design/declaration-parity.md exists to name. The verb is the
 		// parameter; the next step is this verb's own.
 		pr.Printf("[yellow]%s[/yellow]", render.NotchUnbuilt("apply"))
-		pr.Printf("[dim]Instead: the jail notch, the default, launches here with `yolo -- " +
-			"<cmd>` (`yolo apply` alone points at that launch); `yolo host -- <cmd>` runs a " +
-			"command on the real machine with no sandbox, and `yolo apply --at host` renders " +
-			"your config into your real home.[/dim]")
+		// THE JAIL STEP DEPENDS ON THE CONFIG, not on whether `--at` was typed: a bare launch
+		// reads the config's `confinement`, so where that says guest `yolo -- <cmd>` refuses
+		// as this verb does, and the step is the config edit (or `--at jail` for one launch).
+		jail := "the jail notch, the default, launches here with `yolo -- <cmd>` (`yolo apply` " +
+			"alone points at that launch)"
+		if config.ResolveConfinement(cfg) == config.ConfinementGuest {
+			jail = "set `confinement` to \"jail\" (or remove it) in your config and `yolo -- " +
+				"<cmd>` launches the jail notch here, or `yolo --at jail -- <cmd>` launches it once"
+		}
+		pr.Printf("[dim]Instead: %s; `yolo host -- <cmd>` runs a command on the real machine "+
+			"with no sandbox, and `yolo apply --at host` renders your config into your real "+
+			"home.[/dim]", jail)
 		return 1
 	default: // jail
 		_ = dryRun

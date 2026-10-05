@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/macosuser"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
@@ -307,6 +308,10 @@ type macosGuestReach struct {
 	reached  bool
 	dryRun   bool
 	briefing string
+	// notchEnv is config.NotchEnv in the launch env handed to the backend, and hasNotchEnv
+	// whether it was set at all.
+	notchEnv    string
+	hasNotchEnv bool
 }
 
 // runMacosGuest runs one macOS launch with the claude pack selected and wsConfig as the
@@ -331,8 +336,13 @@ func runMacosGuest(t *testing.T, wsConfig, notch string, env map[string]string, 
 	var got macosGuestReach
 	o.MacosUserRun = func(_ *jsonx.OrderedMap, _ string, _, _ []string, _, _ string,
 		overlay macosuser.HomeOverlay, _ macosuser.HostContext, dryRun bool,
-		_ *jsonx.OrderedMap, _ []packload.BlockedTool, _ macosuser.JailDaemons) int {
+		launchEnv *jsonx.OrderedMap, _ []packload.BlockedTool, _ macosuser.JailDaemons) int {
 		got.reached, got.dryRun = true, dryRun
+		if launchEnv != nil {
+			if v, ok := launchEnv.Get(config.NotchEnv); ok {
+				got.notchEnv, got.hasNotchEnv = v.(string), true
+			}
+		}
 		if overlay.Tree != "" {
 			if b, err := os.ReadFile(filepath.Join(overlay.Tree, ".claude", "CLAUDE.md")); err == nil {
 				got.briefing = string(b)
@@ -424,9 +434,14 @@ func TestMacosGuestRefusesAContradictingRuntime(t *testing.T) {
 				"remove that `runtime` key", "set `confinement` to \"jail\""}},
 		{"YOLO_RUNTIME", `{"confinement": "guest"}`, "", map[string]string{"YOLO_RUNTIME": "container"},
 			[]string{"YOLO_RUNTIME=container", "unset YOLO_RUNTIME"}},
+		// THE FLAG'S STEP IS `--at jail`, never "drop the flag": the flag outranks the config, so
+		// replacing it keeps the runtime whatever the config's `confinement` says, while dropping
+		// it falls back to that key — which the next case sets to guest too.
 		{"the flag", `{"runtime": "podman"}`, "guest", nil,
 			[]string{"the `--at guest` you typed", "`runtime: \"podman\"` in your config",
-				"drop `--at guest`"}},
+				"pass `--at jail` in place of `--at guest`"}},
+		{"the flag over a guest config", `{"confinement": "guest", "runtime": "podman"}`, "guest", nil,
+			[]string{"the `--at guest` you typed", "pass `--at jail` in place of `--at guest`"}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -439,6 +454,36 @@ func TestMacosGuestRefusesAContradictingRuntime(t *testing.T) {
 				if !strings.Contains(out, want) {
 					t.Errorf("the contradiction refusal does not say %q:\n%s", want, out)
 				}
+			}
+			if strings.Contains(out, "drop `--at guest`") {
+				t.Errorf("the refusal tells the user to drop the flag, which leaves the config's "+
+					"notch — a guest again when the config says so:\n%s", out)
+			}
+		})
+	}
+}
+
+// TestMacosGuestContradictionStepsPassTheNotchGate follows the step each contradiction refusal
+// names for keeping the container runtime, and checks the notch gate then passes: a next step
+// that walks into the same refusal is no step (AGENTS.md, "every stop names the next step").
+// The launch goes on to fail for want of a podman here, which is not this gate's refusal.
+func TestMacosGuestContradictionStepsPassTheNotchGate(t *testing.T) {
+	for _, tc := range []struct {
+		name, wsConfig, notch string
+	}{
+		// "set `confinement` to \"jail\" or remove it", for the config's guest.
+		{"set confinement to jail", `{"confinement": "jail", "runtime": "podman"}`, ""},
+		{"remove confinement", `{"runtime": "podman"}`, ""},
+		// "pass `--at jail` in place of `--at guest`", over a config that says guest as well.
+		{"--at jail over a guest config", `{"confinement": "guest", "runtime": "podman"}`, "jail"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			_, got, out := runMacosGuest(t, tc.wsConfig, tc.notch, nil, nil)
+			if strings.Contains(out, "Refusing to launch: the guest notch") {
+				t.Errorf("the step the contradiction refusal names is refused by the same gate:\n%s", out)
+			}
+			if got.reached {
+				t.Errorf("a podman launch reached the macos-user backend:\n%s", out)
 			}
 		})
 	}
@@ -464,5 +509,35 @@ func TestMacosUserRuntimeAtTheJailNotchStillLaunches(t *testing.T) {
 		!strings.Contains(got.briefing, "# YOLO Environment — jail (native, no container)") {
 		t.Errorf("a jail-notch macos-user launch's briefing is not the jail-without-a-container "+
 			"header:\n%s", got.briefing)
+	}
+}
+
+// TestMacosGuestLaunchTellsTheSessionItsNotch: the guest launch sets config.NotchEnv to "guest" in
+// the launch env the backend layers into the session (EMP-D4), from the config and from `--at
+// guest` alike, so the agent footer can name the guest notch (docs/design/agent-footer.md §1.2)
+// and the backend's own messages can name a step that fits it. A jail-notch macos-user launch sets
+// nothing: YOLO_VERSION alone already says jail. Deleting the arm's Set fails the first two.
+func TestMacosGuestLaunchTellsTheSessionItsNotch(t *testing.T) {
+	for _, tc := range []struct {
+		name, wsConfig, notch string
+		want                  string // "" means the variable is not set at all
+	}{
+		{"the config", `{"confinement": "guest"}`, "", "guest"},
+		{"the flag", `{}`, "guest", "guest"},
+		{"runtime macos-user at the jail notch", `{"runtime": "macos-user"}`, "", ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			rc, got, out := runMacosGuest(t, tc.wsConfig, tc.notch, nil, nil)
+			if rc != 0 || !got.reached {
+				t.Fatalf("the launch did not reach the macos-user backend (rc %d):\n%s", rc, out)
+			}
+			switch {
+			case tc.want == "" && got.hasNotchEnv:
+				t.Errorf("a jail-notch launch set %s=%q; only a guest sets it", config.NotchEnv, got.notchEnv)
+			case tc.want != "" && got.notchEnv != tc.want:
+				t.Errorf("the launch env carries %s=%q (set: %v), want %q", config.NotchEnv,
+					got.notchEnv, got.hasNotchEnv, tc.want)
+			}
+		})
 	}
 }

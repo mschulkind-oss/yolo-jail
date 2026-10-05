@@ -108,6 +108,43 @@ func NotchRuntime(notch Confinement, isMacOS bool) string {
 	return ""
 }
 
+// NotchEnv is the variable a launch sets in the session it starts when YOLO_VERSION alone would
+// name the wrong notch: "guest", on a macOS guest launch (the macos-user arm of internal/cli/run;
+// env-manager plan EMP-D4). YOLO_VERSION says the process is in a launched session (InJail), and
+// that alone reads as the jail notch; this names the guest. Two readers: the agent footer, which
+// prints the notch (docs/design/agent-footer.md §1.2), and the macos-user backend's host-side
+// messages, which name a next step that fits the notch (ContainerStepClause).
+//
+// Unset, or any value but "guest", is the jail notch. A launch at the jail notch sets nothing.
+const NotchEnv = "YOLO_CONFINEMENT"
+
+// SessionNotch is the notch a launched session's NotchEnv value names: the guest notch for
+// "guest", the jail notch for anything else. The caller has already established that the
+// process is in a launched session; outside one there is no notch to read here.
+func SessionNotch(value string) Confinement {
+	if Confinement(value) == ConfinementGuest {
+		return ConfinementGuest
+	}
+	return ConfinementJail
+}
+
+// ContainerStepClause is what a next step that names a container runtime must add at notch, so
+// that it is a step the launch takes rather than one that walks into the notch gate: "" at every
+// notch but guest, and there the jail notch as well, because the guest notch runs only on
+// GuestRuntime and an explicit container runtime beside it is refused as a contradiction
+// (NotchRuntimeConflict; env-manager plan EMP-D5). It begins with "; " and is appended to the
+// clause naming the runtime, before that sentence's final period.
+//
+// Both spellings it names pass that refusal whatever else is set: `--at jail` outranks the
+// config's `confinement`, and `confinement: "jail"` is the notch when no `--at` is typed.
+func ContainerStepClause(notch Confinement) string {
+	if notch != ConfinementGuest {
+		return ""
+	}
+	return "; the guest notch runs only on " + GuestRuntime + ", so a container runtime also " +
+		"needs the jail notch (`--at jail`, or `confinement` set to \"jail\")"
+}
+
 // RuntimeSource names the input that selected a runtime, for a message that has to tell the
 // reader which one to change.
 type RuntimeSource int

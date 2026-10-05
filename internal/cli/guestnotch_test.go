@@ -87,6 +87,67 @@ func TestApplyAtGuestOnLinuxRefusesAndNamesTheNextStep(t *testing.T) {
 	}
 }
 
+// TestApplyAtAConfiguredGuestOnLinuxNamesTheConfigEdit: when the guest notch comes from the
+// config, the bare jail launch is not a next step — `yolo -- <cmd>` reads the same config and
+// refuses too — so the step is the config edit (or `--at jail` for one launch), with or without
+// a `--at guest` typed over it. The host verbs stay offered.
+func TestApplyAtAConfiguredGuestOnLinuxNamesTheConfigEdit(t *testing.T) {
+	onPlatform(t, false)
+	for _, args := range [][]string{nil, {"--at", "guest"}} {
+		_, repo := withHomeAndCwd(t)
+		writeFile(t, filepath.Join(repo, "yolo-jail.jsonc"), `{"confinement":"guest"}`)
+
+		var out, errw bytes.Buffer
+		if rc := applyMain(args, &out, &errw, false, nil); rc != 1 {
+			t.Fatalf("apply %v at a configured Linux guest rc=%d, want 1:\n%s%s", args, rc,
+				out.String(), errw.String())
+		}
+		got := out.String()
+		for _, want := range []string{render.NotchUnbuilt("apply"),
+			"set `confinement` to \"jail\" (or remove it)", "`yolo --at jail -- <cmd>`",
+			"yolo host -- <cmd>", "yolo apply --at host"} {
+			if !strings.Contains(got, want) {
+				t.Errorf("apply %v: the refusal does not say %q:\n%s", args, want, got)
+			}
+		}
+		if strings.Contains(got, "`yolo apply` alone points at that launch") {
+			t.Errorf("apply %v offers the bare jail launch, which this config refuses:\n%s", args, got)
+		}
+	}
+}
+
+// TestConfigAtGuestNamesTheNotchesItCanRead: the read verbs keep refusing `--at guest` on both
+// platforms with render.NotchUnbuilt's sentence, and now say what to read instead — `--at jail`,
+// which on macOS is where the guest notch renders (EMP-D2), and `--at host`. The step is a line
+// of its own, so the sentence line stays the one `yolo apply` prints
+// (TestAtGuestIsRefusedWithApplysOwnSentence).
+func TestConfigAtGuestNamesTheNotchesItCanRead(t *testing.T) {
+	for _, macOS := range []bool{false, true} {
+		onPlatform(t, macOS)
+		scratchHostHome(t)
+		t.Setenv("YOLO_VERSION", "")
+		withWorkspaceCwd(t)
+
+		var out, errw bytes.Buffer
+		if rc := configRunW([]string{"ls", "--at", "guest"}, &out, &errw); rc != 1 {
+			t.Fatalf("macOS=%v: `config ls --at guest` rc=%d, want 1:\n%s%s", macOS, rc, out.String(), errw.String())
+		}
+		got := errw.String()
+		wants := []string{render.NotchUnbuilt("config"), "`yolo config --at jail`", "`--at host`"}
+		if macOS {
+			wants = append(wants, "renders as the jail notch does")
+		}
+		for _, want := range wants {
+			if !strings.Contains(got, want) {
+				t.Errorf("macOS=%v: the refusal does not say %q:\n%s", macOS, want, got)
+			}
+		}
+		if lines := strings.Split(strings.TrimSpace(got), "\n"); len(lines) < 2 {
+			t.Errorf("macOS=%v: the next step is not a line of its own:\n%s", macOS, got)
+		}
+	}
+}
+
 // TestApplyAtGuestStillRefusesJSONOnMacOS: a pointer is prose, not a document, so `--format
 // json` stays the host notch's alone at the macOS guest too — rc 2 and nothing on stdout.
 func TestApplyAtGuestStillRefusesJSONOnMacOS(t *testing.T) {

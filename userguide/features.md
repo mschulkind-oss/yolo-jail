@@ -7,8 +7,8 @@ result observable and repeatable. Each entry links to the page that covers it.
 
 - **Jail**: runs in an isolated container. Supported, and the default.
 - **Your own machine** (`yolo host`): configuration and launch are supported.
-- **Guest**, a separate user account on your machine with no container: works on a Mac, where it
-  is the `macos-user` sandbox below. Not yet available on Linux.
+- **Guest**, a separate user account on your machine with no container: in development on a Mac,
+  where it is the `macos-user` sandbox below. Not yet available on Linux.
 - **`macos-user`**, the Mac sandbox with no container: works, but is still in development and not
   yet the recommended Mac setup.
 

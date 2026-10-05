@@ -183,6 +183,7 @@ func Run(opts Options) (rc int) {
 	if rc, refused := refuseUnbuiltNotch(o, cfg); refused {
 		return rc
 	}
+	o.atNotch = o.launchNotch(cfg)
 	rt, ok := o.resolveRuntime(cfg)
 	if !ok {
 		if o.readinessInterrupted() {
@@ -503,6 +504,14 @@ func Run(opts Options) (rc int) {
 		// starts (launchEnv's doc; noteMacosUserCredentialScope says so on the terminal).
 		launched := filepath.Base(agentArgv[0])
 		launchEnv := channel.launchEnv(launched)
+		// THE NOTCH, told to the session (config.NotchEnv; env-manager plan EMP-D4). YOLO_VERSION,
+		// which the backend sets on every launch, says jail; a guest says so beside it, so the
+		// agent footer names the notch the briefing names (docs/design/agent-footer.md §1.2), and
+		// the backend's own messages name a step that fits it. Set after the composition, so no
+		// pack env or env_sources entry can say otherwise. The jail notch sets nothing.
+		if o.atNotch == config.ConfinementGuest {
+			launchEnv.Set(config.NotchEnv, string(config.ConfinementGuest))
+		}
 		// THE GUEST'S HALF OF THE PAYLOAD (OQ-DP8, OQ-DP9; macosuserguestdaemons.go): the
 		// daemons this sandbox runs, confined, and the ones it declines by name. The split
 		// is loopholes.JailDaemonsRunIn, the same one the served set composed the channel
@@ -2965,9 +2974,12 @@ func refuseGuestRuntimeConflict(o *Options, cfg *jsonx.OrderedMap, notchSource s
 		named = "YOLO_RUNTIME=" + rt
 		keepNotch = "unset YOLO_RUNTIME"
 	}
+	// FROM THE FLAG, THE STEP REPLACES IT rather than dropping it: the flag outranks the config,
+	// so `--at jail` keeps the runtime whatever `confinement` says, while a dropped flag falls
+	// back to that key, which may say guest too.
 	keepRuntime := "set `confinement` to \"jail\" or remove it"
 	if o.Notch != "" {
-		keepRuntime = "drop `--at " + o.Notch + "`"
+		keepRuntime = "pass `--at jail` in place of `--at " + o.Notch + "`"
 	}
 	o.pr(o.Stderr).printf("[bold red]Refusing to launch: the guest notch (%s) runs on the "+
 		"%s backend on macOS, and %s asks for %s instead. The two name different launches."+
@@ -2987,6 +2999,13 @@ func (o *Options) launchNotch(cfg *jsonx.OrderedMap) config.Confinement {
 	}
 	return config.ResolveConfinement(cfg)
 }
+
+// containerStepClause is config.ContainerStepClause at this launch's notch (atNotch): "" at the
+// jail notch, and at a guest the jail notch that a container runtime also needs there, since the
+// notch gate refuses a container runtime beside a macOS guest (EMP-D5). Every macos-user printer
+// whose next step names a container runtime appends it to that step, so the step is one the
+// launch takes.
+func (o *Options) containerStepClause() string { return config.ContainerStepClause(o.atNotch) }
 
 // notchConfig is cfg as this launch's notch reads it, for the one reader that states the
 // notch to the agent: the briefing (refreshJailBriefings → BriefingInput.Confinement), which

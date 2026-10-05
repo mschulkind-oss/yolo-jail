@@ -119,8 +119,8 @@
     but a WEAKER isolation boundary than a container/VM. `confinement: "guest"`
     selects this same backend on macOS with no "runtime" key; `runtime:
     "macos-user"` at the jail notch keeps working. The two launch the same
-    sandbox and differ only in the notch `yolo describe` and the agent's
-    briefing name.
+    sandbox and differ only in the notch `yolo describe`, the agent's
+    briefing and its footer name.
 
   [bold]agents[/bold]: [bold yellow]REMOVED[/bold yellow] — which agents a jail gets is no longer a
     config key of its own.  An agent arrives as a pack, so name the pack that

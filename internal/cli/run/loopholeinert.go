@@ -402,7 +402,7 @@ func (o *Options) noteMacosUserHostByteGaps(delivery macosCtxDelivery) {
 		"scale to an arbitrary tree. Single FILE entries are delivered normally; split the " +
 		"directory into the files you need, or use the Apple Container runtime " +
 		"(runtime: \"container\"), which binds it read-only from Apple Container " +
-		acROBindsFloor + " (older versions skip it with a warning).")
+		acROBindsFloor + " (older versions skip it with a warning)" + o.containerStepClause() + ".")
 }
 
 // noteMacosUserPlatformGaps names what this backend does with the PLATFORM keys — `devices`,
@@ -503,7 +503,7 @@ func (o *Options) noteMacosUserPlatformGaps(cfg *jsonx.OrderedMap) {
 			"[/yellow] — RAM-backed scratch is a tmpfs mount inside a CONTAINER, and this " +
 			"backend starts none, so the sandbox writes this machine's own /tmp and " +
 			"/var/folders, on disk. Remove the key, or use Apple Container " +
-			"(runtime: \"container\"), whose scratch is always RAM-backed.")
+			"(runtime: \"container\"), whose scratch is always RAM-backed" + o.containerStepClause() + ".")
 	}
 
 	// THE HOST NVIM CONFIG, a disclosure and not a refusal: nothing declares it (the container

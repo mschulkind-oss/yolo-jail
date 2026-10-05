@@ -611,7 +611,22 @@ func printPerSideDisclosure(out printer, workspace string, cfg *jsonx.OrderedMap
 		msg += "; `python -m venv`, poetry, pipenv and mise's `_.python.venv` still use the shared path."
 	}
 	out.print(msg + " Where the two sides must not share them, use a container runtime " +
-		"(podman, or Apple Container), which shadows each per side.")
+		"(podman, or Apple Container), which shadows each per side" + containerStep(env) + ".")
+}
+
+// containerStep is config.ContainerStepClause at the notch the run pipeline launched this session
+// at, read off the launch env it hands this backend (config.NotchEnv, set on a guest launch;
+// env-manager plan EMP-D4): "" at the jail notch, and at a guest the jail notch that a container
+// runtime also needs there, since the notch gate refuses a container runtime beside a macOS guest
+// (EMP-D5). Every message here whose next step names a container runtime appends it to that step.
+// launchEnv is Options.PackEnv, or the plan env layered over it; nil reads as the jail notch.
+func containerStep(launchEnv *jsonx.OrderedMap) string {
+	notch := config.ConfinementJail
+	if launchEnv != nil {
+		v, _ := launchEnv.Get(config.NotchEnv)
+		notch = config.SessionNotch(asStr(v))
+	}
+	return config.ContainerStepClause(notch)
 }
 
 // printResourceDispositions says, at launch and in a dry run, what this backend does with each
@@ -719,7 +734,7 @@ func RunMacosUser(deps Deps, opts Options) int {
 	// preconditions above are: it is cheap, it is a fact about this machine, and a refusal after
 	// a half-hour build is the worst place to learn it. The same probes the plan carries
 	// (BuildRunPlan → ContextPreflight over the same links), which PlanInvariants checks.
-	if !runContextPreflight(deps, out, opts.HostCtx.Links) {
+	if !runContextPreflight(deps, out, opts.HostCtx.Links, containerStep(opts.PackEnv)) {
 		return 1
 	}
 
@@ -766,7 +781,8 @@ func RunMacosUser(deps Deps, opts Options) int {
 	if !ok {
 		out.printf("[bold red]Could not materialize packages natively:[/bold red] %s\n"+
 			"[dim]Fix the package, or use the Apple Container runtime "+
-			"(runtime: \"container\") which builds them in a Linux VM.[/dim]", errStr(err))
+			"(runtime: \"container\") which builds them in a Linux VM%s.[/dim]", errStr(err),
+			containerStep(opts.PackEnv))
 		return 1
 	}
 	darwin = d
@@ -825,7 +841,7 @@ func RunMacosUser(deps Deps, opts Options) int {
 			"installed in a container:\n" +
 			"      {\"name\": \"<pkg>\", \"platforms\": [\"linux\"]}\n" +
 			"  • or use the Apple Container runtime (runtime: \"container\"), which " +
-			"builds them in a Linux VM."
+			"builds them in a Linux VM" + containerStep(opts.PackEnv) + "."
 		if excluded := config.PackagesExcludedOn(opts.Config, config.PlatformDarwin); len(excluded) > 0 {
 			msg += "\n\n[dim]Already marked Linux-only and skipped without complaint: " +
 				strings.Join(excluded, ", ") + ".[/dim]"
@@ -1077,7 +1093,8 @@ func applyDiskIOPolicy(deps Deps, out printer, p ioprio.Priority) {
 // a link's later probes are skipped once one fails, since its line is already written.
 //
 // No links asks nothing and prints nothing, which is every launch that declares no context mount.
-func runContextPreflight(deps Deps, out printer, links []ContextLink) bool {
+// step is containerStep's clause for the refusal's container-runtime step.
+func runContextPreflight(deps Deps, out printer, links []ContextLink, step string) bool {
 	if len(links) == 0 {
 		return true
 	}
@@ -1096,7 +1113,7 @@ func runContextPreflight(deps Deps, out printer, links []ContextLink) bool {
 		}
 	}
 	if len(failed) > 0 {
-		out.print(ContextPreflightRefusal(failed))
+		out.print(ContextPreflightRefusal(failed, step))
 		return false
 	}
 	return true
