@@ -8,12 +8,17 @@ package capture
 // everywhere but CI, where it fails: a skip there would leave the arm unmeasured on the one
 // machine that runs it.
 //
+// The "not here" answers come from layouts that disk does not have (another volume, HFS+ or SMB,
+// a Seatbelt denial), so the fallback tests stub the system call (clonefile) and nothing else:
+// they still go through reflinkFile's own call and the real chain.
+//
 // TestReflinkGivesTheDestinationItsOwnInode (materialize_test.go) runs here too, against
 // reflinkOne, which on darwin is this arm.
 
 import (
 	"bytes"
 	"errors"
+	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -24,14 +29,11 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-// apfsTempDir is a fresh temp dir that clonefile(2) can clone within, symlinks resolved (on a
-// Mac t.TempDir() is under /var, a link to /private/var).
+// apfsTempDir is a fresh temp dir that clonefile(2) can clone within, symlinks resolved
+// (resolvedTempDir, confine_test.go).
 func apfsTempDir(t *testing.T) string {
 	t.Helper()
-	dir, err := filepath.EvalSymlinks(t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
+	dir := resolvedTempDir(t)
 	if kind := fsName(dir); kind != "apfs" {
 		if os.Getenv("CI") != "" {
 			t.Fatalf("the temp dir %s is on %s, not apfs. A CI Mac's disk is APFS, so either the runner "+
@@ -179,5 +181,86 @@ func TestClonefileErrorSortsNotHereFromOneFile(t *testing.T) {
 		if !errors.Is(err, errno) {
 			t.Errorf("%v lost its errno: %v", errno, err)
 		}
+	}
+}
+
+// stubClonefile makes reflinkFile's clonefile(2) call answer errno, as a layout check-macos's one
+// APFS disk does not have would. It counts the calls and keeps the flags of the last one.
+func stubClonefile(t *testing.T, errno syscall.Errno) (calls, flags *int) {
+	t.Helper()
+	old := clonefile
+	n, f := 0, 0
+	clonefile = func(src, dst string, fl int) error { n++; f = fl; return errno }
+	t.Cleanup(func() { clonefile = old })
+	return &n, &f
+}
+
+// When clonefile(2) answers "not here", reflinkFile's own call retires the arm after one try and
+// the chain places every file by its next arm instead of failing: a store or copy root on another
+// APFS volume (EXDEV), on HFS+ or SMB (ENOTSUP, EOPNOTSUPP), a kernel without the call (ENOSYS),
+// a Seatbelt denial (EPERM). Through the real call rather than clonefileError alone, so a
+// reflinkFile that stops sorting its errno fails every case.
+func TestClonefileNotHereFallsThroughToTheNextArm(t *testing.T) {
+	for _, errno := range []syscall.Errno{unix.EXDEV, unix.ENOTSUP, unix.EOPNOTSUPP, unix.ENOSYS, unix.EPERM} {
+		t.Run(unix.ErrnoName(errno), func(t *testing.T) {
+			home := resolvedTempDir(t)
+			_, entry := entryFixture(t, home, Platform(), nil)
+			calls, flags := stubClonefile(t, errno)
+
+			res, err := Materialize(MaterializeOptions{Entry: entry, Home: home, Stderr: io.Discard})
+			if err != nil {
+				t.Fatalf("clonefile answering %v failed the materialize instead of falling back: %v", errno, err)
+			}
+			if res.Files != 2 || res.Reflinked != 0 || res.Linked+res.Copied != res.Files {
+				t.Errorf("want the 2 files placed by hardlink or copy: %d files, %d reflinked / %d linked / "+
+					"%d copied", res.Files, res.Reflinked, res.Linked, res.Copied)
+			}
+			if !strings.Contains(res.ReflinkRetired, "clonefile") {
+				t.Errorf("reflink retired by %q, want clonefile's answer", res.ReflinkRetired)
+			}
+			if *calls != 1 {
+				t.Errorf("clonefile was called %d times for 2 files, want 1: a \"not here\" answer retires the "+
+					"arm for the run", *calls)
+			}
+			if want := unix.CLONE_NOFOLLOW | unix.CLONE_NOOWNERCOPY; *flags&want != want {
+				t.Errorf("clonefile flags %#x, want CLONE_NOFOLLOW|CLONE_NOOWNERCOPY (%#x) among them", *flags, want)
+			}
+
+			// CopyTree has no hardlink arm, so the same answer copies.
+			*calls = 0
+			dest := filepath.Join(resolvedTempDir(t), "vendor")
+			cres, err := CopyTree(CopyTreeOptions{Entry: entry, Prefix: ".local/share/vendor", Dest: dest,
+				Stderr: io.Discard})
+			if err != nil {
+				t.Fatalf("clonefile answering %v failed CopyTree instead of falling back: %v", errno, err)
+			}
+			if cres.Files != 2 || cres.Copied != cres.Files {
+				t.Errorf("want CopyTree's 2 files copied: %d files, %d reflinked / %d linked / %d copied",
+					cres.Files, cres.Reflinked, cres.Linked, cres.Copied)
+			}
+			if !strings.Contains(cres.ReflinkRetired, "clonefile") || *calls != 1 {
+				t.Errorf("CopyTree: reflink retired by %q after %d calls, want clonefile's answer after 1",
+					cres.ReflinkRetired, *calls)
+			}
+		})
+	}
+}
+
+// An errno about one file goes through reflinkFile's call as that file's failure, not as "not
+// here": the materialize fails with the errno, after one try, rather than quietly hardlinking.
+func TestClonefileOneFileErrnoFailsTheMaterialize(t *testing.T) {
+	home := resolvedTempDir(t)
+	_, entry := entryFixture(t, home, Platform(), nil)
+	calls, _ := stubClonefile(t, unix.EACCES)
+
+	_, err := Materialize(MaterializeOptions{Entry: entry, Home: home, Stderr: io.Discard})
+	if err == nil {
+		t.Fatal("clonefile answering EACCES fell back instead of failing the materialize")
+	}
+	if !errors.Is(err, unix.EACCES) || errors.Is(err, errCloneUnsupported) {
+		t.Errorf("the error = %v, want EACCES and not \"not here\"", err)
+	}
+	if *calls != 1 {
+		t.Errorf("clonefile was called %d times, want 1: the first file's failure ends the materialize", *calls)
 	}
 }

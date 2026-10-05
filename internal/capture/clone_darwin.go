@@ -11,8 +11,13 @@ import (
 )
 
 // clone_darwin.go is the macOS half of the reflink primitive: APFS's clonefile(2), plus the
-// filesystem name a copy fallback owes its reader. clone_linux.go is the Linux half, and its
-// header carries the argument for reflink over link(2), which holds here unchanged.
+// filesystem name a copy fallback owes its reader. clone_linux.go is the Linux half, and of its
+// header's argument for reflink over link(2) only the own-inode half carries over. Its core is
+// the bind mount: in a jail the store and the home are always two mounts, so link(2) answers
+// EXDEV where FICLONE works. No bind mount separates a store from a home on a Mac's own disk,
+// so the mount gives link(2) no reason to fail there. Reflink is tried first on macOS for
+// isolation alone: a clone is its own inode and can take the manifest's mode, where a hardlink
+// is the store's frozen inode.
 //
 // # The same arm, a different call shape
 //
@@ -63,13 +68,19 @@ var errCloneUnsupported = fmt.Errorf("reflink is not supported here")
 // only when it succeeds, so whatever is at dst after a failure was there before it, and is not
 // this call's to remove.
 func reflinkFile(src, dst string, perm fs.FileMode) error {
-	if err := unix.Clonefile(src, dst, unix.CLONE_NOFOLLOW|unix.CLONE_NOOWNERCOPY); err != nil {
+	if err := clonefile(src, dst, unix.CLONE_NOFOLLOW|unix.CLONE_NOOWNERCOPY); err != nil {
 		return clonefileError(src, dst, err)
 	}
 	// The clone carries the store's frozen mode; it is its own inode, so the manifest's mode is
 	// safe to set.
 	return os.Chmod(dst, perm)
 }
+
+// clonefile is the system call reflinkFile makes, behind a var so a test can answer for the
+// filesystem. The "not here" errnos come from layouts check-macos's one APFS disk does not have
+// (another volume, HFS+ or SMB, a Seatbelt denial), so without it nothing would run the fallback
+// through reflinkFile's own call (clone_darwin_test.go).
+var clonefile = unix.Clonefile
 
 // clonefileError sorts a clonefile(2) failure into "not here", which retires reflink for the
 // run, and a fact about this one file, which fails it.

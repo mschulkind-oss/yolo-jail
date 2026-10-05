@@ -11,8 +11,9 @@ import (
 )
 
 // clone_linux.go is the REFLINK primitive materialize is built on, plus the filesystem
-// name a fallback has to report. clone_darwin.go is the macOS half, APFS's clonefile(2), and
-// the argument below for reflink over link(2) is the one it rests on too.
+// name a fallback has to report. clone_darwin.go is the macOS half, APFS's clonefile(2), and it
+// rests on the own-inode half of the argument below only: on a Mac no bind mount separates the
+// store from a home, so the mount gives link(2) no reason to fail there as it does in a jail.
 //
 // # Why reflink and not link(2)
 //

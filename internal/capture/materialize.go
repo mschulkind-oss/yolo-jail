@@ -395,8 +395,9 @@ func (c *chain) placeFile(src, dst string, perm fs.FileMode) error {
 // and arranging for a real ext4 (no reflink) and a real second mount (no hardlink) inside a
 // unit test would mean requiring root and two loopback filesystems to assert a branch. The
 // real mechanisms are measured where they can be — the integration cell and the premise test
-// in materialize_test.go, and on macOS clone_darwin_test.go — and the chain's ORDER and
-// stickiness are measured here.
+// in materialize_test.go, clone_linux_test.go on btrfs, and on macOS clone_darwin_test.go — and
+// the chain's ORDER and stickiness are measured here. Only the last two FAIL when reflinkOne
+// stops reflinking; the others accept any mechanism or skip.
 var (
 	reflinkOne  = reflinkFile
 	hardlinkOne = func(src, dst string) error { return os.Link(src, dst) }
