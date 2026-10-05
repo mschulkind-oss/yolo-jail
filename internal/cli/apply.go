@@ -373,8 +373,10 @@ func applyHostSurveyed(out, errw io.Writer, color bool, write bool, stdin io.Rea
 			rc = brc
 			survey.noteStageFailure(stageBriefing)
 		}
+		// nil lsp_servers: with no pack there is no skills destination to deliver Claude's LSP
+		// plugin into, so every plugin a previous apply wrote is retired with the rest.
 		if src := applyHostSkills(pr, out, stdin, nil, packload.Embedded(), empty, empty, true,
-			home, stamp, write, nil, survey); src != 0 {
+			home, stamp, write, nil, nil, survey); src != 0 {
 			rc = src
 			survey.noteStageFailure(stageSkills)
 		}
@@ -805,8 +807,10 @@ func applyHostSurveyed(out, errw io.Writer, color bool, write bool, stdin io.Rea
 	// a confirmed one, so either order converges — but a user answering two prompts should be
 	// asked about the bigger move first, and moving a directory of skills is bigger than moving
 	// one file's prose.
+	// The lsp_servers table the composition above carries (jail-only paths already left out and
+	// named), for Claude's yolo-lsp plugin — written beside the composed skills (applyHostLSPPlugin).
 	if src := applyHostSkills(pr, out, stdin, loaded, candidates, active, configured, resolvedAll,
-		home, stamp, write, reloadPacks, survey); src != 0 {
+		home, stamp, write, reloadPacks, inputs.lsp, survey); src != 0 {
 		rc = src
 		survey.noteStageFailure(stageSkills)
 	}

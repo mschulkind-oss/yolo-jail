@@ -13,7 +13,8 @@ package cli
 //	              (nothing serves one here, WG-I12), and a selection the host launch refuses
 //	              left out and named
 //	mcp_servers   the user's own entries, less any that names a jail-only path (named)
-//	lsp_servers   the same
+//	lsp_servers   the same, and Claude's yolo-lsp plugin is rendered from it too
+//	              (applyhostlspplugin.go)
 //
 // and never an MCP preset (its command is a wrapper only a jail's boot writes), a pack's `mcp`
 // declaration (OQ-MP3), or a workspace's config (P2).
@@ -47,6 +48,11 @@ type hostInputComposition struct {
 	// shaped names each `models` contribution the composition applied, "<provider> (<pack>
 	// add|only)": like a provider, it renders invisibly, into the lists the derives write.
 	shaped []string
+	// lsp is the `lsp_servers` table the host carries — hostServerTable's, so an entry naming a
+	// jail-only path is already left out and named in omitted. The derives read it through the
+	// wire variable; Claude's LSP plugin, which is no derive, reads it from here
+	// (applyHostLSPPlugin), so the two cannot disagree about which servers the host has.
+	lsp *jsonx.OrderedMap
 }
 
 // summary is the detail line naming what the composition carries.
@@ -173,6 +179,7 @@ func composeHostInputs(cfg *jsonx.OrderedMap, packs []*packload.Pack, home strin
 	lsp, omitted := hostServerTable(cfg, "lsp_servers", home)
 	c.omitted = append(c.omitted, omitted...)
 	vars[entrypoint.LSPServersWireEnv] = wireJSON(lsp)
+	c.lsp = lsp
 
 	// THE PRESETS NEVER EXPAND HERE (HC-D6): each command names the node wrapper a jail's boot
 	// writes and the jail's npm prefix, neither of which a real home has, and composing them

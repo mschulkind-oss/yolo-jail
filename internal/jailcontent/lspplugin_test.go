@@ -194,3 +194,83 @@ func TestPrepareSkillsRendersThePlugin(t *testing.T) {
 		t.Errorf("PrepareSkills staged no plugin — the renderer is not wired in: %#v", got)
 	}
 }
+
+// ONE RENDERER FOR BOTH NOTCHES. The jail's staging write and `yolo host apply` must hold the same
+// file, so writeLSPPlugin writes exactly RenderLSPPlugin's bytes — the host half reads them from
+// RenderLSPPlugin directly (internal/cli's applyHostLSPPlugin).
+func TestWriteLSPPluginWritesTheRenderersBytes(t *testing.T) {
+	t.Cleanup(func() { SetLSPServers(nil) })
+	table := lspTable(t, `{"gopls": {"command": "gopls", "fileExtensions": {".go": "go"}}}`)
+	SetLSPServers(table)
+	dir := t.TempDir()
+	if err := writeLSPPlugin(dir); err != nil {
+		t.Fatal(err)
+	}
+	got, err := os.ReadFile(filepath.Join(dir, LSPPluginDir, filepath.FromSlash(LSPPluginManifestRel)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want, ok := RenderLSPPlugin(table)
+	if !ok {
+		t.Fatal("RenderLSPPlugin rendered nothing for a table with a command")
+	}
+	if string(got) != string(want) {
+		t.Errorf("the staged manifest is not RenderLSPPlugin's bytes:\n--- staged\n%s\n--- rendered\n%s", got, want)
+	}
+	// NOTCH-NEUTRAL: the same bytes land in a real home, where "this jail" would be false.
+	if strings.Contains(strings.ToLower(string(want)), "jail's") {
+		t.Errorf("the manifest names a notch, and the host writes the same bytes:\n%s", want)
+	}
+}
+
+// Nothing to render is FALSE, never an empty manifest: no table, an empty one, and one whose only
+// entry has no command all leave the caller nothing to write.
+func TestRenderLSPPluginReportsNothingToRender(t *testing.T) {
+	for name, table := range map[string]*jsonx.OrderedMap{
+		"nil":        nil,
+		"empty":      lspTable(t, `{}`),
+		"no command": lspTable(t, `{"broken": {"args": ["--stdio"]}}`),
+	} {
+		if data, ok := RenderLSPPlugin(table); ok || data != nil {
+			t.Errorf("%s: want (nil, false), got (%q, %v)", name, data, ok)
+		}
+	}
+}
+
+// IsLSPPlugin proves the plugin from its manifest, and a pack's namespaced subtree that happens to
+// be called yolo-lsp is NOT it: that subtree carries the same marker and name (hostskills' tier A
+// manifest) but no lspServers, and treating it as the plugin would let the host apply rewrite or
+// retire a pack's skills.
+func TestIsLSPPluginTellsThePluginFromAPackSubtreeOfTheSameName(t *testing.T) {
+	t.Cleanup(func() { SetLSPServers(nil) })
+	SetLSPServers(lspTable(t, `{"rust": {"command": "rust-analyzer"}}`))
+	plugin := t.TempDir()
+	if err := writeLSPPlugin(plugin); err != nil {
+		t.Fatal(err)
+	}
+	if !IsLSPPlugin(filepath.Join(plugin, LSPPluginDir)) {
+		t.Error("the plugin writeLSPPlugin wrote is not recognised")
+	}
+	manifest := func(body string) string {
+		dir := filepath.Join(t.TempDir(), LSPPluginDir)
+		path := filepath.Join(dir, filepath.FromSlash(LSPPluginManifestRel))
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		return dir
+	}
+	for name, dir := range map[string]string{
+		"a namespaced pack subtree": manifest(`{"name":"yolo-lsp","skills":["./"],"x-yolo-managed-by":"yolo-jail"}`),
+		"an unmarked plugin":        manifest(`{"name":"yolo-lsp","lspServers":{"x":{"command":"x"}}}`),
+		"another marked plugin":     manifest(`{"name":"other","lspServers":{},"x-yolo-managed-by":"yolo-jail"}`),
+		"malformed":                 manifest(`{`),
+		"absent":                    filepath.Join(t.TempDir(), LSPPluginDir),
+	} {
+		if IsLSPPlugin(dir) {
+			t.Errorf("%s was taken for yolo's LSP plugin", name)
+		}
+	}
+}

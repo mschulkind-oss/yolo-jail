@@ -18,45 +18,19 @@ package run
 // the remedy is theirs.
 
 import (
-	"os"
-
 	"github.com/mschulkind-oss/yolo-jail/internal/entrypoint"
 	"github.com/mschulkind-oss/yolo-jail/internal/jailcontent"
 	"github.com/mschulkind-oss/yolo-jail/internal/richtext"
 )
 
 // hostSourceSkip is why a launch did not read a host file it was declared to read.
-type hostSourceSkip struct {
-	why    string // what is wrong, as a clause: "it is a symlink to …, which does not exist"
-	remedy string // what the user can do about it, as a sentence; "" when no one remedy fits
-}
+type hostSourceSkip = entrypoint.HostSourceSkip
 
 // unreadHostSource says why the host file at src (an absolute path) cannot be read, or nil when
-// there is nothing to say: it is a regular file, or nothing is there and no link explains its
-// absence — the user has not created it, the normal state.
-func unreadHostSource(src string) *hostSourceSkip {
-	if link, target, ok := entrypoint.FindDanglingLink(src); ok {
-		subject := link + " is"
-		if link == src {
-			subject = "it is"
-		}
-		return &hostSourceSkip{
-			why:    subject + " a symlink to " + target + ", which does not exist",
-			remedy: "Restore the target, or remove the link",
-		}
-	}
-	info, err := os.Stat(src)
-	switch {
-	case err == nil && info.Mode().IsRegular():
-		return nil
-	case err == nil:
-		return &hostSourceSkip{why: "it is not a regular file"}
-	case os.IsNotExist(err):
-		return nil
-	default:
-		return &hostSourceSkip{why: "it could not be read (" + err.Error() + ")"}
-	}
-}
+// there is nothing to say. The predicate is entrypoint.UnreadHostSource, which `yolo host apply`
+// asks of a briefing's `after` file too, so the two notches say the same thing about one file;
+// what stays here is the launch's line.
+func unreadHostSource(src string) *hostSourceSkip { return entrypoint.UnreadHostSource(src) }
 
 // hostFileSubject is how the line names a pack's host-file grant: the pack and the
 // home-relative path it declared, the spelling the disclosure banner and `yolo pack footprint` use.
@@ -80,7 +54,7 @@ func (o *Options) prependHostBriefing(src, from, into, content string) string {
 	}
 	out, err := jailcontent.PrependHostBriefing(src, content)
 	if err != nil {
-		o.noteUnreadHostSource(subject, without, &hostSourceSkip{why: "it could not be read (" + err.Error() + ")"})
+		o.noteUnreadHostSource(subject, without, &hostSourceSkip{Why: "it could not be read (" + err.Error() + ")"})
 	}
 	return out
 }
@@ -92,9 +66,9 @@ func (o *Options) noteUnreadHostSource(subject, without string, skip *hostSource
 	if skip == nil {
 		return
 	}
-	line := "Warning: " + subject + " was not read: " + skip.why + ". " + without + "."
-	if skip.remedy != "" {
-		line += " " + skip.remedy + "."
+	line := "Warning: " + subject + " was not read: " + skip.Why + ". " + without + "."
+	if skip.Remedy != "" {
+		line += " " + skip.Remedy + "."
 	}
 	o.pr(o.Stderr).print("[yellow]" + richtext.Escape(line) + "[/yellow]")
 }
