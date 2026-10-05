@@ -27,6 +27,8 @@ into a jail, and what each launch shows about the code it runs. See
 
 ### Fixed
 
+- Pi starts faster after a jail restart, and an agent's `--version` answers at once instead of
+  updating the agent and its extensions first.
 - When `yolo host` has no container runtime to capture an agent with, it now says to install one.
 - A Ctrl-C in one of a jail's terminals now says the jail stays up for the others.
 - A Ctrl-C as a terminal's session starts no longer leaves that session's command running in the

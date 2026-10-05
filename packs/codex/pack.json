@@ -34,6 +34,12 @@
           "visibility": "list"
         }
       },
+      // A version probe answers at once (pi-extension-store-builds.md XB-D24, XB-D29): the
+      // word the per-pack install matrix runs (integration/agents_test.go). It skips the model
+      // menu, which runs codex once more to print its catalog.
+      "probe_args": [
+        "--version"
+      ],
       "protocols": [
         "openai-responses",
         "openai"

@@ -494,7 +494,7 @@ _prelaunch_refresh() {
 // immediately before the exec (prelaunchRefreshShellFn says why the call and the definitions sit
 // apart).
 const prelaunchRefreshCallShell = `
-_prelaunch_refresh || true
+[ "${_YOLO_PROBE:-}" = "1" ] || _prelaunch_refresh || true
 `
 
 // refreshSplices renders the refresh's sentinel pairs for a strings.Replacer, riding on the

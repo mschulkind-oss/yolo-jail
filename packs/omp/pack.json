@@ -8,6 +8,11 @@
         "darwin/arm64",
         "linux/amd64"
       ],
+      // A version probe answers at once (pi-extension-store-builds.md XB-D24, XB-D29): the
+      // word the per-pack install matrix runs (integration/agents_test.go).
+      "probe_args": [
+        "--version"
+      ],
       "protocols": [
         "openai",
         "anthropic"

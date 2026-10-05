@@ -293,7 +293,7 @@ func copyPackDecl(p *Pack) *Pack {
 // install the upstream program; an inherited `model_catalog` names files inside an npm package a
 // fork does not install.
 //
-// THE BASE'S: `refresh`, `protocols`, `provider_sets`, `platform_switches`, `capabilities`,
+// THE BASE'S: `refresh`, `probe_args`, `temp_caches`, `protocols`, `provider_sets`, `platform_switches`, `capabilities`,
 // `platform_regions`, `unlisted_background_models` and `exact_menu_refuses`. Those say what the
 // program DOES once it is there, which a fork of it still does. `node_floor` is the base's unless
 // the fork declares its own: the floor a fork's entrypoint needs is the fork's to raise.

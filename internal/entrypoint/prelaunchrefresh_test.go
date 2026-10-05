@@ -803,16 +803,21 @@ func TestShippedPiLauncherRefreshesItsExtensions(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	cmd := exec.Command(launcher, "--version")
+	// `--help`, not `--version`: pi's `--version` is a version probe, which runs no refresh
+	// (TestShippedPiVersionProbeRunsNoUpdateStep), while pi answers `--help` only after resolving
+	// and installing its packages, so its help keeps the locked refresh in front (XB-D24).
+	cmd := exec.Command(launcher, "--help")
 	cmd.Dir = home
-	cmd.Env = []string{"HOME=" + home, "PATH=" + os.Getenv("PATH")}
+	// TMPDIR of the test's own: pi declares a temporary-directory cache, which the launcher links
+	// there (compilecache.go), and the machine's /tmp is not this test's to write.
+	cmd.Env = []string{"HOME=" + home, "PATH=" + os.Getenv("PATH"), "TMPDIR=" + t.TempDir()}
 	cmd.Stdin = strings.NewReader("")
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("the shipped pi launcher failed: %v\n%s", err, out)
 	}
 	got := logLines(t, log)
-	want := []string{"NODE", "REFRESH", "ARG:update", "ARG:--extensions", "LOCKED", "NODE", "LAUNCH:--version"}
+	want := []string{"NODE", "REFRESH", "ARG:update", "ARG:--extensions", "LOCKED", "NODE", "LAUNCH:--help"}
 	if strings.Join(got, "\n") != strings.Join(want, "\n") {
 		t.Errorf("the shipped pi launcher must refresh its extensions under the node it runs "+
 			"under and the shared store's lock, then launch:\n got %q\nwant %q\n%s", got, want, out)

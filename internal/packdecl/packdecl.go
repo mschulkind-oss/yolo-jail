@@ -244,6 +244,13 @@ type Install struct {
 	// Refresh is the program's PRE-LAUNCH REFRESH, nil when it declares none. The
 	// Contribution field of the same name carries the reasoning; see Refresh for the shape.
 	Refresh *Refresh `json:"refresh,omitempty"`
+	// ProbeArgs are the first arguments that make an invocation a VERSION PROBE, nil when the
+	// program declares none. The Contribution field of the same name carries the reasoning.
+	ProbeArgs []string `json:"probe_args,omitempty"`
+	// TempCaches names the directories the program keeps compiled code in under its temporary
+	// directory, nil when it declares none. The Contribution field of the same name carries the
+	// reasoning.
+	TempCaches []string `json:"temp_caches,omitempty"`
 	// VersionsDir is the home-relative directory the program's installer keeps one entry per
 	// installed version in, "" meaning the default `.local/share/<bin>/versions`. The
 	// Contribution field of the same name carries the reasoning; read it through

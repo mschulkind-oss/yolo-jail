@@ -82,6 +82,8 @@ func TestForkRefusals(t *testing.T) {
 		{"refresh", func(c *Contribution) {
 			c.Refresh = &Refresh{Argv: []string{"update"}, Lock: ".s/.yolo-update.lock"}
 		}, `does not take "refresh"`},
+		{"probe_args", func(c *Contribution) { c.ProbeArgs = []string{"--version"} }, `does not take "probe_args"`},
+		{"temp_caches", func(c *Contribution) { c.TempCaches = []string{"jiti"} }, `does not take "temp_caches"`},
 		{"install_hints", func(c *Contribution) { c.InstallHints = map[string]string{"brew": "pi"} },
 			`does not take "install_hints"`},
 		{"protocols", func(c *Contribution) { c.Protocols = []string{"openai"} }, `does not take "protocols"`},

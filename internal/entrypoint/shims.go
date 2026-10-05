@@ -593,7 +593,7 @@ func npmAgentLauncherSegments(pack string, inst *packdecl.Install, stampDir, rec
 		"__YOLO_EXEC_PREFIX__", token,
 		// The gate a patched extension this agent loads puts on it (patchedtrees.go, PPX-D18).
 		"__YOLO_TREE_GATE__", shquote.Quote(inst.Gate),
-	}, append(append(launchFlagSplices(flags), refreshSplices(inst.Refresh, inst.RefreshTiming)...), modelMenuSplices(inst.ModelMenu)...)...)...)
+	}, append(append(append(launchFlagSplices(flags), refreshSplices(inst.Refresh, inst.RefreshTiming)...), modelMenuSplices(inst.ModelMenu)...), startupSplices(inst, true)...)...)...)
 	return strings.Split(r.Replace(npmLauncherTemplate), token)
 }
 
@@ -685,7 +685,7 @@ func nativeAgentLauncher(pack string, inst *packdecl.Install, stampDir, receipts
 		"__YOLO_EXEC_PREFIX__", "",
 		// The gate a patched extension this agent loads puts on it (patchedtrees.go, PPX-D18).
 		"__YOLO_TREE_GATE__", shquote.Quote(inst.Gate),
-	}, append(append(launchFlagSplices(flags), refreshSplices(inst.Refresh, inst.RefreshTiming)...), modelMenuSplices(inst.ModelMenu)...)...)...)
+	}, append(append(append(launchFlagSplices(flags), refreshSplices(inst.Refresh, inst.RefreshTiming)...), modelMenuSplices(inst.ModelMenu)...), startupSplices(inst, false)...)...)...)
 	return r.Replace(nativeLauncherTemplate)
 }
 
@@ -1142,7 +1142,7 @@ _refresh_agent_auth() {
     return "$auth_rc"
 }
 
-_refresh_agent_auth
+[ "${_YOLO_PROBE:-}" = "1" ] || _refresh_agent_auth
 `
 
 // npmLauncherTemplate is the npm agent launcher body, with the per-agent
@@ -1231,7 +1231,7 @@ SERVERS_NPM=__YOLO_SERVERS_NPM__
 # every expansion of the array for HAS_UPDATE_VERB's reason: bash 3.2 under "set -u".
 HAS_LAUNCH_FLAGS=__YOLO_HAS_LAUNCH_FLAGS__
 LAUNCH_FLAGS=(__YOLO_LAUNCH_FLAGS__)
-` + refreshDeclShell + modelMenuDeclShell + launchFlagsShellFn + `
+` + refreshDeclShell + probeArgsDeclShell + modelMenuDeclShell + launchFlagsShellFn + `
 
 # --- re-entry ----------------------------------------------------------------------
 # B2 PUT THE LAUNCH DIR AHEAD OF THE INSTALL PREFIXES, so a BARE-NAME call of this program
@@ -1477,6 +1477,10 @@ if [ ! -x "$REAL_BIN" ]; then
     # there something to exec? — and it answers it correctly for the upgrade case too,
     # where the install failed and the previous version is still perfectly runnable.
     _do_install || true
+elif [ "$_YOLO_PROBE" = "1" ]; then
+    # A VERSION PROBE (probeargs.go) answers with what is installed: no update, and no reinstall
+    # for a moved pin, which the next launch that is not a probe makes.
+    :
 elif [ "$PINNED" = "1" ]; then
     # A pinned package has nothing to poll for. A "npm view $PKG version" call answers "what is
     # the registry's latest?", which against a declared selector is either ignored (the
@@ -1528,14 +1532,14 @@ _refresh_servers() {
         --updates="$UPDATES_ENABLED" >&2 || true
 }
 
-if [ "$SERVERS_ENABLED" = "1" ]; then
+if [ "$SERVERS_ENABLED" = "1" ] && [ "$_YOLO_PROBE" != "1" ]; then
     _refresh_servers
 fi
 ` + prelaunchRefreshCallShell + `
-` + agentEnvShellFn + agentAuthPrelaunchShellFn + modelMenuShellFn + treeGateShell + `
+` + agentEnvShellFn + agentAuthPrelaunchShellFn + modelMenuShellFn + treeGateShell + compileCacheShellFn + `
 if [ -x "$REAL_BIN" ]; then
     _yolo_launch_argv "$@"
-    _yolo_model_menu
+    [ "$_YOLO_PROBE" = "1" ] || _yolo_model_menu
     exec __YOLO_EXEC_PREFIX__"$REAL_BIN" ${YOLO_ARGV[@]+"${YOLO_ARGV[@]}"}
 elif [ "$_YOLO_MISPLACED" = 1 ]; then
     ` + npmMisplacedCall + `
@@ -1660,7 +1664,7 @@ SERVERS_NPM=__YOLO_SERVERS_NPM__
 # every expansion of the array for HAS_UPDATE_VERB's reason: bash 3.2 under "set -u".
 HAS_LAUNCH_FLAGS=__YOLO_HAS_LAUNCH_FLAGS__
 LAUNCH_FLAGS=(__YOLO_LAUNCH_FLAGS__)
-` + refreshDeclShell + modelMenuDeclShell + launchFlagsShellFn + `
+` + refreshDeclShell + probeArgsDeclShell + modelMenuDeclShell + launchFlagsShellFn + `
 # ONE lock per INSTALL PREFIX, not per program: §3.5's contention rule is about who may
 # write into $HOME/.local, and two vendor updaters running there at once is what it
 # forbids. On the container backends the prefix is a per-workspace bind and nothing can
@@ -2153,7 +2157,8 @@ if [ ! -x "$REAL_BIN" ]; then
     # bottom is, because it answers the question this path actually has (is there something
     # to exec?).
     _do_install || true
-elif _update_due; then
+elif [ "$_YOLO_PROBE" != "1" ] && _update_due; then
+    # Never for a VERSION PROBE (probeargs.go), which answers with what is installed.
     _locked_update || true
 fi
 # Whatever ran above, or nothing: see _locked_prune.
@@ -2202,15 +2207,15 @@ _refresh_servers() {
         --updates="$UPDATES_ENABLED" >&2 || true
 }
 
-if [ "$SERVERS_ENABLED" = "1" ]; then
+if [ "$SERVERS_ENABLED" = "1" ] && [ "$_YOLO_PROBE" != "1" ]; then
     _refresh_servers
 fi
 
 ` + prelaunchRefreshCallShell + `
-` + agentEnvShellFn + agentAuthPrelaunchShellFn + modelMenuShellFn + treeGateShell + `
+` + agentEnvShellFn + agentAuthPrelaunchShellFn + modelMenuShellFn + treeGateShell + compileCacheShellFn + `
 if [ -x "$REAL_BIN" ]; then
     _yolo_launch_argv "$@"
-    _yolo_model_menu
+    [ "$_YOLO_PROBE" = "1" ] || _yolo_model_menu
     exec "$REAL_BIN" ${YOLO_ARGV[@]+"${YOLO_ARGV[@]}"}
 elif [ "$_YOLO_MISPLACED" = 1 ]; then
     ` + installerMisplacedCall + `

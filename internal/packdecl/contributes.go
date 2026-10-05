@@ -144,6 +144,38 @@ type Contribution struct {
 	// agent is (AGENTS.md, "Core does not know what an agent is"). The argv is the vendor's
 	// and the lock's location is the pack's store, so both facts are the pack's to state.
 	Refresh *Refresh `json:"refresh,omitempty"`
+	// ProbeArgs are the first arguments that make an invocation of the program a VERSION PROBE
+	// (docs/design/pi-extension-store-builds.md XB-D24, which coined the term for an invocation
+	// the program answers before it does any of its own work): `"probe_args": ["--version", "-v"]`
+	// for pi. Read only on `program`, and refused on every other kind for `update`'s reason.
+	//
+	// An invocation whose FIRST argument is one of them runs none of the launcher's steps before
+	// the exec that the answer never reads: no hourly update of the program and no reinstall for
+	// a moved pin, no MCP server refresh, no pre-launch refresh and no wait for its lock, no
+	// authentication step, no model menu and no tree gate. A cold install still runs, since
+	// without it nothing answers, and so does a fork's materialize, since an older build in the
+	// home is not this launch's program.
+	//
+	// DECLARED BY THE PACK, never keyed on a flag in core, for `refresh`'s reason: which words a
+	// vendor answers at once is the vendor's fact, and not every vendor's help is one. pi answers
+	// `--help` only after resolving every package and installing a missing one with no lock, so
+	// it declares `--version` and `-v` alone.
+	ProbeArgs []string `json:"probe_args,omitempty"`
+	// TempCaches names directories the program keeps COMPILED CODE in under its temporary
+	// directory, Node's os.tmpdir() (`$TMPDIR`, else `$TMP`, `$TEMP`, `/tmp`): `"temp_caches":
+	// ["jiti"]` for pi, whose extension loader writes each extension it compiles to
+	// `<tmpdir>/jiti` and reads no setting that moves it (jiti 2.7's JITI_FS_CACHE takes only
+	// true or false). Read only on `program`, and refused elsewhere for `update`'s reason.
+	//
+	// The launcher keeps each one per workspace across jail restarts (XB-D30): right before the
+	// exec, when `<tmpdir>/<name>` does not exist, it links it to
+	// `~/.local/state/yolo/compile-cache/tmp/<name>`, in the workspace's own home state. A
+	// container's /tmp is its jail's own and a restart empties it, which is what made pi's first
+	// start after every restart compile all its extensions again. The link names the home by
+	// path, so it resolves to this workspace's directory wherever it sits; anything already at
+	// `<tmpdir>/<name>` is left as it is. Never a machine-wide directory: compiled code one jail
+	// wrote must never run in another (XB-P4).
+	TempCaches []string `json:"temp_caches,omitempty"`
 	// VersionsDir is the home-relative directory where the program's own installer keeps ONE
 	// ENTRY PER INSTALLED VERSION: `".codex/packages/standalone/releases"` for codex. Read only
 	// on a `program` delivered `via: "installer"`, and refused everywhere else, because the
@@ -1159,6 +1191,15 @@ func (m *Manifest) InstallContributions() []Install {
 				r.DueOnChange = nil
 			}
 			in.Refresh = &r
+		}
+		// The probe arguments and the temporary-directory caches too, for the same reason: what
+		// the PROGRAM answers at once and where it caches what it compiles, whichever mechanism
+		// delivered it. Copied, for Refresh's reason.
+		if len(c.ProbeArgs) > 0 {
+			in.ProbeArgs = append([]string(nil), c.ProbeArgs...)
+		}
+		if len(c.TempCaches) > 0 {
+			in.TempCaches = append([]string(nil), c.TempCaches...)
 		}
 		// The platform list is projected for EVERY via, for UpdateVerb's reason: it
 		// names where the VENDOR publishes, which is a fact about the program rather
@@ -3471,6 +3512,8 @@ func validateContribution(label string, c Contribution) []string {
 	if c.Refresh != nil && c.Kind == KindProgram {
 		problems = append(problems, refreshProblems(label+".refresh", c.Refresh)...)
 	}
+	problems = append(problems, probeArgsProblems(label, c)...)
+	problems = append(problems, tempCachesProblems(label, c)...)
 	problems = append(problems, versionsDirProblems(label, c)...)
 	// fork_of, source, build and produces are a fork's alone (fork.go): refused on every other
 	// kind and every other via, in `update`'s position and for its reason.

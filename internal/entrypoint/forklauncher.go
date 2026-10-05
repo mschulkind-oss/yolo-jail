@@ -120,7 +120,7 @@ func sourceAgentLauncherSegments(inst *packdecl.Install, d ForkDelivery, stampDi
 		"__YOLO_EXEC_PREFIX__", token,
 		// The gate a patched extension this agent loads puts on it (patchedtrees.go, PPX-D18).
 		"__YOLO_TREE_GATE__", shquote.Quote(inst.Gate),
-	}, append(launchFlagSplices(flags), refreshSplices(inst.Refresh, inst.RefreshTiming)...)...)...)
+	}, append(append(launchFlagSplices(flags), refreshSplices(inst.Refresh, inst.RefreshTiming)...), startupSplices(inst, true)...)...)...)
 	return strings.Split(r.Replace(sourceLauncherTemplate), token)
 }
 
@@ -166,7 +166,7 @@ SERVERS_ENABLED=__YOLO_SERVERS_ENABLED__
 SERVERS_NPM=__YOLO_SERVERS_NPM__
 HAS_LAUNCH_FLAGS=__YOLO_HAS_LAUNCH_FLAGS__
 LAUNCH_FLAGS=(__YOLO_LAUNCH_FLAGS__)
-` + refreshDeclShell + launchFlagsShellFn + `
+` + refreshDeclShell + probeArgsDeclShell + launchFlagsShellFn + `
 case ":${_YOLO_LAUNCHER_ACTIVE:-}:" in
     *":$BIN:"*)
         if [ -x "$REAL_BIN" ]; then
@@ -221,11 +221,11 @@ _refresh_servers() {
         --updates="$UPDATES_ENABLED" >&2 || true
 }
 
-if [ "$SERVERS_ENABLED" = "1" ]; then
+if [ "$SERVERS_ENABLED" = "1" ] && [ "$_YOLO_PROBE" != "1" ]; then
     _refresh_servers
 fi
 ` + prelaunchRefreshCallShell + `
-` + agentEnvShellFn + agentAuthPrelaunchShellFn + treeGateShell + `
+` + agentEnvShellFn + agentAuthPrelaunchShellFn + treeGateShell + compileCacheShellFn + `
 if [ -x "$REAL_BIN" ]; then
     _yolo_launch_argv "$@"
     exec __YOLO_EXEC_PREFIX__"$REAL_BIN" ${YOLO_ARGV[@]+"${YOLO_ARGV[@]}"}
