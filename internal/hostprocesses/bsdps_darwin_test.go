@@ -120,13 +120,16 @@ func TestBSDPSRealPidMode(t *testing.T) {
 		t.Errorf("pid mode on the test binary = rc %d stderr %q, want rc 2, not allowlisted", rc, errOut)
 	}
 
+	// Exactly "not found", which pins the fact commOf reads a gone pid by: BSD ps asked
+	// about one prints nothing and SAYS nothing. A ps that said something would be
+	// reported as a ps that refused the question, and fail here naming that.
 	gone := exec.Command("/usr/bin/true")
 	if err := gone.Run(); err != nil {
 		t.Fatal(err)
 	}
 	_, errOut, rc = query(t, ep, map[string]any{"mode": "pid", "pid": gone.Process.Pid})
-	if rc != 1 || !strings.Contains(string(errOut), "not found") {
-		t.Errorf("pid mode on an exited pid = rc %d stderr %q, want rc 1, not found", rc, errOut)
+	if want := "pid " + strconv.Itoa(gone.Process.Pid) + " not found\n"; rc != 1 || string(errOut) != want {
+		t.Errorf("pid mode on an exited pid = rc %d stderr %q, want rc 1 and %q", rc, errOut, want)
 	}
 }
 

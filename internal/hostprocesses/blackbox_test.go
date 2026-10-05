@@ -698,13 +698,28 @@ func TestBlackboxBSDListModeSelectsInGo(t *testing.T) {
 // column header and exit 1. The header is taken from a query about the DAEMON's own
 // pid and its data row is dropped; with every header suppressed there is nothing to
 // show, and the row, the daemon's, must not leak.
+//
+// A header query ps complained about is GNU's answer too: GNU `ps -o <fields> -C x`
+// prints its own error for a field it does not know, so BSD list mode passes the
+// header query's stderr on, and names the setting to correct when ps failed. That
+// covers both shapes a field BSD ps rejects can take: no output at all, and the
+// columns it did know with a warning about the rest.
 func TestBlackboxBSDListModeNoMatchIsHeaderAndExit1(t *testing.T) {
 	withHostOS(t, "darwin")
 	for _, tc := range []struct {
-		name, fields, other, want string
+		name, fields, other, want, wantErr string
 	}{
-		{"header", `["pid","comm"]`, `printf '  PID UCOMM\n%s yolo\n' 4242`, "  PID UCOMM\n"},
-		{"suppressed", `["pid=","comm="]`, `printf '%s yolo\n' 4242`, ""},
+		{"header", `["pid","comm"]`, `printf '  PID UCOMM\n%s yolo\n' 4242`, "  PID UCOMM\n", ""},
+		{"suppressed", `["pid=","comm="]`, `printf '%s yolo\n' 4242`, "", ""},
+		{"a field ps refused", `["pid","cmd"]`, `echo 'ps: cmd: keyword not found' >&2; exit 1`, "",
+			"ps: cmd: keyword not found\n" + checkFields},
+		{"a field ps dropped", `["pid","cmd"]`,
+			`printf '  PID\n%s\n' 4242; echo 'ps: cmd: keyword not found' >&2; exit 1`, "  PID\n",
+			"ps: cmd: keyword not found\n" + checkFields},
+		// A warning from a ps that then succeeded is passed on, and is no reason to tell
+		// anyone to edit their fields.
+		{"a warning, and ps carried on", `["pid"]`, `printf '  PID\n%s\n' 4242; echo 'ps: a warning' >&2`,
+			"  PID\n", "ps: a warning\n"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			cfg := settings(t, `{"visible":["sway"],"fields":`+tc.fields+`}`)
@@ -712,8 +727,9 @@ func TestBlackboxBSDListModeNoMatchIsHeaderAndExit1(t *testing.T) {
 			ep, stop := startDaemon(t, cfg, ps)
 			defer stop()
 			out, errOut, rc := query(t, ep, map[string]any{"mode": "list"})
-			if rc != 1 || string(out) != tc.want {
-				t.Errorf("no match = rc %d out %q, want rc 1 out %q (stderr=%q)", rc, out, tc.want, errOut)
+			if rc != 1 || string(out) != tc.want || string(errOut) != tc.wantErr {
+				t.Errorf("no match = rc %d out %q err %q, want rc 1 out %q err %q",
+					rc, out, errOut, tc.want, tc.wantErr)
 			}
 			calls := psCalls(ps)
 			wantHeaderQuery := "-p " + strconv.Itoa(os.Getpid())
@@ -756,6 +772,11 @@ func TestBlackboxBSDPidMode(t *testing.T) {
 		{"allowlisted", `printf 'sway            \n'`, 0, "ARGS: -o pid,ucomm,args -p 999999999\n", ""},
 		{"not allowlisted", `echo bash`, 2, "", "pid 999999999 has comm='bash' which is not allowlisted\n"},
 		{"not found", `exit 1`, 1, "", "pid 999999999 not found\n"},
+		// A ps that REFUSED the lookup is not an absent pid: it says so, in ps's own words,
+		// and names the next step, as list mode does for a snapshot that listed nothing.
+		{"ps refused the lookup", `echo 'ps: ucomm: keyword not found' >&2; exit 1`, 1, "",
+			"pid mode failed: ['ps', '-o', 'ucomm=', '-p', '999999999'] exited 1 without listing a " +
+				"process: ps: ucomm: keyword not found\n" + checkHostPS},
 		// BSD ps prints ucomm raw, so a file name holding a newline prints two lines. The
 		// name is ALL of them: its first line alone would be a name the process does not
 		// have, here an allowlisted one.
@@ -864,24 +885,22 @@ func TestBlackboxBSDWithNoPSSaysWhatToDo(t *testing.T) {
 	}
 }
 
-// TestBlackboxBSDTreeArgsFailureSaysWhatToDo: the BSD tree's second ps, the args query,
-// names the same next step when it cannot start. The fake deletes itself once it has
-// answered the snapshot, so that query finds no ps.
-func TestBlackboxBSDTreeArgsFailureSaysWhatToDo(t *testing.T) {
-	withHostOS(t, "darwin")
-	ps := bsdFake(t, "-ax -o pid=,ppid=,ucomm=", "    1     0 launchd\n  100     1 sway\n", "echo unexpected")
-	snapshotThenGone := "case \"$*\" in\n  '-ax -o pid=,ppid=,ucomm=') rm -f \"$0\" ;;\nesac\n"
-	script := filepath.Join(ps, "ps")
+// vanishAfter makes the fake ps in fakePSDir delete itself once it has answered the
+// query whose arguments are args, and leaves PATH holding that fake and the two tools
+// it runs and nothing else, so every later query finds no ps at all. The daemon must
+// be started with an empty fakePSDir afterwards, so startDaemon leaves this PATH alone.
+func vanishAfter(t *testing.T, fakePSDir, args string) {
+	t.Helper()
+	thenGone := "case \"$*\" in\n  '" + args + "') rm -f \"$0\" ;;\nesac\n"
+	script := filepath.Join(fakePSDir, "ps")
 	b, err := os.ReadFile(script)
 	if err != nil {
 		t.Fatal(err)
 	}
-	// Appended, so it runs after the case statement has printed the snapshot.
-	if err := os.WriteFile(script, append(b, snapshotThenGone...), 0o755); err != nil {
+	// Appended, so it runs after the case statement has printed its answer.
+	if err := os.WriteFile(script, append(b, thenGone...), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	// PATH is the fake and the two tools it runs, and nothing else, so that once the
-	// fake is gone no other ps can answer in its place.
 	tools := t.TempDir()
 	for _, tool := range []string{"cat", "rm"} {
 		real, err := exec.LookPath(tool)
@@ -892,7 +911,16 @@ func TestBlackboxBSDTreeArgsFailureSaysWhatToDo(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	t.Setenv("PATH", ps+":"+tools)
+	t.Setenv("PATH", fakePSDir+":"+tools)
+}
+
+// TestBlackboxBSDTreeArgsFailureSaysWhatToDo: the BSD tree's second ps, the args query,
+// names the same next step when it cannot start. The fake deletes itself once it has
+// answered the snapshot, so that query finds no ps.
+func TestBlackboxBSDTreeArgsFailureSaysWhatToDo(t *testing.T) {
+	withHostOS(t, "darwin")
+	ps := bsdFake(t, "-ax -o pid=,ppid=,ucomm=", "    1     0 launchd\n  100     1 sway\n", "echo unexpected")
+	vanishAfter(t, ps, "-ax -o pid=,ppid=,ucomm=")
 	ep, stop := startDaemon(t, settings(t, `{"visible":["sway"]}`), "")
 	defer stop()
 	_, errOut, rc := query(t, ep, map[string]any{"mode": "tree"})
@@ -900,6 +928,23 @@ func TestBlackboxBSDTreeArgsFailureSaysWhatToDo(t *testing.T) {
 		!strings.Contains(string(errOut), "`yolo check` on the host") {
 		t.Errorf("BSD tree whose args query finds no ps = rc %d stderr %q, want rc 1, the failure "+
 			"and the next step\nps invocations: %s", rc, errOut, psInvocations(ps))
+	}
+}
+
+// TestBlackboxBSDListHeaderQueryFailureSaysWhatToDo: a list that matched nothing asks
+// ps for the column header, and a ps that cannot start by then is said, with the next
+// step, rather than turned into a bare exit 1 that looks like an empty match.
+func TestBlackboxBSDListHeaderQueryFailureSaysWhatToDo(t *testing.T) {
+	withHostOS(t, "darwin")
+	ps := bsdFake(t, "-ax -o pid=,ucomm=", "  102 bash\n", "echo unexpected")
+	vanishAfter(t, ps, "-ax -o pid=,ucomm=")
+	ep, stop := startDaemon(t, settings(t, `{"visible":["sway"],"fields":["pid"]}`), "")
+	defer stop()
+	out, errOut, rc := query(t, ep, map[string]any{"mode": "list"})
+	if rc != 1 || len(out) != 0 || !strings.HasPrefix(string(errOut), "list mode failed: ") ||
+		!strings.HasSuffix(string(errOut), checkHostPS) {
+		t.Errorf("BSD no-match whose header query finds no ps = rc %d out %q stderr %q, want rc 1, "+
+			"no output, the failure and the next step\nps invocations: %s", rc, out, errOut, psInvocations(ps))
 	}
 }
 

@@ -441,8 +441,23 @@ func handleListBSD(s *hostservice.Session, visible map[string]struct{}, fields [
 		}
 	}
 	if len(pids) == 0 {
-		if header := bsdHeaderOnly(ctx, joined); header != "" {
+		header, run, err := bsdHeaderOnly(ctx, joined)
+		if err != nil {
+			s.Stderr("list mode failed: " + err.Error() + "\n" + checkHostPS)
+			s.Exit(1)
+			return
+		}
+		if header != "" {
 			s.Stdout(header)
+		}
+		// GNU's `ps -o <fields> -C x` prints its own error for a column it does not know,
+		// and so does a matching BSD list, whose ps streams; this query's words would
+		// otherwise be lost, leaving a refused column looking like a quiet no-match.
+		if msg := strings.TrimSpace(string(run.stderr)); msg != "" {
+			s.Stderr(msg + "\n")
+			if run.rc != 0 {
+				s.Stderr(checkFields)
+			}
 		}
 		s.Exit(1)
 		return
@@ -457,23 +472,29 @@ func handleListBSD(s *hostservice.Session, visible map[string]struct{}, fields [
 // asks the same ps the same question (psCheck) and says what to change.
 const checkHostPS = "Run `yolo check` on the host: it tests the ps this daemon runs and names the fix.\n"
 
+// checkFields is the next step after the host's ps refused list mode's columns. `yolo
+// check` does not test the columns, so the step names the setting instead.
+const checkFields = "Every entry in loopholes.host-processes.settings.fields must be a column the " +
+	"host's `ps -o` accepts: correct the list, then restart the jail.\n"
+
 // bsdHeaderOnly returns the column header BSD ps prints for these fields, or "" when it
-// prints none (every field spelled `name=`), for a list that matched nothing.
+// prints none (every field spelled `name=`), for a list that matched nothing, together
+// with the run itself, whose stderr and status say whether ps took the fields.
 //
 // The header is taken from a query about the daemon's OWN pid, the one process certain
 // to exist, and the data row under it is discarded. Only a FIRST line followed by a
 // second one is a header: with every header suppressed, the first line is that row,
 // which nobody asked to see.
-func bsdHeaderOnly(ctx context.Context, joined string) string {
+func bsdHeaderOnly(ctx context.Context, joined string) (string, psRun, error) {
 	run, err := runPS(ctx, psDeadlineSeconds, []string{"ps", "-o", joined, "-p", strconv.Itoa(os.Getpid())})
 	if err != nil {
-		return ""
+		return "", psRun{}, err
 	}
 	lines := strings.Split(strings.TrimRight(string(run.stdout), "\n"), "\n")
 	if len(lines) < 2 {
-		return ""
+		return "", run, nil
 	}
-	return lines[0] + "\n"
+	return lines[0] + "\n", run, nil
 }
 
 // bsdFields is the `fields` list as BSD ps is asked for it: `comm` becomes `ucomm`, so
@@ -535,8 +556,8 @@ func handlePid(s *hostservice.Session, visible map[string]struct{}, fields []str
 }
 
 // commOf names a pid the way the allowlist matches it. found is false when no such
-// process exists. err is set only when the BSD lookup's ps could not run or overran its
-// deadline, which is a broken daemon rather than an absent pid.
+// process exists. err is set when the BSD lookup's ps could not run, overran its
+// deadline, or refused the question, which is a broken daemon rather than an absent pid.
 func commOf(d dialect, pid int) (comm string, found bool, err error) {
 	if d == gnuPS {
 		comm, found = linuxComm(strconv.Itoa(pid))
@@ -544,18 +565,23 @@ func commOf(d dialect, pid int) (comm string, found bool, err error) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), psDeadlineSeconds*time.Second)
 	defer cancel()
-	run, err := runPS(ctx, psDeadlineSeconds, []string{"ps", "-o", "ucomm=", "-p", strconv.Itoa(pid)})
+	argv := []string{"ps", "-o", "ucomm=", "-p", strconv.Itoa(pid)}
+	run, err := runPS(ctx, psDeadlineSeconds, argv)
 	if err != nil {
 		return "", false, err
 	}
-	// A pid BSD ps does not know prints nothing and exits 1, which is the not-found
-	// answer, so the status is not consulted: an empty name is.
-	//
 	// The name is ALL of the output, not its first line. BSD ps prints ucomm raw, and a
 	// file name may hold a newline, so the first line of `sway\nx` is a name the process
 	// does not have; whole, it matches nothing, as exactly as Linux compares
 	// /proc/<pid>/comm.
 	comm = strings.TrimSpace(string(run.stdout))
+	// A pid BSD ps does not know prints nothing, says nothing and exits 1: the not-found
+	// answer. Saying something as well is a ps that refused the question (a keyword it
+	// does not know), and calling that "not found" would hide it behind an answer about
+	// the pid. bsdps_darwin_test.go pins the silent form against the real ps.
+	if comm == "" && run.rc != 0 && strings.TrimSpace(string(run.stderr)) != "" {
+		return "", false, errors.New(notListing(argv, run))
+	}
 	return comm, comm != "", nil
 }
 
