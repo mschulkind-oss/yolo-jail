@@ -27,7 +27,8 @@
 // writes each sha256 and keeps each url. `seed` is `just install`'s: it builds this machine's
 // builds and admits each whose digest is the pin to the pack-binary cache every launch reads,
 // so a from-source or forked tree's jail runs that tree's programs with no download, and with
-// --repin it first re-pins a tree whose program has moved. The integration harness runs it
+// --repin it first re-pins, on this machine's platforms only, a program the tree has moved. The
+// integration harness runs it
 // without --repin, into its run's cache.
 //
 // Every refusal is reported, not just the first: a digest (naming the binary, the platform and
@@ -580,6 +581,65 @@ func (t *task) machineNeeds(stdout io.Writer) ([]want, []releasematrix.Problem) 
 	return out, problems
 }
 
+// repinStale writes, for each stale build, the digest this machine just built for it — and
+// NOTHING ELSE (BP-D25): not another platform's digest, which this machine did not build, and
+// not a url. A Mac whose native build did not reproduce a Linux-made pin rewrites only its own
+// two, and the landing gate refuses the rest until `just pin-pack-binaries` re-pins every
+// platform. It returns 0, or 1 having said why.
+func (t *task) repinStale(stale []want, stdout io.Writer) int {
+	var order []string
+	byPath := map[string][]buildPin{}
+	for _, n := range stale {
+		if _, ok := byPath[n.e.Path]; !ok {
+			order = append(order, n.e.Path)
+		}
+		byPath[n.e.Path] = append(byPath[n.e.Path], buildPin{Binary: n.name, Platform: n.platform,
+			SHA256: t.built[buildKey(n.name, n.platform)].sha256})
+	}
+	for _, path := range order {
+		if _, err := writePins(t.d.root, path, byPath[path]); err != nil {
+			fmt.Fprintf(t.stderr, "pack-binaries: %v\n", err)
+			return 1
+		}
+	}
+	repinned := map[string]bool{}
+	for _, n := range stale {
+		repinned[n.e.Path+" "+buildKey(n.name, n.platform)] = true
+		// The commit moves HEAD through packs/, which version.SourceSkew compares this
+		// install's stamp against, so the step after it is another install (BP-D23).
+		fmt.Fprintf(stdout, "%s: re-pinned binary %s (%s) to this machine's build, sha256 %s (was "+
+			"%s): this tree's program has moved since it was pinned — commit the manifest "+
+			"(`just check-ci` refuses the old pin), then re-run `just install`, since a launch "+
+			"building from the checkout (YOLO_REPO_ROOT) refuses a yolo stamped before that "+
+			"commit\n", n.e.Path, n.name, n.platform, t.built[buildKey(n.name, n.platform)].sha256,
+			n.sum)
+	}
+	told := map[string]bool{}
+	for _, n := range stale {
+		if told[n.e.Path+" "+n.name] {
+			continue
+		}
+		told[n.e.Path+" "+n.name] = true
+		var others []string
+		for _, b := range n.e.Manifest.Binaries {
+			if b.Name != n.name {
+				continue
+			}
+			for _, p := range b.BuildPlatforms() {
+				if !repinned[n.e.Path+" "+buildKey(n.name, p)] {
+					others = append(others, p)
+				}
+			}
+		}
+		if len(others) > 0 {
+			fmt.Fprintf(stdout, "%s: binary %s still pins the build before the change for %s, which "+
+				"this machine did not build — run `just pin-pack-binaries` before landing it, since "+
+				"`just check-ci` refuses those pins\n", n.e.Path, n.name, strings.Join(others, ", "))
+		}
+	}
+	return 0
+}
+
 // seedToolchain is the go seed builds with: the pinned toolchain, fetched or already in the
 // module cache, or — when it cannot be had, offline or after a Toolchain bump — the go on PATH,
 // if that reports exactly Toolchain (BP-D21). Falling back cannot admit a wrong build, because
@@ -615,8 +675,8 @@ func (t *task) seedToolchain(stdout io.Writer) error {
 //
 // A build whose digest is not the pin is a program this tree has changed since it was pinned.
 // Without repin it is not seeded, and the run fails naming the pin command, the integration
-// harness's case; with repin, `just install`'s, the tree is re-pinned first — every build's
-// sha256, each url kept, exactly what `just pin-pack-binaries` writes — so the manifest the
+// harness's case; with repin, `just install`'s, the tree is re-pinned first — the sha256 of
+// each build this machine made, and nothing else (repinStale, BP-D25) — so the manifest the
 // install then embeds pins the build it seeds, and the fork that changed a program runs it.
 func (t *task) seed(tmp, dir string, repin bool, stdout io.Writer) int {
 	needs, problems := t.machineNeeds(stdout)
@@ -653,26 +713,9 @@ func (t *task) seed(tmp, dir string, repin bool, stdout io.Writer) int {
 		repin = false
 	}
 	if len(stale) > 0 && repin {
-		if t.refusePin() {
-			fmt.Fprintln(t.stderr, "pack-binaries: nothing was seeded")
-			return 1
-		}
-		if err := t.buildWanted(tmp, stdout); err != nil {
-			fmt.Fprintf(t.stderr, "pack-binaries: %v\npack-binaries: nothing was seeded\n", err)
-			return 1
-		}
-		if rc := t.pin(stdout); rc != 0 {
+		if rc := t.repinStale(stale, stdout); rc != 0 {
 			fmt.Fprintln(t.stderr, "pack-binaries: nothing was seeded")
 			return rc
-		}
-		for _, n := range stale {
-			// The commit moves HEAD through packs/, which version.SourceSkew compares this
-			// install's stamp against, so the step after it is another install (BP-D23).
-			fmt.Fprintf(stdout, "%s: re-pinned binary %s (%s): this tree's program has moved "+
-				"since it was pinned — commit the manifest (`just check-ci` refuses the old pin), "+
-				"then re-run `just install`, since a launch building from the checkout "+
-				"(YOLO_REPO_ROOT) refuses a yolo stamped before that commit\n", n.e.Path, n.name,
-				n.platform)
 		}
 		for i := range needs {
 			needs[i].sum = t.built[buildKey(needs[i].name, needs[i].platform)].sha256

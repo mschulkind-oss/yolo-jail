@@ -300,9 +300,10 @@ func TestSeedRepinsAProgramEditedAfterThePin(t *testing.T) {
 		t.Errorf("seed --repin does not say to re-run `just install` after the commit:\n%s", r.stdout)
 	}
 	now := pins(t, root)
-	for platform, sum := range now {
-		if sum == old[platform] {
-			t.Errorf("%s is still pinned to the old build %s", platform, sum)
+	for _, platform := range []string{machineHost, machineJail} {
+		if now[platform] == old[platform] {
+			t.Errorf("%s, which this machine built, is still pinned to the old build %s", platform,
+				now[platform])
 		}
 	}
 	for _, bb := range decodeFixture(t, root).Binaries[0].Builds {
@@ -318,37 +319,57 @@ func TestSeedRepinsAProgramEditedAfterThePin(t *testing.T) {
 			t.Errorf("the re-pinned %s build is not in the cache: %v", platform, cacheFiles(t, cache))
 		}
 	}
+	// What this machine did not build keeps its pin, so the landing gate refuses it until
+	// `just pin-pack-binaries` re-pins every platform. The fixture pins darwin/<arch> and
+	// linux/<arch>: on Linux the darwin one is a platform this machine did not build, and on a
+	// Mac there is none.
+	other := machineHost == machineJail
+	if r := runTool(t, root, "check"); (r.code != 0) != other {
+		t.Errorf("check after a re-pin: exit %d, and another platform's pin is stale: %v\n%s", r.code,
+			other, r.stderr)
+	}
+	mustRun(t, root, "pin")
 	mustRun(t, root, "check")
 }
 
-// A re-pin is a pin, so what pin refuses, seed --repin refuses, before it writes or seeds
-// anything.
-func TestSeedRepinRefusesWhatPinCannotWrite(t *testing.T) {
+// A RE-PIN WRITES ONLY WHAT THIS MACHINE BUILT AND VERIFIED (BP-D25): its host build and its
+// jail build. A Mac whose native build did not reproduce a Linux-made pin must not rewrite every
+// platform's digest from its own toolchain, so another platform's pin is left as it was, for
+// `just pin-pack-binaries` and the landing gate. The fixture ships to both architectures, so on
+// any runner there are platforms this machine does not build.
+func TestSeedRepinRewritesOnlyThisMachinesPlatforms(t *testing.T) {
 	root := machineCheckout(t)
+	writeFile(t, root, releasematrix.GoreleaserConfig,
+		"builds:\n  - id: yolo\n    main: ./cmd/yolo\n    goos: [linux, darwin]\n    goarch: [amd64, arm64]\n")
+	var builds []string
+	for _, p := range []string{"darwin/amd64", "darwin/arm64", "linux/amd64", "linux/arm64"} {
+		builds = append(builds, `      "`+p+`": `+placeholder(p)+`,`)
+	}
+	manifest := strings.Replace(machineManifest(), `      "darwin/`+runtime.GOARCH+`": `+
+		placeholder("darwin/"+runtime.GOARCH)+`, // the darwin/`+runtime.GOARCH+` build
+      "linux/`+runtime.GOARCH+`": `+placeholder("linux/"+runtime.GOARCH)+`, // the linux/`+
+		runtime.GOARCH+` build`, strings.Join(builds, "\n"), 1)
+	writeFile(t, root, fixtureManifestPath, manifest)
 	mustRun(t, root, "pin", "0.2.0")
+	old := pins(t, root)
+	if len(old) != 4 {
+		t.Fatalf("the fixture pins %v, want four platforms", old)
+	}
 	writeFile(t, root, "cmd/toold/main.go", machineMain("a fork"))
-	// Drop the darwin build: a build set that is not BP-D7's.
-	body := readFile(t, root, fixtureManifestPath)
-	var kept []string
-	for _, line := range strings.Split(body, "\n") {
-		if !strings.Contains(line, `"darwin/`) {
-			kept = append(kept, line)
+
+	r := mustRun(t, root, "seed", "--repin", t.TempDir())
+	now := pins(t, root)
+	mine := map[string]bool{machineHost: true, machineJail: true}
+	for platform, sum := range now {
+		switch {
+		case mine[platform] && sum == old[platform]:
+			t.Errorf("%s, which this machine built, was not re-pinned", platform)
+		case !mine[platform] && sum != old[platform]:
+			t.Errorf("%s, which this machine did not build, was re-pinned to %s", platform, sum)
 		}
 	}
-	writeFile(t, root, fixtureManifestPath, strings.Join(kept, "\n"))
-	before := readFile(t, root, fixtureManifestPath)
-	cache := t.TempDir()
-
-	r := runTool(t, root, "seed", "--repin", cache)
-	if r.code != 1 || !strings.Contains(r.stderr, "has no build here, and BP-D7 wants one") ||
-		!strings.Contains(r.stderr, "nothing was seeded") {
-		t.Errorf("seed --repin of a manifest off the matrix: exit %d\n%s%s", r.code, r.stdout, r.stderr)
-	}
-	if after := readFile(t, root, fixtureManifestPath); after != before {
-		t.Errorf("a refused re-pin rewrote the manifest:\n%s", after)
-	}
-	if got := cacheFiles(t, cache); len(got) != 0 {
-		t.Errorf("a refused re-pin seeded %v", got)
+	if !strings.Contains(r.stdout, "just pin-pack-binaries") {
+		t.Errorf("seed --repin does not name the pin that re-pins the other platforms:\n%s", r.stdout)
 	}
 }
 
