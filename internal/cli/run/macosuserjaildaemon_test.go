@@ -290,19 +290,19 @@ func TestMacosUserRunsAJailDaemonOnlyServiceInTheGuest(t *testing.T) {
 	}
 }
 
-// A HOST HALF FROM A PACK YOLO DOES NOT SHIP NEVER RUNS (OQ-HS4), so the service's jail daemon
-// runs in the guest instead, confined, and the launch says so. The service serves an adaptation,
-// the shape whose admitted host half the guest defers to: deleting AdmitServiceHosts from
-// jailDaemonsFor fails this, because the guest then declines the daemon for a host half that
-// never starts.
+// A HOST HALF FROM A FETCHED PACK NEVER RUNS (OQ-HS4; a local pack's does since HS-D27), so the
+// service's jail daemon runs in the guest instead, confined, and the launch says so. The service
+// serves an adaptation, the shape whose admitted host half the guest defers to: deleting
+// AdmitServiceHosts from jailDaemonsFor fails this, because the guest then declines the daemon
+// for a host half that never starts.
 func TestMacosUserRunsAServiceInTheGuestWhenItsHostHalfIsNotAdmitted(t *testing.T) {
 	home := packHome(t)
 	ws := t.TempDir()
-	writeLocalPackJSON(t, home, `{"contributes": [
+	src := fetchedPackSource(t, map[string]string{"pack.json": `{"name": "acme", "contributes": [
 		{"kind": "adapter", "adapts": {"from": "openai", "to": "anthropic"}, "address": "http://127.0.0.1:8299"},
 		{"kind": "service", "name": "acme-svc", "jail_daemon": {"cmd": ["acme-svc"]},
-		 "host_daemon": {"cmd": ["yolo", "internal", "daemon", "acme-svc"]}}]}`)
-	writeUserConfigJSON(t, home, `{"packs": []}`)
+		 "host_daemon": {"cmd": ["yolo", "internal", "daemon", "acme-svc"]}}]}`})
+	writeUserConfigJSON(t, home, `{"packs": [{"name": "acme", "source": "`+src+`"}]}`)
 
 	got := macosUserLaunch(t, ws)
 	if got.rc != 0 {
@@ -311,7 +311,7 @@ func TestMacosUserRunsAServiceInTheGuestWhenItsHostHalfIsNotAdmitted(t *testing.
 	if specs := payloadOf(t, got.jailDaemons); len(specs) != 1 || specs[0].Name != "acme-svc" {
 		t.Fatalf("the guest was handed %+v, want the acme-svc jail daemon\n%s", specs, got.out)
 	}
-	if !strings.Contains(got.out, `Not started outside the sandbox: the "acme-svc" service's host half (pack "local")`) ||
+	if !strings.Contains(got.out, `Not started outside the sandbox: the "acme-svc" service's host half (pack "acme")`) ||
 		!strings.Contains(got.out, "not one yolo ships") ||
 		!strings.Contains(got.out, "Its jail daemon runs in the sandbox instead.") {
 		t.Errorf("the refused host half is not disclosed with why and where its daemon runs:\n%s", got.out)
@@ -329,12 +329,12 @@ func TestMacosUserRunsAServiceInTheGuestWhenItsHostHalfIsNotAdmitted(t *testing.
 func TestMacosUserSaysARefusedServiceHostHalfTheGuestDeclinesRunsNowhere(t *testing.T) {
 	home := packHome(t)
 	ws := t.TempDir()
-	writeLocalPackJSON(t, home, `{"contributes": [
+	src := fetchedPackSource(t, map[string]string{"pack.json": `{"name": "acme", "contributes": [
 		{"kind": "adapter", "adapts": {"from": "openai", "to": "anthropic"}, "address": "http://127.0.0.1:8299"},
 		{"kind": "service", "name": "acme-svc", "endpoint": "acme-svc.endpoint",
 		 "jail_daemon": {"cmd": ["acme-svc"]},
-		 "host_daemon": {"cmd": ["yolo", "internal", "daemon", "acme-svc"]}}]}`)
-	writeUserConfigJSON(t, home, `{"packs": []}`)
+		 "host_daemon": {"cmd": ["yolo", "internal", "daemon", "acme-svc"]}}]}`})
+	writeUserConfigJSON(t, home, `{"packs": [{"name": "acme", "source": "`+src+`"}]}`)
 
 	got := macosUserLaunch(t, ws)
 	if got.rc != 0 {
@@ -347,7 +347,7 @@ func TestMacosUserSaysARefusedServiceHostHalfTheGuestDeclinesRunsNowhere(t *test
 	var refusal, decline string
 	for _, line := range strings.Split(got.out, "\n") {
 		switch {
-		case strings.Contains(line, `Not started outside the sandbox: the "acme-svc" service's host half (pack "local")`):
+		case strings.Contains(line, `Not started outside the sandbox: the "acme-svc" service's host half (pack "acme")`):
 			refusal = line
 		case strings.Contains(line, "acme-svc: acme-svc — "):
 			decline = line

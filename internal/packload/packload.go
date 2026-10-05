@@ -94,11 +94,16 @@ type Pack struct {
 	// Official reports that this pack is one yolo ships: loaded from the embedded set
 	// (loadEmbeddedPack), or resolved from a `packs` entry that names an embedded pack
 	// (config.ResolvePack, which also stages such a pack and keeps the mark on the copy). A
-	// fetched or local pack is never official, whatever its name. It is what admits a
-	// service's host half to run at the host and on macos-user
-	// (docs/design/host-notch-services.md OQ-HS4: only an embedded official pack's host half
-	// runs), the one place a pack's ORIGIN, rather than its declaration, decides.
+	// fetched or local pack is never official, whatever its name. With Local it is the one
+	// place a pack's ORIGIN, rather than its declaration, decides anything: whether a launch
+	// runs the pack's host code as its own child (MayRunHostHalf).
 	Official bool
+	// Local reports that this pack's content is at a path on this machine: resolved from a
+	// file:// `packs` entry, the conventional local pack included (config.ResolvePack). Only
+	// the user's own config can select one, so a local pack's host half and doorway run at
+	// `yolo host` and on macos-user as an official pack's do, and a fetched pack's do not
+	// (docs/design/host-notch-services.md HS-D27, OQ-HS4).
+	Local bool
 
 	// origDecl is the declaration this pack was CLONED FROM by ResolveDestinations, or nil for a
 	// pack that is not a clone. The clone's Decl appends a synthesized `{into, from}` copy of each
@@ -107,6 +112,18 @@ type Pack struct {
 	// declaration that switches the implicit broadcast off (governance.go's header). Unexported
 	// because nothing outside governance needs to know a pack was resolved.
 	origDecl *packdecl.Manifest
+}
+
+// MayRunHostHalf reports whether a launch runs this pack's HOST CODE as its own child, outside
+// every sandbox: a service's host half (`host_daemon`) and a loophole doorway's host argv
+// (`jail_daemon.host_cmd`). True for a pack yolo ships (Official) and for one at a path on this
+// machine (Local), which only the user's own config can select; false for a FETCHED pack, whose
+// host argv no launch runs until the maintainer rules on third-party host code
+// (docs/design/host-notch-services.md OQ-HS4, HS-D27). The one predicate every reader of that
+// question asks: internal/launchservice's admission, and the footprint's host-execution claim
+// (moduleClaims), so a footprint never claims execution the launch refuses, nor hides one it runs.
+func (p *Pack) MayRunHostHalf() bool {
+	return p != nil && (p.Official || p.Local)
 }
 
 // Surfaces decodes the pack's surface declarations, resolving each one's host layer to

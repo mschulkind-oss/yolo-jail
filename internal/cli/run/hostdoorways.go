@@ -154,7 +154,7 @@ func PlanHostDoorways(cfg *jsonx.OrderedMap, packs []*packload.Pack, sel packloa
 		}
 		held := picked[s.Listen]
 		s.Listen = held.Addr()
-		decl, err := launchservice.AdmitDoorway(packs, packOf[name], name, s.ResolvedHostCmd())
+		decl, err := launchservice.AdmitDoorway(packs, packOf[name], name, s.ResolvedHostCmd(), s.Restart)
 		if err != nil {
 			// AdmitDoorways admitted this argv above; with only the address changed, a
 			// refusal here is a yolo bug, and the launch refuses rather than serve a pointer

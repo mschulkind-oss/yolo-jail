@@ -5,7 +5,8 @@ package cli
 // service's host half for its command (hostservices_test.go has that half); what is pinned here
 // is what stays as it was: an agent that speaks the provider's own wire is not bridged, an
 // adapter no pack service serves still composes, and a service this launch cannot start (a
-// non-official pack's) refuses, naming why and the container jail where the profile works.
+// fetched pack's, since a local pack's runs: HS-D27) refuses, naming why and the container jail
+// where the profile works.
 // Every cell runs `yolo host` through hostMain, as the other host cells do.
 
 import (
@@ -106,27 +107,31 @@ func TestHostLaunchChosenAddressOverridesTheAdapterOverride(t *testing.T) {
 	}
 }
 
-// localBridgeConfig lists claude with a LOCAL pack named wire-bridge that declares the bridge's
-// service and a host half: a pack yolo does not ship, so its host half never runs (OQ-HS4).
-func localBridgeConfig(t *testing.T, extra string) string {
+// fetchedBridgeSource is a FETCHED pack (git+file://, so a real fetch with no network) named
+// like the bridge, declaring the bridge's service with a host half beside adapter: a pack yolo
+// does not ship and no `packs` line selects by path, so its host half never runs (OQ-HS4; a
+// local pack's does since HS-D27). The launch's own pack refresh fetches it into the test HOME's
+// store, YOLO_PACK_ROOT cleared so a jail's staged tree cannot answer for it.
+func fetchedBridgeSource(t *testing.T, adapter string) string {
 	t.Helper()
-	pack := filepath.Join(t.TempDir(), "wire-bridge")
-	if err := os.MkdirAll(pack, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	manifest := `{"contributes": [
-  {"kind": "adapter", "adapts": {"from": "openai", "to": "anthropic"}, "address": "http://127.0.0.1:8214"},
-  {"kind": "service", "name": "wire-bridge", "host_daemon": {"cmd": ["yolo", "internal", "daemon", "wire-bridge"]}}]}`
-	if err := os.WriteFile(filepath.Join(pack, "pack.json"), []byte(manifest), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	return `{"packs": ["claude", "cerebras", {"source": "file://` + pack + `", "name": "wire-bridge"}]` + extra + `}`
+	t.Setenv("YOLO_PACK_ROOT", "")
+	repo := gitPackRepoWith(t, map[string]string{"pack.json": `{"contributes": [` + adapter + `,
+  {"kind": "service", "name": "wire-bridge", "host_daemon": {"cmd": ["yolo", "internal", "daemon", "wire-bridge"]}}]}`})
+	return "git+file://" + repo + "?ref=main"
+}
+
+// fetchedBridgeConfig lists claude and cerebras with fetchedBridgeSource's pack as wire-bridge.
+func fetchedBridgeConfig(t *testing.T, extra string) string {
+	t.Helper()
+	src := fetchedBridgeSource(t,
+		`{"kind": "adapter", "adapts": {"from": "openai", "to": "anthropic"}, "address": "http://127.0.0.1:8214"}`)
+	return `{"packs": ["claude", "cerebras", {"source": "` + src + `", "name": "wire-bridge"}]` + extra + `}`
 }
 
 // A service this launch cannot start refuses naming the address it would have used, the user's
 // `adapters` override included, since nothing here picks a port for it.
 func TestHostUnservedRefusalNamesTheAdapterOverride(t *testing.T) {
-	cfg := localBridgeConfig(t, `, "env_sources": [{"CEREBRAS_API_KEY": "tok-c"}], `+
+	cfg := fetchedBridgeConfig(t, `, "env_sources": [{"CEREBRAS_API_KEY": "tok-c"}], `+
 		`"adapters": {"openai->anthropic": {"address": "http://127.0.0.1:9214"}}`)
 	rc, _, errs := hostGateRun(t, cfg, wcShell(nil), []string{"-p", "cerebras"}, "claude")
 	if rc == 0 || !strings.Contains(errs, "http://127.0.0.1:9214") || strings.Contains(errs, ":8214") {
@@ -139,10 +144,11 @@ func TestHostUnservedRefusalNamesTheAdapterOverride(t *testing.T) {
 // refusal says so and names the dial that picks a container backend for one launch, rather than
 // calling the profile one that works "in a jail".
 func TestHostUnservedRefusalNamesOnlyAContainerJail(t *testing.T) {
-	cfg := localBridgeConfig(t, `, "env_sources": [{"CEREBRAS_API_KEY": "tok-c"}]`)
+	cfg := fetchedBridgeConfig(t, `, "env_sources": [{"CEREBRAS_API_KEY": "tok-c"}]`)
 	_, _, errs := hostGateRun(t, cfg, wcShell(nil), []string{"-p", "cerebras"}, "claude")
 	for _, want := range []string{
-		"which this launch cannot start: its pack is not one yolo ships",
+		"which this launch cannot start: its pack was fetched",
+		"select a local checkout of the pack by its file:// path",
 		"The profile works in a container jail (podman or Apple Container), where that service's " +
 			"jail daemon runs: `yolo -p claude=cerebras -- claude`",
 		"A macos-user launch runs a pack service only through its host half",

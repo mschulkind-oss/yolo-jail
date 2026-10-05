@@ -10,6 +10,7 @@ package run
 
 import (
 	"errors"
+	"io"
 	"net/url"
 	"strings"
 	"testing"
@@ -23,8 +24,9 @@ import (
 // fakeLaunched is a started service the test can see stopped.
 type fakeLaunched struct{ stopped *int }
 
-func (f fakeLaunched) Stop()    { *f.stopped++ }
-func (f fakeLaunched) PID() int { return 4242 }
+func (f fakeLaunched) Stop()                               { *f.stopped++ }
+func (f fakeLaunched) PID() int                            { return 4242 }
+func (f fakeLaunched) Supervise(string, io.Writer, string) {}
 
 // The channel composes claude on cerebras against the bridge's host half on a port this launch
 // picked, with the launch's caller token as claude's credential, where it used to refuse: macos-user

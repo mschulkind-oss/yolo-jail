@@ -23,8 +23,9 @@ import (
 )
 
 // A service macos-user cannot run refuses the pairing, naming why: here a wire-bridge pack that is
-// not the one yolo ships, whose host half never runs (OQ-HS4). The shipped pack's host half is
-// planned and composed instead (macosuserservices_test.go).
+// neither the one yolo ships nor a local one, a fetched pack, whose host half never runs (OQ-HS4).
+// The shipped pack's host half is planned and composed instead (macosuserservices_test.go), and so
+// is a local copy's (HS-D27), which the second half pins.
 func TestMacosUserRefusesAPairingThroughAServiceItCannotStart(t *testing.T) {
 	packs := bridgedPacks(t)
 	o, cfg, channel, _ := attachFixture(t, currentJailEnv, packs, cerebrasKey(), selectCerebras)
@@ -42,10 +43,27 @@ func TestMacosUserRefusesAPairingThroughAServiceItCannotStart(t *testing.T) {
 		t.Fatalf("macos-user composed claude on cerebras through a bridge it cannot start (err %v)", err)
 	}
 	for _, want := range []string{"nothing serves it here", `cannot start the "wire-bridge" service's host half`,
-		"not one yolo ships"} {
+		"its pack was fetched", "not one yolo ships"} {
 		if !strings.Contains(err.Error(), want) {
 			t.Errorf("the refusal does not say %q: %v", want, err)
 		}
+	}
+
+	// The same pack as a LOCAL one, the user's own copy: its host half is planned, and claude is
+	// composed against the port this launch picked for it.
+	packs[2].Local = true
+	o.launchServices = nil
+	channel, err = o.composePackChannel(cfg, packs, cerebrasKey())
+	if err != nil {
+		t.Fatalf("macos-user refused a pairing through a local pack's bridge: %v", err)
+	}
+	if len(o.launchServices) != 1 || o.launchServices[0].Service != "wire-bridge" || !o.launchServices[0].Local {
+		t.Fatalf("launch services = %+v, want the local pack's wire bridge", o.launchServices)
+	}
+	picked := o.launchServices[0].Moved["127.0.0.1:8214"]
+	shared, _ = deliveredFiles(t, channel)
+	if picked == "" || strings.Contains(shared, "127.0.0.1:8214") {
+		t.Errorf("claude was not moved off the declared 8214 to the local bridge's picked port (%q)", picked)
 	}
 }
 

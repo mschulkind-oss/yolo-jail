@@ -148,3 +148,68 @@ func TestResolvePackMarksOnlyAnEmbeddedEntryOfficial(t *testing.T) {
 		t.Error("a local pack named like an embedded one resolved official")
 	}
 }
+
+// A FILE:// ENTRY, THE CONVENTIONAL LOCAL PACK INCLUDED, RESOLVES LOCAL, in both modes and through
+// its filters, and a FETCHED one does not, though its repository is a path on this machine too:
+// packload.Pack.Local is what admits a pack's host half at the host and on macos-user
+// (docs/design/host-notch-services.md HS-D27), and only the user's own file:// line, or the
+// directory beside their config, is that word. An embedded entry is official and not local.
+// Deleting the Local line in ResolvePack fails every local case.
+func TestResolvePackMarksAFileEntryLocalAndAFetchedOneNot(t *testing.T) {
+	home := useProfileKeysHome(t)
+	for _, spec := range []ResolvePackSpec{{}, {Dest: filepath.Join(t.TempDir(), "wire-bridge")}} {
+		res, err := ResolvePack(EmbeddedPackEntry("wire-bridge"), spec)
+		if err != nil || res.Pack == nil || res.Pack.Local || !res.Pack.MayRunHostHalf() {
+			t.Errorf("an embedded entry (dest %q) resolved %+v, %v; want official, not local", spec.Dest, res.Pack, err)
+		}
+	}
+	dir := filepath.Join(t.TempDir(), "mine")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "pack.json"), []byte(`{}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "README.md"), []byte("r\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	local := PackEntry{Source: "file://" + dir, Name: "mine"}
+	filtered := local
+	filtered.Exclude = []string{"README.md"}
+	for name, tc := range map[string]struct {
+		entry PackEntry
+		spec  ResolvePackSpec
+	}{
+		"declaration": {local, ResolvePackSpec{}},
+		"staged":      {local, ResolvePackSpec{Dest: filepath.Join(t.TempDir(), "mine")}},
+		"filtered":    {filtered, ResolvePackSpec{}},
+	} {
+		res, err := ResolvePack(tc.entry, tc.spec)
+		if err != nil || res.Pack == nil || !res.Pack.Local || res.Pack.Official || !res.Pack.MayRunHostHalf() {
+			t.Errorf("%s: a file:// entry resolved %+v, %v; want local, not official", name, res.Pack, err)
+		}
+	}
+
+	if err := os.MkdirAll(filepath.Join(home, ".config", "yolo-jail", "local"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	conventional, ok := localPackEntry()
+	if !ok {
+		t.Fatal("fixture: the conventional local pack's directory was not found")
+	}
+	if res, err := ResolvePack(conventional, ResolvePackSpec{}); err != nil || res.Pack == nil || !res.Pack.Local {
+		t.Errorf("the conventional local pack resolved %+v, %v; want local", res.Pack, err)
+	}
+
+	repo := gitPackRepo(t, map[string]string{"pack.json": `{"name":"gp"}`}, nil)
+	source := "git+file://" + repo + "?ref=main"
+	syncFetchedPack(t, source)
+	res, err := ResolvePack(PackEntry{Source: source, Name: "gp"}, ResolvePackSpec{Getenv: noPackRoot})
+	if err != nil || res.Pack == nil {
+		t.Fatalf("the fetched entry did not resolve: %v", err)
+	}
+	if res.Pack.Local || res.Pack.Official || res.Pack.MayRunHostHalf() {
+		t.Errorf("a git+file:// entry resolved local %v, official %v: a fetched pack's host half must not run",
+			res.Pack.Local, res.Pack.Official)
+	}
+}
