@@ -917,6 +917,8 @@ the mechanism choices its build made, each the one answer that made the ruled be
    [notch-convergence item 6](../plans/notch-convergence.md#tier-2--one-selection-p1-p2):** the host
    runs both closures through the one selection function every notch calls, so a selected pack's
    `needs` joins the service pack there too; WG-I12's clearing is what keeps via inert.
+   **Narrowed 2026-10-05 by [WG-I46](#WG-I46):** inert at `yolo host env`, `yolo host apply`, the
+   footer, and at `yolo host --` for an agent whose own config file carries the via.
 9. <a id="WG-I9"></a>**[WG-I9](#WG-I9)** — `stagePacks` reads the launch's config through a
    field on the run options (`stagingCfg`) rather than a new parameter, so its many test call
    sites stand; an empty config computes the same `use_profiles` defaults a launch would.
@@ -1010,7 +1012,10 @@ to the bridge ([WG-I15](#WG-I15)).
     which this cleared nothing of. [`credential-sources-separation.md`
     ES-D18](credential-sources-separation.md#10-decision-ledger) (2026-09-27) closes it: the
     host's table composes no address a pack's own service serves, and a profile only such an
-    address would pair refuses.
+    address would pair refuses. **Amended 2026-10-05 by [WG-I46](#WG-I46):** the clearing now holds
+    at `yolo host env`, `yolo host apply` and the footer, and at `yolo host --` only for an agent
+    whose own config file carries the via; `yolo host --` serves every other via it routes, and
+    macos-user every one.
 16. <a id="WG-I13"></a>**[WG-I13](#WG-I13)** — **the launch refuses a re-pointed via agent the
     daemon serves no route for.** It is the ninth launch pre-flight (`run.Options.checkViaRoutes`),
     and `yolo check` predicts it as a FAIL. Both call `wirebridged.ViaRouteGate`, which reads
@@ -1097,6 +1102,26 @@ concurrent track's:
     cut every stream longer than ten minutes the same silent way. Lives in
     `passthroughHandler.ServeHTTP` and `passthroughHandler.do`. The adapter routes keep their
     whole-exchange timeout; they translate, and are not part of this build.
+21. <a id="WG-I46"></a>**[WG-I46](#WG-I46)** — **a via is served wherever a launch runs its
+    service, the host notch and macos-user included, through the service's launch-owned host
+    half** (2026-10-05, an implementation decision taken under the maintainer's 2026-10-04
+    delegation, *"make them and build it … adjust later"*; reversible). Under
+    [OQ-NC1](../plans/notch-convergence.md#OQ-NC1) A, which runs a selected pack's services at
+    every notch, a launch that runs pack services as launch-owned children asks whether serving one
+    would route an agent through it, by its profile's `via` or by its carrier
+    ([WG-I44](#WG-I44)), and starts it when it would (`packload.ViaRoutedServices`;
+    [`host-notch-services.md` HS-D30](host-notch-services.md#HS-D30)). The plan reserves the
+    service's via address beside its adaptations, so every via base names the port the launch
+    picked, and the host half serves the via routes from its input, signing with what the launch
+    hands it for the routed agent ([HS-D32](host-notch-services.md#HS-D32)). **Where it stays
+    inert:** `yolo host env`, `yolo host apply` and the footer, none of which owns a process the
+    service could live beside ([OQ-HS3](host-notch-services.md#OQ-HS3)), and `yolo host --` for an
+    agent whose derived config FILE carries the via (pi, opencode, oh-omp, codex), since a host
+    launch renders no per-launch file ([HS-D31](host-notch-services.md#HS-D31)); that agent keeps
+    its own client and the launch names why. claude and copilot, which ride the adapter address
+    composed for the via ([WG-I39](#WG-I39)), are served at `yolo host --`. macos-user serves every
+    via, its bootstrap rendering those files per launch, and runs the via gate ([WG-I13](#WG-I13))
+    over what it serves; `yolo check` predicts both there.
 
 **What is not built, or not closed:**
 
@@ -1746,14 +1771,14 @@ doc to say, and the override keeps pi's own Converse client.
 | WG-I5 | **The agent's own `Authorization` is never forwarded, on any via route.** An implementation decision ([OQ-WG7](#OQ-WG7)) | 2026-09-25 | [WG-I5](#WG-I5) | 2026-09-25 |
 | WG-I6 | **A via route is served only for a chat-completions `openai` endpoint; others are skipped and logged.** An implementation decision ([OQ-WG7](#OQ-WG7)) | 2026-09-25 | [WG-I6](#WG-I6) | 2026-09-25 |
 | WG-I7 | **A via names only an embedded official pack whose service declares a `via_address`, or the launch refuses.** An implementation decision ([OQ-WG7](#OQ-WG7)) | 2026-09-25 | [WG-I7](#WG-I7) | 2026-09-25 |
-| WG-I8 | **Via is inert at the host notch: no closure runs there, so no `ViaBase`, and no file derive reads `ctx.via_url` there.** Amended by WG-I12. An implementation decision ([OQ-WG7](#OQ-WG7)) | 2026-09-25 | [WG-I8](#WG-I8) | 2026-09-25 |
+| WG-I8 | **Via is inert at the host notch: no closure runs there, so no `ViaBase`, and no file derive reads `ctx.via_url` there.** Amended by WG-I12, and narrowed by WG-I46. An implementation decision ([OQ-WG7](#OQ-WG7)) | 2026-09-25 | [WG-I8](#WG-I8) | 2026-09-25 |
 | WG-I9 | **`stagePacks` reads the config through the run options' `stagingCfg` field.** An implementation decision ([OQ-WG7](#OQ-WG7)) | 2026-09-25 | [WG-I9](#WG-I9) | 2026-09-25 |
 | WG-I20 | **A via route carries the provider's chat-completions and Responses endpoints, and each request's path picks one; a path naming an undeclared wire is refused, never translated.** Amends WG-I6. An implementation decision ([OQ-WG5](#OQ-WG5)'s Responses route) | 2026-09-26 | [WG-I20](#WG-I20) | 2026-09-26: `wirebridged.viaUpstreams`, `wirebridged.viaWireSplit` |
 | WG-I21 | **No via route is served for `openai-codex`; it is skipped by name.** An implementation decision | 2026-09-26 | [WG-I21](#WG-I21) | 2026-09-26: `wirebridged.viaRoutesFor` |
 | WG-I22 | **codex's via row names no `env_key`, and needs no WebSocket.** An implementation decision | 2026-09-26 | [WG-I22](#WG-I22) | 2026-09-26: `packs/codex/derive.lua` |
 | WG-I10 | **A via is active only for an agent a selected pack installs**: an entry for an agent the launch does not carry adds no pack and is never refused. An implementation decision | 2026-09-26 | [WG-I10](#WG-I10) | 2026-09-26: `packload.ActiveVias` |
 | WG-I11 | **One resolver for the selection closure (needs, via, needs), called by the launch, `yolo check`, config validation, `config promote` and the lazy loophole resolvers.** An implementation decision | 2026-09-26 | [WG-I11](#WG-I11) | 2026-09-26: `packload.Selection.Close`, `config.UserScopeSelection` |
-| WG-I12 | **Via is inert at the host notch through `ViaURLFor`: the host's resolved table has every `ViaBase` cleared.** Amends WG-I8. An implementation decision | 2026-09-26 | [WG-I12](#WG-I12) | 2026-09-26: `packload.ViaInert`, called by `cli.composeHostVars` and `cli.hostFooterTables` |
+| WG-I12 | **Via is inert at the host notch through `ViaURLFor`: the host's resolved table has every `ViaBase` cleared.** Amends WG-I8. Amended by WG-I46. An implementation decision | 2026-09-26 | [WG-I12](#WG-I12) | 2026-09-26: `packload.ViaInert`, called by `cli.composeHostVars` and `cli.hostFooterTables` |
 | WG-I13 | **The launch refuses a re-pointed via agent the daemon serves no route for, through the daemon's own core; `yolo check` predicts it as a FAIL.** An implementation decision | 2026-09-26 | [WG-I13](#WG-I13) | 2026-09-26: `wirebridged.ViaRouteGate`, `run.Options.checkViaRoutes` |
 | WG-I14 | **A route without a re-pointed agent's preferred wire (its first declared protocol) is disclosed as a warning, not refused.** An implementation decision | 2026-09-26 | [WG-I14](#WG-I14) | 2026-09-26: `wirebridged.ViaRouteGate`, `wirebridged.preferredViaWire` |
 | WG-I15 | **The via checks run the agent's own derives to see whether the via re-points it; a via that re-points nothing is disclosed as having no effect, never refused.** An implementation decision | 2026-09-26 | [WG-I15](#WG-I15) | 2026-09-26: `packload.DerivedViaPointers`, `wirebridged.ViaRouteGate` |
@@ -1777,6 +1802,7 @@ doc to say, and the override keeps pi's own Converse client.
 | WG-I43 | **The refusal is a 400 `invalid_request_error` in the route's protocol naming the model, the provider, the list and the switch; a body naming `model` twice is refused.** An implementation decision | 2026-09-30 | [WG-I43](#WG-I43) | 2026-09-30: `modelAllowlist.checks`, `requestModel`; `TestAViaRouteRefusesAModelOffANarrowedList`, `TestTheAdapterRouteRefusesOnlyWhatEverySharerWouldBeRefused`, `TestAModelKeySpelledInAnotherCaseIsTheModel` |
 | WG-I44 | **On a profile naming no via, the service that fronts the provider's platform (its *carrier*, the pack the provider's `for_via` address names) carries every agent of the launch that declares a protocol and has no client of the platform, and `YOLO_PROFILES` says which (`_carrier`, `_carrier_base`, `_carried`).** Every reader asks `ResolvedProfile.ViaFor`, so the derives, the daemon's routes and allowlists, the witness, the region pre-flight, the via gate and the profile line agree; the via gate now runs on a launch with a fronting service, and the profile line's credential warning asks a carried agent too. It pulls no pack into a launch. [OQ-BR1](bedrock-plumbing.md#OQ-BR1)'s *"through the wire bridge where it has none"*, closing what [WG-I39](#WG-I39) left. An implementation decision | 2026-09-30 | [WG-I44](#WG-I44) | 2026-09-30: `packload.carrierFor`, `packload.FrontsAPlatform`, `ResolvedProfile.ViaFor`, `packload.ViaServedAt`, `packload.profileReach`, `entrypoint.Env.LoadProfiles`, `wirebridged.routeFor`, `viaRoutesFor`, `adapterAllowlist`, `run.checkViaRoutes`; `TestPlainBedrockCarriesOnlyTheAgentsWithNoClientOfTheirOwn` and `TestPlainBedrockReachesRuntimeForCopilotAndOmp` (the boot over the tables as they cross), `TestANarrowedBedrockListGovernsTheCarriedAgents`, `TestCopilotReachesBedrockThroughTheBridgeOnEitherProfile`, `TestOmpReachesBedrockThroughTheBridgeOnPlainBedrock`, `TestTheCarrierCarriesOnlyTheAgentsWithNoClientOfThePlatform`, `TestNoCarrierWithoutAServiceThatFrontsThePlatform`, `TestTheProfileDisclosureReadsEachAgentsPlatformBinding`, `TestACarriedAgentIsToldWhenNoCredentialReachesIt`, `TestACarriedAgentAnswersAtTheBridgesServedAddress`, `TestACarriedAgentTheAdapterCannotServeIsToldToSelectAnotherProfile`, and at the launch `TestPlainBedrockCarriesTheClientlessAgentsThroughTheBridge` and `TestACarriedAgentWithNoRouteIsRefused` |
 | WG-I45 | **The via gate refuses an agent routed through the bridge, by its profile's `via` or by the carrier, whose adapter route the launch gives another agent's provider**: the daemon serves one adapter route, so copilot carried on `-p bedrock` beside claude on cerebras would reach cerebras with claude's key, and beside claude on the Codex subscription nothing. The refusal names both agents and both providers. Two agents neither routed by a via nor a carrier are not reached. An implementation decision | 2026-09-30 | [WG-I45](#WG-I45) | 2026-09-30: `wirebridged.adapterTakenRefusal`, read by `ViaRouteGate`; `TestACarriedAgentWhoseAdapterRouteAnotherProviderHoldsIsRefused`, and at the launch `TestACarriedAgentWhoseAdapterRouteIsTakenIsRefused` |
+| WG-I46 | **A via is served wherever a launch runs its service: at `yolo host --` and on macos-user through the service's launch-owned host half, which a what-if over the served tables starts for a via or a carrier, on a port reserved for the service's via address.** Inert only at `yolo host env`, `yolo host apply`, the footer, and at `yolo host --` for an agent whose config file carries the via. Amends WG-I12 and narrows WG-I8. An implementation decision under the maintainer's 2026-10-04 delegation; reversible | 2026-10-05 | [WG-I46](#WG-I46) | 2026-10-05: `packload.ViaRoutedServices`, `packload.FileCarriedVia`, `launchservice.NewPlan`, `wirebridged.runHostHalf`, `cli.planHostViaService`, `run.planMacosUserViaServices`, `run.checkServedViaRoutes`; [HS-D30](host-notch-services.md#HS-D30)–[HS-D32](host-notch-services.md#HS-D32) list the tests |
 | OQ-WG2 | **All-traffic mode is a property of the profile**, opt-in and off by default; one active profile per agent decides how it reaches the world | 2026-09-25 | [§6](#6-part-5--all-traffic-through-the-bridge-new-direction-design) | — |
 | OQ-WG3 | **One list** (the picker's effective list after an `only`), **and a separate enforcement switch** on the profile, **default on**; off means the list only shapes pickers | 2026-09-25 | [§6](#6-part-5--all-traffic-through-the-bridge-new-direction-design) | 2026-09-30, [§6.1](#61-how-the-allowlist-is-built): the bridge refuses a model off a narrowed list while `enforce_models` is on ([WG-I40](#WG-I40)–[WG-I43](#WG-I43)) |
 | OQ-WG4 | **A path prefix per agent on the one listen port**, written by each derive; an unknown prefix is refused; a port per agent only for an agent measured to drop a base URL's path (delegated, decided in review) | 2026-09-25 | [§6](#6-part-5--all-traffic-through-the-bridge-new-direction-design) | — |

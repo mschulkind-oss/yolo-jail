@@ -452,3 +452,75 @@ func TestNewPlanMovesEveryDeclaredAddress(t *testing.T) {
 		t.Errorf("the service's own overrides must be dropped, others kept: %v", got)
 	}
 }
+
+// viaBridgeManifest is bridgeManifest with the service's via address, as packs/wire-bridge
+// declares it, and a second service of the same pack that declares none.
+const viaBridgeManifest = `{"name": "wire-bridge", "contributes": [
+  {"kind": "adapter", "adapts": {"from": "openai", "to": "anthropic"}, "address": "http://127.0.0.1:8214"},
+  {"kind": "service", "name": "wire-bridge", "endpoint": "wire-bridge.endpoint", "via_address": "http://127.0.0.1:8216",
+   "jail_daemon": {"cmd": ["yolo-jaild", "wire-bridge"]},
+   "host_daemon": {"cmd": ["yolo", "internal", "daemon", "wire-bridge"]}},
+  {"kind": "service", "name": "wire-bridge-helper",
+   "host_daemon": {"cmd": ["yolo", "internal", "daemon", "wire-bridge-helper"]}}]}`
+
+// THE PLAN RESERVES THE VIA ADDRESS (docs/design/host-notch-services.md HS-D30): NewPlan moves the
+// service's declared `via_address` to a port of this launch's beside its adaptations, holds it from
+// the pick (no other listener can be given it), and the served set rebinds a via base to it, so a
+// profile's via names the port the host half listens on. Before it a macos-user launch that planned
+// the bridge for an adapter pairing left another agent's via at 127.0.0.1:8216, which nothing
+// reserved or served. Another service of the same pack, which serves no via, reserves none.
+func TestNewPlanReservesTheServicesViaAddress(t *testing.T) {
+	p := packFrom(t, "wire-bridge", viaBridgeManifest, true)
+	packs := []*packload.Pack{p}
+	d, err := Admit(packs, "wire-bridge")
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan, err := NewPlan(packs, d)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(plan.Release)
+	picked := plan.Moved["127.0.0.1:8216"]
+	if picked == "" || picked == "127.0.0.1:8216" || !strings.HasPrefix(picked, "127.0.0.1:") {
+		t.Fatalf("the via address moved to %q, want a port this launch picked: %v", picked, plan.Moved)
+	}
+	if other, err := net.Listen("tcp", picked); err == nil {
+		_ = other.Close()
+		t.Errorf("another listener was given %s, the port the plan picked for the via address", picked)
+	}
+	if got := Served([]*Plan{plan}).ServedURL("http://127.0.0.1:8216"); got != "http://"+picked {
+		t.Errorf("the served set rebinds the via base to %q, want http://%s", got, picked)
+	}
+	helper, err := Admit(packs, "wire-bridge-helper")
+	if err != nil {
+		t.Fatal(err)
+	}
+	hp, err := NewPlan(packs, helper)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(hp.Release)
+	if _, moved := hp.Moved["127.0.0.1:8216"]; moved {
+		t.Errorf("a service that serves no via reserved the pack's via address: %v", hp.Moved)
+	}
+}
+
+// A VIA ROUTE THE AGENT'S CONFIG FILE CARRIES IS A ROUTE THE PLAN NAMES (RoutedAt, RoutesAny): pi's
+// via URL lives in its models.json, which no delivery's Shape holds, so the plan's address it
+// names is named by the via URL; a URL on a port the address only prefixes is not.
+func TestRoutedAtNamesTheAddressAViaURLNames(t *testing.T) {
+	p := &Plan{Moved: map[string]string{"127.0.0.1:8214": "127.0.0.1:4313", "127.0.0.1:8216": "127.0.0.1:38913"}}
+	if got := p.RoutedAt([]string{"http://127.0.0.1:38913/agent/pi"}); len(got) != 1 || got[0] != "127.0.0.1:38913" {
+		t.Errorf("RoutedAt(pi's via URL) = %v, want the via address alone", got)
+	}
+	if !p.RoutesAny([]string{"http://127.0.0.1:38913/agent/pi"}) {
+		t.Error("RoutesAny(pi's via URL) = false, want true")
+	}
+	if p.RoutesAny([]string{"http://127.0.0.1:43137/agent/pi"}) {
+		t.Error("RoutesAny counted a URL on a port 127.0.0.1:4313 only prefixes")
+	}
+	if p.RoutesAny(nil, &packload.AgentDelivery{Agent: "copilot"}) {
+		t.Error("RoutesAny counted an agent whose Shape names no address of the plan")
+	}
+}

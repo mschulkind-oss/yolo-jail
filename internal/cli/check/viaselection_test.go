@@ -162,12 +162,13 @@ func TestSectionPacksPredictsAViaWithNoEffect(t *testing.T) {
 	}
 }
 
-// TestSectionPacksPredictsNoViaRouteGateOnMacosUser: the profile
-// TestSectionPacksPredictsTheViaRouteRefusal FAILS on a container runtime is cleared on
-// macos-user, which serves no bridge (notch convergence item 2, NC-D16), so its agent keeps
-// its own client and the launch there asks the via-route gate nothing. check predicts that
-// launch: no FAIL. Deleting protocolPairingGap's ViaServedAt call fails this.
-func TestSectionPacksPredictsNoViaRouteGateOnMacosUser(t *testing.T) {
+// TestSectionPacksPredictsTheViaRouteRefusalOnMacosUser: the profile
+// TestSectionPacksPredictsTheViaRouteRefusal FAILS on a container runtime FAILS on macos-user too.
+// That launch now serves a via through the bridge's host half (docs/design/host-notch-services.md
+// HS-D30, which reversed the clearing NC-D16 gave it) and its channel's via gate refuses the route
+// the bridge cannot serve, so check predicts the refusal there as well, as OQ-NC1 A's services
+// at every notch make it. Deleting protocolPairingGap's via trigger fails this.
+func TestSectionPacksPredictsTheViaRouteRefusalOnMacosUser(t *testing.T) {
 	pack := viaAgentPack(t, `{"anthropic": {"base_url": "https://up.example"}}`)
 	packsFixture(t, `{"packs": ["file://`+pack+`"],
 	  "profiles": {"pv": {"provider": "upstream", "via": "wire-bridge"}}}`)
@@ -177,7 +178,7 @@ func TestSectionPacksPredictsNoViaRouteGateOnMacosUser(t *testing.T) {
 	r := &reporter{w: &buf}
 	(&Options{}).sectionPacks(r, merged)
 	out := buf.String()
-	if r.failed != 0 || strings.Contains(out, "declares no chat-completions or Responses endpoint") {
-		t.Fatalf("check predicted a via-route refusal on macos-user, which clears the via:\n%s", out)
+	if r.failed == 0 || !strings.Contains(out, "declares no chat-completions or Responses endpoint") {
+		t.Fatalf("check must predict the via-route refusal on macos-user, which serves the via:\n%s", out)
 	}
 }

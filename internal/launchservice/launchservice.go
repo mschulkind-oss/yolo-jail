@@ -290,23 +290,37 @@ type Plan struct {
 }
 
 // NewPlan picks a served address for every adaptation d's service serves, at its DECLARED address
-// (a user's `adapters` override does not apply to it here: WithoutOverrides), and mints its caller
-// token. Each port is a RESERVED PORT (reserve.go): held by the plan from the pick until Start
-// hands it to the service, so no other listener, this launch's own host-service fronts included,
-// can be given it in between. A plan the launch never starts is Released.
+// (a user's `adapters` override does not apply to it here: WithoutOverrides), and for the service's
+// `via_address` when its pack declares one (packload.ViaServiceAddress, the address a resolved
+// profile's via and carrier bases name), and mints its caller token. Each port is a RESERVED PORT
+// (reserve.go): held by the plan from the pick until Start hands it to the service, so no other
+// listener, this launch's own host-service fronts included, can be given it in between. A plan
+// the launch never starts is Released.
+//
+// THE VIA ADDRESS IS RESERVED BESIDE THE ADAPTATIONS (docs/design/host-notch-services.md HS-D30),
+// so Served rebinds a via or carrier base to the picked port (packload.ServedDaemons.ServedURL,
+// which ViaServedAt applies) and the host half listens on the descriptor the launch handed it.
+// Before it, a macos-user launch that planned the bridge for one agent's adapter pairing left
+// another agent's via at the declared 127.0.0.1:8216, which nothing reserved and nothing served.
 func NewPlan(packs []*packload.Pack, d Declared) (*Plan, error) {
 	var declared []string
 	seen := map[string]bool{}
-	for _, a := range packload.ServiceAdaptations(packs, nil) {
-		if a.Service != d.Service {
-			continue
-		}
-		hp := loopbackHostPort(a.Address)
+	add := func(address string) {
+		hp := loopbackHostPort(address)
 		if hp == "" || seen[hp] {
-			continue
+			return
 		}
 		seen[hp] = true
 		declared = append(declared, hp)
+	}
+	for _, a := range packload.ServiceAdaptations(packs, nil) {
+		if a.Service == d.Service {
+			add(a.Address)
+		}
+	}
+	if packload.ViaService(packs, d.Pack) == d.Service {
+		via, _ := packload.ViaServiceAddress(packs, d.Pack)
+		add(via)
 	}
 	sort.Strings(declared)
 	picked, err := ReservePorts(declared)
@@ -431,9 +445,18 @@ func (p *Plan) Addresses() []string {
 // uses it. Matched against the whole environment, `yolo host -p codex -- claude` disclosed that
 // address as one its bridge opened.
 func (p *Plan) PointedAt(deliveries ...*packload.AgentDelivery) []string {
+	return p.RoutedAt(nil, deliveries...)
+}
+
+// RoutedAt is PointedAt with viaURLs counted beside the deliveries' Shapes: the via URLs the
+// launch composed for the agents the service routes (packload.ViaURLFor, its via or carrier
+// route). A via route is carried by an agent's own config file as often as by its environment
+// (pi's models.json, rendered at boot from the profile table), so no Shape names it, and the
+// service opens it all the same (docs/design/host-notch-services.md HS-D24, as HS-D30 widened it).
+func (p *Plan) RoutedAt(viaURLs []string, deliveries ...*packload.AgentDelivery) []string {
 	var out []string
 	for _, a := range p.Addresses() {
-		if shapesName(deliveries, a) {
+		if shapesName(deliveries, a) || namesAddress(viaURLs, a) {
 			out = append(out, a)
 		}
 	}
@@ -443,24 +466,46 @@ func (p *Plan) PointedAt(deliveries ...*packload.AgentDelivery) []string {
 	return out
 }
 
-// shapesName reports whether a value of some delivery's Shape names the address hostPort: an
-// occurrence of it that no further digit follows, so 127.0.0.1:4313 is not named by a URL on
-// 127.0.0.1:43137.
+// RoutesAny reports whether the plan's service carries a request of the agents deliveries were
+// composed for: some address the plan moved is named by one of viaURLs or by a delivery's Shape
+// (RoutedAt's two readings), the agents a launch hands the service the credentials of.
+func (p *Plan) RoutesAny(viaURLs []string, deliveries ...*packload.AgentDelivery) bool {
+	for _, a := range p.Addresses() {
+		if shapesName(deliveries, a) || namesAddress(viaURLs, a) {
+			return true
+		}
+	}
+	return false
+}
+
+// shapesName reports whether a value of some delivery's Shape names the address hostPort
+// (namesAddress).
 func shapesName(deliveries []*packload.AgentDelivery, hostPort string) bool {
 	for _, d := range deliveries {
 		if d == nil {
 			continue
 		}
 		for _, v := range d.Shape {
-			for rest := v.Value; ; {
-				i := strings.Index(rest, hostPort)
-				if i < 0 {
-					break
-				}
-				rest = rest[i+len(hostPort):]
-				if rest == "" || rest[0] < '0' || rest[0] > '9' {
-					return true
-				}
+			if namesAddress([]string{v.Value}, hostPort) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// namesAddress reports whether one of values names the address hostPort: an occurrence of it
+// that no further digit follows, so 127.0.0.1:4313 is not named by a URL on 127.0.0.1:43137.
+func namesAddress(values []string, hostPort string) bool {
+	for _, v := range values {
+		for rest := v; ; {
+			i := strings.Index(rest, hostPort)
+			if i < 0 {
+				break
+			}
+			rest = rest[i+len(hostPort):]
+			if rest == "" || rest[0] < '0' || rest[0] > '9' {
+				return true
 			}
 		}
 	}

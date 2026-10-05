@@ -17,8 +17,10 @@ import (
 	"time"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/hostservice"
+	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/launchservice"
 	"github.com/mschulkind-oss/yolo-jail/internal/openauthclient"
+	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/sigv4"
 )
@@ -195,5 +197,109 @@ func TestTheHostHalfCodexRouteTakesItsViewFromTheHostSocket(t *testing.T) {
 	up.mu.Unlock()
 	if got != "Bearer host-access" {
 		t.Errorf("upstream Authorization = %q, want the host socket's view", got)
+	}
+}
+
+// hostViaInput is a launch's input for pi on the shipped bedrock-bridge, its via base moved to a
+// free loopback address as a launch's plan moves it (launchservice.NewPlan reserves the via
+// address), with provider holding the user's providers layer and extra added over the tables.
+// It returns the getenv a host half reads the input by and the via address.
+func hostViaInput(t *testing.T, provider string, extra map[string]string) (func(string) string, string) {
+	t.Helper()
+	providers, resolved := shippedBridgeTables(t, provider)
+	via := freeLoopback(t)
+	r := resolved["bedrock-bridge"]
+	r.ViaBase = "http://" + via
+	resolved["bedrock-bridge"] = r
+	prov, err := jsonx.DumpsCompact(providers)
+	if err != nil {
+		t.Fatal(err)
+	}
+	prof, err := jsonx.DumpsCompact(packload.ProfilesWireTable(resolved))
+	if err != nil {
+		t.Fatal(err)
+	}
+	env := map[string]string{"YOLO_PROVIDERS": prov, "YOLO_PROFILES": prof,
+		"YOLO_USE_PROFILES": `{"pi":"bedrock-bridge"}`, CallerTokenEnv: testCallerToken}
+	for k, v := range extra {
+		env[k] = v
+	}
+	return writeHostInput(t, env), via
+}
+
+// runHostHalfFor starts the host half from the input getenv names and waits for its readiness
+// line, which must be ready.
+func runHostHalfFor(t *testing.T, getenv func(string) string) {
+	t.Helper()
+	ready := readinessPipe(t)
+	e, why := hostHalfEnv(getenv, nil)
+	if why != "" {
+		t.Fatal(why)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan int, 1)
+	go func() { done <- runHostHalf(ctx, e) }()
+	t.Cleanup(func() { cancel(); <-done })
+	select {
+	case line := <-ready:
+		if line != "ready wire-bridge" {
+			t.Fatalf("readiness = %q", line)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("the host half never reported ready")
+	}
+}
+
+// THE HOST HALF SERVES A VIA ROUTE (docs/design/host-notch-services.md HS-D30, superseding HS-D13's
+// "adapter route only"): pi on bedrock-bridge, from the launch's input tables alone, is served on
+// its via address behind the caller token, and with no AWS credential in the input its route
+// answers 503 naming runtime's URL composed from the provider's region — the assertion a jail's
+// TestBedrockBridgeCarriesPiToRuntimeInItsRegion makes. A request without the caller token is
+// refused 401. Restoring `p.via = viaPlan{}` in runHostHalf fails the readiness (nothing to serve).
+func TestTheHostHalfServesAViaRouteFromItsInput(t *testing.T) {
+	clearAWS(t)
+	t.Setenv("HOME", t.TempDir())
+	getenv, via := hostViaInput(t, `{"bedrock": {"region": "us-east-1"}}`, nil)
+	runHostHalfFor(t, getenv)
+	url := "http://" + via + "/agent/pi/chat/completions"
+	if code, _ := sendAs(t, url, `{"model":"m","messages":[]}`, nil); code != http.StatusUnauthorized {
+		t.Errorf("a caller without the launch's token got %d, want 401", code)
+	}
+	code, body := sendAs(t, url, `{"model":"m","messages":[]}`,
+		map[string]string{"Authorization": "Bearer " + testCallerToken})
+	if code != http.StatusServiceUnavailable ||
+		!strings.Contains(body, "goes to Bedrock (https://bedrock-runtime.us-east-1.amazonaws.com/openai/v1)") {
+		t.Errorf("pi's via route got %d %s, want 503 naming runtime's URL composed from us-east-1", code, body)
+	}
+}
+
+// THE VIA ROUTE'S CREDENTIAL AND REGION ARE THE INPUT'S (keyFor, HS-D3's rule for the adapter
+// route, now the via route's too): the region and the key pair the launch's input carries for pi
+// sign pi's request for that region, and a key file under HOME, a jail home's channel, is never
+// read. Before it, the via side read resolveKey's jail key files and this process's environment,
+// where the input never is, so the host half's via route answered 503 whatever the launch handed it.
+func TestTheHostHalfViaRouteSignsWithTheInputsCredential(t *testing.T) {
+	clearAWS(t)
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	writeAgentKey(t, home, "pi", awsPair("AKIDFROMAFILE", "ap-southeast-2"))
+	up := withUpstream(t)
+	getenv, via := hostViaInput(t, "", map[string]string{"AWS_REGION": "eu-west-1",
+		"AWS_ACCESS_KEY_ID": "AKIDFROMTHEINPUT", "AWS_SECRET_ACCESS_KEY": "secret-input"})
+	runHostHalfFor(t, getenv)
+	code, body := sendAs(t, "http://"+via+"/agent/pi/chat/completions", `{"model":"m","messages":[]}`,
+		map[string]string{"Authorization": "Bearer " + testCallerToken})
+	if code != http.StatusOK || up.calls() != 1 {
+		t.Fatalf("pi's via request got %d (%d upstream calls): %s", code, up.calls(), body)
+	}
+	up.mu.Lock()
+	req := up.requests[0]
+	up.mu.Unlock()
+	if got := req.URL.String(); got != "https://bedrock-runtime.eu-west-1.amazonaws.com/openai/v1/chat/completions" {
+		t.Errorf("upstream URL = %s, want runtime in the input's region", got)
+	}
+	if auth := req.Header.Get("Authorization"); !strings.Contains(auth, "Credential=AKIDFROMTHEINPUT/") ||
+		!strings.Contains(auth, "/eu-west-1/bedrock/") {
+		t.Errorf("upstream Authorization = %q, want a signature by the input's pair for eu-west-1", auth)
 	}
 }

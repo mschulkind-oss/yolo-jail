@@ -16,6 +16,17 @@ package run
 // agent counts here, not only the launched one, because this backend writes every profiled
 // agent's env file (writeMacosUserAgentEnvFiles) for a shell that starts one later.
 //
+// AND A VIA OR A CARRIER (HS-D30): a profiled agent whose profile's `via`, or whose carrier
+// (docs/design/wire-bridge-gateway.md WG-I44), routes it through a pack service is a pairing the
+// gate refuses nothing for, since a via whose service is not served is only cleared. So the
+// channel asks first whether serving the service would route some agent through it
+// (packload.ViaRoutedServices, the what-if both notches ask), and plans it when it would, before
+// the composition, which then serves the via at the port the plan picked. Every profiled agent
+// counts, a file-carried via included (pi's models.json, opencode's opencode.json): this backend
+// renders those files per launch, into the one account home every workspace's session shares, so
+// a second concurrent session of the same agent rewrites the file with its own launch's address
+// and the first session's next start reads it (INFERRED, not measured: HS-D31).
+//
 // AND A PURE WORKER WITH NO JAIL DAEMON (HS-D29; a held service no adaptation names): its host
 // half starts here too, beside the command, since nothing else would run it, and the channel is
 // composed against it, so a pack env pointer at it reaches the command. A worker that declares a
@@ -38,6 +49,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/richtext"
 	"github.com/mschulkind-oss/yolo-jail/internal/shquote"
+	"github.com/mschulkind-oss/yolo-jail/internal/wirebridged"
 )
 
 // launchedService is a started launch-owned service, as the macos-user arm uses it.
@@ -137,10 +149,129 @@ func (o *Options) planMacosUserService(err error, packs []*packload.Pack) (bool,
 	return true, nil
 }
 
+// planMacosUserViaServices adds to this launch's launch-owned services every pack service a via
+// or a carrier routes a profiled agent through once served (packload.ViaRoutedServices,
+// docs/design/host-notch-services.md HS-D30): the what-if composes the provider table and resolves
+// the profiles with the service served, over the launch's own inputs and served set (served), and
+// a service whose admitted host half would carry an agent is planned (launchservice.NewPlan, its
+// adaptations' and its via address's ports reserved). Called before the channel composes, so the
+// first composition already serves the via; a service this launch serves already, by an earlier
+// plan or in its guest, is no candidate. Every profiled agent counts (the package doc says why,
+// and what a concurrent session risks).
+func (o *Options) planMacosUserViaServices(cfg *jsonx.OrderedMap, packs []*packload.Pack,
+	profiles *jsonx.OrderedMap, userProfiles map[string]packload.UserProfile, served packload.ServedDaemons) error {
+	addresses, _ := config.LoadAdapterAddresses(nil)
+	routed, err := packload.ViaRoutedServices(packload.ViaWhatIf{User: cfgMap(cfg, "providers"), Packs: packs,
+		Addresses: addresses, Served: served, Profiles: userProfiles, Active: packload.ProfileTable(profiles)},
+		func(service string) bool {
+			_, aerr := launchservice.Admit(packs, service)
+			return aerr == nil
+		})
+	if err != nil {
+		return err
+	}
+	for _, r := range routed {
+		if o.launchServiceRunning(r.Service) {
+			continue
+		}
+		d, aerr := launchservice.Admit(packs, r.Service)
+		if aerr != nil {
+			continue // ViaRoutedServices admitted it; nothing changed in between
+		}
+		plan, perr := launchservice.NewPlan(packs, d)
+		if perr != nil {
+			return perr
+		}
+		o.launchServices = append(o.launchServices, plan)
+		if o.launchServiceAgents == nil {
+			o.launchServiceAgents = map[string][]string{}
+		}
+		o.launchServiceAgents[plan.Service] = append(o.launchServiceAgents[plan.Service], r.Agents...)
+	}
+	return nil
+}
+
+// checkServedViaRoutes is the via gate (wirebridged.ViaRouteGate, WG-I13 to WG-I15) over the tables
+// a macos-user channel composed once it planned its launch-owned services: a re-pointed via agent
+// the service will serve no route for refuses the launch, and a route without the wire the agent
+// prefers, or a via that re-points nothing, is a warning, in checkViaRoutes' words, which that
+// pre-flight could not give on this backend because it runs before the channel plans a service
+// (HS-D30). A container's pre-flight sees its jail daemon served and asks there.
+func (o *Options) checkServedViaRoutes(packs []*packload.Pack, channel *packChannel) error {
+	refusals, notices := wirebridged.ViaRouteGate(packs, channel.providers,
+		packload.ProfileTable(channel.profiles), channel.resolvedProfiles)
+	for _, n := range notices {
+		o.pr(o.Stderr).print("[yellow]Warning: " + n + "[/yellow]")
+	}
+	if len(refusals) == 0 {
+		return nil
+	}
+	msgs := make([]string, len(refusals))
+	for i, r := range refusals {
+		msgs[i] = r.Error()
+	}
+	return fmt.Errorf("packs: %s", strings.Join(msgs, "\npacks: "))
+}
+
+// serviceAgents is every profiled agent of channel that plan's service carries: the ones whose
+// pairing planned it (launchServiceAgents), every one whose delivery points it at an address the
+// plan moved (an adapter pairing the service serves, whichever trigger planned it), and every one
+// whose via or carrier routes it through the service (viaURLsThrough). The agents whose credentials
+// the service is handed, as a jail's bridge reads each served agent's own env file.
+func (o *Options) serviceAgents(plan *launchservice.Plan, channel *packChannel) []string {
+	agents := append([]string(nil), o.launchServiceAgents[plan.Service]...)
+	if channel == nil || channel.scope == nil {
+		return agents
+	}
+	via := viaURLsThrough(channel, plan.Service)
+	for _, agent := range channel.scope.Agents() {
+		if slices.Contains(agents, agent) {
+			continue
+		}
+		if _, routed := via[agent]; routed || plan.RoutesAny(nil, channel.scope.Agent(agent)) {
+			agents = append(agents, agent)
+		}
+	}
+	slices.Sort(agents)
+	return agents
+}
+
+// viaURLsThrough is, keyed by agent, the via URL the channel composed for each profiled agent
+// whose via or carrier routes it through service (packload.ResolvedProfile.ViaFor, ViaURLFor) and
+// whose own derived config carries that URL (packload.DerivedViaPointers: the agent is RE-POINTED,
+// wire-bridge-gateway.md WG-I15). An agent its carrier routes by an adapter address instead
+// (copilot, whose derive reads the via URL only as a gate) is not one: its route is the address
+// its delivery's Shape names.
+func viaURLsThrough(channel *packChannel, service string) map[string]string {
+	out := map[string]string{}
+	if channel == nil {
+		return out
+	}
+	use := packload.ProfileTable(channel.profiles)
+	for agent, profile := range use {
+		r := channel.resolvedProfiles[profile]
+		if via, _ := r.ViaFor(agent); via == "" || packload.ViaService(channel.packs, via) != service {
+			continue
+		}
+		u := packload.ViaURLFor(r, agent)
+		if u == "" {
+			continue
+		}
+		if pointers, err := packload.DerivedViaPointers(channel.packs, channel.providers, use,
+			channel.resolvedProfiles, agent); err == nil && len(pointers) > 0 {
+			out[agent] = u
+		}
+	}
+	return out
+}
+
 // launchServiceInput is what a macos-user launch hands each launch-owned service: the channel's
-// three wire tables, the host broker's private socket, and the env_sources the credential gate
-// delivers to the agents whose pairing needed it, for their providers only
-// (AgentDelivery.EnvSources). The caller token is added by launchservice.Start.
+// three wire tables, the host broker's private socket, and, for each agent the service carries
+// (serviceAgents), the env_sources the credential gate delivers to it for its providers only
+// (AgentDelivery.EnvSources) and the doorway pointers and region variables the gate composed for it
+// (packload.ServiceCredentialVars, HS-D32): what a jail's bridge reads from that agent's own env
+// file. Into the service's input alone; the agent's own environment is the gate's, unchanged. The
+// caller token is added by launchservice.Start.
 func (c *packChannel) launchServiceInput(agents []string) map[string]string {
 	env := map[string]string{
 		entrypoint.ProvidersWireEnv:   jsonDumpsOrEmptyObj(c.providers),
@@ -150,7 +281,13 @@ func (c *packChannel) launchServiceInput(agents []string) map[string]string {
 	}
 	for _, agent := range agents {
 		d := c.scope.Agent(agent)
-		if d == nil || d.EnvSources == nil {
+		if d == nil {
+			continue
+		}
+		for k, v := range packload.ServiceCredentialVars(c.scope, c.providers, agent) {
+			env[k] = v
+		}
+		if d.EnvSources == nil {
 			continue
 		}
 		for _, k := range d.EnvSources.Keys() {
@@ -181,7 +318,7 @@ func (o *Options) startMacosUserServices(channel *packChannel) (func(), error) {
 	}
 	for _, plan := range o.launchServices {
 		o.noteMacosUserLocalHostCode(plan, fmt.Sprintf("the %q service's host half", plan.Service))
-		r, log, err := startMacosUserService(plan, channel.launchServiceInput(o.launchServiceAgents[plan.Service]))
+		r, log, err := startMacosUserService(plan, channel.launchServiceInput(o.serviceAgents(plan, channel)))
 		if err != nil {
 			stop()
 			return func() {}, err
@@ -220,7 +357,16 @@ func (o *Options) servicePointedAt(plan *launchservice.Plan, channel *packChanne
 	for _, agent := range o.launchServiceAgents[plan.Service] {
 		deliveries = append(deliveries, channel.scope.Agent(agent))
 	}
-	return plan.PointedAt(deliveries...)
+	// A via route the agent's config file carries is named by its via URL, which no Shape holds
+	// (launchservice.Plan.RoutedAt, HS-D30).
+	var viaURLs []string
+	for agent, u := range viaURLsThrough(channel, plan.Service) {
+		viaURLs = append(viaURLs, u)
+		if !slices.Contains(o.launchServiceAgents[plan.Service], agent) {
+			deliveries = append(deliveries, channel.scope.Agent(agent))
+		}
+	}
+	return plan.RoutedAt(viaURLs, deliveries...)
 }
 
 // workerPointedAt is how a pure worker's start line and dry-run line name who reaches it: the pack

@@ -2,20 +2,25 @@ package wirebridged
 
 // hosthalf.go is `yolo internal daemon wire-bridge`: the bridge's HOST HALF, a launch-owned
 // service (docs/design/host-notch-services.md; internal/launchservice). A host launch
-// (`yolo host --`, the wrappers) or a macos-user launch starts it as its own child when the one
-// agent it runs is paired through the bridge, and stops it when that agent exits.
+// (`yolo host --`, the wrappers) or a macos-user launch starts it as its own child when an agent
+// it runs is paired through the bridge or routed through it by a via or a carrier, and stops it
+// when that agent exits.
 //
 // IT IS THE SAME DAEMON, with its inputs moved off jail paths (the doc's §2.2 warning): the
 // wire tables and the caller token come from the launch's 0600 input file rather than the
 // per-entry channel, a provider key from that input or this process's environment rather than a
 // jail home's key files (keyFor), the Codex route's access-token view from the host broker's
 // private socket rather than a jail endpoint file (HS-D3), and no endpoint file is published.
-// It serves only its adapter route: a via stays inert outside a jail (WG-I12), and a selection
-// that routes nothing here is a launch that should not have started it, so it says why on the
-// readiness pipe and exits rather than idling.
+// It serves every route its input's tables select, as a jail's bridge does: the adapter route,
+// and the via routes on the via address the launch reserved for it (docs/design/host-notch-services.md
+// HS-D30, which superseded HS-D13's "adapter route only"; wire-bridge-gateway.md WG-I46), each via
+// route signing or keying with the credential the launch's input carries for its agent (keyFor).
+// A selection that routes nothing here is a launch that should not have started it, so it says
+// why on the readiness pipe and exits rather than idling.
 //
 // Its lifetime is its launch's. SIGTERM (the launch's stop) or the lifeline's EOF (the launch
-// died, however) ends it, and it is never restarted.
+// died, however) ends it; a death while its agent runs is its launch's to restart, on the same
+// sockets, under the service's restart policy (launchservice.Running.Supervise, HS-D28).
 
 import (
 	"context"
@@ -84,10 +89,10 @@ func hostHalfEnv(getenv func(string) string, environ []string) (*entrypoint.Env,
 	return entrypoint.NewEnv(vars), ""
 }
 
-// runHostHalf resolves the one plan the launch's tables select and serves it, adapter route only.
+// runHostHalf resolves the one plan the launch's tables select and serves it: the adapter route
+// and the via routes alike, which the launch planned it for (HS-D30).
 func runHostHalf(ctx context.Context, e *entrypoint.Env) int {
 	p := resolvePlan(e)
-	p.via = viaPlan{}
 	if !p.serves() {
 		why := p.idleReason()
 		logf("idling is not a host half's state: %s", why)

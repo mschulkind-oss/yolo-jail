@@ -50,18 +50,24 @@ type fakeAgentReport struct {
 	Body        string `json:"body"`
 }
 
-// fakeAgentMain is the fake agent: it records the ANTHROPIC_* environment it was handed, sends
-// the bridge one canned request with the token claude would send and one with none, writes the
-// report, and then exits or, in mode "sleep", waits to be killed.
+// fakeAgentMain is the fake agent: it records the ANTHROPIC_*, COPILOT_* and AWS_* environment it
+// was handed, sends the bridge one canned request with the token claude (or copilot, on its
+// provider base URL and key) would send and one with none, writes the report, and then exits or,
+// in mode "sleep", waits to be killed.
 func fakeAgentMain() int {
 	rep := fakeAgentReport{Env: map[string]string{}, Path: os.Getenv("PATH"),
 		Copy: os.Getenv("YOLO_CLI_TEST_AGENT_COPY")}
 	for _, kv := range os.Environ() {
-		if k, v, ok := strings.Cut(kv, "="); ok && strings.HasPrefix(k, "ANTHROPIC_") {
+		if k, v, ok := strings.Cut(kv, "="); ok && (strings.HasPrefix(k, "ANTHROPIC_") ||
+			strings.HasPrefix(k, "COPILOT_") || strings.HasPrefix(k, "AWS_")) {
 			rep.Env[k] = v
 		}
 	}
-	if base := rep.Env["ANTHROPIC_BASE_URL"]; base != "" {
+	base, key := rep.Env["ANTHROPIC_BASE_URL"], rep.Env["ANTHROPIC_AUTH_TOKEN"]
+	if base == "" && rep.Env["COPILOT_PROVIDER_TYPE"] == "anthropic" {
+		base, key = rep.Env["COPILOT_PROVIDER_BASE_URL"], rep.Env["COPILOT_PROVIDER_API_KEY"]
+	}
+	if base != "" {
 		post := func(auth string) (int, string) {
 			req, _ := http.NewRequest(http.MethodPost, base+"/v1/messages",
 				strings.NewReader(`{"model":"m","max_tokens":8,"messages":[{"role":"user","content":"hi"}]}`))
@@ -77,7 +83,7 @@ func fakeAgentMain() int {
 			b, _ := io.ReadAll(resp.Body)
 			return resp.StatusCode, string(b)
 		}
-		rep.WithToken, rep.Body = post(rep.Env["ANTHROPIC_AUTH_TOKEN"])
+		rep.WithToken, rep.Body = post(key)
 		rep.WithoutAuth, _ = post("")
 	}
 	data, _ := json.Marshal(rep)
@@ -154,7 +160,9 @@ type serviceLaunch struct {
 	// listening is, for each started service, every address its plan moved that accepted a
 	// connection once the service said it was ready: what it opened, as against what it planned.
 	listening [][]string
-	execed    bool
+	// inputs is, index for index with started, the input each started service was handed.
+	inputs []map[string]string
+	execed bool
 }
 
 // runServiceLaunch runs `yolo host <flags> -- claude` over cfg, the fake agent in mode, and
@@ -169,6 +177,14 @@ func runServiceLaunch(t *testing.T, cfg string, flags []string, mode string, sig
 func runServiceLaunchWith(t *testing.T, cfg string, flags []string, mode string, signals chan os.Signal,
 	setup func(agentExec string)) serviceLaunch {
 	t.Helper()
+	return runServiceLaunchAs(t, cfg, flags, "claude", mode, signals, setup)
+}
+
+// runServiceLaunchAs is runServiceLaunchWith launching agent, a script of that name on PATH that
+// runs the fake agent.
+func runServiceLaunchAs(t *testing.T, cfg string, flags []string, agent, mode string, signals chan os.Signal,
+	setup func(agentExec string)) serviceLaunch {
+	t.Helper()
 	hostGateHome(t, cfg, wcShell(nil))
 	exe, err := os.Executable()
 	if err != nil {
@@ -177,7 +193,7 @@ func runServiceLaunchWith(t *testing.T, cfg string, flags []string, mode string,
 	agentExec := "exec '" + exe + "' " + testFakeAgentArg + " \"$@\"\n"
 	bin := t.TempDir()
 	script := "#!/bin/sh\n" + agentExec
-	if err := os.WriteFile(filepath.Join(bin, "claude"), []byte(script), 0o755); err != nil {
+	if err := os.WriteFile(filepath.Join(bin, agent), []byte(script), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	if setup != nil {
@@ -194,6 +210,7 @@ func runServiceLaunchWith(t *testing.T, cfg string, flags []string, mode string,
 		r, err := origStart(p, env)
 		if r != nil {
 			got.started = append(got.started, r)
+			got.inputs = append(got.inputs, env)
 			var open []string
 			for _, a := range p.Addresses() {
 				if c, derr := net.DialTimeout("tcp", a, 200*time.Millisecond); derr == nil {
@@ -214,7 +231,7 @@ func runServiceLaunchWith(t *testing.T, cfg string, flags []string, mode string,
 	t.Cleanup(func() { hostServiceSignals = origSignals })
 
 	var out, errw bytes.Buffer
-	got.rc = hostMain(append(append([]string{}, flags...), "--", "claude"), &out, &errw, false, nil)
+	got.rc = hostMain(append(append([]string{}, flags...), "--", agent), &out, &errw, false, nil)
 	got.errs = errw.String()
 	if data, err := os.ReadFile(dump); err == nil {
 		_ = json.Unmarshal(data, &got.report)
@@ -571,6 +588,40 @@ func TestHostApplyWritesNoBridgedAddressAndSaysWhy(t *testing.T) {
 		if strings.Contains(string(data), "127.0.0.1:82") || strings.Contains(string(data), "ANTHROPIC_BASE_URL") {
 			t.Errorf("%s names a bridged address:\n%s", rel, data)
 		}
+	}
+}
+
+// AND A VIA PROFILE (WG-I12 as WG-I46 narrowed it; host-notch-services.md HS-D30): `yolo host apply`
+// stays inert for a via, since the address `yolo host --` serves it at is picked per launch and no
+// file can name it. pi's config the apply renders on `bedrock-bridge` names no via route, and the
+// apply starts no service; pi there keeps its own client, as it does at `yolo host --`, where its
+// file-carried via is cleared too (HS-D31).
+func TestHostApplyWritesNoViaAddressForAViaProfile(t *testing.T) {
+	home := hostComputedHome(t, `{"packs": ["pi", "bedrock", "wire-bridge"], "profile": {"pi": "bedrock-bridge"}, `+
+		`"providers": {"bedrock": {"region": "eu-west-1"}}}`)
+	origStart := startLaunchService
+	startLaunchService = func(*launchservice.Plan, map[string]string) (*launchservice.Running, error) {
+		t.Fatal("yolo host apply started a service")
+		return nil, nil
+	}
+	t.Cleanup(func() { startLaunchService = origStart })
+	var out, errw bytes.Buffer
+	if rc := hostMain([]string{"apply", "--assert"}, &out, &errw, false, strings.NewReader("y\n")); rc != 0 {
+		t.Fatalf("yolo host apply --assert rc=%d\n%s%s", rc, out.String(), errw.String())
+	}
+	rendered := false
+	for _, rel := range []string{".pi/agent/models.json", ".pi/agent/settings.json"} {
+		data, err := os.ReadFile(filepath.Join(home, rel))
+		if err != nil {
+			continue
+		}
+		rendered = true
+		if strings.Contains(string(data), "/agent/pi") || strings.Contains(string(data), "127.0.0.1:8216") {
+			t.Errorf("%s names a via route:\n%s", rel, data)
+		}
+	}
+	if !rendered {
+		t.Fatalf("the apply rendered none of pi's config, so this proves nothing:\n%s%s", out.String(), errw.String())
 	}
 }
 

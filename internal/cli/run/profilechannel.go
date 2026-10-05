@@ -118,6 +118,9 @@ type packChannel struct {
 	// served is what this launch's notch serves (servedDaemons), for the checks that read
 	// the channel after it is composed (checkEnvOverrides).
 	served packload.ServedDaemons
+	// packs is the selected pack set the channel was composed from, for a reader that asks a
+	// pack fact of the composed tables: which service a profile's via names (viaURLsThrough).
+	packs []*packload.Pack
 	// servedAddresses is the declared-to-served address map this entry was composed with
 	// (servedaddresses.go): the ports a fresh launch picked on a shared network namespace, or
 	// the running jail's on an attach. The writer records it in the channel section, which is
@@ -173,6 +176,15 @@ func (o *Options) composePackChannel(cfg *jsonx.OrderedMap, packs []*packload.Pa
 	// Run resolved) decide both the caller tokens and what is SERVED AT THIS NOTCH
 	// (servedDaemons), and the provider table composes only the addresses served here.
 	specs := o.jailDaemonsFor(cfg, o.runtime, packs)
+	// THE VIA TRIGGER (macosuserservices.go, host-notch-services.md HS-D30): on macos-user a via or a
+	// carrier routes an agent through a pack service only once the launch runs its host half, and
+	// it refuses nothing while the service is unserved, so the launch asks first and plans the
+	// service when serving it would route some profiled agent through it.
+	if o.runtime == "macos-user" { // parity: HonoredBy — a container runs the via's service as a jail daemon; macos-user its host half (macosuserservices.go)
+		if err := o.planMacosUserViaServices(cfg, packs, profiles, userProfiles, o.servedDaemons(specs)); err != nil {
+			return nil, err
+		}
+	}
 	// ONE RETRY PER LAUNCH-OWNED SERVICE (macosuserservices.go): on macos-user a pairing through a
 	// pack service's adaptation refuses at the gate below until this launch plans that service's
 	// host half, and then composes again against it. Bounded by the services the packs declare.
@@ -195,6 +207,15 @@ func (o *Options) composePackChannel(cfg *jsonx.OrderedMap, packs []*packload.Pa
 		if err == nil || o.runtime != "macos-user" || tries > len(packs) { // parity: HonoredBy — a container runs the service's jail daemon; macos-user its host half (macosuserservices.go)
 			if c != nil {
 				c.bareNote = fold.BareListNote(fold.BareFrom == profileFoldFromKey)
+			}
+			// THE VIA GATE OVER THE VIAS THIS LAUNCH SERVES (checkViaRoutes' rule, WG-I13 to WG-I15): on
+			// macos-user that pre-flight runs before the channel plans a launch-owned service, so it
+			// sees every via cleared and asks nothing; the channel asks it again here once a planned
+			// service serves them (HS-D30), as a container launch's pre-flight does of its jail daemon.
+			if err == nil && o.runtime == "macos-user" && len(o.launchServices) > 0 { // parity: HonoredBy — a container's checkViaRoutes sees its jail daemon served; macos-user's served set grows only here
+				if gerr := o.checkServedViaRoutes(packs, c); gerr != nil {
+					return nil, gerr
+				}
 			}
 			return c, err
 		}
@@ -255,6 +276,7 @@ func (o *Options) composePackChannelWith(cfg *jsonx.OrderedMap, packs []*packloa
 		}
 	}
 	c := &packChannel{
+		packs:                       packs,
 		scopedTokenVars:             scopedTokenVars,
 		unservedVias:                unservedVias,
 		served:                      served,

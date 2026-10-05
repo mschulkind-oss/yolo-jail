@@ -1010,25 +1010,44 @@ launch, for the one agent it runs, stopped when that agent exits). The mechanism
   claude` start it, and copilot on cerebras, which speaks the provider's own wire, starts
   nothing. On macos-user every profiled agent's pairing counts, since that arm writes every
   profiled agent's env file.
-- **Only a pack yolo ships.** `launchservice.Admit` runs a host half only for a pack the
-  embedded set supplied (`packload.Pack.Official`) and only when its argv names `yolo`. A
-  fetched or local pack's host half is refused by name, and the refusal names the container jail
-  where the profile works.
-- **The address is the launch's.** Each of the bridge's adapter addresses moves to a loopback
-  port the launch picked, and a user's `adapters` override of those conversions does not apply
-  ([WB-D13](#wb-d13) at a jail only). The launch picks the port by binding port 0, holds it, and
-  hands the bridge the bound socket when it starts it, so no other listener, the launch's own
-  host-service fronts included, can be given the port in between
-  ([HS-D26](../design/host-notch-services.md#HS-D26)).
+- **A via or a carrier starts it too** ([HS-D30](../design/host-notch-services.md#HS-D30),
+  [WG-I46](../design/wire-bridge-gateway.md#WG-I46)). A via refuses nothing while the bridge is
+  unserved, so the launch asks a what-if: would serving the bridge route an agent through it, by its
+  profile's `via` or by its carrier ([WG-I44](../design/wire-bridge-gateway.md#WG-I44))? If so it
+  starts the bridge. So `-p bedrock-bridge -- copilot` and `-p bedrock -- copilot` start it at the
+  host, copilot riding the adapter address composed for the via. `yolo host -p bedrock-bridge -- pi`
+  starts nothing, because pi reads its route from its own `~/.pi/agent/models.json`, which a host
+  launch does not render; the launch says so ([HS-D31](../design/host-notch-services.md#HS-D31)).
+  On macos-user every profiled agent's via counts, pi's included, since that arm renders those
+  files per launch.
+- **A pack yolo ships, or a local one.** `launchservice.Admit` runs a host half only for a pack
+  the embedded set supplied or one at a path on this machine (`packload.Pack.MayRunHostHalf`:
+  `Official` or `Local`, [HS-D27](../design/host-notch-services.md#HS-D27)), and only when its
+  argv names `yolo`. A local pack's argv is printed before it starts. A fetched pack's host half
+  is refused by name, and the refusal names a local checkout and the container jail where the
+  profile works.
+- **The address is the launch's.** Each of the bridge's adapter addresses, and its via address,
+  moves to a loopback port the launch picked
+  ([HS-D30](../design/host-notch-services.md#HS-D30)), and a user's `adapters` override of those
+  conversions does not apply ([WB-D13](#wb-d13) at a jail only). The launch picks the port by
+  binding port 0, holds it, and hands the bridge the bound socket when it starts it, keeping its
+  own copy for the bridge's life, so no other listener, the launch's own host-service fronts
+  included, can be given the port in between ([HS-D26](../design/host-notch-services.md#HS-D26)).
 - **The inputs come from the launch, never from a jail path.** A 0600 file in a 0700 directory
   of its own, named by `YOLO_HOST_SERVICE_INPUT` and removed by the bridge once read, carries the
   three wire tables, the caller token, the host broker's private socket, and the `env_sources`
-  the credential gate delivers to the agent for its provider. Nothing is on the argv. The Codex
-  route takes its access-token view from the host socket (`openauthclient.RequestAccessTokenUnix`),
-  a key comes from that input or the bridge's own environment and never a key file, and no
-  endpoint file is published: the launch reads the readiness line instead. A via stays inert
-  outside a jail ([WG-I12](../design/wire-bridge-gateway.md#WG-I12)), so the host half serves
-  the adapter route alone, and a plan with nothing to serve fails its readiness and exits.
+  the credential gate delivers to the agent for its provider, with the doorway pointers and region
+  variables the gate composed for that agent ([HS-D32](../design/host-notch-services.md#HS-D32)).
+  Nothing is on the argv. The Codex route takes its access-token view from the host socket
+  (`openauthclient.RequestAccessTokenUnix`), a key comes from that input or the bridge's own
+  environment and never a key file, and no endpoint file is published: the launch reads the
+  readiness line instead. The host half serves every route its tables select, adapter and via
+  routes alike, the via routes signing with the same input
+  ([HS-D30](../design/host-notch-services.md#HS-D30), superseding HS-D13's "adapter route
+  alone"); a plan with nothing to serve fails its readiness and exits. At `yolo host --`, an agent
+  with no Bedrock client of its own that the bridge carries (copilot on `-p bedrock`) is the AWS
+  doorway's client through the bridge: the doorway opens, and its pointer goes into the bridge's
+  input and not the agent's environment.
 - **Its life is the launch's.** The launch starts it after the agent resolves on `PATH` and
   after the OpenAI prelaunch, waits at most 5 seconds for `ready wire-bridge` on the readiness
   pipe, and refuses otherwise, naming the service, its argv and its log. It then runs the agent
@@ -1036,7 +1055,9 @@ launch, for the one agent it runs, stopped when that agent exits). The mechanism
   reaches the agent alone, since the bridge runs in its own process group. When the agent exits,
   by any route, the bridge gets SIGTERM and, 2 seconds later, SIGKILL. If the launch dies without
   cleanup, the bridge sees its lifeline pipe close and exits at once. A bridge that dies
-  mid-session is named on stderr once and not restarted.
+  mid-session is named on stderr and restarted on the same address, the launch having kept the
+  port's socket for it, so claude's base URL still reaches it; one more line says it is back
+  ([HS-D28](../design/host-notch-services.md#HS-D28)).
 - **It is said.** Every start prints one line naming the service, its pack, its pid, the
   address its agent was pointed at and its log. That address is the one route the bridge opens,
   though the plan picked a port for each of its adapters
@@ -1161,7 +1182,7 @@ Rulings a future change would otherwise undo, with their original IDs.
 | <a id="oq-pc2"></a>[**OQ-PC2**](#oq-pc2) — an implicit provider forward is disclosed: one launch line per port naming the provider, and the briefing's Forwarded Host Ports section fed from the merged list | A forward is a hole into the host, and the user's own config cannot be grepped for a port they never wrote. The launch has no quiet mode ([`OQ-RO3`](report-tiers.md#why-its-this-way)), so the line is permanent, and that is right: it reports something yolo **did** (it bound a port in the jail and opened a socket on the host), not an absence. Do not gate it, and do not move it after the merge, where the declared and implicit ports can no longer be told apart. |
 | <a id="oq-pc3"></a>[**OQ-PC3**](#oq-pc3) — the orphan check keeps its detection and refuses, naming each orphan's PID; it never kills and never adopts | `SIGKILL` on an argv match acts irreversibly on an *inference* about ownership. A straight revert would lose the only guard against an in-container fault that prints the bridge's bind error. Adoption is rejected because an orphan's supervisor is gone, so the orphan holds no readiness pipe. Adopting it would treat a process as serving its endpoint on the strength of its argv, which is the same inference. |
 | <a id="wb-d17"></a>[**WB-D17**](#wb-d17) — more than one agent bin is a bridge consumer, and the serve predicate walks every active profile | Found while building: a derive that *prefers* an anthropic endpoint when a provider declares one makes that agent a consumer too, and a single-bin condition would have shipped those launches a dead URL with no bridge included. |
-| <a id="wb-d19"></a>[**WB-D19**](#wb-d19) — at the host and on macos-user the bridge runs as its service's host half, a launch-owned child for one launch's agent, on ports that launch picked, fed by a 0600 input file, stopped with the agent; only an official pack's host half runs (2026-09-28) | The maintainer ruled every notch runs the selected packs' services ([OQ-NC1](../plans/notch-convergence.md#OQ-NC1), A) and that a host service lives per launch ([OQ-HS3](../design/host-notch-services.md#OQ-HS3)). The mechanism and its decisions are [`host-notch-services.md`](../design/host-notch-services.md)'s HS-D rows; see [the host half](#at-the-host-notch). |
+| <a id="wb-d19"></a>[**WB-D19**](#wb-d19) — at the host and on macos-user the bridge runs as its service's host half, a launch-owned child for one launch's agent, on ports that launch picked, fed by a 0600 input file, stopped with the agent; only a pack yolo ships, or since HS-D27 a local one, runs its host half, and since HS-D30 a via or a carrier starts it too (2026-09-28) | The maintainer ruled every notch runs the selected packs' services ([OQ-NC1](../plans/notch-convergence.md#OQ-NC1), A) and that a host service lives per launch ([OQ-HS3](../design/host-notch-services.md#OQ-HS3)). The mechanism and its decisions are [`host-notch-services.md`](../design/host-notch-services.md)'s HS-D rows; see [the host half](#at-the-host-notch). |
 | <a id="wb-d18"></a>[**WB-D18**](#wb-d18) — every request carries the launch's caller token or is refused `401`; the token is minted per launch, reused by an attach, delivered only through the per-entry channel, and never forwarded upstream (2026-09-28) | The maintainer, 2026-09-27: *"calling the jail the boundary here seems also just as bad for security because jails don't need to be bridge type, they can be house type and then um it's identical. So uh if you think this is an issue, we need to solve it in both places."* A jail on the host's loopback shares the bridge's ports with every host process, and a client sends its real credential to whatever holds the port. For claude, the Claude login went too ([§8.1](../design/agent-auth-modes.md#81-measured-2026-09-02-the-subscription-bearer-follows-anthropic_base_url)). The token is the one credential a bridged client may send there, so the address names it, and the host notch's bridge will reuse it. See [caller authentication](#caller-authentication). |
 
 ## Current values
