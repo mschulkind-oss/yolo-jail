@@ -476,12 +476,24 @@ func hostSelectionOnTheEdge(t *testing.T, rmw bool) {
 // from, under `own` — and once your own later pick stands, it is not. MEASURED before
 // 2026-10-04: the profile's first activation replaced `defaultModel: before-yolo` and the
 // report's Overwrites was [] under the retired `assert` (rmw) and under `own` (stateful).
+//
+// Through both mechanisms an owned host runs — pi/settings as shipped (`stateful`) and
+// re-declared `rmw` — because each builds the report its own way: the rmw arm adds the computed
+// leaves to the declaration-based list (withComputedOverwrites), and `stateful` re-measures
+// against its composed write (hostStatefulOverwrites). Run under `own` alone with the shipped
+// declaration, the rmw arm's half had no test.
 func TestTheOverwriteReportNamesAComputedLeaf(t *testing.T) {
+	for _, m := range hostMechanisms {
+		t.Run(m.name, func(t *testing.T) { overwriteReportNamesAComputedLeaf(t, m.rmw) })
+	}
+}
+
+func overwriteReportNamesAComputedLeaf(t *testing.T, rmw bool) {
 	t.Setenv("YOLO_CTX_ROOT", t.TempDir())
 	home := t.TempDir()
 	settings := filepath.Join(home, ".pi", "agent", "settings.json")
 	writeTestFile(t, settings, `{"theme": "dark", "defaultModel": "before-yolo"}`)
-	packs := testPacksForAgent(t, "pi")
+	packs := declaredRMW(t, testPacksForAgent(t, "pi"), "pi", rmw)
 	in := hostTestInputs(t, packs, map[string]string{"pi": "codex"}, nil, nil)
 	preview := func() HostRenderResult {
 		t.Helper()
@@ -513,12 +525,21 @@ func TestTheOverwriteReportNamesAComputedLeaf(t *testing.T) {
 // profile and writes on every apply. Both read "(computed from your profile)" until 2026-10-05,
 // and the CLI attached "a pick of your own after that stands" to both — MEASURED (the reviewer's
 // probe): your subagent model was replaced on the next apply, under a line saying it would stand.
+//
+// Through both mechanisms an owned host runs, as shipped (`stateful`) and re-declared `rmw`, for
+// the reason TestTheOverwriteReportNamesAComputedLeaf states: each labels the leaves its own way.
 func TestTheOverwriteReportTellsASelectionKeyFromARecomputedLeaf(t *testing.T) {
+	for _, m := range hostMechanisms {
+		t.Run(m.name, func(t *testing.T) { overwriteReportTellsASelectionKeyFromARecomputedLeaf(t, m.rmw) })
+	}
+}
+
+func overwriteReportTellsASelectionKeyFromARecomputedLeaf(t *testing.T, rmw bool) {
 	t.Setenv("YOLO_CTX_ROOT", t.TempDir())
 	home := t.TempDir()
 	settings := filepath.Join(home, ".pi", "agent", "settings.json")
 	writeTestFile(t, settings, `{"theme": "dark", "defaultModel": "before-yolo"}`)
-	packs := testPacksForAgent(t, "pi")
+	packs := declaredRMW(t, testPacksForAgent(t, "pi"), "pi", rmw)
 	in := hostTestInputs(t, packs, map[string]string{"pi": "codex"}, nil, nil)
 	preview := func() []string {
 		t.Helper()

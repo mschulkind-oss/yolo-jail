@@ -85,7 +85,19 @@ func TestHostRenderNamesOutrankedAutonomyKey(t *testing.T) {
 // THE MISLEADING WARNING, which is the half of F4 that made the output worse than silent: the
 // ⚠ overwrite line must NOT attribute the clobber to an overlay whose value never reached the
 // file. The managed layer that actually wrote it is still reported, unlabelled.
+//
+// Through both mechanisms an owned host runs — claude/settings as shipped (`stateful`) and
+// re-declared `rmw` — because each drops the outranked overlay in a different place: the rmw
+// arm's report is the declaration-based list (overlayOverwrites, which skips an outranked key),
+// and `stateful` re-measures it against its composed write (hostStatefulOverwrites). Run under
+// `own` alone with the shipped declaration, the rmw arm's half had no test.
 func TestHostRenderDoesNotBlameAnOutrankedOverlayForTheOverwrite(t *testing.T) {
+	for _, m := range hostMechanisms {
+		t.Run(m.name, func(t *testing.T) { hostRenderDoesNotBlameAnOutrankedOverlay(t, m.rmw) })
+	}
+}
+
+func hostRenderDoesNotBlameAnOutrankedOverlay(t *testing.T, rmw bool) {
 	home := t.TempDir()
 	settings := filepath.Join(home, ".claude", "settings.json")
 	if err := os.MkdirAll(filepath.Dir(settings), 0o755); err != nil {
@@ -96,13 +108,14 @@ func TestHostRenderDoesNotBlameAnOutrankedOverlayForTheOverwrite(t *testing.T) {
 		[]byte(`{"permissions":{"defaultMode":"plan"}}`), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	claude, err := embeddedPack("claude")
+	shipped, err := embeddedPack("claude")
 	if err != nil {
 		t.Fatalf("embedded claude: %v", err)
 	}
 	pushy := claudeSettingsOverlay(t, "pushy", map[string]any{
 		"permissions": map[string]any{"defaultMode": "acceptEdits"},
 	})
+	claude := declaredRMW(t, []*packload.Pack{shipped}, "claude", rmw)[0]
 	overlays := packoverlay.Collect([]*packload.Pack{claude, pushy}, false, nil)
 
 	// Observe: the report must be honest BEFORE anything is written.

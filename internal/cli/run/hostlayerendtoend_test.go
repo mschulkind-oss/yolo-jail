@@ -81,8 +81,10 @@ func e2eHomeWith(t *testing.T, contributes string) (string, []*packload.Pack) {
 	return home, loaded
 }
 
-// e2eHostOwn is step 1 under `own`: what `yolo host apply --assert` runs at the host's own
-// posture with `host_management: "own"` declared.
+// e2eHostOwn is step 1 under `own`: the render `yolo host apply --assert` runs at the host's own
+// posture, called through entrypoint.RenderHostPack under render.OwnershipOwn directly. That entry
+// takes the contract as a parameter rather than reading `host_management` from the user config,
+// so this fixture writes no such key and the user config's value is not consulted.
 func e2eHostOwn(t *testing.T, home string, loaded []*packload.Pack) {
 	t.Helper()
 	e2eHostRender(t, home, loaded)

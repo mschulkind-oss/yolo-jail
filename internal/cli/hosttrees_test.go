@@ -519,11 +519,16 @@ func TestAHostCopyWhoseEntryIsReapedIsNeverLinked(t *testing.T) {
 // A TREE LISTED ONLY IN AN AUTONOMOUS POSTURE LIST reaches no host, so it never stops the owner's host
 // launch (PPX-D26), though nothing renders it there. Red if the stop stops reading where the entry
 // reaches.
+//
+// Under `own`, the one contract the stop runs under: with the key unset (`none`) hostTreeGate
+// returns before it reads a tree, so this would pass with the ListedAtHost check deleted. And
+// host_apply_on_launch off, which `own` derives on: the launch's own stop is under test, not an
+// automatic apply's.
 func TestATreeListedOnlyForJailsNeverStopsAHostLaunch(t *testing.T) {
 	fx := newTreeFixture(t, `"f.txt"`)
 	fx.listTreeForAgentWith(t, `{"kind":"autonomy","autonomous":{"lists":[{"surface":"tool/settings",`+
 		`"path":"/packages","add":["~/.tool/ext/tool-ext"]}]}}`)
-	fx.writeHostConfig(t, "")
+	fx.writeHostConfig(t, treeHostOwn+`,"host_apply_on_launch":false`)
 	if f := fx.tree(t); f.Owner != "agentpack" || f.ListedAtHost {
 		t.Fatalf("the fixture's tree: owner %q, listed at the host %v", f.Owner, f.ListedAtHost)
 	}

@@ -2,11 +2,13 @@ package entrypoint
 
 import (
 	"encoding/json"
-	"github.com/mschulkind-oss/yolo-jail/internal/render"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/mschulkind-oss/yolo-jail/internal/packload"
+	"github.com/mschulkind-oss/yolo-jail/internal/render"
 )
 
 // The SHIPPED claude pack, rendered at the host notch, must NOT write the jail-bypass
@@ -164,17 +166,41 @@ func TestHostRenderReportsOverwrites(t *testing.T) {
 		t.Errorf("observe must not write — the user's defaultMode should still be 'plan':\n%s", after)
 	}
 
-	// A file that already matches the managed value reports NO overwrite (idempotent).
-	if err := os.WriteFile(settings,
-		[]byte(`{"permissions":{"defaultMode":"default"},`+
-			`"skipDangerousModePermissionPrompt":false}`), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	results, _ = RenderHostPack(claude, home, render.OwnershipOwn, true, nil, nil)
-	for _, r := range results {
-		if r.Surface == "claude/settings" && len(r.Overwrites) > 0 {
-			t.Errorf("an identical value must not be reported as an overwrite: %v", r.Overwrites)
-		}
+	// A file that already matches the managed value reports NO overwrite (idempotent), through
+	// both mechanisms an owned host runs — claude/settings as shipped (`stateful`) and re-declared
+	// `rmw`. Each suppresses an identical value its own way: the rmw arm's report is the
+	// declaration read against the file (managedOverwrites), and `stateful` re-measures it against
+	// its composed write (hostStatefulOverwrites), so the shipped declaration alone left the rmw
+	// arm's suppression with no test.
+	for _, m := range hostMechanisms {
+		t.Run("identical/"+m.name, func(t *testing.T) {
+			if err := os.WriteFile(settings,
+				[]byte(`{"permissions":{"defaultMode":"default"},`+
+					`"skipDangerousModePermissionPrompt":false}`), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			p := declaredRMW(t, []*packload.Pack{claude}, "claude", m.rmw)[0]
+			results, err := RenderHostPack(p, home, render.OwnershipOwn, true, nil, nil)
+			if err != nil {
+				t.Fatalf("RenderHostPack observe: %v", err)
+			}
+			seen := false
+			for _, r := range results {
+				if r.Surface != "claude/settings" {
+					continue
+				}
+				seen = true
+				if strings.HasPrefix(r.Action, "refused") {
+					t.Fatalf("claude/settings: %q", r.Action)
+				}
+				if len(r.Overwrites) > 0 {
+					t.Errorf("an identical value must not be reported as an overwrite: %v", r.Overwrites)
+				}
+			}
+			if !seen {
+				t.Fatalf("no claude/settings result: %+v", results)
+			}
+		})
 	}
 }
 
