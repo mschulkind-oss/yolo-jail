@@ -38,6 +38,7 @@ import (
 func withForkFloor(t *testing.T) *floortest.Dist {
 	t.Helper()
 	dist := floortest.NewLinuxDist(t)
+	root := floorLoaderRoot(t)
 	orig := newHostFloor
 	newHostFloor = func(out io.Writer, progs []hostfloor.Program) *hostfloor.Floor {
 		f := productionHostFloor(out, progs)
@@ -46,6 +47,9 @@ func withForkFloor(t *testing.T) *floortest.Dist {
 			Pinned: map[string]string{dist.Platform: dist.SHA256}}
 		f.Environ = append(os.Environ(), dist.Environ()...)
 		f.Capture = nil
+		// The loader check's root is the fixture's own (floorLoaderRoot): a fork's Node script asks
+		// for Node's official build's loader, which a NixOS machine without nix-ld lacks.
+		f.Root = root
 		return f
 	}
 	t.Cleanup(func() { newHostFloor = orig })
