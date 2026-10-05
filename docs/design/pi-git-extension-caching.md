@@ -3,35 +3,31 @@ title: "Sharing pi git extensions across jails: immutable per-commit trees, neve
 date: 2026-09-25
 status: in-review
 stage: DESIGN
-next: "Rule OQ-6: the store is built and was green on the local branch held/pi-extension-store (d44cb88b9: six commits on a5665814, which main does not contain; merge base c5261b998), every OQ-6 option keeps it, and landing it rebases those six onto main with --onto and reruns the gate"
+next: "Build OQ-6 (c), ruled 2026-10-05, in pi-extension-store-builds.md: pack-declared extensions built on the host as patched ones are, a read-only copy per jail; the held branch stays unmerged"
 tags: [pi, extensions, git, caching, machine-tier, storage, isolation]
-summary: "pi's git extensions cost every new jail a clone and a dependency build. The first build shared one mutable checkout per repository across jails, which let one jail's pin or update change the files another jail was running; the maintainer's rulings of 2026-09-25 withdraw it. The redesign shares content, never state: a machine store of bare mirrors and one immutable tree per resolved commit, each jail pointing at the commit its own config resolves to, pi loading each tree as a local package so it never clones or updates one itself. A launch waits for the tree it needs and never boots on another launch's leftovers. The npm store gets the same treatment, git first (ruled 2026-09-26). One question is open: whether the pi pack may rewrite its own packages list after the merge."
+summary: "pi's git extensions cost every new jail a clone and a dependency build. The first build shared one mutable checkout per repository across jails, which let one jail's pin or update change the files another jail was running; the maintainer's rulings of 2026-09-25 withdraw it. The redesign shares content, never state: a machine store of bare mirrors and one immutable tree per resolved commit, each jail pointing at the commit its own config resolves to, pi loading each tree as a local package so it never clones or updates one itself. A launch waits for the tree it needs and never boots on another launch's leftovers. The npm store gets the same treatment, git first (ruled 2026-09-26). One question is open, restated on 2026-10-05 around a companion design: whether pack-declared extensions land through this store and its post-merge rewrite, or are built as patched extensions are, with no patches and nothing rewritten."
 vantage:
   status-chip: true
 ---
 
 # Sharing pi git extensions across jails: immutable per-commit trees, never one shared checkout
 
-**Status:** 2026-09-26 — **redesigned after review on 2026-09-25**, and [OQ-5](#OQ-5) ruled on 2026-09-26 (npm gets the same design, git first). The redesign is
-built, and was green, on the local branch `held/pi-extension-store` (`d44cb88b9`) but **not on main**: [OQ-6](#OQ-6), the rewrite hook against [`OQ-LT2`](../reference/pack-system.md#oq-lt2), must be ruled first. What `c402dd43` built from the first draft is half withdrawn: its `.pi-shared-git` shared
-checkout is REVERTED, with the boot step that removes the link it left BUILT
-([§3.10](#310-migration-from-what-c402dd43-shipped)), and its `due_on_change` refresh trigger
-stays ([§3.12](#312-the-refresh-trigger-that-stays)). Until the redesign is built, each workspace
-clones its own git extensions again, as before `c402dd43`. **MEASURED:**
-pi 0.87.1's package manager, read (not run) at `dist/core/package-manager.js` in the jail's install.
-**UNMEASURED:** nothing has run against a real pi git extension; every cost figure is an estimate.
-Re-checked 2026-10-03: the work is still unmerged. It was first built as `f300bf00` on
-`wip/pi-extension-store`, and that commit's message says the launcher templates must be rebased
-over the credential gate before it can land. `3ab39946f` (2026-09-30) is that rebase, and its message says
-the tests were green again. That commit and five follow-ups are the held work, `a5665814..d44cb88b9`.
-Main does not contain their base `a5665814`: it holds re-committed copies of that line, made
-later on 2026-09-30, so the merge base is `c5261b998`. Of the 33 commits after it, up to and
-including `a5665814`, 32 are patch-equivalent to main's copies (`git cherry`), and one, the roadmap
-rebuild `897592d5`, is not. A plain `git rebase main` stops on that commit (tried 2026-10-03 on a
-detached copy of the branch); `git rebase --onto main a5665814 held/pi-extension-store` replays
-only the held work. The `wip/` branches are deleted. The npm half is still live on main as one shared prefix:
-`packs/pi/pack.json` declares `.pi-shared-npm` at `scope: "machine"` with a `shared_directory`
-hook from `.pi/agent/npm`, the leak [OQ-5](#OQ-5)'s ruling replaces.
+**Status:** 2026-10-05 — **redesigned after review on 2026-09-25**, [OQ-5](#OQ-5) ruled on
+2026-09-26 (npm gets the same design, git first), and [OQ-6](#OQ-6) restated on 2026-10-05 around
+[`pi-extension-store-builds.md`](pi-extension-store-builds.md), which adds parallel builds, the
+capture of unmodified extensions, the end of the machine-wide lock and the update-timing ruling. The
+redesign is built, and was green, on the local branch `held/pi-extension-store` (`d44cb88b9`, six
+commits on `a5665814`) but **not on main**, and it lands only under [OQ-6](#OQ-6)'s (a) or (b); how to land it
+is in [the companion's sketch](pi-extension-store-builds-plan.md#landing-the-held-store). What
+`c402dd43` built from the first draft is half withdrawn: its `.pi-shared-git` shared checkout is
+REVERTED, with the boot step that removes the link it left BUILT
+([§3.10](#310-migration-from-what-c402dd43-shipped)), and its `due_on_change` refresh trigger stays
+([§3.12](#312-the-refresh-trigger-that-stays)). Until something is built, each workspace clones its
+own git extensions, as before `c402dd43`, and the npm half is still live on main as one shared prefix,
+`.pi-shared-npm`, the leak [OQ-5](#OQ-5)'s ruling replaces. **MEASURED** 2026-10-05 by a research
+pass against the held code: its costs per pi exec and three defects, in
+[the companion's §8](pi-extension-store-builds.md#8-if-the-held-store-lands-instead). **UNMEASURED:**
+no real pi has loaded a tree.
 
 > **In short.** Jails may share what is identical, never what one of them can change. So the
 > machine keeps one immutable tree per resolved commit, each jail points at the commit its own
@@ -53,9 +49,13 @@ git extensions again, as it did before `c402dd43`.
 
 **Start at [§3](#3-the-design--share-content-never-state)**, the store and how a jail reaches it.
 
-**Needs your ruling:** [OQ-6](#OQ-6), whether the pi pack may rewrite its own `packages` list after the merge. Every earlier question is ruled.
+**Needs your ruling:** none. [OQ-6](#OQ-6) was ruled 2026-10-05: pack-declared extensions are built
+as patched extensions are, with nothing rewritten, and the held store stays unmerged.
 
 **Reads with:**
+- [`pi-extension-store-builds.md`](pi-extension-store-builds.md): the companion of 2026-10-05,
+  split out so each stays decidable. It compares this store with the capture route [OQ-6](#OQ-6)'s (c) names,
+  and holds the parallel builds, the locks, the update timing and the startup profile.
 - [`pack-pi-resources.md`](pack-pi-resources.md): pack-shipped trees registered as local pi
   packages. Both designs make pi load yolo-managed content as **local** packages, which pi never
   installs or updates; the two must leave each other's `packages` entries alone.
@@ -68,7 +68,8 @@ git extensions again, as it did before `c402dd43`.
 - [`patched-extensions.md`](patched-extensions.md): a pi extension that follows its upstream with a
   patch series, replayed on the host, built in the sealed capture jail and mounted per launch outside
   this store, through a local entry this design's rewrite passes untouched. Its
-  [OQ-PPX1](patched-extensions.md#OQ-PPX1) asks how far [OQ-2](#OQ-2) reaches there.
+  [OQ-PPX1](patched-extensions.md#OQ-PPX1), decided under the maintainer's delegation, sets how far
+  [OQ-2](#OQ-2) reaches there.
 
 ---
 
@@ -208,18 +209,35 @@ implementation decision PG-D2, without noticing it contradicts [`OQ-LT2`](../ref
 ruling also names the other road: *"a declarative `filter`/`replace` op is designed against a
 real case or not at all"*, and this is a real case.
 
+Since 2026-10-05 the question is also whether this store is needed at all. Patched extensions build
+a tree from an upstream on the host, in the sealed capture jail, and hand each jail a read-only copy
+through a list entry the author writes ([`patched-extensions.md`](patched-extensions.md)); an
+unmodified extension is the same build with no patches. For what a pack declares, that route needs
+no rewrite, so the rewrite would be left serving only entries no pack declares. The comparison, row
+by row, is [the companion's §2](pi-extension-store-builds.md#2-the-verdict-and-five-principles).
+
 The options in full:
 
-- **(a)** Amend [`OQ-LT2`](../reference/pack-system.md#oq-lt2): a pack's own `yolo.finalize` on its own surface is the one allowed
-  post-fold step. It runs in the derive's sandbox, is deterministic, and runs in every compose,
-  the capture's included. No user- or config-supplied script. Built and tested; ships as is.
-- **(b)** Keep [`OQ-LT2`](../reference/pack-system.md#oq-lt2) as written and replace the Lua hook with a declarative rewrite op in
-  `pack.json`: pattern-to-template rules the pack supplies, applied by core to one array. It
-  needs per-capture transforms (a ref's `/` escaped, `@HEAD` and `@latest` defaults), so it is a
-  small vocabulary core owns. The store, the launcher step and garbage collection are unchanged.
-- **(c)** No rewrite: the user writes pointer paths, or a `yolo` command converts the entries
-  once. No post-merge step of any kind; every `pi install git:X` in a jail stays unshared until
-  converted.
+- **(a)** Land this store, and amend [`OQ-LT2`](../reference/pack-system.md#oq-lt2): a pack's own
+  `yolo.finalize` on its own surface is the one allowed post-fold step. It runs in the derive's
+  sandbox, is deterministic, and runs in every compose, the capture's included. No user- or
+  config-supplied script. Built and tested; lands with the companion's
+  [§8](pi-extension-store-builds.md#8-if-the-held-store-lands-instead) fixes.
+- **(b)** Land this store, keep [`OQ-LT2`](../reference/pack-system.md#oq-lt2) as written, and
+  replace the Lua hook with a declarative rewrite op in `pack.json`: pattern-to-template rules the
+  pack supplies, applied by core to one array. It needs per-capture transforms (a ref's `/` escaped,
+  `@HEAD` and `@latest` defaults), so it is a small vocabulary core owns. The store, the launcher
+  step and garbage collection are unchanged.
+- **(c)** Do not land this store. A pack declares each extension as a `files` contribution with a
+  `source` and no patches, built and delivered as a patched extension is
+  ([the companion's §4](pi-extension-store-builds.md#4-capturing-unmodified-extensions)). Nothing
+  is rewritten, so [`OQ-LT2`](../reference/pack-system.md#oq-lt2) stands. An update lands at a fresh jail launch, not at a pi relaunch
+  inside a running jail; a tree is mounted read-only, so an extension that writes into its own
+  directory at run time, which pi's own writable install allows, fails there
+  ([the companion's §11](pi-extension-store-builds.md#11-risks)); a Mac without a container gets pi's
+  own install through the author's fallback; and entries no pack declares, your own `pi install`
+  among them, stay pi's, per workspace, where they no longer leak but are not shared. That last
+  departs from [OQ-5](#OQ-5)'s *"pi's updater touches nothing in a jail"* for those entries.
 
 ### 3.3 Resolving at launch
 
@@ -358,23 +376,36 @@ mirrors.
 [OQ-4](#OQ-4)'s leakage. Two jails pinning different versions of one package share one
 `node_modules/<name>`, which is [OQ-3](#OQ-3)'s winner. The same shape fixes it: one tree per
 package at a resolved version and recipe, `npm:` entries rewritten to pointers, and yolo resolving
-versions. pi's own `pi update` would then have nothing left to touch in a jail. Whether that is done
-now is [OQ-5](#OQ-5).
+versions. pi's own `pi update` would then have nothing left to touch in a jail. [OQ-5](#OQ-5) ruled,
+on 2026-09-26, that this is done now, git first and then npm in one build, because two mechanisms
+for one property is drift.
 
-<a id="oq-5-background"></a>The background to [OQ-5](#OQ-5): `.pi-shared-npm` breaks [OQ-3](#OQ-3)
-and [OQ-4](#OQ-4) in the same way the git store did, and it is live today. The earlier ruling that
-shared it ([`pi-extension-lifecycle.md` OQ-1](pi-extension-lifecycle.md#OQ-1), *"one version
-instead of N that drift"*) predates the no-winner ruling, and the two now pull apart for any pinned
-version.
+<a id="oq-5-background"></a>Why the npm store was ruled, and not left: `.pi-shared-npm` breaks
+[OQ-3](#OQ-3) and [OQ-4](#OQ-4) in the same way the git store did, and it is live today. The earlier
+ruling that shared it ([`pi-extension-lifecycle.md` OQ-1](pi-extension-lifecycle.md#OQ-1), *"one
+version instead of N that drift"*) predates the no-winner ruling, and the two pull apart for any
+pinned version. The companion proposes a first step under every [OQ-6](#OQ-6) option, ahead of any
+tree: retire the shared prefix and move the refresh's lock, stamp and seen markers into each
+workspace's `.pi`. That is [OQ-5](#OQ-5)'s option (c) taken as an interim, so it waits on the
+maintainer's confirmation
+([the companion's §6.3](pi-extension-store-builds.md#63-what-replaces-the-machine-wide-lock-now),
+[XB-D14](pi-extension-store-builds.md#XB-D14)).
 
 ### 3.12 The refresh trigger that stays
 
 `c402dd43`'s `due_on_change` makes pi's pre-launch refresh due whenever the settings content
 changed since the last successful refresh, keyed per content
 ([`pack-system.md`](../reference/pack-system.md#program)). Git extensions no longer need it: pi
-never installs them. It still serves the npm store until [OQ-5](#OQ-5) is ruled and built, because
-an npm package newly added within the hour would otherwise be installed by pi's own startup,
-unlocked. It is independent of the store's shape, so it stays either way.
+never installs them. It still serves npm packages until the npm half of [OQ-5](#OQ-5)'s ruling is
+built, because an npm package newly added within the hour would otherwise be installed by pi's own
+startup, unlocked, and under every [OQ-6](#OQ-6) option it serves what pi still installs itself
+from the user settings it watches: an in-session `pi install`, and under (c) every entry no pack
+declares. It watches only `~/.pi/agent/settings.json` (READ
+[`packs/pi/pack.json:31-33`](../../packs/pi/pack.json#L31-L33),
+[`prelaunchrefresh.go:109-111`](../../internal/entrypoint/prelaunchrefresh.go#L109-L111)), never a
+project's `.pi/settings.json`, which pi 1.0.1 reads from the starting directory
+(`settings-manager.js:100`), so a project package newly added is still pi's own unlocked startup
+install. It is independent of the store's shape, so it stays either way.
 
 ## 4. Invariants and done conditions
 
@@ -417,51 +448,35 @@ unlocked. It is independent of the store's shape, so it stays either way.
 
 ## 6. Open questions
 
-1. 💬 <a id="OQ-6"></a>**[OQ-6](#OQ-6): may the pi pack rewrite its own surface after the merge,
-   when [`OQ-LT2`](../reference/pack-system.md#oq-lt2) said not to reintroduce a post-merge script
-   slot?**
+1. ✅ <a id="OQ-6"></a>**[OQ-6](#OQ-6): Do the pi extensions a pack declares land through this
+   store and its post-merge rewrite, or are they built as patched extensions are, with nothing
+   rewritten?**
 
-   Why it needs a ruling, and each option in full, close
-   [§3.2](#32-pointing-pi-at-a-tree).
+   [The companion's §2](pi-extension-store-builds.md#2-the-verdict-and-five-principles) compares
+   them and [§3.2](#32-pointing-pi-at-a-tree) gives each in full.
 
-   - **(a)** Amend [`OQ-LT2`](../reference/pack-system.md#oq-lt2): a pack's own `yolo.finalize` on
-     its own surface is the one allowed post-fold step. Built and tested; ships as is.
-   - **(b)** Keep [`OQ-LT2`](../reference/pack-system.md#oq-lt2) as written and replace the Lua
-     hook with a declarative rewrite op in `pack.json`.
-   - **(c)** No rewrite: the user writes pointer paths, or a `yolo` command converts the entries
-     once.
-
-   _Leaning:_ **(a)**. The rewrite parses four source forms and escapes refs, which a declarative
-   op can express only by growing the filter vocabulary the transform removal retired, and the
-   sandbox it would replace already exists for derives. The narrowing (pack-owned, its own
-   surface, deterministic, never user-supplied) keeps what [`OQ-LT2`](../reference/pack-system.md#oq-lt2) protected: no script over a raw
-   file the host owns, and no config key that runs code.
-
-   <!-- vantage: question id=OQ-6 leaning="(a): amend OQ-LT2 so a pack's own yolo.finalize on its own surface is the one allowed post-fold step — deterministic, in the derive sandbox, in every compose including the capture's, never user- or config-supplied. Built and tested. (b), a declarative pattern-to-template op in pack.json, needs per-capture transforms and so grows the filter vocabulary the transform removal retired." -->
-
-   **Answer:**
+   - **(a)** Land this store, amending [`OQ-LT2`](../reference/pack-system.md#oq-lt2) so the pi
+     pack may rewrite its list. Your own `pi install` is shared, and a pi relaunch updates.
+   - **(b)** Land it with a declarative rewrite in `pack.json`, keeping
+     [`OQ-LT2`](../reference/pack-system.md#oq-lt2) as written.
+   - **(c)** Build them as patched extensions with no patches: on the host, sealed, a read-only copy
+     per jail launch, which an extension cannot write into. Updates land at a jail launch; entries
+     no pack declares stay pi's, per workspace, unlike [OQ-5](#OQ-5).
 
 
-1. ✅ <a id="OQ-5"></a>**[OQ-5](#OQ-5): does the npm store move to the same shape now?**
-   Background: the end of [§3.11](#311-the-npm-store).
-
-   - **(a)** Extend this design to `npm:` entries now: one mechanism, and pi's updater touches
-     nothing in a jail. The largest build, and pi's pre-launch refresh then has nothing to do.
-   - **(b)** Ship git first and give npm its own follow-up; npm stays leaky until then.
-   - **(c)** Unshare the npm store for now (per-workspace prefixes). No leakage, at the cost of a
-     full npm install per workspace until (a).
-
-   <!-- vantage: question id=OQ-5 -->
-
-   _Leaning:_ **(a)**, sequenced git first then npm inside one build. The rulings apply to npm
-   exactly as they do to git, and a second mechanism for the same property is the drift this repo
-   keeps paying for.
-
+   _Leaning:_ **(c)**: it is what the maintainer asked for on 2026-10-05 (*"if we can just capture
+   unmodified extensions that would probably be great"*). No jail can write what another runs,
+   install scripts run sealed rather than in your jail, nothing is rewritten so
+   [`OQ-LT2`](../reference/pack-system.md#oq-lt2) stands, and one build serves patched and
+   unmodified extensions. Its gap, your own `pi install`, is unshared but no longer leaks once the
+   npm prefix is per workspace.
 
    **Answer:**
-   > **(a)**, ruled in review 2026-09-26: extend the immutable-tree design to npm entries now,
-   > sequenced git first then npm in one build. The rulings apply to npm exactly as to git, and
-   > two mechanisms for one property is drift. Unbuilt.
+   > **Ruled in review 2026-10-05, (c):** the extensions a pack declares are built like patched ones with
+   > zero patches: on the host, sealed, once per machine, with a read-only copy in each new jail; nothing
+   > rewrites the pi package list, so [`OQ-LT2`](../reference/pack-system.md#oq-lt2) stands, and the held store stays unmerged. On the costs: *"I
+   > think the jail restart is the update mechanism. It is a fairly accepted YOLO convention at this
+   > point."* The copy-per-jail and first-launch waits are to optimize later.
 
 ## 7. Decision Ledger
 
@@ -470,6 +485,7 @@ unlocked. It is independent of the store's shape, so it stays either way.
 | <a id="OQ-1"></a>[**OQ-1**](#OQ-1) | The refresh lock's location: **an implementation decision**, not the maintainer's (*"an implementation decision I don't need to comment on"*). This design's locks are [§3.5](#35-locks-waits-and-bounds)'s | 2026-09-25 | [§3.5](#35-locks-waits-and-bounds) | — |
 | <a id="OQ-2"></a>[**OQ-2**](#OQ-2) | **A launch's result never depends on other launches.** It waits for the update it needs and gets what its config calls for; it never boots on another launch's leftovers (*"what you get in a launch should not depend on the state of other launches"*). Overturns the non-blocking leaning and the first draft's P4 | 2026-09-25 | [§1](#1-principles) P2, [§3.5](#35-locks-waits-and-bounds), [§3.6](#36-failure-paths) | — |
 | <a id="OQ-3"></a>[**OQ-3**](#OQ-3) | **No winner.** Jails pick their own versions (*"You can't have one jail's configuration impact another"*) | 2026-09-25 | [§1](#1-principles) P3, [§3.3](#33-resolving-at-launch) | — |
+| [OQ-6](#OQ-6) | **(c):** pack-declared extensions are built on the host as patched extensions are, with zero patches, and each new jail gets a read-only copy; nothing rewrites the package list; the held store stays unmerged; a jail restart is the update mechanism | 2026-10-05 | [OQ-6](#OQ-6) | pending ([`pi-extension-store-builds.md`](pi-extension-store-builds.md)) |
 | <a id="OQ-4"></a>[**OQ-4**](#OQ-4) | **No leakage of effects between jails**; sharing and efficiency yes (*"something has to change about your design"*) | 2026-09-25 | [§1](#1-principles) P1, [§3.1](#31-the-store) | — |
 | PG-D1 | *Implementation decision.* Trees keyed by commit plus recipe, built in `tmp/` and renamed, read-only after completion | 2026-09-25 | [§3.4](#34-building-a-tree) | — |
 | PG-D2 | *Implementation decision.* pi sees each tree as a **local package** through a stable per-workspace pointer, rewritten by the pi pack's `yolo.finalize` post-fold hook, user scope only, never at the host notch | 2026-09-25 | [§3.2](#32-pointing-pi-at-a-tree) | — |
@@ -479,4 +495,4 @@ unlocked. It is independent of the store's shape, so it stays either way.
 | PG-D6 | *Implementation decision.* Garbage collection by last use, 14 days, only through `yolo prune --apply` | 2026-09-25 | [§3.8](#38-garbage-collection) | — |
 | PG-D7 | *Implementation decision.* Revert `c402dd43`'s shared hook; remove the dangling `~/.pi/agent/git` link; keep `due_on_change`; no seeding from the retired store | 2026-09-25 | [§3.10](#310-migration-from-what-c402dd43-shipped) | — |
 | PG-D8 | *Implementation decision.* The dangling link is removed by a new generic hook, `unshare_directory` (`from`, `at`), which pi declares in place of its retired shared pair: it replaces exactly the link `linkIntoSharedDir` wrote (matched by its relative target, never followed) with an empty directory, and touches nothing else. A hook rather than a boot rule keyed on "no current hook claims it", because only the pack knows which link it once made | 2026-09-25 | [§3.10](#310-migration-from-what-c402dd43-shipped) | yes, 2026-09-25 |
-| OQ-5 | **The npm store gets the immutable-tree design too**, built after git in the same build; two mechanisms for one property is drift | 2026-09-26 | [OQ-5](#OQ-5) | — |
+| <a id="OQ-5"></a>[**OQ-5**](#OQ-5) | **The npm store gets the immutable-tree design too, now**, built after git in the same build: the ruled option (a), *"one mechanism, and pi's updater touches nothing in a jail"*, over a git-only first build and over unsharing the prefix alone. The rulings apply to npm exactly as to git, and two mechanisms for one property is drift | 2026-09-26 | [§3.11](#311-the-npm-store) | — |

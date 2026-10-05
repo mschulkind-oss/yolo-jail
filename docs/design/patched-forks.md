@@ -5,7 +5,7 @@ status: accepted
 stage: DECIDED
 tags: [design, packs, programs, forks, build, evergreen, git]
 summary: "A second mode for a forked program: the fork pack names the upstream and carries a git format-patch series. yolo checks the upstream at most hourly, replays the series at its base and picks it onto the newest upstream version it fits on the host, builds the result in the sealed capture jail, and moves this machine's good build only once that build is admitted, so a new upstream version the series does not fit leaves the previous build running. The same mode follows a pi extension's upstream as a tree, in patched-extensions.md. The four calls that were the maintainer's, what runs after the user's own edit fails, whether the default follows versions or the branch head, whether a launch waits for the rebuild, and whether a conflict gets a rebase verb, were decided on their leanings under his delegation of 2026-10-04."
-next: "Built at every notch but macos-user, patched extensions included, and integrated on build/patched at e87f1ba88 (2026-10-05); the maintainer tests it, with the migration kit in the durable scratch directory, may overrule PF-D23 to PF-D26, and rules OQ-PFK5 (macos-user, which waits on install-capture.md's H4)"
+next: "Built at every notch but macos-user, patched extensions included, and integrated on build/patched at e87f1ba88 (2026-10-05); the maintainer tests it, with the migration kit in the durable scratch directory, and may overrule PF-D23 to PF-D26; macos-user delivery is deferred with the fork route's own macos-user step (OQ-PFK5, ruled 2026-10-05)"
 depends-on:
   - forked-programs-as-packs.md
 ---
@@ -22,7 +22,7 @@ at every notch, which every conflict line now names ([PF-D47](#PF-D47)–[PF-D49
 built the same day for the host floor: `yolo host -- <bin>` and `yolo host apply --assert` run the
 advance and install the good build ([PF-D50](#PF-D50) to [PF-D53](#PF-D53), [PF-D55](#PF-D55)). On
 macos-user, and at a Mac's `yolo host`, the launch says where the fork runs ([PF-D54](#PF-D54));
-delivery on macos-user waits on [OQ-PFK5](#OQ-PFK5). The four steps and the patched extensions were
+delivery on macos-user is deferred, ruled 2026-10-05 ([OQ-PFK5](#OQ-PFK5)). The four steps and the patched extensions were
 integrated on 2026-10-05 at `e87f1ba88`, with the unit gate, the integration suite and a nested
 jail run on the combined tree; integrating found two defects, fixed there ([PF-D56](#PF-D56), and
 [`patched-extensions.md` PPX-D32](patched-extensions.md#PPX-D32)). The ledger's Built column says where. Evidence read
@@ -1153,7 +1153,7 @@ reasons, none of them specific to patched forks, so a plain fork waits on the sa
 Built meanwhile: the launch says why, names the next step, and hands the sandbox's launcher the same
 reason ([PF-D54](#PF-D54)).
 
-5. 💬 <a id="OQ-PFK5"></a>**OQ-PFK5: Does a patched fork reach a macos-user sandbox, which needs `install-capture.md`'s hand-off H4 ruled?**
+5. ✅ <a id="OQ-PFK5"></a>**OQ-PFK5: Does a patched fork reach a macos-user sandbox, which needs `install-capture.md`'s hand-off H4 ruled?**
 
    The stakes: whether this route waits for the fork route's own macos-user step, or this build
    rules H4 and builds that step ([the three blockers](#oq-pfk5-background)).
@@ -1167,7 +1167,6 @@ reason ([PF-D54](#PF-D54)).
    - **C — Rule H4's (b):** a machine store on neutral ground (`/var/yolo-jail`, admitted with
      sudo), then as B.
 
-   <!-- vantage: question id=OQ-PFK5 leaning="A: H4 is the maintainer's ruling, and the facts that decide between its (a) and (b) are unmeasured on a Mac; B and C deliver a patched fork only by first delivering a plain one, which is the fork route's step, not this mode's." -->
 
    _Leaning:_ A. H4 is the maintainer's ruling, and the facts that decide between its (a) and (b)
    are unmeasured on a Mac: what file permissions let `_yolojail` reach under
@@ -1176,7 +1175,9 @@ reason ([PF-D54](#PF-D54)).
    step and not this mode's.
 
    **Answer:**
-   > _(empty — fill in when decided)_
+   > **Ruled in review 2026-10-05, as leaned (A):** *"defer"*. A patched fork, like a plain one,
+   > reaches a macos-user sandbox only once install-capture H4 settles where the build store lives
+   > for the sandbox account; until then the launch says to use a container backend.
 
 ## Decision Ledger
 
@@ -1248,3 +1249,4 @@ his delegation, and still his to overrule. [PF-D8](#PF-D8),
 | <a id="PF-D56"></a>PF-D56 | *Implementation decision, under [PF-D12](#PF-D12), [PF-D50](#PF-D50) and [`patched-extensions.md` PPX-D25](patched-extensions.md#PPX-D25), reversible.* **The host apply `yolo pack update` runs on the host under active host management builds no patched fork and no patched extension: it installs a good build already admitted and renders a tree already built, and a patched fork with no good build is said as not installed yet, naming `yolo host apply --assert` or the next `yolo host` launch of it as the act that builds it. `yolo host apply --assert` typed by itself, and `yolo host -- <bin>`, still run the advance.** Found integrating the parallel builds: step 4 and the patched extensions each run the advance at `yolo host apply --assert`, and `yolo pack update` runs that apply ([`host-apply-staleness.md` OQ-3](../reference/host-apply-staleness.md#why-its-this-way)), so on a Linux host the update built and moved the good build itself, its own line "the next fresh launch builds it" was false, and the next launch disclosed no move | 2026-10-05 | [§8.3](#83-the-explicit-acts), [§9](#9-notch-coverage) | S6, 2026-10-05: `cli.hostApplyDeferring`, `hostApplySurvey.advanceDeferred`, `hostfloor.Floor.NoAdvance`, `cli.packUpdateBuildsNoPatched`; pinned by `TestPackUpdatesHostApplyBuildsNoPatchedFork` and `TestPackUpdatesHostApplyBuildsNoPatchedExtension`, which run the production host apply behind the update, and end to end by `TestPatchedForkFollowsItsUpstreamAndHoldsAtAConflict` |
 | <a id="PF-D57"></a>PF-D57 | *Implementation decision, under [PF-D25](#PF-D25) and [PF-D38](#PF-D38), reversible.* **One Ctrl-C ends an act's whole wait, not only the build it lands in. An ACT INTERRUPT (a term coined here, `run.ActInterrupt`) is shared by every advance of one act: a fresh jail launch's fork-build slot (each patched fork, then each patched extension, the two seams handed the same one by `run.Options`), a `yolo host -- <bin>` (its extensions' advances, then its program's at the floor, which reads it from the context its `Ensure` carries), and a `yolo host apply --assert` (the extensions' advances, then the floor stage's). An advance that begins after a Ctrl-C ended an earlier one runs no check, no replay and no build: what serves is handed, with a line saying it was not checked and when it is, and with nothing serving nothing is handed, the reason naming the act that builds it, since a first build would be a new wait the user had just declined. A plain fork's build in the same launch is not begun either. The bound stays per build, as `forkBuildWaitBound` was: one deadline shared by an act's builds would stop a healthy later build early and record it as failed, starting its back-off, so a launch with several pending builds can still wait one bound for each unless a Ctrl-C ends the wait.** Found in final review: each advance opened its own interrupt scope, so a launch with a patched pi and five patched extensions needed one Ctrl-C per item and could wait six bounds | 2026-10-05 | [§7](#7-the-build-and-the-launch) | Final review fix, 2026-10-05: `run.ActInterrupt`, `advance.actStopped`; pinned by `TestAnActInterruptRemembersTheCtrlCThatEndedOneScope`, `TestTheForkBuildsAndTheTreeArmShareTheLaunchsActInterrupt`, `TestOneCtrlCEndsEveryPatchedForksWaitInALaunch`, `TestAfterACtrlCALaunchBeginsNoPlainForksBuild`, `TestOneCtrlCInAPatchedForksBuildEndsTheTreeArmsWait`, `TestOneCtrlCAtAHostLaunchEndsTheProgramsWaitAfterItsExtensions` and `TestOneCtrlCAtHostApplyEndsTheFloorStagesWaitAfterTheExtensions` |
 | <a id="PF-D58"></a>PF-D58 | *Implementation decision, under [PF-D29](#PF-D29), reversible.* **A host git older than the replay needs (2.40, for `git merge-tree --merge-base`) is its own error, `packsrc.GitTooOldError`, from the walk and from the rebase clone alike, and every line that meets it names updating git as the next step instead of a retry that meets the same git: a launch's line says what the launch runs and that once git is updated the next fresh launch builds it (with a good build serving, the next check retries it), the jail's reason says to update git on the host, and `yolo pack update` says to update git and run it again. The user guide states the requirement where it says where patched programs work.** Found in final review: Debian 12's git and the Xcode 16 Command Line Tools' git are 2.39.5, so on those hosts nothing was ever built, and the launch line named `yolo pack update` and the next launch as the fix | 2026-10-05 | [§5.2](#52-the-replay-and-what-applies-cleanly-means) | Final review fix, 2026-10-05: `packsrc.GitTooOldError`, `advance.gitTooOld`, `walkReport`; pinned by `TestAGitTooOldForTheReplayIsAGitTooOldError`, `TestAnOldGitOnTheHostNamesUpdatingGitAsTheNextStep` and `TestPackUpdateUnderAnOldGitNamesUpdatingGit` |
+| <a id="PF-D59"></a>PF-D59 | **Ruled in review, as leaned ([OQ-PFK5](#OQ-PFK5) A): a patched fork reaches a macos-user sandbox only with the fork route's own macos-user step, after install-capture H4; until then the launch names a container backend** | 2026-10-05 | [OQ-PFK5](#OQ-PFK5) | deferred |

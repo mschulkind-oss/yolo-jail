@@ -2110,7 +2110,13 @@ every release itself. That stamp sits in `~/.cache/yolo-agent-stamps`, which eve
 machine shares, while each install is the workspace's own ([§4.4](#44-the-scope-mismatch-the-maintainers-premise-corrected)).
 **READ FROM CODE, NOT MEASURED:** an update in one workspace holds off every other workspace's for
 an hour, so a workspace that only launches within an hour of another's update stays on its old
-version. **At the host, since 2026-10-05:** the host floor updates an installer agent per machine, not
+version. The MCP server refresh's stamps have the same shape: they sit in
+`~/.cache/yolo-agent-stamps/servers` while each install goes into the workspace's own prefix, under
+that prefix's lock ([`serverrefresh.go:264`](../../internal/entrypoint/serverrefresh.go#L264),
+[`:379-382`](../../internal/entrypoint/serverrefresh.go#L379-L382)). No option below names them, so
+the ruling should say whether they follow it
+([`pi-extension-store-builds.md` §6.1](pi-extension-store-builds.md#61-every-lock-in-pis-path)).
+**At the host, since 2026-10-05:** the host floor updates an installer agent per machine, not
 per workspace: once its newest capture of the agent is a day old it captures the agent again (a
 failed capture is retried after the hourly interval), and it installs only a newer release
 ([HP-D16](host-tool-provisioning.md#HP-D16)). That capture is the store's newest, so a jail's cold
