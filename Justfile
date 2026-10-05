@@ -62,7 +62,9 @@ install:
     # together, installed all together"). So a from-source or forked tree's jail runs that tree's
     # programs. --repin: a program this tree changed since its pin is re-pinned first (each
     # sha256, urls kept), so the manifest `go install` embeds below pins the build it seeds; the
-    # tool names the manifest to commit, since `just check-ci` refuses the old pin. FIRST, before
+    # tool names the manifest and says: commit it, then re-run `just install` — `just check-ci`
+    # refuses the old pin, and the commit moves HEAD through packs/, so version.SourceSkew then
+    # refuses a YOLO_REPO_ROOT launch by this install's stamp until the next one (BP-D23). FIRST, before
     # VERSION, so a re-pin shows in the stamp as -dirty, and before anything is installed, so a
     # failure installs nothing. With no official binary declared it says so and fetches nothing.
     if ! go run ./tools/pack-binaries seed --repin; then

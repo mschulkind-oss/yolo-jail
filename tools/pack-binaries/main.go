@@ -666,9 +666,13 @@ func (t *task) seed(tmp, dir string, repin bool, stdout io.Writer) int {
 			return rc
 		}
 		for _, n := range stale {
+			// The commit moves HEAD through packs/, which version.SourceSkew compares this
+			// install's stamp against, so the step after it is another install (BP-D23).
 			fmt.Fprintf(stdout, "%s: re-pinned binary %s (%s): this tree's program has moved "+
-				"since it was pinned — commit the manifest, since `just check-ci` refuses the "+
-				"old pin\n", n.e.Path, n.name, n.platform)
+				"since it was pinned — commit the manifest (`just check-ci` refuses the old pin), "+
+				"then re-run `just install`, since a launch building from the checkout "+
+				"(YOLO_REPO_ROOT) refuses a yolo stamped before that commit\n", n.e.Path, n.name,
+				n.platform)
 		}
 		for i := range needs {
 			needs[i].sum = t.built[buildKey(needs[i].name, needs[i].platform)].sha256
