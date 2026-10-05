@@ -234,9 +234,11 @@ func (o *Options) startMacosUserHousekeeping(reclaimConsent bool) {
 	housekeepingSlots.Go(func() { safeRun(func() { o.runMacosUserHousekeeping(reclaimConsent) }) })
 }
 
-// runMacosUserHousekeeping is the macos-user arm's slot body: the classes whose stores grow on a
-// Mac running that backend, as one pass under the same pass lock and per-deletion guard as the
-// container's (withHousekeepingPass).
+// runMacosUserHousekeeping is the macos-user arm's slot body: two of the container slot's
+// classes, as one pass under the same pass lock and per-deletion guard as the container's
+// (withHousekeepingPass). Only one of them grows on this backend, the retired loophole state; the
+// other is the shared cache, which this backend does not write and container jails on the same
+// Mac fill.
 //
 // TWO CLASSES, and which ones is decided BY RUNTIME, not by asking anything:
 //

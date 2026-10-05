@@ -253,8 +253,9 @@ func TestConfigRenderExplainDoesNotAttributeOwnOutputToHost(t *testing.T) {
 	}
 }
 
-// `config drift` exit codes are the agent-facing interface: 4 no baseline, 0 in
-// sync, 3 drifted. These pin them so an agent branching on $? never silently breaks.
+// `config drift` exit codes are the agent-facing interface: 4 cannot determine (no
+// baseline here; a replaced one is TestConfigDriftNamesAReplacedBaseline's), 0 in sync,
+// 3 drifted. These pin them so an agent branching on $? never silently breaks.
 func TestConfigDriftExitCodes(t *testing.T) {
 	_, repo := withHomeAndCwd(t)
 	writeFile(t, filepath.Join(repo, "yolo-jail.jsonc"), `{"packs":["claude"]}`)

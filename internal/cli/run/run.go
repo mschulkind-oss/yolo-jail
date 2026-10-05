@@ -785,7 +785,10 @@ func Run(opts Options) (rc int) {
 		// here is a fresh launch, and the lock is released before the agent starts, so a later
 		// launch of the workspace can rewrite the baseline under this session: the session carries
 		// its own baseline's digest, and drift refuses to answer about one it did not start from
-		// (config.BootBaselineDigestEnv). A dry run launches nothing.
+		// (config.BootBaselineDigestEnv). ⚠ RESIDUAL, stated rather than fixed: the merged config
+		// carries no such digest, so after a later launch of the workspace every in-sandbox read
+		// of its merged config (`config dump`, `yolo check`, `pack ls`) reports THAT launch's,
+		// not this session's. A dry run launches nothing.
 		if !o.DryRun {
 			if d := o.writeLaunchConfigArtifacts(cfg); d != "" {
 				launchEnv.Set(config.BootBaselineDigestEnv, d)

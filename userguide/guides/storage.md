@@ -48,10 +48,10 @@ never prints to your terminal, which by then belongs to the jail; it is logged i
 cache is the one store yolo will not reclaim without asking: a launch in a terminal offers it once
 there is at least a gigabyte of it older than 30 days, and answering "never" stops the asking.
 
-On `macos-user`, a launch reclaims the two stores that grow there, old loophole state and the
-shared build cache, the same way and with the same offer. The container stores are left to a
-container launch or `YOLO_RUNTIME=container yolo prune --apply`, and nothing reclaims the sandbox
-account's own caches yet; `yolo stores` lists them.
+On `macos-user`, a launch reclaims old loophole state by itself, and makes the same offer to clear
+the shared build cache, which container jails on the same Mac fill. The container stores are left
+to a container launch or `YOLO_RUNTIME=container yolo prune --apply`, and nothing reclaims the
+sandbox account's own caches yet; `yolo stores` lists them.
 
 On Apple Container, `yolo prune` does not see stopped jails; list them with `container ls --all`
 and remove one with `container rm <name>`.
