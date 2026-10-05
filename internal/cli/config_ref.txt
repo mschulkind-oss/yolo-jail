@@ -985,13 +985,16 @@
     background instead: the agent starts at once, the refresh runs while you
     work, and the next launch runs what it installed.  The launch says so in one
     line naming the refresh's log, ~/.local/state/yolo/refresh/<agent>.log, and
-    a background refresh that fails is reported once, at the next launch.
-    Only that refresh moves.  The agent's own update, its MCP servers, and
-    add-ons your settings name for the first time still finish before the
-    agent starts.  While a background refresh runs, pi may show its own
-    "updates available" notice; the next launch has them.  In a jail that exits
-    first, the refresh stops and a later launch runs it again.  `yolo host` runs
-    no add-on refresh, so there "next-launch" means the same as true.
+    a background refresh that fails, or does not finish, is reported once, at
+    a later launch.  Only that refresh moves.  The agent's own update, its MCP
+    servers, and add-ons your settings name for the first time still finish
+    before the agent starts.  While a background refresh runs, pi may show its
+    own "updates available" notice; the next launch has them.  A jail that
+    exits while the refresh runs stops it and leaves its lock behind: for ten
+    minutes every jail sharing those add-ons skips its refresh, and a launch
+    whose settings name a new add-on first waits up to a minute for that lock.
+    A launch after that runs the refresh again.  `yolo host` runs no add-on
+    refresh, so there "next-launch" means the same as true.
 
     IT GOVERNS YOLO'S UPDATER, NOT THE AGENT'S OWN.  An agent that ships a
     self-updater runs it on its own terms, and yolo no longer suppresses one: as

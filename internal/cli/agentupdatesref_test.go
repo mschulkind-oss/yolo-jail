@@ -11,7 +11,8 @@ import (
 // TestConfigRefDocumentsAgentUpdatesTiming: `agent_updates` takes two TIMING values beside a
 // boolean (docs/design/program-delivery.md OQ-PD30), and `yolo config-ref` is the authority for
 // every config key, so its entry must name both, in the spellings the validator accepts, and say
-// what the background one does and does not move, and where it writes.
+// what the background one does and does not move, where it writes, and what a jail that exits
+// under it leaves behind.
 func TestConfigRefDocumentsAgentUpdatesTiming(t *testing.T) {
 	var buf bytes.Buffer
 	configRefRun(&buf, false)
@@ -29,8 +30,9 @@ func TestConfigRefDocumentsAgentUpdatesTiming(t *testing.T) {
 		`"` + config.AgentUpdatesNextLaunch + `"`,
 		"in the\n    background",
 		"~/.local/state/yolo/refresh/<agent>.log",
-		"reported once, at the next launch",
-		"still finish before the\n    agent starts",
+		"fails, or does not finish, is reported once",
+		"still finish\n    before the agent starts",
+		"leaves its lock behind: for ten\n    minutes",
 		`"agent_updates": { "pi": "next-launch" }`,
 	} {
 		if !strings.Contains(block, want) {

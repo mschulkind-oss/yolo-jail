@@ -225,8 +225,8 @@ follows its own setting.
 **Pi's extensions update when you start pi**, before it opens, at most once an hour. To have pi
 start at once instead, set `"agent_updates": { "pi": "next-launch" }`: the update then runs in the
 background while you work, and your next launch of pi uses it. yolo names the update's log as pi
-starts, and tells you at the next launch if the update failed. New extensions in your pi settings
-still install before pi opens.
+starts, and tells you at a later launch if the update failed or did not finish. New extensions in
+your pi settings still install before pi opens.
 
 **Packs move only when you say so**, apart from a branch ref as described above:
 

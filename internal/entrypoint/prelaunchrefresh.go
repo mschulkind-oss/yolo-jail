@@ -115,6 +115,16 @@ REFRESH_TIMING=__YOLO_REFRESH_TIMING__
 // It writes nothing to the terminal once the program runs. The launch says ONE line, before the
 // exec, naming the log; a job that did not succeed leaves REFRESH_RESULT, which the next launch
 // prints once and deletes.
+//
+// A job that never reaches its own ending is reported too. A podman or Apple Container jail that
+// exits SIGKILLs every process in it, so no trap of the job's runs: its lock is left behind, to age
+// past STALE_LOCK, and nothing it would have said is written. So the job writes a PROVISIONAL
+// result before its act ("did not finish"), carrying the token its lock holds, and replaces it
+// under the lock when the act ends. A launch says a provisional result only once the lock no
+// longer carries that token or is older than STALE_LOCK, so a second terminal of the same jail
+// says nothing while the job still runs. Until then every launcher sharing the store reads the
+// dead job's lock as held: it skips its refresh, and one whose watched content is new waits for
+// the lock first, up to UPDATE_TIMEOUT.
 const prelaunchRefreshShellFn = `
 # --- pre-launch refresh (pi-extension-lifecycle.md §3.2, §3.3) -------------------------
 # The stamp is MACHINE-GLOBAL (~/.cache is one truth across workspaces), so one refresh an hour
@@ -278,20 +288,43 @@ _refresh_act() {
 }
 
 # --- the background refresh (REFRESH_TIMING=next-launch; program-delivery.md OQ-PD31) ---------
-# _refresh_note_result WHAT NEXT leaves the one line the next launch says about a background
-# refresh that did not succeed: what happened, where its log is, and what to do. Written whole
-# and renamed, so a launch never prints half of one.
+# _refresh_note_result WHAT NEXT [TOKEN] leaves the one line the next launch says about a
+# background refresh that did not succeed: what happened, where its log is, and what to do.
+# Written whole and renamed, so a launch never prints half of one. With TOKEN (the lock's owner
+# token, which may be empty) it is PROVISIONAL: a first line "pending TOKEN" that
+# _refresh_report_last reads and never prints.
 _refresh_note_result() {
-    printf '  ⚠ %s: the background refresh (%s) %s — its log is %s. %s\n' \
-        "$BIN" "${REFRESH_ARGV[*]}" "$1" "$REFRESH_LOG" "$2" > "$REFRESH_RESULT.tmp" 2>/dev/null &&
+    {
+        [ "$#" -lt 3 ] || printf 'pending %s\n' "$3"
+        printf '  ⚠ %s: the background refresh (%s) %s — its log is %s. %s\n' \
+            "$BIN" "${REFRESH_ARGV[*]}" "$1" "$REFRESH_LOG" "$2"
+    } > "$REFRESH_RESULT.tmp" 2>/dev/null &&
         mv -f "$REFRESH_RESULT.tmp" "$REFRESH_RESULT" 2>/dev/null || true
 }
 
 # _refresh_report_last says, once, how the last background refresh this home started ended, when
-# it did not succeed. A success leaves nothing to say.
+# it did not succeed. A success leaves nothing to say. A PROVISIONAL result is the job's own
+# "did not finish", which the job replaces under its lock when its act ends: while the lock still
+# carries the job's token and is no older than STALE_LOCK the job may still be running, so it waits
+# for a later launch. Read once, so what is said is one whole result.
 _refresh_report_last() {
     [ -s "$REFRESH_RESULT" ] || return 0
-    cat "$REFRESH_RESULT" >&2 2>/dev/null || true
+    local said first nl='
+'
+    said=$(cat "$REFRESH_RESULT" 2>/dev/null) || return 0
+    first=${said%%"$nl"*}
+    if [ "${first%% *}" = "pending" ]; then
+        if [ -d "$REFRESH_LOCK" ] &&
+            [ "$(cat "$REFRESH_LOCK/.yolo-lock-owner" 2>/dev/null || true)" = "${first#pending }" ] &&
+            [ "$(( $(date +%s) - $(_stamp_mtime "$REFRESH_LOCK") ))" -le "$STALE_LOCK" ]; then
+            return 0
+        fi
+        case $said in
+        *"$nl"*) said=${said#*"$nl"} ;;
+        *) said="" ;;
+        esac
+    fi
+    [ -z "$said" ] || printf '%s\n' "$said" >&2
     rm -f "$REFRESH_RESULT" 2>/dev/null || true
 }
 
@@ -300,7 +333,7 @@ _refresh_report_last() {
 # the launch path runs, under the same lock, bound and stamp, and it never waits: a lock another
 # holds means another refresh is doing this work already, so this one stops.
 _refresh_job() {
-    local lrc=0 rc=0 retry="A launch after an hour tries again; to retry now, run: $BIN ${REFRESH_ARGV[*]}"
+    local lrc=0 rc=0
     echo "--- $(date '+%Y-%m-%d %H:%M:%S') $BIN: background refresh (${REFRESH_ARGV[*]})"
     _take_refresh_lock || lrc=$?
     if [ "$lrc" = 1 ]; then
@@ -322,10 +355,27 @@ _refresh_job() {
         echo "--- already refreshed since this job was started; nothing to do."
         return 0
     fi
+    # The PROVISIONAL result (prelaunchrefresh.go): what a later launch says if nothing replaces it,
+    # because the jail exited under the job or the job was stopped. _refresh_job_act replaces it.
+    _refresh_note_result "did not finish (the jail exited, or the job was stopped, while it ran)" \
+        "A launch runs it again once its lock is free, and the lock of an exited jail frees itself after $((STALE_LOCK / 60)) minutes; to retry now, run: $BIN ${REFRESH_ARGV[*]}" \
+        "$REFRESH_TOKEN"
     _start_refresh_heartbeat
-    # _shielded for its SIGTERM and SIGHUP arms: a stopped jail releases the lock before the job
-    # ends. Nothing here has a terminal to type a Ctrl-C into.
-    _shielded '_stop_refresh_heartbeat; _drop_refresh_lock' _refresh_act || rc=$?
+    # _shielded for its SIGTERM and SIGHUP arms, which release the lock when the JOB is sent one (a
+    # kill of its process group). A podman or Apple Container jail that exits sends none: it
+    # SIGKILLs the job, no trap runs, and the lock stays until it is older than STALE_LOCK — what
+    # the provisional result above reports. Nothing here has a terminal to type a Ctrl-C into.
+    _shielded '_stop_refresh_heartbeat; _drop_refresh_lock' _refresh_job_act || rc=$?
+    echo "--- $(date '+%Y-%m-%d %H:%M:%S') $BIN: background refresh ended (status $rc)"
+    return 0
+}
+
+# _refresh_job_act is the job's act: _refresh_act, then the result that replaces the provisional
+# one. Both run under the lock, inside the shield, so a launch that finds the lock released finds
+# the result final.
+_refresh_job_act() {
+    local rc=0 retry="A launch after an hour tries again; to retry now, run: $BIN ${REFRESH_ARGV[*]}"
+    _refresh_act || rc=$?
     if [ "$rc" = 0 ]; then
         rm -f "$REFRESH_RESULT" 2>/dev/null || true
     elif [ "$rc" = 124 ]; then
@@ -333,8 +383,7 @@ _refresh_job() {
     else
         _refresh_note_result "failed (status $rc)" "$retry"
     fi
-    echo "--- $(date '+%Y-%m-%d %H:%M:%S') $BIN: background refresh ended (status $rc)"
-    return 0
+    return "$rc"
 }
 
 # _refresh_in_background starts the job and says so, or says why it need not. It returns 0 when

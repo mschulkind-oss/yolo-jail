@@ -15,6 +15,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"syscall"
 	"testing"
@@ -172,6 +173,11 @@ func TestNextLaunchIsThrottledAndNeverRunsTwoAtOnce(t *testing.T) {
 	if !strings.Contains(stderr, "another refresh holds") || strings.Contains(stderr, "in the background") {
 		t.Errorf("a launch while the job runs must start no second one, and say why:\n%s", stderr)
 	}
+	// The job's provisional "did not finish" is on disk now, carrying the token its live lock
+	// holds: a second terminal of the same jail must not say it while the job runs.
+	if strings.Contains(stderr, "did not finish") {
+		t.Errorf("a launch while the job runs must not report it as unfinished:\n%s", stderr)
+	}
 	if !strings.Contains(stdout, "RAN") {
 		t.Errorf("the second launch must still run the program: %q", stdout)
 	}
@@ -311,6 +317,128 @@ func TestAFailedBackgroundRefreshIsSaidOnceAtTheNextLaunch(t *testing.T) {
 	_, stderr = p.run(t, "")
 	if strings.Contains(stderr, "background refresh") {
 		t.Errorf("the failure must be said once, not on every launch:\n%s", stderr)
+	}
+}
+
+// startBlockedJob starts a background job whose act blocks until the cell writes the returned
+// release file, and returns the release and the job's process group: the job is a session leader
+// (the detach), and the pid is the first field of the owner token it wrote into the lock.
+func startBlockedJob(t *testing.T, p *prelaunchProbe) (release string, pgid int) {
+	t.Helper()
+	release = filepath.Join(p.home, "release")
+	t.Cleanup(func() { _ = os.WriteFile(release, nil, 0o644) })
+	p.run(t, "", "FAKE_REFRESH_WAIT="+release)
+	mustAppear(t, release+".started", "the background refresh starting")
+	tok, err := os.ReadFile(filepath.Join(p.lockPath(), probeOwner))
+	if err != nil {
+		t.Fatalf("the running job's lock has no owner token: %v", err)
+	}
+	pgid, err = strconv.Atoi(strings.SplitN(strings.TrimSpace(string(tok)), ".", 2)[0])
+	if err != nil || pgid <= 1 {
+		t.Fatalf("the owner token %q does not start with the job's pid", tok)
+	}
+	return release, pgid
+}
+
+// TestAStoppedBackgroundJobReleasesItsLockAndIsSaid: a SIGTERM to the job's process group (a
+// `kill` of the job, or a runtime stopping it politely) goes through _shielded's arm, which
+// releases the lock before the job ends; the job never reaches its own ending, so it stamps
+// nothing and the next launch says it did not finish, once — even while another launcher now
+// holds the lock, whose token is not the job's — and the launch after that starts it again.
+func TestAStoppedBackgroundJobReleasesItsLockAndIsSaid(t *testing.T) {
+	p := newTimingProbe(t, false, false)
+	_, pgid := startBlockedJob(t, p)
+	if err := syscall.Kill(-pgid, syscall.SIGTERM); err != nil {
+		t.Fatalf("signal the job's group %d: %v", pgid, err)
+	}
+	deadline := time.Now().Add(20 * time.Second)
+	for {
+		if _, err := os.Stat(p.lockPath()); os.IsNotExist(err) {
+			break
+		}
+		if time.Now().After(deadline) {
+			log, _ := os.ReadFile(p.jobLog())
+			t.Fatalf("a stopped job must release its lock before it ends; its log:\n%s", log)
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if _, err := os.Stat(p.stampPath()); !os.IsNotExist(err) {
+		t.Errorf("a stopped job must not stamp: its refresh did not happen (err=%v)", err)
+	}
+
+	// Another launcher takes the free lock before this home launches again.
+	if err := os.Mkdir(p.lockPath(), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(p.lockPath(), probeOwner), []byte("someone-else\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_, stderr := p.run(t, "")
+	for _, want := range []string{"⚠ tool: the background refresh (update --extensions) did not finish",
+		p.jobLog(), "to retry now, run: tool update --extensions", "another refresh holds"} {
+		if !strings.Contains(stderr, want) {
+			t.Errorf("the next launch must say %q:\n%s", want, stderr)
+		}
+	}
+	if strings.Contains(stderr, "pending") {
+		t.Errorf("the provisional result's own marker line must never be said:\n%s", stderr)
+	}
+
+	if err := os.RemoveAll(p.lockPath()); err != nil {
+		t.Fatal(err)
+	}
+	_, stderr = p.run(t, "")
+	if !strings.Contains(stderr, "refreshing in the background") {
+		t.Errorf("the refresh the stopped job did not do is still due, so a launch starts it:\n%s", stderr)
+	}
+	if strings.Contains(stderr, "did not finish") {
+		t.Errorf("the stopped job must be said once, not on every launch:\n%s", stderr)
+	}
+	waitForJobs(t, p, 1)
+}
+
+// TestABackgroundJobKilledWithItsJailIsSaidOnceItsLockIsStale: a podman or Apple Container jail
+// that exits SIGKILLs the job, so no trap runs — here the job's whole process group is killed
+// the same way. Its lock stays, carrying its token. While that lock is younger than STALE_LOCK a
+// launch in the same home reads it as held and says nothing of the job (it may be running, in
+// another terminal of this jail). Once the lock is stale, a launch says the job did not finish,
+// once, and its own job breaks the lock and runs the refresh.
+func TestABackgroundJobKilledWithItsJailIsSaidOnceItsLockIsStale(t *testing.T) {
+	p := newTimingProbe(t, false, false)
+	release, pgid := startBlockedJob(t, p)
+	if err := syscall.Kill(-pgid, syscall.SIGKILL); err != nil {
+		t.Fatalf("kill the job's group %d: %v", pgid, err)
+	}
+	// The act runs in a session of its own (_bounded's detach), which a jail exit kills too; here
+	// it is released, so nothing of the killed job is left running.
+	if err := os.WriteFile(release, nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(p.lockPath(), probeOwner)); err != nil {
+		t.Fatalf("a killed job leaves its lock and token behind, which this cell is about: %v", err)
+	}
+
+	_, stderr := p.run(t, "")
+	if strings.Contains(stderr, "did not finish") || !strings.Contains(stderr, "another refresh holds") {
+		t.Errorf("while the killed job's lock is young it reads as held, and the job as maybe running:\n%s", stderr)
+	}
+
+	backdatePath(t, p.lockPath(), 11*time.Minute)
+	_, stderr = p.run(t, "")
+	if n := strings.Count(stderr, "did not finish (the jail exited, or the job was stopped, while it ran)"); n != 1 ||
+		!strings.Contains(stderr, "frees itself after 10 minutes") || strings.Contains(stderr, "pending") {
+		t.Errorf("once the killed job's lock is stale, the launch must say once that it did not finish:\n%s", stderr)
+	}
+	if !strings.Contains(stderr, "refreshing in the background") {
+		t.Fatalf("the launch must start a job, which breaks the stale lock:\n%s", stderr)
+	}
+	jobLog := waitForJobs(t, p, 1)
+	if !strings.Contains(jobLog, "ended (status 0)") || countLine(p.logLines(t), "REFRESH") != 2 {
+		t.Errorf("the new job must break the stale lock and run the refresh:\n%s\n%v", jobLog, p.logLines(t))
+	}
+	_, stderr = p.run(t, "")
+	if strings.Contains(stderr, "did not finish") {
+		t.Errorf("the killed job must be said once, not on every launch:\n%s", stderr)
 	}
 }
 

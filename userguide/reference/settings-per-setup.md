@@ -443,7 +443,7 @@ Two things cut across the whole table. First, **`macos-user` has no re-entry**: 
 
 [^reentry]: On Apple Container the jail's home is the workspace's own `.yolo/home`, and every entry, a re-entry included, rewrites the provider/profile/`env_sources` channel and each agent's own env file there before the command starts. Checked by tests; not yet run on a Mac. On podman the same files are live binds.
 
-[^nextlaunch]: Pi starts without waiting, the update runs while you work, and the launch after it runs what it installed. On podman and Apple Container, a jail that exits while the update runs ends it, and a later launch runs it again. Checked by tests, which also run on macOS; not yet run in a jail on a Mac.
+[^nextlaunch]: Pi starts without waiting, the update runs while you work, and the launch after it runs what it installed. On podman and Apple Container, a jail that exits while the update runs ends it and leaves its lock behind. For ten minutes every jail on the machine then skips pi's extension update, and a launch whose pi settings name a new extension first waits up to a minute. A launch after that runs the update again, and the project it stopped in says it did not finish. Checked by tests, which also run on macOS; not yet run in a jail on a Mac.
 
 [^gcroot]: The image turns on `nix-command` and `flakes` in `/etc/nix/nix.conf`, so plain `nix build` and `nix shell` work with no flags. It needs a multi-user nix on the host, the kind with a nix daemon. An in-jail `nix build`'s result gets no durable garbage-collection root, so a host `nix-collect-garbage` can delete a store path a running jail is executing from, with no warning in either place.
 
