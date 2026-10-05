@@ -79,8 +79,8 @@ func advanceHostTrees(errw io.Writer, color bool, bin string, act *run.ActInterr
 		return
 	}
 	for _, f := range packload.PatchedTrees(sel.packs) {
-		if bin != "" && !ownerRuns(sel.packs, f, bin) {
-			continue
+		if !f.DeliveredAtHost() || (bin != "" && !ownerRuns(sel.packs, f, bin)) {
+			continue // no host render links a tree whose list entry reaches jails alone (PPX-D34)
 		}
 		hostTreeAdvance(f, advanceOptions{platform: captureJailPlatform(), out: errw, errw: errw, color: color,
 			launch: true, host: true, act: act})
@@ -172,7 +172,8 @@ func hostTreeVersionsDir(f packload.Fork) string {
 }
 
 // renderHostTrees is the render's arm for p's patched extensions (PPX-D11). observe reads only:
-// whether `~/<into>` already names the good build's versioned copy.
+// whether `~/<into>` already names the good build's versioned copy. A tree whose list entry reaches
+// jails alone is linked at no host (PPX-D34), and a link to it an earlier render left is retired.
 func renderHostTrees(p *packload.Pack, packs []*packload.Pack, home string, man *hostskills.Manifest,
 	observe bool) []entrypoint.HostRenderResult {
 	var out []entrypoint.HostRenderResult
@@ -180,9 +181,42 @@ func renderHostTrees(p *packload.Pack, packs []*packload.Pack, home string, man 
 		if f.Pack != p.Name {
 			continue
 		}
+		if !f.DeliveredAtHost() {
+			if res, ok := retireHostTreeLink(f, home, man, observe); ok {
+				out = append(out, res)
+			}
+			continue
+		}
 		out = append(out, renderHostTree(f, home, man, observe))
 	}
 	return out
+}
+
+// retireHostTreeLink is the render's arm for a tree no host loads (PPX-D34): the link at `~/<into>`
+// an earlier render left, when the files ownership record says it is f's pack's and it points into
+// f's versioned copies, is removed with those copies and forgotten, as a revert removes it
+// (PPX-D31). ok is false, and nothing is touched, when there is no such link.
+func retireHostTreeLink(f packload.Fork, home string, man *hostskills.Manifest, observe bool) (
+	entrypoint.HostRenderResult, bool) {
+	dest := filepath.Join(home, filepath.FromSlash(strings.TrimSuffix(f.Into, "/")))
+	target, err := os.Readlink(dest)
+	if err != nil || man == nil || !man.OwnedBy(dest, f.Pack) || filepath.Dir(target) != hostTreeVersionsDir(f) {
+		return entrypoint.HostRenderResult{}, false
+	}
+	why := "the list entry that loads " + f.Label() + " reaches jails alone"
+	res := entrypoint.HostRenderResult{Surface: f.Pack + "/files", Path: dest, WouldChange: true}
+	if observe {
+		res.Action = "would remove (" + why + ")"
+		return res, true
+	}
+	if err := os.Remove(dest); err != nil && !errors.Is(err, fs.ErrNotExist) {
+		res.Action, res.WouldChange = "refused: "+err.Error(), false
+		return res, true
+	}
+	man.Forget(dest)
+	_ = os.RemoveAll(hostTreeVersionsDir(f))
+	res.Action = "removed (" + why + ")"
+	return res, true
 }
 
 // renderHostTree is one patched extension's render.

@@ -75,9 +75,9 @@ func TestTheOwnersReachIsTheListEntrysAndNoEntryIsNoOwner(t *testing.T) {
 	if f.Owner != "pi" || f.ListedInJail || !f.ListedAtHost {
 		t.Errorf("a guarded list: owner %q, jail %v, host %v; want pi at the host alone", f.Owner, f.ListedInJail, f.ListedAtHost)
 	}
-	bare := agentPack(t, "matt", patchedTreeContribution(), piPackagesList("~/"+treeInto+"/"))
-	if f := PatchedTrees([]*Pack{pi, bare})[0]; f.Owner != "" {
-		t.Errorf("an entry with a trailing slash is not equal to ~/<into>, and named owner %q", f.Owner)
+	sibling := agentPack(t, "matt", patchedTreeContribution(), piPackagesList("~/"+treeInto+"-other"))
+	if f := PatchedTrees([]*Pack{pi, sibling})[0]; f.Owner != "" {
+		t.Errorf("an entry naming a sibling of ~/<into> named owner %q", f.Owner)
 	}
 	if f := PatchedTrees([]*Pack{agentPack(t, "matt", patchedTreeContribution(), piPackagesList("~/"+treeInto))})[0]; f.Owner != "" {
 		t.Errorf("with no selected pack declaring pi/settings the owner is %q", f.Owner)

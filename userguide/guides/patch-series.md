@@ -76,8 +76,12 @@ pi's `packages` list that makes pi load it:
   `~/.pi/agent/extensions/`, where pi would also find it by itself.
 - **`build`** is optional: it runs in the extension's checkout, and whatever is in the checkout
   afterwards is the folder pi loads. `produces`, also optional, lists files that folder must have.
-- **The list entry is `~/` plus `into`**, with no slash at the end. Without it, the folder is built
-  and mounted but pi never loads it, and `yolo pack lint` and each launch warn you.
+- **The list entry is `~/` plus `into`**, or a folder inside it, such as one package of a
+  monorepo: `~/.pi/agent/yolo-patched/pi-archimedes/packages/session-name`. Without one, the folder
+  is built and mounted but pi never loads it, and `yolo pack lint` and each launch warn you.
+- **The folder is built only where the entry reaches.** An entry in the `autonomy` kind's `guarded`
+  list reaches `yolo host` alone, so `yolo host apply --assert` builds and installs the folder and
+  no jail does. One in its `autonomous` list reaches jails alone, so `yolo host` installs nothing.
 - **Drop the extension's old `git:` entry in the same edit.** pi would otherwise load the extension
   twice.
 
