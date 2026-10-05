@@ -31,6 +31,13 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/version"
 )
 
+// noteMacosUserHostByteGaps (loopholeinert.go) LOST ITS LAST CALLER on 2026-10-05: the one
+// shape it named, a directory `host_files` entry, crosses by copy now (buildMacosCtxTree). It is
+// deleted with its file's next edit, together with this reference and macosCtxDelivery's
+// undeliveredDirs, which only it reads; until then this keeps the dead printer from failing the
+// lint gate's unused-code check.
+var _ = (*Options).noteMacosUserHostByteGaps
+
 // Run validates config, resolves the runtime, then either execs into
 // an existing container or launches a fresh one. Returns the process exit code.
 // The whole flow is driven off the
@@ -414,11 +421,12 @@ func Run(opts Options) (rc int) {
 		}
 		// THE CONTEXT MOUNTS, first on this arm (docs/design/context-mounts.md §4 steps 3-5):
 		// each declared one this backend can deliver becomes a root-owned link plus Seatbelt
-		// rules, and one it cannot ends the launch HERE, naming each, before the approval
-		// prompt, a host service or any staging — a refusal says what to do before the launch
-		// asks anything else (DP-D15). A --dry-run refuses too: its plan would describe a
+		// rules — or, for a pack's single-file `mount`, a copy the context tree composed below
+		// carries (CX-D23) — and one it cannot ends the launch HERE, naming each, before the
+		// approval prompt, a host service or any staging — a refusal says what to do before the
+		// launch asks anything else (DP-D15). A --dry-run refuses too: its plan would describe a
 		// launch that cannot happen. No `mounts` key and no pack `mount` decides nothing.
-		ctxLinks, ok := o.planMacosUserCtxMounts(cfg, staged.packs)
+		ctxLinks, ctxCopies, ok := o.planMacosUserCtxMounts(cfg, staged.packs)
 		if !ok {
 			return 1
 		}
@@ -804,8 +812,8 @@ func Run(opts Options) (rc int) {
 		// bytes exist and could not be copied would compose the agent a settings file
 		// that looks like the human's and is not, which is the exact failure OQ-CO10
 		// made the jail's read fail closed over. An ABSENT source is not a failure and
-		// does not reach here.
-		ctxDelivery, err := o.buildMacosCtxTree(staging, staged.packs, cfg)
+		// does not reach here. The pack files the decider chose to copy land in the same tree.
+		ctxDelivery, err := o.buildMacosCtxTree(staging, staged.packs, cfg, ctxCopies...)
 		if err != nil {
 			o.pr(o.Stderr).printf("[bold red]%s[/bold red]", err.Error())
 			return 1
@@ -823,8 +831,11 @@ func Run(opts Options) (rc int) {
 		// and a grant it could not deliver refused the launch above (planMacosUserCtxMounts),
 		// so no banner line on this arm describes a read that does not happen beyond what the
 		// container arm's does for an absent source.
+		//
+		// AND NOTHING ELSE IS SAID ABOUT HOST BYTES HERE: a directory `host_files` entry crosses
+		// by copy now (buildMacosCtxTree), so the one line that named it as not crossing has
+		// nothing left to name.
 		o.notePackHostAccess(staged.packs, channel)
-		o.noteMacosUserHostByteGaps(ctxDelivery)
 		// THE CONTEXT MOUNTS cross inside the host context, and each read-write one is
 		// disclosed at the same point (§2.4), so the backend is never handed one unsaid.
 		ctxDelivery.ctx.Links = ctxLinks

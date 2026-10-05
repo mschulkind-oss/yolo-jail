@@ -4,6 +4,8 @@ verified: 2026-09-09
 verified_commit: 40915b60
 covers:
   - internal/cli/run/assemble_parts.go
+  - internal/cli/run/macosctxtree.go
+  - internal/macosuser/runplan.go
   - internal/entrypoint/identity.go
   - internal/paths/paths.go
   - internal/cli/run/homeskeleton.go
@@ -13,7 +15,8 @@ summary: "The jail's git identity is a two-key allowlist — user.name and user.
 
 # git identity in the jail
 
-**Status:** CURRENT as of 2026-09-09, verified against `40915b60`.
+**Status:** CURRENT as of 2026-09-09, verified against `40915b60`; the global gitignore's
+`macos-user` delivery was added and checked against the code on 2026-10-05.
 
 An agent committing in a jail needs to be the right author, and needs nothing else from the
 host's git configuration. So identity is a **forward of an enumerated two-key allowlist** —
@@ -23,13 +26,16 @@ On the **container backends** the host composes a small `gitconfig` fresh every 
 two keys and delivers it **read-only** at git's default global path. On **`macos-user`**, which
 has no mount namespace, the same two keys are forwarded as environment variables and replayed
 imperatively, and a key the host stops setting is removed again while it still holds the value
-yolo forwarded.
+yolo forwarded. The global gitignore, the one file this surface carries, is copied into that
+backend's root-owned context tree, and `core.excludesFile` is pointed at the copy.
 
 | Component | Lives in |
 | :--- | :--- |
 | Reading the host keys, composing the file, mounting it | `internal/cli/run` (`gitIdentityMountArgs`, `composeGitconfig`, `hostGitConfigGet`, `gitConfigValue`, `gitIncludeHeader`) |
 | The Apple Container materialize path | `internal/cli/run` (`acMaterialize`) |
-| The imperative replay, `macos-user` only | `internal/entrypoint` (`configureGit`, reading `YOLO_GIT_*`; `forwardIdentity`, which also removes a key the host stopped setting) |
+| The imperative replay, `macos-user` only | `internal/entrypoint` (`configureGit`, reading `YOLO_GIT_*` and `YOLO_GLOBAL_GITIGNORE`; `forwardIdentity`, which also removes a key the host stopped setting) |
+| Finding the host's global gitignore, for every backend | `internal/cli/run` (`hostGlobalGitignore`) |
+| Copying it for `macos-user`, and naming the copy to the bootstrap | `internal/cli/run` (`buildMacosCtxTree`), `internal/macosuser` (`buildBootstrapEnv`, `GlobalGitignoreEnv`) |
 | The home-root alias that makes `~/.gitconfig` resolve | `internal/paths` (`HomeFileRedirects`), written into each podman jail's home skeleton by `internal/cli/run` (`buildHomeSkeleton`) and into the `macos-user` account home by `internal/entrypoint` (`DeriveDarwinHomeLayout`) |
 
 **Reads with:** [`composed-file-permissions.md`](composed-file-permissions.md) (what `:ro`
@@ -68,7 +74,7 @@ satisfies both requirements for free:
 | Setting | Crosses | Why |
 | :--- | :--- | :--- |
 | `user.name`, `user.email` | yes | author identity — the whole point |
-| `core.excludesFile` | composed, not forwarded | points at the **in-jail** global gitignore path, which the host also delivers |
+| `core.excludesFile` | composed, not forwarded | points at the **in-jail** global gitignore path, which the host also delivers (on `macos-user`, the staged copy's path, which the bootstrap sets) |
 | `user.signingkey`, `commit.gpgsign`, `tag.gpgsign` | no | credential-adjacent, useless without key material, and signing without a key breaks every commit |
 | `credential.helper`, `url.*.insteadOf` | no | credential leak; `insteadOf` can silently reroute a fetch through a host credential path |
 | pagers, editors, colors | no | fights the jail's deliberate `PAGER`/`EDITOR` hygiene |
@@ -93,10 +99,14 @@ global path:
 - **Apple Container** — no nested single-file `:ro` bind exists, so the composed content is
   materialized into the state tree that backs the whole home bind.
 - **`macos-user`** — no mount namespace at all, so the two keys ride as `YOLO_GIT_*` environment
-  variables and `configureGit` replays them with `git config --global`. This mirrors how the
-  global gitignore already diverges on that backend. The file it writes persists, so the replay
-  also removes a key the host stopped setting:
-  [clearing on `macos-user`](#clearing-on-macos-user-remove-what-yolo-forwarded).
+  variables and `configureGit` replays them with `git config --global`. The file it writes
+  persists, so the replay also removes a key the host stopped setting:
+  [clearing on `macos-user`](#clearing-on-macos-user-remove-what-yolo-forwarded). The global
+  gitignore is a file, not a value, so it cannot ride the environment: the host copies it into
+  the root-owned context tree it stages for that backend, the plan names the copy's path to the
+  bootstrap as `YOLO_GLOBAL_GITIGNORE`, and `configureGit` points `core.excludesFile` at it when
+  it is a regular file. The copy is refreshed every launch; an edit to the host file reaches the
+  sandbox at the next one.
 
 With **no identity and no gitignore**, nothing is emitted at all: a bare, identity-less jail,
 whose launch argv is byte-identical to one where the feature does not apply.
@@ -229,12 +239,14 @@ Two things close most of that gap:
 | **The allowlist is `user.name` + `user.email`** (plus the in-jail `core.excludesFile`) | It satisfies "keep author identity, pass no credentials, do not confuse agents with UI settings" with nothing else in scope. Everything else useful is a credential, UI, or a dead host path. |
 | **Host-compose + a `:ro` bind at git's default path** — not `GIT_CONFIG_GLOBAL`, not an imperative unset-and-set | Fresh composition kills the staleness bug by construction rather than by a scoped reconciler, and reusing the global-gitignore delivery machinery introduces no new env var and no new mechanism. |
 | **`macos-user` keeps the imperative replay** | Seatbelt has no mount namespace, so there is no `:ro` file to bind; this is the same container-vs-native split every other mount-shaped surface has. |
+| **On `macos-user` the global gitignore is COPIED into the staged context tree, and the bootstrap is told the copy's path.** *Implementation decision, taken under the maintainer's 2026-10-04 delegation ("make them and build it … adjust later"); reversible.* | The bootstrap receives git settings only through the `YOLO_GIT` prefix filter on the launch env, so forwarding the variable through that env would have been dropped silently; a file needs bytes the sandbox account can read, and the context tree is the one root-owned place this backend already stages the user's files into. One host lookup serves both backends (`hostGlobalGitignore`), so they cannot read the setting differently. Failing to copy it warns and continues, because a missing identity setting never refuses a launch. |
 | **On `macos-user` a key the host no longer sets is removed only while it still holds the value yolo last forwarded, and a value the user set is kept.** *Implementation decision, taken under the maintainer's 2026-10-04 delegation ("make them and build it … adjust later"); reversible.* | The persistent file holds the user's entries too, so neither rewriting it whole nor unsetting every unforwarded key is safe. A record of what yolo set, compared by git under its own lock, is the deselection rule's [clear what yolo wrote, keep what the user wrote](providers.md#deselection-clear-what-yolo-wrote-keep-what-the-user-wrote), and dropping the claim with the value keeps a value the user sets by hand later. See [clearing on `macos-user`](#clearing-on-macos-user-remove-what-yolo-forwarded). |
 | **The `[include]` goes first, and carries no `GIT_CONFIG_GLOBAL`** | Last-definition-wins means an include placed first keeps yolo's keys authoritative; an env var would be absent for exactly the invocations that need it most. |
 
 ## Current values
 
-Verified at `40915b60`, and re-checked 2026-10-04 when the record row was added. The prose above
+Verified at `40915b60`, and re-checked 2026-10-04 when the record row was added and 2026-10-05
+when the `macos-user` global gitignore rows were. The prose above
 explains what each of these is for; this table is the only place the values themselves are stated.
 
 | Value | Setting | Defined in |
@@ -244,24 +256,18 @@ explains what each of these is for; this table is the only place the values them
 | Writable sibling | `~/.config/git/config.local`, `[include]`d first | `gitLocalConfigInJail`, `gitIncludeHeader` |
 | Host-side staged file | `<workspace state>/yolo-gitconfig` | `Options.gitIdentityMountArgs` |
 | Host key lookup | `git config --get <key>`; `--global --get core.excludesFile` | `Options.hostGitConfigGet` |
-| `macos-user` variables | `YOLO_GIT_NAME`, `YOLO_GIT_EMAIL` — **and NOT `YOLO_GLOBAL_GITIGNORE`**, which `configureGit` reads and nothing sets (see the note below) | `macosuser.MacosSandboxEnv` sets; `entrypoint.configureGit` reads |
+| `macos-user` variables | `YOLO_GIT_NAME`, `YOLO_GIT_EMAIL` | `macosuser.MacosSandboxEnv` sets; `entrypoint.configureGit` reads |
+| `macos-user` global gitignore | copied to `host-user/_global-gitignore` in the staged context tree, named to the bootstrap as `YOLO_GLOBAL_GITIGNORE` | `paths.ContextGlobalGitignore`; `macosuser.GlobalGitignoreEnv` set by `buildBootstrapEnv`, read by `entrypoint.configureGit` |
 | Home-root alias | `~/.gitconfig` → `.config/git/config` | `paths.HomeFileRedirects` |
 | `macos-user` record of the forwarded values | `~/.config/git/yolo-forwarded`, in the workspace sidecar | `entrypoint.gitIdentityRecord` |
 
-> [!WARNING]
-> **`YOLO_GLOBAL_GITIGNORE` is read and never set — the global gitignore does NOT
-> replay on `macos-user`** (measured 2026-09-11, re-checked 2026-10-04). `entrypoint.configureGit`
-> (`internal/entrypoint/identity.go`) reads it and points `core.excludesFile` at
-> it; **nothing in the tree writes it.** `MacosSandboxEnv`
-> (`internal/macosuser/orchestrator.go`) forwards exactly two pairs —
-> `YOLO_GIT_NAME`/`user.name` and `YOLO_GIT_EMAIL`/`user.email` — and the container
-> backends do not use the env route at all: `Options.gitIdentityMountArgs` replaced
-> it with a composed gitconfig plus a `:ro` mount of the gitignore, precisely so a
-> CLEARED host key can be reflected (an add-only setter could never remove one). The
-> `macos-user` replay of the two identity keys is no longer add-only: it
-> [removes what it forwarded](#clearing-on-macos-user-remove-what-yolo-forwarded).
->
-> So the variable is a leftover of the replaced mechanism, and the user-visible
-> consequence is real: on `macos-user`, git *identity* replays and the global
-> *gitignore* does not. Whether that backend should carry the gitignore at all is
-> undecided — it has no bind mounts, so the container answer does not port.
+> [!NOTE]
+> **The global gitignore replays on `macos-user` since 2026-10-05.** Until then
+> `YOLO_GLOBAL_GITIGNORE` was read by `entrypoint.configureGit` and set by nothing: the container
+> backends had moved to a composed gitconfig plus a `:ro` mount of the gitignore, and
+> `macosuser.MacosSandboxEnv` forwards only the two identity keys. The host now copies the file
+> into the staged context tree (`run.buildMacosCtxTree`, through the same `hostGlobalGitignore`
+> lookup the container launch uses) and the plan sets the variable to the copy's path
+> (`macosuser.buildBootstrapEnv`), which `PlanInvariants` requires to be inside the root-owned
+> tree. Not on a [sealed](../design/forked-programs-as-packs.md#FP-D11) launch, as on every
+> backend.

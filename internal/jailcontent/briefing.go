@@ -55,6 +55,10 @@ type ContextMount struct {
 	ReadWrite bool
 	// Pack names the pack whose `mount` grant this is; "" for a config `mounts` element.
 	Pack string
+	// Copied is true for a pack's single-file `mount` that macos-user COPIES into the context
+	// dir at launch instead of linking (docs/design/context-mounts.md CX-D23): the agent reads a
+	// snapshot, and a host edit arrives at the next launch, which the entry says.
+	Copied bool
 }
 
 // BriefingInput carries everything the jail-managed briefing content depends
@@ -803,11 +807,18 @@ func BriefingContent(in BriefingInput) string {
 		lines = append(lines, "## Additional Context Mounts", "",
 			"Host directories mounted into this jail. `$"+paths.ContextDirEnv+"` is `"+ctxDir+"` here.",
 			"")
-		anyRW := false
+		anyRW, anyLinked, anyCopied := false, false, false
 		for _, m := range in.ContextMounts {
 			mode := "read-only"
 			if m.ReadWrite {
 				mode, anyRW = "read-write", true
+			}
+			// A COPY IS A SNAPSHOT, and the entry says so where the agent reads it: the bytes it
+			// opens are the host file as it was at launch, not the host file.
+			if m.Copied {
+				mode, anyCopied = mode+"; copied at launch; host edits arrive at the next launch", true
+			} else {
+				anyLinked = true
 			}
 			entry := "- `" + m.Path + "` (" + mode + "; host `" + m.Host + "`"
 			if m.Pack != "" {
@@ -825,9 +836,16 @@ func BriefingContent(in BriefingInput) string {
 		// namespace: each entry is a link to the host folder itself, so a tool that resolves
 		// paths reports the host's, and the sandbox account's file permissions apply below the
 		// folder, which a container's root would have read past.
-		if MechanismHasNoContainer(in.Mechanism) {
+		//
+		// A copied entry is not a link, so the sentence leaves it out by name when both kinds are
+		// listed, and is not said at all when every entry is a copy.
+		if MechanismHasNoContainer(in.Mechanism) && anyLinked {
+			each := "Each is a link"
+			if anyCopied {
+				each = "Each one not copied is a link"
+			}
 			lines = append(lines, "",
-				"Each is a link to the host folder itself, not a mount: `pwd -P`, `realpath` and",
+				each+" to the host folder itself, not a mount: `pwd -P`, `realpath` and",
 				"git print the host path, and a subfolder this account may not read stays",
 				"unreadable here (`Permission denied`).")
 		}

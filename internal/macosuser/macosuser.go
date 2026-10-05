@@ -354,7 +354,8 @@ func StagedCtxRoot(cname, sd string) string {
 }
 
 // StageCtxCommands returns the sudo argv that copy the host-side composed context tree
-// into the root-owned state dir, world-readable, for the bootstrap to compose from.
+// into the root-owned state dir, readable by the sandbox account and by no other, for the
+// bootstrap to compose from.
 // Empty hostCtxTree → no commands, so a launch with no host bytes to carry pays nothing.
 //
 // Same rm-then-mv shape as the packs and the home overlay, and here the reason is the
@@ -387,6 +388,18 @@ func StageCtxCommands(hostCtxTree, cname, sd string) [][]string {
 		{rmBin, "-rf", tmp},
 		{cpBin, "-R", hostCtxTree, tmp},
 		{chmodBin, "-R", "a+rX", tmp},
+		// THE TREE'S ROOT IS CLOSED TO EVERY OTHER ACCOUNT, and opened to the sandbox's alone:
+		// these are the user's own files — a directory host_files entry is routinely ~/.aws — and
+		// `a+rX` alone left every one readable by any local account under /var. The contents keep
+		// `a+rX`, which the sandbox account's reads need; nobody else can reach them past a 0700
+		// root. A `user:` ACE for sandboxFileReadAce's reason (SandboxGroup holds the host user),
+		// with list as well as search, because the bootstrap and the agent walk this directory
+		// (SandboxEnvDirCommands grants search alone: a file there is opened by name).
+		// UNMEASURED on a Mac (context-mounts.md CX-D24): both rights are spelled as in the
+		// shared root's provisioning ACE (dirRights), but no Mac has yet run a launch through a
+		// root closed this way, and if the ACE does not admit the sandbox nothing here arrives.
+		{chmodBin, "0700", tmp},
+		{chmodBin, "+a", "user:" + SandboxUser + " allow list,search", tmp},
 		{rmBin, "-rf", dst},
 		{mvBin, "-f", tmp, dst},
 	}

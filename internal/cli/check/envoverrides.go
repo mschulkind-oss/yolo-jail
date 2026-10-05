@@ -49,10 +49,10 @@ package check
 //
 // ⚠ NOR CAN IT SEE THE BACKEND, for the cost the launch pays to learn it: a directory
 // `host_files` grant renders only where directories are delivered (run.hostFileDirsDeliver),
-// and on macOS that takes the runtime probe — macos-user never delivers one, and Apple
-// Container below its read-only-bind floor declines one. So a directory grant is counted
+// and on macOS that takes the runtime probe — Apple Container below its read-only-bind floor
+// declines one, while podman binds it and macos-user copies it. So a directory grant is counted
 // only off macOS, where the launch's one backend is podman, which binds it. On macOS that is
-// a false negative for podman and a current Apple Container, never a false positive.
+// a false negative for podman, macos-user and a current Apple Container, never a false positive.
 //
 // ⚠ AND IT CANNOT SEE `-p`, exactly as protocols.go cannot: a `-p <name>` is an argument to
 // a launch that has not happened. So a clean prediction means "the `profile` selection

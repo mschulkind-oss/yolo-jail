@@ -14,6 +14,11 @@ import (
 // the container backends' /ctx would use, whose target is the resolved host source — and the
 // Seatbelt profile decides every access to that target.
 //
+// ONE EXCEPTION, A COPY: a pack `mount` whose source is a single FILE is copied into the composed
+// tree at the same path instead (SiteContextCopies; context-mounts.md's CX-D23), because a pack
+// grant names a path in the user's home, which a link cannot serve on this backend, and one
+// file is cheap to copy. A directory grant keeps the link and its refusal.
+//
 // THE LINK IS ONLY A NAME (§3.3). Seatbelt judges the TARGET of every access, for an absolute
 // link and a relative one alike (measured on hardware 2026-09-13, declaration-parity.md §6.1
 // probe 1), so an agent that plants its own link anywhere it may write gains nothing, and no
@@ -330,6 +335,82 @@ func siteAgainst(links []ContextLink, i int, occupied []string, fold bool) strin
 	return ""
 }
 
+// SiteContextCopies returns every COPY in `copies` this backend cannot land in the context dir,
+// with its reason; none means all of them can land.
+//
+// A copy is a selected pack's single-FILE `mount`, which this backend delivers by copying the
+// file into the composed tree at the grant's /ctx path instead of linking it: a pack grant names
+// a path in the user's home, which the sandbox account cannot reach through a link (OQ-CX7), and
+// the host CLI, running as the user, can read it. Each is described by the ContextLink fields a
+// copy has (Dest, Source as the host resolved it, Named, Pack; never RW, never Dir).
+//
+// DESTINATION RULES ONLY, because the source is never opened by the sandbox: the bytes land in
+// the root-owned tree, so where the source sits, which rules 2-10 of SiteContextLinks judge, is
+// not this backend's question for a copy. What is judged is where the copy lands:
+//
+//  1. under /ctx, as a link must be;
+//  2. not at, inside or around one of `occupied` (yolo's reserved children of the context dir
+//     and the selected packs' declared `reads-host` destinations — ContextOccupied's list);
+//  3. not at, inside or around another copy (reported once, on the later member);
+//  4. not at, inside or around a link in `links`, which would be staged into the copy's
+//     directory or replace it.
+//
+// The caller adds each copy's Dest to the `occupied` it hands SiteContextLinks too, so a link
+// is refused around a copy from its own side as well, and PlanInvariants' re-siting (which
+// reads HostContext.Copied through ContextOccupied) sees the copies without this function.
+// Every overlap compares as the volume does (ContextSiting.FoldCase).
+func SiteContextCopies(s ContextSiting, copies, links []ContextLink, occupied []string) []ContextRefusal {
+	var out []ContextRefusal
+	for i, c := range copies {
+		why := ""
+		dest := path.Clean(c.Dest)
+		if c.Rel() == "" {
+			why = "its jail path " + c.Dest + " is not under " + paths.ContainerContextDir +
+				": with no mount namespace a copied file here can only land inside $" +
+				paths.ContextDirEnv
+		}
+		for _, p := range occupied {
+			if why != "" {
+				break
+			}
+			if rel := overlap(dest, path.Clean(p), s.FoldCase); rel != "" {
+				why = "its jail path " + dest + " " + rel + " " + path.Clean(p) +
+					", which yolo's own staging uses"
+			}
+		}
+		for _, o := range copies[:i] {
+			if why != "" {
+				break
+			}
+			if o.Rel() == "" {
+				continue
+			}
+			if rel := overlap(dest, path.Clean(o.Dest), s.FoldCase); rel != "" {
+				why = "its jail path " + dest + " " + rel + " " + path.Clean(o.Dest) + " (" +
+					o.Origin() + " of " + o.NamedSource() + "): two copied files cannot share or " +
+					"nest a path"
+			}
+		}
+		for _, l := range links {
+			if why != "" {
+				break
+			}
+			if l.Rel() == "" {
+				continue
+			}
+			if rel := overlap(dest, path.Clean(l.Dest), s.FoldCase); rel != "" {
+				why = "its jail path " + dest + " " + rel + " " + path.Clean(l.Dest) + " (" +
+					l.Origin() + " of " + l.NamedSource() + "), where a link is staged: a copied " +
+					"file and a link cannot share or nest a path"
+			}
+		}
+		if why != "" {
+			out = append(out, ContextRefusal{Link: c, Reason: why})
+		}
+	}
+	return out
+}
+
 // privacyDir names the privacy-guarded directory src sits in, inside home, or "".
 func (s ContextSiting) privacyDir(src, home string) string {
 	for _, d := range s.PrivacyDirs {
@@ -340,11 +421,21 @@ func (s ContextSiting) privacyDir(src, home string) string {
 	return ""
 }
 
+// copiedDests is each copy's /ctx destination, the paths a copy occupies in the context dir.
+func copiedDests(copies []ContextLink) []string {
+	out := make([]string, 0, len(copies))
+	for _, c := range copies {
+		out = append(out, c.Dest)
+	}
+	return out
+}
+
 // ContextOccupied is every context-dir path yolo's own staging uses on this launch: the
 // reserved children of the context dir (paths.ReservedContextPaths, the names `yolo check`
 // refuses a `mounts` element at) and every destination the composed tree delivers a host
-// file to (HostContext.Delivered). A link at, inside or around one would collide with a
-// copied file, or be staged INTO a directory of the composed tree.
+// file to (HostContext.Delivered, and the copied pack `mount` files, HostContext.Copied). A
+// link at, inside or around one would collide with a copied file, or be staged INTO a
+// directory of the composed tree.
 func ContextOccupied(delivered []string) []string {
 	var out []string
 	for _, r := range paths.ReservedContextPaths() {

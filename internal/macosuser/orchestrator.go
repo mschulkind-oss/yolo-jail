@@ -1301,14 +1301,18 @@ func PrintPlan(w io.Writer, plan RunPlan, problems []string) {
 	}
 	// THE CONTEXT MOUNTS, named on the same rule: "this launch declares none" and "this
 	// backend delivers none" were one statement until §4 step 4. Each is the link the agent
-	// opens and the host folder behind it, at the STAGED path — never the /ctx spelling, which
-	// names nothing on macOS.
-	if len(plan.ContextLinks) == 0 {
+	// opens and the host folder behind it, or the pack file copied there (CX-D23), at the
+	// STAGED path — never the /ctx spelling, which names nothing on macOS.
+	if len(plan.ContextLinks) == 0 && len(plan.ContextCopies) == 0 {
 		p.print("context:     [dim]no context mounts[/dim]")
 	} else {
 		for _, l := range plan.ContextLinks {
 			p.printf("context:     %s/%s → %s [dim](%s, %s; a root-owned link, and the "+
 				"profile decides access)[/dim]", plan.ContextDir, l.Rel(), l.Source, l.Mode(), l.Origin())
+		}
+		for _, c := range plan.ContextCopies {
+			p.printf("context:     %s/%s ← %s [dim](read-only, %s; copied at launch, so a host "+
+				"edit arrives at the next launch)[/dim]", plan.ContextDir, c.Rel(), c.Source, c.Origin())
 		}
 	}
 	p.printf("git identity: %s", gitIdentityRepr(plan.GitIdentity))
