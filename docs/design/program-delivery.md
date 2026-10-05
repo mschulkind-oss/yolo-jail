@@ -2115,6 +2115,12 @@ per workspace: once its newest capture of the agent is a day old it captures the
 failed capture is retried after the hourly interval), and it installs only a newer release
 ([HP-D16](host-tool-provisioning.md#HP-D16)). That capture is the store's newest, so a jail's cold
 install takes it too. The question stays open for a jail's warm updates.
+The MCP server refresh's stamps have the same shape: they sit in
+`~/.cache/yolo-agent-stamps/servers` while each install goes into the workspace's own prefix, under
+that prefix's lock ([`serverrefresh.go:264`](../../internal/entrypoint/serverrefresh.go#L264),
+[`:379-382`](../../internal/entrypoint/serverrefresh.go#L379-L382)). No option below names them, so
+the ruling should say whether they follow it
+([`pi-extension-store-builds.md` §6.1](pi-extension-store-builds.md#61-every-lock-in-pis-path)).
 
 **What [OQ-CP4](../reference/agent-cli-copies.md#oq-cp4) rested on.** `yolo capture` is a host act, and the capture jail gets no store mount,
 so a launcher inside a jail cannot start one. But the launch itself runs on the host, and
