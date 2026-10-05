@@ -164,6 +164,9 @@ const (
 func Inventory(o Options) Report {
 	fillDefaults(&o)
 	rt := o.DetectRuntime()
+	// Asked ONCE: every collector below that reads the runtime reads this answer, so no two
+	// rows of one report can be about different runtimes.
+	o.DetectRuntime = func() string { return rt }
 	rep := Report{
 		GeneratedAt: o.Now().UTC(),
 		Frame:       "host",
@@ -299,12 +302,28 @@ var stateReclaimers = map[string]Reclaimer{
 	"model-menus": {Detail: "self-bounded: a `yolo host --` that writes a new menu removes the program's others once no program holding one runs", Trigger: "the next `yolo host --` that writes a menu"},
 }
 
+// macosUserContainerOnlyState names the state dir's children whose reclaimer is a pass
+// macos-user's own `yolo prune` prints as not applicable (internal/prune's
+// macosUserNotApplicable sections): the stopped-container pass, the interrupted image
+// deliveries (swept with the tarballs) and the image and prefix GC roots under build/. Each
+// value names the pass when the row's reclaimer is not all of it ("" is "this pass") and what
+// that runtime's prune still does in the dir ("" for nothing). On macos-user each row keeps its
+// reclaimer and verdict and names the container runtime's prune as its trigger
+// (onMacosUserContainerPass).
+var macosUserContainerOnlyState = map[string]struct{ pass, also string }{
+	"containers":     {},
+	"image-delivery": {},
+	"build": {"the passes that reap its image and prefix GC roots",
+		"its dangling out-links are swept by macos-user's `yolo prune --apply` too"},
+}
+
 // stateStores inventories the direct children of the state dir, one row each.
 //
 // The cache row is folded in from the already-measured cache section rather than
 // walked a second time — the cache is the largest tree on the machine and
 // walking it twice would double this command's cost for a number it already has.
 func stateStores(o Options, cacheRows []Store) []Store {
+	rt := o.DetectRuntime()
 	root := o.GlobalStorage()
 	cacheLeaf := filepath.Base(o.GlobalCache())
 
@@ -405,6 +424,9 @@ func stateStores(o Options, cacheRows []Store) []Store {
 		default:
 			sizeStore(&s, s.Path, o)
 		}
+		if c, containerOnly := macosUserContainerOnlyState[name]; containerOnly && rt == macosUserRuntime {
+			onMacosUserContainerPass(&s, c.pass, c.also)
+		}
 		out = append(out, s)
 	}
 	if strayFiles > 0 {
@@ -425,6 +447,7 @@ func stateStores(o Options, cacheRows []Store) []Store {
 // anything at all reclaims those gigabytes — is a per-subdir fact. Coverage is
 // read LIVE off prune's own exported lists, never re-typed here.
 func cacheStores(o Options) []Store {
+	rt := o.DetectRuntime()
 	root := o.GlobalCache()
 	covered := map[string]Reclaimer{}
 	// The post-launch slot purges this class too, but only on a HOST launch and
@@ -483,7 +506,7 @@ func cacheStores(o Options) []Store {
 			// The tar cache is its own reclaimer, and its keep is RUNTIME-RESOLVED
 			// since OQ-BF6 — asked here rather than hardcoded, so this row cannot
 			// disagree with the sweep that acts on it.
-			keep := prune.ResolveImageCacheKeep(prune.ImageCacheKeepUnset, o.DetectRuntime())
+			keep := prune.ResolveImageCacheKeep(prune.ImageCacheKeepUnset, rt)
 			s.Reclaimer = Reclaimer{
 				Func:    "PruneImageCache",
 				Detail:  fmt.Sprintf("keep %d", keep),
@@ -491,6 +514,14 @@ func cacheStores(o Options) []Store {
 			}
 			s.Verdict = VerdictYolo
 			s.Note = "one-shot image load artifacts; a running jail depends on the store closure, never on these"
+			if rt == macosUserRuntime {
+				// macos-user's prune runs no tar sweep, so there is no keep of its own to
+				// resolve: the keeps that apply are the container runtimes' that do run it.
+				s.Reclaimer.Detail = fmt.Sprintf("keep %d under the container runtime, %d under podman",
+					prune.ResolveImageCacheKeep(prune.ImageCacheKeepUnset, "container"),
+					prune.ResolveImageCacheKeep(prune.ImageCacheKeepUnset, "podman"))
+				onMacosUserContainerPass(&s, "", "")
+			}
 		}
 		sizeStore(&s, s.Path, o)
 		// NO PER-ROW NOTE for an uncovered subdir: the reclaimer column already
@@ -962,6 +993,36 @@ func shortHash(s string) string {
 
 // macosUserRuntime is the native macOS backend's runtime name, which names no container runtime.
 const macosUserRuntime = "macos-user"
+
+// macosUserContainerTrigger is the trigger a row names on macos-user when its reclaimer is a pass
+// that runtime's own `yolo prune` prints as not applicable: the prune of a container runtime on the
+// same Mac, which does run it.
+const macosUserContainerTrigger = "`YOLO_RUNTIME=container yolo prune --apply` (or YOLO_RUNTIME=podman)"
+
+// onMacosUserContainerPass rewrites, for macos-user, a row whose reclaimer is a container
+// runtime's pass. The reclaimer and the yolo verdict stay, because a container runtime on this Mac
+// runs the pass; the trigger becomes that runtime's prune, and the note says macos-user's own does
+// not run pass ("" is "this pass"), plus also, what that prune still does in the dir ("" for
+// nothing).
+//
+// WITHOUT THIS THE ROW CLAIMS A SWEEP THAT NEVER COMES: on macos-user `yolo prune` prints these
+// sections as not applicable and runs nothing in them, so a row naming the plain
+// `yolo prune --apply` would send the user to a command that leaves the bytes where they are.
+func onMacosUserContainerPass(s *Store, pass, also string) {
+	if pass == "" {
+		pass = "this pass"
+	}
+	s.Reclaimer.Trigger = macosUserContainerTrigger
+	note := "macos-user's `yolo prune` does not run " + pass + "; the prune of a container runtime " +
+		"on this Mac does, and with none, nothing does"
+	if also != "" {
+		note += "; " + also
+	}
+	if s.Note != "" {
+		note = s.Note + " — " + note
+	}
+	s.Note = note
+}
 
 // notApplicableOnMacosUser is the one row a container-only section gets on macos-user: that
 // backend runs no containers or images, so there is nothing to list, and a container runtime on
