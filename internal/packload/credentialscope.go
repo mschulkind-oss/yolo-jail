@@ -866,7 +866,10 @@ func (s *CredentialScope) EnvSourcesFor(agent string) *jsonx.OrderedMap {
 }
 
 // DeliversEnvSource reports whether the hydrated env_sources entry name reaches SOME
-// process of the launch: unclaimed, or claimed by a provider some agent selected.
+// process of the launch: unclaimed, or claimed by a provider some agent selected. It answers
+// whether the entry is handed over, not whether it wins its name there (a shape var can still
+// beat it; Delivered answers that). No production code reads it since the one ordered
+// composition (envcompose.go); it is kept as the claim tests' probe.
 func (s *CredentialScope) DeliversEnvSource(name string) bool {
 	if s == nil {
 		return true
@@ -882,8 +885,11 @@ func (s *CredentialScope) DeliversEnvSource(name string) bool {
 	return false
 }
 
-// DeliveredPackEnv is the value a pack env key reaches some process with: the shared
-// fold's, or else the first agent's (sorted) that receives it.
+// DeliveredPackEnv is the value the pack env FOLD gives name in some process, before env_sources
+// and the shape vars rank over it (envcompose.go): the shared fold's, or else the first agent's
+// (sorted) that receives it. No production code reads it since the one ordered composition,
+// whose winner Delivered and DeliveredTo answer; it is kept as the tests' probe of what the fold
+// alone delivers (a served address, a pack's audio pointer).
 func (s *CredentialScope) DeliveredPackEnv(name string) (string, bool) {
 	if s == nil {
 		return "", false
@@ -904,7 +910,7 @@ func (s *CredentialScope) DeliveredPackEnv(name string) (string, bool) {
 // vehicle delivers them — its shape vars over the env_sources it receives (the shared ones, its
 // own provider's claimed ones and its grant's) over the pack env fold it receives, an
 // env_sources null removing the fold's value and a shape tombstone everything below it. It is
-// the per-agent question the launch-wide DeliveredPackEnv cannot answer: a value only another
+// the per-agent question the launch-wide Delivered cannot answer: a value only another
 // agent receives is not this agent's (the region pre-flight asks it, OQ-BR6).
 func (s *CredentialScope) DeliveredTo(agent, name string) (string, bool) {
 	if s == nil {

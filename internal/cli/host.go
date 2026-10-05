@@ -1286,7 +1286,8 @@ func (c *hostComposition) prelaunch(interactive bool) openaiauthhost.Prelaunch {
 	return p
 }
 
-// fromRemoval marks a var in hostComposition.origins that UNSETS its name: an env_sources null.
+// fromRemoval marks a var in hostComposition.origins that UNSETS its name: an env_sources null or
+// a shape var's tombstone (hostComposedVars marks every removal of the composition so).
 // It is never printed; envOverrideFindings' lookup reads it as "not delivered".
 const fromRemoval = "a removal"
 

@@ -423,3 +423,128 @@ func TestTheJailVehiclesKeepTheWireTablesOverEnvSources(t *testing.T) {
 	check(t, "fxa in the jail, a pack's env naming a table", read(t, nil, sharedFile, agentFile))
 	check(t, "macos-user session, a pack's env naming a table", envMap(folded.launchEnv("fxa")))
 }
+
+// twoAgentWinnerChannel composes two profiled agents over one pack: fxa on fxp, whose derive sets
+// K2, and fxb on fyp, which composes only its own provider's key. env_sources hands every process
+// K2, so K2's winner is fxa's shape var for fxa, and env_sources' value for fxb and for every
+// other process.
+func twoAgentWinnerChannel(t *testing.T) *packChannel {
+	t.Helper()
+	p := inlinePack(t, "fx2", `{"name":"fx2","contributes":[`+
+		`{"kind":"program","bin":"fxa","via":"npm","package":"@acme/fxa"},`+
+		`{"kind":"program","bin":"fxb","via":"npm","package":"@acme/fxb"},`+
+		`{"kind":"provider","name":"fxp","api_key_env_name":"FXP_KEY"},`+
+		`{"kind":"provider","name":"fyp","api_key_env_name":"FYP_KEY"},`+
+		`{"kind":"profile","name":"fxp","provider":"fxp"},`+
+		`{"kind":"profile","name":"fyp","provider":"fyp"}]}`)
+	derive := `yolo.env("fxa", function(ctx)
+  return {K2 = "shape"}
+end)
+`
+	if err := os.WriteFile(filepath.Join(p.Root, "derive.lua"), []byte(derive), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	o := goldenOptions(t.TempDir(), packHome(t))
+	o.UseProfiles = map[string]string{"fxa": "fxp", "fxb": "fyp"}
+	cfg := bareConfig()
+	es := jsonx.NewOrderedMap()
+	es.Set("FXP_KEY", "es-fxp")
+	es.Set("FYP_KEY", "es-fyp")
+	es.Set("K2", "es-unclaimed")
+	cfg.Set("env_sources", []any{es})
+	channel := channelFor(t, o, cfg, []*packload.Pack{p}, nil)
+	if v, _ := channel.scope.EnvFor("fxb").Value("K2"); v != "es-unclaimed" {
+		t.Fatalf("fixture: fxb's K2 must be every process's env_sources value, got %q", v)
+	}
+	if v, _ := channel.scope.EnvFor("fxa").Value("K2"); v != "shape" {
+		t.Fatalf("fixture: fxa's K2 must be its derive's, got %q", v)
+	}
+	return channel
+}
+
+// A NAME AN AGENT ANSWERS AS EVERY PROCESS DOES GETS NO LINE IN ITS FILE, even where another
+// agent's file sets it otherwise. fxb's K2 is the shared composition's, so fxb's file is silent on
+// K2 and the shared file answers it, in the agent's process as in a jail shell. A line there
+// (overriding fxa's value, for an fxb that fxa starts) wrote the shared value into fxb's file, and
+// the macos-user MCP view then could not find it: that view takes the shared value to be the
+// `case` guard value no agent's file sets (internal/entrypoint's sharedValueInAgentFiles), so with
+// fxa's file setting "shape" and fxb's "es-unclaimed" it found none, left an MCP server gated on K2
+// out of the shared table, and printed that the server was configured only for fxa and fxb. An fxb
+// started by fxa keeps fxa's K2, as it did before the one composition.
+func TestAnAgentFileWritesNoLineForAWinnerEveryProcessShares(t *testing.T) {
+	channel := twoAgentWinnerChannel(t)
+	ws := t.TempDir()
+	writeMacosUserAgentEnvFiles(ws, channel)
+	podman := t.TempDir()
+	deliverChannel(podman, "podman", channel)
+	for vehicle, dir := range map[string]string{
+		"macos-user": filepath.Join(ws, macosUserAgentEnvDir),
+		"podman":     filepath.Join(podman, agentEnvStateDir),
+	} {
+		fxb, err := os.ReadFile(filepath.Join(dir, "fxb.sh"))
+		if err != nil {
+			t.Fatalf("%s: fxb's own key gives it a file: %v", vehicle, err)
+		}
+		if strings.Contains(string(fxb), "K2") {
+			t.Errorf("%s: fxb's file names K2, whose winner for fxb is every process's:\n%s", vehicle, fxb)
+		}
+		fxa, err := os.ReadFile(filepath.Join(dir, "fxa.sh"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if want := `case "${K2-}" in ''|'es-unclaimed') export K2='shape' ;; esac`; !strings.Contains(string(fxa), want) {
+			t.Errorf("%s: fxa's file must override the shared K2 with its own:\n%s", vehicle, fxa)
+		}
+	}
+	shared := filepath.Join(podman, "yolo-user-env.sh")
+	agentFile := func(agent string) string { return filepath.Join(podman, agentEnvStateDir, agent+".sh") }
+	if got := sourcedWinners(t, nil, shared, agentFile("fxb"))["K2"]; got != "es-unclaimed" {
+		t.Errorf("fxb in the jail: K2 = %q, want every process's es-unclaimed", got)
+	}
+	if got := sourcedWinners(t, nil, shared, agentFile("fxa"))["K2"]; got != "shape" {
+		t.Errorf("fxa in the jail: K2 = %q, want its derive's shape", got)
+	}
+}
+
+// THE FILE PAIR THE macos-user MCP VIEW READS, for the two-agent fixture, byte for byte. The
+// bootstrap rebuilds the shared composition from these files (internal/entrypoint's
+// scopedMCPView): K2's shared value is the `case` guard value no agent's file sets, here fxa's
+// es-unclaimed, which fxb's file must not set. internal/entrypoint's darwinmcpview_test.go holds
+// the same pair as a scenario, so a change here is a change to that reader's input.
+func TestTheMacosUserAgentFilePairForTheMCPView(t *testing.T) {
+	channel := twoAgentWinnerChannel(t)
+	ws := t.TempDir()
+	writeMacosUserAgentEnvFiles(ws, channel)
+	header := func(agent string) string {
+		return "# Auto-generated by yolo: what this launch scoped to " + agent + " alone\n" +
+			"# (provider-credential-scope.md). Rewritten by every entry; sourced by its launcher.\n" +
+			"# A value you set yourself wins over the profile's (OQ-CN8).\n"
+	}
+	want := map[string]string{
+		"fxa.sh": header("fxa") +
+			"export FXP_KEY=${FXP_KEY:-'es-fxp'}\n" +
+			`case "${K2-}" in ''|'es-unclaimed') export K2='shape' ;; esac` + "\n",
+		"fxb.sh": header("fxb") +
+			"export FYP_KEY=${FYP_KEY:-'es-fyp'}\n",
+	}
+	entries, err := os.ReadDir(filepath.Join(ws, macosUserAgentEnvDir))
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := map[string]string{}
+	for _, e := range entries {
+		b, err := os.ReadFile(filepath.Join(ws, macosUserAgentEnvDir, e.Name()))
+		if err != nil {
+			t.Fatal(err)
+		}
+		got[e.Name()] = string(b)
+	}
+	for name, body := range want {
+		if got[name] != body {
+			t.Errorf("%s:\n got:\n%s\nwant:\n%s", name, got[name], body)
+		}
+	}
+	if len(got) != len(want) {
+		t.Errorf("files = %v, want exactly fxa.sh and fxb.sh", entries)
+	}
+}
