@@ -867,3 +867,81 @@ func TestTheConfinedOrphanActUnlinksBeneathItsRoots(t *testing.T) {
 		t.Errorf("the confined act removed %s, below no directory the catalog reads", outside)
 	}
 }
+
+// THE CONFINED CATALOG READS A FINDER DIRECTORY ONLY THROUGH THE HOME LINK THIS LAUNCH LAID. The
+// directory it opens is the layout's target in the sidecar, so when ~/.local is no longer that
+// link — re-pointed elsewhere, or replaced by a real directory — the sidecar directory is not
+// what ~/.local/bin holds, and an orphan the catalog found there would be named, and removed, by
+// a path that is not where it lives. The boot says so instead, and removes nothing.
+//
+// MUTATION: make confinedOrphanChain skip its os.Readlink comparison, and the sidecar's
+// undeclared file is cataloged and autopruned with no refusal.
+func TestTheDarwinCatalogReadsOnlyThroughThisLaunchsLayoutLink(t *testing.T) {
+	for _, replace := range []struct {
+		name string
+		do   func(t *testing.T, local string)
+	}{
+		{"re-pointed", func(t *testing.T, local string) {
+			elsewhere := filepath.Join(resolvedDir(t), "local")
+			if err := os.MkdirAll(filepath.Join(elsewhere, "bin"), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Remove(local); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Symlink(elsewhere, local); err != nil {
+				t.Fatal(err)
+			}
+		}},
+		{"a real directory", func(t *testing.T, local string) {
+			if err := os.Remove(local); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.MkdirAll(filepath.Join(local, "bin"), 0o755); err != nil {
+				t.Fatal(err)
+			}
+		}},
+	} {
+		t.Run(replace.name, func(t *testing.T) {
+			home, packRoot := catalogHome(t)
+			ws, sidecar, _ := darwinSidecarFixture(t)
+			e := DarwinEnvFrom(map[string]string{
+				"JAIL_HOME": home, "YOLO_PACK_ROOT": packRoot, "YOLO_DARWIN_WORKSPACE": ws,
+				DarwinHomeSidecarEnv: sidecar, OrphanAutopruneEnv: "1",
+			}, home)
+			var term strings.Builder
+			e.Stderr = &term
+			if err := InstallDarwinHomeLayout(e, nil); err != nil {
+				t.Fatal(err)
+			}
+			local := filepath.Join(home, ".local")
+			if fi, err := os.Lstat(local); err != nil || fi.Mode()&os.ModeSymlink == 0 {
+				t.Fatalf("the fixture is not the layout this test is about: ~/.local is not a link (err=%v)", err)
+			}
+			orphan := filepath.Join(sidecar, "local", "bin", "leftover")
+			if err := os.MkdirAll(filepath.Dir(orphan), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(orphan, []byte("x"), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			replace.do(t, local)
+
+			catalogConfinedOrphans(e)
+
+			refusal := lineWith(term.String(), "is not this launch's layout link")
+			for _, want := range []string{catalogPrefix, "~/.local/bin", local} {
+				if !strings.Contains(refusal, want) {
+					t.Errorf("no refusal naming %q for a ~/.local this launch did not lay:\n%s", want, term.String())
+				}
+			}
+			if _, err := os.Stat(orphan); err != nil {
+				t.Errorf("autoprune removed a sidecar file through a ~/.local that no longer leads there "+
+					"(err=%v)\n%s", err, term.String())
+			}
+			if strings.Contains(term.String(), "~/.local/bin/leftover") {
+				t.Errorf("the catalog named a sidecar file as ~/.local/bin's:\n%s", term.String())
+			}
+		})
+	}
+}

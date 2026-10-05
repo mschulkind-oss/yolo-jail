@@ -136,14 +136,20 @@ MCP-enabled tool.
   claims reaches only the agent that selected that provider, in that agent's own env file
   ([the credential gate](providers.md#the-credential-gate)), so the server is written into
   that agent's config and no other, and the notice names the agents it was configured for
-  (`loadMCPTables` in `internal/entrypoint`). On `macos-user` the jail's environment is the
-  root-owned session env file the launch writes before its bootstrap runs. The bootstrap reads
-  that file into the gate's view and leaves its own process environment unchanged (the
+  (`loadMCPTables` in `internal/entrypoint`). Each agent's answer applies its own file the way
+  its launcher sources it, so a profile that sets a variable another profile or the shared
+  environment also sets, or that removes one, is honored. On `macos-user` the jail's environment
+  is the root-owned session env file the launch writes before its bootstrap runs. The bootstrap
+  reads that file into the gate's view and leaves its own process environment unchanged (the
   `hydrate_session_env` boot step), so a server gated on a shared `env_sources` variable is kept
   there as it is in a container. The file is the launched agent's environment, so it also holds
-  the values the gate scoped to that agent; a name some agent's own env file sets is left out of
-  the jail-wide view, and the server reaches only the agents whose file sets it, as above. No
-  `YOLO_` name is taken from the file: those are the launcher's.
+  the values the gate scoped to that agent. When some agent's own env file also names a
+  variable, the jail-wide view keeps it only where those files show the value the shared
+  environment gives it, and takes that value; otherwise it leaves the variable out, so a scoped
+  value reaches only the agents whose file sets it (`scopedMCPView`). The files cannot show the
+  shared value when two or more profiles set the variable to that value itself, and the server
+  is then configured only for the agents whose file sets it. No `YOLO_` name is taken from the
+  file: those are the launcher's.
 - **Key order is insertion order** — presets in the order the config listed them, then custom
   entries — so a projection's output is byte-stable across boots.
 

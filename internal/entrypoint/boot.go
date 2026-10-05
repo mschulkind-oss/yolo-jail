@@ -228,13 +228,11 @@ func launcherContractKey(key string) bool { return strings.HasPrefix(key, "YOLO_
 // parseExportLine reads one `export K=…` line in any of exportLineRe's four forms, returning
 // the key, the value with the writer's single-quote escape reversed, whether the line is the
 // def form (`export K=${K:-'v'}`, a default the launch-time environment beats), and whether it
-// parsed at all. Shared by three readers of this grammar — the user env file
-// (hydrateEnvFromUserEnvFile), its per-entry channel (ParseEntryChannel), and the macos-user
-// session env file (hydrateEnvFromSessionEnvFile) — so those three cannot come to disagree
-// about a value's quoting. A fourth reader, agentEnvLookup (agentenv.go), still keeps its own
-// copy of the group switch and the unescape, with its own def-form rule (an empty value, or one
-// an earlier `unset` line removed, does not beat the default); folding it in is left to a
-// change that owns that file.
+// parsed at all. Shared by every reader of this grammar — the user env file
+// (hydrateEnvFromUserEnvFile), its per-entry channel (ParseEntryChannel), the macos-user
+// session env file (hydrateEnvFromSessionEnvFile) and the per-agent env files
+// (parseAgentEnvLine, which adds the writer's `case` lines) — so they cannot come to disagree
+// about a value's quoting.
 func parseExportLine(line string) (key, val string, def, ok bool) {
 	loc := exportLineRe.FindStringSubmatchIndex(line)
 	if loc == nil {
@@ -254,7 +252,7 @@ func parseExportLine(line string) (key, val string, def, ok bool) {
 		raw = groupStr(line, loc, exportGroupBare)
 	}
 	// Reverse the writer's '\'' escape for single-quoted contexts.
-	return key, strings.ReplaceAll(raw, "'\\''", "'"), def, true
+	return key, unescapeSingleQuoted(raw), def, true
 }
 
 // DarwinSessionEnvFileEnv names the macos-user SESSION ENV FILE on the bootstrap's argv: the
@@ -289,9 +287,9 @@ const DarwinSessionEnvFileEnv = "YOLO_DARWIN_ENV_FILE"
 //     itself a jail and hand every credential to each child it spawns.
 //
 // The file is the LAUNCHED agent's environment, so it also carries the values the credential
-// gate scoped to that agent alone. They are hydrated like the rest (the agent's own MCP table
-// needs them) and their names recorded in e.sessionEnvKeys, so loadMCPTables can keep a value
-// some agent's own env file names out of the shared view (scopedMCPView).
+// gate scoped to that agent alone. They are hydrated like the rest and their names recorded in
+// e.sessionEnvKeys, so loadMCPTables can tell them from the shared composition by the
+// per-agent env files (scopedMCPView).
 //
 // An unset variable is a launch that composed nothing (or a test), and reads nothing. A file
 // named and unreadable is warned about, because the gate then answers wrongly for this launch.
