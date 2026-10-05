@@ -39,6 +39,13 @@ const (
 	ContextHostUserDir = ContainerContextDir + "/host-user"
 	// ContextHostNvimDir is where the host's ~/.config/nvim is bound for the entrypoint.
 	ContextHostNvimDir = ContainerContextDir + "/host-nvim-config"
+	// ContextGlobalGitignore is where macos-user copies the host's global gitignore (git's
+	// core.excludesFile) for its bootstrap, which has no mount to read it through. It sits
+	// INSIDE ContextHostUserDir, so it needs no reservation of its own, and it cannot collide
+	// with a host_files entry there: every name config.HostFileEntry.Slug produces either
+	// passes through without a '_' or carries '_' followed by two hex digits, and "gl" is not
+	// hex (config.HostFilePathFromSlug refuses it).
+	ContextGlobalGitignore = ContextHostUserDir + "/_global-gitignore"
 )
 
 // ReservedContextPath is one of yolo's own children of the context dir, with what it holds.

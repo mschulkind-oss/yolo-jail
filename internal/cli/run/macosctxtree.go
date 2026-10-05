@@ -1,17 +1,22 @@
 package run
 
 import (
+	"errors"
 	"fmt"
+	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
+	"syscall"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/macosuser"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
+	"github.com/mschulkind-oss/yolo-jail/internal/richtext"
 )
 
 // macosctxtree.go builds the CONTEXT TREE: the host bytes a `/ctx` mount carries on
@@ -47,23 +52,34 @@ import (
 // a --dry-run plan without touching disk, and OQ-DP4's ledger row states the constraint
 // the ruling does not override: the copy runs in the host CLI, never in the plan builder.
 //
-// # What is NOT here
+// # What is copied, and what is linked
 //
-// Directory-shaped deliveries. Config `mounts`, a pack `mount` grant and a directory
-// `host_files` entry can each name an arbitrary user tree, and a copy does not scale to
-// one — this repo's own yolo-jail.jsonc mounts a growing log directory. Those are DP-D15,
-// ruled separately ("we can't do /ctx by copying, some of these directories are huge").
+// Three declarations can name a user DIRECTORY: config `mounts`, a pack `mount` grant and a
+// directory `host_files` entry. DP-D15 refused the first two on this backend because "we
+// can't do /ctx by copying, some of these directories are huge" — this repo's own
+// yolo-jail.jsonc mounts a growing log directory — and they are context mounts (context-
+// mounts.md's Defined terms name exactly those two), which planMacosUserCtxMounts below
+// delivers as a root-owned link in the context dir with the Seatbelt profile deciding access
+// to the source (§3, OQ-CX5's narrowing of DP-D15), or refuses, naming each, where this
+// backend cannot. Nothing of a directory mount is copied, so DP-D15's size argument stands
+// and those bytes are live.
 //
-// ⚠ TWO OF THE THREE ARE DELIVERED BY LINK NOW, never by this copy, and the third is still
-// named. Config `mounts` and pack `mount` grants never reach this composer: they are context
-// mounts (context-mounts.md's Defined terms name exactly those two), and planMacosUserCtxMounts
-// below delivers each as a root-owned link in the context dir with the Seatbelt profile
-// deciding access to its source (§3, OQ-CX5's narrowing of DP-D15), or refuses the launch,
-// naming it, where this backend cannot (DP-D15: "a fatal error on setups that don't support it
-// rather than having it be surprisingly not there"). Nothing is copied, so DP-D15's size
-// argument stands and the bytes are live. A directory `host_files` entry is not a context
-// mount, and it still reaches this function and comes back in undeliveredDirs for
-// noteMacosUserHostByteGaps to print.
+// ⚠ A DIRECTORY `host_files` ENTRY IS COPIED HERE, and DP-D15's size reason never covered it:
+// on a container backend it is bound read-only and then COPIED into the jail home at boot
+// (entrypoint.stageHostFile → copyTree), so it is a full copy on every backend that delivers
+// it, and this one adds the host-side copy in front. It is copied CONFINED to its source
+// (copyCtxTreeConfined: a link is followed only where it resolves inside the source, as a
+// container bind resolves nothing outside it) and CAPPED (macosDirHostFileEntryCap), and a
+// copy that fails or crosses the cap ends the launch naming the entry.
+//
+// ⚠ AND A PACK `mount` OF ONE FILE IS COPIED TOO (context-mounts.md CX-D23). A pack grant names
+// a path in the user's home, which a link cannot serve here (OQ-CX7: the sandbox account
+// reaches nothing inside a real home), and one file has none of DP-D15's size problem. The
+// decider hands those grants over as copies (macosCtxLinks) and this function lands each at
+// its /ctx path; a directory grant keeps the link and its refusal.
+//
+// The host's global gitignore rides the same tree (hostGlobalGitignore), because the git
+// identity reaches this backend's bootstrap only by name and a file needs bytes.
 //
 // One destination over, noted here because this is where a reader comes looking: a pack
 // `files` contribution lands in the HOME rather than /ctx, so it belongs to the home overlay
@@ -77,16 +93,45 @@ import (
 const macosCtxTreeLeaf = "ctx-tree"
 
 // macosCtxDelivery is what one launch's composition produced: the tree and its record
-// (macosuser.HostContext), plus the entries it could NOT carry.
+// (macosuser.HostContext).
 type macosCtxDelivery struct {
 	ctx macosuser.HostContext
-	// undeliveredDirs are the destination paths of source-bearing `host_files` entries
-	// whose source is a DIRECTORY. They are returned rather than warned about here so the
-	// launch has exactly one printer for what did not cross
-	// (noteMacosUserHostByteGaps) — a second one would be the OQ-BP-3 shape, a warning
-	// the reader learns to skip because two of them say overlapping things.
+	// undeliveredDirs is RETIRED and nothing writes it: a directory `host_files` entry is
+	// copied now (buildMacosCtxTree), so the one shape noteMacosUserHostByteGaps named crosses
+	// and that printer has no caller. The field stays only until the printer's own file deletes
+	// it (loopholeinert.go), and goes with it.
 	undeliveredDirs []string
 }
+
+// dirCopyCap is a bound on a confined directory copy: bytes of regular files, and entries
+// (files plus directories, the source's own root not counted).
+type dirCopyCap struct{ bytes, entries int64 }
+
+// THE DIRECTORY host_files CAPS, per entry and per launch. A directory entry is copied at EVERY
+// launch, three times over (into this tree, by root into the staged tree, by the bootstrap into
+// the home), so the bound is what a launch may be made to copy, set where no config-shaped tree
+// meets it. Measured 2026-10-05 in this repo's own jail, regular-file bytes with links followed
+// and entries as files plus directories: ~/.ssh 92 bytes in 2; ~/.config/git 947 in 3;
+// ~/.config/nvim 4,860 in 9; ~/.config/opencode 526,352 in 65; ~/.config/go 686,623 in 58; a
+// whole ~/.config 1,877,305 in 191; and the host log directory this repo's yolo-jail.jsonc mounts,
+// 2,662,745 bytes in 39. The per-entry caps are workspace skills' (WS-D18) and sit about 12× and
+// 21× above the largest of those; a launch may carry two entries that size. An agent's whole
+// state directory (this jail's ~/.claude holds about 3 GB) is not a host_files tree, and the cap
+// refuses one.
+const (
+	maxDirHostFileBytes         = 32 << 20 // 32 MiB
+	maxDirHostFileEntries       = 4096     // files and directories
+	maxDirHostFileLaunchBytes   = 64 << 20 // 64 MiB
+	maxDirHostFileLaunchEntries = 8192
+)
+
+// macosDirHostFileEntryCap and macosDirHostFileLaunchCap are the caps buildMacosCtxTree
+// enforces: the constants above. Variables only so a test can cross them without writing tens
+// of megabytes.
+var (
+	macosDirHostFileEntryCap  = dirCopyCap{bytes: maxDirHostFileBytes, entries: maxDirHostFileEntries}
+	macosDirHostFileLaunchCap = dirCopyCap{bytes: maxDirHostFileLaunchBytes, entries: maxDirHostFileLaunchEntries}
+)
 
 // buildMacosCtxTree composes the tree under `staging` and returns what it delivered.
 //
@@ -102,16 +147,20 @@ type macosCtxDelivery struct {
 // case and the surface correctly composes from its lower layers, while a source that
 // exists and could not be copied means the launch would deliver a config file that looks
 // like the human's and is not. The second returns an error and the caller ends the launch.
+// The global gitignore is the one exception: identity is never fatal (configureGit's rule),
+// so a gitignore that cannot be copied is warned about and the launch goes on without it.
+//
+// `copies` are the selected packs' single-file `mount` grants the decider chose to copy
+// (macosCtxLinks, already sited by planMacosUserCtxMounts); none for a caller that decided none.
 func (o *Options) buildMacosCtxTree(staging string, packs []*packload.Pack,
-	cfg *jsonx.OrderedMap) (macosCtxDelivery, error) {
+	cfg *jsonx.OrderedMap, copies ...macosuser.ContextLink) (macosCtxDelivery, error) {
 	var out macosCtxDelivery
 	tree := filepath.Join(staging, macosCtxTreeLeaf)
 
 	// WHAT NO TREE CAN CARRY is not said here any more: a declared context mount (config
-	// `mounts`, a pack `mount`) is linked into the same context dir, or refuses the launch, at
-	// the top of the arm (planMacosUserCtxMounts), long before a tree is composed. The
-	// directory `host_files` line is still noteMacosUserHostByteGaps', printed once the caller
-	// has this delivery.
+	// `mounts`, a pack `mount`) is linked into the same context dir, copied into this tree, or
+	// refuses the launch, at the top of the arm (planMacosUserCtxMounts), long before a tree is
+	// composed; and a directory `host_files` entry is copied below or ends the launch.
 
 	// Rebuilt from scratch every launch, for buildMacosHomeOverlay's reason and one
 	// sharper: a grant the user REVOKED — a pack dropped from `packs`, a `host_files`
@@ -191,6 +240,8 @@ func (o *Options) buildMacosCtxTree(staging string, packs []*packload.Pack,
 			err.Error())
 		entries = nil
 	}
+	// One launch's spend against macosDirHostFileLaunchCap, across every directory entry.
+	var launchSpent dirCopyCap
 	for _, e := range entries {
 		if !e.SourceBearing() {
 			// Source-less entries cross in the wire alone and need no bytes. The plan
@@ -199,9 +250,20 @@ func (o *Options) buildMacosCtxTree(staging string, packs []*packload.Pack,
 			continue
 		}
 		if e.IsDir {
-			// DP-D15, not DP-L1. A directory entry names an arbitrary user tree and a
-			// copy does not scale to one; the launch says so by name instead.
-			out.undeliveredDirs = append(out.undeliveredDirs, e.Path)
+			// A DIRECTORY ENTRY CROSSES ON THE FILE ENTRY'S RULE: on the wire whether or not its
+			// source exists (the entrypoint finds nothing at host-user/<slug> and writes
+			// nothing, as on a container whose bind was skipped), with its bytes when it does.
+			// The copy is confined and capped (copyCtxTreeConfined), and a source that exists
+			// and could not be copied whole ends the launch, naming the entry.
+			out.ctx.HostFiles = append(out.ctx.HostFiles, e)
+			if !isDir(e.Source) {
+				continue
+			}
+			if err := copyCtxTreeConfined(e.Source, tree, hostUserCtxDir+"/"+e.Slug(),
+				macosDirHostFileEntryCap, macosDirHostFileLaunchCap, &launchSpent); err != nil {
+				return out, dirHostFileCopyError(e, err)
+			}
+			wrote = true
 			continue
 		}
 		// ⚠ THE ENTRY CROSSES WHETHER OR NOT ITS SOURCE EXISTS, and the two halves are
@@ -224,6 +286,41 @@ func (o *Options) buildMacosCtxTree(staging string, packs []*packload.Pack,
 		wrote = true
 	}
 
+	// --- A pack's single-file `mount` -----------------------------------------------
+	//
+	// Copied at the grant's own /ctx path (packload.MountCtxPath), where a container binds it
+	// and where pack text names it, and recorded in Copied for the plan's re-siting. The
+	// decider kept only sources that existed when it ran, so a file gone since is skipped as
+	// it would have been then; one that is there and cannot be read ends the launch.
+	for _, c := range copies {
+		if !isFile(c.Source) {
+			continue
+		}
+		if err := copyCtxFile(c.Source, tree, c.Dest); err != nil {
+			return out, packFileMountCopyError(c, err)
+		}
+		out.ctx.Copied = append(out.ctx.Copied, c.Dest)
+		wrote = true
+	}
+
+	// --- The host's global gitignore ------------------------------------------------
+	//
+	// The container launch binds it read-only and points the composed core.excludesFile at the
+	// bind (gitIdentityMountArgs); here it is copied into the tree, and the plan names its
+	// staged path to the bootstrap (macosuser.GlobalGitignoreEnv). Never fatal, and never in
+	// Delivered: it is identity, not a pack's host layer.
+	if ignore := o.hostGlobalGitignore(); ignore != "" {
+		if err := copyCtxFile(ignore, tree, paths.ContextGlobalGitignore); err != nil {
+			o.pr(o.Stderr).print("[yellow]" + richtext.Escape("Warning: your global gitignore "+
+				ignore+" was not copied for the sandbox ("+err.Error()+"), so git there ignores "+
+				"only what each repository lists. Make it readable to you, or point git's "+
+				"core.excludesFile at a file that is.") + "[/yellow]")
+		} else {
+			out.ctx.GlobalGitignore = paths.ContextGlobalGitignore
+			wrote = true
+		}
+	}
+
 	if !wrote {
 		// Nothing to deliver — no packs with grants, no source-bearing entries, or none
 		// of their sources exist on this machine. Returning "" rather than an empty
@@ -235,14 +332,16 @@ func (o *Options) buildMacosCtxTree(staging string, packs []*packload.Pack,
 	}
 	sort.Strings(out.ctx.Delivered)
 	sort.Strings(out.ctx.Rendered)
+	sort.Strings(out.ctx.Copied)
 	out.ctx.Tree = tree
 	return out, nil
 }
 
 // macosCtxLinks is the macos-user decider for the two context-mount declarations
 // (docs/design/context-mounts.md §3, §4 steps 4-5): every config `mounts` element and every
-// selected pack's `mount` grant this launch would deliver, as the link macosuser stages for it,
-// and every one this backend cannot deliver, with its reason.
+// selected pack's `mount` grant this launch would deliver — as the LINK macosuser stages for it,
+// or, for a pack grant whose source is a single FILE, as the COPY buildMacosCtxTree lands at its
+// /ctx path (CX-D23) — and every one this backend cannot deliver, with its reason.
 //
 // ONE READING WITH THE CONTAINER PATH. The declarations come out of configCtxMounts and
 // packCtxMounts, the deciders the container argv and briefing use, so a read-write element
@@ -254,31 +353,52 @@ func (o *Options) buildMacosCtxTree(staging string, packs []*packload.Pack,
 // What is new here is the SITING, macosuser.SiteContextLinks, over the source as the host
 // resolves it: a pack grant's `~/<from>` is resolved here, because the profile names a source
 // verbatim and a rule on an unresolved path matches nothing. The siting's macOS facts are
-// o.macosCtxSiting when a test set them, and a default macOS install's otherwise.
+// o.macosCtxSiting when a test set them, and a default macOS install's otherwise. A copy is
+// sited by its DESTINATION alone (macosuser.SiteContextCopies), because the sandbox never opens
+// its source; and each copy's destination is occupied for the links, so neither may land at,
+// inside or around the other.
+//
+// A FILE GRANT IS COPIED, NEVER LINKED, and a directory grant never copied. The link-first
+// alternative — link a file wherever the siting admits it, copy only the rest — was rejected:
+// every pack grant names a path in the user's home, so the link would be refused in practice
+// everywhere (OQ-CX7), and two mechanisms for one declaration would answer differently for a
+// file moved between two folders.
 //
 // KEYED ON THE DECLARATION BEING PRESENT, never on a default: a config with no `mounts` and no
 // pack declaring a `mount` yields nothing. The host nvim config is not a declaration (CX-D10)
 // and is not here.
 func (o *Options) macosCtxLinks(cfg *jsonx.OrderedMap, packs []*packload.Pack,
-	note func(string)) ([]macosuser.ContextLink, []macosuser.ContextRefusal) {
-	var links []macosuser.ContextLink
+	note func(string)) (links, copies []macosuser.ContextLink, refused []macosuser.ContextRefusal) {
 	for _, m := range o.configCtxMounts("macos-user", cfg, note) {
 		links = append(links, macosuser.ContextLink{Dest: m.dest, Source: m.source, RW: m.rw,
 			Dir: isDir(m.source)})
 	}
 	for _, m := range o.packCtxMounts("macos-user", packs, note) {
-		links = append(links, macosuser.ContextLink{Dest: m.dest, Source: resolvePath(m.source),
-			Named: "~/" + m.from, Dir: !m.file, Pack: m.pack})
+		l := macosuser.ContextLink{Dest: m.dest, Source: resolvePath(m.source),
+			Named: "~/" + m.from, Dir: !m.file, Pack: m.pack}
+		if m.file {
+			copies = append(copies, l)
+			continue
+		}
+		links = append(links, l)
 	}
-	if len(links) == 0 {
-		return nil, nil
+	if len(links) == 0 && len(copies) == 0 {
+		return nil, nil, nil
 	}
 	siting := macosuser.DarwinContextSiting()
 	if o.macosCtxSiting != nil {
 		siting = *o.macosCtxSiting
 	}
-	return links, macosuser.SiteContextLinks(siting, resolvePath(o.Workspace), links,
-		macosuser.ContextOccupied(macosDeclaredHostFileDests(packs)))
+	declared := macosDeclaredHostFileDests(packs)
+	forLinks := append([]string(nil), declared...)
+	for _, c := range copies {
+		forLinks = append(forLinks, c.Dest)
+	}
+	refused = macosuser.SiteContextLinks(siting, resolvePath(o.Workspace), links,
+		macosuser.ContextOccupied(forLinks))
+	refused = append(refused, macosuser.SiteContextCopies(siting, copies, links,
+		macosuser.ContextOccupied(declared))...)
+	return links, copies, refused
 }
 
 // macosDeclaredHostFileDests is every /ctx destination a selected pack's `reads-host` grant
@@ -301,17 +421,18 @@ func macosDeclaredHostFileDests(packs []*packload.Pack) []string {
 }
 
 // planMacosUserCtxMounts runs the decider for the launch, first on the macos-user arm: it
-// returns the links to hand the backend, or prints DP-D15's FATAL REFUSAL — every context mount
-// this backend cannot deliver, each with its reason, and what to do — and returns false.
+// returns the links to hand the backend and the pack files to copy, or prints DP-D15's FATAL
+// REFUSAL — every context mount this backend cannot deliver, each with its reason, and what to
+// do — and returns false.
 //
 // A refusal ends the whole launch rather than dropping the one entry, because DP-D15 ruled a
 // fatal error better than a mount that is "surprisingly not there with an easily missed
 // warning", and the narrowing (OQ-CX5) kept that half: deliver where the sandbox can reach the
 // source, refuse fatally everywhere else.
-func (o *Options) planMacosUserCtxMounts(cfg *jsonx.OrderedMap, packs []*packload.Pack) ([]macosuser.ContextLink, bool) {
-	links, refused := o.macosCtxLinks(cfg, packs, func(line string) { o.pr(o.Stderr).print(line) })
+func (o *Options) planMacosUserCtxMounts(cfg *jsonx.OrderedMap, packs []*packload.Pack) (links, copies []macosuser.ContextLink, ok bool) {
+	links, copies, refused := o.macosCtxLinks(cfg, packs, func(line string) { o.pr(o.Stderr).print(line) })
 	if len(refused) == 0 {
-		return links, true
+		return links, copies, true
 	}
 	out := o.pr(o.Stderr)
 	out.print("[bold red]Refusing the macos-user launch: this backend cannot deliver every " +
@@ -325,10 +446,11 @@ func (o *Options) planMacosUserCtxMounts(cfg *jsonx.OrderedMap, packs []*packloa
 		"there, so the folder must be one the sandbox account can reach and must not overlap " +
 		"anything else it writes: a read-only one outside every home and outside the " +
 		"sandbox's writable places (under /Users/Shared, or outside /Users), a read-write one " +
-		"under " + macosuser.SharedRootDefault() + " (docs/design/context-mounts.md §3). Move " +
-		"the folder there, remove the entry (or the pack) for this workspace, or use a " +
-		"container runtime (`runtime: \"podman\"` or `\"container\"`).")
-	return nil, false
+		"under " + macosuser.SharedRootDefault() + " (docs/design/context-mounts.md §3). A " +
+		"pack's single-file `mount` is copied there instead, and refuses only where its path " +
+		"collides with another. Move the folder there, remove the entry (or the pack) for this " +
+		"workspace, or use a container runtime (`runtime: \"podman\"` or `\"container\"`).")
+	return nil, nil, false
 }
 
 // noteMacosUserRWMounts is §2.4's disclosure on this backend: one line per read-write context
@@ -378,4 +500,181 @@ func copyCtxFile(src, tree, dest string) error {
 		mode = 0o755
 	}
 	return os.Chmod(target, mode)
+}
+
+// copyCtxTreeConfined copies the directory src into the tree at dest (the /ctx path, as
+// copyCtxFile takes it), CONFINED to src and charged against two caps: entryCap for this entry
+// alone, and launchCap for every directory entry of the launch, whose spend so far is
+// *launchSpent and grows by what this copy writes.
+//
+// CONFINED AS A CONTAINER BIND IS. A bind of src shows the jail what is under src and nothing
+// else: a link inside it that leads out names a path the jail does not have, so the boot's copy
+// skips it as dangling. So here the walk runs through an os.Root on src, and a link is followed
+// only where it resolves INSIDE src; an absolute link (os.Root refuses every one), a `../` link
+// that leaves, a dangling link and a link to a directory are skipped, as a dangling link is
+// skipped at boot. Never entrypoint's copyTree or copyFile2 here: both follow every link, and a
+// link in a source tree that leads into the rest of the home would be a host-file read nobody
+// declared.
+//
+// REGULAR FILES AND DIRECTORIES ONLY, each file opened non-blocking and checked by fstat after
+// the open, so a FIFO swapped in for a file between the listing and the open neither blocks the
+// launch nor crosses; the exec bit is carried as copyCtxFile carries it, because the boot's
+// readers decide a mode from it.
+//
+// EVERY WRITE IS CHARGED BEFORE IT IS MADE, a file its size before a byte of it is read, and at
+// most that many bytes are copied (a file growing while it is read arrives as it was when
+// charged). Crossing either cap returns a *dirCopyCapError, and the caller ends the launch.
+func copyCtxTreeConfined(src, tree, dest string, entryCap, launchCap dirCopyCap, launchSpent *dirCopyCap) error {
+	rel := strings.TrimPrefix(dest, packload.CtxRoot+"/")
+	if rel == dest {
+		return fmt.Errorf("context destination %q is not under %s", dest, packload.CtxRoot)
+	}
+	target := filepath.Join(tree, filepath.FromSlash(rel))
+	root, err := os.OpenRoot(src)
+	if err != nil {
+		return err
+	}
+	defer root.Close()
+	if err := os.MkdirAll(target, 0o755); err != nil {
+		return err
+	}
+	var spent dirCopyCap
+	charge := func(bytes, entries int64, what string) error {
+		if spent.bytes+bytes > entryCap.bytes || spent.entries+entries > entryCap.entries {
+			return &dirCopyCapError{cap: entryCap, spent: spent, what: what}
+		}
+		if launchSpent.bytes+bytes > launchCap.bytes || launchSpent.entries+entries > launchCap.entries {
+			return &dirCopyCapError{cap: launchCap, spent: *launchSpent, what: what, launch: true}
+		}
+		spent.bytes, spent.entries = spent.bytes+bytes, spent.entries+entries
+		launchSpent.bytes, launchSpent.entries = launchSpent.bytes+bytes, launchSpent.entries+entries
+		return nil
+	}
+	return fs.WalkDir(root.FS(), ".", func(p string, d fs.DirEntry, werr error) error {
+		if werr != nil {
+			return werr
+		}
+		if p == "." {
+			return nil
+		}
+		out := filepath.Join(target, filepath.FromSlash(p))
+		switch {
+		case d.IsDir():
+			if err := charge(0, 1, p+"/"); err != nil {
+				return err
+			}
+			return os.MkdirAll(out, 0o755)
+		case d.Type()&fs.ModeSymlink != 0:
+			// Followed only where it resolves inside src to a regular file; anything else is
+			// what a bind would show the jail as dangling.
+			if info, err := root.Stat(p); err != nil || !info.Mode().IsRegular() {
+				return nil
+			}
+		case !d.Type().IsRegular():
+			// A socket, FIFO or device node holds no bytes a copy could carry.
+			return nil
+		}
+		f, err := root.OpenFile(p, os.O_RDONLY|syscall.O_NONBLOCK, 0)
+		if err != nil {
+			if d.Type()&fs.ModeSymlink != 0 {
+				return nil // the link changed since it was resolved; skipped as dangling
+			}
+			return err
+		}
+		defer f.Close()
+		info, err := f.Stat()
+		if err != nil {
+			return err
+		}
+		if !info.Mode().IsRegular() {
+			return nil // swapped for something that is not a file since the listing
+		}
+		if err := charge(info.Size(), 1, p); err != nil {
+			return err
+		}
+		w, err := os.OpenFile(out, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o644)
+		if err != nil {
+			return err
+		}
+		if _, err := io.Copy(w, io.LimitReader(f, info.Size())); err != nil {
+			w.Close()
+			return err
+		}
+		if err := w.Close(); err != nil {
+			return err
+		}
+		mode := os.FileMode(0o644)
+		if info.Mode().Perm()&0o111 != 0 {
+			mode = 0o755
+		}
+		return os.Chmod(out, mode)
+	})
+}
+
+// dirCopyCapError is a confined copy that would cross a cap: which cap, what had been charged
+// against it, and the path whose write would have crossed it.
+type dirCopyCapError struct {
+	cap, spent dirCopyCap
+	what       string
+	launch     bool
+}
+
+func (e *dirCopyCapError) Error() string {
+	scope := "a directory host_files entry"
+	if e.launch {
+		scope = "every directory host_files entry of one launch together"
+	}
+	return fmt.Sprintf("copying %s would pass what macos-user copies for %s (at most %s in %d "+
+		"files and folders; %s in %d were copied before it)", e.what, scope,
+		ctxCopySize(e.cap.bytes), e.cap.entries, ctxCopySize(e.spent.bytes), e.spent.entries)
+}
+
+// dirHostFileCopyError is the launch's refusal for a directory host_files entry whose source is
+// there and did not copy whole: the entry, why, and what to do instead. A cap gets its own
+// remedies, since the tree is fine and only its size is the problem.
+func dirHostFileCopyError(e config.HostFileEntry, err error) error {
+	var capErr *dirCopyCapError
+	if errors.As(err, &capErr) {
+		return fmt.Errorf("host_files ~/%s (source %s) is not copied for the macos-user sandbox: %v. This "+
+			"backend has no bind mounts, so a directory entry is copied at every launch, and the "+
+			"copy is capped. Split the entry into FILE entries for the files the agent needs, or "+
+			"use a container runtime, which binds the directory instead (`runtime: \"podman\"`, "+
+			"or `\"container\"` from Apple Container %s)", e.Path, e.Source, err, acROBindsFloor)
+	}
+	return fmt.Errorf("host_files ~/%s (source %s) could not be copied for the macos-user "+
+		"sandbox: %v. A partial copy would hand the agent a directory that looks "+
+		"like yours and is not. Make every file under it readable to you, or remove the entry for "+
+		"this workspace", e.Path, e.Source, err)
+}
+
+// packFileMountCopyError is the launch's refusal for a pack's single-file `mount` whose source
+// is there and could not be copied. The copy runs as you, so the usual cause is a file you
+// cannot read, and on a Mac that includes one macOS's privacy controls guard from this terminal.
+func packFileMountCopyError(c macosuser.ContextLink, err error) error {
+	return fmt.Errorf("pack %s's `mount` %s → %s could not be copied for the macos-user "+
+		"sandbox: %v. On macos-user a single-file pack `mount` is copied at launch "+
+		"by yolo, as you, so the file must be readable to you here: if it sits in a folder macOS's "+
+		"privacy controls guard (Desktop, Documents, Downloads), allow your terminal there in "+
+		"System Settings → Privacy & Security. Or remove the pack for this workspace, or use a "+
+		"container runtime (`runtime: \"podman\"` or `\"container\"`)",
+		c.Pack, c.NamedSource(), c.Dest, err)
+}
+
+// ctxCopySize is n in the largest binary unit it fills ("32 MiB", "1.5 KiB"), exact for a whole
+// number of units so a cap reads as the constant that set it.
+func ctxCopySize(n int64) string {
+	const unit = 1024
+	if n < unit {
+		return fmt.Sprintf("%d bytes", n)
+	}
+	div, exp := int64(unit), 0
+	for m := n / unit; m >= unit; m /= unit {
+		div *= unit
+		exp++
+	}
+	suffix := []string{"KiB", "MiB", "GiB", "TiB", "PiB", "EiB"}[exp]
+	if n%div == 0 {
+		return fmt.Sprintf("%d %s", n/div, suffix)
+	}
+	return fmt.Sprintf("%.1f %s", float64(n)/float64(div), suffix)
 }

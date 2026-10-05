@@ -438,6 +438,13 @@ func TestStageContextDirCommandsMakeTheLinks(t *testing.T) {
 	run := func(cmds [][]string) {
 		t.Helper()
 		for _, c := range cmds {
+			// `chmod +a` is skipped on every OS: GNU chmod has no ACL spelling, and on a Mac
+			// without the sandbox account (any CI runner but the macos-user job's) the ACE names
+			// a user that does not exist. Everything else runs as it does on a launch, and the
+			// ACE is asserted by argv in TestTheStagedContextTreeIsOpenedToTheSandboxAlone.
+			if len(c) > 1 && c[0] == chmodBin && c[1] == "+a" {
+				continue
+			}
 			if out, err := exec.Command(c[0], c[1:]...).CombinedOutput(); err != nil {
 				t.Fatalf("%v: %v\n%s", c, err, out)
 			}
@@ -461,6 +468,13 @@ func TestStageContextDirCommandsMakeTheLinks(t *testing.T) {
 	dst := StagedCtxRoot("proj", sd)
 	if fi, err := os.Stat(filepath.Join(dst, "host-user")); err != nil || fi.Mode().Perm()&0o005 != 0o005 {
 		t.Errorf("the composed tree was not staged beside the links, opened to others: %v %v", fi, err)
+	}
+	// ...and its ROOT is closed to every account but root's and the sandbox's: a composed tree
+	// holds the user's own files (a directory host_files entry is routinely ~/.aws), so the
+	// contents' a+rX must not be reachable past it.
+	if fi, err := os.Stat(dst); err != nil || fi.Mode().Perm() != 0o700 {
+		t.Errorf("the staged context tree's root is %v (%v), want 0700 — any local account "+
+			"could read the user's host files under it", fi.Mode().Perm(), err)
 	}
 	for _, rel := range []string{"lib", "deep/er/tools"} {
 		target, err := os.Readlink(filepath.Join(dst, rel))
@@ -486,5 +500,63 @@ func TestStageContextDirCommandsMakeTheLinks(t *testing.T) {
 	}
 	if _, err := os.Lstat(filepath.Join(dst, "proj.new")); !os.IsNotExist(err) {
 		t.Errorf("the re-stage nested the new tree inside the old one")
+	}
+}
+
+// A COPIED PACK FILE IS SITED BY WHERE IT LANDS, never by its source — the sandbox never opens
+// the source, the bytes land in the root-owned tree — so a source in a real home is fine, and
+// each destination rule refuses once.
+func TestSiteContextCopiesRefusesEachDestinationThatCollides(t *testing.T) {
+	copyAt := func(dest, pack string) ContextLink {
+		return ContextLink{Dest: dest, Source: "/Users/matt/notes.txt", Named: "~/notes.txt", Pack: pack}
+	}
+	declared := ContextOccupied([]string{"/ctx/host-claude/settings.json"})
+	for _, tc := range []struct {
+		name   string
+		copies []ContextLink
+		links  []ContextLink
+		why    string // "" admits every copy
+	}{
+		{"a home source lands fine", []ContextLink{copyAt("/ctx/acme/notes.txt", "acme")}, nil, ""},
+		{"outside the context dir", []ContextLink{copyAt("/etc/notes.txt", "acme")}, nil, "is not under /ctx"},
+		{"at a reserved name", []ContextLink{copyAt("/ctx/host-user/notes.txt", "acme")}, nil, "is inside /ctx/host-user, which yolo's own staging uses"},
+		{"at a declared reads-host destination", []ContextLink{copyAt("/ctx/host-claude/settings.json", "acme")}, nil, "is /ctx/host-claude/settings.json"},
+		{"two copies at one path", []ContextLink{copyAt("/ctx/x/n.txt", "a"), copyAt("/ctx/x/n.txt", "b")}, nil, "two copied files cannot share or nest a path"},
+		{"a copy around another", []ContextLink{copyAt("/ctx/x/n.txt", "a"), copyAt("/ctx/x", "b")}, nil, "contains /ctx/x/n.txt"},
+		{"inside a link", []ContextLink{copyAt("/ctx/lib/n.txt", "a")}, []ContextLink{roLink}, "is inside /ctx/lib (`mounts` of " + roLink.Source + "), where a link is staged"},
+		{"in another case", []ContextLink{copyAt("/ctx/x/n.txt", "a"), copyAt("/ctx/X/N.txt", "b")}, nil, "two copied files"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got := SiteContextCopies(DarwinContextSiting(), tc.copies, tc.links, declared)
+			if tc.why == "" {
+				if len(got) != 0 {
+					t.Fatalf("refused %+v", got)
+				}
+				return
+			}
+			if len(got) != 1 {
+				t.Fatalf("refused %d, want exactly one refusal: %+v", len(got), got)
+			}
+			if !strings.Contains(got[0].Reason, tc.why) {
+				t.Errorf("the refusal says %q, want %q", got[0].Reason, tc.why)
+			}
+		})
+	}
+}
+
+// AND THE PLAN KNOWS WHERE THE COPIES LANDED: PlanInvariants re-sites the links against
+// HostContext.Copied too, so a caller handing the plan builder a link at, inside or around a
+// copied pack file is caught there, as a link around a delivered host file is.
+func TestPlanInvariantsRefuseALinkAroundACopiedPackFile(t *testing.T) {
+	for _, dest := range []string{"/ctx/acme", "/ctx/acme/notes.txt"} {
+		link := ContextLink{Dest: dest, Source: "/opt/x", Dir: true}
+		plan := BuildRunPlan(ctxWorkspace, jsonx.NewOrderedMap(), []string{"claude"},
+			[]string{"/bin/zsh", "-l"}, "/usr/local/bin/yolo", hostStaged, HomeOverlay{},
+			HostContext{Tree: "/tmp/yolo-ctx-tree", Copied: []string{"/ctx/acme/notes.txt"},
+				Links: []ContextLink{link}}, jsonx.NewOrderedMap(), nil, nil)
+		probs := strings.Join(PlanInvariants(plan), "\n")
+		if want := "/ctx/acme/notes.txt, which yolo's own staging uses"; !strings.Contains(probs, want) {
+			t.Errorf("PlanInvariants admitted a link at %s over a copied pack file (want %q):\n%s", dest, want, probs)
+		}
 	}
 }

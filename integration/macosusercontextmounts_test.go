@@ -207,3 +207,55 @@ func TestMacosUserContextVolumesAndPrivacyDirsMeasurement(t *testing.T) {
 			"granting it: err=%v\n%s", c, src, macosuser.SandboxUser, dac, err, out)
 	}
 }
+
+// A PACK'S SINGLE-FILE `mount` IS COPIED INTO THE CONTEXT DIR (context-mounts.md CX-D23): from the
+// user's home, which no link reaches on this backend, to the grant's own path under
+// $YOLO_CONTEXT_DIR, root-owned. The sandbox reads it and cannot write, replace or delete it —
+// the root-owned tree outside the profile's writable set is the read-only half, with no rule of
+// its own.
+func TestMacosUserCopiesAPackFileMountIntoTheContextDir(t *testing.T) {
+	requireMacosUser(t)
+	nonce := acParityNonce()
+	pack := filepath.Join(t.TempDir(), "yolo-it-filemount")
+	if err := os.MkdirAll(pack, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(pack, "pack.json"), []byte(`{"name": "yolo-it-filemount", `+
+		`"contributes": [{"kind": "mount", "host": "yolo-it-filemount.txt", "into": "filemount/notes.txt"}]}`),
+		0o644); err != nil {
+		t.Fatal(err)
+	}
+	packHome(t, `{"packs": [{"source": "file://`+pack+`", "name": "yolo-it-filemount"}]}`)
+	if err := os.WriteFile(filepath.Join(os.Getenv("HOME"), "yolo-it-filemount.txt"),
+		[]byte("FILEMOUNT-"+nonce+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	ws := macosUserWorkspace(t, `{}`)
+
+	r := runMacosUser(t, ws, strings.Join([]string{
+		`echo "=== CTX ==="`,
+		`f="$YOLO_CONTEXT_DIR/filemount/notes.txt"`,
+		`echo "read|$(cat "$f" 2>/dev/null || echo DENIED)"`,
+		`if ( echo x >> "$f" ) 2>/dev/null; then echo "write|ALLOWED"; else echo "write|DENIED"; fi`,
+		`if ( echo y > /tmp/yolo-it-fm && mv -f /tmp/yolo-it-fm "$f" ) 2>/dev/null; then echo "replace|ALLOWED"; else echo "replace|DENIED"; fi`,
+		`if ( rm -f "$f" && [ ! -e "$f" ] ) 2>/dev/null; then echo "delete|ALLOWED"; else echo "delete|DENIED"; fi`,
+		`echo "=== END CTX ==="`,
+	}, "\n"))
+	if r.rc != 0 || !strings.Contains(r.stdout, "=== END CTX ===") {
+		t.Fatalf("the launch did not run its probe (rc %d).\nstdout:\n%s\nstderr:\n%s", r.rc, r.stdout, r.stderr)
+	}
+	got := macosUserHomeProbeFields(t, r.stdout, "CTX")
+	for key, want := range map[string]string{
+		"read":    "FILEMOUNT-" + nonce,
+		"write":   "DENIED",
+		"replace": "DENIED",
+		"delete":  "DENIED",
+	} {
+		if got[key] != want {
+			t.Errorf("%s|%s, want %s.\nfull output:\n%s", key, got[key], want, r.stdout)
+		}
+	}
+	if strings.Contains(r.combined(), "Refusing the macos-user launch") {
+		t.Errorf("a single-file pack mount refused the launch:\n%s", r.combined())
+	}
+}

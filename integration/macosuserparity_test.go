@@ -23,7 +23,7 @@ import (
 //	#6  TestMacosUserReportsOnlyPlatformInertLoopholes  the backend axis is gone (every host daemon starts); the platform axis and the jail-half decline remain
 //	#7  TestMacosUserStartsAConfigDeclaredLoophole      a config-declared loophole is STARTED here now, and its endpoint reaches the sandbox
 //	#9  TestMacosUserSaysResourcesAndRelocationsAreIgnored  both still warn, and both really are ignored; the third warning is retired
-//	#14 TestMacosUserDeliversHostBytesByCopy            reads-host and host_files FILE sources cross by copy (DP-L1); only a DIRECTORY source still warns
+//	#14 TestMacosUserDeliversHostBytesByCopy            reads-host and host_files sources cross by copy, a DIRECTORY source too since 2026-10-05
 //
 // Unlike the Apple Container file these are REAL ASSERTIONS, not experiments: macos-user.yml
 // runs on a GitHub-hosted runner every night, and each assertion is a claim the code already
@@ -270,10 +270,12 @@ func TestMacosUserSaysResourcesAndRelocationsAreIgnored(t *testing.T) {
 // source-bearing `host_files` entry is dropped from the wire. Both warnings were RETIRED on
 // 2026-09-13 because DP-L1 closed both gaps: host bytes now cross by COPY into a root-owned tree
 // (internal/cli/run/macosctxtree.go, macosuser.StageCtxCommands), named to the sandbox by
-// YOLO_CTX_ROOT. What survives is one line, for a host_files entry whose source is a DIRECTORY
-// (loopholeinert.go's noteMacosUserHostByteGaps). So this asserts the retirement on the
-// hardware: the user's own ~/.claude/settings.json is composed into the sandbox's, a FILE entry
-// arrives with its bytes, a DIRECTORY entry does not arrive, and the launch says so by name.
+// YOLO_CTX_ROOT. The one line that survived, for a host_files entry whose source is a DIRECTORY,
+// went on 2026-10-05, when that shape began crossing by copy too, confined to its source
+// (run's copyCtxTreeConfined). So this asserts all of it on the hardware: the user's own
+// ~/.claude/settings.json is composed into the sandbox's, a FILE entry arrives with its bytes, a
+// DIRECTORY entry arrives with its nested files, a link inside it that leads out of the source
+// does not carry the file it points at, and the launch no longer says directories do not cross.
 func TestMacosUserDeliversHostBytesByCopy(t *testing.T) {
 	requireMacosUser(t)
 	nonce := acParityNonce()
@@ -295,9 +297,11 @@ func TestMacosUserDeliversHostBytesByCopy(t *testing.T) {
 			"MEASURED about #14 (privateHostProvenance did not take)")
 	}
 	for path, body := range map[string]string{
-		filepath.Join(home, ".claude", "settings.json"):       `{"yoloItReadsHostProbe": "` + nonce + `"}`,
-		filepath.Join(home, "yolo-it-mu-source.txt"):          "HOSTFILE-" + nonce,
-		filepath.Join(home, "yolo-it-mu-srcdir", "inner.txt"): "DIR-" + nonce,
+		filepath.Join(home, ".claude", "settings.json"):             `{"yoloItReadsHostProbe": "` + nonce + `"}`,
+		filepath.Join(home, "yolo-it-mu-source.txt"):                "HOSTFILE-" + nonce,
+		filepath.Join(home, "yolo-it-mu-srcdir", "inner.txt"):       "DIR-" + nonce,
+		filepath.Join(home, "yolo-it-mu-srcdir", "sub", "deep.txt"): "DEEP-" + nonce,
+		filepath.Join(home, "yolo-it-mu-outside", "secret.txt"):     "OUTSIDE-" + nonce,
 	} {
 		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 			t.Fatal(err)
@@ -306,11 +310,16 @@ func TestMacosUserDeliversHostBytesByCopy(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
+	if err := os.Symlink(filepath.Join(home, "yolo-it-mu-outside", "secret.txt"),
+		filepath.Join(home, "yolo-it-mu-srcdir", "out-link")); err != nil {
+		t.Fatal(err)
+	}
 	ws := macosUserWorkspace(t, `{}`)
 	r := macosUserRunProbe(t, "#14", ws, strings.Join([]string{
 		`echo "=== SETTINGS ==="; cat ~/.claude/settings.json 2>&1`,
 		`echo "=== FILE ==="; cat ~/.config/yolo-it-mu/probe.txt 2>&1`,
-		`echo "=== DIR ==="; cat ~/.config/yolo-it-mu-dir/inner.txt 2>&1`,
+		`echo "=== DIR ==="; cat ~/.config/yolo-it-mu-dir/inner.txt ~/.config/yolo-it-mu-dir/sub/deep.txt 2>&1`,
+		`echo "=== LINK ==="; cat ~/.config/yolo-it-mu-dir/out-link 2>&1`,
 		`echo "=== END ==="`,
 	}, "\n"))
 	out := r.combined()
@@ -324,17 +333,19 @@ func TestMacosUserDeliversHostBytesByCopy(t *testing.T) {
 		t.Errorf("a source-bearing host_files FILE entry did not arrive with its bytes. DP-L1 "+
 			"delivers it by copy, and the warning that it is dropped was retired on that basis.\n%s", got)
 	}
-	if got := section(r.stdout, "=== DIR ===", "=== END ==="); strings.Contains(got, "DIR-"+nonce) {
-		t.Errorf("a host_files DIRECTORY entry arrived, but the launch still says directories do "+
-			"not cross on this backend (DP-D15) — retire that line, it is now false.\n%s", got)
-	}
-	for _, want := range []string{
-		"a host_files entry whose `source` is a DIRECTORY does not cross on macos-user",
-		"~/.config/yolo-it-mu-dir",
-	} {
-		if !strings.Contains(out, want) {
-			t.Errorf("the launch output lacks %q: a directory entry the user declared is not "+
-				"delivered here, and the one line that says so is missing.\n%s", want, out)
+	dir := section(r.stdout, "=== DIR ===", "=== LINK ===")
+	for _, want := range []string{"DIR-" + nonce, "DEEP-" + nonce} {
+		if !strings.Contains(dir, want) {
+			t.Errorf("a host_files DIRECTORY entry did not arrive with %q: the launch copies the tree "+
+				"since 2026-10-05 (buildMacosCtxTree), and the line saying it does not was retired on "+
+				"that basis.\n%s", want, dir)
 		}
+	}
+	if got := section(r.stdout, "=== LINK ===", "=== END ==="); strings.Contains(got, "OUTSIDE-"+nonce) {
+		t.Errorf("a link inside the source that leads out of it carried the file it points at into "+
+			"the sandbox — a host-file read nobody declared (copyCtxTreeConfined).\n%s", got)
+	}
+	if strings.Contains(out, "does not cross on macos-user") {
+		t.Errorf("the launch still says a directory entry does not cross, and it does:\n%s", out)
 	}
 }

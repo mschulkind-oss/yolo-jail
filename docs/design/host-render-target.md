@@ -394,6 +394,18 @@ twice:
   the same shape and get the same answer. **Refusing is the precedent for a mount, not
   copying.**
 
+  > **⚠ Updated 2026-10-05: the `host_files` half of this bullet is superseded, and the
+  > `mount` half narrowed.** A directory `host_files` entry was never a mount anywhere: the
+  > container path binds it and then COPIES it into the jail home at boot
+  > (`entrypoint.stageHostFile`), so it is a launch-time snapshot on every backend, and
+  > macos-user now copies it too, confined to its source and capped
+  > ([`context-mounts.md` CX-D23](context-mounts.md#CX-D23)). A pack's single-FILE `mount` is
+  > copied on macos-user as well, and that one IS a substitute for a live bind; what keeps it
+  > inside this rule's reason is that the copy is not SILENT, since the agent's briefing marks
+  > the entry "copied at launch; host edits arrive at the next launch". Config `mounts` and a
+  > pack's DIRECTORY `mount` keep the answer this bullet gives: a live link or a refusal,
+  > never a copy.
+
   > **⚠ Updated 2026-09-13 — read the original form of this bullet as superseded.** It cited
   > the *source-bearing `host_files`* filter, which dropped every such entry on that backend
   > because there was no `/ctx/host-user` to carry one into. DP-L1 delivers the FILE-shaped
@@ -412,8 +424,9 @@ The distinction matters because a copy is silently stale: edit the source and th
 environment keeps the old bytes with nothing to indicate it. For `mounts` — `AGENTS.md`
 and skills trees — that means a pack update that appears to apply and doesn't. So
 `mounts` is **unavailable** without a mount namespace, and a target that cannot honor it
-must say so by name ([§6.2](#62-the-four-targets-and-what-fieldset-is-for)'s `FieldSet`), exactly as macos-user already does for
-`host_files`.
+must say so by name ([§6.2](#62-the-four-targets-and-what-fieldset-is-for)'s `FieldSet`), exactly as macos-user does for a
+context mount it can neither link nor copy (it said so for a directory `host_files` entry until
+that began crossing by copy on 2026-10-05).
 
 **Skills are the interesting exception**, and worth being precise about because they look
 like a counter-example. `PrepareSkills` *does* copy — `copySkillSubdirs` layers built-ins,
@@ -925,9 +938,13 @@ That has a crisp consequence worth stating as a rule:
   filesystem. Honoring it would be a copy the user did not ask for.
 - **`mount` is unavailable, and must be refused rather than emulated** ([§2.2](#22-so-which-is-it-a-command-or-a-mode)). No mount
   namespace means no `:ro`, and a copy goes silently stale — a pack update that appears to
-  apply and doesn't. macos-user's refusal of a DIRECTORY `host_files` source is the precedent
-  (it delivers the file-shaped `reads-host`/`host_files` half by copy since 2026-09-13, and
-  refuses exactly the tree-shaped one this bullet is about). The
+  apply and doesn't. macos-user's refusal of a DIRECTORY `host_files` source was the precedent
+  (it delivers the file-shaped `reads-host`/`host_files` half by copy since 2026-09-13).
+  *Updated 2026-10-05:* that precedent is gone — macos-user copies a directory `host_files`
+  source too, which every backend already delivers as a boot-time copy — and the one it leaves
+  is the context mounts: a config `mounts` element or a pack's directory `mount` is a live link
+  there or a refusal, and only a pack's single-file `mount` is copied, with the staleness stated
+  in the agent's briefing ([`context-mounts.md` CX-D23](context-mounts.md#CX-D23)). The
   *composed* artifacts a pack delivers — the merged skills tree, the composed briefing — are a separate
   question: those are composition results (their own `skills`/`briefing` kinds now) and port
   like config surfaces do, which is why [§7.3](#73-one-pack-three-environments)'s walkthrough writes them and [§6.5](#65-the-posture-stated-as-a-table)'s `assert`

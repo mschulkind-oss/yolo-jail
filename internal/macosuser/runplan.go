@@ -168,8 +168,9 @@ type RunPlan struct {
 type HostContext struct {
 	// Tree is the host-side root the caller composed, laid out at the /ctx-relative
 	// paths the jail reads (`host-<staged slug>/<basename>` for a pack `reads-host`
-	// grant, `host-user/<slug>` for a source-bearing `host_files` entry). "" means the
-	// caller composed nothing.
+	// grant, `host-user/<slug>` for a source-bearing `host_files` entry, file or directory,
+	// `<into>` for a pack's single-file `mount`, `host-user/_global-gitignore` for the
+	// host's global gitignore). "" means the caller composed nothing.
 	//
 	// It crosses as a TREE rather than as a mapping for macoshomeoverlay.go's reason:
 	// the container path's mapping lives in its mount list, and re-sending it as data
@@ -210,10 +211,24 @@ type HostContext struct {
 	// emits the entry and skips only the bind). Only the BYTES are conditional on the
 	// source existing; the declaration crosses either way.
 	//
-	// Directory-shaped entries are NOT here and must not be: a copy does not scale to
-	// an arbitrary user-named tree, which is why the directory-shaped cells stayed with
-	// DP-D15 (refuse) rather than joining DP-L1 (deliver).
+	// Directory-shaped entries ARE here since 2026-10-05, on the file entries' rule: the host
+	// CLI copies the tree into Tree confined to its source, and caps the copy (run's
+	// macosctxtree.go), because a container's directory host_files is a full copy at boot too
+	// (entrypoint.stageHostFile), so DP-D15's size reason never applied to this key. They used
+	// to be left out and warned about.
 	HostFiles []config.HostFileEntry
+	// Copied is the /ctx destination (packload.MountCtxPath) of every selected pack's
+	// single-FILE `mount` the host CLI copied into Tree, rather than linked: a pack grant names
+	// a path in the user's home, which a link cannot serve here (OQ-CX7), and a copy can.
+	// Separate from Delivered, which is the host-layer report's subject and nothing else; a
+	// context link may land at, inside or around neither (ContextOccupied).
+	Copied []string
+	// GlobalGitignore is the /ctx destination of the host's global gitignore
+	// (paths.ContextGlobalGitignore) when the host CLI copied it into Tree, "" when there is
+	// none. The bootstrap is told its staged path (YOLO_GLOBAL_GITIGNORE) and points the
+	// sandbox's core.excludesFile at it, as the container launch points the jail's at its
+	// read-only bind.
+	GlobalGitignore string
 	// Links are the CONTEXT MOUNTS this launch delivers — config `mounts` elements and pack
 	// `mount` grants — each sited by the caller with SiteContextLinks against its resolved
 	// source (docs/design/context-mounts.md §3). Not bytes: each becomes a root-owned link in
@@ -222,6 +237,11 @@ type HostContext struct {
 	// resolving a source is a read of the invoking user's filesystem.
 	Links []ContextLink
 }
+
+// GlobalGitignoreEnv names the global gitignore's staged path to the bootstrap, whose git step
+// (entrypoint's configureGit) reads it under this name; TestTheBootstrapAppliesTheStagedGlobalGitignore
+// runs the real bootstrap with it, so the two spellings cannot drift apart unnoticed.
+const GlobalGitignoreEnv = "YOLO_GLOBAL_GITIGNORE"
 
 // Darwin carries the already-materialized native `packages:` result threaded
 // into a RunPlan
@@ -625,13 +645,16 @@ func BuildRunPlanWithDaemons(workspace string, cfg *jsonx.OrderedMap, agents, ag
 		// Binary first, then the pack trees, then the content overlay, then the context
 		// tree: all four are prerequisites of the bootstrap the caller runs immediately
 		// after this list, and the binary is the one that fails most cheaply.
-		StageCommands:       stageCommands,
-		PackRoot:            packRoot,
-		CtxRoot:             ctxRoot,
-		ContextDir:          contextDir,
-		ContextLinks:        ctxLinks,
-		ContextPreflight:    ContextPreflight(ctxLinks, ""),
-		ContextOccupied:     ContextOccupied(hostCtx.Delivered),
+		StageCommands:    stageCommands,
+		PackRoot:         packRoot,
+		CtxRoot:          ctxRoot,
+		ContextDir:       contextDir,
+		ContextLinks:     ctxLinks,
+		ContextPreflight: ContextPreflight(ctxLinks, ""),
+		// A copied pack `mount` occupies its path as a copied host file does, so the plan's own
+		// re-siting (contextLinkProblems) refuses a link at, inside or around either.
+		ContextOccupied: ContextOccupied(append(append([]string(nil), hostCtx.Delivered...),
+			hostCtx.Copied...)),
 		BootstrapArgv:       DarwinBootstrapArgv(stagedYolo, SandboxHome(), bootstrapEnv, ""),
 		ProvisionArgv:       provisionArgv,
 		ProvisionScriptPath: provisionScriptPath,
@@ -881,6 +904,18 @@ func buildBootstrapEnv(workspace string, cfg, gitIdentity, sandboxEnv *jsonx.Ord
 		bootstrapEnv.Set("YOLO_CTX_ROOT", ctxRoot)
 	}
 
+	// YOLO_GLOBAL_GITIGNORE — the host's global gitignore, at the PHYSICAL path the staged tree
+	// holds it at (there is no /ctx on macOS to name instead). The entrypoint's git step
+	// (configureGit) points core.excludesFile at it when it is a regular file, which is the
+	// container launch's composed `excludesFile = ~/.config/git/ignore` done by the one reader
+	// this backend's bootstrap already has. Git identity reaches the bootstrap only through
+	// the YOLO_GIT prefix filter above, so the variable is set here, from the caller's record,
+	// rather than through the launch env. Only with a tree: the file is in it or nowhere.
+	if ctxRoot != "" && hostCtx.GlobalGitignore != "" {
+		bootstrapEnv.Set(GlobalGitignoreEnv,
+			ctxRoot+strings.TrimPrefix(hostCtx.GlobalGitignore, paths.ContainerContextDir))
+	}
+
 	// YOLO_HOST_LAYERS — the host-layer report (packload.HostLayerReport), and since
 	// DP-L1 this backend can answer `supported` like every other one.
 	//
@@ -1090,6 +1125,18 @@ func PlanInvariants(plan RunPlan) []string {
 					"entrypoint would read host layers from the literal /ctx, which does not "+
 					"exist on macOS, and every surface would compose from its defaults layer")
 		}
+	}
+
+	// THE GLOBAL GITIGNORE IS READ FROM THE STAGED TREE OR NOT AT ALL. The bootstrap runs
+	// outside Seatbelt as the sandbox account and sets core.excludesFile to whatever this names,
+	// so a path outside the root-owned tree is a file the agent could write and every git in the
+	// sandbox would then obey.
+	if v, ok := argvEnvValue(plan.BootstrapArgv, GlobalGitignoreEnv); ok &&
+		(plan.CtxRoot == "" || !strings.HasPrefix(v, plan.CtxRoot+"/")) {
+		problems = append(problems,
+			GlobalGitignoreEnv+"="+v+" is not under the staged context root "+
+				quoteOrNone(plan.CtxRoot)+"; the sandbox's git would read its global "+
+				"gitignore from a file yolo did not stage")
 	}
 
 	// THE CONTEXT DIR IS NAMED AND IT EXISTS (CX-D4). Every launch tells the agent where its

@@ -315,15 +315,8 @@ func (o *Options) gitIdentityMountArgs(rt, wsState string, mountTargets map[stri
 	name := o.hostGitConfigGet([]string{"git", "config", "--get", "user.name"})
 	email := o.hostGitConfigGet([]string{"git", "config", "--get", "user.email"})
 
-	excludesPath := o.hostGitConfigGet([]string{"git", "config", "--global", "--get", "core.excludesFile"})
-	if excludesPath != "" {
-		excludesPath = expandUser(excludesPath)
-	} else {
-		excludesPath = filepath.Join(homeDir(), ".config", "git", "ignore")
-	}
-	// NOT UNDER THE SEAL (seal.go, FP-D11): the git identity a fork build keeps is a name and an
-	// address, and the global gitignore is a file of the user's home, as a host briefing is.
-	haveIgnore := isFile(excludesPath) && !o.Sealed
+	excludesPath := o.hostGlobalGitignore()
+	haveIgnore := excludesPath != ""
 
 	if name == "" && email == "" && !haveIgnore {
 		return nil
@@ -359,6 +352,34 @@ func (o *Options) gitIdentityMountArgs(rt, wsState string, mountTargets map[stri
 		args = append(args, "-v", staged+":/home/agent/.config/git/config:ro")
 	}
 	return args
+}
+
+// hostGlobalGitignore is the host's global gitignore when this launch delivers one, or "": git's
+// `core.excludesFile` from the GLOBAL config (`--global`, so a repository's own setting does not
+// pick it), `~`-expanded, falling back to git's own default, ~/.config/git/ignore, and only when
+// that resolves to a regular file. ONE ANSWER FOR EVERY BACKEND: the container launch binds it
+// (gitIdentityMountArgs) and macos-user copies it into its context tree (buildMacosCtxTree), so
+// the two cannot read the host's setting differently.
+//
+// NOT UNDER THE SEAL (seal.go, FP-D11): the git identity a fork build keeps is a name and an
+// address, and the global gitignore is a file of the user's home, as a host briefing is.
+//
+// No Exec seam (a bare Options in a unit test) reads as a git that answered nothing, which
+// leaves the default path to decide.
+func (o *Options) hostGlobalGitignore() string {
+	excludesPath := ""
+	if o.Exec != nil {
+		excludesPath = o.hostGitConfigGet([]string{"git", "config", "--global", "--get", "core.excludesFile"})
+	}
+	if excludesPath != "" {
+		excludesPath = expandUser(excludesPath)
+	} else {
+		excludesPath = filepath.Join(homeDir(), ".config", "git", "ignore")
+	}
+	if !isFile(excludesPath) || o.Sealed {
+		return ""
+	}
+	return excludesPath
 }
 
 // hostGitConfigGet runs the given `git config … --get <key>` argv on the host,

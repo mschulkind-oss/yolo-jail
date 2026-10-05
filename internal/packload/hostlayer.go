@@ -91,10 +91,11 @@ const (
 	// unchanged: a delivery nobody attempted is not a delivery that failed.
 	//
 	// ⚠ NOBODY NAMES A BACKEND HERE ANY MORE, and the two printers this comment used to
-	// send the reader to are the evidence rather than a casualty of it. Both still exist.
+	// send the reader to are the evidence rather than a casualty of it.
 	// run.noteMacosUserHostByteGaps was NARROWED on 2026-09-13 to the one shape DP-L1 did
-	// not deliver — a `host_files` entry whose source is a DIRECTORY, which is DP-D15 —
-	// and run.backendLimits had its host-byte paragraph ("your agent config files were
+	// not deliver — a `host_files` entry whose source is a DIRECTORY — and lost its last
+	// caller on 2026-10-05, when macos-user began copying that shape too; and
+	// run.backendLimits had its host-byte paragraph ("your agent config files were
 	// rendered from DEFAULTS, not from the human's own") DELETED outright. What retired
 	// both texts is that macos-user now delivers host bytes by copy, so neither the human
 	// nor the agent can still be told the backend carries none.
