@@ -42,6 +42,9 @@ var shippedProtocols = map[string][]string{
 	"oh-omp":   {"openai", "anthropic"},
 	"codex":    {"openai-responses", "openai"},
 	"agy":      nil,
+	// NOT AN AGENT: the MCP server the chrome-devtools pack's `mcp` entry runs. An agent starts
+	// it and it talks to a browser, never to a provider, so there is no wire to name.
+	"chrome-devtools-mcp": nil,
 }
 
 // Every shipped pack that installs a CLI is in the census, and every census row matches

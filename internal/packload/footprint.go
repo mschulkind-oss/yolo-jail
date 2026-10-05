@@ -552,6 +552,11 @@ func FootprintOf(p *Pack) Footprint {
 			}
 		case packdecl.KindHook:
 			add(packdecl.KindHook, c.Hook, "", false)
+		case packdecl.KindMCP:
+			// The target IS the server name, as provider's is, so the generic exclusive loop in
+			// Collisions groups two packs shipping one server. Not review-worthy: an entry in the
+			// agent's config file; the Detail is the command the agent's MCP client starts.
+			add(packdecl.KindMCP, c.Name, mcpClaimDetail(c), false)
 		case packdecl.KindAutonomy:
 			// The posture PAIR, then the flags each posture injects. Naming the flags is not
 			// decoration: a permission-bypass flag declared here used to be declared as a

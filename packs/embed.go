@@ -23,8 +23,7 @@
 // and the last one drifted inside its own sentence), in four kinds.
 // `audio`, `host-processes`, `journal`, `cgroup-delegate`, `serial`, `openai-auth`,
 // `aws-auth` and `hello-daemon` —
-// ship a LOOPHOLE (one of
-// nineteen contribution kinds, a count pinned by `internal/packdecl/kinds_test.go`) —
+// ship a LOOPHOLE (one of the closed set of contribution kinds, `packdecl.KnownKinds`) —
 // `audio` and `aws-auth` each also contribute an `env` block, and they are the two that
 // ship anything beside their loophole; `openai-auth` ships a `provider` instead — and
 // they are the dogfood for
@@ -49,7 +48,9 @@
 // requirements (9caba669 moved the blocked tools out of core — core blocks nothing by
 // default), the third kind of CLI-less pack. `wire-bridge` is the fourth kind and the
 // first of it: a `kind: "service"` pack, one in-jail daemon and its endpoint file,
-// no grants (docs/reference/wire-bridge.md §2.1).
+// no grants (docs/reference/wire-bridge.md §2.1). `chrome-devtools` installs a program
+// that is no agent: an MCP server, with the `mcp` entry every agent's config renders and
+// the wrapper that entry runs (docs/design/mcp-presets-removal.md §13 step 2).
 // Anything here that reasons about "the six agent packs" (a comment, a test's name
 // list) is describing the agent SUBSET, not this list.
 //
@@ -84,5 +85,5 @@ package packs
 
 import "embed"
 
-//go:embed all:claude all:copilot all:opencode all:pi all:codex all:agy all:omp all:zai all:cerebras all:openrouter all:kilo all:llamacpp all:audio all:host-processes all:journal all:cgroup-delegate all:serial all:guardrails all:wire-bridge all:openai-auth all:aws-auth all:bedrock all:hello-daemon all:github
+//go:embed all:claude all:copilot all:opencode all:pi all:codex all:agy all:omp all:zai all:cerebras all:openrouter all:kilo all:llamacpp all:audio all:host-processes all:journal all:cgroup-delegate all:serial all:guardrails all:wire-bridge all:openai-auth all:aws-auth all:bedrock all:hello-daemon all:github all:chrome-devtools
 var FS embed.FS

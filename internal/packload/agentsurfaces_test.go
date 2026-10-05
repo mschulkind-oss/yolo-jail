@@ -13,15 +13,21 @@ import (
 )
 
 // agentPacks returns the embedded packs that INSTALL an agent — the ones with a
-// `program` contribution. Packs that ship no CLI (today audio, host-processes,
-// journal, cgroup-delegate, serial, openai-auth, zai, cerebras, guardrails, and
-// wire-bridge) deliver no agent briefing or skills and are not the subject here.
+// `program` contribution that is not an MCP SERVER (a program some `mcp` contribution of the
+// pack names in its `bin`: chrome-devtools-mcp, which an agent starts and which reads no
+// briefing and no skills). Packs that ship no CLI (today audio, host-processes, journal,
+// cgroup-delegate, serial, openai-auth, zai, cerebras, guardrails, and wire-bridge) deliver
+// no agent briefing or skills and are not the subject here either.
 func agentPacks(t *testing.T) []*packload.Pack {
 	t.Helper()
 	var out []*packload.Pack
 	for _, p := range packload.Embedded() {
+		servers := map[string]bool{}
+		for _, s := range p.Decl.MCPContributions() {
+			servers[s.Bin] = true
+		}
 		for _, c := range p.Decl.Contributions() {
-			if c.Kind == packdecl.KindProgram {
+			if c.Kind == packdecl.KindProgram && !servers[c.Bin] {
 				out = append(out, p)
 				break
 			}

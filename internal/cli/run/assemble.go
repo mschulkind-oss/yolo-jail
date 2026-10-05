@@ -1221,7 +1221,11 @@ func (o *Options) commonEnvBlock(in *assembleInput, blockedConfigJSON, netMode s
 		"-e", "OVERMIND_SOCKET=/tmp/overmind.sock",
 		"-e", "YOLO_MISE_TOOLS="+jsonDumps(config.MergeMiseTools(cfg)),
 		"-e", "YOLO_LSP_SERVERS="+jsonDumpsOrEmptyObj(cfgMap(cfg, "lsp_servers")),
-		"-e", "YOLO_MCP_SERVERS="+jsonDumpsOrEmptyObj(cfgMap(cfg, "mcp_servers")),
+		// THE COMPOSED TABLE (packload.ComposeMCPServers): each selected pack's `mcp` entries
+		// joined to the jail's home, your mcp_servers merged over them. Composed here, on the
+		// host, for this backend's home (docs/design/mcp-presets-removal.md OQ-MP4); the jail
+		// reads it as it always read your table, over its presets.
+		"-e", "YOLO_MCP_SERVERS="+jsonDumpsOrEmptyObj(jailMCPServers(cfg, in.packs)),
 		"-e", "YOLO_MCP_PRESETS="+jsonDumpsOrEmptyList(cfgList(cfg, "mcp_presets")),
 		// The `agent_updates` policy, read from USER scope directly rather than from the
 		// merged config: /workspace is bind-mounted rw, so a workspace value would let an
@@ -1404,6 +1408,12 @@ func (in *assembleInput) jailImage() string {
 func jsonDumps(v any) string {
 	s, _ := jsonx.DumpsCompact(v)
 	return s
+}
+
+// jailMCPServers is the mcp_servers table a container jail renders: the selected packs' `mcp`
+// entries joined to the jail's home, under the config's own `mcp_servers`.
+func jailMCPServers(cfg *jsonx.OrderedMap, packs []*packload.Pack) *jsonx.OrderedMap {
+	return packload.ComposeMCPServers(cfgMap(cfg, "mcp_servers"), packs, jailHome)
 }
 
 func jsonDumpsOrEmptyObj(m *jsonx.OrderedMap) string {

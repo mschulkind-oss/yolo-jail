@@ -1,0 +1,61 @@
+{
+  "name": "chrome-devtools",
+  "description": "Chrome DevTools MCP: every selected agent can drive a browser, in a jail, on macos-user and at `yolo host`. Opt in by adding \"chrome-devtools\" to packs; the browser is the one the machine has (the jail image's chromium, or Chrome or Chromium on a host).",
+  // docs/design/mcp-presets-removal.md §13 steps 1-2, and docs/reference/mcp-configuration.md
+  // for what each notch gets. Four contributions, each a claim the footprint names:
+  "contributes": [
+    // The server itself. Installed by the jail's lazy launcher on first use (and kept current
+    // by it), and into yolo's host floor by `yolo host apply --assert` or the first
+    // `yolo host -- <agent>`. The floor is the vendor's own: its package.json asks for
+    // Node ^20.19 || ^22.12 || >=23, and one floor covers the newer two.
+    {
+      "kind": "program",
+      "bin": "chrome-devtools-mcp",
+      "via": "npm",
+      "package": "chrome-devtools-mcp",
+      "node_floor": "22.12"
+    },
+    // The wrapper the entry runs. OFF PATH on purpose (a `files` tree may not land on a PATH
+    // directory; the program above is what owns a name there), and run through /bin/sh,
+    // since a pack selected by its bare name carries no exec bit.
+    {
+      "kind": "files",
+      "from": "bin/chrome-devtools-mcp-wrapper",
+      "into": ".local/share/yolo-chrome-devtools/chrome-devtools-mcp-wrapper"
+    },
+    // The entry every agent's MCP file renders. `~/` is the home of the notch it renders for.
+    // Your own `mcp_servers.chrome-devtools` merges over it; `null` there removes it.
+    {
+      "kind": "mcp",
+      "name": "chrome-devtools",
+      "bin": "chrome-devtools-mcp",
+      "config": {
+        "command": "/bin/sh",
+        "args": ["~/.local/share/yolo-chrome-devtools/chrome-devtools-mcp-wrapper"]
+      }
+    },
+    // What a jail's browser needs and a host's must not get. In a container there is no
+    // display, no user namespace for chromium's own sandbox, no setuid helper and no GPU, so
+    // the AUTONOMOUS posture (a jail and macos-user) runs it headless, isolated and with those
+    // three sandbox flags; the jail's launcher adds them to every start of the program. The
+    // GUARDED posture (`yolo host`) adds nothing: Chrome keeps its own sandbox there, opens a
+    // window you can watch, and keeps chrome-devtools-mcp's own profile.
+    {
+      "kind": "autonomy",
+      "autonomous": {
+        "launch": [
+          {
+            "bin": "chrome-devtools-mcp",
+            "flags": [
+              "--headless",
+              "--isolated",
+              "--chrome-arg=--no-sandbox",
+              "--chrome-arg=--disable-setuid-sandbox",
+              "--chrome-arg=--disable-gpu"
+            ]
+          }
+        ]
+      }
+    }
+  ]
+}

@@ -543,6 +543,19 @@ func BuildRunPlanWithDaemons(workspace string, cfg *jsonx.OrderedMap, agents, ag
 		homeOverlay, ctxRoot, hostCtx, paths.WorkspaceHomeState(workspace), SandboxHome(),
 		darwinPrefix, blockedTools)
 	bootstrapEnv.Set(paths.ContextDirEnv, contextDir)
+	// THE COMPOSED MCP TABLE (packload.ComposeMCPServers): the staged packs' `mcp` entries joined
+	// to the sandbox account's home, under the config's own `mcp_servers` — what the container
+	// launch hands its jail as YOLO_MCP_SERVERS (docs/design/mcp-presets-removal.md OQ-MP4).
+	// Composed from the host-side tree the stage commands copy, which is the tree the bootstrap
+	// renders from; here rather than in buildBootstrapEnv, which an install capture shares and
+	// whose throwaway home renders no agent. A tree that cannot be read leaves the config's own
+	// table here, and the bootstrap, which reads the copy of that tree, fails the launch for it.
+	userServers, _ := getSectionOrEmptyMap(cfg, "mcp_servers").(*jsonx.OrderedMap)
+	if servers, err := entrypoint.MCPServersAt(hostPackRoot, userServers, SandboxHome()); err == nil {
+		if wire, err := jsonx.DumpsCompact(servers); err == nil {
+			bootstrapEnv.Set("YOLO_MCP_SERVERS", wire)
+		}
+	}
 	// `programs.autoprune` — the catalog's removal act at boot (OQ-PD4's third clause, off by
 	// default), relayed exactly as the container launch relays it (internal/cli/run's
 	// assembleRunCmd): read from the USER config alone, so an agent-editable workspace config

@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
+	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 )
 
 // (empty) merged with the dict in YOLO_LSP_SERVERS. Returns an OrderedMap so
@@ -464,4 +465,21 @@ func (e *Env) LoadMCPPresetNames() []string {
 		}
 	}
 	return out
+}
+
+// MCPServersAt is the mcp_servers table a launch whose packs are staged at packRoot renders into
+// home: packload.ComposeMCPServers over the staged tree's packs, in the launch's order, under
+// user (the config's own `mcp_servers`). The macos-user plan builder asks it of the host-side
+// staged tree it copies into the sandbox (macosuser's bootstrap env), reading that tree strictly
+// as DeclaredNodeFloorsAt does, since this binary staged it. An empty packRoot is a launch that
+// staged no packs: the user's table alone.
+func MCPServersAt(packRoot string, user *jsonx.OrderedMap, home string) (*jsonx.OrderedMap, error) {
+	if packRoot == "" {
+		return packload.ComposeMCPServers(user, nil, home), nil
+	}
+	packs, err := loadPackRoot(&Env{}, packRoot)
+	if err != nil {
+		return nil, err
+	}
+	return packload.ComposeMCPServers(user, packs, home), nil
 }

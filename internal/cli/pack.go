@@ -124,6 +124,10 @@ one file's audience never stops another file from shipping:
   service          contribute a daemon to a namespace — a yolo-jaild subcommand in the
                    jail and/or a host daemon — plus its endpoint file under
                    /run/yolo-services/; no host grant, no boundary crossing
+  mcp              {name, bin, config: {command, args, env, requires_env, provides}} —
+                   one MCP server entry composed into mcp_servers, which every agent's
+                   config renders; a "~/" word is a path under the agent's home, your
+                   own mcp_servers entry merges over it, and null removes it
 
 loophole is the sharpest kind: its module may declare a daemon that runs ON YOUR MACHINE,
 TLS intercepts (a CA every client in the jail trusts), host bind mounts and host devices.

@@ -343,6 +343,31 @@ const (
 	// blocked-tool entry for the same name — a pack's or the user's own — wins, because a
 	// refusal is the more specific statement, and the boot says so.
 	KindIntercept Kind = "intercept"
+
+	// KindMCP: ONE NAMED MCP SERVER ENTRY composed into yolo's own `mcp_servers` table
+	// (docs/design/mcp-presets-removal.md OQ-MP3, ruled 2026-09-20), the way `provider` composes
+	// into `providers`: every selected pack's entries first, the user's `mcp_servers` merged over
+	// them per field, and a user `null` removing one. Every agent pack's derive then renders the
+	// composed table into its own dialect, so the pack contributing a server names no agent:
+	//
+	//	{"kind": "mcp", "name": "chrome-devtools", "bin": "chrome-devtools-mcp",
+	//	 "config": {"command": "/bin/sh", "args": ["~/.local/share/yolo-chrome-devtools/wrapper"]}}
+	//
+	// `config` is the ENTRY, in exactly the shape a user writes one under `mcp_servers` —
+	// `command`, `args`, `env`, `requires_env`, `provides` and nothing else (the config package's
+	// knownMCPServerKeys, which mcpEntryKeys mirrors). A `command` or `args` word starting `~/`
+	// names a path under the home of the notch the entry is rendered for, and the composer joins
+	// that home on (packload.ComposeMCPServers; OQ-MP4 ruled the composition host-side, where the
+	// home is a fact yolo decides). `env` values stay literal, as every other env value does.
+	// `bin`, optional, names the `program` the server runs, which a `yolo host -- <agent>` launch
+	// makes sure yolo's host floor holds before the agent starts.
+	//
+	// Exclusive by server NAME, `provider`'s rule for `provider`'s reason: the name is the key the
+	// entry lands under, so two packs shipping one name are each claiming to be "the" server.
+	// NOT review-worthy: the entry is data in a config file and reads nothing on the host; the
+	// install behind it, where there is one, is the `program` beside it, which carries its own
+	// review.
+	KindMCP Kind = "mcp"
 )
 
 // Combine names how two claims on the SAME target resolve — the conflict-rule
@@ -542,6 +567,14 @@ var footprints = map[Kind]Footprint{
 		Kind: KindAdapter, Combine: CombineExclusive,
 		Claims: "a protocol conversion (<from> → <to>) served at an address; " +
 			"nothing about who runs it",
+	},
+	KindMCP: {
+		// Exclusive by server NAME, the bare name as the target, so the generic exclusive loop in
+		// packload.Collisions groups two packs shipping one server right onto it, the way it does
+		// for `provider`. Not review-worthy: an entry is data the agent's own config file carries.
+		Kind: KindMCP, Combine: CombineExclusive,
+		Claims: "a named MCP server entry composed into mcp_servers " +
+			"(your own mcp_servers entry merges over it; null removes it)",
 	},
 	KindService: {
 		// Exclusive by service NAME (the const block's comment carries the reasoning:

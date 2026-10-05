@@ -1,0 +1,128 @@
+#!/bin/sh
+# chrome-devtools-mcp-wrapper: what the chrome-devtools pack's MCP server entry runs, as
+# `/bin/sh <this file>`, at every notch — a container jail, macos-user, and `yolo host`.
+#
+# The pack delivers it as a `files` tree, and a pack selected by its bare name carries no
+# exec bit (embed.FS holds none), so the entry names /bin/sh and passes this file to it.
+# An MCP client starts its servers with a scrubbed environment, so this script trusts
+# neither PATH nor any variable to say where it runs; it looks, at run time, for:
+#
+#   1. chrome-devtools-mcp: on the PATH it was given, then the launcher a jail and
+#      macos-user generate (~/.yolo/bin/launch, which installs it on first use and adds
+#      the jail posture's flags), then the npm prefix, then yolo's host floor;
+#   2. a browser: chromium or google-chrome on PATH, then the standard install paths,
+#      /Applications/Google Chrome.app among them. With none found it passes no path and
+#      chrome-devtools-mcp looks for Chrome itself.
+#
+# `--check` prints what it found, and exits 0 when chrome-devtools-mcp is there.
+# YOLO_CHROME_DEVTOOLS_ROOT, a test seam, is a directory the standard paths are looked up
+# under instead of /.
+
+home=${HOME:-}
+if [ -z "$home" ]; then
+    # This file sits at <home>/.local/share/yolo-chrome-devtools/<name>.
+    home=${0%/.local/share/yolo-chrome-devtools/*}
+fi
+root=${YOLO_CHROME_DEVTOOLS_ROOT:-}
+PATH=${PATH:-/usr/bin:/bin}
+export PATH
+
+find_server() {
+    p=$(command -v chrome-devtools-mcp 2>/dev/null)
+    case "$p" in
+    /*) [ -x "$p" ] && { printf '%s\n' "$p"; return 0; } ;;
+    esac
+    for p in "$home/.yolo/bin/launch/chrome-devtools-mcp" \
+        "${NPM_CONFIG_PREFIX:-$home/.npm-global}/bin/chrome-devtools-mcp" \
+        "$home/.local/share/yolo-jail/host-floor/bin/chrome-devtools-mcp"; do
+        if [ -x "$p" ]; then
+            printf '%s\n' "$p"
+            return 0
+        fi
+    done
+    return 1
+}
+
+find_browser() {
+    for name in chromium chromium-browser google-chrome google-chrome-stable; do
+        p=$(command -v "$name" 2>/dev/null)
+        case "$p" in
+        /*) [ -x "$p" ] && { printf '%s\n' "$p"; return 0; } ;;
+        esac
+    done
+    for p in /usr/bin/chromium /usr/bin/chromium-browser /usr/bin/google-chrome \
+        /usr/bin/google-chrome-stable /opt/google/chrome/chrome /snap/bin/chromium \
+        /run/yolo/packages/bin/chromium \
+        "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" \
+        "/Applications/Chromium.app/Contents/MacOS/Chromium" \
+        "$home/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" \
+        "$home/Applications/Chromium.app/Contents/MacOS/Chromium"; do
+        if [ -x "$root$p" ] && [ ! -d "$root$p" ]; then
+            printf '%s\n' "$root$p"
+            return 0
+        fi
+    done
+    return 1
+}
+
+missing_server="chrome-devtools-mcp is not installed: in a jail or on macos-user it installs \
+itself on first use once \"chrome-devtools\" is in your packs; at the host run \
+\`yolo host apply --assert\`, or start the agent with \`yolo host -- <agent>\`, which installs \
+it into yolo's floor"
+
+server=$(find_server)
+browser=$(find_browser)
+
+if [ "${1:-}" = "--check" ]; then
+    status=0
+    if [ -n "$server" ]; then
+        printf 'chrome-devtools-mcp: %s\n' "$server"
+    else
+        printf 'chrome-devtools-mcp: not found — %s\n' "$missing_server"
+        status=1
+    fi
+    if [ -n "$browser" ]; then
+        printf 'browser: %s\n' "$browser"
+    else
+        printf 'browser: none found (no chromium or google-chrome on PATH or at a standard install path); chrome-devtools-mcp looks for Chrome itself, and with none it cannot start one — install Chrome or Chromium\n'
+    fi
+    exit "$status"
+fi
+
+if [ -z "$server" ]; then
+    printf 'chrome-devtools-mcp-wrapper: %s\n' "$missing_server" >&2
+    exit 127
+fi
+
+# Fonts for a jail's chromium, where the image has them and the client scrubbed the variables.
+if [ -z "${FONTCONFIG_FILE:-}" ] && [ -f /etc/fonts/fonts.conf ]; then
+    FONTCONFIG_FILE=/etc/fonts/fonts.conf
+    export FONTCONFIG_FILE
+fi
+if [ -z "${FONTCONFIG_PATH:-}" ] && [ -d /etc/fonts ]; then
+    FONTCONFIG_PATH=/etc/fonts
+    export FONTCONFIG_PATH
+fi
+
+# A browser of the caller's own choosing wins: any flag that names one, or a running one.
+chosen=0
+for a in "$@"; do
+    case "$a" in
+    -e | -u | -w | --executablePath | --executablePath=* | --executable-path | --executable-path=* | \
+        --browserUrl | --browserUrl=* | --browser-url | --browser-url=* | --wsEndpoint | \
+        --wsEndpoint=* | --ws-endpoint | --ws-endpoint=* | --channel | --channel=*)
+        chosen=1
+        ;;
+    esac
+done
+
+if [ "$chosen" = 1 ]; then
+    printf 'chrome-devtools-mcp-wrapper: starting %s with the browser its arguments name\n' "$server" >&2
+    exec "$server" "$@"
+fi
+if [ -n "$browser" ]; then
+    printf 'chrome-devtools-mcp-wrapper: starting %s with browser %s\n' "$server" "$browser" >&2
+    exec "$server" --executablePath "$browser" "$@"
+fi
+printf 'chrome-devtools-mcp-wrapper: starting %s; no chromium or google-chrome on PATH or at a standard install path, so chrome-devtools-mcp looks for Chrome itself\n' "$server" >&2
+exec "$server" "$@"
