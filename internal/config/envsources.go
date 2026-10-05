@@ -194,6 +194,44 @@ func ResolveEnvSourcesFull(workspace string, config *jsonx.OrderedMap, warn Warn
 	return merged, out
 }
 
+// HydrateEnvSources is ResolveEnvSourcesFull's two answers in ONE ordered map: the assignments
+// in hydration order, then each removal as a nil value. It is the form a jail launch keeps the
+// hydration in (run's packChannel.userEnv), so the attach and pack-skew paths that compose the
+// channel again from that map keep the removals the first pass found, rather than walking every
+// env_sources entry a second time. SplitHydratedEnvSources reads it back.
+//
+// The removals cross into a jail at all because a null ranks with env_sources in the one ordered
+// composition (packload's envcompose.go): it takes out a pack env fold's value of the same name,
+// at every notch, where the jail used to drop it.
+func HydrateEnvSources(workspace string, config *jsonx.OrderedMap, warn Warn) *jsonx.OrderedMap {
+	merged, removals := ResolveEnvSourcesFull(workspace, config, warn)
+	for _, k := range removals {
+		merged.Set(k, nil)
+	}
+	return merged
+}
+
+// SplitHydratedEnvSources is HydrateEnvSources' map back as its two answers: the string
+// assignments, in order, and the names held as nil, the removals. A map of assignments alone
+// (any caller that hydrated through ResolveEnvSources) yields no removals. A nil map yields an
+// empty one.
+func SplitHydratedEnvSources(m *jsonx.OrderedMap) (*jsonx.OrderedMap, []string) {
+	assignments := jsonx.NewOrderedMap()
+	var removals []string
+	if m == nil {
+		return assignments, nil
+	}
+	for _, k := range m.Keys() {
+		v, _ := m.Get(k)
+		if v == nil {
+			removals = append(removals, k)
+			continue
+		}
+		assignments.Set(k, v)
+	}
+	return assignments, removals
+}
+
 // DescribeEnvSources returns one description per env_sources entry in cfg, in order: a
 // file entry as the path it resolves to, an inline dict as the keys it assigns. Empty
 // when cfg declares none.

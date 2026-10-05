@@ -25,10 +25,10 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 
-	"github.com/mschulkind-oss/yolo-jail/internal/agentenv"
 	"github.com/mschulkind-oss/yolo-jail/internal/entrypoint"
 	"github.com/mschulkind-oss/yolo-jail/internal/packdecl"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
@@ -48,9 +48,11 @@ const (
 // shared yolo-user-env.sh and one env file per profiled agent. The fresh launch calls it
 // after prepareWsState, and deliverChannelOnAttach calls it after its pre-flights.
 //
-// THE SHARED FILE GETS THE GATE'S SHARED HALF, never the hydration: a caller that handed it
-// channel.userEnv would put every provider credential back in every process, which is the
-// leak this whole design closes (TestDeliverChannelScopesCredentialsPerAgent is the pin).
+// THE SHARED FILE GETS THE GATE'S SHARED COMPOSITION, never the hydration: a caller that handed
+// it channel.userEnv would put every provider credential back in every process, which is the
+// leak this whole design closes (TestDeliverChannelScopesCredentialsPerAgent is the pin). Both
+// files serialize the one ordered composition (packload's envcompose.go), so a name has one
+// winner in a jail shell, in an agent's process, and at every other vehicle.
 //
 // rt picks where the files land, because the two container backends reach the jail home
 // differently. podman binds <wsState>/yolo-user-env.sh and <wsState>/agent-env into it;
@@ -62,7 +64,7 @@ const (
 // 0755 directory on a host path under the workspace.
 func deliverChannel(wsState, rt string, channel *packChannel) {
 	shared := filepath.Join(wsState, "yolo-user-env.sh")
-	writeUserEnvFile(shared, channel.scope.SharedEnvSources(), channel)
+	writeUserEnvFile(shared, channel.sharedEnvSourceWinners(), channel)
 	if rt == "container" { // parity: HonoredBy — Apple Container binds wsState at /home/agent, so both files are written at their in-home paths beneath it, live on every entry, instead of bound
 		acMaterialize(shared, ".config/yolo-user-env.sh", wsState)
 		writeAgentEnvFiles(wsState, entrypoint.AgentEnvDirRel, channel)
@@ -164,24 +166,32 @@ func (c *packChannel) agentsWithOwnValues() []string {
 	return out
 }
 
-// agentEnvFileContent renders one agent's file, "" when the gate scoped nothing to it.
+// agentEnvFileContent renders one agent's file, "" when it has nothing to say.
+//
+// WHAT IT WRITES is the agent's composition where it differs from the shared one (packload's
+// envcompose.go: the shape var over the env_sources it receives over the pack env fold, an
+// env_sources null and a shape tombstone each removing what ranks below): one line per name
+// whose winner for this agent is not what the shared file already sets, plus a name some other
+// value yolo set this entry would otherwise leave in its slot (another agent's file, the
+// container's frozen environment). The shared file is sourced first, so a name both answer alike
+// needs no line.
 //
 // THE PRECEDENCE IS "THE USER'S EXPLICIT VALUE WINS" (docs/reference/providers.md
 // OQ-CN8, ruled 2026-09-28). The file is sourced by the agent's launcher, AFTER the user's
 // shell, so a plain-form line here would beat `ANTHROPIC_MODEL=x claude` and a jail-shell
 // `export`, which the shared file, sourced before the user's command, never did. So every line
-// is written against the launcher's INCOMING environment:
+// is written against the launcher's INCOMING environment (CN-D21's grammar):
 //
-//   - env_sources values are def-form defaults (`export K=${K:-'v'}`), as in the shared file;
-//   - a composed value — the gated pack env, the env derive's shape vars — whose name nothing
-//     else yolo set is def-form too: the environment wins, an unset or empty K takes the value;
-//   - a composed value whose name yolo DID set elsewhere (inheritedValues: the shared file, the
+//   - a value whose name nothing else yolo set is def-form (`export K=${K:-'v'}`): the
+//     environment wins, an unset or empty K takes the value;
+//   - a value whose name yolo DID set elsewhere (inheritedValues: the shared file, the
 //     container's frozen environment, another agent's file this entry wrote) is written as a
 //     `case` over those values: it overrides only when the incoming value is empty or one of
 //     them, because then it is an inherited default rather than the user's choice, and a stale
 //     inherited value must not beat the profile. Any other value is the user's and is kept;
-//   - a shape var's tombstone (`unset K`) removes K only when its value is one yolo set
-//     elsewhere, for the same reason, and is not written when yolo set K nowhere else.
+//   - a removal (a shape tombstone, an env_sources null) is `unset K` only when K's incoming
+//     value is one yolo set elsewhere, for the same reason, and is not written when yolo set K
+//     nowhere else.
 //
 // The comparison is by VALUE, not by name, because a name alone cannot tell a per-command
 // override of a shared variable from the shared variable itself (CN-D21 in the design's ledger).
@@ -190,57 +200,57 @@ func agentEnvFileContent(channel *packChannel, agent string) string {
 	if d.Empty() {
 		return ""
 	}
-	var b strings.Builder
-	b.WriteString("# Auto-generated by yolo: what this launch scoped to " + agent + " alone\n")
-	b.WriteString("# (provider-credential-scope.md). Rewritten by every entry; sourced by its launcher.\n")
-	b.WriteString("# A value you set yourself wins over the profile's (OQ-CN8).\n")
-	for _, k := range d.EnvSources.Keys() {
-		v, _ := d.EnvSources.Get(k)
-		val, _ := v.(string)
-		b.WriteString(exportDefault(k, val))
-	}
-	keys := make([]string, 0, len(d.PackEnv))
-	for k := range d.PackEnv {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
-	for _, k := range keys {
-		b.WriteString(exportComposed(k, d.PackEnv[k], channel.inheritedValues(agent, k)))
-	}
-	for _, v := range d.Shape {
+	view := channel.envView()
+	var lines strings.Builder
+	for _, e := range view.agents[agent].Entries() {
 		// A derive names its variables in Lua, and this file is bash SOURCE: a key that is
 		// not a variable name is not written, rather than spliced into a shell line.
-		if !packdecl.ValidEnvName(v.Key) {
+		if !packdecl.ValidEnvName(e.Key) {
 			continue
 		}
-		inherited := channel.inheritedValues(agent, v.Key)
-		if filledRegion(d, v) {
+		boot := true
+		if e.Origin == packload.FromProfileEnv && filledRegion(d, e) {
 			// THE REGION FILL'S VALUE (packload's regionfill.go, docs/design/bedrock-plumbing.md
 			// BR-D23) is a FALLBACK: the gate found no region for this agent anywhere it composes.
 			// So it yields to the container's frozen environment, as the fresh launch's default
 			// does (a `loopholes.<name>.jail_env` region on the argv), rather than reading that
 			// value as a stale yolo default to override on an attach; it still overrides what
 			// another agent's file composes, which an agent started by that one inherits.
-			inherited = channel.inheritedValuesBut(agent, v.Key, false)
+			boot = false
 		}
-		if v.Unset {
+		inherited := channel.inheritedValues(view, agent, e.Key, boot)
+		if e.Unset {
 			if len(inherited) > 0 {
-				b.WriteString("case \"${" + v.Key + "-}\" in " + casePatterns(inherited) +
-					") unset " + v.Key + " ;; esac\n")
+				lines.WriteString("case \"${" + e.Key + "-}\" in " + casePatterns(inherited) +
+					") unset " + e.Key + " ;; esac\n")
 			}
 			continue
 		}
-		b.WriteString(exportComposed(v.Key, v.Value, inherited))
+		// A value equal to the agent's own needs no pattern: overriding it with itself is a
+		// no-op, and leaving it out keeps a name only the agent's value holds def-form.
+		others := slices.DeleteFunc(slices.Clone(inherited), func(v string) bool { return v == e.Value })
+		if v, ok := view.shared.Value(e.Key); ok && v == e.Value && len(others) == 0 {
+			continue // the shared file already sets it, and nothing else yolo set competes
+		}
+		lines.WriteString(exportComposed(e.Key, e.Value, others))
 	}
+	if lines.Len() == 0 {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString("# Auto-generated by yolo: what this launch scoped to " + agent + " alone\n")
+	b.WriteString("# (provider-credential-scope.md). Rewritten by every entry; sourced by its launcher.\n")
+	b.WriteString("# A value you set yourself wins over the profile's (OQ-CN8).\n")
+	b.WriteString(lines.String())
 	return b.String()
 }
 
-// filledRegion reports whether v is the region the gate's region fill appended to d's shape vars
+// filledRegion reports whether e is the region the gate's region fill appended to d's shape vars
 // (AgentDelivery.RegionFile): the one shape var whose name no other channel of d's sets, since
 // the fill runs only where none does.
-func filledRegion(d *packload.AgentDelivery, v agentenv.Var) bool {
+func filledRegion(d *packload.AgentDelivery, e packload.EnvEntry) bool {
 	l := d.RegionFile
-	return l != nil && l.Region != "" && !v.Unset && v.Key == l.Var && v.Value == l.Region
+	return l != nil && l.Region != "" && !e.Unset && e.Key == l.Var && e.Value == l.Region
 }
 
 // exportComposed renders one composed value against the incoming environment
@@ -263,21 +273,36 @@ func casePatterns(values []string) string {
 	return strings.Join(parts, "|")
 }
 
-// inheritedValues is every non-empty value, sorted and deduplicated, that YOLO — not the user —
-// may have put in key's slot of agent's launcher's incoming environment this entry: the shared
-// file's own value (its channel section's plain lines, and its def-form env_sources default,
-// which the container's frozen value beats), the container's frozen environment (bootEnv, read
-// off the running container on an attach), and the value any OTHER agent's file this entry
-// wrote composes for key, which an agent started by that agent inherits. OQ-CN8's "names the
-// shared file or the boot set", answered by value: a value equal to one of these is inherited,
-// and any other is the user's.
-func (c *packChannel) inheritedValues(agent, key string) []string {
-	return c.inheritedValuesBut(agent, key, true)
+// envView is every composition one delivery reads (packload's envcompose.go), composed once:
+// the shared one and each agent's with a delivery of its own, beside the shared file's other
+// plain-form values (sharedChannelExports).
+type envView struct {
+	shared  packload.EnvComposition
+	agents  map[string]packload.EnvComposition
+	exports map[string]string
 }
 
-// inheritedValuesBut is inheritedValues, with the container's frozen environment among the
-// places only when boot is set: the region fill's value leaves it out (filledRegion).
-func (c *packChannel) inheritedValuesBut(agent, key string, boot bool) []string {
+// envView composes this channel's compositions.
+func (c *packChannel) envView() envView {
+	v := envView{shared: c.scope.SharedEnv(), agents: map[string]packload.EnvComposition{},
+		exports: c.sharedChannelExports()}
+	for _, agent := range c.scope.Agents() {
+		v.agents[agent] = c.scope.EnvFor(agent)
+	}
+	return v
+}
+
+// inheritedValues is every non-empty value, sorted and deduplicated, that YOLO — not the user —
+// may have put in key's slot of agent's launcher's incoming environment this entry, read off
+// view (this channel's compositions, composed once): the shared file's own value (its def-form
+// env_sources default or its plain pack env line, whichever the shared composition chose, and
+// the wire tables and exported caller tokens of its channel section), the container's frozen
+// environment (bootEnv, read off the running container on an attach) when boot is set, and the
+// value any OTHER agent's composition gives key, which an agent started by that agent inherits
+// from its file. OQ-CN8's "names the shared file or the boot set", answered by value: a value
+// equal to one of these is inherited, and any other is the user's. The region fill's value
+// passes boot false (filledRegion).
+func (c *packChannel) inheritedValues(view envView, agent, key string, boot bool) []string {
 	seen := map[string]bool{}
 	var out []string
 	add := func(v string) {
@@ -286,42 +311,32 @@ func (c *packChannel) inheritedValuesBut(agent, key string, boot bool) []string 
 			out = append(out, v)
 		}
 	}
-	if s, ok := c.sharedExports()[key]; ok {
-		add(s)
+	if v, ok := view.shared.Value(key); ok {
+		add(v)
 	}
-	add(mapStr(c.scope.SharedEnvSources(), key))
+	add(view.exports[key])
 	if boot {
 		add(c.bootEnv[key])
 	}
-	for _, other := range c.scope.Agents() {
+	for other, comp := range view.agents {
 		if other == agent {
 			continue
 		}
-		od := c.scope.Agent(other)
-		if od == nil {
-			continue
-		}
-		add(od.PackEnv[key])
-		for _, v := range od.Shape {
-			if v.Key == key && !v.Unset {
-				add(v.Value)
-			}
+		if v, ok := comp.Value(key); ok {
+			add(v)
 		}
 	}
 	sort.Strings(out)
 	return out
 }
 
-// sharedExports is the channel section's plain-form values as writeUserEnvFile writes them:
-// the wire tables, the shared pack env and the exported caller tokens.
-func (c *packChannel) sharedExports() map[string]string {
+// sharedChannelExports is the channel section's plain-form values beyond the pack env, as
+// writeUserEnvFile writes them: the wire tables and the exported caller tokens.
+func (c *packChannel) sharedChannelExports() map[string]string {
 	out := map[string]string{}
 	wire := c.wireTableValues()
 	for _, k := range entrypoint.WireTables() {
 		out[k] = wire[k]
-	}
-	for k, v := range c.scope.SharedPackEnv() {
-		out[k] = v
 	}
 	for k, v := range c.callerTokens {
 		if !c.scopedTokenVars[k] {

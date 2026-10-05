@@ -399,3 +399,136 @@ func TestHostApplyRendersOpencodesSet(t *testing.T) {
 		t.Errorf("enabled_providers = %v, want [zai openrouter]", cfg["enabled_providers"])
 	}
 }
+
+// setRemedyCfg selects pi with three providers' keys hydrated, so a launch on two of them
+// withholds the third's.
+const setRemedyCfg = `{"packs": ["claude", "pi", "zai", "openrouter", "cerebras"], "env_sources": [` +
+	`{"ZAI_API_KEY": "tok-zai", "OPENROUTER_API_KEY": "tok-router", "CEREBRAS_API_KEY": "tok-c"}]}`
+
+// THE ADDITIVE REMEDY (AP-D19): pi runs on a set, so the withheld line for a key only cerebras
+// claims names the launch that ADDS cerebras to the set, in the pair form that replaces pi's set
+// whole for the launch (AP-D4). That launch runs and keeps every key the set delivered, where the
+// switch the line used to name, `yolo host -p cerebras -- pi`, handed pi cerebras's key and dropped
+// zai's and openrouter's.
+func TestHostSetRemedyAddsTheProfileToTheSet(t *testing.T) {
+	_, errs := hostGateLaunchWith(t, setRemedyCfg, nil, []string{"-p", "pi=zai,openrouter"}, "pi")
+	line := scopeLine(t, errs, "CEREBRAS_API_KEY")
+	want := "To add the cerebras profile to pi's active set for one launch, keeping zai, openrouter: " +
+		"`yolo host -p pi=zai,openrouter,cerebras -- pi`"
+	if !strings.Contains(line, want) {
+		t.Errorf("the remedy must add cerebras to pi's set (%q): %q", want, line)
+	}
+	if strings.Contains(line, "replacing") {
+		t.Errorf("an additive remedy replaces nothing: %q", line)
+	}
+	for name, value := range map[string]string{"CEREBRAS_API_KEY": "tok-c", "ZAI_API_KEY": "tok-zai",
+		"OPENROUTER_API_KEY": "tok-router"} {
+		assertRemediesRun(t, line, name, value)
+	}
+}
+
+// The same set from the profile key's list: the remedy names the pair that adds cerebras to it.
+func TestHostSetRemedyAddsToTheProfileKeysSet(t *testing.T) {
+	_, errs := hostGateLaunchWith(t, `{"packs": ["claude", "pi", "zai", "openrouter", "cerebras"], `+
+		`"profile": {"pi": ["zai", "openrouter"]}, "env_sources": [`+
+		`{"ZAI_API_KEY": "tok-zai", "OPENROUTER_API_KEY": "tok-router", "CEREBRAS_API_KEY": "tok-c"}]}`,
+		nil, nil, "pi")
+	line := scopeLine(t, errs, "CEREBRAS_API_KEY")
+	if !strings.Contains(line, "`yolo host -p pi=zai,openrouter,cerebras -- pi`") {
+		t.Errorf("the remedy must add cerebras to the key's set: %q", line)
+	}
+	assertRemediesRun(t, line, "CEREBRAS_API_KEY", "tok-c")
+	assertRemediesRun(t, line, "OPENROUTER_API_KEY", "tok-router")
+}
+
+// At `yolo host env` the additive launch follows the shell's grant, as the switch did.
+func TestHostEnvSetRemedyAddsTheProfileToTheSet(t *testing.T) {
+	hostGateHome(t, setRemedyCfg, nil)
+	var out, errw bytes.Buffer
+	if rc := hostEnv([]string{"--agent", "pi", "-p", "zai,openrouter"}, &out, &errw); rc != 0 {
+		t.Fatalf("hostEnv rc = %d\n%s", rc, errw.String())
+	}
+	line := scopeLine(t, errw.String(), "CEREBRAS_API_KEY")
+	for _, want := range []string{"`eval \"$(yolo host env --with-credentials cerebras)\"`; " +
+		"to add the cerebras profile to pi's active set for one launch, keeping zai, openrouter: " +
+		"`yolo host -p pi=zai,openrouter,cerebras -- pi`"} {
+		if !strings.Contains(line, want) {
+			t.Errorf("yolo host env's line must name the shell grant and then the additive launch (%q): %q", want, line)
+		}
+	}
+	assertRemediesRun(t, line, "CEREBRAS_API_KEY", "tok-c")
+}
+
+// AP-D12 refuses a set naming a regional platform twice, so a widened set that would is never
+// named: the line falls back to the switch, and says the switch replaces the whole set.
+func TestHostSetRemedyFallsBackToTheSwitchForASecondRegionalEntry(t *testing.T) {
+	cfg := `{"packs": ["claude", "pi", "zai", "bedrock"], ` +
+		`"providers": {"bedrock": {"region": "us-east-1"}, "bedrock-west": {"platform": "aws-bedrock", ` +
+		`"region": "us-west-2", "endpoints": {"openai": {"base_url": "https://west.example/v1"}}, ` +
+		`"api_key_env_name": "WEST_KEY"}}, ` +
+		`"profiles": {"bedrock-west": {"provider": "bedrock-west"}}, "env_sources": [` +
+		`{"ZAI_API_KEY": "tok-zai", "AWS_PROFILE": "dev", "WEST_KEY": "tok-w"}]}`
+	_, errs := hostGateLaunchWith(t, cfg, nil, []string{"-p", "pi=zai,bedrock"}, "pi")
+	line := scopeLine(t, errs, "WEST_KEY")
+	if strings.Contains(line, "pi=zai,bedrock,bedrock-west") {
+		t.Errorf("a set with two Bedrock entries refuses (AP-D12), so the line may not name it: %q", line)
+	}
+	if !strings.Contains(line, "replacing its active set (zai, bedrock)") {
+		t.Errorf("the switch replaces pi's whole set and must say so: %q", line)
+	}
+	assertRemediesRun(t, line, "WEST_KEY", "tok-w")
+}
+
+// An entry pi cannot speak is refused at every position of a set as it is alone, so neither the
+// widened set nor the switch is named: the key goes to an ad-hoc command through the grant.
+func TestHostSetRemedyHandsAnUnspeakableProfilesKeyToTheGrant(t *testing.T) {
+	cfg := `{"packs": ["claude", "pi", "zai", "openrouter"], ` +
+		`"providers": {"anth": {"endpoints": {"anthropic": {"base_url": "https://anth.example"}}, ` +
+		`"api_key_env_name": "ANTH_KEY"}}, ` +
+		`"profiles": {"anth": {"provider": "anth"}}, "env_sources": [` +
+		`{"ZAI_API_KEY": "tok-zai", "OPENROUTER_API_KEY": "tok-router", "ANTH_KEY": "tok-a"}]}`
+	_, errs := hostGateLaunchWith(t, cfg, nil, []string{"-p", "pi=zai,openrouter"}, "pi")
+	line := scopeLine(t, errs, "ANTH_KEY")
+	if strings.Contains(line, "-- pi`") {
+		t.Errorf("pi speaks no anthropic, so no named command may launch it: %q", line)
+	}
+	if !strings.Contains(line, "`yolo host --with-credentials anth -- bash`") {
+		t.Errorf("the key must go to an ad-hoc command through the grant: %q", line)
+	}
+	assertRemediesRun(t, line, "ANTH_KEY", "tok-a")
+}
+
+// oh-omp holds a set too (AP-D18), so its withheld line adds a profile its set can take.
+func TestHostOmpSetRemedyAddsTheProfileToTheSet(t *testing.T) {
+	const cfg = `{"packs": ["claude", "omp", "zai", "openrouter", "cerebras"], "env_sources": [` +
+		`{"ZAI_API_KEY": "tok-zai", "OPENROUTER_API_KEY": "tok-router", "CEREBRAS_API_KEY": "tok-c"}]}`
+	_, errs := hostGateLaunchWith(t, cfg, nil, []string{"-p", "oh-omp=zai,openrouter"}, "oh-omp")
+	line := scopeLine(t, errs, "CEREBRAS_API_KEY")
+	if !strings.Contains(line, "`yolo host -p oh-omp=zai,openrouter,cerebras -- oh-omp`") {
+		t.Errorf("the remedy must add cerebras to oh-omp's set: %q", line)
+	}
+	assertRemediesRun(t, line, "CEREBRAS_API_KEY", "tok-c")
+	assertRemediesRun(t, line, "ZAI_API_KEY", "tok-zai")
+}
+
+// The declare-a-profile arm adds too: with no profile over deepseek, the line says to declare one
+// and then names the launch adding it to pi's set, which runs once the example is declared.
+func TestHostSetRemedyAddsTheProfileItTellsTheUserToDeclare(t *testing.T) {
+	provider := `"providers": {"deepseek": {"endpoints": {"openai": {"base_url": "https://api.deepseek.example/v1"}}, ` +
+		`"api_key_env_name": "DEEPSEEK_API_KEY"}}`
+	keys := `"env_sources": [{"ZAI_API_KEY": "tok-zai", "OPENROUTER_API_KEY": "tok-router", "DEEPSEEK_API_KEY": "tok-ds"}]`
+	_, errs := hostGateLaunchWith(t, `{"packs": ["claude", "pi", "zai", "openrouter"], `+provider+`, `+keys+`}`,
+		nil, []string{"-p", "pi=zai,openrouter"}, "pi")
+	line := scopeLine(t, errs, "DEEPSEEK_API_KEY")
+	for _, want := range []string{"No declared profile selects deepseek", `"deepseek": {"provider": "deepseek"}`,
+		"then to add the deepseek profile to pi's active set for one launch, keeping zai, openrouter: " +
+			"`yolo host -p pi=zai,openrouter,deepseek -- pi`"} {
+		if !strings.Contains(line, want) {
+			t.Errorf("the declare arm must add the profile it names (%q missing): %q", want, line)
+		}
+	}
+	hostGateHome(t, `{"packs": ["claude", "pi", "zai", "openrouter"], `+provider+`, `+
+		`"profiles": {"deepseek": {"provider": "deepseek"}}, `+keys+`}`, nil)
+	assertRemediesRun(t, line, "DEEPSEEK_API_KEY", "tok-ds")
+	assertRemediesRun(t, line, "OPENROUTER_API_KEY", "tok-router")
+}

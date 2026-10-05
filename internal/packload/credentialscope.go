@@ -27,9 +27,11 @@ package packload
 // composeHostVars (internal/cli), which has never gone through composePackChannel because
 // it composes from user scope only. The same arrangement EnvFold and AgentEnv already have.
 //
-// It decides; it writes nothing. Where each answer lands is the vehicle's business: a
-// per-agent env file sourced by that agent's launcher on the container backends (OQ-CN6),
-// the one launched agent's session on macos-user, the one exec'd process at the host notch.
+// It decides; it writes nothing. Which source wins when several set one name for one process is
+// decided here too, once (SharedEnv and EnvFor, envcompose.go), and every vehicle serializes that
+// composition. Where each answer lands is the vehicle's business: a per-agent env file sourced by
+// that agent's launcher on the container backends (OQ-CN6), the one launched agent's session on
+// macos-user, the one exec'd process at the host notch.
 
 import (
 	"slices"
@@ -63,6 +65,12 @@ type ScopeInput struct {
 	Resolved map[string]ResolvedProfile
 	// EnvSources is the hydrated env_sources, in hydration order. Nil is an empty channel.
 	EnvSources *jsonx.OrderedMap
+	// EnvSourceRemovals are the names env_sources REMOVES, in order: each inline null no later
+	// entry cancelled (config.ResolveEnvSourcesFull's second answer). Every process's composition
+	// carries them at env_sources' rank (envcompose.go): a removal takes out the pack env fold's
+	// value, and at the host the invoking shell's, and never a shape var. A removal carries no
+	// value, so no claim scopes it. Nil removes nothing.
+	EnvSourceRemovals []string
 	// Fallback answers a credential env_sources did not hydrate — the environment yolo was
 	// launched from, which the env derive may relay. Consulted through the gate like
 	// env_sources is, so a claimed name is withheld from another provider's agent whichever
@@ -125,8 +133,11 @@ type CredentialScope struct {
 	callerTokens map[string]string
 	// sharedEnvSources is every env_sources entry no provider claims, in hydration order.
 	sharedEnvSources *jsonx.OrderedMap
-	// sharedPackEnv is the pack env fold with no gate satisfied: every selected pack's
-	// unconditional `kind: "env"`.
+	// removals is ScopeInput.EnvSourceRemovals, which every composition carries (envcompose.go).
+	removals []string
+	// sharedFold is the pack env fold with no gate satisfied, in fold order, as this notch serves
+	// it: every selected pack's unconditional `kind: "env"`. sharedPackEnv is its reduction.
+	sharedFold    []EnvFoldEntry
 	sharedPackEnv map[string]string
 	// agents is each agent (CLI name) with a selected profile, and what only it receives.
 	agents map[string]*AgentDelivery
@@ -196,6 +207,7 @@ func ScopeCredentials(in ScopeInput) (*CredentialScope, error) {
 		fallback:         in.Fallback,
 		callerTokens:     in.CallerTokens,
 		sharedEnvSources: jsonx.NewOrderedMap(),
+		removals:         in.EnvSourceRemovals,
 		agents:           map[string]*AgentDelivery{},
 		packs:            in.Packs,
 		profiles:         in.Profiles,
@@ -206,7 +218,8 @@ func ScopeCredentials(in ScopeInput) (*CredentialScope, error) {
 		// whole active set (AP-P1), so a gate any entry satisfies fires for that agent.
 		sel: SelectionOfSets(in.setTable(), in.Resolved, in.Providers),
 	}
-	for _, e := range s.servedFold(EnvFold(in.Packs, s.sel, "")) {
+	s.sharedFold = s.servedFold(EnvFold(in.Packs, s.sel, ""))
+	for _, e := range s.sharedFold {
 		if s.sharedPackEnv == nil {
 			s.sharedPackEnv = map[string]string{}
 		}
@@ -888,50 +901,18 @@ func (s *CredentialScope) DeliveredPackEnv(name string) (string, bool) {
 	return "", false
 }
 
-// DeliveredShape is the value some agent's env derive composed for name, the first agent
-// (sorted) that set it.
-func (s *CredentialScope) DeliveredShape(name string) (string, bool) {
-	if s == nil {
-		return "", false
-	}
-	for _, agent := range s.Agents() {
-		for _, v := range s.agents[agent].Shape {
-			if v.Key == name && !v.Unset {
-				return v.Value, true
-			}
-		}
-	}
-	return "", false
-}
-
-// DeliveredTo answers what the gate delivers to ONE agent under name, non-empty, from the
-// channels it composes: the env_sources this agent receives (the shared ones and its own
-// provider's claimed ones), the shared pack env fold, this agent's own gated pack env, and its
-// env derive's shape vars, the more specific winning as the vehicles layer them. It is the
-// per-agent question the launch-wide DeliveredPackEnv and DeliveredShape cannot answer: a value
-// only another agent receives is not this agent's (the region pre-flight asks it, OQ-BR6).
+// DeliveredTo answers what ONE agent's process receives under name, non-empty: the winner of
+// its own composition (EnvFor, envcompose.go), so every reader of it ranks the sources as every
+// vehicle delivers them — its shape vars over the env_sources it receives (the shared ones, its
+// own provider's claimed ones and its grant's) over the pack env fold it receives, an
+// env_sources null removing the fold's value and a shape tombstone everything below it. It is
+// the per-agent question the launch-wide DeliveredPackEnv cannot answer: a value only another
+// agent receives is not this agent's (the region pre-flight asks it, OQ-BR6).
 func (s *CredentialScope) DeliveredTo(agent, name string) (string, bool) {
 	if s == nil {
 		return "", false
 	}
-	value := ""
-	if v, ok := s.EnvSourcesFor(agent).Get(name); ok {
-		value, _ = v.(string)
-	}
-	if v, ok := s.sharedPackEnv[name]; ok && value == "" {
-		value = v
-	}
-	if d := s.agents[agent]; d != nil {
-		if v, ok := d.PackEnv[name]; ok && v != "" {
-			value = v
-		}
-		for _, v := range d.Shape {
-			if v.Key == name && !v.Unset && v.Value != "" {
-				value = v.Value
-			}
-		}
-	}
-	return value, value != ""
+	return s.EnvFor(agent).Value(name)
 }
 
 // Relays reports whether agent's env derive composed value into the agent's own environment

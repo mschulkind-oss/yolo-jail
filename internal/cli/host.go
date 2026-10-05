@@ -1163,9 +1163,10 @@ func yoloManagedDirs() []string {
 type hostComposition struct {
 	// agent is the CLI name the profile table is keyed by (the target's basename).
 	agent string
-	// vars is the composition proper, in application order: the pack env fold (per pack,
-	// static then that pack's profile-gated entries), env_sources, the provider's env
-	// shape, the three wire tables (wireTables), and the removals last.
+	// vars is the composition proper, one var per name: the one ordered composition
+	// (packload's envcompose.go — the pack env fold, then env_sources and its removals, then the
+	// provider's env shape, each winning over the ones before it), then the three wire tables
+	// (wireTables).
 	vars []agentenv.Var
 	// packs and providers are the selected pack set and the composed provider table the
 	// vars were composed from.
@@ -1607,6 +1608,15 @@ func (c *hostComposition) processHolds() (inherited, composed func(string) bool)
 // one the named command can run on (runsOn, ES-D10), so the line never names a launch that
 // refuses.
 //
+// AN AGENT HOLDING AN ACTIVE SET keeps it (docs/design/active-provider-sets.md AP-D19): when
+// its pack declares provider_sets and this launch selected a profile, the remedy ADDS the first
+// candidate profile whose widened set composes (widenedSet, runsOnSet) — `yolo host -p
+// pi=zai,openrouter,cerebras -- pi`, the pair form, which replaces pi's set whole for the launch
+// (AP-D4) — rather than naming a -p that would replace the set and hand the agent its other
+// entries' keys no more. Only when no widened set composes (a regional platform named twice,
+// AP-D12; a carried entry after the first, AP-D18; an entry the agent cannot speak) does it fall
+// through to the switch, which says it replaces the set.
+//
 // ON A RUN GIVEN --with-credentials the remedy is the grant widened instead (grantRemedy,
 // ES-D23). The run already chose the grant, and a named -p would replace the typed one and drop
 // it.
@@ -1639,11 +1649,23 @@ func (c *hostComposition) credentialRemedy(claimants []string) string {
 		}
 		// Asked of the profile the line tells the user to declare, resolved as that
 		// declaration would resolve: to the provider alone.
-		runs := c.runsOn(example, &packload.ResolvedProfile{Provider: example})
+		declared := &packload.ResolvedProfile{Provider: example}
+		action := ""
+		if widened := c.widenedSet(example); widened != nil && c.runsOnSet(widened, declared) {
+			action = c.addAction(example, widened, claimant)
+		} else {
+			action = c.remedyAction(example, c.runsOn(example, declared), claimant)
+		}
 		return fmt.Sprintf("No declared profile selects %s: declare one under `profiles` in %s "+
 			"(for example `%q: {\"provider\": %q}`), then %s",
-			strings.Join(claimants, " or "), paths.UserConfigPath(), example, example,
-			c.remedyAction(example, runs, claimant))
+			strings.Join(claimants, " or "), paths.UserConfigPath(), example, example, action)
+	}
+	// The set kept, the claiming profile added (AP-D19), whenever a widened set composes.
+	for _, name := range candidates {
+		if widened := c.widenedSet(name); widened != nil && c.runsOnSet(widened, nil) {
+			action := c.addAction(name, widened, claimant)
+			return strings.ToUpper(action[:1]) + action[1:]
+		}
 	}
 	profile, runs := candidates[0], false
 	for _, name := range candidates {
@@ -1734,6 +1756,64 @@ func (c *hostComposition) runsOn(profile string, extra *packload.ResolvedProfile
 	return err == nil
 }
 
+// widenedSet is this launch's active set with profile appended, the primary still first: what the
+// additive remedy names (AP-D19). nil when the launch selected no profile for its agent, or the
+// agent's pack does not declare provider_sets, so its one profile can only be switched.
+func (c *hostComposition) widenedSet(profile string) []string {
+	if c.profile == "" || !packload.HoldsProviderSets(c.packs, c.agent) {
+		return nil
+	}
+	set := slices.Clone(c.set)
+	if len(set) == 0 {
+		set = []string{c.profile}
+	}
+	return append(set, profile)
+}
+
+// runsOnSet is runsOn for a whole active set: whether `yolo host -p <agent>=<set> -- <this
+// command>` would compose rather than refuse, asked the way that launch asks — the set's own
+// rules first (packload.ProfileSetProblems: AP-D3, AP-D9, AP-D12), then the credential gate over
+// this launch's inputs with the set selected, whose AgentEnv asks the protocol gate of every
+// entry. extra, when set, is resolved as the set's last entry first: the declaration the line
+// tells the user to write.
+func (c *hostComposition) runsOnSet(set []string, extra *packload.ResolvedProfile) bool {
+	in := c.scopeInput
+	in.Profiles = map[string]string{c.agent: set[0]}
+	in.Sets = map[string][]string{c.agent: set}
+	if extra != nil {
+		resolved := make(map[string]packload.ResolvedProfile, len(in.Resolved)+1)
+		for k, v := range in.Resolved {
+			resolved[k] = v
+		}
+		resolved[set[len(set)-1]] = *extra
+		in.Resolved = resolved
+	}
+	if problems := packload.ProfileSetProblems(c.packs, c.providers, in.Sets, in.Resolved); len(problems) > 0 {
+		return false
+	}
+	_, err := packload.ScopeCredentials(in)
+	return err == nil
+}
+
+// addAction is the additive remedy's clause, starting "to …" (AP-D19): the launch that adds
+// profile to the agent's active set, spelled as the pair `-p <agent>=<set>` so it replaces the
+// set whole for the launch (AP-D4) and keeps what the set already delivers. At `yolo host env`,
+// which launches nothing, it follows the shell's grant spelling, as remedyAction's does.
+func (c *hostComposition) addAction(profile string, set []string, claimant string) string {
+	cmd := c.command
+	if cmd == "" {
+		cmd = c.agent
+	}
+	cmd = shquote.Quote(cmd)
+	launch := fmt.Sprintf("to add the %s profile to %s's active set for one launch, keeping %s: "+
+		"`yolo host -p %s -- %s`", profile, cmd, strings.Join(set[:len(set)-1], ", "),
+		shquote.Quote(c.agent+"="+strings.Join(set, ",")), cmd)
+	if c.command == "" {
+		return c.shellGrantAction(claimant) + "; " + launch
+	}
+	return launch
+}
+
 // remedyAction is an AGENT's remedy instruction for one profile, as a clause starting "to …";
 // runs is runsOn's answer for it, and claimant the provider the grant spelling names.
 //
@@ -1752,7 +1832,12 @@ func (c *hostComposition) remedyAction(profile string, runs bool, claimant strin
 	}
 	cmd = shquote.Quote(cmd)
 	replacing := ""
-	if c.profile != "" {
+	switch {
+	case len(c.set) > 1:
+		// A switch on an agent holding a set replaces every entry, which the line must say: the
+		// additive remedy (addAction) is the one named whenever a widened set composes.
+		replacing = fmt.Sprintf(", replacing its active set (%s)", strings.Join(c.set, ", "))
+	case c.profile != "":
 		replacing = fmt.Sprintf(", replacing its %s profile", c.profile)
 	}
 	shell := c.shellGrantAction(claimant)
@@ -1902,14 +1987,18 @@ func composeHostEnv(bin, profile string, warn func(string)) ([]string, string, e
 // each step is there for a reason the previous one cannot cover:
 //
 //  1. os.Environ() — the user's own shell, which the agent should otherwise inherit whole.
-//  2. env_sources — the SECRET channel. This is the step that gives "env_sources
-//     hydrates your credentials" something to hydrate INTO on a host.
-//  3. the resolved profile's vars — the profile-gated env entries its pack declares,
-//     plus the provider environment the agent pack's derive composes (packload.AgentEnv,
-//     the same runner the jail's podman argv is built from), then YOLO_PROVIDERS,
-//     YOLO_PROFILES and YOLO_USE_PROFILES as this launch composed them (FT-D2).
-//  4. removals — a null in env_sources, i.e. `unset AWS_PROFILE`. Last, so a removal
-//     beats an assignment from any earlier step.
+//  2. the pack env fold — each selected pack's `kind: "env"`, the gated entries its own
+//     selection satisfies after each pack's static ones.
+//  3. env_sources — the SECRET channel, the step that gives "env_sources hydrates your
+//     credentials" something to hydrate INTO on a host — and its removals, a null in
+//     env_sources (`unset AWS_PROFILE`), which take out the shell's value and the fold's.
+//  4. the provider environment the agent pack's derive composes (packload.AgentEnv, the same
+//     runner the jail's channel is built from), which beats the three above, then
+//     YOLO_PROVIDERS, YOLO_PROFILES and YOLO_USE_PROFILES as this launch composed them (FT-D2).
+//
+// Steps 2 to 4 are the one ordered composition every vehicle serializes (packload's
+// envcompose.go), one winner per name; whether a value the shell already holds should beat it
+// is OQ-NC13 (hostHonorsIncomingValue).
 func composeHostLaunch(bin, profile string, grant *hostGrantRequest, warn func(string)) *hostComposition {
 	return composeHostLaunchWith(bin, profile, grant, warn, hostServicesRefuse)
 }
@@ -1932,20 +2021,21 @@ func composeHostLaunchWith(bin, profile string, grant *hostGrantRequest, warn fu
 // vars-only projection `yolo host env` reads, so the observe verb and the exec half
 // cannot disagree about what a launch would carry.
 //
-// The sources are docs/reference/host-agent-environment.md §5.4's, in order:
+// The sources are docs/reference/host-agent-environment.md §5.4's, composed by the one
+// ordered composition every vehicle serializes (packload's envcompose.go), lowest first:
 //
 //  1. the pack env fold, per pack — each pack's static `kind: "env"` contributions, then
 //     the ones the same pack gated on the launch's active profile, so a gated entry wins
 //     over its own pack's static (OQ-8). packload.EnvVarsFor's sequence, the same one the
-//     jail's env block reduces, so a cross-pack key has one winner;
+//     jail's channel reduces, so a cross-pack key has one winner;
 //  2. env_sources — the SECRET channel, and the step that gives "env_sources hydrates
-//     your credentials" something to hydrate INTO on a host;
+//     your credentials" something to hydrate INTO on a host — and its removals, which take
+//     out the fold's value and one inherited from the invoking shell;
 //  3. the resolved profile's provider vars — the env derive of the agent's own pack, run
-//     by packload.AgentEnv, the same runner the jail's podman argv is built from, then the
-//     three wire tables the launch composed for this agent (FT-D2), under a jail's names.
+//     by packload.AgentEnv, the same runner the jail's channel is built from, which beats
+//     both above, a tombstone included; then the three wire tables the launch composed for
+//     this agent (FT-D2), under a jail's names.
 //
-// Removals come last so an `unset` beats an assignment from any earlier source, including
-// one inherited from the invoking shell.
 // The config it reads is USER SCOPE ONLY (config.UserScopeConfig) — never the merged
 // config. This process runs on the host, outside every sandbox, and a workspace
 // yolo-jail.jsonc is agent-editable; composing a host process's environment from it would
@@ -2205,9 +2295,10 @@ func composeHostVarsWith(cfg *jsonx.OrderedMap, workspace, agent, command, profi
 	// through the filesystem, the exact boundary the user-scope-only cfg closes;
 	// hostScopedEnvSources is the backstop.
 	scoped := hostScopedEnvSources(cfg, warn)
-	// ONE pass for (2) and (4): the assignments and the removals are the same ordered
-	// walk, and asking for them separately would read every dotenv file twice and warn
-	// twice — noise a missing host-only file used to produce on every `yolo host env`.
+	// ONE pass for the assignments and the removals: they are the same ordered walk, and asking
+	// for them separately would read every dotenv file twice and warn twice — noise a missing
+	// host-only file used to produce on every `yolo host env`. Both reach the gate, whose
+	// composition ranks the removals with env_sources (envcompose.go).
 	userEnv, removals := config.ResolveEnvSourcesFull(workspace, scoped, warn)
 	// What this launch consulted for credentials, recorded as it is consulted: the
 	// env_sources entries that survived the scope filter, plus the shell this process
@@ -2277,8 +2368,11 @@ func composeHostVarsWith(cfg *jsonx.OrderedMap, workspace, agent, command, profi
 		Sets:       setTable,
 		Resolved:   resolvedProfiles,
 		EnvSources: userEnv,
-		Fallback:   os.LookupEnv,
-		Grants:     grants,
+		// The env_sources nulls, which the composition ranks with env_sources: each removes the
+		// shell's value and the fold's, never a shape var.
+		EnvSourceRemovals: removals,
+		Fallback:          os.LookupEnv,
+		Grants:            grants,
 		// What composedHostProviders left out, and the unselected shipped packs' adaptations
 		// of the same kind, so a pairing only one of them would resolve refuses once, naming
 		// why (ES-D18, ES-D19). It never refuses as a pairing nothing declares an adapter for,
@@ -2296,7 +2390,8 @@ func composeHostVarsWith(cfg *jsonx.OrderedMap, workspace, agent, command, profi
 		// anyway, so the refusal and the disclosure are one at every notch. The invoking shell is
 		// Inherited here, since the exec'd agent receives it: a region or profile exported there
 		// counts, as it does for the agent — except a name an env_sources null removes, which
-		// (4) below takes out of the exec'd environment, so the agent never sees it.
+		// the composition takes out of the exec'd environment, so the agent never sees the
+		// shell's value.
 		RegionFiles: &packload.RegionFileSource{Getenv: os.Getenv, Inherited: inheritedExcept(removals),
 			Setting: packload.LoopholeSettingIn(cfg)},
 	}
@@ -2357,68 +2452,33 @@ func composeHostVarsWith(cfg *jsonx.OrderedMap, workspace, agent, command, profi
 	}
 	c.scope = scope
 	c.served = hostServed
-	delivery := scope.Agent(agent)
 
-	// (1) the pack env fold, PER PACK — each pack's static `kind: "env"` keys, then the
-	// keys of its `profile`-gated env contributions whose gate fires for THIS agent
-	// (providers.md#pv-oq-8). The sequence is packload.EnvFold's, the ONE fold the jail
-	// notch reduces through packload.EnvVarsFor: folding it here as
-	// all-static-then-all-gated instead gave a key that pack A's gated env and pack B's
-	// static both write two answers (the jail said the later pack's static wins, the host
-	// the earlier pack's gated value). hostFoldParity_test.go pins the two notches to the
-	// same winner.
+	// THE ONE ORDERED COMPOSITION (packload's envcompose.go; notch-convergence item 16, OQ-NC12
+	// decided on its leaning A), which the jail's shared file, its per-agent files and the
+	// macos-user session env serialize too, so a name has one winner at every vehicle: the pack
+	// env fold (EnvFold's per-pack order, as this notch serves it: a pointer at a daemon not
+	// served here is withheld), then the env_sources this agent receives (the unclaimed ones, its
+	// own provider's claimed ones and its grant's) and the removals (an env_sources null), then
+	// the env derive's shape vars, a tombstone included. One entry per name, so the vars below
+	// never hand agentenv.Apply two assignments to order. hostfoldparity_test.go and
+	// envwinnerparity_test.go pin the notches to the same winner.
 	//
-	// Keys are sorted within each pack, because a map has no order and an `export` script
-	// that reshuffles between runs is a diff nobody can read.
-	//
-	// Assignments only, and that is the OQ-PT8 shrink rather than a shortcut: the only
-	// env map here that could spell a removal was the profile body's, whose
-	// null-means-unset decoder died with the body. What a removal still has is (2)'s
-	// env_sources nulls, held for (4) below.
-	//
-	// The gate's fold (FoldFor), for an agent with or without a delivery: it withholds what
-	// this notch does not serve, which a fold of our own would not.
-	for _, e := range scope.FoldFor(agent) {
-		vars = append(vars, agentenv.Var{Key: e.Key, Value: e.Value})
-		c.origins = append(c.origins, packload.FromPackEnv)
-		c.originPacks = append(c.originPacks, e.Pack)
-	}
+	// A removal ranks with env_sources: it beats the shell's value and the fold's, and never a
+	// shape var, so a null of ANTHROPIC_BASE_URL no longer leaves claude zai's token with no zai
+	// address.
+	vars, c.origins, c.originPacks = hostComposedVars(scope.EnvFor(agent), hostHonorsIncomingValue, os.LookupEnv)
 
-	// (2) the secret channel, as the gate delivers it to this agent: every unclaimed entry
-	// and its own provider's claimed ones, in hydration order.
-	sources := scope.EnvSourcesFor(agent)
-	for _, k := range sources.Keys() {
-		v, _ := sources.Get(k)
-		if s, ok := v.(string); ok {
-			vars = append(vars, agentenv.Var{Key: k, Value: s})
-			c.origins = append(c.origins, packload.FromEnvSources)
-			c.originPacks = append(c.originPacks, "")
-		}
-	}
-
-	// (3) the profile's provider vars, the env derive's output the gate composed. Each is its
-	// agent's own pack's, the pack whose derive produced it, which is what a reader keyed on the
-	// declaring pack needs: pi's OpenAI prelaunch comes from its derive since OQ-BR8, and the
-	// prelaunch keys its managed home on the pack that declared it (prelaunch).
-	if delivery != nil {
-		vars = append(vars, delivery.Shape...)
-		owner := installingPack(packs, agent)
-		for range delivery.Shape {
-			c.origins = append(c.origins, packload.FromProfileEnv)
-			c.originPacks = append(c.originPacks, owner)
-		}
-	}
-
-	// (3b) THE WIRE TABLES the launch composed for this agent (docs/design/agent-footer.md
-	// FT-D2, OQ-FT15), under the names a jail's channel uses: YOLO_PROVIDERS, YOLO_PROFILES and a
+	// THE WIRE TABLES the launch composed for this agent (docs/design/agent-footer.md FT-D2,
+	// OQ-FT15), under the names a jail's channel uses: YOLO_PROVIDERS, YOLO_PROFILES and a
 	// YOLO_USE_PROFILES holding this agent's entry alone. The footer renderer reads its own env
 	// first (OQ-FT6), so a one-launch `yolo host -p zai -- claude` names zai rather than the
 	// config's selection. ALL THREE ON EVERY LAUNCH, empty tables included, so a launch started
 	// inside another agent's launch replaces what it inherited instead of keeping that launch's
-	// selection. After the pack fold, env_sources and the shape, so none of those can write a
-	// table this launch did not compose (FT-D3); before the removals, whose "an unset beats every
-	// assignment" holds for these too. Ranged over entrypoint.WireTables, as every jail writer
-	// ranges (NC-D22), and attributed to the launch's own composition, since no pack declares them.
+	// selection. After the composition, so nothing in it — the pack fold, env_sources, a shape
+	// var or an env_sources null — can write or remove a table this launch did not compose
+	// (FT-D3), as the macos-user session env layers them last too. Ranged over
+	// entrypoint.WireTables, as every jail writer ranges (NC-D22), and attributed to the launch's
+	// own composition, since no pack declares them.
 	wire := c.wireTables()
 	for _, k := range entrypoint.WireTables() {
 		vars = append(vars, agentenv.Var{Key: k, Value: wire[k]})
@@ -2426,24 +2486,48 @@ func composeHostVarsWith(cfg *jsonx.OrderedMap, workspace, agent, command, profi
 		c.originPacks = append(c.originPacks, "")
 	}
 
-	// (4) removals last, so an unset beats every assignment above no matter which source
-	// made it — the env_sources nulls from the same pass as (2) (the same scoped config,
-	// so an inline null's cancellation by a later dotenv cannot disagree with the
-	// assignments). The pack fold no longer contributes any: its only removal spelling
-	// died with the profile body. Sorted, because a set of removals has no order to
-	// preserve and the `export` script must not reshuffle between runs.
-	for _, k := range removals {
-		vars = append(vars, agentenv.Var{Key: k, Unset: true})
-		c.origins = append(c.origins, fromRemoval)
-		c.originPacks = append(c.originPacks, "")
-	}
 	c.vars = vars
 	return c
 }
 
+// hostHonorsIncomingValue is the host notch's answer to OQ-NC13
+// (docs/plans/notch-convergence.md): whether a value the invoking shell already holds beats the
+// one yolo composed for the same name, as a jail's per-agent file lets the user's value win
+// (OQ-CN8). false, pending that ruling: the composition is applied over the shell, so yolo's
+// value replaces one the shell exports, which TestComposeHostEnvOrdering pins. The one input the
+// ruling flips; hostComposedVars reads nothing else to decide it.
+const hostHonorsIncomingValue = false
+
+// hostComposedVars serializes one composition (packload's envcompose.go) for the host exec: one
+// var per name in the composition's order, a removal as an unset, with the channel each came from
+// (the packload.From* phrases, fromRemoval for an unset) and the pack it is attributed to, index
+// for index. When honorIncoming is set, an assignment whose name the invoking shell (incoming)
+// already holds non-empty is left out, so the shell's value passes through; a removal is the
+// user's own and is kept either way.
+func hostComposedVars(comp packload.EnvComposition, honorIncoming bool,
+	incoming func(string) (string, bool)) (vars []agentenv.Var, origins, originPacks []string) {
+	for _, e := range comp.Entries() {
+		if e.Unset {
+			vars = append(vars, agentenv.Var{Key: e.Key, Unset: true})
+			origins = append(origins, fromRemoval)
+			originPacks = append(originPacks, "")
+			continue
+		}
+		if honorIncoming {
+			if v, ok := incoming(e.Key); ok && v != "" {
+				continue
+			}
+		}
+		vars = append(vars, agentenv.Var{Key: e.Key, Value: e.Value})
+		origins = append(origins, e.Origin)
+		originPacks = append(originPacks, e.Pack)
+	}
+	return vars, origins, originPacks
+}
+
 // inheritedExcept is the invoking shell as the exec'd agent inherits it: os.LookupEnv, with every
 // name in removed answering nothing, because the composition's removals (an env_sources null)
-// are applied last and take that name out of the environment the agent receives.
+// take the shell's value of that name out of the environment the agent receives.
 func inheritedExcept(removed []string) func(string) (string, bool) {
 	return func(name string) (string, bool) {
 		if slices.Contains(removed, name) {
