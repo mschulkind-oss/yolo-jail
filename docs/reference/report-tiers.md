@@ -320,7 +320,7 @@ instead of re-reading a paragraph per contribution.
 | **would change** / **changed** | the destination's content differs from what a render produces; an `--assert` writes it | a destination nothing compared |
 | **unchanged** | compared, and equal | a destination that was skipped or refused |
 | **skipped** | yolo did not touch it, and it stays the user's | something yolo declined for its own reasons |
-| **at launch only** *(coined here)* | at the host notch, `yolo host -- <program>` delivers this declaration to the program it starts, and `yolo host apply` writes no file for it: an env var, a blocker, an adapter's address, a service's host half, a credential loophole's doorway. Decided per contribution with the launch's own admission and doorway checks, read as if every selected loophole were switched on, so it states what an enabled declaration gets at `yolo host --`. A launch can still hold back one the user switched off, or one its agent's selection does not ask for | a declaration no host verb delivers, which is *does not apply* |
+| **at launch only** *(coined here)* | at the host notch, `yolo host -- <program>` delivers this declaration to the program it starts, and `yolo host apply` writes no file for it: an env var, a blocker, an adapter's address, a service's host half, a credential loophole's doorway. Decided per contribution with the launch's own admission and doorway checks (an adapter's by the service that answers its address, when its pack declares one), read as if every selected loophole were switched on, so it states what an enabled declaration gets at `yolo host --`. A launch can still hold back one the user switched off, or one its agent's selection does not ask for | a declaration no host verb delivers, which is *does not apply* |
 | **does not apply** | this declaration has no meaning at this notch: no verb there, `yolo host apply` or `yolo host --`, does anything with it | anything that stops the apply, and anything `yolo host --` delivers |
 | **refused** | the apply stopped; nothing was rendered | a notch fact |
 | **replaces** | a value of the user's is overwritten by a managed key or a pack's `config-overlay`, measured against the file the write produces | a key yolo already owned, or one the write leaves as the file has it |
@@ -338,8 +338,10 @@ Three rows resolve collisions and are worth stating outright:
   apply.
 - **A kind can be *at launch only* and *does not apply* in one run.** The unit is the
   contribution, not the kind: aws-auth's loophole opens a doorway at `yolo host --` while
-  host-processes' has no client off-container, and a plain pack env var is
-  delivered while audio's pointer at a socket only a jail binds is withheld. Until 2026-10-04 the
+  host-processes' has no client off-container, a plain pack env var is
+  delivered while audio's pointer at a socket only a jail binds is withheld, and an adapter is
+  delivered unless its address is answered by its own pack's service and that service has no host
+  half the launch admits. Until 2026-10-04 the
   report named env, adapter, blocked-tool, service and loophole as not applying at the host
   while `yolo host -- env` printed the pack env.
 - **The user-facing word for the observing posture is *dry run*.** `observe` stays the posture's

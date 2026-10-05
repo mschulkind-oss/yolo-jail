@@ -22,6 +22,7 @@ import (
 
 	"github.com/mschulkind-oss/yolo-jail/internal/cli/run"
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
+	"github.com/mschulkind-oss/yolo-jail/internal/launchservice"
 	"github.com/mschulkind-oss/yolo-jail/internal/packdecl"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/render"
@@ -233,6 +234,78 @@ func TestHostApplyDecidesAServiceAndItsPointerByTheHostHalf(t *testing.T) {
 	}
 }
 
+// AN ADAPTER IS DECIDED BY THE SERVICE THAT ANSWERS ITS ADDRESS, as a service and an env pointer
+// are by the host half they name. An adapter's address is served by its own pack's service when
+// the pack declares one (packload.Adaptation.Service), and `yolo host --` refuses a pairing through
+// it when the launch's gate admits no host half for that service (planHostService turns
+// launchservice.Admit's refusal into unservedAdapterRefusal). Three packs: wire-bridge (an admitted
+// host half), jailonly (an adapter beside a service with only a `jail_daemon`), and gateway (an
+// adapter and no service, the remote-gateway shape, whose address yolo runs nothing for). So
+// `adapter` is named once in both clauses, and --verbose puts jailonly's under "does not apply".
+// No shipped pack reaches the jail-only half: every shipped service has an admitted host half.
+// Treating every adapter as delivered, or every adapter of a pack with a service as withheld,
+// fails here.
+func TestHostApplyDecidesAnAdapterByTheServiceThatAnswersIt(t *testing.T) {
+	home := t.TempDir()
+	jailOnly := filepath.Join(t.TempDir(), "jailonly")
+	writeFile(t, filepath.Join(jailOnly, "pack.json"), `{"name":"jailonly","contributes":[`+
+		`{"kind":"service","name":"localsvc","jail_daemon":{"cmd":["yolo-jaild","localsvc"]},`+
+		`"endpoint":"localsvc.endpoint"},`+
+		`{"kind":"adapter","adapts":{"from":"gemini","to":"anthropic"},"address":"http://127.0.0.1:19997"}]}`)
+	gateway := filepath.Join(t.TempDir(), "gateway")
+	writeFile(t, filepath.Join(gateway, "pack.json"), `{"name":"gateway","contributes":[`+
+		`{"kind":"adapter","adapts":{"from":"mistral","to":"anthropic"},"address":"https://gateway.example"}]}`)
+	selectPacks(t, home, `"wire-bridge",`+
+		`{"source":"file://`+jailOnly+`","name":"jailonly"},`+
+		`{"source":"file://`+gateway+`","name":"gateway"}`)
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
+	if _, err := launchservice.Admit(selectedPacksForTest(t), "localsvc"); err == nil {
+		t.Fatal("fixture bug: the launch's gate admits localsvc's host half, so jailonly's " +
+			"adapter is delivered and nothing below can fail")
+	}
+	defaultReport(t)
+	_, report := surveyApply(t)
+
+	lines := notchKindLines(report)
+	if len(lines) != 1 {
+		t.Fatalf("want one notch line, got %d:\n%s", len(lines), report)
+	}
+	clauses := notchClauses(lines[0])
+	for _, clause := range []string{atLaunchClause, doesNotApplyClause} {
+		if n := countWord(clauses[clause], string(packdecl.KindAdapter)); n != 1 {
+			t.Errorf("adapter is named %d times in the %q clause, want 1 (wire-bridge's and "+
+				"gateway's are delivered at launch, jailonly's service has no host half): %q",
+				n, clause, lines[0])
+		}
+	}
+
+	verboseReport(t)
+	_, verbose := surveyApply(t)
+	var launchLine, notApplyLine string
+	for _, l := range strings.Split(verbose, "\n") {
+		switch {
+		case strings.Contains(l, "at launch only —"):
+			launchLine = l
+		case strings.Contains(l, "at the host notch:"):
+			notApplyLine = l
+		}
+	}
+	if want := "adapter (gateway, wire-bridge)"; !strings.Contains(launchLine, want) {
+		t.Errorf("--verbose's at-launch line does not say %q: %q\n%s", want, launchLine, verbose)
+	}
+	if want := "adapter (jailonly)"; !strings.Contains(notApplyLine, want) {
+		t.Errorf("--verbose's does-not-apply line does not say %q: %q\n%s", want, notApplyLine, verbose)
+	}
+	// The line points at `yolo config-ref` for the reason, and the manual's DO NOT APPLY list
+	// covers exactly the kinds notchMayNotApply names (packkinddocs_test.go's gates).
+	if !notchMayNotApply(render.HostFields(), packdecl.KindAdapter) {
+		t.Error("the line names adapter as not applying at the host, and notchMayNotApply does " +
+			"not, so the manual's DO NOT APPLY list need not carry the row it points at " +
+			"(render.HostWithheldAtLaunch)")
+	}
+}
+
 // atLaunchClause and doesNotApplyClause open the default notch line's two kind clauses.
 const (
 	atLaunchClause     = "at launch only (`yolo host --`): "
@@ -341,7 +414,7 @@ func notchGroupsInConfig(t *testing.T) (map[hostNotchOutcome][]packdecl.Kind, in
 	contributions := 0
 	for _, p := range loaded {
 		for _, c := range p.Decl.Contributions() {
-			outcome := hostNotchOutcomeOf(loaded, fields, c, doorways)
+			outcome := hostNotchOutcomeOf(loaded, fields, p, c, doorways)
 			if outcome == notchApplies {
 				continue
 			}

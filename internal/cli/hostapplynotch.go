@@ -44,9 +44,10 @@ package cli
 // `yolo host -- <program>` starts, and this command writes no file for any of them: the report
 // vocabulary's AT LAUNCH ONLY (render.HostAtLaunch), a clause of its own on the same line. Until
 // 2026-10-04 they were named as not applying at the host while `yolo host -- env` printed the
-// pack env. Three of those kinds also have a shape the host delivers nowhere (a pointer at a socket
-// only a jail binds, a jail-only service, a loophole whose only client is a container), so the
-// outcome is decided PER CONTRIBUTION (hostNotchOutcomeOf) and a kind can land in both clauses.
+// pack env. Four of those kinds also have a shape the host delivers nowhere (a pointer at a socket
+// only a jail binds, a jail-only service and an adapter whose address only that service answers,
+// a loophole whose only client is a container), so the outcome is decided PER CONTRIBUTION
+// (hostNotchOutcomeOf) and a kind can land in both clauses.
 //
 // THE LINE STATES WHAT AN ENABLED DECLARATION GETS AT `yolo host --`, NOT WHAT ONE LAUNCH DOES. It
 // asks the launch's own admission check (launchservice.Admit) and doorway composition
@@ -254,7 +255,7 @@ func surveyNotchFacts(loaded []*packload.Pack, fields render.FieldSet,
 			if c.Kind == packdecl.KindAutonomy {
 				f.Autonomy = true
 			}
-			outcome := hostNotchOutcomeOf(loaded, fields, c, doorways)
+			outcome := hostNotchOutcomeOf(loaded, fields, p, c, doorways)
 			byKind, ok := from[outcome]
 			if !ok {
 				continue
@@ -307,13 +308,14 @@ const (
 	notchDoesNotApply
 )
 
-// hostNotchOutcomeOf decides one contribution's outcome at the host notch. A kind render names
-// as delivered at launch is delivered when deliveredByHostLaunch says this contribution's shape
-// is, and does not apply otherwise; any other kind does not apply when notchInapplicable says so.
-func hostNotchOutcomeOf(loaded []*packload.Pack, fields render.FieldSet, c packdecl.Contribution,
-	doorways map[string]bool) hostNotchOutcome {
+// hostNotchOutcomeOf decides the outcome at the host notch of c, one contribution of pack p. A
+// kind render names as delivered at launch is delivered when deliveredByHostLaunch says this
+// contribution's shape is, and does not apply otherwise; any other kind does not apply when
+// notchInapplicable says so.
+func hostNotchOutcomeOf(loaded []*packload.Pack, fields render.FieldSet, p *packload.Pack,
+	c packdecl.Contribution, doorways map[string]bool) hostNotchOutcome {
 	if _, ok := render.HostAtLaunch(c.Kind); ok {
-		if deliveredByHostLaunch(loaded, c, doorways) {
+		if deliveredByHostLaunch(loaded, p, c, doorways) {
 			return notchAtLaunch
 		}
 		return notchDoesNotApply
@@ -335,8 +337,13 @@ func hostNotchOutcomeOf(loaded []*packload.Pack, fields render.FieldSet, c packd
 //   - an env contribution unless it is `served_by` a daemon the host serves neither as a doorway
 //     nor as a pack service (packload's served-at-this-notch rule, NC-D16): a pointer at anything
 //     else is withheld at `yolo host --` and named there, as audio's at a socket only a jail binds;
-//   - every adapter and blocked-tool contribution.
-func deliveredByHostLaunch(loaded []*packload.Pack, c packdecl.Contribution, doorways map[string]bool) bool {
+//   - an adapter of a pack that declares no service (a remote gateway, a proxy you run: yolo runs
+//     nothing for its address), or one whose pack's service launchservice.Admit admits. That
+//     service answers the adapter's address (packload.Adaptation.Service), and `yolo host --`
+//     refuses a pairing through it when the gate admits no host half (planHostService);
+//   - every blocked-tool contribution.
+func deliveredByHostLaunch(loaded []*packload.Pack, p *packload.Pack, c packdecl.Contribution,
+	doorways map[string]bool) bool {
 	switch c.Kind {
 	case packdecl.KindService:
 		return hostAdmitsService(loaded, c.Name)
@@ -347,8 +354,24 @@ func deliveredByHostLaunch(loaded []*packload.Pack, c packdecl.Contribution, doo
 			return true
 		}
 		return doorways[c.ServedBy] || hostAdmitsService(loaded, c.ServedBy)
+	case packdecl.KindAdapter:
+		if service := adapterServiceOf(p); service != "" {
+			return hostAdmitsService(loaded, service)
+		}
+		return true
 	}
 	return true
+}
+
+// adapterServiceOf is the service that answers pack p's adapter addresses, "" when p declares
+// none. It is read off packload.Adaptations rather than off p's manifest here, so the rule that
+// names it is the composition's own; over p alone, so an adapter whose pair a later pack holds is
+// still decided by the pack that declared it.
+func adapterServiceOf(p *packload.Pack) string {
+	if adaptations := packload.Adaptations([]*packload.Pack{p}); len(adaptations) > 0 {
+		return adaptations[0].Service
+	}
+	return ""
 }
 
 // hostAdmitsService reports whether the launch's gate admits service's host half.

@@ -232,7 +232,7 @@ const hostAtLaunchDocMarker = "AT LAUNCH ONLY (`yolo host -- <program>`)"
 // `service`/`blocked-tool` fell to the generic refusal with no entry in refusalReasons at all.
 // Since the at-launch outcome it also covers the undelivered shape of a kind `yolo host --`
 // delivers otherwise (render.HostWithheldAtLaunch: env's pointer at a daemon the host does not
-// serve). A reader meeting any of them gets the one-line report and then this list; a gate over
+// serve, and an adapter whose address only a service with no admitted host half answers). A reader meeting any of them gets the one-line report and then this list; a gate over
 // half the set would leave the other half undocumented and green.
 //
 // WHAT IT ASSERTS IS AN ENTRY, NOT THE TEXT. The strings stay in internal/render because they
@@ -292,8 +292,9 @@ func TestEveryHostAtLaunchKindHasItsRowDocumented(t *testing.T) {
 // DO NOT APPLY rows kept passing the gate above, which asks only that every kind that can land
 // there has a row. A row for a kind that cannot land there tells a reader its declarations do
 // nothing at the host while `yolo host --` delivers them. So: a DO NOT APPLY row only for a kind
-// notchMayNotApply names (env keeps one, for its pointer at a daemon the host does not serve),
-// and an AT LAUNCH ONLY row only for a kind render.HostAtLaunch names.
+// notchMayNotApply names (env keeps one, for its pointer at a daemon the host does not serve, and
+// adapter has one, for an address only a service with no admitted host half answers), and an AT
+// LAUNCH ONLY row only for a kind render.HostAtLaunch names.
 func TestNoHostNotchListCarriesARowItsKindCannotReach(t *testing.T) {
 	fields := render.HostFields()
 	doesNotApply := docSection(t, configRefContent, hostNotchDocMarker)
