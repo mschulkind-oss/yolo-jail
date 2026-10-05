@@ -329,15 +329,16 @@ const appleContainerDefaultMemoryDesc = "half of host RAM (min 4g)"
 // it would add a standing line to every existing briefing to report a constant. What the
 // line must never do is the opposite — claim a limit the backend never passed.
 func briefedResourceLimits(rt string, resCfg *jsonx.OrderedMap) map[string]any {
-	// NOTHING IS ENFORCED ON macos-user, so nothing is stated (DP-B6 / DP-L8). That
-	// backend passes no flag at all — there is no container to cap — and the launch
-	// already warns the HUMAN that `resources` is read and ignored. The agent was being
-	// told the same numbers were "kernel-enforced", and pointed at `yolo-cglimit`, which
-	// has no delegate to talk to here: the two audiences were given opposite answers in
-	// one launch. The argv-side appliedResourceLimits is deliberately left alone — it is
-	// never reached on this backend, and a briefing-only defect is fixed in the
-	// briefing's own projection.
-	if inStrSlice(paths.NativeRuntimes, rt) { // parity: Warned — macos-user enforces no limit at all, and the launch warns the human
+	// NO KERNEL CAP EXISTS ON macos-user, so this line states none (DP-B6 / DP-L8). That
+	// backend passes no limit flag — there is no container to cap — and this line calls its
+	// numbers "kernel-enforced" and points at `yolo-cglimit`, which has no delegate to talk
+	// to there: the agent was once told that while the launch told the HUMAN the opposite.
+	// What each key does on macos-user instead (`io` a disk policy, `memory` a sampled guard,
+	// `cpus` parallelism defaults, `pids_limit` nothing) the agent reads in the briefing's
+	// packages section and Disk I/O line, and the human in the launch's own lines. The
+	// argv-side appliedResourceLimits is deliberately left alone — it is never reached on
+	// this backend, and a briefing-only defect is fixed in the briefing's own projection.
+	if inStrSlice(paths.NativeRuntimes, rt) { // parity: Warned — macos-user caps nothing in the kernel; the briefing's packages section and the launch's lines say what each key does instead
 		return nil
 	}
 	out := map[string]any{}
