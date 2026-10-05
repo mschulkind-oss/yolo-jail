@@ -51,6 +51,11 @@ type packChannel struct {
 	// config key's or a -p's, config.ProfileFold.BareListNote): which agents take its first entry
 	// alone. "" when none did. The profile disclosure prints it (noteUseProfiles).
 	bareNote string
+	// workerNotes is the line, one per worker, for every macos-user PURE WORKER with no jail
+	// daemon that this launch does not start (planMacosUserWorkers; host-notch-services.md
+	// HS-D29), recorded when the composition planned the workers and printed where the arm opens
+	// its doorways (planMacosUserDoorways). nil on every other runtime.
+	workerNotes []string
 	// providers is the composed provider table (composedProviders): user `providers`
 	// entries over every selected pack's `kind: "provider"` service facts. Emitted as
 	// YOLO_PROVIDERS and read by the env derive below.
@@ -173,6 +178,20 @@ func (o *Options) composePackChannel(cfg *jsonx.OrderedMap, packs []*packload.Pa
 	// host half, and then composes again against it. Bounded by the services the packs declare.
 	for tries := 0; ; tries++ {
 		c, err := o.composePackChannelWith(cfg, packs, userEnv, profiles, userProfiles, specs)
+		// THE PURE WORKERS this macos-user launch starts outside the sandbox (planMacosUserWorkers,
+		// host-notch-services.md HS-D29), planned off the selection this composition resolved and
+		// composed in once more, so a pack env pointer at one is served and handed its caller
+		// token, as a container composes a pointer at the worker's jail daemon. A worker serves no
+		// adaptation, so the second composition resolves the same selection.
+		if err == nil && o.runtime == "macos-user" { // parity: HonoredBy — a container runs a worker's jail daemon in the jail; macos-user runs a host-only worker's host half (macosuserservices.go)
+			added, notes := o.planMacosUserWorkers(packs, c)
+			if added {
+				c, err = o.composePackChannelWith(cfg, packs, userEnv, profiles, userProfiles, specs)
+			}
+			if c != nil {
+				c.workerNotes = notes
+			}
+		}
 		if err == nil || o.runtime != "macos-user" || tries > len(packs) { // parity: HonoredBy — a container runs the service's jail daemon; macos-user its host half (macosuserservices.go)
 			if c != nil {
 				c.bareNote = fold.BareListNote(fold.BareFrom == profileFoldFromKey)

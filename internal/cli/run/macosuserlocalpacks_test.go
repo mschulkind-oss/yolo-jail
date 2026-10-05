@@ -310,7 +310,7 @@ func TestMacosUserStartsAHostOnlyWorkerOutsideTheSandbox(t *testing.T) {
 	if len(started) != 0 {
 		t.Errorf("a dry run started %d workers", len(started))
 	}
-	if want := `Would start the "acme-worker" service (pack "local") on [no address: a worker no agent is ` +
+	if want := `Would start the "acme-worker" service (pack "local") on [no address of the launch's: a worker no agent is ` +
 		`pointed at] for this launch`; !strings.Contains(dryErr.String(), want) {
 		t.Errorf("the dry run must say %q:\n%s", want, dryErr.String())
 	}
@@ -341,5 +341,77 @@ func TestMacosUserNamesAFetchedHostOnlyWorkerItDoesNotStart(t *testing.T) {
 		if !strings.Contains(got.out, want) {
 			t.Errorf("the launch must say %q:\n%s", want, got.out)
 		}
+	}
+}
+
+// recordWorkerStarts stubs the launch-owned service start for the test, recording each plan, and
+// counts the stops.
+func recordWorkerStarts(t *testing.T) (*[]*launchservice.Plan, *int) {
+	t.Helper()
+	var started []*launchservice.Plan
+	stopped := 0
+	orig := startMacosUserService
+	startMacosUserService = func(p *launchservice.Plan, _ map[string]string) (launchedService, string, error) {
+		started = append(started, p)
+		return fakeLaunched{&stopped}, "/log/launch-service-" + p.Service + ".log", nil
+	}
+	t.Cleanup(func() { startMacosUserService = orig })
+	return &started, &stopped
+}
+
+// A POINTER AT A HOST-ONLY WORKER THIS LAUNCH STARTS REACHES THE SANDBOXED COMMAND (HS-D29), as a
+// container composes one at the worker's jail daemon: the worker is planned off the channel's own
+// selection before the channel is final, so it is in the served set the pointer is composed
+// against, the command's environment carries ACME_WORKER_URL as the pack declares it, no line names
+// it withheld, and the start line names the pointer rather than calling the worker one no agent is
+// pointed at. Planning the workers after the channel composes fails this.
+func TestMacosUserPointsTheCommandAtAHostOnlyWorkerItStarts(t *testing.T) {
+	home := packHome(t)
+	ws := t.TempDir()
+	writeLocalPackJSON(t, home, `{"contributes": [{"kind": "service", "name": "acme-worker",
+		"host_daemon": {"cmd": ["yolo", "internal", "daemon", "acme-worker"]}},
+		{"kind": "env", "served_by": "acme-worker", "vars": {"ACME_WORKER_URL": "http://127.0.0.1:1/x"}}]}`)
+	writeUserConfigJSON(t, home, `{"packs": []}`)
+	started, _ := recordWorkerStarts(t)
+
+	got := macosUserLaunch(t, ws)
+	if got.rc != 0 || len(*started) != 1 || (*started)[0].Service != "acme-worker" {
+		t.Fatalf("Run() = %d, started %d: want the worker started\n%s", got.rc, len(*started), got.out)
+	}
+	if v, _ := got.env.Get("ACME_WORKER_URL"); v != "http://127.0.0.1:1/x" {
+		t.Errorf("the command's environment has ACME_WORKER_URL = %v, want the pointer at the worker\n%s", v, got.out)
+	}
+	if strings.Contains(got.out, "ACME_WORKER_URL —") {
+		t.Errorf("the launch named a pointer at the worker it starts as withheld:\n%s", got.out)
+	}
+	if want := `Started the "acme-worker" service (pack "local", pid 4242) for this launch, outside the ` +
+		`sandbox: a worker this launch points its agents at through ACME_WORKER_URL`; !strings.Contains(got.out, want) {
+		t.Errorf("the start line must say %q:\n%s", want, got.out)
+	}
+}
+
+// A HOST-ONLY WORKER EVERY POINTER AT WHICH IS GATED ON A PROFILE NO AGENT SELECTS IS NOT STARTED
+// (HS-D29; packload.UnselectedProfileServedDaemons, the jail payload's own filter), and the arm
+// says which selection starts it, as the host does (TestHostNamesAJailOnlyWorkerAndAnUngatedOne).
+// Deleting the gate from planMacosUserWorkers fails this.
+func TestMacosUserNamesAHostOnlyWorkerNoSelectionAsksFor(t *testing.T) {
+	home := packHome(t)
+	ws := t.TempDir()
+	writeLocalPackJSON(t, home, `{"contributes": [{"kind": "service", "name": "acme-gated",
+		"host_daemon": {"cmd": ["yolo", "internal", "daemon", "acme-gated"]}},
+		{"kind": "env", "profile": "gatedp", "served_by": "acme-gated", "vars": {"ACME_GATED": "1"}}]}`)
+	writeUserConfigJSON(t, home, `{"packs": []}`)
+	started, _ := recordWorkerStarts(t)
+
+	got := macosUserLaunch(t, ws)
+	if got.rc != 0 {
+		t.Fatalf("Run() = %d, want 0\n%s", got.rc, got.out)
+	}
+	if len(*started) != 0 {
+		t.Errorf("started %d services, want none: no agent selects the profile the worker serves\n%s", len(*started), got.out)
+	}
+	if want := `Not started: the "acme-gated" service's host half (pack "local"), because no agent's ` +
+		`selected profile is "gatedp", which it serves; select one to start it.`; !strings.Contains(got.out, want) {
+		t.Errorf("the launch must say %q:\n%s", want, got.out)
 	}
 }

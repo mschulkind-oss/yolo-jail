@@ -24,6 +24,7 @@ import (
 	"time"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/launchservice"
+	"github.com/mschulkind-oss/yolo-jail/internal/packdecl"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 )
 
@@ -63,10 +64,18 @@ type workerLaunch struct {
 
 func runWorkerLaunch(t *testing.T, dir, service, body string, signals chan os.Signal, args ...string) workerLaunch {
 	t.Helper()
+	return runWorkerLaunchAs(t, dir, service, "tool", body, signals, args...)
+}
+
+// runWorkerLaunchAs is runWorkerLaunch with the command named agent, for a launch whose selection
+// is that agent's: `yolo host <flags> -- <agent>`.
+func runWorkerLaunchAs(t *testing.T, dir, service, agent, body string, signals chan os.Signal,
+	args ...string) workerLaunch {
+	t.Helper()
 	bin := t.TempDir()
 	script := "#!/bin/sh\nkill -0 \"$(cat '" + dir + "/pid." + service + "' 2>/dev/null)\" 2>/dev/null && " +
 		"echo alive > '" + dir + "/agent'\n" + body + "\n"
-	if err := os.WriteFile(filepath.Join(bin, "tool"), []byte(script), 0o755); err != nil {
+	if err := os.WriteFile(filepath.Join(bin, agent), []byte(script), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
@@ -87,7 +96,7 @@ func runWorkerLaunch(t *testing.T, dir, service, body string, signals chan os.Si
 	hostServiceSignals = signals
 	t.Cleanup(func() { hostServiceSignals = origSignals })
 	var out, errw bytes.Buffer
-	got.rc = hostMain(append(append([]string{}, args...), "--", "tool"), &out, &errw, false, nil)
+	got.rc = hostMain(append(append([]string{}, args...), "--", agent), &out, &errw, false, nil)
 	got.errs = errw.String()
 	data, _ := os.ReadFile(filepath.Join(dir, "agent"))
 	got.alive = strings.TrimSpace(string(data)) == "alive"
@@ -290,5 +299,156 @@ func TestHostApplyNamesAPureWorkerItDoesNotStart(t *testing.T) {
 	}
 	if want := `the "acme-worker" service (pack "acme") is a worker no agent's route names`; !strings.Contains(out.String()+errw.String(), want) {
 		t.Errorf("the apply must say %q:\n%s%s", want, out.String(), errw.String())
+	}
+}
+
+// pointedWorkerPack is a local pack whose host-only worker acme-worker two pack env variables point
+// at: ACME_WORKER_URL, ungated, and ACME_WORKER_TOKEN, the worker's caller token, gated on the
+// pack's own profile `p`, since a `{caller_token}` pointer must be gated (OQ-CN7). claude is the
+// pack's program, so `-p p -- claude` is a selection the launch resolves.
+func pointedWorkerPack(t *testing.T) string {
+	t.Helper()
+	pack := filepath.Join(t.TempDir(), "acme")
+	writeFile(t, filepath.Join(pack, "pack.json"), `{"name": "acme", "contributes": [
+		{"kind": "program", "bin": "claude", "via": "npm", "package": "@acme/claude"},
+		{"kind": "provider", "name": "p"},
+		{"kind": "profile", "name": "p", "provider": "p"},
+		{"kind": "service", "name": "acme-worker", "host_daemon": {"cmd": ["yolo", "internal", "daemon", "acme-worker"]}},
+		{"kind": "env", "served_by": "acme-worker", "vars": {"ACME_WORKER_URL": "http://127.0.0.1:1/x"}},
+		{"kind": "env", "profile": "p", "served_by": "acme-worker", "vars": {"ACME_WORKER_TOKEN": "{caller_token}"}}]}`)
+	return pack
+}
+
+// A POINTER AT A WORKER THIS LAUNCH STARTS REACHES THE COMMAND (HS-D29), as a jail composes one at
+// the worker's jail daemon: the worker is served at this notch, so ACME_WORKER_URL is set as the
+// pack declares it and ACME_WORKER_TOKEN is the caller token the worker was handed, no line names
+// either as withheld, and the start line names the pointers rather than calling the worker one no
+// agent is pointed at. Planning the workers after the credential gate, or leaving them out of its
+// served set or its caller tokens, fails this. TestHostApplyCountsAPointerAtAWorkerAsDeliveredAtLaunch
+// is the apply's half: it reports the same pointer as delivered at launch.
+func TestHostPointsTheCommandAtAWorkerItStarts(t *testing.T) {
+	pack := pointedWorkerPack(t)
+	hostGateHome(t, `{"packs": [{"source": "file://`+pack+`", "name": "acme"}]}`, nil)
+	dir := workerStandIn(t)
+	l := runWorkerLaunchAs(t, dir, "acme-worker", "claude",
+		`printf '%s\n%s\n' "$ACME_WORKER_URL" "$ACME_WORKER_TOKEN" > '`+dir+`/pointers'`, nil, "-p", "p")
+	if l.rc != 0 || len(l.started) != 1 || l.started[0].Plan.Service != "acme-worker" {
+		t.Fatalf("rc = %d, started %d: want the worker started\n%s", l.rc, len(l.started), l.errs)
+	}
+	var in launchservice.Input
+	data, _ := os.ReadFile(filepath.Join(dir, "input.acme-worker"))
+	if err := json.Unmarshal(data, &in); err != nil {
+		t.Fatalf("the worker's input %q: %v", data, err)
+	}
+	token := in.Env[paths.ServiceCallerTokenEnv("acme-worker")]
+	got, _ := os.ReadFile(filepath.Join(dir, "pointers"))
+	if want := "http://127.0.0.1:1/x\n" + token + "\n"; token == "" || string(got) != want {
+		t.Errorf("the command was handed %q, want the pointer and the worker's caller token %q\n%s", got, want, l.errs)
+	}
+	for _, withheld := range []string{"ACME_WORKER_URL —", "ACME_WORKER_TOKEN —"} {
+		if strings.Contains(l.errs, withheld) {
+			t.Errorf("the launch named a pointer at the worker it starts as withheld (%q):\n%s", withheld, l.errs)
+		}
+	}
+	if want := `started the "acme-worker" service (pack "acme", pid ` + strconv.Itoa(l.started[0].PID()) +
+		`) for claude, a worker claude is pointed at through ACME_WORKER_TOKEN, ACME_WORKER_URL;`; !strings.Contains(l.errs, want) {
+		t.Errorf("the start line must say %q:\n%s", want, l.errs)
+	}
+	if strings.Contains(l.errs, "a worker no agent is pointed at") {
+		t.Errorf("the start line calls a worker claude is pointed at one no agent is pointed at:\n%s", l.errs)
+	}
+}
+
+// `yolo host env` STARTS NO WORKER, SO IT SETS NO POINTER AT ONE, and the line naming the pointers
+// says which launch starts the worker they point at (OQ-HS3), as a doorway's pointer is named, never
+// with the doorway clause that no selection opens it.
+func TestHostEnvSaysWhichLaunchStartsTheWorkerAPointerNames(t *testing.T) {
+	pack := pointedWorkerPack(t)
+	hostGateHome(t, `{"packs": [{"source": "file://`+pack+`", "name": "acme"}]}`, nil)
+	origStart := startLaunchService
+	startLaunchService = func(*launchservice.Plan, map[string]string) (*launchservice.Running, error) {
+		t.Fatal("yolo host env started a worker")
+		return nil, nil
+	}
+	t.Cleanup(func() { startLaunchService = origStart })
+	var out, errw bytes.Buffer
+	if rc := hostMain([]string{"env", "--agent", "claude", "-p", "p"}, &out, &errw, false, nil); rc != 0 {
+		t.Fatalf("yolo host env rc = %d\n%s", rc, errw.String())
+	}
+	if strings.Contains(out.String(), "ACME_WORKER") {
+		t.Errorf("yolo host env exported a pointer at a worker it does not start:\n%s", out.String())
+	}
+	if want := `ACME_WORKER_TOKEN, ACME_WORKER_URL — points at the "acme-worker" jail daemon, which only a ` +
+		"launch that runs a command starts, beside that command, and this command runs none: " +
+		"`yolo host -- <command>` starts it"; !strings.Contains(errw.String(), want) {
+		t.Errorf("yolo host env must say %q:\n%s", want, errw.String())
+	}
+	if strings.Contains(errw.String(), "opens for no selection") {
+		t.Errorf("a pointer at a worker was given the doorway clause:\n%s", errw.String())
+	}
+}
+
+// THE APPLY'S HALF OF TestHostPointsTheCommandAtAWorkerItStarts: `yolo host apply` reports the
+// worker and the pointer at it as delivered at launch (`yolo host --`) and as nothing that does not
+// apply at the host, which is what that launch now does with them.
+func TestHostApplyCountsAPointerAtAWorkerAsDeliveredAtLaunch(t *testing.T) {
+	pack := pointedWorkerPack(t)
+	hostComputedHome(t, `{"packs": [{"source": "file://`+pack+`", "name": "acme"}]}`)
+	defaultReport(t)
+	_, report := surveyApply(t)
+	var line string
+	for _, l := range strings.Split(report, "\n") {
+		if strings.Contains(l, atLaunchClause) {
+			line = l
+		}
+	}
+	clauses := notchClauses(line)
+	for _, k := range []packdecl.Kind{packdecl.KindService, packdecl.KindEnv} {
+		if countWord(clauses[atLaunchClause], string(k)) != 1 || countWord(clauses[doesNotApplyClause], string(k)) != 0 {
+			t.Errorf("%s must be named once, delivered at launch, and not as not applying: %q\n%s", k, line, report)
+		}
+	}
+}
+
+// A WORKER IS HANDED NO PROVIDER CREDENTIAL, WHILE THE BRIDGE BESIDE IT IS HANDED ITS PAIRING'S
+// (HS-D29): claude on cerebras pairs through the wire bridge, whose host half is given the
+// CEREBRAS_API_KEY the gate delivers to claude for that provider (serviceInput), and the worker
+// started beside it gets the wire tables and its caller token and no key (workerInput), since no
+// pairing names a credential it serves. Handing the worker the bridge's input fails this.
+func TestHostHandsAWorkerNoProviderCredentialTheBridgeGets(t *testing.T) {
+	pack := filepath.Join(t.TempDir(), "acme")
+	writeFile(t, filepath.Join(pack, "pack.json"), workerManifest("acme-worker"))
+	hostGateHome(t, `{"packs": ["claude", "cerebras", {"source": "file://`+pack+`", "name": "acme"}], `+
+		`"env_sources": [{"CEREBRAS_API_KEY": "tok-c"}]}`, wcShell(nil))
+	dir := workerStandIn(t)
+	l := runWorkerLaunchAs(t, dir, "acme-worker", "claude", "exit 0", nil, "-p", "cerebras")
+	if l.rc != 0 {
+		t.Fatalf("rc = %d\n%s", l.rc, l.errs)
+	}
+	var names []string
+	for _, r := range l.started {
+		names = append(names, r.Plan.Service)
+	}
+	if strings.Join(names, ",") != "wire-bridge,acme-worker" {
+		t.Fatalf("started %v, want the bridge and then the worker\n%s", names, l.errs)
+	}
+	input := func(service string) launchservice.Input {
+		var in launchservice.Input
+		data, _ := os.ReadFile(filepath.Join(dir, "input."+service))
+		if err := json.Unmarshal(data, &in); err != nil {
+			t.Fatalf("the %s input %q: %v", service, data, err)
+		}
+		return in
+	}
+	if got := input("wire-bridge").Env["CEREBRAS_API_KEY"]; got != "tok-c" {
+		t.Errorf("the bridge was handed CEREBRAS_API_KEY = %q, want its pairing's credential: the fixture "+
+			"must hand the bridge a key for the worker's absence of one to mean anything", got)
+	}
+	worker := input("acme-worker")
+	if v, ok := worker.Env["CEREBRAS_API_KEY"]; ok {
+		t.Errorf("the worker was handed CEREBRAS_API_KEY = %q, a provider credential no pairing names for it", v)
+	}
+	if worker.Env[paths.ServiceCallerTokenEnv("acme-worker")] == "" || worker.Env["YOLO_PROVIDERS"] == "" {
+		t.Errorf("the worker's input lacks its caller token or the wire tables: %v", worker.Env)
 	}
 }

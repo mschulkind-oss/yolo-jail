@@ -74,12 +74,13 @@ func (o *Options) admitDoorways(packs []*packload.Pack, specs []loopholes.JailDa
 // argv resolved to the address the launch settled for its `listen`, behind the caller token the
 // channel composed its clients with. Recorded on o for the decline, which says the doorway runs.
 //
-// IT ALSO PLANS THE PURE WORKERS this launch starts outside (planMacosUserWorkers, HS-D29): this
-// is the arm's one step after the channel's composition and before its start and dry-run split,
-// which is where a worker's plan belongs, since no agent is pointed at it.
+// IT ALSO NAMES THE PURE WORKERS this launch does not start (noteMacosUserWorkers, HS-D29): the
+// channel's composition planned the ones it starts (planMacosUserWorkers), and this is the arm's
+// one step after that composition and before its start and dry-run split, where the lines about
+// what runs outside the sandbox belong.
 func (o *Options) planMacosUserDoorways(rt string, specs []loopholes.JailDaemonSpec,
 	packs []*packload.Pack, channel *packChannel) []*launchservice.Plan {
-	o.planMacosUserWorkers(packs, channel)
+	o.noteMacosUserWorkers(channel)
 	o.launchDoorways = nil
 	packOf := launchservice.LoopholePacks(packs)
 	for _, s := range loopholes.DoorwaysOutside(rt, specs) {

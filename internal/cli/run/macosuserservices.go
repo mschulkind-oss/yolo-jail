@@ -17,14 +17,16 @@ package run
 // agent's env file (writeMacosUserAgentEnvFiles) for a shell that starts one later.
 //
 // AND A PURE WORKER WITH NO JAIL DAEMON (HS-D29; a held service no adaptation names): its host
-// half starts here too, beside the command, since nothing else would run it. A worker that
-// declares a jail daemon runs that, confined, in the guest instead (planMacosUserWorkers).
+// half starts here too, beside the command, since nothing else would run it, and the channel is
+// composed against it, so a pack env pointer at it reaches the command. A worker that declares a
+// jail daemon runs that, confined, in the guest instead (planMacosUserWorkers).
 
 import (
 	"errors"
 	"fmt"
 	"io"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
@@ -187,8 +189,9 @@ func (o *Options) startMacosUserServices(channel *packChannel) (func(), error) {
 		running = append(running, r)
 		if isWorkerPlan(plan) {
 			o.pr(o.Stderr).print(fmt.Sprintf("Started the %q service (pack %q, pid %d) for this launch, "+
-				"outside the sandbox: a worker no agent is pointed at, handed only this launch's caller "+
-				"token, and stopped when the command exits. Its log: %s", plan.Service, plan.Pack, r.PID(), log))
+				"outside the sandbox: %s, handed only this launch's caller token, and stopped when the "+
+				"command exits. Its log: %s", plan.Service, plan.Pack, r.PID(),
+				workerPointedAt(channel, plan.Service), log))
 		} else {
 			o.pr(o.Stderr).print(fmt.Sprintf("Started the %q service (pack %q, pid %d) on %s for this "+
 				"launch, outside the sandbox: it answers only this launch's caller token and stops "+
@@ -207,17 +210,38 @@ func isWorkerPlan(plan *launchservice.Plan) bool { return len(plan.Moved) == 0 }
 // servicePointedAt is the addresses of plan its agents were pointed at, the only routes it opens:
 // launchservice.Plan.PointedAt over the channel's delivery to each agent whose pairing needed it,
 // the one reading the start line, the dry run's line and `yolo host --` share
-// (docs/design/host-notch-services.md HS-D24). A pure worker's plan has none, which the dry run's
-// line says in words rather than as an empty list.
+// (docs/design/host-notch-services.md HS-D24). A pure worker's plan has none of the launch's, which
+// the dry run's line says in words rather than as an empty list (workerPointedAt).
 func (o *Options) servicePointedAt(plan *launchservice.Plan, channel *packChannel) []string {
 	if isWorkerPlan(plan) {
-		return []string{"no address: a worker no agent is pointed at"}
+		return []string{"no address of the launch's: " + workerPointedAt(channel, plan.Service)}
 	}
 	var deliveries []*packload.AgentDelivery
 	for _, agent := range o.launchServiceAgents[plan.Service] {
 		deliveries = append(deliveries, channel.scope.Agent(agent))
 	}
 	return plan.PointedAt(deliveries...)
+}
+
+// workerPointedAt is how a pure worker's start line and dry-run line name who reaches it: the pack
+// env variables the channel composed `served_by` it, in the shared fold or any profiled agent's
+// (packload.PointersAt), or, with none, that no agent is pointed at it.
+func workerPointedAt(channel *packChannel, service string) string {
+	var vars []string
+	if channel != nil {
+		for _, agent := range append([]string{""}, channel.scope.Agents()...) {
+			for _, v := range packload.PointersAt(channel.scope.FoldFor(agent), service) {
+				if !slices.Contains(vars, v) {
+					vars = append(vars, v)
+				}
+			}
+		}
+	}
+	if len(vars) == 0 {
+		return "a worker no agent is pointed at"
+	}
+	slices.Sort(vars)
+	return "a worker this launch points its agents at through " + strings.Join(vars, ", ")
 }
 
 // planMacosUserWorkers adds to this launch's launch-owned services every PURE WORKER whose host
@@ -227,15 +251,17 @@ func (o *Options) servicePointedAt(plan *launchservice.Plan, channel *packChanne
 // selection's gate asks for, read off the channel's own selection
 // (packload.UnselectedProfileServedDaemons, the jail payload's filter). A worker that declares a
 // jail daemon is not planned: the guest runs that half, confined
-// (docs/design/jail-daemon-on-macos-user-plan.md JD-9, confinement preferred).
+// (docs/design/jail-daemon-on-macos-user-plan.md JD-9, confinement preferred). added reports that
+// it planned one this launch had not.
 //
-// One with no jail daemon this launch does not start is named, with why and the next step,
-// because nothing else runs it on this backend: a refused host half (the fetched refusal names a
-// local checkout), or a gate no agent's selection delivers. Called by planMacosUserDoorways, the
-// one step of the arm that runs after the channel is composed and before the start and dry-run
-// split, so a worker is in the dry run's list and is never in the served set the channel
-// composed: no agent is pointed at it.
-func (o *Options) planMacosUserWorkers(packs []*packload.Pack, channel *packChannel) {
+// One with no jail daemon this launch does not start is named in notes, with why and the next
+// step, because nothing else runs it on this backend: a refused host half (the fetched refusal
+// names a local checkout), or a gate no agent's selection delivers. Called by composePackChannel
+// once a composition succeeds, which composes again when added, so a worker is in the served set
+// and the caller tokens the channel composes its pointers with, as a container's jail daemon is;
+// the notes ride the channel to planMacosUserDoorways, which prints them where the arm reports
+// what runs outside the sandbox.
+func (o *Options) planMacosUserWorkers(packs []*packload.Pack, channel *packChannel) (added bool, notes []string) {
 	adapts := map[string]bool{}
 	for _, a := range packload.ServiceAdaptations(packs, nil) {
 		adapts[a.Service] = true
@@ -256,7 +282,7 @@ func (o *Options) planMacosUserWorkers(packs []*packload.Pack, channel *packChan
 			continue
 		}
 		if u, gated := ungated[s.Name]; gated {
-			o.pr(o.Stderr).print(fmt.Sprintf("[dim]Not started: the %q service's host half (pack %q), "+
+			notes = append(notes, fmt.Sprintf("[dim]Not started: the %q service's host half (pack %q), "+
 				"because %s, which it serves; select one to start it.[/dim]", s.Name, h.Pack,
 				richtext.Escape(unselectedGates(u))))
 			continue
@@ -268,18 +294,32 @@ func (o *Options) planMacosUserWorkers(packs []*packload.Pack, channel *packChan
 			if errors.As(err, &adm) {
 				why = adm.Why
 			}
-			o.pr(o.Stderr).print(fmt.Sprintf("[yellow]Not started outside the sandbox: the %q service's "+
+			notes = append(notes, fmt.Sprintf("[yellow]Not started outside the sandbox: the %q service's "+
 				"host half (pack %q): %s. It declares no jail daemon, so nothing runs it this launch."+
 				"[/yellow]", s.Name, h.Pack, richtext.Escape(why)))
 			continue
 		}
 		plan, err := launchservice.NewPlan(packs, d)
 		if err != nil {
-			o.pr(o.Stderr).print(fmt.Sprintf("[yellow]Not started outside the sandbox: the %q service's "+
+			notes = append(notes, fmt.Sprintf("[yellow]Not started outside the sandbox: the %q service's "+
 				"host half (pack %q): %s.[/yellow]", s.Name, h.Pack, richtext.Escape(err.Error())))
 			continue
 		}
 		o.launchServices = append(o.launchServices, plan)
+		added = true
+	}
+	return added, notes
+}
+
+// noteMacosUserWorkers prints the channel's line for each pure worker this launch does not start
+// (packChannel.workerNotes, planMacosUserWorkers): a disclosure, so no quiet switch
+// (docs/reference/report-tiers.md OQ-RO3). Silent when none.
+func (o *Options) noteMacosUserWorkers(channel *packChannel) {
+	if channel == nil {
+		return
+	}
+	for _, line := range channel.workerNotes {
+		o.pr(o.Stderr).print(line)
 	}
 }
 

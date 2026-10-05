@@ -178,7 +178,7 @@ func composeHostInputs(cfg *jsonx.OrderedMap, packs []*packload.Pack, home strin
 	// no process, so the apply starts none and names each one, as `yolo host env` does, with the
 	// launch that does start it (OQ-HS3). Over every agent's selection the apply renders, the gate
 	// a launch of one of them would ask.
-	if _, notes, err := hostPureWorkers(packs, packload.SelectionOfSets(sets, resolved, providers), false); err == nil {
+	if _, notes, _, err := hostPureWorkers(packs, packload.SelectionOfSets(sets, resolved, providers), false); err == nil {
 		c.omitted = append(c.omitted, notes...)
 	}
 

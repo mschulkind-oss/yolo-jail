@@ -121,7 +121,10 @@ type Pack struct {
 // host argv no launch runs until the maintainer rules on third-party host code
 // (docs/design/host-notch-services.md OQ-HS4, HS-D27). The one predicate every reader of that
 // question asks: internal/launchservice's admission, and the footprint's host-execution claim
-// (moduleClaims), so a footprint never claims execution the launch refuses, nor hides one it runs.
+// (moduleClaims), so the footprint of a pack resolved as a launch resolves it (config.ResolvePack)
+// never claims execution the launch refuses, nor hides one it runs. `yolo pack footprint <path>`
+// loads its argument without that resolver, so nothing sets Local on it, and its footprint omits a
+// local doorway's host argv (HS-D27 says what is left to change).
 func (p *Pack) MayRunHostHalf() bool {
 	return p != nil && (p.Official || p.Local)
 }
@@ -635,6 +638,19 @@ type EnvFoldEntry struct {
 	// Pack is the pack whose contribution the entry is, so a reader of the fold can say which
 	// pack declared a value: the host's OpenAI prelaunch keys its managed home on it.
 	Pack string
+}
+
+// PointersAt is the variables of fold that point at daemon (EnvFoldEntry.ServedBy), sorted and
+// each once: what a launch-owned service's start line names as the way an agent reaches it.
+func PointersAt(fold []EnvFoldEntry, daemon string) []string {
+	var out []string
+	for _, e := range fold {
+		if daemon != "" && e.ServedBy == daemon && !slices.Contains(out, e.Key) {
+			out = append(out, e.Key)
+		}
+	}
+	sort.Strings(out)
+	return out
 }
 
 // GateSelection is what a contribution's GATE asks about a launch's selection, per agent (CLI

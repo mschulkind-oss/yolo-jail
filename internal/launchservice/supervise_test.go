@@ -183,6 +183,29 @@ func TestARestartPolicyOfNoLeavesTheServiceDownAndFreesItsPort(t *testing.T) {
 	}
 }
 
+// A CLEAN EXIT IS RESTARTED UNDER "always": the doorway exits 0 on SIGTERM from outside its launch,
+// the policy restarts it anyway, on the same address, and the launch says it is back. Treating
+// "always" like "on-failure" after a clean exit fails this.
+func TestACleanExitIsRestartedUnderAlways(t *testing.T) {
+	stubRestartSleep(t, nil)
+	r, plan, addr, out := startSupervisedDoorway(t, "ok", "always")
+	old := r.PID()
+	_ = syscall.Kill(old, syscall.SIGTERM)
+	waitFor(t, out, `the "door" service is back (pid `)
+	if want := `the "door" service (pack "p") exited (status 0) while claude runs; restarting it in 1s`; !strings.Contains(out.String(), want) {
+		t.Errorf("the line must say %q:\n%s", want, out.String())
+	}
+	if strings.Contains(out.String(), "exited cleanly") {
+		t.Errorf("a clean exit under \"always\" was left down:\n%s", out.String())
+	}
+	if now := r.PID(); now == old {
+		t.Errorf("the service still names pid %d: it was not replaced", old)
+	}
+	if code, body := get(t, addr, plan.Token); code != 200 || body != "from-the-launch" {
+		t.Errorf("the restarted service at the same address got %d %q", code, body)
+	}
+}
+
 // A CLEAN EXIT IS NOT RESTARTED UNDER "on-failure", the default: the doorway exits 0 on SIGTERM
 // from outside its launch, and the line says why it stays down.
 func TestACleanExitIsNotRestartedUnderOnFailure(t *testing.T) {
