@@ -97,16 +97,19 @@ func ConfigureHostFiles(e *Env) error {
 //
 // The packs are loaded here rather than handed in because this step's signature is the boot
 // table's generator shape, as the other generators that read packs load them. They are
-// needed, not decoration: a destination under a selected pack's state dir (`~/.claude/x`)
-// is reached through that pack's layout link, which a layout derived without the packs would
-// refuse as a link it did not lay. A load that fails yields the layout the layout step laid
-// from the same failure, and configure_pack_surfaces reports it.
+// needed, not decoration, twice over: a destination under a selected pack's state dir
+// (`~/.claude/x`) is reached through that pack's layout link, and one at or below a link that
+// pack's hooks laid in configure_pack_surfaces, just before this step (`~/.claude/.credentials.json`),
+// through that link (withPackHookLinks, HT-D14). A layout derived without the packs would
+// refuse either as a link nobody laid. A load that fails yields the layout the layout step
+// laid from the same failure, and configure_pack_surfaces reports it.
 func hostFilesLayout(e *Env) (DarwinHomeLayout, bool) {
 	if e.DarwinSidecar() == "" {
 		return DarwinHomeLayout{Home: e.Home}, false
 	}
 	packs, _ := LoadJailPacks(e)
-	return darwinHomeLayoutFor(e, packs)
+	l, laid := darwinHomeLayoutFor(e, packs)
+	return l.withPackHookLinks(e, packs), laid
 }
 
 // hostFileDestination is where ONE entry is written: ~/<path> wherever no macos-user layout
@@ -123,10 +126,15 @@ func hostFilesLayout(e *Env) (DarwinHomeLayout, bool) {
 // into a directory the agent cannot reach, such as another workspace's .git (MEASURED on
 // Linux against the real bootstrap, 2026-10-04). Every destination is walked, not only those
 // past a layout link: a link in the account home is somebody else's just the same, since
-// the layout lays none there that this walk does not know.
+// yolo lays none there that this walk does not know. The links the selected packs' hooks lay
+// are among those it knows, so an entry at `~/.claude/.credentials.json` is written into the
+// shared credential that link leads to, as on podman.
 //
 // What a path check cannot cover is stated on homeFileThroughLayout: a link swapped in between
-// this walk and the write, by a session of the same workspace running at the time.
+// this walk and the write. For a destination in the workspace sidecar only a session of that
+// workspace can make the swap; for one in the account home (`~/.aws/config`, a machine-scope
+// shared dir, the shared file a hook's link leads to) a session of ANY workspace can, since
+// every session's sandbox profile allows writes to the whole account home.
 //
 // A LOGIN RC FILE IS REFUSED where a layout was laid (HT-D13). The bootstrap writes
 // DarwinLoginRCFiles itself later in this same boot (WriteLoginRC), so the entry's bytes would

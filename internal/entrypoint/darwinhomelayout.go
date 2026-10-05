@@ -55,9 +55,9 @@ import (
 //
 // NO MIGRATION (OQ-HT2). A real directory where a link belongs is not migrated, copied or
 // renamed — the launch refuses and names the path. `sudo rm -rf /Users/_yolojail` before
-// the first launch IS the migration. The one narrower remedy is a home-root host_files file
-// (HostFileRedirects), which an older launch rendered into the shared home: the refusal
-// names `sudo rm` of that one file.
+// the first launch IS the migration. A home-root host_files file (HostFileRedirects), which an
+// older launch rendered into the shared home, has its own narrower remedy, as a sidecar mirror
+// does (occupiedLayoutError): the refusal names `sudo rm` of that one file.
 
 // DarwinHomeSidecarEnv names the workspace sidecar (<workspace>/.yolo/home) for the native
 // bootstrap. ABSENCE MEANS "LAY NO LAYOUT", which is not a degraded mode: an install
@@ -137,6 +137,13 @@ type DarwinHomeLayout struct {
 	// None is laid at a file the bootstrap writes itself (DarwinLoginRCFiles), where podman's
 	// skeleton does lay one: that is the one home-root entry the two backends link differently.
 	HostFileRedirects []DarwinHomeLink
+	// HookLinks are NOT the layout's, and Apply never lays them: they are the links the
+	// selected packs' hooks lay (RunPackHooks, in configure_pack_surfaces) below the layout's
+	// own, each at the PHYSICAL path its hook's symlink lands at, with the target that hook
+	// computes. Carried only for the host_files walk (homeFileThroughLayout), which runs after
+	// the hooks and would otherwise refuse a destination at or below one as a link nobody laid,
+	// while the hook lays it again on every launch. Added by withPackHookLinks.
+	HookLinks []DarwinHomeLink
 }
 
 // DeriveDarwinHomeLayout is the pure deriver: home, the sidecar, and the two pack-declared
@@ -416,8 +423,8 @@ func (l DarwinHomeLayout) linkedSidecarPaths() []string {
 }
 
 // homeFileThroughLayout returns the physical path a write to ~/<rel> lands at when it follows
-// only the links this layout lays, or an error naming the first link on the way that is not one
-// of them.
+// only the links yolo lays — the layout's own, and the selected packs' hook links (HookLinks) —
+// or an error naming the first link on the way that is not one of them.
 //
 // WHY A WRITE BY PATH NEEDS IT. The bootstrap runs outside Seatbelt as the sandbox account,
 // which can write every workspace under the shared root. The overlay install writes through
@@ -433,21 +440,40 @@ func (l DarwinHomeLayout) linkedSidecarPaths() []string {
 //
 // THE RULE IS overlayLinks.route's, applied to a file rather than to a delivered tree:
 //
-//   - A LAYOUT LINK (a directory Link, a FileRedirect or a HostFileRedirect) is the one way
-//     through, and only while it is the link this launch laid, to the target it laid. A layout
-//     path that is not yet that link — absent, a real file or directory the layout step refused
-//     to replace (OQ-HT2), or a stale link to another workspace — is refused rather than
-//     written: a real file written where the layout's link belongs is one the next launch then
-//     refuses forever.
+//   - A LAYOUT LINK (a directory Link, a FileRedirect, a HostFileRedirect, or a sidecar Mirror)
+//     is the one way through, and only while it is the link this launch laid, to the target it
+//     laid. A layout path that is not yet that link — absent, a real file or directory the
+//     layout step refused to replace (OQ-HT2), or a stale link to another workspace — is refused
+//     rather than written: a real file written where the layout's link belongs is one the next
+//     launch then refuses forever.
+//   - A PACK HOOK'S LINK (HookLinks: claude's shared credential and per-workspace history, agy's
+//     shared credential, pi's shared npm store) is followed too, but only while it points at the target its hook
+//     computes, and its target is walked by these same rules — a relative one from the
+//     directory holding the link, so its `..` reaches the sidecar's Mirror and through it the
+//     account home's real shared directory, as the kernel resolves it. A destination at or
+//     below one is written where the hook's link leads, as on podman. Anything else at that
+//     path is not special: a real file is written, and a link to another target is refused.
+//     Refusing the hook's own link instead named `sudo rm <link>`, which the hook undid on the
+//     next launch, so the named step led to the same refusal forever (HT-D14).
 //   - ANY OTHER LINK is refused, in the account home and in the sidecar alike, the file itself
-//     included. The layout lays none there, so one is somebody else's.
+//     included. yolo lays none there, so one is somebody else's.
 //   - An absent component below everything the layout lays ends the walk: nothing below it
 //     exists, so nothing below it is a link, and the writer creates what it needs.
 //
 // ⚠ WHAT A PATH CHECK CANNOT COVER is a component swapped for a link between this walk and the
-// writer's own resolution of the path. The sidecar belongs to one workspace, so only a
-// session of the SAME workspace running while this bootstrap does can make that swap; nothing
-// here closes it, because the writer takes a path and not a handle.
+// writer's own resolution of the path, and WHO can make that swap depends on where the
+// destination is. One past a layout link into the sidecar (`~/.gitconfig`, a home-root
+// host_files file, anything under `~/.config` or a pack's state dir) is in one workspace, so
+// only a session whose sandbox can write that workspace — a session of the SAME workspace,
+// running while this bootstrap does — can make it. One in the ACCOUNT HOME — a new top-level
+// directory (`~/.aws/config`), `~/.cache`, a machine-scope shared dir, or the shared file a
+// pack hook's link leads to — is writable by EVERY session's sandbox profile, so a session of
+// ANY workspace on the Mac running at the time can make it, and this unconfined write would
+// follow it into a directory that session cannot reach itself. Nothing here closes either,
+// because the writer takes a path and not a handle; writing through a handle opened beneath the
+// home or the sidecar, as the overlay install does, is the residual that would
+// (macos-user-home-tiers.md, the host_files row of "Nothing is delivered through a link the
+// layout did not lay").
 func (l DarwinHomeLayout) homeFileThroughLayout(rel string) (string, error) {
 	if linked := l.linkedSidecarPaths(); len(linked) > 0 {
 		return "", &LinkedSidecarError{Links: linked}
@@ -456,20 +482,53 @@ func (l DarwinHomeLayout) homeFileThroughLayout(rel string) (string, error) {
 	for _, ln := range l.Links {
 		laid[ln.Path] = ln.Target
 	}
+	// The links whose target is walked rather than jumped to. Each is followed at most once — it
+	// is deleted before the walk restarts — so no chain of them can loop.
 	redirects := map[string]string{}
 	for _, r := range slices.Concat(l.FileRedirects, l.HostFileRedirects) {
 		redirects[r.Path] = r.Target
 	}
-	parts := strings.Split(filepath.ToSlash(filepath.Clean(rel)), "/")
+	mirrors := map[string]string{}
+	for _, m := range l.Mirrors {
+		mirrors[m.Path] = m.Target
+	}
+	hooks := map[string]string{}
+	for _, h := range l.HookLinks {
+		hooks[h.Path] = h.Target
+	}
+	parts := splitLinkTarget(filepath.Clean(rel))
 	cur := l.Home
+	// restart continues the walk along target from the directory holding the link just
+	// followed: a relative target from that directory, an absolute one (a Mirror's, or
+	// per_jail_history's) from the account home it is spelled under.
+	restart := func(target string, rest []string) error {
+		if !filepath.IsAbs(target) {
+			parts = append(splitLinkTarget(target), rest...)
+			return nil
+		}
+		under, err := filepath.Rel(l.Home, target)
+		if err != nil || under == ".." || strings.HasPrefix(under, ".."+string(filepath.Separator)) {
+			return fmt.Errorf("~/%s was not written: a link yolo lays on its way points at %s, "+
+				"outside the account home %s, which no link of yolo's does", rel, target, l.Home)
+		}
+		cur, parts = l.Home, rest
+		if under != "." {
+			parts = append(splitLinkTarget(under), rest...)
+		}
+		return nil
+	}
 	for i := 0; i < len(parts); i++ {
 		next := filepath.Join(cur, parts[i])
+		fi, err := os.Lstat(next)
 		want, isLink := laid[next]
 		redirect, isRedirect := redirects[next]
-		fi, err := os.Lstat(next)
-		if isLink || isRedirect {
-			if isRedirect {
+		mirror, isMirror := mirrors[next]
+		if isLink || isRedirect || isMirror {
+			switch {
+			case isRedirect:
 				want = redirect
+			case isMirror:
+				want = mirror
 			}
 			got, rerr := os.Readlink(next)
 			if err != nil || rerr != nil || got != want {
@@ -477,34 +536,148 @@ func (l DarwinHomeLayout) homeFileThroughLayout(rel string) (string, error) {
 					"to %s (the darwin_home_layout step says why), and a path the layout owns is "+
 					"never written as anything else", rel, next, want)
 			}
-			if isRedirect {
-				// A redirect's target is relative to the directory holding it, and each is
-				// followed at most once: it is deleted before the walk restarts from there.
+			switch {
+			case isRedirect:
 				delete(redirects, next)
-				parts = append(strings.Split(filepath.ToSlash(redirect), "/"), parts[i+1:]...)
-				i = -1
+			case isMirror:
+				delete(mirrors, next)
+			default:
+				cur = want
 				continue
 			}
-			cur = want
+			if err := restart(want, parts[i+1:]); err != nil {
+				return "", err
+			}
+			i = -1
 			continue
 		}
 		if err != nil {
-			if os.IsNotExist(err) {
-				return filepath.Join(append([]string{next}, parts[i+1:]...)...), nil
+			if !os.IsNotExist(err) {
+				return "", err
 			}
-			return "", err
+			rest := parts[i+1:]
+			if slices.Contains(rest, "..") {
+				// Joining past an absent directory would resolve this `..` lexically, where the
+				// kernel would fail; no target yolo lays has one there.
+				return "", fmt.Errorf("~/%s was not written: %s does not exist, and the path "+
+					"continues through it with %q", rel, next, filepath.Join(rest...))
+			}
+			return filepath.Join(append([]string{next}, rest...)...), nil
 		}
 		if fi.Mode()&os.ModeSymlink != 0 {
 			target, _ := os.Readlink(next)
+			if hookTarget, isHook := hooks[next]; isHook && target == hookTarget {
+				delete(hooks, next)
+				if err := restart(target, parts[i+1:]); err != nil {
+					return "", err
+				}
+				i = -1
+				continue
+			}
 			return "", fmt.Errorf("~/%s was not written: %s -> %s, on its way, is a symbolic link "+
-				"the layout did not lay, and this write runs outside the sandbox, so following "+
-				"it would land where the session's sandbox profile does not protect. Remove the "+
+				"yolo did not lay, and this write runs outside the sandbox, so following it "+
+				"would land where the session's sandbox profile does not protect. Remove the "+
 				"link (what it points at is left alone):\n  sudo rm %s",
 				rel, next, target, shquote.Quote(next))
 		}
 		cur = next
 	}
 	return cur, nil
+}
+
+// splitLinkTarget splits a relative path or link target into the components the walk takes one
+// at a time, `..` included.
+func splitLinkTarget(p string) []string {
+	return strings.Split(filepath.ToSlash(p), "/")
+}
+
+// withPackHookLinks returns the layout with HookLinks: one for each link a selected pack's hook
+// lays (packHookLinks), at the physical path that hook's symlink lands at. The hook spells the
+// link under the account home (`~/.claude/.credentials.json`) and the kernel resolves its
+// directory through the layout's own Links, so the path is mapped through them the same way
+// (physicalHomePath): that is where the host_files walk meets it.
+//
+// Only the host_files step asks for these (hostFilesLayout): it runs after the hooks, and a
+// destination at or below one is a valid config, because validation reserves none of those
+// paths. Apply lays none of them, and the layout step and the overlay never see them.
+func (l DarwinHomeLayout) withPackHookLinks(e *Env, packs []*packload.Pack) DarwinHomeLayout {
+	l.HookLinks = nil
+	for _, h := range packHookLinks(e, packs) {
+		l.HookLinks = append(l.HookLinks, DarwinHomeLink{Path: l.physicalHomePath(h.Path), Target: h.Target})
+	}
+	return l
+}
+
+// physicalHomePath maps an account-home path through the layout's directory Links, the longest
+// first: `<home>/.claude/x` is `<sidecar>/claude/x` while ~/.claude is the layout's link. A path
+// under no Link is its own physical path.
+func (l DarwinHomeLayout) physicalHomePath(p string) string {
+	best := -1
+	for i, ln := range l.Links {
+		if p != ln.Path && !strings.HasPrefix(p, ln.Path+string(filepath.Separator)) {
+			continue
+		}
+		if best < 0 || len(ln.Path) > len(l.Links[best].Path) {
+			best = i
+		}
+	}
+	if best < 0 {
+		return p
+	}
+	return l.Links[best].Target + strings.TrimPrefix(p, l.Links[best].Path)
+}
+
+// packHookLinks is every symbolic link the selected packs' hooks lay on this launch, spelled as
+// each hook spells it: Path is `<home>/<from>` and Target the string its os.Symlink writes.
+//
+// THE TARGETS ARE THE HOOKS' OWN COMPUTATIONS, restated, because packhooks.go is not this
+// file's to change: shared_credentials and shared_directory link `from` to its pack's declared
+// shared dir by a relative path (linkIntoSharedDir), and per_jail_history links it to an
+// absolute per-workspace file beside it (isolateHistoryFile). A hook that lays no link here
+// yields none: unshare_directory, a shared_credentials hook on a credential-view launch
+// (skipsForCredentialView), a per_jail_history hook with no YOLO_HOST_DIR, and a declaration the
+// hook itself refuses. TestPackHookLinksAreTheLinksTheHooksLay runs the real hooks and fails
+// when the two disagree.
+func packHookLinks(e *Env, packs []*packload.Pack) []DarwinHomeLink {
+	var out []DarwinHomeLink
+	for _, p := range packs {
+		for _, h := range p.Decl.HookContributions() {
+			if h.File == "" {
+				continue
+			}
+			link := filepath.Join(e.Home, filepath.FromSlash(h.File))
+			var target string
+			switch h.Name {
+			case HookSharedCredentials, HookSharedDirectory:
+				if h.SharedDir == "" || !declaresSharedDir(p, h.SharedDir) {
+					continue
+				}
+				n := sharedTreeNode
+				if h.Name == HookSharedCredentials {
+					if e.skipsForCredentialView(h) {
+						continue
+					}
+					n = sharedFileNode
+				}
+				shared := n.sharedPath(filepath.Join(e.Home, filepath.FromSlash(h.SharedDir)), h.File)
+				rel, err := filepath.Rel(filepath.Dir(link), shared)
+				if err != nil {
+					continue
+				}
+				target = rel
+			case HookPerJailHistory:
+				hostDir := e.Getenv("YOLO_HOST_DIR")
+				if hostDir == "" {
+					continue
+				}
+				target = filepath.Join(filepath.Dir(link), "jail-history", sha256Hex(hostDir)[:12]+filepath.Ext(h.File))
+			default:
+				continue
+			}
+			out = append(out, DarwinHomeLink{Path: link, Target: target})
+		}
+	}
+	return out
 }
 
 // LinkedSidecarError is the refusal of a symbolic link where the layout lays a directory of its

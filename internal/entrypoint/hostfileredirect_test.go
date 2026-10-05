@@ -17,13 +17,17 @@ package entrypoint
 // resolution is the same on both kernels, and the backend cannot run in CI here.
 
 import (
+	"io"
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/claudeview"
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
+	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 )
 
 // homeRootFixture is one account home shared by any number of workspaces, plus the relocated
@@ -204,8 +208,11 @@ func TestHomeRootHostFilesArePerWorkspaceOnMacosUser(t *testing.T) {
 
 // A LAUNCH THAT DOES NOT DECLARE THE ENTRY LEAVES THE LINK ALONE (P2: the layout manages what
 // THIS launch declares). It then dangles, as the file is absent from a podman jail that does not
-// declare it; removing it would take the file away from a running session of the workspace that
-// does, and let a real file appear that the next declaring launch refuses.
+// declare it; removing it would let a real file appear there that the next declaring launch
+// refuses (HT-D11). A running session of the workspace that declares it loses the file at this
+// launch either way, because this launch repoints ~/.config at its own sidecar — the dangling
+// Stat below is exactly what that session sees — so that is the concurrency limit the link
+// inherits from ~/.config, not something leaving the link avoids.
 func TestAnUndeclaringLaunchLeavesTheHomeRootLinkAlone(t *testing.T) {
 	f := newHomeRootFixture(t)
 	entry := config.HostFileEntry{Path: ".npmrc", Codec: "raw", Content: "registry=A\n", HasContent: true, Mode: config.HostFileModeOnce}
@@ -464,5 +471,279 @@ func TestTheZshenvTheLoginRCRefusalOffersIsDelivered(t *testing.T) {
 	}
 	if got := readOrAbsent(t, filepath.Join(f.sidecar("a"), "config", "yolo-home", entry.Slug())); got != "alias ll='ls -l'\n" {
 		t.Errorf("the workspace's own copy holds %q, want the entry's bytes", got)
+	}
+}
+
+// A DESTINATION AT OR BELOW A LINK A SELECTED PACK'S HOOK LAYS IS WRITTEN THROUGH THAT LINK, as
+// it is on podman and was on this backend before the host_files walk. The hooks run in
+// configure_pack_surfaces, before the host_files step, and lay their links below the layout's:
+// claude's shared credential and per-workspace history, agy's shared credential, pi's shared
+// npm store. Config validation reserves none of those paths, so an entry there is a valid config.
+// Refusing it as "a link the layout did not lay" named `sudo rm <link>`, and the hook laid the
+// link again on the next launch, so the named step led to the same refusal forever.
+//
+// Two launches, so a second boot over the first one's links is covered too. The bytes land where
+// the hook's link leads: the machine tier's shared directory in the account home, through the
+// sidecar's mirror, for the three shared hooks, and the workspace's own history file for
+// per_jail_history. Each hook's link is still the hook's afterwards.
+func TestAHostFileAtOrBelowAPackHooksLinkIsWrittenThroughIt(t *testing.T) {
+	cases := map[string]struct {
+		pack, path, mode string
+		hookLink         func(f *homeRootFixture) string
+		lands            func(f *homeRootFixture) string
+	}{
+		"claude's shared credential": {"claude", ".claude/.credentials.json", config.HostFileModeOnce,
+			func(f *homeRootFixture) string { return filepath.Join(f.sidecar("a"), "claude", ".credentials.json") },
+			func(f *homeRootFixture) string {
+				return filepath.Join(f.home, ".claude-shared-credentials", ".credentials.json")
+			}},
+		"claude's per-workspace history": {"claude", ".claude/history.jsonl", config.HostFileModeCopy,
+			func(f *homeRootFixture) string { return filepath.Join(f.sidecar("a"), "claude", "history.jsonl") },
+			func(f *homeRootFixture) string {
+				return filepath.Join(f.sidecar("a"), "claude", "jail-history", sha256Hex(f.ws("a"))[:12]+".jsonl")
+			}},
+		"agy's shared credential": {"agy", ".gemini/antigravity-cli/antigravity-oauth-token", config.HostFileModeCopy,
+			func(f *homeRootFixture) string {
+				return filepath.Join(f.sidecar("a"), "gemini", "antigravity-cli", "antigravity-oauth-token")
+			},
+			func(f *homeRootFixture) string {
+				return filepath.Join(f.home, ".gemini-shared-credentials", "antigravity-oauth-token")
+			}},
+		"a file in pi's shared npm store": {"pi", ".pi/agent/npm/yolo-it-extra", config.HostFileModeCopy,
+			func(f *homeRootFixture) string { return filepath.Join(f.sidecar("a"), "pi", "agent", "npm") },
+			func(f *homeRootFixture) string { return filepath.Join(f.home, ".pi-shared-npm", "yolo-it-extra") }},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			f := newHomeRootFixture(t)
+			f.packRoot = stagePackForBootstrap(t, tc.pack)
+			entry := config.HostFileEntry{Path: tc.path, Codec: "raw", Content: "mine\n", HasContent: true, Mode: tc.mode}
+			var laid string
+			for round := 1; round <= 2; round++ {
+				said, err := f.launch("a", "", entry)
+				requireHostFilesStepsOK(t, said, err)
+				link := tc.hookLink(f)
+				target, lerr := os.Readlink(link)
+				if lerr != nil {
+					t.Fatalf("launch %d: the %s hook's link %s is gone (%v): the host_files step "+
+						"replaced it", round, tc.pack, link, lerr)
+				}
+				if round == 1 {
+					laid = target
+				} else if target != laid {
+					t.Errorf("launch %d: the hook's link now -> %q, was %q", round, target, laid)
+				}
+				if got := readOrAbsent(t, tc.lands(f)); got != "mine\n" {
+					t.Errorf("launch %d: %s holds %q, want the entry's bytes, written through the "+
+						"hook's link", round, tc.lands(f), got)
+				}
+			}
+		})
+	}
+}
+
+// THE HOOK LINKS THE WALK FOLLOWS ARE THE LINKS THE HOOKS LAY, path and target. packHookLinks
+// restates each hook's target computation (packhooks.go), so this runs the real hooks of every
+// shipped pack in a home of its own and compares both ways: every link a hook laid at its `from`
+// is predicted with the same target, and every predicted link was laid. A hook that changes its
+// target, or a new link-laying hook, fails here rather than turning into a refusal at launch.
+//
+// The credential-view launch is the case where a hook lays NOTHING (it removes the legacy link),
+// so nothing at that path may be followed.
+func TestPackHookLinksAreTheLinksTheHooksLay(t *testing.T) {
+	packs, err := embeddedPackSet()
+	if err != nil {
+		t.Fatal(err)
+	}
+	type link struct{ path, target string }
+	run := func(t *testing.T, p *packload.Pack, extra map[string]string) (laid, predicted []link) {
+		t.Helper()
+		home, err := filepath.EvalSymlinks(t.TempDir())
+		if err != nil {
+			t.Fatal(err)
+		}
+		vars := map[string]string{"HOME": home, "JAIL_HOME": home, "YOLO_HOST_DIR": filepath.Join(home, "ws")}
+		for k, v := range extra {
+			vars[k] = v
+		}
+		e := DarwinEnvFrom(vars, home)
+		e.Stderr, e.LogOnly = io.Discard, io.Discard
+		RunPackHooks(e, []*packload.Pack{p})
+		if f := e.GenFailures(); len(f) > 0 {
+			t.Fatalf("pack %s's hooks failed: %v", p.Name, f)
+		}
+		for _, h := range p.Decl.HookContributions() {
+			if h.File == "" {
+				continue
+			}
+			at := filepath.Join(home, filepath.FromSlash(h.File))
+			if target, err := os.Readlink(at); err == nil {
+				laid = append(laid, link{at, target})
+			}
+		}
+		for _, h := range packHookLinks(e, []*packload.Pack{p}) {
+			predicted = append(predicted, link{h.Path, h.Target})
+		}
+		return laid, predicted
+	}
+	total := 0
+	for _, p := range packs {
+		t.Run(p.Name, func(t *testing.T) {
+			laid, predicted := run(t, p, nil)
+			if !reflect.DeepEqual(laid, predicted) {
+				t.Errorf("pack %s's hooks laid %v; packHookLinks predicts %v", p.Name, laid, predicted)
+			}
+			total += len(laid)
+		})
+	}
+	// claude's credential and history, agy's credential, pi's npm store: a vacuous pass (no pack
+	// staged, no hook run) must not read as agreement.
+	if total < 4 {
+		t.Errorf("the shipped packs' hooks laid %d links, want at least the 4 this test was written against", total)
+	}
+	claude, err := embeddedPack("claude")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Run("claude on a credential-view launch", func(t *testing.T) {
+		laid, predicted := run(t, claude, map[string]string{claudeview.SwitchEnv: claudeview.ResolvedValue(true)})
+		for _, l := range predicted {
+			if strings.HasSuffix(l.path, filepath.FromSlash(claudeview.ViewRel)) {
+				t.Errorf("packHookLinks predicts the credential link %v on a view launch, where the hook lays none", l)
+			}
+		}
+		if !reflect.DeepEqual(laid, predicted) {
+			t.Errorf("the hooks laid %v; packHookLinks predicts %v", laid, predicted)
+		}
+	})
+}
+
+// A HOOK'S LINK IS FOLLOWED ONLY TO ITS HOOK'S TARGET, and what that target leads through is
+// walked by the same rules: the sidecar's mirror must be the layout's link, and the account
+// home's shared directory must not be a link. Each refusal names the path and the `sudo rm` that
+// removes it, and the named step works: once the stray link is removed and the hook lays its own
+// again, the same walk reaches the shared file.
+func TestTheHostFileWalkFollowsAHookLinkOnlyToItsHooksTarget(t *testing.T) {
+	base, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	home := filepath.Join(base, "home")
+	ws := filepath.Join(base, "ws")
+	other := filepath.Join(base, "other")
+	writeTreeFile(t, filepath.Join(other, ".git", "config"), "[core]\n")
+	claude, err := embeddedPack("claude")
+	if err != nil {
+		t.Fatal(err)
+	}
+	packs := []*packload.Pack{claude}
+	sidecar := filepath.Join(ws, ".yolo", "home")
+	e := DarwinEnvFrom(map[string]string{"HOME": home, "JAIL_HOME": home, "YOLO_HOST_DIR": ws, DarwinHomeSidecarEnv: sidecar}, home)
+	e.Stderr, e.LogOnly = io.Discard, io.Discard
+	if err := os.MkdirAll(home, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := InstallDarwinHomeLayout(e, packs); err != nil {
+		t.Fatal(err)
+	}
+	RunPackHooks(e, packs)
+	l, _ := darwinHomeLayoutFor(e, packs)
+	l = l.withPackHookLinks(e, packs)
+	const rel = ".claude/.credentials.json"
+	hookLink := filepath.Join(sidecar, "claude", ".credentials.json")
+	shared := filepath.Join(home, ".claude-shared-credentials", ".credentials.json")
+	if got, err := l.homeFileThroughLayout(rel); err != nil || got != shared {
+		t.Fatalf("through the hook's own link the path is %q (%v), want the shared file %q", got, err, shared)
+	}
+
+	refused := func(t *testing.T, what, at string) {
+		t.Helper()
+		got, err := l.homeFileThroughLayout(rel)
+		if err == nil {
+			t.Fatalf("%s was accepted: %s", what, got)
+		}
+		if !strings.Contains(err.Error(), at) {
+			t.Errorf("the refusal of %s does not name %s: %v", what, at, err)
+		}
+	}
+	t.Run("the hook's link repointed", func(t *testing.T) {
+		swapForLink(t, hookLink, filepath.Join(other, ".git", "config"))
+		refused(t, "a link at the hook's path to another target", hookLink)
+		_, err := l.homeFileThroughLayout(rel)
+		if !offers(t, errString(t, err), "sudo", "rm", hookLink) {
+			t.Errorf("the refusal does not offer `sudo rm %s`: %v", hookLink, err)
+		}
+		// The named step, then the next launch's hook.
+		if err := os.Remove(hookLink); err != nil {
+			t.Fatal(err)
+		}
+		RunPackHooks(e, packs)
+		if got, err := l.homeFileThroughLayout(rel); err != nil || got != shared {
+			t.Errorf("after the named remedy and the hook the path is %q (%v), want %q", got, err, shared)
+		}
+	})
+	t.Run("the sidecar's mirror replaced by a directory", func(t *testing.T) {
+		mirror := filepath.Join(sidecar, ".claude-shared-credentials")
+		if err := os.Remove(mirror); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Mkdir(mirror, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() {
+			_ = os.Remove(mirror)
+			_ = os.Symlink(filepath.Join(home, ".claude-shared-credentials"), mirror)
+		})
+		refused(t, "a real directory where the layout's mirror belongs", mirror)
+	})
+	t.Run("the account home's shared directory swapped for a link", func(t *testing.T) {
+		dir := filepath.Join(home, ".claude-shared-credentials")
+		kept := dir + ".kept"
+		if err := os.Rename(dir, kept); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Symlink(filepath.Join(other, ".git"), dir); err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = os.Remove(dir); _ = os.Rename(kept, dir) })
+		refused(t, "a link at the account home's shared directory", dir)
+	})
+	if got := readOrAbsent(t, filepath.Join(other, ".git", "config")); got != "[core]\n" {
+		t.Errorf("the other repository's config changed to %q", got)
+	}
+	if slices.ContainsFunc(l.HookLinks, func(h DarwinHomeLink) bool {
+		return strings.HasPrefix(h.Path, home+string(filepath.Separator)+".claude")
+	}) {
+		t.Errorf("a hook link under ~/.claude is spelled in the account home, not where the walk meets it: %v", l.HookLinks)
+	}
+}
+
+// THE BOOTSTRAP NEVER FOLLOWS A HOOK'S LINK PAST A LINK SOMEBODY ELSE LEFT. Any session on the
+// Mac can write the account home, so the machine tier's shared directory can be swapped for a
+// link to another workspace's .git between two launches. The hook's own link is still the hook's,
+// so the walk follows it, through the sidecar's mirror, to that directory, and refuses there: the
+// other repository is byte-for-byte untouched and the refusal names the link.
+func TestAHostFileThroughAHookLinkRefusesALinkInTheMachineTier(t *testing.T) {
+	f := newHomeRootFixture(t)
+	f.packRoot = stagePackForBootstrap(t, "claude")
+	entry := config.HostFileEntry{Path: ".claude/.credentials.json", Codec: "raw", Content: "mine\n", HasContent: true, Mode: config.HostFileModeCopy}
+	said, err := f.launch("a", "", entry)
+	requireHostFilesStepsOK(t, said, err)
+
+	other := f.ws("other")
+	writeTreeFile(t, filepath.Join(other, ".git", "config"), "[core]\n\tbare = false\n")
+	dir := filepath.Join(f.home, ".claude-shared-credentials")
+	swapForLink(t, dir, filepath.Join(other, ".git"))
+	before := snapshotTree(t, other)
+
+	said, err = f.launch("a", "", entry)
+	if err == nil || !strings.Contains(err.Error(), "configure_host_files") {
+		t.Errorf("the host_files step did not refuse the link at %s (err %v)", dir, err)
+	}
+	if after := snapshotTree(t, other); !reflect.DeepEqual(before, after) {
+		t.Fatalf("the bootstrap wrote into another workspace through %s:\nbefore %v\nafter  %v", dir, before, after)
+	}
+	if !offers(t, said, "sudo", "rm", dir) {
+		t.Errorf("the refusal does not offer `sudo rm %s`; it offers %q:\n%s", dir, offeredCommands(t, said, "sudo"), said)
 	}
 }
