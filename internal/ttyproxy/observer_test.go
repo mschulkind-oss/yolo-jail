@@ -165,7 +165,9 @@ func TestProxyLoopMarksTheSuspend(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer func() { _ = c.Process.Kill() }()
-	unix.Close(childSlave)
+	// Closed through its File, so no finalizer closes the descriptor NUMBER later, once a later
+	// test has reused it.
+	_ = slave.Close()
 	cooked, err := unix.IoctlGetTermios(hostSlave, unix.TCGETS)
 	if err != nil {
 		t.Fatal(err)
@@ -173,7 +175,23 @@ func TestProxyLoopMarksTheSuspend(t *testing.T) {
 	setRaw(hostSlave, cooked)
 
 	var rec inputRec
-	go proxyLoop(hostSlave, childMaster, c, cooked, Observer{Stage: rec.stage, Input: rec.input})
+	loopDone := make(chan struct{})
+	go func() {
+		defer close(loopDone)
+		proxyLoop(hostSlave, childMaster, c, cooked, Observer{Stage: rec.stage, Input: rec.input})
+	}()
+	// THE LOOP ENDS BEFORE ITS DESCRIPTORS CLOSE (this defer runs before the closes above). Left
+	// running, it drained its pty master's descriptor NUMBER once its child died — which by then
+	// was a later test's pipe: TestObserverStdoutTakesTheChildsStdoutOnBothPaths lost its child's
+	// stderr to it, and this process's stdout printed it.
+	defer func() {
+		_ = c.Process.Kill()
+		select {
+		case <-loopDone:
+		case <-time.After(5 * time.Second):
+			t.Error("the proxy loop never returned once its child was killed")
+		}
+	}()
 	if _, err := unix.Write(hostMaster, []byte{suspByte}); err != nil {
 		t.Fatal(err)
 	}
