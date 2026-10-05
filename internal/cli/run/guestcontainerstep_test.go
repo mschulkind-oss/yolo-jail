@@ -139,15 +139,9 @@ func TestMacosGuestNotesNameTheJailNotchBesideAContainerRuntime(t *testing.T) {
 			marker:  "is not read on macos-user",
 			want:    1,
 		},
-		{
-			name: "a directory host_files source",
-			setup: func(t *testing.T) {
-				home := ctxLaunchHome(t, `, "host_files": [{"path": ".config/big/", "source": "~/big/"}]`)
-				writeHostFileAt(t, filepath.Join(home, "big", "a.txt"), "x\n", 0o644)
-			},
-			marker: "does not cross on macos-user",
-			want:   1,
-		},
+		// No directory `host_files` case: such an entry is copied into the sandbox now
+		// (buildMacosCtxTree), so its warning, noteMacosUserHostByteGaps, has no caller and no
+		// launch prints it at any notch.
 		{
 			name: "a fork",
 			setup: func(t *testing.T) {
