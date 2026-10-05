@@ -707,3 +707,17 @@ func TestRealDepsWiresTheDiskPolicyCalls(t *testing.T) {
 		t.Errorf("DiskIOPolicy off darwin = %v, want internal/ioprio's refusal", err)
 	}
 }
+
+// TestRealDepsWiresTheHostCPUCount: the cap on resources.cpus's parallelism defaults reads the
+// launcher's own CPU count, which is the count each of those variables defaults to on the Mac
+// the sandbox shares. Unwired, a declared cpus above it would raise them again while every
+// mock-driven test stayed green.
+func TestRealDepsWiresTheHostCPUCount(t *testing.T) {
+	d := RealDeps(nil, nil, false)
+	if d.HostCPUs == nil {
+		t.Fatal("RealDeps leaves HostCPUs nil, so resources.cpus is never capped")
+	}
+	if got := d.HostCPUs(); got != runtime.NumCPU() {
+		t.Errorf("HostCPUs() = %d, want runtime.NumCPU() = %d", got, runtime.NumCPU())
+	}
+}
