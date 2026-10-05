@@ -256,6 +256,18 @@ type JailDaemons struct {
 	// it when either is true. It stays on this struct, beside the payload it began with, because
 	// both triggers are one directory resolved once per launch (resolveGuestBinSource).
 	GuestBinSource string
+	// OnLaunch, when set, runs once, immediately before the session's command starts: after every
+	// step that can refuse the launch (the preconditions, the nix builds, the bootstrap, the
+	// provisioning stage, this supervisor's start and the host-service witness) has passed and
+	// the workspace lock is released. What it returns runs once the command has exited, before
+	// the supervisor stops; nil returns nothing to run. Never on a dry run or a refusal. It must
+	// return promptly: the session waits for it.
+	//
+	// The run pipeline's port relays open here (internal/cli/run's macosuserportrelay.go), so a
+	// launch refused at any step, or still building its tools, publishes no port. It rides on
+	// this value, which is about the guest's daemons, only because the value already crosses the
+	// run pipeline's MacosUserRun seam whole, so the seam's signature does not change.
+	OnLaunch func() (stop func())
 }
 
 // Names is the daemons the payload names, sorted — what the supervisor will start.

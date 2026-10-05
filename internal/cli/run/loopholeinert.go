@@ -514,7 +514,9 @@ func deviceLabels(entries []any) []string {
 //   - `ports`: that listing a port confines nothing — the sandbox is on the launcher's own stack,
 //     so every port it binds is on this machine's real interfaces, listed here or not. A WARNING
 //     for that reason alone, whatever else is delivered, because on a container `ports` is the
-//     whole exposure surface and here it is none of it.
+//     whole exposure surface and here it is none of it. It ends with the step that keeps a
+//     service private: bind it to 127.0.0.1 (on a port no relay publishes on a real interface,
+//     when one does), or use a container runtime.
 //   - `forward_host_ports`: that a same-port entry needs no hop. A disclosure when every remap in
 //     it is relayed, since nothing is then left undone; a warning when one is not.
 //   - Both: the remaps this launch relays (each relay names itself as it opens, or warns that it
@@ -531,11 +533,20 @@ func (o *Options) noteMacosUserPortKeys(cfg *jsonx.OrderedMap, plan macosUserPor
 	out := o.pr(o.Stderr)
 
 	if ports := asAnyList(mapGet(netSec, "ports")); len(ports) > 0 {
+		// THE NEXT STEP, after whatever the plan relays: what keeps a service private here, and
+		// the backend where listing a port is the whole exposure. Binding loopback is not enough
+		// for a port a relay publishes on a real interface, so then the step says so.
+		step := " To keep a service on this Mac alone, bind it to `127.0.0.1` in the sandbox"
+		if relaysExpose(plan.relays) {
+			step += ", on a port no relay named here publishes on a real interface"
+		}
+		step += ", or use a container runtime (`runtime: \"podman\"`), whose published ports are " +
+			"the only way in."
 		out.print("[yellow]Warning: `network.ports` confines nothing on macos-user[/yellow] — " +
 			strings.Join(portLabels(ports), ", ") + ". The sandbox runs on the launcher's own " +
 			"network stack, so a port it binds IS published on this machine's real interfaces — " +
 			"listed here or not — and nothing pins one to a bind address." +
-			plan.remapSentences(keyNetworkPorts))
+			plan.remapSentences(keyNetworkPorts) + step)
 	}
 
 	if fwd := asAnyList(mapGet(netSec, "forward_host_ports")); len(fwd) > 0 {

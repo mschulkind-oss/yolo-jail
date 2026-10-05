@@ -858,28 +858,30 @@ func Run(opts Options) (rc int) {
 		// run starts nothing, and Run's deferred record says so.
 		if !o.DryRun {
 			o.recordLaunchOutcome(launchStarted, -1)
-			// THE PORT REMAPS' RELAYS (macosuserportrelay.go), opened once the launch's fate is
-			// known, so a launch refused above opens no port, and before the reserved ports go
-			// free below, so a relay never takes one a guest daemon was promised. None refuses:
-			// one whose port is taken warns and is skipped. Each closes, with its live
-			// connections, when the command returns.
-			stopRelays := o.startMacosUserPortRelays(portPlan.relays)
-			defer stopRelays()
 		}
 		// THE GUEST'S PORTS GO FREE HERE, and no earlier (servedaddresses.go, NC-D69): the
 		// sandbox's supervisor binds the ports this launch reserved for the daemons it runs,
 		// and every listener of this launch's own (the host services' fronts, the doorways and
-		// launch-owned services, which were handed theirs, and the port relays) is bound by now.
+		// launch-owned services, which were handed theirs) is bound by now. The port relays are
+		// not among them: they open inside the backend, when the session starts, and never on a
+		// port this launch picked for a served address (macosUserRelaysAt).
 		o.releaseReservedPorts()
 		// THE HERDR PANE, registered as late as this arm can (herdragent.go): it has no signal
 		// arm, so a registration made before its config prompt outlived a Ctrl-C there.
 		o.registerHerdrAgent(staged.packs, injectedArgs)
 		// Composed LAST, after every endpoint variable has landed on launchEnv (the live
 		// path's handles, or a dry run's placeholder), since the daemons dial those files.
+		guest := channel.guestJailDaemons(guestDaemons, launchEnv)
+		// THE PORT REMAPS' RELAYS (macosuserportrelay.go) open when the session starts, inside the
+		// backend (JailDaemons.OnLaunch), and close when the command exits: so a launch refused
+		// anywhere, here or in the backend, or still building its tools, publishes no port. A dry
+		// run opens none, and its plan named each above.
+		if !o.DryRun {
+			guest.OnLaunch = o.macosUserRelaysAt(portPlan.relays)
+		}
 		return o.MacosUserRun(cfg, o.Workspace, config.SelectedAgents(cfg), agentArgv,
 			repoRoot, staged.root, homeOverlay, ctxDelivery.ctx, o.DryRun,
-			launchEnv, packload.BlockedTools(staged.packs),
-			channel.guestJailDaemons(guestDaemons, launchEnv))
+			launchEnv, packload.BlockedTools(staged.packs), guest)
 	}
 	// AUTO-CAPTURE is not in this slot any more: it runs on the fresh-launch path inside
 	// runContainer, below every attach decision, beside the fork builds (OQ-PD25).

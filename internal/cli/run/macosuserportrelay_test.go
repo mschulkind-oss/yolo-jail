@@ -20,7 +20,10 @@ import (
 
 // macosuserportrelay_test.go pins the port remaps macos-user delivers (macosuserportrelay.go):
 // the relay itself, the grammar and the plan, and — through Run() — that the macos-user arm
-// opens the planned relays for the command's lifetime and a --dry-run opens none.
+// hands the backend a session-start hook that opens the planned relays for the command's
+// lifetime, that nothing opens before the backend calls it (a refused launch opens none), and
+// that a --dry-run opens none. internal/macosuser's onlaunch_test.go pins the other half: that
+// RunMacosUser calls the hook only once nothing is left to refuse.
 
 // relayIOTimeout bounds every read and dial in these tests, so a relay that drops a half-close
 // or never stops fails the test rather than hanging it.
@@ -351,10 +354,9 @@ func TestMacosUserPortPlanReadsTheResolvedMode(t *testing.T) {
 }
 
 // relayRun drives Run() to the macos-user arm with `network` as the user config's network
-// section, and inSandbox standing in for the sandboxed command: it runs where MacosUserRun would
-// start the sandbox, while the launch's own listeners are open. The network section is in the
-// USER config so a live launch has no workspace change to approve.
-func relayRun(t *testing.T, network string, tweak func(*Options), inSandbox func()) (int, string) {
+// section, and backend standing in for MacosUserRun, handed the JailDaemons value the arm composed.
+// The network section is in the USER config so a live launch has no workspace change to approve.
+func relayRun(t *testing.T, network string, tweak func(*Options), backend func(macosuser.JailDaemons) int) (int, string) {
 	t.Helper()
 	home := packHome(t)
 	writeUserConfig(t, home, `{"network": `+network+`}`)
@@ -363,14 +365,36 @@ func relayRun(t *testing.T, network string, tweak func(*Options), inSandbox func
 	if tweak != nil {
 		tweak(o)
 	}
-	o.MacosUserRun = func(*jsonx.OrderedMap, string, []string, []string, string, string,
-		macosuser.HomeOverlay, macosuser.HostContext, bool, *jsonx.OrderedMap, []packload.BlockedTool,
-		macosuser.JailDaemons) int {
-		inSandbox()
-		return 0
+	o.MacosUserRun = func(_ *jsonx.OrderedMap, _ string, _, _ []string, _, _ string,
+		_ macosuser.HomeOverlay, _ macosuser.HostContext, _ bool, _ *jsonx.OrderedMap, _ []packload.BlockedTool,
+		jd macosuser.JailDaemons) int {
+		return backend(jd)
 	}
 	rc := Run(*o)
 	return rc, stderr.String()
+}
+
+// asTheBackendDoes runs inSandbox the way RunMacosUser runs the session's command: after the
+// session-start hook the run pipeline handed it (JailDaemons.OnLaunch), and before what that hook
+// returned.
+func asTheBackendDoes(jd macosuser.JailDaemons, inSandbox func()) int {
+	if jd.OnLaunch != nil {
+		if stop := jd.OnLaunch(); stop != nil {
+			defer stop()
+		}
+	}
+	inSandbox()
+	return 0
+}
+
+// dialable reports whether something accepts a connection at addr right now.
+func dialable(addr string) bool {
+	c, err := net.DialTimeout("tcp", addr, relayIOTimeout)
+	if err != nil {
+		return false
+	}
+	_ = c.Close()
+	return true
 }
 
 // THE CALL SITE, forward direction: a host service on 127.0.0.1:H answers at the sandbox's
@@ -385,8 +409,8 @@ func TestMacosUserLaunchRelaysAForwardHostPortRemap(t *testing.T) {
 
 	var line string
 	var dialErr error
-	rc, stderr := relayRun(t, `{"forward_host_ports": ["`+entry+`"]}`, nil, func() {
-		line, dialErr = readBanner(loopback(j))
+	rc, stderr := relayRun(t, `{"forward_host_ports": ["`+entry+`"]}`, nil, func(jd macosuser.JailDaemons) int {
+		return asTheBackendDoes(jd, func() { line, dialErr = readBanner(loopback(j)) })
 	})
 	if rc != 0 {
 		t.Fatalf("Run() = %d\nstderr:\n%s", rc, stderr)
@@ -418,8 +442,8 @@ func TestMacosUserLaunchRelaysAPublishedPortRemap(t *testing.T) {
 
 	var line string
 	var dialErr error
-	rc, stderr := relayRun(t, `{"ports": ["`+entry+`"]}`, nil, func() {
-		line, dialErr = readBanner(loopback(h))
+	rc, stderr := relayRun(t, `{"ports": ["`+entry+`"]}`, nil, func(jd macosuser.JailDaemons) int {
+		return asTheBackendDoes(jd, func() { line, dialErr = readBanner(loopback(h)) })
 	})
 	if rc != 0 {
 		t.Fatalf("Run() = %d\nstderr:\n%s", rc, stderr)
@@ -431,8 +455,8 @@ func TestMacosUserLaunchRelaysAPublishedPortRemap(t *testing.T) {
 	if !strings.Contains(stderr, fmt.Sprintf("Relaying 127.0.0.1:%d -> 127.0.0.1:%d for `network.ports` entry %s", h, j, entry)) {
 		t.Errorf("the launch did not disclose the relay:\n%s", stderr)
 	}
-	if strings.Contains(stderr, "Unlike podman's -p") {
-		t.Errorf("a loopback-only relay was disclosed as publishing more broadly than podman:\n%s", stderr)
+	if strings.Contains(stderr, "It publishes whatever listens") {
+		t.Errorf("a loopback-only relay was disclosed as publishing on a real interface:\n%s", stderr)
 	}
 	if c, err := net.DialTimeout("tcp", loopback(h), relayIOTimeout); err == nil {
 		c.Close()
@@ -440,29 +464,33 @@ func TestMacosUserLaunchRelaysAPublishedPortRemap(t *testing.T) {
 	}
 }
 
-// A --dry-run describes the relays and opens none: the plan names each with "Would relay", and its
-// port is closed while the stand-in for the sandbox runs.
+// A --dry-run describes the relays and opens none: the plan names each with "Would relay", its
+// port is closed while the stand-in for the sandbox runs, and the arm hands the backend no hook to
+// open one with.
 func TestMacosUserDryRunNamesTheRelaysAndOpensNone(t *testing.T) {
 	j, h := freeLoopbackPort(t), freeLoopbackPort(t)
 	entry := fmt.Sprintf("%d:%d", j, h)
-	var listening bool
+	var listening, hooked bool
 	rc, stderr := relayRun(t, `{"forward_host_ports": ["`+entry+`"], "ports": ["8000:3000"]}`,
-		func(o *Options) { o.DryRun = true }, func() {
-			if c, err := net.DialTimeout("tcp", loopback(j), relayIOTimeout); err == nil {
-				c.Close()
-				listening = true
-			}
+		func(o *Options) { o.DryRun = true }, func(jd macosuser.JailDaemons) int {
+			hooked = jd.OnLaunch != nil
+			return asTheBackendDoes(jd, func() { listening = dialable(loopback(j)) })
 		})
 	if rc != 0 {
 		t.Fatalf("Run() = %d\nstderr:\n%s", rc, stderr)
 	}
-	if listening {
-		t.Errorf("a --dry-run opened a relay on 127.0.0.1:%d", j)
+	if listening || hooked {
+		t.Errorf("a --dry-run opened a relay on 127.0.0.1:%d (listening %v), or handed the backend a "+
+			"hook to open one with (%v)", j, listening, hooked)
 	}
 	for _, want := range []string{
 		fmt.Sprintf("Would relay 127.0.0.1:%d -> 127.0.0.1:%d for `network.forward_host_ports` entry %s", j, h, entry),
 		"Would relay 0.0.0.0:8000 -> 127.0.0.1:3000 for `network.ports` entry 8000:3000",
-		"Unlike podman's -p, it also publishes a service the sandbox bound to 127.0.0.1 alone.",
+		// What it really publishes: the Mac's shared loopback port, whoever listens there, and the
+		// entry that keeps it on this Mac.
+		"It publishes whatever listens on this Mac's 127.0.0.1:3000, the sandbox's service or one of " +
+			"yours, on 0.0.0.0:8000, which podman's -p never does; write the entry as " +
+			"`127.0.0.1:8000:3000` to keep it on this Mac.",
 	} {
 		if !strings.Contains(stderr, want) {
 			t.Errorf("the plan lacks %q:\n%s", want, stderr)
@@ -480,11 +508,8 @@ func TestMacosUserLaunchRelaysNothingUnderHostNetworking(t *testing.T) {
 	entry := fmt.Sprintf("%d:%d", j, h)
 	var listening bool
 	rc, stderr := relayRun(t, `{"forward_host_ports": ["`+entry+`"]}`,
-		func(o *Options) { o.Network = "host" }, func() {
-			if c, err := net.DialTimeout("tcp", loopback(j), relayIOTimeout); err == nil {
-				c.Close()
-				listening = true
-			}
+		func(o *Options) { o.Network = "host" }, func(jd macosuser.JailDaemons) int {
+			return asTheBackendDoes(jd, func() { listening = dialable(loopback(j)) })
 		})
 	if rc != 0 {
 		t.Fatalf("Run() = %d\nstderr:\n%s", rc, stderr)
@@ -498,21 +523,25 @@ func TestMacosUserLaunchRelaysNothingUnderHostNetworking(t *testing.T) {
 	}
 }
 
-// A relay whose port is taken is skipped with a warning naming the entry and the command that finds
-// the holder, and the launch goes on: the command still runs.
+// A relay whose port is taken is not running yet, with a warning naming the entry, the command
+// that finds the holder and that the launch takes the port over when it frees; the launch goes on:
+// the command still runs.
 func TestMacosUserLaunchWarnsAndContinuesWhenARelayPortIsTaken(t *testing.T) {
 	taken := listenLoopback(t, 0)
 	j := taken.Addr().(*net.TCPAddr).Port
 	entry := fmt.Sprintf("%d:%d", j, freeLoopbackPort(t))
 	ran := false
-	rc, stderr := relayRun(t, `{"forward_host_ports": ["`+entry+`"]}`, nil, func() { ran = true })
+	rc, stderr := relayRun(t, `{"forward_host_ports": ["`+entry+`"]}`, nil, func(jd macosuser.JailDaemons) int {
+		return asTheBackendDoes(jd, func() { ran = true })
+	})
 	if rc != 0 || !ran {
 		t.Fatalf("Run() = %d (command ran: %v), want the launch to go on\nstderr:\n%s", rc, ran, stderr)
 	}
 	for _, want := range []string{
-		"Warning: not relaying `network.forward_host_ports` entry " + entry,
+		"Warning: `network.forward_host_ports` entry " + entry + " is not relayed yet",
 		fmt.Sprintf("`lsof -iTCP:%d -sTCP:LISTEN` names it", j),
-		"The launch goes on without this remap.",
+		"The launch goes on, and takes the port over once it frees",
+		"if another yolo session of this workspace holds it, that is when that session ends.",
 	} {
 		if !strings.Contains(stderr, want) {
 			t.Errorf("the bind failure lacks %q:\n%s", want, stderr)
@@ -520,5 +549,190 @@ func TestMacosUserLaunchWarnsAndContinuesWhenARelayPortIsTaken(t *testing.T) {
 	}
 	if strings.Contains(stderr, "Relaying ") {
 		t.Errorf("a relay that could not listen was disclosed as running:\n%s", stderr)
+	}
+}
+
+// NOTHING OPENS BEFORE THE BACKEND SAYS THE SESSION STARTS. RunMacosUser refuses a launch at its
+// preconditions, its nix build (up to half an hour on a first launch), its bootstrap or its
+// host-service witness, all after this arm dispatches to it; a stand-in that refuses the same way,
+// without calling the hook, finds the relay's port closed throughout, and the launch says it is
+// relaying nothing. Fails if the arm opens the relays itself anywhere before the dispatch, which
+// is where they were first written and where every one of the backend's refusals saw them open.
+func TestMacosUserRefusedLaunchOpensNoRelay(t *testing.T) {
+	h, j := freeLoopbackPort(t), freeLoopbackPort(t)
+	entry := fmt.Sprintf("127.0.0.1:%d:%d", h, j)
+	var listening, hooked bool
+	rc, stderr := relayRun(t, `{"ports": ["`+entry+`"]}`, nil, func(jd macosuser.JailDaemons) int {
+		hooked = jd.OnLaunch != nil
+		listening = dialable(loopback(h))
+		return 1
+	})
+	if rc != 1 {
+		t.Fatalf("Run() = %d, want the backend's refusal\nstderr:\n%s", rc, stderr)
+	}
+	if !hooked {
+		t.Errorf("the arm handed the backend no session-start hook for %s: the premise is gone", entry)
+	}
+	if listening || strings.Contains(stderr, "Relaying ") {
+		t.Errorf("127.0.0.1:%d listened (%v) while the backend had not started the session, or the "+
+			"launch said it was relaying:\n%s", h, listening, stderr)
+	}
+	if dialable(loopback(h)) {
+		t.Errorf("127.0.0.1:%d listens after a refused launch", h)
+	}
+}
+
+// awaitBanner dials addr until it answers with a line or the timeout passes, for a relay that takes
+// its port over within relayRetryInterval of it freeing.
+func awaitBanner(addr string, within time.Duration) (string, error) {
+	deadline := time.Now().Add(within)
+	for {
+		line, err := readBanner(addr)
+		if err == nil || time.Now().After(deadline) {
+			return line, err
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+}
+
+// A PORT IN USE IS TAKEN OVER WHEN IT FREES: the second relay on one port comes back with the
+// in-use error AND a relay, which answers on the port once the first relay's listener has gone.
+func TestPortRelayTakesAPortOverWhenItFrees(t *testing.T) {
+	far := listenLoopback(t, 0)
+	serveOnce(far, speaksFirst("the far side"))
+	first, err := startPortRelay("127.0.0.1:0", far.Addr().String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	addr := first.addr()
+
+	second, err := startPortRelay(addr, far.Addr().String())
+	if err == nil || second == nil {
+		first.stop()
+		t.Fatalf("a relay on a port in use: relay %v, err %v; want both", second, err)
+	}
+	defer second.stop()
+	if got := second.addr(); got != "" {
+		t.Errorf("the waiting relay claims to listen on %s", got)
+	}
+	// While the first holds the port, the first answers.
+	if line, err := readBanner(addr); err != nil || line != "the far side" {
+		t.Fatalf("the first relay: %q, %v", line, err)
+	}
+	first.stop()
+	if line, err := awaitBanner(addr, relayRetryInterval+relayIOTimeout); err != nil || line != "the far side" {
+		t.Fatalf("after the first relay stopped, %s did not answer through the second: %q, %v", addr, line, err)
+	}
+	if got := second.addr(); got != addr {
+		t.Errorf("the second relay listens on %q, want %s", got, addr)
+	}
+}
+
+// A waiting relay that is stopped stops waiting: the port, once it frees, stays free.
+func TestPortRelayStoppedWhileWaitingNeverListens(t *testing.T) {
+	holder := listenLoopback(t, 0)
+	addr := holder.Addr().String()
+	r, err := startPortRelay(addr, loopback(freeLoopbackPort(t)))
+	if r == nil || err == nil {
+		t.Fatalf("relay %v, err %v; want a waiting relay", r, err)
+	}
+	stopped := make(chan struct{})
+	go func() { r.stop(); close(stopped) }()
+	select {
+	case <-stopped:
+	case <-time.After(relayIOTimeout):
+		t.Fatal("stop did not return while the relay waited for its port")
+	}
+	_ = holder.Close()
+	time.Sleep(2 * relayRetryInterval)
+	if dialable(addr) {
+		t.Errorf("%s listens after its waiting relay was stopped", addr)
+	}
+}
+
+// TWO SESSIONS OF ONE WORKSPACE (servicessession.go: two terminals are two sessions) each open the
+// remap's relay. The later one's cannot listen while the earlier one's runs, so it warns and waits;
+// when the earlier session ends, the remap stays up for the later one's agent. Through the
+// launch's own opener, as each session runs it.
+func TestMacosUserSecondSessionTakesTheRemapOver(t *testing.T) {
+	host := listenLoopback(t, 0)
+	serveOnce(host, speaksFirst("the host's service"))
+	j := freeLoopbackPort(t)
+	r := macosUserPortRelay{key: keyForwardHostPorts, entry: fmt.Sprintf("%d:%d", j, host.Addr().(*net.TCPAddr).Port),
+		listen: loopback(j), dial: host.Addr().String()}
+	var firstErr, secondErr bytes.Buffer
+	first := &Options{Stderr: &firstErr}
+	second := &Options{Stderr: &secondErr}
+
+	stopFirst := first.startMacosUserPortRelays([]macosUserPortRelay{r})
+	stopSecond := second.startMacosUserPortRelays([]macosUserPortRelay{r})
+	defer stopSecond()
+	if !strings.Contains(secondErr.String(), "is not relayed yet") ||
+		!strings.Contains(secondErr.String(), "if another yolo session of this workspace holds it, "+
+			"that is when that session ends") {
+		t.Errorf("the second session's warning does not say it takes the port over:\n%s", secondErr.String())
+	}
+	if line, err := readBanner(loopback(j)); err != nil || line != "the host's service" {
+		t.Fatalf("while both sessions run: %q, %v", line, err)
+	}
+	stopFirst()
+	if line, err := awaitBanner(loopback(j), relayRetryInterval+relayIOTimeout); err != nil || line != "the host's service" {
+		t.Errorf("after the first session ended, the second session's 127.0.0.1:%d does not reach the "+
+			"host's service: %q, %v", j, line, err)
+	}
+}
+
+// A PORT THIS LAUNCH PICKED FOR A SERVED ADDRESS is never relayed: the picks go free before the
+// sandbox starts and the guest daemon handed one may not have bound it when the session starts, so
+// a relay there would take it from the daemon. Skipped with a warning naming the address and the
+// next step, and nothing listens there.
+func TestMacosUserRelaysSkipAPortThisLaunchServes(t *testing.T) {
+	p := freeLoopbackPort(t)
+	var stderr bytes.Buffer
+	o := &Options{Stderr: &stderr}
+	o.served.moved = map[string]string{"127.0.0.1:1460": loopback(p)}
+	stop := o.startMacosUserPortRelays([]macosUserPortRelay{{key: keyForwardHostPorts,
+		entry: fmt.Sprintf("%d:9", p), listen: loopback(p), dial: loopback(freeLoopbackPort(t))}})
+	defer stop()
+	if dialable(loopback(p)) {
+		t.Errorf("a relay listens on %d, the port this launch picked for a served address", p)
+	}
+	for _, want := range []string{
+		fmt.Sprintf("Warning: not relaying `network.forward_host_ports` entry %d:9", p),
+		fmt.Sprintf("picked port %d for its own served address %s", p, loopback(p)),
+		"relaunching relays it",
+	} {
+		if !strings.Contains(stderr.String(), want) {
+			t.Errorf("the skip lacks %q:\n%s", want, stderr.String())
+		}
+	}
+}
+
+// A listen that fails for any reason but a port in use is skipped: no relay waits for an address
+// this machine does not have, and the warning names the entry and what to change.
+func TestMacosUserRelayThatCannotListenIsSkipped(t *testing.T) {
+	var stderr bytes.Buffer
+	o := &Options{Stderr: &stderr}
+	// 192.0.2.0/24 is TEST-NET-1 (RFC 5737), an address no machine of ours has.
+	listen := net.JoinHostPort("192.0.2.1", strconv.Itoa(freeLoopbackPort(t)))
+	if r, err := startPortRelay(listen, loopback(freeLoopbackPort(t))); r != nil || err == nil {
+		if r != nil {
+			r.stop()
+		}
+		t.Fatalf("listening on %s: relay %v, err %v; want no relay and the error", listen, r, err)
+	}
+	stop := o.startMacosUserPortRelays([]macosUserPortRelay{{key: keyNetworkPorts, entry: "e",
+		listen: listen, dial: loopback(freeLoopbackPort(t))}})
+	stop()
+	for _, want := range []string{
+		"Warning: not relaying `network.ports` entry e",
+		"The launch goes on without this remap; give the entry an address this Mac has",
+	} {
+		if !strings.Contains(stderr.String(), want) {
+			t.Errorf("the failure lacks %q:\n%s", want, stderr.String())
+		}
+	}
+	if strings.Contains(stderr.String(), "lsof") {
+		t.Errorf("a failure that is not a port in use sent the human to find the port's holder:\n%s", stderr.String())
 	}
 }

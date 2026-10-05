@@ -152,6 +152,20 @@ func TestMacosUserNamesThePortKeys(t *testing.T) {
 	if !strings.Contains(got, "listed here or not") {
 		t.Errorf("the `ports` notice does not say that the list restricts nothing:\n%s", got)
 	}
+	// AND THE NEXT STEP (every stop names one): what keeps a service private here, qualified when a
+	// relay publishes on a real interface — 8000:3000 does, on 0.0.0.0 — since binding loopback
+	// does not keep that port private.
+	if !strings.Contains(got, "To keep a service on this Mac alone, bind it to `127.0.0.1` in the "+
+		"sandbox, on a port no relay named here publishes on a real interface, or use a container "+
+		"runtime (`runtime: \"podman\"`), whose published ports are the only way in.") {
+		t.Errorf("the `ports` warning names no next step:\n%s", got)
+	}
+	// With nothing relayed, the step is the plain one.
+	same := macosUserNoticeRun(t, `{"network": {"ports": ["3000:3000"]}}`)
+	if !strings.Contains(same, "To keep a service on this Mac alone, bind it to `127.0.0.1` in the "+
+		"sandbox, or use a container runtime") || strings.Contains(same, "no relay named here") {
+		t.Errorf("a same-port `ports` list's warning has the wrong step:\n%s", same)
+	}
 	// A forward list whose every remap is relayed leaves nothing undone, so it is a disclosure,
 	// not a warning; the same list under `network.mode: "host"` is a warning naming the mode.
 	if strings.Contains(got, "Warning: `network.forward_host_ports`") {

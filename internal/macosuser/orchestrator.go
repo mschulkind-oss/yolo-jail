@@ -1081,6 +1081,14 @@ func RunMacosUser(deps Deps, opts Options) int {
 	// per-workspace tier has happened; the agent's own writes are the same ones two
 	// sessions on one workspace already share on every backend.
 	release()
+	// THE LAUNCH'S SESSION-LONG HOST LISTENERS (JailDaemons.OnLaunch: the port relays), opened
+	// only now that nothing is left to refuse, and closed when the command exits, first of
+	// everything deferred above.
+	if opts.JailDaemons.OnLaunch != nil {
+		if stop := opts.JailDaemons.OnLaunch(); stop != nil {
+			defer stop()
+		}
+	}
 	return deps.RunWithProxy(plan.LaunchArgv)
 }
 

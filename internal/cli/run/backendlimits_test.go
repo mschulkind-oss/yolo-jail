@@ -272,11 +272,40 @@ func TestBackendLimitsNameTheRelayedRemaps(t *testing.T) {
 		"This launch relays the config's port remaps from outside the sandbox, over TCP and for this session only",
 		"`localhost:8080` here reaches the host's port 9090 (`network.forward_host_ports` entry 8080:9090)",
 		"your `127.0.0.1:3000` is also published at the host's `0.0.0.0:8000` (`network.ports` entry 8000:3000)",
-		"A relay whose host port was already taken at launch is not running",
+		"A relay that could not listen at launch is not running, except that one whose port was in " +
+			"use takes it once it frees",
 	} {
 		if !strings.Contains(got, want) {
 			t.Errorf("the relay sentence lacks %q:\n%s", want, got)
 		}
+	}
+	// THE NETWORK SENTENCE AGREES WITH THE RELAY SENTENCE. A `network.ports` relay publishes a
+	// port, and one on a real interface exposes 3000 however the agent binds it, so neither
+	// "Nothing publishes a port" nor an unqualified "bind to 127.0.0.1" may stand beside it.
+	if strings.Contains(got, "Nothing publishes a port") {
+		t.Errorf("the briefing says nothing publishes a port beside a relay that publishes one:\n%s", got)
+	}
+	if !strings.Contains(got, "Nothing confines a port, and nothing publishes one but the relays below — "+
+		"bind to `127.0.0.1` when you do not mean to expose a service to their network, except on a "+
+		"port a relay below publishes on a real interface, which is exposed however you bind it.") {
+		t.Errorf("the network sentence does not name the relay's exception:\n%s", got)
+	}
+	// A loopback-only `ports` relay publishes, on this Mac alone: the exception clause is not owed.
+	loNet := jsonx.NewOrderedMap()
+	loNet.Set("ports", []any{"127.0.0.1:8000:3000"})
+	loCfg := newConfig("network", loNet)
+	lo := strings.Join(backendLimits("macos-user", nil, loCfg, planMacosUserPortRelays(loCfg, "").relays), "\n")
+	if strings.Contains(lo, "Nothing publishes a port") || strings.Contains(lo, "exposed however you bind it") ||
+		!strings.Contains(lo, "nothing publishes one but the relays below") {
+		t.Errorf("a loopback `ports` relay's network sentence:\n%s", lo)
+	}
+	// A forward relay publishes nothing: the sentence stays as it always was.
+	fwdNet := jsonx.NewOrderedMap()
+	fwdNet.Set("forward_host_ports", []any{"8080:9090"})
+	fwdCfg := newConfig("network", fwdNet)
+	fwd := strings.Join(backendLimits("macos-user", nil, fwdCfg, planMacosUserPortRelays(fwdCfg, "").relays), "\n")
+	if !strings.Contains(fwd, "Nothing publishes a port and nothing confines one") {
+		t.Errorf("a forward-only launch lost the plain network sentence:\n%s", fwd)
 	}
 	for _, unwanted := range []string{"3001", "5432"} {
 		if strings.Contains(got, unwanted) {
