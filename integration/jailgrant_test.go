@@ -1,21 +1,25 @@
 package integration
 
 // jailgrant_test.go is the integration tier of --with-credentials AT A JAIL LAUNCH
-// (docs/design/credential-sources-separation.md §5.2, ES-D31 to ES-D36): a real jail launched with
+// (docs/design/credential-sources-separation.md §5.2, ES-D31 to ES-D39): a real jail launched with
 // the grant holds the granted key in its first session and in a session attached to it later,
-// holds no key the grant did not name, carries the value on no process's command line, and refuses
-// an attach that asks for a provider it was not launched with. The unit tier, which pins each call
-// site, is internal/cli/run's jailgrant_test.go; only a real container shows the runtime taking a
-// bare `-e NAME`'s value from its client's environment and every exec session inheriting it.
+// holds no key the grant did not name, carries the value on no process's command line and nowhere
+// in the runtime's `inspect` of the container, and refuses an attach that asks for a provider it
+// was not launched with. The unit tier, which pins each call site, is internal/cli/run's
+// jailgrant_test.go; only a real container shows the grant file's bind arriving and every
+// session's boot reading it.
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	goruntime "runtime"
 	"strings"
 	"testing"
 	"time"
+
+	naming "github.com/mschulkind-oss/yolo-jail/internal/runtime"
 )
 
 func TestAJailLaunchedWithCredentialsHoldsThemForEverySession(t *testing.T) {
@@ -57,11 +61,45 @@ func TestAJailLaunchedWithCredentialsHoldsThemForEverySession(t *testing.T) {
 	if strings.Count(up, zaiKey) > 1 {
 		t.Errorf("the launch printed the granted VALUE beyond the session's own echo:\n%s", up)
 	}
-	// No process on this machine carries the value on its command line: the container argv names
-	// the key alone. /proc is Linux's; the value the session echoed is in no argv either.
+	// No process on this machine carries the value on its command line. /proc is Linux's; the
+	// value the session echoed is in no argv either.
 	if goruntime.GOOS == "linux" {
 		if hits := cmdlinesHolding(zaiKey); len(hits) > 0 {
 			t.Errorf("a command line carries the granted value: %v", hits)
+		}
+	}
+	// NOR DOES THE RUNTIME'S RECORD OF THE CONTAINER (ES-D37): a granted name or value passed as
+	// `-e` lands in the container's configuration, which `inspect` prints and the runtime's
+	// database keeps after the container is gone. The grant rides its own file instead.
+	if rt := detectRuntime(); rt != "" {
+		ins, err := exec.Command(rt, "inspect", naming.FromWorkspace(dir)).CombinedOutput()
+		if err != nil {
+			t.Fatalf("%s inspect %s: %v\n%s", rt, naming.FromWorkspace(dir), err, ins)
+		}
+		if strings.Contains(string(ins), zaiKey) {
+			t.Errorf("`%s inspect` of the jail shows the granted value", rt)
+		}
+		if strings.Contains(string(ins), "ZAI_API_KEY") {
+			t.Errorf("`%s inspect` of the jail names the granted key in its configuration", rt)
+		}
+		// On podman the grant arrives as a `:ro` bind of its file, which inspect does show, by path.
+		if rt == "podman" && !strings.Contains(string(ins), "/home/agent/.config/yolo-grant-env.sh") {
+			t.Errorf("`podman inspect` shows no bind of the grant file:\n%s", ins)
+		}
+		// And on a Linux podman whose store this process can read, the files the security review
+		// found an `-e` value in while the jail ran: the libpod database and the container's own
+		// config.json. A store it cannot read is said, never failed.
+		if rt == "podman" && goruntime.GOOS == "linux" {
+			for _, f := range podmanStoreFiles(t, naming.FromWorkspace(dir)) {
+				b, err := os.ReadFile(f)
+				if err != nil {
+					t.Logf("could not read %s to check it for the granted value: %v", f, err)
+					continue
+				}
+				if strings.Contains(string(b), zaiKey) {
+					t.Errorf("podman's %s holds the granted value", f)
+				}
+			}
 		}
 	}
 	awaitLaunchLockReleased(t, dir, first)
@@ -96,6 +134,25 @@ func TestAJailLaunchedWithCredentialsHoldsThemForEverySession(t *testing.T) {
 	if strings.Contains(r.stdout, "SHOULD-NOT-RUN") {
 		t.Errorf("the refused attach ran its command:\n%s", r.combined())
 	}
+}
+
+// podmanStoreFiles are the libpod database and cname's container config.json in podman's graph
+// root, as `podman info` and `podman inspect` name them; none when either cannot be asked.
+func podmanStoreFiles(t *testing.T, cname string) []string {
+	t.Helper()
+	root, err := exec.Command("podman", "info", "--format", "{{.Store.GraphRoot}}").Output()
+	if err != nil {
+		t.Logf("podman info: %v", err)
+		return nil
+	}
+	id, err := exec.Command("podman", "inspect", "--format", "{{.Id}}", cname).Output()
+	if err != nil {
+		t.Logf("podman inspect --format {{.Id}}: %v", err)
+		return nil
+	}
+	graph := strings.TrimSpace(string(root))
+	return []string{filepath.Join(graph, "db.sql"),
+		filepath.Join(graph, "overlay-containers", strings.TrimSpace(string(id)), "userdata", "config.json")}
 }
 
 // cmdlinesHolding lists the pids whose command line contains value.
