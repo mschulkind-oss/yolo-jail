@@ -741,14 +741,18 @@ that writes a launch's environment for one notch or backend. There are three:
   - **At a jail launch the same flag grants the jail** (OQ-ES5's jail half, 2026-10-05).
     `yolo --with-credentials zai -- bash` starts a jail whose every process holds those claimed
     values, keys only, for the jail's life: the session it starts, every session attached later,
-    and everything each one starts. The grant is no recipient of the gate: it rides the
-    container's frozen environment (a bare `-e NAME` on the argv, the value in the runtime
-    client's environment) or, on macos-user, the root-owned per-session env file, and never a
-    per-agent file. The gate's lines name a granted key as every process's. The keeper's start
-    record names the set, so an attach asking for a provider or a name the running jail was not
-    launched with is refused, naming `yolo stop` and the fresh launch
+    and everything each one starts. The grant is no recipient of the gate: it rides a per-launch
+    grant file the fresh launch writes once (on podman a 0600 file in the launcher's state
+    outside the workspace, bound `:ro` at `~/.config/yolo-grant-env.sh`; on Apple Container a
+    copy at that path in the jail home), which every boot and session reads into its
+    environment, or on macos-user the root-owned per-session env file; never a runtime `-e`,
+    which podman keeps in the container's configuration and database, and never a per-agent
+    file. The files go with the jail. The gate's lines name a granted key as every process's.
+    The keeper's start record names the set, so an attach asking for a provider or a name the
+    running jail's grant lacks is refused, naming `yolo stop` and the fresh launch. A profile an
+    attach selects still delivers its own provider's key, pending a ruling
     ([§5.2](../design/credential-sources-separation.md#52-the-jail-half---with-credentials-at-a-jail-launch-built),
-    [ES-D31 to ES-D36](../design/credential-sources-separation.md#10-decision-ledger)).
+    [ES-D31 to ES-D39](../design/credential-sources-separation.md#10-decision-ledger)).
 
 Every arm discloses what it scoped or withheld, by name and never by value
 (`CredentialScope.Disclosure`; the host notch adds its remedy and its shell note through

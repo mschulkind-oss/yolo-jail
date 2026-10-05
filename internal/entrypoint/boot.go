@@ -215,6 +215,36 @@ func hydrateEnvFromUserEnvFile(e *Env) {
 	}
 }
 
+// JailGrantFileRel is where a container jail's --with-credentials grant reaches the jail, relative
+// to the jail home (docs/design/credential-sources-separation.md §5.2, ES-D37): a per-launch file
+// of plain `export K='v'` lines the launcher writes once, at the fresh launch, and never rewrites.
+// On podman it is a `:ro` bind of a 0600 file in the launcher's own state, outside the workspace;
+// on Apple Container a copy in the jail home, as that backend's env_sources channel is. Absent on
+// a jail launched with no grant.
+const JailGrantFileRel = ".config/yolo-grant-env.sh"
+
+// hydrateEnvFromGrantFile exports the jail's grant (JailGrantFileRel) into the process env and
+// e.Vars, so every process the boot and each session's entrypoint start inherits it: the jail
+// holds the set for its life, the way the ruling reads ("a later session attached to that jail
+// has the jail's set"). The values never pass through the runtime's container configuration, its
+// inspect output or its database (ES-D37). No YOLO_ name is taken from it (launcherContractKey):
+// the file holds providers' claimed credential names, and the launch's contract is the argv's.
+// An absent file is a jail launched with no grant, and reads nothing.
+func hydrateEnvFromGrantFile(e *Env) {
+	data, err := os.ReadFile(filepath.Join(e.Home, JailGrantFileRel))
+	if err != nil {
+		return
+	}
+	for _, line := range splitLines(string(data)) {
+		key, val, _, ok := parseExportLine(line)
+		if !ok || launcherContractKey(key) {
+			continue
+		}
+		e.Vars[key] = val
+		_ = os.Setenv(key, val)
+	}
+}
+
 // launcherContractKey reports whether key is in the namespace of the launcher's contract with
 // the boot: every YOLO_ name. The boot's own environment carries each one the launch set (the
 // podman argv, the bootstrap argv), so one it lacks is one the launch DID NOT set, and a file
@@ -233,6 +263,10 @@ func launcherContractKey(key string) bool { return strings.HasPrefix(key, "YOLO_
 // session env file (hydrateEnvFromSessionEnvFile) and the per-agent env files
 // (parseAgentEnvLine, which adds the writer's `case` lines) — so they cannot come to disagree
 // about a value's quoting.
+// ParseExportLine is parseExportLine for the launcher, which reads a jail's grant file back on an
+// attach (internal/cli/run's grantFileValues) in the grammar the jail reads it in.
+func ParseExportLine(line string) (key, val string, def, ok bool) { return parseExportLine(line) }
+
 func parseExportLine(line string) (key, val string, def, ok bool) {
 	loc := exportLineRe.FindStringSubmatchIndex(line)
 	if loc == nil {

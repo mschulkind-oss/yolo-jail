@@ -168,6 +168,10 @@ type Options struct {
 	// nil without the flag: what a fresh launch hands the jail it starts, and what an attach
 	// asks the running jail to hold already.
 	jailGrant *jailGrant
+	// jailGrantFile is the host copy of the grant file this FRESH launch staged (stageJailGrant),
+	// which the podman argv binds; "" when none was staged. Run's deferred discard removes it
+	// unless a container came to hold it (discardUnheldJailGrant).
+	jailGrantFile string
 	// heldGrant is the grant the processes this entry starts hold, for the disclosure: this
 	// launch's own on a fresh launch and on macos-user, the running jail's (its keeper's start
 	// record) on an attach. nil when they hold none.

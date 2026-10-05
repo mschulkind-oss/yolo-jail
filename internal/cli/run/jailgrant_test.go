@@ -1,11 +1,11 @@
 package run
 
 // jailgrant_test.go pins --with-credentials AT A JAIL LAUNCH (jailgrant.go;
-// docs/design/credential-sources-separation.md OQ-ES5's jail half, ES-D31 to ES-D36), one cell per
+// docs/design/credential-sources-separation.md OQ-ES5's jail half, ES-D31 to ES-D39), one cell per
 // vehicle and per rule, each driven through the production path that carries it: Run for the
-// resolution and the macos-user arm, a whole podman launch to its keeper's plan, the assembler on
-// Apple Container, the keeper to its main process's client, and attachExisting for the attach
-// rule. The front door's parse is internal/cli's jailwithcredentials_test.go.
+// resolution and the macos-user arm, a whole podman launch to its keeper's plan, the grant file
+// staging on Apple Container, the keeper's start record and its teardown, and attachExisting for
+// the attach rule. The front door's parse is internal/cli's jailwithcredentials_test.go.
 
 import (
 	"bytes"
@@ -18,6 +18,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/entrypoint"
 	"github.com/mschulkind-oss/yolo-jail/internal/image"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/macosuser"
@@ -201,18 +202,32 @@ func TestAJailGrantIsImpliedByNothingElse(t *testing.T) {
 	}
 }
 
-// PODMAN, through a whole fresh launch to its keeper's plan: the container argv names each granted
-// key as a bare `-e NAME` and carries no value anywhere; the values ride the plan for the runtime
-// client alone; the plan's grant, which the keeper writes into its start record, holds names only;
-// and nothing the launch wrote into the workspace holds a granted value.
-func TestAPodmanJailGrantNamesKeysOnTheArgvAndHandsValuesToTheClient(t *testing.T) {
+// PODMAN, through a whole fresh launch to its keeper's plan (ES-D37): the container argv carries
+// no granted name or value as `-e`, only a `:ro` bind of the launch's grant file at the jail
+// home's grant path; that file is the launcher's own, 0600 in a 0700 directory outside the
+// workspace, and holds exactly the granted value; the plan holds no value at all; nothing the
+// launch wrote into the workspace holds one; and a launch whose container never started takes its
+// grant file back.
+func TestAPodmanJailGrantRidesAGrantFileNeverTheArgv(t *testing.T) {
 	home := packHome(t)
 	writeUserConfig(t, home, grantConfig(t, `"zai", "cerebras"`, ""))
 	ws := t.TempDir()
+	cname := yoloruntime.FromWorkspace(ws)
+	hostFile := jailGrantHostFile(cname)
 	var plan *keeperPlan
+	var rawPlan, atSpawn []byte
+	var fileMode, dirMode os.FileMode
 	saved := defaultKeeperSpawner
 	t.Cleanup(func() { defaultKeeperSpawner = saved })
 	defaultKeeperSpawner = func(_ *Options, planPath string, _, _, _ *os.File, _ []*os.File) (func() int, error) {
+		rawPlan, _ = os.ReadFile(planPath)
+		atSpawn, _ = os.ReadFile(hostFile)
+		if fi, err := os.Stat(hostFile); err == nil {
+			fileMode = fi.Mode().Perm()
+		}
+		if fi, err := os.Stat(filepath.Dir(hostFile)); err == nil {
+			dirMode = fi.Mode().Perm()
+		}
 		p, err := readKeeperPlan(planPath)
 		if err != nil {
 			return nil, err
@@ -228,38 +243,50 @@ func TestAPodmanJailGrantNamesKeysOnTheArgvAndHandsValuesToTheClient(t *testing.
 	o.PathExists = func(p string) bool { return p == filepath.Join(prebuiltBinDir(repo.Root), "yolo-entrypoint") }
 	o.Exec = func([]string, string, []string, time.Duration) ExecResult { return ExecResult{Ran: true, RC: 0} }
 	o.autoLoad = func(image.AutoLoadOptions) image.LoadResult { return image.LoadResult{OK: true, Ref: goldenImageRef} }
-	cname := yoloruntime.FromWorkspace(ws)
 	t.Cleanup(func() { _ = os.RemoveAll(hostServiceSocketsDir(cname, false)) })
 	_ = Run(*o)
 	out := stdout.String() + stderr.String()
 	if plan == nil {
 		t.Fatalf("the launch never reached its keeper's spawn:\n%s", out)
 	}
-	if i := slices.Index(plan.RunCmd, "ZAI_API_KEY"); i < 1 || plan.RunCmd[i-1] != "-e" {
-		t.Errorf("the container argv must name the granted key as a bare `-e ZAI_API_KEY`: %q", plan.RunCmd)
+	bind := hostFile + ":/home/agent/" + entrypoint.JailGrantFileRel + ":ro"
+	if i := slices.Index(plan.RunCmd, bind); i < 1 || plan.RunCmd[i-1] != "-v" {
+		t.Errorf("the container argv must bind the grant file `-v %s`: %q", bind, plan.RunCmd)
 	}
-	for _, w := range plan.RunCmd {
+	for i, w := range plan.RunCmd {
 		for _, v := range grantValues {
 			if strings.Contains(w, v) {
 				t.Errorf("the container argv carries a credential value in %q", w)
 			}
 		}
-		if strings.HasPrefix(w, "CEREBRAS_API_KEY") {
-			t.Errorf("cerebras was not named, yet the argv carries %q", w)
+		if i > 0 && plan.RunCmd[i-1] == "-e" && (strings.HasPrefix(w, "ZAI_API_KEY") || strings.HasPrefix(w, "CEREBRAS_API_KEY")) {
+			t.Errorf("a granted name rides the argv as `-e %s`, which podman resolves into the container's "+
+				"configuration and database", w)
 		}
 	}
-	if !slices.Equal(plan.GrantEnv, []string{"ZAI_API_KEY=tok-z"}) {
-		t.Errorf("the plan hands the runtime client %q, want exactly ZAI_API_KEY=tok-z", plan.GrantEnv)
+	if want := "export ZAI_API_KEY='tok-z'\n"; !strings.Contains(string(atSpawn), want) ||
+		strings.Contains(string(atSpawn), "tok-c") {
+		t.Errorf("the grant file at the spawn held %q, want the zai key and no other", atSpawn)
+	}
+	if fileMode != 0o600 || dirMode != 0o700 {
+		t.Errorf("the grant file is %o in a %o directory, want 0600 in 0700", fileMode, dirMode)
+	}
+	if strings.HasPrefix(hostFile, ws) {
+		t.Errorf("the grant file %s is inside the workspace", hostFile)
+	}
+	for _, v := range grantValues {
+		if strings.Contains(string(rawPlan), v) {
+			t.Errorf("the keeper's plan holds a credential value (%s)", v)
+		}
 	}
 	if plan.Grant == nil || !slices.Equal(plan.Grant.Providers, []string{"zai"}) {
 		t.Fatalf("the plan's grant (for the keeper's start record) = %+v, want the zai grant", plan.Grant)
 	}
-	rec, _ := json.Marshal(keeperRecord{PID: 1, Grant: plan.Grant})
-	if !strings.Contains(string(rec), `"ZAI_API_KEY"`) || strings.Contains(string(rec), "tok-z") {
-		t.Errorf("the start record's grant must hold the name and never the value: %s", rec)
-	}
 	if hits := filesHolding(t, ws, "tok-z"); len(hits) != 0 {
 		t.Errorf("the granted value reached a file in the workspace: %v", hits)
+	}
+	if _, err := os.Stat(hostFile); !os.IsNotExist(err) {
+		t.Errorf("a launch whose container never started left its grant file %s (%v)", hostFile, err)
 	}
 	for _, want := range []string{
 		"Credential grant (--with-credentials zai): this jail holds the granted providers' claimed " +
@@ -283,15 +310,17 @@ func TestAPodmanJailGrantNamesKeysOnTheArgvAndHandsValuesToTheClient(t *testing.
 	}
 }
 
-// APPLE CONTAINER shares the argv: the same bare `-e NAME`, before every `-e` yolo writes itself,
-// and no value.
-func TestAnAppleContainerJailGrantNamesKeysOnTheArgv(t *testing.T) {
+// APPLE CONTAINER (ES-D37): no granted name or value on the argv, and no bind either, below or
+// above its `:ro` floor; the grant file is copied into the jail home the backend binds whole, 0600,
+// beside the launcher's own host copy, which an attach reads.
+func TestAnAppleContainerJailGrantIsAFileInTheJailHome(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	emptyLoopholeDirs(t)
 	o := goldenOptions("/ws", home)
 	packs := []*packload.Pack{officialPack(t, "zai"), officialPack(t, "cerebras")}
-	in := relocationInput(t, "container", t.TempDir(), nil)
+	wsState := t.TempDir()
+	in := relocationInput(t, "container", wsState, nil)
 	in.packs = packs
 	store := jsonx.NewOrderedMap()
 	store.Set("ZAI_API_KEY", "tok-z")
@@ -301,24 +330,31 @@ func TestAnAppleContainerJailGrantNamesKeysOnTheArgv(t *testing.T) {
 	if err := o.resolveJailGrant(in.channel); err != nil {
 		t.Fatal(err)
 	}
+	if err := o.stageJailGrant(in.cname, "container", wsState); err != nil {
+		t.Fatal(err)
+	}
 	argv := o.assembleRunCmd(in)
-	i := slices.Index(argv, "CEREBRAS_API_KEY")
-	if i < 1 || argv[i-1] != "-e" {
-		t.Fatalf("Apple Container's argv must name the granted key as a bare `-e CEREBRAS_API_KEY`: %q", argv)
-	}
-	if first := slices.Index(argv, "-e"); first != i-1 {
-		t.Errorf("the grant's `-e` must come before every `-e` yolo writes (first -e at %d, the grant's at %d)", first, i-1)
-	}
 	for _, w := range argv {
-		if strings.Contains(w, "tok-") || strings.HasPrefix(w, "ZAI_API_KEY") {
+		if strings.Contains(w, "tok-") || strings.HasPrefix(w, "CEREBRAS_API_KEY") || strings.Contains(w, "yolo-grant-env") {
 			t.Errorf("Apple Container's argv carries %q", w)
 		}
 	}
+	inHome := filepath.Join(wsState, entrypoint.JailGrantFileRel)
+	b, err := os.ReadFile(inHome)
+	if err != nil || !strings.Contains(string(b), "export CEREBRAS_API_KEY='tok-c'\n") || strings.Contains(string(b), "tok-z") {
+		t.Errorf("the jail home's grant file = %q (%v), want the cerebras key alone", b, err)
+	}
+	if fi, err := os.Stat(inHome); err != nil || fi.Mode().Perm() != 0o600 {
+		t.Errorf("the jail home's grant file mode: %v %v, want 0600", fi, err)
+	}
+	if got := grantFileValues(jailGrantHostFile(in.cname)); got["CEREBRAS_API_KEY"] != "tok-c" || len(got) != 1 {
+		t.Errorf("the host copy holds %v, want the cerebras key alone", got)
+	}
 }
 
-// THE KEEPER hands the grant's values to the container's runtime client, and to nothing else of
-// its own, and records the names, never the values, in its start record for the attach to read.
-func TestTheKeeperHandsTheGrantToTheContainerClientAndRecordsNames(t *testing.T) {
+// THE KEEPER records the grant's names, never a value, in its start record for the attach to read,
+// and hands the container's client no granted value: the values are in the grant file alone.
+func TestTheKeeperRecordsTheGrantByNameAndHandsTheClientNoValue(t *testing.T) {
 	seen := filepath.Join(t.TempDir(), "seen")
 	grant := &jailGrant{Spelled: "zai", Providers: []string{"zai"},
 		Granted: []grantedProvider{{Provider: "zai", Delivered: []string{"ZAI_API_KEY"}, Claims: []string{"ZAI_API_KEY"}}}}
@@ -329,29 +365,63 @@ func TestTheKeeperHandsTheGrantToTheContainerClientAndRecordsNames(t *testing.T)
 			t.Fatal(err)
 		}
 		session = lock
-		p.Grant, p.GrantEnv = grant, []string{"ZAI_API_KEY=tok-z"}
-		p.RunCmd = []string{"sh", "-c", `printf '%s' "$ZAI_API_KEY" > ` + shquote.Quote(seen) + "; " + p.RunCmd[2]}
+		p.Grant = grant
+		p.RunCmd = []string{"sh", "-c", `printf '[%s]' "${ZAI_API_KEY-}" > ` + shquote.Quote(seen) + "; " + p.RunCmd[2]}
 	})
 	if !f.relay() {
 		t.Fatalf("the relay ended before ready:\n%s", f.errOut.String())
 	}
-	if b, err := os.ReadFile(seen); err != nil || string(b) != "tok-z" {
-		t.Errorf("the container's client was handed ZAI_API_KEY = %q (err %v), want tok-z", b, err)
-	}
-	if v := os.Getenv("ZAI_API_KEY"); v == "tok-z" {
-		t.Error("the keeper put the granted value in its own environment, which every host service inherits")
+	if b, err := os.ReadFile(seen); err != nil || string(b) != "[]" {
+		t.Errorf("the container's client environment carries ZAI_API_KEY = %q (err %v): no value may cross "+
+			"to the runtime, whose configuration and database keep what its client hands it", b, err)
 	}
 	rec, ok := readKeeperRecord(f.cname)
 	if !ok || rec.Grant == nil || !rec.Grant.holds("ZAI_API_KEY") || rec.Grant.Spelled != "zai" {
 		t.Errorf("the start record's grant = %+v (%v), want the zai grant by name", rec.Grant, ok)
 	}
-	raw, _ := os.ReadFile(keeperRecordPath(f.cname))
-	if strings.Contains(string(raw), "tok-z") {
-		t.Errorf("the start record holds a credential value:\n%s", raw)
-	}
 	session.release()
 	if rc := f.wait(); rc != 0 {
 		t.Errorf("the keeper ended %d", rc)
+	}
+}
+
+// THE JAIL'S TEARDOWN TAKES ITS CREDENTIAL FILES WITH IT (ES-D38), through a keeper's normal end:
+// once the last session leaves and the container is known gone, the grant file (the host copy and
+// the mountpoint in the home) and every per-agent env file are removed, and the per-agent directory
+// the next launch binds stays. Before, a rotated key's launch-time value an attach's agent file
+// named outlived the jail until the workspace's next entry.
+func TestTheJailsTeardownRemovesItsGrantAndAgentEnvFiles(t *testing.T) {
+	var session *sessionLock
+	var ws, wsState, cname string
+	f := startKeeperFixture(t, true, func(p *keeperPlan) {
+		ws = p.Workspace
+		cname = yoloruntime.FromWorkspace(ws)
+		p.Cname = cname
+		wsState = paths.WorkspaceHomeState(ws)
+		writeExec(t, filepath.Join(wsState, agentEnvStateDir, "pi.sh"), "export ZAI_API_KEY='tok-old'\n")
+		writeExec(t, filepath.Join(wsState, jailGrantHomeRel("podman")), "")
+		writeExec(t, jailGrantHostFile(cname), "export ZAI_API_KEY='tok-old'\n")
+		lock, _, err := takeSessionLock(cname)
+		if err != nil {
+			t.Fatal(err)
+		}
+		session = lock
+	})
+	if !f.relay() {
+		t.Fatalf("the relay ended before ready:\n%s", f.errOut.String())
+	}
+	session.release()
+	if rc := f.wait(); rc != 0 {
+		t.Fatalf("the keeper ended %d", rc)
+	}
+	for _, gone := range []string{filepath.Join(wsState, agentEnvStateDir, "pi.sh"),
+		filepath.Join(wsState, jailGrantHomeRel("podman")), filepath.Dir(jailGrantHostFile(cname))} {
+		if _, err := os.Lstat(gone); !os.IsNotExist(err) {
+			t.Errorf("the jail's teardown left %s (%v)", gone, err)
+		}
+	}
+	if fi, err := os.Stat(filepath.Join(wsState, agentEnvStateDir)); err != nil || !fi.IsDir() {
+		t.Errorf("the teardown removed the per-agent directory the next launch binds: %v", err)
 	}
 }
 
@@ -387,8 +457,11 @@ func TestAnAttachHoldsTheJailsGrantAndAsksForNoOther(t *testing.T) {
 		{"a provider the jail lacks", zaiOnly, []string{"cerebras"}, false,
 			[]string{"Refusing to attach", "asks for --with-credentials cerebras",
 				"launched with --with-credentials zai", "cerebras (CEREBRAS_API_KEY)",
-				"'yolo stop' from this workspace", "`yolo --with-credentials zai,cerebras -- claude` (the jail's grant"},
-			[]string{"Attaching to"}},
+				"'yolo stop' from this workspace", "`yolo --with-credentials zai,cerebras -- claude` (the jail's grant",
+				// ES-D39: the grant's rule, and no claim the jail takes no other credential, since an
+				// attach's -p still delivers its profile's key.
+				"--with-credentials grant is fixed when the jail is launched, and an attach cannot add to it"},
+			[]string{"Attaching to", "takes no others", "holds exactly the credentials"}},
 		{"a jail launched with no grant", nil, []string{"zai"}, false,
 			[]string{"Refusing to attach", "launched with no --with-credentials grant", "`yolo --with-credentials zai -- claude`"},
 			[]string{"the jail's grant and this entry's together"}},
@@ -449,5 +522,96 @@ func TestAnAttachHoldsTheJailsGrantAndAsksForNoOther(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// AN ATTACH READS THE JAIL'S GRANT FILE AS YOLO'S VALUES (ES-D36, ES-D37): every session's boot
+// puts the granted values in its environment from the grant file, not from the container's frozen
+// environment, so the attach adds them to what it knows yolo set (bootEnv). An agent whose profile
+// selects the granted provider then overrides the launch-time value with its profile's current one
+// (the `case` guard), as it did when the values were frozen into the container, rather than
+// deferring to the stale grant. A profile at an attach still delivers that way, pending a ruling
+// (ES-D39).
+func TestAnAttachTreatsTheGrantFilesValuesAsYolos(t *testing.T) {
+	packs := zaiSelected(t)
+	store := jsonx.NewOrderedMap()
+	store.Set("ZAI_API_KEY", "tok-new")
+	o, cfg, channel, stderr := attachFixture(t, currentJailEnv, packs, store,
+		func(o *Options, _ *jsonx.OrderedMap) { o.ProfileName = "zai" })
+	const cname = "yolo-ws-abcd1234"
+	live, err := holdLivenessLock(cname)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer releaseLock(live)
+	other, _, err := takeSessionLock(cname)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer other.release()
+	grant := &jailGrant{Spelled: "zai", Providers: []string{"zai"},
+		Granted: []grantedProvider{{Provider: "zai", Delivered: []string{"ZAI_API_KEY"}, Claims: []string{"ZAI_API_KEY"}}}}
+	if err := writeKeeperRecord(cname, keeperRecord{PID: 4242, Started: time.Now(), Grant: grant}); err != nil {
+		t.Fatal(err)
+	}
+	writeExec(t, jailGrantHostFile(cname), "export ZAI_API_KEY='tok-old'\n")
+	if rc, _, execed := attachToExec(t, o, cfg, packs, channel); rc != 0 || !execed {
+		t.Fatalf("attach rc %d execed %v\n%s", rc, execed, stderr.String())
+	}
+	b, err := os.ReadFile(filepath.Join(paths.WorkspaceHomeState(o.Workspace), agentEnvStateDir, "claude.sh"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := `case "${ZAI_API_KEY-}" in ''|'tok-old') export ZAI_API_KEY='tok-new' ;; esac`; !strings.Contains(string(b), want) {
+		t.Errorf("claude's file must override the grant's launch-time value with its profile's (%q):\n%s", want, b)
+	}
+}
+
+// A LAUNCH REFUSED AFTER IT STAGED ITS GRANT FILE, AND BEFORE ANY KEEPER, TAKES THE FILE BACK
+// (ES-D38's discardUnheldJailGrant): the credential pre-flight refuses claude's zai profile with no
+// zai key after the grant file for cerebras is written, and no teardown runs for a container that
+// never existed, so Run's deferred discard is the only thing that removes it.
+func TestALaunchRefusedAfterStagingItsGrantRemovesTheFile(t *testing.T) {
+	home := packHome(t)
+	store := filepath.Join(t.TempDir(), "creds.env")
+	if err := os.WriteFile(store, []byte("CEREBRAS_API_KEY=tok-c\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	quoted, _ := json.Marshal(store)
+	writeUserConfig(t, home, `{"packs": ["claude", "zai", "cerebras"], "env_sources": [`+string(quoted)+`]}`)
+	ws := t.TempDir()
+	cname := yoloruntime.FromWorkspace(ws)
+	saved := defaultKeeperSpawner
+	t.Cleanup(func() { defaultKeeperSpawner = saved })
+	spawned := false
+	defaultKeeperSpawner = func(_ *Options, planPath string, _, _, _ *os.File, _ []*os.File) (func() int, error) {
+		spawned = true
+		removeKeeperPlan(planPath)
+		return func() int { return 3 }, nil
+	}
+	var stdout, stderr bytes.Buffer
+	o := dispatchOptions(t, ws, "podman", &stdout, &stderr, nil)
+	o.Args = []string{"claude"}
+	o.UseProfiles = map[string]string{"claude": "zai"}
+	o.WithCredentials = []string{"cerebras"}
+	repo, _ := o.RepoRoot()
+	o.PathExists = func(p string) bool { return p == filepath.Join(prebuiltBinDir(repo.Root), "yolo-entrypoint") }
+	o.Exec = func([]string, string, []string, time.Duration) ExecResult { return ExecResult{Ran: true, RC: 0} }
+	o.autoLoad = func(image.AutoLoadOptions) image.LoadResult { return image.LoadResult{OK: true, Ref: goldenImageRef} }
+	t.Cleanup(func() { _ = os.RemoveAll(hostServiceSocketsDir(cname, false)) })
+	rc := Run(*o)
+	out := stdout.String() + stderr.String()
+	if rc == 0 || spawned {
+		t.Fatalf("the launch must refuse claude's zai profile with no zai key before any keeper: rc %d, spawned %v\n%s",
+			rc, spawned, out)
+	}
+	// The grant's disclosure is printed right after the file is staged: without it this cell would
+	// pass for a launch refused before staging anything.
+	if !strings.Contains(out, "Credential grant (--with-credentials cerebras): this jail holds") ||
+		!strings.Contains(out, "ZAI_API_KEY") {
+		t.Fatalf("the launch did not reach the staging and then the credential pre-flight:\n%s", out)
+	}
+	if _, err := os.Stat(filepath.Dir(jailGrantHostFile(cname))); !os.IsNotExist(err) {
+		t.Errorf("a launch refused before its container started left its grant file (%v)", err)
 	}
 }

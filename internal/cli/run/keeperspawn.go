@@ -228,9 +228,10 @@ func (o *Options) keeperPlanFor(cfg *jsonx.OrderedMap, rt, cname string, staged 
 		ApprovedScopes: o.approvedScopes, Forwards: forwards, ForwardDir: forwardDir,
 		SocketsDir: socketsDir, RunCmd: runCmd, ImageRef: in.imageRef, Skeleton: in.homeSkeleton,
 		ScratchVolumes: o.scratchVolumes, PerfRecording: o.timingRecording(), Sealed: o.Sealed,
-		// THE JAIL'S GRANT (jailgrant.go): its names for the start record, its values for the one
-		// client that starts the container, whose argv carries the names alone (assembleRunCmd).
-		Grant: o.jailGrant, GrantEnv: o.jailGrant.envPairs(),
+		// THE JAIL'S GRANT (jailgrant.go): its NAMES, for the start record an attach reads. Its
+		// values never ride the plan: the launch wrote them into the jail's grant file
+		// (stageJailGrant), which the argv binds (ES-D37).
+		Grant: o.jailGrant,
 	}, nil
 }
 

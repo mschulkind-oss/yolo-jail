@@ -134,18 +134,7 @@ func writeAll(w io.Writer, p []byte) error {
 // whoever else the runtime let inherit the pipe; only the copies wait for the pipes' end, for
 // at most relayDrainWait, so a refusal's last lines are printed before the teardown's first.
 func startJailMain(argv []string, stdout, stderr io.Writer, onExit func()) (*jailMain, error) {
-	return startJailMainWithEnv(argv, nil, stdout, stderr, onExit)
-}
-
-// startJailMainWithEnv is startJailMain with extraEnv (NAME=VALUE) added over this process's own
-// environment for the client alone: the jail's --with-credentials values, which the argv names as
-// bare `-e NAME` words, the runtime client taking each value from its own environment
-// (jailgrant.go, ES-D32). None leaves the environment untouched.
-func startJailMainWithEnv(argv, extraEnv []string, stdout, stderr io.Writer, onExit func()) (*jailMain, error) {
 	c := exec.Command(argv[0], argv[1:]...)
-	if len(extraEnv) > 0 {
-		c.Env = append(os.Environ(), extraEnv...)
-	}
 	c.Stdin = nil
 	m := &jailMain{cmd: c, ready: make(chan struct{}), exited: make(chan struct{})}
 	var once sync.Once

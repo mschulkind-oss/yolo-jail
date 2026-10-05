@@ -1,52 +1,64 @@
 package run
 
 // jailgrant.go is --with-credentials AT A JAIL LAUNCH (docs/design/credential-sources-separation.md
-// OQ-ES5's jail half, ruled 2026-10-05; ES-D31 to ES-D36). The maintainer: "The jail shouldn't be
+// OQ-ES5's jail half, ruled 2026-10-05; ES-D31 to ES-D39). The maintainer: "The jail shouldn't be
 // able to discover credentials from outside that it wasn't launched with. But you should be able
 // to run a jail with whatever set of credentials you want. Like that should be the same."
 //
 // So the flag is the host's (§5.1: the named providers' CLAIMED env_sources values, keys only, no
 // profile routing, disclosed by name on every entry, an unknown provider refused naming the known
 // ones, a named provider with no value reported, combining with -p, implied by nothing), resolved
-// by the resolver the host reads it with (packload.ResolveGrant), and the set is fixed when the
-// jail is launched: the jail holds exactly the credentials it was launched with and can fetch no
-// others later.
+// by the resolver the host reads it with (packload.ResolveGrant), and THE GRANT is fixed when the
+// jail is launched: no later entry adds to it. What this file does NOT govern is a profile: an
+// attach's `-p <profile>` still delivers that profile's provider key into the agent's own env file
+// (deliverChannel's per-entry delivery, which predates the ruling), so a running jail can hold a
+// key it was not launched with that way, pending the maintainer's ruling on it (ES-D39).
 //
-// WHO HOLDS IT. Not one process, as at the host, but the jail: every process in it, every session
-// attached to it later and everything each starts (ES-D31). That is what "the granted set is the
-// jail's" reads as, and it is why the grant is NOT a recipient of the gate here (the host's
-// ScopeInput.Grants): a gate delivery is written into the per-agent env files every entry
-// rewrites, under <workspace>/.yolo/home, which is both a file the next attach replaces and a
-// copy of the credential on disk in the workspace.
+// WHO HOLDS IT. Not one process, as at the host, but the jail: every process the boot and each
+// session's entrypoint start, so every session attached later and everything each starts
+// (ES-D31). That is what "the granted set is the jail's" reads as, and it is why the grant is NOT
+// a recipient of the gate here (the host's ScopeInput.Grants): a gate delivery is written into
+// the per-agent env files every entry rewrites, which is a file the next attach replaces.
 //
-// THE VEHICLES (ES-D32), one per notch, none of them a file the workspace holds:
+// THE VEHICLES (ES-D32 as revised by ES-D37), one per notch:
 //
-//   - podman, and Apple Container, which shares the argv: each granted NAME as `-e NAME` on the
-//     container's argv, and the value in the environment of the runtime client that starts the
-//     container (the keeper's startJailMainWithEnv), which takes a bare `-e NAME`'s value from its
-//     own environment. So no value is on an argv, the container's frozen environment holds the
-//     set for the jail's life, and every `exec` session inherits it. The values cross from the
-//     launch to its keeper in the keeper's plan (keeperPlan.GrantEnv: 0600, in a 0700 directory
-//     of its own, read once and removed), as the merged config's inline env_sources already do.
+//   - podman: a per-launch grant file, plain `export K='v'` lines, 0600 in a 0700 directory of the
+//     launcher's own state outside the workspace (paths.AgentsDir()/<cname>/grant), written once by
+//     the fresh launch (stageJailGrant) and bound `:ro` at ~/.config/yolo-grant-env.sh, which every
+//     boot and session reads into its environment (entrypoint's hydrateEnvFromGrantFile). NEVER a
+//     name or a value as `-e`: podman resolves an `-e` into the container's configuration, its
+//     inspect output, its exec files and its database, which outlive the container (MEASURED by the
+//     security review). No granted name or value reaches a host process's environment either.
+//   - Apple Container: the same file, copied into the jail home it binds whole (acMaterialize's
+//     choice for a file read at boot: a bind below its `:ro` floor would be writable), with the host
+//     copy kept for an attach to read.
 //   - macos-user: the launch env, which the backend writes into the root-owned per-session env
 //     file (macosuser.SandboxEnvFile), never into the per-agent env files the arm writes under
 //     <workspace>/.yolo/home (writeMacosUserAgentEnvFiles, which reads the gate's channel and
 //     never this grant).
 //
+// The files go with the jail: when its container is known gone (forgetGone's
+// forgetGoneCredentials, ES-D38), or at once for a launch whose container never started
+// (discardUnheldJailGrant).
+//
 // THE ATTACH (ES-D33). The jail's grant is recorded, names only, in its keeper's start record
 // (keeperRecord.Grant), which an attach reads: a later session holds the jail's set and is told
-// so, and an attach asking for a provider or a name the running jail was not launched with is
-// refused, naming the fresh launch. macos-user has no attach: every invocation is a session of its
-// own, launched with its own flags (sessionfiles.go), so each one's grant is its own.
+// so, and an attach asking for a provider or a name the running jail was not launched with in its
+// grant is refused, naming the fresh launch. macos-user has no attach: every invocation is a
+// session of its own, launched with its own flags (sessionfiles.go), so each one's grant is its own.
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
+	"github.com/mschulkind-oss/yolo-jail/internal/entrypoint"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
+	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/richtext"
 	"github.com/mschulkind-oss/yolo-jail/internal/shquote"
 )
@@ -133,29 +145,137 @@ func (g *jailGrant) grants(provider string) bool {
 	return g != nil && slices.Contains(g.Providers, provider)
 }
 
-// envArgs is the container argv's half of the grant: `-e NAME` for each granted name, NEVER its
-// value (ES-D32). The runtime client takes the value from its own environment (envPairs).
-func (g *jailGrant) envArgs() []string {
-	var out []string
-	for _, n := range g.names() {
-		out = append(out, "-e", n)
+// fileContent renders the grant's per-launch file: one plain `export K='v'` line per granted
+// name, in hydration order, in the grammar every env file of this backend uses (exportPlain), so
+// the in-jail reader (entrypoint's hydrateEnvFromGrantFile) parses it as it parses the rest.
+func (g *jailGrant) fileContent() string {
+	if g == nil || g.env == nil {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString("# Auto-generated by yolo: this jail's --with-credentials grant, written once at its launch\n")
+	b.WriteString("# and removed with the jail (credential-sources-separation.md ES-D37). Keys only.\n")
+	for _, k := range g.env.Keys() {
+		v, _ := g.env.Get(k)
+		s, _ := v.(string)
+		b.WriteString(exportPlain(k, s))
+	}
+	return b.String()
+}
+
+// grantFileValues reads a grant file's values back, for an attach's view of what yolo put in a
+// session's environment (attachExisting: channel.bootEnv). Nil when there is no file.
+func grantFileValues(path string) map[string]string {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil
+	}
+	out := map[string]string{}
+	for _, line := range strings.Split(string(data), "\n") {
+		if key, val, _, ok := entrypoint.ParseExportLine(line); ok {
+			out[key] = val
+		}
 	}
 	return out
 }
 
-// envPairs is the runtime client's half: NAME=VALUE for each granted name, for the environment of
-// the one process that starts the container, and no other.
-func (g *jailGrant) envPairs() []string {
-	if g == nil || g.env == nil {
+// THE GRANT FILE'S PLACES (ES-D37). The host copy is the launcher's own: a 0600 file in a 0700
+// directory under the jail's per-name state (paths.AgentsDir()/<cname>/grant), outside the
+// workspace and outside every mount but its own bind. The in-jail path is the jail home's
+// entrypoint.JailGrantFileRel on both container backends.
+const (
+	jailGrantDirLeaf  = "grant"
+	jailGrantFileLeaf = "grant.env"
+)
+
+// jailGrantHostFile is cname's host copy of its grant file.
+func jailGrantHostFile(cname string) string {
+	return filepath.Join(paths.AgentsDir(), cname, jailGrantDirLeaf, jailGrantFileLeaf)
+}
+
+// jailGrantHomeRel is where the grant file sits in a jail's home as the host sees it, beneath
+// wsState: on podman the mountpoint its bind leaves in the per-workspace `config` dir that
+// /home/agent/.config binds (empty: the bind covers it); on Apple Container, which binds wsState
+// at /home/agent and ignores `:ro` below its floor, the copy itself (acMaterialize's choice).
+func jailGrantHomeRel(rt string) string {
+	if rt == "container" { // parity: HonoredBy — Apple Container reads a copy in the jail home it binds whole; podman binds the host copy :ro over the mountpoint its .config bind holds
+		return entrypoint.JailGrantFileRel
+	}
+	return filepath.Join("config", filepath.Base(entrypoint.JailGrantFileRel))
+}
+
+// stageJailGrant writes this fresh launch's grant file before its container starts, and only on a
+// fresh launch: an attach never touches it, so no later entry can change what the jail holds. A
+// launch with no grant removes a file a jail of this name left behind without its teardown. The
+// host copy always; on Apple Container also the copy in the jail home, both 0600. The values never
+// reach an argv, a process environment of the host, or the runtime's container configuration,
+// inspect output or database (ES-D37). A write that fails is the error, which refuses the launch:
+// the user asked for credentials the jail would not hold.
+func (o *Options) stageJailGrant(cname, rt, wsState string) error {
+	removeJailGrantFiles(cname, rt, wsState)
+	o.jailGrantFile = ""
+	if o.jailGrant == nil {
 		return nil
 	}
-	var out []string
-	for _, k := range g.env.Keys() {
-		v, _ := g.env.Get(k)
-		s, _ := v.(string)
-		out = append(out, k+"="+s)
+	host := jailGrantHostFile(cname)
+	dir := filepath.Dir(host)
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return fmt.Errorf("could not make the directory for this jail's --with-credentials grant (%s): %w", dir, err)
 	}
-	return out
+	if err := os.Chmod(dir, 0o700); err != nil {
+		return fmt.Errorf("could not narrow %s to its owner: %w", dir, err)
+	}
+	content := []byte(o.jailGrant.fileContent())
+	if err := writeFileBeneathMode(dir, jailGrantFileLeaf, content, 0o600); err != nil {
+		return fmt.Errorf("could not write this jail's --with-credentials grant (%s): %w", host, err)
+	}
+	o.jailGrantFile = host
+	if rt == "container" { // parity: HonoredBy — Apple Container gets a copy in the jail home it binds whole (acMaterialize's choice for a file read at boot); podman binds the host copy :ro
+		if err := writeFileBeneathMode(wsState, jailGrantHomeRel(rt), content, 0o600); err != nil {
+			return fmt.Errorf("could not copy this jail's --with-credentials grant into its home (%s): %w",
+				filepath.Join(wsState, jailGrantHomeRel(rt)), err)
+		}
+	}
+	return nil
+}
+
+// jailGrantBindArgs is the container argv's half of the grant: on podman one `:ro` bind of the host
+// copy at the jail home's grant path, and nothing else; on Apple Container nothing, since the copy is
+// already in the home it binds. Never a name or a value as `-e` (ES-D37).
+func (o *Options) jailGrantBindArgs(rt string) []string {
+	if o.jailGrantFile == "" || rt == "container" { // parity: HonoredBy — Apple Container reads the copy stageJailGrant put in the jail home
+		return nil
+	}
+	return []string{"-v", o.jailGrantFile + ":/home/agent/" + entrypoint.JailGrantFileRel + ":ro"}
+}
+
+// removeJailGrantFiles removes cname's grant file wherever it is: the host copy and its
+// directory, and the copy or mountpoint in the jail home beneath wsState (a removal beneath the
+// root, never through a link the jail left). Best-effort: a file it cannot remove is the next
+// launch's to replace.
+func removeJailGrantFiles(cname, rt, wsState string) {
+	if cname != "" {
+		_ = os.RemoveAll(filepath.Dir(jailGrantHostFile(cname)))
+	}
+	if wsState == "" {
+		return
+	}
+	if r, err := openStateRoot(wsState); err == nil {
+		_ = r.Remove(jailGrantHomeRel(rt))
+		_ = r.Close()
+	}
+}
+
+// discardUnheldJailGrant is Run's deferred discard of a grant file this launch staged for a
+// container that never started (o.packTreeHeld is the fresh path's "a container holds what this
+// launch staged"): once one did, the file goes with the jail, when its container is known gone
+// (forgetGone).
+func (o *Options) discardUnheldJailGrant(cname, rt string) {
+	if o.jailGrantFile == "" || o.packTreeHeld {
+		return
+	}
+	removeJailGrantFiles(cname, rt, paths.WorkspaceHomeState(o.Workspace))
+	o.jailGrantFile = ""
 }
 
 // applyTo sets each granted value on a launch env: the macos-user arm's vehicle, whose launch env
@@ -315,8 +435,8 @@ func (o *Options) refuseGrantTheJailLacks(cname string, running *jailGrant, know
 	}
 	out := o.pr(o.Stderr)
 	out.printf("[bold red]%s[/bold red]", richtext.Escape(fmt.Sprintf("Refusing to attach: this entry "+
-		"asks for --with-credentials %s, and the running jail (%s) was launched with %s, so %s. A jail "+
-		"holds exactly the credentials it was launched with and takes no others later.",
+		"asks for --with-credentials %s, and the running jail (%s) was launched with %s, so %s. A jail's "+
+		"--with-credentials grant is fixed when the jail is launched, and an attach cannot add to it.",
 		req.Spelled, cname, launchedWith, why)))
 	out.print(richtext.Escape(fmt.Sprintf("  To run with them, launch the jail fresh: %s, then `%s`%s. "+
 		"An attach naming the jail's own set, or part of it, or no grant at all, enters the running "+

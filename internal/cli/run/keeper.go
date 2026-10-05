@@ -392,10 +392,8 @@ func (k *keeper) run() int {
 
 	// THE CONTAINER. The launch's argv, with the services' endpoint pairs inserted before the image,
 	// exactly where the fresh path used to insert them.
-	// The jail's --with-credentials values ride THIS client's environment alone, the argv naming
-	// each as a bare `-e NAME` (ES-D32): no host service above inherited them.
 	runCmd := insertHostServiceEnv(append([]string{}, p.RunCmd...), p.ImageRef, k.handles)
-	jm, err := startJailMainWithEnv(runCmd, p.GrantEnv, keeperStream{k.sink, frameJailStdout},
+	jm, err := startJailMain(runCmd, keeperStream{k.sink, frameJailStdout},
 		keeperStream{k.sink, frameJailStderr}, func() { o.Perf.Mark("jail_main.exited") })
 	if err != nil {
 		o.pr(o.Stdout).printf("[bold red]Configured runtime '%s' not found on PATH.[/bold red]", p.Runtime)

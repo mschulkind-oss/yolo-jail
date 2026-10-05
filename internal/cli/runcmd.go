@@ -71,7 +71,7 @@ Flags:
                      re-pointed (no base URL, no model). 'all' is every composed
                      provider that claims a value in env_sources. Repeatable; also
                      --with-credentials=<list>. It combines with -p: an agent keeps
-                     its profile and also holds the granted keys. THE SET IS FIXED
+                     its profile and also holds the granted keys. THE GRANT IS FIXED
                      WHEN THE JAIL IS LAUNCHED: every process in the jail holds it,
                      so this session, every session attached to it later and
                      everything each one starts inherit it, and an attach asking

@@ -91,9 +91,9 @@ the shared file is narrowed where `deliverChannel` calls `writeUserEnvFile`, not
   not as this sketch guessed: the ruling makes the set the jail's, so it is held by every
   process of the jail for its life rather than by one entry's `--` command. It still never rides
   `deliverChannel`'s files, which an attach rewrites whole
-  ([CN-D7](provider-credential-scope.md#CN-D7)): a bare `-e NAME` on the container argv with
-  the value in the runtime client's environment, and on macos-user `launchEnv`, which the
-  session env file carries. The flag joined `runFlags`, `refuseHostOnlyFlags` is deleted, and
+  ([CN-D7](provider-credential-scope.md#CN-D7)): a per-launch grant file outside the
+  runtime's command line and environment (the design's ES-D37), and on macos-user `launchEnv`,
+  which the session env file carries. The flag joined `runFlags`, `refuseHostOnlyFlags` is deleted, and
   its disclosure is not suppressible
   ([`OQ-RO3`](../reference/report-tiers.md#why-its-this-way)).
 - **[OQ-ES6](credential-sources-separation.md#OQ-ES6)**, a user-scope shared-name

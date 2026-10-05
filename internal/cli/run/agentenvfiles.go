@@ -73,6 +73,21 @@ func deliverChannel(wsState, rt string, channel *packChannel) {
 	writeAgentEnvFiles(wsState, agentEnvStateDir, channel)
 }
 
+// clearAgentEnvFiles removes every per-agent env file a container jail's entries wrote under
+// wsState, where rt reads them (deliverChannel's two places), keeping the directory the next
+// launch binds. The jail's teardown calls it (forgetGoneCredentials, ES-D38): the files carry
+// provider keys, and nothing else removes them once the jail is gone.
+func clearAgentEnvFiles(wsState, rt string) {
+	dir := agentEnvStateDir
+	if rt == "container" { // parity: HonoredBy — Apple Container's agent files are written in the home it binds, at their in-jail path (deliverChannel)
+		dir = entrypoint.AgentEnvDirRel
+	}
+	if _, err := os.Stat(filepath.Join(wsState, dir)); err != nil {
+		return // nothing written, so nothing to make
+	}
+	writeAgentEnvFiles(wsState, dir, nil)
+}
+
 // writeMacosUserAgentEnvFiles is the macos-user arm's delivery of the per-agent files (OQ-CN9):
 // writeAgentEnvFiles, the container vehicle's own writer, into <sidecar>/config/yolo-agent-env —
 // entrypoint.AgentEnvDirRel with its leading dot trimmed, the rule the bootstrap's home layout

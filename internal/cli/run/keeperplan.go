@@ -87,14 +87,9 @@ type keeperPlan struct {
 	// ends the jail only when its container ends, as when it cannot open the lock itself (JL-D3).
 	Uncounted bool `json:"uncounted,omitempty"`
 	// Grant is the launch's --with-credentials grant, names only (jailgrant.go), which the keeper
-	// writes into its start record for an attach to read; nil without one.
+	// writes into its start record for an attach to read; nil without one. Never a value: the
+	// values are in the jail's grant file (stageJailGrant, ES-D37), which RunCmd binds.
 	Grant *jailGrant `json:"grant,omitempty"`
-	// GrantEnv is the grant's values as NAME=VALUE, for the environment of the main process's
-	// runtime client alone (startJailMainWithEnv), whose argv names each one as a bare `-e NAME`
-	// (ES-D32). It rides this file for the merged config's reason (Config holds the inline
-	// env_sources maps already): 0600, in a 0700 directory of its own, read once and removed.
-	// Never the keeper's own environment, so no host service the keeper starts inherits it.
-	GrantEnv []string `json:"grant_env,omitempty"`
 }
 
 // keeperBuildStamp is this binary's build, as a plan carries it: the stamped version and commit.

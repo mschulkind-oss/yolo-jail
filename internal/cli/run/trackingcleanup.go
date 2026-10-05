@@ -92,6 +92,24 @@ func (o *Options) forgetGone(cname, rt, skeleton, tree string) {
 		forgetLivePackTree(cname, tree)
 		discardPackTree(cname, tree)
 	}
+	o.forgetGoneCredentials(cname, rt)
+}
+
+// forgetGoneCredentials takes away the credential files a jail's entries left once its container
+// is known gone (forgetGone's tri-state, under its workspace lock): the jail's --with-credentials
+// grant file, the host copy and the one in its home (removeJailGrantFiles, ES-D37), and every
+// per-agent env file (ES-D38). Those files carry provider keys, and a stale one, such as the
+// launch-time value of a key rotated since that an attach's agent file names as the value it
+// overrides (ES-D36), would otherwise outlive the jail until the workspace's next entry. The next
+// entry writes what it composes, so nothing is lost. Only for this workspace's own jail: forgetGone
+// is asked about cname, and the files are this Options' workspace's.
+func (o *Options) forgetGoneCredentials(cname, rt string) {
+	if o.Workspace == "" || runtime.FromWorkspace(o.Workspace) != cname {
+		return
+	}
+	wsState := paths.WorkspaceHomeState(o.Workspace)
+	removeJailGrantFiles(cname, rt, wsState)
+	clearAgentEnvFiles(wsState, rt)
 }
 
 // tryWorkspaceLock takes cname's workspace lock (the file acquireWorkspaceLock blocks on)

@@ -322,6 +322,8 @@ func Run(opts Options) (rc int) {
 	}
 	// This launch's pack tree goes at return unless a started container holds it (packtree.go).
 	defer o.discardUnheldPackTree(cname)
+	// And so does the --with-credentials grant file it staged (jailgrant.go, ES-D37).
+	defer o.discardUnheldJailGrant(cname, rt)
 
 	// THE FORK PINS, made for a fork the lock does not pin yet (never moved: FP-D18) and disclosed
 	// above the dispatch, so every backend and an attach say which revision each source-built
@@ -1489,6 +1491,16 @@ func (o *Options) runContainer(cfg *jsonx.OrderedMap, rt, repoRoot, cname string
 	// attach performs to deliver a different profile into a running jail.
 	userEnv := channel.userEnv
 	deliverChannel(wsState, rt, channel)
+	// THE JAIL'S --with-credentials GRANT FILE (jailgrant.go, ES-D37): written here, once, by the
+	// fresh launch alone, outside the workspace (and on Apple Container copied into the home it
+	// binds), never on the argv. An attach never reaches this line, so no later entry changes it.
+	if err := o.stageJailGrant(cname, rt, wsState); err != nil {
+		out.printf("[bold red]Refusing to launch: %s[/bold red]", richtext.Escape(err.Error()))
+		out.print("[dim]Free the disk or fix the directory's permissions, then launch again; or launch " +
+			"without --with-credentials.[/dim]")
+		lock.Close()
+		return 1
+	}
 	// THE JAIL THIS LAUNCH STARTS HOLDS ITS GRANT (jailgrant.go): named beside the gate's lines,
 	// which say a granted name is every process's. An attach that restarted the jail reaches here
 	// too, so the grant is this launch's own, never the stopped jail's.
@@ -2579,6 +2591,16 @@ func (o *Options) attachExisting(cname, rt, targetCmd string, cfg *jsonx.Ordered
 		// (inheritedValues, OQ-CN8): the agent files override it rather than defer to it.
 		if channel != nil {
 			channel.bootEnv = envLinesMap(envLines)
+			// And the jail's --with-credentials grant, which every session's boot reads into its
+			// environment from the grant file rather than from the frozen environment (ES-D37): its
+			// values are yolo's too, so an agent's file overrides them with its profile's as it
+			// overrode them when they were frozen (ES-D36).
+			for k, v := range grantFileValues(jailGrantHostFile(cname)) {
+				if channel.bootEnv == nil {
+					channel.bootEnv = map[string]string{}
+				}
+				channel.bootEnv[k] = v
+			}
 		}
 		if rc := o.deliverChannelOnAttach(cname, rt, cfg, view.staged, channel); rc != 0 {
 			return rc, false
