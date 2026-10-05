@@ -101,9 +101,10 @@ func hostApplyDeferring(args []string, out, errw io.Writer, color bool, stdin io
 	} else {
 		// THE DECLARED OWNERSHIP CONTRACT, above every stage for the same reason the refusal
 		// above it is: a refusal that only stopped the render would leave any later stage
-		// running inside a command that wrote nothing (hostmanagementgate.go).
+		// running inside a command that wrote nothing (hostmanagementgate.go). It takes the format
+		// and stdout so a dry run asked for JSON still gets its document, outcome `refused`.
 		var refused bool
-		if rc, refused = refuseHostManagement(errw); !refused {
+		if rc, refused = refuseHostManagement(out, errw, format); !refused {
 			rc = hostApplyRefreshAndRender(out, errw, color, write, stdin, format, deferred)
 		}
 	}

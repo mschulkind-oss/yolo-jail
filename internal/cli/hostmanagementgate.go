@@ -47,6 +47,7 @@ import (
 	"io"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
+	"github.com/mschulkind-oss/yolo-jail/internal/outfmt"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/render"
 )
@@ -74,10 +75,12 @@ func hostOwnership() render.HostOwnership {
 // unset key is `none` since OQ-CO14, and the sentence says which of the two it is reading
 // rather than claiming the file says something it does not.
 //
-// The remedy names `own` (the one value that renders), `yolo config promote` for a key the
-// user keeps by hand — `own` composes the file from packs, so such a key survives by being
-// declared first — and `--revert`, the way back to a file purely the user's on a home an
-// earlier yolo wrote into. It used to name `"assert"`, which no longer exists.
+// The remedy names `own` (the one value that renders), then `yolo config promote` for a key the
+// user keeps by hand — IN THAT ORDER: promote lifts a captured key into the local pack, and only
+// an owned apply captures one (its adoption takes in what the file already holds), so under
+// `none` there is no capture store at the host and promote answers "Nothing to promote" — and
+// `--revert`, the way back to a file purely the user's on a home an earlier yolo wrote into. It
+// used to name `"assert"`, which no longer exists.
 func hostManagementRefusal(mode config.HostManagement, declared bool) string {
 	switch mode {
 	case config.HostManagementNone:
@@ -88,9 +91,9 @@ func hostManagementRefusal(mode config.HostManagement, declared bool) string {
 		return "`host_management` " + state + ": your agents' config files are yours " +
 			"entirely, so there is nothing for yolo to render into your home and nothing was " +
 			"written.\n" +
-			"  Set it to \"own\" to have yolo compose those files from your packs (`yolo " +
-			"config promote` first declares a key you keep by hand into your local pack); " +
-			"`yolo config-ref` says what each value means.\n" +
+			"  Set it to \"own\" to have yolo compose those files from your packs; an owned " +
+			"apply captures each key you keep by hand, and `yolo config promote` then declares " +
+			"a captured key into your local pack. `yolo config-ref` says what each value means.\n" +
 			"  If an earlier yolo wrote keys into those files, `yolo host apply --revert` " +
 			"lists them and takes them out."
 	}
@@ -123,14 +126,50 @@ func retiredHostManagementRefusal(errw io.Writer, verb string) (int, bool) {
 //
 // EXIT 1, not 2. Nothing about the argv is wrong: the command is well-formed and the user's
 // own configuration is what declined it.
-func refuseHostManagement(errw io.Writer) (int, bool) {
-	if rc, refused := retiredHostManagementRefusal(errw, "yolo host apply"); refused {
-		return rc, true
+//
+// THE DRY RUN'S DOCUMENT GOES OUT BESIDE IT. With format JSON the refusal still prints its prose
+// on errw, and out gets the dry run's document saying so (emitRefusedHostApplyDoc: outcome
+// `refused`, failed_stages ["host_management"]) — the unset key is "none" since OQ-CO14, so a
+// fresh home is a home this refuses, and an empty stdout there is the silence a machine consumer
+// cannot diagnose. Only the dry run asks: both callers refuse JSON for an acting apply
+// (jsonRefusedForPosture) before they reach this.
+func refuseHostManagement(out, errw io.Writer, format string) (int, bool) {
+	rc, refused := retiredHostManagementRefusal(errw, "yolo host apply")
+	var verdict string
+	if refused {
+		verdict = hostManagementVerdict(config.HostManagementNone, false, true)
+	} else {
+		mode, declared := config.HostManagementDeclared()
+		msg := hostManagementRefusal(mode, declared)
+		if msg == "" {
+			return 0, false
+		}
+		fmt.Fprintf(errw, "yolo host apply: %s\n", msg)
+		rc, verdict = 1, hostManagementVerdict(mode, declared, false)
 	}
-	msg := hostManagementRefusal(config.HostManagementDeclared())
-	if msg == "" {
-		return 0, false
+	if outfmt.IsJSON(format) {
+		rc = emitRefusedHostApplyDoc(out, errw, verdict, rc)
 	}
-	fmt.Fprintf(errw, "yolo host apply: %s\n", msg)
-	return 1, true
+	return rc, true
+}
+
+// hostManagementVerdict is the dry-run document's verdict for an apply this gate refuses, in the
+// shape of the other refused verdicts (hostApplyVerdict's outcomeRefused): what an --assert would
+// do, why, the value to set, and that nothing would be written. retired is the retired
+// `"assert"`; otherwise mode and declared are hostManagementRefusal's.
+func hostManagementVerdict(mode config.HostManagement, declared, retired bool) string {
+	const own = `set it to "own" to have yolo compose your agents' config files from your packs`
+	path := paths.UserConfigPath()
+	switch {
+	case retired:
+		return `An --assert would REFUSE: host_management is the retired "assert" in ` + path +
+			` (` + own + `, or to "none", or delete the key), so nothing would be written.`
+	case mode == config.HostManagementNone && declared:
+		return `An --assert would REFUSE: host_management is "none" in ` + path + `, under which ` +
+			`yolo renders nothing into your home (` + own + `), so nothing would be written.`
+	default:
+		return `An --assert would REFUSE: host_management is unset in ` + path + `, which means ` +
+			`"none", under which yolo renders nothing into your home (` + own + `), so nothing ` +
+			`would be written.`
+	}
 }

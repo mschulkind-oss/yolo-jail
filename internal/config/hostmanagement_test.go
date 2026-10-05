@@ -100,6 +100,40 @@ func TestHostManagementAssertIsRefusedByName(t *testing.T) {
 	}
 }
 
+// TestTheRetirementMessageNamesOwnBeforePromote pins the ORDER the retirement message names:
+// `yolo config promote` lifts a CAPTURED key into the local pack, and only an owned apply
+// captures one — under the retired value, which reads as "none", there is no capture store at the
+// host and promote answers "Nothing to promote". So "own" is named before promote, and the clause
+// naming promote never says to run it "first".
+func TestTheRetirementMessageNamesOwnBeforePromote(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	msg := retiredHostManagementProblem()
+	p := strings.Index(msg, "yolo config promote")
+	if p < 0 {
+		t.Fatalf("the message does not name `yolo config promote`:\n%s", msg)
+	}
+	// The clause naming promote: from the boundary before it (an opening parenthesis, a
+	// semicolon or a sentence end) to the one after (a closing parenthesis or a sentence end).
+	start := strings.LastIndexAny(msg[:p], "(;")
+	if s := strings.LastIndex(msg[:p], ". "); s > start {
+		start = s
+	}
+	end := len(msg)
+	if e := strings.Index(msg[p:], ")"); e >= 0 {
+		end = p + e
+	}
+	if e := strings.Index(msg[p:], ". "); e >= 0 && p+e < end {
+		end = p + e
+	}
+	if !strings.Contains(msg[:start+1], `"own"`) {
+		t.Errorf("\"own\" is not named before `yolo config promote`:\n%s", msg)
+	}
+	if clause := msg[start+1 : end]; strings.Contains(clause, "first") {
+		t.Errorf("the message still says to promote first, which finds nothing before an owned "+
+			"apply: %q", clause)
+	}
+}
+
 // TestHostManagementUnreadableConfigIsNone is the FAIL DIRECTION, and it is the half a shared
 // helper cannot express: UserScopeConfigOrEmpty returns an empty map for BOTH "no file" and
 // "unreadable file". Since the `assert` retirement the two give the same mode (none), so this

@@ -250,7 +250,13 @@ func applyAtHost(out, errw io.Writer, color, write, revert bool, stdin io.Reader
 	if revert {
 		return hostApplyRevert(out, errw, color, write)
 	}
-	if rc, refused := refuseHostManagement(errw); refused {
+	// [OQ-RO4]'s refusal FIRST, as `yolo host apply` makes it: an --assert has no document, so
+	// it refuses the flag (exit 2, stdout empty) before the ownership gate below, which emits
+	// the dry run's document when it refuses one.
+	if jsonRefusedForPosture(format, write) {
+		return refuseJSONForActingApply(errw)
+	}
+	if rc, refused := refuseHostManagement(out, errw, format); refused {
 		return rc
 	}
 	return hostApplyRefreshAndRender(out, errw, color, write, stdin, format, "")

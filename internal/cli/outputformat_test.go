@@ -90,9 +90,12 @@ var formatFamily = []struct {
 	// consumers / OQ-RO4): its default is a dry run whose whole output is "what would change",
 	// which is a state report however much the verb's name says otherwise. Its ACTING posture is
 	// in TestActingVerbsRefuseJSONRatherThanIgnoreIt below, which is the other half of that
-	// ruling. Under `host_management: "own"`: the unset key is `none` since the `assert`
-	// retirement (OQ-CO14), and under `none` the verb refuses before it surveys anything.
+	// ruling. Twice: under `host_management: "own"`, where the verb surveys the home, and on a
+	// FRESH home with no user config at all — the unset key is `none` since the `assert`
+	// retirement (OQ-CO14), the verb refuses before it surveys anything, and its document says so
+	// (outcome `refused`) rather than leaving stdout empty.
 	{"host apply", []string{"host", "apply"}, hostOwnUserConfig},
+	{"host apply on a fresh home", []string{"host", "apply"}, ""},
 }
 
 // hostOwnUserConfig is a user config declaring the one `host_management` value under which

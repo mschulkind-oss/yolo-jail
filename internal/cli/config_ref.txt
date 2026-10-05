@@ -909,9 +909,11 @@
                 yolo composes it.  The first owned render ADOPTS what the file
                 already holds, and copies the file as it found it once, into
                 ~/.local/share/yolo-jail/archive/config/.  A key you keep by hand
-                belongs in a pack: `yolo config promote` declares a captured key
-                into your local pack.  `yolo config reset <agent>` is the way to
-                discard captured edits, and it works host-side under this value alone.
+                is captured that way, and belongs in a pack: once it is captured,
+                `yolo config promote` declares it into your local pack (under
+                "none" nothing is captured, so there is nothing to promote).
+                `yolo config reset <agent>` is the way to discard captured edits,
+                and it works host-side under this value alone.
 
     [bold]"assert" is RETIRED.[/bold]  It was shared ownership: yolo rewrote the keys your
     packs declare and left the rest.  A config that still says "assert" is REFUSED,

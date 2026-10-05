@@ -158,14 +158,17 @@ func HostManagementRetired() string {
 // retiredHostManagementProblem is the retirement message's body, after each reader's own
 // prefix (`config.host_management: ` in validation, `yolo host apply: host_management: ` at a
 // verb). It names both values left, what each does to a home `assert` wrote into, and the verb
-// that goes with each: `--revert` under `none`, `yolo config promote` before `own`.
+// that goes with each: `--revert` under `none`, and `yolo config promote` AFTER `own` — promote
+// lifts a captured key, and only an owned apply captures one (its adoption takes in the keys a
+// user keeps by hand), so under `none` and the retired value there is nothing to promote yet.
 func retiredHostManagementProblem() string {
 	return `"assert" is RETIRED — it shared your agents' config files between you and yolo, ` +
 		`and two values are left. "none", the default, has yolo write nothing into your home ` +
 		`and leave those files as they are (` + "`yolo host apply --revert`" + ` takes out ` +
-		`the keys yolo wrote); "own" has yolo compose them whole from your packs (` +
-		"`yolo config promote`" + ` first declares a key you keep by hand into your local ` +
-		`pack). Set one in ` + paths.UserConfigPath() + `, or delete the key for "none".`
+		`the keys yolo wrote); "own" has yolo compose them whole from your packs (an owned ` +
+		`apply captures each key you keep by hand, and ` + "`yolo config promote`" + ` then ` +
+		`declares a captured key into your local pack). Set one in ` + paths.UserConfigPath() +
+		`, or delete the key for "none".`
 }
 
 // hostManagementProblem reports why a value is not a usable `host_management`, or "" when it
