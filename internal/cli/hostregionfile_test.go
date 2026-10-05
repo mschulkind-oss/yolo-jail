@@ -63,13 +63,15 @@ func TestHostLaunchTakesTheRegionOfTheHostsAWSConfig(t *testing.T) {
 			rc, env["AWS_REGION"], errs)
 	}
 
-	// AN ENV_SOURCES NULL removing AWS_REGION removes the filled one too (BR-D26's one gap), and
-	// the refusal says the file's region was delivered and then removed.
-	rc, env, errs = hostGateRunIn(t, `{"packs": ["claude"], "env_sources": [{"AWS_REGION": null}]}`, noRegion,
-		[]string{"-p", "bedrock"}, "claude", awsConfigIn(hostAWSConfig))
-	if rc != 1 || env != nil || !strings.Contains(errs,
-		`gave "eu-north-1", delivered as AWS_REGION, which this launch then removed`) {
-		t.Errorf("a null removing AWS_REGION must refuse, naming the removed file region: rc=%d\n%s", rc, errs)
+	// AN ENV_SOURCES NULL removing AWS_REGION removes the shell's region, and the file's region
+	// fills the gap. The null ranks with env_sources in the one ordered composition (packload's
+	// envcompose.go) and never removes a shape var, which the filled region is, so BR-D26's one
+	// gap — the null removing the filled region and the launch refusing — is closed.
+	rc, env, errs = hostGateRunIn(t, `{"packs": ["claude"], "env_sources": [{"AWS_REGION": null}]}`,
+		map[string]string{"AWS_REGION": "us-west-2"}, []string{"-p", "bedrock"}, "claude", awsConfigIn(hostAWSConfig))
+	if rc != 0 || env["AWS_REGION"] != "eu-north-1" {
+		t.Errorf("a null removing the shell's AWS_REGION must leave the file's region to fill it: rc=%d AWS_REGION=%q\n%s",
+			rc, env["AWS_REGION"], errs)
 	}
 
 	// A FILE WITH NO REGION FOR THE PROFILE is the refusal, naming the file and the profile.

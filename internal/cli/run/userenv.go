@@ -2,11 +2,13 @@ package run
 
 import (
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/entrypoint"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
+	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 )
 
@@ -28,8 +30,9 @@ const channelSectionHeader = entrypoint.EntryChannelSectionHeader
 //
 // THE CHANNEL SECTION. A non-nil channel appends the provider/profile environment
 // this entry composed that EVERY process may see — the three wire tables
-// (YOLO_PROVIDERS, YOLO_PROFILES, YOLO_USE_PROFILES) and the ungated pack env fold —
-// as UNCONDITIONAL `export K='v'` lines. What the credential gate scopes to one agent
+// (YOLO_PROVIDERS, YOLO_PROFILES, YOLO_USE_PROFILES) and the ungated pack env fold's
+// winners in the shared composition (sharedFoldWinners: a name env_sources assigns or removes
+// is not among them, nor a wire table's) — as UNCONDITIONAL `export K='v'` lines. What the credential gate scopes to one agent
 // (a provider's claimed credentials, a profile-gated env, the shape vars) is NOT
 // here: this file's first reader exports it into every process of the jail, so those
 // values go to that agent's own env file instead (agentenvfiles.go, OQ-CN6), and
@@ -106,6 +109,9 @@ func writeUserEnvFile(userEnvFile string, userEnv *jsonx.OrderedMap, channel *pa
 	if userEnv != nil {
 		for _, k := range userEnv.Keys() {
 			v, _ := userEnv.Get(k)
+			if v == nil {
+				continue // a removal (config.HydrateEnvSources): nothing to write
+			}
 			val, _ := v.(string)
 			b.WriteString(exportDefault(k, val))
 		}
@@ -116,9 +122,26 @@ func writeUserEnvFile(userEnvFile string, userEnv *jsonx.OrderedMap, channel *pa
 		for _, k := range entrypoint.WireTables() {
 			b.WriteString(exportPlain(k, wire[k]))
 		}
-		shared := channel.scope.SharedPackEnv()
+		// The shared pack env, ONE LINE PER KEY (packload's envcompose.go): only the names whose
+		// winner in the shared composition is the fold. A name env_sources assigns is its
+		// def-form line above, which beats the fold, and a name an env_sources null removes is
+		// written nowhere. Writing both lines for one name made the plain fold line win, a pack's
+		// default beating the user's dotenv value in every jail shell.
+		//
+		// A fold winner under a wire table's name is not written either: the tables are the
+		// launch's, written after the composition at every vehicle (the host exec, launchEnv), and
+		// a plain fold line after them here would hand every process a pack's value instead.
+		shared := channel.sharedFoldWinners()
 		keys := make([]string, 0, len(shared))
 		for k := range shared {
+			if slices.Contains(entrypoint.WireTables(), k) {
+				continue
+			}
+			if userEnv != nil {
+				if _, assigned := userEnv.Get(k); assigned {
+					continue
+				}
+			}
 			keys = append(keys, k)
 		}
 		sort.Strings(keys)
@@ -161,6 +184,32 @@ func writeUserEnvFile(userEnvFile string, userEnv *jsonx.OrderedMap, channel *pa
 		}
 	}
 	_ = writeFileBeneathMode(dir, name, []byte(b.String()), userEnvFileMode)
+}
+
+// sharedFoldWinners is the shared composition's fold winners (packload's envcompose.go): the
+// pack env every process receives, minus each name env_sources assigns or removes. The channel
+// section's pack env lines, plain-form.
+func (c *packChannel) sharedFoldWinners() map[string]string {
+	out := map[string]string{}
+	for _, e := range c.scope.SharedEnv().Entries() {
+		if e.Origin == packload.FromPackEnv && !e.Unset {
+			out[e.Key] = e.Value
+		}
+	}
+	return out
+}
+
+// sharedEnvSourceWinners is the shared composition's env_sources winners, in hydration order: the
+// unclaimed assignments every process receives, which the shared file writes def-form. Every one
+// of them wins its name in the shared composition, since env_sources ranks above the fold there.
+func (c *packChannel) sharedEnvSourceWinners() *jsonx.OrderedMap {
+	out := jsonx.NewOrderedMap()
+	for _, e := range c.scope.SharedEnv().Entries() {
+		if e.Origin == packload.FromEnvSources && !e.Unset {
+			out.Set(e.Key, e.Value)
+		}
+	}
+	return out
 }
 
 // exportDefault renders one overridable env_sources default: the environment

@@ -691,7 +691,13 @@ that writes a launch's environment for one notch or backend. There are three:
     in `packs` changes nothing. The line names
     `yolo host --with-credentials cerebras -- bash` instead, and says why. On an agent, the named
     `-p` replaces the agent's own profile, and the line says so ("run claude on the zai profile
-    for one launch, replacing its bedrock profile"). At `yolo host env` the shell spelling is
+    for one launch, replacing its bedrock profile"). An agent that holds an
+    [active set](#an-active-set-several-profiles-for-one-agent) keeps it: the line adds the
+    claiming profile to the set, as the pair that replaces the set for one launch ("add the
+    cerebras profile to pi's active set for one launch, keeping zai, openrouter:
+    `yolo host -p pi=zai,openrouter,cerebras -- pi`"). It names the switch, which says it replaces
+    the whole set, only when no such set would run, such as a second Bedrock entry
+    ([AP-D19](../design/active-provider-sets.md#AP-D19)). At `yolo host env` the shell spelling is
     always `eval "$(yolo host env --with-credentials <provider>)"`, never the verb's own agent
     with a `-p`, whose slice would export that agent's whole provider shape into the shell. A withheld name the
     invoking shell also exports is disclosed as not added by yolo, the shell's own value
@@ -739,7 +745,7 @@ Every arm discloses what it scoped or withheld, by name and never by value
 the shared file is: the gate decides what each agent's **environment** carries, and an agent
 started by another agent inherits that agent's environment, as any child does.
 
-Two consequences to know:
+Three consequences to know:
 
 - **The loopback credential services follow the selection** ([`OQ-CN7`](#oq-cn7),
   built). `aws-auth`'s adapter (`127.0.0.1:1461`, or a port the launch picked on a jail
@@ -762,9 +768,7 @@ Two consequences to know:
   win. A derive's tombstone removes only such a value, too. This is the per-agent file's rule.
   The host notch applies its composition over the shell it inherits, so there a profile's
   composed value replaces one your shell exports; whether the host should keep yours is
-  [OQ-NC13](../plans/notch-convergence.md#OQ-NC13), and which of yolo's own sources wins when two
-  set one variable, which the vehicles answer differently today, is
-  [OQ-NC12](../plans/notch-convergence.md#OQ-NC12). The menu half of
+  [OQ-NC13](../plans/notch-convergence.md#OQ-NC13). The menu half of
 [`OQ-CN4`](#oq-cn4) is each agent's own key:
 opencode's derive writes `enabled_providers: [<selected provider>]` beside its selected model,
 or every provider of its [active set](#an-active-set-several-profiles-for-one-agent), the primary
@@ -776,6 +780,19 @@ so for pi the only lever on what it can reach is the credential. For `openai-cod
 `enabledModels` at all: its extension registers exactly
 [the declared list](#the-openai-codex-model-list), so pi's view of that provider is the list
 ([ML-D2](../design/model-lists-and-pickers.md#ML-D2)).
+- **When two of yolo's own sources set one variable, the most specific wins, at every notch.**
+  The profile's value (what the agent's pack's env derive composes, the region fill included)
+  beats an `env_sources` value, which beats a pack's `env`. An `env_sources` null removes a
+  pack's value of that name, and at the host the shell's, but never the profile's, so a null
+  cannot leave claude zai's key with no zai address. The host exec, a jail's shared and
+  per-agent files and the macos-user session serialize one composition
+  (`CredentialScope.EnvFor`, [OQ-NC12](../plans/notch-convergence.md#OQ-NC12), decided on its
+  leaning on 2026-10-04 and open to revision), so a name has one winner wherever the agent
+  runs. A value meant to beat the profile has the per-command spelling above. In a jail, a name
+  the agent and every other process get the same value for is left in the agent's process as
+  the jail shell holds it, so an attach and a fresh launch agree. The three tables a launch
+  composes (`YOLO_PROVIDERS`, `YOLO_PROFILES`, `YOLO_USE_PROFILES`) are written after that
+  composition at every notch, so no `env_sources` value or null replaces or removes one.
 
 ## The canonical wire_api vocabulary
 
