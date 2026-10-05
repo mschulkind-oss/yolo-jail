@@ -3577,7 +3577,7 @@ included, because a flat skills dir can carry none of them.
 | Verb | What it does |
 | :--- | :--- |
 | `yolo pack init [dir]` | scaffold a valid skeleton (`briefing/<pack>.md`, an example skill, `README.md`); never a `pack.json` |
-| `yolo pack lint [dir]` | run the real staging executor **and** validate the manifest — every problem, not the first — then print the pack's footprint and every delivery, implicit broadcasts included, plus an info line for each conventional-looking file it will not ship (a root `AGENTS.md`, a subdirectory or non-`.md` file in `briefing/`) |
+| `yolo pack lint [--online] [dir]` | run the real staging executor **and** validate the manifest — every problem, not the first — then print the pack's footprint and every delivery, implicit broadcasts included, plus an info line for each conventional-looking file it will not ship (a root `AGENTS.md`, a subdirectory or non-`.md` file in `briefing/`). It reads each patch series as a launch does, and `--online` checks each series' upstream in a scratch mirror ([`patched-forks.md` PF-D60, PF-D61](../design/patched-forks.md#PF-D60)) |
 | `yolo pack ls` | list configured packs and what each stages |
 | `yolo pack explain <name>` | stage one pack and show what it stages and what it dropped (`file://` local only) |
 | `yolo pack footprint [ref]` | claims + cross-pack collisions + review summary; `[ref]` may be an embedded pack name or a local path, so you can inspect a pack you are authoring |

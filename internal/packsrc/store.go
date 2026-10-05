@@ -4,7 +4,10 @@ package packsrc
 //
 // It runs ON THE HOST, always. The jail has no git credentials by design (that is
 // the credential boundary), so a fetch inside one could only ever fail — or worse,
-// succeed by finding credentials that were not supposed to be there.
+// succeed by finding credentials that were not supposed to be there. A jail may fetch
+// into a SCRATCH store, such as the one `yolo pack lint --online` deletes afterwards
+// (seriesprobe.go): it reaches only what needs no credentials, and writes nothing a
+// launch reads.
 //
 // A HOST LAUNCH FETCHES (maintainer ruling, 2026-09-25). Before it, fetching happened
 // only in `yolo pack install`/`update` and a launch resolved strictly from the store.
