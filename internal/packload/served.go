@@ -15,7 +15,11 @@ package packload
 // service's host daemon); and the host notch runs none but the doorways `yolo host --` opens for
 // the one agent it runs (HS-D21, internal/cli/run's hostdoorways.go). internal/loopholes'
 // ServedJailDaemons is the one answer to which of a payload's daemons a runtime serves. An address
-// such a daemon serves is SERVED exactly when the daemon is.
+// such a daemon serves is SERVED exactly when the daemon is. A loophole that declares no jail
+// daemon but binds host sockets or devices into a jail (a bound loophole, notBoundWhy) is served
+// by name at a notch whose container argv carries its binds (internal/loopholes' JailBoundNames):
+// never at the host, never on macos-user, and on a container runtime only while it is active
+// (docs/design/loophole-packaging.md LP-D1).
 //
 // WHY ONE PREDICATE. Each notch used to answer "does anything listen there?" its own way. The
 // host composed no adapter address (a WithoutServiceAdaptations option) and cleared every via
@@ -68,11 +72,23 @@ type ServedDaemons struct {
 	// the launch knows a reason the notch alone does not say (WithNotServedWhy): the loophole
 	// is disabled, or the front door owns no process lifetime to open a doorway for.
 	notServed map[string]string
+	// mountsNothing marks a jail notch that binds nothing into its jail (MountsNothing):
+	// macos-user, whose Seatbelt sandbox is a process on the host's own filesystem. A pointer at
+	// what a loophole binds (a BOUND LOOPHOLE, notBoundWhy) is worded as one this notch cannot
+	// bind, never as one the launch left switched off.
+	mountsNothing bool
 }
 
 // AtHost returns s marked as the host notch's set (the host field says what that changes).
 func (s ServedDaemons) AtHost() ServedDaemons {
 	s.host = true
+	return s
+}
+
+// MountsNothing returns s marked as the set of a jail notch that binds nothing into its jail (the
+// mountsNothing field says what that changes).
+func (s ServedDaemons) MountsNothing() ServedDaemons {
+	s.mountsNothing = true
 	return s
 }
 
@@ -118,6 +134,33 @@ func (s ServedDaemons) notServedWhy(daemon string) string {
 	default:
 		return "which does not run here: jail daemons run only in a jail (a container, or the " +
 			"macos-user sandbox), never at the host"
+	}
+}
+
+// notBoundWhy is notServedWhy for a BOUND LOOPHOLE (a term this file coins): a loophole that
+// serves its clients by binding host sockets or devices into a jail, declaring no `jail_daemon`
+// (loopholes' JailBoundNames, docs/design/loophole-packaging.md LP-D1). A pointer `served_by` one
+// names a path that exists only in a jail whose argv carried the binds, so the clause says why
+// this launch has none, ending in what a client does without the pointer: at the host it reaches
+// the host's own server at its default path, which a pointer at a jail path would only defeat.
+func (s ServedDaemons) notBoundWhy(loophole string) string {
+	if why := s.notServed[loophole]; why != "" {
+		return why + ", so nothing would answer it"
+	}
+	switch {
+	case s.host:
+		return "and the host has no jail to bind it into, so a client here reaches the host's own " +
+			"server at its default path instead"
+	case s.mountsNothing:
+		return "which the macos-user sandbox does not have: it binds nothing into the jail, so " +
+			"nothing would answer it"
+	case !s.runs:
+		return "which nothing binds here: only a container jail carries a loophole's binds, so " +
+			"nothing would answer it"
+	default:
+		return "which this launch did not bind: the loophole is off (`\"loopholes\": {" +
+			strconv.Quote(loophole) + ": {\"enabled\": true}}` in your config turns it on) or " +
+			"inactive on this machine (`yolo loopholes list` says why), so nothing would answer it"
 	}
 }
 
@@ -188,8 +231,9 @@ func (s ServedDaemons) resolveListen(daemon, value string) (string, bool) {
 // ServedInJail is the set a jail launch serves: the jail daemons it runs, by name — on a
 // container runtime every one its composed payload names, and on macos-user the ones its guest
 // runs plus the doorways the launch opens outside it (loopholes.ServedJailDaemonNames, which
-// reads loopholes.ServedJailDaemons). The caller passes that split's names, so the launch and
-// `yolo check`'s prediction of it build the set from the one selection.
+// reads loopholes.ServedJailDaemons). The caller passes that split's names and the bound
+// loopholes its container argv binds (loopholes.JailBoundNames, nil on macos-user), so the launch
+// and `yolo check`'s prediction of it build the set from the one selection.
 func ServedInJail(names []string) ServedDaemons {
 	s := ServedDaemons{runs: true, names: map[string]bool{}}
 	for _, n := range names {
@@ -213,7 +257,8 @@ func ServedByLaunch(services []string) ServedDaemons { return ServedInJail(servi
 // daemons when either does. macos-user's served set is its guest's jail daemons Plus the
 // launch-owned services it planned.
 func (s ServedDaemons) Plus(o ServedDaemons) ServedDaemons {
-	out := ServedDaemons{runs: s.runs || o.runs, host: s.host || o.host, names: map[string]bool{}}
+	out := ServedDaemons{runs: s.runs || o.runs, host: s.host || o.host,
+		mountsNothing: s.mountsNothing || o.mountsNothing, names: map[string]bool{}}
 	out = out.WithNotServedWhy(s.notServed).WithNotServedWhy(o.notServed)
 	for _, part := range []ServedDaemons{s, o} {
 		for n, ok := range part.names {

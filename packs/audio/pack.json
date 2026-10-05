@@ -6,6 +6,7 @@
     },
     {
       "kind": "env",
+      "served_by": "audio",
       "vars": {
         "PIPEWIRE_REMOTE": "/run/pipewire/pipewire-0",
         "PULSE_SERVER": "unix:/run/pulse/native"

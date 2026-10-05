@@ -1124,7 +1124,8 @@ func composedProviders(cfg *jsonx.OrderedMap, packs []*packload.Pack,
 // container runtime every one, in the jail, and on macos-user the ones its Seatbelt guest runs
 // since OQ-DP8/OQ-DP9 plus the doorways the launch opens outside it (macosuserdoorways.go,
 // host-notch-services.md HS-D15), the rest declined by name (noteMacosUserJailDaemonDeclines)
-// (docs/plans/notch-convergence.md §4 item 2).
+// (docs/plans/notch-convergence.md §4 item 2) — and the bound loopholes its argv binds
+// (loopholes.JailBoundNames, none on macos-user).
 //
 // It also carries WHERE each serves (servedaddresses.go): every daemon's served listen address,
 // read off the payload, and the declared-to-served map for the pack services' adapter and via
@@ -1132,7 +1133,14 @@ func composedProviders(cfg *jsonx.OrderedMap, packs []*packload.Pack,
 // ports the payload hands the daemons.
 func (o *Options) servedDaemons(specs []loopholes.JailDaemonSpec) packload.ServedDaemons {
 	names, listen := loopholes.ServedJailDaemonNames(o.runtime, specs)
+	// The BOUND LOOPHOLES the argv binds are served by name too (jailDaemonsFor recorded them
+	// beside this payload): their pointers name a path in the jail that exists exactly when the
+	// bind does (docs/design/loophole-packaging.md LP-D1).
+	names = append(append([]string(nil), names...), o.jailBound...)
 	served := packload.ServedInJail(names).WithListen(listen).WithRebind(o.movedServedAddresses())
+	if o.runtime == "macos-user" { // parity: Warned — the Seatbelt sandbox binds nothing (loopholes.JailBoundNames is nil there), so a pointer at what a loophole binds is withheld and the launch names it (packload.UnservedEnvLines)
+		served = served.MountsNothing()
+	}
 	// A macos-user launch also serves the launch-owned services it planned (macosuserservices.go):
 	// a pack service's host half at the ports it picked, since its guest declines the service's
 	// jail daemon (loopholes.JailDaemonsRunIn).

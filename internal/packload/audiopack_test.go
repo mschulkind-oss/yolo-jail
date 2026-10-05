@@ -419,8 +419,9 @@ func TestAudioShapedManifestEnumeratesEveryCrossingClass(t *testing.T) {
 //	readonly:false ×2   -> declare `readonly: true`. Measured: a :ro bind of an
 //	                       AF_UNIX socket is fully connectable and BIDIRECTIONAL,
 //	                       so the refusal costs a socket nothing.
-//	jail_env            -> the pack's `env` contribution kind, accepting that it
-//	                       becomes unconditional (OQ-LP5).
+//	jail_env            -> the pack's `env` contribution kind, `served_by` the
+//	                       loophole so it still follows the binds (LP-D1;
+//	                       OQ-LP5 is the question of jail_env itself).
 //	requires.file_exists-> `platforms: ["linux"]`, which answers the question the
 //	                       probe was really asking and is not path-scoped.
 //
@@ -488,3 +489,82 @@ const audioShapedManifest = `{
     "PIPEWIRE_REMOTE": "/run/pipewire/pipewire-0"
   }
 }`
+
+// THE POINTERS ARE SERVED BY THE LOOPHOLE THAT BINDS THEIR SOCKETS (docs/design/loophole-packaging.md
+// LP-D1). The pack's `env` declares `served_by: "audio"`, so the credential gate delivers
+// PULSE_SERVER and PIPEWIRE_REMOTE only where a launch serves that name — a container launch
+// whose argv binds the loophole — and withholds and names them everywhere else. Without it they
+// were set at every notch that selected the pack: `yolo host -- claude` pointed libpulse at
+// /run/pulse/native, which on a host is no socket at all, and libpulse given PULSE_SERVER never
+// falls back to the host's own $XDG_RUNTIME_DIR/pulse/native. Deleting the line from
+// packs/audio/pack.json fails this and every test below.
+func TestAudioPackPointersAreServedByTheAudioLoophole(t *testing.T) {
+	served := embeddedAudioPack(t).Decl.EnvServedBy()
+	for _, k := range []string{"PIPEWIRE_REMOTE", "PULSE_SERVER"} {
+		if got := served[k]; got != audioLoopholeName {
+			t.Errorf("%s is served_by %q, want %q: the variable names a socket only the "+
+				"loophole's bind puts in a jail", k, got, audioLoopholeName)
+		}
+	}
+}
+
+// audioScope composes the credential gate's answer for a launch selecting only the shipped audio
+// pack, at the notch served describes.
+func audioScope(t *testing.T, served packload.ServedDaemons) *packload.CredentialScope {
+	t.Helper()
+	s, err := packload.ScopeCredentials(packload.ScopeInput{
+		Packs: []*packload.Pack{embeddedAudioPack(t)}, NoDerives: true, Served: &served})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return s
+}
+
+// Per notch: delivered where the jail binds the loophole, and otherwise withheld, on one line
+// that says what the variables point at — what the loophole binds into a jail, never a jail
+// daemon, since none exists — and why this notch has none, in its own terms.
+func TestAudioPackPointersAreDeliveredOnlyWhereTheLoopholeBinds(t *testing.T) {
+	const head = `PIPEWIRE_REMOTE, PULSE_SERVER — points at what the "audio" loophole binds into a jail, `
+	for _, tc := range []struct {
+		name   string
+		served packload.ServedDaemons
+		want   string // "" = delivered
+	}{
+		{"a container launch that binds it", packload.ServedInJail([]string{"audio"}), ""},
+		{"a container launch with the loophole off", packload.ServedInJail(nil),
+			head + `which this launch did not bind: the loophole is off (` +
+				"`" + `"loopholes": {"audio": {"enabled": true}}` + "`"},
+		{"the host", packload.NothingServed().AtHost(),
+			head + "and the host has no jail to bind it into, so a client here reaches the host's own server"},
+		{"macos-user", packload.ServedInJail(nil).MountsNothing(),
+			head + "which the macos-user sandbox does not have: it binds nothing into the jail"},
+		// macos-user's set is its guest's daemons Plus its launch-owned services: the mark
+		// survives the union.
+		{"macos-user with a launch-owned service", packload.ServedInJail(nil).MountsNothing().
+			Plus(packload.ServedByLaunch([]string{"wire-bridge"})),
+			head + "which the macos-user sandbox does not have"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			s := audioScope(t, tc.served)
+			lines := strings.Join(packload.UnservedLines(s, nil, nil), "\n")
+			for _, k := range []string{"PIPEWIRE_REMOTE", "PULSE_SERVER"} {
+				_, delivered := s.DeliveredPackEnv(k)
+				if delivered != (tc.want == "") {
+					t.Errorf("%s delivered = %v, want %v", k, delivered, tc.want == "")
+				}
+			}
+			if tc.want == "" {
+				if lines != "" {
+					t.Errorf("a notch delivering both named something withheld:\n%s", lines)
+				}
+				return
+			}
+			if !strings.Contains(lines, tc.want) {
+				t.Errorf("the withheld line does not say %q:\n%s", tc.want, lines)
+			}
+			if strings.Contains(lines, "jail daemon") {
+				t.Errorf("the audio pointers were worded as a jail daemon's, and audio runs none:\n%s", lines)
+			}
+		})
+	}
+}

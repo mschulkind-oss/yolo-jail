@@ -94,6 +94,9 @@ func (o *Options) jailDaemonsFor(cfg *jsonx.OrderedMap, rt string,
 	// the way withoutUnselectedProfileDaemons records what it leaves out: every call composes
 	// the same packs, so the record is the same whichever call wrote it last.
 	_, o.shadowedServices = packload.HeldServices(packs)
+	// The bound loopholes this runtime's argv binds, through the same set and so the same gate
+	// as the payload, recorded for servedDaemons the same way: every call reads the same config.
+	o.jailBound = set.JailBoundNames(set.Enabled(), rt)
 	specs := o.withoutUnselectedProfileDaemons(cfg, packs,
 		set.JailDaemons(set.Enabled(), rt, serviceJailDaemons(packs)))
 	// A DOORWAY'S HOST ARGV RUNS ONLY FROM A PACK YOLO SHIPS (macosuserdoorways.go): one this
