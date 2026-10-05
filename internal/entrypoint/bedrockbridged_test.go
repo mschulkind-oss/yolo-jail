@@ -131,6 +131,37 @@ func TestCopilotReachesBedrockThroughTheBridgeOnEitherProfile(t *testing.T) {
 	}
 }
 
+// A PROFILE'S OWN MODEL REPLACES COPILOT'S DEFAULT (MM-D32: "allow packs to override that", and a
+// user names a model in a profile): on either Bedrock profile's path through the bridge, a profile
+// naming an id no list holds starts copilot on that id, as written, never on bedrockStartModel.
+func TestAProfilesModelReplacesCopilotsBedrockDefault(t *testing.T) {
+	const mine = "us.anthropic.claude-sonnet-4-6"
+	packs := testPacksForAgent(t, "copilot", "bedrock", "wire-bridge")
+	table, err := packload.ComposeProviders(nil, packs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resolved, err := packload.ResolveProfiles(packs, map[string]packload.UserProfile{
+		"mine": {Provider: "bedrock", Via: "wire-bridge", Options: map[string]string{"model": mine}}}, table)
+	if err != nil {
+		t.Fatal(err)
+	}
+	vars, err := packload.AgentEnv(packs, table, map[string]string{"copilot": "mine"}, "copilot", "mine",
+		func(string) (string, bool) { return "", false }, packload.WithResolvedProfiles(resolved))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, v := range vars {
+		if v.Key == "COPILOT_MODEL" {
+			if v.Value != mine {
+				t.Errorf("COPILOT_MODEL = %q, want the profile's own %s", v.Value, mine)
+			}
+			return
+		}
+	}
+	t.Errorf("copilot composed no COPILOT_MODEL for a profile naming one: %v", vars)
+}
+
 // copilotBedrockStartModel is copilot's starting model on a Bedrock provider whose list names
 // nothing (packs/copilot's bedrockStartModel; docs/design/model-lists-and-pickers.md MM-D34).
 const copilotBedrockStartModel = "openai.gpt-oss-120b-1:0"

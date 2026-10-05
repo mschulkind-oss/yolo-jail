@@ -252,6 +252,13 @@ yolo.env("copilot", function(ctx)
   -- model, since BYOK refuses to start without one, and the bridge carries every maker on the list
   -- (translating all but Anthropic's). OQ-ML2's rule picks it: the provider's declared default,
   -- else the first model it lists.
+  -- A PROFILE'S OWN ID ON THAT PATH, one the list does not hold, is passed through as the user wrote
+  -- it, ahead of any pick, as every Bedrock binding passes one (callableModel in the other derives):
+  -- naming a model in a profile is how a user replaces the default below (MM-D32).
+  if not model and viaOnly then
+    local named = ctx.profile and ctx.profile.model
+    if type(named) == "string" and named ~= "" and named ~= "default" then model = named end
+  end
   if not model and viaOnly then
     model = m.default or listFirst(p)
   end
