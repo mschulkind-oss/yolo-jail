@@ -401,10 +401,11 @@ said per row.
   hour and sooner when `~/.pi/agent/settings.json` changes, for whichever copy it runs, and
   `agent_updates` turns it off ([HP-D19](#HP-D19)).
   **Built** 2026-10-05: `prelaunch_test.go` (the stamp, the watched content, the bound, the lock and
-  its one bounded wait, Ctrl-C and SIGTERM), and at the call site `hostprelaunchrefresh_test.go`
-  (once and before the exec, on stderr and never stdout, the interval, a settings change,
-  `agent_updates`, a failure, a hang, a held lock, no credential composed for pi, the floor's own
-  copy, a jail, SIGTERM and Ctrl-C). **Needs a real host:** a real pi with an npm extension, on
+  its one bounded wait, Ctrl-C and SIGTERM, a refresh that handles either), and at the call site
+  `hostprelaunchrefresh_test.go` (once and before the exec, on stderr and never stdout, the
+  interval, a settings change, `agent_updates`, a failure, a hang, a held lock, no credential
+  composed for pi, what every process receives, the child's PATH before the blocked tools, the
+  floor's own copy, a jail, SIGTERM handled or not, and Ctrl-C). **Needs a real host:** a real pi with an npm extension, on
   Linux and on a Mac: the refresh line at most hourly, pi's "Package Updates Available" box gone
   after it, and `agent_updates` stopping it.
 - On a Linux host with no container runtime, the first `yolo host -- agy` captures agy on the host,
