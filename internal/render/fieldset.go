@@ -217,7 +217,8 @@ var hostAtLaunch = map[packdecl.Kind]string{
 	packdecl.KindEnv: "env vars apply to a process yolo starts: `yolo host -- <program>` " +
 		"delivers them to that process only, and `yolo host env` prints them. `yolo host apply` " +
 		"starts none, and setting them for your whole session would mean editing your shell rc",
-	// HE-D11: a blocker is env's case exactly.
+	// docs/design/host-launch-environment.md HE-D11: `yolo host -- <program>` applies blocked
+	// tools and `yolo host apply` blocks nothing, since it starts no process, which is env's case.
 	packdecl.KindBlockedTool: "a blocker is a shim first on the PATH of a process yolo starts: " +
 		"`yolo host -- <program>` puts them first on that program's PATH, for that process only. " +
 		"`yolo host apply` starts none, and putting one at the head of your whole session's PATH " +

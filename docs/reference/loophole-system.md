@@ -917,10 +917,15 @@ one of two clauses, per contribution, pointing at `yolo config-ref` for the reas
   exits ([HS-D15](../design/host-notch-services.md#HS-D15), built at the host by
   [HS-D21](../design/host-notch-services.md#HS-D21)). *Doorway* is that ruling's word for the thin
   adapter an agent's client talks to, which checks the launch's caller token and forwards to the
-  host daemon. The apply decides this with the launch's own filter (`run.HostDoorwayLoopholes`
-  re-runs `run.PlanHostDoorways`' composition), with every selected pack's loophole switched on,
-  because the `enabled` switch turns a loophole off at every notch alike, and a launch that does
-  not open a disabled one names the switch.
+  host daemon. The apply decides this with the launch's own composition and admission check
+  (`run.HostDoorwayLoopholes` re-runs `run.PlanHostDoorways`'), so it names what an enabled
+  loophole gets at `yolo host --` rather than what one launch opens. It differs from a launch in
+  two ways. Every selected pack's loophole is read as switched on, because the `enabled` switch
+  turns a loophole off at every notch alike, and a launch whose agent asks for a disabled one
+  names the switch. And there is no selection filter, since the apply runs no agent, so
+  `openai-auth-broker` is named: a launch opens its doorway for no selection
+  ([HS-D22](../design/host-notch-services.md#HS-D22)), and `yolo host -- codex` serves that
+  address from its own managed launch instead ([HS-D20](../design/host-notch-services.md#HS-D20)).
 - **Does not apply.** Every other loophole, and the reason is not the naive one. A loophole's
   effect *is* on the host, so "not applicable off-container" reads as obviously wrong. The honest
   reason is the inverse, and it is spelled out (in `config-ref`, and as the kind's entry in

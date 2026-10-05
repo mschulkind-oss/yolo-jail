@@ -158,6 +158,17 @@ The fatal refusals — an `agents` selector naming nobody, a doubly-owned surfac
 twice — are tier 3 in shape and already right: they itemize, they name the fix, and they exit 1
 before anything renders.
 
+**The loophole loader's own warnings are not the report's lines.** The tier-1 line reads loophole
+discovery, for the doorways and the inline loopholes it names, and the loader says what it finds
+wrong (a module that is missing or does not load, a manifest key this build does not know, a
+supersession nothing matches) as `warning:` lines on stderr, each line once per process. It says
+them that way in every verb that discovers loopholes: a jail launch, `yolo host --`, `yolo check`.
+So `yolo host apply` prints them on stderr just above the tier-1 line whose loophole outcome they
+explain, and `--format json` leaves them on stderr. Making them report lines would take a
+per-call warning channel in the loader, which is not built; the warning's sink is shared by the
+whole process, so swapping it for one apply would race with the observe pass `yolo host --` runs
+on a goroutine of its own when `host_apply_on_launch` is on.
+
 ## The verdict block
 
 Two parts, in this order: the **verdict line**, which states the result, and the **counts**, which
@@ -309,7 +320,7 @@ instead of re-reading a paragraph per contribution.
 | **would change** / **changed** | the destination's content differs from what a render produces; an `--assert` writes it | a destination nothing compared |
 | **unchanged** | compared, and equal | a destination that was skipped or refused |
 | **skipped** | yolo did not touch it, and it stays the user's | something yolo declined for its own reasons |
-| **at launch only** *(coined here)* | at the host notch, `yolo host -- <program>` delivers this declaration to the program it starts, and `yolo host apply` writes no file for it: an env var, a blocker, an adapter's address, a service's host half, a credential loophole's doorway. Decided per contribution, by the launch's own predicates, so the line and the launch cannot disagree | a declaration no host verb delivers, which is *does not apply* |
+| **at launch only** *(coined here)* | at the host notch, `yolo host -- <program>` delivers this declaration to the program it starts, and `yolo host apply` writes no file for it: an env var, a blocker, an adapter's address, a service's host half, a credential loophole's doorway. Decided per contribution with the launch's own admission and doorway checks, read as if every selected loophole were switched on, so it states what an enabled declaration gets at `yolo host --`. A launch can still hold back one the user switched off, or one its agent's selection does not ask for | a declaration no host verb delivers, which is *does not apply* |
 | **does not apply** | this declaration has no meaning at this notch: no verb there, `yolo host apply` or `yolo host --`, does anything with it | anything that stops the apply, and anything `yolo host --` delivers |
 | **refused** | the apply stopped; nothing was rendered | a notch fact |
 | **replaces** | a value of the user's is overwritten by a managed key or a pack's `config-overlay`, measured against the file the write produces | a key yolo already owned, or one the write leaves as the file has it |

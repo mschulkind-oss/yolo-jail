@@ -7,8 +7,9 @@ package run
 // primary on one is (HS-D23), and the entries it does have a client of keep asking.
 //
 // It also pins hostdoorwaysets.go's two answers for `yolo host apply`'s notch line: the
-// doorways HostDoorwayLoopholes names are the ones PlanHostDoorways composes, switch aside, and
-// HostInlineLoopholes names an enabled inline loophole and nothing else.
+// doorways HostDoorwayLoopholes names are the ones PlanHostDoorways composes, its two stated
+// differences aside (the switch and the selection filter), and HostInlineLoopholes names an
+// enabled inline loophole and nothing else.
 
 import (
 	"os"
@@ -63,11 +64,11 @@ func loopholesConfig(t *testing.T, block string) *jsonx.OrderedMap {
 	return newConfig("loopholes", v)
 }
 
-// TestHostDoorwayLoopholesIsThePlansOwnSet: the loopholes the apply's notch line names as
-// delivered at launch are the doorways PlanHostDoorways composes for a launch, so the line and
-// the launch cannot disagree. A plan that runs no process (opens=false) still composes them, and
-// says "only a launch that runs the agent opens" of exactly those; every other reason means the
-// doorway was not composed.
+// TestHostDoorwayLoopholesIsThePlansOwnSet: for every doorway a launch's selection asks the plan
+// for, the apply's notch line names it as delivered at launch exactly when PlanHostDoorways
+// composes it. A plan that runs no process (opens=false) still composes them, and says "only a
+// launch that runs the agent opens" of exactly those; every other reason means the doorway was not
+// composed. The two differences hostdoorwaysets.go's header states are pinned below it.
 func TestHostDoorwayLoopholesIsThePlansOwnSet(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
@@ -96,8 +97,9 @@ func TestHostDoorwayLoopholesIsThePlansOwnSet(t *testing.T) {
 		t.Fatalf("fixture bug: pi on Bedrock asked the plan for no doorway, or aws-auth's is not "+
 			"one (%v, %v)", plan.notOpened, got)
 	}
-	// Codex's refresh adapter is a doorway too, though no selection asks the plan for it (its
-	// pointer is ungated, HS-D22): `yolo host -- codex` serves that URL from the managed launch.
+	// THE SELECTION FILTER is one difference: codex's refresh adapter is a doorway too, though no
+	// selection asks the plan for it (its pointer is ungated, HS-D22); `yolo host -- codex`
+	// serves that URL from the managed launch instead (HS-D20).
 	if !got["openai-auth-broker"] {
 		t.Errorf("openai-auth-broker's doorway is not named: %v", got)
 	}
@@ -105,7 +107,7 @@ func TestHostDoorwayLoopholesIsThePlansOwnSet(t *testing.T) {
 		t.Errorf("want exactly the two credential doorways the shipped packs declare, got %v", got)
 	}
 
-	// The SWITCH is the one difference, on purpose: a loophole the user left off is still one
+	// The SWITCH is the other difference, on purpose: a loophole the user left off is still one
 	// the host notch delivers once it is on, and the launch that does not open it names the
 	// switch. The plan over the same config says disabled.
 	off := loopholesConfig(t, `{"aws-auth": {"enabled": false}}`)

@@ -46,8 +46,18 @@ package cli
 // 2026-10-04 they were named as not applying at the host while `yolo host -- env` printed the
 // pack env. Three of those kinds also have a shape the host delivers nowhere (a pointer at a socket
 // only a jail binds, a jail-only service, a loophole whose only client is a container), so the
-// outcome is decided PER CONTRIBUTION (hostNotchOutcomeOf) and a kind can land in both clauses;
-// the line and the launch decide by the launch's own predicates, so they cannot disagree.
+// outcome is decided PER CONTRIBUTION (hostNotchOutcomeOf) and a kind can land in both clauses.
+//
+// THE LINE STATES WHAT AN ENABLED DECLARATION GETS AT `yolo host --`, NOT WHAT ONE LAUNCH DOES. It
+// asks the launch's own admission check (launchservice.Admit) and doorway composition
+// (run.HostDoorwayLoopholes), read as if every selected pack's loophole were switched on and
+// without the launch's selection filter, since the apply runs no agent to select for. So a launch
+// can still hold back what this line names at launch: a loophole the user switched off, a doorway
+// or a service's host half its agent's selection does not ask for. A known case runs the other
+// way: with YOLO_CLAUDE_CREDENTIAL_VIEW=1 in the invoking shell (CL-D27, off by default), `yolo
+// host -- claude` starts the claude pack's loophole daemon (claude-oauth-broker) when none is
+// running and keeps a credential view from it, and this line names that loophole as not applying,
+// since the switch is read from the launch's environment.
 
 import (
 	"path"
@@ -218,7 +228,8 @@ func inertInlineLoopholes(cfg *jsonx.OrderedMap, packs []*packload.Pack) []strin
 // set the render folds — so a posture list counts only where that render will place it.
 // doorways is run.HostDoorwayLoopholes over the same packs: the loopholes whose credential
 // doorway `yolo host --` opens, the set the at-launch outcome of a loophole (and of an env
-// pointer served by one) is read off.
+// pointer served by one) is read off. Computing it is loophole discovery, whose own warnings go
+// to the process's stderr before this runs (hostdoorwaysets.go's header says why).
 func surveyNotchFacts(loaded []*packload.Pack, fields render.FieldSet,
 	overlays *packoverlay.OverlaySet, doorways map[string]bool) notchFacts {
 	var f notchFacts
@@ -314,7 +325,8 @@ func hostNotchOutcomeOf(loaded []*packload.Pack, fields render.FieldSet, c packd
 }
 
 // deliveredByHostLaunch reports whether `yolo host -- <program>` delivers this contribution of an
-// at-launch kind, by the launch's own predicates rather than a list kept here:
+// at-launch kind once it is enabled and asked for, by the launch's own checks rather than a list
+// kept here (the header says where the two can still differ):
 //
 //   - a service when launchservice.Admit admits its host half (OQ-HS4: declared, in a pack yolo
 //     ships, an argv naming `yolo`), the gate a launch asks before it runs one;

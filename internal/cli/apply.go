@@ -736,9 +736,10 @@ func applyHostSurveyed(out, errw io.Writer, color bool, write bool, stdin io.Rea
 	// Before the loop, so "folded into the config surfaces below" is a true word about what
 	// comes next, and so a reader meets the notch before they meet this home.
 	//
-	// The doorways are the ones `yolo host --` opens for these packs (run.HostDoorwayLoopholes,
-	// PlanHostDoorways' own filter), so a credential loophole is named as delivered at launch by
-	// the predicate the launch decides with.
+	// The doorways are the ones `yolo host --` can open for these packs (run.HostDoorwayLoopholes:
+	// PlanHostDoorways' composition and admission check, read with every selected loophole
+	// switched on and no selection filter, as its header says), so a credential loophole is named
+	// as delivered at launch by the check the launch decides with.
 	notch := surveyNotchFacts(loaded, hostFields, overlays, run.HostDoorwayLoopholes(userCfg, loaded))
 	notch.InertPackages = inertPackages
 	notch.InertConfig = userFiles.inertNames()

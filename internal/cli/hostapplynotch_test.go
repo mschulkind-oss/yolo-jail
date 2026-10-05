@@ -123,8 +123,8 @@ func TestHostApplyNamesWhatYoloHostDeliversAtLaunch(t *testing.T) {
 		}
 	}
 	// audio's pointer at a socket only a jail binds is withheld at `yolo host --` (LP-D1), and
-	// its loophole has no doorway, so env and loophole are in both groups: the line and the
-	// launch decide with the launch's own predicates.
+	// its loophole has no doorway, so env and loophole are in both groups, each contribution
+	// decided with the launch's own checks.
 	for _, k := range []packdecl.Kind{packdecl.KindEnv, packdecl.KindLoophole} {
 		if countWord(notApplying, string(k)) != 1 {
 			t.Errorf("audio's %s has no meaning at the host (the launch withholds it), and the "+
@@ -165,6 +165,71 @@ func TestHostApplyNamesAContainerOnlyLoopholeAsNotApplying(t *testing.T) {
 	}
 	if countWord(clauses[doesNotApplyClause], "loophole") != 1 {
 		t.Errorf("a loophole whose only client is a container is not named as not applying: %q", lines[0])
+	}
+}
+
+// A SERVICE AND AN ENV POINTER ARE DECIDED BY THE HOST HALF OF THE SERVICE THEY NAME. Beside
+// wire-bridge (a host half in a pack yolo ships), two local packs: jailonly declares a service with
+// only a `jail_daemon` and an env var `served_by` it, and bridged declares an env var `served_by`
+// wire-bridge. The launch's gate admits wire-bridge's host half and nothing for localsvc, so
+// `service` and `env` are each named once in both clauses. No shipped pack reaches either half:
+// every shipped service has an admitted host half, and every shipped `served_by` names a loophole.
+// Treating every service as admitted, or reading an env pointer only against the doorways, fails
+// here.
+func TestHostApplyDecidesAServiceAndItsPointerByTheHostHalf(t *testing.T) {
+	home := t.TempDir()
+	jailOnly := filepath.Join(t.TempDir(), "jailonly")
+	writeFile(t, filepath.Join(jailOnly, "pack.json"), `{"name":"jailonly","contributes":[`+
+		`{"kind":"service","name":"localsvc","jail_daemon":{"cmd":["yolo-jaild","localsvc"]},`+
+		`"endpoint":"localsvc.endpoint"},`+
+		`{"kind":"env","served_by":"localsvc","vars":{"JAILONLY_URL":"http://127.0.0.1:19998"}}]}`)
+	bridged := filepath.Join(t.TempDir(), "bridged")
+	writeFile(t, filepath.Join(bridged, "pack.json"), `{"name":"bridged","contributes":[`+
+		`{"kind":"env","served_by":"wire-bridge","vars":{"BRIDGED_URL":"http://127.0.0.1:8216"}}]}`)
+	selectPacks(t, home, `"wire-bridge",`+
+		`{"source":"file://`+jailOnly+`","name":"jailonly"},`+
+		`{"source":"file://`+bridged+`","name":"bridged"}`)
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
+	defaultReport(t)
+	_, report := surveyApply(t)
+
+	lines := notchKindLines(report)
+	if len(lines) != 1 {
+		t.Fatalf("want one notch line, got %d:\n%s", len(lines), report)
+	}
+	clauses := notchClauses(lines[0])
+	for _, clause := range []string{atLaunchClause, doesNotApplyClause} {
+		for _, k := range []packdecl.Kind{packdecl.KindService, packdecl.KindEnv} {
+			if n := countWord(clauses[clause], string(k)); n != 1 {
+				t.Errorf("%s is named %d times in the %q clause, want 1 (wire-bridge's host half "+
+					"is admitted and localsvc has none): %q", k, n, clause, lines[0])
+			}
+		}
+	}
+
+	// --verbose says which pack's contribution landed in each: wire-bridge's service and the
+	// pointer at it are delivered at launch, localsvc and the pointer at it are not.
+	verboseReport(t)
+	_, verbose := surveyApply(t)
+	var launchLine, notApplyLine string
+	for _, l := range strings.Split(verbose, "\n") {
+		switch {
+		case strings.Contains(l, "at launch only —"):
+			launchLine = l
+		case strings.Contains(l, "at the host notch:"):
+			notApplyLine = l
+		}
+	}
+	for _, want := range []string{"service (wire-bridge)", "env (bridged)"} {
+		if !strings.Contains(launchLine, want) {
+			t.Errorf("--verbose's at-launch line does not say %q: %q\n%s", want, launchLine, verbose)
+		}
+	}
+	for _, want := range []string{"service (jailonly)", "env (jailonly)"} {
+		if !strings.Contains(notApplyLine, want) {
+			t.Errorf("--verbose's does-not-apply line does not say %q: %q\n%s", want, notApplyLine, verbose)
+		}
 	}
 }
 
