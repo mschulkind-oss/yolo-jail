@@ -421,7 +421,9 @@ token, since one nothing runs would be downloaded for nothing.
 whatever the loophole's switch says, but nothing for a loophole whose `platforms` leaves this
 machine out. It verifies each build against its digest and admits it
 by rename into `~/.local/share/yolo-jail/pack-binaries/<sha256>/<name>`, mode `0555`, a
-directory no jail mounts: a host daemon's build runs from there with the user's authority. A
+directory no jail mounts: a host daemon's build runs from there with the user's authority. The
+one other way in is no fetch: a from-source `just install` builds the official programs from its
+tree and admits each the same way (below). A
 **launch never fetches**, so an offline launch of a pack whose builds are cached is an ordinary
 one. What each missing piece produces:
 
@@ -452,8 +454,18 @@ the pin tool (`tools/pack-binaries`) and builds reproducibly with one pinned Go.
 the release before it uploads, and PyPI's gate each rebuild and refuse a digest the tree does
 not produce. `TestEveryOfficialBinaryIsOnTheReleaseMatrix` (`internal/loopholedecl`) holds every
 embedded manifest to that matrix in the short suite, so a build no release produces is refused
-before it can ship. What main pins between two releases is open
-([`OQ-BP7`](../design/broker-as-a-pack.md#OQ-BP7)).
+before it can ship.
+
+**Between two releases, main pins its own build** of each official program
+([`OQ-BP7`](../design/broker-as-a-pack.md#OQ-BP7), ruled 2026-10-05), while each url still names
+the last release. `just check-ci` rebuilds every build and refuses a digest the tree no longer
+produces, naming `just pin-pack-binaries`, which with no version re-pins the digests and keeps
+the urls. A from-source `just install` builds this machine's builds from the tree and seeds them
+into the cache, re-pinning a program the tree has changed, so its jail runs the tree's program
+with no download. Any other build of such a tree, for a changed program, meets the release's
+file failing its digest at `yolo pack install`, which then names `just install` in the
+checkout when the `yolo` came from one
+([BP-D16 to BP-D19](../design/broker-as-a-pack.md#BP-D16)).
 
 > [!WARNING]
 > **A yolo older than the key reads a manifest with `binaries` tolerantly**: it skips the key

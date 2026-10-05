@@ -9,17 +9,26 @@
 //
 // The DIGEST is the key, so two packs pinning the same bytes share one file per name, and the
 // NAME is kept as the file's own so a program that reads its argv[0] sees the name its manifest
-// gave it. A file is written only by renaming a verified temp file into place, so a file under a
-// digest is one that was verified against that digest when it arrived; nothing else writes here.
-// The directory is paths.PackBinariesDir, which no jail mounts.
+// gave it. A file is written only by renaming a verified temp file into place (admit), so a file
+// under a digest is one that was verified against that digest when it arrived; nothing else
+// writes here. The directory is paths.PackBinariesDir, which no jail mounts.
 //
-// # When it fetches
+// # How a build arrives
 //
-// Only when asked: `yolo pack install` (and `yolo pack update`, which runs it) calls Ensure for
-// every build the selected packs need on this machine. A launch reads the cache through Path and
-// Present and never fetches — broker-as-a-pack.md §3.1: "at `pack install`, never at launch" —
-// so an offline launch of a pack whose builds are cached is an ordinary launch, and one whose
-// builds are not reports the loophole inert and names the command.
+// Two ways, through the one verified rename:
+//
+//   - FETCHED, by Ensure: `yolo pack install` (and `yolo pack update`, which runs it) calls it
+//     for every build the selected packs need on this machine.
+//   - SEEDED, by Seed: `just install` builds this machine's builds of every official pack
+//     program from the source tree it installs, and admits each whose digest is the pin, so a
+//     from-source or forked tree's jail runs that tree's programs with no download
+//     (broker-as-a-pack.md BP-D15, OQ-BP7 ruled 2026-10-05). The integration harness seeds its
+//     run's cache the same way. Both run the pin tool (tools/pack-binaries), which builds.
+//
+// A launch reads the cache through Path and Present and NEVER FETCHES — broker-as-a-pack.md
+// §3.1: "at `pack install`, never at launch" — so an offline launch of a pack whose builds are
+// cached is an ordinary launch, and one whose builds are not reports the loophole inert and
+// names the command.
 //
 // # What a digest mismatch is
 //
@@ -80,8 +89,11 @@ const (
 	// Fetched: the build was downloaded, verified and cached.
 	Fetched
 	// Replaced: a file under the digest no longer matched it, so it was removed and the build
-	// downloaded again.
+	// downloaded (or, from Seed, copied) again.
 	Replaced
+	// Seeded: the build was copied in from a file this machine built (Seed), verified, and
+	// cached. Nothing was downloaded.
+	Seeded
 )
 
 // IntegrityError is a download whose bytes do not match the pinned digest.
@@ -175,16 +187,131 @@ func (f Fetcher) Ensure(ctx context.Context, w Want) (string, Outcome, error) {
 	if got != w.SHA256 {
 		return "", 0, &IntegrityError{URL: w.URL, Want: w.SHA256, Got: got}
 	}
-	if err := os.Chmod(tmp, fileMode); err != nil {
-		return "", 0, err
-	}
-	if err := os.MkdirAll(filepath.Dir(final), 0o755); err != nil {
-		return "", 0, err
-	}
-	if err := os.Rename(tmp, final); err != nil {
+	if err := admit(tmp, final); err != nil {
 		return "", 0, err
 	}
 	return final, outcome, nil
+}
+
+// admit is THE VERIFIED RENAME, the only way a file enters the cache: tmp, a temp file in the
+// cache root whose bytes were hashed as they were written and matched the digest final is kept
+// under, is made 0555 and renamed into place. The rename is atomic because tmp is in the cache's
+// own directory tree, so a reader sees either no build or the whole verified one.
+func admit(tmp, final string) error {
+	if err := os.Chmod(tmp, fileMode); err != nil {
+		return err
+	}
+	if err := os.MkdirAll(filepath.Dir(final), 0o755); err != nil {
+		return err
+	}
+	return os.Rename(tmp, final)
+}
+
+// SeedMismatchError is a file offered to Seed whose bytes do not match the digest it was offered
+// under.
+type SeedMismatchError struct {
+	Src, Want, Got string
+}
+
+func (e *SeedMismatchError) Error() string {
+	return fmt.Sprintf("%s has sha256 %s, but the manifest pins %s — refused: only a build "+
+		"whose digest is the pin enters the cache", e.Src, e.Got, e.Want)
+}
+
+// Seed admits a build this machine made — the pin tool's build of an official pack program from
+// the source tree — to the cache at dir, under digest sum and binary name, and returns its path
+// and what it did: Seeded, Cached when a copy that still matches is already there, or Replaced
+// when one that no longer matches was. NOTHING IS DOWNLOADED.
+//
+// src is COPIED, never moved or linked, and the digest is checked over the bytes as they are
+// written into the cache's own temp file, not over src: what is admitted is exactly what was
+// hashed, whatever happens to src meanwhile. A mismatch is a *SeedMismatchError and caches
+// nothing. The rename that admits it is Ensure's (admit), so a seeded build and a fetched one are
+// indistinguishable to every reader, which is the point: the launch finds the tree's build where
+// it would find a release's.
+func Seed(dir, name, sum, src string) (string, Outcome, error) {
+	if dir == "" {
+		return "", 0, errors.New("no pack-binary cache directory")
+	}
+	if !validDigest(sum) {
+		return "", 0, fmt.Errorf("%q is not a sha256 (64 lowercase hex digits)", sum)
+	}
+	if name == "" || name == "." || name == ".." || filepath.Base(name) != name {
+		return "", 0, fmt.Errorf("%q is not a binary name", name)
+	}
+	final := Path(dir, sum, name)
+	outcome := Seeded
+	if Present(final) {
+		got, err := hashFile(final)
+		if err == nil && got == sum {
+			return final, Cached, nil
+		}
+		if err := os.Remove(final); err != nil {
+			return "", 0, fmt.Errorf("removing %s, which no longer matches its digest: %w", final, err)
+		}
+		outcome = Replaced
+	}
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return "", 0, err
+	}
+	tmp, got, err := copyHashed(dir, src)
+	if tmp != "" {
+		defer os.Remove(tmp) // a no-op once it has been renamed into place
+	}
+	if err != nil {
+		return "", 0, fmt.Errorf("copying %s into the cache: %w", src, err)
+	}
+	if got != sum {
+		return "", 0, &SeedMismatchError{Src: src, Want: sum, Got: got}
+	}
+	if err := admit(tmp, final); err != nil {
+		return "", 0, err
+	}
+	return final, outcome, nil
+}
+
+// copyHashed copies src into a temp file under the cache root, hashing the bytes as they are
+// written, for the same reason download does.
+func copyHashed(dir, src string) (file, sum string, err error) {
+	in, err := os.Open(src)
+	if err != nil {
+		return "", "", err
+	}
+	defer in.Close()
+	fi, err := in.Stat()
+	if err != nil {
+		return "", "", err
+	}
+	if !fi.Mode().IsRegular() {
+		return "", "", errors.New("not a regular file")
+	}
+	out, err := os.CreateTemp(dir, ".seed-*")
+	if err != nil {
+		return "", "", err
+	}
+	h := sha256.New()
+	_, err = io.Copy(io.MultiWriter(out, h), in)
+	if cerr := out.Close(); err == nil {
+		err = cerr
+	}
+	if err != nil {
+		return out.Name(), "", err
+	}
+	return out.Name(), hex.EncodeToString(h.Sum(nil)), nil
+}
+
+// validDigest reports whether s is a sha256 as the manifest spells one, so a caller's string can
+// name a directory under the cache root and nothing else.
+func validDigest(s string) bool {
+	if len(s) != sha256.Size*2 {
+		return false
+	}
+	for _, c := range s {
+		if (c < '0' || c > '9') && (c < 'a' || c > 'f') {
+			return false
+		}
+	}
+	return true
 }
 
 // download streams url into a temp file under the cache root, hashing as it goes. The temp file

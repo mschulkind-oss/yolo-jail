@@ -33,9 +33,10 @@ settled there on 2026-09-30:
 [`OQ-BP5`](../design/broker-as-a-pack.md#OQ-BP5) (is a declared *build step* allowed as well? No:
 a digest-pinned download only) and
 [`OQ-BP6`](../design/broker-as-a-pack.md#OQ-BP6) (may a *fetched* pack ship a **host-side**
-binary? Yes, disclosed). One is open:
+binary? Yes, disclosed). The third was settled on 2026-10-05:
 [`OQ-BP7`](../design/broker-as-a-pack.md#OQ-BP7) (between releases, does main pin the last
-release's build of an official binary, or its own?). This page settles none of them.
+release's build of an official binary, or its own? Its own, built and installed with the tree).
+This page settles none of them.
 
 ---
 

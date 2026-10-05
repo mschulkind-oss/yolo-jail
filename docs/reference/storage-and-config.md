@@ -217,8 +217,9 @@ directory a *user* is asked to prepend to their own PATH), and `host-floor/` (th
 floor**: yolo's own copies of the selected packs' agents, which `yolo host` runs by path; `0700`,
 on no PATH of the user's, and never mounted into a jail in any mode, because the host executes it
 — [`host-tool-provisioning.md`](../design/host-tool-provisioning.md)), and `pack-binaries/` (the
-programs loophole manifests declare as downloads, at `<sha256>/<name>`, mode `0555`, filled only
-by `yolo pack install`; never mounted as a directory, since a host daemon's build runs from
+programs loophole manifests declare as downloads, at `<sha256>/<name>`, mode `0555`, fetched
+into only by `yolo pack install`, and seeded by a from-source `just install` with the tree's own
+builds of the official ones; never mounted as a directory, since a host daemon's build runs from
 there, and each jail daemon's build reaches its jail as one read-only file bind —
 [`loophole-system.md`](loophole-system.md#a-program-the-loophole-downloads)). Nothing reclaims
 `pack-binaries/` yet: a build stays until it is deleted by hand. `model-menus/<pack>/<bin>/` holds

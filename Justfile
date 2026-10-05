@@ -51,6 +51,25 @@ install:
         exit 1
     fi
 
+    # --- The official pack programs, built and installed WITH the tree ---
+    # A program an official loophole manifest declares under `binaries` is built from this
+    # checkout's cmd/<name> for this machine — its host build, and linux/<arch> for the jail —
+    # and admitted to the pack-binary cache every launch reads, as yolo's own binaries are staged
+    # below: NOTHING IS DOWNLOADED but the pinned Go toolchain, once, into the module cache
+    # (docs/design/broker-as-a-pack.md BP-D15, OQ-BP7 ruled 2026-10-05: "it has to be built all
+    # together, installed all together"). So a from-source or forked tree's jail runs that tree's
+    # programs. --repin: a program this tree changed since its pin is re-pinned first (each
+    # sha256, urls kept), so the manifest `go install` embeds below pins the build it seeds; the
+    # tool names the manifest to commit, since `just check-ci` refuses the old pin. FIRST, before
+    # VERSION, so a re-pin shows in the stamp as -dirty, and before anything is installed, so a
+    # failure installs nothing. With no official binary declared it says so and fetches nothing.
+    if ! go run ./tools/pack-binaries seed --repin; then
+        echo "" >&2
+        echo "✗ could not build this tree's official pack programs into the pack-binary cache —" >&2
+        echo "  the lines above say why. Nothing has been installed: fix that and re-run 'just install'." >&2
+        exit 1
+    fi
+
     VERSION="$(git describe --tags --always --dirty 2>/dev/null || echo unknown)"
     COMMIT="$(git rev-parse --short HEAD 2>/dev/null || echo unknown)"
     # SourceDir records THIS checkout so `yolo update` knows what to pull and
@@ -402,7 +421,18 @@ format:
     gofmt -w $(git ls-files --cached --others --exclude-standard '*.go')
 
 # Quality checks (interactive use)
-check: format lint test-fast
+check: format lint test-fast check-pack-binaries
+
+# WHAT MAIN PINS BETWEEN RELEASES IS ITS OWN BUILD (docs/design/broker-as-a-pack.md BP-D15, OQ-BP7
+# ruled 2026-10-05). Each official pack program is rebuilt with the release recipe and its digest
+# compared with the manifest's; a url may still name any earlier release, which the release's own
+# pin rewrites. A refusal names the binary, the platform, both digests and `just
+# pin-pack-binaries`. With no official binary declared it says so, builds nothing and fetches no
+# toolchain; once one is, it cross-compiles each build, and fetches the pinned Go the first time.
+#
+# Check that this tree still builds every official pack program's pinned digest
+check-pack-binaries:
+    go run ./tools/pack-binaries check
 
 # `[parallel]` runs the two dependencies at once: neither writes anything the other reads, so
 # the gate takes as long as the slower of them instead of their sum. A failure in either still
@@ -416,7 +446,7 @@ check: format lint test-fast
 #
 # The landing gate CI also runs (no formatting — just verify and test).
 [parallel]
-check-ci: lint-ci test-fast
+check-ci: lint-ci test-fast check-pack-binaries
 
 # Full quality checks including container integration tests
 check-all: format lint test
@@ -445,15 +475,17 @@ done: check
     fi
     @echo "All checks passed, working tree clean"
 
-# Each official pack binary is built with the release recipe, and its release url and sha256 are
-# written into its loophole manifest in place (docs/design/broker-as-a-pack.md BP-D9). A release
-# goes: rename the changelog section, run this, commit both, `just release VERSION`. With no
-# official binary declared it says so and writes nothing. The first run downloads the pinned Go
-# toolchain into the module cache.
+# Each official pack binary is built with the release recipe, and its sha256 is written into its
+# loophole manifest in place (docs/design/broker-as-a-pack.md BP-D9). WITH A VERSION it writes
+# each release url too, and a release goes: rename the changelog section, run this, commit both,
+# `just release VERSION`. WITHOUT ONE it writes the digests alone and keeps each url — what main
+# pins between releases, and the fix `just check-ci` names when a change moved a program
+# (BP-D15); `just install` makes the same re-pin itself. With no official binary declared it says
+# so and writes nothing. The first run downloads the pinned Go toolchain into the module cache.
 #
-# Pin every official pack binary for VERSION (before `just release VERSION`)
-pin-pack-binaries version:
-    go run ./tools/pack-binaries pin "{{version}}"
+# Pin every official pack binary: to this tree's builds, or for VERSION (before `just release`)
+pin-pack-binaries *version:
+    go run ./tools/pack-binaries pin {{version}}
 
 # Cut a release: refuse unless CHANGELOG.md has a written section for VERSION and the tree is
 # clean, then tag v<VERSION> and push the tag. The tag push is the whole release: release.yml

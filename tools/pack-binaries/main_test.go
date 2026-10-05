@@ -6,6 +6,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -114,8 +115,12 @@ func runTool(t *testing.T, root string, args ...string) result {
 	var out, errb bytes.Buffer
 	var r result
 	g := hostGo(t)
+	cache := filepath.Join(t.TempDir(), "default-cache")
 	r.code = run(args, &out, &errb, deps{root: root, environ: os.Environ(),
-		toolchain: func() (string, error) { r.fetched = true; return g, nil }})
+		toolchain: func() (string, error) { r.fetched = true; return g, nil },
+		goos:      runtime.GOOS, goarch: runtime.GOARCH,
+		// Never the real home's cache: a seed with no directory fills this one.
+		cacheDir: func() string { return cache }})
 	r.stdout, r.stderr = out.String(), errb.String()
 	return r
 }
@@ -338,7 +343,8 @@ func TestCheckRefusesAProgramItCannotPin(t *testing.T) {
 func TestNoOfficialBinaryFetchesNoToolchain(t *testing.T) {
 	root := fixtureCheckout(t)
 	writeFile(t, root, fixtureManifestPath, `{"name": "tool", "description": "no binaries"}`)
-	for _, args := range [][]string{{"pin", "0.2.0"}, {"check", "0.2.0"}, {"stage", "0.2.0", "out"}} {
+	for _, args := range [][]string{{"pin", "0.2.0"}, {"check", "0.2.0"}, {"stage", "0.2.0", "out"},
+		{"pin"}, {"check"}, {"seed", "cache"}, {"seed", "--repin", "cache"}} {
 		r := runTool(t, root, args...)
 		if r.code != 0 || r.fetched || !strings.Contains(r.stdout, "no official pack declares a binary (read 1 loophole manifests)") {
 			t.Errorf("%v: exit %d fetched=%v\n%s%s", args, r.code, r.fetched, r.stdout, r.stderr)
@@ -366,8 +372,13 @@ func TestUsageAndRefusals(t *testing.T) {
 		want string
 	}{
 		{nil, 2, "usage:"},
-		{[]string{"check"}, 2, "usage:"},
+		{[]string{"check", "0.2.0", "0.3.0"}, 2, "usage:"},
+		{[]string{"pin", "0.2.0", "extra"}, 2, "usage:"},
 		{[]string{"stage", "0.2.0"}, 2, "usage:"},
+		{[]string{"stage"}, 2, "usage:"},
+		{[]string{"seed", "--frobnicate"}, 2, "usage:"},
+		{[]string{"seed", "--repin", "--repin"}, 2, "usage:"},
+		{[]string{"seed", "one", "two"}, 2, "usage:"},
 		{[]string{"publish", "0.2.0"}, 2, "usage:"},
 		{[]string{"check", "latest"}, 2, "is not a release version"},
 	} {
