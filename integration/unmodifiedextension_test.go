@@ -101,7 +101,7 @@ echo "SETTINGS=$(tr -d ' \n' < "$HOME/.utreeagent/settings.json")"`
 		"extension " + owner + ": ~/" + npmTreeInto + ", an unmodified extension of " + npmTreeSource,
 		// The build's start line, with its disclosure: npm's own install of the version it builds.
 		"build extension " + owner + ": 7.0.0, the first build of it on this machine",
-		"it runs npm's own install of the package: npm install 'is-number@7.0.0' --prefix .",
+		"it runs npm's own install of the package: npm install is-number@7.0.0 --prefix .",
 		"built extension " + owner + ": 7.0.0; this jail runs it",
 	} {
 		if !strings.Contains(out, w) {
