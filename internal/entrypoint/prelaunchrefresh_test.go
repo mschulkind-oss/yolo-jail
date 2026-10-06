@@ -91,6 +91,8 @@ type prelaunchProbe struct {
 	// (Install.Probe), for the cells of launchersteps_test.go.
 	gate  string
 	probe []string
+	// servers is the baked MCP server set; empty, so no server refresh, unless a cell sets it.
+	servers launcherServers
 }
 
 // newPrelaunchProbe seeds a fake program at REAL_BIN (so the launch path, not the cold-install
@@ -146,12 +148,12 @@ func (p *prelaunchProbe) write(t *testing.T) {
 			&packdecl.Install{Kind: "native", Bin: "tool",
 				InstallerURL: "https://example.invalid/never-fetched.sh", Refresh: p.refresh, Gate: p.gate, Probe: p.probe},
 			p.stamps, filepath.Join(p.home, "ws", ".yolo", "receipts.jsonl"), "",
-			p.updates, launcherServers{}, nil)
+			p.updates, p.servers, nil)
 	} else {
 		body = npmAgentLauncher("probe",
 			&packdecl.Install{Kind: "npm", Bin: "tool", Package: "tool", Refresh: p.refresh, Gate: p.gate, Probe: p.probe},
 			p.stamps, filepath.Join(p.home, "ws", ".yolo", "receipts.jsonl"),
-			p.updates, launcherServers{}, nil)
+			p.updates, p.servers, nil)
 	}
 	if p.heartbeat != "" {
 		const baked = "\nREFRESH_HEARTBEAT=60 "

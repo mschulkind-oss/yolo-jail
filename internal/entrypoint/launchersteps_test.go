@@ -76,13 +76,93 @@ func TestAVersionProbeRunsNoUpdateStep(t *testing.T) {
 				updated = strings.Contains(stderr, "Updating") || strings.Contains(stderr, "never-fetched")
 			}
 			probe := arg == "--version"
-			if refreshed == probe || (!native && updated == probe) {
+			if refreshed == probe || updated == probe {
 				t.Errorf("native=%v %s: refreshed %v, updated %v, want both %v\nlog=%q\nstderr=%s", native, arg,
 					refreshed, updated, !probe, lines, stderr)
 			}
 			if countLine(lines, "LAUNCH:"+arg) != 1 || !strings.Contains(stdout, "RAN") {
 				t.Errorf("native=%v %s: the program was not launched: %q", native, arg, lines)
 			}
+		}
+	}
+}
+
+// loggingYolo is a yolo that logs its argv into log and answers refresh-servers with success; any
+// other call with a `--` runs what follows it, as the no-terminal verb does, and one the source
+// launcher's materialize makes puts a program at ~/.local/bin/<bin> that logs as fakeRefreshProgram.
+func loggingYolo(t *testing.T, dir, log, bin string) string {
+	t.Helper()
+	d := filepath.Join(dir, "loggingyolo")
+	if err := os.MkdirAll(d, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	body := `#!/bin/bash
+printf 'YOLO %s\n' "$*" >> ` + shellQuoteForTest(log) + `
+case "${2:-}" in
+    refresh-servers) exit 0 ;;
+    capture-materialize)
+        mkdir -p "$HOME/.local/bin"
+        printf '#!/bin/bash\necho "LAUNCH:$*" >> %s\necho RAN\n' ` + shellQuoteForTest(shellQuoteForTest(log)) + ` > "$HOME/.local/bin/` + bin + `"
+        chmod +x "$HOME/.local/bin/` + bin + `"
+        exit 0 ;;
+esac
+while [ "$#" -gt 0 ] && [ "$1" != "--" ]; do shift; done
+[ "$#" -gt 0 ] || exit 0
+shift
+exec "$@"
+`
+	if err := os.WriteFile(filepath.Join(d, "yolo"), []byte(body), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	return d
+}
+
+// A VERSION PROBE RUNS NO MCP SERVER REFRESH (XB-D24), in all three templates, and any other first
+// argument runs it. Red if a template drops `[ "$_YOLO_PROBE" != 1 ]` from its SERVERS_ENABLED
+// guard.
+func TestAVersionProbeRunsNoServerRefresh(t *testing.T) {
+	servers := launcherServers{npm: "some-mcp-server"}
+	for _, arg := range []string{"--version", "chat"} {
+		want := arg != "--version"
+		for _, native := range []bool{false, true} {
+			p := newPrelaunchProbe(t, native)
+			p.probe = []string{"--version", "-v"}
+			p.servers = servers
+			p.write(t)
+			if out, err := p.cmd(loggingYolo(t, p.home, p.log, "tool"), arg).CombinedOutput(); err != nil {
+				t.Fatalf("native=%v %s: launcher failed: %v\n%s", native, arg, err, out)
+			}
+			log := strings.Join(p.logLines(t), "\n")
+			if got := strings.Contains(log, "YOLO internal refresh-servers"); got != want {
+				t.Errorf("native=%v %s: refreshed the servers %v, want %v:\n%s", native, arg, got, want, log)
+			}
+			if !strings.Contains(log, "LAUNCH:"+arg) {
+				t.Errorf("native=%v %s: the program was not launched:\n%s", native, arg, log)
+			}
+		}
+		// The source launcher, a fork's build materialized from the capture store.
+		home := t.TempDir()
+		log := filepath.Join(home, "argv.log")
+		inst := &packdecl.Install{Kind: packdecl.InstallKindSource, Bin: "tool", ForkedBy: "fork", Source: "git+https://example.invalid/x?ref=main",
+			Produces: []string{".local/bin/tool"}, Probe: []string{"--version", "-v"}}
+		body := strings.Join(sourceAgentLauncherSegments(inst, ForkDelivery{Key: "k1"}, filepath.Join(home, "stamps"),
+			filepath.Join(home, "keys"), filepath.Join(home, "receipts.jsonl"), t.TempDir(), true, servers, nil), "")
+		script := filepath.Join(home, "tool-launcher")
+		if err := os.WriteFile(script, []byte(body), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		cmd := exec.Command(script, arg)
+		cmd.Dir = home
+		cmd.Env = []string{"HOME=" + home, "PATH=" + loggingYolo(t, home, log, "tool") + ":" + os.Getenv("PATH")}
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("source %s: launcher failed: %v\n%s", arg, err, out)
+		}
+		data, _ := os.ReadFile(log)
+		if got := strings.Contains(string(data), "YOLO internal refresh-servers"); got != want {
+			t.Errorf("source %s: refreshed the servers %v, want %v:\n%s", arg, got, want, data)
+		}
+		if !strings.Contains(string(data), "LAUNCH:"+arg) {
+			t.Errorf("source %s: the program was not launched:\n%s", arg, data)
 		}
 	}
 }
