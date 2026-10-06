@@ -428,13 +428,10 @@ func (o *Options) noteMacosUserPlatformGaps(cfg *jsonx.OrderedMap) {
 			// device (`--device` on the node lsusb resolves), and a cgroup rule attaches nothing
 			// — it becomes `--device-cgroup-rule`, which only lets the container's device cgroup
 			// open matching device numbers (deviceArgs).
-			out.print("[yellow]Warning: `devices` USB and cgroup entries are not read on " +
-				"macos-user[/yellow] — " + strings.Join(labels, ", ") + ". A USB entry attaches " +
-				"a device to a CONTAINER, and a cgroup rule lets a container's device cgroup open " +
-				"the device numbers it matches; this backend starts no container, so neither does " +
-				"anything here. A USB device is reached through macOS itself, which yolo neither " +
-				"attaches nor restricts. To drive a serial adapter from the sandbox, list its " +
-				"/dev/cu.* node instead.")
+			//
+			// The words are the setup census's notice for `devices` on this backend
+			// (internal/setupcensus, OQ-BP-1: "the macos-user notice block reads it").
+			out.print(setupcensus.Warning(setupcensus.MacosUser, "devices").Line(strings.Join(labels, ", ")))
 		}
 	}
 

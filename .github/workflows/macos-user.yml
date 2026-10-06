@@ -440,7 +440,7 @@ jobs:
         # when it drifts: a pack missing or extra, a pack its runner's platform cannot
         # install, an npm pack listed after an installer one, or a cell that would
         # select another pack's subtest. `rg -n '"via"' packs/*/pack.json` is the split.
-        pack: [opencode, pi, omp, copilot, claude, codex, agy]
+        pack: [opencode, pi, omp, chrome-devtools, copilot, claude, codex, agy]
     # The job above says why macos-latest (Apple Silicon, floating). The pin test
     # derives the list above from this label's platform (macosUserRunnerPlatforms), so
     # a move to another label fails `just check-ci` until the list matches that

@@ -405,7 +405,11 @@ func (k *keeper) run() int {
 	// daemon running for the jails using it. A key at macos-user is refused the same way, before it
 	// holds anything.
 	if refused != nil {
-		o.pr(o.Stderr).print(refused.markup("Refusing this launch"))
+		lead := "Refusing this launch"
+		if p.Notch != "" {
+			lead = "Refusing the macos-user launch"
+		}
+		o.pr(o.Stderr).print(refused.markup(lead))
 		return k.unwindUnstarted(1)
 	}
 	// A KEY AT macos-user HOLDS NO CONTAINER (§9.9): from here it opens the doorways and starts the

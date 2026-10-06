@@ -214,7 +214,7 @@ type Observer struct {
 	// and the child then runs WITHOUT the proxy, on a terminal too: the proxy's pty merges the
 	// child's two streams into one, so neither could go anywhere else. Its stdin and stderr stay this
 	// process's. The one caller is a launch whose jail's output is progress of another command's,
-	// never product (run.Options.JailStdout): the host floor's capture and build jails, which run
+	// never product (run.Options.SessionStdout): the host floor's capture and build jails, which run
 	// before the `yolo host` launch execs an agent whose stdout is routinely parsed.
 	Stdout io.Writer
 }

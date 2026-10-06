@@ -72,7 +72,7 @@ func TestMacosUserResourcesLineNamesOnlyWhatIsIgnored(t *testing.T) {
 		t.Errorf("io, cpus and memory are all acted on, yet the line says %q", line)
 	}
 	line := resourcesLine(t, resourcesOf("io", "idle", "cpus", 2, "memory", "8g", "pids_limit", 100))
-	if !strings.Contains(line, "so pids_limit is read and ignored") {
+	if !strings.Contains(line, "— pids_limit.") {
 		t.Errorf("pids_limit must still be named, as one key: %q", line)
 	}
 	for _, k := range []string{"io", "cpus", "memory"} {
@@ -81,7 +81,7 @@ func TestMacosUserResourcesLineNamesOnlyWhatIsIgnored(t *testing.T) {
 		}
 	}
 	// Two keys take the plural: a cpus neither reader can use is named beside pids_limit.
-	if line := resourcesLine(t, resourcesOf("cpus", "many", "pids_limit", 100)); !strings.Contains(line, "so cpus, pids_limit are read and ignored") {
+	if line := resourcesLine(t, resourcesOf("cpus", "many", "pids_limit", 100)); !strings.Contains(line, "— cpus, pids_limit.") {
 		t.Errorf("two ignored keys: %q", line)
 	}
 }

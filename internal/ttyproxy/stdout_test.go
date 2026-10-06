@@ -16,7 +16,7 @@ import (
 // standard output goes to that writer and never to this process's stdout — on a terminal too, where
 // the proxy would otherwise merge both of the child's streams into one pty and copy it to this
 // process's stdout. Its stderr stays this process's. A host floor's capture jail runs its session
-// this way (run.Options.JailStdout), so the installer it runs prints nothing on the stdout of the
+// this way (run.Options.SessionStdout), so the installer it runs prints nothing on the stdout of the
 // `yolo host` launch an agent's output is read from.
 func TestObserverStdoutTakesTheChildsStdoutOnBothPaths(t *testing.T) {
 	cmd := []string{"sh", "-c", `echo JAIL_STDOUT; echo JAIL_STDERR >&2`}

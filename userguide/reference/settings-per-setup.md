@@ -344,8 +344,8 @@ Two things to read before the table:
 
 | Key | `podman` / Linux | `podman` / macOS | `container` / macOS | `macos-user` / macOS | Takes effect |
 |---|---|---|---|---|---|
-| `resources.memory` | works — kernel-enforced [^cgroups] | works — enforced in the VM, clipped to it [^vm-limits] | works — **but a cap you never wrote** [^acdefault] | sampled, not kernel-enforced — the largest process is stopped [^mures] | fresh launch [^muentry] |
-| `resources.cpus` | works — kernel-enforced [^cgroups] | works — clipped to the VM's vCPUs, silently [^vm-limits] | works — half your cores unless set [^acdefault] | cooperative — common build tools' parallelism, not a cap [^mures] | fresh launch [^muentry] |
+| `resources.memory` | works — kernel-enforced [^cgroups] | works — enforced in the VM, clipped to it [^vm-limits] | works — **but a cap you never wrote** [^acdefault] | works, sampled — not kernel-enforced; the largest process is stopped [^mures] | fresh launch [^muentry] |
+| `resources.cpus` | works — kernel-enforced [^cgroups] | works — clipped to the VM's vCPUs, silently [^vm-limits] | works — half your cores unless set [^acdefault] | works, cooperatively — common build tools' parallelism, not a cap [^mures] | fresh launch [^muentry] |
 | `resources.pids_limit` | works — always capped, default applied | works — always capped | absent, **silent** — no surface mentions it [^acpids] | absent, warns — an open question [^mures] | fresh launch [^muentry] |
 | `resources.io` (disk I/O priority) | works on bfq and mq-deadline disks; the launch names a disk that ignores it [^ioprio] | absent, warns — VirtioFS carries no priority [^iopriovm] | absent, warns — the same [^iopriovm] | works — the session's macOS disk priority [^mures] | fresh launch [^muentry] |
 | `devices` (raw path, `usb:`, `cgroup_rule`) | works — all three forms [^lsusb] | absent, warns — refused by OS, never probed [^macdev] | absent, warns [^acdev] | raw `/dev` path: works — device control allowed, named at launch; `usb:` and `cgroup_rule`: absent, warns [^mudev] | fresh launch [^muentry] |

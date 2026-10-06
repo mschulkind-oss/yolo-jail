@@ -350,7 +350,7 @@ func TestHostFloorRunsARealCaptureOfAnInstallerFixture(t *testing.T) {
 	}
 	// AND STDOUT IS THE FLOOR COPY'S ALONE. An agent's stdout is routinely parsed, and the capture
 	// jail's output once reached it ahead of the program's own: the installer's FIXTURE_INODE and
-	// -INSTALL lines (run.Options.JailStdout).
+	// -INSTALL lines (run.Options.JailStdout and SessionStdout).
 	for _, never := range []string{captureFixtureRan + "-INSTALL", "FIXTURE_INODE"} {
 		if strings.Contains(r.stdout, never) {
 			t.Errorf("the first launch's stdout carries the capture jail's %q, which belongs on its stderr:\n%s",

@@ -163,7 +163,7 @@ jobs:
         # agy is the largest install here by a wide margin (docs/design/program-delivery.md
         # records a 189 MB binary from https://antigravity.google/cli/install.sh), which is
         # precisely why it belongs on this workflow's triggers rather than on every push.
-        pack: [claude, copilot, opencode, pi, codex, agy, omp]
+        pack: [claude, copilot, opencode, pi, codex, agy, omp, chrome-devtools]
     runs-on: ${{ matrix.os }}
     timeout-minutes: 60
     steps:
