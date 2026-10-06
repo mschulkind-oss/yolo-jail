@@ -7,7 +7,7 @@ package cli
 // printed, give a series the next fresh launch builds and moves the good build to (§14's done
 // condition); a fetched fork pack's steps publish through a clone of the pack's repository; it
 // refuses a directory it must not touch, says so on its own clone and starts over with --restart;
-// and it runs on the host only.
+// and, keyed, it runs on the host only (its scratch form, --pack, is patchedrebasescratch_test.go).
 
 import (
 	"bytes"
@@ -151,7 +151,7 @@ func TestPackRebaseStopsAtTheConflictAndPrintsItsNextSteps(t *testing.T) {
 		// and `a/` `b/` prefixes, and the renames — each only once the one before it succeeded.
 		"    test -n \"$(git -C " + q(dir) + " rev-list -n 1 refs/heads/yolo-rebase --not " + v12 + " " + m.Applied +
 			" --)\" && mkdir " + q(patches+".new") + " && git -C " + q(dir) + " -c format.noprefix=false format-patch " +
-			"--suffix=.patch --no-signature --base=" + v12 + " -o " + q(patches+".new") + " " + v12 + "..refs/heads/yolo-rebase && mv " +
+			"--no-signature --suffix=.patch --base=" + v12 + " -o " + q(patches+".new") + " " + v12 + "..refs/heads/yolo-rebase && mv " +
 			q(patches) + " " + q(patches+".old") + " && mv " + q(patches+".new") + " " + q(patches) + " && rm -r " +
 			q(patches+".old") + "\n",
 		"the next fresh launch builds the new series",
@@ -207,6 +207,13 @@ func TestARebasedAndExportedSeriesIsBuiltByTheNextLaunch(t *testing.T) {
 	series := mustSeries(t, fx)
 	if series.Base != v12 || series.Len() != 2 {
 		t.Fatalf("the exported series has %d members at base %s, want 2 at v1.2.0", series.Len(), series.Base)
+	}
+	// NO SIGNATURE: the export writes no `-- <git version>` trailer, which changes with the git that
+	// exports it and is no part of a patch, so another git's export reads as the same patches.
+	for _, m := range series.Members {
+		if strings.Contains(string(m.Data), "\n-- \n") {
+			t.Errorf("the exported %s carries a signature trailer:\n%s", m.Name, m.Data)
+		}
 	}
 	fx.later(2 * time.Hour)
 	moved, out, _ := fx.launch(t, "podman")
@@ -338,7 +345,7 @@ func TestPackRebaseOnItsOwnCloneSaysSoAndRestartStartsOver(t *testing.T) {
 		t.Fatalf("the second rebase rc=%d\n%s\n%s", rc, out, errw)
 	}
 	for _, w := range []string{"fork forkpack/tool: " + dir + " is its rebase clone, made under a minute ago onto upstream v1.2.0 (" + shortSHA(v12) + ")",
-		"rebase --continue", "format-patch --suffix=.patch --no-signature --base=" + v12,
+		"rebase --continue", "format-patch --no-signature --suffix=.patch --base=" + v12,
 		// The restart names the directory the user named: the bare verb would start over elsewhere.
 		"`yolo pack rebase forkpack/tool --into " + shquote.QuoteDisplay(dir) + " --restart` removes it"} {
 		if !strings.Contains(out, w) {
@@ -421,7 +428,8 @@ func TestPackRebaseClonesIntoTheCurrentDirectoryByDefault(t *testing.T) {
 	}
 }
 
-// HOST ONLY: in a jail it names the command to run on the host, and clones nothing.
+// HOST ONLY, KEYED: in a jail it names the command to run on the host, and the scratch rebase
+// (--pack) for a local pack inside the workspace, and clones nothing.
 func TestPackRebaseInAJailNamesTheHost(t *testing.T) {
 	f := newPatchedFixture(t, "")
 	f.commit(t, "v1.2.0", map[int]string{11: "eleven"})
@@ -429,7 +437,9 @@ func TestPackRebaseInAJailNamesTheHost(t *testing.T) {
 	cwd := t.TempDir()
 	t.Chdir(cwd)
 	rc, out, errw := rebaseVerb(t, "forkpack/tool")
-	if rc != 1 || !strings.Contains(errw, "run `yolo pack rebase forkpack/tool` in a terminal on the host") {
+	if rc != 1 || !strings.Contains(errw, "run `yolo pack rebase forkpack/tool` in a terminal on the host") ||
+		!strings.Contains(errw, "for a local pack inside this jail's workspace, `yolo pack rebase forkpack/tool --pack "+
+			"<the pack's directory>` rebases it here") {
 		t.Errorf("rc=%d\n%s\n%s", rc, out, errw)
 	}
 	// The command the user typed, a conflict line's --onto included, which the bare verb would not
