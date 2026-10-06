@@ -12,6 +12,7 @@ package run
 import (
 	"bytes"
 	"go/ast"
+	"go/types"
 	"strings"
 	"testing"
 
@@ -45,7 +46,7 @@ func TestLaunchBannerQualifiesAGatedEnvVariable(t *testing.T) {
 	// out (OQ-CN7 (b)); the banner reads aws-auth's declarations alone.
 	o.UseProfiles = map[string]string{"claude": "bedrock"}
 	withAgent := append([]*packload.Pack{officialPack(t, "claude"), officialPack(t, "bedrock")}, packs...)
-	o.notePackHostAccess(packs, &packChannel{served: o.servedDaemons(o.jailDaemonsFor(cfg, "podman", withAgent))})
+	o.notePackHostAccess(packs, &packChannel{served: o.servedDaemons(o.jailDaemonsFor(cfg, "podman", withAgent))}, nil)
 
 	// The caller token stays the TOKEN, never the value: the banner is a launch's stderr, teed
 	// to launch.log, and the value is a credential scoped to the selecting agents' files.
@@ -73,7 +74,7 @@ func TestLaunchBannerKeepsAnUngatedEnvVariableBare(t *testing.T) {
 	o := goldenOptions("/ws", t.TempDir())
 	o.Stderr = &stderr
 	o.Stdout = discardBuf()
-	o.notePackHostAccess([]*packload.Pack{p}, nil)
+	o.notePackHostAccess([]*packload.Pack{p}, nil, nil)
 
 	const want = "Pack environment this launch:\n" +
 		"  widget: SETS an environment variable inside the jail: WIDGET_PLAIN=1  [env]\n" +
@@ -100,7 +101,7 @@ func bannerOf(t *testing.T, la assembled) string {
 	t.Helper()
 	var stderr bytes.Buffer
 	la.o.Stderr, la.o.Stdout = &stderr, discardBuf()
-	la.o.notePackHostAccess(la.in.packs, la.in.envChannel(la.o))
+	la.o.notePackHostAccess(la.in.packs, la.in.envChannel(la.o), nil)
 	return stderr.String()
 }
 
@@ -147,12 +148,19 @@ func TestEveryBannerCallSitePassesTheLaunchChannel(t *testing.T) {
 				return true
 			}
 			calls++
-			if len(call.Args) != 2 {
+			if len(call.Args) != 3 {
 				t.Errorf("%s calls %s with %d arguments", fn, sel.Sel.Name, len(call.Args))
 				return true
 			}
 			if id, ok := call.Args[1].(*ast.Ident); !ok || id.Name != "channel" {
 				t.Errorf("%s hands notePackHostAccess something other than the launch's channel", fn)
+			}
+			// The container arm hands it the user's mise_tools its jail was not handed, for the
+			// sealed withheld line (FP-D19); the macos-user arm runs no sealed build.
+			want := map[string]string{"Run": "nil", "runContainer": "miseWithheld"}[fn]
+			if id, ok := call.Args[2].(*ast.Ident); !ok || id.Name != want {
+				t.Errorf("%s hands notePackHostAccess %s as its withheld mise_tools, want %s", fn,
+					types.ExprString(call.Args[2]), want)
 			}
 			return true
 		})

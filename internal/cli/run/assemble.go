@@ -116,6 +116,10 @@ type assembleInput struct {
 	// sealed is THE SEAL (Options.Sealed, seal.go), carried here so argv assembly withholds every
 	// crossing site it emits. False for every launch but a fork build.
 	sealed bool
+	// captureJail is Options.captureJail: this launch is a capture jail, sealed or not, which is
+	// handed none of the user config's `mise_tools` (jailMiseTools, FP-D19). False for every
+	// ordinary launch, and for every hand-built assembleInput in a test.
+	captureJail bool
 	// sealedTree is, under the seal, the patched extension the build jail builds
 	// (Options.SealedTree), emitted as entrypoint.TreeBuildEnv.
 	sealedTree   string
@@ -855,9 +859,10 @@ func (o *Options) assembleRunCmd(in *assembleInput) []string {
 	}
 	// The merged mise_tools go in beside the user's list because the jail withholds yolo's
 	// pnpm launcher for a declared mise pnpm, and mise must then be free to deliver it
-	// (MergeMiseDisabledTools; misepnpm_test.go drives both halves).
-	miseDisabled := config.MergeMiseDisabledTools(mapGet(userEnv, "MISE_DISABLE_TOOLS"),
-		config.MergeMiseTools(cfg))
+	// (MergeMiseDisabledTools; misepnpm_test.go drives both halves). The table YOLO_MISE_TOOLS
+	// carries, so a capture jail's is none of the user's either (jailMiseTools, FP-D19).
+	miseTools, _ := in.jailMiseTools()
+	miseDisabled := config.MergeMiseDisabledTools(mapGet(userEnv, "MISE_DISABLE_TOOLS"), miseTools)
 	runCmd = append(runCmd, "-e", "MISE_DISABLE_TOOLS="+miseDisabled)
 
 	// --- store-prune gate (host-only) --- handled by the lifecycle phase
@@ -1188,6 +1193,8 @@ func (o *Options) commonEnvBlock(in *assembleInput, blockedConfigJSON, netMode s
 	// None under the seal (seal.go): a server's literal env is a credential, and a build runs no
 	// agent to start one.
 	lspServers, mcpServers, mcpPresets := agentServerTables(cfg, in.sealed, in.packs)
+	// None of the user's in any capture jail (seal.go): the jail's mise install installs this.
+	miseTools, _ := in.jailMiseTools()
 	env := []string{
 		"-e", "JAIL_HOME=/home/agent",
 		"-e", "NPM_CONFIG_PREFIX=/home/agent/.npm-global",
@@ -1241,7 +1248,7 @@ func (o *Options) commonEnvBlock(in *assembleInput, blockedConfigJSON, netMode s
 		"-e", "YOLO_HOST_DIR="+o.Workspace,
 		"-e", "YOLO_VERSION="+in.yoloVersion,
 		"-e", "OVERMIND_SOCKET=/tmp/overmind.sock",
-		"-e", "YOLO_MISE_TOOLS="+jsonDumps(config.MergeMiseTools(cfg)),
+		"-e", "YOLO_MISE_TOOLS="+jsonDumps(miseTools),
 		"-e", "YOLO_LSP_SERVERS="+jsonDumpsOrEmptyObj(lspServers),
 		// THE COMPOSED TABLE (packload.ComposeMCPServers, through agentServerTables): each selected
 		// pack's `mcp` entries joined to the jail's home, your mcp_servers merged over them. Composed

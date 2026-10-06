@@ -294,8 +294,13 @@ func buildCapturePlanAt(opts CaptureOptions, stagingRoot string) CapturePlan {
 	// bytes as a fresh install and never pick up a newer vendor release (install-capture.md slice
 	// 4(f); internal/cli's runCaptureJail suppresses the container's store mount for the same
 	// reason).
+	//
+	// AND NONE OF THE CONFIG'S OWN mise_tools (docs/design/forked-programs-as-packs.md FP-D19): a
+	// capture jail is handed only yolo's defaults, as the container arm's is, so the staging home's
+	// mise config names no tool of the user's for the installer to set off.
+	captureMiseTools, _ := config.JailMiseTools(opts.Config, true)
 	bootstrapEnv := buildBootstrapEnv(stagingRoot, opts.Config, gitIdentity, opts.SandboxEnv,
-		packRoot, "", "", "", HostContext{}, "", stagingHome, darwinPrefix, opts.BlockedTools)
+		packRoot, "", "", "", HostContext{}, "", stagingHome, darwinPrefix, opts.BlockedTools, captureMiseTools)
 	stagedYolo := StagedYoloPath("")
 	offendingHome, offendingSet := HomeContaining(stagingRoot)
 

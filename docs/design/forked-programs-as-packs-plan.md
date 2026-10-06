@@ -462,7 +462,7 @@ id, the lock file name and the wait bound (a named constant with its reason); a 
 **Stop and ask** if a fork needs a build toolchain the image, `packages` and the base's
 `node_floor` cannot supply: a pack-declared toolchain is a new contribution the design does not
 have. The user config's `mise_tools` no longer reach a build
-([FP-D19](forked-programs-as-packs.md#FP-D19), ruled 2026-10-05, not built). Stop and ask if
+([FP-D19](forked-programs-as-packs.md#FP-D19), ruled and built 2026-10-05). Stop and ask if
 step 7's measurement finds the motivating fork referencing the image's own paths:
 [FP-D4](forked-programs-as-packs.md#FP-D4)'s host notch cannot then ship as written. Stop and ask
 before a launch refuses over a fork's pin or build

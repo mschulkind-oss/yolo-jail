@@ -1013,7 +1013,9 @@ with no `agents_md_extra`, context mount, port, loophole or host nix daemon
 the build runs on the runtime's own bridge whatever `network.mode` says, with no host-loopback
 forwarding, so no service the host binds to 127.0.0.1 is in its reach
 ([FP-D13](../design/forked-programs-as-packs.md#FP-D13)). `~/.cache` and `/mise` are private
-directories of the build's workspace. The build jail still has its
+directories of the build's workspace. No capture jail, sealed or not, is handed the user config's
+`mise_tools` ([FP-D19](../design/forked-programs-as-packs.md#FP-D19)): a build has the image,
+`packages` and its base's `node_floor`, and fetches any other tool in its build line. The build jail still has its
 [keeper](../design/jail-lifetime-last-session-wins.md#11-terms), which holds the container and
 nothing else and ends the jail when the build exits
 ([FP-D15](../design/forked-programs-as-packs.md#FP-D15)). The selection is narrowed to the fork and
@@ -1026,7 +1028,8 @@ runs is reported with the last lines it printed
 ([PPX-D39](../design/patched-extensions.md#PPX-D39)). The build launch's pack disclosure
 lists only what the build fetches or runs, and counts every other claim in one line,
 `Sealed build: … declared by <packs> are withheld`
-([FP-D21](../design/forked-programs-as-packs.md#FP-D21)). A build whose result misses a `produces` path stores nothing, and so does one that leaves a
+([FP-D21](../design/forked-programs-as-packs.md#FP-D21)), which counts the user's withheld
+`mise_tools` too (`…, as are 2 of your mise_tools`). A build whose result misses a `produces` path stores nothing, and so does one that leaves a
 link into its own workspace, which is deleted when the build ends: `npm install -g .` is the common
 cause, npm installing a folder as a link to it, and the refusal names the copy-installing spelling
 (`npm install -g "$(npm pack --silent)"`). An admitted build is

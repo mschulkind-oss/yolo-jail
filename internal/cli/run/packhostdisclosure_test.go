@@ -166,7 +166,7 @@ func TestDisclosureSilentForJailInternalClaims(t *testing.T) {
 	o := goldenOptions("/ws", t.TempDir())
 	o.Stderr = &errBuf
 	o.Stdout = discardBuf()
-	o.notePackHostAccess([]*packload.Pack{p}, nil)
+	o.notePackHostAccess([]*packload.Pack{p}, nil, nil)
 	if errBuf.Len() != 0 {
 		t.Errorf("a pack that crosses nothing produced output:\n%s", errBuf.String())
 	}
@@ -203,7 +203,7 @@ func TestDisclosureWritesToStderr(t *testing.T) {
 	var outBuf, errBuf bytes.Buffer
 	o := goldenOptions("/ws", t.TempDir())
 	o.Stdout, o.Stderr = &outBuf, &errBuf
-	o.notePackHostAccess([]*packload.Pack{p}, nil)
+	o.notePackHostAccess([]*packload.Pack{p}, nil, nil)
 	if outBuf.Len() != 0 {
 		t.Errorf("the disclosure leaked to stdout:\n%s", outBuf.String())
 	}

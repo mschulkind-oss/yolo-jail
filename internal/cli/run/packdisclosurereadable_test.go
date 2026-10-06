@@ -32,7 +32,7 @@ func TestLaunchBannerRendersClaimsAsSentences(t *testing.T) {
 	o := goldenOptions("/ws", t.TempDir())
 	o.Stderr = &errBuf
 	o.Stdout = discardBuf()
-	o.notePackHostAccess([]*packload.Pack{p}, nil)
+	o.notePackHostAccess([]*packload.Pack{p}, nil, nil)
 	got := errBuf.String()
 
 	// §6's own worked example of what BAD looks like: the terse token line, where the kind
@@ -82,7 +82,7 @@ func TestLaunchBannerKeepsTheKindTag(t *testing.T) {
 	o := goldenOptions("/ws", t.TempDir())
 	o.Stderr = &errBuf
 	o.Stdout = discardBuf()
-	o.notePackHostAccess([]*packload.Pack{p}, nil)
+	o.notePackHostAccess([]*packload.Pack{p}, nil, nil)
 	if got := errBuf.String(); !strings.Contains(got, "[reads-host]") {
 		t.Errorf("the banner dropped the claim's kind tag:\n%s", got)
 	}

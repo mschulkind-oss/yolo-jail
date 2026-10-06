@@ -124,3 +124,14 @@ func retireWorkspaceMiseTools(e *Env) error {
 // A package var so tests can point it at a fixture; production is the live bind
 // mount at /workspace/mise.toml.
 var workspaceMisePath = "/workspace/mise.toml"
+
+// OverrideWorkspaceMisePath points the retire surgery at p and returns the function that
+// restores the previous path. A TEST SEAM, for a test in another package that renders a jail's
+// mise config from a launch's argv (internal/cli/run's capture-jail cells): run on a host, the
+// default path is whatever /workspace/mise.toml that host has, which in this repository's own
+// jail is the live checkout's. Production code never calls it.
+func OverrideWorkspaceMisePath(p string) (restore func()) {
+	prev := workspaceMisePath
+	workspaceMisePath = p
+	return func() { workspaceMisePath = prev }
+}

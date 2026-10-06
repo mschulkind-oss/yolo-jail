@@ -561,6 +561,10 @@ type Options struct {
 	// "a NEW capture, on an explicit act") structurally impossible. Suppressing the
 	// MOUNT rather than teaching the launcher a second exception makes it
 	// unrepresentable: there is nothing in that jail to resolve against.
+	//
+	// It is also the pipeline's one mark of a CAPTURE JAIL (Options.captureJail, seal.go):
+	// no fork or tree is built or delivered from inside one, and it is handed none of the
+	// user config's `mise_tools` (FP-D19).
 	CapturesDir func() string
 	// MaterializeStorePackages realizes a `buildEnv` of the config's `packages:` for the
 	// JAIL's platform and returns (profile store path, names nix has no build for, error)

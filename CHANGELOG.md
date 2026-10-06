@@ -239,7 +239,8 @@ comes 30 days after you upgrade. See [Storage](userguide/guides/storage.md#see-a
   your config requires, and a build that stops before it starts now quotes why.
 - A fork's build no longer gets a copy of your config, your MCP servers' settings or your
   `agents_md_extra` text, and neither its launch nor its briefing lists credentials, host files or
-  host connections the build does not get.
+  host connections the build does not get. A build, or `yolo capture`, no longer downloads your
+  own `mise_tools`.
 - A launch with `aws-auth` enabled no longer warns that its `.mount-sentinel` is missing.
 - A jail's wait for its in-jail services shows only when it is slow, and a failure names the
   service's log.

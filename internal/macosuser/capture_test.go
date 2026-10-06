@@ -134,6 +134,31 @@ func TestCapturePlanCarriesThePacksBlockedTools(t *testing.T) {
 	}
 }
 
+// THE MISE-TOOLS CALL SITE (docs/design/forked-programs-as-packs.md FP-D19): a capture jail is
+// handed none of the config's own `mise_tools`, so the staging home's mise config names no tool of
+// the user's for an installer's shim to install. The launch of the same config is the control: it
+// carries them, so the capture's withholding is the capture's.
+func TestACaptureInstallsNoneOfTheConfigsMiseTools(t *testing.T) {
+	cfg := jsonx.NewOrderedMap()
+	tools := jsonx.NewOrderedMap()
+	tools.Set("neovim", "nightly")
+	cfg.Set("mise_tools", tools)
+
+	opts := testCaptureOptions()
+	opts.Config = cfg
+	plan := BuildCapturePlan(opts)
+	if !inSlice(plan.BootstrapArgv, "YOLO_MISE_TOOLS={}") || anyContains(plan.BootstrapArgv, "neovim") {
+		t.Errorf("a capture's bootstrap is handed the config's mise_tools, want YOLO_MISE_TOOLS={}: %v",
+			plan.BootstrapArgv)
+	}
+	launch := BuildRunPlan("/Users/Shared/proj", cfg, nil, []string{"claude"},
+		"/usr/local/bin/yolo", "", HomeOverlay{}, HostContext{}, jsonx.NewOrderedMap(), nil, nil)
+	if !anyHasPrefix(launch.BootstrapArgv, "YOLO_MISE_TOOLS={") || !anyContains(launch.BootstrapArgv, `"neovim"`) {
+		t.Errorf("a launch of the same config is not handed its mise_tools, so the site is unexercised: %v",
+			launch.BootstrapArgv)
+	}
+}
+
 // A CAPTURE STAGES NO HOME OVERLAY, and must therefore NAME none. The overlay is the
 // composed content tree — skills and briefing prose — which a throwaway installer home has
 // no use for; StageCommands below copy the binary and the packs and nothing else. Setting

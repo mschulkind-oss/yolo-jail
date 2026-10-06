@@ -586,9 +586,10 @@ func BuildRunPlanWithDaemons(workspace string, cfg *jsonx.OrderedMap, agents, ag
 	// for both backends). Naming it is what turns the tier collapse off: the bootstrap
 	// symlinks the account home's per-workspace dirs into it
 	// (entrypoint.InstallDarwinHomeLayout). A capture passes none — see the parameter.
+	launchMiseTools, _ := config.JailMiseTools(cfg, false)
 	bootstrapEnv := buildBootstrapEnv(workspace, cfg, gitIdentity, sandboxEnv, packRoot,
 		homeOverlay, ctxRoot, capturesRoot, hostCtx, paths.WorkspaceHomeState(workspace), SandboxHome(),
-		darwinPrefix, blockedTools)
+		darwinPrefix, blockedTools, launchMiseTools)
 	bootstrapEnv.Set(paths.ContextDirEnv, contextDir)
 	// THE COMPOSED MCP TABLE (packload.ComposeMCPServers): the staged packs' `mcp` entries joined
 	// to the sandbox account's home, under the config's own `mcp_servers` — what the container
@@ -960,14 +961,19 @@ func stageCommandsNameEnvValue(cmds [][]string, content, key string) bool {
 // because core blocks nothing by default since the guardrails pack took the rules over — the
 // config's security section alone would render an empty YOLO_BLOCK_CONFIG and the generated
 // home would carry no blockers at all.
+//
+// `miseTools` is the `mise_tools` table the caller hands this jail (config.JailMiseTools): a
+// launch's is the config's, and a capture's is none of the config's own (FP-D19,
+// docs/design/forked-programs-as-packs.md). A PARAMETER, for hostCtx's reason: which tools cross
+// is the caller's statement about delivery, and cfg alone cannot say which caller it is.
 func buildBootstrapEnv(workspace string, cfg, gitIdentity, sandboxEnv *jsonx.OrderedMap,
 	packRoot, homeOverlay, ctxRoot, capturesRoot string, hostCtx HostContext, homeSidecar, home string,
-	darwinPrefix []string, blockedTools []packload.BlockedTool) *jsonx.OrderedMap {
+	darwinPrefix []string, blockedTools []packload.BlockedTool, miseTools *jsonx.OrderedMap) *jsonx.OrderedMap {
 	bootstrapEnv := jsonx.NewOrderedMap()
 	bootstrapEnv.Set("YOLO_HOST_DIR", resolvePathAbs(workspace))
 	blockJSON, _ := jsonx.DumpsCompact(config.NormalizeBlockedToolsWith(securitySection(cfg), blockedTools))
 	bootstrapEnv.Set("YOLO_BLOCK_CONFIG", blockJSON)
-	miseJSON, _ := jsonx.DumpsCompact(orderedMapToAny(config.MergeMiseTools(cfg)))
+	miseJSON, _ := jsonx.DumpsCompact(orderedMapToAny(miseTools))
 	bootstrapEnv.Set("YOLO_MISE_TOOLS", miseJSON)
 	lspJSON, _ := jsonx.DumpsCompact(getSectionOrEmptyMap(cfg, "lsp_servers"))
 	bootstrapEnv.Set("YOLO_LSP_SERVERS", lspJSON)

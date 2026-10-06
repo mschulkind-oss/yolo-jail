@@ -50,7 +50,7 @@ func sealDisclosure(t *testing.T, sealed bool, packs []*packload.Pack) string {
 	o := goldenOptions("/ws", t.TempDir())
 	o.Stdout, o.Stderr = discardBuf(), &stderr
 	o.Sealed = sealed
-	o.notePackHostAccess(packs, nil)
+	o.notePackHostAccess(packs, nil, nil)
 	return stderr.String()
 }
 
@@ -117,7 +117,7 @@ func TestTheSealedWithheldLineCountsEachKind(t *testing.T) {
 		for i, k := range kinds {
 			ls = append(ls, disclosureLine{pack: []string{"a", "b"}[i%2], kind: k})
 		}
-		return sealedWithheldLine(ls)
+		return sealedWithheldLine(ls, nil)
 	}
 	if got := line(); got != "" {
 		t.Errorf("nothing withheld renders %q, want no line", got)
@@ -135,6 +135,36 @@ func TestTheSealedWithheldLineCountsEachKind(t *testing.T) {
 	} {
 		if got := line(c.kinds...); !strings.HasPrefix(got, c.want+" (FP-D9") {
 			t.Errorf("withheld %v renders %q, want it to begin %q", c.kinds, got, c.want)
+		}
+	}
+}
+
+// THE USER'S mise_tools ARE COUNTED IN THE SAME LINE (FP-D19): alone, when no pack claim was
+// withheld, and after the claims otherwise, each with its own reason. The end-to-end half, on a
+// real sealed launch of a user config with mise_tools, is
+// TestASealedBuildInstallsNoneOfTheUsersMiseTools.
+func TestTheSealedWithheldLineCountsTheUsersMiseTools(t *testing.T) {
+	env := []disclosureLine{{pack: "a", kind: packdecl.KindEnv}}
+	for _, c := range []struct {
+		claims []disclosureLine
+		tools  []string
+		want   string
+	}{
+		{nil, []string{"neovim"},
+			"Sealed build: 1 of your mise_tools is withheld (FP-D19: a build line fetches any tool it needs)"},
+		{nil, []string{"neovim", "jq"},
+			"Sealed build: 2 of your mise_tools are withheld (FP-D19: a build line fetches any tool it needs)"},
+		{env, []string{"neovim"},
+			"Sealed build: 1 pack env var declared by a is withheld, as is 1 of your mise_tools " +
+				"(FP-D9: a build jail gets no credential and no host file; FP-D19: a build line fetches any tool it needs)"},
+		{append(env, disclosureLine{pack: "b", kind: packdecl.KindReadsHost}), []string{"neovim", "jq"},
+			"Sealed build: 1 pack env var and 1 host read declared by a, b are withheld, as are 2 of your mise_tools " +
+				"(FP-D9: a build jail gets no credential and no host file; FP-D19: a build line fetches any tool it needs)"},
+		{env, nil, "Sealed build: 1 pack env var declared by a is withheld " +
+			"(FP-D9: a build jail gets no credential and no host file)"},
+	} {
+		if got := sealedWithheldLine(c.claims, c.tools); got != c.want {
+			t.Errorf("claims %v and tools %v render\n  %q\nwant\n  %q", c.claims, c.tools, got, c.want)
 		}
 	}
 }

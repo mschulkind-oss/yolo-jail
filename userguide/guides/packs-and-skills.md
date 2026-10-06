@@ -123,7 +123,10 @@ ends, so yolo refuses that build and says why.
   `~/.config/yolo-jail/forks.lock.json`: on another machine with the same config and that file, the
   first launch fetches the same commit, so both machines run the same build.
 - That launch builds the commit once, on this machine, in a jail of its own that gets none of
-  your credentials, host files or services. Every later launch, in any workspace, reuses the build.
+  your credentials, host files or services, and none of your `mise_tools`. It has the image's
+  tools, your `packages` and any Node version the forked program's pack asks for; a build that
+  needs another tool fetches it in its `build` command. Every later launch, in any workspace,
+  reuses the build.
   Each launch prints the commit your fork is built at.
 - If the pin cannot be made (your fork's repository is unreachable, or the `ref` names nothing), the
   jail starts without that program, and the launch says why and what to do. `yolo pack install` also

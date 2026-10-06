@@ -157,3 +157,35 @@ func TestMergeMiseDisabledToolsYieldsToADeclaredMiseTool(t *testing.T) {
 		})
 	}
 }
+
+// TestACaptureJailIsHandedNoneOfTheConfigsMiseTools pins FP-D19's rule
+// (docs/design/forked-programs-as-packs.md): a launch is handed the config's mise_tools, and a
+// capture jail — a sealed build's or an installer capture's — none of them, with the withheld
+// keys named in declaration order for the sealed launch's disclosure. The rule's readers are
+// pinned at their call sites: internal/cli/run/capturemisetools_test.go and
+// internal/macosuser's TestACaptureInstallsNoneOfTheConfigsMiseTools.
+func TestACaptureJailIsHandedNoneOfTheConfigsMiseTools(t *testing.T) {
+	cfg := jsonx.NewOrderedMap()
+	own := jsonx.NewOrderedMap()
+	own.Set("neovim", "nightly")
+	own.Set("jq", "1.7")
+	cfg.Set("mise_tools", own)
+
+	launch, withheld := JailMiseTools(cfg, false)
+	if got := strings.Join(launch.Keys(), ","); got != "neovim,jq" || withheld != nil {
+		t.Errorf("a launch is handed %q and withholds %v, want neovim,jq and nothing", got, withheld)
+	}
+	capture, withheld := JailMiseTools(cfg, true)
+	if capture == nil || capture.Len() != len(defaultMiseToolsKeys) {
+		t.Errorf("a capture jail is handed %v, want the defaults alone (%v)", capture, defaultMiseToolsKeys)
+	}
+	if got := strings.Join(withheld, ","); got != "neovim,jq" {
+		t.Errorf("a capture jail withholds %q, want neovim,jq", got)
+	}
+	for _, c := range []*jsonx.OrderedMap{nil, jsonx.NewOrderedMap()} {
+		if tools, withheld := JailMiseTools(c, true); tools == nil || withheld != nil {
+			t.Errorf("a capture jail of config %v is handed %v and withholds %v, want an empty table and nothing",
+				c, tools, withheld)
+		}
+	}
+}

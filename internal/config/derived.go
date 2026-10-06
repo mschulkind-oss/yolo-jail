@@ -101,6 +101,36 @@ func MergeMiseTools(config *jsonx.OrderedMap) *jsonx.OrderedMap {
 	return out
 }
 
+// JailMiseTools is the `mise_tools` table a jail is handed — YOLO_MISE_TOOLS, which the jail's
+// global mise config and so its `mise install` are rendered from, and the table
+// MergeMiseDisabledTools reads beside it — and the keys of config's own table that it withholds,
+// in declaration order (nil when none is withheld).
+//
+// A CAPTURE JAIL GETS NONE OF THE CONFIG'S OWN (docs/design/forked-programs-as-packs.md FP-D19,
+// ruling OQ-FP10 on 2026-10-05): a sealed build's jail, a fork's or a patched extension tree's, and
+// the jail `yolo capture` runs an installer program in. A capture jail's workspace is a scratch
+// directory with no config of its own, so the table is the user's, and a build's /mise is deleted
+// with its workspace, so each build installed every user tool again before its build line ran. Only
+// the defaults cross, MergeMiseTools of an empty config: yolo's own toolchain, like the image and
+// `packages`, which stay. A pack's `node_floor` is installed by the jail's bootstrap on its own path
+// (entrypoint's `_yolo_node_floor`) and never rode this table, so it is untouched. A build needing
+// another tool fetches it in its build line.
+//
+// ONE RULE FOR EVERY BACKEND, which is why it lives here rather than in either: the container argv
+// (cli/run's assembleInput.jailMiseTools) and the macos-user capture plan (macosuser's
+// BuildCapturePlan) both ask it.
+func JailMiseTools(config *jsonx.OrderedMap, captureJail bool) (tools *jsonx.OrderedMap, withheld []string) {
+	if !captureJail {
+		return MergeMiseTools(config), nil
+	}
+	if config != nil {
+		if own, ok := asMap(getMapOrEmpty(config, "mise_tools")); ok && own != nil {
+			withheld = own.Keys()
+		}
+	}
+	return MergeMiseTools(jsonx.NewOrderedMap()), withheld
+}
+
 // MergeMiseDisabledTools combines yolo-managed package managers (pnpm) with
 // user-supplied tools (comma/space separated), deduped, comma-joined.
 // Non-string userValue is ignored.

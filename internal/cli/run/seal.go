@@ -51,6 +51,11 @@ package run
 //	plugin from lsp_servers                runs no agent; so the jail's bootstrap installs
 //	(refreshJailBriefings)                 no preset's npm package either
 //	env_sources' MISE_DISABLE_TOOLS        not hydrated
+//	the user config's `mise_tools`         none, in EVERY capture jail, sealed or not
+//	(YOLO_MISE_TOOLS, and MISE_DISABLE_    (jailMiseTools, FP-D19): only yolo's defaults
+//	TOOLS' pnpm lift; commonEnvBlock and   cross, so the jail's mise install installs no
+//	assembleRunCmd)                        tool of the user's; a pack's node_floor never
+//	                                       rode the table, and still installs
 //	the jail's briefing                    describes only what crosses (sealedBriefingInput,
 //	(refreshJailBriefings)                 FP-D23): no loophole, context mount, port, host
 //	                                       nix daemon or forwarded host loopback, and no
@@ -65,18 +70,24 @@ package run
 //
 // WHAT THE LAUNCH PRINTS FOLLOWS WHAT CROSSES (FP-D21). The read disclosure (notePackHostAccess)
 // keeps only the claims about what the build itself fetches or runs (sealKeepsClaim), and says in
-// one counted line which declared env vars, host reads and loophole crossings it withheld
-// (sealedWithheldLine): a disclosure of a read that does not happen is worse than silence (DP-B2).
-// The host-execution disclosure is not printed at all, since nothing runs on the host.
+// one counted line which declared env vars, host reads and loophole crossings it withheld, and how
+// many of the user's `mise_tools` (sealedWithheldLine): a disclosure of a read that does not happen
+// is worse than silence (DP-B2). The host-execution disclosure is not printed at all, since nothing
+// runs on the host.
 //
 // The exec disclosure's reader, hostServiceNames, stays seal-blind on purpose (keeper.go): on
 // macos-user the disclosure and the spawn are one call (startLoopholesDisclosed), which a sealed
 // launch never reaches.
 //
-// What stays is TOOLCHAIN, not credential (FP-D9): the image, `packages`, `mise_tools` and a
-// base's `node_floor` (installed into the private /mise, at the cost of that download once per
-// build), the git identity (a name and an address), and the network — the runtime's bridge, never
-// the host's — which a build needs for its dependencies and which the launch discloses.
+// What stays is TOOLCHAIN, not credential (FP-D9): the image, `packages` and a base's `node_floor`
+// (installed into the private /mise, at the cost of that download once per build), the git
+// identity (a name and an address), and the network — the runtime's bridge, never the host's —
+// which a build needs for its dependencies and which the launch discloses. The user config's
+// `mise_tools` were on that list until FP-D19 (2026-10-05): no pack a build selects declares one,
+// a build that leaned on one would build on no other machine, and its private /mise made every
+// build install each again. They now reach no capture jail at all, the unsealed one `yolo
+// capture` runs an installer in included, so that row of the table above is the one not keyed on
+// the seal.
 //
 // The selection is narrowed as well (Options.OnlyPacks): every other selected pack's loopholes and
 // machine-scope directories are channels the build does not need. And the jail is told it is a
@@ -196,6 +207,24 @@ func sealedStores(workspace string) (cacheDir, miseDir string, err error) {
 // can only make rarer, and stays.
 func (o *Options) selectionNarrowed() bool { return o.OnlyPacks != nil }
 
+// captureJail reports whether this launch is a CAPTURE JAIL: the throwaway jail `yolo capture`
+// runs an installer program in, or a sealed build's (internal/cli's runCaptureJail makes both). The
+// switch is the one noteForkPins, notePatchedTrees, forkDeliveriesFor and
+// autoCaptureInstallerPrograms read, Options.CapturesDir returning "", which only that act sets; a
+// sealed launch is always one, so the seal answers too.
+func (o *Options) captureJail() bool { return o.Sealed || o.CapturesDir() == "" }
+
+// jailMiseTools is the `mise_tools` table this launch hands its jail, and the keys of the config's
+// own it withholds: under config.JailMiseTools' rule (FP-D19), none of the config's own in a
+// capture jail. Both readers of the table ask it — YOLO_MISE_TOOLS (commonEnvBlock) and the
+// MISE_DISABLE_TOOLS beside it (assembleRunCmd), which lifts pnpm out of the list for a declared
+// mise pnpm — because the jail writes yolo's pnpm launcher from the first, and the two halves
+// disagreeing leaves a jail with no pnpm at all (misepnpm_test.go). The sealed launch's withheld
+// line counts the second result (sealedWithheldLine).
+func (in *assembleInput) jailMiseTools() (tools *jsonx.OrderedMap, withheld []string) {
+	return config.JailMiseTools(in.cfg, in.sealed || in.captureJail)
+}
+
 // assembledConfigFor is the merged config this launch writes to its workspace's delivery copy
 // (config.WriteAssembledConfig): cfg, or under the seal an empty object. The copy sits in the
 // workspace the jail binds read-write, and the merged config carries every inline env_sources
@@ -248,15 +277,41 @@ func sealKeepsClaim(c packload.Claim) bool {
 // sealWithholdsClaim is sealKeepsClaim's complement, the filter for sealedWithheldLine.
 func sealWithholdsClaim(c packload.Claim) bool { return !sealKeepsClaim(c) }
 
-// sealedWithheldLine is the one line a sealed launch prints for the read-disclosure claims the
-// seal withheld, withheld being the lines disclosedClaimsWhere rendered for sealWithholdsClaim:
-// how many pack env vars, host reads (a reads-host, mount or host-briefing claim) and loophole
-// crossings (a loophole's CA, intercept or bind that runs nothing on the host), and which packs
-// declared them. "" when nothing was withheld.
-func sealedWithheldLine(withheld []disclosureLine) string {
-	if len(withheld) == 0 {
+// sealedWithheldLine is the one line a sealed launch prints for what the seal withheld: the
+// read-disclosure claims, withheld being the lines disclosedClaimsWhere rendered for
+// sealWithholdsClaim — how many pack env vars, host reads (a reads-host, mount or host-briefing
+// claim) and loophole crossings (a loophole's CA, intercept or bind that runs nothing on the host),
+// and which packs declared them — and how many of the user's `mise_tools`, miseTools being the keys
+// jailMiseTools withheld (FP-D19). Both are counted for one reason: what the reader needs is that
+// the build was handed none of it. "" when nothing was withheld.
+func sealedWithheldLine(withheld []disclosureLine, miseTools []string) string {
+	if len(withheld) == 0 && len(miseTools) == 0 {
 		return ""
 	}
+	var clauses, reasons []string
+	if len(withheld) > 0 {
+		clauses = append(clauses, withheldClaimsClause(withheld))
+		reasons = append(reasons, "FP-D9: a build jail gets no credential and no host file")
+	}
+	if n := len(miseTools); n > 0 {
+		verb := "are"
+		if n == 1 {
+			verb = "is"
+		}
+		tools := strconv.Itoa(n) + " of your mise_tools"
+		if len(clauses) == 0 {
+			clauses = append(clauses, tools+" "+verb+" withheld")
+		} else {
+			clauses = append(clauses, "as "+verb+" "+tools)
+		}
+		reasons = append(reasons, "FP-D19: a build line fetches any tool it needs")
+	}
+	return "Sealed build: " + strings.Join(clauses, ", ") + " (" + strings.Join(reasons, "; ") + ")"
+}
+
+// withheldClaimsClause is sealedWithheldLine's clause for withheld, which is not empty:
+// "<counts> declared by <packs> is withheld", or "are withheld".
+func withheldClaimsClause(withheld []disclosureLine) string {
 	var env, reads, loopholeCrossings int
 	var packs []string
 	for _, l := range withheld {
@@ -296,8 +351,7 @@ func sealedWithheldLine(withheld []disclosureLine) string {
 	if len(withheld) == 1 {
 		verb = "is"
 	}
-	return "Sealed build: " + what + " declared by " + strings.Join(packs, ", ") + " " + verb +
-		" withheld (FP-D9: a build jail gets no credential and no host file)"
+	return what + " declared by " + strings.Join(packs, ", ") + " " + verb + " withheld"
 }
 
 // narrowedPackEntries is entries narrowed to the names in Options.OnlyPacks, or entries unchanged

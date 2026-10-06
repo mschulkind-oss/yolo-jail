@@ -705,6 +705,12 @@ func captureJailArgv(bin string) []string {
 // the packs the seal names. seal nil is the installer capture's jail, unchanged: the design scopes
 // the seal to the fork route.
 //
+// ONE WITHHOLDING REACHES BOTH KINDS, sealed or not: the user config's `mise_tools`
+// (docs/design/forked-programs-as-packs.md FP-D19). The pipeline reads the suppressed store below
+// as this jail's mark (run.Options.CapturesDir returning ""), and hands such a jail none of them,
+// on the container arm (run's jailMiseTools) and the macos-user one (macosuser.BuildCapturePlan)
+// alike, through one rule (config.JailMiseTools). A pack's `node_floor` still installs.
+//
 // s is the jail's writers (captureStreams): the launch's own lines go to s.out and s.errw, the
 // jail's own, its runtime client's and pid 1's, to s.jailOut and s.jailErr, and its first
 // session's stdout to s.sessionOut — the process's own streams when nil; s.jailReady is called
@@ -772,10 +778,10 @@ func runCaptureJail(workspace, bin string, argv []string, seal *captureSeal, s c
 	opts.NoProgramReadiness = true
 	// The scratch workspace carries no yolo-jail.jsonc, so the effective config is the
 	// user's — the same `packs` any jail on this machine gets, which is what makes the
-	// launcher for <bin> exist inside. Nothing here is a config a human wrote for this
-	// workspace, so there is nothing for a human to approve; granting it up front stops a
-	// user-config edit from turning a capture into a prompt about a directory they have
-	// never seen.
+	// launcher for <bin> exist inside, though not its `mise_tools` (FP-D19, above). Nothing
+	// here is a config a human wrote for this workspace, so there is nothing for a human to
+	// approve; granting it up front stops a user-config edit from turning a capture into a
+	// prompt about a directory they have never seen.
 	opts.AcceptConfigChanges = true
 	// NO CONTROLLING TERMINAL IN A CAPTURE JAIL. A capture is machine-driven and
 	// nobody is watching for a question, so the jail must not be able to ask one.
