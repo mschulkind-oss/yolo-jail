@@ -557,7 +557,7 @@ func Run(opts Options) (rc int) {
 			// (servicessession.go). Two sessions of one workspace used to share the dir the
 			// workspace's cname selects, and this deferred teardown, which takes no container
 			// guard, removed it under the other session (OQ-HD10's second run, measured).
-			handles := o.startLoopholesDisclosed(cname, rt, cfg, staged.packs, jailDaemons)
+			handles, refused := o.startLoopholesDisclosed(cname, rt, cfg, staged.packs, jailDaemons)
 			defer o.endServicesSession(handles)
 			// THE CREDENTIAL VIEW, opt-in until a Mac measures it (CL-D11): the
 			// workspace's view registered and written now that the broker singleton is up, and
@@ -575,13 +575,22 @@ func Run(opts Options) (rc int) {
 				launchEnv.Set(hostServiceLaunchEnvVar(h), h.hostPath)
 			}
 			// THE CREDENTIAL SERVICE IS STILL FAIL-CLOSED, and it is deliberately the only
-			// one: a launch whose OpenAI loophole is active and whose broker did not start
-			// hands the agent a subscription it cannot refresh, silently. Every other
-			// service degrades to "the jail cannot reach it", which startLoopholesMatching
-			// already warns about by name and which no launch of this backend is refused
-			// for — this arm emits no reachability disposition at all (loopholesruntime.go).
+			// one refused for not starting: a launch whose OpenAI loophole is active and whose
+			// broker did not start hands the agent a subscription it cannot refresh, silently.
+			// Every other service degrades to "the jail cannot reach it", which
+			// startLoopholesMatching already warns about by name and which no launch of this
+			// backend is refused for — this arm emits no reachability disposition at all
+			// (loopholesruntime.go).
 			if openAIAuthLoopholeActive(cfg) && !startedLoophole(handles, openAIAuthBrokerName) {
 				o.pr(o.Stderr).print(openAIServiceRefusal())
+				return 1
+			}
+			// A HOST-WIDE DAEMON OLDER THAN THIS YOLO, which started but does not answer the launch
+			// check, refuses the launch before the sandboxed command runs, as the keeper refuses
+			// it on the container arm (OQ-HD11, launchcheck.go). The deferred session teardown
+			// closes this launch's fronts and leaves that daemon running for the jails using it.
+			if refused != nil {
+				o.pr(o.Stderr).print(refused.markup("Refusing the macos-user launch", "launch again"))
 				return 1
 			}
 			// THE DOORWAYS (macosuserdoorways.go), once the host services they forward to are up
@@ -2521,6 +2530,19 @@ func (o *Options) attachExisting(cname, rt, targetCmd string, cfg *jsonx.Ordered
 	// running jail parsed and validated the selection, composed the channel, and
 	// dropped it, silently.
 	if deliver {
+		// THE LAUNCH CHECK, asked of the services the running jail's launch started, through the
+		// fronts it still owns (runAttachLaunchChecks): a session that lapsed since that launch
+		// is warned about here, before this entry's agent's first request finds out. Only for an
+		// entry that delivers its channel, the one whose agents are handed the pointers.
+		//
+		// BEFORE THE DELIVERY, because it can refuse (HD-D5): a host-wide daemon older than the
+		// check refuses this entry as it refuses a fresh launch, and a refusal after the write
+		// would hand the live jail the channel of an entry that never happened
+		// (deliverChannelOnAttach's rule for its own pre-flights). The running jail is untouched.
+		if refused := o.runAttachLaunchChecks(cname, rt, cfg, entryDaemons); refused != nil {
+			o.pr(o.Stderr).print(refused.markup("Refusing to attach", "run this command again"))
+			return 1, false
+		}
 		// What the container's frozen environment already carries is yolo's, not the user's
 		// (inheritedValues, OQ-CN8): the agent files override it rather than defer to it.
 		if channel != nil {
@@ -2529,11 +2551,6 @@ func (o *Options) attachExisting(cname, rt, targetCmd string, cfg *jsonx.Ordered
 		if rc := o.deliverChannelOnAttach(cname, rt, cfg, view.staged, channel); rc != 0 {
 			return rc, false
 		}
-		// THE LAUNCH CHECK, asked of the services the running jail's launch started, through the
-		// fronts it still owns (runAttachLaunchChecks): a session that lapsed since that launch
-		// is warned about here, before this entry's agent's first request finds out. Only for an
-		// entry that delivers its channel, the one whose agents are handed the pointers.
-		o.runAttachLaunchChecks(cname, rt, cfg, entryDaemons)
 	}
 	// NOTHING TO HEAL HERE ANY MORE, and the absence is worth a note because the
 	// call this replaces was deliberate. An attach used to re-ensure the per-jail

@@ -120,8 +120,19 @@ func awsHandler(t *testing.T, out awsauth.Output, calls *atomic.Int32) hostservi
 }
 
 // launchWithCheckedService runs the production boundary for rt against the fixture loophole
-// and returns what the launch printed on its stderr.
+// and returns what the launch printed on its stderr. The launch must not be refused: a test
+// that expects the refusal calls launchCheckedService.
 func launchWithCheckedService(t *testing.T, rt string, payload []loopholes.JailDaemonSpec) string {
+	t.Helper()
+	out, refused := launchCheckedService(t, rt, payload)
+	if refused != nil {
+		t.Fatalf("the launch check refused the launch:\n%s\n%s", out, refused.markup("refused", "retry"))
+	}
+	return out
+}
+
+// launchCheckedService is launchWithCheckedService that also returns the boundary's refusal.
+func launchCheckedService(t *testing.T, rt string, payload []loopholes.JailDaemonSpec) (string, *launchCheckRefusal) {
 	t.Helper()
 	pack := launchCheckPack(t)
 	t.Cleanup(loopholes.SnapshotPackModules())
@@ -138,7 +149,7 @@ func launchWithCheckedService(t *testing.T, rt string, payload []loopholes.JailD
 	if rt == "macos-user" {
 		t.Cleanup(func() { o.endServicesSession(nil) })
 	}
-	handles := o.startLoopholesDisclosed(cname, rt, newConfig(), []*packload.Pack{pack}, payload)
+	handles, refused := o.startLoopholesDisclosed(cname, rt, newConfig(), []*packload.Pack{pack}, payload)
 	for _, h := range handles {
 		if h.stop != nil {
 			h.stop()
@@ -148,7 +159,7 @@ func launchWithCheckedService(t *testing.T, rt string, payload []loopholes.JailD
 		t.Fatalf("the fixture's host service did not start, so nothing could be asked:\n%s",
 			errBuf.String())
 	}
-	return errBuf.String()
+	return errBuf.String(), refused
 }
 
 func launchCheckIsolation(t *testing.T) {
@@ -283,32 +294,42 @@ func TestADaemonThatCannotAnswerIsSaidSo(t *testing.T) {
 	}
 }
 
-// TestAHostWideDaemonOlderThanTheLaunchCheckIsNamedWithItsRestart: nothing restarts a host-wide
-// daemon when yolo is upgraded, so after an upgrade the one a previous yolo started keeps
-// running, answers `unknown action: launch-check` (its handler's default case) and exits 2.
-// That is the upgraded user the check exists for, and a generic "could not ask" would leave
-// every warning off with no way out named: the launch says the daemon predates this yolo and
-// names the command that restarts it, as the preamble warning beside it does.
-func TestAHostWideDaemonOlderThanTheLaunchCheckIsNamedWithItsRestart(t *testing.T) {
-	launchCheckIsolation(t)
-	serveLaunchCheckDaemon(t, func(s *hostservice.Session) {
-		s.Stderr("unknown action: launch-check\n")
-		s.Exit(2)
-	})
-	got := launchWithCheckedService(t, "podman", servedPayload())
-	var line string
-	for _, l := range strings.Split(got, "\n") {
-		if strings.Contains(l, "loophole "+launchCheckFixtureName+": ") {
-			if line != "" {
-				t.Fatalf("the launch printed more than one launch-check line:\n%s", got)
+// TestAHostWideDaemonOlderThanTheLaunchCheckRefusesTheLaunch: nothing restarts a host-wide daemon
+// when yolo is upgraded, so after an upgrade the one a previous yolo started keeps running,
+// answers `unknown action: launch-check` (its handler's default case) and exits 2. A launch that
+// went on would start agents without the check promised to them, so the boundary returns the
+// refusal (OQ-HD11, ruled 2026-10-05), on both backends whose launch starts the service, naming
+// the command that restarts the daemon and why that command is safe for the jails already
+// running. It prints no warning in the refusal's place, and it restarts nothing itself.
+// launchcheckrefusal_test.go pins that each launch arm acts on it.
+func TestAHostWideDaemonOlderThanTheLaunchCheckRefusesTheLaunch(t *testing.T) {
+	for _, rt := range []string{"podman", "macos-user"} {
+		t.Run(rt, func(t *testing.T) {
+			launchCheckIsolation(t)
+			serveLaunchCheckDaemon(t, olderThanTheCheck)
+			got, refused := launchCheckedService(t, rt, servedPayload())
+			if refused == nil {
+				t.Fatalf("the boundary did not refuse a daemon older than the check:\n%s", got)
 			}
-			line = l
-		}
+			if strings.Contains(got, "loophole "+launchCheckFixtureName+": ") {
+				t.Errorf("the launch printed a launch-check line for the daemon it refuses:\n%s", got)
+			}
+			assertTheRefusal(t, refused.markup("Refusing this launch", "launch again"),
+				"Refusing this launch", "launch again")
+			assertTheDaemonWasNotRestarted(t)
+		})
 	}
-	for _, want := range []string{"predates this yolo", "does not answer the launch check",
-		broker.CycleCommand(launchCheckFixtureName)} {
-		if !strings.Contains(line, want) {
-			t.Errorf("the launch-check line does not say %q:\n%s", want, got)
+}
+
+// TestTheRefusalNamesEveryOlderDaemonAndOneCommandLine: two host-wide daemons too old for the
+// check are named together, in the order they started, with one pasteable line restarting both.
+func TestTheRefusalNamesEveryOlderDaemonAndOneCommandLine(t *testing.T) {
+	got := (&launchCheckRefusal{older: []string{"aws-auth", "other"}}).markup("Refusing this launch", "launch again")
+	for _, want := range []string{"the host-wide daemons for 'aws-auth' and 'other' predate this yolo",
+		"Restart them with: " + broker.CycleCommand("aws-auth") + " && " + broker.CycleCommand("other"),
+		"reconnect to them on their next request. Then launch again."} {
+		if !strings.Contains(got, want) {
+			t.Errorf("the refusal does not say %q:\n%s", want, got)
 		}
 	}
 }
@@ -383,7 +404,7 @@ func TestBothLaunchArmsHandTheLaunchCheckTheirPayload(t *testing.T) {
 // wrong (the manifest declares a check the daemon lacks) with the daemon's own words.
 func TestAPerLaunchDaemonThatDoesNotKnowTheCheckNamesNoRestart(t *testing.T) {
 	e := &launchCheckUnknownError{rc: 2, detail: "unknown action: launch-check"}
-	line := unknownLaunchCheckLine(loopholeDaemon{name: "per-launch"}, e)
+	line := unknownLaunchCheckLine(e)
 	if strings.Contains(line, "restart") || strings.Contains(line, "predates") {
 		t.Errorf("a per-launch daemon's line names a restart or an older yolo: %s", line)
 	}
@@ -398,8 +419,19 @@ func TestAPerLaunchDaemonThatDoesNotKnowTheCheckNamesNoRestart(t *testing.T) {
 // them, through the production launch boundary with a payload that serves nothing (so that
 // launch asks nothing), and then runs an attach's launch check for an entry whose payload is
 // payload, from a second Options as a second yolo process would. It returns what the attach
-// printed. published false skips the launch, leaving no front to find.
+// printed. published false skips the launch, leaving no front to find. The attach must not be
+// refused: a test that expects the refusal calls attachCheckedService.
 func attachWithCheckedService(t *testing.T, payload []loopholes.JailDaemonSpec, published bool) string {
+	t.Helper()
+	out, refused := attachCheckedService(t, payload, published)
+	if refused != nil {
+		t.Fatalf("the attach's check refused:\n%s\n%s", out, refused.markup("refused", "retry"))
+	}
+	return out
+}
+
+// attachCheckedService is attachWithCheckedService that also returns the attach check's refusal.
+func attachCheckedService(t *testing.T, payload []loopholes.JailDaemonSpec, published bool) (string, *launchCheckRefusal) {
 	t.Helper()
 	pack := launchCheckPack(t)
 	t.Cleanup(loopholes.SnapshotPackModules())
@@ -414,7 +446,7 @@ func attachWithCheckedService(t *testing.T, payload []loopholes.JailDaemonSpec, 
 		launcher.Stderr = &launchErr
 		launcher.Stdout = discardBuf()
 		launcher.PathExists = func(string) bool { return false }
-		handles := launcher.startLoopholesDisclosed(cname, "podman", newConfig(),
+		handles, _ := launcher.startLoopholesDisclosed(cname, "podman", newConfig(),
 			[]*packload.Pack{pack}, nil)
 		t.Cleanup(func() {
 			for _, h := range handles {
@@ -438,8 +470,24 @@ func attachWithCheckedService(t *testing.T, payload []loopholes.JailDaemonSpec, 
 	attach.Stderr = &errBuf
 	attach.Stdout = discardBuf()
 	attach.PathExists = func(string) bool { return false }
-	attach.runAttachLaunchChecks(cname, "podman", newConfig(), payload)
-	return errBuf.String()
+	refused := attach.runAttachLaunchChecks(cname, "podman", newConfig(), payload)
+	return errBuf.String(), refused
+}
+
+// TestAnAttachIsRefusedByADaemonOlderThanTheCheckToo is HD-D5 at the attach's own check: a jail
+// an older yolo launched only warned about its daemon, and the attach that enters it asks through
+// that jail's front and gets the same refusal a fresh launch does, which attachExisting prints
+// before it delivers anything (launchcheckrefusal_test.go drives that).
+func TestAnAttachIsRefusedByADaemonOlderThanTheCheckToo(t *testing.T) {
+	launchCheckIsolation(t)
+	serveLaunchCheckDaemon(t, olderThanTheCheck)
+	got, refused := attachCheckedService(t, servedPayload(), true)
+	if refused == nil {
+		t.Fatalf("the attach's check did not refuse a daemon older than it:\n%s", got)
+	}
+	const again = "run this command again"
+	assertTheRefusal(t, refused.markup("Refusing to attach", again), "Refusing to attach", again)
+	assertTheDaemonWasNotRestarted(t)
 }
 
 // TestAnAttachAsksTheRunningJailsServiceToo: a jail launched while the SSO session was live is

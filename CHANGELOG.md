@@ -24,6 +24,12 @@ what a yolo can read. See [Follow an upstream with a patch series](userguide/gui
 into a jail, and what each launch shows about the code it runs. See
 [Claude Code plugins and mods](userguide/guides/claude-plugins-and-mods.md).
 
+### Changed
+
+- A host-wide service an older yolo started, such as `aws-auth`, now stops a launch that uses it,
+  or a new terminal joining such a jail, instead of warning: run the
+  `yolo host-daemon restart <name>` it names, which jails already running survive.
+
 ### Fixed
 
 - When `yolo host` has no container runtime to capture an agent with, it now says to install one.

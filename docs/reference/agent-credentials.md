@@ -934,17 +934,20 @@ of a new jail is what restarts it on a change, so a line whose fix can be a sett
 The jail then starts as it would have. A mint still running when the budget runs out is
 reported by the previous attempt's failure and its age, or, when there is none, by a dim line
 saying the launch could not tell. A service that cannot be asked gets a dim line too, but for one
-started by an older yolo: nothing restarts the host-wide service when yolo is upgraded, and the
-one still running does not know the question, so the launch warns that it predates this yolo and
-names `yolo host-daemon restart aws-auth`. The warning is a disclosure, so no flag hides it
-([`OQ-RO3`](report-tiers.md#why-its-this-way)).
+started by an older yolo. Nothing restarts the host-wide service when yolo is upgraded, and the one
+still running does not know the question, so the launch **refuses**: it says the service predates
+this yolo and names `yolo host-daemon restart aws-auth`, which the jails already running survive,
+since each reconnects on its next request. The launch restarts nothing itself
+([OQ-HD11](../design/host-daemon-ownership.md#OQ-HD11)). A warning is a disclosure, so no flag
+hides it ([`OQ-RO3`](report-tiers.md#why-its-this-way)).
 
 An attach asks too: a new agent entering a jail that is already running, such as
 `yolo -p bedrock -- claude` in a second terminal, gets the same question and the same warning,
-through the front the jail's own launch published. It starts nothing, so a jail whose launch did
-not start the service is not asked. The check cannot see a session that ended after the cached
-credential was minted: that credential still works, and the lapse shows at the next mint, within
-its hour. `macos-user`
+through the front the jail's own launch published, and is refused by a service older than this
+yolo, before anything reaches the jail ([`HD-D5`](../design/host-daemon-ownership.md#HD-D5)). It
+starts nothing, so a jail whose launch did not start the service is not asked. The check cannot
+see a session that ended after the cached credential was minted: that credential still works, and
+the lapse shows at the next mint, within its hour. `macos-user`
 asks the same way, before the sandboxed command runs. `yolo host` ensures the service for a
 Bedrock agent's doorway ([`host-notch-services.md` HS-D21](../design/host-notch-services.md#HS-D21))
 but asks it nothing: no launch check runs at that notch.
