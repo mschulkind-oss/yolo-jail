@@ -99,14 +99,15 @@ func (o *Options) jailDaemonsFor(cfg *jsonx.OrderedMap, rt string,
 	o.jailBound = set.JailBoundNames(set.Enabled(), rt)
 	specs := o.withoutUnselectedProfileDaemons(cfg, packs,
 		set.JailDaemons(set.Enabled(), rt, serviceJailDaemons(packs)))
-	// A DOORWAY'S HOST ARGV RUNS ONLY FROM A PACK YOLO SHIPS (macosuserdoorways.go): one this
-	// launch will not admit is cleared here, so every reader below (the served set, the settle,
-	// the split) sees a daemon that runs where it would have without one.
+	// A DOORWAY'S HOST ARGV RUNS ONLY FROM A PACK YOLO SHIPS OR A LOCAL ONE (HS-D27;
+	// macosuserdoorways.go): one this launch will not admit is cleared here, so every reader below
+	// (the served set, the settle, the split) sees a daemon that runs where it would have without
+	// one.
 	specs = o.admitDoorways(packs, specs)
-	// A SERVICE'S HOST HALF RUNS ONLY FROM A PACK YOLO SHIPS (launchservice.Admit, OQ-HS4): one
-	// this launch will not admit is cleared the same way and recorded for the disclosure
-	// (noteRefusedServiceHosts), so the macos-user guest runs its jail daemon, confined, as a
-	// container would (OQ-DP8), instead of declining it for a host half that never starts.
+	// A SERVICE'S HOST HALF RUNS ONLY FROM A PACK YOLO SHIPS OR A LOCAL ONE (launchservice.Admit,
+	// OQ-HS4, HS-D27): one this launch will not admit is cleared the same way and recorded for the
+	// disclosure (noteRefusedServiceHosts), so the macos-user guest runs its jail daemon, confined,
+	// as a container would (OQ-DP8), instead of declining it for a host half that never starts.
 	specs, o.refusedServiceHosts = launchservice.AdmitServiceHosts(packs, specs)
 	// THE MODULE DIRECTORY'S PLACE IN THE GUEST (macosuserguestdaemons.go): on macos-user a
 	// loophole daemon whose argv names `{jail_loophole_dir}` runs from the sandbox's copy of

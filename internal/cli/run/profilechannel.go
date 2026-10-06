@@ -217,7 +217,7 @@ func (o *Options) composePackChannel(cfg *jsonx.OrderedMap, packs []*packload.Pa
 				c.workerNotes = notes
 			}
 		}
-		if err == nil || o.runtime != "macos-user" || tries > len(packs) { // parity: HonoredBy — a container runs the service's jail daemon; macos-user its host half (macosuserservices.go)
+		if err == nil || o.runtime != "macos-user" || tries > len(packs) { // parity: HonoredBy — a container runs the service's jail daemon; macos-user the host half of one serving an adaptation (macosuserservices.go), and the guest the rest's jail daemons (JD-9)
 			if c != nil {
 				c.bareNote = fold.BareListNote(fold.BareFrom == profileFoldFromKey)
 				// The two sources profileFold folded, for the disclosure's "reaches nothing"

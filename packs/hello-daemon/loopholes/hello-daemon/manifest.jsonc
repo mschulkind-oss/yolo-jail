@@ -57,13 +57,12 @@
     // append the same line.  A real jail daemon stays alive and takes the default
     // ("on-failure").
     //
-    // ⚠ `no` DOES NOT COVER A FAILED EXEC, and that is measured, not assumed:
-    // supervisor.superviseOne consults the restart policy only in
-    // waitAndMaybeRestart, which is reached after a SUCCESSFUL start — a start that
-    // fails (a non-executable file is `permission denied` from cmd.Start) takes the
-    // `if err := c.start(); err != nil` arm, which sleeps, doubles the backoff and
-    // retries forever, with the error discarded and the log file created empty.  That
-    // is the failure mode of the gap the README records, and it is silent.
+    // `no` COVERS A FAILED EXEC TOO, since 2026-09-17: a start that fails (a
+    // non-executable file is `permission denied` from cmd.Start) is logged as
+    // `spawn failed: …` to the daemon's log and then obeys this policy, giving up
+    // rather than retrying (supervisor.superviseOne).  Before that date the start
+    // arm ignored the policy, retried forever and discarded the error, which is the
+    // silent gap the README records.
     "restart": "no"
   }
 }

@@ -137,7 +137,7 @@ its raw argv — so run yolo pack footprint before you select a pack that ships 
 service is the opposite of loophole: a daemon the JAIL runs for itself (the wire bridge is
 the first one), never gated and never a claim. Its jail daemon joins the same supervised
 list the loopholes use. Its host daemon half runs at the host and on macos-user as a child
-of the one launch that needs it, and only for a pack yolo ships: a fetched or local pack's
+of the one launch that needs it, for a pack yolo ships or a local one: a fetched pack's
 host daemon is refused by name.
 
 program vs requires is install-vs-presence: program means yolo installs the tool (a lazy
@@ -1543,6 +1543,10 @@ func packFootprintLocal(arg string, pr richtext.Printer, errw io.Writer) int {
 		}
 		return 1
 	}
+	// A PATH ON THIS MACHINE IS A LOCAL PACK, the origin a `file://` entry selecting it resolves to
+	// (config.ResolvePack), so the footprint claims the host code a launch runs for it: a doorway's
+	// host argv (packload.Pack.MayRunHostHalf; docs/design/host-notch-services.md HS-D27).
+	pack.Local = true
 	return reportFootprint([]*packload.Pack{pack}, pr)
 }
 

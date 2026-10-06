@@ -176,8 +176,9 @@ func PlanHostDoorwaysFor(cfg *jsonx.OrderedMap, packs []*packload.Pack, sel pack
 		}
 	}
 	if len(wanted) == 0 {
-		// No selection asks for a doorway, so nothing reads a loophole manifest: an unprofiled
-		// host launch discovers nothing it did not before.
+		// No selection asks for a doorway, so this plan reads no loophole manifest. (A host
+		// launch with `host_apply_on_launch` on still discovers, in the launch gate's observe
+		// pass: `yolo host apply`'s notch line reads run.HostDoorwayLoopholes.)
 		return d, nil
 	}
 	set := loopholes.NewSet(loopholes.DiscoverOptions{

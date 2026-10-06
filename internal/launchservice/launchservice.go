@@ -178,7 +178,9 @@ func Admit(packs []*packload.Pack, service string) (Declared, error) {
 		}
 		if h.Service.HostDaemon == nil || len(h.Service.HostDaemon.Cmd) == 0 {
 			return Declared{}, &AdmissionError{Service: service, Pack: h.Pack,
-				Why: "it declares no host half (`host_daemon`), so nothing runs it outside a container jail"}
+				Why: "it declares no host half (`host_daemon`), so nothing runs it outside a jail: a " +
+					"container runs its jail daemon, and so does the macos-user sandbox unless the " +
+					"service publishes an endpoint file"}
 		}
 		if why := admitHostArgv(packs, h.Pack, h.Service.HostDaemon.Cmd, "its host_daemon argv",
 			"a host half", "a fetched pack's host half does not run on your machine "+

@@ -15,6 +15,8 @@ import (
 	"testing"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
+	"github.com/mschulkind-oss/yolo-jail/internal/entrypoint"
+	"github.com/mschulkind-oss/yolo-jail/internal/hostskills"
 	"github.com/mschulkind-oss/yolo-jail/internal/ioprio"
 	"github.com/mschulkind-oss/yolo-jail/internal/jailcontent"
 	"github.com/mschulkind-oss/yolo-jail/internal/packdecl"
@@ -85,10 +87,86 @@ func TestNestedJailDoesNotPrependAnotherPacksDestination(t *testing.T) {
 	}
 }
 
+// (5) THE DOTFILES LAYOUT: one file under two names. ~/.foo/AGENTS.md is a link to ~/AGENTS.md
+// and the pack's `after` names ~/AGENTS.md. `yolo host apply` composed the destination through
+// the link, so the record lists ~/.foo/AGENTS.md while the bytes live at ~/AGENTS.md: comparing
+// paths alone prepended yolo's own composition to the launch's. File identity keeps it out, on
+// the host against the record and in a jail against every destination.
+func TestABriefingLinkedUnderAnotherNameIsNotPrependedAsTheUsersOwn(t *testing.T) {
+	for _, inJail := range []bool{false, true} {
+		got := briefingsWithHostSetup(t, inJail, func(home string) {
+			real := filepath.Join(home, "AGENTS.md")
+			if err := os.WriteFile(real, []byte("YOLO COMPOSED THIS\n"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			link := filepath.Join(home, ".foo", "AGENTS.md")
+			if err := os.MkdirAll(filepath.Dir(link), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Symlink(real, link); err != nil {
+				t.Fatal(err)
+			}
+			if !inJail {
+				man, err := hostskills.LoadManifest(entrypoint.HostBriefingManifestPath(home))
+				if err != nil {
+					t.Fatal(err)
+				}
+				man.Record(link, entrypoint.HostBriefingOwner)
+				if err := man.Save(entrypoint.HostBriefingManifestPath(home)); err != nil {
+					t.Fatal(err)
+				}
+			}
+		}, jailPack(t, "foo", nil, packdecl.Contribution{Kind: packdecl.KindBriefing,
+			Into: ".foo/AGENTS.md", Agent: "foo", After: "host:AGENTS.md"}))
+		if strings.Contains(got[".foo/AGENTS.md"], "YOLO COMPOSED THIS") {
+			t.Errorf("inJail=%v: a briefing yolo composed, reached under another name, was prepended "+
+				"as the user's own:\n%s", inJail, got[".foo/AGENTS.md"])
+		}
+	}
+}
+
+// (6) The identity check is identity, not "any link": a link to a file yolo did not compose is
+// still the user's, and is still prepended.
+func TestALinkedBriefingYoloDidNotComposeIsStillPrepended(t *testing.T) {
+	got := briefingsWithHostSetup(t, false, func(home string) {
+		real := filepath.Join(home, "dotfiles", "RULES.md")
+		if err := os.MkdirAll(filepath.Dir(real), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(real, []byte("MY OWN RULES\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Symlink(real, filepath.Join(home, "AGENTS.md")); err != nil {
+			t.Fatal(err)
+		}
+	}, jailPack(t, "foo", nil, packdecl.Contribution{Kind: packdecl.KindBriefing,
+		Into: ".foo/AGENTS.md", Agent: "foo", After: "host:AGENTS.md"}))
+	if !strings.HasPrefix(got[".foo/AGENTS.md"], "MY OWN RULES\n\n---\n") {
+		t.Errorf("the user's own linked briefing was not prepended:\n%s", got[".foo/AGENTS.md"])
+	}
+}
+
 // briefingsWithHostFiles writes hostFiles (home-relative → content) into a fresh home, runs the
 // REAL refreshJailBriefings over packs with the launcher pinned to inJail, and returns
 // {destination → staged bytes}.
 func briefingsWithHostFiles(t *testing.T, inJail bool, hostFiles map[string]string,
+	packs ...*packload.Pack) map[string]string {
+	t.Helper()
+	return briefingsWithHostSetup(t, inJail, func(home string) {
+		for rel, body := range hostFiles {
+			p := filepath.Join(home, filepath.FromSlash(rel))
+			if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(p, []byte(body), 0o644); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}, packs...)
+}
+
+// briefingsWithHostSetup is briefingsWithHostFiles with the home prepared by setup.
+func briefingsWithHostSetup(t *testing.T, inJail bool, setup func(home string),
 	packs ...*packload.Pack) map[string]string {
 	t.Helper()
 	pinLauncherInJail(t, inJail)
@@ -98,15 +176,7 @@ func briefingsWithHostFiles(t *testing.T, inJail bool, hostFiles map[string]stri
 	jailcontent.SetPackSkillDirs(nil)
 	jailcontent.SetPackSkillTargets(nil)
 	t.Cleanup(func() { jailcontent.SetPackSkillDirs(nil); jailcontent.SetPackSkillTargets(nil) })
-	for rel, body := range hostFiles {
-		p := filepath.Join(home, filepath.FromSlash(rel))
-		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
-			t.Fatal(err)
-		}
-		if err := os.WriteFile(p, []byte(body), 0o644); err != nil {
-			t.Fatal(err)
-		}
-	}
+	setup(home)
 
 	o := goldenOptions(ws, home)
 	o.Stdout = discardBuf()

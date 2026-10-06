@@ -19,9 +19,12 @@ import (
 // (docs/reference/information-at-the-point-of-need.md: no moment → the briefing).
 //
 // NOT EVERYTHING THE HUMAN IS TOLD BELONGS HERE, and the filter is that same
-// principle. `resources` and `cache_relocations` are read-and-ignored on this backend
-// and warned about, and they condition nothing an agent does — it never asked for a
-// memory cap. `mcp_presets` are absent, and the absence shows up as a server that is
+// principle. `resources.pids_limit` is read-and-ignored on this backend and warned about,
+// and it conditions nothing an agent does. What the other `resources` keys do here (a disk
+// policy, a sampled memory guard, parallelism defaults) is a standing fact, so the
+// briefing's packages section says it, not a note here; and `cache_relocations` is
+// delivered (a link in the sandbox home the launch prints), which changes nothing an agent
+// reasons from. `mcp_presets` are absent, and the absence shows up as a server that is
 // simply not in its config. Those stay human-only.
 //
 // ONE SOURCE, TWO RENDERINGS. The facts come from the same predicates the note*

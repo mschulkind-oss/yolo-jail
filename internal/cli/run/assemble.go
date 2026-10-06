@@ -1160,7 +1160,7 @@ func (o *Options) servedDaemons(specs []loopholes.JailDaemonSpec) packload.Serve
 	}
 	// A macos-user launch also serves the launch-owned services it planned (macosuserservices.go):
 	// a pack service's host half at the ports it picked, since its guest declines the service's
-	// jail daemon (loopholes.JailDaemonsRunIn).
+	// jail daemon (loopholes.JailDaemonsRunIn, JD-9's rule (a)).
 	if o.runtime == "macos-user" && len(o.launchServices) > 0 { // parity: NotApplicable — the macos-user arm's own launch-owned services; a container runs the service's jail daemon
 		return served.Plus(launchservice.Served(o.launchServices))
 	}

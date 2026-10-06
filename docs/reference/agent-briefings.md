@@ -121,6 +121,12 @@ fails ([agent-directory-map.md §4.2](../design/agent-directory-map.md#42-each-v
 > that rule a nested jail's briefing held the outer one's entire briefing, every heading twice.
 > Every shipped agent pack declares `after` equal to its own `into`, so this was every nested
 > jail. A prepend source that is not a destination is still prepended in a jail.
+>
+> **Both checks match a file under another name too.** In a dotfiles layout one file has two
+> names (`~/.foo/AGENTS.md` a link to `~/AGENTS.md`, with `after: "host:AGENTS.md"`), and
+> `yolo host apply` writes through the link, so the record lists the link while `after` names
+> the target. The launch compares file identity as well as the path, against the record and, in
+> a jail, against every destination, so yolo's composition is not prepended under its other name.
 
 `after: "host:…"` is **honored at the host too, where it names the user's own file**
 ([DP-B26](../design/declaration-parity.md#54-the-host-notch-and-the-entry-point)): `yolo host

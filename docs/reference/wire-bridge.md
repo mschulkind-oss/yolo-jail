@@ -706,8 +706,8 @@ for a jail with its own loopback. Three setups break it:
 - **A nested jail** shares its parent jail's loopback, because a nested podman is forced onto
   `--net=host`. That is the host's loopback only when the parent jail is itself on host mode.
 - **A `macos-user` launch** has no loopback of its own: its sandbox runs on the host. That backend
-  declines a pack service's jail daemon, so it runs the bridge's [host half](#at-the-host-notch)
-  instead, on a port the launch picked and behind this token. Until 2026-09-28 the launch pointed claude at
+  declines the bridge's jail daemon, whose host half serves its adaptations there, so it runs the
+  bridge's [host half](#at-the-host-notch) instead, on a port the launch picked and behind this token. Until 2026-09-28 the launch pointed claude at
   the bridge's declared host ports, which nothing of yolo's ever bound and any local user could
   take first.
 
@@ -998,8 +998,8 @@ listeners. These are the facts that survive:
 
 ## <a id="at-the-host-notch"></a>The host half — a bridge for one launch
 
-The host and `macos-user` run no pack service's jail daemon, so there the bridge runs as its service's **host
-half**: `packs/wire-bridge` declares `host_daemon` with the argv `yolo internal daemon
+The host runs no pack service's jail daemon, and `macos-user` declines the bridge's, so there the bridge runs
+as its service's **host half**: `packs/wire-bridge` declares `host_daemon` with the argv `yolo internal daemon
 wire-bridge`, and the launch runs it as a **launch-owned service** (a term
 [`host-notch-services.md`](../design/host-notch-services.md#12-terms) coins: a child of one
 launch, for the one agent it runs, stopped when that agent exits). The mechanism is

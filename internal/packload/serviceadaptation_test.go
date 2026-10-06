@@ -92,7 +92,7 @@ func TestTheGateNamesAnUnservedAdapter(t *testing.T) {
 	if unserved.Agent != "claude" || unserved.Provider != "p" || unserved.Adaptation.Pack != "bridge" {
 		t.Errorf("the refusal names the pairing and the adapter: %+v", unserved)
 	}
-	for _, want := range []string{`"bridge-daemon" service`, "http://127.0.0.1:8214", "only in a container jail"} {
+	for _, want := range []string{`"bridge-daemon" service`, "http://127.0.0.1:8214", "a daemon this launch does not run"} {
 		if !strings.Contains(err.Error(), want) {
 			t.Errorf("Error() must say %q: %v", want, err)
 		}
