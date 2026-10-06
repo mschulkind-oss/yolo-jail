@@ -1,6 +1,8 @@
 package integration
 
 import (
+	"bytes"
+	"context"
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
@@ -10,6 +12,7 @@ import (
 	"crypto/x509/pkix"
 	"encoding/hex"
 	"encoding/pem"
+	"errors"
 	"fmt"
 	"math/big"
 	"net"
@@ -51,7 +54,9 @@ func TestMacosUserTrustsSystemKeychainCA(t *testing.T) {
 	writePEM(t, caFile, ca)
 	writePEM(t, controlFile, control)
 
-	catrustInstall(t, dir, caFile, ca, controlFile, control)
+	if err := catrustInstall(t, dir, caFile, ca, controlFile, control, catrustSystemSecurity); err != nil {
+		t.Fatalf("installing the test CAs and trust setting: %v", err)
+	}
 
 	addr := catrustServe(t, ca, caKey)
 	ws := macosUserWorkspace(t, `{}`)
@@ -135,22 +140,64 @@ func writePEM(t *testing.T, path string, c *x509.Certificate) {
 	}
 }
 
+// catrustSecurityRunner runs one security operation with optional stdin. Both installation and
+// every cleanup use it, so one deadline and output-pipe bound cover the whole fixture lifecycle.
+type catrustSecurityRunner func(args []string, stdin []byte, stdoutOnly bool) ([]byte, error)
+
+const (
+	catrustSecurityTimeout   = 30 * time.Second
+	catrustSecurityWaitDelay = time.Second
+)
+
+// catrustSystemSecurity is the real runner used only by the native fixture. Its context deadline
+// bounds a stalled `security` call; WaitDelay also closes inherited output pipes after the child
+// exits or is killed, so CombinedOutput cannot wait forever for a descendant holding them open.
+func catrustSystemSecurity(args []string, stdin []byte, stdoutOnly bool) ([]byte, error) {
+	return runCatrustCommand("sudo", append([]string{"-n", "/usr/bin/security"}, args...), stdin, stdoutOnly,
+		catrustSecurityTimeout, catrustSecurityWaitDelay)
+}
+
+func runCatrustCommand(command string, args []string, stdin []byte, stdoutOnly bool,
+	timeout, waitDelay time.Duration) ([]byte, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, command, args...)
+	cmd.WaitDelay = waitDelay
+	if stdin != nil {
+		cmd.Stdin = bytes.NewReader(stdin)
+	}
+	var out []byte
+	var err error
+	if stdoutOnly {
+		out, err = cmd.Output()
+	} else {
+		out, err = cmd.CombinedOutput()
+	}
+	if ctx.Err() != nil {
+		return out, fmt.Errorf("command timed out after %s: %w", timeout, ctx.Err())
+	}
+	if errors.Is(err, exec.ErrWaitDelay) {
+		return out, fmt.Errorf("command output remained open after %s: %w", waitDelay, err)
+	}
+	return out, err
+}
+
 // catrustInstall adds the CA as a trusted root and the control with no trust settings to the
 // System keychain, and registers their removal. A trusted root needs the admin trust-settings
 // right, which is opened only on a declared run and put back at cleanup.
-func catrustInstall(t *testing.T, dir, caFile string, ca *x509.Certificate, controlFile string, control *x509.Certificate) {
+func catrustInstall(t *testing.T, dir, caFile string, ca *x509.Certificate, controlFile string,
+	control *x509.Certificate, run catrustSecurityRunner) error {
 	t.Helper()
 	const keychain = "/Library/Keychains/System.keychain"
 	const right = "com.apple.trust-settings.admin"
-	sudo := func(args ...string) ([]byte, error) {
-		return exec.Command("sudo", append([]string{"-n", "/usr/bin/security"}, args...)...).CombinedOutput()
-	}
 	// Cleanups run last-registered first. The certificates go LAST, so this one is registered
 	// first; the trust setting goes before them and before the right is restored (untrust).
 	t.Cleanup(func() {
 		for _, c := range []*x509.Certificate{ca, control} {
 			sum := sha1.Sum(c.Raw)
-			if out, err := sudo("delete-certificate", "-Z", strings.ToUpper(hex.EncodeToString(sum[:])), keychain); err != nil {
+			t.Log("macos-user CA trust fixture cleanup: delete System keychain certificate")
+			if out, err := run([]string{"delete-certificate", "-Z",
+				strings.ToUpper(hex.EncodeToString(sum[:])), keychain}, nil, false); err != nil {
 				t.Logf("removing %s from the System keychain: %v\n%s", c.Subject.CommonName, err, out)
 			}
 		}
@@ -159,18 +206,22 @@ func catrustInstall(t *testing.T, dir, caFile string, ca *x509.Certificate, cont
 	// and after any opening of the right, so it runs while the right that made it is still open.
 	untrust := func() {
 		t.Cleanup(func() {
-			if out, err := sudo("remove-trusted-cert", "-d", caFile); err != nil {
+			t.Log("macos-user CA trust fixture cleanup: remove trusted-root setting")
+			if out, err := run([]string{"remove-trusted-cert", "-d", caFile}, nil, false); err != nil {
 				t.Logf("removing the trust setting for %s: %v\n%s", ca.Subject.CommonName, err, out)
 			}
 		})
 	}
-	if out, err := sudo("add-certificates", "-k", keychain, controlFile); err != nil {
-		t.Fatalf("adding the control CA to the System keychain: %v\n%s", err, out)
+
+	t.Log("macos-user CA trust fixture: add control certificate")
+	if out, err := run([]string{"add-certificates", "-k", keychain, controlFile}, nil, false); err != nil {
+		return fmt.Errorf("adding the control CA to the System keychain: %w\n%s", err, out)
 	}
-	out, err := sudo("add-trusted-cert", "-d", "-r", "trustRoot", "-k", keychain, caFile)
+	t.Log("macos-user CA trust fixture: add trusted root")
+	out, err := run([]string{"add-trusted-cert", "-d", "-r", "trustRoot", "-k", keychain, caFile}, nil, false)
 	if err == nil {
 		untrust()
-		return
+		return nil
 	}
 	if os.Getenv(macosUserDeclareEnv) == "" {
 		t.Skipf("could not add a trusted root to the System keychain without opening the admin "+
@@ -180,33 +231,30 @@ func catrustInstall(t *testing.T, dir, caFile string, ca *x509.Certificate, cont
 	saved := filepath.Join(dir, "trust-settings-admin.plist")
 	// stdout alone: `authorizationdb read` reports its status on stderr, and the plist it prints
 	// on stdout is what a write reads back.
-	rule, rerr := exec.Command("sudo", "-n", "/usr/bin/security", "authorizationdb", "read", right).Output()
+	t.Log("macos-user CA trust fixture: read admin trust-settings rule for restoration")
+	rule, rerr := run([]string{"authorizationdb", "read", right}, nil, true)
 	if rerr != nil {
-		t.Fatalf("reading %s to restore it later: %v", right, rerr)
+		return fmt.Errorf("reading %s to restore it later: %w\n%s", right, rerr, rule)
 	}
 	if err := os.WriteFile(saved, rule, 0o600); err != nil {
-		t.Fatal(err)
+		return fmt.Errorf("saving %s for restoration: %w", right, err)
 	}
 	t.Cleanup(func() {
-		cmd := exec.Command("sudo", "-n", "/usr/bin/security", "authorizationdb", "write", right)
-		f, err := os.Open(saved)
-		if err != nil {
-			t.Errorf("restoring %s: %v", right, err)
-			return
-		}
-		defer func() { _ = f.Close() }()
-		cmd.Stdin = f
-		if out, err := cmd.CombinedOutput(); err != nil {
+		t.Log("macos-user CA trust fixture cleanup: restore admin trust-settings rule")
+		if out, err := run([]string{"authorizationdb", "write", right}, rule, false); err != nil {
 			t.Errorf("restoring %s from %s failed: %v\n%s", right, saved, err, out)
 		}
 	})
-	if out, err := sudo("authorizationdb", "write", right, "allow"); err != nil {
-		t.Fatalf("opening %s: %v\n%s", right, err, out)
+	t.Log("macos-user CA trust fixture: open admin trust-settings right")
+	if out, err := run([]string{"authorizationdb", "write", right, "allow"}, nil, false); err != nil {
+		return fmt.Errorf("opening %s: %w\n%s", right, err, out)
 	}
-	if out, err := sudo("add-trusted-cert", "-d", "-r", "trustRoot", "-k", keychain, caFile); err != nil {
-		t.Fatalf("adding the CA as a trusted root, with %s open: %v\n%s", right, err, out)
+	t.Log("macos-user CA trust fixture: retry trusted-root installation")
+	if out, err := run([]string{"add-trusted-cert", "-d", "-r", "trustRoot", "-k", keychain, caFile}, nil, false); err != nil {
+		return fmt.Errorf("adding the CA as a trusted root, with %s open: %w\n%s", right, err, out)
 	}
 	untrust()
+	return nil
 }
 
 // catrustServe serves catrustBody over TLS on 127.0.0.1 with a leaf the CA signed, until the
