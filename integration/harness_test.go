@@ -40,6 +40,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/cli/run"
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/image"
+	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	naming "github.com/mschulkind-oss/yolo-jail/internal/runtime"
 )
 
@@ -282,6 +283,7 @@ func warmJail() {
 	// this suite makes" stays one rule with one exception list rather than three sites
 	// that happen to agree.
 	cmd.Env = append(cmd.Env, autoCaptureEnvForSuite()...)
+	cmd.Env = append(cmd.Env, readinessEnvForSuite()...)
 
 	start := time.Now()
 	out, err := cmd.CombinedOutput()
@@ -817,6 +819,7 @@ func runLaunch(t *testing.T, dir string, args []string, opts ...runOption) (resu
 	cmd.Env = append(os.Environ(), "TERM=dumb")
 	cmd.Env = append(cmd.Env, childRepoRootEnv()...)
 	cmd.Env = append(cmd.Env, autoCaptureEnvForSuite()...)
+	cmd.Env = append(cmd.Env, readinessEnvForSuite()...)
 	cmd.Env = append(cmd.Env, cfg.env...)
 	awaitDetachedWriters(t, dir, launchHome(cmd.Env))
 	var stdout, stderr bytes.Buffer
@@ -1122,6 +1125,35 @@ func autoCaptureEnvForSuite() []string {
 		return nil
 	}
 	return []string{"YOLO_NO_AUTO_CAPTURE=1"}
+}
+
+// readinessEnvForSuite decides whether the launches this suite makes run the jail's readiness
+// act (docs/design/jail-notch-readiness.md, OQ-JR1), and returns the env entries that say so.
+//
+// THE SAME GATE AS autoCaptureEnvForSuite, FOR THE SAME COST, through the front door this time:
+// the readiness act installs every program a selected pack declares before the command runs, so
+// every launch here selecting a shipped agent pack would install that vendor's current release —
+// claude's ~205 MiB installer and every npm agent — on every push, which is the question
+// docs/reference/agent-install-in-ci.md#three-triggers-matched-to-three-causes moved off the
+// every-push gate. And with the act's refusal (a failed install stops the launch) a vendor's bad
+// release would turn every such test red for a defect in nobody's repository.
+//
+// So it is OFF unless YOLO_TEST_REAL_PACK_INSTALLS is set, through paths.NoProgramReadinessEnv,
+// and every program installs on first use as it did before the act. The act's own tests turn it
+// back ON for their launch (withReadiness) with fixture packs whose installers are files in the
+// pack, so the every-push gate still proves the act from pinned bytes (readiness_test.go).
+func readinessEnvForSuite() []string {
+	if os.Getenv(realPackInstallsEnv) != "" {
+		return nil
+	}
+	return []string{paths.NoProgramReadinessEnv + "=1"}
+}
+
+// withReadiness turns the readiness act back ON for one launch, for a test whose subject it is.
+// An empty value is "off" for the dial, and the launch's environment keeps the last entry for a
+// name, as withAutoReapers relies on.
+func withReadiness() runOption {
+	return withEnv(paths.NoProgramReadinessEnv + "=")
 }
 
 // skipIfCgroupReadonly skips when cgroup v2 is absent or read-only (e.g. a

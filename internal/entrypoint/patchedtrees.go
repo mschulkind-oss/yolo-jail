@@ -125,12 +125,15 @@ func treeGateFor(d map[string]TreeDelivery, pack string) string {
 // and before any install, update or refresh (docs/design/pi-extension-store-builds.md XB-D25,
 // amending PPX-D24's "immediately before the exec"), so a launch the gate stops pays for nothing:
 // the gate's lines, baked by the generator from Install.Gate, and a stop when there are any. A
-// version probe (XB-D24) is not stopped: it loads no extension.
+// version probe (XB-D24) is not stopped: it loads no extension. Nor is install-only mode
+// (InstallOnlyEnv: the readiness act, `yolo capture`), which installs and runs no program, and which
+// the gate's move to the top would otherwise have put behind it.
 const treeGateShell = `# --- a patched extension this agent loads, with no build (patched-extensions.md PPX-D18) ---
 # Checked FIRST (pi-extension-store-builds.md XB-D25): a launch this stops pays for no install,
 # update or refresh.
 TREE_GATE=__YOLO_TREE_GATE__
 [ "${_YOLO_PROBE:-}" != "1" ] || TREE_GATE=""
+[ "${` + InstallOnlyEnv + `:-}" != "1" ] || TREE_GATE=""
 if [ -n "$TREE_GATE" ]; then
     printf '%s\n' "$TREE_GATE" >&2
     exit 1

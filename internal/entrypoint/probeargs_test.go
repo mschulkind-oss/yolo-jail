@@ -361,8 +361,8 @@ func TestAProgramWithNoProbeArgsHasNoProbe(t *testing.T) {
 func TestTheProbeIsBakedIntoEveryTemplate(t *testing.T) {
 	inst := packdecl.Install{Bin: "tool", ProbeArgs: []string{"--version", "-v", "it's"}}
 	gates := []string{
-		`elif [ "$_YOLO_PROBE" = "1" ]; then`,                 // npm's update chain
-		`elif [ "$_YOLO_PROBE" != "1" ] && _update_due; then`, // native's
+		`elif [ "$_YOLO_PROBE" = "1" ]; then`,                                // npm's update chain
+		`elif [ "${` + InstallOnlyEnv + `:-}" != "1" ] && _update_due; then`, // native's, below the probe's arm
 		`if [ "$SERVERS_ENABLED" = "1" ] && [ "$_YOLO_PROBE" != "1" ]; then`,
 		`[ "${_YOLO_PROBE:-}" = "1" ] || _prelaunch_refresh || true`,
 		`[ "${_YOLO_PROBE:-}" = "1" ] || _refresh_agent_auth`,
@@ -383,7 +383,7 @@ func TestTheProbeIsBakedIntoEveryTemplate(t *testing.T) {
 			i := inst
 			i.Kind, i.InstallerURL = "native", "https://example.invalid/i.sh"
 			return nativeAgentLauncher("p", &i, "/s", "/r", "", true, launcherServers{npm: "x"}, nil)
-		}(), []int{1, 2, 3, 4, 5, 6}},
+		}(), []int{0, 1, 2, 3, 4, 5, 6}},
 		{"fork", func() string {
 			i := inst
 			i.Kind = packdecl.InstallKindSource

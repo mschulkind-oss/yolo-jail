@@ -65,6 +65,9 @@ func DarwinEnvFrom(vars map[string]string, home string) *Env {
 	// two platform seams, because it is the same kind of fact: what this environment can
 	// actually provide, decided once at the translation rather than at each consumer.
 	e.SkipMCPPresets = true
+	// And the readiness act does not run in this backend's stage yet (JR-D2), so the bootstrap
+	// carries none of it and the boot names what is absent instead. The same kind of fact.
+	e.DeferProgramReadiness = true
 	return e
 }
 

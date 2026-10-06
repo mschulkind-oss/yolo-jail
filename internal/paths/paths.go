@@ -299,6 +299,43 @@ const HoldOnRefusalEnv = "YOLO_HOLD_ON_REFUSAL"
 // (macos-user returns above assembleRunCmd and has no container to exec into).
 const HoldExecEnv = "YOLO_HOLD_EXEC"
 
+// AllowMissingProgramsEnv is the escape hatch out of the jail's READINESS ACT
+// (docs/design/jail-notch-readiness.md, OQ-JR1): the provisioning stage installs every program
+// a selected pack declares before the command runs, and a program it cannot install STOPS the
+// launch, offline included. Any non-empty value starts the jail instead, listing each program
+// it could not install; each then installs from its launcher the first time it is run, as
+// every program did before the readiness act.
+//
+// The user types it on the HOST, in front of `yolo`, and the launcher forwards it into the
+// container (run.programReadinessArgs) for AllowUnreachableServicesEnv's reason: the stage
+// that reads it runs in the jail, and the user it exists for is the one whose jail will not
+// start. The entrypoint BAKES its value into the generated bootstrap rather than leaving the
+// script to read it, the way every other value there is baked.
+const AllowMissingProgramsEnv = "YOLO_ALLOW_MISSING_PROGRAMS"
+
+// NoProgramReadinessEnv turns the jail's readiness act OFF for a launch: any non-empty value
+// leaves every declared program to install from its launcher on first use, which is what every
+// launch did before OQ-JR1 (docs/design/jail-notch-readiness.md, JR-D7).
+//
+// It is NOT a second spelling of AllowMissingProgramsEnv. That hatch still installs and starts
+// the jail when an install fails; this one installs nothing ahead of time. It exists for the
+// integration suite's every-push run, which must not install six vendors' current releases on
+// every push (docs/reference/agent-install-in-ci.md, "The real-install gate"), the reason
+// YOLO_NO_AUTO_CAPTURE exists beside it. Forwarded from the host like the hatch, and loud: the
+// stage says it installed nothing ahead of time and names what it left.
+const NoProgramReadinessEnv = "YOLO_NO_PROGRAM_READINESS"
+
+// NoProgramReadinessCaptureJail is the value the launcher gives NoProgramReadinessEnv for a
+// CAPTURE or BUILD jail (run.Options.NoProgramReadiness, set by cli.runCaptureJail): the
+// readiness act is off there for the jail's own reason, not the user's, and the stage's notice
+// says that instead of naming a variable nobody typed.
+//
+// Off there because that jail's command IS an install. `yolo capture` diffs the home across its
+// installer, so a readiness act that installed the program first left the capture empty; and a
+// fork's build jail runs the build that produces the program, so a readiness act that asked for
+// that program first refused the jail before the build could run.
+const NoProgramReadinessCaptureJail = "capture-jail"
+
 // TimingEnv is the host-process opt-in to `--timing`'s span logging
 // (docs/reference/perf-logging.md): any non-empty value enables the same surface
 // the flag does, for wrappers and scripts that cannot add a flag.

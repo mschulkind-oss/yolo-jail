@@ -43,19 +43,39 @@ import (
 // Bedrock (providers.md OQ-CN7 (b)), so a launch with no such agent asks
 // nothing: a warning about a service none of its agents reaches has nobody to warn.
 //
-// # It never refuses, and it is never silent about what it could not do
+// # What a daemon answers never refuses, and it is never silent about what it could not do
 //
 // Every warning prints and the launch proceeds (§8: a jail that will not start is worse than a
 // first request that fails clearly). A daemon that could not be asked, or did not answer within
 // the budget, gets one dim line saying so: the check is a disclosure, so its absence must not
 // read as a clean bill. No flag hides either (docs/reference/report-tiers.md, OQ-RO3).
 //
-// ONE FAILURE IS A WARNING, with its fix: a host-wide daemon that does not know the action.
+// # A host-wide daemon older than this yolo REFUSES a fresh launch
+//
 // Nothing restarts a host-wide daemon when yolo is upgraded, so the one a previous yolo started
-// keeps running and answers every launch check `unknown action: launch-check`. That is every
-// upgraded user, the people the check was built for, so the launch says the daemon predates
-// this yolo and names broker.CycleCommand, as the connection-preamble warning in
-// startHostSingleton does for the same kind of daemon.
+// keeps running and answers every launch check `unknown action: launch-check`. A launch that went
+// on would start agents without the check it promises them, so a FRESH launch REFUSES, naming
+// broker.CycleCommand, which is safe for the jails already running: each one's front dials the
+// daemon's socket per connection (HD-D2 (3)), so it reaches the restarted daemon on its next
+// request. The ruling is OQ-HD11's (docs/design/host-daemon-ownership.md, 2026-10-05): the
+// maintainer's "don't want to launch without a feature that is promised". What it covers is
+// HD-D5's:
+//
+//   - THE OTHER "PREDATES THIS YOLO" STATE REFUSES THE SAME WAY (HD-D5 (3)): a host-wide daemon
+//     started before yolo's front (startHostSingleton's predatesPreamble) accepts every connection
+//     and fails every request. It is not asked the check, whose request it would misread too.
+//   - AN ATTACH KEEPS THE YELLOW LINE, with the same command (HD-D5 (1)): it starts nothing and
+//     restarts nothing, so refusing it would leave the running jail exactly as it is.
+//   - "OLDER" IS A RECORDED FACT, not the answer alone (HD-D6): only a daemon whose launch-check
+//     stamp is missing or stale (broker.SpawnedKnowingLaunchCheck) predates this yolo. One that a
+//     yolo knowing the check spawned, and that still does not answer, runs a program lacking what
+//     its manifest declares; the restart a refusal names would start the same program and refuse
+//     again, so it gets the per-launch daemon's line instead. A per-launch daemon is always that
+//     case: this launch just started it from its manifest.
+//
+// NO LAUNCH RESTARTS THE DAEMON ITSELF: two yolos on one host would restart each other's (the
+// no-kill rule of modes 3 and 4), and only the user knows which yolo should own it. No hatch
+// reaches the refusal (HD-D5 (4)): the daemon is yolo's own state, and the fix is one command.
 //
 // # What it costs
 //
@@ -71,16 +91,30 @@ const launchCheckMargin = time.Second
 // launchCheckTextMax caps one printed line from a daemon, in runes.
 const launchCheckTextMax = 600
 
+// launchCheckEntry is who asks the launch check, which decides what a daemon older than this yolo
+// costs: a fresh launch refuses, and an attach says so and goes on (HD-D5 (1)).
+type launchCheckEntry int
+
+const (
+	freshLaunchCheck launchCheckEntry = iota
+	attachLaunchCheck
+)
+
 // runLaunchChecks asks every started daemon that is due one (see the file comment) and prints
-// the answers in the order the daemons started.
-func (o *Options) runLaunchChecks(rt string, started []loopholeDaemon, payload []loopholes.JailDaemonSpec) {
+// the answers in the order the daemons started. For a fresh launch it returns the refusal when a
+// host-wide daemon it started or ensured predates this yolo, by the preamble or by the check, and
+// nil otherwise; the caller prints it and stops, since what it must unwind (a keeper's services, a
+// macos-user session) is the caller's. An attach is never refused: it prints the line instead.
+func (o *Options) runLaunchChecks(rt string, started []loopholeDaemon, payload []loopholes.JailDaemonSpec,
+	entry launchCheckEntry) *olderDaemonRefusal {
+	lacks := preambleLacks(started)
 	served := map[string]bool{}
 	for _, s := range loopholes.ServedJailDaemons(rt, payload) {
 		served[s.Name] = true
 	}
 	var due []loopholeDaemon
 	for _, h := range started {
-		if !h.launchCheck || h.hostPath == "" {
+		if !h.launchCheck || h.hostPath == "" || h.predatesPreamble {
 			continue
 		}
 		if h.hasJailDaemon && !served[h.name] {
@@ -88,35 +122,45 @@ func (o *Options) runLaunchChecks(rt string, started []loopholeDaemon, payload [
 		}
 		due = append(due, h)
 	}
-	if len(due) == 0 {
-		return
-	}
 	type answer struct {
 		report hostservice.LaunchCheckReport
 		err    error
 	}
 	answers := make([]answer, len(due))
-	budget := hostservice.LaunchCheckBudget
-	o.withStderrProgress("Checking host services", func() bool {
-		var wg sync.WaitGroup
-		for i, h := range due {
-			wg.Add(1)
-			go func(i int, h loopholeDaemon) {
-				defer wg.Done()
-				r, err := askLaunchCheck(h.hostPath, budget)
-				answers[i] = answer{r, err}
-			}(i, h)
-		}
-		wg.Wait()
-		return true
-	})
+	if len(due) > 0 {
+		budget := hostservice.LaunchCheckBudget
+		o.withStderrProgress("Checking host services", func() bool {
+			var wg sync.WaitGroup
+			for i, h := range due {
+				wg.Add(1)
+				go func(i int, h loopholeDaemon) {
+					defer wg.Done()
+					r, err := askLaunchCheck(h.hostPath, budget)
+					answers[i] = answer{r, err}
+				}(i, h)
+			}
+			wg.Wait()
+			return true
+		})
+	}
 	out := o.pr(o.Stderr)
 	for i, h := range due {
 		a := answers[i]
 		var unknown *launchCheckUnknownError
 		if errors.As(a.err, &unknown) {
+			// ONLY A DAEMON AN OLDER YOLO LEFT RUNNING is one a restart fixes (HD-D6). A per-launch
+			// daemon, and a host-wide one a yolo knowing the check spawned, lack it in their program.
+			if h.hostWide && !broker.SpawnedKnowingLaunchCheck(broker.SingletonDeps(h.name, nil)) {
+				if entry == freshLaunchCheck {
+					lacks[h.name] = lacksLaunchCheck
+					continue
+				}
+				out.print("[bold yellow]loophole " + h.name + ": " +
+					richtext.Escape(launchCheckText(predatesLaunchCheckLine(h.name))) + "[/bold yellow]")
+				continue
+			}
 			out.print("[bold yellow]loophole " + h.name + ": " +
-				richtext.Escape(launchCheckText(unknownLaunchCheckLine(h, unknown))) + "[/bold yellow]")
+				richtext.Escape(launchCheckText(unknownLaunchCheckLine(unknown))) + "[/bold yellow]")
 			continue
 		}
 		if a.err != nil {
@@ -132,6 +176,102 @@ func (o *Options) runLaunchChecks(rt string, started []loopholeDaemon, payload [
 			out.print("[dim]loophole " + h.name + ": " + richtext.Escape(launchCheckText(n)) + "[/dim]")
 		}
 	}
+	if entry != freshLaunchCheck {
+		return nil
+	}
+	return olderDaemonsIn(started, lacks)
+}
+
+// What a host-wide daemon older than this yolo lacks, each worded as the refusal's clause.
+const (
+	lacksLaunchCheck = "does not answer the launch check, so yolo cannot warn you about what " +
+		"would fail your agents' requests"
+	lacksPreamble = "does not speak the connection preamble, so it would accept your agents' " +
+		"connections and fail every request"
+)
+
+// olderDaemon is one daemon a launch refuses, and what it lacks (lacksLaunchCheck, lacksPreamble).
+type olderDaemon struct {
+	name  string
+	lacks string
+}
+
+// olderDaemonRefusal is the refusal of a fresh launch whose host-wide daemons predate this yolo
+// (see the file comment): each by loophole name, in the order they started.
+type olderDaemonRefusal struct {
+	older []olderDaemon
+}
+
+// olderDaemonsIn is the refusal for the daemons in started that lacks names, in start order, or
+// nil when it names none.
+func olderDaemonsIn(started []loopholeDaemon, lacks map[string]string) *olderDaemonRefusal {
+	var older []olderDaemon
+	for _, h := range started {
+		if l, ok := lacks[h.name]; ok {
+			older = append(older, olderDaemon{name: h.name, lacks: l})
+			delete(lacks, h.name)
+		}
+	}
+	if len(older) == 0 {
+		return nil
+	}
+	return &olderDaemonRefusal{older: older}
+}
+
+// preambleRefusal is the refusal for the daemons in started that predate the connection preamble,
+// or nil: the one half of the refusal a launch that asks no launch check still owes (`yolo host`,
+// HostDoorways.Start).
+func preambleRefusal(started []loopholeDaemon) *olderDaemonRefusal {
+	return olderDaemonsIn(started, preambleLacks(started))
+}
+
+// preambleLacks names lacksPreamble for each daemon in started that startHostSingleton found
+// predating the connection preamble.
+func preambleLacks(started []loopholeDaemon) map[string]string {
+	lacks := map[string]string{}
+	for _, h := range started {
+		if h.predatesPreamble {
+			lacks[h.name] = lacksPreamble
+		}
+	}
+	return lacks
+}
+
+// text is the refusal after its headline: the daemons, that they predate this yolo and what each
+// lacks, the one command line that restarts them, and that the jails already running survive it.
+func (r *olderDaemonRefusal) text() string {
+	quoted := make([]string, len(r.older))
+	cmds := make([]string, len(r.older))
+	for i, d := range r.older {
+		quoted[i] = "'" + d.name + "'"
+		cmds[i] = broker.CycleCommand(d.name)
+	}
+	what := "the host-wide daemon for " + quoted[0] + " predates this yolo and " + r.older[0].lacks + "."
+	it := "it"
+	if len(r.older) > 1 {
+		what = "the host-wide daemons for " + strings.Join(quoted[:len(quoted)-1], ", ") + " and " +
+			quoted[len(quoted)-1] + " predate this yolo."
+		for i, d := range r.older {
+			what += "\n  " + quoted[i] + " " + d.lacks + "."
+		}
+		it = "them"
+	}
+	return what + "\n  Restart " + it + " with: " + strings.Join(cmds, " && ") +
+		"\n  Jails already running reconnect to " + it + " on their next request. Then launch again."
+}
+
+// markup is the refusal as the launch stream prints it; headline names who refuses ("Refusing this
+// launch", "Refusing the macos-user launch").
+func (r *olderDaemonRefusal) markup(headline string) string {
+	return "[bold red]" + richtext.Escape(headline+": "+r.text()) + "[/bold red]"
+}
+
+// predatesLaunchCheckLine is an attach's line for a host-wide daemon an older yolo left running,
+// which a fresh launch refuses for (HD-D5 (1)): the attach goes on, and the line names the restart.
+func predatesLaunchCheckLine(name string) string {
+	return "the host-wide daemon predates this yolo and does not answer the launch check, so " +
+		"this launch cannot warn about what would fail its agents' requests. Fix it with: " +
+		broker.CycleCommand(name)
 }
 
 // launchCheckUnknownError is a daemon's answer that it does not know the launch-check action
@@ -145,18 +285,14 @@ func (e *launchCheckUnknownError) Error() string {
 	return fmt.Sprintf("it exited %d: %s", e.rc, e.detail)
 }
 
-// unknownLaunchCheckLine is the warning for a daemon that does not know the action. A host-wide
-// daemon is one a previous yolo started, and restarting it is the fix. A per-launch daemon was
-// started by this launch from its manifest, so a manifest declares a check its daemon does not
-// answer, and there is no command to name.
-func unknownLaunchCheckLine(h loopholeDaemon, e *launchCheckUnknownError) string {
-	const cannot = "so this launch cannot warn about what would fail its agents' requests"
-	if h.hostWide {
-		return "the host-wide daemon predates this yolo and does not answer the launch check, " +
-			cannot + ". Fix it with: " + broker.CycleCommand(h.name)
-	}
+// unknownLaunchCheckLine is the warning for a daemon that does not know the action and that a yolo
+// knowing the check started: a per-launch one, which this launch started from its manifest, or a
+// host-wide one whose launch-check stamp is current (HD-D6). Its manifest declares a check its
+// program does not answer, and no restart changes the program, so there is no command to name. A
+// host-wide one an older yolo left running is refused for instead (olderDaemonRefusal).
+func unknownLaunchCheckLine(e *launchCheckUnknownError) string {
 	return "its daemon does not answer the launch check its manifest declares (it said: " +
-		e.detail + "), " + cannot
+		e.detail + "), so this launch cannot warn about what would fail its agents' requests"
 }
 
 // launchCheckText makes a daemon's string safe to print as one terminal line: control
@@ -266,6 +402,10 @@ func firstNonEmptyLine(s, fallback string) string {
 // start it, or the backend does not run it (Apple Container starts no aws-auth service). An
 // endpoint file left by a keeper that has since died is dialled and fails, which prints the dim
 // "could not ask" line, and that is true: the jail cannot reach the service either.
+//
+// IT NEVER REFUSES (HD-D5 (1)): a host-wide daemon an older yolo left running gets the yellow line
+// naming the restart, where a fresh launch refuses. Refusing the entry would leave the running jail
+// exactly as it is, and the attach restarts nothing to change that.
 func (o *Options) runAttachLaunchChecks(cname, rt string, cfg *jsonx.OrderedMap, payload []loopholes.JailDaemonSpec) {
 	socketsDir := hostServiceSocketsDir(cname, o.IsMacOS)
 	var running []loopholeDaemon
@@ -280,5 +420,5 @@ func (o *Options) runAttachLaunchChecks(cname, rt string, cfg *jsonx.OrderedMap,
 		}
 		running = append(running, markLaunchCheck(loopholeDaemon{name: lp.Name, hostPath: hostPath}, lp))
 	}
-	o.runLaunchChecks(rt, running, payload)
+	o.runLaunchChecks(rt, running, payload, attachLaunchCheck)
 }

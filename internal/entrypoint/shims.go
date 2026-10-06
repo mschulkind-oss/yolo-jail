@@ -1511,6 +1511,25 @@ if [ "${YOLO_PACK_UPDATE:-}" = "1" ]; then
     exit "$_rc"
 fi
 ` + treeGateShell + `
+
+# INSTALL AND STOP (InstallOnlyEnv): the readiness act installs an absent program here and runs
+# nothing. A present one is left as it is — readiness is about presence, and a refresh stays the
+# invocation's (OQ-PD12a) — and the status says whether there is a program to run.
+if [ "${` + InstallOnlyEnv + `:-}" = "1" ]; then
+    if [ ! -x "$REAL_BIN" ]; then
+        _do_install || true
+    fi
+    if [ -x "$REAL_BIN" ]; then
+        exit 0
+    fi
+    if [ "$_YOLO_MISPLACED" = 1 ]; then
+        ` + npmMisplacedCall + `
+    else
+        echo "  ⚠ $BIN not available: its install failed, above." >&2
+    fi
+    exit 1
+fi
+
 if [ ! -x "$REAL_BIN" ]; then
     # Cold home: the FIRST install is not a poll, and the no-evergreen ruling does not
     # touch it. There is no version here to keep — without this branch a fresh jail would
@@ -1607,9 +1626,12 @@ fi
 // into an entry and hardlinked into every workspace on the machine — §6.3's "an installer
 // that personalizes at install time … defeats the sharing", arrived at by accident.
 //
-// NATIVE LAUNCHERS ONLY. The npm and package-manager launchers ignore it, because capture is
-// the INSTALLER resolver's mechanism and nothing else has a reason to install-without-running
-// (npm's refresh path already has YOLO_PACK_UPDATE, which is a different question).
+// IT HAS A SECOND CALLER NOW: the jail's readiness act (readiness.go, OQ-JR1), which runs every
+// declared program's launcher with it in the provisioning stage, so that each is installed
+// before the command runs. So the npm and source launchers honor it too, and in all three it
+// means the same thing: install the program if it is absent, refresh nothing that is present,
+// never run it, and exit 0 only when there is a program to run. The package-manager launcher
+// (pnpm) still ignores it: no pack declares pnpm, so neither caller ever reaches it.
 const InstallOnlyEnv = "YOLO_INSTALL_ONLY"
 
 // NoTerminalVerb is the `yolo internal` verb the native launcher runs a vendor installer
@@ -2215,8 +2237,12 @@ if [ ! -x "$REAL_BIN" ]; then
     # bottom is, because it answers the question this path actually has (is there something
     # to exec?). A version probe installs too: without it nothing answers.
     _do_install || true
-elif [ "$_YOLO_PROBE" != "1" ] && _update_due; then
-    # Never for a VERSION PROBE (probeargs.go), which answers with what is installed.
+elif [ "$_YOLO_PROBE" = "1" ]; then
+    # A VERSION PROBE (probeargs.go) answers with what is installed: no update.
+    :
+elif [ "${` + InstallOnlyEnv + `:-}" != "1" ] && _update_due; then
+    # Never in install-only mode: the readiness act asks only that the program be present, and
+    # a refresh stays the invocation's (OQ-PD12a). A capture's home is cold, so it never got here.
     _locked_update || true
 fi
 # Whatever ran above, or nothing: see _locked_prune.

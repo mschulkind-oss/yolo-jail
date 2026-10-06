@@ -410,12 +410,18 @@ live, so edits are visible on the host instantly — there is no sync step.
 - **Claude YOLO** is `--dangerously-skip-permissions` + `IS_SANDBOX=1` (the env var bypasses the UID-0
   refusal). `settings.json` sets `permissions.allow` to **`[]`** and `defaultMode: acceptEdits` — it is not
   an allowlist mechanism.
-- **Bootstrap installs only** a Node floor a selected pack declares and the npm package behind each
-  ENABLED MCP preset (`chrome-devtools-mcp`, `@modelcontextprotocol/server-sequential-thinking`).
-  **It installs no language server**: `lsp_servers` only renders config (Claude's generated plugin,
-  Copilot's projection), so a configured `command` must already resolve on `PATH`
-  ([`OQ-LSP1`](docs/reference/mcp-configuration.md#oq-lsp1)). Agent CLIs install lazily on first use via
-  launchers in `~/.yolo/bin/launch/`.
+- **Bootstrap installs only** a Node floor a selected pack declares, the npm package behind each
+  ENABLED MCP preset (`chrome-devtools-mcp`, `@modelcontextprotocol/server-sequential-thinking`), and
+  — LAST, the READINESS ACT — every program a selected pack declares, each through its own launcher
+  in `~/.yolo/bin/launch/` run install-only, so agent CLIs are installed before the command runs.
+  **A program it cannot install STOPS the launch**, offline included; `YOLO_ALLOW_MISSING_PROGRAMS=1`
+  on the host is the hatch the refusal names, and the integration suite turns the act off with
+  `YOLO_NO_PROGRAM_READINESS=1` ([`OQ-JR1`](docs/design/jail-notch-readiness.md#OQ-JR1),
+  [`readiness.go`](internal/entrypoint/readiness.go); not yet on macos-user, `JR-D2`). The launchers
+  still refresh at invocation and still install what a skipped act left. **It installs no language
+  server**: `lsp_servers` only renders config (Claude's generated plugin, Copilot's projection), so a
+  configured `command` must already resolve on `PATH`
+  ([`OQ-LSP1`](docs/reference/mcp-configuration.md#oq-lsp1)).
 - **PATH order** (exact — `BootPath`, [`boot.go`](internal/entrypoint/boot.go), the authority this line
   mirrors):
   `$HOME/.yolo/bin/block:$HOME/.yolo/bin/launch:$NPM_CONFIG_PREFIX/bin:<mise-shims>:$GOPATH/bin:$HOME/.local/bin:/run/yolo/packages/bin:/bin:/usr/bin`.

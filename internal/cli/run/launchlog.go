@@ -182,6 +182,8 @@ var launchLogFacts = []string{
 	"YOLO_STORE_PACKAGES",
 	"YOLO_ALLOW_UNREACHABLE_SERVICES",
 	paths.HoldOnRefusalEnv,
+	paths.AllowMissingProgramsEnv,
+	paths.NoProgramReadinessEnv,
 }
 
 // finish records how the launch ENDED. Without it the block's last line is ambiguous in

@@ -263,6 +263,28 @@ func TestTheRefreshWorthTestNeedsNoProgramOnPath(t *testing.T) {
 	}
 }
 
+// INSTALL-ONLY MODE PASSES THE GATE (InstallOnlyEnv): the readiness act and `yolo capture` install
+// a program and run none, so a tree with no build must not stop them, and the gate's move above the
+// install (XB-D25) put it in their path. Red if treeGateShell stops reading InstallOnlyEnv.
+func TestTheTreeGateDoesNotStopInstallOnlyMode(t *testing.T) {
+	p := newPrelaunchProbe(t, false)
+	p.gate = "  ⚠ extension x/y has no build in this jail"
+	if err := os.Remove(p.realBin); err != nil {
+		t.Fatal(err)
+	}
+	npm := fakeNpmLogging(t, p.home, p.log)
+	p.write(t)
+	cmd := p.cmd(npm, "chat")
+	cmd.Env = append(cmd.Env, InstallOnlyEnv+"=1")
+	out, _ := cmd.CombinedOutput()
+	if strings.Contains(string(out), "extension x/y has no build in this jail") {
+		t.Errorf("the gate stopped install-only mode:\n%s", out)
+	}
+	if !strings.Contains(strings.Join(p.logLines(t), "\n"), "NPM install -g") {
+		t.Errorf("install-only mode did not install past the gate: %q\n%s", p.logLines(t), out)
+	}
+}
+
 // THE TREE GATE RUNS FIRST (XB-D25), in every template: a launch it stops runs no install, no
 // update and no refresh — here a cold home, a due update and a due refresh all at once — and a
 // version probe is not stopped. Red if the gate's splice moves back below the install.

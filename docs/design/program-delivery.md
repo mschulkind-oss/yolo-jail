@@ -270,7 +270,7 @@ on 2026-10-05, when it moved to GitHub's installer ([OQ-NI1](../plans/native-ins
   `claude` a minute later does no work.
 - **Cold start is the same act.** A program that is absent is installed; a present one past its
   stamp is updated. One path, so a fresh workspace and a six-week-old one converge. ⚠ **The cold
-  half is to run at launch too, ruled and not built** —
+  half runs at launch too, built 2026-10-05 on the container backends** —
   [`jail-notch-readiness.md`](jail-notch-readiness.md) ([OQ-JR1](jail-notch-readiness.md#OQ-JR1)–[OQ-JR3](jail-notch-readiness.md#OQ-JR3))
   installs every declared program in the provisioning stage and leaves this launcher's cold branch
   as the fallback. It changes readiness only; the refresh stays here either way.
@@ -289,9 +289,9 @@ on 2026-10-05, when it moved to GitHub's installer ([OQ-NI1](../plans/native-ins
   this, and there is no `YOLO_ALLOW_STALE_AGENTS` escape hatch, because nothing global is being
   killed.**
   ⚠ **AMENDED 2026-10-05 for the LAUNCH's own install ([OQ-JR1](jail-notch-readiness.md#OQ-JR1),
-  not built):** once the launch installs declared programs, a launch that cannot install one stops,
-  naming the pack, the program and the error, offline included, unless
-  `YOLO_ALLOW_MISSING_PROGRAMS=1` is set. This rule still governs the launcher's install when the
+  built the same day on the container backends):** the launch installs declared programs, and a
+  launch that cannot install one stops, naming the pack, the program and the error, offline
+  included, unless `YOLO_ALLOW_MISSING_PROGRAMS=1` is set. This rule still governs the launcher's install when the
   name is run.
 - **Timeout:** 60 seconds for the update attempt, after which the launcher proceeds with whatever is
   installed. A hung vendor updater must not hang the command the user actually typed.

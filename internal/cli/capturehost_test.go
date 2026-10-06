@@ -157,6 +157,14 @@ func TestCaptureAdmitsTheEntryAndWritesTheReceipt(t *testing.T) {
 		t.Errorf("the capture jail was given the capture store at %q; it must be suppressed", got)
 	}
 
+	// 1c. AND NO READINESS ACT IN IT. The jail's command is the installer the capture diffs
+	//     the home across; a provisioning stage that installed the program first left that
+	//     diff empty, and the capture was refused as "installer left nothing".
+	if !seen.NoProgramReadiness {
+		t.Error("the capture jail runs the readiness act, which installs the program before " +
+			"the capture's baseline, so the capture records nothing")
+	}
+
 	// 2. The entry is admitted, complete, and content-addressed.
 	key := captureKeyOf(t, store)
 	entry, err := store.Resolve(key)

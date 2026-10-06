@@ -332,6 +332,9 @@ func TestTheChildBuildJailRunsATreesBuild(t *testing.T) {
 		!strings.Contains(strings.Join(seen.Args, " "), packdecl.TreeReservedDir("tool-ext")) {
 		t.Errorf("the child ran %q sealed to %v", seen.Args, seen.OnlyPacks)
 	}
+	if !seen.NoProgramReadiness {
+		t.Error("the child build jail runs the readiness act ahead of its build")
+	}
 }
 
 // THE TREE'S JAIL SCRIPT is valid shell, quotes what it pastes, and runs the build line in a subshell

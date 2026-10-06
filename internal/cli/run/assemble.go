@@ -672,6 +672,10 @@ func (o *Options) assembleRunCmd(in *assembleInput) []string {
 	// (holdonrefusal.go, internal/entrypoint/hold.go).
 	runCmd = append(runCmd, o.holdOnRefusalArgs(rt, in.cname)...)
 
+	// The readiness act's hatch and its off-switch, forwarded from the host for the same
+	// reason: the stage that reads them runs in the jail (programreadiness.go).
+	runCmd = append(runCmd, o.programReadinessArgs()...)
+
 	// --- git identity + global gitignore (host-composed, :ro-mounted) ---
 	runCmd = append(runCmd, o.gitIdentityMountArgs(rt, in.wsState, in.mountTargets)...)
 

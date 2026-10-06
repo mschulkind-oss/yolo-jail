@@ -366,11 +366,20 @@ func (k *keeper) run() int {
 		k.socat = o.startPortForwards(p.Forwards, p.Cname, p.ForwardDir)
 		sp.End()
 	}
+	var refused *olderDaemonRefusal
 	if !p.Sealed { // the seal starts no loophole and registers no credential view (seal.go, FP-D15)
 		sp := o.Perf.Span("launch.start_loopholes")
-		k.handles = o.startPlannedLoopholes(p.Cname, p.Runtime, cfg, p.Payload)
+		k.handles, refused = o.startPlannedLoopholes(p.Cname, p.Runtime, cfg, p.Payload)
 		sp.End()
 		o.registerClaudeCredentialView(p.Runtime, p.Cname, cfg)
+	}
+	// A HOST-WIDE DAEMON OLDER THAN THIS YOLO REFUSES THE LAUNCH, before the container (OQ-HD11,
+	// HD-D5, launchcheck.go): its agents would start without the launch check promised to them, or
+	// with a daemon that fails every request. The unwind closes this jail's fronts and leaves the
+	// daemon running for the jails using it.
+	if refused != nil {
+		o.pr(o.Stderr).print(refused.markup("Refusing this launch"))
+		return k.unwindUnstarted(1)
 	}
 	// Each of them is watched from here on: one that ends while the jail is up is recorded, for the
 	// sessions in it and the arrivals after (keeperwatch.go, JL-D19).

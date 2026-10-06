@@ -46,5 +46,8 @@ func GenerateDarwinBootstrapScript(e *Env) error {
 	if sidecar == "" {
 		return nil
 	}
+	// The script this writes carries no readiness act (JR-D2), so this is where the launch says
+	// which declared programs that leaves uninstalled.
+	warnProgramsNotReady(e)
 	return writeExecutable(DarwinBootstrapScriptPath(sidecar), BootstrapScript(e))
 }

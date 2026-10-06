@@ -428,7 +428,8 @@ yolo init-user-config    # writes the file, full of commented examples
 
 The shipped agent packs are `claude`, `copilot`, `codex`, `opencode`, `pi`, `agy` and `omp`; list as
 many as you like. `omp`'s vendor publishes no ARM Linux build, so it does not run in a jail on an Apple
-silicon Mac. An agent installs inside the jail the first time you run it. Only your user config can
+silicon Mac. A jail installs each selected agent when it first starts, before your command runs (on
+`macos-user`, the first time you run it). Only your user config can
 select packs; a project's own config cannot. [How packs work →](guides/packs-and-skills.md)
 
 ### Check the setup

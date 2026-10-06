@@ -44,6 +44,11 @@ give that script the variables it needs, such as where to install, with `install
 
 ### Changed
 
+- A jail now installs every agent and tool your selected packs declare when it starts, once
+  per project, and `yolo apply` does exactly that and exits. If one cannot be installed,
+  offline included, the launch stops and names it: to start without it, set
+  `YOLO_ALLOW_MISSING_PROGRAMS=1`, and it installs the first time you run it. See the
+  [CLI reference](userguide/reference/cli-reference.md#run-agents).
 - Copilot now comes from GitHub's own installer. It updates itself, as Claude Code does, and yolo
   cannot say which version ran: to freeze it, set `agent_updates` to false for `copilot` and add
   `{"COPILOT_AUTO_UPDATE": "false"}` to `env_sources`. See
@@ -59,6 +64,9 @@ give that script the variables it needs, such as where to install, with `install
   git-ignore that file), and approve them at that project's next launch.
 - Renaming a project's GitHub remote, or adding a second one for a repository it already reaches,
   asks you to approve its repositories again at the next launch.
+- A host-wide service an older yolo started, such as `aws-auth`, now stops a new launch that uses
+  it instead of warning: run the `yolo host-daemon restart <name>` it names, which jails already
+  running survive.
 
 ### Fixed
 
