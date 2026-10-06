@@ -260,20 +260,21 @@ design replaced; [§3](#3-the-design) is what the tree holds.
   - **A source no selected pack brokers is reported by host `yolo check` alone**, as a warning
     naming the next step: check the spelling against the loophole's `brokered.source`, or select
     the pack that brokers it ([WW-D22](#WW-D22)).
-  - **A launch says nothing about it.** Today the same warning fires at every host launch as well
-    as in `yolo check`, because the launch runs the shared validator with a resolver
-    (`preflight.go:38`, `brokered.go:309-334`). Until now only the user's own config could hold
-    the key. A committed entry would print it at every launch of every contributor who selects no
-    such pack, with no step they could take, so the launch drops it.
-  - Inside a jail the check is skipped, as it is today, so a misspelled source is caught only on
+  - **A launch says nothing about it.** Before this build the same warning fired at every host
+    launch as well as in `yolo check`, because the launch ran the shared validator with a
+    resolver. Until then only the user's own config could hold the key. A committed entry would
+    print it at every launch of every contributor who selects no such pack, with no step they
+    could take, so the launch dropped it.
+  - Inside a jail the check is skipped, as it was before, so a misspelled source is caught only on
     the host.
 - **The files it may come from.** The workspace's config file, `yolo-jail.jsonc` or its
   `yolo-jail.json` fallback, the local file beside it, and any file they pull in with
-  `include_if_found` (the loader's handling of these is at `load.go:243-296` and `:349-366`).
+  `include_if_found` (the loader's include walk, in
+  [`load.go`](../../internal/config/load.go)).
   - **Inside the workspace only.** A file's bytes count as inside when the open that read them
     was confined to the workspace: the loader opens the file beneath an `os.Root` on the
     workspace, which follows a link that stays inside and refuses one that leaves or is absolute,
-    in one step. A file that open refuses is read as today and counts as outside.
+    in one step. A file that open refuses is read as it always was and counts as outside.
   - **Never check, then read.** Resolving a path, checking it, and reading it later is a race. On
     macos-user the sessions already running share the workspace while the next one runs its gate
     ([§3.5](#35-what-restart-means)), so an agent could swap `yolo-jail.local.jsonc` for a link
@@ -281,7 +282,7 @@ design replaced; [§3](#3-the-design) is what the tree holds.
   - **Outside is an error.** A `brokered` key arriving from a file outside is a config error
     naming that file and the include or link that reached it.
   - **Why.** The reader of remotes follows no symlink for this reason
-    ([`remotes.go:77-81`](../../internal/brokerscope/remotes.go)). Followed blindly, a
+    ([`remotes.go`](../../internal/brokerscope/remotes.go)). Followed blindly, a
     `../other/yolo-jail.local.jsonc` points the scope at another project's private list
     ([WW-D17](#WW-D17)).
 
@@ -296,7 +297,7 @@ design replaced; [§3](#3-the-design) is what the tree holds.
 
 **What each element is**
 
-- **`OWNER/REPO` on the source's host**, checked as today (`brokerscope.ValidRepo`). There is no
+- **`OWNER/REPO` on the source's host**, checked as before (`brokerscope.ValidRepo`). There is no
   wildcard, no organization-wide entry and no account-wide reach
   ([OQ-BB9](boundary-broker.md#OQ-BB9)).
 - **Degenerate inputs.**
@@ -310,7 +311,7 @@ design replaced; [§3](#3-the-design) is what the tree holds.
   - It is reported at the element's file and line, `yolo check` fails, and the launch refuses as it
     does for any invalid config.
   - An attach validates the config too, so it refuses a new terminal of the running jail. That is
-    today's rule for any malformed workspace edit.
+    the rule for any malformed workspace edit.
   - The reader still skips a bad element, as defense in depth.
   - In-jail `yolo check --no-build` runs the same shape check, so an agent can check its own edit.
 - **A key written twice in one file is a config error.** That covers `brokered`, `<source>` and
@@ -326,16 +327,16 @@ design replaced; [§3](#3-the-design) is what the tree holds.
 
 | Written | Where | Result |
 | :--- | :--- | :--- |
-| `brokered.<source>.repos` | user config, its includes, a `--user-layer` file | Error on the host, naming the workspace files instead, because a list with no workspace key would widen every workspace. Located at the user file's line, after the brokered-switch refusal (`validate_loopholes.go:440-469`) |
+| `brokered.<source>.repos` | user config, its includes, a `--user-layer` file | Error on the host, naming the workspace files instead, because a list with no workspace key would widen every workspace. Located at the user file's line, after the brokered-switch refusal ([`validate_loopholes.go`](../../internal/config/validate_loopholes.go)) |
 | `brokered.<source>.workspaces` | any scope | The old form, retired ([§3.6](#36-the-old-form)) |
-| `brokered.<source>.sets` | any scope | An unknown key at every scope until the sets are built, as it is today ([`boundary-broker.md` §5.7](boundary-broker.md#57-permission-sets)). Their user-scope-only rule ([WW-D14](#WW-D14)) lands with them. No message of its own: a dedicated refusal for a key that never shipped is what the retired-key rule (`config.go:192-200`) keeps out |
-| `brokered` | the per-workspace file | Refused, as today: that file holds `workspace` and `loopholes` alone |
+| `brokered.<source>.sets` | any scope | An unknown key at every scope until the sets are built, as it was before ([`boundary-broker.md` §5.7](boundary-broker.md#57-permission-sets)). Their user-scope-only rule ([WW-D14](#WW-D14)) lands with them. No message of its own: a dedicated refusal for a key that never shipped is what the retired-key rule ([`config.go`](../../internal/config/config.go)) keeps out |
+| `brokered` | the per-workspace file | Refused, as it was before: that file holds `workspace` and `loopholes` alone |
 | `brokered` | a file outside the workspace, reached by include or symlink | Config error naming the file ([WW-D17](#WW-D17)) |
 | `brokered`, `<source>` or `repos` written twice | one workspace file | Config error naming the file and the key ([WW-D24](#WW-D24)) |
 
 In a jail, the user scope is the host-generated snapshot. There each user-scope refusal is a
 warning with the standard suffix telling the user to fix the host config, following the retired-key
-convention ([`validate.go:223-232`](../../internal/config/validate.go)).
+convention ([`validate.go`](../../internal/config/validate.go)).
 
 ### 3.2 The gate
 
@@ -363,19 +364,20 @@ flowchart LR
   sources. That one result feeds both halves: the config part, with `brokered` projected out,
   and the entry reader. If the read fails, or the gate cannot tell where an entry came from, the
   launch refuses, naming the file and the error. It never treats the entry as empty. The same
-  holds for host `yolo check --accept-config-changes`, which today skips recording without a
-  word when its read fails.
-  - **Why strict.** Both gate call sites, and the check, read non-strict today with a warning
-    callback that discards every message (`run.go:449`, `:1213`, `check.go:677`). A non-strict
-    read never returns an error: an unparseable or unreadable file, or a bad include, reads as
-    `{}`. So the `_` in `wsCfg, _ :=` hides nothing, and keeping that error would change nothing.
-  - **The case it closes.** A file broken between the launch's own strict read (`run.go:175`)
-    and the gate's read reached the gate as `{}`, and its entry read as empty.
+  holds for host `yolo check --accept-config-changes`, which before this build skipped recording
+  without a word when its read failed.
+  - **Why strict.** Before this build both gate call sites, and the check, read non-strict, with a
+    warning callback that discarded every message. A non-strict read never returns an error: an
+    unparseable or unreadable file, or a bad include, reads as `{}`. So the `_` in `wsCfg, _ :=`
+    hid nothing, and keeping that error would have changed nothing.
+  - **The case it closes.** A file broken between the launch's own strict read
+    (`run.Options.loadAndValidateConfig`) and the gate's read reached the gate as `{}`, and its
+    entry read as empty.
 
 **What it compares**
 
 - **The scope part takes the entry in.** For each in-play source, the current scope is the remotes
-  plus the entry, compared as a set with today's case-insensitive rule.
+  plus the entry, compared as a set with the case-insensitive rule the gate already used.
   - Any added or removed repository is a scope change, a removal included, as for remotes.
   - The scope part keeps its flat per-source shape, so no existing record reads differently.
 - **A change of source is a change.** The new sources record,
@@ -385,19 +387,19 @@ flowchart LR
     asks. Examples: an entry removed while a remote still lists it, or a second source added for an
     approved repository.
   - **Remote names count.** Renaming a remote, or adding a second remote for an approved
-    repository, is a source change and asks once. Today's gate compares only the set of
-    repositories (`scopeapproval.go:139-163`), so this is new in every workspace where the broker
-    runs, with an entry or without. Keying on the name is what catches a human removing `origin`
-    while a second remote the agent added keeps the repository in scope. Whether renames should
-    ask is [OQ-WW1](#OQ-WW1).
+    repository, is a source change and asks once. The gate before this build compared only the
+    set of repositories, so this is new in every workspace where the broker runs, with an entry
+    or without. Keying on the name is what catches a human removing `origin` while a second
+    remote the agent added keeps the repository in scope. Whether renames should ask is
+    [OQ-WW1](#OQ-WW1).
   - **With no recorded sources** for a repository, as on the first launch after this ships, the
     gate records its current sources without asking only when every one of them is a remote, the
     only kind that could exist before this ships. A repository that any entry lists, with no
     recorded sources, asks as *source changed*. So deleting the sources record alone fails safe,
     as BB-D30 requires of every part.
   - The record writer writes the sources record. Every path that deletes the approval record
-    deletes it too. Today that path is one, `cleanupCaptureWorkspace`
-    (`capturehost.go:737-745`).
+    deletes it too. That path is `cleanupCaptureWorkspace`, which deletes through the one list of
+    the record's parts ([WW-D27](#WW-D27)).
   - This closes a gap: without it, an agent could give an approved repository a second, unseen
     source, and the human's later removal of the visible one would silently leave it in scope
     ([WW-D11](#WW-D11)).
@@ -409,8 +411,8 @@ flowchart LR
     part's bytes.
   - It never goes inside `SnapshotJSON`, which drift, the delivery copy and the inherited files
     share.
-  - A record holding `"brokered": null`, which today's validator lets through, re-prompts once. A
-    non-null value could never pass validation, so no other record moves.
+  - A record holding `"brokered": null`, which the validator before this build let through,
+    re-prompts once. A non-null value could never pass validation, so no other record moves.
 
 **What the human sees**
 
@@ -419,7 +421,7 @@ flowchart LR
   - A remote row keeps `remote "origin"`. An entry row names every file that lists the repository,
     relative to the workspace, in merge order.
   - A source-change row names the old sources and the new ones.
-  - A removed row shows none, as today.
+  - A removed row shows none, as before.
   - **Labels are escaped.** Every file label, in the block, the header, the decline lines, the
     no-terminal advice, the check's recorded line and the launch line, goes through
     `termsafe.Visible`. Where it is printed through markup it is also escaped with
@@ -450,9 +452,9 @@ flowchart LR
 
 **Answers and flags**
 
-- **N** records nothing, and the launch exits as today. When an entry row changed, the decline
-  lines name the file to edit, beside today's `yolo loopholes disable` step.
-- **No terminal** refuses as today. The headline names the scope without claiming it came from the
+- **N** records nothing, and the launch exits as before. When an entry row changed, the decline
+  lines name the file to edit, beside the `yolo loopholes disable` step it named before.
+- **No terminal** refuses as before. The headline names the scope without claiming it came from the
   remotes alone, and the advice lists the config files that contributed beside the git config.
 - **The flag paths print the block.** A no-terminal launch with `--accept-config-changes`, and host
   `yolo check --accept-config-changes`, print the block and the count line before recording. Both
@@ -488,11 +490,11 @@ flowchart LR
   - Nothing that feeds the scope file re-reads the workspace config after the y. An edit landing
     between the y and the spawn waits for the next fresh launch.
   - **On the container arm the keeper writes the scope file and prints the launch line.** The
-    gate's result crosses to it in the keeper's plan: each loophole's approved repositories and
-    their sources, beside today's `ApprovedScopes`. The keeper never derives either from the plan's
-    `Config`, which is the merged config read before the gate.
+    gate's result crosses to it in the keeper's plan, as `ApprovedScopes`: each loophole's
+    approved repositories and their sources ([WW-D28](#WW-D28)). The keeper never derives either
+    from the plan's `Config`, which is the merged config read before the gate.
 - **Fail closed.** A spawn with no result from the gate gets neither the remotes nor the entry, and
-  the launch says so as today. This reverses BB-D44's 2026-10-01 revision.
+  the launch says so as before. This reverses BB-D44's 2026-10-01 revision.
 - **The scope file.**
   - The broker already unions `repos` and `widened`, so the split only ever fed the disclosure.
   - The approved union goes in `repos`, and `widened` is no longer written. It stays decodable, and
@@ -521,7 +523,7 @@ flowchart LR
   refusals, `gh.md` and `yolo gh --help` ([WW-D13](#WW-D13)).
 - **The out-of-scope refusal** (exit 64) is built on the host by the broker, which reads no config.
   It says:
-  1. the repository and the current scope, as today;
+  1. the repository and the current scope, as before;
   2. to add the repository to the `repos` list under `brokered.github` in the config file the
      scope file names, creating the key, `"brokered": {"github": {"repos": ["<repo>"]}}`, only if
      the file has none; or in the local file it names, for what the project should not commit;
@@ -612,9 +614,9 @@ flowchart LR
     - **Where the full list goes.** Host `yolo check` prints it in full, since its output is copied
       into no workspace.
   - **One message, from the shared validator, in the launch form, always.** The validator,
-    `ValidateConfig`, has three callers: the launch (`preflight.go:38`, teed to the launch log),
-    `yolo check`, and `yolo internal config-dump`, which prints the messages as JSON. It takes no
-    caller mode, so it never names another project to any of them. Host `yolo check` adds the
+    `ValidateConfig`, has three callers: the launch (`run.Options.loadAndValidateConfig`, teed to
+    the launch log), `yolo check`, and `yolo internal config-dump`, which prints the messages as
+    JSON. It takes no caller mode, so it never names another project to any of them. Host `yolo check` adds the
     full list itself, in its own section, reading the user scope directly. So no validator output
     can name another workspace, whoever calls it.
   - **A shape that cannot be read, or a key today's rules refuse,** gets the generic line instead.
@@ -803,20 +805,22 @@ what [WW-D11](#WW-D11) already said.
 1. <a id="OQ-WW1"></a>**[OQ-WW1](#OQ-WW1): Should renaming a remote ask?**
    Raised in review, 2026-10-05. The sources record keys a remote by its name
    ([§3.2](#32-the-gate)), so a rename, or a second remote for an approved repository, asks once
-   as *source changed*. That holds wherever the broker runs, with no entry too. Today neither
-   asks.
+   as *source changed*. That holds wherever the broker runs, with no entry too. Before this
+   build neither asked.
 
    - **(a)** Keep remote names: any change in where a repository comes from asks.
    - **(b)** Record a remote by its kind alone, and files by name. A rename or a second remote
-     asks nothing, as today; a remote added behind an entry, or the reverse, still asks.
+     asks nothing, as before this build; a remote added behind an entry, or the reverse, still
+     asks.
 
    <!-- vantage: question id=OQ-WW1 -->
 
    _Leaning:_ **(a).** It is the simplest rule, and renames are rare. (b) leaves open one case
    WW-D11 exists for. A human removes `origin`, believing the repository leaves the scope, while
    a second remote the agent added for the same repository keeps it in, unseen. Under (a) that
-   second remote asked when it appeared; under (b) it never does, which is today's behavior for
-   remotes. The cost of (a) is one prompt per rename, in every project where the broker runs.
+   second remote asked when it appeared; under (b) it never does, which was the behavior for
+   remotes before this build. The cost of (a) is one prompt per rename, in every project where
+   the broker runs.
 
    _Built as (a)._ Answering (b) changes one function, the key the record stores for a remote's
    source, and no record format.
