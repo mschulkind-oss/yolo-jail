@@ -1,11 +1,11 @@
 ---
 title: "A patched fork can follow a pi extension's upstream — the same ratchet, ending in a read-only tree pi loads in place"
 date: 2026-10-04
-status: in-review
-stage: DESIGN
+status: accepted
+stage: DECIDED
 tags: [design, packs, files, pi, extensions, forks, evergreen, git]
 summary: "The maintainer asked on 2026-10-04 for the patched-fork mode to cover pi extensions. A `files` contribution may name an upstream `source` and a `patches` series in place of `from`. yolo checks the upstream at most hourly, replays the series on the host exactly as a patched fork does, takes the newest upstream version the series fits, builds it in the sealed capture jail and admits the result as a tree. Each fresh jail launch mounts its own copy of this machine's good build read-only, and pi loads it as a local package through a list entry the pack author writes, so pi never installs or updates it. Two calls were new and the maintainer's, what pi starts with when no build serves and whether the version is pinned in packs.lock.json; they and the four patched-fork questions were decided on their leanings under his delegation of 2026-10-04."
-next: "Rule OQ-PPX3 (filed 2026-10-05), whether a launch whose only program the tree gate will stop may stop before booting, while the host-side line saying pi will not start is built; steps 2 to 5 of §16 built 2026-10-04 (PPX-D20 to PPX-D31) and integrated at e87f1ba88 on 2026-10-05 (PPX-D32, PPX-D33); step 6, migrating the five with the migration kit and checking that a real pi loads a built tree, is the maintainer's, who may overrule PPX-D18 and PPX-D19"
+next: "Build PPX-D40 (OQ-PPX3, ruled 2026-10-05): a fresh launch refuses before booting when a patched extension a selected pack needs has no build, naming the ways back, where the host-side line saying pi will not start is being built; steps 2 to 5 of §16 built 2026-10-04 (PPX-D20 to PPX-D31) and integrated at e87f1ba88 on 2026-10-05 (PPX-D32, PPX-D33); step 6, migrating the five with the migration kit and checking that a real pi loads a built tree, is the maintainer's, who may overrule PPX-D18 and PPX-D19"
 depends-on:
   - patched-forks.md
 ---
@@ -25,8 +25,10 @@ installed in this jail. MEASURED the same day in fresh blobless clones with git 
 and node v24.19.0: the maintainer's five extension forks replayed onto their upstreams, the
 [newest-fit walk](#6-detection-and-the-newest-fit-walk) over each, two trees built, one fork's
 `dist/` rebuilt from a series without it, and pi's dependency command run on a toy package.
-UNMEASURED: no pi has loaded a tree built this way. One ruling is owed, [OQ-PPX3](#OQ-PPX3), filed
-2026-10-05 from the maintainer's first patched launch.
+UNMEASURED: no pi has loaded a tree built this way. [OQ-PPX3](#OQ-PPX3), filed 2026-10-05 from the
+maintainer's first patched launch, was ruled the same day ([PPX-D40](#PPX-D40), not built): a
+patched extension a selected pack needs with no build to run refuses a fresh launch before it
+boots, which reverses [PPX-D12](#PPX-D12)'s *"the jail launch is never refused"*.
 
 > **In short.** An extension is a tree, not a program. So a patched extension keeps a patched fork's
 > whole ratchet and changes only what the build leaves and where it goes: an admitted tree, copied for
@@ -63,8 +65,8 @@ places it cannot, which [§7](#7-the-build-and-the-admit) and [§8](#8-delivery)
 [OQ-PFK3](patched-forks.md#OQ-PFK3) and [OQ-PFK4](patched-forks.md#OQ-PFK4), decided the same day, bind
 this mode as written ([§12](#12-dependencies)).
 
-**Needs your ruling:** [OQ-PPX3](#OQ-PPX3) (**new** — whether a launch whose only program the tree
-gate will stop may stop before booting, which amends [PPX-D12](#PPX-D12)).
+**Needs your ruling:** nothing. [OQ-PPX3](#OQ-PPX3) was ruled in review on 2026-10-05
+([PPX-D40](#PPX-D40)); the reading of "a build fails" it records is yours to confirm.
 
 **Reads with:** [`patched-forks.md`](patched-forks.md) (the mode this extends; every PF term and PF-D
 row cited here is its), [`pi-git-extension-caching.md`](pi-git-extension-caching.md) (pi git
@@ -480,11 +482,14 @@ once and names a jail that has the extension: `YOLO_RUNTIME=podman yolo -- pi`.
 | A `produces` path is missing, the tree names the build's home, or the delta has strays | the good build; a failed build with back-off | the paths, and the build line as the fix |
 | The entry was reaped between the lookup and the copy, or during it (its completion marker gone when the copy ends) | the partial copy removed and the record re-read once; else rebuilt from its inputs | as a first build |
 | The per-launch copy fails (a full disk) | nothing for this launch; the store is untouched | the error and the extension |
-| Nothing serves | [OQ-PPX1](#OQ-PPX1) | see below |
+| Nothing serves | nothing: a fresh launch refuses before booting ([PPX-D40](#PPX-D40)) | see below |
 
-**Nothing serves.** Under [OQ-PPX1](#OQ-PPX1)'s leaning, the owning agent pack's launchers, the base's
-and any fork's, stop before exec, naming the extension, the cause and the next step, and the jail's
-shell stays up. Notches that build no tree (macos-user, the macOS host, and Apple Container below its
+**Nothing serves.** At a notch that builds trees, a fresh launch refuses before booting when the
+owning agent pack's list entry reaches it, whatever the command, naming the extension, the cause
+and the ways back ([PPX-D40](#PPX-D40), ruled in [OQ-PPX3](#OQ-PPX3)). Under
+[OQ-PPX1](#OQ-PPX1)'s leaning the owning agent pack's launchers, the base's and any fork's, still
+stop before exec, naming the same, and the jail's shell stays up: the backstop for an attach, which
+boots nothing. Notches that build no tree (macos-user, the macOS host, and Apple Container below its
 read-only floor, [§11](#11-notch-coverage)) start pi with a line said once, in
 [FP-D3](forked-programs-as-packs.md#FP-D3)'s shape, naming `YOLO_RUNTIME=podman`. With no owning agent
 pack no list entry names the tree, so pi does not load it, [§8.2](#82-how-pi-finds-it)'s lint says so,
@@ -510,17 +515,20 @@ which [OQ-PPX1](#OQ-PPX1)'s B exempts, are macos-user, the macOS host and Apple 
 read-only floor ([§11](#11-notch-coverage)). Under option C neither departure applies to a patched
 extension, so a build that keeps failing costs every fresh launch a rebuild, and its pi.
 
-**The jail launch itself is never refused**, so [PF §6.7](patched-forks.md#67-what-the-mode-never-does)
-holds.
+**A jail launch is refused for one cause alone**: a needed tree with nothing to serve, at a notch
+that builds trees ([PPX-D40](#PPX-D40)), which amends
+[PF §6.7](patched-forks.md#67-what-the-mode-never-does) for both routes. A check, a replay or a
+newer build that fails while a good build serves refuses nothing: the good build serves, with the
+held suffix.
 
-<a id="oq-ppx3-background"></a>**What that costs when pi is all the launch runs.** The host decides
+<a id="oq-ppx3-background"></a>**Why the refusal comes before the image step.** The host decides
 every tree before the image step (`treeDeliveriesFor`, ahead of `autoLoadImage` in
-`cli/run/run.go`), so it knows pi will stop before any jail exists. Under [PPX-D12](#PPX-D12) a
-`yolo -- pi` still builds or loads the image, boots and provisions, and pi's launcher installs or
-refreshes pi before the gate prints its lines and exits 1 ([PPX-D24](#PPX-D24)), and `yolo -- pi`
-returns with it. One host-side line saying pi will not start, printed right after the trees are
-decided, is being built either way. [OQ-PPX3](#OQ-PPX3) asks whether the launch may do more than
-say it.
+`cli/run/run.go`), so it knows a needed tree has no build before any jail exists. Under
+[PPX-D12](#PPX-D12) as built, a `yolo -- pi` still builds or loads the image, boots and provisions,
+and pi's launcher installs or refreshes pi before the gate prints its lines and exits 1
+([PPX-D24](#PPX-D24)), and `yolo -- pi` returns with it. A host-side line saying pi will not start,
+printed right after the trees are decided, was being built when [OQ-PPX3](#OQ-PPX3) was filed. The
+ruling makes that point the refusal, for every command alike ([PPX-D40](#PPX-D40)).
 
 ## 10. Trust and disclosure
 
@@ -761,7 +769,7 @@ mode as written, and one ruling of each covers both routes ([§12](#12-dependenc
    > "I want to get the patched forks and patched extensions out as soon as possible. So if there's design decisions you can make, make them and build it. And we can always adjust later."
    > No pin: the good build is machine-local, and a hold is a tag ref or `agent_updates`. Adjustable: his to overrule once he has tested the build.
 
-3. 💬 <a id="OQ-PPX3"></a>**OQ-PPX3: When the launch's only program is one the tree gate will stop,
+3. ✅ <a id="OQ-PPX3"></a>**OQ-PPX3: When the launch's only program is one the tree gate will stop,
    may the launch stop before booting, saying why?**
 
    Amends [PPX-D12](#PPX-D12) and [PF §6.7](patched-forks.md#67-what-the-mode-never-does)
@@ -775,8 +783,6 @@ mode as written, and one ruling of each covers both routes ([§12](#12-dependenc
    - **C — Boot into the jail's shell instead.** *Cost:* the same reading of the command, and a
      scripted `yolo -- pi -p …` gets a shell where it expected pi to exit.
 
-   <!-- vantage: question id=OQ-PPX3 leaning="A: the host line arrives before the image step, where B would stop, so a Ctrl-C there saves what B saves; B and C buy that saving by reading the command, which the maintainer ruled out at the host (we do not sniff the command line, HP-DIR2), and a stop keyed on the command catches a bare pi but not bash -lc pi or a wrapper." -->
-
    _Leaning:_ **A** — the host line arrives before the image step, where B would stop, so a Ctrl-C
    there saves what B saves; B and C buy that saving by reading the command, which the maintainer
    ruled out at the host (*"We do not sniff the command line"*,
@@ -784,7 +790,36 @@ mode as written, and one ruling of each covers both routes ([§12](#12-dependenc
    `pi` but not `bash -lc pi` or a wrapper.
 
    **Answer:**
-   > _(empty — fill in when decided)_
+   > **Ruled in review 2026-10-05, none of the options as written:** *"I thought we don't sniff the
+   > CLI at all and make any decisions for it? it'll just fall through to a shim, no? but even
+   > before we get there, if a build fails, of course that's fatal. we should offer solutions and
+   > workarounds when that happens for happy path, but it's fatal"*. Narrower than B, since the
+   > stop keys on the build and never on the command, and firmer, since it does not wait for a
+   > launch whose only program is the gated one. When a patched extension a selected pack needs,
+   > or a patched fork, has no build to deliver, a fresh launch refuses before booting, whether the
+   > build failed or never ran, and whatever the command is: yolo never reads the command line
+   > ([HP-DIR2](host-tool-provisioning.md#HP-DIR2), 2026-09-29). The in-jail launcher gate
+   > ([PPX-D18](#PPX-D18)) stays as the backstop for an attach and a nested launch, which this
+   > refusal does not reach. The refusal names the ways back, as
+   > [the happy-path principle](../reference/happy-path-principle.md) asks:
+   >
+   > - the fix the build's own failure names;
+   > - `yolo pack series check` and `yolo pack rebase <pack>/<name>`, for a series that no longer
+   >   applies;
+   > - `yolo capture <pack>/<name>`, to retry;
+   > - dropping the list entry, or the pack, to run without it;
+   > - and the opt-in bypass variable [OQ-JR1](jail-notch-readiness.md#OQ-JR1) rules the same day
+   >   for a program a launch could not install, if one variable fits both. Whether it does is the
+   >   builder's call.
+   >
+   > *Recorder's reading, for the maintainer to confirm:* "a build fails" means there is no build
+   > to run. A newer build that fails while the last good build still serves
+   > ([PF-D8](patched-forks.md#PF-D8), [PPX-D14](#PPX-D14)) still serves, with today's warning,
+   > the held suffix, and is not fatal. Nor is a notch that never builds a tree (macos-user, the
+   > macOS host, Apple Container below its read-only floor, a nested launch): no build failed
+   > there, so it keeps [PPX-D18](#PPX-D18)'s exemption and its line. Recorded as
+   > [PPX-D40](#PPX-D40), which supersedes [PPX-D12](#PPX-D12)'s *"the jail launch is never
+   > refused"*; the fork side is [`patched-forks.md` PF-D77](patched-forks.md#PF-D77). Not built.
 
 ## Decision Ledger
 
@@ -793,7 +828,8 @@ Every row is reversible, and the Built column says what has been built of each.
 [PPX-D20](#PPX-D20)–[PPX-D38](#PPX-D38) are implementation decisions made building it, and
 [PPX-D39](#PPX-D39) one made fixing what the maintainer's first real launch found. [PPX-D18](#PPX-D18) and [PPX-D19](#PPX-D19) are the two questions that were
 the maintainer's, [OQ-PPX1](#OQ-PPX1) and [OQ-PPX2](#OQ-PPX2), decided on their leanings on 2026-10-04
-under his delegation, and still his to overrule. The two core
+under his delegation, and still his to overrule. [PPX-D40](#PPX-D40) is his ruling of
+[OQ-PPX3](#OQ-PPX3) in review, 2026-10-05. The two core
 changes this design makes to patched forks are recorded there:
 [PF-D10](patched-forks.md#PF-D10), amended, and [PF-D22](patched-forks.md#PF-D22).
 
@@ -810,19 +846,19 @@ changes this design makes to patched forks are recorded there:
 | <a id="PPX-D9"></a>PPX-D9 | *Implementation decision, applying [PF-D19](patched-forks.md#PF-D19).* **`agent_updates` off for the contributing pack or the owning agent pack holds a patched extension; with a fork of the owning agent's program selected, the fork pack counts too** | 2026-10-04 | [§2](#2-the-verdict-and-three-more-principles) PE8 | S5, 2026-10-04: `packload.Fork.HoldPacks`, read by `run.PatchedForkHold` |
 | <a id="PPX-D10"></a>PPX-D10 | *Implementation decision.* **pi learns of a built tree only through a `~/<into>` list entry its author writes; one lint warns when no entry equals it.** [PPX-D36](#PPX-D36) counts a path inside it too. No lint looks for the old entry left beside it, which would need pi's package-source grammar in core. Amended 2026-10-05 by [PPX-D34](#PPX-D34), whose lint looks for one by its final name | 2026-10-04 | [§8.2](#82-how-pi-finds-it) | S5, 2026-10-04: `packload.LintPatchedTrees`, at `yolo pack lint` and in the launch's block ([PPX-D27](#PPX-D27)) |
 | <a id="PPX-D11"></a>PPX-D11 | *Implementation decision.* **The Linux host renders a patched extension as a host-private versioned copy and an owned link swapped by rename, after the check and the advance and before the launch gate's comparison; the previous version is kept until the next move.** The check and the advance run at `yolo host apply`, and at `yolo host -- <bin>` only when `<bin>` is a program of the owning agent pack or of a fork of it; at any other bin the gate only reads which build the link names | 2026-10-04 | [§8.3](#83-at-the-host) | S5, 2026-10-04: `cli.renderHostTrees`, `advanceHostTrees` ([PPX-D25](#PPX-D25)) |
-| <a id="PPX-D12"></a>PPX-D12 | *Implementation decision, under [OQ-PPX1](#OQ-PPX1).* **The owning agent pack's launchers, the base's and any fork's, act on a patched extension's reason as [OQ-PPX1](#OQ-PPX1) rules, and only at a notch the list entry naming the tree reaches; the jail launch is never refused** | 2026-10-04 | [§9](#9-failure-and-the-next-step) | S5, 2026-10-04: the jail's `stop` ([PPX-D24](#PPX-D24)) and the host's ([PPX-D26](#PPX-D26)) |
+| <a id="PPX-D12"></a>PPX-D12 | *Implementation decision, under [OQ-PPX1](#OQ-PPX1).* **The owning agent pack's launchers, the base's and any fork's, act on a patched extension's reason as [OQ-PPX1](#OQ-PPX1) rules, and only at a notch the list entry naming the tree reaches; the jail launch is never refused** *Superseded in part 2026-10-05 by [PPX-D40](#PPX-D40) ([OQ-PPX3](#OQ-PPX3)):* at a notch that builds trees, a fresh launch now refuses before booting when a tree its owner's entry reaches there has no build; the launchers' half stands | 2026-10-04 · superseded in part 2026-10-05 | [§9](#9-failure-and-the-next-step) | S5, 2026-10-04: the jail's `stop` ([PPX-D24](#PPX-D24)) and the host's ([PPX-D26](#PPX-D26)) |
 | <a id="PPX-D13"></a>PPX-D13 | *Implementation decision.* **Checks of different extension keys may run concurrently, except two that name one upstream repository, which serialize on its mirror lock; their lines print in declaration order** | 2026-10-04 | [§6.1](#61-where-the-check-runs) | S5, 2026-10-04: through the shared check (the mirror's lock); the launch walks the trees in declaration order |
 | <a id="PPX-D14"></a>PPX-D14 | *Implementation decision, applying [PF-D8](patched-forks.md#PF-D8).* **A newer upstream that does not replay or build leaves the good build serving, unless [OQ-PPX1](#OQ-PPX1) is ruled C** | 2026-10-04 | [§9](#9-failure-and-the-next-step) | S5, 2026-10-04: the shared advance (`cli.advancePatchedFork`) |
 | <a id="PPX-D15"></a>PPX-D15 | *Implementation decision.* **The footprint marks a patched extension for review, naming its source, ref, follow rule, series, build and landing; no flag hides its launch, move or held lines** | 2026-10-04 | [§10](#10-trust-and-disclosure) | S5, 2026-10-04: `packload.patchedTreeClaimDetail`, review-marked, and its disclosure sentence, printed at every launch ([PPX-D29](#PPX-D29)) |
 | <a id="PPX-D16"></a>PPX-D16 | *Implementation decision.* **A series member that adds a path the upstream ignores at the base is said once, naming `build`** | 2026-10-04 | [§7.2](#72-identity-and-selection) | — (left for a later step: it needs the upstream's `.gitignore` at the base, read in the replay's scratch repository) |
 | <a id="PPX-D17"></a>PPX-D17 | *Implementation decision.* **The check record is per extension key, as [PF-D9](patched-forks.md#PF-D9)'s is per fork key, never per declaration** | 2026-10-04 | [§14](#14-alternatives-and-what-this-does-not-cover) | S5, 2026-10-04: the check record under the extension key (`packsrc.CheckRecord`) |
-| <a id="PPX-D18"></a>PPX-D18 | *Decided under delegation, on [OQ-PPX1](#OQ-PPX1)'s leaning.* **The good build serves; with none, the owning agent pack's launchers stop before exec and say why; notches that never build trees are exempt** | 2026-10-04 | [OQ-PPX1](#OQ-PPX1) | S5, 2026-10-04: in a jail ([PPX-D24](#PPX-D24)) and at the host ([PPX-D26](#PPX-D26)) |
+| <a id="PPX-D18"></a>PPX-D18 | *Decided under delegation, on [OQ-PPX1](#OQ-PPX1)'s leaning.* **The good build serves; with none, the owning agent pack's launchers stop before exec and say why; notches that never build trees are exempt** *Amended 2026-10-05 by [PPX-D40](#PPX-D40):* with none at a notch that builds trees, a fresh launch refuses before booting, so the launchers' stop is the backstop for an attach and a nested launch; the exemption stands | 2026-10-04 · amended 2026-10-05 | [OQ-PPX1](#OQ-PPX1) | S5, 2026-10-04: in a jail ([PPX-D24](#PPX-D24)) and at the host ([PPX-D26](#PPX-D26)) |
 | <a id="PPX-D19"></a>PPX-D19 | *Decided under delegation, on [OQ-PPX2](#OQ-PPX2)'s leaning.* **A patched extension writes no pin to `packs.lock.json`; its good build is machine-local** | 2026-10-04 | [OQ-PPX2](#OQ-PPX2) | S5, 2026-10-04: nothing writes one; `packs.lock.json` is untouched |
 | <a id="PPX-D20"></a>PPX-D20 | *Implementation decision, building [§16](#16-what-i-would-build-in-order) step 3 under [PPX-D5](#PPX-D5), reversible.* **The reserved directory is `~/.local/share/yolo-tree/<name>`. The tree's build jail writes its toolchain record first — the image's identity and the version of the image's own `node` and `npm` — then runs the build line, if any, in a subshell with `/bin:/usr/bin` first on PATH, so `node` and `npm` are the image's and a `cd` in the line cannot move the copy's source — on lines of its own inside the subshell, so a trailing `# comment`, which a fork's build line may carry, cannot reach the copy — and ends in `cp -a` of the checkout into the reserved directory.** A tree's build jail runs as a fork's does, as a child under the interrupt scope while a good build serves (`yolo internal fork-build-jail --tree=<name>`, whose build line may be empty) | 2026-10-04 | [§7.1](#71-the-build-act) | S5, 2026-10-04: `cli.treeBuildJailArgv`, `forkBuildChildArgv` |
 | <a id="PPX-D21"></a>PPX-D21 | *Implementation decision, under [PPX-D6](#PPX-D6), reversible.* **A tree's `build` receipt records the extension's name as its `bin` and the extension key as its `fork`, so selection and `yolo prune` file it under (name, platform, extension key) with no new receipt field: a record naming no bin is dropped by every store scan, and would be reaped by the next prune.** The admit counts any reference the content scan records under the tree, any file it says embeds the home, and a scan that did not run, as a reference to the build's home | 2026-10-04 | [§7.2](#72-identity-and-selection) | S5, 2026-10-04: `cli.buildForkUnderLock`, `treeAdmitProblem` |
 | <a id="PPX-D22"></a>PPX-D22 | *Implementation decision, under [PPX-D7](#PPX-D7), reversible.* **The per-launch copy is `<tree>.patched/<key, "/" written "--">-<8 hex digits of the key's sha256>`, beside the pack tree, made by `capture.CopyTree` (reflink, else copy, never a hardlink; the manifest's modes; every directory keeping its owner's write bit, so the copy can be removed) and removed with its tree. The record's one re-read is the advance run again, which finds the good build a move left or rebuilds the one that went. A move reaps every other build of a tree whatever a delivery record names, since jails hold copies** | 2026-10-04 | [§8.1](#81-in-a-jail) | S5, 2026-10-04: `run.PatchedCopySlug`, `cli.copyTreeForLaunch`, `cli.advance.handedKeys` |
 | <a id="PPX-D23"></a>PPX-D23 | *Implementation decision, under [PPX-D8](#PPX-D8), reversible.* **`YOLO_PATCHED_TREES` carries, per extension key, `into`, the handed entry and its label or the reason there is none, the owning agent pack, and `stop`. The delivery record beside the pack tree gains a `trees` map, additive, which an attach reads** | 2026-10-04 | [§8.1](#81-in-a-jail) | S5, 2026-10-04: `entrypoint.TreeDelivery`, `run.HandedTree` |
-| <a id="PPX-D24"></a>PPX-D24 | *Implementation decision, under [PPX-D18](#PPX-D18) and [PPX-D12](#PPX-D12), reversible.* **A jail's `stop` is set when nothing serves, the owner's list entry reaches a jail (a `config-list`, or an autonomous posture list), and the notch builds trees. A nested launch inside a jail and Apple Container below its read-only floor build none, so they start the agent with a line, as macos-user does. The gate is baked into each of the owner's launchers (npm, native and a fork's source launcher) as `Install.Gate`, immediately before the exec and after the install and the refresh.** The launch-flags wrapper, which carries a program the image provides, carries no gate: no owning agent's program is baked today | 2026-10-04 | [§9](#9-failure-and-the-next-step) | S5, 2026-10-04: `run.Options.patchedTreesWire`, `entrypoint.treeGateFor`, `treeGateShell` |
+| <a id="PPX-D24"></a>PPX-D24 | *Implementation decision, under [PPX-D18](#PPX-D18) and [PPX-D12](#PPX-D12), reversible.* **A jail's `stop` is set when nothing serves, the owner's list entry reaches a jail (a `config-list`, or an autonomous posture list), and the notch builds trees. A nested launch inside a jail and Apple Container below its read-only floor build none, so they start the agent with a line, as macos-user does. The gate is baked into each of the owner's launchers (npm, native and a fork's source launcher) as `Install.Gate`, immediately before the exec and after the install and the refresh.** The launch-flags wrapper, which carries a program the image provides, carries no gate: no owning agent's program is baked today. *Amended 2026-10-05 by [PPX-D40](#PPX-D40):* a fresh launch where this `stop` would be set refuses before booting instead, so the baked gate is the backstop for an attach; a nested launch and Apple Container below its floor still start the agent with a line | 2026-10-04 · amended 2026-10-05 | [§9](#9-failure-and-the-next-step) | S5, 2026-10-04: `run.Options.patchedTreesWire`, `entrypoint.treeGateFor`, `treeGateShell` |
 | <a id="PPX-D25"></a>PPX-D25 | *Implementation decision, under [PPX-D11](#PPX-D11), reversible.* **The host's versioned copies are `~/.local/share/yolo-jail/host-trees/<slug>/<entry key>`, the directory 0700 and never mounted by a jail; a copy is made into a temporary directory beside it, checked against the entry's completion marker and renamed in. The render keeps the version the link names and the one it named before the swap, and removes older ones; an apply removes a dropped extension's copies once its link is retired and no recorded link names them. The advance runs at `yolo host apply --assert` and `yolo apply --at host --assert`, never a dry run, and at `yolo host -- <bin>` only under `host_apply_on_launch` with `host_management` not `none`, and only when the owning agent pack declares `<bin>`.** A macOS host's render refuses each patched extension with the line naming `YOLO_RUNTIME=podman yolo -- <the owner's first program>`, and `yolo host -- <bin>` of an owning agent there says once per tree its entry reaches the host with that the agent starts without it, naming `YOLO_RUNTIME=podman yolo -- <bin>` | 2026-10-04 | [§8.3](#83-at-the-host) | S5, 2026-10-04: `paths.HostTreesDir`, `cli.renderHostTree`, `advanceHostTrees`, `sweepDroppedHostTrees`, `noteHostTreeLines` |
 | <a id="PPX-D26"></a>PPX-D26 | *Implementation decision, under [PPX-D18](#PPX-D18), reversible.* **At the Linux host, `yolo host -- <bin>` of an owning agent stops before exec when a tree its list entry reaches the host with (a `config-list`, or a guarded posture list) names no directory at `~/<into>`, whatever `host_apply_on_launch` says, with the reason the check record gives; under `host_management: none`, which writes no link, it stops nothing. It reads the link rather than the record, since what the agent loads at the host is what the link names; and it prints a line naming the build the link names for each tree the program loads, and, when the machine's good build has moved past it, that `yolo host apply --assert` renders the good one; under `none` it prints none** | 2026-10-04 | [§9](#9-failure-and-the-next-step) | S5, 2026-10-04: `cli.hostTreeGate`, `noteHostTreeLines`, `hostTreeLine` |
 | <a id="PPX-D27"></a>PPX-D27 | *Implementation decision, under [PPX-D10](#PPX-D10), reversible.* **The lint is a warning at `yolo pack lint`, never a failure, and a line in every launch's "Patched extensions this launch" block, an attach's included. `yolo pack lint` counts a patched fork's or a patched extension's series directory as content the pack ships** | 2026-10-04 | [§8.2](#82-how-pi-finds-it) | S5, 2026-10-04: `cli.packLint`, `run.Options.notePatchedTrees` |
@@ -838,3 +874,4 @@ changes this design makes to patched forks are recorded there:
 | <a id="PPX-D37"></a>PPX-D37 | *Implementation decision, under [`patched-forks.md` PF-D63](patched-forks.md#PF-D63), reversible; found integrating the patch-series requests' parallel builds.* **A patched extension's series is read by the same reader as a patched fork's, and its errors name the extension's own remedies: "the extension's `patches`", "a patched extension applies at least one", and for an empty series the export alone, never "declare a plain fork instead", since a `files` contribution has no unpatched form to declare in its place.** The launch's line showed the fork's remedy for an extension from the first build; `yolo pack lint` reading every series made it the step lint names | 2026-10-05 | [§9](#9-failure-and-the-next-step) | Integration, 2026-10-05: `packsrc.ReadTreeSeries`, read by `packload.Fork.ReadSeries` for a tree; pinned by `TestPackLintFailsASeriesALaunchCannotRead` |
 | <a id="PPX-D38"></a>PPX-D38 | *Implementation decision, under [PPX-D35](#PPX-D35), reversible; found in review integrating the patch-series requests' parallel builds.* **On a host that builds no tree for itself, a macOS host, a tree whose list entry is in a guarded posture list reaches no notch that has it, and each line that names it says so with the step that works: move the entry to a `config-list` to load it in a jail, or drop it. A jail launch's block warns so in place of naming `yolo host apply --assert`, and the host render's refusal and `yolo host -- <bin>`'s line name a jail only when the entry reaches one.** Before, the jail's line sent the user to `yolo host apply --assert`, which on a Mac refuses the tree and sends the user to a jail, which PPX-D35 builds nothing in | 2026-10-05 | [§8.3](#83-at-the-host), [§9](#9-failure-and-the-next-step) | Integration, 2026-10-05: `packload.NotDeliveredAnywhereNote` and `GuardedOnlyStep`, `run.hostBuildsOwnTrees` read by `patchedTreeLine`, `cli.noHostTreeStep` read by `renderHostTree` and `noteHostTreeLines`; pinned by `TestAGuardedOnlyTreeOnAMacOSHostNamesAStepThatWorks`, `TestAMacosUserLaunchIsSilentOnAGuardedOnlyTree` and `TestAMacOSHostNamesAStepThatWorksForAGuardedOnlyTree` |
 | <a id="PPX-D39"></a>PPX-D39 | *Implementation decision, under [PPX-D5](#PPX-D5) and [FP-D9](forked-programs-as-packs.md#FP-D9), reversible.* **The seal does not trip over its own narrowing. A build jail whose pack selection the seal narrowed runs none of the launch gates that ask whether another selected pack provides what one pack names: an `agents` selector's agent, a `supersedes` claim's capability, a via profile's route and a required capability; nor does it print the report of content addressed to no destination. Each protects an agent the jail runs, a build jail runs none, and the user's own launches still run every one over the whole selection. The one such refusal no skip can answer, a fork whose base is not selected, which the jail's own loader repeats, is answered by the seal carrying the base of every fork the contributing pack declares. A build jail that stops before its build line runs is relayed with the last lines it printed, up to three from the stream it printed last on, which are its own account of why; the next step is to fix what they name, then `yolo capture <key>`, and no line names the runtime unless the jail's own do.** Found at the maintainer's first real launch: the `matt` pack's briefing names `agents: ["pi"]`, the seal narrowed each of its five extensions' builds to `matt`, and every build jail refused before its build line, while the line said `yolo capture` would build it "once the runtime starts jails again" | 2026-10-05 | [§7.1](#71-the-build-act) | 2026-10-05: `run.Options.selectionNarrowed` at the gates of `stagePacksInto` and at `refuseUnmetCapabilities`; `packload.Fork.PackBases`, read by `cli.sealPacks`; `cli.forkBuildNotStarted`, kept by `jailTail`; pinned by `TestABuildJailsNarrowingIsNotRefusedForWhatItDropped`, `TestAForkBuildJailsNarrowingIsNotRefusedForWhatItDropped`, `TestABuildJailsNarrowingIsNotRefusedForAViaRoute`, `TestAForkBuildsNarrowedSelectionIsNotRefusedForACapability`, `TestATreesSealCarriesTheConfiguredBaseOfItsPacksFork`, `TestATreeBuildJailThatRefusedIsRelayedWithItsRefusal`, `TestATreeBuildJailsSeveralLineRefusalIsRelayedFromItsStream`, `TestCaptureOfATreeWhoseJailRefusedRelaysTheRefusal` and `TestABuildJailThatNeverRanRecordsNothing` |
+| <a id="PPX-D40"></a>PPX-D40 | **Ruled in review ([OQ-PPX3](#OQ-PPX3)), none of the options as written; supersedes [PPX-D12](#PPX-D12)'s "the jail launch is never refused".** *"if a build fails, of course that's fatal. we should offer solutions and workarounds when that happens for happy path, but it's fatal"*. **A fresh jail launch refuses before booting when a patched extension a selected pack needs has no build to deliver: its owning agent pack's list entry reaches this notch ([PPX-D35](#PPX-D35)), the notch builds trees, and no good build of it is on this machine, because its build failed or never ran. It applies whatever the command is, since yolo never reads the command line ([HP-DIR2](host-tool-provisioning.md#HP-DIR2)), and it is decided where the trees are, before the image step.** The refusal names the extension, the cause and the ways back: the fix the build's own failure names; `yolo pack series check` and `yolo pack rebase <pack>/<name>` for a series that no longer applies; `yolo capture <pack>/<name>` to retry; dropping the list entry, or the pack, to run without it; and the opt-in bypass variable [OQ-JR1](jail-notch-readiness.md#OQ-JR1) rules for a program a launch could not install, if one variable fits both, which is the builder's call. The launchers' stop ([PPX-D18](#PPX-D18), [PPX-D24](#PPX-D24)) stays as the backstop for an attach and a nested launch. *Recorder's reading, for the maintainer to confirm:* a newer build that fails while the good build serves ([PPX-D14](#PPX-D14)) serves with today's held suffix and refuses nothing, and a notch that never builds a tree keeps [PPX-D18](#PPX-D18)'s exemption and its line. The fork side is [`patched-forks.md` PF-D77](patched-forks.md#PF-D77) | 2026-10-05 | [OQ-PPX3](#OQ-PPX3); [§9](#9-failure-and-the-next-step) | pending |

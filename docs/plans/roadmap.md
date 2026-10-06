@@ -72,15 +72,15 @@ host or an outside account follows under [External waits](#external-waits).
     were decided on their leanings.
 
     His first patched launch (2026-10-05) left four questions, each changing what his next launch
-    prints or spends. Two were ruled that day and build with the patched mode: [a build line shown
+    prints or spends. Three were ruled that day and build with the patched mode: [a build line shown
     by its digest](../reference/report-tiers.md#why-its-this-way), once every build prints the line
-    whole before it runs, since every launch prints his whole build line, about 600 characters; and
+    whole before it runs, since every launch prints his whole build line, about 600 characters;
     [no user `mise_tools` in a build or capture jail](../design/forked-programs-as-packs.md#FP-D19),
-    since every build of his fork downloads his neovim nightly. [Whether a launch whose only program
-    the tree gate will stop may stop before booting](../design/patched-extensions.md#OQ-PPX3) is
-    still for the same sitting as his test, since the host line saying pi will not start is being
-    built now and a stop would land with it. Whether a launch restarts a host daemon older than
-    itself now leans to waiting for per-jail daemons, so it moved to item 28.
+    since every build of his fork downloads his neovim nightly; and [a launch refused before it
+    boots when a patched build it needs is missing](../design/patched-extensions.md#PPX-D40), since
+    the host line saying pi will not start is being built now and the refusal lands at the same
+    point. Whether a launch restarts a host daemon older than itself now leans to waiting for
+    per-jail daemons, so it moved to item 28.
 13. [Build pack-declared pi extensions as host builds, one read-only copy per jail](../design/pi-git-extension-caching.md), with
     [what the background update mode moves](../design/pi-extension-store-builds.md) — next, since the maintainer
     asked on 2026-10-05 to be led through them, and the capture of unmodified extensions (or the held store) and
