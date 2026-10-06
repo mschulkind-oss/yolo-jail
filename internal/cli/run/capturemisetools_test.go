@@ -89,14 +89,21 @@ func renderJailMise(t *testing.T, argv []string, snap string) jailMiseView {
 	t.Cleanup(entrypoint.OverrideImageProbeBase(t.TempDir()))
 	t.Cleanup(entrypoint.OverrideWorkspaceMisePath(filepath.Join(t.TempDir(), "mise.toml")))
 
-	home := t.TempDir()
-	jail := map[string]string{"JAIL_HOME": home, "HOME": home, "MISE_DATA_DIR": filepath.Join(home, "mise")}
+	// A THROWAWAY WORKSPACE TOO: the prism keeps its sidecars under <workspace>/.yolo/prism, and an
+	// Env with none names the container default, /workspace, which in this repository's own jail is
+	// the live checkout, whose mise sidecar these cells once overwrote.
+	home, ws := t.TempDir(), t.TempDir()
+	jail := map[string]string{"JAIL_HOME": home, "HOME": home, "MISE_DATA_DIR": filepath.Join(home, "mise"),
+		"YOLO_WORKSPACE": ws}
 	for _, k := range []string{"YOLO_MISE_TOOLS", "MISE_DISABLE_TOOLS"} {
 		jail[k] = vars[k]
 	}
 	e := entrypoint.NewEnv(jail)
 	if err := entrypoint.ConfigureMisePrism(e); err != nil {
 		t.Fatalf("ConfigureMisePrism: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(ws, ".yolo", "prism", "mise-config.last_render")); err != nil {
+		t.Fatalf("the render kept its sidecar somewhere other than the throwaway workspace: %v", err)
 	}
 	body, err := os.ReadFile(filepath.Join(home, ".config", "mise", "config.toml"))
 	if err != nil {
