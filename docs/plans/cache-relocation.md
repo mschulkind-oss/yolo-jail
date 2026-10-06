@@ -22,6 +22,11 @@ deferred** — the maintainer flagged a worry that the whole `cache_relocations`
 mechanism may sit at the wrong level of abstraction. Do not build item 11 until
 that is resolved; see [Is `cache_relocations` the right
 level? — **OQ-CR1**](#OQ-CR1) under Open Questions.
+**macos-user, 2026-10-05:** the key is delivered there too, as a link the bootstrap lays at the
+sandbox home's `~/.cache/<subdir>` plus Seatbelt rules on the target and two launch-time probes
+([below](#macos-user-a-link-plus-seatbelt-rules)); written and unit-tested on Linux, **not yet run
+on a Mac**. That delivery is not item 11 and answers none of the open questions:
+[OQ-CR1](#OQ-CR1) gates `yolo cache relocate` alone.
 **Filed:** 2026-07-21. Code citations re-checked 2026-09-24 and given by file or symbol, not line.
 
 **Needs your ruling:** [OQ-CR1](#OQ-CR1), [OQ-CR2](#OQ-CR2), [OQ-CR3](#OQ-CR3) — all three HELD; CR1 and CR2 resolve together.
@@ -137,12 +142,18 @@ In-jail, `~/.cache/huggingface` is an ordinary writable directory. `HF_HOME`
 and every other tool's cache path stay exactly as they are — nothing downstream
 needs to know.
 
-**Scope:** podman only. Apple Container warns and skips (work item 6);
-`macos-user` has no container and no bind mounts, so the mechanism has nowhere to
-attach and the launch warns there too (`buildPlan`,
-`internal/macosuser/orchestrator.go`). That is an absence, not an exemption — the
-cache stays where it was, and the paragraph used to end by naming a workaround
-that does not exist:
+**Scope:** podman mounts it, as below. Apple Container warns and skips (work item 6).
+`macos-user` has no container and no bind mounts, so it delivers the key another way
+since 2026-10-05: a link at `~/.cache/<subdir>` in the sandbox account's home, pointing at
+the target, which the Seatbelt profile opens
+([macos-user: a link plus Seatbelt rules](#macos-user-a-link-plus-seatbelt-rules)). **On
+macos-user only `~/.cache` moves**: a macOS tool that keeps its cache under
+`~/Library/Caches` (Go's `os.UserCacheDir`, so the Go build cache; pip and playwright very
+likely) keeps it in the sandbox home whatever the entry says. `huggingface_hub` uses
+`~/.cache/huggingface` on macOS too, so the motivating case is covered.
+
+Until then the launch warned on macos-user, and the paragraph used to end by naming a
+workaround that does not exist:
 
 > [!WARNING]
 > **⚠ Retracted 2026-08-24: "a plain host symlink already works there" is FALSE.** This
@@ -166,6 +177,13 @@ that does not exist:
 > [`../design/declaration-parity.md` §6.1](../design/declaration-parity.md#61-dp-l1-the-mechanism-is-a-copy-and-what-nobody-has-measured).
 
 > [!NOTE]
+> **The retraction above stands for a link YOU make, and the delivery below is a link yolo
+> makes.** The difference is the profile: Seatbelt judges the target, so a link opens only what
+> some rule opens, and since 2026-10-05 the profile yolo generates for a launch opens each
+> relocation's resolved target, read and write. A link a user lays by hand at
+> `~/.cache/<subdir>` still opens nothing.
+
+> [!NOTE]
 > **A second nested writable bind now shares the `.cache` mount.** Since 2026-09-09 a
 > recognized content-addressed host cache (today pants' `lmdb_store` alone) is aliased at
 > `/home/agent/.cache/<rel>` inside the same parent bind (`internal/hostcas`,
@@ -173,6 +191,54 @@ that does not exist:
 > **never aliases a segment the user relocated**, so a relocation always wins over the
 > alias. The rules for that alias are in
 > [`disk-levers-and-backfill.md`](../design/disk-levers-and-backfill.md#OQ-BF10).
+
+### macos-user: a link plus Seatbelt rules
+
+Built 2026-10-05 under the maintainer's 2026-10-04 delegation, by the context-mount
+machinery's own three gates ([`context-mounts.md` §3](../design/context-mounts.md#3-delivering-context-dirs-on-macos-user)),
+and **not yet run on a Mac**. Every choice it needed is in the [decision ledger](#decision-ledger).
+
+1. **The same user-scope read.** The macos-user arm calls `config.LoadCacheRelocations` itself,
+   before the approval prompt, and never reads the key from the merged config
+   (`internal/cli/run/macosuserrelocations.go`): the [threat model](#threat-model-why-user-scope-is-the-whole-design)
+   is the same on every backend. None under the seal.
+2. **The target is resolved and sited on the host** (`macosuser.SiteCacheRelocations`). It may
+   not contain `/Users`, be spelled through a firmlink or the Data volume, sit in the sandbox
+   home or a real home, overlap yolo's state directory, the workspace or a context mount's
+   source, or be `/Volumes` itself. It need NOT be under the shared root, and a folder on another
+   volume under `/Volumes` is admitted ([CR-D2](#CR-D2)). A refusal ends the launch, naming each
+   entry and why.
+3. **A missing target is made, and opened to the sandbox.** The host makes the last path
+   component as you (`storage.EnsureCacheRelocationTargets`, which makes no machine-cache
+   mountpoint) and adds the shared root's two inheriting access entries to it with `chmod +a`, so
+   what the sandbox caches there stays yours to read and delete. A target that was already there
+   is left as it is ([CR-D3](#CR-D3)). Each target made is named the moment it exists, before the
+   approval prompt ([CR-D8](#CR-D8)), and a grant that fails is a warning rather than a refusal,
+   leaving the probes to decide ([CR-D7](#CR-D7)). A target that is a file refuses at the siting,
+   so a dry run refuses it too; one yolo cannot make (under a folder only an administrator may
+   write) refuses naming what to do, once every target made before it is granted and named. A
+   dry run makes and grants nothing.
+4. **Two probes, both fatal.** Before the nix build, the sandbox account is asked for read,
+   search and write on each target (`macosuser.CacheRelocationPreflight`); once the session's
+   profile is installed, it creates and removes one file there under that profile
+   (`macosuser.CacheRelocationWriteProbe`). A failure refuses the launch before the agent, naming
+   `yolo macos-fix-permissions <target>`, another folder, and `runtime: "podman"`
+   ([CR-D4](#CR-D4)); for a target yolo made and could not grant, it names a folder on an APFS or
+   Mac OS Extended volume instead of `yolo macos-fix-permissions`, which would fail the same way.
+5. **The profile opens the target**: a write allow beside the read-write context sources', and a
+   read allow after the `/Volumes` and `/Users` read denies, which it re-opens, with the
+   directory entries on the way as literals (`#seatbelt-test-id:cache-relocation-write-allow#`,
+   `#seatbelt-test-id:cache-relocation-read-allow#`). `PlanInvariants` refuses a plan missing
+   either rule, either probe or the link.
+6. **The bootstrap lays the link** at `~/.cache/<subdir>` (`entrypoint.InstallDarwinCacheRelocations`,
+   named by `YOLO_DARWIN_CACHE_RELOCATIONS`), refuses a real directory there with the copy and
+   removal that move it (no migration,
+   [OQ-HT2](../reference/macos-user-home-tiers.md#oq-ht2)), and removes a link it laid for a subdir no
+   longer relocated ([`macos-user-home-tiers.md` HT-D16](../reference/macos-user-home-tiers.md#ht-d16)).
+7. **Every launch says so**: one line per relocation naming the link and its target, and the
+   `~/.cache`-only caveat; the dry-run plan names each link, both probes and the rules.
+   A launch that relocates nothing lays nothing and says nothing, whatever the sandbox account's
+   `~/.cache` is ([HT-D16](../reference/macos-user-home-tiers.md#ht-d16)).
 
 ### Why keys are subdir names, not paths
 
@@ -382,11 +448,51 @@ stub. So prune does not over-report freed bytes — it goes **blind**.
   `cache/<subdir>` mountpoint, which the test removes afterwards. MEASURED in a nested jail at
   `d4e435a3`: it passed in 1.1 s. With the run pipeline handing the assembly no relocations
   (`cacheRelocations` in `run.go`), all three assertions failed (revert-checked).
+- **macos-user** (2026-10-05). Linux unit gates: the siting rules one target at a time, the
+  profile's two rules and their positions, `PlanInvariants` failing without each half, the dry
+  run's lines and the launch's disclosure (`internal/macosuser/relocations_test.go`); the arm's
+  call, the user-scope read, the target made and granted, and its refusals
+  (`internal/cli/run/macosuserrelocations_test.go`); the bootstrap's links, through
+  `RunDarwinBootstrap` (`internal/entrypoint/darwinhomelayout_test.go`); the target-only provisioning
+  (`internal/storage/relocationtargets_test.go`). Also on Linux: a target made and not granted is
+  warned about and handed on, a target that is a file refuses a dry run, one yolo cannot make
+  refuses with what to do (the real-permission case runs only as a non-root user, as CI does), a
+  target inside a `mounts` source refuses before anything is made, and a launch relocating
+  nothing boots with a linked or file `~/.cache`. On the scheduled `macos-user.yml` job, none run
+  yet: a sandbox write lands at a `/Users/Shared` target and you can delete it, a populated target
+  without the access refuses naming `yolo macos-fix-permissions`
+  (`integration/macosuserrelocations_test.go`, and the inverted
+  `TestMacosUserSaysResourcesAreIgnoredAndRelocatesTheCache`), the seatbelt suite's cases for both
+  rule ids, and two MEASUREMENTS on APFS disk images attached under `/Volumes` with ownership on
+  and off, plus an exFAT image, which takes no access entries
+  (`TestMacosUserCacheRelocationOnAVolumeMeasurement`,
+  `TestMacosUserSeatbeltRelocationOnAVolumeMeasurement`). They record what
+  [CR-D2](#CR-D2), [CR-D7](#CR-D7) and [OQ-CX8](../design/context-mounts.md#OQ-CX8) wait on.
+  **For a human with a Mac**, which no runner can do: a real USB drive and a network share as the
+  target (each may raise a privacy prompt for removable or network volumes when the sandbox
+  account touches it through `sudo -u`), and a real huggingface download onto that drive.
 - **Manual host acceptance** (cannot be done in-jail): a real cross-filesystem
   relocation of `huggingface`, confirming `df` on the root filesystem drops and
   an in-jail HF download lands on the HDD. **Done 2026-07-22** — the maintainer
   moved a HuggingFace cache to cold storage on another machine successfully; the
   manual procedure (work items 1–10) is proven end to end.
+
+## Decision ledger
+
+Each row is an *implementation decision, taken under the maintainer's 2026-10-04 delegation
+("make them and build it … adjust later"); reversible.* All are the macos-user delivery's
+(2026-10-05).
+
+| ID | Decision | Why |
+| :--- | :--- | :--- |
+| <a id="CR-D1"></a>**CR-D1** | On macos-user a user-scope `cache_relocations` entry is delivered as a link at the sandbox account home's `~/.cache/<subdir>` to the resolved target, with Seatbelt read and write allows on the target, reusing the context-mount machinery's siting, DAC preflight and profile shape, rather than warned about. The link is in the sandbox home, not a name in `$YOLO_CONTEXT_DIR` | `~/.cache/<subdir>` is the path every tool already uses, and the key fixes it. [`declaration-parity.md`](../design/declaration-parity.md)'s DP-D3 ruled the *user's* symlink workaround out, which stays true; it carried no maintainer ruling against delivery and predates [OQ-DP4](../design/declaration-parity.md#decision-ledger)'s "however we can make it work" and [OQ-CX5](../design/context-mounts.md#OQ-CX5)'s link-plus-Seatbelt delivery, so its correction is recorded there |
+| <a id="CR-D2"></a>**CR-D2** | A target on another volume under `/Volumes` is admitted, narrowing [CX-D5](../design/context-mounts.md#CX-D5) for this key alone; `/Volumes` itself, and anything containing it, is refused | A relocation exists to put a cache on another disk, so refusing every volume until measured would refuse the feature's purpose. [DP-D15](../design/declaration-parity.md#7-ruled-divergent-and-the-ones-i-would-re-open)'s *"a fatal error … rather than having it be surprisingly not there"* is met by the launch-time write probe ([CR-D4](#CR-D4)), which refuses a volume the sandbox account cannot write before the agent starts. The CI job records what an owned and an unowned APFS volume do |
+| <a id="CR-D3"></a>**CR-D3** | The target need not be under the shared root. When the host CLI makes a missing target, it adds the shared root's two inheriting entries (`macosuser.WorkspaceACLAces`' `dir` and `file_inherit`) with `chmod +a`, as you; a target that already existed is never changed | A cache is the sandbox's own bytes, so the shared root's rule for a read-write context source (what the sandbox makes there stays changeable by you) is met by the same entries, on the folder itself. Changing the access of a folder you already had, which may hold your files, is a mutation nobody asked for; the preflight refuses it instead and names `yolo macos-fix-permissions <target>`, which applies the entries to the whole tree |
+| <a id="CR-D4"></a>**CR-D4** | Two probes, each FATAL on any failure: the DAC preflight (read, search, write as `_yolojail`) before the nix build, and one create-and-remove of `<target>/.yolo-relocation-probe-<session>` under the session's installed profile, before anything is staged. The refusal names `yolo macos-fix-permissions`, another folder and `runtime: "podman"`, except for a target whose grant failed ([CR-D7](#CR-D7)) | The preflight cannot see the profile or the volume; the write can. Unlike the service witness, an exec-layer failure is not let through: a relocated cache that cannot be written fails at the agent's first download otherwise, which is the outcome DP-D15 ruled out |
+| <a id="CR-D5"></a>**CR-D5** | The siting refuses a target overlapping a context mount's source too, as well as one overlapping the workspace | A read-only source's write deny comes after the relocation's write allow and wins, so part of the cache would be silently read-only; one path carries one mode here, as for context mounts |
+| <a id="CR-D7"></a>**CR-D7** | A `chmod +a` that fails on a target yolo just made is a WARNING naming the folder and the error, not a refusal; the launch goes on to the [CR-D4](#CR-D4) probes, which decide. When one of them then refuses, the message names a folder on an APFS or Mac OS Extended volume for that target rather than `yolo macos-fix-permissions` (found in review, 2026-10-05) | The usual cause is a volume that takes no access entries, an exFAT or FAT drive, where `yolo macos-fix-permissions` runs the same `chmod +a` and fails the same way, so naming it was a wrong fix. Such a volume usually ignores ownership, so the sandbox can write the folder anyway: the next launch, finding the folder made and granting nothing, would be let through by the same probes, so refusing the first was unnecessary. Not measured on a Mac; the exFAT image in `macos-user.yml` records it. A `pathconf(_PC_EXTENDED_SECURITY_NP)` check before granting was the alternative, and adds a darwin-only call for the same outcome |
+| <a id="CR-D8"></a>**CR-D8** | The run arm names each target it makes, and whether it opened it to the sandbox account, the moment it exists: before the approval prompt, the preconditions, the account-home hold and the nix build. The backend's per-launch line ([CR-D6](#CR-D6)) is kept. When a later entry's target cannot be made, every target made before it is still granted and named first (found in review, 2026-10-05) | The backend's line comes only after the nix build, and any stop between (a declined approval, an unmet precondition, another workspace holding the account home, a failed preflight or build) left a new folder, opened to another account, on your disk unsaid. Making the target later, after every one of those stops, would move the host act into the backend, which [`HostContext`](../../internal/macosuser/runplan.go) keeps out of it |
+| <a id="CR-D6"></a>**CR-D6** | The disclosure is one line per relocation, every launch and dry run, from the run pipeline's record, never from the merged config; it replaces the "NOT implemented" warning, and states the `~/.cache`-only caveat | The sandbox writes your disk there, which a launch says ([`report-tiers.md` OQ-RO3](../reference/report-tiers.md#why-its-this-way)); reading the record means a workspace-scope entry, which the agent could write, is never disclosed as delivered |
 
 ## Answered
 
@@ -417,6 +523,9 @@ _Leaning was:_ implement for podman, warn-and-skip on `container`.
 > `cache_relocations` note ("Neither cell is a backend limitation"). `macos-user`
 > has no bind mounts either, so the mechanism has nowhere to attach there — but
 > that is an absence, not a non-need, and nothing substitutes for it.
+>
+> ⚠ **Superseded for macos-user 2026-10-05**: a link plus Seatbelt rules substitutes for
+> the bind there ([CR-D1](#CR-D1)). Apple Container's skip stands.
 >
 > ⚠ **Corrected 2026-09-13.** This answer ended *"`macos-user` genuinely needs
 > nothing — it has no bind mounts, so a plain symlink works"* until that date: the

@@ -64,7 +64,16 @@ type RunPlan struct {
 	// whose only context mount is a copy printed "no context mounts" while its briefing listed
 	// one.
 	ContextCopies []ContextLink
-	BootstrapArgv []string
+	// CacheRelocations are the user's `cache_relocations` this launch delivers
+	// (HostContext.Relocations), each a link the bootstrap lays at ~/.cache/<subdir> to its
+	// resolved target, which the profile opens read and write (ctxlinks.go).
+	// CacheRelocationPreflight is the DAC preflight the launch asks of each target before the
+	// nix build, and CacheRelocationProbes the write-and-remove each gets under this session's
+	// profile once it is installed. All empty with no relocation.
+	CacheRelocations         []CacheRelocation
+	CacheRelocationPreflight []CacheRelocationProbe
+	CacheRelocationProbes    []CacheRelocationProbe
+	BootstrapArgv            []string
 	// ProvisionArgv is the CONFINED provisioning stage, run between the bootstrap and
 	// the agent — nil when this config gives it nothing to do (ProvisionNeeded), which
 	// is what makes `yolo -- bash` in a tool-less workspace pay nothing for it.
@@ -251,6 +260,13 @@ type HostContext struct {
 	// agent reads are live. The caller's for the same reason as the rest of this struct:
 	// resolving a source is a read of the invoking user's filesystem.
 	Links []ContextLink
+	// Relocations are the user's `cache_relocations` this launch delivers, read from the USER
+	// config alone (config.LoadCacheRelocations), their targets resolved and, where absent,
+	// created and granted the sandbox's access by the host CLI, and sited with
+	// SiteCacheRelocations (internal/cli/run's macosuserrelocations.go). The caller's for the
+	// same reason as the rest of this struct: reading the user's config and making a directory
+	// in their filesystem are host acts, and the plan builder is pure.
+	Relocations []CacheRelocation
 }
 
 // GlobalGitignoreEnv names the global gitignore's staged path to the bootstrap, whose git step
@@ -567,6 +583,20 @@ func BuildRunPlanWithDaemons(workspace string, cfg *jsonx.OrderedMap, agents, ag
 	if config.ProgramsAutoprune(nil) {
 		bootstrapEnv.Set(entrypoint.OrphanAutopruneEnv, "1")
 	}
+	// THE CACHE RELOCATIONS' LINKS (ctxlinks.go; docs/plans/cache-relocation.md): the bootstrap
+	// lays ~/.cache/<subdir> → target for each, and removes a link it laid for a subdir no longer
+	// relocated (entrypoint's DarwinCacheRelocationsEnv). Named only when there is one, so a
+	// launch with none says so by absence and the bootstrap's sweep removes every link it laid.
+	// Here rather than in buildBootstrapEnv, which the install capture shares: its throwaway
+	// home has no cache a relocation could be for.
+	relocs := append([]CacheRelocation(nil), hostCtx.Relocations...)
+	if len(relocs) > 0 {
+		wire := map[string]string{}
+		for _, r := range relocs {
+			wire[r.Subdir] = r.Target
+		}
+		bootstrapEnv.Set(entrypoint.DarwinCacheRelocationsEnv, entrypoint.DarwinCacheRelocationsWire(wire))
+	}
 
 	stagedYolo := StagedYoloPath("")
 	offendingHome, offendingSet := HomeContaining(workspace)
@@ -677,6 +707,12 @@ func BuildRunPlanWithDaemons(workspace string, cfg *jsonx.OrderedMap, agents, ag
 	if carriesServiceEndpoint(sandboxEnv) {
 		probeArgv = ProbeServicesArgv(stagedYolo, profilePath, envFile, "", "", darwinPrefix)
 	}
+	// AND ONE REAL WRITE PER CACHE RELOCATION under this session's profile (ctxlinks.go's
+	// CacheRelocationWriteProbe), the question no DAC preflight can ask.
+	var relocationProbes []CacheRelocationProbe
+	for _, r := range relocs {
+		relocationProbes = append(relocationProbes, CacheRelocationWriteProbe(r, profilePath, sessionID, ""))
+	}
 
 	// workspace_readonly with the config self-lock the container backends perform, a symlinked
 	// config's target included wherever it sits (workspacereadonly.go).
@@ -697,7 +733,7 @@ func BuildRunPlanWithDaemons(workspace string, cfg *jsonx.OrderedMap, agents, ag
 		// workspace_readonly and its config lock, each raw-path `devices` entry's ioctl
 		// carve-out (devices.go), and macos_log, whose "off" is a deny (SeatbeltProfile).
 		Seatbelt: seatbeltProfile(workspace, SandboxHome(), readonlyRels, readonlyTargets,
-			homeReadonly, ctxLinks, cfgStrList(cfg, "devices"), macosLogMode(cfg)),
+			homeReadonly, ctxLinks, relocs, cfgStrList(cfg, "devices"), macosLogMode(cfg)),
 		StagedDir:  stateDir,
 		StagedYolo: stagedYolo,
 		// Binary first, then the pack trees, then the content overlay, then the context
@@ -713,11 +749,16 @@ func BuildRunPlanWithDaemons(workspace string, cfg *jsonx.OrderedMap, agents, ag
 		// re-siting (contextLinkProblems) refuses a link at, inside or around either.
 		ContextOccupied: ContextOccupied(append(append([]string(nil), hostCtx.Delivered...),
 			copiedDests(hostCtx.Copied)...)),
-		ContextCopies:       hostCtx.Copied,
-		BootstrapArgv:       DarwinBootstrapArgv(stagedYolo, SandboxHome(), bootstrapEnv, ""),
-		ProvisionArgv:       provisionArgv,
-		ProvisionScriptPath: provisionScriptPath,
-		ProvisionFloors:     floors,
+		ContextCopies: hostCtx.Copied,
+		// THE CACHE RELOCATIONS (ctxlinks.go): the links the bootstrap lays, the profile's rules
+		// above, and the two probes the launch asks before the agent.
+		CacheRelocations:         relocs,
+		CacheRelocationPreflight: CacheRelocationPreflight(relocs, ""),
+		CacheRelocationProbes:    relocationProbes,
+		BootstrapArgv:            DarwinBootstrapArgv(stagedYolo, SandboxHome(), bootstrapEnv, ""),
+		ProvisionArgv:            provisionArgv,
+		ProvisionScriptPath:      provisionScriptPath,
+		ProvisionFloors:          floors,
 		LaunchArgv: LaunchArgvWithGuard(agentArgv, profilePath, envFile, workspace, "", "",
 			darwinPrefix, guard, stagedYolo),
 		IOPriority:      ioPriority,
@@ -1227,6 +1268,7 @@ func PlanInvariants(plan RunPlan) []string {
 	}
 
 	problems = append(problems, contextLinkProblems(plan)...)
+	problems = append(problems, cacheRelocationProblems(plan)...)
 
 	// THE REPORT AND THE TREE ARE ONE FACT, checked against each other rather than each
 	// against itself. The jail's read fails CLOSED (OQ-CO10), so a report claiming

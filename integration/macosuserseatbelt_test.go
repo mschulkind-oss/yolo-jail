@@ -122,6 +122,11 @@ var seatbeltRules = []seatbeltRule{
 		"is refused with EPERM — context_ro_source_write_refused, registered against the rule " +
 		"that decides it. The deny is the one that keeps \"read-only\" true if a later edit " +
 		"ever re-allows writes there."},
+	// THE CACHE RELOCATIONS (docs/plans/cache-relocation.md, the macos-user section): each
+	// resolved target, read after the /Users and /Volumes denies and written beside the
+	// read-write context sources.
+	{id: "cache-relocation-read-allow"},
+	{id: "cache-relocation-write-allow"},
 }
 
 // ---------------------------------------------------------------------------
@@ -187,6 +192,13 @@ type seatbeltFixtures struct {
 	ctxSibling string // <root>/ctx/other         — granted by nothing
 	linkDir    string // /private/var/tmp/yolo-sb-ctx-…   — the links
 	ctxLinks   []macosuser.ContextLink
+	// THE CACHE RELOCATION, laid out as a launch delivers one: a target under a traversal-only
+	// directory beside the workspace, which only the relocation's rules open, a sibling of it
+	// that nothing grants, and a link to it in linkDir standing in for ~/.cache/<subdir>.
+	relocRoot    string // <root>/caches            — traversal only
+	relocTarget  string // <root>/caches/hf         — the relocation target, read+write
+	relocSibling string // <root>/caches/other      — granted by nothing
+	relocs       []macosuser.CacheRelocation
 }
 
 type seatbeltCase struct {
@@ -571,6 +583,60 @@ func seatbeltCases() []seatbeltCase {
 			want:    wantRefused,
 			refusal: "Operation not permitted",
 		},
+		// --- THE CACHE RELOCATIONS (docs/plans/cache-relocation.md, the macos-user section): the
+		// profile half, with no sandbox account. The DAC preflight, the link the bootstrap lays and
+		// a real launch are macosuserrelocations_test.go's. ---
+		{
+			name: "cache_relocation_target_readable",
+			id:   "cache-relocation-read-allow",
+			why: "the read allow is what opens a relocation target: it sits beside the workspace " +
+				"under the /Users read deny, so nothing else in the profile re-allows it.",
+			script: func(f seatbeltFixtures) string { return "cat " + sh(f.relocTarget+"/seed") },
+			want:   wantAllowed,
+		},
+		{
+			name: "cache_relocation_target_writable",
+			id:   "cache-relocation-write-allow",
+			why: "the write allow is the ONLY rule that lets the sandbox write a relocation target: " +
+				"it is outside the workspace, the sandbox home and the writable set. Self-cleaning.",
+			script: func(f seatbeltFixtures) string {
+				p := sh(f.relocTarget + "/probe")
+				return "touch " + p + " && rm " + p + " && echo " + seatbeltOK
+			},
+			want: wantAllowed,
+		},
+		{
+			name: "cache_relocation_write_through_the_link",
+			id:   "cache-relocation-write-allow",
+			why: "the delivery's own shape: a tool writes ~/.cache/<subdir>, which is a LINK, and " +
+				"Seatbelt judges its TARGET, so the target's allow is what lets the write through " +
+				"(a mkdir under it too, which is how a cache grows). Self-cleaning.",
+			script: func(f seatbeltFixtures) string {
+				d := sh(f.linkDir + "/cache/nested")
+				return "mkdir " + d + " && echo x > " + sh(f.linkDir+"/cache/nested/blob") +
+					" && rm -r " + d + " && echo " + seatbeltOK
+			},
+			want: wantAllowed,
+		},
+		{
+			name: "cache_relocation_sibling_refused",
+			id:   "users-read-deny",
+			why: "the allow names the target as a subpath and its parent as a literal, so a " +
+				"folder beside the target stays denied.",
+			script: func(f seatbeltFixtures) string { return "cat " + sh(f.relocSibling+"/secret") },
+			want:   wantRefused,
+		},
+		{
+			name: "cache_relocation_ancestor_stat_allowed",
+			id:   "cache-relocation-read-allow",
+			why: "a target under /Users/Shared/ has its intermediate directories granted as " +
+				"literals, so a tool that stats up the chain (a cache library resolving its root) " +
+				"can, while the siblings stay denied.",
+			script: func(f seatbeltFixtures) string {
+				return "test -d " + sh(f.relocRoot) + " && echo " + seatbeltOK
+			},
+			want: wantAllowed,
+		},
 		{
 			name: "context_ancestor_stat_allowed",
 			id:   "workspace-read-allow",
@@ -703,6 +769,66 @@ func TestMacosUserSeatbeltContextHardLinkMeasurement(t *testing.T) {
 	t.Logf("MEASUREMENT (context-mounts.md §3.7, hard links): %s (rc %d).\noutput:\n%s", verdict, rc, out)
 }
 
+// TestMacosUserSeatbeltRelocationOnAVolumeMeasurement RECORDS the profile half of the /Volumes
+// question (CX-D5 narrowed for cache_relocations; OQ-CX8 in docs/design/context-mounts.md) and
+// asserts nothing about it: on each volume macos-user.yml attached (macosUserRelocationVolumesEnv;
+// APFS with ownership on, APFS with it off, and exFAT), does the relocation's read allow re-open a folder there past
+// the /Volumes read deny, does its write allow let a write through, and does a sibling folder on
+// the same volume stay denied? As the runner, under the profile, with no sandbox account — the
+// account's half is TestMacosUserCacheRelocationOnAVolumeMeasurement's. Only a broken control fails.
+func TestMacosUserSeatbeltRelocationOnAVolumeMeasurement(t *testing.T) {
+	requireMacosUserSeatbelt(t)
+	vols := os.Getenv(macosUserRelocationVolumesEnv)
+	if vols == "" {
+		t.Skipf("%s is unset: no volume was attached for this measurement", macosUserRelocationVolumesEnv)
+	}
+	f := seatbeltFixture(t)
+	for _, vol := range strings.Split(vols, ":") {
+		t.Run(filepath.Base(vol), func(t *testing.T) {
+			base, err := os.MkdirTemp(vol, "yolo-sb-reloc-")
+			if err != nil {
+				t.Skipf("cannot make a folder on %s: %v", vol, err)
+			}
+			t.Cleanup(func() { _ = os.RemoveAll(base) })
+			resolved, err := filepath.EvalSymlinks(base)
+			if err != nil {
+				t.Fatal(err)
+			}
+			target, sibling := filepath.Join(resolved, "hf"), filepath.Join(resolved, "other")
+			for _, d := range []string{target, sibling} {
+				if err := os.MkdirAll(d, 0o755); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(filepath.Join(d, "seed"), []byte(seatbeltOK+"\n"), 0o644); err != nil {
+					t.Fatal(err)
+				}
+			}
+			profile := macosuser.SeatbeltProfileWithRelocations(f.ws, "", nil, macosuser.HomeReadonly{}, nil,
+				[]macosuser.CacheRelocation{{Subdir: "huggingface", Target: target}}, nil, "off")
+			path := filepath.Join(t.TempDir(), "volume.sb")
+			if err := os.WriteFile(path, []byte(profile), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			for _, probe := range []struct{ what, script string }{
+				{"read the target", "cat " + sh(target+"/seed")},
+				{"write the target", "touch " + sh(target+"/probe") + " && rm " + sh(target+"/probe") + " && echo " + seatbeltOK},
+				{"read a sibling on the same volume", "cat " + sh(sibling+"/seed")},
+			} {
+				if out, rc := runScript(t, probe.script, nil); rc != 0 {
+					t.Fatalf("the CONTROL failed: %s on %s exits %d unsandboxed:\n%s", probe.what, vol, rc, out)
+				}
+				out, rc := runScript(t, probe.script, []string{"/usr/bin/sandbox-exec", "-f", path})
+				verdict := "REFUSED"
+				if rc == 0 && strings.Contains(out, seatbeltOK) {
+					verdict = "ALLOWED"
+				}
+				t.Logf("MEASUREMENT (CX-D5, OQ-CX8; cache_relocations on %s): %s under the profile: %s (rc %d)\n%s",
+					vol, probe.what, verdict, rc, out)
+			}
+		})
+	}
+}
+
 // ---------------------------------------------------------------------------
 // The registry check — pure, and it runs on Linux.
 // ---------------------------------------------------------------------------
@@ -715,16 +841,18 @@ func TestMacosUserSeatbeltContextHardLinkMeasurement(t *testing.T) {
 // that develop this repo cannot load a Seatbelt profile, so if this check waited for a
 // Mac, a deny added today would sit unproven until the next nightly at the earliest.
 func TestMacosUserSeatbeltRegistryMatchesTheProfile(t *testing.T) {
-	// With delivered content, so the two G14 rules are in the text too, and a context mount of
-	// each mode, so the three context rules are — otherwise the rules a launch with a pack or a
-	// `mounts` entry generates are the ones this never checks.
-	profile := macosuser.SeatbeltProfileWithContext("/Users/Shared/proj", "", []string{"vendored"},
+	// With delivered content, so the two G14 rules are in the text too, a context mount of each
+	// mode, so the three context rules are, and a cache relocation, so its two are — otherwise the
+	// rules a launch with a pack, a `mounts` entry or a relocation generates are the ones this
+	// never checks.
+	profile := macosuser.SeatbeltProfileWithRelocations("/Users/Shared/proj", "", []string{"vendored"},
 		macosuser.ResolveHomeReadonly(macosuser.SandboxHome(), "/Users/Shared/proj",
 			[]string{".claude"}, []string{".claude/skills", ".claude/CLAUDE.md"}),
 		[]macosuser.ContextLink{
 			{Dest: "/ctx/lib", Source: "/Users/Shared/ci/lib", Dir: true},
 			{Dest: "/ctx/data", Source: "/Users/Shared/yolo/data", RW: true, Dir: true},
-		}, seatbeltFixtureDevices, "off")
+		}, []macosuser.CacheRelocation{{Subdir: "huggingface", Target: "/Volumes/Data/hf"}},
+		seatbeltFixtureDevices, "off")
 
 	inProfile := map[string]bool{}
 	for _, m := range seatbeltIDPattern.FindAllStringSubmatch(profile, -1) {
@@ -799,7 +927,8 @@ func TestMacosUserSeatbeltContentControlsRunUnsandboxed(t *testing.T) {
 	ran := 0
 	_, gitErr := exec.LookPath("git")
 	for _, tc := range seatbeltCases() {
-		if !strings.HasPrefix(tc.name, "home_content_") && !strings.HasPrefix(tc.name, "context_") {
+		if !strings.HasPrefix(tc.name, "home_content_") && !strings.HasPrefix(tc.name, "context_") &&
+			!strings.HasPrefix(tc.name, "cache_relocation_") {
 			continue
 		}
 		if tc.name == "context_git_inside_a_source" && gitErr != nil {
@@ -818,7 +947,7 @@ func TestMacosUserSeatbeltContentControlsRunUnsandboxed(t *testing.T) {
 		// Every control must leave the fixture as it found it, or the next case measures a
 		// different tree.
 		for _, p := range []string{f.stateDir, filepath.Join(f.skills, "demo", "SKILL.md"), f.briefing,
-			filepath.Join(f.ctxRO, "seed"), filepath.Join(f.ctxRW, "seed")} {
+			filepath.Join(f.ctxRO, "seed"), filepath.Join(f.ctxRW, "seed"), filepath.Join(f.relocTarget, "seed")} {
 			if _, err := os.Stat(p); err != nil {
 				t.Errorf("after %s's control, %s is gone (%v): the control does not restore "+
 					"what it changed", tc.name, p, err)
@@ -828,7 +957,8 @@ func TestMacosUserSeatbeltContentControlsRunUnsandboxed(t *testing.T) {
 			t.Errorf("after %s's control, the link points at %q (%v), not %s", tc.name, target, err, f.ctxRO)
 		}
 		for _, p := range []string{filepath.Join(f.ctxRO, "probe"), filepath.Join(f.ctxRW, "probe"),
-			filepath.Join(f.ws, "planted-link")} {
+			filepath.Join(f.ws, "planted-link"), filepath.Join(f.relocTarget, "probe"),
+			filepath.Join(f.relocTarget, "nested")} {
 			if _, err := os.Lstat(p); err == nil {
 				t.Errorf("after %s's control, %s is left behind", tc.name, p)
 			}
@@ -1035,10 +1165,15 @@ func seatbeltTree(t *testing.T, root string) seatbeltFixtures {
 		{Dest: "/ctx/ro", Source: f.ctxRO, Dir: true},
 		{Dest: "/ctx/rw", Source: f.ctxRW, RW: true, Dir: true},
 	}
+	f.relocRoot = filepath.Join(resolved, "caches")
+	f.relocTarget = filepath.Join(f.relocRoot, "hf")
+	f.relocSibling = filepath.Join(f.relocRoot, "other")
+	f.relocs = []macosuser.CacheRelocation{{Subdir: "huggingface", Target: f.relocTarget}}
 	for _, d := range []string{f.ws, f.readonly, f.outside,
 		filepath.Join(f.skills, "demo"), filepath.Join(f.stateDir, "projects"),
 		filepath.Join(f.ctxRO, "sub"), filepath.Join(f.ctxRO, ".git", "objects"),
-		filepath.Join(f.ctxRO, ".git", "refs"), f.ctxRW, f.ctxSibling, f.linkDir} {
+		filepath.Join(f.ctxRO, ".git", "refs"), f.ctxRW, f.ctxSibling, f.linkDir,
+		f.relocTarget, f.relocSibling} {
 		if err := os.MkdirAll(d, 0o755); err != nil {
 			t.Fatalf("creating %s: %v", d, err)
 		}
@@ -1047,10 +1182,12 @@ func seatbeltTree(t *testing.T, root string) seatbeltFixtures {
 		filepath.Join(f.ws, "seed"):                 seatbeltOK + "\n",
 		filepath.Join(f.outside, "secret"):          "a sibling checkout's private file\n",
 		filepath.Join(f.skills, "demo", "SKILL.md"): "demo skill\n",
-		f.briefing:                            "the briefing\n",
-		filepath.Join(f.ctxRO, "seed"):        seatbeltOK + "\n",
-		filepath.Join(f.ctxRW, "seed"):        seatbeltOK + "\n",
-		filepath.Join(f.ctxSibling, "secret"): "a folder nobody mounted\n",
+		f.briefing:                              "the briefing\n",
+		filepath.Join(f.ctxRO, "seed"):          seatbeltOK + "\n",
+		filepath.Join(f.ctxRW, "seed"):          seatbeltOK + "\n",
+		filepath.Join(f.ctxSibling, "secret"):   "a folder nobody mounted\n",
+		filepath.Join(f.relocTarget, "seed"):    seatbeltOK + "\n",
+		filepath.Join(f.relocSibling, "secret"): "a folder beside the relocated cache\n",
 		// The smallest tree git accepts as a repository: HEAD, objects/ and refs/.
 		filepath.Join(f.ctxRO, ".git", "HEAD"): "ref: refs/heads/main\n",
 	} {
@@ -1058,7 +1195,7 @@ func seatbeltTree(t *testing.T, root string) seatbeltFixtures {
 			t.Fatalf("writing %s: %v", path, err)
 		}
 	}
-	for name, target := range map[string]string{"data": f.ctxRO, "other": f.ctxSibling} {
+	for name, target := range map[string]string{"data": f.ctxRO, "other": f.ctxSibling, "cache": f.relocTarget} {
 		if err := os.Symlink(target, filepath.Join(f.linkDir, name)); err != nil {
 			t.Fatalf("linking %s: %v", name, err)
 		}
@@ -1121,8 +1258,8 @@ var seatbeltFixtureDevices = []string{"/dev/zero"}
 // "off" for the suite, "user" for the dial's control.
 func seatbeltProfileFileFor(t *testing.T, f seatbeltFixtures, macosLog string) string {
 	t.Helper()
-	profile := macosuser.SeatbeltProfileWithContext(f.ws, "", []string{"vendored"}, f.content, f.ctxLinks,
-		seatbeltFixtureDevices, macosLog)
+	profile := macosuser.SeatbeltProfileWithRelocations(f.ws, "", []string{"vendored"}, f.content, f.ctxLinks,
+		f.relocs, seatbeltFixtureDevices, macosLog)
 	path := filepath.Join(t.TempDir(), "session.sb")
 	if err := os.WriteFile(path, []byte(profile), 0o644); err != nil {
 		t.Fatalf("writing the profile to %s: %v", path, err)
