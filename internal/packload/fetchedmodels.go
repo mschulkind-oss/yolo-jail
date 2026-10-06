@@ -94,6 +94,10 @@ func namesNoModel(r ResolvedProfile) bool {
 // ListWants is every provider the launch should fetch a list for, in provider order.
 func ListWants(packs []*Pack, providers *jsonx.OrderedMap, resolved map[string]ResolvedProfile,
 	scope *CredentialScope) []ListWant {
+	if providers == nil || scope == nil {
+		// No providers table (a launch that selects no profile) names no provider to fetch for.
+		return nil
+	}
 	byProvider := map[string]*ListWant{}
 	reqs := regionRequirements(packs)
 	for _, agent := range scope.Agents() {
