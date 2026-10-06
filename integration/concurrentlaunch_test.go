@@ -109,6 +109,7 @@ func startYoloBackground(t *testing.T, name, dir, script string, env ...string) 
 	cmd.Env = append(os.Environ(), "TERM=dumb")
 	cmd.Env = append(cmd.Env, childRepoRootEnv()...)
 	cmd.Env = append(cmd.Env, autoCaptureEnvForSuite()...)
+	cmd.Env = append(cmd.Env, readinessEnvForSuite()...)
 	cmd.Env = append(cmd.Env, env...)
 	awaitDetachedWriters(t, dir, launchHome(cmd.Env))
 	out := &syncBuffer{}

@@ -58,6 +58,13 @@ type Env struct {
 	// the bootstrap script would still `npm install -g chrome-devtools-mcp` — a download
 	// for an executable this backend never writes.
 	SkipMCPPresets bool
+	// DeferProgramReadiness reports that this environment's provisioning stage does NOT run the
+	// readiness act (docs/design/jail-notch-readiness.md JR-D2): the bootstrap renders no
+	// readiness checks, and the boot names each declared program it finds absent instead
+	// (warnProgramsNotReady). Spelled as the negative for SkipMCPPresets' reason. macos-user sets
+	// it: readiness ships container-first, and that backend's stage does not start for a
+	// missing program.
+	DeferProgramReadiness bool
 	// Vars is the environment-variable matrix the generators consult.
 	Vars map[string]string
 	// Stderr receives the warning/notice lines the generators emit

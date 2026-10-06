@@ -157,7 +157,10 @@ yolo's own and has no coverage question in it. The fix is attribution
 ### What a launch does when a program is absent
 
 A pack's program reaches a jail through a lazy launcher in `~/.yolo/bin/launch`
-([`program-delivery.md`](../design/program-delivery.md)). On first use, when the real binary is
+([`program-delivery.md`](../design/program-delivery.md)). Since 2026-10-05 the launch's readiness
+act runs that launcher install-only in the provisioning stage, so the program is installed before
+the command ([`OQ-JR1`](../design/jail-notch-readiness.md#OQ-JR1)); the suite turns the act off
+(see [The real-install gate](#the-real-install-gate)). On first use, when the real binary is
 absent from its install prefix, the launcher installs it and then execs it. On the launch path a
 failed install is not the verdict: the check that follows asks whether something exists to exec,
 which answers correctly for a failed upgrade over a still-runnable old version too.
@@ -342,6 +345,15 @@ suite's isolated `HOME`, so the suite cannot assert that a given launch captured
 launch never auto-captures, since `Run` returns through the macos-user branch before
 `runContainer` reaches the trigger (`internal/cli/run/autocapture.go`), so on darwin the
 installer packs' cells run the vendor's installer through the launcher itself.
+
+The gate decides the jail's readiness act too ([`OQ-JR1`](../design/jail-notch-readiness.md#OQ-JR1)):
+since 2026-10-05 a launch installs every program its selected packs declare before its command, and
+a program it cannot install stops the launch. When the gate is unset, every launch the suite makes
+carries `YOLO_NO_PROGRAM_READINESS=1`, so a launch selecting a shipped agent pack installs nothing
+ahead of time and a vendor's bad release cannot refuse it. The act's own tests
+(`integration/readiness_test.go`) turn it back on, over a fixture whose installer is a file in its
+pack, so the every-push gate still proves the act from bytes this repository chooses
+([JR-D7](../design/jail-notch-readiness.md#JR-D7)).
 
 ### Suite warmup
 
@@ -533,6 +545,7 @@ values themselves are stated.
 | :--- | :--- | :--- |
 | Real-install gate | `YOLO_TEST_REAL_PACK_INSTALLS` (any non-empty value) | `realPackInstallsEnv`, `integration/harness_test.go` |
 | Auto-capture off-switch sent by the suite | `YOLO_NO_AUTO_CAPTURE=1` when the gate is unset | `autoCaptureEnvForSuite`, `integration/harness_test.go` |
+| Readiness-act off-switch sent by the suite (added 2026-10-05, after the verification above) | `YOLO_NO_PROGRAM_READINESS=1` when the gate is unset; a test of the act sends it empty | `readinessEnvForSuite`, `withReadiness`, `integration/harness_test.go` |
 | Per-command jail deadline, default | 300s | `defaultJailTimeoutSeconds`, `integration/harness_test.go` |
 | Per-command deadline, override | `YOLO_TEST_JAIL_TIMEOUT` (integer seconds); Pack Installs and the macOS nightly set 1200 | `jailTimeout`; `.github/workflows/packs.yml`, `.github/workflows/nightly-macos.yml` |
 | Warmup bound | 5 minutes, or the per-command deadline if smaller | `warmupTimeout`, `integration/harness_test.go` |

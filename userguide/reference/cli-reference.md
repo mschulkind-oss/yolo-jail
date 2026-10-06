@@ -9,6 +9,7 @@ which is the complete reference for its flags, and `yolo --help` lists them all.
 yolo                         # a shell in this project's jail
 yolo -- claude               # run a command in the jail; everything after -- is the command's
 yolo -p zai -- claude        # the same, on a provider profile, for this launch only
+yolo apply                   # start the jail, install every agent its packs select, then exit
 yolo stop                    # stop this project's jail; the next launch starts fresh
 yolo ps                      # the running jails, and the project each belongs to
 ```
@@ -16,6 +17,12 @@ yolo ps                      # the running jails, and the project each belongs t
 Running `yolo` in a project whose jail is already running **joins** that jail instead of starting a
 new one, and the joined jail keeps the config it started with. To pick up a config change, run
 `yolo stop`, then launch again.
+
+A jail that starts installs every agent and tool its packs select before your command runs, and
+only the first time in each project. If one cannot be installed, offline included, the launch stops
+and says which and why; `YOLO_ALLOW_MISSING_PROGRAMS=1 yolo …` starts the jail without it, and it
+installs the first time you run it. On `macos-user` each agent still installs the first time you
+run it.
 
 Launch flags, placed before `--`:
 

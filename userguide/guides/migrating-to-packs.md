@@ -290,8 +290,9 @@ compare with a colleague's.
   [Where Agents Run](confinement.md#guest-in-development).
 - **Importing existing settings into a pack.** Skills and house rules are moved for you on the first
   `yolo host apply --assert`; settings files are copied by hand.
-- **Installing a jail's programs ahead of time.** Agents and tools a pack declares install the
-  first time you run each one inside the jail.
+- **Installing a `macos-user` sandbox's programs ahead of time.** A jail on a container runtime
+  installs every agent and tool its packs declare when it starts; on `macos-user` each one still
+  installs the first time you run it.
 
 ## Quick reference
 

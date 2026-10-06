@@ -281,8 +281,9 @@ func TestApplyVerbRouting(t *testing.T) {
 	writeFile(t, filepath.Join(repo, "yolo-jail.jsonc"), `{"confinement":"jail"}`)
 
 	var out, errw bytes.Buffer
-	// jail: reports + describes, rc 0.
-	if rc := applyMain(nil, &out, &errw, false, nil); rc != 0 {
+	// jail: the launch's readiness act (JR-D1), stubbed here; its status is the verb's.
+	calls := stubApplyJailLaunch(t, 0)
+	if rc := applyMain(nil, &out, &errw, false, nil); rc != 0 || *calls != 1 {
 		t.Fatalf("apply (jail) rc=%d: %s", rc, errw.String())
 	}
 	if !strings.Contains(out.String(), "jail") {
