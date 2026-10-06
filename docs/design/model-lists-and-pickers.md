@@ -3,7 +3,7 @@ title: "Which model ids yolo ships, how an org shapes the list, and what each pi
 date: 2026-09-25
 status: in-review
 stage: DESIGN
-next: "Rule OQ-MM1, what a list that only adds shows beside an agent's own catalog, then OQ-MM3; the one step no ruling gates is §7.2's per-agent empty-effective-list line in yolo check, which needs each agent's callable-maker filter"
+next: "Rule OQ-MM1, what a list that only adds shows beside an agent's own catalog, then OQ-MM3; buildable now with no ruling left: OQ-MM6's Bedrock list fetch (ruled 2026-10-05), first stop the aws-auth daemon's ListFoundationModels and ListInferenceProfiles call, and §7.2's per-agent empty-effective-list line in yolo check, which needs each agent's callable-maker filter"
 tags: [providers, profiles, models, aliases, pickers, packs, bedrock, currency]
 summary: "Where yolo must pick model ids itself (the 2026-09-25 ruling on OQ-BR3: only where an agent cannot just fall back to its own default), how those picks ship in a built-in pack that comes with yolo rather than in core, how a company pack adds to or narrows a model list, how each agent's picker renders the result, and how the list stays current without yolo keeping a catalog."
 vantage:
@@ -88,6 +88,9 @@ current.
   opencode's menu unnarrowed ([MM-D5](#MM-D5)). opencode's pack declares that its menu narrows
   only by refusing, and which provider's whole list it narrows to with no `only`, so core names
   no agent ([MM-D29](#MM-D29)).
+- **Ruled 2026-10-05, not built:** where no pack supplies a Bedrock list, yolo fetches the
+  region's list from Bedrock itself, on the host, and a launch that is left with no list and no
+  agent default fails and says why ([OQ-MM6](#OQ-MM6)).
 - **Stopped, 2026-09-30, on its measurement:** copilot's `providers.json`
   ([MM-D10](#MM-D10)). The file's providers are additive to GitHub's own, so a copilot signed in
   to GitHub would show GitHub's models beside the list and send a GitHub pick to GitHub
@@ -99,7 +102,7 @@ current.
   renamed `OQ-PSW` because [`provisioner-sets.md`](provisioner-sets.md) also uses `OQ-PS`.
 
 **Needs your ruling:** [OQ-MM1](#OQ-MM1) first, because it decides what most agents' menus
-show; then [OQ-MM3](#OQ-MM3); [OQ-MM4](#OQ-MM4) and [OQ-MM5](#OQ-MM5) were ruled 2026-10-05. Decided
+show; then [OQ-MM3](#OQ-MM3); [OQ-MM4](#OQ-MM4), [OQ-MM5](#OQ-MM5) and [OQ-MM6](#OQ-MM6) were ruled 2026-10-05. Decided
 2026-09-30 as implementation choices, each reversible: [OQ-BR14](#OQ-BR14) ([MM-D16](#MM-D16)) and [OQ-PSW1](#OQ-PSW1) ([MM-D17](#MM-D17)). Ruled 2026-09-29:
 [OQ-ML1](#OQ-ML1), [OQ-ML2](#OQ-ML2) and [OQ-BR12](#OQ-BR12). [OQ-BR13](#OQ-BR13) was directed
 the same day (set the model selection however each agent allows) and is researched in
@@ -131,6 +134,9 @@ questions without asking: [OQ-BR15](#OQ-BR15) on evidence (the bridge serves no 
 - [OQ-MM5](#OQ-MM5): whether a `-p` at `yolo host` moves codex onto its provider for that
   launch, so codex's menu there can follow the `-p`. The leaning: yes, through the `CODEX_HOME` yolo
   already rebuilds at every launch with its login.
+- [OQ-MM6](#OQ-MM6): what yolo does when neither the agent nor a pack has a Bedrock list. Ruled
+  2026-10-05: it fetches the region's list on the host, and fails the launch, saying why, only when
+  that fetch fails too.
 - [OQ-BR14](#OQ-BR14): how the lists stay current. Decided 2026-09-30 ([MM-D16](#MM-D16)): the
   agents' own catalogs, plus a `yolo check` warning. Built 2026-09-30, reading the catalog files
   an agent's pack declares ([MM-D19](#MM-D19)); today pi's alone.
@@ -559,7 +565,10 @@ A list yolo *does* carry, the picks included, is checked by `yolo check`:
 
 - **Only `yolo check` runs it, never a launch.** No model-list network call is made at launch.
   Runtime has no list endpoint anyway, so the only source would be the Bedrock control plane,
-  which the `aws-auth` example policy does not grant.
+  which the `aws-auth` example policy does not grant. ⚠ **Amended for Bedrock on 2026-10-05**
+  ([OQ-MM6](#OQ-MM6)): where no pack supplies a Bedrock list, the `aws-auth` daemon on the host
+  reads the region's list from that control plane, with the SSO role's credentials before they
+  are narrowed, and caches it once a day per account and region.
 - **An id absent from every installed agent's catalog is a warning, never a refusal.**
 - **When no catalog could be read, the check says it could not ask.** "Not found" and "could not
   ask" are different answers.
@@ -605,7 +614,8 @@ other agent reads such a route ([§14.3](#143-the-bridges-part-and-get-v1models)
 **Forbidden:**
 
 - a model id in core: no Go table, no translation table;
-- a network call for models at launch;
+- a network call for models at launch, but for [OQ-MM6](#OQ-MM6)'s host-side Bedrock fetch,
+  made by the `aws-auth` daemon and cached once a day, where no pack supplies a list;
 - a refusal, `enforceAvailableModels` included, on a list that only adds beside an agent's own
   catalog ([MM-D1](#MM-D1), [MM-D5](#MM-D5)). A list on a gateway that serves more than it is
   [OQ-MM3](#OQ-MM3)'s;
@@ -629,7 +639,9 @@ profile, and what the bridge may dial is now
 
 Rejected or leaning against, each argued in its question: fetching Bedrock's list at launch
 and shipping a dated catalog snapshot ([OQ-BR14](#OQ-BR14) options B and C), and picks scattered
-through each provider's own pack ([OQ-ML1](#OQ-ML1) option (b)).
+through each provider's own pack ([OQ-ML1](#OQ-ML1) option (b)). The first came back in part on
+2026-10-05: once [MM-D32](#MM-D32) shipped no Bedrock list, [OQ-MM6](#OQ-MM6) had yolo fetch the
+region's list on the host wherever no pack supplies one.
 
 ---
 
@@ -1943,6 +1955,69 @@ Options, with what Kim and Lee would see:
     > `--provider`/`--model`; the user's own config files are untouched and concurrent host launches cannot
     > collide. A parity batch had taken it on the leaning under the 2026-10-04 delegation; this confirms it.
 
+<a id="oq-mm6-setup"></a>**Before [OQ-MM6](#OQ-MM6): when it was filed, its stakes and setup.** Filed
+and ruled 2026-10-05 in the ruling walkthrough, the same day [MM-D32](#MM-D32) took yolo's own Bedrock
+list away, so it never stood open in this doc. Stakes: whether an agent with no Bedrock catalog of its
+own still starts on a model Bedrock serves, and whether the wire bridge can still tell Anthropic's
+models from the rest.
+
+**The setup.** Under [MM-D32](#MM-D32) a Bedrock launch with no company pack carries no list, and pi,
+codex, opencode and claude's native profile each fall back on their own Bedrock catalog and default.
+Three consumers have nothing to fall back on. copilot has no Bedrock catalog. The wire bridge passes a
+model untranslated to runtime's Messages route only when a list declares the model Anthropic's,
+because the maker is declared and never parsed from the id
+([OQ-BR9](bedrock-plumbing.md#OQ-BR9), [Part 2](wire-bridge-gateway.md#3-part-2--routing-by-model-id-for-claudes-everything-profile-ruled)).
+And claude on `-p bedrock-bridge` loses prompt caching and thinking to translation with no list,
+and with no model named sends its own first-party default id, which Bedrock refuses.
+
+The options, as the walkthrough drafted them:
+
+- **A. A launch that needs a Bedrock list and has none from a pack stops**, naming how to add one.
+- **B. Parse the maker from the id**, for the bridge's pass-through only, reversing "never parsed"
+  there.
+- **C. Accept the degraded state**, and document it.
+
+16. ✅ <a id="OQ-MM6"></a>**[OQ-MM6](#OQ-MM6): When neither the agent nor a pack has a Bedrock list,
+    what should yolo do?** When it was filed, its stakes, setup and each option in full are
+    [just above](#oq-mm6-setup).
+
+    - **A. A launch that needs a Bedrock list and has none from a pack stops.**
+    - **B. Parse the maker from the id.**
+    - **C. Accept the degraded state.**
+
+    _Leaning:_ A. B breaks [OQ-BR9](bedrock-plumbing.md#OQ-BR9)'s ruled "declared, never parsed",
+    and C leaves claude on `-p bedrock-bridge` starting on an id Bedrock refuses.
+
+    **Answer:**
+    > **Ruled in review 2026-10-05, A, widened so that yolo fetches a list before it stops**, in the
+    > maintainer's words: *"206 A. I think if there's no model list, the agent has no default
+    > handling, and we can't fetch models, we just fail and tell them that."*
+    >
+    > - **The fetch.** Wherever no pack supplies a Bedrock list, yolo reads the region's list from
+    >   Bedrock itself: on the host, in the `aws-auth` daemon, from `ListFoundationModels` and
+    >   `ListInferenceProfiles`, with the SSO role's own credentials before they are narrowed
+    >   ([the narrowing](../reference/agent-credentials.md#the-narrowing)). A jail's credential is
+    >   never used for it, so it needs no list permission and gains none. The list is cached once
+    >   a day per account and region.
+    > - **Who reads it.** The wire bridge takes each model's maker from AWS's own `providerName`,
+    >   so the maker stays declared and is never parsed from the id, as
+    >   [OQ-BR9](bedrock-plumbing.md#OQ-BR9) ruled. copilot's picker shows the list, through the
+    >   `providers.json` [MM-D31](#MM-D31) rules. An agent with its own Bedrock catalog keeps it,
+    >   as [MM-D32](#MM-D32) rules.
+    > - **claude through the bridge.** On `-p bedrock-bridge` claude runs in Claude Code's own
+    >   Bedrock mode, pointed at the bridge, so claude's own Bedrock defaults name the model and the
+    >   bridge only signs. The maintainer, on that: *"so let's do that fix"*. This amends
+    >   [Part 2](wire-bridge-gateway.md#3-part-2--routing-by-model-id-for-claudes-everything-profile-ruled)'s
+    >   "never `CLAUDE_CODE_USE_BEDROCK`".
+    > - **The stop.** When no pack supplies a list, the agent has no default of its own, and the
+    >   fetch fails, the launch fails, saying why and what to do.
+    >
+    > MEASURED 2026-10-05 by the maintainer on his own host: his SSO role may call Bedrock's
+    > `ListInferenceProfiles` in `us-east-1`. A jail's served credential already listed foundation
+    > models on 2026-09-29 ([what has been watched running](../reference/agent-credentials.md#what-has-been-watched-running)).
+    > UNMEASURED: what Claude Code's Bedrock mode sends the bridge, and what carries a non-Anthropic
+    > id in that mode; the build measures both first. Not built yet.
+
 ---
 
 ## 16. Decision Ledger
@@ -1982,7 +2057,7 @@ Options, with what Kim and Lee would see:
 | <a id="MM-D13"></a>MM-D13 | *Implementation decision.* **The switch is spelled `enforce_models`, a profile FIELD that defaults on** (the name is coined here). A field like `via`, not a provider option, so no provider's option census has to admit it: it is a fact about the selection. It is a boolean in user config (a string is refused), and a `kind: "profile"` contribution may carry it; the user's value wins over a pack's. It crosses in `YOLO_PROFILES` under the reserved `_enforce_models` key only when a profile states it, and a derive reads `ctx.enforce_models`, true unless the profile says false, so an entrypoint older than the key hands its derives the default. `pin_model`, [MM-D3](#MM-D3)'s provisional name, is kept, and declared with no default on the shipped providers that declare options (zai, cerebras, llamacpp, kilo, openrouter), so their census admits it | 2026-09-29 | [§14.1](#141-the-table) | ✅ `TestAProfileEnforceModelsIsABooleanField`, `TestTheModelEnforcementSwitchReachesBothDerivePaths`, `TestClaudeUnderAnOnlyOnARoutedProvider` |
 | <a id="MM-D14"></a>MM-D14 | *Implementation decision.* **pi's narrowed lists travel in a second data file, `pi/model-lists` (`~/.pi/agent/yolo-model-lists.json`), keyed by pi's provider id and registered by a second extension, `yolo-model-lists.js`,** rather than in one generalized file, as [MM-D6](#MM-D6)'s letter says. The `openai-codex` registration also carries the subscription login, so it stays in `yolo-openai-auth.js` and `pi/codex-models`, where a narrowed `openai-codex` list already arrives through the composed table. The file holds only providers pi can reach: one with a models.json row, the via row, or yolo's Bedrock provider as pi's `amazon-bedrock`. pi refuses a registration for a provider it has no address or credential for, and that would fail the extension's whole load | 2026-09-29 | [§14.2](#142-what-each-row-rests-on) | ✅ `TestPiGetsANarrowedListToRegister`, `TestPiRegistersNoNarrowedListItCannotUse` |
 | <a id="MM-D15"></a>MM-D15 | *Implementation decision.* **copilot's footer default moves to a second read-modify-write surface, `copilot/settings` at `~/.copilot/settings.json`; `copilot/config` keeps `config.json` and its `yolo: true` default.** copilot 1.0.48's migration moves only the keys of its settings schema out of `config.json`, and `yolo` is not one of them (read in `app.js`), so it stays; keeping the surface keeps its token-preserving read-modify-write behavior unchanged | 2026-09-29 | [§14.2](#142-what-each-row-rests-on) | ✅ `TestCopilotStatusLineDefaultLandsInSettingsJSON` |
-| <a id="MM-D16"></a>MM-D16 | *Implementation decision*, under [OQ-ML1](#OQ-ML1) and [OQ-ML2](#OQ-ML2). **A list stays current through the agents' own catalogs and the user's own config, and `yolo check` warns about a listed id that no installed agent's catalog knows** ([OQ-BR14](#OQ-BR14)'s option A). The check is `yolo check`'s alone: a launch makes no model-list network call. An unknown id is a warning, never a refusal. When no catalog could be read the check says it could not ask, a different answer from "not found". There is no "a newer model exists" report, because no catalog names a family. **Why:** the 2026-09-29 rulings make each provider's default one simple pick the user changes, so yolo does not chase the newest model, which rules out a launch-time control-plane call (B) and a catalog snapshot in yolo (C), and [providers.md](../reference/providers.md#what-this-does-not-license) forbids discovery. Of the two left, A over D because under D a retired id surfaces as a 404 at the first request, while [OQ-ML2](#OQ-ML2) asks that a session start on a valid model; the warning is the cheapest way to say so first. Reversible: dropping the warning is D | 2026-09-30 | [§9](#9-currency-the-agents-catalogs-plus-a-staleness-warning) | ✅ 2026-09-30: `modelCatalogReport` (`internal/cli/check/modellists.go`), called from the Packs section beside the `models` kind's notes, over the catalogs [MM-D19](#MM-D19) reads and the lists [MM-D20](#MM-D20) names; `TestCheckWarnsAboutAListedIDNoInstalledCatalogKnows`, `TestCheckSaysItCouldNotAskWhenNoCatalogIsInstalled`, `TestCheckPassesWhenEveryListedIDIsKnown`, `TestCheckReadsTheHostFloorsCopyAtTheHost` and `TestCheckReadsPisCatalogThroughTheShippedDeclaration` (`internal/cli/check/modelcatalog_test.go`) drive the section and each fails with the call removed |
+| <a id="MM-D16"></a>MM-D16 | *Implementation decision*, under [OQ-ML1](#OQ-ML1) and [OQ-ML2](#OQ-ML2). **A list stays current through the agents' own catalogs and the user's own config, and `yolo check` warns about a listed id that no installed agent's catalog knows** ([OQ-BR14](#OQ-BR14)'s option A). The check is `yolo check`'s alone: a launch makes no model-list network call. An unknown id is a warning, never a refusal. When no catalog could be read the check says it could not ask, a different answer from "not found". There is no "a newer model exists" report, because no catalog names a family. **Why:** the 2026-09-29 rulings make each provider's default one simple pick the user changes, so yolo does not chase the newest model, which rules out a launch-time control-plane call (B) and a catalog snapshot in yolo (C), and [providers.md](../reference/providers.md#what-this-does-not-license) forbids discovery. Of the two left, A over D because under D a retired id surfaces as a 404 at the first request, while [OQ-ML2](#OQ-ML2) asks that a session start on a valid model; the warning is the cheapest way to say so first. Reversible: dropping the warning is D. *Amended for Bedrock on 2026-10-05 by [OQ-MM6](#OQ-MM6): where no pack supplies a Bedrock list, the `aws-auth` daemon reads the region's list on the host, cached once a day* | 2026-09-30 | [§9](#9-currency-the-agents-catalogs-plus-a-staleness-warning) | ✅ 2026-09-30: `modelCatalogReport` (`internal/cli/check/modellists.go`), called from the Packs section beside the `models` kind's notes, over the catalogs [MM-D19](#MM-D19) reads and the lists [MM-D20](#MM-D20) names; `TestCheckWarnsAboutAListedIDNoInstalledCatalogKnows`, `TestCheckSaysItCouldNotAskWhenNoCatalogIsInstalled`, `TestCheckPassesWhenEveryListedIDIsKnown`, `TestCheckReadsTheHostFloorsCopyAtTheHost` and `TestCheckReadsPisCatalogThroughTheShippedDeclaration` (`internal/cli/check/modelcatalog_test.go`) drive the section and each fails with the call removed |
 | <a id="MM-D19"></a>MM-D19 | *Implementation decision, building [MM-D16](#MM-D16).* **An agent's catalog is the JSON files its pack names in a new `model_catalog` field of an npm `program`, read where the agent is installed, and nothing is run to learn it.** Each entry is a glob relative to the installed package's directory; every string an object holds under an `id` key, at any depth, is a known id; an id counts as known when any catalog read names it, under any provider. The directory is the jail's npm prefix in a jail, and at the host yolo's floor copy (`hostfloor.Record.NpmPackageDir`) when the floor's disposition (`hostfloor.Floor.Status`, the answer the Host agent floor section prints) says it is the copy `yolo host --` runs. A program with no floor entry runs from the launch's PATH, so a copy the floor still holds for it is never read. An agent not installed there, one with no floor entry, or a release whose files the glob does not match, is a catalog the check could not ask. **Why:** core may not know where an agent keeps its catalog ("core does not know what an agent is"), so the pack declares it, and only its pack can keep it current. Reading files keeps `yolo check` an observe verb: the alternative, running `codex debug models --bundled` or pi's own model listing, starts an agent program and, behind a lazy launcher, would install one. The cost is coverage: of the agents installed in this jail only pi's catalog is a data file (pi-ai's `dist/providers/data/*.json` in 0.99.1, MEASURED; codex 0.145.0, copilot 1.0.48 and opencode 1.18.32 ship none, and opencode's and oh-omp's are built into their binaries, [§14.2](#142-what-each-row-rests-on)), so today the check reads pi alone. A union rather than a per-provider lookup because the catalogs key providers by the agent's own ids (pi's `amazon-bedrock` for yolo's `bedrock`), a mapping core would have to learn; a union can only miss a warning, never invent one | 2026-09-30 | [§9](#9-currency-the-agents-catalogs-plus-a-staleness-warning) | ✅ 2026-09-30: `packdecl` (`Contribution.ModelCatalog`, its validation, `Install.ModelCatalog`), `internal/modelcatalog` (`Read`), `packs/pi`'s declaration; `internal/packdecl/modelcatalog_test.go`, `internal/modelcatalog/modelcatalog_test.go`, `internal/hostfloor/npmpackagedir_test.go`. Found in review the same day: the host read took any record the prefix held, so with `host_floor` leaving pi out it checked against a copy `yolo host` never runs; it now asks the disposition (`TestCheckDoesNotReadAFloorCopyYoloHostDoesNotRun`). And in a jail it said there was nowhere to look when `NPM_CONFIG_PREFIX` was unset, which the macos-user sandbox's environment list never sets; it now resolves the prefix by the entrypoint's one rule, `$HOME/.npm-global` by default, as every generated launcher installs (`TestCheckReadsTheJailsDefaultNpmPrefix`) |
 | <a id="MM-D20"></a>MM-D20 | *Implementation decision, building [MM-D16](#MM-D16).* **Every provider in the composed table is checked except one every declared endpoint of which is on this machine (`localhost`, a loopback address, `host.containers.internal`); an unknown id is one warning per provider, no catalog read is one skip, and a clean check is one pass naming what it read.** Every provider, the shipped lists included, because [OQ-BR14](#OQ-BR14)'s premise is that the warning keeps yolo's own ids honest. A local server's ids are what that server serves, which no vendor catalog lists, so checking `packs/llamacpp`'s `llama` would warn on every run and train a reader to skip the badge. A skip rather than a warning or silence when nothing could be read, [MM-D16](#MM-D16)'s "could not ask": a warning would be a finding there is none of, and silence would read as a pass | 2026-09-30 | [§9](#9-currency-the-agents-catalogs-plus-a-staleness-warning) | ✅ 2026-09-30: `listedModelIDs` and `onlyLocalEndpoints`; the local provider in `TestCheckWarnsAboutAListedIDNoInstalledCatalogKnows` draws no warning |
 | <a id="MM-D17"></a>MM-D17 | *Implementation decision*, under [OQ-XM2](../research/extension-model-defaults.md#OQ-XM2). **claude's derive reads the conventional aliases for its tiers: `balanced` pins the Sonnet tier, `fast` the Haiku tier, and `frontier` the Opus tier wherever a tier pin reads an alias ([MM-D2](#MM-D2)'s pins); `sonnet`, `haiku` and `opus` stay as synonyms, and a vendor name wins where a provider declares both** ([OQ-PSW1](#OQ-PSW1), moved with synonyms). On a routed provider the Opus pin stays the selected model, as today. **Why:** [OQ-XM2](../research/extension-model-defaults.md#OQ-XM2) ruled the vocabulary yolo publishes and that each adapter maps it onto its agent's own names, and [XM-D2](../research/extension-model-defaults.md#XM-D2) warns every provider that lacks one of the four, so providers will declare them; a claude derive that reads only vendor names would leave its Sonnet and Haiku tiers on the default for such a provider. The vendor name wins because whoever wrote `sonnet` wrote it for claude. The synonyms keep every existing config working. Reversible: claude's tier names are read in one table (`claudeTiers`) and one routed branch | 2026-09-30 | [§6](#6-tier-aliases-default-fast-balanced) | ✅ 2026-09-30: each tier's names in `claudeTiers` (`packs/claude/derive.lua`), read by `tierAlias` in all four tier reads: the `openai-codex` list's pins, the pins under an `only`, the routed fable pin, and the provider branch's Sonnet and Haiku pins. `TestClaudeRoutedTiersReadTheConventionalAliases`, `TestClaudeTierVendorNameWinsOverTheConventionalAlias`, `TestClaudeNativeBedrockTiersReadTheConventionalAliases` and `TestClaudeUnderAnOnlyReadsTheConventionalAliases` (`internal/entrypoint/claudetieraliases_test.go`), and on the `openai-codex` list `TestAnAliasForADeclaredCodexIDChangesNoConsumer`, whose `fast` alias now moves claude's Haiku tier; all but the vendor-name cell fail with the conventional names dropped from the table |
@@ -1998,7 +2073,8 @@ Options, with what Kim and Lee would see:
 | <a id="MM-D29"></a>MM-D29 | *Implementation decision, building [MM-D5](#MM-D5)'s `yolo check` line.* **The check names an agent whose menu a profile's switch leaves unnarrowed from a fact the agent's pack declares, `exact_menu_refuses` on its program, never from an agent's name.** Which agent cannot narrow its menu without refusing is a fact about that agent, which core may not know ("core does not know what an agent is"), so `packs/opencode` declares it, as `packs/codex` declares `unlisted_background_models` for the bridge. The fact covers every list a `models` `only` narrowed, and the whole list of each provider its `providers` names: opencode names `openai-codex`, whose one list ([ML-D1](#ML-D1)) its derive writes as the whitelist of opencode's own `openai` provider whenever the switch is on, with no `only` ([§3](#3-what-exists-today)). **Whose switch:** the one a derive reads for that provider's row, the agent's primary profile for the provider it selects, else the first later entry of its active set on that provider, each entry carrying its own profile's switch as every entry is live ([AP-P1](active-provider-sets.md#AP-P1)); the set is the one a derive is handed. **Left out:** a provider naming no endpoint and no platform, the agent's own first-party API ([OQ-PR2](../reference/protocol-resolution.md#oq-pr2)), where yolo's table points no row anywhere, so no filter is written with the switch on either (a provider naming a platform and no endpoint is taken to have a row, the agent's own client for that platform, since core cannot tell which platforms an agent has one for; opencode's derive writes it only on `aws-bedrock`, so on another such platform the line names a menu the switch does not decide); and a list no `only` narrowed, outside `providers`, which opencode's derive leaves unnarrowed with the switch on or off, what it should show being [OQ-MM1](#OQ-MM1)'s and [OQ-MM3](#OQ-MM3)'s. One warning per agent and provider, never a refusal, naming the agent, the provider, the profile and the pack, and saying only what is true whether or not the agent keeps a catalog of its own for the provider: yolo writes no filter, and the menu is not held to the list. Like every prediction in the Packs section it reads the configured `profile`, never a `-p`. **Why a declaration and not a render:** the check's entrypoint dry run renders the shipped packs with no profile selected, and reading what an agent's rendered config narrows needs that agent's own key (opencode's `whitelist`), which is the agent knowledge core may not hold. The cost is that the declaration and the derive state one rule twice, so a test renders the shipped derive with the switch on and off and fails wherever the check would name a menu the switch does not decide, or miss one it does | 2026-10-01 | [§14.5](#145-what-was-built-2026-09-29) | ✅ 2026-10-01: `packdecl` (`Contribution.ExactMenuRefuses`, its validation, the fork refusal; the fork rewrite keeps it, `TestTheForkRewriteKeepsAndReplacesExactlyFPD6sFields`), `packload.UnnarrowedMenus`, `unnarrowedMenuReport` called from the Packs section (`internal/cli/check/packs.go`), `packs/opencode`'s declaration; `internal/packdecl/exactmenu_test.go`; `internal/cli/check/unnarrowedmenu_test.go`, which drives the section and fails with the call or the declaration removed; and `TestTheUnnarrowedMenuLineAgreesWithOpencodesWhitelist` (`internal/entrypoint/unnarrowedmenus_test.go`), which renders the shipped derive |
 | <a id="MM-D30"></a>MM-D30 | **Ruled in review ([OQ-MM5](#OQ-MM5) B):** a host `-p` moves codex, opencode, pi and omp for that launch by per-process flags, never by writing a config file | 2026-10-05 | [OQ-MM5](#OQ-MM5) | the parity build |
 | <a id="MM-D31"></a>MM-D31 | **Ruled in review ([OQ-MM4](#OQ-MM4) B):** copilot gets its whole list in `providers.json`; GitHub's own models appear beside it and go to the signed-in GitHub account; preventing that routing is wanted, not required | 2026-10-05 | [OQ-MM4](#OQ-MM4) | pending |
-| <a id="MM-D32"></a>MM-D32 | **Ruled in review, amending [ML-D9](#ML-D9):** yolo ships no curated Bedrock model list. *"this is another opinion I don't want to have. we should just leave it unfiltered, whatever defaults you get, and then allow packs to override that if needed."* Each agent uses its own Bedrock catalog and defaults (pi, codex, opencode, claude), an upstream catalog's own faults included (*"if their upstream is broken, that's fine. We're not fixing that"*); copilot, which has no Bedrock catalog, gets one cheap open-weight model as its starting default (the walkthrough's option C); a pack may narrow or replace any of it | 2026-10-05 | the walkthrough | pending |
+| <a id="MM-D32"></a>MM-D32 | **Ruled in review, amending [ML-D9](#ML-D9):** yolo ships no curated Bedrock model list. *"this is another opinion I don't want to have. we should just leave it unfiltered, whatever defaults you get, and then allow packs to override that if needed."* Each agent uses its own Bedrock catalog and defaults (pi, codex, opencode, claude), an upstream catalog's own faults included (*"if their upstream is broken, that's fine. We're not fixing that"*); copilot, which has no Bedrock catalog, gets one cheap open-weight model as its starting default (the walkthrough's option C); a pack may narrow or replace any of it. *What yolo does where neither the agent nor a pack has a list is [OQ-MM6](#OQ-MM6), ruled the same day: it fetches the region's list on the host, and stops the launch only when that fails too* | 2026-10-05 | the walkthrough; [OQ-MM6](#OQ-MM6) | pending |
+| OQ-MM6 | **Ruled in review, A, widened so that yolo fetches a list before it stops.** *"206 A. I think if there's no model list, the agent has no default handling, and we can't fetch models, we just fail and tell them that."* Wherever no pack supplies a Bedrock list, the `aws-auth` daemon on the host reads the region's list from `ListFoundationModels` and `ListInferenceProfiles` with the SSO role's credentials before they are narrowed, cached once a day per account and region; a jail's credential gains no list permission. The wire bridge takes each model's maker from AWS's `providerName` ([OQ-BR9](bedrock-plumbing.md#OQ-BR9)'s "declared, never parsed" holds), copilot's picker shows the list ([MM-D31](#MM-D31)), and claude on `-p bedrock-bridge` runs in Claude Code's own Bedrock mode pointed at the bridge, so its own Bedrock defaults name the model and the bridge only signs (*"so let's do that fix"*). No pack list, no agent default and a failed fetch stop the launch, saying why and what to do. Amends [MM-D16](#MM-D16)'s "no model-list network call at launch" for Bedrock, and [Part 2](wire-bridge-gateway.md#3-part-2--routing-by-model-id-for-claudes-everything-profile-ruled)'s "never `CLAUDE_CODE_USE_BEDROCK`" | 2026-10-05 | [OQ-MM6](#OQ-MM6); [§9](#9-currency-the-agents-catalogs-plus-a-staleness-warning) | pending |
 
 ---
 

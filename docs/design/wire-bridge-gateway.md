@@ -636,6 +636,14 @@ routes by model id**:
   [`model-lists-and-pickers.md`](model-lists-and-pickers.md)), never by parsing the id.
 - **Every other id** is translated to chat-completions, as today.
 
+⚠ **Amended in review on 2026-10-05** ([OQ-MM6](model-lists-and-pickers.md#OQ-MM6)), not built:
+on `-p bedrock-bridge` claude is to run in Claude Code's own Bedrock mode, pointed at the bridge,
+so claude's own Bedrock defaults name the model and the bridge only signs. That replaces the
+`ANTHROPIC_BASE_URL` spelling above. Where no pack supplies a list, the set of Anthropic ids comes
+from the list the `aws-auth` daemon fetches from Bedrock, each model's maker being AWS's own
+`providerName`, so the bridge still never parses an id. What Claude Code's Bedrock mode sends the
+bridge is UNMEASURED, and the build measures it first.
+
 This **amends** the bridge's rule that it dials only the upstream selected at boot
 ([`wire-bridge.md`](../reference/wire-bridge.md#lifecycle-and-failure-behavior)): the everything
 route has two upstreams under one provider, chosen per request.

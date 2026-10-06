@@ -141,10 +141,10 @@ host or an outside account follows under [External waits](#external-waits).
     which the plain-words rewrite of the provider reference waits on.
 25. [Decide whether a jail shell gets the credential grant](../design/credential-sources-separation.md) — a jail's
     `--with-credentials` and [its build sketch](../design/credential-sources-separation-plan.md) wait on it.
-26. [Rule one env composition order](notch-convergence.md), and [whether every jail on a machine shares one Claude login](../reference/claude-oauth-interposition.md#OQ-CI1)
-    — one variable's value depends on how the agent starts, and the login's leaning, drafted 2026-10-02, lets `yolo host -- claude`
-    join it, reopening the plan's host-claude ruling; its other held items wait on the workspace-config and jail-credential
-    rulings above and the `assert` ruling next.
+26. [Notch convergence's held items](notch-convergence.md) — after the workspace-config and jail-credential rulings above
+    and the `assert` ruling next, which they wait on. Its env composition order and [whether every jail on a machine shares one
+    Claude login](../reference/claude-oauth-interposition.md#oq-ci1) were ruled 2026-10-05, so `yolo host -- claude` joining
+    that login waits only on the credential view's measures, under [External waits](#external-waits).
 27. [Settle what retiring `host_management: "assert"` does to configs on it](../design/config-ownership-and-promotion.md)
     — the retirement cannot start until then.
 28. [Rule what serializes a daemon's spawn once the host singleton goes](../design/host-daemon-ownership.md), against [the plan's table of what the
@@ -179,7 +179,7 @@ host or an outside account follows under [External waits](#external-waits).
     restart](../research/herdr-integration.md#OQ-HR2) and [a jailed agent driving herdr](../research/herdr-integration.md#OQ-HR4) — the
     2026-10-01 measurement put the herdr questions on facts: a read-only bind refuses every commit, a read-write one lets a jail prune the worktree.
 40. Calls the 2026-10-01 groundwork left at one decision each: [mise's prune record](../design/minimal-disk-footprint.md),
-    [colliding attribute paths](../design/package-nested-attribute-paths.md), [pi's package loader](../design/pack-pi-resources.md),
+    [colliding attribute paths](../design/package-nested-attribute-paths.md),
     [who installs a pi package the refresh missed](../design/pi-extension-lifecycle.md), [the `:ro` degradation rows](../design/composed-file-permissions.md),
     [whether messages name the guide's URL](../design/docs-website.md#OQ-DW3), [the macOS nix build sandbox](../design/macos-user-build-step-threat-model.md),
     [whether array-append pinning closes](BACKLOG.md#E5), [the pack system's other calls](../reference/pack-system.md),
@@ -208,7 +208,12 @@ host or an outside account follows under [External waits](#external-waits).
     [real vendor installs on the macos-user nightly](../reference/agent-install-in-ci.md#oq-ci7), one hard-failing job per pack
     with the npm packs first, since no CI job installs a vendor's Mac build before a user does; [copilot from GitHub's own
     installer](native-installer-migration.md), its own updater left on; and [the per-setup census](../design/backend-parity.md),
-    whose test fails when a config key or pack kind has no answer for one of the four setups.
+    whose test fails when a config key or pack kind has no answer for one of the four setups. Two more of that day's rulings
+    released builds placed here for the same reason: [the Bedrock list yolo fetches](../design/model-lists-and-pickers.md#OQ-MM6)
+    where no pack supplies one, with claude in its own Bedrock mode behind the bridge, to land no later than [the shipped
+    Bedrock list's removal](../design/model-lists-and-pickers.md#MM-D32), since a launch with neither leaves claude on
+    `-p bedrock-bridge` without prompt caching and starting on an id Bedrock refuses; and [pi's package
+    folder](../design/pack-pi-resources.md), one entry per content pack in place of a list of files.
 46. [Make the Chrome DevTools MCP server work at `yolo host`](../design/mcp-presets-removal.md#5-the-chrome-devtools-inventory--what-the-pack-carries-what-the-image-keeps)
     — the maintainer wants it, after the week's work (2026-09-30); host apply expands no MCP preset
     ([HC-D16](../design/host-computed-layer.md#HC-D16)), and the host agent floor now gives yolo a prefix to put one in.
@@ -237,6 +242,7 @@ host or an outside account follows under [External waits](#external-waits).
     the VM-local probe needs the maintainer's push and one dispatch, after the upgrade for answers that hold on 1.5.0.
 51. A human with a subscription login clears [Claude's login without interception](../design/claude-login-without-interception.md)
     by running [its runbook](runbooks/claude-credential-view-measures.md), on a Mac and for a day on a rootless host,
+    which also releases [`yolo host -- claude` joining the shared login](../reference/claude-oauth-interposition.md#oq-ci1),
     and [the OpenAI service](../design/openai-auth-broker-plan.md) by recording one browser login and one shared expiry.
 52. One session at a Mac clears [the host capture for installer agents](../design/host-tool-provisioning.md), which runs
     each vendor installer under Seatbelt; the hosted macos-user job's own vendor installs, ruled 2026-10-05

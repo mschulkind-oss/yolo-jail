@@ -3,7 +3,7 @@ title: "Plan sketch: a pack gives pi a whole package"
 date: 2026-09-25
 status: draft
 stage: SKETCH
-next: "Nothing to build from here until pack-pi-resources.md's one question is ruled; then an implementation-plan pass re-reads the tree"
+next: "An implementation-plan pass re-reads the tree, now that pack-pi-resources.md's one question was ruled on 2026-10-05 (route C), and turns this sketch into a hand-off"
 depends-on:
   - pack-pi-resources.md#OQ-PR1
 tags: [pi, packs, files, slots, config-list, plan]
@@ -12,8 +12,8 @@ summary: "Parking lot for build-level detail behind pack-pi-resources.md: where 
 
 # Plan sketch: a pack gives pi a whole package
 
-**Status:** 2026-09-25 — incomplete, and unstable while [OQ-PR1](pack-pi-resources.md#OQ-PR1)
-is open. Do not build from it.
+**Status:** 2026-09-25 — incomplete. [OQ-PR1](pack-pi-resources.md#OQ-PR1) was ruled on
+2026-10-05 (route C), so the sketch is stable, but it is not a hand-off yet. Do not build from it.
 
 **Precedence:** [`pack-pi-resources.md`](pack-pi-resources.md) wins on behavior. This file holds
 settled detail the design does not need.

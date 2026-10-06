@@ -422,6 +422,9 @@ agent can call; which vendors each agent and transport takes, and the evidence f
 the "models it can call" half of [the per-agent table](#where-the-split-ended-up).
 
 An entry with no vendor, such as a user's string-form entry, is offered to every agent, as today.
+Where no pack supplies a list, the one yolo fetches from Bedrock on the host takes each entry's
+vendor from AWS's own `providerName`, so the vendor stays declared rather than parsed
+([OQ-MM6](model-lists-and-pickers.md#OQ-MM6), ruled 2026-10-05).
 The shipped entries come from a built-in pack, ruled 2026-09-25
 ([OQ-BR3](model-lists-and-pickers.md#OQ-BR3)). How a pack carries object-form entries with a
 `vendor` is [`model-lists-and-pickers.md`](model-lists-and-pickers.md)'s. A derive recognizes

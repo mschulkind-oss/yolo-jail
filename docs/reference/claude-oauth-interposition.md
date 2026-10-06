@@ -1,7 +1,7 @@
 ---
 status: current
-stage: DESIGN
-next: "The maintainer rules OQ-CI1 (A, B or C; leaning B: one login per machine, yolo host -- claude joining through a view once the view's measures pass); host claude's own login (notch-convergence.md OQ-NC7) is reopened by a B"
+stage: DECIDED
+next: "Build OQ-CI1 (B), ruled 2026-10-05: yolo host -- claude joins the one shared Claude login through a credential view, as yolo host -- codex shares the OpenAI login; the build waits on a human running the credential-view measures runbook (docs/plans/runbooks/claude-credential-view-measures.md), which also holds notch-convergence.md row 31, Claude OAuth at the host"
 verified: 2026-09-23
 verified_commit: 7ad8358c
 covers:
@@ -32,7 +32,9 @@ summary: "What yolo interposes on for Claude OAuth and what it leaves alone: exa
 
 # Claude OAuth interposition — one hostname, one grant, and why there is still a file
 
-**Status:** verified 2026-09-23 against `7ad8358c`.
+**Status:** verified 2026-09-23 against `7ad8358c`. [OQ-CI1](#oq-ci1) was ruled on 2026-10-05: one
+Claude login per machine, which `yolo host -- claude` joins through a credential view once the
+view's measures pass. That is not built yet.
 
 > **In short.** yolo interposes on **one hostname** (`platform.claude.com`), and on that hostname it
 > terminates **one grant** (`grant_type=refresh_token`) and proxies everything else. Model traffic to
@@ -942,7 +944,8 @@ The split between the shared file and Claude's own locks was closed earlier stil
 [CL-D22](../design/claude-login-without-interception.md#CL-D22). That design's
 [§8](../design/claude-login-without-interception.md#8-what-this-does-not-cover) says that by
 keeping the login shared it answers the reason this question was asked. That is the design's
-inference: neither of its rulings was put to the maintainer as this question.
+inference: neither of its rulings was put to the maintainer as this question. The maintainer
+ruled this question itself on 2026-10-05: one login per machine ([OQ-CI1](#oq-ci1)).
 
 **What sharing still costs once the view lands.** The broker stays, as the only refresher, so a
 jail cannot refresh while it is down. It writes into a directory each jail can write, which is
@@ -994,7 +997,9 @@ What that does to each choice:
 ### The host
 
 [OQ-NC7](../plans/notch-convergence.md#OQ-NC7) keeps host claude on its own login until this
-question is ruled, because a shared store without interception would race the broker. A view
+question is ruled, because a shared store without interception would race the broker. It was
+ruled on 2026-10-05: host claude joins through a view once the view's measures pass
+([OQ-CI1](#oq-ci1)). A view
 carries no refresh token, so a host view races nothing: the design calls host claude on a view
 *"a second refresher of nothing, which is safe"*
 ([§8](../design/claude-login-without-interception.md#8-what-this-does-not-cover)). The OpenAI
@@ -1048,9 +1053,7 @@ one login per workspace into one per machine.
 > credential should be shared at all. [`agent-install-in-ci.md#oq-ci1`](agent-install-in-ci.md#oq-ci1)
 > is an unrelated CI-pinning ruling. Cite either one as a file-qualified link, never as bare text.
 
-### <a id="oq-ci1"></a>💬 [`OQ-CI1`](#oq-ci1) — should the credential be shared at all?
-
-<!-- vantage: question id=OQ-CI1 leaning="B, on the view's schedule. Keep one login per machine, and let `yolo host -- claude` read a view of it once the view's measures pass, as `yolo host -- codex` already shares the OpenAI login; a host claude that yolo did not launch keeps its own. The maintainer approved a jail's `/login` enrolling the machine, and on 2026-10-02 asked whether the host shares it yet. Cost: a dead login stops every jail and the host's yolo-launched claude together, and nothing warns ahead of it until something reads `refreshTokenExpiresAt`." -->
+### <a id="oq-ci1"></a>✅ [`OQ-CI1`](#oq-ci1) — should the credential be shared at all?
 
 Should every jail on a machine share one Claude login, or should each workspace keep its own?
 Evidence: [above](#sharing-the-login-what-each-choice-keeps-and-pays).
@@ -1071,7 +1074,15 @@ host shares it yet. **Cost:** a dead login stops every jail and the host's yolo-
 together, and nothing warns ahead of it until something reads `refreshTokenExpiresAt`.
 
 **Answer:**
-> _(empty — fill in when decided)_
+> **Ruled in review 2026-10-05, B, as leaned**, which the walkthrough showed as its option A (the
+> maintainer chose A there). One Claude login per machine. `yolo host -- claude` joins it through a
+> credential view, a copy of the login with no refresh token that the host broker keeps fresh, the
+> way `yolo host -- codex` shares the OpenAI login ([OQ-OA3](agent-credentials.md#oq-oa3)), once the
+> view's measures pass. A host claude that yolo did not start keeps its own login. This settles what
+> [OQ-NC7](../plans/notch-convergence.md#OQ-NC7) waited on, and its build is row 31 of
+> [the plan's build list](../plans/notch-convergence.md#4-the-ordered-build-list), which waits on a human running
+> [the view's measures](../plans/runbooks/claude-credential-view-measures.md). Whether a macOS host
+> claude reads the view or its Keychain is still unmeasured. Not built yet.
 
 ## Why it's this way
 
@@ -1084,6 +1095,7 @@ together, and nothing warns ahead of it until something reads `refreshTokenExpir
 | **The refresh token a jail presents is discarded at the jail edge** | Structural rather than defensive: `Refresh` forwards no body and `DoRefresh` takes only a path, so a jail cannot spend a stale token even with serialization switched off entirely. |
 | **The flock is taken host-side, not in a singleton** | Host-side is where every backend agrees on the inode. The daemon being one process is not required — the lock derives from `$HOME` — and a shared-file lock would be backend-dependent. |
 | **yolo's broker errors are never the string `invalid_grant`** | The vendor's dead-token classifier fires on that string at status 400/401, and the terminator already answers 400. Passing the upstream error through verbatim would blank the machine-wide credential file. |
+| [**`OQ-CI1`**](#oq-ci1) — **one Claude login per machine, which `yolo host -- claude` joins through a credential view once the view's measures pass; a host claude yolo did not start keeps its own.** Ruled in review 2026-10-05. **Built: pending**, waiting on [the view's measures](../plans/runbooks/claude-credential-view-measures.md) | One `/login` about every four weeks serves every jail and the host's yolo-started claude, and a view carries no refresh token, so the host races nothing. It is how `yolo host -- codex` already shares the OpenAI login ([OQ-OA3](agent-credentials.md#oq-oa3)), and a host behaving like every other notch is the plan's thesis ([notch convergence §1](../plans/notch-convergence.md#1-the-thesis)) |
 | <a id="oq-1"></a>[**`OQ-1`**](#oq-1) (broker-ca) — **bake `openssl` *and* port the mint to `crypto/x509`, both** | The bake is not a substitute for retiring the dependency: a host-wide daemon that shells out to a tool fails on any host lacking it, and a nested launch's host is a jail. The port also takes the CA private key off disk. The bake stays regardless, for two consumers this ruling was never about ([why](#why-the-image-still-bakes-openssl)). |
 | <a id="oq-2"></a>[**`OQ-2`**](#oq-2) (broker-ca) — **a nested jail runs its own broker singleton**, like any other host | Nesting earns affordances, not exemptions: a jail that behaves differently cannot test the thing it is nested inside, and a special case here is one carried forever. So the endpoint-withholding gate has no nested arm ([how](#a-nested-jail-runs-its-own-broker)). |
 | <a id="oq-3"></a>[**`OQ-3`**](#oq-3) (broker-ca) — **a check that did not look must not be counted as a pass** | The principle is the ruling and the token was delegated: `[SKIP]` with its own counter, excluded from the pass tally, plus `hostFact` for a fact about the host rather than the reader. An all-green in-jail run that includes areas nobody examined offers them as evidence ([how](#yolo-check-does-not-count-a-skip-as-a-pass)). |
