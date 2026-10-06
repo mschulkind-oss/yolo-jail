@@ -10,6 +10,6 @@
       "kind": "intercept"
     }
   ],
-  "description": "GitHub without a token in the jail: a bare gh runs the host's own gh login, only against this workspace's own GitHub repositories, read-only for now, and every call is audited on the host.",
+  "description": "GitHub without a token in the jail: a bare gh runs the host's own gh login, only against this workspace's GitHub repositories (its remotes, and any its config lists under brokered.github.repos, approved at launch), read-only for now, and every call is audited on the host.",
   "name": "github"
 }

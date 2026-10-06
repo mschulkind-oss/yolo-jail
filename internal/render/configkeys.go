@@ -162,12 +162,15 @@ var hostConfigKeys = map[string]keyCensusEntry{
 		"(HC-D6), so `yolo host apply` writes none and names each one it leaves out"},
 	"perf_logging": {KeyNotApplicable, "times a jail launch's phases; `yolo host --` records no " +
 		"spans and refuses --timing as a jail-launch flag with no meaning there"},
-	// `brokered` is read only by a jail launch, which writes its workspace's entry into the
-	// GitHub broker's scope file (run's writeScopeFiles, through config.BrokeredWidening), and
-	// by `yolo check`'s report of that launch; no host-notch verb starts the broker.
-	"brokered": {KeyNotApplicable, "widens the repositories a jail's GitHub broker admits for " +
-		"one workspace; the broker is not offered at the host (boundary-broker.md BB-D17), where " +
-		"an agent runs your own gh"},
+	// `brokered` is a workspace's own key, read only by a jail launch's config-change gate, which
+	// approves its `brokered.<source>.repos` entry and hands the result to the GitHub broker's
+	// scope file (run's writeScopeFiles), and by `yolo check`'s report of that gate; no host-notch
+	// verb starts the broker. `yolo host apply` reads the user scope, where the key is refused
+	// (docs/design/workspace-widening.md WW-D9), so only a refused value can reach this entry.
+	"brokered": {KeyNotApplicable, "lists the repositories a jail's GitHub broker admits for one " +
+		"workspace, from that workspace's own config, and a user-config value is refused; the " +
+		"broker is not offered at the host (boundary-broker.md BB-D17), where an agent runs your " +
+		"own gh"},
 	"programs": {KeyNotApplicable, "`programs.autoprune` lets a jail's boot delete the orphaned " +
 		"agent binaries in its home; the host floor removes a deselected program on `yolo host " +
 		"apply --assert` whatever this key says (HP-D8)"},

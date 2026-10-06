@@ -8,7 +8,7 @@ covers:
   - internal/cli/run/preflight.go
   - internal/cli/check/checkcmd.go
 tags: [config, security, agents, approval, scope]
-summary: "How an agent's config edit reaches a jail: a host-side approval snapshot of the WORKSPACE config only, a unified diff and a y/N prompt at fresh launch, a refusal when there is no terminal, and `--accept-config-changes` as the one per-launch opt-in. Host user config is trusted on disk and never prompts."
+summary: "How an agent's config edit reaches a jail: a host-side approval snapshot of the WORKSPACE config only, a unified diff and a y/N prompt at fresh launch, a refusal when there is no terminal, and `--accept-config-changes` as the one per-launch opt-in. Where a brokered loophole starts, the workspace's repository scope, its remotes and its `brokered.<source>.repos` entry, is approved in the same prompt as a labeled block. Host user config is trusted on disk and never prompts."
 ---
 
 # Config-change approval — the gate on agent-editable config
@@ -69,9 +69,10 @@ comments cite them by number.
    user scope applies to every workspace instantly, with no prompt anywhere. **One exception,
    ruled as one** ([BB-D30](../design/boundary-broker.md#BB-D30)): selecting a pack whose loophole
    declares `brokered`, and turning that loophole on, makes the next fresh launch of each
-   workspace with a remote on its forge ask once. What it asks about is the workspace's
-   agent-editable remotes, not the user's edit, so the question is P2's, and P1 is kept: the
-   edit itself is never shown back to the user who made it
+   workspace with a remote on its forge, or a `brokered.<source>.repos` entry, ask once. What it
+   asks about is the workspace's two agent-editable inputs to its scope, its remotes and its
+   entry, not the user's edit, so the question is P2's, and P1 is kept: the edit itself is never
+   shown back to the user who made it
    ([the repository scope](#the-repository-scope-the-records-second-part)).
 4. **P4 — A fresh workspace confirms its config.** A repository cloned from the internet is
    a config nobody on this machine has approved; its first launch shows it and asks.
@@ -82,12 +83,16 @@ comments cite them by number.
   mounted into any jail. Pinned by
   `TestCheckConfigChangesSnapshotLandsOutsideTheWorkspace`, which asserts both halves — the
   new path is written and the old workspace path is not.
-- **Workspace scope only.** `CheckConfigChanges` is handed `LoadWorkspaceConfig`'s result at
-  both call sites, never `LoadConfig`'s. A user-config change cannot produce a config diff.
-  The merged config is read for one thing, whether a brokered loophole starts, and a user
-  edit that starts one therefore makes a workspace with a remote on its forge ask about its
-  repository scope, P3's one exception. The scope block shows the workspace's remotes, never
-  the user's edit.
+- **Workspace scope only.** The gate reads the workspace config itself, once and strictly
+  (`config.ReadWorkspaceForGate`), at both call sites, never `LoadConfig`'s merge. A
+  user-config change cannot produce a config diff. A read the gate cannot make refuses the
+  launch, naming the file; the non-strict read it replaced returned `{}` for an unparseable file
+  ([WW-D18](../design/workspace-widening.md#WW-D18)). The config part is that config with
+  `brokered` left out (`approvalConfigPart`), since the entry is approved as scope rows
+  ([WW-D11](../design/workspace-widening.md#WW-D11)). The merged config is read for one thing,
+  whether a brokered loophole starts, and a user edit that starts one therefore makes a
+  workspace ask about its repository scope, P3's one exception. The scope block shows the
+  workspace's remotes and its entry, never the user's edit.
 - **Fail-closed without a terminal.** Unapproved workspace config plus no TTY plus no
   `--accept-config-changes` is fatal, and the snapshot is **not** rewritten — so the same
   diff is still there to approve on the next interactive launch.
@@ -134,9 +139,11 @@ whole thing is shown as a diff against nothing.
 A launch that starts a **brokered** loophole (one whose manifest declares `brokered`, such as
 `packs/github`'s `github-broker`) puts a second thing through the same decision: the
 **repository scope**, the `owner/repo` of each remote on the declared forge, read from the
-workspace's git config as text. The remotes are agent-editable workspace state, so they take
-this gate rather than a new one (design:
-[`boundary-broker.md` §5.6](../design/boundary-broker.md#56-the-repository-scope)).
+workspace's git config as text, and each repository the workspace config lists under
+`brokered.<source>.repos`. Both are agent-editable workspace state, so they take this gate
+rather than a new one (designs:
+[`boundary-broker.md` §5.6](../design/boundary-broker.md#56-the-repository-scope),
+[`workspace-widening.md`](../design/workspace-widening.md)).
 
 - The gate is `CheckConfigAndScopeChanges`, which is `CheckConfigChanges` when no brokered
   loophole starts. Whether one starts is `loopholes.Set.BrokeredToStart` over the backend's
@@ -145,17 +152,22 @@ this gate rather than a new one (design:
 - The scope part is its own file beside the snapshot, so the snapshot's bytes stay frozen. A
   repository added or removed is a change. With no record yet, a non-empty scope diffs against
   none and an empty one records silently, as `{}` does.
+- A third file, the **sources record**, holds where each approved repository came from: its
+  remote names and the workspace files that list it. A change of source is a change too, a
+  remote's rename included ([OQ-WW1](../design/workspace-widening.md#OQ-WW1)). With no recorded
+  sources for a repository, as for a record written before the sources record existed, the gate
+  records them unasked when every one is a remote, and asks when an entry lists it.
 - A changed scope opens the prompt with a labeled block, before any config diff, naming each
-  repository added or removed and the remote it came from; the header, the question and the
-  refusal's headline name the scope when it changed, and only the scope when the config did
-  not. One `y` approves both parts. A `y`, `--accept-config-changes` or
-  `yolo check --accept-config-changes` records both parts together; an `N` or a refusal records
-  neither, so the `{}` branch now waits for the scope part before it writes.
-- After the gate passes, the spawn writes the approved list to that launch's scope file under
-  `broker/<source>/scope/` and hands it to the daemon; an attach reads nothing and writes
-  nothing. The file also lists what the user config's widening entry for this workspace adds
-  (the `brokered` key in `yolo config-ref`), which takes no part in the gate: it is user
-  config, so it never prompts, and the launch names it on a line of its own.
+  repository added, removed or with a changed source, and every source it came from; a count
+  line per source sits directly above the question. The header, the question and the refusal's
+  headline name the scope when it changed, and only the scope when the config did not. One `y`
+  approves every part. A `y`, `--accept-config-changes` or `yolo check --accept-config-changes`
+  records every part together, and the two flag paths print the block first; an `N` or a refusal
+  records none, so the `{}` branch now waits for the scope part before it writes.
+- After the gate passes, the spawn writes what that gate approved, held in memory, to that
+  launch's scope file under `broker/<source>/scope/` and hands it to the daemon; nothing re-reads
+  a config file or the record for it. An attach reads nothing and writes nothing. The launch
+  names each repository in the scope and its sources on one line.
 
 ### Where it runs, and where it deliberately does not
 
@@ -219,7 +231,9 @@ which is the exact condition under which a real workspace edit slips through.
 
 So user config is trusted on disk and the baseline is workspace-only. A side effect worth
 knowing: `yolo config drift` (in-jail) and the approval gate (host-side) now read the same
-layer, so they cannot disagree about what changed.
+layer, and the gate shows `brokered` in its scope block only where a broker starts. So drift
+reports an entry edit in a workspace that starts no broker, where the restart it asks for
+changes nothing.
 
 ## File locations
 
@@ -229,6 +243,7 @@ layer, so they cannot disagree about what changed.
 | `~/.config/yolo-jail/config.jsonc` | User-level defaults — trusted on disk, never diffed |
 | `paths.ApprovalsDir()/<container-name>.json` | Last-approved canonical **workspace** config. Host-side, never mounted |
 | `paths.ApprovalsDir()/<container-name>.scope.json` | Last-approved repository scope per brokered source, written only where a brokered loophole starts. Host-side, never mounted |
+| `paths.ApprovalsDir()/<container-name>.scope-sources.json` | Where each approved repository came from, beside the scope part. Host-side, never mounted |
 | `<workspace>/.yolo/config-assembled.json` | The merged config the host assembled for this launch, delivered into the jail |
 | `<workspace>/.yolo/config-boot.json` | Frozen workspace-only config the jail was built from (`yolo config drift`) |
 

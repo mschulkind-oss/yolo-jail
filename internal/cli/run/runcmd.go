@@ -239,9 +239,11 @@ type Options struct {
 	// process's network namespace, or the running jail's, adopted by an attach. Zero until then.
 	served servedAddressState
 	// approvedScopes is the repository scope this fresh launch's config-change gate approved,
-	// per brokered loophole name (brokeredscope.go, docs/design/boundary-broker.md BB-D30).
-	// Set only by a gate that passed; the spawn writes each one to the launch's scope file.
-	approvedScopes map[string][]string
+	// per brokered loophole name, each repository with its sources: the remotes and the
+	// workspace's `brokered.<source>.repos` entry (brokeredscope.go,
+	// docs/design/workspace-widening.md WW-P2). Set only by a gate that passed, from its
+	// in-memory result; the spawn writes each one to the launch's scope file.
+	approvedScopes map[string][]config.ScopeRepo
 	// scopeFiles are the scope files this launch wrote, per brokered loophole name, which
 	// {repository_scope} resolves to at the spawn and the loophole's stop removes (BB-D32).
 	scopeFiles map[string]string

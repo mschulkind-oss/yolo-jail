@@ -128,13 +128,15 @@ func Main(argv []string) int {
 // which the launch appends to one file per loophole name under logs/, shared by every jail
 // on the machine, and logs/ is the directory a `mounts` entry commonly exposes to a jail. So
 // one jail could read every other workspace's path and approved private repositories there.
-// The launch already discloses the scope on its own terminal (writeScopeFiles), the jail's
+// The launch already discloses the scope, with each repository's sources, on its own terminal
+// (writeScopeFiles), the jail's
 // stderr names a refused gh, and the audit log, which yolo mounts into no jail, holds the rest.
 func newBroker(sf brokerscope.File, spawnCwd string, log io.Writer) (*Broker, func()) {
 	sweepRunDirs()
 	runDir := newRunDir()
 	b := &Broker{
-		scope:     NewScope(append(append([]string(nil), sf.Repos...), sf.Widened...)).ForWorkspace(sf.Workspace),
+		// Widened is no longer written; a file a previous build wrote still reads as it did.
+		scope:     NewScope(append(append([]string(nil), sf.Repos...), sf.Widened...)).ForFiles(sf.ConfigFile, sf.LocalFile),
 		workspace: sf.Workspace,
 		audit: brokeraudit.Open(paths.BrokerAuditLog(), func(msg string) {
 			fmt.Fprintln(log, "github-broker:", msg)

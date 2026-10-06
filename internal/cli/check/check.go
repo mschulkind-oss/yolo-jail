@@ -19,6 +19,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/runtime"
 	"github.com/mschulkind-oss/yolo-jail/internal/shquote"
 	"github.com/mschulkind-oss/yolo-jail/internal/storage"
+	"github.com/mschulkind-oss/yolo-jail/internal/termsafe"
 	"github.com/mschulkind-oss/yolo-jail/internal/tty"
 	"github.com/mschulkind-oss/yolo-jail/internal/version"
 )
@@ -565,8 +566,9 @@ func (o *Options) sectionConfigFiles(r *reporter, workspace string) (*jsonx.Orde
 	workspaceConfig, wsSrc, err := config.LoadWorkspaceConfigWithSources(workspace, true, func(string) {})
 	src.workspace = wsSrc
 	if err != nil {
+		// It names the file it could not read, an include's name being the agent's to choose (WW-D30).
 		workspaceConfig = jsonx.NewOrderedMap()
-		r.fail(err.Error(), "Fix it in the file this names, "+recheck)
+		r.fail(termsafe.VisibleLines(err.Error()), "Fix it in the file this names, "+recheck)
 		failed = true
 	} else if o.PathExists(wsPath) || o.PathExists(localPath) {
 		// Name every file that was actually read: a local override that silently
@@ -651,20 +653,28 @@ func (o *Options) sectionMergedConfig(r *reporter, merged *jsonx.OrderedMap, wor
 		config.ConfigCapabilityLaunch(merged))
 	errors = append(errors, capErrs...)
 	warnings = append(warnings, capWarns...)
+	// A `brokered` source no selected pack brokers: this check's warning alone, never a
+	// launch's, since a committed entry would print it at every launch of every contributor
+	// who selects no such pack (docs/design/workspace-widening.md WW-D22).
+	warnings = append(warnings, config.UnbrokeredSourceWarnings(merged, resolver)...)
 	// Every message above that names a config key, located (the preset/null ones already are).
 	errors = located.merged.Annotate(errors)
 	warnings = located.merged.Annotate(warnings)
 
+	// Each names the file its key was written in and can echo a key or a value, and the agent
+	// writes a workspace's includes and names them, so every rune a terminal acts on is escaped
+	// (docs/design/workspace-widening.md WW-D30).
 	for _, msg := range warnings {
-		r.warn(msg, configNote(msg, workspace))
+		r.warn(termsafe.VisibleLines(msg), configNote(msg, workspace))
 	}
 	if len(errors) > 0 || runtimeBlocked || runtimeFinding != "" {
 		if runtimeFinding != "" {
 			r.fail(runtimeFinding, o.runtimeFindingNote(merged))
 		}
 		for _, msg := range errors {
-			r.fail(msg, configNote(msg, workspace))
+			r.fail(termsafe.VisibleLines(msg), configNote(msg, workspace))
 		}
+		o.printRetiredBrokeredMoves(r)
 		r.blank()
 		return true
 	}
@@ -674,16 +684,29 @@ func (o *Options) sectionMergedConfig(r *reporter, merged *jsonx.OrderedMap, wor
 			r.warn("--accept-config-changes is host-only (disabled inside running jail)",
 				"Run `yolo check --accept-config-changes` on the host, in this workspace.")
 		} else {
-			wsCfg, err := config.LoadWorkspaceConfig(workspace, false, func(string) {})
-			if err == nil {
+			// The gate's own read, strict, as a launch's (config.ReadWorkspaceForGate): the
+			// non-strict read this replaced returned `{}` for a file it could not parse, and the
+			// check then skipped recording without a word.
+			read, err := config.ReadWorkspaceForGate(workspace)
+			if err != nil {
+				r.fail("Could not read the workspace config to record its approval: "+termsafe.Visible(err.Error()),
+					"Fix it in the file this names, then: yolo check --accept-config-changes")
+			} else {
 				// The approval record's scope part too, where a launch would start a
-				// brokered loophole: the check reads the remotes as the launch would, and
-				// both parts land together (docs/design/boundary-broker.md BB-D30).
-				scope := brokeredScopeForCheck(workspace, merged, runtimeSel)
-				if writeErr := config.RecordApproval(workspace, wsCfg, scope); writeErr == nil {
+				// brokered loophole: the check reads the remotes and the entry as the launch
+				// would, shows what changed, and every part lands together
+				// (docs/design/boundary-broker.md BB-D30; workspace-widening.md WW-D20).
+				scope := brokeredScopeForCheck(workspace, merged, runtimeSel, read)
+				if rep, err := config.ScopeChanges(workspace, scope); err == nil && rep.ScopeChanged {
+					r.line("  Repository scope changed since the last approval; recording it as approved:")
+					for _, line := range append(rep.ScopeBlock, rep.ScopeCounts...) {
+						r.line("    " + line)
+					}
+				}
+				if writeErr := config.RecordApproval(workspace, read.Config, scope); writeErr == nil {
 					r.ok("Approved workspace config recorded to host approval snapshot")
 					for _, s := range scopeSourcesOf(scope) {
-						r.ok("Approved " + s.Label + " repository scope recorded: " + describeRepos(s.Read.Repos()))
+						r.ok("Approved " + s.Label + " repository scope recorded: " + describeScope(s))
 					}
 				} else {
 					r.fail("Could not record the approval", writeErr.Error()+

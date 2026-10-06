@@ -41,6 +41,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/json5"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
+	"github.com/mschulkind-oss/yolo-jail/internal/termsafe"
 )
 
 // Sources is the provenance of a composed config: for each object member and list element,
@@ -54,6 +55,18 @@ type Sources struct {
 type srcFile struct {
 	path string
 	data []byte
+
+	// contained says the bytes came from inside the workspace, read beneath its root
+	// (wsroot.go), and rel is then the file's workspace-relative name. Both are zero for every
+	// file a workspace load that records did not read, and for one it read any other way.
+	contained bool
+	rel       string
+	// seq is the file's place in its workspace load's read order, which is merge order: the
+	// config file, its includes, the local file, its includes.
+	seq int
+	// via is the include that reached the file ("include_if_found[0] in yolo-jail.jsonc"), ""
+	// for a top-level file.
+	via string
 
 	// index is where every value of data sits (json5.Index), parsed once, on the first
 	// location asked of this file: a refusal naming several of its keys, or a key several
@@ -72,6 +85,18 @@ func (f *srcFile) locate(steps []json5.Step) (json5.Span, bool) {
 	}
 	span, ok, err := f.index.Locate(steps...)
 	return span, ok && err == nil
+}
+
+// writtenTwice is json5.Index.Locate's error for steps in this file, the key along them that is
+// written more than once, nil when there is none (or the file does not parse, which its loader
+// already reported).
+func (f *srcFile) writtenTwice(steps []json5.Step) error {
+	f.indexOnce.Do(func() { f.index, _ = json5.NewIndex(f.data) })
+	if f.index == nil {
+		return nil
+	}
+	_, _, err := f.index.Locate(steps...)
+	return err
 }
 
 // srcOrigin is one place a value was written: a file, and the path to the value inside it.
@@ -366,13 +391,13 @@ func (n *srcNode) locations() []string {
 	return out
 }
 
-// String is the origin as a person types it: the file's path with the home as ~, then the
-// line and column the value starts at.
+// String is the origin as a person types it: the file's label, then the line and column the
+// value starts at.
 func (o srcOrigin) String() string {
 	if o.file == nil {
 		return ""
 	}
-	where := tildePath(o.file.path)
+	where := o.file.label()
 	span, ok := o.file.locate(o.steps)
 	if !ok {
 		return where
@@ -415,6 +440,11 @@ func includeProblem(f *srcFile, label, problem string, steps ...json5.Step) stri
 	}
 	return srcOrigin{file: f, steps: steps}.String() + ": config." + problem
 }
+
+// label is the file's path as a person types it, the home as ~, with every rune a terminal acts
+// on escaped (termsafe.Visible): an include's name is the agent's to choose, newlines included,
+// and every located message leads with it (docs/design/workspace-widening.md WW-P3).
+func (f *srcFile) label() string { return termsafe.Visible(tildePath(f.path)) }
 
 // tildePath writes a path under the home as ~/…, the spelling the config messages already use
 // for the user config (~/.config/yolo-jail/config.jsonc). The home is matched as given and as

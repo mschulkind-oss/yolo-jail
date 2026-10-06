@@ -33,6 +33,11 @@ installs or changes it. A launch builds its extensions at the same time. See
 into a jail, and what each launch shows about the code it runs. See
 [Claude Code plugins and mods](userguide/guides/claude-plugins-and-mods.md).
 
+**An agent can ask for another GitHub repository.** List it under `brokered.github.repos` in the
+project's config, and the next launch asks you to approve it beside the project's own remotes;
+an agent told a repository is out of scope is told how. See
+[Adding a repository the project has no remote for](userguide/guides/github.md#adding-a-repository-the-project-has-no-remote-for).
+
 **Settings for a vendor installer.** A pack whose program comes from its vendor's install script can
 give that script the variables it needs, such as where to install, with `installer_env`. See
 [the pack system reference](docs/reference/pack-system.md).
@@ -49,6 +54,11 @@ give that script the variables it needs, such as where to install, with `install
 - pi installs its extensions per project, so one jail's update no longer changes another's, and
   each project's first pi launch installs them again. While the old shared extensions folder is
   still there, a Podman or Apple Container launch names it and the command that deletes it.
+- A `brokered.github.workspaces` entry in your user config stops every launch: move each project's
+  repositories into its `yolo-jail.local.jsonc` as `brokered.github.repos` (yolo does not
+  git-ignore that file), and approve them at that project's next launch.
+- Renaming a project's GitHub remote, or adding a second one for a repository it already reaches,
+  asks you to approve its repositories again at the next launch.
 
 ### Fixed
 
@@ -137,6 +147,8 @@ give that script the variables it needs, such as where to install, with `install
   points and how to move a folder you moved there yourself back, not only how to delete the link.
 - A jail that refuses to boot because a service inside it, such as the wire bridge, cannot start
   no longer reports it as a failed config generator.
+- A config error or warning at a launch or in `yolo check` now shows a file name, key or value an
+  agent wrote as plain text, so it can no longer send your terminal escape sequences.
 
 ## [0.11.1] - 2026-10-02
 

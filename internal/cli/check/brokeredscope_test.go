@@ -36,20 +36,20 @@ func TestCheckReadsTheScopeWhereALaunchWouldStartABroker(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	s := brokeredScopeForCheck(ws, gbSwitched(true), "podman")
+	s := brokeredScopeForCheck(ws, gbSwitched(true), "podman", nil)
 	if s == nil || len(s.Sources) != 1 || s.Sources[0].Source != "gbsrc" || s.Sources[0].Label != "gb" {
 		t.Fatalf("scope %+v", s)
 	}
 	if got := s.Sources[0].Read.Repos(); len(got) != 1 || got[0] != "o/r" {
 		t.Fatalf("repos %v", got)
 	}
-	if brokeredScopeForCheck(ws, gbSwitched(true), "container") != nil {
+	if brokeredScopeForCheck(ws, gbSwitched(true), "container", nil) != nil {
 		t.Fatal("Apple Container starts no broker, so the check must record no scope there")
 	}
-	if brokeredScopeForCheck(ws, gbSwitched(false), "podman") != nil {
+	if brokeredScopeForCheck(ws, gbSwitched(false), "podman", nil) != nil {
 		t.Fatal("a disabled brokered loophole starts no broker, so its scope is not in play")
 	}
-	if brokeredScopeForCheck(ws, jsonx.NewOrderedMap(), "podman") != nil {
+	if brokeredScopeForCheck(ws, jsonx.NewOrderedMap(), "podman", nil) != nil {
 		t.Fatal("a brokered loophole no switch turned on starts no broker: it ships off")
 	}
 }

@@ -811,10 +811,13 @@ hostname from it and knows no tool; `packs/github`'s `github-broker` is the firs
 ([`boundary-broker.md` §5.6](../design/boundary-broker.md#56-the-repository-scope)).
 
 - **At every fresh launch that starts it**, by the one predicate the spawn applies
-  (`loopholes.Set.BrokeredToStart`), core reads the workspace's remotes on `remote_host` as text
-  and puts them through the config-change gate as the approval record's scope part
-  ([`config-safety.md`](config-safety.md#the-repository-scope-the-records-second-part)).
-- **At the spawn**, core writes the approved list to that launch's scope file under
+  (`loopholes.Set.BrokeredToStart`), core reads the workspace's remotes on `remote_host` as text,
+  and the workspace config's `brokered.<source>.repos` list, whose `<source>` is the block's
+  `source`, and puts their union through the config-change gate as the approval record's scope
+  part ([`config-safety.md`](config-safety.md#the-repository-scope-the-records-second-part),
+  [`workspace-widening.md`](../design/workspace-widening.md)). A user-config `repos` list is
+  refused, since it would widen every workspace.
+- **At the spawn**, core writes the list that gate approved to that launch's scope file under
   `~/.local/share/yolo-jail/broker/<source>/scope/` and substitutes its path for the
   `{repository_scope}` token in `host_daemon.cmd`. The token and the block are held together at
   load, a brokered daemon may not be `scope: "host"`, and the file goes with the daemon.

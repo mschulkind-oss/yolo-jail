@@ -3,6 +3,7 @@ package run
 import (
 	"bytes"
 	"os"
+	"reflect"
 	"slices"
 	"strings"
 	"sync"
@@ -11,6 +12,7 @@ import (
 
 	"github.com/mschulkind-oss/yolo-jail/internal/broker"
 	"github.com/mschulkind-oss/yolo-jail/internal/claudeview"
+	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/oauthbroker"
 )
@@ -164,5 +166,32 @@ func TestAKeeperRefusesASealedPlanThatCrossesAnything(t *testing.T) {
 				t.Error("a refused sealed plan started something")
 			}
 		})
+	}
+}
+
+// WW-D28: the gate's approved scope, each repository with its source labels, reaches the keeper
+// through the plan file: on the container arm the keeper's Options write the scope files and the
+// launch line, and nothing in the keeper derives them again (WW-P2).
+func TestTheKeepersPlanCarriesTheApprovedScopes(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	o := dispatchOptions(t, t.TempDir(), "podman", &stdout, &stderr, nil)
+	want := map[string][]config.ScopeRepo{"gb": {{Repo: "o/r", Sources: []string{`remote "origin"`}},
+		{Repo: "org/lib", Sources: []string{"yolo-jail.jsonc", `x\x1b[2K.jsonc`}}}}
+	o.approvedScopes = want
+	plan, err := o.keeperPlanFor(jsonx.NewOrderedMap(), "podman", "yolo-scopes", stagedPacks{}, nil, nil, nil, "", "",
+		[]string{"podman", "run"}, &assembleInput{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	path, err := writeKeeperPlan(plan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	read, err := readKeeperPlan(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if k := newKeeper(read, KeeperSeams{}, nil, nil, nil, nil); !reflect.DeepEqual(k.o.approvedScopes, want) {
+		t.Fatalf("the keeper holds %+v, want the gate's %+v", k.o.approvedScopes, want)
 	}
 }

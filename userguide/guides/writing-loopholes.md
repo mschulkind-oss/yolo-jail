@@ -191,8 +191,10 @@ repositories:
 ```
 
 At every fresh launch that starts the program, yolo reads the project's git remotes on
-`remote_host` as text, asks the user to approve the list in the config-change prompt, and hands
-the approved list to the program in the file `{repository_scope}` names. Your `host_daemon.cmd`
+`remote_host` as text, and the project config's `brokered.<source>.repos` list, which names a
+repository the project has no remote for. It asks the user to approve the union in the
+config-change prompt, and hands the approved list to the program in the file
+`{repository_scope}` names. Your `host_daemon.cmd`
 must name that placeholder, and the program must refuse anything outside the list. With your pack
 selected, a project's `mounts` entry that reaches a `credential_paths` entry, or yolo's own broker
 folder, is refused.

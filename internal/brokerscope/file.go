@@ -15,11 +15,12 @@ import (
 )
 
 // file.go is the per-launch scope file (BB-D32): once the config-change gate passes, the
-// fresh launch writes the approved scope, and what the user's widening entry adds, to
+// fresh launch writes the scope that gate approved, the workspace's remotes and its
+// `brokered.<source>.repos` entry alike (docs/design/workspace-widening.md WW-P2), to
 // broker/<source>/scope/<launch-id>.json and only then spawns the daemon, handing it the
 // file's name. The daemon reads that file alone — never the remotes, never the approval
-// record, never the user config — so no host pre-approval, user config edit or other
-// session's launch changes a running daemon's scope.
+// record, never a config file — so no host pre-approval, config edit or other session's
+// launch changes a running daemon's scope.
 //
 // Keyed by a random launch id, never the workspace or the container name: on macos-user
 // two terminals in one workspace are two concurrent sessions sharing both, and one
@@ -38,14 +39,20 @@ type File struct {
 	PID       int    `json:"pid"`
 	Container string `json:"container"`
 	Workspace string `json:"workspace"`
-	// Repos is the approved scope: the workspace's remotes on the forge, as a human
-	// approved them in this launch's config-change gate.
+	// Repos is the approved scope: the workspace's remotes on the forge and its
+	// `brokered.<source>.repos` entry, as a human approved them in this launch's config-change
+	// gate, from that gate's own result.
 	Repos []string `json:"repos"`
-	// Widened is what a user-scope widening entry added for this workspace beyond Repos
-	// (OQ-BB6, BB-D33): the launch reads it from the user config (config.BrokeredWidening),
-	// never from the workspace, and needs no approval for it. As OQ-BB9 ruled (A), its
-	// repositories join the scope for every set, which is how the broker reads them.
+	// Widened is no longer written (WW-D12). It was the user-scope widening entry's list, read
+	// from the user config with no approval, until that form was retired; it stays decodable,
+	// and a broker still adds it to the scope, so a file a previous build wrote reads as it did.
 	Widened []string `json:"widened,omitempty"`
+	// ConfigFile and LocalFile are the names, never paths, of the workspace's config file and
+	// local file as the loader reads them (`yolo-jail.jsonc` or the `yolo-jail.json` a project
+	// keeps, and its local file), so the broker's out-of-scope refusal names the exact file to
+	// edit (WW-D23). Empty from a launch that predates them, and the refusal then says less.
+	ConfigFile string `json:"config_file,omitempty"`
+	LocalFile  string `json:"local_file,omitempty"`
 }
 
 // NewLaunchID draws a random launch id.

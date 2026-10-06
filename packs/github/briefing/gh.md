@@ -13,6 +13,12 @@ GitHub repositories. The jail holds no GitHub token; `gh auth status` names the 
   could print the credential or reach the host, a repository outside this workspace's scope, and
   every call across the account. Raw `gh api graphql` is always refused; `gh`'s own commands
   (`gh pr view`, `gh issue list`, …) use GraphQL inside and work.
+- A repository this workspace has no remote for stays out of scope until the user approves it.
+  Add it to the `repos` list under `brokered.github` in the workspace config file your
+  environment briefing names (create the key only if the file has none), or in the local file
+  beside it for what the project should not commit, or when the config file is read-only here.
+  Then run `yolo check --no-build`, and ask the user to restart the jail and answer y to the
+  repository-scope prompt. Nothing changes before that restart.
 - In a `gh api` path, percent-encode a slash in a branch name as usual:
   `repos/OWNER/REPO/branches/MS%2Fmain`.
 - Exit 69: no broker in this jail, or no `gh` login on the host.

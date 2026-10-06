@@ -119,14 +119,13 @@ func TestADeclineNamesTheNextStep(t *testing.T) {
 			}
 			o.IsTTYStdin = func() bool { return true }
 			o.Stdin = strings.NewReader("n\n")
-			ws := jsonx.NewOrderedMap()
 			if c.configChanged {
 				if err := config.RecordApproval(o.Workspace, jsonx.NewOrderedMap(), nil); err != nil {
 					t.Fatal(err)
 				}
-				ws.Set("packages", []any{"jq"})
+				writeWorkspaceConfig(t, o.Workspace, `{"packages": ["jq"]}`)
 			}
-			if o.checkConfigChanges(ws, c.merged, "podman") {
+			if o.checkConfigChanges(c.merged, "podman") {
 				t.Fatalf("an `n` was accepted:\n%s", buf.String())
 			}
 			out := buf.String()
@@ -151,7 +150,7 @@ func TestADeclineNamesTheNextStep(t *testing.T) {
 // labeled scope block in front of the reader, and a launch with no terminal refuses.
 func TestTheGateReadsTheRemotesOfABrokerThatWillStart(t *testing.T) {
 	o, buf, _ := brokeredFixture(t)
-	if o.checkConfigChanges(jsonx.NewOrderedMap(), gbOn(), "podman") {
+	if o.checkConfigChanges(gbOn(), "podman") {
 		t.Fatal("a first launch with a GitHub remote and no terminal must refuse")
 	}
 	out := buf.String()
@@ -174,16 +173,12 @@ func TestTheGateReadsTheRemotesOfABrokerThatWillStart(t *testing.T) {
 func TestTheInteractivePromptShowsTheScopeFirstAndRecordsIt(t *testing.T) {
 	for _, c := range []struct {
 		name             string
-		wsCfg            *jsonx.OrderedMap
+		wsCfg            string
 		header, question string
 	}{
-		{"scope only", jsonx.NewOrderedMap(), "Repository scope changed since last run:",
+		{"scope only", `{}`, "Repository scope changed since last run:",
 			"Accept these repository scope changes? [y/N]"},
-		{"config and scope", func() *jsonx.OrderedMap {
-			m := jsonx.NewOrderedMap()
-			m.Set("packages", []any{"jq"})
-			return m
-		}(), "Workspace config and repository scope changed since last run:",
+		{"config and scope", `{"packages": ["jq"]}`, "Workspace config and repository scope changed since last run:",
 			"Accept these workspace config and repository scope changes? [y/N]"},
 	} {
 		t.Run(c.name, func(t *testing.T) {
@@ -196,7 +191,8 @@ func TestTheInteractivePromptShowsTheScopeFirstAndRecordsIt(t *testing.T) {
 					t.Fatal(err)
 				}
 			}
-			if !o.checkConfigChanges(c.wsCfg, gbOn(), "podman") {
+			writeWorkspaceConfig(t, o.Workspace, c.wsCfg)
+			if !o.checkConfigChanges(gbOn(), "podman") {
 				t.Fatalf("a `y` was refused:\n%s", buf.String())
 			}
 			out := buf.String()
@@ -259,7 +255,7 @@ func TestTheGatePrintsTheAgentsPathsAsText(t *testing.T) {
 	o, buf, _ := brokeredFixture(t)
 	commonDirWorktree(t, o.Workspace, "x\x1b[2K\x1b[1A\x1b]0;owned\a\x1b[8m",
 		"[remote \"origin\"]\n\turl = git@github.com:victim/secret.git\n")
-	o.checkConfigChanges(jsonx.NewOrderedMap(), gbOn(), "podman")
+	o.checkConfigChanges(gbOn(), "podman")
 	if out := buf.String(); strings.ContainsAny(out, "\x1b\a") {
 		t.Fatalf("a terminal sequence from the workspace reached the output:\n%q", out)
 	}
@@ -267,7 +263,7 @@ func TestTheGatePrintsTheAgentsPathsAsText(t *testing.T) {
 	// Markup in the name: the advice names the git config it was read from as text.
 	o, buf, _ = brokeredFixture(t)
 	commonDirWorktree(t, o.Workspace, "[bold green]c", "[remote \"origin\"]\n\turl = git@github.com:o/r.git\n")
-	if o.checkConfigChanges(jsonx.NewOrderedMap(), gbOn(), "podman") {
+	if o.checkConfigChanges(gbOn(), "podman") {
 		t.Fatal("a first launch with a GitHub remote and no terminal must refuse")
 	}
 	var advice string
@@ -283,7 +279,7 @@ func TestTheGatePrintsTheAgentsPathsAsText(t *testing.T) {
 	// And the warning line the launch prints for a problem.
 	o, buf, _ = brokeredFixture(t)
 	commonDirWorktree(t, o.Workspace, "[bold green]d", "")
-	o.checkConfigChanges(jsonx.NewOrderedMap(), gbOn(), "podman")
+	o.checkConfigChanges(gbOn(), "podman")
 	var warning string
 	for _, line := range strings.Split(buf.String(), "\n") {
 		if strings.HasPrefix(line, "gb: cannot read") {
@@ -298,7 +294,7 @@ func TestTheGatePrintsTheAgentsPathsAsText(t *testing.T) {
 // Apple Container starts no broker, so it reads nothing and asks nothing (§5.6).
 func TestTheGateAsksNothingWhereNoBrokerStarts(t *testing.T) {
 	o, _, _ := brokeredFixture(t)
-	if !o.checkConfigChanges(jsonx.NewOrderedMap(), gbOn(), "container") {
+	if !o.checkConfigChanges(gbOn(), "container") {
 		t.Fatal("an Apple Container launch must not be asked about a broker it does not start")
 	}
 	if _, err := os.Stat(config.ApprovalScopePath(o.Workspace)); !os.IsNotExist(err) {
@@ -315,7 +311,7 @@ func TestAFreshLaunchHandsTheApprovedScopeToTheBroker(t *testing.T) {
 	}
 	o, buf, marker := brokeredFixture(t)
 	o.AcceptConfigChanges = true
-	if !o.checkConfigChanges(jsonx.NewOrderedMap(), gbOn(), "podman") {
+	if !o.checkConfigChanges(gbOn(), "podman") {
 		t.Fatalf("an accepted gate refused:\n%s", buf.String())
 	}
 	if got := config.ApprovedScope(o.Workspace, "gbsrc"); len(got) != 1 || got[0] != "o/r" {
@@ -365,103 +361,154 @@ func readHandedScope(t *testing.T, marker string, out *strings.Builder) brokersc
 	return f
 }
 
-// writeWidening writes the user config's widening entry for the fixture's source and workspace.
-func writeWidening(t *testing.T, key string, repos ...string) {
-	t.Helper()
-	list, _ := json.Marshal(repos)
-	keyJSON, _ := json.Marshal(key)
+// The workspace entry, the launch's half (docs/design/workspace-widening.md §3.2, §3.3): a
+// `brokered.<source>.repos` entry in the workspace config is a row of the scope block, approved
+// by the gate exactly as a remote is, never a JSON line; the broker's scope file holds the
+// approved union in `repos`, with no `widened` list and the names of the two config files; and
+// the launch line names each repository's sources.
+func TestAWorkspaceEntryIsApprovedAtTheGateAndReachesTheBroker(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("the fixture daemon is /bin/cp")
+	}
+	o, buf, marker := brokeredFixture(t)
+	writeWorkspaceConfig(t, o.Workspace, `{"brokered": {"gbsrc": {"repos": ["org/lib", "O/R"]}}}`)
+	o.AcceptConfigChanges = true
+	if !o.checkConfigChanges(gbOn(), "podman") {
+		t.Fatalf("an accepted gate refused:\n%s", buf.String())
+	}
+	if got := config.ApprovedScope(o.Workspace, "gbsrc"); strings.Join(got, ",") != "o/r,org/lib" {
+		t.Fatalf("the approval record holds %v, want the remote and the entry", got)
+	}
+	gate := buf.String()
+	// The flag path shows the block before it records (WW-D20), and the entry is never JSON.
+	for _, want := range []string{`+ o/r      remote "origin", yolo-jail.jsonc  added`,
+		"+ org/lib  yolo-jail.jsonc                   added", "gb: 2 added, 0 removed, 0 source changed"} {
+		if !strings.Contains(gate, want) {
+			t.Errorf("the flag path did not show %q:\n%s", want, gate)
+		}
+	}
+	if strings.Contains(gate, `"brokered"`) || strings.Contains(gate, `"repos"`) {
+		t.Errorf("the entry reached the gate as JSON lines:\n%s", gate)
+	}
+
+	handles := o.startLoopholes("yolo-brokered-entry", "podman", gbOn())
+	t.Cleanup(func() { o.stopLoopholes(handles, hostServiceSocketsDir("yolo-brokered-entry", false), "", "") })
+	f := readHandedScope(t, marker, buf)
+	if strings.Join(f.Repos, ",") != "o/r,org/lib" || len(f.Widened) != 0 ||
+		f.ConfigFile != config.WorkspaceConfigName || f.LocalFile != config.WorkspaceLocalConfigName {
+		t.Fatalf("scope file %+v, want repos [o/r org/lib], no widened, and the two config files", f)
+	}
+	if want := `gb: scope for this workspace: o/r (remote "origin", yolo-jail.jsonc), org/lib (yolo-jail.jsonc)`; !strings.Contains(buf.String(), want) {
+		t.Errorf("the launch line is not %q:\n%s", want, buf.String())
+	}
+}
+
+// WW-P2: the scope file holds what THIS gate approved, held in memory. An edit to the entry
+// after the y, and an approval another session records between this gate and the spawn, both
+// wait for the next fresh launch.
+func TestNothingAfterTheGateReachesTheScopeFile(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("the fixture daemon is /bin/cp")
+	}
+	o, buf, marker := brokeredFixture(t)
+	writeWorkspaceConfig(t, o.Workspace, `{"brokered": {"gbsrc": {"repos": ["org/lib"]}}}`)
+	o.AcceptConfigChanges = true
+	if !o.checkConfigChanges(gbOn(), "podman") {
+		t.Fatalf("an accepted gate refused:\n%s", buf.String())
+	}
+	writeWorkspaceConfig(t, o.Workspace, `{"brokered": {"gbsrc": {"repos": ["org/lib", "org/late"]}}}`)
+	other := &config.ScopeCheck{Sources: []config.ScopeSource{{Source: "gbsrc", Label: "gb",
+		Entry: []config.EntryRepo{{Repo: "org/concurrent", Files: []string{"yolo-jail.jsonc"}}}}}}
+	if err := config.RecordApproval(o.Workspace, jsonx.NewOrderedMap(), other); err != nil {
+		t.Fatal(err)
+	}
+	handles := o.startLoopholes("yolo-brokered-late", "podman", gbOn())
+	t.Cleanup(func() { o.stopLoopholes(handles, hostServiceSocketsDir("yolo-brokered-late", false), "", "") })
+	if f := readHandedScope(t, marker, buf); strings.Join(f.Repos, ",") != "o/r,org/lib" {
+		t.Fatalf("scope file repos %v, want the gate's o/r and org/lib alone", f.Repos)
+	}
+}
+
+// WW-D18: the gate's read is strict and its own. A workspace config made unparseable after the
+// launch's first read refuses at the gate, naming the file, at a terminal too, rather than
+// prompting over an empty config whose entry reads as empty; nothing is recorded.
+func TestAConfigBrokenAfterTheLaunchsReadRefusesAtTheGate(t *testing.T) {
+	o, buf, _ := brokeredFixture(t)
+	writeWorkspaceConfig(t, o.Workspace, `{"brokered": {"gbsrc": {"repos": ["org/lib"]}}}`)
+	if _, ok := o.loadAndValidateConfig(); !ok {
+		t.Fatalf("the launch's own read refused a valid config:\n%s", buf.String())
+	}
+	writeWorkspaceConfig(t, o.Workspace, `{"brokered": {"gbsrc": {"repos": ["org/lib"]`)
+	o.IsTTYStdin = func() bool { return true }
+	o.Stdin = strings.NewReader("y\n")
+	if o.checkConfigChanges(gbOn(), "podman") {
+		t.Fatalf("a broken workspace config passed the gate:\n%s", buf.String())
+	}
+	out := buf.String()
+	if !strings.Contains(out, "Cannot read this workspace's config for the config-change gate") ||
+		!strings.Contains(out, "Failed to parse yolo-jail.jsonc") {
+		t.Errorf("the refusal does not name the file and the error:\n%s", out)
+	}
+	if strings.Contains(out, "[y/N]") {
+		t.Errorf("the gate prompted over a config it could not read:\n%s", out)
+	}
+	for _, p := range []string{config.ApprovalSnapshotPath(o.Workspace), config.ApprovalScopePath(o.Workspace)} {
+		if _, err := os.Stat(p); !os.IsNotExist(err) {
+			t.Errorf("a refused gate recorded %s", p)
+		}
+	}
+}
+
+// WW-D22: a committed entry for a source no selected pack brokers says nothing at a launch,
+// which would print it at every launch of every contributor without the pack.
+func TestALaunchSaysNothingOfAnEntryNoSelectedPackBrokers(t *testing.T) {
+	o, buf, _ := brokeredFixture(t)
+	writeWorkspaceConfig(t, o.Workspace, `{"brokered": {"github": {"repos": ["org/lib"]}}}`)
+	if _, ok := o.loadAndValidateConfig(); !ok {
+		t.Fatalf("the launch refused:\n%s", buf.String())
+	}
+	if strings.Contains(buf.String(), "brokered") {
+		t.Errorf("the launch printed a brokered line:\n%s", buf.String())
+	}
+}
+
+// WW-D21: the old form's refusal at a launch names this project's edit and counts the others,
+// so the launch log its jail reads names no other workspace.
+func TestTheOldFormsLaunchRefusalNamesNoOtherWorkspace(t *testing.T) {
+	o, buf, _ := brokeredFixture(t)
 	cfg := filepath.Join(os.Getenv("HOME"), ".config", "yolo-jail", "config.jsonc")
 	if err := os.MkdirAll(filepath.Dir(cfg), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	body := `{"brokered": {"gbsrc": {"workspaces": {` + string(keyJSON) + `: {"repos": ` + string(list) + `}}}}}`
+	ws, _ := json.Marshal(o.Workspace)
+	body := `{"brokered": {"gbsrc": {"workspaces": {` + string(ws) + `: {"repos": ["org/lib"]},
+	  "/home/someone/secret-client": {"repos": ["acme/private-roadmap"]}}}}}`
 	if err := os.WriteFile(cfg, []byte(body), 0o644); err != nil {
 		t.Fatal(err)
 	}
-}
-
-// §12 done criterion 17, the launch's half (BB-D33): the user config's widening entry for this
-// workspace reaches the broker in the scope file's `widened` list, beside the approved remotes
-// and without them, and the launch discloses it on its own line. It is absent from the gate:
-// the scope block does not name it and the approval record does not hold it, since user config
-// never prompts. An entry for another workspace adds nothing here.
-func TestAWideningEntryJoinsTheScopeFileAndIsDisclosed(t *testing.T) {
-	if runtime.GOOS != "linux" {
-		t.Skip("the fixture daemon is /bin/cp")
-	}
-	o, buf, marker := brokeredFixture(t)
-	// Keyed through `~/`, as a user writes it: the fixture's home and workspace are siblings.
-	if filepath.Dir(os.Getenv("HOME")) != filepath.Dir(o.Workspace) {
-		t.Fatalf("the fixture's home %s and workspace %s are not siblings", os.Getenv("HOME"), o.Workspace)
-	}
-	writeWidening(t, "~/../"+filepath.Base(o.Workspace), "org/lib", "O/R")
-	o.AcceptConfigChanges = true
-	if !o.checkConfigChanges(jsonx.NewOrderedMap(), gbOn(), "podman") {
-		t.Fatalf("an accepted gate refused:\n%s", buf.String())
-	}
-	if got := config.ApprovedScope(o.Workspace, "gbsrc"); strings.Join(got, ",") != "o/r" {
-		t.Fatalf("the approval record holds %v, want the remote alone: a widening entry is not approved", got)
-	}
-	if strings.Contains(buf.String(), "org/lib") {
-		t.Fatalf("the gate showed the widening entry, which is user config and never in the diff:\n%s", buf.String())
-	}
-
-	handles := o.startLoopholes("yolo-brokered-widen", "podman", gbOn())
-	t.Cleanup(func() { o.stopLoopholes(handles, hostServiceSocketsDir("yolo-brokered-widen", false), "", "") })
-	f := readHandedScope(t, marker, buf)
-	if strings.Join(f.Repos, ",") != "o/r" || strings.Join(f.Widened, ",") != "org/lib" {
-		t.Fatalf("scope file repos %v widened %v, want [o/r] and [org/lib]: the remote a widening entry "+
-			"repeats is not widened", f.Repos, f.Widened)
+	if _, ok := o.loadAndValidateConfig(); ok {
+		t.Fatalf("a launch passed with the retired form:\n%s", buf.String())
 	}
 	out := buf.String()
-	for _, want := range []string{"gb: scope for this workspace: o/r", "gb: scope widened by user config: org/lib"} {
-		if !strings.Contains(out, want) {
-			t.Errorf("the launch did not disclose %q:\n%s", want, out)
+	if !strings.Contains(out, `"brokered": {"gbsrc": {"repos": ["org/lib"]}}`) ||
+		!strings.Contains(out, "1 other project has an entry under this key") {
+		t.Errorf("the refusal lacks this project's edit or the count:\n%s", out)
+	}
+	for _, leak := range []string{"secret-client", "acme/private-roadmap"} {
+		if strings.Contains(out, leak) {
+			t.Errorf("the launch output names another workspace's %q:\n%s", leak, out)
 		}
 	}
 }
 
-// With no remote, the widening entry alone is the scope; and a spawn whose gate recorded no
-// scope still carries it, the entry needing no approval. An entry keyed by another workspace
-// adds nothing.
-func TestAWideningEntryWithNoRemoteAndNoApproval(t *testing.T) {
-	if runtime.GOOS != "linux" {
-		t.Skip("the fixture daemon is /bin/cp")
-	}
-	o, buf, marker := brokeredFixture(t)
-	writeWidening(t, o.Workspace, "org/lib")
-	handles := o.startLoopholes("yolo-brokered-widen2", "podman", gbOn())
-	t.Cleanup(func() { o.stopLoopholes(handles, hostServiceSocketsDir("yolo-brokered-widen2", false), "", "") })
-	f := readHandedScope(t, marker, buf)
-	if len(f.Repos) != 0 || strings.Join(f.Widened, ",") != "org/lib" {
-		t.Fatalf("scope file repos %v widened %v, want none and [org/lib]", f.Repos, f.Widened)
-	}
-	out := buf.String()
-	for _, want := range []string{"no repository scope was approved", "gb: this workspace has no approved remote on github.com",
-		"gb: scope widened by user config: org/lib"} {
-		if !strings.Contains(out, want) {
-			t.Errorf("the launch did not say %q:\n%s", want, out)
-		}
-	}
-	if strings.Contains(out, "repository scope is empty") {
-		t.Errorf("a widened scope was called empty:\n%s", out)
-	}
-
-	o, buf, marker = brokeredFixture(t)
-	writeWidening(t, filepath.Join(filepath.Dir(o.Workspace), "elsewhere"), "org/lib")
-	handles = o.startLoopholes("yolo-brokered-widen3", "podman", gbOn())
-	t.Cleanup(func() { o.stopLoopholes(handles, hostServiceSocketsDir("yolo-brokered-widen3", false), "", "") })
-	if f := readHandedScope(t, marker, buf); len(f.Widened) != 0 || strings.Contains(buf.String(), "widened") {
-		t.Fatalf("another workspace's entry widened this one: %v\n%s", f.Widened, buf.String())
-	}
-}
-
-// A launch whose gate recorded no scope hands the daemon an EMPTY one and says so.
+// A launch whose gate recorded no scope hands the daemon an EMPTY one and says so: neither the
+// remotes nor the workspace's entry, which reaches a broker only through the gate (WW-D12).
 func TestASpawnWithNoApprovedScopeFailsClosed(t *testing.T) {
 	if runtime.GOOS != "linux" {
 		t.Skip("the fixture daemon is /bin/cp")
 	}
 	o, buf, marker := brokeredFixture(t)
+	writeWorkspaceConfig(t, o.Workspace, `{"brokered": {"gbsrc": {"repos": ["org/lib"]}}}`)
 	handles := o.startLoopholes("yolo-brokered-test2", "podman", gbOn())
 	t.Cleanup(func() { o.stopLoopholes(handles, hostServiceSocketsDir("yolo-brokered-test2", false), "", "") })
 	data, err := os.ReadFile(marker)
@@ -482,7 +529,7 @@ func TestASpawnWithNoApprovedScopeFailsClosed(t *testing.T) {
 func TestTheSpawnWritesNoScopeFileForABrokerTheOriginGateStops(t *testing.T) {
 	o, buf, marker := brokeredFixtureWith(t, false)
 	o.AcceptConfigChanges = true
-	if !o.checkConfigChanges(jsonx.NewOrderedMap(), gbOn(), "podman") {
+	if !o.checkConfigChanges(gbOn(), "podman") {
 		t.Fatalf("the gate refused:\n%s", buf.String())
 	}
 	if _, err := os.Stat(config.ApprovalScopePath(o.Workspace)); !os.IsNotExist(err) {
@@ -521,5 +568,132 @@ func TestTheScopeTokenWithNoFileRefusesTheSpawn(t *testing.T) {
 	argv, ok := o.resolveDaemonArgv("gb", spec, "/tmp/x.sock")
 	if !ok || argv[len(argv)-1] != "/s/f.json" {
 		t.Fatalf("argv %v", argv)
+	}
+}
+
+// An `N` to a changed workspace entry names the file the change is in, beside the step that
+// launches the project without the broker (docs/design/workspace-widening.md §3.2), and records
+// nothing. Driven through the gate's real prompter.
+func TestADeclinedEntryNamesTheFileItIsIn(t *testing.T) {
+	o, buf, _ := brokeredFixture(t)
+	writeWorkspaceConfig(t, o.Workspace, `{"brokered": {"gbsrc": {"repos": ["org/lib"]}}}`)
+	o.IsTTYStdin = func() bool { return true }
+	o.Stdin = strings.NewReader("n\n")
+	if o.checkConfigChanges(gbOn(), "podman") {
+		t.Fatalf("an `n` was accepted:\n%s", buf.String())
+	}
+	out := buf.String()
+	for _, want := range []string{"+ org/lib  yolo-jail.jsonc",
+		"The `brokered.gbsrc.repos` change is in yolo-jail.jsonc: undo it there, or answer y at the next launch",
+		"gb: 2 added, 0 removed, 0 source changed",
+		"run `yolo loopholes disable gb --workspace"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("the decline does not say %q:\n%s", want, out)
+		}
+	}
+	// The count line sits directly above the question.
+	if i, j := strings.Index(out, "gb: 2 added"), strings.Index(out, "[y/N]"); i < 0 || j < 0 || i > j {
+		t.Errorf("the count line is not above the question:\n%s", out)
+	}
+	if _, err := os.Stat(config.ApprovalScopePath(o.Workspace)); !os.IsNotExist(err) {
+		t.Fatal("a declined gate recorded the scope part")
+	}
+}
+
+// evilInclude is an include file name the agent chose, holding terminal sequences and markup.
+const evilInclude = "x\x1b[2K\x1b]0;owned\a[bold]y.jsonc"
+
+// writeEvilInclude makes the workspace config include evilInclude, which holds body.
+func writeEvilInclude(t *testing.T, ws, body string) {
+	t.Helper()
+	writeWorkspaceConfig(t, ws, `{"include_if_found": ["x\u001b[2K\u001b]0;owned\u0007[bold]y.jsonc"]}`)
+	if err := os.WriteFile(filepath.Join(ws, evilInclude), []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// asText reports whether out names evilInclude as text: no terminal sequence reached it, and the
+// renderer left the name's markup in place.
+func asText(out string) bool { return namesAsText(out, "bold]y.jsonc") }
+
+// namesAsText reports whether out holds no terminal sequence and holds want, the tail of an
+// agent-chosen name whose markup the renderer would have consumed.
+func namesAsText(out, want string) bool {
+	return !strings.ContainsAny(out, "\x1b\a") && strings.Contains(out, want)
+}
+
+// WW-P3: the launch's own config messages print what the agent chose as text, written in an
+// include the agent named: the include's parse error, which names it; a warning and an error that
+// echo a value and a key; and a `brokered` key written twice there (WW-D24).
+func TestTheLaunchsConfigMessagesPrintTheAgentsTextAsText(t *testing.T) {
+	for name, c := range map[string]struct {
+		body, want string
+		ok         bool
+	}{
+		"a parse error": {`{"packages": `, "bold]y.jsonc", false},
+		"a warning":     {`{"devices": ["/dev/x\u001b]0;owned\u0007[bold]z"]}`, "bold]z", true},
+		"an error":      {`{"x\u001b]0;owned\u0007[bold]k": 1}`, "bold]k: unknown key", false},
+		"a key written twice": {`{"brokered": {"gbsrc": {"repos": ["a/a"]}}, "brokered": {"gbsrc": {"repos": ["b/b"]}}}`,
+			"bold]y.jsonc: config.brokered is written 2 times", false},
+	} {
+		o, buf, _ := brokeredFixture(t)
+		writeEvilInclude(t, o.Workspace, c.body)
+		if _, ok := o.loadAndValidateConfig(); ok != c.ok {
+			t.Errorf("%s: the launch's config gate returned ok=%v, want %v:\n%s", name, ok, c.ok, buf.String())
+		}
+		if !namesAsText(buf.String(), c.want) {
+			t.Errorf("%s: the agent's text did not reach the output as text (want %q):\n%q", name, c.want, buf.String())
+		}
+	}
+}
+
+// WW-D19: the decline line names the entry's agent-chosen file as text.
+func TestTheDeclineNamesAnAgentChosenFileAsText(t *testing.T) {
+	o, buf, _ := brokeredFixture(t)
+	writeEvilInclude(t, o.Workspace, `{"brokered": {"gbsrc": {"repos": ["org/lib"]}}}`)
+	o.IsTTYStdin = func() bool { return true }
+	o.Stdin = strings.NewReader("n\n")
+	if o.checkConfigChanges(gbOn(), "podman") {
+		t.Fatalf("an `n` was accepted:\n%s", buf.String())
+	}
+	out := buf.String()
+	if strings.ContainsAny(out, "\x1b\a") || !strings.Contains(out, `change is in x\x1b[2K`) {
+		t.Fatalf("the decline does not name the file as text:\n%q", out)
+	}
+}
+
+// WW-D19: the launch line names each repository's agent-chosen file as text, markup included.
+func TestTheLaunchLineNamesAnAgentChosenFileAsText(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("the fixture daemon is /bin/cp")
+	}
+	o, buf, _ := brokeredFixture(t)
+	writeEvilInclude(t, o.Workspace, `{"brokered": {"gbsrc": {"repos": ["org/lib"]}}}`)
+	o.AcceptConfigChanges = true
+	if !o.checkConfigChanges(gbOn(), "podman") {
+		t.Fatalf("an accepted gate refused:\n%s", buf.String())
+	}
+	handles := o.startLoopholes("yolo-escaped-line", "podman", gbOn())
+	t.Cleanup(func() { o.stopLoopholes(handles, hostServiceSocketsDir("yolo-escaped-line", false), "", "") })
+	var line string
+	for _, l := range strings.Split(buf.String(), "\n") {
+		if strings.Contains(l, "scope for this workspace") {
+			line = l
+		}
+	}
+	if !asText(line) {
+		t.Fatalf("the launch line lost or rendered the file's name: %q\n%s", line, buf.String())
+	}
+}
+
+// WW-D18, WW-D19: the gate's read refusal names an agent-chosen include as text.
+func TestTheGateReadRefusalNamesAnAgentChosenFileAsText(t *testing.T) {
+	o, buf, _ := brokeredFixture(t)
+	writeEvilInclude(t, o.Workspace, `{"brokered": `)
+	if o.checkConfigChanges(gbOn(), "podman") {
+		t.Fatalf("a broken include passed the gate:\n%s", buf.String())
+	}
+	if !asText(buf.String()) {
+		t.Fatalf("the refusal lost or rendered the file's name:\n%q", buf.String())
 	}
 }

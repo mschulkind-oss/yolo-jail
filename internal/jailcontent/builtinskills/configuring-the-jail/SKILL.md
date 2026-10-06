@@ -45,6 +45,12 @@ human, on the host. Its `enabled` in `yolo-jail.jsonc` is only a `[WARN]` in
 here but refuses the next host launch, so don't write it; ask the human to run
 `yolo loopholes enable <name>` on the host, in this project.
 
+Its repository list is the other way round: `brokered.<source>.repos`
+(`brokered.github.repos` for the github pack) is a workspace key you may write,
+listing a repository the project has no remote for. It takes effect only once the
+human approves it at the next fresh launch, so after adding it, run
+`yolo check --no-build` and ask the human to restart the jail and answer y.
+
 ### Which file — and how the layers merge
 
 Three layers merge, later wins:
@@ -52,8 +58,10 @@ Three layers merge, later wins:
 - `~/.config/yolo-jail/config.jsonc` — user/machine defaults.
 - `<workspace>/yolo-jail.jsonc` — the committed per-project config. **Edit this
   one** unless told otherwise.
-- `<workspace>/yolo-jail.local.jsonc` — gitignored per-machine tweaks
-  (auto-merged when present).
+- `<workspace>/yolo-jail.local.jsonc` — per-machine tweaks, auto-merged when
+  present. Conventionally untracked, but yolo does not git-ignore it: run
+  `git check-ignore yolo-jail.local.jsonc` before trusting it to stay out of a
+  commit.
 
 Either workspace file may be spelled `.json` instead (`yolo-jail.json`,
 `yolo-jail.local.json`), which yolo reads only when the `.jsonc` name is absent.

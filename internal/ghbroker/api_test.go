@@ -177,9 +177,11 @@ func TestEveryAccountWideRefusalNamesANextStep(t *testing.T) {
 			t.Errorf("gh %s: %q (%s), want account-wide", c.argv, d.Outcome, d.Reason)
 			continue
 		}
-		if !strings.Contains(d.Reason, c.want) || !strings.Contains(d.Reason, "no widening entry") &&
-			!strings.Contains(d.Reason, "No widening entry") {
-			t.Errorf("gh %s: reason %q, want it to keep the widening sentence and name %q", c.argv, d.Reason, c.want)
+		// It says the workspace entry cannot add it, naming the key, never an undefined term.
+		if !strings.Contains(d.Reason, c.want) || !strings.Contains(d.Reason, "`brokered.github.repos` entry can add") ||
+			strings.Contains(d.Reason, "widening") {
+			t.Errorf("gh %s: reason %q, want it to say no `brokered.github.repos` entry can add it and name %q",
+				c.argv, d.Reason, c.want)
 		}
 	}
 }

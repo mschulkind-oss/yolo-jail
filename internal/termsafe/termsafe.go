@@ -56,3 +56,17 @@ func Visible(s string) string {
 	}
 	return b.String()
 }
+
+// VisibleLines is Visible applied to each line of s: a newline stays a newline, for a message yolo
+// wrote on several lines around text another party chose. Every other unsafe rune is escaped, so
+// a name that may hold a newline goes through Visible before it joins such a message.
+func VisibleLines(s string) string {
+	if !HasUnsafe(s) {
+		return s
+	}
+	lines := strings.Split(s, "\n")
+	for i, l := range lines {
+		lines[i] = Visible(l)
+	}
+	return strings.Join(lines, "\n")
+}

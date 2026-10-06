@@ -542,7 +542,7 @@ func workspaceLoopholeEntries(workspace string) map[string][]wsLoopholeEntry {
 		// yolo-jail.local.json is read here exactly when the merge read it: reading only the
 		// `.jsonc` names let a `.json` file install, or switch a brokered loophole, unrefused.
 		path, fname := ResolveWorkspaceConfigPath(workspace, base)
-		cfg, node, err := loadWithIncludes(path, fname, false, func(string) {}, seen, true)
+		cfg, node, err := loadWithIncludes(path, fname, false, func(string) {}, seen, true, readAt{})
 		if err != nil || cfg == nil {
 			continue
 		}

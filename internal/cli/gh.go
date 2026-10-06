@@ -25,13 +25,18 @@ credential. With the ` + "`github`" + ` pack selected, a bare ` + "`gh`" + ` in 
 
 This version is read-only: commands in the read-only set (pr view, pr list,
 issue view, run view, workflow list, api GET under repos/OWNER/REPO, …) run
-against this workspace's own GitHub repositories. Every write exits 77 at once:
-it needs the host user's approval, and that step is not built yet, so nothing
-runs and nothing waits; ask the user to run it on the host. Commands that could
-print the
-credential or reach the host (auth token, --web, api to a URL, a host file, …)
-are refused with exit 64, as is anything outside the workspace's repositories.
+against this workspace's repositories: its GitHub remotes, and any repository
+its config lists under ` + "`brokered.github.repos`" + `, as the user approved them at
+the jail's launch. Every write exits 77 at once: it needs the host user's
+approval, and that step is not built yet, so nothing runs and nothing waits; ask
+the user to run it on the host. Commands that could print the credential or
+reach the host (auth token, --web, api to a URL, a host file, …) are refused
+with exit 64, as is anything outside the workspace's repositories.
 --jq and --template work as they do in gh.
+
+A repository joins the scope through the workspace config: add it to the
+` + "`repos`" + ` list under ` + "`brokered.github`" + `, run ` + "`yolo check --no-build`" + `, and ask the user to
+restart the jail and approve the repository scope at launch.
 
 The repository is -R OWNER/REPO, or this workspace's origin remote. Standard
 input is sent when the arguments read it (` + "`--body-file -`" + `).
