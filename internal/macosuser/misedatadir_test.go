@@ -17,7 +17,8 @@ import (
 // MISE_DATA_DIR resolves to $HOME/.local/share/mise, and under the home-tier layout
 // ~/.local is a symlink into <workspace>/.yolo/home — so a deleted line here does not
 // break a launch, it moves one machine-wide tool store into every workspace's own
-// sidecar, where the container backends keep nothing. Nothing else would notice.
+// sidecar, where podman keeps nothing (Apple Container keeps a disk per workspace only
+// because a disk attaches to one VM at a time, OQ-MB1). Nothing else would notice.
 
 // The three places the value has to agree: the PATH the agent gets, the env the agent
 // gets, and the env the bootstrap generates its config from. A value in one and not the

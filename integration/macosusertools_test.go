@@ -31,11 +31,12 @@ import (
 //
 // THE TIER CHECK IS THE HALF THAT CANNOT BE UNDONE BY A LATER LAUNCH, which is why it is
 // asserted beside the installs rather than left to item 5. `~/.yolo/mise` is the MACHINE
-// tier: one tool store for every workspace, the way the container mounts one /mise
+// tier: one tool store for every workspace, the way podman mounts one /mise
 // (macosuser.SandboxMiseData states the rule). Its siblings `~/.yolo/bin` and
 // `~/.npm-global` are the WORKSPACE tier and are symlinks into `<ws>/.yolo/home`. Getting
-// that backwards gives every workspace its own copy of every tool — the inverse of every other
-// backend — and nothing at run time complains.
+// that backwards gives every workspace its own copy of every tool — the inverse of podman,
+// with none of the reason Apple Container has for one disk per workspace (a disk attaches
+// to one VM at a time, OQ-MB1) — and nothing at run time complains.
 //
 // IT RUNS ONE LAUNCH AND SPLITS THE ANSWER INTO SUBTESTS, on this suite's fencing
 // convention: a macos-user launch builds a native nix closure and then installs from the
@@ -144,7 +145,7 @@ func TestMacosUserDeclaredToolsArrive(t *testing.T) {
 				macosuser.SandboxMiseData(""))
 		case store.kind == "symlink":
 			t.Errorf("%s is a SYMLINK to %s — the mise store landed in the PER-WORKSPACE "+
-				"tier. Every other backend keeps ONE tool store per machine (the container "+
+				"tier. This backend keeps ONE tool store per machine, as podman does (it "+
 				"mounts one /mise for every workspace), so this gives each workspace its "+
 				"own copy of every tool and nothing at run time complains. Runbook item 9's "+
 				"⚠ calls this the one thing a later launch cannot undo.",
