@@ -135,7 +135,9 @@ under [External waits](#external-waits).
 35. Speed builds the maintainer asked for on 2026-10-04: [Apple Container's stock-image skip, then the skip for a launch
     declaring `packages:`](../reference/image-staging-vs-baking.md), as a nix build that finds nothing to do is 3.2 to
     3.5 s of a 6.9 s fresh launch; and [Podman Machines pinned to applehv](../research/macos-vm-runtime-comparison.md#32-on-a-shared-mac-folder),
-    as Podman's installer gives libkrun, the slowest shared folder measured.
+    as Podman's installer gives libkrun, the slowest shared folder measured. Then
+    [make OrbStack a working Podman host](../research/orbstack-as-a-podman-host.md), as its measured
+    shared-folder speed and memory return offer another Mac option without restoring Docker first.
 36. Builds no ruling holds: [the provisioner override](../design/provisioner-sets.md#9-what-i-would-build-in-order),
     whose grain was ruled 2026-10-05; [the readiness act on macos-user](../design/jail-notch-readiness.md#JR-D2); [a
     provider set's overlay modifier](../design/active-provider-sets.md#13-what-was-built-2026-09-29), which reads only the

@@ -3,7 +3,7 @@ title: "Running yolo on OrbStack without a Docker backend: podman inside an OrbS
 date: 2026-10-06
 status: in-review
 stage: DESIGN
-next: "The maintainer decides whether yolo supports OrbStack as a podman host; if so, plan the five changes in §4, starting with the two that make a stock setup work (stdin and the advertised host name), and ask OrbStack about the dropped output (§3.1)"
+next: "After 0.12.0, prepare a checked plan for a working OrbStack setup through Podman and verify it on the existing Mac runner before considering a Docker fallback"
 tags: [research, macos, orbstack, podman, backend]
 summary: "The maintainer asked what official OrbStack support in yolo would take. The runtime comparison assumed it meant a Docker-API backend, reversing Docker's removal. It does not: podman installed in an OrbStack Linux machine and driven from the Mac as a podman connection ran the benchmark workload at OrbStack's own speed, gave a freed 2 GiB back to macOS within 60 s, and ran a full yolo jail with all three host services reachable, with no yolo code change. Two faults needed workarounds: OrbStack's SSH proxy drops a container's output once the client closes stdin, which yolo always does, and the jail must be told to reach host services at host.orb.internal. Support would be five small changes on yolo's existing podman path plus a self-hosted CI Mac."
 vantage:
@@ -12,7 +12,9 @@ vantage:
 
 # Running yolo on OrbStack without a Docker backend
 
-**Status:** 2026-10-06, research only, and nothing is ruled.
+**Status:** 2026-10-06, support is queued after 0.12.0. The maintainer requires a working setup,
+with Podman preferred and Docker allowed if needed. No support implementation is built; the
+measurements below remain the original research, not verification of the proposed changes.
 - **MEASURED** on one Mac (M4, macOS 26.5) with the OrbStack trial install from
   [the runtime comparison](macos-vm-runtime-comparison.md), one run each.
 - **SOURCED** from this repository's code, with the file named.
@@ -50,8 +52,8 @@ in yolo officially?"*
 ## 1. The setup
 
 A Fedora 44 machine, `orb create fedora benchpod`. Inside it:
-- podman, rootless, with pasta networking. Fedora 44's is 5.8.7; the jail run in §3 used 6.1.2
-  from Fedora rawhide, installed while chasing the fault in §3.1, which it turned out not to be.
+- podman, rootless, with pasta networking. Fedora 44's is 5.8.7; the [jail run](#3-a-yolo-jail-on-it-today) used 6.1.2
+  from Fedora rawhide, installed while chasing the [SSH proxy fault](#31-orbstacks-ssh-proxy-drops-output-after-stdin-closes), which it turned out not to be.
 - `matt:100000:1000000` in `/etc/subuid` and `/etc/subgid`;
 - `systemctl --user enable --now podman.socket`.
 
@@ -127,7 +129,7 @@ Mac's. The launcher had set `YOLO_HOST_LOOPBACK=unknown` and added no network op
 in-jail check warned rather than refusing. With `YOLO_SVC_ADVERTISE_HOST=host.orb.internal` it
 reported `3/3 enabled service(s) reachable` (MEASURED).
 
-So the working launch, after the setup in §1 and §3.1, was:
+So the working launch, after the [machine setup](#1-the-setup) and [SSH workaround](#31-orbstacks-ssh-proxy-drops-output-after-stdin-closes), was:
 
 ```console
 $ CONTAINER_CONNECTION=orb-sshd YOLO_RUNTIME=podman YOLO_SVC_ADVERTISE_HOST=host.orb.internal yolo
@@ -135,12 +137,18 @@ $ CONTAINER_CONNECTION=orb-sshd YOLO_RUNTIME=podman YOLO_SVC_ADVERTISE_HOST=host
 
 ## 4. What official support would take
 
-All INFERRED, smallest first. Every change lands on the `podman` runtime; there is no new
-backend name, so no new cell in [the fill-the-matrix rule](../reference/fill-the-matrix-principle.md)'s
-matrix beyond a host flavour of an existing one.
+**Delivery requirement, ruled 2026-10-06:** the maintainer's "we NEED a happy path" requires a
+normal setup that works without a user-maintained SSH tunnel or a manually supplied host name.
+Follow the [happy-path principle](../reference/happy-path-principle.md). Prefer Podman, but not
+at the expense of a reliable setup. Docker is allowed as a fallback if the Podman route cannot
+deliver that result; the ruling does not restore the removed runtime or change the default.
+
+The five steps below remain proposed work, not measured fixes. The preferred route uses the
+existing Podman runtime. A Docker fallback would require its own checked design and coverage
+under [the fill-the-matrix rule](../reference/fill-the-matrix-principle.md).
 
 1. **Keep the main process's stdin open.** Give `startJailMain` a pipe nobody writes instead of
-   `/dev/null`. The hold reads nothing either way, and §3.1's table shows an open stdin gets the
+   `/dev/null`. The hold reads nothing either way, and the [SSH comparison](#31-orbstacks-ssh-proxy-drops-output-after-stdin-closes) shows an open stdin gets the
    output through OrbStack's proxy. That makes OrbStack's own connection on port 32222 usable and
    removes the sshd and the tunnel. Checking every other `-i` with a closed stdin yolo runs is
    part of it. Report the proxy fault to OrbStack as well.
@@ -149,20 +157,32 @@ matrix beyond a host flavour of an existing one.
    loopback disposition for it. `TestEveryBackendDeclaresALoopbackDisposition` and the
    reachability witness's severity rule
    ([`OQ-R3`](../reference/loopback-tls-reachability.md#oq-r3)) then apply as on any backend.
-3. **Set the machine up for the user.** A `yolo` command, or a documented recipe, that creates the
-   machine, installs podman, writes `/etc/subuid`, enables the socket and adds the connection; and
-   a `yolo check` section that says which of those is missing and the command that fixes it.
+3. **Set the machine up for the user.** Provide a working setup path that creates the machine,
+   installs podman, writes `/etc/subuid`, enables the socket and adds the connection. A manual
+   workaround recipe alone does not satisfy the ruling. A `yolo check` section must name missing
+   prerequisites and the command that fixes them. Exact command shape and machine ownership
+   belong in the build plan rather than assumptions hidden in implementation.
 4. **Check what assumes `podman machine`.** `ReadMachineShares` returns no answer under
    `CONTAINER_CONNECTION` ([`runtime/machineshares.go`](../../internal/runtime/machineshares.go)),
    and memory sizing reads `podman machine inspect`. Neither failed the launch above, but neither
    was checked: OrbStack shares more than `/Users` (a workspace under `/tmp` was not tried), and
    the nix daemon socket mount was not tested.
-5. **CI.** A self-hosted Mac with a licensed OrbStack, like the dispatch-only Apple Container
-   workflow. Without it the backend is untested by anything but its users.
+5. **CI.** Use the existing self-hosted Mac for dispatch-only verification: the maintainer
+   confirmed on 2026-10-06 that it already has OrbStack. Check its machine, connection and license
+   prerequisites; installation alone is not a passing launch test. Verify closed-stdin output,
+   workspace mounts and enabled host-service reachability there.
 
-**The alternative**, a Docker-API backend, would mean restoring what Docker's removal deleted and
-another branch in each of the roughly 70 files that switch on the runtime name, for the same VM and
-the same shared folder measured in §2.
+**The alternative**, a Docker-API backend, is permitted as a fallback rather than the first build.
+Restoring it requires complete runtime coverage; there is no measured reason to prefer it yet.
+Establish whether the Podman fixes deliver a normal working setup before taking that larger path.
+
+## Decision Ledger
+
+| ID | Ruling / Decision | Date | Settled in | Built |
+| :--- | :--- | :--- | :--- | :--- |
+| ORB-D1 | Support is post-release work; the normal setup must work, not merely document workarounds. | 2026-10-06 | [Support requirements](#4-what-official-support-would-take) | — |
+| ORB-D2 | Podman is preferred; Docker is permitted if needed for reliable support, not restored by this ruling alone. | 2026-10-06 | [Support requirements](#4-what-official-support-would-take) | — |
+| ORB-D3 | Use the existing Mac runner, which the maintainer says already has OrbStack, for native verification. | 2026-10-06 | [Verification](#4-what-official-support-would-take) | — |
 
 ## 5. What to clean up after the trial
 
