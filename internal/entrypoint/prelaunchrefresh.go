@@ -201,10 +201,14 @@ _refresh_worth() {
     return 1
 }
 
+# _refresh_file_holds reads the file with bash's own $(<file), never cat: a cat the user blocked
+# (security.blocked_tools) is a shim first on PATH that exits 127, which would skip every refresh
+# for good. The braces carry the 2>/dev/null to the substitution's own read error (on a bare
+# assignment it does not), so an unreadable file is a silent "no"; bash 3.2 has the form too.
 _refresh_file_holds() {
     [ -f "$1" ] || return 1
     local content s
-    content=$(cat "$1" 2>/dev/null) || return 1
+    { content=$(<"$1"); } 2>/dev/null || return 1
     for s in "${REFRESH_ONLY_IF_CONTAINS[@]}"; do
         case "$content" in *"$s"*) return 0 ;; esac
     done
@@ -261,10 +265,19 @@ _take_refresh_lock() {
     return 0
 }
 
+# _refresh_lock_owner prints the lock's owner token, or nothing, read by the shell alone for
+# _refresh_file_holds' reason: through a blocked cat no launcher would ever see its own token, so
+# none would release its lock, and every launch for STALE_LOCK after would find it held.
+_refresh_lock_owner() {
+    local owner=""
+    { owner=$(<"$REFRESH_LOCK/.yolo-lock-owner"); } 2>/dev/null || owner=""
+    printf '%s' "$owner"
+}
+
 # _drop_refresh_lock releases the lock only while it is still THIS launcher's: a lock another
 # launcher broke as stale and re-took must survive the first holder finishing.
 _drop_refresh_lock() {
-    [ "$(cat "$REFRESH_LOCK/.yolo-lock-owner" 2>/dev/null || true)" = "$REFRESH_TOKEN" ] || return 0
+    [ "$(_refresh_lock_owner)" = "$REFRESH_TOKEN" ] || return 0
     rm -f "$REFRESH_LOCK/.yolo-lock-owner" 2>/dev/null || true
     rmdir "$REFRESH_LOCK" 2>/dev/null || true
 }
@@ -280,7 +293,7 @@ _start_refresh_heartbeat() {
     (
         while sleep "$REFRESH_HEARTBEAT"; do
             kill -0 "$launcher" 2>/dev/null || exit 0
-            [ "$(cat "$REFRESH_LOCK/.yolo-lock-owner" 2>/dev/null || true)" = "$REFRESH_TOKEN" ] || exit 0
+            [ "$(_refresh_lock_owner)" = "$REFRESH_TOKEN" ] || exit 0
             touch -c "$REFRESH_LOCK" 2>/dev/null || exit 0
         done
     ) </dev/null >/dev/null 2>&1 &

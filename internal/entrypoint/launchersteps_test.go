@@ -148,6 +148,41 @@ func TestTheRefreshRunsOnlyWhenAListedFileHoldsAListedString(t *testing.T) {
 	}
 }
 
+// THE WORTH TEST READS WITH THE SHELL ALONE (XB-D41): a `cat` the user blocked
+// (security.blocked_tools, which ~/.yolo/bin/block puts first on PATH) is a shim that exits 127,
+// and reading the file through it would answer "no listed string" and skip every refresh for
+// good, and reading the lock's owner token through it would leave every lock taken. Red if
+// _refresh_file_holds or _refresh_lock_owner reads a file through any program on PATH.
+func TestTheRefreshWorthTestNeedsNoProgramOnPath(t *testing.T) {
+	for _, native := range []bool{false, true} {
+		p := newPrelaunchProbe(t, native)
+		p.refresh.OnlyIf = &packdecl.RefreshOnlyIf{Files: []string{".tool/settings.json"}, Contains: []string{`"npm:`}}
+		if err := os.WriteFile(filepath.Join(p.store, "settings.json"), []byte(`{"packages":["npm:x"]}`), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		block := filepath.Join(p.home, "block")
+		if err := os.MkdirAll(block, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(block, "cat"),
+			[]byte("#!/bin/sh\necho 'cat is blocked' >&2\nexit 127\n"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		p.write(t)
+		if out, err := p.cmd(block, "chat").CombinedOutput(); err != nil {
+			t.Fatalf("native=%v: launcher failed: %v\n%s", native, err, out)
+		}
+		if countLine(p.logLines(t), "REFRESH") != 1 {
+			t.Errorf("native=%v: with cat blocked the refresh did not run, though the settings name npm:x: %q",
+				native, p.logLines(t))
+		}
+		// And the lock it took is released: the owner-token check reads with the shell too.
+		if _, err := os.Lstat(p.lockPath()); !os.IsNotExist(err) {
+			t.Errorf("native=%v: with cat blocked the refresh left its lock behind (err=%v)", native, err)
+		}
+	}
+}
+
 // THE TREE GATE RUNS FIRST (XB-D25), in every template: a launch it stops runs no install, no
 // update and no refresh — here a cold home, a due update and a due refresh all at once — and a
 // version probe is not stopped. Red if the gate's splice moves back below the install.
