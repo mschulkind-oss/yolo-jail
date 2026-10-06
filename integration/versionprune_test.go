@@ -40,7 +40,9 @@ func TestTheClaudeLauncherPrunesSupersededVersionsWithNoUpdate(t *testing.T) {
 		`ls "$vd"`,
 		`echo "=== END ==="`,
 	}, "\n")
-	r := runYolo(t, dir, script)
+	// The test supplies its whole version tree; a boot-time vendor install would add a
+	// newer real version and change what "newest two" means before the fixture runs.
+	r := runYolo(t, dir, script, withoutFixtureProgramInstall())
 	if r.rc != 0 {
 		t.Fatalf("probe script failed: rc %d\n%s", r.rc, r.combined())
 	}

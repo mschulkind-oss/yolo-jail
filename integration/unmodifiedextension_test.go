@@ -82,7 +82,8 @@ echo "TREES=$YOLO_PATCHED_TREES"
 echo "SETTINGS=$(tr -d ' \n' < "$HOME/.utreeagent/settings.json")"`
 	launch := func(what string) string {
 		t.Helper()
-		r := runYoloDirect(t, t.TempDir(), "bash", "-c", probe)
+		r := runCommand(t, t.TempDir(), append(jailRunArgs(), "--", "bash", "-c", probe),
+			withoutFixtureProgramInstall())
 		out := r.combined()
 		if r.rc != 0 {
 			t.Fatalf("%s: rc %d\n%s", what, r.rc, out)

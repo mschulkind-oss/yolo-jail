@@ -27,8 +27,9 @@ import (
 )
 
 const (
-	readinessPack = "readiness-fixture"
-	readinessBin  = "yolo-readiness-tool"
+	readinessPack       = "readiness-fixture"
+	readinessBin        = "yolo-readiness-tool"
+	readinessMissingBin = readinessBin + "-unavailable"
 )
 
 // readinessFixture writes a local pack declaring one installer program whose installer is at url
@@ -38,15 +39,21 @@ const (
 func readinessFixture(t *testing.T, url string) string {
 	t.Helper()
 	pack := t.TempDir()
+	bin := readinessBin
+	if url == unreachableInstaller {
+		// A successful installer capture is reusable offline by binary and platform.
+		// The cold-failure fixture must not select the preceding successful fixture's binary.
+		bin = readinessMissingBin
+	}
 	installer := `#!/bin/bash
 set -euo pipefail
 mkdir -p "$HOME/.local/bin"
 echo installed >> "$HOME/.local/readiness-installs"
-cat > "$HOME/.local/bin/` + readinessBin + `" <<'TOOL'
+cat > "$HOME/.local/bin/` + bin + `" <<'TOOL'
 #!/bin/bash
 echo ran >> "$HOME/.local/readiness-runs"
 TOOL
-chmod +x "$HOME/.local/bin/` + readinessBin + `"
+chmod +x "$HOME/.local/bin/` + bin + `"
 `
 	if err := os.WriteFile(filepath.Join(pack, "install.sh"), []byte(installer), 0o644); err != nil {
 		t.Fatal(err)
@@ -58,7 +65,7 @@ chmod +x "$HOME/.local/bin/` + readinessBin + `"
   "name": "` + readinessPack + `",
   "description": "the readiness act, from the pack's own installer",
   "contributes": [
-    {"kind": "program", "bin": "` + readinessBin + `", "via": "installer", "url": "` + url + `"}
+    {"kind": "program", "bin": "` + bin + `", "via": "installer", "url": "` + url + `"}
   ]
 }`
 	if err := os.WriteFile(filepath.Join(pack, "pack.json"), []byte(manifest), 0o644); err != nil {
@@ -128,7 +135,7 @@ func TestALaunchWhoseProgramCannotInstallIsRefused(t *testing.T) {
 	}
 	for what, want := range map[string]string{
 		"the refusal": "REFUSING to start this jail",
-		"the program": "program " + readinessBin + " (pack " + readinessPack + ")",
+		"the program": "program " + readinessMissingBin + " (pack " + readinessPack + ")",
 		"the error":   "installer download failed: " + unreachableInstaller,
 		"the hatch":   paths.AllowMissingProgramsEnv + "=1 yolo <your command>",
 	} {
@@ -151,7 +158,7 @@ func TestTheMissingProgramsHatchStartsTheJail(t *testing.T) {
 	}
 	for _, want := range []string{
 		paths.AllowMissingProgramsEnv + " is set, so this jail starts WITHOUT",
-		"program " + readinessBin + " (pack " + readinessPack + ")",
+		"program " + readinessMissingBin + " (pack " + readinessPack + ")",
 	} {
 		if !strings.Contains(all, want) {
 			t.Errorf("the launch does not say %q:\n%s", want, all)

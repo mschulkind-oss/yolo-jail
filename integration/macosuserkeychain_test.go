@@ -124,10 +124,15 @@ step() {
     name=$1 secs=__BOUND__
     shift
     out="$kcdir/$name.out"
+    # A fast step can end its watchdog before Bash resets the forked shell's traps.
+    # Fork both helpers with no EXIT cleanup to inherit, then restore the owner's
+    # cleanup before waiting. Only this shell may remove the probe directory.
+    trap - EXIT
     printf '' | "$@" >"$out" 2>&1 &
     pid=$!
     ( sleep "$secs"; kill -TERM "$pid" 2>/dev/null; sleep 2; kill -KILL "$pid" 2>/dev/null ) >/dev/null 2>&1 &
     dog=$!
+    trap cleanup EXIT
     rc=0
     wait "$pid" || rc=$?
     kill "$dog" 2>/dev/null
@@ -251,6 +256,23 @@ func TestMacosUserKeychainProbeShellBoundsItsCleanup(t *testing.T) {
 	}
 }
 
+// A watchdog can receive SIGTERM before Bash resets the forked shell's traps. Replay the
+// parent's EXIT handler in that child to exercise this boundary without depending on which
+// process the scheduler runs first. Only the probe's owning shell may remove its scratch dir.
+func TestKeychainWatchdogCannotInheritTheProbesCleanup(t *testing.T) {
+	script := keychainProbeScript(1)
+	spawn := `    ( sleep "$secs";`
+	if strings.Count(script, spawn) != 1 {
+		t.Fatal("the probe must have one watchdog spawn to exercise")
+	}
+	script = strings.Replace(script, spawn,
+		"    inherited_exit=$(trap -p EXIT)\n"+`    ( eval "$inherited_exit"; sleep "$secs";`, 1)
+	run := runKeychainProbeAgainstAStandInWithScript(t, script, "delete-keychain")
+	if !watchdogEnded(run.out, "delete-keychain") || !watchdogEnded(run.out, "cleanup-delete-keychain") {
+		t.Fatalf("a watchdog inherited the owning shell's cleanup or lost its bound:\n%s", run.out)
+	}
+}
+
 // keychainTwinDeadline is how long the twin's probe may take: a few seconds over its one-second
 // bound per hanging step, and well under the stand-in's 30-second hang, so a step or a cleanup
 // left unbounded fails it rather than passing slowly.
@@ -268,6 +290,11 @@ type keychainTwinRun struct {
 // the test's own on every OS. It fails the test when the shell fails or takes longer than
 // keychainTwinDeadline.
 func runKeychainProbeAgainstAStandIn(t *testing.T, hang ...string) keychainTwinRun {
+	t.Helper()
+	return runKeychainProbeAgainstAStandInWithScript(t, keychainProbeScript(1), hang...)
+}
+
+func runKeychainProbeAgainstAStandInWithScript(t *testing.T, script string, hang ...string) keychainTwinRun {
 	t.Helper()
 	bash, err := exec.LookPath("bash")
 	if err != nil {
@@ -305,7 +332,7 @@ esac
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, bash, "-c", keychainProbeScript(1))
+	cmd := exec.CommandContext(ctx, bash, "-c", script)
 	cmd.Env = append(os.Environ(), "PATH="+bin+string(os.PathListSeparator)+os.Getenv("PATH"),
 		"KC_STANDIN_STATE="+run.state, "TMPDIR="+run.tmp,
 		"KC_STANDIN_HANG="+strings.Join(hang, " "))

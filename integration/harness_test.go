@@ -1163,6 +1163,13 @@ func readinessEnvForSuite() []string {
 	return []string{paths.NoProgramReadinessEnv + "=1"}
 }
 
+// withoutFixtureProgramInstall keeps boot-time installation and auto-capture out of tests
+// that supply their own fake program, even in a real-vendor-install run. The actual launcher
+// still runs when the test invokes it; only the unrelated boot-time installer acts are skipped.
+func withoutFixtureProgramInstall() runOption {
+	return withEnv(paths.NoProgramReadinessEnv+"=1", "YOLO_NO_AUTO_CAPTURE=1")
+}
+
 // withReadiness turns the readiness act back ON for one launch, for a test whose subject it is.
 // An empty value is "off" for the dial, and the launch's environment keeps the last entry for a
 // name, as withAutoReapers relies on.

@@ -336,7 +336,9 @@ func TestJailConfigsPresent(t *testing.T) {
 //
 // The installed tree is found from the launcher's own REAL_BIN, resolved, and widened to the
 // nearest npm package root when there is one (an npm bundle names its paths in files beside
-// its bin, not in the bin). "" when the pack declares nothing checkable.
+// its bin, not in the bin). The npm prefix default is read from that launcher too: macos-user's
+// invoking shell need not export the variable that the launcher sets inside its own process.
+// "" when the pack declares nothing checkable.
 func projectDirsProbe(t *testing.T, pack, bin string) string {
 	t.Helper()
 	var checks []string
@@ -354,7 +356,7 @@ func projectDirsProbe(t *testing.T, pack, bin string) string {
 	if len(checks) == 0 {
 		return ""
 	}
-	return fmt.Sprintf(` && BIN=%s && eval "$(grep '^REAL_BIN=' "$HOME/.yolo/bin/launch/%s")" && `+
+	return fmt.Sprintf(` && BIN=%s && eval "$(grep -E '^(export NPM_CONFIG_PREFIX=|REAL_BIN=)' "$HOME/.yolo/bin/launch/%s")" && `+
 		`root=$(readlink -f "$REAL_BIN") && d=$(dirname "$root") && `+
 		`for i in 1 2 3 4; do if [ -f "$d/package.json" ]; then root=$d; break; fi; d=$(dirname "$d"); done && `+
 		`%s`, bin, bin, strings.Join(checks, " && "))
