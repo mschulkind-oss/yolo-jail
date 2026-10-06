@@ -298,6 +298,7 @@ func loadMCPTables(e *Env) mcpTables {
 		t.perAgent[agent] = own
 		e.recordMCPGated(agent, ownSkipped)
 	}
+	e.recordMCPGatedReach(t, agents)
 	for _, s := range skipped {
 		var got []string
 		for _, agent := range agents {
@@ -333,6 +334,35 @@ func (e *Env) recordMCPGated(agent string, skipped []mcpSkip) {
 		gated[s.name] = s.missing
 	}
 	e.mcpGated[agent] = gated
+}
+
+// recordMCPGatedReach records, for each server the requires_env gate removed from any table,
+// the agents whose own table kept it: those whose env file (the credential gate's, written for a
+// selected profile) delivers what it needs. The drop notice reads it (noteGatedMCPEntries) so an
+// agent that lost such a server is told the step that delivers it is a profile selection, not
+// `env_sources`, where the value already is. Reset on every call, like recordMCPGated.
+func (e *Env) recordMCPGatedReach(t mcpTables, agents []string) {
+	e.mcpGatedReach = nil
+	for _, gated := range e.mcpGated {
+		for name := range gated {
+			if _, done := e.mcpGatedReach[name]; done {
+				continue
+			}
+			var got []string
+			for _, agent := range agents {
+				if _, ok := t.perAgent[agent].Get(name); ok {
+					got = append(got, agent)
+				}
+			}
+			if len(got) == 0 {
+				continue
+			}
+			if e.mcpGatedReach == nil {
+				e.mcpGatedReach = map[string][]string{}
+			}
+			e.mcpGatedReach[name] = got
+		}
+	}
 }
 
 // mcpGatedFor is what the requires_env gate removed from the table agent's surfaces render:

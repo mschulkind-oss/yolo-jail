@@ -1587,13 +1587,48 @@ func noteWithheldMCPEntries(e *Env, surface manifest.Surface, key string, names 
 // noteGatedMCPEntries is the drop notice's line for the entries of table key that left the file
 // because the requires_env gate removed them (names; each one's missing variables in vars). Quiet
 // when there are none. It says each is declared, names the variable unset for this agent, and the
-// one change that delivers it: set the variable in a dotenv file the user config's `env_sources`
-// lists, and launch again. The declare-it remedy, for a declared server, changes nothing.
+// one change that delivers it. The declare-it remedy, for a declared server, changes nothing.
+//
+// That change depends on where the variable is. When another agent's own table kept the server
+// (e.mcpGatedReach), the variable reaches that agent through its own env file, which the
+// credential gate writes for a selected profile: a provider-claimed `env_sources` value goes only
+// to the agents whose profile resolves to the claiming provider (providers.md, "The credential
+// gate"). It is already in `env_sources`, so the change is selecting, for this agent, a profile
+// that delivers it, and each such server gets a line of its own naming the agents that have it.
+// Otherwise nothing delivers it, and the change is setting it in a dotenv file the user config's
+// `env_sources` lists.
 func noteGatedMCPEntries(e *Env, surface manifest.Surface, key string, names []string, vars map[string][]string) {
 	if len(names) == 0 {
 		return
 	}
 	sort.Strings(names)
+	var unreached []string
+	for _, name := range names {
+		var others []string
+		for _, a := range e.mcpGatedReach[name] {
+			if a != surface.Agent {
+				others = append(others, a)
+			}
+		}
+		if len(others) == 0 {
+			unreached = append(unreached, name)
+			continue
+		}
+		missing := strings.Join(vars[name], ", ")
+		fmt.Fprintf(e.Stderr, "%s/%s: dropping from %s (in config, required env not set): %s "+
+			"(needs %s) — %s reaches only %s, through %s, so the `requires_env` gate left it "+
+			"out for %s; it stays declared under `%s`, and to deliver it, select for %s a "+
+			"profile that delivers %s, as %s, with the `profile` key in %s on the host, then "+
+			"launch again\n",
+			surface.Agent, surface.Name, key, name, missing, missing, strings.Join(others, ", "),
+			plural(len(others), "the profile it selected", "the profiles they selected"),
+			surface.Agent, manifest.SourceMCPServers, surface.Agent, missing,
+			plural(len(others), "that one does", "those do"), dropRemedyUserConfig)
+	}
+	names = unreached
+	if len(names) == 0 {
+		return
+	}
 	items := make([]string, len(names))
 	var unset []string
 	seen := map[string]bool{}

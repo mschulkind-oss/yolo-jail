@@ -149,3 +149,58 @@ func TestTheBootDropNoticeReadsTheAgentsOwnGatedTable(t *testing.T) {
 			"ACME_TOKEN; got %q", notice)
 	}
 }
+
+// A variable that reaches ANOTHER agent through that agent's own env file (the credential gate
+// scopes a provider-claimed `env_sources` value to the agents whose profile selects the provider)
+// is already in `env_sources`, so the `env_sources` remedy changes nothing for this agent: the
+// step that delivers it is selecting a profile that does. Here claude has no env file and renders
+// the jail-wide table, which lost acme, while codex's own file keeps it.
+func TestTheBootDropNoticeNamesTheProfileStepWhenAnotherAgentHasTheVariable(t *testing.T) {
+	packs := capabilityPacks(t, "claude")
+	home, ws := t.TempDir(), t.TempDir()
+	servers := map[string]any{"acme": gatedServer()}
+	boot := func(set bool) (*Env, string) {
+		vars := capabilityJailVars(t, packs, servers, nil)
+		if set {
+			vars["ACME_TOKEN"] = "acme-test"
+		}
+		var stderr bytes.Buffer
+		e := &Env{Home: home, Workspace: ws, Vars: vars, Stderr: &stderr}
+		ConfigurePackSurfaces(e, packs)
+		if fails := e.GenFailures(); len(fails) != 0 {
+			t.Fatalf("boot render failed: %v\n%s", fails, stderr.String())
+		}
+		return e, stderr.String()
+	}
+	e, _ := boot(true)
+	if _, ok := renderedMCPServers(t, e, "claude")["acme"]; !ok {
+		t.Fatalf("the first boot, with ACME_TOKEN set, must deliver acme")
+	}
+	writeHostFile(t, filepath.Join(home, AgentEnvDirRel, "codex.sh"), "export ACME_TOKEN='x'\n")
+	e, notice := boot(false)
+	if _, kept := renderedMCPServers(t, e, "claude")["acme"]; kept {
+		t.Fatalf("acme was delivered to claude, whose environment lacks ACME_TOKEN")
+	}
+	line := dropLine(notice, "acme")
+	if line == "" {
+		t.Fatalf("the boot must still announce that acme left ~/.claude.json; got %q", notice)
+	}
+	for _, wrong := range []string{"not in config", "set ACME_TOKEN in a dotenv file"} {
+		if strings.Contains(line, wrong) {
+			t.Errorf("the notice offers %q, which changes nothing when ACME_TOKEN already reaches "+
+				"codex; got %q", wrong, line)
+		}
+	}
+	for _, want := range []string{
+		"ACME_TOKEN",
+		"codex",         // who has it
+		"`profile`",     // the step that delivers it
+		"for claude",    // to whom
+		"`mcp_servers`", // it is declared
+		dropRemedyUserConfig,
+	} {
+		if !strings.Contains(line, want) {
+			t.Errorf("the notice must name %q; got %q", want, line)
+		}
+	}
+}

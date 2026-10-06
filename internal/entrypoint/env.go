@@ -151,6 +151,10 @@ type Env struct {
 	// recordMCPGated), so the drop notice can tell a declared server whose variable is unset
 	// from an entry no config declares. Sequential, like warnedOnce.
 	mcpGated map[string]map[string][]string
+	// mcpGatedReach maps each server some table's requires_env gate removed to the agents whose
+	// own table kept it (recordMCPGatedReach), so the drop notice names the step that delivers
+	// it to an agent that lost it. Sequential, like mcpGated.
+	mcpGatedReach map[string][]string
 	// progressCfg is the rendering of the boot's slow steps (Env.progress). The zero
 	// value is the line-oriented one with the default timings; a test sets
 	// Immediate to see a step that finishes at once.

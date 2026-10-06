@@ -400,7 +400,20 @@ claude/config: dropping from mcpServers (in config, required env not set): acme 
 The remedy names one place, the user config's `env_sources`, where the
 [providers guide](../../userguide/guides/providers-and-models.md) puts every key: a workspace
 config may list `env_sources` too, but it sits in a repository, and a variable a `requires_env`
-gate asks for is usually a credential. Both lines are
+gate asks for is usually a credential.
+
+That remedy changes nothing when the variable already reaches another agent through that
+agent's own env file, which is where the credential gate puts an `env_sources` value a provider
+claims ([the credential gate](providers.md#the-credential-gate)): the value is in `env_sources`
+already, and only a profile selection delivers it. So when another agent's own table kept the
+server, the case in which the boot also prints `notice: MCP server 'acme' configured only for
+codex`, the line names that agent and the profile step instead (`Env.mcpGatedReach`):
+
+```text
+claude/config: dropping from mcpServers (in config, required env not set): acme (needs ACME_TOKEN) — ACME_TOKEN reaches only codex, through the profile it selected, so the `requires_env` gate left it out for claude; it stays declared under `mcp_servers`, and to deliver it, select for claude a profile that delivers ACME_TOKEN, as that one does, with the `profile` key in ~/.config/yolo-jail/config.jsonc on the host, then launch again
+```
+
+Both lines are
 pinned through the boot loop, by `capabilitydropnotice_test.go` and
 `requiresenvdropnotice_test.go` (`internal/entrypoint`), and the withheld rule's partition by
 `TestWithheldMCPServersIsWhatTheDeriveWasNotHanded` (`internal/agentcfg/luahook`).
