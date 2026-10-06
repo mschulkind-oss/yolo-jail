@@ -240,16 +240,18 @@ func ConfigurePackSurfaces(e *Env, packs []*packload.Pack) {
 // and plans none: the render's own plan is the loop's alone (planPackSurfaces).
 func surfaceStepsAbout(packs []*packload.Pack) map[string]genAbout {
 	about := map[string]genAbout{}
+	writable := writableHomeDirs(packs)
 	for _, p := range packs {
 		if p == nil || p.Decl == nil {
 			continue
 		}
-		about["pack_"+p.Name+"_surfaces"] = genAbout{doing: "reading the config files", pack: p.Name}
+		about["pack_"+p.Name+"_surfaces"] = genAbout{doing: "reading the config files", pack: p.Name, writable: writable}
 		surfaces, _ := manifest.DecodeSurfaces(p.Decl.SurfaceContributions())
 		for _, s := range surfaces {
 			name := "configure_" + s.Agent + "_" + s.Name
 			if _, seen := about[name]; !seen {
-				about[name] = genAbout{doing: "writing " + s.Agent + "'s " + s.Name + " file (" + s.Path + ")", pack: p.Name}
+				about[name] = genAbout{doing: "writing " + s.Agent + "'s " + s.Name + " file (" + s.Path + ")", pack: p.Name,
+					writable: writable}
 			}
 		}
 	}

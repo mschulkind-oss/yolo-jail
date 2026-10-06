@@ -38,6 +38,9 @@ type heldGroup struct {
 	labels []string
 	runs   []string
 	retry  string
+	// captures are `yolo capture`'s arguments for the builds it held on Apple Container, whose limit
+	// (PF-D21) the group then names; nil on any other runtime.
+	captures []string
 }
 
 // sealKey is the identity of f's build jail's config: the packs its seal selects (sealPacks).
@@ -81,18 +84,26 @@ func packsPhrase(packs []string) string {
 
 // hold records a build held at its good build by cause, which runs names ("still running v1.0.0
 // (3f2a9c1e) + 2 patches"), said once per cause when the act ends; retry is what builds it once the
-// cause is fixed.
-func (r *buildReport) hold(f packload.Fork, runs, retry string, cause *entrypoint.BuildCause) {
+// cause is fixed, and runtime the launch's, for Apple Container's limit.
+func (r *buildReport) hold(f packload.Fork, runs, retry, runtime string, cause *entrypoint.BuildCause) {
 	if r == nil {
 		return
 	}
-	for _, g := range r.held {
-		if g.cause.Same(cause) {
+	var g *heldGroup
+	for _, h := range r.held {
+		if h.cause.Same(cause) {
+			g = h
 			g.labels, g.runs = append(g.labels, f.Label()), append(g.runs, runs)
-			return
+			break
 		}
 	}
-	r.held = append(r.held, &heldGroup{cause: cause, labels: []string{f.Label()}, runs: []string{runs}, retry: retry})
+	if g == nil {
+		g = &heldGroup{cause: cause, labels: []string{f.Label()}, runs: []string{runs}, retry: retry}
+		r.held = append(r.held, g)
+	}
+	if runtime == "container" {
+		g.captures = append(g.captures, "`yolo capture "+f.CaptureArg()+"`")
+	}
 }
 
 // flush says each held group once: the builds it held, what each still runs, the cause, and who can
@@ -114,6 +125,12 @@ func (r *buildReport) flush() {
 		}
 		for _, l := range g.cause.WhoFixes(g.retry) {
 			r.pr.Print("[dim]  " + richtext.Escape(l) + "[/dim]")
+		}
+		if len(g.captures) > 0 {
+			// PF-D21: on Apple Container a build jail does not start beside a running jail.
+			r.pr.Print("[dim]  " + richtext.Escape("On Apple Container a build jail cannot start beside a running jail: "+
+				"if that is what stopped it, "+strings.Join(g.captures, ", ")+" "+plural(len(g.captures), "builds it",
+				"build them")+" once the other jails stop.") + "[/dim]")
 		}
 	}
 	r.held = nil

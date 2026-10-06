@@ -49,6 +49,10 @@ type ForkDelivery struct {
 	// Cause is the build's cause in plain words, when its act found one (BuildCause): what the
 	// launch's refusal of a missing patched fork says (PF-D77). nil leaves Reason to say it.
 	Cause *BuildCause `json:"cause,omitempty"`
+	// Unsaid says the host's build act said nothing of Reason, leaving it to the launch's refusal or
+	// warning (internal/cli/run's missingbuilds.go), which then says it once. The host's alone: never
+	// on the wire.
+	Unsaid bool `json:"-"`
 }
 
 // ForkBuildsWire renders the decisions for the environment, "" for none.
@@ -109,7 +113,7 @@ func sourceAgentLauncherSegments(inst *packdecl.Install, d ForkDelivery, stampDi
 		"__YOLO_PROGRAM_PATH__", shquote.Quote(inst.ProgramPath()),
 		"__YOLO_FORK_KEY_DIR__", shquote.Quote(keyDir),
 		"__YOLO_FORK_KEY__", shquote.Quote(d.Key),
-		"__YOLO_FORK_REASON__", shquote.Quote(d.Reason),
+		"__YOLO_FORK_REASON__", shquote.Quote(forkReasonSaid(d)),
 		"__YOLO_FORKED_BY__", shquote.Quote(inst.ForkedBy),
 		"__YOLO_SOURCE__", shquote.Quote(inst.Source),
 		"__YOLO_FORK_UPDATE_NOTE__", shquote.Quote(forkUpdateNote(inst)),
@@ -125,6 +129,19 @@ func sourceAgentLauncherSegments(inst *packdecl.Install, d ForkDelivery, stampDi
 		"__YOLO_TREE_GATE__", shquote.Quote(inst.Gate),
 	}, append(launchFlagSplices(flags), refreshSplices(inst.Refresh)...)...)...)
 	return strings.Split(r.Replace(sourceLauncherTemplate), token)
+}
+
+// forkReasonSaid is what a fork's launcher with no key says after "is not available in this jail: ":
+// the host's reason and, when its act found one, the cause under it (causeSaid), as an extension's
+// gate says it. A not-started build's reason is generic once a cause carries what stopped it. The
+// reason's own next step (" — the next fresh launch tries again"), which causeSaid leaves for the
+// gate's last line to say, is this launcher's last line, since it has no other.
+func forkReasonSaid(d ForkDelivery) string {
+	lines := causeSaid(d.Reason, d.Cause, "    ")
+	if _, next, ok := strings.Cut(d.Reason, " — "); ok && len(lines) > 1 && next != "" {
+		lines = append(lines, "    "+strings.ToUpper(next[:1])+next[1:]+".")
+	}
+	return strings.Join(lines, "\n")
 }
 
 // forkUpdateNote is what a fork's launcher says in update mode: what moves the fork's build, which

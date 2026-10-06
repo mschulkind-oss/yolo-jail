@@ -192,3 +192,73 @@ func TestANotchThatBuildsNoTreeRefusesNothing(t *testing.T) {
 		t.Errorf("above the floor the launch did not refuse, or name Apple Container's limit:\n%s", stderr.String())
 	}
 }
+
+// A PATCHED FORK THAT BUILDS FOR NONE OF THE JAIL'S PLATFORM refuses nothing: no build was tried, so
+// none failed (the header's "not where no tree or fork is built"), and its launcher keeps saying why.
+// Red with missingBuilds counting a fork its platforms exclude.
+func TestAPatchedForkForNoneOfThisPlatformRefusesNothing(t *testing.T) {
+	o := goldenOptions("/ws", t.TempDir())
+	var stderr bytes.Buffer
+	o.Stderr = &stderr
+	o.Getenv = func(string) string { return "" }
+	o.BuildForks = func(ForkBuildRequest) map[string]entrypoint.ForkDelivery { return nil }
+	fork := packload.Fork{Pack: "forkpack", Base: "toolpack", Bin: "tool", Patches: "patches",
+		Platforms: []string{"darwin/arm64"}}
+	o.forkPinned = []packload.ForkPin{{Fork: fork}}
+	o.forkDelivered = o.forkDeliveriesFor("podman")
+	if d := o.forkDelivered["tool"]; d.Key != "" || d.Reason == "" {
+		t.Fatalf("the fork is handed %+v, want its platform reason", d)
+	}
+	if o.refuseMissingBuilds("podman") || stderr.Len() != 0 {
+		t.Errorf("a fork no build was tried for refused the launch, or warned:\n%s", stderr.String())
+	}
+	// The same fork with this platform among its own, and no build, refuses.
+	fork.Platforms = append(fork.Platforms, "linux")
+	o.forkPinned = []packload.ForkPin{{Fork: fork}}
+	o.forkDelivered = map[string]entrypoint.ForkDelivery{"tool": {Reason: "its build of v1 failed on the host (exit 2)"}}
+	if !o.refuseMissingBuilds("podman") {
+		t.Errorf("a fork for this platform with no build refused nothing:\n%s", stderr.String())
+	}
+}
+
+// AN UNNEEDED MISSING BUILD ON APPLE CONTAINER names that runtime's limit too (PF-D21): the warning
+// is the only place its cause is said. Red with the hint printed only for builds the launch needs.
+func TestAnUnneededMissingBuildOnAppleContainerNamesItsLimit(t *testing.T) {
+	o := goldenOptions("/ws", t.TempDir())
+	var stderr bytes.Buffer
+	o.Stderr = &stderr
+	o.Getenv = func(string) string { return "" }
+	o.BuildTrees = func(TreeBuildRequest) map[string]TreeDelivery { return nil }
+	o.acVersion = &acVersionProbe{v: "1.1.0", ok: true}
+	o.patchedTrees = []packload.Fork{{Pack: "treepack", Bin: "tree-ext", Into: treeInto}}
+	o.treeDelivered = map[string]TreeDelivery{treeKey: {Reason: "its build jail exited before its build line ran on the host",
+		Cause: &entrypoint.BuildCause{Lines: []string{"Error: the runtime would not start it"}}}}
+	if o.refuseMissingBuilds("container") {
+		t.Fatalf("a build no agent pack loads refused the launch:\n%s", stderr.String())
+	}
+	if got := stderr.String(); !strings.Contains(got, "Warning: 1 patched build no selected agent pack loads") ||
+		!strings.Contains(got, "On Apple Container a build jail cannot start beside a running jail") {
+		t.Errorf("the warning does not name Apple Container's limit:\n%s", got)
+	}
+}
+
+// A BUILD THE ACT LEFT UNSAID, with no cause in plain words — a failed build, a series no upstream
+// takes — is said by the launch even when no agent pack loads it: the act printed nothing of it.
+// Red with refuseMissingBuilds reading the cause alone for its warning.
+func TestAnUnsaidBuildNoPackLoadsIsWarned(t *testing.T) {
+	o := goldenOptions("/ws", t.TempDir())
+	var stderr bytes.Buffer
+	o.Stderr = &stderr
+	o.Getenv = func(string) string { return "" }
+	o.BuildTrees = func(TreeBuildRequest) map[string]TreeDelivery { return nil }
+	o.patchedTrees = []packload.Fork{{Pack: "treepack", Bin: "tree-ext", Into: treeInto}}
+	reason := "extension treepack/tree-ext's build of v1.0.0 (0123abcd) failed on the host (exit 2) — the next fresh " +
+		"launch tries again, or `yolo capture treepack/tree-ext` now"
+	o.treeDelivered = map[string]TreeDelivery{treeKey: {Reason: reason, Unsaid: true}}
+	if o.refuseMissingBuilds("podman") {
+		t.Fatalf("a build no agent pack loads refused the launch:\n%s", stderr.String())
+	}
+	if got := stderr.String(); strings.Count(got, "failed on the host (exit 2)") != 1 {
+		t.Errorf("the unsaid build's reason is not said once:\n%s", got)
+	}
+}

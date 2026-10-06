@@ -723,9 +723,11 @@ func (a *advance) noFit(edited bool, newest string) advanceResult {
 		if edited {
 			next += "; reverting the edit brings back the good build " + run.GoodBuildLabel(a.rec.Good)
 		}
-		a.warn("%s: nothing to build — %s; %s", a.f.Label(), a.hasNo(), next)
 		r := a.finish(nil, forkBuild{}, 0, nil, why+" — "+next)
 		r.failed = true
+		if !a.leaveToLaunch(&r) {
+			a.warn("%s: nothing to build — %s; %s", a.f.Label(), a.hasNo(), next)
+		}
 		return r
 	}
 	r := a.finish(nil, forkBuild{}, 0, nil, "")
@@ -1160,8 +1162,9 @@ func (a *advance) notStarted(cause *entrypoint.BuildCause) advanceResult {
 	switch {
 	case r.delivery.Key == "" && r.delivery.Reason != "":
 		r.delivery.Cause = cause
+		a.leaveToLaunch(&r)
 	case a.serves() && cause != nil:
-		a.o.report.hold(a.f, a.runsNow(), a.retryNotStarted(), cause)
+		a.o.report.hold(a.f, a.runsNow(), a.retryNotStarted(), a.o.runtime, cause)
 	}
 	return r
 }
@@ -1185,12 +1188,35 @@ func (a *advance) buildFailed(b forkBuild, err error) advanceResult {
 		// The base is built next, and its own settle hands the jail what runs.
 		a.recordOnly(o)
 	} else {
-		r = a.finish(nil, forkBuild{}, 0, o, fmt.Sprintf("%s's build of %s failed on the host (%s) — %s "+
-			"tries again, or `yolo capture %s` now", f.Label(), b.Entry.Label(), oneLineErr(err), a.next(), f.CaptureArg()))
+		next := a.next() + " tries again, or `yolo capture " + f.CaptureArg() + "` now"
+		if g := a.goodBuild(); a.o.report != nil && g != nil && g.Recipe != a.recipe {
+			// What buildFailedLines would say beside it, for the launch that says this reason instead.
+			next = "reverting the edit to the series or the build brings back the good build " +
+				run.GoodBuildLabel(g) + "; " + next
+		}
+		r = a.finish(nil, forkBuild{}, 0, o, fmt.Sprintf("%s's build of %s failed on the host (%s) — %s",
+			f.Label(), b.Entry.Label(), oneLineErr(err), next))
 	}
-	a.buildFailedLines(b, err, autoCaptureRetryAt(capture.AutoFailure{Failures: o.Count, Last: now}))
+	if a.leaveToLaunch(&r) {
+		// The launch says the cause (missingbuilds.go); the build's own output is the act's to show.
+		a.printRunFailure()
+	} else {
+		a.buildFailedLines(b, err, autoCaptureRetryAt(capture.AutoFailure{Failures: o.Count, Last: now}))
+	}
 	r.failed, r.fellShort = true, true
 	return r
+}
+
+// leaveToLaunch reports whether r, an advance's end, leaves its reason to the launch: a jail
+// launch's act whose advance hands the jail nothing, so the launch's refusal or warning
+// (internal/cli/run's missingbuilds.go) says the reason, once, and the act prints no line of its own
+// for it. It marks r so (ForkDelivery.Unsaid).
+func (a *advance) leaveToLaunch(r *advanceResult) bool {
+	if a.o.report == nil || r.delivery.Key != "" || r.delivery.Reason == "" {
+		return false
+	}
+	r.delivery.Unsaid = true
+	return true
 }
 
 // recordOnly writes a failed build's outcome, counted against the record's, and nothing else.

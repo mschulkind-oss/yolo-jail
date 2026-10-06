@@ -68,7 +68,7 @@ func deliverTree(f packload.Fork, req run.TreeBuildRequest, report *buildReport,
 			r = servingTree(f, o, req.BuildFloor)
 		}
 		if r.delivery.Key == "" {
-			return run.TreeDelivery{Reason: r.delivery.Reason, Cause: r.delivery.Cause}
+			return run.TreeDelivery{Reason: r.delivery.Reason, Cause: r.delivery.Cause, Unsaid: r.delivery.Unsaid}
 		}
 		if req.CopyRoot == "" {
 			return run.TreeDelivery{Reason: f.Label() + " has a build on this machine, and this launch staged no pack " +

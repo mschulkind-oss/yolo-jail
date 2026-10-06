@@ -228,15 +228,17 @@ func (e forkBuildNotStarted) Error() string {
 // buildCause is what the jail said, as the launch's refusal, its warnings and the jail's gate say it
 // (entrypoint.BuildCause): the boot's failed generators in plain words, or the jail's last lines.
 // A YOLO BUG is a boot that refused to write a file a pack declares because the build jail mounts
-// that place read-only: the user's own jail, whose packs make it writable, writes it, so the seal
-// is what refused a config the user's launch accepts (PPX-D42). seal is the packs the jail was
+// that place read-only, a place under a directory the jail's packs or core make writable
+// (GenFailure.InWritableDir): the user's own jail writes it, so the seal is what refused a config
+// the user's launch accepts (PPX-D42). A read-only place no pack makes writable is refused in the
+// user's own jail too, which is the pack's to fix. seal is the packs the jail was
 // sealed to (sealPacks).
 func (e forkBuildNotStarted) buildCause(seal []string) *entrypoint.BuildCause {
 	c := &entrypoint.BuildCause{Packs: seal}
 	if e.boot != nil {
 		for _, g := range e.boot.Failures {
 			c.Lines = append(c.Lines, g.Lines()...)
-			if g.ReadOnly && g.Path != "" && g.Pack != "" {
+			if g.ReadOnly && g.InWritableDir && g.Path != "" && g.Pack != "" {
 				c.YoloBug = true
 			}
 		}

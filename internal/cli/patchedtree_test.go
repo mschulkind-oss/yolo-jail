@@ -242,7 +242,8 @@ func TestATreesAdmitRefusesStraysMissingProducesAndHomeReferences(t *testing.T) 
 			fx := newTreeFixture(t, `"f.txt"`)
 			tc.edit(fx)
 			d, out := fx.deliver(t, true)
-			if d.Dir != "" || !strings.Contains(out, tc.reason) {
+			// The reason is the launch's to say (missingbuilds.go), which says it once.
+			if d.Dir != "" || !strings.Contains(d.Reason, tc.reason) {
 				t.Errorf("delivered %+v; want a failed build naming %q:\n%s", d, tc.reason, out)
 			}
 			if rec := patchedRecordOf(t, treeKeyCLI); rec.Good != nil {

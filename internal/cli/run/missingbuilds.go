@@ -15,9 +15,10 @@ package run
 // (packload.Fork.ListedInJail), the condition on which that pack's launchers would stop
 // (patchedTreesWire's Stop, PPX-D18), which stay as the backstop for an attach and a nested launch.
 //
-// NOT WHERE NO TREE OR FORK IS BUILT: below Apple Container's read-only floor and inside a jail
-// nothing was built, so nothing failed; those keep their warning line (noteTreeDeliveries, and the
-// fork's launcher). macos-user returns above the slot and says so itself (noteMacosUserTrees).
+// NOT WHERE NO TREE OR FORK IS BUILT: below Apple Container's read-only floor, inside a jail, and
+// for a patched fork that builds for none of the jail's platform (forkUnpublishedHere) nothing was
+// built, so nothing failed; those keep their warning line (noteTreeDeliveries, and the fork's
+// launcher). macos-user returns above the slot and says so itself (noteMacosUserTrees).
 //
 // THE REFUSAL SAYS EACH CAUSE ONCE, with every build it left without one (entrypoint.BuildCause,
 // PPX-D42), then who can fix it and the ways back: what the cause names, `yolo capture <key>` to
@@ -27,8 +28,9 @@ package run
 // bypass set the same text is a warning and the launch goes on.
 //
 // An extension NO agent pack loads has nothing to stop and nothing to refuse, but the slot's act
-// said nothing of a build whose jail stopped before its build line (its cause is the launch's to
-// say), so that one is said here as a warning.
+// says nothing of a build that leaves nothing serving — a jail that stopped before its build line, a
+// build that failed, a series no upstream version takes (TreeDelivery.Unsaid) — so that one is said
+// here as a warning.
 
 import (
 	"slices"
@@ -49,6 +51,8 @@ type missingBuild struct {
 	capture string
 	reason  string
 	cause   *entrypoint.BuildCause
+	// unsaid says the build act said nothing of it, leaving it to this launch (TreeDelivery.Unsaid).
+	unsaid bool
 	// owner is the agent pack that loads an extension, "" for a fork.
 	owner string
 	// needed says the launch refuses without it.
@@ -78,9 +82,12 @@ func (o *Options) missingBuilds(rt string) []missingBuild {
 			if !p.Fork.Patched() {
 				continue // a plain fork's failed build is the fork route's (forked-programs-as-packs.md §9)
 			}
+			if forkUnpublishedHere(p.Fork) != "" {
+				continue // built for none of this jail's platform: no build was tried, so none failed
+			}
 			if d, ok := o.forkDelivered[p.Fork.Bin]; ok && d.Key == "" {
 				out = append(out, missingBuild{label: "fork " + p.Fork.Key(), capture: p.Fork.CaptureArg(),
-					reason: d.Reason, cause: d.Cause, needed: true})
+					reason: d.Reason, cause: d.Cause, unsaid: d.Unsaid, needed: true})
 			}
 		}
 	}
@@ -88,7 +95,7 @@ func (o *Options) missingBuilds(rt string) []missingBuild {
 		for _, f := range o.patchedTrees {
 			if d, ok := o.treeDelivered[f.Key()]; ok && d.Dir == "" {
 				out = append(out, missingBuild{label: f.Label(), capture: f.CaptureArg(), reason: d.Reason, cause: d.Cause,
-					owner: f.Owner, needed: f.Owner != "" && f.ListedInJail})
+					unsaid: d.Unsaid, owner: f.Owner, needed: f.Owner != "" && f.ListedInJail})
 			}
 		}
 	}
@@ -104,17 +111,24 @@ func (o *Options) refuseMissingBuilds(rt string) bool {
 		switch {
 		case m.needed:
 			needed = append(needed, m)
-		case m.cause != nil:
+		case m.cause != nil || m.unsaid:
 			unneeded = append(unneeded, m)
 		}
 	}
 	out := o.pr(o.Stderr)
+	// PF-D21's Apple Container line, which the act leaves to the launch with the cause: said once,
+	// after the last group that has a cause, needed or not.
+	withCause := func(m missingBuild) bool { return m.cause != nil }
+	acLimit := rt == "container" && (slices.ContainsFunc(needed, withCause) || slices.ContainsFunc(unneeded, withCause)) // parity: Warned — Apple Container starts no build jail beside a running jail, so the refusal or warning names the capture that builds it once the others stop (PF-D21)
 	if len(unneeded) > 0 {
 		out.print("[yellow]" + richtext.Escape("Warning: "+countOf(len(unneeded), "patched build")+" no selected "+
 			"agent pack loads "+plural(len(unneeded), "has", "have")+" no build on this machine:") + "[/yellow]")
 		o.printMissingGroups(unneeded)
 	}
 	if len(needed) == 0 {
+		if acLimit {
+			o.printAppleContainerLimit()
+		}
 		return false
 	}
 	held := o.Getenv(paths.AllowMissingProgramsEnv) != ""
@@ -128,10 +142,8 @@ func (o *Options) refuseMissingBuilds(rt string) bool {
 		out.print("[bold red]" + richtext.Escape(head) + "[/bold red]")
 	}
 	o.printMissingGroups(needed)
-	if rt == "container" && slices.ContainsFunc(needed, func(m missingBuild) bool { return m.cause != nil }) { // parity: Warned — Apple Container starts no build jail beside a running jail, so the refusal names the capture that builds it once the others stop (PF-D21)
-		// PF-D21's Apple Container line, which the act leaves to the launch with the cause.
-		out.print("[dim]" + richtext.Escape("  On Apple Container a build jail cannot start beside a running jail: if "+
-			"that is what stopped it, `yolo capture <key>` builds it once the other jails stop.") + "[/dim]")
+	if acLimit {
+		o.printAppleContainerLimit()
 	}
 	if held {
 		return false
@@ -145,6 +157,13 @@ func (o *Options) refuseMissingBuilds(rt string) bool {
 	out.print("[dim]" + richtext.Escape("  To run without one for good: drop the list entry naming it, or its pack.") +
 		"[/dim]")
 	return true
+}
+
+// printAppleContainerLimit is PF-D21's line: on Apple Container a build jail does not start beside a
+// running jail, the likeliest reason one stopped there.
+func (o *Options) printAppleContainerLimit() {
+	o.pr(o.Stderr).print("[dim]" + richtext.Escape("  On Apple Container a build jail cannot start beside a running "+
+		"jail: if that is what stopped it, `yolo capture <key>` builds it once the other jails stop.") + "[/dim]")
 }
 
 // missingNeededPhrase names what the launch lacks: "3 patched extensions pack pi loads", with a

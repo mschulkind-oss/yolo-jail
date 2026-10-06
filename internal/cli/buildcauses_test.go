@@ -32,7 +32,7 @@ const (
 func automodeFailure() entrypoint.GenFailure {
 	return entrypoint.GenFailure{Step: "configure_pi_automode", Pack: "treepack",
 		Doing: "writing pi's automode file (~/.pi/agent/extensions/pi-automode/settings.json)",
-		Path:  "~/.pi/agent/extensions/pi-automode", ReadOnly: true,
+		Path:  "~/.pi/agent/extensions/pi-automode", ReadOnly: true, InWritableDir: true,
 		Error: "mkdir /home/agent/.pi/agent/extensions/pi-automode: read-only file system"}
 }
 
@@ -118,8 +118,14 @@ func threeTreeFixture(t *testing.T) (*treeFixture, []packload.Fork) {
 // deliverAll runs one launch's tree arm over trees.
 func deliverAll(t *testing.T, trees []packload.Fork) (map[string]run.TreeDelivery, string) {
 	t.Helper()
+	return deliverAllOn(t, trees, "podman")
+}
+
+// deliverAllOn is deliverAll on runtime rt.
+func deliverAllOn(t *testing.T, trees []packload.Fork, rt string) (map[string]run.TreeDelivery, string) {
+	t.Helper()
 	var out, errw syncBuffer
-	req := run.TreeBuildRequest{Trees: trees, Platform: patchedTestPlatform, Runtime: "podman", Workspace: "/ws", Build: true,
+	req := run.TreeBuildRequest{Trees: trees, Platform: patchedTestPlatform, Runtime: rt, Workspace: "/ws", Build: true,
 		CopyRoot: filepath.Join(t.TempDir(), "tree.patched")}
 	return deliverTreesForLaunch(req, &out, &errw, false), out.String() + errw.String()
 }
@@ -170,13 +176,16 @@ func TestARefusalAtTheTreesOwnDirectorySkipsNothing(t *testing.T) {
 
 // WHO CAN FIX IT (3): a `yolo capture` of a build whose jail mounted read-only what a pack writes
 // says it is yolo's bug, not the pack's, and where to report it; a cause the user can fix keeps
-// "Fix what it names". Red with buildCause's yolo-bug test deleted.
+// "Fix what it names", as does a read-only path no selected pack makes writable, which the user's
+// own jail refuses too. Red with buildCause's yolo-bug test deleted, or its writable-dir test.
 func TestWhoCanFixABuildJailsRefusal(t *testing.T) {
 	for _, tc := range []struct {
 		failure entrypoint.GenFailure
 		bug     bool
 	}{
 		{automodeFailure(), true},
+		// A READ-ONLY PATH NO PACK MAKES WRITABLE is refused in the user's own jail too: the pack's.
+		{func() entrypoint.GenFailure { g := automodeFailure(); g.InWritableDir = false; return g }(), false},
 		{entrypoint.GenFailure{Step: "pack_treepack_surfaces", Pack: "treepack", Doing: "reading the config files",
 			Error: "pack treepack: surface pi/automode: codec \"yaml\" is not one of json, toml, lines, raw"}, false},
 	} {
@@ -228,5 +237,59 @@ func TestANewerBuildsRefusalWhileTheGoodBuildServesIsSaidOnce(t *testing.T) {
 		"jail refused to start, so each is still running its good build"
 	if !strings.Contains(out, want) || !strings.Contains(out, "This is a bug in yolo, not in pack treepack") {
 		t.Errorf("the held builds are not said once, with whose bug it is (%q):\n%s", want, out)
+	}
+}
+
+// ON APPLE CONTAINER a newer build held at its good build because its jail did not start names that
+// runtime's limit (PF-D21), the likeliest cause there, with the capture that builds it once the other
+// jails stop; on podman it does not. Red with flush leaving out the runtime's line.
+func TestAHeldBuildOnAppleContainerNamesItsLimit(t *testing.T) {
+	for _, rt := range []string{"container", "podman"} {
+		fx, trees := threeTreeFixture(t)
+		trees = trees[:1]
+		if got, out := deliverAllOn(t, trees, rt); got[trees[0].Key()].Dir == "" {
+			t.Fatalf("%s: the first launch delivered %+v\n%s", rt, got, out)
+		}
+		fx.commit(t, "v1.1.0", map[int]string{14: "fourteen"})
+		fx.now = fx.now.Add(2 * time.Hour)
+		runs := 0
+		withFakeCaptureJail(t, bootRefusingJail(t, &runs, true, automodeFailure()))
+		got, out := deliverAllOn(t, trees, rt)
+		if got[trees[0].Key()].Dir == "" {
+			t.Fatalf("%s: the held build lost its good build: %+v\n%s", rt, got, out)
+		}
+		want := "On Apple Container a build jail cannot start beside a running jail: if that is what stopped it, " +
+			"`yolo capture " + trees[0].CaptureArg() + "` builds it once the other jails stop."
+		if said := strings.Contains(out, want); said != (rt == "container") {
+			t.Errorf("%s: Apple Container's limit said %v (%q):\n%s", rt, said, want, out)
+		}
+	}
+}
+
+// A BUILD THAT LEAVES NOTHING SERVING AT A JAIL LAUNCH IS SAID BY THE LAUNCH, ONCE: a failed first
+// build and a series no upstream version takes leave their reason to the launch's refusal
+// (internal/cli/run's missingbuilds.go), which says it in full, so the act prints no line of its own
+// for it. Red with buildFailedLines' or noFit's warning printed at a jail launch with nothing serving.
+func TestABuildThatLeavesNothingAtALaunchIsSaidOnceByTheLaunch(t *testing.T) {
+	fx := newPatchedAdvanceFixture(t, "")
+	fx.rc = 2
+	r, term := fx.launchReported(t)
+	if r.delivery.Key != "" || !r.delivery.Unsaid || !strings.Contains(r.delivery.Reason, "failed on the host") {
+		t.Fatalf("the failed first build handed %+v, want its reason left to the launch\n%s", r.delivery, term)
+	}
+	if strings.Contains(term, ": the build of ") {
+		t.Errorf("the act said the failed build's cause, which the launch's refusal says:\n%s", term)
+	}
+
+	fx = newPatchedAdvanceFixture(t, "")
+	fx.commit(t, "v1.2.0", map[int]string{11: "eleven"})
+	fx.writeManifest(t, "v1.2.0", "")
+	r, term = fx.launchReported(t)
+	if r.delivery.Key != "" || !r.delivery.Unsaid || !strings.Contains(r.delivery.Reason, "`yolo pack rebase forkpack/tool`") {
+		t.Fatalf("the hold no version fits handed %+v, want its reason, naming the rebase, left to the launch\n%s",
+			r.delivery, term)
+	}
+	if strings.Contains(term, "nothing to build —") {
+		t.Errorf("the act said there is nothing to build, which the launch's refusal says:\n%s", term)
 	}
 }

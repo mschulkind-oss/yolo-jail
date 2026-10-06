@@ -111,6 +111,9 @@ type TreeDelivery struct {
 	// Cause is the build's cause in plain words, when its act found one, which the launch's refusal
 	// says once for every key that shares it (missingbuilds.go) and the jail's gate is handed.
 	Cause *entrypoint.BuildCause
+	// Unsaid says the build act said nothing of Reason, leaving it to the launch's refusal or warning
+	// (missingbuilds.go), as entrypoint.ForkDelivery.Unsaid.
+	Unsaid bool
 }
 
 // goodLabelOf is a build as lines name it: its tag and short commit, or the commit alone.

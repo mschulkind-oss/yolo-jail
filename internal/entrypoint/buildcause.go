@@ -35,6 +35,9 @@ func (c *BuildCause) Same(o *BuildCause) bool {
 		strings.Join(c.Packs, ",") == strings.Join(o.Packs, ",")
 }
 
+// says reports whether c has anything to say beyond its build's reason: lines, or whose bug it is.
+func (c *BuildCause) says() bool { return c != nil && (len(c.Lines) > 0 || c.YoloBug) }
+
 // WhoFixes is who can fix the cause and how, one line each: for a yolo bug, that it is one, whose
 // it is not, and where to report it; for anything else, to fix what it names and then retry, as
 // retry says ("`yolo capture <key>` builds it; the next fresh launch tries too").

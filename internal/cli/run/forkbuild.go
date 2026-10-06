@@ -101,7 +101,7 @@ func (o *Options) forkDeliveriesFor(rt string) map[string]entrypoint.ForkDeliver
 			out[p.Fork.Bin] = entrypoint.ForkDelivery{Reason: p.Reason}
 			continue
 		}
-		if why := (packdecl.Install{Platforms: p.Fork.Platforms}).UnpublishedReason("linux", goruntime.GOARCH); why != "" {
+		if why := forkUnpublishedHere(p.Fork); why != "" {
 			out[p.Fork.Bin] = entrypoint.ForkDelivery{Reason: "fork " + p.Fork.Pack + " builds for none of this jail's platform: " + why}
 			continue
 		}
@@ -140,6 +140,13 @@ func (o *Options) forkDeliveriesFor(rt string) map[string]entrypoint.ForkDeliver
 		}
 	}
 	return out
+}
+
+// forkUnpublishedHere is why f builds for none of a container jail's platform, "" when it builds
+// for it: a fork no build is tried for, which the launch's refusal of a missing patched build
+// passes over (missingbuilds.go), since nothing failed.
+func forkUnpublishedHere(f packload.Fork) string {
+	return (packdecl.Install{Platforms: f.Platforms}).UnpublishedReason("linux", goruntime.GOARCH)
 }
 
 // actInterrupt is this launch's act interrupt (ActInterrupt, PF-D57): one per launch, made by the

@@ -183,7 +183,9 @@ func TestASuccessfulBuildsTerminalCarriesOnlyItsProgressLines(t *testing.T) {
 }
 
 // A FAILED BUILD PRINTS ITS LAST LINES AND ITS LOG under its failure line, which the terminal
-// otherwise never shows. Red with printRunFailure's call in buildFailedLines deleted.
+// otherwise never shows; one that leaves nothing serving leaves its cause to the launch's refusal,
+// which says it once, so its own warning is not printed. Red with buildFailed's printRunFailure call
+// deleted.
 func TestAFailedBuildPrintsItsTailAndItsLog(t *testing.T) {
 	fx := newTreeFixture(t, `"f.txt"`)
 	talkingChild(t, 3, 30)
@@ -196,7 +198,6 @@ func TestAFailedBuildPrintsItsTailAndItsLog(t *testing.T) {
 	own := filepath.Join(ws, ".yolo", buildLogName(treeKeyCLI))
 	for _, w := range []string{
 		"Building extension " + treeKeyCLI + ": failed (",
-		"⚠ extension " + treeKeyCLI + ": the build of ",
 		"  its last 20 lines:",
 		"    build output line 30",
 		"    build output line 11",
@@ -205,6 +206,9 @@ func TestAFailedBuildPrintsItsTailAndItsLog(t *testing.T) {
 		if !strings.Contains(term, w) {
 			t.Errorf("the failure lacks %q:\n%s", w, term)
 		}
+	}
+	if !d.Unsaid || !strings.Contains(d.Reason, "failed on the host") || strings.Contains(term, ": the build of ") {
+		t.Errorf("the failed build's cause is said by the act, or not left to the launch (%+v):\n%s", d, term)
 	}
 	if strings.Contains(term, "build output line 10\n") || strings.Contains(term, "its output is above") {
 		t.Errorf("the failure printed more than the last 20 lines, or pointed above:\n%s", term)

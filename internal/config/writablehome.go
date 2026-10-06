@@ -154,6 +154,20 @@ func reservedHomeDirs(packs []*packload.Pack) map[string]string {
 	return dirs
 }
 
+// WritableHomeRoots are the home-relative directories yolo reserves as writable in a jail selecting
+// packs, whatever its user config says: core's own (reservedHomeDirRoots) and the packs' writable
+// and shared dirs (reservedHomeDirs), sorted. A refused boot's record reads it to tell a read-only path
+// the user's own jail writes from one no jail writes (entrypoint's bootrefusal.go).
+func WritableHomeRoots(packs []*packload.Pack) []string {
+	dirs := reservedHomeDirs(packs)
+	out := make([]string, 0, len(dirs))
+	for d := range dirs {
+		out = append(out, d)
+	}
+	sort.Strings(out)
+	return out
+}
+
 // reservedHomeSegments is the set of first path segments yolo already manages
 // under /home/agent — the union of reservedHomeDirs(packs) and reservedHomeFiles,
 // reduced to first segments, each mapped to the selected pack that declares it ("" for

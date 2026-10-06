@@ -108,13 +108,30 @@ func treeGateFor(d map[string]TreeDelivery, pack string) string {
 		}
 	}
 	var lines []string
+	// With no cause every extension shares, each cause is said under the first extension it left
+	// without a build, and a later one it left names that one, so a cause is still said, and once.
+	var said []string
 	for _, k := range keys {
 		t := d[k]
 		line := "  ⚠ extension " + k + " (~/" + strings.TrimSuffix(t.Into, "/") + ") has no build in this jail"
-		if shared == nil {
-			line += ": " + treeGateWhy(t)
+		if shared != nil {
+			lines = append(lines, line)
+			continue
 		}
-		lines = append(lines, line)
+		why := treeGateWhy(t)
+		if !t.Cause.says() {
+			lines = append(lines, line+": "+why)
+			continue
+		}
+		if first := firstSaidWith(d, said, t.Cause); first != "" {
+			head, _, _ := strings.Cut(why, " — ")
+			lines = append(lines, line+": "+strings.TrimSuffix(head, ".")+", as extension "+first+"'s did")
+			continue
+		}
+		said = append(said, k)
+		c := causeSaid(why, t.Cause, "    ")
+		lines = append(lines, line+": "+c[0])
+		lines = append(lines, c[1:]...)
 	}
 	them, one := "them", "one"
 	if len(keys) == 1 {
@@ -137,6 +154,36 @@ func treeGateFor(d map[string]TreeDelivery, pack string) string {
 	return strings.Join(lines, "\n") + "\n  So pack " + pack + "'s program does not start rather than start without " +
 		them + " (the shell is unaffected); once a fresh launch on the host has built " + them + ", launch " +
 		"again — or drop the list entry naming " + one + " to run without it."
+}
+
+// firstSaidWith is the extension among said, the keys whose causes the gate has said, whose cause is
+// c; "" when none is.
+func firstSaidWith(d map[string]TreeDelivery, said []string, c *BuildCause) string {
+	for _, k := range said {
+		if d[k].Cause.Same(c) {
+			return k
+		}
+	}
+	return ""
+}
+
+// causeSaid is a why and its cause as the jail's lines say them: the why without the act that
+// tries again (" — …", which the gate's own last line or the launcher's says), a colon when lines
+// follow, then each of the cause's lines indented under it, then whose bug it is when it is
+// yolo's. why alone when there is no cause to say (BuildCause.says).
+func causeSaid(why string, c *BuildCause, indent string) []string {
+	if !c.says() {
+		return []string{why}
+	}
+	head, _, _ := strings.Cut(why, " — ")
+	out := []string{strings.TrimSuffix(head, ".") + colonAfter(len(c.Lines) > 0)}
+	for _, l := range c.Lines {
+		out = append(out, indent+"  "+l)
+	}
+	if c.YoloBug {
+		out = append(out, indent+"This is a bug in yolo, not in the pack: report it at "+IssuesURL+".")
+	}
+	return out
 }
 
 // colonAfter is ":" when lines follow.

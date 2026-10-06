@@ -34,6 +34,8 @@ import (
 	"strings"
 	"syscall"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/config"
+	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 )
 
@@ -66,6 +68,11 @@ type GenFailure struct {
 	// read-only in this jail (EROFS): a fact about the jail's mounts, which yolo makes, rather than
 	// about the pack's content.
 	ReadOnly bool `json:"read_only,omitempty"`
+	// InWritableDir says Path lies under a home directory a jail selecting this jail's packs mounts
+	// writable: one a pack declares as its state, or one of core's own. A read-only Path under one
+	// is the seal's doing, which the user's own jail writes; a read-only Path under none is refused
+	// in every jail, the pack's to fix.
+	InWritableDir bool `json:"in_writable_dir,omitempty"`
 	// Error is the generator's error as the refusal prints it.
 	Error string `json:"error"`
 }
@@ -73,6 +80,9 @@ type GenFailure struct {
 // genAbout is what a generator step is about, for its record: genStepAbout's argument.
 type genAbout struct {
 	doing, pack string
+	// writable are the home-relative directories a jail selecting the step's packs mounts writable
+	// (writableHomeDirs), for the record's InWritableDir.
+	writable []string
 }
 
 // genFailureOf is err, from the step label running about, as its record.
@@ -83,8 +93,29 @@ func genFailureOf(e *Env, label string, about genAbout, err error) GenFailure {
 		f.Path = homeRelative(e, pe.Path)
 	}
 	f.ReadOnly = errors.Is(err, syscall.EROFS)
+	f.InWritableDir = underHomeDir(f.Path, about.writable)
 	return f
 }
+
+// underHomeDir reports whether rel, a home-relative path ("~/…"), is one of dirs (home-relative,
+// no "~/") or under one.
+func underHomeDir(rel string, dirs []string) bool {
+	rest, ok := strings.CutPrefix(rel, "~/")
+	if !ok {
+		return false
+	}
+	for _, d := range dirs {
+		d = strings.Trim(d, "/")
+		if d != "" && (rest == d || strings.HasPrefix(rest, d+"/")) {
+			return true
+		}
+	}
+	return false
+}
+
+// writableHomeDirs are the home directories a jail selecting packs writes (config.WritableHomeRoots),
+// for a step's genAbout.
+func writableHomeDirs(packs []*packload.Pack) []string { return config.WritableHomeRoots(packs) }
 
 // homeRelative is p with the jail's home spelled "~", as a pack names its files.
 func homeRelative(e *Env, p string) string {
@@ -114,8 +145,12 @@ func (f GenFailure) Lines() []string {
 		what += ", which pack " + f.Pack + " declares,"
 	}
 	why := f.Error
-	if f.ReadOnly && f.Path != "" {
+	switch {
+	case f.ReadOnly && f.Path != "" && f.InWritableDir:
 		why = f.Path + " is mounted read-only in that jail"
+	case f.ReadOnly && f.Path != "":
+		// No pack makes the place writable, so the user's own jail refuses it too: the pack's to fix.
+		why = f.Path + " is read-only in that jail, and no pack it selects declares a writable directory holding it"
 	}
 	return []string{what + " failed:", "  " + why}
 }
