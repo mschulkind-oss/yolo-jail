@@ -266,3 +266,54 @@ func TestTheRequiredServicePhraseNamesItsPackAndWhatNeedsIt(t *testing.T) {
 		t.Errorf("two services, got %q", got)
 	}
 }
+
+// ONE FAILURE DOES NOT END THE WAIT FOR THE OTHERS (R-D1): a `failed` line about one required
+// service used to return at once, naming it alone, so under the hatch every other required
+// service still starting was never waited for nor marked, and the witness then probed it before
+// it published and reported it as unpublished, a second report in a second vocabulary (R-D3).
+// The wait now hears every required service out: one the supervisor never answered for is
+// named with the failed one and skipped by the witness, and one that reported ready is neither.
+func TestAFailedRequiredServiceDoesNotEndTheWaitForTheOthers(t *testing.T) {
+	for _, tc := range []struct {
+		name, body string
+		notReady   []string
+		ready      []string
+	}{
+		{name: "the other never answers",
+			body:     `printf 'failed wire-bridge boom\n' >&3; exit 0`,
+			notReady: []string{"other", "wire-bridge"}},
+		{name: "the other reports ready after",
+			body:     `printf 'failed wire-bridge boom\n' >&3; printf 'ready other\n' >&3`,
+			notReady: []string{"wire-bridge"}, ready: []string{"other"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			b, stderr := requiredServiceBoot(t, tc.body, true)
+			b.e.Vars[paths.JailDaemonReadyNamesEnv] = "wire-bridge,other"
+			runSupervisorStep(t, b)
+			if err := genFailuresError(b.e); err != nil {
+				t.Fatalf("the hatch is set; genFailuresError returned: %v", err)
+			}
+			got := stderr.String()
+			for _, name := range tc.notReady {
+				if !b.e.notReadyServices[name] {
+					t.Errorf("%s did not report ready, but the witness was not told to skip it "+
+						"(notReady = %v)", name, b.e.notReadyServices)
+				}
+				if !strings.Contains(got, "'"+name+"'") {
+					t.Errorf("the override notice does not name %s, which did not start:\n%s", name, got)
+				}
+			}
+			for _, name := range tc.ready {
+				if b.e.notReadyServices[name] {
+					t.Errorf("%s reported ready, but the witness was told to skip it", name)
+				}
+				if strings.Contains(got, "'"+name+"'") {
+					t.Errorf("the override notice names %s, which reported ready:\n%s", name, got)
+				}
+			}
+			if !strings.Contains(got, "boom") {
+				t.Errorf("the override notice lost the failed service's own reason:\n%s", got)
+			}
+		})
+	}
+}

@@ -48,8 +48,8 @@ import (
 
 // requiredServiceError is the readiness wait's refusal: required services did not report ready.
 type requiredServiceError struct {
-	// names are the services it is about: the one that reported `failed`, or every one still
-	// waited for when the supervisor never started or went away first.
+	// names are the services it is about: every one that reported `failed`, then every one still
+	// waited for when the supervisor never started, went away or garbled a line first.
 	names []string
 	// cause is what stopped them: the daemon's own reason, or the supervisor's fault.
 	cause string
@@ -70,6 +70,36 @@ func waitingFor(ready map[string]bool) []string {
 	}
 	sort.Strings(out)
 	return out
+}
+
+// notStartedError is the readiness wait's refusal from what it heard: failed maps each service
+// that reported `failed` to its own reason, pending is every service it never heard from, and
+// cause is why it stopped hearing (unused when pending is empty). One service keeps its cause
+// unlabelled — the daemon's reason verbatim, or the supervisor's fault — and several label each.
+func notStartedError(home string, failed map[string]string, pending []string, cause string) *requiredServiceError {
+	failedNames := make([]string, 0, len(failed))
+	for name := range failed {
+		failedNames = append(failedNames, name)
+	}
+	sort.Strings(failedNames)
+	names := append(failedNames, pending...)
+	r := &requiredServiceError{names: names, logs: jailDaemonLogsPhrase(home, names)}
+	if len(names) == 1 {
+		r.cause = cause
+		if len(failedNames) == 1 {
+			r.cause = failed[failedNames[0]]
+		}
+		return r
+	}
+	causes := make([]string, 0, len(failedNames)+1)
+	for _, name := range failedNames {
+		causes = append(causes, "'"+name+"': "+failed[name])
+	}
+	if len(pending) > 0 {
+		causes = append(causes, "'"+strings.Join(pending, "', '")+"': "+cause)
+	}
+	r.cause = strings.Join(causes, "; ")
+	return r
 }
 
 // startJailDaemons is the boot step that starts the jail-daemon supervisor and decides what

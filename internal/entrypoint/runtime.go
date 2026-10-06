@@ -347,23 +347,33 @@ func startJailDaemonSupervisor(e *Env) error {
 	result := "failed"
 	defer func() { wait.Done(result) }()
 	total := len(ready)
+	// failed maps each required service that reported `failed` to its reason. A failure does NOT
+	// end the wait: the others are still starting, and returning at once would name the failed
+	// one alone, so under the hatch the witness would probe the rest before they published and
+	// report them a second time, as unpublished (R-D1, R-D3). The wait hears every one out.
+	failed := map[string]string{}
 	scanner := bufio.NewScanner(readyRead)
 	for len(ready) > 0 {
-		wait.Set(fmt.Sprintf("%d of %d ready; %s", total-len(ready), total, logs))
+		wait.Set(fmt.Sprintf("%d of %d ready; %s", total-len(ready)-len(failed), total, logs))
 		if !scanner.Scan() {
 			if err := scanner.Err(); err != nil {
-				return &requiredServiceError{names: waitingFor(ready), logs: logs,
-					cause: "reading its readiness failed: " + err.Error()}
+				return notStartedError(e.Home, failed, waitingFor(ready),
+					"reading its readiness failed: "+err.Error())
 			}
-			return &requiredServiceError{names: waitingFor(ready), logs: logs,
-				cause: "the in-jail daemon supervisor exited before it reported ready"}
+			return notStartedError(e.Home, failed, waitingFor(ready),
+				"the in-jail daemon supervisor exited before it reported ready")
 		}
 		fields := strings.Fields(scanner.Text())
-		if len(fields) < 2 || (fields[0] != "ready" && fields[0] != "failed") || !ready[fields[1]] {
-			return &requiredServiceError{names: waitingFor(ready), logs: logs,
-				cause: fmt.Sprintf("the supervisor reported %q, which is not a readiness answer this "+
-					"boot waits for", scanner.Text())}
+		if len(fields) >= 2 && failed[fields[1]] != "" {
+			// A service already reported failed says so again (a restart): its answer stands.
+			continue
 		}
+		if len(fields) < 2 || (fields[0] != "ready" && fields[0] != "failed") || !ready[fields[1]] {
+			return notStartedError(e.Home, failed, waitingFor(ready),
+				fmt.Sprintf("the supervisor reported %q, which is not a readiness answer this "+
+					"boot waits for", scanner.Text()))
+		}
+		delete(ready, fields[1])
 		if fields[0] == "failed" {
 			// The daemon's own reason, verbatim: it alone knows the cause and the next step
 			// (a held port, a missing key; wirebridged's servePlan).
@@ -371,13 +381,16 @@ func startJailDaemonSupervisor(e *Env) error {
 			if len(fields) > 2 {
 				reason = strings.Join(fields[2:], " ")
 			}
-			return &requiredServiceError{names: []string{fields[1]}, cause: reason,
-				logs: jailDaemonLogsPhrase(e.Home, []string{fields[1]})}
+			failed[fields[1]] = reason
+			continue
 		}
 		if e.Getenv(paths.VerboseEnv) != "" || e.Getenv("YOLO_JAIL_TIMING") != "" {
 			e.warn("yolo: required in-jail service ready: " + fields[1])
 		}
-		delete(ready, fields[1])
+	}
+	if len(failed) > 0 {
+		wait.Set(fmt.Sprintf("%d of %d ready; %s", total-len(failed), total, logs))
+		return notStartedError(e.Home, failed, nil, "")
 	}
 	// The verdict line of a slow wait that ended well says nothing of the logs.
 	wait.Set(fmt.Sprintf("%d of %d ready", total, total))
