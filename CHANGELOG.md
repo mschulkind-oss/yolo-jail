@@ -15,9 +15,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 **Patch series for programs and pi extensions.** A pack can name an upstream and your changes as a
 patch series, and yolo builds them onto each new release they fit, keeping the last good build
 running when one conflicts; `yolo pack rebase`, `yolo pack series check` and `yolo pack lint
---online` keep a series applying, in a jail too, with git 2.40 or newer on the host. Each build
-shows as one line, and a launch with no build of a series a pack needs stops before the jail
-starts, saying why once, in plain words (`YOLO_ALLOW_MISSING_PROGRAMS=1` starts it anyway). See
+--online` keep a series applying, in a jail too, with git 2.40 or newer on the host. A launch
+builds them at once and shows them as one line, and a launch with no build of a series a pack
+needs stops before the jail starts, saying why once, in plain words
+(`YOLO_ALLOW_MISSING_PROGRAMS=1` starts it anyway). See
 [Follow an upstream with a patch series](userguide/guides/patch-series.md).
 
 **Packs written for a newer yolo.** A launch now leaves out, and names, any part of a pack written

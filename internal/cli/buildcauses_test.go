@@ -130,22 +130,43 @@ func deliverAllOn(t *testing.T, trees []packload.Fork, rt string) (map[string]ru
 	return deliverTreesForLaunch(req, &out, &errw, false), out.String() + errw.String()
 }
 
-// ONE CAUSE, ONCE (2): a build jail whose own config was refused stops every later build sealed the
-// same way from starting, each saying it was skipped and why, and every one is handed the first's
-// cause, so the launch says it once. Red with the advance's refusedSeal check deleted.
+// deliverOneAtATime is deliverAll in a pool of one build slot, as on Apple Container, whose keys
+// therefore build in turn.
+func deliverOneAtATime(t *testing.T, trees []packload.Fork) (map[string]run.TreeDelivery, string) {
+	t.Helper()
+	var errw syncBuffer
+	req := run.TreeBuildRequest{Trees: trees, Platform: patchedTestPlatform, Runtime: "podman", Workspace: "/ws", Build: true,
+		CopyRoot: filepath.Join(t.TempDir(), "tree.patched")}
+	_, got := runBuildSlot(run.BuildSlotRequest{Trees: &req, MaxBuilds: 1}, &errw, false)
+	return got, errw.String()
+}
+
+// ONE CAUSE, ONCE (2): a build jail whose own config was refused stops every build sealed the same
+// way that takes a build slot after it from starting, each saying it was skipped and why, and every
+// one is handed the first's cause, so the launch says it once. In a pool of one slot that is every
+// later key. Red with the advance's refusedSeal check deleted.
 func TestABuildJailsConfigRefusalSkipsEveryBuildSealedTheSameWay(t *testing.T) {
 	_, trees := threeTreeFixture(t)
 	runs := 0
 	withFakeCaptureJail(t, bootRefusingJail(t, &runs, true, automodeFailure()))
-	got, out := deliverAll(t, trees)
+	got, out := deliverOneAtATime(t, trees)
 	if runs != 1 {
 		t.Errorf("%d build jails ran, want the first alone:\n%s", runs, out)
 	}
-	first := trees[0].Label()
-	for _, f := range trees[1:] {
+	// The key whose check ends first takes the one slot and is the one that runs.
+	var first string
+	for _, f := range trees {
+		if strings.Contains(out, "Building "+f.Label()+": its build jail refused to start") {
+			first = f.Label()
+		}
+	}
+	for _, f := range trees {
+		if f.Label() == first {
+			continue
+		}
 		want := "skipped " + f.Label() + ": not started — its build jail is sealed to pack treepack, as " + first +
 			"'s was, and would refuse to start the same way"
-		if !strings.Contains(out, want) {
+		if first == "" || !strings.Contains(out, want) {
 			t.Errorf("the act does not say %s was skipped and why (%q):\n%s", f.Label(), want, out)
 		}
 	}
@@ -224,7 +245,7 @@ func TestANewerBuildsRefusalWhileTheGoodBuildServesIsSaidOnce(t *testing.T) {
 	fx.now = fx.now.Add(2 * time.Hour)
 	runs := 0
 	withFakeCaptureJail(t, bootRefusingJail(t, &runs, true, automodeFailure()))
-	got, out := deliverAll(t, trees)
+	got, out := deliverOneAtATime(t, trees)
 	for _, f := range trees {
 		if got[f.Key()].Dir == "" {
 			t.Errorf("%s lost its good build to a newer build's refusal: %+v", f.Key(), got[f.Key()])
@@ -291,5 +312,33 @@ func TestABuildThatLeavesNothingAtALaunchIsSaidOnceByTheLaunch(t *testing.T) {
 	}
 	if strings.Contains(term, "nothing to build —") {
 		t.Errorf("the act said there is nothing to build, which the launch's refusal says:\n%s", term)
+	}
+}
+
+// ONE CAUSE, ONCE, IN A POOL THAT BUILDS AT ONCE: keys sealed the same way whose build jails start
+// together each meet the refusal, since none has refused when the others start. Each says only its
+// one result line — no cause, no "skipped" — and each is handed the same cause, which the launch's
+// refusal groups and says once (run's missingbuilds.go). Red with the act printing a not-started
+// build's cause at a jail launch, or with the causes stopping being Same.
+func TestBuildsSealedAlikeThatStartTogetherAreEachHandedTheOneCause(t *testing.T) {
+	_, trees := threeTreeFixture(t)
+	runs := 0
+	withFakeCaptureJail(t, bootRefusingJail(t, &runs, true, automodeFailure()))
+	got, out := deliverAll(t, trees) // run.SlotBuildJails slots: 3 at once on any host with 6 CPUs or more
+	for _, f := range trees {
+		d := got[f.Key()]
+		if d.Dir != "" || d.Cause == nil || !d.Cause.Same(got[trees[0].Key()].Cause) {
+			t.Errorf("%s is handed %+v, want no build and the one cause", f.Key(), d)
+		}
+		if n := strings.Count(out, "Building "+f.Label()+": "); n != 1 {
+			t.Errorf("%s has %d result lines, want one:\n%s", f.Label(), n, out)
+		}
+	}
+	if strings.Contains(out, "read-only") {
+		t.Errorf("the act said the cause, which the launch says once:\n%s", out)
+	}
+	if runs+strings.Count(out, "skipped ") != len(trees) {
+		t.Errorf("%d build jails ran and %d were skipped, want every key one or the other:\n%s", runs,
+			strings.Count(out, "skipped "), out)
 	}
 }

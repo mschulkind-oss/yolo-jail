@@ -18,6 +18,8 @@ package cli
 // A launch's builds run at once (XB-D10), so both are kept under the report's causes lock.
 
 import (
+	"io"
+	"slices"
 	"strings"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/entrypoint"
@@ -34,13 +36,23 @@ type refusedSealEntry struct {
 
 // heldGroup is the builds one cause held at their good build.
 type heldGroup struct {
-	cause  *entrypoint.BuildCause
-	labels []string
-	runs   []string
-	retry  string
-	// captures are `yolo capture`'s arguments for the builds it held on Apple Container, whose limit
-	// (PF-D21) the group then names; nil on any other runtime.
-	captures []string
+	cause *entrypoint.BuildCause
+	held  []heldBuild
+}
+
+// heldBuild is one build a cause held: its label, what it still runs, what builds it once the cause
+// is fixed, and, on Apple Container, `yolo capture`'s argument for it, whose limit (PF-D21) the group
+// then names ("" on any other runtime).
+type heldBuild struct {
+	label, runs, retry, capture string
+}
+
+// sorted is g's builds in the order their keys are declared (order, the pool's): a pool's builds
+// end in any order, and the group names them as the launch's other lines do.
+func (g *heldGroup) sorted(order map[string]int) []heldBuild {
+	out := slices.Clone(g.held)
+	slices.SortStableFunc(out, func(a, b heldBuild) int { return order[a.label] - order[b.label] })
+	return out
 }
 
 // sealKey is the identity of f's build jail's config: the packs its seal selects (sealPacks).
@@ -72,9 +84,10 @@ func (r *buildReport) noteRefused(f packload.Fork, cause *entrypoint.BuildCause)
 	}
 }
 
-// skipLine says f's build was not started, and why: one line, as a build's result would be.
-func (r *buildReport) skipLine(f packload.Fork, s *refusedSealEntry) {
-	r.pr.Print("[yellow]" + richtext.Escape("skipped "+f.Label()+": not started — its build jail is sealed to "+
+// skipLine says f's build was not started, and why, on w, the key's own lines: one line, as a build's
+// result would be.
+func (r *buildReport) skipLine(f packload.Fork, s *refusedSealEntry, w io.Writer) {
+	richtext.Printer{W: w, Color: r.color}.Print("[yellow]" + richtext.Escape("skipped "+f.Label()+": not started — its build jail is sealed to "+
 		packsPhrase(sealPacks(f))+", as "+s.label+"'s was, and would refuse to start the same way") + "[/yellow]")
 }
 
@@ -99,17 +112,18 @@ func (r *buildReport) hold(f packload.Fork, runs, retry, runtime string, cause *
 	for _, h := range r.held {
 		if h.cause.Same(cause) {
 			g = h
-			g.labels, g.runs = append(g.labels, f.Label()), append(g.runs, runs)
 			break
 		}
 	}
 	if g == nil {
-		g = &heldGroup{cause: cause, labels: []string{f.Label()}, runs: []string{runs}, retry: retry}
+		g = &heldGroup{cause: cause}
 		r.held = append(r.held, g)
 	}
+	b := heldBuild{label: f.Label(), runs: runs, retry: retry}
 	if runtime == "container" {
-		g.captures = append(g.captures, "`yolo capture "+f.CaptureArg()+"`")
+		b.capture = "`yolo capture " + f.CaptureArg() + "`"
 	}
+	g.held = append(g.held, b)
 }
 
 // flush says each held group once: the builds it held, what each still runs, the cause, and who can
@@ -121,9 +135,17 @@ func (r *buildReport) flush() {
 	r.causes.Lock()
 	defer r.causes.Unlock()
 	for _, g := range r.held {
-		head := "⚠ " + entrypoint.JoinAnd(g.labels) + ": a newer build's jail refused to start, so "
-		if len(g.labels) == 1 {
-			head += "it is " + g.runs[0]
+		held := g.sorted(r.order)
+		var labels, captures []string
+		for _, b := range held {
+			labels = append(labels, b.label)
+			if b.capture != "" {
+				captures = append(captures, b.capture)
+			}
+		}
+		head := "⚠ " + entrypoint.JoinAnd(labels) + ": a newer build's jail refused to start, so "
+		if len(held) == 1 {
+			head += "it is " + held[0].runs
 		} else {
 			head += "each is still running its good build"
 		}
@@ -131,13 +153,13 @@ func (r *buildReport) flush() {
 		for _, l := range g.cause.Lines {
 			r.pr.Print("    " + richtext.Escape(l))
 		}
-		for _, l := range g.cause.WhoFixes(g.retry) {
+		for _, l := range g.cause.WhoFixes(held[0].retry) {
 			r.pr.Print("[dim]  " + richtext.Escape(l) + "[/dim]")
 		}
-		if len(g.captures) > 0 {
+		if len(captures) > 0 {
 			// PF-D21: on Apple Container a build jail does not start beside a running jail.
 			r.pr.Print("[dim]  " + richtext.Escape("On Apple Container a build jail cannot start beside a running jail: "+
-				"if that is what stopped it, "+strings.Join(g.captures, ", ")+" "+plural(len(g.captures), "builds it",
+				"if that is what stopped it, "+strings.Join(captures, ", ")+" "+plural(len(captures), "builds it",
 				"build them")+" once the other jails stop.") + "[/dim]")
 		}
 	}

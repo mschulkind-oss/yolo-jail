@@ -125,19 +125,25 @@ type advanceOptions struct {
 	// the act's, and once a Ctrl-C has ended any advance of the act, a later one checks and builds
 	// nothing (actStopped). nil for an advance that is an act of its own.
 	act *run.ActInterrupt
-	// pool, ctx and started are a PARALLEL ADVANCE's (treepool.go, XB-D10): the bounds on its checks
-	// and builds; the context of the one interrupt scope the whole pool runs under, which this
-	// advance reads in place of opening a scope of its own (one per concurrent advance would catch a
-	// Ctrl-C in the innermost alone); and the line its build says at once. All nil outside a pool.
+	// pool, ctx and started are a HOST ACT'S PARALLEL ADVANCE's (treepool.go, XB-D39): the bounds on
+	// its checks and builds; the context of the one interrupt scope the whole pool runs under, which
+	// this advance reads in place of opening a scope of its own (one per concurrent advance would catch
+	// a Ctrl-C in the innermost alone); and the line its build says at once. All nil outside a pool,
+	// and at a jail launch, whose pool is slot's.
 	pool    *advancePool
 	ctx     context.Context
 	started func()
-	// report is a jail launch's build report (buildreport.go, PF-D78): its check a progress line,
-	// each build one progress line whose start line carries what the lines before it said, its build
-	// jail always the fork-build-jail child with every stream kept off the terminal, and the move line
-	// that build's result line. nil — `yolo capture`, `yolo host` and `yolo host apply` — prints each
-	// line as its own and streams the build jail's output.
+	// report is a jail launch's build report (buildreport.go, PF-D78): each build's start line
+	// carrying what the lines before it said, its build jail always the fork-build-jail child with
+	// every stream kept off the terminal, and the move line that build's result line. nil — `yolo
+	// capture`, `yolo host` and `yolo host apply` — prints each line as its own and streams the build
+	// jail's output.
 	report *buildReport
+	// slot is this advance's key in a jail launch's build pool (buildpool.go, XB-D10, set with
+	// report): the pool's one interrupt scope, which this advance runs under rather than opening its
+	// own, its first advance included (PF-D78), the check slot its check waits for, and the build slot
+	// its walk and build wait for. nil runs the advance as an act of its own.
+	slot *poolItem
 }
 
 // installedCopy is a copy of the program that runs outside the capture store: the host floor's
@@ -225,6 +231,9 @@ type advance struct {
 	// inFlight is the build under way's share of the report, nil between builds and without a
 	// report.
 	inFlight *buildRun
+	// stopSaid is set once actStopped has said that a Ctrl-C ended this advance, which the pool's
+	// interruptedLine then does not say again.
+	stopSaid bool
 }
 
 // baseWhy is why an advance builds the series at its own base (§6.4), baseNone when it does not.
@@ -255,23 +264,23 @@ func advancePatchedFork(f packload.Fork, o advanceOptions) advanceResult {
 	if early != nil {
 		return *early
 	}
-	if o.launch && (o.act.Interrupted() || o.ctx != nil && o.ctx.Err() != nil) {
+	ctx := o.ctx
+	if o.slot != nil {
+		ctx = o.slot.context()
+	}
+	if o.launch && (o.act.Interrupted() || ctx != nil && ctx.Err() != nil) {
 		return a.actStopped()
 	}
-	if o.launch && o.ctx != nil {
-		// IN A PARALLEL ADVANCE (treepool.go): the pool's one interrupt scope is this advance's, so
-		// one Ctrl-C ends every key's wait at once, a first build's included (XB-D10).
-		a.ctx = o.ctx
-		a.packs.Ctx = o.ctx
+	if o.launch && ctx != nil {
+		// IN A POOL — a jail launch's build pool (buildpool.go), a host act's parallel advance
+		// (treepool.go) — the pool's one interrupt scope is this advance's, so one Ctrl-C ends every
+		// key's wait at once, whether or not a good build serves: the jail starts on what serves, or
+		// without what nothing does, a first build's included (XB-D10, PF-D57, PF-D80).
+		a.ctx = ctx
+		a.packs.Ctx = ctx
 		res := a.run()
-		switch {
-		case o.ctx.Err() == nil || res.built:
-		case a.serves():
-			a.pr.Printf("[yellow]%s[/yellow]", richtext.Escape(fmt.Sprintf("%s: the advance was interrupted — %s "+
-				"%s; %s tries again", f.Label(), a.startsOn(), a.servingName(), a.next())))
-		default:
-			a.warn("%s: not built — a Ctrl-C ended %s's wait, and %s; %s builds it, or `yolo capture %s` now",
-				f.Label(), a.waiter(), a.hasNo(), a.next(), f.CaptureArg())
+		if ctx.Err() != nil && !res.built && !a.stopSaid {
+			a.interruptedLine()
 		}
 		return res
 	}
@@ -288,10 +297,23 @@ func advancePatchedFork(f packload.Fork, o advanceOptions) advanceResult {
 	})
 	if sig != nil && !res.built {
 		// Every step that saw the interrupt ended in finish, which handed the good build.
-		a.pr.Printf("[yellow]%s[/yellow]", richtext.Escape(fmt.Sprintf("%s: the advance was interrupted — %s "+
-			"%s; %s tries again", f.Label(), a.startsOn(), a.servingName(), a.next())))
+		a.interruptedLine()
 	}
 	return res
+}
+
+// interruptedLine says that a Ctrl-C ended this advance, and what the jail starts on: the good
+// build, or — in a pool, whose scope a first advance runs under too (PF-D78) — nothing, until the
+// next fresh launch builds it.
+func (a *advance) interruptedLine() {
+	f := a.f
+	if a.serves() {
+		a.pr.Printf("[yellow]%s[/yellow]", richtext.Escape(fmt.Sprintf("%s: the advance was interrupted — %s "+
+			"%s; %s tries again", f.Label(), a.startsOn(), a.servingName(), a.next())))
+		return
+	}
+	a.warn("%s: not built — a Ctrl-C ended %s's wait for its patched builds, and %s; %s builds it, or "+
+		"`yolo capture %s` now", f.Label(), a.waiter(), a.hasNo(), a.next(), f.CaptureArg())
 }
 
 // actStopped ends an advance that an earlier advance's Ctrl-C in the same act stopped before it began
@@ -301,6 +323,7 @@ func advancePatchedFork(f packload.Fork, o advanceOptions) advanceResult {
 // forkBuildWaitBound, that the user had just declined.
 func (a *advance) actStopped() advanceResult {
 	f := a.f
+	a.stopSaid = true
 	if a.serves() {
 		a.dim("%s: not checked — a Ctrl-C ended %s's wait for its patched builds; %s %s, and %s checks it",
 			f.Label(), a.waiter(), a.startsOn(), a.servingName(), a.next())
@@ -376,6 +399,18 @@ func (a *advance) servingName() string {
 // interrupted reports whether the interrupt scope's Ctrl-C has ended this advance.
 func (a *advance) interrupted() bool { return a.ctx.Err() != nil }
 
+// checkSlot runs fn, the advance's check, under a check slot of its pool — a jail launch's build pool
+// (slot) or a host act's parallel advance (pool) — and at once outside one. It reports false only
+// when a Ctrl-C ended a jail launch's wait for a slot before fn ran; a host act's ended wait is seen
+// by interrupted, as one during the check is.
+func (a *advance) checkSlot(fn func()) bool {
+	if a.o.slot != nil {
+		return a.o.slot.check(fn)
+	}
+	a.o.pool.check(a.ctx, fn)
+	return true
+}
+
 func (a *advance) warn(format string, args ...any) {
 	a.epr.Printf("[yellow]⚠ %s[/yellow]", richtext.Escape(fmt.Sprintf(format, args...)))
 }
@@ -425,22 +460,29 @@ func (a *advance) run() advanceResult {
 			list = []packsrc.ListEntry{goodEntry(good)}
 		}
 	} else {
-		// Under a CHECK SLOT in a parallel advance (XB-D10): a Ctrl-C while it waits for one ends it
-		// unchecked, as one during the check does.
+		// Under a CHECK SLOT of the pool (XB-D10): a Ctrl-C while it waits for one ends it unchecked, as
+		// one during the check does.
 		var res packsrc.CheckResult
-		a.o.pool.check(a.ctx, func() {
+		checked := a.checkSlot(func() {
 			res = a.packs.CheckPatched(f.CheckWant(a.series), packsrc.CheckOptions{Force: a.o.force, Now: patchedNow,
 				Begin: func() (func(string), func()) {
-					if a.o.report != nil {
-						// A JAIL LAUNCH'S CHECK IS A PROGRESS LINE, silent when it ends inside the grace
-						// period, as a check finding nothing new mostly does (PF-D78).
-						line := a.o.report.checkLine(f)
-						return line.Println, func() { line.Done("") }
+					if a.o.slot != nil {
+						// IN A JAIL LAUNCH'S POOL THE CHECK IS ITS LINE'S "checking N" (buildpool.go), and a
+						// wait for a lock another key or launch holds is said there, beside the key, and kept
+						// in launch.log (PF-D78).
+						return func(line string) {
+							a.o.report.logLine(f.Key(), line)
+							a.o.slot.setNote(line, true)
+						}, func() { a.o.slot.setNote("", false) }
 					}
 					a.dim("checking %s's upstream %s", f.Label(), f.Source)
 					return func(line string) { a.dim("%s", line) }, func() {}
 				}})
 		})
+		if !checked {
+			// A CTRL-C ENDED THE POOL'S WAIT before a check slot was free: nothing was asked.
+			return a.actStopped()
+		}
 		if a.interrupted() {
 			// A CTRL-C ENDED THE CHECK, whose fetch it cut short: no fetch failed, so the stamp the
 			// attempt wrote goes, and the next launch checks again rather than an hour later (§6.2:
@@ -551,6 +593,13 @@ func (a *advance) run() advanceResult {
 		a.sayUnlessReport("%s: no build of it on this machine yet; %s", f.Label(),
 			a.replaying("replaying its "+run.PatchCount(a.series.Len())))
 	}
+	// A BUILD SLOT OF THE POOL (XB-D10), for the walk, the replay and the build, which are CPU's: taken
+	// as soon as this key's own check named something to walk, never after another key's check.
+	release, ok := a.o.slot.build()
+	if !ok {
+		return a.finish(nil, forkBuild{}, 0, nil, "") // a Ctrl-C ended the wait for one: interruptedLine says it
+	}
+	defer release()
 	w := a.walk(list, base == baseNone)
 	if a.interrupted() {
 		return a.finish(nil, forkBuild{}, 0, nil, "")
@@ -971,7 +1020,7 @@ func (a *advance) build(b forkBuild, base baseWhy, edited bool) advanceResult {
 	// ONE CAUSE, ONCE (buildcauses.go): a build jail sealed as an earlier one of this act was, whose
 	// own config was refused, would be refused the same way, so it is not started.
 	if refused := a.o.report.refusedSeal(f); refused != nil {
-		a.o.report.skipLine(f, refused)
+		a.o.report.skipLine(f, refused, a.o.errw)
 		return a.notStarted(refused.cause)
 	}
 	wait := ""
@@ -1003,7 +1052,7 @@ func (a *advance) build(b forkBuild, base baseWhy, edited bool) advanceResult {
 		if b.Series.Len() > 0 {
 			what += " (series " + b.Series.ShortDigest() + ")"
 		}
-		a.inFlight = a.o.report.begin(buildStart{fork: f, why: why, wait: wait, what: what})
+		a.inFlight = a.o.report.begin(buildStart{fork: f, why: why, wait: wait, what: what}, a.o.slot)
 		mode.run = a.inFlight
 	}
 	if a.o.launch {
@@ -1011,8 +1060,9 @@ func (a *advance) build(b forkBuild, base baseWhy, edited bool) advanceResult {
 		mode.afterLock = func() (*capture.Entry, error, bool) { return a.afterLock(b, startGood, startFail) }
 		// A CHILD whenever a Ctrl-C must end the build and not the launch: a good build serves
 		// (PF-D25), or the advance is one of a pool's (XB-D10), whose builds run side by side — two
-		// in-process build jails would share this process's signal arms; and at every jail launch, so
-		// its output can be kept off the terminal (PF-D78).
+		// in-process build jails would share this process's signal arms and pack-record scope; and at
+		// every jail launch, so its output can be kept off the terminal (PF-D78). In a pool a.ctx is
+		// the pool's one interrupt scope's, which a first advance's runs under too (PF-D80).
 		if a.serves() || a.o.ctx != nil || a.o.report != nil {
 			mode.runJail = func(staging string, b forkBuild, s captureStreams) int {
 				rc, bound := forkBuildChild(a.ctx, forkBuildWaitBound, staging, b, s, a.o.color)
@@ -1096,7 +1146,9 @@ func (a *advance) endRun(err error) {
 	case errors.As(err, &lockTimeout), errors.Is(err, errForkBuildLocked):
 		a.inFlight.fail("another build of it holds its lock")
 	case errors.Is(err, errForkBuildNotStarted):
-		a.inFlight.fail(err.Error())
+		var ns forkBuildNotStarted
+		errors.As(err, &ns)
+		a.inFlight.failSaying(err.Error(), ns.buildCause(sealPacks(a.f)).Lines)
 	case errors.As(err, &source):
 		a.inFlight.fail("its source could not be put in place")
 	default:
@@ -1409,7 +1461,7 @@ func (a *advance) editedSeries(b forkBuild) string {
 	return ", the edited series (" + run.PatchCount(b.Series.Len()) + ", series " + b.Series.ShortDigest() + ")"
 }
 
-// result is a build's result line, in markup: the run's, which closes its progress line, with a
+// result is a build's result line, in markup: the run's, among its key's lines with its time, with a
 // report; a line of its own without one.
 func (a *advance) result(markup string) {
 	if a.inFlight != nil {

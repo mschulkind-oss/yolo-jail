@@ -106,6 +106,29 @@ func sealedChannel() *packChannel {
 	}
 }
 
+// SealedBuildSharesLauncherNetwork reports whether a sealed build jail this process launches on rt
+// ("" for the runtime the build's own launch resolves, podman on Linux) shares this process's network
+// namespace instead of getting the runtime's bridge. The seal asks for the bridge (FP-D13), but a
+// podman launched from inside a container is forced onto --net=host whatever it asks
+// (assembleRunCmd), so a build launched from inside a jail runs on that jail's network. A build's
+// start line reads this, so what it discloses is what the build jail's launch applies.
+func SealedBuildSharesLauncherNetwork(rt string) bool {
+	return sealedBuildSharesNetns(rt, paths.IsMacOS, func(p string) bool {
+		_, err := os.Stat(p)
+		return err == nil
+	})
+}
+
+// sealedBuildSharesNetns is SealedBuildSharesLauncherNetwork with the platform and the path probe the
+// assembler's own inContainer reads, so a test asks both the same question.
+func sealedBuildSharesNetns(rt string, isMacOS bool, exists func(string) bool) bool {
+	if rt == "" {
+		rt = "podman"
+	}
+	o := Options{IsMacOS: isMacOS, PathExists: exists}
+	return sharesLauncherNetns(rt, "bridge", o.inContainer())
+}
+
 // launchChannel is the channel this launch composes: the composed one, or under the seal the
 // empty one, composed from nothing — no env_sources is even hydrated, since hydrating one runs
 // the commands and reads the files it names on the host.

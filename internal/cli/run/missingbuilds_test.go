@@ -262,3 +262,36 @@ func TestAnUnsaidBuildNoPackLoadsIsWarned(t *testing.T) {
 		t.Errorf("the unsaid build's reason is not said once:\n%s", got)
 	}
 }
+
+// THE POOL'S MISSING BUILD REACHES THE REFUSAL ONCE: a launch wired as the CLI wires it, its whole
+// fork-build slot one act (BuildSlot) and no half's own, whose pooled build failed and left its
+// reason to the launch (Unsaid), refuses before the image step and says that reason once. Red with
+// missingBuilds reading only the halves' acts, which a BuildSlot launch's refusal then never sees.
+func TestAPooledBuildsFailureReachesTheRefusalOnce(t *testing.T) {
+	treeLaunchHome(t, true)
+	reason := "extension " + treeKey + "'s build of v1.0.0 (0123abcd) failed on the host (exit 2) — the next fresh " +
+		"launch tries again, or `yolo capture " + treeKey + "` now"
+	imaged := false
+	argv, printed := fakePodmanLaunch(t, func(o *Options) {
+		o.BuildTrees, o.BuildForks = nil, nil
+		o.BuildSlot = func(req BuildSlotRequest) (map[string]entrypoint.ForkDelivery, map[string]TreeDelivery) {
+			if req.Trees == nil || len(req.Trees.Trees) != 1 {
+				t.Errorf("the slot was handed %+v", req.Trees)
+			}
+			return nil, map[string]TreeDelivery{treeKey: {Reason: reason, Unsaid: true}}
+		}
+		o.autoLoad = func(image.AutoLoadOptions) image.LoadResult {
+			imaged = true
+			return image.LoadResult{OK: true, Ref: goldenImageRef}
+		}
+	})
+	if argv != nil || imaged {
+		t.Errorf("the launch went on to the image (%v) or the container (%v):\n%s", imaged, argv != nil, printed)
+	}
+	if !strings.Contains(printed, "Refusing to launch: 1 patched extension pack agentpack loads has no build on this machine.") {
+		t.Errorf("the launch did not refuse:\n%s", printed)
+	}
+	if n := strings.Count(printed, "failed on the host (exit 2)"); n != 1 {
+		t.Errorf("the launch says the pooled build's reason %d times, want once:\n%s", n, printed)
+	}
+}

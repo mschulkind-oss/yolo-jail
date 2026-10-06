@@ -22,6 +22,29 @@ import (
 // ready. runNormal threads it into assembleInput.imageRef, which is the single
 // source the container argv and the host-service insert point both read.
 func (o *Options) autoLoadImage(cfg *jsonx.OrderedMap, rt, repoRoot string, sp storePackagesPlan) image.LoadResult {
+	opts := o.imageLoadOptions(cfg, rt, repoRoot, sp)
+	load := o.autoLoad
+	if load == nil {
+		// The real loader, once per image per process (memoizedImageLoad).
+		key := imageLoadKey{Runtime: rt, RepoRoot: repoRoot, Attr: opts.Attr, Extra: jsonDumpsOrEmptyList(opts.ExtraPackages),
+			IsMacOS: o.IsMacOS, JailReadsHostStore: opts.JailReadsHostStore}
+		// A remembered image is confirmed through the real loader's own bracket: inspected under
+		// the housekeeping lock and recorded in the load sentinel before it is let go.
+		confirm := func(res image.LoadResult) bool {
+			return image.ConfirmLoaded(rt, res.Ref, res.StorePath, o.lockHousekeepingFn(),
+				func(argv []string) (int, bool) {
+					r := o.Exec(argv, "", nil, imagePresenceBound)
+					return r.RC, r.Ran && !r.Timeout
+				})
+		}
+		load = func(opts image.AutoLoadOptions) image.LoadResult { return memoizedImageLoad(key, opts, confirm) }
+	}
+	return load(opts)
+}
+
+// imageLoadOptions is the image step's whole request, which the prewarm beside the fork-build slot
+// asks with as well (imageprewarm.go), so the two build one derivation.
+func (o *Options) imageLoadOptions(cfg *jsonx.OrderedMap, rt, repoRoot string, sp storePackagesPlan) image.AutoLoadOptions {
 	// The IMAGE is Linux whatever the host is, so a `platforms` filter here asks about
 	// the image's platform and not the machine's.
 	extra := config.EffectivePackages(cfg, config.PlatformLinux)
@@ -50,24 +73,7 @@ func (o *Options) autoLoadImage(cfg *jsonx.OrderedMap, rt, repoRoot string, sp s
 		attr = image.ImageAttrLean
 	}
 	remedy := nixdiag.LinuxBuilderRemedy()
-	readsHostStore := o.hostNixMounted(rt)
-	load := o.autoLoad
-	if load == nil {
-		// The real loader, once per image per process (memoizedImageLoad).
-		key := imageLoadKey{Runtime: rt, RepoRoot: repoRoot, Attr: attr, Extra: jsonDumpsOrEmptyList(extra),
-			IsMacOS: o.IsMacOS, JailReadsHostStore: readsHostStore}
-		// A remembered image is confirmed through the real loader's own bracket: inspected under
-		// the housekeeping lock and recorded in the load sentinel before it is let go.
-		confirm := func(res image.LoadResult) bool {
-			return image.ConfirmLoaded(rt, res.Ref, res.StorePath, o.lockHousekeepingFn(),
-				func(argv []string) (int, bool) {
-					r := o.Exec(argv, "", nil, imagePresenceBound)
-					return r.RC, r.Ran && !r.Timeout
-				})
-		}
-		load = func(opts image.AutoLoadOptions) image.LoadResult { return memoizedImageLoad(key, opts, confirm) }
-	}
-	return load(image.AutoLoadOptions{
+	opts := image.AutoLoadOptions{
 		Runtime:  rt,
 		RepoRoot: repoRoot,
 		// The call site that makes the image load's phases individually visible.
@@ -122,8 +128,13 @@ func (o *Options) autoLoadImage(cfg *jsonx.OrderedMap, rt, repoRoot string, sp s
 		// reading of it: a jail that will resolve its /bin/* through the host
 		// store must not run a stock-tag match whose closure the store cannot be
 		// shown to hold (internal/image/stockimage.go).
-		JailReadsHostStore: readsHostStore,
-	})
+		JailReadsHostStore: o.hostNixMounted(rt),
+	}
+	if o.imageIdentity != nil {
+		// One eval of the identity for the launch, whichever asks first (imageprewarm.go).
+		opts.EvalIdentity = o.imageIdentity.eval
+	}
+	return opts
 }
 
 // imageLoadKey is every input autoLoadImage hands the real loader that decides WHICH image it

@@ -227,29 +227,52 @@ func inJailTreeReason(f packload.Fork) string {
 // Nothing here fails the launch; with nothing to serve a needed tree, the launch refuses right
 // after this slot (missingbuilds.go, patched-extensions.md PPX-D40).
 func (o *Options) treeDeliveriesFor(rt string) map[string]TreeDelivery {
-	if len(o.patchedTrees) == 0 || o.CapturesDir() == "" {
+	out, req := o.treeBuildPlan(rt)
+	if out == nil {
 		return nil
 	}
-	out := map[string]TreeDelivery{}
 	defer o.recordHandedTrees(out)
+	if req == nil {
+		return out
+	}
+	if o.BuildTrees == nil {
+		_, answers := o.BuildSlot(BuildSlotRequest{Trees: req, MaxBuilds: SlotBuildJails(rt)})
+		return o.finishTreeDeliveries(out, answers)
+	}
+	return o.finishTreeDeliveries(out, o.BuildTrees(*req))
+}
+
+// treeBuildPlan is the tree arm's first half (treeDeliveriesFor): every extension's reason it has
+// no copy to wait for, in out, and the request for the act, nil for none. out is nil when this
+// launch decides nothing for any extension (none, or a capture or build jail).
+func (o *Options) treeBuildPlan(rt string) (map[string]TreeDelivery, *TreeBuildRequest) {
+	if len(o.patchedTrees) == 0 || o.CapturesDir() == "" {
+		return nil, nil
+	}
+	out := map[string]TreeDelivery{}
 	if config.InJail() {
 		for _, f := range o.patchedTrees {
 			out[f.Key()] = TreeDelivery{Reason: inJailTreeReason(f)}
 		}
-		return out
+		return out, nil
 	}
 	floor := o.roBindsUnsupported(rt) // parity: Honored — below Apple Container's read-only floor the tree arm checks and builds nothing and still copies a good build already on this machine (patched-extensions.md §11)
-	if o.BuildTrees == nil {
+	if o.BuildTrees == nil && o.BuildSlot == nil {
 		for _, f := range o.patchedTrees {
 			out[f.Key()] = TreeDelivery{Reason: "this launch builds no extension"}
 		}
-		return out
+		return out, nil
 	}
-	req := TreeBuildRequest{Trees: o.patchedTrees, Platform: containerJailPlatform(), Runtime: rt,
+	return out, &TreeBuildRequest{Trees: o.patchedTrees, Platform: containerJailPlatform(), Runtime: rt,
 		Workspace: o.Workspace, Stdout: o.Stdout, Stderr: o.Stderr, Progress: o.progressConfig(),
 		Build: floor == "", BuildFloor: floor,
 		CopyRoot: patchedCopiesDir(o.packTree), Interrupt: o.actInterrupt()}
-	for key, d := range o.BuildTrees(req) {
+}
+
+// finishTreeDeliveries is the tree arm's second half: the act's answers merged into out, and a
+// reason for any extension it did not answer.
+func (o *Options) finishTreeDeliveries(out, answers map[string]TreeDelivery) map[string]TreeDelivery {
+	for key, d := range answers {
 		out[key] = d
 	}
 	for _, f := range o.patchedTrees {

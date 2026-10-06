@@ -144,9 +144,9 @@ Patched extensions this launch:
 The pack banner also says, for each one, that the upstream's new code arrives unreviewed and is
 built on your machine.
 
-When yolo builds something new, the launch shows the build as one line while it runs, and then
-says what the jail runs, once. Before the build starts, it names what it builds, the exact build
-command and what the sealed jail is denied:
+When yolo builds something new, the launch builds every patched program and extension at once and
+shows one line while they run, then says what the jail runs, once for each. Before a build starts,
+it names what it builds, the exact build command and what the sealed jail is denied:
 
 ```text
 build fork pi-mine/pi: v1.0.0 (a13d35a7) + 7 patches (series 2544fe91), the first build of it on this machine; log: .yolo/build-pi-mine--pi-5b0e2d1c.log
@@ -156,18 +156,19 @@ built fork pi-mine/pi: v1.0.0 (a13d35a7) + 7 patches; this jail runs it — stor
 
 A later launch that moves to a new version says `updated fork pi-mine/pi: v1.0.0 (a13d35a7) →
 v1.0.2 (cd32f772), 7 patches; this jail runs the new build`. Everything the build printed is in
-the build's own log, named on its first line, and in `.yolo/launch.log`.
+the build's own log, named on its first line, and in `.yolo/launch.log`. A build started from inside a
+jail says it uses that jail's network rather than a bridged one, since a nested jail cannot have
+its own.
 
-- **The first build** happens at the first launch, which waits for it. A Ctrl-C during a patched
-  program's first build ends that launch; during an extension's, the launch goes on without it.
-- **A newer version** is built at a later launch, which waits up to 20 minutes for each build. One
-  Ctrl-C stops the whole wait: every patched program and extension starts on its good build, one
-  with no build yet is left out, and a later launch tries again. When the time runs out, that build
-  counts as failed and the jail starts on the good build.
-- **A launch's extensions build at the same time**, up to four at once (fewer on a machine with
-  under eight CPUs, one at a time on Apple Container), and their lines print in the order the packs
-  list them. An extension whose lines wait behind another's says when its build starts, and where
-  its output is meanwhile.
+- **The first build** happens at the first launch, which waits for it.
+- **A newer version** is built at a later launch, which waits up to 20 minutes for each build.
+- **Builds run at once**, patched programs and extensions alike, up to four (fewer on a machine
+  with under eight CPUs, one at a time on Apple Container), so a launch waits for the slowest build
+  rather than all of them in turn. Their lines print in the order the packs list them, under one
+  progress line.
+- **One Ctrl-C stops the whole wait**: every patched program and extension starts on its good build,
+  one with no build yet is left out and says so, and a later launch tries again. When the time runs
+  out, that build counts as failed and the jail starts on the good build.
 - **An attach** to a running jail says which build that jail was handed.
 - In a jail, a pi extension's folder is read-only, and each launch gets its own copy of the good
   build.

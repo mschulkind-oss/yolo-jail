@@ -3,14 +3,15 @@ title: "Companion implementation sketch: one keyed build for every pi extension"
 date: 2026-10-05
 status: draft
 stage: SKETCH
-next: "Built 2026-10-05 but for the background advance (step 3, which waits on the refresh-timing option) and the patched forks' share of step 2; the design's ledger, XB-D35 to XB-D42, records how"
+next: "Built 2026-10-05 but for the background advance (step 3, which waits on the refresh-timing option); the patched forks' share of step 2 was built 2026-10-06 (XB-D56, XB-D57); the design's ledger, XB-D35 to XB-D42 and XB-D56 to XB-D57, records how"
 ---
 
 # Companion implementation sketch: one keyed build for every pi extension
 
 **Status:** 2026-10-05 — built but for two pieces, which the design's ledger names: step 1 whole
 ([XB-D14](pi-extension-store-builds.md#XB-D14), [XB-D41](pi-extension-store-builds.md#XB-D41)),
-step 2 for extensions ([XB-D39](pi-extension-store-builds.md#XB-D39)), step 3 as a seam
+step 2 ([XB-D39](pi-extension-store-builds.md#XB-D39), and for a jail launch's forks
+[XB-D56](pi-extension-store-builds.md#XB-D56)), step 3 as a seam
 ([XB-D42](pi-extension-store-builds.md#XB-D42)), and step 4, which
 [OQ-6](pi-git-extension-caching.md#OQ-6) (c) took ([XB-D35](pi-extension-store-builds.md#XB-D35) to
 [XB-D38](pi-extension-store-builds.md#XB-D38)). The sketch below is what it was built from. It parks the implementation material of
@@ -53,6 +54,15 @@ wins on behavior, and nobody builds from this sketch.
 - **The failure throttle**: a `$REFRESH_SEEN_DIR/<key>.failed` stamp beside the seen marker.
 
 ## Step 2: the parallel advance
+
+**Built** 2026-10-05 for extensions ([XB-D39](pi-extension-store-builds.md#XB-D39)), and
+2026-10-06 for a jail launch's forks and extensions in one pool
+([XB-D56](pi-extension-store-builds.md#XB-D56), [XB-D57](pi-extension-store-builds.md#XB-D57)):
+`internal/cli/buildpool.go` and
+`internal/cli/run/buildslot.go`. Two hazards this sketch missed were found building it: a first
+advance ran its build jail in the launch's own process, whose signal arms and pack-record scope two
+builds at once would share, so every pooled build is the child; and the delivery record's
+read-modify-write assumed one writer, so it takes a process mutex. The notes below are as drafted.
 
 - `deliverTreesForLaunch` (`internal/cli/treedelivery.go`) and `buildForksForLaunch`'s patched loop
   (`internal/cli/forkbuild.go`) become one pool over owner keys. Two semaphores (checks, builds); the

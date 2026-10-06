@@ -81,7 +81,7 @@ func (o *Options) missingBuilds(rt string) []missingBuild {
 		return nil
 	}
 	var out []missingBuild
-	if o.BuildForks != nil {
+	if o.BuildForks != nil || o.BuildSlot != nil {
 		for _, p := range o.forkPinned {
 			if !p.Fork.Patched() {
 				continue // a plain fork's failed build is the fork route's (forked-programs-as-packs.md §9)
@@ -95,7 +95,7 @@ func (o *Options) missingBuilds(rt string) []missingBuild {
 			}
 		}
 	}
-	if o.BuildTrees != nil {
+	if o.BuildTrees != nil || o.BuildSlot != nil {
 		for _, f := range o.patchedTrees {
 			if f.Fallback != "" {
 				continue // its fallback is installed in its place: noteTreeDeliveries says it, and its cause (XB-D7)

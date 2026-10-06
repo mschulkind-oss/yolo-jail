@@ -15,6 +15,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 	"syscall"
 	"testing"
 	"time"
@@ -71,6 +72,7 @@ func interruptedAct(t *testing.T) *run.ActInterrupt {
 // upstream and series, to the selection, and makes the fake build jail leave tool2 for its builds.
 func addSecondPatchedFork(t *testing.T, fx *patchedAdvanceFixture) {
 	t.Helper()
+	fx.sharedLocks = true
 	second := filepath.Join(fx.packs, "forkpack2")
 	ents, err := os.ReadDir(filepath.Join(fx.forkDir, "patches"))
 	if err != nil {
@@ -122,10 +124,36 @@ func forkLaunchRequest(act *run.ActInterrupt) run.ForkBuildRequest {
 		Interrupt: act}
 }
 
-// ONE CTRL-C ENDS EVERY PATCHED FORK'S WAIT IN A JAIL LAUNCH (PF-D57): with two patched forks each
-// serving a good build and pending a newer upstream, the Ctrl-C in the first one's build starts one
-// build jail, not two; the second is handed its good build with no check, and says so. Red if the
-// advance stops reading the act, or the launch's fork builds stop handing it the request's.
+// ctrlCOnceAllBuild stands a build child in that blocks until its interrupt scope ends, and takes the
+// user's one Ctrl-C once n builds are running at once, so a test can see one Ctrl-C end them all.
+func ctrlCOnceAllBuild(t *testing.T, n int) *int {
+	t.Helper()
+	var mu sync.Mutex
+	calls := 0
+	prev := forkBuildChild
+	forkBuildChild = func(ctx context.Context, _ time.Duration, _ string, _ forkBuild, _ captureStreams, _ bool) (int, bool) {
+		mu.Lock()
+		calls++
+		if calls == n {
+			_ = syscall.Kill(os.Getpid(), syscall.SIGINT)
+		}
+		mu.Unlock()
+		select {
+		case <-ctx.Done():
+		case <-time.After(10 * time.Second):
+			t.Error("the Ctrl-C did not reach every build of the pool")
+		}
+		return 130, false
+	}
+	t.Cleanup(func() { forkBuildChild = prev })
+	return &calls
+}
+
+// ONE CTRL-C ENDS EVERY PATCHED FORK'S WAIT IN A JAIL LAUNCH (PF-D57, XB-D10): with two patched
+// forks each serving a good build and pending a newer upstream, the slot's pool builds both at once,
+// and one Ctrl-C ends both builds: each fork is handed its good build, says so, and no build is
+// admitted. Red if the pool stops running its keys under one interrupt scope, or the advance opens
+// its own.
 func TestOneCtrlCEndsEveryPatchedForksWaitInALaunch(t *testing.T) {
 	fx := newPatchedAdvanceFixture(t, "")
 	v11 := fx.commit(t, "v1.1.0", map[int]string{14: "fourteen"})
@@ -137,23 +165,27 @@ func TestOneCtrlCEndsEveryPatchedForksWaitInALaunch(t *testing.T) {
 	}
 	fx.commit(t, "v1.3.0", map[int]string{14: "fourteen", 20: "twenty"})
 	fx.later(2 * time.Hour)
-	calls := countedCtrlC(t)
+	calls := ctrlCOnceAllBuild(t, 2)
+	act := &run.ActInterrupt{}
 	var out2 syncBuffer
-	got := buildForksForLaunch(forkLaunchRequest(&run.ActInterrupt{}), &out2, &out2, false)
+	got := buildForksForLaunch(forkLaunchRequest(act), &out2, &out2, false)
 	printed := out2.String()
-	if *calls != 1 {
-		t.Errorf("after one Ctrl-C the launch began %d build jails, want the one it ended\n%s", *calls, printed)
+	if *calls != 2 || !act.Interrupted() {
+		t.Errorf("the pool ran %d build jails at once (want both) and the act reads interrupted %v\n%s", *calls,
+			act.Interrupted(), printed)
 	}
 	if got["tool"].Key != first["tool"].Key || got["tool2"].Key != first["tool2"].Key {
 		t.Errorf("after the Ctrl-C the jail is handed %+v, want both good builds %+v\n%s", got, first, printed)
 	}
-	if strings.Contains(printed, "checking fork forkpack2/tool2's upstream") {
-		t.Errorf("after the Ctrl-C the launch checked the second fork's upstream:\n%s", printed)
+	for _, key := range []string{"forkpack/tool", "forkpack2/tool2"} {
+		if want := "fork " + key + ": the advance was interrupted — this jail starts on the good build v1.1.0 (" +
+			shortSHA(v11) + ") + 2 patches; the next fresh launch tries again"; !strings.Contains(printed, want) {
+			t.Errorf("the launch lacks %q:\n%s", want, printed)
+		}
 	}
-	if !strings.Contains(printed, "fork forkpack2/tool2: not checked — a Ctrl-C ended this launch's wait for its "+
-		"patched builds; this jail starts on the good build v1.1.0 ("+shortSHA(v11)+") + 2 patches, and the next "+
-		"fresh launch checks it") {
-		t.Errorf("the second fork does not say why it was not checked and what this jail starts on:\n%s", printed)
+	if strings.Index(printed, "fork forkpack/tool: the advance was interrupted") >
+		strings.Index(printed, "fork forkpack2/tool2: the advance was interrupted") {
+		t.Errorf("the forks' lines are not in declaration order:\n%s", printed)
 	}
 }
 
@@ -183,6 +215,7 @@ func TestAfterACtrlCALaunchBeginsNoPlainForksBuild(t *testing.T) {
 // series beside it in the selection, and one fake build jail answering for both.
 func forkAndTreeFixture(t *testing.T, fx *patchedAdvanceFixture, listed string) *treeFixture {
 	t.Helper()
+	fx.sharedLocks = true
 	tfx := &treeFixture{patchedFixture: fx.patchedFixture, now: fx.now}
 	tfx.treeDir = filepath.Join(fx.packs, "treepack")
 	ents, err := os.ReadDir(filepath.Join(fx.forkDir, "patches"))

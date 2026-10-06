@@ -70,6 +70,12 @@ type patchedAdvanceFixture struct {
 	said   string   // a line the fake build jail's runtime prints on the jail's stderr before it exits, "" for none
 	child  int      // how many builds went through the child-process runner
 	scoped []bool   // per child build, whether an interrupt scope's context could cancel it
+	// sharedLocks is set where other keys of the selection run beside the build in the slot's pool,
+	// whose checks and walks hold their own record and mirror locks meanwhile (PPX-D13): the lock
+	// assertion is then the single-key tests'.
+	sharedLocks bool
+	// mu guards builds, child and scoped, which the pool's keys write at once.
+	mu sync.Mutex
 	// platform is what the fake build jail's manifest reports: a container capture jail's, unless a
 	// host floor test makes it the floor's own (capture.Platform), which a materialize on the host
 	// requires.
@@ -90,8 +96,10 @@ func newPatchedAdvanceFixture(t *testing.T, follow string) *patchedAdvanceFixtur
 	prevChild := forkBuildChild
 	forkBuildChild = func(ctx context.Context, _ time.Duration, staging string, b forkBuild, s captureStreams,
 		color bool) (int, bool) {
+		fx.mu.Lock()
 		fx.child++
 		fx.scoped = append(fx.scoped, ctx.Done() != nil)
+		fx.mu.Unlock()
 		return forkBuildRunJail(staging, b, s, color), false
 	}
 	t.Cleanup(func() { forkBuildChild = prevChild })
@@ -111,8 +119,12 @@ func (fx *patchedAdvanceFixture) buildJail(t *testing.T) func(run.Options) int {
 		if _, err := os.Lstat(filepath.Join(src, ".git")); err == nil {
 			t.Error("the build's src/ holds a .git, which the build could read and write")
 		}
-		assertNoPackStoreLockHeld(t)
+		if !fx.sharedLocks {
+			assertNoPackStoreLockHeld(t)
+		}
+		fx.mu.Lock()
 		fx.builds = append(fx.builds, string(data))
+		fx.mu.Unlock()
 		if fx.ran {
 			writeFile(t, filepath.Join(o.Workspace, forkToolchainLeaf), "image-identity\n")
 		}

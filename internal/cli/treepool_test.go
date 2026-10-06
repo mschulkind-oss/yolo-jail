@@ -128,9 +128,10 @@ func (pf *poolFixture) bothRunning(t *testing.T) func(context.Context, forkBuild
 	}
 }
 
-// THE TWO BUILDS OVERLAP, and the lines print in declaration order: every line of the first key
-// before any of the second's, though the second's build ran at the same time. Red if the tree arm
-// stops running its keys in the pool.
+// THE TWO BUILDS OVERLAP, and the lines print in declaration order: each build's start line at
+// once, and every result line of the first key before the second's, though the second's build ran
+// at the same time (the launch's build pool, buildpool.go, XB-D56). Red if the tree arm stops running
+// its keys in the pool.
 func TestALaunchsExtensionsBuildAtOnceAndPrintInOrder(t *testing.T) {
 	pf := newPoolFixture(t)
 	pf.child = pf.bothRunning(t)
@@ -141,16 +142,10 @@ func TestALaunchsExtensionsBuildAtOnceAndPrintInOrder(t *testing.T) {
 	if pf.peak != 2 {
 		t.Errorf("at most %d builds ran at once, want both", pf.peak)
 	}
-	lastA, firstB := strings.LastIndex(out, "extension "+poolKeyA), strings.Index(out, "extension "+poolKeyB+": no build")
-	if lastA < 0 || firstB < 0 || lastA > firstB {
-		t.Errorf("the second key's lines are not after every line of the first:\n%s", out)
-	}
-	if !strings.Contains(out, "extension "+poolKeyB+": its build has started — its lines follow once every extension "+
-		"listed before it has ended, and its output is in ") {
-		t.Errorf("the held key's build did not say it started:\n%s", out)
-	}
-	if strings.Contains(out, "extension "+poolKeyA+": its build has started") {
-		t.Errorf("the first key, whose lines are live, said its start too:\n%s", out)
+	resultA, resultB := strings.Index(out, "built extension "+poolKeyA), strings.Index(out, "built extension "+poolKeyB)
+	startB := strings.Index(out, "build extension "+poolKeyB+": ")
+	if resultA < 0 || resultB < 0 || resultA > resultB || startB < 0 || startB > resultA {
+		t.Errorf("the start lines are not said at once, or the second key's result is not after the first's:\n%s", out)
 	}
 }
 
@@ -287,9 +282,10 @@ func TestAKeyThatUpdatesForTheNextLaunchIsHandedWhatItHas(t *testing.T) {
 }
 
 // A HELD KEY'S BUILD LOG, the file its start line names, receives the key's lines as its build
-// runs; it is opened only once the key's build starts and appended to, so a launch that builds
-// nothing of the key never touches it, and another launch's build of it is never truncated. Red if
-// the pool stops teeing a lane into its log, or opens it truncating, or before the build.
+// runs; it is opened only once the key's build starts and appended to, so an act that builds
+// nothing of the key never touches it, and another act's build of it is never truncated. A host
+// act's pool (a jail launch's builds each write the launch's own .yolo/build-<slug>.log, XB-D56). Red
+// if the pool stops teeing a lane into its log, or opens it truncating, or before the build.
 func TestAHeldKeysBuildLogHoldsItsLinesAndNoOtherLaunchTruncatesIt(t *testing.T) {
 	pf := newPoolFixture(t)
 	trees := packload.PatchedTrees(selectConfiguredHostPacks().packs)
@@ -306,10 +302,9 @@ func TestAHeldKeysBuildLogHoldsItsLinesAndNoOtherLaunchTruncatesIt(t *testing.T)
 	const other = "ANOTHER LAUNCH'S BUILD OF THIS KEY, STILL RUNNING\n"
 	writeFile(t, logB, other)
 	pf.child = pf.bothRunning(t)
-	got, out := pf.launch(t, "podman", &run.ActInterrupt{})
-	if got[poolKeyA].Dir == "" || got[poolKeyB].Dir == "" {
-		t.Fatalf("delivered %+v\n%s", got, out)
-	}
+	var host syncBuffer
+	advanceHostTrees(&host, false, "", &run.ActInterrupt{})
+	out := host.String()
 	if !strings.Contains(out, "its output is in "+logB) {
 		t.Fatalf("the held key's start line does not name %s:\n%s", logB, out)
 	}
@@ -323,11 +318,13 @@ func TestAHeldKeysBuildLogHoldsItsLinesAndNoOtherLaunchTruncatesIt(t *testing.T)
 	if !strings.Contains(string(data), "built extension "+poolKeyB) || strings.Contains(string(data), poolKeyA+":") {
 		t.Errorf("the held key's log does not hold its own lines alone:\n%s", data)
 	}
-	// A launch inside the hour checks and builds nothing, and leaves the log as it is.
+	// An act inside the hour checks and builds nothing, and leaves the log as it is.
 	pf.child = nil
 	writeFile(t, logB, other)
-	if again, out := pf.launch(t, "podman", &run.ActInterrupt{}); again[poolKeyB].Entry != got[poolKeyB].Entry {
-		t.Fatalf("the second launch was not handed the good build: %+v\n%s", again, out)
+	var again syncBuffer
+	advanceHostTrees(&again, false, "", &run.ActInterrupt{})
+	if strings.Contains(again.String(), "built extension "+poolKeyB) {
+		t.Fatalf("the second act built again:\n%s", again.String())
 	}
 	if data, _ := os.ReadFile(logB); string(data) != other {
 		t.Errorf("a launch that built nothing of the key rewrote its log:\n%s", data)
@@ -404,5 +401,43 @@ func TestAPoolRunsAtMostEightChecksAtOnce(t *testing.T) {
 	defer mu.Unlock()
 	if peak != treeCheckSlots {
 		t.Errorf("%d checks ran at once, want exactly %d (the bound, reached):\n%s", peak, treeCheckSlots, out.String())
+	}
+}
+
+// A POOLED BUILD THAT FAILS AND LEAVES NOTHING TO DELIVER, beside one that builds: the pool prints
+// its one result line and its last lines, says its cause nowhere, and hands the launch the reason,
+// marked unsaid, which the launch's refusal of a missing build says once (run's missingbuilds.go,
+// PPX-D40). The other key is delivered. Red if the pooled act says the failure's cause itself, or
+// stops leaving it to the launch.
+func TestAPooledBuildThatFailsLeavesItsCauseToTheLaunch(t *testing.T) {
+	pf := newPoolFixture(t)
+	prev := forkBuildChild
+	forkBuildChild = func(ctx context.Context, d time.Duration, staging string, b forkBuild, s captureStreams,
+		color bool) (int, bool) {
+		if b.Fork.Key() == poolKeyB {
+			s.jailReady()
+			writeFile(t, filepath.Join(staging, forkToolchainLeaf), "image-identity\n")
+			fmt.Fprintln(s.errw, "npm ERR! the build line of ext-b failed")
+			return 2, false
+		}
+		return prev(ctx, d, staging, b, s, color)
+	}
+	t.Cleanup(func() { forkBuildChild = prev })
+	got, out := pf.launch(t, "podman", &run.ActInterrupt{})
+	if got[poolKeyA].Dir == "" {
+		t.Fatalf("the key that builds was not delivered: %+v\n%s", got[poolKeyA], out)
+	}
+	d := got[poolKeyB]
+	if d.Dir != "" || !d.Unsaid || !strings.Contains(d.Reason, "failed on the host") {
+		t.Errorf("the failed key is handed %+v, want no build and its reason left to the launch", d)
+	}
+	if n := strings.Count(out, "Building extension "+poolKeyB+": failed ("); n != 1 {
+		t.Errorf("the failed build has %d result lines, want one:\n%s", n, out)
+	}
+	if !strings.Contains(out, "npm ERR! the build line of ext-b failed") {
+		t.Errorf("the failed build's last lines are not under its result:\n%s", out)
+	}
+	if strings.Contains(out, ": the build of ") || strings.Contains(out, "failed on the host") {
+		t.Errorf("the pooled act said the failure's cause, which the launch says once:\n%s", out)
 	}
 }

@@ -1,35 +1,41 @@
 package cli
 
 // buildreport.go is how a JAIL LAUNCH shows the builds its fork-build slot runs — a plain fork's
-// missing build, a patched fork's advance, a patched extension's — as one progress line each on the
-// terminal, with every byte the build jail printed kept in the launch's record. A BUILD REPORT (a
-// term coined here) is that rendering for one launch; a build's RUN is its share of it.
+// missing build, a patched fork's advance, a patched extension's — on the terminal, with every byte
+// the build jail printed kept in the launch's record. A BUILD REPORT (a term coined here) is that
+// rendering for one launch; a build's RUN is its share of it. The builds run at once in the slot's
+// pool (buildpool.go), under its one progress line.
 //
 // docs/reference/report-tiers.md is the rule it follows: progress may be compressed to a line, a
 // disclosure never is, warnings and refusals (tier 3) stay on the terminal, and "too much on the
 // terminal is answered by reading the file". So:
 //
-//   - THE START LINE prints before the build line runs, whatever the timing: what is built and why,
-//     where its log is, and the build's disclosures — the seal it runs under (FP-D9, FP-D13: no
-//     credential, no host file, no env_sources, and a bridged network, never the host's) and the
-//     build line itself, whole, since a payload can sit at its last character (OQ-RO9).
-//   - THE PROGRESS LINE redraws in place on a terminal and writes a heartbeat every 15 s anywhere
-//     else (internal/progress), its detail the act's phase.
-//   - THE RESULT LINE closes it: for an admitted build the move line (PF-D8), the disclosure of what
-//     the jail now runs, with the store's key, path count and size folded in; for a build that came
-//     to nothing a short result, under which the caller prints its failure line and then the build's
-//     last lines and its log (failureLines).
+//   - THE START LINE prints at once, before the build line runs, whatever the timing: what is built
+//     and why, where its log is, and the build's disclosures — the seal it runs under (FP-D9,
+//     FP-D13: no credential, no host file, no env_sources, and a bridged network, never the host's,
+//     or, for a build launched from inside a jail, that jail's network, which a nested podman is
+//     forced onto) and the build line itself, whole, since a payload can sit at its last character
+//     (OQ-RO9).
+//   - THE POOL'S PROGRESS LINE stands for every build running, redrawn in place on a terminal and a
+//     heartbeat every 15 s anywhere else (internal/progress).
+//   - THE RESULT LINE is the build's own, among its key's lines in declaration order, with its time:
+//     for an admitted build the move line (PF-D8), the disclosure of what the jail now runs, with the
+//     store's key, path count and size folded in; for a build that came to nothing a short result,
+//     under which the caller prints its failure line and then the build's last lines and its log
+//     (failureLines).
 //   - THE NESTED LAUNCH'S WARNINGS AND REFUSALS: the build jail's launch prints its own lines apart
 //     from its jail's until the jail's boot is done (captureStreams, forkbuildchild.go's
 //     --jail-streams), and the ones that begin as a warning or a refusal begins are repeated under
-//     the result line. A refusal also ends the build before its build line ran, and its failure
-//     line relays it (forkBuildNotStarted).
+//     the result line, whether the build was admitted or came to nothing; a failure's last lines then
+//     leave out the ones already repeated. A refusal also ends the build before its build line ran,
+//     and its failure line relays it (forkBuildNotStarted).
 //
 // Everything else the build jail prints — its launch's provenance and progress, its boot, the build
 // line's own output — goes to launch.log alone, through the launch stream's log half
 // (run.LaunchLogOnly), each line marked with the build's key, and to the build's own log,
-// <workspace>/.yolo/build-<slug>.log, rewritten at each build of the key (docs/design/patched-forks.md
-// PF-D78).
+// <workspace>/.yolo/build-<slug>.log, rewritten by the first build of the key a launch runs and added
+// to by every later one, so a fit's failure that names it still finds its output there once the
+// series' base has been built after it (docs/design/patched-forks.md PF-D79, PF-D23).
 
 import (
 	"context"
@@ -49,8 +55,20 @@ import (
 )
 
 // sealDisclosure is what the seal withholds and what crosses, as a build's start line names it
-// (FP-D9, FP-D13).
-const sealDisclosure = "sealed: no credential, no host file, no env_sources, and a bridged network, never the host's"
+// (FP-D9, FP-D13), for a build jail launched on rt ("" for the runtime its launch resolves). The
+// network is what that launch applies: the runtime's bridge, or — launched from inside a jail, where a
+// nested podman is forced onto its launcher's namespace — the jail's own network.
+func sealDisclosure(rt string) string {
+	if sealSharesNetwork(rt) {
+		return "sealed: no credential, no host file, no env_sources, and the network of the jail it is launched " +
+			"from, never a bridge of its own (a jail nested in a jail shares its network), so what that jail " +
+			"reaches, the build reaches"
+	}
+	return "sealed: no credential, no host file, no env_sources, and a bridged network, never the host's"
+}
+
+// sealSharesNetwork is run.SealedBuildSharesLauncherNetwork: a var so a test states either answer.
+var sealSharesNetwork = run.SealedBuildSharesLauncherNetwork
 
 const (
 	// buildTailLines is how many of a build's last lines a failure prints under its failure line.
@@ -64,23 +82,31 @@ const (
 
 // buildReport is one jail launch's build report.
 type buildReport struct {
-	// w is the launch stream: the start lines, the progress lines and the result lines.
-	w io.Writer
-	// log is launch.log alone (run.LaunchLogOnly(w)), io.Discard with no log.
+	// log is the launch stream's launch.log alone (run.LaunchLogOnly), io.Discard with no log.
 	log io.Writer
 	// workspace is the launch's, whose .yolo holds each build's own log; "" for none.
 	workspace string
-	color     bool
-	// cfg is the stream's rendering (run's progressConfig), for a check's line; build is cfg for a
-	// build's, shown at once below the start line that announced it.
-	cfg, build progress.Config
-	pr         richtext.Printer
+	// rt is the launch's runtime, which its build jails run on too, for the seal's disclosure.
+	rt    string
+	color bool
+	// pr is the launch stream's printer, for what the report says once the pool's keys have printed
+	// (flush).
+	pr richtext.Printer
+
+	mu sync.Mutex
+	// opened is the keys whose own log a build of this launch has opened: the first build of a key
+	// rewrites it, and every later one, the series' base after a fit or a re-read's second build,
+	// adds to it.
+	opened map[string]bool
 	// causes guards refused and held, which a launch's concurrent builds share.
 	causes sync.Mutex
 	// refused are this act's build jails whose own config was refused, by seal (buildcauses.go).
 	refused map[string]*refusedSealEntry
 	// held are the builds a cause held at their good build, said once per cause by flush.
 	held []*heldGroup
+	// order is each pool key's place in declaration order, by label (buildPool.add), which flush
+	// names a held group's builds in.
+	order map[string]int
 }
 
 // launchBuildStream is the stream a jail launch's builds print on: the launch's own stderr, teed
@@ -92,18 +118,21 @@ func launchBuildStream(w io.Writer) io.Writer {
 	return os.Stderr
 }
 
-// newBuildReport is the report of a launch whose stream is w.
-func newBuildReport(workspace string, w io.Writer, cfg progress.Config, color bool) *buildReport {
-	build := cfg
-	build.Immediate, build.Announced = true, true
-	return &buildReport{w: w, log: run.LaunchLogOnly(w), workspace: workspace, color: color, cfg: cfg, build: build,
-		pr: richtext.Printer{W: w, Color: color}}
+// newBuildReport is the report of a launch on runtime rt whose stream is w.
+func newBuildReport(workspace, rt string, w io.Writer, color bool) *buildReport {
+	return &buildReport{log: run.LaunchLogOnly(w), workspace: workspace, rt: rt, color: color, opened: map[string]bool{},
+		pr: richtext.Printer{W: w, Color: color}, order: map[string]int{}}
 }
 
-// checkLine is the progress line of f's check (packsrc.CheckOptions.Begin): silent for a check
-// that ends inside the grace period, as one that finds nothing new mostly does.
-func (r *buildReport) checkLine(f packload.Fork) *progress.Line {
-	return r.cfg.Start(r.w, "Checking "+f.Label()+"'s upstream")
+// logLine writes a line of key's to launch.log alone, marked as its build jail's lines are: what
+// the pool's progress line says in passing, such as a check's wait for a lock, which the log keeps.
+func (r *buildReport) logLine(key, line string) {
+	if r == nil {
+		return
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	fmt.Fprintf(r.log, "  [%s] %s\n", key, line)
 }
 
 // buildStart is what a build's start line says.
@@ -120,11 +149,11 @@ type buildStart struct {
 	wait string
 }
 
-// begin starts one build's run: its log, its start line and disclosure line, and its progress
-// line. It never fails: a log that cannot be opened is one fewer place the output lands, and the
-// start line says which log there is.
-func (r *buildReport) begin(s buildStart) *buildRun {
-	b := &buildRun{r: r, key: s.fork.Key(), label: s.fork.Label(), started: time.Now()}
+// begin starts one build's run for the pool's key it: its log, and its start line and disclosure
+// line, printed at once. It never fails: a log that cannot be opened is one fewer place the output
+// lands, and the start line says which log there is.
+func (r *buildReport) begin(s buildStart, it *poolItem) *buildRun {
+	b := &buildRun{r: r, it: it, key: s.fork.Key(), label: s.fork.Label(), started: time.Now()}
 	b.openLog(s)
 	head := "[bold]build[/bold] " + richtext.Escape(b.label+": "+s.what+s.why)
 	if s.wait != "" {
@@ -133,9 +162,7 @@ func (r *buildReport) begin(s buildStart) *buildRun {
 	if where := b.logName(); where != "" {
 		head += "[dim]; log: " + richtext.Escape(where) + "[/dim]"
 	}
-	r.pr.Print(head)
-	r.pr.Print("[dim]  " + richtext.Escape(sealDisclosure+"; "+buildRuns(s.fork)) + "[/dim]")
-	b.line = r.build.Start(r.w, "Building "+b.label)
+	it.pool.say(head + "\n[dim]  " + richtext.Escape(sealDisclosure(r.rt)+"; "+buildRuns(s.fork)) + "[/dim]")
 	return b
 }
 
@@ -155,19 +182,22 @@ func buildRuns(f packload.Fork) string {
 // build `yolo capture` runs has, so the build act calls them unconditionally.
 type buildRun struct {
 	r       *buildReport
+	it      *poolItem // the key whose build this is, whose lines take the result
 	key     string
 	label   string
 	started time.Time
-	line    *progress.Line
 
 	mu sync.Mutex
 	// logf is the build's own log, nil when it could not be opened; logPath its path.
 	logf    *os.File
 	logPath string
-	// cur is each stream's partial line (jailTail's order, the tail* streams).
+	// cur is each stream's partial line (jailTail's order, the tail* streams), and cr whether a
+	// carriage return came last on it, which redraws the line only if more of it follows: a "\r\n"
+	// just ends it.
 	cur [tailStreams][]byte
+	cr  [tailStreams]bool
 	// tail is the last buildTailLines lines of every stream, in the order they came.
-	tail []string
+	tail []tailLine
 	// warn is the nested launch's tier-3 lines, in order; inWarn and cont follow one's continuation on
 	// the stream it was printed on.
 	warn   []string
@@ -181,25 +211,46 @@ type buildRun struct {
 	ended bool
 }
 
+// tailLine is one of a build's last lines, and whether it is repeated among the nested launch's
+// warnings, which a failure's tail then leaves out.
+type tailLine struct {
+	text string
+	warn bool
+}
+
 // buildLogName is the name of the build log of fork key under the workspace's .yolo: readable,
 // and unique by a hash of the key (run.PatchedCopySlug), since a key holds a "/".
 func buildLogName(key string) string { return "build-" + run.PatchedCopySlug(key) + ".log" }
 
 // openLog opens the build's own log, beneath a root on the jail-writable .yolo, never by path
-// (paths.OpenWorkspaceStateFile, which launch.log's open states the reason for), rewritten at each
-// build of the key, with a header naming the build.
+// (paths.OpenWorkspaceStateFile, which launch.log's open states the reason for), with a header naming
+// the build: rewritten by the first build of the key this launch runs, and added to by every later
+// one, whose failure lines would otherwise name a log another build had rewritten.
 func (b *buildRun) openLog(s buildStart) {
 	if b.r.workspace == "" {
 		return
 	}
+	b.r.mu.Lock()
+	again := b.r.opened[b.key]
+	b.r.mu.Unlock()
+	flags := os.O_WRONLY | os.O_CREATE | os.O_TRUNC
+	if again {
+		flags = os.O_WRONLY | os.O_CREATE | os.O_APPEND
+	}
 	name := buildLogName(b.key)
-	f, err := paths.OpenWorkspaceStateFile(b.r.workspace, name, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o644)
+	f, err := paths.OpenWorkspaceStateFile(b.r.workspace, name, flags, 0o644)
 	if err != nil {
 		return
 	}
+	b.r.mu.Lock()
+	b.r.opened[b.key] = true
+	b.r.mu.Unlock()
 	b.logf, b.logPath = f, filepath.Join(paths.WorkspaceStateDir(b.r.workspace), name)
+	if again {
+		fmt.Fprintln(f)
+	}
 	fmt.Fprintf(f, "=== yolo build of %s, %s ===\n  %s%s\n  %s; %s\n", b.label, b.started.Format("2006-01-02T15:04:05-0700"),
-		s.what, s.why, sealDisclosure, buildRuns(s.fork))
+		s.what, s.why, sealDisclosure(b.r.rt), buildRuns(s.fork))
 }
 
 // logName is where the start line says the output is: the build's own log, relative to the
@@ -239,8 +290,9 @@ func (s buildStream) Write(p []byte) (int, error) {
 	return len(p), nil
 }
 
-// write takes p into stream i, line by line: a carriage return starts a line again, as jailTail's
-// does, so a redrawn line is kept as a terminal would show it.
+// write takes p into stream i, line by line: a carriage return followed by more of the line starts
+// it again, as jailTail's does, so a redrawn line is kept as a terminal would show it, and one
+// followed by the newline, a CRLF ending, just ends it.
 func (b *buildRun) write(i int, p []byte) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
@@ -249,8 +301,11 @@ func (b *buildRun) write(i int, p []byte) {
 		case '\n':
 			b.endLine(i)
 		case '\r':
-			b.cur[i] = b.cur[i][:0]
+			b.cr[i] = true
 		default:
+			if b.cr[i] {
+				b.cur[i], b.cr[i] = b.cur[i][:0], false
+			}
 			b.cur[i] = append(b.cur[i], c)
 		}
 	}
@@ -259,38 +314,42 @@ func (b *buildRun) write(i int, p []byte) {
 // endLine files stream i's partial line. Callers hold mu.
 func (b *buildRun) endLine(i int) {
 	text := strings.TrimRight(jailTailANSI.ReplaceAllString(string(b.cur[i]), ""), " \t")
-	b.cur[i] = b.cur[i][:0]
+	b.cur[i], b.cr[i] = b.cur[i][:0], false
 	if b.logf != nil {
 		fmt.Fprintln(b.logf, text)
 	}
 	if strings.TrimSpace(text) == "" {
 		return
 	}
-	fmt.Fprintf(b.r.log, "  [%s] %s\n", b.key, text)
-	if b.tail = append(b.tail, text); len(b.tail) > buildTailLines {
+	b.r.logLine(b.key, text)
+	warned := false
+	if (i == tailLaunchOut || i == tailLaunchErr) && !b.booted {
+		// THE NESTED LAUNCH'S TIER 3: a warning or a refusal, and the indented lines that are its detail.
+		switch {
+		case tier3Line(text):
+			b.inWarn[i], b.cont[i] = true, 0
+			warned = b.keepWarn(text)
+		case b.inWarn[i] && (strings.HasPrefix(text, " ") || strings.HasPrefix(text, "\t")) &&
+			b.cont[i] < buildWarnContinuation:
+			b.cont[i]++
+			warned = b.keepWarn(text)
+		default:
+			b.inWarn[i] = false
+		}
+	}
+	if b.tail = append(b.tail, tailLine{text: text, warn: warned}); len(b.tail) > buildTailLines {
 		b.tail = b.tail[len(b.tail)-buildTailLines:]
-	}
-	if (i != tailLaunchOut && i != tailLaunchErr) || b.booted {
-		return
-	}
-	// THE NESTED LAUNCH'S TIER 3: a warning or a refusal, and the indented lines that are its detail.
-	switch {
-	case tier3Line(text):
-		b.inWarn[i], b.cont[i] = true, 0
-		b.keepWarn(text)
-	case b.inWarn[i] && (strings.HasPrefix(text, " ") || strings.HasPrefix(text, "\t")) &&
-		b.cont[i] < buildWarnContinuation:
-		b.cont[i]++
-		b.keepWarn(text)
-	default:
-		b.inWarn[i] = false
 	}
 }
 
-func (b *buildRun) keepWarn(text string) {
+// keepWarn keeps one of the nested launch's tier-3 lines, and reports whether it was kept: past
+// buildWarnLines it is not, and stays in a failure's tail.
+func (b *buildRun) keepWarn(text string) bool {
 	if len(b.warn) < buildWarnLines {
 		b.warn = append(b.warn, text)
+		return true
 	}
+	return false
 }
 
 // tier3Starts are how the run pipeline's warnings and refusals begin, as their lines read with
@@ -310,12 +369,19 @@ func tier3Line(text string) bool {
 	return false
 }
 
-// phase is the progress line's detail: what the act is doing now.
+// phase is what the build act is doing now, for its log; and a wait for another launch's build of
+// the same key, which can last forkBuildWaitBound, for the pool's line too, which otherwise names
+// only which keys build.
 func (b *buildRun) phase(detail string) {
 	if b == nil {
 		return
 	}
-	b.line.Set(detail)
+	b.it.setNote(detail, strings.HasPrefix(detail, "waiting"))
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if b.logf != nil {
+		fmt.Fprintf(b.logf, "--- %s\n", detail)
+	}
 }
 
 // admitted records the admitted entry, which the result line names.
@@ -329,11 +395,12 @@ func (b *buildRun) admitted(key string, entries int, bytes int64) {
 }
 
 // done ends an admitted build: markup is its result line, the move line for a patched build, to
-// which the store clause is added; then the nested launch's warnings.
+// which the store clause is added; then the nested launch's warnings (printWarnings).
 func (b *buildRun) done(markup string) {
 	if b == nil {
 		return
 	}
+	b.closeLog() // files every stream's partial line, a last warning's included
 	b.mu.Lock()
 	if b.ended {
 		b.mu.Unlock()
@@ -345,43 +412,89 @@ func (b *buildRun) done(markup string) {
 	if store != "" {
 		markup += "[dim] — " + richtext.Escape(store) + "[/dim]"
 	}
-	b.line.DoneWith(richtext.Render(markup, b.r.color))
-	for _, w := range warn {
-		b.r.pr.Print("[yellow]  its build jail: " + richtext.Escape(w) + "[/yellow]")
-	}
-	b.closeLog()
+	pr := richtext.Printer{W: b.it.stream(), Color: b.r.color}
+	pr.Print(markup + "[dim] (" + progress.Elapsed(time.Since(b.started)) + ")[/dim]")
+	printWarnings(pr, warn)
 }
 
-// fail ends a build that came to nothing with a short result ("failed", "did not start"), under
-// which the caller prints its failure line and failureLines.
-func (b *buildRun) fail(result string) {
+// printWarnings repeats the nested launch's warnings and refusals under a build's result line
+// (report-tiers.md's tier 3, which stays on the terminal).
+func printWarnings(pr richtext.Printer, warn []string) {
+	for _, w := range warn {
+		pr.Print("[yellow]  its build jail: " + richtext.Escape(w) + "[/yellow]")
+	}
+}
+
+// fail ends a build that came to nothing with a short result ("failed", "did not start"), its
+// key's next line, and the nested launch's warnings under it, which came before its last lines as
+// often as not; under them the caller prints its failure line and failureLines.
+func (b *buildRun) fail(result string) { b.failSaying(result, nil) }
+
+// failSaying is fail for a build whose jail stopped before its build line with a cause said
+// elsewhere, once (PPX-D42): the nested launch's warnings that ARE that cause — its lines, said by
+// the launch's refusal or the act's own lines under it — are not repeated under the result line,
+// and every other warning is (report-tiers.md's tier 3).
+func (b *buildRun) failSaying(result string, said []string) {
 	if b == nil {
 		return
 	}
+	b.closeLog() // files every stream's partial line, a last warning's included
 	b.mu.Lock()
 	if b.ended {
 		b.mu.Unlock()
 		return
 	}
 	b.ended = true
+	warn := withoutLines(b.warn, said)
 	b.mu.Unlock()
-	b.line.Set("") // the phase it ended in is the failure line's to say
-	b.line.Done(result)
-	b.closeLog()
+	pr := richtext.Printer{W: b.it.stream(), Color: b.r.color}
+	pr.Print(richtext.Escape("Building " + b.label + ": " + result + " (" + progress.Elapsed(time.Since(b.started)) + ")"))
+	printWarnings(pr, warn)
+}
+
+// withoutLines is warn less every line said holds, compared without their indentation.
+func withoutLines(warn, said []string) []string {
+	if len(said) == 0 {
+		return warn
+	}
+	cause := map[string]bool{}
+	for _, l := range said {
+		cause[strings.TrimSpace(l)] = true
+	}
+	var out []string
+	for _, w := range warn {
+		if !cause[strings.TrimSpace(w)] {
+			out = append(out, w)
+		}
+	}
+	return out
 }
 
 // failureLines are the lines a failed build prints under its failure line: the build's last
-// lines, then where its whole output is. Markup, for the caller's printer; nil on a nil run.
+// lines, but for the nested launch's warnings its result line repeated already, then where its
+// whole output is. Markup, for the caller's printer; nil on a nil run.
 func (b *buildRun) failureLines() []string {
 	if b == nil {
 		return nil
 	}
 	b.mu.Lock()
-	tail := append([]string(nil), b.tail...)
+	var tail []string
+	repeated := false
+	for _, l := range b.tail {
+		if l.warn {
+			repeated = true
+			continue
+		}
+		tail = append(tail, l.text)
+	}
 	b.mu.Unlock()
 	var out []string
 	if len(tail) > 0 {
-		out = append(out, fmt.Sprintf("[dim]  its last %d %s:[/dim]", len(tail), plural(len(tail), "line", "lines")))
+		head := fmt.Sprintf("its last %d %s", len(tail), plural(len(tail), "line", "lines"))
+		if repeated {
+			head = fmt.Sprintf("its last %d other %s", len(tail), plural(len(tail), "line", "lines"))
+		}
+		out = append(out, "[dim]  "+head+":[/dim]")
 		for _, l := range tail {
 			out = append(out, "[dim]    "+richtext.Escape(l)+"[/dim]")
 		}

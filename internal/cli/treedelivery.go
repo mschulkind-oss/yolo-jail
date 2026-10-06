@@ -41,30 +41,13 @@ var treeAdvance = advancePatchedFork
 // checked: a seam for a test to reap the entry there, as another workspace's move would.
 var treeCopied = func(key string) {}
 
-// deliverTreesForLaunch is run.Options.BuildTrees: every tree's delivery at once, in a PARALLEL
-// ADVANCE (treepool.go, XB-D10) — each key's check, build and copy on a lane of its own, the lines in
-// declaration order, one Ctrl-C ending every wait.
-func deliverTreesForLaunch(req run.TreeBuildRequest, out, errw io.Writer, color bool) map[string]run.TreeDelivery {
-	got := make([]run.TreeDelivery, len(req.Trees))
-	later := make([]bool, len(req.Trees))
-	// EACH BUILD IS ONE PROGRESS LINE on the launch's stream (buildreport.go), as the fork builds'.
-	report := newBuildReport(req.Workspace, errw, req.Progress, color)
-	runTreesInParallel(req.Trees, req.Runtime, req.Interrupt, out, errw, func(i int, f packload.Fork, lane treeLane) {
-		got[i], later[i] = deliverTree(f, req, lane, report, color)
-	})
-	report.flush()
-	m := map[string]run.TreeDelivery{}
-	var background []packload.Fork
-	for i, f := range req.Trees {
-		m[f.Key()] = got[i]
-		if later[i] {
-			background = append(background, f)
-		}
-	}
-	if len(background) > 0 {
-		backgroundTreeAdvance(background, req, errw, color)
-	}
-	return m
+// deliverTreesForLaunch is run.Options.BuildTrees.
+//
+// Every extension runs at once in the slot's pool (buildpool.go, XB-D10), which prints on errw; a
+// launch with BuildSlot wired runs them there beside the forks.
+func deliverTreesForLaunch(req run.TreeBuildRequest, _, errw io.Writer, color bool) map[string]run.TreeDelivery {
+	_, trees := runBuildSlot(run.BuildSlotRequest{Trees: &req}, errw, color)
+	return trees
 }
 
 // updateTiming is when a key's advance runs (docs/design/pi-extension-store-builds.md §7.6): AT THE
@@ -94,18 +77,19 @@ var backgroundTreeAdvance = func(trees []packload.Fork, _ run.TreeBuildRequest, 
 	}
 }
 
-// deliverTree is one built tree's delivery on its lane: what serves, then its per-launch copy, with
-// the one re-read a reaped entry gets; and whether its advance waits for a background one (later).
+// deliverTree is one built tree's delivery, the pool's key it: what serves, then its per-launch copy,
+// with the one re-read a reaped entry gets; and whether its advance waits for a background one
+// (later).
 //
 // FOR THE NEXT LAUNCH (treeUpdateTiming, XB-D19): a key with a good build is handed it with no check,
 // one with none but a fallback takes the fallback this once, and only a key with neither builds in
 // front, since there is nothing to hand; the first two are left to the background advance.
-func deliverTree(f packload.Fork, req run.TreeBuildRequest, lane treeLane, report *buildReport,
+func deliverTree(f packload.Fork, req run.TreeBuildRequest, report *buildReport, it *poolItem,
 	color bool) (_ run.TreeDelivery, later bool) {
-	errw := lane.errw
+	errw := it.stream()
 	pr := richtext.Printer{W: errw, Color: color}
-	o := lane.options(advanceOptions{platform: req.Platform, runtime: req.Runtime, workspace: req.Workspace,
-		color: color, launch: true, act: req.Interrupt, report: report})
+	o := advanceOptions{platform: req.Platform, runtime: req.Runtime, workspace: req.Workspace, out: errw,
+		errw: errw, color: color, launch: true, act: req.Interrupt, report: report, slot: it}
 	nextLaunch := req.Build && treeUpdateTiming(f) == timingNextLaunch
 	for attempt := 0; ; attempt++ {
 		var r advanceResult

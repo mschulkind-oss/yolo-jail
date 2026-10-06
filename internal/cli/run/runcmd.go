@@ -543,6 +543,17 @@ type Options struct {
 	// build beside this launch's pack tree, by extension key. Injected for BuildForks' reason, and
 	// nil builds and copies nothing, each tree reaching its jail with the reason that says so.
 	BuildTrees func(req TreeBuildRequest) map[string]TreeDelivery
+	// BuildSlot is the WHOLE fork-build slot's act (buildslot.go; docs/design/pi-extension-store-builds.md
+	// XB-D10): BuildForks' and BuildTrees' work at once, every key of both in one pool under one
+	// interrupt scope, returning both halves' answers. When set a fresh launch calls it in place of
+	// the two; nil leaves them, one after the other. Injected for BuildForks' reason.
+	BuildSlot func(req BuildSlotRequest) (map[string]entrypoint.ForkDelivery, map[string]TreeDelivery)
+	// prewarmImage starts the image's own build beside the slot (imageprewarm.go); nil is
+	// image.Prewarm, and a launch whose image step is a test's fake (autoLoad) warms nothing.
+	prewarmImage func(image.AutoLoadOptions)
+	// imageIdentity is this launch's image identity, evaluated once whether the prewarm or the image
+	// step asks first (imageprewarm.go); nil evaluates it as the image step always did.
+	imageIdentity *identityMemo
 	// Sealed is THE SEAL (docs/design/forked-programs-as-packs.md FP-D9; seal.go): this launch is
 	// a fork BUILD, whose command is arbitrary code from a repository a pack named, so the jail is
 	// handed no credential and nothing that writes outside its own workspace and home. Every
