@@ -165,6 +165,9 @@ type Options struct {
 	// plists (/Library/LaunchDaemons) under, to name the file and the restart a hint gives; the
 	// hint still prints the real paths. "" => the real root; tests point it at a fake tree.
 	nixHostRoot string
+	// cdiHostRoot is the root the AMD section reads CDI spec dirs and containers.conf under
+	// (run.FindAMDCDISpec). "" => the real root; tests point it at a fake tree.
+	cdiHostRoot string
 	// nixVersion is `nix --version`'s answer, asked once per check and read by the Nix
 	// section's version row and by every hint that depends on which Nix this is. nil until the
 	// first asks.

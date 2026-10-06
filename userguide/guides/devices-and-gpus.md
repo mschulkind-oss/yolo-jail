@@ -156,7 +156,7 @@ CDI mode. Package and group names vary by distribution, so adapt the commands to
    sudo amd-ctk cdi generate --output=/etc/cdi/amd.json
    amd-ctk cdi list   # should list amd.com/gpu=all, amd.com/gpu=0, ...
    ```
-   With `mode: "cdi"` and no spec at `/etc/cdi/amd.json` or `/var/run/cdi/amd.json`, the launch warns, names this command, and starts without the GPU. The generated spec injects **only device nodes** (no env vars, hooks, or host-library mounts — verified), and CDI mode runs ROCm correctly under the default crun runtime (no `runc` workaround needed). On a single-GPU host CDI offers no advantage over the default device-node mode.
+   yolo finds the spec the way podman does: any `.json` or `.yaml` file of kind `amd.com/gpu` in `/etc/cdi`, `/var/run/cdi` or a directory containers.conf's `cdi_spec_dirs` names, so an existing spec under another name works as it is. Do not generate a second one beside it: podman rejects two specs that define the same devices. With `mode: "cdi"` and no spec, the launch warns, names this command, and starts without the GPU. The generated spec injects **only device nodes** (no env vars, hooks, or host-library mounts — verified), and CDI mode runs ROCm correctly under the default crun runtime (no `runc` workaround needed). On a single-GPU host CDI offers no advantage over the default device-node mode.
 
 4. **Validate:**
    ```bash

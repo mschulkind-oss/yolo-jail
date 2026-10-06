@@ -28,7 +28,7 @@ defaults to `nvidia` — so every pre-existing config keeps working untouched.
 | Component | Lives in |
 | :--- | :--- |
 | Argv construction — device nodes, groups, env, the memlock clamp | `internal/cli/run` (`gpuArgs` in `helpers.go`) |
-| The host probe | `internal/cli/run` (`rocmHostAvailable`, `hasRenderNode`, `FindAMDCDISpec`) |
+| The host probe | `internal/cli/run` (`rocmHostAvailable`, `hasRenderNode`; `FindAMDCDISpec` in `amdcdispec.go`) |
 | The host memlock ceiling | `internal/cli/run` (`syscalls_linux.go`) |
 | Config shape and the vendor-exclusivity rules | `internal/config` (`knownGPUKeys`, `validate.go`) |
 | Diagnostics | `internal/cli/check` (`sectionGPUAmd`, `checkDeviceNode`, `checkRocmEnumeration`) |
@@ -125,12 +125,22 @@ host without it starts the jail without GPU flags rather than refusing, which is
 implementation land before any hardware existed to verify it on.
 
 **In CDI mode, a host without an AMD CDI spec is a host without it.** The launch's probe requires a
-spec at one of the two spec paths ([Current values](#current-values)) before it lets the CDI flags
-through, and otherwise takes that same warn-and-continue path, its warning naming the command that
-writes the spec. The probe and `yolo check` ask one function (`run.FindAMDCDISpec`), so the two
-cannot disagree. Until 2026-10-06 only `yolo check` looked: the launch passed its probe, emitted
-`--device amd.com/gpu=all`, and podman died on `unresolvable CDI devices amd.com/gpu=all`
-([G28](../plans/setup-support-gaps.md)).
+spec before it lets the CDI flags through, and otherwise takes that same warn-and-continue path,
+its warning naming the dirs it searched and the command that writes the spec. The probe and
+`yolo check` ask one function (`run.FindAMDCDISpec`), so the two cannot disagree. Until 2026-10-06
+only `yolo check` looked: the launch passed its probe, emitted `--device amd.com/gpu=all`, and podman
+died on `unresolvable CDI devices amd.com/gpu=all` ([G28](../plans/setup-support-gaps.md)).
+
+**The probe finds a spec the way podman's CDI registry does, never by filename.** The registry
+loads every `.json` and `.yaml` file directly in each spec dir and resolves `amd.com/gpu=all` from
+any spec whose `kind` is `amd.com/gpu`; the spec dirs are `/etc/cdi` and `/var/run/cdi` unless
+containers.conf's `[engine] cdi_spec_dirs` names others. The first version of the probe looked for
+exactly `amd.json` in the two default dirs, which took the GPU away from a host whose spec had any
+other name or lived in a configured dir, and its advice then wrote a second spec of the same kind,
+which the registry rejects as a conflict. Where the probe cannot tell which containers.conf podman
+reads, it reads every one it can find and adds their dirs to the defaults: a reader wider than
+podman's can only fall back to emitting the flag and letting podman decide, while a narrower one
+silently drops a working GPU.
 
 ### VA-API
 
@@ -239,7 +249,7 @@ place the values themselves are stated.
 | Render nodes | `/dev/dri/renderD*` (whole `/dev/dri` for `devices: "all"`) | `internal/cli/run/helpers.go`, `hasRenderNode` |
 | Group flag | `--group-add keep-groups`, podman only, both modes | `internal/cli/run/helpers.go` |
 | CDI device namespace | `amd.com/gpu=…` | `internal/cli/run/helpers.go` |
-| CDI spec paths, and the command that writes the spec | `/etc/cdi/amd.json`, `/var/run/cdi/amd.json`; `sudo amd-ctk cdi generate --output=/etc/cdi/amd.json` | `run.AMDCDISpecPaths`, `run.AMDCDISpecGenerate` (`internal/cli/run/hostprobes.go`) |
+| CDI spec dirs, the spec's kind, and the command that writes one | any `.json`/`.yaml` of kind `amd.com/gpu` in `/etc/cdi`, `/var/run/cdi`, plus every containers.conf `[engine] cdi_spec_dirs` entry; `sudo amd-ctk cdi generate --output=/etc/cdi/amd.json` | `run.AMDCDIDefaultSpecDirs`, `run.AMDCDIKind`, `run.AMDCDISpecGenerate` (`internal/cli/run/amdcdispec.go`) |
 | Visible-device selectors | `ROCR_VISIBLE_DEVICES`, `HIP_VISIBLE_DEVICES` — emitted only for an explicit selection | `internal/cli/run/helpers.go` |
 | Gfx override | `HSA_OVERRIDE_GFX_VERSION` | `internal/cli/run/helpers.go` |
 | VA-API variable | `LIBVA_DRIVERS_PATH=/lib/dri:/usr/lib/dri` | `internal/cli/run/helpers.go` |

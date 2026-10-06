@@ -165,10 +165,12 @@ func (o *Options) rocmHostAvailable(rt, mode string) (bool, string) {
 	if !hasRenderNode(driDir) {
 		return false, "no /dev/dri render node on host"
 	}
-	if mode == "cdi" && FindAMDCDISpec(o.PathExists) == "" {
-		return false, "gpu.mode is \"cdi\" and there is no AMD CDI spec at " +
-			strings.Join(AMDCDISpecPaths, " or ") + " (write one with `" + AMDCDISpecGenerate +
-			"`, or set gpu.mode to \"devices\", which needs none)"
+	if mode == "cdi" {
+		if found, searched := FindAMDCDISpec(cdiRoot, o.Getenv); found == "" {
+			return false, "gpu.mode is \"cdi\" and there is no AMD CDI spec (kind " + AMDCDIKind +
+				") in " + strings.Join(searched, " or ") + " (write one with `" + AMDCDISpecGenerate +
+				"`, or set gpu.mode to \"devices\", which needs none)"
+		}
 	}
 	if rocminfo, ok := o.LookPath("rocminfo"); ok {
 		res := o.Exec([]string{rocminfo}, "", nil, 5*time.Second)
@@ -185,29 +187,6 @@ func (o *Options) rocmHostAvailable(rt, mode string) (bool, string) {
 // driDir is where the launch's probe looks for render nodes. A variable only so a test can
 // point the probe at a fixture directory; production never assigns it.
 var driDir = "/dev/dri"
-
-// AMDCDISpecPaths are where podman's CDI registry finds an AMD spec, in the order both
-// readers report them. ONE list for the launch's probe (rocmHostAvailable) and `yolo check`'s
-// AMD section, because the two disagreeing is G28 (docs/plans/setup-support-gaps.md): check
-// looked here, the launch looked nowhere, so its probe passed and podman died on
-// `unresolvable CDI devices amd.com/gpu=all`.
-var AMDCDISpecPaths = []string{"/etc/cdi/amd.json", "/var/run/cdi/amd.json"}
-
-// AMDCDISpecGenerate is the command that writes the spec AMDCDISpecPaths looks for. Both
-// readers name it as the next step when there is none.
-const AMDCDISpecGenerate = "sudo amd-ctk cdi generate --output=/etc/cdi/amd.json"
-
-// FindAMDCDISpec returns the first of AMDCDISpecPaths that pathExists reports, or "" when
-// none does. It is THE AMD CDI spec probe: the launch and `yolo check` both call it, each
-// with its own PathExists seam.
-func FindAMDCDISpec(pathExists func(string) bool) string {
-	for _, p := range AMDCDISpecPaths {
-		if pathExists(p) {
-			return p
-		}
-	}
-	return ""
-}
 
 // hasRenderNode reports whether driDir has any renderD* node (glob renderD*).
 func hasRenderNode(driDir string) bool {

@@ -180,15 +180,22 @@ func (o *Options) sectionGPUAmd(r *reporter, merged *jsonx.OrderedMap) {
 		// The spec lives under /etc on the HOST — the same class as the module and node
 		// checks above, and it was the one FAIL this section still produced in a jail.
 		r.hostFact("AMD CDI spec check",
-			"The spec is at "+strings.Join(run.AMDCDISpecPaths, " or ")+" on the host; run `yolo check` there.")
+			"The spec (any .json or .yaml of kind "+run.AMDCDIKind+") is in "+
+				strings.Join(run.AMDCDIDefaultSpecDirs, " or ")+
+				", or a containers.conf cdi_spec_dirs entry, on the host; run `yolo check` there.")
 	} else if mode == "cdi" {
 		// The launch's probe (run.rocmHostAvailable) asks this same function, so this
 		// verdict and whether a launch passes the GPU through cannot disagree (G28).
-		if cdiFound := run.FindAMDCDISpec(o.PathExists); cdiFound != "" {
+		root := o.cdiHostRoot
+		if root == "" {
+			root = "/"
+		}
+		if cdiFound, searched := run.FindAMDCDISpec(root, o.getenv); cdiFound != "" {
 			r.ok("AMD CDI spec found: " + cdiFound)
 		} else {
 			r.fail("No AMD CDI spec found (mode: cdi)",
-				"Generate with: "+run.AMDCDISpecGenerate+
+				"No .json or .yaml spec of kind "+run.AMDCDIKind+" in "+strings.Join(searched, " or ")+
+					". Generate with: "+run.AMDCDISpecGenerate+
 					" — until then a launch starts without GPU passthrough")
 		}
 	}
