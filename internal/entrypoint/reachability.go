@@ -372,7 +372,19 @@ func launcherLoopbackDisposition(e *Env) loopbackDisposition {
 // "enabled but unreachable" is a genuine contradiction rather than an unused
 // service being noisy.
 func ProbeServiceReachability(e *Env) {
-	svcs := enabledServiceEndpoints(e)
+	// ONE FAULT, ONE REPORT (R-D3, docs/reference/loopback-tls-reachability.md): a required
+	// in-jail service the readiness wait already reported as not started has no endpoint file,
+	// and probing it would report that same fault again, in this file's vocabulary and with a
+	// second hatch line. The readiness wait's verdict stands, refused or let through.
+	var svcs []serviceEndpoint
+	for _, svc := range enabledServiceEndpoints(e) {
+		if e.notReadyServices[svc.name] {
+			e.note("reachability: not probing " + svc.name + ", which the in-jail readiness " +
+				"wait already reported as not started")
+			continue
+		}
+		svcs = append(svcs, svc)
+	}
 	if len(svcs) == 0 {
 		return
 	}
@@ -475,8 +487,9 @@ func reportUnusableServices(e *Env, d loopbackDisposition, names []string) {
 	if reachabilityFatal {
 		// genFailuresError (boot.go) turns this into the error that aborts the boot
 		// before the agent is ever exec'd — Main runs this probe immediately above
-		// that gate for exactly this call.
-		e.genFailure("host services unusable from inside the jail: " + strings.Join(names, ", "))
+		// that gate for exactly this call. A SERVICE refusal, listed under its own
+		// heading with the hatch, not as a config generator (OQ-R8).
+		e.refuseService(serviceListPhrase(names)+" unusable from inside the jail", true)
 	}
 }
 

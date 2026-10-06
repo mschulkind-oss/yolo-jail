@@ -71,9 +71,12 @@ func SandboxHome() string { return "/Users/" + SandboxUser }
 // IT IS THE MACHINE TIER, AND IT HAS TO BE NAMED TO STAY THERE. mise's own default is
 // $HOME/.local/share/mise (entrypoint.NewEnv resolves the same fallback), and under the
 // home-tier layout ~/.local is a symlink into <workspace>/.yolo/home — so leaving the
-// default in place would put the tool store in the PER-WORKSPACE tier, where no other
-// backend keeps it: the container mounts one machine-wide store at /mise
-// (internal/cli/run/assemble_parts.go) for every workspace on the host.
+// default in place would put the tool store in the PER-WORKSPACE tier, where podman does
+// not keep it: podman mounts one machine-wide store at /mise
+// (internal/cli/run/assemble_parts.go) for every workspace on the host. Apple Container is
+// the one exception, a disk per workspace, only because a disk image attaches to one VM at
+// a time (OQ-MB1, docs/research/macos-backend-performance.md); no such constraint applies
+// to a directory in this account's home.
 // docs/design/macos-user-home-tiers.md §5 states this as a precondition of the layout, and
 // macos-user-provisioning.md's OQ-P3 takes its answer from it.
 //

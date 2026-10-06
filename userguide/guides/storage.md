@@ -15,7 +15,8 @@ A jail's own files are thrown away when it stops, except for these, which are ke
 | `gh`, `copilot`, `opencode` and `omp` logins | `<project>/.yolo/home/` | One project |
 | Tools you install yourself (`npm -g`, `go install`, `uv tool`) | `<project>/.yolo/home/` | One project |
 | Agent sessions and history, shell history, SSH keys you create | `<project>/.yolo/home/` | One project |
-| mise tools and runtimes | `~/.local/share/yolo-jail/mise/` on Linux; a volume inside the VM on a Mac | Every project |
+| mise tools and runtimes | `~/.local/share/yolo-jail/mise/` on Linux; a volume inside Podman's VM on a Mac | Every project |
+| mise tools and runtimes, on Apple Container | A disk of the project's own, in Apple Container's storage | One project |
 | Download and build caches (`~/.cache` in the jail) | `~/.local/share/yolo-jail/cache/` | Every project |
 
 Everything under `<project>/.yolo/` belongs to that project's jail; `yolo init` adds it to
@@ -33,7 +34,7 @@ kept per project with `writable_home_dirs`.
 
 ```bash
 yolo stores          # every store yolo keeps: its size, how fast it grows, and what reclaims it
-yolo prune           # what yolo would reclaim: old images, stale jails, heavy caches; deletes nothing
+yolo prune           # what yolo would reclaim: old images, stale jails, caches, unused tools; deletes nothing
 yolo prune --apply   # reclaim it
 ```
 
@@ -44,16 +45,28 @@ cannot tell they were ever its own.
 
 yolo also reclaims most stores by itself, at most once a day each, after a jail starts. That work
 never prints to your terminal, which by then belongs to the jail; it is logged in
-`<project>/.yolo/housekeeping.log`. Set `YOLO_NO_AUTO_IMAGE_REAP=1` to turn it off. The shared build
-cache is the one store yolo will not reclaim without asking: a launch in a terminal offers it once
-there is at least a gigabyte of it older than 30 days, and answering "never" stops the asking.
+`<project>/.yolo/housekeeping.log`. Set `YOLO_NO_AUTO_IMAGE_REAP=1` to turn it off.
+
+Two kinds of files yolo will not remove without asking, because getting them back means
+downloading them again: shared build-cache files older than 30 days, and mise tool versions that no
+jail on the machine has used for 30 days. A launch in a terminal offers them once there is at least
+a gigabyte to reclaim. Answering "yes" removes them and makes that cleanup automatic from then on,
+and "never" stops the asking.
+
+Each jail records which tool versions it uses, and yolo keeps a version any jail used in the last
+30 days, whichever project it was in. Because it judges from those records, the first tool versions
+are offered 30 days after you upgrade. On a Mac yolo does not clean up tool versions yet: the store
+lives inside the VM, or in the sandbox account on `macos-user`.
 
 On `macos-user`, a launch reclaims old loophole state by itself, and makes the same offer to clear
 the shared build cache, which container jails on the same Mac fill. The container stores are left
 to a container launch or `YOLO_RUNTIME=container yolo prune --apply`, and nothing reclaims the
 sandbox account's own caches yet; `yolo stores` lists them.
 
-On Apple Container, `yolo prune` does not see stopped jails; list them with `container ls --all`
+On Apple Container each project keeps its own disk for mise's tools, so two projects' jails can
+run at once, and a project's first jail downloads its tools again. `yolo stores` lists each disk
+with its project and size, and `yolo prune --apply` removes the disk of a project whose folder is
+gone. `yolo prune` does not see stopped Apple Container jails; list them with `container ls --all`
 and remove one with `container rm <name>`.
 
 ## Timezone

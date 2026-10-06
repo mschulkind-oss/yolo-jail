@@ -58,8 +58,8 @@ Then `yolo -p cerebras` (or the persistent spelling, `"profile": "cerebras"`, in
 
 | Agent | What it gets | Channel |
 |---|---|---|
-| pi | a `cerebras` catalog entry — `api: "openai-completions"`, `apiKey: "${CEREBRAS_API_KEY}"` (the reference, not the value) — plus `defaultProvider`/`defaultModel` when a profile is selected | its derive, reading `YOLO_PROVIDERS` (the `openai` endpoint) |
-| opencode | a `cerebras` catalog entry — `baseURL` and `apiKey: "{env:CEREBRAS_API_KEY}"` under `options` — plus `model = "cerebras/qwen-3.8-27b"` when a profile is selected. Cerebras's own integrations index lists OpenCode as a supported client. | its derive, reading `YOLO_PROVIDERS` (the `openai` endpoint) |
+| pi | **no catalog entry**: `cerebras` is one of pi's own providers, so pi runs it on its own client and model list, reading `CEREBRAS_API_KEY` ([OQ-3](../../docs/design/pi-codex-provider-shadowing.md#OQ-3)). A selected profile writes `defaultProvider = "cerebras"` and `enabledModels = ["cerebras/*"]` | its derive, reading the agent's own providers from `packs/pi` |
+| opencode | **no catalog entry**, for the same reason: opencode's own `cerebras` reads `CEREBRAS_API_KEY`. A selected profile writes `enabled_providers = ["cerebras"]`, and opencode picks the model. Cerebras's own integrations index lists OpenCode as a supported client. | its derive, reading the agent's own providers from `packs/opencode` |
 | copilot | BYOK env routed through the wire bridge: `COPILOT_PROVIDER_BASE_URL` at the adapter's declared address, `COPILOT_PROVIDER_TYPE=anthropic`, `COPILOT_MODEL=qwen-3.8-27b`, `COPILOT_PROVIDER_API_KEY` — its derive prefers the anthropic endpoint of any provider declaring one (D-3), and the bridge speaks that wire | the copilot pack's env derive; the bridge from its `needs`-joined pack |
 | claude | routed at the bridge's declared address, the key as `ANTHROPIC_AUTH_TOKEN`, auto-compact sized to the 64K window — Cerebras has no native Anthropic-compatible endpoint, so the pairing resolves through the `wire-bridge` pack's `openai → anthropic` adaptation, joined automatically through this pack's `needs` entry. Without that pack the launch REFUSES rather than composing an address nothing serves | its derive, reading `YOLO_PROVIDERS`; the address from the adapter's own declaration |
 | codex | **nothing — no entry and no selection** | codex speaks `responses` only and the bridge translates exactly one pair, anthropic ↔ chat-completions — codex-on-cerebras stays unwireable ([wire-bridge.md](../../docs/reference/wire-bridge.md)) |
@@ -75,8 +75,8 @@ agent on cerebras demands nothing, since the key would reach nobody.
 
 ## Selection
 
-The catalog is presence, not choice: `-p cerebras` puts it in pi's and opencode's
-catalogs, composes copilot's BYOK block, and routes claude at the bridge. Select it
+The catalog is presence, not choice: `-p cerebras` selects pi's and opencode's own cerebras,
+composes copilot's BYOK block, and routes claude at the bridge. Select it
 with `-p cerebras` before the `--`, `-p pi=cerebras` for one agent, or persistently as
 `"profile": {"pi": "cerebras"}`. The provider declares two options, `model` (whose
 default is the alias named `default`; a user profile stating `"model": "oss"` selects

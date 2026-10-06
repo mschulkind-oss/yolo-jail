@@ -11,8 +11,11 @@ package run
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
+
+	"github.com/mschulkind-oss/yolo-jail/internal/entrypoint"
 )
 
 // narrowingHome writes a user config selecting agentpack, whose program makes `tool` an agent, and
@@ -194,5 +197,38 @@ func TestAForkBuildJailSealedToEveryBaseDownTheChainIsAccepted(t *testing.T) {
 	}
 	if argv, printed := sealed("forkpack", "basepack", "cpack"); argv == nil {
 		t.Fatalf("sealed to every base down the chain, the build jail never reached the runtime:\n%s", printed)
+	}
+}
+
+// EVERY SEALED BUILD JAIL IS TOLD IT IS ONE (entrypoint.SealedBuildEnv, PPX-D41), a patched
+// extension's and a fork's alike, so its boot renders no pack-declared surface: the fixture's
+// contributing pack declares its own surface for the agent the seal drops, under that agent's home
+// directory and fed by a host read, as pack matt's pi `automode` surface is. No other launch is told.
+// Red if assembly stops emitting it.
+func TestEverySealedBuildJailIsToldItIsOne(t *testing.T) {
+	narrowingHome(t, `,{"kind":"config","config":[{"agent":"tool","name":"automode","codec":"json",
+		"path":"~/.tool/ext/automode/config.json","readsHost":true}]}`, "", "", nil)
+	sealed := func(tree string) func(*Options) {
+		return func(o *Options) {
+			o.Sealed, o.SealedTree, o.OnlyPacks = true, tree, []string{"treepack"}
+			o.CapturesDir = func() string { return "" }
+		}
+	}
+	for _, tc := range []struct {
+		name string
+		set  func(*Options)
+		want bool
+	}{
+		{"the user's own launch", func(*Options) {}, false},
+		{"a patched extension's build jail", sealed("tree-ext"), true},
+		{"a sealed build jail told no tree, as a fork's is", sealed(""), true},
+	} {
+		argv, printed := fakePodmanLaunch(t, tc.set)
+		if argv == nil {
+			t.Fatalf("%s: the runtime was never run:\n%s", tc.name, printed)
+		}
+		if got := slices.Contains(argvValues(argv, "-e"), entrypoint.SealedBuildEnv+"=1"); got != tc.want {
+			t.Errorf("%s: %s=1 on the argv = %v, want %v", tc.name, entrypoint.SealedBuildEnv, got, tc.want)
+		}
 	}
 }

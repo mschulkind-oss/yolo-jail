@@ -88,10 +88,18 @@ being an N×M problem:
 | Agent | Resolves | For zai |
 | :--- | :--- | :--- |
 | claude | `anthropic` | the anthropic endpoint, as process env from the claude pack's env derive |
-| pi | `openai` | catalog entry plus selection |
-| opencode | `openai` | catalog entry plus selection |
+| pi | its own `zai` | selection only: pi's own zai calls the coding plan, so yolo writes no catalog entry |
+| oh-omp | its own `zai` | nothing in its model file: omp's own zai speaks Anthropic Messages at the plan's anthropic route |
+| opencode | its own `zai-coding-plan` | selection only, and the key as `ZHIPU_API_KEY`, the name that provider reads |
 | copilot | `openai` | process env from the copilot pack's env derive |
 | **codex** | `openai` | **nothing at all** — see below |
+
+**pi, oh-omp and opencode run zai on their own providers**, because yolo writes no model entry over
+a provider an agent has built in
+([OQ-3](../design/pi-codex-provider-shadowing.md#OQ-3), ruled 2026-10-05): each agent's pack names
+its own providers in `built_in_providers`, and opencode's maps yolo's zai to `zai-coding-plan`, since
+its own `zai` is the metered `api.z.ai/api/paas/v4`. Each uses its own model list, so `packs/zai`'s
+models reach claude and copilot only.
 
 **codex gets no zai entry, and that is the resolution rule working rather than failing.** z.ai's
 openai route speaks chat-completions; codex accepts `responses` only. The canonical value therefore
@@ -112,7 +120,7 @@ Three closure rules the schema owes, and the reason each is per-agent rather tha
    resolution key is the whole story.
 3. **The derives write a CATALOG (presence), not a choice.** Selection — each agent's
    use-this-one field — is a separate act. Presence is not selection: without a profile selected,
-   the catalogs still contain zai and nothing routes to it.
+   the catalogs still contain a provider the agent has none of its own for, and nothing routes to it.
 
 ## What a user actually does
 

@@ -29,7 +29,7 @@ func ompSetProviders(narrowed bool) string {
 		only = `"models_only":true,`
 	}
 	return `{
-  "zai":{"api_key_env_name":"ZAI_API_KEY",` + only + `
+  "zhipu":{"api_key_env_name":"ZAI_API_KEY",` + only + `
     "models":{"default":"glm-5.3","glm-5.3":"glm-5.3","glm-5.3-flash":"glm-5.3-flash"},
     "endpoints":{"openai":{"base_url":"https://api.z.ai/api/coding/paas/v4","wire_api":"openai-chat-completions"}}},
   "router":{"api_key_env_name":"ROUTER_API_KEY",
@@ -37,7 +37,7 @@ func ompSetProviders(narrowed bool) string {
     "endpoints":{"openai":{"base_url":"https://router.example/v1","wire_api":"openai-chat-completions"}}}}`
 }
 
-const ompSetProfiles = `{"zai":{"provider":"zai"},"router":{"provider":"router"}}`
+const ompSetProfiles = `{"zhipu":{"provider":"zhipu"},"router":{"provider":"router"}}`
 
 // renderOmpSet boots the embedded omp pack once with the given providers table and active-profile
 // table, and returns the home it rendered into.
@@ -83,10 +83,10 @@ func ompYAML(t *testing.T, home, file string) map[string]any {
 // reachable provider's row was before sets, and with no entry's list narrowed no scope is written,
 // exactly as for one profile (AP-P1), so omp's own picker offers every entry.
 func TestOmpRendersItsWholeActiveSet(t *testing.T) {
-	home := renderOmpSet(t, ompSetProviders(false), `{"oh-omp":["zai","router"]}`)
+	home := renderOmpSet(t, ompSetProviders(false), `{"oh-omp":["zhipu","router"]}`)
 	models := ompYAML(t, home, "models.yml")
 	rows, _ := models["providers"].(map[string]any)
-	for name, key := range map[string]string{"zai": "ZAI_API_KEY", "router": "ROUTER_API_KEY"} {
+	for name, key := range map[string]string{"zhipu": "ZAI_API_KEY", "router": "ROUTER_API_KEY"} {
 		row, _ := rows[name].(map[string]any)
 		if row == nil || row["apiKey"] != key {
 			t.Errorf("models.yml %s row = %#v, want apiKey %s", name, row, key)
@@ -107,8 +107,8 @@ func TestOmpScopesTheWholeSetWhenAnEntryIsNarrowed(t *testing.T) {
 		use  string
 		want []any
 	}{
-		{`{"oh-omp":["zai","router"]}`, []any{"zai/glm-5.3", "zai/glm-5.3-flash", "router/*"}},
-		{`{"oh-omp":["router","zai"]}`, []any{"router/*", "zai/glm-5.3", "zai/glm-5.3-flash"}},
+		{`{"oh-omp":["zhipu","router"]}`, []any{"zhipu/glm-5.3", "zhipu/glm-5.3-flash", "router/*"}},
+		{`{"oh-omp":["router","zhipu"]}`, []any{"router/*", "zhipu/glm-5.3", "zhipu/glm-5.3-flash"}},
 	} {
 		home := renderOmpSet(t, ompSetProviders(true), tc.use)
 		cfg := ompYAML(t, home, "config.yml")
@@ -125,13 +125,13 @@ func TestOmpScopesTheWholeSetWhenAnEntryIsNarrowed(t *testing.T) {
 // the list spelling and the string spelling are one selection for omp.
 func TestAnOmpSetOfOneRendersExactlyTheSingleProfile(t *testing.T) {
 	for _, narrowed := range []bool{false, true} {
-		single := renderOmpSet(t, ompSetProviders(narrowed), `{"oh-omp":"zai"}`)
-		listed := renderOmpSet(t, ompSetProviders(narrowed), `{"oh-omp":["zai"]}`)
+		single := renderOmpSet(t, ompSetProviders(narrowed), `{"oh-omp":"zhipu"}`)
+		listed := renderOmpSet(t, ompSetProviders(narrowed), `{"oh-omp":["zhipu"]}`)
 		for _, file := range []string{"models.yml", "config.yml"} {
 			a, errA := os.ReadFile(filepath.Join(single, ".oh-omp", "agent", file))
 			b, errB := os.ReadFile(filepath.Join(listed, ".oh-omp", "agent", file))
 			if (errA == nil) != (errB == nil) || !bytes.Equal(a, b) {
-				t.Errorf("narrowed=%v: %s differs between \"zai\" and [\"zai\"]:\n--- string (%v)\n%s\n--- list (%v)\n%s",
+				t.Errorf("narrowed=%v: %s differs between \"zhipu\" and [\"zhipu\"]:\n--- string (%v)\n%s\n--- list (%v)\n%s",
 					narrowed, file, errA, a, errB, b)
 			}
 		}
@@ -148,18 +148,18 @@ func TestAnEntryLeavingOmpsSetLeavesTheScope(t *testing.T) {
 	var errw bytes.Buffer
 	e := &Env{Home: t.TempDir(), Workspace: t.TempDir(), Stderr: &errw, Vars: map[string]string{
 		"YOLO_PROVIDERS":    ompSetProviders(true),
-		"YOLO_USE_PROFILES": `{"oh-omp":["zai","router"]}`,
+		"YOLO_USE_PROFILES": `{"oh-omp":["zhipu","router"]}`,
 		"YOLO_PROFILES":     ompSetProfiles,
 	}}
 	withCtxRoot(t, t.TempDir(), "omp")
 	ConfigurePackSurfaces(e, []*packload.Pack{omp})
-	e.Vars["YOLO_USE_PROFILES"] = `{"oh-omp":"zai"}`
+	e.Vars["YOLO_USE_PROFILES"] = `{"oh-omp":"zhipu"}`
 	ConfigurePackSurfaces(e, []*packload.Pack{omp})
 	if fails := e.GenFailures(); len(fails) != 0 {
 		t.Fatalf("boot render failed: %v\n%s", fails, errw.String())
 	}
 	cfg := ompYAML(t, e.Home, "config.yml")
-	if got, want := cfg["enabledModels"], []any{"zai/glm-5.3", "zai/glm-5.3-flash"}; !reflect.DeepEqual(got, want) {
+	if got, want := cfg["enabledModels"], []any{"zhipu/glm-5.3", "zhipu/glm-5.3-flash"}; !reflect.DeepEqual(got, want) {
 		t.Errorf("after router left the set, enabledModels = %v, want %v", got, want)
 	}
 }

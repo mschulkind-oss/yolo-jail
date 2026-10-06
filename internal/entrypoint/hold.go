@@ -20,21 +20,25 @@ package entrypoint
 // and three separate attempts to find out WHAT held the port failed, each for the
 // same reason — by the time a human can type, there is no container left to type at.
 //
-// # Why it is not an ALLOW_ hatch, and why that hatch does not help
+// # Why it is not an ALLOW_ hatch
 //
-// YOLO_ALLOW_UNREACHABLE_SERVICES suppresses the reachability witness and nothing
-// else. Measured on the incident above, it did exactly that and the launch still
-// refused, because the generator failure is a SEPARATE gate — two gates, one hatch.
-// This is not a third spelling of that one: it suppresses nothing. The failure is
+// Measured on the incident above, YOLO_ALLOW_UNREACHABLE_SERVICES suppressed the
+// reachability witness and the launch still refused, because the supervisor's
+// readiness refusal was a SEPARATE gate — two gates, one hatch. Since OQ-R8
+// (docs/reference/loopback-tls-reachability.md, ruled 2026-10-05) the hatch reaches
+// that gate too, and the boot continues with the service down (requiredservice.go).
+// The hold is still not a spelling of it: it suppresses nothing. The failure is
 // still reported, the boot still returns the error, and the exit code is still
-// non-zero once the hold ends. What changes is WHEN the container dies.
+// non-zero once the hold ends. What changes is WHEN the container dies, so the
+// container that refused can be entered as it was, the held port still held.
 //
-// # Why only the generator-failure path
+// # Why only the boot's refusal gate
 //
 // Main can return an error two ways, and the hold sits on only one of them.
 //
-// genFailuresError is the refusal this exists for and the only one whose container
-// is worth entering: every generator above it has run, the daemon supervisor has
+// genFailuresError is the refusal this exists for — a failed config generator or a
+// service the jail cannot use — and the only one whose container is worth
+// entering: every generator above it has run, the daemon supervisor has
 // been started, and whatever broke is still broken and still resident. The other
 // way — execBash failing — is a container that could not find or exec `bash`, which
 // is the same binary the hold would be telling a user to run under `exec -it`. A

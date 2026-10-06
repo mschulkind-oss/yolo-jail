@@ -105,6 +105,21 @@ func TestAFailedHostApplyStageReachesTheVerdict(t *testing.T) {
 			selectPacks(t, home, owner+","+bogus)
 			return ""
 		}, true},
+		// A files slot whose `register` names a surface its own pack does not declare: a problem
+		// the overlay collector reports, about a `files` declaration, so its line leads with
+		// `files` and the verdict names it so, never `config-overlay`, which the author never wrote.
+		{"overlays, from a files slot", "overlays", "the files stage", func(t *testing.T) string {
+			home := t.TempDir()
+			t.Setenv("HOME", home)
+			t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
+			owner := listPack(t, home, "acme", `{"kind":"config","config":[{"agent":"acme",`+
+				`"name":"settings","codec":"json","mode":"rmw","path":"~/.acme/settings.json",`+
+				`"managed":{"k":"v"}}]},`+
+				`{"kind":"files","agent":"acme","into":".acme/packs",`+
+				`"register":{"surface":"acme/other","path":"/packages"}}`)
+			selectPacks(t, home, owner)
+			return ""
+		}, true},
 		{"", "skills", "", func(t *testing.T) string {
 			// Two packs shipping one skill name at an unnamespaced destination.
 			home := t.TempDir()

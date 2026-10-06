@@ -3,7 +3,7 @@ title: "A shared jail should end with its last session, not its first"
 date: 2026-09-29
 status: in-review
 stage: DESIGN
-next: "Dispatch macos-user.yml for the macos-user keeper (JL-D86; TestMacosUserTwoConcurrentLaunchesOfOneWorkspace), and apple-container.yml again once the fixes for run 37133569003 land (JL-D83, and the Apple Container pin on JL-D13's refusal), to re-ask the killed-keeper and both stop-says-why runs and take the stop-listing-lag measure; the sweep (JL-D7) waits on OQ-MB1. Then rule OQ-JL9, what the keeper at yolo host holds, which only step 5's yolo host half waits on, beside agent-event-watchers.md's host-side sidecars"
+next: "Dispatch macos-user.yml for the macos-user keeper (JL-D86; TestMacosUserTwoConcurrentLaunchesOfOneWorkspace), and apple-container.yml again once the fixes for run 37133569003 land (JL-D83, and the Apple Container pin on JL-D13's refusal), to re-ask the killed-keeper and both stop-says-why runs and take the stop-listing-lag measure; the same run conducts the sweep (JL-D7), since OQ-MB1's build (2026-10-05) gives each workspace a /mise disk of its own. Then rule OQ-JL9, what the keeper at yolo host holds, which only step 5's yolo host half waits on, beside agent-event-watchers.md's host-side sidecars"
 tags: [design, lifecycle, attach, sessions, host-services, teardown, keeper, podman, apple-container, herdr]
 summary: "Several agents can share one workspace's jail, but the jail ends when the FIRST session's agent quits, because that agent is the container's main process and the first launcher's process hosts every host service. The maintainer directed the owner on 2026-09-29: a small background process, never a first terminal that waits. So pid 1 becomes a hold process, every session enters by exec, a host-side kernel lock counts sessions, and a keeper per running container jail, spawned by the fresh launch before any host service or the container exists, owns the jail's host services and tears the jail down when the lock says the last session is gone or the runtime says the container is. The first terminal gets its prompt back when its agent quits, and re-entering from it is an ordinary attach. OQ-JL5 was ruled on 2026-09-29: a keeper at every notch that starts a long-lived host service or sidecar, if supportable. §9.9 designs it for yolo host and macos-user: one keeper per workspace per notch; a yolo host launch that has one stays resident instead of exec'ing, because an inherited lock descriptor was measured to miscount both ways; and macos-user's keeper cannot own what runs as the sandbox account, because it cannot run sudo. OQ-JL6, OQ-JL7 and OQ-JL8 were ruled too: no linger; a killed keeper's sessions run on and a new arrival is refused; an agent ends with its pane. Two questions remain: whether yolo host's keeper also holds the services a launch starts for its own agent, and whether an interrupt before ready spares a jail another session has entered."
 vantage:
@@ -32,7 +32,8 @@ Step 5's `yolo host` half waits on [OQ-JL9](#OQ-JL9), which gates that notch alo
 runs are owed.
 Its Apple Container half, written as tests in that backend's job ([JL-D72](#JL-D72)), ran once on
 2026-10-03: three lifecycle runs hold, the three that did not are fixed and wait for the next run,
-and the sweep waits on [OQ-MB1](../research/macos-backend-performance.md#OQ-MB1)
+and the sweep, not conducted because a second Apple Container jail could not start, is unblocked
+by [OQ-MB1](../research/macos-backend-performance.md#OQ-MB1)'s build and waits for that run
 ([§7](#7-what-i-would-build-in-order) step 4).
 [OQ-JL1](#OQ-JL1) was
 directed by the maintainer on 2026-09-29, and the design it produced is
@@ -949,14 +950,15 @@ sibling doc's subject ([`central-yolo-watcher.md`](../research/central-yolo-watc
      another workspace ([JL-D7](#JL-D7)) was **not conducted**: that workspace's jail failed to
      start with `VZErrorDomain Code=2`, the error
      [OQ-MB1](../research/macos-backend-performance.md#OQ-MB1) records for a second Apple
-     Container jail. The measures answered too. `container exec`'s process outlived its client
+     Container jail; that question was ruled and built on 2026-10-05, a `/mise` disk per
+     workspace, so the next run conducts it. The measures answered too. `container exec`'s process outlived its client
      in all eight cases, each of the four signals at a pty and on a pipe, and a SIGTERM or a
      SIGINT left the client running for 10 s. `ctrl-p`, then `ctrl-q`, reached the process and
      left its client attached, so [JL-D27](#JL-D27)'s Apple Container half has nothing to turn
      off. The container ran on when its main process's client was killed, and an attached exec
      returned 137 at both stops. **Next:** dispatch `apple-container.yml` again once these fixes
      land. That run also takes the stop-listing-lag measure, which checks [JL-D83](#JL-D83)'s
-     5 s bound; the sweep waits on [OQ-MB1](../research/macos-backend-performance.md#OQ-MB1).
+     5 s bound, and conducts the sweep, which must now pass.
 5. **The keeper at macos-user and `yolo host`** ([§9.9](#99-the-keeper-at-yolo-host-and-macos-user)),
    after step 3, whose keeper it reuses with a key per notch. At macos-user it takes over what
    the launch starts outside the sandbox, which fixes the per-agent env files of

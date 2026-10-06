@@ -12,6 +12,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 )
 
@@ -40,12 +41,17 @@ func TestAKeyOnlyInTheLaunchShellCountsOnlyForAnAgentWhoseDeriveRelaysIt(t *test
 		{"claude relays the shell's key into its own environment",
 			map[string]string{"claude": "zai"}, []string{"ZAI_API_KEY"}, nil, nil},
 		{"opencode reads the variable itself, which nothing delivers",
-			map[string]string{"opencode": "zai"}, []string{"ZAI_API_KEY"}, []string{"opencode"}, nil},
+			map[string]string{"opencode": "openrouter"}, []string{"OPENROUTER_API_KEY"}, []string{"opencode"}, nil},
+		// opencode serves zai's plan as its own zai-coding-plan, which reads ZHIPU_API_KEY, so the
+		// launch relays zai's key to it under that name (docs/design/pi-codex-provider-shadowing.md
+		// OQ-3; packload.BuiltInKeyVars): a relay, which a key in the launching shell satisfies.
+		{"opencode's zai plan is relayed under the name its own provider reads",
+			map[string]string{"opencode": "zai"}, []string{"ZAI_API_KEY"}, nil, nil},
 		{"every entry of pi's set is asked",
 			map[string]string{"pi": "zai,openrouter"}, []string{"ZAI_API_KEY", "OPENROUTER_API_KEY"},
 			[]string{"pi"}, nil},
 		{"claude's relay does not vouch for opencode on the same provider",
-			map[string]string{"claude": "zai", "opencode": "zai"}, []string{"ZAI_API_KEY"},
+			map[string]string{"claude": "openrouter", "opencode": "openrouter"}, []string{"OPENROUTER_API_KEY"},
 			[]string{"opencode"}, []string{"claude"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -92,9 +98,11 @@ func TestAKeyOnlyInTheLaunchShellCountsOnlyForAnAgentWhoseDeriveRelaysIt(t *test
 	home := packHome(t)
 	writeUserPacks(t, home, `[]`)
 	o := goldenOptions(t.TempDir(), home)
-	o.UseProfiles = map[string]string{"opencode": "zai"}
+	o.UseProfiles = map[string]string{"opencode": "openrouter"}
+	key := jsonx.NewOrderedMap()
+	key.Set("OPENROUTER_API_KEY", "tok-9")
 	if lines, refuse := o.checkProviderCredentials(bareConfig(), packs,
-		channelFor(t, o, bareConfig(), packs, hydratedKey()), nil); refuse || len(lines) != 0 {
+		channelFor(t, o, bareConfig(), packs, key), nil); refuse || len(lines) != 0 {
 		t.Errorf("opencode's key in env_sources must satisfy the pre-flight:\n%s", strings.Join(lines, "\n"))
 	}
 }

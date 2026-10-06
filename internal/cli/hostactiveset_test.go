@@ -541,13 +541,15 @@ func TestHostApplyRendersOpencodesSet(t *testing.T) {
 	if rc := hostMain([]string{"apply", "--assert"}, &out, &errw, false, strings.NewReader("y\n")); rc != 0 {
 		t.Fatalf("yolo host apply --assert rc=%d\n%s%s", rc, out.String(), errw.String())
 	}
+	// Both are opencode's own providers, zai's plan its zai-coding-plan, so each is named by
+	// opencode's own id (docs/design/pi-codex-provider-shadowing.md OQ-3).
 	cfg := readJSONAt(t, home, ".config/opencode/opencode.json")
-	if m, _ := cfg["model"].(string); !strings.HasPrefix(m, "zai/") {
+	if m, _ := cfg["model"].(string); !strings.HasPrefix(m, "zai-coding-plan/") {
 		t.Errorf("the start model must be the primary's: model = %v", cfg["model"])
 	}
 	got, _ := cfg["enabled_providers"].([]any)
-	if len(got) != 2 || got[0] != "zai" || got[1] != "openrouter" {
-		t.Errorf("enabled_providers = %v, want [zai openrouter]", cfg["enabled_providers"])
+	if len(got) != 2 || got[0] != "zai-coding-plan" || got[1] != "openrouter" {
+		t.Errorf("enabled_providers = %v, want [zai-coding-plan openrouter]", cfg["enabled_providers"])
 	}
 }
 

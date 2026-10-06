@@ -137,7 +137,7 @@ func Main(argv []string) int {
 		go runProactive(broker, mints, *refreshInterval, stop)
 	}
 	handler := BuildHandler(HandlerConfig{Broker: broker, ConfigPath: awsauth.DefaultConfigPath(),
-		Mints: mints})
+		Mints: mints, ModelLists: modelListSourceFor(broker, os.Stderr)})
 	if err := serveSockets(handler, *socket, HostSocketPath(*socket), stop, shutdown); err != nil {
 		fmt.Fprintln(os.Stderr, "yolo-aws-auth:", err)
 		return 1
@@ -196,6 +196,19 @@ func prepare(opts spawnOptions, log io.Writer) (awsauth.Broker, int) {
 		Config:    config,
 		Minter:    awsauth.Minter{Run: opts.Runner, Binary: opts.AWSBinary},
 	}, 0
+}
+
+// modelListSourceFor is the `bedrock-models` action's source for broker: its cache beside the
+// credential cache, its profile, and the same `aws` runner the mint uses.
+func modelListSourceFor(broker awsauth.Broker, log io.Writer) ModelListSource {
+	return ModelListSource{
+		CachePath:   awsauth.ModelCachePath(broker.StatePath),
+		Profile:     broker.Config.Profile,
+		Lister:      awsauth.ModelLister{Run: broker.Minter.Run, Binary: broker.Minter.Binary},
+		NoCreateDir: broker.NoCreateDir,
+		Tracker:     NewModelListTracker(),
+		Log:         log,
+	}
 }
 
 func serveSockets(handler hostservice.Handler, frontedSocket, hostSocket string,

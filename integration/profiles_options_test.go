@@ -113,7 +113,13 @@ func TestUndeclaredProfileNameRefusesTheLaunch(t *testing.T) {
 // and the lowering is observable. If cerebras's map ever becomes identity too, move this
 // test to whichever provider still has an alias — do NOT settle for the identity spelling.
 //
-// The same launch selects the same profile at codex's CLI name, where the answer is the
+// ⚠ AND THE PROVIDER MUST BE ONE PI HAS NONE OF ITS OWN FOR, which is why pi's half now runs on
+// llamacpp (`models: {default: llama}`, the user-config row codexProbeProvider declares). cerebras
+// is one of pi's own providers since docs/design/pi-codex-provider-shadowing.md OQ-3 (2026-10-05):
+// pi runs it on its own list and takes a profile's `model` as its own id, so the alias `default`
+// lowers to nothing there, which is the ruling and not this test's subject.
+//
+// The same launch selects the cerebras profile at codex's CLI name, where the answer is the
 // negative one: cerebras speaks chat completions and codex speaks responses, so no catalog
 // row exists for the selection to name and the derive writes nothing selection-shaped — an
 // option resolving cleanly on one agent does not revive a provider another cannot reach.
@@ -133,32 +139,33 @@ func TestProfileOptionSelectsTheAliasInTheAgentsOwnFile(t *testing.T) {
 	dir := writeProject(t, `{}`)
 	packHome(t, `{"packs": ["pi", "codex", "cerebras"], `+codexProbeProvider+`, `+
 		`"env_sources": [{"CEREBRAS_API_KEY": "integration-probe-not-a-real-key"}], `+
-		`"profiles": {"cb-alias": {"provider": "cerebras", "model": "default"}}}`)
+		`"profiles": {"cb-alias": {"provider": "cerebras", "model": "default"}, `+
+		`"ll-alias": {"provider": "llamacpp", "model": "default"}}}`)
 
 	// runCommand rather than runYolo: the flag goes BEFORE the `--` that starts the
 	// container command, which runYolo's shape does not allow. Both CLIs in one flag, the
 	// spelling a user types.
 	r := runCommand(t, dir, append(jailRunArgs(),
-		"-p", "pi=cb-alias,codex=cb-alias", "--", "true"))
+		"-p", "pi=ll-alias,codex=cb-alias", "--", "true"))
 	if r.rc != 0 {
 		t.Fatalf("profiled three-pack launch failed: rc %d\n%s", r.rc, r.combined())
 	}
 
 	piSettings := readPioencodeSurface(t, dir, "pi", "agent", "settings.json")
-	if piSettings.provider != "cerebras" {
+	if piSettings.provider != "llamacpp" {
 		t.Errorf("pi settings.json defaultProvider = %q, want the provider the profile "+
 			"selects", piSettings.provider)
 	}
 	// The alias, not the alias's name: `default` is what the profile states and
-	// `qwen-3.8-27b` is what cerebras's `models` map says it means. Reading back the alias
+	// `llama` is what llamacpp's `models` map says it means. Reading back the alias
 	// name here would mean the lowering never ran.
 	//
 	// ⚠ NO `[1m]` SUFFIX ON A PI ID, and that is an assertion rather than an omission.
 	// `8e901423` found the suffixed spelling is a 400 on both z.ai routes and that pi and
 	// opencode carry no `[1m]` handling at all, so the suffix is appended by packs/claude's
 	// derive alone, for the ids CLAUDE emits.
-	if piSettings.model != "qwen-3.8-27b" {
-		t.Errorf("pi settings.json defaultModel = %q, want qwen-3.8-27b — the wire-true id "+
+	if piSettings.model != "llama" {
+		t.Errorf("pi settings.json defaultModel = %q, want llama — the wire-true id "+
 			"under the alias the profile's `model` option names, never the alias name "+
 			"itself and never a claude-only suffixed spelling",
 			piSettings.model)
@@ -167,7 +174,7 @@ func TestProfileOptionSelectsTheAliasInTheAgentsOwnFile(t *testing.T) {
 	// yolo's computed models.json, not settings.json, which holds only the selection pair
 	// (packs/pi declares the two surfaces separately).
 	piModels := readPioencodeSurface(t, dir, "pi", "agent", "models.json")
-	requireCataloged(t, piModels.raw, "providers", "cerebras", "pi models.json")
+	requireCataloged(t, piModels.raw, "providers", "llamacpp", "pi models.json")
 
 	config := string(renderedSurface(t, dir, "codex", "config.toml"))
 	if m := codexModelProviderAssign.FindStringSubmatch(config); m != nil {

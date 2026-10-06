@@ -17,8 +17,12 @@ import (
 )
 
 // appleContainerBaseMounts builds the Apple Container base mounts: single
-// writable /home/agent (device-limit workaround), the mise named volume, and
-// bare --tmpfs scratch dirs.
+// writable /home/agent (device-limit workaround), this workspace's tool disk at
+// /mise, and bare --tmpfs scratch dirs.
+//
+// THE TOOL DISK IS THIS WORKSPACE'S OWN (OQ-MB1, actooldisk.go): a named volume, so an
+// ext4 disk image with case-sensitive names, and one per workspace, because a disk
+// attaches to one VM at a time and a shared one let only one workspace's jail run.
 //
 // cache_relocations are skipped here (one warning for the whole set, not one per
 // entry). Not because the backend cannot nest a bind mount — this very function
@@ -60,7 +64,7 @@ func appleContainerBaseMounts(rt string, runFlags []string, workspace string, in
 		"-v", workspace+":/workspace",
 		"-v", wsState+":/home/agent",
 		"-v", in.cacheSource()+":/home/agent/.cache",
-		"-v", in.miseSource(miseStoreVolume)+":/mise",
+		"-v", in.miseSource(prune.MiseVolumeName(in.cname))+":/mise",
 	)
 	// Every scratch dir is a bare tmpfs here: the four scratch slots podman backs with named
 	// volumes, then /run and /dev/shm. The same two lists the persistence map reads.
@@ -111,14 +115,15 @@ func (in *assembleInput) cacheSource() string {
 	return paths.GlobalCache()
 }
 
-// miseSource is the source of the jail's /mise: shared (the named volume given, or the machine's
-// bind dir in in.miseStore), or — under the seal — the build's own directory, whatever the
-// platform, since a named volume is shared by every jail on the machine (seal.go).
-func (in *assembleInput) miseSource(sharedVolume string) string {
-	if in.sealed || sharedVolume == "" {
+// miseSource is the source of the jail's /mise: the named volume given (podman's machine-wide
+// one on macOS, Apple Container's per-workspace tool disk), else the machine's bind dir in
+// in.miseStore, or — under the seal — the build's own directory, whatever the backend, since a
+// fork's build is handed no store another launch writes (seal.go).
+func (in *assembleInput) miseSource(volume string) string {
+	if in.sealed || volume == "" {
 		return in.miseStore
 	}
-	return sharedVolume
+	return volume
 }
 
 // podmanBaseMounts builds the podman base mounts: this jail's :ro home skeleton +

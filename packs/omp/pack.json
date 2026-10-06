@@ -2,6 +2,24 @@
   "contributes": [
     {
       "bin": "oh-omp",
+      // omp's own providers, read from the oh-omp 0.15.3 linux-x64 binary's strings on 2026-10-05,
+      // never run: every provider its bundled packages/ai/src/models.json lists, and the local and
+      // gateway ones its key map (serviceProviderMap) adds. yolo writes no model entry over one
+      // (docs/design/pi-codex-provider-shadowing.md OQ-3). omp's own zai speaks Anthropic Messages
+      // at api.z.ai/api/anthropic, the coding plan's Anthropic route (docs/reference/zai-plumbing.md),
+      // reading ZAI_API_KEY, so yolo's zai needs no plan.
+      "built_in_providers": {
+        "names": [
+          "alibaba-coding-plan", "amazon-bedrock", "anthropic", "azure-openai-responses",
+          "cerebras", "cloudflare-ai-gateway", "cursor", "deepseek", "github-copilot", "gitlab-duo",
+          "google", "google-antigravity", "google-gemini-cli", "google-vertex", "groq",
+          "huggingface", "kilo", "kimi-code", "litellm", "llama.cpp", "lm-studio", "minimax",
+          "minimax-cn", "minimax-code", "minimax-code-cn", "mistral", "moonshot", "nanogpt",
+          "nvidia", "ollama", "openai", "openai-codex", "opencode", "opencode-go", "opencode-zen",
+          "openrouter", "qianfan", "qwen-portal", "runpod", "synthetic", "together", "venice",
+          "vercel-ai-gateway", "vllm", "xai", "xai-oauth", "xiaomi", "zai", "zenmux"
+        ]
+      },
       "kind": "program",
       // How `yolo host -p <profile> -- oh-omp` moves oh-omp's scope for one launch without
       // touching ~/.oh-omp/agent/config.yml (docs/design/model-lists-and-pickers.md MM-D30): the

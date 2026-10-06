@@ -10,24 +10,28 @@ package integration
 // (internal/entrypoint/pioencodeselection_test.go) drives the same derives through the boot
 // loop; only a launch proves the table the launch actually composed reaches them.
 //
-// zai is the provider under test because it is the shipped pairing that WORKS for these two
-// (it is the one codex cannot speak — codex_selection_test.go): pi translates z.ai's
-// openai-chat-completions wire_api into its own openai-completions, opencode consumes no
-// wire_api at all, and packs/zai declares `models: {default: glm-5.3, ...}`, which is the
-// model half of both selections.
+// zai is the provider under test because it is the shipped pairing both agents serve (it is the
+// one codex cannot speak — codex_selection_test.go), and since
+// docs/design/pi-codex-provider-shadowing.md OQ-3 (ruled 2026-10-05) both serve it through their
+// OWN provider: yolo writes no model entry over a provider an agent has built in. pi's own zai
+// already calls the coding plan; opencode's own `zai` is the metered API, so yolo's zai is its
+// own zai-coding-plan, which reads ZHIPU_API_KEY. This is that ruling's launch tier: pi's
+// models.json has no zai row, and opencode's config selects zai-coding-plan.
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 )
 
 // piAndOpencodePacks is the pack set every launch here carries: the two agent packs that
 // own the surfaces under test, plus zai — the pack that DECLARES the `zai` variant and
-// ships the provider fact, installing no CLI of its own. Selecting a pack renders its
-// surfaces and installs no CLI, so no vendor install happens in this test
+// ships the provider fact, installing no CLI of its own — and llamacpp, a provider neither
+// agent has built in, whose row proves the composed table reached both derives. Selecting a
+// pack renders its surfaces and installs no CLI, so no vendor install happens in this test
 // (providers_test.go TestProvidersRenderInTheAgentsOwnVocabulary is the same trick). zai's key
 // rides env_sources, the one channel that reaches pi and opencode in a jail.
-const piAndOpencodePacks = `{"packs": ["pi", "opencode", "zai"], "env_sources": [{"ZAI_API_KEY": "integration-probe-not-a-real-key"}]}`
+const piAndOpencodePacks = `{"packs": ["pi", "opencode", "zai", "llamacpp"], "env_sources": [{"ZAI_API_KEY": "integration-probe-not-a-real-key"}]}`
 
 // pioencodeSurface is one rendered agent file decoded as the JSON object the agent reads,
 // with the keys a selection must and must not add. The `selection` key is the reserved
@@ -98,44 +102,61 @@ func TestPiAndOpencodeSelectionFollowTheActiveProfile(t *testing.T) {
 
 		// runCommand rather than runYolo: the flag goes BEFORE the `--` that starts the
 		// container command, which runYolo's shape does not allow. Both agents' profiles in
-		// one flag, the spelling a user types.
+		// one flag, the spelling a user types. The command reads opencode's own env file as
+		// its launcher sources it, for the key opencode's own zai-coding-plan reads.
 		r := runCommand(t, dir, append(jailRunArgs(),
-			"-p", "pi=zai,opencode=zai", "--", "true"))
+			"-p", "pi=zai,opencode=zai", "--", "bash", "-lc",
+			`. ~/.config/yolo-agent-env/opencode.sh && printf 'ZHIPU=%s\n' "${ZHIPU_API_KEY-unset}"`))
 		if r.rc != 0 {
-			t.Fatalf("profiled three-pack launch failed: rc %d\n%s", r.rc, r.combined())
+			t.Fatalf("profiled launch failed: rc %d\n%s", r.rc, r.combined())
 		}
 
 		piSettings := readPioencodeSurface(t, dir, "pi", "agent", "settings.json")
 		if piSettings.provider != "zai" {
-			t.Errorf("pi settings.json defaultProvider = %q, want the provider the variant "+
-				"delivers — OQ-CS1: activating a profile works for all", piSettings.provider)
+			t.Errorf("pi settings.json defaultProvider = %q, want pi's own zai, the provider "+
+				"the variant delivers — OQ-CS1: activating a profile works for all", piSettings.provider)
 		}
 		if piSettings.model != "glm-5.3" {
-			t.Errorf("pi settings.json defaultModel = %q, want packs/zai's declared `default` "+
-				"alias glm-5.3 — the WIRE-TRUE id ([1m] is claude's derive's own spelling; "+
-				"z.ai rejects it on pi's route, measured 2026-09-04), and it must match "+
-				"pi's provider list exactly (OQ-CS3: the fallback is the derive's business)",
-				piSettings.model)
+			t.Errorf("pi settings.json defaultModel = %q, want the profile's model glm-5.3 as "+
+				"pi's own id: zai is one of pi's own providers, so pi runs its own list and "+
+				"the profile's model is the one id yolo still names (OQ-3)", piSettings.model)
+		}
+		if got, _ := piSettings.raw["enabledModels"].([]any); len(got) != 1 || got[0] != "zai/*" {
+			t.Errorf("pi settings.json enabledModels = %v, want [zai/*]: pi's own zai list, "+
+				"whole, and none of yolo's (glm-4.6 is yolo's and not pi's)", piSettings.raw["enabledModels"])
 		}
 		// The catalog and the selection are DIFFERENT FILES for pi: yolo's computed
 		// models.json holds the providers table, settings.json holds the pair pi reads
 		// (packs/pi declares the two surfaces separately), so the guard reads the file the
-		// catalog actually lands in. Asserting it against settings.json could only ever
-		// fail — and as shipped, it failed every launch here, including the ones whose
-		// selection had landed.
+		// catalog actually lands in. zai is pi's own, so its catalog has NO zai row
+		// (docs/design/pi-codex-provider-shadowing.md OQ-3); llamacpp's row is the proof the
+		// composed table reached the derive.
 		piModels := readPioencodeSurface(t, dir, "pi", "agent", "models.json")
-		requireCataloged(t, piModels.raw, "providers", "zai", "pi models.json")
+		requireNotCataloged(t, piModels.raw, "providers", "zai", "pi models.json")
+		requireCataloged(t, piModels.raw, "providers", "llamacpp", "pi models.json")
 		requireZaiSubagents(t, piSettings.raw)
 
+		// opencode's own `zai` is z.ai's metered API, so yolo's zai (the coding plan) is its
+		// own zai-coding-plan: that is the provider the selection and the menu name, with no
+		// row for either, and zai's key reaches it as ZHIPU_API_KEY, the name it reads.
 		ocConfig := readPioencodeSurface(t, dir, "config", "opencode", "opencode.json")
-		if ocConfig.slashJoin != "zai/glm-5.3" {
-			t.Errorf("opencode.json model = %q, want %q — \"<provider>/<model>\", split on "+
-				"the first slash (v1.18.18 config.ts:74-76, model.ts:33-39)",
-				ocConfig.slashJoin, "zai/glm-5.3")
+		if ocConfig.slashJoin != "zai-coding-plan/glm-5.3" {
+			t.Errorf("opencode.json model = %q, want %q — \"<provider>/<model>\" on opencode's "+
+				"own provider for the plan (v1.18.18 config.ts:74-76, model.ts:33-39)",
+				ocConfig.slashJoin, "zai-coding-plan/glm-5.3")
+		}
+		if got, _ := ocConfig.raw["enabled_providers"].([]any); len(got) != 1 || got[0] != "zai-coding-plan" {
+			t.Errorf("opencode.json enabled_providers = %v, want [zai-coding-plan]", ocConfig.raw["enabled_providers"])
 		}
 		// ~/.config is ONE shared overlay, so this file's host-side path runs through
-		// "config" (providers_test.go); its catalog row is read from the same file.
-		requireCataloged(t, ocConfig.raw, "provider", "zai", "opencode.json")
+		// "config" (providers_test.go); its catalog rows are read from the same file.
+		requireNotCataloged(t, ocConfig.raw, "provider", "zai", "opencode.json")
+		requireNotCataloged(t, ocConfig.raw, "provider", "zai-coding-plan", "opencode.json")
+		requireCataloged(t, ocConfig.raw, "provider", "llamacpp", "opencode.json")
+		if !strings.Contains(r.stdout, "ZHIPU=integration-probe-not-a-real-key\n") {
+			t.Errorf("opencode's env file does not carry zai's key as ZHIPU_API_KEY, the name its "+
+				"own zai-coding-plan reads:\n%s", r.combined())
+		}
 
 		// The second launch on the SAME workspace, with no profile. OQ-PSW2
 		// (docs/reference/providers.md#oq-psw2, ruled 2026-09-25) narrowed OQ-CS2's
@@ -171,7 +192,7 @@ func TestPiAndOpencodeSelectionFollowTheActiveProfile(t *testing.T) {
 		packHome(t, piAndOpencodePacks)
 		r := runYolo(t, dir, "true")
 		if r.rc != 0 {
-			t.Fatalf("unprofiled three-pack launch failed: rc %d\n%s", r.rc, r.combined())
+			t.Fatalf("unprofiled launch failed: rc %d\n%s", r.rc, r.combined())
 		}
 
 		// OQ-CS2: not a default, not a clear — the no-profile case is the agent's own, and
@@ -191,18 +212,34 @@ func TestPiAndOpencodeSelectionFollowTheActiveProfile(t *testing.T) {
 		}
 
 		// Vacuity guard: the catalog half is NOT gated on the selection (OQ-CS1 option D),
-		// so the provider must still be a row both agents can pick interactively — the
-		// catalogue disappearing with the selection is option B, rejected. Read from
-		// models.json, where pi's catalog lives (see the guard above).
+		// so a provider neither agent has built in is still a row both can pick
+		// interactively — the catalogue disappearing with the selection is option B,
+		// rejected — while zai, which both have built in, is a row in neither (OQ-3). Read
+		// from models.json, where pi's catalog lives (see the guard above).
 		piModels := readPioencodeSurface(t, dir, "pi", "agent", "models.json")
-		requireCataloged(t, piModels.raw, "providers", "zai", "pi models.json")
-		requireCataloged(t, ocConfig.raw, "provider", "zai", "opencode.json")
+		requireCataloged(t, piModels.raw, "providers", "llamacpp", "pi models.json")
+		requireCataloged(t, ocConfig.raw, "provider", "llamacpp", "opencode.json")
+		requireNotCataloged(t, piModels.raw, "providers", "zai", "pi models.json")
+		requireNotCataloged(t, ocConfig.raw, "provider", "zai", "opencode.json")
 	})
+}
+
+// requireNotCataloged asserts the agent's model file has no row under id: a provider the agent
+// has built in gets none (docs/design/pi-codex-provider-shadowing.md OQ-3). A file with no table
+// at all holds no row.
+func requireNotCataloged(t *testing.T, raw map[string]any, tableKey, id string, what string) {
+	t.Helper()
+	provs, _ := raw[tableKey].(map[string]any)
+	if row, present := provs[id]; present {
+		t.Errorf("%s has a %s.%s row, a model entry over the agent's own provider: %v",
+			what, tableKey, id, row)
+	}
 }
 
 // requireZaiSubagents asserts pi-subagents' block for the shipped zai profile
 // (docs/research/extension-model-defaults.md OQ-XM3): a child with no model of its own starts
-// on the profile's default, and may name only zai's declared models, the default first.
+// on the profile's default, and may name only zai's models: pi's own list, whole, since zai is
+// one of pi's own providers (OQ-3).
 func requireZaiSubagents(t *testing.T, settings map[string]any) {
 	t.Helper()
 	sub, _ := settings["subagents"].(map[string]any)
@@ -213,15 +250,8 @@ func requireZaiSubagents(t *testing.T, settings map[string]any) {
 	}
 	scope, _ := sub["modelScope"].(map[string]any)
 	allow, _ := scope["allow"].([]any)
-	want := []any{"zai/glm-5.3", "zai/glm-4.6", "zai/glm-5.3-flash"}
-	if scope["enforce"] != true || scope["strict"] != true || len(allow) != len(want) {
-		t.Fatalf("pi subagents.modelScope = %v, want enforced and strict over %v", scope, want)
-	}
-	for i := range want {
-		if allow[i] != want[i] {
-			t.Errorf("pi subagents.modelScope.allow = %v, want %v — only zai's models, so a "+
-				"child can never cross providers", allow, want)
-			break
-		}
+	if scope["enforce"] != true || scope["strict"] != true || len(allow) != 1 || allow[0] != "zai/*" {
+		t.Errorf("pi subagents.modelScope = %v, want enforced and strict over [zai/*] — only "+
+			"zai's models, so a child can never cross providers", scope)
 	}
 }

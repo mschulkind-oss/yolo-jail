@@ -5,6 +5,26 @@
     //   dnf: https://packages.fedoraproject.org/pkgs/pi-coding-agent/pi-coding-agent/fedora-rawhide.html#files (/usr/bin/pi; only in Fedora 45, unreleased on 2026-10-02, and Rawhide, so dnf finds no such package on Fedora 43 or 44)
     {
       "bin": "pi",
+      // pi's own providers, read from pi 1.0.1's installed code on 2026-10-05, never run: the ids
+      // pi-ai's builtinProviders() registers (dist/providers/all.js) and the `llama.cpp` its own
+      // extension adds (dist/extensions/llama/provider.js). yolo writes no model entry over one
+      // (docs/design/pi-codex-provider-shadowing.md OQ-3). pi's own zai already calls the coding
+      // plan (api.z.ai/api/coding/paas/v4, reading ZAI_API_KEY), so yolo's zai needs no plan.
+      "built_in_providers": {
+        "names": [
+          "amazon-bedrock", "ant-ling", "anthropic", "azure-openai-responses", "baseten",
+          "cerebras", "cloudflare-ai-gateway", "cloudflare-workers-ai", "deepseek", "fireworks",
+          "github-copilot", "google", "google-vertex", "groq", "huggingface", "kimi-coding",
+          "llama.cpp", "meta", "minimax", "minimax-cn", "mistral", "moonshotai", "moonshotai-cn",
+          "nvidia", "openai", "openai-codex", "opencode", "opencode-go", "openrouter",
+          "qwen-token-plan", "qwen-token-plan-cn", "qwen-token-plan-individual", "radius",
+          "together", "typesafe", "vercel-ai-gateway", "xai", "xiaomi", "xiaomi-token-plan-ams",
+          "xiaomi-token-plan-cn", "xiaomi-token-plan-sgp", "zai", "zai-coding-cn"
+        ],
+        // openai-codex runs on pi's own client but on yolo's list: extensions/yolo-openai-auth.js
+        // registers the one list packs/openai-auth declares (model-lists-and-pickers.md ML-D1).
+        "yolo_lists": ["openai-codex"]
+      },
       "flags": [
         "--ignore-scripts"
       ],
@@ -133,6 +153,18 @@
       "into": ".pi/agent/skills",
       "kind": "skills",
       "project_dirs": [".pi/skills", ".agents/skills"]
+    },
+    {
+      // Where a pack gives pi one folder laid out as a pi package (extensions/, themes/,
+      // prompts/), with {"kind": "files", "agents": ["pi"], "from": "<folder>"}. Each folder is
+      // listed in settings.json's `packages`, which loads every file in it with no list
+      // (docs/design/pack-pi-resources.md). Outside every folder pi scans by itself, so a folder
+      // loads only while its pack is selected.
+      "agent": "pi",
+      "expects": ["extensions", "themes", "skills", "prompts", "package.json"],
+      "into": ".pi/agent/yolo-packs",
+      "kind": "files",
+      "register": {"path": "/packages", "surface": "pi/settings"}
     },
     {
       "kind": "profile",

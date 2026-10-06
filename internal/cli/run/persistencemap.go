@@ -129,10 +129,11 @@ func persistenceMapFor(rt string, cfg *jsonx.OrderedMap, packs []*packload.Pack,
 		}
 	}
 
-	// The machine tier, on both backends: paths.GlobalCache() at ~/.cache, each selected
-	// pack's shared dir from paths.GlobalHome(), and the mise store (a machine store dir or
-	// the one named volume) at /mise. Under the seal the two stores are the build's own and
-	// no shared dir is bound (assembleInput.cacheSource, miseSource, podmanBaseMounts).
+	// The machine tier, on both backends: paths.GlobalCache() at ~/.cache and each selected
+	// pack's shared dir from paths.GlobalHome(). /mise is podman's machine store (a store dir,
+	// or the one named volume on a Mac) and Apple Container's per-workspace tool disk
+	// (OQ-MB1, actooldisk.go). Under the seal the two stores are the build's own and no shared
+	// dir is bound (assembleInput.cacheSource, miseSource, podmanBaseMounts).
 	if sealed {
 		add(home(".cache"), jailcontent.PathWorkspaceDurable)
 		add("/mise", jailcontent.PathWorkspaceDurable)
@@ -141,7 +142,11 @@ func persistenceMapFor(rt string, cfg *jsonx.OrderedMap, packs []*packload.Pack,
 		for _, dir := range packload.SharedDirs(packs) {
 			add(home(dir), jailcontent.PathMachineDurable)
 		}
-		add("/mise", jailcontent.PathMachineDurable)
+		if rt == "container" { // parity: HonoredBy — every backend persists /mise; Apple Container keeps it on this workspace's own tool disk (appleContainerBaseMounts), since its disk attaches to one VM at a time
+			add("/mise", jailcontent.PathWorkspaceDurable)
+		} else {
+			add("/mise", jailcontent.PathMachineDurable)
+		}
 	}
 
 	// The per-launch set: the scratch slots (named per-launch volumes, or tmpfs) and the

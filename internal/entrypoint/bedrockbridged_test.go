@@ -281,16 +281,33 @@ func TestOmpReachesBedrockThroughTheBridgeOnPlainBedrock(t *testing.T) {
 	}
 }
 
-// TestClaudeRidesTheAdapterRouteOnlyUnderAVia: claude's everything profile is routed at the
-// bridge's adapter address, and `-p bedrock` keeps claude's own Bedrock client, the address
-// notwithstanding.
-func TestClaudeRidesTheAdapterRouteOnlyUnderAVia(t *testing.T) {
+// TestClaudeRunsItsOwnBedrockModeAtTheBridgeUnderAVia: on the everything profile claude runs its
+// own Bedrock client pointed at the bridge's adapter address, with Claude Code's documented
+// gateway settings (docs/design/model-lists-and-pickers.md OQ-MM6): CLAUDE_CODE_USE_BEDROCK,
+// ANTHROPIC_BEDROCK_BASE_URL at the adapter, CLAUDE_CODE_SKIP_BEDROCK_AUTH, and the bridge's caller
+// token as ANTHROPIC_AUTH_TOKEN, with no ANTHROPIC_BASE_URL and no model pinned, since the shipped
+// list names no Anthropic default and claude's own Bedrock defaults name the model. `-p bedrock`
+// keeps claude's own Bedrock client with no bridge address, as before.
+func TestClaudeRunsItsOwnBedrockModeAtTheBridgeUnderAVia(t *testing.T) {
 	got, _ := bridgedBedrockEnv(t, "claude", "claude", "bedrock-bridge")
-	if got["ANTHROPIC_BASE_URL"] != "http://127.0.0.1:8214" || got["CLAUDE_CODE_USE_BEDROCK"] != "" {
-		t.Errorf("claude on bedrock-bridge: %v, want ANTHROPIC_BASE_URL at the adapter and no Bedrock switch", got)
+	for key, want := range map[string]string{
+		"CLAUDE_CODE_USE_BEDROCK":       "1",
+		"ANTHROPIC_BEDROCK_BASE_URL":    "http://127.0.0.1:8214",
+		"CLAUDE_CODE_SKIP_BEDROCK_AUTH": "1",
+		"ANTHROPIC_BASE_URL":            "",
+		"ANTHROPIC_MODEL":               "",
+		"ANTHROPIC_DEFAULT_OPUS_MODEL":  "",
+	} {
+		if got[key] != want {
+			t.Errorf("claude on bedrock-bridge: %s = %q, want %q (env %v)", key, got[key], want, got)
+		}
+	}
+	if got["ANTHROPIC_AUTH_TOKEN"] == "" {
+		t.Errorf("claude on bedrock-bridge sends the bridge no caller token: %v", got)
 	}
 	native, _ := bridgedBedrockEnv(t, "claude", "claude", "bedrock")
-	if native["ANTHROPIC_BASE_URL"] != "" || native["CLAUDE_CODE_USE_BEDROCK"] != "1" {
+	if native["ANTHROPIC_BASE_URL"] != "" || native["ANTHROPIC_BEDROCK_BASE_URL"] != "" ||
+		native["CLAUDE_CODE_SKIP_BEDROCK_AUTH"] != "" || native["CLAUDE_CODE_USE_BEDROCK"] != "1" {
 		t.Errorf("claude on -p bedrock: %v, want its own Bedrock client and no bridge address", native)
 	}
 }

@@ -35,31 +35,36 @@ func TestOpencodeRunsOnEveryProviderOfItsSet(t *testing.T) {
 	r := runCommand(t, dir, append(jailRunArgs(), "-p", "opencode=zai,openrouter", "--", "bash", "-lc",
 		`printf 'shell zai=%s router=%s\n' "${ZAI_API_KEY:+set}" "${OPENROUTER_API_KEY:+set}"; `+
 			`f=~/.config/yolo-agent-env/opencode.sh; if [ -r "$f" ]; then . "$f"; fi; `+
-			`printf 'opencode zai=%s router=%s\n' "${ZAI_API_KEY:+set}" "${OPENROUTER_API_KEY:+set}"`))
+			`printf 'opencode zai=%s router=%s zhipu=%s\n' "${ZAI_API_KEY:+set}" "${OPENROUTER_API_KEY:+set}" "${ZHIPU_API_KEY:+set}"`))
 	if r.rc != 0 {
 		t.Fatalf("the set launch failed: rc %d\n%s", r.rc, r.combined())
 	}
 	if !strings.Contains(r.combined(), "Active set for opencode: zai, openrouter") {
 		t.Errorf("the launch must name opencode's set in order:\n%s", r.combined())
 	}
-	if !strings.Contains(r.stdout, "opencode zai=set router=set\n") {
+	// zai's key also reaches opencode as ZHIPU_API_KEY, the name its own zai-coding-plan reads
+	// (docs/design/pi-codex-provider-shadowing.md OQ-3).
+	if !strings.Contains(r.stdout, "opencode zai=set router=set zhipu=set\n") {
 		t.Errorf("opencode's own environment must carry both entries' keys:\n%s", r.combined())
 	}
 	if !strings.Contains(r.stdout, "shell zai= router=\n") {
 		t.Errorf("a bare shell must carry neither of the set's keys:\n%s", r.combined())
 	}
 
+	// Both entries are opencode's own providers, zai's plan its zai-coding-plan, so neither gets
+	// a row and each is named by opencode's own id (OQ-3).
 	cfg := readPioencodeSurface(t, dir, "config", "opencode", "opencode.json")
 	// A fresh session starts on the PRIMARY's model (AP-D1).
-	if cfg.slashJoin != "zai/glm-5.3" {
-		t.Errorf("opencode.json model = %q, want the first entry's zai/glm-5.3", cfg.slashJoin)
+	if cfg.slashJoin != "zai-coding-plan/glm-5.3" {
+		t.Errorf("opencode.json model = %q, want the first entry's zai-coding-plan/glm-5.3", cfg.slashJoin)
 	}
 	// opencode's own provider filter names every entry, the primary first (§4.4).
-	if got, _ := cfg.raw["enabled_providers"].([]any); !reflect.DeepEqual(got, []any{"zai", "openrouter"}) {
-		t.Errorf("opencode.json enabled_providers = %v, want [zai openrouter]", got)
+	if got, _ := cfg.raw["enabled_providers"].([]any); !reflect.DeepEqual(got, []any{"zai-coding-plan", "openrouter"}) {
+		t.Errorf("opencode.json enabled_providers = %v, want [zai-coding-plan openrouter]", got)
 	}
-	requireCataloged(t, cfg.raw, "provider", "zai", "opencode.json")
-	requireCataloged(t, cfg.raw, "provider", "openrouter", "opencode.json")
+	for _, own := range []string{"zai", "zai-coding-plan", "openrouter"} {
+		requireNotCataloged(t, cfg.raw, "provider", own, "opencode.json")
+	}
 }
 
 // A BEDROCK ENTRY AFTER THE FIRST (AP-D12's "anywhere in the set"): `-p opencode=zai,bedrock` with
@@ -81,14 +86,15 @@ func TestOpencodeRunsOnABedrockEntryAfterItsFirst(t *testing.T) {
 	if r.rc != 0 {
 		t.Fatalf("the set launch failed: rc %d\n%s", r.rc, r.combined())
 	}
+	// zai's plan is opencode's own zai-coding-plan, which gets no row (OQ-3).
 	cfg := readPioencodeSurface(t, dir, "config", "opencode", "opencode.json")
-	if !strings.HasPrefix(cfg.slashJoin, "zai/") {
+	if !strings.HasPrefix(cfg.slashJoin, "zai-coding-plan/") {
 		t.Errorf("a fresh session starts on the primary: model = %q", cfg.slashJoin)
 	}
-	if got, _ := cfg.raw["enabled_providers"].([]any); !reflect.DeepEqual(got, []any{"zai", "amazon-bedrock"}) {
-		t.Errorf("opencode.json enabled_providers = %v, want [zai amazon-bedrock]", got)
+	if got, _ := cfg.raw["enabled_providers"].([]any); !reflect.DeepEqual(got, []any{"zai-coding-plan", "amazon-bedrock"}) {
+		t.Errorf("opencode.json enabled_providers = %v, want [zai-coding-plan amazon-bedrock]", got)
 	}
-	requireCataloged(t, cfg.raw, "provider", "zai", "opencode.json")
+	requireNotCataloged(t, cfg.raw, "provider", "zai", "opencode.json")
 	requireCataloged(t, cfg.raw, "provider", "amazon-bedrock", "opencode.json")
 	rows, _ := cfg.raw["provider"].(map[string]any)
 	native, _ := rows["amazon-bedrock"].(map[string]any)

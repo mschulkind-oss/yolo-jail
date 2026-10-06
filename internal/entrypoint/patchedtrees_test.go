@@ -13,9 +13,6 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-
-	"github.com/mschulkind-oss/yolo-jail/internal/packdecl"
-	"github.com/mschulkind-oss/yolo-jail/internal/packoverlay"
 )
 
 const stoppedTree = `{"matt/pi-subagents":{"into":".pi/agent/yolo-patched/pi-subagents",` +
@@ -147,26 +144,6 @@ func TestTheNativeLauncherStopsBeforeExecWithNoBuild(t *testing.T) {
 			}
 		} else if rc != 0 || !ran {
 			t.Errorf("rc=%d: with no tree stopped the native launcher did not run its program:\n%s", rc, out)
-		}
-	}
-}
-
-// A TREE'S BUILD JAIL SAYS NO ORPHANED LIST (TreeBuildEnv): its seal selects the contributing pack
-// alone (PPX-D5), so the pack's own entry naming `~/<into>` has no owner there by construction, and
-// telling the user to check a correct identity is wrong. Every other jail still names the orphan.
-func TestATreesBuildJailNamesNoOrphanedList(t *testing.T) {
-	overlays := &packoverlay.OverlaySet{Orphans: []packoverlay.OrphanOverlay{{Kind: packdecl.KindConfigList,
-		Pack: "treepack", Target: "tool/settings"}}}
-	for _, tc := range []struct {
-		tree string
-		said bool
-	}{{"tool-ext", false}, {"", true}} {
-		var stderr bytes.Buffer
-		e := NewEnv(map[string]string{TreeBuildEnv: tc.tree})
-		e.Stderr = &stderr
-		reportOverlayResolution(e, overlays)
-		if said := strings.Contains(stderr.String(), "no effect"); said != tc.said {
-			t.Errorf("%s=%q: the orphan is said %v, want %v:\n%s", TreeBuildEnv, tc.tree, said, tc.said, stderr.String())
 		}
 	}
 }

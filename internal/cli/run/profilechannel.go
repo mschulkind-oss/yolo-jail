@@ -322,7 +322,7 @@ func (o *Options) composePackChannelWith(cfg *jsonx.OrderedMap, packs []*packloa
 	// it takes out a pack env value of its name in a jail as it does at the host, and never a
 	// shape var.
 	assignments, removals := config.SplitHydratedEnvSources(userEnv)
-	scope, err := packload.ScopeCredentials(packload.ScopeInput{
+	in := packload.ScopeInput{
 		Packs:     packs,
 		Providers: providers,
 		Profiles:  packload.ProfileTable(profiles),
@@ -358,9 +358,22 @@ func (o *Options) composePackChannelWith(cfg *jsonx.OrderedMap, packs []*packloa
 		// ones the launch writes each loophole's settings file from.
 		RegionFiles: &packload.RegionFileSource{Getenv: o.Getenv, Setting: packload.LoopholeSettingIn(cfg),
 			Stranded: func(name string) bool { return o.Getenv(name) != "" }},
-	})
+	}
+	scope, err := packload.ScopeCredentials(in)
 	if err != nil {
 		return nil, err
+	}
+	// THE FETCHED LIST (bedrockmodels.go, OQ-MM6): a provider no pack or config gives a model list
+	// gets the region's from its platform's credential service, read off the gate's answer for the
+	// region, and the gate composes again so the env derives see it.
+	changed, err := o.composeFetchedLists(cfg, packs, providers, resolved, scope)
+	if err != nil {
+		return nil, err
+	}
+	if changed {
+		if scope, err = packload.ScopeCredentials(in); err != nil {
+			return nil, err
+		}
 	}
 	c.scope = scope
 	return c, nil
@@ -512,7 +525,11 @@ func (c *packChannel) deliverySource(o *Options, argvPairs map[string]string,
 // command line, which the per-agent file keeps (OQ-CN8).
 //
 // A removal (an env_sources null, a shape tombstone) is the name left out: `env -i K=V…` starts
-// from nothing, so there is nothing to remove.
+// from nothing, so there is nothing to remove. That covers a name the gate delivered this agent
+// through env_sources that a derive removes from the process (claude's Bedrock mode at the wire
+// bridge drops AWS_BEARER_TOKEN_BEDROCK, packs/claude's derive.lua): the composition ranks the
+// tombstone over the value, so the session env leaves it out, while a launch-owned service still
+// receives it (launchServiceInput).
 func (c *packChannel) launchEnv(agent string) *jsonx.OrderedMap {
 	env := jsonx.NewOrderedMap()
 	for _, e := range c.scope.EnvFor(agent).Entries() {

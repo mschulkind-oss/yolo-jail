@@ -32,6 +32,9 @@ var namedFeatures = []Feature{
 		"a patched fork that follows its upstream while the series applies"},
 	{Name: "patched-extensions", Summary: "`patches` on a `files` contribution: a patched pi " +
 		"extension, built on the host and mounted read-only at `into`"},
+	{Name: "registered-files-slots", Summary: "`register` (and `expects`) on a `files` slot: each " +
+		"tree landing in the slot is listed in a settings array its pack declares, such as pi's " +
+		"`packages`, and leaves it when the tree's pack is dropped"},
 	{Name: "skips-unreadable-contributions", Summary: "a launch skips, and names, a contribution " +
 		"holding a kind, via or field this yolo does not know, instead of refusing the pack"},
 }

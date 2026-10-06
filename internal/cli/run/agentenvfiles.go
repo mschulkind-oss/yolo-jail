@@ -287,6 +287,19 @@ func agentEnvFileContentWith(channel *packChannel, agent, extra string) string {
 		}
 		inherited := channel.inheritedValues(view, agent, e.Key, boot)
 		if e.Unset {
+			// The gate's own delivery of the name to this agent is a value yolo set too: a derive
+			// that removes it from the process (claude's Bedrock mode at the wire bridge drops
+			// AWS_BEARER_TOKEN_BEDROCK) still writes that value def-form here, for the bridge's
+			// key channel, which reads a name's first assignment, and unsets it after. The one
+			// composition ranks the shape tombstone over the env_sources value, so the value is
+			// read off the agent's own delivery (AgentDelivery.EnvSources).
+			if own := mapStr(d.EnvSources, e.Key); own != "" {
+				lines.WriteString(exportDefault(e.Key, own))
+				if !slices.Contains(inherited, own) {
+					inherited = append(slices.Clone(inherited), own)
+					sort.Strings(inherited)
+				}
+			}
 			if len(inherited) > 0 {
 				lines.WriteString("case \"${" + e.Key + "-}\" in " + casePatterns(inherited) +
 					") unset " + e.Key + " ;; esac\n")

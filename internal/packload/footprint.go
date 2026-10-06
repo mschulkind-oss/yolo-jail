@@ -536,6 +536,12 @@ func FootprintOf(p *Pack) Footprint {
 			if len(c.Agents) > 0 || c.Agent != "" {
 				detail = audienceDetail(c, detail)
 			}
+			// A REGISTERING slot changes a settings file for every tree that lands in it, so its
+			// claim says which list (registration.go).
+			if c.Register != nil {
+				detail += "; each tree landing here is listed in " + c.Register.Surface + " " +
+					c.Register.Path
+			}
 			add(packdecl.KindFiles, filesTarget(c, p.Name), detail, false)
 		case packdecl.KindState:
 			if c.Scope == "machine" {

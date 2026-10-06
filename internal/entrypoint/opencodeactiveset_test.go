@@ -41,16 +41,16 @@ func ocRows(t *testing.T, cfg map[string]any) map[string]any {
 // keyed to its own credential, and opencode's own provider filter names both, the primary first;
 // a fresh session starts on the PRIMARY's default (AP-D1), its small model too.
 func TestOpencodeRendersItsWholeActiveSet(t *testing.T) {
-	cfg := renderOpencodeSet(t, `{"opencode":["zai","router"]}`).ocConfig(t)
+	cfg := renderOpencodeSet(t, `{"opencode":["zhipu","router"]}`).ocConfig(t)
 
-	if got := strs(cfg["enabled_providers"]); !reflect.DeepEqual(got, []string{"zai", "router"}) {
+	if got := strs(cfg["enabled_providers"]); !reflect.DeepEqual(got, []string{"zhipu", "router"}) {
 		t.Errorf("enabled_providers = %v, want every entry of the set in order", got)
 	}
-	if cfg["model"] != "zai/glm-5.3" || cfg["small_model"] != "zai/glm-5.3" {
-		t.Errorf("model = %v, small_model = %v, want the first entry's zai/glm-5.3", cfg["model"], cfg["small_model"])
+	if cfg["model"] != "zhipu/glm-5.3" || cfg["small_model"] != "zhipu/glm-5.3" {
+		t.Errorf("model = %v, small_model = %v, want the first entry's zhipu/glm-5.3", cfg["model"], cfg["small_model"])
 	}
 	rows := ocRows(t, cfg)
-	for name, key := range map[string]string{"zai": "{env:ZAI_API_KEY}", "router": "{env:ROUTER_API_KEY}"} {
+	for name, key := range map[string]string{"zhipu": "{env:ZAI_API_KEY}", "router": "{env:ROUTER_API_KEY}"} {
 		row, _ := rows[name].(map[string]any)
 		opts, _ := row["options"].(map[string]any)
 		if opts == nil || opts["apiKey"] != key {
@@ -72,12 +72,12 @@ func TestOpencodeRendersItsWholeActiveSet(t *testing.T) {
 // THE FIRST ENTRY DECIDES `model`: the same two providers in the other order start opencode on
 // router's default, and the filter leads with router. Nothing else about the set moves.
 func TestOpencodesFirstEntryDecidesItsStartModel(t *testing.T) {
-	cfg := renderOpencodeSet(t, `{"opencode":["router","zai"]}`).ocConfig(t)
+	cfg := renderOpencodeSet(t, `{"opencode":["router","zhipu"]}`).ocConfig(t)
 	if cfg["model"] != "router/vendor/b" || cfg["small_model"] != "router/vendor/b" {
 		t.Errorf("model = %v, small_model = %v, want router's declared default, router/vendor/b",
 			cfg["model"], cfg["small_model"])
 	}
-	if got := strs(cfg["enabled_providers"]); !reflect.DeepEqual(got, []string{"router", "zai"}) {
+	if got := strs(cfg["enabled_providers"]); !reflect.DeepEqual(got, []string{"router", "zhipu"}) {
 		t.Errorf("enabled_providers = %v, want [router zai]", got)
 	}
 }
@@ -90,17 +90,17 @@ func TestOpencodesFirstEntryDecidesItsStartModel(t *testing.T) {
 func TestAnOpencodeSetWhosePrimaryHasNoModelIsStillHeldToTheSet(t *testing.T) {
 	const noModels = `{
   "open":{"api_key_env_name":"OPEN_API_KEY","endpoints":{"openai":{"base_url":"https://open.example/v1"}}},
-  "zai":{"api_key_env_name":"ZAI_API_KEY","models":{"default":"glm-5.3","glm-5.3":"glm-5.3"},
+  "zhipu":{"api_key_env_name":"ZAI_API_KEY","models":{"default":"glm-5.3","glm-5.3":"glm-5.3"},
     "endpoints":{"openai":{"base_url":"https://api.z.ai/api/coding/paas/v4"}}}}`
 	for _, tc := range []struct {
 		set  string
 		want []string
 	}{
-		{`["open","zai"]`, []string{"open", "zai"}},
+		{`["open","zhipu"]`, []string{"open", "zhipu"}},
 		{`"open"`, []string{"open"}},
 	} {
 		r := newPioencodeRender(t, noModels)
-		r.wireProfiles(`{"open":{"provider":"open"},"zai":{"provider":"zai"}}`)
+		r.wireProfiles(`{"open":{"provider":"open"},"zhipu":{"provider":"zhipu"}}`)
 		r.render(t, `{"opencode":`+tc.set+`}`)
 		cfg := r.ocConfig(t)
 		for _, key := range []string{"model", "small_model"} {
@@ -111,7 +111,7 @@ func TestAnOpencodeSetWhosePrimaryHasNoModelIsStillHeldToTheSet(t *testing.T) {
 		if got := strs(cfg["enabled_providers"]); !reflect.DeepEqual(got, tc.want) {
 			t.Errorf("%s: enabled_providers = %v, want %v: opencode chooses, within the set", tc.set, got, tc.want)
 		}
-		if rows := ocRows(t, cfg); rows["open"] == nil || rows["zai"] == nil {
+		if rows := ocRows(t, cfg); rows["open"] == nil || rows["zhipu"] == nil {
 			t.Errorf("%s: both providers' rows must still be written: %v", tc.set, rows)
 		}
 	}
@@ -125,18 +125,18 @@ func TestAnOpencodeSetWhosePrimaryHasNoModelIsStillHeldToTheSet(t *testing.T) {
 // worked.
 func TestAFirstPartyEntryAfterTheFirstIsInOpencodesFilter(t *testing.T) {
 	const firstParty = `{
-  "zai":{"api_key_env_name":"ZAI_API_KEY","models":{"default":"glm-5.3","glm-5.3":"glm-5.3"},
+  "zhipu":{"api_key_env_name":"ZAI_API_KEY","models":{"default":"glm-5.3","glm-5.3":"glm-5.3"},
     "endpoints":{"openai":{"base_url":"https://api.z.ai/api/coding/paas/v4"}}},
   "anthropic":{"api_key_env_name":"ANTHROPIC_API_KEY"}}`
 	r := newPioencodeRender(t, firstParty)
-	r.wireProfiles(`{"zai":{"provider":"zai"},"anthropic":{"provider":"anthropic"}}`)
-	r.render(t, `{"opencode":["zai","anthropic"]}`)
+	r.wireProfiles(`{"zhipu":{"provider":"zhipu"},"anthropic":{"provider":"anthropic"}}`)
+	r.render(t, `{"opencode":["zhipu","anthropic"]}`)
 	cfg := r.ocConfig(t)
-	if got := strs(cfg["enabled_providers"]); !reflect.DeepEqual(got, []string{"zai", "anthropic"}) {
+	if got := strs(cfg["enabled_providers"]); !reflect.DeepEqual(got, []string{"zhipu", "anthropic"}) {
 		t.Errorf("enabled_providers = %v, want [zai anthropic]: the first-party entry is opencode's own provider of that id", got)
 	}
-	if cfg["model"] != "zai/glm-5.3" {
-		t.Errorf("model = %v, want the primary's zai/glm-5.3", cfg["model"])
+	if cfg["model"] != "zhipu/glm-5.3" {
+		t.Errorf("model = %v, want the primary's zhipu/glm-5.3", cfg["model"])
 	}
 	if _, row := ocRows(t, cfg)["anthropic"]; row {
 		t.Errorf("a first-party entry got a row of yolo's: %v", ocRows(t, cfg)["anthropic"])
@@ -154,9 +154,9 @@ func TestAnOpencodeSetOfOneRendersExactlyTheSingleProfile(t *testing.T) {
 		}
 		return string(b)
 	}
-	single, listed := renderOpencodeSet(t, `{"opencode":"zai"}`), renderOpencodeSet(t, `{"opencode":["zai"]}`)
+	single, listed := renderOpencodeSet(t, `{"opencode":"zhipu"}`), renderOpencodeSet(t, `{"opencode":["zhipu"]}`)
 	if a, b := read(single), read(listed); a != b {
-		t.Errorf("opencode.json differs between \"zai\" and [\"zai\"]:\n--- string\n%s\n--- list\n%s", a, b)
+		t.Errorf("opencode.json differs between \"zhipu\" and [\"zhipu\"]:\n--- string\n%s\n--- list\n%s", a, b)
 	}
 }
 
@@ -164,25 +164,27 @@ func TestAnOpencodeSetOfOneRendersExactlyTheSingleProfile(t *testing.T) {
 // so the next boot on [zai] names zai alone rather than keeping the router it wrote before, and
 // `model` stays the primary's.
 func TestAnEntryLeavingOpencodesSetLeavesTheFilter(t *testing.T) {
-	r := renderOpencodeSet(t, `{"opencode":["zai","router"]}`)
-	r.render(t, `{"opencode":"zai"}`)
+	r := renderOpencodeSet(t, `{"opencode":["zhipu","router"]}`)
+	r.render(t, `{"opencode":"zhipu"}`)
 	cfg := r.ocConfig(t)
-	if got := strs(cfg["enabled_providers"]); !reflect.DeepEqual(got, []string{"zai"}) {
+	if got := strs(cfg["enabled_providers"]); !reflect.DeepEqual(got, []string{"zhipu"}) {
 		t.Errorf("after router left the set, enabled_providers = %v, want [zai]", got)
 	}
-	if cfg["model"] != "zai/glm-5.3" {
-		t.Errorf("model = %v, want zai/glm-5.3", cfg["model"])
+	if cfg["model"] != "zhipu/glm-5.3" {
+		t.Errorf("model = %v, want zhipu/glm-5.3", cfg["model"])
 	}
 }
 
 // A BEDROCK ENTRY AFTER THE FIRST is bound to opencode's own amazon-bedrock client with ITS
 // provider's region as options.region (AP-D12's "anywhere in the set", AP-D14's region read for
-// an entry after the first): opencode on [zai, bedrock] starts on zai, enables both zai and
-// amazon-bedrock, and carries the native row, so a switch to a Bedrock model reaches one opencode
-// can call. Before the set learned the native row (opencodeNativeBedrockEntry), the Bedrock
-// entry had no row at all: the generic one is never written for a Bedrock provider.
+// an entry after the first): opencode on [zai, bedrock] starts on zai, enables both zai's
+// provider and amazon-bedrock, and carries the native row, so a switch to a Bedrock model reaches
+// one opencode can call. Before the set learned the native row (opencodeNativeBedrockEntry), the
+// Bedrock entry had no row at all: the generic one is never written for a Bedrock provider. zai is
+// z.ai's coding plan, which opencode serves as its own zai-coding-plan, so the primary has no row
+// and is named by that id (docs/design/pi-codex-provider-shadowing.md OQ-3).
 func TestOpencodeOnASetWithBedrockSecondBindsItNatively(t *testing.T) {
-	const opus = "global.anthropic.claude-opus-5-5"
+	const opus, own = "global.anthropic.claude-opus-5-5", "zai-coding-plan"
 	providersJSON, wire := bedrockListTables(t, "opencode", `{"bedrock":{"region":"eu-west-1"}}`, nil, "zai")
 	r := newPioencodeRender(t, providersJSON)
 	r.wireProfiles(wire)
@@ -190,8 +192,8 @@ func TestOpencodeOnASetWithBedrockSecondBindsItNatively(t *testing.T) {
 	cfg := r.ocConfig(t)
 
 	rows := ocRows(t, cfg)
-	if rows["zai"] == nil {
-		t.Errorf("the primary's row is missing: %v", rows)
+	if rows["zai"] != nil || rows[own] != nil {
+		t.Errorf("the primary, opencode's own %s, got a row: %v", own, rows)
 	}
 	if _, generic := rows["bedrock"]; generic {
 		t.Errorf("a generic row was written for the Bedrock entry: %v", rows["bedrock"])
@@ -207,14 +209,14 @@ func TestOpencodeOnASetWithBedrockSecondBindsItNatively(t *testing.T) {
 	if _, ok := models[opus]; !ok {
 		t.Errorf("the native row lacks the Bedrock list's %s: %v", opus, models)
 	}
-	if got := strs(cfg["enabled_providers"]); !reflect.DeepEqual(got, []string{"zai", "amazon-bedrock"}) {
-		t.Errorf("enabled_providers = %v, want [zai amazon-bedrock]", got)
+	if got := strs(cfg["enabled_providers"]); !reflect.DeepEqual(got, []string{own, "amazon-bedrock"}) {
+		t.Errorf("enabled_providers = %v, want [%s amazon-bedrock]", got, own)
 	}
-	if m, _ := cfg["model"].(string); m == "" || m[:4] != "zai/" {
+	if m, _ := cfg["model"].(string); len(m) <= len(own) || m[:len(own)+1] != own+"/" {
 		t.Errorf("a fresh session starts on the primary: model = %v", cfg["model"])
 	}
 
-	// With Bedrock FIRST the start model is the native one, and zai follows it in the filter.
+	// With Bedrock FIRST the start model is the native one, and zai's provider follows it.
 	r = newPioencodeRender(t, providersJSON)
 	r.wireProfiles(wire)
 	r.render(t, `{"opencode":["bedrock","zai"]}`)
@@ -222,8 +224,8 @@ func TestOpencodeOnASetWithBedrockSecondBindsItNatively(t *testing.T) {
 	if cfg["model"] != "amazon-bedrock/"+opus {
 		t.Errorf("model = %v, want amazon-bedrock/%s", cfg["model"], opus)
 	}
-	if got := strs(cfg["enabled_providers"]); !reflect.DeepEqual(got, []string{"amazon-bedrock", "zai"}) {
-		t.Errorf("enabled_providers = %v, want [amazon-bedrock zai]", got)
+	if got := strs(cfg["enabled_providers"]); !reflect.DeepEqual(got, []string{"amazon-bedrock", own}) {
+		t.Errorf("enabled_providers = %v, want [amazon-bedrock %s]", got, own)
 	}
 }
 
@@ -234,17 +236,17 @@ func TestOpencodeOnASetWithBedrockSecondBindsItNatively(t *testing.T) {
 // the derive did before sets, puts the whitelist back on router.
 func TestEachOpencodeSetEntryKeepsItsOwnModelSwitch(t *testing.T) {
 	const narrowed = `{
-  "zai":{"api_key_env_name":"ZAI_API_KEY","models_only":true,
+  "zhipu":{"api_key_env_name":"ZAI_API_KEY","models_only":true,
     "models":{"default":"glm-5.3","glm-5.3":"glm-5.3"},
     "endpoints":{"openai":{"base_url":"https://api.z.ai/api/coding/paas/v4"}}},
   "router":{"api_key_env_name":"ROUTER_API_KEY","models_only":true,
     "models":{"default":"vendor/b","vendor/b":"vendor/b"},
     "endpoints":{"openai":{"base_url":"https://router.example/v1"}}}}`
 	r := newPioencodeRender(t, narrowed)
-	r.wireProfiles(`{"zai":{"provider":"zai"},"router":{"provider":"router","_enforce_models":"false"}}`)
-	r.render(t, `{"opencode":["zai","router"]}`)
+	r.wireProfiles(`{"zhipu":{"provider":"zhipu"},"router":{"provider":"router","_enforce_models":"false"}}`)
+	r.render(t, `{"opencode":["zhipu","router"]}`)
 	rows := ocRows(t, r.ocConfig(t))
-	zai, _ := rows["zai"].(map[string]any)
+	zai, _ := rows["zhipu"].(map[string]any)
 	if got := strs(zai["whitelist"]); !reflect.DeepEqual(got, []string{"glm-5.3"}) {
 		t.Errorf("the primary's row whitelist = %v, want [glm-5.3] (its switch is on)", got)
 	}

@@ -8,18 +8,21 @@ package cli
 
 import "testing"
 
+// kilo, a provider pi has none of its own for: on one pi has built in (zai, cerebras) pi uses its
+// own list, so its provider names no tier for it (docs/design/pi-codex-provider-shadowing.md OQ-3;
+// packload's builtinproviders_test.go pins that half).
 func TestHostLaunchCarriesTheAgentsOwnTiers(t *testing.T) {
-	env, _ := hostGateLaunchWith(t, `{"packs": ["pi", "zai", "cerebras"],
-		"providers": {"zai": {"models": {"fast": "glm-5.3-flash"}}},
-		"env_sources": [{"ZAI_API_KEY": "tok-host"}]}`,
+	env, _ := hostGateLaunchWith(t, `{"packs": ["pi", "kilo", "cerebras"],
+		"providers": {"kilo": {"models": {"fast": "kilo-fast"}}},
+		"env_sources": [{"KILO_API_KEY": "tok-host"}]}`,
 		// The shell this launch was started from is another agent's, on cerebras.
 		map[string]string{"YOLO_MODEL_DEFAULT": "cerebras/qwen-3.8-27b"},
-		[]string{"-p", "zai"}, "pi")
-	if got := env["YOLO_MODEL_FAST"]; got != "zai/glm-5.3-flash" {
-		t.Errorf("pi on zai: YOLO_MODEL_FAST = %q, want zai/glm-5.3-flash", got)
+		[]string{"-p", "kilo"}, "pi")
+	if got := env["YOLO_MODEL_FAST"]; got != "kilo/kilo-fast" {
+		t.Errorf("pi on kilo: YOLO_MODEL_FAST = %q, want kilo/kilo-fast", got)
 	}
 	if got, ok := env["YOLO_MODEL_DEFAULT"]; ok {
-		t.Errorf("pi on zai, whose provider names no `default`, kept YOLO_MODEL_DEFAULT=%q "+
+		t.Errorf("pi on kilo, whose provider names no `default`, kept YOLO_MODEL_DEFAULT=%q "+
 			"from the invoking shell: a model of another provider", got)
 	}
 }

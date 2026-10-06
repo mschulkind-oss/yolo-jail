@@ -342,6 +342,32 @@ local function in_full(ctx, t)
   return t
 end
 
+-- PI'S OWN PROVIDERS (docs/design/pi-codex-provider-shadowing.md OQ-3, ruled 2026-10-05: yolo
+-- writes no model entry over any provider an agent has built in, and the agent uses its own
+-- list). packs/pi/pack.json's `built_in_providers` names them, and core hands the answer here as
+-- ctx.built_in_providers, keyed by yolo provider name: `{ id = <pi's own id> }` where pi reaches
+-- the provider through its own client, `false` where pi has the name built in for another plan
+-- and none for this one. piOwn returns that value, or nil for a provider pi does not implement,
+-- whose catalog row this derive writes as before.
+--
+-- openai-codex answers as pi's own whatever the table says: it is the original rule (OQ-1,
+-- OQ-2), and an entrypoint older than the table must still keep pi's subscription client
+-- unshadowed.
+local function piOwn(ctx, name)
+  if type(name) ~= "string" or name == "" then return nil end
+  local own = nil
+  if type(ctx.built_in_providers) == "table" then
+    own = ctx.built_in_providers[name]
+  end
+  if own == nil and name == "openai-codex" then
+    return { id = "openai-codex" }
+  end
+  if own == false or type(own) == "table" then
+    return own
+  end
+  return nil
+end
+
 -- THE openai-codex MODEL LIST. codexModelList expands the one declaration of it — the
 -- `models` and `model_options` packs/openai-auth/pack.json ships on the openai-codex provider,
 -- with the user's `providers.openai-codex` merged over it — into the ordered list every
@@ -592,12 +618,13 @@ yolo.derive("pi", "models", function(ctx)
   end
   local providers = {}
   for name, prov in pairs(ctx.providers) do
-    -- openai-codex is pi's BUILT-IN subscription provider, so it is never catalogued here
-    -- (docs/design/pi-codex-provider-shadowing.md OQ-1, OQ-2): packs/openai-auth declares a
-    -- Responses address on it, and a row written from that shadows pi's own client, which
-    -- then authenticates with the ambient OPENAI_API_KEY and gets 401s. Excluded by name, as
-    -- packs/codex/derive.lua does; the settings derive still selects it by name.
-    local native = (name == "openai-codex")
+    -- A PROVIDER PI HAS BUILT IN IS NEVER CATALOGUED HERE (piOwn;
+    -- docs/design/pi-codex-provider-shadowing.md OQ-3): pi uses its own client, address and model
+    -- list for it, and a row written from yolo's declaration replaces them. That is how
+    -- openai-codex was shadowed first (OQ-1, OQ-2): packs/openai-auth declares a Responses
+    -- address on it, and the row sent the ambient OPENAI_API_KEY to the subscription's backend.
+    -- The settings derive selects pi's own provider instead.
+    local native = (piOwn(ctx, name) ~= nil)
     local baseUrl, api = nil, nil
     if not native then
       baseUrl, api = piReachable(prov)
@@ -606,7 +633,9 @@ yolo.derive("pi", "models", function(ctx)
     -- routes through a service, the SELECTED provider's row points at the per-agent route the
     -- service serves, and speaks chat-completions there, the protocol the via route passes
     -- through to the provider's own `openai` endpoint. Every other row is untouched: via is
-    -- one profile's choice, and only the selected provider rides it.
+    -- one profile's choice, and only the selected provider rides it. A provider pi has built in
+    -- gets no via row either, since the row would be a model entry over pi's own (OQ-3), and
+    -- the launch says the via has no effect on pi (wirebridged.ViaRouteGate).
     local viaRow = (not native and ctx.via_url ~= nil and ctx.via_url ~= "" and
       name == ctx.selected_provider)
     if viaRow then
@@ -1045,6 +1074,62 @@ local function piSettingsFor(ctx)
       selection = sel,
     }
   end
+  -- A PROVIDER PI HAS BUILT IN (piOwn; docs/design/pi-codex-provider-shadowing.md OQ-3): the
+  -- catalog above writes it no row, so pi runs it on its own client, address and model list, and
+  -- the selection names nothing from yolo's list.
+  --
+  --   - defaultProvider is pi's own id for the provider;
+  --   - defaultModel is the profile's `model` option as pi's own model id, taken literally and
+  --     never resolved through yolo's alias table, so `default` and any other alias name nothing.
+  --     It is the one model id yolo still writes here, because it is the selection the profile
+  --     states, and pi needs it: findInitialModel's saved-default step takes the pair or nothing,
+  --     and with nothing pi starts on the first provider it finds a login for, which may not be
+  --     this one. An id pi's list lacks resolves to nothing, and pi falls to the scope below;
+  --   - enabledModels is `<id>/*`, the provider and every model pi has for it, so pi's scoped
+  --     picker is pi's own list and a fresh session that names no model starts on it;
+  --   - pi-subagents' scope is the same provider, whole (piSubagents with no ids).
+  --
+  -- UNDER AN `only` (a `models` contribution narrowing the list, packload's `models_only`) the
+  -- list is an override a pack or the user declared, which docs/design/pi-codex-provider-
+  -- shadowing.md OQ-4 holds open: the pi/model-lists registration below still makes it pi's menu,
+  -- so no scope is written (as for any narrowed provider), and the session starts on the profile's
+  -- model when the list holds it, else the list's `default` alias, else its first entry.
+  --
+  -- `false` is a provider pi has built in for another plan, with no provider of its own for this
+  -- one: no row and no selection, and the launch's profile line says the profile cannot reach
+  -- pi's own client (packload's profileReach).
+  local own = piOwn(ctx, ctx.selected_provider)
+  if own == false then
+    return {}
+  end
+  if own then
+    local id = own.id
+    local start = nil
+    local m = type(ctx.profile) == "table" and ctx.profile.model or nil
+    if type(m) == "string" and m ~= "" and m ~= "default" then
+      start = m
+    end
+    local narrowed = type(p) == "table" and p.models_only == true and type(p.models) == "table"
+    local listed = {}
+    if narrowed then
+      local held = false
+      for _, e in ipairs(callableModels(p, nil)) do
+        table.insert(listed, e.id)
+        held = held or e.id == start
+      end
+      if not held then
+        start = (type(p.models.default) == "string" and p.models.default) or listed[1]
+      end
+    end
+    local sel = { defaultProvider = id, defaultModel = start }
+    if not narrowed then
+      sel.enabledModels = { id .. "/*" }
+    end
+    return {
+      subagents = piSubagents(ctx, id, start, listed),
+      selection = sel,
+    }
+  end
   if not piReachable(p) then
     return {}
   end
@@ -1243,16 +1328,24 @@ end)
 yolo.derive("pi", "model-lists", function(ctx)
   local lists = {}
   for name, prov in pairs(ctx.providers or {}) do
-    local viaRow = ctx.via_url ~= nil and ctx.via_url ~= "" and name == ctx.selected_provider
+    -- A provider pi has built in (piOwn, OQ-3) has no models.json row and no via row: its list is
+    -- registered under pi's own id, with no `api`, so the extension reads the api from pi's own
+    -- catalog, as it does for pi's own Bedrock client. `false` (pi has none for the plan) is skipped.
+    local own = piOwn(ctx, name)
+    local viaRow = own == nil and ctx.via_url ~= nil and ctx.via_url ~= "" and name == ctx.selected_provider
     local nativeBedrock = type(prov) == "table" and prov.platform == "aws-bedrock" and not viaRow
     -- Only a provider pi can use: one it has a models.json row for (piReachable, or the via row),
-    -- or yolo's Bedrock provider on pi's own client. A registration for a provider pi has no
-    -- address or credential for is refused by pi at load ("no authentication method configured").
-    local usable = type(prov) == "table" and (viaRow or nativeBedrock or piReachable(prov) ~= nil)
+    -- yolo's Bedrock provider on pi's own client, or one pi has built in. A registration for a
+    -- provider pi has no address or credential for is refused by pi at load ("no authentication
+    -- method configured").
+    local usable = type(prov) == "table" and own ~= false and
+      (type(own) == "table" or viaRow or nativeBedrock or piReachable(prov) ~= nil)
     if name ~= "openai-codex" and usable and prov.models_only == true then
       local piID = nativeBedrock and "amazon-bedrock" or name
       local rowApi, rowUrl = nil, nil
-      if viaRow then
+      if type(own) == "table" then
+        piID = own.id
+      elseif viaRow then
         rowApi, rowUrl = "openai-completions", ctx.via_url
       elseif not nativeBedrock then
         local reachableUrl, reachableApi = piReachable(prov)

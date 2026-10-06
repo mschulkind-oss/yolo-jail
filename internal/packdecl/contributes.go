@@ -348,6 +348,15 @@ type Contribution struct {
 	// <agent>` reads it for one in-workspace link at the agent's first path
 	// (docs/design/workspace-skills.md WS-D20, internal/cli/hostworkspaceskills.go).
 	ProjectDirs []string `json:"project_dirs,omitempty"`
+	// Register makes a `files` SLOT a REGISTERING one: core appends one entry per tree that lands
+	// in the slot to an array in a surface the slot's own pack declares, attributed to the pack
+	// whose tree it is, and drops the entry when that pack is no longer selected. Expects names
+	// the top-level entries a well-formed tree holds, and a tree holding none of them is warned
+	// about, never refused. Both are a slot's alone (`agent` + `into`) and refused on every other
+	// contribution; the shape, the rules and why core knows no agent here are filesregister.go's
+	// (docs/design/pack-pi-resources.md §3).
+	Register *FilesRegister `json:"register,omitempty"`
+	Expects  []string       `json:"expects,omitempty"`
 	// NodeFloor is the MINIMUM Node version this program's entrypoint requires. `program` only.
 	//
 	// # Why a program declares it and core does not derive it
@@ -956,6 +965,35 @@ type Contribution struct {
 	// A PACK FACT for `platform_switches`' reason: which variable names a file and what the file
 	// holds are facts about one program, and core names no agent. ON `program` ALONE.
 	AgentFiles map[string]string `json:"agent_files,omitempty"`
+	// NeedsModelList names the provider PLATFORMS (`platform`'s open vocabulary) on which this
+	// program has no model catalog and no default model of its own, so it starts only on a model
+	// some list names: a pack's, the user's config, a profile's `model`, or the list yolo fetches
+	// from the platform itself (docs/design/model-lists-and-pickers.md OQ-MM6; for "aws-bedrock"
+	// the aws-auth daemon's). A launch that selects a provider of such a platform for this program
+	// with none of those, and whose fetch failed, is refused, saying why and what to add
+	// (internal/cli/run's bedrockmodels.go). It is also what asks a launch to fetch the list at
+	// all. packs/copilot declares "aws-bedrock": copilot has no Bedrock catalog, and its BYOK
+	// refuses to start without a model. A program that declares nothing is never refused for a
+	// missing list, since it falls back on its own catalog (MM-D32).
+	//
+	// A PACK FACT for `platform_switches`' reason: what a binary can start on is that binary's
+	// fact, and core names no agent. ON `program` ALONE.
+	NeedsModelList []string `json:"needs_model_list,omitempty"`
+	// BuiltInProviders names the providers this program ships its own client and model list
+	// for, and which of them serves a yolo provider's plan where the name alone gets it wrong
+	// (docs/design/pi-codex-provider-shadowing.md OQ-3, ruled 2026-10-05: yolo writes no model
+	// entry over any provider an agent has built in, and the agent uses its own list). Core reads
+	// it for each derive's ctx.built_in_providers (packload.BuiltInProvidersFor), for the launch's
+	// profile line, which says the agent reaches the provider through its own client or cannot
+	// reach it at all, and for the plan's key name (ProviderPlan.APIKeyEnvName). packs/pi,
+	// packs/omp and packs/opencode declare it. See BuiltInProviders.
+	//
+	// A PACK FACT for `platform_switches`' reason: which providers a binary implements is that
+	// binary's fact, and core names no agent. NAMES, NEVER MODELS: yolo keeps the names of an
+	// agent's own providers and none of their lists. ON `program` ALONE. The list goes stale when
+	// the program adds a provider, and until its pack names the new one yolo writes over it
+	// (the design's R3).
+	BuiltInProviders *BuiltInProviders `json:"built_in_providers,omitempty"`
 
 	// --- adapter (docs/reference/protocol-resolution.md#the-three-declarations, OQ-PR1) ---
 	// Adapts is the protocol PAIR this contribution converts, and Address is where the
@@ -3770,6 +3808,8 @@ func validateContribution(label string, c Contribution) []string {
 	problems = append(problems, exactMenuProblems(label, c)...)
 	// `agent_files` is a program's alone: it names files that program's env derive composes.
 	problems = append(problems, agentFilesProblems(label, c)...)
+	// `built_in_providers` is a program's alone: it names the providers that program implements.
+	problems = append(problems, builtInProvidersProblems(label, c)...)
 	// `reserved` is skills' alone, refused in `profile`'s position and for `profile`'s reason:
 	// the only consumer is the skills destination walk, so a reserved name on any other kind is
 	// a declaration that silently protects nothing.
@@ -3807,6 +3847,7 @@ func validateContribution(label string, c Contribution) []string {
 	}
 	problems = append(problems, projectDirsProblems(label, c)...)
 	problems = append(problems, describesProblems(label, c)...)
+	problems = append(problems, filesSlotProblems(label, c)...)
 	// `update` is program's alone, refused in `profile`'s position and for `profile`'s
 	// reason: a verb declared on `requires` (which installs nothing) or on a content kind
 	// is read by no consumer, so accepting it would be a declaration that silently does
@@ -3840,6 +3881,7 @@ func validateContribution(label string, c Contribution) []string {
 	problems = append(problems, protocolsProblems(label, c)...)
 	problems = append(problems, platformSwitchProblems(label, c)...)
 	problems = append(problems, platformRegionProblems(label, c)...)
+	problems = append(problems, needsModelListProblems(label, c)...)
 	if c.UnlistedBackgroundModels && c.Kind != KindProgram {
 		problems = append(problems, fmt.Sprintf("%s: kind %q does not take \"unlisted_background_models\" — "+
 			"it says which models a PROGRAM sends, so only \"program\" has an answer", label, c.Kind))

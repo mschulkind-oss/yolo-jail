@@ -173,8 +173,10 @@ func TestPiOnASetWithBedrockSecondCatalogsItNatively(t *testing.T) {
 	r.render(t, `{"pi":["zai","bedrock"]}`)
 
 	rows, _ := r.piModels(t)["providers"].(map[string]any)
-	if rows["zai"] == nil {
-		t.Errorf("the primary's row is missing: %v", rows)
+	// zai is one of pi's own providers, so the primary gets no row and pi uses its own list
+	// (docs/design/pi-codex-provider-shadowing.md OQ-3).
+	if rows["zai"] != nil {
+		t.Errorf("the primary, pi's own zai, got a row: %v", rows["zai"])
 	}
 	native, _ := rows["amazon-bedrock"].(map[string]any)
 	if native == nil {

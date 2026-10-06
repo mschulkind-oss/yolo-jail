@@ -188,6 +188,10 @@ type bridgeHandler struct {
 	// is not narrowed or its switch is off: a request for a model off the list is refused
 	// before it reaches either upstream.
 	allow *modelAllowlist
+	// invoke is set for a Bedrock upstream (invoke.go): Bedrock's own POST /model/{id}/invoke
+	// routes, signed and passed through, for an agent in its own Bedrock mode pointed at the
+	// bridge (claude on -p bedrock-bridge, docs/design/model-lists-and-pickers.md OQ-MM6).
+	invoke *invokePassthrough
 }
 
 func (h *bridgeHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -215,6 +219,22 @@ func (h *bridgeHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			time.Since(start).Round(time.Millisecond), note)
 	}()
 
+	// BEDROCK'S OWN ROUTES (invoke.go), on a Bedrock upstream: an agent in its own Bedrock mode
+	// sends InvokeModel here, which is signed and passed through; its best-effort control-plane
+	// reads are refused in the shape its AWS SDK reads, and it falls back on its own model ids.
+	if h.invoke != nil {
+		if id, op, ok := parseInvokePath(r.URL.EscapedPath()); ok {
+			h.invoke.serve(rec, r, id, op, h.allow, &note)
+			return
+		}
+		if !strings.HasPrefix(r.URL.Path, "/v1/") {
+			writeAWSError(rec, http.StatusNotFound, "ResourceNotFoundException",
+				"wire-bridge: only Bedrock's POST /model/{id}/invoke, /invoke-with-response-stream and "+
+					"/count-tokens are passed through here; the control plane is not (a jail's credential "+
+					"may only invoke)")
+			return
+		}
+	}
 	// count_tokens lands here (404, WB-D14), as does every method and path the
 	// surface does not implement. One refusal message covers both, naming the
 	// rule rather than staging a guess.
@@ -235,6 +255,14 @@ func (h *bridgeHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			"wire-bridge: reading request body: "+err.Error())
 		return
 	}
+	h.serveMessages(rec, r, body, &note)
+}
+
+// serveMessages is POST /v1/messages for one request body already read: the allowlist, the
+// routing by model id, and the translation, every answer in the anthropic shape. The invoke
+// route's translation (invoketranslate.go) runs a Bedrock InvokeModel request through it too, as
+// the Messages request it carries. note is the request line's routing suffix.
+func (h *bridgeHandler) serveMessages(rec *statusRecorder, r *http.Request, body []byte, note *string) {
 	// The stream flag is read off the ANTHROPIC body before translation: it
 	// decides how the upstream's answer is relayed. TranslateRequest carries
 	// the same flag into the openai body (stream passes through per §4), so
@@ -248,7 +276,7 @@ func (h *bridgeHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// THE ALLOWLIST FIRST (Part 5, WG-I40): a model off the provider's narrowed list goes to no
 	// upstream, translated or not.
 	if ok, msg := h.allow.checks("the adapter route", body); !ok {
-		note = " (model refused: off the provider's list)"
+		*note = " (model refused: off the provider's list)"
 		writeAnthropicError(rec, http.StatusBadRequest, "invalid_request_error", msg)
 		return
 	}
@@ -259,7 +287,7 @@ func (h *bridgeHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// other model falls through to the translation below, unchanged.
 	if h.messages != nil {
 		if id, ok := h.messages.claims(probe.Model); ok {
-			h.messages.serve(rec, r, body, probe.Model, id, &note)
+			h.messages.serve(rec, r, body, probe.Model, id, note)
 			return
 		}
 	}

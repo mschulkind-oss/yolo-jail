@@ -67,6 +67,21 @@ type gateJail struct {
 // every shipped agent pack in ~/.yolo/bin/launch.
 func launchGateJail(t *testing.T, packNames []string, tune func(*Options)) (*gateJail, *packChannel, string) {
 	t.Helper()
+	// The launch RUNS the selected packs' loopholes, aws-auth's included (enabled, as a Bedrock
+	// user enables it), so a pointer one serves is delivered (notch convergence item 2).
+	return launchGateJailWith(t, packNames, func(packs []*packload.Pack) *jsonx.OrderedMap {
+		cfg := bareConfig()
+		served, _ := awsAuthServedConfig(t, packs).Get("loopholes")
+		cfg.Set("loopholes", served)
+		return cfg
+	}, gateCredentials(), tune)
+}
+
+// launchGateJailWith is launchGateJail over a config of the caller's, built from the loaded
+// packs, and an env_sources hydration of its own.
+func launchGateJailWith(t *testing.T, packNames []string, config func([]*packload.Pack) *jsonx.OrderedMap,
+	creds *jsonx.OrderedMap, tune func(*Options)) (*gateJail, *packChannel, string) {
+	t.Helper()
 	home := packHome(t)
 	o := goldenOptions(t.TempDir(), home)
 	var stderr bytes.Buffer
@@ -78,12 +93,7 @@ func launchGateJail(t *testing.T, packNames []string, tune func(*Options)) (*gat
 	for _, name := range packNames {
 		packs = append(packs, officialPack(t, name))
 	}
-	// The launch RUNS the selected packs' loopholes, aws-auth's included (enabled, as a Bedrock
-	// user enables it), so a pointer one serves is delivered (notch convergence item 2).
-	cfg := bareConfig()
-	served, _ := awsAuthServedConfig(t, packs).Get("loopholes")
-	cfg.Set("loopholes", served)
-	channel := channelFor(t, o, cfg, packs, gateCredentials())
+	channel := channelFor(t, o, config(packs), packs, creds)
 	ws := t.TempDir()
 	deliverChannel(ws, "podman", channel)
 	o.noteCredentialScope(channel)
@@ -519,5 +529,81 @@ func TestMacosUserLaunchOmitsAnotherAgentsGatedEnv(t *testing.T) {
 	}
 	if envAt(got, "ZAI_API_KEY") != "tok-gate" {
 		t.Errorf("codex selected zai, so its own launch must carry its key")
+	}
+}
+
+// CLAUDE AT THE BRIDGE NEVER HOLDS A BEDROCK API KEY (docs/design/model-lists-and-pickers.md
+// MM-D39). On the everything profile claude runs its own Bedrock client at the wire bridge, and
+// Claude Code sends AWS_BEARER_TOKEN_BEDROCK, when it holds one, as its `Authorization` there in
+// place of the bridge's caller token (read, not run, in the 2.1.290 binary's Bedrock branch): the
+// bridge would answer every request 401, and the long-lived key would go to a loopback port. So
+// with a Bedrock API key as the credential (aws-auth not enabled), claude's process is handed none,
+// while its env file, which is the wire bridge's key channel for claude's route
+// (wirebridged's keyfile.go, which reads a name's first assignment), still carries it for the
+// bridge to sign with. On `-p bedrock` claude's own client signs with the key, so it keeps it.
+func TestClaudeAtTheBridgeNeverHoldsABedrockAPIKey(t *testing.T) {
+	const key = "real-bedrock-api-key"
+	creds := jsonx.NewOrderedMap()
+	creds.Set("AWS_BEARER_TOKEN_BEDROCK", key)
+	packs := []string{"claude", "bedrock", "aws-auth", "openai-auth", "wire-bridge"}
+	config := func([]*packload.Pack) *jsonx.OrderedMap {
+		cfg := bareConfig()
+		withBedrockRegion(cfg)
+		return cfg
+	}
+	jail, channel, _ := launchGateJailWith(t, packs, config, creds, func(o *Options) { o.ProfileName = "bedrock-bridge" })
+	env := jail.agentEnv("claude")
+	if env["CLAUDE_CODE_USE_BEDROCK"] != "1" || env["ANTHROPIC_BEDROCK_BASE_URL"] == "" {
+		t.Fatalf("the fixture does not run claude's Bedrock mode at the bridge: %v", env)
+	}
+	if v, held := env["AWS_BEARER_TOKEN_BEDROCK"]; held {
+		t.Errorf("claude at the bridge was handed AWS_BEARER_TOKEN_BEDROCK=%q, which it would send the "+
+			"bridge in place of its caller token", v)
+	}
+	_, files := deliveredFiles(t, channel)
+	first := ""
+	for _, line := range strings.Split(files["claude"], "\n") {
+		if k, v, ok := composedFileValue(line); ok && k == "AWS_BEARER_TOKEN_BEDROCK" {
+			first = v
+			break
+		}
+	}
+	if first != key {
+		t.Errorf("claude's env file no longer carries the key for the bridge (first assignment %q):\n%s",
+			first, files["claude"])
+	}
+
+	native, _, _ := launchGateJailWith(t, packs, config, creds, func(o *Options) { o.ProfileName = "bedrock" })
+	if got := native.agentEnv("claude")["AWS_BEARER_TOKEN_BEDROCK"]; got != key {
+		t.Errorf("control: claude's own Bedrock client on -p bedrock was handed AWS_BEARER_TOKEN_BEDROCK=%q, want the key", got)
+	}
+}
+
+// TestClaudeAtTheBridgeOnMacosUserHoldsNoBedrockAPIKey is the macos-user vehicle's half of
+// TestClaudeAtTheBridgeNeverHoldsABedrockAPIKey: its one session env (launchEnv) lays the gate's
+// env_sources over the derive's output, so a removal the derive asks for must still win there,
+// while the launch-owned service keeps the key (launchServiceInput).
+func TestClaudeAtTheBridgeOnMacosUserHoldsNoBedrockAPIKey(t *testing.T) {
+	const key = "real-bedrock-api-key"
+	creds := jsonx.NewOrderedMap()
+	creds.Set("AWS_BEARER_TOKEN_BEDROCK", key)
+	packs := []string{"claude", "bedrock", "aws-auth", "openai-auth", "wire-bridge"}
+	config := func([]*packload.Pack) *jsonx.OrderedMap {
+		cfg := bareConfig()
+		withBedrockRegion(cfg)
+		return cfg
+	}
+	for _, tc := range []struct {
+		profile string
+		holds   bool
+	}{{"bedrock-bridge", false}, {"bedrock", true}} {
+		_, channel, _ := launchGateJailWith(t, packs, config, creds, func(o *Options) { o.ProfileName = tc.profile })
+		got, held := channel.launchEnv("claude").Get("AWS_BEARER_TOKEN_BEDROCK")
+		if held != tc.holds || (held && got != key) {
+			t.Errorf("-p %s: claude's macos-user session env holds the key: %v (%v), want %v", tc.profile, held, got, tc.holds)
+		}
+		if v := channel.launchServiceInput([]string{"claude"})["AWS_BEARER_TOKEN_BEDROCK"]; v != key {
+			t.Errorf("-p %s: the launch-owned service's input lost the key: %q", tc.profile, v)
+		}
 	}
 }

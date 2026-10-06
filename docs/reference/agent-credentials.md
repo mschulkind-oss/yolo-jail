@@ -954,6 +954,16 @@ Bedrock agent's doorway ([`host-notch-services.md` HS-D21](../design/host-notch-
 but asks it nothing: no launch check runs at that notch.
 The decision is [`SSO-D1`](../design/sso-backed-bedrock.md#SSO-D1).
 
+**The service also fetches the region's Bedrock model list** for a launch whose Bedrock provider
+no pack or config gives one ([`model-lists-and-pickers.md` OQ-MM6](../design/model-lists-and-pickers.md#OQ-MM6)).
+It runs `aws bedrock list-foundation-models` and `aws bedrock list-inference-profiles` as the
+configured profile, so with the SSO role's own credentials before any narrowing, and the jail's
+served credential stays invoke-only: the action is answered on the service's private host socket
+alone, and refused through a front. Lists are cached for a day per account and region in
+`bedrock-models.json` beside the credential cache. A launch that finds no service running yet
+runs the same fetch itself ([MM-D37](../design/model-lists-and-pickers.md#MM-D37),
+[MM-D38](../design/model-lists-and-pickers.md#MM-D38)).
+
 The SSO config form sets how often a human acts, not how long a jail lasts. A profile in the
 `sso-session` token-provider form refreshes its own access token, so a login is needed only when
 the portal session ends. The legacy profile-only form has no refresh token, so it needs a login
@@ -1238,6 +1248,7 @@ $ rg -n '"scope": "host"' packs/*/loopholes/*/manifest.jsonc
 | AWS service log | `~/.local/share/yolo-jail/logs/host-service-aws-auth.log` on the host: the profile, the narrowing and the SSO form at start, then each failed mint the pre-mint ticker or a launch check ran | `internal/awsauthdaemon` (`reportStartup`, `mintTracker`) |
 | AWS launch check | declared as `host_daemon.launch_check: true`; asked by a launch that serves the adapter; answered from the cache, or from the mint a cold cache needs, within a **2 s** budget the daemon clamps to at most **5 s**, the launch reading **1 s** past it; a failure prints `loophole aws-auth: cannot mint a Bedrock credential for this launch: …` | `packs/aws-auth/loopholes/aws-auth/manifest.jsonc`; `internal/hostservice` (`LaunchCheckBudget`, `LaunchCheckBudgetCap`), `internal/awsauthdaemon` (`launchcheck.go`), `internal/cli/run` (`launchcheck.go`, `launchCheckMargin`) |
 | AWS canonical state | `<loophole state>/credentials.json`, mode `0600` in a `0700` directory | `internal/awsauth` (`state.go`) |
+| AWS model list | the `bedrock-models` action, host socket only, `{"region", "budget_ms"}`; answered from `<loophole state>/bedrock-models.json` (`0600`) when the region's list is under a day old, else fetched within the launch's budget (at most **5 s**), else the cache's last good list with why | `internal/awsauth` (`modellist.go`, `modelcache.go`), `internal/awsauthdaemon` (`modellists.go`), `internal/cli/run` (`bedrockmodels.go`) |
 | AWS jail endpoint | `YOLO_SERVICE_AWS_AUTH_ENDPOINT`, read by the in-jail adapter, which listens on `127.0.0.1:1461` (its `jail_daemon.listen`), or on a port the launch picked when the jail shares its launcher's network namespace. Emitted by any launch where the loophole is active and its pack may run host code, like every other `scope: "host"` loophole's — `hostServicesMountArgs` derives the set from the manifests rather than naming services one by one, which it did until 2026-09-20 (two names, and this one was the third, so the adapter answered `ServiceUnreachable` for every request while the launch reported a healthy jail). On `macos-user` the launch runs the adapter outside the sandbox instead, through `jail_daemon.host_cmd`, and `yolo host --` runs it the same way for an agent on a Bedrock provider, handing the adapter the endpoint of a front of its own in its input file (`internal/cli/run/hostdoorways.go`). ⚠ Not on Apple Container, which starts no aws-auth service | `internal/awscredadapter` (`EndpointEnv`); `internal/cli/run/assemble_parts.go` |
 | Codex refresh adapter | `http://{listen}/oauth/token`: `127.0.0.1:1460` on a jail with its own network namespace, a port the launch picked on one sharing its launcher's (`network.mode: "host"`, or nested) | `internal/openaiauthadapter`; the pointer in `packs/codex/pack.json`, the port as `jail_daemon.listen` in `packs/openai-auth/loopholes/openai-auth-broker/manifest.jsonc` |
 | Git identity keys carried | `user.name`, `user.email`, plus an in-jail `core.excludesFile` | `internal/cli/run` (`composeGitconfig`), `internal/entrypoint/identity.go` |

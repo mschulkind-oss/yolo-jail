@@ -154,8 +154,8 @@ Defects and unbuilt work behind some of the numbers above:
   builds even when nothing changed (READ, [stockimage.go](../../internal/image/stockimage.go#L362-L370)). The skip podman takes covers only
   a workspace with no `packages:` (READ, [autoload.go](../../internal/image/autoload.go#L479-L483)),
   which bounds what the tag would save there (INFERRED).
-- **Two Apple Container jails at once** waits on
-  [OQ-MB1](../research/macos-backend-performance.md#OQ-MB1), the ruling on what backs `/mise`.
+- **Two Apple Container jails at once**: [OQ-MB1](../research/macos-backend-performance.md#OQ-MB1)
+  ruled a `/mise` disk per workspace on 2026-10-05, built the same day and not yet run on a Mac.
 - **Folders only the jail uses sit on shared folders** on both VM backends. yolo already gives
   the jail its own copy of `.venv`, `node_modules` and each `per_side_paths` entry, but backs that
   copy with a Mac folder, so it still crosses virtiofs (READ,

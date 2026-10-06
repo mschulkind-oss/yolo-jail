@@ -13,18 +13,22 @@ import (
 	"testing"
 )
 
+// openrouter, which opencode runs on its own client reading OPENROUTER_API_KEY itself. zai is not
+// the case any more: opencode serves zai's plan as its own zai-coding-plan, whose key the launch
+// relays as ZHIPU_API_KEY (docs/design/pi-codex-provider-shadowing.md OQ-3), so a key in the
+// launching shell reaches it.
 func TestAKeyLeftInTheLaunchShellRefusesOpencodesLaunch(t *testing.T) {
 	requireJail(t)
-	t.Setenv("ZAI_API_KEY", "integration-probe-not-a-real-key")
+	t.Setenv("OPENROUTER_API_KEY", "integration-probe-not-a-real-key")
 
 	dir := writeProject(t, `{}`)
-	packHome(t, `{"packs": ["opencode", "zai"]}`)
-	r := runCommand(t, dir, append(jailRunArgs(), "-p", "opencode=zai", "--", "true"))
+	packHome(t, `{"packs": ["opencode", "openrouter"]}`)
+	r := runCommand(t, dir, append(jailRunArgs(), "-p", "opencode=openrouter", "--", "true"))
 	if r.rc == 0 {
 		t.Fatalf("opencode's key only in the launching shell must refuse the launch:\n%s", r.combined())
 	}
 	for _, want := range []string{
-		"ZAI_API_KEY is set only in the environment yolo was launched from",
+		"OPENROUTER_API_KEY is set only in the environment yolo was launched from",
 		"nothing relays it to opencode",
 		"env_sources",
 	} {

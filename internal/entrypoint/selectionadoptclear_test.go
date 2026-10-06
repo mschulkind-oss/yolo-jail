@@ -45,10 +45,10 @@ func TestADeselectOnAnAdoptingBootClearsYolosOwnWrite(t *testing.T) {
 	for _, how := range []string{"absent", "undecodable"} {
 		t.Run("last_render "+how, func(t *testing.T) {
 			r := newPioencodeRender(t, zaiReachableJSON)
-			r.wireProfiles(`{"zai": {"provider": "zai", "model": "glm-5.3"}}`)
-			r.render(t, `{"pi":"zai"}`)
+			r.wireProfiles(`{"zhipu": {"provider": "zhipu", "model": "glm-5.3"}}`)
+			r.render(t, `{"pi":"zhipu"}`)
 			settings := r.piSettings(t)
-			requirePiSelection(t, settings, r.piModels(t), "zai", "glm-5.3")
+			requirePiSelection(t, settings, r.piModels(t), "zhipu", "glm-5.3")
 			if _, ok := settings["enabledModels"]; !ok {
 				t.Fatalf("the selection wrote no enabledModels, so the premise is wrong: %v", settings)
 			}
@@ -84,8 +84,8 @@ func TestADeselectOnAnAdoptingBootClearsYolosOwnWrite(t *testing.T) {
 // leaves.
 func TestAnAdoptingDeselectKeepsWhatTheUserWrote(t *testing.T) {
 	r := newPioencodeRender(t, zaiReachableJSON)
-	r.wireProfiles(`{"zai": {"provider": "zai", "model": "glm-5.3"}}`)
-	r.render(t, `{"pi":"zai"}`)
+	r.wireProfiles(`{"zhipu": {"provider": "zhipu", "model": "glm-5.3"}}`)
+	r.render(t, `{"pi":"zhipu"}`)
 	rel := []string{".pi", "agent", "settings.json"}
 	r.edit(t, rel, "defaultModel", "glm-5.3-flash")
 	r.edit(t, rel, "userAddedKey", "mine")
@@ -123,9 +123,9 @@ func TestAClearTheFileStillHoldsIsNotRecorded(t *testing.T) {
 		}
 		t.Run(name, func(t *testing.T) {
 			r := newHostLayerRender(t)
-			writePiHostSettings(t, `{"defaultProvider":"zai"}`)
-			r.render(t, `{"pi":"zai"}`)
-			requirePiSelection(t, r.piSettings(t), r.piModels(t), "zai", "glm-5.3")
+			writePiHostSettings(t, `{"defaultProvider":"zhipu"}`)
+			r.render(t, `{"pi":"zhipu"}`)
+			requirePiSelection(t, r.piSettings(t), r.piModels(t), "zhipu", "glm-5.3")
 			if adopting {
 				breakLastRender(t, r, "absent")
 			}
@@ -133,7 +133,7 @@ func TestAClearTheFileStillHoldsIsNotRecorded(t *testing.T) {
 			log := withBootLog(r)
 			r.render(t, ``)
 			settings := r.piSettings(t)
-			if got := settings["defaultProvider"]; got != "zai" {
+			if got := settings["defaultProvider"]; got != "zhipu" {
 				t.Fatalf("defaultProvider = %v, want the host layer's zai to stand; the premise is wrong", got)
 			}
 			if strings.Contains(log.String(), "pi/settings defaultProvider") {

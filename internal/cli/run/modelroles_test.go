@@ -18,19 +18,21 @@ import (
 func TestEachAgentsEnvFileCarriesItsOwnProvidersTiers(t *testing.T) {
 	home := packHome(t)
 	o := goldenOptions(t.TempDir(), home)
+	// kilo and llamacpp, providers neither agent has built in: on one an agent has built in (zai,
+	// cerebras) it uses its own list, so its provider names no tier for it
+	// (docs/design/pi-codex-provider-shadowing.md OQ-3; packload's builtinproviders_test.go).
 	packs := []*packload.Pack{officialPack(t, "pi"), officialPack(t, "opencode"),
-		officialPack(t, "zai"), officialPack(t, "cerebras")}
-	o.UseProfiles = map[string]string{"pi": "zai", "opencode": "cerebras"}
-	// zai ships no tier alias, so the user names one; cerebras ships `default`.
-	provs, err := jsonx.Decode([]byte(`{"zai": {"models": {"fast": "glm-5.3-flash"}}}`))
+		officialPack(t, "kilo"), officialPack(t, "llamacpp")}
+	o.UseProfiles = map[string]string{"pi": "kilo", "opencode": "llamacpp"}
+	// kilo ships no tier alias, so the user names one; llamacpp ships `default`.
+	provs, err := jsonx.Decode([]byte(`{"kilo": {"models": {"fast": "kilo-fast"}}}`))
 	if err != nil {
 		t.Fatal(err)
 	}
 	cfg := bareConfig()
 	cfg.Set("providers", provs)
 	keys := jsonx.NewOrderedMap()
-	keys.Set("ZAI_API_KEY", "tok-zai")
-	keys.Set("CEREBRAS_API_KEY", "tok-cerebras")
+	keys.Set("KILO_API_KEY", "tok-kilo")
 	_, agents := deliveredFiles(t, channelFor(t, o, cfg, packs, keys))
 
 	pi, opencode := agents["pi"], agents["opencode"]
@@ -40,12 +42,12 @@ func TestEachAgentsEnvFileCarriesItsOwnProvidersTiers(t *testing.T) {
 	for _, c := range []struct{ agent, body, want string }{
 		// Each provider's own tier, qualified, and def-form, since no other file sets that name
 		// to a value: a value the user typed for the command wins (OQ-CN8).
-		{"pi", pi, "export YOLO_MODEL_FAST=${YOLO_MODEL_FAST:-'zai/glm-5.3-flash'}\n"},
-		{"opencode", opencode, "export YOLO_MODEL_DEFAULT=${YOLO_MODEL_DEFAULT:-'cerebras/qwen-3.8-27b'}\n"},
+		{"pi", pi, "export YOLO_MODEL_FAST=${YOLO_MODEL_FAST:-'kilo/kilo-fast'}\n"},
+		{"opencode", opencode, "export YOLO_MODEL_DEFAULT=${YOLO_MODEL_DEFAULT:-'llamacpp/llama'}\n"},
 		// Each removes the other's tier, and only the value yolo set: a child of pi started
 		// with opencode's default in its environment loses it, a value the user typed stays.
-		{"pi", pi, `case "${YOLO_MODEL_DEFAULT-}" in 'cerebras/qwen-3.8-27b') unset YOLO_MODEL_DEFAULT ;; esac`},
-		{"opencode", opencode, `case "${YOLO_MODEL_FAST-}" in 'zai/glm-5.3-flash') unset YOLO_MODEL_FAST ;; esac`},
+		{"pi", pi, `case "${YOLO_MODEL_DEFAULT-}" in 'llamacpp/llama') unset YOLO_MODEL_DEFAULT ;; esac`},
+		{"opencode", opencode, `case "${YOLO_MODEL_FAST-}" in 'kilo/kilo-fast') unset YOLO_MODEL_FAST ;; esac`},
 	} {
 		if !strings.Contains(c.body, c.want) {
 			t.Errorf("%s's env file lacks %q:\n%s", c.agent, c.want, c.body)

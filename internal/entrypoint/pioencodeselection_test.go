@@ -39,7 +39,13 @@ import (
 // translating its openai-chat-completions wire_api into its own openai-completions,
 // opencode consuming no wire_api at all — and it carries GLM-5.3, the profile default,
 // as the model half of both selections.
-const zaiReachableJSON = `{"zai":{
+//
+// It is NAMED `zhipu`, a name neither agent has a provider of, because `zai` is one of
+// pi's and opencode's own providers, which their derives write no row for
+// (docs/design/pi-codex-provider-shadowing.md OQ-3; builtinproviders_test.go pins that).
+// These cases pin the selection a catalogued provider gets, so the provider must be one
+// the derives catalogue. The same rename holds for the set and menu fixtures beside it.
+const zaiReachableJSON = `{"zhipu":{
   "api_key_env_name":"ZAI_API_KEY",
   "models":{"glm-4.6":"glm-4.6","glm-5.3":"glm-5.3","glm-5.3-flash":"glm-5.3-flash"},
   "endpoints":{
@@ -289,9 +295,9 @@ func TestPiDeriveWritesTheSelectionPair(t *testing.T) {
 		{
 			name:         "a pi-reachable provider is selected with its default alias",
 			providers:    zaiReachableJSON,
-			profiles:     `{"pi":"zai"}`,
-			wire:         `{"zai": {"provider": "zai", "model": "glm-5.3"}}`,
-			wantProvider: "zai",
+			profiles:     `{"pi":"zhipu"}`,
+			wire:         `{"zhipu": {"provider": "zhipu", "model": "glm-5.3"}}`,
+			wantProvider: "zhipu",
 			wantModel:    "glm-5.3",
 		},
 		{
@@ -301,9 +307,9 @@ func TestPiDeriveWritesTheSelectionPair(t *testing.T) {
 			// table here is the shape a real launch lowers in, not a second spelling.
 			name:         "the profile's model option names the alias",
 			providers:    zaiReachableJSON,
-			profiles:     `{"pi":"zai"}`,
-			wire:         `{"zai": {"provider": "zai", "model": "glm-5.3-flash"}}`,
-			wantProvider: "zai",
+			profiles:     `{"pi":"zhipu"}`,
+			wire:         `{"zhipu": {"provider": "zhipu", "model": "glm-5.3-flash"}}`,
+			wantProvider: "zhipu",
 			wantModel:    "glm-5.3-flash",
 		},
 		{
@@ -313,9 +319,9 @@ func TestPiDeriveWritesTheSelectionPair(t *testing.T) {
 			// stays absent — the same degradation as a provider with no default alias.
 			name:         "an option naming an unknown alias writes defaultProvider alone",
 			providers:    zaiReachableJSON,
-			profiles:     `{"pi":"zai"}`,
-			wire:         `{"zai": {"provider": "zai", "model": "turbo"}}`,
-			wantProvider: "zai",
+			profiles:     `{"pi":"zhipu"}`,
+			wire:         `{"zhipu": {"provider": "zhipu", "model": "turbo"}}`,
+			wantProvider: "zhipu",
 		},
 		{
 			// OQ-CS2: the no-profile case is the agent's own — pi's own persisted
@@ -326,7 +332,7 @@ func TestPiDeriveWritesTheSelectionPair(t *testing.T) {
 			name:      "no active profile writes nothing selection-shaped",
 			providers: zaiReachableJSON,
 			profiles:  ``,
-			guard:     "zai",
+			guard:     "zhipu",
 		},
 		{
 			// The gate is the catalog's, not "any endpoint pi's registry can name": pi
@@ -346,7 +352,7 @@ func TestPiDeriveWritesTheSelectionPair(t *testing.T) {
 			name:      "a selected name the table does not hold selects nothing",
 			providers: zaiReachableJSON,
 			profiles:  `{"pi":"mystery"}`,
-			guard:     "zai",
+			guard:     "zhipu",
 		},
 		{
 			// The model fallback is the derive's business (OQ-CS3) and today it is the
@@ -424,10 +430,10 @@ func TestOpencodeDeriveWritesTheSelectionKey(t *testing.T) {
 		{
 			name:          "an opencode-reachable provider is selected with its default alias",
 			providers:     zaiReachableJSON,
-			profiles:      `{"opencode":"zai"}`,
-			wire:          `{"zai": {"provider": "zai", "model": "glm-5.3"}}`,
-			wantModel:     "zai/glm-5.3",
-			wantProviders: []string{"zai"},
+			profiles:      `{"opencode":"zhipu"}`,
+			wire:          `{"zhipu": {"provider": "zhipu", "model": "glm-5.3"}}`,
+			wantModel:     "zhipu/glm-5.3",
+			wantProviders: []string{"zhipu"},
 		},
 		{
 			// OQ-CS4 at opencode's key: the option names the alias, the id under it joins
@@ -435,10 +441,10 @@ func TestOpencodeDeriveWritesTheSelectionKey(t *testing.T) {
 			// prefix names is the same one this derive wrote.
 			name:          "the profile's model option names the alias",
 			providers:     zaiReachableJSON,
-			profiles:      `{"opencode":"zai"}`,
-			wire:          `{"zai": {"provider": "zai", "model": "glm-5.3-flash"}}`,
-			wantModel:     "zai/glm-5.3-flash",
-			wantProviders: []string{"zai"},
+			profiles:      `{"opencode":"zhipu"}`,
+			wire:          `{"zhipu": {"provider": "zhipu", "model": "glm-5.3-flash"}}`,
+			wantModel:     "zhipu/glm-5.3-flash",
+			wantProviders: []string{"zhipu"},
 		},
 		{
 			// An option naming an alias the provider does not declare asks a question the
@@ -460,7 +466,7 @@ func TestOpencodeDeriveWritesTheSelectionKey(t *testing.T) {
 			name:      "no active profile writes nothing selection-shaped",
 			providers: zaiReachableJSON,
 			profiles:  ``,
-			guard:     "zai",
+			guard:     "zhipu",
 		},
 		{
 			// opencode's gate is the catalog's too, and here the stakes are higher than a
@@ -476,7 +482,7 @@ func TestOpencodeDeriveWritesTheSelectionKey(t *testing.T) {
 			name:      "a selected name the table does not hold selects nothing",
 			providers: zaiReachableJSON,
 			profiles:  `{"opencode":"mystery"}`,
-			guard:     "zai",
+			guard:     "zhipu",
 		},
 		{
 			// One model declared and no alias for it: "which model" has a single possible
@@ -539,10 +545,10 @@ func TestOpencodeDeriveWritesTheSelectionKey(t *testing.T) {
 func TestPiAndOpencodeSelectionDeactivatesAcrossRenders(t *testing.T) {
 	r := newPioencodeRender(t, zaiReachableJSON)
 
-	r.wireProfiles(`{"zai": {"provider": "zai", "model": "glm-5.3"}}`)
-	r.render(t, `{"pi":"zai","opencode":"zai"}`)
-	requirePiSelection(t, r.piSettings(t), r.piModels(t), "zai", "glm-5.3")
-	requireOpencodeSelection(t, r.ocConfig(t), "zai/glm-5.3")
+	r.wireProfiles(`{"zhipu": {"provider": "zhipu", "model": "glm-5.3"}}`)
+	r.render(t, `{"pi":"zhipu","opencode":"zhipu"}`)
+	requirePiSelection(t, r.piSettings(t), r.piModels(t), "zhipu", "glm-5.3")
+	requireOpencodeSelection(t, r.ocConfig(t), "zhipu/glm-5.3")
 
 	r.render(t, ``)
 	if got := r.piSettings(t)["defaultProvider"]; got != nil {
@@ -571,13 +577,13 @@ func TestPiSelectionSurvivesAUserEdit(t *testing.T) {
 	r := newPioencodeRender(t, zaiReachableJSON)
 	piSettings := []string{".pi", "agent", "settings.json"}
 
-	r.wireProfiles(`{"zai": {"provider": "zai", "model": "glm-5.3"}}`)
-	r.render(t, `{"pi":"zai"}`)
-	requirePiSelection(t, r.piSettings(t), r.piModels(t), "zai", "glm-5.3")
+	r.wireProfiles(`{"zhipu": {"provider": "zhipu", "model": "glm-5.3"}}`)
+	r.render(t, `{"pi":"zhipu"}`)
+	requirePiSelection(t, r.piSettings(t), r.piModels(t), "zhipu", "glm-5.3")
 
 	r.edit(t, piSettings, "defaultModel", "glm-5.3-flash")
 
-	requirePiSelection(t, r.piSettings(t), r.piModels(t), "zai", "glm-5.3-flash")
+	requirePiSelection(t, r.piSettings(t), r.piModels(t), "zhipu", "glm-5.3-flash")
 }
 
 // TestPiAndOpencodeWriteNoRecordWhenNothingIsSelected pins the quiet half for these two
@@ -639,18 +645,18 @@ func piEnabledModels(t *testing.T, settings map[string]any) []string {
 func TestPiEnabledModelsUserEditSurvivesARerender(t *testing.T) {
 	r := newPioencodeRender(t, zaiReachableJSON)
 	piSettings := []string{".pi", "agent", "settings.json"}
-	r.wireProfiles(`{"zai": {"provider": "zai", "model": "glm-5.3"}}`)
+	r.wireProfiles(`{"zhipu": {"provider": "zhipu", "model": "glm-5.3"}}`)
 
-	r.render(t, `{"pi":"zai"}`)
-	if got := piEnabledModels(t, r.piSettings(t)); strings.Join(got, ",") != "zai/glm-5.3,zai/glm-4.6,zai/glm-5.3-flash" {
+	r.render(t, `{"pi":"zhipu"}`)
+	if got := piEnabledModels(t, r.piSettings(t)); strings.Join(got, ",") != "zhipu/glm-5.3,zhipu/glm-4.6,zhipu/glm-5.3-flash" {
 		t.Fatalf("activation enabledModels = %v, want the default-led list", got)
 	}
 
-	mine := []any{"zai/glm-5.3-flash"}
+	mine := []any{"zhipu/glm-5.3-flash"}
 	r.editValue(t, piSettings, "enabledModels", mine)
-	r.render(t, `{"pi":"zai"}`)
-	if got := piEnabledModels(t, r.piSettings(t)); strings.Join(got, ",") != "zai/glm-5.3-flash" {
-		t.Errorf("after a same-selection re-render enabledModels = %v, want the user's [zai/glm-5.3-flash] kept", got)
+	r.render(t, `{"pi":"zhipu"}`)
+	if got := piEnabledModels(t, r.piSettings(t)); strings.Join(got, ",") != "zhipu/glm-5.3-flash" {
+		t.Errorf("after a same-selection re-render enabledModels = %v, want the user's [zhipu/glm-5.3-flash] kept", got)
 	}
 }
 
@@ -659,22 +665,22 @@ func TestPiEnabledModelsUserEditSurvivesARerender(t *testing.T) {
 // deactivation clears it (OQ-PSW2), and deactivation keeps a list the user wrote.
 func TestPiEnabledModelsFollowTheSelectionRules(t *testing.T) {
 	piSettings := []string{".pi", "agent", "settings.json"}
-	const zaiList = "zai/glm-5.3,zai/glm-4.6,zai/glm-5.3-flash"
+	const zaiList = "zhipu/glm-5.3,zhipu/glm-4.6,zhipu/glm-5.3-flash"
 
 	t.Run("a changed selection moves yolo's list", func(t *testing.T) {
 		r := newPioencodeRender(t, zaiReachableJSON)
-		r.wireProfiles(`{"zai": {"provider": "zai", "model": "glm-5.3"}}`)
-		r.render(t, `{"pi":"zai"}`)
-		r.wireProfiles(`{"zai": {"provider": "zai", "model": "glm-5.3-flash"}}`)
-		r.render(t, `{"pi":"zai"}`)
-		if got := strings.Join(piEnabledModels(t, r.piSettings(t)), ","); got != "zai/glm-5.3-flash,zai/glm-4.6,zai/glm-5.3" {
+		r.wireProfiles(`{"zhipu": {"provider": "zhipu", "model": "glm-5.3"}}`)
+		r.render(t, `{"pi":"zhipu"}`)
+		r.wireProfiles(`{"zhipu": {"provider": "zhipu", "model": "glm-5.3-flash"}}`)
+		r.render(t, `{"pi":"zhipu"}`)
+		if got := strings.Join(piEnabledModels(t, r.piSettings(t)), ","); got != "zhipu/glm-5.3-flash,zhipu/glm-4.6,zhipu/glm-5.3" {
 			t.Errorf("enabledModels = %s, want the new default leading", got)
 		}
 	})
 	t.Run("deactivation clears yolo's list", func(t *testing.T) {
 		r := newPioencodeRender(t, zaiReachableJSON)
-		r.wireProfiles(`{"zai": {"provider": "zai", "model": "glm-5.3"}}`)
-		r.render(t, `{"pi":"zai"}`)
+		r.wireProfiles(`{"zhipu": {"provider": "zhipu", "model": "glm-5.3"}}`)
+		r.render(t, `{"pi":"zhipu"}`)
 		if got := strings.Join(piEnabledModels(t, r.piSettings(t)), ","); got != zaiList {
 			t.Fatalf("activation enabledModels = %s, want %s", got, zaiList)
 		}
@@ -685,11 +691,11 @@ func TestPiEnabledModelsFollowTheSelectionRules(t *testing.T) {
 	})
 	t.Run("deactivation keeps the user's list", func(t *testing.T) {
 		r := newPioencodeRender(t, zaiReachableJSON)
-		r.wireProfiles(`{"zai": {"provider": "zai", "model": "glm-5.3"}}`)
-		r.render(t, `{"pi":"zai"}`)
-		r.editValue(t, piSettings, "enabledModels", []any{"zai/glm-5.3-flash"})
+		r.wireProfiles(`{"zhipu": {"provider": "zhipu", "model": "glm-5.3"}}`)
+		r.render(t, `{"pi":"zhipu"}`)
+		r.editValue(t, piSettings, "enabledModels", []any{"zhipu/glm-5.3-flash"})
 		r.render(t, ``)
-		if got := strings.Join(piEnabledModels(t, r.piSettings(t)), ","); got != "zai/glm-5.3-flash" {
+		if got := strings.Join(piEnabledModels(t, r.piSettings(t)), ","); got != "zhipu/glm-5.3-flash" {
 			t.Errorf("after deactivation enabledModels = %s, want the user's list kept", got)
 		}
 	})
@@ -856,8 +862,8 @@ func TestPiSelectionArrayIsNotAHostTable(t *testing.T) {
 // changed selection would never move it.
 func TestPiEnabledModelsWrittenBeforeTheSelectionAreAdopted(t *testing.T) {
 	r := newPioencodeRender(t, zaiReachableJSON)
-	r.wireProfiles(`{"zai": {"provider": "zai", "model": "glm-5.3"}}`)
-	r.render(t, `{"pi":"zai"}`)
+	r.wireProfiles(`{"zhipu": {"provider": "zhipu", "model": "glm-5.3"}}`)
+	r.render(t, `{"pi":"zhipu"}`)
 
 	// Rewrite the record as the pre-change mechanism left it: the pair only.
 	path := prismSelectionRecordPath(r.e, "pi", "settings")
@@ -869,10 +875,10 @@ func TestPiEnabledModelsWrittenBeforeTheSelectionAreAdopted(t *testing.T) {
 	delete(rec, "enabledModels")
 	writeRecordForTest(t, path, rec)
 
-	r.render(t, `{"pi":"zai"}`) // same selection: the equal list is adopted
-	r.wireProfiles(`{"zai": {"provider": "zai", "model": "glm-5.3-flash"}}`)
-	r.render(t, `{"pi":"zai"}`) // a changed selection must move the adopted list
-	if got := strings.Join(piEnabledModels(t, r.piSettings(t)), ","); got != "zai/glm-5.3-flash,zai/glm-4.6,zai/glm-5.3" {
+	r.render(t, `{"pi":"zhipu"}`) // same selection: the equal list is adopted
+	r.wireProfiles(`{"zhipu": {"provider": "zhipu", "model": "glm-5.3-flash"}}`)
+	r.render(t, `{"pi":"zhipu"}`) // a changed selection must move the adopted list
+	if got := strings.Join(piEnabledModels(t, r.piSettings(t)), ","); got != "zhipu/glm-5.3-flash,zhipu/glm-4.6,zhipu/glm-5.3" {
 		t.Errorf("after a changed selection enabledModels = %s, want the new default leading — "+
 			"the pre-selection list was never adopted and is being held as the user's", got)
 	}

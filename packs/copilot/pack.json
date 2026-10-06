@@ -29,6 +29,13 @@
       "probe_args": [
         "--version"
       ],
+      // copilot has no Bedrock catalog, and its BYOK refuses to start without a model, so on a
+      // Bedrock provider no pack or config gives a list it starts on the list yolo fetches from
+      // Bedrock, and a launch with neither stops and says why
+      // (docs/design/model-lists-and-pickers.md OQ-MM6).
+      "needs_model_list": [
+        "aws-bedrock"
+      ],
       "protocols": [
         "anthropic",
         "openai"

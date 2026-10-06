@@ -222,9 +222,10 @@ func TestAPatchedExtensionsClaimIsDisclosedAtLaunch(t *testing.T) {
 	}
 }
 
-// A TREE'S SEALED BUILD JAIL IS TOLD IT IS ONE (entrypoint.TreeBuildEnv), so its boot names no list
-// entry of the contributing pack as ownerless; no other launch, sealed or not, is told. Red if
-// assembly stops emitting it.
+// A TREE'S SEALED BUILD JAIL IS TOLD IT IS ONE (entrypoint.TreeBuildEnv), which its boot reads as a
+// sealed build's gate (PPX-D41) even from a host that predates entrypoint.SealedBuildEnv, so it renders
+// no pack surface and names no list entry of the contributing pack as ownerless; no other launch,
+// sealed or not, is told. Red if assembly stops emitting it.
 func TestATreesSealedBuildJailIsToldItIsOne(t *testing.T) {
 	treeLaunchHome(t, true)
 	for _, tc := range []struct {

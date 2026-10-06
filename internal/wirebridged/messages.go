@@ -43,6 +43,7 @@ import (
 	"strings"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
+	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 )
 
 const (
@@ -87,47 +88,15 @@ func bedrockMessagesURL(upstreamBaseURL string) string {
 }
 
 // anthropicModelIDs reads, off one composed provider entry, every model id its list declares
-// vendor "anthropic" for: `models.<alias>` is the wire id and `model_options.<alias>.vendor`
-// its maker (the flat shape a pack's model_options and a user's object-form entry both
-// compose into; packload.dropRepointedVendors drops a pack's vendor from an alias the user
-// points at another id). The id is never parsed for a maker (wire-bridge-gateway.md §3). A
-// list id is keyed with Claude's [1m] client suffix trimmed, as a request's is (claims):
-// the suffix is never part of the wire id, and a list written for claude may carry it.
-//
-// Only a DECLARED vendor counts. An alias declaring none (a user's string-form alias for the
-// id, or a pack alias with no facts) says nothing about the maker, so it leaves another alias's
-// declaration standing. An id its aliases declare two different vendors for is none of
-// them: it keeps today's translation, and conflicts says which, for the serve log (WG-I34).
+// vendor "anthropic" for (declaredVendors). The id is never parsed for a maker
+// (wire-bridge-gateway.md §3). conflicts are the ids two of the list's aliases declare different
+// vendors for, for the serve log (WG-I34).
 func anthropicModelIDs(entry *jsonx.OrderedMap) (ids map[string]bool, conflicts []string) {
-	if entry == nil {
-		return nil, nil
-	}
-	mv, _ := entry.Get("models")
-	models, _ := mv.(*jsonx.OrderedMap)
-	if models == nil {
-		return nil, nil
-	}
-	ov, _ := entry.Get("model_options")
-	options, _ := ov.(*jsonx.OrderedMap)
-	vendors := map[string]map[string]bool{} // wire id -> the vendors its aliases declare
-	for _, alias := range models.Keys() {
-		raw, _ := models.Get(alias)
-		spelled, _ := raw.(string)
-		id := strings.TrimSuffix(spelled, oneMillionSuffix)
-		vendor := aliasVendor(options, alias)
-		if id == "" || vendor == "" {
+	for id, set := range declaredVendorSets(entry) {
+		if !set[anthropicVendor] {
 			continue
 		}
-		if vendors[id] == nil {
-			vendors[id] = map[string]bool{}
-		}
-		vendors[id][vendor] = true
-	}
-	for id, declared := range vendors {
-		if !declared[anthropicVendor] {
-			continue
-		}
-		if len(declared) > 1 {
+		if len(set) > 1 {
 			conflicts = append(conflicts, id)
 			continue
 		}
@@ -138,6 +107,69 @@ func anthropicModelIDs(entry *jsonx.OrderedMap) (ids map[string]bool, conflicts 
 	}
 	sort.Strings(conflicts)
 	return ids, conflicts
+}
+
+// declaredVendors reads, off one composed provider entry, the maker its list declares for each
+// model id: `models.<alias>` is the wire id and `model_options.<alias>.vendor` its maker (the flat
+// shape a pack's model_options and a user's object-form entry both compose into;
+// packload.dropRepointedVendors drops a pack's vendor from an alias the user points at another
+// id), and, where no pack or config gives the provider a list, each entry of the FETCHED LIST
+// (packload.FetchedModelsKey), whose maker is AWS's own providerName
+// (docs/design/model-lists-and-pickers.md OQ-MM6). A list id is keyed with Claude's [1m] client
+// suffix trimmed, as a request's is (claims): the suffix is never part of the wire id, and a list
+// written for claude may carry it.
+//
+// Only a DECLARED vendor counts. An alias declaring none (a user's string-form alias for the
+// id, or a pack alias with no facts) says nothing about the maker, so it leaves another alias's
+// declaration standing. An id its aliases declare two different vendors for has none: it keeps
+// today's translation, and anthropicModelIDs' conflicts say which when one was Anthropic (WG-I34).
+func declaredVendors(entry *jsonx.OrderedMap) map[string]string {
+	var vendors map[string]string
+	for id, set := range declaredVendorSets(entry) {
+		if len(set) != 1 {
+			continue
+		}
+		for vendor := range set {
+			if vendors == nil {
+				vendors = map[string]string{}
+			}
+			vendors[id] = vendor
+		}
+	}
+	return vendors
+}
+
+// declaredVendorSets is declaredVendors' read before conflicts are settled: each wire id, and every
+// vendor an entry declares for it.
+func declaredVendorSets(entry *jsonx.OrderedMap) map[string]map[string]bool {
+	if entry == nil {
+		return nil
+	}
+	declared := map[string]map[string]bool{} // wire id -> the vendors its entries declare
+	note := func(spelled, vendor string) {
+		id := strings.TrimSuffix(spelled, oneMillionSuffix)
+		if id == "" || vendor == "" {
+			return
+		}
+		if declared[id] == nil {
+			declared[id] = map[string]bool{}
+		}
+		declared[id][vendor] = true
+	}
+	mv, _ := entry.Get("models")
+	if models, _ := mv.(*jsonx.OrderedMap); models != nil {
+		ov, _ := entry.Get("model_options")
+		options, _ := ov.(*jsonx.OrderedMap)
+		for _, alias := range models.Keys() {
+			raw, _ := models.Get(alias)
+			spelled, _ := raw.(string)
+			note(spelled, aliasVendor(options, alias))
+		}
+	}
+	for _, m := range packload.FetchedModelsOf(entry) {
+		note(m.ID, m.Vendor)
+	}
+	return declared
 }
 
 // aliasVendor is anthropicModelIDs' read of one alias's vendor, "" for none. The composed

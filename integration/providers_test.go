@@ -91,17 +91,27 @@ func renderedSurface(t *testing.T, dir string, rel ...string) []byte {
 // packs/bedrock's bedrock (which claude, codex, pi and opencode all need) reaches no
 // derive's catalog: it names no endpoint, and an agent's own Bedrock client is bound only
 // for a launch whose profile selects it, which this one's does not.
+//
+// THE CATALOGUED PROVIDER IS THE USER'S `glm`, z.ai's coding plan under a name no agent has a
+// provider of its own for. zai and cerebras are pi's and opencode's own providers, which their
+// derives write no row for (docs/design/pi-codex-provider-shadowing.md OQ-3, ruled 2026-10-05),
+// so no shipped provider with a key is catalogued in both; the subtest that says so is the
+// ruling's launch tier.
 func TestProvidersRenderInTheAgentsOwnVocabulary(t *testing.T) {
 	requireJail(t)
 
 	dir := writeProject(t, `{}`)
-	packHome(t, `{"packs": ["claude", "zai", "cerebras", "codex", "pi", "opencode"]}`)
-	// zai and cerebras ship api_key_env_name entries, and the selected-pack credential
+	packHome(t, `{"packs": ["claude", "zai", "cerebras", "codex", "pi", "opencode"],
+		"providers": {"glm": {"api_key_env_name": "GLM_API_KEY", "models": {"glm-5.3": "glm-5.3"},
+			"endpoints": {"openai": {"base_url": "https://api.z.ai/api/coding/paas/v4",
+				"wire_api": "openai-chat-completions"}}}}}`)
+	// zai, cerebras and glm name api_key_env_name entries, and the selected-pack credential
 	// preflight refuses a launch whose environment cannot deliver them
 	// (internal/packload ProviderCredentialGaps). Set before the launch: the refusal is
 	// correct behaviour and is D4's territory to change, not this test's.
 	t.Setenv("ZAI_API_KEY", "integration-probe-not-a-real-key")
 	t.Setenv("CEREBRAS_API_KEY", "integration-probe-not-a-real-key")
+	t.Setenv("GLM_API_KEY", "integration-probe-not-a-real-key")
 
 	r := runYolo(t, dir, "true")
 	if r.rc != 0 {
@@ -155,120 +165,99 @@ func TestProvidersRenderInTheAgentsOwnVocabulary(t *testing.T) {
 			}
 		}
 		// No vacuity guard here ON PURPOSE: A3's fix for an unspeakable protocol is to
-		// emit NOTHING (design §3.4), so codex's zai entry legitimately disappears and a
+		// emit NOTHING (design §3.4), so codex's zai and glm entries legitimately disappear and a
 		// "zai must be present" assertion would be wrong. That the composed table reached
 		// this launch at all is what the two pi subtests and the opencode subtest below
 		// prove — same table, same launch.
 	})
 
 	t.Run("pi api values are in pi's own registry", func(t *testing.T) {
-		zai, ok := piModels.Providers["zai"]
+		glm, ok := piModels.Providers["glm"]
 		if !ok {
-			t.Fatalf("pi's models.json has no zai entry — the composed provider table did "+
+			t.Fatalf("pi's models.json has no glm entry — the composed provider table did "+
 				"not reach pi's derive at all; entries: %v", keysOf(piModels.Providers))
 		}
-		if !piBuiltinApis[zai.API] {
-			t.Errorf("pi's zai entry carries api = %q, which is not one of pi's registered "+
+		if !piBuiltinApis[glm.API] {
+			t.Errorf("pi's glm entry carries api = %q, which is not one of pi's registered "+
 				"api ids (pi 0.84.4 BUILTIN_APIS); the schema accepts it as a free string and "+
 				"pi fails at first request with \"No API provider registered for api\" (D1). "+
-				"pi's spelling of chat completions is openai-completions", zai.API)
+				"pi's spelling of chat completions is openai-completions", glm.API)
 		}
 	})
 
-	t.Run("pi zai credential is on apiKey in pi config-value syntax", func(t *testing.T) {
-		zai, ok := piModels.Providers["zai"]
+	t.Run("pi glm credential is on apiKey in pi config-value syntax", func(t *testing.T) {
+		glm, ok := piModels.Providers["glm"]
 		if !ok {
-			t.Fatalf("pi's models.json has no zai entry — the composed provider table did "+
+			t.Fatalf("pi's models.json has no glm entry — the composed provider table did "+
 				"not reach pi's derive at all; entries: %v", keysOf(piModels.Providers))
 		}
-		if zai.APIKey == "" {
-			t.Errorf("pi's zai entry carries no apiKey, so the provider has no configured " +
+		if glm.APIKey == "" {
+			t.Errorf("pi's glm entry carries no apiKey, so the provider has no configured " +
 				"credential: pi filters its models from the available list and a forced stream " +
 				"throws \"No API key for provider\" (D11)")
-		} else if !strings.HasPrefix(zai.APIKey, "$") || !strings.Contains(zai.APIKey, "ZAI_API_KEY") {
-			t.Errorf("pi's zai entry carries apiKey = %q; pi's env indirection is the "+
+		} else if !strings.HasPrefix(glm.APIKey, "$") || !strings.Contains(glm.APIKey, "GLM_API_KEY") {
+			t.Errorf("pi's glm entry carries apiKey = %q; pi's env indirection is the "+
 				"config-value syntax on apiKey — %q or %q — not a separate field (D11)",
-				zai.APIKey, "${ZAI_API_KEY}", "$ZAI_API_KEY")
+				glm.APIKey, "${GLM_API_KEY}", "$GLM_API_KEY")
 		}
 		// The negative half of D11: `apiKeyEnv` is not a field in pi's
 		// ProviderConfigSchema, so the schema tolerates it and nothing reads it — dead
 		// configuration that reads as the thing delivering the credential.
-		if zai.APIKeyEnv != "" {
-			t.Errorf("pi's zai entry still carries apiKeyEnv = %q; pi has no such field, so "+
-				"the value is dead configuration whatever else the entry says (D11)", zai.APIKeyEnv)
+		if glm.APIKeyEnv != "" {
+			t.Errorf("pi's glm entry still carries apiKeyEnv = %q; pi has no such field, so "+
+				"the value is dead configuration whatever else the entry says (D11)", glm.APIKeyEnv)
 		}
 	})
 
-	t.Run("opencode zai baseURL and apiKey are under options", func(t *testing.T) {
-		zai, ok := ocConfig.Provider["zai"]
+	t.Run("opencode glm baseURL and apiKey are under options", func(t *testing.T) {
+		glm, ok := ocConfig.Provider["glm"]
 		if !ok {
-			t.Fatalf("opencode's config has no zai provider entry — the composed provider " +
+			t.Fatalf("opencode's config has no glm provider entry — the composed provider " +
 				"table did not reach opencode's derive at all")
 		}
-		if zai.NPM == "" {
-			t.Errorf("opencode's zai entry carries no npm (the SDK package), so it is not a " +
+		if glm.NPM == "" {
+			t.Errorf("opencode's glm entry carries no npm (the SDK package), so it is not a " +
 				"complete catalog entry")
 		}
-		if zai.Options == nil {
-			t.Fatalf("opencode's zai entry carries no options object, and opencode reads " +
+		if glm.Options == nil {
+			t.Fatalf("opencode's glm entry carries no options object, and opencode reads " +
 				"baseURL/apiKey only from provider.options (provider.ts of upstream v1.18.18) — " +
 				"the top-level spelling produces \"undefined/chat/completions cannot be parsed " +
 				"as a URL\" and zero requests (D10)")
 		}
-		if zai.Options.BaseURL == "" {
-			t.Errorf("opencode's zai entry carries no options.baseURL; the URL opencode's SDK " +
+		if glm.Options.BaseURL == "" {
+			t.Errorf("opencode's glm entry carries no options.baseURL; the URL opencode's SDK " +
 				"actually dials lives there (D10)")
 		}
-		if zai.Options.APIKey == "" || !strings.Contains(zai.Options.APIKey, "ZAI_API_KEY") {
-			t.Errorf("opencode's zai entry carries options.apiKey = %q; the credential must be "+
-				"under options too, and name ZAI_API_KEY (D10)", zai.Options.APIKey)
+		if glm.Options.APIKey == "" || !strings.Contains(glm.Options.APIKey, "GLM_API_KEY") {
+			t.Errorf("opencode's glm entry carries options.apiKey = %q; the credential must be "+
+				"under options too, and name GLM_API_KEY (D10)", glm.Options.APIKey)
 		}
 		// The negative half of D10: the top-level spelling is the part opencode ignores, and
 		// it is what the derive emitted before A0 (7fa624ba) moved both halves under
 		// `options`. Both halves must move together, or the fix reads green while the URL
 		// still never reaches the SDK — so this asserts the top-level keys are GONE, not
 		// merely that `options` exists.
-		if zai.BaseURL != "" {
-			t.Errorf("opencode's zai entry still carries a TOP-LEVEL baseURL = %q; opencode "+
-				"reads it only under options, so a value here is dead configuration (D10)", zai.BaseURL)
+		if glm.BaseURL != "" {
+			t.Errorf("opencode's glm entry still carries a TOP-LEVEL baseURL = %q; opencode "+
+				"reads it only under options, so a value here is dead configuration (D10)", glm.BaseURL)
 		}
 	})
 
-	// The second provider pack, same launch: cerebras is chat-completions-only, so the
-	// pairing claims that differ from zai's are the interesting ones — pi speaks it (the
-	// same dialect row), opencode speaks it (URL only), and no derive invents an
-	// anthropic route for it.
-	// docs/reference/cerebras-pack-and-copilot-delivery.md#which-agents-a-provider-can-reach.
-	t.Run("pi cerebras entry is the same chat-completions dialect", func(t *testing.T) {
-		cerebras, ok := piModels.Providers["cerebras"]
-		if !ok {
-			t.Fatalf("pi's models.json has no cerebras entry — the composed provider table "+
-				"did not reach pi's derive; entries: %v", keysOf(piModels.Providers))
+	// THE RULING AT A LAUNCH (docs/design/pi-codex-provider-shadowing.md OQ-3): zai and cerebras
+	// are pi's and opencode's own providers, so neither agent's model file has a row for either
+	// (nor for opencode's own zai-coding-plan, its provider for zai's plan), and each agent runs
+	// them on its own client and list. The glm rows above prove the table reached both derives.
+	t.Run("pi and opencode write no row for a provider they have built in", func(t *testing.T) {
+		for _, name := range []string{"zai", "cerebras"} {
+			if row, ok := piModels.Providers[name]; ok {
+				t.Errorf("pi's models.json carries a %s row, one of pi's own providers: %+v", name, row)
+			}
 		}
-		if !piBuiltinApis[cerebras.API] {
-			t.Errorf("pi's cerebras entry carries api = %q, which is not one of pi's "+
-				"registered api ids — the dialect map must translate canonical "+
-				"openai-chat-completions to pi's openai-completions", cerebras.API)
-		}
-		if !strings.Contains(cerebras.APIKey, "CEREBRAS_API_KEY") {
-			t.Errorf("pi's cerebras entry carries apiKey = %q; the credential reference must "+
-				"name CEREBRAS_API_KEY in pi's config-value syntax", cerebras.APIKey)
-		}
-	})
-
-	t.Run("opencode cerebras baseURL and apiKey are under options", func(t *testing.T) {
-		cerebras, ok := ocConfig.Provider["cerebras"]
-		if !ok {
-			t.Fatalf("opencode's config has no cerebras provider entry — the composed " +
-				"provider table did not reach opencode's derive at all")
-		}
-		if cerebras.Options == nil || cerebras.Options.BaseURL != "https://api.cerebras.ai/v1" {
-			t.Errorf("opencode's cerebras entry options = %+v; the URL opencode dials must "+
-				"be the measured base URL, under options (D10)", cerebras.Options)
-		}
-		if cerebras.Options == nil || !strings.Contains(cerebras.Options.APIKey, "CEREBRAS_API_KEY") {
-			t.Errorf("opencode's cerebras entry options.apiKey = %+v; the credential must be "+
-				"under options too, naming CEREBRAS_API_KEY (D10)", cerebras.Options)
+		for _, name := range []string{"zai", "zai-coding-plan", "cerebras"} {
+			if row, ok := ocConfig.Provider[name]; ok {
+				t.Errorf("opencode's config carries a %s row, one of opencode's own providers: %+v", name, row)
+			}
 		}
 	})
 

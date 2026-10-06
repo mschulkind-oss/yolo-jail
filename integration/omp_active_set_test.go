@@ -27,7 +27,9 @@ func TestOmpRunsOnEveryProviderOfItsSet(t *testing.T) {
 	t.Setenv("OPENROUTER_API_KEY", "")
 
 	dir := writeProject(t, `{}`)
-	packHome(t, `{"packs": ["omp", "zai", "openrouter"], "env_sources": [`+
+	// llamacpp rides along as a provider omp has none of its own for, whose row proves the
+	// composed table reached omp's derive.
+	packHome(t, `{"packs": ["omp", "zai", "openrouter", "llamacpp"], "env_sources": [`+
 		`{"ZAI_API_KEY": "integration-probe-not-a-real-key", "OPENROUTER_API_KEY": "integration-probe-not-a-real-key"}]}`)
 	r := runCommand(t, dir, append(jailRunArgs(), "-p", "oh-omp=zai,openrouter", "--", "bash", "-lc",
 		`printf 'shell zai=%s router=%s\n' "${ZAI_API_KEY:+set}" "${OPENROUTER_API_KEY:+set}"; `+
@@ -46,18 +48,22 @@ func TestOmpRunsOnEveryProviderOfItsSet(t *testing.T) {
 		t.Errorf("a bare shell must carry neither of the set's keys:\n%s", r.combined())
 	}
 
-	// Each entry is a catalog row naming its own key's variable, never a value.
+	// Both entries are omp's own providers, which it runs on its own client reading the same
+	// variables the keys above arrive in, so neither is a catalog row
+	// (docs/design/pi-codex-provider-shadowing.md OQ-3).
 	decoded, err := (codec.YAML{}).Decode(renderedSurface(t, dir, "oh-omp", "agent", "models.yml"))
 	if err != nil {
 		t.Fatalf("omp's models.yml is not YAML: %v", err)
 	}
 	m, _ := decoded.(map[string]any)
 	rows, _ := m["providers"].(map[string]any)
-	for name, key := range map[string]string{"zai": "ZAI_API_KEY", "openrouter": "OPENROUTER_API_KEY"} {
-		row, _ := rows[name].(map[string]any)
-		if row == nil || row["apiKey"] != key {
-			t.Errorf("models.yml %s row = %v, want apiKey %s", name, row, key)
+	for _, name := range []string{"zai", "openrouter"} {
+		if row, present := rows[name]; present {
+			t.Errorf("models.yml has a %s row, one of omp's own providers: %v", name, row)
 		}
+	}
+	if rows["llamacpp"] == nil {
+		t.Errorf("models.yml has no llamacpp row, so the composed table never reached omp's derive: %v", m)
 	}
 }
 

@@ -1,6 +1,7 @@
 // The `yolo prune` command implementation. It reclaims disk from
 // yolo-jail storage:
-// hardlink-dedup across workspaces, drop stopped containers, sweep old images
+// hardlink-dedup across workspaces, drop stopped containers, remove the Apple
+// Container tool disks of workspaces that are gone (misevolumes.go), sweep old images
 // and the image-tar cache, reap orphaned broker relays, reclaim legacy
 // build-root staging dirs, purge overlay-shadowed seed subtrees, reap other builds'
 // embedded-pack trees and the per-process copies older builds leaked into TMPDIR
@@ -152,6 +153,11 @@ type Options struct {
 	// store gc` would collect the HOST store, but the host's live jails are
 	// unenumerable from in-jail, so the rooting confirmation can't be made.
 	InJail func() bool
+	// MiseStore is the shared mise tool store the jails on this host use, for the unused tool
+	// versions sweep (miseversions.go). nil => the mise child of GlobalStorage() on Linux, and ""
+	// on a Mac, whose jails keep the store in a volume inside the container VM (or, on
+	// macos-user, in the sandbox account), out of this process's reach; "" skips the sweep.
+	MiseStore func() string
 	// NixStoreGC runs the bounded host store GC (§3). nil => the real
 	// RunNixStoreGC over the process's own exec. Injected so tests exercise the
 	// section without a real daemon.
@@ -273,6 +279,15 @@ func fillDefaults(o *Options) {
 	}
 	if o.InJail == nil {
 		o.InJail = func() bool { return os.Getenv("YOLO_VERSION") != "" }
+	}
+	if o.MiseStore == nil {
+		storage := o.GlobalStorage
+		o.MiseStore = func() string {
+			if paths.IsMacOS {
+				return ""
+			}
+			return joinPath(storage(), "mise")
+		}
 	}
 	if o.EmbeddedPacksDir == nil {
 		storage := o.GlobalStorage
@@ -525,6 +540,51 @@ func Run(opts Options) int {
 					p.line("    • " + n)
 				}
 			}
+		}
+	}
+
+	// --- Apple Container tool disks ---
+	// Each workspace's /mise is a disk of its own on Apple Container (OQ-MB1,
+	// misevolumes.go). This section removes the disk of a workspace that no longer exists,
+	// and the one disk every jail shared before, and names each one. Unmeasured bytes, as
+	// for the scratch volumes: `yolo stores` sizes the disks.
+	var removedToolDisks []string
+	p.line("")
+	p.line("[bold]Apple Container tool disks[/bold]  [dim](/mise: one per workspace)[/dim]")
+	if rt != "container" {
+		p.line("  [dim]not applicable — only Apple Container gives each workspace a tool disk of its own[/dim]")
+	} else {
+		removed, failed, unattributed, known := PruneMiseVolumes(rt, apply, opts.Exec)
+		for _, v := range removed {
+			removedToolDisks = append(removedToolDisks, v.Name)
+		}
+		diskLines := func(vols []MiseVolume) {
+			for _, v := range vols {
+				_, why := v.State()
+				p.line(fmt.Sprintf("    • %s  [dim]%s[/dim]", v.Name, why))
+			}
+		}
+		switch {
+		case !known:
+			p.line("  [dim]skipped — could not list container volumes; declining to sweep[/dim]")
+		case len(removed) == 0 && len(failed) == 0:
+			p.line("  [dim]none[/dim]")
+		default:
+			if len(removed) > 0 {
+				p.line(fmt.Sprintf("  %s: %d disk(s)", verb(apply, "would remove", "removed"), len(removed)))
+				diskLines(removed)
+			}
+			if len(failed) > 0 {
+				// The runtime refuses a disk a container still names, running or stopped.
+				p.line(fmt.Sprintf("  [yellow]could not remove %d disk(s) — a container still uses it, "+
+					"or the runtime refused; `container ls --all` lists the containers, and "+
+					"`container rm <name>` removes a stopped one:[/yellow]", len(failed)))
+				diskLines(failed)
+			}
+		}
+		if known && len(unattributed) > 0 {
+			p.line(fmt.Sprintf("  [dim]kept %d disk(s) whose workspace yolo cannot tell; `yolo stores` lists them[/dim]",
+				len(unattributed)))
 		}
 	}
 
@@ -1062,6 +1122,19 @@ func Run(opts Options) int {
 		totalSaved += cacheBytes
 	}
 
+	// --- Unused tool versions in the shared mise store (minimal-disk-footprint.md OQ-DF4) ---
+	// The versions no jail on this machine has used for 30 days, judged from every jail's use
+	// record (miseversions.go). The launch offers them once they total 1 GiB; this is the same
+	// reclaimer, on demand and at any size.
+	miseSweep := renderMiseVersions(p, opts, opts.MiseStore(), live, apply)
+	if miseSweep.Declined != "" {
+		declinedSweep = true
+	}
+	totalSaved += miseSweep.RemovedBytes
+	if !apply {
+		totalSaved += miseSweep.Bytes + miseSweep.LeftoverBytes
+	}
+
 	// --- Agent log purge (age-based) ---
 	// Regenerable per-agent LOG dirs (copilot/logs, gemini/tmp, gemini-cli/logs)
 	// under each tracked workspace's overlay + the shared cache (storage §4).
@@ -1201,11 +1274,13 @@ func Run(opts Options) int {
 				{Name: "agent_staging", Bytes: agentStagingBytes, Count: agentStagingDirs, Unit: "dirs"},
 				{Name: "shadowed_home", Bytes: shadowedBytes, Count: shadowedItems, Unit: "paths"},
 				{Name: "caches", Bytes: cacheBytes, Count: cacheFiles, Unit: "files"},
+				miseVersionsCategory(miseSweep, apply),
 				{Name: "agent_logs", Bytes: agentLogBytes, Count: agentLogFiles, Unit: "files"},
 			},
 			RemovedContainers:     nonNil(removedContainers),
 			RemovedImages:         nonNil(removedImages),
 			RemovedScratchVolumes: nonNil(removedScratch),
+			RemovedToolDisks:      nonNil(removedToolDisks),
 			Declined:              declinedSweep,
 		})
 	}

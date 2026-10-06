@@ -10,6 +10,7 @@ import (
 	goruntime "runtime"
 	"strings"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/execx"
 	"github.com/mschulkind-oss/yolo-jail/internal/image"
 )
 
@@ -73,8 +74,13 @@ func imageCopyCapture(argv []string) (string, bool) {
 }
 
 // imageCopyRun runs argv on this process's stdio and returns its exit status.
+//
+// The copier is a Nix store closure, so it runs without the caller's
+// LD_LIBRARY_PATH/LD_PRELOAD (execx.NixClosureCommand) — and so does a
+// `podman unshare --` prefix, whose environment is the copier's
+// (image-staging-vs-baking.md, LI-D1).
 func imageCopyRun(argv []string) int {
-	cmd := exec.Command(argv[0], argv[1:]...)
+	cmd := execx.NixClosureCommand(argv[0], argv[1:]...)
 	cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, os.Stdout, os.Stderr
 	err := cmd.Run()
 	var exit *exec.ExitError

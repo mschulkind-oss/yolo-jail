@@ -150,13 +150,33 @@ func parseOfferReply(s string) OfferAnswer {
 	}
 }
 
+// offerItem is one class a prompt asks about, with the size the last slot measured.
+type offerItem struct {
+	class string
+	m     offerMeasurement
+}
+
+// detail is the item's measured detail, saying so when the walk was cut short.
+func (it offerItem) detail() string {
+	if it.m.Partial {
+		return it.m.Detail + " (partial — the walk hit its budget)"
+	}
+	return it.m.Detail
+}
+
 // offerPrompt is the one shape every offered class uses, so a user learns it
 // once — and may meet it again, since consent is per class and is not consumed
-// by being given (OQ-BF1).
-func offerPrompt(class, detail string, bytes int64) string {
-	return "Reclaimable on this machine (" + class + ", older than yolo's rules allow):\n" +
-		"  " + prune.FmtBytes(bytes) + "   " + detail + "\n" +
-		"Reclaim now? [y]es / [n]ot now (ask again in 7 days) / ne[v]er (yolo prune stays available) "
+// by being given (OQ-BF1). Every class due at one launch is in ONE prompt
+// (disk-levers-and-backfill.md §5.2's shape), and the answer is recorded for
+// each of them.
+func offerPrompt(items []offerItem) string {
+	var b strings.Builder
+	b.WriteString("Reclaimable on this machine (older than yolo's rules allow):\n")
+	for _, it := range items {
+		b.WriteString("  " + prune.FmtBytes(it.m.Bytes) + "   " + it.class + " (" + it.detail() + ")\n")
+	}
+	b.WriteString("Reclaim now? [y]es / [n]ot now (ask again in 7 days) / ne[v]er (yolo prune stays available) ")
+	return b.String()
 }
 
 // NonTTYOfferLine is what a non-interactive launch prints instead of prompting:
@@ -214,36 +234,84 @@ func LastOfferMeasurement(class string) offerMeasurement {
 	return state[class]
 }
 
-// cachePurgeClass is the one offered class today: the host cache age-purge, the
-// largest measured backfill (49.34 GiB) and the one whose regeneration this doc
-// cannot bound.
+// cachePurgeClass is the host cache age-purge, the largest measured backfill
+// (49.34 GiB) and the first offered class: its regeneration is a re-fetch nothing
+// can bound.
 const cachePurgeClass = "cache files older than 30 d"
 
-// maybeOfferReclaim runs BEFORE the container attaches (§5.3's trigger), on the
-// size the last slot measured. It never walks anything itself.
+// miseVersionsClass is the shared mise tool store's versions no jail on the
+// machine has used for 30 days (minimal-disk-footprint.md OQ-DF4, ruled
+// 2026-10-05: "A" — offered like the cache, and automatic on a yes). Its
+// regeneration is a re-download for a workspace that comes back to an old version.
+const miseVersionsClass = "tool versions no jail used for 30 d"
+
+// offeredClasses is every offered class, in the order a prompt lists them.
+var offeredClasses = []string{cachePurgeClass, miseVersionsClass}
+
+// reclaimConsent is what the offer leaves THIS launch's slot allowed to do, per
+// class: reclaim (a yes on record or given now), and whether the yes was given
+// at this launch's prompt.
 //
-// Returns true when the user consented, so the caller can reclaim in the slot.
-func (o *Options) maybeOfferReclaim() bool {
-	m := LastOfferMeasurement(cachePurgeClass)
-	switch DecideOffer(OfferAnswerFor(cachePurgeClass), m.Bytes, o.Now()) {
-	case OfferAutomatic:
-		return true
-	case OfferSkip:
-		return false
+// THE FRESH HALF IS WHY THIS IS NOT A BOOL. A class is measured by the slot and
+// debounced to once a day, and the offer is made from the LAST launch's
+// measurement — so the launch that asks almost always finds its class's stamp a
+// few hours old. A yes given there used to wait out that stamp, reclaiming up to a
+// day later, at the next launch after it; §5.6 says a yes frees the figure it was
+// shown within the jail's lifetime. A fresh yes therefore runs its class in this
+// slot, debounce or not.
+type reclaimConsent struct {
+	granted map[string]bool
+	fresh   map[string]bool
+}
+
+func (c *reclaimConsent) grant(class string, fresh bool) {
+	if c.granted == nil {
+		c.granted, c.fresh = map[string]bool{}, map[string]bool{}
 	}
-	detail := m.Detail
-	if m.Partial {
-		detail += " (partial — the walk hit its budget)"
+	c.granted[class] = true
+	if fresh {
+		c.fresh[class] = true
+	}
+}
+
+// has reports whether class may reclaim in this launch's slot.
+func (c reclaimConsent) has(class string) bool { return c.granted[class] }
+
+// freshFor reports whether class's yes was given at this launch's prompt.
+func (c reclaimConsent) freshFor(class string) bool { return c.fresh[class] }
+
+// maybeOfferReclaim runs BEFORE the container attaches (§5.3's trigger), on the
+// sizes the last slot measured. It never walks anything itself.
+//
+// It returns what the slot may reclaim: every class with a standing yes, and
+// every class the user said yes to now. Every class due an offer goes in one
+// prompt, and the one answer is recorded for each.
+func (o *Options) maybeOfferReclaim() reclaimConsent {
+	var consent reclaimConsent
+	var ask []offerItem
+	for _, class := range offeredClasses {
+		m := LastOfferMeasurement(class)
+		switch DecideOffer(OfferAnswerFor(class), m.Bytes, o.Now()) {
+		case OfferAutomatic:
+			consent.grant(class, false)
+		case OfferAsk:
+			ask = append(ask, offerItem{class: class, m: m})
+		}
+	}
+	if len(ask) == 0 {
+		return consent
 	}
 	if !o.IsTTYStdout() {
-		// No prompt, no deletion, one line. Never an implicit yes.
-		o.pr(o.Stderr).printf("[dim]%s[/dim]", NonTTYOfferLine(cachePurgeClass, detail, m.Bytes))
-		return false
+		// No prompt, no deletion, one line per class. Never an implicit yes.
+		for _, it := range ask {
+			o.pr(o.Stderr).printf("[dim]%s[/dim]", NonTTYOfferLine(it.class, it.detail(), it.m.Bytes))
+		}
+		return consent
 	}
 	// The same shape preflight.go's config-change prompt uses: write, read one
 	// line, and treat anything else as the non-destructive answer.
-	if _, err := o.Stdout.Write([]byte(offerPrompt(cachePurgeClass, detail, m.Bytes))); err != nil {
-		return false
+	if _, err := o.Stdout.Write([]byte(offerPrompt(ask))); err != nil {
+		return consent
 	}
 	reply := ""
 	scanner := bufio.NewScanner(o.Stdin)
@@ -251,6 +319,11 @@ func (o *Options) maybeOfferReclaim() bool {
 		reply = scanner.Text()
 	}
 	answer := parseOfferReply(reply)
-	RecordOfferAnswer(cachePurgeClass, answer, o.Now())
-	return answer == OfferYes
+	for _, it := range ask {
+		RecordOfferAnswer(it.class, answer, o.Now())
+		if answer == OfferYes {
+			consent.grant(it.class, true)
+		}
+	}
+	return consent
 }

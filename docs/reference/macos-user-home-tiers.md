@@ -150,9 +150,11 @@ done with a symlink, and nothing pack-facing reads them.
 
 **What is deliberately NOT linked stays machine-wide, because the container keeps it machine-wide
 too.** `~/.cache` is `paths.GlobalCache()` on podman, and the mise data dir is a machine-wide
-store the container mounts at `/mise`. Neither is per-workspace anywhere. The one link inside
-`~/.cache` is the user's own: a subdirectory a user-scope `cache_relocations` entry moves is a
-link to its target, which is machine tier too, since the key is the user's and not a workspace's
+store podman mounts at `/mise`. `~/.cache` is per-workspace nowhere; the mise store is
+per-workspace only on Apple Container, whose disks attach to one VM at a time
+([OQ-MB1](../research/macos-backend-performance.md#OQ-MB1)). The one link inside `~/.cache` is
+the user's own: a subdirectory a user-scope `cache_relocations` entry moves is a link to its
+target, which is machine tier too, since the key is the user's and not a workspace's
 ([HT-D16](#ht-d16)).
 
 > [!WARNING]

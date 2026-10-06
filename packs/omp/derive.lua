@@ -71,15 +71,38 @@ local function modelDisplayName(prov, id)
   return nil
 end
 
+-- OMP'S OWN PROVIDERS (docs/design/pi-codex-provider-shadowing.md OQ-3, ruled 2026-10-05: yolo
+-- writes no model entry over any provider an agent has built in, and the agent uses its own
+-- list). packs/omp/pack.json's `built_in_providers` names them, and core hands the answer here as
+-- ctx.built_in_providers, keyed by yolo provider name: `{ id = <omp's own id> }` where omp reaches
+-- the provider through its own client, `false` where omp has the name built in for another plan
+-- and none for this one. ompOwn returns that value, or nil for a provider omp does not implement.
+-- openai-codex answers as omp's own whatever the table says, the original rule (OQ-1, OQ-2), so
+-- an entrypoint older than the table still keeps omp's subscription client unshadowed.
+local function ompOwn(ctx, name)
+  if type(name) ~= "string" or name == "" then return nil end
+  local own = nil
+  if type(ctx.built_in_providers) == "table" then
+    own = ctx.built_in_providers[name]
+  end
+  if own == nil and name == "openai-codex" then
+    return { id = "openai-codex" }
+  end
+  if own == false or type(own) == "table" then
+    return own
+  end
+  return nil
+end
+
 yolo.derive("oh-omp", "models", function(ctx)
   local providers = {}
   for name, prov in pairs(ctx.providers or {}) do
-    -- openai-codex is one of OMP's BUILT-IN providers (its ChatGPT subscription client), so it
-    -- is never catalogued here (docs/design/pi-codex-provider-shadowing.md OQ-1, OQ-2): OMP
-    -- applies a models.yml row's baseUrl to the built-in provider of the same name, so a row
-    -- redirects the subscription client. Excluded by name, as packs/codex and packs/pi do —
-    -- including a via row, since a via profile routes a provider yolo catalogues.
-    local native = (name == "openai-codex")
+    -- A PROVIDER OMP HAS BUILT IN IS NEVER CATALOGUED HERE (ompOwn; OQ-3), a via row included:
+    -- OMP applies a models.yml row's baseUrl to its built-in provider of the same name, so a row
+    -- redirects omp's own client and replaces its model list. openai-codex, its ChatGPT
+    -- subscription client, was the first case (OQ-1, OQ-2); zai, cerebras, openrouter and kilo
+    -- are omp's own too, and omp reads the same key names for them that yolo's providers deliver.
+    local native = (ompOwn(ctx, name) ~= nil)
     local baseUrl, api = nil, nil
     if not native then
       baseUrl, api = providerEndpoint(prov)
@@ -164,8 +187,15 @@ local function ompNarrowedRun(ctx, name, profile, via)
   if type(prov) ~= "table" or prov.models_only ~= true or type(prov.models) ~= "table" then
     return nil
   end
-  local reachable = (name == "openai-codex") or via or (providerEndpoint(prov) ~= nil)
+  -- A provider omp has built in (ompOwn, OQ-3) is reached through omp's own client and named by
+  -- omp's own id; one omp has none of its own for (`false`) is reached by nothing. The list an
+  -- `only` narrowed is an override a pack or the user declared, which docs/design/pi-codex-
+  -- provider-shadowing.md OQ-4 holds open, so it stays omp's scope.
+  local own = ompOwn(ctx, name)
+  if own == false then return nil end
+  local reachable = type(own) == "table" or via or (providerEndpoint(prov) ~= nil)
   if not reachable then return nil end
+  local key = type(own) == "table" and own.id or name
   -- The list's order (`order`, then id), the default entry first: the profile's `model`, as an
   -- alias or an id, else the provider's `default` alias, else the first entry.
   local opts = type(prov.model_options) == "table" and prov.model_options or {}
@@ -199,9 +229,9 @@ local function ompNarrowedRun(ctx, name, profile, via)
     default = prov.models.default
   end
   default = default or rows[1].id
-  local run = { name .. "/" .. default }
+  local run = { key .. "/" .. default }
   for _, r in ipairs(rows) do
-    if r.id ~= default then table.insert(run, name .. "/" .. r.id) end
+    if r.id ~= default then table.insert(run, key .. "/" .. r.id) end
   end
   return run
 end
@@ -245,7 +275,9 @@ yolo.derive("oh-omp", "settings", function(ctx)
         narrowed = true
         for _, v in ipairs(run) do add(v) end
       else
-        add(e.provider .. "/*")
+        -- omp's own id for a provider it has built in (ompOwn, OQ-3), the name otherwise.
+        local own = ompOwn(ctx, e.provider)
+        add(((type(own) == "table") and own.id or e.provider) .. "/*")
       end
     end
   end

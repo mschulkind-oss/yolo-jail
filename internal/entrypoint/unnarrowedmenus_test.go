@@ -17,9 +17,11 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 )
 
-// opencodeRowOf is the opencode provider id the derive writes yolo's provider under.
-var opencodeRowOf = map[string]string{"zai": "zai", "bedrock": "amazon-bedrock", "openai-codex": "openai",
-	"anthropic": "anthropic"}
+// opencodeRowOf is the opencode provider id the derive writes yolo's provider under. zai's plan
+// is opencode's own zai-coding-plan, whose only row is a narrowed list's whitelist
+// (docs/design/pi-codex-provider-shadowing.md OQ-3).
+var opencodeRowOf = map[string]string{"zai": "zai-coding-plan", "bedrock": "amazon-bedrock",
+	"openai-codex": "openai", "anthropic": "anthropic", "llamacpp": "llamacpp"}
 
 // renderOpencodeOver renders opencode over the table packs compose under the user's own
 // `providers` (userProviders, JSON, "" for none) with user's profiles resolved, for the selection
@@ -47,7 +49,9 @@ func renderOpencodeOver(t *testing.T, packs []*packload.Pack, userProviders stri
 	r := newPioencodeRender(t, mustCompactJSON(t, table))
 	r.wireProfiles(mustCompactJSON(t, packload.ProfilesWireTable(resolved)))
 	r.render(t, use)
-	rows := ocRows(t, r.ocConfig(t))
+	// No provider table at all is a render that wrote no row, which is no whitelist anywhere: a
+	// provider opencode has built in gets a row only for a whitelist.
+	rows, _ := r.ocConfig(t)["provider"].(map[string]any)
 	whitelisted = map[string]bool{}
 	for _, p := range providers {
 		row, _ := rows[opencodeRowOf[p]].(map[string]any)
@@ -86,6 +90,7 @@ func TestTheUnnarrowedMenuLineAgreesWithOpencodesWhitelist(t *testing.T) {
 		// (docs/reference/protocol-resolution.md OQ-PR2), which opencode's derive writes no row for.
 		"anthropic-on":   {Provider: "anthropic"},
 		"anthropic-open": {Provider: "anthropic", EnforceModels: &off},
+		"llamacpp-open":  {Provider: "llamacpp", EnforceModels: &off},
 	}
 	const firstParty = `{"anthropic": {"models": {"claude-x": "claude-x", "claude-y": "claude-y"}}}`
 	const opus, sol = "global.anthropic.claude-opus-5-5", "us.openai.gpt-6.1-sol"
@@ -99,6 +104,10 @@ func TestTheUnnarrowedMenuLineAgreesWithOpencodesWhitelist(t *testing.T) {
 	withNarrowed := append(testPacksForAgent(t, "opencode", "zai"), narrowed)
 	withAdded := append(testPacksForAgent(t, "opencode", "zai"), added)
 	withEmptied := append(testPacksForAgent(t, "opencode", "zai"), emptied)
+	// llamacpp is a provider opencode has none of its own for, so its narrowed list is a generic
+	// row's whitelist, beside the model rows the row carries.
+	withGeneric := append(testPacksForAgent(t, "opencode", "llamacpp"),
+		companyModelsPack(t, `{"kind":"models","provider":"llamacpp","only":["llama"]}`))
 
 	for _, tc := range []struct {
 		name      string
@@ -110,7 +119,9 @@ func TestTheUnnarrowedMenuLineAgreesWithOpencodesWhitelist(t *testing.T) {
 		// would also hold if the derive and the check both said nothing anywhere.
 		want []string
 	}{
-		{"a narrowed list on a generic row", withNarrowed, "", `{"opencode":"zai"}`, `{"opencode":"zai-open"}`,
+		{"a narrowed list on a generic row", withGeneric, "", `{"opencode":"llamacpp"}`,
+			`{"opencode":"llamacpp-open"}`, []string{"llamacpp"}, []string{"llamacpp"}},
+		{"a narrowed list on opencode's own zai-coding-plan", withNarrowed, "", `{"opencode":"zai"}`, `{"opencode":"zai-open"}`,
 			[]string{"zai"}, []string{"zai"}},
 		{"a narrowed list on opencode's own Bedrock row", withNarrowed, "", `{"opencode":"bedrock"}`,
 			`{"opencode":"bedrock-open"}`, []string{"bedrock"}, []string{"bedrock"}},

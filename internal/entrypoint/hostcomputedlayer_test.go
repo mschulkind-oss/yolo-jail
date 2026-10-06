@@ -154,12 +154,14 @@ func TestTheHostRendersEachDerivedSurfaceClass(t *testing.T) {
 		rmw                      bool // the pack's surfaces re-declared `rmw` (declaredRMW)
 		check                    func(t *testing.T, home string)
 	}{
+		// llamacpp, because pi has no provider of that name: cerebras, which this used, is one of
+		// pi's own and gets no row (docs/design/pi-codex-provider-shadowing.md OQ-3).
 		{name: "pi/models carries the provider table", pack: "pi", surface: "pi/models",
-			rel: ".pi/agent/models.json", extra: []string{"cerebras"},
+			rel: ".pi/agent/models.json", extra: []string{"llamacpp"},
 			check: func(t *testing.T, home string) {
-				row := jsonAt(t, home, ".pi/agent/models.json", "providers", "cerebras").(map[string]any)
-				if row["baseUrl"] != "https://api.cerebras.ai/v1" {
-					t.Errorf("pi/models' cerebras row does not point at the provider: %v", row)
+				row := jsonAt(t, home, ".pi/agent/models.json", "providers", "llamacpp").(map[string]any)
+				if row["baseUrl"] != "http://localhost:8080/v1" {
+					t.Errorf("pi/models' llamacpp row does not point at the provider: %v", row)
 				}
 			}},
 		{name: "pi/codex-models carries the declared openai-codex list", pack: "pi",
@@ -199,33 +201,34 @@ func TestTheHostRendersEachDerivedSurfaceClass(t *testing.T) {
 			check: func(t *testing.T, home string) {
 				jsonAt(t, home, ".gemini/antigravity-cli/mcp_config.json", "mcpServers", "tavily")
 			}},
+		// llamacpp for pi's reason above: cerebras is one of omp's own providers.
 		// oh-omp/models is yaml: declared `rmw` it renders through rmw's yaml arm (yamltrivia.go),
 		// as every surface did under the retired `assert`, and as shipped (`computed`) through
 		// `stateful` (OQ-HC2). Until 2026-10-04 the rmw case was refused, "no RMW encoder for
 		// codec yaml".
 		{name: "oh-omp/models carries the provider table through rmw", pack: "omp",
-			surface: "oh-omp/models", rel: ".oh-omp/agent/models.yml", extra: []string{"cerebras"},
+			surface: "oh-omp/models", rel: ".oh-omp/agent/models.yml", extra: []string{"llamacpp"},
 			rmw: true,
 			check: func(t *testing.T, home string) {
 				raw, err := os.ReadFile(filepath.Join(home, ".oh-omp/agent/models.yml"))
 				if err != nil {
 					t.Fatal(err)
 				}
-				if !strings.Contains(string(raw), "cerebras:") ||
-					!strings.Contains(string(raw), "https://api.cerebras.ai/v1") {
-					t.Errorf("oh-omp/models has no cerebras row:\n%s", raw)
+				if !strings.Contains(string(raw), "llamacpp") ||
+					!strings.Contains(string(raw), "http://localhost:8080/v1") {
+					t.Errorf("oh-omp/models has no llamacpp row:\n%s", raw)
 				}
 			}},
 		{name: "oh-omp/models carries the provider table through stateful", pack: "omp",
-			surface: "oh-omp/models", rel: ".oh-omp/agent/models.yml", extra: []string{"cerebras"},
+			surface: "oh-omp/models", rel: ".oh-omp/agent/models.yml", extra: []string{"llamacpp"},
 			check: func(t *testing.T, home string) {
 				raw, err := os.ReadFile(filepath.Join(home, ".oh-omp/agent/models.yml"))
 				if err != nil {
 					t.Fatal(err)
 				}
-				if !strings.Contains(string(raw), "cerebras") ||
-					!strings.Contains(string(raw), "https://api.cerebras.ai/v1") {
-					t.Errorf("oh-omp/models has no cerebras row:\n%s", raw)
+				if !strings.Contains(string(raw), "llamacpp") ||
+					!strings.Contains(string(raw), "http://localhost:8080/v1") {
+					t.Errorf("oh-omp/models has no llamacpp row:\n%s", raw)
 				}
 			}},
 	} {
@@ -682,7 +685,9 @@ func TestAProviderCatalogNewlyYolosInAHomeIsAFirstApply(t *testing.T) {
 	home := t.TempDir()
 	models := filepath.Join(home, ".pi", "agent", "models.json")
 	writeTestFile(t, models, `{"providers": {"mine": {"baseUrl": "http://127.0.0.1:9/v1", "api": "openai-completions"}}}`)
-	packs := testPacksForAgent(t, "pi", "cerebras")
+	// llamacpp, a provider pi has none of its own for, so the host composes a row for it
+	// (cerebras, which this used, is pi's own: docs/design/pi-codex-provider-shadowing.md OQ-3).
+	packs := testPacksForAgent(t, "pi", "llamacpp")
 	pi := packs[0]
 	// A record from an apply that owned no table here: the key is the user's (`host`).
 	if err := os.MkdirAll(render.Host(home, nil, render.OwnershipOwn).ProvenanceDir(), 0o755); err != nil {

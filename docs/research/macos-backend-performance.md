@@ -3,7 +3,7 @@ title: "Is macos-user faster than Apple Container? What the sources say, and a b
 date: 2026-10-01
 status: in-review
 stage: DECIDED
-next: "Build OQ-MB1 (A), ruled 2026-10-05: on Apple Container each workspace gets its own /mise disk, so two jails run at once, and yolo prune learns to delete a removed workspace's disk. Make the Corrections section's remaining edits (platform-comparison.md, sandbox-comparison.md, the revival plan's balloon line, and a qualifier on macos-user-provisioning.md's first-launch claim, since CI recorded only a cold launch with only the floor on a hosted runner), fix this doc's drifted code ranges (C3's backendcaps.go, §2.6's stockimage.go), and draft wording for the macOS direction's ruled sentences for the maintainer to approve; amend Appendix A's step 2 to 'green apart from §7's two-jail test', which every parity run on container 1.1.0 since 2026-10-03 has failed; file the Results section's other defects. Once the runner Mac's container is upgraded to 1.5.0, the next apple-container.yml dispatch reruns §7's check (TestAppleContainerKeeperSweepSparesAKeptJail); one Mac session confirms that auto-capture stores claude, codex and agy (fixed from the code 2026-10-03, OQ-PD24 to OQ-PD26), re-runs macos-user's go_test (M8) now that the harness trusts the clone's mise.toml, runs M11 and M12 with and without the developer-tool setting, and runs Podman Machine through yolo on the Mac's applehv machine, once an agent adds that arm to Appendix A"
+next: "Make the Corrections section's remaining edits (platform-comparison.md, sandbox-comparison.md, the revival plan's balloon line, and a qualifier on macos-user-provisioning.md's first-launch claim, since CI recorded only a cold launch with only the floor on a hosted runner), fix this doc's drifted code ranges (C3's backendcaps.go, §2.6's stockimage.go), and draft wording for the macOS direction's ruled sentences for the maintainer to approve; amend Appendix A's step 2 to 'green apart from §7's two-jail test', which every parity run on container 1.1.0 since 2026-10-03 has failed; file the Results section's other defects. OQ-MB1 is ruled and built (a tool disk per workspace, MB-D1 to MB-D8, unmeasured on a Mac): the next apple-container.yml dispatch reruns §7's check (TestAppleContainerKeeperSweepSparesAKeptJail), which must now pass with its sweep conducted, on container 1.1.0 or 1.5.0 alike, since the volume commands the build uses read the same in both sources; one Mac session confirms that auto-capture stores claude, codex and agy (fixed from the code 2026-10-03, OQ-PD24 to OQ-PD26), re-runs macos-user's go_test (M8) now that the harness trusts the clone's mise.toml, runs M11 and M12 with and without the developer-tool setting, and runs Podman Machine through yolo on the Mac's applehv machine, once an agent adds that arm to Appendix A"
 tags: [research, macos, apple-container, macos-user, performance, memory, benchmark, virtiofs]
 summary: "The maintainer asked for a benchmark instead of an assumption: is macos-user really faster than Apple Container? Sources answer part of it. Apple Container gives each container its own small VM; the VM takes RAM only as the guest touches it, but keeps every page it touched until the container stops, so the maintainer's reading is half right. CPU work should run within a few percent of native, while file work in the shared workspace is where the VM probably costs most: about 2.7 times native in one published measurement of the same macOS file sharing, and 6 to 9 times by Apple's maintainer's rough figures for builds. The doc lists every claim the repo makes about the two backends' speed and memory, a protocol for one Mac running both against one workspace, and a POSIX sh harness that runs the protocol and writes the results table. It measures; it does not choose a backend."
 vantage:
@@ -12,9 +12,8 @@ vantage:
 
 # Is macos-user faster than Apple Container? What the sources say, and a benchmark to find out
 
-**Status:** 2026-10-01; research and a benchmark protocol. Its one question,
-[OQ-MB1](#OQ-MB1), was ruled in review on 2026-10-05 (A, a `/mise` disk per workspace on Apple
-Container) and is unbuilt. MEASURED on one
+**Status:** 2026-10-01; research and a benchmark protocol. One question is ruled and built:
+[OQ-MB1](#OQ-MB1), what backs an Apple Container jail's `/mise` (2026-10-05). MEASURED on one
 Mac: Apple Container and the native control on 2026-10-02, macos-user and the native control on
 2026-10-03, and the two-jail volume check ([§8](#8-results),
 [§7](#7-found-on-the-way-two-apple-container-jails-may-mount-one-ext4-disk)). The two backends were
@@ -99,6 +98,9 @@ reserves that RAM up front ([direction:363-365](../reference/macos-no-vm-directi
   jail so that the attaches it times have a running jail to enter.
 - **Warm-up run** *(coined here)* — the untimed first run of each timed metric, which fills
   caches and is reported separately.
+- **Tool disk** *(coined here, for [OQ-MB1](#OQ-MB1)'s build)* — the named volume an Apple
+  Container jail mounts at `/mise`, where mise keeps its tool installs: an ext4 disk image, one per
+  workspace since 2026-10-05, named `<container name>.mise`.
 - **Native control** *(coined here)* — the same workload run directly on the Mac as the invoking
   user, with macos-user's own darwin floor on `PATH` and a scratch home. It is a control, not a
   third backend: macos-user minus native is the cost of the sandbox account and Seatbelt, and
@@ -506,9 +508,11 @@ when those counts are equal.
 
 ## 7. Found on the way: two Apple Container jails may mount one ext4 disk
 
-Not a performance question, and unverified. **Every unsealed Apple Container jail mounts the named
-volume `yolo-mise-data-v2` at `/mise`** ([assemble.go:25](../../internal/cli/run/assemble.go#L25),
-[assemble_parts.go:62](../../internal/cli/run/assemble_parts.go#L62)), and on Apple Container a
+Not a performance question. **Until [OQ-MB1](#OQ-MB1)'s build on 2026-10-05, every unsealed Apple
+Container jail mounted the named volume `yolo-mise-data-v2` at `/mise`**
+([assemble.go](../../internal/cli/run/assemble.go),
+[assemble_parts.go](../../internal/cli/run/assemble_parts.go)); each workspace now mounts a disk
+of its own. On Apple Container a
 named volume is an ext4 disk image attached to the guest as a block device
 ([RuntimeService.swift:1515-1524](https://github.com/apple/container/blob/0a48a1bdbfaa7451c810372d98b045fa8b486b6a/Sources/Services/RuntimeLinux/Server/RuntimeService.swift#L1515-L1524)).
 `container` checks whether a volume is in use only when deleting it
@@ -581,13 +585,19 @@ virtiofs reaches several. Two facts the options rest on:
 
    **Answer:**
 
-   > **Ruled in review 2026-10-05, as leaned (A)** (the maintainer's answer: *"A"*). On Apple
-   > Container each workspace gets its own `/mise` disk, a volume of its own in place of the one
-   > `yolo-mise-data-v2` every jail mounts today, so jails in two workspaces run at once, with the
-   > VM disk's speed and a case-sensitive store. Each workspace downloads its toolchains once, and
-   > `yolo prune` learns to delete the disk of a workspace that has been removed. Podman's
-   > machine-wide volume is untouched. Not built; the lock-out it fixes was measured on
-   > `container` 1.1.0 only.
+   > **Ruled in review 2026-10-05: A, a volume per workspace** (the maintainer's answer: *"A"*). The ruling covers `/mise` alone; the
+   > `~/.cache` question [the file-cost write-up](apple-container-file-cost.md)'s design sketch
+   > raises stays its own. Built the same day as [MB-D1](#MB-D1) to [MB-D8](#MB-D8): each
+   > workspace's jail mounts its own **tool disk**, a term coined here for that volume, named
+   > `<container name>.mise` and created by the launch with a label naming its workspace;
+   > `yolo prune --apply` removes the disk of a workspace that is gone, and the one disk every
+   > jail shared before; `yolo stores` lists every disk with its size, its workspace and whether
+   > prune removes it. Podman's machine-wide volume is untouched. **Unit-tested against the
+   > runtime stand-ins, not run on a Mac.** The check is the Apple Container parity job's
+   > `TestAppleContainerKeeperSweepSparesAKeptJail`: its launch in a second workspace must start
+   > while the first workspace's jail runs, with no `VZErrorDomain Code=2`, so the test passes and
+   > its step summary ends `AC-KEEPER sweep-spares-a-kept-jail (JL-D7) VERDICT: HOLDS` (or
+   > `DOES NOT HOLD`, a finding about the keeper's sweep) instead of `NOT CONDUCTED`.
 
 ## 8. Results
 
@@ -772,14 +782,14 @@ and the runs without yolo beside them, is
 
 ### Defects found on the way
 
-Each is a yolo defect unless it says otherwise. The first two are being worked on; the rest are
-not filed yet.
+Each is a yolo defect unless it says otherwise. The first two are fixed from the code and wait
+for a Mac run; the rest are not filed yet.
 
 1. **Auto-capture retries on every launch** and takes about 90% of an Apple Container launch.
    Fixed from the code on 2026-10-03, not yet re-run on a Mac (*Launch*, above).
-2. **Two Apple Container jails cannot run at once**: the second is refused by VZ. The fix,
-   a `/mise` disk per workspace, was ruled on 2026-10-05 in [OQ-MB1](#OQ-MB1) and is unbuilt
-   ([§7](#7-found-on-the-way-two-apple-container-jails-may-mount-one-ext4-disk)).
+2. **Two Apple Container jails cannot run at once**: the second is refused by VZ. Fixed from the
+   code on 2026-10-05 by [OQ-MB1](#OQ-MB1)'s ruling, a tool disk per workspace; not yet re-run on a
+   Mac ([§7](#7-found-on-the-way-two-apple-container-jails-may-mount-one-ext4-disk)).
 3. **One workspace cannot alternate between the two backends.** After an Apple Container jail,
    macos-user's warm-up failed on three real, empty directories in `.yolo/home`
    (`darwin_home_layout`); after macos-user, Apple Container failed on the symlinks macos-user left
@@ -830,13 +840,25 @@ ruling, and this doc only adds a pointer beside its premise. That pointer is in 
   has recorded what a first macos-user launch costs; CI has one, 73.61 s on a hosted runner
   ([§2.6](#26-what-ci-logs-already-hold)).
 
-## Decision Ledger
-
-| ID | Ruling / Decision | Date | Settled in | Built |
-| :--- | :--- | :--- | :--- | :--- |
-| [OQ-MB1](#OQ-MB1) | **A `/mise` disk per workspace on Apple Container (A, as leaned)**, in place of the one volume every jail mounts, so jails in two workspaces run at once and keep the VM disk's speed and a case-sensitive store. Each workspace downloads its toolchains once; `yolo prune` learns to delete a removed workspace's disk. Podman's volume is untouched | 2026-10-05 | [OQ-MB1](#OQ-MB1), [§7](#7-found-on-the-way-two-apple-container-jails-may-mount-one-ext4-disk) | pending |
-
 ---
+
+## 10. Decision ledger
+
+Built 2026-10-05; unit-tested against the runtime stand-ins (`internal/prune/misevolumes_test.go`,
+`internal/cli/run/actooldisk_test.go`, `internal/cli/stores/tooldiskrows_test.go`), and not run on a
+Mac. The hardware check is [OQ-MB1](#OQ-MB1)'s answer.
+
+| ID | Ruling / Decision | Date | Built |
+| :--- | :--- | :--- | :--- |
+| [OQ-MB1](#OQ-MB1) | **Maintainer ruling:** A, a volume per workspace behind an Apple Container jail's `/mise`; podman's machine-wide volume untouched | 2026-10-05 | ✅ as MB-D1 to MB-D8, unmeasured on a Mac |
+| <a id="MB-D1"></a>MB-D1 | *Implementation decision.* A workspace's **tool disk** (a term coined here: the named volume an Apple Container jail mounts at `/mise`) is named `<container name>.mise`, the container name being the one yolo derives from the workspace path. The name has no slash, so `container run -v <name>:/mise` reads it as a named volume, an ext4 disk image with case-sensitive names, and never as a host folder over virtiofs; it matches Apple's volume-name pattern. The dot cannot occur in a container name, so the parse back is exact, as the scratch volumes' is | 2026-10-05 | ✅ `TestMiseVolumeNameIsPerWorkspaceAndANamedVolume`, `TestAppleContainerMountsItsWorkspacesOwnToolDisk` |
+| <a id="MB-D2"></a>MB-D2 | *Implementation decision.* The launch creates the disk before the argv names it, on a fresh launch only and never under the seal: `container volume inspect` first, then `container volume create --label org.yolo-jail.owner=yolo --label org.yolo-jail.workspace=<resolved workspace> <name>`. `container run` would create a missing named volume itself, but unlabelled ([Utility.swift:371-403](https://github.com/apple/container/blob/0a48a1bdbfaa7451c810372d98b045fa8b486b6a/Sources/Services/ContainerAPIService/Client/Utility.swift#L371-L403)), and the label is the only way back from a container name, a hash, to a directory the reaper can check. A created disk is said once, in a dim line. A failed create never refuses the launch: it is warned with what it costs and the `container volume rm` that undoes it, and the jail starts as before, on a disk the runtime makes. An existing disk is left as it is, labelled or not | 2026-10-05 | ✅ `TestTheLaunchCreatesTheToolDiskLabelledWithItsWorkspace`, `TestRunContainerCreatesTheToolDiskBeforeTheArgvNamesIt` |
+| <a id="MB-D3"></a>MB-D3 | *Implementation decision.* `yolo prune` removes a tool disk only when its label's workspace does not exist and the label's container name is the disk's. A stat that fails any other way keeps the disk, and so does a disk with no label or a mismatched one; prune counts those, and `yolo stores` lists them as the user's to remove. The runtime refuses a disk any container still names, running or stopped ([VolumesService.swift](https://github.com/apple/container/blob/0a48a1bdbfaa7451c810372d98b045fa8b486b6a/Sources/Services/ContainerAPIService/Server/Volumes/VolumesService.swift)), and prune never forces it. A workspace on a share that is not mounted reads as gone, as the current-image pointers already treat it, and its next launch downloads its tools again. A capture jail's scratch workspace is deleted after each capture, so its disk is one prune removes, and the next capture of that program makes another | 2026-10-05 | ✅ `TestToolDiskStates`, `TestPruneMiseVolumesRemovesOnlyGoneWorkspacesAndTheSharedDisk`, `TestPruneRunListsRemovedWorkspacesToolDisks` |
+| <a id="MB-D4"></a>MB-D4 | *Implementation decision.* No size is passed, so each disk keeps `container`'s default ceiling, 512 GB and sparse, the one the shared disk had. A smaller ceiling would turn a large toolchain set into a full disk inside the jail; what bounds the disks is how many there are, which prune keeps to the workspaces that exist | 2026-10-05 | ✅ `TestMiseVolumeCreateArgvRecordsTheWorkspace` |
+| <a id="MB-D5"></a>MB-D5 | *Implementation decision.* On Apple Container the shared `yolo-mise-data-v2` is retired: no jail of this yolo mounts it, and `yolo prune --apply` removes it. An older yolo that still mounts it recreates it on its next launch. Podman's volume of that name is never touched: the section runs only when the runtime is Apple Container, whose listing holds only its own volumes | 2026-10-05 | ✅ `TestPruneMiseVolumesRemovesOnlyGoneWorkspacesAndTheSharedDisk`, `TestPodmanOnAMacKeepsTheSharedMiseVolume` |
+| <a id="MB-D6"></a>MB-D6 | *Implementation decision.* `yolo stores` gives each tool disk a row in a section of its own, keyed by its container name as the durable dirs are, with its workspace and prune's verdict taken from the reaper's own state. It is sized by the bytes its image occupies (allocated blocks), the one store not sized by apparent size, since a sparse image's apparent size is its ceiling | 2026-10-05 | ✅ `TestToolDiskRows`, `TestAllocatedBytesIsTheSparseImagesCostNotItsCeiling` |
+| <a id="MB-D7"></a>MB-D7 | *Implementation decision.* The briefing's storage classes move Apple Container's `/mise` from "every workspace on this machine" to "per workspace" | 2026-10-05 | ✅ `TestThePersistenceMapIsTheMountPlan`, `TestTheAppleContainerSectionSaysWhatIsTrueThere` |
+| <a id="MB-D8"></a>MB-D8 | *Implementation decision.* Nothing is copied from the shared disk: each workspace's first launch after the change starts an empty `/mise` and installs its tools again, the one download per workspace the ruling accepted. Copying would need a jail that mounts the shared disk, which one other jail's holding it is enough to refuse. The integration harness removes each test workspace's disk with the workspace, so the Mac that runs the suite does not collect one per test | 2026-10-05 | ✅ `integration/harness_test.go`'s `forceRemoveContainer` |
 
 ## Fast-moving — verify before building
 

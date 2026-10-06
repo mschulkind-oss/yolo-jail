@@ -17,6 +17,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/awsauthdaemon"
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/entrypoint"
 	"github.com/mschulkind-oss/yolo-jail/internal/hostcas"
@@ -385,6 +386,15 @@ type Options struct {
 	ServiceTermGrace time.Duration
 	// Getenv reads environment variables. nil => os.Getenv.
 	Getenv func(string) string
+	// FetchModelList asks a platform's credential service for a region's model list, where no
+	// selected pack and no user config gives a provider one (bedrockmodels.go,
+	// docs/design/model-lists-and-pickers.md OQ-MM6). nil fetches nothing and so refuses nothing
+	// for want of a list: every hand-built Options in a test, which must never reach AWS. The front
+	// door installs DefaultFetchModelList, as it installs MacosUserRun.
+	FetchModelList func(ModelListRequest) awsauthdaemon.ModelListAnswer
+	// fetchedListNotes is the fetched-list lines this launch printed, so a channel composed twice
+	// (an attach's rekey, macos-user's service retry) says each once.
+	fetchedListNotes map[string]bool
 	// LookPath resolves an executable on PATH (shutil.which). nil => real.
 	LookPath func(string) (string, bool)
 	// PodmanReadiness is the podman readiness gate's seams (podmanready.go,

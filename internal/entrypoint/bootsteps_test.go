@@ -61,6 +61,11 @@ func isGen(s bootStep, fn func(*Env) error) bool {
 	return s.gen != nil && reflect.ValueOf(s.gen).Pointer() == reflect.ValueOf(fn).Pointer()
 }
 
+// isRun reports whether the step's body is fn.
+func isRun(s bootStep, fn func(*bootRun)) bool {
+	return s.run != nil && reflect.ValueOf(s.run).Pointer() == reflect.ValueOf(fn).Pointer()
+}
+
 // THE TABLE'S SHAPE: every step has a unique name and exactly one body, and runs on at least
 // one boot. An exclusion IS its reason, so "excluded without a reason" cannot be written; a
 // step excluded from both boots is a step nothing runs, which the table must not hold.

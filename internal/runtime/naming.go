@@ -59,6 +59,13 @@ func FromResolved(resolved string) string {
 // so the resolve step is covered by tests against real temp dirs, while the
 // sanitize+hash algorithm is pinned host-independently via FromResolved.
 func FromWorkspace(workspace string) string {
+	return FromResolved(ResolveWorkspace(workspace))
+}
+
+// ResolveWorkspace is the path FromWorkspace names a container from: absolute, with
+// symlinks resolved where they resolve. A caller that records which workspace a container
+// name stands for records this, so FromResolved of the record gives the name back.
+func ResolveWorkspace(workspace string) string {
 	resolved, err := filepath.Abs(workspace)
 	if err != nil {
 		resolved = workspace
@@ -69,7 +76,7 @@ func FromWorkspace(workspace string) string {
 	if evaled, err := filepath.EvalSymlinks(resolved); err == nil {
 		resolved = evaled
 	}
-	return FromResolved(resolved)
+	return resolved
 }
 
 // pyLower lowercases using Unicode full case folding for the purpose of this

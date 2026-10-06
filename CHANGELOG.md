@@ -49,6 +49,10 @@ keeps its own copy of claude too. See [Your own machine](userguide/guides/confin
 authorities work there, `resources` acts though not kernel-enforced, and a project's sessions
 share their host services, which `yolo stop` ends. `"confinement": "guest"` runs it with no `runtime`
 key. See [each setting on each setup](userguide/reference/settings-per-setup.md).
+**Pi extensions, themes and prompts as one folder.** A pack can give pi a whole folder of them in
+one manifest line, with no list of files, and yolo adds that folder to pi's packages beside your
+own, in jails and at `yolo host apply`, until you drop the pack. See
+[Writing your own pack](userguide/guides/migrating-to-packs.md#give-pi-your-extensions-themes-and-prompts).
 
 **Claude Code plugins and mods.** A new guide covers the ways to bring a Claude Code plugin or mod
 into a jail, and what each launch shows about the code it runs. See
@@ -70,6 +74,21 @@ model on the provider's list, beside GitHub's own models when you are signed in 
 **Overridden variables are named.** When a profile, your `env_sources` or a pack's default
 overrides another on a variable, every launch says which won, never the value. See
 [Providers and models](userguide/guides/providers-and-models.md).
+**Bedrock's own model list.** Where no pack or config lists Bedrock models, yolo reads your
+region's list from Bedrock through the `aws-auth` login, once a day, so Copilot's picker shows it
+and Copilot starts on a model Bedrock serves; a launch that still leaves Copilot no model says
+what to add. See
+[the providers yolo ships](userguide/guides/providers-and-models.md#the-providers-yolo-ships).
+
+**Packages from inside a nixpkgs collection.** A `packages` entry such as `rocmPackages.clr` now
+installs that member of the collection, and every entry installs what `nix build nixpkgs#<entry>`
+would. A bare collection is refused with members you could name instead. See
+[Packages and Tools](userguide/guides/packages-and-tools.md#nix-packages-image-level).
+
+**Unused tool versions are cleaned up.** On Linux, mise tool versions no jail on your machine has
+used for 30 days are offered for removal at a launch once they reach 1 GiB, beside the old-cache
+offer, and a yes makes it automatic; `yolo stores` and `yolo prune` show them too. The first offer
+comes 30 days after you upgrade. See [Storage](userguide/guides/storage.md#see-and-reclaim-disk).
 
 ### Changed
 
@@ -118,6 +137,13 @@ overrides another on a variable, every launch says which won, never the value. S
   and an old home-root file may stop one launch: run the `sudo rm` it prints.
 - `yolo-ps --tree` also shows allowlisted processes' descendants: narrow `visible` if that is too
   much.
+- On `-p bedrock-bridge`, Claude Code now uses its own Bedrock support through the wire bridge,
+  so its model menu is its own: to start it on another maker's model there, name that model in
+  the profile's `model`.
+- pi, oh-omp and opencode run zai, cerebras and openrouter, and oh-omp and opencode kilo, on their
+  own client and model list, opencode reaching z.ai's coding plan as its own `zai-coding-plan`: a
+  profile now uses the agent's own model list, so pick models in the agent, and name such a
+  provider differently under `providers` to route it through the wire bridge.
 
 ### Fixed
 
@@ -130,6 +156,9 @@ overrides another on a variable, every launch says which won, never the value. S
 - When pi's extension refresh cannot lock its folder, it now says how to fix that.
 - Blocking `cat` with `security.blocked_tools` no longer stops pi's extension refresh, or leaves
   its lock held.
+- Naming a large package collection such as `python3Packages` in `packages` no longer says it
+  holds no packages.
+- Saying yes to a cleanup offer now reclaims during that launch, instead of up to a day later.
 - When `yolo host` has no container runtime to capture an agent with, it now says to install one.
 - On a host whose `/bin/sh` is dash, such as Debian or Ubuntu, the Claude Code install command that
   `yolo check-deps` prints and `yolo host apply --assert` runs now installs it.
@@ -159,6 +188,9 @@ overrides another on a variable, every launch says which won, never the value. S
   date.
 - On Apple Container, a terminal whose jail is stopped while it runs now says the jail stopped and
   why, instead of saying nothing or that the jail stays up.
+- On Apple Container, two projects' jails can now run at once: each project keeps its own disk for
+  mise's tools, filled on its first launch, and `yolo stores` lists them while `yolo prune --apply`
+  removes a removed project's disk and the one all projects shared before.
 - The launch, `yolo pack footprint` and `yolo host apply` now name all the code a wrapped Claude
   plugin runs, its workflows and highlighting grammars included, wherever Claude Code or Copilot
   loads it from by default, not only where its manifest says, and the launch says when its hooks
@@ -199,14 +231,17 @@ overrides another on a variable, every launch says which won, never the value. S
 - A launch, or `yolo check`, no longer hangs for good, printing nothing, when nix prints one very
   long line while it builds the jail's image, yolo's own binaries, or a macOS sandbox's packages.
 - A fork's build no longer refuses over something only another of your packs provides, such as the
-  agent a pack's prose is addressed to or a capability your config requires, and a build that stops
-  before it starts now quotes why.
+  agent a pack's prose is addressed to, the settings a pack writes for that agent, or a capability
+  your config requires, and a build that stops before it starts now quotes why.
 - A fork's build no longer gets a copy of your config, your MCP servers' settings or your
   `agents_md_extra` text, and neither its launch nor its briefing lists credentials, host files or
   host connections the build does not get.
 - A launch with `aws-auth` enabled no longer warns that its `.mount-sentinel` is missing.
 - A jail's wait for its in-jail services shows only when it is slow, and a failure names the
   service's log.
+- A jail whose wire bridge cannot start, because its port is taken or a provider key is missing,
+  no longer reports it as a failed config generator: it says which pack's service failed, why and
+  what to do, and `YOLO_ALLOW_UNREACHABLE_SERVICES=1` now opens a shell anyway.
 - A profile that reaches nothing for an agent now says where you selected it and the setting that
   stops it.
 - A missing `mounts` source now names the file and line that declare it, and the fix.
@@ -217,10 +252,10 @@ overrides another on a variable, every launch says which won, never the value. S
   an error about a socket.
 - A launch refused because a project's `.yolo` folder is a symbolic link now says where the link
   points and how to move a folder you moved there yourself back, not only how to delete the link.
-- A jail that refuses to boot because a service inside it, such as the wire bridge, cannot start
-  no longer reports it as a failed config generator.
 - A config error or warning at a launch or in `yolo check` now shows a file name, key or value an
   agent wrote as plain text, so it can no longer send your terminal escape sequences.
+- With `LD_LIBRARY_PATH` or `LD_PRELOAD` set, a launch no longer fails to load the jail image with
+  "stack smashing detected".
 
 ## [0.11.1] - 2026-10-02
 

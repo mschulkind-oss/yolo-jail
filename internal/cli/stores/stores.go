@@ -87,7 +87,9 @@ store and cache. Nothing in yolo reclaims them; each row says what removes it.
 
 Sizes are apparent sizes (the sum of file sizes), and each store's walk is
 bounded to 60s: a store that runs out of budget reports what it had summed so
-far as a lower bound, marked "partial".
+far as a lower bound, marked "partial". The one exception is an Apple
+Container tool disk (each workspace's /mise), whose size is the space its
+sparse disk image takes on the Mac's disk, not its 512 GB ceiling.
 
 Flags:
   --format <fmt>  Output format: text (default) or json. JSON is stable,
@@ -153,6 +155,10 @@ type Options struct {
 	// InJail reports whether this yolo runs inside a jail. It decides the FRAME
 	// the header states, which is not cosmetic — see the package doc.
 	InJail func() bool
+	// IsMacOS reports a Mac host, whose jails keep the mise tool store in a volume inside the
+	// container VM (or in the sandbox account, on macos-user) rather than in the state dir.
+	// nil => paths.IsMacOS.
+	IsMacOS func() bool
 	// DetectRuntime returns the effective container runtime. The CLI front door
 	// injects the config-aware resolver; nil => a bare YOLO_RUNTIME/platform probe.
 	DetectRuntime func() string
@@ -175,6 +181,10 @@ type Options struct {
 	// Walk is the sizing seam. nil => walkTree. Injected by tests that need a
 	// store to be unreadable or partial without depending on the filesystem.
 	Walk WalkFunc
+	// DiskBytes sizes one disk image by the bytes it occupies on the host (its
+	// allocated blocks): an Apple Container tool disk is sparse, so its apparent
+	// size is its ceiling, not its cost. nil => allocatedBytes.
+	DiskBytes func(path string) (int64, error)
 	// HostCAS answers L9's question — which recognised content-addressed host
 	// caches a launch from this frame would ALIAS rather than pool a second copy
 	// of (docs/design/disk-levers-and-backfill.md OQ-BF10). nil => the same
@@ -247,6 +257,9 @@ func fillDefaults(o *Options) {
 	if o.InJail == nil {
 		o.InJail = func() bool { return os.Getenv("YOLO_VERSION") != "" }
 	}
+	if o.IsMacOS == nil {
+		o.IsMacOS = func() bool { return paths.IsMacOS }
+	}
 	if o.DetectRuntime == nil {
 		o.DetectRuntime = func() string { return "" }
 	}
@@ -279,6 +292,9 @@ func fillDefaults(o *Options) {
 	}
 	if o.MacosUser == nil {
 		o.MacosUser = macosUserRoots
+	}
+	if o.DiskBytes == nil {
+		o.DiskBytes = allocatedBytes
 	}
 	if o.HostCAS == nil {
 		o.HostCAS = func() []hostcas.Disposition {

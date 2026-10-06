@@ -39,8 +39,10 @@ import (
 
 	"github.com/mschulkind-oss/yolo-jail/internal/cli/run"
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
+	"github.com/mschulkind-oss/yolo-jail/internal/execx"
 	"github.com/mschulkind-oss/yolo-jail/internal/image"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
+	"github.com/mschulkind-oss/yolo-jail/internal/prune"
 	naming "github.com/mschulkind-oss/yolo-jail/internal/runtime"
 )
 
@@ -589,7 +591,9 @@ func ensureJailImage() {
 		return string(out), err == nil
 	}, copier, manifest)
 	log.Printf("[integration] image copy: %s", strings.Join(argv, " "))
-	copy := exec.Command(argv[0], argv[1:]...)
+	// Started as a launch starts it, without the caller's LD_LIBRARY_PATH/LD_PRELOAD:
+	// the copier is a Nix closure a jail's own libc crashes (image-staging-vs-baking.md, LI-D1).
+	copy := execx.NixClosureCommand(argv[0], argv[1:]...)
 	if out, err := copy.CombinedOutput(); err != nil {
 		degraded("%s image copy failed (integration tests may be skipped): %v\n%s",
 			rt, err, strings.TrimSpace(string(out)))
@@ -910,6 +914,16 @@ func forceRemoveContainer(dir string) {
 		argv = append(argv, "-t", "0")
 	}
 	_ = exec.CommandContext(ctx, rt, append(argv, naming.FromWorkspace(dir))...).Run()
+	if rt == "container" {
+		// The workspace's tool disk (OQ-MB1, internal/prune/misevolumes.go): Apple Container
+		// gives each workspace its own /mise disk, and this workspace is about to be deleted, so
+		// on the Mac that runs this suite every test would otherwise leave one behind. The
+		// runtime refuses it while a container still names it, which leaves it to `yolo prune`.
+		vctx, vcancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer vcancel()
+		_ = exec.CommandContext(vctx, "container", "volume", "rm",
+			prune.MiseVolumeName(naming.FromWorkspace(dir))).Run()
+	}
 }
 
 // writeProject creates a temp workspace containing yolo-jail.jsonc with the
