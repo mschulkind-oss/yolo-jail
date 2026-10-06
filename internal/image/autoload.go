@@ -754,18 +754,10 @@ func AutoLoadImage(opts AutoLoadOptions) LoadResult {
 	// four-minute copy for nothing.
 	//
 	// nil => unlocked (tests, and any caller with no host-side lock to take).
-	unlock := func() {}
-	if o.LockHousekeeping != nil {
-		unlock = o.LockHousekeeping()
-	}
-	rc, ran := o.Run(ImageInspectCmd(o.Runtime, contentRef))
-	imagePresent := ran && rc == 0
-	if imagePresent {
-		// Already present: record it now, under the lock, and the window is
-		// closed outright. The append further down is idempotent.
-		_ = AddLoadedPath(sentinel, currentPath)
-	}
-	unlock()
+	//
+	// Already present: ConfirmLoaded records it now, under the lock, and the window
+	// is closed outright. The append further down is idempotent.
+	imagePresent := ConfirmLoaded(o.Runtime, contentRef, currentPath, o.LockHousekeeping, o.Run)
 	lastLoaded, hasLastLoaded := CurrentLoadedPath(sentinel)
 
 	// THE REF IS NO LONGER CONDITIONAL. It used to be a variable a failed retag
@@ -1489,4 +1481,32 @@ func newestTars(dir string) []string {
 func fileExists(p string) bool {
 	_, err := os.Stat(p)
 	return err == nil
+}
+
+// ConfirmLoaded is OQ-BF5's inspect-and-record bracket (disk-levers-and-backfill.md), the one
+// AutoLoadImage runs before deciding whether to load: with lock held (nil => unlocked), it asks
+// run whether ref is loaded in runtime and, when it is, records storePath in that runtime's load
+// sentinel before the lock is let go. "" records nothing, there being no path to name.
+//
+// A reap pass rechecks under the same lock before each removal, and keeps an image a launch
+// recorded in the sentinel since the pass began (prune.AutoReapOldImagesGuarded), so a pass
+// already running when this confirms an image does not remove it. An inspect outside the lock,
+// or one that records nothing, lets that pass remove it between the inspect and the launch's
+// `podman run`. A narrower window is left, from the release to the launch's own current-image
+// pointer, and run.recordCurrentImage states it. Every caller deciding that an image is ready
+// without loading it confirms it here, so the bracket has one implementation.
+func ConfirmLoaded(runtime, ref, storePath string, lock func() func(), run func(argv []string) (rc int, ran bool)) bool {
+	unlock := func() {}
+	if lock != nil {
+		unlock = lock()
+	}
+	defer unlock()
+	rc, ran := run(ImageInspectCmd(runtime, ref))
+	if !ran || rc != 0 {
+		return false
+	}
+	if storePath != "" {
+		_ = AddLoadedPath(LoadSentinelPath(paths.BuildDir(), runtime), storePath)
+	}
+	return true
 }

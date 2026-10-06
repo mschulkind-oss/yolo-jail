@@ -41,7 +41,25 @@ package run
 //	devices, GPU, KVM                      none
 //	the host nvim config                   not bound
 //	the inherited user config              not bound
+//	the workspace's assembled config copy  an empty object (assembledConfigFor, FP-D20):
+//	(writeLaunchConfigArtifacts)           the merged config holds inline env_sources, and
+//	                                       the build's workspace is bound read-write
+//	the MCP and LSP tables and the MCP     empty (agentServerTables, FP-D20): a server's
+//	presets (commonEnvBlock), and the LSP  literal env or args is a credential, and a build
+//	plugin from lsp_servers                runs no agent; so the jail's bootstrap installs
+//	(refreshJailBriefings)                 no preset's npm package either
 //	env_sources' MISE_DISABLE_TOOLS        not hydrated
+//	the jail's briefing                    describes only what crosses (sealedBriefingInput,
+//	(refreshJailBriefings)                 FP-D23): no loophole, context mount, port, host
+//	                                       nix daemon or forwarded host loopback, and no
+//	                                       machine-wide store; and no `agents_md_extra`,
+//	                                       which is the user's own text
+//
+// WHAT THE LAUNCH PRINTS FOLLOWS WHAT CROSSES (FP-D21). The read disclosure (notePackHostAccess)
+// keeps only the claims about what the build itself fetches or runs (sealKeepsClaim), and says in
+// one counted line which declared env vars, host reads and loophole crossings it withheld
+// (sealedWithheldLine): a disclosure of a read that does not happen is worse than silence (DP-B2).
+// The host-execution disclosure is not printed at all, since nothing runs on the host.
 //
 // What stays is TOOLCHAIN, not credential (FP-D9): the image, `packages`, `mise_tools` and a
 // base's `node_floor` (installed into the private /mise, at the cost of that download once per
@@ -54,9 +72,14 @@ package run
 import (
 	"os"
 	"path/filepath"
+	"slices"
+	"strconv"
+	"strings"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
+	"github.com/mschulkind-oss/yolo-jail/internal/jailcontent"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
+	"github.com/mschulkind-oss/yolo-jail/internal/packdecl"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 )
@@ -133,6 +156,110 @@ func sealedStores(workspace string) (cacheDir, miseDir string, err error) {
 // cli's sealPacks). Every other pre-flight asks about two packs claiming one thing, which a subset
 // can only make rarer, and stays.
 func (o *Options) selectionNarrowed() bool { return o.OnlyPacks != nil }
+
+// assembledConfigFor is the merged config this launch writes to its workspace's delivery copy
+// (config.WriteAssembledConfig): cfg, or under the seal an empty object. The copy sits in the
+// workspace the jail binds read-write, and the merged config carries every inline env_sources
+// value and every user-scope key, so a sealed build is told it was launched from nothing — which
+// is what crossed — rather than handed the user's config to read. Its in-jail readers (`yolo
+// internal config-dump` and the in-jail config verbs) then report the empty config.
+func (o *Options) assembledConfigFor(cfg *jsonx.OrderedMap) *jsonx.OrderedMap {
+	if o.Sealed {
+		return jsonx.NewOrderedMap()
+	}
+	return cfg
+}
+
+// agentServerTables is the `lsp_servers` and `mcp_servers` tables and the `mcp_presets` list
+// this launch hands its jail: cfg's, or under the seal none. An MCP server's `env` and an LSP
+// server's `args` are literal strings the user writes, an API key among them, and a build runs
+// no agent to start a server for. An empty preset list is also what keeps the jail's bootstrap
+// from installing a preset's npm package (entrypoint.BootstrapScript).
+func agentServerTables(cfg *jsonx.OrderedMap, sealed bool) (lsp, mcp *jsonx.OrderedMap, presets []any) {
+	if sealed {
+		return nil, nil, nil
+	}
+	return cfgMap(cfg, "lsp_servers"), cfgMap(cfg, "mcp_servers"), cfgList(cfg, "mcp_presets")
+}
+
+// sealedBriefingInput is in with every description of a crossing the seal withholds taken out
+// (FP-D23): the loopholes, the context mounts (each naming its host path), both port lists and the
+// host nix daemon. It is marked Sealed, so the network line says yolo asked for no forwarding of
+// the host's loopback (FP-D13) instead of that host services are forwarded in. The briefing is
+// staged where the build reads it, so a description of a connection the build does not have is
+// both a leak of the user's config and an untrue disclosure (DP-B2). The storage-classes section
+// follows the seal through its own input (persistenceMapFor), and the caller drops
+// `agents_md_extra`.
+func sealedBriefingInput(in jailcontent.BriefingInput) jailcontent.BriefingInput {
+	in.Sealed = true
+	in.ContextMounts, in.PublishPorts, in.ForwardHostPorts, in.Loopholes = nil, nil, nil, nil
+	in.HostNix = false
+	return in
+}
+
+// sealKeepsClaim reports whether the read disclosure of a sealed launch keeps claim c: a claim
+// about what the build itself fetches or runs, which is a `program` (a fork's source build, an
+// installer the jail could run) or a patched extension's tree. Everything else the read
+// disclosure carries is a pack env var, a host read or a loophole's crossing, each of which the
+// seal withholds (FP-D9).
+func sealKeepsClaim(c packload.Claim) bool {
+	return c.Kind == packdecl.KindProgram || c.IsPatchedExtension()
+}
+
+// sealWithholdsClaim is sealKeepsClaim's complement, the filter for sealedWithheldLine.
+func sealWithholdsClaim(c packload.Claim) bool { return !sealKeepsClaim(c) }
+
+// sealedWithheldLine is the one line a sealed launch prints for the read-disclosure claims the
+// seal withheld, withheld being the lines disclosedClaimsWhere rendered for sealWithholdsClaim:
+// how many pack env vars, host reads (a reads-host, mount or host-briefing claim) and loophole
+// crossings (a loophole's CA, intercept or bind that runs nothing on the host), and which packs
+// declared them. "" when nothing was withheld.
+func sealedWithheldLine(withheld []disclosureLine) string {
+	if len(withheld) == 0 {
+		return ""
+	}
+	var env, reads, loopholeCrossings int
+	var packs []string
+	for _, l := range withheld {
+		switch l.kind {
+		case packdecl.KindEnv:
+			env++
+		case packdecl.KindLoophole:
+			loopholeCrossings++
+		default:
+			reads++
+		}
+		if !slices.Contains(packs, l.pack) {
+			packs = append(packs, l.pack)
+		}
+	}
+	var parts []string
+	for _, n := range []struct {
+		count        int
+		one, several string
+	}{
+		{env, "pack env var", "pack env vars"},
+		{reads, "host read", "host reads"},
+		{loopholeCrossings, "loophole crossing", "loophole crossings"},
+	} {
+		switch {
+		case n.count == 1:
+			parts = append(parts, "1 "+n.one)
+		case n.count > 1:
+			parts = append(parts, strconv.Itoa(n.count)+" "+n.several)
+		}
+	}
+	what := parts[0]
+	if len(parts) > 1 {
+		what = strings.Join(parts[:len(parts)-1], ", ") + " and " + parts[len(parts)-1]
+	}
+	verb := "are"
+	if len(withheld) == 1 {
+		verb = "is"
+	}
+	return "Sealed build: " + what + " declared by " + strings.Join(packs, ", ") + " " + verb +
+		" withheld (FP-D9: a build jail gets no credential and no host file)"
+}
 
 // narrowedPackEntries is entries narrowed to the names in Options.OnlyPacks, or entries unchanged
 // when OnlyPacks is nil. The conventional local pack is dropped unless named, like any other.

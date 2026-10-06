@@ -84,6 +84,13 @@ type BriefingInput struct {
 	// directly, and collapsing them would have made that conflation cheap to reintroduce.
 	NetMode        string
 	AppliedNetMode string
+	// Sealed is true for a fork's or a patched extension's BUILD jail: THE SEAL, a term coined
+	// by docs/design/forked-programs-as-packs.md (FP-D9), for a launch handed no credential and
+	// no host file. Its bridge is the runtime's own, with no forwarding of the host's loopback
+	// asked for (FP-D13), so the bridge paragraph says that instead of telling the build that
+	// host services are forwarded in. The caller leaves out the rest the seal withholds itself:
+	// the port lists, the loopholes, the context mounts and HostNix.
+	Sealed bool
 	// PublishPorts and ForwardHostPorts are the two DIRECTIONS, and they are
 	// rendered as separate sections on purpose: a jail that showed only the
 	// second one let an agent see which host ports had been imported while
@@ -488,12 +495,24 @@ func BriefingContent(in BriefingInput) string {
 	}
 
 	var networkLine string
-	if netMode == "host" {
+	switch {
+	case netMode == "host":
 		// "this environment", not "the container": host networking is also what the
 		// macos-user backend applies, and there is no container anywhere in it
 		// (DP-B3 / DP-L2). The sentence has to be true of both, so it names neither.
 		networkLine = "- **Network**: Host networking — this environment shares the host's network stack. `localhost` / `127.0.0.1` resolves directly to the host. No port mapping needed."
-	} else {
+	case in.Sealed:
+		// THE SEAL'S BRIDGE (FP-D13). The paragraph below says yolo has the host's loopback
+		// forwarded in, which a sealed launch never asks for; and nothing of yolo's runs on the
+		// host for a build to reach. What the build has is the network itself, for its
+		// dependencies. No claim about what the host stack forwards on its own: on a macOS
+		// podman machine gvproxy forwards the loopback with no flag asked for.
+		networkLine = "- **Network**: Bridge mode, on the runtime's own bridge. This is a sealed build jail " +
+			"(a pack's build, handed no credential and no host file), so yolo asked for no forwarding of " +
+			"the host's loopback (`$YOLO_HOST_LOOPBACK` is `unknown`), forwards and publishes no port, and " +
+			"starts no host service. `localhost` in here is the JAIL's loopback. Outbound network works, " +
+			"for fetching dependencies."
+	default:
 		// NO NUMERIC ADDRESS HERE, and that is a correction rather than a style choice.
 		// This line used to say "(169.254.1.2)", which is the address yolo asks pasta for
 		// — one of three answers, and wrong on the other two. Under slirp4netns podman

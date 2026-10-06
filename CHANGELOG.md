@@ -82,6 +82,9 @@ into a jail, and what each launch shows about the code it runs. See
 - A fork's build no longer refuses over something only another of your packs provides, such as the
   agent a pack's prose is addressed to or a capability your config requires, and a build that stops
   before it starts now quotes why.
+- A fork's build no longer gets a copy of your config, your MCP servers' settings or your
+  `agents_md_extra` text, and neither its launch nor its briefing lists credentials, host files or
+  host connections the build does not get.
 
 ## [0.11.1] - 2026-10-02
 

@@ -1163,6 +1163,9 @@ func (o *Options) servedDaemons(specs []loopholes.JailDaemonSpec) packload.Serve
 // content must not drift — yolo-entrypoint reads these exact vars).
 func (o *Options) commonEnvBlock(in *assembleInput, blockedConfigJSON, netMode string) []string {
 	cfg := in.cfg
+	// None under the seal (seal.go): a server's literal env is a credential, and a build runs no
+	// agent to start one.
+	lspServers, mcpServers, mcpPresets := agentServerTables(cfg, in.sealed)
 	env := []string{
 		"-e", "JAIL_HOME=/home/agent",
 		"-e", "NPM_CONFIG_PREFIX=/home/agent/.npm-global",
@@ -1212,9 +1215,9 @@ func (o *Options) commonEnvBlock(in *assembleInput, blockedConfigJSON, netMode s
 		"-e", "YOLO_VERSION="+in.yoloVersion,
 		"-e", "OVERMIND_SOCKET=/tmp/overmind.sock",
 		"-e", "YOLO_MISE_TOOLS="+jsonDumps(config.MergeMiseTools(cfg)),
-		"-e", "YOLO_LSP_SERVERS="+jsonDumpsOrEmptyObj(cfgMap(cfg, "lsp_servers")),
-		"-e", "YOLO_MCP_SERVERS="+jsonDumpsOrEmptyObj(cfgMap(cfg, "mcp_servers")),
-		"-e", "YOLO_MCP_PRESETS="+jsonDumpsOrEmptyList(cfgList(cfg, "mcp_presets")),
+		"-e", "YOLO_LSP_SERVERS="+jsonDumpsOrEmptyObj(lspServers),
+		"-e", "YOLO_MCP_SERVERS="+jsonDumpsOrEmptyObj(mcpServers),
+		"-e", "YOLO_MCP_PRESETS="+jsonDumpsOrEmptyList(mcpPresets),
 		// The `agent_updates` policy, read from USER scope directly rather than from the
 		// merged config: /workspace is bind-mounted rw, so a workspace value would let an
 		// agent freeze its own updates (config.AgentUpdatesWire). Emitted on EVERY launch,

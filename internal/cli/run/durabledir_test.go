@@ -120,7 +120,7 @@ func jailcontentSection(t *testing.T, d *jailcontent.DurableDir) []string {
 	t.Helper()
 	cfg, packs := persistenceFixture(t, "")
 	out := jailcontent.BriefingContent(jailcontent.BriefingInput{Workspace: "/w", Mechanism: "podman",
-		Persistence: persistenceMapFor("podman", cfg, packs, "/w"), Durable: d})
+		Persistence: persistenceMapFor("podman", cfg, packs, "/w", false), Durable: d})
 	return strings.Split(sectionOf(out, "## Storage classes: what survives a restart"), "\n")
 }
 

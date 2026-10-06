@@ -480,9 +480,13 @@ func printScopeBlock(out printer, block []string) {
 // hiccuped: without the assembled copy the in-jail read degrades to the documented
 // re-assemble, and without the baseline `drift` reports "cannot determine" rather
 // than a false "no drift". Neither degradation is worth refusing a launch over.
+//
+// UNDER THE SEAL the assembled copy is an empty object (assembledConfigFor, seal.go): the
+// merged config carries the user's inline env_sources, and a sealed build's workspace is the
+// one directory its jail writes. The baseline stays, being the workspace's own config.
 func (o *Options) writeLaunchConfigArtifacts(cfg *jsonx.OrderedMap) {
 	out := o.pr(o.Stdout)
-	if err := config.WriteAssembledConfig(o.Workspace, cfg); err != nil {
+	if err := config.WriteAssembledConfig(o.Workspace, o.assembledConfigFor(cfg)); err != nil {
 		out.printf("[dim]Warning: could not write the assembled config for the jail: %s[/dim]", err.Error())
 	}
 	if wsCfg, wsErr := config.LoadWorkspaceConfig(o.Workspace, false, func(string) {}); wsErr == nil {

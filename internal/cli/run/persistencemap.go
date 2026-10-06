@@ -85,7 +85,11 @@ var alwaysTmpfsDirs = []string{"/run", "/dev/shm"}
 // entry's staged parent dir, which the run pipeline resolves after the briefing is written;
 // a loophole's own bind mounts; and the nix daemon socket. None is a place for an agent's
 // work, and the pin's fixture declares none of them.
-func persistenceMapFor(rt string, cfg *jsonx.OrderedMap, packs []*packload.Pack, workspace string) *jailcontent.PersistenceMap {
+//
+// sealed is THE SEAL (seal.go): a fork's build jail has no machine tier. Its ~/.cache and /mise
+// are private directories of its own workspace (sealedStores), and no pack's machine-scope
+// directory is bound, so the map says this workspace for the two and names none of the rest.
+func persistenceMapFor(rt string, cfg *jsonx.OrderedMap, packs []*packload.Pack, workspace string, sealed bool) *jailcontent.PersistenceMap {
 	if slices.Contains(paths.NativeRuntimes, rt) { // parity: NotApplicable — macos-user mounts nothing; its section is the design's §8 step 5
 		return nil
 	}
@@ -127,12 +131,18 @@ func persistenceMapFor(rt string, cfg *jsonx.OrderedMap, packs []*packload.Pack,
 
 	// The machine tier, on both backends: paths.GlobalCache() at ~/.cache, each selected
 	// pack's shared dir from paths.GlobalHome(), and the mise store (a machine store dir or
-	// the one named volume) at /mise.
-	add(home(".cache"), jailcontent.PathMachineDurable)
-	for _, dir := range packload.SharedDirs(packs) {
-		add(home(dir), jailcontent.PathMachineDurable)
+	// the one named volume) at /mise. Under the seal the two stores are the build's own and
+	// no shared dir is bound (assembleInput.cacheSource, miseSource, podmanBaseMounts).
+	if sealed {
+		add(home(".cache"), jailcontent.PathWorkspaceDurable)
+		add("/mise", jailcontent.PathWorkspaceDurable)
+	} else {
+		add(home(".cache"), jailcontent.PathMachineDurable)
+		for _, dir := range packload.SharedDirs(packs) {
+			add(home(dir), jailcontent.PathMachineDurable)
+		}
+		add("/mise", jailcontent.PathMachineDurable)
 	}
-	add("/mise", jailcontent.PathMachineDurable)
 
 	// The per-launch set: the scratch slots (named per-launch volumes, or tmpfs) and the
 	// two dirs that are tmpfs on every launch.

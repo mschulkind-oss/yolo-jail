@@ -1,6 +1,9 @@
 package run
 
 import (
+	"sync"
+	"time"
+
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/image"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
@@ -47,9 +50,22 @@ func (o *Options) autoLoadImage(cfg *jsonx.OrderedMap, rt, repoRoot string, sp s
 		attr = image.ImageAttrLean
 	}
 	remedy := nixdiag.LinuxBuilderRemedy()
-	load := image.AutoLoadImage
-	if o.autoLoad != nil {
-		load = o.autoLoad
+	readsHostStore := o.hostNixMounted(rt)
+	load := o.autoLoad
+	if load == nil {
+		// The real loader, once per image per process (memoizedImageLoad).
+		key := imageLoadKey{Runtime: rt, RepoRoot: repoRoot, Attr: attr, Extra: jsonDumpsOrEmptyList(extra),
+			IsMacOS: o.IsMacOS, JailReadsHostStore: readsHostStore}
+		// A remembered image is confirmed through the real loader's own bracket: inspected under
+		// the housekeeping lock and recorded in the load sentinel before it is let go.
+		confirm := func(res image.LoadResult) bool {
+			return image.ConfirmLoaded(rt, res.Ref, res.StorePath, o.lockHousekeepingFn(),
+				func(argv []string) (int, bool) {
+					r := o.Exec(argv, "", nil, imagePresenceBound)
+					return r.RC, r.Ran && !r.Timeout
+				})
+		}
+		load = func(opts image.AutoLoadOptions) image.LoadResult { return memoizedImageLoad(key, opts, confirm) }
 	}
 	return load(image.AutoLoadOptions{
 		Runtime:  rt,
@@ -106,8 +122,71 @@ func (o *Options) autoLoadImage(cfg *jsonx.OrderedMap, rt, repoRoot string, sp s
 		// reading of it: a jail that will resolve its /bin/* through the host
 		// store must not run a stock-tag match whose closure the store cannot be
 		// shown to hold (internal/image/stockimage.go).
-		JailReadsHostStore: o.hostNixMounted(rt),
+		JailReadsHostStore: readsHostStore,
 	})
+}
+
+// imageLoadKey is every input autoLoadImage hands the real loader that decides WHICH image it
+// makes ready: the runtime it is loaded into, the flake it is built from, the attribute and the
+// extra packages that select the derivation, the host OS (whose archive arm differs), and the
+// one input that decides what a stock-tag match does (JailReadsHostStore). The rest of
+// image.AutoLoadOptions is where its output goes and which seams it runs through, which change
+// no answer.
+type imageLoadKey struct {
+	Runtime, RepoRoot, Attr, Extra string
+	IsMacOS, JailReadsHostStore    bool
+}
+
+// imageLoads is this process's memo of the real loader (memoizedImageLoad).
+var imageLoads = struct {
+	sync.Mutex
+	ready map[imageLoadKey]image.LoadResult
+}{ready: map[imageLoadKey]image.LoadResult{}}
+
+// imageAutoLoad is the real loader memoizedImageLoad calls: a var so a test can count its calls.
+var imageAutoLoad = image.AutoLoadImage
+
+// imagePresenceBound bounds the `image inspect` that confirms a remembered image is still loaded.
+const imagePresenceBound = 10 * time.Second
+
+// memoizedImageLoad is the real image load, run ONCE per image per process: a later launch in
+// this process asking for the same image gets the first one's answer once confirm says the runtime
+// still holds that image, with no nix evaluation of its own.
+//
+// It exists for the launches a fork's or a patched extension's BUILD runs in-process (the
+// sealed capture jail, docs/design/forked-programs-as-packs.md FP-D9; this is FP-D22): a launch
+// with N builds to run is N+1 launches, and each evaluated the flake to name an image the first
+// had already made ready. The seal keeps `packages` (toolchain, FP-D9), so a build jail asks for
+// the parent launch's own image. Only a ready image is remembered: a failed load ends its launch
+// with the reason printed, and the next asker tries again. The lock is held across the load, so
+// two launches of one process asking at once load once.
+//
+// THE CONFIRMATION IS WHAT KEEPS A REAP FROM TURNING THE MEMO INTO A FAILED RUN, and it is the
+// real loader's own (image.ConfirmLoaded), not a bare `image inspect`. A build's scratch workspace
+// is deleted when its build ends, and its current-image pointer protects nothing from then on
+// (prune.CurrentImageTags skips a pointer whose workspace is gone), so until the parent launch
+// records its own pointer nothing else keeps the image from another launch's reap. So the memo
+// leaves open no window the real loader closes: the inspect runs under the housekeeping lock, and
+// the image's store path is recorded in the load sentinel before the lock is let go, which is what
+// a reap pass's recheck reads (OQ-BF5). A bare inspect outside the lock, recording nothing, let a
+// pass already running remove the image between this launch's inspect and its `podman run`. The
+// narrower window both leave, from the release to the launch's own pointer, is the one
+// recordCurrentImage states (currentimage.go). A remembered answer the runtime cannot confirm is
+// forgotten and the image loaded again, as the real loader would.
+func memoizedImageLoad(key imageLoadKey, opts image.AutoLoadOptions, confirm func(image.LoadResult) bool) image.LoadResult {
+	imageLoads.Lock()
+	defer imageLoads.Unlock()
+	if res, ok := imageLoads.ready[key]; ok {
+		if confirm(res) {
+			return res
+		}
+		delete(imageLoads.ready, key)
+	}
+	res := imageAutoLoad(opts)
+	if res.OK {
+		imageLoads.ready[key] = res
+	}
+	return res
 }
 
 // rootImageFn returns the durable-GC-root registrar for the loaded image, or nil
