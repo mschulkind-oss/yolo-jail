@@ -31,6 +31,15 @@ func brokeredCheckHome(t *testing.T) string {
 
 func onTheHost(o *Options) { o.Getenv = func(string) string { return "" } }
 
+// resolvedDir is dir with its links resolved, as the check prints a path it resolved itself: on
+// macOS t.TempDir() is under /var/folders, a link to /private/var/folders.
+func resolvedDir(t *testing.T, dir string) string {
+	t.Helper()
+	r, err := filepath.EvalSymlinks(dir)
+	must(t, err)
+	return r
+}
+
 // `yolo check --accept-config-changes` reads the workspace's entry through the gate's own helper,
 // shows the scope block and its count line before it records (WW-D20), records the union of the
 // remotes and the entry, and says so (docs/design/workspace-widening.md §3.2).
@@ -79,7 +88,7 @@ func TestCheckListsEveryProjectsMoveAndWarnsOfAnUnbrokeredSource(t *testing.T) {
 	}, onTheHost)
 	for _, want := range []string{"config.brokered.gbsrc.workspaces: RETIRED",
 		"Each project's move out of the retired `brokered.<source>.workspaces` key",
-		ws + `: put "brokered": {"gbsrc": {"repos": ["org/lib"]}} in ` + filepath.Join(ws, "yolo-jail.local.jsonc"),
+		ws + `: put "brokered": {"gbsrc": {"repos": ["org/lib"]}} in ` + filepath.Join(resolvedDir(t, ws), "yolo-jail.local.jsonc"),
 		`~/code/secret-client: put "brokered": {"gbsrc": {"repos": ["acme/private-roadmap"]}} in ` +
 			filepath.Join(other, "yolo-jail.local.jsonc"),
 		"config.brokered.githb: no loophole a selected pack ships brokers the source 'githb'",
