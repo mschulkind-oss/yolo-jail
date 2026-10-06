@@ -1684,6 +1684,9 @@ func (o *Options) runContainer(cfg *jsonx.OrderedMap, rt, repoRoot, cname string
 			return 1
 		}
 	}
+	// THE MISE USE RECORD'S CLOCK (miseuserecording.go): a host launch says, in the store it binds,
+	// since when the host's launches have run jails that record the tool versions they use.
+	o.markMiseUseRecording(miseStore)
 
 	// --- Assemble the ordered argv ---
 	// THE SCRATCH VOLUMES' NAMES, minted once for this launch and read by both the argv and

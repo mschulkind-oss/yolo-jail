@@ -316,7 +316,7 @@ func TestHousekeepingSlotRunsTheScratchReaper(t *testing.T) {
 		}
 		return ExecResult{Ran: false}
 	}
-	o.runHousekeeping("podman", false, testCname)
+	o.runHousekeeping("podman", reclaimConsent{}, testCname)
 	if !asked {
 		t.Error("the housekeeping slot never listed scratch volumes")
 	}

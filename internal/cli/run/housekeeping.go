@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -14,6 +15,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/flakebundle"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/prune"
+	"github.com/mschulkind-oss/yolo-jail/internal/runtime"
 )
 
 // housekeeping.go is the POST-LAUNCH SLOT and the lock that serialises it
@@ -203,13 +205,14 @@ var housekeepingSlots sync.WaitGroup
 // debounced on its own stamp. What IS load-bearing is that this runs AFTER the
 // container is visible (so a reap can never race this launch's own image) and
 // that nothing here can fail the launch.
-func (o *Options) runHousekeeping(rt string, reclaimConsent bool, cname string) {
+func (o *Options) runHousekeeping(rt string, reclaimConsent reclaimConsent, cname string) {
 	sp := o.Perf.Span("housekeeping.slot")
 	defer sp.End()
 	o.withHousekeepingPass(func(guard prune.Guard) {
 		o.autoReapOldImages(rt, guard)
 		o.reapSupersededStoreOutputs(rt, guard)
 		o.measureAndPurgeCache(reclaimConsent, guard)
+		o.measureAndPurgeMiseVersions(rt, reclaimConsent, guard)
 		o.reapSmallAutomaticClasses(rt, cname, guard)
 		o.reapImageTars(rt, guard)
 		o.reapFlakeBundleGenerations(rt, guard)
@@ -227,15 +230,18 @@ func (o *Options) runHousekeeping(rt string, reclaimConsent bool, cname string) 
 // in this class. It is bounded by cacheWalkBudget, and a class that exceeds it
 // reports what it summed so far as partial, which the offer then says out loud
 // rather than presenting a short count as the whole truth.
-func (o *Options) measureAndPurgeCache(consented bool, guard prune.Guard) {
+func (o *Options) measureAndPurgeCache(consent reclaimConsent, guard prune.Guard) {
 	if o.inJail() {
 		return // the host cache is the host's to sweep
 	}
 	// The walk is the expensive thing in this whole design, so it is the one
-	// most in need of the per-class debounce. A consented purge is NOT exempt:
-	// there is nothing new to reclaim an hour after the last one.
+	// most in need of the per-class debounce. A STANDING yes is not exempt: there
+	// is nothing new to reclaim an hour after the last one. A yes given at THIS
+	// launch's prompt is — it was given against a measurement the debounce is
+	// about to hide (reclaimConsent).
+	consented := consent.has(cachePurgeClass)
 	due, done := o.classDebounce("cache")
-	if !due {
+	if !due && !consent.freshFor(cachePurgeClass) {
 		return
 	}
 	gs := paths.GlobalStorage()
@@ -275,6 +281,96 @@ func fmtCachePurgeDetail(files int) string {
 		return "1 file"
 	}
 	return strconv.Itoa(files) + " files"
+}
+
+// measureAndPurgeMiseVersions is the second offered class's slot half
+// (minimal-disk-footprint.md OQ-DF4, ruled 2026-10-05): it judges the shared mise
+// tool store against every jail's use record (internal/miseuse), stamps what it
+// found for the next launch to offer on, and removes the versions no jail has used
+// for 30 days only if this launch has consent — the cache class's shape, reused.
+//
+// HOST-ONLY, AND LINUX-ONLY: a jail cannot see the host's running jails, so it can
+// never tell a running jail that has not recorded its use from no jail at all, and
+// a Mac's jails do not use the state dir's store. And it honors
+// the automatic reapers' opt-out, which the integration suite sets: its launches
+// share this machine's build dir, where this class's measurement and stamp live,
+// with a tool store of their own.
+//
+// A PASS THAT CANNOT JUDGE records nothing to offer: a decline (the records
+// cannot answer) leaves the debounce unstamped so the next launch asks again, and
+// a pass that is still waiting for the record to cover a whole window is a
+// complete pass with nothing in it.
+func (o *Options) measureAndPurgeMiseVersions(rt string, consent reclaimConsent, guard prune.Guard) {
+	if o.inJail() {
+		return
+	}
+	// A Mac's jails keep the store in a volume inside the container VM (miseStoreVolume), or in
+	// the sandbox account on macos-user: the state dir's mise/ here is not the store they use.
+	if o.IsMacOS {
+		return
+	}
+	if o.Getenv(autoReapOptOutEnv) != "" {
+		return
+	}
+	due, done := o.classDebounce("mise-versions")
+	if !due && !consent.freshFor(miseVersionsClass) {
+		return
+	}
+	var live runtime.LiveSet
+	if rt != "" {
+		live = prune.LiveYoloContainers(rt, o.pruneRunFunc())
+	}
+	sweep := prune.FindUnusedMiseVersions(paths.GlobalMise(), live, o.Now(), cacheWalkBudget)
+	nothing := offerMeasurement{When: o.Now()}
+	switch {
+	case sweep.Declined != "":
+		nothing.Detail = "declined: " + sweep.Declined
+		RecordOfferMeasurement(miseVersionsClass, nothing)
+		o.housekeepingNote("tool versions: declined — %s", sweep.Declined)
+		return // not stamped: the next launch retries
+	case sweep.Waiting != "":
+		nothing.Detail = sweep.Waiting
+		RecordOfferMeasurement(miseVersionsClass, nothing)
+		done()
+		return
+	}
+	RecordOfferMeasurement(miseVersionsClass, offerMeasurement{
+		Bytes:   sweep.Bytes,
+		Detail:  fmtMiseVersionsDetail(sweep.Candidates),
+		When:    o.Now(),
+		Partial: sweep.Partial,
+	})
+	done()
+	if !consent.has(miseVersionsClass) || len(sweep.Candidates) == 0 {
+		return
+	}
+	sweep = prune.PruneUnusedMiseVersionsGuarded(sweep, o.Now(), guard)
+	if len(sweep.Removed) > 0 {
+		o.housekeepingNote("tool versions: reclaimed %s in %d version(s) no jail used for 30 days, as agreed",
+			prune.FmtBytes(sweep.RemovedBytes), len(sweep.Removed))
+	}
+	for _, v := range sweep.Failed {
+		o.housekeepingNote("tool versions: could not remove %s: %s", v.Display(), v.Err)
+	}
+}
+
+// fmtMiseVersionsDetail names the largest few versions an offer covers, so a user
+// deciding sees which tools a yes would make them download again.
+func fmtMiseVersionsDetail(cands []prune.MiseVersion) string {
+	const named = 3
+	parts := make([]string, 0, named+1)
+	for i, v := range cands {
+		if i == named {
+			parts = append(parts, fmt.Sprintf("+%d more", len(cands)-named))
+			break
+		}
+		parts = append(parts, v.Display())
+	}
+	noun := "versions"
+	if len(cands) == 1 {
+		noun = "version"
+	}
+	return fmt.Sprintf("%d %s: %s", len(cands), noun, strings.Join(parts, ", "))
 }
 
 // lockHousekeepingFn is the load path's half of OQ-BF5's lock: it hands

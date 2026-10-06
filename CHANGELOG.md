@@ -57,6 +57,11 @@ installs that member of the collection, and every entry installs what `nix build
 would. A bare collection is refused with members you could name instead. See
 [Packages and Tools](userguide/guides/packages-and-tools.md#nix-packages-image-level).
 
+**Unused tool versions are cleaned up.** On Linux, mise tool versions no jail on your machine has
+used for 30 days are offered for removal at a launch once they reach 1 GiB, beside the old-cache
+offer, and a yes makes it automatic; `yolo stores` and `yolo prune` show them too. The first offer
+comes 30 days after you upgrade. See [Storage](userguide/guides/storage.md#see-and-reclaim-disk).
+
 ### Changed
 
 - A jail now installs every agent and tool your selected packs declare when it starts, once
@@ -103,6 +108,7 @@ would. A bare collection is refused with members you could name instead. See
   its lock held.
 - Naming a large package collection such as `python3Packages` in `packages` no longer says it
   holds no packages.
+- Saying yes to a cleanup offer now reclaims during that launch, instead of up to a day later.
 - When `yolo host` has no container runtime to capture an agent with, it now says to install one.
 - On a host whose `/bin/sh` is dash, such as Debian or Ubuntu, the Claude Code install command that
   `yolo check-deps` prints and `yolo host apply --assert` runs now installs it.

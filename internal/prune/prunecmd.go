@@ -152,6 +152,11 @@ type Options struct {
 	// store gc` would collect the HOST store, but the host's live jails are
 	// unenumerable from in-jail, so the rooting confirmation can't be made.
 	InJail func() bool
+	// MiseStore is the shared mise tool store the jails on this host use, for the unused tool
+	// versions sweep (miseversions.go). nil => the mise child of GlobalStorage() on Linux, and ""
+	// on a Mac, whose jails keep the store in a volume inside the container VM (or, on
+	// macos-user, in the sandbox account), out of this process's reach; "" skips the sweep.
+	MiseStore func() string
 	// NixStoreGC runs the bounded host store GC (§3). nil => the real
 	// RunNixStoreGC over the process's own exec. Injected so tests exercise the
 	// section without a real daemon.
@@ -273,6 +278,15 @@ func fillDefaults(o *Options) {
 	}
 	if o.InJail == nil {
 		o.InJail = func() bool { return os.Getenv("YOLO_VERSION") != "" }
+	}
+	if o.MiseStore == nil {
+		storage := o.GlobalStorage
+		o.MiseStore = func() string {
+			if paths.IsMacOS {
+				return ""
+			}
+			return joinPath(storage(), "mise")
+		}
 	}
 	if o.EmbeddedPacksDir == nil {
 		storage := o.GlobalStorage
@@ -1011,6 +1025,19 @@ func Run(opts Options) int {
 		totalSaved += cacheBytes
 	}
 
+	// --- Unused tool versions in the shared mise store (minimal-disk-footprint.md OQ-DF4) ---
+	// The versions no jail on this machine has used for 30 days, judged from every jail's use
+	// record (miseversions.go). The launch offers them once they total 1 GiB; this is the same
+	// reclaimer, on demand and at any size.
+	miseSweep := renderMiseVersions(p, opts, opts.MiseStore(), live, apply)
+	if miseSweep.Declined != "" {
+		declinedSweep = true
+	}
+	totalSaved += miseSweep.RemovedBytes
+	if !apply {
+		totalSaved += miseSweep.Bytes
+	}
+
 	// --- Agent log purge (age-based) ---
 	// Regenerable per-agent LOG dirs (copilot/logs, gemini/tmp, gemini-cli/logs)
 	// under each tracked workspace's overlay + the shared cache (storage §4).
@@ -1148,6 +1175,7 @@ func Run(opts Options) int {
 				{Name: "agent_staging", Bytes: agentStagingBytes, Count: agentStagingDirs, Unit: "dirs"},
 				{Name: "shadowed_home", Bytes: shadowedBytes, Count: shadowedItems, Unit: "paths"},
 				{Name: "caches", Bytes: cacheBytes, Count: cacheFiles, Unit: "files"},
+				miseVersionsCategory(miseSweep, apply),
 				{Name: "agent_logs", Bytes: agentLogBytes, Count: agentLogFiles, Unit: "files"},
 			},
 			RemovedContainers:     nonNil(removedContainers),

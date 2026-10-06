@@ -148,6 +148,10 @@ type Options struct {
 	// InJail reports whether this yolo runs inside a jail. It decides the FRAME
 	// the header states, which is not cosmetic — see the package doc.
 	InJail func() bool
+	// IsMacOS reports a Mac host, whose jails keep the mise tool store in a volume inside the
+	// container VM (or in the sandbox account, on macos-user) rather than in the state dir.
+	// nil => paths.IsMacOS.
+	IsMacOS func() bool
 	// DetectRuntime returns the effective container runtime. The CLI front door
 	// injects the config-aware resolver; nil => a bare YOLO_RUNTIME/platform probe.
 	DetectRuntime func() string
@@ -235,6 +239,9 @@ func fillDefaults(o *Options) {
 	}
 	if o.InJail == nil {
 		o.InJail = func() bool { return os.Getenv("YOLO_VERSION") != "" }
+	}
+	if o.IsMacOS == nil {
+		o.IsMacOS = func() bool { return paths.IsMacOS }
 	}
 	if o.DetectRuntime == nil {
 		o.DetectRuntime = func() string { return "" }

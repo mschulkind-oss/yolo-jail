@@ -141,6 +141,8 @@ const pruneUsage = `Usage: yolo prune [flags]
 
 Reclaim disk that yolo is holding: stale containers, old jail images, the image
 tarball cache, nix build/image GC roots, shadowed jail homes, heavy tool caches,
+the shared mise store's tool versions no jail on this machine has used for 30
+days (host-only, judged from what every jail records it uses),
 superseded install captures (every store entry but the newest per program —
 what a materialize would never choose again), and the on-disk copies of yolo's
 built-in packs: other builds' trees under the state dir's embedded-packs/, and

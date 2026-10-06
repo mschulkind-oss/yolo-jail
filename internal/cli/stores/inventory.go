@@ -19,6 +19,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/prune"
 	"github.com/mschulkind-oss/yolo-jail/internal/richtext"
+	"github.com/mschulkind-oss/yolo-jail/internal/runtime"
 )
 
 // Sizing says HOW a size figure was obtained. It is printed beside every number
@@ -402,6 +403,9 @@ func stateStores(o Options, cacheRows []Store) []Store {
 				brokeraudit.RotateBytes>>20, brokeraudit.Archives)}
 			s.Verdict = VerdictYolo
 			s.Note = "the brokers' audit log and each launch's repository scope; `yolo prune` never touches the audit log"
+		case name == filepath.Base(paths.GlobalMise()):
+			sizeStore(&s, s.Path, o)
+			miseRow(&s, o)
 		case filepath.Clean(s.Path) == filepath.Clean(o.SamplesDir()):
 			sizeStore(&s, s.Path, o)
 			s.Reclaimer = Reclaimer{Detail: fmt.Sprintf("self-bounded: %d samples per store", MaxSamples)}
@@ -422,6 +426,61 @@ func stateStores(o Options, cacheRows []Store) []Store {
 	}
 	sort.SliceStable(out, func(i, j int) bool { return out[i].Bytes > out[j].Bytes })
 	return out
+}
+
+// miseRow fills the shared mise tool store's row: its reclaimer, and what that reclaimer would
+// do now (docs/design/minimal-disk-footprint.md OQ-DF4, ruled 2026-10-05). It asks the same
+// judgement `yolo prune` acts on — every jail's use record against the running jails — and
+// deletes nothing.
+//
+// IN A JAIL THERE IS NOTHING TO CLAIM. A jail's tools, and those of every jail it launches, come
+// from /mise, the host's store (jailMiseStoreDir binds /mise for an in-jail launch), not from the
+// state dir's own mise/ in here, and the reclaimer is host-only besides, so promising it in-jail
+// would promise a sweep that never comes.
+func miseRow(s *Store, o Options) {
+	if o.InJail() {
+		s.Reclaimer, s.Verdict = none(), VerdictHuman
+		s.Note = "this jail's tools, and those of every jail it launches, come from /mise, the " +
+			"host's store, which `yolo stores` on the host reports, not from this copy"
+		return
+	}
+	if o.IsMacOS() {
+		s.Reclaimer, s.Verdict = none(), VerdictHuman
+		s.Note = "a Mac's jails keep their tools in a volume inside the container VM (or in the " +
+			"sandbox account, on macos-user), not here, and yolo does not reclaim that store yet"
+		return
+	}
+	s.Reclaimer = Reclaimer{
+		Func:    "PruneUnusedMiseVersions",
+		Detail:  fmt.Sprintf("versions no jail used for %d d", int(prune.MiseVersionsWindow.Hours()/24)),
+		Trigger: "yolo prune --apply; post-launch slot once consented",
+	}
+	s.Verdict = VerdictYolo
+	var live runtime.LiveSet
+	if rt := o.DetectRuntime(); rt != "" {
+		live = prune.LiveYoloContainers(rt, o.Exec)
+	}
+	sw := prune.FindUnusedMiseVersions(s.Path, live, o.Now(), o.Budget)
+	switch {
+	case sw.Declined != "":
+		s.Note = "yolo cannot tell which versions are unused right now: " + sw.Declined
+		if sw.Remedy != "" {
+			s.Note += "; to fix: " + sw.Remedy
+		}
+	case sw.Waiting != "":
+		s.Note = "nothing judged yet: " + sw.Waiting
+	case len(sw.Candidates) == 0:
+		s.Note = fmt.Sprintf("every one of its %d installed tool version(s) was used by a jail within "+
+			"%d days, or installed since", sw.Installed, int(prune.MiseVersionsWindow.Hours()/24))
+	default:
+		lower := ""
+		if sw.Partial {
+			lower = "at least "
+		}
+		s.Note = fmt.Sprintf("%s%s is in %d tool version(s) no jail has used for %d days: a launch "+
+			"offers to remove them once they reach 1 GiB, and `yolo prune --apply` removes them now",
+			lower, prune.FmtBytes(sw.Bytes), len(sw.Candidates), int(prune.MiseVersionsWindow.Hours()/24))
+	}
 }
 
 // cacheStores inventories the shared cache, ONE ROW PER SUBDIR, because that is

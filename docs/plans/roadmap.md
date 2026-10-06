@@ -210,20 +210,18 @@ host or an outside account follows under [External waits](#external-waits).
     [real vendor installs on the macos-user nightly](../reference/agent-install-in-ci.md#OQ-CI7), one hard-failing job per pack
     with the npm packs first, since no CI job installs a vendor's Mac build before a user does; [copilot from GitHub's own
     installer](native-installer-migration.md), its own updater left on; and [the per-setup census](../design/backend-parity.md),
-    whose test fails when a config key or pack kind has no answer for one of the four setups. Six more of that day's rulings
+    whose test fails when a config key or pack kind has no answer for one of the four setups. Five more of that day's rulings
     released builds placed here for the same reason: [the Bedrock list yolo fetches](../design/model-lists-and-pickers.md#OQ-MM6)
     where no pack supplies one, with claude in its own Bedrock mode behind the bridge, to land no later than [the shipped
     Bedrock list's removal](../design/model-lists-and-pickers.md#MM-D32), since a launch with neither leaves claude on
     `-p bedrock-bridge` without prompt caching and starting on an id Bedrock refuses; [pi's package
     folder](../design/pack-pi-resources.md), one entry per content pack in place of a list of files, registering
     addressed trees only, since whether a patched extension there may drop its list entry is
-    [OQ-PC3](../design/pack-conventions.md#OQ-PC3), open and not gating the patch-series work; and [the jail's readiness
+    [OQ-PC3](../design/pack-conventions.md#OQ-PC3), open and not gating the patch-series work; [the jail's readiness
     act](../design/jail-notch-readiness.md#OQ-JR1), which installs every program a selected pack declares before your command
-    runs and stops a launch that cannot, offline included, since `yolo -- true` still leaves every agent CLI uninstalled; and
+    runs and stops a launch that cannot, offline included, since `yolo -- true` still leaves every agent CLI uninstalled;
     [the refusal of a host-wide daemon older than the launching yolo](../design/host-daemon-ownership.md#OQ-HD11), since an
-    upgraded launch still proceeds without the check that warns what would fail its agents' requests; [the shared tool
-    store's cleanup](../design/minimal-disk-footprint.md#OQ-DF4), offered at launch like the cache's, since nothing removes a
-    tool version no project uses and the store grows about 13 GiB a year; and [nested attribute paths in
+    upgraded launch still proceeds without the check that warns what would fail its agents' requests; and [nested attribute paths in
     `packages`](../design/package-nested-attribute-paths.md#OQ-1), each resolved as `nix build` resolves it, since
     `rocmPackages.clr` still fails the image build.
 45. [Make the Chrome DevTools MCP server work at `yolo host`](../design/mcp-presets-removal.md#5-the-chrome-devtools-inventory--what-the-pack-carries-what-the-image-keeps)

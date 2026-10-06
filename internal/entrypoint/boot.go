@@ -685,7 +685,12 @@ func Main(args []string) error {
 	// THE MAIN PROCESS HOLDS instead of running a command: it records the stage for the first
 	// session, says the boot is done, and keeps the container up (holdJail). Its status says
 	// whether a SIGTERM ended it (holdExitStatus).
+	//
+	// Beside the hold, for as long as it lasts, the main process records which versions of the
+	// shared tool store this workspace uses (miseuserecord.go), which is how the host tells the
+	// versions no jail on the machine has used for 30 days (OQ-DF4).
 	if mode == modeHold {
+		startMiseUseRecorder(e)
 		return holdExitStatus(holdJail(command, os.Stderr))
 	}
 	// THE PROVISIONING STAGE, on this session's terminal, after its own pass and before its

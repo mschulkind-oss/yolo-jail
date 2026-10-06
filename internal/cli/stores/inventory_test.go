@@ -301,6 +301,7 @@ func TestEveryNamedReclaimerExists(t *testing.T) {
 	named["PruneOldImages"] = "imageStores (the tagged row)"
 	named["RemoveScratchVolume"] = "scratchStores (the live row)"
 	named["PruneScratchVolumes"] = "scratchStores (the gone row)"
+	named["PruneUnusedMiseVersions"] = "stateStores (the mise row, miseRow)"
 
 	for fn, where := range named {
 		if fn == "" {
