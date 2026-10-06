@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -1426,5 +1427,73 @@ func TestMacosUserMacosLogAsTheSandboxAccountMeasurement(t *testing.T) {
 			t.Logf("MEASUREMENT (macos_log, as %s), %s, %s: %s (rc %d).\noutput:\n%s",
 				macosuser.SandboxUser, probe.name, run.name, verdict, rc, out)
 		}
+	}
+}
+
+// THE SEALED BUILD PROFILE (macosuser.SeatbeltSealedCaptureProfile; docs/design/forked-programs-as-packs.md
+// FP-D19): the profile a fork's build runs under on this backend, which shares the host's network
+// stack, so the seal a container build gets from its own network namespace is two Seatbelt denies
+// here. Each case connects bare first, where it must succeed, then under the profile, where the
+// kernel must refuse it: a TCP connect to a listener this test holds on 127.0.0.1, and a connect to
+// the nix daemon's socket — skipped, with why, on a machine with no daemon to connect to.
+//
+// The profile is the one BuildForkBuildPlan installs, over a staging root of the test's own under
+// /Users/Shared, loaded as the invoking user: the denies name no user, so the account a build runs
+// as does not change what they refuse.
+func TestMacosUserSeatbeltSealedBuildProfileDeniesTheLoopbackAndTheNixDaemon(t *testing.T) {
+	requireMacosUserSeatbelt(t)
+	root, err := os.MkdirTemp(sharedUsersDir, "yolo-sb-sealed-")
+	if err != nil {
+		t.Fatalf("creating the staging root under %s: %v", sharedUsersDir, err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(root) })
+	profile := macosuser.SeatbeltSealedCaptureProfile(root)
+	path := filepath.Join(t.TempDir(), "sealed.sb")
+	if err := os.WriteFile(path, []byte(profile), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Logf("Seatbelt profile under test (%s):\n%s", path, profile)
+
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listening on the loopback: %v", err)
+	}
+	t.Cleanup(func() { _ = ln.Close() })
+	go func() {
+		for {
+			c, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			_ = c.Close()
+		}
+	}()
+	port := ln.Addr().(*net.TCPAddr).Port
+	const nixSocket = "/nix/var/nix/daemon-socket/socket"
+	for _, tc := range []struct {
+		name, script, needs string
+	}{
+		{"loopback_tcp_connect_refused", "/usr/bin/perl -MIO::Socket::INET -e 'IO::Socket::INET->new(PeerAddr => " +
+			"\"127.0.0.1:" + strconv.Itoa(port) + "\", Timeout => 5) or die \"connect: $!\\n\"; print \"" +
+			seatbeltOK + "\\n\"'", ""},
+		{"nix_daemon_socket_connect_refused", "/usr/bin/perl -MIO::Socket::UNIX -e 'IO::Socket::UNIX->new(Peer => " +
+			"$ARGV[0]) or die \"connect: $!\\n\"; print \"" + seatbeltOK + "\\n\"' " + sh(nixSocket), nixSocket},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if tc.needs != "" {
+				if _, err := os.Stat(tc.needs); err != nil {
+					t.Skipf("no %s on this machine (%v): there is nothing for the profile to refuse", tc.needs, err)
+				}
+			}
+			out, rc := runScript(t, tc.script, nil)
+			if rc != 0 || !strings.Contains(out, seatbeltOK) {
+				t.Fatalf("BROKEN CONTROL: the bare connect failed (rc %d), so the sandboxed refusal below would "+
+					"prove nothing:\n%s", rc, out)
+			}
+			out, rc = runScript(t, tc.script, []string{"/usr/bin/sandbox-exec", "-f", path})
+			if rc == 0 || strings.Contains(out, seatbeltOK) {
+				t.Errorf("the sealed build profile let the connect through (rc %d):\n%s", rc, out)
+			}
+		})
 	}
 }

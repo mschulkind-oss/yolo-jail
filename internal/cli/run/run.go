@@ -430,6 +430,11 @@ func Run(opts Options) (rc int) {
 					"This build cannot launch the native macOS backend.")
 			return 1
 		}
+		// A SEALED LAUNCH IS A FORK'S BUILD (FP-D19; seal.go's runSealedMacosUser), and it crosses
+		// nothing this arm hands a session: it returns here, before the first crossing site below.
+		if o.Sealed {
+			return o.runSealedMacosUser(cfg, rt, repoRoot, staged, injectedArgs, channel)
+		}
 		// THE CONTEXT MOUNTS, first on this arm (docs/design/context-mounts.md §4 steps 3-5):
 		// each declared one this backend can deliver becomes a root-owned link plus Seatbelt
 		// rules — or, for a pack's single-file `mount`, a copy the context tree composed below

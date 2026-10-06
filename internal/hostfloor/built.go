@@ -52,10 +52,10 @@ func (f *Floor) buildProvisionable(st Status) Status {
 		// and the question is only whether this machine can build. A machine that cannot is not
 		// pinned either: a pin fetches the fork's source, and with no build to follow it would only
 		// fix the commit sooner than the first launch that can build it does.
-		if why := f.cannotBuild(); why != "" {
+		if why := f.cannotBuild(p.Bin(), "pins the fork and builds it"); why != "" {
 			st.Disposition = NoEntry
 			st.Reason = "it is built from source by fork pack " + p.Install.ForkedBy + ", which has no pin yet, and " +
-				why + runtimeStep(f.Build != nil, "pins the fork and builds it")
+				why
 			return st
 		}
 		st.Reason = "not pinned yet: the install pins fork pack " + p.Install.ForkedBy + "'s source (" +
@@ -76,7 +76,7 @@ func (f *Floor) buildProvisionable(st Status) Status {
 		}
 		return st
 	}
-	if why := f.cannotBuild(); why != "" {
+	if why := f.cannotBuild(p.Bin(), "builds it"); why != "" {
 		st.Disposition, st.Reason = NoEntry, f.noBuildReason(p.Bin(), commit, why)
 	}
 	return st
@@ -112,10 +112,10 @@ func (f *Floor) storeProgramLoaderProblem(entry *capture.Entry, rel string) stri
 }
 
 // noBuildReason is the no-floor-entry reason for a fork the store has no build of at commit, on a
-// machine that cannot run the build act (why): the one spelling Status and an install share.
+// machine that cannot run the build act (why, cannotBuild's, which ends with its step): the one
+// spelling Status and an install share.
 func (f *Floor) noBuildReason(bin, commit, why string) string {
-	return "there is no build of " + bin + " at " + buildVersion(commit) + " on this machine, and " + why +
-		runtimeStep(f.Build != nil, "builds it")
+	return "there is no build of " + bin + " at " + buildVersion(commit) + " on this machine, and " + why
 }
 
 // buildUnusable says why the store's build entry of p at commit cannot be the floor's copy, "" when
@@ -173,12 +173,11 @@ func (f *Floor) installFromBuild(ctx context.Context, p Program, dir string) (*R
 		// for a fork the floor does not hold yet. It is asked again because a reinstall at a moved
 		// pin never comes through provisionable, and a build act started with no runtime would
 		// only fail, turning "the PATH copy, with the reason" into a refused launch.
-		if why := f.cannotBuild(); why != "" {
+		if why := f.cannotBuild(bin, "builds it"); why != "" {
 			return nil, &noEntryError{reason: f.noBuildReason(bin, commit, why)}
 		}
-		f.say("no build of %s at %s on this machine yet; building it from fork pack %s's source in a sealed "+
-			"jail (once per commit per machine, and every jail on this machine reuses it)",
-			bin, buildVersion(commit), in.ForkedBy)
+		f.say("no build of %s at %s on this machine yet; building it from fork pack %s's source %s",
+			bin, buildVersion(commit), in.ForkedBy, f.buildHow())
 		if entry, err = f.Build(p, commit); err != nil {
 			return nil, fmt.Errorf("building %s at %s: %w", bin, buildVersion(commit), err)
 		}
@@ -217,6 +216,17 @@ func (f *Floor) installFromBuild(ctx context.Context, p Program, dir string) (*R
 	rec := &Record{Entry: entryPath, Capture: entry.Key, Revision: commit, Recipe: in.SourceRecipe(),
 		Version: buildVersion(commit)}
 	return f.execRecord(ctx, in, rec)
+}
+
+// buildHow is the clause the line that starts a fork's build says how it runs: the macos-user
+// sandbox account on a Mac (FP-D19), whose build serves this floor alone, and on Linux the sealed jail
+// whose build every jail on the machine reuses.
+func (f *Floor) buildHow() string {
+	if f.GOOS == "darwin" {
+		return "as the macos-user sandbox account, sealed under Seatbelt in a throwaway home (once per " +
+			"commit per Mac; sudo may ask for your password)"
+	}
+	return "in a sealed jail (once per commit per machine, and every jail on this machine reuses it)"
 }
 
 // execRecord fills rec's Exec for a fork's build materialized at rec.Entry: the program itself, or

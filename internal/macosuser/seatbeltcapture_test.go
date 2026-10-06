@@ -161,3 +161,43 @@ func TestCaptureProfileEscapesTheStagingPath(t *testing.T) {
 		t.Errorf("SBPL escaping absent:\n%s", p)
 	}
 }
+
+// THE SEALED CAPTURE PROFILE (FP-D19) is the capture profile with the seal after it: everything the
+// capture profile pins still holds, and the loopback and the nix daemon are denied AFTER
+// `(allow default)` — last match wins, so a deny before it would be none.
+func TestSealedCaptureProfileDeniesTheLoopbackAndTheNixDaemonAfterAllowDefault(t *testing.T) {
+	p := SeatbeltSealedCaptureProfile(testStagingRoot)
+	if problems := captureProfileProblems(p); len(problems) > 0 {
+		t.Errorf("the sealed profile breaks the capture profile's own rules: %v", problems)
+	}
+	if !strings.HasPrefix(p, SeatbeltCaptureProfile(testStagingRoot)) {
+		t.Error("the sealed profile is not the capture profile with the seal appended")
+	}
+	allow := idx(p, "(allow default)")
+	for _, deny := range []string{
+		`(deny network-outbound (remote ip "localhost:*"))`,
+		`(deny network-outbound (remote unix-socket (path-literal "/nix/var/nix/daemon-socket/socket")))`,
+		`(deny file-read* file-write* (subpath "/nix/var/nix/daemon-socket"))`,
+	} {
+		if !contains(p, deny) {
+			t.Errorf("the sealed profile lacks %q:\n%s", deny, p)
+		} else if idx(p, deny) < allow {
+			t.Errorf("%q precedes `(allow default)`, so it denies nothing", deny)
+		}
+	}
+	if problems := sealedProfileProblems(p); len(problems) > 0 {
+		t.Errorf("the sealed profile fails its own check: %v", problems)
+	}
+	// The network beyond the loopback stays: a build fetches its dependencies.
+	if contains(p, `(deny network-outbound (remote ip "*:*"))`) || contains(p, "(deny network*") {
+		t.Errorf("the sealed profile denies the network a build fetches from:\n%s", p)
+	}
+}
+
+// The plain capture profile, an installer's, is NOT sealed: the seal is a fork build's alone (FP-D9
+// scopes it to the fork route), and the check says so of it.
+func TestTheInstallerCaptureProfileIsNotSealed(t *testing.T) {
+	if problems := sealedProfileProblems(SeatbeltCaptureProfile(testStagingRoot)); len(problems) != 3 {
+		t.Errorf("the installer's capture profile reads as sealed: %v", problems)
+	}
+}
