@@ -199,6 +199,14 @@ func hostApplyGate(errw io.Writer, stdin io.Reader, bin string) bool {
 	// a reason to stop a launch; the composition behind this hook now refuses the same set, so
 	// "launching against your last apply" would have been followed by a refusal.
 	if survey != nil && len(survey.UnresolvedPacks()) > 0 {
+		// A pack whose only fault is a contribution this yolo cannot read is not one the launch
+		// refuses: the composition reads it as this yolo can and says what it skips
+		// (docs/design/patched-forks.md PF-D68). So with nothing else wrong the hook renders
+		// nothing, as for any incomplete set, and launches on the last apply (PF-D70).
+		if skewOnly(survey.UnresolvedPacks()) {
+			reportHostApplyGateSkewedSet(errw, bin, survey.UnresolvedPacks())
+			return true
+		}
 		reportHostApplyGateIncompleteSet(errw, bin, survey.UnresolvedPacks())
 		return false
 	}
@@ -306,6 +314,35 @@ func reportHostApplyGateIncompleteSet(errw io.Writer, bin string, unresolved []u
 	}
 	fmt.Fprintf(errw, "  Refusing to launch %s: a launch never runs on part of the pack set your "+
 		"config asks for, at any notch.\n", bin)
+}
+
+// skewOnly reports whether every record in list is a pack that resolved but holds contributions
+// this yolo cannot read (unresolvedPack.Skipped), and none is a pack that did not resolve.
+func skewOnly(list []unresolvedPack) bool {
+	for _, u := range list {
+		if len(u.Skipped) == 0 {
+			return false
+		}
+	}
+	return len(list) > 0
+}
+
+// reportHostApplyGateSkewedSet is the hook's line for a pack set it does not render because a
+// pack holds contributions this yolo cannot read: the packs, the remedy, and that the program
+// launches on the last apply. The skips themselves are the composition's lines (selectionLines),
+// printed once below this, so they are not repeated here.
+func reportHostApplyGateSkewedSet(errw io.Writer, bin string, skewed []unresolvedPack) {
+	names := make([]string, len(skewed))
+	for i, u := range skewed {
+		names[i] = u.Name
+	}
+	fmt.Fprintf(errw, "yolo host: did not render your host configuration — %s %s contributions "+
+		"this yolo cannot read, and a real home is never rendered around them:\n",
+		strings.Join(names, ", "), plural(len(skewed), "holds", "hold"))
+	for _, g := range unresolvedPackGroups(skewed) {
+		fmt.Fprintf(errw, "  → %s\n", g.Remedy)
+	}
+	fmt.Fprintf(errw, "  Launching %s against the configuration your last apply left in place.\n", bin)
 }
 
 // reportHostApplyGateDecisions is the hook's refusal to run an apply that would ask something:

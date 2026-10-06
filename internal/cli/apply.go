@@ -493,6 +493,20 @@ func applyHostSurveyed(out, errw io.Writer, color bool, write bool, stdin io.Rea
 		survey.noteUnresolved(u)
 		resolvedAll = false
 	}
+	// A CONTRIBUTION THIS YOLO CANNOT READ is the same hole one level down
+	// (docs/design/patched-forks.md PF-D70). The pack resolves, and a launch runs it without the
+	// contribution, saying so (PF-D68); but an --assert rendered around it would retire from the
+	// real home whatever an earlier render of that contribution wrote, which is the half state
+	// the ruling above refuses. So it joins the incomplete set: named here, refused at --assert,
+	// and the launch gate renders nothing and launches on the last apply.
+	for _, u := range sel.skewed() {
+		for _, note := range u.Skipped {
+			pr.Printf("  [bold red]pack       cannot be read whole[/bold red] — %s: %s", u.Name, note)
+		}
+		unresolved = append(unresolved, u)
+		survey.noteUnresolved(u)
+		resolvedAll = false
+	}
 	// NO HALF STATES (maintainer ruling). An --assert renders the WHOLE configured set or
 	// nothing: one pack missing from the render means its skills, prose and config keys are
 	// absent from a home whose other packs were applied around the hole — and the retire passes
@@ -504,8 +518,8 @@ func applyHostSurveyed(out, errw io.Writer, color bool, write bool, stdin io.Rea
 	// would refuse.
 	if write && len(unresolved) > 0 {
 		printRemedyGroups(pr, unresolvedPackGroups(unresolved))
-		pr.Printf("[bold red]host apply: refused — %d configured %s could not be resolved, and an "+
-			"incomplete pack set is never applied. Nothing was written.[/bold red]",
+		pr.Printf("[bold red]host apply: refused — %d configured %s could not be resolved or "+
+			"read whole, and an incomplete pack set is never applied. Nothing was written.[/bold red]",
 			len(unresolved), plural(len(unresolved), "pack", "packs"))
 		return 1
 	}

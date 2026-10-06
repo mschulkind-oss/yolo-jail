@@ -30,6 +30,7 @@ var registry = map[string]func(args []string) int{
 	"pack":             runPack,
 	"capture":          runCapture,
 	"config-ref":       runConfigRef,
+	"features":         runFeatures,
 	"init":             runInit,
 	"init-user-config": runInitUserConfig,
 	// The host-daemon management surface and its retained alias. `broker` is

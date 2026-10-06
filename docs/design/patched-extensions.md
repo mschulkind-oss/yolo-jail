@@ -589,7 +589,10 @@ For each extension:
 
 **An older yolo** refuses the manifest at the host, as it refuses a patched fork's, and
 [PF §10](patched-forks.md#10-migration-from-a-plain-fork)'s mitigations apply: a pack author keeps
-the `git:` manifest where existing users point and publishes this one on a new ref.
+the `git:` manifest where existing users point and publishes this one on a new ref. A yolo from this
+release on skips a contribution it cannot read and names it
+([PF-D68](patched-forks.md#PF-D68)), and `yolo features` names `patched-extensions`
+([PF-D71](patched-forks.md#PF-D71)).
 
 ## 14. Alternatives, and what this does not cover
 

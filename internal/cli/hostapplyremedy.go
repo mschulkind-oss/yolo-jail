@@ -137,9 +137,11 @@ func hostApplyRemedyGroups(s *hostApplySurvey, home string, write bool) []remedy
 // Shared by the dry run's report and the --assert refusal, so the lines a user reads when the
 // apply refuses are the lines the dry run showed them.
 func unresolvedPackGroups(list []unresolvedPack) []remedyGroup {
-	var git, malformed, local, other []string
+	var git, malformed, local, other, skewed []string
 	for _, u := range list {
 		switch {
+		case len(u.Skipped) > 0:
+			skewed = append(skewed, u.Name)
 		case u.NeedsInstall:
 			git = append(git, u.Name)
 		case u.Implicit:
@@ -201,6 +203,22 @@ func unresolvedPackGroups(list []unresolvedPack) []remedyGroup {
 			Remedy: "fix what is named above for each pack, or remove it from `packs` in " +
 				paths.UserConfigPath(),
 			VerdictTerm: other[0],
+			Warn:        true,
+		})
+	}
+	if len(skewed) > 0 {
+		// docs/design/patched-forks.md PF-D70: the pack resolves and a launch runs it without
+		// what this yolo cannot read, but a real home is never rendered around the hole, which
+		// would retire what an earlier render of the skipped contribution wrote.
+		out = append(out, remedyGroup{
+			Class:    remedyClassUnresolvedPack,
+			Key:      "update yolo",
+			Headline: "packs holding contributions this yolo cannot read, so nothing can be applied",
+			Items:    skewed,
+			Remedy: "update yolo (`yolo update`), since a newer yolo may read what this one skips " +
+				"in them; if a field is misspelled, `yolo pack lint <its dir>` names it. A launch " +
+				"runs these packs without what it skips, and says so",
+			VerdictTerm: skewed[0],
 			Warn:        true,
 		})
 	}

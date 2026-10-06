@@ -82,14 +82,16 @@ type Pack struct {
 	// one, because a skills-only pack must stay zero-ceremony.
 	Decl *packdecl.Manifest
 	// SkewNotes are the version-skew reports from a TOLERANT manifest read
-	// (TolerateSkew): one line per contribution skipped because this build does not
-	// know its kind, each naming the pack and the kind
-	// (docs/reference/loophole-system.md#strict-and-tolerant-and-why-both).
-	// NOT problems — a problem fails the boot (A12), and surviving exactly that is
-	// why the skip exists — but never silent either: the boot path reports each one,
-	// so a degraded jail (a contribution the baked entrypoint cannot render) is
-	// visible. Always empty on the strict authoring path, where the same manifest is
-	// refused as a load problem instead.
+	// (TolerateSkew) or a host USE READ (LoadDirForUse): one line per contribution skipped,
+	// or kept without a field, because this build does not know its kind, its `via` or a
+	// field it holds, and one per pack-wide field ignored, each naming the pack
+	// (docs/reference/loophole-system.md#strict-and-tolerant-and-why-both,
+	// docs/design/patched-forks.md PF-D68).
+	// NOT problems — a problem fails the boot (A12) and the launch, and surviving exactly
+	// that is why the skip exists — but never silent either: the boot path and the launch
+	// report each one, so a degraded jail (a contribution this build cannot render) is
+	// visible. Always empty on the strict authoring path (LoadDir on the host), where the
+	// same manifest is refused as a load problem instead.
 	SkewNotes []string
 	// Official reports that this pack is one yolo ships: loaded from the embedded set
 	// (loadEmbeddedPack), or resolved from a `packs` entry that names an embedded pack
@@ -906,11 +908,12 @@ func (p *Pack) InstallBins() []string {
 // IN-JAIL entrypoint (TolerateSkew).
 //
 // A package-level switch rather than a parameter because the choice is a property of WHERE
-// the code is running, not of any individual call: every read on the host is an authoring
-// read (be strict — a typo must be loud) and every read in the jail is a cross-version read
-// (be tolerant — the host CLI and the baked entrypoint legitimately differ in age). Threading
-// it through ten call sites would invite getting one wrong, and the wrong one is the boot
-// path, where the cost is a jail that will not start.
+// the code is running, not of any individual call: a read on the host is an authoring read
+// (LoadDir: be strict — a typo must be loud) or a use read (LoadDirForUse: strict, but a
+// contribution this build cannot read is skipped and named), and every read in the jail is a
+// cross-version read (be tolerant — the host CLI and the baked entrypoint legitimately differ in
+// age). Threading it through ten call sites would invite getting one wrong, and the wrong one is
+// the boot path, where the cost is a jail that will not start.
 var tolerateUnknownFields bool
 
 // TolerateSkew switches this process's manifest reads to the version-tolerant decoder. The
@@ -931,6 +934,27 @@ func OverrideSkewTolerance(tolerant bool) (restore func()) {
 }
 
 func LoadDir(root, name string) (*Pack, []string) {
+	return loadDir(root, name, false)
+}
+
+// LoadDirForUse is LoadDir for a USE READ on the host (packdecl.DecodeForUse): a read whose
+// result a launch or a host verb acts on — the one pack resolver (config.ResolvePack) and an
+// attach's read of a running jail's tree. Strict about everything this build knows, as LoadDir
+// is, but a contribution holding a kind, a `via` or a field this build does not know is skipped
+// and reported in Pack.SkewNotes instead of failing the pack, so a pack written for a newer yolo
+// degrades a launch on this host rather than refusing every one of them
+// (docs/design/patched-forks.md PF-D68).
+//
+// The skip is never silent, and that is the caller's half: a launch prints each note as a
+// disclosure line, `yolo check` grades it as a warning, and `yolo host apply --assert` refuses it
+// (PF-D70). LoadDir stays the AUTHORING read (`yolo pack lint`, `yolo pack footprint`, the packs
+// yolo ships), which refuses the same manifest by name. In the jail both read tolerantly
+// (TolerateSkew).
+func LoadDirForUse(root, name string) (*Pack, []string) {
+	return loadDir(root, name, true)
+}
+
+func loadDir(root, name string, forUse bool) (*Pack, []string) {
 	decl := &packdecl.Manifest{}
 	var problems, skewNotes []string
 	var data []byte
@@ -946,13 +970,16 @@ func LoadDir(root, name string) (*Pack, []string) {
 		}
 	}
 	if manifestFound != "" {
-		if tolerateUnknownFields {
+		switch {
+		case tolerateUnknownFields:
 			decl, problems, skewNotes = packdecl.DecodeTolerant(data)
-		} else {
+		case forUse:
+			decl, problems, skewNotes = packdecl.DecodeForUse(data)
+		default:
 			decl, problems = packdecl.Decode(data)
-			if decl != nil {
-				problems = append(problems, retiredSurfaceHostGrants(decl)...)
-			}
+		}
+		if decl != nil && !tolerateUnknownFields {
+			problems = append(problems, retiredSurfaceHostGrants(decl)...)
 		}
 		if decl == nil {
 			decl = &packdecl.Manifest{}

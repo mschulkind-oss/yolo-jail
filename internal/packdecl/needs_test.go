@@ -103,18 +103,18 @@ func TestNeedsValidationRunsOnTheTolerantPath(t *testing.T) {
 }
 
 // TestNeedsTolerantPathSkipsWhatItDoesNotKnow: the tolerant path is for reading a
-// manifest some OTHER build wrote. A key this build has never heard of is skipped
-// exactly like every other unknown top-level key (plain json.Unmarshal — silently
-// ignored at the top level; the skip-AND-report mechanism exists one level down,
-// for unknown kinds), while `needs` itself — which this build knows — is still
+// manifest some OTHER build wrote. A key this build has never heard of is ignored and
+// NAMED, like every other unknown top-level key (docs/design/patched-forks.md PF-D68: it
+// used to be ignored in silence), while `needs` itself — which this build knows — is still
 // parsed and still validated. The strict path refuses the same manifest, because
 // an unknown key is an authoring problem there.
 func TestNeedsTolerantPathSkipsWhatItDoesNotKnow(t *testing.T) {
 	body := []byte(`{"name": "p", "future_top_level_key": 1,
 	  "needs": [{"pack": "wire-bridge", "when_bins": ["claude"]}]}`)
 	m, problems, skipped := DecodeTolerant(body)
-	if len(problems) > 0 || len(skipped) > 0 {
-		t.Fatalf("tolerant decode refused or reported: %v / %v", problems, skipped)
+	if len(problems) > 0 || len(skipped) != 1 ||
+		!strings.Contains(skipped[0], `unknown field "future_top_level_key" is ignored`) {
+		t.Fatalf("tolerant decode refused, or did not name the key it ignored: %v / %v", problems, skipped)
 	}
 	if len(m.DeclaredNeeds()) != 1 || m.DeclaredNeeds()[0].Pack != "wire-bridge" {
 		t.Errorf("the key this build KNOWS must still parse: %+v", m.DeclaredNeeds())

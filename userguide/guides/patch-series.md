@@ -214,5 +214,13 @@ built, and the launch says to update git.
 
 ## Going back to a fork
 
-Remove the patched pack from `packs`, and select your fork pack again. An older yolo does not read a
-pack with `patches`, so take the patched pack out of `packs` before going back to one.
+Remove the patched pack from `packs`, and select your fork pack again.
+
+A yolo older than patch series refuses any pack that uses `patches`, and on the host that refusal
+fails **every** launch, not just the patched program's. So take the patched pack out of `packs`
+before you go back to an older yolo, and before a machine still on one reads your config.
+
+To check a machine, run `yolo features`. It lists `patch-series` and `patched-extensions` where yolo
+reads them, and a yolo without the `features` command is older than both. A yolo that has the command
+no longer fails a launch over a pack it cannot fully read: it leaves out the part it cannot read and
+says which one.

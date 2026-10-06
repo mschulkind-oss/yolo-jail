@@ -119,6 +119,7 @@ var subcommandUsage = map[string]subUsage{
 	"init":                  {text: initUsage, valueFlags: []string{"--mount", "-m"}},
 	"init-user-config":      {text: initUserConfigUsage},
 	"config-ref":            {text: configRefUsage},
+	"features":              {text: featuresUsage, valueFlags: []string{"--format"}},
 	"macos-setup":           {text: macosSetupUsage},
 	"macos-teardown":        {text: macosTeardownUsage},
 	"macos-unshare":         {text: macosUnshareUsage},

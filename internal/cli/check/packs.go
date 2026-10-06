@@ -190,6 +190,14 @@ func (o *Options) sectionPacks(r *reporter, merged *jsonx.OrderedMap) {
 			for _, prob := range res.Problems {
 				r.fail(prob, "the launch refuses this pack until it is fixed.\n"+packFixNote(e))
 			}
+			// A contribution this yolo cannot read is a WARNING, not a failure: the launch runs the
+			// pack without it and says so (docs/design/patched-forks.md PF-D68), so check passing
+			// is the launch's own answer. Graded, so the summary counts what a launch will skip.
+			if res.Pack != nil {
+				for _, note := range res.Pack.SkewNotes {
+					r.warn(note, skewFixNote(e))
+				}
+			}
 			if res.Pack != nil && len(res.Problems) == 0 {
 				return res.Pack, nil
 			}
@@ -358,6 +366,19 @@ func packFixNote(e config.PackEntry) string {
 		return ShippedPackFix(e.Name) + ", " + recheck
 	}
 	return UserPackFix(e.Source) + ", " + recheck
+}
+
+// skewFixNote is the next step for a contribution of e's pack this yolo cannot read: a newer yolo
+// may read it, or the field is a typo `yolo pack lint` names. A pack yolo ships is never written
+// for a newer yolo than itself, so there it is the maintainers' bug.
+func skewFixNote(e config.PackEntry) string {
+	if e.Embedded() {
+		return "each launch skips it and says so.\n" + packFixNote(e)
+	}
+	return "each launch runs this pack without it and says so, and `yolo host apply --assert` " +
+		"renders nothing while it is skipped. Update yolo (`yolo update`) if the pack was written " +
+		"for a newer one; if a field is misspelled, `yolo pack lint` on the pack at " + e.Source +
+		" names it, " + recheck
 }
 
 // UserPackFix is packFixNote for the user's own pack, at source, without the re-check, so another

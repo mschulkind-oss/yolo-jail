@@ -78,6 +78,9 @@ var commandHelp = []struct{ name, blurb string }{
 	// dead end with extra steps, the same argument macos-fix-permissions carries.
 	{"programs", "In a jail: what is installed, what nothing declares, and remove the orphans"},
 	{"config-ref", "Print the full configuration reference"},
+	// Beside config-ref: the reference says what a pack may declare, and this says which of
+	// it THIS build reads, which a version string cannot (patched-forks.md PF-D71).
+	{"features", "List what this yolo can read in a pack (patch-series, kind:<kind>, ...)"},
 	{"macos-setup", "Provision the native macOS sandbox user (macos-user backend)"},
 	// The four macos-* commands are listed as TWO INVERSE PAIRS, in that order:
 	// setup/teardown own the sandbox ACCOUNT, fix-permissions/unshare own a

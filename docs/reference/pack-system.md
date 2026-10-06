@@ -387,9 +387,10 @@ that merely leaves out a part it could ship never fails either check.
 ## The manifest
 
 `pack.json` carries a handful of per-pack facts plus one list of typed contributions. Every
-field is optional; a pack with no `pack.json` behaves as an empty manifest. Decoding is
-strict (`DisallowUnknownFields`) and reports *every* problem, not the first, so a typo in
-one contribution does not mask a second.
+field is optional; a pack with no `pack.json` behaves as an empty manifest. The authoring decode
+is strict (`DisallowUnknownFields`) and reports *every* problem, not the first, so a typo in
+one contribution does not mask a second; a launch skips what this build cannot read instead
+([below](#unknown-kinds-across-the-version-boundary)).
 
 | Top-level key | What it is |
 | :--- | :--- |
@@ -444,10 +445,18 @@ runs on every path-bearing field of every kind.
 
 ### Unknown kinds across the version boundary
 
-An unknown `kind` is a loud load error **at authoring** — every host-side read — and, across
-the version boundary only, a skipped-and-reported contribution instead. The in-jail load
-runs `packload.TolerateSkew()`, so a manifest using a kind a pre-`just load` entrypoint does
-not know still boots the jail, warning by name.
+An unknown `kind` is a loud load error **at authoring** — `yolo pack lint`, `yolo pack
+footprint` and the packs yolo ships — and a skipped-and-reported contribution everywhere a pack is
+read for use. The in-jail load runs `packload.TolerateSkew()`, so a manifest using a kind a
+pre-`just load` entrypoint does not know still boots the jail, warning by name. The host's launches
+and verbs read through the one resolver's `packload.LoadDirForUse`, which skips the same
+contributions, an unknown `via` or field included, and names each in one line, so a pack written for
+a newer yolo no longer fails every launch on an older host
+([PF-D68](../design/patched-forks.md#PF-D68)). A contribution whose kind only restricts
+(`blocked-tool`, `intercept`, `autonomy`) is kept without the unknown field instead
+([PF-D69](../design/patched-forks.md#PF-D69)), and `yolo host apply --assert` writes nothing while a
+contribution is skipped ([PF-D70](../design/patched-forks.md#PF-D70)). `yolo features` lists the
+kinds, `via`s and named capabilities a build reads ([PF-D71](../design/patched-forks.md#PF-D71)).
 
 > [!WARNING]
 > **Tolerance is for a kind, not for a CONSTRAINT.** A settings declaration is refused on

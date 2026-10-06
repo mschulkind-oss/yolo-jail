@@ -308,7 +308,9 @@ func TestCheckDepsRefusesAnUnreadableUserConfig(t *testing.T) {
 func TestCheckDepsNamesTheLocalPacksDirectory(t *testing.T) {
 	home := checkDepsHome(t, `{"host_floor": false}`, "apt")
 	local := filepath.Join(home, ".config", "yolo-jail", "local")
-	writeFile(t, filepath.Join(local, "pack.json"), `{"name":"local","contributes":[{"kind":"no-such-kind"}]}`)
+	// A contribution with no kind: a problem every build refuses. An unknown kind is no longer one
+	// at a host verb — the use read skips it and names it (docs/design/patched-forks.md PF-D68).
+	writeFile(t, filepath.Join(local, "pack.json"), `{"name":"local","contributes":[{"from":"x"}]}`)
 	var out, errw bytes.Buffer
 	rc := checkDepsMain([]string{"--no-manifest"}, &out, &errw, false)
 	report := out.String() + errw.String()

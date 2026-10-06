@@ -187,7 +187,9 @@ func loadPackTree(root string) ([]*packload.Pack, error) {
 	}
 	var out []*packload.Pack
 	for _, e := range rec {
-		p, problems := packload.LoadDir(filepath.Join(root, filepath.FromSlash(e.Dir)), e.Name)
+		// The launch's own read (packload.LoadDirForUse, as config.ResolvePack loads it), so a
+		// contribution the launch skipped is skipped here too rather than failing the attach.
+		p, problems := packload.LoadDirForUse(filepath.Join(root, filepath.FromSlash(e.Dir)), e.Name)
 		if len(problems) > 0 {
 			return nil, errors.New(problems[0]) // LoadDir's problems already name the pack
 		}
@@ -224,7 +226,7 @@ func loadUnrecordedPackTree(root string) ([]*packload.Pack, error) {
 			if dir == root && slugNames[name] != "" {
 				name = slugNames[name]
 			}
-			p, problems := packload.LoadDir(filepath.Join(dir, ent.Name()), name)
+			p, problems := packload.LoadDirForUse(filepath.Join(dir, ent.Name()), name)
 			if len(problems) > 0 {
 				return nil, errors.New(problems[0]) // LoadDir's problems already name the pack
 			}
