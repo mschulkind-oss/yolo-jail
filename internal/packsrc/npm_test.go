@@ -200,6 +200,32 @@ func TestAnUnreachableRegistryIsTheChecksProblemAndNamesTheRetry(t *testing.T) {
 	}
 }
 
+// A SPEC THE REGISTRY CANNOT ANSWER NAMES THE EDIT, not a wait: a package the registry does not
+// have, a dist-tag it does not carry, a range nothing satisfies. The next check would get the same
+// answer, so "in an hour, tries again" is no next step; the source's name or spec is, and
+// `yolo pack update` checks again once it is edited. None is a failed fetch.
+func TestAnNpmSpecTheRegistryCannotAnswerNamesTheEdit(t *testing.T) {
+	fakeRegistry(t, "pi-web-access", piWebAccessMeta)
+	for _, c := range []struct{ src, want string }{
+		{"npm:pi-web-acess", "the registry has no package pi-web-acess — check the source's package name, " +
+			"`npm:pi-web-acess`"},
+		{"npm:pi-web-access@nightly", "check the source's spec, `npm:pi-web-access@nightly`"},
+		{"npm:pi-web-access@^9.0.0", "check the source's spec, `npm:pi-web-access@^9.0.0`"},
+	} {
+		s := &Store{Dir: t.TempDir(), Getenv: noStagedTree}
+		res := s.CheckPatched(PatchedWant{Owner: "p/x", Source: c.src}, CheckOptions{})
+		if res.Err != nil {
+			t.Fatal(res.Err)
+		}
+		found := res.Record.Check
+		if !strings.Contains(found.Problem, c.want) || !strings.Contains(found.Problem, "`yolo pack update`") ||
+			strings.Contains(found.Problem, "tries again") || found.FetchErr != "" || len(found.List) != 0 {
+			t.Errorf("%s: problem %q, fetch error %q; want the edit %q and no wait", c.src, found.Problem,
+				found.FetchErr, c.want)
+		}
+	}
+}
+
 func TestAnNpmListIsCutAtTheGoodBuildsVersionAlone(t *testing.T) {
 	in := CheckInputs{Repo: "npm:x", Ref: "latest"}
 	r := &CheckRecord{Read: in, Check: &CheckFound{RefKind: RefKindNpmTag, List: []ListEntry{NpmListEntry("1.2.0")}},

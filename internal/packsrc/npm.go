@@ -101,6 +101,14 @@ func (n NpmSource) Ref() string {
 	return n.Spec
 }
 
+// String is the source as written: `npm:<name>`, then `@<spec>` when it has one.
+func (n NpmSource) String() string {
+	if n.Spec == "" {
+		return n.Repo()
+	}
+	return n.Repo() + "@" + n.Spec
+}
+
 // Repo is the source's identity without its spec: `npm:<name>`, which a check record reads as its
 // repository and a build's receipt as its source, as a git source's carries its repository and not
 // its ref.
@@ -217,6 +225,10 @@ type npmPackument struct {
 	} `json:"versions"`
 }
 
+// errNpmNoPackage is the registry's 404 for a package name: an answer, not a failed fetch, and one
+// the next check would get again.
+var errNpmNoPackage = errors.New("the registry has no package")
+
 // fetchNpmPackument asks the registry for name's abbreviated metadata.
 func fetchNpmPackument(ctx context.Context, name string) (*npmPackument, error) {
 	u := strings.TrimSuffix(NpmRegistry, "/") + "/" + url.PathEscape(name)
@@ -232,7 +244,7 @@ func fetchNpmPackument(ctx context.Context, name string) (*npmPackument, error) 
 	defer resp.Body.Close()
 	switch {
 	case resp.StatusCode == http.StatusNotFound:
-		return nil, fmt.Errorf("the registry has no package %s", name)
+		return nil, fmt.Errorf("%w %s", errNpmNoPackage, name)
 	case resp.StatusCode != http.StatusOK:
 		return nil, fmt.Errorf("the registry answered %s for %s", resp.Status, name)
 	}
@@ -343,21 +355,27 @@ func (s *Store) findNpmCandidates(n NpmSource) CheckFound {
 		ctx, cancel := context.WithTimeout(s.parentCtx(), s.timeout())
 		defer cancel()
 		p, err := fetchNpmPackument(ctx, n.Name)
-		if err == nil {
-			version, err = p.pick(n)
-		} else {
+		switch {
+		case errors.Is(err, errNpmNoPackage):
+			// AN ANSWER, NOT A FAILED FETCH: the next check would get it again, so the next step is
+			// the source's name, never a wait (every stop names the next step).
+			found.Problem = oneLine(err) + " — check the source's package name, `" + n.String() + "`; " +
+				"once it is edited, `yolo pack update` checks it now"
+			return found
+		case err != nil:
 			found.FetchErr = oneLine(err)
 			if errors.Is(ctx.Err(), context.DeadlineExceeded) {
 				found.FetchErr = fmt.Sprintf("the registry did not answer within %s", s.timeout().Round(time.Second))
 			}
-		}
-		if err != nil {
-			found.Problem = "could not resolve " + n.Repo() + "@" + n.Ref() + " (" + oneLine(err) + ") — the " +
+			found.Problem = "could not ask the registry about " + n.Repo() + " (" + found.FetchErr + ") — the " +
 				"next check, in an hour, tries again, or `yolo pack update` checks now"
-			if found.FetchErr != "" {
-				found.Problem = "could not ask the registry about " + n.Repo() + " (" + found.FetchErr + ") — the " +
-					"next check, in an hour, tries again, or `yolo pack update` checks now"
-			}
+			return found
+		}
+		if version, err = p.pick(n); err != nil {
+			// The registry answered, and nothing it carries is what the spec names: a dist-tag it
+			// does not have, or a range nothing satisfies. The spec is the next step.
+			found.Problem = "could not resolve " + n.String() + " (" + oneLine(err) + ") — check the " +
+				"source's spec, `" + n.String() + "`; once it is edited, `yolo pack update` checks it now"
 			return found
 		}
 		found.Fetched = true
