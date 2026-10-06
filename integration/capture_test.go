@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"sort"
 	"strconv"
 	"strings"
 	"syscall"
@@ -30,7 +31,8 @@ import (
 // `.local/share/yolo-jail` is deliberately re-linked to the machine's real store
 // (packHomeSharedStores) so the podman image cache is shared. The capture store lives under
 // that path, so this test really does admit an entry into the developer's own store — which
-// is why it records what was there first and removes only what it added.
+// is why it records what was there first and removes only what it added: the new entries whose
+// receipt names its fixture's bin (newCaptureEntries).
 
 const (
 	captureFixturePack = "capture-fixture-pack"
@@ -109,7 +111,7 @@ func TestCaptureRecordsAnInstallerIntoTheStore(t *testing.T) {
 
 	store := filepath.Join(os.Getenv("HOME"), ".local", "share", "yolo-jail", "captures")
 	before := captureEntryNames(t, store)
-	t.Cleanup(func() { removeNewCaptureEntries(t, store, before) })
+	t.Cleanup(func() { removeNewCaptureEntries(t, store, before, captureFixtureBin) })
 	t.Cleanup(func() { _ = os.RemoveAll(filepath.Join(store, "staging", captureFixtureBin)) })
 
 	r := runYoloCLI(t, t.TempDir(), "capture", captureFixtureBin)
@@ -129,7 +131,7 @@ func TestCaptureRecordsAnInstallerIntoTheStore(t *testing.T) {
 	}
 
 	// Exactly one new entry, and it is complete.
-	added := newCaptureEntries(t, store, before)
+	added := newCaptureEntries(t, store, before, captureFixtureBin)
 	if len(added) != 1 {
 		t.Fatalf("got %d new capture entries, want 1: %v", len(added), added)
 	}
@@ -257,23 +259,50 @@ func captureEntryNames(t *testing.T, store string) map[string]bool {
 	return out
 }
 
-// newCaptureEntries names the keys that appeared since before.
-func newCaptureEntries(t *testing.T, store string, before map[string]bool) []string {
+// newCaptureEntries names, sorted, the keys that appeared since before and whose receipt names
+// bin: this test's entries. The store is the machine's own (see the file comment), so an entry
+// that appeared meanwhile may be a concurrent capture's or another run's, and a receipt is the one
+// place an entry says what it is of (capture.Store.EntryKeys). Each caller passes its fixture's
+// bin, which no other fixture captures; this file and capturematerialize_test.go share one
+// fixture, and the package runs its tests one at a time. So the bin is the owner, except that two
+// suite runs at once of one fixture capture the same bin (and, the store being content-addressed,
+// often the same key), and still see each other's entries. An entry whose receipt is not written
+// yet names nobody, and is not counted.
+func newCaptureEntries(t *testing.T, store string, before map[string]bool, bin string) []string {
 	t.Helper()
 	var added []string
 	for name := range captureEntryNames(t, store) {
-		if !before[name] {
+		if !before[name] && captureEntryNamesBin(store, name, bin) {
 			added = append(added, name)
 		}
 	}
+	sort.Strings(added)
 	return added
 }
 
-// removeNewCaptureEntries deletes only what this test added, because the store it wrote into
-// is the machine's own (see the file comment).
-func removeNewCaptureEntries(t *testing.T, store string, before map[string]bool) {
+// captureEntryNamesBin reports whether any line of the entry's receipt log names bin. A line that
+// is not JSON names nothing.
+func captureEntryNamesBin(store, key, bin string) bool {
+	data, err := os.ReadFile(filepath.Join(store, "entries", key, "receipts.jsonl"))
+	if err != nil {
+		return false
+	}
+	for _, line := range strings.Split(string(data), "\n") {
+		var rec struct {
+			Bin string `json:"bin"`
+		}
+		if json.Unmarshal([]byte(line), &rec) == nil && rec.Bin == bin {
+			return true
+		}
+	}
+	return false
+}
+
+// removeNewCaptureEntries deletes only what this test added, newCaptureEntries' entries, because
+// the store it wrote into is the machine's own (see the file comment).
+func removeNewCaptureEntries(t *testing.T, store string, before map[string]bool, bin string) {
 	t.Helper()
-	for _, name := range newCaptureEntries(t, store, before) {
+	for _, name := range newCaptureEntries(t, store, before, bin) {
 		_ = os.RemoveAll(filepath.Join(store, "entries", name))
 	}
 }

@@ -137,7 +137,7 @@ func TestPatchedForkFollowsItsUpstreamAndHoldsAtAConflict(t *testing.T) {
 	record := (&packsrc.Store{Dir: filepath.Join(state, "packs")}).CheckRecordPath(owner)
 	_ = os.Remove(record)
 	t.Cleanup(func() {
-		removeNewCaptureEntries(t, store, before)
+		removeNewCaptureEntries(t, store, before, patchFixtureBin)
 		_ = os.Remove(record)
 	})
 	userConfig := filepath.Join(os.Getenv("HOME"), ".config", "yolo-jail", "config.jsonc")
@@ -182,7 +182,7 @@ func TestPatchedForkFollowsItsUpstreamAndHoldsAtAConflict(t *testing.T) {
 	if !strings.Contains(out, "built fork "+owner+": v1.1.0 ("+v11[:8]+") + 1 patch; this jail runs it") {
 		t.Errorf("the first launch does not say what it built:\n%s", out)
 	}
-	if live := liveCaptureEntries(t, store, newCaptureEntries(t, store, before)); len(live) != 1 {
+	if live := liveCaptureEntries(t, store, newCaptureEntries(t, store, before, patchFixtureBin)); len(live) != 1 {
 		t.Errorf("the first launch added %d live entries, want 1: %v", len(live), live)
 	}
 	if data, err := os.ReadFile(packsrc.ForkLockPath(userConfig)); err == nil && strings.Contains(string(data), owner) {
@@ -204,7 +204,7 @@ func TestPatchedForkFollowsItsUpstreamAndHoldsAtAConflict(t *testing.T) {
 		t.Errorf("the moving launch does not disclose the move:\n%s", out)
 	}
 	// A reaped entry keeps its metadata and loses its completion marker and its tree (capture/gc.go).
-	if live := liveCaptureEntries(t, store, newCaptureEntries(t, store, before)); len(live) != 1 {
+	if live := liveCaptureEntries(t, store, newCaptureEntries(t, store, before, patchFixtureBin)); len(live) != 1 {
 		t.Errorf("after the move %d new entries are live, want the good build's alone: %v\n%s", len(live), live, out)
 	}
 

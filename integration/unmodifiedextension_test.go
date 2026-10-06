@@ -69,7 +69,7 @@ func TestAnUnmodifiedNpmExtensionIsBuiltOnTheHostAndMountedReadOnly(t *testing.T
 	record := (&packsrc.Store{Dir: filepath.Join(state, "packs")}).CheckRecordPath(owner)
 	_ = os.Remove(record)
 	t.Cleanup(func() {
-		removeNewCaptureEntries(t, store, before)
+		removeNewCaptureEntries(t, store, before, npmTreeName)
 		_ = os.Remove(record)
 	})
 
@@ -114,7 +114,7 @@ echo "SETTINGS=$(tr -d ' \n' < "$HOME/.utreeagent/settings.json")"`
 	if strings.Contains(out, `"`+npmTreeSource+`"`) {
 		t.Errorf("the fallback was taken though a tree was handed:\n%s", out)
 	}
-	if live := liveCaptureEntries(t, store, newCaptureEntries(t, store, before)); len(live) != 1 {
+	if live := liveCaptureEntries(t, store, newCaptureEntries(t, store, before, npmTreeName)); len(live) != 1 {
 		t.Errorf("the first launch added %d live entries, want the tree's one: %v", len(live), live)
 	}
 

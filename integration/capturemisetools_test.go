@@ -17,8 +17,8 @@ import (
 // crossed. No launch runs, so no ordinary jail meets the tool's failing install.
 //
 // HERMETIC as forkbuild_test.go and capture_test.go are. ⚠ THE CAPTURE STORE IS THE DEVELOPER'S
-// OWN (capture_test.go says why), so each test removes only the entries it added, under bin names
-// no other test uses.
+// OWN (capture_test.go says why), so each test captures under a bin no other test uses and removes
+// only the new entries whose receipt names that bin (newCaptureEntries), never another capture's.
 
 const (
 	miseFixtureTool   = "capturefixture-user-tool"
@@ -38,7 +38,7 @@ func miseFixtureCapture(t *testing.T, bin, what string) string {
 	t.Helper()
 	store := filepath.Join(os.Getenv("HOME"), ".local", "share", "yolo-jail", "captures")
 	before := captureEntryNames(t, store)
-	t.Cleanup(func() { removeNewCaptureEntries(t, store, before) })
+	t.Cleanup(func() { removeNewCaptureEntries(t, store, before, bin) })
 	t.Cleanup(func() { _ = os.RemoveAll(filepath.Join(store, "staging", bin)) })
 	r := runYoloCLI(t, t.TempDir(), "capture", bin)
 	if r.rc != 0 {

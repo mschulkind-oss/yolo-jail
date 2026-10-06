@@ -56,7 +56,7 @@ func TestMacosUserHostFloorBuildsAForkFixtureForTheMac(t *testing.T) {
 	home := os.Getenv("HOME")
 	store := paths.CapturesDirUnder(home)
 	before := captureEntryNames(t, store)
-	t.Cleanup(func() { removeNewCaptureEntries(t, store, before) })
+	t.Cleanup(func() { removeNewCaptureEntries(t, store, before, forkFixtureBin) })
 	dir := t.TempDir()
 
 	// FIRST LAUNCH: the pin, one darwin build as the sandbox account, and the floor's copy runs.

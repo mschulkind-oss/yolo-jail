@@ -1128,8 +1128,9 @@ func forkBuildPlatform(rt string) string {
 
 // captureSeal is what makes a capture jail a fork build's: the seal, and the packs entries the
 // selection is narrowed to — and, for a patched extension's build, the extension's name (tree),
-// which the jail is told (run.Options.SealedTree). nil for `yolo capture` of an installer, which
-// keeps today's jail.
+// which the jail is told (run.Options.SealedTree). nil for `yolo capture` of an installer, whose
+// jail is unsealed and keeps the whole selection, but is still a capture jail, so it too is handed
+// none of the user's `mise_tools` (FP-D19, run.Options.captureJail).
 //
 // build and id are a PLAIN fork's build line and its build's id, which the macos-user arm runs
 // itself (FP-D24: macosuser.RunForkBuildAct), since it has no container to run buildJailArgv in.

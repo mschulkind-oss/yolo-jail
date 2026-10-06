@@ -364,7 +364,7 @@ func TestHostFloorRunsARealCaptureOfAnInstallerFixture(t *testing.T) {
 			captureFixtureBin, captureFixtureRan, r.stdout)
 	}
 
-	added := newCaptureEntries(t, store, nil)
+	added := newCaptureEntries(t, store, nil, captureFixtureBin)
 	if len(added) != 1 {
 		t.Fatalf("got %d capture entries, want the one this launch's capture admitted: %v", len(added), added)
 	}
@@ -403,7 +403,7 @@ func TestHostFloorRunsARealCaptureOfAnInstallerFixture(t *testing.T) {
 				never, again.stderr)
 		}
 	}
-	if got := newCaptureEntries(t, store, nil); len(got) != 1 {
+	if got := newCaptureEntries(t, store, nil, captureFixtureBin); len(got) != 1 {
 		t.Errorf("the second launch changed the capture store: %v", got)
 	}
 }
@@ -432,7 +432,7 @@ func hostFloorCaptureOnAMac(t *testing.T, dir, store string) {
 	if strings.Contains(r.combined(), "running `yolo capture") || strings.Contains(r.stdout, captureFixtureRan) {
 		t.Errorf("the launch captured or ran the fixture on a Mac whose capture act cannot run:\n%s", r.combined())
 	}
-	if got := newCaptureEntries(t, store, nil); len(got) != 0 {
+	if got := newCaptureEntries(t, store, nil, captureFixtureBin); len(got) != 0 {
 		t.Errorf("the launch admitted capture entries %v on a Mac whose capture act cannot run", got)
 	}
 }

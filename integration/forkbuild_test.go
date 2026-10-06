@@ -104,7 +104,7 @@ func TestForkBuildDeliversTheForkInPlaceOfItsBase(t *testing.T) {
 
 	store := filepath.Join(os.Getenv("HOME"), ".local", "share", "yolo-jail", "captures")
 	before := captureEntryNames(t, store)
-	t.Cleanup(func() { removeNewCaptureEntries(t, store, before) })
+	t.Cleanup(func() { removeNewCaptureEntries(t, store, before, forkFixtureBin) })
 
 	// THE PIN IS THE FIRST LAUNCH'S (FP-D18, applying OQ-PF1): no `yolo pack install` runs here.
 	launch := func(what string) string {
@@ -128,7 +128,7 @@ func TestForkBuildDeliversTheForkInPlaceOfItsBase(t *testing.T) {
 	if !strings.Contains(out, forkFixtureMarker+"_1") || !strings.Contains(out, "fork builds") {
 		t.Fatalf("the first launch did not build and run the fork:\n%s", out)
 	}
-	if added := newCaptureEntries(t, store, before); len(added) != 1 {
+	if added := newCaptureEntries(t, store, before, forkFixtureBin); len(added) != 1 {
 		t.Fatalf("the first launch added %d entries, want 1: %v", len(added), added)
 	}
 	pinned, err := os.ReadFile(forkLock)
@@ -157,12 +157,12 @@ func TestForkBuildDeliversTheForkInPlaceOfItsBase(t *testing.T) {
 	if !strings.Contains(out, forkFixtureMarker+"_2") {
 		t.Errorf("the launch after the pin moved does not run rev 2:\n%s", out)
 	}
-	if added := newCaptureEntries(t, store, before); len(added) != 2 {
+	if added := newCaptureEntries(t, store, before, forkFixtureBin); len(added) != 2 {
 		t.Errorf("after the pin moved there are %d new entries, want 2: %v", len(added), added)
 	}
 
 	// DELETING THE STORE'S ENTRY COSTS A REBUILD AND NOTHING ELSE.
-	removeNewCaptureEntries(t, store, before)
+	removeNewCaptureEntries(t, store, before, forkFixtureBin)
 	out = launch("the launch after the entry was removed")
 	if !strings.Contains(out, "fork builds") || !strings.Contains(out, forkFixtureMarker+"_2") {
 		t.Errorf("the launch after the entry was removed did not rebuild rev 2:\n%s", out)

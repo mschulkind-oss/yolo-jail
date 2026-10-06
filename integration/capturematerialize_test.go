@@ -70,7 +70,7 @@ func TestCaptureMaterializesIntoTwoWorkspacesWithOneDownload(t *testing.T) {
 
 	store := filepath.Join(os.Getenv("HOME"), ".local", "share", "yolo-jail", "captures")
 	before := captureEntryNames(t, store)
-	t.Cleanup(func() { removeNewCaptureEntries(t, store, before) })
+	t.Cleanup(func() { removeNewCaptureEntries(t, store, before, captureFixtureBin) })
 	t.Cleanup(func() { _ = os.RemoveAll(filepath.Join(store, "staging", captureFixtureBin)) })
 
 	// --- THE ONE DOWNLOAD -------------------------------------------------------------
@@ -83,7 +83,7 @@ func TestCaptureMaterializesIntoTwoWorkspacesWithOneDownload(t *testing.T) {
 		t.Fatalf("the capture did not run the installer, so there is nothing to "+
 			"materialize:\n%s", recorded.combined())
 	}
-	added := newCaptureEntries(t, store, before)
+	added := newCaptureEntries(t, store, before, captureFixtureBin)
 	if len(added) != 1 {
 		t.Fatalf("got %d new capture entries, want 1: %v", len(added), added)
 	}
