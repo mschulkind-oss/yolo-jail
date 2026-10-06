@@ -469,9 +469,11 @@ func bootSteps() []bootStep {
 			notDarwin: "the bootstrap is handed no caller token on macos-user: the guest's supervisor reads its tokens from its own root-owned env file, and the agent from its session env file",
 		},
 		{
-			// Start the jail-daemon supervisor (child of PID 1; kernel-reaped on exit).
+			// Start the jail-daemon supervisor (child of PID 1; kernel-reaped on exit). A
+			// `run`, not a generator: its failures are SERVICE refusals, which the reachability
+			// hatch reaches when a required service did not start (requiredservice.go, OQ-R8).
 			name:      "start_jail_daemon_supervisor",
-			gen:       startJailDaemonSupervisor,
+			run:       startJailDaemons,
 			perf:      "jail_daemon_supervisor",
 			notDarwin: "the macos-user launch starts the guest's supervisor itself, confined by its Seatbelt profile, after this bootstrap exits (macosuser.JailDaemonArgv)",
 		},

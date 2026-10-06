@@ -176,6 +176,9 @@ comes 30 days after you upgrade. See [Storage](userguide/guides/storage.md#see-a
 - A launch with `aws-auth` enabled no longer warns that its `.mount-sentinel` is missing.
 - A jail's wait for its in-jail services shows only when it is slow, and a failure names the
   service's log.
+- A jail whose wire bridge cannot start, because its port is taken or a provider key is missing,
+  no longer reports it as a failed config generator: it says which pack's service failed, why and
+  what to do, and `YOLO_ALLOW_UNREACHABLE_SERVICES=1` now opens a shell anyway.
 - A profile that reaches nothing for an agent now says where you selected it and the setting that
   stops it.
 - A missing `mounts` source now names the file and line that declare it, and the fix.
@@ -186,8 +189,6 @@ comes 30 days after you upgrade. See [Storage](userguide/guides/storage.md#see-a
   an error about a socket.
 - A launch refused because a project's `.yolo` folder is a symbolic link now says where the link
   points and how to move a folder you moved there yourself back, not only how to delete the link.
-- A jail that refuses to boot because a service inside it, such as the wire bridge, cannot start
-  no longer reports it as a failed config generator.
 - A config error or warning at a launch or in `yolo check` now shows a file name, key or value an
   agent wrote as plain text, so it can no longer send your terminal escape sequences.
 - With `LD_LIBRARY_PATH` or `LD_PRELOAD` set, a launch no longer fails to load the jail image with

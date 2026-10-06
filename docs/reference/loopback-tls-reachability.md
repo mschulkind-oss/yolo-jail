@@ -1,12 +1,13 @@
 ---
 status: current
-stage: DECIDED
-next: "Build OQ-R8 (a), ruled 2026-10-05: YOLO_ALLOW_UNREACHABLE_SERVICES=1 also reaches the jail-daemon supervisor's readiness refusal, so with it set a wire bridge that cannot start or publish is a warning and the boot continues, and without it the refusal names the hatch; the refusal names the next step, and it already stops calling the bridge a config generator. Today that jail is refused with no hatch"
+stage: CURRENT
+next: "Re-verify the prose in full against the tree; it was last verified against 40915b60, 2026-09-09"
 verified: 2026-09-24
 verified_commit: f491d192
 covers:
   - internal/cli/run/hostloopback.go
   - internal/entrypoint/reachability.go
+  - internal/entrypoint/requiredservice.go
   - internal/svcendpoint/
   - internal/cli/check/sections_loopholes.go
 tags: [transport, networking, loopholes, reachability]
@@ -36,6 +37,7 @@ when an enabled jail-facing service is unusable.
 | :--- | :--- |
 | The launcher decision: probe the stack, emit the option, disclose the outcome | `internal/cli/run` (`hostloopback.go`: `decideHostLoopback`, `hostLoopbackFactsFor`, `probeHostLoopbackSupport`) |
 | The in-jail witness: probe every wired service, classify, escalate | `internal/entrypoint` (`reachability.go`: `loopbackDisposition`, `escalates`, `classifyReachability`) |
+| The refusal when a required in-jail service did not start, and the hatch reaching it | `internal/entrypoint` (`requiredservice.go`: `startJailDaemons`, `requiredServicePhrase`) |
 | Bind and advertise — deliberately unchanged | `internal/svcendpoint` (`Listen`, `DefaultAdvertiseHost`, `DialLocal`, `Probe`) |
 | The honesty labels on host-side greens | `internal/cli/check` (`sections_loopholes.go`) |
 | The disposition variable carried into the jail | `internal/paths` (`HostLoopbackEnvVar`) |
@@ -294,7 +296,8 @@ no jail at all. Two things follow, and both are built:
   it so the reader is told the way past it. It is honoured **only where it suppresses something** —
   on a launch that was never going to refuse, it says nothing at all, rather than training people
   to skip the line it exists to be read on. The launcher forwards it into the container, because
-  the witness runs in-jail and the user types it on the host.
+  the witness runs in-jail and the user types it on the host. It also reaches the refusal of a
+  [required in-jail service that did not start](#a-required-in-jail-service-that-did-not-start).
 
 ### What may escalate
 
@@ -382,6 +385,39 @@ state the fatal makes reachable, where there is no jail left to ask. A healthy w
 verdict there and stays silent on the terminal, because "ran and found nothing" and "never ran"
 are otherwise the same bytes.
 
+### A required in-jail service that did not start
+
+A launch can **require** an in-jail service: the launcher names it in
+`YOLO_JAIL_DAEMON_READY_NAMES` when its serve decision says the service will serve, as it does
+for the wire bridge. The boot then waits for the service to report `ready` or
+`failed <reason>`, and every way the wait ends without it refuses the boot ([OQ-R8](#OQ-R8)):
+
+- a `failed` report. Its reason is the service's own and carries the next step: a held port names
+  the port and says to free it, and a missing provider key names the provider, the variable and
+  `env_sources`;
+- the daemon supervisor exiting, or its pipe failing, before the service reported;
+- a supervisor that could not be found or started;
+- a readiness line the wait cannot read.
+
+The refusal names the service, the pack it came from and the selected pack whose `needs` brought
+that pack in, the cause, the daemon's log and the hatch. **The witness's hatch reaches it**: with
+`YOLO_ALLOW_UNREACHABLE_SERVICES` set, the boot prints a notice saying what it let through, why,
+and that nothing was repaired, and the jail starts with the service down. As with the witness, a
+boot whose required services all report ready never mentions the hatch.
+
+Two things stay outside it:
+
+- **Daemons left running with no supervisor still refuse**, whatever the hatch says. They hold
+  this jail's service ports, a second supervisor beside them would bind every listener twice, and
+  the refusal already names the pid to kill.
+- **The witness does not probe a service the wait already reported**, so one fault is reported
+  once. A bridge that did not start has no endpoint file, and probing it repeated the same fault
+  as *unpublished*, with a second verdict and a second hatch line. The boot log records the skip.
+
+The boot's last line lists these refusals, and the witness's own, under *"it cannot use a service
+it needs"*, apart from any other boot step that failed. It ends with the hatch only when the
+hatch would get the boot past everything listed.
+
 - ✅ <a id="OQ-R8"></a>**[`OQ-R8`](#OQ-R8) — should a required jail daemon that cannot publish
   refuse the launch with nothing to get past it?**
 
@@ -406,18 +442,17 @@ are otherwise the same bytes.
   jail whose selected agent cannot reach its provider should never look booted.
 
   **Answer:**
-  > **Ruled in review 2026-10-05, as leaned (a)** (the maintainer's answer: *"A sure."*).
-  > `YOLO_ALLOW_UNREACHABLE_SERVICES=1` also reaches the refusal the jail-daemon supervisor
-  > raises when a required in-jail service, today only the wire bridge, cannot start or publish.
-  > With it set, the boot prints the hatch's override notice and continues; without it, the
-  > refusal names the hatch, as the witness's refusal does. The message also stops calling the
-  > bridge a "config generator" and names the next step. The cost the ruling accepts: a jail can
-  > look booted with a dead bridge, and an agent routed through it fails at its first request.
-  > Built in part: since 2026-10-05 the boot's refusal counts failed boot steps, not config
-  > generators (`genFailuresError`). The hatch is not built: the readiness refusal reads none
-  > (`startJailDaemonSupervisor`).
+  > **Ruled in review 2026-10-05, as leaned: (a)** (the maintainer's answer: *"A sure."*). The hatch reaches the readiness refusal;
+  > without it, the refusal names it. Built 2026-10-06, with the
+  > refusal reworded so it no longer calls the relay a config generator and names the service,
+  > its pack, the cause and the next step:
+  > [A required in-jail service that did not start](#a-required-in-jail-service-that-did-not-start),
+  > and the implementation decisions [R-D1](#r-d1) to [R-D4](#r-d4).
 
 ### Background to [`OQ-R8`](#OQ-R8)
+
+This is the state the ruling changed, kept as the record of why; the code it cites has moved
+since ([R-D2](#r-d2)).
 
 The escape hatch downgrades the witness, but the jail-daemon supervisor
 (`startJailDaemonSupervisor`, `internal/entrypoint/runtime.go`) refuses on its own, through the boot's `genStep`, which reads no hatch. So a jail whose required
@@ -517,6 +552,9 @@ underlying asymmetry is not closed and cannot be: a host-side check still cannot
 
 ## Why it's this way
 
+The `R-D` rows are implementation decisions made while building [OQ-R8](#OQ-R8) on 2026-10-06,
+not maintainer rulings.
+
 | Ruling | Why it holds |
 | :--- | :--- |
 | <a id="oq-r0"></a>[**OQ-R0**](#oq-r0) — pasta forwards its tunnel address to the host's **global** address, not its loopback | Measured with a differential probe: SSH answers on the tunnel address, a neighbouring address times out, yolo's own ports come back *refused* rather than timing out. That single fact kills the whole "bind somewhere else" family. |
@@ -527,7 +565,11 @@ underlying asymmetry is not closed and cannot be: a host-side check still cannot
 | <a id="oq-r5"></a>[**OQ-R5**](#oq-r5) — a jail sharing the launcher's netns **is** escalatable | There is no host-stack excuse in that mode: the advertise address is the loopback and it is the only thing that works, so a failure has nothing to hide in. |
 | <a id="oq-r6"></a>[**OQ-R6**](#oq-r6) — the launcher's decision rides on the wire with **every** state spelled; only positive facts escalate | From inside the jail, "this host cannot forward loopback" and "yolo asked and the service is still down" are the same observation. Spelling every state is what keeps an absent variable from meaning anything but "older launcher". |
 | <a id="oq-r7"></a>[**OQ-R7**](#oq-r7) — a podman too old to **name** its rootless stack is an UNREAD backend, not an unrecognised one | Both are the same empty string one layer down, and reading them alike left every jail-facing service silently down on a stock LTS podman. |
-| [**OQ-R8**](#OQ-R8) — the hatch also reaches a required jail daemon's readiness refusal; with it set the boot warns and continues, without it the refusal names it, in words that name the bridge and the next step | Ruled in review 2026-10-05, (a). The witness's refusal already promises a shell to a user who only needs one, and the bridge's failures are mostly the user's own state (a held port, a missing credential), which is what a hatch is for. Built in part: the refusal counts failed boot steps, not config generators; the hatch is pending |
+| [**OQ-R8**](#OQ-R8) — the hatch **also reaches** the boot's refusal of a required in-jail service that did not start; without it, that refusal names it. Ruled 2026-10-05 | The witness's refusal already promised a shell to a user who only needs one, [OQ-R4](#oq-r4) already put an endpoint that never published inside the hatch's scope, and what the bridge reports is mostly the user's own state — a held port, a missing key — which is what a hatch is for. |
+| <a id="r-d1"></a>[**R-D1**](#r-d1) — *Implementation decision.* The hatch reaches **every** way the readiness wait ends without its service: a `failed` report, the supervisor exiting or its pipe failing first, a supervisor that could not be found or started, an unreadable readiness line. Not the orphan refusal | Each of the four leaves the same jail, one whose required service is not running, so the override notice is true of each; a hatch split by mechanism would make the reader find out which one failed before knowing whether the variable they were told about applies. The orphan refusal is about something else: daemons a dead supervisor left holding the ports, where continuing binds every listener twice. |
+| <a id="r-d2"></a>[**R-D2**](#r-d2) — *Implementation decision.* The refusal is a **service** refusal, not a config generator's. The supervisor step is a `run` in the boot table, and the boot's last line lists its refusal and the witness's under a heading of their own. The cause and its next step are the daemon's own `failed` reason, printed verbatim, and the pack phrase is read from the staged pack tree | The relay is not a config generator, and that heading sent the reader to their config. The entrypoint knows no service's causes, and core names no daemon, so the daemon that knows what failed says what to do. The staged tree already records which pack declares the service and which pack's `needs` names it, so no new variable crosses from the host. |
+| <a id="r-d3"></a>[**R-D3**](#r-d3) — *Implementation decision.* The witness does not probe a service the readiness wait reported, refused or let through, and records the skip in the boot log only | A service that did not start has no endpoint file, so the probe could only repeat the wait's finding as *unpublished*, in a second vocabulary, with a second verdict and a second hatch line. |
+| <a id="r-d4"></a>[**R-D4**](#r-d4) — *Implementation decision.* The boot's last line names the hatch only when the hatch would get the boot past **every** refusal it lists | It is the line a reader acts on, and a next step that leads into the next refusal (a failed boot step, an orphan) is not one. |
 
 ## Current values
 
@@ -545,7 +587,7 @@ only place the values themselves are stated.
 | Minimum passt release | the one that introduced the mapping flag | `run.minPasstVersion` |
 | Recognised stack names | `pasta`, `slirp4netns`; anything else, including empty, is unrecognised | `run.backendPasta`, `run.backendSlirp4netns` |
 | Disposition variable | `YOLO_HOST_LOOPBACK` = `requested` \| `shared` \| `unsupported` \| `unknown` | `paths.HostLoopbackEnvVar` |
-| Reachability escape hatch | `YOLO_ALLOW_UNREACHABLE_SERVICES` (any non-empty value) | `paths.AllowUnreachableServicesEnv` |
+| Reachability escape hatch, which also reaches a required in-jail service's refusal | `YOLO_ALLOW_UNREACHABLE_SERVICES` (any non-empty value) | `paths.AllowUnreachableServicesEnv` |
 | Launcher opt-out | `YOLO_NO_HOST_LOOPBACK` | `internal/cli/run/hostloopback.go` |
 | Service endpoint variables | `YOLO_SERVICE_<NAME>_ENDPOINT` | `paths.ServiceEnvVarPrefix` / `ServiceEnvVarSuffix` |
 | Boot log | `<workspace>/.yolo/boot.log`, previous boot kept beside it | `internal/entrypoint` |

@@ -368,7 +368,10 @@ live, so edits are visible on the host instantly — there is no sync step.
   fault classes ([`OQ-R4`](docs/reference/loopback-tls-reachability.md#oq-r4)) — and severity is the
   disposition's decision alone: only `requested` and `shared` escalate, a host yolo could not ask never being
   refused for what it cannot help ([`OQ-R3`](docs/reference/loopback-tls-reachability.md#oq-r3)). Hatch:
-  `YOLO_ALLOW_UNREACHABLE_SERVICES=1`, forwarded from the host env and named in the refusal.
+  `YOLO_ALLOW_UNREACHABLE_SERVICES=1`, forwarded from the host env and named in the refusal; it also
+  reaches the boot's refusal of a required in-jail service (the wire bridge) that did not start
+  ([`OQ-R8`](docs/reference/loopback-tls-reachability.md#OQ-R8),
+  [`requiredservice.go`](internal/entrypoint/requiredservice.go)).
 - **A WORKSPACE MAY NOT CONTAIN THE CREDENTIAL BOUNDARY, AND THOSE DIRECTORIES MAY NOT HOLD A `.yolo`.** A
   workspace that IS or CONTAINS `$HOME`, `~/.config/yolo-jail` or `~/.local/share/yolo-jail` — or sits INSIDE
   either of the latter two — puts the boundary inside the one host directory a jail reads and writes by

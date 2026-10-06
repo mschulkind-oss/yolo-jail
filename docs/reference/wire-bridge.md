@@ -820,8 +820,12 @@ receives a token that is good only against this launch's bridge.
   short answers `failed`: a bind error, a failed endpoint publish, a missing provider credential,
   a Codex route with no credential-service endpoint, or a daemon that idles on a boot the launcher
   registered, which is a contradiction between the two call sites of one decision. The entrypoint
-  refuses the boot with `jail daemon "wire-bridge" cannot publish its required endpoint: <reason>`.
-  The reachability witness, keyed on the endpoint variable, is the second line behind it. Either
+  refuses the boot, naming the bridge, the pack it came from and the selected pack whose `needs`
+  brought it, the reason, the daemon log and the hatch: `YOLO_ALLOW_UNREACHABLE_SERVICES=1` boots
+  anyway, with the bridge down ([OQ-R8](loopback-tls-reachability.md#OQ-R8)). The reason names its
+  own next step: a held port's says which port and to free it, and a missing key's names the
+  provider, the variable and `env_sources`. The reachability witness, keyed on the endpoint
+  variable, is the second line behind it, and leaves alone a bridge this wait already reported. Either
   way the failure lands at boot, which is what the preflight philosophy wants: the alternative is
   an agent handed a base URL that dies at first request in a way nobody attributes. On a bind
   failure the reason carries the address, the syscall error and **what holds the port** — see

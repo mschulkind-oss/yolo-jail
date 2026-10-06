@@ -117,6 +117,18 @@ type Env struct {
 	// error that aborts the jail. See genStep.
 	genFailures []string
 
+	// serviceRefusals accumulates the boot's refusals about a SERVICE this jail needs rather
+	// than about a config generator: a required in-jail daemon that did not start or publish,
+	// daemons left running with no supervisor, and the reachability witness's unusable
+	// services. Main's gate (genFailuresError) refuses on it as on genFailures, under a heading
+	// of its own: listing the wire bridge as a "config generator" sent its reader to the config
+	// (docs/reference/loopback-tls-reachability.md OQ-R8). See refuseService.
+	serviceRefusals []serviceRefusal
+	// notReadyServices names the required in-jail services the readiness wait reported as not
+	// started, whether it refused the boot for them or the hatch let them through, so the
+	// reachability witness does not report the same fault a second time (R-D3 in that doc).
+	notReadyServices map[string]bool
+
 	// warnedOnce remembers the lines warnOnce has already emitted, so a finding whose
 	// SOURCE the boot re-reads is stated once rather than once per read. See warnOnce.
 	//
@@ -149,6 +161,28 @@ func (e *Env) genFailure(msg string) {
 
 // GenFailures returns the accumulated fatal generator failures, in order.
 func (e *Env) GenFailures() []string { return e.genFailures }
+
+// serviceRefusal is one entry of Env.serviceRefusals: msg is the one-line summary the boot's
+// final refusal lists (what, and why), and hatchable says whether
+// paths.AllowUnreachableServicesEnv would have let the boot past it.
+type serviceRefusal struct {
+	msg       string
+	hatchable bool
+}
+
+// refuseService records a fatal refusal about a service this jail needs. Collected like
+// genFailure, so every step still runs and one boot reports every problem.
+func (e *Env) refuseService(msg string, hatchable bool) {
+	e.serviceRefusals = append(e.serviceRefusals, serviceRefusal{msg: msg, hatchable: hatchable})
+}
+
+// markNotReady records that the readiness wait reported name as not started.
+func (e *Env) markNotReady(name string) {
+	if e.notReadyServices == nil {
+		e.notReadyServices = map[string]bool{}
+	}
+	e.notReadyServices[name] = true
+}
 
 // warn writes a line to e.Stderr (if set).
 // These two writes are the one place in this package where discarding an error is

@@ -370,7 +370,11 @@ func servePlan(ctx context.Context, p plan, e *entrypoint.Env) int {
 			} else if route.bedrock() {
 				signalNotReady(ServiceName, "Bedrock upstream cannot be served: "+why)
 			} else {
-				signalNotReady(ServiceName, "provider credential is unavailable")
+				// The boot prints this as its refusal's cause (OQ-R8), so it names the provider
+				// and the variable, and where a key comes from, rather than "provider credential
+				// is unavailable", which named neither.
+				signalNotReady(ServiceName, why+"; give the launch "+route.KeyEnvName+
+					" (an `env_sources` entry in your yolo config) and launch again")
 			}
 			return idleUntilStopped(ctx)
 		case why != "":
@@ -429,7 +433,7 @@ func servePlan(ctx context.Context, p plan, e *entrypoint.Env) int {
 			// host-side instrument cannot see a jail-side listener).
 			holder := describePortHolder(l.addr)
 			logf("cannot bind %s for %s: %v — %s", l.addr, l.what, err, holder)
-			signalNotReady(ServiceName, "cannot bind "+l.addr+": "+err.Error()+" — "+holder)
+			signalNotReady(ServiceName, bindFailureReason(e, l.addr, err, holder))
 			for _, done := range ls {
 				if done.ln != nil {
 					_ = done.ln.Close()
@@ -531,6 +535,24 @@ func signalReady(name string) {
 
 func signalNotReady(name, reason string) {
 	signalReadiness("failed", name, reason)
+}
+
+// bindFailureReason is the `failed` reason for a listener that could not bind addr. The boot
+// prints it as its refusal's cause (docs/reference/loopback-tls-reachability.md OQ-R8), so a
+// HELD PORT (EADDRINUSE) is named as one, with the next step, ahead of the three facts the
+// 8214 hunt needed: the address, the syscall error verbatim and the holder. Any other bind
+// error is those facts alone, since nothing here knows a step that fixes it.
+//
+// A jail's only: the host half binds a descriptor its launch reserved (listenAt), so "free
+// the port" is not a step its reader can take.
+func bindFailureReason(e *entrypoint.Env, addr string, err error, holder string) string {
+	facts := "cannot bind " + addr + ": " + err.Error() + " — " + holder
+	_, port, splitErr := net.SplitHostPort(addr)
+	if hostHalf(e) || splitErr != nil || !errors.Is(err, syscall.EADDRINUSE) {
+		return facts
+	}
+	return "port " + port + " is already taken (" + facts + "); free it — stop what holds it, " +
+		"or change the config that forwards it into the jail — and launch again"
 }
 
 // readinessRequested and signalReadiness must agree about what a usable
