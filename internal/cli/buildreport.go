@@ -1,27 +1,29 @@
 package cli
 
 // buildreport.go is how a JAIL LAUNCH shows the builds its fork-build slot runs — a plain fork's
-// missing build, a patched fork's advance, a patched extension's — as one progress line each on the
-// terminal, with every byte the build jail printed kept in the launch's record. A BUILD REPORT (a
-// term coined here) is that rendering for one launch; a build's RUN is its share of it.
+// missing build, a patched fork's advance, a patched extension's — on the terminal, with every byte
+// the build jail printed kept in the launch's record. A BUILD REPORT (a term coined here) is that
+// rendering for one launch; a build's RUN is its share of it. The builds run at once in the slot's
+// pool (buildpool.go), under its one progress line.
 //
 // docs/reference/report-tiers.md is the rule it follows: progress may be compressed to a line, a
 // disclosure never is, warnings and refusals (tier 3) stay on the terminal, and "too much on the
 // terminal is answered by reading the file". So:
 //
-//   - THE START LINE prints before the build line runs, whatever the timing: what is built and why,
-//     where its log is, and the build's disclosures — the seal it runs under (FP-D9, FP-D13: no
-//     credential, no host file, no env_sources, and a bridged network, never the host's) and the
-//     build line itself, whole, since a payload can sit at its last character (OQ-RO9).
-//   - THE PROGRESS LINE redraws in place on a terminal and writes a heartbeat every 15 s anywhere
-//     else (internal/progress), its detail the act's phase.
-//   - THE RESULT LINE closes it: for an admitted build the move line (PF-D8), the disclosure of what
-//     the jail now runs, with the store's key, path count and size folded in; for a build that came
-//     to nothing a short result, under which the caller prints its failure line and then the build's
-//     last lines and its log (failureLines).
-//   - THE NESTED LAUNCH'S WARNINGS AND REFUSALS: the build jail's launch prints its own lines on a
-//     stream of their own (forkbuildchild.go's --launch-fd), and the ones that begin as a warning or a
-//     refusal begins are repeated under the result line. A refusal also ends the build before its
+//   - THE START LINE prints at once, before the build line runs, whatever the timing: what is built
+//     and why, where its log is, and the build's disclosures — the seal it runs under (FP-D9,
+//     FP-D13: no credential, no host file, no env_sources, and a bridged network, never the host's)
+//     and the build line itself, whole, since a payload can sit at its last character (OQ-RO9).
+//   - THE POOL'S PROGRESS LINE stands for every build running, redrawn in place on a terminal and a
+//     heartbeat every 15 s anywhere else (internal/progress).
+//   - THE RESULT LINE is the build's own, among its key's lines in declaration order, with its time:
+//     for an admitted build the move line (PF-D8), the disclosure of what the jail now runs, with the
+//     store's key, path count and size folded in; for a build that came to nothing a short result,
+//     under which the caller prints its failure line and then the build's last lines and its log
+//     (failureLines).
+//   - THE NESTED LAUNCH'S WARNINGS AND REFUSALS: the build jail's launch prints its own lines on
+//     streams of their own (forkbuildchild.go's --launch-fds), and the ones that begin as a warning or
+//     a refusal begins are repeated under the result line. A refusal also ends the build before its
 //     build line ran, and its failure line relays it (forkBuildNotStarted).
 //
 // Everything else the build jail prints — its launch's provenance and progress, its boot, the build
@@ -63,17 +65,11 @@ const (
 
 // buildReport is one jail launch's build report.
 type buildReport struct {
-	// w is the launch stream: the start lines, the progress lines and the result lines.
-	w io.Writer
-	// log is launch.log alone (run.LaunchLogOnly(w)), io.Discard with no log.
+	// log is the launch stream's launch.log alone (run.LaunchLogOnly), io.Discard with no log.
 	log io.Writer
 	// workspace is the launch's, whose .yolo holds each build's own log; "" for none.
 	workspace string
 	color     bool
-	// cfg is the stream's rendering (run's progressConfig), for a check's line; build is cfg for a
-	// build's, shown at once below the start line that announced it.
-	cfg, build progress.Config
-	pr         richtext.Printer
 }
 
 // launchBuildStream is the stream a jail launch's builds print on: the launch's own stderr, teed
@@ -86,17 +82,8 @@ func launchBuildStream(w io.Writer) io.Writer {
 }
 
 // newBuildReport is the report of a launch whose stream is w.
-func newBuildReport(workspace string, w io.Writer, cfg progress.Config, color bool) *buildReport {
-	build := cfg
-	build.Immediate, build.Announced = true, true
-	return &buildReport{w: w, log: run.LaunchLogOnly(w), workspace: workspace, color: color, cfg: cfg, build: build,
-		pr: richtext.Printer{W: w, Color: color}}
-}
-
-// checkLine is the progress line of f's check (packsrc.CheckOptions.Begin): silent for a check
-// that ends inside the grace period, as one that finds nothing new mostly does.
-func (r *buildReport) checkLine(f packload.Fork) *progress.Line {
-	return r.cfg.Start(r.w, "Checking "+f.Label()+"'s upstream")
+func newBuildReport(workspace string, w io.Writer, color bool) *buildReport {
+	return &buildReport{log: run.LaunchLogOnly(w), workspace: workspace, color: color}
 }
 
 // buildStart is what a build's start line says.
@@ -113,11 +100,11 @@ type buildStart struct {
 	wait string
 }
 
-// begin starts one build's run: its log, its start line and disclosure line, and its progress
-// line. It never fails: a log that cannot be opened is one fewer place the output lands, and the
-// start line says which log there is.
-func (r *buildReport) begin(s buildStart) *buildRun {
-	b := &buildRun{r: r, key: s.fork.Key(), label: s.fork.Label(), started: time.Now()}
+// begin starts one build's run for the pool's key it: its log, and its start line and disclosure
+// line, printed at once. It never fails: a log that cannot be opened is one fewer place the output
+// lands, and the start line says which log there is.
+func (r *buildReport) begin(s buildStart, it *poolItem) *buildRun {
+	b := &buildRun{r: r, it: it, key: s.fork.Key(), label: s.fork.Label(), started: time.Now()}
 	b.openLog(s)
 	head := "[bold]build[/bold] " + richtext.Escape(b.label+": "+s.what+s.why)
 	if s.wait != "" {
@@ -126,9 +113,7 @@ func (r *buildReport) begin(s buildStart) *buildRun {
 	if where := b.logName(); where != "" {
 		head += "[dim]; log: " + richtext.Escape(where) + "[/dim]"
 	}
-	r.pr.Print(head)
-	r.pr.Print("[dim]  " + richtext.Escape(sealDisclosure+"; "+buildRuns(s.fork)) + "[/dim]")
-	b.line = r.build.Start(r.w, "Building "+b.label)
+	it.pool.say(head + "\n[dim]  " + richtext.Escape(sealDisclosure+"; "+buildRuns(s.fork)) + "[/dim]")
 	return b
 }
 
@@ -148,10 +133,10 @@ func buildRuns(f packload.Fork) string {
 // build `yolo capture` runs has, so the build act calls them unconditionally.
 type buildRun struct {
 	r       *buildReport
+	it      *poolItem // the key whose build this is, whose lines take the result
 	key     string
 	label   string
 	started time.Time
-	line    *progress.Line
 
 	mu sync.Mutex
 	// logf is the build's own log, nil when it could not be opened; logPath its path.
@@ -293,12 +278,19 @@ func tier3Line(text string) bool {
 	return false
 }
 
-// phase is the progress line's detail: what the act is doing now.
+// phase is what the build act is doing now, for its log; and a wait for another launch's build of
+// the same key, which can last forkBuildWaitBound, for the pool's line too, which otherwise names
+// only which keys build.
 func (b *buildRun) phase(detail string) {
 	if b == nil {
 		return
 	}
-	b.line.Set(detail)
+	b.it.setNote(detail, strings.HasPrefix(detail, "waiting"))
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if b.logf != nil {
+		fmt.Fprintf(b.logf, "--- %s\n", detail)
+	}
 }
 
 // admitted records the admitted entry, which the result line names.
@@ -328,15 +320,16 @@ func (b *buildRun) done(markup string) {
 	if store != "" {
 		markup += "[dim] — " + richtext.Escape(store) + "[/dim]"
 	}
-	b.line.DoneWith(richtext.Render(markup, b.r.color))
+	pr := richtext.Printer{W: b.it.stream(), Color: b.r.color}
+	pr.Print(markup + "[dim] (" + progress.Elapsed(time.Since(b.started)) + ")[/dim]")
 	for _, w := range warn {
-		b.r.pr.Print("[yellow]  its build jail: " + richtext.Escape(w) + "[/yellow]")
+		pr.Print("[yellow]  its build jail: " + richtext.Escape(w) + "[/yellow]")
 	}
 	b.closeLog()
 }
 
-// fail ends a build that came to nothing with a short result ("failed", "did not start"), under
-// which the caller prints its failure line and failureLines.
+// fail ends a build that came to nothing with a short result ("failed", "did not start"), its
+// key's next line, under which the caller prints its failure line and failureLines.
 func (b *buildRun) fail(result string) {
 	if b == nil {
 		return
@@ -348,8 +341,8 @@ func (b *buildRun) fail(result string) {
 	}
 	b.ended = true
 	b.mu.Unlock()
-	b.line.Set("") // the phase it ended in is the failure line's to say
-	b.line.Done(result)
+	pr := richtext.Printer{W: b.it.stream(), Color: b.r.color}
+	pr.Print(richtext.Escape("Building " + b.label + ": " + result + " (" + progress.Elapsed(time.Since(b.started)) + ")"))
 	b.closeLog()
 }
 

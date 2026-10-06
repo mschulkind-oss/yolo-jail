@@ -42,23 +42,22 @@ var treeAdvance = advancePatchedFork
 var treeCopied = func(key string) {}
 
 // deliverTreesForLaunch is run.Options.BuildTrees.
-func deliverTreesForLaunch(req run.TreeBuildRequest, out, errw io.Writer, color bool) map[string]run.TreeDelivery {
-	got := map[string]run.TreeDelivery{}
-	// EACH BUILD IS ONE PROGRESS LINE on the launch's stream (buildreport.go), as the fork builds'.
-	report := newBuildReport(req.Workspace, errw, req.Progress, color)
-	for _, f := range req.Trees {
-		got[f.Key()] = deliverTree(f, req, report, out, errw, color)
-	}
-	return got
+//
+// Every extension runs at once in the slot's pool (buildpool.go, XB-D10), which prints on errw; a
+// launch with BuildSlot wired runs them there beside the forks.
+func deliverTreesForLaunch(req run.TreeBuildRequest, _, errw io.Writer, color bool) map[string]run.TreeDelivery {
+	_, trees := runBuildSlot(run.BuildSlotRequest{Trees: &req}, errw, color)
+	return trees
 }
 
-// deliverTree is one patched extension's delivery: what serves, then its per-launch copy, with the
-// one re-read a reaped entry gets.
-func deliverTree(f packload.Fork, req run.TreeBuildRequest, report *buildReport, out, errw io.Writer,
+// deliverTree is one patched extension's delivery, the pool's key it: what serves, then its
+// per-launch copy, with the one re-read a reaped entry gets.
+func deliverTree(f packload.Fork, req run.TreeBuildRequest, report *buildReport, it *poolItem,
 	color bool) run.TreeDelivery {
+	errw := it.stream()
 	pr := richtext.Printer{W: errw, Color: color}
-	o := advanceOptions{platform: req.Platform, runtime: req.Runtime, workspace: req.Workspace, out: out,
-		errw: errw, color: color, launch: true, act: req.Interrupt, report: report}
+	o := advanceOptions{platform: req.Platform, runtime: req.Runtime, workspace: req.Workspace, out: errw,
+		errw: errw, color: color, launch: true, act: req.Interrupt, report: report, slot: it}
 	for attempt := 0; ; attempt++ {
 		var r advanceResult
 		if req.Build {

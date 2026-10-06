@@ -19,6 +19,16 @@ import (
 // ready. runNormal threads it into assembleInput.imageRef, which is the single
 // source the container argv and the host-service insert point both read.
 func (o *Options) autoLoadImage(cfg *jsonx.OrderedMap, rt, repoRoot string, sp storePackagesPlan) image.LoadResult {
+	load := image.AutoLoadImage
+	if o.autoLoad != nil {
+		load = o.autoLoad
+	}
+	return load(o.imageLoadOptions(cfg, rt, repoRoot, sp))
+}
+
+// imageLoadOptions is the image step's whole request, which the prewarm beside the fork-build slot
+// asks with as well (imageprewarm.go), so the two build one derivation.
+func (o *Options) imageLoadOptions(cfg *jsonx.OrderedMap, rt, repoRoot string, sp storePackagesPlan) image.AutoLoadOptions {
 	// The IMAGE is Linux whatever the host is, so a `platforms` filter here asks about
 	// the image's platform and not the machine's.
 	extra := config.EffectivePackages(cfg, config.PlatformLinux)
@@ -47,11 +57,7 @@ func (o *Options) autoLoadImage(cfg *jsonx.OrderedMap, rt, repoRoot string, sp s
 		attr = image.ImageAttrLean
 	}
 	remedy := nixdiag.LinuxBuilderRemedy()
-	load := image.AutoLoadImage
-	if o.autoLoad != nil {
-		load = o.autoLoad
-	}
-	return load(image.AutoLoadOptions{
+	opts := image.AutoLoadOptions{
 		Runtime:  rt,
 		RepoRoot: repoRoot,
 		// The call site that makes the image load's phases individually visible.
@@ -107,7 +113,12 @@ func (o *Options) autoLoadImage(cfg *jsonx.OrderedMap, rt, repoRoot string, sp s
 		// store must not run a stock-tag match whose closure the store cannot be
 		// shown to hold (internal/image/stockimage.go).
 		JailReadsHostStore: o.hostNixMounted(rt),
-	})
+	}
+	if o.imageIdentity != nil {
+		// One eval of the identity for the launch, whichever asks first (imageprewarm.go).
+		opts.EvalIdentity = o.imageIdentity.eval
+	}
+	return opts
 }
 
 // rootImageFn returns the durable-GC-root registrar for the loaded image, or nil

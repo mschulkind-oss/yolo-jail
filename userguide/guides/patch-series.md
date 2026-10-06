@@ -109,9 +109,9 @@ Patched extensions this launch:
 The pack banner also says, for each one, that the upstream's new code arrives unreviewed and is
 built on your machine.
 
-When yolo builds something new, the launch shows the build as one line while it runs, and then
-says what the jail runs, once. Before the build starts, it names what it builds, the exact build
-command and what the sealed jail is denied:
+When yolo builds something new, the launch builds every patched program and extension at once and
+shows one line while they run, then says what the jail runs, once for each. Before a build starts,
+it names what it builds, the exact build command and what the sealed jail is denied:
 
 ```text
 build fork pi-mine/pi: v1.0.0 (a13d35a7) + 7 patches (series 2544fe91), the first build of it on this machine; log: .yolo/build-pi-mine--pi-5b0e2d1c.log
@@ -123,11 +123,13 @@ A later launch that moves to a new version says `updated fork pi-mine/pi: v1.0.0
 v1.0.2 (cd32f772), 7 patches; this jail runs the new build`. Everything the build printed is in
 the build's own log, named on its first line, and in `.yolo/launch.log`.
 
-- **The first build** happens at the first launch, which waits for it. A Ctrl-C ends that launch.
-- **A newer version** is built at a later launch, which waits up to 20 minutes for each build. One
-  Ctrl-C stops the whole wait: every patched program and extension starts on its good build, one
-  with no build yet is left out, and a later launch tries again. When the time runs out, that build
-  counts as failed and the jail starts on the good build.
+- **The first build** happens at the first launch, which waits for it.
+- **A newer version** is built at a later launch, which waits up to 20 minutes for each build.
+- **Builds run at once**, up to four, or one at a time on Apple Container, so a launch waits for the
+  slowest build rather than all of them in turn.
+- **One Ctrl-C stops the whole wait**: every patched program and extension starts on its good build,
+  one with no build yet is left out and says so, and a later launch tries again. When the time runs
+  out, that build counts as failed and the jail starts on the good build.
 - **An attach** to a running jail says which build that jail was handed.
 - In a jail, a pi extension's folder is read-only, and each launch gets its own copy of the good
   build.

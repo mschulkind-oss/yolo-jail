@@ -24,7 +24,6 @@ package cli
 // and this file only stages its workspace and reads what it left.
 
 import (
-	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
@@ -172,8 +171,8 @@ type buildMode struct {
 	// (PF-D25). s is the jail's streams, which the act tees to keep the last lines the jail printed
 	// (jailTail).
 	runJail func(staging string, b forkBuild, s jailStreams) int
-	// run is a jail launch's report of this build (buildreport.go): its progress line, which the
-	// act's phases and its admit feed, and the streams the build jail's output goes to — the
+	// run is a jail launch's report of this build (buildreport.go): the result line its admit
+	// feeds, its log the act's phases go to, and the streams the build jail's output goes to — the
 	// launch's log and the build's own, never the terminal. nil prints the act's lines and streams
 	// the jail's output as `yolo capture` does.
 	run *buildRun
@@ -380,7 +379,7 @@ func buildFork(b forkBuild, mode buildMode, out, errw io.Writer, color bool) (*c
 	}
 	lk, err := pidlock.Acquire(b.lockPath(), mode.lock, func(pid int) {
 		if mode.run != nil {
-			mode.run.phase(fmt.Sprintf("waiting for pid %d, which is building it (at most %s)", pid, forkBuildWaitBound))
+			mode.run.phase(fmt.Sprintf("waiting for pid %d's build of it, at most %s", pid, forkBuildWaitBound))
 			return
 		}
 		pr.Printf("[dim]waiting for pid %d, which is building %s at %s (at most %s)[/dim]",
@@ -534,72 +533,46 @@ func buildForkUnderLock(b forkBuild, mode buildMode, store *capture.Store, pr ri
 // A PATCHED fork gets its ADVANCE instead (patchedadvance.go; docs/design/patched-forks.md §6,
 // §7): its upstream checked, its series replayed and the newest fit built, the good build moved
 // once that build is admitted, and the good build handed, which the request's Hand records.
-func buildForksForLaunch(req run.ForkBuildRequest, out, errw io.Writer, color bool) map[string]entrypoint.ForkDelivery {
-	pr := richtext.Printer{W: out, Color: color}
-	epr := richtext.Printer{W: errw, Color: color}
-	store := &capture.Store{Dir: paths.CapturesDir()}
-	got := map[string]entrypoint.ForkDelivery{}
-	platform := req.Platform
-	// EACH BUILD IS ONE PROGRESS LINE on the launch's stream, and its build jail's output goes to the
-	// launch's log and its own (buildreport.go).
-	report := newBuildReport(req.Workspace, errw, req.Progress, color)
-	var plain []packload.ForkPin
-	for _, p := range req.Pins {
-		if !p.Fork.Patched() {
-			plain = append(plain, p)
-			continue
-		}
-		got[p.Fork.Bin] = advancePatchedFork(p.Fork, advanceOptions{platform: platform, runtime: req.Runtime,
-			workspace: req.Workspace, out: out, errw: errw, color: color, launch: true, hand: req.Hand,
-			act: req.Interrupt, report: report}).delivery
-	}
-	var missing []forkBuild
-	for _, p := range plain {
-		b := forkBuild{Fork: p.Fork, Commit: p.Commit, Platform: platform}
-		if entry, _, err := resolveForkBuild(store, p.Fork.Bin, platform, p.Fork.Source, p.Commit, b.recipe()); err == nil {
-			got[p.Fork.Bin] = entrypoint.ForkDelivery{Key: entry.Key}
-			continue
-		}
-		missing = append(missing, b)
-	}
-	if len(missing) == 0 {
-		return got
-	}
-	if req.Interrupt.Interrupted() {
-		// A CTRL-C ENDED THIS LAUNCH'S WAIT in a patched fork's advance above (PF-D57): no build is
-		// begun, since each would be a new wait the user had just declined.
-		for _, b := range missing {
-			fmt.Fprintf(errw, "Warning: %s was not built at %s — a Ctrl-C ended this launch's wait for its fork "+
-				"builds, and this launch continues without %s. The next launch builds it.\n", b.Fork.Key(),
-				shortSHA(b.Commit), b.Fork.Bin)
-			got[b.Fork.Bin] = entrypoint.ForkDelivery{Reason: "fork " + b.Fork.Pack + "'s build of commit " +
-				shortSHA(b.Commit) + " was not started: a Ctrl-C ended the launch's wait for its fork builds — " +
-				"the next launch builds it"}
-		}
-		return got
-	}
-	// THE COST IS STATED WHERE IT IS PAID, as auto-capture states its: a source build fetches its
-	// dependencies and compiles, once per commit per machine. What each build runs, and under what
-	// seal, its own start line says.
-	pr.Printf("[bold]fork builds[/bold]  %d %s never built at %s on this machine[dim] — each is built once now, "+
-		"from its pinned commit, and every later launch materializes it[/dim]",
-		len(missing), plural(len(missing), "fork", "forks"), plural(len(missing), "its pin", "their pins"))
-	for _, b := range missing {
-		got[b.Fork.Bin] = buildPlainForkForLaunch(b, report, epr, out, errw, color)
-	}
-	return got
+//
+// Every fork runs at once in the slot's pool (buildpool.go, XB-D10), which prints on errw; a
+// launch with BuildSlot wired runs the forks there beside the patched extensions.
+func buildForksForLaunch(req run.ForkBuildRequest, _, errw io.Writer, color bool) map[string]entrypoint.ForkDelivery {
+	forks, _ := runBuildSlot(run.BuildSlotRequest{Forks: &req}, errw, color)
+	return forks
 }
 
-// buildPlainForkForLaunch is one plain fork's build at a jail launch: its start line, its build in
-// the fork-build-jail child with its output kept off the terminal, and its result — the entry the
-// jail materializes, or why there is none, with the build's last lines under the warning.
-func buildPlainForkForLaunch(b forkBuild, report *buildReport, epr richtext.Printer, out, errw io.Writer,
-	color bool) entrypoint.ForkDelivery {
-	r := report.begin(buildStart{fork: b.Fork, what: b.Fork.Source + " at " + shortSHA(b.Commit)})
+// buildPlainForkForLaunch is one plain fork's build at a jail launch, the pool's key it: its start
+// line, its build in the fork-build-jail child with its output kept off the terminal, and its result
+// — the entry the jail materializes, or why there is none, with the build's last lines under the
+// warning. After a Ctrl-C ended the launch's wait (PF-D57) it begins no build, since each would be a
+// new wait the user had just declined, and one the Ctrl-C reached mid-build is stopped.
+func buildPlainForkForLaunch(b forkBuild, report *buildReport, it *poolItem, color bool) entrypoint.ForkDelivery {
+	epr := richtext.Printer{W: it.stream(), Color: color}
+	stopped := func(what string) entrypoint.ForkDelivery {
+		epr.Printf("[yellow]%s[/yellow]", richtext.Escape(fmt.Sprintf("Warning: %s was not built at %s — a Ctrl-C "+
+			"ended this launch's wait for its fork builds, and this launch continues without %s. The next launch "+
+			"builds it.", b.Fork.Key(), shortSHA(b.Commit), b.Fork.Bin)))
+		return entrypoint.ForkDelivery{Reason: "fork " + b.Fork.Pack + "'s build of commit " + shortSHA(b.Commit) +
+			" was " + what + ": a Ctrl-C ended the launch's wait for its fork builds — the next launch builds it"}
+	}
+	if it.stopped() {
+		return stopped("not started")
+	}
+	release, ok := it.build()
+	if !ok {
+		return stopped("not started")
+	}
+	defer release()
+	ctx := it.context()
+	r := report.begin(buildStart{fork: b.Fork, what: b.Fork.Source + " at " + shortSHA(b.Commit)}, it)
 	bound := false
-	entry, err := buildFork(b, buildMode{lock: pidlock.Mode{Wait: true, Bound: forkBuildWaitBound}, run: r,
-		runJail: childJail(context.Background(), color, &bound)}, out, errw, color)
-	if err != nil {
+	entry, err := buildFork(b, buildMode{lock: pidlock.Mode{Wait: true, Bound: forkBuildWaitBound, Cancel: ctx.Done()},
+		run: r, runJail: childJail(ctx, color, &bound)}, it.stream(), it.stream(), color)
+	switch {
+	case err != nil && ctx.Err() != nil:
+		r.fail("interrupted")
+		return stopped("stopped")
+	case err != nil:
 		if bound {
 			err = fmt.Errorf("it ran past the %s bound and was stopped: %w", forkBuildWaitBound, err)
 		}

@@ -1276,6 +1276,19 @@ func runRun(args []string) int {
 		stream := launchBuildStream(req.Stderr)
 		return deliverTreesForLaunch(req, stream, stream, colorForWriter(os.Stderr))
 	}
+	// And THE SLOT AS ONE ACT (buildpool.go; docs/design/pi-extension-store-builds.md XB-D10), which a
+	// fresh launch calls in place of the two: every key of both halves at once in one pool, under one
+	// interrupt scope.
+	opts.BuildSlot = func(req run.BuildSlotRequest) (map[string]entrypoint.ForkDelivery, map[string]run.TreeDelivery) {
+		var stderr io.Writer
+		switch {
+		case req.Forks != nil:
+			stderr = req.Forks.Stderr
+		case req.Trees != nil:
+			stderr = req.Trees.Stderr
+		}
+		return runBuildSlot(req, launchBuildStream(stderr), colorForWriter(os.Stderr))
+	}
 	// Set the tmux/kitty jail indicator around the run, restoring on exit. The
 	// restore runs as subprocesses (kitten/tmux) with no timeout of their own,
 	// so it is spanned — the last unmeasured step between the report printing

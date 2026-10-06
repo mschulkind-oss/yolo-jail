@@ -31,6 +31,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"sync"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/entrypoint"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
@@ -111,7 +112,7 @@ func readHandedFile(tree string) (*handedForksFile, error) {
 }
 
 // recordHandedFork merges bin's delivery into tree's record, through a temp file and a rename.
-// One launch writes its own tree's record, from its own goroutine, so there is no second writer.
+// One launch writes its own tree's record; its pool's advances write it at once, in turn (handedFileMu).
 func recordHandedFork(tree, bin string, h HandedFork) error {
 	return updateHandedFile(tree, func(f *handedForksFile) { f.Forks[bin] = h })
 }
@@ -126,16 +127,30 @@ func recordHandedTree(tree, key string, h HandedTree) error {
 	})
 }
 
+// handedFileMu serializes updateHandedFile within this process: the slot's pool runs a launch's
+// advances at once (buildslot.go, XB-D10), and each hands its bin under its own fork's record lock,
+// which does not exclude another fork's hand. The read, the edit and the rename are one step under
+// it, so no hand is lost to another's rewrite. One launch writes its own tree's record, so no
+// process but this one writes it.
+var handedFileMu sync.Mutex
+
+// handedFileRead runs between updateHandedFile's read and its write: a seam for a test to widen the
+// window two writers would race in.
+var handedFileRead = func() {}
+
 // updateHandedFile rewrites tree's delivery record with edit applied, through a temp file and a
 // rename.
 func updateHandedFile(tree string, edit func(*handedForksFile)) error {
 	if tree == "" {
 		return nil
 	}
+	handedFileMu.Lock()
+	defer handedFileMu.Unlock()
 	cur, err := readHandedFile(tree)
 	if err != nil || cur == nil {
 		cur = &handedForksFile{} // an unreadable record of our own is replaced, never read around
 	}
+	handedFileRead()
 	cur.Schema = handedForksSchema
 	if cur.Forks == nil {
 		cur.Forks = map[string]HandedFork{}

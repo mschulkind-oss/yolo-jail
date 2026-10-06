@@ -16,8 +16,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 patch series, and yolo builds them onto each new release they fit, keeping the last good build
 running when one conflicts. `yolo pack rebase` sets up the fix, `yolo pack series check` and
 `yolo pack lint --online` check a series, in a jail too, and patch series need git 2.40 or newer on
-the host. A launch shows each build as one line, with its full output in the launch's log. See
-[Follow an upstream with a patch series](userguide/guides/patch-series.md).
+the host. A launch builds them at once and shows them as one line, with their full output in the
+launch's log. See [Follow an upstream with a patch series](userguide/guides/patch-series.md).
 
 **Packs written for a newer yolo.** A launch now leaves out, and names, any part of a pack written
 for a newer yolo instead of failing, and `yolo features` lists what a yolo can read.

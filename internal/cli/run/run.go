@@ -1336,12 +1336,15 @@ func (o *Options) runContainer(cfg *jsonx.OrderedMap, rt, repoRoot, cname string
 	// its decisions once at boot, so a build an attach waited for would reach no jail. Under the
 	// launch lock, as the image load is: a second terminal in this workspace waits for this jail
 	// and then attaches to it.
-	forkSpan := o.Perf.Span("launch.fork_builds")
-	o.forkDelivered = o.forkDeliveriesFor(rt)
+	//
 	// THE TREE ARM, beside the fork builds in their slot and for their reasons (patchedtrees.go;
 	// docs/design/patched-extensions.md §6.1, §8.1): each patched extension's check and advance, and
 	// the per-launch copy its jail mounts read-only. Below every attach site, under the launch lock.
-	o.treeDelivered = o.treeDeliveriesFor(rt)
+	//
+	// ONE ACT FOR BOTH (buildslot.go, XB-D10): every key of the slot runs at once in the build act's
+	// pool, under one interrupt scope, with the image's own build started beside it.
+	forkSpan := o.Perf.Span("launch.fork_builds")
+	o.runForkBuildSlot(cfg, rt, repoRoot)
 	o.noteTreeDeliveries(rt)
 	// And at once, before the image step and the boot, when the program asked for will not start in
 	// the jail for want of a tree (PPX-D18): said here, not only by its launcher after a whole boot.

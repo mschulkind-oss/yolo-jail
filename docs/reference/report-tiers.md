@@ -433,14 +433,16 @@ builds and their upstream checks. One renderer,
 
 A progress line is not a density control and hides nothing, so P4 and [`OQ-RO3`](#why-its-this-way) are untouched.
 
-**A build is one progress line, its jail's output in the file**
-([PF-D77](../design/patched-forks.md#PF-D77)). A launch's fork or patched build runs a whole
-nested launch, whose provenance, provisioning and build output used to land among the launch's
-own lines. Now the terminal shows the build's start line, which carries its disclosures (the
-seal, and the build line whole, before it runs), its progress line, and its result, the move
-line; the nested launch's warnings and refusals are repeated under it; and every line of the
-build jail goes to `launch.log` (the stream's log half alone, `run.LaunchLogOnly`) and to the
-build's own `<workspace>/.yolo/build-<slug>.log`, whose last lines a failed build prints.
+**A launch's builds are one progress line, their jails' output in the file**
+([PF-D77](../design/patched-forks.md#PF-D77), [PF-D78](../design/patched-forks.md#PF-D78)). A
+launch's fork or patched build runs a whole nested launch, whose provenance, provisioning and build
+output used to land among the launch's own lines. Now the builds run at once under one progress
+line, and the terminal shows each build's start line at once, which carries its disclosures (the
+seal, and the build line whole, before it runs), and its result, the move line, among its key's
+lines in declaration order; the nested launch's warnings and refusals are repeated under it; and
+every line of a build jail goes to `launch.log` (the stream's log half alone, `run.LaunchLogOnly`)
+and to the build's own `<workspace>/.yolo/build-<slug>.log`, whose last lines a failed build
+prints.
 
 **The launcher persists its half.** Everything the launcher prints is appended to
 `<workspace>/.yolo/launch.log` (`launchLog`, `LaunchLogName`), beside the entrypoint's `boot.log`,

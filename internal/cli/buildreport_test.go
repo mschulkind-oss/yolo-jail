@@ -156,7 +156,8 @@ func TestASuccessfulBuildsTerminalCarriesOnlyItsProgressLines(t *testing.T) {
 	}
 	for _, l := range strings.Split(strings.TrimSpace(term), "\n") {
 		if !strings.HasPrefix(l, "build extension ") && !strings.HasPrefix(l, "  sealed: ") &&
-			!strings.HasPrefix(l, "built extension ") && !strings.HasPrefix(l, "  its build jail: ") {
+			!strings.HasPrefix(l, "built extension ") && !strings.HasPrefix(l, "  its build jail: ") &&
+			!strings.HasPrefix(l, buildPoolLabel) && !strings.HasPrefix(l, "  "+buildPoolLabel) {
 			t.Errorf("the terminal carries a line that is not the build's progress: %q\n%s", l, term)
 		}
 	}
@@ -268,28 +269,32 @@ func TestAPlainForksLaunchBuildIsOneProgressLine(t *testing.T) {
 	}
 }
 
-// launchReported runs one jail launch's advance with its build report, on one stream, as
-// buildForksForLaunch runs it.
+// launchReported runs one jail launch's advance as its slot's pool runs it (addForkKeys), on one
+// stream.
 func (fx *patchedAdvanceFixture) launchReported(t *testing.T) (advanceResult, string) {
 	t.Helper()
 	stream := &launchStream{}
-	r := advancePatchedFork(fx.fork(t), advanceOptions{platform: patchedTestPlatform, runtime: "podman", out: stream,
-		errw: stream, launch: true, report: newBuildReport("", stream, progress.Config{}, false)})
+	pool := newBuildPool(stream, progress.Config{}, false, "", "podman", 0, 0, &run.ActInterrupt{})
+	var r advanceResult
+	pool.add("fork forkpack/tool", func(it *poolItem) {
+		r = advancePatchedFork(fx.fork(t), advanceOptions{platform: patchedTestPlatform, runtime: "podman",
+			out: it.stream(), errw: it.stream(), launch: true, report: pool.report, slot: it})
+	})
+	pool.run()
 	return r, stream.terminal()
 }
 
-// A JAIL LAUNCH'S FIRST ADVANCE BUILDS IN THE CHILD, outside any interrupt scope — so its output is
-// kept off the terminal, and the terminal's Ctrl-C still reaches the launch's own arm and ends the
-// launch (§7) — and a fit that fails sends the advance to the series' base under the same start line,
-// carrying the base's clause (PF-D23, PF-D77). Red with the advance's report-mode child runner or its
-// start line deleted.
+// A JAIL LAUNCH'S FIRST ADVANCE BUILDS IN THE CHILD, under the pool's interrupt scope — so its
+// output is kept off the terminal, and a Ctrl-C ends its wait and not the launch (PF-D78) — and a fit
+// that fails sends the advance to the series' base under the same start line, carrying the base's
+// clause (PF-D23, PF-D77). Red with the advance's report-mode child runner or its start line deleted.
 func TestAJailLaunchsFirstAdvanceBuildsInTheChildAndItsBaseGetsTheStartLine(t *testing.T) {
 	fx := newPatchedAdvanceFixture(t, "")
 	v11 := fx.commit(t, "v1.1.0", map[int]string{14: "fourteen"})
 	fx.failBuildsOf(t, "fourteen")
 	r, term := fx.launchReported(t)
-	if r.delivery.Key == "" || fx.child != 2 || !slices.Equal(fx.scoped, []bool{false, false}) {
-		t.Fatalf("handed %+v after %d child builds (scoped %v), want the fit's and then the base's, unscoped\n%s",
+	if r.delivery.Key == "" || fx.child != 2 || !slices.Equal(fx.scoped, []bool{true, true}) {
+		t.Fatalf("handed %+v after %d child builds (scoped %v), want the fit's and then the base's, under the pool's scope\n%s",
 			r.delivery, fx.child, fx.scoped, term)
 	}
 	fit, base := "v1.1.0 ("+shortSHA(v11)+") + 2 patches (series ", "v1.0.0 ("+shortSHA(fx.base)+") + 2 patches (series "

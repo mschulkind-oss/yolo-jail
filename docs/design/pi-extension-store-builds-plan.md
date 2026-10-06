@@ -3,7 +3,7 @@ title: "Companion implementation sketch: one keyed build for every pi extension"
 date: 2026-10-05
 status: draft
 stage: SKETCH
-next: "Nothing to build from here yet; steps 1 and 2 need only a real plan against the tree (step 1's unsharing once XB-D14 is confirmed), and steps 3 and 4 wait on OQ-XB1 and OQ-6, as their own headings say"
+next: "Step 2 is built (2026-10-05, XB-D29 and XB-D30); step 1 needs only a real plan against the tree (its unsharing once XB-D14 is confirmed), and steps 3 and 4 wait on OQ-XB1 and OQ-6, as their own headings say"
 ---
 
 # Companion implementation sketch: one keyed build for every pi extension
@@ -51,6 +51,13 @@ wins on behavior, and nobody builds from this sketch.
 - **The failure throttle**: a `$REFRESH_SEEN_DIR/<key>.failed` stamp beside the seen marker.
 
 ## Step 2: the parallel advance
+
+**Built 2026-10-05** ([XB-D29](pi-extension-store-builds.md#XB-D29),
+[XB-D30](pi-extension-store-builds.md#XB-D30)): `internal/cli/buildpool.go` and
+`internal/cli/run/buildslot.go`. Two hazards this sketch missed were found building it: a first
+advance ran its build jail in the launch's own process, whose signal arms and pack-record scope two
+builds at once would share, so every pooled build is the child; and the delivery record's
+read-modify-write assumed one writer, so it takes a process mutex. The notes below are as drafted.
 
 - `deliverTreesForLaunch` (`internal/cli/treedelivery.go`) and `buildForksForLaunch`'s patched loop
   (`internal/cli/forkbuild.go`) become one pool over owner keys. Two semaphores (checks, builds); the
