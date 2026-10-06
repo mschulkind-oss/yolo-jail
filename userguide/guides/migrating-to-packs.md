@@ -98,6 +98,35 @@ only, name it and its audience:
 { "kind": "briefing", "from": "prose/pi.md", "agents": ["pi"] }
 ```
 
+#### Give pi your extensions, themes and prompts
+
+Put them in one folder, laid out the way pi lays out a package, and address that folder to pi with
+one entry:
+
+```text
+my-agent-pack/
+└── files/pi/
+    ├── extensions/   # each .ts or .js file is one extension
+    ├── themes/       # each .json file is one theme
+    └── prompts/      # each .md file is one prompt template
+```
+
+```jsonc
+{ "kind": "files", "agents": ["pi"], "from": "files/pi" }
+```
+
+yolo places the folder at `~/.pi/agent/yolo-packs/<your pack>`, read-only in a jail, and adds it
+to the `packages` list in pi's `settings.json`, beside the packages you installed yourself, in a
+jail and at `yolo host apply`. Adding a file to the folder needs no manifest edit. Drop the pack
+from `packs` and the next launch, or the next `yolo host apply --assert`, takes the folder out of
+the list.
+
+The folder needs no `package.json`. If you add one, for npm dependencies say, either leave out its
+`pi` key or list every folder in it, because a `pi` key tells pi to load only what it lists.
+`yolo pack lint` warns about a folder holding none of `extensions/`, `themes/`, `skills/`,
+`prompts/` or a `package.json`. Skills are better shipped in the pack's `skills/` folder, which
+reaches every agent.
+
 ### Step 3: check it
 
 ```console

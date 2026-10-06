@@ -346,6 +346,15 @@ type Contribution struct {
 	// the design, docs/reference/extension-point-principle.md). IGNORED AT THE HOST NOTCH, by
 	// ruling (OQ-WS5): `yolo host apply` never writes a workspace's skills into a real home.
 	ProjectDirs []string `json:"project_dirs,omitempty"`
+	// Register makes a `files` SLOT a REGISTERING one: core appends one entry per tree that lands
+	// in the slot to an array in a surface the slot's own pack declares, attributed to the pack
+	// whose tree it is, and drops the entry when that pack is no longer selected. Expects names
+	// the top-level entries a well-formed tree holds, and a tree holding none of them is warned
+	// about, never refused. Both are a slot's alone (`agent` + `into`) and refused on every other
+	// contribution; the shape, the rules and why core knows no agent here are filesregister.go's
+	// (docs/design/pack-pi-resources.md §3).
+	Register *FilesRegister `json:"register,omitempty"`
+	Expects  []string       `json:"expects,omitempty"`
 	// NodeFloor is the MINIMUM Node version this program's entrypoint requires. `program` only.
 	//
 	// # Why a program declares it and core does not derive it
@@ -3653,6 +3662,7 @@ func validateContribution(label string, c Contribution) []string {
 		}
 	}
 	problems = append(problems, projectDirsProblems(label, c)...)
+	problems = append(problems, filesSlotProblems(label, c)...)
 	// `update` is program's alone, refused in `profile`'s position and for `profile`'s
 	// reason: a verb declared on `requires` (which installs nothing) or on a content kind
 	// is read by no consumer, so accepting it would be a declaration that silently does

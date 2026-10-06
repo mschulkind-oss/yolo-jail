@@ -1380,12 +1380,12 @@ channel around it.
 
 | Written | What it is | Fields |
 | :--- | :--- | :--- |
-| `{kind:"files", agent:"pi", into:".pi/agent/extensions"}` | a **slot** — where content addressed to `pi` lands | `agent` + `into`, and **no `from`** |
-| `{kind:"files", agents:["pi"], from:"pi-extensions"}` | a **contribution** — this pack's tree, for whoever owns `pi` | `agents` + `from`, and no `into` |
+| `{kind:"files", agent:"pi", into:".pi/agent/yolo-packs"}` | a **slot** — where content addressed to `pi` lands | `agent` + `into`, and **no `from`** |
+| `{kind:"files", agents:["pi"], from:"files/pi"}` | a **contribution** — this pack's tree, for whoever owns `pi` | `agents` + `from`, and no `into` |
 
 A slot ships nothing, so it makes no mount and writes no file; a contribution addressed to it
 lands in a **subdirectory of the slot named for the contributing pack** —
-`.pi/agent/extensions/<pack>` — at **both notches**, through one resolver
+`.pi/agent/yolo-packs/<pack>` — at **both notches**, through one resolver
 ([`packload.SlotLanding`](../../internal/packload/mergedest.go)). Two facts follow, and both are
 the reason the layout is what it is: many packs can address one slot without a
 sole-ownership collision, and nothing is ever delivered AT the slot root, where the owner's own
@@ -1401,6 +1401,22 @@ inside it is the nested-mount conflict `files` was reshaped to remove
 > which the jail cannot honor at all (podman refuses the duplicate mount) and the host would merge
 > in silence. The remedy for the second is one `from` directory holding both trees. Two slots for
 > two DIFFERENT agents, or two trees addressed to different agents, are fine.
+
+**A slot may REGISTER the trees that land in it**, with `register`: `{"surface": "<agent>/<name>",
+"path": "<pointer>"}`. For each tree landing there, core appends `~/<landing>` to that array as a
+`config-list` entry of the CONTRIBUTING pack, so the entry sits beside the user's own, is captured
+per entry in a jail, is recorded as inserted at the host, and leaves when its pack is dropped or
+`yolo host apply --revert` runs. `surface` must be one the slot's own pack declares (anything else
+is a manifest problem), `path` takes config-list's pointer rules, and an optional `entry` template
+replaces the default `~/{landing}`, holding `{landing}` and no other token. `expects` names the
+top-level entries a well-formed tree holds, and a tree holding none of them is warned about by
+`pack lint`, `pack footprint` and `yolo check`, never refused. Both fields are a slot's alone.
+`packs/pi` is the one user: its slot at `.pi/agent/yolo-packs` registers into `pi/settings`
+`/packages`, because pi loads a listed folder as a package, every file in its `extensions/`,
+`themes/` and `prompts/` with no list, so a pack gives pi one
+`{"kind":"files","agents":["pi"],"from":"<folder>"}`
+([`pack-pi-resources.md`](../design/pack-pi-resources.md),
+[`registration.go`](../../internal/packload/registration.go)).
 
 The join lives in destination borrowing rather than in either notch's renderer, which is why the
 host and the jail cannot drift apart again ([`filesslotparity_test.go`](../../internal/cli/run/filesslotparity_test.go)

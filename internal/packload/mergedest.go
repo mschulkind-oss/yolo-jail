@@ -505,9 +505,37 @@ func audienceOf(c packdecl.Contribution) map[string]bool {
 // declared about itself, never anything derived from the declaring pack's bins (OQ-BA2), so a
 // destination that declares no identity is simply never named by any selector (R4).
 func borrowedDestinations(src packdecl.Contribution, p *Pack, set []*Pack) []packdecl.Contribution {
+	var out []packdecl.Contribution
+	for _, m := range matchedDestinations(src, set) {
+		// `agents` is deliberately NOT copied onto the result. The narrowing has already
+		// happened — each synthesized contribution names one destination that matched — so
+		// carrying the selector forward would leave a resolved contribution holding `into`
+		// AND `agents`, the pair validateContribution refuses as two answers to one question.
+		// After this function a resolved pack is an ORDINARY declaring pack, which is the
+		// property that keeps every downstream reader free of an inference branch. A slot's
+		// `register` is not copied either: Registrations reads it off the slot itself.
+		out = append(out, packdecl.Contribution{
+			Kind: src.Kind, Into: SlotLanding(src.Kind, m.dest.Into, p.Name), From: src.From,
+		})
+	}
+	return out
+}
+
+// slotMatch is one destination a borrowing contribution's audience reaches: the declaration and
+// the pack that declared it.
+type slotMatch struct {
+	owner *Pack
+	dest  packdecl.Contribution
+}
+
+// matchedDestinations is every distinct destination the packs in `set` declare for `src`'s kind
+// that `src`'s audience names, first in set order winning — THE matching rule, read by
+// borrowedDestinations for delivery and by Registrations for the list entry a registering slot
+// asks for, so a tree can never be listed where it was not delivered.
+func matchedDestinations(src packdecl.Contribution, set []*Pack) []slotMatch {
 	kind := src.Kind
 	audience := audienceOf(src)
-	var out []packdecl.Contribution
+	var out []slotMatch
 	seen := map[string]bool{}
 	for _, other := range set {
 		// p ITSELF IS IN THE SET, deliberately (docs/reference/pack-system.md#briefing-p2, #briefing-p5). A broadcast
@@ -529,15 +557,7 @@ func borrowedDestinations(src packdecl.Contribution, p *Pack, set []*Pack) []pac
 				continue
 			}
 			seen[c.Into] = true
-			// `agents` is deliberately NOT copied onto the result. The narrowing has already
-			// happened — each synthesized contribution names one destination that matched — so
-			// carrying the selector forward would leave a resolved contribution holding `into`
-			// AND `agents`, the pair validateContribution refuses as two answers to one question.
-			// After this function a resolved pack is an ORDINARY declaring pack, which is the
-			// property that keeps every downstream reader free of an inference branch.
-			out = append(out, packdecl.Contribution{
-				Kind: kind, Into: SlotLanding(kind, c.Into, p.Name), From: src.From,
-			})
+			out = append(out, slotMatch{owner: other, dest: c})
 		}
 	}
 	return out

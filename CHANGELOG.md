@@ -29,6 +29,11 @@ patches, and yolo builds it on the host and gives each new jail a read-only copy
 installs or changes it. A launch builds its extensions at the same time. See
 [Build a pi extension as it is](userguide/guides/patch-series.md#build-a-pi-extension-as-it-is).
 
+**Pi extensions, themes and prompts as one folder.** A pack can give pi a whole folder of them in
+one manifest line, with no list of files, and yolo adds that folder to pi's packages beside your
+own, in jails and at `yolo host apply`, until you drop the pack. See
+[Writing your own pack](userguide/guides/migrating-to-packs.md#give-pi-your-extensions-themes-and-prompts).
+
 **Claude Code plugins and mods.** A new guide covers the ways to bring a Claude Code plugin or mod
 into a jail, and what each launch shows about the code it runs. See
 [Claude Code plugins and mods](userguide/guides/claude-plugins-and-mods.md).

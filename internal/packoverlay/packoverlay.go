@@ -30,6 +30,7 @@
 package packoverlay
 
 import (
+	"encoding/json"
 	"fmt"
 	"sort"
 
@@ -422,7 +423,14 @@ func Collect(packs []*packload.Pack, autonomy bool, profiles map[string]string) 
 	//
 	// No profile gate: config-list takes none (packdecl refuses `profile` on it). The one
 	// gate is the POSTURE's, below.
+	//
+	// A REGISTERING SLOT's entries take this pass too, each placed ahead of its contributing
+	// pack's own lists (registrationsOf).
+	registrations := registrationsOf(packs, ownKeys, set)
 	for _, p := range packs {
+		for _, r := range registrations[p.Name] {
+			set.listsByTarget[r.key] = append(set.listsByTarget[r.key], r.list)
+		}
 		for _, cl := range p.Decl.ListContributions() {
 			kind, what := packdecl.KindConfigList, string(packdecl.KindConfigList)
 			if cl.Posture != "" {
@@ -478,6 +486,70 @@ func Collect(packs []*packload.Pack, autonomy bool, profiles map[string]string) 
 		return set.Orphans[i].kindName() < set.Orphans[j].kindName()
 	})
 	return set
+}
+
+// placedRegistration is one registering slot's entry for one landed tree, ready to fold: the
+// surface it lands in and the list contribution, attributed to the pack whose tree it is.
+type placedRegistration struct {
+	key  manifest.SurfaceKey
+	list agentcfg.ListContribution
+}
+
+// registrationsOf is the list entries the REGISTERING `files` slots in `packs` ask for, keyed by
+// the CONTRIBUTING pack (packload.Registrations; docs/design/pack-pi-resources.md §3.3), and it adds
+// a Problem to `set` for each slot whose `register` names a surface its own pack does not declare.
+//
+// Each entry is an ordinary config-list entry of the pack whose tree landed, which is the whole
+// design (PR-D2): the fold, the jail's per-entry capture, the host's inserted-entries record and the
+// removal of a dropped pack's entries are config-list's, so a tree's entry leaves with its pack at
+// both notches by the rule that already removes a dropped pack's own config-list.
+//
+// The slot's OWN pack's surface, because only that is the owner's to promise: an entry written into
+// another pack's settings would make the slot work or not depending on a pack the slot cannot name.
+// Checked per slot whether or not any tree addresses it, so `pack lint` of the owner alone says it.
+func registrationsOf(packs []*packload.Pack, ownKeys map[*packload.Pack]map[manifest.SurfaceKey]bool,
+	set *OverlaySet) map[string][]placedRegistration {
+	owned := map[string]manifest.SurfaceKey{}
+	for _, p := range packs {
+		for _, c := range p.Decl.Contributions() {
+			if c.Kind != packdecl.KindFiles || c.Agent == "" || c.Register == nil {
+				continue
+			}
+			key, err := manifest.ParseSurfaceID(c.Register.Surface)
+			switch {
+			case err != nil:
+				set.Problems = append(set.Problems, fmt.Sprintf("pack %s: files slot %s: register: %v",
+					p.Name, c.Into, err))
+			case !ownKeys[p][key]:
+				set.Problems = append(set.Problems, fmt.Sprintf("pack %s: files slot %s: register "+
+					"names surface %s, which this pack does not declare — a slot lists the trees "+
+					"landing in it in a surface of its own pack, so declare that surface in a "+
+					"`config` contribution of this pack, or name one it declares",
+					p.Name, c.Into, c.Register.Surface))
+			default:
+				owned[p.Name+"\x00"+c.Into] = key
+			}
+		}
+	}
+	out := map[string][]placedRegistration{}
+	for _, r := range packload.Registrations(packs) {
+		key, ok := owned[r.Owner+"\x00"+r.Slot]
+		if !ok {
+			continue // its slot's Problem is above
+		}
+		add, err := json.Marshal([]string{r.Entry})
+		if err != nil {
+			continue
+		}
+		list, err := agentcfg.NewListContribution(r.Pack, r.Path, add)
+		if err != nil {
+			set.Problems = append(set.Problems, fmt.Sprintf("pack %s: files slot %s: register: %v",
+				r.Owner, r.Slot, err))
+			continue
+		}
+		out[r.Pack] = append(out[r.Pack], placedRegistration{key: key, list: list})
+	}
+	return out
 }
 
 // shippedOwnerOf names the EMBEDDED pack that owns a surface identity, or "" when none

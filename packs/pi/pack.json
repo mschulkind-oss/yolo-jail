@@ -85,6 +85,18 @@
       "project_dirs": [".pi/skills", ".agents/skills"]
     },
     {
+      // Where a pack gives pi one folder laid out as a pi package (extensions/, themes/,
+      // prompts/), with {"kind": "files", "agents": ["pi"], "from": "<folder>"}. Each folder is
+      // listed in settings.json's `packages`, which loads every file in it with no list
+      // (docs/design/pack-pi-resources.md). Outside every folder pi scans by itself, so a folder
+      // loads only while its pack is selected.
+      "agent": "pi",
+      "expects": ["extensions", "themes", "skills", "prompts", "package.json"],
+      "into": ".pi/agent/yolo-packs",
+      "kind": "files",
+      "register": {"path": "/packages", "surface": "pi/settings"}
+    },
+    {
       "kind": "profile",
       "name": "codex",
       "provider": "openai-codex"

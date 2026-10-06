@@ -249,6 +249,13 @@ func (o *Options) sectionPacks(r *reporter, merged *jsonx.OrderedMap) {
 			"packs "+strings.Join(c.Packs, ", ")+" — "+c.Reason+"\n"+keepOneNote())
 	}
 
+	// A `files` tree landing in a slot whose `expects` it misses, over the same selected set. A
+	// WARNING: the launch still delivers and registers the tree, and whether it loads is the
+	// agent's to say (docs/design/pack-pi-resources.md PR-D4).
+	for _, n := range packload.ExpectsNotes(loaded, loaded) {
+		r.warn(n.Msg, n.Fix)
+	}
+
 	// The launch's PROTOCOL-PAIRING gate, predicted over the SELECTED set — here rather
 	// than in Merged Configuration because the gate compares a config selection against
 	// PACK DECLARATIONS, and `loaded` is the only place both are in hand. After

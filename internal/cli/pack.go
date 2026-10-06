@@ -795,6 +795,7 @@ func packLint(args []string, out, errw io.Writer, color bool) int {
 	for _, w := range packload.LintDuplicateLoads(pack) {
 		pr.Printf("[yellow]⚠[/yellow] %s", richtext.Escape(w))
 	}
+	printExpectsNotes(pr, []*packload.Pack{pack})
 	printLines(pr, onlineLines)
 
 	// Advice: a custom pack whose CONTENT contribution names an `into` an AGENT PACK already
@@ -867,6 +868,27 @@ func overlayProblems(p *packload.Pack) []string {
 		}
 	}
 	return out
+}
+
+// printExpectsNotes warns about each addressed `files` tree of `packs` that lands in a slot whose
+// `expects` it misses (packload.ExpectsNotes; docs/design/pack-pi-resources.md PR-D4). A warning,
+// never a failure: the tree still lands and is still registered.
+//
+// ONE pack is read against the slots the packs yolo ships declare, as reportShippedSurfaceClash
+// reads them: a content pack addresses an agent whose slot is in another pack, and which packs a
+// launch selects is not a single-pack view's to know.
+func printExpectsNotes(pr richtext.Printer, packs []*packload.Pack) {
+	set := append([]*packload.Pack(nil), packs...)
+	if len(packs) == 1 {
+		for _, shipped := range packload.Embedded() {
+			if shipped.Name != packs[0].Name {
+				set = append(set, shipped)
+			}
+		}
+	}
+	for _, n := range packload.ExpectsNotes(packs, set) {
+		pr.Printf("[yellow]⚠[/yellow] %s. %s", richtext.Escape(n.Msg), richtext.Escape(n.Fix))
+	}
 }
 
 // printPackFootprint prints one pack's declared claims, flagging the ones a human
@@ -1518,6 +1540,7 @@ func reportFootprint(packs []*packload.Pack, pr richtext.Printer) int {
 	if len(packs) == 1 {
 		reportShippedSurfaceClash(pr, packs[0])
 	}
+	printExpectsNotes(pr, packs)
 
 	// Cross-pack collisions across the reported set (the good-citizen check).
 	cols := packload.Collisions(packs)
