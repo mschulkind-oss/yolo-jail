@@ -70,12 +70,13 @@ host or an outside account follows under [External waits](#external-waits).
     extensions](../design/patched-extensions.md), at every notch — the maintainer asked on 2026-10-04
     for both "out as soon as possible" so he can test them, and delegated their open questions, which
     were decided on their leanings.
-13. [Build pack-declared pi extensions as host builds, one read-only copy per jail](../design/pi-git-extension-caching.md), with
-    [what the background update mode moves](../design/pi-extension-store-builds.md) — next, since the maintainer
-    asked on 2026-10-05 to be led through them, and the capture of unmodified extensions (or the held store) and
-    the update-timing build each land on one; [who installs a pi package the refresh
-    missed](../design/pi-extension-lifecycle.md#OQ-4) rides in the same sitting. The companion's steps no ruling
-    holds, the parallel advance and the launcher's refresh fixes other than the unsharing, build alongside.
+13. [Build the background update mode for what yolo builds](../design/pi-extension-store-builds.md#XB-D42) — pack-declared
+    pi extensions are host builds with one read-only copy per jail since 2026-10-05
+    ([XB-D35](../design/pi-extension-store-builds.md#XB-D35)–[XB-D41](../design/pi-extension-store-builds.md#XB-D41)),
+    with the parallel advance for extensions and the launcher's refresh fixes; what remains is the refresh-timing
+    option and the background advance it starts, whose launch half waits behind a seam, and the parallel advance
+    for patched forks. [Who installs a pi package the refresh missed](../design/pi-extension-lifecycle.md#OQ-4) is
+    still the maintainer's to rule.
 14. [Rule how the Claude footer moves into a Claude Code plugin](../research/claude-code-extensions-footer.md) — the
     plugin ends a process per refresh and keeps yolo's segment beside your own status line, and its first build
     step, disclosing a wrapped plugin's default-location hooks, is under way. [How yolo installs and manages

@@ -632,7 +632,9 @@ key beside the refresh stamp, in `<store>/.yolo-refresh/<bin>.seen/`, so with th
 A key no refresh has succeeded for is due. It is keyed on content, not mtime, because yolo
 rewrites a composed file on every boot; and markers are per key, so two workspaces with different
 settings that share one store each refresh once and then stop. A refresh
-that exits non-zero records nothing, so the change stays due. A lock another jail holds is still
+that exits non-zero records no marker, so the change stays due, but it records when it failed,
+`<key>.failed` beside the markers, and that content is due again only once the failure is an hour
+old ([XB-D26](../design/pi-extension-store-builds.md#XB-D26)). A lock another jail holds is still
 skipped, with one exception: a launch whose content has never been refreshed with waits for the
 holder, bounded by the update timeout, because running the program instead would let it install
 what that content names outside the lock. It exists for the first-install race of a
@@ -640,6 +642,20 @@ machine-shared store
 ([`pi-git-extension-caching.md` §3.12](../design/pi-git-extension-caching.md#312-the-refresh-trigger-that-stays)).
 `packdecl` refuses an empty list, an empty, absolute, escaping or unclean entry, and a
 duplicate.
+
+`only_if`, optional, says when the refresh is **worth running** at all
+([XB-D23](../design/pi-extension-store-builds.md#XB-D23)): `files` (home-relative) and
+`project_files` (relative to the directory the program starts in) and `contains`, fixed strings.
+The launcher skips the refresh, and the second program process it costs, unless a listed file holds
+one of the strings. Pi declares its user and project settings and the prefixes it installs itself
+from (`"npm:`, `"git:`, `"http://`, `"https://`, `"ssh://`), so a workspace whose every extension is
+a tree yolo built refreshes nothing. `packdecl` refuses an `only_if` with no file or no string.
+
+`probe` lists the program's **probe arguments**, a term coined in
+[XB-D24](../design/pi-extension-store-builds.md#XB-D24): an invocation whose first argument is one
+of them only asks the program about itself, so its launcher runs no hourly update, no MCP server
+refresh, no pre-launch refresh and no tree gate. A cold install still runs. Pi declares
+`["--version", "-v"]`. `probe` is read on `program` alone.
 
 `platforms` is **where the vendor publishes a build**: a list of `<goos>` or
 `<goos>/<goarch>` entries, spelled as Go spells them. Absent means every platform, which is
@@ -1277,7 +1293,12 @@ author's to move; nothing touches one.
 
 An opaque tree the pack owns outright, bind-mounted `:ro` at `into` in the jail. `from` is
 required and honored **on a contribution**: there is no conventional location for an opaque tree,
-so the declaration is the only thing that can name it. The source bound is the pack's **staged**
+so the declaration is the only thing that can name it. A **built tree** names an upstream `source`
+in place of `from`: a patched extension, with a `patches` series
+([`patched-extensions.md` §4](../design/patched-extensions.md#4-the-declaration)), or an unmodified
+extension, with none, from a git address or `npm:<name>[@<spec>]` and an optional `fallback`
+([`pi-extension-store-builds.md` §4.1](../design/pi-extension-store-builds.md#41-the-declaration)).
+yolo builds it on the host in a sealed capture jail and mounts a per-launch copy at `into`. The source bound is the pack's **staged**
 tree, so `packstage`'s escaping-symlink refusal has already run on it — `files` is not a
 channel around it.
 

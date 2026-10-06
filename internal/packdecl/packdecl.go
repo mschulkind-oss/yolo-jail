@@ -244,6 +244,9 @@ type Install struct {
 	// Refresh is the program's PRE-LAUNCH REFRESH, nil when it declares none. The
 	// Contribution field of the same name carries the reasoning; see Refresh for the shape.
 	Refresh *Refresh `json:"refresh,omitempty"`
+	// Probe is the program's PROBE ARGUMENTS, nil when it declares none. The Contribution field of
+	// the same name carries the reasoning.
+	Probe []string `json:"probe,omitempty"`
 	// VersionsDir is the home-relative directory the program's installer keeps one entry per
 	// installed version in, "" meaning the default `.local/share/<bin>/versions`. The
 	// Contribution field of the same name carries the reasoning; read it through
@@ -350,6 +353,26 @@ type Refresh struct {
 	// skipped refresh leaves the change due; an absent file has a content of its own, so
 	// absent and present differ. Optional; omit it for a stamp-only refresh.
 	DueOnChange []string `json:"due_on_change,omitempty"`
+	// OnlyIf says when the refresh is WORTH RUNNING at all (docs/design/pi-extension-store-builds.md
+	// XB-D23): the launcher skips the refresh, and the second program process it costs, when none
+	// of the named files holds any of the named strings. For pi: its user and project settings,
+	// and the prefixes pi parses as a source it installs itself (`"npm:`, `"git:`, a URL), so a
+	// workspace whose every extension is a tree yolo built refreshes nothing. nil runs the refresh
+	// whenever it is due.
+	OnlyIf *RefreshOnlyIf `json:"only_if,omitempty"`
+}
+
+// RefreshOnlyIf is a refresh's worth-running test (Refresh.OnlyIf): the refresh runs when any file
+// it names holds any string it names, as fixed text; a file that is absent holds nothing.
+type RefreshOnlyIf struct {
+	// Files are home-relative files, as DueOnChange's are.
+	Files []string `json:"files,omitempty"`
+	// ProjectFiles are relative to the directory the program starts in — the one path a
+	// declaration names outside the home, because that is where an agent reads its project's own
+	// settings (pi: `.pi/settings.json`).
+	ProjectFiles []string `json:"project_files,omitempty"`
+	// Contains are the fixed strings, compared byte for byte; at least one.
+	Contains []string `json:"contains"`
 }
 
 // StoreBookkeepingPrefix begins the name of every entry yolo itself keeps inside a

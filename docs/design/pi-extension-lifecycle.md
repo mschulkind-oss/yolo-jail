@@ -301,6 +301,15 @@ transitive MCP/LSP step runs `yolo internal refresh-servers` before the agent's 
 > - **The refresh does not run in two places.** `yolo pack update` (`YOLO_PACK_UPDATE=1`) exits
 >   before reaching it, and so does the launcher's re-entry path.
 >
+> **As built (2026-10-05)**, by [`pi-extension-store-builds.md`](pi-extension-store-builds.md)'s
+> step 1: the refresh runs only while pi's user or project settings name a package pi installs
+> itself (`refresh.only_if`, [XB-D23](pi-extension-store-builds.md#XB-D23)); `pi --version` and
+> `pi -v` run no refresh, no CLI update and no server refresh (`probe`,
+> [XB-D24](pi-extension-store-builds.md#XB-D24)); a refresh that fails on new settings content is
+> retried once its failure is an hour old rather than at every launch
+> ([XB-D26](pi-extension-store-builds.md#XB-D26)); and a launcher a patched extension stops pays for
+> none of it first ([XB-D25](pi-extension-store-builds.md#XB-D25)).
+>
 > **What Pi does offline**, read statically from pi 0.87.1's `dist/core/package-manager.js` and not
 > measured by running it. [OQ-2](#OQ-2) left this unknown. When `npm view` fails,
 > `shouldUpdateNpmSource` returns `true` ("Preserve existing update behavior when version lookup

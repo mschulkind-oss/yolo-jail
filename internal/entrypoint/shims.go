@@ -589,7 +589,7 @@ func npmAgentLauncherSegments(pack string, inst *packdecl.Install, stampDir, rec
 		"__YOLO_EXEC_PREFIX__", token,
 		// The gate a patched extension this agent loads puts on it (patchedtrees.go, PPX-D18).
 		"__YOLO_TREE_GATE__", shquote.Quote(inst.Gate),
-	}, append(append(launchFlagSplices(flags), refreshSplices(inst.Refresh)...), modelMenuSplices(inst.ModelMenu)...)...)...)
+	}, append(append(launchFlagSplices(flags), launcherStepSplices(inst)...), modelMenuSplices(inst.ModelMenu)...)...)...)
 	return strings.Split(r.Replace(npmLauncherTemplate), token)
 }
 
@@ -681,7 +681,7 @@ func nativeAgentLauncher(pack string, inst *packdecl.Install, stampDir, receipts
 		"__YOLO_EXEC_PREFIX__", "",
 		// The gate a patched extension this agent loads puts on it (patchedtrees.go, PPX-D18).
 		"__YOLO_TREE_GATE__", shquote.Quote(inst.Gate),
-	}, append(append(launchFlagSplices(flags), refreshSplices(inst.Refresh)...), modelMenuSplices(inst.ModelMenu)...)...)...)
+	}, append(append(launchFlagSplices(flags), launcherStepSplices(inst)...), modelMenuSplices(inst.ModelMenu)...)...)...)
 	return r.Replace(nativeLauncherTemplate)
 }
 
@@ -1227,7 +1227,7 @@ SERVERS_NPM=__YOLO_SERVERS_NPM__
 # every expansion of the array for HAS_UPDATE_VERB's reason: bash 3.2 under "set -u".
 HAS_LAUNCH_FLAGS=__YOLO_HAS_LAUNCH_FLAGS__
 LAUNCH_FLAGS=(__YOLO_LAUNCH_FLAGS__)
-` + refreshDeclShell + modelMenuDeclShell + launchFlagsShellFn + `
+` + refreshDeclShell + probeDeclShell + modelMenuDeclShell + launchFlagsShellFn + `
 
 # --- re-entry ----------------------------------------------------------------------
 # B2 PUT THE LAUNCH DIR AHEAD OF THE INSTALL PREFIXES, so a BARE-NAME call of this program
@@ -1464,17 +1464,20 @@ if [ "${YOLO_PACK_UPDATE:-}" = "1" ]; then
     fi
     exit "$_rc"
 fi
-
+` + treeGateShell + `
 if [ ! -x "$REAL_BIN" ]; then
     # Cold home: the FIRST install is not a poll, and the no-evergreen ruling does not
     # touch it. There is no version here to keep — without this branch a fresh jail would
-    # simply have no agent CLI at all.
+    # simply have no agent CLI at all. A version probe installs too: without it nothing answers.
     #
     # "|| true": on the LAUNCH path a failed install is not the verdict. The -x "$REAL_BIN"
     # test at the bottom is, because it answers the question this path actually has — is
     # there something to exec? — and it answers it correctly for the upgrade case too,
     # where the install failed and the previous version is still perfectly runnable.
     _do_install || true
+elif [ "$_YOLO_PROBE" = 1 ]; then
+    # A VERSION PROBE moves nothing (XB-D24): no hourly update, no moved pin.
+    :
 elif [ "$PINNED" = "1" ]; then
     # A pinned package has nothing to poll for. A "npm view $PKG version" call answers "what is
     # the registry's latest?", which against a declared selector is either ignored (the
@@ -1526,11 +1529,11 @@ _refresh_servers() {
         --updates="$UPDATES_ENABLED" >&2 || true
 }
 
-if [ "$SERVERS_ENABLED" = "1" ]; then
+if [ "$SERVERS_ENABLED" = "1" ] && [ "$_YOLO_PROBE" != 1 ]; then
     _refresh_servers
 fi
 ` + prelaunchRefreshShellFn + `
-` + agentEnvShellFn + agentAuthPrelaunchShellFn + modelMenuShellFn + treeGateShell + `
+` + agentEnvShellFn + agentAuthPrelaunchShellFn + modelMenuShellFn + `
 if [ -x "$REAL_BIN" ]; then
     _yolo_launch_argv "$@"
     _yolo_model_menu
@@ -1658,7 +1661,7 @@ SERVERS_NPM=__YOLO_SERVERS_NPM__
 # every expansion of the array for HAS_UPDATE_VERB's reason: bash 3.2 under "set -u".
 HAS_LAUNCH_FLAGS=__YOLO_HAS_LAUNCH_FLAGS__
 LAUNCH_FLAGS=(__YOLO_LAUNCH_FLAGS__)
-` + refreshDeclShell + modelMenuDeclShell + launchFlagsShellFn + `
+` + refreshDeclShell + probeDeclShell + modelMenuDeclShell + launchFlagsShellFn + `
 # ONE lock per INSTALL PREFIX, not per program: §3.5's contention rule is about who may
 # write into $HOME/.local, and two vendor updaters running there at once is what it
 # forbids. On the container backends the prefix is a per-workspace bind and nothing can
@@ -2145,12 +2148,15 @@ if [ "${YOLO_PACK_UPDATE:-}" = "1" ]; then
     fi
     exit "$_rc"
 fi
-
+` + treeGateShell + `
 if [ ! -x "$REAL_BIN" ]; then
     # Cold home: install, and do not let a failure be the verdict — the -x test at the
     # bottom is, because it answers the question this path actually has (is there something
-    # to exec?).
+    # to exec?). A version probe installs too: without it nothing answers.
     _do_install || true
+elif [ "$_YOLO_PROBE" = 1 ]; then
+    # A VERSION PROBE moves nothing (XB-D24).
+    :
 elif _update_due; then
     _locked_update || true
 fi
@@ -2200,12 +2206,12 @@ _refresh_servers() {
         --updates="$UPDATES_ENABLED" >&2 || true
 }
 
-if [ "$SERVERS_ENABLED" = "1" ]; then
+if [ "$SERVERS_ENABLED" = "1" ] && [ "$_YOLO_PROBE" != 1 ]; then
     _refresh_servers
 fi
 
 ` + prelaunchRefreshShellFn + `
-` + agentEnvShellFn + agentAuthPrelaunchShellFn + modelMenuShellFn + treeGateShell + `
+` + agentEnvShellFn + agentAuthPrelaunchShellFn + modelMenuShellFn + `
 if [ -x "$REAL_BIN" ]; then
     _yolo_launch_argv "$@"
     _yolo_model_menu

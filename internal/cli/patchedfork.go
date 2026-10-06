@@ -63,7 +63,7 @@ func checkPatchedForks(pr richtext.Printer, errw io.Writer, forks []packload.For
 	rc := 0
 	store := patchedForkStore()
 	for _, f := range forks {
-		if !f.Patched() {
+		if !f.FollowsUpstream() {
 			continue
 		}
 		if !update {
@@ -257,13 +257,7 @@ func goodLabel(g *packsrc.GoodBuild) string {
 
 // mustRepo and subdirOf read a fork source's repository and subdirectory; the declaration was
 // validated, so a source that does not parse yields "" and the walk names the missing mirror.
-func mustRepo(source string) string {
-	a, err := packsrc.Parse(source)
-	if err != nil {
-		return ""
-	}
-	return a.Repo
-}
+func mustRepo(source string) string { return packsrc.CheckRepo(source) }
 
 func subdirOf(source string) string {
 	a, err := packsrc.Parse(source)
@@ -286,20 +280,30 @@ func patchedForkStatusLines(f packload.Fork) []string {
 	}
 	refKind := patchedRefKind(f, rec, in)
 	head := fmt.Sprintf("%-20s patched fork of %s's %s, from %s, ", f.Key(), f.Base, f.Bin, f.Source)
-	if f.IsTree() {
+	switch {
+	case f.Unmodified():
+		head = fmt.Sprintf("%-20s unmodified extension at ~/%s, from %s, ", f.Key(), strings.TrimSuffix(f.Into, "/"), f.Source)
+	case f.IsTree():
 		head = fmt.Sprintf("%-20s patched extension at ~/%s, from %s, ", f.Key(), strings.TrimSuffix(f.Into, "/"), f.Source)
 	}
-	switch refKind {
-	case "tag", "commit":
+	switch {
+	case refKind == "tag" || refKind == "commit":
 		head += "held at that " + refKind
+	case refKind == packsrc.RefKindNpmVersion:
+		head += "held at that version"
+	case f.Npm():
+		head += "following the registry's answer for its spec"
 	default:
 		head += "following " + followLabel(f.Follow)
 	}
 	if serr != nil {
 		return []string{head, "[yellow]  ⚠ " + serr.Error() + "[/yellow]"}
 	}
-	lines := []string{head, fmt.Sprintf("[dim]  series: %d %s in %s (series %s), base %s[/dim]", series.Len(),
-		plural(series.Len(), "patch", "patches"), series.Dir, series.ShortDigest(), shortSHA(series.Base))}
+	lines := []string{head}
+	if series.Len() > 0 {
+		lines = append(lines, fmt.Sprintf("[dim]  series: %d %s in %s (series %s), base %s[/dim]", series.Len(),
+			plural(series.Len(), "patch", "patches"), series.Dir, series.ShortDigest(), shortSHA(series.Base)))
+	}
 	if refKind == "tag" || refKind == "commit" {
 		// A HOLD BY THE MANIFEST (§3.4): the ref names a tag or a full commit, so nothing is followed.
 		lines = append(lines, "[dim]  held: its ?ref= names a "+refKind+", so it follows nothing: the series "+
@@ -319,9 +323,14 @@ func patchedForkStatusLines(f packload.Fork) []string {
 	if rec.Good == nil {
 		lines = append(lines, "[dim]  good build: none on this machine yet — the next fresh launch builds it[/dim]")
 	} else {
-		lines = append(lines, fmt.Sprintf("[dim]  good build: %s + %d %s (series %s), %s[/dim]", goodLabel(rec.Good),
-			rec.Good.Patches, plural(rec.Good.Patches, "patch", "patches"), shortSHA(rec.Good.Series),
-			goodBuildStored(f, rec.Good)))
+		if f.Unmodified() {
+			lines = append(lines, fmt.Sprintf("[dim]  good build: %s, %s[/dim]", goodLabel(rec.Good),
+				goodBuildStored(f, rec.Good)))
+		} else {
+			lines = append(lines, fmt.Sprintf("[dim]  good build: %s + %d %s (series %s), %s[/dim]", goodLabel(rec.Good),
+				rec.Good.Patches, plural(rec.Good.Patches, "patch", "patches"), shortSHA(rec.Good.Series),
+				goodBuildStored(f, rec.Good)))
+		}
 	}
 	lines = append(lines, candidateLines(f, rec, series, in)...)
 	return append(lines, nextCheckLine(f, rec, in)...)

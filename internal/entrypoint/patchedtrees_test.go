@@ -80,7 +80,7 @@ func TestTheNpmLauncherCarriesTheTreeGate(t *testing.T) {
 			t.Fatal(err)
 		}
 		has := strings.Contains(string(body), "has no build on this machine yet")
-		if has != tc.gated || !strings.Contains(string(body), `if [ -n "$TREE_GATE" ]; then`) {
+		if has != tc.gated || !strings.Contains(string(body), `if [ -n "$TREE_GATE" ] && [ "$_YOLO_PROBE" != 1 ]; then`) {
 			t.Errorf("trees %q: the npm launcher's gate carries the reason = %v, want %v", tc.trees, has, tc.gated)
 		}
 		if !tc.gated && !strings.Contains(string(body), "TREE_GATE=''") {

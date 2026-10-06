@@ -175,6 +175,14 @@ func (c Claim) DisclosureSentence() string {
 				"in a capture jail that gets no credentials, and a new build is delivered only once it is " +
 				"admitted: the UPSTREAM'S NEW CODE ARRIVES UNREVIEWED, and the agent that loads the tree runs it"
 		}
+		// An UNMODIFIED EXTENSION's (unmodifiedTreeClaimDetail): the same, with nothing replayed.
+		if tree, ok := strings.CutPrefix(c.Detail, unmodifiedTreeClaimDetailPrefix); ok {
+			return "DELIVERS a tree built from source at ~/" + strings.TrimSuffix(c.Target, "/") + ": " + tree +
+				" — at the upstream's newest commit or version its source names, checked at most hourly; the " +
+				"build runs in a capture jail that gets no credentials, its install scripts included, and a " +
+				"new build is delivered only once it is admitted: the UPSTREAM'S NEW CODE ARRIVES UNREVIEWED, " +
+				"and the agent that loads the tree runs it"
+		}
 	case packdecl.KindBriefing:
 		// Detail is "concat after host:<host-home path>", optionally with an audience
 		// suffix (audienceDetail). CutPrefix rather than a search-and-replace so the
@@ -512,6 +520,12 @@ func FootprintOf(p *Pack) Footprint {
 			// source, the ref, the follow rule, the series, the build and the landing.
 			if c.IsPatchedExtension() {
 				add(packdecl.KindFiles, c.Into, patchedTreeClaimDetail(p.Root, c), true)
+				continue
+			}
+			// An UNMODIFIED EXTENSION is review-worthy for the same reason: an upstream's code, built
+			// from source, that the agent loading the tree runs (pi-extension-store-builds.md §4.1).
+			if c.IsUnmodifiedExtension() {
+				add(packdecl.KindFiles, c.Into, unmodifiedTreeClaimDetail(c), true)
 				continue
 			}
 			// audienceDetail's THIRD case ("declares no `agent`, so no `agents` selector can

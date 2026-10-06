@@ -317,7 +317,7 @@ func disclosureClassOfClaim(c packload.Claim) disclosureClass {
 	// claim is (`program` is disclosureRead): an upstream's code, built from source, that the agent
 	// loading the tree runs (docs/design/patched-extensions.md PPX-D15). Per claim, since `files` is
 	// disclosureSkip for every other tree, which is the pack's own content.
-	if c.IsPatchedExtension() {
+	if c.IsBuiltTree() {
 		return disclosureRead
 	}
 	class := disclosureClassOf(c.Kind)

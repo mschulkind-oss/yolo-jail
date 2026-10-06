@@ -17,6 +17,11 @@ patch series, and yolo builds them onto each new release they fit. When a releas
 last good build keeps running and `yolo pack rebase` sets up the fix. It needs git 2.40 or newer on
 the host. See [Follow an upstream with a patch series](userguide/guides/patch-series.md).
 
+**Pi extensions built once per machine.** A pack can name a pi extension from npm or git with no
+patches, and yolo builds it on the host and gives each new jail a read-only copy, so no jail's pi
+installs or changes it. A launch builds its extensions at the same time. See
+[Build a pi extension as it is](userguide/guides/patch-series.md#build-a-pi-extension-as-it-is).
+
 **Claude Code plugins and mods.** A new guide covers the ways to bring a Claude Code plugin or mod
 into a jail, and what each launch shows about the code it runs. See
 [Claude Code plugins and mods](userguide/guides/claude-plugins-and-mods.md).
@@ -31,6 +36,9 @@ into a jail, and what each launch shows about the code it runs. See
 
 - Piping an npm-installed agent, such as `pi -p … | jq`, no longer hands its install or hourly
   update log to the next command.
+- `pi --version` and `pi -v` no longer update pi or refresh its extensions first.
+- pi's extension refresh now runs only when pi's settings name an extension pi installs itself,
+  and one that fails waits an hour before it is tried again.
 - When `yolo host` has no container runtime to capture an agent with, it now says to install one.
 - A Ctrl-C in one of a jail's terminals now says the jail stays up for the others.
 - A Ctrl-C as a terminal's session starts no longer leaves that session's command running in the

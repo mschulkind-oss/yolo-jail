@@ -110,6 +110,13 @@ type Contribution struct {
 	// Refused without `patches`: a plain fork's pin moves only by `yolo pack update` (FP-D18),
 	// and following an upstream is the patched mode's opt-in, not a dial on a plain fork.
 	Follow string `json:"follow,omitempty"`
+	// Fallback is an UNMODIFIED EXTENSION's raw list entry (docs/design/pi-extension-store-builds.md
+	// §4.3, XB-D7): the string the agent installs itself, in its own grammar (`npm:pi-web-access`,
+	// `git:github.com/o/r@<commit>`), which takes the place of the tree's list entry in this pack's
+	// own list contributions wherever a launch hands no tree — a notch that builds none, a build
+	// that failed with nothing serving. Optional, on a `files` contribution with `source` and no
+	// `patches` alone: the upstream unpatched is not what a series asks for.
+	Fallback string `json:"fallback,omitempty"`
 	// ForkedBy is NOT a manifest field, and no manifest can set it: the fork rewrite
 	// (packload.ApplyForks) sets it on the copy of the BASE's program it rewrites, naming the
 	// fork pack, so a reader of the base's program can say whose bytes it runs.
@@ -144,6 +151,14 @@ type Contribution struct {
 	// agent is (AGENTS.md, "Core does not know what an agent is"). The argv is the vendor's
 	// and the lock's location is the pack's store, so both facts are the pack's to state.
 	Refresh *Refresh `json:"refresh,omitempty"`
+	// Probe lists the program's PROBE ARGUMENTS (docs/design/pi-extension-store-builds.md XB-D24,
+	// a term coined there): an invocation whose FIRST argument is one of them only asks the program
+	// about itself, so its launcher runs no hourly update of the program, no MCP server refresh, no
+	// pre-launch refresh and no tree gate — a version probe costs no network and writes nothing.
+	// A cold install still runs, since without it nothing answers. `["--version", "-v"]` for pi,
+	// which answers those right after parsing its arguments, before it resolves a package. Not
+	// `--help` for pi: it answers that only after loading every extension. Read only on `program`.
+	Probe []string `json:"probe,omitempty"`
 	// VersionsDir is the home-relative directory where the program's own installer keeps ONE
 	// ENTRY PER INSTALLED VERSION: `".codex/packages/standalone/releases"` for codex. Read only
 	// on a `program` delivered `via: "installer"`, and refused everywhere else, because the
@@ -1158,7 +1173,15 @@ func (m *Manifest) InstallContributions() []Install {
 			if len(r.DueOnChange) == 0 {
 				r.DueOnChange = nil
 			}
+			if o := c.Refresh.OnlyIf; o != nil {
+				r.OnlyIf = &RefreshOnlyIf{Files: append([]string(nil), o.Files...),
+					ProjectFiles: append([]string(nil), o.ProjectFiles...), Contains: append([]string(nil), o.Contains...)}
+			}
 			in.Refresh = &r
+		}
+		// The probe arguments, for the refresh's reason: what the program answers by itself.
+		if len(c.Probe) > 0 {
+			in.Probe = append([]string(nil), c.Probe...)
 		}
 		// The platform list is projected for EVERY via, for UpdateVerb's reason: it
 		// names where the VENDOR publishes, which is a fact about the program rather
@@ -3037,7 +3060,63 @@ func refreshProblems(field string, r *Refresh) []string {
 				"unmarked lock reads as populated, and the shared_directory hook discards a "+
 				"workspace's real tree for it", field, r.Lock, StoreBookkeepingPrefix))
 	}
-	return append(problems, dueOnChangeProblems(field+".due_on_change", r.DueOnChange)...)
+	problems = append(problems, dueOnChangeProblems(field+".due_on_change", r.DueOnChange)...)
+	return append(problems, onlyIfProblems(field+".only_if", r.OnlyIf)...)
+}
+
+// onlyIfProblems validates a refresh's worth-running test (Refresh.OnlyIf): at least one file and
+// at least one string; each file a clean relative file path — home-relative, or relative to the
+// directory the program starts in — and each string non-empty and on one line.
+func onlyIfProblems(field string, o *RefreshOnlyIf) []string {
+	if o == nil {
+		return nil
+	}
+	var problems []string
+	if len(o.Files)+len(o.ProjectFiles) == 0 {
+		problems = append(problems, field+": names no file — list the home-relative \"files\" or the "+
+			"\"project_files\" (relative to where the program starts) whose content makes the refresh worth running")
+	}
+	for _, list := range []struct {
+		name  string
+		files []string
+	}{{"files", o.Files}, {"project_files", o.ProjectFiles}} {
+		if list.files != nil {
+			problems = append(problems, dueOnChangeProblems(field+"."+list.name, list.files)...)
+		}
+	}
+	if len(o.Contains) == 0 {
+		problems = append(problems, field+".contains: required — the fixed strings whose presence in a "+
+			"listed file makes the refresh worth running")
+	}
+	for i, s := range o.Contains {
+		if s == "" || strings.ContainsAny(s, "\r\n\x00") {
+			problems = append(problems, fmt.Sprintf("%s.contains[%d]: must be a non-empty string on one line", field, i))
+		}
+	}
+	return problems
+}
+
+// probeProblems validates `probe` (Contribution.Probe): a `program`'s alone, each argument one
+// non-empty word.
+func probeProblems(label string, c Contribution) []string {
+	if c.Probe == nil {
+		return nil
+	}
+	if c.Kind != KindProgram {
+		return []string{fmt.Sprintf("%s: kind %q does not take \"probe\" — probe arguments say which "+
+			"invocations of a PROGRAM only ask it about itself, which only a launcher reads", label, c.Kind)}
+	}
+	var problems []string
+	if len(c.Probe) == 0 {
+		problems = append(problems, label+".probe: an empty list probes nothing — omit the key")
+	}
+	for i, a := range c.Probe {
+		if a == "" || strings.ContainsAny(a, " \t\r\n\x00") {
+			problems = append(problems, fmt.Sprintf("%s.probe[%d]: %q must be one non-empty word, as the "+
+				"program's first argument is", label, i, a))
+		}
+	}
+	return problems
 }
 
 // versionsDirProblems validates Contribution.VersionsDir. It is refused off a `program`
@@ -3471,10 +3550,12 @@ func validateContribution(label string, c Contribution) []string {
 	if c.Refresh != nil && c.Kind == KindProgram {
 		problems = append(problems, refreshProblems(label+".refresh", c.Refresh)...)
 	}
+	problems = append(problems, probeProblems(label, c)...)
 	problems = append(problems, versionsDirProblems(label, c)...)
 	// fork_of, source, build and produces are a fork's alone (fork.go): refused on every other
 	// kind and every other via, in `update`'s position and for its reason.
 	problems = append(problems, forkFieldPlacementProblems(label, c)...)
+	problems = append(problems, fallbackPlacementProblems(label, c)...)
 	problems = append(problems, platformsProblems(label, c)...)
 	problems = append(problems, capabilitiesProblems(label, c)...)
 	problems = append(problems, protocolsProblems(label, c)...)
@@ -3667,10 +3748,11 @@ func validateContribution(label string, c Contribution) []string {
 		// — DefaultSkillsDir, and every *.md directly inside DefaultBriefingDir — so an omitted
 		// `from` there names the convention rather than nothing.
 		switch {
-		case c.IsPatchedExtension():
-			// A PATCHED EXTENSION (patchedext.go, docs/design/patched-extensions.md §4): `source` and
-			// `patches` in place of `from`, landing at the `into` it names.
-			problems = append(problems, patchedExtensionProblems(label, c)...)
+		case c.IsBuiltTree():
+			// A BUILT TREE (patchedext.go): a patched extension, `source` and `patches` in place of
+			// `from` (docs/design/patched-extensions.md §4), or an unmodified one, `source` alone
+			// (docs/design/pi-extension-store-builds.md §4.1), landing at the `into` it names.
+			problems = append(problems, builtTreeProblems(label, c)...)
 		case c.Agent != "":
 			if c.Into == "" && len(c.Agents) > 0 {
 				// `agent` beside `agents` validated before P5 (an audience made `into` optional
@@ -3712,7 +3794,7 @@ func validateContribution(label string, c Contribution) []string {
 		// (packload.ResolveDestinations borrows it from the pack that OWNS that agent), and
 		// naming both would be a content pack asserting a path it has no business knowing
 		// (docs/reference/agent-briefings.md#the-two-halves-and-why-neither-knows-the-others-business, #ba-p4). Naming NEITHER is the broadcast above.
-		if len(c.Agents) > 0 && c.Into != "" && !c.IsPatchedExtension() {
+		if len(c.Agents) > 0 && c.Into != "" && !c.IsBuiltTree() {
 			problems = append(problems, fmt.Sprintf(
 				"%s: kind %q takes \"into\" or \"agents\", not both — a contribution that "+
 					"names its audience has its destination inferred from the pack that owns "+

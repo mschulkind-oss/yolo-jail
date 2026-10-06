@@ -102,7 +102,7 @@ func forkFieldPlacementProblems(label string, c Contribution) []string {
 	if c.Kind == KindProgram && c.Via == ViaSource {
 		return nil
 	}
-	if c.IsPatchedExtension() {
+	if c.IsBuiltTree() {
 		return nil
 	}
 	var problems []string

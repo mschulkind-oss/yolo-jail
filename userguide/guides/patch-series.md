@@ -84,6 +84,40 @@ pi's `packages` list that makes pi load it:
 Use the extension's **key**, `<pack>/<name>` (here `subagents-mine/pi-subagents`, the last part of
 `into`), wherever a command below takes a program's name.
 
+## Build a pi extension as it is
+
+An extension you have not changed can be built the same way, with no `patches`: yolo builds it
+once per machine, in the same sealed jail, and each new jail gets a read-only copy, so pi in your
+jail never installs it, and nothing one jail does to it reaches another. `source` is a git address,
+as above, or an npm package:
+
+```json
+{
+  "name": "my-extensions",
+  "contributes": [
+    { "kind": "files", "into": ".pi/agent/yolo-ext/pi-web-access",
+      "source": "npm:pi-web-access", "fallback": "npm:pi-web-access" },
+    { "kind": "config-list", "surface": "pi/settings", "path": "/packages",
+      "add": ["~/.pi/agent/yolo-ext/pi-web-access/node_modules/pi-web-access"] }
+  ]
+}
+```
+
+- **An npm source** is `npm:<name>`, optionally with `@` and a version, a range or a dist-tag, as
+  npm reads them. yolo picks the version npm would install, on your machine, and installs it in the
+  jail with pi's own npm command. The list entry is `~/` plus `into`, then `/node_modules/<name>`.
+- **A git source** follows its branch's newest commit, as pi does with the same `git:` entry. A tag
+  or a commit as the `?ref=` holds it there. With no `build`, yolo runs npm's install of the
+  extension's dependencies when it has a `package.json`, as pi would.
+- **`fallback`**, optional, is the extension's old entry in pi's own spelling. Wherever a launch has
+  no build to hand, such as on `macos-user` or a macOS host, or after a failed first build, pi gets
+  that entry instead and installs the extension itself, and the launch says so. Without one, pi does
+  not start without the extension, as for a patched one.
+- **Drop the extension's old entry** in the same edit, or keep it as the `fallback`.
+
+An extension that writes into its own folder while it runs fails here, since the folder is
+read-only. Keep such an extension as a plain entry in pi's list.
+
 ## What a launch shows
 
 Every launch lists each patched program and extension, with the series and the build it runs:
@@ -105,11 +139,16 @@ built fork pi-mine/pi: v1.0.0 (a13d35a7) + 7 patches; this jail runs it
 updated fork pi-mine/pi: v1.0.0 (a13d35a7) → v1.0.2 (cd32f772), 7 patches; this jail runs the new build
 ```
 
-- **The first build** happens at the first launch, which waits for it. A Ctrl-C ends that launch.
+- **The first build** happens at the first launch, which waits for it. A Ctrl-C during a patched
+  program's first build ends that launch; during an extension's, the launch goes on without it.
 - **A newer version** is built at a later launch, which waits up to 20 minutes for each build. One
   Ctrl-C stops the whole wait: every patched program and extension starts on its good build, one
   with no build yet is left out, and a later launch tries again. When the time runs out, that build
   counts as failed and the jail starts on the good build.
+- **A launch's extensions build at the same time**, up to four at once (fewer on a machine with
+  under eight CPUs, one at a time on Apple Container), and their lines print in the order the packs
+  list them. An extension whose lines wait behind another's says when its build starts, and where
+  its output is meanwhile.
 - **An attach** to a running jail says which build that jail was handed.
 - In a jail, a pi extension's folder is read-only, and each launch gets its own copy of the good
   build.

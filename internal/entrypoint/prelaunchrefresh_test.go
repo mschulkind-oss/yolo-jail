@@ -87,6 +87,10 @@ type prelaunchProbe struct {
 	// path, when set, is the launcher's PATH in place of this process's, so a cell can say
 	// which yolo, if any, _bounded finds.
 	path string
+	// gate and probe are the program's baked tree gate (Install.Gate) and probe arguments
+	// (Install.Probe), for the cells of launchersteps_test.go.
+	gate  string
+	probe []string
 }
 
 // newPrelaunchProbe seeds a fake program at REAL_BIN (so the launch path, not the cold-install
@@ -140,12 +144,12 @@ func (p *prelaunchProbe) write(t *testing.T) {
 	if p.native {
 		body = nativeAgentLauncher("probe",
 			&packdecl.Install{Kind: "native", Bin: "tool",
-				InstallerURL: "https://example.invalid/never-fetched.sh", Refresh: p.refresh},
+				InstallerURL: "https://example.invalid/never-fetched.sh", Refresh: p.refresh, Gate: p.gate, Probe: p.probe},
 			p.stamps, filepath.Join(p.home, "ws", ".yolo", "receipts.jsonl"), "",
 			p.updates, launcherServers{}, nil)
 	} else {
 		body = npmAgentLauncher("probe",
-			&packdecl.Install{Kind: "npm", Bin: "tool", Package: "tool", Refresh: p.refresh},
+			&packdecl.Install{Kind: "npm", Bin: "tool", Package: "tool", Refresh: p.refresh, Gate: p.gate, Probe: p.probe},
 			p.stamps, filepath.Join(p.home, "ws", ".yolo", "receipts.jsonl"),
 			p.updates, launcherServers{}, nil)
 	}
@@ -810,6 +814,118 @@ func TestPrelaunchRefreshPassesHostileValuesAsData(t *testing.T) {
 // declares a node_floor), since `pi` is a `#!/usr/bin/env node` script the workspace's own
 // mise pin would otherwise choose the interpreter for.
 func TestShippedPiLauncherRefreshesItsExtensions(t *testing.T) {
+	launcher, home, log := shippedPiLauncher(t)
+	// A raw entry in pi's settings, so the refresh is worth running (XB-D23).
+	writePiSettings(t, home, `{"packages":["npm:pi-web-access","~/.pi/agent/yolo-ext/x"]}`)
+	// --help, not --version: a version probe runs no update step (XB-D24).
+	cmd := exec.Command(launcher, "--help")
+	cmd.Dir = home
+	cmd.Env = []string{"HOME=" + home, "PATH=" + os.Getenv("PATH")}
+	cmd.Stdin = strings.NewReader("")
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("the shipped pi launcher failed: %v\n%s", err, out)
+	}
+	got := logLines(t, log)
+	want := []string{"NODE", "REFRESH", "ARG:update", "ARG:--extensions", "LOCKED", "NODE", "LAUNCH:--help"}
+	if strings.Join(got, "\n") != strings.Join(want, "\n") {
+		t.Errorf("the shipped pi launcher must refresh its extensions under the node it runs "+
+			"under and its workspace's lock, then launch:\n got %q\nwant %q\n%s", got, want, out)
+	}
+	const piLock = ".pi/.yolo-update.lock"
+	if _, err := os.Stat(filepath.Join(home, filepath.FromSlash(RefreshStampRel(piLock, "pi")))); err != nil {
+		t.Errorf("the refresh stamp is not in the workspace's .pi beside its lock: %v", err)
+	}
+	if ents, err := os.ReadDir(filepath.Join(home, filepath.FromSlash(RefreshSeenRel(piLock, "pi")))); err != nil || len(ents) != 1 {
+		t.Errorf("the refresh's seen marker is not in the workspace's .pi beside its lock "+
+			"(%d entries, err=%v)", len(ents), err)
+	}
+	if _, err := os.Lstat(filepath.Join(home, ".cache", "yolo-agent-stamps", "refresh")); !os.IsNotExist(err) {
+		t.Errorf("the refresh throttled itself machine-wide, in ~/.cache (err=%v)", err)
+	}
+}
+
+// writePiSettings writes pi's user settings in home.
+func writePiSettings(t *testing.T, home, body string) {
+	t.Helper()
+	p := filepath.Join(home, ".pi", "agent", "settings.json")
+	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(p, []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// THE SHIPPED PI LAUNCHER SKIPS THE REFRESH WHEN NOTHING IS RAW (XB-D23), and A VERSION PROBE RUNS
+// NO UPDATE STEP (XB-D24): settings naming only local paths, as a workspace whose every extension
+// is a tree yolo built has, refresh nothing, and neither does `pi --version` with a raw entry, while
+// a project's own `.pi/settings.json` naming one makes it worth running. Red if packs/pi stops
+// declaring `only_if` or `probe`, or the templates stop reading either.
+func TestTheShippedPiLauncherRefreshesOnlyForRawEntriesAndNeverForAProbe(t *testing.T) {
+	for _, tc := range []struct {
+		name, settings, project, arg string
+		refresh                      bool
+	}{
+		{"only local paths", `{"packages":["~/.pi/agent/yolo-ext/x"],"httpIdleTimeoutMs":1}`, "", "--help", false},
+		{"no settings at all", "", "", "--help", false},
+		{"a raw git entry", `{"packages":["git:github.com/o/r"]}`, "", "--help", true},
+		{"a raw entry in the project's settings", `{"packages":[]}`, `{"packages":["https://x/y.git"]}`, "--help", true},
+		{"a version probe", `{"packages":["npm:a"]}`, "", "--version", false},
+		{"the short version probe", `{"packages":["npm:a"]}`, "", "-v", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			launcher, home, log := shippedPiLauncher(t)
+			if tc.settings != "" {
+				writePiSettings(t, home, tc.settings)
+			}
+			work := filepath.Join(home, "proj")
+			if err := os.MkdirAll(filepath.Join(work, ".pi"), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if tc.project != "" {
+				if err := os.WriteFile(filepath.Join(work, ".pi", "settings.json"), []byte(tc.project), 0o644); err != nil {
+					t.Fatal(err)
+				}
+			}
+			// The program's own update is due too: a probe must not run it either.
+			backdatePath(t, filepath.Join(home, ".cache", "yolo-agent-stamps", "pi.stamp"), 2*time.Hour)
+			fakeNpm := filepath.Join(home, "fakebin")
+			if err := os.MkdirAll(fakeNpm, 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(fakeNpm, "npm"), []byte("#!/bin/sh\necho NPM \"$@\" >> "+
+				shellQuoteForTest(log)+"\necho 0.0.1\n"), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			cmd := exec.Command(launcher, tc.arg)
+			cmd.Dir = work
+			cmd.Env = []string{"HOME=" + home, "PATH=" + fakeNpm + ":" + os.Getenv("PATH")}
+			cmd.Stdin = strings.NewReader("")
+			out, err := cmd.CombinedOutput()
+			if err != nil {
+				t.Fatalf("the shipped pi launcher failed: %v\n%s", err, out)
+			}
+			lines := logLines(t, log)
+			if got := countLine(lines, "REFRESH") == 1; got != tc.refresh {
+				t.Errorf("refreshed = %v, want %v: %q\n%s", got, tc.refresh, lines, out)
+			}
+			if countLine(lines, "LAUNCH:"+tc.arg) != 1 {
+				t.Errorf("the program was not launched with %s: %q", tc.arg, lines)
+			}
+			probe := strings.HasPrefix(tc.arg, "-v") || tc.arg == "--version"
+			if npm := strings.Contains(strings.Join(lines, "\n"), "NPM "); probe && npm {
+				t.Errorf("a version probe asked npm about an update: %q", lines)
+			}
+		})
+	}
+}
+
+// shippedPiLauncher generates the SHIPPED pi launcher through GenerateAgentLaunchers, boot.go's
+// own call, over a fake pi at its place and a fake node at the resolved floor, with pi's own update
+// stamp fresh. It returns the launcher, the home, and the log the fakes write.
+func shippedPiLauncher(t *testing.T) (launcher, home, log string) {
+	t.Helper()
 	if _, err := exec.LookPath("bash"); err != nil {
 		t.Skip("bash not found")
 	}
@@ -817,8 +933,8 @@ func TestShippedPiLauncherRefreshesItsExtensions(t *testing.T) {
 	imageProbeBase = t.TempDir()
 	t.Cleanup(func() { imageProbeBase = orig })
 	stubImageNode(t, "")
-	home := t.TempDir()
-	log := filepath.Join(home, "argv.log")
+	home = t.TempDir()
+	log = filepath.Join(home, "argv.log")
 	nodeStore := t.TempDir()
 	nodeBin := filepath.Join(nodeStore, "24.0.0", "bin")
 	if err := os.MkdirAll(nodeBin, 0o755); err != nil {
@@ -836,7 +952,7 @@ func TestShippedPiLauncherRefreshesItsExtensions(t *testing.T) {
 	if err := GenerateAgentLaunchers(e); err != nil {
 		t.Fatalf("GenerateAgentLaunchers over the shipped packs: %v", err)
 	}
-	launcher := filepath.Join(e.LaunchDir(), "pi")
+	launcher = filepath.Join(e.LaunchDir(), "pi")
 	body, err := os.ReadFile(launcher)
 	if err != nil {
 		t.Fatalf("no pi launcher: %v", err)
@@ -869,32 +985,11 @@ func TestShippedPiLauncherRefreshesItsExtensions(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(home, ".cache", "yolo-agent-stamps", "pi.stamp"), nil, 0o644); err != nil {
 		t.Fatal(err)
 	}
-
-	cmd := exec.Command(launcher, "--version")
-	cmd.Dir = home
-	cmd.Env = []string{"HOME=" + home, "PATH=" + os.Getenv("PATH")}
-	cmd.Stdin = strings.NewReader("")
-	out, err := cmd.CombinedOutput()
-	if err != nil {
-		t.Fatalf("the shipped pi launcher failed: %v\n%s", err, out)
+	if !strings.Contains(string(body), "\nPROBE_ARGS=(--version -v)\n") ||
+		!strings.Contains(string(body), "\nHAS_REFRESH_ONLY_IF=1\n") {
+		t.Fatalf("the shipped pi launcher does not bake its probe arguments and its worth-running test")
 	}
-	got := logLines(t, log)
-	want := []string{"NODE", "REFRESH", "ARG:update", "ARG:--extensions", "LOCKED", "NODE", "LAUNCH:--version"}
-	if strings.Join(got, "\n") != strings.Join(want, "\n") {
-		t.Errorf("the shipped pi launcher must refresh its extensions under the node it runs "+
-			"under and its workspace's lock, then launch:\n got %q\nwant %q\n%s", got, want, out)
-	}
-	const piLock = ".pi/.yolo-update.lock"
-	if _, err := os.Stat(filepath.Join(home, filepath.FromSlash(RefreshStampRel(piLock, "pi")))); err != nil {
-		t.Errorf("the refresh stamp is not in the workspace's .pi beside its lock: %v", err)
-	}
-	if ents, err := os.ReadDir(filepath.Join(home, filepath.FromSlash(RefreshSeenRel(piLock, "pi")))); err != nil || len(ents) != 1 {
-		t.Errorf("the refresh's seen marker is not in the workspace's .pi beside its lock "+
-			"(%d entries, err=%v)", len(ents), err)
-	}
-	if _, err := os.Lstat(filepath.Join(home, ".cache", "yolo-agent-stamps", "refresh")); !os.IsNotExist(err) {
-		t.Errorf("the refresh throttled itself machine-wide, in ~/.cache (err=%v)", err)
-	}
+	return launcher, home, log
 }
 
 // TestPrelaunchRefreshSkipsUpdateModeAndReentry: the two launcher paths that never reach the

@@ -72,7 +72,7 @@ func forkBuildChildArgv(staging string, b forkBuild, color bool) []string {
 	if color {
 		argv = append(argv, "--color")
 	}
-	return append(argv, "--", b.Fork.Build)
+	return append(argv, "--", b.buildLine())
 }
 
 // runForkBuildChild runs b's build jail as a child and returns its exit status, and whether it was

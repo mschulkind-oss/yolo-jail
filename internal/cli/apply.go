@@ -625,7 +625,10 @@ func applyHostSurveyed(out, errw io.Writer, color bool, write bool, stdin io.Rea
 	// could only agree by inspection. The profile table is the host notch's own (see
 	// overlayGateProfiles): a `profile`-gated overlay renders here only while its name is
 	// active at the surface's agent.
-	overlays := packoverlay.Collect(loaded, render.Host(home, nil, hostOwnership()).Profile().AgentAutonomy,
+	// AN UNMODIFIED EXTENSION THE HOST HAS NO TREE FOR takes its fallback here, in its own pack's
+	// lists, before they fold (hostTreeFallbacks, XB-D7): its tree arm below says why there is none.
+	listPacks, _ := hostTreeFallbacks(loaded)
+	overlays := packoverlay.Collect(listPacks, render.Host(home, nil, hostOwnership()).Profile().AgentAutonomy,
 		overlayGateProfiles(render.KindHost, loaded))
 	for _, prob := range overlays.Problems {
 		kind := collectProblemKind(prob)

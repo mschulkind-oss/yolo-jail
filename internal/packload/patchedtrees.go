@@ -72,8 +72,15 @@ func (f Fork) HoldPacks() []string {
 	return append(out, f.OwnerForks...)
 }
 
-// PatchedTrees lists every patched extension the packs carry, in pack order and then declaration
+// PatchedTrees lists every BUILT TREE the packs carry — each patched extension and each UNMODIFIED
+// one (docs/design/pi-extension-store-builds.md §4.1, XB-D1), which is a patched extension with no
+// series and goes through every reader of this list unchanged — in pack order and then declaration
 // order, each with its owning agent pack and where the list entry naming it reaches.
+//
+// An unmodified extension's value carries what its declaration leaves to defaults, so no reader
+// re-derives them: Follow is `head` for a git source that names none (XB-D2), and Build the line its
+// tree is built with (packdecl.Contribution.TreeBuild: XB-D3's dependency install for a git source,
+// npm's own install for an npm one).
 func PatchedTrees(packs []*Pack) []Fork {
 	var out []Fork
 	for _, p := range packs {
@@ -81,15 +88,19 @@ func PatchedTrees(packs []*Pack) []Fork {
 			continue
 		}
 		for _, c := range p.Decl.Contributions() {
-			if !c.IsPatchedExtension() {
+			if !c.IsBuiltTree() {
 				continue
 			}
-			f := Fork{
-				Pack: p.Name, Bin: c.ExtensionName(), Source: c.Source, Build: c.Build,
-				Produces: append([]string(nil), c.Produces...),
-				Root:     p.Root, Patches: c.Patches, Follow: c.Follow, Into: c.Into,
+			follow := c.Follow
+			if c.IsUnmodifiedExtension() && follow == "" && !packsrc.IsNpmSource(c.Source) {
+				follow = "head"
 			}
-			f.Owner, f.ListedInJail, f.ListedAtHost = owningAgentPack(packs, p, c.Into)
+			f := Fork{
+				Pack: p.Name, Bin: c.ExtensionName(), Source: c.Source, Build: c.TreeBuild(),
+				Produces: append([]string(nil), c.Produces...),
+				Root:     p.Root, Patches: c.Patches, Follow: follow, Into: c.Into, Fallback: c.Fallback,
+			}
+			f.Owner, f.ListedInJail, f.ListedAtHost = owningAgentPack(packs, p, c.TreeListEntry())
 			if f.Owner != "" {
 				for _, fk := range Forks(packs) {
 					if fk.Base == f.Owner {
@@ -103,17 +114,16 @@ func PatchedTrees(packs []*Pack) []Fork {
 	return out
 }
 
-// TreeListEntry is the list entry a patched extension landing at into needs for its agent to load
-// it: `~/<into>`, with no trailing slash (patched-extensions.md §8.2).
-func TreeListEntry(into string) string { return "~/" + strings.TrimSuffix(into, "/") }
+// ListEntry is the list entry f's agent loads its tree through (packdecl.TreeListEntry): `~/<into>`,
+// or for an npm source the package inside the npm prefix the tree is.
+func (f Fork) ListEntry() string { return packdecl.TreeListEntry(f.Source, f.Into) }
 
 // owningAgentPack is PPX-D4: the selected pack declaring the surface of contributing's list entry
-// equal to `~/<into>` — a `config-list` (every notch) or a posture list (its posture's notches) —
-// and whether an entry reaches a jail (a `config-list`, or the autonomous posture's) and the host
-// (a `config-list`, or the guarded posture's). "" when no entry names the tree, or no selected pack
-// declares the surface one names.
-func owningAgentPack(packs []*Pack, contributing *Pack, into string) (owner string, inJail, atHost bool) {
-	want := TreeListEntry(into)
+// equal to the tree's entry (packdecl.TreeListEntry) — a `config-list` (every notch) or a posture
+// list (its posture's notches) — and whether an entry reaches a jail (a `config-list`, or the
+// autonomous posture's) and the host (a `config-list`, or the guarded posture's). "" when no entry
+// names the tree, or no selected pack declares the surface one names.
+func owningAgentPack(packs []*Pack, contributing *Pack, want string) (owner string, inJail, atHost bool) {
 	for _, l := range contributing.Decl.ListContributions() {
 		if !listAdds(l.Add, want) {
 			continue
@@ -184,18 +194,23 @@ func LintPatchedTrees(p *Pack) []string {
 	}
 	var out []string
 	for _, c := range p.Decl.Contributions() {
-		if !c.IsPatchedExtension() || c.Into == "" {
+		if !c.IsBuiltTree() || c.Into == "" {
 			continue
 		}
-		entry := TreeListEntry(c.Into)
+		entry := c.TreeListEntry()
 		if listedAnywhere(p, entry) {
 			continue
 		}
+		drop := "drop the extension's own git: entry in the same edit so it does not load twice"
+		if c.IsUnmodifiedExtension() {
+			drop = "drop the extension's own raw entry in the same edit so it does not load twice — " +
+				"or keep that string as the contribution's \"fallback\", which takes its place where no " +
+				"tree is handed"
+		}
 		out = append(out, fmt.Sprintf("pack %s: extension %s/%s is built and mounted at ~/%s, and no "+
 			"list entry in the pack names it, so no agent loads it — add %q to the agent's packages "+
-			"list (for pi, a \"config-list\" on \"pi/settings\" at \"/packages\"), and drop the "+
-			"extension's own git: entry in the same edit so it does not load twice",
-			p.Name, p.Name, c.ExtensionName(), strings.TrimSuffix(c.Into, "/"), entry))
+			"list (for pi, a \"config-list\" on \"pi/settings\" at \"/packages\"), and %s",
+			p.Name, p.Name, c.ExtensionName(), strings.TrimSuffix(c.Into, "/"), entry, drop))
 	}
 	return out
 }
@@ -214,11 +229,42 @@ func listedAnywhere(p *Pack, entry string) bool {
 // Claim.DisclosureSentence keys its sentence on, in place of a plain tree's "read-only tree".
 const patchedTreeClaimDetailPrefix = "patched extension build: "
 
-// IsPatchedExtension reports whether c is a PATCHED EXTENSION's claim (PPX-D15): the one `files`
-// claim that is review-worthy, which the launch's disclosure routes per claim, as it routes a wrapped
-// plugin's code-running claim.
+// unmodifiedTreeClaimDetailPrefix opens an UNMODIFIED EXTENSION's claim Detail
+// (docs/design/pi-extension-store-builds.md §4.1): an upstream's code built from source as a patched
+// extension's is, with no series.
+const unmodifiedTreeClaimDetailPrefix = "unmodified extension build: "
+
+// IsPatchedExtension reports whether c is a PATCHED EXTENSION's claim (PPX-D15).
 func (c Claim) IsPatchedExtension() bool {
 	return c.Kind == packdecl.KindFiles && strings.HasPrefix(c.Detail, patchedTreeClaimDetailPrefix)
+}
+
+// IsBuiltTree reports whether c is a BUILT TREE's claim, patched or unmodified: the `files` claims
+// that are review-worthy, which the launch's disclosure routes per claim, as it routes a wrapped
+// plugin's code-running claim — an upstream's code, built from source, that the agent loading the
+// tree runs.
+func (c Claim) IsBuiltTree() bool {
+	return c.IsPatchedExtension() ||
+		c.Kind == packdecl.KindFiles && strings.HasPrefix(c.Detail, unmodifiedTreeClaimDetailPrefix)
+}
+
+// unmodifiedTreeClaimDetail is an unmodified extension's claim Detail: the source as written, the
+// follow rule a git source takes, the build line its tree is built with, and the fallback, so two
+// extensions that differ in any of them render as two lines.
+func unmodifiedTreeClaimDetail(c packdecl.Contribution) string {
+	detail := unmodifiedTreeClaimDetailPrefix + c.Source
+	if !packsrc.IsNpmSource(c.Source) {
+		rule := c.Follow
+		if rule == "" {
+			rule = "head"
+		}
+		detail += ", following " + rule
+	}
+	detail += ", built by `" + c.TreeBuild() + "`"
+	if c.Fallback != "" {
+		detail += ", falling back to " + c.Fallback + " where no tree is handed"
+	}
+	return detail
 }
 
 // patchedTreeClaimDetail is a patched extension's claim Detail (PPX-D15): the source as written

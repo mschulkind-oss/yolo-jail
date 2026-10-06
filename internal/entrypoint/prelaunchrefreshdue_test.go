@@ -138,20 +138,47 @@ func TestRefreshDueOnChangeCountsAbsentToPresent(t *testing.T) {
 	}
 }
 
-// TestRefreshDueOnChangeFailureRecordsNothing: a refresh that exits non-zero leaves its content
-// due, so the next launch retries the install under the lock instead of leaving it to the
-// program; a success then records it.
-func TestRefreshDueOnChangeFailureRecordsNothing(t *testing.T) {
+// TestRefreshDueOnChangeFailureIsThrottled: a refresh that exits non-zero records no content key,
+// so its content stays due and a later launch retries the install under the lock instead of
+// leaving it to the program — but it records WHEN it failed (XB-D26 of
+// docs/design/pi-extension-store-builds.md), so that content is due again only once the failure
+// is older than the interval, never at every launch an offline hour makes. A success then
+// records the key and drops the failure.
+func TestRefreshDueOnChangeFailureIsThrottled(t *testing.T) {
 	p := newDueProbe(t)
 	p.setWatched(t, `{"packages":["git:a"]}`)
 	p.run(t, "", "FAKE_REFRESH_RC=1")
-	if entries, _ := os.ReadDir(p.seenDir()); len(entries) != 0 {
-		t.Fatalf("a failed refresh must record no content key, found %d", len(entries))
+	entries, _ := os.ReadDir(p.seenDir())
+	if len(entries) != 1 || !strings.HasSuffix(entries[0].Name(), ".failed") {
+		t.Fatalf("a failed refresh must record its failure and no content key, found %v", entries)
 	}
+	p.run(t, "")
+	if n := countLine(p.logLines(t), "REFRESH"); n != 1 {
+		t.Fatalf("a launch inside the interval retried a refresh that failed on this content (ran %d)", n)
+	}
+	failed := filepath.Join(p.seenDir(), entries[0].Name())
+	backdatePath(t, failed, 2*time.Hour)
+	backdatePath(t, p.stampPath(), 2*time.Hour)
 	p.run(t, "")
 	p.run(t, "")
 	if n := countLine(p.logLines(t), "REFRESH"); n != 2 {
-		t.Errorf("want the failure retried once and then settled (ran %d)", n)
+		t.Errorf("want the failure retried once past the interval and then settled (ran %d)", n)
+	}
+	if _, err := os.Stat(failed); !os.IsNotExist(err) {
+		t.Errorf("a refresh that succeeded left the failure behind (err=%v)", err)
+	}
+}
+
+// TestAFailureOnOtherContentDoesNotThrottleNewContent: the failure is the CONTENT's, so a launch
+// whose watched file changed since is due at once.
+func TestAFailureOnOtherContentDoesNotThrottleNewContent(t *testing.T) {
+	p := newDueProbe(t)
+	p.setWatched(t, `{"packages":["git:a"]}`)
+	p.run(t, "", "FAKE_REFRESH_RC=1")
+	p.setWatched(t, `{"packages":["git:b"]}`)
+	p.run(t, "")
+	if n := countLine(p.logLines(t), "REFRESH"); n != 2 {
+		t.Errorf("new content after a failure on other content was not refreshed (ran %d)", n)
 	}
 }
 

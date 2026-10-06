@@ -37,6 +37,16 @@ func GoodBuildLabel(g *packsrc.GoodBuild) string {
 // PatchCount is "N patch(es)".
 func PatchCount(n int) string { return fmt.Sprintf("%d %s", n, plural(n, "patch", "patches")) }
 
+// WithPatches is a build's label with its series' count, "<label> + N patches", and the label alone
+// for no patches: an UNMODIFIED EXTENSION, the one build with an empty series
+// (docs/design/pi-extension-store-builds.md XB-D1), since a patched series holds at least one.
+func WithPatches(label string, n int) string {
+	if n == 0 {
+		return label
+	}
+	return label + " + " + PatchCount(n)
+}
+
 // FloorCopy is the host floor's installed copy of a patched fork's program, which its line names as
 // what runs: the upstream commit and recipe it is a build of, and its label ("v1.1.0 (3f2a9c1e) + 2
 // patches").
@@ -194,10 +204,10 @@ func (o *Options) noteAttachForkBuilds(handed map[string]HandedFork) {
 			out.printf("[yellow]this jail has no %s from fork %s: %s[/yellow]", bin, h.Fork, richtext.Escape(h.Reason))
 			continue
 		}
-		runs := packsrc.ListEntry{Commit: h.Commit, Tag: h.Tag}.Label() + " + " + PatchCount(h.Patches)
+		runs := WithPatches(packsrc.ListEntry{Commit: h.Commit, Tag: h.Tag}.Label(), h.Patches)
 		line := "this jail runs fork " + h.Fork + " at " + runs
 		if rec, err := patchedPacksStore().LoadCheckRecord(h.Fork); err == nil && rec.Good != nil && rec.Good.Entry != h.Key {
-			line += "; " + GoodBuildLabel(rec.Good) + " + " + PatchCount(rec.Good.Patches) + " is built, and the " +
+			line += "; " + WithPatches(GoodBuildLabel(rec.Good), rec.Good.Patches) + " is built, and the " +
 				"next fresh launch, once this jail stops, runs it"
 		}
 		out.printf("[dim]%s[/dim]", richtext.Escape(line))

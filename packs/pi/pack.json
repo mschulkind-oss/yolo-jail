@@ -18,6 +18,13 @@
       ],
       "node_floor": "22.19",
       "package": "@earendil-works/pi-coding-agent",
+      // pi answers these right after parsing its arguments, before it resolves a package, so a
+      // version probe runs no update step (pi-extension-store-builds.md XB-D24). Not --help:
+      // pi answers that only after loading every extension.
+      "probe": [
+        "--version",
+        "-v"
+      ],
       "protocols": [
         "openai",
         "openai-responses"
@@ -31,7 +38,25 @@
         "due_on_change": [
           ".pi/agent/settings.json"
         ],
-        "lock": ".pi/.yolo-update.lock"
+        "lock": ".pi/.yolo-update.lock",
+        // Worth running only while a settings file names a package pi installs itself: the
+        // prefixes pi parses as a remote source (XB-D23). Not a bare "http, which pi's own
+        // keys match, and not "git@, which pi reads as a local path.
+        "only_if": {
+          "contains": [
+            "\"npm:",
+            "\"git:",
+            "\"http://",
+            "\"https://",
+            "\"ssh://"
+          ],
+          "files": [
+            ".pi/agent/settings.json"
+          ],
+          "project_files": [
+            ".pi/settings.json"
+          ]
+        }
       },
       "via": "npm"
     },

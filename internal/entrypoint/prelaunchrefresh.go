@@ -83,6 +83,13 @@ REFRESH_STATE_NAME=__YOLO_REFRESH_STATE_NAME__
 # gates every expansion of the list, for HAS_REFRESH's bash-3.2 reason.
 HAS_REFRESH_DUE=__YOLO_HAS_REFRESH_DUE__
 REFRESH_DUE_ON_CHANGE=(__YOLO_REFRESH_DUE_ON_CHANGE__)
+# The declared WORTH-RUNNING test (packdecl.Refresh.OnlyIf, pi-extension-store-builds.md XB-D23):
+# the refresh runs only when a listed file — home-relative, or relative to where the program
+# starts — holds one of the listed strings. HAS_REFRESH_ONLY_IF gates every expansion.
+HAS_REFRESH_ONLY_IF=__YOLO_HAS_REFRESH_ONLY_IF__
+REFRESH_ONLY_IF_FILES=(__YOLO_REFRESH_ONLY_IF_FILES__)
+REFRESH_ONLY_IF_PROJECT=(__YOLO_REFRESH_ONLY_IF_PROJECT__)
+REFRESH_ONLY_IF_CONTAINS=(__YOLO_REFRESH_ONLY_IF_CONTAINS__)
 `
 
 // prelaunchRefreshShellFn runs the declared refresh, and is spliced into both templates after
@@ -144,24 +151,64 @@ _refresh_content_key() {
     printf '%s' "$all" | cksum | tr ' ' '-'
 }
 
-# _refresh_content_unseen: 0 when the watched content has never been refreshed with here.
+# _refresh_content_unseen: 0 when the watched content has never been refreshed with here, and no
+# refresh of it failed within UPDATE_INTERVAL (XB-D26): content a failed refresh met waits out the
+# hourly stamp like any other, so an offline jail does not refresh on every launch.
 _refresh_content_unseen() {
     [ "$HAS_REFRESH_DUE" = "1" ] || return 1
     [ -n "$REFRESH_KEY" ] || REFRESH_KEY=$(_refresh_content_key)
-    [ ! -e "$REFRESH_SEEN_DIR/$REFRESH_KEY" ]
+    _refresh_content_unseen_fresh
 }
 
 # _refresh_content_unseen_fresh re-asks after a wait: the key is unchanged (this launch's own
 # content), but the holder may have recorded it meanwhile.
 _refresh_content_unseen_fresh() {
     [ "$HAS_REFRESH_DUE" = "1" ] || return 1
-    [ ! -e "$REFRESH_SEEN_DIR/$REFRESH_KEY" ]
+    [ ! -e "$REFRESH_SEEN_DIR/$REFRESH_KEY" ] || return 1
+    local failed="$REFRESH_SEEN_DIR/$REFRESH_KEY.failed"
+    [ -f "$failed" ] || return 0
+    [ "$(( $(date +%s) - $(_stamp_mtime "$failed") ))" -gt "$UPDATE_INTERVAL" ]
 }
 
 _refresh_record_seen() {
     [ "$HAS_REFRESH_DUE" = "1" ] && [ -n "$REFRESH_KEY" ] || return 0
     _refresh_state_dir && mkdir -p "$REFRESH_SEEN_DIR" 2>/dev/null &&
         : > "$REFRESH_SEEN_DIR/$REFRESH_KEY" 2>/dev/null
+    rm -f "$REFRESH_SEEN_DIR/$REFRESH_KEY.failed" 2>/dev/null || true
+}
+
+# _refresh_record_failed records that a refresh of the watched content FAILED (XB-D26), beside the
+# seen marker it did not earn, so that content is due again only past UPDATE_INTERVAL.
+_refresh_record_failed() {
+    [ "$HAS_REFRESH_DUE" = "1" ] && [ -n "$REFRESH_KEY" ] || return 0
+    _refresh_state_dir && mkdir -p "$REFRESH_SEEN_DIR" 2>/dev/null &&
+        : > "$REFRESH_SEEN_DIR/$REFRESH_KEY.failed" 2>/dev/null
+}
+
+# _refresh_worth is the declared worth-running test (XB-D23): 0 when there is none, or when a
+# listed file holds a listed string; 1 when no listed file holds any, so the refresh — and the
+# second program process it costs — is skipped. Read with the shell alone, so no shim and no
+# missing tool can change its answer.
+_refresh_worth() {
+    [ "$HAS_REFRESH_ONLY_IF" = "1" ] || return 0
+    local f
+    for f in ${REFRESH_ONLY_IF_FILES[@]+"${REFRESH_ONLY_IF_FILES[@]}"}; do
+        _refresh_file_holds "$HOME/$f" && return 0
+    done
+    for f in ${REFRESH_ONLY_IF_PROJECT[@]+"${REFRESH_ONLY_IF_PROJECT[@]}"}; do
+        _refresh_file_holds "$PWD/$f" && return 0
+    done
+    return 1
+}
+
+_refresh_file_holds() {
+    [ -f "$1" ] || return 1
+    local content s
+    content=$(cat "$1" 2>/dev/null) || return 1
+    for s in "${REFRESH_ONLY_IF_CONTAINS[@]}"; do
+        case "$content" in *"$s"*) return 0 ;; esac
+    done
+    return 1
 }
 
 _refresh_due() {
@@ -259,9 +306,14 @@ _refresh_act() {
     _stop_refresh_heartbeat
     # Stamped on EVERY outcome (§4.1 invariant 3): an offline hour must not retry per launch.
     _refresh_touch || true
-    # The content key only on SUCCESS: a failed refresh leaves the change due, so the next
-    # launch retries the install under the lock instead of leaving it to the program.
-    [ "$rc" != 0 ] || _refresh_record_seen || true
+    # The content key only on SUCCESS: a failed refresh leaves the change due, so a later launch
+    # retries the install under the lock instead of leaving it to the program — once the failure
+    # it records is past UPDATE_INTERVAL (XB-D26), not at every launch an offline hour makes.
+    if [ "$rc" = 0 ]; then
+        _refresh_record_seen || true
+    else
+        _refresh_record_failed || true
+    fi
     return "$rc"
 }
 
@@ -269,7 +321,10 @@ _refresh_act() {
 # invariant 2), so no outcome here may stop the exec below. What varies is what it says.
 _prelaunch_refresh() {
     [ "$HAS_REFRESH" = "1" ] || return 0
+    # A VERSION PROBE runs no refresh (XB-D24): it asks the program about itself.
+    [ "$_YOLO_PROBE" != 1 ] || return 0
     [ -x "$REAL_BIN" ] || return 0
+    _refresh_worth || return 0
     _refresh_due || return 0
     local lrc=0
     _take_refresh_lock || lrc=$?
@@ -353,16 +408,16 @@ func RefreshSeenRel(lockRel, bin string) string {
 // is how every other home path in both templates is spelled.
 func refreshSplices(r *packdecl.Refresh) []string {
 	if r == nil {
-		return []string{
+		return append([]string{
 			"__YOLO_HAS_REFRESH__", shquote.Quote(boolFlag(false)),
 			"__YOLO_REFRESH_ARGV__", "",
 			"__YOLO_REFRESH_LOCK__", shquote.Quote(""),
 			"__YOLO_REFRESH_STATE_NAME__", shquote.Quote(RefreshStateDirName),
 			"__YOLO_HAS_REFRESH_DUE__", shquote.Quote(boolFlag(false)),
 			"__YOLO_REFRESH_DUE_ON_CHANGE__", "",
-		}
+		}, onlyIfSplices(nil)...)
 	}
-	return []string{
+	return append([]string{
 		"__YOLO_HAS_REFRESH__", shquote.Quote(boolFlag(len(r.Argv) > 0 && r.Lock != "")),
 		"__YOLO_REFRESH_ARGV__", shquote.Join(r.Argv),
 		"__YOLO_REFRESH_LOCK__", shquote.Quote(r.Lock),
@@ -370,5 +425,48 @@ func refreshSplices(r *packdecl.Refresh) []string {
 		// Join, like the argv: a LIST of home-relative files, each one word.
 		"__YOLO_HAS_REFRESH_DUE__", shquote.Quote(boolFlag(len(r.DueOnChange) > 0)),
 		"__YOLO_REFRESH_DUE_ON_CHANGE__", shquote.Join(r.DueOnChange),
+	}, onlyIfSplices(r.OnlyIf)...)
+}
+
+// onlyIfSplices renders a refresh's worth-running test (XB-D23): off, with empty lists, for none.
+// Join, as for the argv: LISTS whose every entry is one word.
+func onlyIfSplices(o *packdecl.RefreshOnlyIf) []string {
+	if o == nil {
+		return []string{
+			"__YOLO_HAS_REFRESH_ONLY_IF__", shquote.Quote(boolFlag(false)),
+			"__YOLO_REFRESH_ONLY_IF_FILES__", "",
+			"__YOLO_REFRESH_ONLY_IF_PROJECT__", "",
+			"__YOLO_REFRESH_ONLY_IF_CONTAINS__", "",
+		}
 	}
+	return []string{
+		"__YOLO_HAS_REFRESH_ONLY_IF__", shquote.Quote(boolFlag(len(o.Contains) > 0)),
+		"__YOLO_REFRESH_ONLY_IF_FILES__", shquote.Join(o.Files),
+		"__YOLO_REFRESH_ONLY_IF_PROJECT__", shquote.Join(o.ProjectFiles),
+		"__YOLO_REFRESH_ONLY_IF_CONTAINS__", shquote.Join(o.Contains),
+	}
+}
+
+// probeDeclShell is a program's declared PROBE ARGUMENTS (packdecl.Install.Probe, XB-D24), baked
+// into every launcher template's header, and the one test of them: _YOLO_PROBE is 1 when the
+// launcher's first argument is one, which every update step below reads and skips on. At the
+// header, where "$@" is still the launcher's own. HAS_PROBE gates the array for bash 3.2.
+const probeDeclShell = `# The program's PROBE ARGUMENTS (pi-extension-store-builds.md XB-D24): an invocation whose first
+# argument is one only asks the program about itself, so it runs no update step at all.
+HAS_PROBE=__YOLO_HAS_PROBE__
+PROBE_ARGS=(__YOLO_PROBE_ARGS__)
+_YOLO_PROBE=0
+if [ "$HAS_PROBE" = "1" ] && [ "$#" -gt 0 ]; then
+    for _yolo_p in "${PROBE_ARGS[@]}"; do
+        if [ "$1" = "$_yolo_p" ]; then _YOLO_PROBE=1; fi
+    done
+fi
+`
+
+// launcherStepSplices are the splices of every launcher template's update steps for inst: its
+// pre-launch refresh (refreshSplices) and its probe arguments (probeDeclShell).
+func launcherStepSplices(inst *packdecl.Install) []string {
+	return append(refreshSplices(inst.Refresh),
+		"__YOLO_HAS_PROBE__", shquote.Quote(boolFlag(len(inst.Probe) > 0)),
+		"__YOLO_PROBE_ARGS__", shquote.Join(inst.Probe))
 }

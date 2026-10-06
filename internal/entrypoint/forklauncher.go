@@ -120,7 +120,7 @@ func sourceAgentLauncherSegments(inst *packdecl.Install, d ForkDelivery, stampDi
 		"__YOLO_EXEC_PREFIX__", token,
 		// The gate a patched extension this agent loads puts on it (patchedtrees.go, PPX-D18).
 		"__YOLO_TREE_GATE__", shquote.Quote(inst.Gate),
-	}, append(launchFlagSplices(flags), refreshSplices(inst.Refresh)...)...)...)
+	}, append(launchFlagSplices(flags), launcherStepSplices(inst)...)...)...)
 	return strings.Split(r.Replace(sourceLauncherTemplate), token)
 }
 
@@ -166,7 +166,7 @@ SERVERS_ENABLED=__YOLO_SERVERS_ENABLED__
 SERVERS_NPM=__YOLO_SERVERS_NPM__
 HAS_LAUNCH_FLAGS=__YOLO_HAS_LAUNCH_FLAGS__
 LAUNCH_FLAGS=(__YOLO_LAUNCH_FLAGS__)
-` + refreshDeclShell + launchFlagsShellFn + `
+` + refreshDeclShell + probeDeclShell + launchFlagsShellFn + `
 case ":${_YOLO_LAUNCHER_ACTIVE:-}:" in
     *":$BIN:"*)
         if [ -x "$REAL_BIN" ]; then
@@ -188,7 +188,7 @@ if [ "${YOLO_PACK_UPDATE:-}" = "1" ]; then
     echo "  $BIN: built from source by fork pack $FORKED_BY — "__YOLO_FORK_UPDATE_NOTE__ >&2
     exit 0
 fi
-
+` + treeGateShell + `
 # NO KEY, NO PROGRAM. The base's delivery is not a fallback, and an older build still in this
 # home is not this launch's: the pin it was built at is not the one the host asked for.
 if [ -z "$KEY" ]; then
@@ -221,11 +221,11 @@ _refresh_servers() {
         --updates="$UPDATES_ENABLED" >&2 || true
 }
 
-if [ "$SERVERS_ENABLED" = "1" ]; then
+if [ "$SERVERS_ENABLED" = "1" ] && [ "$_YOLO_PROBE" != 1 ]; then
     _refresh_servers
 fi
 ` + prelaunchRefreshShellFn + `
-` + agentEnvShellFn + agentAuthPrelaunchShellFn + treeGateShell + `
+` + agentEnvShellFn + agentAuthPrelaunchShellFn + `
 if [ -x "$REAL_BIN" ]; then
     _yolo_launch_argv "$@"
     exec __YOLO_EXEC_PREFIX__"$REAL_BIN" ${YOLO_ARGV[@]+"${YOLO_ARGV[@]}"}
