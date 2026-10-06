@@ -30,16 +30,19 @@ give that script the variables it needs, such as where to install, with `install
 
 ### Changed
 
-- Copilot now comes from GitHub's own installer and updates itself, as Claude Code does, so
-  `agent_updates: false` no longer freezes it and yolo cannot say which version ran: add
-  `{"COPILOT_AUTO_UPDATE": "false"}` to `env_sources` to freeze it. See
+- Copilot now comes from GitHub's own installer. It updates itself, as Claude Code does, and yolo
+  cannot say which version ran: to freeze it, set `agent_updates` to false for `copilot` and add
+  `{"COPILOT_AUTO_UPDATE": "false"}` to `env_sources`. See
   [Keep agents and packs up to date](userguide/guides/packs-and-skills.md#keep-agents-and-packs-up-to-date).
-- On a Mac, `yolo host -- copilot` now runs the copilot on your PATH, as it does for Claude Code:
-  install it with `brew install --cask copilot-cli`.
+- On a Mac, and on Linux with no container runtime, `yolo host -- copilot` now runs the copilot on
+  your PATH, as it does for Claude Code: on a Mac install it with `brew install --cask copilot-cli`;
+  on Linux install Podman, and the next `yolo host -- copilot` installs it.
 
 ### Fixed
 
 - When `yolo host` has no container runtime to capture an agent with, it now says to install one.
+- On a host whose `/bin/sh` is dash, such as Debian or Ubuntu, the Claude Code install command that
+  `yolo check-deps` prints and `yolo host apply --assert` runs now installs it.
 - A Ctrl-C in one of a jail's terminals now says the jail stays up for the others.
 - A Ctrl-C as a terminal's session starts no longer leaves that session's command running in the
   jail.

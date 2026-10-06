@@ -779,9 +779,9 @@ has (an implementation choice, recorded 2026-10-01 by the maintainer's orchestra
 > with brew, apt, dnf or pacman cannot select it deliberately anyway. A PATH with no manager
 > names none, so no hint is offered there. `nix` hints belong on genuine third-party dependencies where the
 > user's own package manager is the right answer. A `via: installer` program's remedy is a
-> download-check-run command, never a pipe into `sh`: it fetches the script to a temporary file,
+> download-check-run command, never a pipe into a shell: it fetches the script to a temporary file,
 > `yolo internal installer-check` refuses a web page or a binary naming the URL, and only then
-> does `sh` run it ([`PS-D4`](../design/provisioner-sets.md#PS-D4)). `yolo check-deps` only
+> does `bash` run it, as the jail's launcher does ([`PS-D4`](../design/provisioner-sets.md#PS-D4)). `yolo check-deps` only
 > prints it; `yolo host apply --assert` runs it behind its one prompt, with no terminal
 > ([`PS-D1`](../design/provisioner-sets.md#PS-D1)).
 

@@ -29,7 +29,7 @@ copilot's own updater may replace its binary unobserved — filed on 2026-10-01 
 [OQ-NI1](#OQ-NI1) and ruled in review on 2026-10-05: yes (A). **Built 2026-10-05:** the
 program contribution gained `installer_env`, copilot's recipe sets `{"PREFIX": "~/.local"}` and
 declares `update: ["update"]`, and the user guide and `yolo config-ref` say what `agent_updates:
-false` no longer freezes. One premise above had already lapsed when it was built: npm's
+false` does not freeze. One premise above had already lapsed when it was built: npm's
 `@github/copilot` 1.0.92 is a loader that starts the single-executable build from
 `@github/copilot-linux-x64`, so `isSea()` was true under npm too, and the updater that replaces its
 own executable was already on there (read in the 1.0.92 bundle, 2026-10-05).

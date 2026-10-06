@@ -2108,9 +2108,11 @@ recommendation the doc rests on.
     > the launcher share one implementation of the check is the implementer's.
     >
     > **Built 2026-09-30.** The remedy is
-    > `(f=$(mktemp) && trap 'rm -f "$f"' EXIT && curl -fsSL <url> -o "$f" && yolo internal installer-check <url> "$f" && sh "$f" </dev/null)`
+    > `(f=$(mktemp) && trap 'rm -f "$f"' EXIT && curl -fsSL <url> -o "$f" && yolo internal installer-check <url> "$f" && bash "$f" </dev/null)`
     > (`packdecl.InstallerRemedy`), printed and run as spelled; the check is
-    > `internal/installerbody`. The two implementations of the check are kept, and held to one
+    > `internal/installerbody`. It ran the file with `sh` until 2026-10-05, which failed on a host
+    > whose `/bin/sh` is dash, GitHub's copilot installer being a bash script; it now runs it
+    > with `bash`, as the jail's launcher does. The two implementations of the check are kept, and held to one
     > table ([`PS-D6`](#PS-D6)).
 
 15. 💬 <a id="OQ-PS14"></a>**OQ-PS14: How does a macos-user sandbox trust a certificate authority

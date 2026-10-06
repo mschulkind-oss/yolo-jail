@@ -1320,10 +1320,16 @@ func selfInstallCommand(c Contribution) string {
 const InstallerCheckVerb = "installer-check"
 
 // InstallerRemedy is the host's remedy for a `via: installer` program: DOWNLOAD, CHECK, RUN, in
-// one subshell, never a pipe into `sh` (docs/design/provisioner-sets.md PS-D4):
+// one subshell, never a pipe into a shell (docs/design/provisioner-sets.md PS-D4):
 //
 //	(f=$(mktemp) && trap 'rm -f "$f"' EXIT && curl -fsSL <url> -o "$f" &&
-//	 yolo internal installer-check <url> "$f" && sh "$f" </dev/null)
+//	 yolo internal installer-check <url> "$f" && bash "$f" </dev/null)
+//
+// BASH runs the script, as the jail's launcher runs it (_run_installer), and not `sh`: GitHub's
+// copilot installer and Claude Code's are bash scripts (a bash array, `[[ =~ ]]`), and where
+// /bin/sh is dash (Debian, Ubuntu) `sh "$f"` stopped at the first bash-only line and installed
+// nothing. A POSIX installer runs under bash unchanged. The command line around the script stays
+// POSIX, because the dependency gate runs it with `sh -c`.
 //
 // The check (internal/installerbody) refuses a web page, a binary or non-text bytes naming the
 // URL, as the jail's launcher refuses them, where a pipe handed an ELF body to `sh` for a shell
@@ -1339,7 +1345,7 @@ const InstallerCheckVerb = "installer-check"
 func InstallerRemedy(url string) string {
 	u := shquote.Quote(url)
 	return `(f=$(mktemp) && trap 'rm -f "$f"' EXIT && curl -fsSL ` + u + ` -o "$f" && yolo internal ` +
-		InstallerCheckVerb + ` ` + u + ` "$f" && sh "$f" </dev/null)`
+		InstallerCheckVerb + ` ` + u + ` "$f" && bash "$f" </dev/null)`
 }
 
 // DepRequirements returns every program AND requires contribution as the host-dep
