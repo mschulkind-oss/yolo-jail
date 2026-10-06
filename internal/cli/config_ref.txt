@@ -2538,8 +2538,9 @@
     workspace's own overlay (<workspace>/.yolo/home): npm/go globals, shell
     and agent state, sessions. It survives restarts of that workspace's jail
     and is not seen by any other. Shared by every jail on the machine: each
-    selected pack's shared dirs, the cache at ~/.cache, and mise tool data
-    at /mise. No host credential is mounted unless your config grants it.
+    selected pack's shared dirs, the cache at ~/.cache, and, on podman, mise
+    tool data at /mise (on Apple Container, /mise is a disk of the workspace's
+    own). No host credential is mounted unless your config grants it.
 
   [bold]Per-Workspace State[/bold]
     Some state is isolated per-workspace (in <workspace>/.yolo/):
@@ -2575,9 +2576,11 @@
     Run 'mise registry' to browse all available tools. Add tools via:
     • "mise_tools" in yolo-jail.jsonc (injected into jail global config)
     • /workspace/mise.toml (workspace-specific, checked into git)
-    All jails share one jail-land mise store, mounted at /mise — a tool
-    installed in one jail is available in every jail. The host's own mise
-    installation is fully independent; installs never cross the boundary.
+    On podman, all jails share one jail-land mise store, mounted at /mise —
+    a tool installed in one jail is available in every jail. On Apple
+    Container each workspace has its own tool disk at /mise, so another
+    project installs its tools again. The host's own mise installation is
+    fully independent; installs never cross the boundary.
 
   [bold]Blocked Tools[/bold]
     NOTHING is blocked by default. Blocking is opt-in, two ways:
