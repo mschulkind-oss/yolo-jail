@@ -767,7 +767,10 @@ func Main(args []string) error {
 	// EVERY STEP OF THE BOOT'S CONTENT, from the one table the macos-user bootstrap runs
 	// too (bootsteps.go). The container runs each step the table does not exclude from it,
 	// in table order, and marks the perf log after each. The reachability witness is the
-	// table's last step, so it runs after every generator and above the gate below.
+	// table's last step, so it runs after every generator and above the gate below. A SESSION'S
+	// PASS (gate != nil: an exec into a jail whose main process is a hold, the first session
+	// included) also skips the steps that are the jail's own boot alone (notSessionPass), the
+	// durable dir's walk and launch line among them (DS-D11); a jail with no hold keeps its one pass.
 	//
 	// There used to be a second os.Setenv of PATH after the steps, hand-spelling the same
 	// list BootPath builds — for `mise trust`, the only subprocess that ran below this point.
@@ -776,7 +779,7 @@ func Main(args []string) error {
 	// dead. It also never MATCHED, its comment's claim notwithstanding: it omitted
 	// e.LocalBin() from its first commit onward. BootPath is the single authority, applied
 	// once in execBash; TestBootPathIsTheOnlyPathAuthority refuses a second spelling.
-	runBootSteps(&bootRun{e: e, target: bootContainer, perf: p})
+	runBootSteps(&bootRun{e: e, target: bootContainer, perf: p, sessionPass: gate != nil})
 
 	// NOTE: We intentionally do NOT call `mise hook-env` here (flock deadlock).
 	p.dump(e.Home)

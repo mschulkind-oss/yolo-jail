@@ -59,6 +59,12 @@ type bootStep struct {
 	// not run the step, and the text is why.
 	notContainer string
 	notDarwin    string
+	// notSessionPass, non-empty, says why a SESSION'S PASS does not run the step: an exec into a
+	// container jail whose main process is a hold, the first session included, runs the table
+	// again for itself, and a step that belongs to the jail's own boot alone says so here. The
+	// text is why. The main process's boot, a jail with no hold, and the macos-user bootstrap
+	// (which has no attach) run it.
+	notSessionPass string
 }
 
 // excludedFrom returns why t does not run the step, or "" when it does.
@@ -73,6 +79,10 @@ func (s bootStep) excludedFrom(t bootTarget) string {
 type bootRun struct {
 	e      *Env
 	target bootTarget
+	// sessionPass is whether this run is a session's pass rather than the jail's own boot: an
+	// exec into a container whose main process is a hold (Main passes gate != nil). The steps
+	// that declare notSessionPass are skipped on it.
+	sessionPass bool
 	// darwin carries the macos-user bootstrap's own inputs.
 	darwin DarwinBootstrapOptions
 	// perf is the container boot's perf log; nil on macos-user, which keeps none.
@@ -110,7 +120,7 @@ func runBootSteps(b *bootRun) { runSteps(b, bootSteps()) }
 func runSteps(b *bootRun, steps []bootStep) {
 	b.sealed = b.e.launchedSealed(b.target)
 	for _, s := range steps {
-		if s.excludedFrom(b.target) != "" {
+		if s.excludedFrom(b.target) != "" || (b.sessionPass && s.notSessionPass != "") {
 			continue
 		}
 		switch {
@@ -282,6 +292,9 @@ func bootSteps() []bootStep {
 			// because all three answer "what has accumulated that nothing will remove for you".
 			name: "report_durable_dir",
 			run:  func(b *bootRun) { ReportDurableDir(b.e) },
+			notSessionPass: "the line is the launch's, said once by the jail's own boot on the launch " +
+				"terminal (DS-D11): an attach shares the jail whose launch already said it, and the " +
+				"size walk was every pass's largest step",
 		},
 		{
 			// Build the combined CA bundle BEFORE bashrc and before any child spawn, so the env

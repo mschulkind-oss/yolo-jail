@@ -30,6 +30,7 @@ highlight headings, verbs and flags; piped output and `NO_COLOR` stay plain.
 - An MCP server left out because its `requires_env` variable is unset is no longer reported as "not in config" at launch or by `yolo host apply`; the notice names the variable and how to deliver it.
 - An AMD GPU in `mode: "cdi"` on a host with no AMD CDI spec no longer fails the launch: the jail
   starts without the GPU and the warning names the command that writes the spec.
+- A second terminal opened on a running jail no longer repeats the durable-dir line, and opens faster.
 
 ## [0.12.1] - 2026-10-06
 

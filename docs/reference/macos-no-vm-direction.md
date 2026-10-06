@@ -168,17 +168,15 @@ Defects and unbuilt work behind some of the numbers above:
   reported one, so the cost of evaluating and building its darwin floor at every launch is still
   unmeasured. The first breakdown is `TestMacosUserTimingRecordsTheBackendsSteps`, run on the
   macOS runner.
-- **The durable-dir size walk** runs on every boot pass: twice on a fresh launch (the jail's own
-  boot and the first session's) and once on every attach, on both container backends, and in the
-  `macos-user` bootstrap (READ: [boot.go](../../internal/entrypoint/boot.go#L595-L645),
-  [bootsteps.go](../../internal/entrypoint/bootsteps.go#L246-L252),
-  [darwin.go](../../internal/entrypoint/darwin.go#L84-L87)). Each walk stops at 2 s (READ,
-  [report.go](../../internal/durable/report.go#L21)), and the walk at an attach goes against
-  [DS-D11](../design/durable-scratch-space.md#DS-D11)'s "never at an attach". So it is inside
-  Apple Container's 1.8 s attach (INFERRED). On the maintainer's Linux host one launch's two
-  passes took 0.95 s and 0.30 s on 2026-10-04 (MEASURED, from the entrypoint perf log of
-  yolo-jail's own workspace, which is not in the repository). On a VM backend the durable dir is
-  inside the shared workspace, so each pass would come nearer that limit (INFERRED).
+- **The durable-dir size walk** runs once per launch: in the main process's boot on both
+  container backends, which every session's pass, an attach's included, now skips
+  ([DS-D36](../design/durable-scratch-space.md#DS-D36)), and in the `macos-user` bootstrap. Each
+  walk stops at 2 s (READ, [report.go](../../internal/durable/report.go)). Until 2026-10-06 an
+  attach walked it again, so Apple Container's 1.8 s attach included one walk (INFERRED). On the
+  maintainer's Linux host one launch's two passes took 0.95 s and 0.30 s on 2026-10-04 (MEASURED,
+  from the entrypoint perf log of yolo-jail's own workspace, which is not in the repository); a
+  launch now walks once, and an attach not at all. On a VM backend the durable dir
+  is inside the shared workspace, so the one walk would come nearer that limit (INFERRED).
 - **Podman's provider.** Podman's own installer gives a new machine libkrun since Podman 6.0.0,
   and Homebrew's Podman patches the default back to applehv (SOURCED: Podman 6.1.3's
   [`platform_darwin.go`](https://github.com/podman-container-tools/podman/blob/v6.1.3/pkg/machine/provider/platform_darwin.go)

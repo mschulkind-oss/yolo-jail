@@ -85,7 +85,10 @@ func TestEveryBootStepRunsOrSaysWhy(t *testing.T) {
 		if s.notContainer != "" && s.notDarwin != "" {
 			t.Errorf("step %q is excluded from both boots, so nothing runs it", s.name)
 		}
-		for _, reason := range []string{s.notContainer, s.notDarwin} {
+		if s.notSessionPass != "" && s.notContainer != "" {
+			t.Errorf("step %q skips a session's pass of a boot that never runs it", s.name)
+		}
+		for _, reason := range []string{s.notContainer, s.notDarwin, s.notSessionPass} {
 			if reason != "" && len(strings.Fields(reason)) < 4 {
 				t.Errorf("step %q's exclusion %q does not say why", s.name, reason)
 			}

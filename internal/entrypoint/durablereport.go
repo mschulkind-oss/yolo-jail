@@ -13,8 +13,11 @@ import (
 // how many worktree registrations point at directories that are gone, which is the /tmp
 // incident class caught at the next launch.
 //
-// COMPUTED HERE, IN THE JAIL, on every boot, which is every fresh launch and never an attach
-// (an attach runs no entrypoint). Here the registrations may be checked against the
+// COMPUTED HERE, IN THE JAIL, once per fresh launch: by the container's main process as it
+// boots, and by the macos-user bootstrap, which has no attach. An attach DOES run the
+// entrypoint, as every session of a hold-main jail does, the first included, and its pass
+// skips this step (the table's notSessionPass), since the launch already said it and the walk
+// was every pass's largest step (DS-D11). Here the registrations may be checked against the
 // filesystem the agent sees, and the host never stats a path a jail-written admin file named
 // (DS-D3). It never refuses or fails the boot, and the size walk stops at durable.WalkBudget.
 // A launch with no durable dir exported no variable, and the launcher has already said why.
