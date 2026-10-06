@@ -475,6 +475,11 @@ func TestALaunchSaysNothingOfAnEntryNoSelectedPackBrokers(t *testing.T) {
 // WW-D21: the old form's refusal at a launch names this project's edit and counts the others,
 // so the launch log its jail reads names no other workspace.
 func TestTheOldFormsLaunchRefusalNamesNoOtherWorkspace(t *testing.T) {
+	// A HOST LAUNCH: in a jail the user config is the host-generated snapshot, and a retired key
+	// there only warns (remove it from the host config), so a run inside the dev jail passed the
+	// launch and failed this test while CI, which runs outside a jail, stayed green.
+	t.Setenv("YOLO_VERSION", "")
+	os.Unsetenv("YOLO_VERSION")
 	o, buf, _ := brokeredFixture(t)
 	cfg := filepath.Join(os.Getenv("HOME"), ".config", "yolo-jail", "config.jsonc")
 	if err := os.MkdirAll(filepath.Dir(cfg), 0o755); err != nil {
