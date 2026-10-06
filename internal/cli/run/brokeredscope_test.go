@@ -599,3 +599,76 @@ func TestADeclinedEntryNamesTheFileItIsIn(t *testing.T) {
 		t.Fatal("a declined gate recorded the scope part")
 	}
 }
+
+// evilInclude is an include file name the agent chose, holding terminal sequences and markup.
+const evilInclude = "x\x1b[2K\x1b]0;owned\a[bold]y.jsonc"
+
+// writeEvilInclude makes the workspace config include evilInclude, which holds body.
+func writeEvilInclude(t *testing.T, ws, body string) {
+	t.Helper()
+	writeWorkspaceConfig(t, ws, `{"include_if_found": ["x\u001b[2K\u001b]0;owned\u0007[bold]y.jsonc"]}`)
+	if err := os.WriteFile(filepath.Join(ws, evilInclude), []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// asText reports whether out names evilInclude as text: no terminal sequence reached it, and the
+// renderer left the name's markup in place.
+func asText(out string) bool { return namesAsText(out, "bold]y.jsonc") }
+
+// namesAsText reports whether out holds no terminal sequence and holds want, the tail of an
+// agent-chosen name whose markup the renderer would have consumed.
+func namesAsText(out, want string) bool {
+	return !strings.ContainsAny(out, "\x1b\a") && strings.Contains(out, want)
+}
+
+// WW-D19: the decline line names the entry's agent-chosen file as text.
+func TestTheDeclineNamesAnAgentChosenFileAsText(t *testing.T) {
+	o, buf, _ := brokeredFixture(t)
+	writeEvilInclude(t, o.Workspace, `{"brokered": {"gbsrc": {"repos": ["org/lib"]}}}`)
+	o.IsTTYStdin = func() bool { return true }
+	o.Stdin = strings.NewReader("n\n")
+	if o.checkConfigChanges(gbOn(), "podman") {
+		t.Fatalf("an `n` was accepted:\n%s", buf.String())
+	}
+	out := buf.String()
+	if strings.ContainsAny(out, "\x1b\a") || !strings.Contains(out, `change is in x\x1b[2K`) {
+		t.Fatalf("the decline does not name the file as text:\n%q", out)
+	}
+}
+
+// WW-D19: the launch line names each repository's agent-chosen file as text, markup included.
+func TestTheLaunchLineNamesAnAgentChosenFileAsText(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("the fixture daemon is /bin/cp")
+	}
+	o, buf, _ := brokeredFixture(t)
+	writeEvilInclude(t, o.Workspace, `{"brokered": {"gbsrc": {"repos": ["org/lib"]}}}`)
+	o.AcceptConfigChanges = true
+	if !o.checkConfigChanges(gbOn(), "podman") {
+		t.Fatalf("an accepted gate refused:\n%s", buf.String())
+	}
+	handles := o.startLoopholes("yolo-escaped-line", "podman", gbOn())
+	t.Cleanup(func() { o.stopLoopholes(handles, hostServiceSocketsDir("yolo-escaped-line", false), "", "") })
+	var line string
+	for _, l := range strings.Split(buf.String(), "\n") {
+		if strings.Contains(l, "scope for this workspace") {
+			line = l
+		}
+	}
+	if !asText(line) {
+		t.Fatalf("the launch line lost or rendered the file's name: %q\n%s", line, buf.String())
+	}
+}
+
+// WW-D18, WW-D19: the gate's read refusal names an agent-chosen include as text.
+func TestTheGateReadRefusalNamesAnAgentChosenFileAsText(t *testing.T) {
+	o, buf, _ := brokeredFixture(t)
+	writeEvilInclude(t, o.Workspace, `{"brokered": `)
+	if o.checkConfigChanges(gbOn(), "podman") {
+		t.Fatalf("a broken include passed the gate:\n%s", buf.String())
+	}
+	if !asText(buf.String()) {
+		t.Fatalf("the refusal lost or rendered the file's name:\n%q", buf.String())
+	}
+}

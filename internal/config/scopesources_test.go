@@ -216,6 +216,47 @@ func TestAFileLabelIsEscapedEverywhereTheGatePrintsIt(t *testing.T) {
 	}
 }
 
+// WW-D19: a file label taken back out of the sources record, the "was ..." half of a
+// source-changed row, reaches the block escaped: the record holds the raw name the gate read.
+func TestARecordedFileLabelIsEscapedInASourceChangedRow(t *testing.T) {
+	ws := approvalWorkspace(t)
+	evil := "x\x1b[2K\x1b]52;c;ZWNobyBvd25lZA==\a.jsonc"
+	if err := RecordApproval(ws, decode(t, `{}`), entryScope([]brokerscope.Remote{origin},
+		EntryRepo{Repo: "o/r", Files: []string{evil}})); err != nil {
+		t.Fatal(err)
+	}
+	p := &reportPrompter{accept: false}
+	CheckConfigAndScopeChanges(ws, decode(t, `{}`), githubScope(origin), true, false, p)
+	if p.got == nil {
+		t.Fatal("the source change did not ask")
+	}
+	block := strings.Join(p.got.ScopeBlock, "\n")
+	if strings.ContainsAny(block, "\x1b\a") || !strings.Contains(block, `(was remote "origin", x\x1b[2K`) {
+		t.Fatalf("the recorded label reached the block unescaped:\n%q", block)
+	}
+}
+
+// WW-D26: a removed entry's row takes its file from the sources record, so the decline names the
+// file the entry was removed from.
+func TestARemovedEntryNamesTheFileItWasIn(t *testing.T) {
+	ws := approvalWorkspace(t)
+	if err := RecordApproval(ws, decode(t, `{}`), entryScope([]brokerscope.Remote{origin},
+		EntryRepo{Repo: "org/lib", Files: []string{"yolo-jail.local.jsonc"}})); err != nil {
+		t.Fatal(err)
+	}
+	p := &reportPrompter{accept: false}
+	if ok, err := CheckConfigAndScopeChanges(ws, decode(t, `{}`), githubScope(origin), true, false, p); ok || err != nil {
+		t.Fatalf("ok=%v err=%v, want asked and declined", ok, err)
+	}
+	if !strings.Contains(strings.Join(p.got.ScopeBlock, "\n"), "- org/lib") {
+		t.Fatalf("the entry's removal is not a row:\n%s", strings.Join(p.got.ScopeBlock, "\n"))
+	}
+	if len(p.got.EntryEdits) != 1 || p.got.EntryEdits[0].Key != "brokered.github.repos" ||
+		strings.Join(p.got.EntryEdits[0].Files, ",") != "yolo-jail.local.jsonc" {
+		t.Fatalf("entry edits %+v, want brokered.github.repos in yolo-jail.local.jsonc", p.got.EntryEdits)
+	}
+}
+
 // WW-D20: with no terminal and --accept-config-changes, the gate shows the block and the count
 // lines to the prompter before recording, for remotes as well as entries; and the refusal
 // without the flag names the entry's file and key.
