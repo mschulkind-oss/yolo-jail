@@ -12,6 +12,7 @@ import (
 
 	"github.com/mschulkind-oss/yolo-jail/internal/nixchildren"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
+	"github.com/mschulkind-oss/yolo-jail/internal/reporoot"
 )
 
 // stockimage.go is the answer to "must this launch build an image at all?".
@@ -267,6 +268,7 @@ func EvalImageIdentity(repoRoot string) (string, bool) {
 	defer cancel()
 	argv := append([]string{}, NixFlakeFlags()...)
 	argv = append(argv, "eval", "--impure", "--raw", ".#imageIdentity")
+	argv = reporoot.FlakeArgv(repoRoot, argv)
 	cmd := exec.CommandContext(ctx, "nix", argv...)
 	cmd.Dir = repoRoot
 	// stdout only: nix puts "Git tree is dirty" and the untrusted-substituter

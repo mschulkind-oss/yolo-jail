@@ -16,6 +16,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/nixchildren"
 	"github.com/mschulkind-oss/yolo-jail/internal/nixstderr"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
+	"github.com/mschulkind-oss/yolo-jail/internal/reporoot"
 )
 
 // MaterializeError nix missing or the build
@@ -143,6 +144,7 @@ func materializeWithArgv(repoRoot string, packages []any, system string, argv []
 
 	// Stream stderr live while capturing stdout (the store out-path) and a
 	// bounded stderr tail for the error message.
+	argv = reporoot.FlakeArgv(repoRoot, argv)
 	cmd := exec.Command(argv[0], argv[1:]...)
 	cmd.Dir = repoRoot
 	cmd.Env = baseEnv
@@ -215,7 +217,7 @@ func ProfilePathsFromStdout(stdout string, skipped []string, checkPkgConfig func
 // skippedNames is the best-effort read of the no-build-for-this-system skip list
 // (a nix eval with a 120s timeout). Non-fatal on any failure.
 func skippedNames(repoRoot string, env []string, system string) []string {
-	argv := UnavailableEvalArgv(system)
+	argv := reporoot.FlakeArgv(repoRoot, UnavailableEvalArgv(system))
 	cmd := exec.Command(argv[0], argv[1:]...)
 	cmd.Dir = repoRoot
 	cmd.Env = env

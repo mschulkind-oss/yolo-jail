@@ -10,6 +10,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/nixchildren"
 	"github.com/mschulkind-oss/yolo-jail/internal/nixstderr"
+	"github.com/mschulkind-oss/yolo-jail/internal/reporoot"
 )
 
 // ImageExtrasAttr is C5's store-delivered bulk — the `fullPackages` set plus the
@@ -115,6 +116,7 @@ func BuildOCIImage(req OCIBuildRequest) (string, []string) {
 	}
 
 	argv, buildEnv := ociPreflightBuild(req, outPath, os.Environ())
+	argv = reporoot.FlakeArgv(req.RepoRoot, argv)
 	cmd := exec.Command(argv[0], argv[1:]...)
 	cmd.Dir = req.RepoRoot
 	cmd.Env = buildEnv

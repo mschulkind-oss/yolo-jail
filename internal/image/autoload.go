@@ -20,6 +20,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/perf"
 	"github.com/mschulkind-oss/yolo-jail/internal/progress"
+	"github.com/mschulkind-oss/yolo-jail/internal/reporoot"
 )
 
 // AutoLoadOptions carries the injectable seams for AutoLoadImage so the load
@@ -1341,6 +1342,7 @@ func buildImageStorePathArgs(attr, repoRoot string, extra []any, outLink string,
 // yolo-entrypoint deserves the same treatment as one that cannot produce an
 // image, and the operator should not have to learn two failure shapes.
 func runNixBuild(argv []string, repoRoot string, buildEnv []string, outLink string, out io.Writer) (string, []string) {
+	argv = reporoot.FlakeArgv(repoRoot, argv)
 	cmd := exec.Command(argv[0], argv[1:]...)
 	cmd.Dir = repoRoot
 	cmd.Env = buildEnv

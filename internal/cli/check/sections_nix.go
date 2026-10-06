@@ -9,6 +9,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/image"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/nixdiag"
+	"github.com/mschulkind-oss/yolo-jail/internal/reporoot"
 )
 
 // nixDryRunWillBuild runs `nix build .#ociImage
@@ -16,7 +17,7 @@ import (
 // nixdiag.ParseDryRunWillBuild. extraPackages is JSON-encoded into
 // YOLO_EXTRA_PACKAGES for the child.
 func (o *Options) nixDryRunWillBuild(repoRoot string, extraPackages []any) (nixdiag.WillBuild, []string) {
-	argv := nixDryRunArgv()
+	argv := reporoot.FlakeArgv(repoRoot, nixDryRunArgv())
 	var env []string
 	if len(extraPackages) > 0 {
 		if pkgJSON, err := jsonx.DumpsCompact(extraPackages); err == nil {

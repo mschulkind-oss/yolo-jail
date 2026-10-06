@@ -48,6 +48,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/nixchildren"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
+	"github.com/mschulkind-oss/yolo-jail/internal/reporoot"
 )
 
 // StorePackagesOptInEnv is the opt-in. An ENVIRONMENT VARIABLE rather than a config key,
@@ -285,6 +286,7 @@ func nixBuildImageExtrasProfile(repoRoot string) (string, error) {
 	// environment or it multiplies the way §1.5 measured the image multiplying.
 	argv = append(argv, "build", "--impure", "--no-link", "--print-out-paths",
 		"--print-build-logs", ".#yoloImageExtras")
+	argv = reporoot.FlakeArgv(repoRoot, argv)
 	cmd := exec.Command(argv[0], argv[1:]...)
 	cmd.Dir = repoRoot
 	var stdout, stderr bytes.Buffer

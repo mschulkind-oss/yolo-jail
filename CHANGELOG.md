@@ -8,10 +8,10 @@ one per patch release.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.12.1] - 2026-10-06
 
-Nested Podman jails inherit Bedrock access, host installations follow your package-manager
-preference, and macos-user prepares programs before launch.
+Homebrew installations build in place, nested Podman jails inherit Bedrock access, and macos-user
+prepares programs before launch.
 
 ### Added
 
@@ -23,10 +23,15 @@ failing to start its AWS service. See
 **Choose how yolo installs an agent.** A `provisioners` list in your user config ranks your package
 managers above a pack's own installer, so `"host": ["brew"]` gets claude from Homebrew at the host.
 See [Confinement](userguide/guides/confinement.md).
+
 **Programs ready on macos-user.** A selected pack's missing program is installed before your
 command runs; a failed install stops the launch unless you set
 `YOLO_ALLOW_MISSING_PROGRAMS=1`. See
 [macos-user provisioning](docs/reference/macos-user-provisioning.md).
+
+### Fixed
+
+- Fixed Nix builds and checks failing because Homebrew's Git repository ignores the installed bundle; no manual flake copy or persistent `YOLO_REPO_ROOT` override is needed.
 
 ## [0.12.0] - 2026-10-06
 
