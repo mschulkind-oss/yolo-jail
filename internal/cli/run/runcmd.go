@@ -185,6 +185,14 @@ type Options struct {
 	// keeperMode is set on a KEEPER's own Options (keeper.go): the children it starts get the
 	// kernel's death signal, and its self-execs run its own binary.
 	keeperMode bool
+	// keeperCommand is, on a keeper at macos-user, the command of the launch that spawned it, which
+	// the supervision of a doorway or service it holds names (macosUserCommandName).
+	keeperCommand string
+	// macosUserKey is a macos-user launch's place at its KEY (keeperspawn.go's arriveMacosUser;
+	// docs/design/jail-lifetime-last-session-wins.md §9.9): the arrival lock it holds, the roster it
+	// joined, its session record and the keeper it spawned. nil on every other backend, on a dry
+	// run, and for a caller that hands Run no backend.
+	macosUserKey *macosUserKeying
 	// packTree is the pack tree THIS launch staged (packtree.go), one per launch and never
 	// edited afterwards (docs/reference/pack-system.md#oq-pk2). "" until staging.
 	packTree string

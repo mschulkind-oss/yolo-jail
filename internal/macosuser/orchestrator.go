@@ -266,6 +266,25 @@ type Options struct {
 	// (internal/cli/run's macosuserarm.go), which runs what the pipeline registered for the
 	// session's start. It must return promptly: the session waits for it. nil runs nothing.
 	OnAgentStart func()
+	// SkipGrant and OnStaged are the stage's two questions about the endpoint-file grants
+	// (endpointGrantCommands) when a keeper holds the workspace's host services
+	// (docs/design/jail-lifetime-last-session-wins.md §9.9.5): every session of the workspace is
+	// told the same endpoint files, in the keeper's one host-services dir, and what a second `chmod
+	// +a` of one ACE on one file does is unmeasured, so a session grants only a file no session of
+	// the workspace granted yet. SkipGrant reports whether a grant's path is such a file; OnStaged
+	// is told, once the stage succeeded, every path a grant named, granted or skipped. Either may be
+	// nil: a launch with no keeper grants every one, as before.
+	SkipGrant func(path string) bool
+	OnStaged  func(paths []string)
+}
+
+// grantTarget is the path a stage command grants the sandbox account an ACE on (`chmod +a <ace>
+// <path>`), and whether it is such a grant.
+func grantTarget(cmd []string) (string, bool) {
+	if len(cmd) == 4 && cmd[0] == chmodBin && cmd[1] == "+a" {
+		return cmd[3], true
+	}
+	return "", false
 }
 
 // printer wraps the shared richtext renderer. When color is set the rich markup
@@ -1131,7 +1150,16 @@ func RunMacosUser(deps Deps, opts Options) int {
 		}
 	}
 	steps.begin("stage")
+	// A GRANT ANOTHER SESSION OF THE WORKSPACE MADE is not made again (Options.SkipGrant): the
+	// keeper's endpoint files are every session's (§9.9.5).
+	var granted []string
 	for _, cmd := range plan.StageCommands {
+		if target, ok := grantTarget(cmd); ok {
+			granted = append(granted, target)
+			if opts.SkipGrant != nil && opts.SkipGrant(target) {
+				continue
+			}
+		}
 		if deps.Run(append([]string{"sudo"}, cmd...)) != 0 {
 			if rc, ending := deps.ending(); ending {
 				return rc
@@ -1139,6 +1167,9 @@ func RunMacosUser(deps Deps, opts Options) int {
 			out.printf("[bold red]Could not stage entrypoint (%s).[/bold red]", shquote.JoinDisplay(cmd))
 			return 1
 		}
+	}
+	if opts.OnStaged != nil {
+		opts.OnStaged(granted)
 	}
 
 	// 2.5 THE SESSION ENV FILE — everything this launch composed, delivered as a root-owned

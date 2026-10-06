@@ -203,6 +203,48 @@ func (p *Plan) Release() {
 	ReleaseAll(p.reserved)
 }
 
+// THE RESERVATION CROSSES A PROCESS with the process that starts the service: a macos-user launch
+// plans its doorways and launch-owned services and composes their clients, and the keeper it spawns
+// starts them and holds them for every session of the workspace (internal/cli/run's keeper.go;
+// docs/design/jail-lifetime-last-session-wins.md JL-D38). The launch hands the keeper each reserved
+// socket as a descriptor (Reserved), the keeper adopts it (AdoptReserved) and puts it in the plan
+// it starts (Hold), so the service is handed the socket its clients were composed at and the
+// keeper's Running keeps it for the service's life, as a launch's own does.
+
+// Reserved is the plan's reservations, keyed by served address, for a launch that hands them to
+// the process that will start the plan. They stay the plan's: Release still closes them.
+func (p *Plan) Reserved() map[string]*Reserved {
+	if p == nil || len(p.reserved) == 0 {
+		return nil
+	}
+	out := make(map[string]*Reserved, len(p.reserved))
+	for a, r := range p.reserved {
+		out[a] = r
+	}
+	return out
+}
+
+// AdoptReserved is a reservation another process made and handed to this one as f, a socket bound
+// to addr and never listened on. The Reserved owns f from here.
+func AdoptReserved(addr string, f *os.File) *Reserved {
+	if f == nil {
+		return nil
+	}
+	return &Reserved{addr: addr, f: f}
+}
+
+// Hold makes r the plan's reservation of its served address addr, which Start hands the service.
+// A nil r holds nothing.
+func (p *Plan) Hold(addr string, r *Reserved) {
+	if p == nil || r == nil {
+		return
+	}
+	if p.reserved == nil {
+		p.reserved = map[string]*Reserved{}
+	}
+	p.reserved[addr] = r
+}
+
 // handedFDs parses ListenFDsEnv's value. A malformed pair is skipped: it names nothing a launch
 // handed.
 func handedFDs(value string) map[string]int {

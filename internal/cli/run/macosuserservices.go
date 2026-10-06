@@ -61,14 +61,28 @@ type launchedService interface {
 	Supervise(agent string, w io.Writer, prefix string)
 }
 
+// launchedHeld is one doorway or launch-owned service a start loop started (startMacosUserDoorways,
+// startMacosUserServices), for whoever owns its end: the arm's deferred stop when the launch holds
+// it, and the keeper's teardown and watch when a keeper does (keeperwatch.go). what names it in a
+// sentence, "the \"x\" doorway"; log is its log.
+type launchedHeld struct {
+	what string
+	r    launchedService
+	log  string
+}
+
 // macosUserSupervisionPrefix leads every line a launch-owned service's supervision prints on
 // macos-user: a death and a restart arrive while the sandboxed command owns the terminal, so the
 // line says who is speaking.
 const macosUserSupervisionPrefix = "yolo: "
 
 // macosUserCommandName is what a supervision line calls the sandboxed command: the command after
-// `--`, or, for a bare `yolo`, the login shell the sandbox opens.
+// `--`, or, for a bare `yolo`, the login shell the sandbox opens. A keeper names the command of the
+// launch that spawned it (keeperPlan.Command).
 func (o *Options) macosUserCommandName() string {
+	if o.keeperCommand != "" {
+		return o.keeperCommand
+	}
 	if len(o.Args) > 0 && o.Args[0] != "" {
 		return filepath.Base(o.Args[0])
 	}
@@ -314,43 +328,95 @@ func (c *packChannel) launchServiceInput(agents []string) map[string]string {
 	return env
 }
 
+// serviceStart is one launch-owned service as its start needs it: the plan, the input the service is
+// handed (packChannel.launchServiceInput, for the agents it carries), and what its start line names
+// (servicePointedAt, or a pure worker's workerPointedAt). Computed by the launch from its channel
+// (macosUserServiceStarts), and carried to a keeper in its plan, which has no channel.
+type serviceStart struct {
+	plan      *launchservice.Plan
+	input     map[string]string
+	pointedAt string
+	worker    bool
+}
+
+// macosUserServiceStarts is the start of every launch-owned service this launch planned, from its
+// channel.
+func (o *Options) macosUserServiceStarts(channel *packChannel) []serviceStart {
+	var out []serviceStart
+	for _, plan := range o.launchServices {
+		st := serviceStart{plan: plan, input: channel.launchServiceInput(o.serviceAgents(plan, channel)),
+			worker: isWorkerPlan(plan)}
+		if st.worker {
+			st.pointedAt = workerPointedAt(channel, plan.Service)
+		} else {
+			st.pointedAt = strings.Join(o.servicePointedAt(plan, channel), ", ")
+		}
+		out = append(out, st)
+	}
+	return out
+}
+
 // startMacosUserServices starts every planned launch-owned service and says so, one line each,
 // on every launch (a launch has no quiet mode, and this is host code running outside Seatbelt).
-// It returns the stop for the arm to defer, or the refusal naming the service that did not start.
+// It returns the stop for the arm to defer and what it started, or the refusal naming the service
+// that did not start. before, when not nil, is called with each plan just before its start
+// (startMacosUserDoorways says why).
 //
 // EACH ONE IS SUPERVISED FROM ITS START (launchservice.Running.Supervise, HS-D28), on this arm's
 // stderr, so a service that dies while the sandboxed command runs is named and restarted on the
 // address the command was pointed at; the arm's deferred stop is its own teardown and says
-// nothing. A local pack's host half is named, argv and all, before it starts.
-func (o *Options) startMacosUserServices(channel *packChannel) (func(), error) {
-	var running []launchedService
+// nothing. A local pack's host half is named, argv and all, before it starts, by this launch or by
+// the launch that spawned the keeper that starts it (startMacosUserDoorways says why).
+func (o *Options) startMacosUserServices(starts []serviceStart, before func(*launchservice.Plan)) (func(), []launchedHeld, error) {
+	var running []launchedHeld
 	stop := func() {
 		for _, r := range running {
-			r.Stop()
+			r.r.Stop()
 		}
 	}
-	for _, plan := range o.launchServices {
-		o.noteMacosUserLocalHostCode(plan, fmt.Sprintf("the %q service's host half", plan.Service))
-		r, log, err := startMacosUserService(plan, channel.launchServiceInput(o.serviceAgents(plan, channel)))
+	for _, st := range starts {
+		plan := st.plan
+		if !o.keeperMode {
+			o.noteMacosUserLocalHostCode(plan, fmt.Sprintf("the %q service's host half", plan.Service))
+		}
+		if before != nil {
+			before(plan)
+		}
+		r, log, err := startMacosUserService(plan, st.input)
 		if err != nil {
 			stop()
-			return func() {}, err
+			return func() {}, nil, err
 		}
-		running = append(running, r)
-		if isWorkerPlan(plan) {
-			o.pr(o.Stderr).print(fmt.Sprintf("Started the %q service (pack %q, pid %d) for this launch, "+
-				"outside the sandbox: %s, handed only this launch's caller token, and stopped when the "+
-				"command exits. Its log: %s", plan.Service, plan.Pack, r.PID(),
-				workerPointedAt(channel, plan.Service), log))
-		} else {
-			o.pr(o.Stderr).print(fmt.Sprintf("Started the %q service (pack %q, pid %d) on %s for this "+
-				"launch, outside the sandbox: it answers only this launch's caller token and stops "+
-				"when the command exits. Its log: %s", plan.Service, plan.Pack, r.PID(),
-				strings.Join(o.servicePointedAt(plan, channel), ", "), log))
-		}
+		running = append(running, launchedHeld{what: fmt.Sprintf("the %q service's host half", plan.Service), r: r, log: log})
+		o.pr(o.Stderr).print(o.serviceStartedLine(st, r.PID(), log))
 		r.Supervise(o.macosUserCommandName(), o.Stderr, macosUserSupervisionPrefix)
 	}
-	return stop, nil
+	return stop, running, nil
+}
+
+// serviceStartedLine is a launch-owned service's start line: a launch's, or a keeper's, whose
+// service serves every macos-user session of the workspace and ends with the last of them.
+func (o *Options) serviceStartedLine(st serviceStart, pid int, log string) string {
+	plan := st.plan
+	switch {
+	case st.worker && o.keeperMode:
+		return fmt.Sprintf("Started the %q service (pack %q, pid %d) for this launch, outside the "+
+			"sandbox: %s, for every macos-user session of this workspace, handed only the caller token "+
+			"they share, and stopped when the last of them leaves. Its log: %s", plan.Service, plan.Pack,
+			pid, st.pointedAt, log)
+	case st.worker:
+		return fmt.Sprintf("Started the %q service (pack %q, pid %d) for this launch, outside the "+
+			"sandbox: %s, handed only this launch's caller token, and stopped when the command exits. "+
+			"Its log: %s", plan.Service, plan.Pack, pid, st.pointedAt, log)
+	case o.keeperMode:
+		return fmt.Sprintf("Started the %q service (pack %q, pid %d) on %s for this launch, outside the "+
+			"sandbox: it serves every macos-user session of this workspace, answers only their caller "+
+			"token, and stops when the last of them leaves. Its log: %s", plan.Service, plan.Pack, pid,
+			st.pointedAt, log)
+	}
+	return fmt.Sprintf("Started the %q service (pack %q, pid %d) on %s for this launch, outside the "+
+		"sandbox: it answers only this launch's caller token and stops when the command exits. Its "+
+		"log: %s", plan.Service, plan.Pack, pid, st.pointedAt, log)
 }
 
 // isWorkerPlan reports whether plan is a pure worker's (planMacosUserWorkers): one no address

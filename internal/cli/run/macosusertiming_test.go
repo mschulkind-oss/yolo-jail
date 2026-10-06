@@ -1,13 +1,16 @@
 package run
 
 // macosusertiming_test.go pins the macos-user arm's timing surface (docs/reference/perf-logging.md):
-// a launch that reaches the dispatch reports, after its teardown, with the backend's span and the
-// host services' shutdown spans inside the table; a recording-only launch prints the quiet line; a
+// a launch that reaches the dispatch reports, after its teardown, with the backend's span, its
+// keeper's start and the keeper's teardown it streamed inside the table, and the keeper records its
+// own spans in the same host perf log; a recording-only launch prints the quiet line; a
 // refusal before the dispatch prints neither; and the table names no jail half, since the
 // bootstrap keeps no jail perf log. Each fails if the arm's deferred report is deleted.
 
 import (
 	"bytes"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -21,6 +24,13 @@ import (
 // is a config-declared loophole, so the teardown has a front to stop, with a stub backend returning
 // rc. env adds to the stub's environment.
 func timedMacosUserLaunch(t *testing.T, timing bool, env map[string]string, rc int) (int, string) {
+	t.Helper()
+	got, out, _ := timedMacosUserLaunchIn(t, timing, env, rc)
+	return got, out
+}
+
+// timedMacosUserLaunchIn is timedMacosUserLaunch, also naming the workspace it launched.
+func timedMacosUserLaunchIn(t *testing.T, timing bool, env map[string]string, rc int) (int, string, string) {
 	t.Helper()
 	home := packHome(t)
 	writeUserConfigJSON(t, home, `{
@@ -45,11 +55,11 @@ func timedMacosUserLaunch(t *testing.T, timing bool, env map[string]string, rc i
 		macosuser.HostContext, bool, *jsonx.OrderedMap, []packload.BlockedTool, macosuser.JailDaemons) int {
 		return rc
 	}
-	return Run(*o), stdout.String() + stderr.String()
+	return Run(*o), stdout.String() + stderr.String(), ws
 }
 
 func TestAMacosUserLaunchReportsItsTimingAfterItsTeardown(t *testing.T) {
-	rc, out := timedMacosUserLaunch(t, true, nil, 7)
+	rc, out, ws := timedMacosUserLaunchIn(t, true, nil, 7)
 	if rc != 7 {
 		t.Fatalf("Run() = %d, want the backend's 7\n%s", rc, out)
 	}
@@ -58,15 +68,27 @@ func TestAMacosUserLaunchReportsItsTimingAfterItsTeardown(t *testing.T) {
 		t.Fatalf("no timing report for a --timing macos-user launch:\n%s", out)
 	}
 	table := out[header:]
+	// THE HOST SERVICES ARE THE WORKSPACE'S KEEPER'S (docs/design/jail-lifetime-last-session-wins.md
+	// §9.9): this launch's report has the keeper's start and, as the last session, the teardown it
+	// streamed; the keeper's own spans are in the same host perf log, recorded by the keeper.
 	for _, row := range []string{"launch.refresh_jail_briefings", "launch.build_home_overlay", "launch.build_ctx_tree",
-		"launch.start_loopholes", "launch.start_doorways", "launch.start_services", "launch.macos_user",
-		"shutdown.stop_front.acme-proxy", "shutdown.stop_loopholes", "shutdown.stop_doorways", "shutdown.stop_services"} {
+		"launch.start_keeper", "launch.macos_user", "session.keeper_teardown"} {
 		if !strings.Contains(table, row) {
 			t.Errorf("the report has no %s row:\n%s", row, table)
 		}
 	}
-	if strings.Index(table, "launch.macos_user") > strings.Index(table, "shutdown.stop_loopholes") {
-		t.Errorf("the teardown's spans precede the backend's:\n%s", table)
+	if strings.Index(table, "launch.macos_user") > strings.Index(table, "session.keeper_teardown") {
+		t.Errorf("the teardown's span precedes the backend's:\n%s", table)
+	}
+	file, err := os.ReadFile(filepath.Join(paths.WorkspaceStateDir(ws), HostPerfLogName))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, span := range []string{"launch.start_loopholes", "launch.start_doorways", "launch.start_services",
+		"shutdown.stop_front.acme-proxy", "shutdown.stop_loopholes"} {
+		if !strings.Contains(string(file), span) {
+			t.Errorf("the keeper recorded no %s span in the host perf log:\n%s", span, file)
+		}
 	}
 	if strings.Contains(table, "jail half:") {
 		t.Errorf("a macos-user report names a jail half, and the bootstrap keeps no jail perf log:\n%s", table)
