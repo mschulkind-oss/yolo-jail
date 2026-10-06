@@ -120,3 +120,35 @@ func TestAMacOSHostLaunchSaysTheAgentInstallsTheFallback(t *testing.T) {
 		t.Errorf("the macOS launch says the agent starts without an extension it installs itself:\n%s", errw.String())
 	}
 }
+
+// THE `yolo config render` HOST PREVIEW takes the fallbacks the apply would (XB-D38), so the
+// preview is the write's bytes: with no good build at a Linux host, the agent's list shows the raw
+// entry in the tree's place. Red if configRenderHost stops calling hostTreeFallbacks.
+func TestTheHostRenderPreviewShowsTheFallbackWithNoGoodBuild(t *testing.T) {
+	fallbackHostFixture(t)
+	var out, errw bytes.Buffer
+	if rc := configRenderHost("tool", "settings", false, &out, &errw, false); rc != 0 {
+		t.Fatalf("rc=%d\n%s\n%s", rc, out.String(), errw.String())
+	}
+	if !strings.Contains(out.String(), `"`+hostFallback+`"`) || strings.Contains(out.String(), `"~/.tool/ext/tool-ext"`) {
+		t.Errorf("the preview does not show the fallback in the tree's place:\n%s\n%s", out.String(), errw.String())
+	}
+}
+
+// A LINUX HOST LAUNCH of the owning agent with no good build says, once, that the agent installs
+// the fallback itself, and why there is no tree, and starts. Red if noteHostTreeLines stops saying
+// the fallback at a host that builds trees.
+func TestALinuxHostLaunchWithNoGoodBuildSaysTheAgentInstallsTheFallback(t *testing.T) {
+	fx := fallbackHostFixture(t)
+	fx.stray = true // the build leaves a path outside its tree, so the admit refuses it: nothing serves
+	got := captureHostExec(t)
+	var errw bytes.Buffer
+	if rc := hostExec(nil, []string{"tool"}, io.Discard, &errw, nil); rc != 0 || !got.execed {
+		t.Fatalf("rc=%d, execed %v\n%s", rc, got.execed, errw.String())
+	}
+	want := "yolo host: extension treepack/tool-ext: no tree at the host — "
+	tail := "; the agent installs " + hostFallback + " itself, from its raw entry"
+	if n := strings.Count(errw.String(), want); n != 1 || !strings.Contains(errw.String(), tail) {
+		t.Errorf("the Linux host launch names the fallback %d times, want once (%q … %q):\n%s", n, want, tail, errw.String())
+	}
+}

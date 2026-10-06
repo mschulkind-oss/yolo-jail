@@ -9,7 +9,10 @@ package cli
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"io"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"slices"
@@ -23,6 +26,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/cli/run"
 	"github.com/mschulkind-oss/yolo-jail/internal/packdecl"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
+	"github.com/mschulkind-oss/yolo-jail/internal/packsrc"
 )
 
 const (
@@ -327,5 +331,78 @@ func TestAHeldKeysBuildLogHoldsItsLinesAndNoOtherLaunchTruncatesIt(t *testing.T)
 	}
 	if data, _ := os.ReadFile(logB); string(data) != other {
 		t.Errorf("a launch that built nothing of the key rewrote its log:\n%s", data)
+	}
+}
+
+// THE HOST'S ADVANCE IS THE SAME POOL (XB-D39): `yolo host apply --assert` and `yolo host -- <bin>`
+// build their extensions side by side too. Red if advanceHostTrees stops running its keys through
+// runTreesInParallel.
+func TestTheHostsExtensionsBuildAtOnce(t *testing.T) {
+	pf := newPoolFixture(t)
+	pf.child = pf.bothRunning(t)
+	var errw syncBuffer
+	advanceHostTrees(&errw, false, "", &run.ActInterrupt{})
+	if pf.peak != 2 {
+		t.Errorf("at most %d host builds ran at once, want both:\n%s", pf.peak, errw.String())
+	}
+	for _, k := range []string{poolKeyA, poolKeyB} {
+		if !strings.Contains(errw.String(), "built extension "+k) {
+			t.Errorf("the host did not build %s:\n%s", k, errw.String())
+		}
+	}
+}
+
+// AT MOST treeCheckSlots CHECKS AT ONCE (XB-D10): ten npm extensions, a registry that holds every
+// request until eight are in flight and then a little longer, and never more than eight at once.
+// Red if the advance stops running its check under the pool's check slot.
+func TestAPoolRunsAtMostEightChecksAtOnce(t *testing.T) {
+	pf := newPoolFixture(t)
+	const keys = 10
+	var mu sync.Mutex
+	inflight, peak := 0, 0
+	release := make(chan struct{})
+	var once sync.Once
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		inflight++
+		peak = max(peak, inflight)
+		if inflight == treeCheckSlots {
+			once.Do(func() { close(release) })
+		}
+		mu.Unlock()
+		select {
+		case <-release:
+		case <-time.After(10 * time.Second):
+		}
+		time.Sleep(200 * time.Millisecond) // long enough for any unbounded check to arrive meanwhile
+		mu.Lock()
+		inflight--
+		mu.Unlock()
+		name := strings.TrimPrefix(r.URL.Path, "/")
+		_, _ = w.Write([]byte(`{"name":"` + name + `","dist-tags":{"latest":"1.0.0"},"versions":{"1.0.0":{}}}`))
+	}))
+	t.Cleanup(srv.Close)
+	prev := packsrc.NpmRegistry
+	packsrc.NpmRegistry = srv.URL
+	t.Cleanup(func() { packsrc.NpmRegistry = prev })
+	var contribs []string
+	for i := range keys {
+		contribs = append(contribs, fmt.Sprintf(`{"kind":"files","into":".tool/ext/ext-%d","source":"npm:ext-%d"}`, i, i))
+	}
+	writeFile(t, filepath.Join(pf.packs, "treepool", "pack.json"), `{"name":"treepool","contributes":[`+
+		strings.Join(contribs, ",")+`]}`)
+	pf.child = func(context.Context, forkBuild) int { return 1 } // no build: the checks are the measure
+	trees := packload.PatchedTrees(selectConfiguredHostPacks().packs)
+	if len(trees) != keys {
+		t.Fatalf("the selection carries %d trees, want %d", len(trees), keys)
+	}
+	var out syncBuffer
+	deliverTreesForLaunch(run.TreeBuildRequest{Trees: trees, Platform: patchedTestPlatform, Runtime: "podman",
+		Workspace: "/ws", Build: true, CopyRoot: filepath.Join(t.TempDir(), "tree.patched"), Interrupt: &run.ActInterrupt{}},
+		&out, &out, false)
+	mu.Lock()
+	defer mu.Unlock()
+	if peak != treeCheckSlots {
+		t.Errorf("%d checks ran at once, want exactly %d (the bound, reached):\n%s", peak, treeCheckSlots, out.String())
 	}
 }
