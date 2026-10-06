@@ -330,8 +330,10 @@ func TestBuildsSealedAlikeThatStartTogetherAreEachHandedTheOneCause(t *testing.T
 		if d.Dir != "" || d.Cause == nil || !d.Cause.Same(got[trees[0].Key()].Cause) {
 			t.Errorf("%s is handed %+v, want no build and the one cause", f.Key(), d)
 		}
-		if n := strings.Count(out, "Building "+f.Label()+": "); n != 1 {
-			t.Errorf("%s has %d result lines, want one:\n%s", f.Label(), n, out)
+		// One line each: its result, or — a key whose check ended after a sibling's refusal was
+		// known, as on a loaded machine — its skip.
+		if n := strings.Count(out, "Building "+f.Label()+": ") + strings.Count(out, "skipped "+f.Label()+": "); n != 1 {
+			t.Errorf("%s has %d result or skip lines, want one:\n%s", f.Label(), n, out)
 		}
 	}
 	if strings.Contains(out, "read-only") {
