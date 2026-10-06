@@ -126,9 +126,16 @@ yolo's own and has no coverage question in it. The fix is attribution
 - **Each workflow's `pack:` list is a hand-maintained mirror of `packMatrix`, and a `-short` test
   checks each one.** `TestPackInstallsWorkflowMirrorsPackMatrix` requires `packs.yml`'s list to
   be `packMatrix`. `TestMacosUserPackInstallsWorkflowMirrorsPackMatrix` requires
-  `macos-user.yml`'s to be the `packMatrix` packs whose manifest `platforms` include
-  darwin/arm64, with every `via: npm` pack listed before the rest. Until 2026-10-05 nothing
-  checked `packs.yml`'s list.
+  `macos-user.yml`'s to be the `packMatrix` packs whose manifest `platforms` include the platform
+  of the job's `runs-on` label, with every `via: npm` pack listed before the rest. The test maps
+  each label it knows to a platform (`macosUserRunnerPlatforms`: `macos-latest` is darwin/arm64)
+  and fails on one it does not. Until 2026-10-05 nothing checked `packs.yml`'s list.
+- **Only the darwin `install` job turns real installs on.** The backend's job selects the same
+  test, and there every subtest must skip, or one vendor's darwin break would turn the backend's
+  verdict red. `TestMacosUserPackInstallsWorkflowMirrorsPackMatrix` fails if any other job of
+  `macos-user.yml` sets `YOLO_TEST_REAL_PACK_INSTALLS`, and
+  `TestMacosUserPackInstallsSkipInTheBackendJob` fails if, with the macos-user gate faked to
+  pass and the variable unset, any subtest gets past its gates.
 - **Every vendor-install cell selects its own subtest and no other.** Each level of a `go test
   -run` pattern matches unanchored, so both workflows anchor theirs, and the two tests above fail a
   pattern that selects another pack's subtest. Until 2026-10-05 `packs.yml`'s did not: its `pi`
@@ -297,7 +304,10 @@ macos-user backend on GitHub's hosted Apple Silicon runner.
 - **One job per pack, failing hard, beside the backend's own job.** `fail-fast: false`, no
   `continue-on-error`, and no `needs:`, so a vendor's break neither masks another vendor nor hides
   whether the backend itself works ([OQ-CI3](#oq-ci3)). Each job repeats the setup the backend's
-  job does: Nix, Go and the sandbox account. There is no image to load.
+  job does: Nix, Go, the runner facts and the sandbox account. There is no image to load. The
+  facts include whether `sudo -n` would prompt, because the account step calls sudo and hangs
+  where it would; `TestMacosUserWorkflowRecordsSudoBeforeAccountSetup` fails a job that runs that
+  step without recording the fact first.
 - **The `via: npm` packs are listed first**, so they are queued first. That half is the one no
   run had measured on a Mac ([`macos-user-provisioning.md`](macos-user-provisioning.md#what-each-imperative-config-key-delivers-here)).
   The list is `packMatrix` less any pack whose manifest `platforms` exclude darwin/arm64.
@@ -313,7 +323,8 @@ macos-user backend on GitHub's hosted Apple Silicon runner.
   job: the fixture selects the backend per launch.
 - **The backend's own job selects the same test** with `-run '^TestMacosUser'`. There its
   subtests skip, since that step sets no `YOLO_TEST_REAL_PACK_INSTALLS`, and the gate's
-  end-of-run report lists them as skipped.
+  end-of-run report lists them as skipped. Both halves are checked under `-short` (see
+  [Invariants](#invariants)).
 
 What this job does not do: run the coexistence case, which stays Linux-only, or record a version,
 for the reason Pack Installs records none.
@@ -537,7 +548,7 @@ values themselves are stated.
 | Pack Installs arches | `ubuntu-latest`, `ubuntu-24.04-arm` | `.github/workflows/packs.yml` |
 | Per-job timeout | 60 minutes, in Pack Installs and in `macos-user.yml`'s `install` job | `.github/workflows/packs.yml`, `.github/workflows/macos-user.yml` |
 | darwin install schedule | `0 7 * * *` (daily 07:00 UTC), the whole workflow's | `.github/workflows/macos-user.yml` |
-| darwin install runner | `macos-latest`; the pack list is computed for `darwin/arm64` | `.github/workflows/macos-user.yml`; `macosUserInstallGOOS`, `macosUserInstallGOARCH`, `integration/macosuserpackinstalls_test.go` |
+| darwin install runner | `macos-latest`; the pack list is computed for its platform, `darwin/arm64` | `.github/workflows/macos-user.yml`; `macosUserRunnerPlatforms`, `integration/macosuserpackinstalls_test.go` |
 | macos-user per-launch deadline | 30 minutes, override `YOLO_TEST_MACOS_USER_TIMEOUT` (integer seconds) | `macosUserTimeout`, `integration/macosusergate_test.go` |
 
 ## Why it's this way

@@ -48,25 +48,26 @@ const (
 	packInstallsWorkflow = "packs.yml"
 )
 
-// macosUserInstallGOOS and macosUserInstallGOARCH are the platform macos-user.yml's install
-// cells run on. `macos-latest` is an Apple Silicon runner, and macos-user.yml says why it uses
-// that label and not an Intel one. The cells' pack list is the packMatrix packs whose vendor
-// publishes for this platform; a cell for any other pack would skip, and the vacuity check
-// would turn that skip red every night.
-const (
-	macosUserInstallGOOS   = "darwin"
-	macosUserInstallGOARCH = "arm64"
-)
+// macosUserRunnerPlatforms is the platform each GitHub-hosted macOS runner label runs a job
+// on, for the labels this repository's workflows name. `macos-latest` is Apple Silicon, and
+// macos-user.yml says why its jobs use it; `macos-26-intel` is the Intel label
+// nightly-macos.yml uses because Podman Machine needs nested virtualization.
+//
+// The install cells' pack list is the packMatrix packs whose vendor publishes for the
+// platform of the install job's `runs-on`: a cell for any other pack would skip, and the
+// vacuity check would turn that skip red every night. So the pin derives the list from the
+// label rather than from a platform it assumes, and refuses a label missing from this map.
+var macosUserRunnerPlatforms = map[string]struct{ goos, goarch string }{
+	"macos-latest":   {"darwin", "arm64"},
+	"macos-26-intel": {"darwin", "amd64"},
+}
 
 // TestMacosUserPackInstallsVersionsAndConfigures installs each shipped agent pack's program from
 // its vendor in a macos-user sandbox, then checks the version probe, the install stamp, the
 // rendered config marker and the declared project skills dirs (packInstallProbe).
 //
-// Behind two gates, in this order: requireMacosUser (a Mac with the sandbox account, and the
-// ledger entry the vacuity check counts) and requireRealPackInstalls (the question is asked
-// only where a job was scheduled to ask it). In macos-user.yml's main job, which sets no
-// YOLO_TEST_REAL_PACK_INSTALLS, every subtest therefore skips and says which variable un-skips
-// it, while that job's other launch tests keep its launch gate fed.
+// Each subtest is behind macosUserPackInstallGates, which TestMacosUserPackInstallsSkipInTheBackendJob
+// pins.
 func TestMacosUserPackInstallsVersionsAndConfigures(t *testing.T) {
 	if t.Name() != macosUserPackInstallsTest {
 		t.Fatalf("this test is named %s but macosUserPackInstallsTest says %s, and "+
@@ -75,17 +76,71 @@ func TestMacosUserPackInstallsVersionsAndConfigures(t *testing.T) {
 	}
 	for _, tc := range packMatrix {
 		t.Run(tc.pack, func(t *testing.T) {
-			requireMacosUser(t)
-			requireRealPackInstalls(t)
-			// THE MANIFEST'S `platforms`, not packCase.vendorSkipArch: that field records a
-			// Linux arch gap (omp's linux-arm64), and on darwin/arm64 omp IS published.
-			if why := shippedProgram(t, tc.pack, tc.binary).UnpublishedReason(goruntime.GOOS, goruntime.GOARCH); why != "" {
-				t.Skipf("%s is not installable here: %s", tc.binary, why)
-			}
+			macosUserPackInstallGates(t, tc)
 			packHome(t, fmt.Sprintf(`{"packs": [%q]}`, tc.pack))
 			ws := macosUserWorkspace(t, `{}`)
 			checkPackInstall(t, tc, runMacosUser(t, ws, packInstallProbe(t, tc)))
 		})
+	}
+}
+
+// macosUserPackInstallGates skips an install subtest everywhere it must not install, and
+// returns only where it should. Three gates, in this order:
+//
+//   - requireMacosUser: a Mac with the sandbox account, and the ledger entry the vacuity
+//     check counts, so it goes first and a later skip is still listed;
+//   - requireRealPackInstalls: the question is asked only where a job was scheduled to ask
+//     it. macos-user.yml's backend job selects this test with `-run '^TestMacosUser'` on a
+//     host that passes the first gate, and sets no YOLO_TEST_REAL_PACK_INSTALLS, so this is
+//     what keeps seven darwin vendor installs out of the backend's verdict;
+//   - the manifest's `platforms`, not packCase.vendorSkipArch: that field records a Linux
+//     arch gap (omp's linux-arm64), and on darwin/arm64 omp IS published.
+func macosUserPackInstallGates(t *testing.T, tc packCase) {
+	t.Helper()
+	requireMacosUser(t)
+	requireRealPackInstalls(t)
+	if why := shippedProgram(t, tc.pack, tc.binary).UnpublishedReason(goruntime.GOOS, goruntime.GOARCH); why != "" {
+		t.Skipf("%s is not installable here: %s", tc.binary, why)
+	}
+}
+
+// TestMacosUserPackInstallsSkipInTheBackendJob: on a host that passes the macos-user gate,
+// with YOLO_TEST_REAL_PACK_INSTALLS unset, every install subtest skips before it installs
+// anything. That is the backend job's `-run '^TestMacosUser'` step, and
+// TestMacosUserPackInstallsWorkflowMirrorsPackMatrix pins the half saying that step sets no
+// such variable. Without both, one vendor's darwin release could turn the backend job red,
+// which is what the install job exists to prevent.
+//
+// The gate is FAKED to pass (fakeReadyMacosUserHost). Everywhere this runs but a ready Mac,
+// requireMacosUser would skip first, and the check would pass whatever came after it.
+func TestMacosUserPackInstallsSkipInTheBackendJob(t *testing.T) {
+	t.Setenv(realPackInstallsEnv, "")
+	ledger := fakeReadyMacosUserHost(t)
+	for _, tc := range packMatrix {
+		returned := false
+		t.Run(tc.pack, func(t *testing.T) {
+			macosUserPackInstallGates(t, tc)
+			returned = true
+		})
+		if returned {
+			t.Errorf("%s: macosUserPackInstallGates returned with %s unset on a host that "+
+				"passes the macos-user gate, so the backend job's `-run '^%s'` step would "+
+				"install %s from its vendor. requireRealPackInstalls must stay among its gates",
+				tc.pack, realPackInstallsEnv, macosUserTestPrefix, tc.binary)
+		}
+	}
+	got := ledger.snapshot()
+	if len(got) != len(packMatrix) {
+		t.Errorf("the ledger holds %d outcomes for %d subtests, so a subtest skipped before "+
+			"requireMacosUser recorded it and the backend job's report would not list it: %+v",
+			len(got), len(packMatrix), got)
+	}
+	for _, o := range got {
+		if o.ran || o.reason != macosUserSkippedPastGate {
+			t.Errorf("%s is recorded as %+v; it must have passed the faked gate and then "+
+				"skipped (%q). Anything else means the fake did not reach requireMacosUser, "+
+				"and this test checked nothing", o.test, o, macosUserSkippedPastGate)
+		}
 	}
 }
 
@@ -119,11 +174,14 @@ func shippedProgram(t *testing.T, pack, bin string) packdecl.Install {
 
 // installMatrixWorkflow is the part of a workflow these pins read.
 type installMatrixWorkflow struct {
+	Env  map[string]string           `yaml:"env"`
 	Jobs map[string]installMatrixJob `yaml:"jobs"`
 }
 
 type installMatrixJob struct {
-	ContinueOnError any `yaml:"continue-on-error"`
+	RunsOn          any               `yaml:"runs-on"`
+	Env             map[string]string `yaml:"env"`
+	ContinueOnError any               `yaml:"continue-on-error"`
 	Strategy        struct {
 		FailFast *bool `yaml:"fail-fast"`
 		Matrix   struct {
@@ -140,14 +198,20 @@ type installMatrixStep struct {
 	Env             map[string]string `yaml:"env"`
 }
 
-// installJobRunning returns the one job in the workflow file whose steps run a script
-// containing needle, and that step.
-func installJobRunning(t *testing.T, file, needle string) (string, installMatrixJob, installMatrixStep) {
+// readInstallMatrixWorkflow parses the workflow file's part these pins read.
+func readInstallMatrixWorkflow(t *testing.T, file string) installMatrixWorkflow {
 	t.Helper()
 	var wf installMatrixWorkflow
 	if err := yaml.Unmarshal([]byte(readWorkflow(t, file)), &wf); err != nil {
 		t.Fatalf("%s does not parse as YAML: %v", file, err)
 	}
+	return wf
+}
+
+// installJobRunning returns the one job in the workflow file whose steps run a script
+// containing needle, and that step.
+func installJobRunning(t *testing.T, wf installMatrixWorkflow, file, needle string) (string, installMatrixJob, installMatrixStep) {
+	t.Helper()
 	var found []string
 	var job installMatrixJob
 	var step installMatrixStep
@@ -229,7 +293,8 @@ func packMatrixNames() []string {
 // TestPackInstallsWorkflowMirrorsPackMatrix: packs.yml's install matrix is every packMatrix
 // pack, no more, its cells fail hard, and each selects its own subtest.
 func TestPackInstallsWorkflowMirrorsPackMatrix(t *testing.T) {
-	name, job, step := installJobRunning(t, packInstallsWorkflow, packInstallsTest)
+	name, job, step := installJobRunning(t, readInstallMatrixWorkflow(t, packInstallsWorkflow),
+		packInstallsWorkflow, packInstallsTest)
 	requireHardFailingInstallJob(t, packInstallsWorkflow, name, job)
 	got := job.Strategy.Matrix.Pack
 	if dup := duplicates(got); len(dup) > 0 {
@@ -250,18 +315,30 @@ func TestPackInstallsWorkflowMirrorsPackMatrix(t *testing.T) {
 }
 
 // TestMacosUserPackInstallsWorkflowMirrorsPackMatrix: macos-user.yml's install matrix is every
-// packMatrix pack published for darwin/arm64, the `via: npm` ones first, each cell failing hard,
-// declared as a macos-user job with real installs on, and selecting exactly its own subtest.
+// packMatrix pack published for its runner's platform, the `via: npm` ones first, each cell
+// failing hard, declared as a macos-user job with real installs on, and selecting exactly its
+// own subtest; and no other job of the workflow turns real installs on.
 //
 // Carries the TestMacosUser prefix for the reason the Q3 step's pin does
 // (macosusersandboxstep_test.go): the workflow that depends on the job also verifies it. It is
 // not behind requireMacosUser and needs no Mac.
 func TestMacosUserPackInstallsWorkflowMirrorsPackMatrix(t *testing.T) {
-	name, job, step := installJobRunning(t, macosUserWorkflow, macosUserPackInstallsTest)
+	wf := readInstallMatrixWorkflow(t, macosUserWorkflow)
+	name, job, step := installJobRunning(t, wf, macosUserWorkflow, macosUserPackInstallsTest)
 	requireHardFailingInstallJob(t, macosUserWorkflow, name, job)
 	got := job.Strategy.Matrix.Pack
 	if dup := duplicates(got); len(dup) > 0 {
 		t.Errorf("%s's install matrix lists %s more than once", macosUserWorkflow, strings.Join(dup, ", "))
+	}
+
+	// THE PLATFORM, read from the job's `runs-on`: the list below is derived for it.
+	label, _ := job.RunsOn.(string)
+	platform, known := macosUserRunnerPlatforms[label]
+	if !known {
+		t.Fatalf("%s job %q runs on %v, which macosUserRunnerPlatforms does not map to a "+
+			"platform, so this pin cannot say which packs its cells can install. Add the "+
+			"label's GOOS and GOARCH to that map (integration/macosuserpackinstalls_test.go)",
+			macosUserWorkflow, name, job.RunsOn)
 	}
 
 	// THE LIST: packMatrix, less what the vendor does not publish for the runner's platform.
@@ -270,12 +347,12 @@ func TestMacosUserPackInstallsWorkflowMirrorsPackMatrix(t *testing.T) {
 	for _, tc := range packMatrix {
 		in := shippedProgram(t, tc.pack, tc.binary)
 		kind[tc.pack] = in.Kind
-		if why := in.UnpublishedReason(macosUserInstallGOOS, macosUserInstallGOARCH); why != "" {
+		if why := in.UnpublishedReason(platform.goos, platform.goarch); why != "" {
 			if slices.Contains(got, tc.pack) {
-				t.Errorf("%s's install matrix lists %s, which cannot install on %s/%s: %s. Its "+
-					"subtest would skip and the cell would fail the vacuity check every night; "+
-					"drop it from the list", macosUserWorkflow, tc.pack, macosUserInstallGOOS,
-					macosUserInstallGOARCH, why)
+				t.Errorf("%s's install matrix lists %s, which cannot install on %s (%s/%s): %s. "+
+					"Its subtest would skip and the cell would fail the vacuity check every "+
+					"night; drop it from the list", macosUserWorkflow, tc.pack, label,
+					platform.goos, platform.goarch, why)
 			}
 			continue
 		}
@@ -286,7 +363,7 @@ func TestMacosUserPackInstallsWorkflowMirrorsPackMatrix(t *testing.T) {
 		t.Errorf("%s's install matrix omits %s: packMatrix covers them and their vendors "+
 			"publish for %s/%s, so no CI job installs their darwin build before a user does "+
 			"(docs/reference/agent-install-in-ci.md#oq-ci7). Add them to the job's `pack:` list",
-			macosUserWorkflow, strings.Join(missing, ", "), macosUserInstallGOOS, macosUserInstallGOARCH)
+			macosUserWorkflow, strings.Join(missing, ", "), platform.goos, platform.goarch)
 	}
 	for _, e := range extra {
 		if _, inMatrix := kind[e]; !inMatrix {
@@ -325,8 +402,78 @@ func TestMacosUserPackInstallsWorkflowMirrorsPackMatrix(t *testing.T) {
 			"job-level value is read by detectRuntime as a container runtime", macosUserWorkflow, step.Name)
 	}
 
+	// ONLY THIS JOB INSTALLS FROM A VENDOR. The backend job's `-run '^TestMacosUser'` step
+	// selects this test too, and every subtest must skip there
+	// (TestMacosUserPackInstallsSkipInTheBackendJob): with the variable set it would run every
+	// darwin vendor install in a row, and one vendor's break would turn the backend's own
+	// verdict red. So no other job may carry it, through the workflow's env, its own, a step's,
+	// or a `run:` script that sets or exports it.
+	if _, set := wf.Env[realPackInstallsEnv]; set {
+		t.Errorf("%s sets %s in its workflow-level env, which reaches every job, the backend "+
+			"job included. Set it on the %q job's install step only", macosUserWorkflow,
+			realPackInstallsEnv, name)
+	}
+	for other, j := range wf.Jobs {
+		if other == name {
+			continue
+		}
+		if _, set := j.Env[realPackInstallsEnv]; set {
+			t.Errorf("%s job %q sets %s; only the %q job may, because a job that selects %s "+
+				"with it set installs every pack from its vendor", macosUserWorkflow, other,
+				realPackInstallsEnv, name, macosUserPackInstallsTest)
+		}
+		for _, s := range j.Steps {
+			_, set := s.Env[realPackInstallsEnv]
+			if set || strings.Contains(s.Run, realPackInstallsEnv) {
+				t.Errorf("%s job %q: step %q sets %s; only the %q job may, because a job that "+
+					"selects %s with it set installs every pack from its vendor",
+					macosUserWorkflow, other, s.Name, realPackInstallsEnv, name,
+					macosUserPackInstallsTest)
+			}
+		}
+	}
+
 	requireCellsSelectTheirOwnSubtest(t, macosUserWorkflow, step, macosUserPackInstallsTest,
 		packInstallsTest, got)
+}
+
+// sudoFact is the Runner facts line that records whether sudo would prompt.
+const sudoFact = "sudo -n true"
+
+// TestMacosUserWorkflowRecordsSudoBeforeAccountSetup: every macos-user.yml job that runs
+// `yolo macos-setup` records whether `sudo -n` would prompt, in a step before that one.
+//
+// macos-setup calls sudo itself, so on a runner without passwordless sudo its step HANGS
+// rather than failing, until the job's timeout ends it with no cause given. The recorded fact
+// is the line that names the cause. Both jobs need it, the install job's account step having
+// no `continue-on-error` and a 60-minute cap to burn.
+func TestMacosUserWorkflowRecordsSudoBeforeAccountSetup(t *testing.T) {
+	wf := readInstallMatrixWorkflow(t, macosUserWorkflow)
+	var setupJobs []string
+	for name, j := range wf.Jobs {
+		recorded := false
+		for _, s := range j.Steps {
+			if strings.Contains(s.Run, "macos-setup") {
+				setupJobs = append(setupJobs, name)
+				if !recorded {
+					t.Errorf("%s job %q runs macos-setup in step %q with no earlier step "+
+						"running `%s`, so a runner whose sudo would prompt hangs that step "+
+						"until the job's timeout with nothing in the log saying why. Add "+
+						"`%s && echo \"sudo -n: passwordless\" || echo \"sudo -n: WOULD "+
+						"PROMPT\"` to its Runner facts step", macosUserWorkflow, name, s.Name,
+						sudoFact, sudoFact)
+				}
+				break
+			}
+			if strings.Contains(s.Run, sudoFact) {
+				recorded = true
+			}
+		}
+	}
+	if len(setupJobs) == 0 {
+		t.Fatalf("no %s job runs macos-setup, so this pin checks nothing; it reads the step "+
+			"that creates the sandbox account", macosUserWorkflow)
+	}
 }
 
 // requireCellsSelectTheirOwnSubtest checks an install step's `-run` pattern for every pack in

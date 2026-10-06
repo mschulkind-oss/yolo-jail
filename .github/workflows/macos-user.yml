@@ -294,7 +294,9 @@ jobs:
       # It does select TestMacosUserPackInstallsVersionsAndConfigures, whose subtests
       # SKIP here and are listed as skipped in the gate's end-of-run report: this step sets no
       # YOLO_TEST_REAL_PACK_INSTALLS, because the `install` job below asks that
-      # question, one pack per job.
+      # question, one pack per job. Both halves are pinned on Linux: no job but `install`
+      # may set the variable (TestMacosUserPackInstallsWorkflowMirrorsPackMatrix), and
+      # without it every subtest skips (TestMacosUserPackInstallsSkipInTheBackendJob).
       #
       # No `-failfast`. Items 6-9 of the runbook are a dependency chain and a human
       # reading the results is told to stop at the first failure — but `go test` orders
@@ -382,13 +384,14 @@ jobs:
         # Mac. A hand-maintained mirror of integration/agents_test.go's packMatrix,
         # less any pack whose manifest `platforms` exclude darwin/arm64, and
         # TestMacosUserPackInstallsWorkflowMirrorsPackMatrix fails `just check-ci`
-        # when it drifts: a pack missing or extra, an npm pack listed after an
-        # installer one, or a cell that would select another pack's subtest.
-        # `rg -n '"via"' packs/*/pack.json` is the split.
+        # when it drifts: a pack missing or extra, a pack its runner's platform cannot
+        # install, an npm pack listed after an installer one, or a cell that would
+        # select another pack's subtest. `rg -n '"via"' packs/*/pack.json` is the split.
         pack: [copilot, opencode, pi, omp, claude, codex, agy]
     # The job above says why macos-latest (Apple Silicon, floating). The pin test
-    # computes this list for darwin/arm64, so a move to an Intel label would also mean
-    # re-deriving the list there.
+    # derives the list above from this label's platform (macosUserRunnerPlatforms), so
+    # a move to another label fails `just check-ci` until the list matches that
+    # label's platform.
     runs-on: macos-latest
     name: install ${{ matrix.pack }} from its vendor (macos-user, darwin)
     # A CEILING ON WASTE, as in Pack Installs. One launch here builds the floor and
@@ -411,11 +414,15 @@ jobs:
         with:
           go-version-file: go.mod
 
-      # For correlating a vendor's darwin break with an OS bump. Informational only.
+      # For correlating a vendor's darwin break with an OS bump, and for the `sudo -n`
+      # fact the account step below needs, as in the job above. Informational only.
+      # TestMacosUserWorkflowRecordsSudoBeforeAccountSetup fails `just check-ci` if a job
+      # runs macos-setup without recording that fact first.
       - name: Runner facts
         run: |
           sw_vers
           uname -m
+          sudo -n true && echo "sudo -n: passwordless" || echo "sudo -n: WOULD PROMPT"
 
       # As above, and NOT under sudo, for the same reason.
       - name: Create the sandbox account
