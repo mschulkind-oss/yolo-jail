@@ -5,7 +5,9 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/entrypoint"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
+	"github.com/mschulkind-oss/yolo-jail/internal/shquote"
 )
 
 // ctxlinks.go is the macos-user DELIVERY of context mounts (docs/design/context-mounts.md §3,
@@ -409,6 +411,344 @@ func SiteContextCopies(s ContextSiting, copies, links []ContextLink, occupied []
 		}
 	}
 	return out
+}
+
+// --- cache_relocations (docs/plans/cache-relocation.md) ------------------------------------
+//
+// A USER-SCOPE `cache_relocations` entry is delivered here as the context mounts are, by the
+// same three gates and for the same reasons: there is no bind to make, so the sandbox account
+// home's ~/.cache/<subdir> becomes a LINK the bootstrap lays to the resolved target
+// (entrypoint's DarwinCacheRelocationsEnv), and the Seatbelt profile opens the target, read and
+// write, because Seatbelt judges a link's target (declaration-parity.md §6.1 probe 1).
+//
+// ⚠ ~/.cache ONLY. A darwin tool that keeps its cache under ~/Library/Caches — Go's
+// os.UserCacheDir, and so the Go build cache; pip and playwright very likely — is not moved by
+// a relocation on this backend, whatever subdir name the entry uses. huggingface_hub honors
+// ~/.cache/huggingface on macOS too, so the motivating case is covered.
+//
+// THE DIFFERENCES FROM A CONTEXT MOUNT, each a decision (cache-relocation.md's ledger):
+//
+//   - The link is in the SANDBOX HOME, at a path the key itself fixes (~/.cache/<subdir>), not
+//     a name in the root-owned context dir. The link is still only a name: an agent can replace
+//     it with one of its own, which opens nothing, because the profile names the target.
+//   - Every relocation is READ-WRITE, and the target need NOT sit under the shared root. A
+//     cache is the sandbox's own bytes, so the shared root's rule for a context source — that a
+//     file the sandbox makes there stays changeable by you — is met another way: the host CLI
+//     grants the target the shared root's inheriting entries when it creates it, and the DAC
+//     preflight and the write probe refuse a target the sandbox cannot use.
+//   - A target under /Volumes is ADMITTED, narrowing CX-D5 for this key alone: a relocation
+//     exists to put a cache on another disk, and DP-D15's "a fatal error rather than surprisingly
+//     not there" is met by the launch-time probe, which refuses a volume the sandbox cannot write
+//     before the agent starts, instead of by refusing every volume unmeasured.
+
+// CacheRelocation is one user-scope `cache_relocations` entry this backend delivers.
+type CacheRelocation struct {
+	// Subdir is the entry's key: one path segment under ~/.cache.
+	Subdir string
+	// Target is the host directory, ~-expanded and symlink-resolved ON THE HOST by the caller.
+	// The profile names it as given, and a rule on an unresolved path matches nothing.
+	Target string
+	// Named is the target as the user config spells it, for messages only. "" means Target.
+	Named string
+	// Created is true when the host CLI made the target on this launch, and so granted it the
+	// sandbox's inheriting access entries (CacheRelocationACECommands). A target that was
+	// already there keeps whatever access it had, which the preflight then asks about.
+	Created bool
+}
+
+// NamedTarget is the target as the user config spells it.
+func (r CacheRelocation) NamedTarget() string {
+	if r.Named != "" {
+		return r.Named
+	}
+	return r.Target
+}
+
+// LinkPath is where the bootstrap lays this relocation's link in the account home.
+func (r CacheRelocation) LinkPath(home string) string {
+	if home == "" {
+		home = SandboxHome()
+	}
+	return home + "/.cache/" + r.Subdir
+}
+
+// CacheRelocationRefusal is a relocation this backend does not deliver, and why. A launch with
+// any refuses whole: the cache would otherwise sit back on the disk the user moved it off.
+type CacheRelocationRefusal struct {
+	Relocation CacheRelocation
+	Reason     string
+}
+
+// SiteCacheRelocations returns every relocation in `relocs` this backend cannot deliver, with
+// its reason; none means all can be. `workspace` is resolved, and `links` are the launch's
+// delivered context mounts, whose sources no target may overlap.
+//
+// The rules, most fundamental first:
+//
+//  1. the key is one path segment (the validator's rule, re-checked because it names a link);
+//  2. the target is a resolved absolute path;
+//  3. it does not contain the users root (the read allow would re-open every home);
+//  4. it is spelled under the users root as the profile spells it, and not through the Data
+//     volume's mount point;
+//  5. it is not in the sandbox home (that is where the link itself lives), nor in any real
+//     home (the sandbox account reaches nothing inside one, OQ-CX7's v1 rule);
+//  6. it does not overlap yolo's state dir;
+//  7. it is not /Volumes itself, nor anything containing it (the read allow would re-open every
+//     other volume). One volume, or a folder on one, is admitted (CX-D5 narrowed for this key);
+//  8. it does not overlap the workspace, nor any context mount's source: with no mount
+//     namespace one path carries one mode, and a read-only source's deny would win over the
+//     relocation's write allow, so part of the cache would be silently read-only.
+//
+// What it does NOT ask is where on neutral ground the target sits: unlike a read-write context
+// source it need not be under the shared root (the type's header says why), and a target in the
+// sandbox's writable places (/tmp, /var/folders) is simply already writable.
+//
+// Every overlap compares as the volume does (ContextSiting.FoldCase).
+func SiteCacheRelocations(s ContextSiting, workspace string, relocs []CacheRelocation, links []ContextLink) []CacheRelocationRefusal {
+	var out []CacheRelocationRefusal
+	for _, r := range relocs {
+		if why := s.siteRelocation(workspace, r, links); why != "" {
+			out = append(out, CacheRelocationRefusal{Relocation: r, Reason: why})
+		}
+	}
+	return out
+}
+
+// siteRelocation is rules 1-8 for one relocation.
+func (s ContextSiting) siteRelocation(workspace string, r CacheRelocation, links []ContextLink) string {
+	if r.Subdir == "" || r.Subdir == "." || r.Subdir == ".." || strings.Contains(r.Subdir, "/") {
+		return "its key " + r.Subdir + " is not one path segment under ~/.cache"
+	}
+	t := r.Target
+	if !path.IsAbs(t) || path.Clean(t) != t {
+		return "its target " + t + " is not a resolved absolute path"
+	}
+	for _, root := range s.usersRoots() {
+		if pathWithin(root, t, s.FoldCase) {
+			return "its target " + t + " contains " + root + ", and with it every home on this Mac"
+		}
+	}
+	if !pathWithin(t, s.UsersRoot, false) {
+		for _, root := range s.usersRoots() {
+			if pathWithin(t, root, s.FoldCase) {
+				return "its target " + t + " is spelled through another name for " + s.UsersRoot +
+					"; spell it under " + s.UsersRoot + ", the spelling the sandbox profile names"
+			}
+		}
+	}
+	if s.DataVolume != "" && pathWithin(t, s.DataVolume, s.FoldCase) {
+		plain := t
+		if n := len(s.DataVolume); len(t) >= n && strings.EqualFold(t[:n], s.DataVolume) {
+			plain = "/" + strings.TrimLeft(t[n:], "/")
+		}
+		return "its target " + t + " is spelled through " + s.DataVolume + ", the Data volume's " +
+			"own mount point; spell it as " + plain + ", the spelling the sandbox profile names"
+	}
+	if s.SandboxHome != "" && pathWithin(t, s.SandboxHome, s.FoldCase) {
+		return "its target " + t + " is inside the sandbox account's own home " + s.SandboxHome +
+			", where the relocation's link itself lives"
+	}
+	if home, in := s.homes().containing(t); in {
+		msg := "its target " + t + " is inside the home folder " + home
+		if dir := s.privacyDir(t, home); dir != "" {
+			msg += ", in " + dir + ", which macOS's privacy controls guard as well"
+		}
+		return msg + ": the sandbox account cannot reach into a real home"
+	}
+	for _, sd := range s.StateDirs {
+		if rel := overlap(t, sd, s.FoldCase); rel != "" {
+			return "its target " + t + " " + rel + " yolo's state directory " + sd
+		}
+	}
+	if s.VolumesRoot != "" && pathWithin(s.VolumesRoot, t, s.FoldCase) {
+		return "its target " + t + " is or contains " + s.VolumesRoot + ", and with it every " +
+			"other volume on this Mac; name one volume, or a folder on one"
+	}
+	if rel := overlap(t, workspace, s.FoldCase); rel != "" {
+		return "its target " + t + " " + rel + " the workspace " + workspace + oneModeClause
+	}
+	for _, l := range links {
+		if rel := overlap(t, l.Source, s.FoldCase); rel != "" {
+			return "its target " + t + " " + rel + " the " + l.Mode() + " source " + l.Source +
+				" (" + l.Origin() + ")" + oneModeClause
+		}
+	}
+	return ""
+}
+
+// CacheRelocationACECommands are the two inheriting access entries the host CLI grants a target
+// it created on this launch, run AS THE INVOKING USER (the owner needs no sudo to change its own
+// directory's ACL): the shared root's own pair (SharedRootProvisionCommands), so what the sandbox
+// creates there inherits the access that lets you read and delete it afterwards, as under the
+// shared root. A target that was already there is not touched; the preflight asks about it.
+func CacheRelocationACECommands(target string) [][]string {
+	aces := WorkspaceACLAces(SandboxGroup)
+	return [][]string{
+		{chmodBin, "+a", aces["dir"], target},
+		{chmodBin, "+a", aces["file_inherit"], target},
+	}
+}
+
+// CacheRelocationProbe is one question the launch asks about a relocation's target before the
+// agent starts: the DAC preflight's read, search and write, each as the sandbox account
+// (CacheRelocationPreflight), and the write-and-remove under the session's own Seatbelt profile
+// (CacheRelocationWriteProbe).
+type CacheRelocationProbe struct {
+	Relocation CacheRelocation
+	// Access is "read", "search", "write", or "write under the sandbox profile".
+	Access string
+	// Argv is the whole command, `sudo` included; it exits 0 when the access is granted.
+	Argv []string
+}
+
+// cacheRelocationProfileAccess is the write probe's Access.
+const cacheRelocationProfileAccess = "write under the sandbox profile"
+
+// CacheRelocationPreflight is the DAC preflight for every relocation: read, search and write on
+// the target, each asked of access(2) as `user` (SandboxUser when ""), which weighs the ACLs as
+// well as the mode bits. ContextPreflight's shape for a read-write directory source.
+func CacheRelocationPreflight(relocs []CacheRelocation, user string) []CacheRelocationProbe {
+	if user == "" {
+		user = SandboxUser
+	}
+	var out []CacheRelocationProbe
+	for _, r := range relocs {
+		for _, a := range [][2]string{{"read", "-r"}, {"search", "-x"}, {"write", "-w"}} {
+			out = append(out, CacheRelocationProbe{Relocation: r, Access: a[0],
+				Argv: []string{"sudo", "--user=" + user, testBin, a[1], r.Target}})
+		}
+	}
+	return out
+}
+
+// CacheRelocationProbeFile is the file the write probe creates and removes in a target, named by
+// the session so two sessions never race on one.
+func CacheRelocationProbeFile(target, sessionID string) string {
+	if sessionID == "" {
+		sessionID = SessionPlaceholder
+	}
+	return target + "/.yolo-relocation-probe-" + sessionID
+}
+
+// CacheRelocationWriteProbe is one REAL write: as the sandbox account, under the session's
+// Seatbelt profile, create the probe file in the target and remove it. It is the question the
+// DAC preflight cannot ask — whether the profile's allow for the target, and the volume under it
+// (ownership, a removable or network volume's own rules), let the write through — asked before
+// the agent rather than by the agent's first cache write. The file is handed to the shell as
+// "$1", so no path is ever spliced into the script.
+func CacheRelocationWriteProbe(r CacheRelocation, profilePath, sessionID, user string) CacheRelocationProbe {
+	if user == "" {
+		user = SandboxUser
+	}
+	home := SandboxHome()
+	return CacheRelocationProbe{Relocation: r, Access: cacheRelocationProfileAccess, Argv: []string{
+		"sudo", "--user=" + user, "/usr/bin/env", "-i", "HOME=" + home, "USER=" + user,
+		"PATH=/usr/bin:/bin", "/usr/bin/sandbox-exec", "-f", profilePath, "--",
+		"/bin/sh", "-c", `: > "$1" && exec ` + rmBin + ` -f "$1"`, "sh",
+		CacheRelocationProbeFile(r.Target, sessionID),
+	}}
+}
+
+// CacheRelocationRefusalMessage is the launch's message for the relocation probes that failed,
+// one line each, with the next steps: grant the sandbox account access to a target that was
+// already there, move the target somewhere it can be used, or a container runtime. step is
+// containerStep's clause, as ContextPreflightRefusal takes it.
+func CacheRelocationRefusalMessage(failed []CacheRelocationProbe, step string) string {
+	msg := "[bold red]Refusing the macos-user launch: the sandbox account cannot use every " +
+		"cache_relocations target.[/bold red]\n"
+	seen := map[string]bool{}
+	var targets []string
+	for _, p := range failed {
+		what := p.Access + " it"
+		if p.Access == cacheRelocationProfileAccess {
+			what = "create a file in it under the session's sandbox profile"
+		}
+		msg += "  • ~/.cache/" + p.Relocation.Subdir + " → " + p.Relocation.Target + ": " +
+			SandboxUser + " cannot " + what + "\n"
+		if !seen[p.Relocation.Target] {
+			seen[p.Relocation.Target] = true
+			targets = append(targets, p.Relocation.Target)
+		}
+	}
+	msg += "The sandbox runs as " + SandboxUser + ", a separate account, and a relocated cache " +
+		"is its own bytes in your folder. A folder yolo creates for a relocation is granted the " +
+		"sandbox's access as it is created; one that was already there, and holds files, needs " +
+		"the same entries added:\n"
+	for _, t := range targets {
+		msg += "  yolo macos-fix-permissions " + shquote.Quote(t) + "\n"
+	}
+	return msg + "Every folder above a target must also let the sandbox account pass (`ls -lde` " +
+		"each one; mode 755 is enough), so a target inside a folder only you may open, such as " +
+		"your own temporary directory, needs another place. " +
+		"If a target is on a disk the sandbox account cannot write at all, point the entry at a " +
+		"folder on another disk. " +
+		"Or remove the entry from ~/.config/yolo-jail/config.jsonc, or use `runtime: \"podman\"`" +
+		step + ", which mounts it instead."
+}
+
+// cacheRelocationProblems is PlanInvariants' half for the relocations a plan delivers. Each must
+// be deliverable by the siting rules (the run pipeline sites them first; this is what fails if a
+// caller hands the plan builder one it did not), OPENED by the profile — its read allow, after
+// the /Volumes and /Users read denies it must re-open, and its write allow, each read out of the
+// profile text — ASKED of the kernel by the DAC preflight and by a write under the profile, and
+// LINKED by the bootstrap, which is told the target under the key.
+func cacheRelocationProblems(plan RunPlan) []string {
+	if len(plan.CacheRelocations) == 0 {
+		return nil
+	}
+	var problems []string
+	for _, r := range SiteCacheRelocations(DarwinContextSiting(), plan.Workspace, plan.CacheRelocations, plan.ContextLinks) {
+		problems = append(problems, "the cache relocation ~/.cache/"+r.Relocation.Subdir+
+			" cannot be delivered on this backend: "+r.Reason)
+	}
+	read := profileBlock(plan.Seatbelt, "cache-relocation-read-allow")
+	write := profileBlock(plan.Seatbelt, "cache-relocation-write-allow")
+	readAt := strings.Index(plan.Seatbelt, ";; #seatbelt-test-id:cache-relocation-read-allow#")
+	for _, id := range []string{"volumes-read-deny", "users-read-deny"} {
+		if at := strings.Index(plan.Seatbelt, ";; #seatbelt-test-id:"+id+"#"); readAt >= 0 && at > readAt {
+			problems = append(problems, "the cache relocations' read allow comes before the "+id+
+				" rule it must re-open; last match wins, so a target there would stay unreadable")
+		}
+	}
+	links := map[string]string{}
+	if wire, ok := argvEnvValue(plan.BootstrapArgv, entrypoint.DarwinCacheRelocationsEnv); ok {
+		links, _ = entrypoint.ParseDarwinCacheRelocations(wire)
+	}
+	asked := map[string]bool{}
+	for _, p := range append(append([]CacheRelocationProbe(nil), plan.CacheRelocationPreflight...),
+		plan.CacheRelocationProbes...) {
+		asked[strings.Join(p.Argv, "\x00")] = true
+	}
+	for _, r := range plan.CacheRelocations {
+		name := "the cache relocation ~/.cache/" + r.Subdir + " (" + r.Target + ")"
+		clause := "(subpath " + sbplStr(r.Target) + ")"
+		if !strings.Contains(read, clause) {
+			problems = append(problems, name+" has no read allow in the Seatbelt profile; the "+
+				"agent would see the link and be refused everything behind it")
+		}
+		if !strings.Contains(write, clause) {
+			problems = append(problems, name+" has no write allow in the Seatbelt profile; "+
+				"every cache write through the link would be refused")
+		}
+		if links[r.Subdir] != r.Target {
+			problems = append(problems, name+" is not named to the bootstrap ("+
+				entrypoint.DarwinCacheRelocationsEnv+"); no link would be laid, and the cache "+
+				"would stay in the sandbox home")
+		}
+		for _, p := range CacheRelocationPreflight([]CacheRelocation{r}, "") {
+			if !asked[strings.Join(p.Argv, "\x00")] {
+				problems = append(problems, name+" is not checked by the DAC preflight ("+
+					strings.Join(p.Argv, " ")+"); a target "+SandboxUser+" cannot "+p.Access+
+					" would fail only at the agent's first cache write")
+			}
+		}
+		if p := CacheRelocationWriteProbe(r, plan.ProfilePath, plan.SessionID, ""); !asked[strings.Join(p.Argv, "\x00")] {
+			problems = append(problems, name+" is not probed by a write under the session's "+
+				"Seatbelt profile; a volume the sandbox cannot write would fail only at the "+
+				"agent's first cache write")
+		}
+	}
+	return problems
 }
 
 // privacyDir names the privacy-guarded directory src sits in, inside home, or "".

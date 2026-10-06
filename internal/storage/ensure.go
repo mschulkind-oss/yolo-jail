@@ -105,6 +105,41 @@ func EnsureCacheRelocations(relocations []config.CacheRelocation) error {
 	return nil
 }
 
+// EnsureCacheRelocationTargets is EnsureCacheRelocations for a backend that mounts nothing: the
+// macos-user backend, which delivers a relocation as a link in the sandbox account's ~/.cache
+// to the target rather than as a bind over a mountpoint (docs/plans/cache-relocation.md). So it
+// provisions the TARGET alone, by EnsureCacheRelocations' rule, and makes no
+// GlobalCache()/<subdir> mountpoint: nothing would mount over it, and an empty stub in the
+// machine cache reads like lost data.
+//
+// created[i] reports whether relocations[i]'s target was made by this call, which is what the
+// caller grants the sandbox's access on: a directory you made yourself is yours to change, and
+// one that was already there is left as it is. Only the last path component is made, as the
+// invoking user, with mode 0755; a missing parent is the typo EnsureCacheRelocations refuses,
+// and so is a target that exists and is not a directory.
+func EnsureCacheRelocationTargets(relocations []config.CacheRelocation) (created []bool, err error) {
+	created = make([]bool, len(relocations))
+	for i, rel := range relocations {
+		parent := filepath.Dir(rel.Target)
+		if st, err := os.Stat(parent); err != nil || !st.IsDir() {
+			return created, fmt.Errorf("cache_relocations.%s: parent directory of the target does not exist: %s "+
+				"(only the last path component is created for you)", rel.Subdir, parent)
+		}
+		switch err := os.Mkdir(rel.Target, 0o755); {
+		case err == nil:
+			created[i] = true
+		case errors.Is(err, fs.ErrExist):
+			if st, serr := os.Stat(rel.Target); serr != nil || !st.IsDir() {
+				return created, fmt.Errorf("cache_relocations.%s: target %s exists and is not a directory",
+					rel.Subdir, rel.Target)
+			}
+		default:
+			return created, fmt.Errorf("cache_relocations.%s: creating target %s: %w", rel.Subdir, rel.Target, err)
+		}
+	}
+	return created, nil
+}
+
 // HostMiseDir returns the host's own mise data dir (~/.local/share/mise). Host-
 // only: consulted for migration/doctor accounting, never as a mount source or
 // target. May not exist.

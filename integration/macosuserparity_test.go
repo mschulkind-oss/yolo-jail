@@ -22,7 +22,7 @@ import (
 //
 //	#6  TestMacosUserReportsOnlyPlatformInertLoopholes  the backend axis is gone (every host daemon starts); the platform axis and the jail-half decline remain
 //	#7  TestMacosUserStartsAConfigDeclaredLoophole      a config-declared loophole is STARTED here now, and its endpoint reaches the sandbox
-//	#9  TestMacosUserSaysResourcesAndRelocationsAreIgnored  both still warn, and both really are ignored; the third warning is retired
+//	#9  TestMacosUserSaysResourcesAreIgnoredAndRelocatesTheCache  resources still warns and is ignored; cache_relocations is delivered now; the third warning is retired
 //	#14 TestMacosUserDeliversHostBytesByCopy            reads-host and host_files sources cross by copy, a DIRECTORY source too since 2026-10-05
 //
 // Unlike the Apple Container file these are REAL ASSERTIONS, not experiments: macos-user.yml
@@ -197,21 +197,31 @@ func TestMacosUserStartsAConfigDeclaredLoophole(t *testing.T) {
 	}
 }
 
-// TestMacosUserSaysResourcesAndRelocationsAreIgnored is fix #9 (`8ab03d2e`) as it stands today.
+// TestMacosUserSaysResourcesAreIgnoredAndRelocatesTheCache is fix #9 (`8ab03d2e`) as it stands
+// today.
 //
-// Two of its three warnings stand and one is retired. `cache_relocations` still warns, and so
-// does `resources` — for pids_limit alone now: io is set as the disk policy, cpus is honored
-// cooperatively and memory by the sampled guard (internal/macosuser/orchestrator.go;
-// TestMacosUserIOPriorityIsApplied and TestMacosUserMemoryGuard are their hardware tests). The
-// hardware can check what each remaining warning SAYS, not just that it is printed: that the
-// sandboxed process runs with the invoking user's own virtual-memory limit, and that a
-// relocated cache subdir is not relocated — a file written there in the sandbox never reaches
-// the relocation target. The third warning, pack `state` at scope:workspace being machine-wide,
-// was retired when the per-workspace home layout shipped; TestMacosUserHomeTierIsPerWorkspace is
-// its hardware test, so it is not repeated here.
-func TestMacosUserSaysResourcesAndRelocationsAreIgnored(t *testing.T) {
+// One of its three warnings stands. `resources` still warns — for pids_limit alone now: io is set
+// as the disk policy, cpus is honored cooperatively and memory by the sampled guard
+// (internal/macosuser/orchestrator.go; TestMacosUserIOPriorityIsApplied and
+// TestMacosUserMemoryGuard are their hardware tests). `cache_relocations` stopped warning on
+// 2026-10-05, when it began to be DELIVERED here: a link the bootstrap lays at ~/.cache/<subdir>
+// to the target, which the Seatbelt profile opens (docs/plans/cache-relocation.md, the macos-user
+// section). So the hardware checks what each line SAYS: that the sandboxed process runs with the
+// invoking user's own virtual-memory limit, and that a relocated cache subdir IS relocated — a
+// file written there in the sandbox lands at the target, and the launch discloses the link rather
+// than calling the key unimplemented. The third warning, pack `state` at scope:workspace being
+// machine-wide, was retired when the per-workspace home layout shipped;
+// TestMacosUserHomeTierIsPerWorkspace is its hardware test, so it is not repeated here.
+//
+// THE TARGET IS UNDER /Users/Shared, in a 0755 folder of the test's own, and does not exist
+// before the launch, so yolo makes it and grants it the sandbox's access: a target under the
+// runner's /var/folders temp dir, which this test used before, sits in a per-user directory the
+// sandbox account cannot traverse, and the launch now refuses one (the DAC preflight).
+// integration/macosuserrelocations_test.go has the cases this one does not: that what the sandbox
+// wrote stays yours to delete, and the refusal of a populated target without the access.
+func TestMacosUserSaysResourcesAreIgnoredAndRelocatesTheCache(t *testing.T) {
 	requireMacosUser(t)
-	target := filepath.Join(resolvedTempDir(t), "relocated")
+	target := macosUserRelocationTarget(t, sharedUsersDir)
 	const subdir = "yolo-it-reloc"
 	packHome(t, fmt.Sprintf(`{"cache_relocations": {%q: %q}}`, subdir, target))
 	ws := macosUserWorkspace(t, `{"resources": {"pids_limit": 4096, "cpus": 2}}`)
@@ -219,20 +229,23 @@ func TestMacosUserSaysResourcesAndRelocationsAreIgnored(t *testing.T) {
 
 	r := macosUserRunProbe(t, "#9", ws, strings.Join([]string{
 		`echo "=== LIMITS ==="; echo "ULIMIT_V=$(ulimit -v)"`,
-		`echo "=== RELOC ==="; mkdir -p ~/.cache/` + subdir + ` && echo x > ~/.cache/` + subdir + `/` + probeName + ` && echo WROTE || echo WRITE-FAILED`,
+		`echo "=== RELOC ==="; echo x > ~/.cache/` + subdir + `/` + probeName + ` && echo WROTE || echo WRITE-FAILED`,
 		`echo "=== END ==="`,
 	}, "\n"))
 	out := r.combined()
 
 	for _, want := range []string{
 		"resources are NOT enforced on macos-user", "so pids_limit is read and ignored",
-		"cache_relocations are NOT implemented on macos-user", subdir,
+		"Cache relocation: ~/.cache/" + subdir + " → " + target,
 	} {
 		if !strings.Contains(out, want) {
-			t.Errorf("the launch output lacks %q. Both warnings are the whole of what this "+
-				"backend does with the two keys (orchestrator.go), so a missing one is a "+
-				"silent drop again.\n%s", want, out)
+			t.Errorf("the launch output lacks %q. The resources warning is the whole of what this "+
+				"backend does with that key, and the relocation line is the disclosure of a folder "+
+				"the sandbox writes (orchestrator.go), so a missing one is a silent change.\n%s", want, out)
 		}
+	}
+	if strings.Contains(out, "cache_relocations are NOT implemented") {
+		t.Errorf("the retired warning is still printed although the relocation is delivered:\n%s", out)
 	}
 	// cpus is acted on, so it is named on its own line and never on the ignored one.
 	if strings.Contains(out, "so cpus") || strings.Contains(out, "cpus, pids_limit") ||
@@ -254,13 +267,12 @@ func TestMacosUserSaysResourcesAndRelocationsAreIgnored(t *testing.T) {
 			gotV, strings.TrimSpace(string(hostV)))
 	}
 
-	if _, err := os.Stat(filepath.Join(target, probeName)); err == nil {
-		t.Errorf("a file the sandbox wrote to ~/.cache/%s appeared at the relocation target %s: "+
-			"something relocates the cache now, and the warning saying it does not is wrong", subdir, target)
-	}
 	if !strings.Contains(section(r.stdout, "=== RELOC ===", "=== END ==="), "WROTE") {
-		t.Errorf("the sandbox could not write ~/.cache/%s at all, so the relocation check above "+
-			"proves nothing:\n%s", subdir, r.stdout)
+		t.Errorf("the sandbox could not write ~/.cache/%s, the relocated subdir:\n%s", subdir, r.stdout)
+	}
+	if _, err := os.Stat(filepath.Join(target, probeName)); err != nil {
+		t.Errorf("a file the sandbox wrote to ~/.cache/%s is not at the relocation target %s (%v): "+
+			"the link the bootstrap lays, or the profile's allow for the target, did not take", subdir, target, err)
 	}
 }
 

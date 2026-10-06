@@ -505,18 +505,13 @@ func buildPlan(deps Deps, opts Options, darwin *Darwin) RunPlan {
 	// lines are printed below, once the env layers have run, because the cpus line reports
 	// the values that won.
 	//
-	// cache_relocations: the container path nests a bind inside ~/.cache. There are no
-	// binds here, and the documented "just symlink it yourself" workaround does NOT
-	// work either — the Seatbelt profile denies writes outside the workspace, the
-	// sandbox home, /tmp and /var/folders, and denies reads under /Volumes. So a large
-	// cold cache stays on the boot volume, which is the one outcome the feature exists
-	// to prevent.
-	if relocs := cfgSection(opts.Config, "cache_relocations"); relocs != nil && len(relocs.Keys()) > 0 {
-		out.print("[yellow]Warning: cache_relocations are NOT implemented on macos-user[/yellow] — " +
-			strings.Join(relocs.Keys(), ", ") + " stay on their original filesystem. " +
-			"A host symlink is not a workaround here: the sandbox profile denies writes " +
-			"outside the workspace and sandbox home, and denies reads under /Volumes.")
-	}
+	// cache_relocations, DELIVERED (ctxlinks.go's cache_relocations section): each is a link the
+	// bootstrap lays at ~/.cache/<subdir> to its target, which the profile opens. A DISCLOSURE,
+	// every launch and every dry run, naming each link and the folder behind it, because the
+	// sandbox writes your disk there. Read from the caller's record (HostContext.Relocations),
+	// which the run pipeline read from the USER config alone — never from opts.Config, the
+	// merged config, where a workspace-scope entry would be the agent's to write.
+	printCacheRelocations(out, opts.HostCtx.Relocations)
 	// NO env_sources HYDRATION HERE ANY MORE. This backend used to call
 	// config.ResolveEnvSources itself and layer EVERY hydrated value — the second delivery
 	// vehicle the credential gate's design counted (docs/reference/providers.md), bypassing
@@ -586,6 +581,28 @@ func buildPlan(deps Deps, opts Options, darwin *Darwin) RunPlan {
 		selfExe, opts.HostPackRoot, opts.HostHomeOverlay, opts.HostCtx, env, darwin,
 		opts.BlockedTools, opts.JailDaemons, floors,
 		PlanSession{ID: opts.SessionID, CATrust: opts.CATrust})
+}
+
+// printCacheRelocations is the cache relocations' disclosure: one line per relocation, the link
+// and its target, and the one caveat a reader needs to trust it — only what a tool keeps under
+// ~/.cache moves. Nothing with no relocation.
+func printCacheRelocations(out printer, relocs []CacheRelocation) {
+	for _, r := range relocs {
+		line := "[bold]Cache relocation:[/bold] ~/.cache/" + r.Subdir + " → " + r.Target
+		if r.Target != r.NamedTarget() {
+			line += " (" + r.NamedTarget() + ")"
+		}
+		line += ", a link in the sandbox home. The sandbox reads and writes that folder"
+		if r.Created {
+			line += ", which yolo created now and opened to the sandbox account"
+		}
+		out.print(line + ".")
+	}
+	if len(relocs) > 0 {
+		out.print("[dim]  Only ~/.cache moves: a macOS tool that caches under ~/Library/Caches " +
+			"(Go's build cache, and likely pip and playwright) keeps its cache in the sandbox " +
+			"home.[/dim]")
+	}
 }
 
 // uvProjectEnvironment is where a sandbox `uv` keeps a project's venv, relative to the project
@@ -821,6 +838,13 @@ func RunMacosUser(deps Deps, opts Options) int {
 	// status, not a refusal.
 	steps.begin("context_preflight")
 	if !runContextPreflight(deps, out, opts.HostCtx.Links, containerStep(opts.PackEnv)) {
+		return deps.endingOr(1)
+	}
+	// AND EVERY CACHE RELOCATION'S TARGET, the same DAC questions as a read-write context source
+	// (CacheRelocationPreflight), asked here for the same reasons. The write under the session's
+	// own profile needs the profile installed, so it waits for that step (relocation_probe).
+	if !runCacheRelocationProbes(deps, out, CacheRelocationPreflight(opts.HostCtx.Relocations, ""),
+		containerStep(opts.PackEnv)) {
 		return deps.endingOr(1)
 	}
 
@@ -1088,6 +1112,19 @@ func RunMacosUser(deps Deps, opts Options) int {
 		}
 		out.printf("[bold red]Could not write Seatbelt profile %s", plan.ProfilePath)
 		return 1
+	}
+	// 2.1 ONE REAL WRITE PER CACHE RELOCATION, under the profile just installed
+	// (CacheRelocationWriteProbe): what the DAC preflight cannot ask — whether the profile's allow
+	// and the volume under the target let a write through — asked now, before anything is staged
+	// for a session that could not use its cache. FATAL, as the preflight is: a relocated cache
+	// the sandbox cannot write fails at the agent's first download otherwise.
+	// A step of its own only on a launch that relocates something, so every other launch's spans
+	// are the ones they always were.
+	if len(plan.CacheRelocationProbes) > 0 {
+		steps.begin("relocation_probe")
+		if !runCacheRelocationProbes(deps, out, plan.CacheRelocationProbes, containerStep(opts.PackEnv)) {
+			return deps.endingOr(1)
+		}
 	}
 	steps.begin("stage")
 	for _, cmd := range plan.StageCommands {
@@ -1412,6 +1449,36 @@ func runContextPreflight(deps Deps, out printer, links []ContextLink, step strin
 	return true
 }
 
+// runCacheRelocationProbes runs each relocation probe (the DAC preflight's, or the writes under
+// the session's profile) and reports whether the launch should continue. Every relocation is
+// asked in full, so one message names every target to fix; a target's later probes are skipped
+// once one fails. None asks nothing and prints nothing, which is every launch with no relocation.
+func runCacheRelocationProbes(deps Deps, out printer, probes []CacheRelocationProbe, step string) bool {
+	if len(probes) == 0 {
+		return true
+	}
+	var failed []CacheRelocationProbe
+	refused := map[string]bool{}
+	for _, p := range probes {
+		// A signal ending the launch stops the probing: each probe is a sudo that may prompt.
+		if _, ending := deps.ending(); ending {
+			return false
+		}
+		if refused[p.Relocation.Subdir] {
+			continue
+		}
+		if deps.Run(p.Argv) != 0 {
+			refused[p.Relocation.Subdir] = true
+			failed = append(failed, p)
+		}
+	}
+	if len(failed) > 0 {
+		deps.sayFailed(out, CacheRelocationRefusalMessage(failed, step))
+		return false
+	}
+	return true
+}
+
 // runProvisionStage runs the confined provisioning stage and reports whether the launch
 // should continue. false means the human asked to stop, or the stage REFUSED the launch.
 //
@@ -1534,6 +1601,13 @@ func PrintPlan(w io.Writer, plan RunPlan, problems []string) {
 				"edit arrives at the next launch)[/dim]", plan.ContextDir, c.Rel(), c.Source, c.Origin())
 		}
 	}
+	// THE CACHE RELOCATIONS, named on the same rule: the link the bootstrap lays, and the folder
+	// behind it. "This launch relocates nothing" is said only by omission here, as no relocation
+	// is the common case and the key is user-scope.
+	for _, r := range plan.CacheRelocations {
+		p.printf("cache:       %s → %s [dim](read-write, cache_relocations; a link the bootstrap "+
+			"lays, and the profile opens the target)[/dim]", r.LinkPath(""), r.Target)
+	}
 	p.printf("git identity: %s", gitIdentityRepr(plan.GitIdentity))
 	// THE ENV FILE IS DISCLOSED BY NAME AND BY KEY, NEVER BY VALUE — and that is the
 	// disclosure this dry run owes its reader rather than a redaction (envfile.go).
@@ -1638,6 +1712,16 @@ func PrintPlan(w io.Writer, plan RunPlan, problems []string) {
 	for _, probe := range plan.ContextPreflight {
 		p.print("  " + shquote.JoinDisplay(probe.Argv) + "  [dim](can " + SandboxUser + " " +
 			probe.Access + " it?)[/dim]")
+	}
+	for _, probe := range plan.CacheRelocationPreflight {
+		p.print("  " + shquote.JoinDisplay(probe.Argv) + "  [dim](can " + SandboxUser + " " +
+			probe.Access + " it?)[/dim]")
+	}
+	// The relocation writes run once the profile is installed (it is printed below), before the
+	// stage commands.
+	for _, probe := range plan.CacheRelocationProbes {
+		p.print("  " + shquote.JoinDisplay(probe.Argv) + "  [dim](can " + SandboxUser + " " +
+			probe.Access + "?)[/dim]")
 	}
 	for _, cmd := range plan.StageCommands {
 		p.print("  sudo " + shquote.JoinDisplay(cmd))

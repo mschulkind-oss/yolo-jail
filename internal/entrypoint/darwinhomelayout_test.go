@@ -854,3 +854,205 @@ func TestASecondWorkspaceLayoutRepointsTheFirstsLinks(t *testing.T) {
 		}
 	}
 }
+
+// --- cache_relocations (docs/plans/cache-relocation.md, the macos-user section) ------------
+
+// relocWire is DarwinCacheRelocationsEnv's value for m.
+func relocWire(m map[string]string) string { return DarwinCacheRelocationsWire(m) }
+
+// relocEnv is an Env for home naming relocs, or none for a nil map.
+func relocEnv(home string, relocs map[string]string) *Env {
+	vars := map[string]string{"HOME": home, "JAIL_HOME": home}
+	if relocs != nil {
+		vars[DarwinCacheRelocationsEnv] = relocWire(relocs)
+	}
+	return DarwinEnvFrom(vars, home)
+}
+
+// THE REAL BOOT LAYS EACH LINK: ~/.cache/<subdir> → the target, beside the workspace tier, and
+// records what it laid. Fails if the relocation half is dropped from InstallDarwinHomeLayout, or
+// the layout step from RunDarwinBootstrap.
+func TestDarwinBootstrapLaysEachCacheRelocationLink(t *testing.T) {
+	target := filepath.Join(t.TempDir(), "hf")
+	if err := os.Mkdir(target, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	home, _ := darwinBootstrapHome(t, map[string]string{
+		DarwinCacheRelocationsEnv: relocWire(map[string]string{"huggingface": target}),
+	})
+	got, err := os.Readlink(filepath.Join(home, ".cache", "huggingface"))
+	if err != nil || got != target {
+		t.Fatalf("~/.cache/huggingface -> %q (%v), want a link to %s", got, err, target)
+	}
+	// A write through the link lands at the target, which is the whole feature.
+	if err := os.WriteFile(filepath.Join(home, ".cache", "huggingface", "model"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(target, "model")); err != nil {
+		t.Errorf("a write through ~/.cache/huggingface did not land at the target: %v", err)
+	}
+	if _, err := os.Lstat(filepath.Join(home, ".cache", darwinCacheRelocationManifest)); err != nil {
+		t.Errorf("the links laid are not recorded: %v", err)
+	}
+}
+
+// ONLY WHAT IT LAID GOES: a subdir no longer relocated loses the link yolo laid for it, while a
+// link somebody else made in ~/.cache, and a yolo link since re-pointed, are left alone. With no
+// relocation at all the last one goes, and so does the record.
+func TestTheCacheRelocationStepRemovesOnlyTheLinksItLaid(t *testing.T) {
+	home := t.TempDir()
+	a, b, c := filepath.Join(t.TempDir(), "a"), filepath.Join(t.TempDir(), "b"), filepath.Join(t.TempDir(), "c")
+	cache := filepath.Join(home, ".cache")
+	if err := InstallDarwinCacheRelocations(relocEnv(home, map[string]string{"hf": a, "pw": b, "old": c})); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(c, filepath.Join(cache, "mine")); err != nil {
+		t.Fatal(err)
+	}
+	// "old" was yolo's and has been re-pointed since: it is no longer the link yolo laid.
+	if err := os.Remove(filepath.Join(cache, "old")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(a, filepath.Join(cache, "old")); err != nil {
+		t.Fatal(err)
+	}
+	if err := InstallDarwinCacheRelocations(relocEnv(home, map[string]string{"hf": a})); err != nil {
+		t.Fatal(err)
+	}
+	link := func(sub string) string { got, _ := os.Readlink(filepath.Join(cache, sub)); return got }
+	if link("hf") != a {
+		t.Errorf("~/.cache/hf, still relocated, is %q", link("hf"))
+	}
+	if _, err := os.Lstat(filepath.Join(cache, "pw")); err == nil {
+		t.Errorf("~/.cache/pw, no longer relocated, still links to %q", link("pw"))
+	}
+	if link("mine") != c || link("old") != a {
+		t.Errorf("a link yolo did not lay was touched: mine -> %q, old -> %q", link("mine"), link("old"))
+	}
+	if err := InstallDarwinCacheRelocations(relocEnv(home, nil)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Lstat(filepath.Join(cache, "hf")); err == nil {
+		t.Errorf("a launch with no relocation left ~/.cache/hf linked")
+	}
+	if _, err := os.Lstat(filepath.Join(cache, darwinCacheRelocationManifest)); err == nil {
+		t.Errorf("a launch with no relocation left the record behind")
+	}
+	if link("mine") != c {
+		t.Errorf("a launch with no relocation removed a link yolo did not lay")
+	}
+	for _, d := range []string{a, b, c} {
+		if _, err := os.Lstat(d); err == nil {
+			t.Errorf("a target %s was created by the bootstrap; only the host makes a target", d)
+		}
+	}
+}
+
+// NO MIGRATION (OQ-HT2): a real directory where a relocation's link belongs is refused, named
+// with the copy into the target and the removal, and left exactly as it was — while every other
+// relocation is still laid.
+func TestTheCacheRelocationStepRefusesARealDirectoryAtALinkPath(t *testing.T) {
+	home := t.TempDir()
+	cache := filepath.Join(home, ".cache")
+	held := filepath.Join(cache, "huggingface")
+	if err := os.MkdirAll(held, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(held, "model"), []byte("cached before"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	target, other := filepath.Join(t.TempDir(), "hf"), filepath.Join(t.TempDir(), "pw")
+	err := InstallDarwinCacheRelocations(relocEnv(home, map[string]string{"huggingface": target, "pw": other}))
+	if err == nil {
+		t.Fatal("a real directory at a relocation's link path was not refused")
+	}
+	for _, want := range []string{held, target, "OQ-HT2", "cp -R " + held + "/. " + target + "/", "sudo rm -rf " + held} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("the refusal does not say %q:\n%v", want, err)
+		}
+	}
+	if b, rerr := os.ReadFile(filepath.Join(held, "model")); rerr != nil || string(b) != "cached before" {
+		t.Errorf("the refused directory was changed: %q (%v)", b, rerr)
+	}
+	if got, _ := os.Readlink(filepath.Join(cache, "pw")); got != other {
+		t.Errorf("the other relocation was not laid beside the refusal: ~/.cache/pw -> %q", got)
+	}
+}
+
+// A LINK AT A RELOCATION'S PATH IS A NAME, AND IS REPLACED: the profile names the target, so
+// whoever pointed it elsewhere gained nothing, and the launch puts the relocation back.
+func TestTheCacheRelocationStepReplacesALinkPointingElsewhere(t *testing.T) {
+	home := t.TempDir()
+	cache := filepath.Join(home, ".cache")
+	if err := os.MkdirAll(cache, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	target := filepath.Join(t.TempDir(), "hf")
+	if err := os.Symlink(t.TempDir(), filepath.Join(cache, "hf")); err != nil {
+		t.Fatal(err)
+	}
+	if err := InstallDarwinCacheRelocations(relocEnv(home, map[string]string{"hf": target})); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := os.Readlink(filepath.Join(cache, "hf")); got != target {
+		t.Errorf("~/.cache/hf -> %q, want %s", got, target)
+	}
+}
+
+// ~/.cache ITSELF A LINK is refused, and nothing is laid through it: this step runs outside the
+// sandbox, and every session's sandbox may write the account home.
+func TestTheCacheRelocationStepRefusesALinkedCacheDir(t *testing.T) {
+	home, elsewhere := t.TempDir(), t.TempDir()
+	if err := os.Symlink(elsewhere, filepath.Join(home, ".cache")); err != nil {
+		t.Fatal(err)
+	}
+	err := InstallDarwinCacheRelocations(relocEnv(home, map[string]string{"hf": filepath.Join(t.TempDir(), "hf")}))
+	if err == nil || !strings.Contains(err.Error(), "sudo rm "+filepath.Join(home, ".cache")) {
+		t.Fatalf("a linked ~/.cache was not refused with the link's removal: %v", err)
+	}
+	if ents, _ := os.ReadDir(elsewhere); len(ents) > 0 {
+		t.Errorf("something was laid through the linked ~/.cache: %v", ents)
+	}
+}
+
+// NOTHING TO DO, NOTHING MADE: no relocation and no ~/.cache creates no directory.
+func TestNoRelocationCreatesNoCacheDir(t *testing.T) {
+	home := t.TempDir()
+	if err := InstallDarwinCacheRelocations(relocEnv(home, nil)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Lstat(filepath.Join(home, ".cache")); err == nil {
+		t.Errorf("a launch with no relocation made ~/.cache")
+	}
+}
+
+// A KEY THAT IS NOT ONE SEGMENT IS REFUSED, never joined into a path this step writes.
+func TestTheCacheRelocationStepRefusesAKeyThatIsAPath(t *testing.T) {
+	home := t.TempDir()
+	for _, sub := range []string{"../escape", "a/b", "..", darwinCacheRelocationManifest} {
+		if err := InstallDarwinCacheRelocations(relocEnv(home, map[string]string{sub: "/opt/x"})); err == nil {
+			t.Errorf("the key %q was laid", sub)
+		}
+	}
+	if _, err := os.Lstat(filepath.Join(home, "escape")); err == nil {
+		t.Errorf("a `../` key wrote outside ~/.cache")
+	}
+}
+
+// THE WIRE ROUND-TRIPS, and an unparseable one is an error rather than "none".
+func TestTheCacheRelocationWireRoundTrips(t *testing.T) {
+	in := map[string]string{"b": "/opt/b", "a": "/Volumes/D/a"}
+	got, err := ParseDarwinCacheRelocations(DarwinCacheRelocationsWire(in))
+	if err != nil || !reflect.DeepEqual(got, in) {
+		t.Errorf("round trip = %v (%v), want %v", got, err, in)
+	}
+	if w := DarwinCacheRelocationsWire(in); w != `{"a":"/Volumes/D/a","b":"/opt/b"}` {
+		t.Errorf("the wire is not sorted JSON: %s", w)
+	}
+	if _, err := ParseDarwinCacheRelocations("not json"); err == nil {
+		t.Errorf("an unparseable wire read as none")
+	}
+	if m, err := ParseDarwinCacheRelocations(""); err != nil || len(m) != 0 {
+		t.Errorf("an empty wire = %v, %v", m, err)
+	}
+}

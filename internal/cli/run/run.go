@@ -430,6 +430,16 @@ func Run(opts Options) (rc int) {
 		if !ok {
 			return 1
 		}
+		// THE CACHE RELOCATIONS, beside them and for the same reasons (macosuserrelocations.go;
+		// docs/plans/cache-relocation.md): each user-scope `cache_relocations` entry becomes a link
+		// the bootstrap lays at ~/.cache/<subdir> plus Seatbelt rules on its target, and one this
+		// backend cannot deliver refuses here, before anything else is asked. Read from the USER
+		// config alone (config.LoadCacheRelocations) — never cfg, the merged config, whose
+		// workspace half the agent can write — and none under the seal.
+		cacheRelocs, ok := o.planMacosUserCacheRelocations(ctxLinks)
+		if !ok {
+			return 1
+		}
 		// (a bare `yolo` opens an interactive login zsh in the sandbox).
 		agentArgv := injectedArgs
 		if len(agentArgv) == 0 {
@@ -632,12 +642,14 @@ func Run(opts Options) (rc int) {
 				// reason — its consumer reads the bind destination.
 				launchEnv.Set(hostServiceLaunchEnvVar(h), h.hostPath)
 			}
-			// THE CREDENTIAL SERVICE IS STILL FAIL-CLOSED, and it is deliberately the only
-			// one: a launch whose OpenAI loophole is active and whose broker did not start
-			// hands the agent a subscription it cannot refresh, silently. Every other
-			// service degrades to "the jail cannot reach it", which startLoopholesMatching
-			// already warns about by name and which no launch of this backend is refused
-			// for — this arm emits no reachability disposition at all (loopholesruntime.go).
+			// THE CREDENTIAL SERVICE IS STILL FAIL-CLOSED HERE, and it is deliberately the only
+			// one refused at this point: a launch whose OpenAI loophole is active and whose
+			// broker did not start hands the agent a subscription it cannot refresh, silently.
+			// Every other service that did not start degrades to "the sandbox has no endpoint
+			// for it", which startLoopholesMatching already warns about by name. A service that
+			// DID start and that the sandbox then cannot use is refused later, by the backend's
+			// own witness stage (macosuser.ProbeServicesArgv), which reads the `shared`
+			// disposition the macos-user plan builder writes (loopholesruntime.go).
 			if openAIAuthLoopholeActive(cfg) && !startedLoophole(handles, openAIAuthBrokerName) {
 				o.pr(o.Stderr).print(openAIServiceRefusal())
 				return 1
@@ -917,6 +929,9 @@ func Run(opts Options) (rc int) {
 		// disclosed at the same point (§2.4), so the backend is never handed one unsaid.
 		ctxDelivery.ctx.Links = ctxLinks
 		o.noteMacosUserRWMounts(cname, ctxLinks)
+		// And the cache relocations, which the backend discloses by link and target
+		// (macosuser.printCacheRelocations) and stages, probes and opens in the profile.
+		ctxDelivery.ctx.Relocations = cacheRelocs
 		// EVERY PROFILED AGENT'S OWN ENV FILE, on this backend too (providers.md
 		// OQ-CN9, ruled 2026-09-28): the container vehicle's writer, into the sidecar directory
 		// the bootstrap's home layout links the sandbox's ~/.config to, so an agent started from
@@ -2387,9 +2402,10 @@ func insertHostServiceEnv(runCmd []string, imageRef string, services []loopholeD
 // AN EMPTY NAME IS THE HOST-SCOPED FRONT (startHostSingleton), which carries none because the
 // container path emits its variable much earlier, at argv-assembly time
 // (hostServicesMountArgs), optimistically and before the front has published. This backend
-// assembles no argv and has no in-jail reachability witness to refuse a broken promise, so the
-// handle is both the only source it has and the honest one: the variable is emitted for a
-// service that really did publish. Falling back to hostServiceEnvVar rather than skipping is
+// assembles no argv, and its witness stage (macosuser.ProbeServicesArgv) probes only what the
+// session env names, so the handle is both the only source it has and the honest one: the
+// variable is emitted for a service that really did publish, and the witness then checks the
+// sandbox can use it. Falling back to hostServiceEnvVar rather than skipping is
 // what keeps the credential daemons — the broker and the OpenAI service, both host-scoped —
 // from being the two this arm silently omits.
 func hostServiceLaunchEnvVar(h loopholeDaemon) string {

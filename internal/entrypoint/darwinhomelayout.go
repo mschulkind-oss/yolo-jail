@@ -1,11 +1,16 @@
 package entrypoint
 
 import (
+	"encoding/json"
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"slices"
+	"sort"
 	"strings"
+	"syscall"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
@@ -750,12 +755,240 @@ func plural(n int, one, many string) string {
 
 // InstallDarwinHomeLayout is the boot-path entry: derive from this Env and the staged packs,
 // then apply. A launch that named no sidecar lays nothing (see DarwinHomeSidecarEnv).
+//
+// The cache relocations' links are laid in the same step (InstallDarwinCacheRelocations): they
+// are the account home's own, machine tier, and like the layout's they must exist before
+// anything writes through ~/.cache. Both halves run, and a refusal from either is reported with
+// the other's, so one launch names everything to fix.
 func InstallDarwinHomeLayout(e *Env, packs []*packload.Pack) error {
 	l, ok := darwinHomeLayoutFor(e, packs)
 	if !ok {
 		return nil
 	}
-	return l.Apply()
+	return errors.Join(l.Apply(), InstallDarwinCacheRelocations(e))
+}
+
+// --- cache_relocations (docs/plans/cache-relocation.md) ------------------------------------
+
+// DarwinCacheRelocationsEnv names the user's cache relocations to the native bootstrap: a JSON
+// object of ~/.cache subdir to resolved target (DarwinCacheRelocationsWire), each of which the
+// bootstrap lays as a link at <home>/.cache/<subdir>. ABSENT MEANS NONE, and is not "leave them
+// alone": a launch that relocates nothing removes every link an earlier launch laid
+// (InstallDarwinCacheRelocations), so a relocation dropped from the config stops on the next
+// launch, as an unmounted bind would.
+const DarwinCacheRelocationsEnv = "YOLO_DARWIN_CACHE_RELOCATIONS"
+
+// darwinCacheRelocationManifest is the file in <home>/.cache recording the links the bootstrap
+// laid, subdir to target, which is how the next launch knows which links are yolo's to remove.
+const darwinCacheRelocationManifest = ".yolo-cache-relocations.json"
+
+// DarwinCacheRelocationsWire is the variable's value for m, subdir to target: JSON, keys sorted.
+func DarwinCacheRelocationsWire(m map[string]string) string {
+	b, _ := json.Marshal(m) // a map[string]string always marshals; encoding/json sorts the keys
+	return string(b)
+}
+
+// ParseDarwinCacheRelocations reads the variable's value back; "" is none.
+func ParseDarwinCacheRelocations(wire string) (map[string]string, error) {
+	out := map[string]string{}
+	if strings.TrimSpace(wire) == "" {
+		return out, nil
+	}
+	if err := json.Unmarshal([]byte(wire), &out); err != nil {
+		return nil, fmt.Errorf("%s is not a JSON object of cache subdir to target: %w",
+			DarwinCacheRelocationsEnv, err)
+	}
+	return out, nil
+}
+
+// cacheSubdirOK is the validator's rule for a relocation key (config.checkCacheRelocationSubdir),
+// re-checked here because the key names a path this unconfined step writes: one path segment.
+func cacheSubdirOK(sub string) bool {
+	return sub != "" && sub != "." && sub != ".." && !strings.ContainsAny(sub, `/\`) &&
+		sub != darwinCacheRelocationManifest
+}
+
+// InstallDarwinCacheRelocations lays <home>/.cache/<subdir> → target for every relocation this
+// Env names (DarwinCacheRelocationsEnv), and removes each link the manifest says an earlier
+// launch laid for a subdir no longer relocated, while it still points where that launch laid it.
+//
+// IT RUNS AS THE SANDBOX ACCOUNT, OUTSIDE SEATBELT, and ~/.cache is writable by every session's
+// sandbox, so nothing here follows a link somebody else laid:
+//
+//   - ~/.cache must be a REAL directory (it is made when absent). A link there is refused,
+//     naming `sudo rm` of the link and nothing below it: laid through, the relocations' links
+//     would land wherever it points.
+//   - Every write is made beneath an os.Root on ~/.cache, opened after the check and compared
+//     with it, so a swap between the two is refused rather than followed.
+//   - A link at a relocation's path is REPLACED (it is a name, and the profile names the target,
+//     so whoever laid it gained nothing by it); a REAL directory or file there is never removed,
+//     moved or merged (OQ-HT2's no-migration rule, as the layout applies it): the step refuses
+//     and names the copy into the target and the removal, which the user runs.
+//   - The manifest is read without following a link and written by rename; one that cannot be
+//     read is treated as empty, which can only leave an old link in place, never remove one
+//     yolo did not lay.
+func InstallDarwinCacheRelocations(e *Env) error {
+	want, err := ParseDarwinCacheRelocations(e.Getenv(DarwinCacheRelocationsEnv))
+	if err != nil {
+		return err
+	}
+	cache := filepath.Join(e.Home, ".cache")
+	fi, err := os.Lstat(cache)
+	switch {
+	case errors.Is(err, fs.ErrNotExist):
+		if len(want) == 0 {
+			return nil // nothing to lay, and no manifest can be there
+		}
+		if err := os.Mkdir(cache, 0o755); err != nil {
+			return err
+		}
+	case err != nil:
+		return err
+	case fi.Mode()&os.ModeSymlink != 0:
+		target, _ := os.Readlink(cache)
+		return fmt.Errorf("cache_relocations: %s -> %s is a symbolic link yolo did not lay, where the "+
+			"account home's own cache directory belongs; no relocation is laid through it, because "+
+			"the links would land wherever it points. Remove the LINK (what it points at is left "+
+			"alone):\n  sudo rm %s", cache, target, shquote.Quote(cache))
+	case !fi.IsDir():
+		return fmt.Errorf("cache_relocations: %s is not a directory. Move what you want to keep, "+
+			"then remove it:\n  sudo rm %s", cache, shquote.Quote(cache))
+	}
+	root, err := os.OpenRoot(cache)
+	if err != nil {
+		return err
+	}
+	defer root.Close()
+	if opened, err := root.Stat("."); err != nil {
+		return err
+	} else if now, err := os.Lstat(cache); err != nil || !os.SameFile(opened, now) {
+		return fmt.Errorf("cache_relocations: %s changed while it was being opened; nothing was laid", cache)
+	}
+
+	// Remove what an earlier launch laid and this one does not, while it is still that link.
+	for sub, target := range readCacheRelocationManifest(root) {
+		if _, still := want[sub]; still || !cacheSubdirOK(sub) {
+			continue // a subdir still relocated is re-laid below, to whatever target it has now
+		}
+		if got, err := root.Readlink(sub); err == nil && got == target {
+			if err := root.Remove(sub); err != nil {
+				return fmt.Errorf("cache_relocations: removing the link ~/.cache/%s yolo laid: %w", sub, err)
+			}
+		}
+	}
+
+	var occupied []string
+	keep := map[string]string{}
+	subs := make([]string, 0, len(want))
+	for sub := range want {
+		subs = append(subs, sub)
+	}
+	sort.Strings(subs)
+	for _, sub := range subs {
+		target := want[sub]
+		if !cacheSubdirOK(sub) || !filepath.IsAbs(target) {
+			return fmt.Errorf("cache_relocations: %q → %q is not a cache subdir and an absolute target", sub, target)
+		}
+		got, rerr := root.Readlink(sub)
+		switch {
+		case rerr == nil && got == target:
+		case rerr == nil:
+			if err := root.Remove(sub); err != nil {
+				return fmt.Errorf("cache_relocations: replacing the link ~/.cache/%s: %w", sub, err)
+			}
+			if err := root.Symlink(target, sub); err != nil {
+				return fmt.Errorf("cache_relocations: linking ~/.cache/%s to %s: %w", sub, target, err)
+			}
+		default:
+			if _, err := root.Lstat(sub); err == nil {
+				occupied = append(occupied, sub)
+				continue
+			} else if !errors.Is(err, fs.ErrNotExist) {
+				return err
+			}
+			if err := root.Symlink(target, sub); err != nil {
+				return fmt.Errorf("cache_relocations: linking ~/.cache/%s to %s: %w", sub, target, err)
+			}
+		}
+		keep[sub] = target
+	}
+	if err := writeCacheRelocationManifest(root, keep); err != nil {
+		return fmt.Errorf("cache_relocations: recording the links laid in ~/.cache: %w", err)
+	}
+	if len(occupied) > 0 {
+		return occupiedCacheError(cache, want, occupied)
+	}
+	return nil
+}
+
+// readCacheRelocationManifest reads the links an earlier launch laid, or none: a manifest that is
+// absent, not a regular file, or not the JSON this step writes is read as empty.
+func readCacheRelocationManifest(root *os.Root) map[string]string {
+	f, err := root.OpenFile(darwinCacheRelocationManifest, os.O_RDONLY|syscall.O_NOFOLLOW|syscall.O_NONBLOCK, 0)
+	if err != nil {
+		return nil
+	}
+	defer f.Close()
+	if fi, err := f.Stat(); err != nil || !fi.Mode().IsRegular() || fi.Size() > 1<<20 {
+		return nil
+	}
+	var m map[string]string
+	if err := json.NewDecoder(f).Decode(&m); err != nil {
+		return nil
+	}
+	return m
+}
+
+// writeCacheRelocationManifest records laid, by rename over the old manifest, or removes the
+// manifest when nothing is laid.
+func writeCacheRelocationManifest(root *os.Root, laid map[string]string) error {
+	if len(laid) == 0 {
+		if err := root.Remove(darwinCacheRelocationManifest); err != nil && !errors.Is(err, fs.ErrNotExist) {
+			return err
+		}
+		return nil
+	}
+	tmp := darwinCacheRelocationManifest + ".new"
+	_ = root.Remove(tmp)
+	f, err := root.OpenFile(tmp, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
+	if err != nil {
+		return err
+	}
+	if _, err := f.Write([]byte(DarwinCacheRelocationsWire(laid) + "\n")); err != nil {
+		f.Close()
+		return err
+	}
+	if err := f.Close(); err != nil {
+		return err
+	}
+	return root.Rename(tmp, darwinCacheRelocationManifest)
+}
+
+// occupiedCacheError is the refusal for a real directory or file where a relocation's link
+// belongs: what an earlier launch's agent cached there before the relocation was configured.
+// Nothing is moved for the user (OQ-HT2); the remedy copies what they want to keep into the
+// target, as THEM, so every copy inherits the target's access entries, then removes the old
+// directory, which only sudo can, since it is the sandbox account's.
+func occupiedCacheError(cache string, want map[string]string, occupied []string) error {
+	var b strings.Builder
+	n := len(occupied)
+	fmt.Fprintf(&b, "cache_relocations: %d %s real, where the relocation's link belongs.\n",
+		n, plural(n, "path in the sandbox account's cache is", "paths in the sandbox account's cache are"))
+	b.WriteString("There is no migration (macos-user-home-tiers.md OQ-HT2) — nothing here is " +
+		"copied, renamed or deleted for you. Each holds what the sandbox cached there before the " +
+		"relocation was configured.\n")
+	for _, sub := range occupied {
+		p := filepath.Join(cache, sub)
+		fmt.Fprintf(&b, "  %s (relocated to %s)\n", p, want[sub])
+	}
+	b.WriteString("To keep what one holds, copy it into its target as yourself, so every copy " +
+		"inherits the target's access, then remove it; to discard it, run the removal alone:\n")
+	for _, sub := range occupied {
+		p := filepath.Join(cache, sub)
+		fmt.Fprintf(&b, "  cp -R %s %s\n", shquote.Quote(p+"/."), shquote.Quote(want[sub]+"/"))
+		fmt.Fprintf(&b, "  sudo rm -rf %s\n", shquote.Quote(p))
+	}
+	return errors.New(strings.TrimRight(b.String(), "\n"))
 }
 
 // darwinHomeLayoutFor derives this Env's layout from the staged packs, and reports false when

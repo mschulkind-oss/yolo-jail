@@ -139,13 +139,23 @@ const bootVolume = "/Volumes/Macintosh HD"
 // It renders no config TARGET outside the workspace: that is read off the workspace on disk,
 // so BuildRunPlan, which reads it (workspaceReadonlyRels), calls seatbeltProfile itself.
 func SeatbeltProfileWithContext(workspace, sandboxHome string, readonlyRels []string, homeReadonly HomeReadonly, ctx []ContextLink, devices []string, macosLog string) string {
-	return seatbeltProfile(workspace, sandboxHome, readonlyRels, nil, homeReadonly, ctx, devices, macosLog)
+	return seatbeltProfile(workspace, sandboxHome, readonlyRels, nil, homeReadonly, ctx, nil, devices, macosLog)
+}
+
+// SeatbeltProfileWithRelocations is SeatbeltProfileWithContext plus the user's CACHE RELOCATIONS
+// (ctxlinks.go's cache_relocations section): each resolved target gets a write allow beside the
+// read-write context sources' and a read allow after the /Volumes and /Users read denies, which
+// it re-opens, and before the keychain and unified-log denies, which still win
+// (`#seatbelt-test-id:cache-relocation-write-allow#`, `#seatbelt-test-id:cache-relocation-read-allow#`).
+// With none it is byte-identical to SeatbeltProfileWithContext.
+func SeatbeltProfileWithRelocations(workspace, sandboxHome string, readonlyRels []string, homeReadonly HomeReadonly, ctx []ContextLink, relocs []CacheRelocation, devices []string, macosLog string) string {
+	return seatbeltProfile(workspace, sandboxHome, readonlyRels, nil, homeReadonly, ctx, relocs, devices, macosLog)
 }
 
 // seatbeltProfile is the one profile builder. readonlyTargets is the absolute half of
 // workspace_readonly's lock, a symlinked config's target outside the workspace
 // (workspaceReadonlyRels), rendered into the same deny form as readonlyRels (readonlyDenies).
-func seatbeltProfile(workspace, sandboxHome string, readonlyRels, readonlyTargets []string, homeReadonly HomeReadonly, ctx []ContextLink, devices []string, macosLog string) string {
+func seatbeltProfile(workspace, sandboxHome string, readonlyRels, readonlyTargets []string, homeReadonly HomeReadonly, ctx []ContextLink, relocs []CacheRelocation, devices []string, macosLog string) string {
 	if sandboxHome == "" {
 		sandboxHome = SandboxHome()
 	}
@@ -171,6 +181,7 @@ func seatbeltProfile(workspace, sandboxHome string, readonlyRels, readonlyTarget
 		"    (subpath " + home + ")\n" +
 		strings.TrimSuffix(writable.String(), "\n") + ")\n" +
 		contextWriteAllow(ctx) +
+		relocationWriteAllow(relocs) +
 		readonlyDenies(workspace, readonlyRels, readonlyTargets) +
 		homeReadonlyDenies(homeReadonly) +
 		contextReadonlyDeny(ctx) +
@@ -204,6 +215,7 @@ func seatbeltProfile(workspace, sandboxHome string, readonlyRels, readonlyTarget
 		"    (subpath " + ws + ")\n" +
 		"    (subpath " + home + "))\n" +
 		contextReadAllow(ctx) +
+		relocationReadAllow(relocs) +
 		"\n" +
 		";; --- Keychains: System.keychain is world-readable (0644) on stock\n" +
 		";;     macOS, so this deny is load-bearing ---\n" +
@@ -244,6 +256,86 @@ func seatbeltProfile(workspace, sandboxHome string, readonlyRels, readonlyTarget
 		"    (regex #\"^/dev/ttys[0-9]\")\n" +
 		"    (regex #\"^/dev/pty[a-z0-9]\"))\n" +
 		deviceIoctlAllow(devices)
+}
+
+// relocationTargets is the de-duplicated resolved targets of relocs, in order; one that is not
+// absolute is dropped, since a rule on it would match nothing and read as access.
+func relocationTargets(relocs []CacheRelocation) []string {
+	var out []string
+	seen := map[string]bool{}
+	for _, r := range relocs {
+		if seen[r.Target] || !strings.HasPrefix(r.Target, "/") {
+			continue
+		}
+		seen[r.Target] = true
+		out = append(out, r.Target)
+	}
+	return out
+}
+
+// relocationWriteAllow re-allows writes under every relocation target. Beside the read-write
+// context sources' allow and BEFORE every write deny that must win: none of them can overlap a
+// target (SiteCacheRelocations refuses the workspace, the sandbox home and every context source),
+// so the position keeps the write policy one readable unit rather than deciding an outcome.
+func relocationWriteAllow(relocs []CacheRelocation) string {
+	targets := relocationTargets(relocs)
+	if len(targets) == 0 {
+		return ""
+	}
+	return "\n" +
+		";; --- cache_relocations (docs/plans/cache-relocation.md): each relocated\n" +
+		";;     ~/.cache/<subdir> is a link to its RESOLVED target, the sandbox's own\n" +
+		";;     cache bytes, so the target is writable. ---\n" +
+		";; #seatbelt-test-id:cache-relocation-write-allow#\n" +
+		"(allow file-write*\n" + subpathClauses(targets) + ")\n"
+}
+
+// relocationReadAllow re-allows reads under every relocation target, and the directory entries
+// on the way to one under /Users/Shared/ or /Volumes/ as literals, so a tool can stat the chain
+// while the siblings stay denied (ancestorLiterals' reason). AFTER the /Volumes and /Users read
+// denies, which it re-opens — last match wins — and before the keychain and unified-log denies,
+// so no target can re-open either.
+func relocationReadAllow(relocs []CacheRelocation) string {
+	targets := relocationTargets(relocs)
+	if len(targets) == 0 {
+		return ""
+	}
+	return "\n" +
+		";; --- cache_relocations: every relocation target, by its RESOLVED path, and the\n" +
+		";;     directory entries on the way to it.  The link in ~/.cache is only a name:\n" +
+		";;     Seatbelt judges the target, so this allow is what opens it.  After the\n" +
+		";;     /Volumes and /Users read denies it re-opens. ---\n" +
+		";; #seatbelt-test-id:cache-relocation-read-allow#\n" +
+		"(allow file-read*\n" + ancestorLiterals(targets...) + volumeAncestorLiterals(targets) +
+		subpathClauses(targets) + ")\n"
+}
+
+// volumeAncestorLiterals is ancestorLiterals for paths under /Volumes: one `(literal "…")` line
+// for /Volumes itself and for every directory strictly between it and each path, which the
+// /Volumes read deny would otherwise refuse a tool stat'ing up the chain. A literal grants the
+// entry and its listing, not what is below it: the sandbox can read the names of the mounted
+// volumes, as the `/Users` literal already lets it read the names of the accounts, and nothing on
+// any of them but the target.
+func volumeAncestorLiterals(targets []string) string {
+	const base = "/Volumes/"
+	seen := map[string]bool{}
+	var b strings.Builder
+	for _, t := range targets {
+		if !strings.HasPrefix(t, base) {
+			continue
+		}
+		var chain []string
+		for dir := path.Dir(path.Clean(t)); strings.HasPrefix(dir+"/", base); dir = path.Dir(dir) {
+			chain = append([]string{dir}, chain...)
+		}
+		for _, dir := range chain {
+			if !seen[dir] {
+				seen[dir] = true
+				b.WriteString("    (literal " + sbplStr(dir) + ")\n")
+			}
+		}
+	}
+	return b.String()
 }
 
 // macosLogModeOff reports whether a macos_log value leaves the log unreadable: "off" itself,
