@@ -215,6 +215,9 @@ type macosUserCaptureCalls struct {
 
 func macosUserCaptureSeams(rec *macosUserCaptureCalls) func(*Options) {
 	return func(o *Options) {
+		// A Mac set up for this backend, so the arm's preflight admits the launch (the run of
+		// this test on Linux has no macOS to ask).
+		o.MacosUserLaunchProbes = setUpMacProbes
 		o.CapturesDir = func() string { return "/Users/matt/.local/share/yolo-jail/captures" }
 		o.AutoCapture = func(bins []string, platform string) {
 			rec.order = append(rec.order, "capture")
@@ -299,5 +302,129 @@ func TestAMacosUserCaptureLaunchNeitherCapturesNorStages(t *testing.T) {
 	if len(rec.order) != 0 || len(ctx.Captures) != 0 {
 		t.Errorf("a capture's own macos-user launch ran %v and staged %+v; it must do neither",
 			rec.order, ctx.Captures)
+	}
+}
+
+// setUpMacProbes answers every macos-user launch precondition as a Mac `yolo macos-setup` ran on
+// does, for a workspace shared with the sandbox.
+func setUpMacProbes() macosuser.LaunchProbes {
+	return macosuser.LaunchProbes{
+		IsMacOS:           func() bool { return true },
+		Geteuid:           func() int { return 501 },
+		Which:             func(string) bool { return true },
+		SandboxUserExists: func() bool { return true },
+		PathIsDir:         func(string) bool { return true },
+		RunBash:           func(string) int { return 0 },
+	}
+}
+
+// A LAUNCH THE BACKEND IS ABOUT TO REFUSE CAPTURES NOTHING. The arm's trigger runs before the
+// backend's dispatch, so before its preconditions; it used to run whatever they would say, and a
+// Mac where `yolo macos-setup` never ran recorded the capture act's refusal as a failed capture
+// (OQ-PD26), holding every later launch's capture off for a day after the setup, and a launch
+// running as root paid the capture before its refusal. Red on HEAD before the preflight: the
+// trigger was called in every case below.
+func TestAMacosUserLaunchTheBackendWillRefuseAutoCapturesNothing(t *testing.T) {
+	for _, c := range []struct {
+		name  string
+		unmet func(*macosuser.LaunchProbes)
+	}{
+		{"the sandbox account was never made", func(p *macosuser.LaunchProbes) {
+			p.SandboxUserExists = func() bool { return false }
+		}},
+		{"running as root", func(p *macosuser.LaunchProbes) { p.Geteuid = func() int { return 0 } }},
+		{"the workspace is not shared with the sandbox", func(p *macosuser.LaunchProbes) {
+			p.RunBash = func(string) int { return 1 }
+		}},
+		{"not macOS", func(p *macosuser.LaunchProbes) { p.IsMacOS = func() bool { return false } }},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			installerLaunchHome(t)
+			var rec macosUserCaptureCalls
+			seams := macosUserCaptureSeams(&rec)
+			runMacosUserCapturingCtx(t, t.TempDir(), func(o *Options) {
+				seams(o)
+				o.MacosUserLaunchProbes = func() macosuser.LaunchProbes {
+					p := setUpMacProbes()
+					c.unmet(&p)
+					return p
+				}
+			})
+			for _, step := range rec.order {
+				if step == "capture" {
+					t.Fatalf("a launch whose backend refuses it (%s) auto-captured first (%v)", c.name, rec.order)
+				}
+			}
+		})
+	}
+}
+
+// NOR WHILE ANOTHER WORKSPACE'S SESSION HOLDS THE SANDBOX ACCOUNT'S HOME: the backend refuses this
+// launch for it, and a capture run first would replace the staged yolo under that live session.
+// And the capture holds the home while it runs — another workspace's arrival is refused — and lets
+// it go once it is done, before the backend takes its own.
+func TestAMacosUserAutoCaptureRespectsTheAccountHomeHold(t *testing.T) {
+	installerLaunchHome(t)
+	otherWs := t.TempDir()
+	release, refusal := HoldAccountHome(otherWs, "yolo-other-workspace", "")
+	if refusal != "" {
+		t.Fatalf("the fixture could not take another workspace's hold: %s", refusal)
+	}
+	var rec macosUserCaptureCalls
+	runMacosUserCapturingCtx(t, t.TempDir(), macosUserCaptureSeams(&rec))
+	for _, step := range rec.order {
+		if step == "capture" {
+			t.Fatalf("a launch the account-home hold refuses auto-captured first (%v)", rec.order)
+		}
+	}
+	release()
+
+	// With the home free, the capture runs, under this launch's hold.
+	rec = macosUserCaptureCalls{}
+	seams := macosUserCaptureSeams(&rec)
+	heldDuring := ""
+	runMacosUserCapturingCtx(t, t.TempDir(), func(o *Options) {
+		seams(o)
+		capture := o.AutoCapture
+		o.AutoCapture = func(bins []string, platform string) {
+			r, refusal := HoldAccountHome(otherWs, "yolo-other-workspace", "")
+			if refusal == "" {
+				r()
+			}
+			heldDuring = refusal
+			capture(bins, platform)
+		}
+	})
+	if len(rec.order) == 0 || rec.order[0] != "capture" {
+		t.Fatalf("with the home free the launch did not auto-capture (%v)", rec.order)
+	}
+	if heldDuring == "" {
+		t.Errorf("another workspace's launch could take the sandbox account's home while this " +
+			"launch's capture ran")
+	}
+	if r, refusal := HoldAccountHome(otherWs, "yolo-other-workspace", ""); refusal != "" {
+		t.Errorf("the capture's hold outlived the capture: %s", refusal)
+	} else {
+		r()
+	}
+}
+
+// WITH NO PROBE SEAM THE ARM ASKS THIS MACHINE (macosuser.RealLaunchProbes), and no machine a unit
+// test runs on admits a macos-user launch of a fresh temp workspace — not Linux (not macOS), not a
+// CI Mac with no sandbox account, not a Mac set up for the backend (the workspace carries no
+// sandbox-group ACE). So nil must not mean "admit": the capture is not triggered.
+func TestAMacosUserLaunchWithNoProbeSeamAsksThisMachine(t *testing.T) {
+	installerLaunchHome(t)
+	var rec macosUserCaptureCalls
+	seams := macosUserCaptureSeams(&rec)
+	runMacosUserCapturingCtx(t, t.TempDir(), func(o *Options) {
+		seams(o)
+		o.MacosUserLaunchProbes = nil
+	})
+	for _, step := range rec.order {
+		if step == "capture" {
+			t.Fatalf("with no probe seam the arm auto-captured (%v); nil must mean this machine's "+
+				"answer, which refuses a fresh temp workspace", rec.order)
+		}
 	}
 }

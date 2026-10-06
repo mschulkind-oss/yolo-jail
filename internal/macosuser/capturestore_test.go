@@ -2,6 +2,7 @@ package macosuser
 
 import (
 	"bytes"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -51,8 +52,14 @@ func TestRunPlanStagesTheSelectedCaptureAndNamesTheStore(t *testing.T) {
 		t.Errorf("the bootstrap is not told the staged store (%s=%s), so every launcher bakes an "+
 			"empty one and downloads: %v", entrypoint.CapturesDirEnv, root, plan.BootstrapArgv)
 	}
-	if !containsCommand(plan.StageCommands, stageCaptureArgv(root, stagedCaptureCtx().Captures[0])) {
-		t.Errorf("nothing stages the picked entry: %v", plan.StageCommands)
+	if !containsCommand(plan.CaptureStageCommands, stageCaptureArgv(root, stagedCaptureCtx().Captures[0])) {
+		t.Errorf("nothing stages the picked entry: %v", plan.CaptureStageCommands)
+	}
+	// Never among the stage commands a launch refuses without: the store is optional.
+	for _, c := range plan.StageCommands {
+		if strings.Contains(strings.Join(c, " "), root) {
+			t.Errorf("a capture-store command is among the fatal stage commands: %v", c)
+		}
 	}
 	if len(plan.Captures) != 1 || plan.Captures[0].Key != captureKeyA {
 		t.Errorf("plan.Captures = %+v, want the one entry the host context carried", plan.Captures)
@@ -77,7 +84,7 @@ func TestRunPlanWithNoCapturesNamesNoStore(t *testing.T) {
 	if plan.CapturesDir != "" || len(plan.Captures) != 0 {
 		t.Errorf("plan.CapturesDir = %q, Captures = %v, want none", plan.CapturesDir, plan.Captures)
 	}
-	for _, c := range plan.StageCommands {
+	for _, c := range append(append([][]string(nil), plan.StageCommands...), plan.CaptureStageCommands...) {
 		if strings.Contains(strings.Join(c, " "), StagedCapturesRoot("")) {
 			t.Errorf("a launch that stages no capture touches the staged store: %v", c)
 		}
@@ -143,14 +150,19 @@ func TestPlanInvariantsRefuseAWrongCaptureStore(t *testing.T) {
 		{"not staged", func(t *testing.T) RunPlan {
 			plan := planWithCtx(t, stagedCaptureCtx())
 			var kept [][]string
-			for _, c := range plan.StageCommands {
+			for _, c := range plan.CaptureStageCommands {
 				if !containsArg(c, stageCaptureScriptName) {
 					kept = append(kept, c)
 				}
 			}
-			plan.StageCommands = kept
+			plan.CaptureStageCommands = kept
 			return plan
 		}, "nothing stages the capture of probetool"},
+		{"copied by a fatal stage command", func(t *testing.T) RunPlan {
+			plan := planWithCtx(t, stagedCaptureCtx())
+			plan.StageCommands = append(plan.StageCommands, plan.CaptureStageCommands...)
+			return plan
+		}, "a capture-store script is among the stage commands a launch refuses without"},
 		{"named with nothing staged", func(t *testing.T) RunPlan {
 			plan := planWithCtx(t, stagedCaptureCtx())
 			plan.Captures = nil
@@ -202,6 +214,11 @@ func TestPrintPlanNamesTheStagedCaptures(t *testing.T) {
 		if !strings.Contains(line, want) {
 			t.Errorf("the dry run's captures line does not name %q:\n%s", want, line)
 		}
+	}
+	// Its copies are listed with the privileged commands, marked as the launch runs them: a
+	// failure of one warns and the launch goes on.
+	if line := lineWith(buf.String(), stageCaptureScriptName); !strings.Contains(line, "(best-effort)") {
+		t.Errorf("the dry run does not list the capture copy as best-effort: %q", line)
 	}
 	buf.Reset()
 	PrintPlan(&buf, planWithCtx(t, HostContext{}), nil)
@@ -360,5 +377,202 @@ func mustWrite(t *testing.T, path, body string, mode os.FileMode) {
 	}
 	if err := os.Chmod(path, mode); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// A CAPTURE THAT CANNOT BE STAGED DOES NOT REFUSE THE LAUNCH. The store is an optimization — a
+// miss is the launcher's fallback to its download (internal/cli's capturematerialize.go) — so a
+// copy that fails (a full disk during a 1.2 GB plain copy, an I/O error, the user's entry reaped
+// by a concurrent `yolo prune --apply` after the host picked it) costs this launch the copy and
+// nothing else: the launch goes on to its bootstrap and its session, and says which program
+// installs the ordinary way. Red before the copy was best-effort: every stage command was fatal,
+// and the launch refused with "Could not stage entrypoint" and no next step.
+func TestACaptureThatCannotBeStagedDoesNotRefuseTheLaunch(t *testing.T) {
+	var rec []string
+	d := mockDeps(&rec)
+	var buf bytes.Buffer
+	d.Out = &buf
+	run := d.Run
+	d.Run = func(argv []string) int {
+		rc := run(argv)
+		if containsArg(argv, stageCaptureScriptName) {
+			return 1
+		}
+		return rc
+	}
+	opts := newOpts("/Users/Shared/yolo/proj")
+	opts.HostCtx = stagedCaptureCtx()
+	if rc := RunMacosUser(d, opts); rc != 42 {
+		t.Fatalf("a launch whose capture copy failed returned %d, want the session's 42:\n%s", rc, buf.String())
+	}
+	joined := strings.Join(rec, "\n")
+	if !strings.Contains(joined, stageCaptureScriptName) {
+		t.Fatalf("the launch never ran the capture's copy, so this test proves nothing:\n%s", joined)
+	}
+	if !strings.Contains(joined, "darwin-bootstrap") || !strings.Contains(joined, "proxy:") {
+		t.Errorf("the launch did not reach its bootstrap and session after the copy failed:\n%s", joined)
+	}
+	out := buf.String()
+	for _, want := range []string{"could not copy the install capture of probetool", captureKeyA,
+		"probetool installs the ordinary way this launch", "the next launch tries the copy again"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("the launch did not say %q about the copy it could not make:\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, "Could not stage entrypoint") {
+		t.Errorf("a failed capture copy was reported as a failed entrypoint stage:\n%s", out)
+	}
+}
+
+// The store-wide commands (make the store, open it, prune it) are best-effort on the same rule,
+// and when one fails no entry is copied into a store that may not exist: one line, then the
+// launch, every launcher missing and downloading.
+func TestACaptureStoreThatCannotBePreparedDoesNotRefuseTheLaunch(t *testing.T) {
+	var rec []string
+	d := mockDeps(&rec)
+	var buf bytes.Buffer
+	d.Out = &buf
+	run := d.Run
+	d.Run = func(argv []string) int {
+		rc := run(argv)
+		if len(argv) > 1 && argv[1] == mkdirBin && strings.Contains(strings.Join(argv, " "), StagedCapturesRoot("")) {
+			return 1
+		}
+		return rc
+	}
+	opts := newOpts("/Users/Shared/yolo/proj")
+	opts.HostCtx = stagedCaptureCtx()
+	if rc := RunMacosUser(d, opts); rc != 42 {
+		t.Fatalf("a launch whose capture store could not be made returned %d, want the session's 42:\n%s", rc, buf.String())
+	}
+	joined := strings.Join(rec, "\n")
+	if strings.Contains(joined, stageCaptureScriptName) {
+		t.Errorf("an entry was copied into a store that could not be made:\n%s", joined)
+	}
+	if !strings.Contains(buf.String(), "could not prepare the install-capture store at "+StagedCapturesRoot("")) {
+		t.Errorf("the launch did not say it could not prepare the store:\n%s", buf.String())
+	}
+}
+
+// A signal during a capture copy still ends the launch with the signal's status: best-effort is
+// about a copy that failed, not about a launch the user is ending.
+func TestASignalDuringACaptureCopyEndsTheLaunch(t *testing.T) {
+	var rec []string
+	d := mockDeps(&rec)
+	d.Out = io.Discard
+	signalled := false
+	d.Ending = func() (int, bool) { return 130, signalled }
+	run := d.Run
+	d.Run = func(argv []string) int {
+		rc := run(argv)
+		if containsArg(argv, stageCaptureScriptName) {
+			signalled = true
+			return 1
+		}
+		return rc
+	}
+	opts := newOpts("/Users/Shared/yolo/proj")
+	opts.HostCtx = stagedCaptureCtx()
+	if rc := RunMacosUser(d, opts); rc != 130 {
+		t.Fatalf("a signal during the capture copy returned %d, want its status 130", rc)
+	}
+	if strings.Contains(strings.Join(rec, "\n"), "proxy:") {
+		t.Errorf("the session started after a signal ended the launch")
+	}
+}
+
+// THE COPY CLEANS UP AFTER ITSELF when any step of it fails, so a launch on a full disk does not
+// keep a half-made copy of a 1.2 GB entry for the rest of its run, and it exits non-zero so the
+// launch can say so. Run for real: entries/ is a file here, so the copy succeeds and the rename
+// into entries/ fails, which works the same as the invoking user and as root.
+func TestAFailedCaptureCopyLeavesNoPartialCopy(t *testing.T) {
+	for _, bin := range []string{"/bin/sh", cpBin, chmodBin, mvBin, rmBin} {
+		if _, err := os.Stat(bin); err != nil {
+			t.Skipf("%s is not on this machine, so the stage script cannot run here: %v", bin, err)
+		}
+	}
+	tmp, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := filepath.Join(tmp, "userstore", "entries", captureKeyA)
+	mustMkdir(t, filepath.Join(src, "tree"), 0o755)
+	mustWrite(t, filepath.Join(src, "tree", "f"), "bytes", 0o444)
+	root := filepath.Join(tmp, "captures")
+	mustMkdir(t, filepath.Join(root, capturesStagingLeaf), 0o755)
+	mustWrite(t, filepath.Join(root, capturesEntriesLeaf), "not a directory", 0o644)
+
+	argv := stageCaptureArgv(root, CaptureEntry{Bin: "probetool", Key: captureKeyA, Source: src})
+	if out, err := exec.Command(argv[0], argv[1:]...).CombinedOutput(); err == nil {
+		t.Fatalf("the stage script exited 0 although its rename failed:\n%s", out)
+	}
+	if _, err := os.Lstat(filepath.Join(root, capturesStagingLeaf, captureKeyA)); !os.IsNotExist(err) {
+		t.Errorf("a failed copy left its partial tree under staging/ (%v)", err)
+	}
+
+	// And a source gone from the user's store (a concurrent reap) fails the same way.
+	if err := os.Remove(filepath.Join(root, capturesEntriesLeaf)); err != nil {
+		t.Fatal(err)
+	}
+	mustMkdir(t, filepath.Join(root, capturesEntriesLeaf), 0o755)
+	argv = stageCaptureArgv(root, CaptureEntry{Bin: "probetool", Key: captureKeyA, Source: src + "-gone"})
+	if out, err := exec.Command(argv[0], argv[1:]...).CombinedOutput(); err == nil {
+		t.Fatalf("the stage script exited 0 for a source that does not exist:\n%s", out)
+	}
+	for _, p := range []string{filepath.Join(root, capturesStagingLeaf, captureKeyA),
+		filepath.Join(root, capturesEntriesLeaf, captureKeyA)} {
+		if _, err := os.Lstat(p); !os.IsNotExist(err) {
+			t.Errorf("a copy of a missing source left %s (%v)", p, err)
+		}
+	}
+}
+
+// PreflightLaunch ASKS WHAT THE LAUNCH ASKS, of the same workspace spelling and under the same
+// hold name: a caller deciding "will the backend refuse this launch?" before the launch does
+// (internal/cli/run's auto-capture) must get the launch's answer, or it acts for launches the
+// backend then refuses, or skips ones it admits.
+func TestPreflightLaunchAsksWhatTheLaunchAsks(t *testing.T) {
+	type holdCall struct{ ws, cname string }
+	recordHold := func(calls *[]holdCall, refusal string) func(string, string, string) (func(), string) {
+		return func(ws, cname, _ string) (func(), string) {
+			*calls = append(*calls, holdCall{ws, cname})
+			if refusal != "" {
+				return nil, refusal
+			}
+			return func() {}, ""
+		}
+	}
+	const ws = "/Users/Shared/yolo/proj"
+
+	// Admitted: both take the hold, under one name for one workspace.
+	var pre, launch []holdCall
+	d := mockDeps(nil)
+	release, ok := PreflightLaunch(d.launchProbes(), recordHold(&pre, ""), ws)
+	if !ok || release == nil {
+		t.Fatalf("PreflightLaunch refused a launch every precondition admits")
+	}
+	release()
+	d.HoldAccountHome = recordHold(&launch, "")
+	if rc := RunMacosUser(d, newOpts(ws)); rc != 42 {
+		t.Fatalf("the launch itself was refused (rc %d)", rc)
+	}
+	if len(pre) != 1 || len(launch) != 1 || pre[0] != launch[0] {
+		t.Errorf("PreflightLaunch held %+v, the launch %+v; they must be one hold", pre, launch)
+	}
+
+	// Refused by a precondition: the in-home rule, a pure fact about the path, and no hold taken.
+	pre = nil
+	if _, ok := PreflightLaunch(d.launchProbes(), recordHold(&pre, ""), "/Users/matt/proj"); ok || len(pre) != 0 {
+		t.Errorf("PreflightLaunch admitted a workspace under a home (ok %v, holds %v)", ok, pre)
+	}
+	nd := mockDeps(nil)
+	nd.SandboxUserExists = func() bool { return false }
+	if _, ok := PreflightLaunch(nd.launchProbes(), recordHold(&pre, ""), ws); ok {
+		t.Errorf("PreflightLaunch admitted a Mac with no sandbox account")
+	}
+
+	// Refused by the hold, as the launch is.
+	if _, ok := PreflightLaunch(d.launchProbes(), recordHold(&pre, "another session is live"), ws); ok {
+		t.Errorf("PreflightLaunch admitted a launch the account-home hold refuses")
 	}
 }

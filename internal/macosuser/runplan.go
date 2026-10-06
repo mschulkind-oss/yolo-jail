@@ -167,6 +167,11 @@ type RunPlan struct {
 	// PlanInvariants, which checks each is staged.
 	CapturesDir string
 	Captures    []CaptureEntry
+	// CaptureStageCommands bring that store up to date (StageCaptureCommands), run as root after
+	// StageCommands and BEST-EFFORT, which is why they are not among them: a failure warns, names
+	// the program that downloads instead, and the launch goes on (orchestrator.go's
+	// stageCaptures). Empty when the launch stages no capture.
+	CaptureStageCommands [][]string
 }
 
 // HostContext is what the HOST CLI composed for this launch's `/ctx` delivery: the tree
@@ -663,9 +668,6 @@ func BuildRunPlanWithDaemons(workspace string, cfg *jsonx.OrderedMap, agents, ag
 	// tree, so a mount dropped from the config stops being named on the next launch.
 	ctxLinks := append([]ContextLink(nil), hostCtx.Links...)
 	stageCommands = append(stageCommands, StageContextDirCommands(hostCtx.Tree, ctxLinks, cname, "")...)
-	// THE CAPTURE STORE'S ENTRIES (H4), copied once per machine and pruned to what the user's
-	// store still selects; nothing at all when the launch stages none.
-	stageCommands = append(stageCommands, StageCaptureCommands(captures, hostCtx.CapturesKept, "")...)
 	stageCommands = append(stageCommands, endpointGrantCommands(sandboxEnv)...)
 
 	// THE GUEST'S BINARIES (OQ-DP8; jaildaemon.go), staged as ONE SET when the launch runs a
@@ -787,6 +789,10 @@ func BuildRunPlanWithDaemons(workspace string, cfg *jsonx.OrderedMap, agents, ag
 		HomeReadonly:       homeReadonly,
 		CapturesDir:        capturesRoot,
 		Captures:           captures,
+		// THE CAPTURE STORE'S ENTRIES (H4), copied once per machine and pruned to what the user's
+		// store still selects; nothing at all when the launch stages none. Their own field, run
+		// best-effort, never StageCommands, every one of which refuses the launch when it fails.
+		CaptureStageCommands: StageCaptureCommands(captures, hostCtx.CapturesKept, ""),
 	}
 }
 
@@ -1639,9 +1645,18 @@ func captureStoreInvariants(plan RunPlan) []string {
 			"account's; the store must be the root-owned copy under "+plan.StagedDir)
 	}
 	for _, c := range plan.Captures {
-		if !containsCommand(plan.StageCommands, stageCaptureArgv(v, c)) {
+		if !containsCommand(plan.CaptureStageCommands, stageCaptureArgv(v, c)) {
 			problems = append(problems, "nothing stages the capture of "+c.Bin+" ("+c.Key+") into "+
 				v+"; its launcher would find no entry and download")
+		}
+	}
+	// AND NONE OF IT IS FATAL: a capture copy among the stage commands, every one of which
+	// refuses the launch when it fails, would make the store a launch's requirement.
+	for _, c := range plan.StageCommands {
+		if containsArg(c, stageCaptureScriptName) || containsArg(c, pruneCapturesScriptName) {
+			problems = append(problems, "a capture-store script is among the stage commands a "+
+				"launch refuses without; the store is optional, and a copy that fails must cost its "+
+				"program the copy alone")
 		}
 	}
 	return problems

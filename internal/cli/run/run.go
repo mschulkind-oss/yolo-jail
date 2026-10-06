@@ -480,10 +480,12 @@ func Run(opts Options) (rc int) {
 		// config-change approval and before this arm's signal arm, host services and launch lock:
 		// a capture is a whole launch of its own (a nested pipeline), which arms, starts and locks
 		// its own. Never on a dry run, which captures nothing; never in a capture's own launch,
-		// whose CapturesDir is "" (autoCaptureInstallerPrograms). It cannot fail this launch.
+		// whose CapturesDir is "" (autoCaptureBins); and never for a launch the backend's own first
+		// steps, its preconditions and the account home's hold, are about to refuse
+		// (autoCaptureMacosUser). It cannot fail this launch.
 		if !o.DryRun {
 			captureSpan := o.Perf.Span("launch.auto_capture")
-			o.autoCaptureInstallerPrograms(staged.packs, macosUserJailPlatform())
+			o.autoCaptureMacosUser(staged.packs)
 			captureSpan.End()
 		}
 		// THE MACOS-USER ARM (macosuserarm.go; JL-D40), from here to the last teardown below. A

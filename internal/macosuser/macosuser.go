@@ -503,18 +503,49 @@ const (
 // it holds the bytes it names, so it is copied once per machine. Decided when the command runs,
 // as root, rather than by the host CLI reading /var/yolo-jail first, so a plan stays a pure
 // function of its inputs and no check can be stale by the time the copy would have run.
+//
+// A COPY THAT FAILS REMOVES WHAT IT MADE and exits non-zero. Any step can fail — a full disk
+// partway through a 1.2 GB plain copy, an I/O error, a source the user's store reaped after the
+// host picked it — and the half-made tree goes at once rather than at the next launch's prune, so
+// a launch on a full disk does not keep it for the rest of its run. The launch runs this
+// best-effort (RunPlan.CaptureStageCommands), so the failure costs the program its copy and
+// nothing else: its launcher misses and downloads.
+//
+// NO ACL CROSSES, and nothing here strips one. An entry a macos-user capture made carries the
+// shared group's inherited ACE (`group:_yolojail allow read,write,…,writesecurity,chown`, set on
+// its staging tree by CaptureStagingCommands; the store's renames keep it, and freezeTree drops
+// mode bits only), and an ACE grants what the mode bits deny. Plain `cp -R` does not carry it:
+// Apple's cp copies a file's ACL only under -p (file_cmds cp/utils.c, `if (pflag &&
+// fcopyfile(…, COPYFILE_ACL)`) and a directory's only under -p (cp.c, preserve_dir_acls). The
+// extended attributes it copies without -p are what flistxattr lists (copyfile.c's
+// copyfile_xattr), and that the kernel leaves the ACL out of that list is INFERRED, not read. Nor
+// can a copy inherit one: yolo sets no inheritable ACE on the state dir or under it (the context
+// tree's root, the env-file dir and the files in it carry `user:` ACEs with no inherit flag).
+//
+// `chmod -R -N` IS NOT ADDED AS A SECOND GUARD, on purpose: under -R, Apple's chmod clears an ACL
+// through chmodx_np, which follows a symlink (chmod/chmod.c asks it to follow for every -R entry,
+// and chmod_acl.c's clear branch calls chmodx_np), so run as root it would clear the ACL of
+// whatever a captured link names outside this tree, and fail on a dangling link. A Mac checks the
+// outcome instead (integration/macosusercapture_test.go: no ACE on the staged tree, and the
+// sandbox cannot open a staged file for append).
 var stageCaptureScript = strings.Join([]string{
 	"set -eu",
 	`dst="$1/` + capturesEntriesLeaf + `/$2"`,
 	`if [ -d "$dst" ]; then exit 0; fi`,
 	`tmp="$1/` + capturesStagingLeaf + `/$2"`,
 	rmBin + ` -rf "$tmp"`,
-	cpBin + ` -R "$3" "$tmp"`,
-	// Readable and searchable by every account, writable by no account but root, which owns
-	// every byte: the store already froze its files (internal/capture's freezeTree), and the
-	// sandbox could change neither a root-owned file's bytes nor its mode.
-	chmodBin + ` -R a+rX,go-w "$tmp"`,
-	mvBin + ` "$tmp" "$dst"`,
+	// One `&&` chain inside an `if`, where `set -e` does not end the script, so a failure of any
+	// step reaches the cleanup below it.
+	"if " + strings.Join([]string{
+		cpBin + ` -R "$3" "$tmp"`,
+		// Readable and searchable by every account, writable by no account but root, which
+		// owns every byte: the store already froze its files (internal/capture's freezeTree),
+		// and the sandbox could change neither a root-owned file's bytes nor its mode.
+		chmodBin + ` -R a+rX,go-w "$tmp"`,
+		mvBin + ` "$tmp" "$dst"`,
+	}, " && ") + "; then exit 0; fi",
+	rmBin + ` -rf "$tmp"`,
+	"exit 1",
 }, "; ")
 
 // pruneCapturesScript removes every staged entry the user's store no longer selects: $1 the
@@ -570,6 +601,13 @@ func captureKeyOK(k string) bool {
 // launch: make it, drop every staged entry outside entries' and kept's keys, then copy in each of
 // entries that is not there yet (stageCaptureScript). Empty when entries is, so a launch that
 // stages no capture runs nothing and leaves the store as the last launch that did left it.
+//
+// They are RunPlan.CaptureStageCommands, never StageCommands, and the launch runs them
+// BEST-EFFORT (orchestrator.go's stageCaptures): a miss is the launcher's fallback to its
+// download, and making a capture mandatory for the installer class is a change nobody has ruled
+// (install-capture.md's Blockers), so no failure here may refuse a launch that would have started
+// without the store. The first three are the store's own and the rest one entry each, in that
+// order; stageCaptures keys on it.
 //
 // `kept` are the keys of the user store's OTHER current entries at this backend's platform — a
 // program another workspace selects — so alternating between two workspaces' pack sets copies

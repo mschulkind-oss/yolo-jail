@@ -39,10 +39,17 @@ package run
 // (macosuser.StagedCapturesRoot); its relocation half, H2, landed 2026-09-26. The capture there
 // is the macos-user capture act (internal/cli picks it for a darwin platform), so its entry is
 // a darwin one.
+//
+// ON macos-user, ONLY FOR A LAUNCH THE BACKEND WILL NOT REFUSE AT ONCE (autoCaptureMacosUser).
+// The arm's trigger runs before the backend's dispatch, and so before the backend's own first
+// steps, its preconditions and the account home's hold; a capture is the most expensive and the
+// most stateful thing a launch does, and it used to run for launches those steps then refused.
+// So the arm asks them first, through the backend's own walk (macosuser.PreflightLaunch).
 
 import (
 	goruntime "runtime" // stdlib; this package's `runtime` is yolo's own (run.go)
 
+	"github.com/mschulkind-oss/yolo-jail/internal/macosuser"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 )
 
@@ -64,14 +71,59 @@ import (
 // platform is the JAIL's (containerJailPlatform or macosUserJailPlatform), named by the arm that
 // calls it, because only the arm knows which kind of jail is about to run.
 func (o *Options) autoCaptureInstallerPrograms(packs []*packload.Pack, platform string) {
-	if o.AutoCapture == nil || o.CapturesDir() == "" {
-		return
+	if bins := o.autoCaptureBins(packs); len(bins) > 0 {
+		o.AutoCapture(bins, platform)
 	}
-	bins := installerBins(packs)
+}
+
+// autoCaptureBins is the programs a launch's trigger would hand AutoCapture: none when nothing is
+// wired to capture or the launch is a capture's own (CapturesDir ""), else the selected packs'
+// installer programs. Both arms ask through it, so the suppression above is one test.
+func (o *Options) autoCaptureBins(packs []*packload.Pack) []string {
+	if o.AutoCapture == nil || o.CapturesDir() == "" {
+		return nil
+	}
+	return installerBins(packs)
+}
+
+// autoCaptureMacosUser is the macos-user arm's trigger: autoCaptureInstallerPrograms at the
+// sandbox's platform, for a launch the backend will not refuse at its first two steps.
+//
+// THE BACKEND'S OWN FIRST STEPS, ASKED FIRST (macosuser.PreflightLaunch): its launch
+// preconditions — macOS, not root, Seatbelt, the sandbox account and its home, the workspace
+// outside every home and shared with the sandbox — and the account home's hold, which refuses a
+// second workspace while another's session runs. Each used to be asked only after the capture,
+// so a launch about to be refused paid for one first:
+//
+//   - on a Mac where `yolo macos-setup` never ran, the capture act refused for want of the sandbox
+//     account, and that refusal was remembered as a failed capture (OQ-PD26), so after the setup
+//     every launch for a day downloaded;
+//   - with the workspace under a home, the commonest first-run mistake, the capture paid its sudo
+//     prompts and a vendor installer download before the launch refused;
+//   - with another workspace's session live, the capture replaced the staged yolo under that
+//     session, the interference the hold exists to stop, before the hold refused this launch.
+//
+// It skips the capture SILENTLY: the launch's own refusal follows at once and names the next
+// step. The hold is kept through the capture, so no other workspace's launch starts while it
+// runs, and let go before the backend takes its own.
+//
+// The probes are Options.MacosUserLaunchProbes, nil meaning the launch's own
+// (macosuser.RealLaunchProbes), and the hold the backend's (HoldAccountHome).
+func (o *Options) autoCaptureMacosUser(packs []*packload.Pack) {
+	bins := o.autoCaptureBins(packs)
 	if len(bins) == 0 {
 		return
 	}
-	o.AutoCapture(bins, platform)
+	probes := o.MacosUserLaunchProbes
+	if probes == nil {
+		probes = macosuser.RealLaunchProbes
+	}
+	release, ok := macosuser.PreflightLaunch(probes(), HoldAccountHome, o.Workspace)
+	if !ok {
+		return
+	}
+	defer release()
+	o.AutoCapture(bins, macosUserJailPlatform())
 }
 
 // installerBins is every program the SELECTED packs install with `via: "installer"`,

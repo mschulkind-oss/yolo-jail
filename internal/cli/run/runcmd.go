@@ -551,6 +551,12 @@ type Options struct {
 	// in internal/cli, which imports this package. nil stages no capture, and every launcher on
 	// that backend then downloads, as it did before H4.
 	MacosUserCaptures func(dir string, bins []string, platform string) (stage []macosuser.CaptureEntry, kept []string)
+	// MacosUserLaunchProbes answers macos-user's launch preconditions (macosuser.LaunchProbes)
+	// for the arm's auto-capture, which runs only for a launch the backend will not refuse at its
+	// first two steps (autoCaptureMacosUser, macosuser.PreflightLaunch). nil =>
+	// macosuser.RealLaunchProbes, the launch's own probes, so production wires nothing; a test
+	// stands a Mac in.
+	MacosUserLaunchProbes func() macosuser.LaunchProbes
 	// BuildForks builds, for every pinned fork in the request, the store entry the jail needs at
 	// its platform when the machine holds none, and returns per bin the entry's key or why there is
 	// none (docs/design/forked-programs-as-packs.md OQ-FP4, FP-D1, FP-D8); for a PATCHED fork it

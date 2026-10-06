@@ -2,6 +2,7 @@ package integration
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -92,15 +93,32 @@ func (f captureFixture) runs(t *testing.T) int {
 
 // probe is the in-sandbox script: run the program (the launcher's cold branch materializes it),
 // then report the materialized file's owner and link count, and whether the sandbox can write
-// the staged store.
+// the staged store — by creating a file in it, by opening each staged copy of the program for
+// append, and, when the materialized file is a hardlink, by opening that for append.
+//
+// THE APPEND PROBES ARE THE ONES THAT CAN SEE AN ACL. Creating a file in entries/ asks the mode
+// and ACL of a directory root made 0755 with none, so it says REFUSED whatever the copied files
+// carry; and a staged file is root's, so its owner says nothing either. But an entry a macos-user
+// capture made carries the shared group's inherited ACE (read, write, append, …, writesecurity,
+// chown), which grants what the mode bits deny, and the staged copy is safe only because plain
+// `cp -R` does not carry it (macosuser's stageCaptureScript). `: >>` opens for append and writes
+// no byte, so a hole is reported without changing what every workspace runs.
 func (f captureFixture) probe() string {
-	file := `"$HOME/.local/share/` + f.bin + `/v1/` + f.bin + `"`
+	rel := ".local/share/" + f.bin + "/v1/" + f.bin
+	file := `"$HOME/` + rel + `"`
+	staged := macosuser.StagedCapturesRoot("") + "/entries/*/tree/" + rel
 	return strings.Join([]string{
 		f.bin + " --version",
 		`echo "=== STAT ==="`,
 		"/usr/bin/stat -f '%Su %l' " + file,
 		`echo "=== WRITE ==="`,
 		`if ( : > ` + macosuser.StagedCapturesRoot("") + `/entries/yolo-it-probe ) 2>/dev/null; then echo WROTE; else echo REFUSED; fi`,
+		`echo "=== APPEND ==="`,
+		`n=0; for p in ` + staged + `; do [ -e "$p" ] || continue; n=$((n+1)); ` +
+			`if ( : >> "$p" ) 2>/dev/null; then echo "APPENDED $p"; else echo "REFUSED $p"; fi; done; echo "staged=$n"`,
+		`echo "=== LINKED ==="`,
+		`if [ "$(/usr/bin/stat -f %l ` + file + `)" -gt 1 ]; then ` +
+			`if ( : >> ` + file + ` ) 2>/dev/null; then echo APPENDED; else echo REFUSED; fi; else echo NOTLINKED; fi`,
 		`echo "=== END ==="`,
 	}, "\n")
 }
@@ -109,8 +127,9 @@ func (f captureFixture) probe() string {
 var materializedRe = regexp.MustCompile(`Materialized (\S+) from capture ([0-9a-f]+) by (reflink|hardlink|copy)`)
 
 // checkMaterialized reads one launch's output: the program ran from a materialized capture, by
-// which arm, and — when the arm was a hardlink — the file is not the sandbox account's, which is
-// what a hardlink of an entry a capture made would have handed it. Returns the entry's key.
+// which arm, and the sandbox can write no byte of the staged store — not a new file in it, not a
+// staged copy of the program, and not the materialized file when it is a hardlink of one, which
+// is what a hardlink of an entry a capture made would have handed it. Returns the entry's key.
 func (f captureFixture) checkMaterialized(t *testing.T, label string, r result) string {
 	t.Helper()
 	m := materializedRe.FindStringSubmatch(r.combined())
@@ -127,17 +146,38 @@ func (f captureFixture) checkMaterialized(t *testing.T, label string, r result) 
 		t.Fatalf("%s: unreadable stat of the materialized file: %q", label, fields)
 	}
 	t.Logf("%s: the materialized file is %s's, with %s link(s)", label, fields[0], fields[1])
-	if fields[1] != "1" && fields[0] == macosuser.SandboxUser {
-		t.Errorf("%s: the materialized file is HARDLINKED (%s links) and owned by %s, so the sandbox "+
-			"could rewrite the staged store's bytes every workspace runs", label, fields[1], fields[0])
-	}
-	if got := section(r.stdout, "=== WRITE ===", "=== END ==="); !strings.Contains(got, "REFUSED") {
+	if got := section(r.stdout, "=== WRITE ===", "=== APPEND ==="); !strings.Contains(got, "REFUSED") {
 		t.Errorf("%s: the sandbox could create a file in the staged capture store:\n%s", label, got)
+	}
+	appended := section(r.stdout, "=== APPEND ===", "=== LINKED ===")
+	if strings.Contains(appended, "APPENDED") {
+		t.Errorf("%s: the sandbox could open a staged copy of %s for writing — an ACE crossed with "+
+			"the copy, and every workspace on this machine runs those bytes:\n%s", label, f.bin, appended)
+	}
+	if !regexp.MustCompile(`staged=[1-9]`).MatchString(appended) {
+		t.Errorf("%s: the probe found no staged copy of %s to try, so the append probe saw "+
+			"nothing:\n%s", label, f.bin, appended)
+	}
+	switch linked := section(r.stdout, "=== LINKED ===", "=== END ==="); {
+	case strings.Contains(linked, "APPENDED"):
+		t.Errorf("%s: the materialized file is a hardlink (%s links) the sandbox can open for "+
+			"writing, so it could rewrite the staged store's bytes every workspace runs", label, fields[1])
+	case strings.Contains(linked, "REFUSED"):
+		t.Logf("%s: the materialized file is a hardlink (%s links), and the sandbox cannot write it", label, fields[1])
+	case !strings.Contains(linked, "NOTLINKED"):
+		t.Errorf("%s: unreadable hardlink probe: %q", label, linked)
 	}
 	return m[2]
 }
 
-// checkStagedRootOwned reports a staged entry whose files are not root's, and schedules its removal.
+// checkStagedRootOwned reports a staged entry whose files are not root's or carry any ACE, and
+// schedules its removal.
+//
+// THE ACL HALF is what the owner half cannot see: the user store's entry carries the shared
+// group's inherited ACE, an ACE grants what the mode bits deny, and nothing strips one from the
+// staged copy, which relies on plain `cp -R` not carrying it (macosuser's stageCaptureScript says
+// why, from Apple's cp source, and why `chmod -R -N` is not the remedy). So a staged tree must
+// carry no ACE at all.
 func checkStagedRootOwned(t *testing.T, key string) {
 	t.Helper()
 	dst := filepath.Join(macosuser.StagedCapturesRoot(""), "entries", key)
@@ -152,7 +192,19 @@ func checkStagedRootOwned(t *testing.T, key string) {
 		}
 		return nil
 	})
+	out, err := exec.Command("/bin/ls", "-leR", dst).CombinedOutput()
+	if err != nil {
+		t.Fatalf("listing the staged entry's ACLs (ls -leR %s): %v\n%s", dst, err, out)
+	}
+	if aces := aceLineRe.FindAllString(string(out), -1); len(aces) > 0 {
+		t.Errorf("the staged entry %s carries %d ACE(s) — the copy carried the user store's ACL "+
+			"(group:%s's is the one that would let the sandbox write it):\n%s", dst, len(aces),
+			macosuser.SandboxGroup, strings.Join(aces, "\n"))
+	}
 }
+
+// aceLineRe is one ACE as `ls -le` prints it under a file: " 0: group:_yolojail allow read,…".
+var aceLineRe = regexp.MustCompile(`(?m)^\s*\d+: \S+ (allow|deny) .*$`)
 
 // TestMacosUserLaunchesMaterializeACapturedFixture: `yolo capture` admits the fixture into the
 // store, and two workspaces' launches each materialize it from the staged copy — the installer

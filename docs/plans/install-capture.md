@@ -892,6 +892,17 @@ wrong one to sequence on.
    half-copied tree and its tie-break would select it. The mode leaves write to root alone,
    which owns every byte; the store froze its files at admit already.
 
+   *Revised 2026-10-05 after review: the copy is best-effort.* The capture commands are their own
+   field, `RunPlan.CaptureStageCommands`, not `StageCommands`, every one of which refuses the
+   launch when it fails. The launch runs them after those and warns about a failure (one line,
+   naming the program that installs the ordinary way and saying the next launch tries again).
+   The script removes its half-made copy before it exits non-zero. As first built, a full disk
+   during the copy, an I/O error, or the user's entry reaped between the host's pick and the copy
+   refused a launch that would have started before H4, which made a capture mandatory against the
+   [Blockers](#blockers). When one of the store's own commands fails (make it, open it, prune
+   it), no entry is copied, and every launcher misses and downloads. `PlanInvariants` refuses a
+   capture script among the fatal stage commands.
+
    **(c) The prune keeps every current entry at the platform, not only this launch's.** A staged
    entry goes once the user's store no longer selects it, superseded or reaped. The current
    entries of programs this launch does not select stay (`HostContext.CapturesKept`), so
@@ -911,12 +922,48 @@ wrong one to sequence on.
    HP-D2). Otherwise a workspace config choosing `macos-user` over a user config's `podman` would
    record a linux entry and capture again at every launch.
 
+   *Revised 2026-10-05 after review: only for a launch the backend will not refuse at once.* That
+   placement put the capture before the backend's own first steps, its launch preconditions and
+   the account home's hold, so a launch about to be refused paid for a capture first. On a Mac
+   where `yolo macos-setup` never ran, the capture act's refusal was remembered as a failed
+   capture ([OQ-PD26](../design/program-delivery.md#decision-ledger)), and every launch for a day
+   after the setup downloaded. With the workspace under a home, the capture paid its sudo prompts
+   and an installer download before the refusal.
+   With another workspace's session live, it replaced the staged `yolo` under that session. The
+   arm now asks both first, through the backend's own walk (`macosuser.PreflightLaunch`, the same
+   list, workspace spelling and hold name as `RunMacosUser`), and skips the capture silently
+   when either would refuse, since the launch's own refusal follows at once with its next step.
+   It keeps the hold while the capture runs and lets it go before the backend takes its own. So
+   the capture act's setup refusal never reaches the failure memo from a launch: its four gates
+   (macOS, not root, Seatbelt, the sandbox account) are among the preconditions asked first.
+
    **(f) The fork launcher reads the same baked `CAPTURES_DIR`** (`internal/entrypoint/forklauncher.go`).
    This copy carries installer captures alone, so a fork's build still reaches no `macos-user`
    launch (FP-D3). The fork route can reuse this staging when it is built for that backend.
 
+   **(g) No ACL is stripped from the copy, because plain `cp -R` carries none.** An entry a
+   `macos-user` capture made carries the shared group's inherited ACE (`group:_yolojail allow
+   read,write,append,…,writesecurity,chown`, from `CaptureStagingCommands`' provisioning of its
+   staging tree). The store's renames keep it, and `freezeTree` drops mode bits only. An ACE
+   grants what the mode bits deny, so the copy is safe only if it carries none. Its premise, read
+   from Apple's source: cp copies a file's ACL only under `-p` (file_cmds `cp/utils.c`,
+   `if (pflag && fcopyfile(…, COPYFILE_ACL)`) and a directory's only under `-p` (`cp.c`,
+   `preserve_dir_acls`). The extended attributes it copies without `-p` are what `flistxattr`
+   lists (copyfile's `copyfile_xattr`); that the kernel leaves the ACL out of that list is
+   INFERRED, not read. Nor can a copy inherit one: yolo sets no inheritable ACE on
+   `/var/yolo-jail` or under it, and the ACEs it does set there (the context tree's root, the
+   env-file directory and the files in it) carry no inherit flag. `chmod -R -N` was considered as a second guard and
+   rejected: under `-R`, Apple's chmod clears an ACL through `chmodx_np`, which follows a symlink
+   (`chmod/chmod.c`, `chmod/chmod_acl.c`), so run as root it would clear the ACL of whatever a
+   captured link names outside the tree, and fail on a dangling link. A Mac checks the outcome
+   instead: `checkStagedRootOwned` asserts `ls -leR` shows no ACE on the staged tree, and the
+   probe opens each staged copy of the program, and a hardlinked materialized file, for append,
+   expecting a refusal. The probe that creates a file in `entries/` cannot see an ACL on the
+   copied files, and the owner check cannot either, since every staged inode is root's.
+
    MEASURED on Linux by the unit tests: the plan's bytes and invariants, the pick, the wiring,
-   the arm's calls and their order, and the stage scripts themselves. The scripts are run against
+   the arm's calls and their order, the preflight that gates them, a launch going on past a copy
+   that fails, and the stage scripts themselves. The scripts are run against
    temp dirs as the invoking user, not root, so ownership is the one property they cannot see;
    `check-macos` runs the same test with macOS's own `cp`, `chmod` and `mv` on every push. NOT
    MEASURED: any of it in a real `macos-user` launch. That is
