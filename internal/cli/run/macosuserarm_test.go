@@ -58,6 +58,62 @@ func awaitEnding(t *testing.T, arm *MacosUserArm) int {
 	return 0
 }
 
+// awaitForeground waits for the arm to publish a setup child as its foreground process.
+func awaitForeground(t *testing.T, arm *MacosUserArm) {
+	t.Helper()
+	for deadline := time.Now().Add(10 * time.Second); time.Now().Before(deadline); time.Sleep(5 * time.Millisecond) {
+		arm.mu.Lock()
+		foreground := arm.foreground
+		arm.mu.Unlock()
+		if foreground != nil {
+			return
+		}
+	}
+	t.Fatal("the arm never published the foreground child")
+}
+
+func publishForeground(t *testing.T, arm *MacosUserArm, p *os.Process) func() {
+	t.Helper()
+	done, err := arm.startForeground(func() (*os.Process, error) { return p, nil })
+	if err != nil {
+		t.Fatal(err)
+	}
+	return done
+}
+
+type backendRunFixture struct {
+	result   chan int
+	finished chan struct{}
+	stopPath string
+}
+
+func startBackendRunFixture(t *testing.T, run func([]string) int, argv []string, stopPath string) *backendRunFixture {
+	t.Helper()
+	fixture := &backendRunFixture{
+		result:   make(chan int, 1),
+		finished: make(chan struct{}),
+		stopPath: stopPath,
+	}
+	t.Cleanup(func() {
+		select {
+		case <-fixture.finished:
+			return
+		default:
+		}
+		if err := os.WriteFile(fixture.stopPath, []byte("stop\n"), 0o600); err != nil && !os.IsNotExist(err) {
+			t.Errorf("stop backend fixture: %v", err)
+		}
+		<-fixture.finished
+	})
+	go func() {
+		fixture.result <- run(argv)
+		close(fixture.finished)
+	}()
+	return fixture
+}
+
+func (f *backendRunFixture) wait() int { return <-f.result }
+
 // trappingChild starts a shell that records each INT and TERM it gets in marks/seen, says it is
 // ready once its traps are set, and exits 3 on a TERM.
 func trappingChild(t *testing.T, marks string) *exec.Cmd {
@@ -107,7 +163,7 @@ func TestASetupSignalEndsTheLaunchStopsNixAndReachesTheForegroundChild(t *testin
 
 	marks := t.TempDir()
 	child := trappingChild(t, marks)
-	done := arm.watchForeground(child.Process)
+	done := publishForeground(t, arm, child.Process)
 	defer done()
 
 	if err := syscall.Kill(os.Getpid(), syscall.SIGTERM); err != nil {
@@ -150,7 +206,7 @@ func TestASetupInterruptEndsTheLaunchWithoutForwarding(t *testing.T) {
 	arm, _ := installArm(t, nil)
 	marks := t.TempDir()
 	child := trappingChild(t, marks)
-	defer arm.watchForeground(child.Process)()
+	defer publishForeground(t, arm, child.Process)()
 	if err := syscall.Kill(os.Getpid(), syscall.SIGINT); err != nil {
 		t.Fatal(err)
 	}
@@ -163,7 +219,9 @@ func TestASetupInterruptEndsTheLaunchWithoutForwarding(t *testing.T) {
 	}
 	// And a child the teardown starts once the launch is ending is never its target.
 	later := trappingChild(t, t.TempDir())
-	arm.watchForeground(later.Process)
+	if _, err := arm.startForeground(func() (*os.Process, error) { return later.Process, nil }); err != nil {
+		t.Fatal(err)
+	}
 	arm.mu.Lock()
 	registered := arm.foreground == later.Process
 	arm.mu.Unlock()
@@ -187,7 +245,7 @@ func TestASetupQuitIsAbsorbed(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = child.Process.Kill(); _ = child.Wait() })
 	awaitFile(t, filepath.Join(marks, "ready"))
-	defer arm.watchForeground(child.Process)()
+	defer publishForeground(t, arm, child.Process)()
 	if err := syscall.Kill(os.Getpid(), syscall.SIGQUIT); err != nil {
 		t.Fatal(err)
 	}
@@ -299,37 +357,129 @@ func TestTheArmRunsItsSessionStartHooksOnce(t *testing.T) {
 	}
 }
 
-// THE FOREGROUND WATCH IS PUBLISHED while the arm is installed and withdrawn at its disarm: a child
-// the backend runs through its real Run (macosuser's runReal) is the one a SIGTERM to yolo alone is
-// forwarded to during setup, and after the disarm none is.
+// A TERM during child start is serialized with foreground publication. The explicit TryLock witness
+// is the regression oracle: it fails deterministically if startForeground stops holding arm.mu while
+// invoking start, regardless of when the signal-delivery goroutine happens to run.
+func TestSignalDuringForegroundStartIsForwardedAfterPublication(t *testing.T) {
+	nixchildren.Isolate(t)
+	keepAlive(t, syscall.SIGTERM)
+	arm, _ := installArm(t, nil)
+	marks := t.TempDir()
+	seen, ready := filepath.Join(marks, "seen"), filepath.Join(marks, "ready")
+	cmd := exec.Command("sh", "-c", `trap 'echo TERM >> "$1"; exit 3' TERM; : > "$2"; `+
+		`i=0; while [ $i -lt 40 ]; do sleep 0.05; i=$((i+1)); done; exit 9`, "sh", seen, ready)
+	started, publish := make(chan struct{}), make(chan struct{}, 1)
+	var startHeldArmLock bool
+	type result struct {
+		done func()
+		err  error
+	}
+	startedResult := make(chan result, 1)
+	workerDone := make(chan struct{})
+	go func() {
+		done, err := arm.startForeground(func() (*os.Process, error) {
+			startErr := cmd.Start()
+			startHeldArmLock = !arm.mu.TryLock()
+			if !startHeldArmLock {
+				arm.mu.Unlock()
+			}
+			close(started)
+			if startErr != nil {
+				return nil, startErr
+			}
+			<-publish
+			return cmd.Process, nil
+		})
+		startedResult <- result{done: done, err: err}
+		close(workerDone)
+	}()
+	t.Cleanup(func() {
+		select {
+		case publish <- struct{}{}:
+		default:
+		}
+		<-workerDone
+		if cmd.Process != nil {
+			_ = cmd.Process.Kill()
+			_ = cmd.Wait()
+		}
+	})
+	<-started
+	if cmd.Process == nil {
+		if got := <-startedResult; got.err != nil {
+			t.Fatal(got.err)
+		}
+		t.Fatal("startForeground returned without starting the child")
+	}
+	if !startHeldArmLock {
+		t.Error("child start callback did not hold arm.mu; serialization was removed")
+	}
+	awaitFile(t, ready)
+	if err := syscall.Kill(os.Getpid(), syscall.SIGTERM); err != nil {
+		t.Fatal(err)
+	}
+	publish <- struct{}{}
+	got := <-startedResult
+	if got.err != nil {
+		t.Fatal(got.err)
+	}
+	defer got.done()
+	if status := awaitEnding(t, arm); status != 143 {
+		t.Errorf("Ending = %d, want 143", status)
+	}
+	_ = cmd.Wait()
+	if got := readSeen(marks); got != "TERM" {
+		t.Errorf("foreground child saw %q, want TERM delivered after atomic publication", got)
+	}
+}
+
+// TestTheBackendsForegroundChildGetsTheForwardedSignal exercises the actual RealDeps.Run caller:
+// TERM reaches a published setup child, teardown work is allowed to finish, and after disarm no child
+// is signaled. Each asynchronous invocation owns its stop-and-join cleanup before its temp directory.
 func TestTheBackendsForegroundChildGetsTheForwardedSignal(t *testing.T) {
 	nixchildren.Isolate(t)
 	keepAlive(t, syscall.SIGTERM)
 	run := macosuser.RealDeps(nil, nil, false).Run
-	script := func(marks string) []string {
+	script := func(marks, stop string) []string {
 		return []string{"sh", "-c", `trap 'echo TERM >> "$1"; exit 3' TERM; : > "$2"; ` +
-			`i=0; while [ $i -lt 40 ]; do sleep 0.05; i=$((i+1)); done; exit 9`,
-			"sh", filepath.Join(marks, "seen"), filepath.Join(marks, "ready")}
-	}
-	signalWhenReady := func(marks string) {
-		go func() {
-			awaitFile(t, filepath.Join(marks, "ready"))
-			_ = syscall.Kill(os.Getpid(), syscall.SIGTERM)
-		}()
+			`i=0; while [ $i -lt 40 ] && [ ! -e "$3" ]; do sleep 0.05; i=$((i+1)); done; exit 9`,
+			"sh", filepath.Join(marks, "seen"), filepath.Join(marks, "ready"), stop}
 	}
 
 	arm := NewMacosUserArm()
 	disarm := arm.install(nil, nil)
+	t.Cleanup(disarm)
 	marks := t.TempDir()
-	signalWhenReady(marks)
-	if rc := run(script(marks)); rc != 3 || readSeen(marks) != "TERM" {
+	stop := filepath.Join(marks, "stop")
+	fixture := startBackendRunFixture(t, run, script(marks, stop), stop)
+	awaitFile(t, filepath.Join(marks, "ready"))
+	awaitForeground(t, arm)
+	if err := syscall.Kill(os.Getpid(), syscall.SIGTERM); err != nil {
+		t.Fatal(err)
+	}
+	if rc := fixture.wait(); rc != 3 || readSeen(marks) != "TERM" {
 		t.Errorf("the backend's child returned %d and saw %q; want the forwarded TERM (3)", rc, readSeen(marks))
 	}
+	teardown := t.TempDir()
+	stop = filepath.Join(teardown, "stop")
+	fixture = startBackendRunFixture(t, run, script(teardown, stop), stop)
+	awaitFile(t, filepath.Join(teardown, "ready"))
+	if err := syscall.Kill(os.Getpid(), syscall.SIGTERM); err != nil {
+		t.Fatal(err)
+	}
+	if rc := fixture.wait(); rc != 9 || readSeen(teardown) != "" {
+		t.Errorf("a teardown child returned %d and saw %q; want it to finish without forwarding (9)",
+			rc, readSeen(teardown))
+	}
 	disarm()
-
 	after := t.TempDir()
-	signalWhenReady(after)
-	if rc := run(script(after)); rc != 9 || readSeen(after) != "" {
+	stop = filepath.Join(after, "stop")
+	fixture = startBackendRunFixture(t, run, script(after, stop), stop)
+	awaitFile(t, filepath.Join(after, "ready"))
+	if err := syscall.Kill(os.Getpid(), syscall.SIGTERM); err != nil {
+		t.Fatal(err)
+	}
+	if rc := fixture.wait(); rc != 9 || readSeen(after) != "" {
 		t.Errorf("after the disarm the backend's child returned %d and saw %q; want nothing forwarded (9)",
 			rc, readSeen(after))
 	}

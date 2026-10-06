@@ -32,6 +32,7 @@ command runs; a failed install stops the launch unless you set
 ### Fixed
 
 - Fixed Nix builds and checks failing because Homebrew's Git repository ignores the installed bundle; no manual flake copy or persistent `YOLO_REPO_ROOT` override is needed.
+- Terminating a macos-user launch during setup now reliably reaches a provisioning command that is starting.
 
 ## [0.12.0] - 2026-10-06
 

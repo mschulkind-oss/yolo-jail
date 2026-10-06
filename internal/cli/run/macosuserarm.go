@@ -19,7 +19,7 @@ package run
 //   - SETUP, from the install until the session's command starts. The first SIGINT, SIGHUP or
 //     SIGTERM ENDS THE LAUNCH: Ending reports 128+N from then on, the nix this process has running is
 //     stopped (nixchildren.Stop), and a SIGTERM or SIGHUP is forwarded to the child the backend has in
-//     the foreground (macosuser.SetForegroundWatch), which a signal sent to yolo alone never reaches.
+//     the foreground (macosuser.SetForegroundRunner), which a signal sent to yolo alone never reaches.
 //     The launch then returns 128+N at its next step boundary — Run's check before the dispatch and
 //     RunMacosUser's after each step (macosuser.Deps.Ending) — so every deferred teardown runs, and a
 //     Ctrl-C during setup never continues to the agent. SIGQUIT is absorbed.
@@ -72,7 +72,7 @@ type MacosUserArm struct {
 	// the session; 0 for none.
 	ending int
 	// foreground is the child the backend has running in the foreground during setup, registered
-	// through macosuser.SetForegroundWatch; session is the session's command once started.
+	// through macosuser.SetForegroundRunner; session is the session's command once started.
 	foreground *os.Process
 	session    *os.Process
 	perf       *perf.Log
@@ -115,7 +115,7 @@ func (a *MacosUserArm) install(log *perf.Log, notice func(string)) (disarm func(
 	if len(armed) > 0 {
 		signal.Notify(sigs, armed...)
 	}
-	unwatch := macosuser.SetForegroundWatch(a.watchForeground)
+	unwatch := macosuser.SetForegroundRunner(a.startForeground)
 	go func() {
 		defer close(done)
 		for {
@@ -316,14 +316,19 @@ func (a *MacosUserArm) AgentStarting() {
 	}
 }
 
-// watchForeground is the arm's macosuser.SetForegroundWatch: p is the backend's foreground child
-// until the done it returns. A child started once the launch is ending is a teardown's own removal,
-// which no later signal is forwarded to.
-func (a *MacosUserArm) watchForeground(p *os.Process) (done func()) {
+// startForeground is the arm's macosuser.ForegroundRunner. It holds the phase lock across child
+// start and publication, so a signal cannot observe a started setup child before it is registered.
+// A child started once the launch is ending is a teardown's own removal, which no later signal is
+// forwarded to.
+func (a *MacosUserArm) startForeground(start func() (*os.Process, error)) (done func(), err error) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
+	p, err := start()
+	if err != nil {
+		return nil, err
+	}
 	if a.ending != 0 || a.phase != macosUserSetup {
-		return func() {}
+		return func() {}, nil
 	}
 	a.foreground = p
 	return func() {
@@ -332,7 +337,7 @@ func (a *MacosUserArm) watchForeground(p *os.Process) (done func()) {
 		if a.foreground == p {
 			a.foreground = nil
 		}
-	}
+	}, nil
 }
 
 // sigName is the conventional name of the signals the arm takes.

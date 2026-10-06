@@ -85,7 +85,7 @@ func hostUserReal() string {
 // bytes into a 0644 launch.log, which is the one thing that log excludes by name
 // (internal/cli/run/launchlog.go, *What it deliberately does not capture*).
 //
-// EACH CHILD IS NAMED TO THE FOREGROUND WATCH while it runs (SetForegroundWatch), when a launch's
+// EACH CHILD IS STARTED AND NAMED TO THE FOREGROUND RUNNER while it runs (SetForegroundRunner), when a launch's
 // signal arm has published one: a SIGTERM sent to yolo alone reaches no child, so the arm forwards
 // it to the one running here — a sudo prompt, the bootstrap, a provisioning stage that can take
 // minutes — and the launch ends at its next step instead of after it.
@@ -100,59 +100,68 @@ func RunStdoutTo(w io.Writer) func(argv []string) int {
 	return func(argv []string) int { return runStdoutTo(w, argv) }
 }
 
-// runStdoutTo runs argv with stdin and stderr inherited and its stdout on w, naming the child to
-// the foreground watch while it runs, and returns the returncode; a start failure yields 1.
+// runStdoutTo runs argv with stdin and stderr inherited and its stdout on w, starting it through the
+// published foreground runner and returning its returncode; a start failure yields 1.
 func runStdoutTo(w io.Writer, argv []string) int {
 	if len(argv) == 0 {
 		return 1
 	}
 	cmd := exec.Command(argv[0], argv[1:]...)
 	cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, w, os.Stderr
-	if err := cmd.Start(); err != nil {
+	done, err := startForegroundProcess(func() (*os.Process, error) {
+		if err := cmd.Start(); err != nil {
+			return nil, err
+		}
+		return cmd.Process, nil
+	})
+	if err != nil {
 		return exitCodeOf(err)
 	}
-	done := watchForeground(cmd.Process)
-	err := cmd.Wait()
+	err = cmd.Wait()
 	done()
 	return exitCodeOf(err)
 }
 
-// foregroundWatch is the published watch runReal names each child to, nil outside a launch whose
-// signal arm is installed. Published rather than passed, for LaunchWriter's reason: RealDeps builds
-// Run for the four `yolo macos-*` commands too, which have no arm, and none of their call sites
-// moves.
+// ForegroundRunner starts a child and, when appropriate, publishes it as foreground before signals
+// can be handled. The runner must call start exactly once.
+type ForegroundRunner func(start func() (*os.Process, error)) (done func(), err error)
+
+// foregroundRunner is the published runner runReal uses while a launch's signal arm is installed.
 var (
-	foregroundWatchMu sync.Mutex
-	foregroundWatch   func(*os.Process) (done func())
+	foregroundRunnerMu sync.Mutex
+	foregroundRunner   ForegroundRunner
 )
 
-// SetForegroundWatch publishes watch, told of each child runReal starts (and, through the done it
-// returns, of that child's exit), and returns the undo, never nil. A macos-user launch's signal arm
-// publishes it while installed (internal/cli/run's macosuserarm.go).
-func SetForegroundWatch(watch func(*os.Process) (done func())) (undo func()) {
-	foregroundWatchMu.Lock()
-	defer foregroundWatchMu.Unlock()
-	prev := foregroundWatch
-	foregroundWatch = watch
+// SetForegroundRunner publishes runner for children runReal starts, and returns the undo, never nil.
+// The macos-user launch's signal arm starts and publishes each child under one lock so a signal
+// cannot land between cmd.Start and foreground publication.
+func SetForegroundRunner(runner ForegroundRunner) (undo func()) {
+	foregroundRunnerMu.Lock()
+	defer foregroundRunnerMu.Unlock()
+	prev := foregroundRunner
+	foregroundRunner = runner
 	return func() {
-		foregroundWatchMu.Lock()
-		defer foregroundWatchMu.Unlock()
-		foregroundWatch = prev
+		foregroundRunnerMu.Lock()
+		defer foregroundRunnerMu.Unlock()
+		foregroundRunner = prev
 	}
 }
 
-// watchForeground names p to the published watch, returning its done (never nil).
-func watchForeground(p *os.Process) (done func()) {
-	foregroundWatchMu.Lock()
-	watch := foregroundWatch
-	foregroundWatchMu.Unlock()
-	if watch == nil {
-		return func() {}
+// startForegroundProcess runs start under the published runner, if any, and returns a no-op done
+// when no launch has published one.
+func startForegroundProcess(start func() (*os.Process, error)) (done func(), err error) {
+	foregroundRunnerMu.Lock()
+	runner := foregroundRunner
+	foregroundRunnerMu.Unlock()
+	if runner == nil {
+		_, err := start()
+		return func() {}, err
 	}
-	if d := watch(p); d != nil {
-		return d
+	done, err = runner(start)
+	if done == nil {
+		done = func() {}
 	}
-	return func() {}
+	return done, err
 }
 
 // runBashReal runs `bash -c <script>` inheriting stdio; returns the returncode.
