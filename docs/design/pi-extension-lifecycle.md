@@ -35,7 +35,9 @@ shared store itself is ruled to go:** [`pi-git-extension-caching.md`](pi-git-ext
 main since 2026-10-05**, ahead of that build:
 [`pi-extension-store-builds.md`'s XB-D14](pi-extension-store-builds.md#XB-D14) unshares the
 prefix, so `~/.pi/agent/npm` is per workspace again, and moves the refresh's lock, stamp and seen
-markers into the workspace's own `.pi`. §3.1 and §3.3 below describe the tier as it shipped.
+markers into the workspace's own `.pi`. §3.1, §3.2 and §3.3 below describe the tier as it
+shipped: §3.2's lock is now `.pi/.yolo-update.lock`, and its stamp and seen markers are in
+`.pi/.yolo-refresh/`, per workspace, where §3.2 puts them machine-wide under `~/.cache`.
 
 > **In short.** Pi extensions belong in YOLO's machine-scoped storage tier rather than
 > isolated per-workspace homes: decoupling extension storage from workspace session state

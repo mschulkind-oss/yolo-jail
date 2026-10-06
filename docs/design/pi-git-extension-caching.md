@@ -367,24 +367,26 @@ from:".pi/agent/git", at:".pi-shared-git"}` in place of the retired pair
 **The machine directory.** `.pi-shared-git` on the host
 (`~/.local/share/yolo-jail/home/.pi-shared-git`) is left in place, per the move-over-delete rule,
 and nothing reads or mounts it any more. No yolo command reclaims it: delete it by hand once every
-jail started before the revert has exited. Since 2026-10-05 a fresh pi launch on a container
-backend that finds it says so, with the `rm -rf`
+jail started before the revert has exited. Since 2026-10-05 a fresh pi launch on podman or Apple
+Container that finds it says so, with the `rm -rf`, and one on macos-user does not
 ([XB-D31](pi-extension-store-builds.md#XB-D31)). Its checkouts do not seed the redesign's
 mirrors.
 
 ### 3.11 The npm store
 
-`.pi-shared-npm` is one mutable npm prefix shared by every pi jail, so it has the same fault. A
-`pi update` in one jail replaces package files under another jail's running session, which is
-[OQ-4](#OQ-4)'s leakage. Two jails pinning different versions of one package share one
-`node_modules/<name>`, which is [OQ-3](#OQ-3)'s winner. The same shape fixes it: one tree per
+`.pi-shared-npm` was one mutable npm prefix shared by every pi jail until 2026-10-05
+([XB-D14](pi-extension-store-builds.md#XB-D14)), so it had the same fault. A `pi update` in one jail
+replaced package files under another jail's running session, which is [OQ-4](#OQ-4)'s leakage. Two
+jails pinning different versions of one package shared one `node_modules/<name>`, which is
+[OQ-3](#OQ-3)'s winner. The same shape fixes it: one tree per
 package at a resolved version and recipe, `npm:` entries rewritten to pointers, and yolo resolving
 versions. pi's own `pi update` would then have nothing left to touch in a jail. [OQ-5](#OQ-5) ruled,
 on 2026-09-26, that this is done now, git first and then npm in one build, because two mechanisms
 for one property is drift.
 
 <a id="oq-5-background"></a>Why the npm store was ruled, and not left: `.pi-shared-npm` breaks
-[OQ-3](#OQ-3) and [OQ-4](#OQ-4) in the same way the git store did, and it is live today. The earlier
+[OQ-3](#OQ-3) and [OQ-4](#OQ-4) in the same way the git store did, and it was live until it was
+retired on 2026-10-05. The earlier
 ruling that shared it ([`pi-extension-lifecycle.md` OQ-1](pi-extension-lifecycle.md#OQ-1), *"one
 version instead of N that drift"*) predates the no-winner ruling, and the two pull apart for any
 pinned version. The companion's first step under every [OQ-6](#OQ-6) option, ahead of any tree,
@@ -395,7 +397,8 @@ BUILT on 2026-10-05
 [XB-D14](pi-extension-store-builds.md#XB-D14)). `~/.pi/agent/npm` is per workspace again, the
 `unshare_directory` hook removing the old link as it does for git, and the host's
 `.pi-shared-npm` is left for a human to delete once every jail started before then has exited;
-a fresh launch says so while it is there.
+a fresh launch on podman or Apple Container says so while it is there, and one on macos-user does
+not ([XB-D31](pi-extension-store-builds.md#XB-D31)).
 
 ### 3.12 The refresh trigger that stays
 
@@ -407,8 +410,8 @@ built, because an npm package newly added within the hour would otherwise be ins
 startup, unlocked, and under every [OQ-6](#OQ-6) option it serves what pi still installs itself
 from the user settings it watches: an in-session `pi install`, and under (c) every entry no pack
 declares. It watches only `~/.pi/agent/settings.json` (READ
-[`packs/pi/pack.json:31-33`](../../packs/pi/pack.json#L31-L33),
-[`prelaunchrefresh.go:109-111`](../../internal/entrypoint/prelaunchrefresh.go#L109-L111)), never a
+[`packs/pi/pack.json`](../../packs/pi/pack.json)'s `due_on_change`,
+[`prelaunchrefresh.go`](../../internal/entrypoint/prelaunchrefresh.go)'s `_refresh_content_key`), never a
 project's `.pi/settings.json`, which pi 1.0.1 reads from the starting directory
 (`settings-manager.js:100`), so a project package newly added is still pi's own unlocked startup
 install. It is independent of the store's shape, so it stays either way.

@@ -33,11 +33,11 @@ timed against a warm launch ([XB-D40](#XB-D40)).
 > a pack declares can be built the way a patched one already is, on the host, each key under its own
 > lock and all keys at once, and handed to the next launch whenever you would rather not wait.
 
-**Why it matters.** pi's extensions are refreshed in front of a launch, hourly, under one lock every
-jail on the machine shares ([`packs/pi/pack.json:34`](../../packs/pi/pack.json#L34)), into an npm prefix
-every pi jail loads from, against the 2026-09-25 no-leakage ruling
-([OQ-4](pi-git-extension-caching.md#OQ-4)); and every build runs one key after another. On
-2026-10-05 the maintainer asked for each of those to change.
+**Why it matters.** pi's extensions were refreshed in front of a launch, hourly, under one lock every
+jail on the machine shared, into an npm prefix every pi jail loaded from, against the 2026-09-25
+no-leakage ruling ([OQ-4](pi-git-extension-caching.md#OQ-4)); and every build ran one key after
+another. On 2026-10-05 the maintainer asked for each of those to change, and both changed that day
+([XB-D14](#XB-D14), [XB-D39](#XB-D39)).
 
 **The shape.** One pipeline per extension key (check, build, admit, copy), run for all keys of a
 launch at once; per-key host locks; records and trees published by rename; and one `agent_updates`
@@ -139,16 +139,19 @@ The principles, numbered so later sections and the store's design can cite them:
 
 ## 3. What exists today, precisely
 
+As drafted on 2026-10-05, before anything here was built. A row the build has since changed says
+which ledger row changed it, and what holds now.
+
 | Fact | Where | How known |
 | :--- | :--- | :--- |
-| pi's refresh, `pi update --extensions`, runs in front of the exec under `.pi-shared-npm/.yolo-update.lock`, one lock for the machine, since the prefix it writes is one directory every pi jail mounts | [`packs/pi/pack.json:34`](../../packs/pi/pack.json#L34), [`:189-200`](../../packs/pi/pack.json#L189-L200) | READ |
-| A launch whose settings content is new, finding that lock held, waits up to `UPDATE_TIMEOUT` (60 s) for it | [`prelaunchrefresh.go:152-163`](../../internal/entrypoint/prelaunchrefresh.go#L152-L163) | READ |
-| The refresh is due when its stamp, `~/.cache/yolo-agent-stamps/refresh/pi.stamp`, is over an hour old (machine-global), or the settings content was never refreshed with successfully; a failure records no seen marker (the stamp is touched on every outcome), so new content offline refreshes on every launch | [`:140-145`](../../internal/entrypoint/prelaunchrefresh.go#L140-L145), [`:229-239`](../../internal/entrypoint/prelaunchrefresh.go#L229-L239) | READ; the repeat MEASURED, three launches in a row |
-| The patched-extension gate runs after the refresh, so a launch it stops has paid for the refresh first | [`shims.go:1530-1531`](../../internal/entrypoint/shims.go#L1530-L1531), [`forklauncher.go:227-228`](../../internal/entrypoint/forklauncher.go#L227-L228) | READ |
-| Patched extensions are delivered one key after another, each advance with its own build jail | [`treedelivery.go:45-51`](../../internal/cli/treedelivery.go#L45-L51) | READ |
-| A build's lock is a kernel `flock` per build identity, which the kernel releases when its holder dies | [`forkbuild.go:146-151`](../../internal/cli/forkbuild.go#L146-L151), [`pidlock.go:6`](../../internal/pidlock/pidlock.go#L6) | READ |
-| A sealed build's `~/.cache` is its own, made under its staging workspace and removed with it | [`seal.go:64-68`](../../internal/cli/run/seal.go#L64-L68), [`forkbuild.go:258-263`](../../internal/cli/forkbuild.go#L258-L263) | READ |
-| `agent_updates` is a bool or a per-pack map of bools, user scope only; the jail's reader reads any other shape as "on" | [`config/agentupdates.go:12-27`](../../internal/config/agentupdates.go#L12-L27), [`validate.go:588-610`](../../internal/config/validate.go#L588-L610), [`entrypoint/agentupdates.go:46-70`](../../internal/entrypoint/agentupdates.go#L46-L70) | READ |
+| *Changed by [XB-D14](#XB-D14):* pi's refresh, `pi update --extensions`, ran in front of the exec under `.pi-shared-npm/.yolo-update.lock`, one lock for the machine, since the prefix it wrote was one directory every pi jail mounted. It now runs under `.pi/.yolo-update.lock`, one per workspace | [`packs/pi/pack.json`](../../packs/pi/pack.json) | READ |
+| A launch whose settings content is new, finding that lock held, waits up to `UPDATE_TIMEOUT` (60 s) for it; since [XB-D14](#XB-D14), only behind another session of its own workspace | [`prelaunchrefresh.go`](../../internal/entrypoint/prelaunchrefresh.go) (`_wait_for_refresh_lock`) | READ |
+| *Changed by [XB-D29](#XB-D29) and [XB-D26](#XB-D26):* the refresh was due when its stamp, `~/.cache/yolo-agent-stamps/refresh/pi.stamp`, was over an hour old (machine-global), or the settings content was never refreshed with successfully; a failure recorded no seen marker (the stamp was touched on every outcome), so new content offline refreshed on every launch. The stamp and the seen markers now live beside the lock, in `.pi/.yolo-refresh/`, and a failed refresh of new content waits out the hour | [`prelaunchrefresh.go`](../../internal/entrypoint/prelaunchrefresh.go) (`_refresh_due`, `_refresh_content_unseen`) | READ; the repeat MEASURED, three launches in a row |
+| *Changed by [XB-D25](#XB-D25):* the patched-extension gate ran after the refresh, so a launch it stopped had paid for the refresh first. It now runs first, in every template | [`shims.go`](../../internal/entrypoint/shims.go), [`forklauncher.go`](../../internal/entrypoint/forklauncher.go) | READ |
+| *Changed by [XB-D39](#XB-D39):* patched extensions were delivered one key after another, each advance with its own build jail. A launch's extensions now advance in one pool, each build still in its own build jail | [`treedelivery.go`](../../internal/cli/treedelivery.go), [`treepool.go`](../../internal/cli/treepool.go) | READ |
+| A build's lock is a kernel `flock` per build identity, which the kernel releases when its holder dies | [`forkbuild.go`](../../internal/cli/forkbuild.go), [`pidlock.go`](../../internal/pidlock/pidlock.go) | READ |
+| A sealed build's `~/.cache` is its own, made under its staging workspace and removed with it | [`seal.go`](../../internal/cli/run/seal.go), [`forkbuild.go`](../../internal/cli/forkbuild.go) | READ |
+| `agent_updates` is a bool or a per-pack map of bools, user scope only; the jail's reader reads any other shape as "on" | [`config/agentupdates.go`](../../internal/config/agentupdates.go), [`validate.go`](../../internal/config/validate.go), [`entrypoint/agentupdates.go`](../../internal/entrypoint/agentupdates.go) | READ |
 | pi 1.0.1 checks npm versions 4 at a time, then runs one batched npm install beside git updates 4 at a time; its startup installs anything still missing one at a time | `dist/core/package-manager.js:36-37`, `:884`, `:896-911`, `:1000-1040` | READ |
 | pi 1.0.1's git dependency step for npm is `install --omit=dev --legacy-peer-deps`; its npm install is `install <spec> --prefix <root> --legacy-peer-deps` | `package-manager.js:1483-1499`, `:1505-1526` | READ |
 | The held resolver resolves every pointer one after another, looks each git ref up twice, prefetches no blobs, and runs `<npmCommand> install` with neither of pi's flags when `npmCommand` is set | `held/pi-extension-store:internal/pkgtrees/pkgtrees.go:200-211`, `git.go`, `packs/pi/pack.json` | READ |
@@ -277,12 +280,14 @@ Under (a) or (b) the store lands with [§8](#8-if-the-held-store-lands-instead)'
 
 ## 5. Parallel installs and updates
 
-### 5.1 What runs one after another today
+### 5.1 What ran one after another
 
-- **The launch's tree arm** advances one key, then the next
-  ([`treedelivery.go:45-51`](../../internal/cli/treedelivery.go#L45-L51)), and the fork arm before it
-  does the same for patched forks
-  ([`forkbuild.go:347-355`](../../internal/cli/forkbuild.go#L347-L355)).
+As drafted; [XB-D39](#XB-D39) put the tree arm's keys in one pool, and the fork arm stays serial.
+
+- **The launch's tree arm** advanced one key, then the next
+  ([`treedelivery.go`](../../internal/cli/treedelivery.go)), and the fork arm before it
+  did the same for patched forks
+  ([`forkbuild.go`](../../internal/cli/forkbuild.go)).
 - **The held resolver** resolves every pointer in turn (READ, `pkgtrees.go:200-211` on the held
   branch).
 - **pi** checks 4 at a time and installs in two waves, then its startup installs what is still
@@ -372,7 +377,7 @@ and 4.61 s against 4.55 s; MEASURED, research pass, medians of three).
 | Lock | Scope | After this design |
 | :--- | :--- | :--- |
 | `.pi-shared-npm/.yolo-update.lock`, pi's refresh | **The machine**, because the prefix is | Moves to `.pi/.yolo-update.lock`, one workspace ([§6.3](#63-what-replaces-the-machine-wide-lock-now)) |
-| The program's install-prefix lock, `$NPM_CONFIG_PREFIX/.yolo-update.lock` | One workspace (`~/.npm-global`) | Unchanged ([`shims.go:1219`](../../internal/entrypoint/shims.go#L1219)) |
+| The program's install-prefix lock, `$NPM_CONFIG_PREFIX/.yolo-update.lock` | One workspace (`~/.npm-global`) | Unchanged ([`shims.go`](../../internal/entrypoint/shims.go)) |
 | The MCP server refresh's lock | One workspace's prefix | Unchanged |
 | A build's lock | One build identity | Unchanged, a kernel flock |
 | An owner key's record lock | One key | Unchanged |
@@ -380,16 +385,16 @@ and 4.61 s against 4.55 s; MEASURED, research pass, medians of three).
 | The launch lock | One workspace | Unchanged |
 | The held store's `mirror-<slug>` and `tree-<key>` locks | One repository, one tree | Land only under (a) or (b), retuned ([§8](#8-if-the-held-store-lands-instead)) |
 | The refresh's stamp and its seen-content markers (throttles, not locks) | **The machine**, under `~/.cache` | Move beside the refresh's lock, one workspace ([XB-D14](#XB-D14)) |
-| The agent CLI's hourly update stamp, `~/.cache/yolo-agent-stamps/<bin>.stamp` (a throttle) | **The machine**, over an `npm install -g` into each workspace's `$NPM_CONFIG_PREFIX` ([`shims.go:368`](../../internal/entrypoint/shims.go#L368), [`:1189`](../../internal/entrypoint/shims.go#L1189)) | Unchanged here: [OQ-PD23](program-delivery.md#OQ-PD23) owns it, and its leaning makes the stamp stop mattering |
-| The MCP server refresh's stamps, `~/.cache/yolo-agent-stamps/servers` (throttles) | **The machine**, over installs into each workspace's prefix, under that prefix's lock ([`serverrefresh.go:264`](../../internal/entrypoint/serverrefresh.go#L264), [`:379-382`](../../internal/entrypoint/serverrefresh.go#L379-L382)) | Unchanged here; it has the CLI stamp's shape, so it is ruled with [OQ-PD23](program-delivery.md#OQ-PD23) |
+| The agent CLI's hourly update stamp, `~/.cache/yolo-agent-stamps/<bin>.stamp` (a throttle) | **The machine**, over an `npm install -g` into each workspace's `$NPM_CONFIG_PREFIX` ([`shims.go`](../../internal/entrypoint/shims.go)) | Unchanged here: [OQ-PD23](program-delivery.md#OQ-PD23) owns it, and its leaning makes the stamp stop mattering |
+| The MCP server refresh's stamps, `~/.cache/yolo-agent-stamps/servers` (throttles) | **The machine**, over installs into each workspace's prefix, under that prefix's lock ([`serverrefresh.go`](../../internal/entrypoint/serverrefresh.go)) | Unchanged here; it has the CLI stamp's shape, so it is ruled with [OQ-PD23](program-delivery.md#OQ-PD23) |
 
 The first row is the one machine-wide lock in pi's path. Three machine-wide throttles sit over
 per-workspace work, against [§6.2](#62-the-rules)'s rule 6. This design moves the refresh's, because
 a seen marker there can make a new workspace skip the refresh it needs
 ([§6.3](#63-what-replaces-the-machine-wide-lock-now)). The CLI's and the servers' throttle only
 updates: a missing CLI or server installs whatever its stamp says (READ, the cold install at
-[`shims.go:1466-1475`](../../internal/entrypoint/shims.go#L1466-L1475), the absent server at
-[`serverrefresh.go:269-282`](../../internal/entrypoint/serverrefresh.go#L269-L282)), so they can keep a
+[`shims.go`](../../internal/entrypoint/shims.go), the absent server at
+[`serverrefresh.go`](../../internal/entrypoint/serverrefresh.go)), so they can keep a
 workspace on an older version but start no unlocked install, which is
 [OQ-PD23](program-delivery.md#OQ-PD23)'s question.
 
@@ -441,13 +446,13 @@ folder's `rm -rf` while it is still in the machine store ([XB-D31](#XB-D31)), th
 leaving it alone ([XB-D32](#XB-D32)), and the `shared_directory` hook kept for other packs
 ([XB-D33](#XB-D33)).
 
-**What it costs, and why it needs your confirmation.** Until trees land, each workspace installs
+**What it costs, and why it needed your confirmation.** Until trees land, each workspace installs
 its npm extensions itself: that is [OQ-5](pi-git-extension-caching.md#OQ-5)'s option (c), which your
 2026-09-26 ruling passed over for (a), taken as an interim on the way to (a). I propose it now because
-the shared prefix is a live breach of the no-leakage ruling, and because you said on 2026-10-05
+the shared prefix was a live breach of the no-leakage ruling, and because you said on 2026-10-05
 *"I don't love a machine wide lock seems like we can do better here"*. In the research pass a single
-refresh in one jail reported *"changed 292 packages"* in the prefix every pi jail loads from. Taking
-an option you passed over is your call, so [XB-D14](#XB-D14) waits on your one-line confirmation.
+refresh in one jail reported *"changed 292 packages"* in the prefix every pi jail loaded from. Taking
+an option you passed over was your call, and you confirmed it that day.
 
 ## 7. When updates run
 
@@ -510,14 +515,14 @@ build fails. Within the hour, a launch runs no git and no registry request.
    ([`OQ-RO3`](../reference/report-tiers.md#why-its-this-way)).
 
 **When a background advance is killed**, its flocks are released by the kernel at once
-([`pidlock.go:6`](../../internal/pidlock/pidlock.go#L6)) and its record stays as it was. Two things do
+([`pidlock.go`](../../internal/pidlock/pidlock.go)) and its record stays as it was. Two things do
 not end with it on their own. Nothing stops a build jail when the yolo process that started it dies
 (READ: `rg Pdeathsig internal/ cmd/` finds a parent-death signal only in the GitHub broker and the
 jail keeper, neither on the build path), and no reclaimer removes a capture
 staging directory: `yolo prune` leaves it on purpose, and only the next build of the same id clears it
-(READ [`gc.go:73-77`](../../internal/capture/gc.go#L73-L77),
-[`store.go:162-174`](../../internal/capture/store.go#L162-L174)). That next build reuses the same
-staging path and container name ([`forkbuild.go:258-263`](../../internal/cli/forkbuild.go#L258-L263)),
+(READ [`gc.go`](../../internal/capture/gc.go),
+[`store.go`](../../internal/capture/store.go)). That next build reuses the same
+staging path and container name ([`forkbuild.go`](../../internal/cli/forkbuild.go)),
 so it could clear the directory under a build jail still running in it. Hence
 ([XB-D19](#XB-D19)): on SIGTERM or SIGHUP the background advance kills its builds' process groups
 and removes each build jail by name (`<runtime> rm -f <cname>`), and every build first asks whether
@@ -585,10 +590,10 @@ each found by the research pass against `d44cb88b9`:
 | Defect or cost | Fix | Measured effect |
 | :--- | :--- | :--- |
 | The git dependency command has drifted from pi 1.0.1: a set `npmCommand` runs a bare `install`, pulling dev dependencies and pi's own `@earendil-works/pi-*` peers into every tree | Per-manager argv mirroring pi's `getGitDependencyInstallArgs` (npm, bun, pnpm) | `pi-subagents` 634 MB → 21 MB; `pi-dynamic-workflows` 687 MB → 15 MB |
-| No blob prefetch: a checkout from the blob-less mirror makes one fetch per file | packsrc's one-request prefetch ([`store.go:770-775`](../../internal/packsrc/store.go#L770-L775)) | Five trees: 670 s wall, 65.8 s CPU as held, one run each → 14.6 s, 0.94 s, medians of three |
+| No blob prefetch: a checkout from the blob-less mirror makes one fetch per file | packsrc's one-request prefetch ([`store.go`](../../internal/packsrc/store.go)) | Five trees: 670 s wall, 65.8 s CPU as held, one run each → 14.6 s, 0.94 s, medians of three |
 | Each git ref looked up twice per launch | One lookup per pointer | Warm launch with the pointers already resolved 4 at once: 62.4–65.8 → 42.8–43.7 ms CPU (medians of two rounds of 20; the held store's own serial baseline is [§2](#2-the-verdict-and-five-principles)'s 63.6–67.1 ms) |
 | Pointers resolved one after another | At most 4 at once, Node probed once | Cold trees, mirrors present: 7.2–7.5 s → 1.5–1.7 s wall, CPU about the same |
-| The store's git ignores packsrc's hook and fsmonitor guard | `storeGitConfig` ([`store.go:289`](../../internal/packsrc/store.go#L289)) | READ |
+| The store's git ignores packsrc's hook and fsmonitor guard | `storeGitConfig` ([`store.go`](../../internal/packsrc/store.go)) | READ |
 | A dead holder blocks a waiter up to 600 s | Heartbeat 5 s, stale after 60 s, for a Go holder | INFERRED |
 | A launch can repoint at a tree a prune is removing, and pi skips the missing path silently | The reaper removes the marker, then renames the tree into `tmp/`; a repoint re-checks the marker after its rename | INFERRED |
 
@@ -608,8 +613,8 @@ build at 0.99.1, whose package manager is byte-identical to 1.0.1's.
 | 1 | Compiling extensions with jiti's cache empty | `pi --help` 7.0 s wall, 10.2 s CPU (n=5), against 0.68 s and 0.88 s warm (n=10) | The first pi start after every jail start: the cache is `/tmp/jiti`, which a restart empties | Keep the cache per workspace across restarts, never machine-wide | [Roadmap](../plans/roadmap.md) |
 | 2 | The pre-launch refresh, when due | At least 8.4 s wall in one real run (INFERRED from file times), 60 s bound; 131 ms wall, 161 ms CPU offline | Hourly per machine, and on new settings content | The background mode; skip it when nothing is raw, and for a version probe | Here: [§7](#7-when-updates-run), [XB-D23](#XB-D23), [XB-D24](#XB-D24) |
 | 3 | The MCP server refresh, when stale, and the agent CLI's own update, when due | An `npm install` per server, and one for the CLI, each with a 60 s bound; not timed | Hourly per machine | Stays in front ([OQ-XB1](#OQ-XB1)); a version probe skips both | Here: [XB-D24](#XB-D24) |
-| 4 | A nix build with nothing to do, at a fresh launch | 1.69 s median wall (n=15 spans in the host perf log; wall only) | Every fresh launch declaring `packages:` ([`autoload.go:479-483`](../../internal/image/autoload.go#L479-L483)) | The stock-image skip for a launch with `packages:` | Already on the [roadmap](../plans/roadmap.md) |
-| 5 | The durable-directory walk | 0.30 s and 0.95 s for the two passes of one launch (one launch, wall only); 2.0 s where it hit its cap ([`report.go:21`](../../internal/durable/report.go#L21)) | Twice per fresh launch | Walk once, in the jail's own boot | Already on the [roadmap](../plans/roadmap.md) |
+| 4 | A nix build with nothing to do, at a fresh launch | 1.69 s median wall (n=15 spans in the host perf log; wall only) | Every fresh launch declaring `packages:` ([`autoload.go`](../../internal/image/autoload.go)) | The stock-image skip for a launch with `packages:` | Already on the [roadmap](../plans/roadmap.md) |
+| 5 | The durable-directory walk | 0.30 s and 0.95 s for the two passes of one launch (one launch, wall only); 2.0 s where it hit its cap ([`report.go`](../../internal/durable/report.go)) | Twice per fresh launch | Walk once, in the jail's own boot | Already on the [roadmap](../plans/roadmap.md) |
 | 6 | Extensions loading with a warm cache | 473 ms wall, 596 ms CPU for 23 extensions (n=5) | Every start | One shared jiti instance with its module cache on (pi gives each extension its own, with `moduleCache: false`, READ `loader.js:478`) | pi upstream, not yolo work |
 | 7 | Node's compile cache for pi's own bundle | `pi --version` 210 → 135 ms wall (research, wall only); re-measured in review by running the jail's pi `cli.js --version` under `/bin/node` directly, n=15 each, interleaved, at a load of about 99: 869 → 641 ms CPU, 746 → 483 ms wall, cold cache against warm | The first start after a jail start: unset `NODE_COMPILE_CACHE` puts it in `/tmp` | A persistent directory, with #1 | [Roadmap](../plans/roadmap.md) |
 | 8 | Evaluating pi's bundle | About 100 ms (INFERRED from a CPU profile) | Every start | Lazy imports of highlighting, undici and yaml | pi upstream |

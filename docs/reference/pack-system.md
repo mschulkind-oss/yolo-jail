@@ -1511,10 +1511,13 @@ absent path are left alone, and the store the link pointed at is never touched. 
 pi's git checkouts ([`pi-git-extension-caching.md`](../design/pi-git-extension-caching.md)), and
 since 2026-10-05 for its npm prefix
 ([XB-D14](../design/pi-extension-store-builds.md#XB-D14)), so no shipped pack declares
-`shared_directory` any more. A fresh launch on a container backend that finds a selected pack's
-old `at` still in the machine store, and no selected pack sharing it, prints one line with the
-`rm -rf` that deletes it, once no jail an older yolo started still mounts it; nothing deletes it
-for you, and the base-home sweep leaves it alone.
+`shared_directory` any more. A fresh launch on podman or Apple Container that finds a selected
+pack's old `at` still in the machine store, and neither a selected pack nor any shipped one
+sharing it, prints one line with the `rm -rf` that deletes it, once no jail an older yolo started
+still mounts it ([XB-D44](../design/pi-extension-store-builds.md#XB-D44)); a macos-user launch
+says nothing. Nothing deletes it for you, and the base-home sweep `yolo check` reports leaves a
+SHIPPED pack's old `at` alone; a configured pack's reads there as an unknown directory, as any
+directory no shipped pack declares does.
 
 The copy-if-empty branch is not a freshness rule — it is what makes a first login in a fresh
 install survive. There is deliberately no freshness comparison in any schema: a

@@ -19,17 +19,19 @@ import (
 //
 // EVERY TEST HERE DRIVES RunPackHooks, not the hook function, and that is the point rather
 // than ceremony. RunPackHooks is the entry the boot calls (boot.go, darwin.go), so deleting
-// the dispatch arm, the hook's `case`, or pi's declaration fails these tests; a test calling
-// linkSharedDirectory directly would survive all three. What it does NOT reach is boot.go's
-// own call of RunPackHooks — that needs a whole boot, and nothing in this package has one.
+// the dispatch arm, the hook's `case`, or the fixture's declaration fails these tests; a test
+// calling linkSharedDirectory directly would survive all three. What it does NOT reach is
+// boot.go's own call of RunPackHooks — that needs a whole boot, and nothing in this package has
+// one.
 //
-// It drives a FIXTURE pack rather than a shipped one, because since 2026-09-26 no shipped pack
-// declares the hook: pi's npm store, the only user, became per-commit trees plus a
-// per-workspace prefix (docs/design/pi-git-extension-caching.md OQ-5), and pi now UNSHARES the
-// link this hook made. The fixture is the shape pi declared until then — the same `at`/`from`,
-// the machine-scope declaration, and a refresh lock inside the store — so every case below
-// still exercises that depth and that bookkeeping entry; the hook refuses a shared dir the pack
-// never declared, and that refusal is what bounds the cross-workspace leak.
+// It drives a FIXTURE pack rather than a shipped one, because since XB-D14 of
+// docs/design/pi-extension-store-builds.md (2026-10-05) no shipped pack declares the hook: pi's
+// npm prefix, its last user, is per workspace again (trees for it are designed, not built), and
+// pi now UNSHARES the link this hook made. The fixture is the shape pi declared until then — the
+// same `at`/`from`, the machine-scope declaration, and a refresh lock inside the store — so every
+// case below still exercises that depth and that bookkeeping entry, and it is the fixture's
+// declaration, not pi's, that the cases depend on; the hook refuses a shared dir the pack never
+// declared, and that refusal is what bounds the cross-workspace leak.
 
 // sharedStoreFixture is that manifest.
 const sharedStoreFixture = `{"name":"storefix","contributes":[
@@ -199,11 +201,11 @@ func TestSharedDirectoryHookLinksWhenNeitherSideExists(t *testing.T) {
 }
 
 // TestSharedDirectoryHookMigratesAPopulatedStoreIntoAnEmptyShared is the DAY-ONE case, not an
-// edge case: every jail that has ever run pi already holds a real, populated
-// ~/.pi/agent/npm, and EnsureGlobalStorage has already created an empty
-// ~/.pi-shared-npm on every machine from the ungated embedded list. So the branch that must
-// work on the first launch after this ships is "a real populated directory where the symlink
-// belongs, and an empty store" — the one the file-shaped helper cannot do.
+// edge case: when pi shared its prefix, every jail that had ever run pi already held a real,
+// populated ~/.pi/agent/npm, and EnsureGlobalStorage had already created an empty
+// ~/.pi-shared-npm on every machine from the ungated embedded list. So the branch that had to
+// work on the first launch after the hook shipped was "a real populated directory where the
+// symlink belongs, and an empty store" — the one the file-shaped helper cannot do.
 //
 // Both pre-migration shapes of the store are exercised, because they reach the branch by
 // different tests inside one condition: ABSENT is a machine whose GlobalHome predates the

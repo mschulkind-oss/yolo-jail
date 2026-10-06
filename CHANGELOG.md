@@ -30,7 +30,7 @@ into a jail, and what each launch shows about the code it runs. See
 
 - pi installs its extensions per project, so one jail's update no longer changes another's, and
   each project's first pi launch installs them again. While the old shared extensions folder is
-  still there, a launch names it and the command that deletes it.
+  still there, a Podman or Apple Container launch names it and the command that deletes it.
 
 ### Fixed
 
