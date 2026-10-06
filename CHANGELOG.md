@@ -36,6 +36,10 @@ give that script the variables it needs, such as where to install, with `install
 model on the provider's list, beside GitHub's own models when you are signed in to GitHub. See
 [a company's model list](userguide/guides/providers-and-models.md#model-menus-and-a-companys-model-list).
 
+**Overridden variables are named.** When a profile, your `env_sources` or a pack's default
+overrides another on a variable, every launch says which won, never the value. See
+[Providers and models](userguide/guides/providers-and-models.md).
+
 ### Changed
 
 - `host_management` now defaults to `"none"`, and `"assert"` is refused: to keep `yolo host apply`

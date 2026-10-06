@@ -7,8 +7,9 @@ package packload
 // (internal/cli/run). Each vehicle used to layer the sources in its own order, so one key had a
 // different winner per vehicle; the MEASURED table is notch-convergence's row C3.
 //
-// THE ORDER, lowest to highest, is OQ-NC12's option A, decided on its leaning under the
-// maintainer's 2026-10-04 delegation and open to revision:
+// THE ORDER, lowest to highest, is OQ-NC12's option A, built on its leaning under the
+// maintainer's 2026-10-04 delegation and ruled in review on 2026-10-05 with a disclosure ("can we
+// do A and then disclose at every launch if something was shadowed in that way?"):
 //
 //  1. the pack env fold (EnvFold, unchanged inside: per pack, its static keys, then its gated
 //     ones), as the notch serves it (FoldFor);
@@ -27,8 +28,12 @@ package packload
 // ONE ENTRY PER KEY, in the order each key's winning entry was written, with the source it came
 // from and the pack it is attributed to, so a vehicle never layers two values for one name and
 // lets its own grammar pick. What a vehicle does with the user's own value (the jail's per-agent
-// file defers to it, OQ-CN8; the host composes over the shell pending OQ-NC13) and where the
+// file defers to it, OQ-CN8; the host composes over the shell, as OQ-NC13 ruled) and where the
 // wire tables go stays the vehicle's.
+//
+// WHAT EACH WINNER SHADOWED is kept beside it (Shadowed): the entries of lower-ranked sources it
+// replaced. The ruling's disclosure reads them (envshadow.go), so every vehicle names the same
+// shadows because it serializes the same composition.
 
 import (
 	"github.com/mschulkind-oss/yolo-jail/internal/agentenv"
@@ -54,6 +59,11 @@ type EnvEntry struct {
 type EnvComposition struct {
 	entries []EnvEntry
 	index   map[string]int
+	// shadowed is, per key, every entry of a LOWER-ranked source that key's winner replaced
+	// (envRank), the highest rank first: what OQ-NC12's launch disclosure names (envshadow.go).
+	// An entry replaced by one of its own rank is not here, because the ruling orders the three
+	// sources, not the entries inside one (EnvFold's per-pack order, providers.md pv-oq-8).
+	shadowed map[string][]EnvEntry
 }
 
 // Entries is every entry, in the order each key's winning entry was written.
@@ -80,8 +90,31 @@ func (c EnvComposition) Value(key string) (string, bool) {
 	return e.Value, true
 }
 
+// Shadowed is every entry of a lower-ranked source that key's winner replaced, the highest rank
+// first: an env_sources value or removal a shape var beat, a pack's fold value that env_sources
+// or a shape var beat. Nil when one source alone set key, or nothing composed it. It says nothing
+// of whether a loser's value differed from the winner's; the disclosure asks that (envshadow.go).
+func (c EnvComposition) Shadowed(key string) []EnvEntry {
+	return append([]EnvEntry(nil), c.shadowed[key]...)
+}
+
+// envRank is a source's rank in the one ordering (this file's header), lowest first; -1 for an
+// origin no layer of composeEnv writes.
+func envRank(origin string) int {
+	switch origin {
+	case FromPackEnv:
+		return 0
+	case FromEnvSources:
+		return 1
+	case FromProfileEnv:
+		return 2
+	}
+	return -1
+}
+
 // put writes e as key's entry, a later write winning: the earlier entry is dropped and e
-// appended, so the order is the order of each key's winning write.
+// appended, so the order is the order of each key's winning write. An earlier entry of a lower
+// rank is kept in shadowed, for the disclosure; one of the same rank is dropped.
 func (c *EnvComposition) put(e EnvEntry) {
 	if e.Key == "" {
 		return
@@ -90,6 +123,12 @@ func (c *EnvComposition) put(e EnvEntry) {
 		c.index = map[string]int{}
 	}
 	if i, ok := c.index[e.Key]; ok {
+		if old := c.entries[i]; envRank(old.Origin) < envRank(e.Origin) {
+			if c.shadowed == nil {
+				c.shadowed = map[string][]EnvEntry{}
+			}
+			c.shadowed[e.Key] = append([]EnvEntry{old}, c.shadowed[e.Key]...)
+		}
 		c.entries = append(c.entries[:i], c.entries[i+1:]...)
 		for k, j := range c.index {
 			if j > i {

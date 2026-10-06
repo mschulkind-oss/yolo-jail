@@ -86,6 +86,18 @@ A value you set yourself wins over the one a profile sets. `ANTHROPIC_MODEL=my-m
 machine it does not: `yolo host -- claude` replaces a value your shell exports with the
 profile's.
 
+When two of yolo's own settings set the same variable, the more specific one wins: a profile's
+value beats one in your `env_sources`, which beats a pack's default. Every launch prints one line
+for each variable where that happened, naming the setting that won and the one that lost, never
+the values:
+
+```text
+Shadowed ANTHROPIC_BASE_URL: the zai profile's value wins over your env_sources value, for claude
+```
+
+A launch where nothing was overridden prints no such line. See
+[the reference](https://github.com/mschulkind-oss/yolo-jail/blob/main/docs/reference/providers.md#every-launch-names-what-it-shadowed).
+
 ## The providers yolo ships
 
 | Pack | Provider | Works with | Key variable |

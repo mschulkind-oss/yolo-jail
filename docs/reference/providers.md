@@ -792,8 +792,9 @@ Three consequences to know:
   container's frozen environment, another agent's file), so a stale inherited value does not
   win. A derive's tombstone removes only such a value, too. This is the per-agent file's rule.
   The host notch applies its composition over the shell it inherits, so there a profile's
-  composed value replaces one your shell exports; whether the host should keep yours is
-  [OQ-NC13](../plans/notch-convergence.md#OQ-NC13). The menu half of
+  composed value replaces one your shell exports: your shell has no say over a name yolo
+  composes, as the host's environment has none in a jail
+  ([OQ-NC13](../plans/notch-convergence.md#OQ-NC13), ruled 2026-10-05). The menu half of
 [`OQ-CN4`](#oq-cn4) is each agent's own key:
 opencode's derive writes `enabled_providers: [<selected provider>]` beside its selected model,
 or every provider of its [active set](#an-active-set-several-profiles-for-one-agent), the primary
@@ -811,13 +812,37 @@ so for pi the only lever on what it can reach is the credential. For `openai-cod
   pack's value of that name, and at the host the shell's, but never the profile's, so a null
   cannot leave claude zai's key with no zai address. The host exec, a jail's shared and
   per-agent files and the macos-user session serialize one composition
-  (`CredentialScope.EnvFor`, [OQ-NC12](../plans/notch-convergence.md#OQ-NC12), decided on its
-  leaning on 2026-10-04 and open to revision), so a name has one winner wherever the agent
-  runs. A value meant to beat the profile has the per-command spelling above. In a jail, a name
-  the agent and every other process get the same value for is left in the agent's process as
-  the jail shell holds it, so an attach and a fresh launch agree. The three tables a launch
-  composes (`YOLO_PROVIDERS`, `YOLO_PROFILES`, `YOLO_USE_PROFILES`) are written after that
-  composition at every notch, so no `env_sources` value or null replaces or removes one.
+  (`CredentialScope.EnvFor`, [OQ-NC12](../plans/notch-convergence.md#OQ-NC12), ruled
+  2026-10-05), so a name has one winner wherever the agent runs. A value meant to beat the
+  profile has the per-command spelling above. In a jail, a name the agent and every other
+  process get the same value for is left in the agent's process as the jail shell holds it, so
+  an attach and a fresh launch agree. The three tables a launch composes (`YOLO_PROVIDERS`,
+  `YOLO_PROFILES`, `YOLO_USE_PROFILES`) are written after that composition at every notch, so no
+  `env_sources` value or null replaces or removes one.
+- <a id="every-launch-names-what-it-shadowed"></a>**Every launch names what that order
+  shadowed** ([OQ-NC12](../plans/notch-convergence.md#OQ-NC12)'s disclosure,
+  [NC-D73 to NC-D76](../plans/notch-convergence.md#NC-D73)). A source is *shadowed* when another
+  of the three, higher in the order above, sets the same variable to something else. For each
+  such variable a launch prints one line on stderr, naming the winning source and every losing
+  one and never a value:
+
+  ```text
+  Shadowed ANTHROPIC_BASE_URL: the zai profile's value wins over your env_sources value, for claude
+  Shadowed PI_TELEMETRY: your env_sources value wins over the pi pack's value
+  ```
+
+  A jail composes for every process at once, so a line that holds for one agent alone names it
+  (`, for claude`), and one that holds for every process names none, or says `for every other
+  process` beside an agent whose process differs. `yolo host -- <cmd>` composes for one program,
+  so its lines name no process; `yolo host env` prints the same lines on stderr, never into the
+  script. A `removal` is an `env_sources` null or a derive's tombstone. Nothing is printed when
+  nothing is shadowed: one source per name, a loser that sets the same value, two packs' `env`
+  of one name (their own order, [OQ-8](#pv-oq-8)), and the three tables above say nothing. Your
+  shell at the host is no source of yolo's ([OQ-NC13](../plans/notch-convergence.md#OQ-NC13)),
+  so it never appears in a line. The line is a disclosure, which no flag hides
+  ([OQ-RO3](report-tiers.md#why-its-this-way)). `yolo check` prints none: it runs no derive and
+  sees no `-p`, so it cannot see a profile's half; where it predicts an override refusal, it names
+  the same winning source.
 
 ## The canonical wire_api vocabulary
 
