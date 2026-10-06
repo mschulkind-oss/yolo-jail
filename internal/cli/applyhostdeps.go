@@ -33,6 +33,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/depcheck"
 	"github.com/mschulkind-oss/yolo-jail/internal/hostfloor"
 	"github.com/mschulkind-oss/yolo-jail/internal/hostpath"
@@ -266,6 +267,10 @@ func packDepRequirements(p *packload.Pack) []depcheck.Requirement {
 			// An installer script's remedy runs with no terminal (PS-D1); npm's keeps it.
 			SelfInstallNoTerminal: d.SelfInstallVia == "installer",
 			Unpublished:           d.UnpublishedReason(runtime.GOOS, runtime.GOARCH),
+			// THE USER'S ORDER (`provisioners`, docs/design/provisioner-sets.md PS-D11): read
+			// here, the one adapter both reports feed, so `yolo check-deps` and `yolo host apply`
+			// offer the same command.
+			Prefer: config.ProvisionerOrder(config.ProvisionerEnvHost, d.Bin),
 		})
 	}
 	return reqs
@@ -309,6 +314,9 @@ type hostDepFinding struct {
 	// Unpublished is why an absent program has no vendor build for this host (depUnpublished),
 	// "" otherwise. The whole of what the report says about such a binary.
 	Unpublished string
+	// Ranked says the user's `provisioners` order chose Remedy over the one the pack leads with
+	// (depcheck.Result.Ranked), "" when it did not: a disclosure printed under the command.
+	Ranked string
 }
 
 // finding resolves one dep contribution into the struct above. It is the ONE place the probe's
@@ -332,9 +340,20 @@ func (h *hostDeps) finding(c packdecl.Contribution) hostDepFinding {
 	}
 	f.Remedy, f.NoTerminal = r.Remedy, r.NoTerminal
 	if r.Fallback != "" {
-		f.Alt = fmt.Sprintf("or via %s: %s", r.Manager, r.Fallback)
+		f.Alt = fmt.Sprintf("or %s: %s", r.AltLabel(), r.Fallback)
 	}
+	f.Ranked = rankedNote(r)
 	return f
+}
+
+// rankedNote is the sentence a report prints under a remedy the user's `provisioners` order chose
+// (depcheck.Result.Ranked), "" for one it did not: the command is then not the one the pack leads
+// with, and the reader should be able to tell why without opening the config.
+func rankedNote(r depcheck.Result) string {
+	if !r.Ranked {
+		return ""
+	}
+	return "from " + r.Via + ", which your `provisioners` order ranks first for " + r.Bin
 }
 
 // depLine is the per-contribution line for one dep, and there is always exactly one: the

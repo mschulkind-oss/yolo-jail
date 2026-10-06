@@ -266,6 +266,11 @@ type Install struct {
 	// carries the grammar and the reasoning; this is its projection, and
 	// SupportsPlatform below is the predicate every consumer must ask before installing.
 	Platforms []string `json:"platforms,omitempty"`
+	// InstallHints is the contribution's install_hints: the package each host manager names this
+	// program by, nil when it declares none. The Contribution field of the same name carries the
+	// grammar. The host floor reads it to ask whether the user's provisioner order gives the
+	// program to a manager instead (docs/design/provisioner-sets.md PS-D12).
+	InstallHints map[string]string `json:"install_hints,omitempty"`
 	// ModelCatalog is the program's declared model catalog files (kind == "npm"): globs relative
 	// to the installed package's directory. The Contribution field of the same name carries the
 	// grammar and the reasoning; `yolo check` is its one reader (MM-D16).

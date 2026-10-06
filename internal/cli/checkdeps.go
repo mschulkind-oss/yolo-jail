@@ -130,7 +130,10 @@ func checkDepsMain(args []string, out, errw io.Writer, color bool) int {
 			// manager should not have to read pack.json to find the token — but shown SECOND,
 			// since the first-party installer is the one that stays current.
 			if r.Fallback != "" {
-				printVerbatim(pr, "  [dim]or via "+richtext.Escape(r.Manager)+": ", r.Fallback, "[/dim]")
+				printVerbatim(pr, "  [dim]or "+richtext.Escape(r.AltLabel())+": ", r.Fallback, "[/dim]")
+			}
+			if note := rankedNote(r); note != "" {
+				pr.Printf("  [dim]%s[/dim]", richtext.Escape(note))
 			}
 		case r.Manager == "" && r.Hinted:
 			// No manager on this PATH, so no hint could be the remedy: say that, rather than

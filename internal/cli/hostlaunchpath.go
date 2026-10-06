@@ -4,6 +4,8 @@ import (
 	"os"
 	"sort"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/config"
+	"github.com/mschulkind-oss/yolo-jail/internal/hostfloor"
 	"github.com/mschulkind-oss/yolo-jail/internal/hostpath"
 	"github.com/mschulkind-oss/yolo-jail/internal/packdecl"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
@@ -25,6 +27,30 @@ import (
 // `host_path` — every time it is asked, and neither changes in a process's life, so every check a
 // process makes reads one value.
 func hostLaunchPath() *hostpath.Launch { return hostpath.Resolve(os.Getenv("PATH")) }
+
+// lazyLaunchLookup is the launch PATH's lookup, resolved on its first call rather than when it is
+// made: the floor's provisioner-order question (hostfloor.Outranker) asks it only for a program the
+// user's order names, so a floor with no order pays nothing for it.
+func lazyLaunchLookup() func(string) (string, error) {
+	var lp *hostpath.Launch
+	return func(bin string) (string, error) {
+		if lp == nil {
+			lp = hostLaunchPath()
+		}
+		return lp.LookPath(bin)
+	}
+}
+
+// hostOutranking is the user's provisioner order over the launch PATH (hostfloor.Outranking): who
+// it gives a floor program to instead of the floor, and that provisioner's command.
+func hostOutranking() func(hostfloor.Program) (via, remedy string) {
+	return hostfloor.Outranking(hostProvisionerOrder, lazyLaunchLookup())
+}
+
+// hostProvisionerOrder is the user's provisioner order for bin at the host (config.ProvisionerOrder).
+func hostProvisionerOrder(bin string) []string {
+	return config.ProvisionerOrder(config.ProvisionerEnvHost, bin)
+}
 
 // hostChildLaunch is the launch PATH the CHILD searches, which the exec's lookup reads too: the
 // launch PATH itself, or — for a launch started with no PATH at all — the floor installer's system

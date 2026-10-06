@@ -100,6 +100,16 @@ in `~/.local/share/yolo-jail/host-floor`:
   agent from your PATH. The floor's copy of an agent you no longer select, or have left out, is never
   run, and stays until it is removed: under `"host_management": "own"` `yolo host apply --assert`
   removes it, and otherwise `yolo check` names the command that removes it by hand.
+- **Getting an agent from your package manager instead.** List the ways you prefer under
+  `"provisioners": {"host": ["brew"]}` in your user config, most preferred first: `pack` (the pack's
+  own recipe), `apt`, `dnf`, `pacman`, `brew` or `nix`. Where a manager you rank first is on your
+  PATH and the pack names a package for it, that manager supplies the agent: yolo keeps no copy of
+  it, `yolo host` runs the manager's, and `yolo host apply` and `yolo check-deps` offer the manager's
+  install command. Until you install the manager's copy, `yolo host` stops and prints that command.
+  Anything you leave out keeps yolo's usual order, so an agent your manager has no
+  package for still comes from its own installer. A manager updates on its own schedule, which can
+  lag the vendor's. `nix` does not supply an agent yet: yolo keeps its own copy, and `yolo check`
+  says so.
 
 Just before it hands over, `yolo host` prints one line naming what it starts and where it came from,
 so a slow start is visibly the agent's.

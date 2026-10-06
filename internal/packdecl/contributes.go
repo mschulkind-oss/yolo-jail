@@ -1355,6 +1355,15 @@ func (m *Manifest) InstallContributions() []Install {
 		// same reason, and a projection carrying it for one of them would leave the
 		// other's decline unexpressible.
 		in.Platforms = c.Platforms
+		// The install hints too, for every via: they are the program's OTHER recipes, which the
+		// user's provisioner order may rank above the one this projection installs
+		// (docs/design/provisioner-sets.md PS-D12). Copied, for Refresh's reason.
+		if len(c.InstallHints) > 0 {
+			in.InstallHints = make(map[string]string, len(c.InstallHints))
+			for k, v := range c.InstallHints {
+				in.InstallHints[k] = v
+			}
+		}
 		// The model menu too, for every via: it is what the PROGRAM prints and reads, whichever
 		// mechanism delivered it. Copied, for Refresh's reason.
 		if c.ModelMenu != nil {

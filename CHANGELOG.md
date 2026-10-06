@@ -17,6 +17,10 @@ the launching jail's own credentials and region, narrowed by the host and never 
 failing to start its AWS service. See
 [agent-credentials.md](docs/reference/agent-credentials.md#a-nested-jail-uses-its-launching-jails-pointer).
 
+**Choose how yolo installs an agent.** A `provisioners` list in your user config ranks your package
+managers above a pack's own installer, so `"host": ["brew"]` gets claude from Homebrew at the host.
+See [Confinement](userguide/guides/confinement.md).
+
 ## [0.12.0] - 2026-10-06
 
 Packs can carry your patches onto an upstream program, `yolo host` and macos-user do most of what

@@ -11,7 +11,6 @@ package entrypoint
 
 import (
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
-	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 )
 
 // AgentUpdatesEnv carries the policy from the host into the jail. It is a host↔jail
@@ -72,44 +71,5 @@ func refreshTimingValue(wire, pack string) string {
 // entry when it is a valid setting, else "*"'s, else the default (allowed, at launch) — so a
 // specific `true` beats a `"*": "next-launch"` whole rather than inheriting its timing.
 func agentUpdatesDecision(wire, pack string) (allowed bool, timing string) {
-	if wire == "" {
-		return true, config.AgentUpdatesAtLaunch
-	}
-	decoded, err := jsonx.Decode([]byte(wire))
-	if err != nil {
-		return true, config.AgentUpdatesAtLaunch
-	}
-	if m, ok := decoded.(*jsonx.OrderedMap); ok {
-		for _, key := range []string{pack, "*"} {
-			if v, present := m.Get(key); present {
-				if allowed, timing, ok := agentUpdatesSetting(v); ok {
-					return allowed, timing
-				}
-			}
-		}
-		return true, config.AgentUpdatesAtLaunch
-	}
-	if allowed, timing, ok := agentUpdatesSetting(decoded); ok {
-		return allowed, timing
-	}
-	// A shape nobody ruled on — a list, a number, an unknown string. The host validator
-	// refuses it; if one reaches here the launch has already been reported on, and freezing
-	// every agent over it, or moving work out of the user's sight, would be the wrong
-	// direction to fail in.
-	return true, config.AgentUpdatesAtLaunch
-}
-
-// agentUpdatesSetting reads one value, reporting whether it is a setting at all: a bool, or one
-// of the two timing strings, each of which lets the pack move. Anything else (null, a number, an
-// unknown string) is not, so a map entry holding it is treated as absent and "*" still applies.
-func agentUpdatesSetting(v any) (allowed bool, timing string, ok bool) {
-	switch t := v.(type) {
-	case bool:
-		return t, config.AgentUpdatesAtLaunch, true
-	case string:
-		if t == config.AgentUpdatesAtLaunch || t == config.AgentUpdatesNextLaunch {
-			return true, t, true
-		}
-	}
-	return false, "", false
+	return config.PackPolicyDecision(wire, pack)
 }

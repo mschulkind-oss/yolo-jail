@@ -142,6 +142,9 @@ func (o *Options) hostFloor(progs []hostfloor.Program) *hostfloor.Floor {
 		Dir: paths.HostFloorDir(), GOOS: runtime.GOOS, GOARCH: runtime.GOARCH,
 		NodeFloor: hostfloor.HighestNodeFloor(progs),
 		Include:   func(pack string) bool { return entrypoint.PackPolicyAllows(wire, pack) },
+		Outranked: hostfloor.Outranker(func(bin string) []string {
+			return config.ProvisionerOrder(config.ProvisionerEnvHost, bin)
+		}, o.lookup()),
 	}
 }
 

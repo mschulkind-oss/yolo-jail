@@ -201,6 +201,11 @@ type Floor struct {
 	// Include reports whether a pack's programs are in the floor (`host_floor`). nil => every
 	// selected pack's are, which is the default by OQ-HP1.
 	Include func(pack string) bool
+	// Outranked is why the user's provisioner order gives a program to a provisioner other than
+	// the pack's own recipe, the one the floor installs (docs/design/provisioner-sets.md PS-D12),
+	// "" when it does not; such a program has no floor entry. nil => no order, so never
+	// (Outranker builds one).
+	Outranked func(p Program) string
 	// UpdatesAllowed is the `agent_updates` policy for a pack. nil => allowed, the ruled default.
 	UpdatesAllowed func(pack string) bool
 	// ResolveCapture finds the capture store's entry for bin on this host's platform, the same
@@ -521,11 +526,17 @@ func (f *Floor) installedLoaderReason(bin string) string {
 }
 
 // recipeNoEntryReason is noEntryReason's half that reads nothing but the declaration, the
-// configuration and the platform.
+// configuration and the platform — the provisioner order's half (Outranked) also asking the launch
+// PATH which managers it holds, since an order skips one this machine lacks.
 func (f *Floor) recipeNoEntryReason(p Program) string {
 	in := p.Install
 	if f.Include != nil && !f.Include(p.Pack) {
 		return "the user config's `host_floor` leaves pack " + p.Pack + " out of the floor"
+	}
+	if f.Outranked != nil {
+		if why := f.Outranked(p); why != "" {
+			return why
+		}
 	}
 	if !packdecl.ValidBinName(in.Bin) {
 		return fmt.Sprintf("%q is not a program name the floor can file", in.Bin)

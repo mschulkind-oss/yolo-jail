@@ -121,6 +121,7 @@ func ValidateConfig(config *jsonx.OrderedMap, workspace string, resolver Loophol
 	validateAgentUpdates(config, workspace, errs)
 	validateHostFloor(config, workspace, errs)
 	validateHostPath(config, workspace, errs)
+	validateProvisioners(config, workspace, errs, warns)
 	validatePerfLogging(config, workspace, errs)
 	validateUpdateCheck(config, workspace, errs)
 	validatePromotionTarget(config, workspace, errs)

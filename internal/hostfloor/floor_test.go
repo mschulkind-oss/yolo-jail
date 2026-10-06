@@ -604,6 +604,11 @@ func TestNoFloorEntryDispositions(t *testing.T) {
 		want string
 	}{
 		{"configured out", func(f *Floor, p *Program) { f.Include = func(string) bool { return false } }, "host_floor"},
+		// The user's provisioner order gives it to brew, which is on the launch PATH (PS-D12).
+		{"ranked to a manager", func(f *Floor, p *Program) {
+			f.Outranked = Outranker(func(string) []string { return []string{"brew"} }, lookupOnly("brew"))
+			p.Install.InstallHints = map[string]string{"brew": "opencode"}
+		}, "`provisioners` order ranks brew first for opencode"},
 		{"unpublished", func(f *Floor, p *Program) { p.Install.Platforms = []string{"plan9"} }, "publishes no build"},
 		// An installer agent on a Mac with nothing captured and the macos-user capture act unable to
 		// run: its own refusal, whose step is the sandbox account's setup (HP-D2).

@@ -64,6 +64,9 @@ var newHostFloor = func(out io.Writer, progs []hostfloor.Program) *hostfloor.Flo
 		GOARCH:    runtime.GOARCH,
 		NodeFloor: hostfloor.HighestNodeFloor(progs),
 		Include:   func(pack string) bool { return entrypoint.PackPolicyAllows(floorWire, pack) },
+		// The user's provisioner order (PS-D12): a program it gives to a manager on the launch PATH
+		// has no floor entry. The PATH is resolved only when an order names one.
+		Outranked: hostfloor.Outranker(hostProvisionerOrder, lazyLaunchLookup()),
 		UpdatesAllowed: func(pack string) bool {
 			return entrypoint.PackPolicyAllows(updatesWire, pack)
 		},
@@ -716,8 +719,16 @@ func resolveHostLaunchTarget(packs []*packload.Pack, cmd0 string, lp *hostpath.L
 	act *run.ActInterrupt) (hostTarget, int) {
 	floorBin := hostFloorBinDir()
 	child := hostChildLaunch(lp)
+	// ranked is set when the user's provisioner order gives cmd0 to a manager (PS-D12): the lookup
+	// is then for that manager's copy, and a miss is its install not run yet rather than a program
+	// missing from the PATH.
+	var ranked *orderedCopy
 	onPath := func() (hostTarget, int) {
 		target, err := child.LookPathSkipping(cmd0, floorBin)
+		if err != nil && ranked != nil {
+			fmt.Fprintf(errw, "yolo host: %s\n", ranked.missLine(cmd0))
+			return hostTarget{}, 127
+		}
 		if err != nil {
 			line := ""
 			if !strings.ContainsRune(cmd0, os.PathSeparator) {
@@ -759,6 +770,15 @@ func resolveHostLaunchTarget(packs []*packload.Pack, cmd0 string, lp *hostpath.L
 		ensureMCPPrograms(packs, progs, floor, cmd0, errw, act)
 	}
 	switch {
+	case errors.Is(err, hostfloor.ErrNoEntry) && st.Reason != "":
+		if via, remedy := hostOutranking()(prog); via != "" && st.Reason == hostfloor.OutrankedReason(via, cmd0) {
+			// The user's order gives cmd0 to a manager: run that manager's copy, which the PATH
+			// lookup finds — or, right after the order is written, does not yet.
+			ranked = &orderedCopy{via: via, remedy: remedy}
+			fmt.Fprintf(errw, "yolo host: %s; looking for it on your PATH\n", st.Reason)
+			return onPath()
+		}
+		fallthrough
 	case errors.Is(err, hostfloor.ErrNoEntry):
 		// OQ-HE11 is open: keep today's behavior — the launch's PATH — and say, once, that the
 		// copy about to run is not yolo's.
@@ -788,6 +808,26 @@ func resolveHostLaunchTarget(packs []*packload.Pack, cmd0 string, lp *hostpath.L
 		fmt.Fprintf(errw, "yolo host: %s\n", line)
 	}
 	return hostTarget{Path: st.Launcher, Origin: originFloor}, 0
+}
+
+// orderedCopy is the copy of a program the user's provisioner order gives to a manager rather than
+// to yolo's floor (docs/design/provisioner-sets.md PS-D12): the manager, and its command for the
+// program.
+type orderedCopy struct{ via, remedy string }
+
+// missLine is the stop for a launch whose ordered copy is not on the PATH: the usual state right
+// after the user writes the order, the floor's own copy (if any) still in place. It names the
+// manager's install, the command `yolo check-deps` prints for it, and the way back to yolo's copy
+// — never the `host_path` fix or the deselected-entry removal, since the program is neither
+// uninstallable here nor deselected.
+func (o *orderedCopy) missLine(bin string) string {
+	install := "install it with " + o.via
+	if o.remedy != "" {
+		install = "install it with `" + o.remedy + "`"
+	}
+	return fmt.Sprintf("%s's copy of %s is not installed yet: %s, then run `yolo host -- %s` again; "+
+		"or put \"pack\" ahead of %s in the user config's `provisioners` to run yolo's own copy",
+		o.via, bin, install, bin, o.via)
 }
 
 // ensureMCPPrograms is decision HC-D28 (docs/design/host-computed-layer.md): a `yolo host --

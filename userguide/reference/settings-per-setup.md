@@ -282,7 +282,7 @@ This block is what the jail can see of your machine's filesystem, and what it ma
 | `host_files` source is a **directory** | works | works[^vm-share] | works on 1.1.0+; older: `absent, warns`[^acdir] | works — root-owned copy at launch, size-capped[^mudir] | fresh launch |
 | `host_files` destination: writable, and private per workspace | works | works | works — whole home is per-workspace | works under `~/.config` and at the home root (home root never run on a Mac); a new top-level folder **shared, silent**[^mutier] | fresh launch |
 | `host_files` entries with a `source:` come from your user config only | works | works | works | works | n/a — a repo's config cannot name host bytes |
-| `host_management`, `host_wrappers`, `host_apply_on_launch`, `host_floor`, `host_path`, `promotion_target` | works | works | works | works | any entry — host-side keys[^hostside][^wrappath] |
+| `host_management`, `host_wrappers`, `host_apply_on_launch`, `host_floor`, `host_path`, `provisioners`, `promotion_target` | works | works | works | works | any entry — host-side keys[^hostside][^wrappath] |
 | Host-side verbs refuse when run **inside** the jail | works | works | works | works — unverified on a Mac[^muinjail] | any entry |
 | `programs: { autoprune: true }` | works[^prunetime] | works[^prunetime] | works[^prunetime] | works — unmeasured on a Mac[^prunetime] | fresh launch (switch)[^prunetime] |
 | `yolo programs ls` / `remove` from inside the jail | works | works | works | works — unmeasured on a Mac[^muprograms] | any entry |

@@ -121,7 +121,9 @@ var hostConfigKeys = map[string]keyCensusEntry{
 	"host_wrappers": {KeyHonored, "the launch wrappers `yolo host apply` writes for the host's PATH"},
 	"host_floor": {KeyHonored, "which selected packs' programs the host floor installs " +
 		"(HostFloorWire)"},
-	"host_path":     {KeyHonored, "folders `yolo host`'s tool lookup searches after its own PATH"},
+	"host_path": {KeyHonored, "folders `yolo host`'s tool lookup searches after its own PATH"},
+	"provisioners": {KeyHonored, "the order `yolo check-deps`, `yolo host apply` and the host floor " +
+		"resolve a program's install remedy in (config.ProvisionerOrder)"},
 	"agent_updates": {KeyHonored, "the host floor's update policy, as it is a jail launcher's"},
 	"agents_md_extra": {KeyHonored, "prose `yolo host apply` appends to the briefing it writes " +
 		"(applyhostbriefings.go)"},

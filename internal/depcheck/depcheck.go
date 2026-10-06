@@ -47,6 +47,46 @@ type Requirement struct {
 	// — one the user built themselves is present — but a missing one gets no remedy, no
 	// Brewfile line and no place in Missing: nothing is missing that anything could install.
 	Unpublished string
+	// Prefer is the USER'S PROVISIONER ORDER for this binary: provisioner names (Pack, or a
+	// manager in managers), most preferred first, from the user-scope `provisioners` key
+	// (docs/design/provisioner-sets.md PS-D11). nil is yolo's default order alone. It RE-RANKS and
+	// never removes: Check walks it first and yolo's default order after it, so a binary the
+	// user's list has no recipe for still gets the remedy it gets today (resolutionOrder).
+	Prefer []string
+}
+
+// Pack is the PROVISIONER NAME for the declaring pack's own recipe (Requirement.SelfInstall):
+// the npm package, or the vendor's installer through the download-check-run command. It is the
+// word the user's `provisioners` order spells it with, beside the manager names, and the one
+// yolo's default order puts first (OQ-PS6's answer).
+const Pack = "pack"
+
+// Provisioners is every provisioner name an order may rank, in the order a message lists them:
+// the pack's own recipe, then every package manager this package knows. A name outside it is a
+// provisioner this yolo cannot drive, which the config refuses rather than skips.
+func Provisioners() []string { return append([]string{Pack}, managers...) }
+
+// HasRecipe reports whether r carries a recipe for provisioner: its own installer for Pack, an
+// install hint for a manager (brew's cask flavor counting for brew, as hintFor reads it). The
+// config's per-package order is refused for a provisioner no selected pack ships a recipe for
+// (docs/design/provisioner-sets.md PS-D3), and asks it here so the refusal and the resolver read
+// one rule.
+func HasRecipe(r Requirement, provisioner string) bool {
+	if provisioner == Pack {
+		return r.SelfInstall != ""
+	}
+	_, _, ok := hintFor(r.Hints, provisioner)
+	return ok
+}
+
+// IsProvisioner reports whether name is one of Provisioners.
+func IsProvisioner(name string) bool {
+	for _, p := range Provisioners() {
+		if p == name {
+			return true
+		}
+	}
+	return false
 }
 
 // brewCaskHint is the hint key for a Homebrew CASK (an app bundle / prebuilt binary
@@ -145,6 +185,30 @@ type Result struct {
 	// for a present one. Such a result is not missing (Missing leaves it out) and has no
 	// remedy: the reason is the whole of what a report says about it.
 	Unpublished string
+	// Via is the provisioner Remedy came from: Pack, or the manager whose command it is. "" when
+	// there is no remedy.
+	Via string
+	// FallbackVia is the provisioner Fallback came from, "" when there is none: a manager when Via
+	// is Pack (the default case), and Pack when the user's order put a manager first.
+	FallbackVia string
+	// Ranked is whether the USER'S ORDER chose Via (Requirement.Prefer): yolo's default order
+	// alone would have chosen another remedy, or none. A report says so beside the command, since
+	// it is not the one the pack leads with.
+	Ranked bool
+}
+
+// AltLabel is the words a report puts before Fallback: "via brew", or "the pack's own
+// installer" when the user's order ranked a manager above it. "" when there is no Fallback.
+func (r Result) AltLabel() string {
+	switch {
+	case r.Fallback == "":
+		return ""
+	case r.FallbackVia == Pack:
+		return "the pack's own installer"
+	case r.FallbackVia != "":
+		return "via " + r.FallbackVia
+	}
+	return "via " + r.Manager
 }
 
 // Lookup resolves a binary on one PATH, exec.LookPath's shape. Every probe here takes it from
@@ -207,14 +271,18 @@ func detectManager(look Lookup) string {
 // decides whether to offer to run the remedies. The package manager a remedy names is found
 // through the same look.
 //
-// REMEDY PRECEDENCE: the declaring pack's OWN installer first, then the detected package
-// manager's hint. See selfInstallFlavor for why that order — in short, a tool with a
-// first-party installer has a first-party updater, and a distro package silently pins it to
-// whatever that repo has. When both exist the manager's command is kept as Fallback rather
-// than discarded, so a user who prefers their package manager still sees the token.
+// REMEDY PRECEDENCE: the user's order first (Requirement.Prefer), then yolo's default — the
+// declaring pack's OWN installer, then the detected package manager's hint. The first
+// provisioner that is on this PATH and has a recipe for the binary wins (resolutionOrder). See
+// selfInstallFlavor for why the default leads with the pack's installer — in short, a tool with
+// a first-party installer has a first-party updater, and a distro package silently pins it to
+// whatever that repo has; a user who ranks a manager above it accepts that cadence knowingly
+// (docs/design/provisioner-sets.md §8.2). The runner-up between the pack's installer and a
+// manager is kept as Fallback rather than discarded, so the user still sees the other token.
 func Check(reqs []Requirement, look Lookup) []Result {
 	look = lookupOrDefault(look)
 	mgr := DetectManager(look)
+	onPath := managerProbe(look, mgr)
 	var out []Result
 	for _, r := range reqs {
 		res := Result{Bin: r.Bin, Manager: mgr, Hinted: len(r.Hints) > 0}
@@ -226,21 +294,125 @@ func Check(reqs []Requirement, look Lookup) []Result {
 			// not a hint the pack forgot. Asked AFTER the probe, the jail's order — a binary
 			// the host already has is present whatever the vendor publishes.
 			res.Unpublished = r.Unpublished
-		case r.SelfInstall != "":
-			res.Remedy, res.Flavor = r.SelfInstall, selfInstallFlavor
-			res.NoTerminal = r.SelfInstallNoTerminal
-			if pkg, flavor, ok := hintFor(r.Hints, mgr); ok {
-				res.Fallback = installCmd(flavor, pkg)
-			}
 		default:
-			if pkg, flavor, ok := hintFor(r.Hints, mgr); ok {
-				res.Remedy, res.Flavor = installCmd(flavor, pkg), flavor
-			}
+			resolveRemedy(r, mgr, onPath, &res)
 		}
 		out = append(out, res)
 	}
 	sort.SliceStable(out, func(i, j int) bool { return out[i].Bin < out[j].Bin })
 	return out
+}
+
+// Winner is the provisioner that would supply r on look's PATH: Pack, a manager name, or ""
+// when nothing in r's order has a recipe here. It is the question Check answers for a missing
+// binary, asked of one that may be present: the host floor asks it to learn whether the user's
+// order gives a program to a manager instead of to the pack's own recipe, which is what the floor
+// installs (docs/design/provisioner-sets.md PS-D12). One resolver, so the floor and the
+// dependency report cannot disagree about who supplies a binary.
+func Winner(r Requirement, look Lookup) string { return Resolve(r, look).Via }
+
+// Resolve is Winner with the winner's command: the Result Check gives r when it is missing — Via,
+// Remedy and its Fallback — whether or not it is present. A host launch that runs the copy the
+// user's order gives a manager reads it to name that manager's install when the copy is not
+// there yet, the command `yolo check-deps` prints for it.
+func Resolve(r Requirement, look Lookup) Result {
+	look = lookupOrDefault(look)
+	mgr := DetectManager(look)
+	res := Result{Bin: r.Bin, Manager: mgr, Hinted: len(r.Hints) > 0}
+	resolveRemedy(r, mgr, managerProbe(look, mgr), &res)
+	return res
+}
+
+// managerProbe answers "is manager m on this PATH?", each manager probed at most once per
+// Check. The detected manager is known to be.
+func managerProbe(look Lookup, detected string) func(string) bool {
+	seen := map[string]bool{}
+	return func(m string) bool {
+		if m == detected {
+			return true
+		}
+		if ok, done := seen[m]; done {
+			return ok
+		}
+		_, err := look(m)
+		seen[m] = err == nil
+		return seen[m]
+	}
+}
+
+// remedyCandidate is one provisioner that can supply a binary here, with its command.
+type remedyCandidate struct {
+	via, remedy, flavor string
+	noTerminal          bool
+}
+
+// resolutionOrder is the order one requirement's provisioners are tried in: the user's
+// (Prefer), then yolo's default — the pack's own recipe, then the detected manager — each name
+// once. Appending the default rather than replacing it is what makes the user's list a
+// RE-RANKING: a provisioner the list leaves out is still tried after it, so naming brew does not
+// leave an npm-only program with no remedy (docs/design/provisioner-sets.md PS-D11).
+func resolutionOrder(prefer []string, detected string) []string {
+	var out []string
+	seen := map[string]bool{"": true}
+	for _, v := range append(append([]string(nil), prefer...), Pack, detected) {
+		if !seen[v] {
+			seen[v] = true
+			out = append(out, v)
+		}
+	}
+	return out
+}
+
+// candidates is every provisioner in order that can supply r here: Pack when the pack carries
+// its own installer, a manager when it is on this PATH and the pack hints a package for it.
+func candidates(r Requirement, order []string, onPath func(string) bool) []remedyCandidate {
+	var out []remedyCandidate
+	for _, via := range order {
+		if via == Pack {
+			if r.SelfInstall != "" {
+				out = append(out, remedyCandidate{via: Pack, remedy: r.SelfInstall,
+					flavor: selfInstallFlavor, noTerminal: r.SelfInstallNoTerminal})
+			}
+			continue
+		}
+		if !onPath(via) {
+			continue
+		}
+		if pkg, flavor, ok := hintFor(r.Hints, via); ok {
+			out = append(out, remedyCandidate{via: via, remedy: installCmd(flavor, pkg), flavor: flavor})
+		}
+	}
+	return out
+}
+
+// resolveRemedy fills res's remedy for a missing r: the first candidate in the resolution order,
+// and as Fallback the first later one of the other sort (a manager after the pack's installer,
+// the pack's installer after a manager), which is the alternative a report prints second.
+// res.Manager becomes the manager whose command the remedy or its Fallback is, so a bundle and
+// a report name the manager they actually use.
+func resolveRemedy(r Requirement, mgr string, onPath func(string) bool, res *Result) {
+	cands := candidates(r, resolutionOrder(r.Prefer, mgr), onPath)
+	if len(cands) == 0 {
+		return
+	}
+	win := cands[0]
+	res.Remedy, res.Flavor, res.Via, res.NoTerminal = win.remedy, win.flavor, win.via, win.noTerminal
+	if win.via != Pack {
+		res.Manager = win.via
+	}
+	for _, c := range cands[1:] {
+		if (c.via == Pack) != (win.via == Pack) {
+			res.Fallback, res.FallbackVia = c.remedy, c.via
+			if c.via != Pack {
+				res.Manager = c.via
+			}
+			break
+		}
+	}
+	if len(r.Prefer) > 0 {
+		def := candidates(r, resolutionOrder(nil, mgr), onPath)
+		res.Ranked = len(def) == 0 || def[0].via != win.via
+	}
 }
 
 // presentAt probes for bin and records the resolved path on res, reporting whether it was
@@ -433,7 +605,10 @@ func planBundle(results []Result) bundle {
 			flavor = r.Manager // Flavor is the manager for every hint but a cask (Result.Flavor)
 		}
 		token, ok := bundleToken(flavor, remedy)
-		if !ok {
+		// ONE MANAGER PER BUNDLE: a user's order can resolve two binaries to two managers (claude
+		// from brew, rg from apt), and a file holds one manager's tokens. The first manager met
+		// owns the file, and every other manager's command is printed on its own (Unbundled).
+		if !ok || (b.mgr != "" && r.Manager != b.mgr) {
 			b.left = append(b.left, r)
 			continue
 		}

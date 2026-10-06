@@ -1147,6 +1147,38 @@
     Example (~/.config/yolo-jail/config.jsonc):
       "host_path": ["~/.cargo/bin", "~/.local/share/mise/shims", "/opt/homebrew/bin"]
 
+  [bold]provisioners[/bold] (object): The order yolo picks a way to install a program in.
+    Default: none -- each pack's own recipe first, then your package manager.
+    A pack declares every way it knows to install its program: its own recipe
+    (its npm package, or its vendor's installer), and the package each manager
+    names it by.  When `yolo host apply` or `yolo check-deps` finds a program
+    missing, yolo picks the first of these, in this order, that is on your PATH
+    and has a recipe for it, and offers or prints that command.  Names: pack (the
+    pack's own recipe), apt, dnf, pacman, brew, nix.
+    "host" is the order at the host.  It only re-ranks: anything it leaves out
+    is still tried after it, in yolo's default order, so ranking brew first
+    leaves a program brew has no recipe for with its own installer.  A manager
+    not on your PATH is skipped.  The report says when your order chose the
+    command, and still prints the other as the alternative.  A manager keeps
+    its own release cadence, which can lag the vendor's own installer.
+    THE FLOOR: an agent your order gives to a manager on your PATH has no
+    [bold]host_floor[/bold] entry, since the floor installs the pack's own recipe;
+    `yolo host -- <agent>` runs the manager's copy on your PATH, saying why, and
+    under "own" the next `yolo host apply --assert` removes the floor's copy.
+    nix is the exception for now: the floor keeps an agent ranked to nix on its
+    own recipe, and `yolo check` warns, so nix supplies only what the floor does
+    not hold, such as a pack's `requires`.
+    "per_package" gives one program its own order, replacing "host" for it;
+    an order naming a provisioner no selected pack has a recipe for is a
+    `yolo check` error.
+    No order is read inside a jail, whose agents always come from the pack's
+    own recipe.
+    USER SCOPE ONLY.  It decides what yolo installs on your machine, so a
+    workspace value is a `yolo check` error, and is never read.
+    Example (~/.config/yolo-jail/config.jsonc):
+      "provisioners": { "host": ["brew"] }
+      "provisioners": { "per_package": { "claude": { "host": ["brew"] } } }
+
   [bold]perf_logging[/bold] (boolean): Record every launch's timings, quietly.  Default FALSE.
     The persistent, SILENT form of `--timing`: every span (probes, image load,
     the child window, the whole shutdown chain) is appended to

@@ -240,7 +240,11 @@ func missingDepGroups(s *hostApplySurvey) []remedyGroup {
 		// itself, above its prompt). What the dry-run reader needs is the one fact the lines
 		// above cannot carry — that the command they are looking at is one the NEXT posture
 		// offers to run, and that saying no there stops the run rather than skipping a step.
-		out[len(out)-1].Note = "a dry run installs nothing — `--assert` offers to run the " +
+		last := &out[len(out)-1]
+		if last.Note != "" {
+			last.Note += "\n"
+		}
+		last.Note += "a dry run installs nothing — `--assert` offers to run the " +
 			"command above, and a decline stops the run with nothing written."
 	}
 	return out
@@ -280,6 +284,7 @@ func depBlockerGroups(blockers []hostDepBlocker) []remedyGroup {
 			Alt:         b.Alt,
 			NoRemedy:    b.NoRemedy,
 			Miss:        b.Miss,
+			Note:        b.Ranked,
 			VerdictTerm: b.Bin,
 			Warn:        true,
 		})

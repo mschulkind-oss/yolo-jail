@@ -200,6 +200,7 @@ var configKeys = map[string]Entry{
 	"host_apply_on_launch": hostSideKey("a wrapped `yolo host -- <agent>` (hostapplygate.go)"),
 	"host_floor":           hostSideKey("the host floor (config.HostFloorWire)"),
 	"host_path":            hostSideKey("`yolo host`'s tool lookup (internal/hostpath)"),
+	"provisioners":         hostSideKey("`yolo check-deps`, `yolo host apply` and the host floor (config.ProvisionerOrder)"),
 	"promotion_target":     hostSideKey("`yolo config promote`"),
 	"programs": {
 		PodmanLinux: honored("assembleRunCmd passes YOLO_PROGRAMS_AUTOPRUNE=1 when the user " +

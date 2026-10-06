@@ -256,6 +256,10 @@ var inheritCensus = map[string]keyDisposition{
 	// A jail's PATH is composed by its own boot (entrypoint.BootPath), and a host folder named here
 	// has no referent in a container, so the key means nothing inside one.
 	"host_path": {reason: "adds folders to the PATH of a `yolo host` launch, which a jail does not have"},
+	// `provisioners`: the user's order over the recipes packs ship, read at the HOST notch alone
+	// (docs/design/provisioner-sets.md PS-D11). A jail's agents come from the pack's own launcher,
+	// so an inherited host order would rank provisioners a container never runs.
+	"provisioners": {reason: "ranks the provisioners that install a program on the host, which a jail's own launchers never consult"},
 	// `brokered`: a workspace's own key, the repositories its broker may reach beyond its remotes,
 	// approved at that workspace's gate (docs/design/workspace-widening.md). In an inherited user
 	// scope it would apply to every workspace a launch inside the jail opens, and user scope now
