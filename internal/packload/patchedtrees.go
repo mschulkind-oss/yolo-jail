@@ -103,8 +103,10 @@ func PatchedTrees(packs []*Pack) []Fork {
 	return out
 }
 
-// TreeListEntry is the list entry a patched extension landing at into needs for its agent to load
-// it: `~/<into>`, with no trailing slash (patched-extensions.md §8.2).
+// TreeListEntry is the tree's own list entry, `~/<into>` with no trailing slash, as the lint names
+// it (patched-extensions.md §8.2). An entry loads the tree when it is this or a path inside it,
+// cleaned (loadsTree, PPX-D36), so `~/<into>/` loads it too; the pi pack's subagents render still
+// matches only the spelling with no slash, which the guide says.
 func TreeListEntry(into string) string { return "~/" + strings.TrimSuffix(into, "/") }
 
 // owningAgentPack is PPX-D4: the selected pack declaring the surface of contributing's list entry

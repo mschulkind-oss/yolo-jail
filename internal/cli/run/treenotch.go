@@ -7,7 +7,11 @@ package run
 // the delivery record and the lines of a notch that builds none all read the trees this returns, so
 // none of them sees it.
 
-import "github.com/mschulkind-oss/yolo-jail/internal/packload"
+import (
+	goruntime "runtime"
+
+	"github.com/mschulkind-oss/yolo-jail/internal/packload"
+)
 
 // jailDeliveredTrees is trees without those a jail is not delivered (packload.Fork.DeliveredInJail),
 // in their order.
@@ -20,3 +24,8 @@ func jailDeliveredTrees(trees []packload.Fork) []packload.Fork {
 	}
 	return out
 }
+
+// hostBuildsOwnTrees reports whether this host's own render builds patched extensions, as the host
+// apply's does (a Linux host): on a macOS host a tree listed for the host alone is delivered nowhere,
+// and the block says so (PPX-D38). A var so a test can be either host.
+var hostBuildsOwnTrees = func() bool { return goruntime.GOOS == "linux" }

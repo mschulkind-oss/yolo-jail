@@ -38,6 +38,18 @@ func (f Fork) DeliveredAtHost() bool { return !f.IsTree() || f.Owner == "" || f.
 const NotDeliveredInJailNote = "not built or mounted in a jail: the list entry that loads it is in a guarded " +
 	"posture list, which reaches the host alone — `yolo host apply --assert` installs it there"
 
+// NotDeliveredAnywhereNote is NotDeliveredInJailNote on a host that builds no tree for itself, a
+// macOS host, whose render refuses a tree built for a Linux jail (PPX-D38): the entry reaches only
+// the host, which has no build, so no notch has the tree, and the step that works is moving the entry
+// to a list a jail reads.
+const NotDeliveredAnywhereNote = "not built or mounted in a jail: the list entry that loads it is in a guarded " +
+	"posture list, which reaches the host alone, and this host builds no tree for itself (a tree is built for " +
+	"Linux) — " + GuardedOnlyStep
+
+// GuardedOnlyStep is the next step for a tree whose list entry reaches only a host that builds no
+// tree (PPX-D38).
+const GuardedOnlyStep = "move the entry to a `config-list` to load it in a jail, or drop it"
+
 // loadsTree reports whether the list entry entry loads the tree whose own entry is want
 // (TreeListEntry): entry, cleaned as a path, is want or lies inside it (PPX-D36).
 func loadsTree(entry, want string) bool {

@@ -224,8 +224,8 @@ func renderHostTree(f packload.Fork, home string, man *hostskills.Manifest, obse
 	dest := filepath.Join(home, filepath.FromSlash(strings.TrimSuffix(f.Into, "/")))
 	res := entrypoint.HostRenderResult{Surface: f.Pack + "/files", Path: dest}
 	if !hostTreesBuild() {
-		res.Action = fmt.Sprintf("refused: %s is built for a Linux jail, and this host builds no tree — run its "+
-			"agent in a jail that has it: YOLO_RUNTIME=podman yolo -- %s", f.Label(), ownerBinFor(f))
+		res.Action = "refused: " + f.Label() + " is built for a Linux jail, and this host builds no tree — " +
+			noHostTreeStep(f, ownerBinFor(f))
 		return res
 	}
 	entry, _, why := hostTreeServing(f)
@@ -387,14 +387,25 @@ func noteHostTreeLines(errw io.Writer, color bool, bin, home string) {
 		}
 		if !hostTreesBuild() {
 			pr.Printf("[yellow]%s[/yellow]", richtext.Escape(fmt.Sprintf("yolo host: %s is not delivered on this host — "+
-				"its tree is built for a Linux jail, and a macOS host builds none; %s starts without it. "+
-				"YOLO_RUNTIME=podman yolo -- %s runs it in a jail that has it", f.Label(), bin, bin)))
+				"its tree is built for a Linux jail, and a macOS host builds none; %s starts without it. %s",
+				f.Label(), bin, noHostTreeStep(f, bin))))
 			continue
 		}
 		if line := hostTreeLine(f, home); line != "" {
 			pr.Printf("[dim]%s[/dim]", richtext.Escape("yolo host: "+line))
 		}
 	}
+}
+
+// noHostTreeStep is the next step for f on a host that builds no tree (PPX-D38): a jail that has
+// it, running bin, when its list entry reaches a jail; otherwise no notch has it, since the entry is
+// in a guarded posture list, which reaches the host alone, so the step is moving the entry.
+func noHostTreeStep(f packload.Fork, bin string) string {
+	if f.DeliveredInJail() {
+		return "YOLO_RUNTIME=podman yolo -- " + bin + " runs it in a jail that has it"
+	}
+	return "its list entry is in a guarded posture list, which reaches the host alone, so no jail has it either — " +
+		packload.GuardedOnlyStep
 }
 
 // hostTreeLine is f's line at a host launch, read from the link the render owns: "" when

@@ -163,6 +163,11 @@ func patchedTreeLine(f packload.Fork) (string, bool) {
 	}
 	head += " + " + PatchCount(series.Len()) + " (series " + series.ShortDigest() + ")"
 	if !f.DeliveredInJail() {
+		if !hostBuildsOwnTrees() {
+			// A MACOS HOST builds no tree for its own render, so the guarded entry reaches no notch that
+			// has the tree (PPX-D38): a warning, with the step that works.
+			return head + " — " + packload.NotDeliveredAnywhereNote, true
+		}
 		return head + " — " + packload.NotDeliveredInJailNote, false
 	}
 	if config.InJail() {

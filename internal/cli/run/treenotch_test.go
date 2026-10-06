@@ -54,6 +54,7 @@ func postureListing(posture, entry string) string {
 // stops), and the launch's block names it with where it goes instead. Red if notePatchedTrees stops
 // returning only the trees a jail is delivered.
 func TestAGuardedOnlyTreeIsNeitherBuiltNorMountedInAJail(t *testing.T) {
+	asHostThatBuildsTrees(t, true)
 	treeLaunchHomeListing(t, postureListing("guarded", "~/"+treeInto))
 	called := false
 	argv, printed := fakePodmanLaunch(t, func(o *Options) {
@@ -114,14 +115,38 @@ func TestATreeListedForJailsIsDeliveredAndAnEntryUnderItLoadsIt(t *testing.T) {
 }
 
 // MACOS-USER says nothing of a tree no jail loads: its agent would not load it on any backend. Red if
-// the macos-user arm's line stops reading the trees a jail is delivered.
+// the macos-user arm's line stops reading the trees a jail is delivered. macos-user runs on a macOS
+// host, which builds no tree for itself, so the block's line names the step that works (PPX-D38).
 func TestAMacosUserLaunchIsSilentOnAGuardedOnlyTree(t *testing.T) {
+	asHostThatBuildsTrees(t, false)
 	treeLaunchHomeListing(t, postureListing("guarded", "~/"+treeInto))
 	out := launchToDispatch(t)
 	if strings.Contains(out, "is not delivered on macos-user") {
 		t.Errorf("the macos-user launch warns of a tree no jail loads:\n%s", out)
 	}
-	if !strings.Contains(out, packload.NotDeliveredInJailNote) {
+	if !strings.Contains(out, packload.NotDeliveredAnywhereNote) {
 		t.Errorf("the macos-user launch's block does not name the tree:\n%s", out)
 	}
+}
+
+// ON A HOST THAT BUILDS NO TREE (macOS), a guarded-only tree reaches no notch that has it, so the
+// block names moving the entry, never `yolo host apply --assert`, which refuses it there.
+func TestAGuardedOnlyTreeOnAMacOSHostNamesAStepThatWorks(t *testing.T) {
+	asHostThatBuildsTrees(t, false)
+	treeLaunchHomeListing(t, postureListing("guarded", "~/"+treeInto))
+	_, printed := fakePodmanLaunch(t, func(o *Options) {
+		o.BuildTrees = func(r TreeBuildRequest) map[string]TreeDelivery { return nil }
+	})
+	if !strings.Contains(printed, "extension "+treeKey+": ~/"+treeInto) ||
+		!strings.Contains(printed, packload.NotDeliveredAnywhereNote) || strings.Contains(printed, "yolo host apply --assert") {
+		t.Errorf("the block on a macOS host:\n%s", printed)
+	}
+}
+
+// asHostThatBuildsTrees makes this test's host one whose own render builds trees (Linux), or not.
+func asHostThatBuildsTrees(t *testing.T, builds bool) {
+	t.Helper()
+	prev := hostBuildsOwnTrees
+	hostBuildsOwnTrees = func() bool { return builds }
+	t.Cleanup(func() { hostBuildsOwnTrees = prev })
 }
