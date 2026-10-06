@@ -123,10 +123,9 @@ type Pack struct {
 // host argv no launch runs until the maintainer rules on third-party host code
 // (docs/design/host-notch-services.md OQ-HS4, HS-D27). The one predicate every reader of that
 // question asks: internal/launchservice's admission, and the footprint's host-execution claim
-// (moduleClaims), so the footprint of a pack resolved as a launch resolves it (config.ResolvePack)
-// never claims execution the launch refuses, nor hides one it runs. `yolo pack footprint <path>`
-// loads its argument without that resolver, so nothing sets Local on it, and its footprint omits a
-// local doorway's host argv (HS-D27 says what is left to change).
+// (moduleClaims), so a footprint never claims execution the launch refuses, nor hides one it
+// runs: `yolo pack footprint <path>` marks the pack it loads Local, as config.ResolvePack marks a
+// `file://` entry.
 func (p *Pack) MayRunHostHalf() bool {
 	return p != nil && (p.Official || p.Local)
 }

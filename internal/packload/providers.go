@@ -1198,7 +1198,7 @@ func serviceClaimDetail(c packdecl.Contribution) string {
 		// local one, and refused for a fetched one (docs/design/host-notch-services.md OQ-HS4,
 		// HS-D27); the footprint reports what the pack WANTS either way, so a reader of a
 		// fetched pack's footprint sees the argv its launch would refuse.
-		parts = append(parts, "host daemon ["+strings.Join(c.HostDaemon.Cmd, " ")+"] (runs at the host and on macos-user for a pack yolo ships or one your config selects by path; refused for a fetched pack)")
+		parts = append(parts, "host daemon ["+strings.Join(c.HostDaemon.Cmd, " ")+"] (runs at the host and on macos-user for a pack yolo ships or a local one; refused for a fetched pack)")
 	}
 	if c.Endpoint != "" {
 		parts = append(parts, "endpoint /run/yolo-services/"+c.Endpoint)

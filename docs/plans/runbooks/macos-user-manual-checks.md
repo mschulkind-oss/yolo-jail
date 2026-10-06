@@ -882,8 +882,15 @@ route.
   `mise_tools` or `packages`. Do not report its absence. (History: this entry was struck through
   on 2026-09-12, restored the same day, measured red that evening, and wired on 2026-09-13; the
   wiring was deleted with the recipes, unmeasured on hardware.)
-- **`per_side_paths`, `resources`, `cache_relocations`** are read and ignored, each
-  for a structural reason (no mount namespace, no cgroups, no binds). Each warns.
+- **`per_side_paths` and `resources.pids_limit`** are read and ignored, each for a
+  structural reason (no mount namespace; no cgroups, and RLIMIT_NPROC is per-user). Each
+  warns. **The other three `resources` keys act here since 2026-10-04, and are unverified on
+  hardware.** `resources.memory` is a sampled guard inside the sandbox that stops the
+  session's largest process when the session goes over; `resources.cpus` sets four
+  parallelism defaults cooperatively, capped at the Mac's CPU count; `resources.io` sets the
+  session's disk policy with `setiopolicy_np`. `cache_relocations` is delivered too, as a
+  link in the sandbox home the launch names. Treat a misbehavior in any of them as a bug
+  WORTH reporting, with the launch output and, for `memory`, the guard's red line.
 - ~~**One home for every workspace.**~~ **FIXED 2026-09-12, and unverified on hardware** —
   see item 5, which is the check that settles it.
 - **A jail here cannot launch a jail.** `sudo` cannot exec under Seatbelt and

@@ -129,9 +129,12 @@ func (c *packChannel) guestJailDaemons(runs []loopholes.JailDaemonSpec, launchEn
 }
 
 // jailDaemonEnv is the supervisor's environment, in this order: the payload, the three wire
-// tables and the shared pack env (what a container's supervisor inherits from the channel
-// section), the caller token of every daemon in runs that demands one, and every endpoint
-// variable the launch carries. Every key is set once; a later layer never shadows the payload.
+// tables and the channel section's pack env (channelPackEnv: what a container's supervisor
+// inherits from that section, so a fold value env_sources beats or removes is not here and a
+// pack's value never replaces a table), the caller token of every daemon in runs that demands
+// one, and every endpoint variable the launch carries. Every key is set once; a later layer never
+// shadows the payload. The section is all it mirrors: a container's supervisor also inherits the
+// shared file's env_sources defaults, which this backend has never handed its guest daemons.
 func (c *packChannel) jailDaemonEnv(runs []loopholes.JailDaemonSpec, launchEnv *jsonx.OrderedMap) *jsonx.OrderedMap {
 	env := jsonx.NewOrderedMap()
 	payload, err := jsonx.DumpsCompact(loopholes.JailDaemonPayload(runs))
@@ -144,7 +147,7 @@ func (c *packChannel) jailDaemonEnv(runs []loopholes.JailDaemonSpec, launchEnv *
 		env.Set(k, wire[k])
 	}
 	if c.scope != nil {
-		shared := c.scope.SharedPackEnv()
+		shared := c.channelPackEnv()
 		keys := make([]string, 0, len(shared))
 		for k := range shared {
 			keys = append(keys, k)

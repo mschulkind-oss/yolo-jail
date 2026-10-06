@@ -32,11 +32,12 @@ func (o *Options) predictedServed(merged *jsonx.OrderedMap, packs []*packload.Pa
 	// The pack services' daemons from the launch's own composer (launchservice.ServiceJailDaemons),
 	// so the one split below declines them where the launch does rather than by a second rule here.
 	services := launchservice.ServiceJailDaemons(packs)
-	// A DOORWAY'S HOST ARGV RUNS ONLY FROM A PACK YOLO SHIPS, and the launch clears every one it
-	// refuses before anything reads its payload (launchservice.AdmitDoorways, the one admission
-	// both readers apply): so a refused doorway is judged here as the jail daemon it becomes. A
-	// SERVICE'S HOST HALF is admitted the same way (launchservice.AdmitServiceHosts), so one the
-	// launch will not run is judged as the jail daemon the macos-user guest then runs.
+	// A DOORWAY'S HOST ARGV RUNS ONLY FROM A PACK YOLO SHIPS OR A LOCAL ONE (HS-D27), and the
+	// launch clears every one it refuses before anything reads its payload
+	// (launchservice.AdmitDoorways, the one admission both readers apply): so a refused doorway is
+	// judged here as the jail daemon it becomes. A SERVICE'S HOST HALF is admitted the same way
+	// (launchservice.AdmitServiceHosts), so one the launch will not run is judged as the jail
+	// daemon the macos-user guest then runs.
 	specs, _ := launchservice.AdmitDoorways(packs, set.JailDaemons(set.Enabled(), rt, services))
 	specs, _ = launchservice.AdmitServiceHosts(packs, specs)
 	// Each daemon at its DECLARED listen address: a prediction binds nothing, so it has no

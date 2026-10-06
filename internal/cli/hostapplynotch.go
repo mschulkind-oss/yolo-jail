@@ -340,8 +340,9 @@ func hostNotchOutcomeOf(loaded []*packload.Pack, fields render.FieldSet, p *pack
 // at-launch kind once it is enabled and asked for, by the launch's own checks rather than a list
 // kept here (the header says where the two can still differ):
 //
-//   - a service when launchservice.Admit admits its host half (OQ-HS4: declared, in a pack yolo
-//     ships, an argv naming `yolo`), the gate a launch asks before it runs one;
+//   - a service when launchservice.Admit admits its host half (OQ-HS4, HS-D27: declared, in a
+//     pack yolo ships or a local one, an argv naming `yolo`), the gate a launch asks before it
+//     runs one: a pairing's service and a pure worker alike (HS-D29);
 //   - a loophole when its module is a doorway the launch opens (run.HostDoorwayLoopholes, which
 //     re-runs PlanHostDoorways' filter);
 //   - an env contribution unless it is `served_by` a daemon the host serves neither as a doorway

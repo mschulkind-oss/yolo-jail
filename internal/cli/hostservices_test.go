@@ -675,8 +675,12 @@ func TestHostApplySaysWhereAViaOrCarrierTakesEffect(t *testing.T) {
 // name and declares the same service with a host half is refused by name at the launch, with the
 // next step, and nothing starts.
 func TestHostRefusesAFetchedPacksHostHalfByName(t *testing.T) {
-	src := fetchedBridgeSource(t,
-		`{"kind": "adapter", "adapts": {"from": "openai-responses", "to": "anthropic"}, "address": "http://127.0.0.1:8215"}`)
+	// With a jail daemon beside the host half, so a container jail runs the service and the
+	// refusal names that launch (a held service with no jail daemon is one no jail runs).
+	src := fetchedBridgeSourceWith(t,
+		`{"kind": "adapter", "adapts": {"from": "openai-responses", "to": "anthropic"}, "address": "http://127.0.0.1:8215"}`,
+		`{"kind": "service", "name": "wire-bridge", "jail_daemon": {"cmd": ["yolo-jaild", "wire-bridge"]}, `+
+			`"host_daemon": {"cmd": ["yolo", "internal", "daemon", "wire-bridge"]}}`)
 	cfg := `{"packs": ["claude", {"source": "` + src + `", "name": "wire-bridge"}]}`
 	origStart := startLaunchService
 	startLaunchService = func(*launchservice.Plan, map[string]string) (*launchservice.Running, error) {

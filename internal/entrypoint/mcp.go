@@ -329,11 +329,12 @@ func loadMCPTables(e *Env) mcpTables {
 //     then asks its own file over the view, as its launcher will.
 //
 // Leaving a key out can only withhold a server, from the agents whose own file does not set
-// the key, never grant one. It withholds wrongly in one shape alone, where every value the
+// the key, never grant one. It would withhold wrongly in one shape alone, where every value the
 // files' `case` lines list for the key is also some other agent's own, which needs two or more
-// profiles to set the key to the shared value itself (sharedValueInAgentFiles says why). Both
-// rules read the files the launch wrote, and that writer is best-effort: a profiled agent's file
-// it failed to write leaves that agent's values looking shared. The view is a separate Env
+// profiles to set the key to the shared value itself, and the writer gives no agent a line for a
+// name whose winner it shares with every process (sharedValueInAgentFiles says why). Both rules
+// read the files the launch wrote, and that writer is best-effort: a profiled agent's file it
+// failed to write leaves that agent's values looking shared. The view is a separate Env
 // holding only what agentEnvLookup and Lookup read (the home and the variables), so nothing the
 // gate does writes through it.
 func scopedMCPView(e *Env) *Env {
@@ -375,13 +376,16 @@ func scopedMCPView(e *Env) *Env {
 // It reads the writer's `case` line (agentEnvLine). The writer gives a composed value that form
 // when yolo set its name elsewhere this entry, and the line lists every value set there
 // (internal/cli/run's inheritedValues): the shared composition's, and the value each OTHER
-// agent's profile composes, which that agent's own file sets too. (Its third source, a running
-// container's environment on an attach, is never one here: this view is the macos-user
-// bootstrap's.) So a listed value that no other agent's file sets key to is the shared
-// composition's. A def-form line says yolo set the name nowhere else, and a claimed
-// env_sources value is never shared, so neither shows a shared value. Where every listed value
-// is also another agent's own, the shared value cannot be told from theirs, and none is
-// returned.
+// agent's profile composes, which that agent's own file sets when it differs from the shared
+// one. (Its third source, a running container's environment on an attach, is never one here:
+// this view is the macos-user bootstrap's.) No agent's file sets key to the shared
+// composition's value, because the writer gives a name whose winner an agent shares with every
+// process no line in that agent's file (notch-convergence NC-D72). So a listed value that no
+// other agent's file sets key to is the shared composition's. A def-form line says yolo set the
+// name nowhere else, and a claimed env_sources value is never shared, so neither shows a shared
+// value. Where every listed value is also another agent's own, the shared value cannot be told
+// from theirs, and none is returned; the writer no longer produces such a pair, since it took
+// two profiles setting the key to the shared value itself.
 func sharedValueInAgentFiles(files map[string][]agentEnvLine, key string) (string, bool) {
 	agents := make([]string, 0, len(files))
 	for agent := range files {

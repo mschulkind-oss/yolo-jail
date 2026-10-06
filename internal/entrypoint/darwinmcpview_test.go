@@ -157,9 +157,37 @@ func TestTheMacosUserMCPGateAnswersAsTheContainerDoes(t *testing.T) {
 			want: map[string]bool{"shared": true, "claude": true, "pi": true},
 		},
 		{
+			// internal/cli/run's TestTheMacosUserAgentFilePairForTheMCPView writes this pair:
+			// fxa's profile composes K, and fxb's composes only its own key, so fxb's K is the
+			// shared value and fxb's file names no K. A line there overriding fxa's value for an fxb
+			// that fxa starts (`case "${K-}" in ''|'shape') export K='es-unclaimed'`) set the shared
+			// value in fxb's file, and this view then found no shared value, left the server out of
+			// the shared table, and named it configured only for fxa and fxb.
+			name: "a shared value one profile composes over, beside another profiled agent, launching a third",
+			files: map[string]string{
+				"fxa": "export FXP_KEY=${FXP_KEY:-'es-fxp'}\n" +
+					`case "${K-}" in ''|'es-unclaimed') export K='shape' ;; esac`,
+				"fxb": `export FYP_KEY=${FYP_KEY:-'es-fyp'}`,
+			},
+			container: "es-unclaimed", session: "es-unclaimed",
+			want: map[string]bool{"shared": true, "fxa": true, "fxb": true},
+		},
+		{
+			name: "a shared value one profile composes over, beside another profiled agent, launching that one",
+			files: map[string]string{
+				"fxa": "export FXP_KEY=${FXP_KEY:-'es-fxp'}\n" +
+					`case "${K-}" in ''|'es-unclaimed') export K='shape' ;; esac`,
+				"fxb": `export FYP_KEY=${FYP_KEY:-'es-fyp'}`,
+			},
+			container: "es-unclaimed", session: "shape",
+			want: map[string]bool{"shared": true, "fxa": true, "fxb": true},
+		},
+		{
 			// The one shape the files cannot settle: both profiles compose the shared value
 			// itself, so each `case` lists only a value the other agent's file sets too. The
 			// view withholds, never grants: the agents whose own file sets K keep the server.
+			// The writer no longer produces it (a profile whose K is the shared value gets no K
+			// line, notch-convergence NC-D72); kept for the reader's fallback.
 			name: "every listed value is also another agent's own",
 			files: map[string]string{
 				"claude": `case "${K-}" in ''|'v') export K='v' ;; esac`,

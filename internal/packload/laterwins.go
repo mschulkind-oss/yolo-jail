@@ -53,9 +53,11 @@ type ShadowedService struct {
 // declaration each service name keeps, the LAST in packs' order, in declaration order; shadowed
 // is every other declaration of a held name, in declaration order. A service name is sole-owned
 // (Collisions reports two, so `yolo pack footprint` names the pair), and no launch pre-flight
-// refuses a second declarer, so every reader of the services asks this: the jail-daemon payload
-// (run.serviceJailDaemons), the name-keyed readers (ServiceNamed, ServiceJailDaemonNames), and
-// the launch's disclosure of what it set aside (run.noteShadowedServices).
+// refuses a second declarer, so every reader of the services asks this: among them the
+// jail-daemon payload (launchservice.ServiceJailDaemons, which run.serviceJailDaemons and `yolo
+// check`'s prediction both read), the host half's admission (launchservice.Admit), the pure
+// workers a launch starts beside its command, the name-keyed reader (ServiceNamed), and the
+// launch's disclosure of what it set aside (run.noteShadowedServices).
 func HeldServices(packs []*Pack) (held []HeldService, shadowed []ShadowedService) {
 	var all []HeldService
 	for _, p := range packs {

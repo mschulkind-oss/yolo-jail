@@ -20,6 +20,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/hostwrap"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/launchservice"
+	"github.com/mschulkind-oss/yolo-jail/internal/loopholes"
 	"github.com/mschulkind-oss/yolo-jail/internal/openaiauthhost"
 	"github.com/mschulkind-oss/yolo-jail/internal/openauthclient"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
@@ -2710,7 +2711,7 @@ func composeHostVarsWith(cfg *jsonx.OrderedMap, workspace, agent, command, profi
 	if err != nil {
 		var unserved *packload.UnservedAdapterError
 		if errors.As(err, &unserved) && unserved.Agent == agent {
-			err = unservedAdapterRefusal(unserved, profileName, sel, "")
+			err = unservedAdapterRefusal(unserved, packs, profileName, sel, "")
 		}
 		c.err = err
 		return c
@@ -2962,13 +2963,13 @@ func hostAdapterAddresses() map[string]string {
 func (c *hostComposition) planHostService(e *packload.UnservedAdapterError, packs []*packload.Pack,
 	profile string, sel hostPackSet, mode hostServicesMode) (*launchservice.Plan, error, bool) {
 	if !e.Selected || e.ProviderPack != "" {
-		return nil, unservedAdapterRefusal(e, profile, sel, ""), false
+		return nil, unservedAdapterRefusal(e, packs, profile, sel, ""), false
 	}
 	// A service this composition already planned that still leaves the pairing unserved is a
 	// contradiction between the gate and the plan, never a reason to plan it twice.
 	for _, p := range c.services {
 		if p.Service == e.Adaptation.Service {
-			return nil, unservedAdapterRefusal(e, profile, sel, "this launch planned it and the "+
+			return nil, unservedAdapterRefusal(e, packs, profile, sel, "this launch planned it and the "+
 				"pairing still does not resolve through it (a yolo bug)"), false
 		}
 	}
@@ -2979,7 +2980,7 @@ func (c *hostComposition) planHostService(e *packload.UnservedAdapterError, pack
 		if errors.As(err, &adm) {
 			why = adm.Why
 		}
-		return nil, unservedAdapterRefusal(e, profile, sel, why), false
+		return nil, unservedAdapterRefusal(e, packs, profile, sel, why), false
 	}
 	switch mode {
 	case hostServicesDetect:
@@ -3297,10 +3298,14 @@ func workerGateClause(u packload.ProfileServedDaemon) string {
 // works.
 //
 // THAT LAUNCH IS A CONTAINER JAIL'S (ES-D20): it runs the service's jail daemon, which needs no
-// host half and no trust ruling. A macos-user launch runs a pack service only through its host
-// half, as the host does, so it refuses the same profile, and the refusal names the dial that
-// picks a container backend for one launch. It never says the profile works "in a jail"
-// unqualified.
+// host half and no trust ruling. The macos-user clause reads that backend's guest split
+// (macosUserGuestRuns, JD-9): where the sandbox runs the service's jail daemon the refusal says
+// the profile works there too, and where it declines it (the bridge, whose host half serves it
+// there, or a service publishing an endpoint file) it says macos-user refuses the same profile
+// and names the dial that picks a container backend for one launch. It never says the profile
+// works "in a jail" unqualified. And WHEN THE HELD SERVICE DECLARES NO JAIL DAEMON no jail runs
+// it as declared (packload.HeldServices makes the later declaration the name's holder), so the
+// refusal says that instead of naming a jail launch that would serve nothing.
 //
 // A PACK THE SELECTION CLOSURE JOINED IS WORDED AS JOINED (HS-D1). With `"packs": ["claude"]`
 // the wire bridge joins through claude's `needs`, so "though "wire-bridge" is in `packs`" would
@@ -3316,7 +3321,8 @@ func workerGateClause(u packload.ProfileServedDaemon) string {
 //
 // THE JAIL SPELLING IS SAID TO BE A JAIL LAUNCH (ES-D26): `yolo -p claude=codex -- claude`
 // starts a container, not a `yolo host` one.
-func unservedAdapterRefusal(e *packload.UnservedAdapterError, profile string, sel hostPackSet, why string) error {
+func unservedAdapterRefusal(e *packload.UnservedAdapterError, packs []*packload.Pack, profile string,
+	sel hostPackSet, why string) error {
 	a := e.Adaptation
 	agent, p := shquote.Quote(e.Agent), shquote.Quote(profile)
 	listing := fmt.Sprintf("though %q is in `packs`", a.Pack)
@@ -3345,17 +3351,59 @@ func unservedAdapterRefusal(e *packload.UnservedAdapterError, profile string, se
 			"pack %q ships it and nothing selects it%s, so adding %q to `packs` does not change "+
 			"the answer either.", e.Provider, e.ProviderPack, needs, e.ProviderPack)
 	}
+	// The declaration a jail would run: the selection's, or, for a pack nothing selects, the
+	// shipped one (the only kind an unselected adaptation comes from), as the remedy above reads.
+	declared := packs
+	if !e.Selected {
+		declared = packload.Embedded()
+	}
+	jails := fmt.Sprintf("No jail runs it either: the %q service pack %q declares has no jail daemon "+
+		"(`jail_daemon`), so no launch serves that address as declared.", a.Service, a.Pack)
+	if serviceHasJailDaemon(declared, a.Service) {
+		macos := "A macos-user launch runs a pack service only through its host half, as `yolo host` " +
+			"does, so it refuses this profile too; `YOLO_RUNTIME=podman` or `YOLO_RUNTIME=container` " +
+			"picks a container backend for one launch."
+		if e.Selected && e.ProviderPack == "" && macosUserGuestRuns(packs, a.Service) {
+			macos = "A macos-user launch runs that service's jail daemon in its sandbox, so the profile " +
+				"works there too (`YOLO_RUNTIME=macos-user` for one launch)."
+		}
+		jails = fmt.Sprintf("The profile works in a container jail (podman or Apple Container), where "+
+			"that service's jail daemon runs: `yolo -p %s=%s -- %s`, which is a jail launch, not a "+
+			"`yolo host` one. %s", agent, p, agent, macos)
+	}
 	return fmt.Errorf("profile %q would point %s at %s, where pack %q adapts %q → %q for provider %q — "+
 		"and that address is served by the pack's own %q service, %s. No host process serves it, so "+
 		"`yolo host` will not run %s pointed at it, %s.%s\n"+
-		"  The profile works in a container jail (podman or Apple Container), where that service's "+
-		"jail daemon runs: `yolo -p %s=%s -- %s`, which is a jail launch, not a `yolo host` one. A "+
-		"macos-user launch runs a pack service only through its host half, as `yolo host` does, so "+
-		"it refuses this profile too; `YOLO_RUNTIME=podman` or `YOLO_RUNTIME=container` picks a "+
-		"container backend for one launch.\n"+
+		"  %s\n"+
 		"  At the host, choose a profile whose provider %s speaks to directly",
 		profile, agent, a.Address, a.Pack, a.From, a.To, e.Provider, a.Service, cannot, agent, listing,
-		providerPack, agent, p, agent, agent)
+		providerPack, jails, agent)
+}
+
+// serviceHasJailDaemon reports whether the held declaration of service has a jail daemon, read
+// through the one composer of a service's daemon (launchservice.ServiceJailDaemons), so the
+// refusal names a jail launch only when a jail would run the service.
+func serviceHasJailDaemon(packs []*packload.Pack, service string) bool {
+	for _, s := range launchservice.ServiceJailDaemons(packs) {
+		if s.Name == service {
+			return true
+		}
+	}
+	return false
+}
+
+// macosUserGuestRuns reports whether a macos-user launch of packs runs service's jail daemon in
+// its sandbox: the launch's own composer, admission and split
+// (docs/design/jail-daemon-on-macos-user-plan.md JD-9), so the refusal and the launch agree.
+func macosUserGuestRuns(packs []*packload.Pack, service string) bool {
+	specs, _ := launchservice.AdmitServiceHosts(packs, launchservice.ServiceJailDaemons(packs))
+	runs, _ := loopholes.JailDaemonsRunIn("macos-user", specs)
+	for _, s := range runs {
+		if s.Name == service {
+			return true
+		}
+	}
+	return false
 }
 
 // hostScopedEnvSources returns cfg with any still-RELATIVE env_sources file entry

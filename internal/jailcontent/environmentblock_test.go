@@ -92,11 +92,12 @@ func environmentBlockOf(t *testing.T, briefing string) string {
 
 // THE SAME DEFECT, ONE SECTION LOWER, AND THE 2026-09-13 FIX DID NOT REACH IT. `## Packages &
 // Resource Limits` tells the agent to edit `resources` for a "container-limit change" — on a
-// backend with no container, where `resources` is read and IGNORED by ruling
-// ([DP-D1](../../docs/design/declaration-parity.md)): RLIMIT_AS is address space rather than
-// RSS, and RLIMIT_NPROC is per-USER and would collide across concurrent sessions on the shared
-// account. Both substitutes were rejected by name, on the grounds that "a cap a user believes in
-// but that does not hold is worse than a documented absence."
+// backend with no container, where no `resources` key is a kernel cap: `io` is a disk policy,
+// `memory` a sampled guard, `cpus` parallelism defaults, and `pids_limit` is read and IGNORED
+// ([DP-D1](../../docs/design/declaration-parity.md): RLIMIT_NPROC is per-USER and would collide
+// across concurrent sessions on the shared account; "a cap a user believes in but that does not
+// hold is worse than a documented absence"). TestTheMacosUserBriefingSaysWhatEachResourceKeyDoes
+// pins what the section says of each key.
 //
 // So the instruction was worse than a wrong path: it invited the agent to ask the human for a
 // limit that cannot be delivered, and the surrounding heading promised limits the launch does
@@ -120,16 +121,16 @@ func TestThePackagesSectionDoesNotPromiseLimitsThisBackendIgnores(t *testing.T) 
 	} {
 		if strings.Contains(native, gone) {
 			t.Errorf("the macos-user briefing still says %q, on a backend with no container "+
-				"and no enforced resources (DP-D1).\n\nGot:\n%s", gone, packagesSectionOf(t, native))
+				"and no kernel-enforced resources.\n\nGot:\n%s", gone, packagesSectionOf(t, native))
 		}
 	}
 	for _, want := range []string{
 		"## Packages",
 		"`/workspace/yolo-jail.jsonc`",
 		"`packages`",
-		// The absence has to be NAMED, by the same rule that governs every other cell of
-		// this backend: an agent that reads `resources` in the config and plans around it is
-		// the failure DP-D1's ruling describes.
+		// What the keys are NOT has to be named, by the same rule that governs every other
+		// cell of this backend: an agent that reads `resources` and plans around a kernel cap
+		// is the failure DP-D1's ruling describes.
 		"`resources` is not enforced here",
 	} {
 		if !strings.Contains(native, want) {

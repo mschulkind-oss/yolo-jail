@@ -38,7 +38,7 @@ func ioPriorityEnvArgs(p ioprio.Priority) []string {
 //     sysfs), prints nothing: the first needs no line, and the second proves nothing, which
 //     `yolo check` says in its own row.
 //   - macos-user never reaches here: that arm of Run returns before the container path, and
-//     its resources line is the orchestrator's (IO-D8).
+//     its disk policy and the one warning it can print are the orchestrator's (IO-D13).
 func (o *Options) noteIOPriority(rt string, p ioprio.Priority) {
 	if !p.Declared() {
 		return

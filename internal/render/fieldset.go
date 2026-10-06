@@ -122,7 +122,7 @@ var refusalReasons = map[packdecl.Kind]string{
 	// Since 2026-09-28 a service's HOST HALF runs at `yolo host --` beside the one agent paired
 	// through it (docs/design/host-notch-services.md OQ-NC1, OQ-HS4), which is hostAtLaunch's
 	// entry; this one names the shape the host runs nothing for, a service with no host half or
-	// one only an official pack's gate refuses.
+	// one whose host half the origin gate refuses (a fetched pack's, HS-D27).
 	//
 	// `blocked-tool` sat here too, saying "off-container yolo owns no PATH entry to put one in".
 	// That stopped being true of `yolo host --` on 2026-09-29, when HE-D1 had it compose the
@@ -141,8 +141,8 @@ var refusalReasons = map[packdecl.Kind]string{
 	packdecl.KindIntercept: "an intercept layers a permission over a CLI by putting a forwarder " +
 		"first on a JAIL's PATH; at the host the agent runs as you and can run the real program " +
 		"by its path, so the layer would govern nothing (boundary-broker.md BB-D17)",
-	packdecl.KindService: "a service with no host half (`host_daemon`), or one a pack yolo does not " +
-		"ship declares, is a daemon pair plus an endpoint file under the jail's /run. With no " +
+	packdecl.KindService: "a service with no host half (`host_daemon`), or one a fetched pack " +
+		"declares, is a daemon pair plus an endpoint file under the jail's /run. With no " +
 		"jail there is nothing to supervise the jail half and nothing to read the endpoint",
 }
 
@@ -217,8 +217,8 @@ var hostUnimplemented = map[packdecl.Kind]string{
 //   - env: a variable `served_by` a daemon the host notch does not serve (hostWithheldAtLaunch).
 //   - adapter: one whose address its own pack's service answers, when that service has no host
 //     half the gate admits (hostWithheldAtLaunch).
-//   - service: one with no host half, or a host half the official-pack gate refuses
-//     (launchservice.Admit); refusalReasons states it, the kind not being honored.
+//   - service: one with no host half, or a host half the origin gate refuses
+//     (launchservice.Admit: a fetched pack's); refusalReasons states it, the kind not being honored.
 //   - loophole: one with no doorway for a notch without a jail (refusalReasons, likewise).
 //   - blocked-tool: none — every contribution is delivered.
 //
@@ -241,14 +241,14 @@ var hostAtLaunch = map[packdecl.Kind]string{
 		"carries, so `yolo host -- <program>` points its agent there, starting the pack service " +
 		"that answers it when one does; `yolo host apply` writes it into no file",
 	// docs/design/host-notch-services.md OQ-NC1 (A) and OQ-HS4.
-	packdecl.KindService: "a service's host half (`host_daemon`, in a pack yolo ships) runs at " +
-		"`yolo host -- <program>` beside the one agent paired through it, and stops when that " +
-		"agent exits; `yolo host apply` runs no process for it to live beside",
+	packdecl.KindService: "a service's host half (`host_daemon`, in a pack yolo ships or a local " +
+		"one) runs at `yolo host -- <program>` beside the one agent paired through it, and stops " +
+		"when that agent exits; `yolo host apply` runs no process for it to live beside",
 	// docs/design/host-notch-services.md HS-D15 (the doorway rule) and HS-D21.
 	packdecl.KindLoophole: "a credential loophole's doorway (`jail_daemon.host_cmd`, in a pack " +
-		"yolo ships) opens at `yolo host -- <program>` for the agent whose selection asks for it, " +
-		"once the loophole is enabled, and closes when that agent exits; `yolo host apply` runs " +
-		"no process for it to live beside",
+		"yolo ships or a local one) opens at `yolo host -- <program>` for the agent whose " +
+		"selection asks for it, once the loophole is enabled, and closes when that agent exits; " +
+		"`yolo host apply` runs no process for it to live beside",
 }
 
 // hostWithheldAtLaunch is the shape of an at-launch kind the host notch does NOT deliver, for
@@ -271,7 +271,7 @@ var hostWithheldAtLaunch = map[packdecl.Kind]string{
 	// address out and `yolo host --` refuses a pairing through it, naming the service. No shipped
 	// pack has this shape: wire-bridge's service has an admitted host half.
 	packdecl.KindAdapter: "an adapter whose address its own pack's service answers, when that " +
-		"service has no host half (`host_daemon`) or is in a pack yolo does not ship: nothing at " +
+		"service has no host half (`host_daemon`) or is in a fetched pack: nothing at " +
 		"the host serves the address, so `yolo host --` refuses a pairing through it and names " +
 		"the service",
 }
