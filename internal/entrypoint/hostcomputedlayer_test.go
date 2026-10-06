@@ -384,7 +384,8 @@ func TestAHostRenderReadsAnExistingYAMLCatalog(t *testing.T) {
 			models := filepath.Join(home, ".oh-omp", "agent", "models.yml")
 			writeTestFile(t, models, "# my catalog\nproviders:\n  mine:\n"+
 				"    baseUrl: http://127.0.0.1:9/v1\n    api: openai-completions\n")
-			packs := declaredRMW(t, testPacksForAgent(t, "omp", "cerebras"), "omp", m.rmw)
+			// llamacpp: cerebras is one of omp's own built-in providers (OQ-3), which gets no row.
+			packs := declaredRMW(t, testPacksForAgent(t, "omp", "llamacpp"), "omp", m.rmw)
 			in := hostTestInputs(t, packs, nil, nil, nil)
 			preview := func() HostRenderResult {
 				results, err := RenderHostPack(packs[0], home, render.OwnershipOwn, true,
@@ -405,7 +406,7 @@ func TestAHostRenderReadsAnExistingYAMLCatalog(t *testing.T) {
 				t.Fatalf("oh-omp/models --assert: %q", r.Action)
 			}
 			raw := string(mustRead(t, models))
-			if !strings.Contains(raw, "cerebras:") {
+			if !strings.Contains(raw, "llamacpp:") {
 				t.Errorf("the catalog was not written:\n%s", raw)
 			}
 			if again := preview(); again.WouldChange {

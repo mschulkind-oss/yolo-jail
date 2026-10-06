@@ -174,7 +174,8 @@ func TestTheJailPrefixHasOneSpelling(t *testing.T) {
 // guard rather than the codec's pin; the rmw arm's yaml encoder is pinned at the writer
 // (internal/entrypoint/hostrmwcodec_test.go's yaml cells).
 func TestYoloHostApplyAssertWritesTheOmpYAMLCatalog(t *testing.T) {
-	home := hostComputedHome(t, `{"packs":["omp","cerebras"],"host_management":"own"}`)
+	// llamacpp: cerebras is one of omp's own built-in providers (OQ-3), which gets no row.
+	home := hostComputedHome(t, `{"packs":["omp","llamacpp"],"host_management":"own"}`)
 	models := filepath.Join(home, ".oh-omp", "agent", "models.yml")
 	mine := "# my catalog\nproviders:\n  mine:\n    baseUrl: http://127.0.0.1:9/v1\n" +
 		"    api: openai-completions\n"
@@ -198,8 +199,8 @@ func TestYoloHostApplyAssertWritesTheOmpYAMLCatalog(t *testing.T) {
 		t.Fatalf("yolo host apply --assert rc=%d\n%s%s", rc, out.String(), errw.String())
 	}
 	raw, _ := os.ReadFile(models)
-	if !strings.Contains(string(raw), "cerebras:") || !strings.Contains(string(raw), "https://api.cerebras.ai/v1") {
-		t.Errorf("~/.oh-omp/agent/models.yml has no cerebras row:\n%s\n%s", raw, out.String()+errw.String())
+	if !strings.Contains(string(raw), "llamacpp:") || !strings.Contains(string(raw), "http://localhost:8080/v1") {
+		t.Errorf("~/.oh-omp/agent/models.yml has no llamacpp row:\n%s\n%s", raw, out.String()+errw.String())
 	}
 	if strings.Contains(out.String()+errw.String(), "no RMW") {
 		t.Errorf("an oh-omp surface is still refused for its codec:\n%s", out.String()+errw.String())

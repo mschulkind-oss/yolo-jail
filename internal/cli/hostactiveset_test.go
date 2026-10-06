@@ -479,14 +479,16 @@ func TestHostRunsOpencodeOnItsWholeSet(t *testing.T) {
 		t.Fatalf("OPENCODE_CONFIG_CONTENT is not a document: %q (%v)\n%s", run.env["OPENCODE_CONFIG_CONTENT"],
 			err, run.errs)
 	}
-	if !reflect.DeepEqual(doc["enabled_providers"], []any{"zai", "openrouter"}) || doc["theme"] != "mine" {
+	// Both providers are opencode's own (pi-codex-provider-shadowing.md OQ-3): named by its own ids,
+	// zai as `zai-coding-plan`, with no row of yolo's over either.
+	if !reflect.DeepEqual(doc["enabled_providers"], []any{"zai-coding-plan", "openrouter"}) || doc["theme"] != "mine" {
 		t.Errorf("OPENCODE_CONFIG_CONTENT = %v, want the set's providers over the user's own theme", doc)
 	}
-	if rows, _ := doc["provider"].(map[string]any); rows["zai"] == nil || rows["openrouter"] == nil {
-		t.Errorf("OPENCODE_CONFIG_CONTENT carries rows %v, want zai's and openrouter's", doc["provider"])
+	if rows, _ := doc["provider"].(map[string]any); rows["zai"] != nil || rows["openrouter"] != nil {
+		t.Errorf("OPENCODE_CONFIG_CONTENT carries rows %v over opencode's own providers", doc["provider"])
 	}
 	for _, want := range []string{"yolo host: yolo SET variables for opencode, from pack opencode",
-		"  OPENCODE_CONFIG_CONTENT: enabled_providers=zai,openrouter, model=", "(merged over your own value"} {
+		"  OPENCODE_CONFIG_CONTENT: enabled_providers=zai-coding-plan,openrouter, model=", "(merged over your own value"} {
 		if !strings.Contains(run.errs, want) {
 			t.Errorf("the launch must say %q:\n%s", want, run.errs)
 		}
@@ -523,7 +525,7 @@ func TestHostEnvHandsTheSelectionAScriptCanCarry(t *testing.T) {
 	if rc := hostEnv([]string{"--agent", "opencode", "-p", "zai"}, &out, &errw); rc != 0 {
 		t.Fatalf("hostEnv rc = %d\n%s", rc, errw.String())
 	}
-	if !hostExports(out.String(), "OPENCODE_CONFIG_CONTENT") || !strings.Contains(out.String(), `"enabled_providers":["zai"]`) {
+	if !hostExports(out.String(), "OPENCODE_CONFIG_CONTENT") || !strings.Contains(out.String(), `"enabled_providers":["zai-coding-plan"]`) {
 		t.Errorf("opencode's selection must be exported:\n%s", out.String())
 	}
 	if !strings.Contains(errw.String(), "yolo host env: yolo SET variables for opencode") {

@@ -114,15 +114,16 @@ func TestMacosUserServesCodexsRefreshPointerAtThePortItsAdapterBinds(t *testing.
 	}
 }
 
-// viaFixture is pi routed through the wire bridge by a user profile: pi, zai and the bridge
-// selected, `pz` = zai via wire-bridge, active for pi. userEnv carries zai's key.
+// viaFixture is pi routed through the wire bridge by a user profile: pi, kilo and the bridge
+// selected, `pz` = kilo via wire-bridge, active for pi. userEnv carries kilo's key. kilo, not zai:
+// pi has zai built in (pi-codex-provider-shadowing.md OQ-3), so a via over it re-points nothing.
 func viaFixture(t *testing.T) ([]*packload.Pack, *jsonx.OrderedMap, func(*Options, *jsonx.OrderedMap)) {
 	t.Helper()
-	packs := []*packload.Pack{officialPack(t, "pi"), officialPack(t, "zai"), officialPack(t, "wire-bridge")}
+	packs := []*packload.Pack{officialPack(t, "pi"), officialPack(t, "kilo"), officialPack(t, "wire-bridge")}
 	userEnv := jsonx.NewOrderedMap()
-	userEnv.Set("ZAI_API_KEY", "zai-test-key")
+	userEnv.Set("KILO_API_KEY", "kilo-test-key")
 	tune := func(o *Options, _ *jsonx.OrderedMap) {
-		writeUserConfig(t, os.Getenv("HOME"), `{"profiles": {"pz": {"provider": "zai", "via": "wire-bridge"}}}`)
+		writeUserConfig(t, os.Getenv("HOME"), `{"profiles": {"pz": {"provider": "kilo", "via": "wire-bridge"}}}`)
 		o.UseProfiles = map[string]string{"pi": "pz"}
 	}
 	return packs, userEnv, tune

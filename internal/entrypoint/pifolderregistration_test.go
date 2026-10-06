@@ -146,7 +146,12 @@ func TestHostRevertTakesThePiFolderEntryOut(t *testing.T) {
 	plant(t, home, listSettings, `{"packages":["npm:mine"]}`)
 	pis := testPacksForAgent(t, "pi")
 	hostApplyPi(t, home, render.OwnershipOwn, append(append([]*packload.Pack(nil), pis...), piFolderPack(t)))
-	wantPackages(t, home, "npm:mine", piFolderEntry)
+	// Membership, not order: under `own`, the one writing mode since the `assert` retirement, the
+	// first render adopts the file, and an adopted entry folds after the contributions.
+	if got := packagesAt(t, home); len(got) != 2 || !containsString(got, "npm:mine") ||
+		!containsString(got, piFolderEntry) {
+		t.Fatalf("packages = %#v, want your npm:mine and the folder %q", got, piFolderEntry)
+	}
 
 	if _, err := RevertHostRender(pis, home, false); err != nil {
 		t.Fatalf("revert: %v", err)

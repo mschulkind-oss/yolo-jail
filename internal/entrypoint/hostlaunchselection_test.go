@@ -147,10 +147,12 @@ func TestHostLaunchSelectionSpellsCodexsSelectionAsItsDashC(t *testing.T) {
 
 // OPENCODE: one document in its variable, the selection's keys and the rows enabled_providers
 // names, merged over a value the user already set there, whose other keys are kept; a value that is
-// not a document is refused, never overwritten.
+// not a document is refused, never overwritten. A provider opencode has built in is named by its
+// own id and gets no row (pi-codex-provider-shadowing.md OQ-3): zai is its `zai-coding-plan`, and
+// llamacpp, which it has not built in, carries the row the merge is about.
 func TestHostLaunchSelectionHandsOpencodeOneDocumentMergedOverTheUsersOwn(t *testing.T) {
-	f := newSelectionFixture(t, "opencode", nil, nil, "zai", "openrouter")
-	sel := f.compose(t, `{"opencode":["zai","openrouter"]}`)
+	f := newSelectionFixture(t, "opencode", nil, nil, "llamacpp", "zai")
+	sel := f.compose(t, `{"opencode":["llamacpp","zai"]}`)
 	if argv, _ := sel.Argv(); argv != nil {
 		t.Errorf("the env form hands no argv, got %q", argv)
 	}
@@ -159,23 +161,23 @@ func TestHostLaunchSelectionHandsOpencodeOneDocumentMergedOverTheUsersOwn(t *tes
 		t.Fatalf("vars = %+v (%v), want one unmerged %s", vars, err, f.spec.Env)
 	}
 	doc := decodeObject(t, vars[0].Value)
-	if got := doc["enabled_providers"]; !reflect.DeepEqual(got, []any{"zai", "openrouter"}) {
-		t.Errorf("enabled_providers = %v, want the set in order", got)
+	if got := doc["enabled_providers"]; !reflect.DeepEqual(got, []any{"llamacpp", "zai-coding-plan"}) {
+		t.Errorf("enabled_providers = %v, want the set in order, zai by opencode's own id", got)
 	}
 	rows, _ := doc["provider"].(map[string]any)
-	if _, ok := rows["zai"]; !ok || rows["openrouter"] == nil || len(rows) != 2 {
-		t.Errorf("provider rows = %v, want zai's and openrouter's alone", rows)
+	if _, ok := rows["llamacpp"]; !ok || len(rows) != 1 {
+		t.Errorf("provider rows = %v, want llamacpp's alone (zai is opencode's own)", rows)
 	}
 
-	user := `{"theme": "mine", "enabled_providers": ["anthropic"], "provider": {"zai": {"name": "My zai"}}}`
+	user := `{"theme": "mine", "enabled_providers": ["anthropic"], "provider": {"llamacpp": {"name": "My llama"}}}`
 	vars, err = sel.Vars(func(name string) (string, bool) { return user, name == f.spec.Env })
 	if err != nil || len(vars) != 1 || !vars[0].Merged {
 		t.Fatalf("vars over the user's own = %+v (%v), want one merged", vars, err)
 	}
 	doc = decodeObject(t, vars[0].Value)
-	zai, _ := doc["provider"].(map[string]any)["zai"].(map[string]any)
-	if doc["theme"] != "mine" || zai["name"] != "My zai" || zai["options"] == nil ||
-		!reflect.DeepEqual(doc["enabled_providers"], []any{"zai", "openrouter"}) {
+	llama, _ := doc["provider"].(map[string]any)["llamacpp"].(map[string]any)
+	if doc["theme"] != "mine" || llama["name"] != "My llama" || llama["options"] == nil ||
+		!reflect.DeepEqual(doc["enabled_providers"], []any{"llamacpp", "zai-coding-plan"}) {
 		t.Errorf("the merge kept %v; want the user's theme and row name kept, the selection's keys winning", doc)
 	}
 	if _, err := sel.Vars(func(string) (string, bool) { return "not json", true }); err == nil {
