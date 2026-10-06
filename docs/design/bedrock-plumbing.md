@@ -151,7 +151,7 @@ Each cell below names the transport, then the models it can call. The names are
 
 | Agent | You type `-p bedrock` | You type `-p bedrock-bridge` | Delivered by |
 | :--- | :--- | :--- | :--- |
-| **claude** | native (`CLAUDE_CODE_USE_BEDROCK=1`): **Anthropic models only**, because Messages serves Claude only ([§2](#2-what-bedrock-is--sourced-from-awss-pages)). Shipped | the everything profile: the bridge, **every model**, Anthropic ids passed untranslated ([OQ-BR11](#OQ-BR11)) | native: built, its model filtered to Anthropic entries ([BR-D9](#BR-D9)); everything: built 2026-09-30, claude routed at the bridge's adapter address ([WG-I39](wire-bridge-gateway.md#WG-I39)) |
+| **claude** | native (`CLAUDE_CODE_USE_BEDROCK=1`): **Anthropic models only**, because Messages serves Claude only ([§2](#2-what-bedrock-is--sourced-from-awss-pages)). Shipped | the everything profile: the bridge, **every model**, Anthropic ids passed untranslated ([OQ-BR11](#OQ-BR11)) | native: built, its model filtered to Anthropic entries ([BR-D9](#BR-D9)); everything: built 2026-09-30, claude routed at the bridge's adapter address ([WG-I39](wire-bridge-gateway.md#WG-I39)), and since 2026-10-05 claude's own Bedrock client at that address, the bridge translating another maker's id on its invoke routes ([MM-D39](model-lists-and-pickers.md#MM-D39)) |
 | **codex** | native (`amazon-bedrock-runtime`, Responses): **OpenAI models only**, since the evidence covers GPT alone and Anthropic's cards list no Responses API; widened when done-condition 5 measures another family | its via row, Responses at its via URL ([WG-I20](wire-bridge-gateway.md#WG-I20)), which the bridge carries to runtime's `/openai/v1/responses` | native: built ([BR-D12](#BR-D12)); bridge: built 2026-09-30 ([BR-D16](#BR-D16), [WG-I39](wire-bridge-gateway.md#WG-I39)) |
 | **opencode** | native (`amazon-bedrock`, routed per model): **every model** | its via row, carried the same way | native: built ([BR-D13](#BR-D13)); bridge: built 2026-09-30 |
 | **pi** | native (`amazon-bedrock` on Converse): **every model**; pi-ai 0.87.1's 165 Bedrock ids are all Converse | the bridge's sign-only chat-completions route, **every model** ([OQ-BR5](#OQ-BR5)), carried the same way | native: built ([BR-D14](#BR-D14)); bridge: built 2026-09-30 |
@@ -970,6 +970,14 @@ R6 to R11 moved with the bridge, model-list and search designs.
    the bridge. Built 2026-09-29 as a transport check
    ([PP-D4](providers-and-profiles-redesign.md#PP-D4)): claude's derive sets the switch only for a
    profile that routes through no via service, and aws-auth's pointer keys on the platform alone.
+   ⚠ **Since 2026-10-05** ([`model-lists-and-pickers.md` OQ-MM6](model-lists-and-pickers.md#OQ-MM6),
+   which amended only the transport) the everything profile runs claude's own Bedrock client
+   pointed at the bridge, so the launched process does carry `CLAUDE_CODE_USE_BEDROCK`, with
+   `ANTHROPIC_BEDROCK_BASE_URL` at the bridge and its own signing skipped; the settings file's
+   switch is still the native profile's alone. The routing by model id stands on the bridge's
+   invoke routes: an Anthropic id passes through, and one the list declares another maker's is
+   translated ([MM-D39](model-lists-and-pickers.md#MM-D39)), so one session still reaches every
+   model.
 
 7. 💬 <a id="OQ-BR24"></a>[**OQ-BR24**](#OQ-BR24): **Do copilot and oh-omp need `bedrock` and `wire-bridge`,
    so either alone gets `-p bedrock`?** Since 2026-09-30 the bridge carries both on plain

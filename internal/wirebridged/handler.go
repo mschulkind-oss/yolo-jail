@@ -255,6 +255,14 @@ func (h *bridgeHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			"wire-bridge: reading request body: "+err.Error())
 		return
 	}
+	h.serveMessages(rec, r, body, &note)
+}
+
+// serveMessages is POST /v1/messages for one request body already read: the allowlist, the
+// routing by model id, and the translation, every answer in the anthropic shape. The invoke
+// route's translation (invoketranslate.go) runs a Bedrock InvokeModel request through it too, as
+// the Messages request it carries. note is the request line's routing suffix.
+func (h *bridgeHandler) serveMessages(rec *statusRecorder, r *http.Request, body []byte, note *string) {
 	// The stream flag is read off the ANTHROPIC body before translation: it
 	// decides how the upstream's answer is relayed. TranslateRequest carries
 	// the same flag into the openai body (stream passes through per §4), so
@@ -268,7 +276,7 @@ func (h *bridgeHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// THE ALLOWLIST FIRST (Part 5, WG-I40): a model off the provider's narrowed list goes to no
 	// upstream, translated or not.
 	if ok, msg := h.allow.checks("the adapter route", body); !ok {
-		note = " (model refused: off the provider's list)"
+		*note = " (model refused: off the provider's list)"
 		writeAnthropicError(rec, http.StatusBadRequest, "invalid_request_error", msg)
 		return
 	}
@@ -279,7 +287,7 @@ func (h *bridgeHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// other model falls through to the translation below, unchanged.
 	if h.messages != nil {
 		if id, ok := h.messages.claims(probe.Model); ok {
-			h.messages.serve(rec, r, body, probe.Model, id, &note)
+			h.messages.serve(rec, r, body, probe.Model, id, note)
 			return
 		}
 	}

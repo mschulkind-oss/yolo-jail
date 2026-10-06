@@ -174,9 +174,11 @@ agent was given, which the launch fills from `~/.aws/config` when nothing else n
 bridge signs each request with the agent's own AWS credentials: a key pair, the `aws-auth`
 pointer, or a Bedrock API key (`AWS_BEARER_TOKEN_BEDROCK`), and never a profile in `~/.aws`.
 
-- **claude** is routed at the bridge's Anthropic address, the everything profile: every model on
-  the list in one session, Claude Opus 5.5 untranslated to Bedrock's own Messages route and the
-  OpenAI models translated.
+- **claude** runs its own Bedrock support pointed at the bridge's Anthropic address, which signs
+  for it: the everything profile, every model on the list in one session. A Claude model such as
+  Claude Opus 5.5 goes to Bedrock untranslated, and the bridge translates the OpenAI models.
+  claude's menu is its own Bedrock one, so another maker's model is the profile's `model`; under
+  an `only` the menu is the narrowed list, every maker's entries included.
 - **codex, pi, opencode and oh-omp** send their own OpenAI-shaped requests through the bridge
   unchanged, pi, opencode and oh-omp chat-completions and codex Responses.
 - **copilot** is routed at the bridge's Anthropic address too, and starts on the list's first

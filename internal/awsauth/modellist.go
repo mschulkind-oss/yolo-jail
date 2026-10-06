@@ -36,6 +36,12 @@ import (
 // `providerName`, lowercased: the maker is DECLARED by AWS, never parsed from the id
 // (bedrock-plumbing.md OQ-BR9). Entries are sorted by maker, then id, so the order is stable
 // from one fetch to the next.
+//
+// Two more of AWS's own facts ride each entry, for an agent with nothing else to start on to choose
+// by (packs/copilot's fetchedStart), since that order puts an old model callable on demand
+// (`anthropic.…`) ahead of every cross-region profile (`us.…`): whether AWS marks the model
+// LEGACY (its `modelLifecycle`), on its own entry and on every profile it backs, and a profile's
+// creation time (`createdAt`, normalized to UTC). An id callable on demand has no date.
 
 // BedrockModel is one entry of a fetched Bedrock list.
 type BedrockModel struct {
@@ -45,6 +51,11 @@ type BedrockModel struct {
 	Vendor string `json:"vendor"`
 	// Name is AWS's display name for it: the inference profile's, else the model's.
 	Name string `json:"name,omitempty"`
+	// Legacy says AWS's modelLifecycle marks the model (the profile's backing model) LEGACY.
+	Legacy bool `json:"legacy,omitempty"`
+	// Created is an inference profile's creation time as AWS gives it, in RFC 3339 at UTC to the
+	// second (createdTime), "" for an id callable on demand or a time that did not parse.
+	Created string `json:"created,omitempty"`
 }
 
 // ModelList is one region's fetched list, as fetched and as cached.
@@ -225,6 +236,15 @@ type FoundationModel struct {
 	ProviderName            string   `json:"providerName"`
 	OutputModalities        []string `json:"outputModalities"`
 	InferenceTypesSupported []string `json:"inferenceTypesSupported"`
+	ModelLifecycle          struct {
+		// Status is ACTIVE or LEGACY.
+		Status string `json:"status"`
+	} `json:"modelLifecycle"`
+}
+
+// legacy reports whether AWS marks m LEGACY.
+func (m FoundationModel) legacy() bool {
+	return strings.EqualFold(strings.TrimSpace(m.ModelLifecycle.Status), "LEGACY")
 }
 
 // inferenceProfiles is `aws bedrock list-inference-profiles --output json`.
@@ -238,7 +258,9 @@ type InferenceProfile struct {
 	InferenceProfileName string `json:"inferenceProfileName"`
 	Status               string `json:"status"`
 	Type                 string `json:"type"`
-	Models               []struct {
+	// CreatedAt is when AWS created the profile, as the CLI prints a timestamp (ISO 8601).
+	CreatedAt string `json:"createdAt"`
+	Models    []struct {
 		ModelArn string `json:"modelArn"`
 	} `json:"models"`
 }
@@ -266,7 +288,7 @@ func JoinModels(models []FoundationModel, profiles []InferenceProfile) []Bedrock
 			text[m.ModelArn] = m
 		}
 		if hasFold(m.InferenceTypesSupported, "ON_DEMAND") {
-			add(BedrockModel{ID: m.ModelID, Vendor: vendorOf(m), Name: m.ModelName})
+			add(BedrockModel{ID: m.ModelID, Vendor: vendorOf(m), Name: m.ModelName, Legacy: m.legacy()})
 		}
 	}
 	for _, p := range profiles {
@@ -286,7 +308,8 @@ func JoinModels(models []FoundationModel, profiles []InferenceProfile) []Bedrock
 			if name == "" {
 				name = m.ModelName
 			}
-			add(BedrockModel{ID: p.InferenceProfileID, Vendor: vendorOf(m), Name: name})
+			add(BedrockModel{ID: p.InferenceProfileID, Vendor: vendorOf(m), Name: name, Legacy: m.legacy(),
+				Created: createdTime(p.CreatedAt)})
 			break
 		}
 	}
@@ -297,6 +320,16 @@ func JoinModels(models []FoundationModel, profiles []InferenceProfile) []Bedrock
 		return out[i].ID < out[j].ID
 	})
 	return out
+}
+
+// createdTime is an AWS timestamp in RFC 3339 at UTC to the second, the one spelling a reader may
+// compare as a string; "" for one that does not parse.
+func createdTime(raw string) string {
+	t, err := time.Parse(time.RFC3339Nano, strings.TrimSpace(raw))
+	if err != nil {
+		return ""
+	}
+	return t.UTC().Truncate(time.Second).Format(time.RFC3339)
 }
 
 // vendorOf is a model's maker as the list declares it: AWS's providerName, lowercased.

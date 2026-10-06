@@ -57,8 +57,9 @@ running, by area:
   No agent has sent a request through it.
 - **[Bedrock's own invoke routes](#bedrocks-own-invoke-routes-on-a-bedrock-upstream).** What
   Claude Code's Bedrock mode sends a gateway is SOURCED from its gateway compatibility guide, and
-  the pass-through is MEASURED in-process against a fake upstream relaying AWS's binary event
-  stream. No request has reached AWS through it and no agent has sent one.
+  the pass-through and the translation are MEASURED in-process against a fake upstream; the
+  event-stream framing the translation writes is byte-identical to the AWS SDK for Go's encoder.
+  No request has reached AWS through it and no agent has sent one.
 - **[Which upstream is Bedrock's](#which-upstream-is-bedrocks), the region-composed upstream and
   [the model allowlist](#the-model-allowlist).** MEASURED the same way: the production boot over
   the shipped packs, against a stubbed upstream. On 2026-10-01 the boot over a jail's own tables
@@ -431,7 +432,7 @@ Bedrock upstream the adapter route signs those and passes them through
 | :--- | :--- |
 | `POST /model/{id}/invoke`, `/invoke-with-response-stream`, `/count-tokens` | forwards it to the same route on runtime's host (any path prefix the provider's address carries is kept), signed with the route's SigV4 signer, or with a Bedrock API key as `Authorization: Bearer`. The body, the status and the answer go through byte for byte, AWS's binary event stream included, with `Content-Type`, `X-Amzn-Requestid`, `Retry-After` and `X-Amzn-Bedrock-*`. The agent's `X-Amzn-Bedrock-*` request headers go with it; its caller token never does |
 | one for a model off the provider's narrowed, enforced list | a `400` `ValidationException`, before any upstream ([the model allowlist](#the-model-allowlist)) |
-| one for a model the list declares another maker's | a `400` `ValidationException` saying why: the route carries Anthropic's request format unchanged, which only an Anthropic model takes. A model the list does not name is forwarded |
+| one for a model the list declares another maker's | translated, since the pass-through carries Anthropic's request format, which only an Anthropic model takes: the body becomes the Messages request it carries (the path's model and the route's stream flag, without `anthropic_version` and `anthropic_beta`), translated to the provider's chat completions as a `/v1/messages` request is, and the answer goes back as InvokeModel's: Anthropic's message JSON, or AWS's event stream, one `chunk` message per Anthropic event. A failure before the answer is AWS's error shape at its status, one inside the stream an exception message, and `count-tokens` a `404`, so claude uses its own estimator. A model the list does not name is forwarded |
 | any other path not under `/v1/`, such as Claude Code's startup `GET /inference-profiles` | a `404` `ResourceNotFoundException`; Claude Code then falls back on its own model ids |
 | an expired signature, an unresolvable credential, no response headers within ten minutes, an answer cut short | as on the Messages route above, with the bridge's own errors in AWS's shape (`{"message": …}` and `X-Amzn-Errortype`) |
 

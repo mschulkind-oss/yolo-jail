@@ -102,7 +102,8 @@ func TestClaudeOnBedrockStartsOnlyOnAnAnthropicModel(t *testing.T) {
 //     `sonnet` naming an OpenAI id leaves that tier on the pinned Anthropic model;
 //   - a profile routed through the bridge, on a provider named by region alone, runs claude's own
 //     Bedrock client at the bridge's adapter address, which the launch composed for the via, with
-//     its signing skipped (OQ-MM6), and pins only a profile model claude's client can call.
+//     its signing skipped (OQ-MM6), and pins the profile's model of any maker, which the bridge
+//     translates where it is not Anthropic's (the everything profile, OQ-BR11).
 func TestClaudeOnBedrockTakesNothingItsOwnClientCannotUse(t *testing.T) {
 	const opus = "global.anthropic.claude-opus-5-5"
 	const sol = "us.openai.gpt-6.1-sol"
@@ -149,12 +150,11 @@ func TestClaudeOnBedrockTakesNothingItsOwnClientCannotUse(t *testing.T) {
 	// WG-I39), as OQ-MM6 amended it on 2026-10-05 (docs/design/model-lists-and-pickers.md): the
 	// launch composes the bridge's anthropic address onto `bedrock` for the via, and claude runs its
 	// own Bedrock client pointed at that address with its own signing skipped, sending the bridge's
-	// caller token, so the bridge only signs. A profile model of Anthropic's pins every tier, as on
-	// the native profile; one of another maker's (an OpenAI id) pins nothing, since claude's
-	// Bedrock client sends Anthropic's request format, which only an Anthropic model takes. Until
-	// then claude was routed at the Messages adapter here and the bridge translated an OpenAI id.
+	// caller token, so the bridge signs. A profile model pins every tier whatever its maker: the
+	// everything profile reaches every model on the list in one session (OQ-BR11), an Anthropic one
+	// passed through and an OpenAI one translated on the bridge's invoke route.
 	t.Run("a bridged profile runs claude's own Bedrock client at the bridge", func(t *testing.T) {
-		for _, tc := range []struct{ model, pinned string }{{opus, opus}, {sol, ""}} {
+		for _, tc := range []struct{ model, pinned string }{{opus, opus}, {sol, sol}} {
 			la := assembleWithPacksAssembled(t, bedrockRegionOnly(nil), packs,
 				withProfile(`{"bedrock": {"provider": "bedrock", "via": "wire-bridge", "model": "`+tc.model+`"}}`))
 			got := la.channelEnv(t, "ANTHROPIC_BASE_URL", "ANTHROPIC_BEDROCK_BASE_URL", "CLAUDE_CODE_USE_BEDROCK",
@@ -169,11 +169,8 @@ func TestClaudeOnBedrockTakesNothingItsOwnClientCannotUse(t *testing.T) {
 				t.Errorf("claude on the everything profile sends no caller token: %q", got)
 			}
 			tiers := la.channelEnv(t, "ANTHROPIC_DEFAULT_OPUS_MODEL", "ANTHROPIC_DEFAULT_SONNET_MODEL", "ANTHROPIC_DEFAULT_HAIKU_MODEL")
-			if tc.pinned == "" && len(tiers) != 0 {
-				t.Errorf("another maker's model pinned claude's tiers: %q", tiers)
-			}
-			if tc.pinned != "" && (len(tiers) != 3 ||
-				slices.ContainsFunc(tiers, func(s string) bool { return !strings.HasSuffix(s, "="+tc.pinned) })) {
+			if len(tiers) != 3 ||
+				slices.ContainsFunc(tiers, func(s string) bool { return !strings.HasSuffix(s, "="+tc.pinned) }) {
 				t.Errorf("claude's tiers on the everything profile = %q, want each pinned to %s", tiers, tc.pinned)
 			}
 		}

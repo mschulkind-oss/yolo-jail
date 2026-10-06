@@ -32,7 +32,8 @@ package run
 // on a provider no pack or config gives a list, with no list obtained either way: the launch stops,
 // saying why and what to add (the maintainer's ruling: "if there's no model list, the agent has no
 // default handling, and we can't fetch models, we just fail and tell them that"). An agent that
-// wants a list only for the bridge is never refused: the bridge then translates every model.
+// wants a list only for the bridge is never refused: the launch says what the bridge then does
+// with no maker to read, and how to give it a list.
 
 import (
 	"bytes"
@@ -180,7 +181,8 @@ func (o *Options) composeFetchedLists(cfg *jsonx.OrderedMap, packs []*packload.P
 		if ans.Has() {
 			list := make([]packload.FetchedModel, 0, len(ans.List.Models))
 			for _, m := range ans.List.Models {
-				list = append(list, packload.FetchedModel{ID: m.ID, Vendor: m.Vendor, Name: m.Name})
+				list = append(list, packload.FetchedModel{ID: m.ID, Vendor: m.Vendor, Name: m.Name,
+					Legacy: m.Legacy, Created: m.Created})
 			}
 			packload.SetFetchedModels(providers, w.Provider, list)
 			changed = true
@@ -233,10 +235,17 @@ func (o *Options) noteFetchedList(w packload.ListWant, ans awsauthdaemon.ModelLi
 		line = fmt.Sprintf("[dim]Model list for provider %q (%s, %s): %d models, %s, for %s.[/dim]",
 			w.Provider, w.Platform, w.Region, len(ans.List.Models), sourcePhrase(o, ans), strings.Join(w.Agents, ", "))
 	default:
-		line = fmt.Sprintf("[yellow]No model list for provider %q (%s, %s): %s. The wire bridge then takes no "+
-			"model as Anthropic's for %s, so a Claude model is translated rather than passed through.[/yellow]",
+		// WHAT THE BRIDGE DOES WITH NO MAKERS, per route, since core cannot tell which route each
+		// agent's derive chose: the Messages route translates every model it does not know as
+		// Anthropic's, and Bedrock's own invoke route passes every such model through as sent
+		// (wirebridged's messages.go and invoke.go).
+		line = fmt.Sprintf("[yellow]No model list for provider %q (%s, %s): %s. The wire bridge then knows no "+
+			"model's maker for %s: a model sent to its Messages route is translated, a Claude model's too, and "+
+			"one sent to Bedrock's own invoke route is passed through as sent, which only a Claude model takes. "+
+			"Fix that and launch again, or give the provider a list with a pack's `models` contribution or "+
+			"\"providers.%s.models\" in ~/.config/yolo-jail/config.jsonc.[/yellow]",
 			w.Provider, w.Platform, w.Region, richtext.Escape(strings.TrimRight(ans.Note, ".")),
-			strings.Join(w.Agents, ", "))
+			strings.Join(w.Agents, ", "), w.Provider)
 	}
 	if o.fetchedListNotes == nil {
 		o.fetchedListNotes = map[string]bool{}

@@ -2,6 +2,7 @@ package run
 
 import (
 	"bytes"
+	"slices"
 	"strings"
 	"testing"
 
@@ -116,5 +117,113 @@ func TestNoSeamFetchesNothing(t *testing.T) {
 	v, _ := c.providers.Get("bb")
 	if got := packload.FetchedModelsOf(v.(*jsonx.OrderedMap)); got != nil {
 		t.Errorf("a launch with no fetcher composed a fetched list: %+v", got)
+	}
+}
+
+// failedFetch is a FetchModelList whose every answer is a failed fetch, counting the asks.
+func failedFetch(asked *int) func(ModelListRequest) awsauthdaemon.ModelListAnswer {
+	return func(ModelListRequest) awsauthdaemon.ModelListAnswer {
+		*asked++
+		return awsauthdaemon.ModelListAnswer{Note: "the fetch failed: run aws sso login --profile stand-in-profile"}
+	}
+}
+
+// TestWithNothingToCarryCopilotTheLaunchFetchesNothingAndStopsNothing: copilot has no Bedrock
+// client of its own, so with no wire bridge in the launch nothing carries it and it reaches nothing
+// whatever the list holds. The launch goes ahead (the profile line says copilot reaches nothing),
+// fetches nothing for it, and is not refused with remedies none of which could help.
+func TestWithNothingToCarryCopilotTheLaunchFetchesNothingAndStopsNothing(t *testing.T) {
+	o, cfg, packs, _ := bareBedrockLaunch(t)
+	packs = slices.DeleteFunc(packs, func(p *packload.Pack) bool { return p.Name == "wire-bridge" })
+	asked := 0
+	o.FetchModelList = failedFetch(&asked)
+	c, err := o.composePackChannel(cfg, packs, jsonx.NewOrderedMap())
+	if err != nil {
+		t.Fatalf("a launch with nothing to carry copilot was refused for a model list: %v", err)
+	}
+	if asked != 0 {
+		t.Errorf("the launch asked for a list %d times for an agent nothing carries", asked)
+	}
+	if m := shapeOf(c, "copilot", "COPILOT_MODEL"); m != "" {
+		t.Errorf("copilot was composed a model, %q, with nothing to carry it", m)
+	}
+}
+
+// TestAProfileModelOfDefaultNamesNoModel: `model: "default"` is no model of the profile's own
+// (copilot's derive skips it), so the stop treats it as none: with a failed fetch the launch is
+// refused rather than starting copilot on nothing, silently falling back to its GitHub login.
+func TestAProfileModelOfDefaultNamesNoModel(t *testing.T) {
+	o, cfg, packs, _ := bareBedrockLaunch(t)
+	writeProfilesAtHome(t, `{"bbd": {"provider": "bb", "model": "default"}}`)
+	o.ProfileName = "bbd"
+	asked := 0
+	o.FetchModelList = failedFetch(&asked)
+	_, err := o.composePackChannel(cfg, packs, jsonx.NewOrderedMap())
+	if err == nil || !strings.Contains(err.Error(), `copilot has no model to start on for profile "bbd"`) {
+		t.Fatalf("a profile naming model \"default\" with a failed fetch: err = %v, want copilot's refusal", err)
+	}
+}
+
+// TestNoListTellsClaudeAtTheBridgeWhatItMeansAndWhatToDo: claude on a via profile runs its own
+// Bedrock client at the bridge, whose invoke route passes a model it knows no maker for through as
+// sent, so with no list a Claude model is not translated. The line must not say it is, and must
+// name the next step (the happy-path principle).
+func TestNoListTellsClaudeAtTheBridgeWhatItMeansAndWhatToDo(t *testing.T) {
+	emptyLoopholeDirs(t)
+	packs := []*packload.Pack{officialPack(t, "claude"), officialPack(t, "aws-auth"), officialPack(t, "wire-bridge"),
+		officialPack(t, "openai-auth"), {Name: "bare-bedrock", Root: t.TempDir(), Decl: envDisclosureDecl(t, bareBedrockPack)}}
+	o := goldenOptions(t.TempDir(), packHome(t))
+	var stderr bytes.Buffer
+	o.Stderr = &stderr
+	writeProfilesAtHome(t, `{"bbv": {"provider": "bb", "via": "wire-bridge"}}`)
+	o.ProfileName = "bbv"
+	cfg := awsAuthServedConfig(t, packs)
+	asked := 0
+	o.FetchModelList = failedFetch(&asked)
+	c, err := o.composePackChannel(cfg, packs, jsonx.NewOrderedMap())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := shapeOf(c, "claude", "ANTHROPIC_BEDROCK_BASE_URL"); got == "" {
+		t.Fatalf("the fixture does not run claude's Bedrock mode at the bridge (shape %+v)", c.scope.Agent("claude").Shape)
+	}
+	line := stderr.String()
+	if !strings.Contains(line, `No model list for provider "bb"`) {
+		t.Fatalf("no line about the missing list:\n%s", line)
+	}
+	if strings.Contains(line, "translated rather than passed through") {
+		t.Errorf("the line says claude's Claude model is translated, which the invoke route does not do:\n%s", line)
+	}
+	for _, want := range []string{"passed through as sent", `"providers.bb.models"`, "launch again"} {
+		if !strings.Contains(line, want) {
+			t.Errorf("the line lacks %q:\n%s", want, line)
+		}
+	}
+}
+
+// TestTheLaunchCarriesTheFactsCopilotStartsBy: AWS's lifecycle and each profile's creation time
+// ride the fetched list into the composed table, and copilot's derive, run by the gate, starts on
+// the newest active Claude rather than the old one callable on demand that the list's order puts
+// first. It fails if composeFetchedLists drops either fact.
+func TestTheLaunchCarriesTheFactsCopilotStartsBy(t *testing.T) {
+	o, cfg, packs, _ := bareBedrockLaunch(t)
+	o.FetchModelList = func(req ModelListRequest) awsauthdaemon.ModelListAnswer {
+		return awsauthdaemon.ModelListAnswer{Source: "fetched", List: awsauth.ModelList{Region: req.Region,
+			Models: []awsauth.BedrockModel{
+				{ID: "anthropic.claude-3-haiku-20240307-v1:0", Vendor: "anthropic", Legacy: true},
+				{ID: "us.anthropic.claude-opus-5-5", Vendor: "anthropic", Created: "2026-05-01T10:00:00Z"},
+				{ID: "us.anthropic.claude-sonnet-5", Vendor: "anthropic", Created: "2025-09-29T00:00:00Z"}}}}
+	}
+	c, err := o.composePackChannel(cfg, packs, jsonx.NewOrderedMap())
+	if err != nil {
+		t.Fatal(err)
+	}
+	v, _ := c.providers.Get("bb")
+	got := packload.FetchedModelsOf(v.(*jsonx.OrderedMap))
+	if len(got) != 3 || !got[0].Legacy || got[1].Created != "2026-05-01T10:00:00Z" {
+		t.Errorf("the composed fetched list = %+v, want the legacy mark and the creation times", got)
+	}
+	if m := shapeOf(c, "copilot", "COPILOT_MODEL"); m != "us.anthropic.claude-opus-5-5" {
+		t.Errorf("copilot's model = %q, want the newest active Claude", m)
 	}
 }

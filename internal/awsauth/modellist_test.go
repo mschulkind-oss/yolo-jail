@@ -188,3 +188,45 @@ func TestTheCacheIsNotRecreatedWhereTheDaemonMayNot(t *testing.T) {
 		t.Errorf("the state directory exists: %v", statErr)
 	}
 }
+
+// TestTheJoinCarriesAWSsLifecycleAndProfileDates: the facts a start model is chosen by, each AWS's
+// own and none parsed from an id. A model AWS marks LEGACY says so on its own entry and on every
+// profile it backs, and a cross-region profile carries its creation time, normalized to UTC; an id
+// callable on demand has no date. AWS-shaped input: an old Claude callable on demand beside a
+// current one callable only through a profile, which the join's (maker, id) order puts second.
+func TestTheJoinCarriesAWSsLifecycleAndProfileDates(t *testing.T) {
+	const models = `{"modelSummaries":[
+	  {"modelArn":"stand-in:foundation-model/anthropic.claude-3-haiku-20240307-v1:0",
+	   "modelId":"anthropic.claude-3-haiku-20240307-v1:0","modelName":"Claude 3 Haiku","providerName":"Anthropic",
+	   "outputModalities":["TEXT"],"inferenceTypesSupported":["ON_DEMAND","INFERENCE_PROFILE"],
+	   "modelLifecycle":{"status":"LEGACY"}},
+	  {"modelArn":"stand-in:foundation-model/anthropic.claude-opus-5-5","modelId":"anthropic.claude-opus-5-5",
+	   "modelName":"Claude Opus 5.5","providerName":"Anthropic","outputModalities":["TEXT"],
+	   "inferenceTypesSupported":["INFERENCE_PROFILE"],"modelLifecycle":{"status":"ACTIVE"}}
+	]}`
+	const profiles = `{"inferenceProfileSummaries":[
+	  {"inferenceProfileId":"us.anthropic.claude-opus-5-5","inferenceProfileName":"US Claude Opus 5.5",
+	   "status":"ACTIVE","type":"SYSTEM_DEFINED","createdAt":"2026-05-01T12:00:00.123000+02:00",
+	   "models":[{"modelArn":"stand-in:foundation-model/anthropic.claude-opus-5-5"}]},
+	  {"inferenceProfileId":"us.anthropic.claude-3-haiku-20240307-v1:0","inferenceProfileName":"US Claude 3 Haiku",
+	   "status":"ACTIVE","type":"SYSTEM_DEFINED","createdAt":"2024-08-08T18:28:37.425000+00:00",
+	   "models":[{"modelArn":"stand-in:foundation-model/anthropic.claude-3-haiku-20240307-v1:0"}]}
+	]}`
+	r := standInRunner()
+	r.outs["list-foundation-models"] = okOut(models)
+	r.outs["list-inference-profiles"] = okOut(profiles)
+	list, err := testLister(r).Fetch(context.Background(), "stand-in-profile", "us-east-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []BedrockModel{
+		{ID: "anthropic.claude-3-haiku-20240307-v1:0", Vendor: "anthropic", Name: "Claude 3 Haiku", Legacy: true},
+		{ID: "us.anthropic.claude-3-haiku-20240307-v1:0", Vendor: "anthropic", Name: "US Claude 3 Haiku",
+			Legacy: true, Created: "2024-08-08T18:28:37Z"},
+		{ID: "us.anthropic.claude-opus-5-5", Vendor: "anthropic", Name: "US Claude Opus 5.5",
+			Created: "2026-05-01T10:00:00Z"},
+	}
+	if !reflect.DeepEqual(list.Models, want) {
+		t.Errorf("models = %+v\nwant     %+v", list.Models, want)
+	}
+}

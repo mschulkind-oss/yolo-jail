@@ -683,8 +683,8 @@ type route struct {
 	// which therefore stays translated; the serve log names them (WG-I34).
 	VendorConflicts []string
 	// ModelVendors is, for a Bedrock upstream, each listed id's declared maker (declaredVendors),
-	// the pack's or config's list or else the fetched one: the invoke pass-through refuses an id
-	// declared another maker's (invoke.go).
+	// the pack's or config's list or else the fetched one: the invoke pass-through translates an id
+	// declared another maker's (invoke.go, invoketranslate.go).
 	ModelVendors map[string]string
 }
 

@@ -7,7 +7,8 @@ package wirebridged
 // Part 2's "never CLAUDE_CODE_USE_BEDROCK"): Claude Code's documented gateway settings
 // (CLAUDE_CODE_USE_BEDROCK=1, ANTHROPIC_BEDROCK_BASE_URL at this route, CLAUDE_CODE_SKIP_BEDROCK_AUTH=1,
 // its gateway token in ANTHROPIC_AUTH_TOKEN) make it send Bedrock's own requests unsigned, so its
-// own Bedrock defaults name the model and the bridge only signs.
+// own Bedrock defaults name the model and the bridge signs them, translating another maker's
+// model (invoketranslate.go).
 //
 // WHAT CLAUDE CODE SENDS THERE (SOURCED 2026-10-05 from Claude Code's gateway compatibility guide,
 // https://code.claude.com/docs/en/llm-gateway-protocol, and read in the 2.1.290 binary, never run):
@@ -25,11 +26,13 @@ package wirebridged
 // provider row's own bedrock-runtime host, and the model id from the path is re-encoded segment by
 // segment, so nothing in a request can name a new host or a second path (§7).
 //
-// TWO REFUSALS, before any upstream: a model off the provider's narrowed list (Part 5's
-// allowlist, as on the Messages route), and a model the list declares another maker's. This route
-// forwards Anthropic's request format unchanged, which only an Anthropic model takes, so a GPT or
-// Llama id here would reach Bedrock as a malformed request; the bridge says why instead. A model
-// the list does not name is forwarded: the bridge only signs.
+// ONE REFUSAL, before any upstream: a model off the provider's narrowed list (Part 5's allowlist,
+// as on the Messages route). And ONE TRANSLATION: a model the list declares another maker's. This
+// route's pass-through forwards Anthropic's request format unchanged, which only an Anthropic model
+// takes, so a GPT or Llama id is translated instead, exactly as /v1/messages translates it
+// (invoketranslate.go): that keeps claude's everything profile, every model on the list in one
+// session (docs/design/bedrock-plumbing.md OQ-BR11), on its own Bedrock mode. A model the list does
+// not name is forwarded: the bridge only signs.
 
 import (
 	"bytes"
@@ -54,6 +57,9 @@ type invokePassthrough struct {
 	vendors              map[string]string
 	signer               *bedrockSigner
 	client               *http.Client
+	// translate serves a model the list declares another maker's (invoketranslate.go), through
+	// the route's own Messages translation: bridgeHandler.serveInvokeTranslated.
+	translate func(rec *statusRecorder, in *http.Request, id, op, vendor string, note *string)
 }
 
 // newInvokePassthrough is the pass-through beside a Bedrock upstream base URL, nil for a route
@@ -172,11 +178,7 @@ func (p *invokePassthrough) serve(rec *statusRecorder, in *http.Request, id, op 
 		return
 	}
 	if vendor := p.vendors[strings.TrimSuffix(id, oneMillionSuffix)]; vendor != "" && vendor != anthropicVendor {
-		*note = " (model refused: " + vendor + "'s on the provider's list)"
-		writeAWSError(rec, http.StatusBadRequest, "ValidationException", fmt.Sprintf("wire-bridge: %s is %s's "+
-			"model on the provider's list, and this route passes claude's Anthropic request format through "+
-			"unchanged, which only an Anthropic model takes. Pick an Anthropic model (/model), or reach %s's "+
-			"models through an agent that speaks them, such as copilot or codex", id, vendor, vendor))
+		p.translate(rec, in, id, op, vendor, note)
 		return
 	}
 	body, err := io.ReadAll(in.Body)
@@ -281,6 +283,6 @@ func invokeServeNote(h http.Handler) string {
 	if bh == nil || bh.invoke == nil {
 		return ""
 	}
-	return fmt.Sprintf("; Bedrock's own POST /model/{id}/invoke routes are signed and passed through to %s://%s%s",
-		bh.invoke.scheme, bh.invoke.host, bh.invoke.prefix)
+	return fmt.Sprintf("; Bedrock's own POST /model/{id}/invoke routes are signed and passed through to %s://%s%s, "+
+		"a model the list declares another maker's translated", bh.invoke.scheme, bh.invoke.host, bh.invoke.prefix)
 }

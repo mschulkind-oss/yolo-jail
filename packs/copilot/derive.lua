@@ -102,21 +102,41 @@ end
 
 -- fetchedStart is copilot's start model from a provider's FETCHED LIST (`fetched_models`, the
 -- list yolo reads from Bedrock where no pack or config supplies one,
--- docs/design/model-lists-and-pickers.md OQ-MM6): its first entry whose maker is anthropic, else its
--- first. A start model must be one the wire bridge carries, and an Anthropic model is the one maker
--- it forwards untranslated, to runtime's own Messages route (measured 2026-10-01); a model it would
--- translate to runtime's chat completions is carried there only if runtime serves that model, which
--- the list does not say. nil for no list.
+-- docs/design/model-lists-and-pickers.md OQ-MM6), ranked by three facts the list carries, in turn:
+--   1. a model the platform does not mark LEGACY (`legacy`, AWS's modelLifecycle), since a legacy
+--      model may already refuse an account that has not used it;
+--   2. an Anthropic model: a start model must be one the wire bridge carries, and Anthropic is the
+--      one maker it forwards untranslated, to runtime's own Messages route (measured 2026-10-01); a
+--      model it would translate to runtime's chat completions is carried only if runtime serves
+--      that model, which the list does not say;
+--   3. the newest by `created`, the cross-region profile's creation time in RFC 3339 at UTC (so a
+--      string comparison orders it), a dated entry ahead of an undated one. The list itself is
+--      ordered by maker and then id, which puts an old model callable on demand (`anthropic.…`)
+--      ahead of every profile (`us.…`) through which recent Claude models are callable.
+-- Ties keep the list's order. nil for no list.
 local function fetchedStart(p)
   local rows = type(p.fetched_models) == "table" and p.fetched_models or {}
-  local first
+  local best, bestRank
   for _, r in ipairs(rows) do
     if type(r) == "table" and type(r.id) == "string" and r.id ~= "" then
-      if r.vendor == "anthropic" then return r.id end
-      first = first or r.id
+      local rank = {
+        r.legacy ~= true and 1 or 0,
+        r.vendor == "anthropic" and 1 or 0,
+        type(r.created) == "string" and r.created or "",
+      }
+      local better = bestRank == nil
+      if not better then
+        for i = 1, 3 do
+          if rank[i] ~= bestRank[i] then
+            better = rank[i] > bestRank[i]
+            break
+          end
+        end
+      end
+      if better then best, bestRank = r.id, rank end
     end
   end
-  return first
+  return best
 end
 
 yolo.env("copilot", function(ctx)
@@ -196,7 +216,9 @@ yolo.env("copilot", function(ctx)
     model = m.default or narrowedFirst(p)
   end
   -- NO LIST FROM A PACK OR THE USER: the one yolo fetched from the platform, when it fetched one.
-  if not model and viaOnly then
+  -- Never under an `only`: a list a pack narrowed, to nothing included, is the list, and the launch
+  -- fetches none for it (packload.HasModelList).
+  if not model and viaOnly and p.models_only ~= true then
     model = fetchedStart(p)
   end
   if not model then return {} end

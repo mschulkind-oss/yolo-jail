@@ -331,11 +331,13 @@ and thinking levels.
 
 **`bedrock-bridge`** is the pack's second profile, `{provider: bedrock, via: wire-bridge}`, the
 one shipped way to force the wire bridge ([`OQ-BR1`](../design/bedrock-plumbing.md#OQ-BR1)).
-Under it no agent runs its own Bedrock client: codex, opencode, pi and oh-omp get their via rows
-([routing a profile through the bridge](#routing-a-profile-through-the-bridge-via)), and claude
-and copilot are routed at the bridge's adapter address, which composition gives `bedrock` for
-this profile alone ([BR-D16](../design/bedrock-plumbing.md#BR-D16),
-[WG-I26](../design/wire-bridge-gateway.md#WG-I26)). The provider names no address, so the bridge
+Under it every agent's traffic goes through the bridge: codex, opencode, pi and oh-omp get their
+via rows ([routing a profile through the bridge](#routing-a-profile-through-the-bridge-via)),
+copilot is routed at the bridge's adapter address, which composition gives `bedrock` for this
+profile alone ([BR-D16](../design/bedrock-plumbing.md#BR-D16),
+[WG-I26](../design/wire-bridge-gateway.md#WG-I26)), and claude runs its own Bedrock client pointed
+at that address with its own signing skipped, the bridge passing a Claude model through and
+translating another maker's ([MM-D39](../design/model-lists-and-pickers.md#MM-D39)). The provider names no address, so the bridge
 reaches `bedrock-runtime`'s own `/openai/v1` in the region, the provider's `region` or else the
 served agent's `AWS_REGION` then `AWS_DEFAULT_REGION`, and signs every request itself
 ([WG-I37](../design/wire-bridge-gateway.md#WG-I37) to

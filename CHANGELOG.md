@@ -73,7 +73,8 @@ Bedrock serves; a launch that still leaves Copilot no model says what to add. Se
   it instead of warning: run the `yolo host-daemon restart <name>` it names, which jails already
   running survive.
 - On `-p bedrock-bridge`, Claude Code now uses its own Bedrock support through the wire bridge,
-  so it reaches Claude models only there; use Copilot, codex, opencode or pi for other makers'.
+  so its model menu is its own: to start it on another maker's model there, name that model in
+  the profile's `model`.
 
 ### Fixed
 

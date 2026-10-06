@@ -805,10 +805,12 @@ does not narrow the agent's menu there, naming the agent, the provider, the prof
 has no model catalog and no default model of its own, so it starts only on a model some list
 names. `packs/copilot` declares `["aws-bedrock"]`: copilot has no Bedrock catalog, and its BYOK
 refuses to start without a model. On a provider of such a platform that no pack and no config
-gives a list, the launch fetches the list from the platform itself (for `aws-bedrock`, through
-the `aws-auth` service), and when the profile names no `model` and no list was obtained, the
-launch stops, saying why and what to add
-([MM-D36](../design/model-lists-and-pickers.md#MM-D36)). On `program` alone; `packdecl` refuses an
+gives a list, and that a service such as the wire bridge carries the program to, the launch
+fetches the list from the platform itself (for `aws-bedrock`, through the `aws-auth` service), and
+when the profile names no `model` (or `"default"`) and no list was obtained, the launch stops,
+saying why and what to add ([MM-D36](../design/model-lists-and-pickers.md#MM-D36)). With no
+service to carry the program, it reaches nothing whatever a list holds, so nothing is fetched or
+refused for it, and the launch's profile line says so. On `program` alone; `packdecl` refuses an
 empty list, an empty platform and a platform given twice.
 
 `install_hints` maps a host package manager to the package that provides `bin` there. Used

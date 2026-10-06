@@ -15,11 +15,14 @@ package packload
 // (wirebridged.anthropicModelIDs), and copilot's derive.
 //
 // WHO WANTS ONE. An agent whose active set reaches a provider that declares a `platform` and
-// carries no `models` wants that provider's list when its pack declares `needs_model_list` for the
-// platform (it has nothing else to start on), or when its profile sends it through a service at
-// the anthropic address composed for that service, the one route where the wire bridge reads a
-// model's maker (readsMakersAtTheBridge). An agent wanting none, such as pi on `-p bedrock` or on
-// the bridge's via route, costs the launch no fetch.
+// carries no list (HasModelList) wants that provider's list only where a service carries it there
+// (its profile's via, or the carrier of an agent with no client of the platform, live at this
+// notch: ViaURLFor), and then when its pack declares `needs_model_list` for the platform (it has
+// nothing else to start on), or when it speaks anthropic to the address composed for that service,
+// the one route where the wire bridge reads a model's maker (readsMakersAtTheBridge). With no
+// service to carry it, an agent with no client of the platform reaches nothing whatever the list
+// holds, which the profile line already says. An agent wanting none, such as pi on `-p bedrock`
+// or on the bridge's via route, costs the launch no fetch.
 
 import (
 	"sort"
@@ -29,7 +32,8 @@ import (
 )
 
 // FetchedModelsKey is the composed provider entry's key for a fetched list: an array of
-// {"id", "vendor", "name"} objects in the order the fetch returned them.
+// {"id", "vendor", "name", "legacy", "created"} objects in the order the fetch returned them, the
+// last three only where set.
 const FetchedModelsKey = "fetched_models"
 
 // FetchedModel is one entry of a fetched list.
@@ -37,6 +41,10 @@ type FetchedModel struct {
 	ID     string
 	Vendor string
 	Name   string
+	// Legacy says the platform marks the model as on its way out (Bedrock's LEGACY lifecycle).
+	Legacy bool
+	// Created is when the platform made the id callable, RFC 3339 at UTC, "" when it does not say.
+	Created string
 }
 
 // ListWant is one provider of a launch that wants a fetched list.
@@ -54,20 +62,33 @@ type ListWant struct {
 	// Agents wants it, sorted.
 	Agents []string
 	// Needs is the agents among Agents that have nothing else to start on: the pack declares
-	// `needs_model_list` for the platform and the profile names no `model`. Sorted. Each maps to
-	// the profile that selected the provider for it.
+	// `needs_model_list` for the platform and the profile names no `model` (namesNoModel). Each
+	// maps to the profile that selected the provider for it.
 	Needs map[string]string
 }
 
 // HasModelList reports whether a composed provider entry carries a list a pack or the user's
-// config supplied: a non-empty `models` map.
+// config supplied: a non-empty `models` map, or a list a pack's `only` narrowed (ModelsOnlyKey),
+// to nothing included. A list narrowed to nothing is an explicit choice, whose note says no agent
+// gets a model list or a start model, so no fetched list may fill it.
 func HasModelList(entry *jsonx.OrderedMap) bool {
 	if entry == nil {
 		return false
 	}
+	if only, _ := entry.Get(ModelsOnlyKey); only == true {
+		return true
+	}
 	v, _ := entry.Get("models")
 	m, _ := v.(*jsonx.OrderedMap)
 	return m != nil && m.Len() > 0
+}
+
+// namesNoModel reports whether a profile's `model` option leaves the agent to its own default:
+// absent, or "default", which every derive reads as no model of the profile's own
+// (packs/copilot's named-model pass-through skips it, as codexDefault and callableModel do).
+func namesNoModel(r ResolvedProfile) bool {
+	m := r.Options["model"]
+	return m == "" || m == "default"
 }
 
 // ListWants is every provider the launch should fetch a list for, in provider order.
@@ -91,10 +112,15 @@ func ListWants(packs []*Pack, providers *jsonx.OrderedMap, resolved map[string]R
 				continue
 			}
 			profile := set[i]
+			// NOTHING CARRIES THE AGENT THERE: no via or carrier of its profile is live at this
+			// notch, so a list can start it on nothing and the bridge reads no maker for it.
+			if ViaURLFor(resolved[profile], agent) == "" {
+				continue
+			}
 			owner := binOwner(packs, agent)
 			needs := false
 			if owner != nil && owner.Decl != nil && owner.Decl.NeedsModelList(agent, platform) {
-				needs = resolved[profile].Options["model"] == ""
+				needs = namesNoModel(resolved[profile])
 			}
 			if !needs && !readsMakersAtTheBridge(owner, agent, entry, resolved[profile]) {
 				continue
@@ -132,7 +158,7 @@ func ListWants(packs []*Pack, providers *jsonx.OrderedMap, resolved map[string]R
 // readsMakersAtTheBridge reports whether agent reaches entry through a service at the anthropic
 // address composed for that service (ForViaKey), speaking anthropic: the one route where the wire
 // bridge reads a model's maker, passing an Anthropic model to runtime's Messages route untranslated
-// and refusing another maker's on Bedrock's own invoke routes. An agent on the via routes (pi,
+// and translating another maker's on Bedrock's own invoke routes. An agent on the via routes (pi,
 // codex, opencode, oh-omp) is relayed unchanged, maker unread.
 func readsMakersAtTheBridge(owner *Pack, agent string, entry *jsonx.OrderedMap, r ResolvedProfile) bool {
 	if via, _ := r.ViaFor(agent); via == "" || owner == nil || owner.Decl == nil {
@@ -181,6 +207,12 @@ func SetFetchedModels(providers *jsonx.OrderedMap, provider string, list []Fetch
 		if m.Name != "" {
 			row.Set("name", m.Name)
 		}
+		if m.Legacy {
+			row.Set("legacy", true)
+		}
+		if m.Created != "" {
+			row.Set("created", m.Created)
+		}
 		rows = append(rows, row)
 	}
 	entry.Set(FetchedModelsKey, rows)
@@ -200,7 +232,9 @@ func FetchedModelsOf(entry *jsonx.OrderedMap) []FetchedModel {
 		if row == nil {
 			continue
 		}
-		m := FetchedModel{ID: entryString(row, "id"), Vendor: entryString(row, "vendor"), Name: entryString(row, "name")}
+		legacy, _ := row.Get("legacy")
+		m := FetchedModel{ID: entryString(row, "id"), Vendor: entryString(row, "vendor"), Name: entryString(row, "name"),
+			Legacy: legacy == true, Created: entryString(row, "created")}
 		if m.ID != "" {
 			out = append(out, m)
 		}

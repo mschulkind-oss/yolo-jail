@@ -279,10 +279,10 @@ end
 --     switch, which a bare `claude` outside yolo would read; aws-auth's credential pointer still
 --     reaches it, keyed on the platform alone. Since 2026-10-05 (OQ-MM6) claude runs its own
 --     Bedrock client there too, pointed at the wire bridge's adapter address composed for the
---     via (docs/design/wire-bridge-gateway.md WG-I39), and the bridge only signs: that is
---     bridgedBedrock below, set for the launched process alone. A Bedrock provider whose
---     anthropic address is its own is routed at it (routedProvider below), carries none of
---     claude's requests through the bridge, and the launch's via-route gate says so
+--     via (docs/design/wire-bridge-gateway.md WG-I39), and the bridge signs, translating another
+--     maker's model: that is bridgedBedrock below, set for the launched process alone. A Bedrock
+--     provider whose anthropic address is its own is routed at it (routedProvider below), carries
+--     none of claude's requests through the bridge, and the launch's via-route gate says so
 --     (wirebridged.unroutedViaNotice).
 local function nativeBedrock(ctx)
   return ctx.selected_platform == "aws-bedrock" and (ctx.via_url or "") == ""
@@ -295,8 +295,10 @@ end
 -- core composed for that via (`for_via`, WG-I39), the bridge's adapter. Claude Code's documented
 -- gateway settings (https://code.claude.com/docs/en/llm-gateway-connect, "Amazon Bedrock") then
 -- point its own Bedrock client at that address with its own signing skipped, so claude's own
--- Bedrock defaults name the model and the bridge only signs (internal/wirebridged's invoke.go).
--- A Bedrock provider whose anthropic address is its own is routed at it as before.
+-- Bedrock defaults name the model and the bridge signs (internal/wirebridged's invoke.go). It is
+-- still the everything profile (docs/design/bedrock-plumbing.md OQ-BR11): a model the list declares
+-- another maker's is translated there (invoketranslate.go), so claude reaches every maker
+-- (claudeMakers). A Bedrock provider whose anthropic address is its own is routed at it as before.
 local function bridgedBedrock(ctx, p)
   if ctx.selected_platform ~= "aws-bedrock" or (ctx.via_url or "") == "" then return false end
   local ep = type(p) == "table" and type(p.endpoints) == "table" and p.endpoints.anthropic
@@ -305,9 +307,19 @@ local function bridgedBedrock(ctx, p)
 end
 
 -- claudeBedrock: claude's own Bedrock client carries its requests, natively or at the bridge, so
--- it calls Anthropic's models alone (docs/design/bedrock-plumbing.md OQ-BR9).
+-- claude has a Bedrock catalog of its own and the provider is not routed (routedProvider).
 local function claudeBedrock(ctx, p)
   return nativeBedrock(ctx) or bridgedBedrock(ctx, p)
+end
+
+-- claudeMakers is the set of makers whose models claude can call on the selected provider, the
+-- `makers` callableModels filters by, nil for every maker: natively claude's Bedrock client calls
+-- Anthropic's alone, since Bedrock's Messages API serves Claude only
+-- (docs/design/bedrock-plumbing.md OQ-BR9); at the bridge it calls every maker on the list, the
+-- bridge translating all but Anthropic's (bridgedBedrock).
+local function claudeMakers(ctx)
+  if nativeBedrock(ctx) then return { anthropic = true } end
+  return nil
 end
 
 -- routedProvider: claude reaches the selected provider at an anthropic endpoint yolo composed
@@ -426,13 +438,13 @@ local function listFact(p, id, fact)
   return nil
 end
 
--- onlyRows is the narrowed list as claude can use it: routedRows, less, on claude's own Bedrock
--- client, every entry whose `vendor` is not anthropic, since Bedrock's Messages API serves Claude
--- alone (docs/design/bedrock-plumbing.md OQ-BR9). An entry with no vendor is offered, as a
--- user's string-form alias always is.
+-- onlyRows is the narrowed list as claude can use it: routedRows, less, where claude calls only
+-- some makers (claudeMakers: its own Bedrock client, natively), every entry whose `vendor` is not
+-- one of them, since Bedrock's Messages API serves Claude alone (docs/design/bedrock-plumbing.md
+-- OQ-BR9). An entry with no vendor is offered, as a user's string-form alias always is.
 local function onlyRows(ctx, p)
   local rows = routedRows(ctx, p)
-  if not claudeBedrock(ctx, p) then return rows end
+  if claudeMakers(ctx) == nil then return rows end
   local kept = {}
   for _, r in ipairs(rows) do
     local vendor = listFact(p, r.wire, "vendor")
@@ -863,11 +875,21 @@ yolo.env("claude", function(ctx)
   -- per-launch caller token as ANTHROPIC_AUTH_TOKEN, which Claude Code sends there as
   -- `Authorization: Bearer` (docs/reference/wire-bridge.md WB-D18). No ANTHROPIC_BASE_URL: the
   -- requests are Bedrock's own, and claude's own Bedrock defaults name the model.
+  --
+  -- AND NO BEDROCK API KEY IN CLAUDE'S PROCESS. In this mode Claude Code sends
+  -- AWS_BEARER_TOKEN_BEDROCK, when it holds one, as its `Authorization` in place of
+  -- ANTHROPIC_AUTH_TOKEN, CLAUDE_CODE_SKIP_BEDROCK_AUTH notwithstanding (read, not run, in the
+  -- 2.1.290 binary's Bedrock branch), so the bridge would refuse every request 401 and the
+  -- long-lived key would go to a loopback port. The tombstone removes it from the launched process
+  -- alone: the bridge signs with it, and reads it from claude's env file, whose first assignment
+  -- of the name is the gate's delivery (internal/wirebridged's keyfile.go), and the host's and
+  -- macos-user's services from the gate's delivery itself.
   if bridgedBedrock(ctx, p) then
     out.CLAUDE_CODE_USE_BEDROCK = "1"
     out.ANTHROPIC_BEDROCK_BASE_URL = p.endpoints.anthropic.base_url
     out.CLAUDE_CODE_SKIP_BEDROCK_AUTH = "1"
     out.ANTHROPIC_AUTH_TOKEN = routedAuthToken(p.endpoints.anthropic)
+    out.AWS_BEARER_TOKEN_BEDROCK = ctx.tombstone
   end
   -- Provider FACTS reach the derive as profile options (OQ-CS4: the provider declares
   -- the knobs, this derive decides what each one means for claude), so the values stay
@@ -954,9 +976,10 @@ yolo.env("claude", function(ctx)
     selected = alias
   end
   -- A BEDROCK PROVIDER SERVES SEVERAL MAKERS' MODELS, and claude's own Bedrock client calls
-  -- Anthropic's alone: Bedrock's Messages API serves Claude only
+  -- Anthropic's alone natively: Bedrock's Messages API serves Claude only
   -- (docs/design/bedrock-plumbing.md §2, OQ-BR9). So on it the model comes from the entries
-  -- whose `vendor` is anthropic, or that declare none, through callableModel: the profile's
+  -- whose `vendor` claude can call (claudeMakers: anthropic natively, every maker at the bridge,
+  -- which translates the rest), or that declare none, through callableModel: the profile's
   -- `model`, else the provider's `default` alias, and otherwise NOTHING. No first-callable
   -- pick, because Claude Code on Bedrock starts on an Anthropic model of its own, which is a
   -- valid session yolo does not steer (docs/design/model-lists-and-pickers.md OQ-ML2), and the
@@ -966,7 +989,7 @@ yolo.env("claude", function(ctx)
   local bedrockCallable = nil
   if ctx.selected_platform == "aws-bedrock" then
     if claudeBedrock(ctx, p) then
-      local list = callableModels(p, { anthropic = true })
+      local list = callableModels(p, claudeMakers(ctx))
       selected = callableModel(p, list, ctx.profile, false)
       bedrockCallable = {}
       for _, e in ipairs(list) do bedrockCallable[e.id] = true end

@@ -467,9 +467,12 @@ func (c *packChannel) deliverySource(o *Options, argvPairs map[string]string,
 // which is where macosuser.buildPlan layered its own hydration before the gate took that
 // call away, so a user's own dotenv entry still beats every channel value on this backend.
 //
-// The shape vars' Unset half is skipped: `env -i K=V…` starts from nothing, so there is
-// nothing to remove, and spelling a removal here would need a convention neither backend
-// has.
+// The shape vars' Unset half is skipped, but for one case: `env -i K=V…` starts from nothing,
+// so there is nothing to remove, and spelling a removal here would need a convention neither
+// backend has. The case is a name the gate delivered this agent through env_sources, which
+// land last: a derive removing that one from the process (claude's Bedrock mode at the wire
+// bridge drops AWS_BEARER_TOKEN_BEDROCK, packs/claude's derive.lua) has it dropped from the
+// session env, while a launch-owned service still receives it (launchServiceInput).
 func (c *packChannel) launchEnv(agent string) *jsonx.OrderedMap {
 	env := jsonx.NewOrderedMap()
 	packEnv := map[string]string{}
@@ -506,6 +509,13 @@ func (c *packChannel) launchEnv(agent string) *jsonx.OrderedMap {
 	for _, k := range sources.Keys() {
 		v, _ := sources.Get(k)
 		env.Set(k, v)
+	}
+	if d != nil {
+		for _, v := range d.Shape {
+			if v.Unset && mapStr(d.EnvSources, v.Key) != "" {
+				env.Delete(v.Key)
+			}
+		}
 	}
 	return env
 }

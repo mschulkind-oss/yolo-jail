@@ -1,6 +1,9 @@
 package wirebridged
 
 import (
+	"encoding/binary"
+	"encoding/json"
+	"hash/crc32"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -81,23 +84,203 @@ func TestBedrocksInvokeRoutesAreSignedAndPassedThrough(t *testing.T) {
 	}
 }
 
-// TestTheInvokeRouteRefusesAnotherMakersModel: a model the list declares another maker's never
-// reaches Bedrock in Anthropic's request format; the refusal says why and what to do instead,
-// in the shape an AWS SDK reads. An Anthropic one, and one the list does not name, pass.
-func TestTheInvokeRouteRefusesAnotherMakersModel(t *testing.T) {
+// TestTheInvokeRouteTranslatesAnotherMakersModel is the everything profile on claude's Bedrock
+// mode (docs/design/bedrock-plumbing.md OQ-BR11, as OQ-MM6 amended it): a model the list declares
+// another maker's never reaches Bedrock in Anthropic's request format. Its InvokeModel body becomes
+// the Messages request it carries (the path's model, no `anthropic_version` or `anthropic_beta`),
+// which the route translates to runtime's chat completions as it does on /v1/messages, and the
+// answer comes back as InvokeModel's: Anthropic's message JSON. An Anthropic model, and one the
+// list does not name, pass through untranslated.
+func TestTheInvokeRouteTranslatesAnotherMakersModel(t *testing.T) {
 	up := withUpstream(t)
-	up.responses = []func() *http.Response{func() *http.Response { return jsonResponse(200, `{"type":"message"}`) }}
 	h := invokeHandler(map[string]string{"openai.gpt-test-1:0": "openai", "us.anthropic.claude-test-v1": "anthropic"})
-	rec := servePathTo(t, h, "/model/openai.gpt-test-1%3A0/invoke", `{}`)
-	if rec.Code != http.StatusBadRequest || up.calls() != 0 ||
-		rec.Header().Get("X-Amzn-Errortype") != "ValidationException" ||
-		!strings.Contains(rec.Body.String(), "openai's model on the provider's list") {
-		t.Fatalf("another maker's model: %d %v %s, %d calls", rec.Code, rec.Header(), rec.Body, up.calls())
+	const body = `{"anthropic_version":"bedrock-2023-05-31","anthropic_beta":["context-1m-2025-08-07"],` +
+		`"max_tokens":9,"messages":[{"role":"user","content":"hi"}]}`
+	rec := servePathTo(t, h, "/model/openai.gpt-test-1%3A0/invoke", body)
+	if rec.Code != http.StatusOK || up.calls() != 1 {
+		t.Fatalf("another maker's model: %d %s, %d upstream calls", rec.Code, rec.Body, up.calls())
 	}
+	sent := up.requests[0]
+	if got := sent.URL.String(); got != bedrockBase+"/chat/completions" {
+		t.Errorf("translated to %s, want runtime's chat completions", got)
+	}
+	if a := sent.Header.Get("Authorization"); !strings.HasPrefix(a, "AWS4-HMAC-SHA256 Credential=AKIDINV/") {
+		t.Errorf("the translated request is not signed: %q", a)
+	}
+	var translated map[string]any
+	if err := json.Unmarshal(up.bodies[0], &translated); err != nil {
+		t.Fatal(err)
+	}
+	if translated["model"] != "openai.gpt-test-1:0" || translated["anthropic_version"] != nil ||
+		translated["anthropic_beta"] != nil || translated["stream"] == true {
+		t.Errorf("translated body %s, want the path's model and none of InvokeModel's own fields", up.bodies[0])
+	}
+	var msg struct {
+		Type    string `json:"type"`
+		Content []struct {
+			Text string `json:"text"`
+		} `json:"content"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &msg); err != nil || msg.Type != "message" ||
+		len(msg.Content) != 1 || msg.Content[0].Text != "hi there" ||
+		rec.Header().Get("Content-Type") != "application/json" {
+		t.Errorf("answer %s (%s), want Anthropic's message JSON", rec.Body, rec.Header().Get("Content-Type"))
+	}
+	up.responses = []func() *http.Response{
+		func() *http.Response { return jsonResponse(200, `{"type":"message"}`) },
+		func() *http.Response { return jsonResponse(200, `{"type":"message"}`) }}
+	up.requests, up.bodies = nil, nil
 	for _, id := range []string{"us.anthropic.claude-test-v1", "unlisted.model-v1"} {
-		if rec := servePathTo(t, h, "/model/"+id+"/invoke", `{}`); rec.Code != http.StatusOK {
+		rec := servePathTo(t, h, "/model/"+id+"/invoke", `{}`)
+		if rec.Code != http.StatusOK || !strings.HasSuffix(up.requests[len(up.requests)-1].URL.Path, "/model/"+id+"/invoke") {
 			t.Errorf("%s: %d %s, want it passed through", id, rec.Code, rec.Body)
 		}
+	}
+}
+
+// awsEvent is one decoded message of AWS's binary event stream: its string headers and payload.
+type awsEvent struct {
+	headers map[string]string
+	payload []byte
+}
+
+// decodeEventStream reads AWS's `application/vnd.amazon.eventstream` framing (each message a
+// 12-byte prelude of total length, headers length and the prelude's CRC32, then the headers,
+// the payload, and the whole message's CRC32), checking both checksums, as an AWS SDK does.
+func decodeEventStream(t *testing.T, b []byte) []awsEvent {
+	t.Helper()
+	var out []awsEvent
+	for len(b) > 0 {
+		if len(b) < 16 {
+			t.Fatalf("a truncated event-stream message: % x", b)
+		}
+		total, hlen := binary.BigEndian.Uint32(b[0:4]), binary.BigEndian.Uint32(b[4:8])
+		if crc32.ChecksumIEEE(b[:8]) != binary.BigEndian.Uint32(b[8:12]) {
+			t.Fatalf("the prelude's CRC does not match")
+		}
+		if int(total) > len(b) || total < 16+hlen {
+			t.Fatalf("message length %d of %d bytes left", total, len(b))
+		}
+		msg := b[:total]
+		if crc32.ChecksumIEEE(msg[:total-4]) != binary.BigEndian.Uint32(msg[total-4:]) {
+			t.Fatalf("the message's CRC does not match")
+		}
+		ev := awsEvent{headers: map[string]string{}, payload: msg[12+hlen : total-4]}
+		for h := msg[12 : 12+hlen]; len(h) > 0; {
+			n := int(h[0])
+			name := string(h[1 : 1+n])
+			if h[1+n] != 7 {
+				t.Fatalf("header %s has type %d, want a string (7)", name, h[1+n])
+			}
+			vlen := int(binary.BigEndian.Uint16(h[2+n : 4+n]))
+			ev.headers[name] = string(h[4+n : 4+n+vlen])
+			h = h[4+n+vlen:]
+		}
+		out = append(out, ev)
+		b = b[total:]
+	}
+	return out
+}
+
+// chunkEvents is the Anthropic stream events an event stream's `chunk` messages carry: each
+// payload's base64 `bytes`, decoded, as Claude Code's Bedrock client reads them back into SSE by
+// their `type` (read in the 2.1.290 binary). A message of any other kind is returned in other.
+func chunkEvents(t *testing.T, evs []awsEvent) (types []string, text string, other []awsEvent) {
+	t.Helper()
+	for _, ev := range evs {
+		if ev.headers[":message-type"] != "event" || ev.headers[":event-type"] != "chunk" {
+			other = append(other, ev)
+			continue
+		}
+		if ev.headers[":content-type"] != "application/json" {
+			t.Errorf("chunk content type %q", ev.headers[":content-type"])
+		}
+		var part struct {
+			Bytes []byte `json:"bytes"`
+		}
+		if err := json.Unmarshal(ev.payload, &part); err != nil {
+			t.Fatalf("chunk payload %q: %v", ev.payload, err)
+		}
+		var data struct {
+			Type  string `json:"type"`
+			Delta struct {
+				Text string `json:"text"`
+			} `json:"delta"`
+		}
+		if err := json.Unmarshal(part.Bytes, &data); err != nil || data.Type == "" {
+			t.Fatalf("chunk bytes %q are not an Anthropic event: %v", part.Bytes, err)
+		}
+		types = append(types, data.Type)
+		text += data.Delta.Text
+	}
+	return types, text, other
+}
+
+// TestATranslatedModelsStreamIsAWSsEventStream: on /invoke-with-response-stream another maker's
+// model is translated as a streamed Messages request, and the Anthropic events the translation
+// yields go back framed as InvokeModelWithResponseStream frames them: one `chunk` message per
+// event, its payload `{"bytes": <the event's JSON, base64>}`, under AWS's own content type.
+func TestATranslatedModelsStreamIsAWSsEventStream(t *testing.T) {
+	up := withUpstream(t)
+	up.responses = []func() *http.Response{func() *http.Response {
+		return sseResponse(io.NopCloser(strings.NewReader(usageAfterFinishStream)))
+	}}
+	h := invokeHandler(map[string]string{"openai.gpt-test-1:0": "openai"})
+	rec := servePathTo(t, h, "/model/openai.gpt-test-1%3A0/invoke-with-response-stream",
+		`{"anthropic_version":"bedrock-2023-05-31","max_tokens":9,"messages":[{"role":"user","content":"hi"}]}`)
+	if rec.Code != http.StatusOK || rec.Header().Get("Content-Type") != "application/vnd.amazon.eventstream" {
+		t.Fatalf("%d %q: %q", rec.Code, rec.Header().Get("Content-Type"), rec.Body)
+	}
+	var translated map[string]any
+	_ = json.Unmarshal(up.bodies[0], &translated)
+	if translated["stream"] != true {
+		t.Errorf("the translated request does not stream: %s", up.bodies[0])
+	}
+	types, text, other := chunkEvents(t, decodeEventStream(t, rec.Body.Bytes()))
+	if len(types) < 3 || types[0] != "message_start" || types[len(types)-1] != "message_stop" || text != "Hi" ||
+		len(other) != 0 {
+		t.Errorf("events %v, text %q, other %d, want a whole Anthropic stream saying Hi", types, text, len(other))
+	}
+}
+
+// TestATranslatedModelsFailuresAreAWSs: a failure before the stream starts is InvokeModel's error
+// shape at the upstream's status, and one mid-stream is an event-stream exception message, which
+// Claude Code's Bedrock client turns into an `error` event (read in the 2.1.290 binary): the only
+// legal way to fail inside the stream, as the `error` event is in SSE.
+func TestATranslatedModelsFailuresAreAWSs(t *testing.T) {
+	up := withUpstream(t)
+	up.responses = []func() *http.Response{
+		func() *http.Response { return jsonResponse(400, `{"error":{"message":"no such model"}}`) },
+		func() *http.Response {
+			return sseResponse(io.NopCloser(strings.NewReader(strings.SplitN(usageAfterFinishStream, "\n\n", 2)[0] + "\n\n")))
+		}}
+	h := invokeHandler(map[string]string{"openai.gpt-test-1:0": "openai"})
+	path := "/model/openai.gpt-test-1%3A0/invoke-with-response-stream"
+	rec := servePathTo(t, h, path, `{"max_tokens":9,"messages":[{"role":"user","content":"hi"}]}`)
+	var awsErr struct {
+		Message string `json:"message"`
+	}
+	if rec.Code != http.StatusBadRequest || rec.Header().Get("X-Amzn-Errortype") != "ValidationException" ||
+		json.Unmarshal(rec.Body.Bytes(), &awsErr) != nil || awsErr.Message != "no such model" {
+		t.Errorf("an upstream 400: %d %v %s, want AWS's error shape with the upstream's message", rec.Code, rec.Header(), rec.Body)
+	}
+	rec = servePathTo(t, h, path, `{"max_tokens":9,"messages":[{"role":"user","content":"hi"}]}`)
+	_, _, other := chunkEvents(t, decodeEventStream(t, rec.Body.Bytes()))
+	if len(other) != 1 || other[0].headers[":message-type"] != "exception" ||
+		other[0].headers[":exception-type"] != "modelStreamErrorException" ||
+		json.Unmarshal(other[0].payload, &awsErr) != nil || !strings.Contains(awsErr.Message, "wire-bridge") {
+		t.Errorf("a stream cut short: %d other messages %+v, want one exception naming the bridge", len(other), other)
+	}
+}
+
+// TestCountTokensOfATranslatedModelIsRefused: as /v1/messages/count_tokens is (wire-bridge.md
+// WB-D14), so claude uses its own estimator; nothing reaches the upstream.
+func TestCountTokensOfATranslatedModelIsRefused(t *testing.T) {
+	up := withUpstream(t)
+	rec := servePathTo(t, invokeHandler(map[string]string{"openai.gpt-test-1:0": "openai"}),
+		"/model/openai.gpt-test-1%3A0/count-tokens", `{"input":{}}`)
+	if rec.Code != http.StatusNotFound || up.calls() != 0 || rec.Header().Get("X-Amzn-Errortype") == "" {
+		t.Errorf("count-tokens of a translated model: %d %v %s, %d calls", rec.Code, rec.Header(), rec.Body, up.calls())
 	}
 }
 
@@ -139,14 +322,15 @@ func TestTheInvokePathAcceptsOnlyAModelID(t *testing.T) {
 }
 
 // TestTheBootHandsTheInvokeRouteTheListsMakers runs the PRODUCTION boot (routeFor, adapterHandler,
-// serve): the list's `lookalike` maker reaches the invoke route, which refuses that model, and an
-// Anthropic model passes. It fails if the boot stops handing the route's makers to the
-// pass-through (route.ModelVendors), which then forwards the lookalike.
+// serve): the list's `lookalike` maker reaches the invoke route, which translates that model to
+// runtime's chat completions, and an Anthropic model passes through. It fails if the boot stops
+// handing the route's makers to the pass-through (route.ModelVendors), which then forwards the
+// lookalike in Anthropic's format.
 func TestTheBootHandsTheInvokeRouteTheListsMakers(t *testing.T) {
 	up, addr, _ := servedBedrockRoute(t, "claude")
-	up.responses = []func() *http.Response{eventStreamResponse}
 	post := func(id string) int {
-		req, _ := http.NewRequest(http.MethodPost, "http://"+addr+"/model/"+id+"/invoke", strings.NewReader(`{}`))
+		req, _ := http.NewRequest(http.MethodPost, "http://"+addr+"/model/"+id+"/invoke",
+			strings.NewReader(`{"max_tokens":9,"messages":[{"role":"user","content":"hi"}]}`))
 		resp, err := bridgeClient.Do(req)
 		if err != nil {
 			t.Fatal(err)
@@ -155,10 +339,13 @@ func TestTheBootHandsTheInvokeRouteTheListsMakers(t *testing.T) {
 		_, _ = io.ReadAll(resp.Body)
 		return resp.StatusCode
 	}
-	if got := post("us.anthropic-lookalike.model-1"); got != http.StatusBadRequest || up.calls() != 0 {
-		t.Errorf("the lookalike: %d after %d calls, want a refusal", got, up.calls())
+	up.responses = []func() *http.Response{func() *http.Response { return jsonResponse(200, openaiResp) }, eventStreamResponse}
+	if got := post("us.anthropic-lookalike.model-1"); got != http.StatusOK || up.calls() != 1 ||
+		!strings.HasSuffix(up.requests[0].URL.Path, "/chat/completions") {
+		t.Errorf("the lookalike: %d after %d calls, want it translated to chat completions", got, up.calls())
 	}
-	if got := post(opusID); got != http.StatusOK || up.calls() != 1 {
+	if got := post(opusID); got != http.StatusOK || up.calls() != 2 ||
+		!strings.HasSuffix(up.requests[1].URL.Path, "/invoke") {
 		t.Errorf("an Anthropic model: %d after %d calls, want it passed through", got, up.calls())
 	}
 }
@@ -166,7 +353,7 @@ func TestTheBootHandsTheInvokeRouteTheListsMakers(t *testing.T) {
 // TestAFetchedListsMakerRoutesAClaudeModelUntranslated: where no pack or config gives the provider
 // a list, the list the launch fetched says which models are Anthropic's (its maker is AWS's own
 // providerName), so a Claude model on it goes to runtime's Messages route untranslated and another
-// maker's is refused on the invoke route. It fails if declaredVendors stops reading the fetched
+// maker's is translated on the invoke route. It fails if declaredVendors stops reading the fetched
 // list.
 func TestAFetchedListsMakerRoutesAClaudeModelUntranslated(t *testing.T) {
 	table := jsonx.NewOrderedMap()

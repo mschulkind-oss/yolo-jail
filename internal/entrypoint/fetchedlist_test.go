@@ -77,6 +77,41 @@ func TestCopilotStartsOnTheFetchedListWhereNoPackSuppliesOne(t *testing.T) {
 	}
 }
 
+// TestCopilotStartsOnTheNewestActiveClaudeTheListHolds: the fetched list is ordered by maker and
+// then id, so an old Claude callable on demand (`anthropic.…`) sorts ahead of every cross-region
+// profile (`us.…`), through which recent Claude models are callable. copilot's start skips a model
+// AWS marks LEGACY and takes the newest by its profile's creation date, both AWS's own facts; with
+// no dates, the list's first Anthropic entry as before; and where every Anthropic entry is LEGACY,
+// an active model of another maker ahead of them.
+func TestCopilotStartsOnTheNewestActiveClaudeTheListHolds(t *testing.T) {
+	aws := []packload.FetchedModel{
+		{ID: "anthropic.claude-3-haiku-20240307-v1:0", Vendor: "anthropic", Legacy: true},
+		{ID: "us.anthropic.claude-3-haiku-20240307-v1:0", Vendor: "anthropic", Legacy: true, Created: "2024-08-08T18:28:37Z"},
+		{ID: "us.anthropic.claude-opus-5-5", Vendor: "anthropic", Created: "2026-05-01T10:00:00Z"},
+		{ID: "us.anthropic.claude-sonnet-5", Vendor: "anthropic", Created: "2025-09-29T00:00:00Z"},
+		{ID: "openai.gpt-test-1:0", Vendor: "openai"},
+	}
+	for _, tc := range []struct {
+		name    string
+		fetched []packload.FetchedModel
+		want    string
+	}{
+		{"the newest active Claude", aws, "us.anthropic.claude-opus-5-5"},
+		{"no dates: the first active Claude", []packload.FetchedModel{{ID: "amazon.test-v1", Vendor: "amazon"},
+			{ID: "anthropic.claude-old-v1", Vendor: "anthropic", Legacy: true},
+			{ID: "us.anthropic.claude-a", Vendor: "anthropic"}, {ID: "us.anthropic.claude-b", Vendor: "anthropic"}},
+			"us.anthropic.claude-a"},
+		{"every Claude legacy: an active model first", []packload.FetchedModel{
+			{ID: "us.anthropic.claude-old-v1", Vendor: "anthropic", Legacy: true, Created: "2024-01-01T00:00:00Z"},
+			{ID: "openai.gpt-test-1:0", Vendor: "openai"}}, "openai.gpt-test-1:0"},
+	} {
+		got := copilotEnvOnBedrock(t, "bedrock-bridge", tc.fetched, nil)
+		if got["COPILOT_MODEL"] != tc.want {
+			t.Errorf("%s: copilot starts on %q, want %q", tc.name, got["COPILOT_MODEL"], tc.want)
+		}
+	}
+}
+
 // TestOnlyCopilotsDeriveReadsTheFetchedList: an agent with a Bedrock catalog of its own keeps it
 // (MM-D32), so no other shipped derive names the fetched list's key. A derive that read it would
 // narrow its agent's menu to a list nobody chose.
