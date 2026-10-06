@@ -82,8 +82,9 @@ type RunPlan struct {
 	ProvisionScriptPath string
 	// ProvisionFloors is the host's answer to whether a declared Node floor starts the stage
 	// (FloorStage, AR-L3), carried so the dry run can say why the stage runs or is skipped.
-	ProvisionFloors FloorStage
-	LaunchArgv      []string
+	ProvisionFloors   FloorStage
+	ProvisionPrograms ProgramReadinessStage
+	LaunchArgv        []string
 	// JailDaemonArgv is the CONFINED supervisor (jaildaemon.go): `yolo-jaild supervise`
 	// under the session's Seatbelt profile, reading DaemonEnvFile. nil when the launch
 	// handed this backend no daemon to run, which is the common case and costs nothing.
@@ -423,10 +424,17 @@ func sandboxPathPrefix(darwin *Darwin) []string {
 // BuildRunPlanWithDaemons is BuildRunPlan plus the jail daemons this launch runs in the guest
 // (jaildaemon.go), the host's answer to whether a declared Node floor starts the provisioning
 // stage (FloorStage, AR-L3), and what the launch minted and composed for this one session
-// (PlanSession). The orchestrator's buildPlan calls this one; BuildRunPlan is the plan of a
-// launch that runs no daemon, whose floors, if any, the host showed met, and that no launch
-// minted a session for.
+// (PlanSession). The orchestrator's buildPlan calls BuildRunPlanWithStages; this compatibility
+// entry builds a plan without a separate program-readiness admission result.
 func BuildRunPlanWithDaemons(workspace string, cfg *jsonx.OrderedMap, agents, agentArgv []string, selfExe, hostPackRoot string, hostHomeOverlay HomeOverlay, hostCtx HostContext, sandboxEnv *jsonx.OrderedMap, darwin *Darwin, blockedTools []packload.BlockedTool, jailDaemons JailDaemons, floors FloorStage, session PlanSession) RunPlan {
+	return BuildRunPlanWithStages(workspace, cfg, agents, agentArgv, selfExe, hostPackRoot,
+		hostHomeOverlay, hostCtx, sandboxEnv, darwin, blockedTools, jailDaemons, floors,
+		ProgramReadinessStage{}, session)
+}
+
+// BuildRunPlanWithStages adds the host's answer for selected-program readiness to the plan's
+// provisioning-stage admission, beside the existing Node-floor decision.
+func BuildRunPlanWithStages(workspace string, cfg *jsonx.OrderedMap, agents, agentArgv []string, selfExe, hostPackRoot string, hostHomeOverlay HomeOverlay, hostCtx HostContext, sandboxEnv *jsonx.OrderedMap, darwin *Darwin, blockedTools []packload.BlockedTool, jailDaemons JailDaemons, floors FloorStage, programs ProgramReadinessStage, session PlanSession) RunPlan {
 	// SYMLINK-RESOLVED ONCE, HERE, BECAUSE THE KERNEL RESOLVES BEFORE THE POLICY IS CONSULTED.
 	// Measured on hardware 2026-09-13 (declaration-parity.md §6.1's probe 2): a profile denying
 	// `(subpath "/tmp")` does not stop `touch /tmp/canary`, while one denying
@@ -674,7 +682,7 @@ func BuildRunPlanWithDaemons(workspace string, cfg *jsonx.OrderedMap, agents, ag
 
 	var provisionArgv []string
 	provisionScriptPath := ""
-	if ProvisionNeeded(cfg, floors) {
+	if ProvisionNeeded(cfg, floors) || programs.Needed() {
 		provisionScriptPath = ProvisionBootstrapScript(workspace)
 		// The console line's color is the NO_COLOR half of the one gate (tty.NoColor), read
 		// from the env this stage will run in — the forwarded host value (MacosSandboxEnv), or
@@ -791,6 +799,7 @@ func BuildRunPlanWithDaemons(workspace string, cfg *jsonx.OrderedMap, agents, ag
 		ProvisionArgv:            provisionArgv,
 		ProvisionScriptPath:      provisionScriptPath,
 		ProvisionFloors:          floors,
+		ProvisionPrograms:        programs,
 		LaunchArgv: LaunchArgvWithGuard(agentArgv, profilePath, envFile, workspace, "", "",
 			darwinPrefix, guard, stagedYolo),
 		IOPriority:      ioPriority,
@@ -1004,6 +1013,17 @@ func buildBootstrapEnv(workspace string, cfg, gitIdentity, sandboxEnv *jsonx.Ord
 	if sandboxEnv != nil {
 		if v, ok := sandboxEnv.Get(durable.EnvVar); ok {
 			bootstrapEnv.Set(durable.EnvVar, v)
+		}
+		// The missing-program bypass is the launcher's decision, read by readiness in the
+		// bootstrap (JR-D3). It is forwarded from the host, never inferred from env sources.
+		if v, ok := sandboxEnv.Get(paths.AllowMissingProgramsEnv); ok {
+			bootstrapEnv.Set(paths.AllowMissingProgramsEnv, v)
+		}
+		// Match container/test isolation for launches that explicitly turn the readiness act off.
+		// This is a launcher contract and crosses env -i directly, not through the session file,
+		// whose YOLO_ values are deliberately ignored by the bootstrap's env hydrator.
+		if v, ok := sandboxEnv.Get(paths.NoProgramReadinessEnv); ok {
+			bootstrapEnv.Set(paths.NoProgramReadinessEnv, v)
 		}
 		// THE FORK DECISIONS, relayed the same way (entrypoint.ForkBuildsEnv): the bootstrap generates
 		// the sandbox's launcher for a forked program, which bakes its bin's decision in. This backend

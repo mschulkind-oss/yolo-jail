@@ -139,8 +139,7 @@ under [External waits](#external-waits).
     [make OrbStack a working Podman host](../research/orbstack-as-a-podman-host.md), as its measured
     shared-folder speed and memory return offer another Mac option without restoring Docker first.
 36. Builds no ruling holds: [the provisioner override](../design/provisioner-sets.md#9-what-i-would-build-in-order),
-    whose grain was ruled 2026-10-05; [the readiness act on macos-user](../design/jail-notch-readiness.md#JR-D2); [a
-    provider set's overlay modifier](../design/active-provider-sets.md#13-what-was-built-2026-09-29), which reads only the
+    whose grain was ruled 2026-10-05; [the readiness act on macos-user](../design/jail-notch-readiness.md#JR-D2) — **built 2026-10-06**: host-side admission starts the existing confined stage for an absent/unknown selected program and its generated bootstrap runs the shared readiness act; fixture tests are in `integration/macosuserprogramreadiness_test.go`, with native macOS execution pending; [a provider set's overlay modifier](../design/active-provider-sets.md#13-what-was-built-2026-09-29), which reads only the
     primary; [the empty-list line in `yolo check`](../design/model-lists-and-pickers.md#72-composition-rules); [TP10's
     `boot.log` half](../design/trust-paths.md#outstanding-work); [macos-user's item 2 twin](handoff-macos-user-open-threads.md);
     [the color pass's Group B](cli-visual-polish.md); [the unit suite's clock waits](test-suite-speed.md#unit-tests-one-package-sets-the-wall-time-and-five-of-its-tests-are-waiting-on-clocks);

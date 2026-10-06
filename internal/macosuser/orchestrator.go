@@ -327,6 +327,12 @@ func MacosSandboxEnv(deps Deps, cfg *jsonx.OrderedMap) *jsonx.OrderedMap {
 	if v := deps.Getenv(paths.AllowUnreachableServicesEnv); v != "" {
 		env.Set(paths.AllowUnreachableServicesEnv, v)
 	}
+	if v := deps.Getenv(paths.AllowMissingProgramsEnv); v != "" {
+		env.Set(paths.AllowMissingProgramsEnv, v)
+	}
+	if v := deps.Getenv(paths.NoProgramReadinessEnv); v != "" {
+		env.Set(paths.NoProgramReadinessEnv, v)
+	}
 	for _, pair := range [][2]string{{"YOLO_GIT_NAME", "user.name"}, {"YOLO_GIT_EMAIL", "user.email"}} {
 		if val, ok := deps.GitConfig(pair[1]); ok && val != "" {
 			env.Set(pair[0], val)
@@ -597,10 +603,41 @@ func buildPlan(deps Deps, opts Options, darwin *Darwin) RunPlan {
 		met = func(floor string) bool { return deps.NodeFloorMet(floor, loginPath, home) }
 	}
 	floors := floorStageFor(opts.HostPackRoot, met)
-	return BuildRunPlanWithDaemons(opts.Workspace, opts.Config, opts.Agents, opts.AgentArgv,
+	programs := programReadinessStageFor(opts.HostPackRoot, home, opts.Workspace,
+		paths.WorkspaceHomeState(opts.Workspace), loginPath, config.MergeMiseTools(opts.Config), env)
+	return BuildRunPlanWithStages(opts.Workspace, opts.Config, opts.Agents, opts.AgentArgv,
 		selfExe, opts.HostPackRoot, opts.HostHomeOverlay, opts.HostCtx, env, darwin,
-		opts.BlockedTools, opts.JailDaemons, floors,
+		opts.BlockedTools, opts.JailDaemons, floors, programs,
 		PlanSession{ID: opts.SessionID, CATrust: opts.CATrust})
+}
+
+// programReadinessStageFor is JR-D2's host-side stage-admission check. The same staged pack
+// root, effective launcher environment, login PATH and mise declaration reach the bootstrap; no
+// configured host credential or unrelated environment variable is copied into the probe. The
+// incoming workspace's physical home sidecar is passed explicitly so a prior account-home link
+// cannot make a cold workspace appear ready.
+func programReadinessStageFor(packRoot, home, workspace, workspaceHome, loginPath string,
+	miseTools *jsonx.OrderedMap, sandboxEnv *jsonx.OrderedMap) ProgramReadinessStage {
+	if value, ok := sandboxEnv.Get(paths.NoProgramReadinessEnv); ok && asStr(value) != "" {
+		return ProgramReadinessStage{Disabled: true}
+	}
+	if packRoot == "" {
+		return ProgramReadinessStage{}
+	}
+	miseJSON, _ := jsonx.DumpsCompact(orderedMapToAny(miseTools))
+	vars := map[string]string{
+		"YOLO_PACK_ROOT":              packRoot,
+		"YOLO_MISE_TOOLS":             miseJSON,
+		entrypoint.DarwinLoginPathEnv: loginPath,
+	}
+	if value, ok := sandboxEnv.Get("NPM_CONFIG_PREFIX"); ok {
+		vars["NPM_CONFIG_PREFIX"] = asStr(value)
+	}
+	missing, err := entrypoint.MissingProgramReadiness(vars, home, workspace, workspaceHome)
+	if err != nil {
+		return ProgramReadinessStage{Unknown: err.Error()}
+	}
+	return ProgramReadinessStage{Missing: missing}
 }
 
 // printCacheRelocations is the cache relocations' disclosure: one line per relocation, the link
@@ -1896,12 +1933,28 @@ func PrintPlan(w io.Writer, plan RunPlan, problems []string) {
 	p.print("")
 	if len(plan.ProvisionArgv) == 0 {
 		p.print("[bold]── provisioning stage ──[/bold]")
-		p.print("  [dim]skipped — no mise_tools declared, and no declared Node floor " +
-			"the host could not show met[/dim]")
+		if plan.ProvisionPrograms.Disabled {
+			p.print("  [dim]skipped — no mise_tools declared, no declared Node floor the host could not show met, " +
+				paths.NoProgramReadinessEnv + " is set; selected program presence was not checked[/dim]")
+		} else {
+			p.print("  [dim]skipped — no mise_tools declared, no declared Node floor the host could not show met, " +
+				"and every selected program is present[/dim]")
+		}
 	} else {
 		p.print("[bold]── provisioning stage (confined, before the agent) ──[/bold]")
 		if why := plan.ProvisionFloors.Reason(); why != "" {
 			p.print("  [dim]runs for: " + why + "[/dim]")
+		}
+		if len(plan.ProvisionPrograms.Missing) > 0 {
+			p.print("  [dim]runs for missing programs: " + strings.Join(plan.ProvisionPrograms.Missing, ", ") + "[/dim]")
+		}
+		if plan.ProvisionPrograms.Unknown != "" {
+			p.print("  [dim]runs because selected program readiness is unknown: " +
+				plan.ProvisionPrograms.Unknown + "[/dim]")
+		}
+		if plan.ProvisionPrograms.Disabled {
+			p.print("  [dim]program readiness disabled by " + paths.NoProgramReadinessEnv +
+				"; selected program presence was not checked[/dim]")
 		}
 		p.print("  " + shquote.JoinDisplay(plan.ProvisionArgv))
 	}

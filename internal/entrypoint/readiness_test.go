@@ -274,9 +274,10 @@ func TestTheHatchStartsTheJailAndListsWhatItCouldNotInstall(t *testing.T) {
 		t.Errorf("the hatch still refused:\n%s", out)
 	}
 	for _, want := range []string{
-		paths.AllowMissingProgramsEnv + " is set, so this jail starts WITHOUT",
+		paths.AllowMissingProgramsEnv + " is set, so this jail starts WITHOUT what a selected pack declares",
 		"program " + readyBin + " (pack " + readyPack + ")",
 		"getaddrinfo ENOTFOUND",
+		"its install exited 1",
 		"installs the first time it is run",
 	} {
 		if !strings.Contains(out, want) {
@@ -472,11 +473,10 @@ func TestTheSourceLaunchersInstallOnlyModeMaterializesAndRunsNothing(t *testing.
 	}
 }
 
-// --- macos-user (JR-D2) -----------------------------------------------------------------------
-
-// That backend's stage does not run the act yet, so its bootstrap carries none of it, and its
-// boot names each declared program it finds absent — and stops naming it once it is installed.
-func TestMacosUserCarriesNoReadinessAndNamesWhatIsAbsent(t *testing.T) {
+// macos-user runs the same readiness act in its confined provisioning stage when the host
+// cannot prove a declared program is present. The generated bootstrap therefore carries the
+// exact launcher calls the stage executes.
+func TestMacosUserBootstrapCarriesReadinessChecks(t *testing.T) {
 	home := t.TempDir()
 	vars := map[string]string{
 		// HOME as the sandbox account's process has it, so every prefix the Env derives is
@@ -499,23 +499,82 @@ func TestMacosUserCarriesNoReadinessAndNamesWhatIsAbsent(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.Contains(string(script), "\n_yolo_ready ") {
-		t.Errorf("the macos-user bootstrap carries readiness calls its stage does not run (JR-D2)")
-	}
-	for _, want := range []string{"macos-user does not install", "program " + readyBin + " (pack " + readyPack + ")"} {
-		if !strings.Contains(stderr.String(), want) {
-			t.Errorf("the macos-user boot does not say %q:\n%s", want, stderr.String())
-		}
-	}
-	writeTestFile(t, filepath.Join(e.NpmBin(), readyBin), "#!/bin/sh\n")
-	if err := os.Chmod(filepath.Join(e.NpmBin(), readyBin), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	stderr.Reset()
-	if err := GenerateDarwinBootstrapScript(e); err != nil {
-		t.Fatal(err)
+	if !strings.Contains(string(script), "_yolo_ready "+readyBin) {
+		t.Errorf("the macos-user bootstrap does not carry the readiness call its confined stage runs")
 	}
 	if strings.Contains(stderr.String(), "macos-user does not install") {
-		t.Errorf("the boot names a program that is installed:\n%s", stderr.String())
+		t.Errorf("the bootstrap still reports deferred program readiness:\n%s", stderr.String())
+	}
+}
+
+func TestMacosUserReadinessAdmissionFailsTowardTheConfinedStage(t *testing.T) {
+	home := t.TempDir()
+	workspace := filepath.Join(home, "workspace-b")
+	physicalHome := filepath.Join(workspace, ".yolo", "home")
+	vars := map[string]string{
+		"HOME":                  home,
+		"YOLO_PACK_ROOT":        stageFloorPacks(t, map[string]string{readyPack: readyManifest}),
+		"YOLO_DARWIN_WORKSPACE": workspace,
+		DarwinLoginPathEnv:      "/usr/bin:/bin",
+	}
+	missing, err := MissingProgramReadiness(vars, home, workspace, physicalHome)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(missing) != 1 || !strings.Contains(missing[0], readyBin) {
+		t.Fatalf("missing programs = %v, want the selected absent program", missing)
+	}
+
+	writeTestFile(t, filepath.Join(physicalHome, "npm-global", "bin", readyBin), "#!/bin/sh\n")
+	if err := os.Chmod(filepath.Join(physicalHome, "npm-global", "bin", readyBin), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	missing, err = MissingProgramReadiness(vars, home, workspace, physicalHome)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(missing) != 0 {
+		t.Errorf("host could prove the program present but readiness still needs a stage: %v", missing)
+	}
+}
+
+func TestMacosUserReadinessAdmissionUsesConfiguredNpmPrefix(t *testing.T) {
+	home := t.TempDir()
+	workspace := filepath.Join(home, "workspace")
+	physicalHome := filepath.Join(workspace, ".yolo", "home")
+	prefix := filepath.Join(t.TempDir(), "custom-prefix")
+	bin := filepath.Join(prefix, "bin", readyBin)
+	writeTestFile(t, bin, "#!/bin/sh\n")
+	if err := os.Chmod(bin, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	missing, err := MissingProgramReadiness(map[string]string{
+		"HOME":              home,
+		"YOLO_PACK_ROOT":    stageFloorPacks(t, map[string]string{readyPack: readyManifest}),
+		"NPM_CONFIG_PREFIX": prefix,
+		DarwinLoginPathEnv:  "/usr/bin:/bin",
+	}, home, workspace, physicalHome)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(missing) != 0 {
+		t.Fatalf("the host ignored the configured NPM_CONFIG_PREFIX %s: %v", prefix, missing)
+	}
+}
+
+func TestMacosUserReadinessAdmissionTreatsUnreadablePacksAsUnknown(t *testing.T) {
+	root := t.TempDir()
+	broken := filepath.Join(root, "broken-pack")
+	if err := os.MkdirAll(broken, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(broken, "pack.json"), []byte("{"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	missing, err := MissingProgramReadiness(map[string]string{
+		"YOLO_PACK_ROOT": root,
+	}, t.TempDir(), t.TempDir(), t.TempDir())
+	if err == nil {
+		t.Fatalf("unreadable staged packs were treated as ready: missing=%v", missing)
 	}
 }

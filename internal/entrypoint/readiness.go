@@ -39,11 +39,15 @@ package entrypoint
 //
 // # macos-user
 //
-// Not there yet (JR-D2): readiness ships container-first, and that backend's stage does not
-// start for a missing program. Its launch names each declared program it finds absent instead
-// (warnProgramsNotReady), and the programs install on first use there, as before.
+// macos-user renders this same act into its bootstrap. Its host admits the confined stage
+// when it cannot prove every selected program is already present; on a hit, no stage or install
+// is needed.
 
 import (
+	"errors"
+	"fmt"
+	"io/fs"
+	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -124,15 +128,8 @@ func readyProgramsOf(e *Env, packs []*packload.Pack) []readyProgram {
 // Every value is shquote'd into a bare word: the bin is validated, the pack name is a
 // pack-supplied string, and this is shell source.
 //
-// Two environments render something else, each saying so:
-//   - macos-user (Env.DeferProgramReadiness, JR-D2) renders nothing; its launch names what is
-//     absent (warnProgramsNotReady).
-//   - NoProgramReadinessEnv renders one notice naming what it left, and installs nothing; its
-//     capture-jail value (paths.NoProgramReadinessCaptureJail) says that jail's reason instead.
+// The capture/build environment renders a notice rather than calls, and installs nothing.
 func readinessChecks(e *Env) string {
-	if e.DeferProgramReadiness {
-		return ""
-	}
 	progs := declaredReadyPrograms(e)
 	if len(progs) == 0 {
 		return ""
@@ -165,40 +162,186 @@ func allowMissingPrograms(e *Env) string {
 	return boolFlag(e.Getenv(paths.AllowMissingProgramsEnv) != "")
 }
 
-// programRealBin is where a program's launcher looks for it — its REAL_BIN — for the
-// macos-user report: the npm prefix's bin for npm, ~/.local/bin for an installer.
-func programRealBin(e *Env, inst packdecl.Install) string {
-	if inst.Kind == "npm" {
-		return filepath.Join(e.NpmBin(), inst.Bin)
+// MissingProgramReadiness reports the launcher-backed selected programs the host cannot prove
+// present for a macos-user launch. vars must carry the staged pack root, sandbox login PATH,
+// effective environment and merged mise declaration used by the bootstrap. workspaceHome is the
+// incoming workspace's physical home sidecar, not a symlink under the sandbox account home (which
+// may still point into a different workspace until the bootstrap runs). An error is an unknown
+// answer, so the caller starts the stage rather than silently treating it as ready.
+func MissingProgramReadiness(vars map[string]string, home, workspace, workspaceHome string) ([]string, error) {
+	probeVars := make(map[string]string, len(vars)+1)
+	for key, value := range vars {
+		probeVars[key] = value
 	}
-	return filepath.Join(e.LocalBin(), inst.Bin)
+	probeVars["JAIL_HOME"] = home
+	if workspace != "" {
+		probeVars["YOLO_DARWIN_WORKSPACE"] = workspace
+	}
+	if workspaceHome != "" {
+		probeVars[DarwinHomeSidecarEnv] = workspaceHome
+	}
+	e := DarwinEnvFrom(probeVars, home)
+	root := e.Getenv("YOLO_PACK_ROOT")
+	if root == "" {
+		return nil, nil
+	}
+	packs, err := loadPackRootAsStaged(e, root)
+	if err != nil {
+		return nil, err
+	}
+	packs, err = packload.ApplyForks(packs)
+	if err != nil {
+		return nil, err
+	}
+	layout, _ := darwinHomeLayoutFor(e, packs)
+	var missing []string
+	for _, p := range readyProgramsOf(e, packs) {
+		path, err := programRealBin(e, p.inst, workspace, layout)
+		if err != nil {
+			return nil, err
+		}
+		if !isExecutableFile(path) {
+			missing = append(missing, p.Who)
+		}
+	}
+	return missing, nil
 }
 
-// warnProgramsNotReady is JR-D2's line for macos-user: the readiness act does not run on this
-// backend yet, so its launch names each declared program that is not installed, rather than
-// leaving the absence to be found when the program is first run ("Warned", never "Dropped",
-// docs/design/backend-parity.md). Silent when every declared program is present.
-func warnProgramsNotReady(e *Env) {
-	if !e.DeferProgramReadiness {
-		return
+// programRealBin is where the install-only launcher looks for its program. npm uses the
+// effective configured prefix; installer and source launchers use the sandbox's local bin.
+// resolveIncomingLayoutPath maps either through the same DarwinHomeLayout the bootstrap applies,
+// including core links and selected pack workspace directories.
+func programRealBin(e *Env, inst packdecl.Install, workspace string, layout DarwinHomeLayout) (string, error) {
+	var path string
+	if inst.Kind == "npm" {
+		prefix := e.NpmPrefix
+		if prefix == "" {
+			// Match the bootstrap/launcher `${NPM_CONFIG_PREFIX:-$HOME/.npm-global}` default.
+			prefix = filepath.Join(e.Home, ".npm-global")
+		}
+		if !filepath.IsAbs(prefix) {
+			if workspace == "" {
+				return "", fmt.Errorf("the workspace-relative NPM_CONFIG_PREFIX cannot be resolved")
+			}
+			if hasParentPathComponent(prefix) {
+				return "", fmt.Errorf("the workspace-relative NPM_CONFIG_PREFIX contains a parent traversal")
+			}
+			prefix = filepath.Join(workspace, prefix)
+		}
+		path = filepath.Join(prefix, "bin", inst.Bin)
+	} else {
+		path = filepath.Join(e.LocalBin(), inst.Bin)
 	}
-	var absent []string
-	for _, p := range declaredReadyPrograms(e) {
-		// A fork's program is not delivered on this backend at all, and the launch already says
-		// so and why (FP-D3, run.noteMacosUserForks); "installs the first time it is run" would
-		// be false of it.
-		if p.inst.Kind == packdecl.InstallKindSource {
+	return resolveIncomingLayoutPath(e.Home, path, layout)
+}
+
+// resolveIncomingLayoutPath translates the sandbox account-home side of the links which this
+// launch will lay to their incoming-workspace targets. This is the bootstrap's layout, derived
+// from the staged selected packs, not a second list of known home roots. It must run before any
+// filesystem lookup: the account home's existing symlinks still name the previous workspace.
+// Unmapped symlinks below the account home are not evidence about this workspace, so they return
+// an unknown result and admit the confined stage.
+func resolveIncomingLayoutPath(home, path string, layout DarwinHomeLayout) (string, error) {
+	if hasParentPathComponent(path) {
+		return "", fmt.Errorf("program path contains a parent traversal: %s", path)
+	}
+	if !filepath.IsAbs(path) {
+		return "", fmt.Errorf("program path is not absolute: %s", path)
+	}
+	path = filepath.Clean(path)
+	for traversals := 0; traversals < 40; traversals++ {
+		if mapped, ok := incomingLayoutPath(path, layout); ok && mapped != path {
+			path = mapped
 			continue
 		}
-		if !isExecutableFile(programRealBin(e, p.inst)) {
-			absent = append(absent, p.Who)
+		root := filepath.VolumeName(path) + string(filepath.Separator)
+		remainder := strings.TrimPrefix(path, root)
+		parts := strings.Split(remainder, string(filepath.Separator))
+		current := root
+		followed := false
+		for i, part := range parts {
+			if part == "" {
+				continue
+			}
+			current = filepath.Join(current, part)
+			if mapped, ok := incomingLayoutPath(current, layout); ok && mapped != current {
+				path = filepath.Join(mapped, filepath.Join(parts[i+1:]...))
+				followed = true
+				break
+			}
+			info, err := os.Lstat(current)
+			if errors.Is(err, fs.ErrNotExist) {
+				return path, nil
+			}
+			if err != nil {
+				return "", fmt.Errorf("could not inspect program path %s: %w", current, err)
+			}
+			if info.Mode()&os.ModeSymlink == 0 {
+				continue
+			}
+			if pathIsWithin(home, current) {
+				return "", fmt.Errorf("program path traverses an unselected account-home link: %s", current)
+			}
+			target, err := os.Readlink(current)
+			if err != nil {
+				return "", fmt.Errorf("could not read program-path link %s: %w", current, err)
+			}
+			if !filepath.IsAbs(target) {
+				target = filepath.Join(filepath.Dir(current), target)
+			}
+			path = filepath.Clean(filepath.Join(target, filepath.Join(parts[i+1:]...)))
+			followed = true
+			break
+		}
+		if !followed {
+			return path, nil
 		}
 	}
-	if len(absent) == 0 {
-		return
+	return "", fmt.Errorf("program path has too many symbolic-link traversals")
+}
+
+// incomingLayoutPath maps a path at or below one of the actual account-home links to the link's
+// workspace target. The longest match wins because a selected pack link may be nested beneath a
+// core link such as .config.
+func incomingLayoutPath(path string, layout DarwinHomeLayout) (string, bool) {
+	links := make([]DarwinHomeLink, 0, len(layout.Links)+len(layout.FileRedirects)+len(layout.HostFileRedirects))
+	links = append(links, layout.Links...)
+	links = append(links, layout.FileRedirects...)
+	links = append(links, layout.HostFileRedirects...)
+	bestLen := -1
+	var mapped string
+	for _, link := range links {
+		root := filepath.Clean(link.Path)
+		rel, err := filepath.Rel(root, path)
+		if err != nil || !pathWithinRel(rel) || len(root) <= bestLen {
+			continue
+		}
+		bestLen = len(root)
+		target := filepath.Clean(link.Target)
+		if !filepath.IsAbs(target) {
+			// Home-root redirects use the same relative target the Darwin bootstrap lays.
+			// Resolve it from the link's parent before translating its descendants.
+			target = filepath.Join(filepath.Dir(root), target)
+		}
+		mapped = filepath.Join(target, rel)
 	}
-	e.warn("macos-user does not install a selected pack's programs before the launch yet " +
-		"(docs/design/jail-notch-readiness.md JR-D2), so these are not installed: " +
-		strings.Join(absent, ", ") + ". Each installs the first time it is run; run one with " +
-		"--version to install it now.")
+	return mapped, bestLen >= 0
+}
+
+func hasParentPathComponent(path string) bool {
+	for _, component := range strings.Split(path, string(filepath.Separator)) {
+		if component == ".." {
+			return true
+		}
+	}
+	return false
+}
+
+func pathIsWithin(root, path string) bool {
+	rel, err := filepath.Rel(filepath.Clean(root), filepath.Clean(path))
+	return err == nil && pathWithinRel(rel)
+}
+
+func pathWithinRel(rel string) bool {
+	return rel == "." || (rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)))
 }

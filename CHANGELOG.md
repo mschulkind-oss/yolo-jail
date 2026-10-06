@@ -10,6 +10,9 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+Nested Podman jails inherit Bedrock access, host installations follow your package-manager
+preference, and macos-user prepares programs before launch.
+
 ### Added
 
 **Bedrock in a nested jail.** A podman jail launched from inside a jail now reaches Bedrock with
@@ -20,6 +23,10 @@ failing to start its AWS service. See
 **Choose how yolo installs an agent.** A `provisioners` list in your user config ranks your package
 managers above a pack's own installer, so `"host": ["brew"]` gets claude from Homebrew at the host.
 See [Confinement](userguide/guides/confinement.md).
+**Programs ready on macos-user.** A selected pack's missing program is installed before your
+command runs; a failed install stops the launch unless you set
+`YOLO_ALLOW_MISSING_PROGRAMS=1`. See
+[macos-user provisioning](docs/reference/macos-user-provisioning.md).
 
 ## [0.12.0] - 2026-10-06
 

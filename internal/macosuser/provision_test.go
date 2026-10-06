@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/entrypoint"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
@@ -335,12 +336,281 @@ func floorPackRoot(t *testing.T, floor string) string {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	manifest := `{"name": "pi", "contributes": [{"kind": "program", "bin": "pi", "via": "npm", ` +
+	manifest := `{"name": "pi", "contributes": [{"kind": "program", "bin": "sh", "via": "npm", ` +
 		`"package": "pi-pkg", "node_floor": "` + floor + `"}]}`
 	if err := os.WriteFile(filepath.Join(dir, "pack.json"), []byte(manifest), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	return root
+}
+
+func readinessPackRoot(t *testing.T) string {
+	return readinessPackRootWithWorkspaceState(t, "")
+}
+
+func readinessPackRootWithWorkspaceState(t *testing.T, stateDir string) string {
+	t.Helper()
+	root := t.TempDir()
+	dir := filepath.Join(root, "readyfixture")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	state := ""
+	if stateDir != "" {
+		state = `{"kind":"state","at":"` + stateDir + `","scope":"workspace"},`
+	}
+	manifest := `{"name":"readyfixture","contributes":[` + state + `{"kind":"program","bin":"readyfixture-bin","via":"npm","package":"readyfixture-pkg"}]}`
+	if err := os.WriteFile(filepath.Join(dir, "pack.json"), []byte(manifest), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return root
+}
+
+// JR-D2's call-site gate: a program-declaring selected pack whose real install bin is absent
+// must cause the production plan builder to admit the same confined stage used for mise tools.
+func TestBuildPlanStartsStageForAnAbsentSelectedProgram(t *testing.T) {
+	deps := mockDeps(nil)
+	deps.NodeFloorMet = func(string, string, string) bool { return true }
+	opts := newOpts("/Users/Shared/yolo/proj")
+	opts.HostPackRoot = readinessPackRoot(t)
+	plan := buildPlan(deps, opts, mockDarwin())
+	if len(plan.ProvisionArgv) == 0 {
+		t.Fatal("the plan skipped the confined stage although the selected program was absent")
+	}
+	if !plan.ProvisionPrograms.Needed() || len(plan.ProvisionPrograms.Missing) != 1 ||
+		!strings.Contains(plan.ProvisionPrograms.Missing[0], "readyfixture-bin") {
+		t.Fatalf("program readiness decision = %+v, want the absent declared program", plan.ProvisionPrograms)
+	}
+	if !strings.Contains(strings.Join(plan.ProvisionArgv, " "), entrypoint.DarwinBootstrapScriptPath(paths.WorkspaceHomeState(opts.Workspace))) {
+		t.Errorf("the admitted stage does not execute the generated readiness bootstrap: %v", plan.ProvisionArgv)
+	}
+}
+
+func TestBuildPlanStartsStageWhenProgramReadinessIsUnknown(t *testing.T) {
+	root := t.TempDir()
+	broken := filepath.Join(root, "broken-pack")
+	if err := os.MkdirAll(broken, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(broken, "pack.json"), []byte("{"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	deps := mockDeps(nil)
+	deps.NodeFloorMet = func(string, string, string) bool { return true }
+	opts := newOpts("/Users/Shared/yolo/proj")
+	opts.HostPackRoot = root
+	plan := buildPlan(deps, opts, mockDarwin())
+	if len(plan.ProvisionArgv) == 0 || plan.ProvisionPrograms.Unknown == "" {
+		t.Fatalf("unknown program readiness skipped the confined stage: decision=%+v argv=%v",
+			plan.ProvisionPrograms, plan.ProvisionArgv)
+	}
+}
+
+// The account home's default npm-prefix symlink still resolves to workspace A, but readiness
+// for cold workspace B must inspect B's physical surface instead of following that stale link.
+func TestProgramReadinessDoesNotReuseThePreviousWorkspaceHome(t *testing.T) {
+	accountHome := t.TempDir()
+	workspaceA := t.TempDir()
+	workspaceB := t.TempDir()
+	oldBin := filepath.Join(workspaceA, "npm-global", "bin", "readyfixture-bin")
+	if err := os.MkdirAll(filepath.Dir(oldBin), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(oldBin, []byte("#!/bin/sh\\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(filepath.Join(workspaceA, "npm-global"), filepath.Join(accountHome, ".npm-global")); err != nil {
+		t.Fatal(err)
+	}
+
+	root := readinessPackRoot(t)
+	decision := programReadinessStageFor(root, accountHome, filepath.Join(workspaceB, "project"),
+		workspaceB, "/usr/bin:/bin", config.MergeMiseTools(jsonx.NewOrderedMap()), jsonx.NewOrderedMap())
+	if !decision.Needed() || len(decision.Missing) != 1 {
+		t.Fatalf("a binary in prior workspace A made cold workspace B look ready: %+v", decision)
+	}
+}
+
+func TestProgramReadinessMapsConfiguredPrefixesThroughTheIncomingHomeLayout(t *testing.T) {
+	accountHome := t.TempDir()
+	workspaceA := t.TempDir()
+	workspaceB := t.TempDir()
+	packRoot := readinessPackRootWithWorkspaceState(t, ".claude")
+	layout := entrypoint.DeriveDarwinHomeLayout(accountHome, paths.WorkspaceHomeState(workspaceA),
+		[]string{".claude"}, nil)
+	if err := layout.Apply(); err != nil {
+		t.Fatal(err)
+	}
+
+	accountHomeAlias := filepath.Join(t.TempDir(), "account-home")
+	if err := os.Symlink(accountHome, accountHomeAlias); err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		name     string
+		homePath string
+		subtree  string
+	}{
+		{name: ".config", homePath: filepath.Join(accountHome, ".config"), subtree: "config"},
+		{name: ".yolo/bin", homePath: filepath.Join(accountHome, ".yolo", "bin"), subtree: "yolo-bin"},
+		{name: "selected pack state", homePath: filepath.Join(accountHome, ".claude"), subtree: "claude"},
+		{name: "home-file redirect", homePath: filepath.Join(accountHome, ".claude.json"), subtree: filepath.Join("claude", "claude.json")},
+		{name: "account-home symlink alias", homePath: filepath.Join(accountHomeAlias, ".config"), subtree: "config"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			oldBin := filepath.Join(paths.WorkspaceHomeState(workspaceA), tc.subtree, "npm", "bin", "readyfixture-bin")
+			if err := os.MkdirAll(filepath.Dir(oldBin), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(oldBin, []byte("#!/bin/sh\\n"), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			sandboxEnv := jsonx.NewOrderedMap()
+			sandboxEnv.Set("NPM_CONFIG_PREFIX", filepath.Join(tc.homePath, "npm"))
+			decision := programReadinessStageFor(packRoot, accountHome, workspaceB,
+				paths.WorkspaceHomeState(workspaceB), "/usr/bin:/bin",
+				config.MergeMiseTools(jsonx.NewOrderedMap()), sandboxEnv)
+			if !decision.Needed() || len(decision.Missing) != 1 {
+				t.Fatalf("the configured prefix followed workspace A's stale account-home link: %+v", decision)
+			}
+		})
+	}
+
+	unselectedTarget := filepath.Join(workspaceA, "unselected", "npm")
+	if err := os.MkdirAll(unselectedTarget, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(unselectedTarget, filepath.Join(accountHome, ".unselected")); err != nil {
+		t.Fatal(err)
+	}
+	sandboxEnv := jsonx.NewOrderedMap()
+	sandboxEnv.Set("NPM_CONFIG_PREFIX", filepath.Join(accountHome, ".unselected", "npm"))
+	decision := programReadinessStageFor(packRoot, accountHome, workspaceB,
+		paths.WorkspaceHomeState(workspaceB), "/usr/bin:/bin", config.MergeMiseTools(jsonx.NewOrderedMap()), sandboxEnv)
+	if !decision.Needed() || decision.Unknown == "" {
+		t.Fatalf("an account-home symlink outside the established incoming layout was treated as known: %+v", decision)
+	}
+}
+
+func TestBuildPlanDoesNotAdmitProgramReadinessWhenTheExistingOffSwitchIsSet(t *testing.T) {
+	deps := mockDeps(nil)
+	deps.Getenv = func(key string) string {
+		if key == paths.NoProgramReadinessEnv {
+			return "1"
+		}
+		return ""
+	}
+	deps.NodeFloorMet = func(string, string, string) bool { return true }
+	opts := newOpts("/Users/Shared/yolo/proj")
+	opts.HostPackRoot = readinessPackRoot(t)
+	plan := buildPlan(deps, opts, mockDarwin())
+	if len(plan.ProvisionArgv) != 0 {
+		t.Fatalf("the existing readiness off-switch did not preserve test isolation; stage argv: %v", plan.ProvisionArgv)
+	}
+	if !containsArg(plan.BootstrapArgv, paths.NoProgramReadinessEnv+"=1") {
+		t.Fatalf("the off-switch did not cross into the Darwin bootstrap's env -i contract: %v", plan.BootstrapArgv)
+	}
+}
+
+func TestPrintPlanDoesNotClaimProgramsPresentWhenReadinessIsDisabled(t *testing.T) {
+	deps := mockDeps(nil)
+	deps.Getenv = func(key string) string {
+		if key == paths.NoProgramReadinessEnv {
+			return "1"
+		}
+		return ""
+	}
+	deps.NodeFloorMet = func(string, string, string) bool { return true }
+	opts := newOpts("/Users/Shared/yolo/proj")
+	opts.HostPackRoot = readinessPackRoot(t)
+	plan := buildPlan(deps, opts, mockDarwin())
+	var out strings.Builder
+	PrintPlan(&out, plan, nil)
+	if strings.Contains(out.String(), "every selected program is present") {
+		t.Fatalf("dry-run claims the absent selected program is present despite the off-switch:\\n%s", out.String())
+	}
+	if !strings.Contains(out.String(), paths.NoProgramReadinessEnv) {
+		t.Fatalf("dry-run does not disclose that program readiness was disabled:\\n%s", out.String())
+	}
+}
+
+func TestProgramReadinessRetainsDisabledDispositionWithoutPackRoot(t *testing.T) {
+	sandboxEnv := jsonx.NewOrderedMap()
+	sandboxEnv.Set(paths.NoProgramReadinessEnv, "1")
+	decision := programReadinessStageFor("", t.TempDir(), t.TempDir(), t.TempDir(), "/usr/bin:/bin",
+		config.MergeMiseTools(jsonx.NewOrderedMap()), sandboxEnv)
+	if !decision.Disabled || decision.Needed() {
+		t.Fatalf("readiness disabled without a staged pack root = %+v, want disabled and no admission", decision)
+	}
+}
+
+func TestReadinessOffSwitchDoesNotSuppressTheExistingMiseStage(t *testing.T) {
+	deps := mockDeps(nil)
+	deps.Getenv = func(key string) string {
+		if key == paths.NoProgramReadinessEnv {
+			return "1"
+		}
+		return ""
+	}
+	deps.NodeFloorMet = func(string, string, string) bool { return true }
+	opts := newOpts("/Users/Shared/yolo/proj")
+	opts.Config = provisionCfg()
+	opts.HostPackRoot = readinessPackRoot(t)
+	plan := buildPlan(deps, opts, mockDarwin())
+	if len(plan.ProvisionArgv) == 0 || !strings.Contains(strings.Join(plan.ProvisionArgv, " "), "mise install") {
+		t.Fatalf("the existing mise provisioning stage was suppressed by the program-readiness switch: %v", plan.ProvisionArgv)
+	}
+	if !containsArg(plan.BootstrapArgv, paths.NoProgramReadinessEnv+"=1") {
+		t.Fatalf("the bootstrap lost the readiness switch while preserving mise work: %v", plan.BootstrapArgv)
+	}
+}
+
+func TestPrintPlanExplainsSkippedNodeFloorWithTheCorrectCondition(t *testing.T) {
+	plan := BuildRunPlanWithStages("/Users/Shared/yolo/proj", jsonx.NewOrderedMap(), nil, nil,
+		"/bin/yolo", "", HomeOverlay{}, HostContext{}, jsonx.NewOrderedMap(), mockDarwin(),
+		nil, JailDaemons{}, FloorStage{}, ProgramReadinessStage{}, PlanSession{})
+	var out strings.Builder
+	PrintPlan(&out, plan, nil)
+	if !strings.Contains(out.String(), "no declared Node floor the host could not show met") {
+		t.Fatalf("the skipped-stage reason reverses the Node-floor condition:\n%s", out.String())
+	}
+}
+
+// A selected program install already present at its declared prefix is no reason by itself to
+// start the stage. The host-side probe uses an isolated fixture home, never the real sandbox home.
+func TestProgramReadinessStageSkipsAProgramTheHostProvesPresent(t *testing.T) {
+	home := t.TempDir()
+	workspace := t.TempDir()
+	physicalHome := filepath.Join(workspace, ".yolo", "home")
+	bin := filepath.Join(physicalHome, "npm-global", "bin", "readyfixture-bin")
+	if err := os.MkdirAll(filepath.Dir(bin), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(bin, []byte("#!/bin/sh\\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	root := readinessPackRoot(t)
+	mise := config.MergeMiseTools(jsonx.NewOrderedMap())
+	decision := programReadinessStageFor(root, home, workspace, physicalHome, "/usr/bin:/bin",
+		mise, jsonx.NewOrderedMap())
+	if decision.Needed() {
+		t.Errorf("a host-proven program was reported missing: %+v", decision)
+	}
+}
+
+func TestMissingProgramsBypassReachesTheBootstrap(t *testing.T) {
+	deps := mockDeps(nil)
+	deps.Getenv = func(name string) string {
+		if name == paths.AllowMissingProgramsEnv {
+			return "1"
+		}
+		return ""
+	}
+	plan := buildPlan(deps, newOpts("/Users/Shared/yolo/proj"), mockDarwin())
+	if !strings.Contains(strings.Join(plan.BootstrapArgv, " "), paths.AllowMissingProgramsEnv+"=1") {
+		t.Fatalf("the host's existing missing-programs bypass did not reach readiness in the bootstrap:\n%v",
+			plan.BootstrapArgv)
+	}
 }
 
 // AR-L3 (docs/reference/agent-program-runtimes.md): with no `mise_tools`, a Node floor a selected

@@ -1,7 +1,6 @@
 ---
 status: current
-verified: 2026-09-21
-verified_commit: 753bcb88
+verified: 2026-10-06
 covers:
   - flake.nix
   - internal/darwinpkg/floor.go
@@ -17,6 +16,9 @@ covers:
   - internal/macosuser/sessionfiles.go
   - internal/macosuser/cabundle.go
   - internal/entrypoint/darwinstage.go
+  - internal/entrypoint/readiness.go
+  - internal/entrypoint/readiness_test.go
+  - integration/macosuserprogramreadiness_test.go
   - internal/entrypoint/darwin.go
   - internal/entrypoint/darwinhomelayout.go
   - internal/entrypoint/shell.go
@@ -25,12 +27,12 @@ covers:
   - internal/cli/run/loopholeinert.go
   - .github/workflows/macos-user.yml
 tags: [macos-user, provisioning, packages, mise, floor, stage, backend-parity]
-summary: "macos-user provisions itself the way a container jail does, by two mechanisms it had neither of until 2026-09-12: a native darwin FLOOR (every nixpkgs name the image bakes, minus an explicit exclusion list, fatal on a hole) and a Seatbelt-confined provisioning STAGE run as a privileged step between the bootstrap and the agent. This is what each delivers, where the stage's state lands, which claims a hardware session and the nightly CI job have measured, and the one cost nobody has recorded."
+summary: "macos-user provisions itself with a native nix floor and a Seatbelt-confined stage. The stage now also runs the declared-program readiness act when the host cannot prove a selected program present, using the same generated bootstrap and install-only launcher as container jails. This authority records what each path delivers, the current fixture tests and the native Mac verification still pending."
 ---
 
 # macos-user provisions itself — a native floor, then a confined stage
 
-**Status:** CURRENT as of 2026-09-21, verified against `753bcb88`. The `lsp_servers` passages
+**Status:** CURRENT as of 2026-10-06; source and fixture tests checked, native execution pending. The `lsp_servers` passages
 were updated on 2026-09-25 for the deletion of the LSP install recipes
 ([`mcp-configuration.md`](mcp-configuration.md#binaries-are-the-users)): yolo installs no
 language server on any backend now, so that key no longer starts, feeds or is checked by the
@@ -40,7 +42,7 @@ updated on 2026-09-30 for [AR-L3](agent-program-runtimes.md#ar-l3),
 [PS-D1](../design/provisioner-sets.md#PS-D1), read from code and unit tests only. The per-session
 file names, the liveness record and the CA files were added on 2026-10-04
 ([`<session>`](#the-session-key), [PS-D10](../design/provisioner-sets.md#PS-D10)), read from code and
-unit tests only.
+unit tests only. Program readiness joined the same stage on 2026-10-06 ([JR-D2](../design/jail-notch-readiness.md#JR-D2)); permanent fixture-based tests run in the macOS CI job, but a green native run and manual hardware verification are still pending.
 
 A container jail gets its tools from two places: an image **floor** that exists before any
 config asks for anything, and an imperative **stage** that runs inside the jail before the
@@ -309,13 +311,7 @@ decisions with stated reasons:
 | announce + the generated bootstrap script | ✅ | ✅ | by **absolute path**, not `~/.yolo-bootstrap.sh` — see below. It runs **whether or not the steps above it succeeded** (`provision.Stage`, [AR-L4](agent-program-runtimes.md#ar-l4)), so a failed `mise install` cannot skip a Node floor's check; the stage's status is the bootstrap's refusal when it refused, and otherwise the first failure |
 | `~/.yolo-venv-precreate.sh` | ✅ | ❌ | its body tests `/workspace/mise.toml` and shells out to `/bin/python3`, so on a Mac it would find neither and exit 0 on every launch — a step that reports success having never run. Nothing generates it here either. **A Mac workspace configuring `_.python.venv` gets no pre-created venv.** |
 
-**The skip rule** (`ProvisionNeeded`): the stage runs when `mise_tools` is non-empty, or when a
-selected pack declares a Node floor the host cannot show met
-([AR-L3](agent-program-runtimes.md#ar-l3)), so a bare `yolo -- bash` in a workspace that
-declares no tools pays nothing — no extra privileged step, no sudo, no `mise install` against an
-empty config. `lsp_servers` counted too until the LSP install recipes were deleted; it only
-renders config now, so a stage started for it would do nothing. The plan carries no stage argv
-at all in that case, and every invariant is written to say nothing about an empty one.
+**The skip rule** (`ProvisionNeeded` plus JR-D2's program admission): the stage runs when `mise_tools` is non-empty, a selected pack declares a Node floor the host cannot show met ([AR-L3](agent-program-runtimes.md#ar-l3)), or the host cannot prove every selected launcher-backed program is executable in its install prefix. A proven hit costs no stage; a missing or unknown answer starts it. This keeps a bare `yolo -- bash` with no other declared work free of the extra privileged step, and `lsp_servers` still does not start the stage.
 
 **A declared floor is asked on the host, before the sandbox exists** (`floorStageFor`, in
 `buildPlan`). This backend has no mount namespace, so the package floor's nodes the sandbox's
@@ -325,6 +321,14 @@ the bootstrap renders from. The rule fails toward the stage: no readable candida
 cannot read, or a tree it cannot read starts the stage, whose bootstrap asks the full resolution
 again and installs or refuses. The dry run shows the stage with the floor it runs for, and since
 a dry run materializes no floor, it shows it for any declared floor.
+
+The same fail-toward-stage rule applies to programs: `entrypoint.MissingProgramReadiness` reads
+the selected staged packs and checks each launcher's real install bin (`~/.npm-global/bin` for
+npm, `~/.local/bin` for installer/source). An unreadable pack tree is unknown and starts the
+stage; the host skips only when it can show the selected program executable. The stage uses its
+existing `env -i`/Seatbelt argv and generated bootstrap, which invokes each program's own
+install-only launcher. The refusal and `YOLO_ALLOW_MISSING_PROGRAMS=1` bypass therefore remain on
+the shared readiness path, not a second installer.
 
 **`mcp_presets` is deliberately not in the skip rule.** The preset *wrappers* are not generated
 on this backend — their bodies are Linux-absolute, and `RunDarwinBootstrap` warns and says so —
@@ -534,8 +538,8 @@ tier otherwise.
 | `mise_tools` | installed by the stage | **installed**: the floor puts `mise` on the sandbox PATH, `MISE_DATA_DIR` names a real machine-wide store, and the stage runs `mise install` | no warning — the gap is closed |
 | `lsp_servers` | config rendered, nothing installed — the binary is the user's | the same: config rendered, nothing installed, no stage started for it | no warning — the property is every backend's, not a gap of this one |
 | `mcp_presets` | npm-installed by the stage | wrappers not generated, packages not installed | warns — **from inside the bootstrap** (`RunDarwinBootstrap`), so `--dry-run` never shows it |
-| agent CLIs, `via: installer` | the launcher execs the vendor installer | **works** — `curl` and `bash` are at `/usr/bin` | n/a — nothing to tell |
-| agent CLIs, `via: npm` | the launcher execs `npm install -g` | the floor supplies node and npm, so the launcher can run — **not measured on hardware**; the nightly's `install` job, built 2026-10-05, runs it ([OQ-CI7](agent-install-in-ci.md#OQ-CI7)), and a case exists, `TestMacosUserPinnedNpmProgramInstallsUnderItsNodeFloor`, with no green run recorded | `GenerateAgentLaunchers` has no *generation*-time precondition, so nothing warns at launch; a failure lands on the user's first real command |
+| agent CLIs, `via: installer` | the launcher execs the vendor installer | a missing selected program admits the stage and runs its own launcher install-only before the target; `curl` and `bash` remain at `/usr/bin` | fixture-based readiness tests are in macOS CI; native result pending |
+| agent CLIs, `via: npm` | the launcher execs `npm install -g` | on a missing declared program, the host admits the stage and the generated bootstrap invokes its launcher in install-only mode before the target; the Node floor remains provided by the native floor | fixture-based refusal, bypass, cold install and warm-hit tests are in `integration/macosuserprogramreadiness_test.go`; native execution is pending the macOS CI run |
 | `packages:` | baked into the image | realized natively, and now composed with the floor | works |
 
 `rg -n '"via": "(installer|npm)"' packs/*/pack.json` is the split; do not write the membership
@@ -625,8 +629,8 @@ Recorded per item in
   also passes on a launch where the layout never ran.
 - **The forwarding fix**, measured both ways in one launch each (the table above).
 
-**The nightly CI job** — [`macos-user.yml`](../../.github/workflows/macos-user.yml), 07:00 UTC
-on `macos-latest`, running the gated `^TestMacosUser` suite. It needs no jail image, which is
+**The nightly CI job** — [`.github/workflows/macos-user.yml`](../../.github/workflows/macos-user.yml), 07:00 UTC
+on `macos-latest`, running the gated `^TestMacosUser` suite, including the fixture-only readiness launch and refusal/bypass tests in `integration/macosuserprogramreadiness_test.go`. It needs no jail image, which is
 the point: a macos-user launch returns before `runContainer` and never loads one, so none of
 the chain that blocks the container macOS nightly reaches it. It has run nightly since
 2026-09-13. Six of the runbook's ten items have twins there; the stage's own twin is
@@ -645,11 +649,11 @@ it was scheduled to do.
 
 **What no instrument covers:**
 
-- **The `via: npm` agent launchers on this backend, until the `install` job's first run.** The
-  floor supplies node and npm, so the loud-but-late `npm: command not found` should be gone.
-  Nothing has run it yet; the nightly's `install` job, built 2026-10-05, is the instrument, and
-  this item moves out of the list once a run of it has reported. A case exists,
-  `TestMacosUserPinnedNpmProgramInstallsUnderItsNodeFloor`, with no green run recorded.
+- **Native program readiness execution remains pending.** Fixture-based admission, cold install,
+  warm hit, refusal and bypass tests live in `integration/macosuserprogramreadiness_test.go`;
+  the existing `.github/workflows/macos-user.yml` `^TestMacosUser` job selects them. These tests
+  do not start an agent or contact a registry/API. No Mac CI result or manual hardware verification
+  is claimed here yet.
 - **Whether a real `sandbox-exec` rejection takes the continue branch.** The fault injection
   the runbook prescribes (`chmod 000 /usr/bin/sandbox-exec`) is a global, SIP-adjacent mutation
   no test should make, and the stage argv names `/usr/bin/sandbox-exec` absolutely so no PATH
@@ -747,7 +751,7 @@ $ nix eval --json '.#yoloNoncontainerFloorNames.aarch64-darwin'
 | Floor + declared profile attr | `yoloNoncontainerProfile` — what every macos-user launch builds | `internal/darwinpkg/darwinpkg.go` (`FloorProfileAttr`), `materialize.go` (`Materialize`) |
 | Floor profile GC root | `ProfileRootLink(home)`, the build's own `--out-link` | `internal/darwinpkg/gcroot.go` |
 | Stage step set | four of six: announce + `mise install`, announce + the generated script | `internal/macosuser/provision.go` (`ProvisionSetup`); the six in `internal/provision/provision.go` |
-| Stage skip rule | `mise_tools` non-empty | `internal/macosuser/provision.go` (`ProvisionNeeded`) |
+| Stage skip rule | `mise_tools` non-empty, a declared Node floor the host cannot show met, or a selected launcher-backed program absent/unknown to the host | `internal/macosuser` (`ProvisionNeeded`, `programReadinessStageFor`) and `internal/entrypoint` (`MissingProgramReadiness`) |
 | Provisioning log | `<workspace>/.yolo/startup.log` | `internal/provision/provision.go` (`StartupLog`) |
 | Failure marker | `PROVISIONING FAILED` | `internal/provision/provision.go` (`FailedMarker`) |
 | Generated bootstrap script | `<workspace>/.yolo/home/yolo-bootstrap.sh` | `internal/entrypoint/darwinstage.go` (`DarwinBootstrapScriptPath`); `macosuser.ProvisionBootstrapScript` |

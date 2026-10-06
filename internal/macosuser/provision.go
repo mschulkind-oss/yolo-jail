@@ -218,6 +218,20 @@ func ProvisionNeeded(cfg *jsonx.OrderedMap, floors FloorStage) bool {
 	return mise != nil && mise.Len() > 0
 }
 
+// ProgramReadinessStage is the host's answer to whether selected launcher-backed programs
+// are already present in the sandbox account's install prefixes. Missing and Unknown both
+// start the confined stage; only a positive proof of every program being present skips it.
+// Disabled records that the host deliberately made no presence check, so a plan cannot present
+// an empty result as proof that every selected program is installed.
+type ProgramReadinessStage struct {
+	Missing  []string
+	Unknown  string
+	Disabled bool
+}
+
+// Needed reports whether the host needs the stage to establish program readiness.
+func (p ProgramReadinessStage) Needed() bool { return len(p.Missing) > 0 || p.Unknown != "" }
+
 // FloorStage is the host's answer to AR-L3's question, "does a declared Node floor start the
 // stage?", composed by the orchestrator (floorStageFor) and handed to the pure plan builder.
 // The zero value starts nothing: no floor declared, or every declared floor shown met.
