@@ -46,14 +46,14 @@ const treeCheckSlots = 8
 
 // buildSlots is how many build jails a pool runs at once on runtime: min(4, max(1, CPUs/2)), 4 being
 // pi's own GIT_UPDATE_CONCURRENCY, and 1 where a capture jail cannot start beside a running one.
+// It is run.SlotBuildJails' rule on poolCPUs, and the bound of every pool this package makes: a host
+// act's (newAdvancePool) and a launch's whose request names none (newBuildPool).
 func buildSlots(runtime string) int {
-	if !run.BuildJailsSideBySide(runtime) {
-		return 1
-	}
-	return min(4, max(1, poolCPUs()/2))
+	return run.SlotBuildJailsOn(runtime, poolCPUs())
 }
 
-// poolCPUs is this host's CPU count: a var so a test can stand a machine in.
+// poolCPUs is this host's CPU count: a var so a test can stand a machine in, since a pool's bound is
+// one build on a machine of fewer than four CPUs (a 3-CPU CI runner among them).
 var poolCPUs = goruntime.NumCPU
 
 // advancePool bounds a pool's concurrent checks and builds. A nil pool bounds nothing.

@@ -46,6 +46,7 @@ type poolFixture struct {
 
 func newPoolFixture(t *testing.T) *poolFixture {
 	t.Helper()
+	standInCPUs(t, 8)
 	pf := &poolFixture{treeFixture: newTreeFixture(t, "")}
 	dir := filepath.Join(pf.packs, "treepool")
 	writeFile(t, filepath.Join(dir, "pack.json"), `{"name":"treepool","contributes":[`+
@@ -110,6 +111,29 @@ func (pf *poolFixture) launch(t *testing.T, runtime string, act *run.ActInterrup
 	return got, out.String()
 }
 
+// standInCPUs stands a machine of n CPUs in for the pools' build bound (poolCPUs) for the test's life.
+// A test that needs builds at once must, since the bound is the runner's: one build on a machine of
+// fewer than four CPUs, which GitHub's 3-CPU macOS runners are.
+func standInCPUs(t *testing.T, n int) {
+	t.Helper()
+	prev := poolCPUs
+	poolCPUs = func() int { return n }
+	t.Cleanup(func() { poolCPUs = prev })
+}
+
+// arrivedWithin waits for every party of wg, or for d, and reports whether they all arrived: a
+// build waiting for another that the pool never starts fails with a message rather than hanging.
+func arrivedWithin(wg *sync.WaitGroup, d time.Duration) bool {
+	done := make(chan struct{})
+	go func() { wg.Wait(); close(done) }()
+	select {
+	case <-done:
+		return true
+	case <-time.After(d):
+		return false
+	}
+}
+
 // bothRunning blocks a build until both are in their builds at once, or fails after a bound: the
 // proof that the two keys' builds overlap.
 func (pf *poolFixture) bothRunning(t *testing.T) func(context.Context, forkBuild) int {
@@ -117,11 +141,7 @@ func (pf *poolFixture) bothRunning(t *testing.T) func(context.Context, forkBuild
 	arrived.Add(2)
 	return func(ctx context.Context, _ forkBuild) int {
 		arrived.Done()
-		done := make(chan struct{})
-		go func() { arrived.Wait(); close(done) }()
-		select {
-		case <-done:
-		case <-time.After(20 * time.Second):
+		if !arrivedWithin(&arrived, 20*time.Second) {
 			t.Error("the second build never started while the first ran: the builds ran one after another")
 		}
 		return 0
@@ -181,7 +201,10 @@ func TestOneCtrlCEndsEveryExtensionsBuildInThePool(t *testing.T) {
 	ended := make(chan string, 2)
 	pf.child = func(ctx context.Context, b forkBuild) int {
 		arrived.Done()
-		arrived.Wait()
+		if !arrivedWithin(&arrived, 20*time.Second) {
+			t.Errorf("%s's build waited for the other key's, which never started: the pool ran one build at a time",
+				b.Fork.Key())
+		}
 		once.Do(func() { _ = syscall.Kill(os.Getpid(), syscall.SIGINT) })
 		select {
 		case <-ctx.Done():

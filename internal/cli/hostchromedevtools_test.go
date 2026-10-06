@@ -194,6 +194,13 @@ func TestAFetchedPacksMCPEntryIsNamedAndLeftOutAtTheHost(t *testing.T) {
 // the chrome-devtools pack, with the test floor and floorcli published. extra joins the config.
 func agentWithChromeFixture(t *testing.T, extra string) *floortest.Dist {
 	t.Helper()
+	return agentWithChromeFixtureOn(t, extra, floortest.NewDist)
+}
+
+// agentWithChromeFixtureOn is agentWithChromeFixture with the floor on the platform newDist's
+// distribution serves (floortest.NewDistOn), whatever machine runs the test.
+func agentWithChromeFixtureOn(t *testing.T, extra string, newDist func(*testing.T) *floortest.Dist) *floortest.Dist {
+	t.Helper()
 	home := floortest.ResolvedTemp(t)
 	t.Setenv("HOME", home)
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
@@ -207,7 +214,7 @@ func agentWithChromeFixture(t *testing.T, extra string) *floortest.Dist {
 	orig := prepareOpenAIAuthHost
 	prepareOpenAIAuthHost = func(hostPrelaunch, io.Writer) (managedOpenAIHostLaunch, error) { return nil, nil }
 	t.Cleanup(func() { prepareOpenAIAuthHost = orig })
-	dist := withTestFloor(t)
+	dist := withTestFloorOn(t, newDist(t))
 	dist.Publish("floorcli-pkg", "1.0.0", "bin=floorcli")
 	return dist
 }
@@ -229,18 +236,33 @@ func TestAHostAgentLaunchInstallsTheProgramItsMCPServerRuns(t *testing.T) {
 }
 
 // A failed install, and a program the floor may not hold, each cost the server and never the
-// agent, and each says so with its next step.
+// agent, and each says so with its next step — on a Linux floor and on a Mac's, whatever machine runs
+// the test, since the no-copy line names the floor's machine as its platform does (noCopyWhere).
 func TestAHostAgentLaunchSaysWhenItsMCPServersProgramCannotBeInstalled(t *testing.T) {
+	t.Run("linux", func(t *testing.T) {
+		testMCPProgramCannotBeInstalledOn(t, floortest.NewLinuxDist, "machine")
+	})
+	t.Run("darwin", func(t *testing.T) {
+		testMCPProgramCannotBeInstalledOn(t, func(t *testing.T) *floortest.Dist {
+			return floortest.NewDistOn(t, "darwin", "arm64")
+		}, "Mac")
+	})
+}
+
+func testMCPProgramCannotBeInstalledOn(t *testing.T, newDist func(*testing.T) *floortest.Dist, machine string) {
 	for _, tc := range []struct {
 		name, extra, want string
 	}{
 		{"install fails", "", "could not install chrome-devtools-mcp, which MCP server chrome-devtools runs, " +
 			"into yolo's floor"},
 		{"floor leaves it out", `,"host_floor":{"chrome-devtools":false}`,
-			"yolo has no copy of chrome-devtools-mcp on this machine"},
+			"yolo has no copy of chrome-devtools-mcp on this {machine} (the user config's `host_floor` leaves pack " +
+				"chrome-devtools out of the floor), which MCP server chrome-devtools runs; the server looks for " +
+				"it on the agent's PATH"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			dist := agentWithChromeFixture(t, tc.extra)
+			dist := agentWithChromeFixtureOn(t, tc.extra, newDist)
+			tc.want = strings.ReplaceAll(tc.want, "{machine}", machine)
 			dist.Publish("chrome-devtools-mcp", "1.2.3", "bin=chrome-devtools-mcp", "fail=1")
 			got := captureHostExec(t)
 			var errw bytes.Buffer

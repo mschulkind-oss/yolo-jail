@@ -186,7 +186,13 @@ func hostApplyGate(errw io.Writer, stdin io.Reader, bin string) bool {
 	// mode for a shipping command that §7 asks this design not to touch.
 	defer lock.Close()
 
-	survey, why := surveyHostApplyWithinBudget()
+	// THE TREES THIS LAUNCH CHECKED AND BUILT (hostLaunch's advanceHostTrees, before this gate):
+	// whatever the observe pass below concludes, a branch that renders nothing still links them
+	// (linkHostLaunchTrees, PPX-D44), because the stop after this gate looks for them.
+	treeBin := filepath.Base(bin)
+	launchTrees := launchHasHostTrees(treeBin)
+
+	survey, why := surveyHostApplyWithinBudget(launchTrees, treeBin)
 	// AN INCOMPLETE PACK SET RENDERS NOTHING (no half states — the same rule `yolo host apply
 	// --assert` refuses by). Checked before cannot-determine, because the observe pass DID
 	// answer: it named the packs it could not resolve, and that is the loud line the user needs.
@@ -217,8 +223,19 @@ func hostApplyGate(errw io.Writer, stdin io.Reader, bin string) bool {
 		// The predicate has no answer, so there is no change to refuse over — exec, with at
 		// most one line. Per internal/version's srcskew house rule, a gate that cannot prove
 		// its condition does not fire.
-		fmt.Fprintf(errw, "yolo host: could not check whether your host render is up to date "+
-			"(%s) — launching %s anyway.\n", why, bin)
+		//
+		// THE PATCHED EXTENSIONS THIS PROGRAM LOADS ARE LINKED FIRST (PPX-D44): the check and the
+		// build before this gate made them for this launch, and the stop after it refuses without
+		// them, so an overrun here would otherwise turn a build that succeeded into a refusal — the
+		// maintainer's first `yolo host -- pi` with a patched extension did exactly that. So the line
+		// below is about the REST of the render.
+		linkHostLaunchTrees(errw, treeBin, home)
+		what := "your host render"
+		if launchTrees {
+			what = "the rest of your host render"
+		}
+		fmt.Fprintf(errw, "yolo host: could not check whether %s is up to date "+
+			"(%s) — launching %s anyway.\n", what, why, bin)
 		return true
 	}
 	// WHAT CANNOT BE WRITTEN, split by whether this program reads it ([OQ-HS17]). The observe
@@ -255,7 +272,11 @@ func hostApplyGate(errw io.Writer, stdin io.Reader, bin string) bool {
 	// Ahead of the first-apply MCP branch below on purpose: that branch runs a VISIBLE apply,
 	// and a visible apply would still put these questions — including an install offer for a
 	// program this launch is not — between the user and the program they asked for.
+	//
+	// The patched extensions this program loads are linked even so (PPX-D44): a link asks nothing,
+	// takes no path the user owns, and is the delivery of what this launch built.
 	if decisions := survey.PendingDecisions(); len(decisions) > 0 && !surveyOnlyNeedsLossPrompt(survey) {
+		linkHostLaunchTrees(errw, treeBin, home)
 		reportHostApplyGateDecisions(errw, bin, decisions)
 		reportGateMisses(errw, survey, bin)
 		return true
@@ -535,7 +556,12 @@ func reportHostApplyGateSynchronized(errw io.Writer, home string, survey *hostAp
 // The goroutine is abandoned on expiry rather than cancelled, because the pass is synchronous
 // filesystem work with no cancellation point. It writes only to its own buffer and only in
 // observe posture, so an abandoned one cannot touch the home; the exec that follows ends it.
-func surveyHostApplyWithinBudget() (*hostApplySurvey, string) {
+//
+// THE BUDGET TIMES THE OBSERVE PASS ALONE. The patched extensions' check and build for bin run
+// before it (hostLaunch), so a build of any length is never charged to it; when bin loads one
+// (afterTrees), the overrun's reason says so, since the line follows the build's own lines and
+// would otherwise read as the build having spent the second.
+func surveyHostApplyWithinBudget(afterTrees bool, bin string) (*hostApplySurvey, string) {
 	type outcome struct {
 		survey *hostApplySurvey
 		rc     int
@@ -557,6 +583,10 @@ func surveyHostApplyWithinBudget() (*hostApplySurvey, string) {
 		// caller reports by name rather than as cannot-determine.
 		return got.survey, ""
 	case <-time.After(hostApplyGateBudget):
+		if afterTrees {
+			return nil, fmt.Sprintf("the check did not finish within %s; it starts once %s's patched "+
+				"extensions are checked and built", hostApplyGateBudget, bin)
+		}
 		return nil, fmt.Sprintf("the check did not finish within %s", hostApplyGateBudget)
 	}
 }

@@ -37,19 +37,25 @@ func TestNoEndpointMsg(t *testing.T) {
 	}
 }
 
+// TestOpenPty: openPty gives a PTY on the two platforms this client runs on, a container jail
+// (pty_linux.go, /dev/pts/N) and the macos-user guest (pty_darwin.go, /dev/ttysNNN), and refuses
+// on every other (pty_other.go). pty_darwin_test.go also carries bytes across the darwin pair.
 func TestOpenPty(t *testing.T) {
+	slavePrefix := map[string]string{"linux": "/dev/pts/", "darwin": "/dev/ttys"}
 	master, slavePath, err := openPty()
-	if runtime.GOOS != "linux" {
+	want, supported := slavePrefix[runtime.GOOS]
+	if !supported {
 		if err == nil {
-			t.Errorf("openPty on non-linux succeeded, want error")
+			master.Close()
+			t.Errorf("openPty on %s succeeded, want the unsupported-platform error", runtime.GOOS)
 		}
 		return
 	}
 	if err != nil {
-		t.Fatalf("openPty failed: %v", err)
+		t.Fatalf("openPty failed on %s: %v", runtime.GOOS, err)
 	}
 	defer master.Close()
-	if !strings.HasPrefix(slavePath, "/dev/pts/") {
-		t.Errorf("slavePath = %q, want /dev/pts/...", slavePath)
+	if !strings.HasPrefix(slavePath, want) {
+		t.Errorf("slavePath = %q, want %s...", slavePath, want)
 	}
 }

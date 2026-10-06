@@ -128,12 +128,7 @@ func hostTreeGate(errw io.Writer, bin, home string) bool {
 		return true
 	}
 	ok := true
-	for _, f := range packload.PatchedTrees(sel.packs) {
-		// A FALLBACK never stops the agent (XB-D7): with no tree here, its raw entry is what the
-		// render put in the agent's list, and the agent installs it itself.
-		if !f.ListedAtHost || !ownerRuns(sel.packs, f, bin) || f.Fallback != "" {
-			continue
-		}
+	for _, f := range hostLaunchTrees(sel.packs, bin) {
 		dest := filepath.Join(home, filepath.FromSlash(strings.TrimSuffix(f.Into, "/")))
 		if isDir(dest) {
 			continue
@@ -153,6 +148,79 @@ func hostTreeGate(errw io.Writer, bin, home string) bool {
 			"to run %s without it.\n", bin, bin)
 	}
 	return ok
+}
+
+// hostLaunchTrees is every patched extension `yolo host -- <bin>` stops without: those whose owning
+// agent pack runs bin and whose list entry reaches the host. A FALLBACK never stops the agent
+// (XB-D7): with no tree here, its raw entry is what the render put in the agent's list, and the
+// agent installs it itself. The one definition the stop (hostTreeGate) and the launch's link
+// (linkHostLaunchTrees) both read, so the launch links exactly what the stop looks for.
+func hostLaunchTrees(packs []*packload.Pack, bin string) []packload.Fork {
+	var out []packload.Fork
+	for _, f := range packload.PatchedTrees(packs) {
+		if f.ListedAtHost && ownerRuns(packs, f, bin) && f.Fallback == "" {
+			out = append(out, f)
+		}
+	}
+	return out
+}
+
+// launchHasHostTrees reports whether `yolo host -- <bin>` loads a patched extension at this host,
+// which its check and advance ran for before the render gate (advanceHostTrees).
+func launchHasHostTrees(bin string) bool {
+	if !hostTreesBuild() {
+		return false
+	}
+	sel := selectConfiguredHostPacks()
+	return sel.loadErr == nil && len(hostLaunchTrees(sel.packs, bin)) > 0
+}
+
+// linkHostLaunchTrees is PPX-D44: the launch's own render of the trees `yolo host -- <bin>` stops
+// without (hostLaunchTrees), each linked to the good build that serves it, for a render gate that
+// renders nothing else — its observe pass did not finish within its budget, or it named a decision
+// the launch cannot ask. The check and advance before the gate built or moved these trees for this
+// very launch, so their link is the delivery of that build, not a freshness check the gate may
+// decline.
+//
+// It is renderHostTree's acting posture, so it takes nothing the render would not: a path the files
+// ownership record does not name as the tree's pack's is left untouched, and a tree with no build
+// that serves is left for the stop to name. A record that cannot be read proves nothing is yolo's,
+// so nothing is linked and the stop names `yolo host apply --assert`, which reports the record.
+// The caller holds the host apply lock. One line per link written goes to errw.
+func linkHostLaunchTrees(errw io.Writer, bin, home string) {
+	if !hostTreesBuild() || config.HostManagementMode() == config.HostManagementNone {
+		return
+	}
+	sel := selectConfiguredHostPacks()
+	if sel.loadErr != nil {
+		return
+	}
+	trees := hostLaunchTrees(sel.packs, bin)
+	if len(trees) == 0 {
+		return
+	}
+	manPath := hostSkillsManifestPath()
+	man, err := hostskills.LoadManifest(manPath)
+	if err != nil {
+		return
+	}
+	wrote := false
+	for _, f := range trees {
+		res := renderHostTree(f, home, man, false)
+		if !res.WouldChange {
+			continue
+		}
+		wrote = true
+		fmt.Fprintf(errw, "yolo host: linked %s to the build of %s that %s loads\n", prettyHomePath(home, res.Path),
+			f.Label(), bin)
+	}
+	if wrote {
+		if err := man.Save(manPath); err != nil {
+			fmt.Fprintf(errw, "yolo host: could not save the files ownership record %s (%v) — the next "+
+				"`yolo host apply --assert` treats the link as yours and leaves it alone; remove it and apply "+
+				"again to have yolo own it\n", manPath, err)
+		}
+	}
 }
 
 // hostTreeFallbacks is packs with every UNMODIFIED EXTENSION's fallback taken that the host renders

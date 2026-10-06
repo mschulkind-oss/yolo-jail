@@ -128,6 +128,7 @@ func forkLaunchRequest(act *run.ActInterrupt) run.ForkBuildRequest {
 // user's one Ctrl-C once n builds are running at once, so a test can see one Ctrl-C end them all.
 func ctrlCOnceAllBuild(t *testing.T, n int) *int {
 	t.Helper()
+	standInCPUs(t, 2*n) // n builds at once, whatever the runner's CPU count
 	var mu sync.Mutex
 	calls := 0
 	prev := forkBuildChild

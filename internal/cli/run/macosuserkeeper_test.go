@@ -381,13 +381,20 @@ func TestTwoMacosUserSessionsOfOneWorkspaceShareOneKeeper(t *testing.T) {
 // plantDeadKeeper leaves key in the state a SIGKILLed keeper does: its roster, naming a host-services
 // dir it made, a free liveness lock, and one session still running, which this test holds (its count
 // and its record). It returns the dir and the session's two holds.
-func plantDeadKeeper(t *testing.T, ws, key string) (dir string, count *sessionLock, record *os.File) {
+//
+// The dir is made under paths.HostServicesBase(isMacOS), where a keeper of options with that IsMacOS
+// makes its own and where their reap (reapKeyRecords) looks for it, so isMacOS is the IsMacOS of the
+// options the test drives: dispatchOptions' false for a Run, paths.IsMacOS for StopMacosUser, whose
+// options are NewDefaultOptions'. On darwin the two bases differ, HostServicesBase(true) resolving
+// /tmp's symlink to /private/tmp, and a dir planted under the other one is one the reap never matches.
+func plantDeadKeeper(t *testing.T, ws, key string, isMacOS bool) (dir string, count *sessionLock, record *os.File) {
 	t.Helper()
 	cname := yoloruntime.FromWorkspace(ws)
-	if err := os.MkdirAll(paths.HostServicesBase(false), 0o755); err != nil {
+	base := paths.HostServicesBase(isMacOS)
+	if err := os.MkdirAll(base, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	dir, err := os.MkdirTemp(paths.HostServicesBase(false), paths.HostServicesSessionPrefix(cname))
+	dir, err := os.MkdirTemp(base, paths.HostServicesSessionPrefix(cname))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -420,7 +427,7 @@ func TestAnArrivalAtAMacosUserKeyWhoseKeeperDiedIsRefused(t *testing.T) {
 	writeUserConfigJSON(t, home, `{"packs": []}`)
 	ws := t.TempDir()
 	key := macosUserKeyOf(ws)
-	dir, count, record := plantDeadKeeper(t, ws, key)
+	dir, count, record := plantDeadKeeper(t, ws, key, false)
 	spawns := countKeeperSpawns(t)
 	reached := false
 	o, out := keeperLaunch(t, ws, func(*jsonx.OrderedMap) int { reached = true; return 0 })
@@ -735,7 +742,7 @@ func TestYoloStopReapsAnUnkeptMacosUserKey(t *testing.T) {
 	writeUserConfigJSON(t, home, `{"packs": []}`)
 	ws := t.TempDir()
 	key := macosUserKeyOf(ws)
-	dir, count, record := plantDeadKeeper(t, ws, key)
+	dir, count, record := plantDeadKeeper(t, ws, key, paths.IsMacOS)
 	sent := signalsSent(t, map[int]func(syscall.Signal){
 		4248: func(syscall.Signal) {
 			closeKeyedSessionRecord(record)

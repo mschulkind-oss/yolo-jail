@@ -49,6 +49,14 @@ func withHostConfinement(t *testing.T, abi int, err error) {
 	t.Cleanup(func() { hostConfinementABI = orig })
 }
 
+// onCaptureGOOS makes goos the platform `yolo capture` chooses its arm for (captureHostGOOS).
+func onCaptureGOOS(t *testing.T, goos string) {
+	t.Helper()
+	orig := captureHostGOOS
+	captureHostGOOS = goos
+	t.Cleanup(func() { captureHostGOOS = orig })
+}
+
 // macSetup is a Mac as the floor's capture predicate reads it. The zero value is a Mac before
 // `yolo macos-setup`: not root, Seatbelt present, no sandbox account, no terminal, no sudo credentials.
 type macSetup struct {
@@ -270,7 +278,9 @@ func TestALinuxFloorWithNoRuntimeCapturesWhereTheKernelConfinesIt(t *testing.T) 
 // `yolo capture`'S ARM IS CHOSEN AT ITS CALL SITE (captureHostWith): no runtime and a kernel that
 // confines it → the host capture, never the run pipeline, its receipt carrying the host's origin; a
 // runtime on PATH, or one the user selected, → the run pipeline, never the host capture; no runtime
-// and no Landlock → the pipeline's own refusal, after a line naming both ways on.
+// and no Landlock → the pipeline's own refusal, after a line naming both ways on. Those are the LINUX
+// arms, pinned through captureHostGOOS so a Mac runs them too: Landlock is Linux's, and a Mac with
+// no runtime takes the pipeline whatever its kernel answers (the last subtest).
 func TestTheCaptureActChoosesItsArmAtTheCallSite(t *testing.T) {
 	entries := []capture.ManifestEntry{
 		{Path: ".local", Kind: capture.KindDir, Mode: "0755"},
@@ -278,7 +288,8 @@ func TestTheCaptureActChoosesItsArmAtTheCallSite(t *testing.T) {
 		{Path: ".local/bin/probetool", Kind: capture.KindFile, Mode: "0755", Size: 16},
 	}
 	type ran struct{ host, jail int }
-	setup := func(t *testing.T) *ran {
+	setup := func(t *testing.T, goos string) *ran {
+		onCaptureGOOS(t, goos)
 		captureFixtureHome(t, captureFixtureInstaller)
 		noRuntimeHere(t)
 		r := &ran{}
@@ -297,7 +308,7 @@ func TestTheCaptureActChoosesItsArmAtTheCallSite(t *testing.T) {
 		return r
 	}
 	t.Run("no runtime, Landlock", func(t *testing.T) {
-		r := setup(t)
+		r := setup(t, "linux")
 		withHostConfinement(t, 6, nil)
 		var out, errw bytes.Buffer
 		if rc := captureHost([]string{"probetool"}, &out, &errw, false); rc != 0 || r.host != 1 || r.jail != 0 {
@@ -317,7 +328,7 @@ func TestTheCaptureActChoosesItsArmAtTheCallSite(t *testing.T) {
 		}
 	})
 	t.Run("a runtime on PATH", func(t *testing.T) {
-		r := setup(t)
+		r := setup(t, "linux")
 		withHostConfinement(t, 6, nil)
 		stubBins(t, "podman")
 		var out, errw bytes.Buffer
@@ -326,7 +337,7 @@ func TestTheCaptureActChoosesItsArmAtTheCallSite(t *testing.T) {
 		}
 	})
 	t.Run("a runtime selected and missing", func(t *testing.T) {
-		r := setup(t)
+		r := setup(t, "linux")
 		withHostConfinement(t, 6, nil)
 		t.Setenv("YOLO_RUNTIME", "podman")
 		var out, errw bytes.Buffer
@@ -336,7 +347,7 @@ func TestTheCaptureActChoosesItsArmAtTheCallSite(t *testing.T) {
 		}
 	})
 	t.Run("no runtime, no Landlock", func(t *testing.T) {
-		r := setup(t)
+		r := setup(t, "linux")
 		withHostConfinement(t, 0, errors.New("this kernel offers no Landlock (EOPNOTSUPP)"))
 		var out, errw bytes.Buffer
 		captureHost([]string{"probetool"}, &out, &errw, false)
@@ -350,7 +361,20 @@ func TestTheCaptureActChoosesItsArmAtTheCallSite(t *testing.T) {
 			}
 		}
 	})
+	t.Run("a Mac with no runtime", func(t *testing.T) {
+		r := setup(t, "darwin")
+		withHostConfinement(t, 6, nil)
+		var out, errw bytes.Buffer
+		captureHost([]string{"probetool"}, &out, &errw, false)
+		if r.host != 0 || r.jail != 1 {
+			t.Fatalf("host=%d jail=%d, want the pipeline: a Mac has no host capture\n%s", r.host, r.jail, errw.String())
+		}
+		if strings.Contains(out.String()+errw.String(), "Landlock") {
+			t.Errorf("a Mac's capture names Landlock, which it never runs under:\n%s\n%s", out.String(), errw.String())
+		}
+	})
 	t.Run("a fork's program", func(t *testing.T) {
+		onCaptureGOOS(t, "linux")
 		forkBuildHome(t)
 		noRuntimeHere(t)
 		withHostConfinement(t, 6, nil)

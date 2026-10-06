@@ -38,10 +38,16 @@ const SlotChecks = 8
 // GIT_UPDATE_CONCURRENCY; and one on Apple Container, where a capture jail cannot start beside a
 // running jail (INFERRED, program-delivery.md OQ-PD25) and a second build jail is one.
 func SlotBuildJails(rt string) int {
+	return SlotBuildJailsOn(rt, goruntime.NumCPU())
+}
+
+// SlotBuildJailsOn is SlotBuildJails on a machine of cpus CPUs: the one statement of the rule, which
+// a caller that reads its CPU count through a seam of its own (cli's pools) applies to that count.
+func SlotBuildJailsOn(rt string, cpus int) int {
 	if !BuildJailsSideBySide(rt) {
 		return 1
 	}
-	return min(4, max(1, goruntime.NumCPU()/2))
+	return min(4, max(1, cpus/2))
 }
 
 // handedForksMu guards Options.handedForks, which every advance of the slot's pool appends to at

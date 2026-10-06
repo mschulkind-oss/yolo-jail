@@ -285,6 +285,104 @@ func TestAHostLaunchAdvancesItsOwnersTreeBeforeTheGate(t *testing.T) {
 	}
 }
 
+// blockGateSurvey makes the host-render gate's observe pass never answer within a 10 ms budget, as
+// TestHostApplyGateExecsWhenTheBudgetExpires does: blocked outright, so the timeout is the only case
+// the gate can select.
+func blockGateSurvey(t *testing.T) {
+	t.Helper()
+	release := make(chan struct{})
+	prevSurvey, prevBudget := hostApplyGateSurvey, hostApplyGateBudget
+	hostApplyGateSurvey = func(_, _ io.Writer, _, _ bool, _ io.Reader, _ *hostApplySurvey) int {
+		<-release
+		return 0
+	}
+	hostApplyGateBudget = 10 * time.Millisecond
+	t.Cleanup(func() {
+		hostApplyGateSurvey, hostApplyGateBudget = prevSurvey, prevBudget
+		close(release)
+	})
+}
+
+// PPX-D44: A LAUNCH LINKS THE TREE IT BUILT WHEN THE RENDER CHECK OVERRUNS. The maintainer's launch:
+// `yolo host -- tool` builds the tree its pack loads (a build far longer than the gate's budget),
+// the gate's observe pass does not finish within its budget, so no apply renders anything, and the
+// tree must still be linked before the stop looks for it, so tool starts on it. The line naming the
+// overrun says the budget starts after the build. Red if the gate stops linking the launch's trees.
+func TestAHostLaunchLinksTheTreeItBuiltWhenTheRenderCheckOverruns(t *testing.T) {
+	fx := newTreeFixture(t, `"f.txt"`)
+	fx.listTreeForAgent(t)
+	fx.writeHostConfig(t, treeHostOwn+`,"host_apply_on_launch":true`)
+	stubBins(t, "tool")
+	got := captureHostExec(t)
+	prevAdvance := hostTreeAdvance
+	hostTreeAdvance = func(f packload.Fork, o advanceOptions) advanceResult {
+		time.Sleep(50 * time.Millisecond) // five budgets
+		return prevAdvance(f, o)
+	}
+	t.Cleanup(func() { hostTreeAdvance = prevAdvance })
+	blockGateSurvey(t)
+	var errw bytes.Buffer
+	rc := hostExec(nil, []string{"tool"}, io.Discard, &errw, nil)
+	if len(fx.builds) != 1 || rc != 0 || !got.execed {
+		t.Fatalf("`yolo host -- tool`: %d builds, rc=%d, execed %v\n%s", len(fx.builds), rc, got.execed, errw.String())
+	}
+	if !isDir(fx.link()) {
+		t.Fatalf("the tree this launch built is not linked:\n%s", errw.String())
+	}
+	report := errw.String()
+	for _, w := range []string{
+		"yolo host: linked ~/.tool/ext/tool-ext to the build of extension treepack/tool-ext that tool loads",
+		"could not check whether the rest of your host render is up to date (the check did not finish within 10ms; " +
+			"it starts once tool's patched extensions are checked and built) — launching tool anyway.",
+	} {
+		if !strings.Contains(report, w) {
+			t.Errorf("the launch does not say %q:\n%s", w, report)
+		}
+	}
+	// THE NEXT RENDER OWNS IT: the files ownership record names the link as the tree pack's, so the
+	// apply sees it unchanged rather than as a path the user owns.
+	man, err := hostskills.LoadManifest(hostSkillsManifestPath())
+	if err != nil || !man.OwnedBy(fx.link(), "treepack") {
+		t.Fatalf("the files ownership record does not name the link as treepack's (err %v)", err)
+	}
+	trees := hostLaunchTrees(selectConfiguredHostPacks().packs, "tool")
+	if len(trees) != 1 {
+		t.Fatalf("tool loads %d trees at the host, want 1", len(trees))
+	}
+	if res := renderHostTree(trees[0], fx.home, man, true); res.Action != "unchanged" {
+		t.Errorf("the next render's observe pass says %q of the link the launch wrote, want unchanged", res.Action)
+	}
+}
+
+// PPX-D44's other arm: an observe pass that DID answer, with a question pending, renders nothing and
+// launches against the last apply — and the tree the launch built is still linked. Red if the
+// decisions branch stops linking the launch's trees.
+func TestAHostLaunchLinksTheTreeItBuiltWhenTheRenderNeedsADecision(t *testing.T) {
+	fx := newTreeFixture(t, `"f.txt"`)
+	fx.listTreeForAgent(t)
+	fx.writeHostConfig(t, treeHostOwn+`,"host_apply_on_launch":true`)
+	stubBins(t, "tool")
+	got := captureHostExec(t)
+	prevSurvey := hostApplyGateSurvey
+	hostApplyGateSurvey = func(_, _ io.Writer, _, _ bool, _ io.Reader, s *hostApplySurvey) int {
+		s.Changed = append(s.Changed, hostChange{Path: filepath.Join(fx.home, ".tool", "settings.json")})
+		s.decisions = append(s.decisions, "a skill would be adopted")
+		return 0
+	}
+	t.Cleanup(func() { hostApplyGateSurvey = prevSurvey })
+	var errw bytes.Buffer
+	rc := hostExec(nil, []string{"tool"}, io.Discard, &errw, nil)
+	if rc != 0 || !got.execed {
+		t.Fatalf("rc=%d, execed %v\n%s", rc, got.execed, errw.String())
+	}
+	if !strings.Contains(errw.String(), "applying it needs a decision") {
+		t.Fatalf("the gate did not take its decisions branch:\n%s", errw.String())
+	}
+	if !isDir(fx.link()) {
+		t.Errorf("the tree this launch built is not linked:\n%s", errw.String())
+	}
+}
+
 // A LAUNCH THE CAPABILITY GATE REFUSES BUILDS NOTHING (OQ-CAP2 before PPX-D11): the gate runs ahead
 // of the advance, as it runs ahead of the render gate, so `yolo host -- tool` under a
 // `required_capabilities` nothing satisfies stops without fetching or building the tree its pack

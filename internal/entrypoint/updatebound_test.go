@@ -419,7 +419,15 @@ func TestAnInterruptAtTheLaunchersGroupEndsTheUpdateNotTheLaunch(t *testing.T) {
 }
 
 // yoloStandInWithSlowProbe is yoloStandIn, except that the launcher's probe for the verb (its
-// `-- true` run) marks marker and then takes five seconds: the window a Ctrl-C can land in.
+// `-- true` run) is the real no-terminal wrapper running a command that marks marker and then
+// takes five seconds: the window a Ctrl-C can land in. The wrapper's PID is in marker+".pid", and
+// an interrupt it receives ends it as it ends the real probe: forwarded to the command, which dies
+// of it, and then the wrapper dies of it too (notty.WrapperExit).
+//
+// The interrupt never meets a shell waiting for it: under bash 3.2, macOS's /bin/sh, the stand-in
+// this replaced, a script waiting on a foreground `sleep 5`, could drop one landing as it reaped
+// the sleep (testsupport.UntilInterrupted states the measurement), and the probe then exited 0, a
+// yolo WITH the verb, after the Ctrl-C.
 func yoloStandInWithSlowProbe(t *testing.T, marker string) string {
 	t.Helper()
 	exe, err := os.Executable()
@@ -427,7 +435,10 @@ func yoloStandInWithSlowProbe(t *testing.T, marker string) string {
 		t.Fatal(err)
 	}
 	dir := t.TempDir()
-	body := "#!/bin/sh\ncase \"$*\" in *' -- true') : > " + shellQuoteForTest(marker) + "; sleep 5; exit 0 ;; esac\n" +
+	slow := ": > " + shellQuoteForTest(marker) + "; exec sleep 5"
+	body := "#!/bin/sh\ncase \"$*\" in *' -- true') echo $$ > " + shellQuoteForTest(marker+".pid") + "; " +
+		asYoloEnv + "=1 exec " + shellQuoteForTest(exe) + " internal " + NoTerminalVerb + " -- /bin/sh -c " +
+		shellQuoteForTest(slow) + " ;; esac\n" +
 		asYoloEnv + "=1 exec " + shellQuoteForTest(exe) + " \"$@\"\n"
 	if err := os.WriteFile(filepath.Join(dir, "yolo"), []byte(body), 0o755); err != nil {
 		t.Fatal(err)
@@ -435,39 +446,117 @@ func yoloStandInWithSlowProbe(t *testing.T, marker string) string {
 	return dir
 }
 
+// probeInterrupt is one way a cell's Ctrl-C reaches the launcher and its probe.
+type probeInterrupt struct {
+	name string
+	// send interrupts g's probe, whose stand-in wrote its PID to marker+".pid", once marker exists.
+	send func(t *testing.T, g *groupLaunch, marker string)
+}
+
+// probeInterrupts are the two orders a Ctrl-C at the probe can reach the launcher and its probe in.
+//   - group: the whole foreground group at once, as Linux delivers a terminal's Ctrl-C.
+//   - probe-only: the probe, and never the launcher. macOS signals a group's members one at a
+//     time, newest first (XNU's pgrp_iterate, over a member list it inserts at the head), so the
+//     launcher, the oldest, is signaled last, and on a loaded machine its probe can have died and
+//     been reaped by then. The launcher's own SIGINT then lands after its check, or, under bash
+//     3.2, is dropped as bash finishes the wait. This cell is that outcome made deterministic: the
+//     probe's status is all the launcher has to go on.
+var probeInterrupts = []probeInterrupt{
+	{"group", func(t *testing.T, g *groupLaunch, marker string) {
+		t.Helper()
+		g.signalWhen(t, marker, syscall.SIGINT)
+	}},
+	{"probe-only", func(t *testing.T, g *groupLaunch, marker string) {
+		t.Helper()
+		if !waitForPath(t, marker, 15*time.Second) {
+			t.Fatalf("%s never appeared. The launcher printed:\n%s", marker, g.out.String())
+		}
+		b, err := os.ReadFile(marker + ".pid")
+		if err != nil {
+			t.Fatal(err)
+		}
+		pid, err := strconv.Atoi(strings.TrimSpace(string(b)))
+		if err != nil || pid <= 1 {
+			t.Fatalf("the probe's PID file holds %q", b)
+		}
+		if err := syscall.Kill(pid, syscall.SIGINT); err != nil {
+			t.Fatal(err)
+		}
+	}},
+}
+
 // A CTRL-C WHILE THE LAUNCHER PROBES FOR THE VERB STARTS NO UPDATE. The probe dies of it, which
 // reads as "this yolo lacks the verb", and the update would then start in a fallback, attached to
 // the terminal, after the user asked it to stop (unbounded on a Mac with no timeout(1)). Both
-// probes: the update verb's (_bounded) and the installer re-run's (_run_without_terminal).
+// probes, the update verb's (_bounded) and the installer re-run's (_run_without_terminal), in both
+// delivery orders (probeInterrupts), since on macOS the probe's status can be the launcher's only
+// sign of the Ctrl-C.
 func TestAnInterruptDuringTheProbeStartsNoUpdate(t *testing.T) {
 	installer := "#!/bin/bash\n: > \"$HOME/update.started\"\nexec sleep 120\n"
 	for _, tc := range []struct {
 		name string
 		verb []string
 	}{{"update-verb", []string{"install"}}, {"installer", nil}} {
-		t.Run(tc.name, func(t *testing.T) {
-			o := boundProbeOpts{verb: tc.verb, behave: sleeps, timeout: 30, grace: 2}
-			if tc.verb == nil {
-				if _, err := exec.LookPath("curl"); err != nil {
-					t.Skip("curl not found")
+		for _, how := range probeInterrupts {
+			t.Run(tc.name+"/"+how.name, func(t *testing.T) {
+				o := boundProbeOpts{verb: tc.verb, behave: sleeps, timeout: 30, grace: 2}
+				if tc.verb == nil {
+					if _, err := exec.LookPath("curl"); err != nil {
+						t.Skip("curl not found")
+					}
+					o.installerURL = serveBody(t, 200, "application/x-sh", installer)
 				}
-				o.installerURL = serveBody(t, 200, "application/x-sh", installer)
+				p := newBoundProbe(t, o)
+				probing := filepath.Join(p.home, "probing")
+				g := startInGroup(t, p, yoloStandInWithSlowProbe(t, probing)+string(os.PathListSeparator)+pathWithout(t, "yolo"))
+				how.send(t, g, probing)
+				if err := g.wait(t, 20*time.Second); err != nil {
+					t.Fatalf("the launcher must go on to the program, got %v:\n%s", err, g.out.String())
+				}
+				out := g.out.String()
+				if _, err := os.Stat(p.started); err == nil {
+					t.Errorf("the update started after a Ctrl-C at its probe:\n%s", out)
+				}
+				if !strings.Contains(out, "update interrupted") || !strings.Contains(out, "AGENT_RAN") {
+					t.Errorf("an update interrupted at its probe must be said, and the installed version run:\n%s", out)
+				}
+				lockGone(t, p, "an update interrupted at its probe")
+			})
+		}
+	}
+}
+
+// A CTRL-C WHILE A COLD INSTALL PROBES FOR THE VERB ENDS THE LAUNCHER, as a Ctrl-C at a cold install
+// does (PS-D7: nothing is installed to run), and starts no installer, in both delivery orders. In
+// the probe-only order the probe's status is the only sign, so the launcher must act on it as on
+// its own SIGINT, which, with no update shield up, ends it.
+func TestAnInterruptDuringAColdInstallsProbeEndsTheLauncher(t *testing.T) {
+	if _, err := exec.LookPath("curl"); err != nil {
+		t.Skip("curl not found")
+	}
+	installer := "#!/bin/bash\n: > \"$HOME/update.started\"\nexec sleep 120\n"
+	for _, how := range probeInterrupts {
+		t.Run(how.name, func(t *testing.T) {
+			p := newBoundProbe(t, boundProbeOpts{behave: sleeps, timeout: 30, grace: 2,
+				installerURL: serveBody(t, 200, "application/x-sh", installer)})
+			if err := os.Remove(p.realBin); err != nil {
+				t.Fatal(err)
 			}
-			p := newBoundProbe(t, o)
 			probing := filepath.Join(p.home, "probing")
 			g := startInGroup(t, p, yoloStandInWithSlowProbe(t, probing)+string(os.PathListSeparator)+pathWithout(t, "yolo"))
-			g.signalWhen(t, probing, syscall.SIGINT)
-			if err := g.wait(t, 20*time.Second); err != nil {
-				t.Fatalf("the launcher must go on to the program, got %v:\n%s", err, g.out.String())
+			how.send(t, g, probing)
+			err := g.wait(t, 20*time.Second)
+			var ee *exec.ExitError
+			if !errors.As(err, &ee) {
+				t.Fatalf("a Ctrl-C at a cold install's probe must end the launcher, got %v:\n%s", err, g.out.String())
 			}
-			out := g.out.String()
+			if ws, ok := ee.Sys().(syscall.WaitStatus); !ok || !ws.Signaled() || ws.Signal() != syscall.SIGINT {
+				t.Errorf("the launcher must die of the SIGINT, as a Ctrl-C at a cold install makes it, got %v:\n%s",
+					err, g.out.String())
+			}
 			if _, err := os.Stat(p.started); err == nil {
-				t.Errorf("the update started after a Ctrl-C at its probe:\n%s", out)
+				t.Errorf("the installer started after a Ctrl-C at its probe:\n%s", g.out.String())
 			}
-			if !strings.Contains(out, "update interrupted") || !strings.Contains(out, "AGENT_RAN") {
-				t.Errorf("an update interrupted at its probe must be said, and the installed version run:\n%s", out)
-			}
-			lockGone(t, p, "an update interrupted at its probe")
 		})
 	}
 }

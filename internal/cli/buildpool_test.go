@@ -313,3 +313,19 @@ func TestTheFIFOSemaphoreServesTheEarliestDeclaredFirst(t *testing.T) {
 		t.Errorf("the slot went to %v, want the earliest declared first: [1 2 3]", order)
 	}
 }
+
+// A POOL WHOSE CALLER NAMES NO BOUND TAKES THE MACHINE'S (buildSlots on poolCPUs, XB-D10): a launch
+// pool's and a host act's alike, one build on a 3-CPU machine and four on eight. Red if either pool
+// stops reading poolCPUs, which every pool test stands a machine in through.
+func TestAPoolWithNoBoundNamedTakesTheMachines(t *testing.T) {
+	for _, c := range []struct{ cpus, want int }{{3, 1}, {8, 4}} {
+		standInCPUs(t, c.cpus)
+		launch := newBuildPool(io.Discard, progress.Config{}, false, "", "podman", 0, 0, &run.ActInterrupt{})
+		if launch.builds.free != c.want {
+			t.Errorf("a launch's pool on %d CPUs builds %d at once, want %d", c.cpus, launch.builds.free, c.want)
+		}
+		if host := newAdvancePool("podman"); cap(host.builds) != c.want {
+			t.Errorf("a host act's pool on %d CPUs builds %d at once, want %d", c.cpus, cap(host.builds), c.want)
+		}
+	}
+}

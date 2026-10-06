@@ -202,7 +202,7 @@ func captureHostWith(args []string, out, errw io.Writer, color bool, act capture
 	// WHICH ARM (host-tool-provisioning.md HP-D18): a capture jail, or — on Linux, with no runtime
 	// selected and none on PATH — this host, the installer confined by Landlock. A fork's build above
 	// never comes here: it builds in a sealed jail or not at all (forked-programs-as-packs.md §12).
-	arm := chooseCaptureArm(goruntime.GOOS, act.runtime)
+	arm := chooseCaptureArm(captureHostGOOS, act.runtime)
 	if arm.hostWhy != "" {
 		// Said before the jail arm's own refusal of the missing runtime, which names that runtime's
 		// install: this is the other way to a capture here, and why it is not taken.
@@ -1017,6 +1017,10 @@ type captureArm struct {
 
 // host reports whether this is the host capture.
 func (a captureArm) host() bool { return a.hostABI > 0 }
+
+// captureHostGOOS is the platform `yolo capture` chooses its arm for (chooseCaptureArm): this
+// machine's. A var so a test can pin the Linux arms, or a Mac's, on whichever machine runs it.
+var captureHostGOOS = goruntime.GOOS
 
 // hostConfinementABI is the Landlock ABI a host capture would run under on this machine, or why
 // none can (capture.HostConfinementABI). A var so a test can stand in a kernel with Landlock or

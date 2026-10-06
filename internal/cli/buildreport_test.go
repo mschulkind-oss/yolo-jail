@@ -159,10 +159,16 @@ func TestASuccessfulBuildsTerminalCarriesOnlyItsProgressLines(t *testing.T) {
 			t.Errorf("the terminal lacks %q:\n%s", w, term)
 		}
 	}
+	// The per-launch copy's own warning is the launch's, not the build jail's: where the filesystem
+	// cannot reflink (tmpfs, ext4: CI's), capture.reportCopy says the copy cost this workspace its
+	// own bytes, a warning a launch prints unchanged (report-tiers.md, the launch stream). Only that
+	// line, of this build's entry, and only where the platform copies.
+	copied := "yolo: capture " + d.Entry + " was COPIED into " + d.Dir + ": "
 	for _, l := range strings.Split(strings.TrimSpace(term), "\n") {
 		if !strings.HasPrefix(l, "build extension ") && !strings.HasPrefix(l, "  sealed: ") &&
 			!strings.HasPrefix(l, "built extension ") && !strings.HasPrefix(l, "  its build jail: ") &&
-			!strings.HasPrefix(l, buildPoolLabel) && !strings.HasPrefix(l, "  "+buildPoolLabel) {
+			!strings.HasPrefix(l, buildPoolLabel) && !strings.HasPrefix(l, "  "+buildPoolLabel) &&
+			!strings.HasPrefix(l, copied) {
 			t.Errorf("the terminal carries a line that is not the build's progress: %q\n%s", l, term)
 		}
 	}

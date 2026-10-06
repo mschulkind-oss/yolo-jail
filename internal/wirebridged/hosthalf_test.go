@@ -200,13 +200,18 @@ func TestTheHostHalfCodexRouteTakesItsViewFromTheHostSocket(t *testing.T) {
 	}
 }
 
-// hostViaInput is a launch's input for pi on the shipped bedrock-bridge, its via base moved to a
-// free loopback address as a launch's plan moves it (launchservice.NewPlan reserves the via
-// address), with provider holding the user's providers layer and extra added over the tables.
-// It returns the getenv a host half reads the input by and the via address.
+// hostViaInput is a launch's input for pi on the shipped bedrock-bridge, with both listener
+// addresses moved to free loopback ports. Its adapter can start too when the input carries
+// credentials, even though the test sends requests only to the via route. provider holds the
+// user's providers layer and extra is added over the tables. It returns the getenv a host half
+// reads the input by and the via address.
 func hostViaInput(t *testing.T, provider string, extra map[string]string) (func(string) string, string) {
 	t.Helper()
 	providers, resolved := shippedBridgeTables(t, provider)
+	bedrock, _ := providers.Get("bedrock")
+	endpoints, _ := bedrock.(*jsonx.OrderedMap).Get("endpoints")
+	anthropic, _ := endpoints.(*jsonx.OrderedMap).Get("anthropic")
+	anthropic.(*jsonx.OrderedMap).Set("base_url", "http://"+freeLoopback(t))
 	via := freeLoopback(t)
 	r := resolved["bedrock-bridge"]
 	r.ViaBase = "http://" + via
@@ -225,6 +230,30 @@ func hostViaInput(t *testing.T, provider string, extra map[string]string) (func(
 		env[k] = v
 	}
 	return writeHostInput(t, env), via
+}
+
+// The fixture moves both listeners: with credentials present the host half also starts the
+// adapter, even when this test's request uses only pi's via route. Leaving its shipped address
+// in the input collides with a live jail's bridge during an in-jail unit run.
+func TestHostViaInputMovesEveryListenerAwayFromTheShippedAddresses(t *testing.T) {
+	providers, profiles := shippedBridgeTables(t, "")
+	declared := planFor(providers, map[string]string{"pi": "bedrock-bridge"}, profiles)
+	getenv, via := hostViaInput(t, "", nil)
+	e, why := hostHalfEnv(getenv, nil)
+	if why != "" {
+		t.Fatal(why)
+	}
+	moved := resolvePlan(e)
+	if declared.adapter == nil || moved.adapter == nil {
+		t.Fatal("the shipped Bedrock bridge must plan its adapter")
+	}
+	if moved.adapter.ListenAddr == declared.adapter.ListenAddr {
+		t.Errorf("fixture's adapter still uses the shipped address %s", moved.adapter.ListenAddr)
+	}
+	if moved.via.ListenAddr != via || moved.via.ListenAddr == declared.via.ListenAddr {
+		t.Errorf("fixture's via address = %s, want its free address %s, not %s",
+			moved.via.ListenAddr, via, declared.via.ListenAddr)
+	}
 }
 
 // runHostHalfFor starts the host half from the input getenv names and waits for its readiness

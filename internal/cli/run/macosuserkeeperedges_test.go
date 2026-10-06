@@ -22,6 +22,7 @@ import (
 
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
+	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 )
 
 // waitFor polls cond every few milliseconds until it holds or within passes, and reports which.
@@ -117,7 +118,7 @@ func TestAnArrivalWhileYoloStopReapsAnUnkeptKeyWaitsForTheReap(t *testing.T) {
 	writeUserConfigJSON(t, home, `{"packs": []}`)
 	ws := t.TempDir()
 	key := macosUserKeyOf(ws)
-	dir, count, record := plantDeadKeeper(t, ws, key)
+	dir, count, record := plantDeadKeeper(t, ws, key, paths.IsMacOS)
 	spawns := countKeeperSpawns(t)
 	orig := keeperSessionsWait
 	keeperSessionsWait = 10 * time.Second
@@ -292,7 +293,7 @@ func TestAFreshMacosUserArrivalRemovesWhatADeadKeeperLeft(t *testing.T) {
 	writeUserConfigJSON(t, home, `{"packs": []}`)
 	ws := t.TempDir()
 	key := macosUserKeyOf(ws)
-	dir, count, record := plantDeadKeeper(t, ws, key)
+	dir, count, record := plantDeadKeeper(t, ws, key, false)
 	// No session is left of it.
 	closeKeyedSessionRecord(record)
 	count.release()
@@ -563,7 +564,7 @@ func TestAMacosUserDryRunAtAnUnkeptKeyIsRefused(t *testing.T) {
 	writeUserConfigJSON(t, home, `{"packs": []}`)
 	ws := t.TempDir()
 	key := macosUserKeyOf(ws)
-	dir, _, _ := plantDeadKeeper(t, ws, key)
+	dir, _, _ := plantDeadKeeper(t, ws, key, false)
 	reached := false
 	o, out := keeperLaunch(t, ws, func(*jsonx.OrderedMap) int { reached = true; return 0 })
 	o.DryRun = true

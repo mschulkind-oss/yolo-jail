@@ -56,10 +56,11 @@ _YOLO_INTERRUPTED=0
 # timeout -k bounds it IN the terminal's foreground group (--foreground), where a Ctrl-C reaches
 # it and no SIGTTOU can; with no timeout(1) either it runs unbounded. Each fallback says so.
 _bounded() {
-    local rc=0 detach=0
-    if command -v yolo >/dev/null 2>&1 &&
-        YOLO_BYPASS_SHIMS=1 yolo internal ` + NoTerminalVerb + ` --timeout=1 --kill-after=1 -- true </dev/null >/dev/null 2>&1; then
-        detach=1
+    local rc=0 detach=0 probe=0
+    if command -v yolo >/dev/null 2>&1; then
+        YOLO_BYPASS_SHIMS=1 yolo internal ` + NoTerminalVerb + ` --timeout=1 --kill-after=1 -- true </dev/null >/dev/null 2>&1 || probe=$?
+        if [ "$probe" = 0 ]; then detach=1; fi
+        _probe_interrupted "$probe"
     fi
     # A Ctrl-C during that probe kills the probe, which then reads as "no yolo with the verb": the
     # act would start in a fallback, on the terminal, AFTER the user asked for it to stop. It ends
@@ -82,6 +83,23 @@ _bounded() {
     # _shielded the trap has run by now, since bash runs it once the command it waited on returns.
     if [ "$rc" = 0 ] && [ "$_YOLO_INTERRUPTED" = 1 ]; then rc=130; fi
     return "$rc"
+}
+
+# _probe_interrupted RC acts on a Ctrl-C that ended a probe for yolo's ` + NoTerminalVerb + ` verb (here
+# and in the native launcher's _run_without_terminal). RC is the probe's status, and 130 (128 +
+# SIGINT) means the interrupt ended it: the probe runs "true", and a yolo without the verb exits 2.
+# The launcher cannot wait for its own SIGINT instead. macOS signals a process group's members one
+# at a time, newest first (XNU's pgrp_iterate), so the launcher, the group's oldest member, is
+# signaled last, and on a busy machine the probe has died of its SIGINT and been reaped by then.
+# bash then runs the trap after the check that follows the probe, or never: bash 3.2, macOS's
+# /bin/bash, drops a SIGINT landing as it finishes waiting for a child it has reaped. Seen on
+# check-macos on 2026-10-06: the update then ran unbounded, after the Ctrl-C. So the probe's
+# status counts as the Ctrl-C, and the launcher sends itself the SIGINT, doing what the Ctrl-C
+# would have made it do there: under _shielded the trap sets _YOLO_INTERRUPTED before the next
+# command, the check; at a cold install, with no trap, it ends the launcher (PS-D7). A late SIGINT
+# of the launcher's own is then one more of the same.
+_probe_interrupted() {
+    if [ "$1" = 130 ]; then kill -INT $$; fi
 }
 
 # _shielded CLEANUP CMD... runs CMD as one update act the user may interrupt, and then CLEANUP, which

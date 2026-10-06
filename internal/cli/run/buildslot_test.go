@@ -108,6 +108,16 @@ func TestTheSlotBuildsAtMostFourAtOnceAndOneOnAppleContainer(t *testing.T) {
 	if got, want := SlotBuildJails("podman"), min(4, max(1, goruntime.NumCPU()/2)); got != want {
 		t.Errorf("podman's slot builds %d at once, want %d", got, want)
 	}
+	// The rule on machines of every size the runners have: a 3-CPU macOS runner builds one at a time.
+	for _, c := range []struct {
+		rt         string
+		cpus, want int
+	}{{"podman", 1, 1}, {"podman", 2, 1}, {"podman", 3, 1}, {"podman", 4, 2}, {"podman", 7, 3}, {"podman", 8, 4},
+		{"podman", 32, 4}, {"container", 32, 1}} {
+		if got := SlotBuildJailsOn(c.rt, c.cpus); got != c.want {
+			t.Errorf("%s on %d CPUs builds %d at once, want %d", c.rt, c.cpus, got, c.want)
+		}
+	}
 }
 
 // THE IDENTITY IS EVALUATED ONCE (imageprewarm.go): the image step asks the eval the prewarm runs,

@@ -88,14 +88,14 @@ type poolItem struct {
 }
 
 // newBuildPool is the pool of a launch whose stream is w, running at most maxChecks checks and
-// maxBuilds build jails at once (0: run's own bounds for rt), under act's interrupt scope.
+// maxBuilds build jails at once (0: run's own bounds for rt, on poolCPUs), under act's interrupt scope.
 func newBuildPool(w io.Writer, cfg progress.Config, color bool, workspace, rt string, maxChecks, maxBuilds int,
 	act *run.ActInterrupt) *buildPool {
 	if maxChecks <= 0 {
 		maxChecks = run.SlotChecks
 	}
 	if maxBuilds <= 0 {
-		maxBuilds = run.SlotBuildJails(rt)
+		maxBuilds = buildSlots(rt)
 	}
 	p := &buildPool{w: w, cfg: cfg, color: color, checks: newFIFOSem(maxChecks), builds: newFIFOSem(maxBuilds),
 		act: act, ctx: context.Background()}
