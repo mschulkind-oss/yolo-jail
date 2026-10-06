@@ -35,7 +35,68 @@ func TestMain(m *testing.M) {
 	if dir := os.Getenv(graceHelperEnv); dir != "" {
 		os.Exit(runGraceHelper(dir))
 	}
+	if dir := os.Getenv(detachHelperEnv); dir != "" {
+		os.Exit(runDetachHelper(dir))
+	}
 	os.Exit(m.Run())
+}
+
+// detachHelperEnv makes this test binary, re-executed in a session that HAS a controlling
+// terminal, run the probe once directly and once through the --detach verb, which writes its
+// answer into the named directory's log.
+const detachHelperEnv = "NOTTY_TEST_DETACH_HELPER_DIR"
+
+func runDetachHelper(dir string) int {
+	direct := exec.Command("sh", "-c", probe)
+	direct.Stdin = os.Stdin
+	o, err := direct.Output()
+	if err != nil {
+		return 3
+	}
+	if err := os.WriteFile(filepath.Join(dir, "direct"), o, 0o644); err != nil {
+		return 5
+	}
+	return Main("no-terminal", []string{"--detach", "--log=" + filepath.Join(dir, "job.log"), "--",
+		"sh", "-c", probe + `; : > "$1/finished"`, "sh", dir})
+}
+
+// TestDetachLeavesTheJobNoTerminal is TestRunLeavesTheChildNoTerminal for --detach: from a process
+// whose terminal the probe reaches directly (the control), the detached job reaches neither the
+// terminal nor its stdin — it could not draw over the agent the launcher goes on to exec.
+func TestDetachLeavesTheJobNoTerminal(t *testing.T) {
+	_, slave := openPty(t)
+	dir := t.TempDir()
+	helper := exec.Command(os.Args[0], "-test.run=^$")
+	helper.Env = append(os.Environ(), detachHelperEnv+"="+dir)
+	helper.Stdin, helper.Stdout, helper.Stderr = slave, slave, slave
+	helper.SysProcAttr = &syscall.SysProcAttr{Setsid: true, Setctty: true, Ctty: 0}
+	if err := helper.Run(); err != nil {
+		t.Fatalf("helper: %v", err)
+	}
+	direct, err := os.ReadFile(filepath.Join(dir, "direct"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.Join(strings.Fields(string(direct)), ","); got != "HAS_TTY,STDIN_TTY" {
+		t.Fatalf("the control did not reach its terminal (%s), so this cell proves nothing", got)
+	}
+	deadline := time.Now().Add(20 * time.Second)
+	for {
+		if _, err := os.Stat(filepath.Join(dir, "finished")); err == nil {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("the detached probe never finished")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	got, err := os.ReadFile(filepath.Join(dir, "job.log"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if answer := strings.Join(strings.Fields(string(got)), ","); answer != "NO_TTY,STDIN_NOT_TTY" {
+		t.Errorf("the detached job reached a terminal: %s", answer)
+	}
 }
 
 func runHelper(out string) int {

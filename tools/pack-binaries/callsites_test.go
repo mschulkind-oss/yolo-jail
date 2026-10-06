@@ -1,18 +1,26 @@
 package main
 
 import (
+	"go/ast"
+	"go/parser"
+	"go/token"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 
 	"gopkg.in/yaml.v3"
+
+	"github.com/mschulkind-oss/yolo-jail/internal/selfupdate"
 )
 
 // The pin tool's CALL SITES are the release's three gates and the recipe that pins
-// (docs/design/broker-as-a-pack.md §14.4, steps 4 to 6). Each runs only when a release is cut,
-// so nothing but the next release would notice one being deleted; these tests read the files
-// and fail instead.
+// (docs/design/broker-as-a-pack.md §14.4, steps 4 to 6), and what main pins between releases
+// (step 7, BP-D15): the check `just check-ci` runs, the seed `just install` runs, and the seed
+// the integration harness runs. Each runs only when a release is cut, a host installs, or a full
+// container run starts — none of them in the short suite — so nothing would notice one being
+// deleted; these tests read the files and fail instead.
 
 func repoFile(t *testing.T, rel string) string {
 	t.Helper()
@@ -53,11 +61,241 @@ func indexOf(lines []string, sub string) int {
 	return -1
 }
 
+// justDeps returns the dependencies named on the Justfile recipe name's header line.
+func justDeps(t *testing.T, name string) []string {
+	t.Helper()
+	for _, line := range strings.Split(repoFile(t, "Justfile"), "\n") {
+		if rest, ok := strings.CutPrefix(line, name+":"); ok {
+			return strings.Fields(rest)
+		}
+	}
+	t.Fatalf("the Justfile has no %s recipe", name)
+	return nil
+}
+
+// justParams returns the parameters on the Justfile recipe name's header line.
+func justParams(t *testing.T, name string) []string {
+	t.Helper()
+	for _, line := range strings.Split(repoFile(t, "Justfile"), "\n") {
+		if rest, ok := strings.CutPrefix(line, name+" "); ok {
+			params, _, _ := strings.Cut(rest, ":")
+			return strings.Fields(params)
+		}
+	}
+	return nil
+}
+
+func contains(list []string, s string) bool {
+	for _, l := range list {
+		if l == s {
+			return true
+		}
+	}
+	return false
+}
+
+// `just pin-pack-binaries` takes its version as optional: with one it is the release's pin, and
+// with none the digest-only pin the check-ci refusal names (BP-D15).
 func TestJustPinPackBinariesRunsThePinVerb(t *testing.T) {
 	body := justRecipe(t, "pin-pack-binaries")
-	if indexOf(body, `go run ./tools/pack-binaries pin "{{version}}"`) < 0 {
+	if indexOf(body, `go run ./tools/pack-binaries pin {{version}}`) < 0 {
 		t.Errorf("`just pin-pack-binaries` no longer runs the pin tool's pin verb:\n%s", strings.Join(body, "\n"))
 	}
+	if p := justParams(t, "pin-pack-binaries"); len(p) != 1 || p[0] != "*version" {
+		t.Errorf("`just pin-pack-binaries` takes %v, want an optional version (*version), so the "+
+			"bare command check-ci names runs", p)
+	}
+}
+
+// THE LANDING GATE REFUSES A PIN THE TREE NO LONGER REPRODUCES (BP-D15): `just check-ci` — and
+// `just check`, which `just done` runs — depend on a recipe running the digest-only check, with
+// no version, so a url naming an earlier release passes.
+func TestJustCheckCIChecksThePinsAgainstTheTree(t *testing.T) {
+	const recipe = "check-pack-binaries"
+	for _, gate := range []string{"check-ci", "check"} {
+		if !contains(justDeps(t, gate), recipe) {
+			t.Errorf("`just %s` no longer depends on `just %s` (%v), so a pin the tree no longer "+
+				"reproduces lands", gate, recipe, justDeps(t, gate))
+		}
+	}
+	body := justRecipe(t, recipe)
+	i := indexOf(body, "go run ./tools/pack-binaries check")
+	if i < 0 {
+		t.Fatalf("`just %s` does not run the pin tool's check:\n%s", recipe, strings.Join(body, "\n"))
+	}
+	if body[i] != "go run ./tools/pack-binaries check" {
+		t.Errorf("`just %s` runs %q: between releases the check takes no version, or every url "+
+			"naming the last release fails it", recipe, body[i])
+	}
+}
+
+// `just install` BUILDS THE TREE'S OFFICIAL PROGRAMS INTO THE CACHE (BP-D15), re-pinning a moved
+// one: after its in-jail refusal, before the version stamp (so a re-pin reads as -dirty) and
+// before `go install` embeds the manifests — and a failure installs nothing.
+func TestJustInstallSeedsTheTreesProgramsBeforeItInstalls(t *testing.T) {
+	body := justRecipe(t, "install")
+	seed := indexOf(body, "go run ./tools/pack-binaries seed --repin")
+	jail := indexOf(body, `if [ -n "${YOLO_VERSION:-}" ]; then`)
+	stamp := indexOf(body, `VERSION="$(git describe`)
+	install := indexOf(body, "go install ")
+	bundle := indexOf(body, "stage-source-bundle.sh")
+	switch {
+	case seed < 0:
+		t.Fatalf("`just install` does not seed the pack-binary cache:\n%s", strings.Join(body, "\n"))
+	case jail < 0 || stamp < 0 || install < 0 || bundle < 0:
+		t.Fatalf("`just install` lost a landmark this test orders the seed by (jail %d, stamp %d, "+
+			"go install %d, bundle %d)", jail, stamp, install, bundle)
+	case !(jail < seed && seed < stamp && seed < install && seed < bundle):
+		t.Errorf("the seed is at line %d of `just install`; it must follow the in-jail refusal "+
+			"(%d) and precede the version stamp (%d), `go install` (%d) and the bundle (%d)",
+			seed, jail, stamp, install, bundle)
+	}
+	if !strings.HasPrefix(body[seed], "if ! ") && !strings.HasPrefix(body[seed], "elif ! ") {
+		t.Fatalf("the seed's failure no longer stops the install: %q", body[seed])
+	}
+	end := seed
+	for end < len(body) && body[end] != "fi" {
+		end++
+	}
+	refusal := strings.Join(body[seed:end], "\n")
+	for _, want := range []string{"Nothing has been installed", "just install", "exit 1"} {
+		if !strings.Contains(refusal, want) {
+			t.Errorf("the seed's refusal does not say %q:\n%s", want, refusal)
+		}
+	}
+}
+
+// `yolo update` DEPLOYS UPSTREAM'S TREE AS PULLED (BP-D31): its deploy step sets
+// selfupdate.InstallKeepTreeEnv, and under it `just install` seeds without --repin, so nothing
+// writes the checkout, and a build it cannot seed is reported rather than failing the deploy —
+// which would leave a pulled tree with the old binary. The two spellings of the name are held
+// together here.
+func TestJustInstallKeepsTheTreeForAnUpdate(t *testing.T) {
+	body := justRecipe(t, "install")
+	branch := indexOf(body, `if [ -n "${`+selfupdate.InstallKeepTreeEnv+`:-}" ]; then`)
+	repin := indexOf(body, "go run ./tools/pack-binaries seed --repin")
+	if branch < 0 || repin < 0 || branch > repin {
+		t.Fatalf("`just install` has no %s branch ahead of its re-pinning seed (branch %d, "+
+			"seed --repin %d):\n%s", selfupdate.InstallKeepTreeEnv, branch, repin, strings.Join(body, "\n"))
+	}
+	kept := strings.Join(body[branch:repin], "\n")
+	if !strings.Contains(kept, "go run ./tools/pack-binaries seed;") {
+		t.Errorf("the %s branch does not seed without --repin:\n%s", selfupdate.InstallKeepTreeEnv, kept)
+	}
+	if strings.Contains(kept, "exit 1") || strings.Contains(kept, "--repin") {
+		t.Errorf("the %s branch re-pins, or fails the deploy:\n%s", selfupdate.InstallKeepTreeEnv, kept)
+	}
+	if !strings.Contains(kept, "just install") {
+		t.Errorf("the %s branch's warning names no next step:\n%s", selfupdate.InstallKeepTreeEnv, kept)
+	}
+}
+
+// THE INTEGRATION HARNESS SEEDS ITS RUN'S CACHE (§14.4 step 7's B): runSuite calls
+// seedPackBinaries once the run store exists and before the first launch, and that runs the
+// tool's seed verb, without --repin. Read from the source, since the call runs only in a full
+// container run.
+func TestTheIntegrationHarnessSeedsItsRunsCache(t *testing.T) {
+	calls := funcCalls(t, "integration/harness_test.go", "runSuite")
+	// The LAST of each: the short path returns through an m.Run of its own before any setup.
+	at := func(name string) int {
+		for i := len(calls) - 1; i >= 0; i-- {
+			if calls[i] == name {
+				return i
+			}
+		}
+		return -1
+	}
+	seed, store, image, warm, mrun := at("seedPackBinaries"), at("setUpRunStore"),
+		at("ensureJailImage"), at("warmJail"), at("m.Run")
+	switch {
+	case seed < 0:
+		t.Fatalf("runSuite no longer calls seedPackBinaries: %v", calls)
+	case store < 0 || image < 0 || warm < 0 || mrun < 0:
+		t.Fatalf("runSuite lost a landmark this test orders the seed by: %v", calls)
+	case !(store < seed && seed < image && seed < warm && seed < mrun):
+		t.Errorf("runSuite seeds at call %d; it must follow setUpRunStore (%d) and precede "+
+			"ensureJailImage (%d), warmJail (%d) and m.Run (%d): %v", seed, store, image, warm, mrun, calls)
+	}
+
+	args := stringArgsOf(t, "integration/packbinaryseed_test.go", "packBinarySeedCmd", "exec.Command")
+	if strings.Join(args, " ") != "go run ./tools/pack-binaries seed" {
+		t.Errorf("the harness's seed runs %q, want the tool's seed verb with no --repin", args)
+	}
+}
+
+// funcCalls returns, in source order, every call made in the body of the function fn in the Go
+// file rel, as "name" or "recv.name".
+func funcCalls(t *testing.T, rel, fn string) []string {
+	t.Helper()
+	var out []string
+	ast.Inspect(funcBody(t, rel, fn), func(n ast.Node) bool {
+		if c, ok := n.(*ast.CallExpr); ok {
+			switch f := c.Fun.(type) {
+			case *ast.Ident:
+				out = append(out, f.Name)
+			case *ast.SelectorExpr:
+				if x, ok := f.X.(*ast.Ident); ok {
+					out = append(out, x.Name+"."+f.Sel.Name)
+				}
+			}
+		}
+		return true
+	})
+	return out
+}
+
+// stringArgsOf returns the string-literal arguments of the first call to callee inside fn.
+func stringArgsOf(t *testing.T, rel, fn, callee string) []string {
+	t.Helper()
+	var out []string
+	found := false
+	ast.Inspect(funcBody(t, rel, fn), func(n ast.Node) bool {
+		if found {
+			return false
+		}
+		c, ok := n.(*ast.CallExpr)
+		if !ok {
+			return true
+		}
+		s, ok := c.Fun.(*ast.SelectorExpr)
+		if !ok {
+			return true
+		}
+		if x, ok := s.X.(*ast.Ident); !ok || x.Name+"."+s.Sel.Name != callee {
+			return true
+		}
+		found = true
+		for _, a := range c.Args {
+			if lit, ok := a.(*ast.BasicLit); ok && lit.Kind == token.STRING {
+				v, err := strconv.Unquote(lit.Value)
+				if err != nil {
+					t.Fatal(err)
+				}
+				out = append(out, v)
+			}
+		}
+		return false
+	})
+	if !found {
+		t.Fatalf("%s's %s makes no %s call", rel, fn, callee)
+	}
+	return out
+}
+
+// funcBody is the body of the top-level function fn in the Go file rel.
+func funcBody(t *testing.T, rel, fn string) *ast.BlockStmt {
+	t.Helper()
+	f, err := parser.ParseFile(token.NewFileSet(), rel, repoFile(t, rel), 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, d := range f.Decls {
+		if fd, ok := d.(*ast.FuncDecl); ok && fd.Name.Name == fn && fd.Recv == nil && fd.Body != nil {
+			return fd.Body
+		}
+	}
+	t.Fatalf("%s has no func %s", rel, fn)
+	return nil
 }
 
 // `just release` refuses before the tag, after the changelog gate, and says nothing was tagged.

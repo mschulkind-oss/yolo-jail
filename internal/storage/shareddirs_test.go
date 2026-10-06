@@ -22,8 +22,8 @@ import (
 //
 // UNGATED ON SELECTION, because EnsureGlobalStorage runs before the config is loaded (its
 // doc says so): the provisioning list is the union over every pack yolo SHIPS, so a machine
-// that never selects pi still gets an empty `.pi-shared-npm` in the machine store, which no
-// jail that does not select pi mounts. That is also why a migration must key on CONTENT
+// that never selects agy still gets an empty `.gemini-shared-credentials` in the machine store,
+// which no jail that does not select agy mounts. That is also why a migration must key on CONTENT
 // rather than existence — the directory is already there, empty, before the pack ever runs.
 func TestEnsureGlobalStorageCreatesEveryMachineScopeDir(t *testing.T) {
 	home := t.TempDir()

@@ -30,14 +30,15 @@ jobs:
         with:
           extra_args: --only-verified
 
-  # The Go tree gets its own job, running the SAME gate as the local
-  # pre-commit hook: `just check-ci` = go vet + staticcheck, once per GOOS the
-  # tree targets (linux and darwin — see the `lint` recipe for why the darwin
-  # pass runs on this Linux runner rather than on check-macos), plus a gofmt
+  # The Go tree gets its own job, running the SAME gate as the local landing
+  # gate: `just check-ci` = go vet + staticcheck, once per GOOS the tree
+  # targets (linux and darwin — see the `lint` recipe for why the darwin pass
+  # runs on this Linux runner rather than on check-macos), plus a gofmt
   # cleanliness check and the short test suite.  Invoking the Justfile recipe
-  # rather than inlining the commands is deliberate — it's the only way CI
-  # and the hook can't drift, and it was drift that let staticcheck/gofmt go
-  # unenforced on any push from a machine without the hook.  The short suite
+  # rather than inlining the commands is deliberate — it's the only way CI and
+  # the local gate can't drift.  There is no pre-commit hook, by ruling
+  # (2026-09-27, AGENTS.md Workflow step 4), so this job is the backstop for a
+  # push that landed without running the gate.  The short suite
   # carries guards nothing else enforces automatically (TestEmbedMatchesTree —
   # the go:embed/tree sync for the official PACKS, which is where every loophole
   # yolo ships lives since `bundled_loopholes/` was deleted on 2026-08-19; the
@@ -77,7 +78,7 @@ jobs:
       # runner and authenticated with the job's own token, so this is the one
       # path GitHub already guarantees us.  Unpinned `latest` is deliberate: it
       # matches mise.toml's `just = "latest"`, and a CI pinned tighter than
-      # local dev is exactly the gate-vs-hook drift this job exists to catch.
+      # local dev is exactly the CI-vs-local-gate drift this job exists to catch.
       # The Justfile needs just >= 1.47 (`lint`'s `[env]`, `check-ci`'s
       # `[parallel]`); `latest` is far past that, and an older just would refuse
       # to parse the file rather than run a different gate.
@@ -131,7 +132,7 @@ jobs:
 
   # Deliberately tests only — no lint.  The darwin STATIC analysis a from-source
   # macOS contributor would hit runs in check-go under `GOOS=darwin` (Justfile,
-  # `lint` recipe), from Linux, where the pre-commit hook reaches it too.  What
+  # `lint` recipe), from Linux, where the local landing gate reaches it too.  What
   # this job is for is the half a cross-GOOS analysis cannot give: darwin-only
   # code actually RUNNING — including the PATH-resolution class AGENTS.md
   # describes, where /var/folders is a symlink and Linux cannot disagree.

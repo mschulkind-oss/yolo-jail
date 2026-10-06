@@ -733,7 +733,10 @@ func applyHostSurveyed(out, errw io.Writer, color bool, write bool, stdin io.Rea
 	// could only agree by inspection. The profile table is the host notch's own (see
 	// overlayGateProfiles): a `profile`-gated overlay renders here only while its name is
 	// active at the surface's agent.
-	overlays := packoverlay.Collect(loaded, render.Host(home, nil, hostOwnership()).Profile().AgentAutonomy,
+	// AN UNMODIFIED EXTENSION THE HOST HAS NO TREE FOR takes its fallback here, in its own pack's
+	// lists, before they fold (hostTreeFallbacks, XB-D7): its tree arm below says why there is none.
+	listPacks, _ := hostTreeFallbacks(loaded)
+	overlays := packoverlay.Collect(listPacks, render.Host(home, nil, hostOwnership()).Profile().AgentAutonomy,
 		overlayGateProfiles(render.KindHost, loaded))
 	for _, prob := range overlays.Problems {
 		kind := collectProblemKind(prob)
@@ -1532,7 +1535,7 @@ func embeddedPacksForPrune() []*packload.Pack { return packload.Embedded() }
 // UNDECLARED input shaped the environment. Sealing does not mean "no host reads" — a
 // named-but-impure input (the user config, a pack's reads-host) is declared, nix's
 // fixed-output derivation. It means no input that NOTHING names. The three refusals today:
-//   - yolo-jail.local.jsonc: auto-merged, gitignored, needs no include entry.
+//   - yolo-jail.local.jsonc: auto-merged, conventionally untracked, needs no include entry.
 //   - an outstanding capture overlay: in-jail edits that outrank every layer but
 //     `computed` and `managed` (the fold is stated in configls.go's header; `managed` is
 //     itself declared, which is why this is not "every declared layer"), yet nothing
@@ -1565,7 +1568,8 @@ func applySealed(out, errw io.Writer, color bool) int {
 		_, wsName := config.ResolveWorkspaceConfigPath(ws, config.WorkspaceConfigName)
 		refusals = append(refusals,
 			localName+" is present and merges into the config, but "+
-				"nothing declares it (it is gitignored, machine-local). Fold its keys into "+
+				"nothing declares it (it is machine-local and conventionally untracked; yolo does not "+
+				"git-ignore it). Fold its keys into "+
 				wsName+" or remove it to seal.")
 	}
 	// (2) any capture surface carrying outstanding overlay keys.

@@ -41,9 +41,9 @@ func splitRun(t *testing.T, script string, env []string, args ...string) (string
 	return stdout.String(), stderr.String()
 }
 
-// chattyNpm makes the probe's fake npm say what a real `npm install` says, on BOTH streams, before
+// chattyFakeNpm makes the probe's fake npm say what a real `npm install` says, on BOTH streams, before
 // it installs; `npm view` stays quiet on stdout, since the launcher reads its answer from there.
-func chattyNpm(t *testing.T, dir string) {
+func chattyFakeNpm(t *testing.T, dir string) {
 	t.Helper()
 	real := filepath.Join(dir, "npm.real")
 	if err := os.Rename(filepath.Join(dir, "npm"), real); err != nil {
@@ -64,7 +64,7 @@ exec "`+real+`" "$@"
 func TestALaunchersInstallKeepsStdoutForTheProgram(t *testing.T) {
 	t.Run("npm program, cold home", func(t *testing.T) {
 		p := newNpmProbe(t, "probetool")
-		chattyNpm(t, p.fakeBin)
+		chattyFakeNpm(t, p.fakeBin)
 		script := filepath.Join(p.home, "probetool")
 		body := npmAgentLauncher("probe", &packdecl.Install{Kind: "npm", Bin: "probetool", Package: "probetool"},
 			filepath.Join(p.home, "stamps"), p.receiptsPath, true, launcherServers{}, nil)
@@ -122,7 +122,7 @@ chmod +x "$HOME/.local/bin/probetool"
 
 	t.Run("pnpm, cold home", func(t *testing.T) {
 		p := newNpmProbe(t, "pnpm")
-		chattyNpm(t, p.fakeBin)
+		chattyFakeNpm(t, p.fakeBin)
 		e := NewEnv(map[string]string{"JAIL_HOME": p.home, "YOLO_WORKSPACE": filepath.Join(p.home, "ws")})
 		if err := GeneratePackageManagerLaunchers(e); err != nil {
 			t.Fatal(err)

@@ -28,11 +28,35 @@ type Entry struct {
 // shipped manifest decodes strictly (internal/loopholedecl's TestShippedManifestsDecodeStrictly),
 // so a failure here is a manifest `yolo pack lint` would also refuse.
 func Manifests(fsys fs.FS) ([]Entry, error) {
+	out, unread, err := manifests(fsys)
+	if err != nil {
+		return nil, err
+	}
+	if len(unread) > 0 {
+		return nil, unread[0]
+	}
+	return out, nil
+}
+
+// ManifestsTolerant is Manifests that SKIPS, rather than refuses, a loophole directory whose
+// manifest is missing or does not decode, and returns each one it skipped. It is the seed's read
+// (tools/pack-binaries, `just install`): yolo loads a loophole only where a pack.json names it,
+// and reads its manifest tolerantly, so a stray directory or a manifest mid-edit is nothing an
+// install should stop for. The gates read strictly (Manifests), and the census in the short suite
+// refuses either.
+func ManifestsTolerant(fsys fs.FS) ([]Entry, []error, error) {
+	return manifests(fsys)
+}
+
+// manifests is the walk both read: every entry it could decode, and each loophole directory it
+// could not, in path order. err is a packs tree it could not list at all.
+func manifests(fsys fs.FS) ([]Entry, []error, error) {
 	packDirs, err := fs.ReadDir(fsys, ".")
 	if err != nil {
-		return nil, fmt.Errorf("reading the packs tree: %w", err)
+		return nil, nil, fmt.Errorf("reading the packs tree: %w", err)
 	}
 	var out []Entry
+	var unread []error
 	for _, p := range packDirs {
 		if !p.IsDir() {
 			continue
@@ -50,18 +74,20 @@ func Manifests(fsys fs.FS) ([]Entry, error) {
 			rel := path.Join(p.Name(), "loopholes", l.Name(), loopholedecl.ManifestName)
 			data, err := fs.ReadFile(fsys, rel)
 			if err != nil {
-				return nil, fmt.Errorf("%s: %w", path.Join(dir, loopholedecl.ManifestName), err)
+				unread = append(unread, fmt.Errorf("%s: %w", path.Join(dir, loopholedecl.ManifestName), err))
+				continue
 			}
 			m, err := loopholedecl.Decode(data, dir)
 			if err != nil {
-				return nil, err
+				unread = append(unread, err)
+				continue
 			}
 			out = append(out, Entry{Pack: p.Name(), Loophole: l.Name(),
 				Path: path.Join(dir, loopholedecl.ManifestName), Manifest: m})
 		}
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Path < out[j].Path })
-	return out, nil
+	return out, unread, nil
 }
 
 // WithBinaries is the entries that declare `binaries`: the manifests the matrix is about.

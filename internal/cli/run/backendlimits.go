@@ -64,18 +64,17 @@ func backendLimits(rt string, packs []*packload.Pack, cfg *jsonx.OrderedMap, rel
 	// shared and stayed silent about the ones that are. SharedDirs is `scope: machine`,
 	// which the layout deliberately leaves real in the account home and mirrors into the
 	// sidecar, and it is the tier this sentence has always been describing.
-	// "state", not "history", since 2026-09-21: the machine tier stopped being credential
-	// and history directories alone when packs/pi declared `.pi-shared-npm`, its extension
-	// package store. An agent told to expect "history that is not yours" in a node_modules
-	// tree has been handed a sentence that does not describe what it will find — and the
-	// thing it does need to know about a shared store is the opposite of history's: another
-	// workspace's session can change the packages under it WHILE this one runs.
+	// "state", not "history", since 2026-09-21, when packs/pi declared `.pi-shared-npm`, its
+	// extension package store, in the machine tier. The store left that tier on 2026-10-05
+	// (XB-D14 of docs/design/pi-extension-store-builds.md), and with it the clause naming "a
+	// package store it installed into": no shipped pack shares one, and a sentence naming what
+	// the agent will not find is acted on for the whole session.
 	if dirs := packload.SharedDirs(packs); len(dirs) > 0 {
 		out = append(out, "Your home is SHARED by every workspace on this machine, not "+
 			"scoped to this project — "+strings.Join(dirs, ", ")+" are the same directories "+
 			"another workspace's session reads and writes. Treat anything you put there as "+
 			"visible outside this project, and expect to find state that is not yours: "+
-			"another workspace's login, its history, or a package store it installed into.")
+			"another workspace's login or its history.")
 	}
 
 	// ⚠ A PARAGRAPH WAS DELETED HERE ON 2026-09-13, and deleting it is the point. It told

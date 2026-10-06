@@ -1,10 +1,12 @@
 # `github` — GitHub without a token in the jail
 
 The jail's `gh` runs your **host's own** `gh` login, through a broker on the host, against
-this workspace's own GitHub repositories. The jail holds no GitHub credential. Every call
+this workspace's GitHub repositories: the ones its remotes name, and any its config lists, as you
+approved them at launch. The jail holds no GitHub credential. Every call
 the broker is sent is recorded on the host, and `yolo audit` lists them.
 
-Design: [`boundary-broker.md`](../../docs/design/boundary-broker.md). This is step 1 of its
+Design: [`boundary-broker.md`](../../docs/design/boundary-broker.md), and for the repositories a
+project lists, [`workspace-widening.md`](../../docs/design/workspace-widening.md). This is step 1 of its
 [§11](../../docs/design/boundary-broker.md#11-recommendation-and-the-first-build-slice): **read-only**. A write (`gh pr comment`, `gh issue edit`, `gh api -X POST …`) exits 77
 at once: writes need an approval step that is not built yet, so nothing runs and nothing waits,
 and the message says to run the command on the host.
@@ -48,13 +50,17 @@ of a workspace with a GitHub remote asks once, in its config-change prompt, to a
 `.git/config`. With no terminal, pass `--accept-config-changes`, or run
 `yolo check --accept-config-changes` on the host first.
 
-To add a repository the workspace has no remote for, list it for that one workspace in the
-user config, in what yolo calls a **widening entry**; the launch names what it added, and
-`yolo config-ref` documents the key:
+To add a repository the workspace has no remote for, list it in the workspace's own config,
+`yolo-jail.jsonc`, or `yolo-jail.local.jsonc` for one the project should not commit. The next
+fresh launch shows it as a row of the repository-scope prompt, naming its file, and asks you to
+approve it; `yolo config-ref` documents the key:
 
 ```jsonc
-"brokered": { "github": { "workspaces": { "~/code/app": { "repos": ["org/lib"] } } } }
+"brokered": { "github": { "repos": ["org/lib"] } }
 ```
+
+An agent may add one: a repository outside the scope is refused with a message telling the agent
+where to add it and to ask you to restart the jail and approve it.
 
 ## What runs
 
@@ -62,7 +68,7 @@ user config, in what yolo calls a **widening entry**; the launch names what it a
 | :--- | :--- |
 | Runs | the read-only set, against an approved repository: `pr view/list/diff/status/checks`, `issue view/list/status`, `run view/list/watch`, `workflow view/list`, `repo view/read-file/read-dir`, `release view/list`, `label list`, `secret list`, `search` with an in-scope `--repo`, `api` GET under `repos/OWNER/REPO`, and more |
 | Exit 77 | every write, at once: it needs an approval step that is not built yet; run it on the host, where `yolo audit --set read-write` shows the exact command |
-| Exit 64 | anything that could print the credential or reach the host (`auth token`, `--web`, `api` to a URL, host-file arguments, …), and anything outside the repository scope, including account-wide commands such as an unqualified `search` or any GraphQL call, which no widening entry admits |
+| Exit 64 | anything that could print the credential or reach the host (`auth token`, `--web`, `api` to a URL, host-file arguments, …), and anything outside the repository scope, including account-wide commands such as an unqualified `search` or any GraphQL call, which no `brokered.github.repos` entry admits |
 | Exit 69 | no broker in this jail, or no `gh` or login on the host |
 
 stdout, stderr and the exit code of a command that runs cross verbatim, and `--jq` and

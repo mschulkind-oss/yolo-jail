@@ -263,7 +263,7 @@ among them, because the vendor offers no way ([F1](#F1)).
 | C | **Tunnel mode through the wire bridge.** `ANTHROPIC_UNIX_SOCKET` names a socket the bridge serves, with `CLAUDE_CODE_OAUTH_TOKEN=ssh-placeholder`. The bridge injects the broker's current access token | both gone | works: a socket path has no port | `macos-user` needs a host-side server and a sandbox rule for the socket; on Apple Container the bridge has no reachable token source, since the host broker is not admitted there | **all of it**, in plaintext on the socket, re-encrypted by yolo | gone: no credential in the jail | yolo owns a man-in-the-middle on inference, which [`claude-oauth-interposition.md`](../reference/claude-oauth-interposition.md#the-rejected-alternative-no-credential-in-the-jail-at-all) rejected. Account calls outside the socket are UNMEASURED ([F7](#F7)) |
 | D | **`ANTHROPIC_BASE_URL` at the bridge** with a placeholder credential | both gone | works | as C | all model traffic | gone | Fails outright: account calls send the placeholder and trigger the dead-token clear, and a custom base URL turns off Remote Control, tool search and the artifacts policy lookup ([F11](#F11)) |
 | E | **One `claude setup-token` per machine,** handed to every launch as `CLAUDE_CODE_OAUTH_TOKEN` | both gone | works | works | no | gone: no refresh token exists | Inference only: no Remote Control, no claude.ai connectors, no profile scope ([F9](#F9)). An organization policy may forbid it. A one-year bearer in every jail's environment, against eight hours today. Re-enrollment once a year |
-| F | **Stop sharing the login** ([OQ-CI1](../reference/claude-oauth-interposition.md#oq-ci1)) | both gone | works | works | no | gone: nothing is shared | One `/login` per workspace, through manual paste, which [`packhooks.go`](../../internal/entrypoint/packhooks.go)'s `linkSharedCredential` comment calls *"wrong behavior, not an inconvenience"* |
+| F | **Stop sharing the login** ([OQ-CI1](../reference/claude-oauth-interposition.md#OQ-CI1)) | both gone | works | works | no | gone: nothing is shared | One `/login` per workspace, through manual paste, which [`packhooks.go`](../../internal/entrypoint/packhooks.go)'s `linkSharedCredential` comment calls *"wrong behavior, not an inconvenience"* |
 
 **Why A over the others.** It is the only option that removes the CA and the listener without
 putting yolo in the model path and without cutting Claude's account features. It uses a mechanism
@@ -424,7 +424,7 @@ Every step is in the
   the two brokers into one engine was the OpenAI design's stated intent, which the build did not
   follow ([two flock transactions](../reference/agent-credentials.md#openai-one-writer)), and it
   is not a prerequisite.
-- **[OQ-CI1](../reference/claude-oauth-interposition.md#oq-ci1).** This design keeps the login
+- **[OQ-CI1](../reference/claude-oauth-interposition.md#OQ-CI1).** This design keeps the login
   shared and answers the reason that question was asked: sharing the grant rather than the file
   removes the costs it listed.
 
@@ -557,7 +557,7 @@ implementation decision under them.
 | Doc | Why it reads with this one |
 | :--- | :--- |
 | [`notch-convergence.md`](../plans/notch-convergence.md#OQ-NC2) | [OQ-NC2](../plans/notch-convergence.md#OQ-NC2), the terminator on a shared namespace, which the view dissolves; [NC-D15](../plans/notch-convergence.md#NC-D15), the refresh-token caller check this deletes along with its listener |
-| [`claude-oauth-interposition.md`](../reference/claude-oauth-interposition.md#why-there-is-a-file-on-disk-at-all) | the channel table this doc re-reads for 2.1.284, the interception it retires, and [OQ-CI1](../reference/claude-oauth-interposition.md#oq-ci1) |
+| [`claude-oauth-interposition.md`](../reference/claude-oauth-interposition.md#why-there-is-a-file-on-disk-at-all) | the channel table this doc re-reads for 2.1.284, the interception it retires, and [OQ-CI1](../reference/claude-oauth-interposition.md#OQ-CI1) |
 | [`agent-credentials.md`'s OpenAI service](../reference/agent-credentials.md#openai-one-writer) | the one-writer, two-views design this copies |
 | [`agent-credentials.md`](../reference/agent-credentials.md#the-claude-oauth-broker) | the broker's rulings, its floors and the background refresher [CL-D5](#CL-D5) retunes |
 | [`claude-oauth-refresh-mechanics.md`](../research/claude-oauth-refresh-mechanics.md) | the vendor's refresh state machine, including why writing the file is the right hook |

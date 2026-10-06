@@ -74,8 +74,9 @@ is what it takes over, and [§5](#5-how-terrible-is-it) answers "how terrible is
 [OQ-JL6](#OQ-JL6), [OQ-JL7](#OQ-JL7) and [OQ-JL8](#OQ-JL8) A, all 2026-09-29):
 
 - [OQ-JL9](#OQ-JL9): at `yolo host`, does the keeper also hold what one launch starts for its own
-  agent: the bridge's host half, which no other launch uses, and the Codex refresh adapter, whose
-  managed home every host Codex launch on the machine already shares.
+  agent: the bridge's host half and the AWS doorway, which no other launch uses, and the Codex
+  refresh adapter, whose managed home every host Codex launch on the machine already shares.
+- [OQ-JL10](#OQ-JL10): does an interrupt before ready spare a jail another session has entered.
 
 **Reads with:** [`herdr-integration.md` §3.4](../research/herdr-integration.md#34-closing-a-pane-is-a-kill)
 (what closing a pane does), and
@@ -1772,7 +1773,7 @@ inherited descriptor above 2, no lifeline could cross it to end what it started.
 
 **At `yolo host`, the sidecars and the ping box.** Every sidecar is host side there. What a
 launch starts for its own agent (the bridge's host half, the managed Codex refresh adapter, and
-the AWS doorway once built, [HS-D20](host-notch-services.md#HS-D20)) is
+the AWS doorway, built 2026-09-29 as [HS-D21](host-notch-services.md#HS-D21)) is
 [OQ-JL9](#OQ-JL9)'s: under its leaning, A, it stays the launch's own, and the managed Codex home
 keeps NC-D18's machine-wide token and lock; under B the keeper holds each launch's services; under
 C it holds the Codex adapter over a Codex home made per workspace.
@@ -2027,8 +2028,9 @@ starts it"*. From now on it reads this way ([JL-D43](#JL-D43)):
   launch opens the doorway outside as a launch-owned listener"* name the owner those notches had
   when it was ruled. At macos-user the owner is now the keeper ([JL-D38](#JL-D38)), and the
   doorway still listens on the machine's loopback, outside Seatbelt, behind the caller token the
-  plan carries. At `yolo host` the Codex adapter stays launch-owned under [OQ-JL9](#OQ-JL9)'s
-  leaning, and the AWS doorway is not built ([HS-D20](host-notch-services.md#HS-D20)).
+  plan carries. At `yolo host` the Codex adapter and the AWS doorway
+  ([HS-D21](host-notch-services.md#HS-D21)) stay launch-owned under [OQ-JL9](#OQ-JL9)'s
+  leaning.
 - **[`host-notch-services.md` §4.4](host-notch-services.md#44-lifetime)'s steps move to the keeper
   for what it holds.** Order and readiness are unchanged. "The agent exits" becomes "the key's
   last session exits". "The launch dies without cleanup" becomes "the keeper dies", with the same
@@ -2205,6 +2207,10 @@ agent, and the two kinds differ in what they share:
 - **The bridge's host half**, which the first terminal's claude needs, is that launch's alone.
   Its port and secret go into that claude's environment and into no file another launch reads
   ([§9.9.1](#991-where-the-re-entry-problem-is-real)).
+- **The AWS doorway**, which a launch opens when its agent's profile selects a Bedrock provider
+  and `aws-auth` is enabled, is that launch's alone too: a port it picked, a caller token it
+  minted and a host-services dir of its own, handed to that agent alone
+  ([HS-D21](host-notch-services.md#HS-D21)).
 - **The Codex refresh adapter** listens on a port of each launch's own, but all three Codex
   sessions, in both workspaces, run on one managed Codex home in yolo's machine-wide state, so on
   one `auth.json`, which Codex rereads before every refresh. Re-entry already broke it once: each
@@ -2234,7 +2240,7 @@ alone, or the managed Codex home has to change what it is.
   Codex token still follows NC-D18's machine-wide lock, since the home is still shared across
   workspaces. The processes move and the ownership does not.
 - **C. The keeper holds the Codex adapter, over a Codex home made per workspace, and the bridge
-  stays the launch's own.** A workspace's host Codex sessions share one adapter and one token the
+  and the AWS doorway stay the launch's own.** A workspace's host Codex sessions share one adapter and one token the
   keeper mints, as a jail's sessions do, and NC-D18's lock retires for them. Matt sees the Codex
   adapter on the keeper's line. The cost: Codex's sessions and history at `yolo host` split per
   workspace, as they already are in a jail and at macos-user, where `.codex` is a per-workspace
@@ -2452,7 +2458,7 @@ would need, and nothing has measured it.
    - **A. They stay the launch's own, as today.**
    - **B. The keeper holds them, still one per launch.**
    - **C. The keeper holds the Codex adapter, over a Codex home made per workspace, and the bridge
-     stays the launch's own.**
+     and the AWS doorway stay the launch's own.**
 
    <!-- vantage: question id=OQ-JL9 leaning="A: the keeper holds what a workspace's sessions share, at the scope they share it; the bridge is shared by no one, and the Codex home is shared by the whole machine, where NC-D18 already counts it; B moves processes without moving ownership, and C splits Codex's history per workspace to retire one count and still leaves the home-directory launch its own." -->
 
@@ -2462,8 +2468,9 @@ would need, and nothing has measured it.
    whole machine, and NC-D18 already counts it at that scope, built and correct. B moves processes
    without moving the ownership. C retires one count by splitting Codex's history per workspace,
    and still leaves the home-directory launch its own. **The trap:** if "one ownership model"
-   means one owner per workspace for every host service, C is the answer, and Codex at `yolo host`
-   then keeps its history per workspace, as it does in a jail.
+   means one owner per workspace for every host service, C is the answer, with the AWS doorway moved
+   to the keeper too, and Codex at `yolo host` then keeps its history per workspace, as it does in
+   a jail.
 
    **Answer:**
    > _(empty — fill in when decided)_

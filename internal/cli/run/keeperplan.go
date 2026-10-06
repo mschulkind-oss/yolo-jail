@@ -23,6 +23,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/launchservice"
 	"github.com/mschulkind-oss/yolo-jail/internal/loopholes"
@@ -64,8 +65,10 @@ type keeperPlan struct {
 	// to know whose jail daemon this launch serves.
 	Payload []loopholes.JailDaemonSpec `json:"payload"`
 	// ApprovedScopes is the repository scope the config-change gate approved, per brokered
-	// loophole (Options.approvedScopes), which the keeper writes into each broker's scope file.
-	ApprovedScopes map[string][]string `json:"approved_scopes,omitempty"`
+	// loophole (Options.approvedScopes): each repository and its sources, which the keeper writes
+	// into each broker's scope file and names on the launch line. It is the gate's own result;
+	// the keeper never derives it from Config, the merged config read before the gate (WW-P2).
+	ApprovedScopes map[string][]config.ScopeRepo `json:"approved_scopes,omitempty"`
 	// Forwards are the host ports the jail reaches through socket forwards, parsed and disclosed by
 	// the launch, and ForwardDir the per-jail socket directory, "" when there are none.
 	Forwards   []PortForward `json:"forwards,omitempty"`

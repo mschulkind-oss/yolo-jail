@@ -123,6 +123,13 @@ type advanceOptions struct {
 	// the act's, and once a Ctrl-C has ended any advance of the act, a later one checks and builds
 	// nothing (actStopped). nil for an advance that is an act of its own.
 	act *run.ActInterrupt
+	// pool, ctx and started are a PARALLEL ADVANCE's (treepool.go, XB-D10): the bounds on its checks
+	// and builds; the context of the one interrupt scope the whole pool runs under, which this
+	// advance reads in place of opening a scope of its own (one per concurrent advance would catch a
+	// Ctrl-C in the innermost alone); and the line its build says at once. All nil outside a pool.
+	pool    *advancePool
+	ctx     context.Context
+	started func()
 }
 
 // installedCopy is a copy of the program that runs outside the capture store: the host floor's
@@ -234,8 +241,25 @@ func advancePatchedFork(f packload.Fork, o advanceOptions) advanceResult {
 	if early != nil {
 		return *early
 	}
-	if o.launch && o.act.Interrupted() {
+	if o.launch && (o.act.Interrupted() || o.ctx != nil && o.ctx.Err() != nil) {
 		return a.actStopped()
+	}
+	if o.launch && o.ctx != nil {
+		// IN A PARALLEL ADVANCE (treepool.go): the pool's one interrupt scope is this advance's, so
+		// one Ctrl-C ends every key's wait at once, a first build's included (XB-D10).
+		a.ctx = o.ctx
+		a.packs.Ctx = o.ctx
+		res := a.run()
+		switch {
+		case o.ctx.Err() == nil || res.built:
+		case a.serves():
+			a.pr.Printf("[yellow]%s[/yellow]", richtext.Escape(fmt.Sprintf("%s: the advance was interrupted — %s "+
+				"%s; %s tries again", f.Label(), a.startsOn(), a.servingName(), a.next())))
+		default:
+			a.warn("%s: not built — a Ctrl-C ended %s's wait, and %s; %s builds it, or `yolo capture %s` now",
+				f.Label(), a.waiter(), a.hasNo(), a.next(), f.CaptureArg())
+		}
+		return res
 	}
 	if !o.launch || !a.serves() {
 		return a.run()
@@ -353,7 +377,7 @@ func (a *advance) dim(format string, args ...any) {
 // goodLine is the good build as the lines name what keeps running: "<label> + N patches".
 func (a *advance) goodLine() string {
 	g := a.rec.Good
-	return run.GoodBuildLabel(g) + " + " + run.PatchCount(g.Patches)
+	return run.WithPatches(run.GoodBuildLabel(g), g.Patches)
 }
 
 // run is the advance proper, from the check to the hand.
@@ -380,11 +404,16 @@ func (a *advance) run() advanceResult {
 			list = []packsrc.ListEntry{goodEntry(good)}
 		}
 	} else {
-		res := a.packs.CheckPatched(f.CheckWant(a.series), packsrc.CheckOptions{Force: a.o.force, Now: patchedNow,
-			Begin: func() (func(string), func()) {
-				a.dim("checking %s's upstream %s", f.Label(), f.Source)
-				return func(line string) { a.dim("%s", line) }, func() {}
-			}})
+		// Under a CHECK SLOT in a parallel advance (XB-D10): a Ctrl-C while it waits for one ends it
+		// unchecked, as one during the check does.
+		var res packsrc.CheckResult
+		a.o.pool.check(a.ctx, func() {
+			res = a.packs.CheckPatched(f.CheckWant(a.series), packsrc.CheckOptions{Force: a.o.force, Now: patchedNow,
+				Begin: func() (func(string), func()) {
+					a.dim("checking %s's upstream %s", f.Label(), f.Source)
+					return func(line string) { a.dim("%s", line) }, func() {}
+				}})
+		})
 		if a.interrupted() {
 			// A CTRL-C ENDED THE CHECK, whose fetch it cut short: no fetch failed, so the stamp the
 			// attempt wrote goes, and the next launch checks again rather than an hour later (§6.2:
@@ -472,16 +501,22 @@ func (a *advance) run() advanceResult {
 	}
 	switch {
 	case a.serves() && good != nil && list[0].Commit != good.Commit:
-		a.say("%s: upstream moved — %s is newer than the good build %s; replaying the series", f.Label(),
-			list[0].Label(), run.GoodBuildLabel(good))
+		a.say("%s: upstream moved — %s is newer than the good build %s; %s", f.Label(),
+			list[0].Label(), run.GoodBuildLabel(good), a.replaying("replaying the series"))
 	case edited:
-		a.say("%s: its series or build recipe changed since the good build %s; replaying the edited series",
-			f.Label(), run.GoodBuildLabel(good))
+		if a.unmodified() {
+			a.say("%s: its build recipe changed since the good build %s; building it again", f.Label(),
+				run.GoodBuildLabel(good))
+		} else {
+			a.say("%s: its series or build recipe changed since the good build %s; replaying the edited series",
+				f.Label(), run.GoodBuildLabel(good))
+		}
 	case good != nil && a.serving == nil:
 		a.say("%s: the good build %s is gone from the capture store; building it again", f.Label(),
 			run.GoodBuildLabel(good))
 	case good == nil:
-		a.say("%s: no build of it on this machine yet; replaying its %s", f.Label(), run.PatchCount(a.series.Len()))
+		a.say("%s: no build of it on this machine yet; %s", f.Label(),
+			a.replaying("replaying its "+run.PatchCount(a.series.Len())))
 	}
 	w := a.walk(list, base == baseNone)
 	if a.interrupted() {
@@ -863,7 +898,7 @@ func (a *advance) entryWithVersion(e packsrc.ListEntry) packsrc.ListEntry {
 // next steps — or, when the series' base is built next (thenBase), that.
 func (a *advance) buildFailedLines(b forkBuild, err error, retryAt time.Time) {
 	f := a.f
-	what := b.Entry.Label() + " + " + run.PatchCount(b.Series.Len())
+	what := run.WithPatches(b.Entry.Label(), b.Series.Len())
 	tail := a.runsNow()
 	if a.thenBase {
 		tail = a.baseNext()
@@ -903,10 +938,10 @@ func (a *advance) build(b forkBuild, base baseWhy, edited bool) advanceResult {
 		if a.serving == nil {
 			runs = a.servingName()
 		}
-		a.say("%s: %s takes the series; building it — %s waits for it, at most %s, and a Ctrl-C "+
-			"%s %s instead", f.Label(), b.Entry.Label(), a.waiter(), forkBuildWaitBound, a.ctrlCStarts(), runs)
+		a.say("%s: %s; building it — %s waits for it, at most %s, and a Ctrl-C "+
+			"%s %s instead", f.Label(), a.takes(b.Entry), a.waiter(), forkBuildWaitBound, a.ctrlCStarts(), runs)
 	case base == baseNone:
-		a.say("%s: %s takes the series; building it", f.Label(), b.Entry.Label())
+		a.say("%s: %s; building it", f.Label(), a.takes(b.Entry))
 	}
 	a.thenBase = base == baseNone && !a.serves() && a.baseFallback() && b.Commit != a.series.Base
 	startFail := a.buildFailure(b.Commit)
@@ -922,12 +957,29 @@ func (a *advance) build(b forkBuild, base baseWhy, edited bool) advanceResult {
 	if a.o.launch {
 		mode.lock = pidlock.Mode{Wait: true, Bound: forkBuildWaitBound, Cancel: a.ctx.Done()}
 		mode.afterLock = func() (*capture.Entry, error, bool) { return a.afterLock(b, startGood, startFail) }
-		if a.serves() {
+		// A CHILD whenever a Ctrl-C must end the build and not the launch: a good build serves
+		// (PF-D25), or the advance is one of a pool's (XB-D10), whose builds run side by side — two
+		// in-process build jails would share this process's signal arms.
+		if a.serves() || a.o.ctx != nil {
 			mode.runJail = func(staging string, b forkBuild, s captureStreams) int {
 				rc, bound := forkBuildChild(a.ctx, forkBuildWaitBound, staging, b, s, a.o.color)
 				a.boundHit = bound
 				return rc
 			}
+		}
+	}
+	if jail := mode.runJail; jail != nil && a.o.pool != nil {
+		// Under a BUILD SLOT (XB-D10), saying at once that it started; a Ctrl-C while it waits for one
+		// ends it unbuilt, as one during the build does (130, read by settle as the interrupt).
+		mode.runJail = func(staging string, b forkBuild, s captureStreams) int {
+			rc := 130
+			a.o.pool.build(a.ctx, func() {
+				if a.o.started != nil {
+					a.o.started()
+				}
+				rc = jail(staging, b, s)
+			})
+			return rc
 		}
 	}
 	var settled *advanceResult
@@ -1142,7 +1194,7 @@ func (a *advance) moved(b forkBuild, entry *capture.Entry, base baseWhy, edited 
 			"and this build is reaped", a.f.Label(), a.runner())
 		return r
 	}
-	what := b.Entry.Label() + " + " + run.PatchCount(b.Series.Len())
+	what := run.WithPatches(b.Entry.Label(), b.Series.Len())
 	switch {
 	case prev == nil:
 		a.pr.Printf("[bold]%s[/bold]", richtext.Escape("built "+a.f.Label()+": "+what+"; "+a.runner()+" runs it"+a.baseClause(base)))
@@ -1150,13 +1202,48 @@ func (a *advance) moved(b forkBuild, entry *capture.Entry, base baseWhy, edited 
 		a.pr.Printf("[bold]%s[/bold]", richtext.Escape("rebuilt "+a.f.Label()+": "+what+"; "+a.runner()+" runs it"+a.baseClause(base)))
 	case edited:
 		a.pr.Printf("[bold]%s[/bold]", richtext.Escape("updated "+a.f.Label()+": "+run.GoodBuildLabel(prev)+
-			" → "+b.Entry.Label()+", the edited series ("+run.PatchCount(b.Series.Len())+", series "+
-			b.Series.ShortDigest()+"); "+a.runner()+" runs the new build"+a.baseClause(base)))
+			" → "+b.Entry.Label()+a.editedSeries(b)+"; "+a.runner()+" runs the new build"+a.baseClause(base)))
 	default:
+		count := ""
+		if b.Series.Len() > 0 {
+			count = ", " + run.PatchCount(b.Series.Len())
+		}
 		a.pr.Printf("[bold]%s[/bold]", richtext.Escape("updated "+a.f.Label()+": "+run.GoodBuildLabel(prev)+" → "+
-			b.Entry.Label()+", "+run.PatchCount(b.Series.Len())+"; "+a.runner()+" runs the new build"+a.baseClause(base)))
+			b.Entry.Label()+count+"; "+a.runner()+" runs the new build"+a.baseClause(base)))
 	}
 	return r
+}
+
+// unmodified reports whether this advance is an UNMODIFIED EXTENSION's: an empty series, which every
+// entry of the walk's list fits, so nothing is replayed and nothing is held at a base
+// (docs/design/pi-extension-store-builds.md §4.2).
+func (a *advance) unmodified() bool { return a.series != nil && a.series.Len() == 0 }
+
+// replaying is what the advance does next with the upstream: patched, the replay its lines name;
+// unmodified, a build of the upstream as it is.
+func (a *advance) replaying(patched string) string {
+	if a.unmodified() {
+		return "building its upstream"
+	}
+	return patched
+}
+
+// takes is the line that names the entry the advance builds: "<entry> takes the series", or for an
+// unmodified extension the entry alone, which nothing needs to take.
+func (a *advance) takes(e packsrc.ListEntry) string {
+	if a.unmodified() {
+		return "upstream " + e.Label()
+	}
+	return e.Label() + " takes the series"
+}
+
+// editedSeries is the move line's account of an edited recipe: the series' count and digest for a
+// patched build, nothing for an unmodified one, whose series cannot change.
+func (a *advance) editedSeries(b forkBuild) string {
+	if b.Series.Len() == 0 {
+		return ", the edited build"
+	}
+	return ", the edited series (" + run.PatchCount(b.Series.Len()) + ", series " + b.Series.ShortDigest() + ")"
 }
 
 // baseClause is the move line's last clause for a build at the series' base: why it is there, and
@@ -1535,11 +1622,11 @@ func replayIntoSource(packs *packsrc.Store, b forkBuild, dst string, spent time.
 	if packs == nil {
 		packs = packsrc.LaunchStore(paths.PacksDir())
 	}
-	a, err := packsrc.Parse(b.Fork.Source)
-	if err != nil {
-		return "", err
+	repo := packsrc.CheckRepo(b.Fork.Source)
+	if repo == "" {
+		return "", fmt.Errorf("%s names no upstream to check out", b.Fork.Source)
 	}
-	w := packs.WalkSeries(a.Repo, a.Path, b.Series, []packsrc.ListEntry{b.Entry}, packsrc.WalkOptions{
+	w := packs.WalkSeries(repo, subdirOf(b.Fork.Source), b.Series, []packsrc.ListEntry{b.Entry}, packsrc.WalkOptions{
 		Spent: spent, OnFit: func(tree string) error { return copySourceTree(tree, dst) }})
 	switch {
 	case w.Base != nil:

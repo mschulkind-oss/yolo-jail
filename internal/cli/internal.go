@@ -540,8 +540,8 @@ func runInstallerCheck(args []string, errw io.Writer) int {
 }
 
 // noTerminalVerb is `yolo internal no-terminal [--timeout=SECONDS] [--kill-after=SECONDS] --
-// <command> [args...]`, the name the generated launchers call, spelled once in entrypoint
-// (NoTerminalVerb) so the two cannot drift.
+// <command> [args...]` (and its `--detach --log=FILE` form), the name the generated launchers
+// call, spelled once in entrypoint (NoTerminalVerb) so the two cannot drift.
 const noTerminalVerb = entrypoint.NoTerminalVerb
 
 // runNoTerminal runs args after `--` with no controlling terminal and a /dev/null stdin, its
@@ -549,7 +549,9 @@ const noTerminalVerb = entrypoint.NoTerminalVerb
 // (notty.Main: 128+N for a death by signal N, 124 for a run its --timeout ended, 127 for a command
 // that could not start, 2 for misuse). A command stopped by a signal this verb forwarded to it ends
 // the verb by that signal instead (notty.WrapperExit), so a Ctrl-C at an installer still stops the
-// launcher that ran it.
+// launcher that ran it. With `--detach --log=FILE` it starts the command in a session of its own,
+// its output appended to FILE, and exits 0 without waiting: a launcher's background pre-launch
+// refresh (docs/design/program-delivery.md OQ-PD31).
 func runNoTerminal(args []string) int { return notty.Main(noTerminalVerb, args) }
 
 // runNodeFloorLaunchers is `yolo internal node-floor-launchers --pending=<dir> --launch=<dir>

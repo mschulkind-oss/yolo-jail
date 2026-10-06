@@ -126,7 +126,7 @@ func applyUserLayer(base *jsonx.OrderedMap, baseNode *srcNode, record bool) (*js
 	if path == "" {
 		return base, baseNode
 	}
-	layer, layerNode, err := loadWithIncludes(path, "--user-layer "+path, false, func(string) {}, nil, record)
+	layer, layerNode, err := loadWithIncludes(path, "--user-layer "+path, false, func(string) {}, nil, record, readAt{})
 	if err != nil || layer == nil || layer.Len() == 0 {
 		return base, baseNode
 	}
@@ -184,7 +184,7 @@ func loadUserScopeConfig(path, label string, strict bool, warn Warn) (*jsonx.Ord
 // loadUserScope is loadUserScopeConfig with the provenance (sources.go) beside the map when
 // record is set.
 func loadUserScope(path, label string, strict bool, warn Warn, record bool) (*jsonx.OrderedMap, *srcNode, error) {
-	cfg, node, err := loadWithIncludes(path, label, strict, warn, nil, record)
+	cfg, node, err := loadWithIncludes(path, label, strict, warn, nil, record, readAt{})
 	if err != nil {
 		return nil, nil, err
 	}
@@ -226,7 +226,7 @@ func applyInheritedLaunch(base *jsonx.OrderedMap, baseNode *srcNode, record bool
 	if path == "" {
 		return base, baseNode
 	}
-	inherited, _, inheritedNode, err := loadJSONCFile(path, "inherited launch config", false, func(string) {}, record)
+	inherited, _, inheritedNode, err := loadJSONCFile(path, "inherited launch config", false, func(string) {}, record, readAt{})
 	if err != nil || inherited == nil || inherited.Len() == 0 {
 		return base, baseNode
 	}

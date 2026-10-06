@@ -23,3 +23,17 @@ func TestVisible(t *testing.T) {
 		}
 	}
 }
+
+// VisibleLines keeps the newlines a multi-line message was written with and escapes every other
+// unsafe rune, a tab and a carriage return among them.
+func TestVisibleLines(t *testing.T) {
+	for in, want := range map[string]string{
+		"plain\n  second line":      "plain\n  second line",
+		"a\x1b]0;owned\a\nb\x1b[2K": `a\x1b]0;owned\a` + "\n" + `b\x1b[2K`,
+		"tab\there\r\n":             `tab\there\r` + "\n",
+	} {
+		if got := VisibleLines(in); got != want {
+			t.Errorf("VisibleLines(%q) = %q, want %q", in, got, want)
+		}
+	}
+}

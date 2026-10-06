@@ -117,7 +117,10 @@ func TestPlan(t *testing.T) {
 	}{
 		{Channel{Kind: KindSource, Exe: "/home/u/.local/bin/yolo", SourceDir: "/src/yolo-jail"}, []string{
 			"git pull --ff-only   (in /src/yolo-jail)",
-			"GOBIN=/home/u/.local/bin just deploy   (in /src/yolo-jail)",
+			// YOLO_INSTALL_KEEP_TREE: the deploy builds upstream's tree as pulled and never
+			// re-pins an official pack program into it, so the checkout stays clean and an
+			// autostash pops back onto it (docs/design/broker-as-a-pack.md BP-D31).
+			"GOBIN=/home/u/.local/bin YOLO_INSTALL_KEEP_TREE=1 just deploy   (in /src/yolo-jail)",
 		}},
 		// Without HOMEBREW_NO_INSTALL_CLEANUP=1, brew deletes the old keg that
 		// running jails bind-mount their binaries from.

@@ -91,6 +91,16 @@ func (o *Options) roBindsUnsupported(rt string) string {
 	return detail + ". Use `YOLO_RUNTIME=podman` for read-only context mounts."
 }
 
+// BuildJailsSideBySide reports whether a launch on rt may start a second capture jail while one
+// runs: false on Apple Container, where a capture jail cannot start beside a running jail (INFERRED,
+// docs/design/program-delivery.md OQ-PD25, patched-forks.md §9), and true elsewhere. Two readers
+// agree on it: the parallel advance's build bound, 1 here
+// (docs/design/pi-extension-store-builds.md XB-D10), and the background advance's "checks but
+// builds nothing" there (XB-D21).
+func BuildJailsSideBySide(rt string) bool {
+	return rt != "container" // parity: Honored — every other backend starts capture jails side by side (macos-user builds none)
+}
+
 // appleContainerVersion returns the `container` CLI's version, memoized for this launch.
 //
 // MEMOIZED because four call sites ask (the argv twice, the host-mount grants, and the

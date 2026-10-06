@@ -11,7 +11,8 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/loopholedecl"
 )
 
-// buildPin is what `pin` writes for one build: its url and its sha256.
+// buildPin is what `pin` writes for one build: its sha256, and its url unless URL is "", which
+// keeps the url the manifest has (the digest-only pin main makes between releases, BP-D15).
 type buildPin struct {
 	Binary, Platform, URL, SHA256 string
 }
@@ -27,7 +28,11 @@ func pinManifest(data []byte, pins []buildPin) ([]byte, error) {
 	}
 	var edits []edit
 	for _, p := range pins {
-		for _, f := range []struct{ key, value string }{{"url", p.URL}, {"sha256", p.SHA256}} {
+		fields := []struct{ key, value string }{{"sha256", p.SHA256}}
+		if p.URL != "" {
+			fields = append(fields, struct{ key, value string }{"url", p.URL})
+		}
+		for _, f := range fields {
 			path := []string{"binaries", p.Binary, p.Platform, f.key}
 			span, ok, err := json5.Locate(data, path...)
 			if err != nil {
@@ -81,7 +86,7 @@ func writePins(root, rel string, pins []buildPin) (bool, error) {
 				got, found = b.BuildFor(p.Platform)
 			}
 		}
-		if !found || got.URL != p.URL || got.SHA256 != p.SHA256 {
+		if !found || (p.URL != "" && got.URL != p.URL) || got.SHA256 != p.SHA256 {
 			return false, fmt.Errorf("%s: after pinning, %s %s reads back as %+v, not %s %s",
 				rel, p.Binary, p.Platform, got, p.URL, p.SHA256)
 		}

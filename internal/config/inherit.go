@@ -256,11 +256,11 @@ var inheritCensus = map[string]keyDisposition{
 	// A jail's PATH is composed by its own boot (entrypoint.BootPath), and a host folder named here
 	// has no referent in a container, so the key means nothing inside one.
 	"host_path": {reason: "adds folders to the PATH of a `yolo host` launch, which a jail does not have"},
-	// `brokered`: widening entries keyed by HOST workspace paths, read by the host launch that
-	// writes a broker's scope file. Inside a jail no workspace has a host path, so an inherited
-	// entry would match nothing; and a nested launch's own broker serves that jail's login, not
-	// the host user's, so the host user's widening has no referent there either.
-	"brokered": {reason: "keyed by host workspace paths and read by the host launch that starts a broker; nothing in a jail has those paths"},
+	// `brokered`: a workspace's own key, the repositories its broker may reach beyond its remotes,
+	// approved at that workspace's gate (docs/design/workspace-widening.md). In an inherited user
+	// scope it would apply to every workspace a launch inside the jail opens, and user scope now
+	// refuses it; a nested workspace's own config carries its own.
+	"brokered": {reason: "one workspace's own key, approved at its gate; in an inherited user scope it would apply to every workspace an inner launch opens, and user scope refuses it"},
 	// `update_check`: gates a check of the HOST's yolo install, which no in-jail yolo runs
 	// (selfupdate.Enabled is false wherever YOLO_VERSION is set) and a nested launcher's
 	// binary is the image's, updated by rebuilding it rather than by any channel.

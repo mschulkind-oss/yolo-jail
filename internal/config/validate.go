@@ -83,7 +83,7 @@ func ValidateConfig(config *jsonx.OrderedMap, workspace string, resolver Loophol
 	validatePerSidePaths(config, errs)
 	validateLoopholes(config, workspace, resolver, errs, warns)
 	validateBrokerMountFence(config, workspace, resolver, errs, warns)
-	validateBrokered(config, workspace, resolver, errs, warns)
+	validateBrokered(config, workspace, errs, warns)
 	validateWorkspaceFile(workspace, errs, warns)
 	validateJournalRetired(config, errs, warns)
 	validateKVM(config, errs)
@@ -579,7 +579,9 @@ func validateHostManagement(config *jsonx.OrderedMap, workspace string, errs *[]
 // stylistic: `host_wrappers` and `host_apply_on_launch` each decide whether ONE mechanism
 // runs at all, while this one is per PACK — the user who wants their agents current but
 // one of them frozen has a case those keys do not have. So both shapes are accepted, and
-// the object's values must be booleans or the entry is a setting that reads as "on".
+// the object's values must be booleans or the entry is a setting that reads as "on". Either
+// shape may also carry a TIMING string, "launch" or "next-launch" (program-delivery.md
+// OQ-PD30), and any other string is refused for the same reason.
 //
 // The scope half is the same defense-in-depth, and the leak it guards is the sharpest of
 // the three: the value is read from user scope directly (AgentUpdatesWire), because
@@ -611,16 +613,17 @@ func validateAgentUpdates(config *jsonx.OrderedMap, workspace string, errs *[]st
 }
 
 // validateHostFloor shape-checks the `host_floor` opt-out (docs/design/host-tool-provisioning.md
-// OQ-HP1): `agent_updates`' two shapes, by the same shape rule, and user scope only — the floor
-// installs programs the host runs with the user's authority, so a workspace spelling (which an
-// agent can edit) is refused rather than left looking as if it worked.
+// OQ-HP1): `agent_updates`' two boolean shapes, without its timing values (a floor has no
+// timing), and user scope only — the floor installs programs the host runs with the user's
+// authority, so a workspace spelling (which an agent can edit) is refused rather than left looking
+// as if it worked.
 func validateHostFloor(config *jsonx.OrderedMap, workspace string, errs *[]string) {
 	v, present := config.Get(hostFloorKey)
 	if !present {
 		return
 	}
 	if v != nil {
-		if prob := agentUpdatesProblem(v); prob != "" {
+		if prob := packBoolPolicyProblem(v); prob != "" {
 			add(errs, "config."+hostFloorKey+": "+prob)
 		}
 	}

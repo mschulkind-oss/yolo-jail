@@ -31,6 +31,15 @@ func TestTheGitHubPackBriefsEveryAgentOnGHInTheJail(t *testing.T) {
 		"Raw `gh api graphql` is always refused; `gh`'s own commands",
 		"`repos/OWNER/REPO/branches/MS%2Fmain`",
 		"`gh auth status` names the login",
+		// The workspace entry (docs/design/workspace-widening.md WW-D6): where to add a
+		// repository, that the user must restart and approve it, and that nothing changes
+		// before then.
+		"A repository this workspace has no remote for stays out of scope until the user approves it.",
+		"Add it to the `repos` list under `brokered.github` in the workspace config file your environment briefing names",
+		"(create the key only if the file has none)",
+		"or in the local file beside it for what the project should not commit, or when the config file is read-only here",
+		"Then run `yolo check --no-build`, and ask the user to restart the jail and answer y to the repository-scope prompt.",
+		"Nothing changes before that restart.",
 	} {
 		if !strings.Contains(flat, want) {
 			t.Errorf("the github briefing lacks %q:\n%s", want, prose)

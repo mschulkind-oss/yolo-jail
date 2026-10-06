@@ -58,7 +58,7 @@ evidence about those versions, not a claim about every version.
 |---|---|---|
 | Copilot CLI `1.0.20` | `.mcp.json`, `.vscode/mcp.json`, `.devcontainer/devcontainer.json` | the loader `pW` → `jPs` in the installed bundle dispatches on those three basenames and logs `Loaded workspace MCP config from .vscode/mcp.json: N server(s)`; the interactive path calls it with `includeWorkspaceSources: true`, and folder-trust is bypassed under `--yolo`, which `packs/copilot` sets |
 | Claude Code `2.1.278` | project-root `.mcp.json` | the installed binary carries `Project .mcp.json is not a regular file`, `project .mcp.json approval`, and `MCP server … already exists in .mcp.json` |
-| opencode, pi, codex, agy | their own files, not these | `opencode.json`; `~/.pi/agent/mcp-adapter.json`; `~/.codex/config.toml`; `~/.gemini/…/mcp_config.json`. No project-scope reader of the three files above was found |
+| opencode, pi, codex, agy | their own files, not these | `opencode.json`; `~/.pi/agent/mcp-adapter.json`, which is pi-mcp-adapter's (since pi 0.99.0 pi's own MCP client reads `~/.pi/agent/mcp.json` and a trusted project's `.pi/mcp.json`, as the note below the table says); `~/.codex/config.toml`; `~/.gemini/…/mcp_config.json`. No project-scope reader of the three files above was found |
 
 So the file set a jail would have to consider is **four sources across two agents**, and yolo ever
 bound over exactly one of them.

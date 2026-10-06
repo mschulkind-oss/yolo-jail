@@ -78,13 +78,19 @@ func advanceHostTrees(errw io.Writer, color bool, bin string, act *run.ActInterr
 	if sel.loadErr != nil {
 		return
 	}
+	var trees []packload.Fork
 	for _, f := range packload.PatchedTrees(sel.packs) {
 		if !f.DeliveredAtHost() || (bin != "" && !ownerRuns(sel.packs, f, bin)) {
 			continue // no host render links a tree whose list entry reaches jails alone (PPX-D35)
 		}
-		hostTreeAdvance(f, advanceOptions{platform: captureJailPlatform(), out: errw, errw: errw, color: color,
-			launch: true, host: true, act: act})
+		trees = append(trees, f)
 	}
+	// A PARALLEL ADVANCE, as a jail launch's tree arm runs one (treepool.go, XB-D10): the host builds
+	// in podman's own capture jails, side by side.
+	runTreesInParallel(trees, "", act, errw, errw, func(_ int, f packload.Fork, lane treeLane) {
+		hostTreeAdvance(f, lane.options(advanceOptions{platform: captureJailPlatform(), color: color,
+			launch: true, host: true, act: act}))
+	})
 }
 
 // ownerRuns reports whether f's owning agent pack declares a program named bin — its own, or the
@@ -123,7 +129,9 @@ func hostTreeGate(errw io.Writer, bin, home string) bool {
 	}
 	ok := true
 	for _, f := range packload.PatchedTrees(sel.packs) {
-		if !f.ListedAtHost || !ownerRuns(sel.packs, f, bin) {
+		// A FALLBACK never stops the agent (XB-D7): with no tree here, its raw entry is what the
+		// render put in the agent's list, and the agent installs it itself.
+		if !f.ListedAtHost || !ownerRuns(sel.packs, f, bin) || f.Fallback != "" {
 			continue
 		}
 		dest := filepath.Join(home, filepath.FromSlash(strings.TrimSuffix(f.Into, "/")))
@@ -145,6 +153,38 @@ func hostTreeGate(errw io.Writer, bin, home string) bool {
 			"to run %s without it.\n", bin, bin)
 	}
 	return ok
+}
+
+// hostTreeFallbacks is packs with every UNMODIFIED EXTENSION's fallback taken that the host renders
+// no tree for (packload.ApplyTreeFallbacks; docs/design/pi-extension-store-builds.md XB-D7): every
+// one on a host that builds none (macOS), and on a Linux host each whose good build does not serve.
+// What the host apply's list contributions are collected from, so the agent installs each such
+// extension itself, from its raw entry, as it would with no yolo in between; the trees taken come
+// back for the apply's lines.
+func hostTreeFallbacks(packs []*packload.Pack) ([]*packload.Pack, []packload.Fork) {
+	return packload.ApplyTreeFallbacks(packs, func(f packload.Fork) bool {
+		if !hostTreesBuild() {
+			return false
+		}
+		entry, _, _ := hostTreeServing(f)
+		return entry != nil
+	})
+}
+
+// hostFallbackAction opens the render's action for a tree whose fallback the apply took.
+const hostFallbackAction = "not rendered: "
+
+// hostFallbackLine is the line a host act prints for a fallback it took: what the agent installs in
+// the tree's place, and why there is no tree.
+func hostFallbackLine(f packload.Fork) string {
+	why := "this host builds no tree (a macOS host builds none)"
+	if hostTreesBuild() {
+		if _, _, reason := hostTreeServing(f); reason != "" {
+			why = reason
+		}
+	}
+	return fmt.Sprintf("%s: no tree at the host — %s; the agent installs %s itself, from its raw entry", f.Label(),
+		why, f.Fallback)
 }
 
 // hostTreeServing is the good build that serves f, read with no git: its store entry and its
@@ -224,12 +264,20 @@ func renderHostTree(f packload.Fork, home string, man *hostskills.Manifest, obse
 	dest := filepath.Join(home, filepath.FromSlash(strings.TrimSuffix(f.Into, "/")))
 	res := entrypoint.HostRenderResult{Surface: f.Pack + "/files", Path: dest}
 	if !hostTreesBuild() {
+		if f.Fallback != "" {
+			res.Action = hostFallbackAction + hostFallbackLine(f)
+			return res
+		}
 		res.Action = "refused: " + f.Label() + " is built for a Linux jail, and this host builds no tree — " +
 			noHostTreeStep(f, ownerBinFor(f))
 		return res
 	}
 	entry, _, why := hostTreeServing(f)
 	if entry == nil {
+		if f.Fallback != "" {
+			res.Action = hostFallbackAction + hostFallbackLine(f)
+			return res
+		}
 		res.Action = "refused: " + why
 		return res
 	}
@@ -386,10 +434,22 @@ func noteHostTreeLines(errw io.Writer, color bool, bin, home string) {
 			continue
 		}
 		if !hostTreesBuild() {
+			if f.Fallback != "" {
+				pr.Printf("[dim]%s[/dim]", richtext.Escape(fmt.Sprintf("yolo host: %s is not built on this host — "+
+					"its tree is built for a Linux jail, and a macOS host builds none; %s installs %s itself, "+
+					"in this home, from its raw entry", f.Label(), bin, f.Fallback)))
+				continue
+			}
 			pr.Printf("[yellow]%s[/yellow]", richtext.Escape(fmt.Sprintf("yolo host: %s is not delivered on this host — "+
 				"its tree is built for a Linux jail, and a macOS host builds none; %s starts without it. %s",
 				f.Label(), bin, noHostTreeStep(f, bin))))
 			continue
+		}
+		if f.Fallback != "" {
+			if entry, _, _ := hostTreeServing(f); entry == nil {
+				pr.Printf("[dim]%s[/dim]", richtext.Escape("yolo host: "+hostFallbackLine(f)))
+				continue
+			}
 		}
 		if line := hostTreeLine(f, home); line != "" {
 			pr.Printf("[dim]%s[/dim]", richtext.Escape("yolo host: "+line))
@@ -421,10 +481,10 @@ func hostTreeLine(f packload.Fork, home string) string {
 	entry, g, why := hostTreeServing(f)
 	switch {
 	case entry != nil && entry.Key == linked:
-		return f.Label() + " at " + run.GoodBuildLabel(g) + " + " + run.PatchCount(g.Patches)
+		return f.Label() + " at " + run.WithPatches(run.GoodBuildLabel(g), g.Patches)
 	case entry != nil:
-		return f.Label() + " at " + linkedTreeLabel(linked) + "; " + run.GoodBuildLabel(g) + " + " +
-			run.PatchCount(g.Patches) + " is built, and `yolo host apply --assert` renders it"
+		return f.Label() + " at " + linkedTreeLabel(linked) + "; " + run.WithPatches(run.GoodBuildLabel(g), g.Patches) +
+			" is built, and `yolo host apply --assert` renders it"
 	default:
 		return f.Label() + " at " + linkedTreeLabel(linked) + "; " + why
 	}

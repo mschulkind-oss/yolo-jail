@@ -399,7 +399,7 @@ What only a real host can still confirm is said per row.
   with `--version`. The floor's npm warned that opencode-ai's postinstall script is not yet covered
   by npm's `allowScripts` setting, so the Pack Installs cell is where a future npm that enforces the
   setting shows up first. **Still needs a real host:** a vendor's npm agent on a Mac's floor, which
-  waits on [OQ-CI7](../reference/agent-install-in-ci.md#oq-ci7), and a real launcher such as a
+  waits on [OQ-CI7](../reference/agent-install-in-ci.md#OQ-CI7), and a real launcher such as a
   Waybar widget, in place of the tests' minimal PATH.
 - With a hand-installed `claude` in `~/.local/bin` on the caller's PATH, `yolo host -- claude`
   still execs the prefix's copy, and `yolo check` names the hand-installed one as not run by

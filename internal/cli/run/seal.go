@@ -319,8 +319,7 @@ func (o *Options) narrowedPackEntries(entries []config.PackEntry) []config.PackE
 func (o *Options) runSealedMacosUser(cfg *jsonx.OrderedMap, rt, repoRoot string, staged stagedPacks,
 	args []string, channel *packChannel) int {
 	o.releaseArrivalLock()
-	wsCfg, _ := config.LoadWorkspaceConfig(o.Workspace, false, func(string) {})
-	if !o.DryRun && !o.checkConfigChanges(wsCfg, cfg, rt) {
+	if !o.DryRun && !o.checkConfigChanges(cfg, rt) {
 		return 1
 	}
 	arm, disarm := o.armMacosUser()

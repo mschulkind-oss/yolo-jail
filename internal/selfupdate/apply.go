@@ -33,6 +33,15 @@ func (s Step) String() string {
 	return b.String()
 }
 
+// InstallKeepTreeEnv tells `just install` that it is deploying the tree `yolo update` just
+// pulled, which it must leave exactly as it found it: it seeds the official pack programs into
+// the cache WITHOUT re-pinning one into the checkout, and reports a build it cannot seed rather
+// than failing the deploy (docs/design/broker-as-a-pack.md BP-D31). A re-pin there would ship a
+// local edit as if it were upstream's, leave the checkout dirty for the next update, and make an
+// autostash's `git stash pop` fail after a deploy that worked. The Justfile reads the name; a
+// test in tools/pack-binaries holds the two spellings together.
+const InstallKeepTreeEnv = "YOLO_INSTALL_KEEP_TREE"
+
 // BrewKeepOldKegEnv keeps `brew upgrade` from deleting the version it replaces.
 // By default Homebrew removes the old Cellar keg right after an upgrade, and a
 // running jail bind-mounts its binaries and flake bundle from paths that
@@ -66,7 +75,7 @@ func Plan(ch Channel) ([]Step, error) {
 	case KindSource:
 		return []Step{
 			{Argv: []string{"git", "pull", "--ff-only"}, Dir: ch.SourceDir},
-			{Argv: []string{"just", "deploy"}, Dir: ch.SourceDir, Env: []string{gobin}},
+			{Argv: []string{"just", "deploy"}, Dir: ch.SourceDir, Env: []string{gobin, InstallKeepTreeEnv + "=1"}},
 		}, nil
 	case KindHomebrew:
 		return []Step{{Argv: []string{"brew", "upgrade", "yolo-jail"}, Env: []string{BrewKeepOldKegEnv}}}, nil

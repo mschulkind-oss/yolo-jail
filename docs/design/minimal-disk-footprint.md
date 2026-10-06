@@ -801,7 +801,8 @@ nothing joins the pieces.** MEASURED in this jail, mise 2026.8.6:
   second list exists. A container launch writes its workspace's current-image pointer, the
   resolved workspace path among its contents, to one file per workspace under
   `BuildDir()/current-images` (`prune.RecordCurrentImage`), and nothing removes those files when
-  the jail exits. A launch with no image store path to record (a skipped build) writes none, and
+  the jail exits. A launch with no image store path to record (a skipped build, or one that fell
+  back to a stale image) writes none, and
   the macos-user arm leaves the pipeline before that step.
 
 So (A)'s cost is now a known shape: a record, written at each launch, of every workspace that

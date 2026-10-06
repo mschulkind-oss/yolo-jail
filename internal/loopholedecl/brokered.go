@@ -19,11 +19,11 @@ import (
 // declaring the block, core:
 //
 //  1. reads the workspace's remotes on `remote_host` as text at every fresh launch that
-//     starts the daemon (BB-D19), and puts the list in front of a human as the labeled
-//     scope block at the head of the config-change diff (BB-D30, BB-D31), recorded in the
-//     approval record's scope part under `source`;
-//  2. writes the approved list, with what the user config's widening entry for `source` adds
-//     (config.BrokeredWidening, BB-D33), to that launch's scope file and hands its path to
+//     starts the daemon (BB-D19), and the workspace config's `brokered.<source>.repos` entry
+//     (docs/design/workspace-widening.md), and puts the union in front of a human as the
+//     labeled scope block at the head of the config-change diff (BB-D30, BB-D31), recorded in
+//     the approval record's scope part under `source`;
+//  2. writes the list that gate approved to that launch's scope file and hands its path to
 //     the daemon through TokenRepositoryScope (BB-D32);
 //  3. with the loophole's pack selected, refuses a workspace `mounts` entry reaching
 //     yolo's broker directory or any `credential_paths` entry, and discloses one at user
@@ -41,8 +41,8 @@ const TokenRepositoryScope = "{repository_scope}"
 // Brokered is a loophole's `brokered` block.
 type Brokered struct {
 	// Source is the key the approval record's scope part files this loophole's list
-	// under, the user config's `brokered.<source>` key its widening entries sit under,
-	// and the store and audit log's `service`: `github`.
+	// under, the workspace config's `brokered.<source>.repos` key that adds repositories
+	// to it, and the store and audit log's `service`: `github`.
 	Source string
 	// RemoteHost is the forge whose remotes make up the scope: `github.com`.
 	RemoteHost string

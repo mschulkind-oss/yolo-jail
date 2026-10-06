@@ -97,9 +97,10 @@ func TestPackagesIsNotApplicableAtTheHost(t *testing.T) {
 	}
 }
 
-// `brokered` widens a jail's GitHub broker for one workspace, and only a jail launch starts that
-// broker (writeScopeFiles in internal/cli/run), so at the host it is not applicable rather than
-// unbuilt: no host verb is waiting to read it.
+// `brokered` lists the repositories a jail's GitHub broker admits for one workspace, from that
+// workspace's own config, and only a jail launch starts that broker (writeScopeFiles in
+// internal/cli/run), so at the host it is not applicable rather than unbuilt: no host verb is
+// waiting to read it.
 func TestBrokeredIsNotApplicableAtTheHost(t *testing.T) {
 	if d, _ := HostFields().ConfigKey("brokered"); d != KeyNotApplicable {
 		t.Errorf("HostFields().ConfigKey(brokered) = %v, want KeyNotApplicable", d)

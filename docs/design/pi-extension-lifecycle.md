@@ -31,8 +31,16 @@ the launch is contended, and for exact pins, which `pi update --extensions` skip
 shared store itself is ruled to go:** [`pi-git-extension-caching.md`](pi-git-extension-caching.md)'s
 [OQ-5](pi-git-extension-caching.md#OQ-5), ruled 2026-09-26, extends its immutable-tree design to
 `npm:` packages, because `.pi-shared-npm` lets one jail's install change what another jail runs
-([§3.11](pi-git-extension-caching.md#311-the-npm-store) there). That build is not on main
-(re-checked 2026-09-30), so the storage tier below is still what ships.
+([§3.11](pi-git-extension-caching.md#311-the-npm-store) there). ⚠ **The storage tier is RETIRED on
+main since 2026-10-05**, ahead of that build:
+[`pi-extension-store-builds.md`'s XB-D14](pi-extension-store-builds.md#XB-D14) unshares the
+prefix, so `~/.pi/agent/npm` is per workspace again, and moves the refresh's lock, stamp and seen
+markers into the workspace's own `.pi`. [§3.1](#31-storage-tier-decoupling-packages-from-session-state),
+[§3.2](#32-execution-tier-pre-launch-auto-refresh) and
+[§3.3](#33-concurrency-tier-cross-jail-mutual-exclusion) below describe the tier as it shipped: the
+refresh's lock is now `.pi/.yolo-update.lock`, and its stamp and seen markers are in
+`.pi/.yolo-refresh/`, per workspace, where the execution tier puts them machine-wide under
+`~/.cache`.
 
 > **In short.** Pi extensions belong in YOLO's machine-scoped storage tier rather than
 > isolated per-workspace homes: decoupling extension storage from workspace session state
@@ -241,6 +249,16 @@ transitive MCP/LSP step runs `yolo internal refresh-servers` before the agent's 
    registry, discover they match, and **never render the notification warning box**.
 
 > [!NOTE]
+> **Amended 2026-10-05: step 1 has an opt-in second timing.** Under
+> `"agent_updates": { "pi": "next-launch" }` the hourly refresh runs as a detached job behind
+> pi, so pi does not wait and the next launch runs what it installed. A launch whose
+> settings content is new still refreshes first, under step 1. With the refresh behind the TUI,
+> step 5 does not hold for that session: pi may show its box, and [OQ-3](#OQ-3)'s
+> premise holds only for the default timing. The ruling is
+> [OQ-PD30](program-delivery.md#decision-ledger) and the build
+> [OQ-PD31](program-delivery.md#decision-ledger).
+
+> [!NOTE]
 > **As built (2026-09-25).** Steps 1–4 hold, with the changes below. The launcher's tests are in
 > [`prelaunchrefresh_test.go`](../../internal/entrypoint/prelaunchrefresh_test.go) and the
 > manifest field's in [`refresh_test.go`](../../internal/packdecl/refresh_test.go). The
@@ -297,6 +315,15 @@ transitive MCP/LSP step runs `yolo internal refresh-servers` before the agent's 
 >   letting a second one into the store, but it does not bound the launch that is waiting on it.
 > - **The refresh does not run in two places.** `yolo pack update` (`YOLO_PACK_UPDATE=1`) exits
 >   before reaching it, and so does the launcher's re-entry path.
+>
+> **As built (2026-10-05)**, by [`pi-extension-store-builds.md`](pi-extension-store-builds.md)'s
+> step 1: the refresh runs only while pi's user or project settings name a package pi installs
+> itself (`refresh.only_if`, [XB-D23](pi-extension-store-builds.md#XB-D23)); `pi --version` and
+> `pi -v` run no refresh, no CLI update and no server refresh (`probe_args`,
+> [XB-D24](pi-extension-store-builds.md#XB-D24)); a refresh that fails on new settings content is
+> retried once its failure is an hour old rather than at every launch
+> ([XB-D26](pi-extension-store-builds.md#XB-D26)); and a launcher a patched extension stops pays for
+> none of it first ([XB-D25](pi-extension-store-builds.md#XB-D25)).
 >
 > **What Pi does offline**, read statically from pi 0.87.1's `dist/core/package-manager.js` and not
 > measured by running it. [OQ-2](#OQ-2) left this unknown. When `npm view` fails,
@@ -669,7 +696,7 @@ another pi session of the same workspace, and only for an entry no pack declares
 
 | ID | Ruling / Decision | Date | Settled in | Built |
 | :--- | :--- | :--- | :--- | :--- |
-| **OQ-1** | **Machine-scoped storage.** Extensions are shared tool capabilities like global binaries; per-workspace copies waste disk and, load-bearingly, create cross-jail version drift | 2026-09-20 | [§6](#6-open-questions) | **yes**, 2026-09-21 — `packs/pi` declares `.pi-shared-npm` at `scope: "machine"` plus a `shared_directory` hook (NOT `shared_extension_storage`; see [§3.1](#31-storage-tier-decoupling-packages-from-session-state)) **MEASURED in a nested jail 2026-09-21**: `~/.pi/agent/npm -> ../../.pi-shared-npm`, resolving and writable, and a write inside the jail landed at the LAUNCHER's `~/.local/share/yolo-jail/home/.pi-shared-npm/` — so the store is genuinely machine-scoped across the boundary, which is the cross-jail drift the ruling is about. |
+| **OQ-1** | **Machine-scoped storage.** Extensions are shared tool capabilities like global binaries; per-workspace copies waste disk and, load-bearingly, create cross-jail version drift | 2026-09-20 | [§6](#6-open-questions) | **retired 2026-10-05** by [XB-D14](pi-extension-store-builds.md#XB-D14): `packs/pi` no longer declares the store and unshares its link. **Was yes**, 2026-09-21 — `packs/pi` declares `.pi-shared-npm` at `scope: "machine"` plus a `shared_directory` hook (NOT `shared_extension_storage`; see [§3.1](#31-storage-tier-decoupling-packages-from-session-state)) **MEASURED in a nested jail 2026-09-21**: `~/.pi/agent/npm -> ../../.pi-shared-npm`, resolving and writable, and a write inside the jail landed at the LAUNCHER's `~/.local/share/yolo-jail/home/.pi-shared-npm/` — so the store is genuinely machine-scoped across the boundary, which is the cross-jail drift the ruling is about. |
 | **OQ-2** | **Option (c).** YOLO resolves and PINS through `internal/packsrc` + `packs.lock.json`; the launcher only materializes, under a non-blocking lock. Pi keeps the package-manager half; the VERSION CHOICE moves to YOLO, the seam a distributor must own since no ecosystem here ships a lockfile or rollback. ✅ The pack resolver that (c) would extend ships (it resolves packs, not Pi packages), and the materializer's `pi update --extensions` flag is **VERIFIED** — parsed by pi 0.87.0 only under `update`, and non-interactive (read statically from the bundle, 2026-09-22). ⚠ Still unknown, because a static read cannot see them: its exit code and its behaviour offline | 2026-09-20 | [§6](#6-open-questions), [Alternative D](#alternative-d-resolve-and-pin-through-yolos-existing-pack-source-store) | **partly, 2026-09-25: the materializer only, unit-tested, not yet observed in a jail.** `packs/pi` declares `"refresh": {"argv": ["update", "--extensions"], "lock": ".pi-shared-npm/.yolo-update.lock"}` on its `program`, and [`prelaunchrefresh.go`](../../internal/entrypoint/prelaunchrefresh.go) renders it into both launcher templates: stamp-throttled, `agent_updates`-gated, bounded, stdin from `/dev/null`, stdout to stderr, and run under the heartbeated lock of [§3.3](#33-concurrency-tier-cross-jail-mutual-exclusion). [`prelaunchrefresh_test.go`](../../internal/entrypoint/prelaunchrefresh_test.go) pins it, including a two-home contention cell and a call-site cell that goes through the shipped manifest. ⚠ **The resolve-and-pin half is not built.** Nothing in YOLO resolves or records a Pi package version, so the version choice is still Pi's and the registry's. ⚠ The lock covers the refresh only: Pi's own startup installs a package the refresh did not reach, including every exact pin, with no lock ([OQ-4](#OQ-4)) |
 | **OQ-3** | **Leave Pi's in-app notification untouched.** The pre-launch update runs before the TUI starts, so the check passes cleanly in the normal path. ⚠ The caveat that a correctly pinned older extension WILL trigger the warning was **corrected 2026-09-25**: by static reading of pi 0.87.1, `checkForAvailableUpdates` skips exact pins and compares a range only within that range, so the two rulings do not pull against each other | 2026-09-20 | [§6](#6-open-questions) | **n/a** — nothing to build. The refresh adds no suppression, which is this ruling |
 | **OQ-4** | **(a), ruled in review:** accept and document the race between two sessions installing a hand-added package; it is any pi user's, and after XB-D14 it stays inside one workspace | 2026-10-05 | [OQ-4](#OQ-4) | docs only |

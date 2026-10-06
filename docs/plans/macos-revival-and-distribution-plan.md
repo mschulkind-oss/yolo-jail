@@ -883,7 +883,7 @@ The bullets below are the original plan; see that runbook for what actually ran.
 > (2026-09-14) found live on macos-user too. The broker's host daemon now starts here; its TLS
 > terminator is a `jail_daemon` this backend declines, so refreshes are still not serialized —
 > and whether that terminator should exist anywhere is
-> [`OQ-CI1`](../reference/claude-oauth-interposition.md#oq-ci1)'s question.
+> [`OQ-CI1`](../reference/claude-oauth-interposition.md#OQ-CI1)'s question.
 
 The three *bundled* loopholes don't need porting to macos-user (see
 [macos-user-nix-and-features.md §3.5](../reference/macos-user-nix-and-features.md#loopholes-mostly-moot-and-the-framework-ports-better):

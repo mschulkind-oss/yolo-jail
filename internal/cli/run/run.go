@@ -99,12 +99,30 @@ func Run(opts Options) (rc int) {
 	// (through the workspace bind), so either can be a link the last jail left: every host
 	// write below it would follow it, and podman would bind whatever the bind sources under
 	// it then resolve to (wsstatebeneath.go, linkedWorkspaceState).
+	//
+	// TWO NEXT STEPS, because the launch cannot tell who made the link (jail-home.md, OQ-JH1):
+	// `rm` is right for a link the jail left, and wrong for a directory the user moved on
+	// purpose, whose next launch would start from an empty one and strand the moved state. So
+	// the refusal names where the link points and the move that brings it back.
 	if linked := linkedWorkspaceState(o.Workspace); linked != "" {
-		o.pr(o.Stderr).print("[bold red]Refusing to launch: " + linked + " is a symbolic " +
-			"link. The jail can write this workspace's .yolo, so a link there would carry " +
-			"the launcher's writes, and the container's binds, to wherever it points.[/bold red]")
-		o.pr(o.Stderr).print("[dim]Remove the link (rm " + shquote.Quote(linked) + "); yolo recreates the " +
-			"directory on the next launch. There is no override for this one.[/dim]")
+		target := linkedStateTarget(linked)
+		to := ""
+		if target != "" {
+			to = " to " + richtext.Escape(target)
+		}
+		o.pr(o.Stderr).print("[bold red]Refusing to launch: " + richtext.Escape(linked) +
+			" is a symbolic link" + to + ". The jail can write this workspace's .yolo, so a " +
+			"link there would carry the launcher's writes, and the container's binds, to " +
+			"wherever it points.[/bold red]")
+		remedy := "If the jail left that link, remove it (rm " + richtext.Escape(shquote.Quote(linked)) +
+			"); yolo recreates the directory on the next launch."
+		if target != "" {
+			remedy += " If you moved the directory to " + richtext.Escape(target) + " yourself, " +
+				"move it back instead, so its contents come with it: rm " +
+				richtext.Escape(shquote.Quote(linked)) + " && mv " +
+				richtext.Escape(shquote.Quote(target)) + " " + richtext.Escape(shquote.Quote(linked)) + "."
+		}
+		o.pr(o.Stderr).print("[dim]" + remedy + " There is no override for this one.[/dim]")
 		return 1
 	}
 
@@ -492,8 +510,7 @@ func Run(opts Options) (rc int) {
 		// --dry-run is exempt: it prints the plan and launches nothing, so there is no
 		// change to approve, and refusing a plan render would only hide the diff a user
 		// is asking to inspect.
-		wsCfg, _ := config.LoadWorkspaceConfig(o.Workspace, false, func(string) {})
-		if !o.DryRun && !o.checkConfigChanges(wsCfg, cfg, rt) {
+		if !o.DryRun && !o.checkConfigChanges(cfg, rt) {
 			return 1
 		}
 		// THE OFFERED TIER (disk-levers-and-backfill.md §5.3's trigger), on this arm too: beside
@@ -1474,8 +1491,7 @@ func (o *Options) runContainer(cfg *jsonx.OrderedMap, rt, repoRoot, cname string
 	}
 
 	// --- Fresh launch: config-change approval ---
-	wsCfg, _ := config.LoadWorkspaceConfig(o.Workspace, false, func(string) {})
-	if !o.checkConfigChanges(wsCfg, cfg, rt) {
+	if !o.checkConfigChanges(cfg, rt) {
 		return 1
 	}
 
@@ -2175,6 +2191,13 @@ func (o *Options) runContainer(cfg *jsonx.OrderedMap, rt, repoRoot, cname string
 	// or that the disk under the workspace ignores, is a declaration doing nothing, and this
 	// is where a user reads what the launch will not do (docs/design/io-priority.md §5.2).
 	o.noteIOPriority(rt, ioprio.FromResources(cfgMap(cfg, "resources")))
+
+	// And a machine-scope folder a selected pack stopped sharing, still in the machine store,
+	// with the command that deletes it (retiredshareddirs.go). Not for a sealed build, whose
+	// output is a build log rather than a launch the user reads.
+	if !o.Sealed {
+		o.noteRetiredSharedDirs(loadedPacks)
+	}
 
 	// Right behind that: what each loaded pack READS from the host this launch. A fetched
 	// pack CAN read the host now (with approval), so the effective host access must be

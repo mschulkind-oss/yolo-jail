@@ -403,6 +403,8 @@ func pickRebaseFork(forks []packload.Fork, key, in string, errw io.Writer) (pack
 	var patched, trees []string
 	for _, f := range forks {
 		switch {
+		case f.Unmodified():
+			// An UNMODIFIED EXTENSION has no series to rebase, so it is not one of the keys named.
 		case f.IsTree():
 			trees = append(trees, f.Key())
 		case f.Patched():
@@ -440,6 +442,12 @@ func pickRebaseFork(forks []packload.Fork, key, in string, errw io.Writer) (pack
 	for _, f := range forks {
 		if f.Key() != key {
 			continue
+		}
+		if f.Unmodified() {
+			fmt.Fprintf(errw, "yolo pack rebase: extension %s is an unmodified extension — it carries no patch "+
+				"series to rebase, and every upstream version fits it; to patch it, export a series and declare "+
+				"it as the contribution's \"patches\"\n", key)
+			return packload.Fork{}, 1
 		}
 		if !f.Patched() {
 			fmt.Fprintf(errw, "yolo pack rebase: fork %s is a plain fork, which builds its own fork repository "+

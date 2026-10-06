@@ -429,7 +429,9 @@ token, since one nothing runs would be downloaded for nothing.
 whatever the loophole's switch says, but nothing for a loophole whose `platforms` leaves this
 machine out. It verifies each build against its digest and admits it
 by rename into `~/.local/share/yolo-jail/pack-binaries/<sha256>/<name>`, mode `0555`, a
-directory no jail mounts: a host daemon's build runs from there with the user's authority. A
+directory no jail mounts: a host daemon's build runs from there with the user's authority. The
+one other way in is no fetch: a from-source `just install` builds the official programs from its
+tree and admits each the same way (below). A
 **launch never fetches**, so an offline launch of a pack whose builds are cached is an ordinary
 one. What each missing piece produces:
 
@@ -461,8 +463,18 @@ the pin tool (`tools/pack-binaries`) and builds reproducibly with one pinned Go.
 the release before it uploads, and PyPI's gate each rebuild and refuse a digest the tree does
 not produce. `TestEveryOfficialBinaryIsOnTheReleaseMatrix` (`internal/loopholedecl`) holds every
 embedded manifest to that matrix in the short suite, so a build no release produces is refused
-before it can ship. What main pins between two releases is open
-([`OQ-BP7`](../design/broker-as-a-pack.md#OQ-BP7)).
+before it can ship.
+
+**Between two releases, main pins its own build** of each official program
+([`OQ-BP7`](../design/broker-as-a-pack.md#OQ-BP7), ruled 2026-10-05), while each url still names
+the last release. `just check-ci` rebuilds every build and refuses a digest the tree no longer
+produces, naming `just pin-pack-binaries`, which with no version re-pins the digests and keeps
+the urls. A from-source `just install` builds this machine's builds from the tree and seeds them
+into the cache, re-pinning a program the tree has changed, so its jail runs the tree's program
+with no download. Any other build of such a tree meets, at `yolo pack install`, the release's
+file failing its digest for a changed program, or no file at all for one added since the last
+release. Either failure then names `just install` in the checkout when the `yolo` came from one
+([BP-D21 to BP-D29](../design/broker-as-a-pack.md#BP-D21)).
 
 > [!WARNING]
 > **A yolo older than the key reads a manifest with `binaries` tolerantly**: it skips the key
@@ -808,10 +820,13 @@ hostname from it and knows no tool; `packs/github`'s `github-broker` is the firs
 ([`boundary-broker.md` §5.6](../design/boundary-broker.md#56-the-repository-scope)).
 
 - **At every fresh launch that starts it**, by the one predicate the spawn applies
-  (`loopholes.Set.BrokeredToStart`), core reads the workspace's remotes on `remote_host` as text
-  and puts them through the config-change gate as the approval record's scope part
-  ([`config-safety.md`](config-safety.md#the-repository-scope-the-records-second-part)).
-- **At the spawn**, core writes the approved list to that launch's scope file under
+  (`loopholes.Set.BrokeredToStart`), core reads the workspace's remotes on `remote_host` as text,
+  and the workspace config's `brokered.<source>.repos` list, whose `<source>` is the block's
+  `source`, and puts their union through the config-change gate as the approval record's scope
+  part ([`config-safety.md`](config-safety.md#the-repository-scope-the-records-second-part),
+  [`workspace-widening.md`](../design/workspace-widening.md)). A user-config `repos` list is
+  refused, since it would widen every workspace.
+- **At the spawn**, core writes the list that gate approved to that launch's scope file under
   `~/.local/share/yolo-jail/broker/<source>/scope/` and substitutes its path for the
   `{repository_scope}` token in `host_daemon.cmd`. The token and the block are held together at
   load, a brokered daemon may not be `scope: "host"`, and the file goes with the daemon.

@@ -579,69 +579,83 @@ func TestGitHubBrokerAnAttachKeepsTheRunningScope(t *testing.T) {
 	}
 }
 
-// writeWideningEntry rewrites the fixture's user config with a widening entry (BB-D33) keyed
-// by key and listing repos, keeping the pack selection. The loophole's switch is the
-// workspace's per-workspace file, which this leaves alone.
-func writeWideningEntry(t *testing.T, key string, repos ...string) {
+// writeWorkspaceEntry rewrites the fixture workspace's yolo-jail.jsonc with a
+// `brokered.github.repos` entry listing repos (docs/design/workspace-widening.md §3.1), as an
+// agent in the jail would. The pack selection and the loophole's switch are the user config's
+// and the per-workspace file's, which this leaves alone.
+func (fx githubBrokerFixture) writeWorkspaceEntry(t *testing.T, repos ...string) {
 	t.Helper()
-	cfg := map[string]any{
-		"packs":    []string{"github"},
-		"brokered": map[string]any{"github": map[string]any{"workspaces": map[string]any{key: map[string]any{"repos": repos}}}},
-	}
-	data, err := json.Marshal(cfg)
+	data, err := json.Marshal(map[string]any{"brokered": map[string]any{"github": map[string]any{"repos": repos}}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(os.Getenv("HOME"), ".config", "yolo-jail", "config.jsonc"), data, 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(fx.dir, config.WorkspaceConfigName), data, 0o644); err != nil {
 		t.Fatal(err)
 	}
 }
 
-// §12 done criterion 17 (OQ-BB6, OQ-BB9, BB-D33): a widening entry in the user config, keyed
-// by this workspace, lets the jail read a repository no remote names. The launch discloses it
-// and the gate neither shows nor records it. A repository outside the scope is refused, naming
-// the entry that would admit it; an account-wide command is refused naming none. The same entry
-// keyed by another folder admits nothing here.
+// The workspace entry end to end (docs/design/workspace-widening.md §4; boundary-broker.md §12
+// done criterion 17): a `brokered.github.repos` entry in the workspace config is a scope change
+// the next fresh launch asks about, naming the config file as its source. With no terminal and
+// no flag the launch refuses; with --accept-config-changes it prints the scope block, records
+// the union, and the launch line names each repository and its source. The listed repository
+// then reads like a remote's; one outside the scope is refused, telling the agent to add it to
+// the `repos` list under `brokered.github` in the workspace's own config file; and an
+// account-wide command is refused saying no entry can add it. The entry never appears as JSON
+// lines at the gate. This workspace's entry adds nothing to another workspace's scope, since
+// each launch reads its own config.
 func TestGitHubBrokerAWideningEntryAdmitsARepositoryForOneWorkspace(t *testing.T) {
 	fx := newGitHubBrokerFixture(t)
-	writeWideningEntry(t, fx.dir, "yolo-lib/lib")
 	fx.recordScope(t, "yolo-it/app")
+	fx.writeWorkspaceEntry(t, "yolo-lib/lib")
+
+	r := runCommand(t, fx.dir, []string{"run", "--", "true"}, fx.opts...)
+	if r.rc == 0 {
+		t.Fatalf("a launch whose workspace entry changed started with no approval:\n%s", r.combined())
+	}
+	for _, s := range []string{"repository scope", "+ yolo-lib/lib", config.WorkspaceConfigName, "added",
+		"github-broker: 1 added, 0 removed, 0 source changed", "(brokered.github.repos)", "--accept-config-changes"} {
+		if !strings.Contains(r.combined(), s) {
+			t.Errorf("the refusal does not name %q:\n%s", s, r.combined())
+		}
+	}
 	if got := config.ApprovedScope(fx.dir, "github"); strings.Join(got, ",") != "yolo-it/app" {
-		t.Fatalf("the approval holds %v, want the remote alone: a widening entry is never approved", got)
+		t.Fatalf("a refused launch recorded the entry: %v", got)
 	}
 
-	r := runCommand(t, fx.dir, []string{"run", "--", "bash", "-lc", ghScript(
-		"gh pr view 3 -R yolo-lib/lib", // A: widened
-		"gh pr view 4 -R yolo-other/x", // B: outside, names the entry
-		"gh search code foo",           // C: account-wide, names none
-	)}, fx.opts...)
+	r = runYolo(t, fx.dir, ghScript(
+		"gh pr view 3 -R yolo-lib/lib", // A: the approved entry
+		"gh pr view 4 -R yolo-other/x", // B: outside, says where to add it
+		"gh search code foo",           // C: account-wide, no entry can add it
+	), fx.opts...)
 	if r.rc != 0 {
 		t.Fatalf("the launch failed: rc %d\n%s%s", r.rc, r.combined(), brokerDaemonLog(t))
 	}
 	out := r.combined()
-	if !strings.Contains(out, "github-broker: scope widened by user config: yolo-lib/lib") {
-		t.Errorf("the launch did not disclose the widening:\n%s", out)
+	for _, want := range []string{"--accept-config-changes records it as approved", "+ yolo-lib/lib",
+		`github-broker: scope for this workspace: yolo-it/app (remote "origin"), yolo-lib/lib (yolo-jail.jsonc)`} {
+		if !strings.Contains(out, want) {
+			t.Errorf("the launch did not say %q:\n%s", want, out)
+		}
+	}
+	// The gate's half of the output, before the launch line: the broker's own refusal below it
+	// spells the key for the agent, which is not the gate showing JSON.
+	if gate, _, _ := strings.Cut(out, "github-broker: scope for this workspace:"); strings.Contains(gate, `"brokered"`) {
+		t.Errorf("the entry reached the gate as JSON lines:\n%s", gate)
+	}
+	if got := config.ApprovedScope(fx.dir, "github"); strings.Join(got, ",") != "yolo-it/app,yolo-lib/lib" {
+		t.Errorf("the approval holds %v, want the remote and the entry", got)
 	}
 	if got := kvLine(r.stdout, "RCA"); got != "0" || !strings.Contains(r.stdout, "fake gh ran: pr view --repo=yolo-lib/lib 3") {
-		t.Errorf("the widened repository answered %q:\n%s%s", got, out, brokerDaemonLog(t))
+		t.Errorf("the approved entry's repository answered %q:\n%s%s", got, out, brokerDaemonLog(t))
 	}
-	// The entry is keyed by THIS workspace: its folder's name closes the key the refusal spells.
+	flat := strings.Join(strings.Fields(out), " ")
 	if got := kvLine(r.stdout, "RCB"); got != "64" ||
-		!strings.Contains(out, filepath.Base(fx.dir)+`": {"repos": ["yolo-other/x"]}`) {
-		t.Errorf("a repository outside the scope answered %q, want 64 naming the widening entry for this workspace:\n%s",
-			got, out)
+		!strings.Contains(flat, "add it to the `repos` list under `brokered.github` in yolo-jail.jsonc") ||
+		!strings.Contains(flat, "ask the user to restart the jail and approve the repository scope at launch") {
+		t.Errorf("a repository outside the scope answered %q, want 64 saying where to add it:\n%s", got, out)
 	}
-	if got := kvLine(r.stdout, "RCC"); got != "64" || !strings.Contains(strings.ToLower(out), "no widening entry") {
-		t.Errorf("an account-wide search answered %q, want 64 saying no widening entry admits it:\n%s", got, out)
-	}
-
-	// Keyed by another folder, the entry adds nothing to this workspace.
-	writeWideningEntry(t, t.TempDir(), "yolo-lib/lib")
-	r = runCommand(t, fx.dir, []string{"run", "--", "bash", "-lc", ghScript("gh pr view 3 -R yolo-lib/lib")}, fx.opts...)
-	if r.rc != 0 {
-		t.Fatalf("the second launch failed: rc %d\n%s", r.rc, r.combined())
-	}
-	if got := kvLine(r.stdout, "RCA"); got != "64" || strings.Contains(r.combined(), "scope widened") {
-		t.Errorf("another workspace's entry widened this one: RCA %q\n%s", got, r.combined())
+	if got := kvLine(r.stdout, "RCC"); got != "64" || !strings.Contains(out, "`brokered.github.repos` entry can add") {
+		t.Errorf("an account-wide search answered %q, want 64 saying no entry can add it:\n%s", got, out)
 	}
 }

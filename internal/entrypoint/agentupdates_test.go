@@ -32,6 +32,15 @@ func TestAgentUpdatesPrecedence(t *testing.T) {
 		{"unparseable", `{oh no`, "claude", true},
 		{"wrong shape", `["claude"]`, "claude", true},
 		{"non-bool entry falls through to the star", `{"*": false, "claude": "yes"}`, "claude", false},
+		// The TIMING values (OQ-PD30) both let the pack move: "next-launch" moves only WHEN its
+		// refresh runs. Read as absent, a pack entry of "next-launch" under a "*": false would
+		// freeze the very pack the user asked to update in the background.
+		{"global next-launch", `"next-launch"`, "claude", true},
+		{"global launch", `"launch"`, "claude", true},
+		{"next-launch entry beats a frozen star", `{"*": false, "pi": "next-launch"}`, "pi", true},
+		{"launch entry beats a frozen star", `{"*": false, "pi": "launch"}`, "pi", true},
+		{"next-launch star", `{"*": "next-launch"}`, "claude", true},
+		{"an unknown string entry still falls through to the star", `{"*": false, "pi": "later"}`, "pi", false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			if got := agentUpdatesValue(tc.wire, tc.pack); got != tc.want {
@@ -39,6 +48,96 @@ func TestAgentUpdatesPrecedence(t *testing.T) {
 					tc.wire, tc.pack, got, tc.want)
 			}
 		})
+	}
+}
+
+// TestRefreshTimingPrecedence: when a pack's pre-launch refresh runs, read by agentUpdatesValue's
+// own precedence. A specific key beats "*" WHOLE — `true` there is "at launch", not "allowed, and
+// take the star's timing" — and anything that is not "next-launch" is at launch, which is the
+// default and the direction to fail in: a malformed value must never move work out of the user's
+// sight.
+func TestRefreshTimingPrecedence(t *testing.T) {
+	const at, next = "launch", "next-launch"
+	for _, tc := range []struct {
+		name, wire, pack, want string
+	}{
+		{"absent", "", "pi", at},
+		{"global true", `true`, "pi", at},
+		{"global false", `false`, "pi", at},
+		{"global launch", `"launch"`, "pi", at},
+		{"global next-launch", `"next-launch"`, "pi", next},
+		{"specific next-launch", `{"pi": "next-launch"}`, "pi", next},
+		{"another pack's next-launch", `{"pi": "next-launch"}`, "claude", at},
+		{"star next-launch", `{"*": "next-launch"}`, "claude", next},
+		{"specific true beats a next-launch star", `{"*": "next-launch", "pi": true}`, "pi", at},
+		{"specific launch beats a next-launch star", `{"*": "next-launch", "pi": "launch"}`, "pi", at},
+		{"specific false beats a next-launch star", `{"*": "next-launch", "pi": false}`, "pi", at},
+		{"an unknown entry falls through to the star", `{"*": "next-launch", "pi": "later"}`, "pi", next},
+		{"an unknown global string", `"later"`, "pi", at},
+		{"unparseable", `{oh no`, "pi", at},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := refreshTimingValue(tc.wire, tc.pack); got != tc.want {
+				t.Errorf("refreshTimingValue(%q, %q) = %q, want %q", tc.wire, tc.pack, got, tc.want)
+			}
+		})
+	}
+}
+
+// TestHostPolicyReadsATimingAsOn: the host floor asks PackPolicyAllows whether a pack may move, and
+// a timing value is a yes. The host notch runs no pre-launch refresh, so there "next-launch" means
+// exactly what `true` does.
+func TestHostPolicyReadsATimingAsOn(t *testing.T) {
+	if !PackPolicyAllows(`{"*": false, "pi": "next-launch"}`, "pi") {
+		t.Error(`PackPolicyAllows({"*": false, "pi": "next-launch"}, "pi") = false: the host floor ` +
+			`would freeze the pack the user asked to update in the background`)
+	}
+}
+
+// TestGeneratedLaunchersCarryTheRefreshTiming is the CALL-SITE cell for the timing: two packs,
+// each declaring a refresh, under a policy that moves one pack's refresh to the background. It
+// reads the baked REFRESH_TIMING out of the scripts GenerateAgentLaunchers actually wrote, so it
+// goes red if the generator stops setting the timing, or sets one answer for every pack.
+func TestGeneratedLaunchersCarryTheRefreshTiming(t *testing.T) {
+	home := t.TempDir()
+	packRoot := t.TempDir()
+	for name, bin := range map[string]string{"bg": "bgtool", "fg": "fgtool"} {
+		dir := filepath.Join(packRoot, name)
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		manifest := `{"name":"` + name + `","contributes":[` +
+			`{"kind":"program","bin":"` + bin + `","via":"npm","package":"` + bin + `",` +
+			`"refresh":{"argv":["update"],"lock":".` + name + `-store/.yolo-update.lock"}}]}`
+		if err := os.WriteFile(filepath.Join(dir, "pack.json"), []byte(manifest), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	e := NewEnv(map[string]string{
+		"JAIL_HOME":         home,
+		"YOLO_PACK_ROOT":    packRoot,
+		AgentUpdatesEnv:     `{"*": true, "bg": "next-launch"}`,
+		"YOLO_MISE_TOOLS":   `{}`,
+		"NPM_CONFIG_PREFIX": filepath.Join(home, ".npm-global"),
+		"YOLO_BLOCK_CONFIG": `[]`,
+		"YOLO_LSP_SERVERS":  `{}`,
+		"YOLO_MCP_SERVERS":  `{}`,
+		"YOLO_MCP_PRESETS":  `[]`,
+	})
+	if err := GenerateAgentLaunchers(e); err != nil {
+		t.Fatal(err)
+	}
+	for bin, want := range map[string]string{"bgtool": "REFRESH_TIMING=next-launch", "fgtool": "REFRESH_TIMING=launch"} {
+		body, err := os.ReadFile(filepath.Join(e.LaunchDir(), bin))
+		if err != nil {
+			t.Fatalf("reading the %s launcher: %v", bin, err)
+		}
+		if !strings.Contains(string(body), "\n"+want+"\n") {
+			t.Errorf("%s launcher should bake %s — the timing is per PACK", bin, want)
+		}
+		if !strings.Contains(string(body), "\nUPDATES_ENABLED=1\n") {
+			t.Errorf("%s launcher should still let the pack move: a timing is a yes", bin)
+		}
 	}
 }
 

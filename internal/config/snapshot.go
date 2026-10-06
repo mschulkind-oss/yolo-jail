@@ -10,6 +10,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/runtime"
 	"github.com/mschulkind-oss/yolo-jail/internal/shquote"
+	"github.com/mschulkind-oss/yolo-jail/internal/termsafe"
 )
 
 // SnapshotJSON returns the config-snapshot bytes: 2-space indent, sorted keys,
@@ -122,11 +123,15 @@ type ChangedNonInteractiveError struct {
 	// (docs/design/boundary-broker.md BB-D31). Both false reads as the config-only refusal
 	// this error always was, so a caller that predates the scope part is unchanged.
 	ConfigChanged, ScopeChanged bool
-	// ScopeBlock is the labeled scope block, printed before the diff; GitConfigs the files
-	// the scope was read from; ScopePath the scope part it was compared against.
-	ScopeBlock []string
-	GitConfigs []string
-	ScopePath  string
+	// ScopeBlock is the labeled scope block, printed before the diff, and ScopeCounts its count
+	// lines (WW-D20); GitConfigs the files the remotes were read from; EntryEdits the
+	// `brokered.<source>.repos` entries a change touched; ScopePath the scope part it was
+	// compared against.
+	ScopeBlock  []string
+	ScopeCounts []string
+	GitConfigs  []string
+	EntryEdits  []EntryEdit
+	ScopePath   string
 	// ScopeLabels are the brokered loopholes whose scope changed: the advice names the
 	// command that launches this project without each one.
 	ScopeLabels []string
@@ -145,8 +150,10 @@ func (e *ChangedNonInteractiveError) Headline() string {
 		return "Workspace config and repository scope changed since the last approved launch, and " +
 			"this launch has no terminal to approve them on."
 	case e.ScopeChanged:
-		return "The repository scope read from this workspace's remotes changed since the last " +
-			"approved launch, and this launch has no terminal to approve it on."
+		// It names the scope without claiming the remotes alone made it: an entry in the
+		// workspace config is the other input (WW-D13).
+		return "The repository scope changed since the last approved launch, and this launch has " +
+			"no terminal to approve it on."
 	}
 	return "Workspace config changed since the last approved launch, and this launch has no " +
 		"terminal to approve it on."
@@ -164,6 +171,12 @@ func (e *ChangedNonInteractiveError) Advice() string {
 	if e.ScopeChanged {
 		for _, g := range e.GitConfigs {
 			files += "  git config:       " + g + "  (the remotes the repository scope is read from)\n"
+		}
+		for _, ed := range e.EntryEdits {
+			for _, f := range ed.Files {
+				files += "  scope entry:      " + termsafe.Visible(filepath.Join(e.Workspace, f)) + "  (" +
+					ed.Key + ")\n"
+			}
 		}
 		files += "  approved scope:   " + e.ScopePath + "\n"
 	}
@@ -210,6 +223,10 @@ func (e *ChangedNonInteractiveError) Error() string {
 		b.WriteString(line)
 		b.WriteString("\n")
 	}
+	for _, line := range e.ScopeCounts {
+		b.WriteString(line)
+		b.WriteString("\n")
+	}
 	for _, line := range e.DiffLines {
 		b.WriteString(line)
 		b.WriteString("\n")
@@ -249,6 +266,12 @@ type ChangeReport struct {
 	DiffLines     []string
 	ScopeChanged  bool
 	ScopeBlock    []string
+	// ScopeCounts are the count lines, one per changed source, printed directly above the
+	// question, since a long config diff can scroll the block out of view (WW-D20).
+	ScopeCounts []string
+	// EntryEdits are the `brokered.<source>.repos` entries whose rows changed, with the files
+	// the change is in, for the next step a decline names.
+	EntryEdits []EntryEdit
 	// ConfigFiles are the workspace config files the config part was read from, in merge order
 	// (the local file, when there is one, wins), for the next step a declined config change
 	// names.
@@ -267,26 +290,48 @@ type ReportPrompter interface {
 	PromptReport(ChangeReport) bool
 }
 
+// AcceptedReporter is a prompter that is shown what --accept-config-changes approves on a launch
+// with no terminal, before it is recorded: the repository scope block and its count lines, for
+// remotes and entries alike (WW-D20, after EW-D33's "a launch that the flag approves prints the
+// section anyway"). Called only when the scope changed.
+type AcceptedReporter interface {
+	ReportAccepted(ChangeReport)
+}
+
 // CheckConfigAndScopeChanges is CheckConfigChanges with the approval record's scope part
 // in play (docs/design/boundary-broker.md BB-D30): scope is the repository scope a fresh
-// launch that starts a brokered loophole read from the workspace's remotes, or nil when no
-// broker starts, which makes this exactly CheckConfigChanges.
+// launch that starts a brokered loophole read from the workspace's remotes and its
+// `brokered.<source>.repos` entry, or nil when no broker starts, which makes this exactly
+// CheckConfigChanges.
 //
-// One decision covers both parts. Unchanged → proceed. A part with no record yet and
+// One decision covers every part. Unchanged → proceed. A part with no record yet and
 // nothing to approve (a `{}` config, an empty scope) is recorded silently. Any change —
-// a config diff, a repository added or removed — asks, with the scope block first; y, or
-// --accept-config-changes with no terminal, records BOTH parts; N or a refusal records
-// NEITHER, so the no-record `{}` branch no longer writes its config part before the scope
-// part is decided.
+// a config diff, a repository added or removed, a repository's source changed — asks, with
+// the scope block first; y, or --accept-config-changes with no terminal, records EVERY part;
+// N or a refusal records NONE, so the no-record `{}` branch no longer writes its config part
+// before the scope part is decided. The config part leaves `brokered` out
+// (approvalConfigPart): the entry is approved as scope rows, never as JSON lines.
 func CheckConfigAndScopeChanges(workspace string, config *jsonx.OrderedMap, scope *ScopeCheck,
 	isTTY, acceptNonInteractive bool, prompter ChangePrompter) (bool, error) {
-	if config == nil {
-		config = jsonx.NewOrderedMap()
-	}
+	ok, _, err := ApproveConfigAndScope(workspace, config, scope, isTTY, acceptNonInteractive, prompter)
+	return ok, err
+}
+
+// ApproveConfigAndScope is CheckConfigAndScopeChanges, also returning what a passing gate
+// approved or confirmed for each in-play brokered loophole, by its name: its repositories and
+// their sources. That in-memory result is the whole of what the launch hands the broker (WW-P2,
+// WW-D12): nothing re-reads a config file or the record to get it, because an edit, or a
+// concurrent macos-user session's approval, can land between this gate and the spawn. nil when
+// no scope is in play or the gate did not pass.
+//
+// config is the workspace config as the gate read it, `brokered` included: the config part is
+// its projection (approvalConfigPart), and the entry is already in scope.
+func ApproveConfigAndScope(workspace string, config *jsonx.OrderedMap, scope *ScopeCheck,
+	isTTY, acceptNonInteractive bool, prompter ChangePrompter) (bool, map[string][]ScopeRepo, error) {
 	snapshotPath := ApprovalSnapshotPath(workspace)
-	currentJSON, err := SnapshotJSON(config)
+	currentJSON, err := SnapshotJSON(approvalConfigPart(config))
 	if err != nil {
-		return false, err
+		return false, nil, err
 	}
 
 	oldJSON := ""
@@ -299,7 +344,7 @@ func CheckConfigAndScopeChanges(workspace string, config *jsonx.OrderedMap, scop
 	case readErr == nil:
 		oldJSON = pyRstrip(string(oldBytes))
 	case !os.IsNotExist(readErr):
-		return false, readErr
+		return false, nil, readErr
 	default:
 		// First run / no host-side snapshot (OQ-S3). An empty workspace config is recorded
 		// with zero prompts — once the scope part, if in play, is decided too.
@@ -316,21 +361,22 @@ func CheckConfigAndScopeChanges(workspace string, config *jsonx.OrderedMap, scop
 
 	var sc scopeOutcome
 	scopePath := ApprovalScopePath(workspace)
-	oldScopeJSON := ""
+	oldScopeJSON, oldSourcesJSON := "", ""
 	if scope.inPlay() {
-		old, exists, err := readScopeRecord(scopePath)
+		old, exists, oldSources, err := readScopeRecords(workspace)
 		if err != nil {
-			return false, err
+			return false, nil, err
 		}
 		if exists {
 			oldScopeJSON, _ = scopeRecordJSON(old)
 		}
-		sc = compareScope(scope, old)
+		oldSourcesJSON, _ = sourcesRecordJSON(oldSources)
+		sc = compareScope(scope, old, oldSources)
 	}
 
-	recordBoth := func() error {
+	recordAll := func() error {
 		if scope.inPlay() {
-			if err := writeScopeRecord(workspace, sc.next); err != nil {
+			if err := writeScopeRecords(workspace, sc); err != nil {
 				return err
 			}
 		}
@@ -338,21 +384,25 @@ func CheckConfigAndScopeChanges(workspace string, config *jsonx.OrderedMap, scop
 	}
 
 	if !configChanged && !sc.changed {
-		// Nothing to ask. Record whatever part had no record yet — silently, and both
-		// together, which is the only branch that writes without a human.
+		// Nothing to ask. Record whatever part had no record yet — silently, and together,
+		// which is the only branch that writes without a human: an empty config's part, an
+		// empty scope's, and the sources of a scope whose repositories are unchanged and come
+		// from remotes alone (scopeBlock's upgrade rule).
 		if configSilent {
 			if err := writeSnapshot(snapshotPath, currentJSON); err != nil {
-				return false, err
+				return false, nil, err
 			}
 		}
 		if scope.inPlay() {
-			if nextJSON, err := scopeRecordJSON(sc.next); err == nil && nextJSON != oldScopeJSON {
-				if err := writeScopeRecord(workspace, sc.next); err != nil {
-					return false, err
+			nextJSON, err1 := scopeRecordJSON(sc.next)
+			nextSourcesJSON, err2 := sourcesRecordJSON(sc.nextSources)
+			if err1 == nil && err2 == nil && (nextJSON != oldScopeJSON || nextSourcesJSON != oldSourcesJSON) {
+				if err := writeScopeRecords(workspace, sc); err != nil {
+					return false, nil, err
 				}
 			}
 		}
-		return true, nil
+		return true, sc.approvedOrNil(scope), nil
 	}
 
 	var diffLines []string
@@ -373,8 +423,8 @@ func CheckConfigAndScopeChanges(workspace string, config *jsonx.OrderedMap, scop
 		configFiles = append(configFiles, localPath)
 	}
 	report := ChangeReport{ConfigChanged: configChanged, DiffLines: diffLines,
-		ScopeChanged: sc.changed, ScopeBlock: sc.block, ConfigFiles: configFiles, ScopeLabels: sc.labels,
-		Workspace: workspaceOrCwd(workspace)}
+		ScopeChanged: sc.changed, ScopeBlock: sc.block, ScopeCounts: sc.counts, EntryEdits: sc.entryEdits,
+		ConfigFiles: configFiles, ScopeLabels: sc.labels, Workspace: workspaceOrCwd(workspace)}
 
 	if !isTTY {
 		if !acceptNonInteractive {
@@ -386,25 +436,30 @@ func CheckConfigAndScopeChanges(workspace string, config *jsonx.OrderedMap, scop
 				ConfigChanged:        configChanged,
 				ScopeChanged:         sc.changed,
 				ScopeBlock:           sc.block,
+				ScopeCounts:          sc.counts,
 				GitConfigs:           sc.gitConfigs,
+				EntryEdits:           sc.entryEdits,
 				ScopeLabels:          sc.labels,
 				Workspace:            workspaceOrCwd(workspace),
 			}
 			if sc.changed {
 				e.ScopePath = scopePath
 			}
-			return false, e
+			return false, nil, e
 		}
-		// Granted by the flag: record it exactly as a `y` does, or the next
+		// Granted by the flag: shown, then recorded exactly as a `y` does, or the next
 		// launch prompts (or refuses) over the same change all over again.
-		if err := recordBoth(); err != nil {
-			return false, err
+		if ar, ok := prompter.(AcceptedReporter); ok && sc.changed {
+			ar.ReportAccepted(report)
 		}
-		return true, nil
+		if err := recordAll(); err != nil {
+			return false, nil, err
+		}
+		return true, sc.approvedOrNil(scope), nil
 	}
 
 	if prompter == nil {
-		return false, nil
+		return false, nil, nil
 	}
 	accepted := false
 	if rp, ok := prompter.(ReportPrompter); ok {
@@ -413,12 +468,20 @@ func CheckConfigAndScopeChanges(workspace string, config *jsonx.OrderedMap, scop
 		accepted = prompter.Prompt(append(append([]string(nil), sc.block...), diffLines...))
 	}
 	if !accepted {
-		return false, nil
+		return false, nil, nil
 	}
-	if err := recordBoth(); err != nil {
-		return false, err
+	if err := recordAll(); err != nil {
+		return false, nil, err
 	}
-	return true, nil
+	return true, sc.approvedOrNil(scope), nil
+}
+
+// approvedOrNil is the gate's approved scope, nil when no scope was in play.
+func (sc scopeOutcome) approvedOrNil(scope *ScopeCheck) map[string][]ScopeRepo {
+	if !scope.inPlay() {
+		return nil
+	}
+	return sc.approved
 }
 
 // workspaceOrCwd is the "" => cwd default LoadConfig and the path helpers share.

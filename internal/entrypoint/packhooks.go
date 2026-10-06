@@ -200,6 +200,11 @@ func (e *Env) unlinkForCredentialView(p *packload.Pack, h packdecl.Hook) error {
 // SAME LEAK, SAME BOUND as the credential hook: it reaches only a directory the pack declared
 // `scope: machine`, so what crosses between workspaces is readable from the manifest — and for
 // this payload the leak is also what the user asked for.
+//
+// NO SHIPPED PACK DECLARES IT since 2026-10-05. Pi did, for its npm prefix, until XB-D14 of
+// docs/design/pi-extension-store-builds.md: one jail's refresh rewrote what every other pi jail
+// loaded, which the no-leakage ruling forbids, so pi unshares that link now. The hook stays for
+// a pack whose shared directory changes nothing another jail runs.
 func (e *Env) linkSharedDirectory(p *packload.Pack, h packdecl.Hook) error {
 	return e.linkIntoSharedDir(p, h, sharedTreeNode)
 }
@@ -215,7 +220,9 @@ func (e *Env) linkSharedDirectory(p *packload.Pack, h packdecl.Hook) error {
 // to any other target, or an absent path are all left untouched, and the store the link
 // pointed at is never read or removed: on a machine it is every other workspace's view too,
 // until each of them boots once. First used for pi's git checkouts
-// (docs/design/pi-git-extension-caching.md §3.5), reverting c402dd43's shared store.
+// (docs/design/pi-git-extension-caching.md §3.5), reverting c402dd43's shared store, and since
+// XB-D14 of docs/design/pi-extension-store-builds.md for pi's npm prefix too. The host's launch
+// says when the old directory is still in the machine store (run.noteRetiredSharedDirs).
 func (e *Env) unshareDirectory(p *packload.Pack, h packdecl.Hook) error {
 	if h.File == "" || h.SharedDir == "" {
 		return &badHookError{pack: p.Name, name: h.Name, why: "needs both \"from\" and \"at\""}
@@ -291,9 +298,9 @@ func (e *Env) linkIntoSharedDir(p *packload.Pack, h packdecl.Hook, n sharedNode)
 		return err
 	}
 	// Relative target, so the link stays valid whatever the home is mounted as. It is
-	// depth-agnostic by construction (filepath.Rel): `.pi/agent/npm` gets
-	// `../../.pi-shared-npm`, which resolves through a bind on the container backends and
-	// through the sidecar mirror on macos-user.
+	// depth-agnostic by construction (filepath.Rel): pi's `.pi/agent/npm` got
+	// `../../.pi-shared-npm` while pi shared it, which resolved through a bind on the
+	// container backends and through the sidecar mirror on macos-user.
 	target, err := filepath.Rel(filepath.Dir(link), shared)
 	if err != nil {
 		return err

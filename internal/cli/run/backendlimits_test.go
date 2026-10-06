@@ -330,3 +330,21 @@ func TestBackendLimitsNameTheRelayedRemaps(t *testing.T) {
 		t.Errorf("a `--network host` briefing names remaps the launch does not relay:\n%s", got)
 	}
 }
+
+// TestBackendLimitsNameNoPackageStoreOnTheShippedPacks: since XB-D14
+// (docs/design/pi-extension-store-builds.md) no shipped pack shares a package store at
+// machine scope, pi's npm prefix being per workspace again, so the macos-user briefing's
+// machine-tier sentence over the shipped claude and pi packs names their credential dir and
+// no store. It fails if pi goes back to declaring `.pi-shared-npm` shared, or if the sentence
+// goes back to telling the agent to expect a package store another workspace installed into.
+func TestBackendLimitsNameNoPackageStoreOnTheShippedPacks(t *testing.T) {
+	got := strings.Join(backendLimits("macos-user", packsFixture(t, "claude", "pi"), jsonx.NewOrderedMap(), nil), "\n")
+	if !strings.Contains(got, ".claude-shared-credentials") {
+		t.Fatalf("the machine-tier sentence is gone, so this cell checks nothing:\n%s", got)
+	}
+	for _, stale := range []string{".pi-shared-npm", "package store"} {
+		if strings.Contains(got, stale) {
+			t.Errorf("the briefing still names %q in the machine tier:\n%s", stale, got)
+		}
+	}
+}

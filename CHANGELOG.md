@@ -23,10 +23,23 @@ what a yolo can read. See [Follow an upstream with a patch series](userguide/gui
 **Provider keys for a whole jail.** `yolo --with-credentials <provider>` now starts a jail holding
 those providers' keys from `env_sources`, as `yolo host --with-credentials` hands them to one
 command. See [Give a shell a provider's key](userguide/guides/providers-and-models.md#give-a-shell-a-providers-key).
+**Pi can start without waiting for its extension update.** Set
+`"agent_updates": { "pi": "next-launch" }` and the update runs while you work, for your next launch.
+See [Keep agents and packs up to date](userguide/guides/packs-and-skills.md#keep-agents-and-packs-up-to-date).
+
+**Pi extensions built once per machine.** A pack can name a pi extension from npm or git with no
+patches, and yolo builds it on the host and gives each new jail a read-only copy, so no jail's pi
+installs or changes it. A launch builds its extensions at the same time. See
+[Build a pi extension as it is](userguide/guides/patch-series.md#build-a-pi-extension-as-it-is).
 
 **Claude Code plugins and mods.** A new guide covers the ways to bring a Claude Code plugin or mod
 into a jail, and what each launch shows about the code it runs. See
 [Claude Code plugins and mods](userguide/guides/claude-plugins-and-mods.md).
+
+**An agent can ask for another GitHub repository.** List it under `brokered.github.repos` in the
+project's config, and the next launch asks you to approve it beside the project's own remotes;
+an agent told a repository is out of scope is told how. See
+[Adding a repository the project has no remote for](userguide/guides/github.md#adding-a-repository-the-project-has-no-remote-for).
 
 **Settings for a vendor installer.** A pack whose program comes from its vendor's install script can
 give that script the variables it needs, such as where to install, with `installer_env`. See
@@ -56,6 +69,14 @@ overrides another on a variable, every launch says which won, never the value. S
 - On a Mac, and on Linux with no container runtime, `yolo host -- copilot` now runs the copilot on
   your PATH, as it does for Claude Code: on a Mac install it with `brew install --cask copilot-cli`;
   on Linux install Podman, and the next `yolo host -- copilot` installs it.
+- pi installs its extensions per project, so one jail's update no longer changes another's, and
+  each project's first pi launch installs them again. While the old shared extensions folder is
+  still there, a Podman or Apple Container launch names it and the command that deletes it.
+- A `brokered.github.workspaces` entry in your user config stops every launch: move each project's
+  repositories into its `yolo-jail.local.jsonc` as `brokered.github.repos` (yolo does not
+  git-ignore that file), and approve them at that project's next launch.
+- Renaming a project's GitHub remote, or adding a second one for a repository it already reaches,
+  asks you to approve its repositories again at the next launch.
 - A host-wide service an older yolo started, such as `aws-auth`, now stops a new launch that uses
   it instead of warning: run the `yolo host-daemon restart <name>` it names, which jails already
   running survive.
@@ -65,6 +86,15 @@ overrides another on a variable, every launch says which won, never the value. S
 
 ### Fixed
 
+- Pi starts faster after a jail restart, and an agent's `--version` answers at once instead of
+  updating the agent and its extensions first.
+- Piping an agent or pnpm, such as `claude -p … | jq`, no longer hands the log of its install or
+  hourly update to the next command.
+- pi's extension refresh now runs only when pi's settings name an extension pi installs itself,
+  and one that fails waits an hour before it is tried again.
+- When pi's extension refresh cannot lock its folder, it now says how to fix that.
+- Blocking `cat` with `security.blocked_tools` no longer stops pi's extension refresh, or leaves
+  its lock held.
 - When `yolo host` has no container runtime to capture an agent with, it now says to install one.
 - On a host whose `/bin/sh` is dash, such as Debian or Ubuntu, the Claude Code install command that
   `yolo check-deps` prints and `yolo host apply --assert` runs now installs it.
@@ -137,6 +167,12 @@ overrides another on a variable, every launch says which won, never the value. S
 - On Apple Container, a config with `network.forward_host_ports` now stops the launch before
   anything starts, naming the key and how to go on, instead of failing inside Apple Container with
   an error about a socket.
+- A launch refused because a project's `.yolo` folder is a symbolic link now says where the link
+  points and how to move a folder you moved there yourself back, not only how to delete the link.
+- A jail that refuses to boot because a service inside it, such as the wire bridge, cannot start
+  no longer reports it as a failed config generator.
+- A config error or warning at a launch or in `yolo check` now shows a file name, key or value an
+  agent wrote as plain text, so it can no longer send your terminal escape sequences.
 
 ## [0.11.1] - 2026-10-02
 

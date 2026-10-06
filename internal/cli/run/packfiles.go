@@ -101,7 +101,9 @@ func packFilesTargets(packs []*packload.Pack, trees map[string]string) []packFil
 			if c.Agent != "" || c.Into == "" {
 				continue
 			}
-			if c.IsPatchedExtension() {
+			// A BUILT TREE — a patched extension or an unmodified one — mounts the per-launch copy this
+			// launch made of its good build, or nothing: it names no `from` in the pack.
+			if c.IsBuiltTree() {
 				key := p.Name + "/" + c.ExtensionName()
 				if dir := trees[key]; dir != "" {
 					out = append(out, packFilesTarget{Pack: p.Name, Src: dir, Dest: c.Into, Root: p.Root, Tree: key})

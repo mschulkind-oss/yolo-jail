@@ -50,7 +50,7 @@ func LintDuplicateLoads(p *Pack) []string {
 		if !c.IsPatchedExtension() || c.ExtensionName() == "" {
 			continue
 		}
-		tree := TreeListEntry(c.Into)
+		tree := c.TreeListEntry()
 		names := map[string]bool{c.ExtensionName(): true}
 		if n := upstreamName(c.Source); n != "" {
 			names[n] = true

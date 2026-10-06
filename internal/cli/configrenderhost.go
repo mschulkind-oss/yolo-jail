@@ -51,9 +51,11 @@ type hostRenderPrelude struct {
 func composeHostPrelude() hostRenderPrelude {
 	packs, unresolved := configuredPacksForInspection()
 	packs, _ = packload.ResolveDestinations(packs)
+	// The fallbacks `yolo host apply` takes (hostTreeFallbacks), so the preview is the write's bytes.
+	listPacks, _ := hostTreeFallbacks(packs)
 	return hostRenderPrelude{packs: packs, unresolved: unresolved,
 		collisions: packload.ConfigSurfaceCollisions(packs),
-		overlays: packoverlay.Collect(packs, render.ProfileFor(render.KindHost).AgentAutonomy,
+		overlays: packoverlay.Collect(listPacks, render.ProfileFor(render.KindHost).AgentAutonomy,
 			overlayGateProfiles(render.KindHost, packs))}
 }
 

@@ -95,9 +95,12 @@ func TestPatchedExtensionRefusals(t *testing.T) {
 	}
 }
 
-// WITHOUT A SERIES the fork fields are still a fork's alone on `files`, with the message they had
-// (patched-extensions.md §4: "a `files` contribution with `build` and no series is still refused,
-// with the fork fields' message").
+// WITHOUT A SOURCE OR A SERIES the fork fields are still a fork's alone on `files`, with the message
+// they had (patched-extensions.md §4: "a `files` contribution with `build` and no series is still
+// refused, with the fork fields' message"). `source` itself left this table on 2026-10-05: with no
+// `patches` it is an UNMODIFIED EXTENSION (docs/design/pi-extension-store-builds.md §4.1, XB-D1, which
+// reverses PF alternative H for `files`), and beside `from` it is refused as one
+// (TestAnUnmodifiedExtensionRefusesFromBesideItsSource).
 func TestForkFieldsOnFilesWithoutPatchesKeepTheirRefusal(t *testing.T) {
 	for _, tc := range []struct {
 		name string
@@ -105,8 +108,6 @@ func TestForkFieldsOnFilesWithoutPatchesKeepTheirRefusal(t *testing.T) {
 		want string
 	}{
 		{"build", Contribution{Kind: KindFiles, Into: ".pi/x", From: "x", Build: "make"}, `kind "files" does not take "build"`},
-		{"source", Contribution{Kind: KindFiles, Into: ".pi/x", From: "x", Source: "git+https://h/x?ref=main"},
-			`kind "files" does not take "source"`},
 		{"produces", Contribution{Kind: KindFiles, Into: ".pi/x", From: "x", Produces: []string{"a"}},
 			`kind "files" does not take "produces"`},
 		{"follow", Contribution{Kind: KindFiles, Into: ".pi/x", From: "x", Follow: "head"},

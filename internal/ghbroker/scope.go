@@ -1,28 +1,26 @@
 package ghbroker
 
 import (
-	"encoding/json"
 	"net/url"
 	"sort"
 	"strings"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/brokerscope"
-	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 )
 
-// scope.go is the repository scope as the broker holds it: the `owner/repo` list its
-// launch approved, plus what the user-scope widening entry added for the workspace
-// (docs/design/boundary-broker.md §5.6, BB-D32, BB-D33). The broker never reads a remote, an
-// approval record or the user config; it is handed this list in the launch's scope file and
-// checks every command against it.
+// scope.go is the repository scope as the broker holds it: the `owner/repo` list its launch's
+// config-change gate approved, the workspace's remotes and its `brokered.github.repos` entry
+// alike (docs/design/boundary-broker.md §5.6, BB-D32; docs/design/workspace-widening.md). The
+// broker never reads a remote, an approval record or a config file; it is handed this list in
+// the launch's scope file and checks every command against it.
 
 // Scope is the set of repositories a jail's brokered calls may touch.
 type Scope struct {
 	repos []string
-	// workspace is the host workspace a widening entry for this jail is keyed by (BB-D33),
-	// for the out-of-scope message alone; "" when the broker was handed none. It admits
-	// nothing.
-	workspace string
+	// configFile and localFile are the names of the workspace's config file and local file as
+	// the launch's loader reads them (brokerscope.File, WW-D23), for the out-of-scope message
+	// alone; "" when the launch handed none. They admit nothing.
+	configFile, localFile string
 }
 
 // NewScope builds a scope from `owner/repo` names, dropping malformed ones.
@@ -40,10 +38,10 @@ func NewScope(repos []string) Scope {
 	return Scope{repos: out}
 }
 
-// ForWorkspace returns s naming the host workspace its launch ran in, so the refusal of a
-// repository outside the scope can spell the widening entry that would admit it.
-func (s Scope) ForWorkspace(workspace string) Scope {
-	s.workspace = workspace
+// ForFiles returns s naming the workspace's config file and local file, so the refusal of a
+// repository outside the scope can name the exact file to add it to.
+func (s Scope) ForFiles(configFile, localFile string) Scope {
+	s.configFile, s.localFile = configFile, localFile
 	return s
 }
 
@@ -61,36 +59,41 @@ func (s Scope) Contains(repo string) bool {
 	return false
 }
 
+// entryKey is the workspace config key a repository joins the scope through. This package is
+// the github pack's broker, so it names its source literally (WW-D13).
+const entryKey = "brokered." + Source + ".repos"
+
 // describe renders the scope for a message.
 func (s Scope) describe() string {
 	if len(s.repos) == 0 {
-		return "empty: this workspace has no GitHub remote, and no widening entry adds a repository"
+		return "empty: this workspace has no approved GitHub remote and no approved `" + entryKey + "` entry"
 	}
 	return strings.Join(s.repos, ", ")
 }
 
-// widenAdvice is the one way a repository outside the scope gets in (OQ-BB6, BB-D33): a
-// widening entry in the HOST user's config, keyed by this workspace's host path, which only
-// the host user writes and the next fresh launch reads. No answer the jail gives and no
-// notification widens the scope, so the advice names the entry, spelled as `yolo config-ref`
-// documents it, and who writes it. The workspace is the host path the jail is already told
-// (YOLO_HOST_DIR); JSON-quoting it writes any control character in it as an escape, and
-// leaves `&`, `<` and `>` as they are, so the key reads as the folder's own name.
+// widenAdvice is the one way a repository outside the scope gets in (WW-D5, WW-D6): the agent
+// adds it to the workspace's `brokered.github.repos` entry, checks its edit, and asks the user
+// to restart the jail and approve the repository scope at that fresh launch. No answer the jail
+// gives and no notification widens the scope.
+//
+// It tells the agent to add to the list, never to paste a new object: a second top-level
+// `brokered` in a file that already has one would replace the first (WW-D24). It names the two
+// files the launch's loader reads, so it never sends the agent to create a `yolo-jail.jsonc`
+// beside a `yolo-jail.json`, which would shadow that whole file; without them it names the file
+// the environment briefing gives. It names no host path and no user config.
 func (s Scope) widenAdvice(repo string) string {
-	ws := s.workspace
-	if ws == "" {
-		ws = "<this workspace's host path>"
+	config, local := "the workspace config file your environment briefing names", "the local file beside it"
+	readOnly, useLocal := "that file", "the local file"
+	if s.configFile != "" && s.localFile != "" {
+		config, local, readOnly, useLocal = s.configFile, s.localFile, s.configFile, s.localFile
 	}
-	var quoted strings.Builder
-	enc := json.NewEncoder(&quoted)
-	enc.SetEscapeHTML(false)
-	_ = enc.Encode(ws)
-	key := strings.TrimSuffix(quoted.String(), "\n")
-	return "The scope is this workspace's GitHub remotes, approved at a fresh launch, plus what a " +
-		"widening entry in the host user's config adds for this workspace. To admit " + repo +
-		", the host user adds it to " + paths.UserConfigPath() + " as \"brokered\": {\"" + Source +
-		"\": {\"workspaces\": {" + key + ": {\"repos\": [\"" + repo + "\"]}}}}, and it is " +
-		"in scope from the next fresh launch; nothing the jail sends widens the scope."
+	return "A repository joins this jail's scope only when the user approves it at a fresh launch. To " +
+		"ask for " + repo + ", add it to the `repos` list under `brokered." + Source + "` in " + config +
+		", or in " + local + " for what the project should not commit; if " + readOnly + " is " +
+		"read-only here, use " + useLocal + ". Only if the file has no `brokered` key yet, add " +
+		"\"brokered\": {\"" + Source + "\": {\"repos\": [\"" + repo + "\"]}}. Then run `yolo check " +
+		"--no-build`, and ask the user to restart the jail and approve the repository scope at " +
+		"launch. Nothing sent through gh adds a repository."
 }
 
 // ValidRepo reports whether s is exactly `owner/repo`: two segments, each a GitHub name,

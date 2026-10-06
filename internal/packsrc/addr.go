@@ -91,6 +91,11 @@ func Parse(raw string) (Addr, error) {
 // it, as it refuses any git source with no `?ref=`, so no source as written can equal it. raw as
 // given when it does not parse.
 func BuildSource(raw string) string {
+	if n, err := ParseNpm(raw); err == nil {
+		// An npm source's identity is its package, not its spec, as a git source's is its
+		// repository and not its ref: a spec moved from ^1 to 1.4.2 finds the build already there.
+		return n.Repo()
+	}
 	a, err := Parse(raw)
 	if err != nil || a.Kind != KindGit {
 		return raw

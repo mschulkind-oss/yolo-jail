@@ -525,9 +525,13 @@ func GenerateAgentLaunchers(e *Env) error {
 		// TestBothInstallShapesGetALauncher (launcherdir_test.go) is that pin.
 		installs, _ := p.HonoredInstalls()
 		gate := treeGateFor(trees, p.Name)
+		// When the user wants this pack's pre-launch refresh run (OQ-PD30): keyed by the pack,
+		// as UPDATES_ENABLED is, so every program of one pack refreshes on one timing.
+		timing := agentUpdatesRefreshTiming(e, p.Name)
 		for i := range installs {
 			inst := &installs[i]
 			inst.Gate = gate
+			inst.RefreshTiming = timing
 			if !packdecl.ValidBinName(inst.Bin) {
 				// The launcher is FILED at filepath.Join(LaunchDir, bin); a traversal
 				// bin would write outside the anchor into the jail's persistent home.
@@ -714,7 +718,7 @@ func npmAgentLauncherSegments(pack string, inst *packdecl.Install, stampDir, rec
 		"__YOLO_EXEC_PREFIX__", token,
 		// The gate a patched extension this agent loads puts on it (patchedtrees.go, PPX-D18).
 		"__YOLO_TREE_GATE__", shquote.Quote(inst.Gate),
-	}, append(append(launchFlagSplices(flags), refreshSplices(inst.Refresh)...), modelMenuSplices(inst.ModelMenu)...)...)...)
+	}, append(append(append(launchFlagSplices(flags), refreshSplices(inst.Refresh, inst.RefreshTiming)...), modelMenuSplices(inst.ModelMenu)...), startupSplices(inst, true)...)...)...)
 	return strings.Split(r.Replace(npmLauncherTemplate), token)
 }
 
@@ -811,7 +815,7 @@ func nativeAgentLauncher(pack string, inst *packdecl.Install, stampDir, receipts
 		"__YOLO_EXEC_PREFIX__", "",
 		// The gate a patched extension this agent loads puts on it (patchedtrees.go, PPX-D18).
 		"__YOLO_TREE_GATE__", shquote.Quote(inst.Gate),
-	}, append(append(launchFlagSplices(flags), refreshSplices(inst.Refresh)...), modelMenuSplices(inst.ModelMenu)...)...)...)
+	}, append(append(append(launchFlagSplices(flags), refreshSplices(inst.Refresh, inst.RefreshTiming)...), modelMenuSplices(inst.ModelMenu)...), startupSplices(inst, false)...)...)...)
 	return r.Replace(nativeLauncherTemplate)
 }
 
@@ -1321,7 +1325,7 @@ _refresh_agent_auth() {
     return "$auth_rc"
 }
 
-_refresh_agent_auth
+[ "${_YOLO_PROBE:-}" = "1" ] || _refresh_agent_auth
 `
 
 // npmLauncherTemplate is the npm agent launcher body, with the per-agent
@@ -1410,7 +1414,7 @@ SERVERS_NPM=__YOLO_SERVERS_NPM__
 # every expansion of the array for HAS_UPDATE_VERB's reason: bash 3.2 under "set -u".
 HAS_LAUNCH_FLAGS=__YOLO_HAS_LAUNCH_FLAGS__
 LAUNCH_FLAGS=(__YOLO_LAUNCH_FLAGS__)
-` + refreshDeclShell + modelMenuDeclShell + launchFlagsShellFn + `
+` + refreshDeclShell + probeArgsDeclShell + modelMenuDeclShell + launchFlagsShellFn + `
 
 # --- re-entry ----------------------------------------------------------------------
 # B2 PUT THE LAUNCH DIR AHEAD OF THE INSTALL PREFIXES, so a BARE-NAME call of this program
@@ -1476,9 +1480,8 @@ _do_install() {
     echo "  Installing $SPEC..." >&2
     # Clean stale npm temp dirs that cause ENOTEMPTY
     rm -rf "$NPM_CONFIG_PREFIX"/lib/node_modules/${PKG%%/*}/.${PKG##*/}-* 2>/dev/null
-    # npm's output goes to STDERR: stdout is the program's, and for an MCP server a protocol its
-    # client reads from the first byte, so an install's "added 1 package" there is a corrupt
-    # handshake (and, for any program, a corrupt pipeline).
+    # npm's whole log to STDERR, its own stdout included: this runs in front of the exec, so a
+    # piped launch ("$BIN -p … | consumer") must receive the program's output and nothing else.
     if YOLO_BYPASS_SHIMS=1 npm install -g __YOLO_EXTRA__--prefer-online "$SPEC" >&2; then
         # Record what we ASKED for, and ONLY once npm agreed to it. It lets a later run tell
         # "the DECLARATION moved" from "the registry moved" with a local file read and no
@@ -1519,7 +1522,7 @@ _do_install() {
     return "$rc"
 }
 
-` + updateBoundShellFn + `
+` + updateBoundShellFn + prelaunchRefreshShellFn + `
 # _take_lock is a NON-BLOCKING mkdir, and both halves of that are §3.5's ruling rather than
 # an implementation shortcut: there is no flock in the image and none on a stock macOS, and
 # an invocation that cannot take the lock must PROCEED WITHOUT UPDATING and say so.
@@ -1648,6 +1651,7 @@ if [ "${YOLO_PACK_UPDATE:-}" = "1" ]; then
     fi
     exit "$_rc"
 fi
+` + treeGateShell + `
 
 # INSTALL AND STOP (InstallOnlyEnv): the readiness act installs an absent program here and runs
 # nothing. A present one is left as it is — readiness is about presence, and a refresh stays the
@@ -1670,13 +1674,17 @@ fi
 if [ ! -x "$REAL_BIN" ]; then
     # Cold home: the FIRST install is not a poll, and the no-evergreen ruling does not
     # touch it. There is no version here to keep — without this branch a fresh jail would
-    # simply have no agent CLI at all.
+    # simply have no agent CLI at all. A version probe installs too: without it nothing answers.
     #
     # "|| true": on the LAUNCH path a failed install is not the verdict. The -x "$REAL_BIN"
     # test at the bottom is, because it answers the question this path actually has — is
     # there something to exec? — and it answers it correctly for the upgrade case too,
     # where the install failed and the previous version is still perfectly runnable.
     _do_install || true
+elif [ "$_YOLO_PROBE" = "1" ]; then
+    # A VERSION PROBE (probeargs.go) answers with what is installed: no update, and no reinstall
+    # for a moved pin, which the next launch that is not a probe makes.
+    :
 elif [ "$PINNED" = "1" ]; then
     # A pinned package has nothing to poll for. A "npm view $PKG version" call answers "what is
     # the registry's latest?", which against a declared selector is either ignored (the
@@ -1728,14 +1736,14 @@ _refresh_servers() {
         --updates="$UPDATES_ENABLED" >&2 || true
 }
 
-if [ "$SERVERS_ENABLED" = "1" ]; then
+if [ "$SERVERS_ENABLED" = "1" ] && [ "$_YOLO_PROBE" != "1" ]; then
     _refresh_servers
 fi
-` + prelaunchRefreshShellFn + `
-` + agentEnvShellFn + agentAuthPrelaunchShellFn + modelMenuShellFn + treeGateShell + `
+` + prelaunchRefreshCallShell + `
+` + agentEnvShellFn + agentAuthPrelaunchShellFn + modelMenuShellFn + compileCacheShellFn + `
 if [ -x "$REAL_BIN" ]; then
     _yolo_launch_argv "$@"
-    _yolo_model_menu
+    [ "$_YOLO_PROBE" = "1" ] || _yolo_model_menu
     exec __YOLO_EXEC_PREFIX__"$REAL_BIN" ${YOLO_ARGV[@]+"${YOLO_ARGV[@]}"}
 elif [ "$_YOLO_MISPLACED" = 1 ]; then
     ` + npmMisplacedCall + `
@@ -1871,7 +1879,7 @@ SERVERS_NPM=__YOLO_SERVERS_NPM__
 # every expansion of the array for HAS_UPDATE_VERB's reason: bash 3.2 under "set -u".
 HAS_LAUNCH_FLAGS=__YOLO_HAS_LAUNCH_FLAGS__
 LAUNCH_FLAGS=(__YOLO_LAUNCH_FLAGS__)
-` + refreshDeclShell + modelMenuDeclShell + launchFlagsShellFn + `
+` + refreshDeclShell + probeArgsDeclShell + modelMenuDeclShell + launchFlagsShellFn + `
 # ONE lock per INSTALL PREFIX, not per program: §3.5's contention rule is about who may
 # write into $HOME/.local, and two vendor updaters running there at once is what it
 # forbids. On the container backends the prefix is a per-workspace bind and nothing can
@@ -1908,7 +1916,7 @@ export _YOLO_LAUNCHER_ACTIVE="${_YOLO_LAUNCHER_ACTIVE:-}:$BIN"
 mkdir -p "$STAMP_DIR"
 mkdir -p "$HOME/.local"
 ` + stampMtimeFn + receiptShellFns + misplacedShellFn + `
-` + updateBoundShellFn + `
+` + updateBoundShellFn + prelaunchRefreshShellFn + `
 # _take_lock is a NON-BLOCKING mkdir, and both halves of that are the ruling rather than an
 # implementation shortcut. There is no flock in the image and none on a stock macOS; and an
 # invocation that cannot take the lock must PROCEED WITHOUT UPDATING and say so — the user
@@ -2117,7 +2125,8 @@ _installer_body_kind() (
 # there, so the installer is started in a session of its own, which has no /dev/tty. A shell
 # cannot drop its terminal itself, so yolo does it (yolo internal no-terminal, internal/notty),
 # and forwards a Ctrl-C to the installer while it waits, then dies of it too, so this launcher
-# stops as it did when the installer shared its terminal. Output still reaches the terminal.
+# stops as it did when the installer shared its terminal. Output still reaches the terminal,
+# on stderr.
 #
 # ASKED FIRST, BECAUSE A yolo WITHOUT THE VERB IS POSSIBLE: none on PATH, or one older than
 # this launcher. The jail's own yolo is this build's, so the probe costs one exec on an install
@@ -2195,7 +2204,9 @@ _run_installer() {
         return 1
     fi
     local irc=0
-    # The installer's output goes to STDERR, for the npm template's reason: stdout is the program's.
+    # The installer's whole output to STDERR, as the npm template's install: a cold install runs
+    # in front of the exec, so a piped launch ("$BIN -p … | consumer") must receive the
+    # program's output and nothing else.
     if [ "$HAS_INSTALLER_ENV" = "1" ]; then
         _run_without_terminal env "${INSTALLER_ENV[@]}" bash "$script" >&2 || irc=$?
     else
@@ -2363,12 +2374,15 @@ if [ "${YOLO_PACK_UPDATE:-}" = "1" ]; then
     fi
     exit "$_rc"
 fi
-
+` + treeGateShell + `
 if [ ! -x "$REAL_BIN" ]; then
     # Cold home: install, and do not let a failure be the verdict — the -x test at the
     # bottom is, because it answers the question this path actually has (is there something
-    # to exec?).
+    # to exec?). A version probe installs too: without it nothing answers.
     _do_install || true
+elif [ "$_YOLO_PROBE" = "1" ]; then
+    # A VERSION PROBE (probeargs.go) answers with what is installed: no update.
+    :
 elif [ "${` + InstallOnlyEnv + `:-}" != "1" ] && _update_due; then
     # Never in install-only mode: the readiness act asks only that the program be present, and
     # a refresh stays the invocation's (OQ-PD12a). A capture's home is cold, so it never got here.
@@ -2420,15 +2434,15 @@ _refresh_servers() {
         --updates="$UPDATES_ENABLED" >&2 || true
 }
 
-if [ "$SERVERS_ENABLED" = "1" ]; then
+if [ "$SERVERS_ENABLED" = "1" ] && [ "$_YOLO_PROBE" != "1" ]; then
     _refresh_servers
 fi
 
-` + prelaunchRefreshShellFn + `
-` + agentEnvShellFn + agentAuthPrelaunchShellFn + modelMenuShellFn + treeGateShell + `
+` + prelaunchRefreshCallShell + `
+` + agentEnvShellFn + agentAuthPrelaunchShellFn + modelMenuShellFn + compileCacheShellFn + `
 if [ -x "$REAL_BIN" ]; then
     _yolo_launch_argv "$@"
-    _yolo_model_menu
+    [ "$_YOLO_PROBE" = "1" ] || _yolo_model_menu
     exec "$REAL_BIN" ${YOLO_ARGV[@]+"${YOLO_ARGV[@]}"}
 elif [ "$_YOLO_MISPLACED" = 1 ]; then
     ` + installerMisplacedCall + `
@@ -2490,7 +2504,8 @@ if [ ! -x "$REAL_BIN" ]; then
         # is still the -x test below, unchanged: this captures the status to decide whether
         # to RECORD, never whether to proceed.
         pm_rc=0
-        # To STDERR, for the agent launchers' reason: stdout is pnpm's.
+        # npm's whole log to STDERR, as the agent launcher's: a piped "$BIN … | consumer" must
+        # receive the program's output and nothing else.
         YOLO_BYPASS_SHIMS=1 npm install -g --prefer-online "$SPEC" >&2 || pm_rc=$?
         if [ "$pm_rc" = 0 ]; then
             # No "resolved": reading the installed version means indexing node_modules by

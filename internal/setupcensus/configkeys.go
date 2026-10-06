@@ -481,7 +481,9 @@ var configKeys = map[string]Entry{
 		AppleContainer: honored("the same env (assemble.go)"),
 		MacosUser: honored("BuildRunPlan (macosuser runplan.go) sets the same AgentUpdatesEnv " +
 			"for the darwin bootstrap's launchers"),
-		Guide: []string{"`agent_updates`"},
+		// Two rows: the key, and the background update its "next-launch" value asks for, which
+		// the page footnotes on its own and which works wherever the key does.
+		Guide: []string{"`agent_updates` †", "`agent_updates` set to `\"next-launch\"`"},
 	},
 	"env_sources": {
 		PodmanLinux: honored("composePackChannel hydrates the files through the credential gate into " +

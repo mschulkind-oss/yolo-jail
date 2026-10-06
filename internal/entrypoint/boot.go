@@ -835,12 +835,17 @@ func Main(args []string) error {
 // that aborts the boot (A12), or nil when every step succeeded. The message names
 // each failing step, because "config generation failed" alone would send the user
 // back into the logs to find out which one.
+//
+// It counts BOOT STEPS, not config generators: the jail-daemon supervisor's readiness wait
+// (a required daemon such as the wire bridge that cannot publish) and the reachability
+// witness record their failures here too, and calling either a config generator sent the
+// reader to the wrong place.
 func genFailuresError(e *Env) error {
 	fails := e.GenFailures()
 	if len(fails) == 0 {
 		return nil
 	}
-	msg := fmt.Sprintf("refusing to start the jail: %d config generator(s) failed:\n  - %s",
+	msg := fmt.Sprintf("refusing to start the jail: %d boot step(s) failed:\n  - %s",
 		len(fails), strings.Join(fails, "\n  - "))
 	return fmt.Errorf("%s%s", msg, aclHint(e, fails))
 }

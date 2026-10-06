@@ -172,14 +172,15 @@
   [bold]include_if_found[/bold] (array of strings): Layer in sibling override files.
     Each entry is a relative path resolved against the including file's
     directory. Missing files are silently skipped — keep entries that may
-    or may not exist on a given machine (gitignored *.local.jsonc, secrets,
+    or may not exist on a given machine (an untracked *.local.jsonc, secrets,
     machine-specific tweaks). Present files are loaded and merged on top
     (later wins; lists concatenate-and-dedup; nulls disable). Includes can
     declare their own `include_if_found`; cycles are detected and broken.
 
-    Common use: each level (user config, workspace config) references a
-    gitignored sibling that adds custom MCP servers, agents_md_extra notes,
-    or env_sources entries without committing them.
+    Common use: each level (user config, workspace config) references an
+    untracked sibling that adds custom MCP servers, agents_md_extra notes,
+    or env_sources entries without committing them.  yolo git-ignores only
+    .yolo/, so add such a file to your .gitignore yourself.
 
     Note: the workspace-level `yolo-jail.local.jsonc` no longer needs an
     include entry — it is auto-merged whenever it exists (listing it
@@ -201,8 +202,8 @@
     packs name, after the section saying the agent is on your real machine
     and before your packs' prose.  A workspace value never leaves the jail.
 
-    Pairs naturally with include_if_found: put it in a gitignored local
-    overrides file so the note rides along with custom MCP servers.
+    Pairs naturally with include_if_found: put it in a local overrides file
+    you keep out of git, so the note rides along with custom MCP servers.
 
     Example:
       "agents_md_extra": "## Cerebras MCP\\n\\nUse cerebras-mcp for X."
@@ -381,43 +382,40 @@
     but how the endpoint file crosses into an AC guest is an unmade decision, so
     host services stay explicitly DEFERRED there rather than quietly enabled.
 
-  [bold]brokered[/bold] (object, [bold]USER SCOPE ONLY[/bold]): More repositories for one
+  [bold]brokered[/bold] (object, [bold]WORKSPACE SCOPE[/bold]): More repositories for this
     workspace's brokered loophole, such as the github pack's github-broker.
     A brokered loophole runs your host login's commands for the jail, but only
-    against the workspace's own repositories: its git remotes, which every fresh
-    launch reads and asks you to approve.  It runs only in a workspace you turned
-    it on for with [cyan]yolo loopholes enable <name>[/cyan] (see "loopholes"
-    above); answering N at that approval names
-    [cyan]yolo loopholes disable <name>[/cyan].  A [bold]widening entry[/bold] adds
-    repositories to ONE workspace's set, keyed by that workspace's path:
+    against the workspace's repositories: its git remotes, and any it lists
+    here, which every fresh launch reads and asks you to approve.  It runs only
+    in a workspace you turned it on for with [cyan]yolo loopholes enable <name>[/cyan]
+    (see "loopholes" above); answering N at that approval names
+    [cyan]yolo loopholes disable <name>[/cyan].  List a repository the project has no
+    remote for in yolo-jail.jsonc, or in yolo-jail.local.jsonc for what the
+    project should not commit (yolo does not git-ignore that file):
       "brokered": {
-        "github": {
-          "workspaces": {
-            "~/code/app": { "repos": ["org/lib", "org/docs"] }
-          }
-        }
+        "github": { "repos": ["org/lib", "org/docs"] }
       }
     • The source key is the one the loophole's manifest declares as
       `brokered.source`; the github pack's is "github".  A source no selected
-      pack brokers is a `yolo check` warning.
-    • A workspace key is an absolute path or starts with ~/; a relative path,
-      ~user/ and anything with `$` in it are refused.  It is matched with
-      symlinks resolved, so a link to the workspace and the path behind it are
-      the same entry.  It applies to that folder alone, not to folders under it,
-      and never through a folder or link inside the workspace, which its agent
-      can change: an entry for ~/code/app/sub never widens ~/code/app.
+      pack brokers is a host `yolo check` warning; a launch says nothing.
     • Each repos entry is OWNER/REPO, with no host.  A listed repository is in
       scope exactly as a remote is: its reads run, and its writes need the same
       approval.  No entry admits a command across your whole account, such as a
       search with no repository.
-    It takes effect at the next fresh launch, which prints one line naming what
-    it added: "github-broker: scope widened by user config: org/lib, org/docs".
-    It is not in the config-change prompt: only you write this file.  A jail
-    refuses a repository outside its scope, and its message names the entry
-    that would admit it.
-    USER SCOPE ONLY.  A workspace may never widen its own reach, and a workspace
-    config is agent-editable, so a workspace value is a `yolo check` error, and
-    is never read.
+    • Lists merge across the workspace's files, compared without case, and
+      "repos": null in the local file clears the list.  A `brokered` key from a
+      file outside the workspace, reached through an include or a link, is
+      refused, and so is one written twice in one file.
+    It takes effect at the next fresh launch: the config-change prompt shows each
+    repository as a row of the repository-scope block, naming the file it came
+    from, and asks you to approve it; then the launch names the scope, as in
+    "github-broker: scope for this workspace: you/app (remote "origin"), org/lib (yolo-jail.jsonc)".
+    An agent may add an entry: a jail refuses a repository outside its scope with
+    a message telling it how, and to ask you to restart and approve.
+    NOT IN THE USER CONFIG.  A `repos` list there, with no workspace to key it,
+    would widen every workspace, so it is a `yolo check` error.  The old form,
+    "workspaces" keyed by a workspace's path, is retired: move each entry into
+    its project's yolo-jail.local.jsonc; host `yolo check` prints each edit.
 
   [bold]host_processes[/bold] (object): REMOVED — a config carrying it is REFUSED.
     Its keys moved to the host-processes loophole's own "settings" block, where they
@@ -1003,8 +1001,8 @@
     jail, so a workspace config cannot redirect their destination. A workspace
     value is a `yolo check` error and is never read.
 
-  [bold]agent_updates[/bold] (boolean, or object of pack name -> boolean): Keep agent CLIs
-    current.  Default TRUE -- absent means on.
+  [bold]agent_updates[/bold] (boolean, "launch", "next-launch", or object of pack name -> one
+    of those): Keep agent CLIs current.  Default TRUE -- absent means on.
     An AGENT dependency is a program yolo installs so a coding agent can run: the
     agent CLIs themselves, and the MCP servers they drive.  Nobody's build
     reproduces against one, so a six-week-old copy is a defect rather than a
@@ -1023,6 +1021,25 @@
     TURNING IT OFF freezes the agents at whatever is installed.  `yolo pack
     update` still refreshes them on demand -- it is the only thing that ignores
     this key, because it is an act you performed.
+
+    WHEN AN ADD-ON REFRESH RUNS: "launch" or "next-launch".  Some agents keep
+    add-ons beside the program, and their pack declares a refresh for them:
+    pi's runs `pi update --extensions`.  By default ("launch", the same as true)
+    the refresh runs when you type the agent's name, before the agent starts,
+    at most once an hour and for at most a minute.  "next-launch" runs it in the
+    background instead: the agent starts at once, the refresh runs while you
+    work, and the next launch runs what it installed.  The launch says so in one
+    line naming the refresh's log, ~/.local/state/yolo/refresh/<agent>.log, and
+    a background refresh that fails, or does not finish, is reported once, at
+    a later launch.  Only that refresh moves.  The agent's own update, its MCP
+    servers, and add-ons your settings name for the first time still finish
+    before the agent starts.  While a background refresh runs, pi may show its
+    own "updates available" notice; the next launch has them.  A jail that
+    exits while the refresh runs stops it and leaves its lock behind: for ten
+    minutes every jail sharing those add-ons skips its refresh, and a launch
+    whose settings name a new add-on first waits up to a minute for that lock.
+    A launch after that runs the refresh again.  `yolo host` runs no add-on
+    refresh, so there "next-launch" means the same as true.
 
     IT GOVERNS YOLO'S UPDATER, NOT THE AGENT'S OWN.  An agent that ships a
     self-updater runs it on its own terms, and yolo does not suppress one.  Claude
@@ -1047,6 +1064,7 @@
     Example (~/.config/yolo-jail/config.jsonc):
       "agent_updates": false
       "agent_updates": { "*": true, "claude": false }
+      "agent_updates": { "pi": "next-launch" }
 
   [bold]host_floor[/bold] (boolean, or object of pack name -> boolean): Keep your agents
     installed for `yolo host`.  Default TRUE -- absent means on.

@@ -133,7 +133,7 @@ serves:
   jail half, [`OQ-AS3`](../research/agent-safehouse.md#OQ-AS3),
   [`OQ-HC1`](../reference/host-agent-environment.md#oq-hc1),
   [`OQ-HC3`](../reference/host-agent-environment.md#oq-hc3) and
-  [`OQ-CO15`](../design/config-ownership-and-promotion.md#oq-co15). Two more,
+  [`OQ-CO15`](../design/config-ownership-and-promotion.md#OQ-CO15). Two more,
   [`OQ-CN8`](../reference/providers.md#oq-cn8) and
   [`OQ-CN9`](../reference/providers.md#oq-cn9), were ruled and built on 2026-09-28:
   the second built item 17 ([NC-D67](#NC-D67)), and the first decided part of item 16, whose rest
@@ -449,7 +449,7 @@ the host's.
 | D8 | `files` kind | `packFilesTargets` → a `:ro` bind; addressed files resolved by its own `aliasByAgent` | `RenderHostFiles` over `ResolveDestinations` | **absent, silently** (`preparePackFiles` gated off) | pi's extensions never reach macos-user | The macos overlay carries files; `ResolveDestinations` everywhere | — |
 | D9 | Posture launch flags | `InjectLaunchFlags` → `launchFlagClaims(packs, true)`, hardcoded | never called | as jail | A `guarded.launch` entry reaches no notch | `InjectLaunchFlags` takes the target profile's autonomy bit | — ([§6c](../reference/pack-system.md#batch-6c)) |
 | D10 | macos-user boot steps | the `boot.go` step list | — | `RunDarwinBootstrap`'s own list: catalog and reconcile skipped on a false premise; git identity through `configureGit` | A new step must be added twice | One step table with declared platform exclusions | — |
-| D11 | The `rmw` write rule | every object-valued derive key is regenerated | `in_full` tables only | as jail | No shipped surface hits it yet | One rule at both notches | [`OQ-CO15`](../design/config-ownership-and-promotion.md#oq-co15) |
+| D11 | The `rmw` write rule | every object-valued derive key is regenerated | `in_full` tables only | as jail | No shipped surface hits it yet | One rule at both notches | [`OQ-CO15`](../design/config-ownership-and-promotion.md#OQ-CO15) |
 | D12 | `host_files` and `mise_tools` | `ConfigureHostFiles`, `ConfigureMisePrism` | neither, and nothing says so | as jail | MEASURED: a source-less `host_files` entry is inert at the host with no report line | — | [OQ-NC8](#OQ-NC8) |
 
 #### Row D6: skill-name collisions in a jail
@@ -582,10 +582,10 @@ after it, except where its **After** cell says otherwise.
 | 25 | One skills composer | D6 | **behavior-changing**, ruled by [OQ-NC11](#OQ-NC11) (A, by parity), which also answers [S5](BACKLOG.md#S5). Filed as ruled (S1, [§6a-2](../reference/pack-system.md#batch-6a)); building it found an open question on the same behavior and two changes S1 does not decide | 24 | The same collision refuses at both notches. ✅ **Built** `45c53ed1` ([NC-D52](#NC-D52) to [NC-D56](#NC-D56)) |
 | 26 | One briefing composer with a notch-aware base; `agents_md_extra` at the host | D7 | **behavior-changing, ruled** ([§6a](../reference/pack-system.md#batch-6a), Phase 8) | 24 | A host agent is told it is on the real machine. **Built** `180deba3` ([NC-D30](#NC-D30)) |
 | 27 | The host profile table fed into render | D1 | **behavior-changing, ruled** ([`OQ-HC3`](../reference/host-agent-environment.md#oq-hc3), as leaned). ✅ **Built** `358f877d` ([HC-D17](../design/host-computed-layer.md#HC-D17), [HC-D18](../design/host-computed-layer.md#HC-D18)): host apply composes the `profile` selection once per invocation and hands it to the derives, pinned by `TestHostApplyWritesTheUseProfilesSelectionOnTheEdge` | 11, 24 | — |
-| 28 | Derives at the host; one `rmw` rule | D4, D11 | **behavior-changing.** ✅ The [`OQ-HC1`](../reference/host-agent-environment.md#oq-hc1) half, derives at the host, ruled and built `358f877d` ([what each surface gets at the host](../reference/host-agent-environment.md#what-each-surface-gets-at-the-host)), pinned by `TestTheHostRendersEachDerivedSurfaceClass` and `TestYoloHostApplyAssertWritesTheComputedLayer`. The one `rmw` rule is gated on [`OQ-CO15`](../design/config-ownership-and-promotion.md#oq-co15) | 24 | — |
+| 28 | Derives at the host; one `rmw` rule | D4, D11 | **behavior-changing.** ✅ The [`OQ-HC1`](../reference/host-agent-environment.md#oq-hc1) half, derives at the host, ruled and built `358f877d` ([what each surface gets at the host](../reference/host-agent-environment.md#what-each-surface-gets-at-the-host)), pinned by `TestTheHostRendersEachDerivedSurfaceClass` and `TestYoloHostApplyAssertWritesTheComputedLayer`. The one `rmw` rule is gated on [`OQ-CO15`](../design/config-ownership-and-promotion.md#OQ-CO15) | 24 | — |
 | 29 | `host_files` and `mise_tools` at the host | D12 | **behavior-changing, ruled** ([OQ-NC8](#OQ-NC8) A). ✅ **Built** `7f77a618` ([NC-D48](#NC-D48) to [NC-D51](#NC-D51)) | 24 | A source-less entry renders at the host through the one loop and a later apply removes what it wrote once the entry goes; a source-bearing entry and `mise_tools` are named as inert |
 | 30 | Autonomy on a shared namespace | E4 | **behavior-changing, ruled** ([OQ-NC3](#OQ-NC3) A). ✅ **Built** `9a5c5b68` ([NC-D47](#NC-D47)). Verified by unit tests through `Run` and `refreshJailBriefings`; the real `network.mode: "host"` arm is in the reachability carve-out below | 1 | A shared-namespace jail keeps autonomy and says so at launch and in its briefing; a bridged one says nothing |
-| 31 | Claude OAuth at the host | C8 | **behavior-changing, ruled** by [`OQ-CI1`](../reference/claude-oauth-interposition.md#oq-ci1) (B, 2026-10-05), which [OQ-NC7](#OQ-NC7)'s ruling (A, 2026-09-28) waited on: `yolo host -- claude` joins the one shared login through a credential view, and a host claude yolo did not start keeps its own. **Held** until a human runs [the view's measures](runbooks/claude-credential-view-measures.md); host claude keeps its own login until then. The opt-in half is built: the jails' switch gives one `yolo host -- claude` launch a view in a store yolo manages, `~/.claude` untouched ([CL-D27](../design/claude-login-without-interception.md#CL-D27), 2026-10-04) | 1 | — |
+| 31 | Claude OAuth at the host | C8 | **behavior-changing, ruled** by [`OQ-CI1`](../reference/claude-oauth-interposition.md#OQ-CI1) (B, 2026-10-05), which [OQ-NC7](#OQ-NC7)'s ruling (A, 2026-09-28) waited on: `yolo host -- claude` joins the one shared login through a credential view, and a host claude yolo did not start keeps its own. **Held** until a human runs [the view's measures](runbooks/claude-credential-view-measures.md); host claude keeps its own login until then. The opt-in half is built: the jails' switch gives one `yolo host -- claude` launch a view in a store yolo manages, `~/.claude` untouched ([CL-D27](../design/claude-login-without-interception.md#CL-D27), 2026-10-04) | 1 | — |
 
 **Verification, per item.** Every item touches `cmd/` or `internal/`, so it gets the nested-jail run
 AGENTS.md requires. **Items 1 to 4 and 30 are in AGENTS.md's reachability carve-out**: a nested jail
@@ -770,7 +770,7 @@ is reported verified only against a real rootless host or CI, with
    cannot emit the hosts entry that interception needs.
 
    - **A — No, for now.** Host claude keeps its own login. Revisit alongside
-     [`OQ-CI1`](../reference/claude-oauth-interposition.md#oq-ci1).
+     [`OQ-CI1`](../reference/claude-oauth-interposition.md#OQ-CI1).
    - **B — A managed config dir** that shares the machine store. Its refreshes then race the broker
      unless the host routes them through it, and there is no mechanism for that yet.
 
@@ -780,7 +780,7 @@ is reported verified only against a real rootless host or CI, with
 
    **Answer:**
    > **Ruled in review 2026-09-28, as leaned:** A. Host claude keeps its own login until
-   > [`OQ-CI1`](../reference/claude-oauth-interposition.md#oq-ci1) decides whether the credential is
+   > [`OQ-CI1`](../reference/claude-oauth-interposition.md#OQ-CI1) decides whether the credential is
    > shared at all; a shared store without interception races the broker.
 
 8. ✅ <a id="OQ-NC8"></a>**OQ-NC8: What do `host_files` and `mise_tools` do at the host?** Both
@@ -943,7 +943,7 @@ is reported verified only against a real rootless host or CI, with
 | [OQ-NC4](#OQ-NC4), [NC5](#OQ-NC5), [NC8](#OQ-NC8), [NC9](#OQ-NC9), [NC11](#OQ-NC11) | **Maintainer ruling by parity:** *"yes, NC as parity for sure"*. Each takes its A: one pack order, `-p` means agent CLIs everywhere, source-less `host_files` render at the host (NC8 against its leaning), local-pack links followed at every notch, a skill collision fatal before the jail starts and the jail honors `skills_tier` | 2026-09-28 | [§6](#6-open-questions) | NC4 ✅ `ea5b12b0` ([NC-D57](#NC-D57) to [NC-D59](#NC-D59)); NC5 ✅ `b2ca409a` ([NC-D62](#NC-D62)); NC8 ✅ `7f77a618` ([NC-D48](#NC-D48) to [NC-D51](#NC-D51)); NC9 ✅ `81d16986` ([NC-D60](#NC-D60), [NC-D61](#NC-D61)); NC11 ✅ `45c53ed1` ([NC-D52](#NC-D52) to [NC-D56](#NC-D56)) |
 | [OQ-NC11](#OQ-NC11), built | The parity row's NC11 half: a skill-name collision refuses a jail launch host-side, before the container and on an attach too, with the host's message, and the jail composes through the hostskills layer plan, so `skills_tier` and wrapped plugins behave as at the host. Answers [S5](BACKLOG.md#S5) | 2026-09-28 | [OQ-NC11](#OQ-NC11), item 25 | ✅ `45c53ed1` |
 | [OQ-NC6](#OQ-NC6) | **Maintainer ruling**, as leaned: A, every provider field that decides where a credential goes is user-scope only | 2026-09-28 | [§6](#6-open-questions) | ✅ `c7a3482b`, the field list [NC-D63](#NC-D63) |
-| [OQ-NC7](#OQ-NC7) | **Maintainer ruling**, as leaned: A, host claude keeps its own login until [`OQ-CI1`](../reference/claude-oauth-interposition.md#oq-ci1) rules. *[`OQ-CI1`](../reference/claude-oauth-interposition.md#oq-ci1) was ruled 2026-10-05 (B): host claude joins through a credential view once the view's measures pass, row 31* | 2026-09-28 | [§6](#6-open-questions) | ✅ nothing to build |
+| [OQ-NC7](#OQ-NC7) | **Maintainer ruling**, as leaned: A, host claude keeps its own login until [`OQ-CI1`](../reference/claude-oauth-interposition.md#OQ-CI1) rules. *[`OQ-CI1`](../reference/claude-oauth-interposition.md#OQ-CI1) was ruled 2026-10-05 (B): host claude joins through a credential view once the view's measures pass, row 31* | 2026-09-28 | [§6](#6-open-questions) | ✅ nothing to build |
 | [OQ-NC3](#OQ-NC3) | **Maintainer ruling**, as leaned: A, a jail on a shared network keeps autonomy, disclosed from a network primitive in `render.Profile` | 2026-09-28 | [§6](#6-open-questions) | ✅ `9a5c5b68` ([NC-D47](#NC-D47)) |
 | [OQ-NC10](#OQ-NC10) | **Maintainer ruling**, as leaned: A, retire `YOLO_ACCEPT_CONFIG_CHANGES` and keep refusing the flag by name | 2026-09-28 | [§6](#6-open-questions) | ✅ `a1812373` ([NC-D64](#NC-D64)) |
 | [OQ-NC5](#OQ-NC5) | *The parity ruling's NC5 half, recorded on its own row for its build:* a bare `-p` reaches agent CLIs only, at every notch | 2026-09-28 | [§6](#6-open-questions) | ✅ `b2ca409a` ([NC-D62](#NC-D62)) |

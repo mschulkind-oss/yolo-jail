@@ -41,34 +41,92 @@ var treeAdvance = advancePatchedFork
 // checked: a seam for a test to reap the entry there, as another workspace's move would.
 var treeCopied = func(key string) {}
 
-// deliverTreesForLaunch is run.Options.BuildTrees.
+// deliverTreesForLaunch is run.Options.BuildTrees: every tree's delivery at once, in a PARALLEL
+// ADVANCE (treepool.go, XB-D10) — each key's check, build and copy on a lane of its own, the lines in
+// declaration order, one Ctrl-C ending every wait.
 func deliverTreesForLaunch(req run.TreeBuildRequest, out, errw io.Writer, color bool) map[string]run.TreeDelivery {
-	got := map[string]run.TreeDelivery{}
-	for _, f := range req.Trees {
-		got[f.Key()] = deliverTree(f, req, out, errw, color)
+	got := make([]run.TreeDelivery, len(req.Trees))
+	later := make([]bool, len(req.Trees))
+	runTreesInParallel(req.Trees, req.Runtime, req.Interrupt, out, errw, func(i int, f packload.Fork, lane treeLane) {
+		got[i], later[i] = deliverTree(f, req, lane, color)
+	})
+	m := map[string]run.TreeDelivery{}
+	var background []packload.Fork
+	for i, f := range req.Trees {
+		m[f.Key()] = got[i]
+		if later[i] {
+			background = append(background, f)
+		}
 	}
-	return got
+	if len(background) > 0 {
+		backgroundTreeAdvance(background, req, errw, color)
+	}
+	return m
 }
 
-// deliverTree is one patched extension's delivery: what serves, then its per-launch copy, with the
-// one re-read a reaped entry gets.
-func deliverTree(f packload.Fork, req run.TreeBuildRequest, out, errw io.Writer, color bool) run.TreeDelivery {
+// updateTiming is when a key's advance runs (docs/design/pi-extension-store-builds.md §7.6): AT THE
+// LAUNCH, which waits for it, bounded — the default — or FOR THE NEXT LAUNCH, in a background advance
+// that leaves this launch on the build it already has (XB-D19, XB-D28).
+type updateTiming int
+
+const (
+	timingAtLaunch updateTiming = iota
+	timingNextLaunch
+)
+
+// treeUpdateTiming is when f updates. THE SEAM for XB-D28's background mode: the refresh-timing
+// option's per-program value (`agent_updates`' "next-launch", XB-D17) is not built in this tree, so
+// every key updates at the launch. Its reader replaces this body; the tree arm reads nothing else.
+var treeUpdateTiming = func(packload.Fork) updateTiming { return timingAtLaunch }
+
+// backgroundTreeAdvance starts the BACKGROUND ADVANCE of the keys a launch handed what it had
+// (XB-D19): a detached host process that checks and builds them for the next launch. THE SEAM's
+// other half: not built in this tree (treeUpdateTiming never answers next-launch), so it says which
+// keys wait and that the next launch at the default timing checks them.
+var backgroundTreeAdvance = func(trees []packload.Fork, _ run.TreeBuildRequest, errw io.Writer, color bool) {
 	pr := richtext.Printer{W: errw, Color: color}
-	o := advanceOptions{platform: req.Platform, runtime: req.Runtime, workspace: req.Workspace, out: out,
-		errw: errw, color: color, launch: true, act: req.Interrupt}
+	for _, f := range trees {
+		pr.Printf("[dim]%s[/dim]", richtext.Escape(f.Label()+": updates for the next launch, and this yolo runs no "+
+			"background advance — a fresh launch at the default timing checks it"))
+	}
+}
+
+// deliverTree is one built tree's delivery on its lane: what serves, then its per-launch copy, with
+// the one re-read a reaped entry gets; and whether its advance waits for a background one (later).
+//
+// FOR THE NEXT LAUNCH (treeUpdateTiming, XB-D19): a key with a good build is handed it with no check,
+// one with none but a fallback takes the fallback this once, and only a key with neither builds in
+// front, since there is nothing to hand; the first two are left to the background advance.
+func deliverTree(f packload.Fork, req run.TreeBuildRequest, lane treeLane, color bool) (_ run.TreeDelivery, later bool) {
+	errw := lane.errw
+	pr := richtext.Printer{W: errw, Color: color}
+	o := lane.options(advanceOptions{platform: req.Platform, runtime: req.Runtime, workspace: req.Workspace,
+		color: color, launch: true, act: req.Interrupt})
+	nextLaunch := req.Build && treeUpdateTiming(f) == timingNextLaunch
 	for attempt := 0; ; attempt++ {
 		var r advanceResult
-		if req.Build {
+		switch {
+		case nextLaunch:
+			if r = servingTree(f, o, ""); r.delivery.Key != "" {
+				later = true
+				break
+			}
+			if f.Fallback != "" {
+				return run.TreeDelivery{Reason: f.Label() + " has no build on this machine yet, and updates for " +
+					"the next launch — a background advance builds it"}, true
+			}
 			r = treeAdvance(f, o)
-		} else {
+		case req.Build:
+			r = treeAdvance(f, o)
+		default:
 			r = servingTree(f, o, req.BuildFloor)
 		}
 		if r.delivery.Key == "" {
-			return run.TreeDelivery{Reason: r.delivery.Reason}
+			return run.TreeDelivery{Reason: r.delivery.Reason}, later
 		}
 		if req.CopyRoot == "" {
 			return run.TreeDelivery{Reason: f.Label() + " has a build on this machine, and this launch staged no pack " +
-				"tree to copy it beside — a fresh launch delivers it"}
+				"tree to copy it beside — a fresh launch delivers it"}, later
 		}
 		dir, err := copyTreeForLaunch(f, r.delivery.Key, req.CopyRoot, errw)
 		switch {
@@ -77,7 +135,7 @@ func deliverTree(f packload.Fork, req run.TreeBuildRequest, out, errw io.Writer,
 			if g := r.good; g != nil {
 				d.Commit, d.Tag, d.Patches, d.Series = g.Commit, g.Tag, g.Patches, g.Series
 			}
-			return d
+			return d, later
 		case errors.Is(err, errTreeEntryGone) && attempt == 0:
 			// THE ONE RE-READ (§8.1): another launch's move reaped the entry before or during the copy.
 			pr.Printf("[dim]%s[/dim]", richtext.Escape(fmt.Sprintf("%s: the build %s was reaped while this launch "+
@@ -85,13 +143,13 @@ func deliverTree(f packload.Fork, req run.TreeBuildRequest, out, errw io.Writer,
 			continue
 		case errors.Is(err, errTreeEntryGone):
 			return run.TreeDelivery{Reason: f.Label() + "'s build was reaped twice while this launch copied it — " +
-				"the next fresh launch delivers the good build"}
+				"the next fresh launch delivers the good build"}, later
 		default:
 			// THE COPY FAILED (a full disk, say): nothing for this launch, and the store is untouched.
 			pr.Printf("[yellow]%s[/yellow]", richtext.Escape(fmt.Sprintf("⚠ %s: could not copy its build %s for "+
 				"this jail: %v — the store is untouched; free the space and launch again", f.Label(),
 				r.delivery.Key, err)))
-			return run.TreeDelivery{Reason: fmt.Sprintf("%s's build could not be copied for this jail (%v)", f.Label(), err)}
+			return run.TreeDelivery{Reason: fmt.Sprintf("%s's build could not be copied for this jail (%v)", f.Label(), err)}, later
 		}
 	}
 }

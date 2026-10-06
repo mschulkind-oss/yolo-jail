@@ -63,7 +63,7 @@ func checkPatchedForks(pr richtext.Printer, errw io.Writer, forks []packload.For
 	rc := 0
 	store := patchedForkStore()
 	for _, f := range forks {
-		if !f.Patched() {
+		if !f.FollowsUpstream() {
 			continue
 		}
 		if !update {
@@ -270,13 +270,7 @@ func goodLabel(g *packsrc.GoodBuild) string {
 
 // mustRepo and subdirOf read a fork source's repository and subdirectory; the declaration was
 // validated, so a source that does not parse yields "" and the walk names the missing mirror.
-func mustRepo(source string) string {
-	a, err := packsrc.Parse(source)
-	if err != nil {
-		return ""
-	}
-	return a.Repo
-}
+func mustRepo(source string) string { return packsrc.CheckRepo(source) }
 
 func subdirOf(source string) string {
 	a, err := packsrc.Parse(source)
@@ -299,25 +293,39 @@ func patchedForkStatusLines(f packload.Fork) []string {
 	}
 	refKind := patchedRefKind(f, rec, in)
 	head := fmt.Sprintf("%-20s patched fork of %s's %s, from %s, ", f.Key(), f.Base, f.Bin, f.Source)
-	if f.IsTree() {
+	switch {
+	case f.Unmodified():
+		head = fmt.Sprintf("%-20s unmodified extension at ~/%s, from %s, ", f.Key(), strings.TrimSuffix(f.Into, "/"), f.Source)
+	case f.IsTree():
 		head = fmt.Sprintf("%-20s patched extension at ~/%s, from %s, ", f.Key(), strings.TrimSuffix(f.Into, "/"), f.Source)
 	}
-	switch refKind {
-	case "tag", "commit":
+	switch {
+	case refKind == "tag" || refKind == "commit":
 		head += "held at that " + refKind
+	case refKind == packsrc.RefKindNpmVersion:
+		head += "held at that version"
+	case f.Npm():
+		head += "following the registry's answer for its spec"
 	default:
 		head += "following " + followLabel(f.Follow)
 	}
 	if serr != nil {
 		return []string{head, "[yellow]  ⚠ " + serr.Error() + "[/yellow]"}
 	}
-	lines := []string{head, fmt.Sprintf("[dim]  series: %d %s in %s (series %s), base %s[/dim]", series.Len(),
-		plural(series.Len(), "patch", "patches"), series.Dir, series.ShortDigest(), shortSHA(series.Base))}
+	lines := []string{head}
+	if series.Len() > 0 {
+		lines = append(lines, fmt.Sprintf("[dim]  series: %d %s in %s (series %s), base %s[/dim]", series.Len(),
+			plural(series.Len(), "patch", "patches"), series.Dir, series.ShortDigest(), shortSHA(series.Base)))
+	}
 	if refKind == "tag" || refKind == "commit" {
 		// A HOLD BY THE MANIFEST (§3.4): the ref names a tag or a full commit, so nothing is followed.
-		lines = append(lines, "[dim]  held: its ?ref= names a "+refKind+", so it follows nothing: the series "+
-			"is applied there, and it rebuilds only when the series or the recipe changes — a branch "+
-			"as the ?ref= follows one[/dim]")
+		// An unmodified extension has no series to apply there (XB-D49).
+		what := "the series is applied there, and it rebuilds only when the series or the recipe changes"
+		if f.Unmodified() {
+			what = "it is built there, and rebuilds only when its build recipe changes"
+		}
+		lines = append(lines, "[dim]  held: its ?ref= names a "+refKind+", so it follows nothing: "+what+
+			" — a branch as the ?ref= follows one[/dim]")
 	}
 	if hold := patchedForkHold(f); hold != "" {
 		lines = append(lines, "[dim]  held: "+hold+", so no launch checks it[/dim]")
@@ -332,9 +340,14 @@ func patchedForkStatusLines(f packload.Fork) []string {
 	if rec.Good == nil {
 		lines = append(lines, "[dim]  good build: none on this machine yet — the next fresh launch builds it[/dim]")
 	} else {
-		lines = append(lines, fmt.Sprintf("[dim]  good build: %s + %d %s (series %s), %s[/dim]", goodLabel(rec.Good),
-			rec.Good.Patches, plural(rec.Good.Patches, "patch", "patches"), shortSHA(rec.Good.Series),
-			goodBuildStored(f, rec.Good)))
+		if f.Unmodified() {
+			lines = append(lines, fmt.Sprintf("[dim]  good build: %s, %s[/dim]", goodLabel(rec.Good),
+				goodBuildStored(f, rec.Good)))
+		} else {
+			lines = append(lines, fmt.Sprintf("[dim]  good build: %s + %d %s (series %s), %s[/dim]", goodLabel(rec.Good),
+				rec.Good.Patches, plural(rec.Good.Patches, "patch", "patches"), shortSHA(rec.Good.Series),
+				goodBuildStored(f, rec.Good)))
+		}
 	}
 	lines = append(lines, candidateLines(f, rec, series, in)...)
 	return append(lines, nextCheckLine(f, rec, in)...)
@@ -356,6 +369,12 @@ func goodBuildStored(f packload.Fork, g *packsrc.GoodBuild) string {
 func nextCheckLine(f packload.Fork, rec *packsrc.CheckRecord, in packsrc.CheckInputs) []string {
 	if patchedForkHold(f) != "" || rec.CheckedAt == 0 {
 		return nil
+	}
+	if rec.Settled(in) {
+		// RESOLVED FOR GOOD (XB-D37): what it names never moves, so CheckDue never makes another
+		// check due, and a time here would be a promise no launch keeps (XB-D49).
+		return []string{"[dim]  next check: none — what it names never moves, so no launch checks it " +
+			"again; `yolo pack update` checks now[/dim]"}
 	}
 	if due, _ := packsrc.CheckDue(rec, in, patchedNow(), 0); due {
 		return []string{"[dim]  next check: due — the next fresh launch checks it, or `yolo pack update` checks now[/dim]"}

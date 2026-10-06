@@ -193,8 +193,9 @@ The mechanism that shares a credential is a **pack hook**, not colocation, and i
 every backend. `Env.linkSharedCredential` replaces the pack's credentials file with a **relative**
 symlink into a directory the pack declared at `scope: machine`; `Env.linkSharedDirectory` does the
 same for a whole subdirectory. The target is computed with `filepath.Rel`, so it is depth-agnostic
-by construction: `packs/claude` gets `../.claude-shared-credentials/.credentials.json` and
-`packs/pi` gets `../../.pi-shared-npm`. Both hooks run on `macos-user` unchanged —
+by construction: `packs/claude` gets `../.claude-shared-credentials/.credentials.json`, and
+`packs/pi` got `../../.pi-shared-npm` until it stopped sharing its npm prefix on 2026-10-05
+([XB-D14](../design/pi-extension-store-builds.md#XB-D14)). Both hooks run on `macos-user` unchanged —
 `RunDarwinBootstrap` calls `RunPackHooks` — and only a directory the pack **declared** shared is
 reachable through either, so what crosses between workspaces is readable from the manifest.
 

@@ -1,6 +1,7 @@
 package entrypoint
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -306,4 +307,35 @@ func assertPanics(t *testing.T, fn func(), label string) {
 		}
 	}()
 	fn()
+}
+
+// THE BOOT REFUSAL NAMES WHAT FAILED AS A BOOT STEP, never as a "config generator". Its list
+// holds every genStep failure, and two kinds are no generator at all: the jail-daemon
+// supervisor's readiness wait, where a required daemon such as the wire bridge cannot publish
+// its endpoint, and the reachability witness. "1 config generator(s) failed" over a daemon that
+// cannot bind its port sends the reader to the pack configs instead of to the port
+// (docs/reference/loopback-tls-reachability.md, the background to OQ-R8).
+func TestBootRefusalDoesNotCallADaemonAConfigGenerator(t *testing.T) {
+	e := testEnv(t)
+	runSteps(&bootRun{e: e, target: bootContainer}, []bootStep{{
+		name: "start_jail_daemon_supervisor",
+		gen: func(*Env) error {
+			return errors.New(`jail daemon "wire-bridge" cannot publish its required endpoint: ` +
+				`cannot bind 127.0.0.1:1461: address already in use`)
+		},
+	}})
+	err := genFailuresError(e)
+	if err == nil {
+		t.Fatal("a failed supervisor step must refuse the boot; genFailuresError returned nil")
+	}
+	msg := err.Error()
+	if strings.Contains(msg, "config generator") {
+		t.Errorf("the refusal calls the jail-daemon supervisor a config generator:\n%s", msg)
+	}
+	for _, want := range []string{"refusing to start the jail: 1 boot step(s) failed",
+		"start_jail_daemon_supervisor", `"wire-bridge"`, "address already in use"} {
+		if !strings.Contains(msg, want) {
+			t.Errorf("the refusal does not say %q:\n%s", want, msg)
+		}
+	}
 }

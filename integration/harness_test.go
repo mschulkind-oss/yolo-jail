@@ -138,6 +138,10 @@ func runSuite(m *testing.M) int {
 	// Before the warmup, which is the run's first launch: it seeds its home through
 	// seedPackHome like every test does, and so lands in the run's own store too.
 	setUpRunStore()
+	// After the run store exists, since that is the cache the run's homes read, and before the
+	// first launch: this tree's official pack programs, which no release publishes
+	// (packbinaryseed_test.go).
+	seedPackBinaries()
 	logMachineLock()
 	releaseSetupLock := holdMachineLockForSetup()
 	ensureJailImage()

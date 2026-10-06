@@ -15,7 +15,7 @@ import (
 )
 
 // REAL VENDOR INSTALLS ON darwin — OQ-CI7, ruled 2026-10-05 as the doc's option (c)
-// (docs/reference/agent-install-in-ci.md#oq-ci7).
+// (docs/reference/agent-install-in-ci.md#OQ-CI7).
 //
 // darwin is the one platform whose vendor builds no other CI job installs: Pack Installs
 // (packs.yml) installs linux-x64 and linux-arm64, and the podman nightly's jail is linux-x64 in
@@ -362,7 +362,7 @@ func TestMacosUserPackInstallsWorkflowMirrorsPackMatrix(t *testing.T) {
 	if len(missing) > 0 {
 		t.Errorf("%s's install matrix omits %s: packMatrix covers them and their vendors "+
 			"publish for %s/%s, so no CI job installs their darwin build before a user does "+
-			"(docs/reference/agent-install-in-ci.md#oq-ci7). Add them to the job's `pack:` list",
+			"(docs/reference/agent-install-in-ci.md#OQ-CI7). Add them to the job's `pack:` list",
 			macosUserWorkflow, strings.Join(missing, ", "), platform.goos, platform.goarch)
 	}
 	for _, e := range extra {
@@ -382,7 +382,7 @@ func TestMacosUserPackInstallsWorkflowMirrorsPackMatrix(t *testing.T) {
 		if kind[p] == "npm" && firstOther >= 0 {
 			t.Errorf("%s's install matrix lists the `via: npm` pack %s after %s, which is not "+
 				"an npm pack (install kind %q). OQ-CI7 ruled the npm packs first "+
-				"(docs/reference/agent-install-in-ci.md#oq-ci7): move every npm pack ahead of "+
+				"(docs/reference/agent-install-in-ci.md#OQ-CI7): move every npm pack ahead of "+
 				"the rest", macosUserWorkflow, p, got[firstOther], kind[got[firstOther]])
 		}
 	}

@@ -110,6 +110,13 @@ type Contribution struct {
 	// Refused without `patches`: a plain fork's pin moves only by `yolo pack update` (FP-D18),
 	// and following an upstream is the patched mode's opt-in, not a dial on a plain fork.
 	Follow string `json:"follow,omitempty"`
+	// Fallback is an UNMODIFIED EXTENSION's raw list entry (docs/design/pi-extension-store-builds.md
+	// §4.3, XB-D7): the string the agent installs itself, in its own grammar (`npm:pi-web-access`,
+	// `git:github.com/o/r@<commit>`), which takes the place of the tree's list entry in this pack's
+	// own list contributions wherever a launch hands no tree — a notch that builds none, a build
+	// that failed with nothing serving. Optional, on a `files` contribution with `source` and no
+	// `patches` alone: the upstream unpatched is not what a series asks for.
+	Fallback string `json:"fallback,omitempty"`
 	// ForkedBy is NOT a manifest field, and no manifest can set it: the fork rewrite
 	// (packload.ApplyForks) sets it on the copy of the BASE's program it rewrites, naming the
 	// fork pack, so a reader of the base's program can say whose bytes it runs.
@@ -136,7 +143,7 @@ type Contribution struct {
 	// argv: there is nothing here for a later build to learn, so nothing can be skew.
 	Update []string `json:"update,omitempty"`
 	// Refresh is the program's PRE-LAUNCH REFRESH (a coined term — see the Refresh type):
-	// `"refresh": {"argv": ["update", "--extensions"], "lock": ".pi-shared-npm/.yolo-update.lock"}`
+	// `"refresh": {"argv": ["update", "--extensions"], "lock": ".pi/.yolo-update.lock"}`
 	// for pi. Read only on `program`, and refused on every other kind for `update`'s reason.
 	//
 	// DECLARED BY THE PACK, never keyed on a bin name in core: the launcher templates are
@@ -144,6 +151,38 @@ type Contribution struct {
 	// agent is (AGENTS.md, "Core does not know what an agent is"). The argv is the vendor's
 	// and the lock's location is the pack's store, so both facts are the pack's to state.
 	Refresh *Refresh `json:"refresh,omitempty"`
+	// ProbeArgs are the first arguments that make an invocation of the program a VERSION PROBE
+	// (docs/design/pi-extension-store-builds.md XB-D24, which coined the term for an invocation
+	// the program answers before it does any of its own work): `"probe_args": ["--version", "-v"]`
+	// for pi. Read only on `program`, and refused on every other kind for `update`'s reason.
+	//
+	// An invocation whose FIRST argument is one of them runs none of the launcher's steps before
+	// the exec that the answer never reads: no hourly update of the program and no reinstall for
+	// a moved pin, no MCP server refresh, no pre-launch refresh and no wait for its lock, no
+	// authentication step, no model menu and no tree gate. A cold install still runs, since
+	// without it nothing answers, and so does a fork's materialize, since an older build in the
+	// home is not this launch's program.
+	//
+	// DECLARED BY THE PACK, never keyed on a flag in core, for `refresh`'s reason: which words a
+	// vendor answers at once is the vendor's fact, and not every vendor's help is one. pi answers
+	// `--help` only after resolving every package and installing a missing one with no lock, so
+	// it declares `--version` and `-v` alone.
+	ProbeArgs []string `json:"probe_args,omitempty"`
+	// TempCaches names directories the program keeps COMPILED CODE in under its temporary
+	// directory, Node's os.tmpdir() (`$TMPDIR`, else `$TMP`, `$TEMP`, `/tmp`): `"temp_caches":
+	// ["jiti"]` for pi, whose extension loader writes each extension it compiles to
+	// `<tmpdir>/jiti` and reads no setting that moves it (jiti 2.7's JITI_FS_CACHE takes only
+	// true or false). Read only on `program`, and refused elsewhere for `update`'s reason.
+	//
+	// The launcher keeps each one per workspace across jail restarts (XB-D52): right before the
+	// exec, when `<tmpdir>/<name>` does not exist, it links it to
+	// `~/.local/state/yolo/compile-cache/tmp/<name>`, in the workspace's own home state. A
+	// container's /tmp is its jail's own and a restart empties it, which is what made pi's first
+	// start after every restart compile all its extensions again. The link names the home by
+	// path, so it resolves to this workspace's directory wherever it sits; anything already at
+	// `<tmpdir>/<name>` is left as it is. Never a machine-wide directory: compiled code one jail
+	// wrote must never run in another (XB-P4).
+	TempCaches []string `json:"temp_caches,omitempty"`
 	// VersionsDir is the home-relative directory where the program's own installer keeps ONE
 	// ENTRY PER INSTALLED VERSION: `".codex/packages/standalone/releases"` for codex. Read only
 	// on a `program` delivered `via: "installer"`, and refused everywhere else, because the
@@ -1256,7 +1295,20 @@ func (m *Manifest) InstallContributions() []Install {
 			if len(r.DueOnChange) == 0 {
 				r.DueOnChange = nil
 			}
+			if o := c.Refresh.OnlyIf; o != nil {
+				r.OnlyIf = &RefreshOnlyIf{Files: append([]string(nil), o.Files...),
+					ProjectFiles: append([]string(nil), o.ProjectFiles...), Contains: append([]string(nil), o.Contains...)}
+			}
 			in.Refresh = &r
+		}
+		// The probe arguments and the temporary-directory caches too, for the same reason: what
+		// the PROGRAM answers at once and where it caches what it compiles, whichever mechanism
+		// delivered it. Copied, for Refresh's reason.
+		if len(c.ProbeArgs) > 0 {
+			in.ProbeArgs = append([]string(nil), c.ProbeArgs...)
+		}
+		if len(c.TempCaches) > 0 {
+			in.TempCaches = append([]string(nil), c.TempCaches...)
 		}
 		// The platform list is projected for EVERY via, for UpdateVerb's reason: it
 		// names where the VENDOR publishes, which is a fact about the program rather
@@ -3213,7 +3265,7 @@ func refreshProblems(field string, r *Refresh) []string {
 	}
 	if r.Lock == "" {
 		return append(problems, field+".lock: required — the home-relative lock directory, "+
-			"inside the store the refresh writes (e.g. \".pi-shared-npm/.yolo-update.lock\"); "+
+			"inside the store the refresh writes (e.g. \".pi/.yolo-update.lock\"); "+
 			"a refresh with no lock is two jails writing one store at once")
 	}
 	before := len(problems)
@@ -3230,13 +3282,46 @@ func refreshProblems(field string, r *Refresh) []string {
 	}
 	if !strings.HasPrefix(path.Base(clean), StoreBookkeepingPrefix) {
 		problems = append(problems, fmt.Sprintf(
-			"%s.lock: %q must be named %s<something> (e.g. \".pi-shared-npm/.yolo-update.lock\") — "+
+			"%s.lock: %q must be named %s<something> (e.g. \".pi/.yolo-update.lock\") — "+
 				"the lock lives inside the store, and only a name with that prefix is known to be "+
 				"yolo's bookkeeping rather than the tool's content; a store holding nothing but an "+
 				"unmarked lock reads as populated, and the shared_directory hook discards a "+
 				"workspace's real tree for it", field, r.Lock, StoreBookkeepingPrefix))
 	}
-	return append(problems, dueOnChangeProblems(field+".due_on_change", r.DueOnChange)...)
+	problems = append(problems, dueOnChangeProblems(field+".due_on_change", r.DueOnChange)...)
+	return append(problems, onlyIfProblems(field+".only_if", r.OnlyIf)...)
+}
+
+// onlyIfProblems validates a refresh's worth-running test (Refresh.OnlyIf): at least one file and
+// at least one string; each file a clean relative file path — home-relative, or relative to the
+// directory the program starts in — and each string non-empty and on one line.
+func onlyIfProblems(field string, o *RefreshOnlyIf) []string {
+	if o == nil {
+		return nil
+	}
+	var problems []string
+	if len(o.Files)+len(o.ProjectFiles) == 0 {
+		problems = append(problems, field+": names no file — list the home-relative \"files\" or the "+
+			"\"project_files\" (relative to where the program starts) whose content makes the refresh worth running")
+	}
+	for _, list := range []struct {
+		name  string
+		files []string
+	}{{"files", o.Files}, {"project_files", o.ProjectFiles}} {
+		if list.files != nil {
+			problems = append(problems, dueOnChangeProblems(field+"."+list.name, list.files)...)
+		}
+	}
+	if len(o.Contains) == 0 {
+		problems = append(problems, field+".contains: required — the fixed strings whose presence in a "+
+			"listed file makes the refresh worth running")
+	}
+	for i, s := range o.Contains {
+		if s == "" || strings.ContainsAny(s, "\r\n\x00") {
+			problems = append(problems, fmt.Sprintf("%s.contains[%d]: must be a non-empty string on one line", field, i))
+		}
+	}
+	return problems
 }
 
 // versionsDirProblems validates Contribution.VersionsDir. It is refused off a `program`
@@ -3742,11 +3827,14 @@ func validateContribution(label string, c Contribution) []string {
 	if c.Refresh != nil && c.Kind == KindProgram {
 		problems = append(problems, refreshProblems(label+".refresh", c.Refresh)...)
 	}
+	problems = append(problems, probeArgsProblems(label, c)...)
+	problems = append(problems, tempCachesProblems(label, c)...)
 	problems = append(problems, versionsDirProblems(label, c)...)
 	problems = append(problems, installerEnvProblems(label, c)...)
 	// fork_of, source, build and produces are a fork's alone (fork.go): refused on every other
 	// kind and every other via, in `update`'s position and for its reason.
 	problems = append(problems, forkFieldPlacementProblems(label, c)...)
+	problems = append(problems, fallbackPlacementProblems(label, c)...)
 	problems = append(problems, platformsProblems(label, c)...)
 	problems = append(problems, capabilitiesProblems(label, c)...)
 	problems = append(problems, protocolsProblems(label, c)...)
@@ -3939,10 +4027,11 @@ func validateContribution(label string, c Contribution) []string {
 		// — DefaultSkillsDir, and every *.md directly inside DefaultBriefingDir — so an omitted
 		// `from` there names the convention rather than nothing.
 		switch {
-		case c.IsPatchedExtension():
-			// A PATCHED EXTENSION (patchedext.go, docs/design/patched-extensions.md §4): `source` and
-			// `patches` in place of `from`, landing at the `into` it names.
-			problems = append(problems, patchedExtensionProblems(label, c)...)
+		case c.IsBuiltTree():
+			// A BUILT TREE (patchedext.go): a patched extension, `source` and `patches` in place of
+			// `from` (docs/design/patched-extensions.md §4), or an unmodified one, `source` alone
+			// (docs/design/pi-extension-store-builds.md §4.1), landing at the `into` it names.
+			problems = append(problems, builtTreeProblems(label, c)...)
 		case c.Agent != "":
 			if c.Into == "" && len(c.Agents) > 0 {
 				// `agent` beside `agents` validated before P5 (an audience made `into` optional
@@ -3984,7 +4073,7 @@ func validateContribution(label string, c Contribution) []string {
 		// (packload.ResolveDestinations borrows it from the pack that OWNS that agent), and
 		// naming both would be a content pack asserting a path it has no business knowing
 		// (docs/reference/agent-briefings.md#the-two-halves-and-why-neither-knows-the-others-business, #ba-p4). Naming NEITHER is the broadcast above.
-		if len(c.Agents) > 0 && c.Into != "" && !c.IsPatchedExtension() {
+		if len(c.Agents) > 0 && c.Into != "" && !c.IsBuiltTree() {
 			problems = append(problems, fmt.Sprintf(
 				"%s: kind %q takes \"into\" or \"agents\", not both — a contribution that "+
 					"names its audience has its destination inferred from the pack that owns "+

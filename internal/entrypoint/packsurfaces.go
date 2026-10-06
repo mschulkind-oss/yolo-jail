@@ -221,7 +221,7 @@ func ConfigurePackSurfaces(e *Env, packs []*packload.Pack) {
 		// kind exists for. Collecting per-pack would find, for that case, exactly none
 		// (docs/reference/pack-system.md §6). Since OQ-PT8 the gated overlay IS the profile's
 		// config channel, so the active profile table is that gate's whole input.
-		overlays := packoverlay.Collect(packs, autonomy, profiles)
+		overlays := packoverlay.Collect(withTreeFallbacks(e, packs), autonomy, profiles)
 		reportOverlayResolution(e, overlays)
 		return overlays
 	}, func(name string, run func() error) error {
