@@ -20,6 +20,10 @@ before you use it, and patch series need git 2.40 or newer on the host. A launch
 names, any part of a pack written for a newer yolo instead of failing, and `yolo features` lists
 what a yolo can read. See [Follow an upstream with a patch series](userguide/guides/patch-series.md).
 
+**Pi can start without waiting for its extension update.** Set
+`"agent_updates": { "pi": "next-launch" }` and the update runs while you work, for your next launch.
+See [Keep agents and packs up to date](userguide/guides/packs-and-skills.md#keep-agents-and-packs-up-to-date).
+
 **Claude Code plugins and mods.** A new guide covers the ways to bring a Claude Code plugin or mod
 into a jail, and what each launch shows about the code it runs. See
 [Claude Code plugins and mods](userguide/guides/claude-plugins-and-mods.md).
@@ -40,6 +44,8 @@ give that script the variables it needs, such as where to install, with `install
 
 ### Fixed
 
+- Pi starts faster after a jail restart, and an agent's `--version` answers at once instead of
+  updating the agent and its extensions first.
 - When `yolo host` has no container runtime to capture an agent with, it now says to install one.
 - On a host whose `/bin/sh` is dash, such as Debian or Ubuntu, the Claude Code install command that
   `yolo check-deps` prints and `yolo host apply --assert` runs now installs it.

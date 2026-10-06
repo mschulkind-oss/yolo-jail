@@ -167,6 +167,8 @@ func forkBaseFields(c Contribution) []forkBaseField {
 		{"model_catalog", "its entries name files inside an npm package's directory, and a fork " +
 			"installs no npm package", c.ModelCatalog != nil},
 		{"refresh", base, c.Refresh != nil},
+		{"probe_args", base, c.ProbeArgs != nil},
+		{"temp_caches", base, c.TempCaches != nil},
 		{"provider_sets", base, c.ProviderSets},
 		{"capabilities", base, c.Capabilities != nil},
 		{"protocols", base, c.Protocols != nil},

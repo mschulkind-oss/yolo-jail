@@ -627,7 +627,10 @@ It is an object: `argv`, the program's own argv with the bin omitted, and `lock`
 home-relative lock directory whose parent is the store the refresh writes. Pi declares
 `{"argv": ["update", "--extensions"], "lock": ".pi-shared-npm/.yolo-update.lock"}`. The launcher
 runs it right before the exec, at most once an hour on a machine-global stamp, and only when
-`agent_updates` lets the pack move. It is bounded by the same timeout as an update, reads
+`agent_updates` lets the pack move. When `agent_updates` gives the pack `"next-launch"`, the
+launcher instead starts the same refresh as a detached job and execs at once, so what it installs
+is the next launch's; a launch whose `due_on_change` content is new still refreshes first
+([OQ-PD31](../design/program-delivery.md#decision-ledger)). It is bounded by the same timeout as an update, reads
 nothing from the terminal, writes its stdout to stderr, and runs only while it holds `lock`.
 `lock` is a non-blocking `mkdir`: a lock another jail holds skips the refresh, and so does a
 store that is missing or read-only. The holder touches the lock while it runs, so only a lock
@@ -656,6 +659,30 @@ machine-shared store
 ([`pi-git-extension-caching.md` §3.12](../design/pi-git-extension-caching.md#312-the-refresh-trigger-that-stays)).
 `packdecl` refuses an empty list, an empty, absolute, escaping or unclean entry, and a
 duplicate.
+
+`probe_args` lists the first arguments that make an invocation a **version probe**, a term
+[XB-D24](../design/pi-extension-store-builds.md#XB-D24) coined for an invocation the program
+answers before it does any work of its own. Pi declares `["--version", "-v"]`, and every other
+shipped agent declares `["--version"]`. When the first argument is one of them, the launcher runs
+none of its steps before the exec: no hourly update, no reinstall for a moved pin, no MCP server
+refresh, no pre-launch refresh (so no wait for its lock), no authentication step, no model menu and
+no tree gate. A cold install still runs, because without it there is nothing to answer, and so does
+a fork's materialize. The probe is the pack's declaration and never a flag core guesses: pi answers
+`--help` only after it resolves and installs its packages, so pi's help is not a probe. `probe_args`
+is read on `program` alone. `packdecl` refuses an empty list, an empty or padded word, and a
+duplicate.
+
+`temp_caches` names directories where the program keeps **compiled code under its temporary
+directory**, which is Node's `os.tmpdir()`: `$TMPDIR`, else `$TMP` or `$TEMP`, else `/tmp`. Pi
+declares `["jiti"]`, because its extension loader caches every extension it compiles in
+`<tmpdir>/jiti` and no setting moves that directory. A jail restart empties a container's `/tmp`,
+so pi used to compile every extension again on its first start after each restart. Right before
+the exec, when `<tmpdir>/<name>` does not exist, the launcher links it to
+`~/.local/state/yolo/compile-cache/tmp/<name>`. That directory is in the workspace's own home
+state on every backend, so the cache is per workspace and survives restarts. The launcher never
+replaces something already at `<tmpdir>/<name>`. Each entry must be one bare directory name.
+`temp_caches` is read on `program` alone
+([XB-D30](../design/pi-extension-store-builds.md#XB-D30)).
 
 `platforms` is **where the vendor publishes a build**: a list of `<goos>` or
 `<goos>/<goarch>` entries, spelled as Go spells them. Absent means every platform, which is
@@ -687,7 +714,12 @@ refused. [`protocol-resolution.md`](protocol-resolution.md) is what reads it.
 
 `node_floor` is the **minimum Node version the program's own entrypoint needs**, again on
 `program` alone. When it is set, the generated launcher execs an interpreter that meets it rather
-than the workspace pin's, and a floor nothing satisfies refuses the launch.
+than the workspace pin's, and a floor nothing satisfies refuses the launch. The launcher also
+hands such a program `NODE_COMPILE_CACHE=~/.local/state/yolo/compile-cache/node`, unless the
+environment already names one, so Node's compile cache is per workspace and survives a restart
+([XB-D31](../design/pi-extension-store-builds.md#XB-D31)). Files in either compile cache that no
+program has written for a week are removed, at most once a day
+([XB-D32](../design/pi-extension-store-builds.md#XB-D32)).
 [`agent-program-runtimes.md`](agent-program-runtimes.md) is what reads it.
 
 `provider_sets` (`true`) declares that the agent this program installs **holds several providers
@@ -826,7 +858,7 @@ program is rewritten with the fork's delivery (`packload.ApplyForks`), so every 
 programs, the launcher generator and the host floor included, sees the fork's. It runs in the one
 selection function (`config.SelectPacks`), which every host verb and the launch read, and in the
 jail's pack loader over the staged tree, whose base `pack.json` is unchanged. The rewrite keeps the
-base's `refresh`, `protocols`, `provider_sets`, `platform_switches`, `capabilities`,
+base's `refresh`, `probe_args`, `temp_caches`, `protocols`, `provider_sets`, `platform_switches`, `capabilities`,
 `platform_regions`, `unlisted_background_models`, `exact_menu_refuses` and `node_floor` (a
 fork's own `node_floor` replaces it). It drops every other delivery field of the base: `package`, `url`, `flags`, `update`,
 `versions_dir`, `installer_env`, `install_hints`, `model_catalog`, and `platforms` unless the fork declares its own.

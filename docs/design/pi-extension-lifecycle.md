@@ -241,6 +241,16 @@ transitive MCP/LSP step runs `yolo internal refresh-servers` before the agent's 
    registry, discover they match, and **never render the notification warning box**.
 
 > [!NOTE]
+> **Amended 2026-10-05: step 1 has an opt-in second timing.** Under
+> `"agent_updates": { "pi": "next-launch" }` the hourly refresh runs as a detached job behind
+> pi, so pi does not wait and the next launch runs what it installed. A launch whose
+> settings content is new still refreshes first, under step 1. With the refresh behind the TUI,
+> step 5 does not hold for that session: pi may show its box, and [OQ-3](#OQ-3)'s
+> premise holds only for the default timing. The ruling is
+> [OQ-PD30](program-delivery.md#decision-ledger) and the build
+> [OQ-PD31](program-delivery.md#decision-ledger).
+
+> [!NOTE]
 > **As built (2026-09-25).** Steps 1–4 hold, with the changes below. The launcher's tests are in
 > [`prelaunchrefresh_test.go`](../../internal/entrypoint/prelaunchrefresh_test.go) and the
 > manifest field's in [`refresh_test.go`](../../internal/packdecl/refresh_test.go). The

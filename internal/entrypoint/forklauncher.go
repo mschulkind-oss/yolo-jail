@@ -120,7 +120,7 @@ func sourceAgentLauncherSegments(inst *packdecl.Install, d ForkDelivery, stampDi
 		"__YOLO_EXEC_PREFIX__", token,
 		// The gate a patched extension this agent loads puts on it (patchedtrees.go, PPX-D18).
 		"__YOLO_TREE_GATE__", shquote.Quote(inst.Gate),
-	}, append(launchFlagSplices(flags), refreshSplices(inst.Refresh)...)...)...)
+	}, append(append(launchFlagSplices(flags), refreshSplices(inst.Refresh, inst.RefreshTiming)...), startupSplices(inst, true)...)...)...)
 	return strings.Split(r.Replace(sourceLauncherTemplate), token)
 }
 
@@ -166,7 +166,7 @@ SERVERS_ENABLED=__YOLO_SERVERS_ENABLED__
 SERVERS_NPM=__YOLO_SERVERS_NPM__
 HAS_LAUNCH_FLAGS=__YOLO_HAS_LAUNCH_FLAGS__
 LAUNCH_FLAGS=(__YOLO_LAUNCH_FLAGS__)
-` + refreshDeclShell + launchFlagsShellFn + `
+` + refreshDeclShell + probeArgsDeclShell + launchFlagsShellFn + `
 case ":${_YOLO_LAUNCHER_ACTIVE:-}:" in
     *":$BIN:"*)
         if [ -x "$REAL_BIN" ]; then
@@ -180,7 +180,7 @@ esac
 export _YOLO_LAUNCHER_ACTIVE="${_YOLO_LAUNCHER_ACTIVE:-}:$BIN"
 
 mkdir -p "$STAMP_DIR"
-` + stampMtimeFn + updateBoundShellFn + `
+` + stampMtimeFn + updateBoundShellFn + prelaunchRefreshShellFn + `
 # A FORK HAS NO UPDATE MODE: its pin moves it, on the host, and the next launch builds the new
 # revision — or, for a patched fork, a fresh launch on the host checks its upstream and builds it.
 # "yolo pack update" reaches this and is told so.
@@ -221,11 +221,11 @@ _refresh_servers() {
         --updates="$UPDATES_ENABLED" >&2 || true
 }
 
-if [ "$SERVERS_ENABLED" = "1" ]; then
+if [ "$SERVERS_ENABLED" = "1" ] && [ "$_YOLO_PROBE" != "1" ]; then
     _refresh_servers
 fi
-` + prelaunchRefreshShellFn + `
-` + agentEnvShellFn + agentAuthPrelaunchShellFn + treeGateShell + `
+` + prelaunchRefreshCallShell + `
+` + agentEnvShellFn + agentAuthPrelaunchShellFn + treeGateShell + compileCacheShellFn + `
 if [ -x "$REAL_BIN" ]; then
     _yolo_launch_argv "$@"
     exec __YOLO_EXEC_PREFIX__"$REAL_BIN" ${YOLO_ARGV[@]+"${YOLO_ARGV[@]}"}

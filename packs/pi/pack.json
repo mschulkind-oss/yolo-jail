@@ -18,6 +18,13 @@
       ],
       "node_floor": "22.19",
       "package": "@earendil-works/pi-coding-agent",
+      // A version probe answers at once (pi-extension-store-builds.md XB-D24): pi prints its
+      // version right after parsing its arguments. Not --help, which pi answers only after
+      // resolving and installing its packages.
+      "probe_args": [
+        "--version",
+        "-v"
+      ],
       "protocols": [
         "openai",
         "openai-responses"
@@ -33,6 +40,11 @@
         ],
         "lock": ".pi-shared-npm/.yolo-update.lock"
       },
+      // pi's extension loader caches what it compiles in <tmpdir>/jiti, which a jail restart
+      // empties (XB-D30).
+      "temp_caches": [
+        "jiti"
+      ],
       "via": "npm"
     },
     {

@@ -90,7 +90,9 @@ func TestClaudeLauncherEnsuresTheOpenAILoginOnCodex(t *testing.T) {
 			if err := os.WriteFile(launcherPath, []byte(launcher), 0o755); err != nil {
 				t.Fatal(err)
 			}
-			cmd := exec.Command(launcherPath, "--version")
+			// Not `--version`: the shipped claude pack declares it a version probe, which runs no
+			// authentication step (probeargs.go); TestAVersionProbeRunsNoUpdateStep pins that.
+			cmd := exec.Command(launcherPath, "-p", "hello")
 			cmd.Env = append(launcherHermeticEnv(), "HOME="+home,
 				"PATH="+binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
 			for k, v := range launchEnvFor(t, closure, map[string]string{"claude": "codex"}, "claude") {

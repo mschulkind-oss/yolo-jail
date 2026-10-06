@@ -4,12 +4,15 @@ package entrypoint
 // (docs/design/program-delivery.md §3.5, OQ-PD12). The HOST half — the user-scope config
 // key and the three sites that put it on the wire — is internal/config/agentupdates.go.
 //
-// The wire value is the config value verbatim: `true`, `false`, or a per-pack object
-// keyed by PACK NAME with `"*"` as the default key. The key is a pack name and not a bin
-// name because one pack may declare more than one program, and the unit a user reasons
-// about is the pack they selected.
+// The wire value is the config value verbatim: `true`, `false`, a TIMING ("launch" or
+// "next-launch", OQ-PD30), or a per-pack object of those keyed by PACK NAME with `"*"` as
+// the default key. The key is a pack name and not a bin name because one pack may declare
+// more than one program, and the unit a user reasons about is the pack they selected.
 
-import "github.com/mschulkind-oss/yolo-jail/internal/jsonx"
+import (
+	"github.com/mschulkind-oss/yolo-jail/internal/config"
+	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
+)
 
 // AgentUpdatesEnv carries the policy from the host into the jail. It is a host↔jail
 // contract in the class of YOLO_MCP_PRESETS: emitted by the run pipeline's `-e` list, by
@@ -32,51 +35,81 @@ func agentUpdatesAllows(e *Env, pack string) bool {
 	return agentUpdatesValue(e.Getenv(AgentUpdatesEnv), pack)
 }
 
+// agentUpdatesRefreshTiming is when pack's pre-launch refresh runs in this jail (OQ-PD30):
+// config.AgentUpdatesNextLaunch for one the user moved to the background, and
+// config.AgentUpdatesAtLaunch otherwise. The launcher generator bakes it, beside the
+// UPDATES_ENABLED agentUpdatesAllows decides.
+func agentUpdatesRefreshTiming(e *Env, pack string) string {
+	return refreshTimingValue(e.Getenv(AgentUpdatesEnv), pack)
+}
+
 // PackPolicyAllows is agentUpdatesAllows' reading over a wire value the caller already holds:
-// `true`, `false`, or a per-pack object with "*" as the default key, open when absent or
-// unparseable. It is THE reader of that shape at the host too — `agent_updates` for the host
+// `true`, `false`, a timing, or a per-pack object with "*" as the default key, open when absent
+// or unparseable. It is THE reader of that shape at the host too — `agent_updates` for the host
 // agent floor's evergreen refresh, and `host_floor` (config.HostFloorWire), which takes the same
 // shape by design — so the two notches, and the two keys, cannot come to read one value
-// differently (docs/design/host-tool-provisioning.md).
+// differently (docs/design/host-tool-provisioning.md). A timing is a yes: it says WHEN a pack's
+// pre-launch refresh runs, and the host notch runs none (OQ-PD31). `host_floor`'s validator
+// refuses a timing, so one reaches this reader there only from a config `yolo check` reports.
 func PackPolicyAllows(wire, pack string) bool { return agentUpdatesValue(wire, pack) }
 
 // agentUpdatesValue is the reading, split from the Env lookup so the generator and the
 // tests exercise one implementation of the precedence rule — the same split
 // config.hostApplyOnLaunchValue makes, for the same reason.
 func agentUpdatesValue(wire, pack string) bool {
+	allowed, _ := agentUpdatesDecision(wire, pack)
+	return allowed
+}
+
+// refreshTimingValue is agentUpdatesRefreshTiming's reading, split for the same reason.
+func refreshTimingValue(wire, pack string) string {
+	_, timing := agentUpdatesDecision(wire, pack)
+	return timing
+}
+
+// agentUpdatesDecision is the ONE reading of the wire: whether pack may move, and when its
+// pre-launch refresh runs. Both answers come from one setting, chosen once — the pack's own
+// entry when it is a valid setting, else "*"'s, else the default (allowed, at launch) — so a
+// specific `true` beats a `"*": "next-launch"` whole rather than inheriting its timing.
+func agentUpdatesDecision(wire, pack string) (allowed bool, timing string) {
 	if wire == "" {
-		return true
+		return true, config.AgentUpdatesAtLaunch
 	}
 	decoded, err := jsonx.Decode([]byte(wire))
 	if err != nil {
-		return true
+		return true, config.AgentUpdatesAtLaunch
 	}
-	switch v := decoded.(type) {
-	case bool:
-		return v
-	case *jsonx.OrderedMap:
-		if b, ok := agentUpdatesBool(v, pack); ok {
-			return b
+	if m, ok := decoded.(*jsonx.OrderedMap); ok {
+		for _, key := range []string{pack, "*"} {
+			if v, present := m.Get(key); present {
+				if allowed, timing, ok := agentUpdatesSetting(v); ok {
+					return allowed, timing
+				}
+			}
 		}
-		if b, ok := agentUpdatesBool(v, "*"); ok {
-			return b
-		}
-		return true
-	default:
-		// A shape nobody ruled on — a list, a number, a string. The host validator
-		// refuses it; if one reaches here the launch has already been reported on, and
-		// freezing every agent over it would be the wrong direction to fail in.
-		return true
+		return true, config.AgentUpdatesAtLaunch
 	}
+	if allowed, timing, ok := agentUpdatesSetting(decoded); ok {
+		return allowed, timing
+	}
+	// A shape nobody ruled on — a list, a number, an unknown string. The host validator
+	// refuses it; if one reaches here the launch has already been reported on, and freezing
+	// every agent over it, or moving work out of the user's sight, would be the wrong
+	// direction to fail in.
+	return true, config.AgentUpdatesAtLaunch
 }
 
-// agentUpdatesBool reads one key, reporting whether it was present AND a bool. A key
-// present with a non-bool value is treated as absent so the "*" fallback still applies.
-func agentUpdatesBool(m *jsonx.OrderedMap, key string) (bool, bool) {
-	v, present := m.Get(key)
-	if !present || v == nil {
-		return false, false
+// agentUpdatesSetting reads one value, reporting whether it is a setting at all: a bool, or one
+// of the two timing strings, each of which lets the pack move. Anything else (null, a number, an
+// unknown string) is not, so a map entry holding it is treated as absent and "*" still applies.
+func agentUpdatesSetting(v any) (allowed bool, timing string, ok bool) {
+	switch t := v.(type) {
+	case bool:
+		return t, config.AgentUpdatesAtLaunch, true
+	case string:
+		if t == config.AgentUpdatesAtLaunch || t == config.AgentUpdatesNextLaunch {
+			return true, t, true
+		}
 	}
-	b, ok := v.(bool)
-	return b, ok
+	return false, "", false
 }

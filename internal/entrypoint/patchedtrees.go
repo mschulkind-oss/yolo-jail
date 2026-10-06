@@ -107,9 +107,11 @@ func treeGateFor(d map[string]TreeDelivery, pack string) string {
 }
 
 // treeGateShell is the gate every agent launcher carries, immediately before its exec: the gate's
-// lines, baked by the generator from Install.Gate, and a stop when there are any.
+// lines, baked by the generator from Install.Gate, and a stop when there are any. A version probe
+// (probeargs.go) passes it: the program answers before it loads any extension.
 const treeGateShell = `# --- a patched extension this agent loads, with no build (patched-extensions.md PPX-D18) ---
 TREE_GATE=__YOLO_TREE_GATE__
+[ "${_YOLO_PROBE:-}" != "1" ] || TREE_GATE=""
 if [ -n "$TREE_GATE" ]; then
     printf '%s\n' "$TREE_GATE" >&2
     exit 1

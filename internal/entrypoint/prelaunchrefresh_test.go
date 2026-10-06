@@ -62,6 +62,10 @@ if [ "${1:-}" = "update" ]; then
 fi
 echo "LAUNCH:$*" >> "$LOG"
 echo "RAN $*"
+if [ -n "${FAKE_LAUNCH_WAIT:-}" ]; then
+    : > "$FAKE_LAUNCH_WAIT.started"
+    for _ in $(seq 1 400); do [ -e "$FAKE_LAUNCH_WAIT" ] && break; sleep 0.05; done
+fi
 `
 }
 
@@ -84,6 +88,12 @@ type prelaunchProbe struct {
 	// path, when set, is the launcher's PATH in place of this process's, so a cell can say
 	// which yolo, if any, _bounded finds.
 	path string
+	// timing is the rendered Install's RefreshTiming: "" and "launch" run the refresh before the
+	// exec, "next-launch" in the background (prelaunchrefreshtiming_test.go).
+	timing string
+	// fork renders a fork's SOURCE launcher instead (forklauncher.go); its program sits at the
+	// native path, so a fork probe is made with native set.
+	fork bool
 }
 
 // newPrelaunchProbe seeds a fake program at REAL_BIN (so the launch path, not the cold-install
@@ -130,15 +140,30 @@ func (p *prelaunchProbe) stampPath() string { return filepath.Join(p.stamps, "re
 func (p *prelaunchProbe) write(t *testing.T) {
 	t.Helper()
 	var body string
-	if p.native {
+	if p.fork {
+		// A FORK's source launcher (forklauncher.go), with this home already holding the key's
+		// build at the native path, so the launch path, not a materialize, is under test.
+		keyDir := filepath.Join(p.home, ".local", "state", "yolo", "fork-keys")
+		if err := os.MkdirAll(keyDir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(keyDir, "tool"), []byte("k\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		body = strings.Join(sourceAgentLauncherSegments(&packdecl.Install{Kind: packdecl.InstallKindSource,
+			Bin: "tool", ForkedBy: "forkpack", Produces: []string{".local/bin/tool"},
+			Refresh: p.refresh, RefreshTiming: p.timing},
+			ForkDelivery{Key: "k"}, p.stamps, keyDir, filepath.Join(p.home, "ws", ".yolo", "receipts.jsonl"),
+			"", p.updates, launcherServers{}, nil), "")
+	} else if p.native {
 		body = nativeAgentLauncher("probe",
 			&packdecl.Install{Kind: "native", Bin: "tool",
-				InstallerURL: "https://example.invalid/never-fetched.sh", Refresh: p.refresh},
+				InstallerURL: "https://example.invalid/never-fetched.sh", Refresh: p.refresh, RefreshTiming: p.timing},
 			p.stamps, filepath.Join(p.home, "ws", ".yolo", "receipts.jsonl"), "",
 			p.updates, launcherServers{}, nil)
 	} else {
 		body = npmAgentLauncher("probe",
-			&packdecl.Install{Kind: "npm", Bin: "tool", Package: "tool", Refresh: p.refresh},
+			&packdecl.Install{Kind: "npm", Bin: "tool", Package: "tool", Refresh: p.refresh, RefreshTiming: p.timing},
 			p.stamps, filepath.Join(p.home, "ws", ".yolo", "receipts.jsonl"),
 			p.updates, launcherServers{}, nil)
 	}
@@ -778,16 +803,21 @@ func TestShippedPiLauncherRefreshesItsExtensions(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	cmd := exec.Command(launcher, "--version")
+	// `--help`, not `--version`: pi's `--version` is a version probe, which runs no refresh
+	// (TestShippedPiVersionProbeRunsNoUpdateStep), while pi answers `--help` only after resolving
+	// and installing its packages, so its help keeps the locked refresh in front (XB-D24).
+	cmd := exec.Command(launcher, "--help")
 	cmd.Dir = home
-	cmd.Env = []string{"HOME=" + home, "PATH=" + os.Getenv("PATH")}
+	// TMPDIR of the test's own: pi declares a temporary-directory cache, which the launcher links
+	// there (compilecache.go), and the machine's /tmp is not this test's to write.
+	cmd.Env = []string{"HOME=" + home, "PATH=" + os.Getenv("PATH"), "TMPDIR=" + t.TempDir()}
 	cmd.Stdin = strings.NewReader("")
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("the shipped pi launcher failed: %v\n%s", err, out)
 	}
 	got := logLines(t, log)
-	want := []string{"NODE", "REFRESH", "ARG:update", "ARG:--extensions", "LOCKED", "NODE", "LAUNCH:--version"}
+	want := []string{"NODE", "REFRESH", "ARG:update", "ARG:--extensions", "LOCKED", "NODE", "LAUNCH:--help"}
 	if strings.Join(got, "\n") != strings.Join(want, "\n") {
 		t.Errorf("the shipped pi launcher must refresh its extensions under the node it runs "+
 			"under and the shared store's lock, then launch:\n got %q\nwant %q\n%s", got, want, out)

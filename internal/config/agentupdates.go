@@ -12,15 +12,31 @@ import (
 // agentUpdatesKey is the top-level opt-OUT of evergreen agent dependencies.
 const agentUpdatesKey = "agent_updates"
 
+// The two TIMING values `agent_updates` takes beside a boolean (docs/design/program-delivery.md
+// OQ-PD30, ruled 2026-10-05). Both let the pack move. AgentUpdatesAtLaunch is `true` spelled out:
+// a program's pre-launch refresh (packdecl.Refresh) runs before the launch, bounded and throttled,
+// which is the default. AgentUpdatesNextLaunch runs that refresh in the background instead, so the
+// launch does not wait and what it installs is what the NEXT launch runs. Only the refresh moves:
+// the program's own update and its MCP servers' still complete before the exec (OQ-PD31).
+//
+// Spelled here, once, for both halves: the validator below, and the jail reader
+// (internal/entrypoint/agentupdates.go), which imports them.
+const (
+	AgentUpdatesAtLaunch   = "launch"
+	AgentUpdatesNextLaunch = "next-launch"
+)
+
 // AgentUpdatesWire renders the user's `agent_updates` value as the JSON the jail reads out
 // of YOLO_AGENT_UPDATES, or "" when the key is absent.
 //
 // # The value, and why it is a pack name
 //
-// Either a bool or a per-pack map with `"*"` as the default key:
+// A bool, a timing (AgentUpdatesAtLaunch, AgentUpdatesNextLaunch), or a per-pack map of
+// either with `"*"` as the default key:
 //
 //	"agent_updates": false                              // every agent frozen
 //	"agent_updates": { "*": true, "claude": false }     // all but claude
+//	"agent_updates": { "pi": "next-launch" }            // pi's refresh runs in the background
 //
 // THE KEY IS A PACK NAME, NOT A BIN NAME. One pack may declare more than one program, and
 // the unit a user reasons about is the pack they selected. A specific key beats `"*"`;
@@ -69,10 +85,51 @@ func agentUpdatesWire(cfg *jsonx.OrderedMap) string {
 	return wire
 }
 
+// agentUpdatesAccepted is what agentUpdatesProblem names when it refuses a value, so the user
+// can fix it from the message alone.
+const agentUpdatesAccepted = `true, false, "` + AgentUpdatesAtLaunch + `" or "` + AgentUpdatesNextLaunch + `"`
+
 // agentUpdatesProblem reports why a value is not a usable `agent_updates`, or "" when its
-// SHAPE is fine. Shared by the validator and by nothing else today; it exists as a
-// function so the accepted shapes are stated once.
+// SHAPE is fine: a boolean, a timing, or an object whose every entry is one of those. It is
+// the validator's alone; `host_floor` takes the boolean shapes only (packBoolPolicyProblem),
+// because a floor is a set of programs and has no timing.
 func agentUpdatesProblem(v any) string {
+	switch t := v.(type) {
+	case bool:
+		return ""
+	case string:
+		if agentUpdatesTimingKnown(t) {
+			return ""
+		}
+		return "unknown value " + pyReprValue(t) + "; expected " + agentUpdatesAccepted +
+			", or an object mapping pack names to one of those"
+	case *jsonx.OrderedMap:
+		for _, k := range t.Keys() {
+			val, _ := t.Get(k)
+			if s, ok := val.(string); ok && agentUpdatesTimingKnown(s) {
+				continue
+			}
+			if _, ok := val.(bool); !ok {
+				return "every entry must be " + agentUpdatesAccepted + "; " + pyReprValue(k) +
+					" is " + pyReprValue(val)
+			}
+		}
+		return ""
+	default:
+		return "expected " + agentUpdatesAccepted + ", or an object mapping pack names to one of those (got " +
+			pyReprValue(v) + ")"
+	}
+}
+
+// agentUpdatesTimingKnown reports whether s is one of the two timing values.
+func agentUpdatesTimingKnown(s string) bool {
+	return s == AgentUpdatesAtLaunch || s == AgentUpdatesNextLaunch
+}
+
+// packBoolPolicyProblem is agentUpdatesProblem's shape rule before the timing values: a boolean,
+// or an object mapping pack names to booleans. `host_floor` takes exactly this, and is read by the
+// same reader as `agent_updates` (entrypoint.PackPolicyAllows).
+func packBoolPolicyProblem(v any) string {
 	switch t := v.(type) {
 	case bool:
 		return ""
