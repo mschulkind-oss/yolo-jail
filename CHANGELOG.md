@@ -37,6 +37,9 @@ give that script the variables it needs, such as where to install, with `install
 - On a Mac, and on Linux with no container runtime, `yolo host -- copilot` now runs the copilot on
   your PATH, as it does for Claude Code: on a Mac install it with `brew install --cask copilot-cli`;
   on Linux install Podman, and the next `yolo host -- copilot` installs it.
+- A host-wide service an older yolo started, such as `aws-auth`, now stops a new launch that uses
+  it instead of warning: run the `yolo host-daemon restart <name>` it names, which jails already
+  running survive.
 
 ### Fixed
 

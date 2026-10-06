@@ -70,7 +70,8 @@ func jailDaemonBoundaryFor(t *testing.T, rt string, cfg *jsonx.OrderedMap,
 	for _, s := range payload {
 		names[s.Name] = true
 	}
-	for _, h := range o.startLoopholesDisclosed(cname, rt, cfg, packs, payload) {
+	handles, _ := o.startLoopholesDisclosed(cname, rt, cfg, packs, payload)
+	for _, h := range handles {
 		if h.stop != nil {
 			h.stop()
 		}

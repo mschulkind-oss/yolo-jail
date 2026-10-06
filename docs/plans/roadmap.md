@@ -227,7 +227,7 @@ host or an outside account follows under [External waits](#external-waits).
     `-p bedrock-bridge` without prompt caching and starting on an id Bedrock refuses; [pi's package
     folder](../design/pack-pi-resources.md), one entry per content pack in place of a list of files, registering
     addressed trees only, since whether a patched extension there may drop its list entry is
-    [OQ-PC3](../design/pack-conventions.md#OQ-PC3), open and not gating the patch-series work; [the jail's readiness
+    [OQ-PC3](../design/pack-conventions.md#OQ-PC3), open and not gating the patch-series work; and [the jail's readiness
     act](../design/jail-notch-readiness.md#OQ-JR1), which installs every program a selected pack declares before your command
     runs and stops a launch that cannot, offline included, since `yolo -- true` still leaves every agent CLI uninstalled; and
     [the refusal of a host-wide daemon older than the launching yolo](../design/host-daemon-ownership.md#OQ-HD11), since an

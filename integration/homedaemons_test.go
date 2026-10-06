@@ -199,13 +199,14 @@ func stopHostDaemonPID(name string, pid int) error {
 		return nil
 	}
 	// The socket, the private host socket beside it (the openai-auth and aws-auth daemons
-	// each derive one), and the PID file's `.capability` stamp and `.settings` record: what
-	// BrokerKill removes, plus the sibling it does not know about. The PID file goes last, so
-	// a reader that still finds it finds the rest.
+	// each derive one), and the PID file's `.capability` and `.launch-check` stamps and
+	// `.settings` record: what BrokerKill removes, plus the sibling it does not know about. The
+	// PID file goes last, so a reader that still finds it finds the rest.
 	socket := paths.HostSingletonSocket(name)
 	pidFile := paths.HostSingletonPIDFile(name)
 	for _, p := range []string{socket, openaiauthdaemon.HostSocketPath(socket),
-		awsauthdaemon.HostSocketPath(socket), pidFile + ".capability", pidFile + ".settings", pidFile} {
+		awsauthdaemon.HostSocketPath(socket), pidFile + ".capability", pidFile + ".launch-check",
+		pidFile + ".settings", pidFile} {
 		if err := os.Remove(p); err != nil && !errors.Is(err, fs.ErrNotExist) {
 			return err
 		}
@@ -262,6 +263,7 @@ func fakeHostDaemon(t *testing.T, name, home string) *exec.Cmd {
 		paths.HostSingletonLock(name):   "",
 		pidFile:                         strconv.Itoa(cmd.Process.Pid) + "\n",
 		pidFile + ".capability":         "fake\n",
+		pidFile + ".launch-check":       "fake\n",
 		pidFile + ".settings":           "{}\n",
 		paths.HostSingletonSocket(name): "",
 	} {
@@ -293,6 +295,7 @@ func TestStopHomeHostDaemonsStopsOnlyTheHomesOwn(t *testing.T) {
 	}
 	for _, p := range []string{paths.HostSingletonPIDFile("fake-own"),
 		paths.HostSingletonSocket("fake-own"), paths.HostSingletonPIDFile("fake-own") + ".capability",
+		paths.HostSingletonPIDFile("fake-own") + ".launch-check",
 		paths.HostSingletonPIDFile("fake-own") + ".settings"} {
 		if _, err := os.Lstat(p); !errors.Is(err, fs.ErrNotExist) {
 			t.Errorf("%s survived the stop (%v)", p, err)
