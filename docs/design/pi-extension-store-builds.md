@@ -768,7 +768,8 @@ anything rewrites pi's list, is restated in the store's design.
 ## Decision Ledger
 
 Every row is an implementation decision, reversible, made 2026-10-05 in drafting or, from
-[XB-D29](#XB-D29) on, in building, except [XB-D14](#XB-D14), which the maintainer confirmed that
+[XB-D29](#XB-D29) on, in building, or, from [XB-D43](#XB-D43) on, in review of the build
+(2026-10-05 and 2026-10-06), except [XB-D14](#XB-D14), which the maintainer confirmed that
 day, and [XB-D27](#XB-D27), which awaits his confirmation; his own ruling of that day is recorded
 in [§7.1](#71-the-ruling). Rows marked *under (c)* apply only if
 [OQ-6](pi-git-extension-caching.md#OQ-6) is ruled (c), and [XB-D16](#XB-D16) only under (a) or (b).
