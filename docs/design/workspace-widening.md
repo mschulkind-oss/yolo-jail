@@ -3,7 +3,7 @@ title: "The agent asks for a repository, the human says yes: GitHub scope wideni
 date: 2026-10-05
 status: accepted
 stage: DECIDED
-next: "Complete workspace-widening-plan.md against the tree with the implementation-plan skill, then build §3 in one landing, starting at internal/config/brokered.go"
+next: "Build §3 in one landing from workspace-widening-plan.md, starting at the confined workspace reads in internal/config/load.go"
 tags: [design, github, broker, config, approvals, scope, workspace, migration]
 summary: "The github-broker's extra repositories move from a user-config entry keyed by the workspace's host path to a `brokered.<source>.repos` list in the workspace's own config. The config-change gate that already approves the workspace's remotes approves them too. An agent can already widen the scope with `git remote add` and one y, so the user-scope entry protected nothing an agent could not already reach, and it cost the human a host-side edit. The entry joins the gate's scope part and its labeled block, never the JSON diff. The broker gets only what was approved. The out-of-scope refusal and the github briefing tell the agent to add the entry and ask the user to restart. The user-scope form shipped in 0.11.1; it is deleted and becomes a refusal that names the edit to make. This re-rules boundary-broker.md's OQ-BB6 to its option (d), which makes OQ-BB11 moot."
 vantage:
@@ -52,8 +52,8 @@ follows its leaning, which is what this design already said; the other answer is
 - [`boundary-broker.md`](boundary-broker.md): the broker. This doc re-rules its
   [OQ-BB6](boundary-broker.md#OQ-BB6), which makes its [OQ-BB11](boundary-broker.md#OQ-BB11) moot.
 - [`config-safety.md`](../reference/config-safety.md): the config-change gate.
-- [`workspace-widening-plan.md`](workspace-widening-plan.md): the implementation sketch, stamped
-  `SKETCH`. Complete it before building from it.
+- [`workspace-widening-plan.md`](workspace-widening-plan.md): the build hand-off, completed
+  against the tree.
 
 ---
 
