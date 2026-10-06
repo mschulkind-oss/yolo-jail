@@ -119,6 +119,9 @@ func (f Fork) ReadSeries() (*packsrc.Series, error) {
 	if !f.Patched() {
 		return nil, fmt.Errorf("fork %s declares no patch series", f.Key())
 	}
+	if f.IsTree() {
+		return packsrc.ReadTreeSeries(f.Root, f.Patches) // an extension's remedies (PPX-D37)
+	}
 	return packsrc.ReadSeries(f.Root, f.Patches)
 }
 

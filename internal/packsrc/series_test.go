@@ -292,12 +292,12 @@ func TestReadMemberRefusesAnInPackLink(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer root.Close()
-	data, err := readMember(root, "a.patch", MaxSeriesBytes)
+	data, err := readMember(root, "a.patch", MaxSeriesBytes, "fork")
 	var se *SeriesError
 	if !errors.As(err, &se) || !strings.Contains(err.Error(), "symbolic link") {
 		t.Errorf("readMember over an in-pack link = %q, %v; want it refused", data, err)
 	}
-	if _, err := readMember(root, "b.txt", MaxSeriesBytes); err != nil {
+	if _, err := readMember(root, "b.txt", MaxSeriesBytes, "fork"); err != nil {
 		t.Errorf("readMember over a regular file: %v", err)
 	}
 }

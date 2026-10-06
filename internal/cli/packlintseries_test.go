@@ -83,25 +83,37 @@ func TestPackLintFailsASeriesALaunchCannotRead(t *testing.T) {
 			if err := os.MkdirAll(dir, 0o755); err != nil {
 				t.Fatal(err)
 			}
-		}, []string{"holds no .patch file", "git format-patch --base="}},
-		{"a missing folder", nil, []string{"the directory does not exist", `correct the fork's "patches"`}},
+		}, []string{"holds no .patch file, and a patched SUBJECT applies at least one", "git format-patch --base="}},
+		{"a missing folder", nil, []string{"the directory does not exist", `correct the SUBJECT's "patches"`}},
 	}
 	for _, c := range cases {
 		for _, ext := range []bool{false, true} {
-			label := "fork forkpack/tool"
+			label, subject := "fork forkpack/tool", "fork"
 			if ext {
-				label = "extension forkpack/pi-foo"
+				label, subject = "extension forkpack/pi-foo", "extension"
 			}
 			rc, out := lintArgs(t, lintSeriesPack(t, "forkpack", ext, c.fill))
 			if rc == 0 {
 				t.Errorf("%s (%s): lint passed\n%s", c.name, label, out)
 			}
 			for _, w := range append([]string{"✗ " + label + ": patch series patches"}, c.want...) {
-				if !strings.Contains(out, w) {
+				if w = strings.ReplaceAll(w, "SUBJECT", subject); !strings.Contains(out, w) {
 					t.Errorf("%s (%s): lint lacks %q:\n%s", c.name, label, w, out)
 				}
 			}
+			// AN EXTENSION'S OWN REMEDY (PPX-D37): a `files` contribution has no plain form to declare
+			// instead, so its lines never name one, nor the fork's fields.
+			if ext && (strings.Contains(out, "plain fork") || strings.Contains(out, "the fork's")) {
+				t.Errorf("%s (%s): lint names a fork's remedy for an extension:\n%s", c.name, label, out)
+			}
 		}
+	}
+	if _, out := lintArgs(t, lintSeriesPack(t, "forkpack", false, func(dir string) {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	})); !strings.Contains(out, "declare a plain fork instead (drop \"patches\")") {
+		t.Errorf("an empty fork series does not name the plain fork:\n%s", out)
 	}
 }
 

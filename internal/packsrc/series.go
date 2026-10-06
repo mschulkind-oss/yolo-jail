@@ -111,8 +111,32 @@ func (e *SeriesError) Error() string {
 
 func (e *SeriesError) Unwrap() error { return e.Err }
 
-// ReadSeries reads the series in the directory rel of the pack rooted at packRoot.
-func ReadSeries(packRoot, rel string) (*Series, error) {
+// ReadSeries reads a patched fork's series in the directory rel of the pack rooted at packRoot.
+func ReadSeries(packRoot, rel string) (*Series, error) { return readSeries(packRoot, rel, forkSeries) }
+
+// ReadTreeSeries is ReadSeries for a patched extension's series (patched-extensions.md PPX-D37): the
+// same read, whose errors name an extension's remedies. An extension has no unpatched form a pack
+// can declare in its place, so an empty series names the export alone.
+func ReadTreeSeries(packRoot, rel string) (*Series, error) {
+	return readSeries(packRoot, rel, extensionSeries)
+}
+
+// seriesSubject is what owns a series, as its read's errors name it.
+type seriesSubject struct {
+	// noun is "fork" or "extension", as in "the fork's \"patches\"".
+	noun string
+	// unpatched is the remedy an empty series names after the export, for a subject that has an
+	// unpatched form to declare instead; "" for none.
+	unpatched string
+}
+
+var (
+	forkSeries = seriesSubject{noun: "fork", unpatched: "; to build the upstream unpatched, declare " +
+		"a plain fork instead (drop \"patches\")"}
+	extensionSeries = seriesSubject{noun: "extension"}
+)
+
+func readSeries(packRoot, rel string, who seriesSubject) (*Series, error) {
 	if rel == "" || rel == "." || strings.HasPrefix(rel, "/") || path.Clean(rel) != rel ||
 		rel == ".." || strings.HasPrefix(rel, "../") {
 		return nil, &SeriesError{Path: rel, Problem: "is not a clean path inside the pack",
@@ -135,10 +159,10 @@ func ReadSeries(packRoot, rel string) (*Series, error) {
 		case errors.Is(err, fs.ErrNotExist):
 			if at == rel {
 				return nil, &SeriesError{Path: rel, Problem: "the directory does not exist",
-					Fix: "correct the fork's \"patches\" or create the directory", Err: err}
+					Fix: "correct the " + who.noun + "'s \"patches\" or create the directory", Err: err}
 			}
 			return nil, &SeriesError{Path: at, Problem: "does not exist, so the series directory " +
-				rel + " cannot either", Fix: "correct the fork's \"patches\" or create the directory", Err: err}
+				rel + " cannot either", Fix: "correct the " + who.noun + "'s \"patches\" or create the directory", Err: err}
 		case err != nil:
 			return nil, &SeriesError{Path: at, Problem: "cannot be read (" + err.Error() + ")",
 				Fix: "check the path's permissions", Err: err}
@@ -147,7 +171,7 @@ func ReadSeries(packRoot, rel string) (*Series, error) {
 				"from the pack itself, never through a link", Fix: "put a regular directory in its place"}
 		case !fi.IsDir():
 			return nil, &SeriesError{Path: at, Problem: "is not a directory",
-				Fix: "correct the fork's \"patches\" to name the series directory"}
+				Fix: "correct the " + who.noun + "'s \"patches\" to name the series directory"}
 		}
 	}
 	dir, err := root.Open(rel)
@@ -178,10 +202,9 @@ func ReadSeries(packRoot, rel string) (*Series, error) {
 		names = append(names, e.Name())
 	}
 	if len(names) == 0 {
-		return nil, &SeriesError{Path: rel, Problem: "holds no .patch file, and a patched fork applies " +
-			"at least one", Fix: "export the series into it with `git format-patch --base=<upstream " +
-			"commit> -o " + rel + " <upstream commit>..HEAD`; to build the upstream unpatched, declare " +
-			"a plain fork instead (drop \"patches\")"}
+		return nil, &SeriesError{Path: rel, Problem: "holds no .patch file, and a patched " + who.noun +
+			" applies at least one", Fix: "export the series into it with `git format-patch --base=<upstream " +
+			"commit> -o " + rel + " <upstream commit>..HEAD`" + who.unpatched}
 	}
 	sort.Strings(names) // byte-wise, which is format-patch's 0001-… order
 	s := &Series{Dir: rel}
@@ -189,7 +212,7 @@ func ReadSeries(packRoot, rel string) (*Series, error) {
 	var read []SeriesMember // every file taken, the cover letter included, for the digest
 	for i, name := range names {
 		at := rel + "/" + name
-		data, err := readMember(root, at, MaxSeriesBytes-total)
+		data, err := readMember(root, at, MaxSeriesBytes-total, who.noun)
 		if err != nil {
 			return nil, err
 		}
@@ -217,7 +240,7 @@ func ReadSeries(packRoot, rel string) (*Series, error) {
 		s.Members = append(s.Members, m)
 	}
 	if len(s.Members) == 0 {
-		return nil, &SeriesError{Path: rel, Problem: "holds a cover letter and no patch, and a patched fork " +
+		return nil, &SeriesError{Path: rel, Problem: "holds a cover letter and no patch, and a patched " + who.noun + " " +
 			"applies at least one", Fix: "export the series into it with `git format-patch --base=<upstream " +
 			"commit> -o " + rel + " <upstream commit>..HEAD`"}
 	}
@@ -312,7 +335,7 @@ func SeriesDigest(members []SeriesMember) string {
 // lstat walk. The name is lstat'd once the file is open, and must still be a regular file and the
 // very file the open returned (os.SameFile); a swap either way is refused. The root still keeps
 // every read inside the pack.
-func readMember(root *os.Root, at string, budget int) ([]byte, error) {
+func readMember(root *os.Root, at string, budget int, noun string) ([]byte, error) {
 	f, err := root.OpenFile(at, os.O_RDONLY|syscall.O_NONBLOCK, 0)
 	if err != nil {
 		return nil, &SeriesError{Path: at, Problem: "cannot be read (" + err.Error() + ")",
@@ -337,7 +360,7 @@ func readMember(root *os.Root, at string, budget int) ([]byte, error) {
 	if len(data) > budget {
 		return nil, &SeriesError{Path: at, Problem: fmt.Sprintf("takes the series past %d MiB, the "+
 			"most one read takes", MaxSeriesBytes>>20), Fix: "a series is source text: keep built " +
-			"output out of it, and let the fork's `build` make it"}
+			"output out of it, and let the " + noun + "'s `build` make it"}
 	}
 	return data, nil
 }
