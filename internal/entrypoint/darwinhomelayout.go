@@ -815,9 +815,11 @@ func cacheSubdirOK(sub string) bool {
 // IT RUNS AS THE SANDBOX ACCOUNT, OUTSIDE SEATBELT, and ~/.cache is writable by every session's
 // sandbox, so nothing here follows a link somebody else laid:
 //
-//   - ~/.cache must be a REAL directory (it is made when absent). A link there is refused,
-//     naming `sudo rm` of the link and nothing below it: laid through, the relocations' links
-//     would land wherever it points.
+//   - ~/.cache must be a REAL directory (it is made when absent) on a launch that relocates
+//     something. A link there is then refused, naming `sudo rm` of the link and nothing below
+//     it: laid through, the relocations' links would land wherever it points. A launch that
+//     relocates nothing ignores a ~/.cache that is not a real directory, and reads nothing
+//     through it.
 //   - Every write is made beneath an os.Root on ~/.cache, opened after the check and compared
 //     with it, so a swap between the two is refused rather than followed.
 //   - A link at a relocation's path is REPLACED (it is a name, and the profile names the target,
@@ -834,11 +836,15 @@ func InstallDarwinCacheRelocations(e *Env) error {
 	}
 	cache := filepath.Join(e.Home, ".cache")
 	fi, err := os.Lstat(cache)
+	// NOTHING TO LAY, NO OPINION ABOUT ~/.cache: a launch that relocates nothing is never refused
+	// for what ~/.cache is, since any session's sandbox may make it a link or a file, and a
+	// refusal here would stop every later launch of every workspace. Only a REAL directory can
+	// hold links an earlier launch laid, so only one is swept; no manifest is read through a link.
+	if len(want) == 0 && (err != nil || !fi.IsDir()) {
+		return nil
+	}
 	switch {
 	case errors.Is(err, fs.ErrNotExist):
-		if len(want) == 0 {
-			return nil // nothing to lay, and no manifest can be there
-		}
 		if err := os.Mkdir(cache, 0o755); err != nil {
 			return err
 		}

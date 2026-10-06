@@ -772,7 +772,7 @@ func TestMacosUserSeatbeltContextHardLinkMeasurement(t *testing.T) {
 // TestMacosUserSeatbeltRelocationOnAVolumeMeasurement RECORDS the profile half of the /Volumes
 // question (CX-D5 narrowed for cache_relocations; OQ-CX8 in docs/design/context-mounts.md) and
 // asserts nothing about it: on each volume macos-user.yml attached (macosUserRelocationVolumesEnv;
-// one with ownership on, one off), does the relocation's read allow re-open a folder there past
+// APFS with ownership on, APFS with it off, and exFAT), does the relocation's read allow re-open a folder there past
 // the /Volumes read deny, does its write allow let a write through, and does a sibling folder on
 // the same volume stay denied? As the runner, under the profile, with no sandbox account — the
 // account's half is TestMacosUserCacheRelocationOnAVolumeMeasurement's. Only a broken control fails.

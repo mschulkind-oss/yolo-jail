@@ -24,7 +24,8 @@ import (
 // and the volume answer is what the first scheduled run will say.
 
 // macosUserRelocationVolumesEnv names the volumes macos-user.yml attaches for the /Volumes
-// measurement, colon-separated: one with ownership on and one with it off. Unset everywhere else.
+// measurement, colon-separated: an APFS one with ownership on, one with it off, and an exFAT one
+// when the runner could make it. Unset everywhere else.
 const macosUserRelocationVolumesEnv = "YOLO_TEST_MACOS_USER_RELOCATION_VOLUMES"
 
 // macosUserRelocationTarget is a relocation target that does not exist yet, in a 0755 folder of
@@ -42,9 +43,12 @@ func macosUserRelocationTarget(t *testing.T, parent string) string {
 		t.Fatal(err)
 	}
 	// MkdirTemp makes it 0700, which the sandbox account cannot traverse; a folder a human makes
-	// for a cache is 0755.
+	// for a cache is 0755. A volume with no Unix modes of its own (exFAT) may refuse the chmod
+	// and show every folder open already, which is as good.
 	if err := os.Chmod(resolved, 0o755); err != nil {
-		t.Fatal(err)
+		if st, serr := os.Stat(resolved); serr != nil || st.Mode().Perm()&0o055 != 0o055 {
+			t.Fatal(err)
+		}
 	}
 	t.Cleanup(func() {
 		if err := os.RemoveAll(resolved); err == nil {
@@ -137,7 +141,8 @@ func TestMacosUserCacheRelocationRefusesAPopulatedTargetWithoutAccess(t *testing
 
 // THE /Volumes MEASUREMENT (CX-D5 narrowed for this key; OQ-CX8 in
 // docs/design/context-mounts.md): macos-user.yml attaches two APFS disk images under /Volumes, one
-// with ownership on and one with it off, and names them in macosUserRelocationVolumesEnv. For
+// with ownership on and one with it off, and an exFAT one, which takes no access entries (CR-D7 in
+// docs/plans/cache-relocation.md), and names them in macosUserRelocationVolumesEnv. For
 // each, a launch relocates a subdir to a folder on it and writes there. RECORDED, never asserted:
 // the launch either writes (the profile's re-allow of the target, the probe and the volume let it
 // through) or refuses with the relocation probe's message (the probe did its job: the volume is
@@ -148,7 +153,7 @@ func TestMacosUserCacheRelocationOnAVolumeMeasurement(t *testing.T) {
 	vols := os.Getenv(macosUserRelocationVolumesEnv)
 	if vols == "" {
 		t.Skipf("%s is unset: no volume was attached for this measurement (macos-user.yml's "+
-			"\"Attach two APFS volumes\" step sets it)", macosUserRelocationVolumesEnv)
+			"\"Attach the volumes for the cache-relocation measurement\" step sets it)", macosUserRelocationVolumesEnv)
 	}
 	for _, vol := range strings.Split(vols, ":") {
 		t.Run(filepath.Base(vol), func(t *testing.T) {
@@ -164,6 +169,13 @@ func TestMacosUserCacheRelocationOnAVolumeMeasurement(t *testing.T) {
 				`echo "=== END ==="`,
 			}, "\n"))
 			out := r.combined()
+			// Whether the target yolo made there took the sandbox's access entries (CR-D7): a
+			// failed grant is said and not fatal, so the outcome below is the probes'.
+			grant := "granted"
+			if strings.Contains(out, "could not add the "+macosuser.SandboxUser+" account's access entries") {
+				grant = "NOT granted (the volume took no access entries)"
+			}
+			t.Logf("MEASUREMENT (CR-D7; cache_relocations on %s): the target yolo created was %s.", vol, grant)
 			switch {
 			case r.rc == 0 && strings.Contains(section(r.stdout, "=== WRITE ===", "=== END ==="), "WROTE"):
 				_, err := os.Stat(filepath.Join(target, "blob"))

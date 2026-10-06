@@ -593,7 +593,11 @@ func printCacheRelocations(out printer, relocs []CacheRelocation) {
 			line += " (" + r.NamedTarget() + ")"
 		}
 		line += ", a link in the sandbox home. The sandbox reads and writes that folder"
-		if r.Created {
+		switch {
+		case r.Created && r.GrantFailure != "":
+			line += ", which yolo created now and could not add the sandbox account's access " +
+				"entries to (" + r.GrantFailure + ")"
+		case r.Created:
 			line += ", which yolo created now and opened to the sandbox account"
 		}
 		out.print(line + ".")

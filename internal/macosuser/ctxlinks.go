@@ -454,6 +454,14 @@ type CacheRelocation struct {
 	// sandbox's inheriting access entries (CacheRelocationACECommands). A target that was
 	// already there keeps whatever access it had, which the preflight then asks about.
 	Created bool
+	// GrantFailure is why the host CLI could not grant a target it created on this launch those
+	// entries, or "" (granted, or not created now). It does not stop the launch: the DAC
+	// preflight and the write probe are the gates (CR-D4), and a volume that takes no access
+	// entries — an exFAT or FAT drive, the usual case — usually ignores ownership too, so the
+	// sandbox can write it anyway. It changes what the refusal names when a probe does fail:
+	// `yolo macos-fix-permissions` adds the same entries and would fail the same way, so it is
+	// not offered for this target (CacheRelocationRefusalMessage).
+	GrantFailure string
 }
 
 // NamedTarget is the target as the user config spells it.
@@ -658,6 +666,7 @@ func CacheRelocationRefusalMessage(failed []CacheRelocationProbe, step string) s
 		"cache_relocations target.[/bold red]\n"
 	seen := map[string]bool{}
 	var targets []string
+	var ungrantable []CacheRelocation
 	for _, p := range failed {
 		what := p.Access + " it"
 		if p.Access == cacheRelocationProfileAccess {
@@ -665,17 +674,36 @@ func CacheRelocationRefusalMessage(failed []CacheRelocationProbe, step string) s
 		}
 		msg += "  • ~/.cache/" + p.Relocation.Subdir + " → " + p.Relocation.Target + ": " +
 			SandboxUser + " cannot " + what + "\n"
-		if !seen[p.Relocation.Target] {
-			seen[p.Relocation.Target] = true
+		if seen[p.Relocation.Target] {
+			continue
+		}
+		seen[p.Relocation.Target] = true
+		if p.Relocation.GrantFailure != "" {
+			ungrantable = append(ungrantable, p.Relocation)
+		} else {
 			targets = append(targets, p.Relocation.Target)
 		}
 	}
 	msg += "The sandbox runs as " + SandboxUser + ", a separate account, and a relocated cache " +
 		"is its own bytes in your folder. A folder yolo creates for a relocation is granted the " +
-		"sandbox's access as it is created; one that was already there, and holds files, needs " +
-		"the same entries added:\n"
-	for _, t := range targets {
-		msg += "  yolo macos-fix-permissions " + shquote.Quote(t) + "\n"
+		"sandbox's access as it is created"
+	if len(targets) > 0 {
+		msg += "; one that was already there, and holds files, needs the same entries added:\n"
+		for _, t := range targets {
+			msg += "  yolo macos-fix-permissions " + shquote.Quote(t) + "\n"
+		}
+	} else {
+		msg += ".\n"
+	}
+	// A TARGET yolo CREATED AND COULD NOT GRANT is not offered `yolo macos-fix-permissions`, which
+	// runs the same `chmod +a` and fails the same way: its volume most likely takes no access
+	// entries, and the way on is a folder on one that does.
+	for _, r := range ungrantable {
+		msg += "yolo created " + r.Target + " on this launch and could not add those entries to it (" +
+			r.GrantFailure + "), most likely because its volume does not support them, as an exFAT " +
+			"or FAT drive does not; `yolo macos-fix-permissions` adds the same entries and would " +
+			"fail the same way. Point ~/.cache/" + r.Subdir + " at a folder on an APFS or Mac OS " +
+			"Extended volume instead.\n"
 	}
 	return msg + "Every folder above a target must also let the sandbox account pass (`ls -lde` " +
 		"each one; mode 755 is enough), so a target inside a folder only you may open, such as " +

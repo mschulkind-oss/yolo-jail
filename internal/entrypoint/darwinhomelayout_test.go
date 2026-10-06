@@ -59,6 +59,14 @@ func stagePackForBootstrap(t *testing.T, name string) string {
 // workspace, and returns both. `extra` overrides any env var.
 func darwinBootstrapHome(t *testing.T, extra map[string]string) (home, ws string) {
 	t.Helper()
+	home, ws, _ = darwinBootstrapRun(t, extra, nil)
+	return home, ws
+}
+
+// darwinBootstrapRun is darwinBootstrapHome with prep run on the home before the bootstrap,
+// and the bootstrap's own error returned for a test that asserts on a generator's failure.
+func darwinBootstrapRun(t *testing.T, extra map[string]string, prep func(home string)) (home, ws string, err error) {
+	t.Helper()
 	base := t.TempDir()
 	home = filepath.Join(base, "home")
 	ws = filepath.Join(base, "workspace")
@@ -66,6 +74,9 @@ func darwinBootstrapHome(t *testing.T, extra map[string]string) (home, ws string
 		if err := os.MkdirAll(d, 0o755); err != nil {
 			t.Fatal(err)
 		}
+	}
+	if prep != nil {
+		prep(home)
 	}
 	vars := map[string]string{
 		"HOME":                     home,
@@ -84,11 +95,11 @@ func darwinBootstrapHome(t *testing.T, extra map[string]string) (home, ws string
 	}
 	e := DarwinEnvFrom(vars, home)
 	e.Stderr = &strings.Builder{}
-	// The bootstrap's own error is deliberately NOT fatal to the test: a temp home can
-	// fail an unrelated generator (no git, no node), and what these tests assert is the
-	// LAYOUT. A layout failure shows up as a missing link below, named precisely.
-	_ = RunDarwinBootstrap(e, DarwinBootstrapOptions{MacosLog: "off"})
-	return home, ws
+	// The bootstrap's own error is deliberately NOT fatal here: a temp home can fail an
+	// unrelated generator (no git, no node), and what most of these tests assert is the
+	// LAYOUT. A layout failure shows up as a missing link, named precisely.
+	err = RunDarwinBootstrap(e, DarwinBootstrapOptions{MacosLog: "off"})
+	return home, ws, err
 }
 
 // THE TEST §6 ASKS FOR. Two assertions, and each pins a different call site:
@@ -1012,6 +1023,45 @@ func TestTheCacheRelocationStepRefusesALinkedCacheDir(t *testing.T) {
 	}
 	if ents, _ := os.ReadDir(elsewhere); len(ents) > 0 {
 		t.Errorf("something was laid through the linked ~/.cache: %v", ents)
+	}
+}
+
+// NO RELOCATION, NO OPINION ABOUT ~/.cache: a launch that relocates nothing is never refused
+// for what the sandbox account's ~/.cache is, since every session's sandbox may write the
+// account home and so make it a link or a file. With a linked ~/.cache (and a file there) the
+// real boot's layout step succeeds and writes nothing through the link. Fails if the step's
+// early return for an empty relocation list moves back inside the "absent" case, which refused
+// every later launch of every workspace until someone ran `sudo rm`.
+func TestNoRelocationIgnoresALinkedOrFileCacheDir(t *testing.T) {
+	elsewhere := t.TempDir()
+	cases := map[string]func(home string){
+		"a link": func(home string) {
+			if err := os.Symlink(elsewhere, filepath.Join(home, ".cache")); err != nil {
+				t.Fatal(err)
+			}
+		},
+		"a file": func(home string) {
+			if err := os.WriteFile(filepath.Join(home, ".cache"), []byte("not a dir"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+		},
+	}
+	for name, prep := range cases {
+		t.Run(name, func(t *testing.T) {
+			_, _, err := darwinBootstrapRun(t, nil, prep)
+			if err != nil && (strings.Contains(err.Error(), "darwin_home_layout") ||
+				strings.Contains(err.Error(), "cache_relocations")) {
+				t.Fatalf("a launch with no relocation was refused for ~/.cache being %s: %v", name, err)
+			}
+			home := t.TempDir()
+			prep(home)
+			if err := InstallDarwinCacheRelocations(relocEnv(home, nil)); err != nil {
+				t.Errorf("the relocation step refused ~/.cache being %s with nothing to lay: %v", name, err)
+			}
+			if ents, _ := os.ReadDir(elsewhere); len(ents) > 0 {
+				t.Errorf("something was written through the linked ~/.cache: %v", ents)
+			}
+		})
 	}
 }
 

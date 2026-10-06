@@ -288,11 +288,16 @@ jobs:
       # /Volumes read deny, as the runner) and TestMacosUserCacheRelocationOnAVolumeMeasurement (a
       # launch writing through the relocation as _yolojail, or refusing before the agent).
       #
+      # A THIRD IMAGE IS exFAT, a volume that takes no access entries: the `chmod +a` yolo runs
+      # on a target it creates there fails, the launch says so and lets the probes decide
+      # (CR-D7), and the measurement records which way they went. Best-effort on its own, so a
+      # runner that cannot make one keeps the two APFS measurements.
+      #
       # `continue-on-error`: a runner that cannot attach an image loses this measurement and
       # nothing else; the two tests skip, naming the variable, when it is unset. A disk image is
       # not a USB drive or a network share, so neither stands in for the human checks those need
       # (docs/plans/cache-relocation.md, the test plan).
-      - name: Attach two APFS volumes for the cache-relocation measurement
+      - name: Attach the volumes for the cache-relocation measurement
         continue-on-error: true
         run: |
           set -euo pipefail
@@ -313,6 +318,15 @@ jobs:
             ls -lde "$mnt"
             vols="${vols:+${vols}:}${mnt}"
           done
+          exfat="/Volumes/yrexfat"
+          if hdiutil create -size 64m -fs ExFAT -volname yrexfat -ov "${RUNNER_TEMP}/yrexfat.dmg" &&
+             hdiutil attach -nobrowse "${RUNNER_TEMP}/yrexfat.dmg" && test -d "$exfat"; then
+            diskutil info "$exfat" | grep -iE 'mount point|file system personality|owners' || true
+            ls -lde "$exfat"
+            vols="${vols:+${vols}:}${exfat}"
+          else
+            echo "::warning::could not attach an exFAT image; the cache-relocation measurement covers the two APFS volumes only"
+          fi
           echo "YOLO_TEST_MACOS_USER_RELOCATION_VOLUMES=${vols}" >> "$GITHUB_ENV"
 
       # THE FILTER IS EXHAUSTIVE BY CONSTRUCTION, not by a list somebody maintains:

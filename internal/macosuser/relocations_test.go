@@ -382,6 +382,47 @@ func TestARelocationTheSandboxCannotUseRefusesTheLaunch(t *testing.T) {
 	}
 }
 
+// A TARGET yolo CREATED AND COULD NOT GRANT is not offered `yolo macos-fix-permissions` when a
+// probe then fails: that command runs the same `chmod +a` and would fail the same way on a volume
+// that takes no access entries. The refusal says so and names a folder on a volume that does,
+// while a target that was already there in the same refusal is still offered the command.
+func TestARefusalForAnUngrantableTargetDoesNotOfferFixPermissions(t *testing.T) {
+	ungranted := CacheRelocation{Subdir: "ms-playwright", Target: "/Volumes/Stick/pw", Created: true,
+		GrantFailure: "`/bin/chmod +a …`: chmod: Operation not supported"}
+	failed := append(CacheRelocationPreflight([]CacheRelocation{ungranted}, "")[2:],
+		CacheRelocationPreflight([]CacheRelocation{sharedReloc}, "")[2:]...)
+	msg := CacheRelocationRefusalMessage(failed, "")
+	for _, want := range []string{"yolo created " + ungranted.Target + " on this launch and could not add",
+		"Operation not supported", "exFAT", "APFS", "yolo macos-fix-permissions " + sharedReloc.Target,
+		"~/.cache/ms-playwright"} {
+		if !strings.Contains(msg, want) {
+			t.Errorf("the refusal does not say %q:\n%s", want, msg)
+		}
+	}
+	if strings.Contains(msg, "yolo macos-fix-permissions "+shquote.Quote(ungranted.Target)) {
+		t.Errorf("the refusal offers `yolo macos-fix-permissions` for a target whose grant failed:\n%s", msg)
+	}
+	// Alone, it offers no fix-permissions command at all.
+	if msg := CacheRelocationRefusalMessage(failed[:1], ""); strings.Contains(msg, "  yolo macos-fix-permissions") {
+		t.Errorf("an ungrantable target alone was offered `yolo macos-fix-permissions`:\n%s", msg)
+	}
+}
+
+// THE PER-LAUNCH LINE SAYS WHICH: a target made and granted, and one made and not granted.
+func TestTheLaunchSaysWhetherACreatedTargetWasGranted(t *testing.T) {
+	var buf bytes.Buffer
+	granted := CacheRelocation{Subdir: "hf", Target: "/Users/Shared/caches/hf", Created: true}
+	ungranted := CacheRelocation{Subdir: "pw", Target: "/Volumes/Stick/pw", Created: true, GrantFailure: "chmod: Operation not supported"}
+	printCacheRelocations(printer{w: &buf}, []CacheRelocation{granted, ungranted})
+	out := buf.String()
+	for _, want := range []string{"~/.cache/hf → /Users/Shared/caches/hf, a link in the sandbox home. The sandbox reads and writes that folder, which yolo created now and opened to the sandbox account.",
+		"~/.cache/pw → /Volumes/Stick/pw, a link in the sandbox home. The sandbox reads and writes that folder, which yolo created now and could not add the sandbox account's access entries to (chmod: Operation not supported)."} {
+		if !strings.Contains(out, want) {
+			t.Errorf("the launch does not say %q:\n%s", want, out)
+		}
+	}
+}
+
 // THE GRANT a created target gets is the shared root's own inheriting pair, as the invoking user.
 func TestCacheRelocationACECommandsAreTheSharedRootsPair(t *testing.T) {
 	aces := WorkspaceACLAces(SandboxGroup)

@@ -2,12 +2,14 @@ package run
 
 import (
 	"bytes"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/hostfloor/floortest"
 	"github.com/mschulkind-oss/yolo-jail/internal/macosuser"
 )
@@ -153,18 +155,174 @@ func TestTheMacosUserArmRefusesARelocationIntoAHome(t *testing.T) {
 	}
 }
 
-// A GRANT THAT FAILS refuses the launch naming the command that applies it by hand.
-func TestTheMacosUserArmRefusesWhenTheTargetCannotBeGranted(t *testing.T) {
+// A TARGET MADE NOW IS SAID AT ONCE, by the arm and before the backend: anything between here
+// and the backend's own per-launch line (the approval prompt, a precondition, the account-home
+// hold, the nix build) may still end the launch, and a folder yolo made and opened to another
+// account must not be left behind unsaid. The stub backend prints nothing, so the line is the
+// arm's. Fails if the arm's disclosure is deleted.
+func TestTheMacosUserArmSaysATargetItCreatesAtOnce(t *testing.T) {
 	target := filepath.Join(floortest.ResolvedTemp(t), "hf")
 	relocLaunchHome(t, target)
-	out := runMacosUserExpectingRefusal(t, floortest.ResolvedTemp(t), func(o *Options) {
+	_, out := runMacosUserCapturingCtx(t, floortest.ResolvedTemp(t), func(o *Options) { grantRecorder(o, 0, "") })
+	want := "Cache relocation: created " + target + " and opened it to " + macosuser.SandboxUser +
+		" for ~/.cache/huggingface"
+	if !strings.Contains(out, want) {
+		t.Errorf("the arm did not say %q:\n%s", want, out)
+	}
+	// A target that was already there was not made now, and is not said to be.
+	existing := floortest.ResolvedTemp(t)
+	relocLaunchHome(t, existing)
+	_, out = runMacosUserCapturingCtx(t, floortest.ResolvedTemp(t), func(o *Options) { grantRecorder(o, 0, "") })
+	if strings.Contains(out, "Cache relocation: created") {
+		t.Errorf("an existing target was said to be created:\n%s", out)
+	}
+}
+
+// A GRANT THAT FAILS IS SAID, NOT FATAL (CR-D4's gates are the backend's DAC preflight and write
+// probe): on a volume that takes no access entries — an exFAT or FAT drive — `yolo
+// macos-fix-permissions` runs the same `chmod +a` and fails the same way, so naming it would be
+// a wrong fix, and such a volume usually ignores ownership, so the sandbox can write the folder
+// anyway. The backend is handed the failure, which is what its refusal reads if a probe fails.
+func TestAnUngrantableCreatedTargetIsSaidAndHandedToTheBackend(t *testing.T) {
+	target := filepath.Join(floortest.ResolvedTemp(t), "hf")
+	relocLaunchHome(t, target)
+	ctx, out := runMacosUserCapturingCtx(t, floortest.ResolvedTemp(t), func(o *Options) {
 		grantRecorder(o, 1, "chmod: Operation not supported")
 	})
-	for _, want := range []string{"could not be opened to the sandbox account", "Operation not supported",
-		"yolo macos-fix-permissions " + target} {
+	if len(ctx.Relocations) != 1 || !ctx.Relocations[0].Created ||
+		!strings.Contains(ctx.Relocations[0].GrantFailure, "Operation not supported") {
+		t.Fatalf("the backend was handed %+v, want the created target with its grant failure\n%s", ctx.Relocations, out)
+	}
+	for _, want := range []string{"Warning: created " + target, "Operation not supported",
+		"does not support them", "stops if it cannot"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("the warning does not say %q:\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, "macos-fix-permissions") {
+		t.Errorf("a grant that failed named `yolo macos-fix-permissions`, which fails the same way:\n%s", out)
+	}
+}
+
+// A TARGET THAT IS A FILE refuses at the siting, with its next steps, so a dry run refuses too.
+func TestARelocationTargetThatIsAFileRefusesADryRunToo(t *testing.T) {
+	target := filepath.Join(floortest.ResolvedTemp(t), "hf")
+	if err := os.WriteFile(target, []byte("not a folder"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	relocLaunchHome(t, target)
+	for _, dry := range []bool{true, false} {
+		var grants *[][]string
+		out := runMacosUserExpectingRefusal(t, floortest.ResolvedTemp(t), func(o *Options) {
+			o.DryRun = dry
+			grants = grantRecorder(o, 0, "")
+		})
+		for _, want := range []string{"cannot deliver every cache_relocations entry",
+			"~/.cache/huggingface → " + target + ": it is a file, not a folder",
+			"~/.config/yolo-jail/config.jsonc", "remove it"} {
+			if !strings.Contains(out, want) {
+				t.Errorf("dry run %v: the refusal does not say %q:\n%s", dry, want, out)
+			}
+		}
+		if len(*grants) != 0 {
+			t.Errorf("dry run %v: a refused target was granted access: %v", dry, *grants)
+		}
+	}
+}
+
+// relocTwoLaunchHome writes a user config relocating aaa to a and bbb to b (applied in key order).
+func relocTwoLaunchHome(t *testing.T, a, b string) {
+	t.Helper()
+	t.Setenv("YOLO_VERSION", "")
+	ctxLaunchHome(t, `, "cache_relocations": {"aaa": "`+a+`", "bbb": "`+b+`"}`)
+}
+
+// A TARGET yolo CANNOT MAKE refuses naming what to do, and every target made before it is still
+// granted and said. ensureMacosRelocationTargets is stubbed to fail the second entry, as a mkdir
+// under a folder only an administrator may write does, which a test running as root cannot
+// arrange (the test below arranges it for real where it can).
+func TestARelocationTargetYoloCannotMakeNamesTheNextStep(t *testing.T) {
+	parent := floortest.ResolvedTemp(t)
+	a, b := filepath.Join(parent, "a"), filepath.Join(parent, "b")
+	relocTwoLaunchHome(t, a, b)
+	prev := ensureMacosRelocationTargets
+	t.Cleanup(func() { ensureMacosRelocationTargets = prev })
+	ensureMacosRelocationTargets = func(rels []config.CacheRelocation) ([]bool, error) {
+		created, err := prev(rels[:1])
+		if err != nil {
+			t.Fatal(err)
+		}
+		return append(created, make([]bool, len(rels)-1)...),
+			fmt.Errorf("cache_relocations.%s: creating target %s: mkdir %s: permission denied", rels[1].Subdir, rels[1].Target, rels[1].Target)
+	}
+	var grants *[][]string
+	out := runMacosUserExpectingRefusal(t, floortest.ResolvedTemp(t), func(o *Options) {
+		grants = grantRecorder(o, 0, "")
+	})
+	for _, want := range []string{"Refusing the macos-user launch: cache_relocations.bbb: creating target " + b,
+		"Create the folder yourself", "~/.config/yolo-jail/config.jsonc", "remove the entry",
+		"Cache relocation: created " + a + " and opened it to " + macosuser.SandboxUser} {
 		if !strings.Contains(out, want) {
 			t.Errorf("the refusal does not say %q:\n%s", want, out)
 		}
+	}
+	aces := macosuser.CacheRelocationACECommands(a)
+	if len(*grants) != len(aces) || (*grants)[0][len((*grants)[0])-1] != a {
+		t.Errorf("the target made before the failure was not granted: %v", *grants)
+	}
+}
+
+// THE SAME, FOR REAL: a target under a folder its user may not write. Skipped as root, who may
+// write any folder; CI's runners and check-macos run it.
+func TestARelocationTargetUnderAFolderYouCannotWriteRefusesWithTheNextStep(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root may create a folder anywhere")
+	}
+	ro := filepath.Join(floortest.ResolvedTemp(t), "ro")
+	if err := os.Mkdir(ro, 0o555); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(ro, 0o755) })
+	target := filepath.Join(ro, "hf")
+	relocLaunchHome(t, target)
+	out := runMacosUserExpectingRefusal(t, floortest.ResolvedTemp(t), func(o *Options) { grantRecorder(o, 0, "") })
+	for _, want := range []string{"creating target " + target, "Create the folder yourself",
+		"~/.config/yolo-jail/config.jsonc"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("the refusal does not say %q:\n%s", want, out)
+		}
+	}
+}
+
+// A TARGET INSIDE A `mounts` SOURCE refuses at the arm, before the target is made or granted and
+// before the nix build: the arm hands the siting the launch's delivered context links, and
+// CR-D5's overlap rule refuses on them. Without them the target would be made and `chmod +a`'d
+// inside the user's own source folder, pass the preflight, and be refused only by PlanInvariants
+// once the nix build had run. Fails if the arm stops passing the links.
+func TestARelocationInsideAMountsSourceRefusesBeforeAnythingIsMade(t *testing.T) {
+	lib := filepath.Join(floortest.ResolvedTemp(t), "lib")
+	if err := os.MkdirAll(lib, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	target := filepath.Join(lib, "hf")
+	t.Setenv("YOLO_VERSION", "")
+	ctxLaunchHome(t, `, "mounts": ["`+lib+`:/ctx/lib"], "cache_relocations": {"huggingface": "`+target+`"}`)
+	var grants *[][]string
+	out := runMacosUserExpectingRefusal(t, floortest.ResolvedTemp(t), func(o *Options) {
+		deliveringSiting(t, "")(o)
+		grants = grantRecorder(o, 0, "")
+	})
+	for _, want := range []string{"cannot deliver every cache_relocations entry",
+		"source " + lib + " (`mounts`)"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("the refusal does not say %q:\n%s", want, out)
+		}
+	}
+	if _, err := os.Lstat(target); err == nil {
+		t.Errorf("the refused target %s was made inside the mounts source", target)
+	}
+	if len(*grants) != 0 {
+		t.Errorf("a refused target was granted access: %v", *grants)
 	}
 }
 
