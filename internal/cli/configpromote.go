@@ -81,11 +81,6 @@ const (
 	// promotionOutranked: a later-folding pack's config-overlay sets the same key, so the
 	// promoted value would lose at the destination (§5.4's "wins after" half).
 	promotionOutranked = "outranked"
-	// promotionNoHostLayer: `--to host` on a surface that has no host layer, which is
-	// [OQ-CO10]'s refusal. Only the two agent-settings surfaces that declare `readsHost`
-	// have one, so for every other surface a host promotion is a host-only edit no jail
-	// would ever read — §5.1's third fact, made visible per surface.
-	promotionNoHostLayer = "no-host-layer"
 	// promotionNoPackOwner: the surface has no owner among the loaded packs, so a
 	// config-overlay naming it would be INERT — packoverlay's ruling R2 reports such an
 	// overlay and ignores it. MEASURED against the live case: mise/config is CORE's own
@@ -114,7 +109,7 @@ type promoteOptions struct {
 	surface string
 	// keys selects specific captured keys; empty means every one the classification finds.
 	keys []string
-	// dest is "local", "host", or "pack:<name>".
+	// dest is "local" or "pack:<name>" (`host` is retired, and refused by name).
 	dest string
 	// plan forbids the write outright, whatever else is passed.
 	plan bool
@@ -520,19 +515,12 @@ func classifyPromoteSurface(t configTarget, s manifest.Surface, o promoteOptions
 	}
 	m, _ := overlay.(*jsonx.OrderedMap)
 
-	// THE DESTINATION CHECKS ARE PER SURFACE, so they are asked once and answered on every
-	// key rather than being rediscovered per key. Both are facts about whether this surface
-	// can receive this KIND of destination at all, not about any particular key: a surface
-	// no loaded pack declares cannot receive a config-overlay (ruling R2), and a surface
-	// with no host layer cannot receive a `--to host` promotion ([OQ-CO10]).
-	//
-	// HasHostLayer is the surface's own `readsHost` declaration
-	// (manifest.Surface.ReadsHost). It was `HostSource != ""` — a /ctx path populated from a
-	// `reads-host` contribution through a basename match — when this check was written, and
-	// [OQ-CO10]'s restructure landed on 2026-09-12; promote needed no change, which is the
-	// evidence that binding to the predicate rather than to its implementation was right.
-	unowned := !dest.host && !fold.ownedByPack(s)
-	noHostLayer := dest.host && !s.HasHostLayer()
+	// THE DESTINATION CHECK IS PER SURFACE, so it is asked once and answered on every key
+	// rather than being rediscovered per key. It is a fact about whether this surface can
+	// receive a config-overlay at all, not about any particular key: a surface no loaded pack
+	// declares cannot (ruling R2). Its twin, the `--to host` check on a surface with no host
+	// layer ([OQ-CO10]), went with that destination (refuseRetiredPromoteHost).
+	unowned := !fold.ownedByPack(s)
 
 	// The ENGINE's own narrowing, against today's declarations rather than the last boot's
 	// (agentcfg.DeadOverlayKeys). The computed layer is NOT available host-side — it is
@@ -551,15 +539,6 @@ func classifyPromoteSurface(t configTarget, s manifest.Surface, o promoteOptions
 
 	for _, st := range states {
 		v, _ := m.Get(st.Key)
-		if noHostLayer {
-			ps.Keys = append(ps.Keys, promoteKey{
-				Key: st.Key, Disposition: promotionNoHostLayer, value: v,
-				Reason: fmt.Sprintf("%s/%s has no host layer — its surface does not declare "+
-					"`readsHost`, so a key written into its real-home file would be read by no "+
-					"jail. `--to local` reaches every jail and the host", s.Agent, s.Name),
-			})
-			continue
-		}
 		if unowned {
 			ps.Keys = append(ps.Keys, promoteKey{
 				Key: st.Key, Disposition: promotionNoPackOwner, value: v,
@@ -633,12 +612,6 @@ func classifyPromoteKey(s manifest.Surface, st overlayKeyState, value any, dead 
 // leaves to a human — mechanically this key is fine, and whether it BELONGS in a pack
 // shared with a team is not a question any heuristic should pretend to answer.
 func promotableReason(st overlayKeyState, dest promoteDest) string {
-	if dest.host {
-		// The host destination writes the KEYS THEMSELVES into the surface's own real-home
-		// file — there is no pack and no declaration in the loop (§5.1 fact 1), so saying
-		// "declared" would describe the wrong mechanism.
-		return "would be written into the surface's own file in your real home"
-	}
 	if st.Deleted {
 		return "a captured DELETION — declaring it in " + dest.label() + " deletes the key " +
 			"wherever that pack renders"
@@ -714,15 +687,7 @@ func (f promoteFold) ownedByPack(s manifest.Surface) bool {
 // winning layer rather than promoted with a warning (§5.4).
 func (f promoteFold) outrankedBy(s manifest.Surface, key string, dest promoteDest) string {
 	destIdx, known := f.order[dest.pack]
-	switch {
-	case dest.host:
-		// The host layer is SECOND from the bottom of the stack (§2.1) — under workspace,
-		// every config-overlay, capture, computed and managed — so EVERY pack's overlay on
-		// the key outranks a key written into the real-home file. Spelled as a position
-		// before the fold rather than as a special case in the loop, so the one comparison
-		// below answers for all three destinations.
-		destIdx = -1
-	case !known:
+	if !known {
 		// A destination pack that is not in the fold yet: the conventional local pack,
 		// created by this very promotion. It lands where LoadPacks appends it.
 		destIdx = f.afterConfigured

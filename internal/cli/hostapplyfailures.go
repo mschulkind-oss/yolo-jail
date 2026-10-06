@@ -88,6 +88,11 @@ const (
 	// dry run's document calls it `refused` (hostApplyOutcome), never naming the stage in a
 	// sentence.
 	stageInputs = "inputs"
+	// stageHostManagement: the declared ownership contract renders nothing here — host_management
+	// is "none", written or unset, or the retired "assert" — so the apply refused before any
+	// stage ran (refuseHostManagement). No survey holds it: the dry run's document for that
+	// refusal is built without one (refusedHostApplyDoc), outcome `refused`.
+	stageHostManagement = "host_management"
 )
 
 // noteStageFailure records that stage failed, for a stage whose failure lines lead with the

@@ -24,7 +24,19 @@ import (
 // writeOverlayFixture points a throwaway $HOME's config at the given pack dirs (each a
 // {name, pack.json} pair) and returns the home. The packs are `file://` sources, which
 // resolve offline — a git source would need `yolo pack install`.
+//
+// It leaves `host_management` UNSET, which is `none` since the `assert` retirement (OQ-CO14):
+// a host apply composes no config surface under it. A test whose host apply must render takes
+// writeOverlayFixtureUnder(…, "own").
 func writeOverlayFixture(t *testing.T, packs map[string]string) string {
+	t.Helper()
+	return writeOverlayFixtureUnder(t, packs, "")
+}
+
+// writeOverlayFixtureUnder is writeOverlayFixture with `host_management` declared as mgmt, or
+// left unset when mgmt is "". The key goes FIRST in the object, so addPackToConfig's
+// `"packs":[` splice still finds the list.
+func writeOverlayFixtureUnder(t *testing.T, packs map[string]string, mgmt string) string {
 	t.Helper()
 	home := t.TempDir()
 	packRoot := t.TempDir()
@@ -45,6 +57,9 @@ func writeOverlayFixture(t *testing.T, packs map[string]string) string {
 		t.Fatal(err)
 	}
 	cfg := `{"packs":[` + strings.Join(entries, ",") + `]}`
+	if mgmt != "" {
+		cfg = `{"host_management":"` + mgmt + `","packs":[` + strings.Join(entries, ",") + `]}`
+	}
 	if err := os.WriteFile(filepath.Join(cfgDir, "config.jsonc"), []byte(cfg), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -65,9 +80,11 @@ const acmeFzfPackJSON = `{"name":"acme-fzf","contributes":[
    "config":{"managed":{"fileSuggestion":"run-fzf"}}}]}`
 
 // R2 in `yolo host apply`: with the owner pack absent, the overlay is named, the command
-// still succeeds, and no file is created.
+// still succeeds, and no file is created. Under `own`, the contract under which the host
+// composes config surfaces: under the unset key (`none` since OQ-CO14) no file is created for
+// any surface, so its absence here would say nothing about the orphan.
 func TestApplyHostReportsOrphanOverlay(t *testing.T) {
-	home := writeOverlayFixture(t, map[string]string{"acme-fzf": acmeFzfPackJSON})
+	home := writeOverlayFixtureUnder(t, map[string]string{"acme-fzf": acmeFzfPackJSON}, "own")
 
 	var out, errw bytes.Buffer
 	if rc := applyHost(&out, &errw, false, false, nil); rc != 0 {
@@ -88,12 +105,13 @@ func TestApplyHostReportsOrphanOverlay(t *testing.T) {
 
 // With the owner SELECTED, `yolo host apply --assert` writes the contributed key and the
 // output names the contributing pack — R3 at the host notch, where the surface file
-// cannot show the attribution itself.
+// cannot show the attribution itself. Under `own`: the unset key is `none` since OQ-CO14, and
+// a host that composes nothing has no contribution to attribute.
 func TestApplyHostNamesTheContributingPack(t *testing.T) {
-	home := writeOverlayFixture(t, map[string]string{
+	home := writeOverlayFixtureUnder(t, map[string]string{
 		"acme":     acmeOwnerPackJSON,
 		"acme-fzf": acmeFzfPackJSON,
-	})
+	}, "own")
 	// R3's line is a tier-2 fact under the surface it folds into, so §4.5 moved it behind the
 	// flag. R3 itself is unchanged — an overlay leaves no trace in the resulting file, so the
 	// report is the only place the contributing pack can be named, and it still is.
@@ -179,9 +197,10 @@ func TestConfigLsShowsAnOverlayThatLost(t *testing.T) {
 // The diff must say THAT rather than reporting the overlay as lost — the two are different
 // states and conflating them sends a user chasing a non-defect.
 //
-// Jail-specific, and deliberately so: at the HOST notch every surface is rmw and every one
-// of them DOES get a record, which is what makes the host's absence a different message with
-// a different remedy (see TestConfigLsHostNotchWithNoApplyYet).
+// Jail-specific, and deliberately so: at an owned HOST notch every surface yolo renders DOES
+// get a record — an rmw one from the rmw writer, a stateful one from the capture render — which
+// is what makes the host's absence a different message with a different remedy (see
+// TestConfigLsHostNotchWithNoApplyYet).
 func TestConfigLsOverlayOnRMWSurfaceSaysNoProvenanceRecorded(t *testing.T) {
 	rmwOwner := `{"name":"acme","contributes":[
 	  {"kind":"config","config":[{"agent":"acme","name":"settings","codec":"json",

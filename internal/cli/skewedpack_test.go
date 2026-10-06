@@ -100,7 +100,7 @@ func TestApplyHostAssertRefusesAPackHoldingAContributionItCannotRead(t *testing.
 // one, but LAUNCHES on the last apply, because the launch reads the pack as this yolo can and an
 // unresolvable pack is the only set it refuses (NC-D5).
 func TestHostApplyGateLaunchesOnTheLastApplyOverASkippedContribution(t *testing.T) {
-	home, _ := skewedPackHome(t, `,"host_apply_on_launch":true`)
+	home, _ := skewedPackHome(t, `,"host_management":"own","host_apply_on_launch":true`)
 	t.Setenv("YOLO_VERSION", "")
 	setGateTTY(t, false)
 	// The gate's lock file is the gate's own, not a render (hookHome's reason).

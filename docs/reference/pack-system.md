@@ -1755,10 +1755,10 @@ posture may be absent. A posture has three halves, and each reaches a different 
 **A posture's `config` key replaces the value it lands on, and an array replaces the whole
 array**, as every `managed` and overlay key does (JSON Merge Patch, RFC 7386). At the host the
 file is the user's own. On the declaring pack's own surface the key is `managed`, which outranks
-the user's file under `host_management: assert` and their captured edits under `own`, so a
-`guarded` array there empties or overwrites the user's list at every `yolo host apply`. A posture
-overlay's array does the same under `assert`, where `rmw` writes it over the file; under `own`
-the user's own list outranks it, because capture sits above `config-overlay`
+the user's captured edits under `host_management: own`, so a `guarded` array there empties or
+overwrites the user's list at every `yolo host apply`. A posture overlay's array does the same on a
+surface whose pack declares `rmw`, which writes it over the file; on a composed (`stateful`)
+surface the user's own list outranks it, because capture sits above `config-overlay`
 (`TestAGuardedPostureOverlayArrayAndTheUsersOwnList`). Claude's guarded posture emptied
 `permissions.additionalDirectories` the first way, with a `managed` empty list, until the list
 was removed. It now keeps
@@ -1852,9 +1852,9 @@ host gets:
   `yolo config render --at host|jail` as for any overlay.
 - **At the host.** `yolo host apply --assert` writes it into the real file and records it in
   the provenance record. Once the posture stops selecting it, it leaves the way every
-  overlay key does: `host_management: own` regenerates the file without it, and under
-  `assert` it is recorded `retired:config-overlay:<pack>` and `yolo host apply --revert`
-  removes it. [Dropping the pack](#retiring-a-dropped-packs-host-output) removes it with the
+  overlay key does: `host_management: own` regenerates a composed file without it, and on a
+  surface its pack declares `rmw` it is recorded `retired:config-overlay:<pack>` and
+  `yolo host apply --revert` (under `none`) removes it. [Dropping the pack](#retiring-a-dropped-packs-host-output) removes it with the
   pack's other overlay keys.
 - **Disclosure.** `yolo pack footprint` names it in the pack's `autonomy` claim as
   `<posture> contributes keys to <agent/name> (owner still wins)`. `yolo host apply`'s notch
@@ -2250,10 +2250,12 @@ targets, or one the surface's list record already names — each mechanism recor
 | :--- | :--- | :--- |
 | `computed` | Nothing. The array is a function of its inputs, so a dropped pack's entries vanish on the next render. | — |
 | `stateful` | Per path, the entries an in-jail edit **added** and **removed** relative to the last render. The capture overlay never records a list path. | `<agent>-<name>.list-capture.json`, beside the overlay sidecar |
-| `rmw` | Per path, the entries yolo **inserted** and the inserted entries the user later removed from an array the file still holds (**declined**). A declined entry is never re-inserted; deleting the key or the whole file declines nothing, and neither does a render in which `managed` or a `computed` table held the path (the record is marked suspended, so the next render re-inserts instead of declining). An entry already in the file that yolo did not insert is the user's and is never removed. Revert removes only inserted entries. | `<agent>-<name>.list-record.json`, under the provenance directory, since the host under `assert` has no capture store |
+| `rmw` | Per path, the entries yolo **inserted** and the inserted entries the user later removed from an array the file still holds (**declined**). A declined entry is never re-inserted; deleting the key or the whole file declines nothing, and neither does a render in which `managed` or a `computed` table held the path (the record is marked suspended, so the next render re-inserts instead of declining). An entry already in the file that yolo did not insert is the user's and is never removed. Revert removes only inserted entries. | `<agent>-<name>.list-record.json`, under the provenance directory, which has the provenance record's lifetime rather than the capture store's (the retired `assert` had no capture store at all) |
 
-`ListCaptureRefusal` is keyed on the **resolved** mechanism, not the declared mode: a `stateful`
-surface at the host under `assert` renders through `rmw`, and `rmw`'s record decides. A new
+`ListCaptureRefusal` is keyed on the **resolved** mechanism, not the declared mode: a census may
+render a declaration through another mechanism (an owned host renders a `computed` surface through
+`stateful`; the retired `assert` rendered every surface through `rmw`), and that mechanism's record
+decides. A new
 mechanism starts refused, so whoever adds one has to say how it captures a list path. The
 refusal fails a jail boot and is a `refused: config-list …` row in `yolo host apply`.
 
@@ -2284,24 +2286,23 @@ machine is in
 > `yolo config promote` does not lift list captures into a pack yet; whether it should is
 > [`OQ-AL4`](#oq-al4), and it is not a reason to move the records into the overlay.
 
-**At the host, the insert record is kept under both contracts.** `yolo host apply` under `own`
+**At the host, the insert record is kept whatever renders.** `yolo host apply` under `own`
 renders through `stateful`, but it also writes the `rmw` insert record (the entries a contribution
-put in the file, and the user's recorded removals as declined). So switching `host_management`
-between `assert` and `own` keeps a pack's entries yolo's: `own`'s adoption does not take an
-inserted entry for the user's, `assert` knows which entries it may remove on a pack drop, and a
-revert under `own` withdraws exactly the inserted entries. A key whose array a captured per-entry
+put in the file, and the user's recorded removals as declined), as the retired `assert`'s rmw did.
+So a home switched from `assert` to `own` keeps a pack's entries yolo's: `own`'s adoption does not
+take an inserted entry for the user's, a pack drop knows which entries it may remove, and a
+revert (run under `none`) withdraws exactly the inserted entries. A key whose array a captured per-entry
 edit changed is labelled `overlay`, as the whole-array capture labelled it, so a revert never
 deletes it whole.
 
 > [!NOTE]
-> **The `host_management` value `"assert"` is retired by a 2026-09-20 ruling that is not built.**
-> This section describes the shipped tree, where `assert` is still the default for an absent key.
-> The ruling keeps `none` and `own`, with `none` as the new default
+> **The `host_management` value `"assert"` is retired** (ruled 2026-09-20, built with
+> [`OQ-CO14`](../design/config-ownership-and-promotion.md#oq-co14), ruled 2026-10-05). `none` and
+> `own` remain, `none` is the default, and a config still saying `"assert"` is refused by name
 > ([`config-ownership-and-promotion.md`](../design/config-ownership-and-promotion.md#45-retiring-assert--the-two-value-key)).
-> When it lands, the `assert` cases above go with it. What it does to a config or a home already
-> on `assert` is still open there, as
-> [`OQ-CO14`](../design/config-ownership-and-promotion.md#oq-co14). The `--assert` flag on
-> `yolo host apply` is a different thing, and the ruling keeps it.
+> A home it wrote into keeps its files and its provenance record, so the records above still
+> describe it. The `--assert` flag on `yolo host apply` is a different thing, and the ruling keeps
+> it.
 
 <a id="config-list-visibility"></a>**Where you see it.** A key's one-word provenance label
 cannot say that several packs' entries survive in one array — `packages  config-overlay:personal`

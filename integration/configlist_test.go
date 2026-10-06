@@ -140,7 +140,10 @@ func TestAPostureListRendersOnlyItsOwnSideOfTheLine(t *testing.T) {
 		t.Fatal(err)
 	}
 	dir := writeProject(t, `{}`)
-	packHome(t, `{"packs": ["pi", "file://`+pack+`"]}`)
+	// `host_management: own`, because the host preview below is what `yolo host apply` would
+	// write, and since the `assert` retirement (OQ-CO14) an unset key is `none`, under which it
+	// writes nothing and the preview refuses the surface.
+	packHome(t, `{"packs": ["pi", "file://`+pack+`"], "host_management": "own"}`)
 
 	r := runYolo(t, dir, `echo "=== JAIL ==="; cat "$HOME/.pi/agent/settings.json"; echo "=== END ==="`)
 	if r.rc != 0 {

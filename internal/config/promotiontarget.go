@@ -29,8 +29,8 @@ func promotionTargetValue(cfg *jsonx.OrderedMap) string {
 }
 
 // promotionTargetProblem validates the target vocabulary shared by the reader and schema.
-// `host` is intentionally not a default: it is a different ownership contract and requires
-// an explicit --to host on each invocation.
+// `host` is not one: `--to host` was retired with `host_management: "assert"` (OQ-CO14), and
+// was never a default while it existed.
 func promotionTargetProblem(v any) string {
 	s, ok := v.(string)
 	if !ok {

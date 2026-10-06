@@ -31,16 +31,37 @@ func revertKeyNames(keys []HostRevertedKey) map[string]string {
 }
 
 // THE MEASURED CASE: a fresh home, the shipped pi pack applied and then reverted. models.json
-// keeps an object `providers`, and the dry run and the revert both name it as kept.
+// keeps an object `providers`, and the dry run and the revert both name it as kept. Run over a
+// home each writing contract left: `own`'s, and the retired `assert`'s (renderAsRetiredAssert),
+// since a home `assert` wrote into is what `--revert` under `none` is for (OQ-CO14) and is where
+// the case was measured.
 func TestARevertKeepsPiModelsProviders(t *testing.T) {
+	for _, apply := range []struct {
+		name   string
+		render func(t *testing.T, pi *packload.Pack, home string)
+	}{
+		{"own", func(t *testing.T, pi *packload.Pack, home string) {
+			if _, err := RenderHostPack(pi, home, render.OwnershipOwn, false, nil, nil); err != nil {
+				t.Fatalf("apply: %v", err)
+			}
+		}},
+		{"retired assert", func(t *testing.T, pi *packload.Pack, home string) {
+			renderAsRetiredAssert(t, pi, home, nil, nil)
+		}},
+	} {
+		t.Run(apply.name, func(t *testing.T) {
+			testARevertKeepsPiModelsProviders(t, apply.render)
+		})
+	}
+}
+
+func testARevertKeepsPiModelsProviders(t *testing.T, apply func(t *testing.T, pi *packload.Pack, home string)) {
 	home := t.TempDir()
 	pi, err := embeddedPack("pi")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := RenderHostPack(pi, home, render.OwnershipAssert, false, nil, nil); err != nil {
-		t.Fatalf("assert: %v", err)
-	}
+	apply(t, pi, home)
 	requireObjectProviders(t, piModelsPath(home), "after the apply")
 
 	for _, observe := range []bool{true, false} {
@@ -86,12 +107,14 @@ func shapeDefaultPack(t *testing.T) *packload.Pack {
 }
 
 // THE RULE, generically: the empty object and the empty array stay, the scalar goes; and a
-// default the user has since filled is content, not shape, so it goes too.
+// default the user has since filled is the user's, so it stays too — kept as the user's value, not
+// as shape. Until CO-D12 that last case went ("content, not shape"): under `none` no apply relabels
+// a filled default as the user's, so the revert took the user's entries with yolo's empty table.
 func TestARevertKeepsOnlyEmptyDefaultsStillAtTheirDeclaredValue(t *testing.T) {
 	p := shapeDefaultPack(t)
 	home := t.TempDir()
-	if _, err := RenderHostPack(p, home, render.OwnershipAssert, false, nil, nil); err != nil {
-		t.Fatalf("assert: %v", err)
+	if _, err := RenderHostPack(p, home, render.OwnershipOwn, false, nil, nil); err != nil {
+		t.Fatalf("apply: %v", err)
 	}
 	path := filepath.Join(home, ".shape", "cfg.json")
 	rev, err := RevertHostRender([]*packload.Pack{p}, home, false)
@@ -111,20 +134,30 @@ func TestARevertKeepsOnlyEmptyDefaultsStillAtTheirDeclaredValue(t *testing.T) {
 		t.Errorf("the revert names %d kept keys, want the two empty defaults: %+v", len(rev.Kept), rev.Kept)
 	}
 
-	// Filled since the apply: `table` holds the user's entry, so it is no longer the shape the
-	// pack declares, and the revert takes it as it takes any key yolo's record attributes.
+	// Filled since the apply: `table` holds the user's entry, so it is no longer the default the
+	// pack declares — it is the user's, and the revert leaves it and says so.
 	home = t.TempDir()
-	if _, err := RenderHostPack(p, home, render.OwnershipAssert, false, nil, nil); err != nil {
-		t.Fatalf("assert: %v", err)
+	if _, err := RenderHostPack(p, home, render.OwnershipOwn, false, nil, nil); err != nil {
+		t.Fatalf("apply: %v", err)
 	}
 	path = filepath.Join(home, ".shape", "cfg.json")
 	if err := os.WriteFile(path, []byte(`{"table":{"mine":1},"list":[],"fillMe":"byYolo"}`), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := RevertHostRender([]*packload.Pack{p}, home, false); err != nil {
+	rev, err = RevertHostRender([]*packload.Pack{p}, home, false)
+	if err != nil {
 		t.Fatalf("revert: %v", err)
 	}
-	if doc := decodeJSONFile(t, path); doc["table"] != nil {
-		t.Errorf("a default holding the user's content was kept as if it were shape: %v", doc)
+	if table, _ := decodeJSONFile(t, path)["table"].(map[string]any); table["mine"] != float64(1) {
+		t.Errorf("a default the user filled was taken out: %v", decodeJSONFile(t, path))
+	}
+	named := false
+	for _, k := range rev.Kept {
+		if k.Key == "table" {
+			named = k.Why != "" && k.Why != keptWhyShape
+		}
+	}
+	if !named {
+		t.Errorf("the filled default is not reported as kept for being the user's: %+v", rev.Kept)
 	}
 }

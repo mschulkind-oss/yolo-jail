@@ -18,12 +18,20 @@ const hostClaudeStatus = `{"model": {"id": "claude-opus-4", "display_name": "Opu
 // hostFooterHome is a scratch home whose user config selects packs and profiles, with
 // `yolo host apply --assert` already run into it, and returns the statusLine command that
 // apply filled into ~/.claude/settings.json. The real $HOME is never read or written.
+//
+// The config is written with `"host_management": "own"` spliced in as its first key: the unset
+// key is `none` since the `assert` retirement (OQ-CO14), under which the apply writes nothing and
+// there is no footer command to read. The footer, not the ownership contract, is the subject.
 func hostFooterHome(t *testing.T, config string) (home, command string) {
 	t.Helper()
 	home = t.TempDir()
 	t.Setenv("HOME", home)
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
-	writeFile(t, filepath.Join(home, ".config", "yolo-jail", "config.jsonc"), config)
+	body, ok := strings.CutPrefix(strings.TrimSpace(config), "{")
+	if !ok {
+		t.Fatalf("fixture bug: hostFooterHome's config is not a JSON object: %s", config)
+	}
+	writeFile(t, filepath.Join(home, ".config", "yolo-jail", "config.jsonc"), `{"host_management": "own", `+body)
 	stubDeclaredBins(t)
 	if rc, report := applyWith(t, true, strings.NewReader("y\n")); rc != 0 {
 		t.Fatalf("host apply --assert rc=%d\n%s", rc, report)
@@ -173,7 +181,7 @@ func TestHostFooterChecksNoFetchedPackOut(t *testing.T) {
 	repo := gitPackRepoWith(t, map[string]string{
 		"pack.json": `{"name": "gp", "contributes": [{"kind": "profile", "name": "mybed", "provider": "bedrock"}]}`,
 	})
-	home := gitPackHome(t, "git+file://"+repo+"?ref=main", `,"profile":{"claude":"mybed"}`)
+	home := gitPackHome(t, "git+file://"+repo+"?ref=main", `,"host_management":"own","profile":{"claude":"mybed"}`)
 	installGitPack(t)
 	if rc, report := applyWith(t, true, strings.NewReader("y\n")); rc != 0 {
 		t.Fatalf("host apply --assert rc=%d\n%s", rc, report)

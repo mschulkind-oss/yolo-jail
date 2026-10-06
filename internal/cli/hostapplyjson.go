@@ -40,6 +40,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"os"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/outfmt"
 	"github.com/mschulkind-oss/yolo-jail/internal/version"
@@ -76,7 +77,10 @@ type hostApplyDoc struct {
 	FailedPacks []string `json:"failed_packs"`
 	// FailedStages are the stages that failed where no pack's render can be named
 	// (stageSkills, …): a blocker that decides the outcome, `incomplete`, or `refused` for
-	// "inputs" (stageInputs), over which an --assert writes nothing.
+	// "inputs" (stageInputs), over which an --assert writes nothing. Or `refused` for
+	// "host_management" (stageHostManagement), alone: host_management is "none", written or
+	// unset, or the retired "assert", so the apply refused before it surveyed anything — every
+	// count is zero, every other list empty, and first_apply false because no surface was read.
 	FailedStages []string `json:"failed_stages"`
 	// UnresolvedPacks are the configured packs this run could not resolve, each with the
 	// resolver's reason. Non-empty means outcome `refused`: an --assert writes nothing.
@@ -282,7 +286,47 @@ func emitHostApplyDoc(out, errw io.Writer, format string, s *hostApplySurvey, rc
 	if !outfmt.IsJSON(format) {
 		return rc
 	}
-	enc, err := json.MarshalIndent(buildHostApplyDoc(s), "", "  ")
+	return writeHostApplyDoc(out, errw, buildHostApplyDoc(s), rc)
+}
+
+// refusedHostApplyDoc is the dry run's document for an apply the host_management gate refused
+// before any stage ran (refuseHostManagement, stageHostManagement): the posture, the home, outcome
+// `refused` with verdict as its sentence, and nothing else, because nothing was surveyed — every
+// list `[]`, never `null`, by the rule buildHostApplyDoc states, and every count zero.
+//
+// It is the one document not built from a survey, and that is not a second model of the apply:
+// there is no traversal to describe, and a consumer asking for the dry run's data on a home where
+// the apply refuses is owed the document that says so — the fresh home being one, since the
+// unset key is "none" (OQ-CO14) — rather than an empty stdout beside prose.
+func refusedHostApplyDoc(home, verdict string) hostApplyDoc {
+	return hostApplyDoc{
+		Version:           version.Get(""),
+		Posture:           "dry-run",
+		Home:              home,
+		Outcome:           outcomeRefused,
+		Verdict:           verdict,
+		InapplicableKinds: []string{},
+		AtLaunchKinds:     []string{},
+		FailedPacks:       []string{},
+		FailedStages:      []string{stageHostManagement},
+		UnresolvedPacks:   []unresolvedPack{},
+		Destinations:      []hostApplyDocDestination{},
+		Groups:            []hostApplyDocGroup{},
+		HostFloor:         []hostApplyDocFloorEntry{},
+	}
+}
+
+// emitRefusedHostApplyDoc writes refusedHostApplyDoc for the invoking user's home to out and
+// returns rc unchanged, as emitHostApplyDoc does: the refusal's exit code stands, and the
+// document goes out beside it.
+func emitRefusedHostApplyDoc(out, errw io.Writer, verdict string, rc int) int {
+	home, _ := os.UserHomeDir() // the home the survey would have carried (applyHostSurveyed)
+	return writeHostApplyDoc(out, errw, refusedHostApplyDoc(home, verdict), rc)
+}
+
+// writeHostApplyDoc encodes doc to out and returns rc, or 1 when the encoding fails.
+func writeHostApplyDoc(out, errw io.Writer, doc hostApplyDoc, rc int) int {
+	enc, err := json.MarshalIndent(doc, "", "  ")
 	if err != nil {
 		fmt.Fprintf(errw, "yolo host apply: encoding the report failed: %v\n", err)
 		return 1

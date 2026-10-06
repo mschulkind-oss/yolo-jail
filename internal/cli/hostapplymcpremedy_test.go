@@ -10,6 +10,13 @@ package cli
 // as the per-surface alternative (HC-D20).
 //
 // So the test FOLLOWS both pieces of advice, in the real apply, and each must keep the entry.
+//
+// THE FIXTURE IS CLAUDE'S ~/.claude.json, not codex's TOML, which measured the case. Under
+// `host_management: "own"` — the one contract that renders since the `assert` retirement
+// (OQ-CO14) — codex/config composes `stateful`, and its first render ADOPTS a hand-added server
+// instead of dropping it, so there is no loss there for a remedy to name. claude/config declares
+// `rmw`, which `own` still runs: its `mcpServers` table is regenerated from the declarations, so
+// it is the shipped surface where a hand-added entry still goes.
 
 import (
 	"os"
@@ -20,27 +27,28 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/agentcfg/manifest"
 )
 
-// codexHandmadeHome is a home selecting the shipped codex pack whose ~/.codex/config.toml holds
-// one MCP server added by hand, which a host apply under `assert` drops: the codex/config
-// `mcp_servers` table is yolo's, and nothing declares this entry in it.
-func codexHandmadeHome(t *testing.T, userConfig string) (home, config string) {
+// claudeHandmadeHome is a home selecting the shipped claude pack under `own`, whose
+// ~/.claude.json holds one MCP server added by hand, which the host apply drops: claude/config's
+// `mcpServers` table is yolo's, and nothing declares this entry in it. userConfig, when given,
+// replaces the user config whole.
+func claudeHandmadeHome(t *testing.T, userConfig string) (home, config string) {
 	t.Helper()
 	home = t.TempDir()
-	selectPacks(t, home, `"codex"`)
+	selectPacksWith(t, home, `"claude"`, `,"host_management":"own"`)
 	if userConfig != "" {
 		writeFile(t, filepath.Join(home, ".config", "yolo-jail", "config.jsonc"), userConfig)
 	}
 	t.Setenv("HOME", home)
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
-	config = filepath.Join(home, ".codex", "config.toml")
-	writeFile(t, config, "[mcp_servers.handmade]\ncommand = \"echo\"\n")
+	config = filepath.Join(home, ".claude.json")
+	writeFile(t, config, `{"mcpServers":{"handmade":{"command":"echo"}}}`)
 	return home, config
 }
 
 func TestTheHostMCPRemedyNamesWhatReachesTheHost(t *testing.T) {
-	home, _ := codexHandmadeHome(t, "")
+	home, _ := claudeHandmadeHome(t, "")
 	survey, report := surveyApply(t)
-	if !strings.Contains(report, "handmade") {
+	if !strings.Contains(report, "mcpServers.handmade (dropped") {
 		t.Fatalf("fixture premise: the dry run does not report the hand-added entry:\n%s", report)
 	}
 	remedy := mcpEntryRemedy(home, survey.DroppedTables())
@@ -73,15 +81,16 @@ func TestTheHostMCPRemedyNamesWhatReachesTheHost(t *testing.T) {
 }
 
 // THE `mcp_servers` ADVICE, followed: an identical entry in the user config keeps the host
-// entry — no loss line, no prompt — because host apply now runs codex's derive over the user's
+// entry — no loss line, no prompt — because host apply now runs claude's derive over the user's
 // `mcp_servers` (OQ-HC1; §6.7 item 1 of the design). Before the ruling this was the measured
-// case that forced HC-D2: the dry run warned and the --assert dropped the entry.
+// case that forced HC-D2 (measured on codex's file): the dry run warned and the --assert
+// dropped the entry.
 func TestAnMCPServersEntryKeepsTheHostEntry(t *testing.T) {
-	_, config := codexHandmadeHome(t,
-		`{"packs":["codex"],"mcp_servers":{"handmade":{"command":"echo"}}}`)
-	// The entry exactly as codex's derive writes that server (it adds `args = []`), so the
-	// file holds what the user's config declares and nothing is replaced either.
-	writeFile(t, config, "[mcp_servers.handmade]\ncommand = \"echo\"\nargs = []\n")
+	_, config := claudeHandmadeHome(t,
+		`{"packs":["claude"],"host_management":"own","mcp_servers":{"handmade":{"command":"echo"}}}`)
+	// The entry exactly as claude's derive writes that server, so the file holds what the
+	// user's config declares and nothing is replaced either.
+	writeFile(t, config, `{"mcpServers":{"handmade":{"command":"echo"}}}`)
 	if _, report := surveyApply(t); strings.Contains(report, "handmade (") {
 		t.Errorf("with the entry under mcp_servers the dry run still reports it lost:\n%s", report)
 	}
@@ -97,10 +106,10 @@ func TestAnMCPServersEntryKeepsTheHostEntry(t *testing.T) {
 // THE NEW ADVICE, followed: the config-overlay the remedy describes, in the file it names,
 // keeps the entry — no loss line, no prompt, and the entry is in the file after the --assert.
 func TestFollowingTheHostMCPRemedyKeepsTheEntry(t *testing.T) {
-	home, config := codexHandmadeHome(t, "")
+	home, config := claudeHandmadeHome(t, "")
 	writeFile(t, filepath.Join(home, ".config", "yolo-jail", "local", "pack.json"),
-		`{"contributes":[{"kind":"config-overlay","surface":"codex/config",`+
-			`"config":{"managed":{"mcp_servers":{"handmade":{"command":"echo"}}}}}]}`)
+		`{"contributes":[{"kind":"config-overlay","surface":"claude/config",`+
+			`"config":{"managed":{"mcpServers":{"handmade":{"command":"echo"}}}}}]}`)
 	if _, report := surveyApply(t); strings.Contains(report, "would be dropped") ||
 		strings.Contains(report, "handmade (") {
 		t.Errorf("following the remedy left the entry reported as lost:\n%s", report)

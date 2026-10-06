@@ -5,6 +5,7 @@ package entrypoint
 // drives a REAL adoption path rather than the writer:
 //
 //	host   RenderHostPack(..., render.OwnershipOwn, ...) — what `yolo host apply --assert` calls
+//	       under `host_management: own`
 //	jail   ConfigurePackSurfaces(e, packs)              — the boot loop, verbatim
 //
 // ⚠ THAT IS THE POINT, not a stylistic preference. This repo has five times shipped a test that
@@ -116,8 +117,9 @@ func TestOwnAdoptionArchivesTheFileAsYoloFoundIt(t *testing.T) {
 	}
 }
 
-// THE CASE THE WHOLE RULING IS ABOUT: a home already applying under `host_management: assert`
-// is switched to `own`. That is not a first apply and the loss it can take is not a named table
+// THE CASE THE WHOLE RULING IS ABOUT: a home yolo asserted into under the retired
+// `host_management: assert` is switched to `own` — OQ-CO14's "choosing `own` later takes the
+// file over the way `yolo host apply` always does, archiving the old one once". That is not a first apply and the loss it can take is not a named table
 // entry, so `confirmHostLosses` — which reads EntryLosses and fires only on FirstApply — says
 // "nothing would be lost" and prompts for nothing. The archive is what stands in for the prompt
 // it cannot give, and this pins that it is written on exactly that transition.
@@ -131,7 +133,7 @@ func TestOwnAdoptionArchivesOnTheAssertToOwnSwitch(t *testing.T) {
 		t.Fatal(err)
 	}
 	if string(before) != assertBaselineBytes {
-		t.Fatalf("the assert baseline moved; fix TestHostAssertLeavesTheAdoptionBaseline "+
+		t.Fatalf("the assert baseline moved; fix TestTheRetiredAssertLeftTheAdoptionBaseline "+
 			"first:\n%s", before)
 	}
 
@@ -143,9 +145,10 @@ func TestOwnAdoptionArchivesOnTheAssertToOwnSwitch(t *testing.T) {
 	got, err := os.ReadFile(want)
 	if err != nil {
 		t.Fatalf("no adoption archive at %s: %v\n\nThis is the transition OQ-CO7 exists for "+
-			"— `assert` -> `own` on a home yolo has already applied to, which the one-way-door "+
-			"prompt is structurally blind to. Without the archive the deep-merged leaf has no "+
-			"net at all.", want, err)
+			"— a home yolo asserted into before the retirement, switched to `own` (OQ-CO14: "+
+			"choosing `own` takes the file over the way `yolo host apply` always does), which "+
+			"the one-way-door prompt is structurally blind to. Without the archive the "+
+			"deep-merged leaf has no net at all.", want, err)
 	}
 	if string(got) != assertBaselineBytes {
 		t.Errorf("the archive holds:\n%s\nwant the assert baseline:\n%s", got, assertBaselineBytes)
@@ -345,19 +348,23 @@ func TestOwnObserveArchivesNothing(t *testing.T) {
 	}
 }
 
-// THE MECHANISM IS THE GATE, not the notch. `assert` renders the same surface into the same
-// home through `rmw`, which asserts individual keys and adopts no file at all — so there is no
-// one-way door and nothing to net. An archive appearing here would mean the copy had been
-// hoisted above the mechanism switch, where it would fire on every apply forever: per-apply
-// snapshots, which the ruling explicitly is not.
-func TestAssertNotchArchivesNothing(t *testing.T) {
-	home, _ := assertBaselineHome(t) // this already ran one --assert apply
-	if _, err := RenderHostPack(adoptionBaselinePack(t), home, render.OwnershipAssert, false, nil, nil); err != nil {
-		t.Fatalf("second --assert apply: %v", err)
-	}
+// THE MECHANISM IS THE GATE, not the notch. The rmw arm — the one `assert` rendered every
+// surface through, and the one an owned host still runs for a surface its pack declares `rmw` —
+// asserts individual keys and adopts no file at all, so there is no one-way door and nothing to
+// net, even on a FIRST apply into a file the user wrote. An archive appearing here would mean
+// the copy had been hoisted above the mechanism switch, where it would fire on every apply
+// forever: per-apply snapshots, which the ruling explicitly is not.
+//
+// It was TestAssertNotchArchivesNothing, a second `assert` apply over an asserted home; the
+// contract is gone and the mechanism is not, so it now renders that mechanism, twice, from a
+// home yolo never wrote.
+func TestTheHostRMWArmArchivesNothing(t *testing.T) {
+	home, _ := seedAdoptionHome(t)
+	renderAsRetiredAssert(t, adoptionBaselinePack(t), home, nil, nil)
+	renderAsRetiredAssert(t, adoptionBaselinePack(t), home, nil, nil)
 	root := filepath.Join(home, ".local", "share", "yolo-jail", "archive")
 	if _, err := os.Stat(root); err == nil {
-		t.Errorf("an `assert` apply wrote an adoption archive at %s — rmw adopts nothing, so "+
+		t.Errorf("an rmw apply wrote an adoption archive at %s — rmw adopts nothing, so "+
 			"this is a snapshot of every apply rather than a net for adoption", root)
 	}
 }

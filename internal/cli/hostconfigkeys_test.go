@@ -6,7 +6,8 @@ package cli
 // leaves undone is named on the notch line, once, and no key the host honors is. The census's
 // own drift gate (every key classified, every entry with a reason) is render's
 // configkeys_test.go; this file is the call site, so deleting inertConfigKeys from either
-// branch of applyHostSurveyed fails it.
+// branch of applyHostSurveyed fails it. Every user config declares `host_management: "own"`:
+// the unset key is `none` since OQ-CO14, and `none` refuses the apply before any report.
 
 import (
 	"sort"
@@ -74,7 +75,7 @@ func TestHostApplyNamesEveryConfigKeyTheHostLeavesUndone(t *testing.T) {
 	body = append(body, `"loopholes": {}`, `"update_check": false`,
 		`"required_capabilities": ["code_editing"]`, `"perf_logging": true`,
 		`"security": {"blocked_tools": [{"name": "curl", "message": "no"}]}`)
-	cfg := `{"packs": ["pi"], ` + strings.Join(body, ", ") + `}`
+	cfg := `{"packs": ["pi"], "host_management": "own", ` + strings.Join(body, ", ") + `}`
 
 	for _, verbose := range []bool{false, true} {
 		for _, packs := range []string{`["pi"]`, `[]`} {
@@ -117,7 +118,7 @@ func TestHostApplyNamesEveryConfigKeyTheHostLeavesUndone(t *testing.T) {
 // A key present with a value that declares nothing is not named: `"mounts": []` asks the
 // host for nothing, so it leaves nothing undone.
 func TestHostApplyDoesNotNameAKeyThatDeclaresNothing(t *testing.T) {
-	hostComputedHome(t, `{"packs": ["pi"], "mounts": [], "kvm": false, "resources": {},
+	hostComputedHome(t, `{"packs": ["pi"], "host_management": "own", "mounts": [], "kvm": false, "resources": {},
 		"mise_tools": {"node": "22"}}`)
 	t.Setenv("YOLO_VERBOSE", "")
 	rc, report := hostApplyRun(t, false)
@@ -176,7 +177,7 @@ func isNameByte(b byte) bool {
 // empty `packs`, which returns early, and a selected pack) and both postures, so deleting
 // either call site fails a subtest.
 func TestHostApplyNamesAnInlineLoopholeByEntry(t *testing.T) {
-	const cfg = `{"packs": %s, "loopholes": {
+	const cfg = `{"packs": %s, "host_management": "own", "loopholes": {
 		"mydaemon": {"command": ["mydaemon", "--socket", "{socket}"]},
 		"sleeping": {"command": ["sleeper"], "enabled": false},
 		"openai-auth-broker": {"enabled": true},

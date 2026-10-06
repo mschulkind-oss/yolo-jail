@@ -250,7 +250,9 @@ func TestHostTimingSpansTheServicesStart(t *testing.T) {
 
 // `yolo host apply --timing --format json` TIMES EVERY STAGE AND KEEPS STDOUT ONE DOCUMENT: the
 // table goes to stderr. And every spelling of the request times the same stages: the flag before
-// the verb (`yolo --timing host apply`) and `yolo apply --at host --timing`.
+// the verb (`yolo --timing host apply`) and `yolo apply --at host --timing`. The config declares
+// `host_management: "own"`: under the unset key (`none` since OQ-CO14) the apply refuses before
+// its first stage.
 func TestHostApplyTimingKeepsTheDocumentAndTimesEveryStage(t *testing.T) {
 	stages := []string{"host_apply.pack_refresh", "host_apply.render", "host_apply.wrappers",
 		"host_apply.floor"}
@@ -269,7 +271,7 @@ func TestHostApplyTimingKeepsTheDocumentAndTimesEveryStage(t *testing.T) {
 		}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			_, cwd := timingHome(t, `{"packs": ["pi"]}`)
+			_, cwd := timingHome(t, `{"packs": ["pi"], "host_management": "own"}`)
 			stubDeclaredBins(t)
 			var out, errw bytes.Buffer
 			if rc := tc.run(&out, &errw); rc != 0 {
@@ -301,7 +303,9 @@ func TestHostApplyTimingKeepsTheDocumentAndTimesEveryStage(t *testing.T) {
 // THE REVERT AND THE NO-PACK APPLY ARE TIMED TOO: `--revert` is a different operation and records
 // its own host_apply.revert span (at both spellings), and an apply with no pack configured still
 // runs the wrappers and floor stages, on a branch of its own that returns before the main tail,
-// and spans them there.
+// and spans them there. The revert runs with the key unset, which is `none` since OQ-CO14 and the
+// contract `--revert` runs under (it is refused at `own`); the no-pack apply declares `own`, the
+// one contract under which an apply runs its stages.
 func TestHostApplyTimingSpansTheRevertAndTheNoPackApply(t *testing.T) {
 	for _, tc := range []struct {
 		name, cfg string
@@ -313,7 +317,7 @@ func TestHostApplyTimingSpansTheRevertAndTheNoPackApply(t *testing.T) {
 			[]string{"host_apply.revert"}},
 		{"apply --at host --revert --timing", `{"packs": ["pi"]}`, []string{"--at", "host", "--revert", "--timing"}, true,
 			[]string{"host_apply.revert"}},
-		{"host apply --timing with no pack", `{}`, []string{"apply", "--timing"}, false,
+		{"host apply --timing with no pack", `{"host_management": "own"}`, []string{"apply", "--timing"}, false,
 			[]string{"host_apply.pack_refresh", "host_apply.render", "host_apply.wrappers", "host_apply.floor"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -348,7 +352,8 @@ func TestHostApplyTimingSpansTheRevertAndTheNoPackApply(t *testing.T) {
 // persistent one (YOLO_TIMING, an inherited YOLO_VERBOSE, `perf_logging`) records the apply's stages in silence,
 // naming the file in one line and printing no table, and a typed --verbose prints the table as
 // --timing does. Each spelling of the verb is asked, since `yolo apply --at host` opens the same
-// surface from its own call site.
+// surface from its own call site. Every config declares `host_management: "own"`, without which
+// (OQ-CO14's unset `none`) the apply refuses before it renders.
 func TestHostApplyTimingTakesTheLaunchOptIns(t *testing.T) {
 	spellings := []struct {
 		name string
@@ -365,10 +370,11 @@ func TestHostApplyTimingTakesTheLaunchOptIns(t *testing.T) {
 			env       map[string]string
 			typed     bool // the global --verbose, typed
 		}{
-			{"YOLO_TIMING", `{"packs": ["pi"]}`, map[string]string{paths.TimingEnv: "1"}, false},
-			{"YOLO_VERBOSE inherited", `{"packs": ["pi"]}`, map[string]string{paths.VerboseEnv: "1"}, false},
-			{"perf_logging", `{"packs": ["pi"], "perf_logging": true}`, nil, false},
-			{"a typed --verbose", `{"packs": ["pi"]}`, nil, true},
+			{"YOLO_TIMING", `{"packs": ["pi"], "host_management": "own"}`, map[string]string{paths.TimingEnv: "1"}, false},
+			{"YOLO_VERBOSE inherited", `{"packs": ["pi"], "host_management": "own"}`,
+				map[string]string{paths.VerboseEnv: "1"}, false},
+			{"perf_logging", `{"packs": ["pi"], "host_management": "own", "perf_logging": true}`, nil, false},
+			{"a typed --verbose", `{"packs": ["pi"], "host_management": "own"}`, nil, true},
 		} {
 			t.Run(sp.name+"/"+tc.name, func(t *testing.T) {
 				_, cwd := timingHome(t, tc.cfg)

@@ -389,9 +389,15 @@ func parityRecords(t *testing.T, tc parityCase) (jail, host map[string]string) {
 	}
 	jail = readProvenanceFile(t, prismProvenancePath(ej, "parity", "settings"))
 
-	// ── The HOST derivation: replayed write order.
+	// ── The HOST derivation: replayed write order. The rmw arm, called directly, as an owned
+	// host (`host_management: "own"`) runs it for a surface its pack declares `rmw`
+	// (render.HostOwnedModes) — the retired `assert` ran it for every surface, which is where
+	// this table's pairing came from. The contract is stated because the census decides whether
+	// rmw records at all.
 	eh := &Env{Home: t.TempDir(), Vars: map[string]string{},
-		hostTarget: true, hostOwnership: render.OwnershipAssert}
+		hostTarget: true, hostOwnership: render.OwnershipOwn}
+	hostSurface := surface
+	hostSurface.Mode = manifest.ModeRMW
 	surfacePath := filepath.Join(eh.Home, ".parity", "settings.json")
 	if hostBytes != nil {
 		if err := os.MkdirAll(filepath.Dir(surfacePath), 0o755); err != nil {
@@ -401,7 +407,7 @@ func parityRecords(t *testing.T, tc parityCase) (jail, host map[string]string) {
 			t.Fatal(err)
 		}
 	}
-	if err := renderSurfaceRMWSurface(eh, surface, tc.computed, contribs); err != nil {
+	if err := renderSurfaceRMWSurface(eh, hostSurface, tc.computed, contribs); err != nil {
 		t.Fatalf("host render: %v", err)
 	}
 	for k, want := range tc.wantFile {

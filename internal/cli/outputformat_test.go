@@ -79,17 +79,35 @@ func TestParseOutputFormatSpellings(t *testing.T) {
 var formatFamily = []struct {
 	name string
 	argv []string
+	// userConfig, when set, is written as the probe's user config before it runs.
+	userConfig string
 }{
-	{"ps", []string{"ps"}},
-	{"loopholes list", []string{"loopholes", "list"}},
-	{"loopholes status", []string{"loopholes", "status"}},
-	{"broker status", []string{"broker", "status"}},
+	{"ps", []string{"ps"}, ""},
+	{"loopholes list", []string{"loopholes", "list"}, ""},
+	{"loopholes status", []string{"loopholes", "status"}, ""},
+	{"broker status", []string{"broker", "status"}, ""},
 	// `host apply` joins the family by POSTURE rather than by verb (report-tiers.md's machine
 	// consumers / OQ-RO4): its default is a dry run whose whole output is "what would change",
 	// which is a state report however much the verb's name says otherwise. Its ACTING posture is
 	// in TestActingVerbsRefuseJSONRatherThanIgnoreIt below, which is the other half of that
-	// ruling.
-	{"host apply", []string{"host", "apply"}},
+	// ruling. Twice: under `host_management: "own"`, where the verb surveys the home, and on a
+	// FRESH home with no user config at all — the unset key is `none` since the `assert`
+	// retirement (OQ-CO14), the verb refuses before it surveys anything, and its document says so
+	// (outcome `refused`) rather than leaving stdout empty.
+	{"host apply", []string{"host", "apply"}, hostOwnUserConfig},
+	{"host apply on a fresh home", []string{"host", "apply"}, ""},
+}
+
+// hostOwnUserConfig is a user config declaring the one `host_management` value under which
+// `yolo host apply` surveys the home.
+const hostOwnUserConfig = `{"host_management":"own"}`
+
+// writeProbeUserConfig writes cfg as home's user config, or nothing when cfg is "".
+func writeProbeUserConfig(t *testing.T, home, cfg string) {
+	t.Helper()
+	if cfg != "" {
+		writeFile(t, filepath.Join(home, ".config", "yolo-jail", "config.jsonc"), cfg)
+	}
 }
 
 // TestStateReportingCommandsEmitParseableJSON dispatches each command for real
@@ -107,6 +125,7 @@ func TestStateReportingCommandsEmitParseableJSON(t *testing.T) {
 			t.Setenv("HOME", home)
 			t.Setenv("XDG_CONFIG_HOME", home+"/.config")
 			t.Chdir(cwd)
+			writeProbeUserConfig(t, home, tc.userConfig)
 			// A stand-in runtime that lists no containers: `ps` asks the machine's podman, and
 			// a jail another process starts or stops between this test's two calls made the
 			// two documents differ (seen while other suites ran in the same podman).
@@ -152,6 +171,7 @@ func TestStateReportingCommandsRefuseAnUnknownFormat(t *testing.T) {
 			t.Setenv("HOME", home)
 			t.Setenv("XDG_CONFIG_HOME", home+"/.config")
 			t.Chdir(cwd)
+			writeProbeUserConfig(t, home, tc.userConfig)
 
 			rc, stdout, stderr := captureDispatchRC(t, append(tc.argv, "--format", "yaml"))
 			if rc != 2 {
@@ -183,7 +203,8 @@ func TestActingVerbsRefuseJSONRatherThanIgnoreIt(t *testing.T) {
 		// The POSTURE half of the same rule: `yolo host apply` reports in its default posture and
 		// ACTS with --assert, so the refusal is keyed on the posture rather than on the verb
 		// (report-tiers.md's machine consumers). Nothing is written here — the refusal is above the
-		// render, which "exit 2 with empty stdout" is the visible half of.
+		// render, which "exit 2 with empty stdout" is the visible half of. Run under `own`, the
+		// contract under which the render would otherwise write (OQ-CO14).
 		{"host", "apply", "--assert"},
 	} {
 		t.Run(strings.Join(argv, " "), func(t *testing.T) {
@@ -191,6 +212,9 @@ func TestActingVerbsRefuseJSONRatherThanIgnoreIt(t *testing.T) {
 			t.Setenv("HOME", home)
 			t.Setenv("XDG_CONFIG_HOME", home+"/.config")
 			t.Chdir(cwd)
+			if argv[0] == "host" {
+				writeProbeUserConfig(t, home, hostOwnUserConfig)
+			}
 
 			rc, stdout, stderr := captureDispatchRC(t, append(argv, "--format", "json"))
 			if rc != 2 {

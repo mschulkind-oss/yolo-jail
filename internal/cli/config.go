@@ -142,7 +142,7 @@ reset/capture also take:
 promote flags:
   --keys a,b         Promote only these captured keys (default: all of them).
   --to <dest>        local (default unless promotion_target is set in user config),
-                     pack:<name>, or host. "local" is
+                     or pack:<name>. "local" is
                      ~/.config/yolo-jail/local — no packs entry needed, folds after
                      every other pack, and renders at every notch.
   --plan             Classify and print; write nothing. Add --json for the document.

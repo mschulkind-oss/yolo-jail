@@ -55,7 +55,9 @@ func TestMacosUserHostFloorMaterializesAFixtureInstallerCapture(t *testing.T) {
 		`{"kind":"program","bin":"`+bin+`","via":"installer","url":"file://`+script+`"}]}`), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	packHome(t, `{"packs":[{"source":"file://`+pack+`","name":"hostcapturepack"}]}`)
+	// `host_management: own`: an unset key is `none` since the `assert` retirement (OQ-CO14), and
+	// `yolo host apply --assert` refuses under it before the floor stage this test reads.
+	packHome(t, `{"packs":[{"source":"file://`+pack+`","name":"hostcapturepack"}],"host_management":"own"}`)
 	dir := t.TempDir()
 
 	a := runCommand(t, dir, []string{"host", "apply", "--assert"}, withEnv("YOLO_VERSION="))

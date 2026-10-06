@@ -538,11 +538,11 @@ func validateHostApplyOnLaunch(config *jsonx.OrderedMap, workspace string, errs 
 // validateHostManagement shape-checks the `host_management` ownership declaration
 // (docs/design/config-ownership-and-promotion.md §4.2).
 //
-// NOT a boolean, unlike its two neighbours, and the difference is the ruling rather than a
-// style choice: OQ-CO1 kept THREE values because `assert` is shipped behavior with real
-// users, so collapsing the key to on/off would be either a regression or a forced escalation
-// to `own`. The accepted set comes from KnownHostManagements, so the schema and the message
-// cannot drift.
+// A string rather than a boolean, though it has two values since `assert` was retired
+// (config-ownership-and-promotion.md §4.5, OQ-CO14): a config still spelling `"assert"` is
+// refused with a message of its own (hostManagementProblem), which a boolean could not have
+// told apart from a typo. The accepted set comes from KnownHostManagements, so the schema and
+// the message cannot drift.
 //
 // The scope half is the same defense-in-depth `host_apply_on_launch` takes, and the claim it
 // guards is the largest of the four: the key decides whether yolo may write the real $HOME at

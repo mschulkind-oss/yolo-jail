@@ -34,6 +34,8 @@ give that script the variables it needs, such as where to install, with `install
 
 ### Changed
 
+- `host_management` now defaults to `"none"`, and `"assert"` is refused: to keep `yolo host apply`
+  writing your agents' config files, set `"host_management": "own"`.
 - A jail now installs every agent and tool your selected packs declare when it starts, once
   per project, and `yolo apply` does exactly that and exits. If one cannot be installed,
   offline included, the launch stops and names it: to start without it, set

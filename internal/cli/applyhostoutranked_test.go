@@ -8,7 +8,9 @@ package cli
 // `permissions.defaultMode` at the host notch is the autonomy-leak fix and stays. What broke
 // was legibility: the overlay was accepted, LISTED as contributing, and then lost, while the
 // ⚠ line fired for the same key. Every test writes into a t.TempDir() home with its own
-// config; the real $HOME is never read or written.
+// config; the real $HOME is never read or written. Every config declares `host_management:
+// "own"`: the unset key is `none` since the `assert` retirement (OQ-CO14), under which the host
+// composes no config surface and there is no overlay to outrank.
 
 import (
 	"bytes"
@@ -22,10 +24,10 @@ import (
 // The report names the key, names both packs, names the posture that owns it, and the file
 // still carries the guarded value.
 func TestApplyHostNamesTheOutrankedOverlayKey(t *testing.T) {
-	home := writeOverlayFixture(t, map[string]string{
+	home := writeOverlayFixtureUnder(t, map[string]string{
 		"p1": claudeDefaultModeOverlayJSON("p1"),
 		"p2": claudeDefaultModeOverlayJSON("p2"),
-	})
+	}, "own")
 	// `claude` is embedded, so it joins the fixture's `packs` by bare name — and it declares
 	// `program claude`, which a writing apply's dependency gate refuses when it is missing.
 	addPackToConfig(t, home, `"claude"`)
@@ -64,7 +66,8 @@ func TestApplyHostNamesTheOutrankedOverlayKey(t *testing.T) {
 // an overwrite, so the warning fires — and attributing it to the overlay is exactly what made
 // the output read as a win.
 func TestApplyHostOverwriteWarningDoesNotCreditAnOutrankedOverlay(t *testing.T) {
-	home := writeOverlayFixture(t, map[string]string{"pushy": claudeDefaultModeOverlayJSON("pushy")})
+	home := writeOverlayFixtureUnder(t,
+		map[string]string{"pushy": claudeDefaultModeOverlayJSON("pushy")}, "own")
 	addPackToConfig(t, home, `"claude"`)
 	writeFile(t, filepath.Join(home, ".claude", "settings.json"),
 		`{"permissions":{"defaultMode":"plan"}}`)
@@ -93,10 +96,10 @@ func TestApplyHostOverwriteWarningDoesNotCreditAnOutrankedOverlay(t *testing.T) 
 // The negative case at the OUTPUT layer: a winning overlay key must not acquire an IGNORED
 // line, or the fix has traded one misleading report for another.
 func TestApplyHostDoesNotReportAWinningOverlayKeyAsIgnored(t *testing.T) {
-	writeOverlayFixture(t, map[string]string{
+	writeOverlayFixtureUnder(t, map[string]string{
 		"acme":     acmeOwnerPackJSON,
 		"acme-fzf": acmeFzfPackJSON, // contributes fileSuggestion, which acme does not manage
-	})
+	}, "own")
 	// R3's contribution line ("config-overlay keys from: …") is a tier-2 fact under its
 	// surface, so §4.5 moved it behind the flag; the IGNORED half this test also asserts the
 	// absence of is a LOSS and prints at every verbosity.

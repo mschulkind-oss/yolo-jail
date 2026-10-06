@@ -221,8 +221,8 @@ A host-applied entry does not come back into a podman or Apple Container jail th
 `pi/settings` host layer. The render mark that prevents it shipped at `369c6f63` (2026-09-18):
 
 1. **The write.** `yolo host apply` is a dry run and `--assert` writes; `yolo host -- <agent>`
-   also re-applies a stale render when `host_apply_on_launch` is on. With `host_management` unset (it resolves to `assert`,
-   `config.hostManagementValue`), `RenderHostPack` takes the rmw arm
+   also re-applies a stale render when `host_apply_on_launch` is on. With `host_management` unset (it resolved to `assert`
+   in `config.hostManagementValue` when this was written, and resolves to `none` since 2026-10-05), `RenderHostPack` took the rmw arm
    (`renderSurfaceRMWSurface`): entries go in through `agentcfg.ReconcileInsertedList`, then
    the insert record (`writeListRecord`, `<ProvenanceDir>/pi-settings.list-record.json`) and
    the provenance record (`writeProvenanceRecord`) are written. `own` writes provenance too.
@@ -267,9 +267,9 @@ unrecorded and never removed.
 ### 3.3 A pending change to the default
 
 A 2026-09-20 ruling retires `assert` and makes an unset `host_management` mean `none`
-([not built](../reference/config-target-resolution.md#ruled-2026-09-20-not-built-retiring-assert)).
-After it lands, only `own` writes a host-only entry. The mark survives it: `own` still marks, and
-a mark an earlier assert left stays until `yolo host apply --revert`.
+([built 2026-10-05](../reference/config-target-resolution.md#ruled-2026-09-20-not-built-retiring-assert)).
+Only `own` writes a host-only entry now. The mark survives it: `own` still marks, and a mark an
+earlier assert left stays until `yolo host apply --revert`, which runs under `none`.
 
 ---
 
@@ -435,12 +435,14 @@ Each item's state as of `77dc6afa`: ✅ built and unit-tested, ⏳ not run anywh
 
 1. ✅ `yolo host apply` lists `pi/settings` with a list entry attributed to the contributing
    pack; `yolo host apply --assert` writes it into `~/.pi/agent/settings.json` and into the
-   insert record — under an unset or `assert` `host_management` today, and under `own` after the
-   retirement (`TestHostApplyAssertWritesAGuardedPostureList`,
+   insert record — under `own`, since the `assert` retirement made an unset key `none`
+   (`TestHostApplyAssertWritesAGuardedPostureList`,
    `TestHostApplyInsertsOnlyTheGuardedPostureList`). ⏳ No real host has run it.
 2. ✅ A jail's `~/.pi/agent/settings.json` lacks the entry on every backend, `macos-user`
    included (`TestJailBootRendersOnlyTheAutonomousPostureList`, and through the host file
-   `TestAManagedHomesHostFileIsABaselineFromTheAssertToTheBoot`). ⏳ No launched jail has
+   `TestAnOwnedHomesHostFileIsABaselineFromTheApplyToTheBoot`, which was
+   `TestAManagedHomesHostFileIsABaselineFromTheAssertToTheBoot` until the `assert` retirement).
+   ⏳ No launched jail has
    shown it.
 3. ✅ `yolo config ls --at host` shows the entry and `--at jail` does not; `yolo config render`
    agrees (`TestConfigRenderAndLsFollowAPostureListsNotch`). The first draft wrote
@@ -482,7 +484,8 @@ included) and in no jail.
    1. `just install`, so the host yolo and the flake bundle both know the field.
    2. Add the [§4.1](#41-recommended-posture-lists-inside-autonomy) contribution to the `matt`
       pack.
-   3. Confirm `host_management` is unset, `assert` or `own` — not `none`.
+   3. Confirm `host_management` is `own` (unset is `none` since the `assert` retirement, and
+      `yolo host apply` refuses under it).
    4. `yolo host apply`, then `yolo host apply --assert`.
    5. Start pi on the host once, then run `/automode model`.
    6. Relaunch a jail and confirm the entry is absent.
@@ -495,7 +498,9 @@ included) and in no jail.
    this commit or later is what makes it true there.
 4. **The end-to-end test (code; no ruling; 2–3 hours). ✅ BUILT, `a6021d86`.** Gap 2, as an
    in-process chain of the production steps (NS-D10):
-   `TestAManagedHomesHostFileIsABaselineFromTheAssertToTheBoot` and its unmanaged twin, for the
+   `TestAManagedHomesHostFileIsABaselineFromTheAssertToTheBoot` (now
+   `TestAnOwnedHomesHostFileIsABaselineFromTheApplyToTheBoot` and
+   `TestAHomeAssertedIntoBeforeTheRetirementStaysABaselineToTheBoot`) and its unmanaged twin, for the
    container launcher and the `macos-user` one.
 
 **What gates what.** Nothing gates steps 1–4 unless [OQ-5](#OQ-5) amends the rulings for the

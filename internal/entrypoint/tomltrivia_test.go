@@ -53,15 +53,17 @@ func jsoncHostHome(t *testing.T, content string) (string, string) {
 	return home, path
 }
 
-// renderCopilotConfigHost runs the shipped copilot pack at the host notch and returns the
-// copilot/config result — a declared `rmw` surface with the `json` codec.
+// renderCopilotConfigHost runs the shipped copilot pack at an owned host
+// (`host_management: "own"`, the one writing contract) and returns the copilot/config result — a
+// declared `rmw` surface with the `json` codec, which an owned host still renders through the
+// rmw arm.
 func renderCopilotConfigHost(t *testing.T, home string) HostRenderResult {
 	t.Helper()
 	copilot, err := embeddedPack("copilot")
 	if err != nil {
 		t.Fatalf("embedded copilot: %v", err)
 	}
-	results, rerr := RenderHostPack(copilot, home, render.OwnershipAssert, false, nil, nil)
+	results, rerr := RenderHostPack(copilot, home, render.OwnershipOwn, false, nil, nil)
 	if rerr != nil {
 		t.Fatalf("RenderHostPack: %v", rerr)
 	}

@@ -70,24 +70,20 @@ func TestYoloChecksCodexProbeRendersTheBackgroundServerOff(t *testing.T) {
 }
 
 // THE HOST HALF, OQ-CDX2: `yolo host apply` writes the user's OWN ~/.codex/config.toml, which is
-// the Codex they run from a terminal. It must never carry the key, under either writing
-// contract, whatever else the render writes there.
+// the Codex they run from a terminal. It must never carry the key under `own`, the one writing
+// contract since the `assert` retirement (OQ-CO14), whatever else the render writes there.
 func TestHostApplyNeverTurnsOffTheUsersOwnCodexBackgroundServer(t *testing.T) {
 	codex, err := embeddedPack("codex")
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, ownership := range []render.HostOwnership{render.OwnershipAssert, render.OwnershipOwn} {
-		t.Run(ownership.String(), func(t *testing.T) {
-			home := t.TempDir()
-			applyHostPacks(t, home, ownership, false, []*packload.Pack{codex}...)
-			data, err := os.ReadFile(filepath.Join(home, ".codex", "config.toml"))
-			if err != nil {
-				t.Fatalf("the host render wrote no ~/.codex/config.toml, so this test proves nothing: %v", err)
-			}
-			if strings.Contains(string(data), "daemon_auto_start") {
-				t.Errorf("yolo host apply wrote the daemon key into the user's own Codex config:\n%s", data)
-			}
-		})
+	home := t.TempDir()
+	applyHostPacks(t, home, render.OwnershipOwn, false, []*packload.Pack{codex}...)
+	data, err := os.ReadFile(filepath.Join(home, ".codex", "config.toml"))
+	if err != nil {
+		t.Fatalf("the host render wrote no ~/.codex/config.toml, so this test proves nothing: %v", err)
+	}
+	if strings.Contains(string(data), "daemon_auto_start") {
+		t.Errorf("yolo host apply wrote the daemon key into the user's own Codex config:\n%s", data)
 	}
 }

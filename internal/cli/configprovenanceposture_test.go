@@ -13,8 +13,10 @@ import (
 // packSurfacesForAgent folded every pack at the autonomous posture beside an overlay set the
 // same function collected at the guarded one. Runs the real verb over a file:// pack, so it
 // fails if overlayContributionRows stops handing its notch's posture to the surface fold.
+// Under `host_management: "own"`: the unset key is `none` since the `assert` retirement
+// (OQ-CO14), under which the host notch renders no config surface for the entry to land in.
 func TestConfigLsListReplacementFollowsTheNotchPosture(t *testing.T) {
-	listWorld(t, func(home string) string {
+	listWorldUnder(t, "own", func(home string) string {
 		return `"claude",` + listPack(t, home, "matt", `{"kind":"config-list",`+
 			`"surface":"claude/settings","path":"/permissions/allow","add":["Bash(ls:*)"]}`)
 	})

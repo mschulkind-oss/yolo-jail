@@ -24,23 +24,14 @@ tags: [host, apply, render, staleness, approvals, wrappers]
 **Status:** CURRENT as of 2026-09-24, verified against `f491d192`.
 
 > [!IMPORTANT]
-> **A ruling dated 2026-09-20 narrows "active host management" to `own` alone — and it is NOT
-> BUILT.** `host_management` keeps two values, `none` and `own`, with **`none` as the new
-> default**; `assert` is retired, because it is the only mode in which yolo both writes a host
-> file and reads it back. **Everything below describes the shipped tree**, where "active" means
-> `assert` **or** `own` and an absent key resolves to `assert`. Two consequences for this gate
-> when the ruling lands, neither of which moves a line of its mechanism:
->
-> - **"Active management" reads `own`.** Every `assert`-or-`own` phrase below loses its first
->   term; nothing else about the disposition table changes, because the two modes were never
->   distinguished *by* this gate — they were the two answers that were not `none`.
-> - **The `HostManagementNone` early return becomes the default path.** It is a minority branch
->   today; afterwards a machine that never declared ownership never reaches the survey at all,
->   which is the silence the gate's own comment already describes as the correct behaviour
->   there.
->
-> The decision lives in
-> [`config-ownership-and-promotion.md`](../design/config-ownership-and-promotion.md#4-declaring-ownership--the-host_management-key).
+> **"Active host management" means `own`.** `host_management` has two values since the `assert`
+> retirement (ruled 2026-09-20, built 2026-10-05 as
+> [OQ-CO14](../design/config-ownership-and-promotion.md#oq-co14) ruled): `none`, which is also the
+> unset answer, and `own`. So the `HostManagementNone` early return is the default path — a
+> machine that never declared ownership never reaches the survey at all, which is the silence the
+> gate's own comment describes as correct there — and a config still saying `"assert"` is refused
+> by name before the gate runs. Nothing else about the disposition table changed: the two modes it
+> used to name were never distinguished *by* this gate.
 
 `yolo host apply` renders pack surfaces into the invoking user's real `$HOME`. Nothing
 re-examines them afterwards, so what is in an agent's config files and what the packs now say
@@ -50,7 +41,7 @@ reload it. So the **host launch gate** *(coined here)* keeps that launch synchro
 under an opt-in key (`host_apply_on_launch`, which defaults to true when `host_wrappers` is on,
 and `host_wrappers` itself defaults to on under `host_management: "own"`) it compares the render against the home, execs straight through when nothing would change,
 automatically synchronizes host configuration without prompting when drift is detected under
-active host management (`assert` or `own` — `own` alone once the ruling above is built), and
+active host management (`own`), and
 pauses to prompt on a TTY (or refuses off a TTY) only when first-time adoption would overwrite
 unmanaged keys (`FirstApply && EntryLosses`).
 
@@ -291,13 +282,12 @@ wrapper can reach it, that is said on the row naming the reason, not on a row of
 from `host_management: "own"`**, and `yolo host wrappers enable|disable` refuses, naming the key
 that decides (`config.hostWrappersValue`). So declaring `own` alone turns on the wrappers and,
 through them, this gate: `own` → wrappers → apply-on-launch, each link a default nobody has to
-spell. An explicit `false` at either key still wins. `assert` does not start the chain, because
-it is `host_management`'s unset answer, and deriving from it would put executables on the PATH of
-every user who declared nothing.
+spell. An explicit `false` at either key still wins. Only a WRITTEN `own` starts the chain, never
+the unset key, because deriving from that would put executables on the PATH of every user who
+declared nothing.
 
 > [!IMPORTANT]
-> **Consent for safe updates is tied to active host management.** Under `assert` or `own` (`own`
-> alone once the 2026-09-20 ruling at the top of this page is built), opting
+> **Consent for safe updates is tied to active host management.** Under `own`, opting
 > into host wrappers licenses yolo to keep managed surfaces synchronized without interactive prompts.
 > Interactive confirmation is reserved for first-time adoption that would overwrite unmanaged host
 > keys (`FirstApply && EntryLosses`), where a launch under an enabled key still prompts on a TTY
@@ -313,7 +303,7 @@ every user who declared nothing.
 | Nothing would change | Silent exec. A freshly-applied home must prompt **not at all, ever**, until something actually changes — that is [R3](#r3--the-predicate-models-what-the-writer-produces)'s bar, and the first thing to check when touching the predicate. |
 | A configured pack cannot be resolved (a git pack that is not in the pack store and could not be fetched, a local pack whose directory is gone, or a pack whose manifest has problems, the ones every launch refuses, read from the tree its entry's `only`/`exclude` leave) | **Render nothing**, name each pack with the resolver's reason, and **refuse the launch**: a launch-shaped verb never runs on part of the pack set the config asks for, at any notch, and the composition behind the gate refuses the same set whether or not host management is on ([NC-D5](../plans/notch-convergence.md#7-decision-ledger); it used to exec). A manifest's problems are named one by one, with `yolo pack lint` as the remedy ([NS-D14](../design/notch-scoped-config-contributions.md#10-decision-ledger), [NS-D15](../design/notch-scoped-config-contributions.md#10-decision-ledger)). `yolo host -- <bin>` fetches first, before the gate and whether or not host management is on: it runs the same pack fetch a launch runs before it resolves anything ([`OQ-PF1`](pack-system.md#oq-pf1)). So a git pack that reaches this row is one that fetch could not make usable: the fetch failed (its reason carries the fetch error, and the remedy is `yolo pack install` to retry), or the address names something the fetched commit lacks (a ref a fetch did not find, a subdirectory the commit does not have), which is fixed in the config. An incomplete pack set is never applied — the same rule `yolo host apply --assert` refuses by. Nothing was written, so the home still holds what the last apply left. |
 | An `--assert` would ask something: a skills or briefing adoption, a dropped pack's retire, a missing declared dependency (its install offer or refusal), or a briefing composition the dry run cannot preview | **Render nothing**, print each question and `yolo host apply --assert` (which asks them where they can be answered), and exec. The auto-apply's report is buffered, so a question asked there is one the user cannot see: measured, that was a launch hanging after the banner on a TTY, a silent "no" off one followed by a `synchronized` notice for work that did not happen, and a declined install of *another* pack's missing binary refusing this program's launch. |
-| Safe managed changes | **Auto-apply silently**, emit a single stderr notice (`yolo host: synchronized host configuration (<targets>)`), and exec immediately. Under `assert` or `own`, updating managed keys is idempotent policy synchronization, not data loss. The apply never reads stdin, and the notice names what the apply itself changed, never what the observe pass predicted. |
+| Safe managed changes | **Auto-apply silently**, emit a single stderr notice (`yolo host: synchronized host configuration (<targets>)`), and exec immediately. Under `own`, updating managed keys is idempotent policy synchronization, not data loss. The apply never reads stdin, and the notice names what the apply itself changed, never what the observe pass predicted. |
 | First apply overwriting unmanaged keys (`FirstApply && EntryLosses`), TTY | Show the change list, prompt, apply on accept. A **decline aborts the launch**, as it does in the jail: launching anyway would make the question a formality, and applying anyway would make "no" mean nothing. |
 | First apply overwriting unmanaged keys, no TTY | **Refuse**, and apply nothing, naming `yolo host apply --assert`. The prompt is the guard that makes an irreversible config-surface loss safe, and no flag or variable stands in for it ([OQ-NC10](../plans/notch-convergence.md#OQ-NC10)). |
 | Something cannot be written: a pack's render errored, or a destination is a [broken link](report-tiers.md#broken-links) | **Judged by whose it is** ([OQ-HS17](#oq-hs17)). In the launched program's own configuration: **refuse**, naming each failure and its fix. Anywhere else: the rest of the home is synchronized, each failure is named with its fix, and the program **launches**. A standing one is named on every launch until it is fixed, since nothing else says it between explicit applies. |
@@ -475,15 +465,16 @@ not a hot loop.
 ## Coupling with yolo pack update
 
 Updating packs via `yolo pack update` on the host automatically triggers `host apply --assert`
-when `host_management` is active (`assert` or `own`). Under `host_management: "none"` or inside a
-jail, host apply is skipped. This couples pack updates with host configuration synchronization so
+when `host_management` is `own`. Under `host_management: "none"` (or the key unset) or inside a
+jail, host apply is skipped, and a config still saying the retired `"assert"` gets its refusal
+after the pack half, with exit 1. This couples pack updates with host configuration synchronization so
 users do not need to run `yolo host apply --assert` manually after fetching pack updates.
 
-> **⚠ Two spellings of "assert" meet in this paragraph, and only one of them is being retired.**
-> The `--assert` **flag** on `yolo host apply` is the write-for-real posture, and the 2026-09-20
-> ruling described at the top of this page does not touch it. What the ruling retires is the `host_management` **value** `"assert"`, so
-> the coupling condition above narrows from `assert`-or-`own` to `own`; the command it runs
-> keeps its flag. Unbuilt — both terms are live today.
+> **⚠ Two spellings of "assert" met in this paragraph, and only one of them was retired.**
+> The `--assert` **flag** on `yolo host apply` is the write-for-real posture, and the ruling
+> described at the top of this page does not touch it. What it retired is the `host_management`
+> **value** `"assert"`, so the coupling condition above narrowed from `assert`-or-`own` to `own`;
+> the command it runs keeps its flag.
 
 ## What this does not do
 
@@ -505,7 +496,7 @@ from code comments, and this appendix is where they resolve.
 | :--- | :--- |
 | **R3** — the change predicate models what the writer produces | The alternative is a predicate that reports a change it already made, forever, which at the launch gate is a prompt no apply can settle. Realized once, on symlink-deployed and `0o700` sources. |
 | **[OQ-1](#why-its-this-way)** — `host_wrappers: true` implies `host_apply_on_launch: true` by default | Having wrappers on PATH means the user routed their agent launches through yolo; running stale config by default because a second boolean was unset was a trap. `"host_apply_on_launch": false` is the escape hatch. |
-| **[OQ-2](#why-its-this-way)** — zero-prompt auto-apply on launch under active management | Pausing to prompt when updating declared keys under `assert` or `own` turned routine pack updates into intrusive friction. Zero-prompt auto-apply synchronizes safe changes silently with a concise stderr notice, preserving confirmation prompts only for first-time unmanaged key adoption (`FirstApply && EntryLosses`). |
+| **[OQ-2](#why-its-this-way)** — zero-prompt auto-apply on launch under active management | Pausing to prompt when updating declared keys under active management (`own`; `assert` too, before its retirement) turned routine pack updates into intrusive friction. Zero-prompt auto-apply synchronizes safe changes silently with a concise stderr notice, preserving confirmation prompts only for first-time unmanaged key adoption (`FirstApply && EntryLosses`). |
 | **[OQ-3](#why-its-this-way)** — pack update on host couples with host apply --assert | Updating packs without re-rendering host surfaces leaves the host stale until launch; coupling them ensures pack updates immediately materialize into host configs under active management. |
 | **[OQ-HS0](#why-its-this-way)** — measure the real thing, never a stat or hash fingerprint | Every fingerprint is a model with a false-positive rate and a state file to keep, and is *less* correct than measuring the home. An input content hash additionally spends most of its time hashing a binary whose identity is already free from the build stamps. |
 | **[OQ-HS1](#why-its-this-way)** — the launch chokepoint is the only trigger | Per-command checking dragged in an eligibility apparatus (a deny-set for machine-consumed stdout, a `--help` side-effect hazard, an `eval "$(yolo host env)"` trap) protecting commands that never needed checking. |
@@ -533,7 +524,7 @@ place the values themselves are stated.
 | :--- | :--- | :--- |
 | Opt-in key | `host_apply_on_launch`, boolean, default matches `host_wrappers` (true when enabled), **user scope only** | `config.HostApplyOnLaunchEnabled`; `yolo config-ref` is the user-facing authority |
 | `host_wrappers` default | unset ⇒ on exactly when `host_management` is declared `"own"` | `config.hostWrappersValue` |
-| Pack update coupling | `yolo pack update` runs `host apply --assert` under `assert`/`own` on host — the 2026-09-20 ruling narrows the condition to `own` and leaves the flag alone (unbuilt) | `cli.packUpdate`, `cli.hostApplyFromPackUpdate` |
+| Pack update coupling | `yolo pack update` runs `host apply --assert` under `own` on host, and refuses its host half under the retired `"assert"` | `cli.packUpdate`, `cli.hostApplyFromPackUpdate` |
 | Non-TTY approval | none: the first-apply loss refuses off a terminal, naming `yolo host apply --assert`; `yolo host` refuses `--accept-config-changes` by name ([OQ-NC10](../plans/notch-convergence.md#OQ-NC10)) | `cli.hostApplyGate`, `cli.acceptConfigChangesAtHost` |
 | Observe budget | 1s, then cannot-determine | `cli.hostApplyGateBudget` |
 | Per-home lock | a flock under the global storage lock dir, keyed by the resolved home | `cli.hostApplyLockPath`, `cli.tryHostApplyLock` |

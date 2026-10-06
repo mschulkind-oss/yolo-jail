@@ -54,10 +54,11 @@ func HostWrappersEnabled() bool {
 // yolo to own their config files and refuses to have anything put on their PATH must be able to
 // say so.
 //
-// ⚠ `assert` does NOT enable them, and the asymmetry is load-bearing rather than timid: `assert`
-// is host_management's own UNSET default, so deriving from it would switch a PATH claim on for
-// every user who has declared nothing at all — which is the one direction this key must never
-// fail in.
+// ⚠ Only a WRITTEN `own` enables them (declared, below), never the unset state: deriving from
+// an unset key would switch a PATH claim on for every user who has declared nothing at all —
+// which is the one direction this key must never fail in. The unset state is `none` since the
+// `assert` retirement (OQ-CO14), so the check reads as belt and braces today; it is the rule
+// rather than the coincidence, and it stays.
 func hostWrappersValue(cfg *jsonx.OrderedMap) bool {
 	if v, present := cfg.Get(hostWrappersKey); present && v != nil {
 		b, ok := v.(bool)

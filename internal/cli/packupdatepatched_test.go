@@ -5,10 +5,16 @@ package cli
 // replays them and builds nothing (docs/design/patched-forks.md §8.3, PF-D12; patched-extensions.md
 // PPX-D28), so its own line, "the next launch builds it", stays true. `yolo host apply --assert`
 // typed by itself still runs the advance (PF-D50, PPX-D25), and so does `yolo host -- <bin>`.
+//
+// Both fixtures declare `host_management: "own"`: `yolo pack update` runs its host apply only
+// under `own` since the `assert` retirement (OQ-CO14), and under the unset key (`none`) neither
+// that apply nor a typed `yolo host apply --assert` would run, so "it built nothing" would hold
+// of an update that never reached the host half.
 
 import (
 	"bytes"
 	"io"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -29,6 +35,7 @@ func usePackUpdatesHostApply(t *testing.T) {
 // `yolo host apply --assert` typed by itself then builds and installs it.
 func TestPackUpdatesHostApplyBuildsNoPatchedFork(t *testing.T) {
 	fx := patchedFloorFixture(t)
+	fx.writeUserConfig(t, `,"host_management":"own"`)
 	fx.commit(t, "v1.1.0", map[int]string{14: "fourteen"})
 	usePackUpdatesHostApply(t)
 	rc, out, errw := packVerb(t, "update")
@@ -50,6 +57,8 @@ func TestPackUpdatesHostApplyBuildsNoPatchedFork(t *testing.T) {
 // apply --assert` typed by itself builds it.
 func TestPackUpdatesHostApplyBuildsNoPatchedExtension(t *testing.T) {
 	fx := newTreeFixture(t, `"f.txt"`)
+	writeFile(t, filepath.Join(fx.home, ".config", "yolo-jail", "config.jsonc"),
+		`{"host_management":"own","packs":[{"source":"file://`+fx.treeDir+`","name":"treepack"}]}`)
 	usePackUpdatesHostApply(t)
 	rc, out, errw := packVerb(t, "update")
 	if len(fx.builds) != 0 {

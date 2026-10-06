@@ -9,6 +9,11 @@ package cli
 // another, so a document builder driven directly would stay green against a `--format` nothing
 // routes to it: the callee-pinned/call-site-unpinned shape AGENTS.md records this repo as
 // having shipped five times.
+//
+// Every fixture declares `host_management: "own"`. The unset key is `none` since the `assert`
+// retirement (OQ-CO14), and at both entry points a `none` apply refuses before any stage runs,
+// so it has no survey to emit (TestHostManagementUnsetIsNoneAndSaysSoOnlyAtTheAct pins that
+// refusal).
 
 import (
 	"bytes"
@@ -44,7 +49,7 @@ func hostApplyJSON(t *testing.T, args ...string) (hostApplyDoc, string, string) 
 // counts, the destinations with their tiers, and the tier-3 groups with their classes and
 // remedy keys.
 func TestHostApplyDryRunEmitsTheSurveyAsADocument(t *testing.T) {
-	shippedPacksFixture(t)
+	shippedPacksFixtureUnder(t, "own")
 
 	doc, raw, _ := hostApplyJSON(t, "--format", "json")
 
@@ -89,7 +94,7 @@ func TestHostApplyDryRunEmitsTheSurveyAsADocument(t *testing.T) {
 // already added by hand, which is the entry-level collision only a wholesale table render can
 // see.
 func TestHostApplyJSONCarriesEveryLossWithItsClassAndRemedy(t *testing.T) {
-	home := hostMCPFixture(t, mcpContributorPackJSON)
+	home := hostMCPFixtureUnder(t, mcpContributorPackJSON, "own")
 	writeFile(t, filepath.Join(home, ".claude.json"),
 		`{"mcpServers":{"tavily":{"type":"http","url":"https://x?k=SECRET"}}}`)
 
@@ -146,7 +151,7 @@ func boolsSet(bs ...bool) int {
 // flag is removed (HE-D1), and the whole-stream parse stays, because any stage added after the
 // report would break it the same way — and so would a pack refresh that wrote to stdout.
 func TestHostApplyJSONStdoutCarriesTheDocumentAndNothingElse(t *testing.T) {
-	shippedPacksFixture(t)
+	shippedPacksFixtureUnder(t, "own")
 	t.Setenv("SHELL", "/bin/bash")
 
 	var out, errw bytes.Buffer
@@ -165,7 +170,7 @@ func TestHostApplyJSONStdoutCarriesTheDocumentAndNothingElse(t *testing.T) {
 // run went. Without this the two forms are two models of the same apply, which is the drift
 // machine consumers rules the recording shape to avoid.
 func TestHostApplyJSONAndTextAreOneAnswer(t *testing.T) {
-	shippedPacksFixture(t)
+	shippedPacksFixtureUnder(t, "own")
 
 	doc, _, _ := hostApplyJSON(t, "--json")
 	rc, report := applyWith(t, false, nil)
@@ -193,7 +198,7 @@ func TestHostApplyJSONAndTextAreOneAnswer(t *testing.T) {
 // their reasons, because rationale is not data. The prose is read from internal/render rather
 // than retyped, so a reason that changes wording cannot quietly start passing.
 func TestHostApplyJSONNamesTheInapplicableKindsAndCarriesNoProse(t *testing.T) {
-	shippedPacksFixture(t)
+	shippedPacksFixtureUnder(t, "own")
 
 	doc, raw, _ := hostApplyJSON(t, "--format=json")
 
@@ -235,7 +240,7 @@ func TestHostApplyJSONNamesTheInapplicableKindsAndCarriesNoProse(t *testing.T) {
 // document half of the at-launch regression.
 func TestHostApplyJSONNamesTheAtLaunchKinds(t *testing.T) {
 	home := t.TempDir()
-	selectPacks(t, home, `"pi"`)
+	selectPacksWith(t, home, `"pi"`, `,"host_management":"own"`)
 	t.Setenv("HOME", home)
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
 
@@ -265,7 +270,7 @@ func TestHostApplyJSONNamesTheAtLaunchKinds(t *testing.T) {
 // stdout EMPTY, and — the claim the exit code alone cannot make — the home untouched, because
 // the refusal is above the render rather than after it.
 func TestHostApplyAssertRefusesTheDocumentAndWritesNothing(t *testing.T) {
-	home := shippedPacksFixture(t)
+	home := shippedPacksFixtureUnder(t, "own")
 	before := linkAwareHashes(t, home)
 
 	for _, args := range [][]string{
@@ -310,7 +315,7 @@ func sameHashes(a, b map[string]string) bool {
 // are one operation and differ only in how they are typed (OQ-7), so a flag that worked at one
 // of them would be a flag an agent has to guess about.
 func TestApplyAtHostEmitsTheDocumentAtBothSpellings(t *testing.T) {
-	shippedPacksFixture(t)
+	shippedPacksFixtureUnder(t, "own")
 
 	var out, errw bytes.Buffer
 	if rc := applyMain([]string{"--at", "host", "--format", "json"}, &out, &errw, false, nil); rc != 0 {
@@ -337,7 +342,7 @@ func TestApplyAtHostEmitsTheDocumentAtBothSpellings(t *testing.T) {
 // the guest notch is unbuilt and the jail notch's apply points at launch. Answering any of the
 // three with a human report is the exact failure the flag exists to prevent.
 func TestApplyRefusesTheDocumentWhereThereIsNoneToEmit(t *testing.T) {
-	shippedPacksFixture(t)
+	shippedPacksFixtureUnder(t, "own")
 
 	for _, args := range [][]string{
 		{"--at", "jail", "--format", "json"},
@@ -360,7 +365,7 @@ func TestApplyRefusesTheDocumentWhereThereIsNoneToEmit(t *testing.T) {
 // command: an unknown value exits 2 with nothing on stdout, rather than printing prose to
 // something that asked for data.
 func TestHostApplyRefusesAFormatItCannotEmit(t *testing.T) {
-	shippedPacksFixture(t)
+	shippedPacksFixtureUnder(t, "own")
 
 	var out, errw bytes.Buffer
 	if rc := hostApply([]string{"--format", "yaml"}, &out, &errw, false, nil); rc != 2 {
@@ -381,7 +386,7 @@ func TestHostApplyRefusesAFormatItCannotEmit(t *testing.T) {
 // document either.
 func TestHostApplyJSONWithNoPacksIsStillADocument(t *testing.T) {
 	home := t.TempDir()
-	selectPacks(t, home, ``)
+	selectPacksWith(t, home, ``, `,"host_management":"own"`)
 	t.Setenv("HOME", home)
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
 

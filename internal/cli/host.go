@@ -123,9 +123,9 @@ apply flags:
                   It REMOVES what yolo wrote; it does not restore what a key held
                   before yolo wrote it, because nothing snapshots that. It keeps an
                   empty default, such as pi's "providers": {}, which the agent's
-                  file needs, and names each one. Needs host_management "assert" —
-                  refused at "none" (nothing was written) and at "own" (the file is
-                  derived; delete it instead).
+                  file needs, and names each one. Runs under host_management "none",
+                  the default, so a home an earlier yolo wrote into can be made yours
+                  again; refused at "own" (the file is derived: set "none" first).
   --format json   Emit the dry run as data instead of a report: destinations, losses,
                   blockers, the counts and the outcome. --json is the same flag.
                   Refused with --assert (exit 2): that posture acts, and an acting
@@ -676,6 +676,14 @@ func hostLaunch(flags hostExecFlags, profile string, cmd []string, out, errw, ra
 		fmt.Fprintf(errw, "yolo host: %s\n", bareNote)
 	}
 	flags.profile = profile
+	// THE RETIRED `"assert"` REFUSES THE LAUNCH (OQ-CO14 face 1), before anything is fetched:
+	// the ruling refuses a config that still says it, and a jail launch already does through
+	// validation (config.validateHostManagement). This is the host notch's half, the posture
+	// the retired `use_profiles` takes here (hostProviderSectionRefusal): the value resolves to
+	// `none`, so without it a wrapped launch would carry on as though the file said "none".
+	if rc, refused := retiredHostManagementRefusal(errw, "yolo host"); refused {
+		return rc
+	}
 	// THE PACK REFRESH, first: the capability gate, the render gate's observe pass and the
 	// composition below all resolve the selected packs, and a never-fetched git pack must be
 	// fetched (and a branch-following one refreshed hourly) before any of them reads the store,
@@ -2079,14 +2087,21 @@ func (c *hostComposition) credentialGaps(getenv func(string) string) []string {
 
 // platformSwitchConflicts is PP-D1 for this launch's one agent, read from the real home, the
 // file the agent `yolo host` execs reads itself (packload.PlatformSwitchConflicts), with the
-// host's computed-leaf record saying which switch `yolo host apply` wrote there.
+// host's computed-leaf record saying which switch `yolo host apply` wrote there, and the user
+// config saying whether that apply renders here at all (host_management "own"): under "none" it
+// refuses, so a line sending the user to it would repeat at every launch.
 func (c *hostComposition) platformSwitchConflicts() []packload.PlatformSwitchConflict {
 	if c.scope == nil || c.agent == "" {
 		return nil
 	}
 	home := paths.Home()
-	return packload.PlatformSwitchConflicts(c.packs, c.scope.Selection(), c.resolved, c.providers,
+	conflicts := packload.PlatformSwitchConflicts(c.packs, c.scope.Selection(), c.resolved, c.providers,
 		home, c.agent, render.HostLeafWrote(home))
+	renders := config.HostManagementMode() == config.HostManagementOwn
+	for i := range conflicts {
+		conflicts[i].HostApplyRenders = renders
+	}
+	return conflicts
 }
 
 // regionGaps is the region pre-flight (packload.ProviderRegionGaps, OQ-BR6) for this launch,

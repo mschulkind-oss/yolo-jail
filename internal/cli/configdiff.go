@@ -139,8 +139,8 @@ func parseSurfaceIdentity(cmd, identity string, errw io.Writer) (agent, surface 
 // (ownedHostRender.capture) — not the jail notch's captureSurfaceAt, whose layer-less
 // composition at the autonomous posture erased edits the apply keeps. So it adds no writer the
 // render disagrees with; it folds early what the next apply folds, which is the visibility
-// `yolo config diff --at host` was missing. Under `none`
-// and `assert` there is NO store, so a capture has nothing to write into — and --force was no
+// `yolo config diff --at host` was missing. Under `none` (and the retired `assert`) there is
+// NO store, so a capture has nothing to write into — and --force was no
 // answer there: it ran, found no baseline, and reported every surface "never rendered here".
 // That case is refused before --force is read, naming the contract that keeps a store.
 //
@@ -164,12 +164,21 @@ func refuseHostSideWrite(t configTarget, cmd string, force bool, errw io.Writer)
 		return false
 	}
 	if cmd == "capture" && t.notch == render.KindHost {
-		fmt.Fprintf(errw, "yolo config capture: nothing to capture into — under "+
-			"`host_management: %q` yolo keeps no capture store for your real home, so an edit "+
-			"there stays in the file as you made it and there is nothing to fold. Set "+
-			"`\"host_management\": \"own\"` in %s to keep one; for a jail's edits, run "+
-			"`yolo config capture` inside the jail that owns the workspace.\n",
-			t.ownership.String(), prettyHomePath(t.store.Home, paths.UserConfigPath()))
+		// Which value the contract was read from, in the user's own terms: an unset key and the
+		// retired "assert" both resolve to `none` (OQ-CO14), and naming "none" for either would
+		// describe a file the user did not write.
+		state := fmt.Sprintf("`host_management: %q`", t.ownership.String())
+		if config.HostManagementRetired() != "" {
+			state = "the retired `host_management: \"assert\"`, read as \"none\","
+		} else if _, declared := config.HostManagementDeclared(); !declared {
+			state = "an unset `host_management` (\"none\")"
+		}
+		fmt.Fprintf(errw, "yolo config capture: nothing to capture into — under %s yolo "+
+			"keeps no capture store for your real home, so an edit there stays in the file as "+
+			"you made it and there is nothing to fold. Set `\"host_management\": \"own\"` in "+
+			"%s to keep one; for a jail's edits, run `yolo config capture` inside the jail that "+
+			"owns the workspace.\n",
+			state, prettyHomePath(t.store.Home, paths.UserConfigPath()))
 		return true
 	}
 	if force {

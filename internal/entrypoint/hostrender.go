@@ -10,12 +10,13 @@ package entrypoint
 //   - THE MECHANISM IS THE DECLARED CONTRACT'S, not this file's. `host_management` selects
 //     it (config-ownership-and-promotion.md §4.1) and render's census states it per contract;
 //     the loop below ASKS — ModeSet.Mechanism, per surface — rather than calling one writer
-//     unconditionally as it once did. Under `assert` that is PURE RMW: yolo regenerates only
-//     the keys it declares (managed + dynamic tables) and leaves every key the agent wrote,
-//     with no whole-file compose and so no capture overlay (OQ-4). Under `own` it is
-//     `stateful` — whole-file composition with the capture store §6.2 specifies — and under
-//     `none` nothing composes at all. The hardcoded call was unsafe precisely because it
-//     would have gone on doing rmw after the census said one of the other two.
+//     unconditionally as it once did. Under `own` it is `stateful` — whole-file composition
+//     with the capture store §6.2 specifies — except for a surface its pack declares `rmw`,
+//     which is PURE RMW: yolo regenerates only the keys it declares (managed + dynamic tables)
+//     and leaves every key the agent wrote, with no whole-file compose and so no capture
+//     overlay (OQ-4). Under `none` nothing composes at all. The retired `assert` (OQ-CO14) ran
+//     rmw for every surface; the hardcoded call was unsafe precisely because it would have
+//     gone on doing that after the census said otherwise.
 //     ⚠ "So no --revert" USED TO FOLLOW HERE, and it does not: that inference was the
 //     resolved OQ-1, REVERSED on 2026-09-11 (docs/design/config-ownership-and-promotion.md
 //     §10 step 3). A revert needs to know which keys are yolo's, not a capture overlay, and
@@ -155,11 +156,12 @@ type HostRenderResult struct {
 	// deserves to know they will not survive, in observe, before the write. Empty for every
 	// JSON surface (JSON has no comments) and for an uncommented TOML or YAML one.
 	//
-	// PER MECHANISM, and the two answers are not the same shape. Under `assert` the write is
-	// rmw, which REATTACHES comments (TOML) or keeps their nodes (YAML), so this names the few
-	// it could not place. Under `own` there is no reattachment at all — the file is composed
-	// through the shared codec, which has no comment channel — so every comment goes and this
-	// says so once, for the whole file.
+	// PER MECHANISM, and the two answers are not the same shape. An rmw write (a surface its
+	// pack declares `rmw`; every surface under the retired `assert`) REATTACHES comments (TOML)
+	// or keeps their nodes (YAML), so this names the few it could not place. A `stateful` write
+	// under `own` has no reattachment at all — the file is composed through the shared codec,
+	// which has no comment channel — so every comment goes and this says so once, for the
+	// whole file.
 	//
 	// ⚠ UNDER `own` IT IS THE ONLY DISCLOSURE THIS LOSS HAS, which is why the branch is
 	// load-bearing rather than a nicety. §11's criterion has been KEYS AND VALUES since
@@ -201,7 +203,7 @@ type HostRenderResult struct {
 	// Archived is where this render copied the PRE-EXISTING file before ADOPTING it — the
 	// one-time archive OQ-CO7 rules, written once per surface per home
 	// (§6.3.3, entrypoint/adoptionarchive.go). Empty for every render that adopted nothing:
-	// an `assert` home (rmw asserts keys and adopts no file), a surface with no file yet, a
+	// an rmw render (rmw asserts keys and adopts no file), a surface with no file yet, a
 	// steady-state owned render, and a second adoption of a surface already archived.
 	//
 	// ASSERT ONLY, and that is not an omission the way a missing Overwrites would be. The
@@ -515,13 +517,12 @@ func renderHostPlans(e *Env, p *packload.Pack, plans []surfacePlan, observe bool
 			continue
 		}
 		// WHICH MECHANISM RENDERS THIS SURFACE — asked of the census (render.ModeSet), not
-		// assumed. The answer is the DECLARED CONTRACT's: under `assert` the notch runs `rmw`
-		// alone and renders a surface declaring `stateful` or `computed` THROUGH it, under
-		// `own` it runs `stateful` and `rmw` and coerces nothing, under `none` it composes
-		// nothing at all. This entry used to say the first of those by calling
-		// renderSurfaceRMWSurface unconditionally, which agreed with the census and would have
-		// gone on agreeing after the census said one of the other two — the rot render/modes.go
-		// exists to end.
+		// assumed. The answer is the DECLARED CONTRACT's: under `own` it runs `stateful` and
+		// `rmw` and coerces only `computed` onto `stateful`, under `none` it composes nothing at
+		// all. This entry used to call renderSurfaceRMWSurface unconditionally, which agreed
+		// with the retired `assert` census (rmw alone, every surface through it) and would have
+		// gone on agreeing after the census said otherwise — the rot render/modes.go exists to
+		// end.
 		//
 		// IN BOTH POSTURES, and ahead of the mechanism-specific probes below, because observe's
 		// job is to report what an --assert would do: a mechanism this notch cannot run is a
@@ -549,8 +550,9 @@ func renderHostPlans(e *Env, p *packload.Pack, plans []surfacePlan, observe bool
 			continue
 		}
 		// OQ-AL1's REFUSAL, keyed on the mechanism the census just resolved rather than on the
-		// declaration: a `stateful` surface under `assert` renders through `rmw`, and it is
-		// rmw's capture that decides whether a list path is kept per entry. A `refused:` row
+		// declaration: a census may render a declaration through another mechanism (the
+		// retired `assert` rendered a `stateful` surface through `rmw`), and it is the
+		// mechanism's capture that decides whether a list path is kept per entry. A `refused:` row
 		// in both postures, so a dry run shows it before an --assert would reach the file.
 		if refusal := pl.listRefusal(s); refusal != "" {
 			out = append(out, HostRenderResult{Surface: id, Path: path, Pruned: pruned,
@@ -675,8 +677,8 @@ func renderHostPlans(e *Env, p *packload.Pack, plans []surfacePlan, observe bool
 		// replaces is the same always-warn case — named by the input of THEIRS it is computed
 		// from (hostLeafAttribution), since that is the one declaration that keeps their value.
 		// It was missing until 2026-10-04: a profile's first activation replaced pi's
-		// `defaultModel` and the report listed nothing (MEASURED, both contracts). Under `assert`
-		// every leaf the file holds differently is force-written; under `own` the stateful
+		// `defaultModel` and the report listed nothing (MEASURED, both contracts). Under the rmw
+		// arm every leaf the file holds differently is force-written; under `stateful` the
 		// re-measure below keeps only those the composition actually changes.
 		attribution := newHostLeafAttribution(e, s, script, sources.selectionFor(s),
 			agentSrc.tables, derived)
@@ -685,7 +687,7 @@ func renderHostPlans(e *Env, p *packload.Pack, plans []surfacePlan, observe bool
 				existingSurfaceObject(s, path), leaves, s.ManagedMap()), attribution)
 		}
 		// UNDER `own`, MEASURED AGAINST THE WRITE. The two lists above read each layer's
-		// declaration against the file, which is the write under `assert` (rmw asserts every
+		// declaration against the file, which is the write under the rmw arm (rmw asserts every
 		// managed and overlay key). The `stateful` fold is not: a captured edit outranks every
 		// config-overlay, so a declared key can differ from the file and still leave it exactly as
 		// it is. Reported as an overwrite, that was the inverse of what happened, on every apply
@@ -787,6 +789,15 @@ func renderHostPlans(e *Env, p *packload.Pack, plans []surfacePlan, observe bool
 		// so a key the user owns and a pack also declares would flip to the pack's value.
 		// Only the stateful writer reads inFull (it is the one that adopts), and archived is
 		// set by it alone: rmw asserts individual keys and adopts nothing.
+		// THE stateful ARM'S COMPUTED-LEAF RECORD reads the file as it was before the write and the
+		// record as it stood (hostStatefulLeafRecord): the rmw arm decides its record before the
+		// write, from the file, and the stateful one can only decide it after, from what landed.
+		var statefulLeafBefore, statefulLeafRecord map[string]any
+		if mechanism == manifest.ModeStateful {
+			data, _ := os.ReadFile(path)
+			statefulLeafBefore = agentcfg.DecodeSurfaceObject(s.Codec, data)
+			statefulLeafRecord = readHostLeafRecord(e, s.Agent, s.Name)
+		}
 		w, werr := writeSurfaceThrough(e, mechanism, s, layers, contribs)
 		archived := w.archived
 		if werr != nil {
@@ -803,7 +814,13 @@ func renderHostPlans(e *Env, p *packload.Pack, plans []surfacePlan, observe bool
 		if selectionTouched {
 			writeSelectionRecord(e, s.Agent, s.Name, selectionNext)
 		}
-		// The computed-leaf record, by the same rule: after the write, and only then.
+		// The computed-leaf record, by the same rule: after the write, and only then. The stateful
+		// arm decides its record here, from what the write landed.
+		if mechanism == manifest.ModeStateful {
+			data, _ := os.ReadFile(path)
+			leafNext, leafTouched = hostStatefulLeafRecord(hl.leaves, statefulLeafBefore,
+				agentcfg.DecodeSurfaceObject(s.Codec, data), statefulLeafRecord)
+		}
 		if leafTouched {
 			writeHostLeafRecord(e, s.Agent, s.Name, leafNext)
 		}
@@ -856,7 +873,7 @@ func hostMechanismRefusal(mechanism string, s manifest.Surface, path string) *rm
 //     as "skip capture", which in a jail self-heals: the next boot re-renders from layers. At a
 //     real home it means adoption takes NOTHING and the render replaces the user's file with
 //     the pure render — the copilot-OAuth-wipe shape (B1), one notch over. Refusing leaves the
-//     file exactly as it is, which is what `assert` already does for the same condition
+//     file exactly as it is, which is what the rmw arm already does for the same condition
 //     (decodeSurfaceObject's own refusal, reused here so the two notches give one answer).
 //
 // The carrier type is *rmwRefusedError because it is the surface-refusal carrier this package
@@ -866,8 +883,9 @@ func hostStatefulRefusal(s manifest.Surface, path string) *rmwRefusedError {
 	if s.Kind() != codec.KindObject {
 		return refuseRMW(s, "`host_management: own` composes the whole file, and a "+
 			"%s surface has no keys to adopt — the first owned render would replace %s "+
-			"outright rather than keeping what it holds (OQ-CO9). Set `host_management: "+
-			"assert` for this home, or leave this surface to the jail; the file is untouched",
+			"outright rather than keeping what it holds (OQ-CO9). Leave this surface to the "+
+			"jail, or set `host_management: none` to keep yolo out of this home's files; the "+
+			"file is untouched",
 			s.Codec, path)
 	}
 	if _, err := decodeSurfaceObject(s, path); err != nil {
@@ -1195,7 +1213,7 @@ func hostProvenanceExists(e *Env, s manifest.Surface) bool {
 // docs/design/config-ownership-and-promotion.md). The rule used to be "every object-valued
 // key the derive produces", and the sentinel probe makes that rule over-claim by
 // construction: fed a non-empty live table, claude/settings' derive always produced a
-// non-empty `env`, so every `assert` apply cleared the user's real env block and rewrote it
+// non-empty `env`, so every rmw apply cleared the user's real env block and rewrote it
 // from yolo's declared layers — which declare no env at all. `env` is a table yolo asserts ONE
 // leaf of; it was never yolo's to regenerate. The declaration is the same one the jail's
 // stateful adoption reads (deriveComputedLayer hands both), so the host and that adoption
@@ -1312,7 +1330,7 @@ func stripTableKeys(s manifest.Surface, tables []string) manifest.Surface {
 // e.Stderr and the host Env has none — by design, since `yolo host apply` reports through its
 // RESULT (so observe can show the same lines without a render having happened) rather than
 // through boot-notice side effects. Wiring Stderr here instead would produce the notice only
-// in assert, which is the posture where it is least useful: the point is to see the loss
+// in the writing posture, which is where it is least useful: the point is to see the loss
 // BEFORE writing. Two kinds, named separately because they are different mistakes to have
 // made:
 //

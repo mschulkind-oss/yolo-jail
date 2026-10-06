@@ -2,12 +2,15 @@ package entrypoint
 
 import (
 	"bytes"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/agentcfg/manifest"
+	"github.com/mschulkind-oss/yolo-jail/internal/packdecl"
+	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/render"
 )
 
@@ -27,7 +30,10 @@ func piSettingsHome(t *testing.T, content string) (string, string) {
 }
 
 // renderPiHost runs the SHIPPED pi pack at the host notch — what `yolo host apply` (observe)
-// and `--assert` (write) do — and returns the pi/settings result.
+// and `--assert` (write) do under `host_management: "own"`, the one writing contract — and
+// returns the pi/settings result. The shipped pi/settings declares no mode, so an owned host
+// renders it through `stateful`, and that is the arm these tests reach unless one asks for
+// another (renderPiHostDeclared).
 //
 // The shipped pack rather than a fixture surface, deliberately: guard 2 only lets the repair
 // fire when the pack's own `defaults` has moved OFF the rejected value, so running the real
@@ -35,11 +41,24 @@ func piSettingsHome(t *testing.T, content string) (string, string) {
 // tests red instead of leaving a silent no-op behind.
 func renderPiHost(t *testing.T, home string, observe bool) HostRenderResult {
 	t.Helper()
+	return renderPiHostDeclared(t, home, observe, "")
+}
+
+// renderPiHostDeclared is renderPiHost with the shipped pi/settings re-declared `mode` — every
+// other field, the `defaults` guard 2 reads included, stays the manifest's. "" keeps the
+// manifest's own declaration. It is how a test reaches the rmw arm, which an owned host runs
+// for a surface declaring `rmw` (render.HostOwnedModes) and which the shipped pi/settings,
+// declaring none, never reaches there.
+func renderPiHostDeclared(t *testing.T, home string, observe bool, mode string) HostRenderResult {
+	t.Helper()
 	pi, err := embeddedPack("pi")
 	if err != nil {
 		t.Fatalf("embedded pi: %v", err)
 	}
-	results, rerr := RenderHostPack(pi, home, render.OwnershipAssert, observe, nil, nil)
+	if mode != "" {
+		pi = withPiSettingsMode(t, pi, mode)
+	}
+	results, rerr := RenderHostPack(pi, home, render.OwnershipOwn, observe, nil, nil)
 	if rerr != nil {
 		t.Fatalf("RenderHostPack: %v", rerr)
 	}
@@ -52,49 +71,94 @@ func renderPiHost(t *testing.T, home string, observe bool) HostRenderResult {
 	return HostRenderResult{}
 }
 
-// TestHostRenderRepairsTheRejectedValue is CASE 1 at the host notch, which is where the value
-// is frozen HARDEST: an rmw render reads the file back as its `host` layer, so from the next
-// apply on the value yolo wrote as a default reads as the user's and no later default can
-// displace it.
-//
-// It pins the ORDER as well as the repair. The provenance assertion is what fails if the
-// repair moves below `present := obj.Keys()`: the record would read `host` — yolo's own output
-// laundered into "the user set this" — instead of `defaults`, where a fill-if-absent key
-// belongs.
-//
-// FAILS IF THE CALL SITE IN renderSurfaceRMWSurface IS DELETED.
-func TestHostRenderRepairsTheRejectedValue(t *testing.T) {
-	home, path := piSettingsHome(t, `{"theme":"system","defaultModel":"sonnet"}`)
-
-	got := renderPiHost(t, home, false)
-	if got.Action != "rendered" {
-		t.Fatalf("pi/settings action = %q, want rendered", got.Action)
-	}
-	after := decodeJSONFile(t, path)
-	if after["theme"] != "light/dark" {
-		t.Errorf("theme = %v, want light/dark (the pack's current default, filled by absence)",
-			after["theme"])
-	}
-	// The repair deletes ONE key. Everything else in the user's file is untouched — an rmw
-	// render that lost a neighbouring key while fixing one would be a far worse bug.
-	if after["defaultModel"] != "sonnet" {
-		t.Errorf("defaultModel = %v, want sonnet left alone", after["defaultModel"])
-	}
-	if len(got.Repaired) != 1 {
-		t.Fatalf("Repaired = %v, want one sentence", got.Repaired)
-	}
-	for _, want := range []string{"removed", "pi/settings", `theme = "system"`, `"light/dark"`} {
-		if !strings.Contains(got.Repaired[0], want) {
-			t.Errorf("Repaired[0] = %q, missing %q", got.Repaired[0], want)
+// withPiSettingsMode returns a copy of p whose pi/settings surface declares mode. p is not
+// modified; a pack with no pi/settings surface fails the test, since the caller's subject would
+// then be silently absent.
+func withPiSettingsMode(t *testing.T, p *packload.Pack, mode string) *packload.Pack {
+	t.Helper()
+	decl := *p.Decl
+	decl.Contributes = make([]packdecl.Contribution, len(p.Decl.Contributes))
+	found := false
+	for i, c := range p.Decl.Contributes {
+		if c.Kind == packdecl.KindConfig && len(c.Raw) > 0 {
+			var surfaces []map[string]any
+			if err := json.Unmarshal(c.Raw, &surfaces); err == nil {
+				for _, s := range surfaces {
+					if s["agent"] == "pi" && s["name"] == "settings" {
+						s["mode"] = mode
+						found = true
+					}
+				}
+				raw, err := json.Marshal(surfaces)
+				if err != nil {
+					t.Fatal(err)
+				}
+				c.Raw = raw
+			}
 		}
+		decl.Contributes[i] = c
 	}
-	prov, found := hostProvenance(t, home, "pi", "settings")
 	if !found {
-		t.Fatal("the host notch wrote no provenance record")
+		t.Fatalf("pack %s declares no pi/settings surface to re-declare", p.Name)
 	}
-	if prov["theme"] != "defaults" {
-		t.Errorf("provenance[theme] = %q, want defaults. `host` means the repair ran AFTER "+
-			"the pre-render snapshot, which re-freezes the key one value later", prov["theme"])
+	cp := *p
+	cp.Decl = &decl
+	return &cp
+}
+
+// TestHostRenderRepairsTheRejectedValue is CASE 1 at the host notch, through both arms an owned
+// host renders pi/settings with.
+//
+// `rmw` is where the value is frozen HARDEST: an rmw render reads the file back as its `host`
+// layer, so from the next apply on the value yolo wrote as a default reads as the user's and no
+// later default can displace it. That arm pins the ORDER as well as the repair. The provenance
+// assertion is what fails if the repair moves below `present := obj.Keys()`: the record would
+// read `host` — yolo's own output laundered into "the user set this" — instead of `defaults`,
+// where a fill-if-absent key belongs. ITS SUBTEST FAILS IF THE CALL SITE IN
+// renderSurfaceRMWSurface IS DELETED.
+//
+// `stateful` is the shipped declaration, so it is what `yolo host apply` actually does to a
+// pi/settings an earlier apply froze the value into: the first owned render adopts the file as
+// the user's captured edit, and the repair takes the value back out of that capture.
+func TestHostRenderRepairsTheRejectedValue(t *testing.T) {
+	for _, tc := range []struct{ name, mode string }{
+		{"rmw", manifest.ModeRMW},
+		{"stateful, the shipped declaration", ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			home, path := piSettingsHome(t, `{"theme":"system","defaultModel":"sonnet"}`)
+
+			got := renderPiHostDeclared(t, home, false, tc.mode)
+			if got.Action != "rendered" {
+				t.Fatalf("pi/settings action = %q, want rendered", got.Action)
+			}
+			after := decodeJSONFile(t, path)
+			if after["theme"] != "light/dark" {
+				t.Errorf("theme = %v, want light/dark (the pack's current default, filled by absence)",
+					after["theme"])
+			}
+			// The repair deletes ONE key. Everything else in the user's file is untouched — a
+			// render that lost a neighbouring key while fixing one would be a far worse bug.
+			if after["defaultModel"] != "sonnet" {
+				t.Errorf("defaultModel = %v, want sonnet left alone", after["defaultModel"])
+			}
+			if len(got.Repaired) != 1 {
+				t.Fatalf("Repaired = %v, want one sentence", got.Repaired)
+			}
+			for _, want := range []string{"removed", "pi/settings", `theme = "system"`, `"light/dark"`} {
+				if !strings.Contains(got.Repaired[0], want) {
+					t.Errorf("Repaired[0] = %q, missing %q", got.Repaired[0], want)
+				}
+			}
+			prov, found := hostProvenance(t, home, "pi", "settings")
+			if !found {
+				t.Fatal("the host notch wrote no provenance record")
+			}
+			if prov["theme"] != "defaults" {
+				t.Errorf("provenance[theme] = %q, want defaults. `host` means the repair ran AFTER "+
+					"the pre-render snapshot, which re-freezes the key one value later", prov["theme"])
+			}
+		})
 	}
 }
 
@@ -206,7 +270,7 @@ func TestHostChangePredicateCountsTheRepair(t *testing.T) {
 	} {
 		home, _ := piSettingsHome(t, tc.file)
 		e := &Env{Home: home, Vars: map[string]string{},
-			hostTarget: true, hostOwnership: render.OwnershipAssert}
+			hostTarget: true, hostOwnership: render.OwnershipOwn}
 		if got := hostSurfaceWouldChange(e, surface, filepath.Join(home, ".pi", "agent",
 			"settings.json"), nil, nil); got != tc.want {
 			t.Errorf("wouldChange(%s) = %v, want %v", tc.file, got, tc.want)

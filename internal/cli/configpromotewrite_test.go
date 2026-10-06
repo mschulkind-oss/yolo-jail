@@ -320,51 +320,40 @@ func TestPromoteRollbackRestoresAnExistingManifestVerbatim(t *testing.T) {
 	}
 }
 
-// `--to host` writes nothing in this step, and says so rather than falling back to `local`:
-// they are different files with different reach, and §5.1's warning is that promote must
-// not offer `host` as though it were the same kind of thing. The PLAN still runs, which is
-// how a user learns which of their surfaces even has a host layer.
-func TestPromoteToHostRefusesTheWriteAndKeepsThePlan(t *testing.T) {
-	w := newPromoteWorld(t, `["claude"]`)
-	w.capture("claude", "settings", `{"autoMemoryEnabled":true}`, `{}`)
-
-	out, _, rc := w.run("claude", "--plan", "--to", "host")
-	if rc != 0 {
-		t.Fatalf("the plan must still run: rc=%d", rc)
-	}
-	if !strings.Contains(out, "autoMemoryEnabled") {
-		t.Errorf("the --to host plan classified nothing:\n%s", out)
-	}
-
-	_, errw, rc := w.run("claude", "--to", "host", "--accept-promotion")
-	if rc == 0 {
-		t.Fatal("rc=0, want a refusal")
-	}
-	if !strings.Contains(errw, "not built") {
-		t.Errorf("the refusal does not say the write is missing:\n%s", errw)
-	}
-	if after := w.overlayFor("claude", "settings"); !strings.Contains(after, "autoMemoryEnabled") {
-		t.Errorf("the refused host promotion cleared the capture anyway:\n%s", after)
-	}
-}
-
-// The ownership contract decides `--to host` before any surface does, and the two refusals
-// are not interchangeable: at `none` yolo writes nothing into the real home, at `own` the
-// file is derived output and a key written into it is composed over.
-func TestPromoteToHostRefusesUnderTheOwnershipContract(t *testing.T) {
-	for mode, want := range map[string]string{"none": "yours entirely", "own": "DERIVED output"} {
-		t.Run(mode, func(t *testing.T) {
+// `--to host` is RETIRED with host_management "assert" (config-ownership-and-promotion.md §4.5
+// step 4, built with OQ-CO14): it wrote a key into the surface's own real-home file, which is
+// legal under neither value left, so the destination is dissolved and refused by name under
+// every contract — the plan included, since a plan for a destination that cannot exist is a
+// plan for nothing. The refusal names `--to local`, and nothing is cleared from the capture.
+//
+// It replaces four tests of the destination that no longer exists:
+// TestPromoteToHostRefusesTheWriteAndKeepsThePlan and
+// TestPromoteToHostRefusesUnderTheOwnershipContract (here), and
+// TestPromoteToHostRefusesASurfaceWithNoHostLayer and TestPromoteToHostLosesToEveryConfigOverlay
+// (configpromote_test.go), which pinned its plan's per-surface classification.
+func TestPromoteToHostIsRetiredByName(t *testing.T) {
+	for _, mode := range []string{"", "none", "own", "assert"} {
+		t.Run("host_management="+mode, func(t *testing.T) {
 			w := newPromoteWorld(t, `["claude"]`)
-			writeFile(t, filepath.Join(w.home, ".config", "yolo-jail", "config.jsonc"),
-				`{"packs":["claude"],"host_management":"`+mode+`"}`)
-			w.capture("claude", "settings", `{"autoMemoryEnabled":true}`, `{}`)
-
-			_, errw, rc := w.run("claude", "--plan", "--to", "host")
-			if rc == 0 {
-				t.Fatalf("host_management %q: rc=0, want a refusal", mode)
+			if mode != "" {
+				writeFile(t, filepath.Join(w.home, ".config", "yolo-jail", "config.jsonc"),
+					`{"packs":["claude"],"host_management":"`+mode+`"}`)
 			}
-			if !strings.Contains(errw, want) {
-				t.Errorf("host_management %q refusal %q does not say %q", mode, errw, want)
+			w.capture("claude", "settings", `{"autoMemoryEnabled":true}`, `{}`)
+			for _, argv := range [][]string{{"--plan", "--to", "host"},
+				{"--to", "host", "--accept-promotion"}} {
+				out, errw, rc := w.run(append([]string{"claude"}, argv...)...)
+				if rc != 1 {
+					t.Fatalf("%v: rc=%d, want 1\n%s%s", argv, rc, out, errw)
+				}
+				for _, want := range []string{"`--to host` is RETIRED", "`--to local`"} {
+					if !strings.Contains(errw, want) {
+						t.Errorf("%v: the refusal does not say %q:\n%s", argv, want, errw)
+					}
+				}
+			}
+			if after := w.overlayFor("claude", "settings"); !strings.Contains(after, "autoMemoryEnabled") {
+				t.Errorf("the refused host promotion cleared the capture anyway:\n%s", after)
 			}
 		})
 	}

@@ -45,19 +45,17 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/richtext"
 )
 
-// The destination names `--to` accepts. `pack:<name>` is the third, matched by prefix.
+// The destination names `--to` accepts. `pack:<name>` is the second, matched by prefix.
+// retiredPromoteDestHost is the spelling `--to host` had, kept only for its own refusal
+// (refuseRetiredPromoteHost).
 const (
-	promoteDestLocal      = "local"
-	promoteDestHost       = "host"
-	promoteDestPackPrefix = "pack:"
+	promoteDestLocal       = "local"
+	promoteDestPackPrefix  = "pack:"
+	retiredPromoteDestHost = "host"
 )
 
 // promoteDest is a resolved destination: which pack it is, and which file would be written.
 type promoteDest struct {
-	// host marks `--to host`: the keys themselves, into the surface's own real-home file.
-	// It has no pack and no single path — the destination is per surface — and it is the
-	// one destination whose WRITE this step does not build (refusePromoteHostWrite).
-	host bool
 	// pack is the pack NAME the keys would be declared in — the same name the fold order is
 	// keyed on, which is what lets the precedence check ask where this destination sits.
 	pack string
@@ -69,12 +67,9 @@ type promoteDest struct {
 	implicit bool
 }
 
-// label is how the destination is named in output: "local", "pack:<name>" or "host".
+// label is how the destination is named in output: "local" or "pack:<name>".
 func (d promoteDest) label() string {
-	switch {
-	case d.host:
-		return promoteDestHost
-	case d.pack == config.LocalPackName:
+	if d.pack == config.LocalPackName {
 		return promoteDestLocal
 	}
 	return promoteDestPackPrefix + d.pack
@@ -88,8 +83,8 @@ func (d promoteDest) label() string {
 // for something that cannot happen.
 func resolvePromoteDest(to string, errw io.Writer) (promoteDest, int) {
 	switch {
-	case to == promoteDestHost:
-		return promoteDest{host: true}, refuseHostPromoteContract(errw)
+	case to == retiredPromoteDestHost:
+		return promoteDest{}, refuseRetiredPromoteHost(errw)
 	case to == promoteDestLocal:
 		dir := paths.LocalPackDir()
 		d := promoteDest{pack: config.LocalPackName, dir: dir, path: filepath.Join(dir, "pack.json")}
@@ -109,60 +104,24 @@ func resolvePromoteDest(to string, errw io.Writer) (promoteDest, int) {
 			"`--to pack:<name>`.\n")
 		return promoteDest{}, 1
 	default:
-		fmt.Fprintf(errw, "yolo config promote: unknown destination %q (want %s, %s<name>, or %s)\n",
-			to, promoteDestLocal, promoteDestPackPrefix, promoteDestHost)
+		fmt.Fprintf(errw, "yolo config promote: unknown destination %q (want %s or %s<name>)\n",
+			to, promoteDestLocal, promoteDestPackPrefix)
 		return promoteDest{}, 2
 	}
 }
 
-// refuseHostPromoteContract is the `--to host` CONTRACT check, and it is the only part of
-// that destination decided without looking at a surface.
-//
-// Under `host_management: none` or `own` the destination is wrong in principle, and for
-// opposite reasons: at `none` yolo writes nothing into the real home at all, and at `own`
-// the file is DERIVED output, so writing a key into it is writing into a render the next
-// apply composes over — promote to the pack that derives it (§5.1).
-//
-// What is NOT decided here is the per-surface half: whether the surface even HAS a host
-// layer. That is a fact about one surface, so it is classified per surface
-// (promotionNoHostLayer) and appears in the plan beside every other reason a key stays put,
-// rather than aborting a run that may name several surfaces.
-func refuseHostPromoteContract(errw io.Writer) int {
-	switch config.HostManagementMode() {
-	case config.HostManagementNone:
-		fmt.Fprintf(errw, "yolo config promote: `--to host` writes into your real home, and "+
-			"`host_management` is \"none\" in %s — your config files are yours entirely, so "+
-			"yolo will not write one. Promote to a pack instead: `--to local`.\n",
-			paths.UserConfigPath())
-		return 1
-	case config.HostManagementOwn:
-		fmt.Fprintf(errw, "yolo config promote: `--to host` is refused under `host_management: "+
-			"\"own\"` in %s — that value declares the file DERIVED output, so a key written "+
-			"into it is a key written into a render and the next apply composes over it. "+
-			"Promote to a pack, which is what derives it: `--to local`.\n",
-			paths.UserConfigPath())
-		return 1
-	}
-	return 0
-}
-
-// refusePromoteHostWrite refuses the `--to host` WRITE, which this step does not build.
-//
-// It refuses at the WRITE rather than at resolution so the plan still runs: `--to host
-// --plan` is how a user finds out that, of the surfaces they have captures on, almost none
-// has a host layer to promote into — the §5.1 fact that makes `--to host` a narrow
-// convenience rather than a general destination.
-//
-// Not a quiet fallback to `local`: they are different files with different reach, and §5.1's
-// own warning is that promote's UI must not offer `host` as though it were the same kind of
-// thing.
-func refusePromoteHostWrite(errw io.Writer) int {
-	fmt.Fprintf(errw, "yolo config promote: `--to host` is not built — this step ships the pack "+
-		"destinations (`--to local`, `--to pack:<name>`). The plan above is accurate; only "+
-		"the write is missing.\n"+
-		"  `--to local` is the better answer for almost every key anyway: it reaches every "+
-		"jail AND the host, folds three slots above the `host` layer, and needs no surface "+
-		"to declare `readsHost` (docs/design/config-ownership-and-promotion.md §5.1).\n")
+// refuseRetiredPromoteHost refuses `--to host`, which was retired with `host_management:
+// "assert"` (config-ownership-and-promotion.md §4.5 step 4, built with OQ-CO14). It wrote a key
+// into the surface's own real-home file, which is legal under neither value left: at `none`
+// yolo writes nothing into the home, and at `own` the file is derived output the next apply
+// composes over. With no contract to exist in, the destination is dissolved rather than
+// refused per contract, and the spelling keeps a message of its own — the shape a retired
+// spelling takes in this CLI — naming `--to local`, which reaches every jail and the host.
+func refuseRetiredPromoteHost(errw io.Writer) int {
+	fmt.Fprintf(errw, "yolo config promote: `--to host` is RETIRED with host_management "+
+		"\"assert\": it wrote a key into your real home's own file, which neither value left "+
+		"allows — \"none\" writes nothing there and \"own\" composes that file from your "+
+		"packs. Use `--to local` (every jail and the host) or `--to pack:<name>`.\n")
 	return 1
 }
 
@@ -254,11 +213,6 @@ func refusePromoteManifestForm(d promoteDest, errw io.Writer) int {
 // here turns the next boot into a first migration, which ADOPTS the on-disk file — putting
 // the key back in the overlay for real, not merely redundantly.
 func applyPromotion(plan promotePlan, o promoteOptions, pr richtext.Printer, errw io.Writer) int {
-	if plan.Dest.host {
-		// Before the no-op check: someone who typed `--to host` is owed the fact that the
-		// write does not exist, whether or not this particular run found a movable key.
-		return refusePromoteHostWrite(errw)
-	}
 	moves := promotableCount(plan)
 	if moves == 0 {
 		// §5.6's no-ops: no captures, or every captured key redundant. Exit 0 — nothing is
@@ -329,12 +283,9 @@ func applyPromotion(plan promotePlan, o promoteOptions, pr richtext.Printer, err
 }
 
 // destManifestProblems is the destination pack's manifest problems when the fold's resolver
-// found some (manifestProblemsError, carried on plan.Unresolved), or nil — for `--to host`, for a
-// destination that resolved clean, and for the conventional local pack before it exists.
+// found some (manifestProblemsError, carried on plan.Unresolved), or nil — for a destination
+// that resolved clean, and for the conventional local pack before it exists.
 func (plan promotePlan) destManifestProblems() []string {
-	if plan.Dest.host {
-		return nil
-	}
 	for _, u := range plan.Unresolved {
 		if u.Name == plan.Dest.pack && len(u.ManifestProblems) > 0 {
 			return u.ManifestProblems

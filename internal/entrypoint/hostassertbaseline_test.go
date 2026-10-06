@@ -1,14 +1,20 @@
 package entrypoint
 
-// hostassertbaseline_test.go pins THE BYTES a host `--assert` apply leaves on a home it has
-// already applied to — the `assert` half of §11's "switching to `own` keeps every key and
-// value" criterion (docs/design/config-ownership-and-promotion.md §11), written against the
-// `assert` path FIRST so the baseline exists before anything renders `own`.
+// hostassertbaseline_test.go pins THE BYTES a pre-retirement `assert` apply left on a home —
+// the starting state of §11's "switching to `own` keeps every key and value" criterion
+// (docs/design/config-ownership-and-promotion.md §11), and, since the `assert` retirement
+// (OQ-CO14), the state every home yolo asserted into is LEFT IN: the unset key is `none` now,
+// and the ruling leaves such a file exactly as `assert` last rendered it.
+//
+// `assert` no longer renders, so the home is built by renderAsRetiredAssert
+// (retiredassert_test.go): the rmw arm `assert` coerced every surface through, which an owned
+// host still runs for a surface its pack declares `rmw`. This file is that helper's premise —
+// the bytes it leaves are the `assert` baseline below, stated in full.
 //
 // It stays a BYTE golden even though the criterion asks for keys and values (OQ-CO12), and
-// that is not an oversight: §11's LAST bullet is a separate, unrelaxed requirement — a host
-// apply under `assert` leaves an undeclared key byte-identical — and this file is what
-// measures it. The criterion that moved governs the SWITCH, not this notch.
+// that is not an oversight: §11's LAST bullet was a separate, unrelaxed requirement — a host
+// apply under `assert` leaves an undeclared key byte-identical — and this file is what measured
+// it. The criterion that moved governs the SWITCH.
 //
 // Why a byte golden rather than key assertions. §11's criterion is a claim about the FILE, and
 // the class it has to catch is the one §6.3.1 measured on the engine as it then stood: adoption
@@ -26,9 +32,9 @@ package entrypoint
 // changes anyway. Those are hostownedkeysandvalues_test.go's, and §11 lists them.
 //
 // The fixture surface declares NO mode, i.e. `stateful` (manifest.Surface.ResolvedMode's
-// default), because that is the coercion case: at the host notch the census runs `rmw` alone
-// and a surface declaring `stateful` is rendered through it (render.HostModes). A fixture that
-// declared `rmw` outright would pin the one path that needs no coercion.
+// default), because that was the coercion case: `assert` ran `rmw` alone and rendered a surface
+// declaring `stateful` through it. It is also the case `own` composes whole, so the same pack
+// reads both sides of the switch.
 //
 // Every test here renders into a t.TempDir() home. ⚠ Never point this at a real one: it is an
 // --assert, it writes the surface, and it leaves a provenance record under that home's state dir.
@@ -37,6 +43,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/agentcfg/manifest"
@@ -64,11 +71,21 @@ func adoptionBaselinePack(t *testing.T) *packload.Pack {
 	}}
 }
 
-// assertBaselineHome seeds a home with a pre-existing agent-written file and applies once, so
-// what comes back is a home ALREADY APPLYING UNDER `assert` — the state §11's criterion is
-// about. The seeded file carries both classes that have to survive: an undeclared top-level key
-// (`apiKeyHelper`) and an undeclared LEAF under a declared object (`permissions.ask`).
+// assertBaselineHome seeds a home with a pre-existing agent-written file and applies once as the
+// retired `assert` did, so what comes back is a home yolo ASSERTED INTO before the retirement —
+// the state §11's criterion is about, and OQ-CO14's face 2. The seeded file carries both classes
+// that have to survive: an undeclared top-level key (`apiKeyHelper`) and an undeclared LEAF under
+// a declared object (`permissions.ask`).
 func assertBaselineHome(t *testing.T) (home, path string) {
+	t.Helper()
+	home, path = seedAdoptionHome(t)
+	renderAsRetiredAssert(t, adoptionBaselinePack(t), home, nil, nil)
+	return home, path
+}
+
+// seedAdoptionHome is assertBaselineHome before its apply: a home holding only the agent's own
+// file, which yolo has never written.
+func seedAdoptionHome(t *testing.T) (home, path string) {
 	t.Helper()
 	home = t.TempDir()
 	path = filepath.Join(home, ".acme", "settings.json")
@@ -87,13 +104,11 @@ func assertBaselineHome(t *testing.T) (home, path string) {
 	if err := os.WriteFile(path, []byte(seed), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := RenderHostPack(adoptionBaselinePack(t), home, render.OwnershipAssert, false, nil, nil); err != nil {
-		t.Fatalf("first --assert apply: %v", err)
-	}
 	return home, path
 }
 
-// THE BASELINE. These exact bytes are what an `assert` home holds; §11's criterion is that
+// THE BASELINE. These exact bytes are what an `assert` home holds — and keeps, since the
+// retirement leaves it alone; §11's criterion is that
 // switching it to `own` keeps every key and value in them, and for THIS fixture — canonical on
 // every axis the criterion leaves free — that is the same as keeping the bytes. Written out in
 // full rather than computed, so
@@ -111,9 +126,11 @@ const assertBaselineBytes = `{
 }
 `
 
-// A host apply under `assert` leaves the file at the baseline: yolo's declared keys asserted,
-// and every key the agent owns — including a LEAF under a declared object — byte-identical.
-func TestHostAssertLeavesTheAdoptionBaseline(t *testing.T) {
+// A host apply as `assert` ran it left the file at the baseline: yolo's declared keys asserted,
+// and every key the agent owns — including a LEAF under a declared object — byte-identical. It is
+// what every test seeding through assertBaselineHome, or renderAsRetiredAssert, starts from.
+// It was TestHostAssertLeavesTheAdoptionBaseline, rendering under the contract itself.
+func TestTheRetiredAssertLeftTheAdoptionBaseline(t *testing.T) {
 	_, path := assertBaselineHome(t)
 
 	got, err := os.ReadFile(path)
@@ -123,65 +140,72 @@ func TestHostAssertLeavesTheAdoptionBaseline(t *testing.T) {
 	if string(got) != assertBaselineBytes {
 		t.Errorf("the `assert` baseline moved.\n got:\n%s\nwant:\n%s\n\nThis is the file "+
 			"docs/design/config-ownership-and-promotion.md §11 says an `own` render must "+
-			"reproduce — and since this fixture is already canonical, byte for byte. If the "+
-			"diff is `permissions.ask`, it is §6.3.1's measured "+
-			"defect — adoption drops every leaf under a declared object while `rmw` deep-merges "+
-			"it — and narrowing the drop to `rmw`'s granularity is the fix, not moving this "+
-			"golden.", got, assertBaselineBytes)
+			"reproduce — and since this fixture is already canonical, byte for byte. If it moved, "+
+			"either the rmw arm changed (it still runs for every `rmw`-declared surface an owned "+
+			"host renders) or renderAsRetiredAssert no longer renders what `assert` did — fix "+
+			"that, not this golden.", got, assertBaselineBytes)
 	}
 }
 
-// AND IT IS A FIXED POINT. A second apply over the first's output changes nothing — the
-// property the switch is measured against, one notch at a time: a mechanism that were not
-// idempotent could not preserve keys and values across a switch either.
-func TestHostAssertIsAFixedPoint(t *testing.T) {
+// AND THE RMW ARM IS A FIXED POINT. A second render over the first's output changes nothing.
+// It pinned this of `assert` (TestHostAssertIsAFixedPoint); the arm is the same one an owned
+// host runs for an `rmw`-declared surface, so the property is still production's, and a
+// mechanism that were not idempotent could not preserve keys and values across a switch either.
+func TestTheHostRMWArmIsAFixedPoint(t *testing.T) {
 	home, path := assertBaselineHome(t)
 	first, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatalf("read after first apply: %v", err)
 	}
-	if _, err := RenderHostPack(adoptionBaselinePack(t), home, render.OwnershipAssert, false, nil, nil); err != nil {
-		t.Fatalf("second --assert apply: %v", err)
-	}
+	renderAsRetiredAssert(t, adoptionBaselinePack(t), home, nil, nil)
 	second, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatalf("read after second apply: %v", err)
 	}
 	if string(second) != string(first) {
-		t.Errorf("a second --assert apply changed the file:\nfirst:\n%s\nsecond:\n%s",
+		t.Errorf("a second rmw apply changed the file:\nfirst:\n%s\nsecond:\n%s",
 			first, second)
 	}
 }
 
 // THE CENSUS'S ANSWER AND THE MECHANISM THAT RAN, measured in one test so they cannot drift
 // apart silently. RenderHostPack resolves the mechanism through render.ModeSet.Mechanism; this
-// asserts what the census answers for a `stateful`-declaring surface at the host notch, and
-// then that the render left rmw's own signature rather than stateful's.
+// asserts what the census answers for each declaration at each contract left, and that the
+// render left that mechanism's own signature.
 //
-// What makes it a pin rather than a restatement: if HostModes is ever changed to run
-// `stateful` — which is what `own` does (docs/design/config-ownership-and-promotion.md §10's
-// `own` step) — the first assertion fails, and its author has to come here and decide what the
-// host entry should then do. That is the forcing function the census exists to be; a dispatch
-// that hardcoded rmw would have gone on rendering rmw with the census saying otherwise and
-// nothing failing anywhere.
+// It pinned until the `assert` retirement (OQ-CO14) that the host ran rmw for a `stateful`
+// surface. Now: under `own` a `stateful` surface composes whole (a capture baseline is written)
+// and an `rmw` one is read-modify-written (no baseline, the user's leaf deep-merged, a record);
+// under `none` nothing is decided, so the entry refuses the surface and writes nothing. A
+// dispatch that hardcoded either mechanism, or ignored the contract, fails one of the three.
 func TestHostRenderRunsTheMechanismTheCensusNames(t *testing.T) {
-	home, path := assertBaselineHome(t)
-
-	// The fixture surface declares no mode, i.e. `stateful`.
-	mechanism, decided := render.Host(home, nil, render.OwnershipAssert).Modes().Mechanism(manifest.ModeStateful)
-	if !decided || mechanism != manifest.ModeRMW {
-		t.Fatalf("the host census names %q (decided=%v) for a `stateful` surface, not %q. The "+
-			"render below is still doing rmw — decide what RenderHostPack should run now, and "+
-			"add the arm for it at the mechanism switch in hostrender.go",
-			mechanism, decided, manifest.ModeRMW)
+	owned := render.Host("/home/x", nil, render.OwnershipOwn).Modes()
+	if m, ok := owned.Mechanism(manifest.ModeStateful); !ok || m != manifest.ModeStateful {
+		t.Fatalf("the owned census names %q (decided=%v) for a `stateful` surface, want "+
+			"stateful — decide what RenderHostPack should run now, and add the arm for it at the "+
+			"mechanism switch in hostrender.go", m, ok)
+	}
+	if m, ok := owned.Mechanism(manifest.ModeRMW); !ok || m != manifest.ModeRMW {
+		t.Fatalf("the owned census names %q (decided=%v) for an `rmw` surface, want rmw", m, ok)
 	}
 
-	// rmw's signature: the deep merge kept a leaf under a declared object. `applyRMWLayer`
-	// recurses so a sibling key the agent owns under the same parent survives. This is where
-	// the two mechanisms USED to visibly disagree — a stateful render adopted by dropping every
-	// top-level subtree the pure render holds, taking this leaf with it (§6.3.1) — and the
-	// assertion is kept now that adoption narrows instead, because it is what would notice the
-	// coarse rule coming back.
+	// STATEFUL under own: the capture baseline exists, which no rmw render writes.
+	home, _ := seedAdoptionHome(t)
+	if _, err := RenderHostPack(adoptionBaselinePack(t), home, render.OwnershipOwn, false, nil, nil); err != nil {
+		t.Fatalf("owned apply: %v", err)
+	}
+	if _, err := os.Stat(render.Host(home, nil, render.OwnershipOwn).LastRenderPath("acme", "settings")); err != nil {
+		t.Errorf("an owned `stateful` render left no capture baseline, so it did not compose: %v", err)
+	}
+
+	// RMW under own: the deep merge kept a leaf under a declared object — `applyRMWLayer`
+	// recurses so a sibling key the agent owns under the same parent survives — no baseline was
+	// written, and the provenance record that is this mechanism's recording duty here is.
+	home, path := seedAdoptionHome(t)
+	if _, err := RenderHostPack(asRetiredAssert(t, adoptionBaselinePack(t)), home, render.OwnershipOwn,
+		false, nil, nil); err != nil {
+		t.Fatalf("owned rmw apply: %v", err)
+	}
 	var got map[string]any
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -191,14 +215,28 @@ func TestHostRenderRunsTheMechanismTheCensusNames(t *testing.T) {
 		t.Fatalf("parse rendered surface: %v\n%s", err, data)
 	}
 	perms, _ := got["permissions"].(map[string]any)
-	if perms == nil || perms["ask"] == nil {
-		t.Errorf("permissions.ask is gone — that is the stateful adoption drop, not an rmw "+
-			"deep merge:\n%s", data)
+	if perms == nil || perms["ask"] == nil || perms["defaultMode"] != "default" {
+		t.Errorf("not an rmw deep merge — the user's permissions.ask and yolo's defaultMode "+
+			"must both be there:\n%s", data)
 	}
-	// And the provenance record IS there, which is this mechanism's recording duty at this
-	// notch (HostModes records rmw) — so the file above is a render that ran, not one that
-	// was quietly skipped into leaving the seed behind.
 	if _, found := hostProvenance(t, home, "acme", "settings"); !found {
-		t.Error("no provenance record: the census says rmw RECORDS at the host notch")
+		t.Error("no provenance record: an owned host RECORDS an rmw render")
+	}
+	if _, err := os.Stat(render.Host(home, nil, render.OwnershipOwn).LastRenderPath("acme", "settings")); err == nil {
+		t.Error("an rmw render wrote a capture baseline — that is stateful's signature")
+	}
+
+	// NONE: undecided, so the surface is refused and the file is untouched.
+	home, path = seedAdoptionHome(t)
+	before, _ := os.ReadFile(path)
+	results, err := RenderHostPack(adoptionBaselinePack(t), home, render.OwnershipNone, false, nil, nil)
+	if err != nil {
+		t.Fatalf("apply under none: %v", err)
+	}
+	if len(results) != 1 || !strings.HasPrefix(results[0].Action, "refused: ") {
+		t.Errorf("under none the surface was not refused: %+v", results)
+	}
+	if after, _ := os.ReadFile(path); string(after) != string(before) {
+		t.Errorf("a render under none wrote the file:\n%s", after)
 	}
 }

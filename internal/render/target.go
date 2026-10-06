@@ -66,7 +66,7 @@ type Target struct {
 	// ownership is the user's DECLARED host-management contract (config `host_management`,
 	// docs/design/config-ownership-and-promotion.md §4), set by render.Host and meaningless
 	// at every other notch. It is the second half of this target's notch: Modes() is a
-	// function of the PAIR, because "which mechanisms does the host run?" has three answers
+	// function of the PAIR, because "which mechanisms does the host run?" has two answers
 	// and the user picks one.
 	//
 	// A FIELD, not a Modes(ownership) parameter, and not a fifth Kind. The parameter is the
@@ -98,19 +98,20 @@ const (
 	// the census answers `undecided` for it: nothing runs, nothing records.
 	//
 	// It is NOT the "unset key" state. config.HostManagementMode resolves an ABSENT
-	// `host_management` to `assert` (OQ-CO2, the default that carries the whole migration)
-	// and an UNREADABLE user config to `none`, so it never hands this value out. Reaching it
-	// here means a caller built a host Target without resolving the contract at all, which
-	// is the one case that must write nothing.
+	// `host_management` to `none` (OQ-CO14) and an UNREADABLE user config to `none` too, so it
+	// never hands this value out. Reaching it here means a caller built a host Target without
+	// resolving the contract at all, which is the one case that must write nothing.
 	OwnershipUnstated HostOwnership = iota
-	// OwnershipNone: the user owns their files entirely. The host notch renders nothing.
+	// OwnershipNone: the user owns their files entirely. The host notch renders nothing. It is
+	// what an absent `host_management` resolves to since the `assert` retirement.
 	OwnershipNone
-	// OwnershipAssert: shared ownership — yolo owns the keys its packs declare and the user
-	// owns the rest. The host notch is pure read-modify-write. Today's shipped behavior, and
-	// what an absent `host_management` resolves to.
-	OwnershipAssert
 	// OwnershipOwn: yolo owns the file; it is derived output. The host notch composes
 	// whole-file and captures edits — the jail's own mechanism, at a real home.
+	//
+	// There is no third contract. `assert` — shared ownership, the host notch pure
+	// read-modify-write — was retired (config-ownership-and-promotion.md §4.5, OQ-CO14), and
+	// with it the coercion that forced every composing surface through `rmw`. A surface its
+	// PACK declares `rmw` still runs rmw here, under OwnershipOwn (HostOwnedModes).
 	OwnershipOwn
 )
 
@@ -124,7 +125,6 @@ const (
 var ownershipNames = map[HostOwnership]string{
 	OwnershipUnstated: "unstated",
 	OwnershipNone:     "none",
-	OwnershipAssert:   "assert",
 	OwnershipOwn:      "own",
 }
 
@@ -138,10 +138,10 @@ func (o HostOwnership) String() string {
 }
 
 // DeclarableOwnerships is the set a user can write in `host_management`, in the order the
-// three are explained — least yolo involvement first. OwnershipUnstated is absent because it
+// two are explained — least yolo involvement first. OwnershipUnstated is absent because it
 // is the ABSENCE of a declaration, not a value anyone may select.
 func DeclarableOwnerships() []HostOwnership {
-	return []HostOwnership{OwnershipNone, OwnershipAssert, OwnershipOwn}
+	return []HostOwnership{OwnershipNone, OwnershipOwn}
 }
 
 // HostOwnershipFor resolves a `host_management` VALUE to its primitive — the inbound half of
@@ -331,10 +331,11 @@ func inferKindFromShape(t Target) Kind {
 //
 // IT DOES NOT MOVE, and the two dirs are separate because they have two LIFETIMES
 // (config-ownership-and-promotion.md §6.2). Provenance is per-key attribution, written at
-// EVERY host apply including under `assert`, and it is what `yolo host apply --revert`
-// consumes; capture is `own`-only state a host-side `yolo config reset` is entitled to
-// delete. Folding the record into the capture store would make reverting an `assert` home
-// depend on a directory only `own` ever creates.
+// every writing host apply and left by every one the retired `assert` ran, and it is what
+// `yolo host apply --revert` consumes — under `none` too, on a home `assert` wrote into
+// (OQ-CO14); capture is `own`-only state a host-side `yolo config reset` is entitled to
+// delete. Folding the record into the capture store would make reverting such a home depend
+// on a directory only `own` ever creates.
 const hostProvenanceLeaf = "host-provenance"
 
 // hostCaptureLeaf is the state-dir leaf holding the host notch's CAPTURE sidecars under
@@ -345,7 +346,7 @@ const hostProvenanceLeaf = "host-provenance"
 // recorded selection (selection.json).
 //
 // Under the STATE dir rather than the workspace, which is what answers the privacy ruling
-// that refuses host capture under the other two values: the jail's overlay lives in
+// that refuses host capture under every other value: the jail's overlay lives in
 // <workspace>/.yolo/prism/, which crosses into a container and plausibly into git, and a
 // captured credential there is a leak. This store never crosses a boundary.
 const hostCaptureLeaf = "host-capture"
@@ -363,11 +364,11 @@ const hostCaptureLeaf = "host-capture"
 //   - host under `own`: <home>/.local/share/yolo-jail/host-capture/. Whole-file composition
 //     at a real home needs exactly the state a jail's does, so the host keeps it — beside
 //     the provenance record, never inside it (see hostCaptureLeaf and hostProvenanceLeaf).
-//   - everything else, host included: "". Under `assert` the host render is pure
-//     read-modify-write, which keeps no baseline and captures no edits; under `none` it
-//     writes nothing at all; guest has not stated where its sidecars live, and an unset
-//     target is not a notch. "" is the honest answer in each case, and a caller reads it as
-//     "this target keeps no capture state".
+//   - everything else, host included: "". Under `none` the host writes nothing at all (and
+//     the retired `assert`, pure read-modify-write, kept no baseline and captured no edits);
+//     guest has not stated where its sidecars live, and an unset target is not a notch. ""
+//     is the honest answer in each case, and a caller reads it as "this target keeps no
+//     capture state".
 //
 // Never relative. That is the load-bearing property: only the kinds that HAVE a root to join
 // — a workspace, or a home — join one, so the join always has an absolute base, and every
@@ -384,9 +385,9 @@ func (t Target) SidecarDir() string {
 	case KindJail, KindPreview:
 		return filepath.Join(t.Workspace, ".yolo", "prism")
 	case KindHost:
-		// The CONTRACT decides, not the notch: `assert` and `none` keep no capture state, so
-		// they get the same "" a guest does, and the answer changes the moment the user
-		// declares `own` rather than when some caller decides the host is special today.
+		// The CONTRACT decides, not the notch: `none` keeps no capture state, so it gets the
+		// same "" a guest does, and the answer changes the moment the user declares `own`
+		// rather than when some caller decides the host is special today.
 		if t.ownership != OwnershipOwn || t.Home == "" {
 			return ""
 		}
@@ -439,19 +440,11 @@ func (t Target) LastRenderPath(agent, name string) string {
 
 // SelectionPath is the selection record: the values yolo's SELECTION mechanism last wrote.
 //
-// In the capture store where there is one. A HOST under `assert` keeps none, and since OQ-HC3
-// (docs/reference/host-agent-environment.md) its apply writes the `profile` selection by the
-// jail's edge-triggered rule, which needs the record: so there it goes under ProvenanceDir,
-// beside the provenance and config-list insert records, which are there for the same reason
-// (rmw is that contract's only mechanism). `none` writes nothing and keeps no record.
+// In the capture store, so "" wherever there is none — `none` writes nothing and keeps no
+// record. Until the `assert` retirement (OQ-CO14) a host under `assert` kept this record under
+// ProvenanceDir instead, having no capture store; a home that still holds one there is left
+// alone, and its first `own` apply selects as a first apply does.
 func (t Target) SelectionPath(agent, name string) string {
-	if t.KindOf() == KindHost && t.ownership == OwnershipAssert {
-		dir := t.ProvenanceDir()
-		if dir == "" {
-			return ""
-		}
-		return filepath.Join(dir, agent+"-"+name+".selection.json")
-	}
 	return t.sidecarPath(agent, name, ".selection.json")
 }
 
@@ -495,8 +488,10 @@ func (t Target) ListCapturePath(agent, name string) string {
 
 // ListRecordPath is the `rmw` record of the list entries yolo INSERTED into an agent-owned
 // file (agentcfg.ListInsertRecord), or "" when the target has nowhere to keep one. Under
-// ProvenanceDir rather than SidecarDir, for the same reason the provenance record is: the
-// host under `assert` keeps no capture store at all, and rmw is its only mechanism.
+// ProvenanceDir rather than SidecarDir, for the same reason the provenance record is: it is
+// rmw's state, and rmw runs at an owned host for a surface its pack declares `rmw`, whose
+// lifetime is the record's rather than the capture store's (a home the retired `assert` wrote
+// into keeps its records here too, for `--revert`).
 func (t Target) ListRecordPath(agent, name string) string {
 	dir := t.ProvenanceDir()
 	if dir == "" {
@@ -617,7 +612,7 @@ const (
 // against whatever directory the process is sitting in.
 //
 // NOT gated on the host CONTRACT, which is the one place this deliberately parts from
-// SidecarDir. The capture sidecars are the MECHANISM'S OWN STATE, so `assert` — which captures
+// SidecarDir. The capture sidecars are the MECHANISM'S OWN STATE, so `none` — which captures
 // nothing — genuinely has none, and gating there is the honest answer. An archive is not the
 // mechanism's state; it is a copy of the USER'S file, and what decides whether one exists is
 // the ADOPTION EVENT at the call site. Gating here too would mean a second door to remember to

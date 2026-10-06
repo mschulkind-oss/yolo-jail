@@ -43,8 +43,7 @@ var censusModes = []string{
 // reason that was never true of any notch.
 type ModeSet struct {
 	// runs is the mechanisms this target executes. A declared mode absent from it is one the
-	// target reaches by some other route (under `host_management: assert` the host coerces
-	// every composing surface to rmw) or not at all.
+	// target reaches through a stated coercion (coerce, below) or not at all.
 	runs map[string]bool
 	// records is the subset of runs that persists a provenance record. Always a subset —
 	// asserted in modes_test.go, since "records a mode it never runs" is nonsense a map cannot
@@ -58,10 +57,9 @@ type ModeSet struct {
 	// that has stated an empty one. Read Undecided() for what a caller does with it.
 	undecided bool
 	// coerce is a STATED coercion: a declared mode this target does not run, mapped to the one
-	// it renders the surface through. Mechanism's derived fallback needs a SOLE composing
-	// mechanism, and a census running two has none, so a coercion there has to be written
-	// down rather than inferred. The one entry today is `own`'s `computed` → `stateful`
-	// (OQ-HC2).
+	// it renders the surface through. It is the only coercion there is since the derived
+	// sole-mechanism fallback went with `assert` (Mechanism). The one entry today is `own`'s
+	// `computed` → `stateful` (OQ-HC2).
 	coerce map[string]string
 }
 
@@ -70,9 +68,9 @@ func (m ModeSet) Runs(mode string) bool { return m.runs[mode] }
 
 // Records reports whether a render through this mechanism at this target persists a
 // provenance record. This is the question the rmw writer asks, and it is the whole reason
-// the census exists as data: `Records(ModeRMW)` is true at the host — under `assert` because
-// rmw is the only mode there, under `own` because the record is what `--revert` consumes for
-// every surface — and false in a jail, where `stateful` carries the recording duty.
+// the census exists as data: `Records(ModeRMW)` is true at an owned host — because the record
+// is what `--revert` consumes for every surface — and false in a jail, where `stateful`
+// carries the recording duty.
 func (m ModeSet) Records(mode string) bool { return m.records[mode] }
 
 // Undecided reports that this target's mode policy has not been stated — the Linux `guest`
@@ -131,33 +129,6 @@ func JailModes() ModeSet {
 	}
 }
 
-// HostAssertModes is the `host_management: assert` census — today's shipped host apply: rmw
-// is the ONLY composing mechanism, and it therefore records.
-//
-// The coercion is the resolved decision (OQ-4, host-render-target.md §6.3) SCOPED TO THIS
-// CONTRACT, which is the correction config-ownership-and-promotion.md §3 makes: under
-// `assert` the file is the user's and holds the agent's own keys, so every surface is
-// read-modify-written and nothing is regenerated from layers alone. Writing it down here is
-// what turns the provenance write from "the host is special" into "this contract's only mode
-// is its recording mode".
-func HostAssertModes() ModeSet {
-	return ModeSet{
-		runs:    map[string]bool{manifest.ModeRMW: true, manifest.ModeUnrendered: true},
-		records: map[string]bool{manifest.ModeRMW: true},
-		excluded: map[string]string{
-			manifest.ModeStateful: "under `host_management: assert` a host render is pure " +
-				"read-modify-write (OQ-4): the file is the user's and holds the agent's own keys, " +
-				"so a surface declaring `stateful` is rendered through `rmw` here — there is no " +
-				"regenerated artifact to keep a capture baseline against. Declare " +
-				"`host_management: own` to have yolo compose the whole file and capture edits",
-			manifest.ModeComputed: "`computed` overwrites from layers, which off-container would " +
-				"discard keys the user owns; a surface declaring it is rendered through `rmw` here",
-			manifest.ModeUnrendered: "yolo does not write the file at all, so there is no render " +
-				"to attribute a key to",
-		},
-	}
-}
-
 // HostOwnedModes is the `host_management: own` census: the user has declared these files
 // DERIVED OUTPUT, so `stateful` runs — whole-file composition with a capture overlay, the
 // jail's own mechanism at a real home — and it records, exactly as it does in a jail.
@@ -169,18 +140,17 @@ func HostAssertModes() ModeSet {
 //     the wrong operation and composition would put a secret on the capture path
 //     (manifest.ModeRMW's own doc). `own` is the USER's statement about who owns the file;
 //     it is not a licence to overrule the PACK's statement about what kind of file it is.
-//     So rmw runs here too, which also means this notch coerces nothing at all — Mechanism's
-//     fallback needs a SOLE composing mechanism, and this census has two.
+//     So rmw runs here too, and nothing is coerced onto it: the one coercion this census
+//     states is `computed` onto `stateful`, below.
 //   - It does NOT run `computed` AS `computed`. A computed surface keeps no capture overlay, so
 //     run as itself it has no adoption path: the first owned render would replace a real file
 //     wholesale with nothing to recover it from. It was REFUSED here on OQ-CO9's reasoning
 //     "until a real example argues otherwise", and the real examples arrived — pi/models,
 //     pi/codex-models, pi/mcp, copilot/mcp, copilot/lsp, agy/mcp, oh-omp/models — with the
-//     `assert` retirement about to leave them no host path at all. OQ-HC2 (2026-09-28,
+//     `assert` retirement then due to leave them no host path at all. OQ-HC2 (2026-09-28,
 //     docs/reference/host-agent-environment.md) rules it rendered THROUGH `stateful`: the capture
 //     overlay is exactly the adoption path it lacked, so the first owned render adopts the
-//     file rather than replacing it. Stated as `coerce`, because this census has two composing
-//     mechanisms and Mechanism's fallback coerces only onto a sole one. A KEYLESS computed
+//     file rather than replacing it. Stated as `coerce`, the only way a census says it. A KEYLESS computed
 //     surface is still refused, by hostStatefulRefusal's OQ-CO9 carve-out, not by this table.
 //   - It does NOT stop recording `rmw`. The provenance record is the only per-home mark yolo
 //     leaves at this notch and `yolo host apply --revert` consumes it for every surface, so
@@ -249,7 +219,7 @@ func undecidedReasons(reason string) map[string]string {
 
 // notch is the census KEY: the pair a target's mode policy is a function of. It was the Kind
 // alone until `own`, and the widening is the point rather than a complication — "which
-// mechanisms does the host run?" has three answers and the USER picks one
+// mechanisms does the host run?" has two answers and the USER picks one
 // (config-ownership-and-promotion.md §4.1), so a table keyed on Kind could only have held one
 // of them and inferred the rest. It stays ENUMERABLE, which is what keeps the drift test
 // (modes_test.go's allNotches) able to name every entry the table owes an answer for.
@@ -285,13 +255,13 @@ var modeCensus = map[notch]ModeSet{
 	// so it carries the jail's census — previewing a different mode set would print a file the
 	// jail never writes. Same reasoning ProfileFor uses for the preview's autonomy bit.
 	{kind: KindPreview}: JailModes(),
-	// THE HOST HAS THREE ENTRIES, one per declared contract, and that is the whole of `own` at
+	// THE HOST HAS TWO ENTRIES, one per declared contract, and that is the whole of `own` at
 	// this layer: the notch's mechanisms are a function of what the user declared, not of the
 	// fact that it is the host. A host target with NO contract resolved (OwnershipUnstated) is
-	// deliberately absent, so Modes() hands it the undecided set and it writes nothing.
-	{kind: KindHost, ownership: OwnershipNone}:   HostUnmanagedModes(),
-	{kind: KindHost, ownership: OwnershipAssert}: HostAssertModes(),
-	{kind: KindHost, ownership: OwnershipOwn}:    HostOwnedModes(),
+	// deliberately absent, so Modes() hands it the undecided set and it writes nothing. The
+	// third entry, `assert`'s pure-rmw census, went with that value (OQ-CO14).
+	{kind: KindHost, ownership: OwnershipNone}: HostUnmanagedModes(),
+	{kind: KindHost, ownership: OwnershipOwn}:  HostOwnedModes(),
 	// GUEST IS DELIBERATELY UNSTATED, and the entry is now the LINUX guest's alone. On macOS
 	// the guest notch is the macos-user backend (env-manager plan Phase 7.1, decision
 	// EMP-D2), which renders through the jail target — render.Jail, this table's KindJail row
@@ -335,27 +305,24 @@ func (t Target) Modes() ModeSet {
 // must read as "do not render this surface at this notch" rather than as a default.
 //
 // It is the question a render ENTRY asks, and it is not Runs(). Runs answers "do you execute
-// rmw?"; a dispatch holds a surface whose pack declared `stateful` and needs to know what to
-// run for it, and at the host those have different answers: the notch runs rmw alone and
-// renders a `stateful` surface THROUGH it (HostModes' exclusion says exactly that, in prose).
-// Until this existed the host entry answered it by calling renderSurfaceRMWSurface
-// unconditionally — correct, and correct for a reason written down in a file that code never
-// read, so HostModes could have been changed to say something else with every host render
-// still doing rmw. That is the rot the type comment above says this census exists to end.
+// rmw?"; a dispatch holds a surface whose pack declared `computed` and needs to know what to
+// run for it, and at an owned host those have different answers: the notch does not run
+// `computed` and renders the surface THROUGH `stateful` (HostOwnedModes' stated coercion). An
+// entry that answered it in code instead of asking here would keep doing so whatever the
+// census came to say, which is the rot the type comment above says this census exists to end.
 //
-// THE COERCION RULE, DERIVED RATHER THAN DECLARED. A target that does not run the declared
-// mode renders the surface through its SOLE composing mechanism: the one mode in `runs` that
-// writes a file. Exactly one is what makes a coercion expressible at all — "every surface is
-// read-modify-written" is a sentence a notch can only say while it has one way to write — so
-// a notch running several (a jail; a host that one day renders `stateful` too) coerces
-// nothing, because every declared mode it runs is already its own answer and the fallback is
-// unreachable there. A notch running none, or several while running none of the declaration,
-// has no answer this table can supply, and says so.
+// ONLY A STATED COERCION. Until the `assert` retirement (OQ-CO14) there was a second, DERIVED
+// rule: a target that did not run the declared mode rendered the surface through its SOLE
+// composing mechanism. `assert`'s census was the only one with exactly one way to write, so
+// that rule was the whole of its "every surface is read-modify-written" coercion, and with the
+// census gone it could fire for no notch: a jail and an owned host each run two composing
+// mechanisms, and `none` runs none. It went with the value, so a declaration this target
+// neither runs nor states a coercion for is undecided, whatever else the target runs.
 //
 // `unrendered` is a mechanism like any other here: a target that runs it answers with it, and
-// honoring it means writing nothing. It is deliberately NOT a candidate for the coercion
-// fallback — silently answering "write nothing" for a surface a pack asked to have rendered
-// is the one wrong answer that would look like success.
+// honoring it means writing nothing. No census may coerce onto it — silently answering "write
+// nothing" for a surface a pack asked to have rendered is the one wrong answer that would look
+// like success.
 func (m ModeSet) Mechanism(declared string) (string, bool) {
 	// Stated rather than left to fall out of the empty maps below, so an undecided notch's
 	// answer stays "nobody has said" even if UndecidedModes is one day given a runs entry.
@@ -365,22 +332,10 @@ func (m ModeSet) Mechanism(declared string) (string, bool) {
 	if m.Runs(declared) {
 		return declared, true
 	}
-	// A STATED coercion outranks the derived fallback below: it is the census saying which of
-	// its several mechanisms a declaration it does not run goes through.
-	if to, ok := m.coerce[declared]; ok && m.Runs(to) {
+	// A STATED coercion: the census saying which of its several mechanisms a declaration it
+	// does not run goes through.
+	if to, ok := m.coerce[declared]; ok && to != manifest.ModeUnrendered && m.Runs(to) {
 		return to, true
 	}
-	var sole string
-	for _, mode := range censusModes {
-		if mode == manifest.ModeUnrendered || !m.Runs(mode) {
-			continue
-		}
-		if sole != "" {
-			// Several ways to write and the declaration names none of them: the census has
-			// stated no coercion, and picking one here would invent the notch's policy.
-			return "", false
-		}
-		sole = mode
-	}
-	return sole, sole != ""
+	return "", false
 }

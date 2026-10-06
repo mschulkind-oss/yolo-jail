@@ -74,7 +74,7 @@ func TestHostApplyStatesTheMCPRemedyFromOnePlace(t *testing.T) {
 	// The abort path: an --assert into a home whose ~/.claude.json already holds an entry a
 	// pack is about to regenerate prompts, and a NO stops it. Reached only on a FIRST apply,
 	// so it needs its own unsettled home.
-	fresh := hostMCPFixture(t, mcpContributorPackJSON)
+	fresh := hostMCPFixtureUnder(t, mcpContributorPackJSON, "own")
 	writeFile(t, filepath.Join(fresh, ".claude.json"),
 		`{"mcpServers":{"tavily":{"type":"http","url":"https://x?k=SECRET"}}}`)
 	var out, errw bytes.Buffer
@@ -238,7 +238,7 @@ func twoPacksOneMissingBinFixture(t *testing.T) string {
 			`{"kind":"requires","bin":"sharedbin","install_hints":{"apt":"shared-pkg"}}]}`)
 		sources = append(sources, `"file://`+dir+`"`)
 	}
-	selectPacks(t, home, strings.Join(sources, ","))
+	selectPacksWith(t, home, strings.Join(sources, ","), `,"host_management":"own"`)
 	t.Setenv("HOME", home)
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
 	return home

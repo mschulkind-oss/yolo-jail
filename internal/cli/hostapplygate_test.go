@@ -23,15 +23,22 @@ import (
 // gateFixture is a throwaway home with the opt-in ON, the shipped claude pack selected, and
 // the environment neutralized: no TTY, no approval variable, not in a jail.
 //
+// IT DECLARES `host_management: "own"`, the one contract that renders. The unset key is `none`
+// since the `assert` retirement (OQ-CO14), and under `none` the gate is a no-op before it reads
+// anything (TestHostApplyGateIsANoOpUnderHostManagementNone), so a fixture leaving the key unset
+// would have every test below pass against a gate that checks nothing. `own` derives the opt-in
+// ON when it is unset (config.hostWrappersValue), so keyOn=false spells it `false` rather than
+// leaving it out.
+//
 // YOLO_VERSION IS CLEARED DELIBERATELY. The suite itself runs inside a yolo jail, where it is
 // set — so without this every gate test would exercise the in-jail no-op and assert nothing
 // about the gate at all. TestHostApplyGateIsANoOpInAJail is the one test that puts it back.
 func gateFixture(t *testing.T, keyOn bool) string {
 	t.Helper()
 	home := t.TempDir()
-	cfg := `{"packs":["claude"],"host_apply_on_launch":true}`
+	cfg := `{"packs":["claude"],"host_management":"own","host_apply_on_launch":true}`
 	if !keyOn {
-		cfg = `{"packs":["claude"]}`
+		cfg = `{"packs":["claude"],"host_management":"own","host_apply_on_launch":false}`
 	}
 	writeFile(t, filepath.Join(home, ".config", "yolo-jail", "config.jsonc"), cfg)
 	t.Setenv("HOME", home)
@@ -74,8 +81,10 @@ func driftTheHome(t *testing.T, home string) string {
 	return settings
 }
 
-// TestHostApplyGateIsSilentWithoutTheOptIn is the DEFAULT, and §11's fourth done-condition: no
-// launch and no command mentions any of this.
+// TestHostApplyGateIsSilentWithoutTheOptIn is the opt-in turned OFF, and §11's fourth
+// done-condition: no launch and no command mentions any of this. It is written `false` under
+// `own`, which would otherwise derive it on; a user who declared nothing at all is silent for an
+// earlier reason, `none` (TestHostApplyGateIsANoOpUnderHostManagementNone).
 //
 // The home is left deliberately unapplied, so there is maximal drift for the gate to find. It
 // must still say nothing: the key is what makes the mechanism exist.
@@ -168,7 +177,7 @@ func TestHostApplyGateAutoAppliesWithNoTerminal(t *testing.T) {
 // on a first-ever apply into an unmanaged home with pre-existing undeclared MCP servers,
 // confirmHostLosses prompts interactively.
 func TestHostApplyGateFirstApplyWithEntryLossesPromptsOnTTY(t *testing.T) {
-	home := hostMCPFixture(t, mcpContributorPackJSON)
+	home := hostMCPFixtureUnder(t, mcpContributorPackJSON, "own")
 	t.Setenv("YOLO_VERSION", "")
 	cfgPath := filepath.Join(home, ".config", "yolo-jail", "config.jsonc")
 	cfgData, err := os.ReadFile(cfgPath)
@@ -213,7 +222,7 @@ func TestHostApplyGateFirstApplyWithEntryLossesPromptsOnTTY(t *testing.T) {
 // TestHostApplyGateFirstApplyWithEntryLossesRefusesWithoutTerminal asserts that a first apply
 // with entry losses fails closed when no terminal is attached to prevent data loss.
 func TestHostApplyGateFirstApplyWithEntryLossesRefusesWithoutTerminal(t *testing.T) {
-	home := hostMCPFixture(t, mcpContributorPackJSON)
+	home := hostMCPFixtureUnder(t, mcpContributorPackJSON, "own")
 	t.Setenv("YOLO_VERSION", "")
 	cfgPath := filepath.Join(home, ".config", "yolo-jail", "config.jsonc")
 	cfgData, err := os.ReadFile(cfgPath)
@@ -257,7 +266,7 @@ const retiredAcceptVariable = "YOLO_ACCEPT_CONFIG_CHANGES"
 func TestHostApplyGateRetiredApprovalVariableGrantsNothing(t *testing.T) {
 	for _, value := range []string{"1", "0", "anything"} {
 		t.Run("value="+value, func(t *testing.T) {
-			home := hostMCPFixture(t, mcpContributorPackJSON)
+			home := hostMCPFixtureUnder(t, mcpContributorPackJSON, "own")
 			t.Setenv("YOLO_VERSION", "")
 			cfgPath := filepath.Join(home, ".config", "yolo-jail", "config.jsonc")
 			cfgData, err := os.ReadFile(cfgPath)
@@ -396,8 +405,9 @@ func TestHostApplyGateExecsWhenTheApplyItselfCannotAnswer(t *testing.T) {
 		writeFile(t, filepath.Join(dir, "pack.json"), body)
 		entries = append(entries, `{"source":"file://`+dir+`","name":"`+name+`"}`)
 	}
+	// `own`, or the gate is the `none` no-op and never runs the observe pass this is about.
 	writeFile(t, filepath.Join(home, ".config", "yolo-jail", "config.jsonc"),
-		`{"packs":[`+strings.Join(entries, ",")+`],"host_apply_on_launch":true}`)
+		`{"packs":[`+strings.Join(entries, ",")+`],"host_management":"own","host_apply_on_launch":true}`)
 	t.Setenv("HOME", home)
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
 	t.Setenv("YOLO_VERSION", "")
@@ -426,7 +436,7 @@ func TestHostApplyGateExecsWhenTheApplyItselfCannotAnswer(t *testing.T) {
 // variable set, no stdin, a first apply that would destroy something — and the apply must
 // still fail closed.
 func TestRetiredAcceptVariableDoesNotApproveAnApply(t *testing.T) {
-	home := hostMCPFixture(t, mcpContributorPackJSON)
+	home := hostMCPFixtureUnder(t, mcpContributorPackJSON, "own")
 	t.Setenv(retiredAcceptVariable, "1")
 	path := filepath.Join(home, ".claude.json")
 	original := `{"mcpServers":{"tavily":{"type":"http","url":"https://x?k=SECRET"}}}`

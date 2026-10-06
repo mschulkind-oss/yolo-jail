@@ -566,9 +566,10 @@ func TestHostEnvRefusesABridgedProfile(t *testing.T) {
 }
 
 // `yolo host apply` writes no bridged address and says where a bridged profile selection
-// takes effect (OQ-HS3).
+// takes effect (OQ-HS3). Every apply test here declares `host_management: "own"`: the unset key
+// is `none` since OQ-CO14, under which the apply refuses before it renders or says anything.
 func TestHostApplyWritesNoBridgedAddressAndSaysWhy(t *testing.T) {
-	home := hostComputedHome(t, `{"packs": ["claude"], "profile": {"claude": "codex"}}`)
+	home := hostComputedHome(t, `{"packs": ["claude"], "host_management": "own", "profile": {"claude": "codex"}}`)
 	var out, errw bytes.Buffer
 	if rc := hostMain([]string{"apply", "--assert"}, &out, &errw, false, strings.NewReader("y\n")); rc != 0 {
 		t.Fatalf("yolo host apply --assert rc=%d\n%s%s", rc, out.String(), errw.String())
@@ -597,7 +598,8 @@ func TestHostApplyWritesNoBridgedAddressAndSaysWhy(t *testing.T) {
 // apply starts no service; pi there keeps its own client, as it does at `yolo host --`, where its
 // file-carried via is cleared too (HS-D31).
 func TestHostApplyWritesNoViaAddressForAViaProfile(t *testing.T) {
-	home := hostComputedHome(t, `{"packs": ["pi", "bedrock", "wire-bridge"], "profile": {"pi": "bedrock-bridge"}, `+
+	home := hostComputedHome(t, `{"packs": ["pi", "bedrock", "wire-bridge"], "host_management": "own", `+
+		`"profile": {"pi": "bedrock-bridge"}, `+
 		`"providers": {"bedrock": {"region": "eu-west-1"}}}`)
 	origStart := startLaunchService
 	startLaunchService = func(*launchservice.Plan, map[string]string) (*launchservice.Running, error) {
@@ -645,7 +647,8 @@ func TestHostApplySaysWhereAViaOrCarrierTakesEffect(t *testing.T) {
 		{"bedrock", `its carrier "wire-bridge"`},
 	} {
 		t.Run(tc.profile, func(t *testing.T) {
-			hostComputedHome(t, `{"packs": ["copilot", "bedrock", "wire-bridge"], "profile": {"copilot": "`+tc.profile+`"}, `+
+			hostComputedHome(t, `{"packs": ["copilot", "bedrock", "wire-bridge"], "host_management": "own", `+
+				`"profile": {"copilot": "`+tc.profile+`"}, `+
 				`"providers": {"bedrock": {"region": "eu-west-1"}}}`)
 			origStart := startLaunchService
 			startLaunchService = func(*launchservice.Plan, map[string]string) (*launchservice.Running, error) {

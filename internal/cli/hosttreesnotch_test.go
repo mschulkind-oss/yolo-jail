@@ -28,7 +28,7 @@ func treePosture(posture string) string {
 func TestHostApplyInstallsAGuardedOnlyTree(t *testing.T) {
 	fx := newTreeFixture(t, `"f.txt"`)
 	fx.listTreeForAgentWith(t, treePosture("guarded"))
-	fx.writeHostConfig(t, "")
+	fx.writeHostConfig(t, treeHostOwn)
 	stubBins(t, "tool") // the dep probe's: the agent pack's program is on the host
 	if f := fx.tree(t); f.Owner != "agentpack" || f.ListedInJail || !f.ListedAtHost {
 		t.Fatalf("the fixture's tree: owner %q, jail %v, host %v", f.Owner, f.ListedInJail, f.ListedAtHost)
@@ -48,7 +48,7 @@ func TestHostApplyInstallsAGuardedOnlyTree(t *testing.T) {
 func TestHostApplyBuildsAndLinksNoTreeListedForJailsAlone(t *testing.T) {
 	fx := newTreeFixture(t, `"f.txt"`)
 	fx.listTreeForAgentWith(t, treePosture("autonomous"))
-	fx.writeHostConfig(t, "")
+	fx.writeHostConfig(t, treeHostOwn)
 	stubBins(t, "tool") // the dep probe's: the agent pack's program is on the host
 	var out, errw bytes.Buffer
 	hostApply([]string{"--assert"}, &out, &errw, false, strings.NewReader(""))
@@ -66,7 +66,7 @@ func TestHostApplyBuildsAndLinksNoTreeListedForJailsAlone(t *testing.T) {
 func TestHostApplyRetiresTheLinkOfATreeThatNoLongerReachesTheHost(t *testing.T) {
 	fx := newTreeFixture(t, `"f.txt"`)
 	fx.listTreeForAgentWith(t, treeConfigList)
-	fx.writeHostConfig(t, "")
+	fx.writeHostConfig(t, treeHostOwn)
 	stubBins(t, "tool") // the dep probe's: the agent pack's program is on the host
 	var out, errw bytes.Buffer
 	hostApply([]string{"--assert"}, &out, &errw, false, strings.NewReader(""))

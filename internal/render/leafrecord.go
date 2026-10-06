@@ -21,7 +21,10 @@ func HostLeafWrote(home string) func(surface, pointer string, value any) bool {
 		if !ok {
 			return false
 		}
-		path := Host(home, nil, OwnershipAssert).LeafRecordPath(agent, name)
+		// OwnershipUnstated, deliberately: the record's path does not depend on the contract
+		// (LeafRecordPath sits under ProvenanceDir at the host whatever it is), and a record a
+		// retired `assert` apply left is read exactly like one the rmw arm writes under `own`.
+		path := Host(home, nil, OwnershipUnstated).LeafRecordPath(agent, name)
 		if path == "" {
 			return false
 		}

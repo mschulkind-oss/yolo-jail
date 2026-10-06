@@ -165,6 +165,39 @@ func hostRMWLeafRecord(e *Env, s manifest.Surface, path string, leaves map[strin
 	return clears, next, true
 }
 
+// hostStatefulLeafRecord decides the computed-leaf record for one `stateful` write at an OWNED
+// host, from the file before the write (before), the record before it (record) and the file
+// the write left (after): each leaf the derive asserted that the write landed is recorded, unless
+// the file already held that value before and no record claimed it — a value the user wrote
+// before yolo asserted it stays the user's (PP-D1), as in the rmw arm. A leaf the derive no longer
+// asserts drops out: the composition regenerated the file without it, so there is nothing of
+// yolo's left at that pointer to name. touched is false when there is nothing to record and
+// nothing recorded, so the caller writes no record at all.
+//
+// It is what makes the record mean the same thing under both writers. The rmw arm always kept
+// it; the stateful arm wrote none until 2026-10-05 (CO-D15), so a Bedrock switch `own` wrote into
+// claude's settings — composed whole — was reported at another provider's launch as the user's
+// own, and `--revert` had no per-value record to withdraw it by.
+func hostStatefulLeafRecord(leaves, before, after, record map[string]any) (next map[string]any, touched bool) {
+	asserted := flattenLeaves(leaves)
+	if len(asserted) == 0 && len(record) == 0 {
+		return nil, false
+	}
+	next = map[string]any{}
+	for p, v := range asserted {
+		cur, landed := leafAt(after, p)
+		if !landed || !sameJSON(cur, v) {
+			continue // outranked (a captured edit of the user's) or not written: not yolo's value
+		}
+		pre, inBefore := leafAt(before, p)
+		wrote, recorded := record[p]
+		if !inBefore || !sameJSON(pre, v) || (recorded && sameJSON(wrote, v)) {
+			next[p] = v
+		}
+	}
+	return next, true
+}
+
 // deleteLeaf removes the value obj holds at pointer, leaving its parent in place. A pointer obj
 // does not reach removes nothing.
 func deleteLeaf(obj *jsonx.OrderedMap, pointer string) {

@@ -7,11 +7,14 @@ import (
 	"testing"
 )
 
-// TestHostManagementUnsetIsAssert is OQ-CO2's whole shape: the unset state is `assert`,
-// silently, so upgrade day changes nothing for anyone and nobody is interrupted to be told
-// that. The `declared` half is the one thing that separates unset from a written "assert" —
-// `yolo apply --sealed` is the only place the difference bites (§4.3 item 3).
-func TestHostManagementUnsetIsAssert(t *testing.T) {
+// TestHostManagementUnsetIsNone is OQ-CO14 face 2's whole shape at the reader: since the
+// `assert` retirement the unset state is `none`, silently — no prompt and no notice at upgrade
+// (the ruling, 2026-10-05), so a home yolo asserted into is left exactly as `assert` last
+// rendered it. The `declared` half is the one thing that separates unset from a written
+// "none" — `yolo apply --sealed` is the only place the difference bites (§4.3 item 3).
+//
+// It was TestHostManagementUnsetIsAssert, pinning the OQ-CO2 default the retirement moved.
+func TestHostManagementUnsetIsNone(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	t.Setenv("YOLO_VERSION", "")
@@ -22,12 +25,15 @@ func TestHostManagementUnsetIsAssert(t *testing.T) {
 
 	// No file at all. An absent CONFIG is not an unreadable one: nothing is broken, the key
 	// simply has no value, so the default carries it.
-	if mode, declared := HostManagementDeclared(); mode != HostManagementAssert || declared {
-		t.Errorf("with no user config = (%q, %v), want (\"assert\", false)", mode, declared)
+	if mode, declared := HostManagementDeclared(); mode != HostManagementNone || declared {
+		t.Errorf("with no user config = (%q, %v), want (\"none\", false)", mode, declared)
 	}
 	write(t, userCfgPath, `{"packs": []}`)
-	if mode, declared := HostManagementDeclared(); mode != HostManagementAssert || declared {
-		t.Errorf("with the key absent = (%q, %v), want (\"assert\", false)", mode, declared)
+	if mode, declared := HostManagementDeclared(); mode != HostManagementNone || declared {
+		t.Errorf("with the key absent = (%q, %v), want (\"none\", false)", mode, declared)
+	}
+	if got := HostManagementRetired(); got != "" {
+		t.Errorf("an unset key reads as the retired value: %q", got)
 	}
 	for _, want := range KnownHostManagements {
 		write(t, userCfgPath, `{"host_management": "`+string(want)+`"}`)
@@ -38,17 +44,104 @@ func TestHostManagementUnsetIsAssert(t *testing.T) {
 		if HostManagementMode() != want {
 			t.Errorf("HostManagementMode() = %q, want %q", HostManagementMode(), want)
 		}
+		if got := HostManagementRetired(); got != "" {
+			t.Errorf("%q reads as the retired value: %q", want, got)
+		}
+	}
+	if len(KnownHostManagements) != 2 {
+		t.Errorf("KnownHostManagements = %v, want exactly none and own (OQ-CO1 reversed)",
+			KnownHostManagements)
+	}
+}
+
+// TestHostManagementAssertIsRefusedByName is OQ-CO14 face 1: a config that still says "assert"
+// is refused with a message of its own, naming both values left — "none", with --revert for the
+// keys yolo wrote, and "own", with `yolo config promote` for the keys the user keeps by hand —
+// rather than the generic "is not one of" error a typo gets. It reads as `none` (writes
+// nothing) and as UNdeclared, like every unusable value, and HostManagementRetired hands the
+// same text to the host verbs that would have written.
+func TestHostManagementAssertIsRefusedByName(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("YOLO_VERSION", "")
+	ws := t.TempDir()
+	t.Chdir(ws)
+	userCfgPath := filepath.Join(home, ".config", "yolo-jail", "config.jsonc")
+	if err := os.MkdirAll(filepath.Dir(userCfgPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	write(t, userCfgPath, `{"host_management": "assert"}`)
+
+	if mode, declared := HostManagementDeclared(); mode != HostManagementNone || declared {
+		t.Errorf(`with "assert" written = (%q, %v), want ("none", false): the retired value `+
+			`must write nothing`, mode, declared)
+	}
+	retired := HostManagementRetired()
+	errs, _ := ValidateConfig(decode(t, `{"host_management": "assert"}`), ws, nil)
+	joined := strings.Join(errs, "\n")
+	for name, msg := range map[string]string{"HostManagementRetired": retired, "ValidateConfig": joined} {
+		for _, want := range []string{`"assert" is RETIRED`, `"none"`, `"own"`,
+			"yolo config promote", "yolo host apply --revert", userCfgPath} {
+			if !strings.Contains(msg, want) {
+				t.Errorf("%s's message does not say %q:\n%s", name, want, msg)
+			}
+		}
+		if strings.Contains(msg, "is not one of") {
+			t.Errorf("%s gave the retired value the generic unknown-value error:\n%s", name, msg)
+		}
+	}
+	if !strings.HasPrefix(joined, "config.host_management: ") {
+		t.Errorf("ValidateConfig's error does not name the key: %q", joined)
+	}
+	// A typo keeps the generic error, so the targeted one is about the retired spelling alone.
+	errs, _ = ValidateConfig(decode(t, `{"host_management": "asert"}`), ws, nil)
+	if j := strings.Join(errs, "\n"); strings.Contains(j, "RETIRED") || !strings.Contains(j, "is not one of") {
+		t.Errorf("a misspelling got the retirement message: %q", j)
+	}
+}
+
+// TestTheRetirementMessageNamesOwnBeforePromote pins the ORDER the retirement message names:
+// `yolo config promote` lifts a CAPTURED key into the local pack, and only an owned apply
+// captures one — under the retired value, which reads as "none", there is no capture store at the
+// host and promote answers "Nothing to promote". So "own" is named before promote, and the clause
+// naming promote never says to run it "first".
+func TestTheRetirementMessageNamesOwnBeforePromote(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	msg := retiredHostManagementProblem()
+	p := strings.Index(msg, "yolo config promote")
+	if p < 0 {
+		t.Fatalf("the message does not name `yolo config promote`:\n%s", msg)
+	}
+	// The clause naming promote: from the boundary before it (an opening parenthesis, a
+	// semicolon or a sentence end) to the one after (a closing parenthesis or a sentence end).
+	start := strings.LastIndexAny(msg[:p], "(;")
+	if s := strings.LastIndex(msg[:p], ". "); s > start {
+		start = s
+	}
+	end := len(msg)
+	if e := strings.Index(msg[p:], ")"); e >= 0 {
+		end = p + e
+	}
+	if e := strings.Index(msg[p:], ". "); e >= 0 && p+e < end {
+		end = p + e
+	}
+	if !strings.Contains(msg[:start+1], `"own"`) {
+		t.Errorf("\"own\" is not named before `yolo config promote`:\n%s", msg)
+	}
+	if clause := msg[start+1 : end]; strings.Contains(clause, "first") {
+		t.Errorf("the message still says to promote first, which finds nothing before an owned "+
+			"apply: %q", clause)
 	}
 }
 
 // TestHostManagementUnreadableConfigIsNone is the FAIL DIRECTION, and it is the half a shared
 // helper cannot express: UserScopeConfigOrEmpty returns an empty map for BOTH "no file" and
-// "unreadable file", and §4.2 gives those two opposite answers. The test above pins the first
-// (assert); this pins the second (none). Both have to hold at once, or the reader is built on
-// the helper that cannot tell them apart.
+// "unreadable file". Since the `assert` retirement the two give the same mode (none), so this
+// pins the direction as the KEY's choice rather than the default's coincidence: a broken file
+// has granted no write claim whatever the unset state is.
 //
-// ⚠ It is NOT enough that a broken config yields "not assert": the direction is per key.
-// `agent_updates` reads user scope through the same boundary and deliberately fails OPEN.
+// ⚠ The direction is per key. `agent_updates` reads user scope through the same boundary and
+// deliberately fails OPEN.
 func TestHostManagementUnreadableConfigIsNone(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
@@ -64,8 +157,7 @@ func TestHostManagementUnreadableConfigIsNone(t *testing.T) {
 			"declaration nobody could read has granted no write claim", mode, declared)
 	}
 	// A present but unusable VALUE is the same thing one level in: the declaration could not
-	// be read. Never silently `assert`, which would make a typo indistinguishable from a
-	// working declaration.
+	// be read, so it is never a value yolo writes under.
 	for _, bad := range []string{`{"host_management": "asert"}`, `{"host_management": true}`,
 		`{"host_management": {"claude": "own"}}`} {
 		write(t, userCfgPath, bad)
@@ -95,13 +187,13 @@ func TestHostManagementIgnoresWorkspaceScope(t *testing.T) {
 	}
 	write(t, userCfgPath, `{"packs": []}`)
 
-	if mode, declared := HostManagementDeclared(); mode != HostManagementAssert || declared {
+	if mode, declared := HostManagementDeclared(); mode != HostManagementNone || declared {
 		t.Fatalf("a WORKSPACE config set host_management to %q (declared=%v) — a cloned "+
 			"repository can now declare itself the owner of its user's real home", mode, declared)
 	}
 	write(t, userCfgPath, `{"host_management": "none"}`)
-	if HostManagementMode() != HostManagementNone {
-		t.Error("a workspace \"own\" overrode the user's explicit \"none\"")
+	if mode, declared := HostManagementDeclared(); mode != HostManagementNone || !declared {
+		t.Errorf("a workspace \"own\" overrode the user's explicit \"none\": (%q, %v)", mode, declared)
 	}
 }
 
@@ -134,8 +226,8 @@ func TestValidateHostManagementUserScopeQuiet(t *testing.T) {
 	}
 }
 
-// TestValidateHostManagementTypeCheck pins the three values as the accepted set — OQ-CO1's
-// ruling that there are THREE, not a boolean.
+// TestValidateHostManagementTypeCheck pins the two values as the accepted set — none and own,
+// since OQ-CO1's three were reversed — and every non-string shape as an error naming both.
 func TestValidateHostManagementTypeCheck(t *testing.T) {
 	ws := t.TempDir()
 	t.Setenv("YOLO_VERSION", "")

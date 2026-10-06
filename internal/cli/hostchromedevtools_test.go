@@ -26,9 +26,11 @@ import (
 const hostChromeWrapperRel = ".local/share/yolo-chrome-devtools/chrome-devtools-mcp-wrapper"
 
 // chromeHostConfig selects three agents and the chrome-devtools pack, with only the latter's
-// program in the floor (the agents are stubs on PATH), plus extra keys.
+// program in the floor (the agents are stubs on PATH), plus extra keys. It declares
+// `host_management: "own"`: an unset key is "none" since the `assert` retirement (OQ-CO14), and
+// nothing renders into the home under it.
 func chromeHostConfig(extra string) string {
-	return `{"packs":["claude","copilot","codex","chrome-devtools"],` +
+	return `{"packs":["claude","copilot","codex","chrome-devtools"],"host_management":"own",` +
 		`"host_floor":{"*":false,"chrome-devtools":true}` + extra + `}`
 }
 
@@ -130,7 +132,7 @@ func TestANullInYourMCPServersRemovesThePacksServerAtTheHost(t *testing.T) {
 // The preset's omission line names the pack as its next step, and says the pack's server is what
 // is written when it is selected.
 func TestThePresetLineNamesTheChromeDevtoolsPack(t *testing.T) {
-	hostComputedHome(t, `{"packs":["claude"],"host_floor":false,"mcp_presets":["chrome-devtools"]}`)
+	hostComputedHome(t, `{"packs":["claude"],"host_management":"own","host_floor":false,"mcp_presets":["chrome-devtools"]}`)
 	var out, errw bytes.Buffer
 	hostMain([]string{"apply"}, &out, &errw, false, strings.NewReader(""))
 	if report := out.String() + errw.String(); !strings.Contains(report,
@@ -139,7 +141,7 @@ func TestThePresetLineNamesTheChromeDevtoolsPack(t *testing.T) {
 		t.Errorf("the preset line does not name the pack:\n%s", report)
 	}
 
-	hostComputedHome(t, `{"packs":["claude","chrome-devtools"],"host_floor":false,"mcp_presets":["chrome-devtools"]}`)
+	hostComputedHome(t, `{"packs":["claude","chrome-devtools"],"host_management":"own","host_floor":false,"mcp_presets":["chrome-devtools"]}`)
 	out.Reset()
 	errw.Reset()
 	hostMain([]string{"apply"}, &out, &errw, false, strings.NewReader(""))
@@ -275,7 +277,7 @@ func fetchedMCPPackSource(t *testing.T) string {
 // hostMCPPacks: composing every pack's entry, or dropping its omission lines, fails here.
 func TestYoloHostApplyLeavesAFetchedPacksMCPServerOutOfEveryAgentsFile(t *testing.T) {
 	home := hostComputedHome(t, `{"packs":["claude","copilot","codex",`+fetchedMCPPackSource(t)+`],`+
-		`"host_floor":false,"mcp_servers":{"mine":{"command":"/usr/local/bin/mine"}}}`)
+		`"host_management":"own","host_floor":false,"mcp_servers":{"mine":{"command":"/usr/local/bin/mine"}}}`)
 	installGitPack(t)
 	report := hostApplyAssert(t)
 	claude, _ := readJSONAt(t, home, ".claude.json")["mcpServers"].(map[string]any)

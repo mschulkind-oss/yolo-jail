@@ -13,6 +13,15 @@ package cli
 // the direction of that mistake that costs something is removing a key the user typed. The
 // record says `host` for such a key, and nothing may look past that.
 //
+// THE SURFACE DECLARES `rmw`, and every config declares `host_management: "own"`. The prune is
+// the rmw arm's: it reads the provenance record that writer keeps to tell yolo's keys in the
+// user's own file from the user's. It used to be pinned on the shipped claude/settings, when the
+// retired `assert` read-modify-wrote every host surface (OQ-CO14). That surface declares no
+// mode, so under `own` it composes whole through `stateful`, where a dropped pack's key simply
+// stops being composed and there is nothing to confirm; and under the unset key (`none`) the
+// host composes nothing at all. So the owner here is a fixture pack whose one surface declares
+// the arm — keyOwnerPackJSON.
+//
 // Every test uses a t.TempDir() home with XDG_CONFIG_HOME inside it. The real $HOME is never
 // read or written.
 
@@ -24,42 +33,84 @@ import (
 	"testing"
 )
 
-// overlayDropPackJSON is the reproduction from the spec: a pack contributing one
-// config-overlay key to a surface the SHIPPED claude pack owns, plus a `files` tree the key
-// points at. Both halves matter — the shared prompt has to cover them together.
-const overlayDropPackJSON = `{"name":"dropme","description":"d","contributes":[
-  {"kind":"files","from":"bin","into":".claude/bin"},
-  {"kind":"config-overlay","surface":"claude/settings",
-   "config":{"managed":{"fileSuggestion":{"type":"command","command":"~/.claude/bin/pick.sh"}}}}]}`
+// keyOwnerPackJSON OWNS the surface every overlay in this file lands in: one config surface
+// declaring `"mode":"rmw"`, with a managed key of its own whose survival shows the prune did not
+// undo the render. See the file comment for why it is a fixture rather than claude/settings.
+const keyOwnerPackJSON = `{"name":"keyowner","description":"d","contributes":[
+  {"kind":"config","config":[{"agent":"keyowner","name":"settings","codec":"json",
+    "path":"~/.keyowner/settings.json","mode":"rmw",
+    "managed":{"permissions":{"defaultMode":"default"}}}]}]}`
 
-// overlayDropFixture writes the pack tree and a user config selecting `claude` plus the
-// contributor, and returns the home. Selecting claude is not decoration: the overlay targets
-// claude/settings, so without it the overlay correctly refuses as having no owner.
-func overlayDropFixture(t *testing.T, packJSON string) string {
+// overlayDropPackJSON is the reproduction from the spec: a pack contributing one
+// config-overlay key to a surface another pack owns, plus a `files` tree the key points at.
+// Both halves matter — the shared prompt has to cover them together.
+const overlayDropPackJSON = `{"name":"dropme","description":"d","contributes":[
+  {"kind":"files","from":"bin","into":".keyowner/bin"},
+  {"kind":"config-overlay","surface":"keyowner/settings",
+   "config":{"managed":{"fileSuggestion":{"type":"command","command":"~/.keyowner/bin/pick.sh"}}}}]}`
+
+// keyOwnerEntry writes the owner pack and returns its `packs` entry, for a config that selects
+// it beside a test's own packs. Selecting it is not decoration: every overlay here targets
+// keyowner/settings, so without it the overlay correctly refuses as having no owner.
+func keyOwnerEntry(t *testing.T) string {
 	t.Helper()
-	home := t.TempDir()
+	dir := filepath.Join(t.TempDir(), "keyowner")
+	writeFile(t, filepath.Join(dir, "pack.json"), keyOwnerPackJSON)
+	return `{"source":"file://` + dir + `","name":"keyowner"}`
+}
+
+// selectOwned is selectPacks under `host_management: "own"`, the one contract that renders.
+func selectOwned(t *testing.T, home, list string) {
+	t.Helper()
+	selectPacksWith(t, home, list, `,"host_management":"own"`)
+}
+
+// overlayDropFixture writes the pack tree and a user config selecting the owner plus the
+// contributor, and returns the home and the owner's `packs` entry (the config the drop leaves).
+func overlayDropFixture(t *testing.T, packJSON string) (home, owner string) {
+	t.Helper()
+	home = t.TempDir()
+	owner = keyOwnerEntry(t)
 	packDir := filepath.Join(t.TempDir(), "dropme")
 	writeFile(t, filepath.Join(packDir, "pack.json"), packJSON)
 	writeFile(t, filepath.Join(packDir, "briefing", "prose.md"), "Dropme prose.\n")
 	writeFile(t, filepath.Join(packDir, "bin", "pick.sh"), "#!/bin/sh\necho pick\n")
 
-	selectPacks(t, home, `"claude",{"source":"file://`+packDir+`","name":"dropme"}`)
+	selectOwned(t, home, owner+`,{"source":"file://`+packDir+`","name":"dropme"}`)
 	t.Setenv("HOME", home)
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
-	return home
+	return home, owner
 }
 
-// hostSettingsPath is the file the overlay lands in — claude/settings' host destination.
+// hostSettingsPath is claude/settings' host destination.
 func hostSettingsPath(home string) string {
 	return filepath.Join(home, ".claude", "settings.json")
 }
 
-// settingsKeys decodes the rendered settings file into a key → value map, so a test asserts
-// about KEYS rather than substrings (a substring check would pass on a key that survived inside
-// a comment or another value).
+// ownerSettingsPath is the file every overlay in this file lands in — keyowner/settings' host
+// destination.
+func ownerSettingsPath(home string) string {
+	return filepath.Join(home, ".keyowner", "settings.json")
+}
+
+// settingsKeys decodes the rendered claude/settings file into a key → value map, so a test
+// asserts about KEYS rather than substrings (a substring check would pass on a key that
+// survived inside a comment or another value).
 func settingsKeys(t *testing.T, home string) map[string]any {
 	t.Helper()
-	data, err := os.ReadFile(hostSettingsPath(home))
+	return jsonKeysAt(t, hostSettingsPath(home))
+}
+
+// ownerKeys is settingsKeys for keyowner/settings.
+func ownerKeys(t *testing.T, home string) map[string]any {
+	t.Helper()
+	return jsonKeysAt(t, ownerSettingsPath(home))
+}
+
+// jsonKeysAt decodes the JSON object at path into a key → value map.
+func jsonKeysAt(t *testing.T, path string) map[string]any {
+	t.Helper()
+	data, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatalf("reading the rendered settings: %v", err)
 	}
@@ -98,23 +149,22 @@ func hostProvenanceRecord(t *testing.T, home, agent, name string) map[string]str
 const sentinelSettings = `{"mySentinel":"do-not-touch"}`
 
 // applyThenDropOverlay applies with the contributor selected (so the key lands and is recorded),
-// then rewrites the config without it — the lifecycle the whole feature is about. Returns the
-// value the key had while the pack was active, for a before/after comparison.
-func applyThenDropOverlay(t *testing.T, home string) {
+// then rewrites the config to the owner alone — the lifecycle the whole feature is about.
+func applyThenDropOverlay(t *testing.T, home, owner string) {
 	t.Helper()
 	if rc, report := applyWith(t, true, nil); rc != 0 {
 		t.Fatalf("first apply rc=%d\n%s", rc, report)
 	}
-	if _, present := settingsKeys(t, home)["fileSuggestion"]; !present {
+	if _, present := ownerKeys(t, home)["fileSuggestion"]; !present {
 		t.Fatalf("the overlay key never landed, so there is nothing to retire:\n%s",
-			mustReadFile(t, hostSettingsPath(home)))
+			mustReadFile(t, ownerSettingsPath(home)))
 	}
-	if got := hostProvenanceRecord(t, home, "claude", "settings")["fileSuggestion"]; got !=
+	if got := hostProvenanceRecord(t, home, "keyowner", "settings")["fileSuggestion"]; got !=
 		"config-overlay:dropme" {
 		t.Fatalf("the key must be attributed to the contributing pack before the drop, got %q "+
 			"— the whole prune reads that attribution", got)
 	}
-	selectPacks(t, home, `"claude"`)
+	selectOwned(t, home, owner)
 }
 
 func mustReadFile(t *testing.T, path string) string {
@@ -129,33 +179,33 @@ func mustReadFile(t *testing.T, path string) string {
 // THE GOAL. The dropped pack's overlay key is gone from the user's settings after a confirm,
 // the user's own key is untouched, and the record stops naming the removed key.
 func TestApplyHostRemovesDroppedPackOverlayKeyOnConfirm(t *testing.T) {
-	home := overlayDropFixture(t, overlayDropPackJSON)
-	writeFile(t, hostSettingsPath(home), sentinelSettings)
-	applyThenDropOverlay(t, home)
+	home, owner := overlayDropFixture(t, overlayDropPackJSON)
+	writeFile(t, ownerSettingsPath(home), sentinelSettings)
+	applyThenDropOverlay(t, home, owner)
 
 	rc, report := applyWith(t, true, strings.NewReader("y\n"))
 	if rc != 0 {
 		t.Fatalf("a confirmed retire rc=%d\n%s", rc, report)
 	}
-	keys := settingsKeys(t, home)
+	keys := ownerKeys(t, home)
 	if _, present := keys["fileSuggestion"]; present {
 		t.Errorf("the orphaned overlay key survived its pack leaving `packs`:\n%s",
-			mustReadFile(t, hostSettingsPath(home)))
+			mustReadFile(t, ownerSettingsPath(home)))
 	}
 	// (a) The user's OWN key survives untouched. Pure RMW is the contract; a removal pass that
 	// broke it would be worse than the leak it fixes.
 	if got := keys["mySentinel"]; got != "do-not-touch" {
 		t.Errorf("the user's own key must survive a key retirement, got %v", got)
 	}
-	// The owner pack's own managed keys are still asserted — this run RENDERED claude/settings,
+	// The owner pack's own managed keys are still asserted — this run RENDERED keyowner/settings,
 	// and the prune must not have raced or undone that.
 	if _, present := keys["permissions"]; !present {
 		t.Errorf("the owning pack's managed keys must still be asserted:\n%s",
-			mustReadFile(t, hostSettingsPath(home)))
+			mustReadFile(t, ownerSettingsPath(home)))
 	}
 	// The record must stop attributing a key that is no longer in the file, or the next apply
 	// reports an orphan that does not exist.
-	if got, present := hostProvenanceRecord(t, home, "claude", "settings")["fileSuggestion"]; present {
+	if got, present := hostProvenanceRecord(t, home, "keyowner", "settings")["fileSuggestion"]; present {
 		t.Errorf("the record still attributes the removed key to %q", got)
 	}
 	for _, want := range []string{"fileSuggestion", "dropme", "no longer configured"} {
@@ -171,25 +221,26 @@ func TestApplyHostRemovesDroppedPackOverlayKeyOnConfirm(t *testing.T) {
 // separate silent path"). The key half must be able to raise the prompt by itself.
 func TestApplyHostKeyOnlyDropStillAsksBeforeRemoving(t *testing.T) {
 	home := t.TempDir()
+	owner := keyOwnerEntry(t)
 	packDir := filepath.Join(t.TempDir(), "keyonly")
 	// No `files`, no `skills` — an overlay and nothing else.
 	writeFile(t, filepath.Join(packDir, "pack.json"),
 		`{"name":"keyonly","description":"d","contributes":[
-		  {"kind":"config-overlay","surface":"claude/settings",
+		  {"kind":"config-overlay","surface":"keyowner/settings",
 		   "config":{"managed":{"fileSuggestion":{"type":"command","command":"~/x.sh"}}}}]}`)
 	writeFile(t, filepath.Join(packDir, "briefing", "prose.md"), "prose\n")
-	selectPacks(t, home, `"claude",{"source":"file://`+packDir+`","name":"keyonly"}`)
+	selectOwned(t, home, owner+`,{"source":"file://`+packDir+`","name":"keyonly"}`)
 	t.Setenv("HOME", home)
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
-	writeFile(t, hostSettingsPath(home), sentinelSettings)
+	writeFile(t, ownerSettingsPath(home), sentinelSettings)
 
 	if rc, report := applyWith(t, true, nil); rc != 0 {
 		t.Fatalf("first apply rc=%d\n%s", rc, report)
 	}
-	if _, present := settingsKeys(t, home)["fileSuggestion"]; !present {
+	if _, present := ownerKeys(t, home)["fileSuggestion"]; !present {
 		t.Fatal("the overlay key never landed, so there is nothing to retire")
 	}
-	selectPacks(t, home, `"claude"`)
+	selectOwned(t, home, owner)
 
 	// With NO stdin, the key must survive: a key-only drop is gated exactly like a path.
 	rc, report := applyWith(t, true, nil)
@@ -205,19 +256,19 @@ func TestApplyHostKeyOnlyDropStillAsksBeforeRemoving(t *testing.T) {
 		t.Errorf("a key-only drop must raise the confirmation by itself, not slip through "+
 			"a path-keyed gate:\n%s", report)
 	}
-	if _, present := settingsKeys(t, home)["fileSuggestion"]; !present {
+	if _, present := ownerKeys(t, home)["fileSuggestion"]; !present {
 		t.Errorf("an unconfirmed key-only retire removed the key:\n%s",
-			mustReadFile(t, hostSettingsPath(home)))
+			mustReadFile(t, ownerSettingsPath(home)))
 	}
 	// And a yes removes it.
 	if rc, report := applyWith(t, true, strings.NewReader("y\n")); rc != 0 {
 		t.Fatalf("confirmed apply rc=%d\n%s", rc, report)
 	}
-	if _, present := settingsKeys(t, home)["fileSuggestion"]; present {
+	if _, present := ownerKeys(t, home)["fileSuggestion"]; present {
 		t.Errorf("a confirmed key-only retire left the key:\n%s",
-			mustReadFile(t, hostSettingsPath(home)))
+			mustReadFile(t, ownerSettingsPath(home)))
 	}
-	if got := settingsKeys(t, home)["mySentinel"]; got != "do-not-touch" {
+	if got := ownerKeys(t, home)["mySentinel"]; got != "do-not-touch" {
 		t.Errorf("the user's own key changed, got %v", got)
 	}
 }
@@ -225,15 +276,15 @@ func TestApplyHostKeyOnlyDropStillAsksBeforeRemoving(t *testing.T) {
 // DECLINING LEAVES EVERYTHING. The explicit-no path: the key stays, the file is byte-identical
 // to what the render left, and the run says so.
 func TestApplyHostKeepsOverlayKeyOnDecline(t *testing.T) {
-	home := overlayDropFixture(t, overlayDropPackJSON)
-	writeFile(t, hostSettingsPath(home), sentinelSettings)
-	applyThenDropOverlay(t, home)
+	home, owner := overlayDropFixture(t, overlayDropPackJSON)
+	writeFile(t, ownerSettingsPath(home), sentinelSettings)
+	applyThenDropOverlay(t, home, owner)
 
 	rc, report := applyWith(t, true, strings.NewReader("n\n"))
-	keys := settingsKeys(t, home)
+	keys := ownerKeys(t, home)
 	if _, present := keys["fileSuggestion"]; !present {
 		t.Errorf("a declined retire removed the key anyway:\n%s",
-			mustReadFile(t, hostSettingsPath(home)))
+			mustReadFile(t, ownerSettingsPath(home)))
 	}
 	if got := keys["mySentinel"]; got != "do-not-touch" {
 		t.Errorf("the user's own key changed on a declined retire, got %v", got)
@@ -252,24 +303,24 @@ func TestApplyHostKeepsOverlayKeyOnDecline(t *testing.T) {
 // FAIL-CLOSED. No stdin — a CI or scripted `yolo host apply --assert` — removes nothing. A
 // confirmation nobody can answer must not default to editing a real config file.
 func TestApplyHostOverlayKeyRemovalFailsClosedWithoutStdin(t *testing.T) {
-	home := overlayDropFixture(t, overlayDropPackJSON)
-	applyThenDropOverlay(t, home)
+	home, owner := overlayDropFixture(t, overlayDropPackJSON)
+	applyThenDropOverlay(t, home, owner)
 
 	if rc, report := applyWith(t, true, nil); rc != 0 {
 		t.Fatalf("a fail-closed retire must not be an error, rc=%d\n%s", rc, report)
 	}
-	if _, present := settingsKeys(t, home)["fileSuggestion"]; !present {
+	if _, present := ownerKeys(t, home)["fileSuggestion"]; !present {
 		t.Errorf("with no stdin to confirm, the key must be left alone:\n%s",
-			mustReadFile(t, hostSettingsPath(home)))
+			mustReadFile(t, ownerSettingsPath(home)))
 	}
 }
 
 // OBSERVE REPORTS AND WRITES NOTHING. The dry run is what gives the user the information before
 // any prompt exists, so it has to name the key and the pack — and leave the file byte-identical.
 func TestApplyHostObserveReportsOverlayKeyWithoutRemoving(t *testing.T) {
-	home := overlayDropFixture(t, overlayDropPackJSON)
-	applyThenDropOverlay(t, home)
-	before := mustReadFile(t, hostSettingsPath(home))
+	home, owner := overlayDropFixture(t, overlayDropPackJSON)
+	applyThenDropOverlay(t, home, owner)
+	before := mustReadFile(t, ownerSettingsPath(home))
 
 	rc, report := applyWith(t, false, nil)
 	if rc != 0 {
@@ -283,7 +334,7 @@ func TestApplyHostObserveReportsOverlayKeyWithoutRemoving(t *testing.T) {
 			t.Errorf("observe must name %q:\n%s", want, report)
 		}
 	}
-	if after := mustReadFile(t, hostSettingsPath(home)); after != before {
+	if after := mustReadFile(t, ownerSettingsPath(home)); after != before {
 		t.Errorf("observe modified the file:\n--- before\n%s\n--- after\n%s", before, after)
 	}
 }
@@ -297,28 +348,28 @@ func TestApplyHostObserveReportsOverlayKeyWithoutRemoving(t *testing.T) {
 // that produces it while a pack is also declaring the same name.
 func TestApplyHostKeepsUserKeySharingAPackKeyName(t *testing.T) {
 	home := t.TempDir()
-	selectPacks(t, home, `"claude"`)
+	selectOwned(t, home, keyOwnerEntry(t))
 	t.Setenv("HOME", home)
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
 
 	// The user's own fileSuggestion — the same key name overlayDropPackJSON's overlay uses.
-	writeFile(t, hostSettingsPath(home),
+	writeFile(t, ownerSettingsPath(home),
 		`{"mySentinel":"do-not-touch","fileSuggestion":{"type":"command","command":"~/bin/mine.sh"}}`)
 	// A record attributing it to the USER, in a home where `dropme` is not configured. This is
 	// the shape of every hand-written key yolo has ever rendered alongside.
 	writeFile(t, filepath.Join(home, ".local", "share", "yolo-jail", "host-provenance",
-		"claude-settings.provenance"),
+		"keyowner-settings.provenance"),
 		"fileSuggestion\thost\nmySentinel\thost\npermissions\tmanaged\n")
 
 	rc, report := applyWith(t, true, strings.NewReader("y\n"))
 	if rc != 0 {
 		t.Fatalf("apply rc=%d\n%s", rc, report)
 	}
-	keys := settingsKeys(t, home)
+	keys := ownerKeys(t, home)
 	got, present := keys["fileSuggestion"]
 	if !present {
 		t.Fatalf("the USER's own key was removed — a `host` attribution is the one thing this "+
-			"pass may never look past:\n%s", mustReadFile(t, hostSettingsPath(home)))
+			"pass may never look past:\n%s", mustReadFile(t, ownerSettingsPath(home)))
 	}
 	obj, isObj := got.(map[string]any)
 	if !isObj || obj["command"] != "~/bin/mine.sh" {
@@ -348,19 +399,19 @@ func TestApplyHostKeepsOverlayKeyAnotherPackStillContributes(t *testing.T) {
 	keeperDir := filepath.Join(t.TempDir(), "keeper")
 	writeFile(t, filepath.Join(keeperDir, "pack.json"),
 		`{"name":"keeper","description":"d","contributes":[
-		  {"kind":"config-overlay","surface":"claude/settings",
+		  {"kind":"config-overlay","surface":"keyowner/settings",
 		   "config":{"managed":{"fileSuggestion":{"type":"command","command":"~/bin/keeper.sh"}}}}]}`)
 	writeFile(t, filepath.Join(keeperDir, "briefing", "prose.md"), "Keeper prose.\n")
-	selectPacks(t, home, `"claude",{"source":"file://`+keeperDir+`","name":"keeper"}`)
+	selectOwned(t, home, keyOwnerEntry(t)+`,{"source":"file://`+keeperDir+`","name":"keeper"}`)
 	t.Setenv("HOME", home)
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
 
-	writeFile(t, hostSettingsPath(home),
+	writeFile(t, ownerSettingsPath(home),
 		`{"mySentinel":"do-not-touch","fileSuggestion":{"type":"command","command":"~/bin/keeper.sh"}}`)
 	// The record names DROPME as the key's last winner (it was the later pack, so it won the
 	// attribution) — and dropme is gone from the config while keeper remains.
 	writeFile(t, filepath.Join(home, ".local", "share", "yolo-jail", "host-provenance",
-		"claude-settings.provenance"), "fileSuggestion\tconfig-overlay:dropme\n")
+		"keyowner-settings.provenance"), "fileSuggestion\tconfig-overlay:dropme\n")
 
 	// OBSERVE: the stale attribution must not become a predicted removal.
 	rc, report := applyWith(t, false, nil)
@@ -376,10 +427,10 @@ func TestApplyHostKeepsOverlayKeyAnotherPackStillContributes(t *testing.T) {
 	if rc != 0 {
 		t.Fatalf("apply rc=%d\n%s", rc, report)
 	}
-	got, present := settingsKeys(t, home)["fileSuggestion"]
+	got, present := ownerKeys(t, home)["fileSuggestion"]
 	if !present {
 		t.Fatalf("a key a SELECTED pack still contributes was removed:\n%s",
-			mustReadFile(t, hostSettingsPath(home)))
+			mustReadFile(t, ownerSettingsPath(home)))
 	}
 	obj, isObj := got.(map[string]any)
 	if !isObj || obj["command"] != "~/bin/keeper.sh" {
@@ -392,26 +443,26 @@ func TestApplyHostKeepsOverlayKeyAnotherPackStillContributes(t *testing.T) {
 // live spelling would work in observe and then find nothing in the very apply that writes.
 func TestApplyHostRemovesRetiredAttributedOverlayKey(t *testing.T) {
 	home := t.TempDir()
-	selectPacks(t, home, `"claude"`)
+	selectOwned(t, home, keyOwnerEntry(t))
 	t.Setenv("HOME", home)
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
 
-	writeFile(t, hostSettingsPath(home),
+	writeFile(t, ownerSettingsPath(home),
 		`{"mySentinel":"do-not-touch","fileSuggestion":{"type":"command","command":"~/x.sh"}}`)
 	writeFile(t, filepath.Join(home, ".local", "share", "yolo-jail", "host-provenance",
-		"claude-settings.provenance"),
+		"keyowner-settings.provenance"),
 		"fileSuggestion\tretired:config-overlay:dropme\nmySentinel\thost\n")
 
 	rc, report := applyWith(t, true, strings.NewReader("y\n"))
 	if rc != 0 {
 		t.Fatalf("apply rc=%d\n%s", rc, report)
 	}
-	if _, present := settingsKeys(t, home)["fileSuggestion"]; present {
+	if _, present := ownerKeys(t, home)["fileSuggestion"]; present {
 		t.Errorf("a `retired:config-overlay:<pack>` key must be retirable — it is the label the "+
 			"record carries on every apply AFTER the drop:\n%s",
-			mustReadFile(t, hostSettingsPath(home)))
+			mustReadFile(t, ownerSettingsPath(home)))
 	}
-	if got := settingsKeys(t, home)["mySentinel"]; got != "do-not-touch" {
+	if got := ownerKeys(t, home)["mySentinel"]; got != "do-not-touch" {
 		t.Errorf("the user's own key changed, got %v", got)
 	}
 	if !strings.Contains(report, "dropme") {
@@ -425,21 +476,21 @@ func TestApplyHostRemovesRetiredAttributedOverlayKey(t *testing.T) {
 // delete a hand-written config on the first ever apply.
 func TestApplyHostRetiresNothingWithoutAProvenanceRecord(t *testing.T) {
 	home := t.TempDir()
-	selectPacks(t, home, `"claude"`)
+	selectOwned(t, home, keyOwnerEntry(t))
 	t.Setenv("HOME", home)
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
-	writeFile(t, hostSettingsPath(home),
+	writeFile(t, ownerSettingsPath(home),
 		`{"mySentinel":"do-not-touch","fileSuggestion":{"type":"command","command":"~/x.sh"}}`)
 
 	rc, report := applyWith(t, true, strings.NewReader("y\n"))
 	if rc != 0 {
 		t.Fatalf("apply rc=%d\n%s", rc, report)
 	}
-	keys := settingsKeys(t, home)
+	keys := ownerKeys(t, home)
 	for _, want := range []string{"mySentinel", "fileSuggestion"} {
 		if _, present := keys[want]; !present {
 			t.Errorf("%q was removed with no record to authorize it:\n%s", want,
-				mustReadFile(t, hostSettingsPath(home)))
+				mustReadFile(t, ownerSettingsPath(home)))
 		}
 	}
 }
@@ -447,9 +498,9 @@ func TestApplyHostRetiresNothingWithoutAProvenanceRecord(t *testing.T) {
 // ONE PROMPT, NOT TWO (ruling R3: overlay keys ride "the same confirm"). A drop that orphans
 // BOTH a file and a key asks once, and the single prompt names both.
 func TestApplyHostAsksOnceForBothPathsAndKeys(t *testing.T) {
-	home := overlayDropFixture(t, overlayDropPackJSON)
-	applyThenDropOverlay(t, home)
-	file := filepath.Join(home, ".claude", "bin", "pick.sh")
+	home, owner := overlayDropFixture(t, overlayDropPackJSON)
+	applyThenDropOverlay(t, home, owner)
+	file := filepath.Join(home, ".keyowner", "bin", "pick.sh")
 	mustExist(t, file, "the first apply delivered it")
 
 	rc, report := applyWith(t, true, strings.NewReader("y\n"))
@@ -479,9 +530,9 @@ func TestApplyHostAsksOnceForBothPathsAndKeys(t *testing.T) {
 	}
 	// And a yes retires both.
 	mustNotExist(t, file, "the user confirmed")
-	if _, present := settingsKeys(t, home)["fileSuggestion"]; present {
+	if _, present := ownerKeys(t, home)["fileSuggestion"]; present {
 		t.Errorf("the key survived a confirmed retire:\n%s",
-			mustReadFile(t, hostSettingsPath(home)))
+			mustReadFile(t, ownerSettingsPath(home)))
 	}
 }
 
@@ -489,12 +540,12 @@ func TestApplyHostAsksOnceForBothPathsAndKeys(t *testing.T) {
 // so there is nothing left to find — a prune that kept reporting a key it already removed would
 // prompt forever, which is the "trains people to hit y blind" failure.
 func TestApplyHostDoesNotReRetireAnAlreadyRemovedKey(t *testing.T) {
-	home := overlayDropFixture(t, overlayDropPackJSON)
-	applyThenDropOverlay(t, home)
+	home, owner := overlayDropFixture(t, overlayDropPackJSON)
+	applyThenDropOverlay(t, home, owner)
 	if rc, report := applyWith(t, true, strings.NewReader("y\n")); rc != 0 {
 		t.Fatalf("first retire rc=%d\n%s", rc, report)
 	}
-	before := mustReadFile(t, hostSettingsPath(home))
+	before := mustReadFile(t, ownerSettingsPath(home))
 
 	rc, report := applyWith(t, true, nil) // nil stdin: nothing may need confirming
 	if rc != 0 {
@@ -503,7 +554,7 @@ func TestApplyHostDoesNotReRetireAnAlreadyRemovedKey(t *testing.T) {
 	if strings.Contains(report, "fileSuggestion") {
 		t.Errorf("a key already retired must not be reported again:\n%s", report)
 	}
-	if after := mustReadFile(t, hostSettingsPath(home)); after != before {
+	if after := mustReadFile(t, ownerSettingsPath(home)); after != before {
 		t.Errorf("the second apply changed the file:\n--- before\n%s\n--- after\n%s",
 			before, after)
 	}

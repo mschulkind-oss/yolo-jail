@@ -29,10 +29,14 @@ func brokenLinkHome(t *testing.T, extra string) (string, string) {
 }
 
 // brokenLinkHomeAt is brokenLinkHome over a given home and pack list; returns the link's target.
+//
+// The user config declares `host_management: "own"`, the one contract that renders: the unset
+// key is `none` since the `assert` retirement (OQ-CO14), and a home nothing renders into has no
+// destination for the broken-link rule to stop at.
 func brokenLinkHomeAt(t *testing.T, home, packs, extra string) string {
 	t.Helper()
 	writeFile(t, filepath.Join(home, ".config", "yolo-jail", "config.jsonc"),
-		`{"packs":[`+packs+`]`+extra+`}`)
+		`{"packs":[`+packs+`],"host_management":"own"`+extra+`}`)
 	t.Setenv("HOME", home)
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
 	t.Setenv("YOLO_VERSION", "")

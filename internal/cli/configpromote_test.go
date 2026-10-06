@@ -343,40 +343,6 @@ func TestPromoteRefusesASurfaceNoPackOwns(t *testing.T) {
 	}
 }
 
-// [OQ-CO10]: promote refuses `--to host` on a surface with no host layer. Exactly two
-// shipped surfaces declare `readsHost`; for every other one a host promotion is an edit no
-// jail would ever read.
-//
-// Bound to the PREDICATE — Surface.HasHostLayer — and not to what populates it. That was a
-// deliberate choice when the predicate meant "a `reads-host` contribution matched this
-// surface's basename", and it is why this test needed no edit on 2026-09-12 when [OQ-CO10]
-// moved the declaration onto the surface and the basename match was deleted. What it pins
-// is unchanged: the refusal tracks whether the surface HAS a host layer, by whatever
-// mechanism gives it one.
-func TestPromoteToHostRefusesASurfaceWithNoHostLayer(t *testing.T) {
-	w := newPromoteWorld(t, `["claude","codex"]`)
-	w.capture("codex", "config", "{\"model\":\"mine\"}", "model = \"theirs\"\n")
-	w.capture("claude", "settings", `{"model":"mine"}`, `{}`)
-
-	out, _, rc := w.run("codex", "--plan", "--to", "host")
-	if rc != 0 {
-		t.Fatalf("rc=%d", rc)
-	}
-	if got := dispositionOf(t, out, "model"); got != promotionNoHostLayer {
-		t.Errorf("codex/config model --to host = %s, want %s:\n%s", got, promotionNoHostLayer, out)
-	}
-	// claude/settings HAS one (packs/claude grants reads-host for it), so the same flag on
-	// that surface is not refused for this reason — which is what makes the test above a
-	// statement about host layers rather than about `--to host`.
-	out, _, rc = w.run("claude", "--plan", "--to", "host")
-	if rc != 0 {
-		t.Fatalf("rc=%d", rc)
-	}
-	if got := dispositionOf(t, out, "model"); got == promotionNoHostLayer {
-		t.Errorf("claude/settings reported as having no host layer:\n%s", out)
-	}
-}
-
 // `--plan --json` is the classification as DATA (§5.3): a consumer branches on the
 // disposition token rather than on prose, and the document is a projection of the same
 // classification the text report prints.
@@ -474,32 +440,6 @@ func TestPromoteWithNoCapturesSaysSo(t *testing.T) {
 	}
 	if !strings.Contains(out, "no captured keys") && !strings.Contains(out, "Nothing to promote") {
 		t.Errorf("an empty overlay produced no explanation:\n%s", out)
-	}
-}
-
-// §5.1 fact 3: the `host` layer lands at the SECOND-WEAKEST precedence — under workspace,
-// every config-overlay, capture, computed and managed — so a key written into the real-home
-// file loses to any pack overlay that sets it. The same key promoted to `local` wins, which
-// is the difference between the two destinations §5.1 says the UI must not blur.
-func TestPromoteToHostLosesToEveryConfigOverlay(t *testing.T) {
-	w := newPromoteWorld(t, `[]`)
-	other := w.pack("other", `{"name":"other","contributes":[
-	  {"kind":"config-overlay","surface":"claude/settings","config":{"managed":{"model":"theirs"}}}]}`)
-	writeFile(t, filepath.Join(w.home, ".config", "yolo-jail", "config.jsonc"),
-		`{"packs":["claude",`+other+`]}`)
-	w.capture("claude", "settings", `{"model":"mine"}`, `{}`)
-
-	out, _, rc := w.run("claude", "--plan", "--to", "host")
-	if rc != 0 {
-		t.Fatalf("rc=%d", rc)
-	}
-	if got := dispositionOf(t, out, "model"); got != promotionOutranked {
-		t.Errorf("model --to host = %s, want %s — a config-overlay folds three slots above "+
-			"the host layer:\n%s", got, promotionOutranked, out)
-	}
-	out, _, _ = w.run("claude", "--plan", "--to", "local")
-	if got := dispositionOf(t, out, "model"); got != promotionPromotable {
-		t.Errorf("model --to local = %s, want %s:\n%s", got, promotionPromotable, out)
 	}
 }
 
