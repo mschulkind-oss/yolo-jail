@@ -229,6 +229,12 @@ func packRebase(args []string, out, errw io.Writer, color bool) int {
 			return 1
 		}
 	case hasTarget:
+	case found.NoVersion != "" && (rec.Good != nil || found.BaseOnBranch):
+		// A RELEASE RULE OVER A BRANCH WITH NO VERSION TAG (PF-D60): the list is empty because the
+		// rule reads no tag on the branch, not because nothing upstream is newer.
+		pr.Printf("[yellow]%s[/yellow]", richtext.Escape("⚠ "+f.Label()+": "+found.NoVersionLine(stayAt(rec, series))+
+			"; `--onto <ref>` rebases the series onto an upstream commit"))
+		return 0
 	case rec.Good != nil:
 		pr.Printf("%s", richtext.Escape(f.Label()+": nothing upstream is newer than the good build "+
 			goodLabel(rec.Good)+", which runs this series — no rebase is needed; `--onto <ref>` rebases it "+

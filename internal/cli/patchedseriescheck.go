@@ -261,6 +261,12 @@ func seriesCheckOne(ctx context.Context, pr richtext.Printer, errw io.Writer, f 
 			// NOTHING ON THE LIST: a first advance builds the series' base (§6.4), which it applies to by
 			// construction once it applies at all.
 			list, atBase = []packsrc.ListEntry{{Commit: series.Base}}, true
+			if found.NoVersion != "" {
+				// A RELEASE RULE OVER A BRANCH WITH NO VERSION TAG (PF-D60): why the list is empty, as
+				// the launch that meets it says it.
+				pr.Printf("[yellow]%s[/yellow]", richtext.Escape("⚠ "+f.Label()+": "+
+					found.NoVersionLine(scratchStayAt(series))))
+			}
 		}
 		if len(list) == 0 {
 			fmt.Fprintf(errw, "yolo pack series check: %s: %s names nothing this series can be built at — the "+
@@ -347,6 +353,13 @@ func seriesCheckReport(f packload.Fork, packDir string, series *packsrc.Series, 
 			"build running; "+without)...)
 	}
 	return lines, len(w.Results) > 0 && w.Results[0].Clean
+}
+
+// scratchStayAt is where a fork whose release rule finds no version tag stays, as a scratch act
+// names it (CheckFound.NoVersionLine): with no check record to read, it cannot say which good build
+// this machine runs, so it names both.
+func scratchStayAt(series *packsrc.Series) string {
+	return "this machine's good build, or with none the series' base " + shortSHA(series.Base) + ","
 }
 
 // seriesCheckLine is the check's own command line, for a line that names running it again.

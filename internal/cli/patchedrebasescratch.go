@@ -143,6 +143,11 @@ func packRebaseScratch(ra rebaseArgs, args []string, out, errw io.Writer, color 
 		}
 	case len(list) > 0:
 		target = list[0]
+	case found.NoVersion != "" && found.BaseOnBranch:
+		// A RELEASE RULE OVER A BRANCH WITH NO VERSION TAG (PF-D60), as the keyed verb says it.
+		pr.Printf("[yellow]%s[/yellow]", richtext.Escape("⚠ "+f.Label()+": "+found.NoVersionLine(scratchStayAt(series))+
+			"; `--onto <ref>` rebases the series onto an upstream commit"))
+		return 0
 	case found.BaseOnBranch:
 		pr.Printf("%s", richtext.Escape(f.Label()+": no version of the branch is newer than the series' base "+
 			shortSHA(series.Base)+", which a fresh launch with no good build builds — no rebase is needed; "+
