@@ -558,3 +558,35 @@ func TestSectionPacksShippedSetHasNoAgentNameCollision(t *testing.T) {
 			buf.String())
 	}
 }
+
+// A pi folder holding none of the names the shipped pi pack's slot expects is a WARNING at
+// `yolo check`, over the selected set (docs/design/pack-pi-resources.md PR-D4): the launch still
+// delivers and lists it, so check must not fail, and must not be silent either.
+func TestSectionPacksWarnsAboutAPiFolderPiCannotLoad(t *testing.T) {
+	for _, tc := range []struct {
+		entry string
+		warns bool
+	}{{"exts", true}, {"extensions", false}} {
+		pack := filepath.Join(t.TempDir(), "matt")
+		if err := os.MkdirAll(filepath.Join(pack, "files", "pi", tc.entry), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(pack, "files", "pi", tc.entry, "a.ts"), []byte("x\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		manifest := `{"name":"matt","contributes":[{"kind":"files","agents":["pi"],"from":"files/pi"}]}`
+		if err := os.WriteFile(filepath.Join(pack, "pack.json"), []byte(manifest), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		packsFixture(t, `{"packs": ["pi", "file://`+pack+`"]}`)
+
+		var buf bytes.Buffer
+		r := &reporter{w: &buf}
+		(&Options{}).sectionPacks(r, jsonx.NewOrderedMap())
+		warned := strings.Contains(buf.String(), "unlikely to load")
+		if warned != tc.warns || r.failed != 0 {
+			t.Errorf("folder holding %q: warned=%v failed=%d, want warned=%v and no failure:\n%s",
+				tc.entry, warned, r.failed, tc.warns, buf.String())
+		}
+	}
+}

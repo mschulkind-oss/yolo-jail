@@ -257,9 +257,12 @@
           };
 
         # Extra packages from project config (passed via YOLO_EXTRA_PACKAGES env var).
-        # String forms:
-        #   "strace"           → latest, default output
-        #   "gtk4.dev"         → latest, "dev" output only (one extra output max)
+        # A string entry, and an object's ``name``, is a nixpkgs ATTRIBUTE PATH
+        # (resolvePackageAttr below):
+        #   "strace"               → a top-level package, default output
+        #   "gtk4.dev"             → gtk4's "dev" output
+        #   "rocmPackages.clr"     → a member of a package collection
+        #   "rocmPackages.clr.icd" → a member's "icd" output
         # Object forms (all support an optional ``outputs`` list — e.g. ["out" "dev"]):
         #   {"name": "freetype", "nixpkgs": "<commit>"}      → pinned nixpkgs commit
         #   {"name": "freetype", "version": "2.14.1",        → version override (build from source)
@@ -269,16 +272,6 @@
           raw = builtins.getEnv "YOLO_EXTRA_PACKAGES";
         in
           if raw == "" then [] else builtins.fromJSON raw;
-
-        # Split "gtk4.dev" → { base = "gtk4"; output = "dev"; }; "gtk4" → { base = "gtk4"; output = null; }.
-        # Validator (yolo check) rejects multi-dot strings, so we only handle one dot here.
-        parseDottedSpec = s:
-          let
-            parts = builtins.filter builtins.isString (builtins.split "\\." s);
-          in
-            if builtins.length parts == 1
-            then { base = builtins.head parts; output = null; }
-            else { base = builtins.head parts; output = builtins.elemAt parts 1; };
 
         # Walk ``propagatedBuildInputs`` transitively starting from ``drv``,
         # deduplicating by store path.  Used to chase the *header* closure
@@ -293,6 +286,108 @@
         isDerivation = p:
           p != null && builtins.isAttrs p && (p ? outPath);
 
+        # ── `packages` entries are nixpkgs ATTRIBUTE PATHS ─────────────────
+        # docs/design/package-nested-attribute-paths.md, OQ-1 ruled (C) on
+        # 2026-10-05: an entry installs what `nix build nixpkgs#<entry>`
+        # builds.  Nix reaches that value by plain attribute access, one name
+        # at a time, and so does this — no name is ever reinterpreted:
+        #   rocmPackages.clr               a member of a collection
+        #   gtk4.dev                       gtk4's `dev` output
+        #   texlivePackages.abc.texsource  the SEPARATE texsource derivation
+        #       that attribute holds, not the `texsource` output of abc whose
+        #       name it shadows (measured 2026-10-05: two derivations, two
+        #       store paths — the design's §4.3).
+        # A name that is not letters, digits, `_` and `-` is quoted the way Nix
+        # quotes it, `nerd-fonts."m+"` or `rubyPackages."http_parser.rb"`, and a
+        # quoted name is taken whole: its dots separate nothing.  `yolo check`
+        # (packageNameRe, internal/config) refuses every other shape, so this
+        # parses only well-formed paths.
+        packageAttrPath = s:
+          map (m:
+            let t = builtins.head m;
+            in if builtins.substring 0 1 t == "\""
+               then builtins.substring 1 (builtins.stringLength t - 2) t
+               else t)
+            (builtins.filter builtins.isList
+              (builtins.split "(\"[^\"]*\"|[^.\"]+)" s));
+
+        # A path spelled back the way a user writes it, for messages and names.
+        showAttrPath = names: builtins.concatStringsSep "." (map (n:
+          if builtins.match "[a-zA-Z0-9_-]+" n != null then n else "\"${n}\"")
+          names);
+
+        # Walk an entry's attribute path down from `root`.  Each step tests `?`
+        # before it reads, because a missing attribute is an abort tryEval
+        # cannot catch, and the non-container path below must be able to SKIP
+        # an unknown entry.  The value the walk ends on is never forced here.
+        walkPackageAttr = root: entry:
+          builtins.foldl' (w: name:
+            if !w.found then w
+            else if builtins.isAttrs w.value && w.value ? ${name} then
+              w // { parent = w.value; value = w.value.${name};
+                     walked = w.walked ++ [ name ]; }
+            else w // { found = false; missing = name; })
+          { found = true; value = root; parent = null; walked = [ ]; missing = null; }
+          (packageAttrPath entry);
+
+        # Split a walk's value into the BASE derivation and the outputs
+        # selected from it, the pair every consumer below reads.  The /lib farm
+        # applies getLib to the base, and a `.dev` request walks the base's
+        # propagated inputs, so an output keeps its parent as the base: getLib
+        # of gtk4.dev is gtk4.dev itself, headers only, and libgtk-4.so would
+        # never reach /lib (the design's §4.2).
+        #
+        # Whether the value IS an output of the derivation one step up is read
+        # from Nix's own marker, the one `nix build` reads to build a single
+        # output: `outputSpecified`, with `outputName` equal to the last name,
+        # on a parent derivation listing that output.  ⚠ The last name alone is
+        # not evidence: texlivePackages.abc lists `texsource` in its outputs,
+        # and its `texsource` attribute is another derivation whose outputName
+        # is "out".  Anything that is not an output of its parent is its own
+        # base.  Either way the image receives exactly the value the path
+        # names, because selectOutputs reads `base.${leaf}`, which is it.
+        splitPackageAttr = w:
+          let
+            leaf = pkgs.lib.last w.walked;
+            isOutputOfParent =
+              builtins.length w.walked >= 2
+              && isDerivation w.parent
+              && (w.value.outputSpecified or false) == true
+              && (w.value.outputName or null) == leaf
+              && builtins.elem leaf (w.parent.outputs or [ "out" ]);
+          in
+            if isOutputOfParent then {
+              drv = w.parent;
+              outputs = [ leaf ];
+              base = showAttrPath (pkgs.lib.init w.walked);
+            } else {
+              drv = w.value;
+              outputs = null;
+              base = showAttrPath w.walked;
+            };
+
+        # Why a walk found nothing, naming the step that failed.  When that
+        # step was a derivation its outputs are listed, an output typo being
+        # the likeliest way to get here with a dotted entry.
+        missingPackageReason = w:
+          let at = showAttrPath w.walked;
+          in
+            if w.walked == [ ] then "nixpkgs has no attribute \"${w.missing}\""
+            else if !(builtins.isAttrs w.value) then
+              "nixpkgs.${at} is a ${builtins.typeOf w.value}, so it has no"
+              + " attribute \"${w.missing}\""
+            else
+              "nixpkgs.${at} has no attribute \"${w.missing}\""
+              + pkgs.lib.optionalString (isDerivation w.value)
+                  (" (its outputs are "
+                   + builtins.concatStringsSep ", " (w.value.outputs or [ "out" ])
+                   + ")");
+        missingPackageError = entry: w:
+          "yolo: `packages` entry \"${entry}\" names nothing in nixpkgs: "
+          + missingPackageReason w + ".  An entry is the attribute path"
+          + " `nix build nixpkgs#<entry>` takes; find the right one with"
+          + " `nix search nixpkgs <name>`, then fix or remove the entry.";
+
         # A `packages` entry can name a nixpkgs attribute that is not a package:
         # a COLLECTION of packages (`xorg`, `python3Packages`, `llvmPackages`,
         # `gst_all_1`), or something that was never installable at all (`lib`,
@@ -306,29 +401,32 @@
         # `packages`, of yolo, or of the entry the user actually wrote.  Naming
         # that entry is the whole point of this guard; the member sample makes
         # the fix legible, because "xorg is a collection" only helps someone who
-        # can see what a collection holds.
+        # can see what a collection holds — and the fix is to name one.
         #
-        # `attr` is the nixpkgs attribute; `entry` is the config entry verbatim,
-        # which differs when the dotted output shorthand was used ("xorg.libX11"
-        # parses as attr `xorg` + output `libX11`, so it lands here too — and
-        # must, since the /lib farm applies getLib to the BASE attr and would
-        # coerce the collection even though the image contents came out right).
+        # `attr` is the attribute path walked, spelled back; `entry` is the
+        # config entry verbatim.
         nonPackageError = attr: entry: v:
           let
             names = builtins.attrNames v;
-            # Bounded window: a collection can hold ~12k attrs (python3Packages)
-            # and this runs on the way to an abort, so sample rather than scan.
-            # `? outPath` is a membership test, so it never forces a build.
-            window = pkgs.lib.take 40 names;
-            members = pkgs.lib.take 3 (builtins.filter
-              (n: let a = builtins.tryEval (isDerivation v.${n}); in a.success && a.value)
-              window);
-            # NOTE the parens: `optionalString cond a + b` applies the function
-            # before the concat, so an unparenthesized tail leaks into the
-            # message even when the condition is false.
-            viaShorthand = pkgs.lib.optionalString (entry != attr)
-              (" (from the `packages` entry \"${entry}\" — the part after the"
-               + " dot selects an OUTPUT, not a collection member)");
+            # The first three members that are packages, stopping early and
+            # scanning at most `cap` names: a collection can hold ~12k attrs
+            # (python3Packages) and this runs on the way to an abort.  It is a
+            # scan rather than a fixed window because python3Packages' first 49
+            # names are removed aliases that throw (measured 2026-10-06), so a
+            # window of the first 40 named no member of a set of packages and
+            # called it a set that "holds no packages".  `? outPath` is a
+            # membership test, so it never forces a build.
+            cap = 500;
+            scan = i: found:
+              if builtins.length found >= 3 || i >= builtins.length names || i >= cap
+              then found
+              else
+                let n = builtins.elemAt names i;
+                    a = builtins.tryEval (isDerivation v.${n});
+                in scan (i + 1) (if a.success && a.value then found ++ [ n ] else found);
+            members = scan 0 [ ];
+            listing = "`nix eval nixpkgs#${attr} --apply builtins.attrNames`";
+            example = "${attr}.${showAttrPath [ (builtins.head members) ]}";
           in
             if !builtins.isAttrs v then
               "yolo: `packages` entry \"${entry}\" resolves to nixpkgs."
@@ -338,24 +436,58 @@
             # A set with nothing derivation-shaped in it is not a package
             # collection either (`lib`, `stdenvNoCC.hostPlatform`), so it gets
             # no member sample and no "name a member" advice to act on.
-            else if members == [] then
+            else if members == [] && builtins.length names <= cap then
               "yolo: `packages` entry \"${entry}\" resolves to nixpkgs."
               + "${attr}, which is a set, not a package — it has no derivation"
-              + " to install and holds no packages."
-              + "${viaShorthand} Remove it from `packages`."
+              + " to install and holds no packages. Remove it from `packages`."
+            # A set too large to scan whole, with no package among the names
+            # scanned: say only what was seen.
+            else if members == [] then
+              "yolo: `packages` entry \"${entry}\" resolves to nixpkgs."
+              + "${attr}, which is a set of " + toString (builtins.length names)
+              + " attributes, not a package — it has no derivation to install,"
+              + " and none of the first " + toString cap + " is a package"
+              + " either.  If it holds the package you want, name that member"
+              + " (${listing} lists them); otherwise remove the entry."
             else
               "yolo: `packages` entry \"${entry}\" resolves to nixpkgs."
               + "${attr}, which is a package COLLECTION of "
               + toString (builtins.length names) + " attributes, not a package"
-              + " — it has no derivation to install.${viaShorthand}\n"
+              + " — it has no derivation to install.\n"
               + "  Members include: "
-              + builtins.concatStringsSep ", " members + ", ...\n"
-              + "  A collection member is NOT selectable from `packages`: use"
-              + " the member's own top-level attribute if nixpkgs has one"
-              + " (`nix search nixpkgs <member>` to check — most of xorg.* is"
-              + " top-level today, e.g. libX11), and drop \"${entry}\".";
-        requireDerivation = attr: entry: v:
-          if isDerivation v then v else throw (nonPackageError attr entry v);
+              + builtins.concatStringsSep ", " (map (n: showAttrPath [ n ]) members)
+              + ", ...\n"
+              + "  Name the member you want instead: an entry is a nixpkgs"
+              + " attribute path, so \"${example}\" installs what"
+              + " `nix build nixpkgs#${example}` builds.  To list them all:"
+              + " ${listing}.";
+
+        # The image path's resolver: an entry naming nothing, or naming
+        # something that is not a package, aborts HERE, naming the entry.
+        resolvePackageAttr = root: entry:
+          let w = walkPackageAttr root entry;
+          in
+            if !w.found then throw (missingPackageError entry w)
+            else if !(isDerivation w.value)
+            then throw (nonPackageError (showAttrPath w.walked) entry w.value)
+            else splitPackageAttr w;
+
+        # An object entry's `outputs` select from its base.  A `name` that
+        # already selects an output AND an `outputs` list are two selections of
+        # one thing, so the entry is refused rather than one silently winning.
+        objectOutputsConflict = spec: r:
+          (spec.outputs or [ ]) != [ ] && r.outputs != null;
+        objectOutputsError = spec: r:
+          "yolo: `packages` entry {\"name\": \"${spec.name}\", ...} selects an"
+          + " output twice: its name is the \"${builtins.head r.outputs}\" output"
+          + " of nixpkgs.${r.base}, and it also lists `outputs`.  Name the"
+          + " package and list every output you want there: {\"name\": \""
+          + r.base + "\", \"outputs\": "
+          + builtins.toJSON (pkgs.lib.unique (r.outputs ++ spec.outputs)) + "}.";
+        objectOutputs = spec: r:
+          if objectOutputsConflict spec r then throw (objectOutputsError spec r)
+          else if (spec.outputs or [ ]) != [ ] then spec.outputs
+          else r.outputs;
 
         propagatedClosure = drv:
           builtins.genericClosure {
@@ -401,45 +533,39 @@
         # contents) and extraLibPackages (the /lib symlink farm) both
         # derive from this, so they can make different output choices
         # from the same spec.
-        # Every branch resolves its attribute through requireDerivation, so a
-        # collection or a non-package aborts HERE, naming the config entry —
-        # including the version-override branch, whose `.overrideAttrs` on a
-        # collection would otherwise report a missing attribute instead.
+        # Every branch resolves its attribute path through resolvePackageAttr,
+        # so a missing attribute, a collection or a non-package aborts HERE,
+        # naming the config entry — including the version-override branch,
+        # whose `.overrideAttrs` on a collection would otherwise report a
+        # missing attribute instead.
         resolvedPackageSpecs = map (spec:
           if builtins.isString spec then
-            let parsed = parseDottedSpec spec;
-            in {
-              drv = requireDerivation parsed.base spec imagePkgs.${parsed.base};
-              outputs = if parsed.output == null then null else [ parsed.output ];
-            }
+            let r = resolvePackageAttr imagePkgs spec;
+            in { inherit (r) drv outputs; }
           else if spec ? nixpkgs then
             # Pinned to a specific nixpkgs commit
             let
               pinnedPkgs = import (builtins.fetchTarball {
                 url = "https://github.com/NixOS/nixpkgs/archive/${spec.nixpkgs}.tar.gz";
               }) { system = imageSystem; };
-            in {
-              drv = requireDerivation spec.name spec.name pinnedPkgs.${spec.name};
-              outputs = spec.outputs or null;
-            }
+              r = resolvePackageAttr pinnedPkgs spec.name;
+            in { inherit (r) drv; outputs = objectOutputs spec r; }
           else if spec ? version && spec ? url && spec ? hash then
             # Version override: rebuild existing package with different source
-            {
-              drv = (requireDerivation spec.name spec.name
-                      imagePkgs.${spec.name}).overrideAttrs (old: {
+            let r = resolvePackageAttr imagePkgs spec.name;
+            in {
+              drv = r.drv.overrideAttrs (old: {
                 version = spec.version;
                 src = imagePkgs.fetchurl {
                   url = spec.url;
                   hash = spec.hash;
                 };
               });
-              outputs = spec.outputs or null;
+              outputs = objectOutputs spec r;
             }
           else
-            {
-              drv = requireDerivation spec.name spec.name imagePkgs.${spec.name};
-              outputs = spec.outputs or null;
-            }
+            let r = resolvePackageAttr imagePkgs spec.name;
+            in { inherit (r) drv; outputs = objectOutputs spec r; }
         ) extraPackageSpecs;
 
         extraPackages = builtins.concatMap
@@ -464,13 +590,9 @@
         # closure for precisely the reason `host` does
         # (docs/design/noncontainer-nix-environment.md §7), and a
         # darwin-shaped name would have to be renamed again to serve it.
-        noncontainerSpecName = spec:
-          if builtins.isString spec then (parseDottedSpec spec).base
-          else spec.name;
         noncontainerResolved = map (spec:
           let
-            name = noncontainerSpecName spec;
-            parsed = if builtins.isString spec then parseDottedSpec spec else null;
+            entry = if builtins.isString spec then spec else spec.name;
             # Source attrset for the base attr: pinned specs fetch their own
             # nixpkgs (system = darwin), everything else resolves from `pkgs`.
             #
@@ -491,25 +613,33 @@
                   url = "https://github.com/NixOS/nixpkgs/archive/${spec.nixpkgs}.tar.gz";
                 }) { inherit system; }
               else pkgs;
-            attr = if builtins.isString spec then parsed.base else spec.name;
-            # `?` membership NEVER throws for a missing attr (tryEval can't
-            # catch attribute-missing errors — only `throw`/`assert`), so this
-            # guard, not tryEval, is what makes an unknown package skippable.
-            present = src ? ${attr};
-            baseDrv = if present then src.${attr} else null;
+            # The same attribute-path walk as the image path.  `?` membership
+            # NEVER throws for a missing attr (tryEval can't catch
+            # attribute-missing errors — only `throw`/`assert`), so the walk's
+            # `?` at every step, not tryEval, is what makes an unknown package
+            # — or an unknown name anywhere along a dotted path — skippable.
+            walk = walkPackageAttr src entry;
+            present = walk.found;
+            split = splitPackageAttr walk;
+            # The entry as written names it in the skip warning and the skip list,
+            # so the macos-user refusal's advice, {"name": "<pkg>", "platforms":
+            # ["linux"]}, can be filled in from it verbatim.  The floor below
+            # drops its own copy of the BASE path ("gtk4" for "gtk4.dev").
+            name = entry;
+            floorName = if present then split.base else entry;
             drv =
               if !present then null
               else if (!builtins.isString spec)
                    && spec ? version && spec ? url && spec ? hash then
-                baseDrv.overrideAttrs (old: {
+                split.drv.overrideAttrs (old: {
                   version = spec.version;
                   src = pkgs.fetchurl { url = spec.url; hash = spec.hash; };
                 })
-              else baseDrv;
+              else split.drv;
             outputs =
-              if builtins.isString spec then
-                (if parsed.output == null then null else [ parsed.output ])
-              else spec.outputs or null;
+              if !present then null
+              else if builtins.isString spec then split.outputs
+              else objectOutputs spec split;
             # availableOn reads meta.platforms/badPlatforms (never builds).
             # Wrap in tryEval to absorb a package whose meta itself throws.
             okAttempt =
@@ -547,7 +677,9 @@
             # on darwin) as "broken or blocklisted".  availableOn is the narrow
             # predicate, so it gets to name its own case.
             skipReason =
-              if !present then "no such package in nixpkgs"
+              if !present then
+                (if walk.walked == [ ] then "no such package in nixpkgs"
+                 else missingPackageReason walk)
               else if !(okAttempt.success && okAttempt.value) then
                 "no ${system} build"
               else if unfreeAttempt.success && unfreeAttempt.value then
@@ -561,12 +693,14 @@
             # fact, so it is fatal here rather than warn-and-skip — and the test
             # sits OUTSIDE okAttempt, whose tryEval would otherwise swallow the
             # throw and relabel a typo'd `packages` entry "no ${system} build".
-            if present && !(isDerivation baseDrv)
-            then throw (nonPackageError attr
-                          (if builtins.isString spec then spec else spec.name)
-                          baseDrv)
+            # An object naming an output twice is the same kind of error.
+            if present && !(isDerivation walk.value)
+            then throw (nonPackageError (showAttrPath walk.walked) entry walk.value)
+            else if present && !(builtins.isString spec)
+                    && objectOutputsConflict spec split
+            then throw (objectOutputsError spec split)
             else {
-              inherit name outputs drv skipReason;
+              inherit name floorName outputs drv skipReason;
               available = present && metaOK
                 && okAttempt.success && okAttempt.value;
             }
@@ -669,7 +803,7 @@
         # pins `{"name": "git", "version": …}` would otherwise turn their own
         # declaration into an eval failure.  Dropping the floor's copy lets the
         # user's spec win, which is the only answer that is not a surprise.
-        noncontainerDeclaredNames = map (r: r.name) noncontainerResolved;
+        noncontainerDeclaredNames = map (r: r.floorName) noncontainerResolved;
         noncontainerFloorNames = builtins.filter
           (n: !(builtins.elem n noncontainerFloorExcluded)
               && !(builtins.elem n noncontainerDeclaredNames))

@@ -775,7 +775,7 @@ with no signature to verify and no reason to require a policy file on every host
 nix2container is a **nix-level** dependency only. The Go side reads the two fields it needs out of
 `image.json` through its own narrow struct, so `vendor/` and the `goSrc` fileset do not grow.
 
-Four properties, each a requirement rather than an observation:
+The properties below are each a requirement rather than an observation:
 
 - **The destination ref is an argument**, so the image is still named on the way in — and now
   structurally: `image.json` carries no repo:tag at all, so the argv is the only name an image
@@ -790,6 +790,17 @@ Four properties, each a requirement rather than an observation:
   copy (its own `image.copier_build` span), and is a SOURCE build no public cache serves
   (measured 2026-09-09: 2m27s cold against this flake's nixpkgs, 0s warm). Its out-link is its GC
   root, because it is a store path the launch executes.
+- **The copier runs without the caller's `LD_LIBRARY_PATH` and `LD_PRELOAD`**
+  ([LI-D1](#why-its-this-way)). Those two variables tell the dynamic loader to use libraries the
+  caller chose, and `LD_LIBRARY_PATH` is searched before a binary's own `RUNPATH`. A Nix-built
+  binary names every library it needs by store path, so it never needs them, and inheriting them
+  can only swap in a library it was not built against. That happened: once `flake.lock` moved the
+  copier to glibc 2.44, a jail's baked `LD_LIBRARY_PATH` (`/lib:/usr/lib:…`, the image's own
+  glibc 2.42) made it abort at startup with `*** stack smashing detected ***`, and every image
+  delivery from that jail failed. With the variable unset, the same binary ran. A host user who
+  exports either variable is exposed the same way. Every exec of the copier starts it through
+  `execx.NixClosureCommand` — a launch's copy (both the containers-storage copy and the delta
+  archive's), `yolo internal image-copy`, and the integration harness's own image load.
 - **A failed copy is retried at most once and then abandons the launch** — see
   [Failure paths](#failure-paths) for which failures skip the retry.
 
@@ -1466,6 +1477,7 @@ ones cited from sibling docs and code comments and are never renumbered.
 | OQ-LI5 | **One delivery mechanism, no way back**: the legacy streamer is deleted rather than kept behind a flag, and a failed copy abandons the launch. A second path no launch exercises is broken by the time anyone reaches for it. This retired R3 — two delivery mechanisms indefinitely — by removing it rather than accepting it, and R8 is what replaced it. | 2026-09-08 |
 | R8 | **No way back if a delivery bug ships**, the accepted cost of [OQ-LI5](#why-its-this-way). It is bounded by evidence — a measured `nix:`-source copy that loads and boots — and the unit of that evidence is a **configuration**, not a backend: it fired once, on the unmeasured rootless mode of a measured backend. Do not bound it by adding a fallback. | 2026-09-09 |
 | OQ-LI7 | The rootless copy is wrapped in podman's own namespace helper, **decided from `podman info` before the copy** and never by retrying a failure; the wrapper is emitted only on a positively rootless podman, an unknown answer adds nothing, and an archive destination is never wrapped. Refused: selecting the archive path on a rootless host (correct, but back to shipping the whole image for the commonest configuration) and shipping an AppArmor profile. This is not the fallback [OQ-LI5](#why-its-this-way) deleted: there is still exactly one mechanism and one destination. | 2026-09-09 |
+| LI-D1 | **A Nix store binary that yolo built or resolved itself runs with `LD_LIBRARY_PATH` and `LD_PRELOAD` removed** from its environment. This is an implementation decision, not a maintainer ruling; the ID is coined here. Only the image copier is such a binary today, and `execx.NixClosureCommand` is the one helper every exec of it goes through. Three judgment calls are part of it. First, the `podman unshare --` prefix runs under the same scrub: podman passes its own environment to the command it runs, so leaving it on podman would leave it on the copier. Second, tools the user supplies keep the caller's environment, because they may need it and none has shown this failure: podman's `info`, `inspect`, `load` and `tag`, nix and nix-store, and the `/bin/sh` the namespace probe runs. Third, only these two variables are removed, and nothing else changes. Reverting it brings back the startup crash for any caller whose loader path holds a different glibc. | 2026-10-06 |
 | OQ-8 | yolo's own binaries are delivered by **mount**, on all three backends in one pass, and the [security delta](#the-security-delta) is the accepted price. | 2026-09-06 |
 | OQ-IP1 | **Cross-system invariance of `imageIdentity` is a requirement, not a convenience** — and it is enforced by *placement*, outside the per-system scope, rather than by a promise. This is what licensed deleting the integration suite's darwin-only downgrade; `TestImageIdentityIsSystemInvariant` guards the relapse. | 2026-09-12 |
 | OQ-IP2 | The **Linux-builder-on-macOS gap is filed separately**, not coupled to the identity fix. Only the identity was on the critical path, and coupling would have kept the instrument dark until both landed. A Mac that cannot offload a Linux build still cannot *build* an image — it can now *verify* one it was handed. | 2026-09-12 |

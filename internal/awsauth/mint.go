@@ -10,8 +10,10 @@ import (
 	"time"
 )
 
-// mint.go is the WHOLE AWS surface of this package: one exec seam, two argv
-// builders, one parser, one classifier. Nothing else in the tree runs `aws`.
+// mint.go is this package's credential AWS surface: one exec seam, two argv
+// builders, one parser, one classifier. The one other `aws` surface is the Bedrock
+// list fetch (modellist.go), which runs through the same seam and classifier.
+// Nothing else in the tree runs `aws`.
 //
 // # The seam exists so no test ever runs `aws`
 //

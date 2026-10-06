@@ -111,8 +111,23 @@ func ViaRouteGate(packs []*packload.Pack, providers *jsonx.OrderedMap,
 		}
 		if len(pointers) == 0 {
 			why := ""
+			// A provider the agent has built in gets no via row by the ruling, so say which rule
+			// it is and the one way to route it anyway (docs/design/pi-codex-provider-shadowing.md
+			// OQ-3: yolo writes no model entry over a provider an agent has built in).
+			if own, builtIn := packload.BuiltInProviderFor(packs, agent, r.Provider); builtIn {
+				why = fmt.Sprintf(". %q is one of %s's own providers, and yolo writes no model "+
+					"entry over a provider an agent has built in, a via row included, so %s runs it "+
+					"on its own client", r.Provider, agent, agent)
+				if own.ID != "" && own.ID != r.Provider {
+					why = fmt.Sprintf(". %q is %s's own %q provider, and yolo writes no model "+
+						"entry over a provider an agent has built in, a via row included, so %s runs it "+
+						"on its own client", r.Provider, agent, own.ID, agent)
+				}
+				why += fmt.Sprintf(". To route it through %s, declare the provider under `providers` "+
+					"with a name %s has no provider of", ServiceName, agent)
+			}
 			if len(alone.Skipped) > 0 {
-				why = ". The bridge would serve it no route either: " + strings.Join(alone.Skipped, "; ")
+				why += ". The bridge would serve it no route either: " + strings.Join(alone.Skipped, "; ")
 			}
 			notices = append(notices, fmt.Sprintf("profile %q (active for %s) routes %s through "+
 				"%s %s, but %s's config does not point it at its via URL, %s, so the via "+

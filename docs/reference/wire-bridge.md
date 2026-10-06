@@ -55,6 +55,11 @@ running, by area:
   and came back as Anthropic server-sent events
   ([`wire-bridge-gateway.md` §2.4](../design/wire-bridge-gateway.md#24-the-first-live-requests-measured-2026-10-01)).
   No agent has sent a request through it.
+- **[Bedrock's own invoke routes](#bedrocks-own-invoke-routes-on-a-bedrock-upstream).** What
+  Claude Code's Bedrock mode sends a gateway is SOURCED from its gateway compatibility guide, and
+  the pass-through and the translation are MEASURED in-process against a fake upstream; the
+  event-stream framing the translation writes is byte-identical to the AWS SDK for Go's encoder.
+  No request has reached AWS through it and no agent has sent one.
 - **[Which upstream is Bedrock's](#which-upstream-is-bedrocks), the region-composed upstream and
   [the model allowlist](#the-model-allowlist).** MEASURED the same way: the production boot over
   the shipped packs, against a stubbed upstream. On 2026-10-01 the boot over a jail's own tables
@@ -379,7 +384,11 @@ reads the provider's model list at boot, and each request's `model` picks one of
   the list's own ids, so a list that spells an id `…[1m]` for claude names the same model.
 
 **Where the vendor comes from.** The list entry declares it. A pack declares it as
-`model_options.<alias>.vendor` on its provider: a company pack's, or the local pack's. A user
+`model_options.<alias>.vendor` on its provider: a company pack's, or the local pack's. Where no
+pack and no config gives the provider a list, the list the launch fetched from Bedrock declares
+it: each model's maker is AWS's own `providerName`, lowercased
+([`model-lists-and-pickers.md` MM-D38](../design/model-lists-and-pickers.md#MM-D38)), so a Claude
+model on that list takes the pass-through too. A user
 declares it as the `vendor` of an object-form entry in their own `providers` config, such as
 `"mine": {"id": "<a Claude model id>", "vendor": "anthropic"}`
 ([providers.md](providers.md#the-shipped-bedrock-provider)). A plain `"alias": "id"` declares
@@ -409,6 +418,25 @@ Both upstreams share the route's SigV4 signer and credential chain. A Bedrock AP
 
 The serve line names the Messages URL and the ids it carries, and each request line that went
 untranslated says so, with its model id. No body is ever logged.
+
+### Bedrock's own invoke routes, on a Bedrock upstream
+
+An agent in its own Bedrock mode pointed at the bridge sends Bedrock's own requests, unsigned:
+claude on `-p bedrock-bridge`, which runs with `CLAUDE_CODE_USE_BEDROCK=1`,
+`ANTHROPIC_BEDROCK_BASE_URL` at the adapter route and `CLAUDE_CODE_SKIP_BEDROCK_AUTH=1`
+([`model-lists-and-pickers.md` MM-D39](../design/model-lists-and-pickers.md#MM-D39)). On a
+Bedrock upstream the adapter route signs those and passes them through
+([`WG-I47`](../design/wire-bridge-gateway.md#WG-I47)):
+
+| Request | What the bridge does |
+| :--- | :--- |
+| `POST /model/{id}/invoke`, `/invoke-with-response-stream`, `/count-tokens` | forwards it to the same route on runtime's host (any path prefix the provider's address carries is kept), signed with the route's SigV4 signer, or with a Bedrock API key as `Authorization: Bearer`. The body, the status and the answer go through byte for byte, AWS's binary event stream included, with `Content-Type`, `X-Amzn-Requestid`, `Retry-After` and `X-Amzn-Bedrock-*`. The agent's `X-Amzn-Bedrock-*` request headers go with it; its caller token never does |
+| one for a model off the provider's narrowed, enforced list | a `400` `ValidationException`, before any upstream ([the model allowlist](#the-model-allowlist)) |
+| one for a model the list declares another maker's | translated, since the pass-through carries Anthropic's request format, which only an Anthropic model takes: the body becomes the Messages request it carries (the path's model and the route's stream flag, without `anthropic_version` and `anthropic_beta`), translated to the provider's chat completions as a `/v1/messages` request is, and the answer goes back as InvokeModel's: Anthropic's message JSON, or AWS's event stream, one `chunk` message per Anthropic event. A failure before the answer is AWS's error shape at its status, one inside the stream an exception message, and `count-tokens` a `404`, so claude uses its own estimator. A model the list does not name is forwarded |
+| any other path not under `/v1/`, such as Claude Code's startup `GET /inference-profiles` | a `404` `ResourceNotFoundException`; Claude Code then falls back on its own model ids |
+| an expired signature, an unresolvable credential, no response headers within ten minutes, an answer cut short | as on the Messages route above, with the bridge's own errors in AWS's shape (`{"message": …}` and `X-Amzn-Errortype`) |
+
+The serve line names the route's base, and each request line names the model and the route.
 
 <a id="which-upstream-is-bedrocks"></a>
 
@@ -792,8 +820,12 @@ receives a token that is good only against this launch's bridge.
   short answers `failed`: a bind error, a failed endpoint publish, a missing provider credential,
   a Codex route with no credential-service endpoint, or a daemon that idles on a boot the launcher
   registered, which is a contradiction between the two call sites of one decision. The entrypoint
-  refuses the boot with `jail daemon "wire-bridge" cannot publish its required endpoint: <reason>`.
-  The reachability witness, keyed on the endpoint variable, is the second line behind it. Either
+  refuses the boot, naming the bridge, the pack it came from and the selected pack whose `needs`
+  brought it, the reason, the daemon log and the hatch: `YOLO_ALLOW_UNREACHABLE_SERVICES=1` boots
+  anyway, with the bridge down ([OQ-R8](loopback-tls-reachability.md#OQ-R8)). The reason names its
+  own next step: a held port's says which port and to free it, and a missing key's names the
+  provider, the variable and `env_sources`. The reachability witness, keyed on the endpoint
+  variable, is the second line behind it, and leaves alone a bridge this wait already reported. Either
   way the failure lands at boot, which is what the preflight philosophy wants: the alternative is
   an agent handed a base URL that dies at first request in a way nobody attributes. On a bind
   failure the reason carries the address, the syscall error and **what holds the port** — see
@@ -1183,7 +1215,7 @@ only place the values themselves are stated.
 | Address override key | `adapters.<from>-><to>.address`, **user scope only** | `internal/config/adapters.go`, `yolo config-ref` |
 | Caller token | `YOLO_SERVICE_WIRE_BRIDGE_TOKEN`: 64 lowercase hex characters, 256 bits from `crypto/rand`, one per launch; accepted as `Authorization: Bearer` or `x-api-key`; anything else is `401` | `paths.ServiceCallerTokenEnv`, `run.launchCallerTokens`, `svcendpoint.NewToken`; checked in `wirebridged/auth.go` |
 | Restart policy | on failure | `packs/wire-bridge/pack.json` |
-| Served path | adapter routes: `POST /v1/messages` and nothing else; via routes: any canonical path under `/agent/<agent>/` (no `.`, `..` or empty segment, no encoded `?` or `#`) | `internal/wirebridged/handler.go`; `wirebridged.viaMux`, `wirebridged.canonicalViaTail` |
+| Served path | adapter routes: `POST /v1/messages`, and on a Bedrock upstream Bedrock's own `POST /model/{id}/invoke`, `/invoke-with-response-stream` and `/count-tokens` ([`WG-I47`](../design/wire-bridge-gateway.md#WG-I47)); via routes: any canonical path under `/agent/<agent>/` (no `.`, `..` or empty segment, no encoded `?` or `#`) | `internal/wirebridged/handler.go`; `wirebridged.viaMux`, `wirebridged.canonicalViaTail` |
 | Upstream path | the provider's `openai` base URL plus `/chat/completions`; on the Codex route, the composed `openai-codex` entry's `openai-responses` base URL (the subscription's, as shipped) plus `/responses`; on a via route, the provider's chat-completions or Responses base URL (the one the path names) plus the path after the prefix | `wirebridged.NewHandler`, `wirebridged.CodexResponsesBaseURL`, `wirebridged.viaUpstreams`, `wirebridged.passthroughHandler` |
 | Via request body limit | 64 MiB; larger is a 413 | `wirebridged.maxViaBody` |
 | Upstream timeout | 10 minutes, the one timeout the daemon adds. The adapter routes bound the whole exchange; a via route bounds only the wait for response headers, and a timeout there is a 504 | `wirebridged.upstreamTimeout`; `wirebridged.viaHeaderTimeout` |

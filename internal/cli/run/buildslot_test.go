@@ -1,7 +1,7 @@
 package run
 
 // buildslot_test.go pins the fork-build slot as one act (buildslot.go;
-// docs/design/pi-extension-store-builds.md XB-D10, XB-D30): a fresh launch hands every key of both
+// docs/design/pi-extension-store-builds.md XB-D10, XB-D57): a fresh launch hands every key of both
 // halves to BuildSlot in one call, never to the two halves' acts, with the pool's bounds; the image's
 // own build starts beside it; Apple Container builds one key at a time; the image identity is
 // evaluated once; and the delivery record loses no hand that the pool's advances make at once.
@@ -154,7 +154,7 @@ func TestTheImageIdentityIsEvaluatedOnce(t *testing.T) {
 	}
 }
 
-// THE LAUNCH'S PREWARM AND ITS IMAGE STEP SHARE ONE IDENTITY EVAL (XB-D30): a fresh launch with a
+// THE LAUNCH'S PREWARM AND ITS IMAGE STEP SHARE ONE IDENTITY EVAL (XB-D57): a fresh launch with a
 // slot asks the identity from both, and the eval runs once. The memo's own behavior is pinned above;
 // this pins its call sites. Red with imageLoadOptions' EvalIdentity no longer the launch's memo, or
 // startImagePrewarm no longer making one.

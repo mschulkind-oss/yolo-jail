@@ -26,13 +26,13 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 )
 
-// shippedScopeRender is a render harness over the providers the shipped pi, zai, openrouter
-// and kilo packs compose (pi's closure adds openai-auth, which declares openai-codex), with
-// the profiles those packs ship resolved the way a launch resolves them. kilo's profile
+// shippedScopeRender is a render harness over the providers the shipped pi, zai, openrouter,
+// kilo and llamacpp packs compose (pi's closure adds openai-auth, which declares openai-codex),
+// with the profiles those packs ship resolved the way a launch resolves them. kilo's profile
 // states a model, because kilo declares no model list and names none of its own.
 func shippedScopeRender(t *testing.T) *pioencodeRender {
 	t.Helper()
-	packs := testPacksForAgent(t, "pi", "zai", "openrouter", "kilo")
+	packs := testPacksForAgent(t, "pi", "zai", "openrouter", "kilo", "llamacpp")
 	providers, err := packload.ComposeProviders(nil, packs)
 	if err != nil {
 		t.Fatal(err)
@@ -43,7 +43,7 @@ func shippedScopeRender(t *testing.T) *pioencodeRender {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, name := range []string{"codex", "zai", "openrouter", "kilo"} {
+	for _, name := range []string{"codex", "zai", "openrouter", "kilo", "llamacpp"} {
 		if _, ok := resolved[name]; !ok {
 			t.Fatalf("the shipped packs resolve no %q profile, so its case measures nothing", name)
 		}
@@ -54,9 +54,10 @@ func shippedScopeRender(t *testing.T) *pioencodeRender {
 }
 
 // wantPiSubagents is the block each shipped profile renders. The codex one is unchanged by
-// the ruling (the exact declared ids, ML-D5); zai's allow is its declared ids in the order
-// its enabledModels takes, the default first; openrouter and kilo declare no model list,
-// so their scope is the whole provider and nothing else.
+// the ruling (the exact declared ids, ML-D5). zai and openrouter are pi's own providers, so pi
+// uses its own list and their scope is the whole provider, the default being the profile's
+// `model` as pi's own id (docs/design/pi-codex-provider-shadowing.md OQ-3); kilo declares no
+// model list, so its scope is the whole provider and nothing else.
 func wantPiSubagents(profile string) map[string]any {
 	scope := func(allow ...any) map[string]any {
 		return map[string]any{"enforce": true, "strict": true, "allow": allow}
@@ -72,7 +73,7 @@ func wantPiSubagents(profile string) map[string]any {
 		return map[string]any{
 			"defaultProvider": "zai",
 			"defaultModel":    "zai/glm-5.3",
-			"modelScope":      scope("zai/glm-5.3", "zai/glm-4.6", "zai/glm-5.3-flash"),
+			"modelScope":      scope("zai/*"),
 		}
 	case "openrouter":
 		return map[string]any{
@@ -84,6 +85,12 @@ func wantPiSubagents(profile string) map[string]any {
 			"defaultProvider": "kilo",
 			"defaultModel":    "kilo/deepseek/deepseek-v4.1-flash",
 			"modelScope":      scope("kilo/*"),
+		}
+	case "llamacpp":
+		return map[string]any{
+			"defaultProvider": "llamacpp",
+			"defaultModel":    "llamacpp/llama",
+			"modelScope":      scope("llamacpp/llama"),
 		}
 	}
 	panic("no expectation for profile " + profile)
@@ -97,10 +104,11 @@ func requirePiSubagents(t *testing.T, r *pioencodeRender, profile string) {
 	}
 }
 
-// One provider class per case: the subscription (codex), a provider with configured models
-// (zai), one with none (openrouter), and one with none whose profile names a model (kilo).
+// One provider class per case: the subscription (codex), providers pi has built in (zai, with a
+// profile model, and openrouter, with none), a provider with configured models (llamacpp), and
+// one with none whose profile names a model (kilo).
 func TestPiSubagentsBlockFollowsEveryProvidersProfile(t *testing.T) {
-	for _, profile := range []string{"codex", "zai", "openrouter", "kilo"} {
+	for _, profile := range []string{"codex", "zai", "openrouter", "kilo", "llamacpp"} {
 		t.Run(profile, func(t *testing.T) {
 			r := shippedScopeRender(t)
 			r.render(t, `{"pi":"`+profile+`"}`)
@@ -112,7 +120,7 @@ func TestPiSubagentsBlockFollowsEveryProvidersProfile(t *testing.T) {
 // The child's default is the SAME model the chat selection starts on: one resolution of the
 // profile's default, not two that can drift.
 func TestPiSubagentsDefaultIsTheChatSelectionsModel(t *testing.T) {
-	for _, profile := range []string{"codex", "zai", "kilo"} {
+	for _, profile := range []string{"codex", "zai", "kilo", "llamacpp"} {
 		t.Run(profile, func(t *testing.T) {
 			r := shippedScopeRender(t)
 			r.render(t, `{"pi":"`+profile+`"}`)

@@ -119,7 +119,9 @@ func loadPackRootAsStaged(e *Env, root string) ([]*packload.Pack, error) {
 	//
 	// A pack is still NAMED by its directory, as the walk below names it: the jail has always
 	// named a configured pack by its staged slug (Pack.StagedSlug), and the host keys what it
-	// hands the jail on that too, so only the order comes from the record.
+	// hands the jail on that too, so the order comes from the record. So does the launch's name
+	// for the pack, kept beside Name as Pack.LaunchName for the one reader that must spell a path
+	// the launch built from it: a `files` tree's landing, which the launch mounts under that name.
 	rec, recorded, err := packload.ReadPackTreeRecord(root)
 	if err != nil {
 		return nil, fmt.Errorf("pack root %s: %w", root, err)
@@ -132,6 +134,7 @@ func loadPackRootAsStaged(e *Env, root string) ([]*packload.Pack, error) {
 			if err != nil {
 				return nil, err
 			}
+			p.LaunchName = entry.Name
 			packs = append(packs, p)
 		}
 		return packs, nil
@@ -274,12 +277,10 @@ func reportOverlayResolution(e *Env, overlays *packoverlay.OverlaySet) {
 		problem := prob
 		genStep(e, "pack_config_overlays", func() error { return fmt.Errorf("%s", problem) })
 	}
-	// Not in a patched extension's build jail (TreeBuildEnv), whose seal leaves every list of the
-	// contributing pack ownerless by construction; the user's own jails name each one.
-	if e.Getenv(TreeBuildEnv) == "" {
-		for _, orphan := range overlays.Orphans {
-			e.warn(fmt.Sprintf("%s  %s (pack %s)", orphan.KindName(), orphan.Reason(), orphan.Pack))
-		}
+	// A sealed build jail, whose seal leaves every list of the contributing pack ownerless by
+	// construction, never gets here: its boot renders no pack surface (sealedbuild.go, PPX-D41).
+	for _, orphan := range overlays.Orphans {
+		e.warn(fmt.Sprintf("%s  %s (pack %s)", orphan.KindName(), orphan.Reason(), orphan.Pack))
 	}
 	for _, applied := range overlays.Applied() {
 		e.warn(fmt.Sprintf("%s: config-overlay keys from %s (yolo config diff %s)",
@@ -326,6 +327,11 @@ type surfaceSelection struct {
 	// applies (luahook.sourceCapabilities) — resolving it here would put the rule in the
 	// caller the same way the per-agent Lua branches used to.
 	NativeCapabilities []string
+	// BuiltInProviders is the providers this surface's agent implements itself, keyed by yolo
+	// provider name (packload.BuiltInProvidersFor, from the agent's own pack, by bin ownership)
+	// — ctx.built_in_providers. A derive writes no model entry under one of them
+	// (docs/design/pi-codex-provider-shadowing.md OQ-3).
+	BuiltInProviders map[string]luahook.BuiltInProvider
 	// ViaURL is this agent's per-agent route on the service its active profile's `via`
 	// names (OQ-WG7 (d)) — ctx.via_url; "" when the profile is not a via profile, or its
 	// service is not in the launch (the host notch).
@@ -375,6 +381,7 @@ func surfaceSelectionFor(packs []*packload.Pack, resolved map[string]packload.Re
 		Provider:           packload.ProviderFor(resolved, profile),
 		ActiveSet:          packload.ActiveSetFor(set, resolved),
 		NativeCapabilities: packload.NativeCapabilities(packs, s.Agent),
+		BuiltInProviders:   packload.BuiltInProvidersFor(packs, s.Agent),
 		ViaURL:             packload.ViaURLFor(resolved[profile], s.Agent),
 		ViaAPIKeyEnvName:   packload.ViaAPIKeyEnvNameFor(packs, resolved[profile], s.Agent),
 		ModelsNotEnforced:  !packload.ModelsEnforced(resolved[profile]),
@@ -437,6 +444,7 @@ func deriveCtx(e *Env, surface manifest.Surface, sel surfaceSelection, tables ma
 		Profile:            activeProfileOptions(e, sel.Profile),
 		ActiveSet:          sel.ActiveSet,
 		NativeCapabilities: sel.NativeCapabilities,
+		BuiltInProviders:   sel.BuiltInProviders,
 		ViaURL:             sel.ViaURL,
 		ViaAPIKeyEnvName:   sel.ViaAPIKeyEnvName,
 		ModelsNotEnforced:  sel.ModelsNotEnforced,

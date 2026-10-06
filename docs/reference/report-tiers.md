@@ -384,7 +384,7 @@ which his first patched launch printed there in full on 2026-10-05. Every act th
 names the build line whole, under the seal it runs in, before the sealed jail runs it, which is
 when the line matters: a jail launch on the build's start line, `yolo capture` and `yolo host` on
 the line under the build's own (`cli/buildreport.go`,
-[PF-D78](../design/patched-forks.md#PF-D78)). So [OQ-RO9](#OQ-RO9) asked whether the block may stop
+[PF-D79](../design/patched-forks.md#PF-D79)). So [OQ-RO9](#OQ-RO9) asked whether the block may stop
 repeating it. **Truncation is no answer**: a payload can sit at character 590. Ruled 2026-10-05:
 the block shows the digest, as the answer below records.
 

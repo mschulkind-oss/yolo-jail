@@ -801,6 +801,43 @@ does not narrow the agent's menu there, naming the agent, the provider, the prof
 [MM-D29](../design/model-lists-and-pickers.md#MM-D29)). It does not see `-p`. On `program` alone;
 `packdecl` refuses an empty `providers` list, an empty name and a name given twice.
 
+<a id="needs_model_list"></a>`needs_model_list` names the provider platforms on which the program
+has no model catalog and no default model of its own, so it starts only on a model some list
+names. `packs/copilot` declares `["aws-bedrock"]`: copilot has no Bedrock catalog, and its BYOK
+refuses to start without a model. On a provider of such a platform that no pack and no config
+gives a list, and that a service such as the wire bridge carries the program to, the launch
+fetches the list from the platform itself (for `aws-bedrock`, through the `aws-auth` service), and
+when the profile names no `model` (or `"default"`) and no list was obtained, the launch stops,
+saying why and what to add ([MM-D36](../design/model-lists-and-pickers.md#MM-D36)). With no
+service to carry the program, it reaches nothing whatever a list holds, so nothing is fetched or
+refused for it, and the launch's profile line says so. On `program` alone; `packdecl` refuses an
+empty list, an empty platform and a platform given twice.
+
+<a id="built_in_providers"></a>`built_in_providers` names the providers the program ships its own
+client and model list for, a **built-in provider** in
+[`pi-codex-provider-shadowing.md`](../design/pi-codex-provider-shadowing.md#OQ-3)'s term, so yolo
+writes no model entry over one and the agent uses its own list
+([OQ-3](../design/pi-codex-provider-shadowing.md#OQ-3), ruled 2026-10-05). It is an
+object. `names` is every provider id the program's own code registers. `plans`, optional, maps a
+yolo provider name to the program's own provider for that provider's plan, `{"provider": …,
+"api_key_env_name": …}`, when the name alone gets it wrong, or to `null` when the program has the
+name built in for another plan and none of its own for this one. `yolo_lists`, optional, names
+the built-in providers the program runs on its own client but on YOLO's model list, which its pack
+renders from yolo's declaration of the provider. `packs/pi`, `packs/omp` and `packs/opencode`
+declare it; opencode's `plans` map `zai` to its own `zai-coding-plan`, which reads
+`ZHIPU_API_KEY`, and `openai-codex` to its own `openai`; pi's and opencode's `yolo_lists` name
+`openai-codex`, whose one list `packs/openai-auth` declares
+([ML-D1](../design/model-lists-and-pickers.md#ML-D1)). Core reads it three ways: every derive's
+`ctx.built_in_providers` (`{ id, api_key_env_name, yolo_list }`, or `false` for a `null` plan),
+the launch's profile line, which names the agent's own client or says a `null` plan's profile
+reaches nothing for it, and the agent's environment, which carries the provider's key under the
+name the agent's own provider reads and no `YOLO_MODEL_<ROLE>`
+([`providers.md`](providers.md#a-provider-the-agent-has-built-in)). A provider in `yolo_lists`
+keeps both of yolo's readings of a list: its tiers, and the endpoint its line names. On `program`
+alone, and a fork keeps its base's; `packdecl` refuses no `names`, an empty, padded or repeated
+name, a plan naming no provider or one not in `names`, an `api_key_env_name` that is no variable
+name, and a `yolo_lists` entry that is empty, repeated, a `null` plan's, or no built-in name.
+
 `install_hints` maps a host package manager to the package that provides `bin` there. Used
 below the `jail` notch, where yolo bakes no image, by `yolo check-deps` / `apply` to probe
 for the binary and emit a runnable manifest. A value is `<package> [<package>…]`, optionally
@@ -875,7 +912,7 @@ programs, the launcher generator and the host floor included, sees the fork's. I
 selection function (`config.SelectPacks`), which every host verb and the launch read, and in the
 jail's pack loader over the staged tree, whose base `pack.json` is unchanged. The rewrite keeps the
 base's `refresh`, `probe_args`, `temp_caches`, `protocols`, `provider_sets`, `platform_switches`, `capabilities`,
-`platform_regions`, `unlisted_background_models`, `exact_menu_refuses` and `node_floor` (a
+`platform_regions`, `unlisted_background_models`, `exact_menu_refuses`, `needs_model_list`, `built_in_providers` and `node_floor` (a
 fork's own `node_floor` replaces it). It drops every other delivery field of the base: `package`, `url`, `flags`, `update`,
 `versions_dir`, `installer_env`, `install_hints`, `model_catalog`, and `platforms` unless the fork declares its own.
 
@@ -1368,12 +1405,12 @@ channel around it.
 
 | Written | What it is | Fields |
 | :--- | :--- | :--- |
-| `{kind:"files", agent:"pi", into:".pi/agent/extensions"}` | a **slot** — where content addressed to `pi` lands | `agent` + `into`, and **no `from`** |
-| `{kind:"files", agents:["pi"], from:"pi-extensions"}` | a **contribution** — this pack's tree, for whoever owns `pi` | `agents` + `from`, and no `into` |
+| `{kind:"files", agent:"pi", into:".pi/agent/yolo-packs"}` | a **slot** — where content addressed to `pi` lands | `agent` + `into`, and **no `from`** |
+| `{kind:"files", agents:["pi"], from:"files/pi"}` | a **contribution** — this pack's tree, for whoever owns `pi` | `agents` + `from`, and no `into` |
 
 A slot ships nothing, so it makes no mount and writes no file; a contribution addressed to it
 lands in a **subdirectory of the slot named for the contributing pack** —
-`.pi/agent/extensions/<pack>` — at **both notches**, through one resolver
+`.pi/agent/yolo-packs/<pack>` — at **both notches**, through one resolver
 ([`packload.SlotLanding`](../../internal/packload/mergedest.go)). Two facts follow, and both are
 the reason the layout is what it is: many packs can address one slot without a
 sole-ownership collision, and nothing is ever delivered AT the slot root, where the owner's own
@@ -1389,6 +1426,27 @@ inside it is the nested-mount conflict `files` was reshaped to remove
 > which the jail cannot honor at all (podman refuses the duplicate mount) and the host would merge
 > in silence. The remedy for the second is one `from` directory holding both trees. Two slots for
 > two DIFFERENT agents, or two trees addressed to different agents, are fine.
+
+**A slot may REGISTER the trees that land in it**, with `register`: `{"surface": "<agent>/<name>",
+"path": "<pointer>"}`. For each tree delivered there, core appends `~/<landing>` to that array as a
+`config-list` entry of the CONTRIBUTING pack, so the entry sits beside the user's own, is captured
+per entry in a jail, is recorded as inserted at the host, and leaves when its pack is dropped or
+`yolo host apply --revert` runs. `surface` must be one the slot's own pack declares (anything else
+is a manifest problem), `path` takes config-list's pointer rules, and an optional `entry` template
+replaces the default `~/{landing}`, holding `{landing}` and no other token. `expects` names the
+top-level entries a well-formed tree holds, and a tree holding none of them is warned about by
+`pack lint`, `pack footprint` and `yolo check`, never refused; when `expects` names `skills`,
+`pack lint` also notes a tree holding a `skills/` folder, whose skills reach that one agent, while
+the `skills` kind reaches every agent. Both fields are a slot's alone. A tree whose `from` is not
+in the staged pack (a typo, or an only/exclude filter that dropped it) is neither mounted nor
+listed. The landing is spelled with the pack's name in `packs` at both notches, even in a jail,
+which otherwise names a configured pack by its staged directory.
+`packs/pi` is the one user: its slot at `.pi/agent/yolo-packs` registers into `pi/settings`
+`/packages`, because pi loads a listed folder as a package, every file in its `extensions/`,
+`themes/` and `prompts/` with no list, so a pack gives pi one
+`{"kind":"files","agents":["pi"],"from":"<folder>"}`
+([`pack-pi-resources.md`](../design/pack-pi-resources.md),
+[`registration.go`](../../internal/packload/registration.go)).
 
 The join lives in destination borrowing rather than in either notch's renderer, which is why the
 host and the jail cannot drift apart again ([`filesslotparity_test.go`](../../internal/cli/run/filesslotparity_test.go)

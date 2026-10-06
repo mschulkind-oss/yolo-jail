@@ -19,7 +19,7 @@ import (
 // setProvidersJSON is zai (with a declared default) beside a second provider declaring its own
 // list and default, and openai-codex's declared list with a 1M variant.
 const setProvidersJSON = `{
-  "zai":{"api_key_env_name":"ZAI_API_KEY",
+  "zhipu":{"api_key_env_name":"ZAI_API_KEY",
     "models":{"default":"glm-5.3","glm-4.6":"glm-4.6","glm-5.3":"glm-5.3"},
     "endpoints":{"openai":{"base_url":"https://api.z.ai/api/coding/paas/v4","wire_api":"openai-chat-completions"}}},
   "router":{"api_key_env_name":"ROUTER_API_KEY",
@@ -30,7 +30,7 @@ const setProvidersJSON = `{
     "model_options":{"gpt-a":{"order":"1","long_context_window":"1000000"},"gpt-b":{"order":"2"}},
     "endpoints":{"openai-responses":{"base_url":"https://chatgpt.example/codex"}}}}`
 
-const setProfilesWire = `{"zai":{"provider":"zai"},"router":{"provider":"router","context_window":"65536"},
+const setProfilesWire = `{"zhipu":{"provider":"zhipu"},"router":{"provider":"router","context_window":"65536"},
   "codex":{"provider":"openai-codex"}}`
 
 func renderPiSet(t *testing.T, use string) *pioencodeRender {
@@ -52,15 +52,15 @@ func strs(v any) []string {
 }
 
 func TestPiRendersItsWholeActiveSet(t *testing.T) {
-	r := renderPiSet(t, `{"pi":["zai","router"]}`)
+	r := renderPiSet(t, `{"pi":["zhipu","router"]}`)
 	settings, models := r.piSettings(t), r.piModels(t)
 
 	// The start pair is the PRIMARY's (AP-D1): a fresh session starts on zai's default.
-	requirePiSelection(t, settings, models, "zai", "glm-5.3")
+	requirePiSelection(t, settings, models, "zhipu", "glm-5.3")
 
 	// The scoped picker is the union, the primary's default first, then the primary's other
 	// models, then the second entry's run with ITS default leading (§4.4).
-	wantEnabled := []string{"zai/glm-5.3", "zai/glm-4.6", "router/vendor/b", "router/vendor/a"}
+	wantEnabled := []string{"zhipu/glm-5.3", "zhipu/glm-4.6", "router/vendor/b", "router/vendor/a"}
 	if got := strs(settings["enabledModels"]); !reflect.DeepEqual(got, wantEnabled) {
 		t.Errorf("enabledModels = %v, want %v", got, wantEnabled)
 	}
@@ -68,7 +68,7 @@ func TestPiRendersItsWholeActiveSet(t *testing.T) {
 	// Both providers are catalog rows, each keyed to its own credential, and the second entry's
 	// own profile option reaches its own row (piProfileFor): router's context_window.
 	provs, _ := models["providers"].(map[string]any)
-	for name, key := range map[string]string{"zai": "${ZAI_API_KEY}", "router": "${ROUTER_API_KEY}"} {
+	for name, key := range map[string]string{"zhipu": "${ZAI_API_KEY}", "router": "${ROUTER_API_KEY}"} {
 		row, _ := provs[name].(map[string]any)
 		if row == nil || row["apiKey"] != key {
 			t.Errorf("models.json %s row = %#v, want apiKey %s", name, row, key)
@@ -83,11 +83,11 @@ func TestPiRendersItsWholeActiveSet(t *testing.T) {
 
 	// A child agent may run on any provider in the set and on nothing outside it (§4.6).
 	sub, _ := settings["subagents"].(map[string]any)
-	if sub["defaultModel"] != "zai/glm-5.3" || sub["defaultProvider"] != "zai" {
-		t.Errorf("subagents start = %v/%v, want the primary's zai/glm-5.3", sub["defaultProvider"], sub["defaultModel"])
+	if sub["defaultModel"] != "zhipu/glm-5.3" || sub["defaultProvider"] != "zhipu" {
+		t.Errorf("subagents start = %v/%v, want the primary's zhipu/glm-5.3", sub["defaultProvider"], sub["defaultModel"])
 	}
 	scope, _ := sub["modelScope"].(map[string]any)
-	wantAllow := []string{"zai/glm-5.3", "zai/glm-4.6", "router/vendor/b", "router/vendor/a"}
+	wantAllow := []string{"zhipu/glm-5.3", "zhipu/glm-4.6", "router/vendor/b", "router/vendor/a"}
 	if got := strs(scope["allow"]); !reflect.DeepEqual(got, wantAllow) || scope["strict"] != true || scope["enforce"] != true {
 		t.Errorf("subagents.modelScope = %#v, want an enforced strict allow of %v", scope, wantAllow)
 	}
@@ -97,9 +97,9 @@ func TestPiRendersItsWholeActiveSet(t *testing.T) {
 // scoped list, the `[1m]` variant left out (a minimatch pattern would read it as a character
 // class), while the pi-subagents scope keeps every declared id.
 func TestACodexEntryAddsItsBaseIdsToTheScopedList(t *testing.T) {
-	r := renderPiSet(t, `{"pi":["zai","codex"]}`)
+	r := renderPiSet(t, `{"pi":["zhipu","codex"]}`)
 	settings := r.piSettings(t)
-	wantEnabled := []string{"zai/glm-5.3", "zai/glm-4.6", "openai-codex/gpt-a", "openai-codex/gpt-b"}
+	wantEnabled := []string{"zhipu/glm-5.3", "zhipu/glm-4.6", "openai-codex/gpt-a", "openai-codex/gpt-b"}
 	if got := strs(settings["enabledModels"]); !reflect.DeepEqual(got, wantEnabled) {
 		t.Errorf("enabledModels = %v, want %v", got, wantEnabled)
 	}
@@ -118,12 +118,12 @@ func TestACodexEntryAddsItsBaseIdsToTheScopedList(t *testing.T) {
 
 	// With codex FIRST, the session starts on the subscription's declared default, and the scope
 	// is written although codex alone writes none (ML-D2 holds only when codex is the whole set).
-	r = renderPiSet(t, `{"pi":["codex","zai"]}`)
+	r = renderPiSet(t, `{"pi":["codex","zhipu"]}`)
 	settings = r.piSettings(t)
 	if settings["defaultProvider"] != "openai-codex" || settings["defaultModel"] != "gpt-a" {
 		t.Errorf("start pair = %v/%v, want openai-codex/gpt-a", settings["defaultProvider"], settings["defaultModel"])
 	}
-	wantEnabled = []string{"openai-codex/gpt-a", "openai-codex/gpt-b", "zai/glm-5.3", "zai/glm-4.6"}
+	wantEnabled = []string{"openai-codex/gpt-a", "openai-codex/gpt-b", "zhipu/glm-5.3", "zhipu/glm-4.6"}
 	if got := strs(settings["enabledModels"]); !reflect.DeepEqual(got, wantEnabled) {
 		t.Errorf("enabledModels with codex first = %v, want %v", got, wantEnabled)
 	}
@@ -140,10 +140,10 @@ func TestASetOfOneRendersExactlyTheSingleProfile(t *testing.T) {
 		}
 		return string(b)
 	}
-	single, listed := renderPiSet(t, `{"pi":"zai"}`), renderPiSet(t, `{"pi":["zai"]}`)
+	single, listed := renderPiSet(t, `{"pi":"zhipu"}`), renderPiSet(t, `{"pi":["zhipu"]}`)
 	for _, rel := range [][]string{{".pi", "agent", "settings.json"}, {".pi", "agent", "models.json"}} {
 		if a, b := read(single, rel...), read(listed, rel...); a != b {
-			t.Errorf("%s differs between \"zai\" and [\"zai\"]:\n--- string\n%s\n--- list\n%s",
+			t.Errorf("%s differs between \"zhipu\" and [\"zhipu\"]:\n--- string\n%s\n--- list\n%s",
 				filepath.Join(rel...), a, b)
 		}
 	}

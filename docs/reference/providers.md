@@ -331,11 +331,13 @@ and thinking levels.
 
 **`bedrock-bridge`** is the pack's second profile, `{provider: bedrock, via: wire-bridge}`, the
 one shipped way to force the wire bridge ([`OQ-BR1`](../design/bedrock-plumbing.md#OQ-BR1)).
-Under it no agent runs its own Bedrock client: codex, opencode, pi and oh-omp get their via rows
-([routing a profile through the bridge](#routing-a-profile-through-the-bridge-via)), and claude
-and copilot are routed at the bridge's adapter address, which composition gives `bedrock` for
-this profile alone ([BR-D16](../design/bedrock-plumbing.md#BR-D16),
-[WG-I26](../design/wire-bridge-gateway.md#WG-I26)). The provider names no address, so the bridge
+Under it every agent's traffic goes through the bridge: codex, opencode, pi and oh-omp get their
+via rows ([routing a profile through the bridge](#routing-a-profile-through-the-bridge-via)),
+copilot is routed at the bridge's adapter address, which composition gives `bedrock` for this
+profile alone ([BR-D16](../design/bedrock-plumbing.md#BR-D16),
+[WG-I26](../design/wire-bridge-gateway.md#WG-I26)), and claude runs its own Bedrock client pointed
+at that address with its own signing skipped, the bridge passing a Claude model through and
+translating another maker's ([MM-D39](../design/model-lists-and-pickers.md#MM-D39)). The provider names no address, so the bridge
 reaches `bedrock-runtime`'s own `/openai/v1` in the region, the provider's `region` or else the
 served agent's `AWS_REGION` then `AWS_DEFAULT_REGION`, and signs every request itself
 ([WG-I37](../design/wire-bridge-gateway.md#WG-I37) to
@@ -1204,6 +1206,43 @@ What each agent actually receives, from one composed table and one selection:
 
 A Bedrock provider is the exception for codex, opencode and pi: it gets no row of this table's
 shape, but the agent's built-in Bedrock provider ([the shipped Bedrock provider](#the-shipped-bedrock-provider)).
+
+<a id="a-provider-the-agent-has-built-in"></a>**A provider the agent has built in** is the other
+exception, for pi, oh-omp and opencode: yolo writes it no model entry, and the agent uses its own
+client, address and model list
+([OQ-3](../design/pi-codex-provider-shadowing.md#OQ-3), ruled and built 2026-10-05). A *built-in
+provider* is that design's term: one the agent ships its own client and list for, under its own
+key. Each agent pack names them in its program's `built_in_providers`
+(`internal/packdecl/builtinproviders.go`), and core hands the answer to every derive as
+`ctx.built_in_providers`. Shipped, that is zai, cerebras and openrouter for all three, kilo for
+oh-omp and opencode, and `openai-codex`, the first case. For such a provider:
+
+- **No row**, a via row included, so a profile's `via` re-points nothing for that agent, and the
+  launch says so.
+- **The selection names the agent's own id**, and from yolo's list only the profile's `model`
+  option, taken as the agent's own id: pi gets that pair and `enabledModels` of `<id>/*`, opencode
+  `model` and `enabled_providers`, oh-omp nothing. No `YOLO_MODEL_<ROLE>` is composed for it.
+- **A plan the agent serves under another name** is the pack's `plans` entry: opencode serves
+  yolo's zai, the coding plan, as its own `zai-coding-plan` (its own `zai` is the metered API), and
+  that provider reads `ZHIPU_API_KEY`, so the launch delivers zai's key to opencode under that
+  name too.
+- **A key you re-point still reaches the agent's own client**: that client reads the variable the
+  shipped provider declares, so with `providers.openrouter.api_key_env_name = "OR_KEY"` the launch
+  delivers the key to pi, oh-omp and opencode as `OPENROUTER_API_KEY` too. A literal `api_key` or
+  `options.api_key` reaches no client, since only the row carried it, and the profile line warns
+  and names the fix: put the key in a variable named under `api_key_env_name`.
+- **`openai-codex` on pi and opencode keeps yolo's list**: both run it on their own client but on
+  the one list `packs/openai-auth` declares ([ML-D1](../design/model-lists-and-pickers.md#ML-D1)),
+  which their packs say with `yolo_lists`, so its `YOLO_MODEL_<ROLE>` tiers are composed and the
+  profile line names its `openai-responses` endpoint. oh-omp runs it on its own list.
+- **A plan the agent has no provider of its own for** (a `null` plan) gets nothing written, and
+  the launch's profile line says the profile reaches nothing for that agent, naming
+  `-p <agent>=<name>`. No shipped pack declares one.
+
+A list a `models` contribution narrows with `only` still narrows such a provider, through the
+channel each agent has for a list and never a catalog row: pi's extension registration, oh-omp's
+scope, and opencode's `whitelist` alone. Whether the ruling reaches those lists is
+[OQ-4](../design/pi-codex-provider-shadowing.md#OQ-4), open.
 
 The spellings are facts about each agent, source-verified and carried as provenance comments
 in the derives (pi 0.84.4's settings-manager keys and its ten-id api registry; opencode's

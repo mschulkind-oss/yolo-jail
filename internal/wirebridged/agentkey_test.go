@@ -120,3 +120,19 @@ func TestABedrockRouteSignsWithTheServedAgentsOwnPair(t *testing.T) {
 		})
 	}
 }
+
+// A KEY THE AGENT'S PROCESS IS NOT HANDED IS STILL THE BRIDGE'S: claude's Bedrock mode at the bridge
+// drops AWS_BEARER_TOKEN_BEDROCK from its process (packs/claude's derive.lua, MM-D39), which its
+// env file spells as the gate's def-form delivery followed by a `case` that unsets it
+// (internal/cli/run's agentEnvFileContent). The key channel reads the name's first assignment, so
+// the bridge still signs with the key claude no longer holds.
+func TestTheBridgeReadsAKeyTheAgentsProcessDrops(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("AWS_BEARER_TOKEN_BEDROCK", "")
+	writeAgentKey(t, home, "claude", "export AWS_BEARER_TOKEN_BEDROCK=${AWS_BEARER_TOKEN_BEDROCK:-'k=ey'}\n"+
+		`case "${AWS_BEARER_TOKEN_BEDROCK-}" in 'k=ey') unset AWS_BEARER_TOKEN_BEDROCK ;; esac`)
+	if got, source := resolveKey("AWS_BEARER_TOKEN_BEDROCK", home, "claude"); got != "k=ey" ||
+		source != entrypoint.AgentEnvFile(home, "claude") {
+		t.Errorf("resolveKey = %q from %q, want the delivered key from claude's file", got, source)
+	}
+}

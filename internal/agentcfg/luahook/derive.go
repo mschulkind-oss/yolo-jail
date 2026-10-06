@@ -137,6 +137,23 @@ type DeriveCtx struct {
 	// handed rather than asking for the same fact twice.
 	NativeCapabilities []string
 
+	// BuiltInProviders is what the agent's own pack declares about the providers its program
+	// implements itself (packdecl.BuiltInProviders, read through packload.BuiltInProvidersFor
+	// by bin ownership, as NativeCapabilities is), keyed by YOLO provider name and exposed as
+	// ctx.built_in_providers: for each name the agent has a provider of its own for, a table
+	// `{ id = <its own provider id>, api_key_env_name = <the key it reads, when declared>,
+	// yolo_list = true <when it runs yolo's list, BuiltInProvider.YoloList> }`,
+	// and `false` for a name the agent has built in for another plan with none of its own for
+	// this one. A name absent from the table is not built in, and the derive writes its row.
+	//
+	// THE RULING IT CARRIES (docs/design/pi-codex-provider-shadowing.md OQ-3, 2026-10-05): a
+	// derive writes no model entry under a name present here, a via row included, and selects
+	// the agent's own provider instead; under `false` it writes nothing for the provider, and
+	// the launch's profile line says the agent cannot reach it. Nil is no declaration, and an
+	// empty table to the derive, so an entrypoint older than the field hands every derive the
+	// world before the ruling.
+	BuiltInProviders map[string]BuiltInProvider
+
 	// UnknownAPI, when non-nil, makes an unknown `yolo.<name>` member TOLERATED
 	// instead of fatal, and is the callback that reports each one (once per name per
 	// Derive call, whatever a script does with it). Nil — the zero value — is STRICT:
@@ -183,6 +200,22 @@ type DeriveCtx struct {
 	// registration listings). The two paths that render a surface — the jail's boot loop and
 	// `yolo check`'s dry run, sharing entrypoint.deriveComputedLayer — set it.
 	Warn func(msg string)
+}
+
+// BuiltInProvider is the agent's own provider for one yolo provider name (DeriveCtx.BuiltInProviders).
+type BuiltInProvider struct {
+	// ID is the agent's own provider id, "" when the agent has a provider of that name for
+	// another plan and none for this one (a null plan in the declaration).
+	ID string
+	// APIKeyEnvName is the variable that provider reads its key from, "" when the declaration
+	// names none (the agent reads the name the yolo provider delivers).
+	APIKeyEnvName string
+	// YoloList is true when the agent runs the provider on its own client but on YOLO'S model
+	// list, which its pack renders from yolo's declaration of the provider
+	// (packdecl.BuiltInProviders.YoloLists): pi and opencode on openai-codex, whose one list
+	// packs/openai-auth declares (docs/design/model-lists-and-pickers.md ML-D1). Core then keeps
+	// the provider's tiers and its endpoint on the launch line, as for any catalogued provider.
+	YoloList bool
 }
 
 // SetEntry is one entry of DeriveCtx.ActiveSet: a profile of the agent's active set, the provider
@@ -617,6 +650,32 @@ func buildDeriveCtxTable(L *lua.LState, ctx *DeriveCtx, sentinel, emptyArr *lua.
 		set.RawSetInt(i+1, entry)
 	}
 	L.SetField(t, "active_set", set)
+	// ctx.built_in_providers, always a table (DeriveCtx.BuiltInProviders): a yolo provider name
+	// → `{ id, api_key_env_name }` for the agent's own provider for it, or `false` where the agent
+	// has none for that name's plan. Keys sorted for the reason ctx.profile's are.
+	builtIn := L.NewTable()
+	names := make([]string, 0, len(ctx.BuiltInProviders))
+	for name := range ctx.BuiltInProviders {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	for _, name := range names {
+		b := ctx.BuiltInProviders[name]
+		if b.ID == "" {
+			L.SetField(builtIn, name, lua.LFalse)
+			continue
+		}
+		own := L.NewTable()
+		L.SetField(own, "id", lua.LString(b.ID))
+		if b.APIKeyEnvName != "" {
+			L.SetField(own, "api_key_env_name", lua.LString(b.APIKeyEnvName))
+		}
+		if b.YoloList {
+			L.SetField(own, "yolo_list", lua.LTrue)
+		}
+		L.SetField(builtIn, name, own)
+	}
+	L.SetField(t, "built_in_providers", builtIn)
 	have := sourceCapabilities(ctx)
 	for _, src := range knownDeriveSources {
 		table := ctx.Tables[src]

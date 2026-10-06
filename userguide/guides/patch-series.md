@@ -167,8 +167,9 @@ its own.
   rather than all of them in turn. Their lines print in the order the packs list them, under one
   progress line.
 - **One Ctrl-C stops the whole wait**: every patched program and extension starts on its good build,
-  one with no build yet is left out and says so, and a later launch tries again. When the time runs
-  out, that build counts as failed and the jail starts on the good build.
+  and one with no build yet is left out and says so; if a pack you selected needs it, the launch
+  then stops before the jail starts, as for any missing build below. When the time runs out, that
+  build counts as failed and the jail starts on the good build.
 - **An attach** to a running jail says which build that jail was handed.
 - In a jail, a pi extension's folder is read-only, and each launch gets its own copy of the good
   build.

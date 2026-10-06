@@ -1,7 +1,7 @@
 package cli
 
 // buildpool_test.go pins a jail launch's build pool (buildpool.go; docs/design/pi-extension-store-builds.md
-// XB-D10, XB-D29): the slot's keys build at once, up to the pool's bound and never past it, one at a
+// XB-D10, XB-D56): the slot's keys build at once, up to the pool's bound and never past it, one at a
 // time on Apple Container; each key's lines print in declaration order whichever ends first; one
 // Ctrl-C ends every build and every wait for a slot, the launch going on without what nothing serves;
 // and `yolo run` wires the slot as one act.
@@ -179,7 +179,7 @@ func TestAppleContainerBuildsOneKeyAtATime(t *testing.T) {
 	}
 }
 
-// ONE CTRL-C ENDS EVERY BUILD AND EVERY WAIT OF THE POOL (PF-D57, PF-D78): three extensions' first
+// ONE CTRL-C ENDS EVERY BUILD AND EVERY WAIT OF THE POOL (PF-D57, PF-D80): three extensions' first
 // builds, two at a time; the Ctrl-C lands while two build and the third waits for a slot. Both
 // builds end, the third begins none, nothing is delivered, each says so and names the step that
 // builds it, and the slot returns, so the launch goes on. Red if the pool stops running its keys

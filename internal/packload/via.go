@@ -164,6 +164,7 @@ func DerivedViaPointers(packs []*Pack, providers *jsonx.OrderedMap, useProfiles 
 		SelectedProvider:   ProviderFor(resolved, profile),
 		Profile:            options,
 		NativeCapabilities: NativeCapabilities(packs, agent),
+		BuiltInProviders:   BuiltInProvidersFor(packs, agent),
 		ViaURL:             url,
 		ViaAPIKeyEnvName:   ViaAPIKeyEnvNameFor(packs, resolved[profile], agent),
 		ModelsNotEnforced:  !ModelsEnforced(resolved[profile]),

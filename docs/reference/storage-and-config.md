@@ -495,7 +495,7 @@ the only place the values themselves are stated.
 | Launch log (the host half), trimmed to the newest 50 runs | `<workspace>/.yolo/launch.log` | `internal/cli/run/launchlog.go`, `perf.MaxRuns` |
 | Provisioning log (fresh containers only) | `<workspace>/.yolo/startup.log` | `provision.StartupLog` |
 | Host launch-wrapper dir (the one a user prepends) | `<machine storage>/bin/wrap` | `paths.WrapDir` |
-| mise store, in-jail | `/mise`; `yolo-mise-data-v2` named volume on macOS | `internal/cli/run/assemble.go` |
+| mise store, in-jail | `/mise`; the `yolo-mise-data-v2` named volume on a Podman Machine, and on Apple Container a tool disk per workspace, `<container name>.mise` | `internal/cli/run/assemble.go`, `internal/prune/misevolumes.go` |
 | Jail env: the mise block | `MISE_DATA_DIR=/mise`, `MISE_TRUSTED_CONFIG_PATHS=/workspace`, `MISE_ENV=jail`, `RUSTUP_HOME=/mise/rustup`, `CARGO_HOME=/mise/cargo` | `internal/cli/run/assemble.go` |
 | Jail env: the loader path | `LD_LIBRARY_PATH=/lib:/usr/lib:/usr/lib/<multilib>` | `internal/cli/run/assemble.go`, `storage.LinuxMultilib` |
 | Jail env: install prefixes | `NPM_CONFIG_PREFIX=/home/agent/.npm-global`, `GOPATH=/home/agent/go` | `internal/cli/run/assemble.go` |

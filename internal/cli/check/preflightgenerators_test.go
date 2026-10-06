@@ -162,8 +162,8 @@ func containerBootGenerators(t *testing.T, path string) []string {
 			}
 		}
 		// Exported generators only, as the genStep reader this replaced matched: the preflight
-		// can name only what entrypoint exports, and the one unexported generator
-		// (startJailDaemonSupervisor) starts processes, which a temp-home dry run must not.
+		// can name only what entrypoint exports. (The supervisor step, which starts processes a
+		// temp-home dry run must not, is a `run` rather than a generator, so it never matches.)
 		if gen != "" && ast.IsExported(gen) && !excluded && !seen[gen] {
 			seen[gen] = true
 			out = append(out, gen)

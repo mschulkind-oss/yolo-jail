@@ -229,12 +229,17 @@ func refuseOnOrphanedJailDaemons(e *Env) error {
 		"`kill <pid>` if it is yours to reclaim", strings.Join(names, ", "))
 }
 
-// `yolo-jaild supervise` as a detached child, once, guarded by a tmpfs PID
-// file so repeated `podman exec yolo-entrypoint` calls don't stack
-// supervisors. Absent/empty YOLO_JAIL_DAEMONS means nothing to do.
+// startJailDaemonSupervisor starts `yolo-jaild supervise` as a detached child, once,
+// guarded by a tmpfs PID file so repeated `podman exec yolo-entrypoint` calls don't
+// stack supervisors. Absent/empty YOLO_JAIL_DAEMONS means nothing to do.
 // The supervisor is the baked-in Go binary (cmd/yolo-jaild) invoked with the
 // `supervise` subcommand, resolved on PATH from the image /bin. It reads
 // YOLO_JAIL_DAEMONS from the inherited environment — no argv, no PYTHONPATH.
+//
+// Every way the readiness wait ends without a REQUIRED service reporting ready returns a
+// *requiredServiceError, which the boot step (startJailDaemons) refuses on or, under the
+// reachability hatch, lets through (OQ-R8). Every other error is a plain one the hatch
+// does not reach: the orphan refusal and its lookup.
 func startJailDaemonSupervisor(e *Env) error {
 	if strings.TrimSpace(e.Getenv("YOLO_JAIL_DAEMONS")) == "" {
 		return nil
@@ -260,7 +265,9 @@ func startJailDaemonSupervisor(e *Env) error {
 			// with no endpoint readiness dependency.
 			return nil
 		}
-		return fmt.Errorf("find jail daemon supervisor: %w", err)
+		return &requiredServiceError{names: readyNames, logs: jailDaemonLogsPhrase(e.Home, readyNames),
+			cause: "the in-jail daemon supervisor, yolo-jaild, is not on PATH (" + err.Error() +
+				"), so nothing started it"}
 	}
 	cmd := exec.Command(bin, "supervise")
 	cmd.Env = os.Environ()
@@ -268,7 +275,8 @@ func startJailDaemonSupervisor(e *Env) error {
 	if len(ready) > 0 {
 		readyRead, readyWrite, err = os.Pipe()
 		if err != nil {
-			return fmt.Errorf("create jail-daemon readiness pipe: %w", err)
+			return &requiredServiceError{names: readyNames, logs: jailDaemonLogsPhrase(e.Home, readyNames),
+				cause: "the boot could not create the pipe its readiness is reported on: " + err.Error()}
 		}
 		cmd.ExtraFiles = []*os.File{readyWrite}
 		cmd.Env = append(cmd.Env, paths.JailDaemonReadyFDEnv+"=3")
@@ -288,7 +296,8 @@ func startJailDaemonSupervisor(e *Env) error {
 		if len(ready) == 0 {
 			return nil
 		}
-		return fmt.Errorf("start jail daemon supervisor: %w", err)
+		return &requiredServiceError{names: readyNames, logs: jailDaemonLogsPhrase(e.Home, readyNames),
+			cause: "the in-jail daemon supervisor could not be started: " + err.Error()}
 	}
 	if readyWrite != nil {
 		// Dropping our copy of the write end is what makes the scanner below see EOF
@@ -338,32 +347,50 @@ func startJailDaemonSupervisor(e *Env) error {
 	result := "failed"
 	defer func() { wait.Done(result) }()
 	total := len(ready)
+	// failed maps each required service that reported `failed` to its reason. A failure does NOT
+	// end the wait: the others are still starting, and returning at once would name the failed
+	// one alone, so under the hatch the witness would probe the rest before they published and
+	// report them a second time, as unpublished (R-D1, R-D3). The wait hears every one out.
+	failed := map[string]string{}
 	scanner := bufio.NewScanner(readyRead)
 	for len(ready) > 0 {
-		wait.Set(fmt.Sprintf("%d of %d ready; %s", total-len(ready), total, logs))
+		wait.Set(fmt.Sprintf("%d of %d ready; %s", total-len(ready)-len(failed), total, logs))
 		if !scanner.Scan() {
 			if err := scanner.Err(); err != nil {
-				return fmt.Errorf("wait for jail-daemon readiness: %w; %s", err, logs)
+				return notStartedError(e.Home, failed, waitingFor(ready),
+					"reading its readiness failed: "+err.Error())
 			}
-			return fmt.Errorf("jail daemon supervisor exited before ready services %s; %s",
-				strings.Join(readyNames, ", "), logs)
+			return notStartedError(e.Home, failed, waitingFor(ready),
+				"the in-jail daemon supervisor exited before it reported ready")
 		}
 		fields := strings.Fields(scanner.Text())
-		if len(fields) < 2 || (fields[0] != "ready" && fields[0] != "failed") || !ready[fields[1]] {
-			return fmt.Errorf("jail daemon reported unexpected readiness %q; %s", scanner.Text(), logs)
+		if len(fields) >= 2 && failed[fields[1]] != "" {
+			// A service already reported failed says so again (a restart): its answer stands.
+			continue
 		}
+		if len(fields) < 2 || (fields[0] != "ready" && fields[0] != "failed") || !ready[fields[1]] {
+			return notStartedError(e.Home, failed, waitingFor(ready),
+				fmt.Sprintf("the supervisor reported %q, which is not a readiness answer this "+
+					"boot waits for", scanner.Text()))
+		}
+		delete(ready, fields[1])
 		if fields[0] == "failed" {
-			reason := "no reason reported"
+			// The daemon's own reason, verbatim: it alone knows the cause and the next step
+			// (a held port, a missing key; wirebridged's servePlan).
+			reason := "it reported no reason"
 			if len(fields) > 2 {
 				reason = strings.Join(fields[2:], " ")
 			}
-			return fmt.Errorf("jail daemon %q cannot publish its required endpoint: %s; %s",
-				fields[1], reason, jailDaemonLogsPhrase(e.Home, []string{fields[1]}))
+			failed[fields[1]] = reason
+			continue
 		}
 		if e.Getenv(paths.VerboseEnv) != "" || e.Getenv("YOLO_JAIL_TIMING") != "" {
 			e.warn("yolo: required in-jail service ready: " + fields[1])
 		}
-		delete(ready, fields[1])
+	}
+	if len(failed) > 0 {
+		wait.Set(fmt.Sprintf("%d of %d ready; %s", total-len(failed), total, logs))
+		return notStartedError(e.Home, failed, nil, "")
 	}
 	// The verdict line of a slow wait that ended well says nothing of the logs.
 	wait.Set(fmt.Sprintf("%d of %d ready", total, total))

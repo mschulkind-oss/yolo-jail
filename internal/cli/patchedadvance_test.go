@@ -543,7 +543,7 @@ func TestCaptureOfAPatchedForkBuildsThroughTheSwap(t *testing.T) {
 // shape): red if runRun stops wiring Options.BuildForks, if buildForksForLaunch stops sending a
 // patched fork to its advance, or if the wiring stops writing the advance to the launch's own
 // stream (the request's Stderr, teed into its launch.log), or writes any of it on the jail
-// command's stdout (PF-D78).
+// command's stdout (PF-D79).
 func TestTheWiredTriggerRunsAPatchedForksAdvance(t *testing.T) {
 	fx := newPatchedAdvanceFixture(t, "")
 	fx.commit(t, "v1.1.0", map[int]string{14: "fourteen"})

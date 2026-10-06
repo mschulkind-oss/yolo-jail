@@ -133,11 +133,11 @@ host or an outside account follows under [External waits](#external-waits).
 22. [Rule the slot split's migration window](../design/slots-and-contributions.md#OQ-D6), then [the manifest language](../design/manifest-language.md)
     with [the slots' other calls](../design/slots-and-contributions.md) — `exposes` and [the pi extension-tree
     rework](../design/pi-pack-extensions.md) wait on the first, and one sitting for the rest rewrites manifests once.
-23. Provider work later decisions build on: [build the natively-implements rule's broad reading](../design/pi-codex-provider-shadowing-plan.md),
-    ruled 2026-10-05, since pi's Converse route through the wire bridge waits on where it lets that route's row sit, with
-    [whether the rule reaches a list a pack declares](../design/pi-codex-provider-shadowing.md#OQ-4), which holds two of the
-    rows the build would remove; and [what `-p` names](../design/providers-and-profiles-redesign.md), which the plain-words
-    rewrite of the provider reference waits on.
+23. Provider work later decisions build on: [whether the natively-implements rule reaches a list a pack declares](../design/pi-codex-provider-shadowing.md#OQ-4),
+    which holds two rows [the rule's broad reading](../design/pi-codex-provider-shadowing-plan.md) left in place when it was
+    built on 2026-10-05; pi's Converse route through the wire bridge may no longer sit on `amazon-bedrock` under that
+    build; and [what `-p` names](../design/providers-and-profiles-redesign.md), which the plain-words rewrite of the
+    provider reference waits on.
 24. [Decide whether a jail shell gets the credential grant](../design/credential-sources-separation.md) — a jail's
     `--with-credentials` and [its build sketch](../design/credential-sources-separation-plan.md) wait on it.
 25. [Notch convergence's held items](notch-convergence.md) — after the workspace-config and jail-credential rulings above
@@ -204,25 +204,24 @@ host or an outside account follows under [External waits](#external-waits).
     [the Bedrock user-guide recipes](../design/bedrock-plumbing.md#12-what-i-would-build-in-order); [the disk levers' re-measure](../design/disk-levers-and-backfill.md),
     its jail half now; [a shared-dir hook whose `at` names no machine `state` of its pack](../design/pack-conventions.md#7-considered-and-not-proposed),
     which `yolo pack lint` and `yolo check` pass and the boot then refuses, starting with the failing lint test; and graduating
-    [the extension model defaults](../research/extension-model-defaults.md) into the provider reference.
+    [the extension model defaults](../research/extension-model-defaults.md) into the provider reference and
+    [`packages` attribute paths](../design/package-nested-attribute-paths.md), built 2026-10-06, into a system doc.
 44. The builds the 2026-10-05 CI and testing rulings released, beside those, since none holds other work either:
     [real vendor installs on the macos-user nightly](../reference/agent-install-in-ci.md#OQ-CI7), one hard-failing job per pack
     with the npm packs first, since no CI job installs a vendor's Mac build before a user does; [copilot from GitHub's own
     installer](native-installer-migration.md), its own updater left on; and [the per-setup census](../design/backend-parity.md),
-    whose test fails when a config key or pack kind has no answer for one of the four setups. Six more of that day's rulings
+    whose test fails when a config key or pack kind has no answer for one of the four setups. Five more of that day's rulings
     released builds placed here for the same reason: [the Bedrock list yolo fetches](../design/model-lists-and-pickers.md#OQ-MM6)
     where no pack supplies one, with claude in its own Bedrock mode behind the bridge, to land no later than [the shipped
     Bedrock list's removal](../design/model-lists-and-pickers.md#MM-D32), since a launch with neither leaves claude on
     `-p bedrock-bridge` without prompt caching and starting on an id Bedrock refuses; [pi's package
     folder](../design/pack-pi-resources.md), one entry per content pack in place of a list of files, registering
     addressed trees only, since whether a patched extension there may drop its list entry is
-    [OQ-PC3](../design/pack-conventions.md#OQ-PC3), open and not gating the patch-series work; and [the jail's readiness
+    [OQ-PC3](../design/pack-conventions.md#OQ-PC3), open and not gating the patch-series work; [the jail's readiness
     act](../design/jail-notch-readiness.md#OQ-JR1), which installs every program a selected pack declares before your command
-    runs and stops a launch that cannot, offline included, since `yolo -- true` still leaves every agent CLI uninstalled; and
+    runs and stops a launch that cannot, offline included, since `yolo -- true` still leaves every agent CLI uninstalled;
     [the refusal of a host-wide daemon older than the launching yolo](../design/host-daemon-ownership.md#OQ-HD11), since an
-    upgraded launch still proceeds without the check that warns what would fail its agents' requests; [the shared tool
-    store's cleanup](../design/minimal-disk-footprint.md#OQ-DF4), offered at launch like the cache's, since nothing removes a
-    tool version no project uses and the store grows about 13 GiB a year; and [nested attribute paths in
+    upgraded launch still proceeds without the check that warns what would fail its agents' requests; and [nested attribute paths in
     `packages`](../design/package-nested-attribute-paths.md#OQ-1), each resolved as `nix build` resolves it, since
     `rocmPackages.clr` still fails the image build.
 45. [Make the Chrome DevTools MCP server work at `yolo host`](../design/mcp-presets-removal.md#5-the-chrome-devtools-inventory--what-the-pack-carries-what-the-image-keeps)
@@ -248,9 +247,11 @@ host or an outside account follows under [External waits](#external-waits).
     and [NFS from macOS's own `nfsd`](../research/macos-vm-runtime-comparison.md#6-is-there-an-open-stack-with-faster-shared-folders), the one open shared-folder
     candidate left, since libkrun with complete permission semantics and QEMU's virtiofsd port did not beat VZ's share — first among the waits,
     as [the comparison's refresh](../reference/macos-no-vm-direction.md#when-to-refresh-this) waits on it; it measures the build skip and spans if landed, waiting for neither.
-49. Someone at the runner Mac upgrades `container` from 1.1.0 to 1.5.0 (its kernel prompt is interactive), so the next
-    `apple-container.yml` dispatch reruns [the two-jail check](../research/macos-backend-performance.md#7-found-on-the-way-two-apple-container-jails-may-mount-one-ext4-disk), which every parity run on 1.1.0 since 2026-10-03 has failed;
-    the VM-local probe needs the maintainer's push and one dispatch, after the upgrade for answers that hold on 1.5.0.
+49. The next `apple-container.yml` dispatch reruns [the two-jail check](../research/macos-backend-performance.md#7-found-on-the-way-two-apple-container-jails-may-mount-one-ext4-disk),
+    which every parity run on 1.1.0 since 2026-10-03 has failed and which must now pass, as each workspace has had a `/mise`
+    disk of its own since [OQ-MB1](../research/macos-backend-performance.md#OQ-MB1)'s build (2026-10-05); someone at the runner Mac
+    upgrades `container` from 1.1.0 to 1.5.0 (its kernel prompt is interactive), and the VM-local probe needs the maintainer's push
+    and one dispatch, after the upgrade for answers that hold on 1.5.0.
 50. A human with a subscription login clears [Claude's login without interception](../design/claude-login-without-interception.md)
     by running [its runbook](runbooks/claude-credential-view-measures.md), on a Mac and for a day on a rootless host,
     which also releases [`yolo host -- claude` joining the shared login](../reference/claude-oauth-interposition.md#OQ-CI1),

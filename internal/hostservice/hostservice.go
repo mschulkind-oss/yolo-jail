@@ -100,6 +100,11 @@ type Session struct {
 	// carried one, else the client's own Request["jail_id"], else "unknown".
 	// See the package comment for why the fallback survives.
 	JailID string
+	// Fronted is set when the connection came through a front (ServeFrontedUnix, ServeEndpoint):
+	// a jail's, or a launch's own dial through the endpoint it published. Unset on a plain host
+	// socket (ServeUnix), which only a host process can reach, so a handler can answer an action
+	// on the host alone by refusing it here.
+	Fronted bool
 
 	conn     net.Conn
 	mu       sync.Mutex
@@ -642,7 +647,7 @@ func handleOne(handler Handler, conn net.Conn, readPreamble bool) {
 			}
 		}
 	}
-	sess = &Session{Request: req, JailID: jailID, conn: conn}
+	sess = &Session{Request: req, JailID: jailID, Fronted: readPreamble, conn: conn}
 	rc := 0
 	rcForLog = &rc
 	func() {

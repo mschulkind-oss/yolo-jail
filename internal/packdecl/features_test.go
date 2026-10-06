@@ -33,7 +33,8 @@ func TestFeaturesListEveryKindAndViaAndTheNamedCapabilities(t *testing.T) {
 			t.Errorf("via %q is not listed", v)
 		}
 	}
-	for _, name := range []string{"patch-series", "patched-extensions", "skips-unreadable-contributions"} {
+	for _, name := range []string{"patch-series", "patched-extensions", "registered-files-slots",
+		"skips-unreadable-contributions"} {
 		if !got[name] {
 			t.Errorf("%q is not listed", name)
 		}
@@ -72,6 +73,13 @@ func TestEveryNamedFeatureIsReadable(t *testing.T) {
 			  "patches":"patches"}]}`))
 			if len(problems) != 0 {
 				t.Errorf("patched-extensions: a patched extension does not decode: %v", problems)
+			}
+		case "registered-files-slots":
+			m, problems := Decode([]byte(`{"name":"pi","contributes":[{"kind":"files","agent":"pi",
+			  "into":".pi/agent/yolo-packs","register":{"surface":"pi/settings","path":"/packages"},
+			  "expects":["extensions"]}]}`))
+			if len(problems) != 0 || m.Contributes[0].Register == nil {
+				t.Errorf("registered-files-slots: a registering slot does not decode: %v", problems)
 			}
 		case "skips-unreadable-contributions":
 			_, problems, skipped := DecodeForUse([]byte(`{"name":"x","contributes":[

@@ -349,6 +349,7 @@ func TestSlotRunsEveryAutomaticClass(t *testing.T) {
 		"o.autoReapOldImages(rt, guard)",
 		"o.reapSupersededStoreOutputs(rt, guard)",
 		"o.measureAndPurgeCache(reclaimConsent, guard)",
+		"o.measureAndPurgeMiseVersions(rt, reclaimConsent, guard)",
 		"o.reapSmallAutomaticClasses(rt, cname, guard)",
 		"o.reapImageTars(rt, guard)",
 		"o.reapFlakeBundleGenerations(rt, guard)",
@@ -381,6 +382,7 @@ func TestEveryClassDeletesUnderTheGuard(t *testing.T) {
 		"prune.AutoReapOldImagesGuarded(rt, buildDir, o.Now(), run, guard)",
 		"prune.DeleteSupersededStoreOutputsGuarded(candidates, true, run, guard, rootDirs)",
 		"prune.PurgeCacheByAgeGuarded(cacheRoot, subdirs, nil, cacheAgeDays, true, o.Now(), guard)",
+		"prune.PruneUnusedMiseVersionsGuarded(sweep, o.Now(), guard)",
 		"prune.PruneOrphanAgentStagingGuarded(",
 		"prune.PruneRetiredLoopholeStateGuarded(",
 		"prune.PruneImageCacheGuarded(",
@@ -395,7 +397,7 @@ func TestEveryClassDeletesUnderTheGuard(t *testing.T) {
 	}
 	for _, unguarded := range []string{"prune.AutoReapOldImages(", "prune.DeleteSupersededStoreOutputs(",
 		"prune.PruneOrphanAgentStaging(", "prune.PruneRetiredLoopholeState(", "prune.PruneImageCache(",
-		"prune.PruneImageDelivery(", "flakebundle.Reap("} {
+		"prune.PruneImageDelivery(", "flakebundle.Reap(", "prune.PruneUnusedMiseVersions("} {
 		if strings.Contains(src, unguarded) {
 			t.Errorf("the slot calls the unguarded %s", unguarded)
 		}

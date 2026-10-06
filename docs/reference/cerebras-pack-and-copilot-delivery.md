@@ -72,6 +72,12 @@ Seven packs declare an agent CLI (`kind: "program"`); this is what each one can 
 | codex | catalog derive + selection keys | **no, and no bridge helps** — codex speaks OpenAI Responses only, and the bridge translates exactly one pair, Anthropic Messages ↔ chat completions |
 | agy | nothing | **no, and nothing can** — see below |
 
+The catalog-derive rows describe a provider the agent has no provider of its own for. cerebras
+itself is one pi, oh-omp and opencode have built in, so none of the three gets a cerebras row: each
+runs it on its own client and model list, reading `CEREBRAS_API_KEY`
+([OQ-3](../design/pi-codex-provider-shadowing.md#OQ-3), built 2026-10-05;
+[providers.md](providers.md#a-provider-the-agent-has-built-in)).
+
 > [!WARNING]
 > **`agy` is Google-locked and this is not a gap to close.** Its `modelProvider` setting accepts
 > exactly one value, and its only custom-endpoint hook speaks the Gemini protocol, so a

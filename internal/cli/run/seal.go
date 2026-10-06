@@ -67,7 +67,10 @@ package run
 // the host's — which a build needs for its dependencies and which the launch discloses.
 //
 // The selection is narrowed as well (Options.OnlyPacks): every other selected pack's loopholes and
-// machine-scope directories are channels the build does not need.
+// machine-scope directories are channels the build does not need. And the jail is told it is a
+// sealed build (entrypoint.SealedBuildEnv), so its boot renders no pack-declared surface and runs no
+// pack hook: it runs no agent, and the narrowing can leave a pack's surface for another pack's agent
+// under a home directory no bind makes writable (docs/design/patched-extensions.md PPX-D41).
 
 import (
 	"os"

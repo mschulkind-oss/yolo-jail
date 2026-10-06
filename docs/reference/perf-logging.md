@@ -255,7 +255,7 @@ Two sinks are wired by the run pipeline:
   launch has no notice at all** (`Options.subLaunch`, the suppressed capture-store
   mount that makes a launch one): its stream is its parent launch's record, which
   shows the build as one progress line, and its file still records every span
-  ([`patched-forks.md` PF-D78](../design/patched-forks.md#PF-D78)).
+  ([`patched-forks.md` PF-D79](../design/patched-forks.md#PF-D79)).
 
 **The report** renders the completed events in the same register as the
 entrypoint's boot log — elapsed-since-start, `+delta` from the previous line, the

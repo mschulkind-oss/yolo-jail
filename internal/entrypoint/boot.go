@@ -690,7 +690,12 @@ func Main(args []string) error {
 	// THE MAIN PROCESS HOLDS instead of running a command: it records the stage for the first
 	// session, says the boot is done, and keeps the container up (holdJail). Its status says
 	// whether a SIGTERM ended it (holdExitStatus).
+	//
+	// Beside the hold, for as long as it lasts, the main process records which versions of the
+	// shared tool store this workspace uses (miseuserecord.go), which is how the host tells the
+	// versions no jail on the machine has used for 30 days (OQ-DF4).
 	if mode == modeHold {
+		startMiseUseRecorder(e)
 		return holdExitStatus(holdJail(command, os.Stderr))
 	}
 	// THE PROVISIONING STAGE, on this session's terminal, after its own pass and before its
@@ -704,23 +709,57 @@ func Main(args []string) error {
 	return execBash(e, command, mode != modeFirstSession)
 }
 
-// genFailuresError turns the collected generator failures into the single error
-// that aborts the boot (A12), or nil when every step succeeded. The message names
-// each failing step, because "config generation failed" alone would send the user
-// back into the logs to find out which one.
+// genFailuresError turns the collected refusals into the single error that aborts
+// the boot (A12), or nil when every step succeeded. The message names each failing
+// step, because "config generation failed" alone would send the user back into the
+// logs to find out which one.
 //
-// It counts BOOT STEPS, not config generators: the jail-daemon supervisor's readiness wait
-// (a required daemon such as the wire bridge that cannot publish) and the reachability
-// witness record their failures here too, and calling either a config generator sent the
-// reader to the wrong place.
+// TWO HEADINGS, because the boot refuses for two kinds of reason and the reader looks
+// in different places for each. A failed boot step (genStep) is about what the boot
+// writes; a service refusal (Env.refuseService) is about a service the jail needs, and
+// listing the wire bridge under "config generator(s) failed" sent its reader to the
+// config (docs/reference/loopback-tls-reachability.md OQ-R8). The step heading counts
+// BOOT STEPS, not config generators, since not every genStep is a generator.
+//
+// The service heading ends with the hatch ONLY when the hatch would get the boot past
+// every refusal listed: this is the boot's last line, and a way forward that leads
+// into the next refusal is not one (R-D4 in that doc).
 func genFailuresError(e *Env) error {
-	fails := e.GenFailures()
-	if len(fails) == 0 {
+	fails, svcs := e.GenFailures(), e.serviceRefusals
+	if len(fails) == 0 && len(svcs) == 0 {
 		return nil
 	}
-	msg := fmt.Sprintf("refusing to start the jail: %d boot step(s) failed:\n  - %s",
-		len(fails), strings.Join(fails, "\n  - "))
+	var sections []string
+	if len(svcs) > 0 {
+		sections = append(sections, serviceRefusalsSection(svcs, len(fails) == 0))
+	}
+	if len(fails) > 0 {
+		sections = append(sections, fmt.Sprintf("%d boot step(s) failed:\n  - %s",
+			len(fails), strings.Join(fails, "\n  - ")))
+	}
+	msg := "refusing to start the jail: " + strings.Join(sections, "\nand ")
 	return fmt.Errorf("%s%s", msg, aclHint(e, fails))
+}
+
+// serviceRefusalsSection is genFailuresError's service heading and its list. alone says
+// no config generator failed, which is half of whether the hatch line is offered.
+func serviceRefusalsSection(svcs []serviceRefusal, alone bool) string {
+	head := "it cannot use a service it needs:"
+	if len(svcs) > 1 {
+		head = "it cannot use services it needs:"
+	}
+	var b strings.Builder
+	b.WriteString(head)
+	hatchable := alone
+	for _, s := range svcs {
+		b.WriteString("\n  - " + s.msg)
+		hatchable = hatchable && s.hatchable
+	}
+	if hatchable {
+		b.WriteString("\n  If you only need a shell, or this jail can do without what is listed, launch " +
+			"anyway:\n      " + paths.AllowUnreachableServicesEnv + "=1 <your yolo command>")
+	}
+	return b.String()
 }
 
 // aclHint appends the macos-user ACL diagnosis when the failures look like the

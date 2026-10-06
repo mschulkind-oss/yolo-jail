@@ -263,7 +263,7 @@ func (o *Options) composePackChannelWith(cfg *jsonx.OrderedMap, packs []*packloa
 	// resolves through what this launch carries: the hydrated env_sources, then the
 	// environment yolo was launched from, so the relay does not claim a credential the
 	// launch would not have carried.
-	scope, err := packload.ScopeCredentials(packload.ScopeInput{
+	in := packload.ScopeInput{
 		Packs:     packs,
 		Providers: providers,
 		Profiles:  packload.ProfileTable(profiles),
@@ -294,9 +294,22 @@ func (o *Options) composePackChannelWith(cfg *jsonx.OrderedMap, packs []*packloa
 		// ones the launch writes each loophole's settings file from.
 		RegionFiles: &packload.RegionFileSource{Getenv: o.Getenv, Setting: packload.LoopholeSettingIn(cfg),
 			Stranded: func(name string) bool { return o.Getenv(name) != "" }},
-	})
+	}
+	scope, err := packload.ScopeCredentials(in)
 	if err != nil {
 		return nil, err
+	}
+	// THE FETCHED LIST (bedrockmodels.go, OQ-MM6): a provider no pack or config gives a model list
+	// gets the region's from its platform's credential service, read off the gate's answer for the
+	// region, and the gate composes again so the env derives see it.
+	changed, err := o.composeFetchedLists(cfg, packs, providers, resolved, scope)
+	if err != nil {
+		return nil, err
+	}
+	if changed {
+		if scope, err = packload.ScopeCredentials(in); err != nil {
+			return nil, err
+		}
 	}
 	c.scope = scope
 	return c, nil
@@ -454,9 +467,12 @@ func (c *packChannel) deliverySource(o *Options, argvPairs map[string]string,
 // which is where macosuser.buildPlan layered its own hydration before the gate took that
 // call away, so a user's own dotenv entry still beats every channel value on this backend.
 //
-// The shape vars' Unset half is skipped: `env -i K=V…` starts from nothing, so there is
-// nothing to remove, and spelling a removal here would need a convention neither backend
-// has.
+// The shape vars' Unset half is skipped, but for one case: `env -i K=V…` starts from nothing,
+// so there is nothing to remove, and spelling a removal here would need a convention neither
+// backend has. The case is a name the gate delivered this agent through env_sources, which
+// land last: a derive removing that one from the process (claude's Bedrock mode at the wire
+// bridge drops AWS_BEARER_TOKEN_BEDROCK, packs/claude's derive.lua) has it dropped from the
+// session env, while a launch-owned service still receives it (launchServiceInput).
 func (c *packChannel) launchEnv(agent string) *jsonx.OrderedMap {
 	env := jsonx.NewOrderedMap()
 	packEnv := map[string]string{}
@@ -493,6 +509,13 @@ func (c *packChannel) launchEnv(agent string) *jsonx.OrderedMap {
 	for _, k := range sources.Keys() {
 		v, _ := sources.Get(k)
 		env.Set(k, v)
+	}
+	if d != nil {
+		for _, v := range d.Shape {
+			if v.Unset && mapStr(d.EnvSources, v.Key) != "" {
+				env.Delete(v.Key)
+			}
+		}
 	}
 	return env
 }

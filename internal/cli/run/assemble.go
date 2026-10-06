@@ -15,14 +15,17 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/loopholes"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
+	"github.com/mschulkind-oss/yolo-jail/internal/prune"
 	"github.com/mschulkind-oss/yolo-jail/internal/runtime"
 	"github.com/mschulkind-oss/yolo-jail/internal/storage"
 )
 
-// MISE_STORE_VOLUME is the named volume backing the jail-land mise store on
-// macOS (podman + Apple Container), mounted at /mise. Versioned name (bump the
-// suffix to force a fresh store).
-const miseStoreVolume = "yolo-mise-data-v2"
+// miseStoreVolume is the named volume backing a podman jail's /mise on macOS: the Podman
+// Machine's one store, which every podman jail on the Mac mounts at once. Apple Container mounts
+// a tool disk per workspace instead (prune.MiseVolumeName, actooldisk.go), because a disk there
+// attaches to one VM at a time (OQ-MB1). The name is prune's, which also reaps it on Apple
+// Container, where no jail of this yolo mounts it any more.
+const miseStoreVolume = prune.SharedMiseVolume
 
 // assembleInput carries everything the ordered-argv assembler needs that isn't
 // on Options. It is populated by the fresh-launch path before assembly; grouping
@@ -963,6 +966,11 @@ func (o *Options) assembleRunCmd(in *assembleInput) []string {
 	// And in a patched extension's own sealed build jail, which extension it builds (PPX-D30).
 	if in.sealed && in.sealedTree != "" {
 		runCmd = append(runCmd, "-e", entrypoint.TreeBuildEnv+"="+in.sealedTree)
+	}
+	// And in every sealed build jail, a fork's too, that it is one: it runs no agent, so its boot
+	// renders no pack-declared surface and runs no pack hook (PPX-D41).
+	if in.sealed {
+		runCmd = append(runCmd, "-e", entrypoint.SealedBuildEnv+"=1")
 	}
 
 	// --- host files (pack-declared, origin-gated) ---

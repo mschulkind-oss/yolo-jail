@@ -34,12 +34,16 @@ const credentialListJSON = `{
     "endpoints":{"openai":{"base_url":"https://multi.example/v1","wire_api":"openai-chat-completions"}}},
   "one":{"api_key_env_name":["ONE_KEY"],"models":{"default":"o1"},
     "endpoints":{"openai":{"base_url":"https://one.example/v1","wire_api":"openai-chat-completions"}}},
+  "solo":{"api_key_env_name":"SOLO_KEY","models":{"default":"s1"},
+    "endpoints":{"openai":{"base_url":"https://solo.example/v1","wire_api":"openai-chat-completions"}}},
   "zai":{"api_key_env_name":"ZAI_API_KEY","models":{"glm-5.3":"glm-5.3"},
     "endpoints":{"openai":{"base_url":"https://api.z.ai/api/coding/paas/v4","wire_api":"openai-chat-completions"}}}
 }`
 
 // Done condition 1's models.json half: `-p zai` for pi renders a catalog that names no AWS
-// variable, and each provider's key reference is its ONE variable or nothing.
+// variable, and each provider's key reference is its ONE variable or nothing. zai itself is one of
+// pi's own providers, so it gets no row at all (docs/design/pi-codex-provider-shadowing.md OQ-3),
+// and `solo` stands for a provider naming its one variable as a string.
 func TestPiModelsJSONCarriesNoMultiRouteCredential(t *testing.T) {
 	r := newPioencodeRender(t, credentialListJSON)
 	r.wireProfiles(`{"zai": {"provider": "zai", "model": "glm-5.3"}}`)
@@ -51,8 +55,11 @@ func TestPiModelsJSONCarriesNoMultiRouteCredential(t *testing.T) {
 		t.Errorf("pi's models.json names an AWS variable although pi selected zai:\n%s", raw)
 	}
 	provs, _ := models["providers"].(map[string]any)
+	if provs["zai"] != nil {
+		t.Errorf("models.json catalogues pi's own zai: %#v", provs["zai"])
+	}
 	for name, want := range map[string]any{
-		"zai":   "${ZAI_API_KEY}",
+		"solo":  "${SOLO_KEY}",
 		"one":   "${ONE_KEY}", // a list of one points at its one variable
 		"multi": nil,          // several point at none
 	} {

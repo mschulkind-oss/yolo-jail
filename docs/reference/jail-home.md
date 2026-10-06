@@ -177,7 +177,7 @@ On the podman backend, in tiers:
 │
 └─ siblings outside /home/agent
      /workspace       the workspace, rw
-     /mise            the mise store (a named volume on macOS)
+     /mise            the mise store (a named volume on macOS; per workspace on Apple Container)
      /opt/yolo-jail   TWO :ro mounts: the linux binaries and the flake bundle
      /ctx/*           read-only context: host files, config `mounts`, packs
      /run/yolo-services   host-service sockets
@@ -329,13 +329,13 @@ orientation, not an inventory.
   repo root exactly the way a host install does with no `YOLO_REPO_ROOT` set. The image
   bakes only the mountpoints (a read-only rootfs cannot grow one) and the `/bin/<name>`
   symlinks that point into them.
-- **The mise store at `/mise`** — a host bind on Linux, a named volume on macOS. Inside a
-  nested jail the store is `/mise` itself, so every nesting depth shares one store. The
-  host's own mise data directory is never mounted. ⚠ On Apple Container, while one jail runs,
-  a jail in another workspace fails to start (measured on `container` 1.1.0). That this volume's
-  disk is the attachment refused, since it attaches to one VM at a time, is inferred: the error
-  does not name it. What should back it instead is
-  [OQ-MB1](../research/macos-backend-performance.md#OQ-MB1).
+- **The mise store at `/mise`** — a host bind on Linux, one named volume on a Podman Machine.
+  Inside a nested jail the store is `/mise` itself, so every nesting depth shares one store. The
+  host's own mise data directory is never mounted. **On Apple Container each workspace has its
+  own**, a named volume `<container name>.mise` that the launch creates labelled with its
+  workspace: a disk there attaches to one VM at a time, and one shared volume let only one
+  workspace's jail run ([OQ-MB1](../research/macos-backend-performance.md#OQ-MB1)). `yolo prune`
+  removes the disk of a workspace that is gone, and `yolo stores` lists them.
 - **Host nix daemon socket and store** — mounted when both exist and the runtime is not
   Apple Container; macOS podman additionally requires an opt-in env var. Without it, nix
   in the jail fails with "build users group has no members".
@@ -500,7 +500,8 @@ the single home bind on Apple Container, and the layout's `~/.local` symlink on 
 It is the jail's own tree, never the host's
 ([`storage-and-config.md`](storage-and-config.md#machine-wide-storage) gives each backend's host path).
 
-**Shared mutable.** `~/.cache`, `/mise`, and any machine-scope credential dir.
+**Shared mutable.** `~/.cache`, `/mise` (except on Apple Container, where it is per
+workspace), and any machine-scope credential dir.
 
 **Deliberately never touched.** The staged `:ro` content (mounted by the CLI — the
 entrypoint does nothing for skills or briefings), user-authored keys in agent settings,
@@ -522,8 +523,8 @@ The pre-rename generated-script dirs are emptied for the same reason.
 
 | Scope | What lives there |
 | :--- | :--- |
-| **Per machine, all workspaces** | the machine store `<global storage>/home` (the machine-scope shared dirs, rw, and the Claude login seed); the mise store at `/mise`; the cache at `~/.cache`; the image build dir (load sentinel, GC roots); the layout-version marker; the user config |
-| **Per workspace** | everything under `<workspace>/.yolo/home` — the rw overlays, the single-file bind sources, each pack's workspace-scope state dir, the writable-home backing dirs, the venv shadows |
+| **Per machine, all workspaces** | the machine store `<global storage>/home` (the machine-scope shared dirs, rw, and the Claude login seed); the mise store at `/mise`, except on Apple Container; the cache at `~/.cache`; the image build dir (load sentinel, GC roots); the layout-version marker; the user config |
+| **Per workspace** | everything under `<workspace>/.yolo/home` — the rw overlays, the single-file bind sources, each pack's workspace-scope state dir, the writable-home backing dirs, the venv shadows; on Apple Container, the workspace's tool disk at `/mise` |
 | **Per jail (container name)** | the podman home skeletons and each launch's pack tree; container tracking files, the briefing and skills staging tree, the socat log; the keeper's log, liveness lock, start record and session lock |
 | **Per host workspace, inside one home** | the agent history file, keyed on a hash of the host workspace path |
 | **Per container** (the jail's start to its stop) | `/tmp`, `/run`, `/dev/shm`, the per-launch scratch volumes, PID files, the session records |
@@ -1101,7 +1102,7 @@ only place the values themselves are stated.
 | PATH | `BlockDir:LaunchDir:NpmBin:MiseShims:GoBin:LocalBin:StorePackagesBin:/bin:/usr/bin` | `entrypoint.BootPath` |
 | Store-package farm | `/run/yolo/packages` (`bin/`, `lib/`) | `entrypoint.StorePackagesBin`, `StorePackagesLib` |
 | mise store | `/mise`, with `MISE_DATA_DIR`, `RUSTUP_HOME`, `CARGO_HOME` under it | `assemble_parts.go`, `internal/cli/run/storagehelpers.go` (`jailMiseStoreDir`) |
-| mise store volume name (macOS) | `yolo-mise-data-v2` | `internal/cli/run/assemble.go` (`miseStoreVolume`) |
+| mise store volume name (macOS) | `yolo-mise-data-v2` on a Podman Machine; `<container name>.mise`, one per workspace, on Apple Container | `internal/prune/misevolumes.go` (`SharedMiseVolume`, `MiseVolumeName`) |
 | Writable-home backing subdir | `writable-home` | `config.WritableHomeBackingSubdir` |
 | Container run flags | `--rm -i --init --read-only`, and `--sig-proxy=false` and `--detach-keys=` on podman; never `-t`: the main process is a hold, and the first session's `exec` takes the terminal | `internal/cli/run/assemble.go` |
 | The container's main process, and how a session enters | `yolo-entrypoint --yolo-hold-main '<stage>'` as pid 1's child, with `YOLO_JAIL_MAIN=hold`, started by the jail's keeper and ended only by a SIGTERM; every session by `<runtime> exec`, the first with `--yolo-first-session`; every podman `run` and `exec` with `--detach-keys=`, which turns the detach sequence off | `internal/entrypoint/jailmain.go`, `internal/cli/run/jailmain.go`, `runtime.DetachKeysArgs` |

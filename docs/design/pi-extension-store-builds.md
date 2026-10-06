@@ -777,8 +777,8 @@ fixes, numbered after the rest when the two builds were merged, except [XB-D14](
 confirmed that day; his own ruling of that day is recorded
 in [§7.1](#71-the-ruling). Rows marked *under (c)* apply only if
 [OQ-6](pi-git-extension-caching.md#OQ-6) is ruled (c), and [XB-D16](#XB-D16) only under (a) or (b).
-[XB-D29](#XB-D29) and [XB-D30](#XB-D30) were made building [§14](#14-what-i-would-build-in-order)'s
-step 2.
+[XB-D56](#XB-D56) and [XB-D57](#XB-D57) were made building [§14](#14-what-i-would-build-in-order)'s
+step 2 for a jail launch's forks and extensions in one pool.
 
 | ID | Ruling / Decision | Date | Settled in | Built |
 | :--- | :--- | :--- | :--- | :--- |

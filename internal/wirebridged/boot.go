@@ -308,6 +308,9 @@ func adapterHandler(route route, e *entrypoint.Env) (http.Handler, string, strin
 		}
 		h := newSignedChatHandler(route.UpstreamBaseURL, route.chatOptions(),
 			&bedrockSigner{region: route.SignRegion, chain: &sigv4.Chain{Env: env}}, route.AnthropicModels)
+		if h.invoke != nil {
+			h.invoke.vendors = route.ModelVendors
+		}
 		return h, signingDescription(route.SignRegion, route.RegionSource) + ", from " + env.String(), ""
 	}
 	key, keySource := keyFor(e, route.KeyEnvName, route.Agent)
@@ -367,7 +370,11 @@ func servePlan(ctx context.Context, p plan, e *entrypoint.Env) int {
 			} else if route.bedrock() {
 				signalNotReady(ServiceName, "Bedrock upstream cannot be served: "+why)
 			} else {
-				signalNotReady(ServiceName, "provider credential is unavailable")
+				// The boot prints this as its refusal's cause (OQ-R8), so it names the provider
+				// and the variable, and where a key comes from, rather than "provider credential
+				// is unavailable", which named neither.
+				signalNotReady(ServiceName, why+"; give the launch "+route.KeyEnvName+
+					" (an `env_sources` entry in your yolo config) and launch again")
 			}
 			return idleUntilStopped(ctx)
 		case why != "":
@@ -382,7 +389,7 @@ func servePlan(ctx context.Context, p plan, e *entrypoint.Env) int {
 				handler: requireAnthropicCaller(token, "the adapter route for "+what, handler)})
 			serving = append(serving, fmt.Sprintf("provider %q: anthropic on {addr} → openai %s (endpoint {endpoint}, credential %s)%s%s",
 				route.ProviderName, route.UpstreamBaseURL, credentialDescription(route, keySource),
-				messagesServeNote(handler), allowlistNote(allow.adapter)))
+				invokeServeNote(handler)+messagesServeNote(handler), allowlistNote(allow.adapter)))
 			if len(route.VendorConflicts) > 0 {
 				logf("provider %q's list names %s under aliases declaring different vendors, so the bridge "+
 					"translates %s as it does any model not declared Anthropic's (wire-bridge-gateway.md WG-I34)",
@@ -426,7 +433,7 @@ func servePlan(ctx context.Context, p plan, e *entrypoint.Env) int {
 			// host-side instrument cannot see a jail-side listener).
 			holder := describePortHolder(l.addr)
 			logf("cannot bind %s for %s: %v — %s", l.addr, l.what, err, holder)
-			signalNotReady(ServiceName, "cannot bind "+l.addr+": "+err.Error()+" — "+holder)
+			signalNotReady(ServiceName, bindFailureReason(e, l.addr, err, holder))
 			for _, done := range ls {
 				if done.ln != nil {
 					_ = done.ln.Close()
@@ -528,6 +535,24 @@ func signalReady(name string) {
 
 func signalNotReady(name, reason string) {
 	signalReadiness("failed", name, reason)
+}
+
+// bindFailureReason is the `failed` reason for a listener that could not bind addr. The boot
+// prints it as its refusal's cause (docs/reference/loopback-tls-reachability.md OQ-R8), so a
+// HELD PORT (EADDRINUSE) is named as one, with the next step, ahead of the three facts the
+// 8214 hunt needed: the address, the syscall error verbatim and the holder. Any other bind
+// error is those facts alone, since nothing here knows a step that fixes it.
+//
+// A jail's only: the host half binds a descriptor its launch reserved (listenAt), so "free
+// the port" is not a step its reader can take.
+func bindFailureReason(e *entrypoint.Env, addr string, err error, holder string) string {
+	facts := "cannot bind " + addr + ": " + err.Error() + " — " + holder
+	_, port, splitErr := net.SplitHostPort(addr)
+	if hostHalf(e) || splitErr != nil || !errors.Is(err, syscall.EADDRINUSE) {
+		return facts
+	}
+	return "port " + port + " is already taken (" + facts + "); free it — stop what holds it, " +
+		"or change the config that forwards it into the jail — and launch again"
 }
 
 // readinessRequested and signalReadiness must agree about what a usable
@@ -679,6 +704,10 @@ type route struct {
 	// VendorConflicts is every id the list names under aliases declaring different vendors,
 	// which therefore stays translated; the serve log names them (WG-I34).
 	VendorConflicts []string
+	// ModelVendors is, for a Bedrock upstream, each listed id's declared maker (declaredVendors),
+	// the pack's or config's list or else the fetched one: the invoke pass-through translates an id
+	// declared another maker's (invoke.go, invoketranslate.go).
+	ModelVendors map[string]string
 }
 
 // bedrock reports whether the route signs for Bedrock: its region is known, or the boot reads
@@ -1026,6 +1055,7 @@ func routeFor(providers *jsonx.OrderedMap, useProfiles map[string]string,
 			// composed entry as the upstream, so the launcher's WillServe and this boot read one
 			// table; it changes no serve-or-idle answer.
 			rt.AnthropicModels, rt.VendorConflicts = anthropicModelIDs(entry)
+			rt.ModelVendors = declaredVendors(entry)
 		}
 		return rt, ""
 	}

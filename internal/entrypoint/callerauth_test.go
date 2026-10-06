@@ -47,8 +47,8 @@ func TestTheBootLogSaysWhichServicesRequireCallerAuth(t *testing.T) {
 func TestTheBootRecordsCallerAuthBeforeStartingTheSupervisor(t *testing.T) {
 	assertStepBefore(t, bootContainer, "note_service_caller_auth", "start_jail_daemon_supervisor",
 		"boot.log would say the bridge requires caller auth only after the daemons demanding it started")
-	if !isGen(mustBootStep(t, "start_jail_daemon_supervisor"), startJailDaemonSupervisor) {
-		t.Error("start_jail_daemon_supervisor no longer runs startJailDaemonSupervisor")
+	if !isRun(mustBootStep(t, "start_jail_daemon_supervisor"), startJailDaemons) {
+		t.Error("start_jail_daemon_supervisor no longer runs startJailDaemons")
 	}
 	e, _, logOnly := loudEnv(t)
 	e.Vars[bridgeTokenVar] = strings.Repeat("ab", 32)

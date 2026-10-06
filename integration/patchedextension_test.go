@@ -21,6 +21,10 @@ import (
 //     builds the tree in a sealed capture jail, admits it, and mounts a per-launch copy read-only at
 //     `~/<into>`; the agent's list names it, the jail is handed the build, and the launch discloses
 //     the extension and the build.
+//     The contributing pack also declares a surface of its own for the agent, under the agent's
+//     home directory and fed by a host read, as pack matt's pi `automode` surface is: the build
+//     jail's seal drops the agent pack, so its boot renders no pack surface (PPX-D41), and the
+//     user's own jail renders it.
 //  2. A version the series does not fit is held: `yolo pack update` reports the conflict and names
 //     `yolo pack rebase <pack>/<name>`; the next launch still mounts the previous build and its
 //     line names what holds it; and the named command, run as printed, stops at the same conflict
@@ -36,6 +40,7 @@ const (
 	patchTreeExtPack   = "ptree-ext"
 	patchTreeName      = "ptree"
 	patchTreeInto      = ".ptreeagent/ext/" + patchTreeName
+	patchTreeAutomode  = ".ptreeagent/ext/automode/config.json"
 )
 
 func TestPatchedExtensionIsBuiltMountedReadOnlyAndHeldAtAConflict(t *testing.T) {
@@ -82,12 +87,15 @@ func TestPatchedExtensionIsBuiltMountedReadOnlyAndHeldAtAConflict(t *testing.T) 
 		`{"kind":"state","at":".ptreeagent","scope":"workspace"},`+
 		`{"kind":"config","config":[{"agent":"`+patchTreeAgentBin+`","name":"settings","codec":"json",`+
 		`"path":"~/.ptreeagent/settings.json"}]}]}`)
-	// THE CONTRIBUTING PACK: the patched extension, and the list entry that makes the agent load it.
+	// THE CONTRIBUTING PACK: the patched extension, the list entry that makes the agent load it, and
+	// a surface of its own for the agent, under the agent's home directory and fed by a host read.
 	writeManifest(ext, `{"name":"`+patchTreeExtPack+`","contributes":[`+
 		`{"kind":"files","into":"`+patchTreeInto+`","source":"git+file://`+up.dir+`?ref=main",`+
 		`"patches":"patches","build":"true","produces":["f.txt"]},`+
 		`{"kind":"config-list","surface":"`+patchTreeAgentBin+`/settings","path":"/packages",`+
-		`"add":["~/`+patchTreeInto+`"]}]}`)
+		`"add":["~/`+patchTreeInto+`"]},`+
+		`{"kind":"config","config":[{"agent":"`+patchTreeAgentBin+`","name":"automode","codec":"json",`+
+		`"path":"~/`+patchTreeAutomode+`","readsHost":true,"managed":{"autoMode":true}}]}]}`)
 	packHome(t, `{"packs": [{"source": "file://`+agent+`", "name": "`+patchTreeAgentPack+`"}, `+
 		`{"source": "file://`+ext+`", "name": "`+patchTreeExtPack+`"}]}`)
 
@@ -108,7 +116,8 @@ func TestPatchedExtensionIsBuiltMountedReadOnlyAndHeldAtAConflict(t *testing.T) 
 echo "LINE10=$(sed -n 10p "$d/f.txt")"
 if touch "$d/.probe" 2>/dev/null; then echo TREE_WRITABLE; else echo TREE_READONLY; fi
 echo "TREES=$YOLO_PATCHED_TREES"
-echo "SETTINGS=$(tr -d ' \n' < "$HOME/.ptreeagent/settings.json")"`
+echo "SETTINGS=$(tr -d ' \n' < "$HOME/.ptreeagent/settings.json")"
+echo "AUTOMODE=$(tr -d ' \n' < "$HOME/` + patchTreeAutomode + `")"`
 	launch := func(what string) string {
 		t.Helper()
 		r := runYoloDirect(t, t.TempDir(), "bash", "-c", probe)
@@ -125,6 +134,7 @@ echo "SETTINGS=$(tr -d ' \n' < "$HOME/.ptreeagent/settings.json")"`
 		"LINE10=patched",
 		"TREE_READONLY",
 		`"~/` + patchTreeInto + `"`,
+		`AUTOMODE={"autoMode":true}`,
 		"Patched extensions this launch:",
 		"extension " + owner + ": ~/" + patchTreeInto + ", a patched extension of git+file://" + up.dir + "?ref=main + 1 patch",
 		"built extension " + owner + ": v1.1.0 (" + v11[:8] + ") + 1 patch; this jail runs it",

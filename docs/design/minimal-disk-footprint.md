@@ -2,23 +2,24 @@
 title: "Minimal disk footprint — reclamation that waits for a human is not reclamation"
 date: 2026-08-25
 status: accepted
-tags: [design, disk, prune, images, podman, nix]
-summary: "Every reclaimer yolo owned was correct, tested, and reachable only from a human typing `yolo prune` — so 404 GiB of regenerable image tars sat unreclaimed under a hint that had been true for a month. The fix is not a better sweeper: it is moving the delete into the process that made the bytes. Three of the four questions are ruled and in the tree — the tar is never written, the podman reap fires on its own, and it touches only images yolo can prove are its own. The fourth, OQ-DF4, was ruled 2026-10-05: no number; the shared tool store is cleaned like the cache, offered at launch and then automatic, and that is unbuilt."
-stage: DECIDED
-next: "Build OQ-DF4 (A), ruled 2026-10-05: mise/ joins the offered cleanup tier, so once 1 GiB of tool versions no jail has used for 30 days piles up a launch offers to remove them and a yes makes it automatic; it needs the list of workspaces that used the store, which the per-workspace current-image record may already be for container launches, and a reaper that cannot read one declines"
+tags: [design, disk, prune, images, podman, nix, mise]
+summary: "Every reclaimer yolo owned was correct, tested, and reachable only from a human typing `yolo prune` — so 404 GiB of regenerable image tars sat unreclaimed under a hint that had been true for a month. The fix is not a better sweeper: it is moving the delete into the process that made the bytes. All four questions are ruled and built — the tar is never written, the podman reap fires on its own and touches only images yolo can prove are its own, and the one residual store, the shared mise tool store, is swept through the offered tier from a machine-wide record of what every jail uses rather than held to a number."
+stage: BUILT
+next: "Re-measure mise/ on the host once the use record has covered its first 30-day window: the first offer, and §2.6's growth figure, are the check"
 vantage:
   status-chip: true
 ---
 
 # Minimal disk footprint — reclamation that waits for a human is not reclamation
 
-**Status:** 2026-08-25 — every ruling made; audited and compacted 2026-09-18, re-checked
-against the tree 2026-09-24. [OQ-DF4](#OQ-DF4), the last, was ruled in review on 2026-10-05 as
-leaned (A), on the measurement taken 2026-09-15
+**Status:** 2026-08-25 — every ruling made and built; audited and compacted 2026-09-18,
+re-checked against the tree 2026-09-24. [OQ-DF4](#OQ-DF4), the last, was ruled in review on
+2026-10-05 as leaned (A), on the measurement taken 2026-09-15
 ([§2.6](#26-the-second-sample-2026-09-15--oq-df4-is-unblocked-and-the-residual-has-a-name))
-and re-taken 2026-09-30, which left one store in it: the shared tool store is cleaned like the
-cache. That one is unbuilt; every other ruling is built, and [§11.1](#111-decision-ledger) has
-the dates and the commits.
+and re-taken 2026-09-30, and built the next day: the shared mise tool store is cleaned like the
+cache, judged from a record every jail writes of what it uses
+([§11.3](#113-the-mise-use-record-as-built)).
+[§11.1](#111-decision-ledger) has the dates and the commits.
 The one live defect the 2026-09-18 audit found — the P4 `.tmp` exposure — was fixed 2026-09-20
 ([§5](#5-invariants--what-must-not-break)).
 
@@ -42,7 +43,7 @@ aspiration ([§5](#5-invariants--what-must-not-break) P7).
 
 **Needs your ruling:** none. [OQ-DF4](#OQ-DF4) was ruled in review on 2026-10-05, as leaned (A):
 no budget number, and old tool versions in the shared store are offered for cleanup at launch like
-the cache.
+the cache. It is built ([§11.3](#113-the-mise-use-record-as-built)).
 
 **Scope note.** This doc owns the *mechanism*; the measurement and the verdict are
 [`image-staging-vs-baking.md`](../reference/image-staging-vs-baking.md)'s, whose
@@ -684,7 +685,7 @@ Concretely, on this machine on 2026-08-25, the fallback would not have fired no 
 
 **Fifth, re-measure — TAKEN 2026-08-25, and it is [`image-staging-vs-baking.md`](../reference/image-staging-vs-baking.md) [the cost model](../reference/image-staging-vs-baking.md#cost-model).** That doc's design-era step 5 (a numbered section it no longer has) called for a re-measurement after C2+C3 land, and [OQ-1](../reference/image-staging-vs-baking.md#why-its-this-way)'s ruling explicitly preserved that gate even while ruling the *shape* of C4/C5. Both landed 2026-08-25 and the pass ran the same day. **What it found that this doc has to carry:** the podman tar term is zero (149 files and an unmoved directory mtime across a cold rebuild-and-load), a cold launch is 52 s against a warm 4 s, and a coexisting content-tagged image costs **2.836 GB unique** unless it is a same-store-path re-stream, which costs 91.36 kB. That last figure is a direct input to [OQ-DF3](#OQ-DF3)'s retention number. This doc's remaining work lands inside the same window, so its effect should be measured by the same pass rather than a separate one. **Deliberate consequence: nothing here — and nothing in [the cost model](../reference/image-staging-vs-baking.md#cost-model) — was a pre-approval of C4/C5.** Both have since been built (2026-09-06, `69850e28` and `044fe493`) as the opt-in fast path [OQ-1](../reference/image-staging-vs-baking.md#why-its-this-way) ruled — `YOLO_STORE_PACKAGES=1`, podman on Linux only — with the baked path retained as the default and as the only path on the Macs ([store-delivered packages](../reference/image-staging-vs-baking.md#store-delivered-packages)).
 
-**Not sequenced here:** a byte-budget config surface. It is worth stating as a contract ([§4.1](#41-candidate-invariants-weighed)c), and [OQ-DF4](#OQ-DF4) ruled on 2026-10-05 that it is never written down as a number, so there is no key to build.
+**Not sequenced here:** a byte-budget config surface. It is worth stating as a contract ([§4.1](#41-candidate-invariants-weighed)c), and [OQ-DF4](#OQ-DF4) ruled on 2026-10-05 that it is never written down as a number, so there is no key to build. The residual store got a reclaimer instead ([§11.3](#113-the-mise-use-record-as-built)).
 
 ---
 
@@ -702,15 +703,17 @@ The maintainer ruled the **premise** (it is a bug) and the **goal** (minimal dis
 | [OQ-DF3](#OQ-DF3) (NUMBER) | **`--keep-images` stayed 2 — the count was never the defect.** The liveness veto, not the count, is what protects a live workspace's image. ⚠ **SUPERSEDED IN MECHANISM 2026-09-09** by [`OQ-LS3`](../reference/image-retention.md#why-its-this-way): the count was the wrong *unit*, so the flag is deleted rather than retuned and retention is the union of one current-image pointer per workspace with the `podman ps` veto. This row's reasoning is why the number was never worth arguing about; it is no longer a description of the code | 2026-09-06, superseded 2026-09-09 | [§11.2](#112-open-questions) [OQ-DF3](#OQ-DF3) | ✅ then DELETED by [`OQ-LS3`](../reference/image-retention.md#why-its-this-way) |
 | [OQ-DF3](#OQ-DF3) (REACH) | **NARROW — yolo never removes an image it cannot prove is its own.** The evidence gap is closed by a **label in the image config**, not by a ledger: MEASURED 2026-09-08, a label survives untagging and `podman images -a --filter label=…` still finds the `<none>` row, so provenance becomes intrinsic to the image and needs no cap, no side-file and no record of who loaded it. Carry the identity as the value so a nameless row is fully attributable. Rows that predate the label are **left alone permanently** and surfaced by `yolo stores` as a class nothing reclaims — never on the launch path, which has no action to offer. **BUILT 2026-09-08**: `flake.nix`'s `mkOciImage` bakes `org.yolo-jail.owner`, and `PruneOldImages` (`internal/prune/probes.go`) unions the repo-name probe with a label probe — TWO queries, because podman refuses both in one (`cannot specify an image and a filter(s)`, MEASURED). Two corrections the build measured: the probe carries **no `-a`** (a plain listing already returns the untagged row; `-a` additionally surfaces build intermediates this ruling does not authorize removing), and the label value cannot be a per-image key — nix cannot reference a derivation's own output path, so `imageIdentity` (one value per `flake.nix`+`flake.lock`) is the finest identity spellable and the label proves OWNERSHIP only | 2026-09-08 | [§11.2](#112-open-questions) [OQ-DF3](#OQ-DF3), [`disk-levers-and-backfill.md`](disk-levers-and-backfill.md) [§5.5](disk-levers-and-backfill.md#55-yolo-stores--the-inventory-including-what-nothing-reclaims) | ✅ `flake.nix` + `internal/prune/probes.go` |
 | [OQ-DF3](#OQ-DF3) (TRIGGER) | **The launch path, debounced 24 h** — `prune.AutoReapOldImages`, never a new veto. Opt out with `YOLO_NO_AUTO_IMAGE_REAP=1`. **Its placement moved once and is settled:** it shipped in front of the container on 2026-09-06 and [OQ-BF5](disk-levers-and-backfill.md#OQ-BF5) moved it into the post-attach **housekeeping slot** (`internal/cli/run/housekeeping.go`, `65ae67c6`), which keeps the reach and drops the P7 exposure — so the reap can no longer delay a launch or race its own image | 2026-09-06, placement 2026-09-08 | [§11.2](#112-open-questions) [OQ-DF3](#OQ-DF3), [`disk-levers-and-backfill.md`](disk-levers-and-backfill.md) [§5.1](disk-levers-and-backfill.md#51-the-housekeeping-slot) | ✅ `65ae67c6` |
-| [OQ-DF4](#OQ-DF4) | **A policy, not a number: `mise/` is cleaned like the cache** — the maintainer's words: *"we need to bound storage for sure. so A."* No budget key. `mise/` joins the offered tier of [`disk-levers-and-backfill.md` §5.2](disk-levers-and-backfill.md#52-two-tiers-one-mapping): once 1 GiB of tool versions no jail has used for 30 days piles up, a launch offers to remove them, and a yes makes it automatic. A reaper that cannot read whether a recorded workspace still uses a version declines | 2026-10-05 | [§11.2](#112-open-questions) [OQ-DF4](#OQ-DF4), [background](#oq-df4-background) | pending |
+| [OQ-DF4](#OQ-DF4) | **(A) — policy, not a number, and the residual store is swept.** The maintainer's words: *"we need to bound storage for sure. so A."* No byte-budget key exists or will. The shared mise tool store joins the offered tier of [`disk-levers-and-backfill.md`](disk-levers-and-backfill.md) [§5.2](disk-levers-and-backfill.md#52-two-tiers-one-mapping): versions no jail on the machine has used for 30 days, once they total 1 GiB, are offered at a launch through the cache class's own offer and consent record, and a yes makes the class automatic. "Used" is machine-wide, judged from a record every jail writes into the store; the implementation decisions behind that record are [§11.3](#113-the-mise-use-record-as-built)'s DF-D rows | 2026-10-05 | [§11.2](#112-open-questions) [OQ-DF4](#OQ-DF4), [§11.3](#113-the-mise-use-record-as-built) | ✅ `internal/miseuse`, `internal/prune/miseversions.go` |
 
 ### 11.2 Open Questions
 
-**[OQ-DF4](#OQ-DF4) was the last, ruled 2026-10-05 as leaned** — the measurement its leaning
-held itself open for was taken on 2026-09-15 ([§2.6](#26-the-second-sample-2026-09-15--oq-df4-is-unblocked-and-the-residual-has-a-name)),
-and it argued for the leaning rather than against it. The three settled questions keep a short entry
-here because their ids are cited from sibling docs and from source comments; the rulings themselves
-are [§11.1](#111-decision-ledger) rows.
+**All four are settled.** [OQ-DF4](#OQ-DF4), the last, was ruled 2026-10-05 as leaned — the
+measurement its leaning held itself open for was taken on 2026-09-15
+([§2.6](#26-the-second-sample-2026-09-15--oq-df4-is-unblocked-and-the-residual-has-a-name)), and
+it argued for the leaning rather than against it — and built
+([§11.3](#113-the-mise-use-record-as-built)). Each question keeps a short entry here
+because its id is cited from sibling docs and from source comments; the rulings themselves are
+[§11.1](#111-decision-ledger) rows.
 
 1. ✅ **[OQ-DF1](#112-open-questions) — RULED 2026-08-25, and COMPACTED: does the offline tar fallback
    survive at all?** The ruling and the three boundaries it left standing are [§11.1](#111-decision-ledger)'s
@@ -766,11 +769,12 @@ UNBLOCKED 2026-09-15: the measurement this question waited on was taken ([§2.6]
 - **(A) Policy, and sweep `mise/`.** No budget key. `mise/` joins the offered tier of
   [`disk-levers-and-backfill.md` §5.2](disk-levers-and-backfill.md#52-two-tiers-one-mapping):
   once 1 GiB of tool versions no jail has used for 30 days piles up, a launch offers to remove
-  them, and a `y` makes it automatic, as the cache age-purge already works. Unbuilt, and it
-  owes a signal yolo does not collect yet: nothing yolo writes records which versions a launch
-  used (mise records it per workspace, as the check below found), and a reaper that cannot
-  tell declines rather than sweeping. The cost is a re-download for a
-  workspace that comes back to an old version.
+  them, and a `y` makes it automatic, as the cache age-purge already works. It owed a signal
+  yolo did not collect: nothing yolo wrote recorded which versions a launch used (mise records
+  it per workspace, as the check below found), and a reaper that cannot tell declines rather
+  than sweeping. The cost is a re-download for a workspace that comes back to an old version.
+  **Ruled and built — the signal is the mise use record of
+  [§11.3](#113-the-mise-use-record-as-built).**
 - **(B) Policy, and `mise/` is the human's.** No budget key and no reclaimer. `yolo stores`
   keeps listing it as a store nothing reclaims, and removing old versions stays the user's
   job. The cost is the growth, about 13 GiB a year at the measured rate.
@@ -805,13 +809,15 @@ nothing joins the pieces.** MEASURED in this jail, mise 2026.8.6:
   back to a stale image) writes none, and
   the macos-user arm leaves the pipeline before that step.
 
-So (A)'s cost is now a known shape: a record, written at each launch, of every workspace that
+So (A)'s cost was a known shape: a record, written at each launch, of every workspace that
 has used the store, read host-side with each `/workspace` link mapped to that workspace's host
 path, and declining whenever a recorded workspace cannot be read. mise supplies the per-config
-half; what is missing is the list of workspaces, which the current-image record may already be
-for container launches.
+half; what was missing is the list of workspaces, which the current-image record may already have
+been for container launches. **The build changed that shape** ([DF-D1](#DF-D1)): the host never
+reads a workspace's links, and needs no list of workspaces. Each jail asks its own mise, in its
+own frame, and writes the answer into the store.
 
-4. ✅ <a id="OQ-DF4"></a>**[OQ-DF4](#OQ-DF4) — does yolo owe the machine a stated number, or only a policy?**
+4. ✅ <a id="OQ-DF4"></a>**[OQ-DF4](#OQ-DF4) — RULED 2026-10-05, (A), and built: does yolo owe the machine a stated number, or only a policy?**
 
    [§4.1](#41-candidate-invariants-weighed)c adopts a byte ceiling as a *contract* but not as a trigger, which leaves open whether the number is ever written down.
    What a number and a policy each mean, the measurement that narrowed the question to one named
@@ -833,10 +839,62 @@ for container launches.
    > [`disk-levers-and-backfill.md` §5.2](disk-levers-and-backfill.md#52-two-tiers-one-mapping).
    > A reaper that cannot tell whether a recorded workspace still uses a version declines rather
    > than sweeping. The cost the ruling accepts is a re-download for a workspace that returns to an
-   > old version. For the builder: the per-workspace current-image record (the corrected bullet
-   > in the background above) may already be the list of workspaces that used the store, for
-   > container launches; read from the code, not checked against every launch that uses `/mise`.
-   > Not built.
+   > old version. **Built** as [§11.3](#113-the-mise-use-record-as-built) describes,
+   > from a record each jail writes rather than from the current-image record ([DF-D1](#DF-D1)).
+
+### 11.3 The mise use record, as built
+
+**Mise use record** *(a term coined for this build)* — the files in which every jail on a machine
+says which installed versions of the shared mise tool store its workspace uses, under the store's
+own `.yolo-use/` directory. It is what makes "used" machine-wide: the store is one tree for every
+workspace (`/mise` in every jail, the state dir's `mise/` on the host), but mise's own record of
+what is in use lives in each workspace's home, so `mise prune` in any one jail removes what other
+workspaces still run. The record joins those per-workspace answers. Code:
+[`internal/miseuse`](../../internal/miseuse/miseuse.go) (the record),
+[`internal/entrypoint/miseuserecord.go`](../../internal/entrypoint/miseuserecord.go) (the jail's
+writer), [`internal/prune/miseversions.go`](../../internal/prune/miseversions.go) (the host's
+judge and reclaimer).
+
+**What a version needs to be reclaimed.** No record in force names it, and its own directory is
+older than 30 days. A record is in force while it is younger than 30 days, or while its
+workspace's jail is running, whatever its age. The second condition keeps a version a jail
+installed since its last record: its install time protects it until a record names it.
+
+**When the sweep declines** (reclaims nothing, and `yolo prune` exits non-zero, naming the next
+step): the runtime cannot say which jails are running; a running jail has no record; or a record in
+force says its jail could not tell what it uses and is its workspace's newest record, or a record
+cannot be read. **When it waits** (not a
+failure): until the record has covered one whole window, 30 days from the first host launch that
+ran a recording jail ([DF-D5](#DF-D5)), because a version a workspace used before then was never
+recorded.
+
+**Where it runs.** The housekeeping slot of every host launch, measuring for the next launch's
+offer and removing only on consent, on its own daily debounce and under the same opt-out as the
+automatic reapers. `yolo prune` lists and, with `--apply`, removes the same set. `yolo stores`
+names the reclaimer on the `mise/` row and says what it would remove now, or why it cannot
+judge yet.
+
+**Not covered.** A Mac's tool store: podman and Apple Container keep it in a volume inside their
+VM, which the host cannot read, and `macos-user` keeps one per sandbox account. Both stay
+reclaimed by nothing until a backend-side reader exists. A sealed build jail has a store of its
+own, which it discards.
+
+#### Implementation decisions
+
+These are mechanism choices the ruling left open, decided while building it.
+
+| ID | Decision | Why |
+| :--- | :--- | :--- |
+| <a id="DF-D1"></a>DF-D1 | **Each jail writes its own record into the store; the host reads only the store.** | The 2026-10-01 plan was a host-side list of workspaces whose tracked-config links the host would map and read, and the 2026-10-05 correction found one such list already written, the current-image record. Either would have the host evaluate mise configs, which only mise can resolve, and neither sees a nested jail, whose workspace and home live inside its outer jail but whose `/mise` is the host's store; the current-image record also misses a launch that recorded no image. Writing into the store covers every jail at every depth, and the host never interprets a config. |
+| <a id="DF-D2"></a>DF-D2 | **The record is what mise itself would keep: `mise ls --installed` minus `mise ls --prunable`, joined with `mise ls --current`, run offline in the workspace.** | It is mise's own definition of "in use" for that workspace, tracked configs included (worktrees and subdirectories, not only the root config). The join with `--current` can only add versions, so a quirk in mise's prune logic keeps a version rather than losing one. Offline, "latest" means the newest installed version, the one the shims run; resolved online, the version a workspace runs could read as prunable the day a newer one is published. |
+| <a id="DF-D3"></a>DF-D3 | **One record per jail, under a random name, written by the jail's main process: at the start of its hold, once provisioning has an outcome, and every 24 hours.** | Per jail rather than per workspace, so a workspace that switched versions last week still protects the version it used then, which is what "used within 30 days" means. The main process lives exactly as long as the jail and is otherwise idle, so no session waits on a `mise ls`. The first write lands within seconds of the container starting, ahead of another launch's sweep; the daily refresh keeps a jail running past the window protecting its tools. |
+| <a id="DF-D4"></a>DF-D4 | **A jail whose `mise ls` fails writes an "unknown" record, and the host declines while it is in force.** | A missing or empty record reads as "this jail used nothing". The tri-state rule needs "could not tell" to be its own answer. The decline names the workspace, mise's reason, and the date the record stops counting. **A newer record of the same workspace supersedes an unknown one**, whether its jail runs or not: every jail life writes under a name of its own, so the record an earlier life left is never replaced, and without this the decline outlived the fix and the relaunch its remedy names (until the writers expired the file, 37 days on, for a workspace that kept running). The cost is that a version the earlier life used while it could not tell is protected only if the newer record names it. And a nested jail's record names its outer jail's path, so two outer jails nesting at one path share a workspace here, and one's newer record ends the other's decline. |
+| <a id="DF-D5"></a>DF-D5 | **The host waits until the record is 30 days old on the machine, from a `since` marker the first HOST launch creates in the store it binds. No jail writes it, and neither does an in-jail launch.** | Before that, versions used under a yolo that did not record would read as unused: the cross-workspace mistake this record exists to prevent, in time instead of space. A wait is information, not a failure, so `yolo prune` still succeeds. The marker is the host launcher's because a nested or development jail on a newer tree writes records into the same store: had its first record started the clock, as the first draft of this build did (measured: an in-jail integration run created it in the host's store), the clock would run while the host's own launches still recorded nothing. A jail started by an older yolo after the mark is caught by the next rule while it runs; one that ran and stopped inside the window is the residual this cannot see. The marker is published whole (written to a temporary, then hard-linked into place), and a marker that exists but cannot be read is replaced by the next host launch, which restarts the clock there: the first draft created it empty and then wrote it, so a failed write on a full disk left a marker every later launch left alone and the sweep waiting forever. |
+| <a id="DF-D6"></a>DF-D6 | **A running jail with no record declines the sweep, and a running jail's record counts whatever its age.** | The slot runs while its own jail may not have written its first record, and a jail an older yolo started never will. The workspace in a record maps to the container name the launch uses, so the host can match records to the running set it already lists. |
+| <a id="DF-D7"></a>DF-D7 | **A record can only protect.** The host removes only version directories it lists itself, real directories two levels under `installs/`, never a path a record names; every read, write and removal is beneath an `os.Root` at the store, and a link at `.yolo-use/` is refused. | Every jail writes the store, so a forged record could at most keep versions alive, which a jail that can delete the store gains nothing from. The link refusal is about the writers: a link one jail plants resolves in the next jail's filesystem, and writers expire old files. |
+| <a id="DF-D8"></a>DF-D8 | **A removal renames the version hidden, removes the aliases that named it, then deletes it, rechecking the records under the housekeeping lock first.** | A delete that fails half way would leave a half-installed version mise still runs; a hidden directory is out of mise's sight, and the next pass finishes it. Aliases such as `22 -> ./22.20.0` would dangle. The recheck keeps a version a jail recorded after the judgement. **Every removal pass finishes such a leftover first**, with no candidate of its own and even while the records decline or wait, since no mise can run it; the slot does so on the class's consent. Every report counts its bytes apart from the candidates': the offer, `yolo prune`'s dry run, and `yolo stores`. The first draft finished one only in a pass that also had a new candidate, and reported it nowhere. |
+| <a id="DF-D9"></a>DF-D9 | **The writers bound the record directory themselves**, removing records and stray temporaries a week past the window. | It needs no reclaimer of its own and never waits on a consent that may not come. Nothing a reader could still count is ever removed. |
+| <a id="DF-D10"></a>DF-D10 | **Every offered class due at one launch is in one prompt, and a yes given there runs its class in that launch's slot, debounce or not.** | The prompt shape is [`disk-levers-and-backfill.md`](disk-levers-and-backfill.md) [§5.2](disk-levers-and-backfill.md#52-two-tiers-one-mapping)'s. The offer reads the previous launch's measurement, whose daily stamp is usually hours old, so a yes used to wait up to a day; its [§5.6](disk-levers-and-backfill.md#56-what-done-looks-like) says a yes frees the figure shown within the jail's lifetime. This applies to the cache class too, which had the same delay. |
 
 ---
 

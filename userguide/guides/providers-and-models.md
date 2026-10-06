@@ -73,6 +73,13 @@ profile's.
 | `cerebras` | [Cerebras](https://www.cerebras.ai) | Claude Code and Copilot through the wire bridge; pi and opencode directly | `CEREBRAS_API_KEY` |
 | `llamacpp` | a [llama.cpp](https://github.com/ggml-org/llama.cpp) `llama-server` you run on port 8080 | Claude Code, Copilot, pi, opencode | none |
 
+pi, opencode and oh-omp have zai, cerebras and openrouter built in, and opencode and oh-omp have
+kilo too, so on those providers each agent uses its own connection and its own model list. The
+`models` you give such a provider under `providers` reach only the other agents there, and a
+profile's `model` reaches these three only as the agent's own model id. opencode reaches z.ai's coding plan through its own `zai-coding-plan`.
+To send one of these providers through yolo's [wire bridge](#the-wire-bridge) anyway, add it
+under `providers` with a name the agent does not have.
+
 Two more come with the agent packs, with no extra pack to add:
 
 - **`bedrock`**, in the `bedrock` pack, which the `claude`, `codex`, `opencode` and `pi` packs
@@ -136,11 +143,18 @@ Two more come with the agent packs, with no extra pack to add:
   `-p bedrock-bridge` sends each agent to Bedrock through the wire bridge instead of its own
   client, and so does any profile that adds `"via": "wire-bridge"` to a Bedrock provider. The
   bridge reaches Bedrock in the region the agent was given, found the same three ways, and signs
-  every request with your AWS credentials itself. Under it Claude Code can switch between Claude
-  and every other model on the list in one session: a Claude model goes to Bedrock untranslated,
-  so prompt caching and thinking keep working, and any other model is translated. codex,
-  opencode, pi and oh-omp send their own requests through the bridge unchanged, and Copilot
-  starts on the first model on the list. A Bedrock provider of your own that names its own
+  every request with your AWS credentials itself. Under it Claude Code runs its own Bedrock
+  support pointed at the bridge and can use every model on the list in one session: it starts on
+  its own Bedrock default unless your profile's `model` names one, of any maker. codex, opencode,
+  pi and oh-omp send their own requests through the bridge unchanged, and Copilot starts on the
+  first model on the list. For Claude Code and Copilot a Claude model goes to Bedrock
+  untranslated, so prompt caching and thinking keep working, and any other model is translated.
+
+  Where no pack and no config lists Bedrock models, yolo reads your region's list from Bedrock
+  itself, through the `aws-auth` login, at most once a day, and gives it to the bridge and to
+  Copilot, which then starts on the newest current Claude model on it. The other agents keep their own Bedrock
+  model lists. A launch that leaves Copilot with no model to start on, because that read failed
+  too, stops and says why and what to add. A Bedrock provider of your own that names its own
   address in `endpoints` is signed there too, whatever the address, once its `platform` says
   `aws-bedrock`. The bridge signs with a key pair, the `aws-auth` login or a Bedrock API key, and
   not with a profile in `~/.aws`, so in a jail whose only AWS credential is `AWS_PROFILE` it has

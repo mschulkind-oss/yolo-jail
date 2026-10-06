@@ -190,19 +190,21 @@ func TestPiCatalogNeverWritesAModelsMapWhereAnArrayBelongs(t *testing.T) {
 }
 
 func TestPiExplicitProfileScopesModelsAndNoProfilePreservesUserScope(t *testing.T) {
+	// zaiReachableJSON's provider is named `zhipu`, which pi has none of its own for, so it is
+	// catalogued (zai itself is pi's own: docs/design/pi-codex-provider-shadowing.md OQ-3).
 	r := newPioencodeRender(t, zaiReachableJSON)
-	r.render(t, `{"pi":"zai"}`)
+	r.render(t, `{"pi":"zhipu"}`)
 	settings := r.piSettings(t)
 	enabled, ok := settings["enabledModels"].([]any)
 	if !ok {
-		t.Fatalf("zai profile enabledModels missing: %#v", settings)
+		t.Fatalf("zhipu profile enabledModels missing: %#v", settings)
 	}
 	// This fixture carries no default (no profile model, no options.model, no
 	// `default` alias), so the list stays purely sorted — the no-default neighbor of
 	// the default-first order TestPiDeriveSettingsScopesDeclaredModels pins.
-	wantEnabled := []any{"zai/glm-4.6", "zai/glm-5.3", "zai/glm-5.3-flash"}
+	wantEnabled := []any{"zhipu/glm-4.6", "zhipu/glm-5.3", "zhipu/glm-5.3-flash"}
 	if !reflect.DeepEqual(enabled, wantEnabled) {
-		t.Fatalf("zai profile enabledModels = %#v, want %#v", enabled, wantEnabled)
+		t.Fatalf("zhipu profile enabledModels = %#v, want %#v", enabled, wantEnabled)
 	}
 
 	models := r.piModels(t)
@@ -210,7 +212,7 @@ func TestPiExplicitProfileScopesModelsAndNoProfilePreservesUserScope(t *testing.
 	if !ok {
 		t.Fatalf("pi models providers missing: %#v", models)
 	}
-	zaiProv, ok := provs["zai"].(map[string]any)
+	zaiProv, ok := provs["zhipu"].(map[string]any)
 	if !ok {
 		t.Fatalf("pi models zai provider missing: %#v", provs)
 	}
@@ -239,30 +241,6 @@ func TestPiExplicitProfileScopesModelsAndNoProfilePreservesUserScope(t *testing.
 	if !ok || len(preserved) != 2 || preserved[0] != "cerebras/*" || preserved[1] != "zai/*" {
 		t.Fatalf("unprofiled Pi changed existing enabledModels: %#v", preserved)
 	}
-}
-
-// TestPiShippedZaiFlashAcceptsImages follows the shipped provider through host
-// composition and the Pi surface renderer, not a hand-built model fixture.
-func TestPiShippedZaiFlashAcceptsImages(t *testing.T) {
-	providers, err := packload.ComposeProviders(nil, testPacksForAgent(t, "pi", "zai"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	r := newPioencodeRender(t, mustCompactJSON(t, providers))
-	r.render(t, `{"pi":"zai"}`)
-	catalog := r.piModels(t)["providers"].(map[string]any)
-	models := catalog["zai"].(map[string]any)["models"].([]any)
-	for _, raw := range models {
-		model := raw.(map[string]any)
-		if model["id"] != "glm-5.3-flash" {
-			continue
-		}
-		if want := []any{"text", "image"}; !reflect.DeepEqual(model["input"], want) {
-			t.Fatalf("shipped zai/glm-5.3-flash input = %#v, want %#v", model["input"], want)
-		}
-		return
-	}
-	t.Fatal("shipped zai/glm-5.3-flash missing from Pi catalog")
 }
 
 func mustCompactJSON(t *testing.T, value any) string {

@@ -81,6 +81,12 @@ type bootRun struct {
 	packsLoaded bool
 	packs       []*packload.Pack
 	packErr     error
+
+	// sealed is whether the launcher made this boot a sealed build jail's (sealedbuild.go),
+	// read by runSteps before any step runs: hydrate_user_env, the first, folds a channel a
+	// selected pack and the user's env_sources write into the same Vars, and only the launcher
+	// may say a jail is a sealed build.
+	sealed bool
 }
 
 // jailPacks loads the staged packs once per run, on first use. The macos-user bootstrap
@@ -102,6 +108,7 @@ func runBootSteps(b *bootRun) { runSteps(b, bootSteps()) }
 // runSteps is runBootSteps over a given table, split out so the runner's own rules can be
 // driven over a synthetic table.
 func runSteps(b *bootRun, steps []bootStep) {
+	b.sealed = b.e.launchedSealed(b.target)
 	for _, s := range steps {
 		if s.excludedFrom(b.target) != "" {
 			continue
@@ -352,11 +359,19 @@ func bootSteps() []bootStep {
 			// parsed on the host and not here means the mounted tree disagrees with what was
 			// staged: fatal (A12), because rendering a subset would yield a jail whose config
 			// is quietly incomplete.
+			//
+			// Neither in a sealed build jail (sealedbuild.go, PPX-D41), which runs a build line
+			// and no agent: its narrowed selection can leave a pack's surface for another pack's
+			// agent, or a hook's link, under a home directory only a dropped pack makes writable.
 			name: "configure_pack_surfaces",
 			run: func(b *bootRun) {
 				packs, err := b.jailPacks()
 				if err != nil {
 					genStep(b.e, "load_packs", func() error { return err })
+				}
+				if b.sealed {
+					b.e.note(sealedBuildSkipNote)
+					return
 				}
 				ConfigurePackSurfaces(b.e, packs)
 				RunPackHooks(b.e, packs)
@@ -454,9 +469,11 @@ func bootSteps() []bootStep {
 			notDarwin: "the bootstrap is handed no caller token on macos-user: the guest's supervisor reads its tokens from its own root-owned env file, and the agent from its session env file",
 		},
 		{
-			// Start the jail-daemon supervisor (child of PID 1; kernel-reaped on exit).
+			// Start the jail-daemon supervisor (child of PID 1; kernel-reaped on exit). A
+			// `run`, not a generator: its failures are SERVICE refusals, which the reachability
+			// hatch reaches when a required service did not start (requiredservice.go, OQ-R8).
 			name:      "start_jail_daemon_supervisor",
-			gen:       startJailDaemonSupervisor,
+			run:       startJailDaemons,
 			perf:      "jail_daemon_supervisor",
 			notDarwin: "the macos-user launch starts the guest's supervisor itself, confined by its Seatbelt profile, after this bootstrap exits (macosuser.JailDaemonArgv)",
 		},

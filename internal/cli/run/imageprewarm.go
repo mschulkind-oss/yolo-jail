@@ -1,7 +1,7 @@
 package run
 
 // imageprewarm.go starts a fresh launch's own IMAGE BUILD beside its fork-build slot
-// (docs/design/pi-extension-store-builds.md XB-D30): the slot's keys can take minutes and the image
+// (docs/design/pi-extension-store-builds.md XB-D57): the slot's keys can take minutes and the image
 // waits for none of them — what the slot decides reaches the jail as mounts and an env var
 // assembled after the image step — so the identity's eval and, when the runtime does not hold the
 // image already, its nix build run while the slot does, and the image step that follows finds them

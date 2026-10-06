@@ -40,7 +40,7 @@ package cli
 //     advance has nothing to start on, so it runs as a plain fork's build does and a Ctrl-C ends
 //     the launch (§7). Every build a jail launch runs is that child, a first advance's included,
 //     outside any interrupt scope then, so its output can be kept off the terminal: the launch
-//     shows it as one progress line (advanceOptions.report, buildreport.go, PF-D78).
+//     shows it as one progress line (advanceOptions.report, buildreport.go, PF-D79).
 //   - ONE CTRL-C ENDS THE ACT'S WHOLE WAIT (PF-D57): an act that runs several advances — every
 //     patched fork, then every patched extension, at a jail launch; the extensions, then the
 //     program, at `yolo host`; all of them at `yolo host apply --assert` — shares one act interrupt
@@ -133,7 +133,7 @@ type advanceOptions struct {
 	pool    *advancePool
 	ctx     context.Context
 	started func()
-	// report is a jail launch's build report (buildreport.go, PF-D78): each build's start line
+	// report is a jail launch's build report (buildreport.go, PF-D79): each build's start line
 	// carrying what the lines before it said, its build jail always the fork-build-jail child with
 	// every stream kept off the terminal, and the move line that build's result line. nil — `yolo
 	// capture`, `yolo host` and `yolo host apply` — prints each line as its own and streams the build
@@ -141,7 +141,7 @@ type advanceOptions struct {
 	report *buildReport
 	// slot is this advance's key in a jail launch's build pool (buildpool.go, XB-D10, set with
 	// report): the pool's one interrupt scope, which this advance runs under rather than opening its
-	// own, its first advance included (PF-D78), the check slot its check waits for, and the build slot
+	// own, its first advance included (PF-D80), the check slot its check waits for, and the build slot
 	// its walk and build wait for. nil runs the advance as an act of its own.
 	slot *poolItem
 }
@@ -303,7 +303,7 @@ func advancePatchedFork(f packload.Fork, o advanceOptions) advanceResult {
 }
 
 // interruptedLine says that a Ctrl-C ended this advance, and what the jail starts on: the good
-// build, or — in a pool, whose scope a first advance runs under too (PF-D78) — nothing, until the
+// build, or — in a pool, whose scope a first advance runs under too (PF-D80) — nothing, until the
 // next fresh launch builds it.
 func (a *advance) interruptedLine() {
 	f := a.f
@@ -469,7 +469,7 @@ func (a *advance) run() advanceResult {
 					if a.o.slot != nil {
 						// IN A JAIL LAUNCH'S POOL THE CHECK IS ITS LINE'S "checking N" (buildpool.go), and a
 						// wait for a lock another key or launch holds is said there, beside the key, and kept
-						// in launch.log (PF-D78).
+						// in launch.log (PF-D79).
 						return func(line string) {
 							a.o.report.logLine(f.Key(), line)
 							a.o.slot.setNote(line, true)
@@ -1042,7 +1042,7 @@ func (a *advance) build(b forkBuild, base baseWhy, edited bool) advanceResult {
 	a.boundHit, a.ownLock = false, b.lockPath()
 	mode := buildMode{force: a.o.force, packs: a.packs, lock: pidlock.NoWait, replaySpent: a.replaySpent}
 	if a.o.report != nil {
-		// THE BUILD'S START LINE (PF-D78): what the lines above say without a report, before the build
+		// THE BUILD'S START LINE (PF-D79): what the lines above say without a report, before the build
 		// line runs — what is built, why, the wait, the log and the build's disclosures.
 		why := a.why
 		if base != baseNone {
@@ -1061,7 +1061,7 @@ func (a *advance) build(b forkBuild, base baseWhy, edited bool) advanceResult {
 		// A CHILD whenever a Ctrl-C must end the build and not the launch: a good build serves
 		// (PF-D25), or the advance is one of a pool's (XB-D10), whose builds run side by side — two
 		// in-process build jails would share this process's signal arms and pack-record scope; and at
-		// every jail launch, so its output can be kept off the terminal (PF-D78). In a pool a.ctx is
+		// every jail launch, so its output can be kept off the terminal (PF-D79). In a pool a.ctx is
 		// the pool's one interrupt scope's, which a first advance's runs under too (PF-D80).
 		if a.serves() || a.o.ctx != nil || a.o.report != nil {
 			mode.runJail = func(staging string, b forkBuild, s captureStreams) int {

@@ -50,7 +50,7 @@ and the agent.
 > a name that is neither buildable on darwin nor excluded is a **fatal**, never a silent skip.
 > The stage is *four of the container's six steps*, run under `sandbox-exec` with the session
 > profile, skipped entirely when the config declares no tools. The stage's state lands exactly
-> where the container puts it: mise's tool store machine-wide, everything else per-workspace.
+> where podman puts it: mise's tool store machine-wide, everything else per-workspace.
 
 > [!NOTE]
 > **Two coined terms, neither of which is a config key and neither of which appears in the
@@ -458,9 +458,12 @@ than merely plausible.
 
 ## Where the stage's state lands
 
-The container's own partition, which is also what makes a machine-wide mise store correct here:
+Podman's own partition, which is also what makes a machine-wide mise store correct here. Apple
+Container differs in one row only: its `/mise` is a disk per workspace, because a disk image
+attaches to one VM at a time ([OQ-MB1](../research/macos-backend-performance.md#OQ-MB1)), a
+constraint a directory in the account home does not have.
 
-| State | Container | macos-user |
+| State | podman | macos-user |
 | :--- | :--- | :--- |
 | mise data (`installs/`, `shims/`) | machine-wide: `MISE_DATA_DIR=/mise`, a store dir or named volume (`assemble_parts.go`) | machine-wide: `macosuser.SandboxMiseData` names `<account home>/.yolo/mise` in the launch env, the bootstrap env and the PATH's shims dir |
 | mise config (`~/.config/mise/config.toml`) | per-workspace: the `config` bind | per-workspace: the `config` sidecar symlink |
@@ -663,7 +666,7 @@ Rulings a future change would otherwise undo, kept with the IDs source comments 
 | <a id="oq-p1"></a>[`OQ-P1`](#oq-p1) — the floor is **everything the image bakes, minus an explicit darwin exclusion list**, and a name that is neither buildable nor excluded is a **fatal** | *"I'd rather pain than something silently skipped […] if something's not available on Darwin we need to explicitly exclude it rather than silently skip it, because that will lead to sadness. And if we have a fatal error, then we have the opportunity to fix it."* Ruled 2026-09-11 **against** its own leaning, which was a minimum of mise + nodejs + git. Cited across `flake.nix`, `internal/darwinpkg`, `internal/entrypoint`, `internal/cli/run`, `internal/macosuser` and the integration suite — `rg -n 'OQ-P'` over the tree is the list, and do not transcribe it here. |
 | <a id="oq-p2"></a>[`OQ-P2`](#oq-p2) — **no GNU userland** on this floor | This backend's proposition is *"your Mac, confined"*, and an agent whose `sed -i` behaves differently from the human's is a surprise in the direction that costs more; yolo's own darwin shims already speak BSD (`GNUStat=false`). Revisit if a pack turns out to depend on GNU behaviour. Cited by `flake.nix`, `darwinpkg/floor.go`, both of that package's floor gates and the integration floor twin; the same grep finds them. |
 | [`OQ-P1`](#oq-p1) + [`OQ-P2`](#oq-p2) compose — the policy exclusions need their own assertion | The fatal covers **necessity** and cannot cover **policy**: a GNU package left off the list builds fine and ships silently, which is the same silent skip [`OQ-P1`](#oq-p1) exists to prevent arriving by the other door. Hence a predicate and a mutation cell, not a maintained list. |
-| <a id="oq-p3"></a>[`OQ-P3`](#oq-p3) — the container's own partition: mise **data** machine-wide with `MISE_DATA_DIR` set **explicitly**; config, the npm prefix and `~/.local` per-workspace | The unset default lands inside the per-workspace `~/.local` symlink, so the machine tier has to be *named* to stay the machine tier. A per-workspace store is rejected twice over — no other backend has it, and it inverts the container's partition. Cited by `macosuser/macosuser.go` and `macosuser/misedatadir_test.go`. |
+| <a id="oq-p3"></a>[`OQ-P3`](#oq-p3) — the container's own partition: mise **data** machine-wide with `MISE_DATA_DIR` set **explicitly**; config, the npm prefix and `~/.local` per-workspace | The unset default lands inside the per-workspace `~/.local` symlink, so the machine tier has to be *named* to stay the machine tier. A per-workspace store is rejected twice over — podman has none, and it inverts podman's partition. Apple Container's per-workspace disk ([OQ-MB1](../research/macos-backend-performance.md#OQ-MB1), 2026-10-05) is no precedent: a disk image attaches to one VM at a time, and a directory here does not. Cited by `macosuser/macosuser.go` and `macosuser/misedatadir_test.go`. |
 | <a id="oq-p4"></a>[`OQ-P4`](#oq-p4) — the stage runs **unconditionally, before the agent**, never on demand | The config can change between launches and the jail must reflect it. The lazy launchers cover agent CLIs and neither `mise_tools` nor `lsp_servers`, so triggering off them would leave one config with tools absent here and present on podman — a second dialect of *"when are my tools there"*. The skip rule already delivers on-demand's only benefit. |
 | <a id="oq-p5"></a>[`OQ-P5`](#oq-p5) — **wire** the two LSP install variables; do not restore the retired warning | A warning is what you leave when the gap stays; this one did not have to. Both variables now cross into the bootstrap env **and** the session env file, from the one recipe table both backends share. |
 | **P1** — a backend either provides a mechanism or **refuses it out loud** | Rendering the config for a mechanism that does nothing is the failure this whole mechanism exists to end, and it has produced an instance per imperative key on this backend. |

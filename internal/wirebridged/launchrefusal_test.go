@@ -362,15 +362,28 @@ func TestShippedCodexOnAChatOnlyProviderIsNotRepointed(t *testing.T) {
 	wantNone(t, "codex notice", notices[0], "404", "declares no Responses endpoint")
 }
 
-// TestShippedPiOnAResponsesOnlyProviderWarns: pi's derive re-points the selected provider and
-// speaks chat-completions there; openrouter composes with a Responses endpoint only, so the
-// launch warns.
-func TestShippedPiOnAResponsesOnlyProviderWarns(t *testing.T) {
-	refusals, notices := shippedGate(t, "openrouter", "pi")
-	if len(refusals) != 0 || len(notices) != 1 {
-		t.Fatalf("refusals %v notices %v, want one wire notice", refusals, notices)
+// TestShippedViaOverABuiltInProviderRepointsNothing: a via over a provider the agent has built in
+// (docs/design/pi-codex-provider-shadowing.md OQ-3) gets no via row, so the via has no effect, and
+// the notice says which rule that is and the one way to route it anyway. It was a wire notice for
+// pi on openrouter until the ruling, when pi's derive still re-pointed its openrouter row. opencode
+// names its own provider for yolo's zai, the coding plan's.
+func TestShippedViaOverABuiltInProviderRepointsNothing(t *testing.T) {
+	for _, tc := range []struct{ provider, agent, own string }{
+		{"openrouter", "pi", `"openrouter" is one of pi's own providers`},
+		{"cerebras", "oh-omp", `"cerebras" is one of oh-omp's own providers`},
+		{"zai", "opencode", `"zai" is opencode's own "zai-coding-plan" provider`},
+	} {
+		t.Run(tc.agent+"/"+tc.provider, func(t *testing.T) {
+			refusals, notices := shippedGate(t, tc.provider, tc.agent)
+			if len(refusals) != 0 || len(notices) != 1 {
+				t.Fatalf("refusals %v notices %v, want one no-effect notice", refusals, notices)
+			}
+			wantAll(t, tc.agent+" notice", notices[0], "has no effect on "+tc.agent, tc.own,
+				"yolo writes no model entry over a provider an agent has built in",
+				"declare the provider under `providers` with a name "+tc.agent+" has no provider of")
+			wantNone(t, tc.agent+" notice", notices[0], "declares no chat-completions endpoint", "404")
+		})
 	}
-	wantAll(t, "pi notice", notices[0], "provider openrouter declares no chat-completions endpoint")
 }
 
 // TestShippedViaRowsSpeakTheWireTheAgentPrefers ties WG-I14's preference to the derives it

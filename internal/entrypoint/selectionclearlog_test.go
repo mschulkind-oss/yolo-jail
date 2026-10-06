@@ -22,17 +22,17 @@ func withBootLog(r *pioencodeRender) *bytes.Buffer {
 // and prints nothing about it on the terminal.
 func TestDeselectClearIsRecordedInTheBootLogOnly(t *testing.T) {
 	r := newPioencodeRender(t, zaiReachableJSON)
-	r.wireProfiles(`{"zai": {"provider": "zai", "model": "glm-5.3"}}`)
-	r.render(t, `{"pi":"zai","opencode":"zai"}`)
+	r.wireProfiles(`{"zhipu": {"provider": "zhipu", "model": "glm-5.3"}}`)
+	r.render(t, `{"pi":"zhipu","opencode":"zhipu"}`)
 
 	log := withBootLog(r)
 	r.errw.Reset()
 	r.render(t, ``)
 
 	for _, want := range []string{
-		`selection: cleared pi/settings defaultProvider (was "zai")`,
+		`selection: cleared pi/settings defaultProvider (was "zhipu")`,
 		`selection: cleared pi/settings defaultModel (was "glm-5.3")`,
-		`selection: cleared opencode/config model (was "zai/glm-5.3")`,
+		`selection: cleared opencode/config model (was "zhipu/glm-5.3")`,
 	} {
 		if !strings.Contains(log.String(), want) {
 			t.Errorf("boot log lacks %q:\n%s", want, log.String())
@@ -48,8 +48,8 @@ func TestDeselectClearIsRecordedInTheBootLogOnly(t *testing.T) {
 // beside it still does.
 func TestAKeptUserEditIsNotRecordedAsCleared(t *testing.T) {
 	r := newPioencodeRender(t, zaiReachableJSON)
-	r.wireProfiles(`{"zai": {"provider": "zai", "model": "glm-5.3"}}`)
-	r.render(t, `{"pi":"zai"}`)
+	r.wireProfiles(`{"zhipu": {"provider": "zhipu", "model": "glm-5.3"}}`)
+	r.render(t, `{"pi":"zhipu"}`)
 	r.edit(t, []string{".pi", "agent", "settings.json"}, "defaultModel", "glm-5.3-flash")
 
 	log := withBootLog(r)
@@ -58,7 +58,7 @@ func TestAKeptUserEditIsNotRecordedAsCleared(t *testing.T) {
 	if strings.Contains(log.String(), "pi/settings defaultModel") {
 		t.Errorf("a kept user edit was recorded as cleared:\n%s", log.String())
 	}
-	if !strings.Contains(log.String(), `selection: cleared pi/settings defaultProvider (was "zai")`) {
+	if !strings.Contains(log.String(), `selection: cleared pi/settings defaultProvider (was "zhipu")`) {
 		t.Errorf("the untouched yolo-written key beside the edit was not recorded:\n%s", log.String())
 	}
 }
@@ -69,9 +69,9 @@ func TestNoDeselectRecordsNothing(t *testing.T) {
 	r := newPioencodeRender(t, zaiReachableJSON)
 	log := withBootLog(r)
 	r.render(t, ``)
-	r.wireProfiles(`{"zai": {"provider": "zai", "model": "glm-5.3"}}`)
-	r.render(t, `{"pi":"zai","opencode":"zai"}`)
-	r.render(t, `{"pi":"zai","opencode":"zai"}`)
+	r.wireProfiles(`{"zhipu": {"provider": "zhipu", "model": "glm-5.3"}}`)
+	r.render(t, `{"pi":"zhipu","opencode":"zhipu"}`)
+	r.render(t, `{"pi":"zhipu","opencode":"zhipu"}`)
 	if strings.Contains(log.String(), "selection: cleared") {
 		t.Errorf("a boot with no deselect recorded a clear:\n%s", log.String())
 	}

@@ -2,16 +2,20 @@
 title: "A pack gives pi a whole package, not a list of files: delivering pi extensions, themes and prompts without naming pi's paths"
 date: 2026-09-25
 status: accepted
-stage: DECIDED
-next: "Build route C, ruled 2026-10-05 (OQ-PR1): first stop the optional register field on a files slot in internal/packdecl, then pi's slot at .pi/agent/yolo-packs and the core-emitted packages entry at both notches; the pack-file conventions design being drafted in docs/design/pack-conventions.md may turn the content pack's one entry into a convention"
+stage: BUILT
+next: "A human check, since no test starts pi: select a pack whose pi folder holds an extension and a theme, start pi in a jail, and see both load from ~/.pi/agent/yolo-packs/<pack>; then migrate the maintainer's pack (§4). The pack-file conventions design being drafted in docs/design/pack-conventions.md may turn the content pack's one entry into a convention"
 tags: [pi, packs, files, slots, extensions, themes, config-list]
-summary: "A content pack that ships pi extensions today writes one `files` entry per file, each naming a path inside pi. pi's own loader explains why: a top-level file in ~/.pi/agent/extensions is an extension, but a subdirectory there loads only through a manifest listing exact paths or an index.ts. pi's `packages` setting has the shape the pack wants: a local directory with conventional extensions/, themes/, skills/ and prompts/ folders loads with no list at all. So pi's pack declares a slot outside auto-discovery, and the slot declaration tells core to register every tree that lands there as a local pi package, appended beside the user's own packages. A content pack then writes one entry and no pi path. Ruled 2026-10-05: this is the route."
+summary: "A content pack that ships pi extensions today writes one `files` entry per file, each naming a path inside pi. pi's own loader explains why: a top-level file in ~/.pi/agent/extensions is an extension, but a subdirectory there loads only through a manifest listing exact paths or an index.ts. pi's `packages` setting has the shape the pack wants: a local directory with conventional extensions/, themes/, skills/ and prompts/ folders loads with no list at all. So pi's pack declares a slot outside auto-discovery, and the slot declaration tells core to register every tree that lands there as a local pi package, appended beside the user's own packages. A content pack then writes one entry and no pi path. Ruled 2026-10-05: this is the route. Built 2026-10-05."
 ---
 
 # A pack gives pi a whole package, not a list of files
 
-**Status:** 2026-09-25. Ruled 2026-10-05: [OQ-PR1](#OQ-PR1) adopts route C. Nothing built (re-checked 2026-09-30: no `register` field in `packdecl`, and
-`packs/pi` declares no slot at `.pi/agent/yolo-packs`). pi's behavior read from `@earendil-works/pi-coding-agent`
+**Status:** 2026-09-25. Ruled 2026-10-05: [OQ-PR1](#OQ-PR1) adopts route C. **Built 2026-10-05**:
+`register` and `expects` decode on a `files` slot, `packs/pi` declares the slot at
+`.pi/agent/yolo-packs`, and core lists each landed tree in pi's `packages` at both notches. The
+[Decision Ledger](#decision-ledger) records the implementation decisions, and
+[the plan](pack-pi-resources-plan.md) where each part landed and what was checked. Not checked:
+pi itself loading a listed folder, since no test starts pi. pi's behavior read from `@earendil-works/pi-coding-agent`
 0.87.1 as installed in this jail (`dist/core/package-manager.js`, `dist/core/pi-manifest.js`,
 `dist/core/extensions/loader.js`, `docs/packages.md`, `docs/settings.md`, `docs/extensions.md`); yolo
 claims read against the working tree on this date. **MEASURED** 2026-10-01, against pi 0.99.2 as
@@ -28,7 +32,7 @@ resolved, is still read from source rather than run.
 
 **Why it matters.** Every content pack that ships pi extensions has to know pi's internal layout
 and list each file, and the one slot mechanism built for this ([`files` slots](../reference/pack-system.md#files))
-is unusable for pi today: pi's pack declares no slot, and a tree landed under
+was unusable for pi before this build: pi's pack declared no slot, and a tree landed under
 `~/.pi/agent/extensions/<pack>/` would load nothing without a hand-written manifest.
 
 **The shape.** Three parts:
@@ -48,8 +52,8 @@ The rest follows from it.
 entry pointing at a folder laid out like a pi package.
 
 **Reads with:**
-- [`pack-pi-resources-plan.md`](pack-pi-resources-plan.md): the implementation sketch. It is
-  incomplete, and nobody builds from it.
+- [`pack-pi-resources-plan.md`](pack-pi-resources-plan.md): the build record, saying where each
+  part landed and how it was verified.
 - [`pi-pack-extensions.md`](pi-pack-extensions.md): the slot architecture (D) this builds on, and
   whose "pi does nothing (auto-discovery)" this doc corrects ([§2.2](#22-what-the-slot-design-got-wrong-about-pi)).
 - [`slots-and-contributions.md`](slots-and-contributions.md): the destination redesign; how this
@@ -134,7 +138,7 @@ through one resolver (`packload.SlotLanding`), pinned by `filesslotparity_test.g
 - one addressed tree per agent per pack (`validateFilesDestinations`, `validateAddressedFiles`);
 - an addressed tree is a read-only mount in the jail, and written file by file at the host.
 
-**pi's pack declares no slot.** Its only `files` entries are its own two
+**pi's pack declared no slot** before this design was built ([§3.1](#31-pis-pack-declares-a-registering-slot) is the one it declares now). Its only `files` entries were its own two
 `.pi/agent/extensions/yolo-*.js` files. So `{"agents": ["pi"]}` has nowhere to land today, and
 [`pi-pack-extensions.md` §8](pi-pack-extensions.md#8-invariants-and-failure-modes) says as much:
 "no manifest in the corpus declares a files slot at all".
@@ -170,7 +174,7 @@ a derive.
   "kind": "files",
   "agent": "pi",
   "into": ".pi/agent/yolo-packs",
-  "register": { "surface": "pi/settings", "path": "/packages", "entry": "~/{landing}" },
+  "register": { "surface": "pi/settings", "path": "/packages" },
   "expects": ["extensions", "themes", "skills", "prompts", "package.json"]
 }
 ```
@@ -180,8 +184,10 @@ a derive.
 - **`register`** is new and optional on a slot. It is refused on anything but a slot.
   - `surface` must be a surface the same pack owns.
   - `path` is a JSON Pointer to an array, with the same rules as `config-list`'s `path`.
-  - `entry` is a string template whose one token, `{landing}`, is the tree's home-relative landing
-    path. An unknown token, or no `{landing}` at all, is refused.
+  - `entry` is optional: a string template whose one token, `{landing}`, is the tree's
+    home-relative landing path. An unknown token, or no `{landing}` at all, is refused. Absent,
+    it is `~/{landing}` ([PR-D3](#decision-ledger), [PR-D5](#decision-ledger)), so pi's slot
+    names only where the list is.
 - **`expects`** is new, optional and advisory: the top-level names a well-formed tree contains. A
   tree with none of them is warned about ([§3.4](#34-behavior-in-every-case)).
 
@@ -235,14 +241,16 @@ Both notches do the same thing:
 | A tree lands and registers | pi loads every extension in `extensions/`, every theme and prompt, as a user-scope package. No project trust involved |
 | Two packs address pi | Two landings and two entries, in pack order. Same-named files in different packs are different paths, so both load. A clash in what they *register* (a command or tool name, a theme name) is pi's to resolve. **UNVERIFIED** how pi resolves it |
 | A tree with none of `expects` | `pack lint`, `pack footprint` and `yolo check` **warn**, naming the tree and the expected names. It still lands and registers. pi would load the directory as one extension and fail, since that is pi's rule |
+| The tree's `from` names nothing, or an only/exclude filter in `packs` dropped it | Nothing is mounted and nothing is registered ([PR-D11](#decision-ledger)). The launch warns that it skipped the tree, and `yolo host apply` reports the source missing |
+| The pack's name has a character a staged directory escapes (`my_pack`) | The entry names the landing under the name in `packs`, `~/.pi/agent/yolo-packs/my_pack`, where the tree is mounted ([PR-D10](#decision-ledger)) |
 | One extension fails to load | pi's startup error. yolo does nothing extra. **UNVERIFIED** that pi loads the rest |
-| A pack leaves `packs` | Jail: the tree is unstaged and its entry is not re-contributed, so it is gone next boot. Host: the inserted entry is removed. A host tree left behind is inert, because nothing registers it; whether the host retires it is the plan's to check |
+| A pack leaves `packs` | Jail: the tree is unstaged and its entry is not re-contributed, so it is gone next boot. Host: the inserted entry is removed, and `yolo host apply --assert` retires the tree with the rest of a dropped pack's `files` output, archived, behind the one confirmation a dropped pack gets (`applyhostprune.go`). `yolo host apply --revert` removes the entry and leaves the tree, which is inert because nothing lists it |
 | The user runs `pi install` in the jail | Their entries are captured per entry, beside the registrations, and survive |
 | The user deletes a registration in the jail | Captured as a removal and kept removed, which is `config-list`'s rule, not a new one |
 | The addressed agent's pack is not selected | The existing orphan report for an addressed `files` contribution. Nothing is registered, because no pack owns the surface |
 | The tree ships `skills/` | pi loads them for pi only. `pack lint` notes that the `skills` kind reaches every agent, the recommended route |
 | Refresh | A new or removed registration changes `settings.json`, so the [`due_on_change`](pi-git-extension-caching.md) refresh runs once. Local packages are never fetched |
-| macos-user and Apple Container | Whatever those backends do for an addressed `files` tree today. **UNVERIFIED** per backend; the plan checks [`settings-per-setup.md`](../../userguide/reference/settings-per-setup.md) |
+| macos-user and Apple Container | The tree takes the `files` row of [`settings-per-setup.md`](../../userguide/reference/settings-per-setup.md#what-a-pack-can-contribute-per-setup): a directory is bound read-only on Apple Container as on podman, and copied in protected on macos-user. The entry is a config-list entry, which the one surface loop renders on every backend. Neither backend was run for this build |
 
 **Forbidden.** Registration never writes through `computed` and never replaces the array. Core
 never names pi, and never registers a tree landed in a slot without `register`. pi's own two files
@@ -329,7 +337,7 @@ one-slot-per-agent rule does not bind.
    > ([§3.4](#34-behavior-in-every-case)). Per-file entries keep working. The ruling's wider point, that pack
    > files repeat too much and need convention over configuration, is being drafted as a design of
    > its own, `docs/design/pack-conventions.md`, which is new and may turn that one entry into a
-   > convention. Not built yet.
+   > convention. Built 2026-10-05 ([Decision Ledger](#decision-ledger)).
 
 ## Decision Ledger
 
@@ -338,11 +346,19 @@ because each has one workable answer:
 
 | ID | Decision | Why it holds | Built |
 | :--- | :--- | :--- | :--- |
-| OQ-PR1 | **Ruled in review 2026-10-05: route C.** A content pack reaches pi through one entry pointing at a folder laid out like a pi package; yolo delivers it (mounted read-only in a jail, written at `yolo host apply`), appends it to pi's `packages` list at both, and removes the entry when the pack is dropped. Per-file entries keep working. *"we need a bunch of convention over configuration"*: the pack-file conventions design, `docs/design/pack-conventions.md`, is being drafted | The only route with no pi path and no file list, covering themes and prompts in the same line ([§5](#5-alternatives-with-verdicts)) | pending |
-| PR-D1 | The slot is `.pi/agent/yolo-packs` | Outside every folder pi scans on its own ([§1](#1-what-pi-loads-from-where-and-in-what-form)), so only a registration loads a tree | pending |
-| PR-D2 | Registration is a core-emitted `config-list` entry, attributed to the contributing pack | The only layer that appends beside the user's list and forgets a dropped pack at both notches ([§2.3](#23-how-pis-packages-list-is-composed)) | pending |
-| PR-D3 | The entry is `~/{landing}` | pi expands `~` in user settings, at both notches; an absolute path would differ between the jail and the host | pending |
-| PR-D4 | `expects` warns and never refuses | A tree pi cannot load is pi's failure to report; yolo adds the early hint, not a second gate | pending |
+| OQ-PR1 | **Ruled in review 2026-10-05: route C.** A content pack reaches pi through one entry pointing at a folder laid out like a pi package; yolo delivers it (mounted read-only in a jail, written at `yolo host apply`), appends it to pi's `packages` list at both, and removes the entry when the pack is dropped. Per-file entries keep working. *"we need a bunch of convention over configuration"*: the pack-file conventions design, `docs/design/pack-conventions.md`, is being drafted | The only route with no pi path and no file list, covering themes and prompts in the same line ([§5](#5-alternatives-with-verdicts)) | 2026-10-05 |
+| PR-D1 | The slot is `.pi/agent/yolo-packs` | Outside every folder pi scans on its own ([§1](#1-what-pi-loads-from-where-and-in-what-form)), so only a registration loads a tree | 2026-10-05 |
+| PR-D2 | Registration is a core-emitted `config-list` entry, attributed to the contributing pack | The only layer that appends beside the user's list and forgets a dropped pack at both notches ([§2.3](#23-how-pis-packages-list-is-composed)) | 2026-10-05 |
+| PR-D3 | The entry is `~/{landing}` | pi expands `~` in user settings, at both notches; an absolute path would differ between the jail and the host | 2026-10-05 |
+| PR-D4 | `expects` warns and never refuses | A tree pi cannot load is pi's failure to report; yolo adds the early hint, not a second gate | 2026-10-05 |
+| PR-D5 | `entry` is optional and defaults to `~/{landing}` (PR-D3's value), so pi's slot writes `"register": {"surface": "pi/settings", "path": "/packages"}` and a content pack writes `{"kind": "files", "agents": ["pi"], "from": "<folder>"}` and nothing else | The maintainer's *"do it efficiently … they repeat way too much"*: the common case names no field it does not need, and a slot that does need another spelling still has one | 2026-10-05 |
+| PR-D6 | The entries are computed by `packload.Registrations` through the matcher delivery uses (`matchedDestinations`, which `borrowedDestinations` now reads too), and placed by `packoverlay.Collect` as `config-list` entries of the contributing pack, ahead of that pack's own lists | One matching rule, so a tree is never listed where it was not delivered; and `Collect` is the one join every render already runs (the jail boot, `yolo host apply`, `config render`, `config ls`), so no notch needs a call of its own | 2026-10-05 |
+| PR-D7 | A `register` naming a surface its own pack does not declare is a problem from `Collect`: fatal at a boot and at `yolo host apply`, and a `yolo pack lint` failure | The slot owner promises the list, so the list must be the owner's; and a malformed manifest is fatal at a boot like every other | 2026-10-05 |
+| PR-D8 | `expects` is checked against the selected packs at `yolo check`, and against the packs yolo ships at `yolo pack lint` and `yolo pack footprint` of one pack | A content pack's slot is in another pack, and a single-pack view knows no selection, which is how `reportShippedSurfaceClash` reads the same question | 2026-10-05 |
+| PR-D9 | `yolo features` lists `registered-files-slots` | A yolo without the field skips a slot that declares it, which is the case the list exists to name (PF-D71) | 2026-10-05 |
+| PR-D10 | In the jail, a tree's landing is spelled with the name the launch loaded its pack under, read from the staged tree's record (`Pack.LaunchName`), not with the jail's own name for the pack, which is its staged directory | The launch mounts the tree under the name in `packs`, and a staged directory escapes that name (`my_pack` is staged as `my_5fpack`), so an entry spelled with the directory listed a path where nothing was mounted, which pi skips without a word | 2026-10-05 |
+| PR-D11 | A tree is registered only when its source is in its pack's tree, as a directory or a file (`filesSourceDelivered`) | That is what every renderer checks before delivering a tree, so it keeps PR-D6's promise for a `from` naming nothing or a folder an only/exclude filter dropped, which the renderers skip and report | 2026-10-05 |
+| PR-D12 | The note for a tree shipping `skills/` is `pack lint`'s alone, an information line, and fires only in a slot whose `expects` names `skills` (`packload.SkillsInTreeNotes`) | §3.4 rules a note, not a warning, since skills for one agent can be a choice; and gating on the slot's own `expects` keeps core agent-blind, because the slot says its agent reads that folder and `skills` is the kind's own name | 2026-10-05 |
 
 ## Appendix A: evidence
 
@@ -362,4 +378,13 @@ because each has one workable answer:
   - `validateFilesDestinations` and `validateAddressedFiles` (`internal/packdecl/contributes.go`);
   - `agentcfg.ReconcileInsertedList` (`internal/agentcfg/listcontrib.go`);
   - `packs/pi/pack.json`: `settings` is `readsHost` with no `mode`, so it is `stateful` (the default,
-    [pack-system.md](../reference/pack-system.md)), and there is no files slot.
+    [pack-system.md](../reference/pack-system.md)), and before this build there was no files slot.
+- yolo, as built 2026-10-05:
+  - `packdecl.FilesRegister` and `filesSlotProblems` (`internal/packdecl/filesregister.go`);
+  - `packload.Registrations`, `packload.ExpectsNotes`, `packload.SkillsInTreeNotes` and the shared
+    matcher `matchedDestinations` (`internal/packload/registration.go`,
+    `internal/packload/mergedest.go`);
+  - `packload.Pack.LaunchName`, set by the jail's loader from the staged tree's record
+    (`internal/entrypoint/packsurfaces.go`);
+  - `registrationsOf`, called from `packoverlay.Collect` (`internal/packoverlay/packoverlay.go`);
+  - the slot itself, in `packs/pi/pack.json`.

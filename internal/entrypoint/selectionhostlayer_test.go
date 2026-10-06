@@ -14,7 +14,7 @@ import (
 func newHostLayerRender(t *testing.T) *pioencodeRender {
 	t.Helper()
 	r := newPioencodeRender(t, zaiReachableJSON)
-	r.wireProfiles(`{"zai":{"provider":"zai","model":"glm-5.3"}}`)
+	r.wireProfiles(`{"zhipu":{"provider":"zhipu","model":"glm-5.3"}}`)
 	return r
 }
 
@@ -43,8 +43,8 @@ func TestPiSelectionOutranksAHostLayerValue(t *testing.T) {
 		t.Fatalf("a plain launch did not render the host layer's model (got %v); the test's premise is wrong", got)
 	}
 
-	r.render(t, `{"pi":"zai"}`)
-	requirePiSelection(t, r.piSettings(t), r.piModels(t), "zai", "glm-5.3")
+	r.render(t, `{"pi":"zhipu"}`)
+	requirePiSelection(t, r.piSettings(t), r.piModels(t), "zhipu", "glm-5.3")
 
 	// A deselect clears yolo's write (OQ-PSW2), so the host value comes back; a later
 	// reselect must override it again rather than read it as the user's.
@@ -52,8 +52,8 @@ func TestPiSelectionOutranksAHostLayerValue(t *testing.T) {
 	if got := r.piSettings(t)["defaultModel"]; got != "claude-host" {
 		t.Errorf("after the deselect pi's model = %v, want the host layer's claude-host back", got)
 	}
-	r.render(t, `{"pi":"zai"}`)
-	requirePiSelection(t, r.piSettings(t), r.piModels(t), "zai", "glm-5.3")
+	r.render(t, `{"pi":"zhipu"}`)
+	requirePiSelection(t, r.piSettings(t), r.piModels(t), "zhipu", "glm-5.3")
 }
 
 // TestPiSelectionFollowsAHostValueThatChangedOnTheHost: the jail's file still holds the
@@ -66,8 +66,8 @@ func TestPiSelectionFollowsAHostValueThatChangedOnTheHost(t *testing.T) {
 	r.render(t, ``)
 	writePiHostSettings(t, `{"defaultProvider":"anthropic","defaultModel":"host-v2"}`)
 
-	r.render(t, `{"pi":"zai"}`)
-	requirePiSelection(t, r.piSettings(t), r.piModels(t), "zai", "glm-5.3")
+	r.render(t, `{"pi":"zhipu"}`)
+	requirePiSelection(t, r.piSettings(t), r.piModels(t), "zhipu", "glm-5.3")
 }
 
 // TestPiSelectionKeepsAnInJailEditOverAHostValue is the OQ-CS2 hazard B must still refuse:
@@ -81,7 +81,7 @@ func TestPiSelectionKeepsAnInJailEditOverAHostValue(t *testing.T) {
 	r.edit(t, []string{".pi", "agent", "settings.json"}, "defaultProvider", "mine")
 
 	for i := 0; i < 2; i++ { // the edit is captured on the first boot and must survive the second
-		r.render(t, `{"pi":"zai"}`)
+		r.render(t, `{"pi":"zhipu"}`)
 		s := r.piSettings(t)
 		if s["defaultModel"] != "picked-in-jail" || s["defaultProvider"] != "mine" {
 			t.Errorf("boot %d: pi's pair = %v/%v, want the in-jail edit mine/picked-in-jail kept",
@@ -94,8 +94,8 @@ func TestPiSelectionKeepsAnInJailEditOverAHostValue(t *testing.T) {
 // selection picks, so the file holds that value before and after.
 func TestPiSelectionEqualToTheHostValueChangesNothing(t *testing.T) {
 	r := newHostLayerRender(t)
-	writePiHostSettings(t, `{"defaultProvider":"zai","defaultModel":"glm-5.3"}`)
+	writePiHostSettings(t, `{"defaultProvider":"zhipu","defaultModel":"glm-5.3"}`)
 	r.render(t, ``)
-	r.render(t, `{"pi":"zai"}`)
-	requirePiSelection(t, r.piSettings(t), r.piModels(t), "zai", "glm-5.3")
+	r.render(t, `{"pi":"zhipu"}`)
+	requirePiSelection(t, r.piSettings(t), r.piModels(t), "zhipu", "glm-5.3")
 }

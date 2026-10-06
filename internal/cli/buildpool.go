@@ -1,7 +1,7 @@
 package cli
 
 // buildpool.go is a JAIL LAUNCH'S BUILD POOL (docs/design/pi-extension-store-builds.md §5.2, §5.4;
-// XB-D10, XB-D29): every key its fork-build slot serves — each plain fork's missing build, each
+// XB-D10, XB-D56): every key its fork-build slot serves — each plain fork's missing build, each
 // patched fork's advance, each patched extension's advance and copy — runs at once, and the launch
 // waits for the slowest key rather than the sum. It is run.Options.BuildSlot (runBuildSlot), and
 // BuildForks and BuildTrees run their halves through it too.
@@ -26,7 +26,7 @@ package cli
 // context every key's check, walk, lock wait and build jail runs under. A Ctrl-C cancels them all;
 // each key with a good build is handed it, and one with none goes without, said, and the next fresh
 // launch builds it — a first advance's included, whose Ctrl-C once ended the whole launch (§7,
-// PF-D78). A key that had not begun begins nothing.
+// PF-D80). A key that had not begun begins nothing.
 //
 // EVERY BUILD IS THE fork-build-jail CHILD (forkbuildchild.go). A build jail is a whole launch, and a
 // launch run in this process mutates process-wide state — its signal arms (run's armstack.go), its

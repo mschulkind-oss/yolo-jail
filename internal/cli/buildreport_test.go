@@ -1,7 +1,7 @@
 package cli
 
 // buildreport_test.go pins a jail launch's build report (buildreport.go, docs/design/patched-forks.md
-// PF-D78): a successful build is its start line, its disclosure line and its result line on the
+// PF-D79): a successful build is its start line, its disclosure line and its result line on the
 // terminal, and everything its build jail printed is in launch.log and the build's own log; the
 // nested launch's warnings stay on the terminal; a failed build prints its last lines and its log
 // under its failure line; and a build jail that refused is relayed with what it said.
@@ -301,9 +301,9 @@ func (fx *patchedAdvanceFixture) launchReported(t *testing.T) (advanceResult, st
 }
 
 // A JAIL LAUNCH'S FIRST ADVANCE BUILDS IN THE CHILD, under the pool's interrupt scope — so its
-// output is kept off the terminal, and a Ctrl-C ends its wait and not the launch (PF-D78) — and a fit
+// output is kept off the terminal, and a Ctrl-C ends its wait and not the launch (PF-D80) — and a fit
 // that fails sends the advance to the series' base under the same start line, carrying the base's
-// clause (PF-D23, PF-D77). Red with the advance's report-mode child runner or its start line deleted.
+// clause (PF-D23, PF-D79). Red with the advance's report-mode child runner or its start line deleted.
 func TestAJailLaunchsFirstAdvanceBuildsInTheChildAndItsBaseGetsTheStartLine(t *testing.T) {
 	fx := newPatchedAdvanceFixture(t, "")
 	v11 := fx.commit(t, "v1.1.0", map[int]string{14: "fourteen"})

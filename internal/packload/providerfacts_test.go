@@ -126,28 +126,39 @@ func TestEveryBedrockSelectionGetsEveryBedrockFact(t *testing.T) {
 	}
 }
 
-// THE EVERYTHING PROFILE'S TRAP (OQ-BR11, OQ-BR1's `bedrock-bridge`): a profile over the Bedrock
-// provider that routes through the wire bridge (`via`) must NOT switch claude's own Bedrock
-// client on — the bridge carries its traffic — yet aws-auth's pointer must still reach claude, for
-// the bridge to sign with. The switch is a transport check, not only "the provider is Bedrock".
-func TestTheBridgedBedrockProfileGetsThePointerButNotTheSwitch(t *testing.T) {
+// THE EVERYTHING PROFILE (OQ-BR11, OQ-BR1's `bedrock-bridge`), as OQ-MM6 amended it on 2026-10-05
+// (docs/design/model-lists-and-pickers.md): a profile over the Bedrock provider that routes through
+// the wire bridge (`via`) runs claude's own Bedrock client POINTED AT THE BRIDGE, with its own
+// signing skipped, so the bridge alone signs; and aws-auth's pointer still reaches claude, for the
+// bridge to sign with. Until then the switch was forbidden there (the old Part 2's "never
+// CLAUDE_CODE_USE_BEDROCK"), and claude was routed at the Messages adapter instead.
+func TestTheBridgedBedrockProfileRunsClaudesBedrockModeAtTheBridge(t *testing.T) {
 	packs := embeddedNamed(t, "claude", "aws-auth", "bedrock", "openai-auth", "wire-bridge")
 	user := userProviders(t, `{"bedrock":{"region":"us-west-2"}}`)
 	userProfiles := map[string]UserProfile{"bedrock-bridge": {Provider: "bedrock", Via: "wire-bridge"}}
 	s := factsFor(t, packs, user, userProfiles, map[string]string{"claude": "bedrock-bridge"})
 	d := s.Agent("claude")
-	if shapeHas(d, "CLAUDE_CODE_USE_BEDROCK", "") {
-		t.Errorf("a bridged Bedrock profile must not switch claude's own Bedrock client on: %v", shapeKeys(d))
+	for _, kv := range [][2]string{{"CLAUDE_CODE_USE_BEDROCK", "1"}, {"CLAUDE_CODE_SKIP_BEDROCK_AUTH", "1"},
+		{"ANTHROPIC_BEDROCK_BASE_URL", "http://127.0.0.1:8214"}} {
+		if !shapeHas(d, kv[0], kv[1]) {
+			t.Errorf("a bridged Bedrock profile must run claude's Bedrock mode at the bridge (%s=%s): %v",
+				kv[0], kv[1], shapeKeys(d))
+		}
+	}
+	if shapeHas(d, "ANTHROPIC_BASE_URL", "") {
+		t.Errorf("a bridged Bedrock profile must not route claude at the Messages adapter: %v", shapeKeys(d))
 	}
 	for _, k := range []string{"AWS_CONTAINER_CREDENTIALS_FULL_URI", "AWS_CONTAINER_AUTHORIZATION_TOKEN"} {
 		if !foldHasKey(s.FoldFor("claude"), k) {
 			t.Errorf("a bridged Bedrock profile must still get aws-auth's %s", k)
 		}
 	}
-	// The control, same launch shape without the via: the switch is there.
+	// The control, same launch shape without the via: claude's own client, signing itself.
 	native := factsFor(t, packs, user, userProfiles, map[string]string{"claude": "bedrock"})
-	if !shapeHas(native.Agent("claude"), "CLAUDE_CODE_USE_BEDROCK", "1") {
-		t.Error("control: the native profile over the same provider switches it on")
+	if !shapeHas(native.Agent("claude"), "CLAUDE_CODE_USE_BEDROCK", "1") ||
+		shapeHas(native.Agent("claude"), "ANTHROPIC_BEDROCK_BASE_URL", "") ||
+		shapeHas(native.Agent("claude"), "CLAUDE_CODE_SKIP_BEDROCK_AUTH", "") {
+		t.Error("control: the native profile over the same provider runs claude's own client, signing itself")
 	}
 }
 

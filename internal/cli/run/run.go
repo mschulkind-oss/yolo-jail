@@ -1684,6 +1684,14 @@ func (o *Options) runContainer(cfg *jsonx.OrderedMap, rt, repoRoot, cname string
 			return 1
 		}
 	}
+	// THIS WORKSPACE'S TOOL DISK on Apple Container (OQ-MB1, actooldisk.go): its /mise is a disk
+	// of its own, created here labelled with the workspace so `yolo prune` can remove it once the
+	// workspace is gone. Never a refusal. Not under the seal, whose /mise is a folder of its own.
+	if rt == "container" && !o.Sealed { // parity: NotApplicable — podman's /mise is the machine's store (a host dir, or one Podman Machine volume every jail mounts at once), so no workspace needs a disk of its own there
+		sp := o.Perf.Span("launch.tool_disk")
+		o.ensureAppleContainerToolDisk(cname, out)
+		sp.End()
+	}
 	// A SEALED BUILD'S ~/.cache AND /mise ARE ITS OWN: private directories of its workspace, made
 	// before the argv names them (seal.go). Every other launch binds the machine's shared two.
 	cacheDir, miseStore := paths.GlobalCache(), jailMiseStoreDir(o.inJail())
@@ -1696,6 +1704,9 @@ func (o *Options) runContainer(cfg *jsonx.OrderedMap, rt, repoRoot, cname string
 			return 1
 		}
 	}
+	// THE MISE USE RECORD'S CLOCK (miseuserecording.go): a host launch says, in the store it binds,
+	// since when the host's launches have run jails that record the tool versions they use.
+	o.markMiseUseRecording(miseStore)
 
 	// --- Assemble the ordered argv ---
 	// THE SCRATCH VOLUMES' NAMES, minted once for this launch and read by both the argv and

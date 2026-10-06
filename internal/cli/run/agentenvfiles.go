@@ -25,6 +25,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 
@@ -224,6 +225,14 @@ func agentEnvFileContent(channel *packChannel, agent string) string {
 			inherited = channel.inheritedValuesBut(agent, v.Key, false)
 		}
 		if v.Unset {
+			// The gate's own delivery of the name to this agent is a value yolo set too: a derive
+			// that removes it from the process (claude's Bedrock mode at the wire bridge drops
+			// AWS_BEARER_TOKEN_BEDROCK) leaves the def-form line above in place for the bridge's
+			// key channel, which reads a name's first assignment, and unsets it after.
+			if own := mapStr(d.EnvSources, v.Key); own != "" && !slices.Contains(inherited, own) {
+				inherited = append(slices.Clone(inherited), own)
+				sort.Strings(inherited)
+			}
 			if len(inherited) > 0 {
 				b.WriteString("case \"${" + v.Key + "-}\" in " + casePatterns(inherited) +
 					") unset " + v.Key + " ;; esac\n")
