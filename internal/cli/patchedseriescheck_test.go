@@ -207,7 +207,7 @@ func TestSeriesCheckRefusesWhatItCannotCheck(t *testing.T) {
 		{[]string{"check", f.forkDir, "--onto"}, 2, "--onto needs a value"},
 		{[]string{"check", plain}, 1, "the pack in " + plain + " declares no patch series"},
 		{[]string{"check", filepath.Join(plain, "missing")}, 1, "is not a directory — name the directory holding the pack's pack.json"},
-		{[]string{"check", bad}, 1, "— `yolo pack lint " + bad + "` names every problem"},
+		{[]string{"check", bad}, 1, "— `yolo pack lint " + shquote.QuoteDisplay(bad) + "` names every problem"},
 	} {
 		rc, out, errw := seriesVerb(t, tc.args...)
 		if rc != tc.rc || !strings.Contains(errw, tc.want) {

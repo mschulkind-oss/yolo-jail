@@ -159,7 +159,7 @@ func TestPackRebaseScratchNamesThePacksForks(t *testing.T) {
 		{[]string{"forkpack/tool", "--pack="}, 2, "--onto, --into and --pack each need a value"},
 		{[]string{"basepack/tool", "--pack", filepath.Join(f.packs, "basepack")}, 1,
 			"the pack in " + filepath.Join(f.packs, "basepack") + " declares no patched fork or extension"},
-		{[]string{"bad/tool", "--pack", bad}, 1, "— `yolo pack lint " + bad + "` names every problem"},
+		{[]string{"bad/tool", "--pack", bad}, 1, "— `yolo pack lint " + shquote.QuoteDisplay(bad) + "` names every problem"},
 	} {
 		rc, out, errw := rebaseVerb(t, tc.args...)
 		if rc != tc.rc || !strings.Contains(errw, tc.want) {
