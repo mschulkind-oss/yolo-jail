@@ -155,7 +155,10 @@ const (
 	// every jail's /tmp, /var/tmp and nested container store, which are disk-backed and
 	// outlive the jail by as long as their deletion takes.
 	SectionVolumes = "container scratch volumes"
-	SectionNix     = "yolo's own /nix/store outputs"
+	// SectionToolDisks is Apple Container's tool disks (internal/prune/misevolumes.go): each
+	// workspace's /mise, a disk of its own there (OQ-MB1), and the one every jail shared before.
+	SectionToolDisks = "Apple Container tool disks (/mise, one per workspace)"
+	SectionNix       = "yolo's own /nix/store outputs"
 )
 
 // Inventory measures every store and returns the report. It never mutates
@@ -182,6 +185,7 @@ func Inventory(o Options) Report {
 	rep.Stores = append(rep.Stores, aliasStores(o)...)
 	rep.Stores = append(rep.Stores, imageStores(o, rt)...)
 	rep.Stores = append(rep.Stores, scratchStores(o, rt)...)
+	rep.Stores = append(rep.Stores, toolDiskStores(o, rt)...)
 	rep.Stores = append(rep.Stores, durableStores(o, rt)...)
 	rep.Stores = append(rep.Stores, nixStores(o)...)
 	return rep

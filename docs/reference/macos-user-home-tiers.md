@@ -141,7 +141,9 @@ done with a symlink, and nothing pack-facing reads them.
 
 **What is deliberately NOT linked stays machine-wide, because the container keeps it machine-wide
 too.** `~/.cache` is `paths.GlobalCache()` on podman, and the mise data dir is a machine-wide
-store the container mounts at `/mise`. Neither is per-workspace anywhere.
+store podman mounts at `/mise`. `~/.cache` is per-workspace nowhere; the mise store is
+per-workspace only on Apple Container, whose disks attach to one VM at a time
+([OQ-MB1](../research/macos-backend-performance.md#OQ-MB1)).
 
 > [!WARNING]
 > **`MISE_DATA_DIR` must be NAMED, or the tool store silently becomes per-workspace.** mise's own

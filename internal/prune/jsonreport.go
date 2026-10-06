@@ -62,6 +62,11 @@ type Report struct {
 	// RemovedScratchVolumes names the gone jails' scratch volumes removed (or that would
 	// be). No bytes: a volume's size is not measured (prunecmd.go says why).
 	RemovedScratchVolumes []string `json:"removed_scratch_volumes"`
+	// RemovedToolDisks names the Apple Container tool disks removed (or that would be): each
+	// gone workspace's /mise disk, and the one disk every jail shared before
+	// (misevolumes.go). No bytes, for the scratch volumes' reason: the total is yolo's own
+	// storage, and these bytes are the runtime's.
+	RemovedToolDisks []string `json:"removed_tool_disks"`
 	// Declined is true when a sweep could not run and said so, which is also
 	// what makes prune exit 1 (OQ-LS2). It is the field to check before
 	// believing TotalBytes is the whole answer.

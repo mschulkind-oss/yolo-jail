@@ -92,8 +92,9 @@ rust = "1.80"
 ```
 
 When the jail starts, `mise install` fetches the declared tools. They are kept in yolo's own mise
-store at `/mise`, shared by every jail and separate from any mise on your host, so a version is
-downloaded once.
+store at `/mise`, separate from any mise on your host. With podman the store is shared by every
+jail, so a version is downloaded once; on Apple Container each project has a store of its own, so
+each project downloads its versions once.
 
 To add tools without a `mise.toml`, use `mise_tools`, in the project config for one project or in
 your user config for every jail:

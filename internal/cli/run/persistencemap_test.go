@@ -314,6 +314,14 @@ func expectedClassBySource(mt writableMount, in *assembleInput, scratchID string
 	case strings.HasPrefix(mt.src, paths.GlobalStorage()+"/"), mt.src == in.miseStore, mt.src == miseStoreVolume:
 		return jailcontent.PathMachineDurable, true
 	}
+	// Apple Container's tool disk (OQ-MB1): this workspace's own when it carries this jail's
+	// name, and not a store any workspace shares.
+	if cname, ok := prune.ParseMiseVolumeName(mt.src); ok {
+		if cname != in.cname {
+			return 0, true
+		}
+		return jailcontent.PathWorkspaceDurable, true
+	}
 	if _, id, _, ok := prune.ParseScratchVolumeName(mt.src); ok {
 		if id != scratchID {
 			// A scratch volume that is not this launch's is a /tmp a relaunch could be

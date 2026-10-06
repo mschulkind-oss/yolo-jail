@@ -65,7 +65,10 @@ package integration
 // Apple's source (read from code, not measured), Apple Container still listed it (JL-D83). NOT
 // CONDUCTED: the sweep, whose second workspace's jail
 // failed to start with the VZErrorDomain Code=2 that OQ-MB1 of
-// docs/research/macos-backend-performance.md records. The measures: an exec's process SURVIVED its
+// docs/research/macos-backend-performance.md records. OQ-MB1 was ruled and built on 2026-10-05,
+// a /mise disk per workspace, so the next run must conduct the sweep: its second workspace's
+// launch starts beside the first jail, and the run ends in a VERDICT line instead of NOT
+// CONDUCTED. The measures: an exec's process SURVIVED its
 // client in all eight cases, the detach sequence REACHED the process, the container RUNS ON when its
 // main process's client is killed, and an attached exec returned 137 at both stops.
 // docs/design/jail-lifetime-last-session-wins.md §7 step 4 has the whole record.

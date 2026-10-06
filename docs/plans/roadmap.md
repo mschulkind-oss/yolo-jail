@@ -247,9 +247,11 @@ host or an outside account follows under [External waits](#external-waits).
     and [NFS from macOS's own `nfsd`](../research/macos-vm-runtime-comparison.md#6-is-there-an-open-stack-with-faster-shared-folders), the one open shared-folder
     candidate left, since libkrun with complete permission semantics and QEMU's virtiofsd port did not beat VZ's share — first among the waits,
     as [the comparison's refresh](../reference/macos-no-vm-direction.md#when-to-refresh-this) waits on it; it measures the build skip and spans if landed, waiting for neither.
-49. Someone at the runner Mac upgrades `container` from 1.1.0 to 1.5.0 (its kernel prompt is interactive), so the next
-    `apple-container.yml` dispatch reruns [the two-jail check](../research/macos-backend-performance.md#7-found-on-the-way-two-apple-container-jails-may-mount-one-ext4-disk), which every parity run on 1.1.0 since 2026-10-03 has failed;
-    the VM-local probe needs the maintainer's push and one dispatch, after the upgrade for answers that hold on 1.5.0.
+49. The next `apple-container.yml` dispatch reruns [the two-jail check](../research/macos-backend-performance.md#7-found-on-the-way-two-apple-container-jails-may-mount-one-ext4-disk),
+    which every parity run on 1.1.0 since 2026-10-03 has failed and which must now pass, as each workspace has had a `/mise`
+    disk of its own since [OQ-MB1](../research/macos-backend-performance.md#OQ-MB1)'s build (2026-10-05); someone at the runner Mac
+    upgrades `container` from 1.1.0 to 1.5.0 (its kernel prompt is interactive), and the VM-local probe needs the maintainer's push
+    and one dispatch, after the upgrade for answers that hold on 1.5.0.
 50. A human with a subscription login clears [Claude's login without interception](../design/claude-login-without-interception.md)
     by running [its runbook](runbooks/claude-credential-view-measures.md), on a Mac and for a day on a rootless host,
     which also releases [`yolo host -- claude` joining the shared login](../reference/claude-oauth-interposition.md#OQ-CI1),

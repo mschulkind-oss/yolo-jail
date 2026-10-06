@@ -15,7 +15,8 @@ A jail's own files are thrown away when it stops, except for these, which are ke
 | `gh`, `copilot`, `opencode` and `omp` logins | `<project>/.yolo/home/` | One project |
 | Tools you install yourself (`npm -g`, `go install`, `uv tool`) | `<project>/.yolo/home/` | One project |
 | Agent sessions and history, shell history, SSH keys you create | `<project>/.yolo/home/` | One project |
-| mise tools and runtimes | `~/.local/share/yolo-jail/mise/` on Linux; a volume inside the VM on a Mac | Every project |
+| mise tools and runtimes | `~/.local/share/yolo-jail/mise/` on Linux; a volume inside Podman's VM on a Mac | Every project |
+| mise tools and runtimes, on Apple Container | A disk of the project's own, in Apple Container's storage | One project |
 | Download and build caches (`~/.cache` in the jail) | `~/.local/share/yolo-jail/cache/` | Every project |
 
 Everything under `<project>/.yolo/` belongs to that project's jail; `yolo init` adds it to
@@ -57,7 +58,10 @@ Each jail records which tool versions it uses, and yolo keeps a version any jail
 are offered 30 days after you upgrade. On a Mac yolo does not clean up tool versions yet: the store
 lives inside the VM, or in the sandbox account on `macos-user`.
 
-On Apple Container, `yolo prune` does not see stopped jails; list them with `container ls --all`
+On Apple Container each project keeps its own disk for mise's tools, so two projects' jails can
+run at once, and a project's first jail downloads its tools again. `yolo stores` lists each disk
+with its project and size, and `yolo prune --apply` removes the disk of a project whose folder is
+gone. `yolo prune` does not see stopped Apple Container jails; list them with `container ls --all`
 and remove one with `container rm <name>`.
 
 ## Timezone

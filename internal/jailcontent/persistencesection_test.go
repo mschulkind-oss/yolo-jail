@@ -202,10 +202,12 @@ func TestTheAppleContainerSectionSaysWhatIsTrueThere(t *testing.T) {
 			"this class. Throwaway files only, never a worktree.",
 		"- **Per workspace**: `$YOLO_DURABLE_DIR`, your scratch space; all of `/home/agent` outside the " +
 			"other classes, writable and kept in this workspace's `.yolo/home` (the agents' and tools' own state and " +
-			"installs: never put your work there); `/workspace/.venv` (this jail's own copies, not the host's). " +
+			"installs: never put your work there); `/workspace/.venv`, `/mise` (this jail's own copies, not the host's). " +
 			"Survives restarts and every new launch of this workspace; another workspace has its own. yolo deletes " +
 			"nothing here but its own files (below).",
-		"- **Every workspace on this machine**: `~/.cache`, `/mise`.",
+		// /mise is this workspace's own tool disk on Apple Container (OQ-MB1), not a store
+		// every workspace shares.
+		"- **Every workspace on this machine**: `~/.cache`.",
 		"- **The workspace itself**: `/workspace`, live on the host",
 		"- **Rewritten at each launch**: the briefing and skills files, and a few files yolo keeps in the home " +
 			"itself. A write to one may succeed here, and the next launch replaces it.",
@@ -270,7 +272,7 @@ func appleContainerShapedMap() *PersistenceMap {
 		{"/workspace/.venv", PathWorkspaceDurable},
 		{"/home/agent", PathWorkspaceDurable},
 		{"/home/agent/.cache", PathMachineDurable},
-		{"/mise", PathMachineDurable},
+		{"/mise", PathWorkspaceDurable},
 		{"/tmp", PathPerLaunch},
 		{"/var/tmp", PathPerLaunch},
 		{"/run", PathPerLaunch},

@@ -138,6 +138,9 @@ comes 30 days after you upgrade. See [Storage](userguide/guides/storage.md#see-a
   date.
 - On Apple Container, a terminal whose jail is stopped while it runs now says the jail stopped and
   why, instead of saying nothing or that the jail stays up.
+- On Apple Container, two projects' jails can now run at once: each project keeps its own disk for
+  mise's tools, filled on its first launch, and `yolo stores` lists them while `yolo prune --apply`
+  removes a removed project's disk and the one all projects shared before.
 - The launch, `yolo pack footprint` and `yolo host apply` now name all the code a wrapped Claude
   plugin runs, its workflows and highlighting grammars included, wherever Claude Code or Copilot
   loads it from by default, not only where its manifest says, and the launch says when its hooks
