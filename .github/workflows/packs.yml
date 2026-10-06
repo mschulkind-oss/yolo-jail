@@ -40,6 +40,9 @@ on:
   # covers the launch path unconditionally. What this adds over ci.yml is fourteen
   # AGENTS installed in real jails, and the axis that makes that fragile is which
   # image the jail gets — so the filter names the inputs that decide the image, and
+  # nothing else. `internal/capture/**` is in it for the same reason: the host floor installs an
+  # installer agent through a capture, and a capture fix (2026-10-06, rootless ownership) went
+  # untested here because the filter left it out.
   # nothing else. `internal/hostfloor/**` is the same argument at the host: the
   # floor's install code — its own Node, its npm, a capture materialized into it — is
   # what TestHostFloorInstallsTheVendorsRelease installs through, and ci.yml's pinned
@@ -56,6 +59,7 @@ on:
       - 'flake.lock'
       - 'internal/image/**'
       - 'internal/hostfloor/**'
+      - 'internal/capture/**'
       - '.github/workflows/packs.yml'
   pull_request:
     branches: [main]
@@ -65,6 +69,7 @@ on:
       - 'flake.lock'
       - 'internal/image/**'
       - 'internal/hostfloor/**'
+      - 'internal/capture/**'
       - '.github/workflows/packs.yml'
   schedule:
     # Weekly, offset from the nightly macOS run (06:40) and the flake.lock bump.
