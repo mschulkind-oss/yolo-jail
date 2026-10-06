@@ -572,7 +572,7 @@ func buildForkUnderLock(b forkBuild, mode buildMode, store *capture.Store, pr ri
 					f.Key(), patchedBuildSource(f.Source), b.Entry.Label(), b.Series.Len(),
 					plural(b.Series.Len(), "patch", "patches"), b.Series.ShortDigest())
 			}
-			pr.Printf("[dim]  %s[/dim]", richtext.Escape(sealDisclosure("")+"; "+buildRuns(f)))
+			pr.Printf("[dim]  %s[/dim]", richtext.Escape(sealDisclosure("")+"; "+buildRuns(f, b.buildLine())))
 		}
 	} else {
 		mode.run.phase("checking out its source")
@@ -581,7 +581,7 @@ func buildForkUnderLock(b forkBuild, mode buildMode, store *capture.Store, pr ri
 		}
 		if mode.run == nil {
 			pr.Printf("[bold]build[/bold] [cyan]%s[/cyan]  [dim]%s at %s, in a sealed jail[/dim]", f.Key(), f.Source, b.Commit)
-			pr.Printf("[dim]  %s[/dim]", richtext.Escape(sealDisclosure("")+"; "+buildRuns(f)))
+			pr.Printf("[dim]  %s[/dim]", richtext.Escape(sealDisclosure("")+"; "+buildRuns(f, b.buildLine())))
 		}
 	}
 	runJail := mode.runJail
@@ -703,7 +703,7 @@ func buildPlainForkForLaunch(b forkBuild, report *buildReport, it *poolItem, col
 			Cause: refused.cause}
 	}
 	ctx := it.context()
-	r := report.begin(buildStart{fork: b.Fork, what: b.Fork.Source + " at " + shortSHA(b.Commit)}, it)
+	r := report.begin(buildStart{fork: b.Fork, what: b.Fork.Source + " at " + shortSHA(b.Commit), line: b.buildLine()}, it)
 	bound := false
 	entry, err := buildFork(b, buildMode{lock: pidlock.Mode{Wait: true, Bound: forkBuildWaitBound, Cancel: ctx.Done()},
 		run: r, runJail: childJail(ctx, color, &bound)}, it.stream(), it.stream(), color)

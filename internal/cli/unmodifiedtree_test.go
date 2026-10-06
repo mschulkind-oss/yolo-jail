@@ -175,6 +175,12 @@ func TestAnNpmExtensionIsBuiltWithNpmsInstallOfTheVersionItsSpecNames(t *testing
 	if !strings.Contains(out, "built extension "+treeKeyCLI+": 1.2.0; this jail runs it") {
 		t.Errorf("the move line does not name the version once:\n%s", out)
 	}
+	// The start line discloses the build line as the jail runs it: the version's install, never
+	// the recipe's `<version>`, and no checkout to copy.
+	if !strings.Contains(out, "it runs npm's own install of the package: "+packdecl.NpmTreeInstall("tool-ext", "1.2.0")) ||
+		strings.Contains(out, "<version>") {
+		t.Errorf("the start line does not disclose the version's own install:\n%s", out)
+	}
 	hits := atomic.LoadInt64(&nf.hits)
 	if again, _ := nf.deliver(t, true); again.Entry != d.Entry || atomic.LoadInt64(&nf.hits) != hits || len(nf.seen) != 1 {
 		t.Errorf("a second launch inside the hour asked the registry or built: %d hits, %d builds", nf.hits, len(nf.seen))

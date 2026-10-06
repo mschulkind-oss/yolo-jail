@@ -148,6 +148,8 @@ type buildStart struct {
 	why string
 	// wait is a serving advance's clause: how long the launch waits and what a Ctrl-C starts it on.
 	wait string
+	// line is the build line the jail runs (forkBuild.buildLine), which the disclosure names.
+	line string
 }
 
 // begin starts one build's run for the pool's key it: its log, and its start line and disclosure
@@ -163,20 +165,24 @@ func (r *buildReport) begin(s buildStart, it *poolItem) *buildRun {
 	if where := b.logName(); where != "" {
 		head += "[dim]; log: " + richtext.Escape(where) + "[/dim]"
 	}
-	it.pool.say(head + "\n[dim]  " + richtext.Escape(sealDisclosure(r.rt)+"; "+buildRuns(s.fork)) + "[/dim]")
+	it.pool.say(head + "\n[dim]  " + richtext.Escape(sealDisclosure(r.rt)+"; "+buildRuns(s.fork, s.line)) + "[/dim]")
 	return b
 }
 
-// buildRuns is the disclosure of what a build runs: its build line, whole, before it runs (OQ-RO9).
-// A patched extension's build line is optional (PPX-D3), and its jail copies the checkout either way.
-func buildRuns(f packload.Fork) string {
+// buildRuns is the disclosure of what a build of f runs: line, its build line as the build jail runs
+// it (forkBuild.buildLine), whole, before it runs (OQ-RO9). A patched extension's build line is
+// optional (PPX-D3), and its jail copies the checkout either way; an npm tree's is npm's own install
+// of the version it builds, into the tree, with no checkout (XB-D6).
+func buildRuns(f packload.Fork, line string) string {
 	switch {
-	case f.IsTree() && strings.TrimSpace(f.Build) == "":
+	case f.IsTree() && f.Npm():
+		return "it runs npm's own install of the package: " + line
+	case f.IsTree() && strings.TrimSpace(line) == "":
 		return "it runs no build line, and copies the checkout as it is"
 	case f.IsTree():
-		return "it runs, then copies the checkout: " + f.Build
+		return "it runs, then copies the checkout: " + line
 	}
-	return "it runs: " + f.Build
+	return "it runs: " + line
 }
 
 // buildRun is one build's share of the report. Every method is safe on a nil *buildRun, which a
@@ -254,7 +260,7 @@ func (b *buildRun) openLog(s buildStart) {
 		fmt.Fprintln(f)
 	}
 	fmt.Fprintf(f, "=== yolo build of %s, %s ===\n  %s%s\n  %s; %s\n", b.label, b.started.Format("2006-01-02T15:04:05-0700"),
-		s.what, s.why, sealDisclosure(b.r.rt), buildRuns(s.fork))
+		s.what, s.why, sealDisclosure(b.r.rt), buildRuns(s.fork, s.line))
 }
 
 // logName is where the start line says the output is: the build's own log, relative to the

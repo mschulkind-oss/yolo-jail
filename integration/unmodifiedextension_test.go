@@ -99,7 +99,9 @@ echo "SETTINGS=$(tr -d ' \n' < "$HOME/.utreeagent/settings.json")"`
 		`"` + npmTreeEntry + `"`,
 		"Patched extensions this launch:",
 		"extension " + owner + ": ~/" + npmTreeInto + ", an unmodified extension of " + npmTreeSource,
-		"build " + owner + "  npm:is-number at 7.0.0, in a sealed jail",
+		// The build's start line, with its disclosure: npm's own install of the version it builds.
+		"build extension " + owner + ": 7.0.0, the first build of it on this machine",
+		"it runs npm's own install of the package: npm install 'is-number@7.0.0' --prefix .",
 		"built extension " + owner + ": 7.0.0; this jail runs it",
 	} {
 		if !strings.Contains(out, w) {
@@ -119,7 +121,7 @@ echo "SETTINGS=$(tr -d ' \n' < "$HOME/.utreeagent/settings.json")"`
 	// A SECOND LAUNCH builds nothing: an exact version is checked only until it first resolves
 	// (XB-D2), and its build serves.
 	out = launch("the second launch")
-	if strings.Contains(out, "in a sealed jail") || !strings.Contains(out, `PKG="version":"7.0.0"`) {
+	if strings.Contains(out, "build extension "+owner+":") || !strings.Contains(out, `PKG="version":"7.0.0"`) {
 		t.Errorf("the second launch built again, or mounts no tree:\n%s", out)
 	}
 }

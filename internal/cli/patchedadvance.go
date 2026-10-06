@@ -1052,7 +1052,7 @@ func (a *advance) build(b forkBuild, base baseWhy, edited bool) advanceResult {
 		if b.Series.Len() > 0 {
 			what += " (series " + b.Series.ShortDigest() + ")"
 		}
-		a.inFlight = a.o.report.begin(buildStart{fork: f, why: why, wait: wait, what: what}, a.o.slot)
+		a.inFlight = a.o.report.begin(buildStart{fork: f, why: why, wait: wait, what: what, line: b.buildLine()}, a.o.slot)
 		mode.run = a.inFlight
 	}
 	if a.o.launch {
