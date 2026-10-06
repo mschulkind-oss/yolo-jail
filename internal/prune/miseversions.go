@@ -30,14 +30,16 @@ import (
 // last 30 days — by a jail whose next record has not been written yet — is kept by its own age.
 //
 // A RECORD IS IN FORCE while it is younger than the window, or while its workspace's jail is
-// running, whatever its age. And the pass DECLINES, reclaiming nothing, whenever the records
+// running, whatever its age — except that a record saying its jail could not tell what it uses is
+// SUPERSEDED by any newer record of the same workspace, since every jail life writes a record of
+// its own and the earlier life's is never replaced. And the pass DECLINES, reclaiming nothing, whenever the records
 // cannot answer — the tri-state rule every reaper here keeps:
 //
 //   - the runtime cannot be asked which jails are running;
 //   - a running jail has no record at all (one a yolo older than the record started, or one whose
 //     main process has not written its first yet);
-//   - a record in force says its jail could not tell what it uses, or a recent record cannot be
-//     read.
+//   - a record in force, the newest of its workspace, says its jail could not tell what it uses,
+//     or a recent record cannot be read.
 //
 // AND IT JUDGES NOTHING UNTIL THE RECORDING IS A WINDOW OLD (MiseSweep.Waiting, which is not a
 // failure). Before that, a version a workspace used without recording it — under the yolo that
@@ -278,6 +280,15 @@ func judgeMiseUse(c miseuse.Census, live runtime.LiveSet, now time.Time) miseJud
 		cnames[ws] = n
 		return n
 	}
+	// A workspace's NEWEST record is what it says now. Each jail life writes under a name of its
+	// own, so the record an earlier life left is never replaced: without this, an earlier life's
+	// "could not tell" would outlive the fix and the relaunch its remedy asks for.
+	newest := map[string]time.Time{}
+	for _, r := range c.Records {
+		if ws := r.Record.Workspace; r.Err == nil && ws != "" && r.Record.Recorded.After(newest[ws]) {
+			newest[ws] = r.Record.Recorded
+		}
+	}
 	recorded := map[string]bool{}
 	for _, r := range c.Records {
 		if r.Err != nil {
@@ -304,6 +315,9 @@ func judgeMiseUse(c miseuse.Census, live runtime.LiveSet, now time.Time) miseJud
 		}
 		if !running && now.Sub(rec.Recorded) >= MiseVersionsWindow {
 			continue
+		}
+		if rec.Unknown != "" && rec.Workspace != "" && rec.Recorded.Before(newest[rec.Workspace]) {
+			continue // superseded: a later record of the same workspace says what it uses
 		}
 		if rec.Unknown != "" {
 			j.declined = fmt.Sprintf("a jail of %s could not say which tool versions it uses "+

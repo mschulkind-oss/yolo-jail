@@ -330,3 +330,57 @@ func TestALeftoverRemovalIsFinished(t *testing.T) {
 		t.Fatal("a version in use went with the leftover")
 	}
 }
+
+// TestAWorkspacesNewestRecordSupersedesItsUnknownOne: each jail life writes under a name of its
+// own, so an "unknown" record from an earlier life of a workspace is not replaced when the user
+// fixes the config and launches again — the step the decline's remedy names. A workspace's newest
+// record is what it says now, so a newer record from the same workspace ends an older unknown
+// one's decline, whether its jail runs or not, and however long it runs. An unknown record that IS
+// its workspace's newest still declines.
+func TestAWorkspacesNewestRecordSupersedesItsUnknownOne(t *testing.T) {
+	const ws = "/home/u/code/a"
+	unknown := func(f *miseFixture, when time.Time) {
+		t.Helper()
+		if err := miseuse.Write(f.store, miseuse.NewName(), miseuse.Record{
+			Workspace: ws, Recorded: when, Unknown: "broken mise.toml",
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for name, live := range map[string]runtime.LiveSet{"running": running(ws), "stopped": nothingRunning()} {
+		t.Run(name, func(t *testing.T) {
+			f := newMiseFixture(t, "node/22.5.0", "python/3.11.9")
+			unknown(f, f.now.Add(-48*time.Hour))               // the earlier life
+			f.record(ws, f.now.Add(-time.Hour), "node/22.5.0") // the fixed relaunch
+			s := f.find(live)
+			if s.Declined != "" {
+				t.Fatalf("an unknown record its workspace's newer record superseded still declined: %q (%s)", s.Declined, s.Remedy)
+			}
+			if got := candidateRels(s); len(got) != 1 || got[0] != "python/3.11.9" {
+				t.Fatalf("candidates = %v, want python/3.11.9 alone", got)
+			}
+
+			// The newest record could not tell: that one is still in force, and still declines.
+			unknown(f, f.now.Add(-time.Minute))
+			if s := f.find(live); s.Declined == "" || len(s.Candidates) != 0 {
+				t.Fatalf("a workspace whose newest record is unknown judged: %+v", s)
+			}
+		})
+	}
+	t.Run("a long-running jail's old unknown record", func(t *testing.T) {
+		f := newMiseFixture(t, "node/22.5.0", "python/3.11.9")
+		unknown(f, f.now.Add(-34*24*time.Hour))
+		f.record(ws, f.now.Add(-time.Hour), "node/22.5.0")
+		if s := f.find(running(ws)); s.Declined != "" || len(s.Candidates) != 1 {
+			t.Fatalf("a 34-day-old unknown record of a running workspace with a fresh record declined: %+v", s)
+		}
+	})
+	t.Run("another workspace's record supersedes nothing", func(t *testing.T) {
+		f := newMiseFixture(t, "node/22.5.0")
+		unknown(f, f.now.Add(-48*time.Hour))
+		f.record("/home/u/code/b", f.now.Add(-time.Hour), "node/22.5.0")
+		if s := f.find(nothingRunning()); s.Declined == "" {
+			t.Fatalf("another workspace's newer record ended this one's unknown record: %+v", s)
+		}
+	})
+}
