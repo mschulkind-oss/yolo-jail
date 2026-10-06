@@ -1171,9 +1171,9 @@ below, which is why the tense in this paragraph is the tense it is.
 - **Not Phase 7.** Nothing here builds the `guest` notch, on either platform. What
   [OQ-DP3](#decision-ledger) ruled is that the notch stop *looking* built.
 - **Not a replacement for the backend census.** [OQ-BP-1](backend-parity.md#OQ-BP-1) is
-  live and owned there; this doc adds the second input and the entry-point input, and would
-  feed the same table. If the census is built, most of [§5](#5-silently-broken) becomes
-  unwritable — that is an argument FOR it, made here and ruled there.
+  owned there, and was ruled on 2026-10-05 to build it; this doc adds the second input and the
+  entry-point input, and would feed the same table. Once the census is built, most of
+  [§5](#5-silently-broken) becomes unwritable — an argument FOR it, made here and ruled there.
 - **Not "warn about all of it."** [OQ-BP-3](backend-parity.md#OQ-BP-3) is live:
   *"a warning people learn to skip is worse than none."* [OQ-DP5](#OQ-DP5) offers three
   shapes that are better than a warning, all three of which already ship somewhere in the tree.

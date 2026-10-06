@@ -2,7 +2,7 @@
 title: "macOS support matrix — every runtime × builder × config"
 status: in-review
 stage: DESIGN
-next: "Rule OQ-MX1 before nixpkgs 26.05's security window for the Intel runner closes at the end of 2026"
+next: "Nothing until Nix drops Intel Macs, when nixpkgs 26.05's security support ends on 2026-12-31; then rule OQ-MX1, which the maintainer deferred until then on 2026-10-05"
 tags: [research, macos, tracker, ci]
 ---
 
@@ -20,9 +20,11 @@ instruments now run unattended**: the `macos-user` CI job on GitHub's `macos-lat
 ([`macos-user.yml`](../../.github/workflows/macos-user.yml), since 2026-09-12, scheduled) and the
 Apple Container parity job on a self-hosted Mac
 ([`apple-container.yml`](../../.github/workflows/apple-container.yml), since 2026-09-14,
-dispatch-only). A cell a test on either job pins is marked [CI].
+dispatch-only). A cell a test on either job pins is marked [CI]. On **2026-10-05** the
+maintainer deferred [OQ-MX1](#OQ-MX1), what replaces the Intel runner, until Nix actually drops
+Intel Macs.
 
-**Needs your ruling:** [OQ-MX1](#OQ-MX1) (what replaces `macos-26-intel` before nixpkgs 26.05 lapses — the one item here with a deadline; restated 2026-09-30, because the self-hosted Mac it names as one option now exists). [OQ-MX2](#OQ-MX2) is moot since 2026-09-30: the three `packages:` tests no longer fail on the nightly's runner. *MX* stands for this matrix; the prefix was coined for these two questions on 2026-09-26.
+**Needs your ruling:** none now. [OQ-MX1](#OQ-MX1) (what replaces `macos-26-intel`) was deferred in review on 2026-10-05 until Nix actually drops Intel Macs, when nixpkgs 26.05's security support ends on 2026-12-31, and is 🔒 until then. [OQ-MX2](#OQ-MX2) is moot since 2026-09-30: the three `packages:` tests no longer fail on the nightly's runner. *MX* stands for this matrix; the prefix was coined for these two questions on 2026-09-26.
 
 > [!NOTE]
 > **Code citations name a FILE, not a line** (since 2026-09-24). The line numbers this tracker
@@ -80,8 +82,9 @@ and nothing else here does.** Verified against `flake.nix` 2026-08-23.
 - **When 26.05 lapses the podman suite needs a new home:** the self-hosted arm64
   Mac that already runs the Apple Container job, macos-user-only macOS tests, or
   riding the frozen 26.05 pin until GitHub retires the image
-  ([OQ-MX1](#OQ-MX1), restated 2026-09-30). **A deadline, not a bug — it needs a
-  decision before the end of 2026.**
+  ([OQ-MX1](#OQ-MX1)). **A deadline, not a bug, and the choice is deferred until it
+  arrives** (ruled in review 2026-10-05): it is made when 26.05's security support ends on
+  2026-12-31, not before.
 
 > [!WARNING]
 > **The recorded diagnosis for this was exactly backwards for 29 nights.** The
@@ -304,10 +307,11 @@ is the single collected list, with the open questions attached.
    (Open Decision #3, 2026-07-23). No longer a documented fallback; the
    container builder is the sole builder. A user's own nix-darwin
    `linux-builder` remains only as a personal escape hatch (row above).
-8. 💬 <a id="OQ-MX1"></a>**[OQ-MX1](#OQ-MX1): Decide what replaces `macos-26-intel` before nixpkgs 26.05 lapses**
+8. 🔒 <a id="OQ-MX1"></a>**[OQ-MX1](#OQ-MX1): Decide what replaces `macos-26-intel` once Nix drops Intel Macs**
 
-   Deadline-driven: 26.05 is security-fixed only to the end of 2026. The background, and each
-   option's cost in full, are in
+   Waits on Nix's support for Intel Macs ending: nixpkgs 26.05, the last branch supporting
+   them, is security-fixed only to 2026-12-31, and the maintainer deferred the choice until then. The
+   background, and each option's cost in full, are in
    [Replacing `macos-26-intel`](#replacing-macos-26-intel--the-background-and-each-options-cost).
    - **(A)** Move the podman macOS suite onto the self-hosted Mac, dispatched the way the
      Apple Container job is.
@@ -325,6 +329,14 @@ is the single collected list, with the open questions attached.
    proves too slow. Option C keeps covering Intel Macs, where the guide sends Intel users, but only
    postpones the choice to late 2027.
 
+   **Answer:**
+   > **Deferred in review 2026-10-05, none of the options:** *"defer until it happens."* What
+   > replaces the Intel runner is decided when Nix actually drops Intel Macs, that is when
+   > nixpkgs 26.05's security support ends on 2026-12-31, and not before. Until then the podman
+   > macOS suite stays on `macos-26-intel` on the 26.05 pin. The question is 🔒 until that date;
+   > its options and leaning are to be re-checked against the runners of the day when it is
+   > asked again.
+
 ### Replacing `macos-26-intel` — the background and each option's cost
 
 [OQ-MX1](#OQ-MX1), roadmap item 8 above, was NEW, added 2026-08-23. See
@@ -332,8 +344,8 @@ is the single collected list, with the open questions attached.
 `x86_64-darwin` and is security-fixed only to the end of 2026, while the
 nightly must stay on an Intel runner because GitHub's Apple Silicon runners
 cannot nest a VM for Podman Machine. Deadline-driven, not
-defect-driven — it needs a ruling before the window closes, and it is the only
-item in the roadmap list with a date attached. *(The id was minted 2026-09-26 so the question can be
+defect-driven, and the only item in the roadmap list with a date attached; the
+maintainer deferred the ruling on 2026-10-05 until the window closes. *(The id was minted 2026-09-26 so the question can be
 linked.)*
 
 **Restated 2026-09-30.** When this was filed the self-hosted option meant standing up a
@@ -365,3 +377,9 @@ for the first time:
 - [handoff-cachix-cache.md](../plans/handoff-cachix-cache.md) — the prebuilt-download happy path.
 - **[handoff-guest-notch-macos.md](../plans/handoff-guest-notch-macos.md)** — every Mac-gated item in one place, so one trip to a Mac can close all of it; holds the open questions ([`OQ-GN1`](../plans/handoff-guest-notch-macos.md#9-open-questions)–[`OQ-GN4`](../plans/handoff-guest-notch-macos.md#9-open-questions)) behind [§4](#4-whats-proven-vs-whats-the-next-gate)'s list above.
 - [provisioner-sets.md](../design/provisioner-sets.md) — absorbed `noncontainer-nix-environment.md` on 2026-09-11, then split three ways on 2026-09-20. Its [alternatives](../design/provisioner-sets.md#10-alternatives-each-with-a-verdict), alternative H, are the (now shipped) nix-profile work; the survey half, [provisioner-evidence.md](../design/provisioner-evidence.md), is where [macOS vs Linux coverage and freshness](../design/provisioner-evidence.md#37-macos-vs-linux-coverage-freshness-and-the-traps) measured the `x86_64-darwin` drop probe-by-probe and where its retraction lives.
+
+## Decision Ledger
+
+| ID | Ruling / Decision | Date | Settled in | Built |
+| :--- | :--- | :--- | :--- | :--- |
+| [OQ-MX1](#OQ-MX1) | **Deferred until it happens, none of the options:** what replaces `macos-26-intel` is decided when Nix drops Intel Macs, when nixpkgs 26.05's security support ends on 2026-12-31; until then the podman macOS suite stays on the Intel runner and the 26.05 pin | 2026-10-05 | [OQ-MX1](#OQ-MX1), [§0](#0-the-platform-deadline--x86_64-darwin-is-on-a-clock) | deferred |

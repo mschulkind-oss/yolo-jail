@@ -1,22 +1,23 @@
 ---
 title: "Three backends, one pipeline, and no census — why a mechanism goes missing quietly"
 date: 2026-08-24
-status: in-review
+status: accepted
 tags: [backends, apple-container, macos-user, parity, silent-drop]
 summary: "Issue #39 was not one bug. A 48-agent sweep found 42 candidates and confirmed 31, deduping to 17 distinct defects — 21 once a class test written for three of them found a fourth nobody had looked for. All one shape: a mechanism wired into the podman branch of the run pipeline with nothing checking the other two backends. Fourteen are fixed or warned; the rest need a census — a per-backend disposition table with FOUR states, because 'achieved another way' is the state that half the audit turned out to be."
-stage: DESIGN
-next: "Record #10 in §5.4: the 2026-10-03 apple-container.yml run (GitHub Actions run 37133569003, at 5ca9b7485) logged AC-PARITY #10 VERDICT: HOLDS, a published port answering the Mac under an explicit network.mode: host as under the default; then rule OQ-BP-1, the per-backend census table or the annotation check and the two hand-kept tables"
+stage: DECIDED
+next: "Build OQ-BP-1 (A), ruled 2026-10-05: a census table in code giving every config key and pack contribution kind a disposition and a reason for each of podman on Linux, podman on a Mac, Apple Container and macos-user, a test that fails on a missing entry, and userguide/reference/settings-per-setup.md checked against the table or generated from it"
 ---
 
 # Three backends, one pipeline, and no census — why a mechanism goes missing quietly
 
 **Status:** 2026-08-24 — a diagnosis and a proposal. **Fourteen fixes are shipped** ([§5](#5-what-is-already-fixed-2026-08-24)), and since
 2026-09-25 each has a named hardware test or a stated reason for having none
-([§5.4](#54-which-test-answers-which-row)). Every row with a hardware test except #10 has since
-held or passed on a Mac: the Apple Container rows by `apple-container.yml` run 36378256230
-(2026-09-28), the macos-user rows (#6, #7, #9, #14) in `macos-user.yml` run 36719581090
-(2026-09-30). #10 waits on the runner Mac's Local Network permission, not on yolo. The census
-in [§4](#4-the-proposal--a-backend-census-sibling-to-renderfieldset) is unbuilt **as a data structure** and **built as an
+([§5.4](#54-which-test-answers-which-row)). Every row with a hardware test has since held or
+passed on a Mac: the Apple Container rows by `apple-container.yml` run 36378256230 (2026-09-28)
+and #10, the last, by run 37133569003 (2026-10-03), the macos-user rows (#6, #7, #9, #14) in
+`macos-user.yml` run 36719581090 (2026-09-30). The census
+in [§4](#4-the-proposal--a-backend-census-sibling-to-renderfieldset) is unbuilt **as a data
+structure**, which [OQ-BP-1](#OQ-BP-1) ruled on 2026-10-05 to build, and **built as an
 enforced annotation** — `internal/cli/run/backendparity_test.go` (2026-09-14) has required a
 `// parity: <Disposition> — <reason>` on every runtime-gated line in the run pipeline since,
 which is [§4](#4-the-proposal--a-backend-census-sibling-to-renderfieldset)'s vocabulary made
@@ -24,7 +25,7 @@ executable without its `Cell` type ([§4.1](#41-what-shipped-instead-the-census-
 Every code claim was verified against the tree on 2026-08-24
 unless dated otherwise.
 
-**Needs your ruling:** [OQ-BP-1](#OQ-BP-1) (whether the census data structure is worth building). [OQ-BP-3](#OQ-BP-3) (whether a `Warned` disposition needs to be suppressible) was answered on 2026-09-30 by a standing ruling, [`OQ-RO3`](../reference/report-tiers.md#why-its-this-way): a launch has no quiet mode.
+**Needs your ruling:** none. [OQ-BP-1](#OQ-BP-1) (whether the census data structure is worth building) was ruled in review on 2026-10-05: build it (A). [OQ-BP-3](#OQ-BP-3) (whether a `Warned` disposition needs to be suppressible) was answered on 2026-09-30 by a standing ruling, [`OQ-RO3`](../reference/report-tiers.md#why-its-this-way): a launch has no quiet mode.
 
 > [!NOTE]
 > **2026-09-09: [OQ-BP-2](#decision-ledger) was answered by CODE, not by a ruling** — skills and briefings have been
@@ -36,12 +37,13 @@ unless dated otherwise.
 > untouched by this: the fix moved one cell from `Warned` to `HonoredBy`, which is the
 > [§3](#3-the-dispositions--the-most-important-section) vocabulary doing exactly what [§4](#4-the-proposal--a-backend-census-sibling-to-renderfieldset) argues it is for.
 >
-> **One is live now.** [OQ-BP-4](#decision-ledger) was ruled on 2026-09-14 and
+> **None is live now.** [OQ-BP-4](#decision-ledger) was ruled on 2026-09-14 and
 > [OQ-BP-5](#OQ-BP-5), which that ruling opened, was answered by code on 2026-09-15 — the second
 > question in this file to be settled by a commit rather than by a decision, which is why the
 > [Decision Ledger](#decision-ledger) is the only place to read the current state from.
 > [OQ-BP-3](#OQ-BP-3) was answered on 2026-09-30 by [`OQ-RO3`](../reference/report-tiers.md#why-its-this-way),
-> ruled 2026-09-11, which it predates. [OQ-BP-1](#OQ-BP-1) is the one left.
+> ruled 2026-09-11, which it predates. [OQ-BP-1](#OQ-BP-1), the last, was ruled on 2026-10-05:
+> build the census.
 
 **The short version.** yolo has three backends. `podman` and `container` (Apple Container)
 share `runContainer`; `macos-user` returns from `Run()` before it and re-implements a
@@ -69,7 +71,7 @@ user-facing consequence).
 **Build the census ([§4](#4-the-proposal--a-backend-census-sibling-to-renderfieldset)), but do the briefing fix ([§6](#6-the-second-shared-fix-compose-the-briefing-from-what-was-applied)) first** — it is smaller and it closes
 the sub-class the census structurally cannot reach. *(Status 2026-09-02: the briefing fix is
 DONE — `28ddea11` shipped it the day this verdict was written; see [§6](#6-the-second-shared-fix-compose-the-briefing-from-what-was-applied). The census is the whole
-remainder, and it waits on [OQ-BP-1](#OQ-BP-1).)*
+remainder, and [OQ-BP-1](#OQ-BP-1) ruled on 2026-10-05 to build it.)*
 
 Three claims, argued below:
 
@@ -187,8 +189,10 @@ It must be a **sibling, not an extension**: `FieldSet` is deliberately platform-
 (`internal/render/confinement.go` says so, and warns that adding a platform re-opens D2).
 
 **Shape.** A new leaf package both `run` and `macosuser` can import, mapping
-`(backend, vocab) → Cell{Disposition, Reason}`, where the vocabulary is the union of two
-**already-closed** sets:
+`(setup, vocab) → Cell{Disposition, Reason}`. A setup is one of the four the user guide's
+[per-setup page](../../userguide/reference/settings-per-setup.md) already uses: podman on Linux,
+podman on a Mac, Apple Container and macos-user (ruled 2026-10-05, [OQ-BP-1](#OQ-BP-1)). The
+vocabulary is the union of two **already-closed** sets:
 
 - `packdecl.KnownKinds()` — closed, and already exhaustiveness-tested by
   `TestDisclosureClassifiesEveryKnownKind`.
@@ -199,9 +203,11 @@ It must be a **sibling, not an extension**: `FieldSet` is deliberately platform-
 **Two call sites, both of which already exist** and are already the "what will this launch
 not do for you" surface: the macos-user notice block in `run.go`, and the
 `cache_relocations` skip in `appleContainerBaseMounts`. The ~15 warn strings the sweep
-produced become census data instead of fifteen scattered `if`s.
+produced become census data instead of fifteen scattered `if`s. **A third reader, by the
+ruling:** the per-setup page is checked against the table, or generated from it, so a cell the
+code and the guide disagree on fails a test instead of waiting to be read.
 
-**Cost, honestly.** ~3 backends × (15 kinds + ~30 keys) ≈ 135 cells, of which only ~35 are
+**Cost, honestly.** 4 setups × (15 kinds + ~30 keys) ≈ 180 cells, of which only ~35 are
 non-`Honored` and need prose. The *deciding* is the expensive part and the sweep already did
 it. Call it 2–3 days including the exhaustiveness test.
 
@@ -238,7 +244,8 @@ CODE SITE, enumerated out of the tree, so only the CARVE-OUTS are maintained —
 [§4](#4-the-proposal--a-backend-census-sibling-to-renderfieldset) proposes a table per
 `(backend, config key or pack kind)` that a human keeps in step with the code.
 
-**What it does NOT deliver, so read [OQ-BP-1](#OQ-BP-1) as still open.** It cannot see a
+**What it does NOT deliver, which is why [OQ-BP-1](#OQ-BP-1) was ruled on 2026-10-05 to build the
+table as well.** It cannot see a
 divergence with **no branch** (issue #39 was an ABSENT mount, and an absent thing has no line to
 mark), it marks a branch that is DECLARED AND WRONG as classified (#44's site is declared), it
 ignores forks on `o.IsMacOS` / `runtime.GOOS` / a capability probe, and its scope is
@@ -538,8 +545,18 @@ and unrun on the Mac.
   test process's own and does not decide #10. That is the likely shape of a run where the helpers
   are granted and the `go test` binary is not. Both verdicts still pass.
 
-The macos-user checks #6, #7, #9 and #14 are still unrun: the last `macos-user.yml` run, on
-2026-09-25, did not select them.
+**#10 holds (2026-10-03).** `apple-container.yml` run 37133569003, at `5ca9b7485` (`container`
+1.1.0, macOS 26.5), logged `AC-PARITY #10 VERDICT: HOLDS — a published port answers the Mac under
+an explicit network.mode: host exactly as under the default`. In both modes, both listeners
+answered the Mac on `127.0.0.1:<host port>` about six seconds into the launch, after a run of
+refusals while the jail started, so the IPv4-only listener is reached and the address family is
+not what blocked a published port. The Mac also reached the container's own vmnet
+address on its first dial, which failed `no route to host` on every run from 2026-09-25 to
+2026-09-28. The published port on the vmnet gateway still accepted and then read EOF, and `[::1]`
+still refused, since the forwarder listens on IPv4 only. What changed on the runner Mac in
+between is not recorded; the [runner's runbook](../plans/runbooks/mac-actions-runner.md) asks
+the maintainer. On the same run every other Apple Container row held or passed as well: #2, #3,
+#4 and #8 HOLD, and the checks for rows #1, #11, #12 and #13 pass.
 
 ### 5.5 The container-to-host probe, every run since 2026-09-15
 
@@ -807,7 +824,7 @@ an agent plans around it.
    [§5.1](#51-confirmed-drops-i-deliberately-did-not-warn-about)'s standing caveat, with the
    consequence that a wrong right-set fails closed as a jail that cannot reach its own broker.
 
-1. 💬 <a id="OQ-BP-1"></a>**[OQ-BP-1](#OQ-BP-1): Is the census worth 2–3 days, given it cannot catch the two worst findings?**
+1. ✅ <a id="OQ-BP-1"></a>**[OQ-BP-1](#OQ-BP-1): Is the census worth 2–3 days, given it cannot catch the two worst findings?**
    [§4](#4-the-proposal--a-backend-census-sibling-to-renderfieldset)'s residue is real: the P0s in [§5](#5-what-is-already-fixed-2026-08-24) (`reads-host`, `host_files`) emitted an argv and were
    *wrong*, not silent, and a census marks both Honored. What it buys is that the other
    nineteen become unwritable.
@@ -851,7 +868,14 @@ an agent plans around it.
    _Leaning:_ **(A)**, as above.
 
    **Answer:**
-   > _(empty — fill in when decided)_
+   > **Ruled in review 2026-10-05, as leaned (A)** (the maintainer's answer: *"A"*). Build the
+   > table in code: every config key and every pack contribution kind gets a disposition from
+   > [§3](#3-the-dispositions--the-most-important-section) and a reason for each of the four
+   > setups, podman on Linux, podman on a Mac, Apple Container and macos-user, and a test fails on
+   > a missing entry. The user guide's
+   > [`settings-per-setup.md`](../../userguide/reference/settings-per-setup.md) is checked against
+   > the table or generated from it, and the macos-user notice block reads it. The annotation
+   > check stays beside it, since it covers the branches the table cannot see. Not built yet.
 
 2. ✅ **[OQ-BP-2](#decision-ledger): Do briefings and skills get DELIVERED to macos-user, or stay a documented absence?
    — ANSWERED BY CODE 2026-09-03 (noticed 2026-09-09).** Delivered, on the leaning's own terms.
@@ -973,6 +997,7 @@ Fourteen new launch lines exist as of today — the number was ten when this que
 
 | ID | Ruling / Decision | Date | Settled in |
 | :--- | :--- | :--- | :--- |
+| [OQ-BP-1](#OQ-BP-1) | **Ruled in review, as leaned (A): build the census table in code.** Every config key and pack contribution kind gets a [§3](#3-the-dispositions--the-most-important-section) disposition and a reason for each of podman on Linux, podman on a Mac, Apple Container and macos-user; a test fails on a missing entry; [`settings-per-setup.md`](../../userguide/reference/settings-per-setup.md) is checked against the table or generated from it, and the macos-user notice block reads it. The annotation check ([§4.1](#41-what-shipped-instead-the-census-as-an-annotation)) stays. **Built: pending** | 2026-10-05 | [OQ-BP-1](#OQ-BP-1); [§4](#4-the-proposal--a-backend-census-sibling-to-renderfieldset) |
 | OQ-BP-3 | **No: a `Warned` line is never suppressible.** Answered by a standing ruling this question predates, [`OQ-RO3`](../reference/report-tiers.md#why-its-this-way) (2026-09-11): *"No quiet flag for the launch, ever"*. The reference states the rule as *"A launch has no quiet mode, and no flag may be added that could acquire one. The compression above is the whole density control"*, and `TestTheLaunchHasNoQuietFlag` enforces it. A per-key switch is a quiet mode for the line it hides, so it is refused too. The leaning's *"add the suppression when someone asks"* goes. What remains when the lines grow is compression: one line, with the list in `launch.log`, as the boot catalog was compressed | 2026-09-11, recorded 2026-09-30 | [`OQ-BP-3`](#OQ-BP-3); [`report-tiers.md`](../reference/report-tiers.md#the-launch-stream) |
 | OQ-BP-5 | **An ACE — a fifth candidate, and the mode never widens.** ANSWERED BY CODE one day after being opened: `6d118252` starts the `openai-auth-broker` on the macos-user arm and `macosuser.BuildRunPlan` stages `macosuser.EndpointGrantCommands` for its endpoint file — two `chmod +a` entries, `user:` and not `group:`, granting `read,readattr,readextattr,readsecurity` on the file and `search` on its 0700 directory. The file stays **0600 and the publisher's**, so the two-readers-two-uids objection dissolves instead of being traded off: `yolo check`'s probe is unaffected and there is no second copy to leak or sweep. (b) — publish twice — was the leaning and is not what shipped; the ACE is the minimal form of (a) with (a)'s actual defect removed, since it names one uid rather than a group containing the host user. (c) survives as the shape to grow into, for the part an ACE cannot fix: the sandbox account can read that service's token, because dialling the service is the capability being granted. ⚠ **Never executed** — `chmod +a` is macOS-only, so this is argv verified by unit test and nothing more; a wrong right-set fails closed, as a jail that cannot reach its own broker | 2026-09-15 | [`OQ-BP-5`](#OQ-BP-5); `internal/macosuser/runplan.go`, `internal/macosuser/macosuser.go` |
 | OQ-BP-4 | **The reason is STALE; the goal is loopholes as fully as possible on EVERY backend** (maintainer's direction). The blanket skip is justified in `loopholeinert.go` by *"no socket bind-mount there"*, and that is true of almost nothing shipped: **four of six shipped loopholes declare `transport: loopback-tls`** — `claude-oauth-broker`, `host-processes`, `journal`, `serial` — which reach the host over the NETWORK and learn their endpoint from a 0600 file in a bind-mounted DIRECTORY, which Apple Container mounts fine. The other two (`audio`, `cgroup-delegate`) declare `transport: none`, so there is no socket to mount for them either. The socket-era reason survives for **zero** of the six. ⚠ **macos-user's reason is different and only half wrong:** *"a native process already reaches the host directly, so the whole mechanism is bypassed"* answers REACHABILITY and is silent on SERIALIZATION — the broker exists to serialise refreshes of a single-use OAuth token across concurrent jails, which reaching the host directly does not do, so that race is live on macos-user too. **The real limits are per-LOOPHOLE, not per-backend:** `--add-host` is unsupported on AC (apple/container#673), which blocks an *intercepting* loophole only; `cgroup-delegate` is Linux + cgroup-v2 and AF_UNIX + SO_PEERCRED, hence NotApplicable on both macOS backends; `audio`'s sockets do not exist on macOS. **Sequencing is part of the ruling:** whether an AC container reaches a host loopback listener is the one thing no Linux test can answer, and it must be MEASURED before the skip is lifted — the in-jail reachability witness is FATAL, so enabling an unreachable service converts a working AC launch into a refusing one. ⚠ **MEASURED 2026-09-15, AND THE ANSWER INVERTS THIS FOR APPLE CONTAINER: the skip is CONFIRMED, for a reason nobody had.** On `container` 1.1.0 a container→host connection completes its TCP handshake and then carries nothing — two mechanisms alternating on the same address: *TEARDOWN* (the host reads `ENOTCONN` on a socket `Accept()` had just returned) and *PHANTOM* (the container reports CONNECTED to a port the test holds bound while no accept ever happens, so the runtime's NAT answered it). **No bind address helps** — `bridge` and `wildcard` connect and die exactly like `127.0.0.1`, and `host.containers.internal` does not resolve there at all. Verified with **no yolo in the path** (a `python3` listener holding the connection open reads `Broken pipe`; a bare `container run … /dev/tcp` prints CONNECTED then instant EOF), and BOUNDED in the same session so it is not the larger claim: container→internet WORKS, Mac→container WORKS, container→Mac does not. `TestAppleContainerReachesHostLoopback` records it as a passing measurement. Every run through 2026-10-03 says the same; the run history, why Local Network privacy is not the cause, and Apple's documented `--localhost` route, which the probe never tried, are in [§5.5](#55-the-container-to-host-probe-every-run-since-2026-09-15). **So the ruling's direction stands and its consequence for THIS backend is: do not split.** The old reason (*"no socket bind-mount there"*) was still wrong, and the true one is narrower and testable — it will expire with an upstream release, which is why the test's positive branches are already written. **macos-user is untouched by this**: a native process is not a container, so none of it applies there, and [`OQ-BP-5`](#OQ-BP-5) remains the live path. Original sequencing, kept as the record: measure first, then split. ⚠ **The two backends have DIFFERENT blockers and only one is a measurement** (established 2026-09-14): **AC** waits on the reachability probe (`TestAppleContainerReachesHostLoopback`, unrun). **macos-user does NOT** — `sharesLauncherNetns` already returns true for it (`paths.NativeRuntimes`), the jail is a native process on the host so `127.0.0.1` IS the host loopback, and the Seatbelt profile is `(allow default)`, which permits network. Its blocker is a CREDENTIAL-BOUNDARY decision instead: `svcendpoint.Publish` writes the endpoint file **0600**, and `DialLocal` documents the property that mode buys — *"it reads the same 0600 file as the same uid that published it"*. On podman and AC the jail is root in a container with that file bind-mounted; on macos-user it runs as `_yolojail`, **a different uid from the human who published it**, so a 0600 file is unreadable and there is no mount to reshape. The token in that file is the whole reason for the mode, so widening it, adding a group, or copying it per jail is a decision about the credential boundary and not a hoist. **Whoever builds the macos-user half rules that first** — and they did, one day later: [`OQ-BP-5`](#OQ-BP-5) is answered by an ACE (the row above), and the macos-user half was started **one loophole deep** — `openai-auth-broker` alone, through a hardcoded allow-list. ⚠ **Superseded 2026-09-17:** that arm now goes through `startLoopholesDisclosed` like a container launch and starts **every** admitted host daemon, ACL-granting each endpoint; what is inert there is the JAIL half, declined by name ([reference](../reference/macos-user-nix-and-features.md#the-jail-daemons-run-in-the-sandbox)) | 2026-09-14 | the OQ above; [§7](#7-what-this-does-not-propose) |
