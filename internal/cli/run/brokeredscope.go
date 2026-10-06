@@ -13,11 +13,12 @@ import (
 )
 
 // brokeredscope.go is the launch's half of a brokered loophole's repository scope
-// (docs/design/boundary-broker.md §5.6; loopholedecl/brokered.go): read the workspace's
-// remotes at every FRESH launch that starts the loophole, put them in front of a human in
-// the config-change gate, and hand the approved list to the daemon in this launch's scope
-// file. An attach does none of it: it reads no remotes and writes nothing, so a remote
-// added mid-session changes nothing until the next fresh launch shows it.
+// (docs/design/boundary-broker.md §5.6; docs/design/workspace-widening.md; loopholedecl/brokered.go):
+// read the workspace's remotes and its `brokered.<source>.repos` entry at every FRESH launch that
+// starts the loophole, put them in front of a human in the config-change gate, and hand what the
+// gate approved to the daemon in this launch's scope file. An attach does none of it: it reads
+// nothing and writes nothing, so a remote added or an entry edited mid-session changes nothing
+// until the next fresh launch shows it.
 
 // brokeredToStart is the set of brokered loopholes this launch will start — the SAME
 // predicate the spawn applies (loopholes.Set.BrokeredToStart over the backend's allow), so
@@ -27,37 +28,39 @@ func (o *Options) brokeredToStart(rt string, cfg *jsonx.OrderedMap) []*loopholes
 	return set.BrokeredToStart(o.loopholeAllow(rt, cfg))
 }
 
-// brokeredScopeCheck reads each brokered loophole's remotes for the gate. nil when no broker
-// starts, which leaves the gate exactly what it was before the scope part existed.
-func (o *Options) brokeredScopeCheck(rt string, cfg *jsonx.OrderedMap) *config.ScopeCheck {
+// brokeredScopeCheck reads each brokered loophole's scope for the gate, through the helper
+// `yolo check` shares (config.NewScopeCheck): its remotes, and its entry from the gate's own read
+// of the workspace config. nil when no broker starts, which leaves the gate exactly what it was
+// before the scope part existed.
+func (o *Options) brokeredScopeCheck(rt string, cfg *jsonx.OrderedMap, read *config.WorkspaceRead) *config.ScopeCheck {
 	lps := o.brokeredToStart(rt, cfg)
 	if len(lps) == 0 {
 		return nil
 	}
-	check := &config.ScopeCheck{}
+	brokers := make([]config.ScopeBroker, 0, len(lps))
 	for _, lp := range lps {
-		read := brokerscope.ReadRemotes(o.Workspace, lp.Brokered.RemoteHost)
-		if read.Problem != "" {
+		brokers = append(brokers, config.ScopeBroker{Source: lp.Brokered.Source, Label: lp.Name,
+			RemoteHost: lp.Brokered.RemoteHost})
+	}
+	check := config.NewScopeCheck(o.Workspace, brokers, read)
+	for _, s := range check.Sources {
+		if s.Read.Problem != "" {
 			// Said at the gate, whether or not the approved scope differs: a scope that reads
 			// empty because of a malformed worktree pointer is not the same as no remote. The
 			// problem can name a path the agent chose, so its markup is escaped (its control
 			// characters already are: brokerscope.Read).
-			o.pr(o.Stdout).print("[yellow]" + lp.Name + ": " + richtext.Escape(read.Problem) + "[/yellow]")
+			o.pr(o.Stdout).print("[yellow]" + s.Label + ": " + richtext.Escape(s.Read.Problem) + "[/yellow]")
 		}
-		check.Sources = append(check.Sources, config.ScopeSource{
-			Source: lp.Brokered.Source, Label: lp.Name, Read: read})
 	}
 	return check
 }
 
-// recordApprovedScopes keeps what the gate just approved, per loophole, for the spawn.
-func (o *Options) recordApprovedScopes(check *config.ScopeCheck) {
-	if check == nil {
-		return
-	}
-	o.approvedScopes = map[string][]string{}
-	for _, s := range check.Sources {
-		o.approvedScopes[s.Label] = config.ApprovedScope(o.Workspace, s.Source)
+// recordApprovedScopes keeps what the gate just approved, per loophole, for the spawn: the
+// gate's own in-memory result (WW-P2), never a re-read of the approval record, which a
+// concurrent macos-user session can write between this gate and the spawn.
+func (o *Options) recordApprovedScopes(approved map[string][]config.ScopeRepo) {
+	if approved != nil {
+		o.approvedScopes = approved
 	}
 }
 
@@ -69,31 +72,38 @@ func (o *Options) recordApprovedScopes(check *config.ScopeCheck) {
 // start (loopholes.Set.BrokeredToStart, less any the placement rule refused). This function
 // filters nothing, so it cannot drift from the predicate the gate asked with.
 //
-// FAIL CLOSED: a loophole whose gate did not record an approved scope — a spawn path that
-// skipped the gate — gets none of the workspace's remotes, so its broker runs only commands
-// that name no repository and any the widening entry admits, and the launch says so.
+// THE FILE HOLDS WHAT THIS LAUNCH'S GATE APPROVED, and nothing else (WW-P2, WW-D12): the
+// remotes and the entry alike, from the gate's in-memory result. Nothing here reads a config
+// file or the approval record, so an edit landing after the y waits for the next fresh launch.
 //
-// THE WIDENING ENTRY (BB-D33) is the user config's, read here at the fresh launch and never at
-// an attach, which writes no scope file. It needs no approval, user config never prompting, so
-// it is no part of the gate the fail-closed rule guards; it is disclosed instead, on its own
-// line, naming only what it adds beyond the approved remotes.
+// FAIL CLOSED: a loophole whose gate did not record an approved scope — a spawn path that
+// skipped the gate — gets no repository at all, so its broker runs only commands that name
+// none, and the launch says so.
 func (o *Options) writeScopeFiles(cname string, brokered []*loopholes.Loophole) {
 	out := o.pr(o.Stdout)
+	// The names of the two workspace config files the loader reads, for the broker's
+	// out-of-scope refusal to name exactly (WW-D23). A name, never a path, and no config read.
+	_, configName := config.ResolveWorkspaceConfigPath(o.Workspace, config.WorkspaceConfigName)
+	_, localName := config.ResolveWorkspaceConfigPath(o.Workspace, config.WorkspaceLocalConfigName)
 	for _, lp := range brokered {
 		brokerscope.Sweep(lp.Brokered.Source)
-		repos, approved := o.approvedScopes[lp.Name]
+		approvedRepos, approved := o.approvedScopes[lp.Name]
 		if !approved {
 			out.print("[yellow]" + lp.Name + ": no repository scope was approved for this launch, " +
-				"so its scope holds none of this workspace's remotes[/yellow]")
+				"so its scope holds no repository[/yellow]")
 		}
-		widened := beyond(config.BrokeredWidening(lp.Brokered.Source, o.Workspace), repos)
+		repos := make([]string, len(approvedRepos))
+		for i, r := range approvedRepos {
+			repos[i] = r.Repo
+		}
 		id, err := brokerscope.NewLaunchID()
 		if err != nil {
 			out.print("[yellow]" + lp.Name + ": cannot draw a launch id: " + err.Error() + "[/yellow]")
 			continue
 		}
 		path, err := brokerscope.Write(brokerscope.File{Source: lp.Brokered.Source, LaunchID: id,
-			PID: os.Getpid(), Container: cname, Workspace: o.Workspace, Repos: repos, Widened: widened})
+			PID: os.Getpid(), Container: cname, Workspace: o.Workspace, Repos: repos,
+			ConfigFile: configName, LocalFile: localName})
 		if err != nil {
 			out.print("[yellow]" + lp.Name + ": cannot write this launch's scope file: " + err.Error() +
 				" — the loophole will not start[/yellow]")
@@ -103,38 +113,24 @@ func (o *Options) writeScopeFiles(cname string, brokered []*loopholes.Loophole) 
 			o.scopeFiles = map[string]string{}
 		}
 		o.scopeFiles[lp.Name] = path
-		// The disclosure of what the broker starts with (§5.6). Every name printed is
-		// OWNER/REPO, checked by brokerscope.ValidRepo, so none carries markup.
-		switch {
-		case len(repos) == 0 && len(widened) == 0:
-			out.printf("[dim]%s: this workspace has no approved remote on %s, so its repository scope "+
-				"is empty; only commands that name no repository run[/dim]", lp.Name, lp.Brokered.RemoteHost)
-		case len(repos) == 0:
-			out.printf("[dim]%s: this workspace has no approved remote on %s[/dim]", lp.Name, lp.Brokered.RemoteHost)
-		default:
-			out.printf("[dim]%s: scope for this workspace: %s[/dim]", lp.Name, strings.Join(repos, ", "))
+		// The disclosure of what the broker starts with (§5.6): every repository, and where it
+		// came from. A source label can name a file the agent chose, already free of control
+		// characters (config.ScopeRepo), and its markup is escaped here.
+		if len(approvedRepos) == 0 {
+			out.printf("[dim]%s: this workspace has no approved remote on %s and no approved `%s` "+
+				"entry, so its repository scope is empty; only commands that name no repository run[/dim]",
+				lp.Name, lp.Brokered.RemoteHost, config.BrokeredReposKey(lp.Brokered.Source))
+			continue
 		}
-		if len(widened) > 0 {
-			out.printf("%s: scope widened by user config: %s", lp.Name, strings.Join(widened, ", "))
+		shown := make([]string, len(approvedRepos))
+		for i, r := range approvedRepos {
+			shown[i] = r.Repo
+			if len(r.Sources) > 0 {
+				shown[i] += " (" + strings.Join(r.Sources, ", ") + ")"
+			}
 		}
+		out.printf("[dim]%s: scope for this workspace: %s[/dim]", lp.Name, richtext.Escape(strings.Join(shown, ", ")))
 	}
-}
-
-// beyond is widened less every repository already in approved, compared as GitHub compares
-// names, without case: what the widening entry adds, which is what the scope file's `widened`
-// list and the disclosure name.
-func beyond(widened, approved []string) []string {
-	have := map[string]bool{}
-	for _, r := range approved {
-		have[strings.ToLower(r)] = true
-	}
-	var out []string
-	for _, r := range widened {
-		if !have[strings.ToLower(r)] {
-			out = append(out, r)
-		}
-	}
-	return out
 }
 
 // scopeTokenArg substitutes a loophole's scope file into one argv word, reporting false

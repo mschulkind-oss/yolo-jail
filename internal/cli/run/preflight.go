@@ -12,6 +12,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/richtext"
+	"github.com/mschulkind-oss/yolo-jail/internal/termsafe"
 )
 
 // loadAndValidateConfig is run()'s config gate: load
@@ -388,20 +389,37 @@ func runtimeProbeFailure(command string, res ExecResult) string {
 	return prefix
 }
 
-// checkConfigChanges delegates to config.CheckConfigAndScopeChanges, wiring the
-// diff-printing prompter. Returns true to proceed, false to abort.
+// checkConfigChanges is the fresh launch's config-change gate, which both backends call: it
+// reads the workspace config, delegates to config.ApproveConfigAndScope with the diff-printing
+// prompter, and keeps what it approved for the spawn. Returns true to proceed, false to abort.
 //
-// wsCfg is the workspace config the approval record's config part holds; merged and rt
-// decide whether a brokered loophole's repository scope is in play — the approval record's
-// second part (docs/design/boundary-broker.md BB-D30) — by the same predicate the spawn
-// applies. The scope is READ HERE, at every fresh launch that starts such a loophole, and
-// only here: an attach never reaches this function.
-func (o *Options) checkConfigChanges(wsCfg, merged *jsonx.OrderedMap, rt string) bool {
+// THE READ IS HERE, STRICT AND ONCE (docs/design/workspace-widening.md WW-D18,
+// config.ReadWorkspaceForGate). It feeds both halves of the approval record: the config part,
+// with `brokered` projected out, and the repository scope's entry. A read this gate cannot make
+// refuses the launch, naming the file: the non-strict read it replaced returned `{}` for an
+// unparseable file, so a config broken after the launch's own read reached the gate as empty.
+//
+// merged and rt decide whether a brokered loophole's repository scope is in play — the approval
+// record's second part (docs/design/boundary-broker.md BB-D30) — by the same predicate the spawn
+// applies. The scope is READ HERE, at every fresh launch that starts such a loophole, and only
+// here: an attach never reaches this function.
+func (o *Options) checkConfigChanges(merged *jsonx.OrderedMap, rt string) bool {
+	read, err := config.ReadWorkspaceForGate(o.Workspace)
+	if err != nil {
+		// The file names come from the workspace, whose includes the agent names.
+		out := o.pr(o.Stdout)
+		out.printf("[bold red]Cannot read this workspace's config for the config-change gate: %s[/bold red]",
+			richtext.Escape(termsafe.Visible(err.Error())))
+		out.print("[dim]Fix the file it names, then launch again; `yolo check` lists every problem " +
+			"in the config. Nothing was recorded.[/dim]")
+		return false
+	}
 	pr := &changePrompter{o: o}
-	scope := o.brokeredScopeCheck(rt, merged)
-	ok, err := config.CheckConfigAndScopeChanges(o.Workspace, wsCfg, scope, o.IsTTYStdin(), o.AcceptConfigChanges, pr)
+	scope := o.brokeredScopeCheck(rt, merged, read)
+	ok, approved, err := config.ApproveConfigAndScope(o.Workspace, read.Config, scope, o.IsTTYStdin(),
+		o.AcceptConfigChanges, pr)
 	if ok && err == nil {
-		o.recordApprovedScopes(scope)
+		o.recordApprovedScopes(approved)
 	}
 	if err != nil {
 		// The OQ-D2 refusal gets rendered rather than dumped: same diff, same
@@ -426,6 +444,7 @@ func (o *Options) printChangeRefusal(e *config.ChangedNonInteractiveError) {
 	out := o.pr(o.Stdout)
 	out.printf("\n[bold red]⚠  %s[/bold red]\n", e.Headline())
 	printScopeBlock(out, e.ScopeBlock)
+	printScopeCounts(out, e.ScopeCounts)
 	printConfigDiff(out, e.DiffLines)
 	out.print("")
 	// The advice names files, one of them the git config the scope was read from, which can
@@ -452,6 +471,15 @@ func printScopeBlock(out printer, block []string) {
 	}
 	if len(block) > 0 {
 		out.print("")
+	}
+}
+
+// printScopeCounts prints the per-source count lines (WW-D20), which sit directly above the
+// question and in the refusal: a long config diff can scroll the block out of view, so the size
+// of the change stays where the answer is given.
+func printScopeCounts(out printer, counts []string) {
+	for _, c := range counts {
+		out.printf("[bold]%s[/bold]", richtext.Escape(c))
 	}
 }
 
@@ -531,6 +559,7 @@ func (p *changePrompter) PromptReport(r config.ChangeReport) bool {
 	printScopeBlock(out, r.ScopeBlock)
 	printConfigDiff(out, r.DiffLines)
 	out.print("")
+	printScopeCounts(out, r.ScopeCounts)
 	if _, err := p.o.Stdout.Write([]byte(question)); err != nil {
 		return false
 	}
@@ -551,6 +580,17 @@ func (p *changePrompter) PromptReport(r config.ChangeReport) bool {
 	return false
 }
 
+// ReportAccepted shows what --accept-config-changes approves on a launch with no terminal, before
+// it is recorded (WW-D20): the repository scope block and its count lines, for remotes and
+// entries alike, so a scripted launch's log says which repositories it let in.
+func (p *changePrompter) ReportAccepted(r config.ChangeReport) {
+	out := p.o.pr(p.o.Stdout)
+	out.print("\n[bold yellow]⚠  Repository scope changed since last run; " + config.AcceptConfigChangesFlag +
+		" records it as approved:[/bold yellow]\n")
+	printScopeBlock(out, r.ScopeBlock)
+	printScopeCounts(out, r.ScopeCounts)
+}
+
 // declineLines is what a `N` at the config-change prompt prints: that nothing was recorded, then
 // the next step for each part that changed (docs/reference/happy-path-principle.md rule 1). A
 // changed config names the files it was read from, and that the next launch asks again; a changed
@@ -567,6 +607,16 @@ func declineLines(r config.ChangeReport) []string {
 	lines := []string{head}
 	if r.ConfigChanged && len(r.ConfigFiles) > 0 {
 		lines = append(lines, "The workspace config change is in "+strings.Join(r.ConfigFiles, " and ")+
+			": undo it there, or answer y at the next launch, which asks again.")
+	}
+	// A changed entry row names its file, beside the disable step below: it is the agent-written
+	// half of the scope, and editing it is the other way past the question.
+	for _, ed := range r.EntryEdits {
+		files := make([]string, len(ed.Files))
+		for i, f := range ed.Files {
+			files[i] = termsafe.Visible(f)
+		}
+		lines = append(lines, "The `"+ed.Key+"` change is in "+strings.Join(files, " and ")+
 			": undo it there, or answer y at the next launch, which asks again.")
 	}
 	for _, l := range r.ScopeLabels {

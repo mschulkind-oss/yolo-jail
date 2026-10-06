@@ -425,7 +425,8 @@ func TestNewBrokerTakesTheScopeFromTheFile(t *testing.T) {
 	var log bytes.Buffer
 	b, cleanup := newBroker(brokerscope.File{Workspace: "/w", Repos: []string{"o/r"}, Widened: []string{"x/y"}}, "/w", &log)
 	defer cleanup()
-	// A widened repository joins the scope for every set (OQ-BB9, ruled A).
+	// A `widened` list a previous build wrote still joins the scope for every set (OQ-BB9, ruled
+	// A); no launch writes one now (WW-D12).
 	if got := b.scope.Repos(); strings.Join(got, ",") != "o/r,x/y" {
 		t.Fatalf("scope %v", got)
 	}
@@ -469,11 +470,13 @@ func TestTheBrokersLogNamesNoWorkspaceRepositoryOrHostPath(t *testing.T) {
 	}
 }
 
-// §12 done criterion 17, the broker's half, through newBroker from a launch's scope file: a
-// repository the widening entry added runs like a remote's, a repository outside the scope is
-// refused naming the widening entry that would admit it, keyed by THIS workspace, and an
-// account-wide command is refused saying no widening entry admits one.
-func TestTheBrokerRunsAWidenedRepositoryAndNamesTheEntryForAnother(t *testing.T) {
+// The broker's half of the workspace entry (docs/design/workspace-widening.md §3.4), through
+// newBroker from a launch's scope file: a repository the entry admitted runs like a remote's; one
+// outside the scope is refused telling the agent to add it to the `repos` list under
+// `brokered.github` in the exact files the scope file names, to check its edit, and to ask for
+// a restart, naming no host path and no user config; without the names it falls back to the
+// file the briefing names; and an account-wide command is refused saying no entry can add it.
+func TestTheBrokerRunsAnEntrysRepositoryAndNamesTheEntryForAnother(t *testing.T) {
 	root := resolvedDir(t)
 	gh := fakeGH(t, filepath.Join(root, "fake"), "2.101.0")
 	cfg := filepath.Join(root, "host-gh-config")
@@ -488,11 +491,9 @@ func TestTheBrokerRunsAWidenedRepositoryAndNamesTheEntryForAnother(t *testing.T)
 	t.Setenv("XDG_CONFIG_HOME", "")
 	t.Setenv("PATH", filepath.Dir(gh)+":/usr/bin:/bin")
 	t.Setenv("GH_CONFIG_DIR", cfg)
-	// A folder name with `&` and a space: the entry the refusal spells must be the folder's
-	// own name, which JSON's HTML escaping would write as \u0026.
 	ws := filepath.Join(resolvedDir(t), "R&D app")
-	b, cleanup := newBroker(brokerscope.File{Workspace: ws, Repos: []string{"o/r"},
-		Widened: []string{"org/lib"}}, ws, &bytes.Buffer{})
+	b, cleanup := newBroker(brokerscope.File{Workspace: ws, Repos: []string{"o/r", "org/lib"},
+		ConfigFile: "yolo-jail.json", LocalFile: "yolo-jail.local.jsonc"}, ws, &bytes.Buffer{})
 	defer cleanup()
 	if b.runner == nil {
 		t.Fatal("no runner")
@@ -504,25 +505,42 @@ func TestTheBrokerRunsAWidenedRepositoryAndNamesTheEntryForAnother(t *testing.T)
 	}
 
 	if code, out, errOut := serve("pr", "view", "1", "-R", "org/lib"); code != 0 || out != "ran pr view --repo=org/lib 1\n" {
-		t.Fatalf("a widened repository: code %d out %q err %q", code, out, errOut)
+		t.Fatalf("an approved entry's repository: code %d out %q err %q", code, out, errOut)
 	}
 
 	code, _, errOut := serve("pr", "view", "1", "-R", "other/private")
-	entry := `"brokered": {"github": {"workspaces": {"` + ws + `": {"repos": ["other/private"]}}}}`
-	if code != ExitUsage || !strings.Contains(errOut, entry) ||
-		!strings.Contains(errOut, paths.UserConfigPath()) || !strings.Contains(errOut, "next fresh launch") {
-		t.Fatalf("a repository outside the scope: code %d, want 64 naming %s in %s:\n%s",
-			code, entry, paths.UserConfigPath(), errOut)
+	flat := strings.Join(strings.Fields(errOut), " ")
+	for _, want := range []string{"add it to the `repos` list under `brokered.github` in yolo-jail.json, or in " +
+		"yolo-jail.local.jsonc for what the project should not commit",
+		"if yolo-jail.json is read-only here, use yolo-jail.local.jsonc",
+		`Only if the file has no ` + "`brokered`" + ` key yet, add "brokered": {"github": {"repos": ["other/private"]}}`,
+		"run `yolo check --no-build`", "ask the user to restart the jail and approve the repository scope at launch",
+		"Nothing sent through gh adds a repository", "(o/r, org/lib)"} {
+		if code != ExitUsage || !strings.Contains(flat, want) {
+			t.Errorf("a repository outside the scope: code %d, want 64 saying %q:\n%s", code, want, errOut)
+		}
 	}
-	if !strings.Contains(errOut, "(o/r, org/lib)") {
-		t.Errorf("the refusal does not name the scope, widened repository included:\n%s", errOut)
+	for _, leak := range []string{ws, paths.UserConfigPath(), `"workspaces"`, "yolo-jail.jsonc"} {
+		if strings.Contains(errOut, leak) {
+			t.Errorf("the refusal names %q:\n%s", leak, errOut)
+		}
 	}
 
 	for _, argv := range [][]string{{"search", "code", "foo"}, {"search", "code", "foo repo:x/y", "--repo", "o/r"}} {
 		code, _, errOut = serve(argv...)
-		if code != ExitUsage || !strings.Contains(strings.ToLower(errOut), "no widening entry") ||
-			strings.Contains(errOut, `"workspaces"`) {
-			t.Errorf("gh %v: code %d, want 64 saying no widening entry admits it, naming none:\n%s", argv, code, errOut)
+		if code != ExitUsage || !strings.Contains(errOut, "`brokered.github.repos` entry can add") {
+			t.Errorf("gh %v: code %d, want 64 saying no `brokered.github.repos` entry can add it:\n%s", argv, code, errOut)
 		}
+	}
+
+	// A scope file without the names: the refusal names the file the briefing gives.
+	b2, cleanup2 := newBroker(brokerscope.File{Workspace: ws, Repos: []string{"o/r"}}, ws, &bytes.Buffer{})
+	defer cleanup2()
+	var errOut2 bytes.Buffer
+	b2.Serve(Request{Argv: []string{"pr", "view", "1", "-R", "other/private"}}, "jail-1", func([]byte) {},
+		func(p []byte) { errOut2.Write(p) })
+	if !strings.Contains(strings.Join(strings.Fields(errOut2.String()), " "),
+		"in the workspace config file your environment briefing names") {
+		t.Errorf("without the names, the refusal does not name the briefing's file:\n%s", errOut2.String())
 	}
 }

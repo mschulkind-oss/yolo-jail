@@ -1,8 +1,9 @@
 // The `github-broker` loophole, shipped by the OFFICIAL `github` pack: a host daemon that
-// runs the host's own `gh` login on one jail's behalf, only against the workspace's own
-// GitHub repositories (docs/design/boundary-broker.md; step 1 of its §11). The daemon is
-// internal/ghbroker, reached from the jail through `yolo gh`, which the pack's `intercept`
-// contribution puts in front of the image's own `gh`.
+// runs the host's own `gh` login on one jail's behalf, only against the workspace's GitHub
+// repositories, its remotes and its approved `brokered.github.repos` entry
+// (docs/design/boundary-broker.md, step 1 of its §11; docs/design/workspace-widening.md). The
+// daemon is internal/ghbroker, reached from the jail through `yolo gh`, which the pack's
+// `intercept` contribution puts in front of the image's own `gh`.
 //
 // THE CREDENTIAL NEVER CROSSES; THE COMMAND DOES (BB-P1). The jail sends an argv; the
 // daemon parses it against gh's measured flag grammar, refuses what could print the token or
@@ -11,7 +12,7 @@
 // answers every write with exit 77.
 {
   "name": "github-broker",
-  "description": "Run the host's gh login for the jail against this workspace's own GitHub repositories: read-only commands run, a write exits 77 at once because its approval step is not built yet (run it on the host), and every call is audited on the host (yolo audit).",
+  "description": "Run the host's gh login for the jail against this workspace's GitHub repositories, its remotes and any its config lists under brokered.github.repos, as approved at launch: read-only commands run, a write exits 77 at once because its approval step is not built yet (run it on the host), and every call is audited on the host (yolo audit).",
   "version": 1,
 
   // OFF until enabled, as every loophole that ships in a pack is (loophole-system.md R2), and
@@ -29,13 +30,12 @@
   // 69, "the host has no gh", rather than a loophole that vanishes from `yolo loopholes list`.
 
   // THE REPOSITORY SCOPE (loopholedecl/brokered.go). Core reads the workspace's remotes on
-  // github.com at every fresh launch that starts this daemon, puts them in the config-change
-  // diff as a labeled block, writes what a human approved, with what the user config's
-  // `brokered.github` widening entry adds for this workspace, to that launch's scope file, and
-  // hands the file to the daemon through {repository_scope}. The credential paths are where
-  // the host gh keeps its login (gh's own precedence: $GH_CONFIG_DIR, then
-  // $XDG_CONFIG_HOME/gh, then ~/.config/gh); with this pack selected, a workspace `mounts`
-  // entry reaching one is refused (BB-D26).
+  // github.com and its config's `brokered.github.repos` entry at every fresh launch that starts
+  // this daemon, puts them in the config-change prompt as a labeled block, writes what a human
+  // approved to that launch's scope file, and hands the file to the daemon through
+  // {repository_scope}. The credential paths are where the host gh keeps its login (gh's own
+  // precedence: $GH_CONFIG_DIR, then $XDG_CONFIG_HOME/gh, then ~/.config/gh); with this pack
+  // selected, a workspace `mounts` entry reaching one is refused (BB-D26).
   "brokered": {
     "source": "github",
     "remote_host": "github.com",

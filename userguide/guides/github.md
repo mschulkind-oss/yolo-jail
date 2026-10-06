@@ -55,11 +55,13 @@ so it no longer asks.
 ## The repositories it can reach
 
 The broker only works on **this project's own GitHub repositories**: the `github.com` remotes in
-the project's `.git/config`, such as `origin` and `upstream`. It never reaches your other
-repositories, even though your login can.
+the project's `.git/config`, such as `origin` and `upstream`, and any repository the project's
+config lists, [below](#adding-a-repository-the-project-has-no-remote-for). It never reaches your
+other repositories, even though your login can.
 
-Because an agent can edit `.git/config`, yolo asks you to approve that list. The first launch of a
-project with a GitHub remote shows it at the top of the usual config-change prompt:
+Because an agent can edit `.git/config` and the project's config, yolo asks you to approve that
+list. The first launch of a project with a GitHub remote shows it at the top of the usual
+config-change prompt:
 
 ```text
 ⚠  Repository scope changed since last run:
@@ -68,12 +70,14 @@ github-broker repository scope, read from /home/you/code/app/.git/config:
   + you/app  remote "origin"  added
   (no scope was approved for this workspace before)
 
+github-broker: 1 added, 0 removed, 0 source changed
 Accept these repository scope changes? [y/N]
 ```
 
-Answer `y` to approve it. After that, yolo asks again only when the remotes change, for example
-after `git remote add`. A remote added while a jail is running is not reachable until the next fresh
-launch, and only once you approve it there.
+Answer `y` to approve it. After that, yolo asks again only when the list changes, or where a
+repository comes from changes: a remote added, removed or renamed, or a repository added to the
+config. A change made while a jail is running is not reachable until the next fresh launch, and
+only once you approve it there.
 
 Without a terminal, such as in a script, the launch stops and prints the same list. Approve it for
 that launch with `--accept-config-changes`, or ahead of time on your machine with
@@ -81,33 +85,43 @@ that launch with `--accept-config-changes`, or ahead of time on your machine wit
 
 ### Adding a repository the project has no remote for
 
-A project sometimes needs another repository, such as a library it depends on. Add it for that
-one project in your user config, keyed by the project's folder:
+A project sometimes needs another repository, such as a library it depends on. List it in the
+project's `yolo-jail.jsonc`, or in `yolo-jail.local.jsonc` beside it for a repository the project
+should not commit:
 
 ```jsonc
 {
   "brokered": {
-    "github": {
-      "workspaces": {
-        "~/code/app": { "repos": ["you/lib"] }
-      }
-    }
+    "github": { "repos": ["you/lib"] }
   }
 }
 ```
 
-The next fresh launch of `~/code/app` can reach `you/lib` exactly as it reaches the project's own
-remotes, and says so in one line:
+The agent can add it too. When it asks for a repository outside the list, the refusal tells it
+where to add the repository and to ask you to restart the jail. Nothing changes until you do: the
+next fresh launch shows the repository as a row of the prompt, naming the file it came from, and
+asks you to approve it:
 
 ```text
-github-broker: scope widened by user config: you/lib
+github-broker repository scope, read from /home/you/code/app/.git/config and yolo-jail.jsonc:
+    you/app  remote "origin"   unchanged
+  + you/lib  yolo-jail.jsonc  added
 ```
 
-No other project gets it, and the launch does not ask you to approve it, since only you write
-your user config. A project cannot add a repository through its own `yolo-jail.jsonc`:
-`yolo check` refuses the key there. When the agent asks for a repository outside the list, the
-refusal names the entry that would add it, so you can decide. No entry allows a command across
-your whole account, such as a search with no `--repo`. `yolo config-ref` has the details.
+After `y`, that project can reach `you/lib` exactly as it reaches its own remotes, and the launch
+names the scope in one line:
+
+```text
+github-broker: scope for this workspace: you/app (remote "origin"), you/lib (yolo-jail.jsonc)
+```
+
+No other project gets it. yolo does not git-ignore `yolo-jail.local.jsonc`, so check your
+`.gitignore` before keeping a private repository there. No entry allows a command across your
+whole account, such as a search with no `--repo`. `yolo config-ref` has the details.
+
+The old way, a `brokered.github.workspaces` entry in your user config keyed by the project's
+folder, is retired. A user config that still has one stops every launch, and the message names
+the entry to put in each project's `yolo-jail.local.jsonc` instead.
 
 ## What an agent can run
 
@@ -117,7 +131,7 @@ your whole account, such as a search with no `--repo`. `yolo config-ref` has the
 | `gh pr comment`, `gh issue edit`, `gh pr merge`, `gh api -X POST ...` and other writes | Nothing runs, and nothing waits. It exits with code 77 at once: writes need an approval step, not built yet, so the agent asks you to run the command on your machine |
 | `gh auth status` | Says which of your GitHub accounts the broker uses and which repositories the jail can reach. It never shows the token or its scopes |
 | `gh auth token`, `--web`, `gh api` to a full URL, a command that would read or write a file on your machine | Never runs, whatever else is allowed. It exits with code 64 and says why |
-| A repository outside this project, or a command across your whole account, such as a search with no `--repo` | Never runs. It exits with code 64 and names the repositories it can reach, and, for a repository, [the entry that would add it](#adding-a-repository-the-project-has-no-remote-for) |
+| A repository outside this project, or a command across your whole account, such as a search with no `--repo` | Never runs. It exits with code 64 and names the repositories it can reach, and, for a repository, [where to add it](#adding-a-repository-the-project-has-no-remote-for) |
 | A search whose words could reach another repository: a `repo:`, `org:`, `user:` or `owner:` in the query, a parenthesis, or the word `OR` or `NOT`, in `gh search`, or in `gh pr list`, `gh issue list` or `gh discussion list` with `--search` or a filter | Never runs. It exits with code 64 and says which words. Search with plain words, and filter the `--json` output inside the jail instead |
 
 The repository is the one `-R OWNER/REPO` names, or else the project's `origin` remote. To send

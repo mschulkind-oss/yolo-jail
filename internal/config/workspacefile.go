@@ -45,7 +45,7 @@ import (
 // resolved workspace path>.jsonc`, so finding it costs one stat. THE `workspace` FIELD IS
 // AUTHORITATIVE: a file whose field does not resolve to the workspace it was found for is
 // ignored, and `yolo check` and the launch warn, naming both. Matching resolves symlinks with the
-// widening entry's resolver (brokeredKeyNames, BB-D33), exact folder only.
+// resolver the retired user-scope widening entry used (brokeredKeyNames, BB-D33), exact folder only.
 //
 // # Where it sits in the merge
 //
@@ -54,8 +54,7 @@ import (
 // and the human who ran the command for this workspace outranks a file the workspace's agent can
 // edit. Nothing in it reaches a jail as a file: the delivery copy a jail reads
 // (config-assembled.json) holds the merged VALUES, and the user scope a jail inherits is composed
-// without this layer (LoadConfigWithoutWorkspaceFile), because its key is a host path no jail has
-// — the reason `brokered` is not inherited either.
+// without this layer (LoadConfigWithoutWorkspaceFile), because its key is a host path no jail has.
 
 const (
 	// workspaceFileWorkspaceKey is the field naming the workspace the file is for.

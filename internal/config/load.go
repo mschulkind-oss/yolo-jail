@@ -25,14 +25,14 @@ func defaultWarn(msg string) {
 // a non-object top level is a ConfigError in strict mode, else warns and returns
 // an empty map.
 func LoadJSONCFile(path, label string, strict bool, warn Warn) (*jsonx.OrderedMap, error) {
-	m, _, _, err := loadJSONCFile(path, label, strict, warn, false)
+	m, _, _, err := loadJSONCFile(path, label, strict, warn, false, readAt{})
 	return m, err
 }
 
 // LoadJSONCFileWithSources is LoadJSONCFile plus where each value sits in the file
 // (sources.go), for a caller that reports on one file by itself.
 func LoadJSONCFileWithSources(path, label string, strict bool, warn Warn) (*jsonx.OrderedMap, *Sources, error) {
-	m, _, n, err := loadJSONCFile(path, label, strict, warn, true)
+	m, _, n, err := loadJSONCFile(path, label, strict, warn, true, readAt{})
 	return m, sourcesOf(n), err
 }
 
@@ -43,11 +43,15 @@ func LoadJSONCFileWithSources(path, label string, strict bool, warn Warn) (*json
 // record is false for every caller that does not report on the config: the tree is built from
 // every value of every file, and a launch reads its config many times over, so a reader that
 // would discard it does not pay for it.
-func loadJSONCFile(path, label string, strict bool, warn Warn, record bool) (*jsonx.OrderedMap, *srcFile, *srcNode, error) {
+//
+// at says where the read happens: beneath the workspace's root for a workspace load that records
+// (wsRoot), with the include that reached the file. The file records whether its bytes came from
+// inside the workspace (srcFile.contained), decided on the open that read them.
+func loadJSONCFile(path, label string, strict bool, warn Warn, record bool, at readAt) (*jsonx.OrderedMap, *srcFile, *srcNode, error) {
 	if warn == nil {
 		warn = defaultWarn
 	}
-	data, err := os.ReadFile(path)
+	data, rel, err := at.ws.read(path)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return jsonx.NewOrderedMap(), nil, nil, nil
@@ -70,7 +74,7 @@ func loadJSONCFile(path, label string, strict bool, warn Warn, record bool) (*js
 		warn(msg)
 		return jsonx.NewOrderedMap(), nil, nil, nil
 	}
-	f := &srcFile{path: path, data: data}
+	f := &srcFile{path: path, data: data, contained: rel != "", rel: rel, via: at.via, seq: at.ws.nextSeq()}
 	if !record {
 		return m, f, nil, nil
 	}
@@ -205,15 +209,16 @@ func mergeConfig(base, override *jsonx.OrderedMap, bsrc, osrc *srcNode) (*jsonx.
 // skip; overrides win (later wins); cycles are detected via the shared seen set.
 // The include_if_found key is consumed and removed from the returned config.
 func LoadJSONCWithIncludes(path, label string, strict bool, warn Warn, seen map[string]struct{}) (*jsonx.OrderedMap, error) {
-	m, _, err := loadWithIncludes(path, label, strict, warn, seen, false)
+	m, _, err := loadWithIncludes(path, label, strict, warn, seen, false, readAt{})
 	return m, err
 }
 
 // loadWithIncludes is LoadJSONCWithIncludes, returning the composed provenance beside the
 // map when record is set (loadJSONCFile): the file's own tree with each include's merged over
 // it, as the includes' values are. A problem with the file's own include_if_found is located
-// in it either way.
-func loadWithIncludes(path, label string, strict bool, warn Warn, seen map[string]struct{}, record bool) (*jsonx.OrderedMap, *srcNode, error) {
+// in it either way. at is loadJSONCFile's, for this file; each include is read beneath the same
+// root, naming the entry that reached it.
+func loadWithIncludes(path, label string, strict bool, warn Warn, seen map[string]struct{}, record bool, at readAt) (*jsonx.OrderedMap, *srcNode, error) {
 	if warn == nil {
 		warn = defaultWarn
 	}
@@ -226,7 +231,7 @@ func loadWithIncludes(path, label string, strict bool, warn Warn, seen map[strin
 	}
 	seen[resolved] = struct{}{}
 
-	raw, file, node, err := loadJSONCFile(path, label, strict, warn, record)
+	raw, file, node, err := loadJSONCFile(path, label, strict, warn, record, at)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -288,7 +293,8 @@ func loadWithIncludes(path, label string, strict bool, warn Warn, seen map[strin
 		if !pathExists(incPath) {
 			continue
 		}
-		included, incNode, err := loadWithIncludes(incPath, incPath, strict, warn, seen, record)
+		included, incNode, err := loadWithIncludes(incPath, incPath, strict, warn, seen, record,
+			readAt{ws: at.ws, via: entryLabel + " in " + label})
 		if err != nil {
 			return nil, nil, err
 		}
@@ -346,18 +352,28 @@ func LoadWorkspaceConfigWithSources(workspace string, strict bool, warn Warn) (*
 }
 
 // loadWorkspaceConfig is LoadWorkspaceConfig, with the provenance beside it when record is set.
+//
+// A load that records reads every file beneath an os.Root on the workspace (wsRoot), so the
+// record knows which values came from inside it: the `brokered` key is honored from those files
+// alone (WW-D17, docs/design/workspace-widening.md §3.1). A plain load reads as it always has,
+// since nothing it returns says where a value came from.
 func loadWorkspaceConfig(workspace string, strict bool, warn Warn, record bool) (*jsonx.OrderedMap, *srcNode, error) {
 	if workspace == "" {
 		workspace = cwd()
 	}
+	var at readAt
+	if record {
+		at.ws = openWorkspaceRoot(workspace)
+		defer at.ws.close()
+	}
 	seen := map[string]struct{}{}
 	wsPath, wsLabel := ResolveWorkspaceConfigPath(workspace, WorkspaceConfigName)
-	wsCfg, wsNode, err := loadWithIncludes(wsPath, wsLabel, strict, warn, seen, record)
+	wsCfg, wsNode, err := loadWithIncludes(wsPath, wsLabel, strict, warn, seen, record, at)
 	if err != nil {
 		return nil, nil, err
 	}
 	localPath, localLabel := ResolveWorkspaceConfigPath(workspace, WorkspaceLocalConfigName)
-	localCfg, localNode, err := loadWithIncludes(localPath, localLabel, strict, warn, seen, record)
+	localCfg, localNode, err := loadWithIncludes(localPath, localLabel, strict, warn, seen, record, at)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -384,9 +400,8 @@ func LoadConfigWithSources(workspace string, strict bool, warn Warn) (*jsonx.Ord
 // LoadConfigWithoutWorkspaceFile is LoadConfig less the per-workspace file (workspacefile.go):
 // the user config under the workspace config, and nothing over them. It is what a launch composes
 // the user scope a jail INHERITS from (internal/cli/run/inheritscope.go), because that file is
-// keyed by a host workspace path no jail has, the reason `brokered` is not inherited either: a
-// switch made for this workspace would otherwise become the jail's user scope, and apply to
-// every workspace a launch inside it opens.
+// keyed by a host workspace path no jail has: a switch made for this workspace would otherwise
+// become the jail's user scope, and apply to every workspace a launch inside it opens.
 func LoadConfigWithoutWorkspaceFile(workspace string, strict bool, warn Warn) (*jsonx.OrderedMap, error) {
 	m, _, err := composeConfig(workspace, strict, warn, false, false)
 	return m, err

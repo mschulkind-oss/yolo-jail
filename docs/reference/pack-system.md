@@ -2829,7 +2829,10 @@ requires a jail restart, which is where the config-approval gate lives.
 > in writing.
 
 A workspace **may** supply values that reach a host daemon, and the conditional is the whole
-ruling: **as long as they go through the config-change gating**. A typed, declared setting core
+ruling: **as long as they go through the config-change gating**. A workspace's
+`brokered.<source>.repos` list, which widens a brokered loophole's repository scope, is one such
+value, approved as rows of the gate's scope block
+([`workspace-widening.md`](../design/workspace-widening.md)), and it falls with this answer. A typed, declared setting core
 validates and writes is a different object from an arbitrary key/value pair injected into a
 process environment — but "different object" alone would not be enough. What closes the gap is
 that the approval snapshot lives in host-side state the jail never mounts, and a

@@ -2,8 +2,8 @@
 title: "Plan: GitHub scope widening moves into the workspace config"
 date: 2026-10-05
 status: accepted
-stage: DECIDED
-next: "Build step 1, the confined workspace reads in internal/config/load.go, then the rest in one landing"
+stage: BUILT
+next: "Graduate with the design once OQ-WW1 is ruled: move the real traps into the system doc, then delete this plan"
 depends-on:
   - workspace-widening.md
 tags: [plan, github, broker, config, approvals]
@@ -11,7 +11,8 @@ tags: [plan, github, broker, config, approvals]
 
 # Plan: GitHub scope widening moves into the workspace config
 
-**Status:** 2026-10-05. Completed against the tree, written against `2a9d3a5a7`.
+**Status:** 2026-10-05. Completed against the tree, written against `2a9d3a5a7`, and built the
+same day in one landing; kept until the design graduates.
 **Design:** [`workspace-widening.md`](workspace-widening.md), every section of its [§3](workspace-widening.md#3-the-design).
 **Precedence:** the design wins on behavior, the tree wins on fact, and this file is advice and
 the first thing to be wrong. Never twist the code to match it.
@@ -158,6 +159,14 @@ One landing, by the design's [§8](workspace-widening.md#8-sequencing): each ste
   the gate (design WW-P2).
 - Don't add a `yolo` verb that writes the entry, or git-ignore the local file (the design's [§5](workspace-widening.md#5-non-goals)).
 - Don't give `ValidateConfig` a caller mode for the old form. The launch form is the only one.
+
+## Retro
+
+- **Had to rediscover:** two helpers the plan did not name, an existing `writeWorkspaceConfig`
+  fixture in `run/ctxmountsrw_test.go` and `json5.Index`'s duplicate error reachable only through a
+  new `srcFile.writtenTwice`; and that list merge order is not file order once a case variant
+  sits in an include, which needed a per-file read sequence (`srcFile.seq`).
+- **Nobody needed:** the line numbers in the map; every edit was found by symbol.
 
 ## Blockers
 

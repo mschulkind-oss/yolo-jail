@@ -341,8 +341,8 @@ var segmentRE = regexp.MustCompile(`^[A-Za-z0-9_.-]+$`)
 
 // ValidRepo reports whether s is exactly `owner/repo`: two segments, each a forge name of
 // letters, digits, `_`, `.` and `-`, neither "." nor "..". It is the one shape a remote
-// reduces to (RepoFromRemoteURL) and the one a user-scope widening entry may list
-// (config.BrokeredWidening), so a repository reaches a scope file in no other spelling.
+// reduces to (RepoFromRemoteURL) and the one a workspace's `brokered.<source>.repos` entry may
+// list (config.WorkspaceRead.Entry), so a repository reaches a scope file in no other spelling.
 func ValidRepo(s string) bool {
 	owner, repo, ok := strings.Cut(s, "/")
 	if !ok || strings.Contains(repo, "/") {

@@ -218,3 +218,30 @@ func parseFrontmatter(t *testing.T, dir, content string) (name, desc string) {
 	}
 	return name, desc
 }
+
+// TestTheJailSkillTellsTheTruthAboutTheBrokeredKeysAndTheLocalFile pins two things the
+// configuring-the-jail skill tells every agent (docs/design/workspace-widening.md §3.4). A
+// brokered loophole's switch is the human's, but its `brokered.<source>.repos` list is a
+// workspace key the agent may write, approved at the next fresh launch. And the local file is
+// NOT git-ignored by yolo, which adds only `.yolo/` to a project's .gitignore: an agent told it
+// was would trust `git add -A` to leave a private repository name out of a commit.
+func TestTheJailSkillTellsTheTruthAboutTheBrokeredKeysAndTheLocalFile(t *testing.T) {
+	raw, err := fs.ReadFile(builtinskills.FS, "configuring-the-jail/SKILL.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	flat := strings.Join(strings.Fields(string(raw)), " ")
+	for _, want := range []string{
+		"`brokered.<source>.repos` (`brokered.github.repos` for the github pack) is a workspace key you may write",
+		"run `yolo check --no-build` and ask the human to restart the jail and answer y",
+		"yolo does not git-ignore it",
+		"`git check-ignore yolo-jail.local.jsonc`",
+	} {
+		if !strings.Contains(flat, want) {
+			t.Errorf("the configuring-the-jail skill lacks %q", want)
+		}
+	}
+	if strings.Contains(flat, "gitignored per-machine") {
+		t.Error("the configuring-the-jail skill still calls the local file gitignored")
+	}
+}

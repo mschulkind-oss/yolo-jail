@@ -182,7 +182,7 @@ host or an outside account follows under [External waits](#external-waits).
     among the builds because the maintainer put the broker on the plate for the week of 2026-09-28, and only its
     no-notifier notice and its ping wait on a ruling or another design. Beside it,
     [move the widening entry into the workspace config](../design/workspace-widening.md), ruled 2026-10-05: an agent
-    asks for a repository and the human approves it at the next launch. Next, build it from [its plan](../design/workspace-widening-plan.md).
+    asks for a repository and the human approves it at the next launch, built that day from [its plan](../design/workspace-widening-plan.md). Next, the maintainer's ruling on its [OQ-WW1](../design/workspace-widening.md#OQ-WW1), whether a remote's rename asks, which the build follows the leaning of.
 44. Speed builds the maintainer asked for on 2026-10-04, next among the builds since neither holds other work:
     [Apple Container's stock-image skip, then the same skip for a launch declaring `packages:`](../reference/image-staging-vs-baking.md), as the nix
     build that finds nothing to do is 3.2 to 3.5 s of Apple Container's 6.9 s fresh launch and a median 1.7 s per launch of this repository,

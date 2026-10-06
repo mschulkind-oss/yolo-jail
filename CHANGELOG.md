@@ -21,6 +21,19 @@ the host. See [Follow an upstream with a patch series](userguide/guides/patch-se
 into a jail, and what each launch shows about the code it runs. See
 [Claude Code plugins and mods](userguide/guides/claude-plugins-and-mods.md).
 
+**An agent can ask for another GitHub repository.** List it under `brokered.github.repos` in the
+project's config, and the next launch asks you to approve it beside the project's own remotes;
+an agent told a repository is out of scope is told how. See
+[Adding a repository the project has no remote for](userguide/guides/github.md#adding-a-repository-the-project-has-no-remote-for).
+
+### Changed
+
+- A `brokered.github.workspaces` entry in your user config stops every launch: move each project's
+  repositories into its `yolo-jail.local.jsonc` as `brokered.github.repos` (yolo does not
+  git-ignore that file), and approve them at that project's next launch.
+- Renaming a project's GitHub remote, or adding a second one for a repository it already reaches,
+  asks you to approve its repositories again at the next launch.
+
 ### Fixed
 
 - When `yolo host` has no container runtime to capture an agent with, it now says to install one.

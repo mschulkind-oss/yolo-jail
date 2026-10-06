@@ -63,7 +63,8 @@ func TestNonInteractiveConfigChangeRefusalIsActionable(t *testing.T) {
 		t.Fatalf("seeding the baseline: ok=%v err=%v", ok, err)
 	}
 
-	if o.checkConfigChanges(approvalConfig(t, `{"packages": ["strace", "htop"]}`), nil, "podman") {
+	writeWorkspaceConfig(t, ws, `{"packages": ["strace", "htop"]}`)
+	if o.checkConfigChanges(nil, "podman") {
 		t.Fatal("a changed config with no terminal to approve it on must refuse the launch")
 	}
 
@@ -128,13 +129,13 @@ func TestAcceptConfigChangesFlagLetsANonInteractiveLaunchThrough(t *testing.T) {
 		t.Fatalf("seeding the baseline: ok=%v err=%v", ok, err)
 	}
 
-	changed := approvalConfig(t, `{"packages": ["strace", "htop"]}`)
-	if !o.checkConfigChanges(changed, nil, "podman") {
+	writeWorkspaceConfig(t, ws, `{"packages": ["strace", "htop"]}`)
+	if !o.checkConfigChanges(nil, "podman") {
 		t.Fatal("--accept-config-changes must let a non-interactive launch proceed")
 	}
 	// Recorded: the same config now passes with the flag off.
 	o.AcceptConfigChanges = false
-	if !o.checkConfigChanges(changed, nil, "podman") {
+	if !o.checkConfigChanges(nil, "podman") {
 		t.Error("the flag must record the approval, or the next launch refuses again")
 	}
 }
@@ -324,7 +325,8 @@ func TestUserConfigChangeDoesNotTriggerWorkspacePrompt(t *testing.T) {
 	// Host user modifies ~/.config/yolo-jail/config.jsonc (e.g. adding serial loophole pack).
 	// The workspace config itself remains unchanged.
 	// CheckConfigChanges must pass with zero prompts and zero refusals.
-	if !o.checkConfigChanges(wsCfg, nil, "podman") {
+	writeWorkspaceConfig(t, ws, `{"packages": ["strace"]}`)
+	if !o.checkConfigChanges(nil, "podman") {
 		t.Fatal("user-level config change must not refuse or prompt on an unchanged workspace")
 	}
 }

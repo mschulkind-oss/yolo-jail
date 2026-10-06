@@ -101,9 +101,13 @@ func TestScopeChangeWithNoTerminalRefusesNamingTheScope(t *testing.T) {
 	if !e.ScopeChanged || e.ConfigChanged || len(e.DiffLines) != 0 {
 		t.Fatalf("refusal %+v", e)
 	}
-	if !strings.Contains(e.Headline(), "repository scope read from this workspace's remotes changed") ||
-		strings.Contains(e.Headline(), "Workspace config changed") {
+	// It names the scope, and not the remotes alone: the workspace's entry is its other input.
+	if !strings.Contains(e.Headline(), "The repository scope changed since the last approved launch") ||
+		strings.Contains(e.Headline(), "remotes") || strings.Contains(e.Headline(), "Workspace config changed") {
 		t.Fatalf("headline %q", e.Headline())
+	}
+	if !strings.Contains(e.Error(), "github-broker: 2 added, 0 removed, 0 source changed") {
+		t.Fatalf("the refusal does not print the count line:\n%s", e.Error())
 	}
 	for _, want := range []string{"/w/.git/config", ApprovalScopePath(ws), "--accept-config-changes",
 		"the new config and repository scope"} {
