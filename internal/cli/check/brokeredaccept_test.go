@@ -106,10 +106,11 @@ func TestCheckPrintsTheAgentsConfigTextAsText(t *testing.T) {
 	const evil = "x\x1b[2K\x1b]0;owned\ay.jsonc"
 	for name, c := range map[string]struct{ body, want string }{
 		"a parse error": {`{"packages": `, `x\x1b[2K\x1b]0;owned\ay.jsonc`},
-		// The read's own error names the path again, which no label escape reaches.
-		"an include that is a directory": {"", `: read `},
-		"a warning":     {`{"devices": ["/dev/x\u001b]0;owned\u0007z"]}`, `may be skipped: /dev/x\x1b]0;owned\az`},
-		"an error":      {`{"x\u001b]0;owned\u0007k": 1}`, `x\x1b]0;owned\ak: unknown key`},
+		// An include that is a directory: the read's own error names the path again, which no
+		// label escape reaches.
+		"a read error": {"", `: read `},
+		"a warning":    {`{"devices": ["/dev/x\u001b]0;owned\u0007z"]}`, `may be skipped: /dev/x\x1b]0;owned\az`},
+		"an error":     {`{"x\u001b]0;owned\u0007k": 1}`, `x\x1b]0;owned\ak: unknown key`},
 	} {
 		brokeredCheckHome(t)
 		out := runCheckOverConfigWith(t, `{"include_if_found": ["x\u001b[2K\u001b]0;owned\u0007y.jsonc"]}`, false,
