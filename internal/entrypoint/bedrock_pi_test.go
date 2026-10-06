@@ -11,12 +11,14 @@ import (
 )
 
 // bedrock_pi_test.go pins pi's native Bedrock binding (docs/design/bedrock-plumbing.md §6.2, the
-// native half of OQ-BR5; §12 step 5; OQ-BR1, ruled 2026-09-29): `-p pi=bedrock` catalogs the one
-// Bedrock list under pi's own built-in `amazon-bedrock` provider (models only, so each stays on
-// pi's Converse client), selects it with the list's first entry or the profile's, scopes pi and
-// pi-subagents to the list, and hands pi a provider-declared region as AWS_REGION. The files go
-// through the boot render and the environment through the host composition a launch runs, each
-// over the tables pi's real needs closure composes.
+// native half of OQ-BR5; §12 step 5; OQ-BR1, ruled 2026-09-29): `-p pi=bedrock` selects pi's own
+// built-in `amazon-bedrock` provider and hands pi a provider-declared region as AWS_REGION.
+// packs/bedrock ships no model list (docs/design/model-lists-and-pickers.md MM-D32), so with none
+// supplied pi keeps its own catalog and its own default; a list a pack or the user supplies is
+// catalogued under `amazon-bedrock` (models only, so each stays on pi's Converse client), selected
+// with its first entry or the profile's, and scopes pi and pi-subagents. The files go through the
+// boot render and the environment through the host composition a launch runs, each over the
+// tables pi's real needs closure composes.
 
 func TestPiOnBedrockUsesItsOwnConverseClient(t *testing.T) {
 	const opus, sol, astra = "global.anthropic.claude-opus-5-5", "us.openai.gpt-6.1-sol",
@@ -36,7 +38,7 @@ func TestPiOnBedrockUsesItsOwnConverseClient(t *testing.T) {
 		model    string
 		enabled  []any
 	}{
-		{"the shipped profile starts on the list's first", nil, `{"pi":"bedrock"}`, opus,
+		{"the shipped profile starts on a supplied list's first", nil, `{"pi":"bedrock"}`, opus,
 			[]any{"amazon-bedrock/" + opus, "amazon-bedrock/" + sol, "amazon-bedrock/" + astra}},
 		{"a profile's model leads the scope",
 			map[string]packload.UserProfile{"astra": {Provider: "bedrock", Options: map[string]string{"model": astra}}},
@@ -44,7 +46,7 @@ func TestPiOnBedrockUsesItsOwnConverseClient(t *testing.T) {
 			[]any{"amazon-bedrock/" + astra, "amazon-bedrock/" + opus, "amazon-bedrock/" + sol}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			providersJSON, wire := bedrockTables(t, "pi", `{"bedrock":{"region":"eu-west-1"}}`, tc.profiles)
+			providersJSON, wire := bedrockListTables(t, "pi", `{"bedrock":{"region":"eu-west-1"}}`, tc.profiles)
 			r := newPioencodeRender(t, providersJSON)
 			r.wireProfiles(wire)
 			r.render(t, tc.use)
@@ -82,6 +84,30 @@ func TestPiOnBedrockUsesItsOwnConverseClient(t *testing.T) {
 				t.Errorf("subagents.modelScope.allow = %v, want %v", scope["allow"], tc.enabled)
 			}
 		})
+	}
+}
+
+// NO LIST, NO PICK (MM-D32): with no list supplied pi writes no native row, so pi's own catalog
+// stays whole, selects its built-in provider and names no model, so pi starts on its own default,
+// and scopes all of that provider. pi's own catalog spells some ids runtime refuses (§4), an
+// upstream fault the ruling leaves to pi.
+func TestPiOnBedrockWithNoListKeepsItsOwnCatalogAndDefault(t *testing.T) {
+	providersJSON, wire := bedrockTables(t, "pi", `{"bedrock":{"region":"eu-west-1"}}`, nil)
+	r := newPioencodeRender(t, providersJSON)
+	r.wireProfiles(wire)
+	r.render(t, `{"pi":"bedrock"}`)
+	if rows, _ := r.piModels(t)["providers"].(map[string]any); rows["amazon-bedrock"] != nil {
+		t.Errorf("no list was supplied, yet models.json replaces pi's catalog: %v", rows["amazon-bedrock"])
+	}
+	s := r.piSettings(t)
+	if s["defaultProvider"] != "amazon-bedrock" {
+		t.Errorf("defaultProvider = %v, want pi's own amazon-bedrock", s["defaultProvider"])
+	}
+	if m, set := s["defaultModel"]; set && m != nil {
+		t.Errorf("defaultModel = %v, want none: yolo picks no Bedrock model (MM-D32)", m)
+	}
+	if got, want := s["enabledModels"], []any{"amazon-bedrock/*"}; !reflect.DeepEqual(got, want) {
+		t.Errorf("enabledModels = %v, want %v, the whole provider", got, want)
 	}
 }
 
@@ -141,7 +167,7 @@ func TestPiOnABridgedBedrockProfileGetsNoNativeRow(t *testing.T) {
 // amazon-bedrock ids in enabledModels with no row behind them.
 func TestPiOnASetWithBedrockSecondCatalogsItNatively(t *testing.T) {
 	const opus = "global.anthropic.claude-opus-5-5"
-	providersJSON, wire := bedrockTables(t, "pi", `{"bedrock":{"region":"eu-west-1"}}`, nil, "zai")
+	providersJSON, wire := bedrockListTables(t, "pi", `{"bedrock":{"region":"eu-west-1"}}`, nil, "zai")
 	r := newPioencodeRender(t, providersJSON)
 	r.wireProfiles(wire)
 	r.render(t, `{"pi":["zai","bedrock"]}`)

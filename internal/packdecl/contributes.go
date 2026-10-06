@@ -902,6 +902,21 @@ type Contribution struct {
 	// A PACK FACT for `platform_switches`' reason: what an agent's menu can do is that agent's
 	// fact, and core names no agent. ON `program` ALONE.
 	ExactMenuRefuses *ExactMenuRefusal `json:"exact_menu_refuses,omitempty"`
+	// AgentFiles names the AGENT FILES this program's env derive may compose (a term coined in
+	// docs/design/model-lists-and-pickers.md MM-D33; agentfiles.go carries the definition): an
+	// environment variable the program reads a file's PATH from, mapped to that file's name. The
+	// derive composes the file's CONTENT under the variable, a string written as it is or a table
+	// written as JSON, and only where the notch writes agent files, which it is told as
+	// ctx.agent_files. A jail does: its per-agent env writer puts the content beside the agent's env
+	// file as `<bin>.<name>`, owner-only, rewritten on every entry and removed with it, and points
+	// the variable there. The host notch writes none, so a value composed there is withheld, never
+	// handed to the program as a value. packs/copilot declares COPILOT_PROVIDERS_CONFIG →
+	// providers.json, the file copilot shows a whole model list from (MM-D31), which carries its
+	// provider's key as literal text.
+	//
+	// A PACK FACT for `platform_switches`' reason: which variable names a file and what the file
+	// holds are facts about one program, and core names no agent. ON `program` ALONE.
+	AgentFiles map[string]string `json:"agent_files,omitempty"`
 
 	// --- adapter (docs/reference/protocol-resolution.md#the-three-declarations, OQ-PR1) ---
 	// Adapts is the protocol PAIR this contribution converts, and Address is where the
@@ -3668,6 +3683,8 @@ func validateContribution(label string, c Contribution) []string {
 	problems = append(problems, launchSelectionProblems(label, c)...)
 	// `exact_menu_refuses` is a program's alone: it says how that program's model menu narrows.
 	problems = append(problems, exactMenuProblems(label, c)...)
+	// `agent_files` is a program's alone: it names files that program's env derive composes.
+	problems = append(problems, agentFilesProblems(label, c)...)
 	// `reserved` is skills' alone, refused in `profile`'s position and for `profile`'s reason:
 	// the only consumer is the skills destination walk, so a reserved name on any other kind is
 	// a declaration that silently protects nothing.

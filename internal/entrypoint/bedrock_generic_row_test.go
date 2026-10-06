@@ -53,8 +53,10 @@ func TestABedrockProviderWithAnEndpointGetsNoGenericRow(t *testing.T) {
 		}
 	})
 
+	// pi writes its native row only to register a list (packs/bedrock ships none since MM-D32), so
+	// a company pack supplies one: the native row is then the proof the Bedrock path was taken.
 	t.Run("pi", func(t *testing.T) {
-		providersJSON, wire := bedrockTables(t, "pi", bedrockWithEndpoints("openai", "openai-chat-completions"), nil)
+		providersJSON, wire := bedrockListTables(t, "pi", bedrockWithEndpoints("openai", "openai-chat-completions"), nil)
 		r := newPioencodeRender(t, providersJSON)
 		r.wireProfiles(wire)
 		r.render(t, `{"pi":"bedrock"}`)

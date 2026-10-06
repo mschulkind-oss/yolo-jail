@@ -73,7 +73,9 @@ func TestOpencodeRunsOnABedrockEntryAfterItsFirst(t *testing.T) {
 	const region, opus = "eu-west-1", "global.anthropic.claude-opus-5-5"
 
 	dir := writeProject(t, `{}`)
-	packHome(t, `{"packs": ["opencode", "zai"], "providers": {"bedrock": {"region": "`+region+`"}}, `+
+	// A list the user supplies: packs/bedrock ships none (docs/design/model-lists-and-pickers.md MM-D32).
+	packHome(t, `{"packs": ["opencode", "zai"], "providers": {"bedrock": {"region": "`+region+`", `+
+		`"models": {"global.anthropic.claude-opus-5-5": {"id": "global.anthropic.claude-opus-5-5", "vendor": "anthropic"}, "us.openai.gpt-6.1-sol": {"id": "us.openai.gpt-6.1-sol", "vendor": "openai"}}}}, `+
 		`"env_sources": [{"ZAI_API_KEY": "integration-probe-not-a-real-key"}]}`)
 	r := runCommand(t, dir, append(jailRunArgs(), "-p", "opencode=zai,bedrock", "--", "true"))
 	if r.rc != 0 {

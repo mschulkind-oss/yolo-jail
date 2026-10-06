@@ -10,8 +10,11 @@ import (
 // bedrock_opencode_test.go pins opencode's native Bedrock binding (docs/design/bedrock-plumbing.md
 // §6.2 and §12 step 5; OQ-BR1, ruled 2026-09-29): `-p opencode=bedrock` binds opencode's own
 // built-in `amazon-bedrock` provider — no npm, no endpoint, `options.region` only for a region
-// the provider declares — lists every entry of the one Bedrock list, and starts on its first.
-// Driven through the boot render over the tables opencode's real needs closure composes.
+// the provider declares. packs/bedrock ships no model list (docs/design/model-lists-and-pickers.md
+// MM-D32), so with none supplied opencode lists its own catalog and starts on its own default,
+// and yolo names no model; a list a pack or the user supplies is listed whole, and opencode starts
+// on its first entry. Driven through the boot render over the tables opencode's real needs closure
+// composes.
 
 func TestOpencodeOnBedrockUsesItsOwnClient(t *testing.T) {
 	const opus, sol = "global.anthropic.claude-opus-5-5", "us.openai.gpt-6.1-sol"
@@ -25,21 +28,29 @@ func TestOpencodeOnBedrockUsesItsOwnClient(t *testing.T) {
 	}
 	for _, tc := range []struct {
 		name      string
+		list      bool // a company pack supplies bedrockListAdd
 		providers string
 		profiles  map[string]packload.UserProfile
 		use       string
-		model     string
-		options   any // provider["amazon-bedrock"].options; nil when none is written
+		model     string // "" when yolo names none and opencode starts on its own default
+		options   any    // provider["amazon-bedrock"].options; nil when none is written
 	}{
-		{"a region in the environment writes no options", "", nil, `{"opencode":"bedrock"}`, opus, nil},
-		{"the provider's region is options.region", `{"bedrock":{"region":"eu-west-1"}}`, nil,
+		{"no list names no model", false, "", nil, `{"opencode":"bedrock"}`, "", nil},
+		{"the provider's region is options.region", false, `{"bedrock":{"region":"eu-west-1"}}`, nil,
+			`{"opencode":"bedrock"}`, "", map[string]any{"region": "eu-west-1"}},
+		{"a supplied list starts on its first entry", true, "", nil, `{"opencode":"bedrock"}`, opus, nil},
+		{"a supplied list with the provider's region", true, `{"bedrock":{"region":"eu-west-1"}}`, nil,
 			`{"opencode":"bedrock"}`, opus, map[string]any{"region": "eu-west-1"}},
-		{"a profile naming another entry", "",
+		{"a profile naming another entry", true, "",
 			map[string]packload.UserProfile{"sol": {Provider: "bedrock", Options: map[string]string{"model": sol}}},
 			`{"opencode":"sol"}`, sol, nil},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			providersJSON, wire := bedrockTables(t, "opencode", tc.providers, tc.profiles)
+			tables := bedrockTables
+			if tc.list {
+				tables = bedrockListTables
+			}
+			providersJSON, wire := tables(t, "opencode", tc.providers, tc.profiles)
 			r := newPioencodeRender(t, providersJSON)
 			r.wireProfiles(wire)
 			r.render(t, tc.use)
@@ -60,11 +71,18 @@ func TestOpencodeOnBedrockUsesItsOwnClient(t *testing.T) {
 			if !reflect.DeepEqual(native["options"], tc.options) {
 				t.Errorf("options = %#v, want %#v", native["options"], tc.options)
 			}
-			if !reflect.DeepEqual(native["models"], allModels) {
-				t.Errorf("models = %#v, want every entry of the list with its name and limits", native["models"])
+			wantModels := allModels
+			if !tc.list {
+				wantModels = map[string]any{}
 			}
-			want := "amazon-bedrock/" + tc.model
-			if cfg["model"] != want || cfg["small_model"] != want {
+			if got, _ := native["models"].(map[string]any); !reflect.DeepEqual(got, wantModels) && (len(got) != 0 || len(wantModels) != 0) {
+				t.Errorf("models = %#v, want %#v", native["models"], wantModels)
+			}
+			if tc.model == "" {
+				if cfg["model"] != nil || cfg["small_model"] != nil {
+					t.Errorf("model = %v, small_model = %v, want neither: no list names one (MM-D32)", cfg["model"], cfg["small_model"])
+				}
+			} else if want := "amazon-bedrock/" + tc.model; cfg["model"] != want || cfg["small_model"] != want {
 				t.Errorf("model = %v, small_model = %v, want both %s", cfg["model"], cfg["small_model"], want)
 			}
 			if got := cfg["enabled_providers"]; !reflect.DeepEqual(got, []any{"amazon-bedrock"}) {

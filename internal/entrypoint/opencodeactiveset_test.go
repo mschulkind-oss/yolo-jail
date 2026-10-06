@@ -183,7 +183,7 @@ func TestAnEntryLeavingOpencodesSetLeavesTheFilter(t *testing.T) {
 // entry had no row at all: the generic one is never written for a Bedrock provider.
 func TestOpencodeOnASetWithBedrockSecondBindsItNatively(t *testing.T) {
 	const opus = "global.anthropic.claude-opus-5-5"
-	providersJSON, wire := bedrockTables(t, "opencode", `{"bedrock":{"region":"eu-west-1"}}`, nil, "zai")
+	providersJSON, wire := bedrockListTables(t, "opencode", `{"bedrock":{"region":"eu-west-1"}}`, nil, "zai")
 	r := newPioencodeRender(t, providersJSON)
 	r.wireProfiles(wire)
 	r.render(t, `{"opencode":["zai","bedrock"]}`)
@@ -261,7 +261,7 @@ func TestEachOpencodeSetEntryKeepsItsOwnModelSwitch(t *testing.T) {
 // before sets, flips the answer in both.
 func TestABedrockEntryAfterTheFirstKeepsItsOwnModelSwitch(t *testing.T) {
 	const opus, sol = "global.anthropic.claude-opus-5-5", "us.openai.gpt-6.1-sol"
-	company := companyModelsPack(t, `{"kind":"models","provider":"bedrock","only":["`+sol+`","`+opus+`"]}`)
+	company := companyModelsPack(t, bedrockListAdd+`,{"kind":"models","provider":"bedrock","only":["`+sol+`","`+opus+`"]}`)
 	packs := append(testPacksForAgent(t, "opencode", "zai"), company)
 	off := false
 	for _, tc := range []struct {

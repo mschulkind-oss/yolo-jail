@@ -1,7 +1,7 @@
 # `bedrock` — Amazon Bedrock, as one provider every agent reads
 
 This pack declares Amazon Bedrock's `bedrock-runtime` endpoint as one provider, `bedrock`, and
-two profiles over it, `bedrock` and `bedrock-bridge`. It installs no program. Every agent pack
+two profiles over it, `bedrock` and `bedrock-bridge`. It installs no program and ships no model list. Every agent pack
 that can put its agent on Bedrock `needs` it, so selecting that agent brings it in:
 
 ```jsonc
@@ -10,7 +10,7 @@ that can put its agent on Bedrock `needs` it, so selecting that agent brings it 
 ```
 
 `yolo -p bedrock -- codex` then configures codex to reach Bedrock through its own Bedrock
-client, with nothing else listed but a region. No request to Bedrock has been measured from any
+client, on its own default model, with nothing else listed but a region. No request to Bedrock has been measured from any
 agent yet: what each client sends was read from its shipped code, never run. The launch prints `+ bedrock (needed by codex)` and
 `+ aws-auth (needed by bedrock)`.
 
@@ -49,55 +49,44 @@ Design: [`bedrock-plumbing.md`](../../docs/design/bedrock-plumbing.md) ([OQ-BR9]
   a Bedrock provider. None is demanded: an agent's own client takes whichever credential it
   finds.
 
-## The models it ships
+## No model list
 
-One provider holds every maker's models. Each entry names its maker as `vendor`, and yolo never
-guesses the maker from the id. Each agent picks among the entries whose maker its own Bedrock
-client is known to serve (the table below), and starts on the first of those in the order below,
-unless you name a model. pi and opencode also list those entries in their model menus; claude's
-and codex's menus are not shaped yet
-([OQ-BR13](../../docs/design/model-lists-and-pickers.md#OQ-BR13)), so for them the list only
-decides which model yolo starts them on:
+The pack ships no model list. Each agent on `-p bedrock` starts on its own Bedrock default and
+offers its own Bedrock catalog, whatever that holds: yolo does not pick or filter Bedrock models
+for it ([MM-D32](../../docs/design/model-lists-and-pickers.md#MM-D32)). An agent's own catalog may
+be out of date or spell an id the endpoint refuses (pi's lists some bare ids `bedrock-runtime`
+does not take); that is the agent's to fix, and you work around it by naming a model.
 
-| Order | Model id | Maker | Name |
-| :--- | :--- | :--- | :--- |
-| 1 | `global.anthropic.claude-opus-5-5` | `anthropic` | Claude Opus 5.5 (Global) |
-| 2 | `us.openai.gpt-6.1-sol` | `openai` | GPT-6.1 Sol (US) |
-| 3 | `global.openai.gpt-6-astra` | `openai` | GPT-6 Astra (Global) |
+copilot is the one exception. It has no Bedrock catalog and will not start without a model, so
+through the wire bridge it starts on `openai.gpt-oss-120b-1:0`, OpenAI's open-weight
+gpt-oss-120b, one of the cheapest models Bedrock serves
+([MM-D34](../../docs/design/model-lists-and-pickers.md#MM-D34)). It is served in-Region, so in a
+Region without it, name another model.
 
-Each entry also carries the context window, the output cap and the input kinds its AWS page
-states (`context_window`, `max_tokens`, `input`), and Claude Opus 5.5 its reasoning support,
-which its page states.
+### Which agent can call which maker
 
-- **These are `bedrock-runtime` ids.** Runtime takes a cross-Region inference profile id,
-  `global.` or a geography such as `us.`, where the bare id is the other endpoint family's
-  spelling. `global.` routes worldwide with no data-residency constraint.
-- **GPT-6.1 Sol is `us.` only, and codex starts on it in every Region.** AWS offers it on
-  runtime through the US inference profile alone, with no global or in-Region id (read
-  2026-09-29, its launch day), so a Region outside that profile's source Regions cannot call it
-  yet. yolo does not choose a model by Region: the maintainer's ruling is GPT-6.1 Sol
-  everywhere, on the expectation that AWS offers it more widely soon
-  ([BR-D19](../../docs/design/bedrock-plumbing.md#BR-D19)). Outside the US, name another model
-  yourself ([below](#choosing-another-model)); GPT-6 Astra is `global.`.
-- **GPT-6 Sol is not shipped.** It shipped beside GPT-6.1 Sol, as the Sol that Bedrock offers
-  outside the US, until the same ruling treated GPT-6.1 Sol as available everywhere. You can
-  still name its id, `global.openai.gpt-6-sol`, in a profile, and yolo passes it through as
-  written.
+When you or a pack supply a list, each entry names its model's maker as `vendor`, and each agent
+is offered only the entries whose maker its own Bedrock client is known to serve. yolo never
+guesses the maker from the id.
 
-### Which agent starts where
+| Agent | Makers it takes on Bedrock |
+| :--- | :--- |
+| claude | Anthropic models: its Bedrock client drives the Messages API, which serves Claude only |
+| codex | OpenAI's: its built-in `amazon-bedrock-runtime` client drives the Responses API, which AWS serves for them and not for Anthropic's. The filter is by declared maker, not by what codex could call |
+| opencode | every entry: its built-in `amazon-bedrock` provider sends a cross-Region id to runtime's Converse API |
+| pi | every entry: its built-in `amazon-bedrock` provider drives Converse |
 
-| Agent | Makers it takes on Bedrock | Starts on, with no model named |
-| :--- | :--- | :--- |
-| claude | Anthropic models: its Bedrock client drives the Messages API, which serves Claude only | its own Bedrock default. yolo pins a model only when the profile names one, or your config names a `default` alias Claude can call |
-| codex | OpenAI's: its built-in `amazon-bedrock-runtime` client drives the Responses API, which AWS serves for them and not for Anthropic's. The filter is by declared maker, not by what codex could call: another maker's model whose card lists Responses is still skipped until a turn measures it | GPT-6.1 Sol (US), in every Region |
-| opencode | every entry: its built-in `amazon-bedrock` provider sends a cross-Region id to runtime's Converse API, which serves each of them | Claude Opus 5.5 (Global) |
-| pi | every entry: its built-in `amazon-bedrock` provider drives Converse | Claude Opus 5.5 (Global) |
+With a list, codex, opencode and pi start on its first entry they can call, and pi and opencode
+list its entries in their menus (pi's in place of its own catalog). claude pins a model only when
+a profile names one, or the list names a `default` alias, that Claude can call.
 
 copilot and oh-omp have no Bedrock client of their own, and reach Bedrock only through yolo's
 wire bridge: under `-p bedrock-bridge` (below), which brings the bridge in, and under `-p bedrock`
 whenever the bridge is already in the jail, as it is beside claude. A jail of them alone lists
 this pack in `packs` to have either profile, and `wire-bridge` too for `-p bedrock`. agy has no
-way to reach Bedrock at all.
+way to reach Bedrock at all. With a list, copilot in a jail shows the whole of it in its model
+picker, beside GitHub's own models when copilot is signed in to GitHub; a GitHub model you pick
+there is served by GitHub, not Bedrock.
 
 codex's client reads the region from `AWS_REGION` or `AWS_DEFAULT_REGION` itself, so yolo writes
 its `aws.region` only for a region you set on the provider. That order is INFERRED: the one
@@ -113,51 +102,53 @@ A launch that gives opencode only `AWS_DEFAULT_REGION` is refused, since opencod
 otherwise use `us-east-1`; yolo does not put your profile's region in its place, because the
 region you delivered may differ.
 
-pi lists the models under its own `amazon-bedrock` provider. An id pi's own catalog also holds
-takes the facts this list declares in place of pi's (its cost and thinking levels among them),
-because a pi model row replaces the catalog entry of the same id. A region you set on the
+pi lists a supplied list's models under its own `amazon-bedrock` provider. An id pi's own catalog
+also holds takes the facts the list declares in place of pi's (its cost and thinking levels among
+them), because a pi model row replaces the catalog entry of the same id. A region you set on the
 provider reaches pi as `AWS_REGION`.
 
-### Choosing another model
+### Choosing a model
 
-Name one in a profile of your own. An entry of this provider that the agent cannot call is
-skipped, never sent; an id the provider does not list is passed through as you wrote it:
+Name one in a profile of your own. It is passed through as you wrote it, unless a list you
+supplied names it with a maker the agent cannot call, which is skipped, never sent:
 
 ```jsonc
 // ~/.config/yolo-jail/config.jsonc
 "profiles": { "astra": { "provider": "bedrock", "model": "global.openai.gpt-6-astra" } }
 ```
 
-Add a model with its maker, so each agent's maker filter applies to it: here opencode and pi can
-use it, and claude and codex skip it (codex's filter takes OpenAI's makers only, although Kimi
-K3's card lists the Responses API codex drives):
+Or supply a list, with each model's maker, so each agent's maker filter applies to it: here
+opencode and pi can use both, claude Claude Opus 5.5 alone, and codex GPT-6.1 Sol alone:
 
 ```jsonc
 "providers": { "bedrock": { "models": {
-  "kimi": { "id": "global.moonshotai.kimi-k3", "vendor": "moonshotai" } } } }
+  "opus": { "id": "global.anthropic.claude-opus-5-5", "vendor": "anthropic" },
+  "sol":  { "id": "us.openai.gpt-6.1-sol", "vendor": "openai" } } } }
 ```
 
-A model you add with no `vendor` (a plain `"alias": "id"`) passes every agent's filter.
+A company pack does the same for its people with a `models` contribution
+([`providers.md`](../../docs/reference/providers.md#model-lists-shaped-by-packs)). A model you add
+with no `vendor` (a plain `"alias": "id"`) passes every agent's filter.
+
+Bedrock model ids depend on the endpoint family: on `bedrock-runtime` a model is named by its
+cross-Region inference profile (`global.` or a geography such as `us.`) where it has one, and the
+bare id is the other family's spelling. Read the id off the model's AWS card, since the prefixes a
+model offers differ per model and move.
 
 ### Sources
 
-Every id above was read from its AWS model card on 2026-09-29, and nothing was called:
+copilot's starting model, read 2026-10-05:
 
-- [Claude Opus 5.5](https://docs.aws.amazon.com/bedrock/latest/userguide/model-card-anthropic-claude-opus-5-5.html):
-  runtime global id `global.anthropic.claude-opus-5-5`; Messages, Converse and Invoke on
-  runtime, not Chat Completions or Responses; a 1M-token window, 128K output.
-- [GPT-6.1 Sol](https://docs.aws.amazon.com/bedrock/latest/userguide/model-card-openai-gpt-6-1-sol.html):
-  runtime US geo id `us.openai.gpt-6.1-sol`, no global or in-Region id; Responses, Chat
-  Completions, Converse and Invoke on runtime, not Messages; a 1M-token window, 131,072 output.
-- [GPT-6 Astra](https://docs.aws.amazon.com/bedrock/latest/userguide/model-card-openai-gpt-6-astra.html):
-  runtime ids `us.openai.gpt-6-astra` and `global.openai.gpt-6-astra`; Responses, Chat
-  Completions and Converse on runtime, not Messages or Invoke; a 1,050,000-token window,
-  128,000 output.
-- [Models at a glance](https://docs.aws.amazon.com/bedrock/latest/userguide/model-cards.html):
-  the OpenAI models Bedrock lists, GPT-6 Astra and GPT-6.1 Sol among them.
+- [gpt-oss-120b](https://docs.aws.amazon.com/bedrock/latest/userguide/model-card-openai-gpt-oss-120b.html):
+  runtime id `openai.gpt-oss-120b-1:0`, in-Region, with no global inference id; Chat Completions
+  on runtime, not the Responses API; a 128K-token window, 16K output.
+- [Amazon Bedrock pricing](https://aws.amazon.com/bedrock/pricing/): gpt-oss-120b at $0.15 per
+  million input tokens and $0.60 per million output tokens in the US.
 
-Re-read the cards before changing an id: the prefixes each model offers differ per model and
-move ([`model-lists-and-pickers.md` §5.3](../../docs/design/model-lists-and-pickers.md#53-the-prerequisite-verify-before-an-id-ships)).
+Until 2026-10-05 this section dated the three model ids the pack shipped, each read from its AWS
+model card on 2026-09-29; the list is recorded in
+[`bedrock-plumbing.md` BR-D7](../../docs/design/bedrock-plumbing.md#BR-D7) and
+[BR-D19](../../docs/design/bedrock-plumbing.md#BR-D19).
 
 ## `bedrock-bridge`: the same provider through the wire bridge
 
@@ -174,19 +165,22 @@ agent was given, which the launch fills from `~/.aws/config` when nothing else n
 bridge signs each request with the agent's own AWS credentials: a key pair, the `aws-auth`
 pointer, or a Bedrock API key (`AWS_BEARER_TOKEN_BEDROCK`), and never a profile in `~/.aws`.
 
-- **claude** is routed at the bridge's Anthropic address, the everything profile: every model on
-  the list in one session, Claude Opus 5.5 untranslated to Bedrock's own Messages route and the
-  OpenAI models translated.
+- **claude** is routed at the bridge's Anthropic address, the everything profile: any Bedrock
+  model in one session. A model your list names as Anthropic's goes untranslated to Bedrock's own
+  Messages route, so prompt caching and thinking keep working; every other model, and every model
+  when no list is supplied, is translated. Name a model, since Claude Code's own default is no
+  Bedrock id.
 - **codex, pi, opencode and oh-omp** send their own OpenAI-shaped requests through the bridge
   unchanged, pi, opencode and oh-omp chat-completions and codex Responses.
-- **copilot** is routed at the bridge's Anthropic address too, and starts on the list's first
-  model, since the list names no `default`.
+- **copilot** is routed at the bridge's Anthropic address too, and starts on a supplied list's
+  `default` or first model, else on `openai.gpt-oss-120b-1:0`.
 
 No agent quietly falls back to its own Bedrock client, since the profile asked for the bridge. At
 `yolo host`, which has no bridge, the profile uses each agent's own client. Requests sent through
 the bridge on 2026-10-01, from a jail in `us-east-1`, were answered on three of these routes:
 Claude Opus 5.5 on claude's untranslated Messages route, GPT-6.1 Sol and GPT-6 Astra, streamed
-and not, on the translating route claude and copilot share, and a request shaped like codex's on
+and not, on the translating route claude and copilot share (on 2026-10-05, also
+`openai.gpt-oss-120b-1:0` there, not streamed), and a request shaped like codex's on
 codex's Responses route. No agent sent them, and the chat-completions route pi, opencode and oh-omp use has not
 been sent one. See
 [the first live requests](../../docs/design/wire-bridge-gateway.md#24-the-first-live-requests-measured-2026-10-01)

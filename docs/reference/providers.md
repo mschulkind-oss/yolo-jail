@@ -288,16 +288,20 @@ and agy, whose transport takes no address, reaches nothing.
   under `api_key_env_name`, no endpoint, no region and no `options`. A region is the user's to
   set, on the provider, in the environment or in the profile's section of `~/.aws/config`
   ([the region preflight](#the-region-preflight), [the region file](#the-region-file)).
-- **The model list** is one list of every maker's models, each entry keyed by its runtime id and
-  naming its maker as `vendor` in `model_options`, beside `order`, `name`, `context_window`,
-  `max_tokens` and `input`. *Vendor* is the model's maker, a term coined in
+- **No model list ships** ([MM-D32](../design/model-lists-and-pickers.md#MM-D32), ruled
+  2026-10-05): the provider declares no `models`, so each agent starts on its own Bedrock
+  catalog's default and offers its own catalog, an upstream catalog's faults included. copilot,
+  which has no Bedrock catalog, starts on `openai.gpt-oss-120b-1:0`
+  ([MM-D34](../design/model-lists-and-pickers.md#MM-D34)). A list a pack's `models` contribution
+  or your `providers.bedrock.models` supplies is one list of every maker's models, each entry
+  naming its maker as `vendor`. *Vendor* is the model's maker, a term coined in
   [`bedrock-plumbing.md`](../design/bedrock-plumbing.md#61-the-provider-shape-one-bedrock-provider-or-two):
   one lowercase token, read by derives and interpreted by no core code, never parsed from the id.
-  A user's object-form entry takes `vendor` too
+  A user's object-form entry takes `vendor`
   (`"kimi": {"id": "global.moonshotai.kimi-k3", "vendor": "moonshotai"}`), and an entry with no
-  vendor is offered to every agent. The list names no `default` alias.
-- **Which entries an agent picks among** is decided by its own derive, from the makers, as each
-  entry declares them, that its client is known to serve: claude's Bedrock client Anthropic's
+  vendor is offered to every agent.
+- **Which entries of a supplied list an agent picks among** is decided by its own derive, from
+  the makers, as each entry declares them, that its client is known to serve: claude's Bedrock client Anthropic's
   (Messages serves Claude only), codex's OpenAI's (it drives Responses), opencode's and pi's
   every maker's (Converse). The filter is by declared maker, not by what the client could call:
   codex skips another maker's model whose AWS page lists Responses, until a turn measures one.
@@ -305,11 +309,13 @@ and agy, whose transport takes no address, reaches nothing.
   shaped yet ([OQ-BR13](../design/model-lists-and-pickers.md#OQ-BR13)).
 - **Which model an agent starts on**: the profile's `model` when it names an entry that agent can
   call, as an alias or an id, or an id the provider does not list, which is passed through; else
-  the provider's `default` alias when that agent can call it; else the first entry it can call,
-  in `order`. A listed entry the agent cannot call is skipped, never sent. claude's own client is
-  the exception: with nothing named, yolo pins no model, because Claude Code starts on an
-  Anthropic model of its own, a valid session yolo does not steer
-  ([`OQ-ML2`](../design/model-lists-and-pickers.md#OQ-ML2)).
+  the provider's `default` alias when that agent can call it; else the first entry of a supplied
+  list it can call, in `order`; else, with no list, nothing, and the agent starts on its own
+  default. A listed entry the agent cannot call is skipped, never sent. claude's own client never
+  takes a list's first entry: with nothing named, yolo pins no model, because Claude Code starts
+  on an Anthropic model of its own, a valid session yolo does not steer
+  ([`OQ-ML2`](../design/model-lists-and-pickers.md#OQ-ML2)). copilot through the bridge, which
+  has no default of its own there, starts on `openai.gpt-oss-120b-1:0`.
 
 Each agent's binding, written only for the selected Bedrock provider and only on the agent's own
 transport. A Bedrock provider never gets an agent's generic catalog row, whose one credential is
@@ -342,8 +348,10 @@ served agent's `AWS_REGION` then `AWS_DEFAULT_REGION`, and signs every request i
 [WG-I39](../design/wire-bridge-gateway.md#WG-I39)). The address is marked `for_via` in the
 composed table: it is no endpoint for an agent its profile does not route through the bridge, so
 on `-p bedrock` claude, codex, opencode and pi keep their own clients, and codex, opencode and pi are
-not refused over an address they cannot speak. copilot, which has no Bedrock client, starts on the
-list's first model.
+not refused over an address they cannot speak. copilot, which has no Bedrock client, starts on a
+supplied list's first model, else on `openai.gpt-oss-120b-1:0`. The bridge passes a model to
+runtime's Messages route untranslated only when the list names it Anthropic's, so with no list a
+Claude model is translated like any other.
 
 <a id="bedrock-through-the-bridge-on--p-bedrock"></a>
 
@@ -1237,7 +1245,7 @@ What each agent actually receives, from one composed table and one selection:
 | pi | `~/.pi/agent/models.json` `providers.<id>` (JSON; credential as `apiKey: "${VAR}"` config-value syntax); never a row for `openai-codex`, whose models the extension registers from [the declared list](#the-openai-codex-model-list) | `~/.pi/agent/settings.json` `defaultProvider` + `defaultModel` (a pair of bare ids), and `enabledModels` (the scoped list, default first), which is not written for `openai-codex`. Also, for every provider, pi-subagents' `subagents` block: `defaultModel` as `<provider>/<id>` (the same model), and `modelScope` `{enforce, strict, allow}` over the provider's configured ids, or `<provider>/*` when it configures none, so a child agent never crosses providers ([XM-D3](../research/extension-model-defaults.md#XM-D3), [XM-D4](../research/extension-model-defaults.md#XM-D4)). For an [active set](#an-active-set-several-profiles-for-one-agent) the pair stays the primary's, `enabledModels` is each entry's run in set order, each led by its own default (an `openai-codex` entry adds its declared base ids, never a `[1m]` variant, since `enabledModels` are minimatch patterns), and `modelScope.allow` is the union, so a child may use any listed provider and none other; each entry's profile options reach its own catalog row, and the OpenAI login pre-launches when any entry is `openai-codex` |
 | opencode | `~/.config/opencode/opencode.json` `provider.<id>` — `baseURL`/`apiKey` live UNDER `options`; `npm` `@ai-sdk/openai-compatible` for an `openai` endpoint, `@ai-sdk/openai` for an `openai-responses` one; never a row for `openai-codex`, whose list rides opencode's own `openai` row ([above](#selecting-openai-codex-for-opencode)) | top-level `model = "<provider>/<model>"` and `small_model`, written only when a model resolves, and `enabled_providers` naming the selected provider whether or not one does, so opencode on a provider that declares no models chooses among that provider's own ([AP-D17](../design/active-provider-sets.md#AP-D17)). For an [active set](#an-active-set-several-profiles-for-one-agent) `model` and `small_model` stay the primary's and `enabled_providers` names every entry in set order, a Bedrock entry as `amazon-bedrock` wherever it sits and an entry whose provider names no endpoint by that provider's name, which must be opencode's own id for it (`anthropic`), since yolo writes such an entry no row; opencode reads that key as a filter ("When set, ONLY these providers will be enabled", its 1.18.32 schema), so the order states the set and does not order opencode's menu. Each entry's own `enforce_models` decides the `whitelist` on its provider's row. A model picked in opencode lasts for that run of it: the `model` yolo writes outranks opencode's saved recent picks at its next start ([AP-D15](../design/active-provider-sets.md#AP-D15)) |
 | omp | `~/.oh-omp/agent/models.yml` `providers.<id>` (YAML; credential as the provider's env-var NAME, which oh-omp resolves before treating it as a literal) | **no start model** — the derive writes a catalog, so a selected profile makes the provider *available* and the user chooses it inside the agent. Under an `only`, `~/.oh-omp/agent/config.yml` `enabledModels` scopes the narrowed list, default first ([MM-D8](../design/model-lists-and-pickers.md#MM-D8)). For an [active set](#an-active-set-several-profiles-for-one-agent) each entry's key reaches oh-omp, and once any entry is narrowed the scope holds every entry in set order: a narrowed entry's run, default first, and `<provider>/*` for any other, since oh-omp's selector shows nothing outside a scope; with none narrowed nothing is written, as for one profile ([AP-D18](../design/active-provider-sets.md#AP-D18)) |
-| copilot | no catalog (BYOK is env-var-only; no copilot config file has provider keys) | process env from the copilot pack's env derive: `COPILOT_PROVIDER_BASE_URL` (the sole activation gate), `COPILOT_PROVIDER_TYPE`, `COPILOT_PROVIDER_WIRE_API` (openai type only), `COPILOT_MODEL` (required — a provider with no resolvable alias composes nothing at all), `COPILOT_PROVIDER_API_KEY` (a placeholder for a keyless loopback endpoint), `COPILOT_PROVIDER_MAX_PROMPT_TOKENS` ← the provider's `context_window` option |
+| copilot | in a jail, for a provider whose list names a model, `providers.json`: an [agent file](pack-system.md#agent_files) beside copilot's env file, `~/.config/yolo-agent-env/copilot.providers.json`, which copilot reads from `COPILOT_PROVIDERS_CONFIG`. One provider and a row per entry of the list, its key as literal text; GitHub's own models appear beside it ([MM-D31](../design/model-lists-and-pickers.md#MM-D31)) | process env from the copilot pack's env derive: `COPILOT_PROVIDER_BASE_URL` (the sole activation gate), `COPILOT_PROVIDER_TYPE`, `COPILOT_PROVIDER_WIRE_API` (openai type only), `COPILOT_MODEL` (required — a provider with no resolvable alias composes nothing at all; `<provider>/<id>` where the file is written), `COPILOT_PROVIDER_API_KEY` (a placeholder for a keyless loopback endpoint), `COPILOT_PROVIDER_MAX_PROMPT_TOKENS` ← the provider's `context_window` option. The file, once it declares anything, replaces these `COPILOT_PROVIDER_*` variables; at `yolo host`, which writes no agent file, they are copilot's one model |
 | claude | no catalog (claude has no provider directory) | process env from the claude pack's env derive: the address and credential for the provider's `anthropic` endpoint (`ANTHROPIC_BASE_URL`, `ANTHROPIC_AUTH_TOKEN` — a dummy token on a routed launch that has no key, so claude never falls back to the user's own subscription login), `AWS_REGION` from the provider's `region`, one model id per claude tier resolved from the provider's aliases (the selected one from the profile's `model` option; on a Bedrock provider only from its Anthropic entries, and none unless named, [the shipped Bedrock provider](#the-shipped-bedrock-provider)), and knobs composed from provider options (the context window, request and stream timeouts). Claude's `[1m]` suffix is appended to every model id when the `context_window` option is at least one million — it is Claude Code's client syntax for the context-1m beta, stripped before the wire — and non-essential traffic is disabled on any routed launch. The exact variable set is the derive's, in `packs/claude/derive.lua` |
 
 A Bedrock provider is the exception for codex, opencode and pi: it gets no row of this table's
@@ -2117,7 +2125,8 @@ above explains what each is for; this table is the only place the exact spelling
 | Missing-provider hatch | `YOLO_ALLOW_MISSING_PROVIDERS=1`, for the credential and the region preflights | `internal/paths` |
 | Provider platform | `platform`, one token, open vocabulary; `aws-bedrock` is the one value read today (the claude, codex, opencode and pi derives, aws-auth's gate, the region preflight); a derive reads the selected provider's as `ctx.selected_platform` | `packdecl.PlatformProblem`, `luahook` (`selectedPlatform`) |
 | The shipped Bedrock provider | `bedrock` in the bedrock pack: `"platform": "aws-bedrock"`, no endpoints, no region, no options, the six AWS credential names under `api_key_env_name`; needed by claude, codex, opencode and pi, and needing aws-auth | `packs/bedrock/pack.json`, each agent pack's `needs` |
-| The Bedrock model list | `global.anthropic.claude-opus-5-5` (vendor `anthropic`, order 1), `us.openai.gpt-6.1-sol` (`openai`, 2), `global.openai.gpt-6-astra` (`openai`, 3); each keyed by its id, with `name`, `context_window`, `max_tokens` and `input` (and `reasoning` for Opus) in `model_options`; no `default` alias; no Region detection, so codex starts on GPT-6.1 Sol in every Region and opencode and pi on Claude Opus 5.5, and GPT-6 Sol is not shipped ([BR-D19](../design/bedrock-plumbing.md#BR-D19), superseding [BR-D17](../design/bedrock-plumbing.md#BR-D17)'s global-first pick). Read from each AWS model card on 2026-09-29 | `packs/bedrock/pack.json`, `packs/bedrock/README.md` |
+| The Bedrock model list | none ships ([MM-D32](../design/model-lists-and-pickers.md#MM-D32), 2026-10-05, withdrawing [BR-D19](../design/bedrock-plumbing.md#BR-D19)'s three entries): each agent starts on its own Bedrock default; a pack's `models` contribution or the user's `providers.bedrock.models` supplies one | `packs/bedrock/pack.json`, `packs/bedrock/README.md` |
+| copilot's Bedrock start model | `openai.gpt-oss-120b-1:0`, through the bridge, when no profile and no list names one ([MM-D34](../design/model-lists-and-pickers.md#MM-D34)) | `packs/copilot/derive.lua` (`bedrockStartModel`) |
 | Model vendor | `vendor`, one lowercase token (`[a-z0-9][a-z0-9._-]*`), in a pack's `model_options.<alias>` or a user's object-form `models.<alias>`; an entry with none is offered to every agent | `packdecl.ValidModelVendor`, `config.validateModelEntry`, `packload.flattenModelFacts` |
 | Makers each Bedrock client calls | claude `anthropic`; codex `openai`; opencode and pi every maker | `packs/{claude,codex,opencode,pi}/derive.lua` (`callableModels`) |
 | Bedrock built-in provider ids | codex `amazon-bedrock-runtime`; opencode `amazon-bedrock`; pi `amazon-bedrock` | `packs/{codex,opencode,pi}/derive.lua` |

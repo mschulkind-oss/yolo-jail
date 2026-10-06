@@ -32,6 +32,10 @@ into a jail, and what each launch shows about the code it runs. See
 give that script the variables it needs, such as where to install, with `installer_env`. See
 [the pack system reference](docs/reference/pack-system.md).
 
+**Copilot shows a provider's whole model list.** In a jail, Copilot's model picker offers every
+model on the provider's list, beside GitHub's own models when you are signed in to GitHub. See
+[a company's model list](userguide/guides/providers-and-models.md#model-menus-and-a-companys-model-list).
+
 ### Changed
 
 - `host_management` now defaults to `"none"`, and `"assert"` is refused: to keep `yolo host apply`
@@ -51,6 +55,9 @@ give that script the variables it needs, such as where to install, with `install
 - A host-wide service an older yolo started, such as `aws-auth`, now stops a new launch that uses
   it instead of warning: run the `yolo host-daemon restart <name>` it names, which jails already
   running survive.
+- yolo no longer ships a Bedrock model list: each agent starts on its own Bedrock default, and
+  Copilot on gpt-oss-120b. To start on a model of your choosing, name it in a profile's `model` or
+  list it under `providers.bedrock.models`.
 
 ### Fixed
 

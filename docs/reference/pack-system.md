@@ -787,6 +787,24 @@ does not narrow the agent's menu there, naming the agent, the provider, the prof
 [MM-D29](../design/model-lists-and-pickers.md#MM-D29)). It does not see `-p`. On `program` alone;
 `packdecl` refuses an empty `providers` list, an empty name and a name given twice.
 
+<a id="agent_files"></a>`agent_files` names the program's **agent files** (a term coined in
+[MM-D33](../design/model-lists-and-pickers.md#MM-D33)): files the jail writes beside the agent's
+per-agent env file, `~/.config/yolo-agent-env/<bin>.sh`, for a program that reads a whole document
+from a file it is pointed at and must find a secret in it. It is an object mapping the variable
+the program reads the file's path from to the file's name. The pack's `yolo.env` derive composes
+the file's content under that variable, a string written as it is or a table written as JSON,
+and is told whether this notch writes the file as `ctx.agent_files`. A jail does, on every
+backend: the per-agent env writer puts the content at `<bin>.<name>` with the env file's mode and
+lifetime, rewritten on every entry and removed with it, and the env file sets the variable to the
+file's path, as a default a value the user sets wins over. `yolo host` writes none, so there the
+derive composes the delivery that needs no file, and a value it composes anyway is withheld,
+never handed to the program as a value. `packs/copilot` declares
+`{"COPILOT_PROVIDERS_CONFIG": "providers.json"}`: copilot's `providers.json`, which shows a
+provider's whole model list and carries its key as literal text
+([MM-D31](../design/model-lists-and-pickers.md#MM-D31)). On `program` alone; `packdecl` refuses an
+empty object, a key that is no variable name, a name that is not one plain file name or ends in
+`.sh`, and one name for two variables.
+
 `install_hints` maps a host package manager to the package that provides `bin` there. Used
 below the `jail` notch, where yolo bakes no image, by `yolo check-deps` / `apply` to probe
 for the binary and emit a runnable manifest. A value is `<package> [<package>…]`, optionally
@@ -862,7 +880,7 @@ selection function (`config.SelectPacks`), which every host verb and the launch 
 jail's pack loader over the staged tree, whose base `pack.json` is unchanged. The rewrite keeps the
 base's `refresh`, `protocols`, `provider_sets`, `platform_switches`, `capabilities`,
 `platform_regions`, `unlisted_background_models`, `exact_menu_refuses`, `model_menu`,
-`launch_selection` and `node_floor` (a fork's own `node_floor` replaces it). It drops every other delivery field of the base: `package`, `url`, `flags`, `update`,
+`launch_selection`, `agent_files` and `node_floor` (a fork's own `node_floor` replaces it). It drops every other delivery field of the base: `package`, `url`, `flags`, `update`,
 `versions_dir`, `installer_env`, `install_hints`, `model_catalog`, and `platforms` unless the fork declares its own.
 
 A fork brings its base into the launch the way an unconditional [`needs`](wire-bridge.md#needs--a-conditional-pack-dependency)

@@ -338,8 +338,8 @@ func copyPackDecl(p *Pack) *Pack {
 // inside an npm package a fork does not install.
 //
 // THE BASE'S: `refresh`, `protocols`, `provider_sets`, `platform_switches`, `capabilities`,
-// `platform_regions`, `unlisted_background_models` and `exact_menu_refuses`. Those say what the
-// program DOES once it is there, which a fork of it still does. `node_floor` is the base's unless
+// `platform_regions`, `unlisted_background_models`, `exact_menu_refuses` and `agent_files`. Those
+// say what the program DOES once it is there, which a fork of it still does. `node_floor` is the base's unless
 // the fork declares its own: the floor a fork's entrypoint needs is the fork's to raise.
 //
 // `fork_of` is left off the copy, so the rewritten program installs (InstallContributions) and

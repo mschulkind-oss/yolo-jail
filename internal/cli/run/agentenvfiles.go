@@ -30,6 +30,7 @@ import (
 	"strings"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/entrypoint"
+	"github.com/mschulkind-oss/yolo-jail/internal/macosuser"
 	"github.com/mschulkind-oss/yolo-jail/internal/packdecl"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 )
@@ -67,10 +68,10 @@ func deliverChannel(wsState, rt string, channel *packChannel) {
 	writeUserEnvFile(shared, channel.sharedEnvSourceWinners(), channel)
 	if rt == "container" { // parity: HonoredBy — Apple Container binds wsState at /home/agent, so both files are written at their in-home paths beneath it, live on every entry, instead of bound
 		acMaterialize(shared, ".config/yolo-user-env.sh", wsState)
-		writeAgentEnvFiles(wsState, entrypoint.AgentEnvDirRel, channel)
+		writeAgentEnvFiles(wsState, entrypoint.AgentEnvDirRel, jailHome, channel)
 		return
 	}
-	writeAgentEnvFiles(wsState, agentEnvStateDir, channel)
+	writeAgentEnvFiles(wsState, agentEnvStateDir, jailHome, channel)
 }
 
 // clearAgentEnvFiles removes every per-agent env file a container jail's entries wrote under
@@ -85,7 +86,7 @@ func clearAgentEnvFiles(wsState, rt string) {
 	if _, err := os.Stat(filepath.Join(wsState, dir)); err != nil {
 		return // nothing written, so nothing to make
 	}
-	writeAgentEnvFiles(wsState, dir, nil)
+	writeAgentEnvFiles(wsState, dir, "", nil)
 }
 
 // writeMacosUserAgentEnvFiles is the macos-user arm's delivery of the per-agent files (OQ-CN9):
@@ -94,7 +95,7 @@ func clearAgentEnvFiles(wsState, rt string) {
 // links the sandbox's ~/.config by (entrypoint.DeriveDarwinHomeLayout: `.config` → `config`).
 // One writer, so the two backends' files cannot differ in grammar, mode or revocation.
 func writeMacosUserAgentEnvFiles(sidecar string, channel *packChannel) {
-	writeAgentEnvFiles(sidecar, macosUserAgentEnvDir, channel)
+	writeAgentEnvFiles(sidecar, macosUserAgentEnvDir, macosuser.SandboxHome(), channel)
 }
 
 // macosUserAgentEnvDir is the per-agent env directory beneath the macos-user sidecar.
@@ -107,10 +108,17 @@ var macosUserAgentEnvDir = strings.TrimPrefix(entrypoint.AgentEnvDirRel, ".")
 // Best-effort like writeUserEnvFile: a failure leaves the agent without its values (fail
 // closed), and podman names a bind source it cannot find.
 //
+// AN AGENT'S AGENT FILES GO BESIDE ITS ENV FILE (docs/design/model-lists-and-pickers.md MM-D33):
+// each one its env derive composed (AgentDelivery.Files) is written as <agent>.<name>, with the
+// env file's mode and lifetime, BEFORE the env file, which then points the file's variable at it
+// by its path in the jail home, home, where the directory is <home>/.config/yolo-agent-env on
+// every backend. A file that cannot be written gets no line, so the agent never names a file that
+// is not there and falls back to its environment alone.
+//
 // The directory is agentEnvDirMode and each file agentEnvFileMode on EVERY write, not only
 // on creation: a directory an earlier build or the jail left wider is narrowed again. The
 // writes and removals are beneath wsState's os.Root for writeUserEnvFile's reason.
-func writeAgentEnvFiles(wsState, dir string, channel *packChannel) {
+func writeAgentEnvFiles(wsState, dir, home string, channel *packChannel) {
 	r, err := openStateRoot(wsState)
 	if err != nil {
 		return
@@ -125,7 +133,17 @@ func writeAgentEnvFiles(wsState, dir string, channel *packChannel) {
 			if !packdecl.ValidBinName(agent) {
 				continue
 			}
-			body := agentEnvFileContent(channel, agent)
+			var written []packload.AgentFile
+			for _, f := range channel.scope.Agent(agent).AgentFiles() {
+				name := agentFileName(agent, f)
+				if err := writeBeneath(r, filepath.Join(dir, name),
+					agentEnvFileMode, agentEnvFileMode, writeBytes(f.Content)); err != nil {
+					continue
+				}
+				keep[name] = true
+				written = append(written, f)
+			}
+			body := agentEnvFileContentWith(channel, agent, agentFileLines(channel, agent, home, written))
 			if body == "" {
 				continue
 			}
@@ -217,6 +235,12 @@ func (c *packChannel) agentsWithOwnValues() []string {
 // The comparison is by VALUE, not by name, because a name alone cannot tell a per-command
 // override of a shared variable from the shared variable itself (CN-D21 in the design's ledger).
 func agentEnvFileContent(channel *packChannel, agent string) string {
+	return agentEnvFileContentWith(channel, agent, "")
+}
+
+// agentEnvFileContentWith is agentEnvFileContent with extra, lines in the same grammar that the
+// writer composed beside the composition (agentFileLines), appended after it.
+func agentEnvFileContentWith(channel *packChannel, agent, extra string) string {
 	d := channel.scope.Agent(agent)
 	if d.Empty() {
 		return ""
@@ -274,6 +298,7 @@ func agentEnvFileContent(channel *packChannel, agent string) string {
 		others := slices.DeleteFunc(slices.Clone(inherited), func(v string) bool { return v == e.Value })
 		lines.WriteString(exportComposed(e.Key, e.Value, others))
 	}
+	lines.WriteString(extra)
 	if lines.Len() == 0 {
 		return ""
 	}
@@ -282,6 +307,33 @@ func agentEnvFileContent(channel *packChannel, agent string) string {
 	b.WriteString("# (provider-credential-scope.md). Rewritten by every entry; sourced by its launcher.\n")
 	b.WriteString("# A value you set yourself wins over the profile's (OQ-CN8).\n")
 	b.WriteString(lines.String())
+	return b.String()
+}
+
+// agentFileName is where agent's agent file f sits in its env directory: <agent>.<name>, beside
+// <agent>.sh. packdecl refuses a name ending in ".sh", so the two never meet.
+func agentFileName(agent string, f packload.AgentFile) string {
+	return agent + "." + f.Name
+}
+
+// agentFileLines points each of written, the agent files this entry wrote for agent, at its path
+// in the jail home home, in the env file's grammar and precedence (agentEnvFileContent): a value
+// the user set themselves for the variable wins, as for every composed value.
+func agentFileLines(channel *packChannel, agent, home string, written []packload.AgentFile) string {
+	if len(written) == 0 {
+		return ""
+	}
+	view := channel.envView()
+	var b strings.Builder
+	for _, f := range written {
+		if !packdecl.ValidEnvName(f.Var) {
+			continue
+		}
+		path := filepath.ToSlash(filepath.Join(home, entrypoint.AgentEnvDirRel, agentFileName(agent, f)))
+		others := slices.DeleteFunc(channel.inheritedValues(view, agent, f.Var, true),
+			func(v string) bool { return v == path })
+		b.WriteString(exportComposed(f.Var, path, others))
+	}
 	return b.String()
 }
 

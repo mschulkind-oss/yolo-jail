@@ -51,9 +51,9 @@ func TestOpencodeGenericRowLimitsCarryBothFieldsItsSchemaRequires(t *testing.T) 
 }
 
 // opencode's NATIVE Bedrock row: a model a user adds to the Bedrock list with a window and no
-// output limit, beside the shipped entries, which declare both.
+// output limit, beside a company pack's entries, which declare both.
 func TestOpencodeBedrockRowLimitsCarryBothFieldsItsSchemaRequires(t *testing.T) {
-	providersJSON, wire := bedrockTables(t, "opencode", `{"bedrock":{
+	providersJSON, wire := bedrockListTables(t, "opencode", `{"bedrock":{
     "models":{"x.only-window":"x.only-window","x.only-output":"x.only-output"},
     "model_options":{"x.only-window":{"context_window":"200000"},"x.only-output":{"max_tokens":"9000"}}}}`, nil)
 	r := newPioencodeRender(t, providersJSON)

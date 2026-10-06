@@ -318,7 +318,9 @@ plain `-p bedrock` and the fifth refusing a launch where the one adapter route i
    the serve decision to know which agents have their own Bedrock client, which the tables the
    daemon boots from did not carry; [WG-I44](#WG-I44) closed that on 2026-09-30. copilot under
    either profile starts on the list's first model, the rule
-   [OQ-ML2](model-lists-and-pickers.md#OQ-ML2) gives a provider with no `default`. Lives in
+   [OQ-ML2](model-lists-and-pickers.md#OQ-ML2) gives a provider with no `default`, and since
+   2026-10-05, when no list is supplied, on its own one open-weight default
+   ([MM-D34](model-lists-and-pickers.md#MM-D34)). Lives in
    `wirebridged.regionalBedrock`, `packload.adaptEndpoints` and `packs/copilot/derive.lua`.
 4. <a id="WG-I44"></a>**[WG-I44](#WG-I44)**: **on a profile that names no via, the service that
    fronts the provider's platform carries every agent with no client of that platform, and the
@@ -482,7 +484,9 @@ Still open, and not this reading's to close:
   ([BR-D19](bedrock-plumbing.md#BR-D19)), which serves only from a source Region the US profile
   covers. The `bedrock` pack's [README Sources list](../../packs/bedrock/README.md#sources)
   carries the same 2026-09-29 reading (*"no global or in-Region id"*). That premise is
-  [`bedrock-plumbing.md`](bedrock-plumbing.md)'s to take up, and the README's with it.
+  [`bedrock-plumbing.md`](bedrock-plumbing.md)'s to take up, and the README's with it. ⚠ Moot
+  since 2026-10-05: [`model-lists-and-pickers.md` MM-D32](model-lists-and-pickers.md#MM-D32)
+  withdrew the list, so no start model ships for codex.
 
 ### 2.4 The first live requests (MEASURED 2026-10-01)
 

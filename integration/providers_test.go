@@ -324,8 +324,13 @@ func TestProvidersRenderInTheAgentsOwnVocabulary(t *testing.T) {
 		// The key copilot sends the bridge is the launch's caller token, never the cerebras
 		// key, which the bridge adds upstream itself (wire-bridge.md WB-D18). The token is
 		// per launch, so the expectation reads it from the same session.
+		// cerebras ships a list, so copilot's whole list is its providers.json, beside its env file
+		// (docs/design/model-lists-and-pickers.md MM-D31, MM-D33), read here as copilot would.
 		r := runYolo(t, dir,
 			`. ~/.config/yolo-agent-env/copilot.sh && env | grep -E '^COPILOT_(MODEL|PROVIDER_API_KEY|PROVIDER_BASE_URL|PROVIDER_TYPE|PROVIDER_WIRE_API)=' | sort; `+
+				`echo "PROVIDERS_FILE=$COPILOT_PROVIDERS_CONFIG"; `+
+				`echo "PROVIDERS_MODE=$(stat -c %a "$COPILOT_PROVIDERS_CONFIG")"; `+
+				`echo "PROVIDERS_JSON=$(tr -d '\n ' < "$COPILOT_PROVIDERS_CONFIG")"; `+
 				`echo "CALLER_TOKEN=$YOLO_SERVICE_WIRE_BRIDGE_TOKEN"`)
 		if r.rc != 0 {
 			t.Fatalf("profiled copilot launch failed: rc %d\n%s", r.rc, r.combined())
@@ -335,14 +340,28 @@ func TestProvidersRenderInTheAgentsOwnVocabulary(t *testing.T) {
 		if len(token) != 64 {
 			t.Fatalf("the bridged launch carried no caller token: %q\n%s", token, r.stdout)
 		}
-		r.stdout = before
+		envBlock, fileLines, _ := strings.Cut(before, "PROVIDERS_FILE=")
+		r.stdout = envBlock
+		if path := kvLine("PROVIDERS_FILE="+fileLines, "PROVIDERS_FILE"); path != "/home/agent/.config/yolo-agent-env/copilot.providers.json" {
+			t.Errorf("COPILOT_PROVIDERS_CONFIG = %q, want copilot's providers.json beside its env file", path)
+		}
+		if mode := kvLine(fileLines, "PROVIDERS_MODE"); mode != "600" {
+			t.Errorf("copilot's providers.json mode = %q, want 600: it carries the caller token", mode)
+		}
+		doc := kvLine(fileLines, "PROVIDERS_JSON")
+		for _, want := range []string{`"name":"cerebras"`, `"apiKey":"` + token + `"`, `"id":"qwen-3.8-27b"`,
+			`"wireModel":"qwen-3.8-27b"`, `"type":"anthropic"`} {
+			if !strings.Contains(doc, want) {
+				t.Errorf("copilot's providers.json lacks %s:\n%s", want, doc)
+			}
+		}
 		// The bridge's adapter answers at its served address: the declared 8214 on a bridged
 		// jail, a picked port on a nested one (servedURLProblem), read from the same session.
 		base := kvLine(r.stdout, "COPILOT_PROVIDER_BASE_URL")
 		if p := servedURLProblem(base, "127.0.0.1:8214", "", inContainer()); p != "" {
 			t.Errorf("COPILOT_PROVIDER_BASE_URL is %s", p)
 		}
-		want := "COPILOT_MODEL=qwen-3.8-27b\n" +
+		want := "COPILOT_MODEL=cerebras/qwen-3.8-27b\n" +
 			"COPILOT_PROVIDER_API_KEY=" + token + "\n" +
 			"COPILOT_PROVIDER_BASE_URL=" + base + "\n" +
 			"COPILOT_PROVIDER_TYPE=anthropic\n"

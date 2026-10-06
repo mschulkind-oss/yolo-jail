@@ -10,38 +10,6 @@
         "AWS_CONTAINER_CREDENTIALS_FULL_URI"
       ],
       "kind": "provider",
-      "model_options": {
-        "global.anthropic.claude-opus-5-5": {
-          "context_window": "1000000",
-          "input": "text,image",
-          "max_tokens": "128000",
-          "name": "Claude Opus 5.5 (Global)",
-          "order": "1",
-          "reasoning": "true",
-          "vendor": "anthropic"
-        },
-        "global.openai.gpt-6-astra": {
-          "context_window": "1050000",
-          "input": "text,image",
-          "max_tokens": "128000",
-          "name": "GPT-6 Astra (Global)",
-          "order": "3",
-          "vendor": "openai"
-        },
-        "us.openai.gpt-6.1-sol": {
-          "context_window": "1000000",
-          "input": "text,image",
-          "max_tokens": "131072",
-          "name": "GPT-6.1 Sol (US)",
-          "order": "2",
-          "vendor": "openai"
-        }
-      },
-      "models": {
-        "global.anthropic.claude-opus-5-5": "global.anthropic.claude-opus-5-5",
-        "global.openai.gpt-6-astra": "global.openai.gpt-6-astra",
-        "us.openai.gpt-6.1-sol": "us.openai.gpt-6.1-sol"
-      },
       "name": "bedrock",
       "platform": "aws-bedrock",
       "region_env_name": [
@@ -69,7 +37,7 @@
       "via": "wire-bridge"
     }
   ],
-  "description": "Amazon Bedrock's bedrock-runtime endpoint as one provider every agent reads, with the models an agent starts on there.",
+  "description": "Amazon Bedrock's bedrock-runtime endpoint as one provider every agent reads. It ships no model list: each agent starts on its own Bedrock default, and a pack or your config may add one.",
   "name": "bedrock",
   "needs": [
     {

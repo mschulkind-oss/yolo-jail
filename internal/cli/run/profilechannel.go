@@ -340,6 +340,10 @@ func (o *Options) composePackChannelWith(cfg *jsonx.OrderedMap, packs []*packloa
 		// why, exactly as the host's does (ES-D18, generalized by notch convergence item 2).
 		UnservedAdaptations: unservedAdaptations,
 		Served:              &served,
+		// THE AGENT FILES (docs/design/model-lists-and-pickers.md MM-D33): every backend of this
+		// notch writes them, beside each agent's env file (writeAgentEnvFiles), so each env derive
+		// is told it may compose one.
+		AgentFiles: true,
 		Fallback: func(name string) (string, bool) {
 			v := o.Getenv(name)
 			return v, v != ""
