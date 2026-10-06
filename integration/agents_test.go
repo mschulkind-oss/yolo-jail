@@ -210,7 +210,7 @@ func TestPackInstallsVersionsAndConfigures(t *testing.T) {
 // packInstallProbe is the shell a real vendor-install cell runs inside the jail, and every
 // backend that runs one SHARES it: TestPackInstallsVersionsAndConfigures above (podman, the
 // Pack Installs workflow) and TestMacosUserPackInstallsVersionsAndConfigures (macos-user, the
-// macos-user nightly; docs/reference/agent-install-in-ci.md#oq-ci7). One function, so the
+// macos-user nightly; docs/reference/agent-install-in-ci.md#OQ-CI7). One function, so the
 // darwin cell asks exactly the question the Linux cell asks and the two cannot drift.
 //
 // `<bin> --version` exercises the lazy launcher's install path, the stamp proves the

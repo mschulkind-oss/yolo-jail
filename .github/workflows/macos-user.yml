@@ -352,7 +352,7 @@ jobs:
       # delete the evidence any post-mortem step would want to look at.
 
   # REAL VENDOR INSTALLS ON darwin: OQ-CI7, ruled 2026-10-05 as the doc's option (c)
-  # (docs/reference/agent-install-in-ci.md#oq-ci7). darwin is the one platform whose
+  # (docs/reference/agent-install-in-ci.md#OQ-CI7). darwin is the one platform whose
   # vendor builds no other CI job installs: Pack Installs (packs.yml) installs the
   # linux-x64 and linux-arm64 builds, and the podman nightly's jail is linux-x64 in a
   # VM. A macos-user launch installs the vendor's DARWIN build through the same
