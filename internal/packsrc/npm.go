@@ -287,13 +287,15 @@ func (p *npmPackument) pick(n NpmSource) (string, error) {
 		}
 		return v, nil
 	}
-	rng, star := n.Range, n.Spec == "" || n.Spec == "*"
-	if n.Spec == "" {
+	rng, spec := n.Range, n.Spec
+	if spec == "" {
+		spec = "*"
 		var err error
-		if rng, err = nodesemver.ParseRange("*"); err != nil {
+		if rng, err = nodesemver.ParseRange(spec); err != nil {
 			return "", err
 		}
 	}
+	star := spec == "*"
 	if latest, ok := p.DistTags["latest"]; ok {
 		meta, listed := p.Versions[latest]
 		if v, ok := nodesemver.Parse(latest); ok && listed && !npmDeprecated(meta.Deprecated) &&
@@ -318,7 +320,7 @@ func (p *npmPackument) pick(n NpmSource) (string, error) {
 	if v, ok := rng.MaxSatisfying(all); ok {
 		return v.String(), nil
 	}
-	return "", fmt.Errorf("no version of %s satisfies %q", n.Name, n.Ref())
+	return "", fmt.Errorf("no version of %s satisfies %q", n.Name, spec)
 }
 
 // npmDeprecated reads a version's `deprecated`: a non-empty message deprecates it; false, "" or

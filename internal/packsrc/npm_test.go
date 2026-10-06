@@ -133,6 +133,8 @@ func TestAnNpmRangePicksAsNpmPickManifestDoes(t *testing.T) {
 			`{"dist-tags":{"latest":"1.5.0"},"versions":{"1.4.0":{},"1.5.0":{"deprecated":"use 1.4"}}}`, "1.5.0", ""},
 		{"a dist-tag naming an unlisted version resolves to nothing", "npm:x@next",
 			`{"dist-tags":{"next":"3.0.0"},"versions":{"1.4.0":{}}}`, "", "names 3.0.0, which the registry does not list"},
+		{"no spec over no version names the range it read, *", "npm:x",
+			`{"dist-tags":{},"versions":{}}`, "", `no version of x satisfies "*"`},
 	} {
 		var p npmPackument
 		if err := json.Unmarshal([]byte(c.body), &p); err != nil {
