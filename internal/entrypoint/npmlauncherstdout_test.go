@@ -11,12 +11,13 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/packdecl"
 )
 
-// npmlauncherstdout_test.go pins where the npm launcher's own install writes: to STDERR, on
-// every path that runs `npm install`, so a piped launch (`pi -p … | consumer`) hands the
-// consumer the program's output and nothing else (docs/design/pi-extension-store-builds.md §9,
-// "Found on the way"). The install used to run with `2>&1` and no redirect, which put npm's
-// whole log, its errors included, on the launcher's standard output whenever the hourly update
-// was due or the home was cold.
+// npmlauncherstdout_test.go pins where every launcher template's own install writes: to STDERR,
+// on every path that runs `npm install` or a vendor installer in front of the exec, so a piped
+// launch (`pi -p … | consumer`) hands the consumer the program's output and nothing else
+// (docs/design/pi-extension-store-builds.md §9, "Found on the way", XB-D34 and XB-D43). The npm
+// template's install, the native template's installer run and the package-manager launcher's
+// install all used to run with `2>&1` and no redirect, which put the whole log, its errors
+// included, on the launcher's standard output whenever an install or update ran.
 //
 // The npm stand-in writes one marker line to each of its streams, so the cells can tell
 // "npm's stdout leaked" from "npm's stderr was folded into stdout": both are the defect.
@@ -109,4 +110,80 @@ func TestAColdInstallKeepsNpmOffAPipedLaunchsStdout(t *testing.T) {
 			strings.Join(log, "\n"))
 	}
 	assertOnlyTheProgramOnStdout(t, stdout, stderr, "RAN -p hello\n")
+}
+
+// runStreamsApart runs script with args and env, its two streams kept apart as a pipe sees them,
+// and fails the test when it exits non-zero.
+func runStreamsApart(t *testing.T, script string, env []string, args ...string) (stdout, stderr string) {
+	t.Helper()
+	cmd := exec.Command(script, args...)
+	cmd.Env = env
+	var out, errb bytes.Buffer
+	cmd.Stdout, cmd.Stderr = &out, &errb
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("launcher failed: %v\nstdout:\n%s\nstderr:\n%s", err, out.String(), errb.String())
+	}
+	return out.String(), errb.String()
+}
+
+// TestANativeColdInstallKeepsTheInstallerOffAPipedLaunchsStdout: the native template's installer
+// run is the same class. `~/.local` is per workspace, so a new workspace's first `claude -p … |
+// consumer` is a cold install, and the installer's own output, on either of its streams, must
+// reach stderr only.
+func TestANativeColdInstallKeepsTheInstallerOffAPipedLaunchsStdout(t *testing.T) {
+	for _, tool := range []string{"bash", "curl"} {
+		if _, err := exec.LookPath(tool); err != nil {
+			t.Skip(tool + " not found")
+		}
+	}
+	url := serveBody(t, 200, "application/x-sh", strings.Join([]string{
+		"#!/bin/bash",
+		"set -eu",
+		`mkdir -p "$HOME/.local/bin"`,
+		`printf '#!/bin/bash\necho "RAN $*"\n' > "$HOME/.local/bin/probetool"`,
+		`chmod +x "$HOME/.local/bin/probetool"`,
+		"echo " + npmStdoutMark,
+		"echo " + npmStderrMark + " >&2",
+	}, "\n")+"\n")
+	home := t.TempDir()
+	body := nativeAgentLauncher("probe",
+		&packdecl.Install{Kind: "native", Bin: "probetool", InstallerURL: url, UpdateVerb: []string{"update"}},
+		filepath.Join(home, "stamps"), filepath.Join(home, "receipts.jsonl"), "", true, launcherServers{}, nil)
+	script := filepath.Join(home, "probetool")
+	if err := os.WriteFile(script, []byte(body), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	stdout, stderr := runStreamsApart(t, script, []string{"HOME=" + home, "PATH=" + os.Getenv("PATH")}, "-p", "hello")
+	assertOnlyTheProgramOnStdout(t, stdout, stderr, "RAN -p hello\n")
+}
+
+// TestAPackageManagerInstallKeepsNpmOffAPipedLaunchsStdout: the package-manager launcher (pnpm)
+// installs through `npm install -g` too, and a cold `pnpm … --json | jq` is as piped as any
+// agent's launch.
+func TestAPackageManagerInstallKeepsNpmOffAPipedLaunchsStdout(t *testing.T) {
+	if _, err := exec.LookPath("bash"); err != nil {
+		t.Skip("bash not found")
+	}
+	home := t.TempDir()
+	fakeBin := filepath.Join(home, "fakebin")
+	writeTestFile(t, filepath.Join(fakeBin, "npm"), `#!/bin/bash
+if [ "${1:-}" = install ]; then
+    echo `+npmStdoutMark+`
+    echo `+npmStderrMark+` >&2
+    mkdir -p "$NPM_CONFIG_PREFIX/bin"
+    printf '#!/bin/bash\necho "RAN $*"\n' > "$NPM_CONFIG_PREFIX/bin/pnpm"
+    chmod +x "$NPM_CONFIG_PREFIX/bin/pnpm"
+fi
+`)
+	if err := os.Chmod(filepath.Join(fakeBin, "npm"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	body := pkgManagerLauncher("pnpm", "pnpm", filepath.Join(home, "stamps"), filepath.Join(home, "receipts.jsonl"), nil)
+	script := filepath.Join(home, "pnpm")
+	if err := os.WriteFile(script, []byte(body), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	stdout, stderr := runStreamsApart(t, script,
+		[]string{"HOME=" + home, "PATH=" + fakeBin + ":" + os.Getenv("PATH")}, "list", "--json")
+	assertOnlyTheProgramOnStdout(t, stdout, stderr, "RAN list --json\n")
 }

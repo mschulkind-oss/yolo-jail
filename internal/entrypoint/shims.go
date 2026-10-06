@@ -1907,7 +1907,8 @@ _installer_body_kind() (
 # there, so the installer is started in a session of its own, which has no /dev/tty. A shell
 # cannot drop its terminal itself, so yolo does it (yolo internal no-terminal, internal/notty),
 # and forwards a Ctrl-C to the installer while it waits, then dies of it too, so this launcher
-# stops as it did when the installer shared its terminal. Output still reaches the terminal.
+# stops as it did when the installer shared its terminal. Output still reaches the terminal,
+# on stderr.
 #
 # ASKED FIRST, BECAUSE A yolo WITHOUT THE VERB IS POSSIBLE: none on PATH, or one older than
 # this launcher. The jail's own yolo is this build's, so the probe costs one exec on an install
@@ -1985,7 +1986,10 @@ _run_installer() {
         return 1
     fi
     local irc=0
-    _run_without_terminal bash "$script" 2>&1 || irc=$?
+    # The installer's whole output to STDERR, as the npm template's install: a cold install runs
+    # in front of the exec, so a piped launch ("$BIN -p … | consumer") must receive the
+    # program's output and nothing else.
+    _run_without_terminal bash "$script" >&2 || irc=$?
     rm -f "$script"
     touch "$STAMP"
     # A Ctrl-C stopped the installer partway, so what it left is not an install a receipt may
@@ -2276,7 +2280,9 @@ if [ ! -x "$REAL_BIN" ]; then
         # is still the -x test below, unchanged: this captures the status to decide whether
         # to RECORD, never whether to proceed.
         pm_rc=0
-        YOLO_BYPASS_SHIMS=1 npm install -g --prefer-online "$SPEC" 2>&1 || pm_rc=$?
+        # npm's whole log to STDERR, as the agent launcher's: a piped "$BIN … | consumer" must
+        # receive the program's output and nothing else.
+        YOLO_BYPASS_SHIMS=1 npm install -g --prefer-online "$SPEC" >&2 || pm_rc=$?
         if [ "$pm_rc" = 0 ]; then
             # No "resolved": reading the installed version means indexing node_modules by
             # package NAME, and this body deliberately carries only the spec (see above).

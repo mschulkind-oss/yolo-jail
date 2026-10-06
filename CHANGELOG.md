@@ -34,8 +34,8 @@ into a jail, and what each launch shows about the code it runs. See
 
 ### Fixed
 
-- Piping an npm-installed agent, such as `pi -p … | jq`, no longer hands its install or hourly
-  update log to the next command.
+- Piping an agent or pnpm, such as `claude -p … | jq`, no longer hands the log of its install or
+  hourly update to the next command.
 - `pi --version` and `pi -v` no longer update pi or refresh its extensions first.
 - pi's extension refresh now runs only when pi's settings name an extension pi installs itself,
   and one that fails waits an hour before it is tried again.
