@@ -74,3 +74,21 @@ func TestAMacosUserLaunchSaysTheAgentInstallsTheFallback(t *testing.T) {
 		t.Errorf("the macos-user launch does not say the agent installs the fallback:\n%s", out)
 	}
 }
+
+// A NESTED LAUNCH names an unmodified extension's reason without a series it does not have, in the
+// fallback's line (XB-D49). Red if treeDeliveriesFor's in-jail arm stops reading f.Unmodified.
+func TestANestedLaunchNamesAnUnmodifiedExtensionWithNoSeries(t *testing.T) {
+	fallbackLaunchHome(t)
+	t.Setenv("YOLO_VERSION", "test")
+	_, printed := fakePodmanLaunch(t, func(o *Options) {
+		o.BuildTrees = func(TreeBuildRequest) map[string]TreeDelivery {
+			t.Error("a nested launch ran the tree arm")
+			return nil
+		}
+	})
+	want := "is an unmodified extension, whose upstream is checked and built on the host — a launch from " +
+		"the host delivers it; the agent installs " + fallbackRaw + " itself, in this workspace"
+	if !strings.Contains(printed, want) || strings.Contains(printed, "series is replayed") {
+		t.Errorf("a nested launch does not name the unmodified extension's reason (%q):\n%s", want, printed)
+	}
+}

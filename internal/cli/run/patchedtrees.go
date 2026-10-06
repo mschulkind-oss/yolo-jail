@@ -192,6 +192,17 @@ func patchedTreeLine(f packload.Fork) (string, bool) {
 	return line, false
 }
 
+// inJailTreeReason is why a nested launch hands f no tree: its build is the host's. An unmodified
+// extension has no series to replay, so its reason names none (XB-D49).
+func inJailTreeReason(f packload.Fork) string {
+	if f.Unmodified() {
+		return f.Label() + " is an unmodified extension, whose upstream is checked and built on the host — " +
+			"a launch from the host delivers it"
+	}
+	return f.Label() + " is a patched extension, whose upstream is checked and whose series is replayed " +
+		"and built on the host — a launch from the host delivers it"
+}
+
 // treeDeliveriesFor is THE TREE ARM, in the fork-build slot beside the fork builds: for every
 // patched extension this launch carries, the per-launch copy its jail mounts, or why there is none.
 // Nothing here can fail the launch (§9: "The jail launch itself is never refused").
@@ -203,15 +214,14 @@ func (o *Options) treeDeliveriesFor(rt string) map[string]TreeDelivery {
 	defer o.recordHandedTrees(out)
 	if config.InJail() {
 		for _, f := range o.patchedTrees {
-			out[f.Key()] = TreeDelivery{Reason: f.Label() + " is a patched extension, whose upstream is checked and " +
-				"whose series is replayed and built on the host — a launch from the host delivers it"}
+			out[f.Key()] = TreeDelivery{Reason: inJailTreeReason(f)}
 		}
 		return out
 	}
 	floor := o.roBindsUnsupported(rt) // parity: Honored — below Apple Container's read-only floor the tree arm checks and builds nothing and still copies a good build already on this machine (patched-extensions.md §11)
 	if o.BuildTrees == nil {
 		for _, f := range o.patchedTrees {
-			out[f.Key()] = TreeDelivery{Reason: "this launch builds no patched extension"}
+			out[f.Key()] = TreeDelivery{Reason: "this launch builds no extension"}
 		}
 		return out
 	}

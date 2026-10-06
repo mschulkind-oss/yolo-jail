@@ -306,9 +306,13 @@ func patchedForkStatusLines(f packload.Fork) []string {
 	}
 	if refKind == "tag" || refKind == "commit" {
 		// A HOLD BY THE MANIFEST (§3.4): the ref names a tag or a full commit, so nothing is followed.
-		lines = append(lines, "[dim]  held: its ?ref= names a "+refKind+", so it follows nothing: the series "+
-			"is applied there, and it rebuilds only when the series or the recipe changes — a branch "+
-			"as the ?ref= follows one[/dim]")
+		// An unmodified extension has no series to apply there (XB-D49).
+		what := "the series is applied there, and it rebuilds only when the series or the recipe changes"
+		if f.Unmodified() {
+			what = "it is built there, and rebuilds only when its build recipe changes"
+		}
+		lines = append(lines, "[dim]  held: its ?ref= names a "+refKind+", so it follows nothing: "+what+
+			" — a branch as the ?ref= follows one[/dim]")
 	}
 	if hold := patchedForkHold(f); hold != "" {
 		lines = append(lines, "[dim]  held: "+hold+", so no launch checks it[/dim]")
@@ -352,6 +356,12 @@ func goodBuildStored(f packload.Fork, g *packsrc.GoodBuild) string {
 func nextCheckLine(f packload.Fork, rec *packsrc.CheckRecord, in packsrc.CheckInputs) []string {
 	if patchedForkHold(f) != "" || rec.CheckedAt == 0 {
 		return nil
+	}
+	if rec.Settled(in) {
+		// RESOLVED FOR GOOD (XB-D37): what it names never moves, so CheckDue never makes another
+		// check due, and a time here would be a promise no launch keeps (XB-D49).
+		return []string{"[dim]  next check: none — what it names never moves, so no launch checks it " +
+			"again; `yolo pack update` checks now[/dim]"}
 	}
 	if due, _ := packsrc.CheckDue(rec, in, patchedNow(), 0); due {
 		return []string{"[dim]  next check: due — the next fresh launch checks it, or `yolo pack update` checks now[/dim]"}
