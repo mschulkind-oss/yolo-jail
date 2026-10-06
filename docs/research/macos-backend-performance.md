@@ -2,8 +2,8 @@
 title: "Is macos-user faster than Apple Container? What the sources say, and a benchmark to find out"
 date: 2026-10-01
 status: in-review
-stage: DESIGN
-next: "Make the Corrections section's remaining edits (platform-comparison.md, sandbox-comparison.md, the revival plan's balloon line, and a qualifier on macos-user-provisioning.md's first-launch claim, since CI recorded only a cold launch with only the floor on a hosted runner), fix this doc's drifted code ranges (C3's backendcaps.go, §2.6's stockimage.go), and draft wording for the macOS direction's ruled sentences for the maintainer to approve; amend Appendix A's step 2 to 'green apart from §7's two-jail test', which every parity run on container 1.1.0 since 2026-10-03 has failed; file the Results section's other defects. The maintainer rules on OQ-MB1. Once the runner Mac's container is upgraded to 1.5.0, the next apple-container.yml dispatch reruns §7's check (TestAppleContainerKeeperSweepSparesAKeptJail); one Mac session confirms that auto-capture stores claude, codex and agy (fixed from the code 2026-10-03, OQ-PD24 to OQ-PD26), re-runs macos-user's go_test (M8) now that the harness trusts the clone's mise.toml, runs M11 and M12 with and without the developer-tool setting, and runs Podman Machine through yolo on the Mac's applehv machine, once an agent adds that arm to Appendix A"
+stage: DECIDED
+next: "Build OQ-MB1 (A), ruled 2026-10-05: on Apple Container each workspace gets its own /mise disk, so two jails run at once, and yolo prune learns to delete a removed workspace's disk. Make the Corrections section's remaining edits (platform-comparison.md, sandbox-comparison.md, the revival plan's balloon line, and a qualifier on macos-user-provisioning.md's first-launch claim, since CI recorded only a cold launch with only the floor on a hosted runner), fix this doc's drifted code ranges (C3's backendcaps.go, §2.6's stockimage.go), and draft wording for the macOS direction's ruled sentences for the maintainer to approve; amend Appendix A's step 2 to 'green apart from §7's two-jail test', which every parity run on container 1.1.0 since 2026-10-03 has failed; file the Results section's other defects. Once the runner Mac's container is upgraded to 1.5.0, the next apple-container.yml dispatch reruns §7's check (TestAppleContainerKeeperSweepSparesAKeptJail); one Mac session confirms that auto-capture stores claude, codex and agy (fixed from the code 2026-10-03, OQ-PD24 to OQ-PD26), re-runs macos-user's go_test (M8) now that the harness trusts the clone's mise.toml, runs M11 and M12 with and without the developer-tool setting, and runs Podman Machine through yolo on the Mac's applehv machine, once an agent adds that arm to Appendix A"
 tags: [research, macos, apple-container, macos-user, performance, memory, benchmark, virtiofs]
 summary: "The maintainer asked for a benchmark instead of an assumption: is macos-user really faster than Apple Container? Sources answer part of it. Apple Container gives each container its own small VM; the VM takes RAM only as the guest touches it, but keeps every page it touched until the container stops, so the maintainer's reading is half right. CPU work should run within a few percent of native, while file work in the shared workspace is where the VM probably costs most: about 2.7 times native in one published measurement of the same macOS file sharing, and 6 to 9 times by Apple's maintainer's rough figures for builds. The doc lists every claim the repo makes about the two backends' speed and memory, a protocol for one Mac running both against one workspace, and a POSIX sh harness that runs the protocol and writes the results table. It measures; it does not choose a backend."
 vantage:
@@ -12,7 +12,9 @@ vantage:
 
 # Is macos-user faster than Apple Container? What the sources say, and a benchmark to find out
 
-**Status:** 2026-10-01; research and a benchmark protocol, nothing ruled here. MEASURED on one
+**Status:** 2026-10-01; research and a benchmark protocol. Its one question,
+[OQ-MB1](#OQ-MB1), was ruled in review on 2026-10-05 (A, a `/mise` disk per workspace on Apple
+Container) and is unbuilt. MEASURED on one
 Mac: Apple Container and the native control on 2026-10-02, macos-user and the native control on
 2026-10-03, and the two-jail volume check ([§8](#8-results),
 [§7](#7-found-on-the-way-two-apple-container-jails-may-mount-one-ext4-disk)). The two backends were
@@ -546,7 +548,7 @@ afterwards and mounted `/mise` normally, so the cause is the first jail holding 
 `container`, two unsealed Apple Container jails in two workspaces cannot run at once**; nothing
 was corrupted. Not yet re-run on 1.5.0.
 
-**Fixing it is a trade-off, so it waits on a ruling.** No backing gets Apple Container all three
+**Fixing it is a trade-off, ruled 2026-10-05 in [OQ-MB1](#OQ-MB1).** No backing gets Apple Container all three
 at once: one store that every workspace shares, the speed of the VM's own disk, and two jails
 running together. The run above points to a volume's disk attaching to one VM at a time, and only
 virtiofs reaches several. Two facts the options rest on:
@@ -560,7 +562,7 @@ virtiofs reaches several. Two facts the options rest on:
   `e/eterm` and `E/Eterm` (MEASURED, from the archive listing). On a case-insensitive APFS
   volume, macOS's default, each pair is one file (INFERRED).
 
-1. 💬 <a id="OQ-MB1"></a>**OQ-MB1: What should back an Apple Container jail's `/mise`, now that one jail's volume shuts out the next?**
+1. ✅ <a id="OQ-MB1"></a>**OQ-MB1: What should back an Apple Container jail's `/mise`, now that one jail's volume shuts out the next?**
 
    Podman's machine-wide volume is untouched either way.
 
@@ -573,15 +575,19 @@ virtiofs reaches several. Two facts the options rest on:
      `/mise`'s own reads were not measured. The store lands on APFS, where those case pairs
      collapse.
 
-   <!-- vantage: question id=OQ-MB1 leaning="A, a volume per workspace: it keeps today's speed and a case-sensitive store, and its costs are one download per workspace and disk that yolo prune can reclaim, where B's cost would land on every jail's toolchain reads." -->
-
    _Leaning:_ A. It keeps today's speed and a case-sensitive store, and its costs are one
    download per workspace and disk that `yolo prune` can reclaim, where B's cost would land on
    every jail's toolchain reads.
 
    **Answer:**
 
-   > _(empty — fill in when decided)_
+   > **Ruled in review 2026-10-05, as leaned (A)** (the maintainer's answer: *"A"*). On Apple
+   > Container each workspace gets its own `/mise` disk, a volume of its own in place of the one
+   > `yolo-mise-data-v2` every jail mounts today, so jails in two workspaces run at once, with the
+   > VM disk's speed and a case-sensitive store. Each workspace downloads its toolchains once, and
+   > `yolo prune` learns to delete the disk of a workspace that has been removed. Podman's
+   > machine-wide volume is untouched. Not built; the lock-out it fixes was measured on
+   > `container` 1.1.0 only.
 
 ## 8. Results
 
@@ -771,8 +777,9 @@ not filed yet.
 
 1. **Auto-capture retries on every launch** and takes about 90% of an Apple Container launch.
    Fixed from the code on 2026-10-03, not yet re-run on a Mac (*Launch*, above).
-2. **Two Apple Container jails cannot run at once**: the second is refused by VZ. Waits on
-   [OQ-MB1](#OQ-MB1) ([§7](#7-found-on-the-way-two-apple-container-jails-may-mount-one-ext4-disk)).
+2. **Two Apple Container jails cannot run at once**: the second is refused by VZ. The fix,
+   a `/mise` disk per workspace, was ruled on 2026-10-05 in [OQ-MB1](#OQ-MB1) and is unbuilt
+   ([§7](#7-found-on-the-way-two-apple-container-jails-may-mount-one-ext4-disk)).
 3. **One workspace cannot alternate between the two backends.** After an Apple Container jail,
    macos-user's warm-up failed on three real, empty directories in `.yolo/home`
    (`darwin_home_layout`); after macos-user, Apple Container failed on the symlinks macos-user left
@@ -822,6 +829,12 @@ ruling, and this doc only adds a pointer beside its premise. That pointer is in 
 - **[macos-user-provisioning.md:627](../reference/macos-user-provisioning.md#L627)** says nobody
   has recorded what a first macos-user launch costs; CI has one, 73.61 s on a hosted runner
   ([§2.6](#26-what-ci-logs-already-hold)).
+
+## Decision Ledger
+
+| ID | Ruling / Decision | Date | Settled in | Built |
+| :--- | :--- | :--- | :--- | :--- |
+| [OQ-MB1](#OQ-MB1) | **A `/mise` disk per workspace on Apple Container (A, as leaned)**, in place of the one volume every jail mounts, so jails in two workspaces run at once and keep the VM disk's speed and a case-sensitive store. Each workspace downloads its toolchains once; `yolo prune` learns to delete a removed workspace's disk. Podman's volume is untouched | 2026-10-05 | [OQ-MB1](#OQ-MB1), [§7](#7-found-on-the-way-two-apple-container-jails-may-mount-one-ext4-disk) | pending |
 
 ---
 

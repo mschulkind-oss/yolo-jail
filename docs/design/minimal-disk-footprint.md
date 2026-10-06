@@ -1,23 +1,24 @@
 ---
 title: "Minimal disk footprint — reclamation that waits for a human is not reclamation"
 date: 2026-08-25
-status: in-review
+status: accepted
 tags: [design, disk, prune, images, podman, nix]
-summary: "Every reclaimer yolo owned was correct, tested, and reachable only from a human typing `yolo prune` — so 404 GiB of regenerable image tars sat unreclaimed under a hint that had been true for a month. The fix is not a better sweeper: it is moving the delete into the process that made the bytes. Three of the four questions are ruled and in the tree — the tar is never written, the podman reap fires on its own, and it touches only images yolo can prove are its own. OQ-DF4, whether the byte budget is ever written down as a number, is the one live question."
-stage: DESIGN
-next: "Rule OQ-DF4: the 2026-10-01 check found mise's tracked-configs record holds (A)'s signal per workspace, so (A)'s cost is a launch-written list of the workspaces that used the store"
+summary: "Every reclaimer yolo owned was correct, tested, and reachable only from a human typing `yolo prune` — so 404 GiB of regenerable image tars sat unreclaimed under a hint that had been true for a month. The fix is not a better sweeper: it is moving the delete into the process that made the bytes. Three of the four questions are ruled and in the tree — the tar is never written, the podman reap fires on its own, and it touches only images yolo can prove are its own. The fourth, OQ-DF4, was ruled 2026-10-05: no number; the shared tool store is cleaned like the cache, offered at launch and then automatic, and that is unbuilt."
+stage: DECIDED
+next: "Build OQ-DF4 (A), ruled 2026-10-05: mise/ joins the offered cleanup tier, so once 1 GiB of tool versions no jail has used for 30 days piles up a launch offers to remove them and a yes makes it automatic; it needs the list of workspaces that used the store, which the per-workspace current-image record may already be for container launches, and a reaper that cannot read one declines"
 vantage:
   status-chip: true
 ---
 
 # Minimal disk footprint — reclamation that waits for a human is not reclamation
 
-**Status:** 2026-08-25 — one ruling owed; audited and compacted 2026-09-18, re-checked
-against the tree 2026-09-24. [OQ-DF4](#OQ-DF4) is the last live question and is no longer
-blocked — its measurement was taken 2026-09-15
-([§2.6](#26-the-second-sample-2026-09-15--oq-df4-is-unblocked-and-the-residual-has-a-name)),
-and re-taken 2026-09-30, which left one store in it and gave it lettered options.
-Every other ruling is made and built; [§11.1](#111-decision-ledger) has the dates and the commits.
+**Status:** 2026-08-25 — every ruling made; audited and compacted 2026-09-18, re-checked
+against the tree 2026-09-24. [OQ-DF4](#OQ-DF4), the last, was ruled in review on 2026-10-05 as
+leaned (A), on the measurement taken 2026-09-15
+([§2.6](#26-the-second-sample-2026-09-15--oq-df4-is-unblocked-and-the-residual-has-a-name))
+and re-taken 2026-09-30, which left one store in it: the shared tool store is cleaned like the
+cache. That one is unbuilt; every other ruling is built, and [§11.1](#111-decision-ledger) has
+the dates and the commits.
 The one live defect the 2026-09-18 audit found — the P4 `.tmp` exposure — was fixed 2026-09-20
 ([§5](#5-invariants--what-must-not-break)).
 
@@ -39,7 +40,9 @@ aspiration ([§5](#5-invariants--what-must-not-break) P7).
 
 **Start at [§5](#5-invariants--what-must-not-break)** — the invariants are where that bill comes due.
 
-**Needs your ruling:** [OQ-DF4](#OQ-DF4).
+**Needs your ruling:** none. [OQ-DF4](#OQ-DF4) was ruled in review on 2026-10-05, as leaned (A):
+no budget number, and old tool versions in the shared store are offered for cleanup at launch like
+the cache.
 
 **Scope note.** This doc owns the *mechanism*; the measurement and the verdict are
 [`image-staging-vs-baking.md`](../reference/image-staging-vs-baking.md)'s, whose
@@ -681,7 +684,7 @@ Concretely, on this machine on 2026-08-25, the fallback would not have fired no 
 
 **Fifth, re-measure — TAKEN 2026-08-25, and it is [`image-staging-vs-baking.md`](../reference/image-staging-vs-baking.md) [the cost model](../reference/image-staging-vs-baking.md#cost-model).** That doc's design-era step 5 (a numbered section it no longer has) called for a re-measurement after C2+C3 land, and [OQ-1](../reference/image-staging-vs-baking.md#why-its-this-way)'s ruling explicitly preserved that gate even while ruling the *shape* of C4/C5. Both landed 2026-08-25 and the pass ran the same day. **What it found that this doc has to carry:** the podman tar term is zero (149 files and an unmoved directory mtime across a cold rebuild-and-load), a cold launch is 52 s against a warm 4 s, and a coexisting content-tagged image costs **2.836 GB unique** unless it is a same-store-path re-stream, which costs 91.36 kB. That last figure is a direct input to [OQ-DF3](#OQ-DF3)'s retention number. This doc's remaining work lands inside the same window, so its effect should be measured by the same pass rather than a separate one. **Deliberate consequence: nothing here — and nothing in [the cost model](../reference/image-staging-vs-baking.md#cost-model) — was a pre-approval of C4/C5.** Both have since been built (2026-09-06, `69850e28` and `044fe493`) as the opt-in fast path [OQ-1](../reference/image-staging-vs-baking.md#why-its-this-way) ruled — `YOLO_STORE_PACKAGES=1`, podman on Linux only — with the baked path retained as the default and as the only path on the Macs ([store-delivered packages](../reference/image-staging-vs-baking.md#store-delivered-packages)).
 
-**Not sequenced here:** a byte-budget config surface. It is worth stating as a contract ([§4.1](#41-candidate-invariants-weighed)c) but it is downstream of [OQ-DF4](#OQ-DF4), and building a config key before the policy it parameterises is the wrong order.
+**Not sequenced here:** a byte-budget config surface. It is worth stating as a contract ([§4.1](#41-candidate-invariants-weighed)c), and [OQ-DF4](#OQ-DF4) ruled on 2026-10-05 that it is never written down as a number, so there is no key to build.
 
 ---
 
@@ -699,12 +702,13 @@ The maintainer ruled the **premise** (it is a bug) and the **goal** (minimal dis
 | [OQ-DF3](#OQ-DF3) (NUMBER) | **`--keep-images` stayed 2 — the count was never the defect.** The liveness veto, not the count, is what protects a live workspace's image. ⚠ **SUPERSEDED IN MECHANISM 2026-09-09** by [`OQ-LS3`](../reference/image-retention.md#why-its-this-way): the count was the wrong *unit*, so the flag is deleted rather than retuned and retention is the union of one current-image pointer per workspace with the `podman ps` veto. This row's reasoning is why the number was never worth arguing about; it is no longer a description of the code | 2026-09-06, superseded 2026-09-09 | [§11.2](#112-open-questions) [OQ-DF3](#OQ-DF3) | ✅ then DELETED by [`OQ-LS3`](../reference/image-retention.md#why-its-this-way) |
 | [OQ-DF3](#OQ-DF3) (REACH) | **NARROW — yolo never removes an image it cannot prove is its own.** The evidence gap is closed by a **label in the image config**, not by a ledger: MEASURED 2026-09-08, a label survives untagging and `podman images -a --filter label=…` still finds the `<none>` row, so provenance becomes intrinsic to the image and needs no cap, no side-file and no record of who loaded it. Carry the identity as the value so a nameless row is fully attributable. Rows that predate the label are **left alone permanently** and surfaced by `yolo stores` as a class nothing reclaims — never on the launch path, which has no action to offer. **BUILT 2026-09-08**: `flake.nix`'s `mkOciImage` bakes `org.yolo-jail.owner`, and `PruneOldImages` (`internal/prune/probes.go`) unions the repo-name probe with a label probe — TWO queries, because podman refuses both in one (`cannot specify an image and a filter(s)`, MEASURED). Two corrections the build measured: the probe carries **no `-a`** (a plain listing already returns the untagged row; `-a` additionally surfaces build intermediates this ruling does not authorize removing), and the label value cannot be a per-image key — nix cannot reference a derivation's own output path, so `imageIdentity` (one value per `flake.nix`+`flake.lock`) is the finest identity spellable and the label proves OWNERSHIP only | 2026-09-08 | [§11.2](#112-open-questions) [OQ-DF3](#OQ-DF3), [`disk-levers-and-backfill.md`](disk-levers-and-backfill.md) [§5.5](disk-levers-and-backfill.md#55-yolo-stores--the-inventory-including-what-nothing-reclaims) | ✅ `flake.nix` + `internal/prune/probes.go` |
 | [OQ-DF3](#OQ-DF3) (TRIGGER) | **The launch path, debounced 24 h** — `prune.AutoReapOldImages`, never a new veto. Opt out with `YOLO_NO_AUTO_IMAGE_REAP=1`. **Its placement moved once and is settled:** it shipped in front of the container on 2026-09-06 and [OQ-BF5](disk-levers-and-backfill.md#OQ-BF5) moved it into the post-attach **housekeeping slot** (`internal/cli/run/housekeeping.go`, `65ae67c6`), which keeps the reach and drops the P7 exposure — so the reap can no longer delay a launch or race its own image | 2026-09-06, placement 2026-09-08 | [§11.2](#112-open-questions) [OQ-DF3](#OQ-DF3), [`disk-levers-and-backfill.md`](disk-levers-and-backfill.md) [§5.1](disk-levers-and-backfill.md#51-the-housekeeping-slot) | ✅ `65ae67c6` |
+| [OQ-DF4](#OQ-DF4) | **A policy, not a number: `mise/` is cleaned like the cache** — the maintainer's words: *"we need to bound storage for sure. so A."* No budget key. `mise/` joins the offered tier of [`disk-levers-and-backfill.md` §5.2](disk-levers-and-backfill.md#52-two-tiers-one-mapping): once 1 GiB of tool versions no jail has used for 30 days piles up, a launch offers to remove them, and a yes makes it automatic. A reaper that cannot read whether a recorded workspace still uses a version declines | 2026-10-05 | [§11.2](#112-open-questions) [OQ-DF4](#OQ-DF4), [background](#oq-df4-background) | pending |
 
 ### 11.2 Open Questions
 
-**[OQ-DF4](#OQ-DF4) is what is left, and it is no longer blocked** — the measurement its leaning
+**[OQ-DF4](#OQ-DF4) was the last, ruled 2026-10-05 as leaned** — the measurement its leaning
 held itself open for was taken on 2026-09-15 ([§2.6](#26-the-second-sample-2026-09-15--oq-df4-is-unblocked-and-the-residual-has-a-name)),
-and it argues for the leaning rather than against it. The three settled questions keep a short entry
+and it argued for the leaning rather than against it. The three settled questions keep a short entry
 here because their ids are cited from sibling docs and from source comments; the rulings themselves
 are [§11.1](#111-decision-ledger) rows.
 
@@ -793,14 +797,20 @@ nothing joins the pieces.** MEASURED in this jail, mise 2026.8.6:
 - **No list of workspaces exists to join them over.** The only one yolo has is the running
   jails' (`prune.FindYoloWorkspaces`): a launch runs its container with `--rm`, so a workspace
   whose jail has exited is not in it. A reaper that cannot see a workspace has to decline, as
-  the tri-state rule requires.
+  the tri-state rule requires. ⚠ **Corrected 2026-10-05, read from the code and not run:** a
+  second list exists. A container launch writes its workspace's current-image pointer, the
+  resolved workspace path among its contents, to one file per workspace under
+  `BuildDir()/current-images` (`prune.RecordCurrentImage`), and nothing removes those files when
+  the jail exits. A launch with no image store path to record (a skipped build) writes none, and
+  the macos-user arm leaves the pipeline before that step.
 
 So (A)'s cost is now a known shape: a record, written at each launch, of every workspace that
 has used the store, read host-side with each `/workspace` link mapped to that workspace's host
 path, and declining whenever a recorded workspace cannot be read. mise supplies the per-config
-half; what is missing is the list of workspaces.
+half; what is missing is the list of workspaces, which the current-image record may already be
+for container launches.
 
-4. 💬 <a id="OQ-DF4"></a>**[OQ-DF4](#OQ-DF4) — does yolo owe the machine a stated number, or only a policy?**
+4. ✅ <a id="OQ-DF4"></a>**[OQ-DF4](#OQ-DF4) — does yolo owe the machine a stated number, or only a policy?**
 
    [§4.1](#41-candidate-invariants-weighed)c adopts a byte ceiling as a *contract* but not as a trigger, which leaves open whether the number is ever written down.
    What a number and a policy each mean, the measurement that narrowed the question to one named
@@ -814,10 +824,18 @@ half; what is missing is the list of workspaces.
 
    _Leaning:_ **(A).** Policy, not a number: if the write path bounds itself, the budget is a property of the design rather than a dial, and "minimal" is not a number a user should have to discover. The condition I held this open for — *"a residual that only a ceiling catches"* — is now observable, and it is one named store, which is the case a ceiling is worst at. Between the two policies, (B) is a reclaimer that waits for a human, which is the defect this doc is named for, and the ruling it executes says *"we need to use minimal disk space"* ([§1](#1-the-ruling-and-what-the-bug-actually-is)).
 
-   <!-- vantage: question id=OQ-DF4 leaning="(A) policy, not a number, and sweep mise/ through the offered cleanup tier. The residual a ceiling was held open for is now one named store: cache/staticcheck trims itself (re-measured 2026-09-30), leaving mise/ at about 13 GiB a year. A ceiling is worst at named residue, and leaving mise/ to the human is the reclamation-that-waits-for-a-human defect this doc is named for." -->
-
    **Answer:**
-   > _(empty — fill in when decided)_
+   > **Ruled in review 2026-10-05, as leaned (A)** (the maintainer's answer: *"we need to bound
+   > storage for sure. so A."*). No budget key: the shared tool store, `mise/`, is cleaned like
+   > the cache. Once 1 GiB of tool versions no jail has used for 30 days piles up, a launch offers
+   > to remove them, and a yes makes it automatic, through the offered tier of
+   > [`disk-levers-and-backfill.md` §5.2](disk-levers-and-backfill.md#52-two-tiers-one-mapping).
+   > A reaper that cannot tell whether a recorded workspace still uses a version declines rather
+   > than sweeping. The cost the ruling accepts is a re-download for a workspace that returns to an
+   > old version. For the builder: the per-workspace current-image record (the corrected bullet
+   > in the background above) may already be the list of workspaces that used the store, for
+   > container launches; read from the code, not checked against every launch that uses `/mise`.
+   > Not built.
 
 ---
 
