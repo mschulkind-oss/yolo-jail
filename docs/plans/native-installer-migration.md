@@ -1,11 +1,11 @@
 ---
 title: "Plan: agent CLIs from npm to their vendors' native installers"
 date: 2026-09-03
-status: in-review
-stage: DESIGN
-next: "Rule OQ-NI1, filed 2026-10-01 with the dropped flag as its starting position: may copilot's own updater replace its binary unobserved once it is native; the flip itself (PREFIX on its install recipe, then TestPackInstallsVersionsAndConfigures/copilot on both arches) waits on that ruling"
+status: accepted
+stage: DECIDED
+next: "Build OQ-NI1 (A), ruled 2026-10-05: put PREFIX on copilot's install recipe, flip copilot to GitHub's native installer with its own updater left on, run TestPackInstallsVersionsAndConfigures/copilot on both arches, and say in the user guide's agent-updates section that yolo cannot name the copilot version that ran and agent_updates: false does not freeze it"
 tags: [packs, program-delivery, installers, evergreen]
-summary: "Implementation plan for OQ-PD13. Shipped 2026-09-04: codex flipped and claude's dead autoUpdaterStatus is gone. copilot did NOT flip — its installer picks PREFIX=/usr/local under root and the jail's rootfs is read-only, so the flip would make it uninstallable. Its --no-auto-update question was ruled separately on 2026-09-12 (option A: the flag is dropped, without the flip). opencode stays deferred; pi's 'native installer' is an npm wrapper and must not be flipped."
+summary: "Implementation plan for OQ-PD13. Shipped 2026-09-04: codex flipped and claude's dead autoUpdaterStatus is gone. copilot did NOT flip — its installer picks PREFIX=/usr/local under root and the jail's rootfs is read-only, so the flip would make it uninstallable. Its --no-auto-update question was ruled separately on 2026-09-12 (option A: the flag is dropped, without the flip). The flip itself was ruled on 2026-10-05 (OQ-NI1, option A): copilot moves to GitHub's installer with its own updater on. opencode stays deferred; pi's 'native installer' is an npm wrapper and must not be flipped."
 ---
 
 # Plan: agent CLIs from npm to their vendors' native installers
@@ -26,7 +26,7 @@ needs in order to succeed … to the recipe when a flip needs one (copilot's `PR
 flip is no longer blocked on mechanism, and this plan's *Don't* about an env field is spent. What
 still stands before it is the question the Blockers section says the flip re-opens — whether
 copilot's own updater may replace its binary unobserved — filed on 2026-10-01 as
-[OQ-NI1](#OQ-NI1).
+[OQ-NI1](#OQ-NI1) and ruled in review on 2026-10-05: yes (A), so the flip is ready to build.
 Re-checked against the tree 2026-09-24: both sibling rulings this plan waited on
 ([OQ-PD12a](../design/program-delivery.md#decision-ledger) and
 [OQ-PD14](../design/program-delivery.md#decision-ledger)) shipped 2026-09-04, and codex's
@@ -317,7 +317,8 @@ edit, so each step's proof is its own CI cell on both arches.
   underneath it (whether an agent CLI updating itself unobserved is acceptable at all —
   [P6](../design/program-delivery.md#35-the-second-axis-who-the-dependency-serves-amendment-2026-09-03)).
   **Whoever flips copilot re-asks it, with a dropped flag as the starting position rather than as
-  the answer.**
+  the answer.** It was re-asked as [OQ-NI1](#OQ-NI1) and ruled (A) on 2026-10-05: the updater
+  stays on after the flip.
 
   **What shipped with the ruling, and is not part of it.** `--yolo` moved from the pack's plain
   `launch` contribution into an `autonomy` contribution's autonomous posture — *"and of course fix
@@ -345,7 +346,7 @@ edit, so each step's proof is its own CI cell on both arches.
 
   | | Choice | What it costs |
   | :--- | :--- | :--- |
-  | **A** ✅ | Flip, and **drop** the flag — *taken 2026-09-12, flag only* | The vendor's updater runs on a user's machine on its own schedule, outside yolo's record — the native launcher's vendor self-updates deliberately emit no receipt ([§6.3](../design/program-delivery.md)), so drift becomes the reconcile's problem. This is where [OQ-PD13](../design/program-delivery.md#decision-ledger)'s rationale points. |
+  | **A** ✅ | Flip, and **drop** the flag — *taken 2026-09-12 for the flag, and on 2026-10-05 for the flip ([OQ-NI1](#OQ-NI1))* | The vendor's updater runs on a user's machine on its own schedule, outside yolo's record — the native launcher's vendor self-updates deliberately emit no receipt ([§6.3](../design/program-delivery.md)), so drift becomes the reconcile's problem. This is where [OQ-PD13](../design/program-delivery.md#decision-ledger)'s rationale points. |
   | B | Flip, and **keep** the flag | Buys the SEA build, `VERSION=` pinning and a single binary, but **not** evergreen — the one thing the flip was bought for. Evergreen would then have to come from [OQ-PD14](../design/program-delivery.md#decision-ledger)'s declared verb (`/update`, or re-running the installer), which has the merit of making an update something yolo triggers and can record. |
   | C | Flip, keep the flag, pin with `VERSION=` | Reproducible copilot. **Not expressible** — the manifest cannot pass env to an installer, the same wall the flip already hits. |
   | D | Do not flip | Where the tree is, and where it stays until the `PREFIX=` problem is solved regardless. |
@@ -355,12 +356,12 @@ edit, so each step's proof is its own CI cell on both arches.
   [P6](../design/program-delivery.md#35-the-second-axis-who-the-dependency-serves-amendment-2026-09-03),
   not about copilot. Worth settling alongside [OQ-PD14](../design/program-delivery.md#decision-ledger), since B only makes sense once the declared
   verb exists. **Taking A for the flag did not settle that fork** — under npm the unobserved update
-  it disagrees about cannot happen (see the bullet above), so the disagreement is intact and waiting
-  at the flip.
+  it disagrees about cannot happen (see the bullet above), so the disagreement was intact and waiting
+  at the flip, until [OQ-NI1](#OQ-NI1) settled it for copilot on 2026-10-05: (A).
 
 ### The self-updater after the flip
 
-Moved here verbatim from [OQ-NI1](#OQ-NI1), which is open. Filed 2026-10-01, from
+Moved here verbatim from [OQ-NI1](#OQ-NI1), ruled (A) on 2026-10-05. Filed 2026-10-01, from
 [Blockers](#blockers), which says the flip re-opens it. *NI* stands for native installers; the
 prefix is new with this question.
 
@@ -396,7 +397,7 @@ What each option shows and costs, as the question stated it:
 
 ## Open question
 
-1. 💬 <a id="OQ-NI1"></a>**[OQ-NI1](#OQ-NI1): Once copilot is installed natively, may its own
+1. ✅ <a id="OQ-NI1"></a>**[OQ-NI1](#OQ-NI1): Once copilot is installed natively, may its own
    updater replace its binary unobserved?** What it decides, the maintainer's starting position,
    the two agents that already work this way, and what each option shows and costs:
    [the self-updater after the flip](#the-self-updater-after-the-flip).
@@ -409,8 +410,6 @@ What each option shows and costs, as the question stated it:
      2026-09-04.
    - **(C) Do not flip.** copilot stays on npm, where its updater can only notify.
 
-   <!-- vantage: question id=OQ-NI1 leaning="(A): flip with the flag still dropped. It is the maintainer's 2026-09-12 position, and claude already self-updates unobserved in jails (observed), with agy listed the same way, so copilot would match them rather than open a new class. (B) is the choice only if yolo should be the one writer of every agent binary, and then claude and agy owe the same." -->
-
    _Leaning:_ **(A).** It is the maintainer's 2026-09-12 position, and claude already updates
    itself unobserved in jails, with agy listed the same way, so (A) makes copilot match them
    rather than opening a new class. The question stayed open only because under npm the update it
@@ -418,4 +417,16 @@ What each option shows and costs, as the question stated it:
    is to be the one writer of every agent binary, and then claude and agy owe the same flag.
 
    **Answer:**
-   > _(empty — fill in when decided)_
+   > **Ruled in review 2026-10-05, as leaned (A)** (the maintainer's answer: *"A"*). copilot moves
+   > from npm to GitHub's native installer, with `PREFIX` on its install recipe, and its own
+   > updater stays on, as Claude's already does in jails: the 2026-09-12 *"let agents be agents"*
+   > carries through the flip. Its cost is said in the open: yolo then cannot say which copilot
+   > version ran, and `agent_updates: false` does not freeze copilot. The build says both where a
+   > user would look, in the user guide's
+   > [agent-updates section](../../userguide/guides/packs-and-skills.md#keep-agents-and-packs-up-to-date).
+
+## Decision Ledger
+
+| ID | Ruling / Decision | Date | Settled in | Built |
+| :--- | :--- | :--- | :--- | :--- |
+| [OQ-NI1](#OQ-NI1) | **Ruled in review, as leaned (A):** flip copilot to GitHub's native installer, `PREFIX` on its install recipe, with copilot's own updater left on and `--no-auto-update` still dropped. The user guide's agent-updates section says that yolo cannot name the copilot version that ran and that `agent_updates: false` does not freeze it | 2026-10-05 | [OQ-NI1](#OQ-NI1), [the self-updater after the flip](#the-self-updater-after-the-flip) | pending |
