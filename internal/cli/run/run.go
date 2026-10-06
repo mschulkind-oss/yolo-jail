@@ -597,26 +597,24 @@ func Run(opts Options) (rc int) {
 			// own that its spawn creates (servicessession.go), so a plan render, which creates
 			// nothing, cannot know its name; servicesSessionPlanDir names its shape.
 			o.notePackLoopholesInert(rt, staged.packs, cfg)
-			for _, plan := range o.launchServices {
-				o.pr(o.Stderr).print(fmt.Sprintf("Would start the %q service (pack %q) on %v for "+
-					"this launch, outside the sandbox, until the command exits.", plan.Service,
-					plan.Pack, o.servicePointedAt(plan, channel)))
-			}
-			for _, plan := range doorways {
-				o.pr(o.Stderr).print(fmt.Sprintf("Would open the %q doorway (pack %q) on %v for "+
-					"this launch, outside the sandbox, until the command exits: %s", plan.Service,
-					plan.Pack, plan.Addresses(), strings.Join(plan.Cmd, " ")))
+			// WHAT IT WOULD RUN OUTSIDE THE SANDBOX, as the workspace's keeper's (§9.9.7), which holds
+			// all of it: the keeper it would join and what that one holds, or each service and doorway
+			// it would start and the keeper that would hold them. A key the launch would be refused at
+			// refuses the dry run too (peekMacosUserKey).
+			if !o.noteMacosUserKeeperDryRun(rt, cname, cfg, doorways, channel) {
+				return 1
 			}
 			for _, r := range portPlan.relays {
 				o.pr(o.Stderr).print(relayDisclosure("Would relay", r))
 			}
-			if openAIAuthLoopholeActive(cfg) {
+			if m := o.macosUserKey; m != nil && m.joined != nil {
+				// A JOIN names the keeper's own endpoint files, which every session of it is told.
+				setRosterEndpoints(launchEnv, *m.joined)
+			} else if openAIAuthLoopholeActive(cfg) {
 				launchEnv.Set(hostServiceEnvVar(openAIAuthBrokerName),
 					filepath.Join(servicesSessionPlanDir(cname, o.IsMacOS),
 						openAIAuthBrokerName+paths.ServiceEndpointExt))
 			}
-			// And the keeper this launch would join or start (§9.9.7).
-			o.noteMacosUserKeeperDryRun(rt, cname, cfg, doorways)
 		} else if m := o.macosUserKey; m != nil && (m.joined != nil || o.macosUserKeeps(rt, cfg, doorways)) {
 			// THE WORKSPACE'S KEEPER HOLDS THEM (docs/design/jail-lifetime-last-session-wins.md §9.9;
 			// keeperspawn.go): every host service, doorway and launch-owned service this launch would
@@ -647,8 +645,10 @@ func Run(opts Options) (rc int) {
 			arm.setGrants(o.macosUserGrants(rec))
 		} else {
 			// NOTHING A KEEPER HOLDS (JL-D42): this launch runs as it always did, with no keeper and
-			// no count, and lets the arrival lock go.
+			// no count, and lets the arrival lock go. It still records itself, so `yolo stop` from the
+			// workspace ends it with every other session of it (JL-D44); the record never counts.
 			o.releaseArrivalLock()
+			o.recordKeeperlessSession()
 			// THE SESSION'S OWN DIR, created by the spawn and removed by this teardown alone
 			// (servicessession.go). Two sessions of one workspace used to share the dir the
 			// workspace's cname selects, and this deferred teardown, which takes no container
@@ -1084,13 +1084,16 @@ func (o *Options) stageRunPacks(cname string) (stagedPacks, bool) {
 	return stagedPacks{root: root, packs: packs, briefings: briefings}, true
 }
 
-// discardUnheldPackTree removes this launch's own pack tree unless a started container holds it.
-// Run defers it once staging has produced the tree: on a refusal, an attach (which reads the
-// running jail's tree and needs its own staging only to compare), a macos-user launch (whose
-// sandbox copied the tree at its bootstrap and whose host daemons, which run from it, stop before
-// this runs) and a --dry-run, no container ever holds it. A fresh container launch marks the tree
-// held just before the container starts; from then on it goes only once the runtime answers that
-// the container is gone (forgetGoneContainer).
+// discardUnheldPackTree removes this launch's own pack tree unless a started container, or the
+// workspace's macos-user keeper, holds it. Run defers it once staging has produced the tree: on a
+// refusal, an attach (which reads the running jail's tree and needs its own staging only to
+// compare), a macos-user launch that started no keeper (whose sandbox copied the tree at its
+// bootstrap and which ran no host daemon from it, or stopped them before this runs) or joined one
+// (whose keeper runs from the tree of the launch that started it), and a --dry-run, nothing holds
+// it. A fresh container launch marks the tree held just before the container starts, and from then
+// on it goes only once the runtime answers that the container is gone (forgetGoneContainer); a
+// macos-user launch that spawns the workspace's keeper hands it the tree, which the keeper removes
+// at its end (startMacosUserKeeper, JL-D86).
 func (o *Options) discardUnheldPackTree(cname string) {
 	if o.packTreeHeld {
 		return

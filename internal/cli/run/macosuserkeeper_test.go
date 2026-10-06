@@ -18,6 +18,7 @@ package run
 // TestMacosUserTwoConcurrentLaunchesOfOneWorkspace (integration/macosuserspawnlock_test.go).
 
 import (
+	"bufio"
 	"bytes"
 	"errors"
 	"io"
@@ -162,8 +163,8 @@ func TestAPlannedHostServiceSpawnsOneMacosUserKeeper(t *testing.T) {
 		t.Errorf("while the session ran, the keeper (%v) and its roster (%v, %+v) did not name the endpoint the "+
 			"sandbox was told", alive, recorded, rec)
 	}
-	if len(sessions) != 1 || sessions[0].PID != o.Getpid() {
-		t.Errorf("the session's record during the session = %+v, want this launch's", sessions)
+	if len(sessions) != 1 || sessions[0].PID != o.Getpid() || !sessions[0].Kept {
+		t.Errorf("the session's record during the session = %+v, want this launch's, kept", sessions)
 	}
 	for _, want := range []string{
 		"keeper: yolo internal daemon jail-keeper will hold this workspace's macos-user host services (the " +
@@ -179,35 +180,44 @@ func TestAPlannedHostServiceSpawnsOneMacosUserKeeper(t *testing.T) {
 }
 
 // A LAUNCH THAT PLANS NOTHING A KEEPER HOLDS SPAWNS NONE (JL-D42): no keeper, no count, and the
-// arrival lock gone before its session, so a second terminal never waits on it. Deleting the arm's
-// releaseArrivalLock on that path fails this.
+// arrival lock gone before its session, so a second terminal never waits on it. It still records
+// itself, as a session no keeper holds, so `yolo stop` can end it (JL-D44), and its quit removes the
+// record. Deleting the arm's releaseArrivalLock or recordKeeperlessSession on that path fails this.
 func TestAMacosUserLaunchThatPlansNothingHasNoKeeper(t *testing.T) {
 	home := packHome(t)
 	writeUserConfigJSON(t, home, `{"packs": []}`)
 	ws := t.TempDir()
 	key := macosUserKeyOf(ws)
 	spawns := countKeeperSpawns(t)
-	var counted, records, arrivalHeld bool
+	var counted, arrivalHeld bool
+	var records []keyedSession
 	o, out := keeperLaunch(t, ws, func(*jsonx.OrderedMap) int {
 		if f, err := openSessionLock(key); err == nil {
 			counted = readSessionLockHolder(f) != heldByNobody
 			_ = f.Close()
 		}
-		records = len(liveKeyedSessions(key)) > 0
+		records = liveKeyedSessions(key)
 		if f, err := os.OpenFile(arrivalLockPath(key), os.O_RDWR|os.O_CREATE, 0o644); err == nil {
 			arrivalHeld = syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB) != nil
 			_ = f.Close()
 		}
 		return 0
 	})
+	o.Getpid = func() int { return 4254 }
 	if rc := Run(*o); rc != 0 {
 		t.Fatalf("Run() = %d\n%s", rc, out.String())
 	}
 	if n := spawns.Load(); n != 0 {
 		t.Errorf("a launch that plans nothing outside the sandbox spawned %d keepers", n)
 	}
-	if counted || records {
-		t.Errorf("a launch with no keeper counted itself (session lock %v, record %v)", counted, records)
+	if counted {
+		t.Error("a launch with no keeper counted itself in the session lock")
+	}
+	if len(records) != 1 || records[0].PID != 4254 || records[0].Kept {
+		t.Errorf("the session's record during the session = %+v, want this launch's, not kept", records)
+	}
+	if s := liveKeyedSessions(key); len(s) != 0 {
+		t.Errorf("the session's record outlived its quit: %+v", s)
 	}
 	if arrivalHeld {
 		t.Error("a launch with no keeper held its key's arrival lock through its session")
@@ -279,13 +289,20 @@ func TestTwoMacosUserSessionsOfOneWorkspaceShareOneKeeper(t *testing.T) {
 			url: envString(env, "ANTHROPIC_BASE_URL"), token: envString(env, "ANTHROPIC_AUTH_TOKEN"), envFile: b}
 	}
 	var a, b seen
-	var afterA string
+	var afterA, packTree string
+	var treeAfterA bool
 	bIn, releaseB, bDone := make(chan struct{}), make(chan struct{}), make(chan struct{})
 	oB, outB := keeperLaunch(t, ws, func(env *jsonx.OrderedMap) int {
 		b = look(env)
 		close(bIn)
 		<-releaseB
 		afterA, _ = frontReply(b.endpoint, "ping")
+		// THE PACK TREE CHANGED HANDS (JL-D86): the keeper runs from the first launch's tree, so that
+		// launch's return left it for the keeper's end.
+		if rec, ok := readKeeperRecord(key); ok {
+			packTree = rec.PackTree
+			treeAfterA = packTree != "" && fileExists(packTree)
+		}
 		return 0
 	})
 	oB.Args, oB.ProfileName = []string{"claude"}, "cerebras"
@@ -341,6 +358,12 @@ func TestTwoMacosUserSessionsOfOneWorkspaceShareOneKeeper(t *testing.T) {
 		t.Errorf("after the first session quit, the keeper was %v and the second's endpoint answered %q; "+
 			"want it alive and pong\n%s", stillAlive, afterA, logs)
 	}
+	if !treeAfterA {
+		t.Errorf("after the first session quit, the pack tree the keeper runs from (%q) was gone\n%s", packTree, logs)
+	}
+	if packTree != "" && fileExists(packTree) {
+		t.Errorf("the keeper's pack tree %s outlived the key's last session", packTree)
+	}
 	if !strings.Contains(outB.String(), "keeper: joined yolo internal daemon jail-keeper (pid ") ||
 		strings.Contains(outB.String(), "keeper: yolo internal daemon jail-keeper will hold") {
 		t.Errorf("the second launch must say it joined the keeper, and not start one:\n%s", outB.String())
@@ -379,7 +402,7 @@ func plantDeadKeeper(t *testing.T, ws, key string) (dir string, count *sessionLo
 		t.Fatal(err)
 	}
 	t.Cleanup(count.release)
-	record, err = openKeyedSessionRecord(key, 4248, time.Now())
+	record, err = openKeyedSessionRecord(key, 4248, time.Now(), true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -405,7 +428,8 @@ func TestAnArrivalAtAMacosUserKeyWhoseKeeperDiedIsRefused(t *testing.T) {
 		t.Fatalf("Run() = %d (reached %v), want the unkept key's refusal\n%s", rc, reached, out.String())
 	}
 	for _, want := range []string{"Refusing to launch: this workspace's macos-user host services are gone, " +
-		"because its keeper (pid 4247) is", "1 session (pid 4248, since ", "'yolo stop' from this workspace ends them"} {
+		"because its keeper (pid 4247) is", ") still runs without them.", "1 session (pid 4248, since ",
+		"'yolo stop' from this workspace ends them"} {
 		if !strings.Contains(out.String(), want) {
 			t.Errorf("the refusal must say %q:\n%s", want, out.String())
 		}
@@ -525,6 +549,26 @@ func TestAMacosUserServiceThatDiesAfterReadyIsRecordedForTheNextArrivalAndQuit(t
 // `yolo stop` sends it.
 func keeperWithSignals(t *testing.T, sigs chan os.Signal, pid int) {
 	t.Helper()
+	keeperInProcess(t, inProcessSpec{sigs: sigs, pid: pid})
+}
+
+// inProcessSpec is what keeperInProcess changes about a keeper inProcessKeeper would run.
+type inProcessSpec struct {
+	// sigs are the keeper's signals; nil is a channel nothing sends on.
+	sigs chan os.Signal
+	// pid is the keeper's own pid; 0 leaves the process's.
+	pid int
+	// seams are the keeper's (KeeperSeams).
+	seams KeeperSeams
+	// onFrame, when set, runs as each frame the keeper writes to its progress pipe crosses to the
+	// launch, before it does.
+	onFrame func(tag byte)
+}
+
+// keeperInProcess makes the package's spawner run each keeper in-process, as inProcessKeeper does,
+// with what spec changes.
+func keeperInProcess(t *testing.T, spec inProcessSpec) {
+	t.Helper()
 	orig := defaultKeeperSpawner
 	defaultKeeperSpawner = func(launch *Options, planPath string, progress, lifeline, lock *os.File,
 		reserved []*os.File) (func() int, error) {
@@ -553,13 +597,48 @@ func keeperWithSignals(t *testing.T, sigs chan os.Signal, pid int) {
 		if err != nil {
 			return nil, err
 		}
+		// A PROXIED PROGRESS PIPE, when the test watches the frames: the keeper writes to the proxy,
+		// which hands each frame on to the launch's pipe after onFrame.
+		keeperProgress, proxied := p, make(chan struct{})
+		if spec.onFrame != nil && p != nil {
+			r, w, err := os.Pipe()
+			if err != nil {
+				return nil, err
+			}
+			keeperProgress = w
+			go func() {
+				defer close(proxied)
+				defer p.Close()
+				defer r.Close()
+				br := bufio.NewReader(r)
+				for {
+					tag, payload, err := readFrame(br)
+					if err != nil {
+						return
+					}
+					spec.onFrame(tag)
+					if writeFrame(p, tag, payload) != nil {
+						return
+					}
+				}
+			}()
+		} else {
+			close(proxied)
+		}
+		sigs := spec.sigs
+		if sigs == nil {
+			sigs = make(chan os.Signal)
+		}
 		done := make(chan int, 1)
 		go func() {
-			rc := runKeeper(plan, KeeperSeams{}, p, l, k, held, sigs, func(ko *Options) {
+			rc := runKeeper(plan, spec.seams, keeperProgress, l, k, held, sigs, func(ko *Options) {
 				adoptLaunchSeams(ko, launch)
-				ko.Getpid = func() int { return pid }
+				if spec.pid != 0 {
+					ko.Getpid = func() int { return spec.pid }
+				}
 			})
-			_ = p.Close()
+			_ = keeperProgress.Close()
+			<-proxied
 			done <- rc
 		}()
 		return func() int { return <-done }, nil
@@ -695,7 +774,7 @@ func TestYoloStopAtAnIdleMacosUserWorkspaceSaysSo(t *testing.T) {
 func TestAKeyedSessionRecordIsLiveOnlyWhileHeld(t *testing.T) {
 	packHome(t)
 	key := keeperKey("yolo-records-0000aaaa", keeperNotchMacosUser)
-	f, err := openKeyedSessionRecord(key, 4253, time.Unix(1700000000, 0))
+	f, err := openKeyedSessionRecord(key, 4253, time.Unix(1700000000, 0), true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -769,11 +848,14 @@ func TestAJoiningMacosUserSessionSkipsTheGrantsTheFirstMade(t *testing.T) {
 	}
 }
 
-// A SIGNAL BEFORE THE KEEPER IS READY ENDS ITS START (JL-D40, the arm's setup phase): the arm closes
-// the keeper's lifeline, the keeper stops what it started and removes its records, and the launch
-// returns the signal's status without reaching its session. The signal is taken by the arm while the
-// keeper starts the wire bridge, as a Ctrl-C there is. Deleting startMacosUserKeeper's onEnding, or
-// holdKey's endedBeforeReady, fails this.
+// A SIGNAL BEFORE THE KEEPER IS READY ENDS ITS START ON ITS LIFELINE (JL-D40, the arm's setup phase):
+// the arm closes the keeper's lifeline, the keeper sees it before ready, stops what it started and
+// removes its records, never saying ready, and the launch returns the signal's status without
+// reaching its session. The signal is taken by the arm while the keeper starts the wire bridge, as a
+// Ctrl-C there is, and the start waits until the keeper has seen its lifeline end (the seam), so the
+// keeper's check before ready reads it. Deleting startMacosUserKeeper's onEnding, or holdKey's
+// endedBeforeReady, fails this: without the first the lifeline stays open until the keeper is ready,
+// and the keeper ends only later, through the last session's teardown.
 func TestASignalBeforeTheMacosUserKeeperIsReadyEndsItsStart(t *testing.T) {
 	if goruntime.GOOS != "linux" {
 		t.Skip("spawns a host daemon")
@@ -783,29 +865,49 @@ func TestASignalBeforeTheMacosUserKeeperIsReadyEndsItsStart(t *testing.T) {
 	writeUserConfigJSON(t, home, keeperBridgeConfig)
 	ws := t.TempDir()
 	key := macosUserKeyOf(ws)
+	lifelineSeen := make(chan struct{})
+	var once sync.Once
+	var ready atomic.Bool
+	keeperInProcess(t, inProcessSpec{
+		seams: KeeperSeams{lifelineGone: func() { once.Do(func() { close(lifelineSeen) }) }},
+		onFrame: func(tag byte) {
+			if tag == frameReady {
+				ready.Store(true)
+			}
+		},
+	})
 	reached := false
 	o, out := keeperLaunch(t, ws, func(*jsonx.OrderedMap) int { reached = true; return 0 })
 	o.Args, o.ProfileName = []string{"claude"}, "cerebras"
 	o.MacosUserArm = NewMacosUserArm()
 	arm := o.MacosUserArm
 	held := &fakeHeld{done: make(chan struct{}), stopped: &atomic.Int32{}}
+	sawLifelineEnd := false
 	orig := startMacosUserService
 	startMacosUserService = func(p *launchservice.Plan, _ map[string]string) (launchedService, string, error) {
 		arm.take(syscall.SIGTERM)
+		select {
+		case <-lifelineSeen:
+			sawLifelineEnd = true
+		case <-time.After(10 * time.Second):
+		}
 		return held, "/log/launch-service-" + p.Service + ".log", nil
 	}
 	t.Cleanup(func() { startMacosUserService = orig })
 	if rc := Run(*o); rc != 128+int(syscall.SIGTERM) || reached {
 		t.Fatalf("Run() = %d (reached %v), want the signal's 143 before the session\n%s", rc, reached, out.String())
 	}
+	if !sawLifelineEnd {
+		t.Fatalf("the signal did not end the keeper's lifeline while it was starting\n%s", out.String())
+	}
 	if n := held.stopped.Load(); n != 1 {
 		t.Errorf("the keeper stopped the service it started %d times on its unwind, want once", n)
 	}
-	// The keeper ends either way: on its lifeline when it saw it before ready, or else on the count
-	// this launch let go, its teardown then streamed by this launch's quit.
-	if !strings.Contains(out.String(), "is gone before they were ready; ending them") &&
-		!strings.Contains(out.String(), "keeper: done") {
-		t.Errorf("the keeper must say it ends what it started:\n%s", out.String())
+	if !strings.Contains(out.String(), "is gone before they were ready; ending them") {
+		t.Errorf("the keeper must say it ends what it started, its launch gone before ready:\n%s", out.String())
+	}
+	if ready.Load() || strings.Contains(out.String(), "keeper: done") {
+		t.Errorf("the keeper said ready, or tore down as a ready keeper does, after its lifeline ended:\n%s", out.String())
 	}
 	assertKeyEnded(t, key, "")
 }
@@ -855,8 +957,8 @@ func TestAMacosUserJoinerNeedingAServiceTheKeeperLacksIsRefused(t *testing.T) {
 		t.Fatalf("the joiner returned %d (reached %v), want the refusal\n%s", rcB, *reachedB, outB.String())
 	}
 	for _, want := range []string{"Refusing to launch: this launch needs ", `the wire-bridge service's host half`,
-		"which this workspace's macos-user keeper (pid ", "'yolo stop' from this workspace ends them and their keeper",
-		AllowAttachSkewEnv + "=1 joins without it"} {
+		"which this workspace's macos-user keeper (pid ", "and 1 session (pid 1, since ", ") uses it.",
+		"'yolo stop' from this workspace ends them and their keeper", AllowAttachSkewEnv + "=1 joins without it"} {
 		if !strings.Contains(outB.String(), want) {
 			t.Errorf("the refusal must say %q:\n%s", want, outB.String())
 		}

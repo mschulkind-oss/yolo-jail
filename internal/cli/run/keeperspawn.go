@@ -29,6 +29,7 @@ import (
 	"path/filepath"
 	"slices"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"syscall"
@@ -795,7 +796,8 @@ type macosUserKeying struct {
 	arrival *workspaceLock
 	// joined is the roster this launch joined; nil for a fresh launch.
 	joined *keeperRecord
-	// record is this session's record (openKeyedSessionRecord), nil while it counts no session.
+	// record is this session's record (openKeyedSessionRecord), nil before it is written and after
+	// its quit removed it.
 	record *os.File
 	// kp is the keeper a fresh launch spawned.
 	kp *keeperProcess
@@ -807,6 +809,12 @@ type macosUserKeying struct {
 	// handed are the reserved sockets a fresh launch hands its keeper, in keeperPlan.ReservedAddrs'
 	// order.
 	handed []*os.File
+	// keeperless is set for a launch that plans nothing a keeper holds (JL-D42), whose record names
+	// it for `yolo stop` and whose quit is only that record's removal.
+	keeperless bool
+	// waits is, on a dry run, the roster of a keeper that is ending its services, which the launch
+	// would wait for before starting its own (peekMacosUserKey); nil otherwise.
+	waits *keeperRecord
 }
 
 // macosUserKeeperNotch is the notch of this launch's key: the guest notch's own, or macos-user's.
@@ -818,24 +826,25 @@ func (o *Options) macosUserKeeperNotch() string {
 }
 
 // arriveMacosUser is a macos-user launch's arrival at its key, before its channel is composed
-// (JL-D44; §9.9.5). It reports false when it refused the launch, having said why. A dry run, a
-// caller that hands Run no backend, and every other runtime arrive nowhere.
+// (JL-D44; §9.9.5). It reports false when it refused the launch, having said why. A caller that
+// hands Run no backend, and every other runtime, arrive nowhere; a dry run looks without taking a
+// lock or counting itself (peekMacosUserKey).
 func (o *Options) arriveMacosUser(rt, cname string) bool {
-	if rt != "macos-user" || o.MacosUserRun == nil || o.DryRun { // parity: NotApplicable — only a macos-user launch has a key of its own; a container launch's keeper is keyed by its jail, under the launch lock
+	if rt != "macos-user" || o.MacosUserRun == nil { // parity: NotApplicable — only a macos-user launch has a key of its own; a container launch's keeper is keyed by its jail, under the launch lock
 		return true
 	}
 	m := &macosUserKeying{key: keeperKey(cname, o.macosUserKeeperNotch())}
 	o.macosUserKey = m
+	if o.DryRun {
+		return o.peekMacosUserKey(rt, cname)
+	}
 	out := o.pr(o.Stderr)
 	for {
 		m.arrival = o.takeArrivalLock(m.key)
 		switch probeKeeper(m.key) {
 		case keeperUnknown:
 			o.releaseArrivalLock()
-			out.printf("[bold red]Refusing to launch: could not ask whether a keeper holds this workspace's "+
-				"macos-user host services (its lock %s cannot be taken).[/bold red]", livenessLockPath(m.key))
-			out.printf("[dim]Check that file's directory is yours and writable, then launch again; %s ends "+
-				"whatever holds it.[/dim]", stopRemedy(rt, cname))
+			o.refuseUnaskableKey(m.key, rt, cname)
 			return false
 		case keeperGone:
 			sessions, ok := tryExclusiveSessionLock(m.key)
@@ -855,50 +864,88 @@ func (o *Options) arriveMacosUser(rt, cname string) bool {
 			sessions.release()
 			return true
 		}
-		// A LIVE KEEPER: joined, unless it is ending its services, which is waited for.
+		// A LIVE KEEPER, or a reaper holding a dead one's liveness lock. This launch COUNTS ITSELF
+		// FIRST and reads the roster only then, so the roster it decides on was read after its count:
+		// a keeper ending its services, and a reaper, mark the roster ending before they wait for the
+		// count to go (endKey, markKeyEnding), and so a launch counted beside either one waits for it
+		// instead of joining services that are being stopped, or gone. A keeper draining on the count
+		// is never counted into (holdSessionLock's keeperDrainSeen).
+		o.keeperDrainSeen = false
+		o.holdSessionLock(m.key)
 		rec, ok := readKeeperRecord(m.key)
-		if ok && rec.Ready && !rec.Ending && !keeperDraining(m.key) {
-			if rec.Contract != keeperRosterContract {
-				o.refuseRosterContract(m.key, rt, cname, rec)
-				o.releaseArrivalLock()
-				return false
-			}
-			o.holdSessionLock(m.key)
-			// Counted now, so the keeper cannot drain under this launch; one a signal began ending
-			// meanwhile marked its roster first, and is waited for like any other.
-			if again, ok := readKeeperRecord(m.key); ok && again.Ending {
-				o.keeperDrainSeen = true
-			}
-			if !o.keeperDrainSeen {
-				if o.sessionLock == nil {
-					out.print("[yellow]This workspace's macos-user keeper cannot count this session, so it may " +
-						"end the host services under it once the counted sessions leave.[/yellow]")
-				}
-				o.recordKeyedSession(m.key)
-				// Before the roster's down list is printed, as an attach takes its offset (JL-D19).
-				m.logFrom = keeperLogSize(m.key)
-				m.joined = &rec
-				o.releaseArrivalLock()
-				o.seedFromRoster(rec)
-				return true
-			}
+		joinable := !o.keeperDrainSeen && ok && rec.Ready && !rec.Ending
+		switch {
+		case joinable && rec.Contract != keeperRosterContract:
 			o.releaseSessionLock()
-		}
-		if !ok {
 			o.releaseArrivalLock()
-			out.printf("[bold red]Refusing to launch: a keeper holds this workspace's macos-user host "+
-				"services, and its roster %s cannot be read.[/bold red]", keeperRecordPath(m.key))
-			out.printf("[dim]%s ends it, and the next launch starts fresh.[/dim]", capitalize(stopRemedy(rt, cname)))
+			o.refuseRosterContract(m.key, rt, cname, rec)
+			return false
+		case joinable:
+			if o.sessionLock == nil {
+				out.print("[yellow]This workspace's macos-user keeper cannot count this session, so it may " +
+					"end the host services under it once the counted sessions leave.[/yellow]")
+			}
+			o.recordKeyedSession(m.key, true)
+			// Before the roster's down list is printed, as an attach takes its offset (JL-D19).
+			m.logFrom = keeperLogSize(m.key)
+			m.joined = &rec
+			o.releaseArrivalLock()
+			o.seedFromRoster(rec)
+			return true
+		case !o.keeperDrainSeen && !ok && keeperRosterPresent(m.key):
+			o.releaseSessionLock()
+			o.releaseArrivalLock()
+			o.refuseUnreadableRoster(m.key, rt, cname)
 			return false
 		}
-		// ENDING: the arrival lock goes while this launch waits (JL-D28), and the decision is made
-		// again from the top.
+		// ENDING, or a keeper whose roster is already gone, which a keeper finishing removes just
+		// before it lets its liveness lock go: the arrival lock goes while this launch waits (JL-D28),
+		// and the decision is made again from the top.
+		o.releaseSessionLock()
 		o.releaseArrivalLock()
 		o.keeperDrainSeen = false
 		if !o.awaitEndingKey(m.key, rec) {
 			return false
 		}
 	}
+}
+
+// peekMacosUserKey is a DRY RUN's arrival at its key (§9.9.7): what the launch would find there, read
+// without taking the arrival lock or counting itself, so a plan render changes nothing another launch
+// decides on. A key the launch would be refused at is refused here too, as a dry run refuses a
+// context mount it cannot deliver: the plan would describe a launch that cannot happen. A live
+// keeper whose roster this build reads is joined as the launch would join it (seedFromRoster), so
+// the plan names the keeper's tokens and addresses rather than ones picked for nothing; a keeper
+// that is ending is noted (macosUserKeying.waits). The count here is the kept session records, which
+// a read never takes from their sessions, so a session that could not record itself is not seen.
+func (o *Options) peekMacosUserKey(rt, cname string) bool {
+	m := o.macosUserKey
+	switch probeKeeper(m.key) {
+	case keeperUnknown:
+		o.refuseUnaskableKey(m.key, rt, cname)
+		return false
+	case keeperGone:
+		if len(keptSessions(liveKeyedSessions(m.key))) > 0 {
+			o.refuseUnkeptKey(m.key, rt, cname)
+			return false
+		}
+		return true
+	}
+	rec, ok := readKeeperRecord(m.key)
+	switch {
+	case ok && rec.Ready && !rec.Ending && rec.Contract != keeperRosterContract:
+		o.refuseRosterContract(m.key, rt, cname, rec)
+		return false
+	case ok && rec.Ready && !rec.Ending:
+		m.joined = &rec
+		o.seedFromRoster(rec)
+	case !ok && keeperRosterPresent(m.key):
+		o.refuseUnreadableRoster(m.key, rt, cname)
+		return false
+	default:
+		m.waits = &rec
+	}
+	return true
 }
 
 // takeArrivalLock takes key's arrival lock, saying so when it has to wait for another launch of
@@ -946,6 +993,24 @@ func (o *Options) awaitEndingKey(key string, rec keeperRecord) bool {
 	return false
 }
 
+// refuseUnaskableKey is an arrival that could not ask whether a keeper holds its key: "could not ask"
+// is never "gone" (JL-P3), so the launch is refused, naming the lock and its remedies.
+func (o *Options) refuseUnaskableKey(key, rt, cname string) {
+	out := o.pr(o.Stderr)
+	out.printf("[bold red]Refusing to launch: could not ask whether a keeper holds this workspace's "+
+		"macos-user host services (its lock %s cannot be taken).[/bold red]", livenessLockPath(key))
+	out.printf("[dim]Check that file's directory is yours and writable, then launch again; %s ends "+
+		"whatever holds it.[/dim]", stopRemedy(rt, cname))
+}
+
+// refuseUnreadableRoster is an arrival at a live keeper whose roster is there and cannot be read.
+func (o *Options) refuseUnreadableRoster(key, rt, cname string) {
+	out := o.pr(o.Stderr)
+	out.printf("[bold red]Refusing to launch: a keeper holds this workspace's macos-user host "+
+		"services, and its roster %s cannot be read.[/bold red]", keeperRecordPath(key))
+	out.printf("[dim]%s ends it, and the next launch starts fresh.[/dim]", capitalize(stopRemedy(rt, cname)))
+}
+
 // refuseUnkeptKey is an arrival at an UNKEPT key: its keeper is gone and sessions still run without
 // the host services it held. Refused as OQ-JL7 ruled for every notch (JL-D13, JL-D44): it names
 // the sessions and the one remedy, and never spawns a replacement keeper, which would be that
@@ -956,8 +1021,8 @@ func (o *Options) refuseUnkeptKey(key, rt, cname string) {
 		who = fmt.Sprintf("its keeper (pid %d)", rec.PID)
 	}
 	o.pr(o.Stderr).printf("[bold red]Refusing to launch: this workspace's macos-user host services are "+
-		"gone, because %s is, and %s still %s without them.[/bold red]", who,
-		namesOfSessions(liveKeyedSessions(key)), "run")
+		"gone, because %s is, and %s without them.[/bold red]", who,
+		sessionsThat(keptSessions(liveKeyedSessions(key)), "still runs", "still run"))
 	o.pr(o.Stderr).printf("[dim]%s ends them and removes what the keeper left; the next launch then "+
 		"starts fresh.[/dim]", capitalize(stopRemedy(rt, cname)))
 }
@@ -972,23 +1037,51 @@ func (o *Options) refuseRosterContract(key, rt, cname string, rec keeperRecord) 
 	}
 	o.pr(o.Stderr).printf("[bold red]Refusing to launch: this workspace's macos-user host services are held "+
 		"by a keeper (pid %d) of yolo %s, whose roster (contract %d) this yolo (%s, contract %d) cannot "+
-		"read; %s use it.[/bold red]", rec.PID, build, rec.Contract, keeperBuildStamp(), keeperRosterContract,
-		namesOfSessions(liveKeyedSessions(key)))
+		"read; %s.[/bold red]", rec.PID, build, rec.Contract, keeperBuildStamp(), keeperRosterContract,
+		sessionsThat(keptSessions(liveKeyedSessions(key)), "uses it", "use it"))
 	o.pr(o.Stderr).printf("[dim]%s ends them and their keeper; the next launch then starts fresh on "+
 		"this yolo.[/dim]", capitalize(stopRemedy(rt, cname)))
 }
 
-// recordKeyedSession counts this launch's session in key's records (JL-D44), for a refused arrival
-// to name and `yolo stop` to signal. A record that cannot be written is said, and changes nothing
-// else: the session lock is the count.
-func (o *Options) recordKeyedSession(key string) {
-	f, err := openKeyedSessionRecord(key, o.Getpid(), o.Now())
+// recordKeyedSession names this launch's session in key's records (JL-D44), for a refused arrival
+// to name and `yolo stop` to signal; kept says it is a session of the key's keeper. A record that
+// cannot be written is said, and changes nothing else: the session lock is the count.
+func (o *Options) recordKeyedSession(key string, kept bool) {
+	f, err := openKeyedSessionRecord(key, o.Getpid(), o.Now(), kept)
 	if err != nil {
 		o.pr(o.Stderr).printf("[dim]Warning: could not record this macos-user session (%s), so `yolo stop` "+
 			"cannot find it to end it.[/dim]", err.Error())
 		return
 	}
 	o.macosUserKey.record = f
+}
+
+// otherKeptSessions is the kept sessions of this launch's key other than its own.
+func (o *Options) otherKeptSessions() []keyedSession {
+	m := o.macosUserKey
+	own := ""
+	if m.record != nil {
+		own = strings.TrimSuffix(m.record.Name(), keyedSessionRecordPending) + ".json"
+	}
+	var out []keyedSession
+	for _, s := range keptSessions(liveKeyedSessions(m.key)) {
+		if s.path != own {
+			out = append(out, s)
+		}
+	}
+	return out
+}
+
+// recordKeeperlessSession is a launch that plans nothing a keeper holds (JL-D42): it runs with no
+// keeper and no count, and still records itself, so `yolo stop` from the workspace ends it with the
+// rest. A no-op for a launch with no key.
+func (o *Options) recordKeeperlessSession() {
+	m := o.macosUserKey
+	if m == nil {
+		return
+	}
+	m.keeperless = true
+	o.recordKeyedSession(m.key, false)
 }
 
 // seedFromRoster makes the joined keeper's tokens and addresses this launch's, before its channel
@@ -1135,8 +1228,27 @@ func (o *Options) keeperHandOff(plan *keeperPlan) (*workspaceLock, []*os.File, f
 	return m.arrival, m.handed, o.releaseHandedReservations
 }
 
+// macosUserKeyServices names what a keeper of this launch's key holds, naming the key's notch
+// (JL-D41): the jail notch's are "this workspace's macos-user host services", and the guest notch's,
+// a key of their own (JL-D37), "this workspace's guest-notch macos-user host services".
+func (o *Options) macosUserKeyServices() string {
+	if o.macosUserKeeperNotch() == keeperNotchGuest {
+		return "this workspace's guest-notch macos-user host services"
+	}
+	return "this workspace's macos-user host services"
+}
+
+// macosUserKeySession names one session of this launch's key, its notch named as
+// macosUserKeyServices names it.
+func (o *Options) macosUserKeySession() string {
+	if o.macosUserKeeperNotch() == keeperNotchGuest {
+		return "guest-notch macos-user session"
+	}
+	return "macos-user session"
+}
+
 // macosUserKeeperLine is the keeper's disclosure at macos-user (JL-D21, JL-D41): what it will hold,
-// that it ends with the key's last session, and where it logs.
+// at which notch, that it ends with the key's last session, and where it logs.
 func (o *Options) macosUserKeeperLine(key string, plan *keeperPlan) string {
 	var held []string
 	for _, s := range plan.Services {
@@ -1148,9 +1260,8 @@ func (o *Options) macosUserKeeperLine(key string, plan *keeperPlan) string {
 	for _, s := range plan.LaunchServices {
 		held = append(held, "the "+s.Service+" service's host half")
 	}
-	return fmt.Sprintf("keeper: yolo internal daemon %s will hold this workspace's macos-user host services "+
-		"(%s) until its last macos-user session leaves; log: %s", KeeperVerb, strings.Join(held, ", "),
-		keeperLogPath(key))
+	return fmt.Sprintf("keeper: yolo internal daemon %s will hold %s (%s) until its last %s leaves; log: %s",
+		KeeperVerb, o.macosUserKeyServices(), strings.Join(held, ", "), o.macosUserKeySession(), keeperLogPath(key))
 }
 
 // startMacosUserKeeper is a fresh macos-user launch's spawn of its keeper (§9.9.5): the disclosure
@@ -1187,7 +1298,7 @@ func (o *Options) startMacosUserKeeper(arm *MacosUserArm, cfg *jsonx.OrderedMap,
 		out.printf("[yellow]This workspace's macos-user keeper cannot count this session, so it will not end "+
 			"the host services when its sessions leave; %s ends them.[/yellow]", stopRemedy(rt, cname))
 	}
-	o.recordKeyedSession(m.key)
+	o.recordKeyedSession(m.key, true)
 	sp := o.Perf.Span("launch.start_keeper")
 	kp, err := o.startKeeper(plan)
 	if err != nil {
@@ -1239,6 +1350,9 @@ func (o *Options) startMacosUserKeeper(arm *MacosUserArm, cfg *jsonx.OrderedMap,
 	if !have || !rec.Ready {
 		out.printf("[bold red]Refusing the macos-user launch: its keeper said ready, and its roster %s "+
 			"cannot be read.[/bold red]", keeperRecordPath(m.key))
+		out.printf("[dim]Launch again: this launch's quit ends the keeper it started when no other session "+
+			"joined it; if one still holds this workspace's macos-user host services, %s ends it.[/dim]",
+			stopRemedy(rt, cname))
 		return rec, 1, false
 	}
 	return rec, 0, true
@@ -1255,6 +1369,16 @@ func (o *Options) joinMacosUserKeeper(rt, cname string, cfg *jsonx.OrderedMap, p
 	out := o.pr(o.Stderr)
 	out.print("[dim]" + richtext.Escape(o.joinedKeeperLine(m.key, rec)) + "[/dim]")
 	o.discloseLoopholes(rt, cfg, packs, payload)
+	o.noteHeldByKeeper(rec)
+	// What the keeper recorded down while this launch was not in (JL-D19).
+	o.noteServicesDown(m.key, rt)
+	return o.judgeKeeperLacks(rt, cname, rec, o.macosUserKeeperLacks(rt, cfg, doorways, rec), "Joining")
+}
+
+// noteHeldByKeeper is one line per doorway and launch-owned service the joined keeper holds, marked
+// as held by it (JL-D41), on the addresses its roster names.
+func (o *Options) noteHeldByKeeper(rec keeperRecord) {
+	out := o.pr(o.Stderr)
 	for _, d := range rec.Doorways {
 		out.printf("[dim]Held by the keeper (pid %d): the %q doorway (pack %q) on %s, outside the sandbox.[/dim]",
 			rec.PID, d.Service, d.Pack, strings.Join(heldAddresses(d), ", "))
@@ -1263,8 +1387,13 @@ func (o *Options) joinMacosUserKeeper(rt, cname string, cfg *jsonx.OrderedMap, p
 		out.printf("[dim]Held by the keeper (pid %d): the %q service (pack %q) on %s, outside the sandbox.[/dim]",
 			rec.PID, s.Service, s.Pack, strings.Join(heldAddresses(s), ", "))
 	}
-	// What the keeper recorded down while this launch was not in (JL-D19).
-	o.noteServicesDown(m.key, rt)
+}
+
+// macosUserKeeperLacks is what this joining launch needs outside the sandbox that the keeper whose
+// roster is rec does not run (JL-D39): a front, a doorway, or a launch-owned service its own
+// composition planned after those it adopted from the roster (macosUserKeying.seeded).
+func (o *Options) macosUserKeeperLacks(rt string, cfg *jsonx.OrderedMap, doorways []*launchservice.Plan,
+	rec keeperRecord) []string {
 	var lacks []string
 	for _, s := range o.plannedLoopholeNames(rt, cfg) {
 		if !slices.Contains(rec.Services, s) {
@@ -1277,23 +1406,31 @@ func (o *Options) joinMacosUserKeeper(rt, cname string, cfg *jsonx.OrderedMap, p
 		}
 	}
 	for i, s := range o.launchServices {
-		if i >= m.seeded {
+		if i >= o.macosUserKey.seeded {
 			lacks = append(lacks, "the "+s.Service+" service's host half")
 		}
 	}
+	return lacks
+}
+
+// judgeKeeperLacks decides a join that lacks what lacks names: the refusal, naming the sessions and
+// `yolo stop`, or under AllowAttachSkewEnv a join without them, which lead ("Joining", or a dry run's
+// "Would join") says. Nothing lacking joins. It reports false when the launch is refused.
+func (o *Options) judgeKeeperLacks(rt, cname string, rec keeperRecord, lacks []string, lead string) bool {
 	if len(lacks) == 0 {
 		return true
 	}
-	sessions := namesOfSessions(liveKeyedSessions(m.key))
+	out := o.pr(o.Stderr)
 	if o.Getenv(AllowAttachSkewEnv) != "" {
-		out.printf("[bold yellow]Joining this workspace's macos-user keeper (pid %d) without %s, which it "+
-			"does not run (%s=1): what in this sandbox uses it fails.[/bold yellow]", rec.PID,
+		out.printf("[bold yellow]%s this workspace's macos-user keeper (pid %d) without %s, which it "+
+			"does not run (%s=1): what in this sandbox uses it fails.[/bold yellow]", lead, rec.PID,
 			strings.Join(lacks, ", "), AllowAttachSkewEnv)
 		o.releaseHandedReservations()
 		return true
 	}
 	out.printf("[bold red]Refusing to launch: this launch needs %s, which this workspace's macos-user "+
-		"keeper (pid %d) does not run, and %s use it.[/bold red]", strings.Join(lacks, ", "), rec.PID, sessions)
+		"keeper (pid %d) does not run, and %s.[/bold red]", strings.Join(lacks, ", "), rec.PID,
+		sessionsThat(o.otherKeptSessions(), "uses it", "use it"))
 	out.printf("[dim]%s ends them and their keeper, and the next launch starts fresh with what this one "+
 		"needs; or %s=1 joins without it.[/dim]", capitalize(stopRemedy(rt, cname)), AllowAttachSkewEnv)
 	return false
@@ -1309,17 +1446,17 @@ func heldAddresses(h keeperHeld) []string {
 	return slices.Compact(out)
 }
 
-// joinedKeeperLine is a joining launch's keeper line (JL-D41): which keeper it joined, for how many
-// sessions, another build's when it is, and where it logs.
+// joinedKeeperLine is a joining launch's keeper line (JL-D41): which keeper it joined, at which
+// notch, for how many sessions, another build's when it is, and where it logs.
 func (o *Options) joinedKeeperLine(key string, rec keeperRecord) string {
-	n := len(liveKeyedSessions(key))
+	n := len(keptSessions(liveKeyedSessions(key)))
 	build := ""
 	if rec.Build != "" && rec.Build != keeperBuildStamp() {
 		build = fmt.Sprintf(", yolo %s, another build than this one", rec.Build)
 	}
-	return fmt.Sprintf("keeper: joined yolo internal daemon %s (pid %d%s), which holds this workspace's "+
-		"macos-user host services for %d %s; log: %s", KeeperVerb, rec.PID, build, n,
-		plural(n, "session", "sessions"), keeperLogPath(key))
+	return fmt.Sprintf("keeper: joined yolo internal daemon %s (pid %d%s), which holds %s for %d %s; log: %s",
+		KeeperVerb, rec.PID, build, o.macosUserKeyServices(), n, plural(n, "session", "sessions"),
+		keeperLogPath(key))
 }
 
 // setRosterEndpoints tells this session's sandbox each host service's endpoint file, as the roster
@@ -1338,10 +1475,19 @@ func setRosterEndpoints(launchEnv *jsonx.OrderedMap, rec keeperRecord) {
 // endMacosUserSession is a macos-user session's quit, once its command returned (JL-D40, §9.9.6):
 // its record and its count go, and then what it left behind: other sessions of the key, which one
 // line names; the keeper's teardown, which the last session streams; or an UNKEPT key, whose last
-// session removes what its dead keeper left. A launch that counted no session returns as before.
+// session removes what its dead keeper left. A session with no keeper only removes its record, and
+// a launch that recorded and counted nothing returns as before.
 func (o *Options) endMacosUserSession(rt string, rc int) int {
 	m := o.macosUserKey
-	if m == nil || (m.record == nil && o.sessionLock == nil) {
+	if m == nil {
+		return rc
+	}
+	if m.keeperless {
+		closeKeyedSessionRecord(m.record)
+		m.record = nil
+		return rc
+	}
+	if m.record == nil && o.sessionLock == nil {
 		return rc
 	}
 	closeKeyedSessionRecord(m.record)
@@ -1360,7 +1506,7 @@ func (o *Options) endMacosUserSession(rt string, rc int) int {
 			pid = fmt.Sprint(rec.PID)
 		}
 		others := othersUncounted
-		if n := len(liveKeyedSessions(m.key)); n > 0 {
+		if n := len(keptSessions(liveKeyedSessions(m.key))); n > 0 {
 			others = fmt.Sprintf("%d other %s", n, plural(n, "session", "sessions"))
 		}
 		out.printf("[dim]This workspace's macos-user host services stay up (keeper pid %s) for %s; %s ends "+
@@ -1402,18 +1548,44 @@ func (o *Options) endMacosUserKeying() {
 	m.record = nil
 }
 
-// noteMacosUserKeeperDryRun is what a dry run says of the keeper (§9.9.7): the one it would join,
-// or the one it would start, or nothing when it plans nothing a keeper holds.
-func (o *Options) noteMacosUserKeeperDryRun(rt, cname string, cfg *jsonx.OrderedMap, doorways []*launchservice.Plan) {
-	key := keeperKey(cname, o.macosUserKeeperNotch())
-	if probeKeeper(key) == keeperAlive {
-		if rec, ok := readKeeperRecord(key); ok && rec.Ready {
-			o.pr(o.Stderr).print("[dim]Would join: " + richtext.Escape(o.joinedKeeperLine(key, rec)) + "[/dim]")
-			return
+// noteMacosUserKeeperDryRun is what a dry run says of what it would run outside the sandbox
+// (§9.9.7), as the keeper's, since a keeper would hold all of it: the keeper it would join
+// (peekMacosUserKey) and each doorway and service that keeper holds, the refusal a join would meet
+// when this launch needs one the keeper does not run, or, for a fresh launch, each service and
+// doorway it would start and the keeper that would hold them. A launch that plans nothing a keeper
+// holds says nothing here (JL-D42). It reports false when the launch would be refused.
+func (o *Options) noteMacosUserKeeperDryRun(rt, cname string, cfg *jsonx.OrderedMap,
+	doorways []*launchservice.Plan, channel *packChannel) bool {
+	m := o.macosUserKey
+	if m == nil {
+		return true
+	}
+	out := o.pr(o.Stderr)
+	if m.joined != nil {
+		rec := *m.joined
+		out.print("[dim]Would join: " + richtext.Escape(o.joinedKeeperLine(m.key, rec)) + "[/dim]")
+		o.noteHeldByKeeper(rec)
+		return o.judgeKeeperLacks(rt, cname, rec, o.macosUserKeeperLacks(rt, cfg, doorways, rec), "Would join")
+	}
+	if w := m.waits; w != nil {
+		who := "its previous keeper"
+		if w.PID > 0 {
+			who = fmt.Sprintf("its previous keeper (pid %d)", w.PID)
 		}
+		out.printf("Would wait for %s to finish ending %s first.", who, o.macosUserKeyServices())
 	}
 	if !o.macosUserKeeps(rt, cfg, doorways) {
-		return
+		return true
+	}
+	held := fmt.Sprintf("for this launch's keeper to hold, outside the sandbox, until this workspace's last %s leaves",
+		o.macosUserKeySession())
+	for _, plan := range o.launchServices {
+		out.print(fmt.Sprintf("Would start the %q service (pack %q) on %v %s.", plan.Service, plan.Pack,
+			o.servicePointedAt(plan, channel), held))
+	}
+	for _, plan := range doorways {
+		out.print(fmt.Sprintf("Would open the %q doorway (pack %q) on %v %s: %s", plan.Service, plan.Pack,
+			plan.Addresses(), held, strings.Join(plan.Cmd, " ")))
 	}
 	plan := &keeperPlan{Services: o.plannedLoopholeNames(rt, cfg)}
 	for _, d := range doorways {
@@ -1422,7 +1594,8 @@ func (o *Options) noteMacosUserKeeperDryRun(rt, cname string, cfg *jsonx.Ordered
 	for _, s := range o.launchServices {
 		plan.LaunchServices = append(plan.LaunchServices, heldFrom(s))
 	}
-	o.pr(o.Stderr).print("[dim]Would start: " + richtext.Escape(o.macosUserKeeperLine(key, plan)) + "[/dim]")
+	out.print("[dim]Would start: " + richtext.Escape(o.macosUserKeeperLine(m.key, plan)) + "[/dim]")
+	return true
 }
 
 // macosUserGrants is what this launch tells its backend about the endpoint files of its key's
@@ -1499,24 +1672,26 @@ func (o *Options) stopMacosUserKey(cname, key string) (rc int, did bool) {
 		return 0, false
 	}
 	logFrom := keeperLogSize(key)
-	var signalled []string
+	var said []string
+	signalled := map[string]bool{}
 	signal := func(pid int, who string) {
 		if pid <= 1 || pid == os.Getpid() {
 			return
 		}
 		if err := signalKeyProcess(pid, syscall.SIGTERM); err == nil {
-			signalled = append(signalled, fmt.Sprintf("%s (pid %d)", who, pid))
+			said = append(said, fmt.Sprintf("%s (pid %d)", who, pid))
 		}
 	}
 	if alive && recorded {
 		signal(rec.PID, "the keeper")
 	}
 	for _, s := range sessions {
+		signalled[s.path] = true
 		signal(s.PID, "a session")
 	}
 	what := "this workspace's macos-user sessions"
-	if len(signalled) > 0 {
-		out.printf("Ending %s: sent SIGTERM to %s.", what, strings.Join(signalled, ", "))
+	if len(said) > 0 {
+		out.printf("Ending %s: sent SIGTERM to %s.", what, strings.Join(said, ", "))
 	}
 	stream := func(l string) { out.print("[dim]  " + richtext.Escape(l) + "[/dim]") }
 	if alive {
@@ -1525,22 +1700,52 @@ func (o *Options) stopMacosUserKey(cname, key string) (rc int, did bool) {
 			o.noteKeeperStillRunning(key, keeperTeardownWait)
 			return 1, true
 		}
+		if !o.awaitSignalledSessions(key, signalled) {
+			return 1, true
+		}
 		out.printf("Stopped %s and their keeper. The next yolo launch starts fresh.", what)
 		return 0, true
 	}
-	// AN UNKEPT KEY, or the records of a keeper that died with no session left: the reap, holding
-	// the liveness lock and, once the sessions this stop signalled have let it go, the session lock.
+	if recorded {
+		if rc, done := o.reapStoppedKey(cname, key, rec, signalled); done {
+			return rc, true
+		}
+	}
+	if !o.awaitSignalledSessions(key, signalled) {
+		return 1, true
+	}
+	out.printf("Stopped %s. The next yolo launch starts fresh.", what)
+	return 0, true
+}
+
+// reapStoppedKey is `yolo stop`'s reap of an UNKEPT key, or of the records of a keeper that died with
+// no session left (JL-D44): holding the key's liveness lock, it marks the dead keeper's roster ending
+// (markKeyEnding), so an arrival meanwhile waits for the reap instead of joining services that are
+// gone; once the sessions it signalled let the count go it removes what the keeper left. A session
+// that counted itself meanwhile is signalled too, since the reap waits for it. done reports that the
+// stop ends here, with rc: a refusal, or another reaper having taken the lock.
+func (o *Options) reapStoppedKey(cname, key string, rec keeperRecord, signalled map[string]bool) (rc int, done bool) {
+	out := o.pr(o.Stdout)
 	live, err := holdLivenessLock(key)
 	if err != nil {
 		return 0, true // a keeper, or another reaper, took it in between: theirs to finish
 	}
 	defer releaseLock(live)
+	markKeyEnding(key, rec.PID)
 	deadline := time.Now().Add(keeperSessionsWait)
 	var held *sessionLock
 	for {
 		if s, ok := tryExclusiveSessionLock(key); ok {
 			held = s
 			break
+		}
+		for _, s := range keptSessions(liveKeyedSessions(key)) {
+			if !signalled[s.path] {
+				signalled[s.path] = true
+				if s.PID > 1 && s.PID != os.Getpid() && signalKeyProcess(s.PID, syscall.SIGTERM) == nil {
+					out.printf("Sent SIGTERM to a session that arrived meanwhile (pid %d).", s.PID)
+				}
+			}
 		}
 		if !time.Now().Before(deadline) {
 			o.pr(o.Stderr).printf("[yellow]A macos-user session of this workspace still holds its count after %s, "+
@@ -1551,10 +1756,37 @@ func (o *Options) stopMacosUserKey(cname, key string) (rc int, did bool) {
 		time.Sleep(keeperPoll)
 	}
 	defer held.release()
-	if recorded {
-		out.printf("[dim]This workspace's macos-user keeper (pid %d) was gone; removing what it left.[/dim]", rec.PID)
-		o.reapKeyRecords(key, cname, rec)
+	out.printf("[dim]This workspace's macos-user keeper (pid %d) was gone; removing what it left.[/dim]", rec.PID)
+	o.reapKeyRecords(key, cname, rec)
+	return 0, false
+}
+
+// awaitSignalledSessions waits, within keeperSessionsWait, for every session `yolo stop` signalled
+// (signalled, by record path) to end and remove its record, so the stop says stopped only once they
+// have: a session with no keeper is nobody's teardown but its own. It reports false, naming what
+// still runs, when the bound ran out.
+func (o *Options) awaitSignalledSessions(key string, signalled map[string]bool) bool {
+	deadline := time.Now().Add(keeperSessionsWait)
+	for {
+		var left []keyedSession
+		for _, s := range liveKeyedSessions(key) {
+			if signalled[s.path] {
+				left = append(left, s)
+			}
+		}
+		if len(left) == 0 {
+			return true
+		}
+		if !time.Now().Before(deadline) {
+			pids := make([]string, 0, len(left))
+			for _, s := range left {
+				pids = append(pids, strconv.Itoa(s.PID))
+			}
+			o.pr(o.Stderr).printf("[yellow]%s after %s; `kill %s` ends %s, or `yolo stop` again signals %s.[/yellow]",
+				capitalize(sessionsThat(left, "is still running", "are still running")), keeperSessionsWait,
+				strings.Join(pids, " "), plural(len(left), "it", "them"), plural(len(left), "it", "them"))
+			return false
+		}
+		time.Sleep(keeperPoll)
 	}
-	out.printf("Stopped %s. The next yolo launch starts fresh.", what)
-	return 0, true
 }

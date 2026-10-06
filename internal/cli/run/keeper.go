@@ -63,6 +63,11 @@ const KeeperVerb = "jail-keeper"
 // keeper's log: a keeper's stderr is /dev/null.
 type KeeperSeams struct {
 	CaptureOnTerminate func(workspace, runtime string, warn func(string))
+	// lifelineGone, when set, runs once the keeper has seen its lifeline end (keeper.lifelineGone
+	// closed): a test's in-process keeper uses it to know the keeper has, so what it then asserts
+	// about the keeper's end before ready does not race the goroutine that reads the lifeline. The CLI
+	// never sets it.
+	lifelineGone func()
 }
 
 // The keeper's inherited descriptors: exec.Cmd.ExtraFiles puts the first at 3.
@@ -248,6 +253,9 @@ func newKeeper(plan *keeperPlan, seams KeeperSeams, progress, lifeline, lock *os
 			_, _ = io.Copy(io.Discard, lifeline)
 			_ = lifeline.Close()
 			close(k.lifelineGone)
+			if seams.lifelineGone != nil {
+				seams.lifelineGone()
+			}
 		}()
 	}
 	o := NewDefaultOptions()
