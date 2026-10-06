@@ -213,4 +213,18 @@ func TestManifestsReadsEveryLoopholeOfATree(t *testing.T) {
 	if _, err := Manifests(fsys); err == nil || !strings.Contains(err.Error(), "hots_daemon") {
 		t.Errorf("a manifest the strict decoder refuses: err %v, want it reported", err)
 	}
+
+	// The tolerant read, the seed's, skips both and reports each, and keeps what it could read.
+	fsys["three/loopholes/c/README.md"] = &fstest.MapFile{Data: []byte("no manifest")}
+	got, unread, err := ManifestsTolerant(fsys)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0].Path != "packs/two/loopholes/b/manifest.jsonc" {
+		t.Errorf("ManifestsTolerant kept %+v, want only two/b", got)
+	}
+	if len(unread) != 2 || !strings.Contains(unread[0].Error(), "hots_daemon") ||
+		!strings.Contains(unread[1].Error(), "packs/three/loopholes/c/manifest.jsonc") {
+		t.Errorf("ManifestsTolerant skipped %v, want one/a and three/c, in path order", unread)
+	}
 }

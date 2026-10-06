@@ -49,7 +49,11 @@ func stubGo(t *testing.T, answer any) (bin, log string) {
 		t.Fatal(err)
 	}
 	bin = filepath.Join(dir, "go")
-	script := "#!/bin/sh\nprintf '%s\\n' \"$@\" > '" + log + "/args'\npwd > '" + log + "/cwd'\n" +
+	// `go env` is answered from goenv (written by goEnvAnswer; {} when there is none) and logged
+	// apart, so args and env stay the download's.
+	script := "#!/bin/sh\nif [ \"$1\" = env ]; then printf '%s\\n' \"$@\" > '" + log + "/envargs'\n" +
+		"env > '" + log + "/envenv'\ncat '" + log + "/goenv' 2>/dev/null || echo '{}'\nexit 0\nfi\n" +
+		"printf '%s\\n' \"$@\" > '" + log + "/args'\npwd > '" + log + "/cwd'\n" +
 		"env > '" + log + "/env'\ncat '" + log + "/answer'\n"
 	if err := os.WriteFile(bin, []byte(script), 0o755); err != nil {
 		t.Fatal(err)

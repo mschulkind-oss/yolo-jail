@@ -230,6 +230,14 @@ live, so edits are visible on the host instantly — there is no sync step.
   `go mod vendor` committed, or the image build breaks while `go test` passes.
 - Image reload sentinel is `BUILD_DIR/last-load-<runtime>` (not `.last-load`). `nix build --impure` exists
   so `builtins.getEnv` can read `YOLO_EXTRA_PACKAGES` from the config's `packages` list.
+- **Main pins its OWN build of every official pack program** (a loophole manifest's `binaries`;
+  [BP-D15](docs/design/broker-as-a-pack.md#BP-D15)). A change that moves one's bytes — its source, a
+  package it imports, `vendor/`, the pin tool's `Toolchain` — needs its re-pin committed: `just check-ci`
+  refuses the stale digest, naming `just pin-pack-binaries` (no version: digests only, urls kept). A host
+  `just install` re-pins only the builds THIS machine made and seeds them into the pack-binary cache, so a
+  from-source jail runs the tree's program with no download; the other platforms still need the pin before
+  landing ([BP-D25](docs/design/broker-as-a-pack.md#BP-D25)). `yolo update` never re-pins: it deploys the
+  pulled tree as is ([BP-D26](docs/design/broker-as-a-pack.md#BP-D26)). No hatch: the fix is the pin.
 
 ## Testing
 

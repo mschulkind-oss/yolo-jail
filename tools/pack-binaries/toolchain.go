@@ -34,7 +34,8 @@ func toolchainModule(goos, goarch string) string {
 // The download ignores the go env file (GOENV=off): an empty environment variable does not
 // override a setting in that file, so it is the only way to be sure no GONOSUMDB, GOPRIVATE,
 // GOINSECURE or GOFLAGS there weakens the check. GOSUMDB=off is overridden for the same
-// reason; a GOSUMDB naming another database, and GOPROXY, are honored.
+// reason; a GOSUMDB naming another database, and GOPROXY, are honored — from the environment or
+// from that file, read first with `go env` and passed explicitly (effectiveProxy, BP-D22).
 func fetchToolchain(hostGo string, environ []string) (string, error) {
 	tmp, err := os.MkdirTemp("", "pack-binaries-toolchain-")
 	if err != nil {
@@ -43,10 +44,11 @@ func fetchToolchain(hostGo string, environ []string) (string, error) {
 	defer os.RemoveAll(tmp)
 
 	mod := toolchainModule(runtime.GOOS, runtime.GOARCH)
+	proxy, sumdb := effectiveProxy(hostGo, environ, tmp)
 	cmd := exec.Command(hostGo, "mod", "download", "-json", mod)
 	// Outside every module, so no go.mod, go.work or vendor/ decides anything.
 	cmd.Dir = tmp
-	cmd.Env = downloadEnv(environ)
+	cmd.Env = downloadEnv(environ, proxy, sumdb)
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 	out, runErr := cmd.Output()
@@ -66,37 +68,85 @@ func fetchToolchain(hostGo string, environ []string) (string, error) {
 		return "", fmt.Errorf("making %s runnable: %w", info.Dir, err)
 	}
 	goBin := filepath.Join(info.Dir, "bin", "go")
-	vcmd := exec.Command(goBin, "version")
-	vcmd.Env = buildEnv(environ, runtime.GOOS, runtime.GOARCH)
-	vout, err := vcmd.Output()
-	if err != nil {
-		return "", fmt.Errorf("%s version: %w", goBin, err)
-	}
-	want := "go version " + Toolchain + " " + runtime.GOOS + "/" + runtime.GOARCH
-	if got := strings.TrimSpace(string(vout)); got != want {
-		return "", fmt.Errorf("%s reports %q, want %q", goBin, got, want)
+	if err := checkToolchainVersion(goBin, environ); err != nil {
+		return "", err
 	}
 	return goBin, nil
 }
 
-// downloadEnv is environ with every setting that could skip the checksum database removed, and
-// the download pinned to the go on PATH (GOTOOLCHAIN=local) outside any workspace.
-func downloadEnv(environ []string) []string {
+// checkToolchainVersion refuses a go that does not report exactly Toolchain for this machine.
+func checkToolchainVersion(goBin string, environ []string) error {
+	vcmd := exec.Command(goBin, "version")
+	vcmd.Env = buildEnv(environ, runtime.GOOS, runtime.GOARCH)
+	vout, err := vcmd.Output()
+	if err != nil {
+		return fmt.Errorf("%s version: %w", goBin, err)
+	}
+	want := "go version " + Toolchain + " " + runtime.GOOS + "/" + runtime.GOARCH
+	if got := strings.TrimSpace(string(vout)); got != want {
+		return fmt.Errorf("%s reports %q, want %q", goBin, got, want)
+	}
+	return nil
+}
+
+// effectiveProxy is the GOPROXY and GOSUMDB the go on PATH would use — the environment first,
+// then the go env file `go env -w` writes — asked of it with `go env`, because the download runs
+// with GOENV=off and so would otherwise ignore a proxy set there (BP-D22). The question runs
+// outside every module, never switches toolchains to answer (GOTOOLCHAIN=local), and carries no
+// GOFLAGS that could fail it. "" for either when it cannot be answered, and downloadEnv falls back
+// to the environment's.
+func effectiveProxy(hostGo string, environ []string, dir string) (proxy, sumdb string) {
+	cmd := exec.Command(hostGo, "env", "-json", "GOPROXY", "GOSUMDB")
+	cmd.Dir = dir
+	var env []string
+	for _, kv := range environ {
+		k, _, _ := strings.Cut(kv, "=")
+		if k != "GOFLAGS" && k != "GOTOOLCHAIN" && k != "GOWORK" {
+			env = append(env, kv)
+		}
+	}
+	cmd.Env = append(env, "GOTOOLCHAIN=local", "GOWORK=off")
+	out, err := cmd.Output()
+	if err != nil {
+		return "", ""
+	}
+	var v struct{ GOPROXY, GOSUMDB string }
+	if json.Unmarshal(out, &v) != nil {
+		return "", ""
+	}
+	return v.GOPROXY, v.GOSUMDB
+}
+
+// downloadEnv is environ with every setting that could skip the checksum database removed, the
+// download pinned to the go on PATH (GOTOOLCHAIN=local) outside any workspace, and the proxy and
+// checksum database the user's go would use (effectiveProxy) passed explicitly, since GOENV=off
+// hides the go env file. A GOSUMDB of "off", or none, is sum.golang.org; "" for proxy or sumdb
+// falls back to the environment's own.
+func downloadEnv(environ []string, proxy, sumdb string) []string {
 	drop := map[string]bool{"GOENV": true, "GOFLAGS": true, "GONOSUMDB": true,
 		"GONOSUMCHECK": true, "GOPRIVATE": true, "GONOPROXY": true, "GOINSECURE": true,
-		"GOTOOLCHAIN": true, "GOWORK": true, "GOSUMDB": true}
-	sumdb := "sum.golang.org"
+		"GOTOOLCHAIN": true, "GOWORK": true, "GOSUMDB": true, "GOPROXY": true}
 	var out []string
 	for _, kv := range environ {
 		k, v, _ := strings.Cut(kv, "=")
-		if k == "GOSUMDB" && v != "" && v != "off" {
+		switch {
+		case k == "GOSUMDB" && sumdb == "":
 			sumdb = v
+		case k == "GOPROXY" && proxy == "":
+			proxy = v
 		}
 		if !drop[k] {
 			out = append(out, kv)
 		}
 	}
-	return append(out, "GOENV=off", "GOTOOLCHAIN=local", "GOWORK=off", "GOSUMDB="+sumdb)
+	if sumdb == "" || sumdb == "off" {
+		sumdb = "sum.golang.org"
+	}
+	out = append(out, "GOENV=off", "GOTOOLCHAIN=local", "GOWORK=off", "GOSUMDB="+sumdb)
+	if proxy != "" {
+		out = append(out, "GOPROXY="+proxy)
+	}
+	return out
 }
 
 // allowExec sets the execute bits the module cache does not keep, on the files the go command

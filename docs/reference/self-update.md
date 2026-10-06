@@ -81,7 +81,12 @@ making the recovery depend on a `git pull` that cannot succeed.
 Both run `git` in the checkout with that checkout's own Git configuration and
 hooks. The check reaches the upstream with `git ls-remote` and `git fetch`; the
 update runs `git pull`, and `git stash` when you pass `--autostash`. The update
-then runs the checkout's `Justfile` through `just deploy`. All of it
+then runs the checkout's `Justfile` through `just deploy`, with
+`YOLO_INSTALL_KEEP_TREE=1` so the install deploys the pulled tree exactly: it
+never re-pins an official pack program into the checkout, and a program it
+cannot build to its pin is reported, its loophole left off on this machine, rather
+than failing the update
+([BP-D26](../design/broker-as-a-pack.md#BP-D26)). All of it
 runs on the host, as you. yolo ends Git's options before the remote, refuses an
 upstream whose name starts with `-`, and never lets Git prompt, but a
 repository's configuration can still name programs Git runs, such as a hook or
