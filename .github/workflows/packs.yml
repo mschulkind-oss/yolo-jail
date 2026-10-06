@@ -149,8 +149,10 @@ jobs:
         # Mirrors integration/agents_test.go's packMatrix, and
         # TestPackMatrixCoversEveryShippedProgram fails the build if a shipped pack that
         # declares a program is missing from THAT list — which is what kept agy out of both
-        # for the pack system's entire life. Adding a pack means adding it in both places;
-        # the test catches the first omission, and its message names this file for the second.
+        # for the pack system's entire life. TestPackInstallsWorkflowMirrorsPackMatrix
+        # then fails it if this list differs from packMatrix, so adding a pack means adding
+        # it here, in packMatrix and in macos-user.yml's install matrix, and `just check-ci`
+        # names whichever was missed.
         #
         # agy is the largest install here by a wide margin (docs/design/program-delivery.md
         # records a 189 MB binary from https://antigravity.google/cli/install.sh), which is
@@ -197,10 +199,17 @@ jobs:
       # name rather than in a log nobody opens. YOLO_TEST_REAL_PACK_INSTALLS is what
       # un-skips the vendor-install tests; without it they skip themselves and say so
       # (integration/harness_test.go, requireRealPackInstalls).
+      #
+      # ANCHORED, because each level of a -run pattern matches unanchored: until
+      # 2026-10-05 this read `TestPackInstallsVersionsAndConfigures/${{ matrix.pack }}`,
+      # and `pi` matches `copilot`, so the pi cell installed copilot too and a copilot
+      # break would have turned it red under pi's name.
+      # TestPackInstallsWorkflowMirrorsPackMatrix checks that every cell selects its own
+      # subtest and no other.
       - name: Install ${{ matrix.pack }} from its vendor
         run: |
           go test -count=1 -timeout 0 -v ./integration \
-            -run 'TestPackInstallsVersionsAndConfigures/${{ matrix.pack }}'
+            -run '^TestPackInstallsVersionsAndConfigures$/^${{ matrix.pack }}$'
         env:
           YOLO_RUNTIME: podman
           YOLO_TEST_REAL_PACK_INSTALLS: "1"

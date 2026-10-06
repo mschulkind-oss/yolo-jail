@@ -498,7 +498,7 @@ tier otherwise.
 | `lsp_servers` | config rendered, nothing installed — the binary is the user's | the same: config rendered, nothing installed, no stage started for it | no warning — the property is every backend's, not a gap of this one |
 | `mcp_presets` | npm-installed by the stage | wrappers not generated, packages not installed | warns — **from inside the bootstrap** (`RunDarwinBootstrap`), so `--dry-run` never shows it |
 | agent CLIs, `via: installer` | the launcher execs the vendor installer | **works** — `curl` and `bash` are at `/usr/bin` | n/a — nothing to tell |
-| agent CLIs, `via: npm` | the launcher execs `npm install -g` | the floor supplies node and npm, so the launcher can run — **not measured on hardware** | `GenerateAgentLaunchers` has no *generation*-time precondition, so nothing warns at launch; a failure lands on the user's first real command |
+| agent CLIs, `via: npm` | the launcher execs `npm install -g` | the floor supplies node and npm, so the launcher can run — **not measured on hardware**; the nightly's `install` job, built 2026-10-05, runs it ([OQ-CI7](agent-install-in-ci.md#oq-ci7)) | `GenerateAgentLaunchers` has no *generation*-time precondition, so nothing warns at launch; a failure lands on the user's first real command |
 | `packages:` | baked into the image | realized natively, and now composed with the floor | works |
 
 `rg -n '"via": "(installer|npm)"' packs/*/pack.json` is the split; do not write the membership
@@ -587,7 +587,11 @@ on `macos-latest`, running the gated `^TestMacosUser` suite. It needs no jail im
 the point: a macos-user launch returns before `runContainer` and never loads one, so none of
 the chain that blocks the container macOS nightly reaches it. It has run nightly since
 2026-09-13. Six of the runbook's ten items have twins there; the stage's own twin is
-`TestMacosUserProvisioningStageRunsAndRecordsItself`.
+`TestMacosUserProvisioningStageRunsAndRecordsItself`. Since 2026-10-05 the same workflow also
+has an `install` job, one per agent pack, that installs each pack's program from its vendor
+through the generated launcher, the `via: npm` packs first
+([`agent-install-in-ci.md`](agent-install-in-ci.md#the-darwin-install-job), OQ-CI7). No
+scheduled run of it has reported yet.
 
 ⚠ **A suite that skips must not look like a suite that passes.** Every one of these tests skips
 on every machine that develops this repo, and `go test` reports a skip as a pass — so the job
@@ -598,8 +602,10 @@ it was scheduled to do.
 
 **What no instrument covers:**
 
-- **The `via: npm` agent launchers on this backend.** The floor supplies node and npm, so the
-  loud-but-late `npm: command not found` should be gone. Nothing has run it.
+- **The `via: npm` agent launchers on this backend, until the `install` job's first run.** The
+  floor supplies node and npm, so the loud-but-late `npm: command not found` should be gone.
+  Nothing has run it yet; the nightly's `install` job, built 2026-10-05, is the instrument, and
+  this item moves out of the list once a run of it has reported.
 - **Whether a real `sandbox-exec` rejection takes the continue branch.** The fault injection
   the runbook prescribes (`chmod 000 /usr/bin/sandbox-exec`) is a global, SIP-adjacent mutation
   no test should make, and the stage argv names `/usr/bin/sandbox-exec` absolutely so no PATH

@@ -1,28 +1,31 @@
 ---
 status: current
-stage: DECIDED
-next: "Build OQ-CI7, ruled 2026-10-05: real vendor installs on the macos-user workflow, one hard-failing job per pack, the via: npm packs first; then re-verify this doc against the tree"
+stage: CURRENT
+next: "Read the first scheduled macos-user.yml run's install cells (OQ-CI7, built 2026-10-05) and record what each measured on darwin, then re-verify this doc against the tree"
 verified: 2026-09-23
 verified_commit: 7ad8358c
 covers:
   - integration/installmechanism_test.go
   - integration/agents_test.go
   - integration/harness_test.go
+  - integration/macosuserpackinstalls_test.go
   - .github/workflows/packs.yml
+  - .github/workflows/macos-user.yml
   - Justfile
-tags: [ci, packs, testing, npm, integration]
-summary: "How the integration suite tests agent-CLI installation without letting a vendor's release decide whether main is green. The every-push gate installs only pinned fixture bytes, one cell per install mechanism, and renders every shipped pack's config without installing it. Real vendor installs run in a separate pack x arch workflow on a manifest or image change and weekly, and hard-fail like any other job. Suite warmup is paid before any timed test."
+tags: [ci, packs, testing, npm, integration, macos]
+summary: "How the integration suite tests agent-CLI installation without letting a vendor's release decide whether main is green. The every-push gate installs only pinned fixture bytes, one cell per install mechanism, and renders every shipped pack's config without installing it. Real vendor installs run in a separate pack x arch workflow on a manifest or image change and weekly, and in one job per pack on the macos-user nightly for darwin; every one hard-fails like any other job. Suite warmup is paid before any timed test."
 ---
 
 # Agent installs in CI — the pinned gate and the vendor-install workflow
 
 **Status:** verified 2026-09-23 against `7ad8358c`. MEASURED in CI on Linux: the
 Pack Installs workflow was green at `7ad8358c` (run 35820702398) and on its 2026-09-21 weekly
-schedule (run 35620029721). **Not measured on macOS:** the macOS nightly runs no vendor install.
-Its warmup, skipped there from 2026-08-23 to 2026-09-25, was MEASURED on the eight nightlies of
-2026-09-26 to 2026-09-29 and stays ([Suite warmup](#suite-warmup), [OQ-CI8](#oq-ci8)).
-[OQ-CI7](#oq-ci7) was ruled on 2026-10-05: the macos-user workflow is to run real vendor installs,
-one job per pack, and that is not built yet.
+schedule (run 35620029721). **Not measured on macOS yet:** [OQ-CI7](#oq-ci7), ruled on
+2026-10-05 and built the same day, gives the macos-user nightly one real vendor-install job per
+pack ([The darwin install job](#the-darwin-install-job)), and no scheduled run has reported since.
+The podman macOS nightly runs no vendor install. Its warmup, skipped there from 2026-08-23 to
+2026-09-25, was MEASURED on the eight nightlies of 2026-09-26 to 2026-09-29 and stays
+([Suite warmup](#suite-warmup), [OQ-CI8](#oq-ci8)).
 
 Installing an agent CLI is a real yolo feature, and it has broken for real. It is also the one
 part of the integration suite whose result can be decided by someone else: a vendor's release,
@@ -38,9 +41,11 @@ and it fails like any other job.
 | The two pinned install-mechanism cells | `integration/installmechanism_test.go` (`TestPinnedNpmProgramInstallsTheDeclaredVersion`, `TestInstallerProgramRunsThePacksOwnScript`) |
 | The per-pack matrix and its completeness check | `integration/agents_test.go` (`packMatrix`, `packCase`, `TestPackMatrixCoversEveryShippedProgram`) |
 | The network-free per-pack render test | `integration/agents_test.go` (`TestPackRendersConfigAndLauncher`) |
-| The real vendor-install tests | `integration/agents_test.go` (`TestPackInstallsVersionsAndConfigures`, `TestAgentToolsAvailable`) |
+| The real vendor-install tests | `integration/agents_test.go` (`TestPackInstallsVersionsAndConfigures`, `TestAgentToolsAvailable`, and the probe both backends share, `packInstallProbe` and `checkPackInstall`) |
+| The darwin vendor-install test | `integration/macosuserpackinstalls_test.go` (`TestMacosUserPackInstallsVersionsAndConfigures`) |
+| The two workflows' pack lists, checked against `packMatrix` | `integration/macosuserpackinstalls_test.go` (`TestPackInstallsWorkflowMirrorsPackMatrix`, `TestMacosUserPackInstallsWorkflowMirrorsPackMatrix`) |
 | The real-install gate and suite warmup | `integration/harness_test.go` (`requireRealPackInstalls`, `autoCaptureEnvForSuite`, `warmJail`, `warmupTimeout`) |
-| The vendor-install workflow | `.github/workflows/packs.yml` |
+| The vendor-install workflows | `.github/workflows/packs.yml` (Linux); the `install` job of `.github/workflows/macos-user.yml` (darwin) |
 | The local full run | the `Justfile` `test` recipe |
 | The launcher that performs an install | `internal/entrypoint` (the npm and installer launcher templates; `npmInstallSpec`) |
 
@@ -103,10 +108,10 @@ yolo's own and has no coverage question in it. The fix is attribution
 ## Invariants
 
 - **The every-push gate installs no shipped pack's program from its vendor.** Every test that
-  would do so calls `requireRealPackInstalls` first and skips, with a message naming the variable
-  that un-skips it, unless `YOLO_TEST_REAL_PACK_INSTALLS` is set. The skip is on *which question is
-  asked*, never a weakened assertion: the tests are the same tests, and they run on the triggers
-  that can cause them to fail.
+  would do so calls `requireRealPackInstalls` before it installs anything and skips, with a
+  message naming the variable that un-skips it, unless `YOLO_TEST_REAL_PACK_INSTALLS` is set.
+  The skip is on *which question is asked*, never a weakened assertion: the tests are the same
+  tests, and they run on the triggers that can cause them to fail.
 - **Every install the gate does perform is pinned.** The npm cell declares an exact version and
   asserts the installed version equals it, read from `node_modules`, where npm records what it
   installed, rather than from a `--version` flag, which is the package's business. The installer
@@ -118,13 +123,24 @@ yolo's own and has no coverage question in it. The fix is attribution
   `TestPackMatrixCoversEveryShippedProgram` enumerates the embedded packs and fails for any that
   declares an install contribution without a row. It runs under `-short`, so a forgotten row fails
   `just check-ci` and the `check-go` job, where packs are added, and not only a container run.
-  `.github/workflows/packs.yml`'s `pack:` list is a hand-maintained mirror of `packMatrix`. The
-  test's failure message names that file, and nothing checks the mirror itself.
+- **Each workflow's `pack:` list is a hand-maintained mirror of `packMatrix`, and a `-short` test
+  checks each one.** `TestPackInstallsWorkflowMirrorsPackMatrix` requires `packs.yml`'s list to
+  be `packMatrix`. `TestMacosUserPackInstallsWorkflowMirrorsPackMatrix` requires
+  `macos-user.yml`'s to be the `packMatrix` packs whose manifest `platforms` include
+  darwin/arm64, with every `via: npm` pack listed before the rest. Until 2026-10-05 nothing
+  checked `packs.yml`'s list.
+- **Every vendor-install cell selects its own subtest and no other.** Each level of a `go test
+  -run` pattern matches unanchored, so both workflows anchor theirs, and the two tests above fail a
+  pattern that selects another pack's subtest. Until 2026-10-05 `packs.yml`'s did not: its `pi`
+  pattern also matched `copilot`, so the pi cell installed copilot too.
 - **A vendor that cannot publish for an arch is skipped by a field on its row, not removed from
   the matrix.** `packCase.vendorSkipArch` and `vendorSkipReason` keep the pack's row present, so
-  the completeness check still sees it, while the per-arch subtest skips and states why.
-- **No vendor-install job is `continue-on-error`.** A red cell in Pack Installs is a real failure
-  with the vendor's name in the job name ([P4](#p4), [OQ-CI3](#oq-ci3)).
+  the completeness check still sees it, while the per-arch subtest skips and states why. The darwin
+  test reads the manifest's `platforms` instead, because `vendorSkipArch` records a Linux gap.
+- **No vendor-install job is `continue-on-error`, and every install matrix sets `fail-fast:
+  false`.** A red cell in Pack Installs or in the macos-user `install` job is a real failure with
+  the vendor's name in the job name ([P4](#p4), [OQ-CI3](#oq-ci3)). The two tests above check
+  both keys.
 - **Suite warmup is never fatal.** If it cannot launch, it reports the elapsed time and the error
   through `degraded` and every test still runs and reports its own diagnosis. A fatal warmup would
   turn one unexplained environment fault into a suite that says nothing at all.
@@ -212,7 +228,7 @@ row asks a question its trigger cannot cause:
 | :--- | :--- | :--- |
 | **Every push and PR** (`ci.yml`, the whole `./integration` package) | the two pinned mechanism cells, the per-pack render test, and every other container test. No vendor installs | A pure function of the repository ([P1](#p1)) |
 | **A push or PR touching `packs/**`, `flake.nix`, `flake.lock`, `internal/image/**` or `packs.yml`** | Pack Installs: every `packMatrix` pack's real install on both arches, plus the coexistence job | A manifest edit, or a change to which image a jail gets, is commit-caused and can break a real install. Without this trigger a manifest typo would reach main and surface a week later |
-| **Weekly schedule**, and manual dispatch | the same Pack Installs jobs | Vendor drift is not commit-caused, so it does not belong on the push path ([P4](#p4)) |
+| **A schedule**, and manual dispatch: Pack Installs weekly, `macos-user.yml` nightly | the same Pack Installs jobs on Linux, and on darwin the `install` job of `macos-user.yml`, one real install per pack ([The darwin install job](#the-darwin-install-job)) | Vendor drift is not commit-caused, so it does not belong on the push path ([P4](#p4)). darwin has no commit-caused trigger at all: `macos-user.yml` runs on no push, for its own cost reason and for [P1](#p1) |
 
 The path filter names what decides the image as well as the pack manifests, because a delivery
 change breaks every real install as surely as a manifest change does. When it filtered on
@@ -272,15 +288,49 @@ Both jobs set `YOLO_TEST_REAL_PACK_INSTALLS`. The workflow **verifies only**: it
 version and bumps nothing. The image-build steps duplicate `ci.yml`'s deliberately, because
 artifacts do not cross workflow runs. Change one, check the other.
 
+### The darwin install job
+
+`.github/workflows/macos-user.yml` has a second job, `install`, which is [OQ-CI7](#oq-ci7) as
+built. It installs the vendors' **darwin** builds, which no other job installs, under the
+macos-user backend on GitHub's hosted Apple Silicon runner.
+
+- **One job per pack, failing hard, beside the backend's own job.** `fail-fast: false`, no
+  `continue-on-error`, and no `needs:`, so a vendor's break neither masks another vendor nor hides
+  whether the backend itself works ([OQ-CI3](#oq-ci3)). Each job repeats the setup the backend's
+  job does: Nix, Go and the sandbox account. There is no image to load.
+- **The `via: npm` packs are listed first**, so they are queued first. That half is the one no
+  run had measured on a Mac ([`macos-user-provisioning.md`](macos-user-provisioning.md#what-each-imperative-config-key-delivers-here)).
+  The list is `packMatrix` less any pack whose manifest `platforms` exclude darwin/arm64.
+- **Each job runs one subtest of `TestMacosUserPackInstallsVersionsAndConfigures`.** The subtest
+  selects its pack in an isolated user config, launches a macos-user sandbox in a fresh workspace
+  under the shared root, and runs `packInstallProbe`, the same probe as the Linux cell: the
+  `--version` that installs the program, the stamp, the config marker and the project skills
+  dirs. It skips by the manifest's `platforms`, not `vendorSkipArch`, which records a Linux gap.
+- **Two variables, both on the step.** `YOLO_TEST_REAL_PACK_INSTALLS` un-skips the install, and
+  `YOLO_TEST_MACOS_USER` declares the job a macos-user one. The second turns a subtest that
+  skipped into a failed job, through the gate's vacuity check (`integration/macosusergate_test.go`),
+  instead of a green job that installed nothing. `YOLO_RUNTIME` stays unset, as in the backend's
+  job: the fixture selects the backend per launch.
+- **The backend's own job selects the same test** with `-run '^TestMacosUser'`. There its
+  subtests skip, since that step sets no `YOLO_TEST_REAL_PACK_INSTALLS`, and the gate's
+  end-of-run report lists them as skipped.
+
+What this job does not do: run the coexistence case, which stays Linux-only, or record a version,
+for the reason Pack Installs records none.
+
 ### The real-install gate
 
 `YOLO_TEST_REAL_PACK_INSTALLS` is the one switch between the two questions. It is set by the Pack
-Installs jobs and by `just test`, so a local full run keeps every test. It is unset in `ci.yml` and
-in the macOS nightly. The same variable decides `autoCaptureEnvForSuite`: when unset, every launch
+Installs jobs, by `macos-user.yml`'s `install` job and by `just test`, so a local full run keeps
+every test. It is unset in `ci.yml`, in the podman macOS nightly and in `macos-user.yml`'s
+backend job. The same variable decides `autoCaptureEnvForSuite`: when unset, every launch
 the suite makes carries `YOLO_NO_AUTO_CAPTURE=1`. Otherwise a launch selecting an installer pack
 would run that vendor's installer to populate the capture store first, a large third-party download
 on every push, through the side door. The capture store is shared with the machine even under the
-suite's isolated `HOME`, so the suite cannot assert that a given launch captured.
+suite's isolated `HOME`, so the suite cannot assert that a given launch captured. A macos-user
+launch never auto-captures, since `Run` returns through the macos-user branch before
+`runContainer` reaches the trigger (`internal/cli/run/autocapture.go`), so on darwin the
+installer packs' cells run the vendor's installer through the launcher itself.
 
 ### Suite warmup
 
@@ -357,10 +407,12 @@ are comparable.
 
 ### What runs on macOS
 
-The macOS nightly shards the whole `./integration` package but never sets
+The podman macOS nightly shards the whole `./integration` package but never sets
 `YOLO_TEST_REAL_PACK_INSTALLS`, so no vendor install runs there. The mechanism cells and the render
 test do run, so the podman-VM install path is exercised on macOS by the pinned fixtures only
-(INFERRED from the workflow's env; not observed in a run log for this stamp).
+(INFERRED from the workflow's env; not observed in a run log for this stamp). The vendors' darwin
+builds are installed by `macos-user.yml`'s `install` job instead
+([The darwin install job](#the-darwin-install-job)), built 2026-10-05 and not yet run.
 
 <a id="what-a-vendor-install-on-a-mac-costs"></a>**What a vendor install on a Mac would cost.** [OQ-CI7](#oq-ci7)'s
 options, stakes and leaning were drafted 2026-10-01, from the workflows at `d4e435a3` and the runs named
@@ -402,7 +454,7 @@ The options in full, with what each one pays:
 - ✅ <a id="oq-ci7"></a>**[`OQ-CI7`](#oq-ci7) — should the macOS nightly run any vendor agent
   install at all?**
 
-  Today it runs none, as above. Filed 2026-09-26; until then the question had no id. The three
+  When filed it ran none, as above. Filed 2026-09-26; until then the question had no id. The three
   facts that set the price, and what each option pays, are
   [above](#what-a-vendor-install-on-a-mac-costs).
 
@@ -422,7 +474,9 @@ The options in full, with what each one pays:
   > (the maintainer's answer: *"A"*). The macos-user workflow gets real vendor installs, one
   > job per pack, each failing hard as Pack Installs' cells do ([OQ-CI3](#oq-ci3)), the `via: npm`
   > packs first. The workflow keeps its schedule-and-dispatch triggers, so a vendor's darwin
-  > release turns a scheduled run red and no push waits on it. Not built yet.
+  > release turns a scheduled run red and no push waits on it. **Built 2026-10-05** as
+  > `macos-user.yml`'s `install` job ([The darwin install job](#the-darwin-install-job)); no
+  > scheduled run has reported yet.
 
 ## Traps
 
@@ -460,8 +514,9 @@ The options in full, with what each one pays:
 
 ## Current values
 
-Verified at `7ad8358c`. The prose above explains what each of these is for; this table is the only
-place the values themselves are stated.
+Verified at `7ad8358c`, and the rows naming `macos-user.yml` on 2026-10-05, when its `install`
+job was built. The prose above explains what each of these is for; this table is the only place the
+values themselves are stated.
 
 | Value | Setting | Defined in |
 | :--- | :--- | :--- |
@@ -480,7 +535,10 @@ place the values themselves are stated.
 | Pack Installs weekly schedule | `0 9 * * 1` (Monday 09:00 UTC) | `.github/workflows/packs.yml` |
 | Pack Installs path filter | `packs/**`, `flake.nix`, `flake.lock`, `internal/image/**`, `.github/workflows/packs.yml` | `.github/workflows/packs.yml` (listed twice, for `push` and `pull_request`) |
 | Pack Installs arches | `ubuntu-latest`, `ubuntu-24.04-arm` | `.github/workflows/packs.yml` |
-| Per-job timeout | 60 minutes | `.github/workflows/packs.yml` |
+| Per-job timeout | 60 minutes, in Pack Installs and in `macos-user.yml`'s `install` job | `.github/workflows/packs.yml`, `.github/workflows/macos-user.yml` |
+| darwin install schedule | `0 7 * * *` (daily 07:00 UTC), the whole workflow's | `.github/workflows/macos-user.yml` |
+| darwin install runner | `macos-latest`; the pack list is computed for `darwin/arm64` | `.github/workflows/macos-user.yml`; `macosUserInstallGOOS`, `macosUserInstallGOARCH`, `integration/macosuserpackinstalls_test.go` |
+| macos-user per-launch deadline | 30 minutes, override `YOLO_TEST_MACOS_USER_TIMEOUT` (integer seconds) | `macosUserTimeout`, `integration/macosusergate_test.go` |
 
 ## Why it's this way
 
@@ -501,5 +559,5 @@ Rulings a maintainer reading only the normative text would otherwise undo. [OQ-C
 | <a id="oq-ci4"></a>[**OQ-CI4**](#oq-ci4) — suite warmup runs in `TestMain`'s seam, outside any timed test; **no cap widening** | [Mode B](#mode-b) was a misattribution. On x64 (run 32419507352) the first test's two installs cost about ten times what the same two cost later in the run, and on the macOS nightly most of a blown 1200s cap was warmup. After the warmup landed (run 32597479510) it took 1m56s, moving that one-time cost into a line that belongs to no test, while the job's wall clock barely moved |
 | <a id="oq-ci5"></a>[**OQ-CI5**](#oq-ci5) — **no warm-prefix seeding** | Measured in run 32597479510: with vendor installs off the push path, the whole residual per-test install cost is the two pinned cells, about 18 seconds. A seeded prefix has nothing left to remove, and it would risk silently deleting the one cold install per mechanism |
 | <a id="oq-ci6"></a>[**OQ-CI6**](#oq-ci6) — the push gate uses **fixture packs**, and real packs get a **path-filtered trigger** | A fixture pins with shipped mechanisms only (a `file://` pack and a version in its `package` string), and lets the specimen be a small, fast package instead of a large agent CLI. The cost is that the gate no longer proves the shipped manifests install. The path-filtered and weekly triggers exist to cover exactly that |
-| [**OQ-CI7**](#oq-ci7) — real vendor installs run on the **macos-user workflow**, one hard-failing job per pack, the `via: npm` packs first. **Not built yet** (ruled 2026-10-05) | darwin is the one platform whose vendor builds no CI job installs, and the npm half has never been measured on a Mac. The podman nightly would re-install the linux-x64 bytes Pack Installs already installs, at its highest setup cost. The workflow runs on a schedule and by dispatch only, so [P1](#p1) still holds for the push gate, and one job per pack keeps one vendor's break from masking the others ([OQ-CI3](#oq-ci3)) |
+| [**OQ-CI7**](#oq-ci7) — real vendor installs run on the **macos-user workflow**, one hard-failing job per pack, the `via: npm` packs first. Ruled 2026-10-05 and **built** the same day ([The darwin install job](#the-darwin-install-job)); not yet run on a Mac | darwin is the one platform whose vendor builds no CI job installs, and the npm half has never been measured on a Mac. The podman nightly would re-install the linux-x64 bytes Pack Installs already installs, at its highest setup cost. The workflow runs on a schedule and by dispatch only, so [P1](#p1) still holds for the push gate, and one job per pack keeps one vendor's break from masking the others ([OQ-CI3](#oq-ci3)) |
 | <a id="oq-ci8"></a>[**OQ-CI8**](#oq-ci8) — the darwin warmup **stays**, and a warmup killed while building yolo's own binaries is **not** a reason to skip it again | The roadmap's rule was *keep it if the nightly's Mode B failures stop*, applied 2026-09-30 to the eight macOS nightlies since the skip went (runs 36237110678, 36315864178, 36425623325, 36461553752, 36470275574, 36476746916, 36521751485, 36566584474): no test timed out, and each shard's first container test fell back to its steady-state cost ([Suite warmup](#suite-warmup)). The second half is decided here, because the old reading rule would have misfired on the first degraded warmup: it keyed on `Fetching …` lines, and the `.#installPrefix` build prints those too. The skip had rested on a warmup that realised an image, so only that, a `Building the jail image with nix` line, is the evidence for bringing it back |

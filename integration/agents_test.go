@@ -134,7 +134,9 @@ func TestPackMatrixCoversEveryShippedProgram(t *testing.T) {
 			t.Errorf("pack %q declares a program but has no packMatrix row — every shipped "+
 				"pack that installs something must be covered, or the next one is dropped the "+
 				"way agy was. Add a row (pack, bin, versionArg, configRel, marker), and add the "+
-				"pack to .github/workflows/packs.yml's install matrix.", p.Name)
+				"pack to the install matrices of .github/workflows/packs.yml and "+
+				".github/workflows/macos-user.yml (TestPackInstallsWorkflowMirrorsPackMatrix and "+
+				"TestMacosUserPackInstallsWorkflowMirrorsPackMatrix check both).", p.Name)
 		}
 	}
 }
@@ -186,6 +188,10 @@ func TestPackRendersConfigAndLauncher(t *testing.T) {
 }
 
 func TestPackInstallsVersionsAndConfigures(t *testing.T) {
+	if t.Name() != packInstallsTest {
+		t.Fatalf("this test is named %s but packInstallsTest says %s, and packs.yml's "+
+			"install cells select it by that constant's value", t.Name(), packInstallsTest)
+	}
 	requireJail(t)
 	requireRealPackInstalls(t)
 	for _, tc := range packMatrix {
@@ -196,29 +202,54 @@ func TestPackInstallsVersionsAndConfigures(t *testing.T) {
 					tc.vendorSkipReason)
 			}
 			dir := writeProjectWithPacks(t, `{}`, tc.pack)
-			stamp := "$HOME/.cache/yolo-agent-stamps/" + tc.binary + ".stamp"
-			// A program declaring a PRE-LAUNCH REFRESH (packdecl.Refresh; pi's is
-			// `update --extensions`) has its launcher run the REAL vendor binary with that
-			// argv before the exec whenever the refresh's stamp is due — which on a fresh
-			// machine it is. AGENTS.md allows `--version` probes only, so the refresh's stamp
-			// is touched first, and the output is checked for the refresh's own line so a
-			// drifted stamp path fails here rather than quietly running the vendor's update.
-			refreshStamp := "$HOME/.cache/yolo-agent-stamps/refresh/" + tc.binary + ".stamp"
-			cmd := fmt.Sprintf(
-				"mkdir -p \"$(dirname %s)\" && touch %s && %s%s %s && test -f %s && grep -q '%s' \"$HOME/%s\"",
-				refreshStamp, refreshStamp, seedRefreshSeen(t, tc.pack, tc.binary), tc.binary, tc.versionArg, stamp, tc.marker, tc.configRel,
-			) + projectDirsProbe(t, tc.pack, tc.binary)
-			r := runYolo(t, dir, cmd)
-			if r.rc != 0 {
-				t.Fatalf("%s: install/version/config check failed: rc %d\nstdout: %s\nstderr: %s",
-					tc.pack, r.rc, r.stdout, r.stderr)
-			}
-			if strings.Contains(r.stdout+r.stderr, "Refreshing "+tc.binary+" (") {
-				t.Errorf("%s: the launcher ran the pack's pre-launch refresh before the "+
-					"--version probe; the pre-touched stamp at %s no longer throttles it:\n%s",
-					tc.pack, refreshStamp, r.stderr)
-			}
+			checkPackInstall(t, tc, runYolo(t, dir, packInstallProbe(t, tc)))
 		})
+	}
+}
+
+// packInstallProbe is the shell a real vendor-install cell runs inside the jail, and every
+// backend that runs one SHARES it: TestPackInstallsVersionsAndConfigures above (podman, the
+// Pack Installs workflow) and TestMacosUserPackInstallsVersionsAndConfigures (macos-user, the
+// macos-user nightly; docs/reference/agent-install-in-ci.md#oq-ci7). One function, so the
+// darwin cell asks exactly the question the Linux cell asks and the two cannot drift.
+//
+// `<bin> --version` exercises the lazy launcher's install path, the stamp proves the
+// post-install step ran, the marker grep proves the pack's surface rendered, and
+// projectDirsProbe greps the installed bundle for the project skills dirs the pack declares.
+func packInstallProbe(t *testing.T, tc packCase) string {
+	t.Helper()
+	stamp := "$HOME/.cache/yolo-agent-stamps/" + tc.binary + ".stamp"
+	// A program declaring a PRE-LAUNCH REFRESH (packdecl.Refresh; pi's is
+	// `update --extensions`) has its launcher run the REAL vendor binary with that
+	// argv before the exec whenever the refresh's stamp is due — which on a fresh
+	// machine it is. AGENTS.md allows `--version` probes only, so the refresh's stamp
+	// is touched first, and checkPackInstall looks for the refresh's own line so a
+	// drifted stamp path fails rather than quietly running the vendor's update.
+	refreshStamp := packRefreshStamp(tc)
+	return fmt.Sprintf(
+		"mkdir -p \"$(dirname %s)\" && touch %s && %s%s %s && test -f %s && grep -q '%s' \"$HOME/%s\"",
+		refreshStamp, refreshStamp, seedRefreshSeen(t, tc.pack, tc.binary), tc.binary, tc.versionArg, stamp, tc.marker, tc.configRel,
+	) + projectDirsProbe(t, tc.pack, tc.binary)
+}
+
+// packRefreshStamp is the pre-launch refresh's stamp packInstallProbe touches.
+func packRefreshStamp(tc packCase) string {
+	return "$HOME/.cache/yolo-agent-stamps/refresh/" + tc.binary + ".stamp"
+}
+
+// checkPackInstall is packInstallProbe's verdict, shared for the probe's reason: the probe must
+// exit 0, and the launcher must not have run the pack's pre-launch refresh, a vendor command
+// beyond `--version` that AGENTS.md's no-agent-tests rule forbids.
+func checkPackInstall(t *testing.T, tc packCase, r result) {
+	t.Helper()
+	if r.rc != 0 {
+		t.Fatalf("%s: install/version/config check failed: rc %d\nstdout: %s\nstderr: %s",
+			tc.pack, r.rc, r.stdout, r.stderr)
+	}
+	if strings.Contains(r.stdout+r.stderr, "Refreshing "+tc.binary+" (") {
+		t.Errorf("%s: the launcher ran the pack's pre-launch refresh before the "+
+			"--version probe; the pre-touched stamp at %s no longer throttles it:\n%s",
+			tc.pack, packRefreshStamp(tc), r.stderr)
 	}
 }
 
