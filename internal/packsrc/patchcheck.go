@@ -50,8 +50,17 @@ type PatchedWant struct {
 	Base string
 }
 
-// Inputs is what a check of w reads (CheckInputs), or why w cannot be checked at all.
+// Inputs is what a check of w reads (CheckInputs), or why w cannot be checked at all. An npm
+// source (npm.go) reads its package as the repository and its spec as the ref, with no follow rule
+// and no base: it carries no series, and the registry's answer for the spec is the whole list.
 func (w PatchedWant) Inputs() (CheckInputs, Addr, FollowRule, error) {
+	if IsNpmSource(w.Source) {
+		n, err := ParseNpm(w.Source)
+		if err != nil {
+			return CheckInputs{}, Addr{}, FollowRule{}, err
+		}
+		return CheckInputs{Repo: n.Repo(), Ref: n.Ref()}, Addr{}, FollowRule{}, nil
+	}
 	a, err := Parse(w.Source)
 	if err != nil {
 		return CheckInputs{}, Addr{}, FollowRule{}, err
@@ -148,7 +157,12 @@ func (s *Store) CheckPatched(w PatchedWant, opts CheckOptions) CheckResult {
 			return false, err
 		}
 		res.Ran = true
-		found := s.findCandidates(addr, follow, w.Base, opts.Force, now(), waiting)
+		var found CheckFound
+		if n, err := ParseNpm(w.Source); err == nil {
+			found = s.findNpmCandidates(n)
+		} else {
+			found = s.findCandidates(addr, follow, w.Base, opts.Force, now(), waiting)
+		}
 		r.Seq++
 		found.Seq, found.At = r.Seq, now().Unix()
 		r.Read, r.Check = in, &found
@@ -232,9 +246,14 @@ func (s *Store) findCandidates(a Addr, follow FollowRule, base string, force boo
 		return found
 	}
 	found.Tip = tip
-	if why := s.ensureBase(b, mirror, a, base, found.FetchErr); why != "" {
-		found.Problem = why
-		return found
+	// AN UNMODIFIED EXTENSION has no series, so no base to make present
+	// (docs/design/pi-extension-store-builds.md §4.2): its walk's list is every entry the follow
+	// rule names.
+	if base != "" {
+		if why := s.ensureBase(b, mirror, a, base, found.FetchErr); why != "" {
+			found.Problem = why
+			return found
+		}
 	}
 	switch kind {
 	case refTag:
@@ -252,13 +271,15 @@ func (s *Store) findCandidates(a Addr, follow FollowRule, base string, force boo
 		return found
 	}
 	found.RefKind = "branch"
-	on, err := s.isAncestor(mirror, base, tip)
-	if err != nil {
-		found.Problem = "could not ask " + a.Repo + "'s mirror whether " + name + " contains the series' " +
-			"base: " + oneLine(err)
-		return found
+	if base != "" {
+		on, err := s.isAncestor(mirror, base, tip)
+		if err != nil {
+			found.Problem = "could not ask " + a.Repo + "'s mirror whether " + name + " contains the series' " +
+				"base: " + oneLine(err)
+			return found
+		}
+		found.BaseOnBranch = on
 	}
-	found.BaseOnBranch = on
 	versions, err := s.versionsContaining(mirror, name, base, follow)
 	if err != nil {
 		found.Problem = "could not list " + a.Repo + "'s version tags: " + oneLine(err)
@@ -511,7 +532,9 @@ func (r *CheckRecord) Candidates(in CheckInputs) []ListEntry {
 	switch {
 	case good == nil:
 		return list
-	case r.Check.RefKind == "tag" || r.Check.RefKind == "commit":
+	case r.Check.RefKind == "tag" || r.Check.RefKind == "commit" || IsNpmRefKind(r.Check.RefKind):
+		// An npm list is the registry's one answer for the spec, which npm itself would install, so
+		// it is a candidate whenever it is not the good build: cut at the good build's version.
 		return BeforeGood(list, good)
 	case good.Read != nil && !sameFollowed(*good.Read, r.Read):
 		return BeforeGood(list, good)

@@ -77,7 +77,9 @@ func configRenderHost(agent, surface string, explain bool, out, errw io.Writer, 
 			"more than one owner, so nothing is rendered at the host.\n")
 		return 1
 	}
-	overlays := packoverlay.Collect(packs, render.ProfileFor(render.KindHost).AgentAutonomy,
+	// The fallbacks `yolo host apply` takes (hostTreeFallbacks), so the preview is the write's bytes.
+	listPacks, _ := hostTreeFallbacks(packs)
+	overlays := packoverlay.Collect(listPacks, render.ProfileFor(render.KindHost).AgentAutonomy,
 		overlayGateProfiles(render.KindHost, packs))
 	for _, prob := range overlays.Problems {
 		fmt.Fprintf(errw, "yolo config render: not folded — %s (`yolo host apply` refuses this)\n", prob)

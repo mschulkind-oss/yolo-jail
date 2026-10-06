@@ -141,8 +141,12 @@ type ListEntry struct {
 	Tip bool `json:"tip,omitempty"`
 }
 
-// Label is the entry as a line names it: its tag and short commit, or the short commit alone.
+// Label is the entry as a line names it: its tag and short commit, or the short commit alone; and
+// an npm version, which is its own tag (NpmListEntry), once.
 func (e ListEntry) Label() string {
+	if e.Tag != "" && e.Tag == e.Commit {
+		return e.Tag
+	}
 	if e.Tag != "" {
 		return e.Tag + " (" + shortCommit(e.Commit) + ")"
 	}
@@ -350,12 +354,31 @@ func CheckDue(r *CheckRecord, in CheckInputs, now time.Time, interval time.Durat
 		return true, "no check has finished on this machine"
 	case r.Read != in:
 		return true, "what it follows changed since the last check"
+	case r.Settled(in):
+		return false, ""
 	}
 	age := now.Sub(time.Unix(r.CheckedAt, 0))
 	if age < 0 || age >= interval {
 		return true, "the last check was over " + interval.String() + " ago"
 	}
 	return false, ""
+}
+
+// Settled reports whether r's last check of in resolved a revision that never moves, so no launch
+// checks it again (CheckDue): AN UNMODIFIED EXTENSION HELD AT A TAG, A COMMIT OR AN EXACT npm
+// VERSION is checked only until it first resolves (docs/design/pi-extension-store-builds.md
+// XB-D2), since a later check could only fetch (a patched fork never follows a re-pointed tag
+// either, PF-D4). A patched series always names a base, so this is never true of a patched fork's
+// or a patched extension's hourly check.
+func (r *CheckRecord) Settled(in CheckInputs) bool {
+	return r != nil && r.CheckedAt != 0 && r.Check != nil && r.Read == in && in.Base == "" &&
+		r.Check.Problem == "" && fixedRefKind(r.Check.RefKind)
+}
+
+// fixedRefKind reports whether a check's ref kind names one revision for good: a git tag or commit,
+// or an exact npm version.
+func fixedRefKind(kind string) bool {
+	return kind == "tag" || kind == "commit" || kind == RefKindNpmVersion
 }
 
 // NextCheck is when the next check falls due under the throttle, for a status line.

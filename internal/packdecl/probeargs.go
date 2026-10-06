@@ -11,8 +11,8 @@ import (
 // declaration that silently does nothing.
 //
 // A present-but-empty list is refused for platforms' reason (it declares a probe nothing can
-// match, where omitting the key is the stated way to have none), an empty or blank word because
-// the launcher compares it with the first argument and no invocation's first argument is one,
+// match, where omitting the key is the stated way to have none), an empty word or one holding
+// whitespace because the launcher compares it with the first argument whole, as one word,
 // and a duplicate because it can only be a typo for a second word.
 func probeArgsProblems(label string, c Contribution) []string {
 	if c.ProbeArgs == nil {
@@ -33,7 +33,7 @@ func probeArgsProblems(label string, c Contribution) []string {
 	for i, w := range c.ProbeArgs {
 		entry := fmt.Sprintf("%s[%d]", field, i)
 		switch {
-		case strings.TrimSpace(w) == "" || strings.TrimSpace(w) != w:
+		case strings.TrimSpace(w) == "" || strings.ContainsAny(w, " \t\r\n\x00"):
 			problems = append(problems, fmt.Sprintf("%s: %q is not a word — the launcher compares "+
 				"each entry with the invocation's first argument exactly, so it must be the "+
 				"argument as typed (e.g. \"--version\")", entry, w))

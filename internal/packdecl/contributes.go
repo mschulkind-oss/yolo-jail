@@ -110,6 +110,13 @@ type Contribution struct {
 	// Refused without `patches`: a plain fork's pin moves only by `yolo pack update` (FP-D18),
 	// and following an upstream is the patched mode's opt-in, not a dial on a plain fork.
 	Follow string `json:"follow,omitempty"`
+	// Fallback is an UNMODIFIED EXTENSION's raw list entry (docs/design/pi-extension-store-builds.md
+	// §4.3, XB-D7): the string the agent installs itself, in its own grammar (`npm:pi-web-access`,
+	// `git:github.com/o/r@<commit>`), which takes the place of the tree's list entry in this pack's
+	// own list contributions wherever a launch hands no tree — a notch that builds none, a build
+	// that failed with nothing serving. Optional, on a `files` contribution with `source` and no
+	// `patches` alone: the upstream unpatched is not what a series asks for.
+	Fallback string `json:"fallback,omitempty"`
 	// ForkedBy is NOT a manifest field, and no manifest can set it: the fork rewrite
 	// (packload.ApplyForks) sets it on the copy of the BASE's program it rewrites, naming the
 	// fork pack, so a reader of the base's program can say whose bytes it runs.
@@ -136,7 +143,7 @@ type Contribution struct {
 	// argv: there is nothing here for a later build to learn, so nothing can be skew.
 	Update []string `json:"update,omitempty"`
 	// Refresh is the program's PRE-LAUNCH REFRESH (a coined term — see the Refresh type):
-	// `"refresh": {"argv": ["update", "--extensions"], "lock": ".pi-shared-npm/.yolo-update.lock"}`
+	// `"refresh": {"argv": ["update", "--extensions"], "lock": ".pi/.yolo-update.lock"}`
 	// for pi. Read only on `program`, and refused on every other kind for `update`'s reason.
 	//
 	// DECLARED BY THE PACK, never keyed on a bin name in core: the launcher templates are
@@ -1211,6 +1218,10 @@ func (m *Manifest) InstallContributions() []Install {
 				DueOnChange: append([]string(nil), c.Refresh.DueOnChange...)}
 			if len(r.DueOnChange) == 0 {
 				r.DueOnChange = nil
+			}
+			if o := c.Refresh.OnlyIf; o != nil {
+				r.OnlyIf = &RefreshOnlyIf{Files: append([]string(nil), o.Files...),
+					ProjectFiles: append([]string(nil), o.ProjectFiles...), Contains: append([]string(nil), o.Contains...)}
 			}
 			in.Refresh = &r
 		}
@@ -3091,7 +3102,7 @@ func refreshProblems(field string, r *Refresh) []string {
 	}
 	if r.Lock == "" {
 		return append(problems, field+".lock: required — the home-relative lock directory, "+
-			"inside the store the refresh writes (e.g. \".pi-shared-npm/.yolo-update.lock\"); "+
+			"inside the store the refresh writes (e.g. \".pi/.yolo-update.lock\"); "+
 			"a refresh with no lock is two jails writing one store at once")
 	}
 	before := len(problems)
@@ -3108,13 +3119,46 @@ func refreshProblems(field string, r *Refresh) []string {
 	}
 	if !strings.HasPrefix(path.Base(clean), StoreBookkeepingPrefix) {
 		problems = append(problems, fmt.Sprintf(
-			"%s.lock: %q must be named %s<something> (e.g. \".pi-shared-npm/.yolo-update.lock\") — "+
+			"%s.lock: %q must be named %s<something> (e.g. \".pi/.yolo-update.lock\") — "+
 				"the lock lives inside the store, and only a name with that prefix is known to be "+
 				"yolo's bookkeeping rather than the tool's content; a store holding nothing but an "+
 				"unmarked lock reads as populated, and the shared_directory hook discards a "+
 				"workspace's real tree for it", field, r.Lock, StoreBookkeepingPrefix))
 	}
-	return append(problems, dueOnChangeProblems(field+".due_on_change", r.DueOnChange)...)
+	problems = append(problems, dueOnChangeProblems(field+".due_on_change", r.DueOnChange)...)
+	return append(problems, onlyIfProblems(field+".only_if", r.OnlyIf)...)
+}
+
+// onlyIfProblems validates a refresh's worth-running test (Refresh.OnlyIf): at least one file and
+// at least one string; each file a clean relative file path — home-relative, or relative to the
+// directory the program starts in — and each string non-empty and on one line.
+func onlyIfProblems(field string, o *RefreshOnlyIf) []string {
+	if o == nil {
+		return nil
+	}
+	var problems []string
+	if len(o.Files)+len(o.ProjectFiles) == 0 {
+		problems = append(problems, field+": names no file — list the home-relative \"files\" or the "+
+			"\"project_files\" (relative to where the program starts) whose content makes the refresh worth running")
+	}
+	for _, list := range []struct {
+		name  string
+		files []string
+	}{{"files", o.Files}, {"project_files", o.ProjectFiles}} {
+		if list.files != nil {
+			problems = append(problems, dueOnChangeProblems(field+"."+list.name, list.files)...)
+		}
+	}
+	if len(o.Contains) == 0 {
+		problems = append(problems, field+".contains: required — the fixed strings whose presence in a "+
+			"listed file makes the refresh worth running")
+	}
+	for i, s := range o.Contains {
+		if s == "" || strings.ContainsAny(s, "\r\n\x00") {
+			problems = append(problems, fmt.Sprintf("%s.contains[%d]: must be a non-empty string on one line", field, i))
+		}
+	}
+	return problems
 }
 
 // versionsDirProblems validates Contribution.VersionsDir. It is refused off a `program`
@@ -3622,6 +3666,7 @@ func validateContribution(label string, c Contribution) []string {
 	// fork_of, source, build and produces are a fork's alone (fork.go): refused on every other
 	// kind and every other via, in `update`'s position and for its reason.
 	problems = append(problems, forkFieldPlacementProblems(label, c)...)
+	problems = append(problems, fallbackPlacementProblems(label, c)...)
 	problems = append(problems, platformsProblems(label, c)...)
 	problems = append(problems, capabilitiesProblems(label, c)...)
 	problems = append(problems, protocolsProblems(label, c)...)
@@ -3814,10 +3859,11 @@ func validateContribution(label string, c Contribution) []string {
 		// — DefaultSkillsDir, and every *.md directly inside DefaultBriefingDir — so an omitted
 		// `from` there names the convention rather than nothing.
 		switch {
-		case c.IsPatchedExtension():
-			// A PATCHED EXTENSION (patchedext.go, docs/design/patched-extensions.md §4): `source` and
-			// `patches` in place of `from`, landing at the `into` it names.
-			problems = append(problems, patchedExtensionProblems(label, c)...)
+		case c.IsBuiltTree():
+			// A BUILT TREE (patchedext.go): a patched extension, `source` and `patches` in place of
+			// `from` (docs/design/patched-extensions.md §4), or an unmodified one, `source` alone
+			// (docs/design/pi-extension-store-builds.md §4.1), landing at the `into` it names.
+			problems = append(problems, builtTreeProblems(label, c)...)
 		case c.Agent != "":
 			if c.Into == "" && len(c.Agents) > 0 {
 				// `agent` beside `agents` validated before P5 (an audience made `into` optional
@@ -3859,7 +3905,7 @@ func validateContribution(label string, c Contribution) []string {
 		// (packload.ResolveDestinations borrows it from the pack that OWNS that agent), and
 		// naming both would be a content pack asserting a path it has no business knowing
 		// (docs/reference/agent-briefings.md#the-two-halves-and-why-neither-knows-the-others-business, #ba-p4). Naming NEITHER is the broadcast above.
-		if len(c.Agents) > 0 && c.Into != "" && !c.IsPatchedExtension() {
+		if len(c.Agents) > 0 && c.Into != "" && !c.IsBuiltTree() {
 			problems = append(problems, fmt.Sprintf(
 				"%s: kind %q takes \"into\" or \"agents\", not both — a contribution that "+
 					"names its audience has its destination inferred from the pack that owns "+

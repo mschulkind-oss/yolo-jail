@@ -625,15 +625,20 @@ value holding a NUL byte.
 `refresh` is the program's **pre-launch refresh**, a term coined for this field (2026-09-25).
 It is an object: `argv`, the program's own argv with the bin omitted, and `lock`, a
 home-relative lock directory whose parent is the store the refresh writes. Pi declares
-`{"argv": ["update", "--extensions"], "lock": ".pi-shared-npm/.yolo-update.lock"}`. The launcher
-runs it right before the exec, at most once an hour on a machine-global stamp, and only when
+`{"argv": ["update", "--extensions"], "lock": ".pi/.yolo-update.lock"}`, its workspace's own
+state. The launcher runs it right before the exec, at most once an hour, and only when
 `agent_updates` lets the pack move. When `agent_updates` gives the pack `"next-launch"`, the
 launcher instead starts the same refresh as a detached job and execs at once, so what it installs
 is the next launch's; a launch whose `due_on_change` content is new still refreshes first
-([OQ-PD31](../design/program-delivery.md#decision-ledger)). It is bounded by the same timeout as an update, reads
+([OQ-PD31](../design/program-delivery.md#decision-ledger)). The hourly stamp lives beside the lock, in
+`<store>/.yolo-refresh/<bin>.stamp`, so it throttles exactly the launches the lock excludes,
+which for pi are one workspace's
+([XB-D14](../design/pi-extension-store-builds.md#XB-D14); the stamp was machine-wide, in
+`~/.cache`, before 2026-10-05). It is bounded by the same timeout as an update, reads
 nothing from the terminal, writes its stdout to stderr, and runs only while it holds `lock`.
 `lock` is a non-blocking `mkdir`: a lock another jail holds skips the refresh, and so does a
-store that is missing or read-only. The holder touches the lock while it runs, so only a lock
+store that is missing or read-only, which the launch then says every time, the store being where
+the stamp would go. The holder touches the lock while it runs, so only a lock
 whose launcher died goes stale. Every outcome still launches the program. The lock serializes
 the refresh only, not writes the program makes to the store on its own. A refresh is not
 `update`: it leaves the binary alone, ignores the binary's pin, and `yolo pack update` does not
@@ -648,10 +653,13 @@ is the design.
 `due_on_change`, optional, lists home-relative **files** whose content makes the refresh due
 regardless of the hourly stamp: pi declares `[".pi/agent/settings.json"]`. The launcher keys the
 content of every listed file (an absent file counts as its own content) and keeps one marker per
-key beside the refresh stamp. A key no refresh has succeeded for is due. It is keyed on content,
-not mtime, because yolo rewrites a composed file on every boot; and markers are per key, not per
-workspace, so two workspaces with different settings each refresh once and then stop. A refresh
-that exits non-zero records nothing, so the change stays due. A lock another jail holds is still
+key beside the refresh stamp, in `<store>/.yolo-refresh/<bin>.seen/`, so with the lock's scope too.
+A key no refresh has succeeded for is due. It is keyed on content, not mtime, because yolo
+rewrites a composed file on every boot; and markers are per key, so two workspaces with different
+settings that share one store each refresh once and then stop. A refresh
+that exits non-zero records no marker, so the change stays due, but it records when it failed,
+`<key>.failed` beside the markers, and that content is due again only once the failure is an hour
+old ([XB-D26](../design/pi-extension-store-builds.md#XB-D26)). A lock another jail holds is still
 skipped, with one exception: a launch whose content has never been refreshed with waits for the
 holder, bounded by the update timeout, because running the program instead would let it install
 what that content names outside the lock. It exists for the first-install race of a
@@ -659,6 +667,14 @@ machine-shared store
 ([`pi-git-extension-caching.md` §3.12](../design/pi-git-extension-caching.md#312-the-refresh-trigger-that-stays)).
 `packdecl` refuses an empty list, an empty, absolute, escaping or unclean entry, and a
 duplicate.
+
+`only_if`, optional, says when the refresh is **worth running** at all
+([XB-D23](../design/pi-extension-store-builds.md#XB-D23)): `files` (home-relative) and
+`project_files` (relative to the directory the program starts in) and `contains`, fixed strings.
+The launcher skips the refresh, and the second program process it costs, unless a listed file holds
+one of the strings. Pi declares its user and project settings and the prefixes it installs itself
+from (`"npm:`, `"git:`, `"http://`, `"https://`, `"ssh://`), so a workspace whose every extension is
+a tree yolo built refreshes nothing. `packdecl` refuses an `only_if` with no file or no string.
 
 `probe_args` lists the first arguments that make an invocation a **version probe**, a term
 [XB-D24](../design/pi-extension-store-builds.md#XB-D24) coined for an invocation the program
@@ -669,7 +685,7 @@ refresh, no pre-launch refresh (so no wait for its lock), no authentication step
 no tree gate. A cold install still runs, because without it there is nothing to answer, and so does
 a fork's materialize. The probe is the pack's declaration and never a flag core guesses: pi answers
 `--help` only after it resolves and installs its packages, so pi's help is not a probe. `probe_args`
-is read on `program` alone. `packdecl` refuses an empty list, an empty or padded word, and a
+is read on `program` alone. `packdecl` refuses an empty list, an empty word or one holding whitespace, and a
 duplicate.
 
 `temp_caches` names directories where the program keeps **compiled code under its temporary
@@ -1338,7 +1354,12 @@ author's to move; nothing touches one.
 
 An opaque tree the pack owns outright, bind-mounted `:ro` at `into` in the jail. `from` is
 required and honored **on a contribution**: there is no conventional location for an opaque tree,
-so the declaration is the only thing that can name it. The source bound is the pack's **staged**
+so the declaration is the only thing that can name it. A **built tree** names an upstream `source`
+in place of `from`: a patched extension, with a `patches` series
+([`patched-extensions.md` §4](../design/patched-extensions.md#4-the-declaration)), or an unmodified
+extension, with none, from a git address or `npm:<name>[@<spec>]` and an optional `fallback`
+([`pi-extension-store-builds.md` §4.1](../design/pi-extension-store-builds.md#41-the-declaration)).
+yolo builds it on the host in a sealed capture jail and mounts a per-launch copy at `into`. The source bound is the pack's **staged**
 tree, so `packstage`'s escaping-symlink refusal has already run on it — `files` is not a
 channel around it.
 
@@ -1548,7 +1569,16 @@ declares `at`, that directory is not mounted and the link dangles. The hook repl
 that link, recognised by its target and never followed, with an empty real directory, so the
 tool repopulates its own copy per workspace. A real directory, a link to anything else, or an
 absent path are left alone, and the store the link pointed at is never touched. First used for
-pi's git checkouts ([`pi-git-extension-caching.md`](../design/pi-git-extension-caching.md)).
+pi's git checkouts ([`pi-git-extension-caching.md`](../design/pi-git-extension-caching.md)), and
+since 2026-10-05 for its npm prefix
+([XB-D14](../design/pi-extension-store-builds.md#XB-D14)), so no shipped pack declares
+`shared_directory` any more. A fresh launch on podman or Apple Container that finds a selected
+pack's old `at` still in the machine store, and neither a selected pack nor any shipped one
+sharing it, prints one line with the `rm -rf` that deletes it, once no jail an older yolo started
+still mounts it ([XB-D44](../design/pi-extension-store-builds.md#XB-D44)); a macos-user launch
+says nothing. Nothing deletes it for you, and the base-home sweep `yolo check` reports leaves a
+SHIPPED pack's old `at` alone; a configured pack's reads there as an unknown directory, as any
+directory no shipped pack declares does.
 
 The copy-if-empty branch is not a freshness rule — it is what makes a first login in a fresh
 install survive. There is deliberately no freshness comparison in any schema: a

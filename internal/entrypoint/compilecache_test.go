@@ -271,7 +271,7 @@ func TestTheCompileCachesComeAfterTheGateAndBeforeTheExec(t *testing.T) {
 // packs/pi drops `temp_caches`, the projection or the generator drops it, or the template stops
 // running the step.
 func TestShippedPiLauncherKeepsItsCompileCaches(t *testing.T) {
-	home, launcher, log := shippedPiLauncher(t)
+	launcher, home, log := shippedPiLauncher(t)
 	tmp := t.TempDir()
 	cmd := exec.Command(launcher, "--version")
 	cmd.Dir = home

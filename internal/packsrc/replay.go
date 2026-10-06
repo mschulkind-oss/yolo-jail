@@ -157,6 +157,9 @@ type WalkResult struct {
 // repo is the upstream's repository and subdir the source's subdirectory, for the patched tree.
 func (s *Store) WalkSeries(repo, subdir string, series *Series, list []ListEntry, opts WalkOptions) WalkResult {
 	res := WalkResult{Fit: -1}
+	if strings.HasPrefix(repo, NpmSourcePrefix) {
+		return walkNpm(list, opts)
+	}
 	timeout := opts.Timeout
 	if timeout <= 0 {
 		timeout = ReplayTimeout
@@ -191,11 +194,15 @@ func (s *Store) WalkSeries(repo, subdir string, series *Series, list []ListEntry
 		return res
 	}
 
-	// The base's files, into the mirror, then the series made into commits there.
-	s.prefetchBlobs(b, mirror, series.Base, "")
-	if err := s.missingBlobs(b, mirror, series.Base); err != nil {
-		res.Err = err
-		return res
+	// The base's files, into the mirror, then the series made into commits there. An EMPTY SERIES
+	// (an unmodified extension, EmptySeries) has no base and makes no commit: each entry's replay
+	// is its own tree, which every entry fits.
+	if series.Len() > 0 {
+		s.prefetchBlobs(b, mirror, series.Base, "")
+		if err := s.missingBlobs(b, mirror, series.Base); err != nil {
+			res.Err = err
+			return res
+		}
 	}
 	sc, err := newScratch(s.git(), mirror, b)
 	if err != nil {
@@ -203,14 +210,18 @@ func (s *Store) WalkSeries(repo, subdir string, series *Series, list []ListEntry
 		return res
 	}
 	defer sc.remove()
-	commits, baseErr, err := sc.applyAtBase(series, "")
-	switch {
-	case baseErr != nil:
-		res.Base = baseErr
-		return res
-	case err != nil:
-		res.Err = err
-		return res
+	var commits []string
+	if series.Len() > 0 {
+		var baseErr *SeriesBaseError
+		commits, baseErr, err = sc.applyAtBase(series, "")
+		switch {
+		case baseErr != nil:
+			res.Base = baseErr
+			return res
+		case err != nil:
+			res.Err = err
+			return res
+		}
 	}
 
 	for _, e := range list {
@@ -239,6 +250,33 @@ func (s *Store) WalkSeries(repo, subdir string, series *Series, list []ListEntry
 			}
 		}
 	}
+	return res
+}
+
+// walkNpm is the walk of an npm source's list (npm.go): there is no series to replay and no
+// repository to replay it in, so the list's first entry — the registry's answer for the spec — is
+// the fit, and OnFit is handed an empty directory, the checkout an npm tree's install starts from
+// (docs/design/pi-extension-store-builds.md §4.2).
+func walkNpm(list []ListEntry, opts WalkOptions) WalkResult {
+	res := WalkResult{Fit: -1}
+	if len(list) == 0 {
+		return res
+	}
+	r := ReplayResult{Entry: list[0], Clean: true}
+	if opts.OnFit != nil {
+		dir, err := os.MkdirTemp("", "yolo-npm-tree-")
+		if err == nil {
+			err = opts.OnFit(dir)
+			_ = os.RemoveAll(dir)
+		}
+		if err != nil {
+			r.Clean, r.Err = false, fmt.Errorf("copying the empty checkout: %w", err)
+			res.Results = append(res.Results, r)
+			return res
+		}
+	}
+	res.Results = append(res.Results, r)
+	res.Fit = 0
 	return res
 }
 

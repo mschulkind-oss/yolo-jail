@@ -65,8 +65,10 @@ func applyHostFiles(pr richtext.Printer, errw io.Writer, p *packload.Pack, packs
 		survey.note(tierRun, string(packdecl.KindFiles), r.Surface, r.Path, r.WouldChange)
 		// An UNCHANGED file is detail (report-tiers.md's tier 2): the verdict counts it, and
 		// --verbose lists it. A change prints, and so does a refusal, which no count states.
+		// A FALLBACK TAKEN prints too (pi-extension-store-builds.md XB-D7: "each fallback taken is
+		// said"): the agent installs an extension itself where yolo renders no tree.
 		tier := tierRun
-		if strings.HasPrefix(r.Action, "refused") {
+		if strings.HasPrefix(r.Action, "refused") || strings.HasPrefix(r.Action, hostFallbackAction) {
 			tier = tierLoss
 		}
 		reportDestination(pr, tier, r.WouldChange,

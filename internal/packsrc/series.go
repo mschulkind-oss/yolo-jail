@@ -307,6 +307,13 @@ func digestedBytes(data []byte) []byte {
 	return data
 }
 
+// EmptySeries is the series an UNMODIFIED EXTENSION carries (docs/design/pi-extension-store-builds.md
+// §4.2, XB-D1, XB-D4): no member, no base, no directory, and the digest of no files, which is a fixed
+// value no series ReadSeries returns can have (every one holds a member), so a patched and an
+// unmodified build of one commit never share a recipe. Its replay onto an entry is that entry's tree
+// (WalkSeries).
+func EmptySeries() *Series { return &Series{Digest: SeriesDigest(nil)} }
+
 // isCoverLetterName reports whether a series file is named as `git format-patch --cover-letter`
 // names its cover letter: 0000-cover-letter.patch, under -v<n> v<n>-0000-cover-letter.patch.
 func isCoverLetterName(name string) bool {

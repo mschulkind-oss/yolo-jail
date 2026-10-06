@@ -188,7 +188,7 @@ if [ "${YOLO_PACK_UPDATE:-}" = "1" ]; then
     echo "  $BIN: built from source by fork pack $FORKED_BY — "__YOLO_FORK_UPDATE_NOTE__ >&2
     exit 0
 fi
-
+` + treeGateShell + `
 # NO KEY, NO PROGRAM. The base's delivery is not a fallback, and an older build still in this
 # home is not this launch's: the pin it was built at is not the one the host asked for.
 if [ -z "$KEY" ]; then
@@ -225,7 +225,7 @@ if [ "$SERVERS_ENABLED" = "1" ] && [ "$_YOLO_PROBE" != "1" ]; then
     _refresh_servers
 fi
 ` + prelaunchRefreshCallShell + `
-` + agentEnvShellFn + agentAuthPrelaunchShellFn + treeGateShell + compileCacheShellFn + `
+` + agentEnvShellFn + agentAuthPrelaunchShellFn + compileCacheShellFn + `
 if [ -x "$REAL_BIN" ]; then
     _yolo_launch_argv "$@"
     exec __YOLO_EXEC_PREFIX__"$REAL_BIN" ${YOLO_ARGV[@]+"${YOLO_ARGV[@]}"}

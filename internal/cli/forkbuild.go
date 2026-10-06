@@ -110,7 +110,7 @@ func (b forkBuild) recipe() string {
 // alone (patchedBuildSource), since the ref is not part of a patched build's identity (§6.3) — a
 // hold moved from `?ref=main` to `?ref=v1.0.1` finds the build already there.
 func (b forkBuild) buildSource() string {
-	if b.Fork.Patched() {
+	if b.Fork.FollowsUpstream() {
 		return patchedBuildSource(b.Fork.Source)
 	}
 	return b.Fork.Source
@@ -126,10 +126,23 @@ func patchedBuildSource(source string) string { return packsrc.BuildSource(sourc
 // fork's key besides, so two forks of one upstream stage apart. The lock and the staging workspace
 // are keyed on it, so two builds of one key serialize and anything else does not.
 func (b forkBuild) id() string {
-	if b.Fork.Patched() {
+	if b.Fork.FollowsUpstream() {
 		return patchedBuildID(b.Fork.Key(), b.buildSource(), b.Commit, b.recipe(), b.Platform)
 	}
 	return buildID(b.buildSource(), b.Commit, b.recipe(), b.Platform)
+}
+
+// buildLine is the command line b's build jail runs: the fork's `build`, or for a built tree the
+// line its tree is built with (packload.Fork.Build) — for an npm tree, npm's own install of the
+// version this build is of (packdecl.NpmTreeInstall), which the recipe leaves out so one recipe
+// serves every version.
+func (b forkBuild) buildLine() string {
+	if b.Fork.IsTree() && b.Fork.Npm() {
+		if n, err := packsrc.ParseNpm(b.Fork.Source); err == nil {
+			return packdecl.NpmTreeInstall(n.Name, b.Commit)
+		}
+	}
+	return b.Fork.Build
 }
 
 // buildID is a build's id from its key's parts (forkBuild.id): source, revision, recipe, platform.
@@ -462,11 +475,21 @@ func buildForkUnderLock(b forkBuild, mode buildMode, store *capture.Store, pr ri
 		// A PATCHED FORK: the series replayed onto the commit on the host, in a scratch repository
 		// outside this workspace, and the patched subdirectory copied into src/ (§5.1).
 		if tree, err = replayIntoSource(mode.packs, b, src, mode.replaySpent); err != nil {
-			return nil, forkSourceError{fmt.Errorf("replaying the series onto %s: %w", b.Entry.Label(), err)}
+			what := "replaying the series onto"
+			if b.Series.Len() == 0 {
+				what = "checking out"
+			}
+			return nil, forkSourceError{fmt.Errorf("%s %s: %w", what, b.Entry.Label(), err)}
 		}
-		pr.Printf("[bold]build[/bold] [cyan]%s[/cyan]  [dim]%s at %s + %d %s (series %s), in a sealed jail[/dim]",
-			f.Key(), patchedBuildSource(f.Source), b.Entry.Label(), b.Series.Len(),
-			plural(b.Series.Len(), "patch", "patches"), b.Series.ShortDigest())
+		if b.Series.Len() == 0 {
+			// AN UNMODIFIED EXTENSION: the upstream as it is, with nothing replayed.
+			pr.Printf("[bold]build[/bold] [cyan]%s[/cyan]  [dim]%s at %s, in a sealed jail[/dim]",
+				f.Key(), patchedBuildSource(f.Source), b.Entry.Label())
+		} else {
+			pr.Printf("[bold]build[/bold] [cyan]%s[/cyan]  [dim]%s at %s + %d %s (series %s), in a sealed jail[/dim]",
+				f.Key(), patchedBuildSource(f.Source), b.Entry.Label(), b.Series.Len(),
+				plural(b.Series.Len(), "patch", "patches"), b.Series.ShortDigest())
+		}
 	} else {
 		if err := checkOutForkSource(f.Source, b.Commit, src); err != nil {
 			return nil, forkSourceError{fmt.Errorf("checking out %s at %s: %w", f.Source, shortSHA(b.Commit), err)}
@@ -793,8 +816,8 @@ func forkBuildJailArgv(build string) []string {
 // narrowed to the fork and its base (FP-D9) — or, for a PATCHED EXTENSION, to the contributing pack
 // alone (PPX-D5): its toolchain is the image's, so no agent pack has anything to add to it.
 func forkBuildRunJail(workspace string, b forkBuild, s captureStreams, color bool) int {
-	return runCaptureJail(workspace, b.Fork.Bin, buildJailArgv(b.Fork), &captureSeal{only: sealPacks(b.Fork), tree: sealTree(b.Fork)},
-		s, color)
+	return runCaptureJail(workspace, b.Fork.Bin, buildJailArgv(b.Fork, b.buildLine()),
+		&captureSeal{only: sealPacks(b.Fork), tree: sealTree(b.Fork)}, s, color)
 }
 
 // sealPacks are the packs a build jail's selection is narrowed to: a fork and its base, or a
@@ -823,12 +846,13 @@ func sealTree(f packload.Fork) string {
 	return ""
 }
 
-// buildJailArgv is f's build jail command: a fork's (forkBuildJailArgv) or a tree's (treeBuildJailArgv).
-func buildJailArgv(f packload.Fork) []string {
+// buildJailArgv is f's build jail command around build, its build line (forkBuild.buildLine): a
+// fork's (forkBuildJailArgv) or a tree's (treeBuildJailArgv).
+func buildJailArgv(f packload.Fork, build string) []string {
 	if f.IsTree() {
-		return treeBuildJailArgv(f.Build, f.Bin)
+		return treeBuildJailArgv(build, f.Bin)
 	}
-	return forkBuildJailArgv(f.Build)
+	return forkBuildJailArgv(build)
 }
 
 // treeBuildJailArgv is a PATCHED EXTENSION's build jail command (docs/design/patched-extensions.md

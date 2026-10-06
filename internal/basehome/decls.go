@@ -22,6 +22,11 @@ import (
 // PRESERVES it while reporting success. There is no compile error and no symptom.
 const hookSharedCredentials = "shared_credentials"
 
+// hookUnshareDirectory is the hook whose `at` names a machine-scope dir its pack once shared
+// and no longer does (Decls.RetiredSharedDirs). Spelled for hookSharedCredentials' reason, and
+// pinned against packdecl.KnownHooks the same way.
+const hookUnshareDirectory = "unshare_directory"
+
 // shadowedHomeDirs are the cache-ish home subtrees a jail shadows per workspace.
 //
 // They are NOT provisioned by EnsureGlobalStorage (a tool creates them on first use), so
@@ -72,6 +77,12 @@ func DeclsFromPacks(packs []*packload.Pack) Decls {
 			continue
 		}
 		for _, h := range p.Decl.HookContributions() {
+			if h.Name == hookUnshareDirectory && h.SharedDir != "" {
+				if rel, ok := HomeRel(h.SharedDir); ok {
+					d.RetiredSharedDirs = append(d.RetiredSharedDirs, rel)
+				}
+				continue
+			}
 			if h.Name != hookSharedCredentials || h.File == "" {
 				continue
 			}
@@ -107,6 +118,7 @@ func DeclsFromPacks(packs []*packload.Pack) Decls {
 	}
 
 	d.CredentialFiles = dedupe(d.CredentialFiles)
+	d.RetiredSharedDirs = dedupe(d.RetiredSharedDirs)
 	d.ConfigSurfaces = dedupe(d.ConfigSurfaces)
 	d.ContentDests = dedupe(d.ContentDests)
 

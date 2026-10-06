@@ -24,6 +24,11 @@ what a yolo can read. See [Follow an upstream with a patch series](userguide/gui
 `"agent_updates": { "pi": "next-launch" }` and the update runs while you work, for your next launch.
 See [Keep agents and packs up to date](userguide/guides/packs-and-skills.md#keep-agents-and-packs-up-to-date).
 
+**Pi extensions built once per machine.** A pack can name a pi extension from npm or git with no
+patches, and yolo builds it on the host and gives each new jail a read-only copy, so no jail's pi
+installs or changes it. A launch builds its extensions at the same time. See
+[Build a pi extension as it is](userguide/guides/patch-series.md#build-a-pi-extension-as-it-is).
+
 **Claude Code plugins and mods.** A new guide covers the ways to bring a Claude Code plugin or mod
 into a jail, and what each launch shows about the code it runs. See
 [Claude Code plugins and mods](userguide/guides/claude-plugins-and-mods.md).
@@ -41,11 +46,21 @@ give that script the variables it needs, such as where to install, with `install
 - On a Mac, and on Linux with no container runtime, `yolo host -- copilot` now runs the copilot on
   your PATH, as it does for Claude Code: on a Mac install it with `brew install --cask copilot-cli`;
   on Linux install Podman, and the next `yolo host -- copilot` installs it.
+- pi installs its extensions per project, so one jail's update no longer changes another's, and
+  each project's first pi launch installs them again. While the old shared extensions folder is
+  still there, a Podman or Apple Container launch names it and the command that deletes it.
 
 ### Fixed
 
 - Pi starts faster after a jail restart, and an agent's `--version` answers at once instead of
   updating the agent and its extensions first.
+- Piping an agent or pnpm, such as `claude -p … | jq`, no longer hands the log of its install or
+  hourly update to the next command.
+- pi's extension refresh now runs only when pi's settings name an extension pi installs itself,
+  and one that fails waits an hour before it is tried again.
+- When pi's extension refresh cannot lock its folder, it now says how to fix that.
+- Blocking `cat` with `security.blocked_tools` no longer stops pi's extension refresh, or leaves
+  its lock held.
 - When `yolo host` has no container runtime to capture an agent with, it now says to install one.
 - On a host whose `/bin/sh` is dash, such as Debian or Ubuntu, the Claude Code install command that
   `yolo check-deps` prints and `yolo host apply --assert` runs now installs it.

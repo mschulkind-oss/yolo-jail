@@ -1339,7 +1339,9 @@ _do_install() {
     echo "  Installing $SPEC..." >&2
     # Clean stale npm temp dirs that cause ENOTEMPTY
     rm -rf "$NPM_CONFIG_PREFIX"/lib/node_modules/${PKG%%/*}/.${PKG##*/}-* 2>/dev/null
-    if YOLO_BYPASS_SHIMS=1 npm install -g __YOLO_EXTRA__--prefer-online "$SPEC" 2>&1; then
+    # npm's whole log to STDERR, its own stdout included: this runs in front of the exec, so a
+    # piped launch ("$BIN -p … | consumer") must receive the program's output and nothing else.
+    if YOLO_BYPASS_SHIMS=1 npm install -g __YOLO_EXTRA__--prefer-online "$SPEC" >&2; then
         # Record what we ASKED for, and ONLY once npm agreed to it. It lets a later run tell
         # "the DECLARATION moved" from "the registry moved" with a local file read and no
         # network — the only question a pinned package still has to answer.
@@ -1508,11 +1510,11 @@ if [ "${YOLO_PACK_UPDATE:-}" = "1" ]; then
     fi
     exit "$_rc"
 fi
-
+` + treeGateShell + `
 if [ ! -x "$REAL_BIN" ]; then
     # Cold home: the FIRST install is not a poll, and the no-evergreen ruling does not
     # touch it. There is no version here to keep — without this branch a fresh jail would
-    # simply have no agent CLI at all.
+    # simply have no agent CLI at all. A version probe installs too: without it nothing answers.
     #
     # "|| true": on the LAUNCH path a failed install is not the verdict. The -x "$REAL_BIN"
     # test at the bottom is, because it answers the question this path actually has — is
@@ -1578,7 +1580,7 @@ if [ "$SERVERS_ENABLED" = "1" ] && [ "$_YOLO_PROBE" != "1" ]; then
     _refresh_servers
 fi
 ` + prelaunchRefreshCallShell + `
-` + agentEnvShellFn + agentAuthPrelaunchShellFn + modelMenuShellFn + treeGateShell + compileCacheShellFn + `
+` + agentEnvShellFn + agentAuthPrelaunchShellFn + modelMenuShellFn + compileCacheShellFn + `
 if [ -x "$REAL_BIN" ]; then
     _yolo_launch_argv "$@"
     [ "$_YOLO_PROBE" = "1" ] || _yolo_model_menu
@@ -1958,7 +1960,8 @@ _installer_body_kind() (
 # there, so the installer is started in a session of its own, which has no /dev/tty. A shell
 # cannot drop its terminal itself, so yolo does it (yolo internal no-terminal, internal/notty),
 # and forwards a Ctrl-C to the installer while it waits, then dies of it too, so this launcher
-# stops as it did when the installer shared its terminal. Output still reaches the terminal.
+# stops as it did when the installer shared its terminal. Output still reaches the terminal,
+# on stderr.
 #
 # ASKED FIRST, BECAUSE A yolo WITHOUT THE VERB IS POSSIBLE: none on PATH, or one older than
 # this launcher. The jail's own yolo is this build's, so the probe costs one exec on an install
@@ -2036,10 +2039,13 @@ _run_installer() {
         return 1
     fi
     local irc=0
+    # The installer's whole output to STDERR, as the npm template's install: a cold install runs
+    # in front of the exec, so a piped launch ("$BIN -p … | consumer") must receive the
+    # program's output and nothing else.
     if [ "$HAS_INSTALLER_ENV" = "1" ]; then
-        _run_without_terminal env "${INSTALLER_ENV[@]}" bash "$script" 2>&1 || irc=$?
+        _run_without_terminal env "${INSTALLER_ENV[@]}" bash "$script" >&2 || irc=$?
     else
-        _run_without_terminal bash "$script" 2>&1 || irc=$?
+        _run_without_terminal bash "$script" >&2 || irc=$?
     fi
     rm -f "$script"
     touch "$STAMP"
@@ -2203,11 +2209,11 @@ if [ "${YOLO_PACK_UPDATE:-}" = "1" ]; then
     fi
     exit "$_rc"
 fi
-
+` + treeGateShell + `
 if [ ! -x "$REAL_BIN" ]; then
     # Cold home: install, and do not let a failure be the verdict — the -x test at the
     # bottom is, because it answers the question this path actually has (is there something
-    # to exec?).
+    # to exec?). A version probe installs too: without it nothing answers.
     _do_install || true
 elif [ "$_YOLO_PROBE" != "1" ] && _update_due; then
     # Never for a VERSION PROBE (probeargs.go), which answers with what is installed.
@@ -2264,7 +2270,7 @@ if [ "$SERVERS_ENABLED" = "1" ] && [ "$_YOLO_PROBE" != "1" ]; then
 fi
 
 ` + prelaunchRefreshCallShell + `
-` + agentEnvShellFn + agentAuthPrelaunchShellFn + modelMenuShellFn + treeGateShell + compileCacheShellFn + `
+` + agentEnvShellFn + agentAuthPrelaunchShellFn + modelMenuShellFn + compileCacheShellFn + `
 if [ -x "$REAL_BIN" ]; then
     _yolo_launch_argv "$@"
     [ "$_YOLO_PROBE" = "1" ] || _yolo_model_menu
@@ -2329,7 +2335,9 @@ if [ ! -x "$REAL_BIN" ]; then
         # is still the -x test below, unchanged: this captures the status to decide whether
         # to RECORD, never whether to proceed.
         pm_rc=0
-        YOLO_BYPASS_SHIMS=1 npm install -g --prefer-online "$SPEC" 2>&1 || pm_rc=$?
+        # npm's whole log to STDERR, as the agent launcher's: a piped "$BIN … | consumer" must
+        # receive the program's output and nothing else.
+        YOLO_BYPASS_SHIMS=1 npm install -g --prefer-online "$SPEC" >&2 || pm_rc=$?
         if [ "$pm_rc" = 0 ]; then
             # No "resolved": reading the installed version means indexing node_modules by
             # package NAME, and this body deliberately carries only the spec (see above).

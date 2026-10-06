@@ -107,6 +107,12 @@ type Decls struct {
 	// NonPackDirs are the home-relative directories core provisions or owns. Only their
 	// TOP-LEVEL segment is used, and only by the unknown-top-level sweep.
 	NonPackDirs []string
+	// RetiredSharedDirs are machine-scope dirs a pack once shared and now unshares: the `at`
+	// of its unshare_directory hooks, such as pi's `.pi-shared-npm`. Used only by the
+	// unknown-top-level sweep, which neither walks nor reports them: a jail an older yolo
+	// launched can still have one mounted, so it is no move candidate, and the launch that
+	// finds one left is what says it can be deleted (run.noteRetiredSharedDirs).
+	RetiredSharedDirs []string
 	// SweepUnknownTopLevel enables §5.1's third root bullet: every other top-level
 	// directory under the home that is neither core's nor a declared dir — the
 	// retired/unknown-pack case.

@@ -20,7 +20,7 @@ import (
 func TestRefreshSurvivesDecodeAndProjection(t *testing.T) {
 	m, probs := Decode([]byte(`{"name":"x","contributes":[
 	  {"kind":"program","bin":"pi","via":"npm","package":"@earendil-works/pi-coding-agent",
-	   "refresh":{"argv":["update","--extensions"],"lock":".pi-shared-npm/.yolo-update.lock"}},
+	   "refresh":{"argv":["update","--extensions"],"lock":".pi/.yolo-update.lock"}},
 	  {"kind":"program","bin":"claude","via":"installer","url":"https://claude.ai/install.sh",
 	   "refresh":{"argv":["plugins","sync"],"lock":".claude-shared/.yolo-lock"}},
 	  {"kind":"program","bin":"copilot","via":"npm","package":"@github/copilot"}]}`))
@@ -35,7 +35,7 @@ func TestRefreshSurvivesDecodeAndProjection(t *testing.T) {
 	if pi == nil {
 		t.Fatal("pi's refresh did not survive the projection")
 	}
-	if strings.Join(pi.Argv, " ") != "update --extensions" || pi.Lock != ".pi-shared-npm/.yolo-update.lock" {
+	if strings.Join(pi.Argv, " ") != "update --extensions" || pi.Lock != ".pi/.yolo-update.lock" {
 		t.Errorf("pi's refresh arrived altered: %+v", *pi)
 	}
 	// BOTH vias: the refresh is what the program does to its add-ons, not how it arrived.
@@ -89,7 +89,7 @@ func TestRefreshRefusesMalformedShapes(t *testing.T) {
 		// The lock lives INSIDE the store, so its name must mark it as yolo's bookkeeping, or
 		// a store holding nothing but the lock reads as populated to the shared_directory
 		// hook, which then discards a workspace's real tree (sharedTreeIsEmpty).
-		{"unmarked lock name", `{"argv":["update"],"lock":".pi-shared-npm/update.lock"}`, "must be named .yolo-"},
+		{"unmarked lock name", `{"argv":["update"],"lock":".pi/update.lock"}`, "must be named .yolo-"},
 		{"marked store, unmarked lock", `{"argv":["update"],"lock":".yolo-store/lock"}`, "must be named .yolo-"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -169,6 +169,64 @@ func TestRefreshDueOnChangeRefusesMalformedLists(t *testing.T) {
 			_, probs := Decode([]byte(`{"name":"x","contributes":[
 			  {"kind":"program","bin":"t","via":"npm","package":"t",
 			   "refresh":{"argv":["u"],"lock":"s/.yolo-l","due_on_change":` + tc.due + `}}]}`))
+			if !strings.Contains(strings.Join(probs, "\n"), tc.want) {
+				t.Errorf("want a problem containing %q, got: %v", tc.want, probs)
+			}
+		})
+	}
+}
+
+// TestRefreshOnlyIfRefusesMalformedTests: each is a worth-running test (XB-D23) that could never
+// answer yes, or one the launcher's one-line `case` match cannot read as written. A good one
+// decodes cleanly, so the cells refuse for their own reason.
+func TestRefreshOnlyIfRefusesMalformedTests(t *testing.T) {
+	decode := func(onlyIf string) []string {
+		_, probs := Decode([]byte(`{"name":"x","contributes":[
+		  {"kind":"program","bin":"t","via":"npm","package":"t",
+		   "refresh":{"argv":["u"],"lock":"s/.yolo-l","only_if":` + onlyIf + `}}]}`))
+		return probs
+	}
+	if probs := decode(`{"files":[".t/settings.json"],"project_files":[".t/s.json"],"contains":["\"npm:"]}`); len(probs) != 0 {
+		t.Fatalf("a good only_if is refused: %v", probs)
+	}
+	for _, tc := range []struct{ name, onlyIf, want string }{
+		{"no file", `{"contains":["\"npm:"]}`, "only_if: names no file"},
+		{"empty file lists", `{"files":[],"project_files":[],"contains":["\"npm:"]}`, "only_if: names no file"},
+		{"an escaping file", `{"files":["a/../../x"],"contains":["\"npm:"]}`, `must not contain ".."`},
+		{"an absolute project file", `{"project_files":["/etc/x"],"contains":["\"npm:"]}`, "must be relative"},
+		{"no contains", `{"files":[".t/s.json"]}`, "only_if.contains: required"},
+		{"empty contains", `{"files":[".t/s.json"],"contains":[]}`, "only_if.contains: required"},
+		{"an empty string", `{"files":[".t/s.json"],"contains":["\"npm:",""]}`, "only_if.contains[1]: must be a non-empty string on one line"},
+		{"a multi-line string", `{"files":[".t/s.json"],"contains":["a\nb"]}`, "only_if.contains[0]: must be a non-empty string on one line"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if probs := decode(tc.onlyIf); !strings.Contains(strings.Join(probs, "\n"), tc.want) {
+				t.Errorf("want a problem containing %q, got: %v", tc.want, probs)
+			}
+		})
+	}
+}
+
+// TestProbeRefusesMalformedArguments: probe arguments (XB-D24, `probe_args`) are a program's alone, since only
+// a launcher reads them, and each is one word, since the launcher compares it to its first
+// argument whole. A good list decodes cleanly and survives the projection.
+func TestProbeRefusesMalformedArguments(t *testing.T) {
+	m, probs := Decode([]byte(`{"name":"x","contributes":[
+	  {"kind":"program","bin":"t","via":"npm","package":"t","probe_args":["--version","-v"]}]}`))
+	if len(probs) != 0 {
+		t.Fatalf("a good probe is refused: %v", probs)
+	}
+	if got := m.InstallContributions()[0].ProbeArgs; strings.Join(got, " ") != "--version -v" {
+		t.Errorf("the probe did not survive the projection: %q", got)
+	}
+	for _, tc := range []struct{ name, entry, want string }{
+		{"on a non-program", `{"kind":"requires","bin":"fzf","probe_args":["--version"]}`, `does not take "probe_args"`},
+		{"an empty list", `{"kind":"program","bin":"t","via":"npm","package":"t","probe_args":[]}`, "probe_args: an empty list makes nothing a version probe"},
+		{"an empty argument", `{"kind":"program","bin":"t","via":"npm","package":"t","probe_args":["--version",""]}`, "probe_args[1]"},
+		{"a spaced argument", `{"kind":"program","bin":"t","via":"npm","package":"t","probe_args":["--ver sion"]}`, "probe_args[0]"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			_, probs := Decode([]byte(`{"name":"x","contributes":[` + tc.entry + `]}`))
 			if !strings.Contains(strings.Join(probs, "\n"), tc.want) {
 				t.Errorf("want a problem containing %q, got: %v", tc.want, probs)
 			}

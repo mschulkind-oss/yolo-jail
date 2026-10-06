@@ -99,7 +99,7 @@ func forkBuildChildArgv(staging string, b forkBuild, color bool) []string {
 	}
 	// runForkBuildChild hands every child its jail's descriptors, fds 3 to 5.
 	argv = append(argv, forkBuildJailStreamsFlag)
-	return append(argv, "--", b.Fork.Build)
+	return append(argv, "--", b.buildLine())
 }
 
 // runForkBuildChild runs b's build jail as a child and returns its exit status, and whether it was

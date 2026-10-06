@@ -78,7 +78,7 @@ func newProbeHarness(t *testing.T, template string) *probeHarness {
 		mustWrite(t, filepath.Join(keyDir, "tool"), "k\n", 0o644)
 	}
 	mustMkdir(t, filepath.Dir(h.realBin))
-	mustMkdir(t, filepath.Join(home, ".pi-shared-npm"))
+	mustMkdir(t, filepath.Dir(filepath.Join(home, probeLockRel))) // the refresh's store
 	mustMkdir(t, h.fakeBin)
 	mustWrite(t, h.realBin, fakeRefreshProgram(h.progLog, filepath.Join(home, probeLockRel)), 0o755)
 	// `yolo internal no-terminal … -- CMD` runs CMD, as the real verb does once it has detached it;
@@ -411,7 +411,7 @@ func TestTheProbeIsBakedIntoEveryTemplate(t *testing.T) {
 // if packs/pi stops declaring the probe, InstallContributions stops carrying it, or the generator
 // stops splicing it.
 func TestShippedPiVersionProbeRunsNoUpdateStep(t *testing.T) {
-	home, launcher, log := shippedPiLauncher(t)
+	launcher, home, log := shippedPiLauncher(t)
 	body, err := os.ReadFile(launcher)
 	if err != nil {
 		t.Fatal(err)
@@ -470,43 +470,4 @@ func TestEveryShippedAgentDeclaresItsVersionProbe(t *testing.T) {
 	if n == 0 {
 		t.Fatal("the shipped packs install no program")
 	}
-}
-
-// shippedPiLauncher generates the launchers over the shipped packs, with a fake pi at pi's place
-// (pi's own update stamp fresh, its refresh due) and a fake node that logs "NODE" and its
-// NODE_COMPILE_CACHE to log before running pi. It returns the home, pi's launcher and the log.
-func shippedPiLauncher(t *testing.T) (home, launcher, log string) {
-	t.Helper()
-	if _, err := exec.LookPath("bash"); err != nil {
-		t.Skip("bash not found")
-	}
-	orig := imageProbeBase
-	imageProbeBase = t.TempDir()
-	t.Cleanup(func() { imageProbeBase = orig })
-	stubImageNode(t, "")
-	home = t.TempDir()
-	log = filepath.Join(home, "argv.log")
-	nodeStore := t.TempDir()
-	nodeBin := filepath.Join(nodeStore, "24.0.0", "bin")
-	mustMkdir(t, nodeBin)
-	mustWrite(t, filepath.Join(nodeBin, "node"), "#!/bin/bash\necho \"NODE\" >> "+shellQuoteForTest(log)+
-		"\nprintf '%s\\n' \"${NODE_COMPILE_CACHE:-}\" > "+shellQuoteForTest(log+".ncc")+"\nexec \"$@\"\n", 0o755)
-	oldStore := miseNodeStore
-	miseNodeStore = nodeStore
-	t.Cleanup(func() { miseNodeStore = oldStore })
-
-	e := NewEnv(map[string]string{"JAIL_HOME": home, "YOLO_PACK_ROOT": stageShippedPacks(t)})
-	e.Stderr = &bytes.Buffer{}
-	if err := GenerateAgentLaunchers(e); err != nil {
-		t.Fatalf("GenerateAgentLaunchers over the shipped packs: %v", err)
-	}
-	launcher = filepath.Join(e.LaunchDir(), "pi")
-	realBin := filepath.Join(home, ".npm-global", "bin", "pi")
-	stamps := filepath.Join(home, ".cache", "yolo-agent-stamps")
-	for _, d := range []string{filepath.Dir(realBin), filepath.Join(home, ".pi-shared-npm"), stamps} {
-		mustMkdir(t, d)
-	}
-	mustWrite(t, realBin, fakeRefreshProgram(log, filepath.Join(home, ".pi-shared-npm", ".yolo-update.lock")), 0o755)
-	mustWrite(t, filepath.Join(stamps, "pi.stamp"), "", 0o644)
-	return home, launcher, log
 }

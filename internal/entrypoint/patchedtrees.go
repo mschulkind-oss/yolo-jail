@@ -18,6 +18,8 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+
+	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 )
 
 // PatchedTreesEnv names the host's per-extension decisions in the jail environment: a JSON
@@ -71,11 +73,24 @@ func patchedTrees(e *Env) map[string]TreeDelivery {
 	}
 	var d map[string]TreeDelivery
 	if err := json.Unmarshal([]byte(raw), &d); err != nil {
-		e.warn(fmt.Sprintf("yolo-entrypoint: %s is not a patched-extension delivery this build reads (%v) — "+
+		e.warnOnce(fmt.Sprintf("yolo-entrypoint: %s is not a patched-extension delivery this build reads (%v) — "+
 			"no launcher is stopped for one", PatchedTreesEnv, err))
 		return nil
 	}
 	return d
+}
+
+// withTreeFallbacks is packs with every UNMODIFIED EXTENSION's fallback taken that the host handed
+// this jail no tree for (packload.ApplyTreeFallbacks; docs/design/pi-extension-store-builds.md XB-D7):
+// a key the wire names with no build, a key it does not name, or every key when there is no wire at
+// all — a notch that builds no tree (macos-user), or a launcher older than the wire (XB-D8: "an absent
+// wire means nothing was handed"). The surfaces' list contributions are collected from what it
+// returns, so the agent installs each such extension itself from its raw entry. The host's launch
+// says each one, with its reason, where it decided it.
+func withTreeFallbacks(e *Env, packs []*packload.Pack) []*packload.Pack {
+	wire := patchedTrees(e)
+	out, _ := packload.ApplyTreeFallbacks(packs, func(f packload.Fork) bool { return wire[f.Key()].Build != "" })
+	return out
 }
 
 // treeGateFor is the gate the launchers of pack carry: one line per patched extension that pack
@@ -106,10 +121,14 @@ func treeGateFor(d map[string]TreeDelivery, pack string) string {
 		"entry naming it to run without it."
 }
 
-// treeGateShell is the gate every agent launcher carries, immediately before its exec: the gate's
-// lines, baked by the generator from Install.Gate, and a stop when there are any. A version probe
-// (probeargs.go) passes it: the program answers before it loads any extension.
+// treeGateShell is the gate every agent launcher carries FIRST, right after its update mode's exit
+// and before any install, update or refresh (docs/design/pi-extension-store-builds.md XB-D25,
+// amending PPX-D24's "immediately before the exec"), so a launch the gate stops pays for nothing:
+// the gate's lines, baked by the generator from Install.Gate, and a stop when there are any. A
+// version probe (XB-D24) is not stopped: it loads no extension.
 const treeGateShell = `# --- a patched extension this agent loads, with no build (patched-extensions.md PPX-D18) ---
+# Checked FIRST (pi-extension-store-builds.md XB-D25): a launch this stops pays for no install,
+# update or refresh.
 TREE_GATE=__YOLO_TREE_GATE__
 [ "${_YOLO_PROBE:-}" != "1" ] || TREE_GATE=""
 if [ -n "$TREE_GATE" ]; then

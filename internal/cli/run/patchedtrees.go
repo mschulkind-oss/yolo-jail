@@ -116,7 +116,7 @@ func (d TreeDelivery) label() string {
 	if d.Dir == "" {
 		return ""
 	}
-	return goodLabelOf(d.Commit, d.Tag) + " + " + PatchCount(d.Patches)
+	return WithPatches(goodLabelOf(d.Commit, d.Tag), d.Patches)
 }
 
 // notePatchedTrees is every launch's block for its patched extensions, an attach's included, above
@@ -152,16 +152,23 @@ func (o *Options) notePatchedTrees(packs []*packload.Pack) []packload.Fork {
 	return jailDeliveredTrees(trees)
 }
 
-// patchedTreeLine is one patched extension's line in the launch's block, and whether it is a warning:
+// patchedTreeLine is one built tree's line in the launch's block, and whether it is a warning:
 // "extension <key>: ~/<into>, a patched extension of <source> + N patches (series S), at <good
-// build>", then the held suffix, or why nothing serves.
+// build>" — or "an unmodified extension of <source>" with no series — then the held suffix, or why
+// nothing serves.
 func patchedTreeLine(f packload.Fork) (string, bool) {
-	head := f.Label() + ": ~/" + strings.TrimSuffix(f.Into, "/") + ", a patched extension of " + f.Source
+	what := ", a patched extension of "
+	if f.Unmodified() {
+		what = ", an unmodified extension of "
+	}
+	head := f.Label() + ": ~/" + strings.TrimSuffix(f.Into, "/") + what + f.Source
 	series, err := f.ReadSeries()
 	if err != nil {
 		return head + " — its patch series cannot be read: " + err.Error(), true
 	}
-	head += " + " + PatchCount(series.Len()) + " (series " + series.ShortDigest() + ")"
+	if series.Len() > 0 {
+		head += " + " + PatchCount(series.Len()) + " (series " + series.ShortDigest() + ")"
+	}
 	if !f.DeliveredInJail() {
 		if !hostBuildsOwnTrees() {
 			// A MACOS HOST builds no tree for its own render, so the guarded entry reaches no notch that
@@ -181,13 +188,28 @@ func patchedTreeLine(f packload.Fork) (string, bool) {
 	line := head + ", at " + GoodBuildLabel(g)
 	recipe := packdecl.TreeSourceRecipe(f.Source, f.Build, f.Produces, series.Digest)
 	if g.Recipe != recipe {
-		return line + " with another series or build recipe — a fresh launch builds the edited one", true
+		what := "series or build recipe"
+		if f.Unmodified() {
+			what = "build recipe"
+		}
+		return line + " with another " + what + " — a fresh launch builds the edited one", true
 	}
 	in, _, _, _ := f.CheckWant(series).Inputs()
 	if why := HeldSuffix(f, rec, in, series.Digest, recipe); why != "" {
 		return line + "; " + why, true
 	}
 	return line, false
+}
+
+// inJailTreeReason is why a nested launch hands f no tree: its build is the host's. An unmodified
+// extension has no series to replay, so its reason names none (XB-D49).
+func inJailTreeReason(f packload.Fork) string {
+	if f.Unmodified() {
+		return f.Label() + " is an unmodified extension, whose upstream is checked and built on the host — " +
+			"a launch from the host delivers it"
+	}
+	return f.Label() + " is a patched extension, whose upstream is checked and whose series is replayed " +
+		"and built on the host — a launch from the host delivers it"
 }
 
 // treeDeliveriesFor is THE TREE ARM, in the fork-build slot beside the fork builds: for every
@@ -201,15 +223,14 @@ func (o *Options) treeDeliveriesFor(rt string) map[string]TreeDelivery {
 	defer o.recordHandedTrees(out)
 	if config.InJail() {
 		for _, f := range o.patchedTrees {
-			out[f.Key()] = TreeDelivery{Reason: f.Label() + " is a patched extension, whose upstream is checked and " +
-				"whose series is replayed and built on the host — a launch from the host delivers it"}
+			out[f.Key()] = TreeDelivery{Reason: inJailTreeReason(f)}
 		}
 		return out
 	}
 	floor := o.roBindsUnsupported(rt) // parity: Honored — below Apple Container's read-only floor the tree arm checks and builds nothing and still copies a good build already on this machine (patched-extensions.md §11)
 	if o.BuildTrees == nil {
 		for _, f := range o.patchedTrees {
-			out[f.Key()] = TreeDelivery{Reason: "this launch builds no patched extension"}
+			out[f.Key()] = TreeDelivery{Reason: "this launch builds no extension"}
 		}
 		return out
 	}
@@ -263,41 +284,72 @@ func (o *Options) patchedTreesWire(rt string) map[string]entrypoint.TreeDelivery
 			w.Build, w.Label = d.Entry, d.label()
 		} else {
 			w.Reason = d.Reason
-			w.Stop = builds && f.Owner != "" && f.ListedInJail
+			// A FALLBACK NEVER STOPS the agent (XB-D7): the jail's boot puts its raw entry in the
+			// list in the tree's place (entrypoint.withTreeFallbacks), and the agent installs it.
+			w.Stop = builds && f.Owner != "" && f.ListedInJail && f.Fallback == ""
 		}
 		out[f.Key()] = w
 	}
 	return out
 }
 
-// noteTreeDeliveries is the fresh launch's line for each patched extension it mounts nothing for at
-// a notch that builds none, said once (§9: "start pi with a line said once, in FP-D3's shape, naming
-// YOLO_RUNTIME=podman"); at every other notch the advance's own lines, and the owner's launcher, say it.
+// noteTreeDeliveries is the fresh launch's line for each built tree it mounts nothing for: at a notch
+// that builds none, said once (§9: "start pi with a line said once, in FP-D3's shape, naming
+// YOLO_RUNTIME=podman"); and, at every notch, each FALLBACK taken, with its reason and what the agent
+// installs in the tree's place (docs/design/pi-extension-store-builds.md XB-D7). Elsewhere the
+// advance's own lines, and the owner's launcher, say it.
 func (o *Options) noteTreeDeliveries(rt string) {
-	if o.treesBuildHere(rt) {
-		return
-	}
 	keys := make([]string, 0, len(o.treeDelivered))
 	for k := range o.treeDelivered {
 		keys = append(keys, k)
 	}
 	sort.Strings(keys)
+	fallbacks := map[string]string{}
+	for _, f := range o.patchedTrees {
+		fallbacks[f.Key()] = f.Fallback
+	}
+	builds := o.treesBuildHere(rt)
 	next := " A podman jail builds it: YOLO_RUNTIME=podman."
 	if config.InJail() {
 		next = "" // the reason names the host, which is the next step from inside a jail
 	}
 	for _, k := range keys {
-		if d := o.treeDelivered[k]; d.Dir == "" {
+		d := o.treeDelivered[k]
+		if d.Dir != "" {
+			continue
+		}
+		if fb := fallbacks[k]; fb != "" {
+			o.pr(o.Stderr).print("[dim]" + richtext.Escape(FallbackLine(k, d.Reason, fb)) + "[/dim]")
+			continue
+		}
+		if !builds {
 			o.pr(o.Stderr).print("[yellow]Warning: extension " + richtext.Escape(k) + " is not mounted in this jail[/yellow] — " +
 				richtext.Escape(d.Reason) + "; the agent starts without it." + next)
 		}
 	}
 }
 
+// FallbackLine is the line a launch prints for the fallback it took for extension key: why no tree
+// is mounted, and what the agent installs itself instead (XB-D7).
+func FallbackLine(key, reason, fallback string) string {
+	if reason == "" {
+		reason = "this launch hands it no tree"
+	}
+	return "extension " + key + ": no tree is mounted in this jail — " + strings.TrimSuffix(reason, ".") +
+		"; the agent installs " + fallback + " itself, in this workspace, from its raw entry"
+}
+
 // noteMacosUserTrees is the macos-user launch's line for each patched extension (§11, FP-D3's
 // shape): no sealed build runs on this backend, so the agent starts without it.
 func (o *Options) noteMacosUserTrees() {
 	for _, f := range o.patchedTrees {
+		if f.Fallback != "" {
+			// THE FALLBACK (XB-D7): with no wire on this backend the sandbox's boot takes it, so the
+			// agent installs the extension itself, as it does with no yolo in between.
+			o.pr(o.Stderr).print("[dim]" + richtext.Escape(FallbackLine(f.Key(), "its tree is built from source in a "+
+				"capture jail, which macos-user has none of", f.Fallback)) + "[/dim]")
+			continue
+		}
 		o.pr(o.Stderr).print("[yellow]Warning: " + richtext.Escape(f.Label()) + " is not delivered on macos-user[/yellow] — " +
 			"its tree is built from source in a capture jail, which this backend has none of; the agent starts " +
 			"without it. Run it on a container backend (YOLO_RUNTIME=podman).")
@@ -337,9 +389,9 @@ func (o *Options) noteAttachTreeBuilds(handed map[string]HandedTree) {
 			out.printf("[yellow]this jail mounts no build of extension %s: %s[/yellow]", k, richtext.Escape(h.Reason))
 			continue
 		}
-		line := "this jail mounts extension " + k + " at " + goodLabelOf(h.Commit, h.Tag) + " + " + PatchCount(h.Patches)
+		line := "this jail mounts extension " + k + " at " + WithPatches(goodLabelOf(h.Commit, h.Tag), h.Patches)
 		if rec, err := patchedPacksStore().LoadCheckRecord(k); err == nil && rec.Good != nil && rec.Good.Entry != h.Entry {
-			line += "; " + GoodBuildLabel(rec.Good) + " + " + PatchCount(rec.Good.Patches) + " is built, and the " +
+			line += "; " + WithPatches(GoodBuildLabel(rec.Good), rec.Good.Patches) + " is built, and the " +
 				"next fresh launch, once this jail stops, mounts it"
 		}
 		out.printf("[dim]%s[/dim]", richtext.Escape(line))

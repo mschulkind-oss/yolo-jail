@@ -111,7 +111,23 @@ type Fork struct {
 	// `config-list` reaches both, an autonomous posture list every jail, a guarded one the host
 	// alone (PPX-D12: the launchers stop only at a notch the entry reaches).
 	ListedInJail, ListedAtHost bool
+	// Fallback is an UNMODIFIED EXTENSION's raw list entry (docs/design/pi-extension-store-builds.md
+	// XB-D7), "" when it declares none and always for a patched one: what takes the tree's list entry's
+	// place in the contributing pack's lists wherever a launch hands no tree (ApplyTreeFallbacks).
+	Fallback string
 }
+
+// Unmodified reports whether f is an UNMODIFIED EXTENSION: a built tree with no series, the upstream
+// at one commit or version (XB-D1). Its series is the empty one (ReadSeries).
+func (f Fork) Unmodified() bool { return f.IsTree() && f.Patches == "" }
+
+// Npm reports whether f follows an npm package rather than a git repository (XB-D5).
+func (f Fork) Npm() bool { return packsrc.IsNpmSource(f.Source) }
+
+// FollowsUpstream reports whether f is checked and advanced against its upstream by the ratchet
+// (patched-forks.md PF-D8, patched-extensions.md PPX-D1): a patched fork, and every built tree,
+// patched or not. A plain fork's pin moves only by `yolo pack update` (FP-D18).
+func (f Fork) FollowsUpstream() bool { return f.Patched() || f.IsTree() }
 
 // Key is the fork's identity in the fork lock and everywhere a fork is named by one string:
 // "<fork pack>/<bin>" (FP-D7). A pack may fork several programs, each its own key. For a patched
@@ -122,8 +138,12 @@ func (f Fork) Key() string { return f.Pack + "/" + f.Bin }
 func (f Fork) Patched() bool { return f.Patches != "" }
 
 // ReadSeries reads a patched fork's series from its pack, once (packsrc.ReadSeries): every reader
-// of the series' bytes reads them through here and digests what it read.
+// of the series' bytes reads them through here and digests what it read. An UNMODIFIED EXTENSION's
+// is the empty series (packsrc.EmptySeries), which every entry of its upstream fits.
 func (f Fork) ReadSeries() (*packsrc.Series, error) {
+	if f.Unmodified() {
+		return packsrc.EmptySeries(), nil
+	}
 	if !f.Patched() {
 		return nil, fmt.Errorf("fork %s declares no patch series", f.Key())
 	}

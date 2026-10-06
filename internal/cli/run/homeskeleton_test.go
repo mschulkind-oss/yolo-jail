@@ -1027,6 +1027,8 @@ func TestOnlyTheListedFunctionsNameTheMachineStore(t *testing.T) {
 			"argv, and writes nothing",
 		"ensureSharedDirSources": "creates those SOURCES for the selected packs' machine-scope " +
 			"shared dirs, and nothing else; the snapshot below drives it",
+		"noteRetiredSharedDirs": "Lstats a retired shared dir to say it can be deleted, and " +
+			"writes nothing (TestALeftoverPiSharedNpmFolderIsNamedWithItsDelete)",
 	}
 	files, err := filepath.Glob("*.go")
 	if err != nil {

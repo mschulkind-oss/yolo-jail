@@ -246,7 +246,7 @@ func floorPatchedState(p hostfloor.Program) hostfloor.PatchedState {
 		return ps
 	}
 	ps.Good = &hostfloor.PatchedBuild{Commit: g.Commit, Recipe: g.Recipe,
-		Label: run.GoodBuildLabel(g) + " + " + run.PatchCount(g.Patches)}
+		Label: run.WithPatches(run.GoodBuildLabel(g), g.Patches)}
 	if e, _, err := resolvePatchedBuild(store, f.Key(), f.Bin, platform, patchedBuildSource(f.Source), g.Commit,
 		lookup); err == nil {
 		ps.Good.Entry = e

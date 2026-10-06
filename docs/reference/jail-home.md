@@ -649,11 +649,13 @@ file at that path, and a link would put the machine's refresh token back in fron
 The same mechanism for a whole subdirectory instead of one file, requested by a pack's
 `shared_directory` hook and applied by `Env.linkSharedDirectory`: the home-relative path the
 pack names becomes a relative symlink AT the machine-scope directory it declares, so every
-workspace on the machine reads and writes one store. `packs/pi` is the shipped case —
-`~/.pi/agent/npm` → `~/.pi-shared-npm`, pi's extension package store — and the reason is
-version drift rather than disk: N per-workspace copies leave one jail silently running a
-different extension version from its neighbour
-([`OQ-1`](../design/pi-extension-lifecycle.md#6-open-questions)).
+workspace on the machine reads and writes one store. No shipped pack declares it. `packs/pi`
+did, for `~/.pi/agent/npm` → `~/.pi-shared-npm`, its extension package store, from 2026-09-21
+([`OQ-1`](../design/pi-extension-lifecycle.md#6-open-questions)) until 2026-10-05, when one jail's
+refresh rewriting the prefix every pi jail loaded from ended it
+([XB-D14](../design/pi-extension-store-builds.md#XB-D14)): pi's `unshare_directory` hook now
+replaces the link with the workspace's own directory, and a fresh launch on a container backend
+that finds `~/.local/share/yolo-jail/home/.pi-shared-npm` still there says it can be deleted.
 
 Both hooks share ONE implementation of the decision table, because that table's ORDER is
 what a data-loss bug once got wrong. What the directory shape changes:

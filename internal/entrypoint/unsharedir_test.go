@@ -164,3 +164,31 @@ func TestShippedPiPackUnsharesItsGitDirectory(t *testing.T) {
 	RunPackHooks(e, []*packload.Pack{p})
 	requireEmptyRealDir(t, link)
 }
+
+// TestShippedPiPackUnsharesItsNpmDirectory is the npm twin, from XB-D14 of
+// docs/design/pi-extension-store-builds.md: pi's npm prefix is per workspace again, so the
+// shared prefix every workspace's ~/.pi/agent/npm linked into goes, and the link a home kept
+// from the shared_directory hook becomes an empty per-workspace directory that pi installs
+// into. It fails if the pack drops the declaration or goes back to sharing the directory.
+func TestShippedPiPackUnsharesItsNpmDirectory(t *testing.T) {
+	p, err := embeddedPack("pi")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var hook packdecl.Hook
+	for _, h := range p.Decl.HookContributions() {
+		if h.Name == HookUnshareDirectory && h.File == ".pi/agent/npm" {
+			hook = h
+		}
+		if h.Name == HookSharedDirectory && h.File == ".pi/agent/npm" {
+			t.Fatalf("packs/pi still shares .pi/agent/npm (%+v); XB-D14 rules that out", h)
+		}
+	}
+	if hook.Name == "" || hook.SharedDir != ".pi-shared-npm" {
+		t.Fatalf("packs/pi no longer unshares .pi/agent/npm from .pi-shared-npm (%+v)", hook)
+	}
+	e := &Env{Home: t.TempDir(), Workspace: t.TempDir(), Vars: map[string]string{}}
+	link := plantSharedLink(t, e, hook)
+	RunPackHooks(e, []*packload.Pack{p})
+	requireEmptyRealDir(t, link)
+}

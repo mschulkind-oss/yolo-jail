@@ -3,24 +3,26 @@ title: "Companion implementation sketch: one keyed build for every pi extension"
 date: 2026-10-05
 status: draft
 stage: SKETCH
-next: "Nothing to build from here yet; steps 1 and 2 need only a real plan against the tree (step 1's unsharing once XB-D14 is confirmed), and steps 3 and 4 wait on OQ-XB1 and OQ-6, as their own headings say"
+next: "Built 2026-10-05 but for the background advance (step 3, which waits on the refresh-timing option) and the patched forks' share of step 2; the design's ledger, XB-D35 to XB-D42, records how"
 ---
 
 # Companion implementation sketch: one keyed build for every pi extension
 
-**Status:** 2026-10-05 — incomplete. Steps 1 and 2 wait on no open question, except step 1's
-unsharing, which waits on the maintainer's confirmation of
-[XB-D14](pi-extension-store-builds.md#XB-D14); step 3 waits on
-[OQ-XB1](pi-extension-store-builds.md#OQ-XB1) and step 4 on
-[OQ-6](pi-git-extension-caching.md#OQ-6), so the sketch carries no `depends-on`, which would block it
-whole. It parks the implementation material of
+**Status:** 2026-10-05 — built but for two pieces, which the design's ledger names: step 1 whole
+([XB-D14](pi-extension-store-builds.md#XB-D14), [XB-D41](pi-extension-store-builds.md#XB-D41)),
+step 2 for extensions ([XB-D39](pi-extension-store-builds.md#XB-D39)), step 3 as a seam
+([XB-D42](pi-extension-store-builds.md#XB-D42)), and step 4, which
+[OQ-6](pi-git-extension-caching.md#OQ-6) (c) took ([XB-D35](pi-extension-store-builds.md#XB-D35) to
+[XB-D38](pi-extension-store-builds.md#XB-D38)). The sketch below is what it was built from. It parks the implementation material of
 [`pi-extension-store-builds.md`](pi-extension-store-builds.md), whose steps it follows; the design
 wins on behavior, and nobody builds from this sketch.
 
 ## Step 1: the launcher
 
 - **[XB-D14](pi-extension-store-builds.md#XB-D14), once confirmed, in one change: PG-D23 and the
-  stamp beside the lock.** PG-D23 is part of `3ab39946f` on `held/pi-extension-store`, mixed with the store.
+  stamp beside the lock.** Confirmed and BUILT 2026-10-05
+  ([XB-D29](pi-extension-store-builds.md#XB-D29)–[XB-D33](pi-extension-store-builds.md#XB-D33)
+  record how); the rest of this bullet is the sketch it was built from. PG-D23 is part of `3ab39946f` on `held/pi-extension-store`, mixed with the store.
   Take its npm half by hand: in `packs/pi/pack.json`, drop the `.pi-shared-npm` `state` and its
   `shared_directory` hook, add `{kind:"hook", hook:"unshare_directory", from:".pi/agent/npm",
   at:".pi-shared-npm"}`, and set `refresh.lock` to `.pi/.yolo-update.lock`. Check which hunks of its

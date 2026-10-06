@@ -38,7 +38,25 @@
         "due_on_change": [
           ".pi/agent/settings.json"
         ],
-        "lock": ".pi-shared-npm/.yolo-update.lock"
+        "lock": ".pi/.yolo-update.lock",
+        // Worth running only while a settings file names a package pi installs itself: the
+        // prefixes pi parses as a remote source (XB-D23). Not a bare "http, which pi's own
+        // keys match, and not "git@, which pi reads as a local path.
+        "only_if": {
+          "contains": [
+            "\"npm:",
+            "\"git:",
+            "\"http://",
+            "\"https://",
+            "\"ssh://"
+          ],
+          "files": [
+            ".pi/agent/settings.json"
+          ],
+          "project_files": [
+            ".pi/settings.json"
+          ]
+        }
       },
       // pi's extension loader caches what it compiles in <tmpdir>/jiti, which a jail restart
       // empties (XB-D52).
@@ -200,14 +218,8 @@
     },
     {
       "at": ".pi-shared-npm",
-      "because": "the extension package store, shared so every workspace on the machine runs one version of an extension instead of N that drift",
-      "kind": "state",
-      "scope": "machine"
-    },
-    {
-      "at": ".pi-shared-npm",
       "from": ".pi/agent/npm",
-      "hook": "shared_directory",
+      "hook": "unshare_directory",
       "kind": "hook"
     },
     {
