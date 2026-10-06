@@ -53,6 +53,21 @@ func TestTheMiseRowNamesItsReclaimerAndWhatItWouldDo(t *testing.T) {
 		t.Fatal("yolo stores removed a version; it must never mutate a store")
 	}
 
+	// A removal whose delete failed left a hidden directory: the row counts it and says what
+	// finishes it, and does not finish it itself.
+	leftover := filepath.Join(store, "installs", "node", ".yolo-reclaim-18.0.0.1")
+	writeFile(t, filepath.Join(leftover, "bin", "node"), 700)
+	row = storeByKey(t, Inventory(o), "state.mise")
+	if !strings.Contains(row.Note, "700 B is left by 1 interrupted removal(s)") {
+		t.Errorf("the row does not count what an interrupted removal left: %q", row.Note)
+	}
+	if _, err := os.Stat(leftover); err != nil {
+		t.Fatal("yolo stores finished a removal; it must never mutate a store")
+	}
+	if err := os.RemoveAll(leftover); err != nil {
+		t.Fatal(err)
+	}
+
 	o.IsMacOS = func() bool { return true }
 	row = storeByKey(t, Inventory(o), "state.mise")
 	if row.Reclaimer.Func != "" || !strings.Contains(row.Note, "container VM") {

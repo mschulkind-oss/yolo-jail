@@ -481,6 +481,10 @@ func miseRow(s *Store, o Options) {
 			"offers to remove them once they reach 1 GiB, and `yolo prune --apply` removes them now",
 			lower, prune.FmtBytes(sw.Bytes), len(sw.Candidates), int(prune.MiseVersionsWindow.Hours()/24))
 	}
+	if n := sw.Leftovers(); n > 0 {
+		s.Note += fmt.Sprintf("; and %s is left by %d interrupted removal(s), which the next "+
+			"removal finishes (`yolo prune --apply` now)", prune.FmtBytes(sw.LeftoverBytes), n)
+	}
 }
 
 // cacheStores inventories the shared cache, ONE ROW PER SUBDIR, because that is

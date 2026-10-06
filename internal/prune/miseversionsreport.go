@@ -32,23 +32,29 @@ func renderMiseVersions(p *printer, opts Options, store string, live runtime.Liv
 		return MiseSweep{}
 	}
 	s := FindUnusedMiseVersions(store, live, opts.Now(), miseWalkBudget)
+	if apply {
+		// Finishes an interrupted removal even when the records cannot answer (DF-D8).
+		s = PruneUnusedMiseVersionsGuarded(s, opts.Now(), nil)
+	}
 	switch {
 	case s.Declined != "":
-		p.line("  [bold red]FAILED — " + s.Declined + ", so nothing there was swept.[/bold red]")
+		p.line("  [bold red]FAILED — " + s.Declined + ", so no version there was swept.[/bold red]")
 		if s.Remedy != "" {
 			p.line("  [dim]to fix: " + s.Remedy + "[/dim]")
 		}
+		renderMiseLeftovers(p, s, apply)
 		return s
 	case s.Waiting != "":
 		p.line("  [dim]not yet — " + s.Waiting + "[/dim]")
+		renderMiseLeftovers(p, s, apply)
 		return s
-	}
-	if apply {
-		s = PruneUnusedMiseVersionsGuarded(s, opts.Now(), nil)
 	}
 	shown, bytes := s.Candidates, s.Bytes
 	if apply {
 		shown, bytes = s.Removed, s.RemovedBytes
+	}
+	if !apply {
+		defer renderMiseLeftovers(p, s, apply)
 	}
 	if len(shown) == 0 && len(s.Failed) == 0 {
 		p.line(fmt.Sprintf("  [dim]none — every one of the %d installed version(s) was used by a jail "+
@@ -77,6 +83,26 @@ func renderMiseVersions(p *printer, opts Options, store string, live runtime.Liv
 	return s
 }
 
+// renderMiseLeftovers says what an interrupted removal left: finished, when apply ran (where the
+// main list does not already show them), or waiting for --apply.
+func renderMiseLeftovers(p *printer, s MiseSweep, apply bool) {
+	if apply {
+		if s.Declined == "" && s.Waiting == "" {
+			return // in s.Removed, which the main list shows
+		}
+		for _, v := range s.Removed {
+			if v.leftover {
+				p.line(fmt.Sprintf("  finished an interrupted removal: %s  %s", v.Rel, FmtBytes(v.Bytes)))
+			}
+		}
+		return
+	}
+	if n := s.Leftovers(); n > 0 {
+		p.line(fmt.Sprintf("  [dim]plus %s left by %d interrupted removal(s), which `yolo prune --apply` "+
+			"finishes[/dim]", FmtBytes(s.LeftoverBytes), n))
+	}
+}
+
 // lastUsedPhrase says why a version is unused, in the record's own terms.
 func lastUsedPhrase(v MiseVersion) string {
 	if v.LastUsed.IsZero() {
@@ -88,7 +114,8 @@ func lastUsedPhrase(v MiseVersion) string {
 // miseVersionsCategory is the sweep's line in `yolo prune --format json`: what a dry run would
 // remove, or what an applied one did.
 func miseVersionsCategory(s MiseSweep, apply bool) ReportCategory {
-	c := ReportCategory{Name: "mise_versions", Bytes: s.Bytes, Count: len(s.Candidates), Unit: "versions"}
+	c := ReportCategory{Name: "mise_versions", Bytes: s.Bytes + s.LeftoverBytes,
+		Count: len(s.Candidates) + s.Leftovers(), Unit: "versions"}
 	if apply {
 		c.Bytes, c.Count = s.RemovedBytes, len(s.Removed)
 	}

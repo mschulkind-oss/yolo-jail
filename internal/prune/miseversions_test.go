@@ -404,3 +404,32 @@ func TestAWaitSaysWhatEndsIt(t *testing.T) {
 		t.Fatalf("a missing marker's wait names no next step: %q", s.Waiting)
 	}
 }
+
+// TestALeftoverIsSizedAndFinishedEvenWhenTheRecordsCannotAnswer: a leftover is out of mise's
+// sight and needs no judgement, so a sweep counts its bytes, and an applied one finishes it even
+// while the records decline or wait — otherwise one stuck record would keep it on disk unseen.
+func TestALeftoverIsSizedAndFinishedEvenWhenTheRecordsCannotAnswer(t *testing.T) {
+	leftover := "node/" + miseReclaimPrefix + "20.1.0.1"
+	f := newMiseFixture(t, "node/22.5.0")
+	f.install(leftover)
+	f.record("/home/u/code/a", f.now.Add(-time.Hour), "node/22.5.0")
+	if s := f.find(nothingRunning()); s.LeftoverBytes != 1000 || s.Leftovers() != 1 {
+		t.Fatalf("the sweep counts %d leftover(s) of %d B, want 1 of 1000 B", s.Leftovers(), s.LeftoverBytes)
+	}
+	s := PruneUnusedMiseVersions(f.store, runtime.LiveSet{Known: false}, true, f.now, time.Minute)
+	if s.Declined == "" {
+		t.Fatalf("want a decline, got %+v", s)
+	}
+	if f.present(leftover) || len(s.Removed) != 1 || s.RemovedBytes != 1000 {
+		t.Fatalf("declined: the leftover was not finished (present %v): %+v", f.present(leftover), s)
+	}
+	if !f.present("node/22.5.0") {
+		t.Fatal("a declined sweep removed a version")
+	}
+	g := newMiseFixture(t, "node/22.5.0")
+	g.install(leftover)
+	g.since(g.now.Add(-time.Hour))
+	if s := PruneUnusedMiseVersions(g.store, nothingRunning(), true, g.now, time.Minute); s.Waiting == "" || g.present(leftover) {
+		t.Fatalf("waiting: the leftover was not finished (present %v): %+v", g.present(leftover), s)
+	}
+}

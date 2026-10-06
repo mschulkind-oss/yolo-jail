@@ -152,3 +152,35 @@ func TestPruneJSONCarriesTheToolVersions(t *testing.T) {
 	}
 	t.Fatalf("no mise_versions category in %+v", rep.Categories)
 }
+
+// TestPruneReportsAndFinishesAnInterruptedRemoval: a dry run counts what an interrupted removal
+// left, and --apply finishes it and says so, even when the records decline.
+func TestPruneReportsAndFinishesAnInterruptedRemoval(t *testing.T) {
+	leftover := "node/" + miseReclaimPrefix + "18.0.0.1"
+	o, f := misePruneOpts(t)
+	f.install(leftover)
+	var buf bytes.Buffer
+	o.Out = &buf
+	if rc := Run(o); rc != 0 {
+		t.Fatalf("dry run rc=%d:\n%s", rc, buf.String())
+	}
+	if !strings.Contains(buf.String(), "plus 1000 B left by 1 interrupted removal(s), which `yolo prune --apply` finishes") {
+		t.Errorf("the dry run does not count the interrupted removal:\n%s", buf.String())
+	}
+
+	ws := t.TempDir()
+	o.Exec = stubExec(map[string]string{
+		k("podman", "ps", "-a", "--format", "{{.Names}} {{.State}}"): runtime.FromWorkspace(ws) + " running\n",
+	}, nil)
+	buf.Reset()
+	o.Apply = true
+	if rc := Run(o); rc == 0 {
+		t.Fatalf("a running jail with no record did not fail the command:\n%s", buf.String())
+	}
+	if !strings.Contains(buf.String(), "finished an interrupted removal: "+leftover) || f.present(leftover) {
+		t.Errorf("a declined --apply did not finish the interrupted removal (present %v):\n%s", f.present(leftover), buf.String())
+	}
+	if !f.present("node/20.1.0") {
+		t.Fatal("a declined sweep removed a version")
+	}
+}

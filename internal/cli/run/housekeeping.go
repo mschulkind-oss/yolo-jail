@@ -299,7 +299,9 @@ func fmtCachePurgeDetail(files int) string {
 // A PASS THAT CANNOT JUDGE records nothing to offer: a decline (the records
 // cannot answer) leaves the debounce unstamped so the next launch asks again, and
 // a pass that is still waiting for the record to cover a whole window is a
-// complete pass with nothing in it.
+// complete pass with nothing in it. Either way, on consent, it still FINISHES what
+// an interrupted removal left (DF-D8): that needs no judgement, and a pass with no
+// new candidate finishes it too, so a failed delete never waits for one.
 func (o *Options) measureAndPurgeMiseVersions(rt string, consent reclaimConsent, guard prune.Guard) {
 	if o.inJail() {
 		return
@@ -327,21 +329,21 @@ func (o *Options) measureAndPurgeMiseVersions(rt string, consent reclaimConsent,
 		nothing.Detail = "declined: " + sweep.Declined
 		RecordOfferMeasurement(miseVersionsClass, nothing)
 		o.housekeepingNote("tool versions: declined — %s", sweep.Declined)
-		return // not stamped: the next launch retries
+		// not stamped: the next launch retries
 	case sweep.Waiting != "":
 		nothing.Detail = sweep.Waiting
 		RecordOfferMeasurement(miseVersionsClass, nothing)
 		done()
-		return
+	default:
+		RecordOfferMeasurement(miseVersionsClass, offerMeasurement{
+			Bytes:   sweep.Bytes + sweep.LeftoverBytes,
+			Detail:  fmtMiseVersionsDetail(sweep.Candidates, sweep.Leftovers()),
+			When:    o.Now(),
+			Partial: sweep.Partial,
+		})
+		done()
 	}
-	RecordOfferMeasurement(miseVersionsClass, offerMeasurement{
-		Bytes:   sweep.Bytes,
-		Detail:  fmtMiseVersionsDetail(sweep.Candidates),
-		When:    o.Now(),
-		Partial: sweep.Partial,
-	})
-	done()
-	if !consent.has(miseVersionsClass) || len(sweep.Candidates) == 0 {
+	if !consent.has(miseVersionsClass) || (len(sweep.Candidates) == 0 && sweep.Leftovers() == 0) {
 		return
 	}
 	sweep = prune.PruneUnusedMiseVersionsGuarded(sweep, o.Now(), guard)
@@ -355,8 +357,9 @@ func (o *Options) measureAndPurgeMiseVersions(rt string, consent reclaimConsent,
 }
 
 // fmtMiseVersionsDetail names the largest few versions an offer covers, so a user
-// deciding sees which tools a yes would make them download again.
-func fmtMiseVersionsDetail(cands []prune.MiseVersion) string {
+// deciding sees which tools a yes would make them download again, and says when it
+// also covers what interrupted removals left.
+func fmtMiseVersionsDetail(cands []prune.MiseVersion, leftovers int) string {
 	const named = 3
 	parts := make([]string, 0, named+1)
 	for i, v := range cands {
@@ -370,7 +373,14 @@ func fmtMiseVersionsDetail(cands []prune.MiseVersion) string {
 	if len(cands) == 1 {
 		noun = "version"
 	}
-	return fmt.Sprintf("%d %s: %s", len(cands), noun, strings.Join(parts, ", "))
+	detail := fmt.Sprintf("%d %s", len(cands), noun)
+	if len(parts) > 0 {
+		detail += ": " + strings.Join(parts, ", ")
+	}
+	if leftovers > 0 {
+		detail += fmt.Sprintf(", and %d interrupted removal(s) to finish", leftovers)
+	}
+	return detail
 }
 
 // lockHousekeepingFn is the load path's half of OQ-BF5's lock: it hands

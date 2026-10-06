@@ -297,3 +297,45 @@ func TestTheLaunchStartsTheRecordsClockForTheStoreItBinds(t *testing.T) {
 			"(assign %d, sealed %d, mark %d)", assign, sealed, call)
 	}
 }
+
+// TestTheSlotFinishesAnInterruptedRemovalWithNothingElseToRemove: a removal whose delete failed
+// leaves the version renamed hidden (DF-D8), and "the next pass finishes it". The slot used to
+// return before the removal whenever there was no NEW candidate, so the leftover stayed until
+// one happened along. It finishes it on consent, with no candidate, and the offer counts it.
+func TestTheSlotFinishesAnInterruptedRemovalWithNothingElseToRemove(t *testing.T) {
+	setup := func(t *testing.T) (*Options, string) {
+		o, _ := miseSlotFixture(t)
+		store := paths.GlobalMise()
+		// Every installed version is in use, so the pass has no candidate.
+		if err := miseuse.Write(store, miseuse.NewName(), miseuse.Record{
+			Workspace: "/home/u/code/b", Recorded: o.Now().Add(-time.Hour), Installs: []string{"node/20.1.0"},
+		}); err != nil {
+			t.Fatal(err)
+		}
+		leftover := filepath.Join(store, "installs", "node", ".yolo-reclaim-18.0.0.1")
+		if err := os.MkdirAll(filepath.Join(leftover, "bin"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(leftover, "bin", "node"), make([]byte, 700), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		return o, leftover
+	}
+
+	o, leftover := setup(t)
+	o.measureAndPurgeMiseVersions("podman", reclaimConsent{}, nil)
+	if _, err := os.Stat(leftover); err != nil {
+		t.Fatal("the slot finished a removal without consent")
+	}
+	if m := LastOfferMeasurement(miseVersionsClass); m.Bytes != 700 || !strings.Contains(m.Detail, "interrupted") {
+		t.Errorf("the offer does not count the interrupted removal's bytes: %+v", m)
+	}
+
+	o, leftover = setup(t)
+	var c reclaimConsent
+	c.grant(miseVersionsClass, true)
+	o.measureAndPurgeMiseVersions("podman", c, nil)
+	if _, err := os.Stat(leftover); !os.IsNotExist(err) {
+		t.Fatalf("with consent and no candidate, the slot left the interrupted removal behind (%v)", err)
+	}
+}

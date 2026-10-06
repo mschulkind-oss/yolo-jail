@@ -54,7 +54,8 @@ import (
 const MiseVersionsWindow = miseuse.Window
 
 // miseReclaimPrefix names a version directory a removal has taken out of mise's sight but not yet
-// finished deleting: hidden, so mise no longer lists it, and finished by the next pass.
+// finished deleting: hidden, so mise no longer lists it, and finished by the next removal pass,
+// whatever the records say — it needs no judgement, since no mise can run it.
 const miseReclaimPrefix = ".yolo-reclaim-"
 
 // MiseVersion is one installed version directory of the shared tool store.
@@ -102,10 +103,17 @@ type MiseSweep struct {
 	RemovedBytes int64
 	// Failed is every candidate whose removal failed, with its Err.
 	Failed []MiseVersion
+	// LeftoverBytes is what the directories an interrupted removal left still hold: counted apart
+	// from Bytes, since they are no version's, and finished by the next removal; a lower bound
+	// when Partial.
+	LeftoverBytes int64
 	// leftovers are directories an interrupted removal left, which the next removal finishes.
 	leftovers []MiseVersion
 	live      runtime.LiveSet
 }
+
+// Leftovers is how many directories an interrupted removal left for the next removal to finish.
+func (s MiseSweep) Leftovers() int { return len(s.leftovers) }
 
 // FindUnusedMiseVersions judges the store at store (paths.GlobalMise() on the host): every version
 // no jail has used for the window, sized within budget. live is the runtime's running jails, and
@@ -128,7 +136,19 @@ func FindUnusedMiseVersions(store string, live runtime.LiveSet, now time.Time, b
 		s.Remedy = "check that " + store + "/installs is readable by you, then run `yolo prune` again"
 		return s
 	}
+	if budget <= 0 {
+		budget = 24 * time.Hour // unbounded, for a caller that asked for no budget
+	}
+	deadline := time.Now().Add(budget)
 	s.Installed, s.leftovers = len(versions), leftovers
+	// Sized before any decline or wait: a leftover needs no judgement, and a removal finishes it
+	// whatever the records say, so every report counts it.
+	for i := range s.leftovers {
+		if time.Now().After(deadline) || !sizeMiseVersion(root, &s.leftovers[i], deadline) {
+			s.Partial = true
+		}
+		s.LeftoverBytes += s.leftovers[i].Bytes
+	}
 	if len(versions) == 0 {
 		return s
 	}
@@ -161,10 +181,6 @@ func FindUnusedMiseVersions(store string, live runtime.LiveSet, now time.Time, b
 		s.Declined, s.Remedy = j.declined, j.remedy
 		return s
 	}
-	if budget <= 0 {
-		budget = 24 * time.Hour // unbounded, for a caller that asked for no budget
-	}
-	deadline := time.Now().Add(budget)
 	for _, v := range versions {
 		if _, used := j.inForce[v.Rel]; used {
 			continue
@@ -203,14 +219,15 @@ func PruneUnusedMiseVersions(store string, live runtime.LiveSet, apply bool, now
 // PruneUnusedMiseVersionsGuarded removes s's candidates, each under guard (guard.go), whose
 // recheck reads the records and the version's directory again right before the removal: a jail
 // that recorded the version since the pass judged it, or installed it again, keeps it. A nil
-// guard still rechecks, without a lock. A sweep that waited or declined removes nothing.
+// guard still rechecks, without a lock. A sweep that waited or declined removes no version.
 //
 // A removal first RENAMES the version out of mise's sight, then deletes it, so an interrupted or
 // failed delete leaves a hidden directory no mise lists rather than a half-deleted version mise
-// would run; the next pass finishes it. Alias links mise keeps beside the version ("22 ->
+// would run; the next call finishes it, before anything else and even when the sweep waited or
+// declined, since what no mise can run needs no judgement. Alias links mise keeps beside the version ("22 ->
 // ./22.20.0") go with it, since they would dangle.
 func PruneUnusedMiseVersionsGuarded(s MiseSweep, now time.Time, guard Guard) MiseSweep {
-	if s.Declined != "" || s.Waiting != "" || (len(s.Candidates) == 0 && len(s.leftovers) == 0) {
+	if len(s.Candidates) == 0 && len(s.leftovers) == 0 {
 		return s
 	}
 	if guard == nil {
@@ -236,7 +253,11 @@ func PruneUnusedMiseVersionsGuarded(s MiseSweep, now time.Time, guard Guard) Mis
 		guard.Do(func() bool { return true }, func() { rmErr = removeTreeBeneath(root, path.Join("installs", v.Rel)) })
 		if rmErr == nil {
 			s.Removed = append(s.Removed, v)
+			s.RemovedBytes += v.Bytes
 		}
+	}
+	if s.Declined != "" || s.Waiting != "" {
+		return s
 	}
 	for _, v := range s.Candidates {
 		var rmErr error

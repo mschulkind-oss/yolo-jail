@@ -1035,7 +1035,7 @@ func Run(opts Options) int {
 	}
 	totalSaved += miseSweep.RemovedBytes
 	if !apply {
-		totalSaved += miseSweep.Bytes
+		totalSaved += miseSweep.Bytes + miseSweep.LeftoverBytes
 	}
 
 	// --- Agent log purge (age-based) ---
