@@ -139,28 +139,7 @@ func TestPackagesEntryInstallsWhatNixBuildBuilds(t *testing.T) {
 	requireJail(t)
 	requireNix(t)
 
-	cases := []struct {
-		name  string
-		entry string
-		// farmBase is the attribute whose `lib.getLib` the /lib farm must link; "" skips it.
-		farmBase string
-		// farmRejected is the base of the reading OQ-1 ruled against; the farm must not
-		// link its `lib.getLib`.
-		farmRejected string
-		// rejected is that reading's installable, as Nix spells it; the image must not
-		// hold what it builds.
-		rejected string
-	}{
-		{name: "an output of a top-level package", entry: "gtk4.dev", farmBase: "gtk4"},
-		{name: "a collection member", entry: "rocmPackages.clr", farmBase: "rocmPackages.clr"},
-		{name: "an output of a collection member", entry: "rocmPackages.clr.icd",
-			farmBase: "rocmPackages.clr"},
-		{name: "a member whose name is also one of its parent's outputs",
-			entry:    "texlivePackages.abc.texsource",
-			farmBase: "texlivePackages.abc.texsource", farmRejected: "texlivePackages.abc",
-			rejected: "texlivePackages.abc^texsource"},
-		{name: "a quoted name", entry: `nerd-fonts."m+"`, farmBase: `nerd-fonts."m+"`},
-	}
+	cases := packageBuildFixtures
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			spec, err := json.Marshal([]string{c.entry})
@@ -215,21 +194,7 @@ func TestPackagesEntryNamingAPackageStillResolves(t *testing.T) {
 	requireJail(t)
 	requireNix(t)
 
-	cases := []struct {
-		name string
-		spec string
-	}{
-		// libX11 is the top-level attribute a user reaching for "xorg" wants.
-		{"plain name", `["libX11"]`},
-		// A dotted entry is an attribute path: an output, a member, a member's output.
-		{"an output", `["gtk4.dev"]`},
-		{"a collection member", `["rocmPackages.clr"]`},
-		{"a collection member's output", `["gst_all_1.gstreamer.dev"]`},
-		{"object form with outputs", `[{"name":"gtk4","outputs":["out","dev"]}]`},
-		// The spelling the macos-user refusal tells a user to write, for a member.
-		{"object form naming a member", `[{"name":"rocmPackages.clr","platforms":["linux"]}]`},
-		{"no packages at all", `[]`},
-	}
+	cases := packageResolveFixtures
 
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -245,6 +210,73 @@ func TestPackagesEntryNamingAPackageStillResolves(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// Shared with the architecture regression: it evaluates the same valid entries
+// as the image, library-farm, and Nix build comparison tests. Collection members
+// must work on both Linux architectures; ROCm's clr depends on x86_64-only LLVM.
+var packageBuildFixtures = []struct {
+	name  string
+	entry string
+	// farmBase is the attribute whose `lib.getLib` the /lib farm must link; "" skips it.
+	farmBase string
+	// farmRejected is the base of the reading OQ-1 ruled against; the farm must not
+	// link its `lib.getLib`.
+	farmRejected string
+	// rejected is that reading's installable, as Nix spells it; the image must not
+	// hold what it builds.
+	rejected string
+}{
+	{name: "an output of a top-level package", entry: "gtk4.dev", farmBase: "gtk4"},
+	{name: "a collection member", entry: "gst_all_1.gstreamer", farmBase: "gst_all_1.gstreamer"},
+	{name: "an output of a collection member", entry: "gst_all_1.gstreamer.dev",
+		farmBase: "gst_all_1.gstreamer"},
+	{name: "a member whose name is also one of its parent's outputs",
+		entry:    "texlivePackages.abc.texsource",
+		farmBase: "texlivePackages.abc.texsource", farmRejected: "texlivePackages.abc",
+		rejected: "texlivePackages.abc^texsource"},
+	{name: "a quoted name", entry: `nerd-fonts."m+"`, farmBase: `nerd-fonts."m+"`},
+}
+
+var packageResolveFixtures = []struct {
+	name string
+	spec string
+}{
+	// libX11 is the top-level attribute a user reaching for "xorg" wants.
+	{"plain name", `["libX11"]`},
+	// A dotted entry is an attribute path: an output, a member, a member's output.
+	{"an output", `["gtk4.dev"]`},
+	{"a collection member", `["gst_all_1.gstreamer"]`},
+	{"a collection member's output", `["gst_all_1.gstreamer.dev"]`},
+	{"object form with outputs", `[{"name":"gtk4","outputs":["out","dev"]}]`},
+	// The spelling the macos-user refusal tells a user to write, for a member.
+	{"object form naming a member", `[{"name":"gst_all_1.gstreamer","platforms":["linux"]}]`},
+	{"no packages at all", `[]`},
+}
+
+// Fixture availability is an assertion, not a reason to skip an architecture.
+// ROCm's clr worked locally on x86_64 but made the ARM64 resolution tests fail.
+func TestPackageResolutionFixturesSupportBothLinuxArchitectures(t *testing.T) {
+	requireJail(t)
+	requireNix(t)
+	cases := append([]struct{ name, spec string }{}, packageResolveFixtures...)
+	for _, c := range packageBuildFixtures {
+		spec, err := json.Marshal([]string{c.entry})
+		if err != nil {
+			t.Fatal(err)
+		}
+		cases = append(cases, struct{ name, spec string }{"build oracle: " + c.name, string(spec)})
+	}
+	for _, system := range []string{"x86_64-linux", "aarch64-linux"} {
+		for _, c := range cases {
+			t.Run(system+"/"+c.name, func(t *testing.T) {
+				_, stderr, err := nixEvalDrvPathForSystem(t, system, "imageClosureRoot", c.spec, "NIXPKGS_ALLOW_UNSUPPORTED_SYSTEM=")
+				if err != nil {
+					t.Fatalf("fixture packages=%s does not resolve on %s: %v\n%s", c.spec, system, err, stderr)
+				}
+			})
+		}
 	}
 }
 
@@ -430,6 +462,11 @@ func nixGetLib(t *testing.T, attrPath string) string {
 // the guard's abort and the warn-and-skip notice these tests assert on.
 func nixEvalDrvPath(t *testing.T, attr, spec string, env ...string) (string, string, error) {
 	t.Helper()
+	return nixEvalDrvPathForSystem(t, nixSystem(), attr, spec, env...)
+}
+
+func nixEvalDrvPathForSystem(t *testing.T, system, attr, spec string, env ...string) (string, string, error) {
+	t.Helper()
 	if repoRoot == "" {
 		t.Skip("module root unresolved")
 	}
@@ -438,7 +475,7 @@ func nixEvalDrvPath(t *testing.T, attr, spec string, env ...string) (string, str
 	cmd := exec.CommandContext(ctx, "nix",
 		"--extra-experimental-features", "nix-command flakes",
 		"eval", "--impure", "--raw",
-		fmt.Sprintf(".#packages.%s.%s.drvPath", nixSystem(), attr))
+		fmt.Sprintf(".#packages.%s.%s.drvPath", system, attr))
 	cmd.Dir = repoRoot
 	cmd.Env = append(append(cmd.Environ(), "YOLO_EXTRA_PACKAGES="+spec), env...)
 	var stderr strings.Builder
