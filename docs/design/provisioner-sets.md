@@ -299,11 +299,14 @@ fall out of are in [`provisioner-evidence.md`](provisioner-evidence.md#11-five-f
   silently. It is P3's failure mode exactly. ✅ **The reachability half is FIXED 2026-09-13**
   (`13dd68c4`): `macosuser.SandboxPath` now appends the staged-yolo directory, derived from
   `StagedYoloPath`, so `yolo` resolves in both functions. READ FROM CODE: the server refresh can now
-  run there; `_try_materialize` still returns early, because nothing emits a capture-store path on
-  that backend. That is [`install-capture.md`](../plans/install-capture.md#hand-offs--what-is-not-wired-and-the-exact-line-that-wires-it)'s
-  hand-off H4, which needs a ruling on what the sandbox may read, and it is not a silent defect
-  ([§9](#9-what-i-would-build-in-order) step 1). ⚠ This line used to say "structural until H2";
-  H2, the relocation rewrite, landed 2026-09-26 and did not change it.
+  run there. ✅ **The materialize half is FIXED 2026-10-05**:
+  [`install-capture.md`](../plans/install-capture.md#hand-offs--what-is-not-wired-and-the-exact-line-that-wires-it)'s
+  hand-off H4 landed as (b), a root-owned copy of each selected program's store entry under the
+  backend's state dir, which the bootstrap bakes into every launcher, so `_try_materialize` reaches
+  `capture-materialize` ([§9](#9-what-i-would-build-in-order) step 1). That answer is an
+  implementation decision under the maintainer's 2026-10-04 delegation, reversible. NOT MEASURED on
+  a Mac. ⚠ This line used to say "structural until H2"; H2, the relocation rewrite, landed
+  2026-09-26 and did not change it; H4 did.
 
 ---
 
@@ -522,10 +525,11 @@ and the capture is a store entry the launcher tries first. Under the reframing i
 **re-provisions the same package** through yolo's CAS. Two provisioners, one package, and the
 second is the one that needs nothing from the environment but a filesystem — which is why it is
 the only [inventory row](provisioner-evidence.md#1-the-provisioner-inventory-per-environment) that
-could work on a guest with no floor at all, once its recording-only half is finished (H1, H2 and H4
-in [`../plans/install-capture.md`](../plans/install-capture.md#build-order)). The **materialize** half
-is still **NOT MEASURED** — nothing has materialised a capture on macos-user, and no launch can until
-H4 lands (`internal/cli/run/autocapture.go`). H2, the rewrite, landed 2026-09-26 and is measured on
+could work on a guest with no floor at all, now that H1, H2 and H4 have taken it past recording
+only ([`../plans/install-capture.md`](../plans/install-capture.md#build-order)). The **materialize** half
+is still **NOT MEASURED** — nothing has materialised a capture on macos-user. Since H4 landed
+2026-10-05 a launch there can, from a root-owned copy of the store, and a launch auto-captures
+there too (`internal/cli/run/autocapture.go`). H2, the rewrite, landed 2026-09-26 and is measured on
 Linux only. But the **recording** half
 has since been measured working end to end on hardware
 ([M4](../plans/runbooks/mac-provisioner-measurements.md#m4--does-the-capture-recording-half-work-on-hardware)),
@@ -842,10 +846,10 @@ question and should not wait on one.
 1. **Fix F5, and warn on the guest's npm row.** ~~Two provisioners are armed and unreachable on
    the guest, silently: either put the staged `yolo` on `SandboxPath` or stop baking a server list
    into a launcher that cannot use it.~~ **HALF SHIPPED 2026-09-13** (`13dd68c4`, DP-L4): the
-   staged `yolo` is on `SandboxPath`, so the server refresh is reachable; materialize stays off by
-   structure until
+   staged `yolo` is on `SandboxPath`, so the server refresh is reachable; materialize is reachable
+   since
    [`install-capture.md`](../plans/install-capture.md#hand-offs--what-is-not-wired-and-the-exact-line-that-wires-it)'s
-   H4 (F5). **Still owed:** a launch-time warning for the guest's npm row. That
+   H4 landed 2026-10-05 (F5). **Still owed:** a launch-time warning for the guest's npm row. That
    half may have lost most of its subject — the floor shipped 2026-09-12 and supplies node and
    npm, so the measured `npm: command not found` predates it — but no Mac run since has confirmed
    the launcher works ([`../reference/macos-user-provisioning.md`](../reference/macos-user-provisioning.md#what-each-imperative-config-key-delivers-here)).
@@ -1022,9 +1026,10 @@ What this doc takes from them, in the order they decide things here:
   [`OQ-PS10`](#OQ-PS10) and [`OQ-PS6`](#OQ-PS6).
 - **[M4](../plans/runbooks/mac-provisioner-measurements.md#m4--does-the-capture-recording-half-work-on-hardware) — capture's recording half works end to
   end on hardware**, in one pass, needing nothing from the guest but `curl` and `bash` — which is
-  what [§7.2](#72-the-capture-payoff) claims for it. The materialize half stays gated on
-  [`../plans/install-capture.md`](../plans/install-capture.md) hand-off H4. Hand-off H2, the
-  rewrite this line used to name, landed 2026-09-26.
+  what [§7.2](#72-the-capture-payoff) claims for it. The materialize half was gated on
+  [`../plans/install-capture.md`](../plans/install-capture.md) hand-off H4, which landed
+  2026-10-05 and has no Mac run yet. Hand-off H2, the rewrite this line used to name, landed
+  2026-09-26.
 - **[M5](../plans/runbooks/mac-provisioner-measurements.md#m5--does-seatbelt-resolve--through-a-symlinked-directory) — darwin resolves `..` physically**,
   the same as Linux, so
   [`../reference/macos-user-home-tiers.md`](../reference/macos-user-home-tiers.md#the-mirror-and-the-relative-credential-link-it-exists-for)'s

@@ -1266,6 +1266,11 @@ func runRun(args []string) int {
 	opts.AutoCapture = func(bins []string, platform string) {
 		autoCapture(bins, platform, os.Stdout, os.Stderr, colorForWriter(os.Stdout))
 	}
+	// And the macos-user launch's pick of what it stages from that store (install-capture.md
+	// hand-off H4): through the resolver the sandbox's `capture-materialize` asks, which lives
+	// in THIS package. On the launch path only, for AutoCapture's reason; a capture's own jail
+	// has no store to stage from either way (its CapturesDir is "").
+	opts.MacosUserCaptures = macosUserCaptures
 	// Wire the fork build trigger (docs/design/forked-programs-as-packs.md OQ-FP4, FP-D1): every
 	// selected fork the store holds no build of at its pin is built now, in a sealed jail, and the
 	// jail is handed each fork's store key; a patched fork's advance runs here too

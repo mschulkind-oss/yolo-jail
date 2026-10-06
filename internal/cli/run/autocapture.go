@@ -21,26 +21,24 @@ package run
 // once hit, and slices 1-4 and 6 of install-capture.md were shipped and unreachable. The
 // trigger is what makes the store fill itself.
 //
-// # Container backends only, and that is structural rather than a guard
+// # Every backend, each asking for its own platform
 //
-// The call site is in runContainer, BELOW the macos-user arm's return in Run, so this file
-// cannot run for that backend. The reason:
+// The container arm calls it in runContainer's fresh-launch path, and the macos-user arm before
+// its backend dispatch (run.go), each with the platform its jail will answer capture.Platform()
+// with: linux on this machine's architecture for a container (containerJailPlatform), darwin for
+// the Seatbelt sandbox (macosUserJailPlatform). macos-user has no attach, so every launch there
+// is a fresh one.
 //
-//   - NOTHING ON macos-user CAN MATERIALIZE A CAPTURE. entrypoint.CapturesDirEnv is
-//     emitted by capturesArgs (the podman/Apple-Container argv) and by nothing else, so
-//     a native launcher there bakes an empty CAPTURES_DIR and `_try_materialize` returns 1
-//     on its first line. An auto-capture would pay a full installer download to file an
-//     entry no launcher on that backend could ever read (docs/plans/install-capture.md
-//     hand-off H4).
-//
-// There used to be a second reason: a macos-user capture stages on neutral ground
-// (/Users/Shared/yolo-captures/<bin>/home), so its Manifest.Home is never the
-// /Users/_yolojail a materialize would target, and the relocation contract refused every
-// such destination. Hand-off H2, the rewrite, landed 2026-09-26 (internal/capture/rewrite.go),
-// so a relocatable capture now materializes into another home. What remains is H4 above.
-//
-// `yolo capture <bin>` stays available on that backend and is the right way to exercise
-// it — an explicit act, by a human who knows that fact.
+// macos-user USED TO BE EXCLUDED, structurally, by placement below its return, because nothing
+// there could materialize a capture: entrypoint.CapturesDirEnv was emitted by capturesArgs (the
+// podman/Apple-Container argv) and by nothing else, so a native launcher baked an empty
+// CAPTURES_DIR and `_try_materialize` returned 1 on its first line, and an auto-capture would
+// have paid a full installer download to file an entry no launcher there could read. Hand-off
+// H4 (docs/plans/install-capture.md) answered that with a root-owned copy of each selected
+// program's entry under the backend's state dir, which the bootstrap names to its launchers
+// (macosuser.StagedCapturesRoot); its relocation half, H2, landed 2026-09-26. The capture there
+// is the macos-user capture act (internal/cli picks it for a darwin platform), so its entry is
+// a darwin one.
 
 import (
 	goruntime "runtime" // stdlib; this package's `runtime` is yolo's own (run.go)
@@ -62,7 +60,10 @@ import (
 // suppression covers both halves, so a capture cannot recursively trigger a capture and
 // the two cannot drift apart. Relying instead on "runCaptureJail happens not to inject
 // AutoCapture" would be true today and one line from being false.
-func (o *Options) autoCaptureInstallerPrograms(packs []*packload.Pack) {
+//
+// platform is the JAIL's (containerJailPlatform or macosUserJailPlatform), named by the arm that
+// calls it, because only the arm knows which kind of jail is about to run.
+func (o *Options) autoCaptureInstallerPrograms(packs []*packload.Pack, platform string) {
 	if o.AutoCapture == nil || o.CapturesDir() == "" {
 		return
 	}
@@ -70,7 +71,7 @@ func (o *Options) autoCaptureInstallerPrograms(packs []*packload.Pack) {
 	if len(bins) == 0 {
 		return
 	}
-	o.AutoCapture(bins, containerJailPlatform())
+	o.AutoCapture(bins, platform)
 }
 
 // installerBins is every program the SELECTED packs install with `via: "installer"`,
@@ -118,3 +119,10 @@ func installerBins(packs []*packload.Pack) []string {
 // precedent: the jail is a Linux container on THIS machine, so its architecture is a fact
 // about the local one, known without asking anything.
 func containerJailPlatform() string { return "linux/" + goruntime.GOARCH }
+
+// macosUserJailPlatform is capture.Platform() as the macos-user sandbox will answer it: darwin,
+// on the architecture of this yolo, which is the binary the launch stages for the sandbox to
+// self-exec (macosuser.StagedYoloPath), so the two cannot answer differently. The host's own
+// platform, and on this backend the right one: the sandbox is a process on this Mac, not a
+// Linux guest.
+func macosUserJailPlatform() string { return "darwin/" + goruntime.GOARCH }

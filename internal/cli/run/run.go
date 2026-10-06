@@ -472,6 +472,20 @@ func Run(opts Options) (rc int) {
 		// either, and the native backend is where a "where is my agent?" is hardest to
 		// diagnose (no image, no provisioning output to read back).
 		o.warnIfNoPacks()
+		// AUTO-CAPTURE ON THIS ARM TOO (OQ-PD18; install-capture.md hand-off H4): every selected
+		// `via: "installer"` program the machine's store has no darwin entry for is captured now,
+		// by the macos-user capture act, so this launch stages it below (macosUserCaptures) and
+		// every later one, in any workspace, materializes it instead of downloading. Every
+		// invocation here is a fresh launch, so there is no attach to keep it off. HERE, after the
+		// config-change approval and before this arm's signal arm, host services and launch lock:
+		// a capture is a whole launch of its own (a nested pipeline), which arms, starts and locks
+		// its own. Never on a dry run, which captures nothing; never in a capture's own launch,
+		// whose CapturesDir is "" (autoCaptureInstallerPrograms). It cannot fail this launch.
+		if !o.DryRun {
+			captureSpan := o.Perf.Span("launch.auto_capture")
+			o.autoCaptureInstallerPrograms(staged.packs, macosUserJailPlatform())
+			captureSpan.End()
+		}
 		// THE MACOS-USER ARM (macosuserarm.go; JL-D40), from here to the last teardown below. A
 		// signal before the session ends the launch at its next step boundary, so every deferred
 		// teardown runs — the host services, the doorways, the launch-owned services and, inside
@@ -720,9 +734,10 @@ func Run(opts Options) (rc int) {
 		o.noteMacosUserPlatformGaps(cfg)
 		o.noteMacosUserPortKeys(cfg, portPlan)
 		// A FORK DELIVERS NO PROGRAM ON THIS BACKEND, and says so (FP-D3; forkbuild.go): the build
-		// trigger sits below this arm's return, and no macos-user launch can read the capture
-		// store yet (hand-off H4). The sandbox's own launcher for the program is told the same
-		// reason (macosUserForkWire), so typing it there names this backend and the next step.
+		// trigger sits below this arm's return, and the capture store this arm stages (hand-off
+		// H4, macosUserCaptures) carries installer captures alone. The sandbox's own launcher
+		// for the program is told the same reason (macosUserForkWire), so typing it there names
+		// this backend and the next step.
 		o.noteMacosUserForks()
 		if wire := o.macosUserForkWire(); wire != "" {
 			launchEnv.Set(entrypoint.ForkBuildsEnv, wire)
@@ -916,6 +931,10 @@ func Run(opts Options) (rc int) {
 		// THE CONTEXT MOUNTS cross inside the host context, and each read-write one is
 		// disclosed at the same point (§2.4), so the backend is never handed one unsaid.
 		ctxDelivery.ctx.Links = ctxLinks
+		// AND THE INSTALL-CAPTURE STORE'S ENTRIES (H4; macosctxtree.go's macosUserCaptures): each
+		// selected installer program's darwin entry, after the auto-capture above may have made it,
+		// for the backend to stage root-owned and name to its launchers.
+		ctxDelivery.ctx.Captures, ctxDelivery.ctx.CapturesKept = o.macosUserCaptures(staged.packs)
 		o.noteMacosUserRWMounts(cname, ctxLinks)
 		// EVERY PROFILED AGENT'S OWN ENV FILE, on this backend too (providers.md
 		// OQ-CN9, ruled 2026-09-28): the container vehicle's writer, into the sidecar directory
@@ -1437,10 +1456,9 @@ func (o *Options) runContainer(cfg *jsonx.OrderedMap, rt, repoRoot, cname string
 	//     it ran again for every terminal that joined, and on Apple Container its jail cannot
 	//     start beside the running one (INFERRED from docs/research/macos-backend-performance.md
 	//     §7, which MEASURED that a second unsealed jail cannot).
-	//   - BELOW the macos-user return, which is what makes it container-only. See
-	//     autocapture.go for why that backend is excluded — nothing there emits
-	//     CapturesDirEnv (hand-off H4) — and why `yolo capture` stays available on it as an
-	//     explicit act.
+	//   - BELOW the macos-user return, so this is the CONTAINER arm's call, asking for the
+	//     container jail's platform. The macos-user arm makes its own, before its dispatch, for
+	//     a darwin one (autocapture.go).
 	//   - ABOVE the image load, so the capture jail's own launch is the thing that builds and
 	//     loads the image, and this launch reuses it. It is BLOCKING and it says so while it
 	//     works: on a fresh machine the first launch grows by one installer download per
@@ -1457,7 +1475,7 @@ func (o *Options) runContainer(cfg *jsonx.OrderedMap, rt, repoRoot, cname string
 	// the very first nested --timing run measured 109 of its 125 seconds in
 	// this call — every bit of it between two spans, pointing at nothing.
 	captureSpan := o.Perf.Span("launch.auto_capture")
-	o.autoCaptureInstallerPrograms(staged.packs)
+	o.autoCaptureInstallerPrograms(staged.packs, containerJailPlatform())
 	captureSpan.End()
 
 	// THE FORK BUILDS (forkbuild.go; OQ-FP4, eager at the notch's readiness act): every selected

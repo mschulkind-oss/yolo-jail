@@ -160,6 +160,13 @@ type RunPlan struct {
 	// delivered no content. Carried so a reader can check the profile against the
 	// delivery rather than re-deriving one from the other.
 	HomeReadonly HomeReadonly
+	// CapturesDir is the root-owned staged copy of the install-capture store this launch's
+	// launchers materialize from (StagedCapturesRoot, what entrypoint.CapturesDirEnv names to the
+	// bootstrap), "" when the launch stages no capture; Captures are the entries it stages there
+	// (HostContext.Captures, less any a root script may not be handed), for the dry run and for
+	// PlanInvariants, which checks each is staged.
+	CapturesDir string
+	Captures    []CaptureEntry
 }
 
 // HostContext is what the HOST CLI composed for this launch's `/ctx` delivery: the tree
@@ -251,6 +258,18 @@ type HostContext struct {
 	// agent reads are live. The caller's for the same reason as the rest of this struct:
 	// resolving a source is a read of the invoking user's filesystem.
 	Links []ContextLink
+	// Captures are the install-capture store entries this launch stages for its launchers
+	// (CaptureEntry; docs/plans/install-capture.md hand-off H4): for each selected pack's
+	// `via: "installer"` program, the entry the materialize path's own resolver chooses at this
+	// backend's platform, darwin. The caller's because the store is in the invoking user's state
+	// dir. Empty stages nothing and names no store to the bootstrap, so every launcher downloads,
+	// as before H4.
+	//
+	// CapturesKept are the keys of the store's other current entries at that platform — programs
+	// this launch does not select and another workspace may — whose staged copies the launch
+	// leaves in place (StageCaptureCommands).
+	Captures     []CaptureEntry
+	CapturesKept []string
 }
 
 // GlobalGitignoreEnv names the global gitignore's staged path to the bootstrap, whose git step
@@ -497,6 +516,13 @@ func BuildRunPlanWithDaemons(workspace string, cfg *jsonx.OrderedMap, agents, ag
 	if hostCtx.Tree != "" {
 		ctxRoot = StagedCtxRoot(cname, "")
 	}
+	// AND THE FOURTH, the install-capture store (H4): named only when the launch stages an
+	// entry, so a launch with none bakes an empty store into every launcher, which downloads.
+	captures := stageableCaptures(hostCtx.Captures)
+	capturesRoot := ""
+	if len(captures) > 0 {
+		capturesRoot = StagedCapturesRoot("")
+	}
 	// THE CONTEXT DIR (docs/design/context-mounts.md CX-D4): the same root-owned tree, named
 	// to the AGENT on every launch whether or not anything was composed into it, so pack
 	// text and agents spell a context path `$YOLO_CONTEXT_DIR/<rel>` here as on a container
@@ -540,7 +566,7 @@ func BuildRunPlanWithDaemons(workspace string, cfg *jsonx.OrderedMap, agents, ag
 	// symlinks the account home's per-workspace dirs into it
 	// (entrypoint.InstallDarwinHomeLayout). A capture passes none — see the parameter.
 	bootstrapEnv := buildBootstrapEnv(workspace, cfg, gitIdentity, sandboxEnv, packRoot,
-		homeOverlay, ctxRoot, hostCtx, paths.WorkspaceHomeState(workspace), SandboxHome(),
+		homeOverlay, ctxRoot, capturesRoot, hostCtx, paths.WorkspaceHomeState(workspace), SandboxHome(),
 		darwinPrefix, blockedTools)
 	bootstrapEnv.Set(paths.ContextDirEnv, contextDir)
 	// THE COMPOSED MCP TABLE (packload.ComposeMCPServers): the staged packs' `mcp` entries joined
@@ -637,6 +663,9 @@ func BuildRunPlanWithDaemons(workspace string, cfg *jsonx.OrderedMap, agents, ag
 	// tree, so a mount dropped from the config stops being named on the next launch.
 	ctxLinks := append([]ContextLink(nil), hostCtx.Links...)
 	stageCommands = append(stageCommands, StageContextDirCommands(hostCtx.Tree, ctxLinks, cname, "")...)
+	// THE CAPTURE STORE'S ENTRIES (H4), copied once per machine and pruned to what the user's
+	// store still selects; nothing at all when the launch stages none.
+	stageCommands = append(stageCommands, StageCaptureCommands(captures, hostCtx.CapturesKept, "")...)
 	stageCommands = append(stageCommands, endpointGrantCommands(sandboxEnv)...)
 
 	// THE GUEST'S BINARIES (OQ-DP8; jaildaemon.go), staged as ONE SET when the launch runs a
@@ -756,6 +785,8 @@ func BuildRunPlanWithDaemons(workspace string, cfg *jsonx.OrderedMap, agents, ag
 		DarwinMaterialized: darwin != nil,
 		NixClientDir:       nixClientDir,
 		HomeReadonly:       homeReadonly,
+		CapturesDir:        capturesRoot,
+		Captures:           captures,
 	}
 }
 
@@ -859,11 +890,13 @@ func stageCommandsNameEnvValue(cmds [][]string, content, key string) bool {
 // generated against the home the capture is about to run in. It is used for the login-rc PATH;
 // the HOME/JAIL_HOME pair is baked by DarwinBootstrapArgv, which takes the same value.
 //
-// `packRoot`, `homeOverlay` and `ctxRoot` are the ALREADY-STAGED destinations
-// (StagedPackRoot, StagedHomeOverlay, StagedCtxRoot), not their host-side sources, and ""
-// means the caller staged nothing of that kind. They are resolved by the caller rather than
-// here because the caller is also what emits the commands that stage them, and the two must
-// not be able to disagree.
+// `packRoot`, `homeOverlay`, `ctxRoot` and `capturesRoot` are the ALREADY-STAGED destinations
+// (StagedPackRoot, StagedHomeOverlay, StagedCtxRoot, StagedCapturesRoot), not their host-side
+// sources, and "" means the caller staged nothing of that kind. They are resolved by the caller
+// rather than here because the caller is also what emits the commands that stage them, and the
+// two must not be able to disagree. An install capture passes "" for capturesRoot always: a
+// capture whose launcher could materialize would record the store's bytes as a fresh install
+// (install-capture.md slice 4(f), the container capture jail's own suppression).
 //
 // `hostCtx` is the caller's RECORD of what went into that tree (HostContext). Two variables
 // read it — the host-layer report and the source-bearing half of YOLO_HOST_FILES — and both
@@ -881,7 +914,7 @@ func stageCommandsNameEnvValue(cmds [][]string, content, key string) bool {
 // config's security section alone would render an empty YOLO_BLOCK_CONFIG and the generated
 // home would carry no blockers at all.
 func buildBootstrapEnv(workspace string, cfg, gitIdentity, sandboxEnv *jsonx.OrderedMap,
-	packRoot, homeOverlay, ctxRoot string, hostCtx HostContext, homeSidecar, home string,
+	packRoot, homeOverlay, ctxRoot, capturesRoot string, hostCtx HostContext, homeSidecar, home string,
 	darwinPrefix []string, blockedTools []packload.BlockedTool) *jsonx.OrderedMap {
 	bootstrapEnv := jsonx.NewOrderedMap()
 	bootstrapEnv.Set("YOLO_HOST_DIR", resolvePathAbs(workspace))
@@ -1009,6 +1042,16 @@ func buildBootstrapEnv(workspace string, cfg, gitIdentity, sandboxEnv *jsonx.Ord
 	// launch still says so by ABSENCE rather than by naming a directory that is not there.
 	if packRoot != "" {
 		bootstrapEnv.Set("YOLO_PACK_ROOT", packRoot)
+	}
+
+	// YOLO_CAPTURES_DIR — the staged install-capture store (StagedCapturesRoot), which the
+	// bootstrap bakes into every generated launcher (entrypoint's capturesDir) so its
+	// `_try_materialize` hands it to `capture-materialize --store=`. The container launch emits
+	// the same variable beside its `:ro` bind of the store (internal/cli/run's captures.go).
+	// Only when the launch stages an entry, on YOLO_PACK_ROOT's rule: a store named and empty is
+	// a launcher asking a directory that answers every program with a miss.
+	if capturesRoot != "" {
+		bootstrapEnv.Set(entrypoint.CapturesDirEnv, capturesRoot)
 	}
 
 	// YOLO_DARWIN_HOME_OVERLAY — the composed CONTENT tree (skills + briefings) the
@@ -1560,7 +1603,69 @@ func PlanInvariants(plan RunPlan) []string {
 	problems = append(problems, guestClientInvariants(plan)...)
 	problems = append(problems, serviceProbeInvariants(plan)...)
 	problems = append(problems, sessionFileInvariants(plan)...)
+	problems = append(problems, captureStoreInvariants(plan)...)
 	return problems
+}
+
+// captureStoreInvariants is PlanInvariants' rule for the staged install-capture store (H4): the
+// bootstrap is told a store exactly when the plan stages an entry, the store it is told is under
+// the root-owned state dir and under no spelling of /Users, and every entry the plan carries has
+// its stage command. Each is a way a launch could look healthy and hand every launcher a store
+// the sandbox can rewrite — the bytes every workspace on the machine then runs — or a store
+// nothing filled, which downloads in silence.
+func captureStoreInvariants(plan RunPlan) []string {
+	var problems []string
+	v, named := argvEnvValue(plan.BootstrapArgv, entrypoint.CapturesDirEnv)
+	switch {
+	case !named && len(plan.Captures) == 0:
+		return nil
+	case !named:
+		return append(problems, "the plan stages "+itoa(len(plan.Captures))+" install capture(s) "+
+			"but "+entrypoint.CapturesDirEnv+" is not baked into the bootstrap env; every launcher "+
+			"would bake an empty store and download what is staged")
+	case len(plan.Captures) == 0:
+		problems = append(problems, entrypoint.CapturesDirEnv+"="+v+" is baked into the bootstrap "+
+			"env but the plan stages no install capture; every launcher would ask a store "+
+			"nothing filled")
+	}
+	if !strings.HasPrefix(v, plan.StagedDir+"/") {
+		problems = append(problems, entrypoint.CapturesDirEnv+"="+v+" is not under the root-owned "+
+			"state dir "+plan.StagedDir+"; the sandbox could rewrite captured bytes every "+
+			"workspace on this machine runs")
+	}
+	if underUsersRoot(v) {
+		problems = append(problems, entrypoint.CapturesDirEnv+"="+v+" is under /Users, which the "+
+			"session profile denies reads of and where a capture's own files are the sandbox "+
+			"account's; the store must be the root-owned copy under "+plan.StagedDir)
+	}
+	for _, c := range plan.Captures {
+		if !containsCommand(plan.StageCommands, stageCaptureArgv(v, c)) {
+			problems = append(problems, "nothing stages the capture of "+c.Bin+" ("+c.Key+") into "+
+				v+"; its launcher would find no entry and download")
+		}
+	}
+	return problems
+}
+
+// underUsersRoot reports whether p is any spelling of the users root (macOSHomes) or lies beneath
+// it, /Users/Shared included.
+func underUsersRoot(p string) bool {
+	for _, q := range append([]string{p}, pathParents(p)...) {
+		if macOSHomes.isUsersRoot(q) {
+			return true
+		}
+	}
+	return false
+}
+
+// containsCommand reports whether cmds holds want, argv for argv.
+func containsCommand(cmds [][]string, want []string) bool {
+	for _, c := range cmds {
+		if len(c) == len(want) && containsArgRun(c, want) {
+			return true
+		}
+	}
+	return false
 }
 
 // jailDaemonInvariants is PlanInvariants' rule for the guest's jail daemons (jaildaemon.go),

@@ -1534,6 +1534,20 @@ func PrintPlan(w io.Writer, plan RunPlan, problems []string) {
 				"edit arrives at the next launch)[/dim]", plan.ContextDir, c.Rel(), c.Source, c.Origin())
 		}
 	}
+	// THE INSTALL-CAPTURE STORE (H4), named either way on the same rule: "nothing captured yet"
+	// and "this backend cannot materialize a capture" were one statement until it landed.
+	if plan.CapturesDir == "" {
+		p.print("captures:    [dim]none staged — a program its vendor's installer installs " +
+			"downloads on first use[/dim]")
+	} else {
+		staged := make([]string, 0, len(plan.Captures))
+		for _, c := range plan.Captures {
+			staged = append(staged, c.Bin+" "+c.Key)
+		}
+		p.printf("captures:    %s ← %s [dim](root-owned copies, made once per machine; a "+
+			"program's launcher materializes its entry instead of downloading)[/dim]",
+			plan.CapturesDir, strings.Join(staged, ", "))
+	}
 	p.printf("git identity: %s", gitIdentityRepr(plan.GitIdentity))
 	// THE ENV FILE IS DISCLOSED BY NAME AND BY KEY, NEVER BY VALUE — and that is the
 	// disclosure this dry run owes its reader rather than a redaction (envfile.go).

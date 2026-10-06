@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/capture"
@@ -123,9 +124,10 @@ func autoCaptureBackedOff(store *capture.Store, bin, platform string) bool {
 // failure this yolo remembered for it is still backing off (autoCaptureBackedOff).
 //
 // bins is the selected packs' `via: "installer"` program set and platform is the JAIL's
-// (run.containerJailPlatform) — both decided by the pipeline, because only it knows the
-// pack set and which backend is about to run. Reading either here would be the
-// host's-platform bug the seam exists to make unrepresentable.
+// (run.containerJailPlatform, or run.macosUserJailPlatform for the macos-user sandbox) — both
+// decided by the pipeline, because only it knows the pack set and which backend is about to
+// run. Reading either here would be the host's-platform bug the seam exists to make
+// unrepresentable. The platform also picks the capture act (autoCaptureActFor).
 //
 // It returns nothing. There is no outcome a launch could act on: a capture that worked
 // changes nothing about the launch, and one that failed has already said so.
@@ -180,14 +182,30 @@ func autoCapture(bins []string, platform string, out, errw io.Writer, color bool
 		"other workspace\n  materialize it instead of downloading it. This launch pays one "+
 		"installer download\n  per program. Set %s=1 to skip.[/dim]", NoAutoCaptureEnv)
 
+	act := autoCaptureActFor(platform)
 	for i, bin := range missing {
 		pr.Printf("[dim]  [%d/%d][/dim] %s", i+1, len(missing), bin)
 		// A capture that stores the program clears its memo inside captureHost, as `yolo capture
 		// <bin>` and the host floor's capture do, so a success needs nothing more here.
-		if rc := captureHost([]string{bin}, out, errw, color); rc != 0 {
+		if rc := captureHostWith([]string{bin}, out, errw, color, act); rc != 0 {
 			autoCaptureFailed(store, bin, platform, errw)
 		}
 	}
+}
+
+// autoCaptureActFor is the capture act that records an entry for platform. A DARWIN platform is a
+// macos-user launch's (run.macosUserJailPlatform), and the one act that records a darwin entry is
+// the macos-user capture act, so it is named for this act alone (captureAct.runtime), as the Mac's
+// host floor names it (HP-D2). Left to the runtime a capture resolves — YOLO_RUNTIME, then the
+// USER config, the scratch workspace carrying none — a launch whose workspace config chose
+// macos-user over a user config's podman would record a linux entry for every program, miss it at
+// the next launch, and capture again: a store that never hits while looking full. Every other
+// platform is a container jail's, and keeps the runtime a capture resolves, as before.
+func autoCaptureActFor(platform string) captureAct {
+	if strings.HasPrefix(platform, "darwin/") {
+		return captureAct{runtime: "macos-user"}
+	}
+	return captureAct{}
 }
 
 // autoCaptureFailed is what a launch does about one capture that did not store its program:

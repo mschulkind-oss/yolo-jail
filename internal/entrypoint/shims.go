@@ -1711,7 +1711,9 @@ const InstallOnlyEnv = "YOLO_INSTALL_ONLY"
 const NoTerminalVerb = "no-terminal"
 
 // CapturesDirEnv names the in-jail path of the machine's INSTALL-CAPTURE STORE, emitted by
-// the run pipeline beside the `:ro` bind that puts it there (`internal/cli/run/assemble.go`).
+// the run pipeline beside the `:ro` bind that puts it there (`internal/cli/run/assemble.go`),
+// and on macos-user by the plan builder, naming the root-owned copy of the selected entries it
+// stages under its state dir (macosuser.StagedCapturesRoot; install-capture.md hand-off H4).
 //
 // It is a host↔jail contract in the same class as YOLO_PACK_ROOT: the host decides where the
 // store lands (a `/ctx` path, which only podman mounts) and tells the jail, because the jail
@@ -1727,7 +1729,7 @@ const NoTerminalVerb = "no-terminal"
 // accept: see internal/cli/run/captures.go, which now emits nothing there.
 //
 // ABSENT MEANS "NO STORE", and four separate things produce that: a host yolo older than this
-// variable, the macos-user backend (which has no mount to make and no capture support yet),
+// variable, a macos-user launch that staged no entry (and every macos-user launch before H4),
 // APPLE CONTAINER (per the above — and it always effectively had none, because the host path it
 // used to be handed failed the launcher's `[ -d "$CAPTURES_DIR" ]` test), and the CAPTURE JAIL
 // ITSELF — `yolo capture` suppresses the mount on purpose, so that the installer it runs cannot
