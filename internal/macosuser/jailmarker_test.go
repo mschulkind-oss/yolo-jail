@@ -100,3 +100,30 @@ func TestDryRunPlanNamesTheJailMarker(t *testing.T) {
 		t.Errorf("the dry-run plan's env-file keys do not name YOLO_VERSION: %q\n%s", keys, out.String())
 	}
 }
+
+// TestTheSessionNamesItsOwnWorkspaceLast: the session env file exports YOLO_WORKSPACE, the jail's
+// own workspace (config.IsJailOwnWorkspace reads it; a container's is its /workspace bind root),
+// as the resolved workspace — and, like the jail marker, as the launcher's last word, so neither
+// the composed channel nor the caller's sandbox env can point an in-sandbox `yolo` at another.
+func TestTheSessionNamesItsOwnWorkspaceLast(t *testing.T) {
+	ws := t.TempDir()
+	want, err := filepath.EvalSymlinks(ws)
+	if err != nil {
+		t.Fatal(err)
+	}
+	opts := newOpts(ws)
+	opts.PackEnv = jsonx.NewOrderedMap()
+	opts.PackEnv.Set("YOLO_WORKSPACE", "/workspace")
+	opts.SandboxEnv = jsonx.NewOrderedMap()
+	opts.SandboxEnv.Set("YOLO_WORKSPACE", "/elsewhere")
+	var out bytes.Buffer
+	deps := mockDeps(nil)
+	deps.Out = &out
+	plan := buildPlan(deps, opts, nil)
+	if !SandboxEnvFileSets(plan.EnvFileContent, "YOLO_WORKSPACE", want) {
+		t.Errorf("the session env file does not export YOLO_WORKSPACE=%q:\n%s", want, plan.EnvFileContent)
+	}
+	if n := strings.Count(plan.EnvFileContent, "export YOLO_WORKSPACE="); n != 1 {
+		t.Errorf("the env file exports YOLO_WORKSPACE %d times, want once:\n%s", n, plan.EnvFileContent)
+	}
+}

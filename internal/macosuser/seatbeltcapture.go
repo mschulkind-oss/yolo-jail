@@ -46,7 +46,8 @@ package macosuser
 //
 // `(allow default)` permits network, and a capture is the one act in this subsystem that needs
 // it: the whole point is to run the vendor's installer against its CDN once, so every later
-// materialize is offline. §6.3 calls this out as the explicit, network-OK act.
+// materialize is offline. §6.3 calls this out as the explicit, network-OK act. A fork's BUILD keeps
+// the network too, less the host's loopback and the nix daemon (SeatbeltSealedCaptureProfile, below).
 //
 // # MEASURED vs. DESIGNED-AGAINST-READ-CODE — read this before trusting the file
 //
@@ -54,14 +55,20 @@ package macosuser
 // profile, the ordering the last-match-wins policy depends on, and that BuildCapturePlan uses
 // THIS generator rather than the session one.
 //
-// NOT ASSERTED CONTINUOUSLY: that Seatbelt honors it. The earlier claim here — "no kernel has
-// ever loaded this profile" — is STALE twice over: capture.go records this profile being loaded
-// on hardware 2026-09-11, and the SESSION profile beside it is now asserted on every macOS CI run
+// NOT YET MEASURED: that Seatbelt honors it. The earlier claim here — "no kernel has ever loaded
+// this profile" — is STALE twice over: capture.go records this profile being loaded on hardware
+// 2026-09-11, and the SESSION profile beside it is asserted on the macOS CI runs
 // (integration/macosuserseatbelt_test.go, which loads a generated profile with `sandbox-exec` and
-// checks the kernel refused what it names). This one has no such suite: a capture needs the whole
-// staging pipeline, so it is verified by hand rather than by a case. A Linux jail cannot run
-// sandbox-exec and podman-in-podman cannot exercise this backend at all, so the gap closes on a
-// Mac. Two specific things a human there must check rather than assume:
+// checks the kernel refused what it names). A case for THIS profile exists now and has no green
+// run recorded: integration/macosusercaptureseatbelt_test.go's
+// TestMacosUserCaptureSeatbeltProfileDeniesTheSharedHome builds a capture plan over a root of its
+// own under /Users/Shared, makes the staging tree with the plan's PrepareCommands, and loads
+// plan.Seatbelt as the sandbox account, a bare control first for every case: the shared home
+// unwritable and unreadable, the staging home and out dir writable, the capture root traversable,
+// a sibling under it and a neutral /private/var/tmp path refused. It runs nothing else of a
+// capture. A Linux jail cannot run sandbox-exec and podman-in-podman cannot exercise this backend
+// at all, so the gap closes on a Mac. Two specific things a human there must check rather than
+// assume, the first of which that case does not touch:
 //
 //  1. That an installer's shell tolerates a home whose passwd entry (getpwuid → /Users/_yolojail)
 //     is unreadable while $HOME points elsewhere. Tools that resolve the home through the passwd
@@ -69,7 +76,10 @@ package macosuser
 //  2. That the staging root's own path is reachable — `ancestorLiterals` grants traversal for a
 //     path under /Users/Shared/, and a capture root sited anywhere else under /Users would be
 //     denied by the /Users read deny with nothing to re-allow it. CaptureRootDefault is under
-//     /Users/Shared for exactly this reason.
+//     /Users/Shared for exactly this reason. The case's capture root is under /Users/Shared too,
+//     so a green run answers this for that siting.
+
+import "strings"
 
 // SeatbeltCaptureProfile generates the SBPL profile for one install capture: deny writes
 // everywhere, then re-allow ONLY the capture's own staging root plus the OS scratch dirs.
@@ -145,4 +155,76 @@ func SeatbeltCaptureProfile(stagingRoot string) string {
 		";; --- Process introspection an installer's shell needs ---\n" +
 		"(allow process-info*)\n" +
 		"(allow sysctl-read)\n"
+}
+
+// THE SEALED CAPTURE PROFILE, a fork's build's (docs/design/forked-programs-as-packs.md FP-D24,
+// carrying FP-D9 and FP-D13 to this backend).
+//
+// A fork's build is arbitrary code from a repository a pack named, so on the container backends it
+// runs SEALED: on the runtime's own bridge, never the host's network namespace, with no host
+// loopback forwarded in and no nix daemon socket bound (internal/cli/run's seal.go). This backend
+// has no namespace to put the build in — the sandbox account shares the host's network stack, so
+// the host's loopback is every service the host binds there, every running jail's loophole daemons
+// among them — and no bind to withhold. Seatbelt is the one control point, so the seal is two
+// denies, added after everything SeatbeltCaptureProfile allows (`(allow default)` first, and last
+// match wins):
+//
+//   - every outbound connection to the loopback, by `(remote ip "localhost:*")`, SBPL's one
+//     spelling for the loopback addresses;
+//   - the nix daemon's socket, by connect and by path: a build that reached it could add to the
+//     store every jail and every macos-user session reads its tools from.
+//
+// The network beyond the loopback stays, as it does for a container build: a build fetches its
+// dependencies. NOT YET MEASURED that the kernel refuses either: integration/macosuserseatbelt_test.go's
+// TestMacosUserSeatbeltSealedBuildProfileDeniesTheLoopbackAndTheNixDaemon loads this profile and
+// tries both, each beside a bare control, on a Mac (macos-user.yml), with no green run recorded.
+
+// The seal's denies, spelled once for the profile and for sealedProfileProblems, which finds them: the
+// loopback, the nix daemon's socket by connect, and its directory by path.
+const (
+	nixDaemonSocketDir       = "/nix/var/nix/daemon-socket"
+	nixDaemonSocket          = nixDaemonSocketDir + "/socket"
+	sealedBuildLoopbackDeny  = `(deny network-outbound (remote ip "localhost:*"))`
+	sealedBuildNixSocketDeny = `(deny network-outbound (remote unix-socket (path-literal "` + nixDaemonSocket + `")))`
+	sealedBuildNixPathDeny   = `(deny file-read* file-write* (subpath "` + nixDaemonSocketDir + `"))`
+)
+
+// SeatbeltSealedCaptureProfile is the profile a fork's build runs under: the capture profile over
+// stagingRoot, then the seal's denies.
+func SeatbeltSealedCaptureProfile(stagingRoot string) string {
+	return SeatbeltCaptureProfile(stagingRoot) +
+		"\n" +
+		";; --- THE SEAL (forked-programs-as-packs.md FP-D24): a fork's build is code from a\n" +
+		";;     repository a pack named, and this account shares the host's network stack.  The\n" +
+		";;     host's loopback (every service it binds there, every jail's loophole daemons\n" +
+		";;     among them) and the nix daemon are denied; the network beyond the loopback\n" +
+		";;     stays, because a build fetches its dependencies. ---\n" +
+		sealedBuildLoopbackDeny + "\n" +
+		sealedBuildNixSocketDeny + "\n" +
+		sealedBuildNixPathDeny + "\n"
+}
+
+// sealedProfileProblems checks a profile carries the seal: each deny present, and after the
+// `(allow default)` it narrows, since a deny before it would be no deny at all.
+func sealedProfileProblems(profile string) []string {
+	allowAt := strings.Index(profile, "(allow default)")
+	var problems []string
+	for _, d := range []struct{ deny, what string }{
+		{sealedBuildLoopbackDeny, "the host's loopback, where every service the host binds and every jail's " +
+			"loophole daemons listen"},
+		{sealedBuildNixSocketDeny, "the nix daemon, whose socket would let the build add to the store every " +
+			"jail reads"},
+		{sealedBuildNixPathDeny, "the nix daemon's socket directory"},
+	} {
+		at := strings.LastIndex(profile, d.deny)
+		switch {
+		case at < 0:
+			problems = append(problems, "the fork build's Seatbelt profile does not deny "+d.what+
+				" — it is not sealed (SeatbeltSealedCaptureProfile is the one to use)")
+		case at < allowAt:
+			problems = append(problems, "the fork build's Seatbelt profile denies "+d.what+" BEFORE "+
+				"`(allow default)`; SBPL is last-match-wins, so that deny does nothing")
+		}
+	}
+	return problems
 }

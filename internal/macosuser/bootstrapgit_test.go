@@ -8,6 +8,8 @@ import (
 	"testing"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/entrypoint"
+	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
+	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 )
 
 // bootstrapgit_test.go pins which `git` the macos-user bootstrap runs, against the PATH the
@@ -94,5 +96,81 @@ func TestTheBootstrapNeverRunsAGitTheAgentCanWrite(t *testing.T) {
 	if err != nil || strings.TrimSpace(string(out)) != ws {
 		t.Errorf("safe.directory = %q (%v), want %q written by the git outside the home\n"+
 			"bootstrap said:\n%s", out, err, ws, e.Stderr)
+	}
+}
+
+// THE HOST'S GLOBAL GITIGNORE REACHES THE SANDBOX'S GIT: the plan names the staged copy to the
+// bootstrap, and the REAL bootstrap points core.excludesFile at it; a name whose file is missing
+// sets nothing (git would ignore a dangling value anyway, and a jail that never had the file
+// should not carry the setting). The variable and the staged layout are read off a real plan, so
+// a rename on either side of the plan/bootstrap seam fails here.
+func TestTheBootstrapAppliesTheStagedGlobalGitignore(t *testing.T) {
+	realGit, err := exec.LookPath("git")
+	if err != nil {
+		t.Skip("git is not on PATH")
+	}
+	t.Setenv("GIT_CONFIG_NOSYSTEM", "1")
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	for _, k := range []string{"GIT_CONFIG_GLOBAL", "GIT_DIR", "GIT_WORK_TREE"} {
+		t.Setenv(k, "")
+		os.Unsetenv(k)
+	}
+	plan := BuildRunPlan("/Users/Shared/yolo/proj", jsonx.NewOrderedMap(), []string{"claude"},
+		[]string{"/bin/zsh", "-l"}, "/usr/local/bin/yolo", "", HomeOverlay{},
+		HostContext{Tree: "/tmp/yolo-ctx-tree", GlobalGitignore: paths.ContextGlobalGitignore},
+		jsonx.NewOrderedMap(), nil, nil)
+	named, ok := argvEnvValue(plan.BootstrapArgv, GlobalGitignoreEnv)
+	if !ok || !strings.HasPrefix(named, plan.CtxRoot+"/") {
+		t.Fatalf("the plan names no staged gitignore under %s: %v", plan.CtxRoot, plan.BootstrapArgv)
+	}
+
+	for _, tc := range []struct {
+		name   string
+		staged bool
+	}{{"staged", true}, {"missing", false}} {
+		t.Run(tc.name, func(t *testing.T) {
+			base, err := filepath.EvalSymlinks(t.TempDir())
+			if err != nil {
+				t.Fatal(err)
+			}
+			home, ws, ctxRoot := filepath.Join(base, "home"), filepath.Join(base, "ws"), filepath.Join(base, "ctx")
+			if err := os.MkdirAll(home, 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if out, err := exec.Command(realGit, "init", "-q", ws).CombinedOutput(); err != nil {
+				t.Fatalf("git init: %v\n%s", err, out)
+			}
+			ignore := filepath.Join(ctxRoot, strings.TrimPrefix(named, plan.CtxRoot+"/"))
+			if tc.staged {
+				if err := os.MkdirAll(filepath.Dir(ignore), 0o755); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(ignore, []byte("*.yolo-probe\n"), 0o644); err != nil {
+					t.Fatal(err)
+				}
+			}
+			e := entrypoint.DarwinEnvFrom(map[string]string{
+				"JAIL_HOME":             home,
+				"YOLO_DARWIN_WORKSPACE": ws,
+				"MISE_DATA_DIR":         SandboxMiseData(home),
+				GlobalGitignoreEnv:      ignore,
+				entrypoint.DarwinLoginPathEnv: SandboxPath(home,
+					[]string{filepath.Dir(realGit)}),
+			}, home)
+			e.Stderr = &strings.Builder{}
+			_ = entrypoint.RunDarwinBootstrap(e, entrypoint.DarwinBootstrapOptions{MacosLog: "off"})
+
+			get := exec.Command(realGit, "config", "--global", "--get", "core.excludesFile")
+			get.Env = append(os.Environ(), "HOME="+home, "GIT_CONFIG_GLOBAL="+filepath.Join(home, ".gitconfig"))
+			out, _ := get.Output()
+			got := strings.TrimSpace(string(out))
+			if tc.staged && got != ignore {
+				t.Errorf("core.excludesFile = %q, want the staged gitignore %q\nbootstrap said:\n%s",
+					got, ignore, e.Stderr)
+			}
+			if !tc.staged && got != "" {
+				t.Errorf("core.excludesFile = %q for a gitignore that was never staged", got)
+			}
+		})
 	}
 }

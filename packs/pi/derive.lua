@@ -462,9 +462,10 @@ local function codexDefault(list, profile)
 end
 
 -- THE MODELS OF A MULTI-MAKER PROVIDER THIS AGENT CAN CALL. callableModels expands a provider's
--- `models` and `model_options` (for Bedrock, the declaration packs/bedrock/pack.json ships,
--- with the user's `providers.<name>` merged over it) into the ordered list of the entries this
--- agent's own client can call (docs/design/bedrock-plumbing.md OQ-BR9). Each entry declares its
+-- `models` and `model_options` (for Bedrock, the list a pack's `models` contribution or the
+-- user's `providers.<name>` supplies: packs/bedrock ships none, docs/design/model-lists-and-pickers.md
+-- MM-D32) into the ordered list of the entries this agent's own client can call
+-- (docs/design/bedrock-plumbing.md OQ-BR9). Each entry declares its
 -- maker as the `vendor` fact, and the maker is never parsed out of the id. `makers` is the set
 -- of vendors this agent's client serves, nil meaning every one, and an entry that declares no
 -- vendor (a user's string-form alias) is offered to every agent.
@@ -477,9 +478,9 @@ end
 -- call, which is the fallback OQ-BR9's ruling names: "the first model that agent can call".
 --
 -- ⚠ DUPLICATED VERBATIM in packs/claude/derive.lua, packs/codex/derive.lua,
--- packs/opencode/derive.lua and packs/pi/derive.lua, because a derive cannot load another file
--- (the sandbox has no require and no io). internal/entrypoint/bedrock_model_list_test.go fails
--- when the copies differ.
+-- packs/opencode/derive.lua and packs/pi/derive.lua, and callableModels alone in
+-- packs/copilot/derive.lua, because a derive cannot load another file (the sandbox has no
+-- require and no io). internal/entrypoint/bedrock_model_list_test.go fails when the copies differ.
 local function callableModels(p, makers)
   if type(p) ~= "table" or type(p.models) ~= "table" then return {} end
   local opts = type(p.model_options) == "table" and p.model_options or {}
@@ -1043,13 +1044,14 @@ local function piSettingsFor(ctx)
     }
   end
   -- Bedrock through pi's own client (piNativeBedrock above): pi's built-in provider, started on
-  -- the model a profile names among the entries pi can call, else the list's first. yolo picks
-  -- here because pi's own catalog lists bare ids beside runtime ones (bedrock-plumbing.md §4:
-  -- the P1 404, shipped by a vendor), so a session left to pi may start on one runtime refuses
-  -- (docs/design/model-lists-and-pickers.md OQ-ML2). The scope is the list, the start model
-  -- first, since pi starts on the first scoped model whenever the saved pair falls outside it;
-  -- and the pi-subagents policy keeps children on this provider. A list with nothing pi can
-  -- call names the provider alone and scopes all of it, and pi picks its own model.
+  -- the model a profile names among the entries pi can call, else the first of a list a pack or
+  -- the user supplies. The scope is the list, the start model first, since pi starts on the first
+  -- scoped model whenever the saved pair falls outside it; and the pi-subagents policy keeps
+  -- children on this provider. packs/bedrock ships no list (docs/design/model-lists-and-pickers.md
+  -- MM-D32), so with none supplied, or nothing on it pi can call, this names the provider alone
+  -- and scopes all of it, and pi starts on its own catalog's default, even where that catalog
+  -- spells an id runtime refuses (bedrock-plumbing.md §4): an upstream fault the ruling leaves to
+  -- pi ("if their upstream is broken, that's fine").
   if piNativeBedrock(ctx) then
     local list = callableModels(p, nil)
     local model = callableModel(p, list, ctx.profile, true)

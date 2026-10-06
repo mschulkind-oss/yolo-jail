@@ -145,14 +145,19 @@ func (f *Floor) patchedPending(p Program, rec *Record, ps PatchedState) string {
 }
 
 // patchedProvisionable is provisionable's patched arm, for a Missing entry: NoEntry when the good
-// build's entry cannot be the floor's copy, or when nothing serves and this machine cannot run the
-// advance's build. It reads the store offline.
+// build's entry cannot be the floor's copy — its manifest's program, or that program's dynamic
+// loader (HP-D15) — or when nothing serves and this machine cannot run the advance's build. It
+// reads the store offline.
 func (f *Floor) patchedProvisionable(st Status, ps PatchedState) Status {
 	p := st.Program
 	in := p.Install
 	if ps.Good != nil && ps.Good.Entry != nil {
 		if why := buildUnusableAs(p, f.patchedWhat(p, ps.Good), ps.Good.Entry); why != "" {
 			st.Disposition, st.Reason = NoEntry, why
+		} else if why := f.storeProgramLoaderProblem(ps.Good.Entry, in.ProgramPath()); why != "" {
+			// Its program's dynamic loader, read from the store before anything is materialized
+			// (HP-D15), as a plain fork's build is (buildProvisionable).
+			st.Disposition, st.Reason = NoEntry, f.patchedWhat(p, ps.Good)+" "+why
 		}
 		return st
 	}

@@ -26,8 +26,29 @@ package run
 // (openauthclient.WriteCodexAuth). guestSharedCallerTokens is that exported, UNSCOPED set, for
 // the daemons the guest runs; a scoped token keeps reaching only the agents its pointer
 // reaches, through their per-agent env files, exactly as on a container.
+//
+// # Where a loophole's own files are
+//
+// A container bind-mounts a loophole's module directory at /etc/yolo-jail/loopholes/<name>,
+// which is what `{jail_loophole_dir}` resolves to at load. The sandbox has no such mount, but it
+// has a copy of the whole staged pack tree: the orchestrator copies this launch's tree to the
+// root-owned macosuser.StagedPackRoot, world-readable and keeping each file's exec bits
+// (macosuser.StagePackCommands), for the bootstrap to render from. So the module directory is in
+// the sandbox at the same place under that copy as it is under the host tree, and
+// placeModuleDirsInGuest resolves the token there (docs/design/jail-daemon-on-macos-user-plan.md
+// JD-10).
+//
+// ⚠ THAT COPY IS ONE PER WORKSPACE, NOT PER LAUNCH, unlike a container's pack tree (OQ-PK2):
+// StagedPackRoot is keyed by the jail name alone, and every launch of the workspace replaces it.
+// The bootstrap reads it once; a guest daemon runs from it for the whole session. So a second
+// session of the workspace swaps the folder under the first one's module-dir daemon, whose next
+// restart runs the second launch's copy, or finds nothing when that launch dropped the pack.
+// JD-10 records it and its follow-up, a per-launch copy reaped once no session holds it, which
+// needs internal/macosuser's pack staging.
 
 import (
+	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 
@@ -36,7 +57,66 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/loopholes"
 	"github.com/mschulkind-oss/yolo-jail/internal/macosuser"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
+	"github.com/mschulkind-oss/yolo-jail/internal/runtime"
 )
+
+// placeModuleDirsInGuest is specs with each loophole daemon whose argv names its module
+// directory (loopholes.JailDaemonSpec.NamesModuleDir) placed in the macos-user sandbox: its
+// `{jail_loophole_dir}` resolved to the module directory's place in the sandbox's copy of this
+// launch's staged packs (loopholes.JailDaemonSpec.InGuest). Every other runtime keeps the
+// container's mount point, which the composer already resolved, so a container's payload is what
+// it was. Called by jailDaemonsFor, so the split, the decline and the supervisor's payload read the
+// argv the guest runs.
+//
+// A module directory outside this launch's staged tree has no copy in the sandbox. That cannot
+// happen for a launch whose loopholes come from its staged packs, but if it does the spec keeps
+// the container's path and loses its ModuleDir, so the guest's split declines it by name with the
+// container mount its argv names (loopholes' guestrun.go) rather than handing the supervisor a
+// path nothing copied.
+func (o *Options) placeModuleDirsInGuest(rt string, specs []loopholes.JailDaemonSpec) []loopholes.JailDaemonSpec {
+	if rt != "macos-user" { // parity: HonoredBy — a container mounts the module dir at the path the token resolved to at load; macos-user runs it from the sandbox's staged-pack copy
+		return specs
+	}
+	out := append([]loopholes.JailDaemonSpec(nil), specs...)
+	guestRoot := macosuser.StagedPackRoot(runtime.FromWorkspace(o.Workspace), "")
+	for i, s := range out {
+		if !s.NamesModuleDir() {
+			continue
+		}
+		rel, ok := relUnder(o.packTree, s.ModuleDir)
+		if !ok {
+			out[i].ModuleDir = ""
+			continue
+		}
+		out[i] = s.InGuest(filepath.Join(guestRoot, rel))
+	}
+	return out
+}
+
+// relUnder is dir relative to root when dir is root or inside it, comparing the two as given and
+// then with their symlinks resolved (a darwin temp or state path may be reached through /var, a
+// link to /private/var). ok is false for an empty root, or a dir outside it.
+func relUnder(root, dir string) (string, bool) {
+	if root == "" || dir == "" {
+		return "", false
+	}
+	try := func(r, d string) (string, bool) {
+		rel, err := filepath.Rel(r, d)
+		if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(os.PathSeparator)) {
+			return "", false
+		}
+		return rel, true
+	}
+	if rel, ok := try(root, dir); ok {
+		return rel, true
+	}
+	r, rerr := filepath.EvalSymlinks(root)
+	d, derr := filepath.EvalSymlinks(dir)
+	if rerr != nil || derr != nil {
+		return "", false
+	}
+	return try(r, d)
+}
 
 // guestJailDaemons is the macos-user guest's supervisor input for this launch: runs, the
 // daemons the guest runs (loopholes.JailDaemonsRunIn), composed into the env
@@ -49,9 +129,12 @@ func (c *packChannel) guestJailDaemons(runs []loopholes.JailDaemonSpec, launchEn
 }
 
 // jailDaemonEnv is the supervisor's environment, in this order: the payload, the three wire
-// tables and the shared pack env (what a container's supervisor inherits from the channel
-// section), the caller token of every daemon in runs that demands one, and every endpoint
-// variable the launch carries. Every key is set once; a later layer never shadows the payload.
+// tables and the channel section's pack env (channelPackEnv: what a container's supervisor
+// inherits from that section, so a fold value env_sources beats or removes is not here and a
+// pack's value never replaces a table), the caller token of every daemon in runs that demands
+// one, and every endpoint variable the launch carries. Every key is set once; a later layer never
+// shadows the payload. The section is all it mirrors: a container's supervisor also inherits the
+// shared file's env_sources defaults, which this backend has never handed its guest daemons.
 func (c *packChannel) jailDaemonEnv(runs []loopholes.JailDaemonSpec, launchEnv *jsonx.OrderedMap) *jsonx.OrderedMap {
 	env := jsonx.NewOrderedMap()
 	payload, err := jsonx.DumpsCompact(loopholes.JailDaemonPayload(runs))
@@ -64,7 +147,7 @@ func (c *packChannel) jailDaemonEnv(runs []loopholes.JailDaemonSpec, launchEnv *
 		env.Set(k, wire[k])
 	}
 	if c.scope != nil {
-		shared := c.scope.SharedPackEnv()
+		shared := c.channelPackEnv()
 		keys := make([]string, 0, len(shared))
 		for k := range shared {
 			keys = append(keys, k)

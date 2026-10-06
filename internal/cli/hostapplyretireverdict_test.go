@@ -25,10 +25,21 @@ const retireOnlyPackJSON = `{"name":"dropme","description":"d","contributes":[
 
 // retireWaitingHome applies dropme with claude, drops it, and answers an --assert's retire
 // question `n`: the rest of the home is applied, and dropme's two paths are still in it.
+//
+// Under `host_management: "own"` throughout, the one contract `yolo host apply` runs under since
+// the `assert` retirement (OQ-CO14): the unset key is `none`, at which the verb refuses before any
+// stage and the dry-run document below would not exist. Both selections are written here rather
+// than left to dropFixture and applyThenDrop, which write theirs with the key unset. Every
+// selection in this file also says `"host_wrappers": false`: `own` derives the wrappers on, and an
+// empty `packs` would then retire claude's wrapper beside the briefing, a destination these
+// verdicts do not count.
 func retireWaitingHome(t *testing.T) string {
 	t.Helper()
-	home, _ := dropFixture(t, retireOnlyPackJSON)
+	home, packDir := dropFixture(t, retireOnlyPackJSON)
+	selectPacksWith(t, home, `"claude",{"source":"file://`+packDir+`","name":"dropme"}`,
+		`,"host_management":"own","host_wrappers":false`)
 	applyThenDrop(t, home)
+	selectPacksWith(t, home, `"claude"`, `,"host_management":"own","host_wrappers":false`)
 	if rc, report := applyWith(t, true, strings.NewReader("n\n")); rc != 0 {
 		t.Fatalf("the declining --assert rc=%d\n%s", rc, report)
 	}
@@ -64,7 +75,7 @@ func TestADryRunVerdictCountsTheRetiresStillWaiting(t *testing.T) {
 	t.Run("with no packs", func(t *testing.T) {
 		defaultReport(t)
 		home := retireWaitingHome(t)
-		selectPacks(t, home, "")
+		selectPacksWith(t, home, "", `,"host_management":"own","host_wrappers":false`)
 		// Settle what the empty `packs` retires without asking (the composed briefing), so the
 		// dropped pack's two paths are all that is left.
 		if rc, report := applyWith(t, true, strings.NewReader("n\n")); rc != 0 {
@@ -116,7 +127,7 @@ func TestTheNoPacksVerdictNamesTheKeysStillWaiting(t *testing.T) {
 // this launch into the gate's decision branch, and this test fails.
 func TestTheLaunchGateDoesNotCountARetireStillWaiting(t *testing.T) {
 	home := retireWaitingHome(t)
-	selectPacksWith(t, home, `"claude"`, `,"host_apply_on_launch":true`)
+	selectPacksWith(t, home, `"claude"`, `,"host_management":"own","host_wrappers":false,"host_apply_on_launch":true`)
 	t.Setenv("YOLO_VERSION", "")
 	setGateTTY(t, false)
 
@@ -186,7 +197,7 @@ func TestAnAssertThatDeclinesTheRetireSaysWhatStays(t *testing.T) {
 	t.Run("with no packs", func(t *testing.T) {
 		defaultReport(t)
 		home := retireWaitingHome(t)
-		selectPacks(t, home, "")
+		selectPacksWith(t, home, "", `,"host_management":"own","host_wrappers":false`)
 
 		// The first --assert with `packs` empty also retires the composed briefing, unasked.
 		_, report := applyWith(t, true, strings.NewReader("n\n"))

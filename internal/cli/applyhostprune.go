@@ -36,6 +36,7 @@ import (
 
 	"github.com/mschulkind-oss/yolo-jail/internal/entrypoint"
 	"github.com/mschulkind-oss/yolo-jail/internal/hostskills"
+	"github.com/mschulkind-oss/yolo-jail/internal/jailcontent"
 	"github.com/mschulkind-oss/yolo-jail/internal/packdecl"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/richtext"
@@ -296,6 +297,16 @@ func droppedPackOrphans(man, composed *hostskills.Manifest, candidates []*packlo
 		for _, e := range entries {
 			dest := filepath.Join(dir, e.Name())
 			if recorded[dest] || !e.IsDir() {
+				continue
+			}
+			// CLAUDE'S LSP PLUGIN IS NO PACK'S OUTPUT. It carries the same marker a namespaced
+			// subtree does, with the name `yolo-lsp`, so read as one it is a dropped pack's and
+			// every apply asked to retire it (and the launch gate saw that question pending). Its
+			// lifecycle is the `lsp_servers` table's (applyhostlspplugin.go). Identified by its
+			// manifest, not its name: a pack literally named `yolo-lsp` writes a marked subtree
+			// at this very path with no `lspServers`, and once that pack is dropped its subtree is
+			// still found here.
+			if e.Name() == jailcontent.LSPPluginDir && jailcontent.IsLSPPlugin(dest) {
 				continue
 			}
 			owner, ok := hostskills.YoloPluginOwner(dest)

@@ -12,11 +12,17 @@ package cli
 //	profiles      the user's `profile`, resolved over that table, via addresses cleared
 //	              (nothing serves one here, WG-I12), and a selection the host launch refuses
 //	              left out and named
-//	mcp_servers   the user's own entries, less any that names a jail-only path (named)
-//	lsp_servers   the same
+//	mcp_servers   the user's own entries over the selected packs' `mcp` entries joined to the
+//	              real home (packload.ComposeMCPServers; HC-D26), less any that names a
+//	              jail-only path, and a fetched pack's entry left out (both named)
+//	lsp_servers   the same, and Claude's yolo-lsp plugin is rendered from it too
+//	              (applyhostlspplugin.go)
+//	(workers)     none: a pack service no adaptation names runs only beside a `yolo host --`
+//	              command (hostPureWorkers), and is named
 //
-// and never an MCP preset (its command is a wrapper only a jail's boot writes), a pack's `mcp`
-// declaration (OQ-MP3), or a workspace's config (P2).
+// and never an MCP preset (its command is a wrapper only a jail's boot writes; HC-D27), a
+// FETCHED pack's `mcp` declaration (HC-D26: its command would run unconfined as you), or a
+// workspace's config (P2).
 
 import (
 	"errors"
@@ -30,6 +36,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/launchservice"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
+	"github.com/mschulkind-oss/yolo-jail/internal/shquote"
 )
 
 // hostInputComposition is one invocation's host derive inputs and what composing them left out.
@@ -47,6 +54,14 @@ type hostInputComposition struct {
 	// shaped names each `models` contribution the composition applied, "<provider> (<pack>
 	// add|only)": like a provider, it renders invisibly, into the lists the derives write.
 	shaped []string
+	// mcp names each pack `mcp` entry the composed mcp_servers table starts from, "<server>
+	// (pack <pack>)": it renders invisibly too, into every agent's MCP file.
+	mcp []string
+	// lsp is the `lsp_servers` table the host carries — hostServerTable's, so an entry naming a
+	// jail-only path is already left out and named in omitted. The derives read it through the
+	// wire variable; Claude's LSP plugin, which is no derive, reads it from here
+	// (applyHostLSPPlugin), so the two cannot disagree about which servers the host has.
+	lsp *jsonx.OrderedMap
 }
 
 // summary is the detail line naming what the composition carries.
@@ -62,6 +77,9 @@ func (c hostInputComposition) summary() string {
 		" · profile selection (the profile key): " + selection
 	if len(c.shaped) > 0 {
 		line += " · model lists shaped by `models`: " + strings.Join(c.shaped, ", ")
+	}
+	if len(c.mcp) > 0 {
+		line += " · MCP servers from packs' `mcp`: " + strings.Join(c.mcp, ", ")
 	}
 	return line
 }
@@ -158,6 +176,12 @@ func composeHostInputs(cfg *jsonx.OrderedMap, packs []*packload.Pack, home strin
 				"the host: %s", agent, profile, firstLine(refusal.Error())))
 			continue
 		}
+		// A VIA OR CARRIER (docs/design/host-notch-services.md HS-D33): the table above renders it
+		// inert, so the apply says where the selection's route does take effect, as it does for a
+		// bridged selection.
+		if note := viaSelectionNote(cfg, packs, userProfiles, agent, profile); note != "" {
+			c.omitted = append(c.omitted, note)
+		}
 		if len(set) > 0 {
 			v = packload.ProfileSetWire(set)
 		}
@@ -166,24 +190,44 @@ func composeHostInputs(cfg *jsonx.OrderedMap, packs []*packload.Pack, home strin
 		c.selection = append(c.selection, agent+" → "+strings.Join(set, ","))
 	}
 	vars[entrypoint.UseProfilesWireEnv] = wireJSON(use)
+	// THE PURE WORKERS (hostPureWorkers; docs/design/host-notch-services.md HS-D29): a file holds
+	// no process, so the apply starts none and names each one, as `yolo host env` does, with the
+	// launch that does start it (OQ-HS3). Over every agent's selection the apply renders, the gate
+	// a launch of one of them would ask.
+	if _, notes, _, err := hostPureWorkers(packs, packload.SelectionOfSets(sets, resolved, providers), false); err == nil {
+		c.omitted = append(c.omitted, notes...)
+	}
 
-	servers, omitted := hostServerTable(cfg, "mcp_servers", home)
+	// THE MCP TABLE (HC-D26, revising HC-D6): the selected packs' `mcp` entries, joined to the
+	// real home, with your own mcp_servers merged over them — the composition a jail launch makes
+	// for the jail's home (packload.ComposeMCPServers) — then the same jail-path check as your
+	// own entries get.
+	mcpPacks, fetched := hostMCPPacks(packs)
+	c.omitted = append(c.omitted, fetched...)
+	userMCP, _ := cfg.Get("mcp_servers")
+	userServers, _ := userMCP.(*jsonx.OrderedMap)
+	c.mcp = packload.MCPServerSources(userServers, mcpPacks)
+	servers, omitted := hostServerEntries(packload.ComposeMCPServers(userServers, mcpPacks, home),
+		"mcp_servers", home)
 	c.omitted = append(c.omitted, omitted...)
 	vars[entrypoint.MCPServersWireEnv] = wireJSON(servers)
 	lsp, omitted := hostServerTable(cfg, "lsp_servers", home)
 	c.omitted = append(c.omitted, omitted...)
 	vars[entrypoint.LSPServersWireEnv] = wireJSON(lsp)
+	c.lsp = lsp
 
-	// THE PRESETS NEVER EXPAND HERE (HC-D6): each command names the node wrapper a jail's boot
-	// writes and the jail's npm prefix, neither of which a real home has, and composing them
-	// for the host instead is what mcp-presets-removal.md retires them rather than do.
+	// THE PRESETS NEVER EXPAND HERE (HC-D6, HC-D27): each command names the node wrapper a jail's
+	// boot writes and the jail's npm prefix, neither of which a real home has, and composing them
+	// for the host instead is what mcp-presets-removal.md retires them rather than do. Where a
+	// pack ships a server of the preset's name, the line names that pack: it is how the server
+	// reaches the host.
 	if v, ok := cfg.Get("mcp_presets"); ok {
 		if list, isList := v.([]any); isList {
 			for _, p := range list {
 				if name, isStr := p.(string); isStr && name != "" {
 					c.omitted = append(c.omitted, fmt.Sprintf("mcp_presets %s is not written at "+
-						"the host: its command is a wrapper only a jail writes — declare the "+
-						"server under `mcp_servers` with a command this machine has", name))
+						"the host: its command is a wrapper only a jail writes — %s", name,
+						presetHostRemedy(name, servers, packs)))
 				}
 			}
 		}
@@ -220,17 +264,26 @@ func hostSetOmission(packs []*packload.Pack, providers *jsonx.OrderedMap,
 }
 
 // hostServerTable is the user-scope `key` table (mcp_servers or lsp_servers) as the host
-// carries it: every entry but one that names a jail-only path (HC-D6), each such entry named.
-// A null entry is a jail-side removal of a preset, and there are no presets here, so it is
-// dropped. The predicate is the render's own output check (entrypoint.JailPathsIn, HC-D14).
+// carries it: hostServerEntries over the config's own table.
 func hostServerTable(cfg *jsonx.OrderedMap, key, home string) (*jsonx.OrderedMap, []string) {
-	out := jsonx.NewOrderedMap()
 	v, ok := cfg.Get(key)
 	if !ok {
-		return out, nil
+		return jsonx.NewOrderedMap(), nil
 	}
 	table, isMap := v.(*jsonx.OrderedMap)
 	if !isMap {
+		return jsonx.NewOrderedMap(), nil
+	}
+	return hostServerEntries(table, key, home)
+}
+
+// hostServerEntries is a `key` table as the host carries it: every entry but one that names a
+// jail-only path (HC-D6), each such entry named. A null entry is a jail-side removal of a preset,
+// and there are no presets here, so it is dropped. The predicate is the render's own output check
+// (entrypoint.JailPathsIn, HC-D14).
+func hostServerEntries(table *jsonx.OrderedMap, key, home string) (*jsonx.OrderedMap, []string) {
+	out := jsonx.NewOrderedMap()
+	if table == nil {
 		return out, nil
 	}
 	var omitted []string
@@ -247,6 +300,63 @@ func hostServerTable(cfg *jsonx.OrderedMap, key, home string) (*jsonx.OrderedMap
 		out.Set(name, entry)
 	}
 	return out, omitted
+}
+
+// hostMCPPacks splits packs for the host's MCP table (HC-D26): the packs whose `mcp` entries
+// compose there — one yolo ships, or one at a path on this machine (Pack.MayRunHostHalf, the
+// predicate a launch asks before it runs a pack's host code as its own child) — and one line per
+// entry of any other, a FETCHED pack, which is left out. An entry's command is a program the
+// agent starts whenever it starts, unconfined at the host, so a fetched pack's takes the rule
+// OQ-HS4 applies to a fetched pack's host half: refused by name, failing closed until a trust
+// ruling exists for third-party host code.
+func hostMCPPacks(packs []*packload.Pack) (composed []*packload.Pack, omitted []string) {
+	for _, p := range packs {
+		if p == nil || p.Decl == nil {
+			continue
+		}
+		if p.MayRunHostHalf() {
+			composed = append(composed, p)
+			continue
+		}
+		for _, s := range p.Decl.MCPContributions() {
+			omitted = append(omitted, fmt.Sprintf("mcp %s (pack %s) is not written at the host: the "+
+				"pack was fetched, and an MCP server's command runs unconfined as you whenever the "+
+				"agent starts — to run it here, write the entry under `mcp_servers` in "+
+				"~/.config/yolo-jail/config.jsonc yourself (docs/design/host-computed-layer.md HC-D26)",
+				s.Name, p.Name))
+		}
+	}
+	return composed, omitted
+}
+
+// presetHostRemedy is the next step the preset omission line names for the preset name: the
+// selected pack whose server of that name the host table already carries, a shipped pack that
+// ships one, or the generic one — declare it under `mcp_servers` with a command this machine has.
+func presetHostRemedy(name string, servers *jsonx.OrderedMap, packs []*packload.Pack) string {
+	for _, p := range packs {
+		if p == nil || p.Decl == nil {
+			continue
+		}
+		for _, s := range p.Decl.MCPContributions() {
+			if s.Name != name {
+				continue
+			}
+			if _, carried := servers.Get(name); carried {
+				return fmt.Sprintf("pack %s's %s server is written there instead", p.Name, name)
+			}
+			return fmt.Sprintf("pack %s's %s server is not written either: your mcp_servers removes "+
+				"it, or another line here says why it is left out", p.Name, name)
+		}
+	}
+	for _, p := range packload.Embedded() {
+		for _, s := range p.Decl.MCPContributions() {
+			if s.Name == name {
+				return fmt.Sprintf("pack %s ships that server for the host too: add %q to `packs` in "+
+					"~/.config/yolo-jail/config.jsonc", p.Name, p.Name)
+			}
+		}
+	}
+	return "declare the server under `mcp_servers` with a command this machine has"
 }
 
 // hostAgentLookup answers a server's requires_env for ONE agent, the way that agent's process
@@ -313,6 +423,35 @@ func sortedOmitted(lines []string) []string {
 	out := append([]string(nil), lines...)
 	sort.Strings(out)
 	return out
+}
+
+// viaSelectionNote is what `yolo host apply` says of a profile selection whose via, or whose
+// carrier, routes agent through a pack service once served (hostViaWhatIf, the what-if `yolo host
+// --` plans by; docs/design/host-notch-services.md HS-D33), "" for any other: the apply renders the
+// via inert (WG-I12 as WG-I46 narrowed it), since the service's address is a port one launch picks.
+// A route the agent's environment carries takes effect through `yolo host -- <agent>` or its host
+// wrapper, which start the service; one its own config file carries, only in a jail or on
+// macos-user (HS-D31). A via that re-points nothing of the agent changes nothing anywhere, so it
+// gets no line.
+func viaSelectionNote(cfg *jsonx.OrderedMap, packs []*packload.Pack, userProfiles map[string]packload.UserProfile,
+	agent, profile string) string {
+	v, err := hostViaWhatIf(cfg, packs, userProfiles, agent, profile)
+	if err != nil || v.service == "" || v.noEffect {
+		return ""
+	}
+	if len(v.files) > 0 {
+		return fmt.Sprintf("profile %s → %s renders no address for %s here: %s reads its route from %s, "+
+			"its own config, and pack %q's %q service answers at a port each launch picks, so no file "+
+			"can name it and %s keeps its own client at the host. A jail or a macos-user launch serves "+
+			"it: `yolo -p %s -- %s` (docs/design/host-notch-services.md HS-D31)", agent, profile,
+			"its "+v.route, agent, strings.Join(v.files, ", "), v.pack, v.service, agent,
+			shquote.Quote(profile), shquote.Quote(agent))
+	}
+	return fmt.Sprintf("profile %s → %s renders no address for %s here: it runs through pack %q's "+
+		"%q service, which a host launch starts for its own command and stops when that command "+
+		"exits, so no file can name it. It takes effect through `yolo host -- %s` or the host "+
+		"wrappers; %s started any other way runs without it (docs/design/host-notch-services.md "+
+		"HS-D30, OQ-HS3)", agent, profile, "its "+v.route, v.pack, v.service, agent, agent)
 }
 
 // bridgedSelectionNote is what `yolo host apply` says of a profile selection whose pairing

@@ -14,35 +14,37 @@ covers:
   - internal/macosuser/runplan.go
   - internal/entrypoint/hostlayerlabel.go
 tags: [config, cli, notch, workspace, capture, disclosure]
-summary: "One resolved config target per `yolo config` invocation — notch, workspace, capture store, home root, may-write and chosen-by — disclosed on stderr by every verb and selectable with `--at`; the workspace marker that decides it; the four store states and three surface reaches that keep an unknown from reading as an empty; the fifth `YOLO_HOST_LAYERS` disposition that delivers yolo's own render as a baseline rather than a layer, keyed on the provenance mark and not on the posture; and the host-side jail-notch `reset` with its tri-state liveness refusal. ⚠ One PENDING amendment, ruled 2026-09-20 and NOT built: `host_management` retires `assert`, leaving `none` — the new unset answer — and `own`."
+summary: "One resolved config target per `yolo config` invocation — notch, workspace, capture store, home root, may-write and chosen-by — disclosed on stderr by every verb and selectable with `--at`; the workspace marker that decides it; the four store states and three surface reaches that keep an unknown from reading as an empty; the fifth `YOLO_HOST_LAYERS` disposition that delivers yolo's own render as a baseline rather than a layer, keyed on the provenance mark and not on the posture; and the host-side jail-notch `reset` with its tri-state liveness refusal. `host_management` has two values, `none` (the unset answer) and `own`, since the `assert` retirement was built on 2026-10-05; a home `assert` wrote into keeps its mark."
 ---
 
 # The config target — which home a `yolo config` verb is about
 
 **Status:** CURRENT as of 2026-09-18, verified against `434b2c2e`. The `macos-user` label and
 the end-to-end test of the fifth disposition were added on 2026-09-27, in the change that builds
-them, and no later commit has verified those passages.
+them, and no later commit has verified those passages. The `assert` passages were rewritten on
+2026-10-05 in the change that retires it ([OQ-CO14](../design/config-ownership-and-promotion.md#oq-co14)).
 
 **MEASURED:** the resolution and its disclosure, the marker and the unknown states, the
 presence answer, `--at`, the preview's host layer in every disposition, and the host-side
 jail-notch `reset` in all three liveness answers — by unit tests in `internal/cli`, plus
 `TestHostFilesConfigLsAndReset` and `TestConfigTargetResolvesFromTheCwd` in `integration`
-against a real jail. The fifth host-layer disposition end to end, by one unit test that drives
-a managed home through a host assert, each backend's launcher label and the boot render
-(`TestAManagedHomesHostFileIsABaselineFromTheAssertToTheBoot`, `internal/cli/run`).
+against a real jail. The fifth host-layer disposition end to end, by two unit tests that drive a
+managed home through a host write, each backend's launcher label and the boot render — one owned
+home, and one home the retired `assert` wrote into whose key is unset
+(`TestAnOwnedHomesHostFileIsABaselineFromTheApplyToTheBoot`,
+`TestAHomeAssertedIntoBeforeTheRetirementStaysABaselineToTheBoot`, `internal/cli/run`).
 
 **UNMEASURED:** the fifth disposition through a *real launch*: no test has a container runtime
 bind a managed home's file, and no Mac has run the `macos-user` label. See
 [Where this does not reach](#where-this-does-not-reach).
 
 > [!IMPORTANT]
-> **One ruling is PENDING against this document, and none of it is built.** On 2026-09-20 the
-> maintainer retired `host_management: assert`, leaving `none` and `own`, and made `none` the
-> unset answer. Everything below describes the tree as it stands — where `assert` exists and is
-> the unset answer — and stays accurate until the work lands. What the ruling changes, what it
-> obliges, and the part most easily got wrong (why the DEFAULT has to move with the value) are
-> in [Ruled 2026-09-20, not built](#ruled-2026-09-20-not-built-retiring-assert), which is the
-> only forward-looking section here.
+> **`host_management: assert` is retired** (ruled 2026-09-20, built 2026-10-05 as
+> [OQ-CO14](../design/config-ownership-and-promotion.md#oq-co14) ruled). `none` and `own` remain,
+> `none` is the unset answer, and a config still saying `"assert"` is refused by name. A home
+> `assert` wrote into keeps its files and its provenance mark. Why, and the part most easily got
+> wrong (why the DEFAULT had to move with the value), are in
+> [Retiring `assert`](#ruled-2026-09-20-not-built-retiring-assert).
 
 A **config target** *(coined by the design this document graduated from)* is the single answer
 a `yolo config` invocation resolves before any verb runs: **which home the verb is about**,
@@ -111,22 +113,21 @@ same file. They are different rules from different documents.
 - **P5. No jail-scope input gains authority over a real home.** Whatever the working directory
   decides, it decides which *jail* is being described — never what yolo asserts into `$HOME`.
 - **P6. yolo never reads back a file it writes.** A host layer exists to carry the *user's*
-  bytes into a jail. The moment yolo writes that file — `assert` rewrites its declared keys
-  into it, `own` composes it whole — those bytes stop being purely the user's, and reading them
-  back makes a key yolo wrote indistinguishable from one the user wrote. **The rule is stated
-  on the write, not on the notch's name**, because the mechanism is identical in both managed
-  modes. This is the rule `SkillTarget.HostSource` was deleted for. ⚠ As built, `assert` is the
-  only mode in which yolo does both halves to one file, so it is the only thing P6 has to be
-  actively defended against — which is what the
-  [pending ruling](#ruled-2026-09-20-not-built-retiring-assert) prices.
+  bytes into a jail. The moment yolo writes that file — `own` composes it whole, and the retired
+  `assert` rewrote its declared keys into it — those bytes stop being purely the user's, and
+  reading them back makes a key yolo wrote indistinguishable from one the user wrote. **The rule
+  is stated on the write, not on the notch's name.** This is the rule `SkillTarget.HostSource` was
+  deleted for. `assert` was the one contract in which yolo did both halves to one file, and its
+  retirement leaves P6 nothing to defend against at a live contract; the mark still defends the
+  homes it wrote into ([Retiring `assert`](#ruled-2026-09-20-not-built-retiring-assert)).
 - **P7. Adopting yolo requires no migration. Adopting host management does.** Someone who
   installs yolo and launches a jail keeps the `~/.claude/settings.json` they already have,
   transparently. That is what a host layer is *for*, and it is the onboarding path rather than
-  a convenience. The pack migration is the price of `host_management: assert|own`, charged when
-  the user asks for that and never before. ⚠ As built, what keeps that path frictionless is
-  the MARK ([below](#a-staged-copy-is-not-always-a-layer)); the
-  [pending ruling](#ruled-2026-09-20-not-built-retiring-assert) replaces the mechanism and
-  leaves the principle exactly as stated.
+  a convenience. The pack migration is the price of `host_management: own`, charged when the
+  user asks for that and never before. What keeps that path frictionless is the default: an
+  unset key is `none`, so yolo never writes a fresh user's file, and it composes as a layer with
+  no mark to consult. The MARK ([below](#a-staged-copy-is-not-always-a-layer)) keeps out a file
+  yolo did write.
 
 ## Invariants
 
@@ -241,7 +242,8 @@ because every ancestor of a boundary root contains that root and so is one too.
 **A directory that resolves neither marker is answered about, not refused.** Outside a
 workspace the only home there is to describe is the host's, and standing there is how the user
 says so. It is a *target, not a permission*: the write guard is untouched, so `capture` stays
-refused host-side even under `own`.
+refused host-side under `none` — under `own` the guard admits it, since
+2026-10-04, for the reason [the last section](#what-this-does-not-license) gives.
 
 ## The disclosure
 
@@ -348,27 +350,19 @@ they are the capture, which is already its own layer. Their pre-yolo original is
 adoption archive, which is not a layer and must not become one.
 
 > [!WARNING]
-> **It is keyed on the MARK, not on the posture, and getting this backwards breaks every
-> default install.** An absent `host_management` resolves to **`assert`**, so a posture test
-> would label every default install's `~/.claude/settings.json` a render and stop every jail
-> composing the settings file its user already has — [P7](#principles) inverted by the mechanism
-> meant to serve it. [P6](#principles) states the rule on the **write**, and a write leaves a
-> mark: the host provenance record, which `hostProvenanceExists` already reads as *"has yolo
-> ever asserted this surface in this home"* and which every host render writes and no dry run
+> **It is keyed on the MARK, not on the posture, and getting this backwards breaks a home in
+> either direction.** [P6](#principles) states the rule on the **write**, and a write leaves a
+> mark: the host provenance record, which `hostProvenanceExists` reads as *"has yolo ever
+> written this surface in this home"* and which every writing host apply writes and no dry run
 > does. So the launcher labels a delivery off that mark (`HostSurfaceRendered`,
-> `hostLayerIsRender`), and the posture decides only whether there can be a *next* write.
-
-⚠ **That warning is the load-bearing argument in the
-[pending ruling](#ruled-2026-09-20-not-built-retiring-assert), and it is why the ruling moves the
-DEFAULT rather than merely dropping a value.** Its objection is not to a posture test in the
-abstract — it is to a posture test *while an absent `host_management` resolves to `assert`*.
-Retire the value and leave the unset answer resolving to anything yolo writes and the same
-failure arrives by a different route. Move the unset answer to `none` and the objection
-dissolves, because a fresh install's file is then one yolo has never written. **A reader who
-proposes "just remove `assert`" without moving the default has re-derived this failure and
-not noticed.** Neither the warning nor the mark is retracted by that ruling; what the ruling
-does to the mark's reachability is
-[below](#does-the-renderbaseline-disposition-become-dead).
+> `hostLayerIsRender`), and the posture decides only whether there can be a *next* write. A
+> posture test was wrong on every default install while an absent `host_management` resolved to
+> `assert`: it labelled a file yolo had never written and stopped every jail composing the
+> settings its user already had. It is wrong now for a home `assert` wrote into: that home's key
+> is unset, so the posture says `none`, while its file holds keys yolo wrote — and a posture test
+> would compose them into every jail as the user's own, the laundering the `retired:` provenance
+> label exists to stop. The ruling keeps the mark for exactly that home
+> ([OQ-CO14](../design/config-ownership-and-promotion.md#oq-co14), read from the ruling).
 
 ### How it travels
 
@@ -466,10 +460,11 @@ the label with the container launcher's own predicate and emits the same wire
 own reader. No Mac has run it.
 
 **2. Closed below a real launch: one managed home through both halves.**
-`TestAManagedHomesHostFileIsABaselineFromTheAssertToTheBoot` (`internal/cli/run`) runs a host
-render at `assert`, then each backend's launcher, then the boot render, over one home, with
-nothing hand-written between them, and its twin does the same for a home yolo never rendered
-into. Each half's own unit test writes the other half by hand. This one fails when either
+`TestAnOwnedHomesHostFileIsABaselineFromTheApplyToTheBoot` (`internal/cli/run`) runs a host
+render at `own`, then each backend's launcher, then the boot render, over one home, with nothing
+hand-written between them; `TestAHomeAssertedIntoBeforeTheRetirementStaysABaselineToTheBoot` does
+the same for a home written as the retired `assert` wrote it and left with its key unset, and
+their twin for a home yolo never rendered into. Each half's own unit test writes the other half by hand. This one fails when either
 launcher's label, the provenance mark or the boot's label check is removed. What it cannot
 reach is the container runtime's bind of the file, so a real launch of a managed home is still
 unmeasured.
@@ -496,13 +491,21 @@ running both commands rather than by comparing two lists.
 
 ## What this does not license
 
-- **No change to `host_management`, its values, or the unset answer.** Absent still resolves to
-  `assert`, silently, and that fact is load-bearing for the label rule above. ⚠ A ruling has
-  since licensed exactly that change — and only from outside this document, which is why it is
-  fenced in [its own section](#ruled-2026-09-20-not-built-retiring-assert) rather than folded in
-  here. This bullet governs until that work lands.
-- **`config capture` stays refused host-side, including under `own`.** Its premise is privacy —
-  a credential copied out of a real file — not ownership.
+- **No change to `host_management`, its values, or the unset answer.** Absent resolves to
+  `none`, silently, since the `assert` retirement, which was licensed from outside this document
+  ([Retiring `assert`](#ruled-2026-09-20-not-built-retiring-assert)); the label rule above does
+  not depend on it, being keyed on the mark.
+- **`config capture` stays refused host-side under `none`**, where the host keeps no
+  capture store — and `--force` does not reach it there, since it could only find nothing to
+  capture. Under `own` it works since 2026-10-04: its premise is a credential copied out of a
+  real file into the WORKSPACE tree, and under `own` it writes the host's own `0600` store
+  instead. What it writes there is the capture half of the host apply's own render of the
+  surface, run in observe, so it records what the next `yolo host apply` would rather than
+  composing the capture the jail's way — which its first build did, erasing a captured
+  `permissions.deny` the apply keeps
+  ([`OQ-CO3`](../design/config-ownership-and-promotion.md#13-decision-ledger), ruled
+  yes-under-own 2026-09-10; the mechanism and its measurement are in
+  [§6.2](../design/config-ownership-and-promotion.md#62-host-capture-and-the-privacy-ruling-it-has-to-answer-to)).
 - **No new store, no new sidecar, no new file format, and no migration.** Every path here is
   derived at read time.
 - **No `guest` notch.** `--at guest` is refused by name, with the same sentence `apply` prints.
@@ -535,121 +538,76 @@ and its original anchor, because they are cited from code comments across `inter
 | <a id="oq-cr3"></a>[`OQ-CR3`](#oq-cr3) | **One target, one store.** `diff` and `ls` resolve the capture store through `render.Target`, as `reset` already did | Closes the owned-host disagreement by **removing the second resolution**, not by teaching the readers about ownership. The tempting alternative — show both stores, labelled — is a two-home report wearing a feature's clothes. |
 | <a id="oq-cr4"></a>[`OQ-CR4`](#oq-cr4) | **A host-side `reset` at a jail notch exists, with the running-jail refusal** | The store was always workspace-keyed and the surface file was always a resolver away. Without it, discarding a stopped jail's captures requires launching that jail — performing the act being undone. The refusal costs nothing because the in-jail command is available exactly when it fires. |
 | <a id="oq-cr5"></a>[`OQ-CR5`](#oq-cr5) | **The disclosure is unconditional**, on every invocation | *"Only when surprising"* would make the line's **absence** carry information the reader cannot decode. Compression is allowed; suppression is not. |
-| <a id="oq-cr6"></a>[`OQ-CR6`](#oq-cr6) | **The staged copy, never the destination; no staged copy means the layer is reported UNAVAILABLE. And where the bytes are yolo's own render they are a BASELINE, never a layer** | Reading the destination feeds yolo's previous output back in as the user's input. Delivering a managed home's file as a baseline rather than withholding it keeps what the jail actually wants — *how does what I have differ from what the host has* — while giving up only host-side provenance, which a jail has no business reporting. ⚠ **As built the discriminator is the MARK, not the posture**, because an absent `host_management` is `assert`; a posture test would stop every default install's jail composing its user's own settings. The 2026-09-20 ruling keeps this discriminator and moves the DEFAULT instead ([the pending section](#ruled-2026-09-20-not-built-retiring-assert)); nothing in this row is retracted by it. |
+| <a id="oq-cr6"></a>[`OQ-CR6`](#oq-cr6) | **The staged copy, never the destination; no staged copy means the layer is reported UNAVAILABLE. And where the bytes are yolo's own render they are a BASELINE, never a layer** | Reading the destination feeds yolo's previous output back in as the user's input. Delivering a managed home's file as a baseline rather than withholding it keeps what the jail actually wants — *how does what I have differ from what the host has* — while giving up only host-side provenance, which a jail has no business reporting. ⚠ **The discriminator is the MARK, not the posture**: while an absent `host_management` was `assert`, a posture test would have stopped every default install's jail composing its user's own settings, and since the `assert` retirement moved the DEFAULT to `none` instead, a posture test would launder the keys `assert` left in a home whose key is unset ([Retiring `assert`](#ruled-2026-09-20-not-built-retiring-assert)). Nothing in this row is retracted by it. |
 | <a id="oq-cr7"></a>[`OQ-CR7`](#oq-cr7) | **`diff` reports the captured divergence and nothing else, and keeps its name.** Per-key provenance moves to `ls` | Decided on the verb's **subject**, not on the defect: provenance is a fact about the render and would read identically before and after the wipe `diff` measures against. The name was never the problem — the second block was. |
 | <a id="oq-cr8"></a>[`OQ-CR8`](#oq-cr8) | **A jail does read the host's own config file, for surfaces that declare it** — settled twice elsewhere, and kept here on [P7](#principles) | It was ruled *retired* in favour of a local pack once and **reversed** later, never implemented in between, and the reversal is what is built. The substantive reason the reversal never gave it is [P7](#principles): this layer is the onboarding path, so adopting yolo costs no migration. Reopening means arguing against that. The narrow coverage is deliberate: two surfaces declare a host layer and a third has to argue for itself. |
 
-## Ruled 2026-09-20, not built: retiring `assert`
+<a id="ruled-2026-09-20-not-built-retiring-assert"></a>
 
-> [!CAUTION]
-> **Nothing in this section is true of the tree, and everything above it is.** This is the one
-> forward-looking part of a `CURRENT` reference doc, fenced so a reader debugging today's
-> behaviour can stop at this heading. It records a ruling and the work that ruling obliges — it
-> changes what several sections above are FOR, and none of what they say.
+## Retiring `assert`
 
-**The ruling.** `host_management` loses `assert`. Two values remain, `none` and `own`, and
-**`none` becomes the unset answer**. The maintainer's reason, verbatim: *"shouldn't they just be
-a single promote away from having their configs managed correctly? assert is just too fragile in
-general."*
+**The ruling, 2026-09-20.** `host_management` loses `assert`. Two values remain, `none` and
+`own`, and **`none` becomes the unset answer**. The maintainer's reason, verbatim: *"shouldn't
+they just be a single promote away from having their configs managed correctly? assert is just
+too fragile in general."* It **reverses**
+[`OQ-CO1`](../design/config-ownership-and-promotion.md#13-decision-ledger), whose recorded
+reasoning weighed MIGRATION cost and never MECHANISM cost; `yolo config promote` declares a
+captured key into the conventional local pack and clears only that key
+(`TestPromoteDeclaresTheKeyLocallyAndClearsOnlyThatKey`), so the escalation it feared is not
+forced.
 
-It **reverses** [`OQ-CO1`](../design/config-ownership-and-promotion.md#13-decision-ledger), whose
-recorded reasoning was only that *"`assert` is shipped behavior with real users, so collapsing it
-is either a regression or a forced escalation to `own`"*. That weighed MIGRATION cost and never
-MECHANISM cost — and the machinery below is what has accumulated since. The escalation is not
-forced either: `yolo config promote` already declares a captured key into the conventional local
-pack and clears only that key (`TestPromoteDeclaresTheKeyLocallyAndClearsOnlyThatKey`).
+**What it does to an installation, 2026-10-05**
+([OQ-CO14](../design/config-ownership-and-promotion.md#oq-co14)), as built:
 
-### What keeping `assert` costs, measured here
+- A config that says `"assert"` is **refused by name**, naming `none` and `own`
+  (`config.HostManagementRetired`): by validation (so a jail launch and `yolo check`), and by
+  `yolo host apply` in both spellings, `--revert`, a wrapped `yolo host` launch and
+  `yolo pack update`'s host half. It reads as `none`, so nothing renders under it.
+- A home `assert` wrote into, with the key unset, is `none`: **no prompt and no notice**, and the
+  file stays as `assert` last rendered it. Its provenance mark **stays**, so the launcher keeps
+  labelling the file a render and a jail keeps it as a baseline
+  ([above](#a-staged-copy-is-not-always-a-layer)). `yolo host apply --revert` runs under `none`
+  and is the one way back to a file purely the user's; choosing `own` takes the file over with
+  the one-time adoption archive, as an owned apply always does.
 
-`assert` is **the only mode in which yolo both writes a host file and reads it back**, so it is
-the only thing [P6](#principles) has to be actively defended against. The defence is READ in the
-tree today, in three places that exist for nothing else:
+<a id="what-keeping-assert-costs-measured-here"></a>
 
-- **`agentcfg`'s `retired:` provenance label** (`compose.go`, `RetiredLayer`), whose own comment
-  says `Compose` never emits it — *"it exists for the RMW notch, where the key stays in a file
-  yolo re-reads."*
-- **The render/baseline mark**, which is the whole second half of
-  [The host layer](#the-host-layer--a-staged-copy-a-baseline-or-nothing):
-  `entrypoint.HostLayerRender`, `HostSurfaceRendered`, `hostProvenanceExists`,
-  `run.hostLayerIsRender` and the fifth disposition on the `YOLO_HOST_LAYERS` wire, all of it
-  deciding per file whether a delivered host copy is the user's bytes or yolo's own output.
-- **The laundering asymmetry.** `agentcfg.LayerAsserted` accepts `managed`, `computed` and
-  `config-overlay:<pack>` and deliberately refuses `host`, *"the user's own key"*. So the only
-  thing between a key yolo asserted and a permanent `host` attribution is the PREVIOUS provenance
-  record, and `retireUnclaimed`'s contract is that a nil or unreadable one *"proves nothing and
-  changes nothing"* — fail-safe in the direction that keeps the key, forever.
+### What keeping `assert` cost
 
-⚠ **THAT LIST OVERSTATES IT, AND THE CORRECTION MATTERS BECAUSE IT IS CHECKABLE IN A MINUTE.**
-Only the **mark** exists for `assert` alone. The other two survive the retirement with live
-producers, because `own` and `rmw` are **different axes**: `render.HostOwnedModes` holds `rmw` in
-both its `runs` and its `records` sets, deliberately — *"`own` is the USER's statement about who
-owns the file; it is not a licence to overrule the PACK's statement about what kind of file it
-is."* So at an `own` host a pack-declared `rmw` surface still runs `rmwProvenance` →
-`retireUnclaimed` → `RetiredLayer`, and `LayerAsserted`'s refusal of `host` still guards it. The
-shipped `rmw` surfaces are found with `rg -n '"mode": "rmw"' packs/*/pack.json`, not by reading
-this sentence.
+`assert` was **the only mode in which yolo both wrote a host file and read it back**, so it was
+the only thing [P6](#principles) had to be actively defended against. Of the three defences it
+appeared to own, only the **mark** existed for `assert` alone; the `retired:` provenance label
+(`agentcfg.RetiredLayer`) and `agentcfg.LayerAsserted`'s refusal of `host` keep live producers,
+because `own` runs and records `rmw` for a surface its pack declares `rmw`
+(`render.HostOwnedModes`). What the retirement removed is the **coercion**: under `assert` every
+composing surface was forced through `rmw` whatever its pack declared (`render.HostAssertModes`,
+deleted with the value, and with it `ModeSet.Mechanism`'s derived sole-mechanism fallback).
 
-⚠ And two of the three **predate** [`OQ-CO1`](../design/config-ownership-and-promotion.md#13-decision-ledger) rather than postdating it — `layerRetired` and
-`LayerAsserted` both arrived in `ecf35644` (2026-08-03), five weeks before the ruling; only the
-mark (`369c6f63`, 2026-09-18) came after. So "the ruling was made without knowing about these" is
-true of the mark and false of the others; for those the honest word is **uncounted**, not unknown.
+<a id="why-the-default-has-to-move-and-not-just-the-value"></a>
 
-**What the retirement actually removes is the COERCION, and that is enough to carry it.** Under
-`assert`, every composing surface is forced through `rmw` whether its pack declares that shape or
-not — so the read-back machinery runs for surfaces that never asked for it. Under the two
-surviving modes it runs only where a pack declared `rmw` on purpose: at `none` yolo never writes,
-so reading is safe; at `own` a composing surface composes whole and only a declared-`rmw` surface
-reads back, which is the shape its author chose.
+### Why the DEFAULT had to move, and not just the value
 
-### What changes here, principle by principle
+Dropping `assert` while an unset key still resolved to a mode yolo WRITES would have reproduced
+the failure the [MARK warning](#a-staged-copy-is-not-always-a-layer) describes: every default
+install a home yolo writes into, so every default install's settings file yolo's own output and
+no longer a layer in its jails. Moving the unset answer to `none` is what makes a fresh install's
+file one yolo has never written. **A reader who proposes "just remove `assert`" without moving the
+default has re-derived this failure and not noticed.**
 
-- **[P6](#principles) becomes satisfied by construction rather than enforced.** Losing its
-  defence does not weaken it: it stops having anything to defend against, which is the stronger
-  form a rule in this corpus can take.
-- **[P7](#principles) is unchanged, and its MECHANISM is replaced.** Today the mark is what keeps
-  a fresh user's `~/.claude/settings.json` composing as a layer rather than as a baseline. Under
-  the ruling nothing is needed: an unset `host_management` means yolo never writes that file, so
-  it stays purely the user's and composes as a layer with no mark to consult. ⚠ **A substitution,
-  not a retreat.** The onboarding path P7 describes is exactly as frictionless afterwards, and
-  that it becomes frictionless for free is the ruling's own claim rather than a concession.
+<a id="does-the-renderbaseline-disposition-become-dead"></a>
 
-### Why the DEFAULT has to move, and not just the value
+### The render/baseline disposition is rare, not dead
 
-Dropping `assert` while an unset key still resolves to a mode yolo WRITES reproduces, by a
-different route, the exact failure the [MARK warning](#a-staged-copy-is-not-always-a-layer)
-describes: every default install becomes a home yolo asserts into, so every default install's
-settings file becomes yolo's own output and stops reaching its jails as a layer. That warning is
-not an argument against a posture test in the abstract — it is an argument against one taken
-while the default is a writing mode. Moving the unset answer to `none` removes the premise, and
-it is the half of this ruling a reader is likeliest to drop.
-
-### Does the render/baseline disposition become dead?
-
-**Rare, not dead.** Two cases keep it reachable, and the second is the one that is easy to miss:
-
-- **`own` still marks.** `render.HostOwnedModes` records both `stateful` and `rmw` — *"the
-  recording duty here is the NOTCH's rather than one mode's"* — and a recording render writes the
-  provenance record `hostProvenanceExists` reads. So an owned home's delivered host file is still
-  labelled a render, still arrives as a baseline, and the second row of
-  [the table above](#a-staged-copy-is-not-always-a-layer) is untouched.
-- **The mark is durable and outlives the posture.** It is a file in the home, written by every
-  assert, and `internal/entrypoint/hostrevert.go` is the one code path that deletes it
-  (`yolo host apply --revert`). A home asserted into before the retirement keeps its mark
-  afterwards, and labelling it a render stays the [P6](#principles)-correct answer, because those
-  bytes really are partly yolo's.
-
-⚠ **The second bullet is a migration hazard and live work, not a footnote.** At `none` yolo
-writes nothing further, so whatever a previous `assert` left in that file is permanent — and a
-jail composing it as a BASELINE rather than a layer stops seeing the user's own keys in it.
-Whether retirement clears the mark, or names `yolo host apply --revert` as the remedy, is
-undecided and belongs to whoever builds this.
-
-### What this section does not do
-
-It does not change the stamp, the [Current values](#current-values) table, or any claim above it.
-`config.KnownHostManagements` still holds three values, `config.HostManagementMode` still resolves
-an absent key to `assert`, and the label rule is still keyed on the mark. When the ruling is
-built, this section is deleted and the sections above are rewritten — never the other way round.
+- **`own` still marks.** `render.HostOwnedModes` records both `stateful` and `rmw`, and a
+  recording render writes the provenance record `hostProvenanceExists` reads. So an owned home's
+  delivered host file is labelled a render and arrives as a baseline.
+- **The mark outlives the posture.** It is a file in the home, written by every assert that ever
+  ran, and `internal/entrypoint/hostrevert.go` is the one code path that deletes it
+  (`yolo host apply --revert`). A home asserted into before the retirement keeps its mark, and
+  labelling it a render stays the [P6](#principles)-correct answer, because those bytes really are
+  partly yolo's. The cost is named rather than hidden: a jail composing that file as a BASELINE
+  does not see the user's own keys in it either, until `--revert` takes yolo's out; a key the
+  user wants in every jail belongs in a pack, which `yolo config promote` declares it into.
 
 ## Current values
 
@@ -667,5 +625,5 @@ only place the values themselves are stated.
 | Host-layer report variable | `YOLO_HOST_LAYERS` | `packload.HostLayerEnvVar` |
 | Dispositions | four in `internal/packload`, plus `render` | `packload.HostLayerDisposition`, `entrypoint.HostLayerRender` |
 | The label's wire field | one list of `/ctx` destinations, embedded in the four-field report | `entrypoint.HostLayerWire` |
-| Unset `host_management` | resolves to `assert` — ruled 2026-09-20 to become `none`, [not built](#ruled-2026-09-20-not-built-retiring-assert) | `config.HostManagementMode` |
+| Unset `host_management` | resolves to `none`; a written `"assert"` is refused by name and also reads as `none` ([Retiring `assert`](#ruled-2026-09-20-not-built-retiring-assert)) | `config.HostManagementMode`, `config.HostManagementRetired` |
 | Liveness states | not-running, running, **could-not-ask** — the last refuses a write | `internal/cli` (`jailLiveness`) |

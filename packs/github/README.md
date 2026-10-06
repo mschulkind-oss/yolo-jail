@@ -11,7 +11,7 @@ project lists, [`workspace-widening.md`](../../docs/design/workspace-widening.md
 at once: writes need an approval step that is not built yet, so nothing runs and nothing waits,
 and the message says to run the command on the host.
 
-## Two contributions
+## Three contributions
 
 - **`loophole`** `github-broker`: the host daemon (`internal/ghbroker`), one per jail,
   behind yolo's own loopback-TLS front.
@@ -19,10 +19,11 @@ and the message says to run the command on the host.
   jail's `PATH`, so a bare `gh` reaches the broker while the image's own `/bin/gh` stays
   where it is (and `YOLO_BYPASS_SHIMS=1 gh …` runs it). That `gh` has no login in the jail.
   The shim is a forwarder, not a blocker, and its first lines say so.
-
-The pack also ships [`briefing/gh.md`](./briefing/gh.md), which the `briefing/` convention
-delivers to every agent: how `gh` behaves in the jail, so an agent does not learn each rule by
-failing once.
+- **`briefing`** [`briefing/gh.md`](./briefing/gh.md): how `gh` behaves in the jail, so an
+  agent does not learn each rule by failing once. It reaches every agent in a jail, and not
+  at the host, where `gh` is your own: the contribution `describes` the `intercept`, and a
+  briefing about a kind the host does not apply is left out of a real home
+  ([BB-D69](../../docs/design/boundary-broker.md#BB-D69)).
 
 ## Turning it on
 

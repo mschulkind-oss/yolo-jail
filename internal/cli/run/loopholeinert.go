@@ -51,12 +51,13 @@ package run
 // sentence shape rather than about the answer.
 
 import (
-	"strings"
-
+	"path/filepath"
 	"sort"
+	"strings"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/loopholes"
+	"github.com/mschulkind-oss/yolo-jail/internal/macosuser"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/setupcensus"
 )
@@ -360,52 +361,16 @@ func inertLineFor(pack string, note loopholes.InertNote) string {
 // docs/reference/mcp-configuration.md#oq-lsp1). What still warns is `mcp_presets`, from inside
 // the bootstrap (entrypoint.RunDarwinBootstrap), because the preset wrappers are Linux-absolute.
 
-// noteMacosUserHostByteGaps names what carries HOST BYTES into a config surface and did
-// NOT cross on this launch. Since DP-L1 that is one shape only, and the shrinking is the
-// story of this function rather than a detail of it.
+// noteMacosUserPlatformGaps names what this backend does with the PLATFORM keys — `devices`,
+// `gpu`, `kvm` and `ephemeral_storage` (docs/design/declaration-parity.md DP-B4, fixed by DP-L10;
+// DP-B5) — and discloses the one host editor config a container launch delivers and this one
+// does not.
 //
-// ⚠ TWO WARNINGS WERE RETIRED HERE ON 2026-09-13, and what retired them is that the gap
-// they named is CLOSED rather than that they became inconvenient. One said pack
-// `reads-host` grants do not cross, so each surface renders from its DEFAULTS layer and
-// "the agent gets a working config file that is not yours". The other said source-bearing
-// `host_files` entries are dropped from the wire entirely. Both were true because the
-// bytes crossed on a /ctx mount and this backend has none; both are now false, because
-// the bytes cross by COPY into a root-owned tree under /var/yolo-jail
-// (internal/cli/run/macosctxtree.go, macosuser.StageCtxCommands). Leaving either would be
-// the failure this file's own rule names: a warning that describes a gap yolo has closed
-// teaches the reader to distrust the warnings that are still true.
-//
-// ⚠ AND THE CARVE-OUT THEY PROPPED UP IS GONE WITH THEM. The old text said this warning
-// was "half of why the jail does not refuse here": the jail's host-layer read fails closed
-// (OQ-CO10), this backend reported `unsupported`, and that was defensible only while the
-// deficiency was SAID. The report now says `supported` whenever a tree was staged
-// (macosuser.hostLayerWire), so a delivered file that the jail cannot read REFUSES the
-// launch here exactly as it does everywhere else. Nothing is being excused any more, so
-// nothing has to be said to excuse it.
-//
-// WHAT SURVIVES is the directory-shaped `host_files` entry, which is DP-D15 rather than
-// DP-L1: it names an arbitrary user tree, a copy does not scale to one, and the ruling
-// there is that a delivery yolo cannot make is stated rather than half-performed. ONE
-// LINE, only when the user declared one — a launch that declared none says nothing, which
-// is what keeps this from being the warning OQ-BP-3 says people learn to skip.
-func (o *Options) noteMacosUserHostByteGaps(delivery macosCtxDelivery) {
-	if len(delivery.undeliveredDirs) == 0 {
-		return
-	}
-	named := make([]string, 0, len(delivery.undeliveredDirs))
-	for _, p := range delivery.undeliveredDirs {
-		named = append(named, "~/"+p)
-	}
-	// The words are the setup census's (internal/setupcensus): the cell that says this backend
-	// warns is the cell this line is read from. Its body names Apple Container's read-only bind
-	// floor, which TestMacosUserDirHostFileWarningQualifiesTheAppleContainerFloor holds to
-	// acROBindsFloor.
-	o.pr(o.Stderr).print(setupcensus.Warning(setupcensus.MacosUser, "host_files.directory_source").
-		Line(strings.Join(named, ", ")))
-}
-
-// noteMacosUserPlatformGaps names the three PLATFORM keys this backend reads nowhere:
-// `devices`, `gpu` and `kvm` (docs/design/declaration-parity.md DP-B4, fixed by DP-L10).
+// `devices` IS HALF READ since 2026-10-04: a raw-path entry under /dev gets its control calls
+// back in the Seatbelt profile (macosuser.DeviceIoctlPaths, the ONE classifier the profile reads
+// too), and that is DISCLOSED, unsuppressibly, because it widens the sandbox. A raw-path entry the
+// classifier refuses is warned with its next step, and the USB and cgroup forms, which name no
+// node, are still read by nothing.
 //
 // WHY IT IS NOT THE CONTAINER PATH'S SENTENCE, REUSED. run.deviceArgs, run.kvmArgs and
 // assembleRunCmd's GPU line all warn on macOS already — and every one of them is reached
@@ -426,19 +391,48 @@ func (o *Options) noteMacosUserHostByteGaps(delivery macosCtxDelivery) {
 // macOS podman or Apple Container launch, where assembleRunCmd's own three warnings still
 // fire. One backend, one printer.
 //
-// ONE LINE PER DECLARED KEY, and none for a key the config never mentions — so a user who
-// declares nothing sees nothing, which is what keeps this from being the warning
-// OQ-BP-3 says people learn to skip.
+// ONE BLOCK PER DECLARED KEY, and none for a key the config never mentions — so a user who
+// declares none of these keys hears nothing about them, which is what keeps this from being
+// the warning OQ-BP-3 says people learn to skip. `gpu`, `kvm` and `ephemeral_storage` print
+// one warning each, under the condition beside it. `devices` prints up to three kinds of line:
+// one disclosure naming every raw path the profile carves out, one warning per entry the
+// classifier refuses, and one warning for the USB and cgroup forms together.
 //
-// THE WORDS ARE THE SETUP CENSUS'S (internal/setupcensus, OQ-BP-1: "the macos-user notice block
-// reads it"). Each line is the Notice of the cell that marks its key Warned here, so the table
-// decides what this backend says, and a cell edited there is a line edited here. What stays in
-// this function is the user's half: whether the key is declared, and which entries to name.
+// The ONE line not keyed on the config is the host nvim disclosure, which depends on the HOST:
+// it prints whenever ~/.config/nvim exists there, declared or not, because nothing declares it.
 func (o *Options) noteMacosUserPlatformGaps(cfg *jsonx.OrderedMap) {
 	out := o.pr(o.Stderr)
 
 	if devs := cfgList(cfg, "devices"); len(devs) > 0 {
-		out.print(setupcensus.Warning(setupcensus.MacosUser, "devices").Line(strings.Join(deviceLabels(devs), ", ")))
+		var raw []string
+		var other []any
+		for _, d := range devs {
+			if s, ok := d.(string); ok {
+				raw = append(raw, s)
+			} else {
+				other = append(other, d)
+			}
+		}
+		allowed, refused := macosuser.DeviceIoctlPaths(raw)
+		if len(allowed) > 0 {
+			out.print("[dim]devices: the sandbox allows device control (ioctl) on " +
+				strings.Join(allowed, ", ") + ". The node opens under ordinary macOS " +
+				"permissions; nothing is attached.[/dim]")
+		}
+		for _, r := range refused {
+			out.print("[yellow]Warning: `devices` entry " + r.Entry + " is skipped on " +
+				"macos-user[/yellow] — " + r.Reason + "; " + r.Next + ".")
+		}
+		if labels := deviceLabels(other); len(labels) > 0 {
+			// Each form's own container mechanism, because they differ: a USB entry attaches a
+			// device (`--device` on the node lsusb resolves), and a cgroup rule attaches nothing
+			// — it becomes `--device-cgroup-rule`, which only lets the container's device cgroup
+			// open matching device numbers (deviceArgs).
+			//
+			// The words are the setup census's notice for `devices` on this backend
+			// (internal/setupcensus, OQ-BP-1: "the macos-user notice block reads it").
+			out.print(setupcensus.Warning(setupcensus.MacosUser, "devices").Line(strings.Join(labels, ", ")))
+		}
 	}
 
 	if gpuSec := cfgMap(cfg, "gpu"); gpuSec != nil && mapBoolOr(gpuSec, "enabled", false) {
@@ -447,6 +441,29 @@ func (o *Options) noteMacosUserPlatformGaps(cfg *jsonx.OrderedMap) {
 
 	if cfgTrue(cfg, "kvm") {
 		out.print(setupcensus.Warning(setupcensus.MacosUser, "kvm").Line(""))
+	}
+
+	// `ephemeral_storage: "tmpfs"` asks for RAM-backed scratch, which is a tmpfs mount in a
+	// container. "volume" (the default) and an absent key ask for disk-backed scratch, which is
+	// what this backend's /tmp and /var/folders already are, so they say nothing (DP-B5).
+	if cfgStr(cfg, "ephemeral_storage") == "tmpfs" {
+		out.print("[yellow]Warning: `ephemeral_storage: \"tmpfs\"` is not read on macos-user" +
+			"[/yellow] — RAM-backed scratch is a tmpfs mount inside a CONTAINER, and this " +
+			"backend starts none, so the sandbox writes this machine's own /tmp and " +
+			"/var/folders, on disk. Remove the key, or use Apple Container " +
+			"(runtime: \"container\"), whose scratch is always RAM-backed" + o.containerStepClause() + ".")
+	}
+
+	// THE HOST NVIM CONFIG, a disclosure and not a refusal: nothing declares it (the container
+	// arm binds ~/.config/nvim whenever it exists, assemble.go), so refusing it would refuse every
+	// launch on a Mac that has one (CX-D10), and silence would leave nvim coming up unconfigured
+	// with nothing said. Apple Container's "Skipping host nvim config" line is the precedent.
+	// Delivery waits on docs/design/baked-editor-preference.md OQ-ED2, which decides where this
+	// machinery lives at all.
+	if isDir(filepath.Join(homeDir(), ".config", "nvim")) {
+		out.print("[dim]Host nvim config (~/.config/nvim) is not delivered on macos-user: the " +
+			"sandbox's nvim starts with its own. Where host editor config goes is an open " +
+			"design question (OQ-ED2), so there is nothing to change until it is ruled.[/dim]")
 	}
 }
 
@@ -480,23 +497,28 @@ func deviceLabels(entries []any) []string {
 // noteMacosUserPortKeys is the human half of DP-L2 (docs/design/declaration-parity.md
 // §5.1.1 (2)): one stderr line per non-empty `network.ports` / `network.forward_host_ports`.
 //
-// WHAT IT PAIRS WITH. The AGENT already learns this — sharesLauncherNetns answers true for
-// this backend, so appliedNetMode is "host", both port sections fall out of the briefing and
-// backendLimits states the network fact. The human learned nothing at all, which
-// backendlimits.go's header records as the one entry breaking its "one source, two
-// renderings" rule. This is that rendering.
+// WHAT IT PAIRS WITH. The AGENT learns the same facts from its briefing: sharesLauncherNetns
+// answers true for this backend, so appliedNetMode is "host", both port sections fall out of the
+// briefing, and backendLimits states the network fact and names every remap this launch relays.
 //
-// REFUSED AS A KEY, NEVER AS A LAUNCH — run.roBindsUnsupported's shape (refuse the
-// declaration, print the reason, continue). Its force does not carry, and the difference is
-// worth knowing: refusing an Apple Container `:ro` mount REMOVES an exposure, whereas
-// nothing here removes anything, because the sandboxed process binds host ports regardless.
-// The message is the whole deliverable.
+// WHAT EACH LINE SAYS, from the plan the launch acts on (planMacosUserPortRelays), so a line can
+// never call a remap relayed that is not, or the reverse:
 //
-// ⚠ ONLY WHEN NON-EMPTY, and that is what makes this safe where a `network.mode` refusal
-// would not be. Neither key has a default (resolveNetMode answers "bridge" for a launch
-// that names no mode, which is why `mode` is APPLIED as host rather than refused), so this
-// cannot fire on a launch that never mentioned networking.
-func (o *Options) noteMacosUserPortKeys(cfg *jsonx.OrderedMap) {
+//   - `ports`: that listing a port confines nothing — the sandbox is on the launcher's own stack,
+//     so every port it binds is on this machine's real interfaces, listed here or not. A WARNING
+//     for that reason alone, whatever else is delivered, because on a container `ports` is the
+//     whole exposure surface and here it is none of it. It ends with the step that keeps a
+//     service private: bind it to 127.0.0.1 (on a port no relay publishes on a real interface,
+//     when one does), or use a container runtime.
+//   - `forward_host_ports`: that a same-port entry needs no hop. A disclosure when every remap in
+//     it is relayed, since nothing is then left undone; a warning when one is not.
+//   - Both: the remaps this launch relays (each relay names itself as it opens, or warns that it
+//     could not), and each one it does not, with why and the step that would have it relayed.
+//
+// ⚠ ONLY WHEN NON-EMPTY. Neither key has a default (resolveNetMode answers "bridge" for a launch
+// that names no mode, which is why `mode` is APPLIED as host rather than refused), so this cannot
+// fire on a launch that never mentioned networking.
+func (o *Options) noteMacosUserPortKeys(cfg *jsonx.OrderedMap, plan macosUserPortPlan) {
 	netSec := cfgMap(cfg, "network")
 	if netSec == nil {
 		return
@@ -506,23 +528,84 @@ func (o *Options) noteMacosUserPortKeys(cfg *jsonx.OrderedMap) {
 	// The headline and body are the setup census's notices (noteMacosUserPlatformGaps says why);
 	// the remap sentence after each is this function's, since it reads the entries themselves.
 	if ports := asAnyList(mapGet(netSec, "ports")); len(ports) > 0 {
-		msg := setupcensus.Warning(setupcensus.MacosUser, "network.ports").Line(strings.Join(portLabels(ports), ", "))
-		if remapped := remappedPorts(ports); len(remapped) > 0 {
-			msg += " " + strings.Join(remapped, ", ") + " asks for a port REMAP, which " +
-				"needs a second stack to land on and cannot be delivered at all: the " +
-				"process is reachable on the port it binds."
+		// THE NEXT STEP, after whatever the plan relays: what keeps a service private here, and
+		// the backend where listing a port is the whole exposure. Binding loopback is not enough
+		// for a port a relay publishes on a real interface, so then the step says so.
+		step := " To keep a service on this Mac alone, bind it to `127.0.0.1` in the sandbox"
+		if relaysExpose(plan.relays) {
+			step += ", on a port no relay named here publishes on a real interface"
 		}
-		out.print(msg)
+		step += ", or use a container runtime (`runtime: \"podman\"`), whose published ports are " +
+			"the only way in."
+		out.print("[yellow]Warning: `network.ports` confines nothing on macos-user[/yellow] — " +
+			strings.Join(portLabels(ports), ", ") + ". The sandbox runs on the launcher's own " +
+			"network stack, so a port it binds IS published on this machine's real interfaces — " +
+			"listed here or not — and nothing pins one to a bind address." +
+			plan.remapSentences(keyNetworkPorts) + step)
 	}
 
 	if fwd := asAnyList(mapGet(netSec, "forward_host_ports")); len(fwd) > 0 {
-		msg := setupcensus.Warning(setupcensus.MacosUser, "network.forward_host_ports").Line(strings.Join(portLabels(fwd), ", "))
-		if remapped := remappedPorts(fwd); len(remapped) > 0 {
-			msg += " " + strings.Join(remapped, ", ") + " asks for a port REMAP, which " +
-				"needs a second loopback to land on and is not delivered."
+		body := strings.Join(portLabels(fwd), ", ") + ". A same-port entry needs no hop: the " +
+			"sandbox is already on this machine's stack, so `localhost:<port>` inside it is this " +
+			"machine's port." + plan.remapSentences(keyForwardHostPorts)
+		if plan.hasUnrelayed(keyForwardHostPorts) {
+			out.print("[yellow]Warning: `network.forward_host_ports` is not fully delivered on " +
+				"macos-user[/yellow] — " + body)
+		} else {
+			out.print("[dim]`network.forward_host_ports` on macos-user — " + body + "[/dim]")
 		}
-		out.print(msg)
 	}
+}
+
+// remapSentences says what the plan does with key's remaps: the ones it relays, then each reason
+// some are not, with the entries it covers. Empty when key has no remap.
+func (p macosUserPortPlan) remapSentences(key string) string {
+	var relayed []string
+	for _, r := range p.relays {
+		if r.key == key {
+			relayed = append(relayed, r.entry)
+		}
+	}
+	var whys []string
+	byWhy := map[string][]string{}
+	for _, u := range p.unrelayed {
+		if u.key != key {
+			continue
+		}
+		if _, seen := byWhy[u.why]; !seen {
+			whys = append(whys, u.why)
+		}
+		byWhy[u.why] = append(byWhy[u.why], u.entry)
+	}
+	var s string
+	if len(relayed) > 0 {
+		s += " " + strings.Join(relayed, ", ") + pluralIs(relayed, " is a port REMAP", " are port REMAPs") +
+			", which this launch relays from outside the sandbox (TCP)."
+	}
+	for _, why := range whys {
+		entries := byWhy[why]
+		s += " " + strings.Join(entries, ", ") + pluralIs(entries, " is a port REMAP", " are port REMAPs") +
+			" this launch does not relay: " + why + "."
+	}
+	return s
+}
+
+// hasUnrelayed reports whether any remap of key goes undelivered.
+func (p macosUserPortPlan) hasUnrelayed(key string) bool {
+	for _, u := range p.unrelayed {
+		if u.key == key {
+			return true
+		}
+	}
+	return false
+}
+
+// pluralIs picks one or many by the length of items.
+func pluralIs(items []string, one, many string) string {
+	if len(items) == 1 {
+		return one
+	}
+	return many
 }
 
 // portLabels renders port entries as the user wrote them.
@@ -532,40 +615,4 @@ func portLabels(entries []any) []string {
 		out = append(out, pyStrCoerce(e))
 	}
 	return out
-}
-
-// remappedPorts names the entries whose two port numbers DIFFER — the only entries that are
-// not vacuously satisfied by a shared stack (§5.1.1's entry-form table).
-//
-// ONE CLASSIFIER FOR BOTH KEYS, and it is correct for both despite their opposite orders:
-// `ports` is [IP:]HOST:JAIL and `forward_host_ports` is JAIL:HOST, but this asks only
-// whether the two numbers differ, which is order-free. An entry with one number, or with a
-// non-numeric field, is not a remap and is not named.
-func remappedPorts(entries []any) []string {
-	var out []string
-	for _, e := range entries {
-		s := pyStrCoerce(e)
-		fields := strings.Split(s, ":")
-		if len(fields) < 2 {
-			continue
-		}
-		a, b := fields[len(fields)-2], fields[len(fields)-1]
-		if a != b && isAllDigits(a) && isAllDigits(b) {
-			out = append(out, s)
-		}
-	}
-	return out
-}
-
-// isAllDigits reports whether s is a non-empty run of ASCII digits.
-func isAllDigits(s string) bool {
-	if s == "" {
-		return false
-	}
-	for _, r := range s {
-		if r < '0' || r > '9' {
-			return false
-		}
-	}
-	return true
 }

@@ -21,9 +21,13 @@ import (
 // gatedFixture is writeOverlayFixture plus a `profile` body, so a test can state
 // which profiles the user selected (an empty profilesJSON means no `profile` key). The `acme`
 // binary is stubbed on PATH, for the owner pack acmeAgentOwnerPackJSON declares.
+//
+// Under `host_management: "own"`: the unset key is `none` since the `assert` retirement
+// (OQ-CO14), under which the host renders no config surface, gated overlay or not, so whether
+// the gate folded the overlay could not be read off the file.
 func gatedFixture(t *testing.T, profilesJSON string, packs map[string]string) string {
 	t.Helper()
-	home := writeOverlayFixture(t, packs)
+	home := writeOverlayFixtureUnder(t, packs, "own")
 	stubBins(t, "acme")
 	if profilesJSON == "" {
 		return home

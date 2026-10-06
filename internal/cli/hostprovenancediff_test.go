@@ -16,7 +16,9 @@ package cli
 // were printed.
 //
 // Every test drives a t.TempDir() home and a t.TempDir() state dir. The real $HOME is never
-// read or written.
+// read or written. Each home declares `host_management: "own"`, the one contract whose apply
+// writes the record (OQ-CO14 retired `assert` and made the unset key `none`, under which
+// `yolo host apply --assert` refuses), so the remedy a missing record names is one that runs.
 
 import (
 	"bytes"
@@ -31,6 +33,9 @@ import (
 // withHostProvenanceDir returns the directory the host record reader resolves under the home
 // writeOverlayFixture just installed, creating it.
 //
+// The record's location does not depend on the contract (render.Target.ProvenanceDir), so the
+// target is built at `own` only because that is the contract that writes one.
+//
 // IT IS NO LONGER A STUBBED PATH BUILDER. With one resolved target the record's location is
 // the TARGET's (render.Target.ProvenancePath, off the home its constructor was given), so the
 // seam is the HOME — which the fixture already points at a temp dir. A stubbable path builder
@@ -40,7 +45,7 @@ import (
 // other's.
 func withHostProvenanceDir(t *testing.T, home string) string {
 	t.Helper()
-	dir := render.Host(home, nil, render.OwnershipAssert).ProvenanceDir()
+	dir := render.Host(home, nil, render.OwnershipOwn).ProvenanceDir()
 	if dir == "" {
 		t.Fatal("render.Host(...).ProvenanceDir() is empty for a real home")
 	}
@@ -71,10 +76,10 @@ func hostNotchTarget(t *testing.T) configTarget {
 // THE DEFECT, inverted: an overlay key with NO competing managed value must be reported as
 // won — and must NOT say "managed won".
 func TestConfigLsHostNotchReportsTheMeasuredWinner(t *testing.T) {
-	home := writeOverlayFixture(t, map[string]string{
+	home := writeOverlayFixtureUnder(t, map[string]string{
 		"acme":     acmeOwnerPackJSON,
 		"acme-fzf": acmeFzfPackJSON,
-	})
+	}, "own")
 	tgt := hostNotchTarget(t)
 	dir := withHostProvenanceDir(t, home)
 	// What `yolo host apply --assert` measured: the overlay won fileSuggestion (the owner does
@@ -108,7 +113,7 @@ func TestConfigLsHostNotchReportsAGenuineLoss(t *testing.T) {
 	pushy := `{"name":"pushy","contributes":[
 	  {"kind":"config-overlay","surface":"acme/settings",
 	   "config":{"managed":{"telemetry":true}}}]}`
-	home := writeOverlayFixture(t, map[string]string{"acme": acmeOwnerPackJSON, "pushy": pushy})
+	home := writeOverlayFixtureUnder(t, map[string]string{"acme": acmeOwnerPackJSON, "pushy": pushy}, "own")
 	tgt := hostNotchTarget(t)
 	dir := withHostProvenanceDir(t, home)
 	// `telemetry` IS the owner's managed key, so the host render measured managed as the
@@ -129,10 +134,10 @@ func TestConfigLsHostNotchReportsAGenuineLoss(t *testing.T) {
 // must not fall back to inferring, and it must not borrow the jail's message — the host
 // renders every surface, so "this mode keeps no record" is not the reason here.
 func TestConfigLsHostNotchWithNoApplyYet(t *testing.T) {
-	home := writeOverlayFixture(t, map[string]string{
+	home := writeOverlayFixtureUnder(t, map[string]string{
 		"acme":     acmeOwnerPackJSON,
 		"acme-fzf": acmeFzfPackJSON,
-	})
+	}, "own")
 	tgt := hostNotchTarget(t)
 	withHostProvenanceDir(t, home) // no record seeded
 
@@ -162,14 +167,41 @@ func TestConfigLsHostNotchWithNoApplyYet(t *testing.T) {
 	}
 }
 
+// UNDER `none` THE REMEDY IS THE KEY, not the apply. With the key unset — `none` since the
+// `assert` retirement (OQ-CO14) — `yolo host apply --assert` refuses, so naming it as what would
+// measure the winner would be a remedy that refuses. The absence names "own" instead.
+func TestConfigLsHostNotchWithNoApplyYetUnderNoneNamesTheKey(t *testing.T) {
+	home := writeOverlayFixtureUnder(t, map[string]string{
+		"acme":     acmeOwnerPackJSON,
+		"acme-fzf": acmeFzfPackJSON,
+	}, "")
+	tgt := hostNotchTarget(t)
+	withHostProvenanceDir(t, home) // no record seeded
+
+	var out, errw bytes.Buffer
+	if rc := configLs(tgt, []string{"--all"}, &out, &errw, false); rc != 0 {
+		t.Fatalf("configLs rc=%d, stderr=%s", rc, errw.String())
+	}
+	got := out.String()
+	if !strings.Contains(got, "not measured") {
+		t.Errorf("an absent record must read as UNMEASURED rather than as a winner:\n%s", got)
+	}
+	if !strings.Contains(got, `set "own"`) {
+		t.Errorf("under none the absence must name the key that would let an apply measure it:\n%s", got)
+	}
+	if strings.Contains(got, "no `yolo host apply --assert` has rendered it yet") {
+		t.Errorf("under none the absence names an apply that refuses:\n%s", got)
+	}
+}
+
 // The host notch must NOT read the jail's sidecar. The two notches render different postures
 // into different homes, so reporting one as the other is the same class of wrong answer as
 // inferring — just sourced from a real file, which makes it more convincing and no more true.
 func TestConfigLsHostNotchIgnoresTheJailSidecar(t *testing.T) {
-	home := writeOverlayFixture(t, map[string]string{
+	home := writeOverlayFixtureUnder(t, map[string]string{
 		"acme":     acmeOwnerPackJSON,
 		"acme-fzf": acmeFzfPackJSON,
-	})
+	}, "own")
 	_, jailDir := withSidecarDir(t)
 	tgt := hostNotchTarget(t)
 	withHostProvenanceDir(t, home) // the HOST record is absent
@@ -191,10 +223,10 @@ func TestConfigLsHostNotchIgnoresTheJailSidecar(t *testing.T) {
 // absent would answer a measured question with "we do not know" — the mirror image of the
 // original defect.
 func TestConfigLsHostNotchEmptyRecordIsNotUnmeasured(t *testing.T) {
-	home := writeOverlayFixture(t, map[string]string{
+	home := writeOverlayFixtureUnder(t, map[string]string{
 		"acme":     acmeOwnerPackJSON,
 		"acme-fzf": acmeFzfPackJSON,
-	})
+	}, "own")
 	tgt := hostNotchTarget(t)
 	dir := withHostProvenanceDir(t, home)
 	writeHostProvenance(t, dir, "acme", "settings", "") // rendered, nothing attributed

@@ -58,14 +58,18 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"regexp"
 	"sort"
 	"strings"
+	"sync"
+	"syscall"
 	"time"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/macosuser"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/perf"
+	"github.com/mschulkind-oss/yolo-jail/internal/runtime"
 	"github.com/mschulkind-oss/yolo-jail/internal/version"
 )
 
@@ -273,4 +277,240 @@ type logOnly struct{ w LogWriter }
 
 func (l logOnly) Write(p []byte) (int, error) { return l.w.WriteLog(p) }
 
+// WriteRedacted is a line the terminal gets whole and the log gets as logCopy, for a line whose
+// words a machine log may not keep: the host launch log's argv disclosures and starting line
+// (HostLaunchLog), which name what the user typed after the program.
+func (t teeLog) WriteRedacted(p, logCopy []byte) (int, error) {
+	n, err := t.w.Write(p)
+	if n > 0 {
+		_, _ = t.log.Write(stripANSI(logCopy))
+	}
+	return n, err
+}
+
 func stripANSI(p []byte) []byte { return ansiEscape.ReplaceAll(p, nil) }
+
+// HostLaunchLogName is the HOST NOTCH's launch log, under GLOBAL_STORAGE/logs beside
+// launches.log: what `yolo host -- <cmd>` said before it handed over, which until 2026-10-04 went
+// to the terminal and nowhere else (report-tiers.md's launch stream, *The launcher persists its
+// half*).
+//
+// NOT <cwd>/.yolo/launch.log, and the difference is the point. A host launch has no workspace: it
+// runs wherever its command was typed, the home included, and a wrapper launch from a desktop
+// launcher runs it from wherever that launcher's cwd is. Writing beside the jail's launch.log would
+// mint a .yolo marker in every such directory (paths.WorkspaceScopeBreach's hazard, in the home),
+// so the host's record is machine-wide, keyed by the directory's short code like launches.log.
+const HostLaunchLogName = "host-launch.log"
+
+// hostLaunchRunPrefix delimits a host launch's block, and the trim splits on it.
+const hostLaunchRunPrefix = "=== yolo host launch"
+
+// HostLaunchLogPath is where host launch blocks land.
+func HostLaunchLogPath() string {
+	return filepath.Join(paths.GlobalStorage(), "logs", HostLaunchLogName)
+}
+
+// HostLaunchLog is one `yolo host -- <cmd>` launch's block in HostLaunchLogPath: a header, every
+// line yolo itself printed to its stderr through Writer (ANSI-stripped, progress redraws kept
+// off, as teeLog does for a jail's launch), and a trailer saying how it ended. A nil
+// *HostLaunchLog does nothing, which is what every failure to open returns: like the jail's
+// launch log it is never fatal and never prints.
+//
+// IT HOLDS ONLY YOLO'S OWN LINES. The command's output never passes through it: the exec replaces
+// this process, and an agent yolo stays the parent of (launch-owned services, a managed Codex
+// login) is handed the process's own stderr, so it keeps its terminal and nothing it prints lands
+// here.
+//
+// AND NOTHING TYPED AFTER THE PROGRAM, NOR WHERE IT WAS TYPED. The file is machine-wide, kept for
+// perf.MaxRuns launches, and its directory is one a jail may mount, so it keeps OQ-PR3's rule for
+// the machine-wide record (a directory by its short code, never its path): an argument can be a
+// secret, or a prompt, and the directory names a project. The header names the program by its
+// base name. A line whose words carry the argv, an argv disclosure or the starting line, reaches
+// the log through teeLog.WriteRedacted, in words the caller chose (cli's printHostLinesLogged).
+// And every line is redacted on its way in (hostLaunchRedactor): a program typed as a path is
+// named by its base name, and the directory the command ran in is written `<cwd>`.
+//
+// EVERY LINE NAMES ITS LAUNCH (`(pid <n>)`), because the blocks interleave. Host wrappers make
+// concurrent host launches ordinary, and a launch yolo stays resident under writes its last lines
+// and its trailer when its agent exits, hours later and below other launches' blocks; a trailer
+// read by where it sits would then report another launch's outcome. A trailer is matched to its
+// header by that id. Within one launch's life no other process holds its pid, so the id is unique
+// among the blocks that can interleave with it.
+type HostLaunchLog struct {
+	mu     sync.Mutex
+	f      *os.File
+	id     string
+	redact func(string) string
+	// midLine is whether the last body write ended without a newline, so the next one continues
+	// that line rather than starting a new one with the id.
+	midLine bool
+	ended   bool
+}
+
+// hostLaunchPID is the process id a launch's lines are named by; a var so a test can open two
+// launches as two processes would.
+var hostLaunchPID = os.Getpid
+
+// OpenHostLaunchLog opens the host launch log, trims it to the newest perf.MaxRuns blocks and
+// writes this launch's header, all under the sibling lock (openLockedMachineLog), so two host
+// launches starting together cannot interleave a trim with a header. workspace is the directory
+// the command ran in and program the command as typed; neither is written whole.
+func OpenHostLaunchLog(workspace, program string) *HostLaunchLog {
+	id := fmt.Sprintf("(pid %d)", hostLaunchPID())
+	f := openLockedMachineLog(HostLaunchLogPath(), func(f *os.File) {
+		perf.TrimRunsInOpenFile(f, hostLaunchRunPrefix, perf.MaxRuns-1)
+		fmt.Fprintf(f, "%s %s %s ===\n", hostLaunchRunPrefix, time.Now().Format("2006-01-02T15:04:05-0700"), id)
+		fmt.Fprintf(f, "  yolo=%s  jail=%s  program=%s\n", version.Get(""),
+			paths.JailShortHash(runtime.FromWorkspace(workspace)), filepath.Base(program))
+	})
+	if f == nil {
+		return nil
+	}
+	return &HostLaunchLog{f: f, id: id, redact: hostLaunchRedactor(workspace, program, paths.Home())}
+}
+
+// Writer is errw with this log teed beneath it, or errw untouched when the log did not open (a
+// nil log): the caller always gets a stream to print to.
+func (l *HostLaunchLog) Writer(errw io.Writer) io.Writer {
+	if l == nil {
+		return errw
+	}
+	return teeLog{w: errw, log: hostLaunchBody{l}}
+}
+
+// hostLaunchBody is the log half of the tee: each line redacted, and named by the launch's id.
+type hostLaunchBody struct{ l *HostLaunchLog }
+
+func (b hostLaunchBody) Write(p []byte) (int, error) {
+	l := b.l
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if l.ended {
+		return len(p), nil
+	}
+	var out strings.Builder
+	for _, piece := range strings.SplitAfter(string(p), "\n") {
+		if piece == "" {
+			continue
+		}
+		if !l.midLine {
+			out.WriteString(l.id + " ")
+		}
+		out.WriteString(l.redact(piece))
+		l.midLine = !strings.HasSuffix(piece, "\n")
+	}
+	_, _ = l.f.WriteString(out.String())
+	return len(p), nil
+}
+
+// event writes one of the block's own `=== … ===` lines, ending any line a body write left open.
+func (l *HostLaunchLog) event(line string) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if l.midLine {
+		_, _ = l.f.WriteString("\n")
+		l.midLine = false
+	}
+	_, _ = l.f.WriteString(line + "\n")
+}
+
+// HandedOver records that the launch handed the process over (how: "exec"), the last line a
+// launch that replaces itself can write. The file stays open: the exec closes it (Go opens every
+// file close-on-exec), and an exec that fails returns here, to Done.
+func (l *HostLaunchLog) HandedOver(how string) {
+	if l == nil {
+		return
+	}
+	l.event(fmt.Sprintf("=== handed over %s: %s ===", l.id, how))
+}
+
+// Done records how a launch that returned ended, and closes the log. Idempotent.
+func (l *HostLaunchLog) Done(rc int) {
+	if l == nil || l.ended {
+		return
+	}
+	l.event(fmt.Sprintf("=== launch done %s, rc=%d ===", l.id, rc))
+	l.mu.Lock()
+	l.ended = true
+	_ = l.f.Close()
+	l.mu.Unlock()
+}
+
+// hostLaunchRedactor is what every line of a host launch's block passes through on its way into the
+// log, for the rule HostLaunchLog states: a program typed as a path (program, holding a separator)
+// becomes its base name, in each spelling a line may give it (as typed, absolute, and under home
+// as `~/…`); and the directory the command ran in becomes `<cwd>`, where a line names it or a path
+// under it. The directory is left alone when it is the root, the home or above the home, where it
+// names no project and would rewrite every path under the home a line names.
+func hostLaunchRedactor(workspace, program, home string) func(string) string {
+	tilde := func(p string) string {
+		if home != "" && home != "/" && strings.HasPrefix(p, home+string(os.PathSeparator)) {
+			return "~" + strings.TrimPrefix(p, home)
+		}
+		return p
+	}
+	var pairs []string
+	if strings.ContainsRune(program, os.PathSeparator) {
+		abs := program
+		if !filepath.IsAbs(abs) {
+			abs = filepath.Join(workspace, program)
+		}
+		base := filepath.Base(program)
+		// Longest first: a replacer tries its pairs in order at each position.
+		for _, spelling := range []string{abs, tilde(abs), program} {
+			if spelling != base {
+				pairs = append(pairs, spelling, base)
+			}
+		}
+	}
+	typed := strings.NewReplacer(pairs...)
+	var dir *regexp.Regexp
+	ws := filepath.Clean(workspace)
+	namesAProject := filepath.IsAbs(ws) && ws != string(os.PathSeparator) && ws != home &&
+		!strings.HasPrefix(home, ws+string(os.PathSeparator))
+	if namesAProject {
+		// A whole path: the directory followed by a separator, the end, or a character no path
+		// component continues with, so a sibling named with it as a prefix is left alone.
+		dir = regexp.MustCompile("(?:" + regexp.QuoteMeta(ws) + "|" + regexp.QuoteMeta(tilde(ws)) + ")" +
+			`(/|$|[^A-Za-z0-9._-])`)
+	}
+	return func(line string) string {
+		line = typed.Replace(line)
+		if dir != nil {
+			line = dir.ReplaceAllString(line, "<cwd>${1}")
+		}
+		return line
+	}
+}
+
+// openLockedMachineLog opens a machine-wide log under GLOBAL_STORAGE/logs for appending
+// (read-write, for the trim) and runs init on it holding an exclusive flock on a SIBLING
+// `<path>.lock`, then releases the lock and returns the file; nil when any step fails.
+//
+// THE LOCK IS FOR THE TRIM. perf.TrimRunsInOpenFile reads the file and rewrites it, unlocked,
+// which in a per-workspace file is safe enough (one workspace's launches rarely start together),
+// and in a machine-wide one is not: host wrappers make concurrent host launches the ordinary case,
+// and two trims interleaved with a header lose blocks. A sibling for appendLaunchLine's reason:
+// a lock on the log's own descriptor locks the inode the trim rewrites. The event lines written
+// after init are single O_APPEND writes, outside the lock, as the perf sink's always were.
+func openLockedMachineLog(path string, init func(*os.File)) *os.File {
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return nil
+	}
+	lock, err := os.OpenFile(path+".lock", os.O_CREATE|os.O_WRONLY, 0o600)
+	if err != nil {
+		return nil
+	}
+	defer lock.Close()
+	fd := int(lock.Fd())
+	if err := syscall.Flock(fd, syscall.LOCK_EX); err != nil {
+		return nil
+	}
+	defer func() { _ = syscall.Flock(fd, syscall.LOCK_UN) }()
+	f, err := os.OpenFile(path, os.O_RDWR|os.O_APPEND|os.O_CREATE, 0o600)
+	if err != nil {
+		return nil
+	}
+	init(f)
+	return f
+}

@@ -312,8 +312,18 @@ yolo's stated non-goals are equally explicit and are concentrated in
 **The one place their coverage genuinely exceeds ours** is the last-but-one row, and it is
 narrow but real: Safehouse guarantees the sandboxed agent cannot rewrite the policy file that
 governs the next run. yolo has an analogue — `workspace_readonly` self-locks the workspace
-config file when any entry is active — but that self-lock **does not hold on `macos-user`**,
-which is the backend where the comparison applies.
+config file when any entry is active — and since 2026-10-04 it holds on `macos-user` too, the
+backend where the comparison applies: the config joins the profile's readonly deny
+(`macosuser.workspaceReadonlyRels`). Unmeasured on a Mac. **It is weaker than Safehouse's
+guarantee, on every backend, because it locks one file.** A workspace that declares no entry gets
+no lock. The session can also switch the protection off without touching the locked file: a
+`yolo-jail.local.jsonc` is merged over it unlocked (`"workspace_readonly": null` there turns the
+key off), as is any file pulled in with `include_if_found`, and a new `yolo-jail.jsonc` takes
+over from a locked `yolo-jail.json`. On `macos-user` a hard link to the config, or a link in the
+middle of a chain of links, is a path no rule names as well
+([`host-execution-from-the-workspace.md`](../reference/host-execution-from-the-workspace.md#locking-the-blind-cell-workspace_readonly)).
+What catches each is the config-change approval at the next fresh launch, which shows the human
+the change before it governs a run: yolo makes the rewrite visible, where Safehouse forbids it.
 
 ---
 
@@ -705,6 +715,18 @@ The full question is [OQ-AS1](#OQ-AS1).
 **The seam.** `SeatbeltProfile` in [`internal/macosuser/seatbelt.go`](../../internal/macosuser/seatbelt.go),
 which is one function emitting concatenated directives, plus the ordering invariant already
 pinned by `seatbelt_readonly_test.go`.
+
+> **A FOURTH INCREMENTAL DENY, 2026-10-04: `macos_log: "off"` is enforced.** *Implementation
+> decision, taken under the maintainer's 2026-10-04 delegation ("make them and build it … adjust
+> later"); reversible.* Taken on [OQ-AS1](#OQ-AS1)'s incremental-deny leaning, which it does not
+> answer. `off`, the default, used to make the `yolo-log` helper refuse while the sandbox could
+> still run `/usr/bin/log`; the profile now denies reads of the log's stores
+> (`/private/var/db/diagnostics`, `/private/var/db/uuidtext`) and the lookup of
+> `com.apple.diagnosticd`, which `log stream` connects to, and `user` and `full` get the profile
+> they always did. ⚠ The paths and the service name are inferred, never loaded on a Mac: the
+> policy suite asserts the store read against a `user` control, records the stream, and records
+> what the sandbox account can read with no profile at all. If that last answer is "nothing",
+> the deny is belt and braces and `user` is what needs fixing.
 
 ⚠ **Both preconditions of [OQ-AS1](#OQ-AS1)'s leaning are now met, and that does not rule it** (2026-09-24):
 the incremental denies shipped (`474f68a0`), and [§8.1](#81-a-policy-assertion-suite-for-macos-user--highest-value-moderate-cost)'s suite exists and runs green on the

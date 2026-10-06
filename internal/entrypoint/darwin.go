@@ -2,6 +2,7 @@ package entrypoint
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 
@@ -34,6 +35,11 @@ type DarwinBootstrapOptions struct {
 	// Passed in rather than generated here to keep this package free of the
 	// macosuser dependency (macosuser imports entrypoint, not the reverse).
 	YoloLogScript string
+	// Version is this binary's own build stamp (version.Baked, "" when unstamped), for the
+	// boot log's header. The container's header reads YOLO_VERSION instead, and this
+	// bootstrap's environment must never carry that variable: it is the jail marker, so
+	// config.InJail would answer true for this process and for every child it spawns.
+	Version string
 }
 
 // DarwinEnvFrom builds the bootstrap Env from the launcher's env-var contract, and
@@ -84,9 +90,55 @@ func DarwinEnvFrom(vars map[string]string, home string) *Env {
 // A12: a generator failure is FATAL here too, and returning it is the whole point — its
 // caller used to print "bootstrap ok" unconditionally. Every step still runs, so one
 // invocation reports every problem; see genStep.
+//
+// IT KEEPS THE CONTAINER'S BOOT LOG, <workspace>/.yolo/boot.log, rotated to boot.log.prev the
+// same way (attachDarwinBootLog): a terminal line lands in both, a log-only note in the log
+// alone, and the log's last line says whether the bootstrap refused. That is also what the
+// orphan catalog's one line points at for the names.
 func RunDarwinBootstrap(e *Env, opts DarwinBootstrapOptions) error {
+	stderr, logOnly := e.Stderr, e.LogOnly
+	blog := attachDarwinBootLog(e, opts.Version)
 	runBootSteps(&bootRun{e: e, target: bootDarwin, darwin: opts})
-	return genFailuresError(e)
+	err := genFailuresError(e)
+	blog.finish(err)
+	// The log is closed, so the writers it installed go back to the caller's: a MultiWriter
+	// over a closed file stops at the file, and a later write through this Env would reach
+	// neither sink.
+	e.Stderr, e.LogOnly = stderr, logOnly
+	return err
+}
+
+// attachDarwinBootLog is attachBootLog for the macos-user bootstrap: the same
+// <workspace>/.yolo/boot.log, written by the sandbox account through the workspace grant that
+// already lets it create <workspace>/.yolo/prism, plus one header line naming this backend and
+// the binary's version (the container's header reads YOLO_VERSION, which this env lacks).
+//
+// ONLY FOR A WORKSPACE THE LAUNCH NAMED. Every launch and every capture sets
+// YOLO_DARWIN_WORKSPACE (macosuser.buildBootstrapEnv), and DarwinEnvFrom turns it into
+// e.Workspace. An Env without it is a test or a hand-run, and its WorkspaceDir is the
+// container's literal /workspace, which is not this backend's workspace: inside a jail it is
+// the live jail's own, whose boot.log a test would rotate away. e.Workspace cannot answer
+// this, because NewEnv never leaves it empty. Never fatal, like the container's: every
+// failure returns nil, and e.Stderr still writes where it wrote.
+func attachDarwinBootLog(e *Env, version string) *bootLog {
+	if e.Getenv("YOLO_DARWIN_WORKSPACE") == "" {
+		return nil
+	}
+	stderr := e.Stderr
+	if stderr == nil {
+		// io.MultiWriter cannot take a nil writer, and a nil Stderr discards (Env.Stderr).
+		stderr = io.Discard
+	}
+	bl := attachBootLog(e, stderr)
+	if bl == nil {
+		e.Stderr = stderr
+		return nil
+	}
+	if version == "" {
+		version = "unstamped"
+	}
+	fmt.Fprintf(bl.f, "  macos-user bootstrap, yolo %s\n", version)
+	return bl
 }
 
 // InstallHomeOverlay copies the staged CONTENT tree ($YOLO_DARWIN_HOME_OVERLAY) over

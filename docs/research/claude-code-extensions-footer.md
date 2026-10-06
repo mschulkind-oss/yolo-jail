@@ -223,8 +223,8 @@ reference:124).
   [agent-footer.md:23-25](../design/agent-footer.md#L23-L25) measured in CI. The child would inherit the sandbox
   env, `YOLO_VERSION` included, so it says `jail` (INFERRED; unchecked on a Mac).
 - **Host notch.** `$.process.run` resolves `yolo` on Claude's own `PATH`, as `sh -c` does for today's command
-  (INFERRED). The plugin is delivered by `yolo host apply`, unlike yolo's LSP plugin, which is jail-only
-  ([mcp-configuration.md:527-528](../reference/mcp-configuration.md#L527-L528)).
+  (INFERRED). The plugin is delivered by `yolo host apply`, as yolo's LSP plugin is
+  ([at the host](../reference/mcp-configuration.md#at-the-host-yolo-host-apply-writes-it)).
 - **Another agent reading the same folder.** Copilot also reads `~/.claude/skills` for skills
   ([workspace-skills.md:125](../design/workspace-skills.md#L125)). Whether it would load a hooks module there, or
   stumble on `modules`, is UNMEASURED.

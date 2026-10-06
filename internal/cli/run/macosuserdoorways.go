@@ -15,8 +15,9 @@ package run
 //
 // WHAT IS A DOORWAY is declared, never named here: a loophole whose `jail_daemon` declares
 // `host_cmd`, the argv that opens it outside (loopholes.DoorwaysOutside). What may run is the
-// launch-owned mechanism's admission rule (launchservice.AdmitDoorway: a pack yolo ships, an
-// argv naming `yolo`), applied to the payload by launchservice.AdmitDoorways where it is composed
+// launch-owned mechanism's admission rule (launchservice.AdmitDoorway: a pack yolo ships or a
+// local one, never a fetched one, HS-D27; an argv naming `yolo`), applied to the payload by
+// launchservice.AdmitDoorways where it is composed
 // (admitDoorways) and in `yolo check`'s prediction of it, so a refused one is judged as the jail
 // daemon it also is, and the launch and the prediction agree on what is served.
 //
@@ -72,12 +73,18 @@ func (o *Options) admitDoorways(packs []*packload.Pack, specs []loopholes.JailDa
 // (loopholes.DoorwaysOutside over the payload Run composed, specs): each one's admitted host
 // argv resolved to the address the launch settled for its `listen`, behind the caller token the
 // channel composed its clients with. Recorded on o for the decline, which says the doorway runs.
+//
+// IT ALSO NAMES THE PURE WORKERS this launch does not start (noteMacosUserWorkers, HS-D29): the
+// channel's composition planned the ones it starts (planMacosUserWorkers), and this is the arm's
+// one step after that composition and before its start and dry-run split, where the lines about
+// what runs outside the sandbox belong.
 func (o *Options) planMacosUserDoorways(rt string, specs []loopholes.JailDaemonSpec,
 	packs []*packload.Pack, channel *packChannel) []*launchservice.Plan {
+	o.noteMacosUserWorkers(channel)
 	o.launchDoorways = nil
 	packOf := launchservice.LoopholePacks(packs)
 	for _, s := range loopholes.DoorwaysOutside(rt, specs) {
-		d, err := launchservice.AdmitDoorway(packs, packOf[s.Name], s.Name, s.ResolvedHostCmd())
+		d, err := launchservice.AdmitDoorway(packs, packOf[s.Name], s.Name, s.ResolvedHostCmd(), s.Restart)
 		if err != nil {
 			continue // admitDoorways cleared every host argv it refuses; nothing to open
 		}
@@ -113,28 +120,56 @@ func doorwayInput(launchEnv *jsonx.OrderedMap) map[string]string {
 
 // startMacosUserDoorways opens every planned doorway and says so, one line each, on every
 // launch: this is host code running outside Seatbelt, and a launch has no quiet mode. It returns
-// the stop for the arm to defer, or the refusal naming the doorway that did not start, which the
-// launch-owned mechanism's contract makes a refusal before the command runs (§4.5).
-func (o *Options) startMacosUserDoorways(plans []*launchservice.Plan, launchEnv *jsonx.OrderedMap) (func(), error) {
-	var running []launchedService
+// the stop for the arm to defer and what it started, or the refusal naming the doorway that did not
+// start, which the launch-owned mechanism's contract makes a refusal before the command runs (§4.5).
+// before, when not nil, is called with each plan just before its start: a keeper hands each its
+// reserved sockets there (keeper.adoptReservedFor).
+//
+// EACH ONE IS SUPERVISED FROM ITS START (launchservice.Running.Supervise, HS-D28), as a service's
+// host half is (startMacosUserServices): a doorway that dies while the command runs is named and
+// restarted on the address its clients were composed with. A local pack's doorway is named, argv
+// and all, before it opens: by this launch, or, when the doorways are a keeper's, by the launch
+// that spawned it, before the spawn (JL-D6), so a keeper names none itself.
+//
+// IN A KEEPER (keeperMode, docs/design/jail-lifetime-last-session-wins.md JL-D38) the doorways are
+// the workspace's macos-user sessions', not one launch's: the line says so, and the keeper stops
+// them when the last session leaves.
+func (o *Options) startMacosUserDoorways(plans []*launchservice.Plan, launchEnv *jsonx.OrderedMap,
+	before func(*launchservice.Plan)) (func(), []launchedHeld, error) {
+	var running []launchedHeld
 	stop := func() {
 		for _, r := range running {
-			r.Stop()
+			r.r.Stop()
 		}
 	}
 	for _, plan := range plans {
+		if !o.keeperMode {
+			o.noteMacosUserLocalHostCode(plan, fmt.Sprintf("the %q doorway's host argv", plan.Service))
+		}
+		if before != nil {
+			before(plan)
+		}
 		r, log, err := startMacosUserDoorway(plan, doorwayInput(launchEnv))
 		if err != nil {
 			stop()
-			return func() {}, err
+			return func() {}, nil, err
 		}
-		running = append(running, r)
-		o.pr(o.Stderr).print(fmt.Sprintf("Opened the %q doorway (pack %q, pid %d) on %s for this "+
-			"launch, outside the sandbox: it answers only this launch's caller token, forwards to "+
-			"the host's %q service, and stops when the command exits. Its log: %s", plan.Service,
-			plan.Pack, r.PID(), strings.Join(plan.Addresses(), ", "), plan.Service, log))
+		running = append(running, launchedHeld{what: fmt.Sprintf("the %q doorway", plan.Service), r: r, log: log})
+		if o.keeperMode {
+			o.pr(o.Stderr).print(fmt.Sprintf("Opened the %q doorway (pack %q, pid %d) on %s for this "+
+				"launch, outside the sandbox: it serves every macos-user session of this workspace, answers "+
+				"only their caller token, forwards to the host's %q service, and stops when the last of them "+
+				"leaves. Its log: %s", plan.Service, plan.Pack, r.PID(), strings.Join(plan.Addresses(), ", "),
+				plan.Service, log))
+		} else {
+			o.pr(o.Stderr).print(fmt.Sprintf("Opened the %q doorway (pack %q, pid %d) on %s for this "+
+				"launch, outside the sandbox: it answers only this launch's caller token, forwards to "+
+				"the host's %q service, and stops when the command exits. Its log: %s", plan.Service,
+				plan.Pack, r.PID(), strings.Join(plan.Addresses(), ", "), plan.Service, log))
+		}
+		r.Supervise(o.macosUserCommandName(), o.Stderr, macosUserSupervisionPrefix)
 	}
-	return stop, nil
+	return stop, running, nil
 }
 
 // launchDoorwayPlanned reports whether this launch opens the named loophole's doorway outside the
@@ -155,18 +190,51 @@ func (o *Options) launchDoorwayPlanned(name string) bool {
 // daemon: the guest runs it, or declines it for a reason of its own, such as an argv naming the
 // container's loophole mount, and then nothing serves it this launch. A disclosure, so no quiet
 // switch (docs/reference/report-tiers.md, OQ-RO3). Silent when none.
+//
+// It ends with noteRefusedServiceHosts, the same disclosure for a pack service's host half, from
+// the one call site the macos-user arm makes for both (below its decline report).
 func (o *Options) noteRefusedDoorways(declined []loopholes.DeclinedJailDaemon) {
-	guestDeclines := map[string]bool{}
-	for _, d := range declined {
-		guestDeclines[d.Spec.Name] = true
-	}
+	guestDeclines := guestDeclinedNames(declined)
 	for _, r := range o.refusedDoorways {
-		where := "Its jail daemon runs in the sandbox instead."
-		if guestDeclines[r.Name] {
-			where = "Its jail daemon is declined in the sandbox too (its Declined: line says why), " +
-				"so nothing serves it this launch."
-		}
 		o.pr(o.Stderr).print(fmt.Sprintf("[yellow]Not opened outside the sandbox: the %q doorway's "+
-			"host argv (pack %q): %s. %s[/yellow]", r.Name, r.Pack, r.Why, where))
+			"host argv (pack %q): %s. %s[/yellow]", r.Name, r.Pack, r.Why, o.guestPlacement(guestDeclines[r.Name])))
 	}
+	o.noteRefusedServiceHosts(guestDeclines)
+}
+
+// noteRefusedServiceHosts is the disclosure for launchservice.AdmitServiceHosts on macos-user:
+// one line per pack service whose host half this launch will not run (a pack yolo does not
+// ship, or an argv not naming `yolo`; OQ-HS4), naming it, its pack and why, and saying where its
+// jail daemon goes instead, read off the guest's own split as the doorway's line is: the sandbox
+// runs it (OQ-DP8), or declines it for a reason of its own, such as an endpoint file at a
+// container path, and then nothing serves it this launch. A disclosure, so no quiet switch.
+// Silent when none.
+func (o *Options) noteRefusedServiceHosts(guestDeclines map[string]bool) {
+	for _, r := range o.refusedServiceHosts {
+		o.pr(o.Stderr).print(fmt.Sprintf("[yellow]Not started outside the sandbox: the %q service's "+
+			"host half (pack %q): %s. %s[/yellow]", r.Name, r.Pack, r.Why, o.guestPlacement(guestDeclines[r.Name])))
+	}
+}
+
+// guestDeclinedNames is the set of daemon names the guest's split declined.
+func guestDeclinedNames(declined []loopholes.DeclinedJailDaemon) map[string]bool {
+	out := map[string]bool{}
+	for _, d := range declined {
+		out[d.Spec.Name] = true
+	}
+	return out
+}
+
+// guestPlacement is where a refused host argv's jail daemon goes on macos-user, for the two
+// disclosures above. When the guest declines it too, a daemon a selected pack declared runs
+// nowhere this launch, so the line names the next step: a container backend runs every daemon its
+// payload names (loopholes.ContainerRuntimeRunsIt; docs/reference/happy-path-principle.md), at the
+// jail notch when this launch is a guest (containerStepClause, EMP-D5).
+func (o *Options) guestPlacement(declinedInGuest bool) string {
+	if declinedInGuest {
+		return "Its jail daemon is declined in the sandbox too (its Declined: line says why), " +
+			"so nothing serves it this launch; " + loopholes.ContainerRuntimeRunsIt +
+			o.containerStepClause() + "."
+	}
+	return "Its jail daemon runs in the sandbox instead."
 }

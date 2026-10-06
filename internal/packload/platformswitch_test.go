@@ -76,7 +76,10 @@ func TestAUsersOwnSwitchConflictsOnlyWhenTheSelectionDoesNotServeIt(t *testing.T
 	}
 	// A SWITCH yolo WROTE (HC-D25): the host's computed-leaf record names the pointer with the
 	// value the file holds, so the conflict is yolo's and its line names `yolo host apply`; a
-	// record naming another value, or none, leaves the switch the user's.
+	// record naming another value, or none, leaves the switch the user's. The record is planted
+	// where the host's rmw arm writes it, under the owned contract's target: the path is the
+	// same whatever the contract (render.HostLeafWrote reads it unstated), so this is also where
+	// a record the retired `assert` left on claude/settings sits.
 	for _, tc := range []struct {
 		file, record string
 		yolos        bool
@@ -89,7 +92,7 @@ func TestAUsersOwnSwitchConflictsOnlyWhenTheSelectionDoesNotServeIt(t *testing.T
 		h := t.TempDir()
 		writeSettings(t, h, `{"env":{"CLAUDE_CODE_USE_BEDROCK":`+tc.file+`}}`)
 		if tc.record != "" {
-			rec := render.Host(h, nil, render.OwnershipAssert).LeafRecordPath("claude", "settings")
+			rec := render.Host(h, nil, render.OwnershipOwn).LeafRecordPath("claude", "settings")
 			if err := os.MkdirAll(filepath.Dir(rec), 0o755); err != nil {
 				t.Fatal(err)
 			}
@@ -117,5 +120,47 @@ func TestAUsersOwnSwitchConflictsOnlyWhenTheSelectionDoesNotServeIt(t *testing.T
 	providers, resolved, sel := launchSelection(t, packs, user, userProfiles, nil)
 	if got := PlatformSwitchConflicts(packs, sel, resolved, providers, home, "codex", nil); len(got) != 0 {
 		t.Errorf("a launch of codex names no conflict of claude's, got %+v", got)
+	}
+}
+
+// A SWITCH yolo WROTE, WHERE NO HOST APPLY RENDERS. Under host_management "none" — the unset
+// key since the `assert` retirement (OQ-CO14) — `yolo host apply` refuses, so a line telling the
+// user to run it to remove a key the retired `assert` wrote repeated at every launch. Where no
+// host apply renders the line names the two removals that run here: by hand, and `--revert`,
+// which takes out the leaf the record names. Where one does (`own`), the line is as it was.
+func TestAYoloWrittenSwitchLineNamesOnlyARemovalThatRunsHere(t *testing.T) {
+	c := PlatformSwitchConflict{Agent: "claude", Platform: "aws-bedrock", File: "~/.claude/settings.json",
+		Key: "CLAUDE_CODE_USE_BEDROCK", Profile: "bedrock", WrittenByYolo: true}
+	const none = "claude: ~/.claude/settings.json sets CLAUDE_CODE_USE_BEDROCK, which `yolo host apply` " +
+		"wrote there for claude's host selection, and it puts claude on its own \"aws-bedrock\" client, " +
+		"but no \"aws-bedrock\" provider is selected for claude, so yolo delivers it none of that " +
+		"platform's credentials: select one (-p bedrock), or remove CLAUDE_CODE_USE_BEDROCK from " +
+		"~/.claude/settings.json by hand, since no host apply renders here while host_management is " +
+		"not \"own\" (`yolo host apply --revert` lists every key yolo wrote, this one included, and " +
+		"takes them out with --assert)."
+	if got := c.Line(); got != none {
+		t.Errorf("no host apply renders here, so the line must not send the user to one:\n got %s\nwant %s",
+			got, none)
+	}
+	if got := c.Line(); strings.Contains(got, "or run `yolo host apply` with") {
+		t.Errorf("the line still names an apply that refuses here:\n%s", got)
+	}
+
+	c.HostApplyRenders = true
+	const own = "claude: ~/.claude/settings.json sets CLAUDE_CODE_USE_BEDROCK, which `yolo host apply` " +
+		"wrote there for claude's host selection, and it puts claude on its own \"aws-bedrock\" client, " +
+		"but no \"aws-bedrock\" provider is selected for claude, so yolo delivers it none of that " +
+		"platform's credentials: select one (-p bedrock), or run `yolo host apply` with claude on a " +
+		"provider of another platform, which removes it."
+	if got := c.Line(); got != own {
+		t.Errorf("where a host apply renders, the line is the one it was:\n got %s\nwant %s", got, own)
+	}
+
+	// The user's own switch reads the same whether or not a host apply renders: yolo leaves it alone.
+	c.WrittenByYolo = false
+	user := c.Line()
+	c.HostApplyRenders = false
+	if got := c.Line(); got != user || !strings.Contains(got, "(yolo leaves it alone)") {
+		t.Errorf("the user's own switch must read the same under every host_management:\n%s\n%s", user, got)
 	}
 }

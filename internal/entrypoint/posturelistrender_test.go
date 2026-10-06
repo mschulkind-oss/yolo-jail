@@ -17,6 +17,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/agentcfg/manifest"
 	"github.com/mschulkind-oss/yolo-jail/internal/packdecl"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/render"
@@ -58,15 +59,19 @@ func TestJailBootRendersOnlyTheAutonomousPostureList(t *testing.T) {
 	}
 }
 
-// THE HOST HALF, under both writing contracts. The host's profile is guarded, so the automode
-// entry is inserted into the real file, the jail-only one is not, and the insert record — what
-// lets a later apply withdraw the entry, and never remove a matching one the user wrote — names
-// exactly the inserted entry. The result row names the contributing pack.
+// THE HOST HALF, at an owned host (`host_management: "own"`) and through both arms it renders
+// with: a `stateful` owner (the insert record written beside the list capture,
+// writeStatefulInsertRecord) and an owner declaring `rmw` (the rmw arm's own record,
+// writeListRecord — the arm the retired `assert` ran every surface through). The host's profile
+// is guarded, so the automode entry is inserted into the real file, the jail-only one is not, and
+// the insert record — what lets a later apply withdraw the entry, and never remove a matching one
+// the user wrote — names exactly the inserted entry. The result row names the contributing pack.
 func TestHostApplyInsertsOnlyTheGuardedPostureList(t *testing.T) {
-	for _, ownership := range []render.HostOwnership{render.OwnershipAssert, render.OwnershipOwn} {
-		t.Run(ownership.String(), func(t *testing.T) {
+	for _, mode := range []string{manifest.ModeStateful, manifest.ModeRMW} {
+		t.Run(mode, func(t *testing.T) {
+			ownership := render.OwnershipOwn
 			home := t.TempDir()
-			results := applyHostPacks(t, home, ownership, false, listOwnerPack(t, "", nil),
+			results := applyHostPacks(t, home, ownership, false, listOwnerPack(t, mode, nil),
 				postureListContributor(t))
 			wantPackages(t, home, "npm:owner-a", "npm:owner-b", postureHostEntry)
 			if r, ok := listResultFor(results, "pi/settings"); !ok || !reflect.DeepEqual(r.Lists, []string{"matt"}) {
@@ -85,7 +90,7 @@ func TestHostApplyInsertsOnlyTheGuardedPostureList(t *testing.T) {
 			}
 
 			// And the drop half the record exists for: the contributor leaves, the entry leaves.
-			applyHostPacks(t, home, ownership, false, listOwnerPack(t, "", nil))
+			applyHostPacks(t, home, ownership, false, listOwnerPack(t, mode, nil))
 			wantPackages(t, home, "npm:owner-a", "npm:owner-b")
 		})
 	}

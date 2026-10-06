@@ -44,13 +44,13 @@ if the first were fixed:
    staged one, already carries the bit too. packload's is the last stripper standing,
    and its stated reason has moved out from under it.
 
-**The failure is silent.** `supervisor.superviseOne` consults the restart policy only
-after a *successful* start; a start that fails — `permission denied` from
-`cmd.Start` on a non-executable file — takes the spawn-failure arm, which discards the
-error, sleeps, doubles a `1s→30s` backoff and retries **for the life of the jail**.
-`openLog` has already created `~/.local/state/yolo-jail-daemons/hello-daemon.log`, and
-nothing is ever written to it. So the observable symptom of shipping a jail binary the
-wrong way is an empty log file and no process, forever, with no diagnostic anywhere.
+**The failure was silent when this ran, and is not now.** A start that fails —
+`permission denied` from `cmd.Start` on a non-executable file — used to take a
+spawn-failure arm that discarded the error and retried for the life of the jail, leaving
+`~/.local/state/yolo-jail-daemons/hello-daemon.log` empty. That arm now writes
+`spawn failed: …` to the log and obeys the restart policy, so this manifest's
+`"restart": "no"` gives up after one line that names the error
+([§10](../../docs/design/broker-as-a-pack.md#10-sequencing) records the fix).
 
 **The embedded route has an answer now, and it is not this tree** (2026-09-30,
 [`broker-as-a-pack.md`](../../docs/design/broker-as-a-pack.md) BP-D1). A pack that must
@@ -111,6 +111,13 @@ execution, and the supervisor ran a program **this pack shipped**. Everything up
 launch itself is pinned by
 [`internal/packload/packshippedjailbinary_test.go`](../../internal/packload/packshippedjailbinary_test.go);
 that log line is the part only a real jail can produce.
+
+On **`macos-user`** the same config runs it in the sandbox. There is no mount there:
+`{jail_loophole_dir}` resolves to the module dir's place in yolo's root-owned copy of the
+staged packs (one per workspace, which each launch replaces), so the line names `/var/yolo-jail/packs/<jail>/…/bin/hello` instead, and
+the log is at `<workspace>/.yolo/home/local/state/yolo-jail-daemons/hello-daemon.log` on the Mac
+([JD-10](../../docs/design/jail-daemon-on-macos-user-plan.md#JD-10)). A script runs there; a Linux
+binary would not, and the launch declines one by name and names a container runtime that runs it.
 
 ## Retiring it
 

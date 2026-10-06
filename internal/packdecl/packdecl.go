@@ -306,6 +306,10 @@ type Install struct {
 	// Contribution field of the same name carries the reasoning; the generated launcher is its
 	// one reader (MM-D9, MM-D22).
 	ModelMenu *ModelMenu `json:"model_menu,omitempty"`
+	// LaunchSelection is how one `yolo host -p` launch hands the program the selection its config
+	// surface's derive composes, nil when it declares none. The LaunchSelection type carries the
+	// grammar; `yolo host --` is its one reader (docs/design/model-lists-and-pickers.md MM-D30).
+	LaunchSelection *LaunchSelection `json:"launch_selection,omitempty"`
 }
 
 // Refresh declares a program's PRE-LAUNCH REFRESH — a term coined here (2026-09-25) for the
@@ -751,6 +755,7 @@ func DecodeTolerant(data []byte) (m *Manifest, problems, skipped []string) {
 			firstAutonomy = i
 		}
 		problems = append(problems, validateContributionAt(i, c)...)
+		problems = append(problems, mcpContributionProblems(fmt.Sprintf("contributes[%d]", i), c)...)
 		kept = append(kept, c)
 		index = append(index, i)
 	}
@@ -843,7 +848,8 @@ func (m *Manifest) Validate() []string {
 	problems := m.validateSkillsTier()
 	problems = append(problems, m.validateSupersedes()...)
 	problems = append(problems, m.validateNeeds()...)
-	return append(problems, m.validateContributions()...)
+	problems = append(problems, m.validateContributions()...)
+	return append(problems, m.validateMCP()...)
 }
 
 // validateSkillsTier rejects a misspelled `skills_tier`.
@@ -958,4 +964,464 @@ func knownHook(name string) bool {
 		}
 	}
 	return false
+}
+
+// The two placeholders a LaunchSelection argv word spells: LaunchSelectionValue for a value, and
+// LaunchSelectionKey for the dotted path of the leaf whose value it is (the `each` form only).
+const (
+	LaunchSelectionValue = "{value}"
+	LaunchSelectionKey   = "{key}"
+)
+
+// LaunchSelection declares a program's LAUNCH SELECTION — a term coined here (2026-10-05) for the
+// selection a program's config-surface derive composes for ONE `yolo host` launch, handed to that
+// launch's process as argv words or environment variables instead of being written into the
+// program's config files (docs/design/model-lists-and-pickers.md MM-D30, OQ-MM5). It is what lets a
+// `yolo host -p <profile> -- <bin>` move a program whose provider and model live in its own config
+// file (codex's `model_provider`, opencode's `model`, pi's `defaultProvider`), which only `yolo
+// host apply` writes, and only for the configured profile (host-agent-environment.md OQ-HC3).
+//
+// WHAT IS HANDED, all of it composed by the pack's own derive over the launch's own tables, as a
+// jail's boot composes it (MM-D24's one code path), and none of it written:
+//
+//   - the reserved `selection` namespace the derive returns for Surface (agentcfg.SelectionKey),
+//     with Defaults filling a key it omits;
+//   - when Rows is set, each row of Surface's Rows.Table whose key a Rows.NamedBy selection value
+//     names (a provider entry the selection points at), since the program reads the selection
+//     against rows the configured file may not hold;
+//   - when Surfaces is set, each further computed surface's whole content, as this launch's
+//     derive composes it, in the variable that surface names.
+//
+// HOW, by exactly one of three forms, each a fact about how a release of the program reads a
+// one-launch override, so the words are the pack's (AGENTS.md, "Core does not know what an agent
+// is"):
+//
+//   - Each: argv words repeated for every leaf of the selection and the rows, `{key}` the leaf's
+//     dotted path and `{value}` its value in Surface's codec: `["-c", "{key}={value}"]` for codex,
+//     whose `-c` takes a dotted TOML path and a TOML value.
+//   - Flags: argv words per selection key, `{value}` the value as a plain word, an array's items
+//     joined by commas: `--provider {value}` for pi. A key no entry names is not handed.
+//   - Env: one variable that receives the selection and the rows as one document in Surface's
+//     codec: OPENCODE_CONFIG_CONTENT for opencode.
+//
+// WHAT THE LAUNCH GUARANTEES around it, none of which the pack can turn off: it hands anything
+// only when a `-p` was typed and what it would hand differs from what the configured profile
+// composes, so a wrapped launch and a bare `yolo host --` leave the program on its file; argv
+// words go right after argv[0], so a user's own later flag of the same name still wins, and none
+// go in front of a word Subcommands names; every handoff is disclosed (a launch has no quiet
+// mode); YOLO_NO_LAUNCH_FLAGS=1 skips it and says so; in a jail it does nothing, the jail's own
+// render having written the -p's selection already; and `yolo host env`, which carries no argv,
+// exports the env form and names the launch for the others.
+type LaunchSelection struct {
+	// Surface is the home-relative path of the program's config surface whose derive composes the
+	// selection: `.codex/config.toml` for codex. The path must be one of the pack's own `config`
+	// surfaces, which the launch checks when it runs the derive.
+	Surface string `json:"surface"`
+	// Each is the per-leaf argv form. See the type.
+	Each []string `json:"each,omitempty"`
+	// Flags is the per-key argv form, in the order the words are handed. See the type.
+	Flags []LaunchSelectionFlag `json:"flags,omitempty"`
+	// Env is the document form's variable name. See the type.
+	Env string `json:"env,omitempty"`
+	// Rows, when set, is the table whose entries the selection names, handed beside it.
+	Rows *LaunchSelectionRows `json:"rows,omitempty"`
+	// Defaults are selection keys and the value handed when the launch's selection omits one,
+	// standing for what a jail's render does by clearing a key yolo wrote earlier (the selection's
+	// deselect rule): `{"model_provider": "openai"}` for codex, whose subscription selection names
+	// no provider and whose file may name another.
+	Defaults map[string]string `json:"defaults,omitempty"`
+	// Surfaces maps a further config surface's home-relative path to the variable that carries
+	// its content for this launch: pi's model-list files, which pi's extensions read from the
+	// variable before the file. Each path must be a computed surface of the pack.
+	Surfaces map[string]string `json:"surfaces,omitempty"`
+	// Subcommands are the words a release of the program reads as a subcommand only when it is
+	// argv[1], where argv words the launch put right after argv[0] would push it out and the
+	// program would take it for something else: pi 1.0.1 reads `pi --provider zai update` as a
+	// session whose first prompt is "update". A launch whose argv[1], as the user typed it, is one
+	// of them hands nothing of the selection, argv or variables, and says so, so the subcommand
+	// runs as typed. Only an argv form (Each, Flags) takes it, since the Env form moves no word.
+	Subcommands []string `json:"subcommands,omitempty"`
+}
+
+// LaunchSelectionFlag is one selection key's argv words in the Flags form.
+type LaunchSelectionFlag struct {
+	// Key is the selection key handed: `defaultProvider` for pi.
+	Key string `json:"key"`
+	// Argv is the words, one holding LaunchSelectionValue: `["--provider", "{value}"]`.
+	Argv []string `json:"argv"`
+}
+
+// LaunchSelectionRows names the rows a selection points at.
+type LaunchSelectionRows struct {
+	// Table is Surface's top-level table of rows keyed by provider: `model_providers` for codex.
+	Table string `json:"table"`
+	// NamedBy is the selection keys whose value (or, for an array, whose items) name a row of
+	// Table: `["model_provider"]` for codex. A name with no row hands none.
+	NamedBy []string `json:"named_by"`
+}
+
+// launchSelectionProblems refuses a `launch_selection` no launch could hand: on a kind with no
+// program, with a surface path that is not a clean home-relative file path, with no form or more
+// than one, a form whose words never carry a value (or, for `each`, never name the leaf), a row
+// declaration the Flags form has no word for, an empty key or variable name, two surfaces
+// handed in one variable, or a subcommand word that is empty, a flag, named twice, or declared
+// for the Env form, which moves no word.
+func launchSelectionProblems(label string, c Contribution) []string {
+	ls := c.LaunchSelection
+	if ls == nil {
+		return nil
+	}
+	if c.Kind != KindProgram {
+		return []string{fmt.Sprintf("%s: kind %q does not take \"launch_selection\" — it hands a "+
+			"PROGRAM's selection to one launch of it, so only \"program\" has a launch to hand it to",
+			label, c.Kind)}
+	}
+	var problems []string
+	add := func(format string, args ...any) {
+		problems = append(problems, fmt.Sprintf("%s: \"launch_selection\" "+format, append([]any{label}, args...)...))
+	}
+	if prob := homeRelativeFileProblem(ls.Surface); prob != "" {
+		add("\"surface\" %s", prob)
+	}
+	forms := 0
+	for _, set := range []bool{len(ls.Each) > 0, len(ls.Flags) > 0, ls.Env != ""} {
+		if set {
+			forms++
+		}
+	}
+	switch {
+	case forms == 0:
+		add("names no way to hand the selection: give exactly one of \"each\", \"flags\" or \"env\"")
+	case forms > 1:
+		add("names more than one way to hand the selection: give exactly one of \"each\", \"flags\" or \"env\"")
+	}
+	words := func(field string, argv []string, needKey bool) {
+		value, key := false, false
+		for _, w := range argv {
+			if w == "" {
+				add("%s has an empty word", field)
+			}
+			value = value || strings.Contains(w, LaunchSelectionValue)
+			key = key || strings.Contains(w, LaunchSelectionKey)
+		}
+		if !value {
+			add("%s must carry the value with %q in one of its words", field, LaunchSelectionValue)
+		}
+		if needKey && !key {
+			add("%s must name the leaf with %q in one of its words, or every leaf is handed the same words",
+				field, LaunchSelectionKey)
+		}
+	}
+	if len(ls.Each) > 0 {
+		words("\"each\"", ls.Each, true)
+	}
+	flagged := map[string]bool{}
+	for i, f := range ls.Flags {
+		field := fmt.Sprintf("\"flags\"[%d]", i)
+		if f.Key == "" {
+			add("%s names no \"key\"", field)
+		} else if flagged[f.Key] {
+			add("%s hands key %q a second time", field, f.Key)
+		}
+		flagged[f.Key] = true
+		if len(f.Argv) == 0 {
+			add("%s has no \"argv\"", field)
+			continue
+		}
+		words(field+".argv", f.Argv, false)
+	}
+	if ls.Env != "" && !ValidEnvName(ls.Env) {
+		add("\"env\" %q is not a variable name (must match [A-Za-z_][A-Za-z0-9_]*)", ls.Env)
+	}
+	if r := ls.Rows; r != nil {
+		if r.Table == "" {
+			add("\"rows\" names no \"table\"")
+		}
+		if len(r.NamedBy) == 0 {
+			add("\"rows\" names no \"named_by\" key, so no row is ever named")
+		}
+		for _, k := range r.NamedBy {
+			if k == "" {
+				add("\"rows\".\"named_by\" has an empty key")
+			}
+		}
+		if len(ls.Flags) > 0 {
+			add("\"rows\" cannot be handed by \"flags\", which hand selection keys one by one and have " +
+				"no word for a row: use \"each\" or \"env\", or drop \"rows\"")
+		}
+	}
+	for _, k := range sortedKeys(ls.Defaults) {
+		switch {
+		case k == "":
+			add("\"defaults\" has an empty key")
+		case ls.Defaults[k] == "":
+			add("\"defaults\" gives %q an empty value", k)
+		case len(ls.Flags) > 0 && !flagged[k]:
+			add("\"defaults\" names %q, which no \"flags\" entry hands", k)
+		}
+	}
+	vars := map[string]string{}
+	if ls.Env != "" {
+		vars[ls.Env] = "\"env\""
+	}
+	for _, p := range sortedKeys(ls.Surfaces) {
+		name := ls.Surfaces[p]
+		if prob := homeRelativeFileProblem(p); prob != "" {
+			add("\"surfaces\" path %q %s", p, prob)
+		} else if p == ls.Surface {
+			add("\"surfaces\" names %q, the selection's own surface, whose selection is handed already", p)
+		}
+		if !ValidEnvName(name) {
+			add("\"surfaces\" gives %q the variable %q, which is not a variable name "+
+				"(must match [A-Za-z_][A-Za-z0-9_]*)", p, name)
+			continue
+		}
+		if prev, dup := vars[name]; dup {
+			add("\"surfaces\" hands %q in %s, which %s already uses", p, name, prev)
+			continue
+		}
+		vars[name] = fmt.Sprintf("%q", p)
+	}
+	if len(ls.Subcommands) > 0 && len(ls.Each) == 0 && len(ls.Flags) == 0 {
+		add("\"subcommands\" are for an argv form: the selection is handed in no argv word, so none " +
+			"can push a subcommand out of argv[1]; drop \"subcommands\"")
+	}
+	named := map[string]bool{}
+	for i, w := range ls.Subcommands {
+		field := fmt.Sprintf("\"subcommands\"[%d]", i)
+		switch {
+		case w == "":
+			add("%s is empty", field)
+		case strings.HasPrefix(w, "-"):
+			add("%s %q is a flag, not a subcommand word: a launch compares it with argv[1] as typed", field, w)
+		case strings.ContainsAny(w, " \t\n"):
+			add("%s %q holds a space, and one argv word cannot", field, w)
+		case named[w]:
+			add("%s names %q a second time", field, w)
+		}
+		named[w] = true
+	}
+	return problems
+}
+
+// clone is a deep copy, so a consumer that edits its Install cannot reach back into the manifest.
+func (ls *LaunchSelection) clone() *LaunchSelection {
+	if ls == nil {
+		return nil
+	}
+	out := &LaunchSelection{Surface: ls.Surface, Env: ls.Env, Each: append([]string(nil), ls.Each...)}
+	if len(out.Each) == 0 {
+		out.Each = nil
+	}
+	for _, f := range ls.Flags {
+		out.Flags = append(out.Flags, LaunchSelectionFlag{Key: f.Key, Argv: append([]string(nil), f.Argv...)})
+	}
+	if ls.Rows != nil {
+		out.Rows = &LaunchSelectionRows{Table: ls.Rows.Table, NamedBy: append([]string(nil), ls.Rows.NamedBy...)}
+	}
+	if ls.Defaults != nil {
+		out.Defaults = make(map[string]string, len(ls.Defaults))
+		for k, v := range ls.Defaults {
+			out.Defaults[k] = v
+		}
+	}
+	if ls.Surfaces != nil {
+		out.Surfaces = make(map[string]string, len(ls.Surfaces))
+		for k, v := range ls.Surfaces {
+			out.Surfaces[k] = v
+		}
+	}
+	if len(ls.Subcommands) > 0 {
+		out.Subcommands = append([]string(nil), ls.Subcommands...)
+	}
+	return out
+}
+
+// TakesSubcommand reports whether argv, a program's argv as the user typed it (argv[0] the
+// program), runs one of ls's Subcommands, so the launch hands it nothing of the selection.
+func (ls *LaunchSelection) TakesSubcommand(argv []string) bool {
+	if ls == nil || len(argv) < 2 {
+		return false
+	}
+	for _, w := range ls.Subcommands {
+		if argv[1] == w {
+			return true
+		}
+	}
+	return false
+}
+
+// MCPHomePrefix begins an `mcp` entry's `command` or `args` word that names a path under the home
+// of the notch the entry renders for: `~/.local/share/x/wrapper`. The composer replaces the `~`
+// with that home (packload.ComposeMCPServers), because an MCP client spawns its servers with a
+// scrubbed environment and so needs an absolute path, and the home differs per notch: /home/agent in
+// a container jail, the sandbox account's home on macos-user, your own at `yolo host`. It is the
+// whole path vocabulary the kind has (docs/design/mcp-presets-removal.md OQ-MP4).
+const MCPHomePrefix = "~/"
+
+// mcpEntryKeys is the field set of an `mcp` contribution's entry: the keys a user's own
+// `mcp_servers` entry takes (the config package's knownMCPServerKeys, which this package may not
+// import, and TestTheMCPKindCarriesEveryMCPServerKey there pins the two together), so a pack's
+// server is never second-class to a hand-written one, nor able to say what one cannot
+// (mcp-presets-removal.md §6.2, risk R2).
+var mcpEntryKeys = []string{"args", "command", "env", "provides", "requires_env"}
+
+// MCPEntryKeys returns mcpEntryKeys, sorted, for the test that pins it against the config's set.
+func MCPEntryKeys() []string { return append([]string(nil), mcpEntryKeys...) }
+
+// MCPContribution is one `mcp` contribution: the server's name, the program it runs (Bin, "" for
+// none named), and its entry as declared (Entry, a JSON object in mcp_servers' shape, `~/` words
+// not yet joined to any home).
+type MCPContribution struct {
+	Name  string
+	Bin   string
+	Entry json.RawMessage
+}
+
+// MCPContributions returns every `mcp` contribution, in declaration order.
+func (m *Manifest) MCPContributions() []MCPContribution {
+	var out []MCPContribution
+	for _, c := range m.Contributions() {
+		if c.Kind != KindMCP {
+			continue
+		}
+		out = append(out, MCPContribution{Name: c.Name, Bin: c.Bin,
+			Entry: append(json.RawMessage(nil), c.Raw...)})
+	}
+	return out
+}
+
+// mcpContributionProblems checks one `mcp` contribution: a server name, a `bin` that is a bare
+// program name, and an entry an MCP client could start — an object whose keys are mcp_servers'
+// own, a non-empty `command`, string `args`, string `env` values under variable names, variable
+// names in `requires_env`, a non-empty `provides`, and every `~/` word a clean path under the
+// home. Run on both decode paths: an entry malformed in a way every build understands is a
+// problem at either end of the version boundary. nil on any other kind.
+func mcpContributionProblems(label string, c Contribution) []string {
+	if c.Kind != KindMCP {
+		return nil
+	}
+	var problems []string
+	add := func(format string, args ...any) {
+		problems = append(problems, fmt.Sprintf("%s: "+format, append([]any{label}, args...)...))
+	}
+	switch {
+	case c.Name == "":
+		add("kind \"mcp\" needs \"name\", the server's name — the key it lands under in mcp_servers")
+	case strings.TrimSpace(c.Name) != c.Name || strings.IndexFunc(c.Name, func(r rune) bool {
+		return r <= ' ' || r == 0x7f
+	}) >= 0:
+		add("kind \"mcp\" name %q must hold no whitespace or control characters — it is a key "+
+			"every agent's config file spells", c.Name)
+	}
+	if c.Bin != "" && !ValidBinName(c.Bin) {
+		add("\"bin\" must be a bare program name — no \"/\", \"..\", \":\" or absolute path (%s)", c.Bin)
+	}
+	if len(c.Raw) == 0 {
+		add("kind \"mcp\" needs \"config\", the server's entry in mcp_servers' shape: " +
+			"{\"command\": \"<program>\", \"args\": [...]}")
+		return problems
+	}
+	var entry map[string]json.RawMessage
+	if err := json.Unmarshal(c.Raw, &entry); err != nil || entry == nil {
+		add("kind \"mcp\" \"config\" must be an object — the server's entry in mcp_servers' shape")
+		return problems
+	}
+	for _, k := range sortedKeys(entry) {
+		known := false
+		for _, want := range mcpEntryKeys {
+			known = known || k == want
+		}
+		if !known {
+			add("\"config\" has %q, which no mcp_servers entry takes (expected one of %s)",
+				k, strings.Join(mcpEntryKeys, ", "))
+		}
+	}
+	homeWord := func(field, w string) {
+		if w == "~" {
+			add("%s %q names the home itself: write %q followed by the path under it", field, w, MCPHomePrefix)
+			return
+		}
+		rest, ok := strings.CutPrefix(w, MCPHomePrefix)
+		if !ok {
+			return
+		}
+		if rest == "" {
+			add("%s %q names the home itself: write the path under it after %q", field, w, MCPHomePrefix)
+			return
+		}
+		problems = appendPathProblems(problems, label+": "+field, rest)
+	}
+	var command string
+	if raw, ok := entry["command"]; !ok {
+		add("\"config\" needs \"command\", the program the agent's MCP client starts")
+	} else if err := json.Unmarshal(raw, &command); err != nil || strings.TrimSpace(command) == "" {
+		add("\"config\".\"command\" must be a non-empty string")
+	} else {
+		homeWord("\"config\".\"command\"", command)
+	}
+	if raw, ok := entry["args"]; ok {
+		var args []string
+		if err := json.Unmarshal(raw, &args); err != nil {
+			add("\"config\".\"args\" must be a list of strings")
+		}
+		for i, a := range args {
+			homeWord(fmt.Sprintf("\"config\".\"args\"[%d]", i), a)
+		}
+	}
+	if raw, ok := entry["env"]; ok {
+		var env map[string]string
+		if err := json.Unmarshal(raw, &env); err != nil {
+			add("\"config\".\"env\" must be an object of string values — literal, as every env value is")
+		}
+		for _, k := range sortedKeys(env) {
+			if !ValidEnvName(k) {
+				add("\"config\".\"env\" key %q is not a variable name (must match [A-Za-z_][A-Za-z0-9_]*)", k)
+			}
+		}
+	}
+	if raw, ok := entry["requires_env"]; ok {
+		var names []string
+		if err := json.Unmarshal(raw, &names); err != nil {
+			add("\"config\".\"requires_env\" must be a list of variable names")
+		}
+		for i, n := range names {
+			if !ValidEnvName(n) {
+				add("\"config\".\"requires_env\"[%d] %q is not a variable name (must match "+
+					"[A-Za-z_][A-Za-z0-9_]*)", i, n)
+			}
+		}
+	}
+	if raw, ok := entry["provides"]; ok {
+		var provides string
+		if err := json.Unmarshal(raw, &provides); err != nil || strings.TrimSpace(provides) == "" {
+			add("\"config\".\"provides\" must be a non-empty string, the capability the server provides")
+		}
+	}
+	return problems
+}
+
+// validateMCP is the strict path's `mcp` check: each contribution's own problems, then a server
+// name one pack declares twice, which would land two entries on one key with the second silently
+// replacing the first. DecodeTolerant runs the per-contribution half itself, in its loop.
+func (m *Manifest) validateMCP() []string {
+	var problems []string
+	seen := map[string]int{}
+	for i, c := range m.Contributes {
+		if c.Kind != KindMCP {
+			continue
+		}
+		problems = append(problems, mcpContributionProblems(fmt.Sprintf("contributes[%d]", i), c)...)
+		if c.Name == "" {
+			continue
+		}
+		if first, dup := seen[c.Name]; dup {
+			problems = append(problems, fmt.Sprintf("contributes[%d]: MCP server %q is already "+
+				"declared at contributes[%d] — a server name is the key its entry lands under, so "+
+				"the second declaration would silently replace the first", i, c.Name, first))
+			continue
+		}
+		seen[c.Name] = i
+	}
+	return problems
 }

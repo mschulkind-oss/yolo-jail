@@ -82,10 +82,9 @@ var valueTakingFlags = func() map[string]bool {
 		// defensive — it costs nothing and removes an ordering dependency.
 		"--user-layer": true,
 	}
-	// `--with-credentials` is among them: a jail launch REFUSES it (refuseHostOnlyFlags), and
-	// this skip is what lets it get there. Without it `yolo --with-credentials zai -- bash`
-	// read "zai" as a command name and answered `unknown command "zai"`, a refusal that never
-	// said the flag is host-only.
+	// `--with-credentials` is among them: a jail launch takes it (OQ-ES5's jail half), and this
+	// skip is what lets it get there. Without it `yolo --with-credentials zai -- bash` read
+	// "zai" as a command name and answered `unknown command "zai"`.
 	for _, name := range launchValueFlagNames() {
 		m[name] = true
 	}

@@ -43,8 +43,9 @@ folders and the launch PATH every host check reads are from 2026-09-30
 and the launch gate; [the launch PATH section](#the-launch-path-and-which-copy-of-a-program-runs)
 and its rulings were written against `d4e435a3` on 2026-10-01, when the design
 `host-launch-environment.md` graduated into them, and its implementation decisions `HE-D1` to
-`HE-D10` stay in that design's stub as the build record (their ids are that design's, not this
-doc's own `HE-D1` and `HE-D2`). Step 3's wire
+`HE-D12` stay in that design's stub as the build record (`HE-D11` and `HE-D12` added there on
+2026-10-04; their ids are that design's, not this doc's own `HE-D1`, `HE-D2` and `HE-D13` to
+`HE-D15`). Step 3's wire
 tables are from 2026-09-30 ([FT-D2](../design/agent-footer.md#FT-D2)), pinned by unit tests
 through `hostMain`. [What `yolo host apply` renders into a derived surface](#what-yolo-host-apply-renders-into-a-derived-surface)
 was written against `d4e435a3` on 2026-10-01, when the design `host-computed-layer.md` graduated
@@ -121,7 +122,9 @@ which supplies every agent a selected pack delivers to a host launch). For the
    and never gated on the resolved environment.
 6. **P6 — Blocker, launcher, wrapper: three mechanisms, three words, and "shim" is retired.**
    They sit at different `PATH` positions for different reasons, and the directory names say
-   which is which: `bin/block`, `bin/launch` in a jail, `bin/wrap` on the host.
+   which is which: `bin/block` and `bin/launch` in a jail, `bin/wrap` on the host, and on the
+   host a `bin/block/<digest>` per set of blockers, first on the PATH of the one program a
+   `yolo host --` launch starts ([HE-D11](../design/host-launch-environment.md#he-d11)).
 
 ## The vocabulary
 
@@ -129,7 +132,8 @@ Three generated script directories exist, and conflating them is the mistake P6 
 prevent. Each is defined by what its scripts *do*, not by where they sit:
 
 - **Blocker** — a script that refuses a command and prints an alternative (`exit 127`). In the
-  jail, first on `PATH`, because interception is its whole job.
+  jail, first on `PATH`, because interception is its whole job; at the host, first on the PATH of
+  the program `yolo host --` starts, from the user scope and the selected packs only.
 - **Launcher** — a script that installs or updates a tool on use, then `exec`s the real binary.
   In the jail, **second** on `PATH` — ahead of every install prefix, or it becomes unreachable
   the moment its own install succeeds.
@@ -176,22 +180,24 @@ that placement:
    PATH a bare `claude` gets the config and none of the environment it assumes. Declaring `own` and
    nothing else left exactly that half-configured host, and `yolo doctor` was silent about it because
    [the section that reports this state](#apply-reports-actions-check-reports-state) short-circuits on the opt-in.
-   An explicit `false` still wins. ⚠ `"assert"` does **not** derive, because it is `host_management`'s
-   own unset default — deriving from it would put a PATH claim on every machine that declared nothing.
+   An explicit `false` still wins. ⚠ Only a WRITTEN `"own"` derives; the unset key (`"none"` since
+   the `assert` retirement) does not — deriving from it would put a PATH claim on every machine that
+   declared nothing.
 
    **`yolo host wrappers enable`/`disable` are DELETED** (they now refuse, naming the derivation). A
    verb whose whole effect was writing one boolean into the user's config made yolo a second writer
    of a file the user owns, for a line they can type themselves — and with the default derived, the
    common case needs no line at all. `yolo host wrappers status` survives, because it only reads.
 4. **The wrapper is three lines and holds no logic** — a header comment and
-   `exec yolo host -- <program> "$@"`. One env-composition implementation (P4).
+   `exec <yolo> host -- <program> "$@"`, naming the yolo that wrote it by absolute path
+   ([HE-D14](#he-d14)). One env-composition implementation (P4).
 
 ### What a wrapper does not cover
 
 | Bypass | Consequence |
 | :--- | :--- |
 | Invocation by absolute path to the real binary | wrapper skipped |
-| An IDE extension with a configured binary path | wrapper skipped — **and the inversion is the fix**: point the IDE at `<wrap dir>/claude` and the composed environment arrives by absolute path, with no `PATH` consulted |
+| An IDE extension or desktop launcher with a configured binary path | wrapper skipped — **and the inversion is the fix**: point it at `<wrap dir>/claude`. The wrapper starts yolo by absolute path, so no `PATH` is consulted to reach yolo ([HE-D14](#he-d14)); `yolo host` then finds a program it keeps no copy of (claude on macOS, for one) on the launcher's `PATH` and `host_path`, so that launcher needs `host_path` naming the program's folder, which `yolo check` names ([HE-D15](#he-d15)) |
 | A shell function of the same name | **beats `PATH` outright** — it has to be deleted either way |
 | A process that sanitizes `PATH` before spawning | wrapper skipped |
 
@@ -250,6 +256,14 @@ governs *where its ergonomics live*, and it earns a namespace for a reason no ot
 match: only the host has a user shell and a `PATH` to claim, so `yolo host env` and
 `yolo host wrappers status` have no `jail` or `guest` counterpart and nowhere else to go.
 
+**A host apply refuses inside a jail**, at both spellings and every posture (`--assert`,
+`--revert`, and `yolo apply` under `confinement: host`): it renders into the home of whoever runs
+it, and a jail's home is the jail's own, which its launch already rendered. It exits 1, writes
+nothing, and names the command to run on the host: `yolo host apply --assert`, or
+`yolo host apply --revert --assert` for a revert. The jail's config is rendered again by its next
+launch. `yolo host --` and `yolo host env` still run in a jail
+([DP-I7](../design/declaration-parity.md#DP-I7)).
+
 **The exec half has the same two spellings**, and the front door decides between them once
 (`cli.routeArgv`): every launch carrying `--at host`, wherever the flag sits, is `yolo host`.
 `yolo --at host -- <cmd>`, `yolo run --at host -- <cmd>`, `yolo --at host run -- <cmd>` and a
@@ -257,8 +271,10 @@ bare `yolo --at host` all route there; the bare one runs nothing and prints `yol
 The last `--at` typed wins in either order, and every `--at` is consumed on the way, so
 `yolo --at jail --at host -- <cmd>` runs at the host as `yolo --at host --at jail -- <cmd>` runs
 in the jail. `yolo host` takes `--at host` as a no-op and refuses any
-other notch, and a jail-launch flag with no meaning at the host (`--timing`, `--dry-run`,
-`--network`, `--accept-config-changes`) is refused by name rather than ignored. The config key
+other notch, and a jail-launch flag with no meaning at the host (`--dry-run`, `--network`,
+`--accept-config-changes`) is refused by name rather than ignored. `--timing` has a meaning at
+both notches and is taken: it times the host launch's stages
+([perf-logging.md, The host notch](perf-logging.md#the-host-notch)). The config key
 `confinement: host` is not an `--at` spelling and still refuses a launch
 ([OQ-DP3](../design/declaration-parity.md#decision-ledger)).
 
@@ -280,7 +296,10 @@ refused for naming no command, the host verb having no default one.
    on this machine (said on one line), is looked up on the child's PATH (step 3), **skipping
    yolo-managed directories** and the floor's own `bin/`: a name there that no selected pack
    delivers is an entry the floor no longer keeps, which is never run, and `yolo host apply
-   --assert` removes it.
+   --assert` removes it. A program whose pack declares a pre-launch `refresh` (pi's extension
+   update) then runs it against the copy that resolved, under the hourly rule a jail's launcher
+   keeps; a failure is a line and the launch goes on
+   ([HP-D19](../design/host-tool-provisioning.md#HP-D19)).
 2. **Resolve the pack configuration** — the active profile for the launched command, and its
    effective `env` for the active workspace. The profile is a typed `-p`, else the command's
    entry in the `profile` key, else its `"*"` (or the key's string form) when a selected pack
@@ -289,11 +308,14 @@ refused for naming no command, the host verb having no default one.
    key no resolvable pack installs is refused with the validator's message
    ([ES-D5](../design/credential-sources-separation.md#10-decision-ledger)), so no profile
    selects for such a command.
-3. **Compose the process environment** — start from the current environment, hydrate
-   `env_sources` (the secret channel), overlay the resolved `env`, set the three **wire tables** a
+3. **Compose the process environment** — start from the current environment, then apply the one
+   ordered composition every notch serializes ([notch-convergence NC-D72](../plans/notch-convergence.md#NC-D72)):
+   the selected packs' `env`, then `env_sources` (the secret channel) and its **removals** (a `null`
+   is an `unset`, not an empty string, and takes out the shell's value and a pack's), then the
+   resolved profile's provider environment, which beats both; then set the three **wire tables** a
    jail launch also carries (`YOLO_PROVIDERS`, `YOLO_PROFILES`, and `YOLO_USE_PROFILES` holding
-   this one command's profile, `{}` when it has none), then **apply removals**: a `null` is an
-   `unset`, not an empty string. The tables are set on every launch, so a launch started inside
+   this one command's profile, `{}` when it has none), which no pack `env`, `env_sources` value or
+   `null` replaces or removes. The tables are set on every launch, so a launch started inside
    another replaces what it inherited, and an agent's footer names the profile this launch runs on
    ([FT-D2](../design/agent-footer.md#FT-D2)). PATH is overlaid last: the caller's PATH, then each
    folder of the user-scope `host_path` list not already on it, then the floor's `bin/`, which
@@ -309,8 +331,8 @@ refused for naming no command, the host verb having no default one.
 
 > [!WARNING]
 > **Step 1's skip is load-bearing.** It is what lets `<wrap dir>/claude` be
-> `exec yolo host -- claude "$@"` without calling itself. Narrow that skip and the wrapper front
-> door breaks first, and loudly.
+> `exec <yolo> host -- claude "$@"` ([HE-D14](#he-d14)) without calling itself. Narrow that skip
+> and the wrapper front door breaks first, and loudly.
 
 `eval "$(yolo host env)"` is a third front door onto the same composition, for direnv and mise
 users. It emits POSIX `export` lines by default, with a JSON format for tooling. The script is
@@ -347,9 +369,11 @@ over is reported. On such a run, a withheld line names the same run with the cla
 the grant, such as `yolo host --with-credentials zai,cerebras -- usage-bar`, rather than a `-p`,
 which would replace the typed profile and drop the grant
 ([ES-D23](../design/credential-sources-separation.md#10-decision-ledger)). An unknown provider
-refuses, naming the known ones. Only the typed flag grants, and a jail launch given it refuses as host-only
-([OQ-ES5](../design/credential-sources-separation.md#OQ-ES5), ruled for the host;
-[ES-D13 to ES-D17](../design/credential-sources-separation.md#10-decision-ledger)).
+refuses, naming the known ones. Only the typed flag grants
+([OQ-ES5](../design/credential-sources-separation.md#OQ-ES5);
+[ES-D13 to ES-D16](../design/credential-sources-separation.md#10-decision-ledger)). A jail launch
+takes the same flag since 2026-10-05, and the jail holds the set for its whole life
+([§5.2](../design/credential-sources-separation.md#52-the-jail-half---with-credentials-at-a-jail-launch-built)).
 
 **A profile the wire bridge serves starts the bridge for that launch.** `yolo host -p cerebras --
 claude` and `yolo host -p codex -- claude` start the bridge's host half as the launch's own
@@ -390,7 +414,7 @@ environment's variables, so the readers a jail's boot uses read the host composi
 | :--- | :--- |
 | `providers` | your `providers` entries over the selected packs' provider facts, the table `yolo host --` composes, with no address a pack's own service serves; the packs' `models` contributions shape the lists |
 | `profiles`, `profile` | your profiles resolved over that table, every `via` address cleared, since no jail daemon serves one here; the selection is the `profile` key alone, since host apply has no `-p`. A selection the host cannot serve (a profile only the wire bridge reaches, an active set one of whose entries the host refuses) is left out and named |
-| `mcp_servers`, `lsp_servers` | your own entries, less any whose command or arguments name a jail-only path, each named. An MCP preset is never expanded: its command is a wrapper only a jail's boot writes, and the report says to declare the server under `mcp_servers` instead. A pack's `mcp` declaration is never an input |
+| `mcp_servers`, `lsp_servers` | your own entries, merged over the selected packs' `mcp` entries joined to your home (MCP only), less any whose command or arguments name a jail-only path, each named. A FETCHED pack's `mcp` entry is left out and named: its command would run unconfined as you ([HC-D26](../design/host-computed-layer.md#HC-D26)). An MCP preset is never expanded: its command is a wrapper only a jail's boot writes, and the report names the pack that ships a server of its name, `chrome-devtools` for that preset, or else says to declare the server under `mcp_servers` ([HC-D27](../design/host-computed-layer.md#HC-D27)). The same `lsp_servers` table renders Claude's `yolo-lsp` plugin (below the surface table) |
 
 <a id="what-each-surface-gets-at-the-host"></a>
 
@@ -409,6 +433,14 @@ account the design recorded):
 | `claude/settings` | `env.ENABLE_LSP_TOOL` beside your own variables |
 | `codex/config`, `opencode/config` | your MCP servers, a row for each provider the agent can reach, and the selected profile's model |
 | `pi/settings` | the selected profile's `defaultProvider` and `defaultModel`, and the pi-subagents policy |
+
+**Claude's language servers arrive as a plugin, beside the derived surfaces.** Claude takes an LSP
+server only from a plugin, which no derive writes, so `yolo host apply` renders your composed
+`lsp_servers` as the `yolo-lsp` plugin into every skills destination the selected packs compose:
+the bytes a launch stages, kept in sync, refused by name where a `yolo-lsp` it did not write
+holds the name, and archived when the table empties or the destination is no longer composed
+([at the host](mcp-configuration.md#at-the-host-yolo-host-apply-writes-it)). The
+`claude/settings` row's `ENABLE_LSP_TOOL` is the switch; the plugin is what it switches on.
 
 **An MCP server is filtered per agent, as in a jail.** Its `requires_env` is asked of the
 environment `yolo host env --agent <agent>` would compose, so a provider credential scoped to
@@ -449,7 +481,8 @@ that came from `env_sources` and that one server fails when the agent spawns it.
 values, for a jail-only root: the jail render target's home and workspace, and the mounts every
 container launch supplies (the context root, the install prefix, `/run/yolo`, the service
 endpoint directory). A root counts only as a whole path token, and one the rendered home lies at
-or under is not a jail path there, which covers a host apply run inside a jail. A surface whose
+or under is not a jail path there, which covers an account whose home is `/home/agent` and an
+in-jail `yolo config render` of the host target (a host apply itself refuses in a jail). A surface whose
 output names one is refused by name (`entrypoint.JailPathsIn`, which also omits a user's server
 entry at composition, so one bad entry costs only that entry).
 
@@ -458,8 +491,20 @@ entry at composition, so one bad entry costs only that entry).
 wrote ([`OQ-PSW2`](providers.md#oq-psw2)), so a later `/model` pick of yours stands. At the host
 the real file is the only layer below, so a file value the selection record does not hold is
 outranked by the first activation, and a recorded key whose value differs is your own pick.
-Under `assert` the selection record lives beside the provenance record; under `own`, in the
-capture store.
+Under `own` the selection record lives in the capture store (the retired `assert`, which had no
+store, kept it beside the provenance record).
+
+**A launch's `-p` is handed to the program, never written**
+([MM-D30](../design/model-lists-and-pickers.md#MM-D30)). The file above holds the `profile`
+key's selection alone. When `yolo host -p <profile> -- <agent>` selects differently, a program
+whose pack declares a `launch_selection` gets the `-p`'s selection for that process only, except
+a launch whose first word is a subcommand the pack names (`yolo host -p zai -- pi update`), which
+runs as typed and says so: codex as `-c` overrides right after `codex`, opencode in `OPENCODE_CONFIG_CONTENT` (merged over a value
+you set there), pi and oh-omp as their own flags, with pi's two model-list files in the variables
+its extensions read first. Each is disclosed; your own later flag still wins. With no `-p`, or a
+`-p` that composes what the `profile` key does, the program starts on its file, so a model you
+picked in it since stands. `yolo host env -p` exports a selection carried in a variable and, for
+one that needs argv, names the `yolo host -p` launch instead.
 
 **Under `host_management: own`, a `computed` surface renders through `stateful`**
 ([`OQ-HC2`](#oq-hc2)), so the first owned render adopts the file rather than replacing it; a
@@ -475,17 +520,26 @@ per-surface `config-overlay` as the one-agent alternative.
 naming the error, and leaves its file alone. A provider or profile table that cannot be composed
 refuses the whole apply before anything is written, as `yolo host --` refuses on it.
 
-**Not built:** `yolo config reset --at host` under `own` still truncates a surface to its declared
-layers, and the next apply restores the computed layer over it. And a computed leaf that changes a
-value of yours (a first activation over an earlier `defaultModel`) is counted as a change, not
-reported as an overwrite, because the overwrite report reads the declared layers only.
+**Reset and the overwrite report read the computed layer too (2026-10-04).** `yolo config reset
+--at host` under `own` lands what the next apply lands — the computed layer, the overlays and the
+`profile` selection, not the declared layers alone — and when the apply's own composition cannot
+be built it says so and names `yolo host apply --assert`. A computed leaf that replaces a value of
+yours is reported as an overwrite under both contracts, named by the input of yours it comes from
+(`subagents.defaultModel (computed from your profile)`), with that input as the remedy. A key the
+profile's selection writes is named apart (`defaultModel (selected by your profile)`): it is
+replaced only on the profile's first activation, and a pick of your own after that stands. A leaf
+computed from the same profile is written on every apply.
 
 MEASURED after the build (2026-09-28): `yolo config render --at host` for `codex` and `opencode`
 (codex's selected model, opencode's provider row, `model` and `small_model`), and each of the
 build's tests failing with its call site removed. UNMEASURED: no agent has been started against a
-file a host apply wrote, and whether `oh-omp/models` (a yaml surface) renders under `assert` is
-unchecked: the build's account said its `rmw` arm had no yaml encoder, and the tree at `d4e435a3`
-registers a yaml object codec that arm accepts.
+file a host apply wrote. MEASURED 2026-10-04: before that day, `oh-omp/models` and `oh-omp/settings`
+were refused under the since-retired `assert` ("no RMW encoder for codec yaml") and under `own` over
+an existing file ("no RMW decoder"); the `rmw` arm now has a yaml reader and writer that keep your
+keys, their order and the comments above what the render leaves alone, and refuse — untouched — a
+file they could not write back as written (more than one document, an anchor or alias, a merge key,
+a non-string key, an unquoted date or another non-core tag). Under `own` it renders through
+`stateful`.
 
 ## The launch PATH, and which copy of a program runs
 
@@ -514,7 +568,9 @@ unless it says otherwise:
   can provision, an entry for it on this machine. One the floor can provision but has not yet is
   delivered: the launch installs it first. One the floor cannot hold here (configured out of the
   floor, handed to another provisioner, unpublished for this OS and architecture, or an installer
-  agent on macOS before the host capture ships) is not.
+  agent this machine can capture neither in a jail nor on the host, for example on a Mac before
+  `yolo macos-setup` or on Linux with no container runtime and no Landlock; host-tool-provisioning.md
+  HP-D2 and HP-D18 name every case) is not.
 - **Decision input** and **carried variable**: a variable yolo reads to decide something, and one
   it only hands to the child.
 
@@ -553,7 +609,10 @@ own shell, where the caller owns PATH.
   floor has no copy ([`OQ-HE11`](#oq-he11)).
 
 **The child's PATH is the launch PATH, then the floor's `bin/`**, duplicates removed, overlaid
-last so no pack env or profile replaces it ([`OQ-HE10`](#oq-he10)). The floor's `bin/` holds
+last so no pack env or profile replaces it ([`OQ-HE10`](#oq-he10)). When the launch blocks a tool,
+one more entry goes first, its block dir, and any other block dir an outer launch handed down is
+taken out ([HE-D11](../design/host-launch-environment.md#he-d11)); with nothing blocked the PATH is
+exactly this one. The floor's `bin/` holds
 agent names only, so last means a lookup of an agent reaches the floor only where nothing of the
 user's has one, and the agent's own commands see the user's PATH first. So for a launch started
 with a PATH, a check and the agent search the same folders. ⚠ **A launch started with no PATH at
@@ -735,7 +794,7 @@ line, pasted by the user. yolo offers no writer for it ([HE-D1](#he-d1)).
 | <a id="he-dir1"></a>[**HE-DIR1**](#he-dir1) — **at `yolo host`, yolo's checks read the PATH yolo was started with, when it has one, plus `host_path`, and no other folder** (maintainer, 2026-09-29: *"we can pick up the path if it's there because it's just not feasible to otherwise know these things … I just don't see any way around it. And then I think we just get things from [PATH]."*) | A fixed per-OS baseline replacing the caller's PATH was the design's own extension of [OQ-HE0](#oq-he0), never the maintainer's, and a folder yolo adds whenever it exists would be a source of yolo's own. A bare-PATH launcher getting a different answer from a terminal is the accepted cost, and the [miss line](#the-miss-line) is its fix. |
 | <a id="oq-he0"></a>[**OQ-HE0**](#oq-he0) — `yolo host` depends on the environment it was launched in only where a `YOLO_*` variable or explicit config names the dependence (maintainer, 2026-09-25: *"`yolo host` should be as predictable an environment as possible"*); **revised for PATH by [HE-DIR1](#he-dir1)** | It still bars a folder or input of yolo's own guessing, such as appending mise's shims directory whenever it exists, and a new decision input needs config or a `YOLO_*` variable. The keys, region and override variables the shell exports keep counting, by `HE-D10` (reversible). |
 | <a id="oq-he10"></a>[**OQ-HE10**](#oq-he10), ruled (c), 2026-09-29 — **the child's PATH is the launch PATH, then the floor's `bin/`**, and a bare name of a program a selected pack delivers execs from the floor by path | The commands a host agent runs see the user's own environment, and the floor's copy of a pack's agent runs from any launcher ([HP-DIR4](../design/host-tool-provisioning.md#HP-DIR4)). No baseline fills in for a bare launcher, because its contents were never ruled; one `host_path` line fixes the checks and the child at once. |
-| <a id="oq-he11"></a>[**OQ-HE11**](#oq-he11), ruled (a), 2026-09-29 — **a selected pack's program the floor cannot hold runs from the child's PATH, and the launch says on one line why the floor has none** | It keeps a Mac user's working `yolo host -- claude` working until the macOS host capture ships, departing from the floor rule only where the floor has nothing to run instead. |
+| <a id="oq-he11"></a>[**OQ-HE11**](#oq-he11), ruled (a), 2026-09-29 — **a selected pack's program the floor cannot hold runs from the child's PATH, and the launch says on one line why the floor has none** | It keeps `yolo host -- claude` working where the floor holds no copy of claude — a Mac before `yolo macos-setup`, a Linux machine with neither a container runtime nor Landlock (host-tool-provisioning.md [HP-D2](../design/host-tool-provisioning.md#HP-D2), [HP-D18](../design/host-tool-provisioning.md#HP-D18)) — departing from the floor rule only where the floor has nothing to run instead. |
 | <a id="oq-he1"></a><a id="oq-he2"></a><a id="oq-he3"></a><a id="oq-he4"></a><a id="oq-he5"></a><a id="oq-he6"></a><a id="oq-he7"></a><a id="oq-he8"></a><a id="oq-he9"></a>**[OQ-HE1](#oq-he1) to [OQ-HE9](#oq-he9)** — retired or answered by [HE-DIR1](#he-dir1) (2026-09-29): an unset `host_path` is the caller's PATH alone, no pack declares a folder, `host_path` takes plain folders only, there is no `YOLO_HOST_PATH` and no "inherit PATH" entry, a jail launch's own lookups are unchanged, there is no macOS or other baseline, and nothing is staged; [OQ-HE6](#oq-he6) (API keys in the shell) is answered by `HE-D10`, reversible | Each asked a question that only arose under the withdrawn reading of [OQ-HE0](#oq-he0). Their full text is in the design stub's history. |
 | <a id="oq-hc1"></a>[**OQ-HC1**](#oq-hc1) — **the host runs the jail's derives over user-scope inputs**, in `yolo host apply` and in a wrapped launch's automatic apply, with no per-surface opt-in and no notch branch (maintainer, 2026-09-28: *"yes of course host apply and the auto one in a wrapper should generate this content. we're trying for host parity with the same handling."*) | The obstacle was the inputs, not the derives: only the MCP presets carried a jail path, so composing host inputs and checking the output for a jail path answers what a per-surface opt-in would have guarded. It superseded the earlier "for now" ruling that host apply renders no `openai-codex` list ([ML-D8](../design/model-lists-and-pickers.md#ML-D8)). |
 | <a id="oq-hc2"></a>[**OQ-HC2**](#oq-hc2) — **under `own`, a `computed` surface renders through `stateful`**, adopting the file on the first owned render (2026-09-28, by [OQ-HC1](#oq-hc1)'s parity) | Without it those files have no host path once `assert` retires. |
@@ -751,6 +810,9 @@ line, pasted by the user. yolo offers no writer for it ([HE-D1](#he-d1)).
 | <a id="oq-7"></a>[**OQ-7**](#oq-7) — `yolo apply --host` is REMOVED, not deprecated | Three spellings for one operation was the problem, and a deprecation message keeps the third spelling alive. Sweep prose with an allowlist, never with a blind substitution: docs that record what shipped *at the time* must keep the old spelling. |
 | <a id="he-d2"></a>[**HE-D2**](#he-d2) — one cause, one row in `yolo check`'s host wrappers section (2026-09-27, maintainer ruling) | The ruling, verbatim, on a section printing two warnings for one wrapper directory missing from `PATH`: *"also why are ther emultiple wranings? this is very hard to read."* The second warning was the `host_apply_on_launch` row saying the sync cannot fire and pointing at "the rows below" for the fix. The key's state now rides on the row whose cause stops it, and that row still names everything the pair named: the cause, the fix line, the unwrapped bare command, the absolute-path fallback, and that the key is on. "One cause, one row" is the implementer's phrasing of the ruling and applies [report tiers' P1](report-tiers.md#principles), one fact once, to `yolo check`. The same audit applied it to two other `yolo check` findings that counted one cause twice: no container runtime answering, and a Claude OAuth broker missing both of the certificates `--init-ca` mints together. A stopped runtime used to be three rows: a `[WARN]` and a `[FAIL]` with the same start hint in the Container Runtime section, then a Merged Configuration `[FAIL]` saying no runtime was on `PATH`. A missing one was two, "No container runtime installed" and that same Merged Configuration `[FAIL]`. The Container Runtime section's `[FAIL]` is now the one finding, and Merged Configuration prints a dim line pointing back at it. A native runtime named on a host that cannot run it is a different cause and keeps its own `[FAIL]`. A review then found a third: a running jail whose host-services directory is gone printed a `[FAIL]` per loophole, with remedies that disagreed. It is one `[FAIL]` per jail now, naming the directory and the loopholes it takes down. |
 | <a id="he-d1"></a>[**HE-D1**](#he-d1) — `yolo host apply --shell-init` is REMOVED (2026-09-27, maintainer ruling) | The ruling, verbatim: *"this shell init command apperas to do nothing, and I don't th8ink it's ever safe so we shoud reove it."* Both halves were measured before the removal. It did nothing on the spelling every remedy printed: bare `--shell-init` is a dry run, so it printed a "would append" line below the report's closing sentence and wrote nothing. It was unsafe on the spelling that wrote: it chose the rc file by guessing from `$SHELL` (`~/.zshrc` for zsh, `~/.bashrc` for anything else, `/bin/sh` included), and under `--assert` it appended even after the apply had refused and printed "Nothing was written." The flag now refuses with exit 2, writes nothing and prints the line. It refuses by name rather than as an unknown flag, the way `yolo host wrappers enable` does, because the people who type it are the ones a shipped message told to. |
+| <a id="he-d13"></a>[**HE-D13**](#he-d13) — **a host apply refuses inside a jail** (2026-10-04, implementation decision under the maintainer's delegation, reversible; [DP-I7](../design/declaration-parity.md#DP-I7)) | An in-jail host apply re-rendered the jail's own home at the host notch (MEASURED: `defaultMode` rewritten to `default` under the agent using it). Nothing it writes there is right for the jail or reaches the host, so it stops above every stage, with no hatch. |
+| <a id="he-d14"></a>[**HE-D14**](#he-d14) — **a host wrapper names the yolo that wrote it by absolute path** (2026-10-04, implementation decision under the maintainer's delegation ("make them and build it … adjust later"); reversible) | An IDE or desktop launcher starts a program with its own launcher's PATH, which no shell rc built, and the wrapper's `exec yolo` exited 127 there (MEASURED). The spelling is `hostwrap.Spelling` over the applier's `os.Executable()`: the first absolute PATH entry whose `yolo` is the same file, so a package manager's stable link (`/opt/homebrew/bin/yolo`) is baked rather than the versioned file an upgrade deletes (Linux's `os.Executable` resolves the link, darwin's does not), else the executable's own path, else bare `yolo` when the executable cannot be found. A wrapper naming another spelling of the same file is unchanged, not rewritten, and a wrapper an apply adds takes that spelling, so a gate apply from another PATH never rewrites the directory. A wrapper naming a yolo that is gone is rewritten by the next apply. The launchd PATH remedy is not offered: it needs sudo and claims PATH for every GUI app. ✅ Built 2026-10-04 (`TestAWrapperStartsYoloFromAPathWithoutYolo`, `TestHostApplyWrappersNameTheApplyingYoloByPath`, `TestHostApplyWrappersSpellTheRunningYoloThroughPath`) |
+| <a id="he-d15"></a>[**HE-D15**](#he-d15) — **`yolo check` reports the yolo a wrapper names, and tells an IDE where to point** (2026-10-04, implementation decision under the maintainer's delegation; reversible) | One `[WARN]` names each wrapper whose yolo is gone, cannot run, or is named bare (a wrapper written before [HE-D14](#he-d14)), with `yolo host apply --assert` as the fix; an upgrade that moves yolo would otherwise make every wrapper exit 127 with nothing saying so. When no wrapper that wins can start yolo, that row is the cause [HE-D2](#he-d2) puts the `host_apply_on_launch` sentence on. The row that ends the section with wrappers on disk points an IDE or desktop launcher at a wrapper's absolute path, whatever PATH says: the PASS row as a dim line naming `<wrap dir>/<program>`, and the off-PATH and shadowed rows in their note. The pointer names only the wrappers that `[WARN]` does not, so the section never sends a launcher to a wrapper it says cannot start yolo; when it names every wrapper, no pointer prints until the apply has rewritten them. The pointer adds one line for each program it names whose folder host_path does not already name and that the floor has no entry for, giving the folder this PATH finds it in. That condition is the floor's disposition, not the OS: it is exactly when `yolo host` looks for the program on the launcher's PATH ([OQ-HE11](#oq-he11)), whatever the reason the floor has no entry — claude on macOS today, and also, for one more, a native agent on a Linux host that holds no usable capture of it and has no container runtime to make one. ✅ Built 2026-10-04 (`TestHostWrappersWarnsWhenAWrapperNamesAYoloThatIsGone`, `TestHostWrappersPointsNoLauncherAtAWrapperThatCannotStartYolo`, `TestHostWrappersOffPathAndShadowedRowsSayALauncherNeedsHostPath`) |
 
 ## Current values
 
@@ -759,12 +821,13 @@ explains what each of these is for; this table is the only place the values them
 
 | Value | Setting | Defined in |
 | :--- | :--- | :--- |
-| Opt-in key | `host_wrappers` (boolean, user scope) — **unset DERIVES from `host_management`: on at `"own"`, off otherwise.** An explicit `false` wins; `"assert"` does not derive, being host_management's own unset default | `config.HostWrappersEnabled`, documented by `yolo config-ref` |
+| Opt-in key | `host_wrappers` (boolean, user scope) — **unset DERIVES from `host_management`: on at `"own"`, off otherwise.** An explicit `false` wins; the unset key (`"none"`) does not derive | `config.HostWrappersEnabled`, documented by `yolo config-ref` |
 | Host wrapper dir | `<host state>/bin/wrap` | `paths.WrapDir`, `paths.WrapDirUnder` |
 | Generated-bin parent | `<host state>/bin` | `paths.GeneratedBinDir` |
 | Jail blocker dir (first on PATH) | `~/.yolo/bin/block` | `entrypoint.BootPath` |
 | Jail launcher dir (second on PATH, ahead of every install prefix) | `~/.yolo/bin/launch` | `entrypoint.BootPath` |
-| Wrapper body | `exec yolo host -- <bin> "$@"`, with a generated-by header | `hostwrap.Body` |
+| Host blocker dir (first on a `yolo host --` child's PATH, when anything is blocked) | `<host state>/bin/block/<digest of the scripts>`, written once and reused | `paths.HostBlockDir`; `cli.composeHostBlockers` |
+| Wrapper body | `exec <yolo> host -- <bin> "$@"`, with a generated-by header; `<yolo>` is the applying yolo's absolute path, spelled as [HE-D14](#he-d14) rules | `hostwrap.BodyFor`, `hostwrap.Spelling`, `cli.hostWrapperYolo` |
 | Wrapper set | every valid bin name a selected pack's `program` contributions install | `hostwrap.Bins` over `Pack.HonoredInstalls` |
 | `yolo host` verbs | `apply`, `env`, `wrappers` (**`status` only** — `enable`/`disable` were deleted 2026-09-22 and now refuse), and the `--` exec half | `internal/cli` (`hostMain`) |
 | `yolo host env` formats | `export` (default), `json` | `internal/cli` (`hostEnv`) |

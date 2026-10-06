@@ -16,6 +16,7 @@ import (
 
 	"github.com/mschulkind-oss/yolo-jail/internal/entrypoint"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
+	"github.com/mschulkind-oss/yolo-jail/internal/macosuser"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/testsupport"
@@ -107,6 +108,63 @@ func TestDeliverChannelScopesCredentialsPerAgent(t *testing.T) {
 	}
 	if _, leaked := agents["claude"]; leaked {
 		t.Errorf("claude selected nothing, so it must get no file of its own: %s", agents["claude"])
+	}
+}
+
+// AN AGENT'S AGENT FILE LIVES AND DIES WITH ITS ENV FILE (docs/design/model-lists-and-pickers.md
+// MM-D33): copilot on zai, whose pack ships a list, gets its providers.json beside copilot.sh, with
+// the env file's mode, and the env file points COPILOT_PROVIDERS_CONFIG at its path in the jail home
+// (def-form, so a value the user sets wins); macos-user's writer names the sandbox account's home
+// instead. The entry that deselects the profile removes both, and the key with them.
+func TestAnAgentFileLandsBesideItsEnvFileAndLeavesWithIt(t *testing.T) {
+	home := packHome(t)
+	o := goldenOptions(t.TempDir(), home)
+	packs := []*packload.Pack{officialPack(t, "copilot"), officialPack(t, "zai")}
+	ws := t.TempDir()
+
+	o.UseProfiles = map[string]string{"copilot": "zai"}
+	channel := channelFor(t, o, bareConfig(), packs, awsAndZaiKeys())
+	deliverChannel(ws, "podman", channel)
+	file := filepath.Join(ws, agentEnvStateDir, "copilot.providers.json")
+	st, err := os.Stat(file)
+	if err != nil {
+		t.Fatalf("no providers.json beside copilot's env file: %v", err)
+	}
+	if st.Mode().Perm() != agentEnvFileMode {
+		t.Errorf("providers.json mode = %04o, want %04o, the env file's: it carries zai's key", st.Mode().Perm(), agentEnvFileMode)
+	}
+	if raw, _ := os.ReadFile(file); !strings.Contains(string(raw), `"apiKey": "tok-zai"`) {
+		t.Errorf("providers.json carries no zai key:\n%s", raw)
+	}
+	env, err := os.ReadFile(filepath.Join(ws, agentEnvStateDir, "copilot.sh"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	const line = "export COPILOT_PROVIDERS_CONFIG=${COPILOT_PROVIDERS_CONFIG:-'/home/agent/.config/yolo-agent-env/copilot.providers.json'}\n"
+	if !strings.Contains(string(env), line) {
+		t.Errorf("copilot.sh does not point at the file, def-form:\n%s", env)
+	}
+	if strings.Contains(string(env), `"providers"`) {
+		t.Errorf("the file's content leaked into copilot.sh:\n%s", env)
+	}
+
+	sidecar := t.TempDir()
+	writeMacosUserAgentEnvFiles(sidecar, channel)
+	macEnv, err := os.ReadFile(filepath.Join(sidecar, macosUserAgentEnvDir, "copilot.sh"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := "'" + macosuser.SandboxHome() + "/.config/yolo-agent-env/copilot.providers.json'"; !strings.Contains(string(macEnv), want) {
+		t.Errorf("macos-user's copilot.sh does not name the file in the sandbox home %s:\n%s", want, macEnv)
+	}
+	if _, err := os.Stat(filepath.Join(sidecar, macosUserAgentEnvDir, "copilot.providers.json")); err != nil {
+		t.Errorf("macos-user's writer wrote no providers.json: %v", err)
+	}
+
+	o.UseProfiles = nil
+	deliverChannel(ws, "podman", channelFor(t, o, bareConfig(), packs, awsAndZaiKeys()))
+	if _, err := os.Stat(file); !os.IsNotExist(err) {
+		t.Errorf("the entry that deselected copilot's profile left its providers.json behind: %v", err)
 	}
 }
 

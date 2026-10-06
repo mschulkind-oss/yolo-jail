@@ -21,10 +21,13 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"syscall"
 	"testing"
+	"time"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/jailcontent"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
+	"github.com/mschulkind-oss/yolo-jail/internal/richtext"
 	officialpacks "github.com/mschulkind-oss/yolo-jail/packs"
 )
 
@@ -413,5 +416,426 @@ func TestApplyHostReportsAnUnmetBriefingFrom(t *testing.T) {
 				t.Errorf("write=%v: want ONE warning naming %s, got %d:\n%s", write, want, n, report)
 			}
 		}
+	}
+}
+
+// afterFixture is a home with the user's own ~/mine.md and a pack composing prose into
+// ~/.foo/AGENTS.md whose `after` names `after` — DP-B26's shape. extraPacks are prepended to the
+// selection (`"claude",` for one), and the home is returned.
+func afterFixture(t *testing.T, after, extraPacks string) string {
+	t.Helper()
+	home := t.TempDir()
+	packDir := filepath.Join(t.TempDir(), "foo")
+	writeFile(t, filepath.Join(packDir, "pack.json"),
+		`{"name":"foo","description":"f","contributes":[`+
+			`{"kind":"briefing","from":"briefing/prose.md","into":".foo/AGENTS.md","after":"host:`+after+`"}]}`)
+	writeFile(t, filepath.Join(packDir, "briefing", "prose.md"), "Foo rule: be brief.\n")
+	selectPacks(t, home, extraPacks+`{"source":"file://`+packDir+`","name":"foo"}`)
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
+	return home
+}
+
+// DP-B26, END TO END: a briefing whose `after` names the user's own host file opens with it at the
+// host, in the jail's bytes, and the report names the file. It was silently ignored.
+func TestApplyHostBriefingPrependsTheAfterFile(t *testing.T) {
+	home := afterFixture(t, "mine.md", "")
+	writeFile(t, filepath.Join(home, "mine.md"), "MY OWN RULES\n")
+
+	rc, report := applyWith(t, true, strings.NewReader(""))
+	if rc != 0 {
+		t.Fatalf("host apply --assert rc=%d\n%s", rc, report)
+	}
+	got, err := os.ReadFile(filepath.Join(home, ".foo", "AGENTS.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(string(got), "MY OWN RULES\n\n---\n\n") || !strings.Contains(string(got), "Foo rule: be brief.") {
+		t.Errorf("~/.foo/AGENTS.md does not open with ~/mine.md above a `---` and hold the pack's "+
+			"prose:\n%s", got)
+	}
+	if n := countLines(report, "~/.foo/AGENTS.md opens with your ~/mine.md"); n != 1 {
+		t.Errorf("want one report line naming ~/mine.md, got %d:\n%s", n, report)
+	}
+}
+
+// A BROADCAST PACK LISTED FIRST DOES NOT HIDE THE `after`. The broadcast reaches ~/.foo/AGENTS.md
+// through a copy the resolver synthesizes, which carries no `after`, and it is the first pack at that
+// path — so a destination whose `after` came from the first pack there, rather than the first
+// contribution carrying one, read none and left ~/mine.md out silently (DP-B26's symptom).
+func TestApplyHostBriefingTakesTheAfterPastABroadcastListedFirst(t *testing.T) {
+	bcastDir := filepath.Join(t.TempDir(), "bcast")
+	writeFile(t, filepath.Join(bcastDir, "pack.json"),
+		`{"name":"bcast","description":"b","contributes":[{"kind":"briefing","from":"briefing/b.md"}]}`)
+	writeFile(t, filepath.Join(bcastDir, "briefing", "b.md"), "Broadcast rule.\n")
+	home := afterFixture(t, "mine.md", `{"source":"file://`+bcastDir+`","name":"bcast"},`)
+	writeFile(t, filepath.Join(home, "mine.md"), "MY OWN RULES\n")
+
+	rc, report := applyWith(t, true, strings.NewReader(""))
+	if rc != 0 {
+		t.Fatalf("host apply --assert rc=%d\n%s", rc, report)
+	}
+	got, err := os.ReadFile(filepath.Join(home, ".foo", "AGENTS.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Not vacuous: the broadcast did reach the destination, so its copy was the first pack there.
+	if !strings.Contains(string(got), "Broadcast rule.") {
+		t.Fatalf("fixture: the broadcast did not reach ~/.foo/AGENTS.md:\n%s", got)
+	}
+	if !strings.HasPrefix(string(got), "MY OWN RULES\n\n---\n\n") {
+		t.Errorf("~/.foo/AGENTS.md does not open with ~/mine.md:\n%s", got)
+	}
+	if n := countLines(report, "~/.foo/AGENTS.md opens with your ~/mine.md"); n != 1 {
+		t.Errorf("want one report line naming ~/mine.md, got %d:\n%s", n, report)
+	}
+}
+
+// EDITING the `after` file re-renders the destination with no prompt: the destination is yolo's
+// own (the record says so), and the file is an input to it like any pack's prose.
+func TestApplyHostBriefingReRendersWhenTheAfterFileChanges(t *testing.T) {
+	home := afterFixture(t, "mine.md", "")
+	writeFile(t, filepath.Join(home, "mine.md"), "FIRST\n")
+	if rc, report := applyWith(t, true, strings.NewReader("")); rc != 0 {
+		t.Fatalf("first apply rc=%d\n%s", rc, report)
+	}
+	writeFile(t, filepath.Join(home, "mine.md"), "SECOND\n")
+
+	rc, report := applyWith(t, true, strings.NewReader(""))
+	if rc != 0 {
+		t.Fatalf("apply after the edit rc=%d\n%s", rc, report)
+	}
+	if strings.Contains(report, "[y/N]") {
+		t.Errorf("an edit to the `after` file asked a question:\n%s", report)
+	}
+	got, _ := os.ReadFile(filepath.Join(home, ".foo", "AGENTS.md"))
+	if !strings.HasPrefix(string(got), "SECOND\n") || strings.Contains(string(got), "FIRST") {
+		t.Errorf("the destination was not re-rendered from the edited file:\n%s", got)
+	}
+	// Settled now: the line moves to the detail view, with the destination's own.
+	if rc, report := applyWith(t, true, strings.NewReader("")); rc != 0 ||
+		countLines(report, "opens with your ~/mine.md") != 0 {
+		t.Errorf("a settled destination's `after` line is detail; rc=%d\n%s", rc, report)
+	}
+}
+
+// THE SHIPPED SHAPE: the claude pack's `after` names its own destination. A hand-written
+// ~/.claude/CLAUDE.md is adopted once — moved into the local pack, which composes it back — and
+// never prepended as well, so the user's prose appears exactly once and the next apply neither
+// grows the file nor asks again.
+func TestApplyHostBriefingNeverPrependsTheDestinationItself(t *testing.T) {
+	const userProse = "# My rules\n\nAlways run the tests.\n"
+	home, _ := userProseFixture(t, userProse)
+	dest := filepath.Join(home, ".claude", "CLAUDE.md")
+	if rc, report := applyWith(t, true, strings.NewReader("y\n")); rc != 0 {
+		t.Fatalf("first apply rc=%d\n%s", rc, report)
+	}
+	first, _ := os.ReadFile(dest)
+	if n := strings.Count(string(first), "Always run the tests."); n != 1 {
+		t.Errorf("the user's prose appears %d times — the destination was prepended to "+
+			"itself:\n%s", n, first)
+	}
+	rc, report := applyWith(t, true, strings.NewReader(""))
+	if rc != 0 || strings.Contains(report, "[y/N]") {
+		t.Errorf("second apply rc=%d or re-prompted:\n%s", rc, report)
+	}
+	if second, _ := os.ReadFile(dest); string(second) != string(first) {
+		t.Errorf("the destination changed on re-apply:\n--- first\n%s\n--- second\n%s", first, second)
+	}
+}
+
+// AN `after` NAMING ANOTHER PACK'S DESTINATION is yolo's output, so it is not read — even while
+// that file still holds the user's hand-written prose, which the adoption moves into the local
+// pack and composes back into every destination, ~/.foo/AGENTS.md included. Read as well, the
+// prose would reach ~/.foo/AGENTS.md twice. The report says so under --verbose only, since it
+// changes nothing and every shipped pack reaches it.
+func TestApplyHostBriefingDoesNotPrependAnotherPacksDestination(t *testing.T) {
+	home := afterFixture(t, ".claude/CLAUDE.md", `"claude",`)
+	writeFile(t, filepath.Join(home, ".claude", "CLAUDE.md"), "HAND WRITTEN RULE\n")
+	defaultReport(t)
+
+	rc, report := applyWith(t, true, strings.NewReader("y\n"))
+	if rc != 0 {
+		t.Fatalf("apply rc=%d\n%s", rc, report)
+	}
+	foo, _ := os.ReadFile(filepath.Join(home, ".foo", "AGENTS.md"))
+	if n := strings.Count(string(foo), "HAND WRITTEN RULE"); n != 1 {
+		t.Errorf("the user's prose reaches ~/.foo/AGENTS.md %d times, want once (through the "+
+			"local pack) — ~/.claude/CLAUDE.md, a file yolo composes, was read in as well:\n%s", n, foo)
+	}
+	if countLines(report, `after: "host:.claude/CLAUDE.md" is not read`) != 0 {
+		t.Errorf("the skip is detail; the default view printed it:\n%s", report)
+	}
+	verboseReport(t)
+	if _, report := applyWith(t, false, nil); countLines(report, "~/.foo/AGENTS.md",
+		`after: "host:.claude/CLAUDE.md" is not read`, "a briefing destination this apply composes") != 1 {
+		t.Errorf("--verbose must name the skip once, as a destination this apply composes:\n%s", report)
+	}
+}
+
+// AN UNREADABLE `after` FILE warns in a jail launch's words and the destination is composed
+// without it — and a FIFO, which a read would block on, does not stall the apply.
+func TestApplyHostBriefingWarnsOfAnUnreadableAfterFile(t *testing.T) {
+	cases := map[string]struct {
+		setup func(t *testing.T, home string)
+		why   string
+	}{
+		"dangling link": {func(t *testing.T, home string) {
+			if err := os.Symlink(filepath.Join(home, "gone.md"), filepath.Join(home, "mine.md")); err != nil {
+				t.Fatal(err)
+			}
+		}, "which does not exist. ~/.foo/AGENTS.md is composed without it. Restore the target, or remove the link."},
+		"directory": {func(t *testing.T, home string) {
+			if err := os.MkdirAll(filepath.Join(home, "mine.md"), 0o755); err != nil {
+				t.Fatal(err)
+			}
+		}, "it is not a regular file. ~/.foo/AGENTS.md is composed without it."},
+		"fifo": {func(t *testing.T, home string) {
+			if err := syscall.Mkfifo(filepath.Join(home, "mine.md"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+		}, "it is not a regular file. ~/.foo/AGENTS.md is composed without it."},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			home := afterFixture(t, "mine.md", "")
+			tc.setup(t, home)
+			type result struct {
+				rc     int
+				report string
+			}
+			done := make(chan result, 1)
+			go func() {
+				rc, report := applyWith(t, true, strings.NewReader(""))
+				done <- result{rc, report}
+			}()
+			var got result
+			select {
+			case got = <-done:
+			case <-time.After(5 * time.Minute):
+				t.Fatal("the apply blocked on the `after` file")
+			}
+			if got.rc != 0 {
+				t.Fatalf("an unreadable `after` file is a warning, never a refusal: rc=%d\n%s",
+					got.rc, got.report)
+			}
+			if n := countLines(got.report, "Warning: the host briefing ~/mine.md for ~/.foo/AGENTS.md "+
+				"was not read", tc.why); n != 1 {
+				t.Errorf("want one warning ending %q, got %d:\n%s", tc.why, n, got.report)
+			}
+			body, _ := os.ReadFile(filepath.Join(home, ".foo", "AGENTS.md"))
+			if !strings.Contains(string(body), "Foo rule: be brief.") || strings.Contains(string(body), "\n---\n") {
+				t.Errorf("want the destination composed without the file:\n%s", body)
+			}
+		})
+	}
+}
+
+// applyFourTimes runs four --asserts, each answering stdin, and returns the destination's bytes
+// after each one — the idempotence the launch gate depends on, since a `yolo host -- <bin>` whose
+// observe pass always sees a change re-applies on every start.
+func applyFourTimes(t *testing.T, dest, stdin string) []string {
+	t.Helper()
+	var got []string
+	for i := 0; i < 4; i++ {
+		if rc, report := applyWith(t, true, strings.NewReader(stdin)); rc != 0 {
+			t.Fatalf("apply %d rc=%d\n%s", i+1, rc, report)
+		}
+		b, err := os.ReadFile(dest)
+		if err != nil {
+			t.Fatalf("apply %d: %v", i+1, err)
+		}
+		got = append(got, string(b))
+	}
+	return got
+}
+
+// THE DOTFILES SHAPE: the destination is a symlink to the user's canonical file, and the pack's
+// `after` names that canonical file. One file under two names, so a path comparison took it for the
+// user's: the render writes through the link, and every later apply prepended yolo's previous output
+// to itself — the file grew on every apply, and the launch gate re-applied on every start. Compared
+// by file identity it is this destination, which the adoption moves into the local pack once.
+func TestApplyHostBriefingDoesNotGrowADestinationLinkedToItsAfterFile(t *testing.T) {
+	home := afterFixture(t, "AGENTS.md", "")
+	writeFile(t, filepath.Join(home, "AGENTS.md"), "MY CANONICAL RULES\n")
+	dest := filepath.Join(home, ".foo", "AGENTS.md")
+	if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(filepath.Join(home, "AGENTS.md"), dest); err != nil {
+		t.Fatal(err)
+	}
+
+	got := applyFourTimes(t, dest, "y\n")
+	for i, body := range got {
+		if n := strings.Count(body, "MY CANONICAL RULES"); n != 1 {
+			t.Errorf("after apply %d the user's prose appears %d times, want once (through the "+
+				"local pack):\n%s", i+1, n, body)
+		}
+		if body != got[0] {
+			t.Errorf("apply %d changed the destination (%d bytes, then %d) — yolo's own output was "+
+				"read back in through the link", i+1, len(got[0]), len(body))
+		}
+	}
+}
+
+// THE OTHER DIRECTION: the `after` file is a symlink to the destination itself. On the first apply
+// the destination does not exist yet, so the link dangles and is warned about; from then on it is
+// this destination's own output, and must not be prepended to itself.
+func TestApplyHostBriefingDoesNotGrowADestinationItsAfterFileLinksTo(t *testing.T) {
+	home := afterFixture(t, "mine.md", "")
+	dest := filepath.Join(home, ".foo", "AGENTS.md")
+	if err := os.Symlink(dest, filepath.Join(home, "mine.md")); err != nil {
+		t.Fatal(err)
+	}
+
+	got := applyFourTimes(t, dest, "")
+	for i, body := range got {
+		if body != got[0] || strings.Contains(body, "\n---\n") {
+			t.Errorf("apply %d: the destination was prepended to itself (%d bytes, then %d):\n%s",
+				i+1, len(got[0]), len(body), body)
+		}
+	}
+}
+
+// THE SKIP'S REASON NAMES A FILE BY PATH, AND A PATH IS NOT MARKUP. ~/mine.md links to another
+// pack's destination, whose directory a pack may spell with brackets (`into` allows them), so the
+// --verbose line's reason carries that path. Printed unescaped, `[bold]` in it restyled the line
+// and vanished from it, naming a file that does not exist.
+func TestApplyHostBriefingEscapesThePathInTheSkipReason(t *testing.T) {
+	barDir := filepath.Join(t.TempDir(), "bar")
+	const odd = ".b[bold]/AGENTS.md"
+	writeFile(t, filepath.Join(barDir, "pack.json"),
+		`{"name":"bar","description":"b","contributes":[`+
+			`{"kind":"briefing","from":"briefing/prose.md","into":"`+odd+`"}]}`)
+	writeFile(t, filepath.Join(barDir, "briefing", "prose.md"), "Bar rule.\n")
+	home := afterFixture(t, "mine.md", `{"source":"file://`+barDir+`","name":"bar"},`)
+	if err := os.Symlink(filepath.Join(home, filepath.FromSlash(odd)), filepath.Join(home, "mine.md")); err != nil {
+		t.Fatal(err)
+	}
+	if rc, report := applyWith(t, true, strings.NewReader("")); rc != 0 {
+		t.Fatalf("first apply rc=%d\n%s", rc, report)
+	}
+	if _, err := os.Stat(filepath.Join(home, filepath.FromSlash(odd))); err != nil {
+		t.Fatalf("fixture: the first apply did not compose ~/%s: %v", odd, err)
+	}
+
+	verboseReport(t)
+	_, report := applyWith(t, false, nil)
+	want := richtext.Render(richtext.Escape("it is the same file as ~/"+odd+
+		", a briefing destination this apply composes"), false)
+	if countLines(report, `after: "host:mine.md" is not read`, want) != 1 {
+		t.Errorf("--verbose must name the skip once, with ~/%s spelled as it is on disk:\n%s",
+			odd, report)
+	}
+}
+
+// THE RECORD HALF OF THE SKIP RULE, AT THE RENDER. claude is selected and then dropped, so on the
+// second apply ~/.claude/CLAUDE.md is no longer a destination of this composition — only the
+// briefing record still knows it is yolo's output — and foo's `after` names it. The render must
+// compose with the record as the gate does, or it reads that file back in as the user's.
+func TestApplyHostBriefingSkipsAFileTheRecordListsAtTheRender(t *testing.T) {
+	home := afterFixture(t, ".claude/CLAUDE.md", `"claude",`)
+	if rc, report := applyWith(t, true, strings.NewReader("")); rc != 0 {
+		t.Fatalf("first apply rc=%d\n%s", rc, report)
+	}
+	foo := filepath.Join(home, ".foo", "AGENTS.md")
+	first, _ := os.ReadFile(foo)
+	if claude, _ := os.ReadFile(filepath.Join(home, ".claude", "CLAUDE.md")); len(claude) == 0 {
+		t.Fatal("fixture: the first apply did not compose ~/.claude/CLAUDE.md")
+	}
+	cfgPath := filepath.Join(home, ".config", "yolo-jail", "config.jsonc")
+	cfg, err := os.ReadFile(cfgPath)
+	if err != nil || !strings.Contains(string(cfg), `"claude",`) {
+		t.Fatalf("fixture: no claude to drop in %q (%v)", cfg, err)
+	}
+	writeFile(t, cfgPath, strings.Replace(string(cfg), `"claude",`, "", 1))
+
+	rc, report := applyWith(t, true, strings.NewReader(""))
+	if rc != 0 {
+		t.Fatalf("apply after dropping claude rc=%d\n%s", rc, report)
+	}
+	if second, _ := os.ReadFile(foo); string(second) != string(first) {
+		t.Errorf("~/.foo/AGENTS.md changed once claude was dropped — the composed "+
+			"~/.claude/CLAUDE.md was read back in:\n--- first\n%s\n--- second\n%s\n%s", first, second, report)
+	}
+}
+
+// A BRIEFING THAT DESCRIBES A JAIL-ONLY KIND IS NOT WRITTEN INTO A REAL HOME (boundary-broker.md
+// BB-D69). The github pack's briefing/gh.md is about its `intercept` (a `gh` forwarder first on a
+// jail's PATH), which does not apply at the host: there `gh` is the user's own. Driven with the
+// REAL shipped claude and github packs, so it fails if the manifest stops declaring the gate, if
+// the composer stops honoring it, or if the report stops saying so. MEASURED before the gate:
+// `yolo host apply --assert` wrote "## `gh` in this jail" into ~/.claude/CLAUDE.md while the
+// notch line in the same run said intercept does not apply.
+func TestApplyHostWithholdsTheGitHubBriefingFromARealHome(t *testing.T) {
+	home := t.TempDir()
+	selectPacks(t, home, `"claude","github"`)
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
+
+	rc, report := applyWith(t, true, nil)
+	if rc != 0 {
+		t.Fatalf("rc=%d\n%s", rc, report)
+	}
+	got, err := os.ReadFile(filepath.Join(home, ".claude", "CLAUDE.md"))
+	if err != nil {
+		t.Fatalf("no briefing written: %v\n%s", err, report)
+	}
+	if strings.Contains(string(got), "~/.yolo/bin/block/gh") {
+		t.Errorf("the host briefing tells the agent about the jail's gh forwarder:\n%s", got)
+	}
+	if !strings.Contains(string(got), "Claude Code's own worktrees") {
+		t.Errorf("the claude pack's own prose must still reach the host briefing:\n%s", got)
+	}
+	// The destination is claude's alone now: github contributes nothing to it at the host.
+	if countLines(report, "claude/briefing", ".claude/CLAUDE.md") != 1 ||
+		strings.Contains(report, "claude+github/briefing") {
+		t.Errorf("the destination line must read claude/briefing, not name github:\n%s", report)
+	}
+	// Said once, by name, in the run's notch facts.
+	if n := strings.Count(report, "briefing/gh.md"); n != 1 {
+		t.Errorf("the report names briefing/gh.md %d times, want once:\n%s", n, report)
+	}
+	if countLines(report, "github", "briefing/gh.md", "describes intercept",
+		"does not apply at the host", "reaches agents in a jail") != 1 {
+		t.Errorf("the notch line must say why briefing/gh.md is withheld:\n%s", report)
+	}
+
+	// And the dry run says the same about the same home, so a preview is not a different answer.
+	rc, report = applyWith(t, false, nil)
+	if rc != 0 {
+		t.Fatalf("observe rc=%d\n%s", rc, report)
+	}
+	if n := strings.Count(report, "briefing/gh.md"); n != 1 {
+		t.Errorf("observe names briefing/gh.md %d times, want once:\n%s", n, report)
+	}
+}
+
+// Under --verbose the withheld file gets the notch's own line, still once.
+func TestApplyHostNamesAWithheldBriefingOnceUnderVerbose(t *testing.T) {
+	home := t.TempDir()
+	selectPacks(t, home, `"claude","github"`)
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
+	t.Setenv("YOLO_VERBOSE", "1")
+
+	rc, report := applyWith(t, false, nil)
+	if rc != 0 {
+		t.Fatalf("rc=%d\n%s", rc, report)
+	}
+	if n := strings.Count(report, "briefing/gh.md"); n != 1 {
+		t.Errorf("the verbose report names briefing/gh.md %d times, want once:\n%s", n, report)
+	}
+	line := "github: briefing/gh.md describes intercept, which does not apply at the host — " +
+		"it reaches agents in a jail"
+	if countLines(report, line) != 1 {
+		t.Errorf("want the line %q:\n%s", line, report)
+	}
+	// Nothing of github's merges into ~/.claude/CLAUDE.md at the host, so the destinations
+	// report must not say it does (reportInferredDestinations asks the composer's own gate).
+	if strings.Contains(report, "github declares no destination — merging") {
+		t.Errorf("the report says github's briefing merges into a destination it is withheld "+
+			"from:\n%s", report)
 	}
 }

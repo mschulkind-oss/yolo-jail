@@ -27,9 +27,11 @@ package packload
 // composeHostVars (internal/cli), which has never gone through composePackChannel because
 // it composes from user scope only. The same arrangement EnvFold and AgentEnv already have.
 //
-// It decides; it writes nothing. Where each answer lands is the vehicle's business: a
-// per-agent env file sourced by that agent's launcher on the container backends (OQ-CN6),
-// the one launched agent's session on macos-user, the one exec'd process at the host notch.
+// It decides; it writes nothing. Which source wins when several set one name for one process is
+// decided here too, once (SharedEnv and EnvFor, envcompose.go), and every vehicle serializes that
+// composition. Where each answer lands is the vehicle's business: a per-agent env file sourced by
+// that agent's launcher on the container backends (OQ-CN6), the one launched agent's session on
+// macos-user, the one exec'd process at the host notch.
 
 import (
 	"slices"
@@ -63,6 +65,12 @@ type ScopeInput struct {
 	Resolved map[string]ResolvedProfile
 	// EnvSources is the hydrated env_sources, in hydration order. Nil is an empty channel.
 	EnvSources *jsonx.OrderedMap
+	// EnvSourceRemovals are the names env_sources REMOVES, in order: each inline null no later
+	// entry cancelled (config.ResolveEnvSourcesFull's second answer). Every process's composition
+	// carries them at env_sources' rank (envcompose.go): a removal takes out the pack env fold's
+	// value, and at the host the invoking shell's, and never a shape var. A removal carries no
+	// value, so no claim scopes it. Nil removes nothing.
+	EnvSourceRemovals []string
 	// Fallback answers a credential env_sources did not hydrate — the environment yolo was
 	// launched from, which the env derive may relay. Consulted through the gate like
 	// env_sources is, so a claimed name is withheld from another provider's agent whichever
@@ -82,6 +90,12 @@ type ScopeInput struct {
 	// its own. Only `yolo host --with-credentials` passes one; nil is every jail launch, whose
 	// answer is therefore unchanged.
 	Grants map[string][]string
+	// AgentFiles says this notch writes AGENT FILES (agentfiles.go, MM-D33): each agent's env
+	// derive is told so, and what it composes under a variable its program declares in
+	// `agent_files` lands in that delivery's Files for the notch's writer. Only the jail notch
+	// sets it (composePackChannel, whose per-agent env writer puts each file beside the agent's
+	// env file); false withholds every such variable, which is the host's answer.
+	AgentFiles bool
 	// UnservedAdaptations are the conversions this notch can never serve
 	// (UnservedAdaptationsAt, at a notch that serves no pack service: the host, macos-user): the ones its
 	// composition left out, and the unselected shipped packs' of the same kind. Handed to every
@@ -125,8 +139,11 @@ type CredentialScope struct {
 	callerTokens map[string]string
 	// sharedEnvSources is every env_sources entry no provider claims, in hydration order.
 	sharedEnvSources *jsonx.OrderedMap
-	// sharedPackEnv is the pack env fold with no gate satisfied: every selected pack's
-	// unconditional `kind: "env"`.
+	// removals is ScopeInput.EnvSourceRemovals, which every composition carries (envcompose.go).
+	removals []string
+	// sharedFold is the pack env fold with no gate satisfied, in fold order, as this notch serves
+	// it: every selected pack's unconditional `kind: "env"`. sharedPackEnv is its reduction.
+	sharedFold    []EnvFoldEntry
 	sharedPackEnv map[string]string
 	// agents is each agent (CLI name) with a selected profile, and what only it receives.
 	agents map[string]*AgentDelivery
@@ -181,6 +198,10 @@ type AgentDelivery struct {
 	// (RegionFile, regionfill.go): one list, so every vehicle that delivers the derive's output
 	// delivers the region too.
 	Shape []agentenv.Var
+	// Files are the agent files its env derive composed (agentfiles.go, MM-D33), sorted by
+	// variable: empty unless the notch writes them (ScopeInput.AgentFiles). Never shape vars, so
+	// no vehicle that serializes an environment carries a document as a value.
+	Files []AgentFile
 	// RegionFile is what the region fill read for this agent, nil when it needed nothing from
 	// the file: the region it delivered, or why it delivered none, which the region pre-flight
 	// names (RegionAsk.File).
@@ -196,6 +217,7 @@ func ScopeCredentials(in ScopeInput) (*CredentialScope, error) {
 		fallback:         in.Fallback,
 		callerTokens:     in.CallerTokens,
 		sharedEnvSources: jsonx.NewOrderedMap(),
+		removals:         in.EnvSourceRemovals,
 		agents:           map[string]*AgentDelivery{},
 		packs:            in.Packs,
 		profiles:         in.Profiles,
@@ -206,7 +228,8 @@ func ScopeCredentials(in ScopeInput) (*CredentialScope, error) {
 		// whole active set (AP-P1), so a gate any entry satisfies fires for that agent.
 		sel: SelectionOfSets(in.setTable(), in.Resolved, in.Providers),
 	}
-	for _, e := range s.servedFold(EnvFold(in.Packs, s.sel, "")) {
+	s.sharedFold = s.servedFold(EnvFold(in.Packs, s.sel, ""))
+	for _, e := range s.sharedFold {
 		if s.sharedPackEnv == nil {
 			s.sharedPackEnv = map[string]string{}
 		}
@@ -260,9 +283,13 @@ func ScopeCredentials(in ScopeInput) (*CredentialScope, error) {
 		if in.NoDerives || profile == "" {
 			continue
 		}
+		opts := []AgentEnvOption{WithResolvedProfiles(in.Resolved),
+			WithUnservedAdaptations(in.UnservedAdaptations), WithActiveSet(d.Set)}
+		if in.AgentFiles {
+			opts = append(opts, WithAgentFiles(&d.Files))
+		}
 		shape, err := AgentEnv(in.Packs, in.Providers, in.Profiles, agent, profile,
-			s.LookupFor(agent), WithResolvedProfiles(in.Resolved),
-			WithUnservedAdaptations(in.UnservedAdaptations), WithActiveSet(d.Set))
+			s.LookupFor(agent), opts...)
 		if err != nil {
 			return nil, err
 		}
@@ -366,9 +393,11 @@ func (s *CredentialScope) FoldFor(agent string) []EnvFoldEntry {
 }
 
 // UnservedEnvLines names every pack env variable this notch withheld because the jail daemon
-// it points at is not served here, one line per daemon, sorted (P4: what a notch cannot do, it
-// says). nil when nothing was withheld. Names only: the value is an address, but the line is
-// about what is absent, and a reader acts on the variable.
+// it points at is not served here, or, for a pointer `served_by` a BOUND LOOPHOLE
+// (ServedDaemons.notBoundWhy), because this notch did not bind what that loophole binds into a
+// jail, one line per daemon, sorted (P4: what a notch cannot do, it says). nil when nothing was
+// withheld. Names only: the value is an address, but the line is about what is absent, and a
+// reader acts on the variable.
 //
 // byLaunch is the launch's own word on each variable (LaunchServes): one it sets itself is left
 // out, and one whose own server did not start gets the reason byLaunch gives. nil says nothing.
@@ -378,9 +407,18 @@ func (s *CredentialScope) UnservedEnvLines(byLaunch LaunchServes) []string {
 	if s == nil || (len(s.unservedEnv) == 0 && len(s.unlistenedEnv) == 0 && len(s.untokenedEnv) == 0) {
 		return nil
 	}
-	type reason struct{ daemon, why string }
+	type reason struct {
+		daemon, why string
+		bound       bool
+	}
 	byReason := map[reason][]string{}
 	var reasons []reason
+	// A pointer at what a BOUND LOOPHOLE binds into a jail (ServedDaemons.notBoundWhy) points
+	// at no daemon, so its line says what it does point at and why this notch has none.
+	var bound map[string]bool
+	if len(s.unservedEnv) > 0 {
+		bound = boundLoopholes(s.packs)
+	}
 	for k, daemon := range s.unservedEnv {
 		why := ""
 		if byLaunch != nil {
@@ -390,12 +428,16 @@ func (s *CredentialScope) UnservedEnvLines(byLaunch LaunchServes) []string {
 			}
 			why = launchWhy
 		}
-		if why == "" {
+		switch {
+		case why != "":
+		case bound[daemon]:
+			why = s.served.notBoundWhy(daemon)
+		default:
 			// The served set's: the launch's reason for the daemon when it gave one
 			// (WithNotServedWhy), else the notch's (ServedDaemons.notServedWhy).
 			why = s.served.notServedWhy(daemon)
 		}
-		r := reason{daemon, why}
+		r := reason{daemon, why, bound[daemon]}
 		if _, seen := byReason[r]; !seen {
 			reasons = append(reasons, r)
 		}
@@ -411,6 +453,11 @@ func (s *CredentialScope) UnservedEnvLines(byLaunch LaunchServes) []string {
 	for _, r := range reasons {
 		vars := byReason[r]
 		sort.Strings(vars)
+		if r.bound {
+			lines = append(lines, strings.Join(vars, ", ")+" — points at what the "+
+				strconv.Quote(r.daemon)+" loophole binds into a jail, "+r.why)
+			continue
+		}
 		lines = append(lines, strings.Join(vars, ", ")+" — points at the "+
 			strconv.Quote(r.daemon)+" jail daemon, "+r.why+", so nothing would answer it")
 	}
@@ -448,6 +495,32 @@ func (s *CredentialScope) UnservedEnvLines(byLaunch LaunchServes) []string {
 			"none for it (its jail_daemon declares no caller_token), so there is no token to compose")
 	}
 	return lines
+}
+
+// boundLoopholes is the name of every BOUND LOOPHOLE (ServedDaemons.notBoundWhy) a selected pack
+// ships: one whose manifest declares no `jail_daemon` and at least one host bind or device, the
+// declaration half of the rule loopholes' JailBoundNames applies to a launch's records. nil when
+// no selected pack ships one. A manifest that cannot be read is no bound loophole: its pointer
+// keeps the jail-daemon wording, and the launch already warned that the loophole is absent.
+func boundLoopholes(packs []*Pack) map[string]bool {
+	var out map[string]bool
+	for _, p := range packs {
+		if p == nil || p.Decl == nil {
+			continue
+		}
+		mods, _, _ := p.LoopholeModules()
+		for _, m := range mods {
+			if m.Decl == nil || m.Decl.JailDaemon != nil ||
+				(len(m.Decl.HostBindMounts) == 0 && len(m.Decl.HostDevices) == 0) {
+				continue
+			}
+			if out == nil {
+				out = map[string]bool{}
+			}
+			out[m.Name] = true
+		}
+	}
+	return out
 }
 
 // WithheldBy is the jail daemon whose pointer this notch withheld under the variable name, for
@@ -529,22 +602,7 @@ func (s *CredentialScope) GrantedTo(agent string) []GrantedProvider {
 	if d == nil || len(d.Granted) == 0 {
 		return nil
 	}
-	out := make([]GrantedProvider, 0, len(d.Granted))
-	for _, p := range d.Granted {
-		g := GrantedProvider{Provider: p}
-		for name, claimants := range s.claims {
-			if slices.Contains(claimants, p) {
-				g.Claims = append(g.Claims, name)
-			}
-		}
-		sort.Strings(g.Claims)
-		for _, k := range s.envSources.Keys() {
-			if slices.Contains(s.claims[k], p) {
-				g.Delivered = append(g.Delivered, k)
-			}
-		}
-		out = append(out, g)
-	}
+	out, _ := s.GrantFor(d.Granted)
 	return out
 }
 
@@ -807,7 +865,10 @@ func (s *CredentialScope) EnvSourcesFor(agent string) *jsonx.OrderedMap {
 }
 
 // DeliversEnvSource reports whether the hydrated env_sources entry name reaches SOME
-// process of the launch: unclaimed, or claimed by a provider some agent selected.
+// process of the launch: unclaimed, or claimed by a provider some agent selected. It answers
+// whether the entry is handed over, not whether it wins its name there (a shape var can still
+// beat it; Delivered answers that). No production code reads it since the one ordered
+// composition (envcompose.go); it is kept as the claim tests' probe.
 func (s *CredentialScope) DeliversEnvSource(name string) bool {
 	if s == nil {
 		return true
@@ -823,8 +884,11 @@ func (s *CredentialScope) DeliversEnvSource(name string) bool {
 	return false
 }
 
-// DeliveredPackEnv is the value a pack env key reaches some process with: the shared
-// fold's, or else the first agent's (sorted) that receives it.
+// DeliveredPackEnv is the value the pack env FOLD gives name in some process, before env_sources
+// and the shape vars rank over it (envcompose.go): the shared fold's, or else the first agent's
+// (sorted) that receives it. No production code reads it since the one ordered composition,
+// whose winner Delivered and DeliveredTo answer; it is kept as the tests' probe of what the fold
+// alone delivers (a served address, a pack's audio pointer).
 func (s *CredentialScope) DeliveredPackEnv(name string) (string, bool) {
 	if s == nil {
 		return "", false
@@ -840,50 +904,18 @@ func (s *CredentialScope) DeliveredPackEnv(name string) (string, bool) {
 	return "", false
 }
 
-// DeliveredShape is the value some agent's env derive composed for name, the first agent
-// (sorted) that set it.
-func (s *CredentialScope) DeliveredShape(name string) (string, bool) {
-	if s == nil {
-		return "", false
-	}
-	for _, agent := range s.Agents() {
-		for _, v := range s.agents[agent].Shape {
-			if v.Key == name && !v.Unset {
-				return v.Value, true
-			}
-		}
-	}
-	return "", false
-}
-
-// DeliveredTo answers what the gate delivers to ONE agent under name, non-empty, from the
-// channels it composes: the env_sources this agent receives (the shared ones and its own
-// provider's claimed ones), the shared pack env fold, this agent's own gated pack env, and its
-// env derive's shape vars, the more specific winning as the vehicles layer them. It is the
-// per-agent question the launch-wide DeliveredPackEnv and DeliveredShape cannot answer: a value
-// only another agent receives is not this agent's (the region pre-flight asks it, OQ-BR6).
+// DeliveredTo answers what ONE agent's process receives under name, non-empty: the winner of
+// its own composition (EnvFor, envcompose.go), so every reader of it ranks the sources as every
+// vehicle delivers them — its shape vars over the env_sources it receives (the shared ones, its
+// own provider's claimed ones and its grant's) over the pack env fold it receives, an
+// env_sources null removing the fold's value and a shape tombstone everything below it. It is
+// the per-agent question the launch-wide Delivered cannot answer: a value only another
+// agent receives is not this agent's (the region pre-flight asks it, OQ-BR6).
 func (s *CredentialScope) DeliveredTo(agent, name string) (string, bool) {
 	if s == nil {
 		return "", false
 	}
-	value := ""
-	if v, ok := s.EnvSourcesFor(agent).Get(name); ok {
-		value, _ = v.(string)
-	}
-	if v, ok := s.sharedPackEnv[name]; ok && value == "" {
-		value = v
-	}
-	if d := s.agents[agent]; d != nil {
-		if v, ok := d.PackEnv[name]; ok && v != "" {
-			value = v
-		}
-		for _, v := range d.Shape {
-			if v.Key == name && !v.Unset && v.Value != "" {
-				value = v.Value
-			}
-		}
-	}
-	return value, value != ""
+	return s.EnvFor(agent).Value(name)
 }
 
 // Relays reports whether agent's env derive composed value into the agent's own environment
@@ -913,15 +945,24 @@ func (d *AgentDelivery) Empty() bool {
 	if d == nil {
 		return true
 	}
-	return d.EnvSources.Len() == 0 && len(d.PackEnv) == 0 && len(d.Shape) == 0
+	return d.EnvSources.Len() == 0 && len(d.PackEnv) == 0 && len(d.Shape) == 0 && len(d.Files) == 0
 }
 
 // DisclosureNotes is what one notch adds to the gate's disclosure, for facts the gate cannot
-// know: how a withheld credential can be received there, and what the launched process already
-// holds. The zero value adds nothing, and is the jail's wording, which
-// docs/design/credential-sources-separation.md ES-D2 leaves unchanged until OQ-ES5 decides
-// whether a jail shell has a remedy at all.
+// know: how a withheld credential can be received there, what the launched process already
+// holds, and what a jail's own grant holds. The zero value adds nothing, and is the wording of a
+// jail launched with no grant (docs/design/credential-sources-separation.md ES-D2).
 type DisclosureNotes struct {
+	// Granted reports whether name is held by a grant EVERY process of the launch shares: a
+	// jail's --with-credentials, which the jail holds for its whole life, or a macos-user
+	// session's (OQ-ES5's jail half; ES-D31). Such a name is withheld from no process, so its
+	// line names GrantHolder as its recipients, never "withheld", and names no remedy; and the
+	// head line names the grant as a recipient rule. Nil holds nothing: the host's case, whose
+	// grant is a recipient of the gate itself (ScopeInput.Grants).
+	Granted func(name string) bool
+	// GrantHolder names the processes a Granted name reaches, for its line: "every process in
+	// this jail". Read only when Granted is set.
+	GrantHolder string
 	// Remedy words how a withheld group's names can be received, given the providers that
 	// claim them (sorted), as a sentence appended to that group's line. "" appends nothing.
 	// The host notch names its typed `-p` (ES-D2).
@@ -982,7 +1023,11 @@ func (s *CredentialScope) DisclosureWith(notes DisclosureNotes) []string {
 			recipients: strings.Join(recipients, ", ")}
 		// Only a withheld name can be misreported by the process's own copy: a delivered one
 		// is the env_sources value, which beats it.
-		if g.recipients == "" {
+		if notes.Granted != nil && notes.Granted(k) {
+			// HELD BY EVERY PROCESS, by the launch's own grant: an agent whose profile selects the
+			// provider holds it too, so the grant is the line's whole answer.
+			g.held, g.recipients = "granted", ""
+		} else if g.recipients == "" {
 			switch {
 			case notes.Inherited != nil && notes.Inherited(k):
 				g.held = "inherited"
@@ -1022,11 +1067,20 @@ func (s *CredentialScope) DisclosureWith(notes DisclosureNotes) []string {
 			return rank(groups[order[i]].claimants) < rank(groups[order[j]].claimants)
 		})
 	}
-	lines := []string{s.disclosureRule()}
+	granted := false
+	for _, key := range order {
+		if groups[key].held == "granted" {
+			granted = true
+		}
+	}
+	lines := []string{s.disclosureRule(granted)}
 	for _, key := range order {
 		g := groups[key]
 		names := strings.Join(g.names, ", ")
 		switch {
+		case g.held == "granted":
+			lines = append(lines, "  "+names+" (provider "+g.providers+"): "+notes.GrantHolder+
+				", by its --with-credentials grant")
 		case g.held == "inherited":
 			lines = append(lines, "  "+names+" (provider "+g.providers+"): not added by yolo — "+
 				"no agent in this launch selected it, so the invoking shell's own value passes through")
@@ -1052,10 +1106,15 @@ func (s *CredentialScope) DisclosureWith(notes DisclosureNotes) []string {
 }
 
 // disclosureRule is the disclosure's head line: the rule every line under it follows. Under a
-// grant (ScopeInput.Grants) a process no profile selects is a recipient too, so the rule names
-// the grant beside the profile (credential-sources-separation.md ES-D22). Otherwise, as at every
-// jail launch, the recipients are the agents whose profile selects the provider.
-func (s *CredentialScope) disclosureRule() string {
+// grant (ScopeInput.Grants, or a jail's own, whose lines notesGranted says are present) a process
+// no profile selects is a recipient too, so the rule names the grant beside the profile
+// (credential-sources-separation.md ES-D22). Otherwise, as at every jail launched with no grant,
+// the recipients are the agents whose profile selects the provider.
+func (s *CredentialScope) disclosureRule(notesGranted bool) string {
+	if notesGranted {
+		return "Credential scope: a provider's credential reaches only the processes whose " +
+			"profile selects it or whose --with-credentials grant names it."
+	}
 	for _, d := range s.agents {
 		if len(d.Granted) > 0 {
 			return "Credential scope: a provider's credential reaches only the processes whose " +

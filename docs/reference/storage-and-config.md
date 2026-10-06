@@ -493,6 +493,9 @@ the only place the values themselves are stated.
 | Boot log, and its one rotation | `<workspace>/.yolo/boot.log`, `boot.log.prev` | `internal/entrypoint/bootlog.go` |
 | A session's boot pass, and its one rotation | `<workspace>/.yolo/boot.session.log`, `boot.session.log.prev` | `internal/entrypoint/bootlog.go` (`attachPassLog`) |
 | Launch log (the host half), trimmed to the newest 50 runs | `<workspace>/.yolo/launch.log` | `internal/cli/run/launchlog.go`, `perf.MaxRuns` |
+| Host-notch launch log (`yolo host --`), trimmed to the newest 50 runs under a sibling `.lock` | `<machine storage>/logs/host-launch.log` | `internal/cli/run/launchlog.go` (`HostLaunchLogName`), `perf.MaxRuns` |
+| Host-notch perf log (`yolo host --`, `yolo host apply`) | `<machine storage>/logs/host-notch-perf.log` | `internal/cli/run/hosttiming.go` (`HostNotchPerfLogName`) |
+| Machine-wide launch line, one per launch at either notch | `<machine storage>/logs/launches.log` | `internal/cli/run/launchrecord.go` (`MachineLaunchLogName`) |
 | Provisioning log (fresh containers only) | `<workspace>/.yolo/startup.log` | `provision.StartupLog` |
 | Host launch-wrapper dir (the one a user prepends) | `<machine storage>/bin/wrap` | `paths.WrapDir` |
 | mise store, in-jail | `/mise`; the `yolo-mise-data-v2` named volume on a Podman Machine, and on Apple Container a tool disk per workspace, `<container name>.mise` | `internal/cli/run/assemble.go`, `internal/prune/misevolumes.go` |

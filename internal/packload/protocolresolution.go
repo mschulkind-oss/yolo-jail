@@ -153,8 +153,8 @@ func (e *UnservedAdapterError) Error() string {
 		pointed = fmt.Sprintf("selecting pack %q would point %s at a dead address", a.Pack, e.Agent)
 	}
 	msg := fmt.Sprintf("provider %q would reach agent %q only through pack %q's %s → %s adapter at "+
-		"%s, and that address is served by the pack's own %q service, a daemon that runs only "+
-		"in a container jail — nothing serves it here, so %s",
+		"%s, and that address is served by the pack's own %q service, a daemon this launch does "+
+		"not run — nothing serves it here, so %s",
 		e.Provider, e.Agent, a.Pack, strconv.Quote(a.From), strconv.Quote(a.To), a.Address, a.Service, pointed)
 	if e.ProviderPack != "" {
 		msg += fmt.Sprintf("; provider %q is not in this launch's provider table either — pack %q "+

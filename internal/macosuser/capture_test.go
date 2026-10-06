@@ -518,3 +518,252 @@ func joinCmds(cmds [][]string) string {
 	}
 	return strings.Join(parts, "\n")
 }
+
+// --- a fork's build (FP-D24) -------------------------------------------------
+
+const testBuildID = "0123456789abcdef"
+
+func testForkBuildOptions() ForkBuildOptions {
+	darwinEnv := jsonx.NewOrderedMap()
+	darwinEnv.Set("PKG_CONFIG_PATH", "/nix/store/abc-profile/lib/pkgconfig")
+	opts := testCaptureOptions()
+	opts.Darwin = &Darwin{PathPrefix: []string{"/nix/store/abc-profile/bin"}, Env: darwinEnv,
+		ProfilePath: "/nix/store/abc-profile", System: "aarch64-darwin"}
+	return ForkBuildOptions{
+		CaptureOptions: opts,
+		BuildID:        testBuildID,
+		Build:          `npm ci && npm install -g "$(npm pack --silent)"`,
+		Source:         "/Users/admin/.local/share/yolo-jail/captures/staging/fork-" + testBuildID + "/src",
+		RepoRoot:       "/Users/admin/code/yolo-jail",
+		Toolchain:      "yolo 1.2.3",
+	}
+}
+
+// The plan is viable as built, and its shape is the build's: a staging tree keyed by the build, the
+// checkout and the record siblings of home/ and out/, the sealed profile, and the driver running the
+// build line in the checkout under the full reference scan with the blocked tools bypassed, on the
+// darwin floor's PATH and environment.
+func TestBuildForkBuildPlanIsViable(t *testing.T) {
+	plan := BuildForkBuildPlan(testForkBuildOptions())
+	if problems := ForkBuildPlanInvariants(plan); len(problems) > 0 {
+		t.Fatalf("a freshly built fork build plan is not viable: %v", problems)
+	}
+	root := "/Users/Shared/yolo-captures/fork-" + testBuildID
+	if plan.StagingRoot != root || plan.SrcDir != root+"/src" || plan.ToolchainFile != root+"/toolchain" ||
+		plan.StagingHome != root+"/home" || plan.OutDir != root+"/out" {
+		t.Errorf("layout = %q %q %q %q %q", plan.StagingRoot, plan.SrcDir, plan.ToolchainFile, plan.StagingHome, plan.OutDir)
+	}
+	if want := [][]string{{cpBin, "-R", testForkBuildOptions().Source + "/.", root + "/src"}}; joinCmds(plan.SourceCommands) != joinCmds(want) {
+		t.Errorf("source commands = %v, want %v", plan.SourceCommands, want)
+	}
+	if !strings.Contains(plan.Seatbelt, `(deny network-outbound (remote ip "localhost:*"))`) {
+		t.Errorf("the build's profile is not the sealed one:\n%s", plan.Seatbelt)
+	}
+	argv := strings.Join(plan.DriverArgv, " ")
+	for _, want := range []string{"/usr/bin/sandbox-exec -f " + plan.ProfilePath, "internal capture-run",
+		"--home=" + plan.StagingHome, "--out=" + plan.OutDir, "--scan-content-refs",
+		"/usr/bin/env YOLO_BYPASS_SHIMS=1 /bin/bash -c", "cd '" + root + "/src' && npm ci && npm install -g",
+		"/nix/store/abc-profile/bin", "printf '%s' 'yolo 1.2.3, darwin floor /nix/store/abc-profile'",
+		"> '" + root + "/toolchain'", `NPM_CONFIG_PREFIX="$HOME/.npm-global"`} {
+		if !strings.Contains(argv, want) {
+			t.Errorf("the driver argv lacks %q:\n%s", want, argv)
+		}
+	}
+	if strings.Contains(argv, "YOLO_INSTALL_ONLY") {
+		t.Errorf("the build's driver runs the installer's launcher protocol:\n%s", argv)
+	}
+	// The darwin floor's build variables reach the build through the session env file, never the argv.
+	if !strings.Contains(plan.EnvFileContent, "PKG_CONFIG_PATH") || strings.Contains(argv, "PKG_CONFIG_PATH") {
+		t.Errorf("PKG_CONFIG_PATH is not in the env file (or is on the argv):\n%s\n%s", plan.EnvFileContent, argv)
+	}
+	// The prepare commands make the checkout as they make home/ and out/.
+	prepare := joinCmds(plan.PrepareCommands)
+	for _, want := range []string{"mkdir -p " + root + "/src", "chown admin:" + SandboxGroup + " " + root + "/src",
+		"chmod 2770 " + root + "/src"} {
+		if !strings.Contains(prepare, want) {
+			t.Errorf("the prepare commands lack %q:\n%s", want, prepare)
+		}
+	}
+}
+
+// THE STAGING TREE IS THE BUILD'S, never the bin's: an installer capture of the same program clears
+// <root>/<bin> before it starts, which a build staged there would lose mid-run.
+func TestAForkBuildIsNotStagedWhereAnInstallerCaptureOfItsBinClears(t *testing.T) {
+	build := BuildForkBuildPlan(testForkBuildOptions())
+	installer := BuildCapturePlan(testCaptureOptions())
+	clears := installer.PrepareCommands[0]
+	if strings.Join(clears, " ") != rmBin+" -rf "+installer.StagingRoot {
+		t.Fatalf("an installer capture's first command is %v, not the clear this test is about", clears)
+	}
+	if build.StagingRoot == installer.StagingRoot || strings.HasPrefix(build.StagingRoot, installer.StagingRoot+"/") {
+		t.Errorf("the build stages at %s, which an installer capture of %s clears (%s)", build.StagingRoot,
+			installer.Bin, installer.StagingRoot)
+	}
+}
+
+// Each invariant fails when the call site it guards is deleted or swapped.
+func TestForkBuildPlanInvariantsRefuseEachMissingPiece(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		mut  func(p *ForkBuildPlan)
+		want string
+	}{
+		{"the unsealed capture profile", func(p *ForkBuildPlan) { p.Seatbelt = SeatbeltCaptureProfile(p.StagingRoot) },
+			"it is not sealed"},
+		{"the seal before allow default", func(p *ForkBuildPlan) {
+			p.Seatbelt = strings.Replace(SeatbeltCaptureProfile(p.StagingRoot), "(allow default)\n",
+				sealedBuildLoopbackDeny+"\n"+sealedBuildNixSocketDeny+"\n"+sealedBuildNixPathDeny+"\n(allow default)\n", 1)
+		}, "BEFORE `(allow default)`"},
+		{"no reference scan", func(p *ForkBuildPlan) { p.DriverArgv = without(p.DriverArgv, captureScanFlag) },
+			captureScanFlag},
+		{"no shim bypass", func(p *ForkBuildPlan) { p.DriverArgv = without(p.DriverArgv, forkBypassShimsVar+"=1") },
+			forkBypassShimsVar + "=1"},
+		{"another build line", func(p *ForkBuildPlan) { p.Build = "make install" }, "does not run the fork's build line"},
+		{"a checkout copied under sudo", func(p *ForkBuildPlan) {
+			p.SourceCommands = [][]string{append([]string{"sudo"}, p.SourceCommands[0]...)}
+		}, "copied under sudo"},
+		{"no checkout copy", func(p *ForkBuildPlan) { p.SourceCommands = nil }, "nothing copies the checkout"},
+		{"no checkout at all", func(p *ForkBuildPlan) { p.Source, p.SourceCommands = "", nil }, "no checkout to copy"},
+		{"the checkout inside the home", func(p *ForkBuildPlan) { p.SrcDir = p.StagingHome + "/src" },
+			"is not a sibling of the staging home"},
+		{"a tree keyed by the bin", func(p *ForkBuildPlan) {
+			p.StagingRoot = CaptureStagingRoot("", p.Bin)
+		}, "is not keyed by the build"},
+		{"no checkout leaf prepared", func(p *ForkBuildPlan) {
+			p.PrepareCommands = CaptureStagingCommands(p.StagingRoot, "admin")
+		}, "never make " + "/Users/Shared/yolo-captures/fork-" + testBuildID + "/src"},
+	} {
+		plan := BuildForkBuildPlan(testForkBuildOptions())
+		tc.mut(&plan)
+		if problems := ForkBuildPlanInvariants(plan); !anyContains(problems, tc.want) {
+			t.Errorf("%s: no problem names %q: %v", tc.name, tc.want, problems)
+		}
+	}
+}
+
+// THE RUN ORDER: the tree prepared and the binary staged under sudo, then the checkout copied in as the
+// invoking user — never sudo — then the sealed profile installed, the bootstrap, and the driver.
+func TestRunForkBuildPlanCopiesTheCheckoutAsTheUserBeforeTheProfile(t *testing.T) {
+	c := &captureDeps{}
+	plan := BuildForkBuildPlan(testForkBuildOptions())
+	if rc := RunForkBuildPlan(c.deps(), plan); rc != 0 {
+		t.Fatalf("RunForkBuildPlan = %d\n%s", rc, c.out.String())
+	}
+	joined := strings.Join(c.ran, "\n")
+	stage := strings.Index(joined, "sudo "+cpBin+" -f /opt/yolo-jail/bin/yolo")
+	copySrc := strings.Index(joined, "\n"+cpBin+" -R "+plan.Source+"/. "+plan.SrcDir)
+	boot := strings.Index(joined, "darwin-bootstrap")
+	drive := strings.Index(joined, "capture-run")
+	if stage < 0 || copySrc < 0 || boot < 0 || drive < 0 || !(stage < copySrc && copySrc < boot && boot < drive) {
+		t.Errorf("steps out of order or missing (stage %d, copy %d, bootstrap %d, drive %d):\n%s", stage, copySrc,
+			boot, drive, joined)
+	}
+	if strings.Contains(joined, "sudo "+cpBin+" -R "+plan.Source) {
+		t.Errorf("the checkout was copied under sudo:\n%s", joined)
+	}
+	if len(c.files) == 0 || c.files[0] != plan.ProfilePath {
+		t.Fatalf("no profile installed: %v", c.files)
+	}
+	// The profile went in after the copy: every command before it ran first.
+	if plan.Seatbelt != SeatbeltSealedCaptureProfile(plan.StagingRoot) {
+		t.Error("the plan's profile is not the sealed capture profile")
+	}
+}
+
+// THE ACT: the gates, the darwin floor built from the flake with the config's darwin packages, the
+// plan run on its PATH, and the proto-entry and the toolchain record moved where the host act reads
+// them.
+func TestRunForkBuildActBuildsTheToolchainAndMovesTheResultAndTheRecord(t *testing.T) {
+	tmp := t.TempDir()
+	opts := testForkBuildOptions()
+	opts.Darwin = nil
+	opts.CaptureRoot = filepath.Join(tmp, "captures")
+	dest := filepath.Join(tmp, "store", "staging", "fork-"+testBuildID, "out")
+	toolchain := filepath.Join(tmp, "store", "staging", "fork-"+testBuildID, "toolchain")
+	root := ForkBuildStagingRoot(opts.CaptureRoot, testBuildID)
+
+	c := &captureDeps{}
+	d := c.deps()
+	var built []string
+	d.MaterializeDarwin = func(repoRoot string, _ []any) (*Darwin, bool, error) {
+		built = append(built, repoRoot)
+		return &Darwin{PathPrefix: []string{"/nix/store/floor/bin"}, ProfilePath: "/nix/store/floor"}, true, nil
+	}
+	realRun := d.Run
+	d.Run = func(argv []string) int {
+		rc := realRun(argv)
+		if strings.Contains(strings.Join(argv, " "), "capture-run") {
+			if !strings.Contains(strings.Join(argv, " "), "/nix/store/floor/bin") {
+				t.Errorf("the build's driver runs off the darwin floor's PATH:\n%s", strings.Join(argv, " "))
+			}
+			if err := os.MkdirAll(filepath.Join(root, "out", "tree", ".local"), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(root, "toolchain"), []byte("yolo 1.2.3 macOS 26.0"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+		}
+		return rc
+	}
+	if rc := RunForkBuildAct(d, opts, dest, toolchain, false); rc != 0 {
+		t.Fatalf("RunForkBuildAct = %d\n%s", rc, c.out.String())
+	}
+	if len(built) != 1 || built[0] != opts.RepoRoot {
+		t.Errorf("the darwin floor was built %v, want once from %s", built, opts.RepoRoot)
+	}
+	if _, err := os.Stat(filepath.Join(dest, "tree", ".local")); err != nil {
+		t.Errorf("the proto-entry did not arrive at %s: %v", dest, err)
+	}
+	if b, err := os.ReadFile(toolchain); err != nil || string(b) != "yolo 1.2.3 macOS 26.0" {
+		t.Errorf("the toolchain record at %s is %q (%v)", toolchain, b, err)
+	}
+	if strings.Count(strings.Join(c.ran, "\n"), "-rf "+root) != 2 {
+		t.Errorf("expected one clearing rm and one sweeping rm of %s:\n%s", root, strings.Join(c.ran, "\n"))
+	}
+}
+
+// A MACHINE THE ACT WOULD REFUSE PAYS FOR NO TOOLCHAIN: the gates come before the darwin floor's
+// build, and a declared package with no darwin build refuses before the build line runs.
+func TestRunForkBuildActRefusesBeforeItsToolchainAndOverAMissingPackage(t *testing.T) {
+	c := &captureDeps{}
+	d := c.deps()
+	d.SandboxUserExists = func() bool { return false }
+	d.MaterializeDarwin = func(string, []any) (*Darwin, bool, error) {
+		t.Error("the darwin floor was built for a machine with no sandbox account")
+		return nil, false, nil
+	}
+	if rc := RunForkBuildAct(d, testForkBuildOptions(), "/nonexistent/out", "/nonexistent/toolchain", false); rc != 1 ||
+		!strings.Contains(c.out.String(), "yolo macos-setup") {
+		t.Errorf("rc = %d, want a refusal naming the setup:\n%s", rc, c.out.String())
+	}
+
+	c = &captureDeps{}
+	d = c.deps()
+	d.MaterializeDarwin = func(string, []any) (*Darwin, bool, error) {
+		return &Darwin{PathPrefix: []string{"/nix/store/floor/bin"}, Skipped: []string{"ripgrpe"}, System: "aarch64-darwin"}, true, nil
+	}
+	if rc := RunForkBuildAct(d, testForkBuildOptions(), "/nonexistent/out", "/nonexistent/toolchain", false); rc != 1 ||
+		!strings.Contains(c.out.String(), "no aarch64-darwin build") || !strings.Contains(c.out.String(), "ripgrpe") {
+		t.Errorf("rc = %d, want a refusal naming the package:\n%s", rc, c.out.String())
+	}
+	if strings.Contains(strings.Join(c.ran, "\n"), "capture-run") {
+		t.Error("the build line ran with a declared package missing")
+	}
+}
+
+// A dry run prints the build's plan and touches nothing.
+func TestRunForkBuildActDryRunExecutesNothing(t *testing.T) {
+	c := &captureDeps{}
+	if rc := RunForkBuildAct(c.deps(), testForkBuildOptions(), "/nonexistent/out", "/nonexistent/toolchain", true); rc != 0 {
+		t.Errorf("dry run = %d, want 0\n%s", rc, c.out.String())
+	}
+	if len(c.ran) != 0 || len(c.files) != 0 {
+		t.Errorf("a dry run touched the machine: ran %v, wrote %v", c.ran, c.files)
+	}
+	for _, want := range []string{"macos-user fork build", "fork-" + testBuildID, sealedBuildLoopbackDeny,
+		"all capture plan invariants hold"} {
+		if !strings.Contains(c.out.String(), want) {
+			t.Errorf("the dry-run plan does not show %q:\n%s", want, c.out.String())
+		}
+	}
+}

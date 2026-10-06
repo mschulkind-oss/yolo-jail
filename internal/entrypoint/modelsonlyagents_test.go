@@ -309,10 +309,11 @@ func TestOpencodeAndPiPreferANarrowedListsDefaultAlias(t *testing.T) {
 // OPENCODE'S OWN BEDROCK CLIENT GETS THE WHITELIST TOO. The native `amazon-bedrock` row (Bedrock
 // step 2's) lists the narrowed entries, but those rows add beside opencode's own Bedrock catalog
 // and cannot narrow it, so without the whitelist an `only` left that menu whole and refused
-// nothing. The same switch governs it: off, no whitelist.
+// nothing. The same switch governs it: off, no whitelist. The company pack supplies the list
+// it narrows (bedrockListAdd), since packs/bedrock ships none (MM-D32).
 func TestOpencodeWhitelistsANarrowedListOnItsOwnBedrockClient(t *testing.T) {
 	const opus, sol = "global.anthropic.claude-opus-5-5", "us.openai.gpt-6.1-sol"
-	company := companyModelsPack(t, `{"kind":"models","provider":"bedrock","only":["`+sol+`","`+opus+`"]}`)
+	company := companyModelsPack(t, bedrockListAdd+`,{"kind":"models","provider":"bedrock","only":["`+sol+`","`+opus+`"]}`)
 	packs := append(testPacksForAgent(t, "opencode"), company)
 	off := false
 	for _, tc := range []struct {
@@ -425,8 +426,8 @@ func TestPiGetsANarrowedListToRegister(t *testing.T) {
 // so reading one switch for every list, or none, fails one of them.
 func TestPiNarrowedListCarriesItsProfilesModelSwitch(t *testing.T) {
 	const sol = "us.openai.gpt-6.1-sol"
-	company := companyModelsPack(t,
-		`{"kind":"models","provider":"zai","only":["glm-5.3"]},{"kind":"models","provider":"bedrock","only":["`+sol+`"]}`)
+	company := companyModelsPack(t, bedrockListAdd+
+		`,{"kind":"models","provider":"zai","only":["glm-5.3"]},{"kind":"models","provider":"bedrock","only":["`+sol+`"]}`)
 	packs := append(testPacksForAgent(t, "pi", "zai"), company)
 	off := false
 	for _, tc := range []struct {

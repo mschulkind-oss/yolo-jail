@@ -11,7 +11,9 @@ package cli
 // produced it.
 //
 // Every test writes into a t.TempDir() home with its own config; the real $HOME is never read
-// or written.
+// or written. Every config declares `host_management: "own"`: the unset key is `none` since the
+// `assert` retirement (OQ-CO14), under which no config surface renders, so a `rendered` line
+// could not be counted and "a refused apply wrote nothing" would hold of every apply.
 
 import (
 	"bytes"
@@ -28,10 +30,10 @@ func TestApplyHostRefusesDuplicateSurfaceOwner(t *testing.T) {
 	second := `{"name":"acme-fzf","contributes":[
 	  {"kind":"config","config":[{"agent":"acme","name":"settings","codec":"json",
 	    "path":"~/.acme/settings.json","mode":"rmw","managed":{"fileSuggestion":"run-fzf"}}]}]}`
-	home := writeOverlayFixture(t, map[string]string{
+	home := writeOverlayFixtureUnder(t, map[string]string{
 		"acme":     acmeOwnerPackJSON,
 		"acme-fzf": second,
-	})
+	}, "own")
 
 	var out, errw bytes.Buffer
 	if rc := applyHost(&out, &errw, false, true, nil); rc == 0 {
@@ -59,10 +61,10 @@ func TestApplyHostRefusesDuplicateSurfaceOwner(t *testing.T) {
 // appears for the surface. The overlay path already printed one line on 47e98e1 — this pins
 // that it stayed one, so a later reader does not "fix" the good path.
 func TestApplyHostPrintsOneRenderedLinePerSurface(t *testing.T) {
-	writeOverlayFixture(t, map[string]string{
+	writeOverlayFixtureUnder(t, map[string]string{
 		"acme":     acmeOwnerPackJSON,
 		"acme-fzf": acmeFzfPackJSON,
-	})
+	}, "own")
 
 	var out, errw bytes.Buffer
 	if rc := applyHost(&out, &errw, false, true, nil); rc != 0 {
@@ -97,7 +99,7 @@ func TestApplyHostRefusesSelfDuplicatedSurface(t *testing.T) {
 	    "path":"~/.acme/settings.json","managed":{"telemetry":false}}]},
 	  {"kind":"config","config":[{"agent":"acme","name":"settings","codec":"json",
 	    "path":"~/.acme/settings.json","mode":"rmw","managed":{"other":true}}]}]}`
-	writeOverlayFixture(t, map[string]string{"selfish": selfish})
+	writeOverlayFixtureUnder(t, map[string]string{"selfish": selfish}, "own")
 
 	var out, errw bytes.Buffer
 	if rc := applyHost(&out, &errw, false, true, nil); rc == 0 {

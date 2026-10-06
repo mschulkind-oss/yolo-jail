@@ -141,7 +141,10 @@ These are the proxy's invariants. The package header states the same list, delib
 each one is a place a plausible "cleanup" reintroduces the wedge.
 
 - **Non-TTY stdin ⇒ a transparent plain spawn, no pty.** Pipes, test harnesses and automation keep
-  working unchanged.
+  working unchanged. So does a run whose caller names a stdout of its own (`Observer.Stdout`),
+  since a pty merges the child's two streams into one: the jails the host floor boots to capture an
+  installer or build a fork run that way, their stdout on the launch's stderr
+  (`run.Options.JailStdout`), so none of their output lands on the stdout an agent's is read from.
 - **`^Z` suspends the PROXY**, via a **targeted `SIGTSTP` to self** — never a pgroup-wide signal,
   which would stop the container runtime and so be a jail-visible change. The keypress **never
   reaches the child**, and bytes after it in the same read are queued and flushed on resume.
@@ -268,7 +271,7 @@ does not exist inside the jail.
 | Platform | What runs |
 | :--- | :--- |
 | Linux, TTY stdin | the full proxy |
-| Linux, non-TTY stdin | the plain spawn — no pty, no signal proxy, and the stage hook reports only spawn and exit |
+| Linux, non-TTY stdin, or a stdout the caller named | the plain spawn — no pty, no signal proxy, and the stage hook reports only spawn and exit |
 | Non-Linux | a plain foreground exec. The terminate callback is **not wired**, because there is no signal proxy to run it from |
 | `macos-user` | takes its own native path, reached through a `func([]string) int` seam the front door injects — so that path never imports the Linux-only package, which would break the darwin build |
 

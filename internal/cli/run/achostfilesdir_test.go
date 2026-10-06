@@ -141,24 +141,3 @@ func TestAssembledACArgvCarriesNoWritableHostFileDir(t *testing.T) {
 		}
 	}
 }
-
-// The macos-user warning for a DIRECTORY host_files source points the user at Apple
-// Container, and must not promise a bind that runtime now declines below acROBindsFloor:
-// "which binds it" unqualified sent a user on AC 1.0.x from one skipped entry to another.
-func TestMacosUserDirHostFileWarningQualifiesTheAppleContainerFloor(t *testing.T) {
-	home := ctxLaunchHome(t, `, "host_files": [{"path": ".config/big/", "source": "~/big/"}]`)
-	if err := os.MkdirAll(filepath.Join(home, "big"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	writeHostFileAt(t, filepath.Join(home, "big", "a.txt"), "x\n", 0o644)
-
-	_, out := runMacosUserCapturingCtx(t, t.TempDir(), nil)
-	flat := strings.Join(strings.Fields(out), " ")
-	if !strings.Contains(flat, "does not cross on macos-user") {
-		t.Fatalf("the launch did not print the directory host_files warning:\n%s", out)
-	}
-	if !strings.Contains(flat, "binds it read-only from Apple Container "+acROBindsFloor) {
-		t.Errorf("the warning recommends Apple Container without naming the %s floor below "+
-			"which it skips a directory source:\n%s", acROBindsFloor, out)
-	}
-}

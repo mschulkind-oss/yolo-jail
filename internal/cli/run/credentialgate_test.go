@@ -366,7 +366,7 @@ func TestTheLaunchPathsDeliverThroughTheGate(t *testing.T) {
 }
 
 // A credential the gate WITHHOLDS is not delivered, so it overrides nothing: the env-override
-// pre-flight reads "delivered" off the gate (deliverySource → DeliversEnvSource), and a
+// pre-flight reads "delivered" off the gate (deliverySource → CredentialScope.Delivered), and a
 // token claimed by a provider no agent selected must not refuse a launch whose jail never
 // sees it. The control moves the claim to the selected provider, which delivers the token to
 // the agent beside the pointer it overrides — and that still refuses.
@@ -404,11 +404,13 @@ func TestEnvOverrideIgnoresACredentialTheGateWithholds(t *testing.T) {
 	}
 }
 
-// The macos-user launch env keeps that backend's precedence under the gate: env_sources is
-// LAST, where macosuser.buildPlan layered its own hydration before the gate took that call
-// away, so a user's own dotenv entry still beats a composed provider variable there; and
-// the launched agent's own claimed credential rides the session while another's does not.
-func TestLaunchEnvLayersTheGatedEnvSourcesLast(t *testing.T) {
+// The macos-user launch env serializes the ONE ordered composition (packload's envcompose.go,
+// OQ-NC12 decided on its leaning A): claude's shape var — zai's ANTHROPIC_BASE_URL, which its
+// derive pairs with zai's key — beats a dotenv entry of the same name, where env_sources used to
+// be layered LAST on this backend and sent zai's token to the dotenv address. An env_sources value
+// the profile composes nothing for still beats the pack env fold, and the launched agent's own
+// claimed credential rides the session while another's does not.
+func TestLaunchEnvLetsTheProfileBeatADotenvValue(t *testing.T) {
 	home := packHome(t)
 	o := goldenOptions(t.TempDir(), home)
 	o.ProfileName = "zai"
@@ -417,9 +419,12 @@ func TestLaunchEnvLayersTheGatedEnvSourcesLast(t *testing.T) {
 	channel := channelFor(t, o, bareConfig(), zaiSelected(t), userEnv)
 
 	env := channel.launchEnv("claude")
-	if envAt(env, "ANTHROPIC_BASE_URL") != "https://mine.example" {
-		t.Errorf("a user's own env_sources value must win over the composed provider variable; "+
-			"ANTHROPIC_BASE_URL = %q", envAt(env, "ANTHROPIC_BASE_URL"))
+	if got := envAt(env, "ANTHROPIC_BASE_URL"); got != "https://api.z.ai/api/anthropic" {
+		t.Errorf("claude on zai must keep the profile's address over a dotenv value of the same "+
+			"name, beside the zai token its derive pairs with it: ANTHROPIC_BASE_URL = %q", got)
+	}
+	if envAt(env, "ANTHROPIC_AUTH_TOKEN") != "tok-gate" {
+		t.Errorf("claude's derive relays zai's key as ANTHROPIC_AUTH_TOKEN: %q", envAt(env, "ANTHROPIC_AUTH_TOKEN"))
 	}
 	if envAt(env, "ZAI_API_KEY") != "tok-gate" {
 		t.Errorf("claude selected zai and launches here: its key must ride the session")
@@ -427,8 +432,12 @@ func TestLaunchEnvLayersTheGatedEnvSourcesLast(t *testing.T) {
 	if envAt(env, "AWS_ACCESS_KEY_ID") != "" {
 		t.Errorf("no agent selected bedrock, so its pair rides no session")
 	}
-	if shell := channel.launchEnv("zsh"); envAt(shell, "ZAI_API_KEY") != "" || envAt(shell, "ANTHROPIC_AUTH_TOKEN") != "" {
+	shell := channel.launchEnv("zsh")
+	if envAt(shell, "ZAI_API_KEY") != "" || envAt(shell, "ANTHROPIC_AUTH_TOKEN") != "" {
 		t.Errorf("a shell launch carries no agent's scoped values: %v", shell.Keys())
+	}
+	if got := envAt(shell, "ANTHROPIC_BASE_URL"); got != "https://mine.example" {
+		t.Errorf("a shell no profile composes for keeps the dotenv value: ANTHROPIC_BASE_URL = %q", got)
 	}
 }
 

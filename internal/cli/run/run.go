@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -29,6 +30,13 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/storage"
 	"github.com/mschulkind-oss/yolo-jail/internal/version"
 )
+
+// macosCtxDelivery's undeliveredDirs field LOST ITS LAST READER on 2026-10-05, when
+// noteMacosUserHostByteGaps was deleted: the one shape it named, a directory `host_files` entry,
+// crosses by copy now (buildMacosCtxTree). The field goes with macosctxtree.go's next edit, and
+// this reference with it; until then this keeps the field from failing the lint gate's
+// unused-code check.
+var _ = macosCtxDelivery{}.undeliveredDirs
 
 // Run validates config, resolves the runtime, then either execs into
 // an existing container or launches a fresh one. Returns the process exit code.
@@ -200,6 +208,7 @@ func Run(opts Options) (rc int) {
 	if rc, refused := refuseUnbuiltNotch(o, cfg); refused {
 		return rc
 	}
+	o.atNotch = o.launchNotch(cfg)
 	rt, ok := o.resolveRuntime(cfg)
 	if !ok {
 		if o.readinessInterrupted() {
@@ -310,6 +319,9 @@ func Run(opts Options) (rc int) {
 	// And every loopback port this launch reserved and did not hand on (servedaddresses.go), for
 	// the same reason: a refused launch, a dry run, an attach.
 	defer o.releaseReservedPorts()
+	// And a macos-user launch's place at its key (keeperspawn.go): the arrival lock it still holds and
+	// its session record, at every return before its quit removes them.
+	defer o.endMacosUserKeying()
 	// THE HERDR PANE's slot, made here, before any signal arm exists, so an arm's teardown can
 	// release it from its own goroutine. Each arm registers into it only once its arm is
 	// installed, just before its session starts, and releases it when the session returns
@@ -325,12 +337,14 @@ func Run(opts Options) (rc int) {
 	// holds and gives the terminal back, where the default action ran no cleanup at all. The
 	// keeper's arm or an attach's takes over from it; this is its retirement at every other return,
 	// after the discard below.
-	if rt != "macos-user" { // parity: Dropped — macos-user has no keeper to hand the tree to, and its host daemons run from the tree under the TTY proxy's own arm, beside which a guard would act too; a signal before its session leaves the tree for the reaper, as it did (JL-D75)
+	if rt != "macos-user" { // parity: HonoredBy — macos-user's own arm (macosuserarm.go) ends a signaled launch through Run's defers, the tree's discard among them, from its first host service on, and a launch that spawns the workspace's keeper hands it the tree (JL-D86); before that arm, at its config prompt, a signal still leaves the tree for the reaper (JL-D75)
 		o.armLaunchGuard(cname, rt)
 		defer o.endLaunchGuard()
 	}
 	// This launch's pack tree goes at return unless a started container holds it (packtree.go).
 	defer o.discardUnheldPackTree(cname)
+	// And so does the --with-credentials grant file it staged (jailgrant.go, ES-D37).
+	defer o.discardUnheldJailGrant(cname, rt)
 
 	// THE FORK PINS, made for a fork the lock does not pin yet (never moved: FP-D18) and disclosed
 	// above the dispatch, so every backend and an attach say which revision each source-built
@@ -340,6 +354,14 @@ func Run(opts Options) (rc int) {
 	// backend and an attach say what each one is at (docs/design/patched-extensions.md §10).
 	o.patchedTrees = o.notePatchedTrees(staged.packs)
 
+	// THE ARRIVAL AT A macos-user KEY (keeperspawn.go's arriveMacosUser; docs/design/
+	// jail-lifetime-last-session-wins.md JL-D44), before the channel composes, because a launch that
+	// joins the workspace's keeper composes against its roster: the keeper's caller tokens, its
+	// doorways' addresses and its launch-owned services, so every session of the workspace points
+	// its agents at the one set. An unkept key refuses here, before anything is asked or started.
+	if !o.arriveMacosUser(rt, cname) {
+		return 1
+	}
 	// PACK LAUNCH FLAGS, ABOVE THE DISPATCH — the same B-0 move pack staging made, for
 	// the same reason. The injection used to sit inside runContainer, which the
 	// macos-user arm returns before reaching, so on that backend a pack's declared
@@ -387,6 +409,14 @@ func Run(opts Options) (rc int) {
 		o.printProviderRefusal([]string{"Refusing to launch: " + err.Error()})
 		return 1
 	}
+	// THE --with-credentials GRANT, resolved over that one composition (jailgrant.go; OQ-ES5's jail
+	// half): above the dispatch, so an unknown provider refuses at every backend before either arm
+	// starts a thing, in the words the host refuses it with, and an attach below compares the same
+	// resolution against what the running jail holds.
+	if err := o.resolveJailGrant(channel); err != nil {
+		o.printProviderRefusal([]string{"Refusing to launch: " + err.Error()})
+		return 1
+	}
 	injectedArgs := o.Args
 	if len(injectedArgs) > 0 {
 		injectedArgs = o.injectLaunchFlagsDisclosed(staged.packs, injectedArgs)
@@ -428,13 +458,29 @@ func Run(opts Options) (rc int) {
 					"This build cannot launch the native macOS backend.")
 			return 1
 		}
+		// A SEALED LAUNCH IS A FORK'S BUILD (FP-D24; seal.go's runSealedMacosUser), and it crosses
+		// nothing this arm hands a session: it returns here, before the first crossing site below.
+		if o.Sealed {
+			return o.runSealedMacosUser(cfg, rt, repoRoot, staged, injectedArgs, channel)
+		}
 		// THE CONTEXT MOUNTS, first on this arm (docs/design/context-mounts.md §4 steps 3-5):
 		// each declared one this backend can deliver becomes a root-owned link plus Seatbelt
-		// rules, and one it cannot ends the launch HERE, naming each, before the approval
-		// prompt, a host service or any staging — a refusal says what to do before the launch
-		// asks anything else (DP-D15). A --dry-run refuses too: its plan would describe a
+		// rules — or, for a pack's single-file `mount`, a copy the context tree composed below
+		// carries (CX-D25) — and one it cannot ends the launch HERE, naming each, before the
+		// approval prompt, a host service or any staging — a refusal says what to do before the
+		// launch asks anything else (DP-D15). A --dry-run refuses too: its plan would describe a
 		// launch that cannot happen. No `mounts` key and no pack `mount` decides nothing.
-		ctxLinks, ok := o.planMacosUserCtxMounts(cfg, staged.packs)
+		ctxLinks, ctxCopies, ok := o.planMacosUserCtxMounts(cfg, staged.packs)
+		if !ok {
+			return 1
+		}
+		// THE CACHE RELOCATIONS, beside them and for the same reasons (macosuserrelocations.go;
+		// docs/plans/cache-relocation.md): each user-scope `cache_relocations` entry becomes a link
+		// the bootstrap lays at ~/.cache/<subdir> plus Seatbelt rules on its target, and one this
+		// backend cannot deliver refuses here, before anything else is asked. Read from the USER
+		// config alone (config.LoadCacheRelocations) — never cfg, the merged config, whose
+		// workspace half the agent can write — and none under the seal.
+		cacheRelocs, ok := o.planMacosUserCacheRelocations(ctxLinks)
 		if !ok {
 			return 1
 		}
@@ -467,10 +513,54 @@ func Run(opts Options) (rc int) {
 		if !o.DryRun && !o.checkConfigChanges(cfg, rt) {
 			return 1
 		}
+		// THE OFFERED TIER (disk-levers-and-backfill.md §5.3's trigger), on this arm too: beside
+		// the approval prompt, while the terminal is still ours and before any setup, reading
+		// what the last launch's housekeeping pass measured. Its answer goes to this launch's
+		// slot (startMacosUserHousekeeping, below). A dry run starts no slot, so it offers nothing.
+		var consent reclaimConsent
+		if !o.DryRun {
+			consent = o.maybeOfferReclaim()
+		}
 		// Same notice as the container paths: a brand-new macos-user user has no packs
 		// either, and the native backend is where a "where is my agent?" is hardest to
 		// diagnose (no image, no provisioning output to read back).
 		o.warnIfNoPacks()
+		// AUTO-CAPTURE ON THIS ARM TOO (OQ-PD18; install-capture.md hand-off H4): every selected
+		// `via: "installer"` program the machine's store has no darwin entry for is captured now,
+		// by the macos-user capture act, so this launch stages it below (macosUserCaptures) and
+		// every later one, in any workspace, materializes it instead of downloading. Every
+		// invocation here is a fresh launch, so there is no attach to keep it off. HERE, after the
+		// config-change approval and before this arm's signal arm, host services and launch lock:
+		// a capture is a whole launch of its own (a nested pipeline), which arms, starts and locks
+		// its own. Never on a dry run, which captures nothing; never in a capture's own launch,
+		// whose CapturesDir is "" (autoCaptureBins); and never for a launch the backend's own first
+		// steps, its preconditions and the account home's hold, are about to refuse
+		// (autoCaptureMacosUser). It cannot fail this launch.
+		if !o.DryRun {
+			captureSpan := o.Perf.Span("launch.auto_capture")
+			o.autoCaptureMacosUser(staged.packs)
+			captureSpan.End()
+		}
+		// THE MACOS-USER ARM (macosuserarm.go; JL-D40), from here to the last teardown below. A
+		// signal before the session ends the launch at its next step boundary, so every deferred
+		// teardown runs — the host services, the doorways, the launch-owned services and, inside
+		// the backend, the session's env files and guest supervisor — where Go's default action
+		// used to end the process past all of them; during the session it is RunAgent's shape.
+		// Installed below the config-change prompt, where a Ctrl-C still ends the launch at once,
+		// and above the first host service. Its disarm is deferred FIRST of this arm's, so it
+		// outlasts every teardown and the timing report.
+		arm, disarm := o.armMacosUser()
+		defer disarm()
+		// THIS ARM'S TIMING REPORT (docs/reference/perf-logging.md): once the backend has
+		// returned and every teardown deferred below has run, so their shutdown spans are in
+		// it, as the container arm reports after its own chain. Only for a launch that reached
+		// the dispatch or that a signal ended: a refusal before it prints the refusal alone.
+		dispatched := false
+		defer func() {
+			if dispatched {
+				o.emitTimingReport(rc, cname, rt)
+			}
+		}()
 		// THE HOST SERVICES, on this arm too — the WHOLE set, through the same spawn
 		// boundary the container path uses.
 		//
@@ -519,6 +609,19 @@ func Run(opts Options) (rc int) {
 		// starts (launchEnv's doc; noteMacosUserCredentialScope says so on the terminal).
 		launched := filepath.Base(agentArgv[0])
 		launchEnv := channel.launchEnv(launched)
+		// THE SESSION'S --with-credentials GRANT (jailgrant.go, ES-D32): on the launch env, which
+		// this backend writes into the root-owned per-session env file, and never through the
+		// channel, whose per-agent half the arm also writes under <workspace>/.yolo/home below.
+		o.jailGrant.applyTo(launchEnv)
+		o.heldGrant = o.jailGrant
+		// THE NOTCH, told to the session (config.NotchEnv; env-manager plan EMP-D4). YOLO_VERSION,
+		// which the backend sets on every launch, says jail; a guest says so beside it, so the
+		// agent footer names the notch the briefing names (docs/design/agent-footer.md §1.2), and
+		// the backend's own messages name a step that fits it. Set after the composition, so no
+		// pack env or env_sources entry can say otherwise. The jail notch sets nothing.
+		if o.atNotch == config.ConfinementGuest {
+			launchEnv.Set(config.NotchEnv, string(config.ConfinementGuest))
+		}
 		// THE GUEST'S HALF OF THE PAYLOAD (OQ-DP8, OQ-DP9; macosuserguestdaemons.go): the
 		// daemons this sandbox runs, confined, and the ones it declines by name. The split
 		// is loopholes.JailDaemonsRunIn, the same one the served set composed the channel
@@ -535,7 +638,11 @@ func Run(opts Options) (rc int) {
 			launchEnv.Set(k, v)
 		}
 		o.noteCredentialScope(channel)
+		o.noteHeldGrant(grantMacosUserSession, launched, channelProfiled(channel))
 		o.noteMacosUserCredentialScope(channel, launched)
+		// THE PORT REMAPS (macosuserportrelay.go): planned once, so the relays this launch opens,
+		// the plan a --dry-run prints and the port-key notice below read one answer.
+		portPlan := o.macosUserPortPlan(rt, cfg)
 		if o.DryRun {
 			// A plan render starts nothing, so the spawn boundary is not crossed: there is
 			// no host EXECUTION to disclose (a line saying otherwise would name daemons this
@@ -554,28 +661,70 @@ func Run(opts Options) (rc int) {
 			// own that its spawn creates (servicessession.go), so a plan render, which creates
 			// nothing, cannot know its name; servicesSessionPlanDir names its shape.
 			o.notePackLoopholesInert(rt, staged.packs, cfg)
-			for _, plan := range o.launchServices {
-				o.pr(o.Stderr).print(fmt.Sprintf("Would start the %q service (pack %q) on %v for "+
-					"this launch, outside the sandbox, until the command exits.", plan.Service,
-					plan.Pack, o.servicePointedAt(plan, channel)))
+			// WHAT IT WOULD RUN OUTSIDE THE SANDBOX, as the workspace's keeper's (§9.9.7), which holds
+			// all of it: the keeper it would join and what that one holds, or each service and doorway
+			// it would start and the keeper that would hold them. A key the launch would be refused at
+			// refuses the dry run too (peekMacosUserKey).
+			if !o.noteMacosUserKeeperDryRun(rt, cname, cfg, doorways, channel) {
+				return 1
 			}
-			for _, plan := range doorways {
-				o.pr(o.Stderr).print(fmt.Sprintf("Would open the %q doorway (pack %q) on %v for "+
-					"this launch, outside the sandbox, until the command exits: %s", plan.Service,
-					plan.Pack, plan.Addresses(), strings.Join(plan.Cmd, " ")))
+			for _, r := range portPlan.relays {
+				o.pr(o.Stderr).print(relayDisclosure("Would relay", r))
 			}
-			if openAIAuthLoopholeActive(cfg) {
+			if m := o.macosUserKey; m != nil && m.joined != nil {
+				// A JOIN names the keeper's own endpoint files, which every session of it is told.
+				setRosterEndpoints(launchEnv, *m.joined)
+			} else if openAIAuthLoopholeActive(cfg) {
 				launchEnv.Set(hostServiceEnvVar(openAIAuthBrokerName),
 					filepath.Join(servicesSessionPlanDir(cname, o.IsMacOS),
 						openAIAuthBrokerName+paths.ServiceEndpointExt))
 			}
+		} else if m := o.macosUserKey; m != nil && (m.joined != nil || o.macosUserKeeps(rt, cfg, doorways)) {
+			// THE WORKSPACE'S KEEPER HOLDS THEM (docs/design/jail-lifetime-last-session-wins.md §9.9;
+			// keeperspawn.go): every host service, doorway and launch-owned service this launch would
+			// start outside the sandbox, for every macos-user session of the workspace. A fresh launch
+			// discloses them and spawns it; a joining one names the keeper it joined and starts
+			// nothing. Either way the sandbox is told the endpoints the keeper's roster names, which
+			// every session of the workspace is told.
+			var rec keeperRecord
+			if m.joined != nil {
+				if !o.joinMacosUserKeeper(rt, cname, cfg, staged.packs, jailDaemons, doorways) {
+					return 1
+				}
+				rec = *m.joined
+			} else {
+				var status int
+				var started bool
+				rec, status, started = o.startMacosUserKeeper(arm, cfg, rt, cname, staged, jailDaemons, doorways, channel)
+				if !started {
+					return status
+				}
+			}
+			setRosterEndpoints(launchEnv, rec)
+			if o.claudeCredentialView(rt, cfg) {
+				launchEnv.Set(claudeview.SwitchEnv, claudeview.ResolvedValue(true))
+			}
+			// The keeper's endpoint files a session of the workspace granted already, which this
+			// session's stage does not grant again, and the record of those its own stage grants.
+			arm.setGrants(o.macosUserGrants(rec))
 		} else {
+			// NOTHING A KEEPER HOLDS (JL-D42): this launch runs as it always did, with no keeper and
+			// no count, and lets the arrival lock go. It still records itself, so `yolo stop` from the
+			// workspace ends it with every other session of it (JL-D44); the record never counts.
+			o.releaseArrivalLock()
+			o.recordKeeperlessSession()
 			// THE SESSION'S OWN DIR, created by the spawn and removed by this teardown alone
 			// (servicessession.go). Two sessions of one workspace used to share the dir the
 			// workspace's cname selects, and this deferred teardown, which takes no container
 			// guard, removed it under the other session (OQ-HD10's second run, measured).
+			sp := o.Perf.Span("launch.start_loopholes")
 			handles, refused := o.startLoopholesDisclosed(cname, rt, cfg, staged.packs, jailDaemons)
-			defer o.endServicesSession(handles)
+			sp.End()
+			defer func() {
+				sp := o.Perf.Span("shutdown.stop_loopholes")
+				o.endServicesSession(handles)
+				sp.End()
+			}()
 			// THE CREDENTIAL VIEW, opt-in until a Mac measures it (CL-D11): the
 			// workspace's view registered and written now that the broker singleton is up, and
 			// the resolved switch handed to the bootstrap, which then does not link the shared
@@ -591,13 +740,14 @@ func Run(opts Options) (rc int) {
 				// reason — its consumer reads the bind destination.
 				launchEnv.Set(hostServiceLaunchEnvVar(h), h.hostPath)
 			}
-			// THE CREDENTIAL SERVICE IS STILL FAIL-CLOSED, and it is deliberately the only
-			// one refused for not starting: a launch whose OpenAI loophole is active and whose
+			// THE CREDENTIAL SERVICE IS STILL FAIL-CLOSED HERE, and it is deliberately the only
+			// one refused at this point: a launch whose OpenAI loophole is active and whose
 			// broker did not start hands the agent a subscription it cannot refresh, silently.
-			// Every other service degrades to "the jail cannot reach it", which
-			// startLoopholesMatching already warns about by name and which no launch of this
-			// backend is refused for — this arm emits no reachability disposition at all
-			// (loopholesruntime.go).
+			// Every other service that did not start degrades to "the sandbox has no endpoint
+			// for it", which startLoopholesMatching already warns about by name. A service that
+			// DID start and that the sandbox then cannot use is refused later, by the backend's
+			// own witness stage (macosuser.ProbeServicesArgv), which reads the `shared`
+			// disposition the macos-user plan builder writes (loopholesruntime.go).
 			if openAIAuthLoopholeActive(cfg) && !startedLoophole(handles, openAIAuthBrokerName) {
 				o.pr(o.Stderr).print(openAIServiceRefusal())
 				return 1
@@ -614,22 +764,34 @@ func Run(opts Options) (rc int) {
 			// THE DOORWAYS (macosuserdoorways.go), once the host services they forward to are up
 			// and their endpoint files are on launchEnv, and stopped when the command returns. One
 			// that does not start refuses the launch before the command runs.
-			stopDoorways, err := o.startMacosUserDoorways(doorways, launchEnv)
+			sp = o.Perf.Span("launch.start_doorways")
+			stopDoorways, _, err := o.startMacosUserDoorways(doorways, launchEnv, nil)
+			sp.End()
 			if err != nil {
 				o.pr(o.Stderr).printf("[bold red]Refusing the macos-user launch: %s[/bold red]", err.Error())
 				return 1
 			}
-			defer stopDoorways()
+			defer func() {
+				sp := o.Perf.Span("shutdown.stop_doorways")
+				stopDoorways()
+				sp.End()
+			}()
 			// THE LAUNCH-OWNED SERVICES (macosuserservices.go): the host half of every pack
 			// service a profiled agent's pairing needs, started after the credential service
 			// it may ask for a view, and stopped when the sandboxed command exits. One that does
 			// not start refuses the launch before the command runs.
-			stopServices, err := o.startMacosUserServices(channel)
+			sp = o.Perf.Span("launch.start_services")
+			stopServices, _, err := o.startMacosUserServices(o.macosUserServiceStarts(channel), nil)
+			sp.End()
 			if err != nil {
 				o.pr(o.Stderr).printf("[bold red]Refusing the macos-user launch: %s[/bold red]", err.Error())
 				return 1
 			}
-			defer stopServices()
+			defer func() {
+				sp := o.Perf.Span("shutdown.stop_services")
+				stopServices()
+				sp.End()
+			}()
 		}
 		// AND THE OTHER HALF OF THAT LIFECYCLE, WHICH THIS BACKEND NOW HAS: the guest's
 		// supervisor starts the daemons it runs (MacosUserRun's last argument), and the ones
@@ -675,11 +837,12 @@ func Run(opts Options) (rc int) {
 		// The keys that are wrong on THIS backend are wrong for a reason no other
 		// backend shares, so the printer is this backend's.
 		o.noteMacosUserPlatformGaps(cfg)
-		o.noteMacosUserPortKeys(cfg)
+		o.noteMacosUserPortKeys(cfg, portPlan)
 		// A FORK DELIVERS NO PROGRAM ON THIS BACKEND, and says so (FP-D3; forkbuild.go): the build
-		// trigger sits below this arm's return, and no macos-user launch can read the capture
-		// store yet (hand-off H4). The sandbox's own launcher for the program is told the same
-		// reason (macosUserForkWire), so typing it there names this backend and the next step.
+		// trigger sits below this arm's return, and the capture store this arm stages (hand-off
+		// H4, macosUserCaptures) carries installer captures alone. The sandbox's own launcher
+		// for the program is told the same reason (macosUserForkWire), so typing it there names
+		// this backend and the next step.
 		o.noteMacosUserForks()
 		if wire := o.macosUserForkWire(); wire != "" {
 			launchEnv.Set(entrypoint.ForkBuildsEnv, wire)
@@ -780,6 +943,21 @@ func Run(opts Options) (rc int) {
 		// is everything above: the pack tree is this launch's own (packtree.go), so its
 		// staging and the host daemons started from it above cannot race another launch's.
 		o.holdLaunchLock(cname)
+		// THE LAUNCH'S CONFIG ARTIFACTS, on this backend too, and under the lock as the container
+		// arm writes them: the merged config an in-sandbox `yolo config dump` reads back, and the
+		// workspace baseline an in-sandbox `yolo config drift` compares against. Every invocation
+		// here is a fresh launch, and the lock is released before the agent starts, so a later
+		// launch of the workspace can rewrite the baseline under this session: the session carries
+		// its own baseline's digest, and drift refuses to answer about one it did not start from
+		// (config.BootBaselineDigestEnv). ⚠ RESIDUAL, stated rather than fixed: the merged config
+		// carries no such digest, so after a later launch of the workspace every in-sandbox read
+		// of its merged config (`config dump`, `yolo check`, `pack ls`) reports THAT launch's,
+		// not this session's. A dry run launches nothing.
+		if !o.DryRun {
+			if d := o.writeLaunchConfigArtifacts(cfg); d != "" {
+				launchEnv.Set(config.BootBaselineDigestEnv, d)
+			}
+		}
 		// THE DURABLE DIR, on this backend too: every invocation here is a fresh launch. It is
 		// the workspace's own `.yolo/durable` at its real path, inside the Seatbelt write set
 		// with the rest of the workspace, and it reaches the sandbox through the launch env
@@ -796,15 +974,25 @@ func Run(opts Options) (rc int) {
 		if dir := o.claudeSecureStorageDir(rt, cfg, staged.packs, macosuser.SandboxHome()); dir != "" {
 			launchEnv.Set(claudeview.SecureStorageEnv, dir)
 		}
-		staging, err := o.refreshJailBriefings(cname, cfg, rt, staged,
+		// notchConfig, not cfg: the briefing states the notch, and `--at guest` names one the
+		// config's `confinement` key does not (EMP-D1). Everything else here reads cfg.
+		sp := o.Perf.Span("launch.refresh_jail_briefings")
+		staging, err := o.refreshJailBriefings(cname, o.notchConfig(cfg), rt, staged,
 			appliedIOPriority(rt, o.IsMacOS, cfgMap(cfg, "resources")))
+		sp.End()
 		if err != nil {
 			o.pr(o.Stderr).printf("[bold red]%s[/bold red]", err.Error())
 			return 1
 		}
-		homeOverlay, err = buildMacosHomeOverlay(staging, staged.packs, func(line string) {
+		// THE INHERITED USER SCOPE rides in the overlay as a file of core's (OQ-LP9,
+		// macosUserInheritedScope): the generated ~/.config/yolo-jail/config.jsonc every in-sandbox
+		// `yolo check`, `pack` and `loopholes` reads as its user scope, write-protected like the
+		// rest of the overlay. A dry run composes it too, for the overlay's reason.
+		sp = o.Perf.Span("launch.build_home_overlay")
+		homeOverlay, err = buildMacosHomeOverlayWith(staging, staged.packs, o.macosUserInheritedScope(rt), func(line string) {
 			o.pr(o.Stdout).print("[yellow]" + line + "[/yellow]")
 		})
+		sp.End()
 		if err != nil {
 			o.pr(o.Stderr).printf("[bold red]%s[/bold red]", err.Error())
 			return 1
@@ -819,8 +1007,10 @@ func Run(opts Options) (rc int) {
 		// bytes exist and could not be copied would compose the agent a settings file
 		// that looks like the human's and is not, which is the exact failure OQ-CO10
 		// made the jail's read fail closed over. An ABSENT source is not a failure and
-		// does not reach here.
-		ctxDelivery, err := o.buildMacosCtxTree(staging, staged.packs, cfg)
+		// does not reach here. The pack files the decider chose to copy land in the same tree.
+		sp = o.Perf.Span("launch.build_ctx_tree")
+		ctxDelivery, err := o.buildMacosCtxTree(staging, staged.packs, cfg, ctxCopies...)
+		sp.End()
 		if err != nil {
 			o.pr(o.Stderr).printf("[bold red]%s[/bold red]", err.Error())
 			return 1
@@ -838,12 +1028,22 @@ func Run(opts Options) (rc int) {
 		// and a grant it could not deliver refused the launch above (planMacosUserCtxMounts),
 		// so no banner line on this arm describes a read that does not happen beyond what the
 		// container arm's does for an absent source.
+		//
+		// AND NOTHING ELSE IS SAID ABOUT HOST BYTES HERE: a directory `host_files` entry crosses
+		// by copy now (buildMacosCtxTree), so the one line that named it as not crossing has
+		// nothing left to name.
 		o.notePackHostAccess(staged.packs, channel)
-		o.noteMacosUserHostByteGaps(ctxDelivery)
 		// THE CONTEXT MOUNTS cross inside the host context, and each read-write one is
 		// disclosed at the same point (§2.4), so the backend is never handed one unsaid.
 		ctxDelivery.ctx.Links = ctxLinks
+		// AND THE INSTALL-CAPTURE STORE'S ENTRIES (H4; macosctxtree.go's macosUserCaptures): each
+		// selected installer program's darwin entry, after the auto-capture above may have made it,
+		// for the backend to stage root-owned and name to its launchers.
+		ctxDelivery.ctx.Captures, ctxDelivery.ctx.CapturesKept = o.macosUserCaptures(staged.packs)
 		o.noteMacosUserRWMounts(cname, ctxLinks)
+		// And the cache relocations, which the backend discloses by link and target
+		// (macosuser.printCacheRelocations) and stages, probes and opens in the profile.
+		ctxDelivery.ctx.Relocations = cacheRelocs
 		// EVERY PROFILED AGENT'S OWN ENV FILE, on this backend too (providers.md
 		// OQ-CN9, ruled 2026-09-28): the container vehicle's writer, into the sidecar directory
 		// the bootstrap's home layout links the sandbox's ~/.config to, so an agent started from
@@ -860,17 +1060,53 @@ func Run(opts Options) (rc int) {
 		// THE GUEST'S PORTS GO FREE HERE, and no earlier (servedaddresses.go, NC-D69): the
 		// sandbox's supervisor binds the ports this launch reserved for the daemons it runs,
 		// and every listener of this launch's own (the host services' fronts, the doorways and
-		// launch-owned services, which were handed theirs) is bound by now.
+		// launch-owned services, which were handed theirs) is bound by now. The port relays are
+		// not among them: they open inside the backend, when the session starts, and never on a
+		// port this launch picked for a served address (macosUserRelaysAt).
 		o.releaseReservedPorts()
-		// THE HERDR PANE, registered as late as this arm can (herdragent.go): it has no signal
-		// arm, so a registration made before its config prompt outlived a Ctrl-C there.
+		// THE HERDR PANE, registered as late as this arm can (herdragent.go), under its signal arm:
+		// a registration made before its config prompt, where no arm runs, outlived a Ctrl-C there.
 		o.registerHerdrAgent(staged.packs, injectedArgs)
+		// A SIGNAL BEFORE THE DISPATCH ends the launch here, through every defer above, and the
+		// backend never starts (the arm's Ending; RunMacosUser asks the same at each of its steps).
+		dispatched = true
+		if status, ending := arm.Ending(); ending {
+			// A session that never began still quits as one at its key (endMacosUserSession), so its
+			// keeper, when this was the key's only session, ends with its teardown streamed here.
+			return o.endMacosUserSession(rt, status)
+		}
+		// THE HOUSEKEEPING SLOT (OQ-BF5), on this arm too (runMacosUserHousekeeping says which
+		// classes): on its own goroutine, never waited on, and never after the backend returns,
+		// where it would hold the prompt (startMacosUserHousekeeping says where it belongs).
+		// Below the arm's Ending, so a launch a signal ended starts no pass it would then abandon.
+		if !o.DryRun {
+			o.startMacosUserHousekeeping(consent)
+		}
 		// Composed LAST, after every endpoint variable has landed on launchEnv (the live
 		// path's handles, or a dry run's placeholder), since the daemons dial those files.
-		return o.MacosUserRun(cfg, o.Workspace, config.SelectedAgents(cfg), agentArgv,
+		guest := channel.guestJailDaemons(guestDaemons, launchEnv)
+		// THE PORT REMAPS' RELAYS (macosuserportrelay.go) open when the session starts, inside the
+		// backend (JailDaemons.OnLaunch), and close when the command exits: so a launch refused
+		// anywhere, here or in the backend, or still building its tools, publishes no port. A dry
+		// run opens none, and its plan named each above.
+		if !o.DryRun {
+			guest.OnLaunch = o.macosUserRelaysAt(portPlan.relays)
+		}
+		sp = o.Perf.Span("launch.macos_user")
+		rc = o.MacosUserRun(cfg, o.Workspace, config.SelectedAgents(cfg), agentArgv,
 			repoRoot, staged.root, homeOverlay, ctxDelivery.ctx, o.DryRun,
-			launchEnv, packload.BlockedTools(staged.packs),
-			channel.guestJailDaemons(guestDaemons, launchEnv))
+			launchEnv, packload.BlockedTools(staged.packs), guest)
+		sp.End()
+		// E3 ON THIS ARM (macosusercapture.go): the session is over, so fold its edits to
+		// capture-mode surfaces into their sidecars from the host side, as a container's teardown
+		// does, before anyone asks `yolo config diff`. A dry run started no session.
+		if !o.DryRun {
+			o.captureMacosUserConfig(cname, rt)
+		}
+		// ITS QUIT, a session's of its key (keeperspawn.go's endMacosUserSession; JL-D40): one line
+		// while other sessions of the workspace keep its keeper's services up, the keeper's teardown
+		// streamed when this was the last, or the reap of a key whose keeper died.
+		return o.endMacosUserSession(rt, rc)
 	}
 	// AUTO-CAPTURE is not in this slot any more: it runs on the fresh-launch path inside
 	// runContainer, below every attach decision, beside the fork builds (OQ-PD25).
@@ -931,13 +1167,16 @@ func (o *Options) stageRunPacks(cname string) (stagedPacks, bool) {
 	return stagedPacks{root: root, packs: packs, briefings: briefings}, true
 }
 
-// discardUnheldPackTree removes this launch's own pack tree unless a started container holds it.
-// Run defers it once staging has produced the tree: on a refusal, an attach (which reads the
-// running jail's tree and needs its own staging only to compare), a macos-user launch (whose
-// sandbox copied the tree at its bootstrap and whose host daemons, which run from it, stop before
-// this runs) and a --dry-run, no container ever holds it. A fresh container launch marks the tree
-// held just before the container starts; from then on it goes only once the runtime answers that
-// the container is gone (forgetGoneContainer).
+// discardUnheldPackTree removes this launch's own pack tree unless a started container, or the
+// workspace's macos-user keeper, holds it. Run defers it once staging has produced the tree: on a
+// refusal, an attach (which reads the running jail's tree and needs its own staging only to
+// compare), a macos-user launch that started no keeper (whose sandbox copied the tree at its
+// bootstrap and which ran no host daemon from it, or stopped them before this runs) or joined one
+// (whose keeper runs from the tree of the launch that started it), and a --dry-run, nothing holds
+// it. A fresh container launch marks the tree held just before the container starts, and from then
+// on it goes only once the runtime answers that the container is gone (forgetGoneContainer); a
+// macos-user launch that spawns the workspace's keeper hands it the tree, which the keeper removes
+// at its end (startMacosUserKeeper, JL-D86).
 func (o *Options) discardUnheldPackTree(cname string) {
 	if o.packTreeHeld {
 		return
@@ -1347,10 +1586,9 @@ func (o *Options) runContainer(cfg *jsonx.OrderedMap, rt, repoRoot, cname string
 	//     it ran again for every terminal that joined, and on Apple Container its jail cannot
 	//     start beside the running one (INFERRED from docs/research/macos-backend-performance.md
 	//     §7, which MEASURED that a second unsealed jail cannot).
-	//   - BELOW the macos-user return, which is what makes it container-only. See
-	//     autocapture.go for why that backend is excluded — nothing there emits
-	//     CapturesDirEnv (hand-off H4) — and why `yolo capture` stays available on it as an
-	//     explicit act.
+	//   - BELOW the macos-user return, so this is the CONTAINER arm's call, asking for the
+	//     container jail's platform. The macos-user arm makes its own, before its dispatch, for
+	//     a darwin one (autocapture.go).
 	//   - ABOVE the image load, so the capture jail's own launch is the thing that builds and
 	//     loads the image, and this launch reuses it. It is BLOCKING and it says so while it
 	//     works: on a fresh machine the first launch grows by one installer download per
@@ -1367,7 +1605,7 @@ func (o *Options) runContainer(cfg *jsonx.OrderedMap, rt, repoRoot, cname string
 	// the very first nested --timing run measured 109 of its 125 seconds in
 	// this call — every bit of it between two spans, pointing at nothing.
 	captureSpan := o.Perf.Span("launch.auto_capture")
-	o.autoCaptureInstallerPrograms(staged.packs)
+	o.autoCaptureInstallerPrograms(staged.packs, containerJailPlatform())
 	captureSpan.End()
 
 	// THE FORK BUILDS (forkbuild.go; OQ-FP4, eager at the notch's readiness act): every selected
@@ -1505,7 +1743,22 @@ func (o *Options) runContainer(cfg *jsonx.OrderedMap, rt, repoRoot, cname string
 	// attach performs to deliver a different profile into a running jail.
 	userEnv := channel.userEnv
 	deliverChannel(wsState, rt, channel)
+	// THE JAIL'S --with-credentials GRANT FILE (jailgrant.go, ES-D37): written here, once, by the
+	// fresh launch alone, outside the workspace (and on Apple Container copied into the home it
+	// binds), never on the argv. An attach never reaches this line, so no later entry changes it.
+	if err := o.stageJailGrant(cname, rt, wsState); err != nil {
+		out.printf("[bold red]Refusing to launch: %s[/bold red]", richtext.Escape(err.Error()))
+		out.print("[dim]Free the disk or fix the directory's permissions, then launch again; or launch " +
+			"without --with-credentials.[/dim]")
+		lock.Close()
+		return 1
+	}
+	// THE JAIL THIS LAUNCH STARTS HOLDS ITS GRANT (jailgrant.go): named beside the gate's lines,
+	// which say a granted name is every process's. An attach that restarted the jail reaches here
+	// too, so the grant is this launch's own, never the stopped jail's.
+	o.heldGrant = o.jailGrant
 	o.noteCredentialScope(channel)
+	o.noteHeldGrant(grantFreshJail, "", channelProfiled(channel))
 	// What this launch's jail-daemon payload left out because no profile selects it (OQ-CN7
 	// (b)). Here, on the fresh path, because only a fresh launch starts daemons: an attach's
 	// selection starts none, and settles a daemon it needs and the jail lacks as skew instead.
@@ -2048,7 +2301,10 @@ func (o *Options) runContainer(cfg *jsonx.OrderedMap, rt, repoRoot, cname string
 	// arm runs releases it, and so does this launch before each disarm below.
 	o.registerHerdrAgent(loadedPacks, injectedArgs)
 	keeperStarted := false
-	ready := kp.relay(o.Stdout, o.Stderr, o.JailStdout, o.JailStderr, keeperEvents{
+	// The jail's own lines go to its writers (JailStdout, JailStderr): this process's, unless the
+	// caller's jail prints progress for another command — the host floor's capture and build jails —
+	// or keeps them apart from its own, as a build jail's act does (cli's jailTail).
+	ready := kp.relay(o.Stdout, o.Stderr, o.jailStdout(), o.jailStderr(), keeperEvents{
 		started: func(pid int) {
 			keeperStarted = true
 			o.pr(o.Stderr).printf("[dim]keeper: started, pid %d[/dim]", pid)
@@ -2246,8 +2502,10 @@ func (o *Options) emitTimingReportLocked(rc int, cname, rt string) {
 	}
 	o.pr(o.Stderr).printf("[dim]  host file: %s[/dim]",
 		filepath.Join(paths.WorkspaceStateDir(o.Workspace), HostPerfLogName))
-	o.pr(o.Stderr).printf("[dim]  jail half: %s[/dim]",
-		filepath.Join(paths.WorkspaceHomeState(o.Workspace), "yolo-perf.log"))
+	if rt != "macos-user" { // parity: NotApplicable — the macos-user bootstrap keeps no jail perf log, so there is no jail half to name
+		o.pr(o.Stderr).printf("[dim]  jail half: %s[/dim]",
+			filepath.Join(paths.WorkspaceHomeState(o.Workspace), "yolo-perf.log"))
+	}
 }
 
 // hostForwardPorts is the `network.forward_host_ports` entries this launch will
@@ -2337,9 +2595,10 @@ func insertHostServiceEnv(runCmd []string, imageRef string, services []loopholeD
 // AN EMPTY NAME IS THE HOST-SCOPED FRONT (startHostSingleton), which carries none because the
 // container path emits its variable much earlier, at argv-assembly time
 // (hostServicesMountArgs), optimistically and before the front has published. This backend
-// assembles no argv and has no in-jail reachability witness to refuse a broken promise, so the
-// handle is both the only source it has and the honest one: the variable is emitted for a
-// service that really did publish. Falling back to hostServiceEnvVar rather than skipping is
+// assembles no argv, and its witness stage (macosuser.ProbeServicesArgv) probes only what the
+// session env names, so the handle is both the only source it has and the honest one: the
+// variable is emitted for a service that really did publish, and the witness then checks the
+// sandbox can use it. Falling back to hostServiceEnvVar rather than skipping is
 // what keeps the credential daemons — the broker and the OpenAI service, both host-scoped —
 // from being the two this arm silently omits.
 func hostServiceLaunchEnvVar(h loopholeDaemon) string {
@@ -2404,6 +2663,15 @@ func (o *Options) attachExisting(cname, rt, targetCmd string, cfg *jsonx.Ordered
 	// is visible at a glance (audit §B#4.
 	baked, _ := runtime.BakedYoloVersionFromInspectEnv(envLines)
 	o.emitLaunchBanner(rt, cname, nil, baked)
+	// THE JAIL'S GRANT IS THE ONE IT WAS LAUNCHED WITH (jailgrant.go, ES-D33): this session holds
+	// it, and asks for no other. A request the running jail does not hold is refused before anything
+	// is written, naming the fresh launch; a subset of it, or the same set, or none, goes ahead.
+	runningGrant, grantKnown := runningJailGrant(cname)
+	if o.refuseGrantTheJailLacks(cname, runningGrant, grantKnown) {
+		releaseLock()
+		return 1, false
+	}
+	o.heldGrant = runningGrant
 	// THE RUNNING JAIL'S PACKS, before the gate: what this entry delivers is composed over
 	// them, and the gate asks whether the jail can receive what this entry delivers. A jail
 	// whose tree will not load, or whose packs cannot serve what this entry selects, is a known
@@ -2569,6 +2837,10 @@ func (o *Options) attachExisting(cname, rt, targetCmd string, cfg *jsonx.Ordered
 	}
 	// The launch's fate is known: it attaches (launchrecord.go).
 	o.recordLaunchOutcome(launchAttached, -1)
+	// WHAT THIS SESSION HOLDS OF THE JAIL'S GRANT, on every attach to a jail launched with one,
+	// whether or not this entry typed the flag or delivers its channel (jailgrant.go).
+	// And, by the "OQ-ES5 (attach -p)" ruling, what this entry's profiles deliver beyond it.
+	o.noteHeldGrant(grantAttach, "", channelProfiled(channel), profileKeysBeyondGrant(channel, o.heldGrant, deliver)...)
 	// What this attach did NOT deliver: the configured packs, when they differ from the ones
 	// the jail booted with (OQ-PK2 (c)'s notice).
 	o.noteBootedPackSetDiffers(rt, cname, view)
@@ -2610,6 +2882,16 @@ func (o *Options) attachExisting(cname, rt, targetCmd string, cfg *jsonx.Ordered
 		// (inheritedValues, OQ-CN8): the agent files override it rather than defer to it.
 		if channel != nil {
 			channel.bootEnv = envLinesMap(envLines)
+			// And the jail's --with-credentials grant, which every session's boot reads into its
+			// environment from the grant file rather than from the frozen environment (ES-D37): its
+			// values are yolo's too, so an agent's file overrides them with its profile's as it
+			// overrode them when they were frozen (ES-D36).
+			for k, v := range grantFileValues(jailGrantHostFile(cname)) {
+				if channel.bootEnv == nil {
+					channel.bootEnv = map[string]string{}
+				}
+				channel.bootEnv[k] = v
+			}
 		}
 		if rc := o.deliverChannelOnAttach(cname, rt, cfg, view.staged, channel); rc != 0 {
 			return rc, false
@@ -2938,8 +3220,9 @@ func resPartsFor(cfg *jsonx.OrderedMap, rt string) []string {
 	return parts
 }
 
-// refuseUnbuiltNotch stops a launch whose notch is anything but `jail`, and reports the
-// exit code and whether it did.
+// refuseUnbuiltNotch stops a launch at a notch no backend here runs, and reports the exit
+// code and whether it did. A launch runs two notches: `jail` on every platform, and `guest` on
+// macOS, where it is the macos-user backend (env-manager plan Phase 7.1, EMP-D1).
 //
 // TWO INPUTS, ONE JUDGEMENT. The notch is the config's `confinement` key, overridden by
 // `--at <notch>` as typed on this launch (Options.Notch). Both were accepted and neither
@@ -2956,43 +3239,39 @@ func resPartsFor(cfg *jsonx.OrderedMap, rt string) []string {
 // it was rendered into. `yolo apply` refused the identical value with rc 1 the whole time,
 // so one config key meant two things depending on which verb read it.
 //
-// REFUSE, NOT HONOR, and not a warning either. Honoring the notch IS env-manager plan
-// Phase 7 (the LSM-confined backend) — this gate is the ~10 lines that stop the notch
-// LOOKING built while that is unwritten. A warning was the weaker option and was not
-// taken: OQ-BP-3 (docs/design/backend-parity.md) is live and says *"a warning people learn
-// to skip is worse than none"*, and a warned launch still hands the agent the contradicting
-// briefing.
+// THE MACOS GUEST IS HONORED, NOT REFUSED. There the briefing's sentences are true: the
+// macos-user backend is a restricted account on the real machine with a home that persists.
+// So a macOS guest passes this gate, and resolveRuntime then selects that backend with no
+// `runtime` key (config.NotchRuntime). What it refuses there is a CONTRADICTION: a
+// YOLO_RUNTIME or `runtime` key naming a container runtime asks for a container at a notch
+// that has none, and honoring either input would silently drop the other (EMP-D1).
+//
+// A LINUX GUEST IS REFUSED, NOT HONORED, and not warned about either. Honoring it is plan
+// Phase 7.2 (bwrap + Landlock), unwritten. A warning was the weaker option and was not taken:
+// OQ-BP-3 (docs/design/backend-parity.md) is live and says *"a warning people learn to skip is
+// worse than none"*, and a warned launch still hands the agent the contradicting briefing.
 //
 // ⚠ WHY REFUSING A CONFIG KEY IS SAFE HERE, when docs/design/declaration-parity.md §10
 // explicitly declines to refuse keys a mechanism has always tolerated (`gpu` on macOS, and
 // the rest): `confinement` is not a mechanism-varying key. It resolves to the same value on
-// every platform and every backend and is enforced by nothing anywhere, so a shared config
-// carried between a Linux box and a Mac loses nothing to this refusal.
+// every platform and every backend, so a shared config carried between a Linux box and a Mac
+// loses nothing it ever had to this refusal: the Mac launches the guest notch, and the Linux
+// box says it cannot and what to run instead.
 //
 // The guest sentence is render.NotchUnbuilt's, VERBATIM — `yolo apply --at guest` has
 // printed it since Phase 2 and the two must not drift (see that function).
 func refuseUnbuiltNotch(o *Options, cfg *jsonx.OrderedMap) (int, bool) {
-	notch := config.ResolveConfinement(cfg)
-	if o.Notch != "" {
+	if o.Notch != "" && !slices.Contains(config.KnownConfinements, config.Confinement(o.Notch)) {
 		// VALIDATED HERE, not in the parser: config.ResolveConfinement answers `jail`
 		// for a value it does not know (validateConfinement is what reports it), so a
 		// typo'd `--at gest` would silently launch a jail — an override that failed
 		// OPEN, which is the shape `yolo apply --at` already refuses with rc 2. Same
 		// code, same vocabulary, so the two spellings of the flag agree.
-		asked := config.Confinement(o.Notch)
-		known := false
-		for _, k := range config.KnownConfinements {
-			if asked == k {
-				known = true
-			}
-		}
-		if !known {
-			o.pr(o.Stderr).printf("[bold red]yolo: --at %q is not a confinement level "+
-				"(jail|guest|host)[/bold red]", o.Notch)
-			return 2, true
-		}
-		notch = asked
+		o.pr(o.Stderr).printf("[bold red]yolo: --at %q is not a confinement level "+
+			"(jail|guest|host)[/bold red]", o.Notch)
+		return 2, true
 	}
+	notch := o.launchNotch(cfg)
 	// WHERE THE VALUE CAME FROM, said in the refusal. A user who typed `--at guest` and
 	// is told to edit `confinement` will go looking for a key they never wrote; a user
 	// whose config carries it and is told to drop a flag will not find the flag. The
@@ -3005,11 +3284,15 @@ func refuseUnbuiltNotch(o *Options, cfg *jsonx.OrderedMap) (int, bool) {
 	}
 	switch notch {
 	case config.ConfinementGuest:
+		if o.IsMacOS {
+			return refuseGuestRuntimeConflict(o, cfg, source)
+		}
 		o.pr(o.Stderr).printf("[bold red]Refusing to launch: %s[/bold red]",
 			render.NotchUnbuilt("launch"))
 		o.pr(o.Stderr).printf("[dim]The notch is %s, and yolo validates it — which is why "+
-			"this reads as a refusal rather than a typo. %s; `yolo describe` prints what "+
-			"each notch would compose.[/dim]", source, fix)
+			"this reads as a refusal rather than a typo. %s; or run the command on the real "+
+			"machine, with no sandbox at all, through `yolo host -- <cmd>`. `yolo describe` "+
+			"prints what each notch would compose.[/dim]", source, fix)
 		return 1, true
 	case config.ConfinementHost:
 		// The host notch is BUILT — it simply is not something a launch does. `yolo host
@@ -3025,6 +3308,84 @@ func refuseUnbuiltNotch(o *Options, cfg *jsonx.OrderedMap) (int, bool) {
 		return 1, true
 	}
 	return 0, false
+}
+
+// refuseGuestRuntimeConflict is the macOS guest's half of the notch gate: the notch runs on
+// macos-user (config.GuestRuntime), so an explicit runtime naming anything else is refused,
+// naming both inputs and how to keep either one. notchSource is the gate's own phrase for
+// where the notch came from.
+//
+// REFUSED RATHER THAN RESOLVED, because each answer drops a declaration silently: the notch
+// winning would ignore a `runtime` the user wrote, and the runtime winning would launch a
+// container at a notch that promises the agent a real account (EMP-D1). Agreement passes:
+// `runtime: "macos-user"` with `confinement: "guest"` is one launch said twice.
+func refuseGuestRuntimeConflict(o *Options, cfg *jsonx.OrderedMap, notchSource string) (int, bool) {
+	rt, src, conflict := config.NotchRuntimeConflict(o.Getenv("YOLO_RUNTIME"), cfg,
+		config.ConfinementGuest, o.IsMacOS)
+	if !conflict {
+		return 0, false
+	}
+	named := "`runtime: \"" + rt + "\"` in your config"
+	keepNotch := "remove that `runtime` key (or set it to \"" + config.GuestRuntime + "\")"
+	if src == config.RuntimeFromEnv {
+		named = "YOLO_RUNTIME=" + rt
+		keepNotch = "unset YOLO_RUNTIME"
+	}
+	// FROM THE FLAG, THE STEP REPLACES IT rather than dropping it: the flag outranks the config,
+	// so `--at jail` keeps the runtime whatever `confinement` says, while a dropped flag falls
+	// back to that key, which may say guest too.
+	keepRuntime := "set `confinement` to \"jail\" or remove it"
+	if o.Notch != "" {
+		keepRuntime = "pass `--at jail` in place of `--at " + o.Notch + "`"
+	}
+	o.pr(o.Stderr).printf("[bold red]Refusing to launch: the guest notch (%s) runs on the "+
+		"%s backend on macOS, and %s asks for %s instead. The two name different launches."+
+		"[/bold red]", notchSource, config.GuestRuntime, named, rt)
+	o.pr(o.Stderr).printf("[dim]Drop one: to launch the guest notch, %s; to launch a %s "+
+		"jail, %s.[/dim]", keepNotch, rt, keepRuntime)
+	return 1, true
+}
+
+// launchNotch is the notch this launch runs at: the config's `confinement`, overridden by a
+// known `--at` (Options.Notch). refuseUnbuiltNotch refuses an unknown `--at` before anything
+// else reads this, which is why an unknown one falls back to the config here rather than
+// failing twice.
+func (o *Options) launchNotch(cfg *jsonx.OrderedMap) config.Confinement {
+	if n := config.Confinement(o.Notch); slices.Contains(config.KnownConfinements, n) {
+		return n
+	}
+	return config.ResolveConfinement(cfg)
+}
+
+// containerStepClause is config.ContainerStepClause at this launch's notch (atNotch): "" at the
+// jail notch, and at a guest the jail notch that a container runtime also needs there, since the
+// notch gate refuses a container runtime beside a macOS guest (EMP-D5). Every macos-user printer
+// whose next step names a container runtime appends it to that step, so the step is one the
+// launch takes.
+func (o *Options) containerStepClause() string { return config.ContainerStepClause(o.atNotch) }
+
+// notchConfig is cfg as this launch's notch reads it, for the one reader that states the
+// notch to the agent: the briefing (refreshJailBriefings → BriefingInput.Confinement), which
+// takes the notch from the config's `confinement` key. With no `--at`, or one that agrees
+// with the key, it is cfg itself. Otherwise it is a shallow copy whose `confinement` is the
+// flag's, so `yolo --at guest -- <cmd>` on macOS tells the agent it is at the guest notch,
+// as `confinement: "guest"` does.
+//
+// A COPY, never an edit of cfg: the merged config is also what the config-change approval
+// compares and what the backend records as this launch's boot baseline, and a flag typed
+// on one launch is neither.
+func (o *Options) notchConfig(cfg *jsonx.OrderedMap) *jsonx.OrderedMap {
+	notch := o.launchNotch(cfg)
+	if cfg == nil || notch == config.ResolveConfinement(cfg) {
+		return cfg
+	}
+	cp := jsonx.NewOrderedMap()
+	for _, k := range cfg.Keys() {
+		v, _ := cfg.Get(k)
+		cp.Set(k, v)
+	}
+	cp.Set("confinement", string(notch))
+	return cp
 }
 
 // packSurfacePaths is every destination the loaded packs compose, for the two-writers refusal.

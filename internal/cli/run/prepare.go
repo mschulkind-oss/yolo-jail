@@ -119,7 +119,7 @@ func (o *Options) refreshJailBriefings(cname string, cfg *jsonx.OrderedMap, rt s
 	// docs/reference/mcp-configuration.md#oq-lsp1. Injected rather than read inside jailcontent for the
 	// same reason the two setters above are: that package is called from here and does not read
 	// config itself. None under the seal (agentServerTables, seal.go): a build runs no agent.
-	lspServers, _, _ := agentServerTables(cfg, o.Sealed)
+	lspServers, _, _ := agentServerTables(cfg, o.Sealed, nil)
 	jailcontent.SetLSPServers(lspServers)
 
 	// Skills staging — with the WORKSPACE as the lowest layer (docs/reference/agent-briefings.md),
@@ -175,18 +175,22 @@ func (o *Options) refreshJailBriefings(cname string, cfg *jsonx.OrderedMap, rt s
 		// /home/agent exactly as before.
 		Home: nativeHomeFor(rt),
 		// The platform this launch runs ON, for the one answer the mechanism does not
-		// carry: a `guest` notch has no backend yet, so its Seatbelt-vs-Landlock spelling
-		// comes from here. `yolo describe` passes paths.IsMacOS for the same input; this
-		// path takes the injectable seam so the briefing stays deterministic in tests.
+		// carry: the Seatbelt-vs-Landlock spelling of a `guest` notch whose mechanism names
+		// no backend (jailcontent.ConfinementProfile). A guest LAUNCH always names one —
+		// macos-user on macOS, and a Linux guest is refused (env-manager plan EMP-D1,
+		// EMP-D3) — so this is the fallback `yolo describe` also needs, which passes
+		// paths.IsMacOS; this path takes the injectable seam so the briefing stays
+		// deterministic in tests.
 		IsMacOS: o.IsMacOS,
 		// THE STANDING CONSTRAINTS OF THIS BACKEND, in the agent's voice. Unset for the
 		// whole life of the field (DP-B21): backendLimits had no production call site, so
 		// the "What this environment does NOT do for you" section never rendered once —
-		// while run.noteMacosUserHostByteGaps' no-refusal carve-out says in as many words
-		// that it "is only defensible while the deficiency is SAID — here, and in the
-		// agent's own briefing (backendLimits)". Half of a shipped ruling's stated
-		// precondition did not execute.
-		BackendLimits: backendLimits(rt, staged.packs, cfg),
+		// while the no-refusal carve-out of run.noteMacosUserHostByteGaps (since deleted) said
+		// in as many words that it "is only defensible while the deficiency is SAID — here,
+		// and in the agent's own briefing (backendLimits)". Half of a shipped ruling's stated
+		// precondition did not execute. The port remaps come from the plan the macos-user arm
+		// relays (macosUserPortPlan), which reads the same config and resolved mode.
+		BackendLimits: backendLimits(rt, staged.packs, cfg, o.macosUserPortPlan(rt, cfg).relays),
 		Handoff:       handoff,
 		// An attach that went ahead under the attach-skew acknowledgment, and only that: what the
 		// jail could not take, for the session this attach starts (SK-D15). Nil otherwise.

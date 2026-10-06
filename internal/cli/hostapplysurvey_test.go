@@ -13,6 +13,12 @@ package cli
 // without it, deleting every `survey.note(...)` call would leave an empty changed set, and the
 // R3 test would pass against a feature that had been switched off wholesale (AGENTS.md's
 // callee-pinned-call-site-unpinned rule, which this repo has shipped five times).
+//
+// EVERY FIXTURE DECLARES `host_management: "own"`. The unset key is `none` since the `assert`
+// retirement (OQ-CO14): `yolo host apply` refuses under it, and no config surface renders, so a
+// survey of an unset home would assert R3 over a home whose config the predicate never measured.
+// Under `own` most shipped surfaces compose `stateful`, which keeps a hand edit rather than
+// replacing it; the loss-shaped tests below say which surface still runs the read-modify-write.
 
 import (
 	"bytes"
@@ -40,7 +46,7 @@ func surveyApply(t *testing.T) (*hostApplySurvey, string) {
 // report fields are populated: before it, every surface not skipped or refused reported
 // `would render` unconditionally, so this assertion could not be made at all.
 func TestHostApplySurveySeesNothingToChangeAfterAnAssert(t *testing.T) {
-	shippedPacksFixture(t)
+	shippedPacksFixtureUnder(t, "own")
 	// The DESTINATION ROLL-UP the second half of this test reads off the report is the --verbose
 	// view's since detail on demand: it counts what a loop visited, which is the launch gate's
 	// question and not the operator's (P6). The survey it verifies is unchanged.
@@ -73,7 +79,7 @@ func TestHostApplySurveySeesNothingToChangeAfterAnAssert(t *testing.T) {
 // OQ-HS9 rules the whole design on: the CONFIG never moved, so an approval-snapshot comparison
 // would see nothing. Only measuring the render catches it.
 func TestHostApplySurveySeesAHandEditedConfigSurface(t *testing.T) {
-	home := shippedPacksFixture(t)
+	home := shippedPacksFixtureUnder(t, "own")
 
 	if rc, report := applyWith(t, true, nil); rc != 0 {
 		t.Fatalf("assert apply rc=%d\n%s", rc, report)
@@ -125,14 +131,21 @@ func TestHostApplySurveySeesAHandEditedConfigSurface(t *testing.T) {
 //
 // A predicate comparing the render against the file's raw bytes would report this as a change
 // forever — and since yolo's canonical JSON is 2-space, so would every 4-space or tab-indented
-// ~/.claude/settings.json anyone has ever hand-written. That is R3 arriving by the other route.
+// ~/.claude.json anyone has ever hand-written. That is R3 arriving by the other route.
+//
+// THE FILE IS ~/.claude.json, claude/config, because the carve-out is the read-modify-write
+// predicate's (hostSurfaceWouldChange), and under `own` — the one contract that renders since the
+// `assert` retirement (OQ-CO14) — claude/config is the surface whose pack declares `rmw`.
+// ~/.claude/settings.json, which this test re-indented under `assert`, now composes `stateful`:
+// that predicate compares the composed bytes with the file's, so a re-indented owned file reads
+// as one change, which the next apply's rewrite settles.
 func TestHostApplySurveyIgnoresPureReformatting(t *testing.T) {
-	home := shippedPacksFixture(t)
+	home := shippedPacksFixtureUnder(t, "own")
 
 	if rc, report := applyWith(t, true, nil); rc != 0 {
 		t.Fatalf("assert apply rc=%d\n%s", rc, report)
 	}
-	settings := filepath.Join(home, ".claude", "settings.json")
+	settings := filepath.Join(home, ".claude.json")
 	data, err := os.ReadFile(settings)
 	if err != nil {
 		t.Fatalf("fixture bug: %v", err)
@@ -169,6 +182,7 @@ func TestHostApplySurveyIgnoresPureReformatting(t *testing.T) {
 // (OQ-HS4), so each of the four needs a test that fails when its own predicate is wrong.
 func TestHostApplySurveyCoversBriefingAndFiles(t *testing.T) {
 	home, _ := dropFixture(t, dropPackJSON)
+	declareHostOwn(t) // as every fixture here: the unset key is `none` since OQ-CO14
 
 	if rc, report := applyWith(t, true, nil); rc != 0 {
 		t.Fatalf("assert apply rc=%d\n%s", rc, report)
@@ -225,7 +239,7 @@ func TestHostApplySurveyCoversBriefingAndFiles(t *testing.T) {
 // content comparison at all before this: every entry reported `rendered` on every apply, so a
 // roll-up built from the actions alone would have said "everything would change" forever.
 func TestHostApplySurveySeesADeletedSkill(t *testing.T) {
-	home := shippedPacksFixture(t)
+	home := shippedPacksFixtureUnder(t, "own")
 	writeFile(t, filepath.Join(home, ".config", "yolo-jail", "local", "skills", "mine", "SKILL.md"),
 		"---\nname: mine\n---\nbody\n")
 
@@ -297,9 +311,9 @@ func TestHostApplyVerdictPrintsOnAllFourPaths(t *testing.T) {
 		{"assert, zero packs", true, true, "No packs configured"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			home := shippedPacksFixture(t)
+			home := shippedPacksFixtureUnder(t, "own")
 			if tc.zero {
-				selectPacks(t, home, "")
+				selectPacksWith(t, home, "", `,"host_management":"own"`)
 			}
 			rc, report := applyAt(t, tc.write)
 			if rc != 0 {
@@ -330,7 +344,7 @@ func TestHostApplyVerdictPrintsOnAllFourPaths(t *testing.T) {
 // one where the old tail was least useful: "8 in sync, 0 would change" is arithmetic, not an
 // answer.
 func TestHostApplyVerdictSaysNothingToDoOnASettledHome(t *testing.T) {
-	shippedPacksFixture(t)
+	shippedPacksFixtureUnder(t, "own")
 	if rc, report := applyWith(t, true, nil); rc != 0 {
 		t.Fatalf("assert apply rc=%d\n%s", rc, report)
 	}
@@ -348,7 +362,7 @@ func TestHostApplyVerdictSaysNothingToDoOnASettledHome(t *testing.T) {
 // name" to give different answers.
 func multiAgentSkillFixture(t *testing.T) (home string, dirs []string) {
 	t.Helper()
-	home = shippedPacksFixture(t)
+	home = shippedPacksFixtureUnder(t, "own")
 	dirs = []string{
 		filepath.Join(home, ".claude", "skills"),
 		filepath.Join(home, ".codex", "skills"),
@@ -431,9 +445,37 @@ func TestHostApplySurveyTiersASkillAdoptionAsALoss(t *testing.T) {
 	}
 }
 
-// multiAgentMCPFixture settles a home and then hand-adds ONE server, by the same name, to the
+// mcpTablesPackJSON declares two `rmw` MCP surfaces for two agents of its own, spelling the
+// table the way codex's TOML (`mcp_servers`) and opencode's JSON (`mcp`) do; mcpTablesDerive
+// regenerates each in full from the user config's `mcp_servers`, as those packs' derives do.
+//
+// WHY A PACK OF ITS OWN: the measured home dropped one server from codex's, opencode's and agy's
+// files, and under `host_management: "own"` — the one contract that renders since the `assert`
+// retirement (OQ-CO14) — those three surfaces compose `stateful`, whose render keeps a server
+// added by hand as the user's own edit. A surface declaring `rmw` still runs the
+// read-modify-write `assert` ran for every surface, so the shape the verdict block counts is
+// reached through these two and the one shipped surface that declares `rmw`, claude/config.
+const mcpTablesPackJSON = `{"name":"mcptables","contributes":[
+  {"kind":"config","config":[
+    {"agent":"tomlagent","name":"config","codec":"toml","mode":"rmw",
+     "path":"~/.tomlagent/config.toml","defaults":{"mcp_servers":{}}},
+    {"agent":"jsonagent","name":"config","codec":"json","mode":"rmw",
+     "path":"~/.jsonagent/config.json","defaults":{"mcp":{}}}]}]}`
+
+// mcpTablesDerive is mcpTablesPackJSON's derive.lua: each table a passthrough of `mcp_servers`,
+// declared in full, so an entry on disk this run did not produce is one the write drops.
+const mcpTablesDerive = `yolo.derive("tomlagent", "config", function(ctx)
+  return { mcp_servers = ctx.in_full(ctx.mcp_servers) }
+end)
+yolo.derive("jsonagent", "config", function(ctx)
+  return { mcp = ctx.in_full(ctx.mcp_servers) }
+end)
+`
+
+// multiAgentMCPFixture settles a home and then hand-adds ONE server, by the same name, to
 // three agent surfaces that own an MCP table — and each spells the table differently
-// (`mcp_servers` in codex's TOML, `mcp` in opencode's JSON, `mcpServers` in agy's).
+// (`mcp_servers` in a TOML file, `mcp` in a JSON one, `mcpServers` in claude's ~/.claude.json).
+// The home is every shipped pack under `own` plus mcpTablesPackJSON, whose header says why.
 //
 // That spelling is the whole reason the verdict block counts entry losses by NAME: the raw loss
 // strings are table-qualified, so three agents holding one server the user added produce three
@@ -441,16 +483,21 @@ func TestHostApplySurveyTiersASkillAdoptionAsALoss(t *testing.T) {
 // lines read as three problems with three fixes, when they are one problem with one fix"*).
 func multiAgentMCPFixture(t *testing.T) (home string, surfaces int) {
 	t.Helper()
-	home = shippedPacksFixture(t)
+	home = shippedPacksFixtureUnder(t, "own")
+	packDir := filepath.Join(t.TempDir(), "mcptables")
+	writeFile(t, filepath.Join(packDir, "pack.json"), mcpTablesPackJSON)
+	writeFile(t, filepath.Join(packDir, "derive.lua"), mcpTablesDerive)
+	selectPacksWith(t, home, `"claude","codex","copilot","opencode","pi","agy",`+
+		`{"source":"file://`+packDir+`","name":"mcptables"}`, `,"host_management":"own"`)
 	if rc, report := applyWith(t, true, nil); rc != 0 {
 		t.Fatalf("settling apply rc=%d\n%s", rc, report)
 	}
 	edits := []struct{ path, old, new string }{
-		{filepath.Join(home, ".codex", "config.toml"), "[mcp_servers]",
+		{filepath.Join(home, ".tomlagent", "config.toml"), "[mcp_servers]",
 			"[mcp_servers]\n[mcp_servers.handmade]\ncommand = \"echo\""},
-		{filepath.Join(home, ".config", "opencode", "opencode.json"), `"mcp": {}`,
+		{filepath.Join(home, ".jsonagent", "config.json"), `"mcp": {}`,
 			`"mcp": {"handmade": {"type": "local", "command": ["echo"]}}`},
-		{filepath.Join(home, ".gemini", "antigravity-cli", "mcp_config.json"),
+		{filepath.Join(home, ".claude.json"),
 			`"mcpServers": {}`, `"mcpServers": {"handmade": {"command": "echo"}}`},
 	}
 	for _, e := range edits {
@@ -499,7 +546,7 @@ func TestHostApplySurveyCountsOneMCPEntryOnceAcrossAgents(t *testing.T) {
 // tier 2, so a call site hard-coding tier 3 fails here.
 func TestHostApplySurveyTiersASurfaceWithLossesAsATier3(t *testing.T) {
 	home, _ := multiAgentMCPFixture(t)
-	lossy := filepath.Join(home, ".gemini", "antigravity-cli", "mcp_config.json")
+	lossy := filepath.Join(home, ".jsonagent", "config.json")
 	// THE CONTROL: a surface that would change and takes NOTHING of the user's. Deleting a
 	// rendered file is the cleanest one — the render re-creates it, and with no existing file
 	// there is no existing value to overwrite. Without this the fixture's every changed
@@ -541,7 +588,7 @@ func TestHostApplySurveyTiersASurfaceWithLossesAsATier3(t *testing.T) {
 // yours replaced — keys, with the file count*. Two keys in two files, so a count that collapsed
 // either dimension would be visible.
 func TestHostApplySurveyCountsReplacedValuesWithTheirFileCount(t *testing.T) {
-	home := shippedPacksFixture(t)
+	home := shippedPacksFixtureUnder(t, "own")
 	if rc, report := applyWith(t, true, nil); rc != 0 {
 		t.Fatalf("settling apply rc=%d\n%s", rc, report)
 	}
@@ -594,7 +641,7 @@ func TestHostApplyVerdictNamesAMissingDependency(t *testing.T) {
 	writeFile(t, filepath.Join(packDir, "pack.json"),
 		`{"name":"needy","description":"d","contributes":[`+
 			`{"kind":"requires","bin":"yolo-absent-probe-bin"}]}`)
-	selectPacks(t, home, `"claude",{"source":"file://`+packDir+`","name":"needy"}`)
+	selectPacksWith(t, home, `"claude",{"source":"file://`+packDir+`","name":"needy"}`, `,"host_management":"own"`)
 	t.Setenv("HOME", home)
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
 
@@ -624,7 +671,7 @@ func TestHostApplyVerdictNamesAMissingDependency(t *testing.T) {
 // itemized. Without it, deleting the probe's call site would be caught only by a fixture that
 // happens to declare a missing binary.
 func TestHostApplySurveyCountsPresentDependencies(t *testing.T) {
-	shippedPacksFixture(t)
+	shippedPacksFixtureUnder(t, "own")
 	survey, report := surveyApply(t)
 	present, missing, _, _ := survey.Deps()
 	if present == 0 {
@@ -655,7 +702,7 @@ func TestHostApplyVerdictNamesAPackThatFailedToRender(t *testing.T) {
 		`{"name":"bust","description":"d","contributes":[{"kind":"config","config":[`+
 			`{"agent":"bust","name":"s","path":"~/.bust/x.json","codec":"json",`+
 			`"mode":"nonsense","managed":{"a":1}}]}]}`)
-	selectPacks(t, home, `{"source":"file://`+packDir+`","name":"bust"}`)
+	selectPacksWith(t, home, `{"source":"file://`+packDir+`","name":"bust"}`, `,"host_management":"own"`)
 	t.Setenv("HOME", home)
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
 
@@ -694,10 +741,10 @@ func TestHostApplyHeaderSaysTheApplyInPlainWords(t *testing.T) {
 		want  string
 	}{
 		{"dry run", false, "host apply — dry run into "},
-		{"assert", true, "host apply — applying into "},
+		{"--assert", true, "host apply — applying into "},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			home := shippedPacksFixture(t)
+			home := shippedPacksFixtureUnder(t, "own")
 			stubDeclaredBins(t)
 			rc, report := applyAt(t, tc.write)
 			if rc != 0 {

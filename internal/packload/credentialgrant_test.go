@@ -125,3 +125,50 @@ func TestDisclosureHeaderNamesTheGrantAsARecipientRule(t *testing.T) {
 		t.Errorf("under a grant the rule line must name the grant as a recipient rule:\n got %q\nwant %q", got, want)
 	}
 }
+
+// A JAIL'S OWN GRANT (OQ-ES5's jail half, ES-D31) is held by every process, so the disclosure
+// names a name it holds as theirs through DisclosureNotes.Granted — never "withheld", even with no
+// agent selecting it, and over an agent's own recipients too — and takes the grant's rule line. A
+// name it does not hold keeps its line. The jail's call site is pinned in internal/cli/run.
+func TestDisclosureNamesAJailGrantAsEveryProcesss(t *testing.T) {
+	scope, err := ScopeCredentials(ScopeInput{
+		Providers:  twoProviders(t),
+		Profiles:   map[string]string{"pi": "zai-profile"},
+		Resolved:   map[string]ResolvedProfile{"zai-profile": {Provider: "zai"}},
+		EnvSources: hydrated("ZAI_API_KEY", "z", "CEREBRAS_API_KEY", "c", "ROUTE_BEARER", "b"),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	held := map[string]bool{"CEREBRAS_API_KEY": true, "ZAI_API_KEY": true}
+	got := scope.DisclosureWith(DisclosureNotes{Granted: func(n string) bool { return held[n] },
+		GrantHolder: "every process in this jail"})
+	joined := strings.Join(got, "\n")
+	for _, want := range []string{
+		"Credential scope: a provider's credential reaches only the processes whose profile selects it " +
+			"or whose --with-credentials grant names it.",
+		"CEREBRAS_API_KEY (provider cerebras): every process in this jail, by its --with-credentials grant",
+		"ZAI_API_KEY (provider zai): every process in this jail, by its --with-credentials grant",
+		"ROUTE_BEARER (provider routes): withheld from every process",
+	} {
+		if !strings.Contains(joined, want) {
+			t.Errorf("the disclosure must say %q:\n%s", want, joined)
+		}
+	}
+	// The resolver and the per-provider account every notch reads.
+	granted, err := ResolveGrant([]string{"all"}, twoProviders(t), hydrated("CEREBRAS_API_KEY", "c"))
+	if err != nil || strings.Join(granted, ",") != "cerebras" {
+		t.Errorf("ResolveGrant(all) = %v, %v; want cerebras, the one claiming a held value", granted, err)
+	}
+	if _, err := ResolveGrant([]string{"nope"}, twoProviders(t), nil); err == nil ||
+		!strings.Contains(err.Error(), `"nope"`) || !strings.Contains(err.Error(), "cerebras") {
+		t.Errorf("ResolveGrant(nope) = %v, want the refusal naming the known providers", err)
+	}
+	gs, env := scope.GrantFor([]string{"cerebras"})
+	if lines := GrantProviderLines(gs); len(lines) != 1 || lines[0] != "  cerebras: CEREBRAS_API_KEY" {
+		t.Errorf("GrantProviderLines = %q", lines)
+	}
+	if v, _ := env.Get("CEREBRAS_API_KEY"); v != "c" || env.Len() != 1 {
+		t.Errorf("GrantFor(cerebras) values = %v", env.Keys())
+	}
+}

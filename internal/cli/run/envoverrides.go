@@ -121,21 +121,18 @@ func (c *packChannel) jailOriginLookup(o *Options, argvPairs map[string]string) 
 }
 
 // hostFileDirsDeliver reports whether a source-bearing DIRECTORY host_files entry renders
-// anything on backend rt. It restates the two mount-side decisions rather than calling
-// them, because both are made inside the loops that build the delivery:
+// anything on backend rt. It restates the one mount-side decision that declines one rather
+// than calling it, because it is made inside the loop that builds the delivery: Apple
+// Container below acROBindsFloor declines one (hostUserFileArgs skips the bind when
+// roBindsUnsupported says `:ro` would be ignored, and the entrypoint then finds nothing at
+// /ctx/host-user/<slug> and writes nothing).
 //
-//   - macos-user never delivers one: buildMacosCtxTree returns it in undeliveredDirs and
-//     the launch names it as not crossing (DP-D15 — a copy does not scale to a tree);
-//   - Apple Container below acROBindsFloor declines one: hostUserFileArgs skips the bind
-//     when roBindsUnsupported says `:ro` would be ignored, and the entrypoint then finds
-//     nothing at /ctx/host-user/<slug> and writes nothing.
-//
-// podman binds it whenever the source exists, which config.RenderedHostFilePaths checks.
-// Counting a directory grant on a backend that drops it would refuse a launch over a
-// ~/.aws the jail never gets.
+// podman binds it whenever the source exists, which config.RenderedHostFilePaths checks, and
+// macos-user copies it whenever the source exists (buildMacosCtxTree; a copy it cannot make
+// whole ends the launch instead). That backend used to drop one, so it was not counted there;
+// it is now, because a ~/.aws/ grant really does reach the sandbox. Counting a directory grant
+// on a backend that drops it would warn or refuse a launch over a ~/.aws the jail never gets,
+// and not counting one a backend delivers would let it through unsaid.
 func (o *Options) hostFileDirsDeliver(rt string) bool {
-	if rt == "macos-user" { // parity: Warned — this mirrors macos-user dropping a directory host_files entry, which noteMacosUserHostByteGaps names at launch
-		return false
-	}
 	return o.roBindsUnsupported(rt) == ""
 }

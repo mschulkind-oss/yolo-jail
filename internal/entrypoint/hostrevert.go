@@ -55,6 +55,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonptr"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
+	"github.com/mschulkind-oss/yolo-jail/internal/render"
 )
 
 // HostRevertedKey is one key a revert removed, or would remove.
@@ -63,16 +64,19 @@ type HostRevertedKey struct {
 	Surface string
 	// Path is the resolved real-home file the key is in.
 	Path string
-	// Key is the TOP-LEVEL key, matching the record's granularity (a layer that sets a
-	// nested key claims the whole top-level key — see rmwProvenance).
+	// Key is the TOP-LEVEL key the record attributes, or — for a value withdrawn from INSIDE a
+	// table (CO-D12) — the RFC 6901 pointer of that value ("/env/CLAUDE_CODE_USE_BEDROCK").
 	Key string
 	// Layer is the attribution the removal rests on, verbatim from the record
 	// (`managed`, `computed`, `defaults`, `config-overlay:<pack>`, or a `retired:` form).
 	// REPORTED, not just used: the user is owed the authority for each removal, and a
 	// `defaults` line means something different to them than a `managed` one.
 	Layer string
-	// Action is "removed" or "would remove" (observe posture).
+	// Action is "removed" or "would remove" (observe posture), or "kept" on a Kept entry.
 	Action string
+	// Why is a Kept entry's reason, in the user's terms: why the revert leaves a key the record
+	// calls yolo's (CO-D12).
+	Why string
 }
 
 // HostRevert is one revert's whole result: the keys, and the provenance records that end the
@@ -81,11 +85,18 @@ type HostRevertedKey struct {
 // and the record still has to go or the home keeps claiming a render that owns nothing.
 type HostRevert struct {
 	Keys []HostRevertedKey
-	// Kept are the keys yolo wrote that the revert LEAVES, each with Action "kept": an empty
-	// default still at its declared value (keptShapeDefault). Reported so the dry run names
-	// every key of yolo's the file will still hold, not only the ones it takes out.
+	// Kept are the keys the record calls yolo's that the revert LEAVES, each with Action "kept"
+	// and its Why: an empty default still at its declared value (keptWhyShape), and — since
+	// CO-D12 — a value that no longer holds what yolo wrote (a default the user changed, a
+	// selection key the user picked, a recorded leaf the user edited), which is the user's now.
+	// Reported so the dry run names every key of yolo's the file will still hold, not only the
+	// ones it takes out.
 	Kept    []HostRevertedKey
 	Records []string
+	// Forgotten are the capture-store files and the pre-retirement selection record the revert
+	// removes beside each withdrawn surface's records (CO-D13, CO-D14), so the next owned apply is
+	// a first apply again rather than replaying the removals as the user's deletions.
+	Forgotten []string
 }
 
 // RevertHostRender withdraws yolo from every host surface it has a provenance record for.
@@ -113,10 +124,14 @@ func RevertHostRender(candidates []*packload.Pack, homeDir string, observe bool)
 	// rather than a second path derivation free to drift.
 	//
 	// NO `host_management` CONTRACT, deliberately: nothing on this walk asks the mode census,
-	// and the provenance record's location does not depend on the contract (both `assert` and
-	// `own` keep it under host-provenance/, §6.2). A revert is an rmw-shaped operation — it
-	// exists because rmw cannot express removal — so under `own` the render withdraws a
-	// dropped pack's keys by regenerating without them, and this verb has nothing to add.
+	// and the provenance record's location does not depend on the contract (`own` keeps it
+	// under host-provenance/, §6.2, where the retired `assert` kept it). That independence is
+	// what lets the CLI run a revert under `none` on a home `assert` wrote into (OQ-CO14). A
+	// revert is an rmw-shaped operation — it exists because rmw cannot express removal. Under
+	// `own` a composed surface withdraws a dropped key by regenerating without it, and the CLI
+	// refuses this verb there; ⚠ an `rmw`-declared surface at an owned host keeps a key yolo
+	// stopped writing as `retired:…` until a revert under `none` takes it out (a dropped PACK's
+	// keys are pruned by PruneHostOverlayKeys at the apply).
 	e := &Env{Home: homeDir, Vars: map[string]string{}, hostTarget: true}
 
 	var out HostRevert
@@ -181,28 +196,64 @@ func withdrawHostSurface(e *Env, s manifest.Surface, observe bool, out *HostReve
 			out.Records = append(out.Records, listRec)
 		}
 	}
-	var removed []string
+	// THE VALUES yolo WROTE, never more (CO-D12). A record entry is per TOP-LEVEL key, and a key
+	// can hold the user's content beside yolo's: `env` holds one switch a derive asserted and the
+	// user's own variables; `permissions` holds the managed `defaultMode` and an `allow` the user
+	// added; a default or a selected model the user has since changed holds the user's value. So a
+	// key is withdrawn by what yolo recorded writing inside it — the computed-leaf record, the
+	// selection record, the pack's declared managed and default values — and only a key with no
+	// such record goes whole, as before.
+	ev := revertEvidence{
+		leaves:    readHostLeafRecord(e, s.Agent, s.Name),
+		selection: readRevertSelection(e, s.Agent, s.Name),
+	}
+	plain, _ := jsonx.Plain(obj).(map[string]any)
+	var removed, removedLeaves, emptiedAfter []string
 	for _, k := range revertableKeys(record) {
 		v, present := obj.Get(k.key)
 		if !present {
 			continue
 		}
-		if keptShapeDefault(s, k, v) {
-			out.Kept = append(out.Kept, HostRevertedKey{Surface: id, Path: path, Key: k.key,
-				Layer: k.layer, Action: "kept"})
-			continue
+		w := ev.withdrawal(s, k, jsonx.Plain(v), plain)
+		for _, kept := range w.kept {
+			out.Kept = append(out.Kept, HostRevertedKey{Surface: id, Path: path, Key: kept.key,
+				Layer: k.layer, Action: "kept", Why: kept.why})
 		}
-		removed = append(removed, k.key)
-		out.Keys = append(out.Keys, HostRevertedKey{Surface: id, Path: path, Key: k.key,
-			Layer: k.layer, Action: action})
+		for _, leaf := range w.leaves {
+			removedLeaves = append(removedLeaves, leaf)
+			out.Keys = append(out.Keys, HostRevertedKey{Surface: id, Path: path, Key: leaf,
+				Layer: k.layer, Action: action})
+		}
+		if w.whole {
+			removed = append(removed, k.key)
+			out.Keys = append(out.Keys, HostRevertedKey{Surface: id, Path: path, Key: k.key,
+				Layer: k.layer, Action: action})
+		}
+		if w.dropIfEmptied {
+			emptiedAfter = append(emptiedAfter, k.key)
+		}
 	}
 	out.Records = append(out.Records, recPath)
+	forget := revertForgottenFiles(e, s)
+	out.Forgotten = append(out.Forgotten, forget...)
 	if observe {
 		return nil
 	}
-	if len(removed) > 0 || listChanged {
+	if len(removed) > 0 || len(removedLeaves) > 0 || listChanged {
 		for _, k := range removed {
 			obj.Delete(k)
+		}
+		for _, leaf := range removedLeaves {
+			deleteLeaf(obj, leaf)
+		}
+		// A table whose every value was yolo's goes with them: what is left is a key yolo
+		// created, now holding nothing.
+		for _, k := range emptiedAfter {
+			if v, ok := obj.Get(k); ok {
+				if m, isMap := v.(*jsonx.OrderedMap); isMap && m.Len() == 0 {
+					obj.Delete(k)
+				}
+			}
 		}
 		// orig/before carry the file's comments into the re-emit: a revert removes named
 		// keys and must leave the rest — including the prose around it — as it found it.
@@ -218,7 +269,7 @@ func withdrawHostSurface(e *Env, s manifest.Surface, observe bool, out *HostReve
 	// Deletion is the host notch's one legitimate asymmetry (§6.3), and an empty object
 	// is recoverable by hand while a deleted file is not — so a revert that emptied a
 	// surface leaves `{}` rather than guessing that yolo created the file. That is why an
-	// empty declared default stays (keptShapeDefault): the file left behind has to be one
+	// empty declared default stays (keptWhyShape): the file left behind has to be one
 	// its agent still reads.
 	if rerr := os.Remove(recPath); rerr != nil && !os.IsNotExist(rerr) {
 		return fmt.Errorf("%s: removing the provenance record %s: %w", id, recPath, rerr)
@@ -229,13 +280,210 @@ func withdrawHostSurface(e *Env, s manifest.Surface, observe bool, out *HostReve
 		}
 	}
 	// The computed-leaf record ends with the relationship too (HC-D25): the leaves it names were
-	// removed with their top-level keys above, or are the user's now.
+	// removed above, or are the user's now.
 	if leafRec := e.renderTarget().LeafRecordPath(s.Agent, s.Name); leafRec != "" {
 		if rerr := os.Remove(leafRec); rerr != nil && !os.IsNotExist(rerr) {
 			return fmt.Errorf("%s: removing the computed-leaf record %s: %w", id, leafRec, rerr)
 		}
 	}
+	// AND THE CAPTURE STORE'S FILES FOR THE SURFACE (CO-D13), with the selection record the
+	// retired `assert` kept beside the provenance record (CO-D14). Left behind, an owned apply
+	// after the revert read the old last_render as its baseline and the file the revert left as
+	// edits against it — every key the revert took out replayed as the user's deletion, written
+	// as `"theme": null` — and "a later owned apply is a FIRST apply again" was false.
+	for _, f := range forget {
+		if rerr := os.Remove(f); rerr != nil && !os.IsNotExist(rerr) {
+			return fmt.Errorf("%s: removing %s: %w", id, f, rerr)
+		}
+	}
 	return nil
+}
+
+// revertForgottenFiles is every file beside a surface's records that the revert removes with
+// them, and that exists: the owned capture store's sidecars for the surface (the baseline, the
+// captured edits, the selection record and the list capture) and the selection record the retired
+// `assert` kept under the provenance directory (legacySelectionRecordPath).
+func revertForgottenFiles(e *Env, s manifest.Surface) []string {
+	owned := render.Host(e.Home, nil, render.OwnershipOwn)
+	var out []string
+	for _, f := range []string{
+		owned.LastRenderPath(s.Agent, s.Name),
+		owned.OverlayPath(s.Agent, s.Name),
+		owned.SelectionPath(s.Agent, s.Name),
+		owned.ListCapturePath(s.Agent, s.Name),
+		legacySelectionRecordPath(e, s.Agent, s.Name),
+	} {
+		if f == "" {
+			continue
+		}
+		if _, err := os.Stat(f); err == nil {
+			out = append(out, f)
+		}
+	}
+	return out
+}
+
+// readRevertSelection is the selection record a revert judges a selection key by: the owned
+// capture store's, or else the one the retired `assert` kept beside the provenance record — the
+// record that says which value yolo's selection last wrote, so a value differing from it is the
+// user's own pick.
+func readRevertSelection(e *Env, agent, name string) map[string]any {
+	for _, f := range []string{
+		render.Host(e.Home, nil, render.OwnershipOwn).SelectionPath(agent, name),
+		legacySelectionRecordPath(e, agent, name),
+	} {
+		if f == "" {
+			continue
+		}
+		if data, err := os.ReadFile(f); err == nil {
+			return agentcfg.ParseSelectionRecord(data)
+		}
+	}
+	return nil
+}
+
+// revertEvidence is what a revert knows yolo wrote INSIDE a surface's keys, beside the per-key
+// provenance record: the computed-leaf record (pointer → the value yolo wrote) and the selection
+// record (top-level key → the value yolo's selection wrote).
+type revertEvidence struct {
+	leaves    map[string]any
+	selection map[string]any
+}
+
+// revertWithdrawal is what a revert does with one recorded key: take it out whole, take out the
+// listed values inside it (pointers), and keep the listed values, each with why. dropIfEmptied
+// asks for the key itself to go once its withdrawn values leave it an empty object.
+type revertWithdrawal struct {
+	whole         bool
+	leaves        []string
+	kept          []revertKept
+	dropIfEmptied bool
+}
+
+type revertKept struct{ key, why string }
+
+// The reasons a revert keeps a value the record calls yolo's, in the user's terms.
+//
+// keptWhyShape is the one that is not the user's: a `defaults` key whose declared default is an
+// empty object or array, still holding exactly that, holds nothing to withdraw — it is the SHAPE
+// the pack declares its file needs. pi/models is why (HC-D1): pi 0.87.1 rejects a models.json
+// without `providers`, so the pack declares `"providers": {}`, and a revert that removed it left
+// `{}` in a file the apply had created — a revert empties a file rather than deleting it — and pi
+// printed `models.json error` at every start. Keeping the shape needs no guess about who created
+// the file. An empty default the user has since filled is theirs (keptWhyDefault).
+const (
+	keptWhyShape     = "an empty default, the shape the pack declares this file needs"
+	keptWhySelection = "it no longer holds the value yolo's selection wrote, so it is a pick of yours"
+	keptWhyDefault   = "it no longer holds the default the pack declares, so it is a value of yours"
+	keptWhyManaged   = "it no longer holds the value your packs declare, so it may be a value of yours"
+	keptWhyLeaf      = "it no longer holds the value yolo wrote there, so it is a value of yours"
+)
+
+// withdrawal decides one recorded key (CO-D12), v being its current value and file the whole
+// document, both plain. In order, the first that applies:
+//
+//   - A SELECTION KEY (the selection record names it): out whole when it still holds the value the
+//     selection wrote, else kept — a model the user picked after yolo selected one is theirs.
+//   - A `defaults` KEY: out whole when it still holds the declared default (kept as the file's
+//     shape when that default is an empty container, keptWhyShape), withdrawn value by value
+//     when both are objects, else kept — under `none` no apply ever relabels an edited default as
+//     the user's, so the revert has to look.
+//   - AN OBJECT: withdrawn value by value — each leaf the computed-leaf record names under it, and
+//     each value the surface's managed layer declares under it, that still holds what yolo wrote;
+//     every other value in it is the user's and stays. The key goes too if that leaves it empty.
+//     With nothing recorded or declared inside it (a wholesale table, a key a dropped overlay
+//     wrote), it goes whole, as before.
+//   - A SCALAR the leaf record or the managed layer names: out when it still holds that value,
+//     else kept.
+//   - Anything else goes whole, as before: the record is the only evidence there is.
+func (ev revertEvidence) withdrawal(s manifest.Surface, k revertedKey, v any, file map[string]any) revertWithdrawal {
+	layer := k.layer
+	if last, retired := agentcfg.RetiredOf(layer); retired {
+		layer = last
+	}
+	if wrote, ok := ev.selection[k.key]; ok {
+		if sameJSON(v, wrote) {
+			return revertWithdrawal{whole: true}
+		}
+		return revertWithdrawal{kept: []revertKept{{k.key, keptWhySelection}}}
+	}
+	if layer == agentcfg.LayerDefaults {
+		declared, ok := s.DefaultsMap()[k.key]
+		switch {
+		case !ok:
+			return revertWithdrawal{whole: true}
+		case sameJSON(v, declared) && emptyContainer(jsonx.Plain(declared)):
+			return revertWithdrawal{kept: []revertKept{{k.key, keptWhyShape}}}
+		case sameJSON(v, declared):
+			return revertWithdrawal{whole: true}
+		}
+		if dm, isMap := jsonx.Plain(declared).(map[string]any); isMap {
+			if _, vIsMap := v.(map[string]any); vIsMap {
+				if leaves := flattenLeaves(map[string]any{k.key: dm}); len(leaves) > 0 {
+					return ev.byValue(file, leaves, keptWhyDefault)
+				}
+			}
+		}
+		return revertWithdrawal{kept: []revertKept{{k.key, keptWhyDefault}}}
+	}
+	declared, hasDecl := s.ManagedMap()[k.key]
+	if _, isMap := v.(map[string]any); isMap {
+		wrote := map[string]any{}
+		for p, w := range ev.leaves {
+			if steps, err := jsonptr.Parse(p); err == nil && len(steps) > 1 && steps[0] == k.key {
+				wrote[p] = w
+			}
+		}
+		if dm, isMap := jsonx.Plain(declared).(map[string]any); hasDecl && isMap {
+			for p, w := range flattenLeaves(map[string]any{k.key: dm}) {
+				if _, recorded := wrote[p]; !recorded {
+					wrote[p] = w
+				}
+			}
+		}
+		if len(wrote) == 0 {
+			return revertWithdrawal{whole: true}
+		}
+		return ev.byValue(file, wrote, keptWhyLeaf)
+	}
+	if w, ok := ev.leaves[jsonptr.Format([]string{k.key})]; ok {
+		if sameJSON(v, w) {
+			return revertWithdrawal{whole: true}
+		}
+		return revertWithdrawal{kept: []revertKept{{k.key, keptWhyLeaf}}}
+	}
+	if layer == agentcfg.LayerManaged && hasDecl {
+		if _, isMap := jsonx.Plain(declared).(map[string]any); !isMap {
+			if sameJSON(v, declared) {
+				return revertWithdrawal{whole: true}
+			}
+			return revertWithdrawal{kept: []revertKept{{k.key, keptWhyManaged}}}
+		}
+	}
+	return revertWithdrawal{whole: true}
+}
+
+// byValue withdraws each pointer in wrote whose value the file still holds, keeping (with why)
+// each one the file holds differently; a pointer the file no longer reaches is not reported.
+func (revertEvidence) byValue(file, wrote map[string]any, why string) revertWithdrawal {
+	ptrs := make([]string, 0, len(wrote))
+	for p := range wrote {
+		ptrs = append(ptrs, p)
+	}
+	sort.Strings(ptrs)
+	w := revertWithdrawal{dropIfEmptied: true}
+	for _, p := range ptrs {
+		cur, in := leafAt(file, p)
+		if !in {
+			continue
+		}
+		if sameJSON(cur, wrote[p]) {
+			w.leaves = append(w.leaves, p)
+			continue
+		}
+		w.kept = append(w.kept, revertKept{p, why})
+	}
+	return w
 }
 
 // revertedKey is one eligible provenance entry: the key and the attribution that makes it
@@ -284,36 +532,6 @@ func revertableKeys(record map[string]string) []revertedKey {
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].key < out[j].key })
 	return out
-}
-
-// keptShapeDefault reports whether a revert LEAVES one key yolo wrote: a `defaults` key whose
-// declared default is an empty object or array, still holding exactly that.
-//
-// Such a default holds nothing to withdraw, neither yolo's content nor the user's; it is the
-// SHAPE the pack declares its file needs. pi/models is why (HC-D1): pi 0.87.1 rejects a
-// models.json without `providers`, so the pack declares `"providers": {}`, and a revert that
-// removed it left `{}` in a file the apply had created — because a revert empties a file
-// rather than deleting it (see RevertHostRender) — and pi printed `models.json error` at every
-// start. Keeping the shape is the one answer that needs no guess: yolo does not record whether
-// it created a file, so deleting it would guess, and the declared default is the only statement
-// of what its consumer accepts that yolo has.
-//
-// NARROW ON PURPOSE. A non-empty default is content yolo wrote and still goes, and so does an
-// empty default the user has since filled, since it no longer holds the declared value.
-func keptShapeDefault(s manifest.Surface, k revertedKey, v any) bool {
-	layer := k.layer
-	if last, retired := agentcfg.RetiredOf(layer); retired {
-		layer = last
-	}
-	if layer != agentcfg.LayerDefaults {
-		return false
-	}
-	defaults, _ := s.Defaults.(map[string]any)
-	declared, ok := defaults[k.key]
-	if !ok || !emptyContainer(declared) {
-		return false
-	}
-	return emptyContainer(jsonx.Plain(v)) && sameJSON(v, declared)
 }
 
 // emptyContainer is an empty object or an empty array, in jsonx.Plain form.

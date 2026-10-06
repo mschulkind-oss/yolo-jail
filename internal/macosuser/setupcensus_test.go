@@ -24,17 +24,13 @@ type orchestratorSample struct{ key, value string }
 
 // orchestratorNoticeSamples drive each macos-user notice this package prints, keyed by census path.
 var orchestratorNoticeSamples = map[string]orchestratorSample{
-	"per_side_paths":    {"per_side_paths", `["build"]`},
-	"resources":         {"resources", `{"memory": "4g"}`},
-	"cache_relocations": {"cache_relocations", `{"npm": "/Volumes/big/npm"}`},
+	"per_side_paths":       {"per_side_paths", `["build"]`},
+	"resources.pids_limit": {"resources", `{"pids_limit": 100}`},
 }
 
 // orchestratorAspectSamples drive each Warned aspect that leans on its parent's line: the line
 // must be the parent's notice, naming the aspect among its entries.
-var orchestratorAspectSamples = map[string]orchestratorSample{
-	"resources.pids_limit": {"resources", `{"pids_limit": 100}`},
-	"resources.io":         {"resources", `{"io": "idle"}`},
-}
+var orchestratorAspectSamples = map[string]orchestratorSample{}
 
 // dryRunWith is what RunMacosUser's dry run prints for a config holding one key.
 func dryRunWith(t *testing.T, sample orchestratorSample) string {

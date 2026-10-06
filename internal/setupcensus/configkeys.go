@@ -75,23 +75,14 @@ var configKeys = map[string]Entry{
 			"runtime' naming every entry (roBindsUnsupported)"),
 		MacosUser: honoredBy("macosuser.SeatbeltProfile's readonlyRels deny writes to each path " +
 			"(seatbelt.go); a policy rule, not a mount"),
-		Guide: []string{"`workspace_readonly` — lock workspace sub-paths"},
-		Aspects: map[string]Entry{
-			// The lock on the workspace's own config file that setting the key also performs.
-			"config_lock": {
-				PodmanLinux: honored("workspaceReadonlyMountArgs (mounts.go) adds the workspace's " +
-					"own config file (config.ResolveWorkspaceConfigPath) to the read-only binds " +
-					"whenever an entry is set"),
-				PodmanMac: honored("the same bind, from workspaceReadonlyMountArgs (mounts.go)"),
-				AppleContainer: honored("the same bind from 1.1.0; below it the bind is still " +
-					"emitted and the suffix ignored, and the warning names only the declared " +
-					"entries, so the lock is lost with no line"),
-				MacosUser: dropped("SeatbeltProfile (seatbelt.go) denies writes to the declared " +
-					"paths only, so the config file stays agent-writable and nothing says so; " +
-					"not a ruled decline — recorded as found"),
-				Guide: []string{"… and the `yolo-jail.jsonc` lock it also performs"},
-			},
-		},
+		// The lock on the workspace's own config file, which setting the key also performs, has
+		// the parent's disposition on every setup: workspaceReadonlyMountArgs (mounts.go) adds the
+		// file to the read-only binds whenever an entry is set, and on macos-user
+		// workspaceReadonlyRels (macosuser workspacereadonly.go) adds it to the write denies. Below
+		// Apple Container 1.1.0 the bind is emitted and its suffix ignored, so the lock is lost
+		// with the entries' own warning naming only the entries.
+		Guide: []string{"`workspace_readonly` — lock workspace sub-paths",
+			"… and the `yolo-jail.jsonc` lock it also performs"},
 	},
 	"per_side_paths": {
 		PodmanLinux: honored("venvShadowMountArgs (mounts.go) binds a private wsState dir over " +
@@ -99,13 +90,14 @@ var configKeys = map[string]Entry{
 		PodmanMac: honored("venvShadowMountArgs (mounts.go), the same binds inside the VM"),
 		AppleContainer: honored("venvShadowMountArgs (mounts.go) emits the same binds for this " +
 			"backend; unverified on hardware, since no apple-container.yml test mounts one"),
-		MacosUser: warnedSaying("macosuser buildPlan (orchestrator.go) prints the notice naming "+
-			"the declared entries; the default .venv and node_modules are shared with no line, "+
-			"since only declared entries are named", Notice{
-			Says: "per_side_paths is NOT enforced on macos-user",
-			Then: "Per-side shadowing needs a mount namespace and this backend has none, so the " +
-				"host and the sandbox share these paths.",
-			By: "macosuser.buildPlan",
+		MacosUser: warnedSaying("printPerSideDisclosure (macosuser orchestrator.go) prints the "+
+			"notice naming every declared entry and each default the workspace uses "+
+			"(perSideSharedPaths), then uv's redirect and the container step", Notice{
+			Says: "per-side paths are SHARED with the host on macos-user",
+			Then: "A container gives the host and the jail their own copy of each by mounting " +
+				"over it, and this backend has no mount namespace, so the sandbox installs into " +
+				"the same directories your host tools read.",
+			By: "macosuser.printPerSideDisclosure",
 		}),
 		Guide: []string{"`per_side_paths`"},
 	},
@@ -127,8 +119,9 @@ var configKeys = map[string]Entry{
 			"says and prints nothing (run.go's scratch-volume branch is podman-only); ruled " +
 			"silent in backend-parity.md §5.1"),
 		MacosUser: notApplicable("no container scratch to back: the sandbox writes the Mac's own " +
-			"/tmp and /var/folders (bootsteps.go's scratch_permissions is notDarwin), and a " +
-			"tmpfs request is ignored without a line"),
+			"/tmp and /var/folders (bootsteps.go's scratch_permissions is notDarwin); a tmpfs " +
+			"request, which asks for RAM-backed scratch, is warned by noteMacosUserPlatformGaps " +
+			"(loopholeinert.go)"),
 		Guide: []string{"`ephemeral_storage`"},
 	},
 	"cache_relocations": {
@@ -144,14 +137,10 @@ var configKeys = map[string]Entry{
 				"cache relocation.",
 			By: "run.appleContainerBaseMounts",
 		}),
-		MacosUser: warnedSaying("macosuser buildPlan (orchestrator.go) prints the notice naming "+
-			"each segment", Notice{
-			Says: "cache_relocations are NOT implemented on macos-user",
-			Then: "These stay on their original filesystem. A host symlink is not a workaround " +
-				"here: the sandbox profile denies writes outside the workspace and sandbox home, " +
-				"and denies reads under /Volumes.",
-			By: "macosuser.buildPlan",
-		}),
+		MacosUser: honoredBy("the bootstrap lays each relocation as a link at ~/.cache/<subdir> " +
+			"that the profile opens (macosuser ctxlinks.go), read from the user config alone, and " +
+			"printCacheRelocations (orchestrator.go) names each link and its target; unverified " +
+			"on a Mac"),
 		Guide: []string{"`cache_relocations`"},
 	},
 	"host_files": {
@@ -198,18 +187,10 @@ var configKeys = map[string]Entry{
 				AppleContainer: honored("bound read-only from Apple Container 1.1.0; below it, " +
 					"or with an unreadable version, roBindsUnsupported skips it with a " +
 					"'Skipping host_files directory' line"),
-				MacosUser: warnedSaying("noteMacosUserHostByteGaps (loopholeinert.go) prints the "+
-					"notice naming each such entry (DP-D15)", Notice{
-					Says: "a host_files entry whose `source` is a DIRECTORY does not cross on " +
-						"macos-user",
-					Then: "This backend has no bind mounts, so host bytes arrive by COPY, and a " +
-						"copy does not scale to an arbitrary tree. Single FILE entries are " +
-						"delivered normally; split the directory into the files you need, or use " +
-						"the Apple Container runtime (runtime: \"container\"), which binds it " +
-						"read-only from Apple Container 1.1.0 (older versions skip it with a " +
-						"warning).",
-					By: "run.noteMacosUserHostByteGaps",
-				}),
+				MacosUser: honoredBy("copyCtxTreeConfined (macosctxtree.go) copies the directory into " +
+					"the root-owned context tree, confined to its source and size-capped, with each " +
+					"file's mode recorded beside it (context-mounts.md CX-D25, CX-D26); a copy over " +
+					"the cap refuses the launch, naming the entry"),
 				Guide: []string{"`host_files` source is a **directory**"},
 			},
 		},
@@ -226,9 +207,10 @@ var configKeys = map[string]Entry{
 			"(entrypoint orphanremove.go)"),
 		PodmanMac:      honored("the same env and boot step (assemble.go, orphanremove.go)"),
 		AppleContainer: honored("the same env and boot step (assemble.go, orphanremove.go)"),
-		MacosUser: dropped("bootsteps.go's catalog_installed_orphans is notDarwin and the " +
-			"macos-user arm relays no YOLO_PROGRAMS_AUTOPRUNE, so nothing prunes and nothing " +
-			"says so; not a ruled decline — recorded as found"),
+		MacosUser: honored("the darwin bootstrap runs the same catalog_installed_orphans step " +
+			"(bootsteps.go), and BuildRunPlanWithDaemons (macosuser runplan.go) relays the user " +
+			"config's autoprune to the bootstrap alone (notch-convergence.md NC-D71); unmeasured " +
+			"on a Mac"),
 		Guide: []string{"`programs: { autoprune: true }`"},
 	},
 
@@ -240,13 +222,9 @@ var configKeys = map[string]Entry{
 			"clipped to its size"),
 		AppleContainer: honored("appliedResourceLimits' container branch (backendcaps.go) passes " +
 			"--memory and --cpus, with host-derived defaults when unset; its aspects part ways"),
-		MacosUser: warnedSaying("macosuser buildPlan (orchestrator.go) prints the notice naming "+
-			"each key set (unenforcedResourceKeys), its aspects included", Notice{
-			Says: "resources are NOT enforced on macos-user",
-			Then: "macOS has no cgroups and there is no VM to size, so these are read and " +
-				"ignored; the agent runs with your user's own limits.",
-			By: "macosuser.buildPlan",
-		}),
+		MacosUser: honoredBy("printResourceDispositions (macosuser orchestrator.go) says how each " +
+			"is honored: cpus by the cooperative parallelism defaults (CooperativeCPUs), memory by " +
+			"the sampled session guard (SessionGuardFor), neither kernel-enforced"),
 		Guide: []string{"`resources.memory`", "`resources.cpus`"},
 		Aspects: map[string]Entry{
 			"pids_limit": {
@@ -255,8 +233,14 @@ var configKeys = map[string]Entry{
 				PodmanMac: honored("the same flag (appliedResourceLimits)"),
 				AppleContainer: dropped("appliedResourceLimits passes no pids limit for this " +
 					"backend and nothing says so; ruled silent in backend-parity.md §5.1"),
-				MacosUser: warned("the parent's notice names it among the keys set " +
-					"(unenforcedResourceKeys, macosuser orchestrator.go)"),
+				MacosUser: warnedSaying("printResourceDispositions (macosuser orchestrator.go) prints "+
+					"the notice naming it, with any other key no mechanism here acts on "+
+					"(unenforcedResourceKeys)", Notice{
+					Says: "resources are NOT enforced on macos-user",
+					Then: "macOS has no cgroups and there is no VM to size, so these are read and " +
+						"ignored; the agent runs with your user's own limits.",
+					By: "macosuser.printResourceDispositions",
+				}),
 				Guide: []string{"`resources.pids_limit`"},
 			},
 			"io": {
@@ -266,8 +250,8 @@ var configKeys = map[string]Entry{
 				PodmanMac: warned("noteIOPriority (iopriority.go) says the VirtioFS crossing " +
 					"carries no priority, and appliedIOPriority passes none"),
 				AppleContainer: warned("noteIOPriority (iopriority.go), the same VirtioFS line"),
-				MacosUser: warned("unenforcedResourceKeys (macosuser orchestrator.go) names " +
-					"any io other than normal in the parent's notice"),
+				MacosUser: honoredBy("applyDiskIOPolicy (macosuser orchestrator.go) sets the session's macOS " +
+					"disk priority; a set that fails is said at launch"),
 				Guide: []string{"`resources.io`"},
 			},
 		},
@@ -279,12 +263,16 @@ var configKeys = map[string]Entry{
 			"supported on macOS — skipping' per entry, by host OS, and passes nothing"),
 		AppleContainer: warned("deviceArgs' same per-entry line (assemble_parts.go); measured " +
 			"2026-09-16 that `container run` 1.1.0 has no --device at all"),
-		MacosUser: warnedSaying("noteMacosUserPlatformGaps (loopholeinert.go) prints the "+
-			"notice naming each entry", Notice{
-			Says: "`devices` is not read on macos-user",
-			Then: "Device passthrough attaches a host device to a CONTAINER, and this backend " +
-				"starts none; the sandboxed process reaches devices under ordinary macOS " +
-				"permissions instead, so yolo neither attaches nor restricts anything here.",
+		MacosUser: warnedSaying("noteMacosUserPlatformGaps (loopholeinert.go) discloses each raw "+
+			"/dev path the profile allows device control on (macosuser.DeviceIoctlPaths), warns "+
+			"per raw entry it refuses, and prints the notice naming the usb and cgroup_rule "+
+			"entries, which nothing here reads", Notice{
+			Says: "`devices` USB and cgroup entries are not read on macos-user",
+			Then: "A USB entry attaches a device to a CONTAINER, and a cgroup rule lets a " +
+				"container's device cgroup open the device numbers it matches; this backend " +
+				"starts no container, so neither does anything here. A USB device is reached " +
+				"through macOS itself, which yolo neither attaches nor restricts. To drive a " +
+				"serial adapter from the sandbox, list its /dev/cu.* node instead.",
 			By: "run.noteMacosUserPlatformGaps",
 		}),
 		Guide: []string{"`devices`"},
@@ -355,14 +343,10 @@ var configKeys = map[string]Entry{
 					"the Mac on 127.0.0.1 in both modes. Earlier runs saw no data, which §5.4 " +
 					"traces to macOS Local Network privacy for Apple's ad-hoc-signed helpers, and " +
 					"no launch line says so on a Mac where that recurs"),
-				MacosUser: warnedSaying("noteMacosUserPortKeys (loopholeinert.go) prints the "+
-					"notice naming each entry, and each remap after it", Notice{
-					Says: "`network.ports` is not honored on macos-user",
-					Then: "The sandbox runs on the launcher's own network stack, so a port it " +
-						"binds IS published on this machine's real interfaces — listed here or " +
-						"not. Nothing is mapped and nothing is confined to a bind address.",
-					By: "run.noteMacosUserPortKeys",
-				}),
+				MacosUser: honoredBy("the sandbox shares the launcher's stack, so a port it binds is " +
+					"already on the Mac's interfaces, and planMacosUserPortRelays " +
+					"(macosuserportrelay.go) relays a remap over TCP; noteMacosUserPortKeys " +
+					"(loopholeinert.go) warns that listing a port confines nothing"),
 				Guide: []string{"`network.ports`"},
 			},
 			"forward_host_ports": {
@@ -376,14 +360,10 @@ var configKeys = map[string]Entry{
 					"the other way, so there is no forward to deliver. Until 2026-10-05 the argv " +
 					"carried --publish-socket and `container run` 1.1.0 rejected it, naming a socket " +
 					"(measured 2026-09-16, guide's acfwd), which no disposition described"),
-				MacosUser: warnedSaying("noteMacosUserPortKeys (loopholeinert.go) prints the "+
-					"notice naming each entry, and each remap after it; a same-port entry already "+
-					"holds on the shared stack, and a remap is not delivered", Notice{
-					Says: "`network.forward_host_ports` is not honored on macos-user",
-					Then: "There is no hop to make: the sandbox is already on this machine's " +
-						"stack, so `localhost:<port>` inside it is this machine's port.",
-					By: "run.noteMacosUserPortKeys",
-				}),
+				MacosUser: honoredBy("a same-port entry already holds on the shared stack, and " +
+					"planMacosUserPortRelays (macosuserportrelay.go) relays a remap over the Mac's " +
+					"loopback; noteMacosUserPortKeys (loopholeinert.go) discloses both, and warns for " +
+					"a remap it does not relay"),
 				Guide: []string{"`network.forward_host_ports`"},
 			},
 		},
@@ -435,9 +415,10 @@ var configKeys = map[string]Entry{
 		AppleContainer: honored("the same boot step (bootsteps.go)"),
 		MacosUser: warnedSaying("DarwinEnvFrom sets SkipMCPPresets and the darwin boot's "+
 			"mcp_presets_declined step (entrypoint bootsteps.go) prints the notice naming each "+
-			"preset; the preset's entry is still written into each agent's MCP config", Notice{
+			"preset; SkipMCPPresets also keeps each preset's entry out of every agent's MCP table "+
+			"(entrypoint mcpServersWith)", Notice{
 			Says: "mcp_presets are not delivered on macos-user",
-			Then: "The preset wrappers hardcode Linux paths (/usr/bin/chromium, /bin/node, " +
+			Then: "Left out of every agent's MCP config: the preset wrappers hardcode Linux paths (/usr/bin/chromium, /bin/node, " +
 				"/etc/fonts) that this backend does not provision. Configure the MCP server " +
 				"directly in `mcp_servers` if you need it here.",
 			By: "entrypoint.mcp_presets_declined",

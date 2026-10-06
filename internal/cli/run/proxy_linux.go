@@ -57,6 +57,9 @@ func runArmedSession(cmd []string, arm *launchSignalArm, o *Options) (int, error
 	obs := proxyObserver(o)
 	obs.Arm = func(h ttyproxy.Handle) { arm.attach(h) }
 	obs.Env = o.runtimeClientEnv
+	// A session stdout the caller named takes the session's stdout, off the proxy
+	// (Options.SessionStdout).
+	obs.Stdout = o.SessionStdout
 	return ttyproxy.RunWithProxyObserved(cmd, nil, nil, obs)
 }
 

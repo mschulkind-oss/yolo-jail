@@ -5,6 +5,11 @@
       "kind": "loophole"
     },
     {
+      "describes": ["intercept"],
+      "from": "briefing/gh.md",
+      "kind": "briefing"
+    },
+    {
       "bin": "gh",
       "forward": ["yolo", "gh", "--"],
       "kind": "intercept"

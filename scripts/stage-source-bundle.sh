@@ -117,9 +117,10 @@ SHIPPED_BINARIES=(yolo yolo-entrypoint yolo-jaild yolo-ps yolo-cglimit yolo-jour
 
 # The macos-user GUEST's darwin in-jail binaries (flake.nix:guestBinaries, and
 # macosuser.GuestBinaries in Go). Only what a guest actually runs: yolo-jaild,
-# the supervisor and every in-jail daemon. Pinned to the other two spellings by
-# internal/macosuser/guestbundle_test.go.
-GUEST_BINARIES=(yolo-jaild)
+# the supervisor and every in-jail daemon, and the clients of the two loopholes
+# that run on a Mac, yolo-serial and yolo-ps. Pinned to the other two spellings
+# by internal/macosuser/guestbundle_test.go.
+GUEST_BINARIES=(yolo-jaild yolo-serial yolo-ps)
 
 # The guest OSes to stage (space-separated; default darwin). Empty stages none.
 GUEST_OSES=(darwin)
@@ -166,7 +167,7 @@ done
 
 # The guest dirs, one per OS x arch, holding GUEST_BINARIES and nothing else.
 # build-go.sh is narrowed to the guest set (BUILD_GO_CMDS), so a darwin build
-# compiles one binary rather than every cmd/.
+# compiles those binaries rather than every cmd/.
 for gos in "${GUEST_OSES[@]}"; do
   for arch in "${ARCHES[@]}"; do
     echo "stage-source-bundle: cross-compiling the ${gos}/${arch} guest set (${GUEST_BINARIES[*]})"

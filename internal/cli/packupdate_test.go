@@ -354,9 +354,11 @@ func TestRefreshOnTheHostSaysWhereToRunIt(t *testing.T) {
 }
 
 // TestPackUpdateOnHostTriggersHostApplyAssert asserts OQ-3:
-// On the host, yolo pack update triggers host apply --assert under active host management.
+// On the host, yolo pack update triggers host apply --assert under active host management —
+// `own`, the one value that renders since the `assert` retirement (OQ-CO14). The loop held
+// "assert" too until then; the retired value has its own test below.
 func TestPackUpdateOnHostTriggersHostApplyAssert(t *testing.T) {
-	for _, mode := range []string{"assert", "own"} {
+	for _, mode := range []string{"own"} {
 		t.Run("mode="+mode, func(t *testing.T) {
 			home := t.TempDir()
 			t.Setenv("HOME", home)
@@ -387,15 +389,21 @@ func TestPackUpdateOnHostTriggersHostApplyAssert(t *testing.T) {
 }
 
 // TestPackUpdateOnHostSkipsHostApplyUnderNone asserts that under host_management: "none",
-// yolo pack update does not touch host apply.
+// yolo pack update does not touch host apply — written, and UNSET, which means "none" since the
+// `assert` retirement (OQ-CO14): an unset key used to trigger the apply here, and now says nothing.
 func TestPackUpdateOnHostSkipsHostApplyUnderNone(t *testing.T) {
+	for _, cfg := range []string{`{"packs":[],"host_management":"none"}`, `{"packs":[]}`} {
+		t.Run(cfg, func(t *testing.T) { packUpdateSkipsHostApply(t, cfg) })
+	}
+}
+
+func packUpdateSkipsHostApply(t *testing.T, cfg string) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
 	t.Setenv("YOLO_VERSION", "")
 	t.Setenv("YOLO_PACK_ROOT", "")
 
-	cfg := `{"packs":[],"host_management":"none"}`
 	writeFile(t, filepath.Join(home, ".config", "yolo-jail", "config.jsonc"), cfg)
 
 	called := false
@@ -412,6 +420,46 @@ func TestPackUpdateOnHostSkipsHostApplyUnderNone(t *testing.T) {
 	}
 	if called {
 		t.Error("pack update must not trigger host apply under host_management \"none\"")
+	}
+	if strings.Contains(errw.String(), "host_management") {
+		t.Errorf("pack update said something about host_management under none:\n%s", errw.String())
+	}
+}
+
+// TestPackUpdateRefusesTheRetiredAssertsHostHalf is OQ-CO14 face 1 at `yolo pack update`: a config
+// still saying "assert" used to have its host half run `yolo host apply --assert`. The value
+// resolves to `none` now, so without the refusal the update would silently skip what it used to
+// do; it prints the retirement message instead, exits 1, and runs no host apply. Its pack half
+// still runs (the refusal comes after it), which a deleted refusal line would not change — what
+// would change is the exit code and the message, which is what this pins.
+func TestPackUpdateRefusesTheRetiredAssertsHostHalf(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
+	t.Setenv("YOLO_VERSION", "")
+	t.Setenv("YOLO_PACK_ROOT", "")
+	writeFile(t, filepath.Join(home, ".config", "yolo-jail", "config.jsonc"),
+		`{"packs":[],"host_management":"assert"}`)
+
+	called := false
+	savedApply := hostApplyFromPackUpdate
+	hostApplyFromPackUpdate = func(args []string, out, errw io.Writer, color bool, stdin io.Reader) int {
+		called = true
+		return 0
+	}
+	t.Cleanup(func() { hostApplyFromPackUpdate = savedApply })
+
+	var out, errw bytes.Buffer
+	if rc := packMain([]string{"update"}, &out, &errw, false); rc != 1 {
+		t.Fatalf("pack update under the retired \"assert\": rc = %d, want 1\n%s%s", rc, out.String(), errw.String())
+	}
+	if called {
+		t.Error("pack update ran a host apply under the retired \"assert\"")
+	}
+	for _, want := range []string{`yolo pack update: host_management: "assert" is RETIRED`, `"none"`, `"own"`} {
+		if !strings.Contains(errw.String(), want) {
+			t.Errorf("the refusal does not say %q:\n%s", want, errw.String())
+		}
 	}
 }
 

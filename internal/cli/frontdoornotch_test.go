@@ -73,20 +73,21 @@ func TestHostVerbRefusesWhatItCannotHonorByName(t *testing.T) {
 			"--at jail names the jail notch"},
 		{[]string{"host", "--at", "gest", "--", "mytool"},
 			`--at "gest" is not a confinement level (jail|guest|host)`},
-		{[]string{"host", "--timing", "--", "mytool"}, "--timing is a jail-launch flag"},
-		{[]string{"--at", "host", "--timing", "--", "mytool"}, "--timing is a jail-launch flag"},
 		{[]string{"run", "--at", "host", "--dry-run", "--", "mytool"}, "--dry-run is a jail-launch flag"},
 		{[]string{"host", "--network", "none", "--", "mytool"}, "--network is a jail-launch flag"},
 		{[]string{"host", "--network=none", "--", "mytool"}, "--network is a jail-launch flag"},
 		{[]string{"host", "--accept-config-changes", "--", "mytool"},
 			"--accept-config-changes is a jail-launch flag"},
+		{[]string{"--at", "host", "--dry-run", "--", "mytool"}, "--dry-run is a jail-launch flag"},
 		// WITH NO `--` the exec flags are still exec flags (notch-convergence.md items 9 and 10):
 		// these used to fall to hostMain's verb switch and exit 1 as `unknown verb "-p"`.
 		{[]string{"--at", "host", "--profile="}, "--profile needs a value"},
 		{[]string{"host", "--profile="}, "--profile needs a value"},
 		{[]string{"--at", "host", "-p"}, "-p needs a value"},
-		{[]string{"--at", "host", "--timing"}, "--timing is a jail-launch flag"},
-		{[]string{"host", "--timing"}, "--timing is a jail-launch flag"},
+		// --timing is a host flag now (perf-logging.md D18), so with no `--` it is refused for
+		// naming no command, as -p is.
+		{[]string{"--at", "host", "--timing"}, "--timing names no command to run"},
+		{[]string{"host", "--timing"}, "--timing names no command to run"},
 		{[]string{"--at", "host", "--frob"}, `unknown flag "--frob"`},
 		{[]string{"--at", "host", "-p", "zai"}, "-p zai names no command to run"},
 		{[]string{"host", "--with-credentials", "all"}, "--with-credentials all names no command to run"},
@@ -129,5 +130,26 @@ func TestLastAtWinsTowardTheJail(t *testing.T) {
 	if execed != nil || rc == 0 || strings.Contains(errs, "yolo host:") {
 		t.Errorf("`yolo --at host --at jail -- mytool x`: rc=%d exec=%q, want the jail launcher, "+
 			"never the host\n%s", rc, execed, errs)
+	}
+}
+
+// --timing IS THE HOST VERB'S TOO (perf-logging.md D18): every spelling that carries it to the host
+// exec times the launch and runs the command, instead of refusing it as a jail-launch flag.
+func TestTheHostVerbTakesTiming(t *testing.T) {
+	valueFlagHome(t, "")
+	for _, spelling := range [][]string{
+		{"host", "--timing", "--", "mytool", "x"},
+		{"--at", "host", "--timing", "--", "mytool", "x"},
+		{"--timing", "host", "--", "mytool", "x"},
+		{"run", "--at", "host", "--timing", "--", "mytool", "x"},
+	} {
+		rc, execed, errs := hostExecThroughMain(t, spelling...)
+		if rc != 0 || !slices.Equal(execed, []string{"mytool", "x"}) {
+			t.Errorf("`yolo %s`: rc=%d exec=%q, want the host exec of [mytool x]\n%s",
+				strings.Join(spelling, " "), rc, execed, errs)
+		}
+		if !strings.Contains(errs, "yolo host timing (to the hand-over):") {
+			t.Errorf("`yolo %s` printed no timing table:\n%s", strings.Join(spelling, " "), errs)
+		}
 	}
 }

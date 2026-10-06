@@ -55,14 +55,20 @@ func copilotEnvOnBedrock(t *testing.T, profile string, fetched []packload.Fetche
 	return got
 }
 
-// TestCopilotStartsOnTheFetchedListWhereNoPackSuppliesOne: with no list copilot composes nothing
-// (its BYOK refuses to start without a model), with a fetched one it starts on the list's first
-// Anthropic model, the maker the bridge carries untranslated, and a profile's own `model` wins
-// over both. It fails if copilot's derive stops reading the fetched list.
+// TestCopilotStartsOnTheFetchedListWhereNoPackSuppliesOne: with no list copilot starts on its cheap
+// default (MM-D34; its BYOK refuses to start without a model), and so it does with a fetched list
+// that holds it; with a fetched list that does not, on the list's newest Anthropic model, the maker
+// the bridge carries untranslated (MM-D40); and a profile's own `model` wins over all of them. It
+// fails if copilot's derive stops reading the fetched list.
 func TestCopilotStartsOnTheFetchedListWhereNoPackSuppliesOne(t *testing.T) {
 	for _, profile := range []string{"bedrock-bridge", "bedrock"} {
-		if got := copilotEnvOnBedrock(t, profile, nil, nil); got["COPILOT_MODEL"] != "" {
-			t.Errorf("copilot on %s with no list: %v, want nothing composed", profile, got)
+		if got := copilotEnvOnBedrock(t, profile, nil, nil); got["COPILOT_MODEL"] != "openai.gpt-oss-120b-1:0" {
+			t.Errorf("copilot on %s with no list: %v, want the cheap default", profile, got)
+		}
+		withCheap := []packload.FetchedModel{{ID: "openai.gpt-oss-120b-1:0", Vendor: "openai"},
+			{ID: "us.anthropic.claude-test-v1", Vendor: "anthropic"}}
+		if got := copilotEnvOnBedrock(t, profile, withCheap, nil); got["COPILOT_MODEL"] != "openai.gpt-oss-120b-1:0" {
+			t.Errorf("copilot on %s with a fetched list holding the cheap default: %v", profile, got)
 		}
 		fetched := []packload.FetchedModel{{ID: "amazon.test-v1", Vendor: "amazon"},
 			{ID: "us.anthropic.claude-test-v1", Vendor: "anthropic"}, {ID: "openai.gpt-test-1:0", Vendor: "openai"}}

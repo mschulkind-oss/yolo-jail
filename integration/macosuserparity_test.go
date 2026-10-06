@@ -22,8 +22,8 @@ import (
 //
 //	#6  TestMacosUserReportsOnlyPlatformInertLoopholes  the backend axis is gone (every host daemon starts); the platform axis and the jail-half decline remain
 //	#7  TestMacosUserStartsAConfigDeclaredLoophole      a config-declared loophole is STARTED here now, and its endpoint reaches the sandbox
-//	#9  TestMacosUserSaysResourcesAndRelocationsAreIgnored  both still warn, and both really are ignored; the third warning is retired
-//	#14 TestMacosUserDeliversHostBytesByCopy            reads-host and host_files FILE sources cross by copy (DP-L1); only a DIRECTORY source still warns
+//	#9  TestMacosUserSaysResourcesAreIgnoredAndRelocatesTheCache  resources still warns and is ignored; cache_relocations is delivered now; the third warning is retired
+//	#14 TestMacosUserDeliversHostBytesByCopy            reads-host and host_files sources cross by copy, a DIRECTORY source too since 2026-10-05
 //
 // Unlike the Apple Container file these are REAL ASSERTIONS, not experiments: macos-user.yml
 // runs on a GitHub-hosted runner every night, and each assertion is a claim the code already
@@ -197,39 +197,61 @@ func TestMacosUserStartsAConfigDeclaredLoophole(t *testing.T) {
 	}
 }
 
-// TestMacosUserSaysResourcesAndRelocationsAreIgnored is fix #9 (`8ab03d2e`) as it stands today.
+// TestMacosUserSaysResourcesAreIgnoredAndRelocatesTheCache is fix #9 (`8ab03d2e`) as it stands
+// today.
 //
-// Two of its three warnings stand and one is retired. `resources` and `cache_relocations` still
-// warn (internal/macosuser/orchestrator.go), and the hardware can check what each warning SAYS,
-// not just that it is printed: that the sandboxed process runs with the invoking user's own
-// virtual-memory limit, and that a relocated cache subdir is not relocated — a file written
-// there in the sandbox never reaches the relocation target. The third warning, pack `state` at
-// scope:workspace being machine-wide, was retired when the per-workspace home layout shipped;
+// One of its three warnings stands. `resources` still warns — for pids_limit alone now: io is set
+// as the disk policy, cpus is honored cooperatively and memory by the sampled guard
+// (internal/macosuser/orchestrator.go; TestMacosUserIOPriorityIsApplied and
+// TestMacosUserMemoryGuard are their hardware tests). `cache_relocations` stopped warning on
+// 2026-10-05, when it began to be DELIVERED here: a link the bootstrap lays at ~/.cache/<subdir>
+// to the target, which the Seatbelt profile opens (docs/plans/cache-relocation.md, the macos-user
+// section). So the hardware checks what each line SAYS: that the sandboxed process runs with the
+// invoking user's own virtual-memory limit, and that a relocated cache subdir IS relocated — a
+// file written there in the sandbox lands at the target, and the launch discloses the link rather
+// than calling the key unimplemented. The third warning, pack `state` at scope:workspace being
+// machine-wide, was retired when the per-workspace home layout shipped;
 // TestMacosUserHomeTierIsPerWorkspace is its hardware test, so it is not repeated here.
-func TestMacosUserSaysResourcesAndRelocationsAreIgnored(t *testing.T) {
+//
+// THE TARGET IS UNDER /Users/Shared, in a 0755 folder of the test's own, and does not exist
+// before the launch, so yolo makes it and grants it the sandbox's access: a target under the
+// runner's /var/folders temp dir, which this test used before, sits in a per-user directory the
+// sandbox account cannot traverse, and the launch now refuses one (the DAC preflight).
+// integration/macosuserrelocations_test.go has the cases this one does not: that what the sandbox
+// wrote stays yours to delete, and the refusal of a populated target without the access.
+func TestMacosUserSaysResourcesAreIgnoredAndRelocatesTheCache(t *testing.T) {
 	requireMacosUser(t)
-	target := filepath.Join(resolvedTempDir(t), "relocated")
+	target := macosUserRelocationTarget(t, sharedUsersDir)
 	const subdir = "yolo-it-reloc"
 	packHome(t, fmt.Sprintf(`{"cache_relocations": {%q: %q}}`, subdir, target))
-	ws := macosUserWorkspace(t, `{"resources": {"memory": "2g"}}`)
+	ws := macosUserWorkspace(t, `{"resources": {"pids_limit": 4096, "cpus": 2}}`)
 	probeName := "probe-" + acParityNonce()
 
 	r := macosUserRunProbe(t, "#9", ws, strings.Join([]string{
 		`echo "=== LIMITS ==="; echo "ULIMIT_V=$(ulimit -v)"`,
-		`echo "=== RELOC ==="; mkdir -p ~/.cache/` + subdir + ` && echo x > ~/.cache/` + subdir + `/` + probeName + ` && echo WROTE || echo WRITE-FAILED`,
+		`echo "=== RELOC ==="; echo x > ~/.cache/` + subdir + `/` + probeName + ` && echo WROTE || echo WRITE-FAILED`,
 		`echo "=== END ==="`,
 	}, "\n"))
 	out := r.combined()
 
 	for _, want := range []string{
-		"resources are NOT enforced on macos-user", "memory",
-		"cache_relocations are NOT implemented on macos-user", subdir,
+		"resources are NOT enforced on macos-user", "so pids_limit is read and ignored",
+		"Cache relocation: ~/.cache/" + subdir + " → " + target,
 	} {
 		if !strings.Contains(out, want) {
-			t.Errorf("the launch output lacks %q. Both warnings are the whole of what this "+
-				"backend does with the two keys (orchestrator.go), so a missing one is a "+
-				"silent drop again.\n%s", want, out)
+			t.Errorf("the launch output lacks %q. The resources warning is the whole of what this "+
+				"backend does with that key, and the relocation line is the disclosure of a folder "+
+				"the sandbox writes (orchestrator.go), so a missing one is a silent change.\n%s", want, out)
 		}
+	}
+	if strings.Contains(out, "cache_relocations are NOT implemented") {
+		t.Errorf("the retired warning is still printed although the relocation is delivered:\n%s", out)
+	}
+	// cpus is acted on, so it is named on its own line and never on the ignored one.
+	if strings.Contains(out, "so cpus") || strings.Contains(out, "cpus, pids_limit") ||
+		!strings.Contains(out, "resources.cpus (2) is honored cooperatively") {
+		t.Errorf("resources.cpus is honored cooperatively and must say so, not be called "+
+			"ignored:\n%s", out)
 	}
 
 	hostV, err := exec.Command("/bin/bash", "-c", "ulimit -v").Output()
@@ -245,13 +267,12 @@ func TestMacosUserSaysResourcesAndRelocationsAreIgnored(t *testing.T) {
 			gotV, strings.TrimSpace(string(hostV)))
 	}
 
-	if _, err := os.Stat(filepath.Join(target, probeName)); err == nil {
-		t.Errorf("a file the sandbox wrote to ~/.cache/%s appeared at the relocation target %s: "+
-			"something relocates the cache now, and the warning saying it does not is wrong", subdir, target)
-	}
 	if !strings.Contains(section(r.stdout, "=== RELOC ===", "=== END ==="), "WROTE") {
-		t.Errorf("the sandbox could not write ~/.cache/%s at all, so the relocation check above "+
-			"proves nothing:\n%s", subdir, r.stdout)
+		t.Errorf("the sandbox could not write ~/.cache/%s, the relocated subdir:\n%s", subdir, r.stdout)
+	}
+	if _, err := os.Stat(filepath.Join(target, probeName)); err != nil {
+		t.Errorf("a file the sandbox wrote to ~/.cache/%s is not at the relocation target %s (%v): "+
+			"the link the bootstrap lays, or the profile's allow for the target, did not take", subdir, target, err)
 	}
 }
 
@@ -261,10 +282,12 @@ func TestMacosUserSaysResourcesAndRelocationsAreIgnored(t *testing.T) {
 // source-bearing `host_files` entry is dropped from the wire. Both warnings were RETIRED on
 // 2026-09-13 because DP-L1 closed both gaps: host bytes now cross by COPY into a root-owned tree
 // (internal/cli/run/macosctxtree.go, macosuser.StageCtxCommands), named to the sandbox by
-// YOLO_CTX_ROOT. What survives is one line, for a host_files entry whose source is a DIRECTORY
-// (loopholeinert.go's noteMacosUserHostByteGaps). So this asserts the retirement on the
-// hardware: the user's own ~/.claude/settings.json is composed into the sandbox's, a FILE entry
-// arrives with its bytes, a DIRECTORY entry does not arrive, and the launch says so by name.
+// YOLO_CTX_ROOT. The one line that survived, for a host_files entry whose source is a DIRECTORY,
+// went on 2026-10-05, when that shape began crossing by copy too, confined to its source
+// (run's copyCtxTreeConfined). So this asserts all of it on the hardware: the user's own
+// ~/.claude/settings.json is composed into the sandbox's, a FILE entry arrives with its bytes, a
+// DIRECTORY entry arrives with its nested files, a link inside it that leads out of the source
+// does not carry the file it points at, and the launch no longer says directories do not cross.
 func TestMacosUserDeliversHostBytesByCopy(t *testing.T) {
 	requireMacosUser(t)
 	nonce := acParityNonce()
@@ -286,9 +309,12 @@ func TestMacosUserDeliversHostBytesByCopy(t *testing.T) {
 			"MEASURED about #14 (privateHostProvenance did not take)")
 	}
 	for path, body := range map[string]string{
-		filepath.Join(home, ".claude", "settings.json"):       `{"yoloItReadsHostProbe": "` + nonce + `"}`,
-		filepath.Join(home, "yolo-it-mu-source.txt"):          "HOSTFILE-" + nonce,
-		filepath.Join(home, "yolo-it-mu-srcdir", "inner.txt"): "DIR-" + nonce,
+		filepath.Join(home, ".claude", "settings.json"):             `{"yoloItReadsHostProbe": "` + nonce + `"}`,
+		filepath.Join(home, "yolo-it-mu-source.txt"):                "HOSTFILE-" + nonce,
+		filepath.Join(home, "yolo-it-mu-srcdir", "inner.txt"):       "DIR-" + nonce,
+		filepath.Join(home, "yolo-it-mu-srcdir", "sub", "deep.txt"): "DEEP-" + nonce,
+		filepath.Join(home, "yolo-it-mu-srcdir", "dark", "colors"):  "DARK-" + nonce,
+		filepath.Join(home, "yolo-it-mu-outside", "secret.txt"):     "OUTSIDE-" + nonce,
 	} {
 		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 			t.Fatal(err)
@@ -297,11 +323,26 @@ func TestMacosUserDeliversHostBytesByCopy(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
+	// An owner-only file, whose bits must survive the world-readable staged copy (a 0644 key is
+	// one OpenSSH refuses), and a folder link inside the source, which a container bind resolves.
+	if err := os.WriteFile(filepath.Join(home, "yolo-it-mu-srcdir", "key"), []byte("KEY\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("dark", filepath.Join(home, "yolo-it-mu-srcdir", "current")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(filepath.Join(home, "yolo-it-mu-outside", "secret.txt"),
+		filepath.Join(home, "yolo-it-mu-srcdir", "out-link")); err != nil {
+		t.Fatal(err)
+	}
 	ws := macosUserWorkspace(t, `{}`)
 	r := macosUserRunProbe(t, "#14", ws, strings.Join([]string{
 		`echo "=== SETTINGS ==="; cat ~/.claude/settings.json 2>&1`,
 		`echo "=== FILE ==="; cat ~/.config/yolo-it-mu/probe.txt 2>&1`,
-		`echo "=== DIR ==="; cat ~/.config/yolo-it-mu-dir/inner.txt 2>&1`,
+		`echo "=== DIR ==="; cat ~/.config/yolo-it-mu-dir/inner.txt ~/.config/yolo-it-mu-dir/sub/deep.txt 2>&1`,
+		`echo "=== LINK ==="; cat ~/.config/yolo-it-mu-dir/out-link 2>&1`,
+		`echo "=== DIRLINK ==="; cat ~/.config/yolo-it-mu-dir/current/colors 2>&1`,
+		`echo "=== MODE ==="; stat -f '%Lp' ~/.config/yolo-it-mu-dir/key 2>&1`,
 		`echo "=== END ==="`,
 	}, "\n"))
 	out := r.combined()
@@ -315,17 +356,27 @@ func TestMacosUserDeliversHostBytesByCopy(t *testing.T) {
 		t.Errorf("a source-bearing host_files FILE entry did not arrive with its bytes. DP-L1 "+
 			"delivers it by copy, and the warning that it is dropped was retired on that basis.\n%s", got)
 	}
-	if got := section(r.stdout, "=== DIR ===", "=== END ==="); strings.Contains(got, "DIR-"+nonce) {
-		t.Errorf("a host_files DIRECTORY entry arrived, but the launch still says directories do "+
-			"not cross on this backend (DP-D15) — retire that line, it is now false.\n%s", got)
-	}
-	for _, want := range []string{
-		"a host_files entry whose `source` is a DIRECTORY does not cross on macos-user",
-		"~/.config/yolo-it-mu-dir",
-	} {
-		if !strings.Contains(out, want) {
-			t.Errorf("the launch output lacks %q: a directory entry the user declared is not "+
-				"delivered here, and the one line that says so is missing.\n%s", want, out)
+	dir := section(r.stdout, "=== DIR ===", "=== LINK ===")
+	for _, want := range []string{"DIR-" + nonce, "DEEP-" + nonce} {
+		if !strings.Contains(dir, want) {
+			t.Errorf("a host_files DIRECTORY entry did not arrive with %q: the launch copies the tree "+
+				"since 2026-10-05 (buildMacosCtxTree), and the line saying it does not was retired on "+
+				"that basis.\n%s", want, dir)
 		}
+	}
+	if got := section(r.stdout, "=== DIRLINK ===", "=== MODE ==="); !strings.Contains(got, "DARK-"+nonce) {
+		t.Errorf("a folder link inside the source did not deliver its folder, as a container's bind "+
+			"and boot copy do (copyCtxTreeConfined).\n%s", got)
+	}
+	if got := strings.TrimSpace(section(r.stdout, "=== MODE ===", "=== END ===")); got != "600" {
+		t.Errorf("an owner-only file of a host_files DIRECTORY entry arrived with mode %q, want 600 "+
+			"as on a container (entrypoint.HostFileDirModes)", got)
+	}
+	if got := section(r.stdout, "=== LINK ===", "=== DIRLINK ==="); strings.Contains(got, "OUTSIDE-"+nonce) {
+		t.Errorf("a link inside the source that leads out of it carried the file it points at into "+
+			"the sandbox — a host-file read nobody declared (copyCtxTreeConfined).\n%s", got)
+	}
+	if strings.Contains(out, "does not cross on macos-user") {
+		t.Errorf("the launch still says a directory entry does not cross, and it does:\n%s", out)
 	}
 }

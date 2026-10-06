@@ -15,6 +15,14 @@ package entrypoint
 // So these tests are all SECOND-RENDER tests: the shape of the bug is entirely about what the
 // next apply does to the previous record, and a single render cannot exhibit it.
 //
+// WHERE THIS RUNS NOW: an owned host (`host_management: "own"`), for a surface its pack
+// DECLARES `rmw`. The retired `assert` ran every surface through the rmw arm; what survives it
+// is the arm itself, which an owned host still runs and records for an rmw declaration
+// (render.HostOwnedModes; docs/design/config-ownership-and-promotion.md §4.5.2 names
+// `retireUnclaimed` and its use of the previous record as live there). So every owner fixture
+// here declares `rmw` (rmwAcmeOwner, bareAcmePack): a `stateful` declaration under `own`
+// composes the whole file instead, and never reaches the pass these tests pin.
+//
 // Every test renders into a t.TempDir() home. The record lands under THAT home's state dir
 // (render.Target.ProvenanceDir), which is what keeps a real $HOME out of reach.
 
@@ -25,19 +33,28 @@ import (
 	"testing"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/agentcfg"
+	"github.com/mschulkind-oss/yolo-jail/internal/agentcfg/manifest"
 	"github.com/mschulkind-oss/yolo-jail/internal/packdecl"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/packoverlay"
 	"github.com/mschulkind-oss/yolo-jail/internal/render"
 )
 
+// rmwAcmeOwner is overlayOwnerPack declaring `rmw`, the declaration whose host render runs the
+// retirement pass (see the file comment).
+func rmwAcmeOwner(t *testing.T) *packload.Pack {
+	t.Helper()
+	return overlayOwnerPack(t, manifest.ModeRMW)
+}
+
 // applyToHome renders the owner pack into home with the given contributors in view — one
-// `yolo host apply --assert`. Called twice by every test here, with a different contributor set,
-// which is what models a pack being dropped from `packs`.
+// writing `yolo host apply --assert` under `host_management: "own"`. Called twice by every test
+// here, with a different contributor set, which is what models a pack being dropped from
+// `packs`.
 func applyToHome(t *testing.T, home string, owner *packload.Pack, contributors ...*packload.Pack) {
 	t.Helper()
 	overlays := packoverlay.Collect(append([]*packload.Pack{owner}, contributors...), false, nil)
-	if _, err := RenderHostPack(owner, home, render.OwnershipAssert, false, overlays, nil); err != nil {
+	if _, err := RenderHostPack(owner, home, render.OwnershipOwn, false, overlays, nil); err != nil {
 		t.Fatalf("RenderHostPack: %v", err)
 	}
 }
@@ -46,7 +63,7 @@ func applyToHome(t *testing.T, home string, owner *packload.Pack, contributors .
 // as retired against the pack that last claimed it — never as `host`.
 func TestDroppedPackKeyIsRetiredNotLaunderedToHost(t *testing.T) {
 	home := t.TempDir()
-	owner := overlayOwnerPack(t, "")
+	owner := rmwAcmeOwner(t)
 	dropme := overlayContributorPack(t, "dropme", map[string]any{"fileSuggestion": "run-fzf"})
 
 	applyToHome(t, home, owner, dropme)
@@ -91,7 +108,7 @@ func TestDroppedPackKeyIsRetiredNotLaunderedToHost(t *testing.T) {
 // COSTS something: a prune reading the record would delete a key the user wrote by hand.
 func TestUserOwnedKeyIsNeverRetired(t *testing.T) {
 	home := t.TempDir()
-	owner := overlayOwnerPack(t, "")
+	owner := rmwAcmeOwner(t)
 	// A key the user wrote themselves, in the file before yolo ever ran here.
 	seedSurfaceFile(t, home, ".acme/settings.json", map[string]any{"userOwned": "keep me"})
 
@@ -117,7 +134,7 @@ func TestUserOwnedKeyIsNeverRetired(t *testing.T) {
 func TestDroppedDefaultIsNotRetired(t *testing.T) {
 	home := t.TempDir()
 	// The owner declares `theme` as a DEFAULT. First apply fills it.
-	applyToHome(t, home, overlayOwnerPack(t, ""))
+	applyToHome(t, home, rmwAcmeOwner(t))
 	if got := readRenderedJSON(t, home, ".acme/settings.json"); got["theme"] != "system" {
 		t.Fatalf("precondition: the default must have been filled, got %#v", got)
 	}
@@ -138,7 +155,7 @@ func TestDroppedDefaultIsNotRetired(t *testing.T) {
 // it is asserting it on every apply.
 func TestReAddingThePackRestoresTheLiveAttribution(t *testing.T) {
 	home := t.TempDir()
-	owner := overlayOwnerPack(t, "")
+	owner := rmwAcmeOwner(t)
 	dropme := overlayContributorPack(t, "dropme", map[string]any{"fileSuggestion": "run-fzf"})
 
 	applyToHome(t, home, owner, dropme)
@@ -162,7 +179,7 @@ func TestReAddingThePackRestoresTheLiveAttribution(t *testing.T) {
 // through to `host`, and lose the attribution exactly as before.
 func TestRetirementSurvivesFurtherApplies(t *testing.T) {
 	home := t.TempDir()
-	owner := overlayOwnerPack(t, "")
+	owner := rmwAcmeOwner(t)
 	applyToHome(t, home, owner, overlayContributorPack(t, "dropme",
 		map[string]any{"fileSuggestion": "run-fzf"}))
 
@@ -184,7 +201,7 @@ func TestFirstApplyWithNoRecordAttributesEverythingToHost(t *testing.T) {
 	home := t.TempDir()
 	seedSurfaceFile(t, home, ".acme/settings.json", map[string]any{"mystery": 1})
 
-	applyToHome(t, home, overlayOwnerPack(t, ""))
+	applyToHome(t, home, rmwAcmeOwner(t))
 
 	rec, found := hostProvenance(t, home, "acme", "settings")
 	if !found {
@@ -221,7 +238,7 @@ func TestCorruptPreviousRecordCannotClaimAKey(t *testing.T) {
 			home := t.TempDir()
 			seedSurfaceFile(t, home, ".acme/settings.json", map[string]any{"mine": "user value"})
 			// Plant the corrupt record where the writer's own re-read will find it.
-			path := render.Host(home, nil, render.OwnershipAssert).ProvenancePath("acme", "settings")
+			path := render.Host(home, nil, render.OwnershipOwn).ProvenancePath("acme", "settings")
 			if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 				t.Fatal(err)
 			}
@@ -229,7 +246,7 @@ func TestCorruptPreviousRecordCannotClaimAKey(t *testing.T) {
 				t.Fatal(err)
 			}
 
-			applyToHome(t, home, overlayOwnerPack(t, ""))
+			applyToHome(t, home, rmwAcmeOwner(t))
 
 			rec, found := hostProvenance(t, home, "acme", "settings")
 			if !found {
@@ -250,13 +267,13 @@ func TestCorruptPreviousRecordCannotClaimAKey(t *testing.T) {
 func TestUnreadablePreviousRecordProvesNothing(t *testing.T) {
 	home := t.TempDir()
 	seedSurfaceFile(t, home, ".acme/settings.json", map[string]any{"mine": "user value"})
-	path := render.Host(home, nil, render.OwnershipAssert).ProvenancePath("acme", "settings")
+	path := render.Host(home, nil, render.OwnershipOwn).ProvenancePath("acme", "settings")
 	if err := os.MkdirAll(path, 0o755); err != nil { // a DIR where the record file belongs
 		t.Fatal(err)
 	}
 
 	// The render still succeeds — a provenance failure must not fail the apply.
-	applyToHome(t, home, overlayOwnerPack(t, ""))
+	applyToHome(t, home, rmwAcmeOwner(t))
 
 	if got := readRenderedJSON(t, home, ".acme/settings.json"); got["mine"] != "user value" {
 		t.Errorf("the render lost the user's key: %#v", got)
@@ -270,7 +287,7 @@ func TestUnreadablePreviousRecordProvesNothing(t *testing.T) {
 // handled that one would launder the others.
 func TestDroppedManagedKeyIsRetiredToo(t *testing.T) {
 	home := t.TempDir()
-	applyToHome(t, home, overlayOwnerPack(t, "")) // declares managed telemetry:false
+	applyToHome(t, home, rmwAcmeOwner(t)) // declares managed telemetry:false
 	first, _ := hostProvenance(t, home, "acme", "settings")
 	if got := first["telemetry"]; got != agentcfg.LayerManaged {
 		t.Fatalf("precondition: telemetry must record as managed, got %q", got)
@@ -288,13 +305,14 @@ func TestDroppedManagedKeyIsRetiredToo(t *testing.T) {
 	}
 }
 
-// bareAcmePack owns acme/settings and declares NO layers — the "the pack stopped declaring
-// this key" half of retirement, as against the "the pack left `packs`" half.
+// bareAcmePack owns acme/settings, declared `rmw` like rmwAcmeOwner, and declares NO layers —
+// the "the pack stopped declaring this key" half of retirement, as against the "the pack left
+// `packs`" half.
 func bareAcmePack(t *testing.T) *packload.Pack {
 	t.Helper()
 	raw, err := json.Marshal([]any{map[string]any{
 		"agent": "acme", "name": "settings", "codec": "json",
-		"path": "~/.acme/settings.json",
+		"path": "~/.acme/settings.json", "mode": manifest.ModeRMW,
 	}})
 	if err != nil {
 		t.Fatal(err)

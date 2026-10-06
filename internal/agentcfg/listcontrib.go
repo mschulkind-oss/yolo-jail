@@ -233,8 +233,9 @@ func ListCaptureRecords(data []byte) ([]string, map[string]ListRecord) {
 // ListCaptureRefusal is the launch refusal OQ-AL1 rules for a list path that does not
 // capture per entry yet — "" when the mechanism does, else the reason, naming the surface
 // and its mode. Keyed on the RESOLVED mechanism (render.ModeSet.Mechanism), never on the
-// declared mode alone: a `stateful` surface at the host under `assert` renders through
-// `rmw`, and that is the mechanism whose capture decides.
+// declared mode alone: a census may render a declaration through another mechanism (the
+// retired `assert` rendered a `stateful` surface at the host through `rmw`; `own` renders a
+// `computed` one through `stateful`), and that is the mechanism whose capture decides.
 //
 // The three composing mechanisms all capture per entry now — `stateful` through the
 // list-capture sidecar, `rmw` through the insert record, `computed` trivially (it captures

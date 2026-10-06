@@ -27,6 +27,7 @@ func richBase(t *testing.T) *Pack {
 		Capabilities:             []string{"web_search"},
 		UnlistedBackgroundModels: true,
 		ExactMenuRefuses:         &packdecl.ExactMenuRefusal{Providers: []string{"openai-codex"}},
+		AgentFiles:               map[string]string{"PI_PROVIDERS": "providers.json"},
 		NeedsModelList:           []string{"aws-bedrock"},
 	}, packdecl.Contribution{Kind: packdecl.KindProgram, Bin: "other", Via: "npm", Package: "other"})
 }
@@ -58,6 +59,7 @@ func TestTheForkRewriteKeepsAndReplacesExactlyFPD6sFields(t *testing.T) {
 		len(prog.PlatformSwitches) != 1 || strings.Join(prog.Capabilities, ",") != "web_search" ||
 		!prog.UnlistedBackgroundModels || prog.ExactMenuRefuses == nil ||
 		strings.Join(prog.ExactMenuRefuses.Providers, ",") != "openai-codex" || prog.NodeFloor != "22.19" ||
+		prog.AgentFiles["PI_PROVIDERS"] != "providers.json" ||
 		strings.Join(prog.NeedsModelList, ",") != "aws-bedrock" {
 		t.Errorf("a field the base keeps was dropped: %+v", prog)
 	}

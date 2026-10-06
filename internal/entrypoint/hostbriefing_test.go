@@ -13,7 +13,9 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
+	"time"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/hostskills"
 	"github.com/mschulkind-oss/yolo-jail/internal/jailcontent"
@@ -23,9 +25,10 @@ import (
 
 // briefingPack builds a pack whose root is a temp dir carrying `prose` as briefing/prose.md — the
 // conventional source (docs/reference/pack-system.md#briefing-directory; a root AGENTS.md is never read) — and which
-// declares a briefing into `into`, `from` omitted. The `after: host:` half is declared too,
-// because that is the shape the shipped packs use and the host render must ignore it (§6a: the
-// host no longer preserves the user's file in place, so there is nothing to prepend).
+// declares a briefing into `into`, `from` omitted. The `after: host:` half is declared too, naming
+// the destination itself, because that is the shape the shipped packs use and the host render
+// must not read it: that file is the one this composition writes (hostBriefingOverlay's skip rule,
+// S3), so prepending it would read yolo's output back in.
 func briefingPack(t *testing.T, name, into, prose string) *packload.Pack {
 	t.Helper()
 	return briefingPackFrom(t, name, into, "", "briefing/prose.md", prose)
@@ -105,7 +108,7 @@ func localPackDir(home string) string {
 func TestHostBriefingFirstApplyDoesNotDuplicateProse(t *testing.T) {
 	home, dest, packs := f3Home(t)
 	req, man := briefingReq(t, home)
-	if adoptions := HostBriefingAdoptions(packs, home, req.Manifest, "", false); len(adoptions) != 0 {
+	if adoptions := HostBriefingAdoptions(packs, home, req.Manifest, "", false, nil); len(adoptions) != 0 {
 		t.Fatalf("a file identical to the composition is not an adoption; got %+v", adoptions)
 	}
 	if _, err := RenderHostBriefings(packs, home, req, false); err != nil {
@@ -127,7 +130,7 @@ func TestHostBriefingFirstApplyDoesNotDuplicateProseWhenLabelled(t *testing.T) {
 	home, dest, packs := f3Home(t)
 	req, _ := briefingReq(t, home)
 	req.Provenance = true
-	adoptions := HostBriefingAdoptions(packs, home, req.Manifest, "", true)
+	adoptions := HostBriefingAdoptions(packs, home, req.Manifest, "", true, nil)
 	if len(adoptions) != 1 {
 		t.Fatalf("want one adoption for a hand-written destination; got %+v", adoptions)
 	}
@@ -205,7 +208,7 @@ func TestHostBriefingMigrationMovesProseIntoTheLocalPack(t *testing.T) {
 
 	packs := []*packload.Pack{briefingPack(t, "matt-core", ".claude/CLAUDE.md", "Pack rule one.\n")}
 	req, _ := briefingReq(t, home)
-	adoptions := HostBriefingAdoptions(packs, home, req.Manifest, "", false)
+	adoptions := HostBriefingAdoptions(packs, home, req.Manifest, "", false, nil)
 	if len(adoptions) != 1 {
 		t.Fatalf("want one adoption; got %+v", adoptions)
 	}
@@ -280,7 +283,7 @@ func TestHostBriefingMigrationUnionsSeveralDestinations(t *testing.T) {
 		briefingPack(t, "codex", ".codex/AGENTS.md", "Codex pack prose.\n"),
 	}
 	req, _ := briefingReq(t, home)
-	adoptions := HostBriefingAdoptions(packs, home, req.Manifest, "", false)
+	adoptions := HostBriefingAdoptions(packs, home, req.Manifest, "", false, nil)
 	if len(adoptions) != 2 {
 		t.Fatalf("want two adoptions; got %+v", adoptions)
 	}
@@ -330,7 +333,7 @@ func TestHostBriefingMigrationAppendsToAnExistingLocalPack(t *testing.T) {
 	}
 
 	packs := []*packload.Pack{briefingPack(t, "claude", ".claude/CLAUDE.md", "Pack prose.\n")}
-	adoptions := HostBriefingAdoptions(packs, home, req.Manifest, "", false)
+	adoptions := HostBriefingAdoptions(packs, home, req.Manifest, "", false, nil)
 	if _, err := MigrateHostBriefings(adoptions, req, false); err != nil {
 		t.Fatalf("migrate: %v", err)
 	}
@@ -362,7 +365,7 @@ func TestHostBriefingMigrationArchivesWhenThereIsNoLocalPack(t *testing.T) {
 	req, _ := briefingReq(t, home)
 	req.LocalPackBriefing = "" // no resolvable local pack
 
-	adoptions := HostBriefingAdoptions(packs, home, req.Manifest, "", false)
+	adoptions := HostBriefingAdoptions(packs, home, req.Manifest, "", false, nil)
 	results, err := MigrateHostBriefings(adoptions, req, false)
 	if err != nil {
 		t.Fatalf("migrate: %v", err)
@@ -398,7 +401,7 @@ func TestHostBriefingAdoptionsOnlyWhenSomethingIsAtStake(t *testing.T) {
 	req, man := briefingReq(t, home)
 
 	// (1) Destination absent — nothing to adopt.
-	if got := HostBriefingAdoptions(packs, home, man, "", false); len(got) != 0 {
+	if got := HostBriefingAdoptions(packs, home, man, "", false, nil); len(got) != 0 {
 		t.Errorf("an absent destination must not prompt; got %+v", got)
 	}
 
@@ -407,7 +410,7 @@ func TestHostBriefingAdoptionsOnlyWhenSomethingIsAtStake(t *testing.T) {
 		t.Fatalf("render: %v", err)
 	}
 	packs2 := []*packload.Pack{briefingPack(t, "claude", ".claude/CLAUDE.md", "Pack prose CHANGED.\n")}
-	if got := HostBriefingAdoptions(packs2, home, man, "", false); len(got) != 0 {
+	if got := HostBriefingAdoptions(packs2, home, man, "", false, nil); len(got) != 0 {
 		t.Errorf("a destination yolo composed before must not prompt again; got %+v", got)
 	}
 
@@ -426,7 +429,7 @@ func TestHostBriefingAdoptionsOnlyWhenSomethingIsAtStake(t *testing.T) {
 		t.Fatal(err)
 	}
 	_ = freshReq
-	if got := HostBriefingAdoptions(packs, fresh, freshMan, "", false); len(got) != 0 {
+	if got := HostBriefingAdoptions(packs, fresh, freshMan, "", false, nil); len(got) != 0 {
 		t.Errorf("an identical file must not prompt — nothing would be lost; got %+v", got)
 	}
 }
@@ -498,7 +501,7 @@ func TestHostBriefingNoProseDestinationComposesTheBase(t *testing.T) {
 		t.Fatal(err)
 	}
 	freshReq, _ := hostBriefingReq(t, fresh)
-	got := HostBriefingAdoptions(packs, fresh, freshReq.Manifest, freshReq.Base, false)
+	got := HostBriefingAdoptions(packs, fresh, freshReq.Manifest, freshReq.Base, false, nil)
 	if len(got) != 1 || got[0].Path != mine || got[0].Existing != "# Mine\n" {
 		t.Errorf("the user's file under a prose-less destination must be an adoption; got %+v", got)
 	}
@@ -518,7 +521,7 @@ func TestHostBriefingObserveWritesNothing(t *testing.T) {
 	packs := []*packload.Pack{briefingPack(t, "claude", ".claude/CLAUDE.md", "Pack prose.\n")}
 	req, man := briefingReq(t, home)
 
-	adoptions := HostBriefingAdoptions(packs, home, man, "", false)
+	adoptions := HostBriefingAdoptions(packs, home, man, "", false, nil)
 	mres, err := MigrateHostBriefings(adoptions, req, true)
 	if err != nil {
 		t.Fatalf("observe migrate: %v", err)
@@ -1146,5 +1149,547 @@ func TestComposeHostBriefingsADuplicateSourceComposesOnce(t *testing.T) {
 	got := composedAt(ComposeHostBriefings([]*packload.Pack{dup}, home, "", false), home, ".claude/CLAUDE.md")
 	if got != "Once only.\n" {
 		t.Errorf("~/.claude/CLAUDE.md = %q, want the prose exactly once", got)
+	}
+}
+
+// afterPack is a pack composing prose into `into` whose `after` names the user's own host file
+// `after` — DP-B26's shape: a briefing that opens with a file the user keeps elsewhere.
+func afterPack(t *testing.T, into, after string) *packload.Pack {
+	t.Helper()
+	p := briefingPack(t, "afterpack", into, "Pack prose.\n")
+	p.Decl.Contributes[0].After = "host:" + after
+	return p
+}
+
+// DP-B26: an `after` naming a file other than a destination OPENS the destination with that file,
+// in the jail's bytes (jailcontent.PrependHostBriefing). It was silently ignored at the host.
+func TestComposeHostBriefingsPrependsTheUsersAfterFile(t *testing.T) {
+	home := t.TempDir()
+	if err := os.WriteFile(filepath.Join(home, "mine.md"), []byte("MY RULES\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	packs := []*packload.Pack{afterPack(t, ".foo/AGENTS.md", "mine.md")}
+	dests := ComposeHostBriefings(packs, home, "", false)
+	want, err := jailcontent.PrependHostBriefing(filepath.Join(home, "mine.md"), "Pack prose.\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := composedAt(dests, home, ".foo/AGENTS.md"); got != want {
+		t.Errorf("~/.foo/AGENTS.md = %q, want the jail's prepend %q", got, want)
+	}
+	if len(dests) != 1 || dests[0].Overlay.Outcome != OverlayPrepended || dests[0].After != "mine.md" {
+		t.Errorf("the destination does not say it prepended ~/mine.md: %+v", dests)
+	}
+}
+
+// THE SKIP RULE (S3). An `after` naming a destination this composition writes — the destination
+// itself, as every shipped agent pack declares, or another pack's — is never read, though the file
+// is there: it is about to hold yolo's own output, and a hand-written one there is the adoption
+// gate's to move into the local pack.
+func TestComposeHostBriefingsNeverPrependsADestinationItComposes(t *testing.T) {
+	home := t.TempDir()
+	for _, rel := range []string{".claude/CLAUDE.md", ".foo/AGENTS.md"} {
+		path := filepath.Join(home, filepath.FromSlash(rel))
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte("ALREADY THERE\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	own := briefingPack(t, "claude", ".claude/CLAUDE.md", "Claude prose.\n")
+	other := afterPack(t, ".foo/AGENTS.md", ".claude/CLAUDE.md")
+	for _, d := range ComposeHostBriefings([]*packload.Pack{own, other}, home, "", false) {
+		if strings.Contains(d.Content, "ALREADY THERE") {
+			t.Errorf("%s prepended a destination this apply composes:\n%s", d.Path, d.Content)
+		}
+		if d.Overlay.Outcome != OverlayYoloOutput {
+			t.Errorf("%s: outcome %q, want %q", d.Path, d.Overlay.Outcome, OverlayYoloOutput)
+		}
+	}
+}
+
+// THE RECORD HALF of the skip rule: a file the briefing record lists as yolo's (a destination an
+// earlier apply composed for a pack no longer selected) is not the user's, and the record is what
+// knows it — the bare composition, which carries none, prepends it.
+func TestComposeHostBriefingsForSkipsAFileTheRecordSaysYoloComposed(t *testing.T) {
+	home := t.TempDir()
+	old := filepath.Join(home, "old.md")
+	if err := os.WriteFile(old, []byte("A DROPPED PACK'S PROSE\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	packs := []*packload.Pack{afterPack(t, ".foo/AGENTS.md", "old.md")}
+	req, man := briefingReq(t, home)
+	man.Record(old, HostBriefingOwner)
+
+	dests := ComposeHostBriefingsFor(packs, home, req)
+	if got := composedAt(dests, home, ".foo/AGENTS.md"); strings.Contains(got, "DROPPED") {
+		t.Errorf("a file yolo composed was read back in as the user's:\n%s", got)
+	}
+	// The record's own clause, so the skip is pinned to the record by path and not only to the
+	// identity check that also matches this existing file.
+	if ov := dests[0].Overlay; ov.Outcome != OverlayYoloOutput || ov.Why != "an earlier apply composed it" {
+		t.Errorf("outcome %q (%q), want %q (%q)", ov.Outcome, ov.Why, OverlayYoloOutput,
+			"an earlier apply composed it")
+	}
+	if got := composedAt(ComposeHostBriefings(packs, home, "", false), home, ".foo/AGENTS.md"); !strings.Contains(got, "DROPPED") {
+		t.Errorf("without the record the file is indistinguishable from the user's, so the bare "+
+			"composition must prepend it — otherwise this test proves nothing about the record: %q", got)
+	}
+}
+
+// THE FIRST CONTRIBUTION CARRYING AN `after` DECIDES a destination's — not the first pack at the
+// path, nor the last contribution carrying one — within one pack and across packs. A broadcast's
+// synthesized copy carries none (packload.ResolveDestinations), so whichever pack is listed first
+// at a path is no guide; and two `after`s at one path is a choice the declaration order makes.
+func TestComposeHostBriefingsTakesTheFirstContributionCarryingAnAfter(t *testing.T) {
+	carrying := func(t *testing.T, name string, afters ...string) *packload.Pack {
+		p := briefingPack(t, name, ".foo/AGENTS.md", name+" prose.\n")
+		first := p.Decl.Contributes[0]
+		p.Decl.Contributes = nil
+		for _, a := range afters {
+			c := first
+			c.After = "" // briefingPack's own `after` names its destination
+			if a != "" {
+				c.After = "host:" + a
+			}
+			p.Decl.Contributes = append(p.Decl.Contributes, c)
+		}
+		return p
+	}
+	cases := map[string]func(t *testing.T) []*packload.Pack{
+		"within one pack": func(t *testing.T) []*packload.Pack {
+			return []*packload.Pack{carrying(t, "one", "", "first.md", "second.md")}
+		},
+		"across packs": func(t *testing.T) []*packload.Pack {
+			return []*packload.Pack{carrying(t, "none", ""), carrying(t, "a", "first.md"),
+				carrying(t, "b", "second.md")}
+		},
+	}
+	for name, packs := range cases {
+		t.Run(name, func(t *testing.T) {
+			home := t.TempDir()
+			for _, f := range []string{"first.md", "second.md"} {
+				mustAfter(t, os.WriteFile(filepath.Join(home, f), []byte(strings.ToUpper(f)+"\n"), 0o644))
+			}
+			dests := ComposeHostBriefings(packs(t), home, "", false)
+			if len(dests) != 1 || dests[0].After != "first.md" {
+				t.Fatalf("want one destination whose after is first.md, got %+v", dests)
+			}
+			if got := dests[0].Content; !strings.HasPrefix(got, "FIRST.MD\n\n---\n\n") ||
+				strings.Contains(got, "SECOND.MD") {
+				t.Errorf("~/.foo/AGENTS.md does not open with first.md alone:\n%s", got)
+			}
+		})
+	}
+}
+
+// A RECORDED PATH THAT IS NOW A DANGLING LINK is still yolo's output, and is skipped as one, not
+// warned about as an unreadable file of the user's: the record is what proves ownership, and no
+// identity check can match a link to nowhere. Restoring the target would only make the file yolo's
+// skipped output again, so the unread warning's "Restore the target, or remove the link" would send
+// the user to fix something that changes nothing.
+func TestComposeHostBriefingsForSkipsARecordedPathThatIsADanglingLink(t *testing.T) {
+	home := t.TempDir()
+	old := filepath.Join(home, "old.md")
+	mustAfter(t, os.Symlink(filepath.Join(home, "gone.md"), old))
+	packs := []*packload.Pack{afterPack(t, ".foo/AGENTS.md", "old.md")}
+	req, man := briefingReq(t, home)
+	man.Record(old, HostBriefingOwner)
+
+	dests := ComposeHostBriefingsFor(packs, home, req)
+	if ov := dests[0].Overlay; ov.Outcome != OverlayYoloOutput || ov.Unread != nil {
+		t.Errorf("outcome %q (unread %v), want %q: a recorded path is yolo's whatever it holds now",
+			ov.Outcome, ov.Unread, OverlayYoloOutput)
+	}
+	// Without the record it is an unreadable file of the user's, which is the case being told apart.
+	if ov := ComposeHostBriefings(packs, home, "", false)[0].Overlay; ov.Outcome != OverlayUnread {
+		t.Errorf("fixture: without the record a dangling link must read as unread, got %q", ov.Outcome)
+	}
+}
+
+// NEVER OPEN AN UNREADABLE SOURCE. A dangling link (the file's or an ancestor's), a directory and a
+// FIFO each leave the destination composed without the file and say why — and the FIFO, which a
+// read would block on until something writes into it, must not stall the composition.
+func TestComposeHostBriefingsNeverOpensAnUnreadableAfterFile(t *testing.T) {
+	cases := map[string]func(t *testing.T, home string) string{
+		"dangling link": func(t *testing.T, home string) string {
+			mustAfter(t, os.Symlink(filepath.Join(home, "gone.md"), filepath.Join(home, "mine.md")))
+			return "mine.md"
+		},
+		"dangling ancestor": func(t *testing.T, home string) string {
+			mustAfter(t, os.Symlink(filepath.Join(home, "gone"), filepath.Join(home, "notes")))
+			return "notes/mine.md"
+		},
+		"directory": func(t *testing.T, home string) string {
+			mustAfter(t, os.MkdirAll(filepath.Join(home, "mine.md"), 0o755))
+			return "mine.md"
+		},
+		"fifo": func(t *testing.T, home string) string {
+			mustAfter(t, syscall.Mkfifo(filepath.Join(home, "mine.md"), 0o644))
+			return "mine.md"
+		},
+	}
+	for name, setup := range cases {
+		t.Run(name, func(t *testing.T) {
+			home := t.TempDir()
+			after := setup(t, home)
+			packs := []*packload.Pack{afterPack(t, ".foo/AGENTS.md", after)}
+			done := make(chan []HostBriefingDestination, 1)
+			go func() { done <- ComposeHostBriefings(packs, home, "", false) }()
+			var dests []HostBriefingDestination
+			select {
+			case dests = <-done:
+			case <-time.After(2 * time.Minute):
+				t.Fatal("the composition blocked on the `after` file")
+			}
+			if got := composedAt(dests, home, ".foo/AGENTS.md"); got != "Pack prose.\n" {
+				t.Errorf("want the destination composed without the file, got %q", got)
+			}
+			ov := dests[0].Overlay
+			if ov.Outcome != OverlayUnread || ov.Unread == nil || ov.Unread.Why == "" {
+				t.Errorf("the destination does not say why the file was not read: %+v", ov)
+			}
+		})
+	}
+}
+
+// THE ADOPTION GATE COMPOSES WHAT THE RENDER WRITES. A destination already holding exactly the
+// composition — the user's `after` file prepended — is not an adoption, and the render then leaves
+// it unchanged; were the gate to compare against the composition WITHOUT the file, every home with
+// an `after` file would be asked to adopt its own destination.
+func TestHostBriefingAdoptionsComposeTheBytesTheRenderWrites(t *testing.T) {
+	home := t.TempDir()
+	mustAfter(t, os.WriteFile(filepath.Join(home, "mine.md"), []byte("MY RULES\n"), 0o644))
+	packs := []*packload.Pack{afterPack(t, ".foo/AGENTS.md", "mine.md")}
+	req, man := briefingReq(t, home)
+	composed := composedAt(ComposeHostBriefingsFor(packs, home, req), home, ".foo/AGENTS.md")
+	if !strings.HasPrefix(composed, "MY RULES\n") {
+		t.Fatalf("the fixture's file was not prepended: %q", composed)
+	}
+	dest := filepath.Join(home, ".foo", "AGENTS.md")
+	mustAfter(t, os.MkdirAll(filepath.Dir(dest), 0o755))
+	mustAfter(t, os.WriteFile(dest, []byte(composed), 0o644))
+
+	if got := HostBriefingAdoptions(packs, home, man, req.Base, req.Provenance, nil); len(got) != 0 {
+		t.Errorf("a destination holding exactly the composition was offered for adoption: %+v", got)
+	}
+	results, err := RenderHostBriefings(packs, home, req, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(results) != 1 || results[0].Action != "unchanged" {
+		t.Errorf("the render disagrees with the gate about the bytes: %+v", results)
+	}
+}
+
+// mustAfter fails the test on a fixture error.
+func mustAfter(t *testing.T, err error) {
+	t.Helper()
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+// THE SKIP RULE BY FILE IDENTITY, not only by path. A dotfiles manager links one canonical file
+// to the place a tool reads it, so an `after` file and a composed destination can be ONE file under
+// two names. Compared by path, that file was read back in as the user's on every apply: the render
+// writes through the link, so the next composition prepended its own previous output and the file
+// grew without bound. Each shape below must be skipped as yolo's output, and the destination must
+// hold the composition alone.
+func TestComposeHostBriefingsSkipsAnAfterFileThatIsYoloOutputUnderAnotherName(t *testing.T) {
+	cases := map[string]struct {
+		// setup builds the home and returns the `after` path and, for the record case, the file
+		// the record lists.
+		setup func(t *testing.T, home string) (after, recorded string)
+		why   string
+	}{
+		"the destination links to the after file": {func(t *testing.T, home string) (string, string) {
+			mustAfter(t, os.WriteFile(filepath.Join(home, "AGENTS.md"), []byte("YOLO WROTE THIS\n"), 0o644))
+			mustAfter(t, os.MkdirAll(filepath.Join(home, ".foo"), 0o755))
+			mustAfter(t, os.Symlink(filepath.Join(home, "AGENTS.md"), filepath.Join(home, ".foo", "AGENTS.md")))
+			return "AGENTS.md", ""
+		}, "it is the same file as this destination, which this apply composes"},
+		"the after file links to the destination": {func(t *testing.T, home string) (string, string) {
+			mustAfter(t, os.MkdirAll(filepath.Join(home, ".foo"), 0o755))
+			mustAfter(t, os.WriteFile(filepath.Join(home, ".foo", "AGENTS.md"), []byte("YOLO WROTE THIS\n"), 0o644))
+			mustAfter(t, os.Symlink(filepath.Join(home, ".foo", "AGENTS.md"), filepath.Join(home, "mine.md")))
+			return "mine.md", ""
+		}, "it is the same file as this destination, which this apply composes"},
+		"the after file links to another destination": {func(t *testing.T, home string) (string, string) {
+			mustAfter(t, os.MkdirAll(filepath.Join(home, ".claude"), 0o755))
+			mustAfter(t, os.WriteFile(filepath.Join(home, ".claude", "CLAUDE.md"), []byte("YOLO WROTE THIS\n"), 0o644))
+			mustAfter(t, os.Symlink(filepath.Join(home, ".claude", "CLAUDE.md"), filepath.Join(home, "mine.md")))
+			return "mine.md", ""
+		}, "it is the same file as ~/.claude/CLAUDE.md, a briefing destination this apply composes"},
+		"the after file links to a file the record lists": {func(t *testing.T, home string) (string, string) {
+			old := filepath.Join(home, "old.md")
+			mustAfter(t, os.WriteFile(old, []byte("YOLO WROTE THIS\n"), 0o644))
+			mustAfter(t, os.Symlink(old, filepath.Join(home, "mine.md")))
+			return "mine.md", old
+		}, "it is the same file as ~/old.md, which an earlier apply composed"},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			home := evalTempDir(t)
+			after, recorded := tc.setup(t, home)
+			packs := []*packload.Pack{
+				briefingPack(t, "claude", ".claude/CLAUDE.md", "Claude prose.\n"),
+				afterPack(t, ".foo/AGENTS.md", after),
+			}
+			req, man := briefingReq(t, home)
+			if recorded != "" {
+				man.Record(recorded, HostBriefingOwner)
+			}
+			for _, d := range ComposeHostBriefingsFor(packs, home, req) {
+				if d.Path != filepath.Join(home, ".foo", "AGENTS.md") {
+					continue
+				}
+				if d.Content != "Pack prose.\n" {
+					t.Errorf("~/.foo/AGENTS.md read yolo's own output back in: %q", d.Content)
+				}
+				if d.Overlay.Outcome != OverlayYoloOutput || d.Overlay.Why != tc.why {
+					t.Errorf("overlay = %+v, want %q because %q", d.Overlay, OverlayYoloOutput, tc.why)
+				}
+			}
+			// The adoption gate composes through the same rule, so it compares the same bytes.
+			dest := filepath.Join(home, ".foo", "AGENTS.md")
+			if _, err := os.Stat(dest); err == nil {
+				for _, a := range HostBriefingAdoptions(packs, home, man, req.Base, req.Provenance, nil) {
+					if strings.Contains(a.Existing, "Pack prose.") {
+						t.Errorf("the gate composed different bytes than the render: %+v", a)
+					}
+				}
+			}
+		})
+	}
+}
+
+// evalTempDir is t.TempDir() with its symlinks resolved, so a path compared against one the code
+// built from a resolved file reads the same on darwin, where the temp root is a link.
+func evalTempDir(t *testing.T) string {
+	t.Helper()
+	dir, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	return dir
+}
+
+// THE RECORD HALF AT THE ADOPTION GATE. The gate composes with the record, so a destination holding
+// exactly the record-aware composition — the `after` file NOT prepended, because the record lists
+// it as yolo's — is not offered for adoption. Composed without the record, the gate would prepend
+// that file, see bytes that differ, and ask to adopt a destination yolo is about to write the same
+// content into. The destination itself is not in the record, so nothing else exempts it.
+func TestHostBriefingAdoptionsComposeWithTheRecord(t *testing.T) {
+	home := evalTempDir(t)
+	old := filepath.Join(home, "old.md")
+	mustAfter(t, os.WriteFile(old, []byte("A DROPPED PACK'S PROSE\n"), 0o644))
+	packs := []*packload.Pack{afterPack(t, ".foo/AGENTS.md", "old.md")}
+	req, man := briefingReq(t, home)
+	man.Record(old, HostBriefingOwner)
+	dest := filepath.Join(home, ".foo", "AGENTS.md")
+	mustAfter(t, os.MkdirAll(filepath.Dir(dest), 0o755))
+	mustAfter(t, os.WriteFile(dest, []byte(composedAt(ComposeHostBriefingsFor(packs, home, req), home,
+		".foo/AGENTS.md")), 0o644))
+	if got, _ := os.ReadFile(dest); string(got) != "Pack prose.\n" {
+		t.Fatalf("fixture: the record-aware composition prepended the recorded file: %q", got)
+	}
+
+	if got := HostBriefingAdoptions(packs, home, man, req.Base, req.Provenance, nil); len(got) != 0 {
+		t.Errorf("a destination holding exactly the record-aware composition was offered for "+
+			"adoption — the gate composed without the record: %+v", got)
+	}
+}
+
+// loadValidPack writes a pack tree and loads it through LoadDir, failing on any problem, so a
+// fixture here is a manifest the launch would accept.
+func loadValidPack(t *testing.T, name, manifest string, files map[string]string) *packload.Pack {
+	t.Helper()
+	root := filepath.Join(t.TempDir(), name)
+	files[packdecl.ManifestName] = manifest
+	for rel, body := range files {
+		full := filepath.Join(root, filepath.FromSlash(rel))
+		if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(full, []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	p, probs := packload.LoadDir(root, name)
+	if p == nil || len(probs) > 0 {
+		t.Fatalf("LoadDir(%s): %v", name, probs)
+	}
+	return p
+}
+
+// describesDest is an agent pack declaring ~/.claude/CLAUDE.md, with prose of its own.
+func describesDest(t *testing.T) *packload.Pack {
+	t.Helper()
+	return loadValidPack(t, "claude", `{"name":"claude","contributes":[`+
+		`{"kind":"briefing","agent":"claude","into":".claude/CLAUDE.md"}]}`,
+		map[string]string{"briefing/own.md": "Claude's own prose.\n"})
+}
+
+// destinationAt is the composed destination at home-relative rel.
+func destinationAt(t *testing.T, dests []HostBriefingDestination, home, rel string) HostBriefingDestination {
+	t.Helper()
+	for _, d := range dests {
+		if d.Path == filepath.Join(home, filepath.FromSlash(rel)) {
+			return d
+		}
+	}
+	t.Fatalf("no destination %s in %+v", rel, dests)
+	return HostBriefingDestination{}
+}
+
+// PROSE ABOUT A KIND THE HOST DOES NOT DELIVER IS WITHHELD (docs/design/boundary-broker.md
+// BB-D69), and only that prose: a file describing a kind the host delivers (`config`) and a file
+// no contribution names (the implicit broadcast) still compose, beside the agent pack's own.
+func TestComposeHostBriefingsWithholdsProseAboutAKindTheHostDoesNotDeliver(t *testing.T) {
+	home := t.TempDir()
+	gh := loadValidPack(t, "gh", `{"name":"gh","contributes":[`+
+		`{"kind":"briefing","from":"briefing/forwarder.md","describes":["intercept"]},`+
+		`{"kind":"briefing","from":"briefing/surface.md","describes":["config"]},`+
+		`{"kind":"intercept","bin":"gh","forward":["yolo","gh","--"]},`+
+		`{"kind":"config","config":[{"agent":"gh","name":"own","codec":"json","path":"~/x.json"}]}]}`,
+		map[string]string{
+			"briefing/forwarder.md": "JAIL FORWARDER PROSE\n",
+			"briefing/surface.md":   "Config prose.\n",
+			"briefing/plain.md":     "Implicit prose.\n",
+		})
+	resolved, _ := packload.ResolveDestinations([]*packload.Pack{describesDest(t), gh})
+	d := destinationAt(t, ComposeHostBriefings(resolved, home, "", false), home, ".claude/CLAUDE.md")
+	if strings.Contains(d.Content, "JAIL FORWARDER PROSE") {
+		t.Errorf("prose describing an intercept reached a host destination:\n%s", d.Content)
+	}
+	if want := "Claude's own prose.\n\nImplicit prose.\n\nConfig prose.\n"; d.Content != want {
+		t.Errorf("~/.claude/CLAUDE.md = %q, want %q", d.Content, want)
+	}
+	if strings.Join(d.Packs, "+") != "claude+gh" {
+		t.Errorf("Packs = %v, want claude and gh: gh still contributes prose here", d.Packs)
+	}
+}
+
+// A PACK WHOSE EVERY FILE HERE IS WITHHELD IS NOT AN OWNER of a destination it only borrowed —
+// the github pack's shape, briefing/gh.md alone into claude's file — so the report names the
+// destination claude/briefing. A pack that DECLARES the destination stays its owner, as a pack
+// shipping no prose there always has.
+func TestComposeHostBriefingsAPackWithOnlyWithheldProseOwnsNothingItBorrowed(t *testing.T) {
+	home := t.TempDir()
+	borrower := loadValidPack(t, "borrower", `{"name":"borrower","contributes":[`+
+		`{"kind":"briefing","from":"briefing/gh.md","describes":["intercept"]},`+
+		`{"kind":"intercept","bin":"gh","forward":["yolo","gh","--"]}]}`,
+		map[string]string{"briefing/gh.md": "JAIL FORWARDER PROSE\n"})
+	declarer := loadValidPack(t, "declarer", `{"name":"declarer","contributes":[`+
+		`{"kind":"briefing","from":"briefing/x.md","into":".claude/CLAUDE.md","describes":["intercept"]},`+
+		`{"kind":"intercept","bin":"gx","forward":["yolo","gx","--"]}]}`,
+		map[string]string{"briefing/x.md": "DECLARED JAIL PROSE\n"})
+	resolved, _ := packload.ResolveDestinations([]*packload.Pack{describesDest(t), borrower, declarer})
+	d := destinationAt(t, ComposeHostBriefings(resolved, home, "", false), home, ".claude/CLAUDE.md")
+	if strings.Join(d.Packs, "+") != "claude+declarer" {
+		t.Errorf("Packs = %v, want claude and declarer: borrower contributes nothing here", d.Packs)
+	}
+	if hostBriefingSurfaceID(d) != "claude+declarer/briefing" {
+		t.Errorf("surface = %q", hostBriefingSurfaceID(d))
+	}
+	if d.Content != "Claude's own prose.\n" {
+		t.Errorf("~/.claude/CLAUDE.md = %q, want the agent pack's prose alone", d.Content)
+	}
+}
+
+// With no census for a pack, the predicate is the census's per-kind answer: an at-launch kind
+// (env, loophole) and a rendered one (skills) gate nothing at the host, and the jail-only kinds do.
+func TestHostWithheldKindsAsksTheCensus(t *testing.T) {
+	src := func(kinds ...packdecl.Kind) packload.GovernedSource {
+		return packload.GovernedSource{By: packdecl.Contribution{Kind: packdecl.KindBriefing, Describes: kinds}}
+	}
+	if got := HostWithheldKinds(nil, "p", src()); got != nil {
+		t.Errorf("no describes = %v, want nil", got)
+	}
+	if got := HostWithheldKinds(nil, "p", src(packdecl.KindEnv, packdecl.KindSkills, packdecl.KindLoophole)); got != nil {
+		t.Errorf("env, skills, loophole = %v, want nil: each is delivered by some host verb", got)
+	}
+	got := HostWithheldKinds(nil, "p", src(packdecl.KindIntercept, packdecl.KindEnv, packdecl.KindState,
+		packdecl.KindIntercept))
+	if len(got) != 2 || got[0] != packdecl.KindIntercept || got[1] != packdecl.KindState {
+		t.Errorf("intercept, env, state, intercept = %v, want [intercept state]", got)
+	}
+}
+
+// A PACK THE CENSUS NAMES IS ANSWERED PER CONTRIBUTION (HostDelivery): its loophole is delivered
+// only when the census says so, whatever the kind's per-kind answer, and a kind it declares no
+// contribution of is delivered nowhere. Another pack in the same map is answered from its own
+// entry, and a pack the map does not name falls back to the per-kind answer.
+func TestHostWithheldKindsReadsThePacksOwnCensus(t *testing.T) {
+	src := func(kinds ...packdecl.Kind) packload.GovernedSource {
+		return packload.GovernedSource{By: packdecl.Contribution{Kind: packdecl.KindBriefing, Describes: kinds}}
+	}
+	d := HostDelivery{
+		"nodoor": {packdecl.KindEnv: true},
+		"door":   {packdecl.KindLoophole: true, packdecl.KindEnv: true},
+	}
+	if got := HostWithheldKinds(d, "nodoor", src(packdecl.KindLoophole, packdecl.KindEnv)); len(got) != 1 ||
+		got[0] != packdecl.KindLoophole {
+		t.Errorf("nodoor: loophole, env = %v, want [loophole]: its loophole has no doorway", got)
+	}
+	if got := HostWithheldKinds(d, "door", src(packdecl.KindLoophole, packdecl.KindEnv)); got != nil {
+		t.Errorf("door: loophole, env = %v, want nil: the census delivers both", got)
+	}
+	if got := HostWithheldKinds(d, "door", src(packdecl.KindSkills)); len(got) != 1 {
+		t.Errorf("door: skills = %v, want [skills]: the pack declares no skills to describe", got)
+	}
+	if got := HostWithheldKinds(d, "unsurveyed", src(packdecl.KindLoophole)); got != nil {
+		t.Errorf("unsurveyed: loophole = %v, want nil: the per-kind answer delivers a loophole", got)
+	}
+}
+
+// THE COMPOSER READS THE REQUEST'S CENSUS. A pack whose loophole the census does not deliver has
+// the prose about it withheld, through every reader of the composition (the render, the adoption
+// gate, the retire pass): the same pack set with no census delivers it, the per-kind answer
+// counting a loophole as delivered.
+func TestComposeHostBriefingsForWithholdsByTheRequestsCensus(t *testing.T) {
+	home := t.TempDir()
+	lh := loadValidPack(t, "lh", `{"name":"lh","contributes":[`+
+		`{"kind":"briefing","from":"briefing/hole.md","describes":["loophole"]},`+
+		`{"kind":"briefing","from":"briefing/env.md","describes":["env"]},`+
+		`{"kind":"loophole","from":"loopholes/lhole"},`+
+		`{"kind":"env","vars":{"LH":"1"}}]}`,
+		map[string]string{
+			"briefing/hole.md":               "LOOPHOLE PROSE\n",
+			"briefing/env.md":                "ENV PROSE\n",
+			"loopholes/lhole/manifest.jsonc": `{"name":"lhole","description":"d","version":1}`,
+		})
+	resolved, _ := packload.ResolveDestinations([]*packload.Pack{describesDest(t), lh})
+	census := HostDelivery{"claude": {packdecl.KindBriefing: true},
+		"lh": {packdecl.KindBriefing: true, packdecl.KindEnv: true}}
+	req := HostBriefingRequest{Delivery: census}
+
+	d := destinationAt(t, ComposeHostBriefingsFor(resolved, home, req), home, ".claude/CLAUDE.md")
+	if want := "Claude's own prose.\n\nENV PROSE\n"; d.Content != want {
+		t.Errorf("with the census, ~/.claude/CLAUDE.md = %q, want %q", d.Content, want)
+	}
+	if strings.Join(d.Packs, "+") != "claude+lh" {
+		t.Errorf("Packs = %v, want claude and lh: lh's env prose still lands", d.Packs)
+	}
+	nocensus := destinationAt(t, ComposeHostBriefings(resolved, home, "", false), home, ".claude/CLAUDE.md")
+	if !strings.Contains(nocensus.Content, "LOOPHOLE PROSE") {
+		t.Errorf("with no census the per-kind answer delivers a loophole:\n%s", nocensus.Content)
+	}
+
+	// The adoption gate composes by the same census: a file identical to the census's
+	// composition is not an adoption, while one identical only to the per-kind composition is.
+	if err := os.MkdirAll(filepath.Join(home, ".claude"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(d.Path, []byte(d.Content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if got := HostBriefingAdoptions(resolved, home, nil, "", false, census); len(got) != 0 {
+		t.Errorf("the gate asks to adopt a file identical to the census's composition: %+v", got)
+	}
+	if got := HostBriefingAdoptions(resolved, home, nil, "", false, nil); len(got) != 1 {
+		t.Errorf("fixture bug: with no census the composition differs, so the gate must ask: %+v", got)
 	}
 }

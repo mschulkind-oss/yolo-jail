@@ -151,10 +151,16 @@ func overlayContributionRows(t configTarget, agent, surface string) ([]overlayCo
 	// PROFILE, so this report cannot disagree with the render it is describing. The profile
 	// table matches the same notch for the same reason: a `profile`-gated overlay is not a
 	// contribution this report may list when the selection that gates it is off.
-	set := packoverlay.Collect(packs, render.ProfileFor(notch).AgentAutonomy,
-		overlayGateProfiles(notch, packs))
+	//
+	// THE SURFACES ARE FOLDED AT THE SAME POSTURE, which they were not until 2026-10-04
+	// (declaration-parity.md DP-B25): packSurfacesForAgent read every pack at the AUTONOMOUS
+	// posture beside an overlay set collected at the notch's, so `config ls --at host` said the
+	// owner's managed layer replaces claude's /permissions/allow — a key only the jail's posture
+	// manages — while `config render --at host` showed the entry landing.
+	autonomy := render.ProfileFor(notch).AgentAutonomy
+	set := packoverlay.Collect(packs, autonomy, overlayGateProfiles(notch, packs))
 	var out []overlayContribution
-	for _, s := range packSurfacesForAgent(packs, agent, surface) {
+	for _, s := range packSurfacesForAgent(packs, autonomy, agent, surface) {
 		overlays := set.For(s.Agent, s.Name)
 		row := overlayContribution{
 			Surface: s.Agent + "/" + s.Name,
@@ -236,9 +242,10 @@ func listContributionRows(t configTarget, s manifest.Surface, lists []agentcfg.L
 // winners / reason is meaningful: a non-nil map means measured, and a non-empty reason
 // names WHICH absence this is.
 //
-// The host notch is the simple case and the reason this function exists: `yolo host apply` is
-// pure RMW at every mode, and it records a winner for every surface it writes, so there is
-// exactly one question — has an apply asserted yet? The jail notch has the mode split,
+// The host notch is the simple case and the reason this function exists: `yolo host apply`
+// records a winner for every surface it writes, through either mechanism an owned host runs
+// (and the retired `assert`'s rmw recorded too), so there is exactly one question — has an
+// apply written it yet? The remedy depends on the contract: under `none` that apply refuses. The jail notch has the mode split,
 // because an `rmw`/`computed` surface in a jail keeps no record by design (§8) and that
 // must not read as a loss.
 //
@@ -256,9 +263,14 @@ func surfaceProvenance(t configTarget, s manifest.Surface) (winners map[string]s
 		if w := readProvenance(t.provenanceFile(s.Agent, s.Name)); w != nil {
 			return w, notch.String(), ""
 		}
-		// No mode split here: the host render is pure RMW and records every surface it
-		// writes, so an absent record means no apply has asserted this surface — which has
-		// a remedy, unlike the by-design absences below.
+		// No mode split here: the host render records every surface it writes, so an absent
+		// record means no apply has written this surface — which has a remedy, unlike the
+		// by-design absences below. Under any contract but `own` the apply refuses, so the
+		// remedy is the key rather than a command that would refuse (OQ-CO14).
+		if t.ownership != render.OwnershipOwn {
+			return nil, notch.String(), "yolo has not rendered it into this home, and under " +
+				"`host_management` \"none\" it does not; set \"own\" and run `yolo host apply --assert`"
+		}
 		return nil, notch.String(), "no `yolo host apply --assert` has rendered it yet"
 	case render.KindJail:
 		if w := readProvenance(t.provenanceFile(s.Agent, s.Name)); w != nil {
@@ -274,13 +286,15 @@ func surfaceProvenance(t configTarget, s manifest.Surface) (winners map[string]s
 }
 
 // packSurfacesForAgent returns the loaded packs' surfaces owned by one agent — or by every
-// agent, when agent is empty — honoring an optional name filter. Deduped by identity, last declaration winning — matching
-// manifest.Merge's rule, so this reports the surface the boot render would actually use.
-func packSurfacesForAgent(packs []*packload.Pack, agent, name string) []manifest.Surface {
+// agent, when agent is empty — honoring an optional name filter, each folded at the given
+// autonomy posture (the notch's: packload.Pack.SurfacesFor). Deduped by identity, last
+// declaration winning — matching manifest.Merge's rule, so this reports the surface the
+// notch's render would actually use.
+func packSurfacesForAgent(packs []*packload.Pack, autonomy bool, agent, name string) []manifest.Surface {
 	byKey := map[manifest.SurfaceKey]manifest.Surface{}
 	var order []manifest.SurfaceKey
 	for _, p := range packs {
-		surfaces, _ := p.Surfaces()
+		surfaces, _ := p.SurfacesFor(autonomy)
 		for _, s := range surfaces {
 			if (agent != "" && s.Agent != agent) || (name != "" && s.Name != name) {
 				continue

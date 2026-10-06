@@ -357,6 +357,14 @@ func adoptedSkillGroup(s *hostApplySurvey, home string, write bool) (remedyGroup
 //     the way. A SHIPPED pack's overlay is not the user's to edit, so that group says so and stops.
 //   - The surface's OWN managed layer wrote it. That layer outranks everything but computed, so no
 //     declaration keeps the user's value at this notch, and the group says so with no `⚠` (P2).
+//   - A COMPUTED leaf wrote it: the pack's derive, over the user's own inputs (OQ-HC1). The input
+//     is in the user config, so the remedy names it there. A leaf no input of theirs moves has no
+//     remedy, and says so.
+//   - The profile's SELECTION wrote it (selectedWinner): a computed key too, but written only when
+//     that profile is first activated in the home, so a pick of the user's own after that stands
+//     (HC-D17), which this group alone says rather than leave them to re-pick in vain. A leaf the
+//     derive computes from the same profile is re-written on every apply, so the computed group
+//     must not say it — it did, until 2026-10-05, for pi-subagents' subagents.defaultModel.
 //
 // Each item names its file, so the group is the one place the loss is stated (the per-surface
 // `⚠ overwrote …` line that repeated it is gone).
@@ -393,6 +401,14 @@ func replacedValueGroups(s *hostApplySurvey, home string, write bool) []remedyGr
 		}
 		sort.Strings(items)
 		g := remedyGroup{Class: remedyClassValueReplaced, Items: items, VerdictTerm: "value"}
+		if w == selectedWinner {
+			out = append(out, selectedValueGroup(g, len(vals), verbFor(len(vals)), home))
+			continue
+		}
+		if inputs, computed := strings.CutPrefix(w, computedWinner); computed {
+			out = append(out, computedValueGroup(g, inputs, len(vals), verbFor(len(vals)), home))
+			continue
+		}
 		if w == "" {
 			g.Headline = fmt.Sprintf("%d %s of yours %s by keys the owning pack manages",
 				len(vals), plural(len(vals), "value", "values"), verbFor(len(vals)))
@@ -415,6 +431,48 @@ func replacedValueGroups(s *hostApplySurvey, home string, write bool) []remedyGr
 		out = append(out, g)
 	}
 	return out
+}
+
+// computedValueGroup is replacedValueGroups' group for the values one set of computed inputs
+// replaced: inputs is the label's "profile", "lsp_servers", "profile and lsp_servers", or ""
+// for a leaf no input of the user's moves.
+func computedValueGroup(g remedyGroup, inputs string, n int, verb, home string) remedyGroup {
+	if inputs == "" {
+		g.Headline = fmt.Sprintf("%d %s of yours %s by keys the owning pack computes",
+			n, plural(n, "value", "values"), verb)
+		g.NoRemedy = "the pack's derive computes them from nothing you configure, and a computed " +
+			"key outranks your file at this notch"
+		return g
+	}
+	names := strings.Split(strings.ReplaceAll(inputs, " and ", ", "), ", ")
+	keys := make([]string, 0, len(names))
+	for _, name := range names {
+		keys = append(keys, "`"+name+"`")
+	}
+	g.Key = strings.Join(names, ",")
+	g.Headline = fmt.Sprintf("%d %s of yours %s by what yolo computes from your %s",
+		n, plural(n, "value", "values"), verb, inputs)
+	g.Remedy = fmt.Sprintf("to keep yours, change or remove %s in %s, then apply again",
+		joinWords(keys, "or"), prettyHomePath(home, userConfigPathIn(home)))
+	g.Warn = true
+	return g
+}
+
+// selectedValueGroup is replacedValueGroups' group for the values the profile's SELECTION
+// replaced. The remedy is the computed group's for `profile`; what it adds is HC-D17's note, true
+// of a selection key alone: the selection is edge-triggered, so this is the one apply that
+// replaces the value, and a pick of the user's own after it stands.
+func selectedValueGroup(g remedyGroup, n int, verb, home string) remedyGroup {
+	g.Key = "profile"
+	g.Headline = fmt.Sprintf("%d %s of yours %s by what your profile selects",
+		n, plural(n, "value", "values"), verb)
+	g.Remedy = fmt.Sprintf("to keep yours, change or remove `profile` in %s, then apply again",
+		prettyHomePath(home, userConfigPathIn(home)))
+	g.Warn = true
+	g.Note = "a value your `profile` selects is written when that profile is first " +
+		"activated in this home; a pick of your own after that (your agent's /model) " +
+		"stands on every later apply"
+	return g
 }
 
 // editablePackManifest is the pack.json of a configured pack the user can edit — any pack this

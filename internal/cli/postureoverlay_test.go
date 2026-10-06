@@ -9,6 +9,11 @@ package cli
 //
 // The pack is the extension point's example: a personal pack owning no surface, whose guarded
 // posture sets a scalar only the host gets in pi's settings.
+//
+// Every user config declares `host_management: "own"`: the unset key is `none` since the
+// `assert` retirement (OQ-CO14), under which the host notch composes no config surface for a
+// posture overlay to be placed on. pi/settings declares no mode, so `own` composes it whole
+// through `stateful`, whose provenance record attributes the scalar as the rmw one did.
 
 import (
 	"encoding/json"
@@ -48,7 +53,8 @@ func TestHostApplyAssertWritesAGuardedPostureOverlay(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
-	selectPacks(t, home, `"pi",`+listPack(t, home, "matt", hostOnlyScalarPack))
+	selectPacksWith(t, home, `"pi",`+listPack(t, home, "matt", hostOnlyScalarPack),
+		`,"host_management":"own"`)
 	verboseReport(t)
 
 	rc, report := applyWith(t, true, nil)
@@ -58,7 +64,7 @@ func TestHostApplyAssertWritesAGuardedPostureOverlay(t *testing.T) {
 	if got := hostPiSettings(t, home)["hostOnlyScalar"]; got != "on-the-host" {
 		t.Errorf("hostOnlyScalar = %v, want the guarded posture's value in the real home", got)
 	}
-	rec, err := os.ReadFile(render.Host(home, nil, render.OwnershipAssert).ProvenancePath("pi", "settings"))
+	rec, err := os.ReadFile(render.Host(home, nil, render.OwnershipOwn).ProvenancePath("pi", "settings"))
 	if err != nil || !strings.Contains(string(rec), "hostOnlyScalar\tconfig-overlay:matt") {
 		t.Errorf("the provenance record does not attribute the scalar to matt (err=%v):\n%s", err, rec)
 	}
@@ -94,7 +100,7 @@ func TestHostApplyNotchLineCountsOnlyAPlacedPostureOverlay(t *testing.T) {
 			home := t.TempDir()
 			t.Setenv("HOME", home)
 			t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
-			selectPacks(t, home, c.packs(home))
+			selectPacksWith(t, home, c.packs(home), `,"host_management":"own"`)
 			for _, p := range loadedPacksForTest(t) {
 				if p.PosturePatchesOwnSurface(render.ProfileFor(render.KindHost).AgentAutonomy) {
 					t.Fatalf("fixture bug: pack %s patches its own surface at the guarded posture, "+
@@ -124,7 +130,7 @@ func TestHostApplyRefusesAPostureOverlaysRefusedFieldUnderItsOwnKind(t *testing.
 	bogus := listPack(t, home, "bogus", `{"kind":"autonomy","guarded":{"config":[{"agent":"pi",`+
 		`"name":"settings","codec":"json","path":"~/.pi/agent/settings.json","mode":"rmw",`+
 		`"managed":{"k":1}}]}}`)
-	selectPacks(t, home, `"pi",`+bogus)
+	selectPacksWith(t, home, `"pi",`+bogus, `,"host_management":"own"`)
 	rc, report := applyWith(t, false, nil)
 	if rc == 0 {
 		t.Errorf("a posture overlay setting `mode` must fail the apply:\n%s", report)
@@ -169,7 +175,7 @@ func TestPromoteIsOutrankedByAJailPostureOverlay(t *testing.T) {
 // render.ProfileFor(<the notch they describe>).AgentAutonomy, so `--at host` shows the
 // guarded scalar and `--at jail` does not.
 func TestConfigRenderAndLsFollowAPostureOverlaysNotch(t *testing.T) {
-	listWorld(t, func(home string) string {
+	listWorldUnder(t, "own", func(home string) string {
 		return `"pi",` + listPack(t, home, "matt", hostOnlyScalarPack)
 	})
 	for _, c := range []struct {

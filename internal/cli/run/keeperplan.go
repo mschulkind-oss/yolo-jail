@@ -2,7 +2,9 @@ package run
 
 // keeperplan.go is the KEEPER'S PLAN: everything a fresh container launch computed for its
 // jail's host services and its container, handed to the keeper it spawns
-// (docs/design/jail-lifetime-last-session-wins.md §9.1, JL-D20).
+// (docs/design/jail-lifetime-last-session-wins.md §9.1, JL-D20). A fresh macos-user launch hands
+// its keeper one in NOTCH MODE: no container, and the doorways and launch-owned services the
+// keeper runs outside the sandbox for every session of the key (§9.9, JL-D38).
 //
 // The plan is the value the launch's disclosures were printed from, so what the terminal was
 // told and what the keeper runs are one value: the keeper refuses a plan of another build, a
@@ -23,6 +25,7 @@ import (
 
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
+	"github.com/mschulkind-oss/yolo-jail/internal/launchservice"
 	"github.com/mschulkind-oss/yolo-jail/internal/loopholes"
 	"github.com/mschulkind-oss/yolo-jail/internal/version"
 )
@@ -89,6 +92,78 @@ type keeperPlan struct {
 	// the count, whose zero would not be zero sessions ("could not count" is never zero, JL-P3), and
 	// ends the jail only when its container ends, as when it cannot open the lock itself (JL-D3).
 	Uncounted bool `json:"uncounted,omitempty"`
+
+	// NOTCH MODE (docs/design/jail-lifetime-last-session-wins.md §9.9, JL-D37). Notch is "" for a
+	// container jail, and the notch a keeper holds a key of otherwise (keeperKey): macos-user, at
+	// the jail or the guest notch. A plan with a notch names no container (RunCmd is empty), and
+	// carries instead what the keeper runs outside the sandbox for every session of the key, with
+	// the values the launch composed its channel from (JL-D38, JL-D39).
+	Notch string `json:"notch,omitempty"`
+	// Command is the fresh launch's command, which the supervision of a held doorway or service
+	// names (launchservice.Running.Supervise).
+	Command string `json:"command,omitempty"`
+	// Doorways and LaunchServices are the doorways and launch-owned services the launch planned,
+	// each at the served address and behind the caller token its clients were composed with.
+	Doorways       []keeperHeld `json:"doorways,omitempty"`
+	LaunchServices []keeperHeld `json:"launch_services,omitempty"`
+	// CallerTokens and ServedAddresses are the launch's settled caller tokens and the doorways'
+	// declared-to-served addresses, for the roster a joiner composes from (callertokens.go,
+	// servedaddresses.go).
+	CallerTokens    map[string]string `json:"caller_tokens,omitempty"`
+	ServedAddresses map[string]string `json:"served_addresses,omitempty"`
+	// ReservedAddrs names, in order, the address of each reserved port the spawn hands the keeper
+	// (--reserved-fd): the keeper lets each go just before the doorway or service it was reserved
+	// for starts, so none of its own fronts can be handed one (keeper.releaseReservedFor).
+	ReservedAddrs []string `json:"reserved_addrs,omitempty"`
+
+	// Grant is the launch's --with-credentials grant, names only (jailgrant.go), which the keeper
+	// writes into its start record for an attach to read; nil without one. Never a value: the
+	// values are in the jail's grant file (stageJailGrant, ES-D37), which RunCmd binds.
+	Grant *jailGrant `json:"grant,omitempty"`
+}
+
+// keeperHeld is one doorway or launch-owned service a keeper runs at macos-user: its
+// launchservice.Plan, less the reservations a plan cannot carry across a process (the keeper is
+// handed those as descriptors), and what the launch computed for it from its channel. Input and the
+// two start-line fields travel in the plan only, never in the roster: Input holds the credentials
+// the service is handed.
+type keeperHeld struct {
+	Service  string            `json:"service"`
+	Pack     string            `json:"pack"`
+	Cmd      []string          `json:"cmd"`
+	Restart  string            `json:"restart,omitempty"`
+	Local    bool              `json:"local,omitempty"`
+	TokenEnv string            `json:"token_env"`
+	Token    string            `json:"token"`
+	Moved    map[string]string `json:"moved,omitempty"`
+	// Input is a launch-owned service's input (packChannel.launchServiceInput); nil for a doorway,
+	// whose input the keeper composes from the endpoint files it published (doorwayInput).
+	Input map[string]string `json:"input,omitempty"`
+	// PointedAt is what a service's start line names (servicePointedAt, or a pure worker's
+	// workerPointedAt), and Worker whether it is a pure worker's.
+	PointedAt string `json:"pointed_at,omitempty"`
+	Worker    bool   `json:"worker,omitempty"`
+}
+
+// heldFrom is p as a plan carries it.
+func heldFrom(p *launchservice.Plan) keeperHeld {
+	return keeperHeld{Service: p.Service, Pack: p.Pack, Cmd: append([]string(nil), p.Cmd...),
+		Restart: p.Restart, Local: p.Local, TokenEnv: p.TokenEnv, Token: p.Token, Moved: p.Moved}
+}
+
+// plan is h as a launchservice.Plan with no reservation: the keeper releases the descriptor it was
+// handed for each address just before the start, and the service binds the address itself
+// (launchservice.Listen).
+func (h keeperHeld) plan() *launchservice.Plan {
+	return &launchservice.Plan{Declared: launchservice.Declared{Service: h.Service, Pack: h.Pack,
+		Cmd: append([]string(nil), h.Cmd...), Restart: h.Restart, Local: h.Local},
+		TokenEnv: h.TokenEnv, Token: h.Token, Moved: h.Moved}
+}
+
+// rostered is h as the roster names it: no input, no start line.
+func (h keeperHeld) rostered() keeperHeld {
+	h.Input, h.PointedAt, h.Worker = nil, "", false
+	return h
 }
 
 // keeperBuildStamp is this binary's build, as a plan carries it: the stamped version and commit.
@@ -158,7 +233,7 @@ func readKeeperPlan(path string) (*keeperPlan, error) {
 	if err := json.Unmarshal(data, &p); err != nil {
 		return nil, fmt.Errorf("decode the launch's plan: %w", err)
 	}
-	if p.Cname == "" || p.Runtime == "" || p.Workspace == "" || len(p.RunCmd) == 0 {
+	if p.Cname == "" || p.Runtime == "" || p.Workspace == "" || (p.Notch == "" && len(p.RunCmd) == 0) {
 		return nil, fmt.Errorf("the launch's plan names no jail")
 	}
 	return &p, nil

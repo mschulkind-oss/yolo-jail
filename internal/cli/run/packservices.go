@@ -13,20 +13,23 @@ package run
 // still see what this launch declared (and say it will not run it).
 //
 // host_daemon is NOT composed here: a container launch runs a service's jail daemon, and the
-// host half runs only at a notch with no jail supervisor, as a launch-owned child of the one
-// launch whose agent's pairing needs it (internal/launchservice; macosuserservices.go for this
-// package's macos-user arm, internal/cli's host launch for `yolo host --`;
-// docs/design/host-notch-services.md). A service's `platforms`, `serves` and `settings` are
-// still declared, carried and unread, with no consumer in the tree yet.
+// host half runs only as a launch-owned child of the one launch whose agent's pairing needs it
+// (internal/launchservice; macosuserservices.go for this package's macos-user arm, internal/cli's
+// host launch for `yolo host --`; docs/design/host-notch-services.md). What this file records of
+// it is whether the launch would admit it (launchservice.AdmitServiceHosts), because on
+// macos-user that decides where the jail daemon goes: declined when its admitted host half
+// serves an adaptation instead, run in the guest otherwise (loopholes.JailDaemonsRunIn;
+// docs/design/jail-daemon-on-macos-user-plan.md JD-9). A service's `platforms`, `serves` and
+// `settings` are still declared, carried and unread, with no consumer in the tree yet.
 
 import (
 	"fmt"
-	"sort"
 	"strconv"
 	"strings"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
+	"github.com/mschulkind-oss/yolo-jail/internal/launchservice"
 	"github.com/mschulkind-oss/yolo-jail/internal/loopholes"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
@@ -57,28 +60,12 @@ import (
 // payload, two daemons racing for one name's endpoint file. When the holder declares no
 // jail_daemon, the name runs none: the earlier pack's daemon is not a fallback. What was set
 // aside is disclosed by noteShadowedServices.
+//
+// THE COMPOSITION IS launchservice.ServiceJailDaemons, which `yolo check`'s prediction reads
+// too, so the two cannot compose a service's daemon differently (each spec also carries what the
+// macos-user guest's split reads: the declared host half, the adaptation it serves, its endpoint).
 func serviceJailDaemons(packs []*packload.Pack) []loopholes.JailDaemonSpec {
-	var entries []loopholes.JailDaemonSpec
-	held, _ := packload.HeldServices(packs)
-	for _, h := range held {
-		s := h.Service
-		if s.JailDaemon == nil || len(s.JailDaemon.Cmd) == 0 {
-			continue
-		}
-		restart := s.JailDaemon.Restart
-		if restart == "" {
-			restart = "on-failure"
-		}
-		// CallerToken ALWAYS: every address a service serves names the service's
-		// caller token as its credential (packload's serviceCredentialEnv), so the
-		// daemon behind it demands one (wire-bridge.md WB-D18).
-		entries = append(entries, loopholes.JailDaemonSpec{
-			Name: s.Name, Cmd: s.JailDaemon.Cmd, Restart: restart, CallerToken: true,
-			Service: true,
-		})
-	}
-	sort.Slice(entries, func(i, j int) bool { return entries[i].Name < entries[j].Name })
-	return entries
+	return launchservice.ServiceJailDaemons(packs)
 }
 
 // jailDaemonsFor composes THIS LAUNCH'S jail-daemon payload: every active
@@ -94,10 +81,10 @@ func serviceJailDaemons(packs []*packload.Pack) []loopholes.JailDaemonSpec {
 // gives the native arm something to decline BY NAME and leaves the container
 // arm reading the same value rather than a second composition of it.
 //
-// It touches no filesystem (the mounts do; this reads declarations), so it is
-// safe this early — in particular it does not depend on the mount sentinels
-// (loopholes.Set.PrepareMountSentinels, which loopholesRuntimeArgs calls later
-// and which exists for the bind sources).
+// It writes nothing (the mounts do; this reads declarations, and at most the first bytes
+// of a module-dir program the macos-user split checks), so it is safe this early — in
+// particular it does not depend on the mount sentinels (loopholes.Set.PrepareMountSentinels,
+// which loopholesRuntimeArgs calls later and which exists for the bind sources).
 func (o *Options) jailDaemonsFor(cfg *jsonx.OrderedMap, rt string,
 	packs []*packload.Pack) []loopholes.JailDaemonSpec {
 	// The credential view drops the terminator from the payload, as it drops the rest of the
@@ -107,12 +94,26 @@ func (o *Options) jailDaemonsFor(cfg *jsonx.OrderedMap, rt string,
 	// the way withoutUnselectedProfileDaemons records what it leaves out: every call composes
 	// the same packs, so the record is the same whichever call wrote it last.
 	_, o.shadowedServices = packload.HeldServices(packs)
+	// The bound loopholes this runtime's argv binds, through the same set and so the same gate
+	// as the payload, recorded for servedDaemons the same way: every call reads the same config.
+	o.jailBound = set.JailBoundNames(set.Enabled(), rt)
 	specs := o.withoutUnselectedProfileDaemons(cfg, packs,
 		set.JailDaemons(set.Enabled(), rt, serviceJailDaemons(packs)))
-	// A DOORWAY'S HOST ARGV RUNS ONLY FROM A PACK YOLO SHIPS (macosuserdoorways.go): one this
-	// launch will not admit is cleared here, so every reader below (the served set, the settle,
-	// the split) sees a daemon that runs where it would have without one.
+	// A DOORWAY'S HOST ARGV RUNS ONLY FROM A PACK YOLO SHIPS OR A LOCAL ONE (HS-D27;
+	// macosuserdoorways.go): one this launch will not admit is cleared here, so every reader below
+	// (the served set, the settle, the split) sees a daemon that runs where it would have without
+	// one.
 	specs = o.admitDoorways(packs, specs)
+	// A SERVICE'S HOST HALF RUNS ONLY FROM A PACK YOLO SHIPS OR A LOCAL ONE (launchservice.Admit,
+	// OQ-HS4, HS-D27): one this launch will not admit is cleared the same way and recorded for the
+	// disclosure (noteRefusedServiceHosts), so the macos-user guest runs its jail daemon, confined,
+	// as a container would (OQ-DP8), instead of declining it for a host half that never starts.
+	specs, o.refusedServiceHosts = launchservice.AdmitServiceHosts(packs, specs)
+	// THE MODULE DIRECTORY'S PLACE IN THE GUEST (macosuserguestdaemons.go): on macos-user a
+	// loophole daemon whose argv names `{jail_loophole_dir}` runs from the sandbox's copy of
+	// this launch's staged packs, so every reader below (the split, the decline, the payload the
+	// supervisor gets) sees the argv the guest runs. Every other runtime keeps the container's.
+	specs = o.placeModuleDirsInGuest(rt, specs)
 	// WHERE EACH DAEMON LISTENS (servedaddresses.go): its declared address, or on a jail that
 	// shares this process's network namespace a port picked for this launch, settled once so
 	// the payload and every client composition read one answer. Only the daemons this launch

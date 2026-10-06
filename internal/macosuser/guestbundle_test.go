@@ -15,9 +15,12 @@ import (
 	"path/filepath"
 	"regexp"
 	goruntime "runtime"
+	"slices"
 	"sort"
 	"strings"
 	"testing"
+
+	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 )
 
 func repoFile(t *testing.T, rel string) string {
@@ -121,5 +124,43 @@ func TestTheHostShipSetStaysYoloAlone(t *testing.T) {
 	// And the guest prefix is the SANDBOX's, under the root-owned state dir.
 	if !strings.HasPrefix(GuestBinDir(""), stateDir+"/") {
 		t.Errorf("GuestBinDir %s is outside the root-owned state dir", GuestBinDir(""))
+	}
+}
+
+// EACH GUEST CLIENT READS THE VARIABLE THE LAUNCH STAGES IT ON. The stager keys on
+// GuestClient.EndpointEnv (GuestClientsIn); the client resolves its endpoint from its own
+// os.Getenv. Those are different binaries, so this reads each client's source for a Getenv of
+// that variable, spelled through its paths constant or as the literal. A client changed to read
+// another variable fails here, rather than being staged on a launch whose endpoint it no longer
+// dials and skipped on the one it does.
+func TestEachGuestClientReadsTheEndpointItIsStagedOn(t *testing.T) {
+	consts := map[string]string{
+		paths.SerialEndpointEnv:        "SerialEndpointEnv",
+		paths.HostProcessesEndpointEnv: "HostProcessesEndpointEnv",
+	}
+	for _, c := range GuestClients {
+		ident, ok := consts[c.EndpointEnv]
+		if !ok {
+			t.Errorf("%s keys on %s, which has no paths constant this test knows", c.Binary, c.EndpointEnv)
+			continue
+		}
+		src := repoFile(t, filepath.Join("cmd", c.Binary, "main.go"))
+		if !strings.Contains(src, "os.Getenv(paths."+ident+")") &&
+			!strings.Contains(src, `os.Getenv("`+c.EndpointEnv+`")`) {
+			t.Errorf("cmd/%s/main.go reads neither os.Getenv(paths.%s) nor os.Getenv(%q); the "+
+				"macos-user launch stages it on that variable", c.Binary, ident, c.EndpointEnv)
+		}
+	}
+}
+
+// THE CLIENTS ARE IN THE SHIPPED SET TOO: a guest member flake.nix's shippedBinaries lacks would
+// be a binary the container jail never gets, and the guest set is a subset by rule.
+func TestEveryGuestBinaryIsAShippedBinary(t *testing.T) {
+	shipped := listIn(t, repoFile(t, "flake.nix"),
+		regexp.MustCompile(`(?m)^\s*shippedBinaries\s*=\s*\[([^\]]*)\]\s*;`), "flake.nix shippedBinaries")
+	for _, name := range GuestBinaries {
+		if !slices.Contains(shipped, name) {
+			t.Errorf("guest binary %s is not in flake.nix's shippedBinaries %v", name, shipped)
+		}
 	}
 }

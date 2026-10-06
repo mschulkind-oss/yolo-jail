@@ -28,24 +28,38 @@ const notificationPackJSON = `{"name":"mine","description":"d","contributes":[
 const usersSettings = `{"theme":"dark","hooks":{"Notification":[{"matcher":"",` +
 	`"hooks":[{"type":"command","command":"printf '\\a' > /dev/tty"}]}]}}` + "\n"
 
-// notificationFixture is claude plus a user pack overlaying hooks.Notification, over a home
-// whose settings.json already holds the user's own hook. Returns the home and the pack dir.
-func notificationFixture(t *testing.T, management string) (string, string) {
+// editorModePackJSON overlays a key of ~/.claude.json — claude/config, the surface the claude
+// pack declares `rmw` — that the user has also set by hand.
+const editorModePackJSON = `{"name":"mine","description":"d","contributes":[
+  {"kind":"config-overlay","surface":"claude/config",
+   "config":{"managed":{"editorMode":"vim"}}}]}`
+
+// overlayWinnerFixture is claude plus a user pack (packJSON) under `host_management: "own"`, over
+// a home whose dest already holds seed. Returns the home and the pack dir.
+func overlayWinnerFixture(t *testing.T, packJSON, dest, seed string) (string, string) {
 	t.Helper()
 	home := t.TempDir()
 	packDir := filepath.Join(home, "packs", "mine")
-	writeFile(t, filepath.Join(packDir, "pack.json"), notificationPackJSON)
+	writeFile(t, filepath.Join(packDir, "pack.json"), packJSON)
 	selectPacksWith(t, home, `"claude",{"source":"file://`+packDir+`","name":"mine"}`,
-		`,"host_management":"`+management+`"`)
+		`,"host_management":"own"`)
 	t.Setenv("HOME", home)
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
 	t.Setenv("YOLO_VERSION", "")
-	writeFile(t, hostSettingsPath(home), usersSettings)
+	writeFile(t, filepath.Join(home, dest), seed)
 	return home, packDir
 }
 
+// notificationFixture is overlayWinnerFixture overlaying hooks.Notification, over a home whose
+// settings.json already holds the user's own hook — the measured case.
+func notificationFixture(t *testing.T) (string, string) {
+	t.Helper()
+	return overlayWinnerFixture(t, notificationPackJSON,
+		filepath.Join(".claude", "settings.json"), usersSettings)
+}
+
 func TestUnderOwnTheReportSaysTheCapturedEditIsKeptOverTheOverlay(t *testing.T) {
-	home, _ := notificationFixture(t, "own")
+	home, _ := notificationFixture(t)
 	for run := 1; run <= 2; run++ {
 		rc, report := applyWith(t, true, nil)
 		if rc != 0 {
@@ -83,15 +97,26 @@ func TestUnderOwnTheReportSaysTheCapturedEditIsKeptOverTheOverlay(t *testing.T) 
 	}
 }
 
-func TestUnderAssertAnOverlayReplacementNamesTheOverlayAndItsPackAsTheRemedy(t *testing.T) {
-	home, packDir := notificationFixture(t, "assert")
+// THE OTHER WINNER: on a surface that runs the read-modify-write — under `own`, one whose pack
+// declares `rmw`, as claude/config does — a config-overlay key IS asserted over the user's value,
+// so the report names the overlay as the writer and its pack as the remedy. It ran on
+// claude/settings under the retired `assert`, which read-modify-wrote every surface; under `own`
+// that surface composes `stateful`, where the captured edit wins (the test above).
+func TestOnAnRMWSurfaceAnOverlayReplacementNamesTheOverlayAndItsPackAsTheRemedy(t *testing.T) {
+	home, packDir := overlayWinnerFixture(t, editorModePackJSON, ".claude.json",
+		`{"editorMode":"normal"}`+"\n")
 	rc, report := applyWith(t, true, nil)
 	if rc != 0 {
 		t.Fatalf("rc=%d\n%s", rc, report)
 	}
+	if data, err := os.ReadFile(filepath.Join(home, ".claude.json")); err != nil ||
+		!strings.Contains(string(data), `"editorMode": "vim"`) {
+		t.Fatalf("fixture premise — the overlay key is written over the user's value on an rmw "+
+			"surface (%v):\n%s", err, data)
+	}
 	for _, want := range []string{
-		"1 value of yours was replaced by mine's config-overlay: hooks.Notification in ~/.claude/settings.json",
-		"remove that key from the `config-overlay` for claude/settings in " +
+		"1 value of yours was replaced by mine's config-overlay: editorMode in ~/.claude.json",
+		"remove that key from the `config-overlay` for claude/config in " +
 			prettyHomePath(home, filepath.Join(packDir, "pack.json")),
 	} {
 		if !strings.Contains(report, want) {

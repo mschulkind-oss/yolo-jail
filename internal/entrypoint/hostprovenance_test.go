@@ -15,6 +15,11 @@ package entrypoint
 // owning pack does not declare at all (so there was no `managed` value to win). That is worse
 // than an honest "unknown": it tells a user their overlay lost when it won.
 //
+// An owned host writes the record through both of its mechanisms — `rmw`'s replay of the write
+// order (rmwProvenance) for a surface its pack declares `rmw`, and Compose's fold for one that
+// composes `stateful` — so the tests that pin a property of the record run through each
+// (hostListModes). Until the `assert` retirement (OQ-CO14) every host surface took the rmw one.
+//
 // Every test here writes into a t.TempDir() home. The record lands under THAT home's state
 // dir (see render.Target.ProvenanceDir), which is what makes the isolation real rather than
 // hoped for — a record path derived from the process $HOME would land in the invoking user's
@@ -27,20 +32,26 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/agentcfg/manifest"
 	"github.com/mschulkind-oss/yolo-jail/internal/packdecl"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/packoverlay"
 	"github.com/mschulkind-oss/yolo-jail/internal/render"
 )
 
-// bareSurfacePack declares a surface with NO layers — no defaults, no managed — so a render
-// of it attributes nothing and exercises the empty-record path.
-func bareSurfacePack(t *testing.T) *packload.Pack {
+// bareSurfacePack declares a surface with NO layers — no defaults, no managed — in the given
+// mode ("" declares none), so a render of it attributes nothing and exercises the empty-record
+// path.
+func bareSurfacePack(t *testing.T, mode string) *packload.Pack {
 	t.Helper()
-	raw, err := json.Marshal([]any{map[string]any{
+	decl := map[string]any{
 		"agent": "bare", "name": "settings", "codec": "json",
 		"path": "~/.bare/settings.json",
-	}})
+	}
+	if mode != "" {
+		decl["mode"] = mode
+	}
+	raw, err := json.Marshal([]any{decl})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -53,7 +64,7 @@ func bareSurfacePack(t *testing.T) *packload.Pack {
 // key → winning layer. found=false means no record file exists at all.
 func hostProvenance(t *testing.T, home, agent, name string) (map[string]string, bool) {
 	t.Helper()
-	data, err := os.ReadFile(render.Host(home, nil, render.OwnershipAssert).ProvenancePath(agent, name))
+	data, err := os.ReadFile(render.Host(home, nil, render.OwnershipOwn).ProvenancePath(agent, name))
 	if err != nil {
 		return nil, false
 	}
@@ -74,29 +85,33 @@ func hostProvenance(t *testing.T, home, agent, name string) (map[string]string, 
 // This is the §8 case exactly: `fileSuggestion` is contributed by an overlay and declared by
 // nobody else, so "managed won" is not merely unhelpful, it is false.
 func TestHostRenderWritesProvenanceNamingTheContributingPack(t *testing.T) {
-	home := t.TempDir()
-	owner := overlayOwnerPack(t, "")
-	contributor := overlayContributorPack(t, "acme-fzf", map[string]any{"fileSuggestion": "run-fzf"})
-	overlays := packoverlay.Collect([]*packload.Pack{owner, contributor}, false, nil)
+	for _, m := range hostListModes {
+		t.Run(m.name, func(t *testing.T) {
+			home := t.TempDir()
+			owner := overlayOwnerPack(t, m.mode)
+			contributor := overlayContributorPack(t, "acme-fzf", map[string]any{"fileSuggestion": "run-fzf"})
+			overlays := packoverlay.Collect([]*packload.Pack{owner, contributor}, false, nil)
 
-	if _, err := RenderHostPack(owner, home, render.OwnershipAssert, false, overlays, nil); err != nil {
-		t.Fatalf("RenderHostPack: %v", err)
-	}
+			if _, err := RenderHostPack(owner, home, render.OwnershipOwn, false, overlays, nil); err != nil {
+				t.Fatalf("RenderHostPack: %v", err)
+			}
 
-	prov, found := hostProvenance(t, home, "acme", "settings")
-	if !found {
-		t.Fatalf("the host render wrote NO provenance record — `config diff` at the host has " +
-			"nothing to measure and falls back to guessing, which is the whole defect")
-	}
-	if got := prov["fileSuggestion"]; got != "config-overlay:acme-fzf" {
-		t.Errorf("fileSuggestion attributed to %q, want config-overlay:acme-fzf — the overlay's "+
-			"value is what landed in the file, so any other winner is a misreport\nrecord: %v",
-			got, prov)
-	}
-	// And the owner's own managed key is attributed to managed, so a genuine loss is still
-	// reportable as one.
-	if got := prov["telemetry"]; got != "managed" {
-		t.Errorf("telemetry attributed to %q, want managed\nrecord: %v", got, prov)
+			prov, found := hostProvenance(t, home, "acme", "settings")
+			if !found {
+				t.Fatalf("the host render wrote NO provenance record — `config diff` at the host has " +
+					"nothing to measure and falls back to guessing, which is the whole defect")
+			}
+			if got := prov["fileSuggestion"]; got != "config-overlay:acme-fzf" {
+				t.Errorf("fileSuggestion attributed to %q, want config-overlay:acme-fzf — the overlay's "+
+					"value is what landed in the file, so any other winner is a misreport\nrecord: %v",
+					got, prov)
+			}
+			// And the owner's own managed key is attributed to managed, so a genuine loss is still
+			// reportable as one.
+			if got := prov["telemetry"]; got != "managed" {
+				t.Errorf("telemetry attributed to %q, want managed\nrecord: %v", got, prov)
+			}
+		})
 	}
 }
 
@@ -104,31 +119,35 @@ func TestHostRenderWritesProvenanceNamingTheContributingPack(t *testing.T) {
 // layer is recorded as `managed`. Without this the fix could be "always say the overlay won",
 // which is the same defect with the sign flipped.
 func TestHostRenderProvenanceRecordsAGenuineOverlayLoss(t *testing.T) {
-	home := t.TempDir()
-	owner := overlayOwnerPack(t, "")
-	// `telemetry` IS the owner's managed key, so the overlay must lose it; `theme` is only
-	// the owner's default, so the overlay must win that one.
-	pushy := overlayContributorPack(t, "pushy", map[string]any{"telemetry": true, "theme": "dark"})
-	overlays := packoverlay.Collect([]*packload.Pack{owner, pushy}, false, nil)
+	for _, m := range hostListModes {
+		t.Run(m.name, func(t *testing.T) {
+			home := t.TempDir()
+			owner := overlayOwnerPack(t, m.mode)
+			// `telemetry` IS the owner's managed key, so the overlay must lose it; `theme` is only
+			// the owner's default, so the overlay must win that one.
+			pushy := overlayContributorPack(t, "pushy", map[string]any{"telemetry": true, "theme": "dark"})
+			overlays := packoverlay.Collect([]*packload.Pack{owner, pushy}, false, nil)
 
-	if _, err := RenderHostPack(owner, home, render.OwnershipAssert, false, overlays, nil); err != nil {
-		t.Fatalf("RenderHostPack: %v", err)
-	}
-	prov, found := hostProvenance(t, home, "acme", "settings")
-	if !found {
-		t.Fatal("no provenance record")
-	}
-	if got := prov["telemetry"]; got != "managed" {
-		t.Errorf("a contested MANAGED key must record managed as the winner, got %q", got)
-	}
-	if got := prov["theme"]; got != "config-overlay:pushy" {
-		t.Errorf("a key the overlay beats (owner's default only) must record the overlay, got %q", got)
-	}
-	// The record must agree with the FILE — a record that disagrees with what landed is
-	// worse than none, since the whole point is to stop guessing.
-	got := readRenderedJSON(t, home, ".acme/settings.json")
-	if got["telemetry"] != false || got["theme"] != "dark" {
-		t.Errorf("the record and the file disagree: file=%#v record=%v", got, prov)
+			if _, err := RenderHostPack(owner, home, render.OwnershipOwn, false, overlays, nil); err != nil {
+				t.Fatalf("RenderHostPack: %v", err)
+			}
+			prov, found := hostProvenance(t, home, "acme", "settings")
+			if !found {
+				t.Fatal("no provenance record")
+			}
+			if got := prov["telemetry"]; got != "managed" {
+				t.Errorf("a contested MANAGED key must record managed as the winner, got %q", got)
+			}
+			if got := prov["theme"]; got != "config-overlay:pushy" {
+				t.Errorf("a key the overlay beats (owner's default only) must record the overlay, got %q", got)
+			}
+			// The record must agree with the FILE — a record that disagrees with what landed is
+			// worse than none, since the whole point is to stop guessing.
+			got := readRenderedJSON(t, home, ".acme/settings.json")
+			if got["telemetry"] != false || got["theme"] != "dark" {
+				t.Errorf("the record and the file disagree: file=%#v record=%v", got, prov)
+			}
+		})
 	}
 }
 
@@ -139,58 +158,66 @@ func TestHostRenderProvenanceRecordsAGenuineOverlayLoss(t *testing.T) {
 // path would scatter records into whatever directory `yolo host apply` was invoked from,
 // because render.Host leaves Workspace empty by definition.
 func TestHostProvenanceLivesInTheStateDirNotTheConfigDir(t *testing.T) {
-	home := t.TempDir()
-	cwd := t.TempDir()
-	t.Chdir(cwd) // a host apply runs from anywhere; nothing may land here
+	for _, m := range hostListModes {
+		t.Run(m.name, func(t *testing.T) {
+			home := t.TempDir()
+			cwd := t.TempDir()
+			t.Chdir(cwd) // a host apply runs from anywhere; nothing may land here
 
-	owner := overlayOwnerPack(t, "")
-	overlays := packoverlay.Collect([]*packload.Pack{owner}, false, nil)
-	if _, err := RenderHostPack(owner, home, render.OwnershipAssert, false, overlays, nil); err != nil {
-		t.Fatalf("RenderHostPack: %v", err)
-	}
+			owner := overlayOwnerPack(t, m.mode)
+			overlays := packoverlay.Collect([]*packload.Pack{owner}, false, nil)
+			if _, err := RenderHostPack(owner, home, render.OwnershipOwn, false, overlays, nil); err != nil {
+				t.Fatalf("RenderHostPack: %v", err)
+			}
 
-	want := filepath.Join(home, ".local", "share", "yolo-jail", "host-provenance",
-		"acme-settings.provenance")
-	if _, err := os.Stat(want); err != nil {
-		t.Errorf("no record at the state-dir path %s: %v", want, err)
-	}
-	// Nothing under the surface's own config dir except the surface itself.
-	entries, err := os.ReadDir(filepath.Join(home, ".acme"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, e := range entries {
-		if e.Name() != "settings.json" {
-			t.Errorf("the render left %q in the user's config dir — a real $HOME is not a jail "+
-				"home, and yolo bookkeeping there is indistinguishable from config", e.Name())
-		}
-	}
-	// And nothing at all in the invocation directory.
-	if cwdEntries, err := os.ReadDir(cwd); err == nil && len(cwdEntries) != 0 {
-		names := make([]string, 0, len(cwdEntries))
-		for _, e := range cwdEntries {
-			names = append(names, e.Name())
-		}
-		t.Errorf("the render wrote into the CWD: %v — a host target has no workspace, so a "+
-			"workspace-relative sidecar path resolves against wherever the user happened to be",
-			names)
+			want := filepath.Join(home, ".local", "share", "yolo-jail", "host-provenance",
+				"acme-settings.provenance")
+			if _, err := os.Stat(want); err != nil {
+				t.Errorf("no record at the state-dir path %s: %v", want, err)
+			}
+			// Nothing under the surface's own config dir except the surface itself.
+			entries, err := os.ReadDir(filepath.Join(home, ".acme"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, e := range entries {
+				if e.Name() != "settings.json" {
+					t.Errorf("the render left %q in the user's config dir — a real $HOME is not a jail "+
+						"home, and yolo bookkeeping there is indistinguishable from config", e.Name())
+				}
+			}
+			// And nothing at all in the invocation directory.
+			if cwdEntries, err := os.ReadDir(cwd); err == nil && len(cwdEntries) != 0 {
+				names := make([]string, 0, len(cwdEntries))
+				for _, e := range cwdEntries {
+					names = append(names, e.Name())
+				}
+				t.Errorf("the render wrote into the CWD: %v — a host target has no workspace, so a "+
+					"workspace-relative sidecar path resolves against wherever the user happened to be",
+					names)
+			}
+		})
 	}
 }
 
 // OBSERVE writes nothing, including no record. A provenance record in dry-run would document
 // a write that never happened, which is a stale record manufactured on purpose.
 func TestHostRenderObserveWritesNoProvenance(t *testing.T) {
-	home := t.TempDir()
-	owner := overlayOwnerPack(t, "")
-	contributor := overlayContributorPack(t, "acme-fzf", map[string]any{"fileSuggestion": "run-fzf"})
-	overlays := packoverlay.Collect([]*packload.Pack{owner, contributor}, false, nil)
+	for _, m := range hostListModes {
+		t.Run(m.name, func(t *testing.T) {
+			home := t.TempDir()
+			owner := overlayOwnerPack(t, m.mode)
+			contributor := overlayContributorPack(t, "acme-fzf", map[string]any{"fileSuggestion": "run-fzf"})
+			overlays := packoverlay.Collect([]*packload.Pack{owner, contributor}, false, nil)
 
-	if _, err := RenderHostPack(owner, home, render.OwnershipAssert, true, overlays, nil); err != nil {
-		t.Fatalf("RenderHostPack observe: %v", err)
-	}
-	if prov, found := hostProvenance(t, home, "acme", "settings"); found {
-		t.Errorf("observe posture wrote a provenance record (%v) — it would describe a render "+
-			"that did not happen", prov)
+			if _, err := RenderHostPack(owner, home, render.OwnershipOwn, true, overlays, nil); err != nil {
+				t.Fatalf("RenderHostPack observe: %v", err)
+			}
+			if prov, found := hostProvenance(t, home, "acme", "settings"); found {
+				t.Errorf("observe posture wrote a provenance record (%v) — it would describe a render "+
+					"that did not happen", prov)
+			}
+		})
 	}
 }
 
@@ -198,55 +225,72 @@ func TestHostRenderObserveWritesNoProvenance(t *testing.T) {
 // time the record is attempted, so aborting would report a failure for a render that
 // succeeded — and at the host notch there is no A12 fatal-boot equivalent to justify it.
 // The failure is announced, not swallowed.
+//
+// Only the PROVENANCE store is blocked. Under `own` a `stateful` render also keeps its capture
+// store under the state dir, and that is the mechanism's own state rather than bookkeeping — a
+// render that cannot keep it has not succeeded — so blocking the whole state dir measures
+// something else.
 func TestHostProvenanceWriteFailureDoesNotFailTheApply(t *testing.T) {
-	home := t.TempDir()
-	// Make the record's own parent un-creatable by planting a FILE where the state dir's
-	// leaf must be a directory. The surface path is unaffected, so the render still succeeds.
-	blocked := filepath.Join(home, ".local", "share", "yolo-jail")
-	if err := os.MkdirAll(filepath.Dir(blocked), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(blocked, []byte("not a directory"), 0o644); err != nil {
-		t.Fatal(err)
-	}
+	for _, m := range hostListModes {
+		t.Run(m.name, func(t *testing.T) {
+			home := t.TempDir()
+			// Make the record's own parent un-creatable by planting a FILE where the provenance
+			// dir must be. The surface path is unaffected, so the render still succeeds.
+			blocked := render.Host(home, nil, render.OwnershipOwn).ProvenanceDir()
+			if err := os.MkdirAll(filepath.Dir(blocked), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(blocked, []byte("not a directory"), 0o644); err != nil {
+				t.Fatal(err)
+			}
 
-	owner := overlayOwnerPack(t, "")
-	results, err := RenderHostPack(owner, home, render.OwnershipAssert, false, nil, nil)
-	if err != nil {
-		t.Fatalf("a provenance write failure must NOT fail the apply: %v", err)
-	}
-	var rendered bool
-	for _, r := range results {
-		if r.Surface == "acme/settings" && r.Action == "rendered" {
-			rendered = true
-		}
-	}
-	if !rendered {
-		t.Errorf("the surface must still be reported as rendered: %+v", results)
-	}
-	// The surface itself landed — the render is what matters, the record is bookkeeping.
-	if got := readRenderedJSON(t, home, ".acme/settings.json"); got["telemetry"] != false {
-		t.Errorf("the surface did not render: %#v", got)
+			owner := overlayOwnerPack(t, m.mode)
+			results, err := RenderHostPack(owner, home, render.OwnershipOwn, false, nil, nil)
+			if err != nil {
+				t.Fatalf("a provenance write failure must NOT fail the apply: %v", err)
+			}
+			var rendered bool
+			for _, r := range results {
+				if r.Surface == "acme/settings" && r.Action == "rendered" {
+					rendered = true
+				}
+			}
+			if !rendered {
+				t.Errorf("the surface must still be reported as rendered: %+v", results)
+			}
+			// The surface itself landed — the render is what matters, the record is bookkeeping.
+			if got := readRenderedJSON(t, home, ".acme/settings.json"); got["telemetry"] != false {
+				t.Errorf("the surface did not render: %#v", got)
+			}
+		})
 	}
 }
 
 // The host record's GRANULARITY matches the jail's, because ONE reader serves both. The
-// host path derives provenance by replaying rmw write order while the jail path reads it off
-// Compose's fold — two implementations of "which layer won", which is exactly the setup where
-// a per-key vs per-subtree disagreement hides. Pinned on the case that would expose it: an
+// host's rmw arm derives provenance by replaying rmw write order while the jail path reads it
+// off Compose's fold — two implementations of "which layer won", which is exactly the setup
+// where a per-key vs per-subtree disagreement hides. Pinned on the case that would expose it: an
 // overlay contributing a SIBLING under a parent the owner also manages. Compose attributes
-// per TOP-LEVEL key, so both must say `managed`.
+// per TOP-LEVEL key, so both must say `managed`. The host render's owner declares `rmw`: one
+// composing `stateful` would take Compose's fold too, and compare it with itself.
 func TestHostProvenanceGranularityMatchesTheJail(t *testing.T) {
-	surface, err := json.Marshal([]any{map[string]any{
-		"agent": "acme", "name": "settings", "codec": "json",
-		"path":    "~/.acme/settings.json",
-		"managed": map[string]any{"prefs": map[string]any{"owned": true}},
-	}})
-	if err != nil {
-		t.Fatal(err)
+	ownerIn := func(mode string) *packload.Pack {
+		decl := map[string]any{
+			"agent": "acme", "name": "settings", "codec": "json",
+			"path":    "~/.acme/settings.json",
+			"managed": map[string]any{"prefs": map[string]any{"owned": true}},
+		}
+		if mode != "" {
+			decl["mode"] = mode
+		}
+		surface, err := json.Marshal([]any{decl})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return &packload.Pack{Name: "acme", Decl: &packdecl.Manifest{
+			Contributes: []packdecl.Contribution{{Kind: packdecl.KindConfig, Raw: surface}}}}
 	}
-	owner := &packload.Pack{Name: "acme", Decl: &packdecl.Manifest{
-		Contributes: []packdecl.Contribution{{Kind: packdecl.KindConfig, Raw: surface}}}}
+	owner := ownerIn("")
 	contributor := overlayContributorPack(t, "pushy", map[string]any{
 		"prefs": map[string]any{"sibling": true}})
 
@@ -259,8 +303,9 @@ func TestHostProvenanceGranularityMatchesTheJail(t *testing.T) {
 	}
 	// The HOST path (rmw → rmwProvenance).
 	home := t.TempDir()
-	overlays := packoverlay.Collect([]*packload.Pack{owner, contributor}, false, nil)
-	if _, err := RenderHostPack(owner, home, render.OwnershipAssert, false, overlays, nil); err != nil {
+	rmwOwner := ownerIn(manifest.ModeRMW)
+	overlays := packoverlay.Collect([]*packload.Pack{rmwOwner, contributor}, false, nil)
+	if _, err := RenderHostPack(rmwOwner, home, render.OwnershipOwn, false, overlays, nil); err != nil {
 		t.Fatalf("RenderHostPack: %v", err)
 	}
 	hostProv, found := hostProvenance(t, home, "acme", "settings")
@@ -282,24 +327,28 @@ func TestHostProvenanceGranularityMatchesTheJail(t *testing.T) {
 // to attribute" from "no render has happened here". Conflating them is how an unrendered
 // surface gets reported as one where every overlay lost.
 func TestHostProvenanceEmptyRecordIsWrittenNotSkipped(t *testing.T) {
-	home := t.TempDir()
-	// A surface with NO layers at all: no defaults, no managed, no overlays, and an absent
-	// file — so there is nothing whatever to attribute.
-	bare := bareSurfacePack(t)
-	if _, err := RenderHostPack(bare, home, render.OwnershipAssert, false, nil, nil); err != nil {
-		t.Fatalf("RenderHostPack: %v", err)
-	}
-	path := render.Host(home, nil, render.OwnershipAssert).ProvenancePath("bare", "settings")
-	data, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatalf("an empty record must still be WRITTEN, so a reader can tell it from "+
-			"never-rendered: %v", err)
-	}
-	if strings.TrimSpace(string(data)) != "" {
-		t.Errorf("want an empty record, got:\n%s", data)
-	}
-	// The two states read differently: this surface has a file, a never-rendered one has none.
-	if _, found := hostProvenance(t, home, "bare", "nosuchsurface"); found {
-		t.Error("a surface that never rendered must have NO record file")
+	for _, m := range hostListModes {
+		t.Run(m.name, func(t *testing.T) {
+			home := t.TempDir()
+			// A surface with NO layers at all: no defaults, no managed, no overlays, and an absent
+			// file — so there is nothing whatever to attribute.
+			bare := bareSurfacePack(t, m.mode)
+			if _, err := RenderHostPack(bare, home, render.OwnershipOwn, false, nil, nil); err != nil {
+				t.Fatalf("RenderHostPack: %v", err)
+			}
+			path := render.Host(home, nil, render.OwnershipOwn).ProvenancePath("bare", "settings")
+			data, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatalf("an empty record must still be WRITTEN, so a reader can tell it from "+
+					"never-rendered: %v", err)
+			}
+			if strings.TrimSpace(string(data)) != "" {
+				t.Errorf("want an empty record, got:\n%s", data)
+			}
+			// The two states read differently: this surface has a file, a never-rendered one has none.
+			if _, found := hostProvenance(t, home, "bare", "nosuchsurface"); found {
+				t.Error("a surface that never rendered must have NO record file")
+			}
+		})
 	}
 }

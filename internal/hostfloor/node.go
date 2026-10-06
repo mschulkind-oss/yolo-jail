@@ -48,6 +48,33 @@ var ShippedNodeSHA256 = map[string]string{
 	"darwin-arm64": "bed7eea5325e1108f32ce5228ddd6a5f0f08a499ee42aa7442aea583702f6057",
 }
 
+// officialNodeLoader is the dynamic loader Node's official build for each Linux platform asks for
+// (its PT_INTERP; MEASURED for ShippedNodeVersion's tarballs). It is compiled in so the floor can
+// tell before any download whether this machine can start that build at all (HP-D15, noEntryReason),
+// and an install checks the extracted node against it (ensureNode). A darwin build asks for none
+// that yolo checks: Mach-O names dyld, which every Mac has.
+var officialNodeLoader = map[string]string{
+	"linux-x64":   "/lib64/ld-linux-x86-64.so.2",
+	"linux-arm64": "/lib/ld-linux-aarch64.so.1",
+}
+
+// nodeLoaderProblem says why this machine cannot start Node's official build for the floor's
+// platform — the build an npm program and a fork's Node script run on — as a clause about the
+// program ("the floor runs it on Node's official linux-x64 build, which needs the dynamic loader
+// …"), or "" when it can, when Node publishes no build here (noEntryReason says that), or when this
+// floor checks no loaders (HP-D15). It reads the loader compiled in, so it is answered before any
+// download, and a caller asks it before every ensureNode that could fetch.
+func (f *Floor) nodeLoaderProblem() string {
+	plat, ok := nodePlatform(f.GOOS, f.GOARCH)
+	if !ok {
+		return ""
+	}
+	if why := f.loaderProblem(officialNodeLoader[plat]); why != "" {
+		return "the floor runs it on Node's official " + plat + " build, which " + why
+	}
+	return ""
+}
+
 // DefaultNodeDistURL is Node's official release distribution.
 const DefaultNodeDistURL = "https://nodejs.org/dist"
 
@@ -192,6 +219,19 @@ func (f *Floor) ensureNode(ctx context.Context, v string) (string, error) {
 	for _, need := range []string{"node", "npm"} {
 		if _, err := os.Stat(filepath.Join(scratch, "bin", need)); err != nil {
 			return "", fmt.Errorf("%s holds no bin/%s", name, need)
+		}
+	}
+	// THE LOADER IT ASKS FOR (HP-D15), read from the node just extracted: the one compiled in, or
+	// none, or the check that kept a machine without it from downloading this build checked the
+	// wrong file. Every caller asked nodeLoaderProblem before this download — an npm program's
+	// noEntryReason, a fork's Node script's execRecord — so a release that asks for the compiled-in
+	// loader is one this machine can start, and only a different loader is left to refuse.
+	if interp, err := elfInterp(filepath.Join(scratch, "bin", "node")); err == nil {
+		if want, ok := officialNodeLoader[plat]; ok && interp != "" && interp != want {
+			return "", fmt.Errorf("%s's node asks for the dynamic loader %q, not %s as this yolo expects of "+
+				"Node's official %s build, so this yolo cannot tell whether the machine can start it — refusing "+
+				"to install it; `yolo update` brings a yolo that knows, and if none does, it is a yolo bug to report",
+				name, interp, want, plat)
 		}
 	}
 	if err := os.WriteFile(filepath.Join(scratch, completeMarker), nil, 0o600); err != nil {

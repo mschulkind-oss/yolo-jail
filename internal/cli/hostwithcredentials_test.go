@@ -273,13 +273,18 @@ func TestHostEnvWithCredentialsRefusesAnUnknownProvider(t *testing.T) {
 	}
 }
 
-// The help documents the flag at both front doors, host-only included.
+// The help documents the flag at both front doors, and says a jail launch takes it too (OQ-ES5's
+// jail half: the HOST ONLY sentence it carried until 2026-10-05 is gone).
 func TestHostHelpDocumentsWithCredentials(t *testing.T) {
 	var out, errw bytes.Buffer
 	if rc := hostMain([]string{"--help"}, &out, &errw, false, nil); rc != 0 {
 		t.Fatalf("rc = %d", rc)
 	}
-	for _, want := range []string{"--with-credentials <provider[,provider...]|all>", "KEYS ONLY", "HOST ONLY",
+	if strings.Contains(out.String(), "HOST ONLY") {
+		t.Errorf("yolo host --help still calls the grant host-only:\n%s", out.String())
+	}
+	for _, want := range []string{"--with-credentials <provider[,provider...]|all>", "KEYS ONLY",
+		"A jail launch\n                                takes the same flag",
 		`eval "$(yolo host env --with-credentials all)"`,
 		// -p's own help names the grant as the one route to an ad-hoc command (OQ-NC5).
 		"a provider's key, --with-credentials below."} {

@@ -116,6 +116,15 @@ type DeriveCtx struct {
 	// narrowed (claude's allowlist, opencode's whitelist); off, the list only shapes menus.
 	ModelsNotEnforced bool
 
+	// AgentFiles says this notch writes the AGENT FILES the agent's pack declares (`agent_files`
+	// on its program, a term coined in docs/design/model-lists-and-pickers.md MM-D33), exposed as
+	// ctx.agent_files. Set on the env producer's call alone, and only where the composition
+	// collects them (packload.WithAgentFiles): a jail, whose per-agent env writer puts each beside
+	// the agent's env file. The zero value, false, is every other caller: the host notch, which
+	// writes none, a surface derive, and `yolo check`. A derive that composes a file's content
+	// composes it only when this is set, and otherwise the delivery that needs no file.
+	AgentFiles bool
+
 	// Tables are the live config tables a derive may read, keyed by source name
 	// (manifest.SourceMCPServers / SourceLSPServers). Exposed read-only as
 	// ctx.<name>. Absent source => an empty table (a jail with no MCP configured
@@ -623,6 +632,7 @@ func buildDeriveCtxTable(L *lua.LState, ctx *DeriveCtx, sentinel, emptyArr *lua.
 	L.SetField(t, "via_url", lua.LString(ctx.ViaURL))
 	L.SetField(t, "via_api_key_env_name", lua.LString(ctx.ViaAPIKeyEnvName))
 	L.SetField(t, "enforce_models", lua.LBool(!ctx.ModelsNotEnforced))
+	L.SetField(t, "agent_files", lua.LBool(ctx.AgentFiles))
 	// ctx.profile, always a table. Keys are sorted because a Go map has no order and a
 	// derive that iterates it must not see a different order between runs.
 	profile := L.NewTable()

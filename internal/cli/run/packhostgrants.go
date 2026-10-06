@@ -222,9 +222,11 @@ func (o *Options) hostMountArgs(in *assembleInput) []string {
 //
 // THE MARK, NOT THE POSTURE. entrypoint.HostSurfaceRendered reads the host provenance
 // record, which is the only trace a host render leaves in a home and is written by every
-// assert and by no dry run. A posture test would be wrong on almost every machine, because
-// an absent `host_management` resolves to `assert` — labelling a file yolo has never
-// written, and stopping the jail from composing the settings the user already has.
+// writing apply and by no dry run. A posture test would be wrong in both directions: it was
+// wrong on almost every machine while an absent `host_management` resolved to `assert`
+// (labelling a file yolo had never written), and it is wrong since the `assert` retirement
+// (OQ-CO14) for a home `assert` wrote into, whose unset key reads as `none` — composing every
+// key yolo wrote there into the jail as the user's own.
 //
 // A grant that feeds no `readsHost` surface is never labelled: the destination list also
 // carries `host_files` and `mount` contributions, which are not config layers at all.

@@ -15,12 +15,12 @@ package entrypoint
 //
 //   - THE MECHANISM IS THE CONTRACT'S, not the entry's `mode`. A jail's four modes decide what
 //     happens across BOOTS to a file in a disposable home; at the host the census decides, as it
-//     does for every pack surface: `assert` read-modify-writes the entry's keys, `own` composes
-//     the whole file with the capture store, `none` writes nothing. So the surface declares
-//     `stateful`, which each contract runs through its own mechanism.
+//     does for every pack surface: `own` composes the whole file with the capture store, and
+//     `none` writes nothing (the retired `assert` read-modify-wrote the entry's keys). So the
+//     surface declares `stateful`, which each contract runs through its own mechanism.
 //   - `content` IS THE ENTRY'S OWN LAYER, NOT A HOST LAYER. In a jail the literal is the `host`
-//     layer. At the host the file's existing content already is (the rmw read, or `own`'s
-//     adoption), so the literal is a declaration yolo writes, lowered by the one question the
+//     layer. At the host the file's existing content already is (`own`'s adoption, as it was
+//     the retired `assert`'s rmw read), so the literal is a declaration yolo writes, lowered by the one question the
 //     entry's mode answers — does an edit to the file survive the next render? `once` and
 //     `capture` say yes, so the literal fills `defaults` (a key the file lacks); `copy` and
 //     `readonly` say no, so it fills `managed` (re-asserted every apply). The entry's own

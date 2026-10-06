@@ -9,9 +9,11 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/outfmt"
+	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/richtext"
 	"github.com/mschulkind-oss/yolo-jail/internal/runtime"
 )
@@ -19,8 +21,9 @@ import (
 // psDeps are the injectable seams. RunCmd runs argv and returns (stdout, ok):
 // ok=false means the probe could NOT enumerate (spawn/exec failure or non-zero
 // exit) — the tri-state that must never be collapsed to "no jails" (D11).
-// DetectRuntime returns the effective runtime ("podman" / "container"),
-// platform-aware for ps. PathIsDir reports whether a workspace path exists.
+// DetectRuntime returns the effective runtime ("podman" / "container" /
+// "macos-user"), platform-aware for ps; macos-user lists its sessions and
+// never calls RunCmd (psMacosUser). PathIsDir reports whether a workspace path exists.
 // Color enables ANSI on the framing lines (idle notice / problem section /
 // doctor tip); the caller resolves it to (requested && os.Stdout is a TTY), so
 // a bytes.Buffer or a pipe yields byte-identical plain output.
@@ -72,6 +75,9 @@ func psRun(deps psDeps) int {
 	pr := richtext.Printer{W: w, Color: deps.Color && !outfmt.IsJSON(deps.Format)}
 	rt := deps.DetectRuntime()
 	report := psReport{Runtime: rt, Jails: []psJail{}}
+	if rt == "macos-user" { // parity: HonoredBy — macos-user runs no container, so its jails are its live sessions
+		return psMacosUser(deps, pr, report)
+	}
 
 	// The runtime probe is TRI-STATE (audit 2026-07-18 §B / D11): a spawn/exec
 	// error means "could not enumerate", which must NEVER be read as "no jails"
@@ -164,6 +170,66 @@ func psRun(deps psDeps) int {
 			pr.Printf("  [red]%s  (%s)[/red]", p[0], p[1])
 		}
 		pr.Print("\n  [dim]Run 'yolo doctor' to clean up[/dim]")
+	}
+	return psFinish(deps, report)
+}
+
+// psMacosUser is `yolo ps` on macos-user, which has no container runtime to ask: the backend
+// runs `macos-user` as a runtime name, not a binary, and the exec the container branch makes
+// printed a red "Could not query" on every Mac that used it. Its jails are its SESSIONS
+// (runtime.ListSessions): one per macos-user invocation, each holding a lock on its own
+// host-services dir for exactly as long as its sandbox runs.
+//
+// IT EXECS NOTHING AND PRUNES NO TRACKING FILE. The tracking files under CONTAINER_DIR are
+// container jails' (an Apple Container or podman jail beside this backend on one Mac), and an
+// empty session list says nothing about them: pruning on it would delete live containers'
+// files, which is the D11 defect psRun's container branch exists to avoid.
+//
+// A session whose lock this listing cannot read (no lock file yet: one starting up) is listed as
+// "starting or unknown" rather than dropped; one whose lock is free has ended and is not a jail.
+// A `yolo host` launch's session is not a jail either (runtime.MacosUserSessions leaves it out).
+func psMacosUser(deps psDeps, pr richtext.Printer, report psReport) int {
+	base := paths.HostServicesBase(paths.IsMacOS)
+	sessions, ok := runtime.MacosUserSessions(base)
+	if !ok {
+		pr.Printf("[red]Could not list the macos-user sessions under %s.[/red]", base)
+		return psFinish(deps, report)
+	}
+	report.Enumerated = true
+	var rows []runtime.PsContainer
+	for _, s := range sessions {
+		status := "running (macos-user session)"
+		switch s.Liveness {
+		case runtime.SessionGone:
+			continue
+		case runtime.SessionUnknown:
+			status = "starting or unknown"
+		}
+		name, ws := s.Name, s.Workspace
+		if name == "" {
+			// A dir an older yolo made carries no record: its own name is the one thing that
+			// identifies it, and the workspace it serves is not knowable.
+			name = filepath.Base(s.Dir)
+		}
+		if ws == "" {
+			ws = "unknown"
+		}
+		rows = append(rows, runtime.PsContainer{Name: name, Status: status, Workspace: ws})
+		report.Jails = append(report.Jails, psJail{Name: name, Status: status, Workspace: ws})
+	}
+	if len(rows) == 0 {
+		pr.Print("[dim]No running macos-user sessions.[/dim]")
+		pr.Print("[dim]Container jails are listed under their own runtime: " +
+			"YOLO_RUNTIME=container yolo ps (or YOLO_RUNTIME=podman yolo ps).[/dim]")
+		return psFinish(deps, report)
+	}
+	// RenderPsTable's header names a CONTAINER column; a macos-user row is a session. Same width,
+	// so the columns stay aligned.
+	header, body, hasBody := strings.Cut(runtime.RenderPsTable(rows), "\n")
+	header = strings.Replace(header, "CONTAINER", "SESSION  ", 1)
+	pr.Print("[bold]" + header + "[/bold]")
+	if hasBody {
+		fmt.Fprintln(pr.W, body)
 	}
 	return psFinish(deps, report)
 }

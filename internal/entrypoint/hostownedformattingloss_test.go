@@ -53,7 +53,9 @@ func formattingPack(t *testing.T) *packload.Pack {
 		Contributes: []packdecl.Contribution{{Kind: packdecl.KindConfig, Raw: raw}}}}
 }
 
-// formattingHome seeds a home, applies once under `assert`, and returns the home and path.
+// formattingHome seeds a home, applies once as the retired `assert` did (renderAsRetiredAssert:
+// the subject is a home asserted into before the retirement, switched to `own`), and returns
+// the home and path.
 func formattingHome(t *testing.T, seed string) (home, path string) {
 	t.Helper()
 	home = t.TempDir()
@@ -64,9 +66,7 @@ func formattingHome(t *testing.T, seed string) (home, path string) {
 	if err := os.WriteFile(path, []byte(seed), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := RenderHostPack(formattingPack(t), home, render.OwnershipAssert, false, nil, nil); err != nil {
-		t.Fatalf("the `assert` apply: %v", err)
-	}
+	renderAsRetiredAssert(t, formattingPack(t), home, nil, nil)
 	return home, path
 }
 

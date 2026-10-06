@@ -650,7 +650,7 @@ func sealedLinkWorld(t *testing.T) verbLinkWorld {
 	w := newVerbLinkWorld(t)
 	writeFile(t, filepath.Join(w.ws, "yolo-jail.jsonc"), `{"packs":["claude"]}`)
 	writeFile(t, filepath.Join(os.Getenv("HOME"), ".config", "yolo-jail", "config.jsonc"),
-		`{"host_management":"assert"}`)
+		`{"host_management":"own"}`)
 	return w
 }
 

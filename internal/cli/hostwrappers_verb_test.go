@@ -143,9 +143,13 @@ func TestWrappersDeriveFromHostManagementOwn(t *testing.T) {
 			"someone who wants yolo to own their files and refuses a PATH claim must be able to say so"},
 		{"explicit true without own", `{"host_wrappers": true}`, true,
 			"the key still works on its own"},
-		{"assert does NOT derive", `{"host_management": "assert"}`, false,
-			"assert is host_management's own unset default, so deriving from it would switch a PATH claim " +
-				"on for every user who declared nothing"},
+		{"the unset key does NOT derive", `{"packs": ["claude"]}`, false,
+			"only a WRITTEN own derives: deriving from the unset key would switch a PATH claim on for every " +
+				"user who declared nothing (it is none since OQ-CO14, and the rule must not lean on that)"},
+		{"none does NOT derive", `{"host_management": "none"}`, false,
+			"none writes nothing into the home, so nothing is half-configured without wrappers"},
+		{"the retired assert does NOT derive", `{"host_management": "assert"}`, false,
+			"the retired value resolves to none (OQ-CO14) and must not read as own"},
 		{"nothing declared", `{}`, false,
 			"a user who asked for neither must get neither"},
 	} {

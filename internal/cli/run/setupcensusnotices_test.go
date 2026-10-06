@@ -19,7 +19,6 @@ import (
 	"go/parser"
 	"go/token"
 	"os"
-	"path/filepath"
 	"regexp"
 	"sort"
 	"strings"
@@ -33,24 +32,12 @@ import (
 // returns what the launch printed, keyed "<setup> <census path>".
 var runNoticeSamples = map[string]func(t *testing.T) string{
 	"macos-user/macOS devices": func(t *testing.T) string {
-		return macosUserNoticeRun(t, `{"devices": ["/dev/ttyUSB0"]}`)
+		return macosUserNoticeRun(t, `{"devices": [{"usb": "0403:6001"}]}`)
 	},
 	"macos-user/macOS gpu": func(t *testing.T) string {
 		return macosUserNoticeRun(t, `{"gpu": {"enabled": true}}`)
 	},
 	"macos-user/macOS kvm": func(t *testing.T) string { return macosUserNoticeRun(t, `{"kvm": true}`) },
-	"macos-user/macOS network.ports": func(t *testing.T) string {
-		return macosUserNoticeRun(t, `{"network": {"ports": ["3000:3000"]}}`)
-	},
-	"macos-user/macOS network.forward_host_ports": func(t *testing.T) string {
-		return macosUserNoticeRun(t, `{"network": {"forward_host_ports": [5432]}}`)
-	},
-	"macos-user/macOS host_files.directory_source": func(t *testing.T) string {
-		home := ctxLaunchHome(t, `, "host_files": [{"path": ".config/big/", "source": "~/big/"}]`)
-		writeHostFileAt(t, filepath.Join(home, "big", "a.txt"), "x\n", 0o644)
-		_, out := runMacosUserCapturingCtx(t, t.TempDir(), nil)
-		return out
-	},
 	"container/macOS cache_relocations": func(t *testing.T) string {
 		home := t.TempDir()
 		t.Setenv("HOME", home)

@@ -105,10 +105,13 @@ func (o *Options) noteLaunchFlagInjection(inj *packload.LaunchInjection) {
 	}
 }
 
-// jailLaunchAutonomy is the posture bit a jail launch's argv rewrite reads: the jail notch's
-// policy, render.ProfileFor(render.KindJail), never a literal. The run pipeline launches only
-// the jail notch (refuseUnbuiltNotch turns every other --at away), so the notch is known here
-// and the bit is its answer (docs/plans/notch-convergence.md item 20).
+// jailLaunchAutonomy is the posture bit a launch's argv rewrite reads: the jail notch's
+// policy, render.ProfileFor(render.KindJail), never a literal (docs/plans/notch-convergence.md
+// item 20). The run pipeline launches two notches and this is both of their answers: the jail
+// notch, and on macOS the guest notch, which is the macos-user backend rendering exactly what
+// it renders at the jail notch (render.Jail; env-manager plan EMP-D2), its preset containing
+// the agent as the jail's does (render.GuestProfileMacOS, autonomy ON). refuseUnbuiltNotch
+// turns the host notch and a Linux guest away before this is read.
 func jailLaunchAutonomy() bool { return render.ProfileFor(render.KindJail).AgentAutonomy }
 
 // injectLaunchFlagsForAttach is the injection for an attach into a jail whose packs differ from

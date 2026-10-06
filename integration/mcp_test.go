@@ -197,3 +197,97 @@ func TestWorkspaceMcpConfigsAreIsolated(t *testing.T) {
 		t.Fatalf("project_b codex config should not have chrome-devtools")
 	}
 }
+
+// TestMcpChromeDevtoolsPackReachesEveryAgent confirms the chrome-devtools PACK — a `kind: "mcp"`
+// entry composed on the host into YOLO_MCP_SERVERS (docs/design/mcp-presets-removal.md §14) —
+// puts a chrome-devtools server in copilot's mcp-config.json, codex's config.toml and claude's
+// ~/.claude.json, each running the pack's wrapper under the jail's home through /bin/sh, with no
+// core branch naming any of the three; that the wrapper is where the entry says and reports the
+// server and the image's chromium; and that `mcp_servers: {"chrome-devtools": null}` removes it
+// from all three. `--check` starts nothing and installs nothing. It also reads the launchers the
+// boot generated (mcp-presets-removal.md MP-D9): an agent's carries the server's program in the
+// refresh it runs before exec, and the program's own carries no update of its own; with the null,
+// the agent's carries nothing for it.
+func TestMcpChromeDevtoolsPackReachesEveryAgent(t *testing.T) {
+	requireJail(t)
+	probe := `python - <<'PY'
+import json
+from pathlib import Path
+home = Path('/home/agent')
+wrapper = '/home/agent/.local/share/yolo-chrome-devtools/chrome-devtools-mcp-wrapper'
+copilot = json.loads((home / '.copilot/mcp-config.json').read_text()).get('mcpServers', {})
+claude = json.loads((home / '.claude.json').read_text()).get('mcpServers', {})
+codex = (home / '.codex/config.toml').read_text()
+print('COPILOT=' + str(copilot.get('chrome-devtools', {}).get('args') == [wrapper]))
+print('CLAUDE=' + str(claude.get('chrome-devtools', {}).get('command') == '/bin/sh'))
+print('CODEX=' + str('chrome-devtools' in codex and wrapper in codex))
+def baked(name, var):
+    for line in (home / '.yolo/bin/launch' / name).read_text().splitlines():
+        if line.startswith(var + '='):
+            return line.split('=', 1)[1]
+    return 'none'
+print('AGENT_REFRESHES=' + str('chrome-devtools-mcp' in baked('claude', 'SERVERS_NPM')))
+print('SERVER_UPDATES=' + baked('chrome-devtools-mcp', 'UPDATES_ENABLED'))
+PY
+/bin/sh /home/agent/.local/share/yolo-chrome-devtools/chrome-devtools-mcp-wrapper --check || true`
+
+	dir := writeProjectWithPacks(t, mcpConfigWithAgents(`"mcp_servers": {}`),
+		"copilot", "codex", "claude", "chrome-devtools")
+	r := runYolo(t, dir, probe)
+	if r.rc != 0 {
+		t.Fatalf("expected rc 0, got %d\n%s", r.rc, r.stderr)
+	}
+	for _, want := range []string{"COPILOT=True", "CLAUDE=True", "CODEX=True",
+		"AGENT_REFRESHES=True", "SERVER_UPDATES=0",
+		"chrome-devtools-mcp: /home/agent/.yolo/bin/launch/chrome-devtools-mcp", "browser: /"} {
+		if !strings.Contains(r.stdout, want) {
+			t.Errorf("selected: no %q\nstdout=%q\nstderr=%q", want, r.stdout, r.stderr)
+		}
+	}
+
+	dir = writeProjectWithPacks(t, mcpConfigWithAgents(`"mcp_servers": {"chrome-devtools": null}`),
+		"copilot", "codex", "claude", "chrome-devtools")
+	r = runYolo(t, dir, probe)
+	if r.rc != 0 {
+		t.Fatalf("expected rc 0, got %d\n%s", r.rc, r.stderr)
+	}
+	for _, want := range []string{"COPILOT=False", "CLAUDE=False", "CODEX=False", "AGENT_REFRESHES=False"} {
+		if !strings.Contains(r.stdout, want) {
+			t.Errorf("nulled: no %q\nstdout=%q", want, r.stdout)
+		}
+	}
+}
+
+// THE chrome-devtools PACK ON macos-user, asked of a real sandbox (docs/design/mcp-presets-removal.md
+// §7, §14: "selecting the pack produces a named missing-binary report rather than a blanket 'not
+// delivered on this backend'"). The plan composes the pack's entry for the sandbox account's home
+// and the bootstrap renders it into claude's ~/.claude.json; the wrapper the entry runs is where it
+// says, and its --check names the server's launcher and a browser — the GitHub macOS runners ship
+// Google Chrome in /Applications. --check starts nothing and installs nothing. The unit tests pin
+// the composition on Linux (internal/macosuser/mcpbootstrap_test.go).
+func TestMacosUserChromeDevtoolsPackReachesClaude(t *testing.T) {
+	requireMacosUser(t)
+	packHome(t, `{"packs": ["claude", "chrome-devtools"]}`)
+	ws := macosUserWorkspace(t, `{}`)
+	r := macosUserRunProbe(t, "chrome-devtools pack", ws, strings.Join([]string{
+		`echo "=== CLAUDE ==="`,
+		`cat ~/.claude.json 2>&1`,
+		`echo "=== CHECK ==="`,
+		`/bin/sh ~/.local/share/yolo-chrome-devtools/chrome-devtools-mcp-wrapper --check 2>&1 || true`,
+		`echo "=== END ==="`,
+	}, "\n"))
+	claude := section(r.stdout, "=== CLAUDE ===", "=== CHECK ===")
+	if !strings.Contains(claude, `"chrome-devtools"`) ||
+		!strings.Contains(claude, "/.local/share/yolo-chrome-devtools/chrome-devtools-mcp-wrapper") ||
+		strings.Contains(claude, "/home/agent") {
+		t.Errorf("claude's config does not run the pack's wrapper under the sandbox home:\n%s\nlaunch output:\n%s",
+			claude, r.stderr)
+	}
+	check := section(r.stdout, "=== CHECK ===", "=== END ===")
+	if !strings.Contains(check, "chrome-devtools-mcp: ") || !strings.Contains(check, "/.yolo/bin/launch/chrome-devtools-mcp") {
+		t.Errorf("the wrapper did not find the sandbox's launcher:\n%s", check)
+	}
+	if !strings.Contains(check, "browser: /") {
+		t.Errorf("the wrapper named no browser on a runner that ships Chrome:\n%s", check)
+	}
+}

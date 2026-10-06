@@ -36,10 +36,16 @@ const mcpURLPackJSON = `{"name":"matt-mcp","contributes":[
    "config":{"managed":{"mcpServers":{"tavily":{"type":"http",
      "url":"https://mcp.tavily.com/mcp/?tavilyApiKey=${TAVILY_API_KEY}"}}}}}]}`
 
-// hostMCPFixture points a throwaway $HOME at a config selecting the SHIPPED claude pack plus
-// a contributor pack, and returns the home. Selecting claude by bare name is what makes this
-// the real end-to-end shape: the surface being overlaid is the one yolo ships.
-func hostMCPFixture(t *testing.T, contributorJSON string) string {
+// hostMCPFixtureUnder points a throwaway $HOME at a config selecting the SHIPPED claude pack
+// plus a contributor pack, with `host_management` declared as mgmt (left unset when mgmt is
+// ""), and returns the home. Selecting claude by bare name is what makes this the real
+// end-to-end shape: the surface being overlaid is the one yolo ships.
+//
+// An unset key is `none` since the `assert` retirement (OQ-CO14), and no config surface renders
+// under it. Every test in this file passes "own", under which claude/config — a surface its pack
+// declares `rmw` — runs the same read-modify-write `assert` ran, so the user's unrelated keys
+// survive and a first apply asks before it replaces a hand-added entry.
+func hostMCPFixtureUnder(t *testing.T, contributorJSON, mgmt string) string {
 	t.Helper()
 	home := t.TempDir()
 	packDir := filepath.Join(t.TempDir(), "matt-mcp")
@@ -49,6 +55,10 @@ func hostMCPFixture(t *testing.T, contributorJSON string) string {
 	writeFile(t, filepath.Join(packDir, "pack.json"), contributorJSON)
 
 	cfg := `{"packs":["claude",{"source":"file://` + packDir + `","name":"matt-mcp"}]}`
+	if mgmt != "" {
+		cfg = `{"host_management":"` + mgmt + `","packs":["claude",{"source":"file://` + packDir +
+			`","name":"matt-mcp"}]}`
+	}
 	writeFile(t, filepath.Join(home, ".config", "yolo-jail", "config.jsonc"), cfg)
 	t.Setenv("HOME", home)
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
@@ -62,7 +72,7 @@ func hostMCPFixture(t *testing.T, contributorJSON string) string {
 // THE GOAL, end to end: `yolo host apply --assert` puts the pack's MCP server in the real
 // ~/.claude.json, and the pruned projects.${workspace}.* keys are NAMED in the output.
 func TestApplyHostInstallsMCPServerAndNamesPrunedKeys(t *testing.T) {
-	home := hostMCPFixture(t, mcpURLPackJSON)
+	home := hostMCPFixtureUnder(t, mcpURLPackJSON, "own")
 	// The PRUNED-KEY line sits under its surface as a tier-2 fact and is the --verbose view's
 	// since §4.5. The no-silent-drop rule it enforces is unchanged: the key is still named, in
 	// the view that itemizes a destination's keys at all.
@@ -113,7 +123,7 @@ func TestApplyHostInstallsMCPServerAndNamesPrunedKeys(t *testing.T) {
 // A SECOND --assert is byte-identical. Idempotence at the command level, which is what
 // "re-running apply does not churn my dotfiles" means.
 func TestApplyHostSecondAssertIsByteIdentical(t *testing.T) {
-	home := hostMCPFixture(t, mcpURLPackJSON)
+	home := hostMCPFixtureUnder(t, mcpURLPackJSON, "own")
 	path := filepath.Join(home, ".claude.json")
 
 	var out, errw bytes.Buffer
@@ -143,7 +153,7 @@ func TestApplyHostSecondAssertIsByteIdentical(t *testing.T) {
 // first apply, with NO stdin: the command must refuse to write. A scripted or CI run with
 // nobody to answer must not destroy a server by default — pack.go's contract, applied here.
 func TestApplyHostFirstApplyFailsClosedWithoutStdin(t *testing.T) {
-	home := hostMCPFixture(t, mcpContributorPackJSON)
+	home := hostMCPFixtureUnder(t, mcpContributorPackJSON, "own")
 	path := filepath.Join(home, ".claude.json")
 	original := `{"numStartups":9,"mcpServers":{"tavily":{"type":"http",` +
 		`"url":"https://mcp.tavily.com/mcp/?tavilyApiKey=SECRET"}}}`
@@ -174,7 +184,7 @@ func TestApplyHostFirstApplyFailsClosedWithoutStdin(t *testing.T) {
 // The same case with `y` on stdin PROCEEDS — warn-and-confirm, not warn-and-refuse. A refusal
 // would leave the user no path forward short of hand-editing the file yolo is about to manage.
 func TestApplyHostFirstApplyProceedsOnConfirm(t *testing.T) {
-	home := hostMCPFixture(t, mcpContributorPackJSON)
+	home := hostMCPFixtureUnder(t, mcpContributorPackJSON, "own")
 	path := filepath.Join(home, ".claude.json")
 	writeFile(t, path, `{"numStartups":9,"mcpServers":{"tavily":{"type":"http",`+
 		`"url":"https://mcp.tavily.com/mcp/?tavilyApiKey=SECRET"}}}`)
@@ -204,7 +214,7 @@ func TestApplyHostFirstApplyProceedsOnConfirm(t *testing.T) {
 // `n` on stdin ABORTS and writes nothing — the explicit-decline path, distinct from
 // no-stdin-at-all but with the same outcome.
 func TestApplyHostFirstApplyAbortsOnDecline(t *testing.T) {
-	home := hostMCPFixture(t, mcpContributorPackJSON)
+	home := hostMCPFixtureUnder(t, mcpContributorPackJSON, "own")
 	path := filepath.Join(home, ".claude.json")
 	original := `{"mcpServers":{"tavily":{"type":"http","url":"https://x?k=SECRET"}}}`
 	writeFile(t, path, original)
@@ -226,7 +236,7 @@ func TestApplyHostFirstApplyAbortsOnDecline(t *testing.T) {
 // an --assert would damage and returns 0 even with no stdin. This is what gives the user the
 // information before the prompt ever appears.
 func TestApplyHostObserveReportsWithoutPrompting(t *testing.T) {
-	home := hostMCPFixture(t, mcpContributorPackJSON)
+	home := hostMCPFixtureUnder(t, mcpContributorPackJSON, "own")
 	path := filepath.Join(home, ".claude.json")
 	original := `{"mcpServers":{"tavily":{"type":"http","url":"https://x?k=SECRET"}}}`
 	writeFile(t, path, original)
@@ -254,7 +264,7 @@ func TestApplyHostObserveReportsWithoutPrompting(t *testing.T) {
 // re-confirming forever would be the "trains people to hit y blind" failure the gate exists to
 // avoid.
 func TestApplyHostSecondApplyDoesNotPromptAgain(t *testing.T) {
-	home := hostMCPFixture(t, mcpContributorPackJSON)
+	home := hostMCPFixtureUnder(t, mcpContributorPackJSON, "own")
 	path := filepath.Join(home, ".claude.json")
 
 	// First apply into a clean home: nothing to lose, so it proceeds with no stdin.

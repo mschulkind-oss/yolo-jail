@@ -3,6 +3,8 @@ package loopholes
 import (
 	"os"
 	"path/filepath"
+	"reflect"
+	"sort"
 	"strings"
 	"testing"
 )
@@ -681,4 +683,93 @@ func hasPair(args []string, a, b string) bool {
 		}
 	}
 	return false
+}
+
+// jailboundFixture writes four modules under one root: a BOUND loophole (binds, no jail
+// daemon), a device-only one, one with a jail daemon beside its bind, and one that binds
+// nothing, and returns the approved set over them.
+func jailboundFixture(t *testing.T) Set {
+	t.Helper()
+	unsetJail(t)
+	md := modsDir(t)
+	sock := filepath.Join(t.TempDir(), "native")
+	if err := os.WriteFile(sock, nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	writeManifest(t, mkdir(t, filepath.Join(md, "sound-like")), map[string]any{
+		"name": "sound-like", "description": "x", "transport": "none",
+		"host_bind_mounts": []any{map[string]any{"host": sock, "container": "/run/pulse/native", "readonly": true}},
+	})
+	writeManifest(t, mkdir(t, filepath.Join(md, "device-like")), map[string]any{
+		"name": "device-like", "description": "x", "transport": "none",
+		"host_devices": []any{"/dev/null"},
+	})
+	writeManifest(t, mkdir(t, filepath.Join(md, "daemon-like")), map[string]any{
+		"name": "daemon-like", "description": "x", "transport": "none",
+		"host_bind_mounts": []any{map[string]any{"host": sock, "container": "/run/daemon-like", "readonly": true}},
+		"jail_daemon":      map[string]any{"cmd": []any{"yolo-jaild", "daemon-like"}},
+	})
+	writeManifest(t, mkdir(t, filepath.Join(md, "nothing-bound")), map[string]any{
+		"name": "nothing-bound", "description": "x", "transport": "none",
+	})
+	return approvedSetFrom(md)
+}
+
+// A BOUND LOOPHOLE IS SERVED BY NAME WHERE THE ARGV BINDS IT (docs/design/loophole-packaging.md
+// LP-D1): on a container runtime every active loophole with a bind or a device and no jail daemon,
+// and nothing else — a jail daemon's record is served through its daemon, and a record that binds
+// nothing has nothing a pointer could name.
+func TestJailBoundNamesListsTheLoopholesTheArgvBinds(t *testing.T) {
+	set := jailboundFixture(t)
+	for _, rt := range []string{"podman", "container", ""} {
+		got := set.JailBoundNames(set.Enabled(), rt)
+		want := []string{"device-like", "sound-like"}
+		if !reflect.DeepEqual(sortedCopy(got), want) {
+			t.Errorf("runtime %q: JailBoundNames = %v, want %v", rt, got, want)
+		}
+		// THE PREDICATE IS THE ARGV'S: every name listed has its bind or device on the argv
+		// the same set builds, so the served set and the argv cannot disagree.
+		args := joinArgs(set.RuntimeArgsFor(set.Enabled(), rt))
+		if !strings.Contains(args, ":/run/pulse/native:ro") || !strings.Contains(args, "--device /dev/null") {
+			t.Errorf("runtime %q: the argv must carry what JailBoundNames serves:\n%s", rt, args)
+		}
+	}
+}
+
+// macos-user binds nothing into its Seatbelt sandbox, so it serves no bound loophole.
+func TestJailBoundNamesIsNilOnMacosUser(t *testing.T) {
+	set := jailboundFixture(t)
+	if got := set.JailBoundNames(set.Enabled(), "macos-user"); got != nil {
+		t.Errorf("JailBoundNames on macos-user = %v, want nil", got)
+	}
+}
+
+// A DISABLED or inactive loophole binds nothing, so it is not served: the argv loop's own skip
+// (admitsJailSideEffects), not a second rule.
+func TestJailBoundNamesExcludesAnInactiveLoophole(t *testing.T) {
+	set := jailboundFixture(t)
+	lp, ok := set.Lookup("sound-like")
+	if !ok {
+		t.Fatal("fixture: sound-like not discovered")
+	}
+	lp.Enabled = false
+	if got := set.JailBoundNames(set.All(), "podman"); !reflect.DeepEqual(got, []string{"device-like"}) {
+		t.Errorf("with sound-like disabled, JailBoundNames = %v, want [device-like]", got)
+	}
+}
+
+// A pack-shipped record reached with NO origin gate binds nothing (gateAdmitsCrossing), so it is
+// not served either: the gate is the argv's, and a set assembled by hand carries none.
+func TestJailBoundNamesHonorsTheOriginGate(t *testing.T) {
+	set := jailboundFixture(t)
+	ungated := SetOf(set.All())
+	if got := ungated.JailBoundNames(ungated.Enabled(), "podman"); len(got) != 0 {
+		t.Errorf("an ungated set served bound loopholes %v; a pack record it cannot gate binds nothing", got)
+	}
+}
+
+func sortedCopy(in []string) []string {
+	out := append([]string(nil), in...)
+	sort.Strings(out)
+	return out
 }

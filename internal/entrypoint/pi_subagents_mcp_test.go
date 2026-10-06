@@ -192,29 +192,25 @@ func TestPiSubagentsDeselectedRemovesOnlyYolosOwnCopy(t *testing.T) {
 
 // pi/subagents-mcp is declared `notAtHost`, so even now that `yolo host apply` runs the derives
 // (docs/reference/host-agent-environment.md OQ-HC1) this surface is never rendered there, and the
-// user's real ~/.config/mcp/mcp.json must come through an apply exactly as it went in, under
-// either contract, with pi-subagents in the host's own pi settings.
+// user's real ~/.config/mcp/mcp.json must come through an apply exactly as it went in, under the
+// one writing contract left (`own`), with pi-subagents in the host's own pi settings.
 func TestPiSubagentsHostApplyLeavesTheUsersSharedFileAlone(t *testing.T) {
-	for _, ownership := range []render.HostOwnership{render.OwnershipAssert, render.OwnershipOwn} {
-		t.Run(ownership.String(), func(t *testing.T) {
-			home := t.TempDir()
-			plant(t, home, ".pi/agent/settings.json", `{"packages":["npm:pi-subagents"]}`)
-			const user = `{"mcpServers":{"mine":{"command":"mine"}},"settings":{"toolPrefix":"short"}}`
-			path := plant(t, home, subagentsMCPRel, user)
-			results := applyHostPacks(t, home, ownership, false, shippedPi(t))
-			got, err := os.ReadFile(path)
-			if err != nil {
-				t.Fatalf("host apply removed the user's ~/.config/mcp/mcp.json: %v", err)
-			}
-			if string(got) != user {
-				t.Fatalf("host apply rewrote the user's ~/.config/mcp/mcp.json:\n got %s\nwant %s",
-					got, user)
-			}
-			r, ok := listResultFor(results, "pi/subagents-mcp")
-			if !ok {
-				t.Fatalf("host apply reported nothing for pi/subagents-mcp: %+v", results)
-			}
-			t.Logf("host apply under %s: %s", ownership, r.Action)
-		})
+	home := t.TempDir()
+	plant(t, home, ".pi/agent/settings.json", `{"packages":["npm:pi-subagents"]}`)
+	const user = `{"mcpServers":{"mine":{"command":"mine"}},"settings":{"toolPrefix":"short"}}`
+	path := plant(t, home, subagentsMCPRel, user)
+	results := applyHostPacks(t, home, render.OwnershipOwn, false, shippedPi(t))
+	got, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("host apply removed the user's ~/.config/mcp/mcp.json: %v", err)
 	}
+	if string(got) != user {
+		t.Fatalf("host apply rewrote the user's ~/.config/mcp/mcp.json:\n got %s\nwant %s",
+			got, user)
+	}
+	r, ok := listResultFor(results, "pi/subagents-mcp")
+	if !ok {
+		t.Fatalf("host apply reported nothing for pi/subagents-mcp: %+v", results)
+	}
+	t.Logf("host apply under own: %s", r.Action)
 }

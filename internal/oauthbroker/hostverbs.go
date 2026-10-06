@@ -213,9 +213,15 @@ func DescribeStore(w io.Writer) error {
 	for _, r := range regs {
 		state := "live"
 		if r.LoggedOut {
-			state = "SIGNED OUT by /logout in its jail until its next launch"
+			state = "SIGNED OUT by /logout " + r.signedOutWhere() + " until its next launch"
 		}
-		fmt.Fprintf(w, "  %s\n    runtime %s, %s\n", r.Path(), r.Runtime, state)
+		runtime := r.Runtime
+		if r.IsHost() {
+			// A host view is no workspace's: say which front door registered it, and that the
+			// user's own ~/.claude is not it (CL-D27).
+			runtime += " (`yolo host --`, a store yolo manages; your own ~/.claude is not this file)"
+		}
+		fmt.Fprintf(w, "  %s\n    runtime %s, %s\n", r.Path(), runtime, state)
 		data, err := r.Read()
 		switch {
 		case errors.Is(err, os.ErrNotExist):

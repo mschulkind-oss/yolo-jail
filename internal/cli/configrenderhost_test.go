@@ -6,7 +6,9 @@ package cli
 // `additionalDirectories ["/"]` while host apply wrote the guarded `[]`.
 //
 // Every test here goes through configRunW, the front door, so routing the host notch back
-// through the jail preview's loop (deleting configRender's branch) fails them.
+// through the jail preview's loop (deleting configRender's branch) fails them. Every config
+// declares `host_management: "own"`, the one contract that renders since the `assert`
+// retirement (OQ-CO14): under the unset key (`none`) there is no host write to preview.
 
 import (
 	"bytes"
@@ -30,8 +32,8 @@ func jailPreviewTargetForTest(t *testing.T) configTarget {
 	return jailConfigTarget(ws, "the test")
 }
 
-// hostRenderHome is a scratch HOME selecting packs, with the declared binaries stubbed so
-// host apply's dependency pre-flight has nothing to install.
+// hostRenderHome is a scratch HOME selecting packs under `host_management: "own"`, with the
+// declared binaries stubbed so host apply's dependency pre-flight has nothing to install.
 func hostRenderHome(t *testing.T, packs string) string {
 	t.Helper()
 	home := t.TempDir()
@@ -40,7 +42,7 @@ func hostRenderHome(t *testing.T, packs string) string {
 	t.Setenv("YOLO_VERSION", "")
 	t.Setenv("YOLO_USE_PROFILES", "")
 	t.Chdir(t.TempDir())
-	selectPacks(t, home, packs)
+	selectPacksWith(t, home, packs, `,"host_management":"own"`)
 	return home
 }
 
@@ -55,28 +57,31 @@ func previewBody(t *testing.T, out string) string {
 	return body
 }
 
-// Both host contracts: `assert` writes through rmw, `own` through the stateful writer, and the
-// preview must be each one's own bytes.
+// Both host WRITERS, under `own`: a surface declaring no mode (claude/settings) composes
+// through the stateful writer, and one declaring `rmw` (claude/config) through the rmw writer
+// `assert` used to run for every surface. The preview must be each one's own bytes. The two
+// cells were `assert` and `own` over claude/settings until the `assert` retirement (OQ-CO14).
 func TestConfigRenderAtHostIsWhatHostApplyWrites(t *testing.T) {
-	for _, mode := range []string{"assert", "own"} {
-		t.Run(mode, func(t *testing.T) { configRenderAtHostIsWhatHostApplyWrites(t, mode) })
+	for _, c := range []struct{ writer, surface, rel string }{
+		{"stateful", "claude/settings", filepath.Join(".claude", "settings.json")},
+		{"rmw", "claude/config", ".claude.json"},
+	} {
+		t.Run(c.writer, func(t *testing.T) { configRenderAtHostIsWhatHostApplyWrites(t, c.surface, c.rel) })
 	}
 }
 
-func configRenderAtHostIsWhatHostApplyWrites(t *testing.T, mode string) {
+func configRenderAtHostIsWhatHostApplyWrites(t *testing.T, surface, rel string) {
 	home := hostRenderHome(t, `"claude"`)
-	writeFile(t, filepath.Join(home, ".config", "yolo-jail", "config.jsonc"),
-		`{"packs":["claude"],"host_management":"`+mode+`"}`)
 	// A user key the write keeps, so the comparison covers a pre-existing file too.
-	path := filepath.Join(home, ".claude", "settings.json")
+	path := filepath.Join(home, rel)
 	writeFile(t, path, `{"theme": "the users own"}`)
 
-	rc, out, errs := runConfigVerb(t, "render", "claude/settings", "--at", "host")
+	rc, out, errs := runConfigVerb(t, "render", surface, "--at", "host")
 	if rc != 0 {
 		t.Fatalf("config render --at host rc=%d\n%s%s", rc, out, errs)
 	}
 	preview := previewBody(t, out)
-	if !strings.Contains(out, "# claude/settings → "+path) {
+	if !strings.Contains(out, "# "+surface+" → "+path) {
 		t.Errorf("the header must name the real-home destination %s:\n%s", path, out)
 	}
 	// The measured defect: the autonomous posture's `/` must not be in a host preview.
@@ -95,7 +100,7 @@ func configRenderAtHostIsWhatHostApplyWrites(t *testing.T, mode string) {
 		t.Errorf("the preview and the write disagree.\npreview:\n%s\nwritten:\n%s", preview, written)
 	}
 	if !strings.Contains(preview, "the users own") {
-		t.Errorf("the preview dropped the user's own key, which the rmw write keeps:\n%s", preview)
+		t.Errorf("the preview dropped the user's own key, which the write keeps:\n%s", preview)
 	}
 }
 
@@ -148,7 +153,7 @@ func TestConfigRenderAtJailStillPreviewsTheJailsPosture(t *testing.T) {
 // as it stands. So the preview must neither fetch nor predict the apply's refusal of an
 // incomplete set — which it used to, for a pack the apply would simply fetch and render.
 func TestConfigRenderAtHostSaysHostApplyFetchesAPackTheStoreLacks(t *testing.T) {
-	neverInstalledGitPackHome(t, "")
+	neverInstalledGitPackHome(t, `,"host_management":"own"`)
 	rc, out, errs := runConfigVerb(t, "render", "claude/settings", "--at", "host")
 	if rc != 0 {
 		t.Fatalf("the resolvable packs still render: rc=%d\n%s%s", rc, out, errs)

@@ -10,12 +10,13 @@ package entrypoint
 //   - THE MECHANISM IS THE DECLARED CONTRACT'S, not this file's. `host_management` selects
 //     it (config-ownership-and-promotion.md §4.1) and render's census states it per contract;
 //     the loop below ASKS — ModeSet.Mechanism, per surface — rather than calling one writer
-//     unconditionally as it once did. Under `assert` that is PURE RMW: yolo regenerates only
-//     the keys it declares (managed + dynamic tables) and leaves every key the agent wrote,
-//     with no whole-file compose and so no capture overlay (OQ-4). Under `own` it is
-//     `stateful` — whole-file composition with the capture store §6.2 specifies — and under
-//     `none` nothing composes at all. The hardcoded call was unsafe precisely because it
-//     would have gone on doing rmw after the census said one of the other two.
+//     unconditionally as it once did. Under `own` it is `stateful` — whole-file composition
+//     with the capture store §6.2 specifies — except for a surface its pack declares `rmw`,
+//     which is PURE RMW: yolo regenerates only the keys it declares (managed + dynamic tables)
+//     and leaves every key the agent wrote, with no whole-file compose and so no capture
+//     overlay (OQ-4). Under `none` nothing composes at all. The retired `assert` (OQ-CO14) ran
+//     rmw for every surface; the hardcoded call was unsafe precisely because it would have
+//     gone on doing that after the census said otherwise.
 //     ⚠ "So no --revert" USED TO FOLLOW HERE, and it does not: that inference was the
 //     resolved OQ-1, REVERSED on 2026-09-11 (docs/design/config-ownership-and-promotion.md
 //     §10 step 3). A revert needs to know which keys are yolo's, not a capture overlay, and
@@ -153,12 +154,14 @@ type HostRenderResult struct {
 	// Reported rather than fixed because comment preservation is BACKLOG E4 — tracked,
 	// deliberately-unbuilt work — and a user whose config.toml is half explanatory comments
 	// deserves to know they will not survive, in observe, before the write. Empty for every
-	// JSON surface (JSON has no comments) and for an uncommented TOML one.
+	// JSON surface (JSON has no comments) and for an uncommented TOML or YAML one.
 	//
-	// PER MECHANISM, and the two answers are not the same shape. Under `assert` the write is
-	// rmw, which REATTACHES comments, so this names the few it could not place. Under `own`
-	// there is no reattachment at all — the file is composed through codec.TOML, which has no
-	// comment channel — so every comment goes and this says so once, for the whole file.
+	// PER MECHANISM, and the two answers are not the same shape. An rmw write (a surface its
+	// pack declares `rmw`; every surface under the retired `assert`) REATTACHES comments (TOML)
+	// or keeps their nodes (YAML), so this names the few it could not place. A `stateful` write
+	// under `own` has no reattachment at all — the file is composed through the shared codec,
+	// which has no comment channel — so every comment goes and this says so once, for the
+	// whole file.
 	//
 	// ⚠ UNDER `own` IT IS THE ONLY DISCLOSURE THIS LOSS HAS, which is why the branch is
 	// load-bearing rather than a nicety. §11's criterion has been KEYS AND VALUES since
@@ -200,7 +203,7 @@ type HostRenderResult struct {
 	// Archived is where this render copied the PRE-EXISTING file before ADOPTING it — the
 	// one-time archive OQ-CO7 rules, written once per surface per home
 	// (§6.3.3, entrypoint/adoptionarchive.go). Empty for every render that adopted nothing:
-	// an `assert` home (rmw asserts keys and adopts no file), a surface with no file yet, a
+	// an rmw render (rmw asserts keys and adopts no file), a surface with no file yet, a
 	// steady-state owned render, and a second adoption of a surface already archived.
 	//
 	// ASSERT ONLY, and that is not an omission the way a missing Overwrites would be. The
@@ -246,30 +249,76 @@ type HostRenderResult struct {
 	// way the write computes it, for `yolo config render --at host --explain`. Observe only,
 	// like Content; nil where the notch's census keeps no record for the mechanism.
 	Provenance map[string]string
+	// capture is the stateful render the observe posture composed for Content — the write's own
+	// compose, stopped before the write — kept for its capture half (Capture). Observe only, and
+	// nil for a skipped or refused surface and for every surface rmw renders.
+	capture *statefulRender
+}
+
+// HostCapture is the CAPTURE HALF of one owned (`stateful`) host render: the two capture
+// sidecars the write would persist for the surface, as the observe posture composed them, and the
+// one-shot repairs that composition made to the captured edits.
+//
+// It is `yolo config capture`'s whole input at an owned host. The verb used to run the engine's
+// capture itself, at the JAIL's Target with no layers, over the shipped pack's AUTONOMOUS
+// declaration; that composition's managed layer owns `permissions.deny`, so its narrowing erased a
+// deny rule an earlier apply had captured, and with no computed layer it recorded a key the apply
+// narrows out (MEASURED 2026-10-04, both). Reading the capture off the apply's own render, for the
+// configured pack at the host posture with the computed layer, the overlays and the selection, is
+// what makes "the verb records what the next apply records" a property of the code: there is one
+// composition, and the verb persists part of it.
+type HostCapture struct {
+	// Overlay is the capture overlay sidecar's content, without the newline the writer adds.
+	Overlay []byte
+	// ListCapture is the per-entry list capture's content, nil for a surface with no config-list
+	// path — and then the writer creates no file.
+	ListCapture []byte
+	// Repairs are the one-shot repairs the composition made to the captured edits, one sentence
+	// each, for the caller to print: a mutation of the user's captured state nobody announced is
+	// the defect, not the mutation (noteRepairedValues).
+	Repairs []string
+}
+
+// Capture is the capture half of this result's render (HostCapture). ok is false when there is
+// nothing to capture, which is every result but an observed stateful render of a file that exists
+// over a trusted baseline: with no baseline the render ADOPTS the file, and adoption is the
+// apply's to perform, with its one-time archive (OQ-CO7) — the capture verb has never acted
+// without a baseline, because without one it cannot tell an edit from yolo's own output.
+func (r HostRenderResult) Capture() (HostCapture, bool) {
+	sr := r.capture
+	if sr == nil || sr.out == nil || sr.current == nil || sr.out.FirstMigration {
+		return HostCapture{}, false
+	}
+	c := HostCapture{Overlay: sr.out.OverlayJSON, ListCapture: sr.out.ListCaptureJSON}
+	for _, rep := range sr.out.Repairs {
+		c.Repairs = append(c.Repairs, rep.Describe("removed", "your captured edits"))
+	}
+	return c, true
 }
 
 // hostMechanismPreview is the content and provenance an --assert through mechanism would
 // write for s: the writer's own compose, stopped before the write. Every failure answers
 // empty, as the change predicate does — the probes the caller ran first refuse what this
-// cannot compose, and a refusal has no content.
+// cannot compose, and a refusal has no content. The stateful compose comes back too, for its
+// capture half (HostRenderResult.Capture); rmw keeps no capture, and returns nil.
 func hostMechanismPreview(e *Env, mechanism string, s manifest.Surface, l surfaceLayers,
-	contribs *surfaceContribs) (string, map[string]string) {
+	contribs *surfaceContribs) (string, map[string]string, *statefulRender) {
 	if mechanism == manifest.ModeStateful {
 		r, err := composeStatefulSurface(e, s, nil, l.computed, l.inFull, contribs)
 		if err != nil || r.out == nil || r.out.Result == nil {
-			return "", nil
+			return "", nil, nil
 		}
-		return r.text(), r.out.Result.Provenance
+		return r.text(), r.out.Result.Provenance, r
 	}
 	r, err := composeRMWSurface(e, s, l.computed, contribs)
 	if err != nil {
-		return "", nil
+		return "", nil, nil
 	}
 	var prov map[string]string
 	if e.renderTarget().Modes().Records(manifest.ModeRMW) {
 		prov = r.provenance(e, l.computed, contribs)
 	}
-	return r.text, prov
+	return r.text, prov, nil
 }
 
 // hostRenderEnv is the Env every host render drives: render.Host, not render.Jail, over the
@@ -297,8 +346,14 @@ func hostRenderEnv(homeDir string, ownership render.HostOwnership, in *HostInput
 // this function sees ONE pack, and an overlay in pack B targets a surface pack A owns, so
 // a per-pack derivation would find none of the overlays the kind exists to carry. Pass nil
 // for a caller that has no other packs in view.
+//
+// only, when given, names the "agent/name" surfaces to render, and every other plan is dropped
+// before anything is read or written — RenderHostSurface's one-surface write, and the
+// one-surface observe whose capture half `yolo config capture` persists at an owned host
+// (HostRenderResult.Capture), kept on this entry so the host half of the one loop still has
+// exactly one head (surfaceloop_test.go).
 func RenderHostPack(p *packload.Pack, homeDir string, ownership render.HostOwnership,
-	observe bool, overlays *packoverlay.OverlaySet, in *HostInputs) ([]HostRenderResult, error) {
+	observe bool, overlays *packoverlay.OverlaySet, in *HostInputs, only ...string) ([]HostRenderResult, error) {
 	// hostTarget: this Env drives render.Host, not render.Jail. Load-bearing for every
 	// Target-keyed path the writers resolve — without it an empty Workspace reads as the
 	// container default "/workspace" (WorkspaceDir()), so a host apply would write its
@@ -333,7 +388,59 @@ func RenderHostPack(p *packload.Pack, homeDir string, ownership render.HostOwner
 	if len(problems) > 0 {
 		return nil, fmt.Errorf("pack %s: %s", p.Name, problems[0])
 	}
+	if len(only) > 0 {
+		// One plan rendered on its own needs nothing from its siblings: the `whenListed` gate
+		// reads the surface it names from the real home as it stands.
+		kept := plans[:0]
+		for _, pl := range plans {
+			if contains(only, pl.surface.Agent+"/"+pl.surface.Name) {
+				kept = append(kept, pl)
+			}
+		}
+		plans = kept
+	}
 	return renderHostPlans(e, p, plans, observe, in)
+}
+
+// RenderHostSurface is RenderHostPack for ONE of p's surfaces, writing: the same plan, the
+// same mechanism and the same write, filtered to agent/name before anything renders. ok is
+// false when p declares no such surface.
+//
+// Its caller is `yolo config reset` under `host_management: own`, which has just truncated the
+// surface to its declared layers and re-seeded the baseline, and must then land exactly what
+// the next `yolo host apply --assert` would — the overlays, the config-lists, the computed layer
+// and the profile selection — with the sidecars, the provenance and the selection record the
+// owned write keeps (persistStatefulSurface). A reset that stopped at the declared layers left a
+// home that was neither the user's file nor yolo's render (MEASURED 2026-10-04: pi's
+// settings.json truncated to two keys, its mcp.json emptied). Rendering the one surface rather
+// than the whole pack is what keeps a reset of one surface from rewriting its siblings.
+func RenderHostSurface(p *packload.Pack, agent, name, homeDir string,
+	ownership render.HostOwnership, overlays *packoverlay.OverlaySet,
+	in *HostInputs) (HostRenderResult, bool, error) {
+	id := agent + "/" + name
+	declared := false
+	surfaces, _ := p.SurfacesFor(render.ProfileFor(render.KindHost).AgentAutonomy)
+	for _, s := range surfaces {
+		if s.Agent == agent && s.Name == name {
+			declared = true
+		}
+	}
+	if !declared {
+		return HostRenderResult{}, false, nil
+	}
+	results, err := RenderHostPack(p, homeDir, ownership, false, overlays, in, id)
+	if err != nil {
+		return HostRenderResult{}, true, err
+	}
+	for _, r := range results {
+		if r.Surface == id {
+			return r, true, nil
+		}
+	}
+	// The plan rendered nothing to report (an unrendered surface with no config-list): there is
+	// no file for it, at any notch.
+	return HostRenderResult{Surface: id, Action: "skipped: nothing is rendered for this " +
+		"surface"}, true, nil
 }
 
 // renderHostPlans is THE HOST HALF OF THE ONE LOOP (surfaceloop.go): every planned surface
@@ -410,13 +517,12 @@ func renderHostPlans(e *Env, p *packload.Pack, plans []surfacePlan, observe bool
 			continue
 		}
 		// WHICH MECHANISM RENDERS THIS SURFACE — asked of the census (render.ModeSet), not
-		// assumed. The answer is the DECLARED CONTRACT's: under `assert` the notch runs `rmw`
-		// alone and renders a surface declaring `stateful` or `computed` THROUGH it, under
-		// `own` it runs `stateful` and `rmw` and coerces nothing, under `none` it composes
-		// nothing at all. This entry used to say the first of those by calling
-		// renderSurfaceRMWSurface unconditionally, which agreed with the census and would have
-		// gone on agreeing after the census said one of the other two — the rot render/modes.go
-		// exists to end.
+		// assumed. The answer is the DECLARED CONTRACT's: under `own` it runs `stateful` and
+		// `rmw` and coerces only `computed` onto `stateful`, under `none` it composes nothing at
+		// all. This entry used to call renderSurfaceRMWSurface unconditionally, which agreed
+		// with the retired `assert` census (rmw alone, every surface through it) and would have
+		// gone on agreeing after the census said otherwise — the rot render/modes.go exists to
+		// end.
 		//
 		// IN BOTH POSTURES, and ahead of the mechanism-specific probes below, because observe's
 		// job is to report what an --assert would do: a mechanism this notch cannot run is a
@@ -444,8 +550,9 @@ func renderHostPlans(e *Env, p *packload.Pack, plans []surfacePlan, observe bool
 			continue
 		}
 		// OQ-AL1's REFUSAL, keyed on the mechanism the census just resolved rather than on the
-		// declaration: a `stateful` surface under `assert` renders through `rmw`, and it is
-		// rmw's capture that decides whether a list path is kept per entry. A `refused:` row
+		// declaration: a census may render a declaration through another mechanism (the
+		// retired `assert` rendered a `stateful` surface through `rmw`), and it is the
+		// mechanism's capture that decides whether a list path is kept per entry. A `refused:` row
 		// in both postures, so a dry run shows it before an --assert would reach the file.
 		if refusal := pl.listRefusal(s); refusal != "" {
 			out = append(out, HostRenderResult{Surface: id, Path: path, Pruned: pruned,
@@ -493,8 +600,13 @@ func renderHostPlans(e *Env, p *packload.Pack, plans []surfacePlan, observe bool
 		layers := surfaceLayers{computed: hl.statefulComputed(), inFull: tables}
 		var selectionNext, leafNext map[string]any
 		selectionTouched, leafTouched := false, false
+		// The computed leaves as the write lands them, for the overwrite report below: under
+		// `stateful` the whole selection namespace (its composition decides which keys move),
+		// under `rmw` the selection the edge-triggered apply lifted.
+		leaves := hl.overwriteLeaves(hl.selection)
 		if mechanism == manifest.ModeRMW {
 			lift, clears, next, touched := hostRMWSelection(e, s, path, hl.selection)
+			leaves = hl.overwriteLeaves(lift)
 			// The computed-leaf record (HC-D25): each leaf the derive asserted on an earlier apply
 			// and no longer does, still holding yolo's value, is cleared. Decided over the derive's
 			// own leaves, before the selection lift, which the selection record decides.
@@ -561,8 +673,21 @@ func renderHostPlans(e *Env, p *packload.Pack, plans []surfacePlan, observe bool
 		// never gets to write (see overlayOverwrites).
 		overwrites = append(overwrites,
 			overlayOverwrites(e, s, path, surfaceOverlays, outrankedKeys)...)
+		// A COMPUTED LEAF ASSERTS ITS KEY TOO (HC-D10 rule 2), and a value of the user's it
+		// replaces is the same always-warn case — named by the input of THEIRS it is computed
+		// from (hostLeafAttribution), since that is the one declaration that keeps their value.
+		// It was missing until 2026-10-04: a profile's first activation replaced pi's
+		// `defaultModel` and the report listed nothing (MEASURED, both contracts). Under the rmw
+		// arm every leaf the file holds differently is force-written; under `stateful` the
+		// re-measure below keeps only those the composition actually changes.
+		attribution := newHostLeafAttribution(e, s, script, sources.selectionFor(s),
+			agentSrc.tables, derived)
+		if mechanism == manifest.ModeRMW {
+			overwrites = withComputedOverwrites(overwrites, computedOverwritePaths(
+				existingSurfaceObject(s, path), leaves, s.ManagedMap()), attribution)
+		}
 		// UNDER `own`, MEASURED AGAINST THE WRITE. The two lists above read each layer's
-		// declaration against the file, which is the write under `assert` (rmw asserts every
+		// declaration against the file, which is the write under the rmw arm (rmw asserts every
 		// managed and overlay key). The `stateful` fold is not: a captured edit outranks every
 		// config-overlay, so a declared key can differ from the file and still leave it exactly as
 		// it is. Reported as an overwrite, that was the inverse of what happened, on every apply
@@ -571,7 +696,7 @@ func renderHostPlans(e *Env, p *packload.Pack, plans []surfacePlan, observe bool
 		var kept []string
 		if mechanism == manifest.ModeStateful {
 			overwrites, kept = hostStatefulOverwrites(e, s, path, layers, contribs,
-				surfaceOverlays, outrankedKeys, overwrites)
+				surfaceOverlays, outrankedKeys, overwrites, leaves, attribution)
 		}
 		// What the table write costs, per entry, PER MECHANISM (HC-D5): the loss list is
 		// computed by the mechanism that writes, like the change predicate below. Kept SEPARATE
@@ -605,14 +730,14 @@ func renderHostPlans(e *Env, p *packload.Pack, plans []surfacePlan, observe bool
 			if !wouldChange {
 				action = "unchanged"
 			}
-			content, provenance := hostMechanismPreview(e, mechanism, s, layers, contribs)
+			content, provenance, composed := hostMechanismPreview(e, mechanism, s, layers, contribs)
 			out = append(out, HostRenderResult{Surface: id, Path: path, Action: action,
 				Overwrites: overwrites, Kept: kept, Overlays: overlayPackNames(surfaceOverlays),
 				Lists:     contribs.listPacks(),
 				Outranked: outranked, Pruned: pruned, EntryLosses: losses,
 				FirstApply: firstApply, Formatting: formatting, WouldChange: wouldChange,
 				Repaired: repaired, Content: content, Provenance: provenance,
-				InputSkips: agentSrc.skippedNotes()})
+				InputSkips: agentSrc.skippedNotes(), capture: composed})
 			continue
 		}
 		// INTO THE REAL HOME, through the mechanism the census named, with the layers decided
@@ -664,6 +789,15 @@ func renderHostPlans(e *Env, p *packload.Pack, plans []surfacePlan, observe bool
 		// so a key the user owns and a pack also declares would flip to the pack's value.
 		// Only the stateful writer reads inFull (it is the one that adopts), and archived is
 		// set by it alone: rmw asserts individual keys and adopts nothing.
+		// THE stateful ARM'S COMPUTED-LEAF RECORD reads the file as it was before the write and the
+		// record as it stood (hostStatefulLeafRecord): the rmw arm decides its record before the
+		// write, from the file, and the stateful one can only decide it after, from what landed.
+		var statefulLeafBefore, statefulLeafRecord map[string]any
+		if mechanism == manifest.ModeStateful {
+			data, _ := os.ReadFile(path)
+			statefulLeafBefore = agentcfg.DecodeSurfaceObject(s.Codec, data)
+			statefulLeafRecord = readHostLeafRecord(e, s.Agent, s.Name)
+		}
 		w, werr := writeSurfaceThrough(e, mechanism, s, layers, contribs)
 		archived := w.archived
 		if werr != nil {
@@ -680,7 +814,13 @@ func renderHostPlans(e *Env, p *packload.Pack, plans []surfacePlan, observe bool
 		if selectionTouched {
 			writeSelectionRecord(e, s.Agent, s.Name, selectionNext)
 		}
-		// The computed-leaf record, by the same rule: after the write, and only then.
+		// The computed-leaf record, by the same rule: after the write, and only then. The stateful
+		// arm decides its record here, from what the write landed.
+		if mechanism == manifest.ModeStateful {
+			data, _ := os.ReadFile(path)
+			leafNext, leafTouched = hostStatefulLeafRecord(hl.leaves, statefulLeafBefore,
+				agentcfg.DecodeSurfaceObject(s.Codec, data), statefulLeafRecord)
+		}
 		if leafTouched {
 			writeHostLeafRecord(e, s.Agent, s.Name, leafNext)
 		}
@@ -733,7 +873,7 @@ func hostMechanismRefusal(mechanism string, s manifest.Surface, path string) *rm
 //     as "skip capture", which in a jail self-heals: the next boot re-renders from layers. At a
 //     real home it means adoption takes NOTHING and the render replaces the user's file with
 //     the pure render — the copilot-OAuth-wipe shape (B1), one notch over. Refusing leaves the
-//     file exactly as it is, which is what `assert` already does for the same condition
+//     file exactly as it is, which is what the rmw arm already does for the same condition
 //     (decodeSurfaceObject's own refusal, reused here so the two notches give one answer).
 //
 // The carrier type is *rmwRefusedError because it is the surface-refusal carrier this package
@@ -743,8 +883,9 @@ func hostStatefulRefusal(s manifest.Surface, path string) *rmwRefusedError {
 	if s.Kind() != codec.KindObject {
 		return refuseRMW(s, "`host_management: own` composes the whole file, and a "+
 			"%s surface has no keys to adopt — the first owned render would replace %s "+
-			"outright rather than keeping what it holds (OQ-CO9). Set `host_management: "+
-			"assert` for this home, or leave this surface to the jail; the file is untouched",
+			"outright rather than keeping what it holds (OQ-CO9). Leave this surface to the "+
+			"jail, or set `host_management: none` to keep yolo out of this home's files; the "+
+			"file is untouched",
 			s.Codec, path)
 	}
 	if _, err := decodeSurfaceObject(s, path); err != nil {
@@ -963,11 +1104,14 @@ func hostSurfaceWouldChange(e *Env, s manifest.Surface, path string, computed ma
 // encoded text is discarded.
 //
 // JSON surfaces yield nothing (JSON has no comment syntax, so there is nothing to lose), and
-// so does a TOML file whose comments all survive — the line only appears when there is a
-// real loss.
+// so does a TOML or YAML file whose comments all survive — the line only appears when there is
+// a real loss.
 func hostFormattingLosses(e *Env, mechanism string, s manifest.Surface, path string,
 	computed map[string]any, contribs *surfaceContribs) []string {
-	if s.Codec != "toml" {
+	// TOML and YAML are the codecs with comments. YAML joined on 2026-10-04: its rmw arm
+	// (yamltrivia.go) keeps comments by the same rule and reports the same exceptions, and its
+	// `own` arm drops every one, which is what the stateful branch below has to say.
+	if s.Codec != "toml" && s.Codec != "yaml" {
 		return nil
 	}
 	s = agentcfg.SubstituteWorkspace(s, e.WorkspaceDir())
@@ -1003,13 +1147,24 @@ func hostFormattingLosses(e *Env, mechanism string, s manifest.Surface, path str
 		// owned home would sit at tierLoss permanently and the signal would stop meaning
 		// anything. The render reproduces the header exactly, so what is AT RISK is the
 		// comments beside it.
-		if !tomlHasComments(render.StripGeneratedHeader(orig)) {
+		user := render.StripGeneratedHeader(orig)
+		hasComments := tomlHasComments(user)
+		if s.Codec == "yaml" {
+			hasComments = yamlHasComments(user)
+		}
+		if !hasComments {
 			return nil
 		}
+		// The header clause only where this target writes one (render.Target.GeneratedHeader:
+		// TOML only), so a YAML file is not told it gains a banner it never gets.
+		header := ""
+		if e.renderTarget().GeneratedHeader(s) != "" {
+			header = " and yolo's generated header is added"
+		}
 		return []string{"comments in this file are NOT preserved — `own` composes the whole " +
-			"file from the decoded values, so every comment is dropped and yolo's generated " +
-			"header is added (every value survives; the comments do not). The file as it " +
-			"stands is archived once, before the first owned render"}
+			"file from the decoded values, so every comment is dropped" + header + " (every " +
+			"value survives; the comments do not). The file as it stands is archived once, " +
+			"before the first owned render"}
 	}
 	if _, err := applyRMWLayers(e, s, obj, computed, contribs); err != nil {
 		return nil // the render itself will refuse and report; one problem, one message
@@ -1058,7 +1213,7 @@ func hostProvenanceExists(e *Env, s manifest.Surface) bool {
 // docs/design/config-ownership-and-promotion.md). The rule used to be "every object-valued
 // key the derive produces", and the sentinel probe makes that rule over-claim by
 // construction: fed a non-empty live table, claude/settings' derive always produced a
-// non-empty `env`, so every `assert` apply cleared the user's real env block and rewrote it
+// non-empty `env`, so every rmw apply cleared the user's real env block and rewrote it
 // from yolo's declared layers — which declare no env at all. `env` is a table yolo asserts ONE
 // leaf of; it was never yolo's to regenerate. The declaration is the same one the jail's
 // stateful adoption reads (deriveComputedLayer hands both), so the host and that adoption
@@ -1175,7 +1330,7 @@ func stripTableKeys(s manifest.Surface, tables []string) manifest.Surface {
 // e.Stderr and the host Env has none — by design, since `yolo host apply` reports through its
 // RESULT (so observe can show the same lines without a render having happened) rather than
 // through boot-notice side effects. Wiring Stderr here instead would produce the notice only
-// in assert, which is the posture where it is least useful: the point is to see the loss
+// in the writing posture, which is where it is least useful: the point is to see the loss
 // BEFORE writing. Two kinds, named separately because they are different mistakes to have
 // made:
 //
@@ -1665,7 +1820,7 @@ func collectOverwritePaths(existing *jsonx.OrderedMap, managed map[string]any, p
 // probes have already reported why) the declaration-based list is returned unchanged.
 func hostStatefulOverwrites(e *Env, s manifest.Surface, path string, l surfaceLayers,
 	contribs *surfaceContribs, overlays []agentcfg.Overlay, outranked map[string]bool,
-	declared []string) (overwrites, kept []string) {
+	declared []string, leaves map[string]any, attribution *hostLeafAttribution) (overwrites, kept []string) {
 	r, err := composeStatefulSurface(e, s, nil, l.computed, l.inFull, contribs)
 	if err != nil || r == nil || r.out == nil || r.out.Result == nil {
 		return declared, nil
@@ -1690,6 +1845,16 @@ func hostStatefulOverwrites(e *Env, s manifest.Surface, path string, l surfaceLa
 		}
 		sort.Strings(overwrites)
 	}
+	// The computed leaves the composition changes (the rmw arm's report, measured against this
+	// write): a selection key the user's own later pick holds is composed as theirs, so it is
+	// not one (HC-D17's edge).
+	var computed [][]string
+	for _, p := range computedOverwritePaths(existing, leaves, r.surface.ManagedMap()) {
+		if changes(p) {
+			computed = append(computed, p)
+		}
+	}
+	overwrites = withComputedOverwrites(overwrites, computed, attribution)
 	for _, ov := range overlays {
 		layer, isMap := ov.Data.(map[string]any)
 		if !isMap || len(layer) == 0 {
@@ -1702,7 +1867,7 @@ func hostStatefulOverwrites(e *Env, s manifest.Surface, path string, l surfaceLa
 		})
 		for _, p := range paths {
 			key := strings.Join(p, ".")
-			if outranked[key] {
+			if outranked[key] || computedOutranks(computed, key) {
 				continue
 			}
 			label := key + " (config-overlay from " + ov.Pack + ")"
@@ -1714,6 +1879,42 @@ func hostStatefulOverwrites(e *Env, s manifest.Surface, path string, l surfaceLa
 		}
 	}
 	return overwrites, kept
+}
+
+// withComputedOverwrites appends one labelled line per computed leaf in paths and drops any
+// config-overlay line for the same key: computed outranks a config-overlay (§5), so the leaf,
+// not the overlay, is what replaced the value.
+func withComputedOverwrites(overwrites []string, paths [][]string,
+	attribution *hostLeafAttribution) []string {
+	if len(paths) == 0 {
+		return overwrites
+	}
+	var out []string
+	for _, o := range overwrites {
+		if key, isOverlay := strings.CutSuffix(o, ")"); isOverlay {
+			if i := strings.LastIndex(key, " (config-overlay from "); i >= 0 &&
+				computedOutranks(paths, key[:i]) {
+				continue
+			}
+		}
+		out = append(out, o)
+	}
+	labels := make([]string, 0, len(paths))
+	for _, p := range paths {
+		labels = append(labels, attribution.label(p))
+	}
+	sort.Strings(labels)
+	return append(out, labels...)
+}
+
+// computedOutranks reports whether key is one of the computed leaves in paths.
+func computedOutranks(paths [][]string, key string) bool {
+	for _, p := range paths {
+		if strings.Join(p, ".") == key {
+			return true
+		}
+	}
+	return false
 }
 
 // valueAtPath looks a key up by its segments in a plain decoded document.

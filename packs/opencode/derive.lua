@@ -199,9 +199,10 @@ local function codexDefault(list, profile)
 end
 
 -- THE MODELS OF A MULTI-MAKER PROVIDER THIS AGENT CAN CALL. callableModels expands a provider's
--- `models` and `model_options` (for Bedrock, the declaration packs/bedrock/pack.json ships,
--- with the user's `providers.<name>` merged over it) into the ordered list of the entries this
--- agent's own client can call (docs/design/bedrock-plumbing.md OQ-BR9). Each entry declares its
+-- `models` and `model_options` (for Bedrock, the list a pack's `models` contribution or the
+-- user's `providers.<name>` supplies: packs/bedrock ships none, docs/design/model-lists-and-pickers.md
+-- MM-D32) into the ordered list of the entries this agent's own client can call
+-- (docs/design/bedrock-plumbing.md OQ-BR9). Each entry declares its
 -- maker as the `vendor` fact, and the maker is never parsed out of the id. `makers` is the set
 -- of vendors this agent's client serves, nil meaning every one, and an entry that declares no
 -- vendor (a user's string-form alias) is offered to every agent.
@@ -214,9 +215,9 @@ end
 -- call, which is the fallback OQ-BR9's ruling names: "the first model that agent can call".
 --
 -- ⚠ DUPLICATED VERBATIM in packs/claude/derive.lua, packs/codex/derive.lua,
--- packs/opencode/derive.lua and packs/pi/derive.lua, because a derive cannot load another file
--- (the sandbox has no require and no io). internal/entrypoint/bedrock_model_list_test.go fails
--- when the copies differ.
+-- packs/opencode/derive.lua and packs/pi/derive.lua, and callableModels alone in
+-- packs/copilot/derive.lua, because a derive cannot load another file (the sandbox has no
+-- require and no io). internal/entrypoint/bedrock_model_list_test.go fails when the copies differ.
 local function callableModels(p, makers)
   if type(p) ~= "table" or type(p.models) ~= "table" then return {} end
   local opts = type(p.model_options) == "table" and p.model_options or {}
@@ -770,11 +771,11 @@ yolo.derive("opencode", "config", function(ctx)
     local p = ctx.providers and ctx.providers[ctx.selected_provider] or nil
     if opencodeNativeBedrock(ctx) then
       -- Bedrock through opencode's own client: its built-in provider, on the model the profile
-      -- names among the entries opencode can call, else the list's first. yolo picks here
-      -- because opencode's own default for `amazon-bedrock` is unread
-      -- (docs/design/model-lists-and-pickers.md §4, "yes until measured"), and a session left to
-      -- an unknown default may start on a bare id runtime refuses. The small model is the same
-      -- one: the list states no cheaper tier. enabled_providers names the set, as below.
+      -- names among the entries opencode can call, else the first of a list a pack or the user
+      -- supplies. packs/bedrock ships none (docs/design/model-lists-and-pickers.md MM-D32), so
+      -- with none supplied yolo names no model and opencode starts on its own default, whatever
+      -- that is, an upstream fault included. The small model is the same one: a list states no
+      -- cheaper tier. enabled_providers names the set, as below.
       local model = callableModel(p, callableModels(p, nil), ctx.profile, true)
       local sel = { enabled_providers = opencodeSetProviders(ctx, opencodeBedrockProvider, provOut) }
       if model then

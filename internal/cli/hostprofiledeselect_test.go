@@ -17,8 +17,10 @@ import (
 
 // hostDeselectConfig is a user config whose `profile` (the value spelled, "" for none) reaches
 // copilot, which has no Bedrock client of its own, so a bedrock selection reaches nothing for it.
+// No claude pack: it needs the wire bridge, which carries copilot to Bedrock at the host too
+// since a carrier starts the bridge's host half there (host-notch-services.md HS-D30).
 func hostDeselectConfig(profile string) string {
-	cfg := "{\n  \"packs\": [\"claude\", \"copilot\", \"bedrock\"],\n" +
+	cfg := "{\n  \"packs\": [\"copilot\", \"bedrock\"],\n" +
 		"  \"providers\": {\"bedrock\": {\"region\": \"eu-west-1\"}}"
 	if profile != "" {
 		cfg += ",\n  \"profile\": " + profile

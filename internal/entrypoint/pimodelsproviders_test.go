@@ -94,15 +94,16 @@ func TestTheNextJailBootRepairsAnEmptyModelsFile(t *testing.T) {
 	requireObjectProviders(t, path, "the boot after a {} models.json")
 }
 
-// hostRenderPi runs `yolo host apply` for the shipped pi pack into home under `assert` and
-// returns the pi/models result. observe is the dry run.
+// hostRenderPi runs `yolo host apply` for the shipped pi pack into home under
+// `host_management: "own"` — the one writing contract, which renders pi/models (declared
+// `computed`) through `stateful` — and returns the pi/models result. observe is the dry run.
 func hostRenderPi(t *testing.T, home string, observe bool) HostRenderResult {
 	t.Helper()
 	pi, err := embeddedPack("pi")
 	if err != nil {
 		t.Fatal(err)
 	}
-	results, err := RenderHostPack(pi, home, render.OwnershipAssert, observe, packoverlay.Collect([]*packload.Pack{pi}, false, nil), nil)
+	results, err := RenderHostPack(pi, home, render.OwnershipOwn, observe, packoverlay.Collect([]*packload.Pack{pi}, false, nil), nil)
 
 	if err != nil {
 		t.Fatalf("RenderHostPack(pi): %v", err)
@@ -121,8 +122,9 @@ func TestAHostApplyIntoAFreshHomeWritesAModelsFileWithProviders(t *testing.T) {
 }
 
 // A HOST FILE HOLDING `{}` — written by `yolo host apply` before this default — is repaired by
-// the next apply, and one holding the user's own providers keeps them: under `assert` a
-// default fills only an absent key.
+// the next apply, and one holding the user's own providers keeps them: the first owned render
+// adopts the file as the user's captured edit, which outranks a default, and a default fills
+// only an absent key.
 func TestTheNextHostApplyRepairsAnEmptyModelsFileAndKeepsYourProviders(t *testing.T) {
 	t.Run("{} is repaired", func(t *testing.T) {
 		home := t.TempDir()

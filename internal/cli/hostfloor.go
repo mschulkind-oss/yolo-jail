@@ -10,13 +10,16 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"syscall"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/agentenv"
 	"github.com/mschulkind-oss/yolo-jail/internal/capture"
 	"github.com/mschulkind-oss/yolo-jail/internal/cli/run"
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/entrypoint"
 	"github.com/mschulkind-oss/yolo-jail/internal/hostfloor"
 	"github.com/mschulkind-oss/yolo-jail/internal/hostpath"
+	"github.com/mschulkind-oss/yolo-jail/internal/macosuser"
 	"github.com/mschulkind-oss/yolo-jail/internal/packdecl"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/packsrc"
@@ -24,6 +27,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/pidlock"
 	"github.com/mschulkind-oss/yolo-jail/internal/richtext"
 	runtimepkg "github.com/mschulkind-oss/yolo-jail/internal/runtime"
+	"github.com/mschulkind-oss/yolo-jail/internal/tty"
 )
 
 // hostfloor.go wires the HOST AGENT FLOOR (internal/hostfloor,
@@ -54,7 +58,7 @@ var newHostFloor = func(out io.Writer, progs []hostfloor.Program) *hostfloor.Flo
 	store := &capture.Store{Dir: paths.CapturesDir()}
 	floorWire, updatesWire := config.HostFloorWire(), config.AgentUpdatesWire()
 	pins := floorForkPins(progs)
-	return &hostfloor.Floor{
+	f := &hostfloor.Floor{
 		Dir:       paths.HostFloorDir(),
 		GOOS:      runtime.GOOS,
 		GOARCH:    runtime.GOARCH,
@@ -63,26 +67,27 @@ var newHostFloor = func(out io.Writer, progs []hostfloor.Program) *hostfloor.Flo
 		UpdatesAllowed: func(pack string) bool {
 			return entrypoint.PackPolicyAllows(updatesWire, pack)
 		},
+		// Either origin (resolveFloorCapture): a capture jail's, or this host's own capture (HP-D18),
+		// which no jail ever selects.
 		ResolveCapture: func(bin string) (*capture.Entry, error) {
-			entry, _, err := resolveCaptureFor(store, bin, capture.Platform())
+			entry, _, err := resolveFloorCapture(store, bin, capture.Platform())
 			return entry, err
 		},
-		// The capture act itself — the same `yolo capture <bin>` a human runs and a jail
-		// launch's auto-capture calls — with its report on the launch's stderr too.
-		Capture: func(bin string) error {
-			if rc := hostFloorCaptureAct([]string{bin}, out, out, false); rc != 0 {
-				return fmt.Errorf("`yolo capture %s` exited %d", bin, rc)
-			}
-			return nil
-		},
-		// A capture boots a jail, so a machine whose runtime is not installed cannot make one —
-		// and an installer program with no capture in the store then has no floor entry here,
-		// rather than an install bound to fail. The capture act itself finds the runtime on PATH,
-		// so this asks the same question it will: the AMBIENT PATH, never `host_path`, since the
-		// capture boots a jail and a jail launch finds its runtime on the PATH it was started with
-		// (host-agent-environment.md, one resolver: exempt by name).
+		// A fork's build boots a jail, so a machine whose runtime is not installed cannot make one —
+		// and a fork with no build in the store then has no floor entry here, rather than an install
+		// bound to fail. The build act itself finds the runtime on PATH, so this asks the same
+		// question it will: the AMBIENT PATH, never `host_path`, since the build boots a jail and a
+		// jail launch finds its runtime on the PATH it was started with (host-agent-environment.md,
+		// one resolver: exempt by name). An installer's capture asks CaptureActUnavailable instead.
 		CaptureUnavailable: func() string {
 			rt := captureRuntime()
+			for _, native := range paths.NativeRuntimes {
+				if rt == native {
+					// No program to find on PATH: macos-user is an account, and it boots no container
+					// for a build to run in.
+					return "the runtime selected here, " + rt + ", boots no container to run a capture jail in"
+				}
+			}
 			if _, err := exec.LookPath(rt); err != nil {
 				return "no container runtime (" + rt + ") is on PATH to run `yolo capture` with"
 			}
@@ -119,15 +124,8 @@ var newHostFloor = func(out io.Writer, progs []hostfloor.Program) *hostfloor.Flo
 			}
 			return pin.Commit, pin.Reason
 		},
-		ResolveBuild: func(p hostfloor.Program, commit string) (*capture.Entry, error) {
-			b := floorForkBuild(p, commit)
-			entry, _, err := resolveForkBuild(store, b.Fork.Bin, b.Platform, b.Fork.Source, commit, b.recipe())
-			return entry, err
-		},
-		Build: func(p hostfloor.Program, commit string) (*capture.Entry, error) {
-			return buildFork(floorForkBuild(p, commit),
-				buildMode{lock: pidlock.Mode{Wait: true, Bound: forkBuildWaitBound}}, out, out, false)
-		},
+		// The store's build at that pin and the build act (ResolveBuild, Build) are wired below, by
+		// the floor's platform (wireFloorBuild).
 		// A PATCHED FORK's program (docs/design/patched-forks.md §9, PF-D14): no pin, so the floor reads
 		// the GOOD BUILD where a plain fork's reads the pin — offline, from this machine's check record
 		// and capture store — and its install runs the fork's ADVANCE first, the one a fresh jail launch
@@ -141,6 +139,178 @@ var newHostFloor = func(out io.Writer, progs []hostfloor.Program) *hostfloor.Flo
 		Out:    out,
 		Prefix: "yolo host: ",
 	}
+	wireFloorCapture(f, out)
+	wireFloorBuild(f, store, out)
+	return f
+}
+
+// wireFloorBuild gives f its fork builds — the hit check, the build act, and why the act cannot run —
+// by the FLOOR'S platform (f.GOOS, read at each call, the one its dispositions are decided for), as
+// wireFloorCapture gives it its captures, since the two platforms build differently:
+//
+//   - LINUX: the build act a jail launch runs on a miss, in the sealed capture jail of the runtime a
+//     launch resolves. Its blocker is that runtime's absence (CaptureUnavailable), asked of the
+//     ambient PATH.
+//   - A MAC: the macos-user fork-build act (forked-programs-as-packs.md FP-D24), named for this one
+//     build whatever `runtime` is configured: a container build here is a Linux build, which no floor
+//     on a Mac runs. Its blockers are the act's own refusals, asked first (macBuildBlocked).
+//
+// Either way the build is filed under this host's platform (floorForkBuild), which is the one its act
+// makes: a container jail's on Linux, and on a Mac darwin, as the sandbox account runs it there.
+func wireFloorBuild(f *hostfloor.Floor, store *capture.Store, out io.Writer) {
+	f.ResolveBuild = func(p hostfloor.Program, commit string) (*capture.Entry, error) {
+		b := floorForkBuild(p, commit)
+		entry, _, err := resolveForkBuild(store, b.Fork.Bin, b.Platform, b.Fork.Source, commit, b.recipe())
+		return entry, err
+	}
+	f.Build = func(p hostfloor.Program, commit string) (*capture.Entry, error) {
+		mode := buildMode{lock: pidlock.Mode{Wait: true, Bound: forkBuildWaitBound}, jailStdout: hostJailStdout()}
+		if f.GOOS == "darwin" {
+			mode.runtime = "macos-user"
+		}
+		return buildFork(floorForkBuild(p, commit), mode, out, out, false)
+	}
+	f.BuildActUnavailable = func(bin, does string) string {
+		if f.GOOS == "darwin" {
+			return macBuildBlocked(hostFloorMacProbes(), bin, does)
+		}
+		if f.CaptureUnavailable != nil {
+			if why := f.CaptureUnavailable(); why != "" {
+				return why + hostfloor.RuntimeStep(does)
+			}
+		}
+		return ""
+	}
+}
+
+// wireFloorCapture gives f its installer capture — the act, why it cannot run, and how it runs — by
+// the FLOOR'S platform (f.GOOS, read at each call, the one its dispositions are decided for), since
+// the two platforms capture differently:
+//
+//   - LINUX: the same `yolo capture <bin>` a human runs and a jail launch's auto-capture calls, with
+//     its report on the launch's stderr too, in a capture jail when a runtime is selected or on PATH,
+//     and on a machine with neither, on this host under Landlock (HP-D18), which chooseCaptureArm
+//     decides inside the act. Its blockers ask the same question the act will, of the AMBIENT PATH.
+//   - A MAC: the macos-user capture act (HP-D2) — Seatbelt, a throwaway HOME, the sandbox account —
+//     with that runtime handed to the act for this one run (hostFloorCaptureActOn), never through the
+//     environment the agent is exec'd with afterwards. A container capture here would record a Linux
+//     entry, which no floor on a Mac can run. Its blockers are the act's own refusals, asked first.
+func wireFloorCapture(f *hostfloor.Floor, out io.Writer) {
+	f.Capture = func(bin string) error {
+		var rc int
+		if f.GOOS == "darwin" {
+			rc = hostFloorCaptureActOn("macos-user", []string{bin}, out, out, false)
+		} else {
+			rc = hostFloorCaptureAct([]string{bin}, out, out, false)
+		}
+		if rc != 0 {
+			return fmt.Errorf("`yolo capture %s` exited %d", bin, rc)
+		}
+		return nil
+	}
+	f.CaptureActUnavailable = func(bin, does string) string {
+		if f.GOOS == "darwin" {
+			return macCaptureBlocked(hostFloorMacProbes(), bin, does)
+		}
+		return linuxCaptureBlocked(f.GOOS, does)
+	}
+	f.CaptureHow = func() string {
+		switch {
+		case f.GOOS == "darwin":
+			return "the macos-user sandbox account runs its installer once, in a throwaway home under " +
+				"Seatbelt; sudo may ask for your password"
+		case chooseCaptureArm(f.GOOS, "").host():
+			return "with no container runtime here, its installer runs once on this host, confined by " +
+				"Landlock to a throwaway home; jails capture their own"
+		}
+		return ""
+	}
+}
+
+// linuxCaptureBlocked is a Linux floor's CaptureActUnavailable: "" when chooseCaptureArm finds an arm
+// that can run, otherwise why not, with the step — for a runtime the user selected and has not
+// installed, that runtime; for one nothing selected, that runtime or a kernel with Landlock.
+func linuxCaptureBlocked(goos, does string) string {
+	arm := chooseCaptureArm(goos, "")
+	switch {
+	case arm.blocked == "":
+		return ""
+	case arm.hostWhy != "":
+		return arm.blocked + ", and yolo cannot confine its installer on this host instead (" + arm.hostWhy +
+			") — install " + arm.missing + " (`yolo check` names how on this machine), or run a kernel with " +
+			"Landlock enabled, and the next `yolo host` launch " + does
+	}
+	return arm.blocked + hostfloor.RuntimeStep(does)
+}
+
+// macCaptureProbes is what the floor's Mac capture predicate reads off the machine: the macos-user
+// capture act's own refusals (macosuser.RunCapturePlan's order), and whether its sudo can be asked.
+type macCaptureProbes struct {
+	Geteuid           func() int
+	Which             func(name string) bool
+	SandboxUserExists func() bool
+	// StdinIsTerminal reports whether sudo can ask for a password on this launch's terminal.
+	StdinIsTerminal func() bool
+	// SudoWithoutPassword reports whether `sudo -n true` succeeds: credentials sudo already holds,
+	// or a rule that asks for none. Asked only with no terminal.
+	SudoWithoutPassword func() bool
+}
+
+// hostFloorMacProbes is the machine's answers. A var so a test can stand a Mac in on any OS.
+var hostFloorMacProbes = func() macCaptureProbes {
+	d := macosuser.RealDeps(nil, nil, false)
+	return macCaptureProbes{
+		Geteuid:           d.Geteuid,
+		Which:             d.Which,
+		SandboxUserExists: d.SandboxUserExists,
+		StdinIsTerminal:   func() bool { return tty.IsTerminalFile(os.Stdin) },
+		SudoWithoutPassword: func() bool {
+			cmd := exec.Command("sudo", "-n", "true")
+			cmd.Stdin, cmd.Stdout, cmd.Stderr = nil, nil, nil
+			return cmd.Run() == nil
+		},
+	}
+}
+
+// macCaptureBlocked is a Mac floor's CaptureActUnavailable: why the macos-user capture act cannot
+// capture bin here now, with its step, or "" when it can. Each refusal is one RunCapturePlan would
+// make after the jail's preparation began, asked here first so the floor says it as no floor entry —
+// the launch then runs the PATH copy (OQ-HE11) — rather than failing an install.
+func macCaptureBlocked(p macCaptureProbes, bin, does string) string {
+	return macActBlocked(p, macActWords{act: "a capture", confines: "a capture's installer",
+		runsAs: "a capture on a Mac runs its installer as"}, bin, does)
+}
+
+// macBuildBlocked is a Mac floor's BuildActUnavailable: why the macos-user fork-build act
+// (macosuser.RunForkBuildAct, FP-D24) cannot build bin here now, with its step, or "" when it can —
+// the capture act's own refusals, since the build is that act running a build line.
+func macBuildBlocked(p macCaptureProbes, bin, does string) string {
+	return macActBlocked(p, macActWords{act: "a fork's build", confines: "a fork's build",
+		runsAs: "a fork's build on a Mac runs as"}, bin, does)
+}
+
+// macActWords is how a refusal of macActBlocked names its act: the act ("a capture"), what Seatbelt
+// confines in it, and the clause the sandbox account's sentence runs on.
+type macActWords struct{ act, confines, runsAs string }
+
+// macActBlocked is the macos-user capture act's refusals, asked before it runs, in w's words.
+func macActBlocked(p macCaptureProbes, w macActWords, bin, does string) string {
+	switch {
+	case p.Geteuid() == 0:
+		return "yolo is running as root, and " + w.act + " on a Mac runs as your own user, asking for sudo " +
+			"itself at each step that needs it — run `yolo host` without sudo, and it " + does
+	case !p.Which("sandbox-exec"):
+		return "sandbox-exec (Apple Seatbelt), which confines " + w.confines + " on a Mac, is not on PATH " +
+			"— put /usr/bin back on it, and the next `yolo host` launch " + does
+	case !p.SandboxUserExists():
+		return "the sandbox account " + macosuser.SandboxUser + ", which " + w.runsAs + ", does not exist " +
+			"— run the one-time setup, `yolo macos-setup`, and the next `yolo host` launch " + does
+	case !p.StdinIsTerminal() && !p.SudoWithoutPassword():
+		return w.act + " on a Mac asks for sudo, and this launch has no terminal to ask on — run " +
+			"`YOLO_RUNTIME=macos-user yolo capture " + bin + "` once in a terminal, and every later " +
+			"`yolo host` launch uses its result"
+	}
+	return ""
 }
 
 // floorForkBuild is the build a floor program of a fork asks for: the fork as its pack declares it,
@@ -162,8 +332,8 @@ func floorForkBuild(p hostfloor.Program, commit string) forkBuild {
 
 // floorPatchedPlatform is the platform a patched fork's floor build is of: this host's, as a plain
 // fork's floor build is (floorForkBuild), the only one a materialize on the host takes. The floor
-// holds a fork's build on Linux only (noEntryReason refuses every other host first), where it is a
-// capture jail's too, so the floor's lookups and a jail launch's name one build.
+// holds a PATCHED fork's build on Linux only (noEntryReason refuses every other host first), where it
+// is a capture jail's too, so the floor's lookups and a jail launch's name one build.
 func floorPatchedPlatform() string { return capture.Platform() }
 
 // floorAdvance is the floor's advance of a patched fork (hostfloor.Floor.Advance): the fresh
@@ -273,10 +443,29 @@ func floorForkPins(progs []hostfloor.Program) map[string]packload.ForkPin {
 	return out
 }
 
-// hostFloorCaptureAct is the capture act the production floor runs: `yolo capture <bin>` itself.
-// A var only so a test can stand in for the jail it boots and still drive the floor's own Capture
-// wiring; nothing but a test reassigns it.
-var hostFloorCaptureAct = captureHost
+// hostFloorCaptureAct is the capture act the production floor runs on Linux: `yolo capture <bin>`
+// itself, its capture jail's own stdout on this process's stderr (hostJailStdout). A var only so a
+// test can stand in for the jail it boots and still drive the floor's own Capture wiring; nothing
+// but a test reassigns it.
+var hostFloorCaptureAct = func(args []string, out, errw io.Writer, color bool) int {
+	return captureHostWith(args, out, errw, color, captureAct{jailStdout: hostJailStdout()})
+}
+
+// hostFloorCaptureActOn is the capture act under a runtime its caller names for this act alone
+// (captureAct.runtime): the Mac floor's, on macos-user (HP-D2), its jail's stdout on this process's
+// stderr as hostFloorCaptureAct's is. A var for hostFloorCaptureAct's reason.
+var hostFloorCaptureActOn = func(rt string, args []string, out, errw io.Writer, color bool) int {
+	return captureHostWith(args, out, errw, color, captureAct{runtime: rt, jailStdout: hostJailStdout()})
+}
+
+// hostJailStdout is where a jail a host verb boots writes its OWN stdout (captureAct.jailStdout):
+// the host floor's capture jail and build jail, and the host's advances' build jails. It is this
+// process's stderr, where that jail's stderr already goes: the verb serves a `yolo host` launch that
+// execs an agent whose stdout is routinely parsed (newHostFloor), and the run pipeline would
+// otherwise relay the jail's stdout to the process's own, ahead of the agent's output. The raw
+// stream, never the launch's teed errw: the jail's output is not yolo's own lines, and the host
+// launch log takes only those (startHostLaunchTrace).
+func hostJailStdout() io.Writer { return os.Stderr }
 
 // captureRuntime is the runtime a `yolo capture` would boot its jail with: YOLO_RUNTIME, then the
 // user config's `runtime`, then the platform default — run's precedence without its probe.
@@ -330,8 +519,12 @@ func floorDepClause(st hostfloor.Status) string {
 		// clause is that refusal, whose next step is `yolo update`.
 		return "yolo's floor will not install it: " + richtext.Escape(st.Reason)
 	}
-	return "yolo's floor installs it (`yolo host apply --assert`, or the first `yolo host -- " +
-		st.Program.Bin() + "`)"
+	// The launch installs at every host-management mode; the apply only under "own" (hostApplyStep).
+	if config.HostManagementMode() == config.HostManagementOwn {
+		return "yolo's floor installs it (`yolo host apply --assert`, or the first `yolo host -- " +
+			st.Program.Bin() + "`)"
+	}
+	return "yolo's floor installs it (the first `yolo host -- " + st.Program.Bin() + "`)"
 }
 
 // floorDepMark is the mark a dependency line gives a program the floor answers for: a pass,
@@ -538,9 +731,10 @@ func resolveHostLaunchTarget(packs []*packload.Pack, cmd0 string, lp *hostpath.L
 			fmt.Fprintf(errw, "yolo host: %s\n", line)
 			if !config.InJail() && !strings.ContainsRune(cmd0, os.PathSeparator) {
 				if _, lerr := os.Lstat(filepath.Join(floorBin, cmd0)); lerr == nil {
+					floor := &hostfloor.Floor{Dir: filepath.Dir(floorBin)}
 					fmt.Fprintf(errw, "yolo host: yolo's floor still holds a copy of %s that it no longer "+
-						"keeps (no selected pack delivers it here); yolo host does not run it, and "+
-						"`yolo host apply --assert` removes it\n", cmd0)
+						"keeps (no selected pack delivers it here); yolo host does not run it: %s\n", cmd0,
+						floor.StaleCopyStep(config.HostManagementMode() == config.HostManagementOwn, cmd0))
 				}
 			}
 			return hostTarget{}, 127
@@ -560,6 +754,10 @@ func resolveHostLaunchTarget(packs []*packload.Pack, cmd0 string, lp *hostpath.L
 	}
 	floor := newHostFloor(errw, progs)
 	st, _, err := floor.Ensure(withActInterrupt(context.Background(), act), prog)
+	if err == nil || errors.Is(err, hostfloor.ErrNoEntry) {
+		// The agent starts: so do the MCP servers its config names (HC-D28).
+		ensureMCPPrograms(packs, progs, floor, cmd0, errw, act)
+	}
 	switch {
 	case errors.Is(err, hostfloor.ErrNoEntry):
 		// OQ-HE11 is open: keep today's behavior — the launch's PATH — and say, once, that the
@@ -592,22 +790,51 @@ func resolveHostLaunchTarget(packs []*packload.Pack, cmd0 string, lp *hostpath.L
 	return hostTarget{Path: st.Launcher, Origin: originFloor}, 0
 }
 
-// noCopyWhere names the machine the no-copy line is about — and says "yet" for the one case that
-// is a matter of time: an installer agent on a Mac, until the host capture (HP-D2) ships. goos is
-// the floor's own platform (Floor.GOOS), the one its disposition was decided for.
-func noCopyWhere(goos string, p hostfloor.Program) string {
-	switch {
-	case p.Install.Kind == packdecl.InstallKindSource:
-		// A fork's build: the reason says why this machine holds none — no pin, a build made for
-		// the jail's home only, no runtime to build with, or a Mac, which no Linux build runs on.
-		// None of those is a matter of time, so no "yet".
-		if goos == "darwin" {
-			return "on this Mac"
+// ensureMCPPrograms is decision HC-D28 (docs/design/host-computed-layer.md): a `yolo host --
+// <agent>` launch also makes sure yolo's floor holds every program a selected pack's MCP server
+// runs (the `mcp` contribution's `bin`), since the agent starts that server whenever it starts
+// and the host has no lazy launcher to install it on first use, as a jail does. Only a server the
+// host's table carries counts (hostMCPPacks: a fetched pack's is not written there), and never
+// cmd0, which the caller has just ensured. Nothing here refuses the launch: a program the floor
+// cannot hold, or an install that fails, is one line naming what then happens and the next step,
+// and the agent starts without that server rather than not at all — a missing MCP server is no
+// reason to refuse an agent (mcp-presets-removal.md §9.1).
+func ensureMCPPrograms(packs []*packload.Pack, progs []hostfloor.Program, floor *hostfloor.Floor,
+	cmd0 string, errw io.Writer, act *run.ActInterrupt) {
+	composed, _ := hostMCPPacks(packs)
+	seen := map[string]bool{cmd0: true}
+	for _, held := range packload.HeldMCPServers(composed) {
+		bin, server := held.Server.Bin, held.Server.Name
+		if bin == "" || seen[bin] {
+			continue
 		}
-		return "on this machine"
-	case goos == "darwin" && p.Install.Kind == "native":
-		return "on this Mac yet"
-	case goos == "darwin":
+		seen[bin] = true
+		prog, ok := floorProgram(progs, bin)
+		if !ok {
+			fmt.Fprintf(errw, "yolo host: MCP server %s runs %s, which no selected pack installs; it "+
+				"starts only if %s is on the agent's PATH — select the pack that ships it in `packs`\n",
+				server, bin, bin)
+			continue
+		}
+		st, _, err := floor.Ensure(withActInterrupt(context.Background(), act), prog)
+		switch {
+		case errors.Is(err, hostfloor.ErrNoEntry):
+			fmt.Fprintf(errw, "yolo host: yolo has no copy of %s %s (%s), which MCP server %s runs; "+
+				"the server looks for it on the agent's PATH\n", bin, noCopyWhere(floor.GOOS, prog),
+				st.Reason, server)
+		case err != nil:
+			fmt.Fprintf(errw, "yolo host: could not install %s, which MCP server %s runs, into yolo's "+
+				"floor: %v — the agent starts without that server, and the next `yolo host` launch "+
+				"tries the install again\n", bin, server, err)
+		}
+	}
+}
+
+// noCopyWhere names the machine the no-copy line is about. goos is the floor's own platform
+// (Floor.GOOS), the one its disposition was decided for. The reason after it says why this machine
+// holds no copy and, where something ends that, what does: none is only a matter of time.
+func noCopyWhere(goos string, _ hostfloor.Program) string {
+	if goos == "darwin" {
 		return "on this Mac"
 	}
 	return "on this machine"
@@ -670,6 +897,84 @@ func hostChildPath(lp *hostpath.Launch, floorBin string) string {
 		out = append(out, d)
 	}
 	return strings.Join(out, string(os.PathListSeparator))
+}
+
+// hostRefreshProgram is the program whose PRE-LAUNCH REFRESH (packdecl.Refresh, a coined term) a
+// `yolo host -- <cmd0>` runs before its exec, and the selection's floor programs it was found among:
+// the selected packs' declaration of cmd0's base name, the first one winning as the floor's and the
+// jail launcher generator's do, when that declaration has a refresh. Whichever copy the launch
+// execs, so a target given as a path or found on the launch PATH is refreshed too
+// (docs/design/host-tool-provisioning.md HP-D19). Never in a jail, whose own launcher on PATH runs
+// the refresh (internal/entrypoint's prelaunchrefresh.go) and whose state this would not be.
+func hostRefreshProgram(packs []*packload.Pack, cmd0 string) (hostfloor.Program, []hostfloor.Program, bool) {
+	if config.InJail() {
+		return hostfloor.Program{}, nil, false
+	}
+	progs := floorPrograms(packs)
+	prog, ok := floorProgram(progs, filepath.Base(cmd0))
+	if !ok || prog.Install.Refresh == nil {
+		return hostfloor.Program{}, nil, false
+	}
+	return prog, progs, true
+}
+
+// hostPrelaunchRefresh runs prog's pre-launch refresh against target, the binary the launch is about
+// to exec, through the machine's floor (Floor.PrelaunchRefresh: its stamp, its lock and the
+// `agent_updates` policy), in the environment refreshEnviron builds, its lines and its output on
+// errw. It returns 0 to go on — a refresh that failed, timed out or was interrupted with Ctrl-C
+// included, since launching the program outranks refreshing it — and the status to end the launch
+// with when a SIGTERM or SIGHUP stopped the refresh, as the jail's launcher ends.
+func hostPrelaunchRefresh(launch *hostComposition, prog hostfloor.Program, progs []hostfloor.Program,
+	target, childPath string, errw io.Writer) int {
+	res := newHostFloor(errw, progs).PrelaunchRefresh(prog, target, launch.refreshEnviron(childPath))
+	if res.Outcome != hostfloor.RefreshStopped {
+		return 0
+	}
+	name := res.Signal.String()
+	switch res.Signal {
+	case syscall.SIGTERM:
+		name = "SIGTERM"
+	case syscall.SIGHUP:
+		name = "SIGHUP"
+	}
+	fmt.Fprintf(errw, "yolo host: %s: the pre-launch refresh was stopped by %s, so the launch ends here "+
+		"without starting %s; run it again to start %s\n", prog.Bin(), name, prog.Bin(), prog.Bin())
+	return 128 + int(res.Signal)
+}
+
+// refreshEnviron is the environment a launch's pre-launch refresh runs in: the one this process
+// inherited, with the part of the program's own composition that EVERY process of the launch
+// receives applied over it, then the child's PATH. That part is each entry whose winner is the
+// credential gate's shared composition's too (packload.CredentialScope.SharedEnv): the ungated pack
+// env, such as pi's PI_TELEMETRY=0, the env_sources values no provider claims, such as a proxy, a
+// CA bundle or a registry, and the env_sources removals. It is what a jail's refresh holds. The
+// jail's shared file reaches every process there, the launcher's refresh included; an entry whose
+// winner for the agent differs from the shared one (its provider's claimed credentials, its
+// profile-gated pack env, its env derive's shape vars and their tombstones) is in the agent's own
+// file instead (internal/cli/run's agentEnvFileContent, by the same comparison), which the launcher
+// sources after the refresh, because the refresh needs no credential and should run holding none
+// (internal/entrypoint's agentenv.go). So a credential the composition scopes to the program
+// reaches the program alone, and the refresh holds no value of yolo's the program does not: what the
+// program's environment keeps out (a service-only doorway pointer, a wire table under a composed
+// name) is not in its vars to begin with. The PATH is the child's before the blocked tools join it:
+// the jail runs its refresh with the blockers bypassed (YOLO_BYPASS_SHIMS=1), as it does every
+// installer.
+func (c *hostComposition) refreshEnviron(childPath string) []string {
+	shared := c.scope.SharedEnv()
+	var everyProcess []agentenv.Var
+	for _, v := range c.vars {
+		if s, ok := shared.Lookup(v.Key); ok && s.Unset == v.Unset && s.Value == v.Value {
+			everyProcess = append(everyProcess, v)
+		}
+	}
+	env := agentenv.Apply(os.Environ(), everyProcess)
+	out := make([]string, 0, len(env)+1)
+	for _, kv := range env {
+		if !strings.HasPrefix(kv, "PATH=") {
+			out = append(out, kv)
+		}
+	}
+	return append(out, "PATH="+childPath)
 }
 
 // childEnviron is environ() with the child's PATH overlaid LAST — after every pack env, profile

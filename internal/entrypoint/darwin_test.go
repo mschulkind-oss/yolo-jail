@@ -112,14 +112,16 @@ func TestRunDarwinBootstrapGeneratesConfig(t *testing.T) {
 // sandbox home that fail the moment anything execs one.
 //
 // Open Decision #4 is resolved by SKIPPING them and saying so. This pins both
-// halves: no wrapper file appears, and a config that asked for presets is told.
+// halves: no wrapper file appears, and a config that asked for presets is told — by name.
+// The Env is the production translation (DarwinEnvFrom), which is what sets SkipMCPPresets.
 func TestDarwinBootstrapSkipsLinuxMCPWrappers(t *testing.T) {
 	home := t.TempDir()
 	var warnings strings.Builder
-	e := NewEnv(map[string]string{
-		"JAIL_HOME":        home,
-		"YOLO_MCP_PRESETS": `["chrome-devtools"]`,
-	})
+	e := DarwinEnvFrom(map[string]string{
+		"JAIL_HOME":             home,
+		"YOLO_MCP_PRESETS":      `["chrome-devtools"]`,
+		"YOLO_DARWIN_WORKSPACE": t.TempDir(),
+	}, home)
 	e.Stderr = &warnings
 
 	_ = RunDarwinBootstrap(e, DarwinBootstrapOptions{MacosLog: "off"})
@@ -133,10 +135,15 @@ func TestDarwinBootstrapSkipsLinuxMCPWrappers(t *testing.T) {
 	// is silently absent, is the same lie in the other direction. In the setup census's words,
 	// naming the preset: the census cell that marks mcp_presets Warned here is the line's source
 	// (internal/setupcensus), so a boot that printed words of its own fails as surely as one that
-	// printed none.
+	// printed none. The line says the preset was left out of every agent's config too
+	// (Env.SkipMCPPresets), by name.
 	want := setupcensus.Warning(setupcensus.MacosUser, "mcp_presets").Plain("chrome-devtools")
 	if !strings.Contains(warnings.String(), want) {
 		t.Errorf("skipped the wrappers without the census's line %q:\n%s", want, warnings.String())
+	}
+	if !strings.Contains(want, "chrome-devtools. Left out of every agent's MCP config") {
+		t.Errorf("the census's mcp_presets line %q does not say the preset was left out of every "+
+			"agent's config", want)
 	}
 	if n := setupcensus.Warning(setupcensus.MacosUser, "mcp_presets"); n.By != "entrypoint.mcp_presets_declined" {
 		t.Errorf("the census names %q as the printer of the mcp_presets notice, and this boot step "+
@@ -148,7 +155,8 @@ func TestDarwinBootstrapSkipsLinuxMCPWrappers(t *testing.T) {
 // is the noise that trains people to skip the line that matters.
 func TestDarwinBootstrapSilentAboutMCPWhenNonePresetsAsked(t *testing.T) {
 	var warnings strings.Builder
-	e := NewEnv(map[string]string{"JAIL_HOME": t.TempDir()})
+	home := t.TempDir()
+	e := DarwinEnvFrom(map[string]string{"JAIL_HOME": home, "YOLO_DARWIN_WORKSPACE": t.TempDir()}, home)
 	e.Stderr = &warnings
 
 	_ = RunDarwinBootstrap(e, DarwinBootstrapOptions{MacosLog: "off"})

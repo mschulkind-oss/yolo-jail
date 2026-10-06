@@ -61,6 +61,11 @@ func defaultReport(t *testing.T) {
 // The dependency is a `requires` whose binary is STUBBED PRESENT: a present dep is the tier-2
 // line the flag carries, where a missing one is a tier-3 blocker that must print at every
 // verbosity — the opposite property, pinned next door in applyhostdepgate_test.go.
+//
+// UNDER `host_management: own`, the one contract that renders. With the key unset (`none` since
+// the `assert` retirement, OQ-CO14) the config surface is a REFUSAL, never written, so the
+// "settled surface" the second test reads would be a refused line and not the in-sync one detail
+// on demand compresses: a change predicate reporting every settled surface as changed would pass.
 func detailFixture(t *testing.T) string {
 	t.Helper()
 	home := t.TempDir()
@@ -74,7 +79,7 @@ func detailFixture(t *testing.T) string {
 			`{"kind":"briefing","from":"briefing/prose.md","into":".detail/AGENTS.md"}]}`)
 	writeFile(t, filepath.Join(packDir, "briefing", "prose.md"), "Detail prose.\n")
 	writeFile(t, filepath.Join(packDir, "skills", "demo", "SKILL.md"), "---\nname: demo\n---\n")
-	selectPacks(t, home, `{"source":"file://`+packDir+`","name":"detailpack"}`)
+	selectPacksWith(t, home, `{"source":"file://`+packDir+`","name":"detailpack"}`, `,"host_management":"own"`)
 	t.Setenv("HOME", home)
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
 	defaultReport(t)

@@ -19,7 +19,10 @@ func TestHostApplyLeavesOpencodesThemeMigrationAlone(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
-	writeFile(t, filepath.Join(home, ".config", "yolo-jail", "config.jsonc"), `{"packs": ["opencode"]}`)
+	// Under `own`, the one contract that renders since the `assert` retirement (OQ-CO14):
+	// under the unset key (`none`) the host writes no tui.jsonc and no opencode.json at all.
+	writeFile(t, filepath.Join(home, ".config", "yolo-jail", "config.jsonc"),
+		`{"packs": ["opencode"], "host_management": "own"}`)
 	dir := filepath.Join(home, ".config", "opencode")
 	legacy := `{"theme": "tokyonight", "keybinds": {"leader": "ctrl+a"}}`
 	writeFile(t, filepath.Join(dir, "opencode.json"), legacy)

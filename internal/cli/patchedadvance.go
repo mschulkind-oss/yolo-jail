@@ -80,6 +80,7 @@ import (
 
 	"github.com/mschulkind-oss/yolo-jail/internal/capture"
 	"github.com/mschulkind-oss/yolo-jail/internal/cli/run"
+	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/entrypoint"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/packsrc"
@@ -762,6 +763,10 @@ func (a *advance) ctrlCStarts() string {
 func (a *advance) next() string {
 	switch {
 	case a.hostTree():
+		if config.HostManagementMode() != config.HostManagementOwn {
+			// Under "none" that apply writes nothing (hostApplyStep).
+			return "the next `yolo host apply --assert` once `\"host_management\": \"own\"` is set"
+		}
 		return "the next `yolo host apply --assert`"
 	case a.o.host:
 		return "the next `yolo host -- " + a.f.Bin + "`"
@@ -774,6 +779,9 @@ func (a *advance) next() string {
 func (a *advance) later() string {
 	switch {
 	case a.hostTree():
+		if config.HostManagementMode() != config.HostManagementOwn {
+			return "`yolo host apply --assert` once `\"host_management\": \"own\"` is set"
+		}
 		return "`yolo host apply --assert`"
 	case a.o.host:
 		return "`yolo host -- " + a.f.Bin + "`"
@@ -1054,6 +1062,12 @@ func (a *advance) build(b forkBuild, base baseWhy, edited bool) advanceResult {
 		}
 		a.inFlight = a.o.report.begin(buildStart{fork: f, why: why, wait: wait, what: what, line: b.buildLine()}, a.o.slot)
 		mode.run = a.inFlight
+	}
+	if a.o.host {
+		// AT THE HOST the build jail's own stdout is this process's stderr (hostJailStdout): a
+		// `yolo host` launch's stdout is the agent's. A child's build jail writes to the child's own
+		// streams, the writers runForkBuildChild hands it.
+		mode.jailStdout = hostJailStdout()
 	}
 	if a.o.launch {
 		mode.lock = pidlock.Mode{Wait: true, Bound: forkBuildWaitBound, Cancel: a.ctx.Done()}

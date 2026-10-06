@@ -75,6 +75,9 @@ type HostDoorways struct {
 	// selected packs that ship an opened doorway, for the disclosure before it.
 	set   loopholes.Set
 	packs []*packload.Pack
+	// forService is every doorway a carried agent's platform alone asks for
+	// (PlanHostDoorwaysFor), sorted: its pointer is the launch-owned service's, never the agent's.
+	forService []string
 }
 
 // PlanHostDoorways plans the doorways of a `yolo host` launch of packs, the packs its selection
@@ -85,6 +88,18 @@ type HostDoorways struct {
 // door that does not.
 func PlanHostDoorways(cfg *jsonx.OrderedMap, packs []*packload.Pack, sel packload.GateSelection,
 	opens bool, launch string) (*HostDoorways, error) {
+	return PlanHostDoorwaysFor(cfg, packs, sel, opens, launch, nil)
+}
+
+// PlanHostDoorwaysFor is PlanHostDoorways for a launch whose launch-owned service carries the
+// agents in carried through a via or a carrier (docs/design/host-notch-services.md HS-D30): a
+// clientless one of them is a doorway's client after all, since the service signs its requests
+// with the credential the doorway serves, so its platform asks for the doorway as a client's
+// does (HS-D32, narrowing HS-D23). A doorway only such an agent's platform asked for is recorded
+// as the service's alone (ForService), for the launch to hand its pointer to the service's input
+// and keep it out of the agent's environment.
+func PlanHostDoorwaysFor(cfg *jsonx.OrderedMap, packs []*packload.Pack, sel packload.GateSelection,
+	opens bool, launch string, carried []string) (*HostDoorways, error) {
 	d := &HostDoorways{listen: map[string]string{}, notOpened: map[string]string{}}
 	// AN AGENT WITH NO CLIENT OF ITS SELECTION'S PLATFORM IS NOT A DOORWAY'S CLIENT (HS-D23).
 	// A platform gate fires on the provider's platform alone, so copilot under `-p bedrock`,
@@ -92,7 +107,51 @@ func PlanHostDoorways(cfg *jsonx.OrderedMap, packs []*packload.Pack, sel packloa
 	// nothing for it), would get aws-auth's doorway, the host code behind it and a live
 	// credential it has no model client to use. The doorways are planned over the selection less
 	// such an agent's platform, and a doorway only its platform asked for stays closed, naming why.
+	// UNLESS A LAUNCH-OWNED SERVICE CARRIES IT (HS-D32): then the service is the doorway's client,
+	// the credential has its use, and the doorway opens for the service alone.
 	gateSel, clientless := withoutClientlessPlatforms(packs, sel)
+	if len(clientless) > 0 && len(carried) > 0 {
+		kept := packload.GateSelection{Profiles: gateSel.Profiles, Platforms: map[string]string{},
+			Sets: gateSel.Sets}
+		for agent, platform := range gateSel.Platforms {
+			kept.Platforms[agent] = platform
+		}
+		if gateSel.SetPlatforms != nil {
+			kept.SetPlatforms = map[string][]string{}
+			for agent, platforms := range gateSel.SetPlatforms {
+				kept.SetPlatforms[agent] = platforms
+			}
+		}
+		for agent := range clientless {
+			if !slices.Contains(carried, agent) {
+				continue
+			}
+			if p, ok := sel.Platforms[agent]; ok {
+				kept.Platforms[agent] = p
+			}
+			if sel.SetPlatforms != nil {
+				if kept.SetPlatforms == nil {
+					kept.SetPlatforms = map[string][]string{}
+				}
+				kept.SetPlatforms[agent] = sel.SetPlatforms[agent]
+			}
+			delete(clientless, agent)
+		}
+		closed := map[string]bool{}
+		for _, u := range packload.UnselectedProfileServedDaemons(packs, gateSel) {
+			closed[u.Name] = true
+		}
+		for _, u := range packload.UnselectedProfileServedDaemons(packs, kept) {
+			delete(closed, u.Name)
+		}
+		// What the carried agents' platforms alone opened: closed for the selection less them,
+		// asked for once they count.
+		for name := range closed {
+			d.forService = append(d.forService, name)
+		}
+		slices.Sort(d.forService)
+		gateSel = kept
+	}
 	undelivered := map[string]bool{}
 	for _, u := range packload.UnselectedProfileServedDaemons(packs, gateSel) {
 		undelivered[u.Name] = true
@@ -117,8 +176,9 @@ func PlanHostDoorways(cfg *jsonx.OrderedMap, packs []*packload.Pack, sel packloa
 		}
 	}
 	if len(wanted) == 0 {
-		// No selection asks for a doorway, so nothing reads a loophole manifest: an unprofiled
-		// host launch discovers nothing it did not before.
+		// No selection asks for a doorway, so this plan reads no loophole manifest. (A host
+		// launch with `host_apply_on_launch` on still discovers, in the launch gate's observe
+		// pass: `yolo host apply`'s notch line reads run.HostDoorwayLoopholes.)
 		return d, nil
 	}
 	set := loopholes.NewSet(loopholes.DiscoverOptions{
@@ -155,7 +215,7 @@ func PlanHostDoorways(cfg *jsonx.OrderedMap, packs []*packload.Pack, sel packloa
 		}
 		held := picked[s.Listen]
 		s.Listen = held.Addr()
-		decl, err := launchservice.AdmitDoorway(packs, packOf[name], name, s.ResolvedHostCmd())
+		decl, err := launchservice.AdmitDoorway(packs, packOf[name], name, s.ResolvedHostCmd(), s.Restart)
 		if err != nil {
 			// AdmitDoorways admitted this argv above; with only the address changed, a
 			// refusal here is a yolo bug, and the launch refuses rather than serve a pointer
@@ -278,6 +338,22 @@ func notOpenedWhy(set loopholes.Set, refused []launchservice.RefusedDoorway, nam
 			"runs, and this command runs none: " + launch + " opens it for that command"
 	}
 	return "which this launch does not open: its loophole composes no doorway at the host"
+}
+
+// ForService is every doorway this launch opens for the launch-owned service that carries its
+// clientless agent, and not for the agent (PlanHostDoorwaysFor), sorted; nil for none. Only the
+// ones it opens: a doorway left closed (its loophole off) is not the service's either.
+func (d *HostDoorways) ForService() []string {
+	if d == nil {
+		return nil
+	}
+	var out []string
+	for _, name := range d.forService {
+		if _, opened := d.listen[name]; opened {
+			out = append(out, name)
+		}
+	}
+	return out
 }
 
 // Release releases the reserved port of every planned doorway this launch has not started.

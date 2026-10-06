@@ -70,3 +70,35 @@ func TestMacosLaunchDepsWiresTheWorkspaceLock(t *testing.T) {
 			"friends would block on a concurrent launch")
 	}
 }
+
+// THE ACCOUNT HOME'S HOLD IS A LAUNCH'S: macosLaunchDeps wires the seam, and invoking it takes a
+// real shared flock a second workspace's exclusive probe is refused by; RealDeps, which the four
+// `yolo macos-*` commands build, has none.
+func TestMacosLaunchDepsWiresTheAccountHomeHold(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	deps := macosLaunchDeps(nil, nil)
+	if deps.HoldAccountHome == nil {
+		t.Fatal("a macos-user LAUNCH assembles Deps with no account-home hold: a second workspace's " +
+			"launch would repoint the links a running session reads through")
+	}
+	release, refusal := deps.HoldAccountHome("/Users/Shared/yolo/proj", "yolo-proj-abc123", "")
+	if refusal != "" {
+		t.Fatalf("the hold refused a first launch: %s", refusal)
+	}
+	lockPath := filepath.Join(paths.GlobalStorage(), "locks", "macos-user-home", "yolo-proj-abc123.lock")
+	f, err := os.OpenFile(lockPath, os.O_RDWR, 0)
+	if err != nil {
+		t.Fatalf("no hold file at %s: %v", lockPath, err)
+	}
+	defer func() { _ = f.Close() }()
+	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err == nil {
+		t.Error("the hold file is not held: a second workspace would be admitted")
+	}
+	release()
+	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
+		t.Errorf("the hold outlived its release: %v", err)
+	}
+	if macosuser.RealDeps(nil, nil, false).HoldAccountHome != nil {
+		t.Error("RealDeps carries the account-home hold, so `yolo macos-setup` and friends would take it")
+	}
+}

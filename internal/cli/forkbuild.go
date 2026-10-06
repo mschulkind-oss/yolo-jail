@@ -21,7 +21,10 @@ package cli
 //	the receipt            kind `build`, with the revision, the recipe and the toolchain
 //
 // THE BUILD NEVER RUNS ON THE HOST (§12): the jail is the ordinary capture jail with the seal on,
-// and this file only stages its workspace and reads what it left.
+// and this file only stages its workspace and reads what it left. On macos-user that jail is the
+// sandbox account under the sealed capture profile, in a staging tree of the build's own
+// (macosuser.RunForkBuildAct, FP-D24): the Mac's host floor builds there, for darwin, and the act
+// leaves its result where a container build jail does, so the admit and the receipt are one.
 
 import (
 	"crypto/sha256"
@@ -34,6 +37,7 @@ import (
 	"path"
 	"path/filepath"
 	"regexp"
+	goruntime "runtime"
 	"slices"
 	"strings"
 	"sync"
@@ -42,6 +46,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/capture"
 	"github.com/mschulkind-oss/yolo-jail/internal/cli/run"
 	"github.com/mschulkind-oss/yolo-jail/internal/entrypoint"
+	"github.com/mschulkind-oss/yolo-jail/internal/macosuser"
 	"github.com/mschulkind-oss/yolo-jail/internal/packdecl"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/packsrc"
@@ -189,6 +194,16 @@ type buildMode struct {
 	// launch's log and the build's own, never the terminal. nil prints the act's lines and streams
 	// the jail's output as `yolo capture` does.
 	run *buildRun
+	// jailStdout is where the build jail's own stdout goes, its boot's lines and its session's
+	// (captureStreams.jailOut and sessionOut); nil is this process's. The host floor's build and
+	// the host's advances name this process's stderr (hostJailStdout).
+	jailStdout io.Writer
+	// runtime is the runtime the build jail boots with, handed to the run pipeline for this build
+	// alone (captureAct.runtime); "" is the one a launch resolves. A Mac's host floor names
+	// macos-user (FP-D24), whose build is the macos-user fork-build act and of darwin, and
+	// `yolo capture <forked bin>` names the runtime a capture resolves, so the platform its build is
+	// filed under is the one that jail makes (forkBuildPlatform).
+	runtime string
 	// packs is the pack store a PATCHED build replays its series in (the launch's, under the
 	// advance's context); nil reads the machine's with the store's default budget.
 	packs *packsrc.Store
@@ -285,11 +300,13 @@ func (e forkBuildNotStarted) Unwrap() error        { return e.exit }
 // lines (run.Options.Stdout and Stderr), and jailOut and jailErr the JAIL'S OWN, what its runtime
 // client and pid 1 print up to its ready, which the launch relays apart from its own
 // (run.Options.JailStdout and JailStderr). A nil jail writer is the process's own stream, where any
-// launch relays them. jailReady, when non-nil, is called once the jail's boot is done, after the
-// last of its own lines (run.Options.OnJailReady).
+// launch relays them. sessionOut is where the jail's first session's stdout goes
+// (run.Options.SessionStdout), nil being this process's, through its terminal; a host verb's jails
+// name this process's stderr for it (hostJailStdout). jailReady, when non-nil, is called once the
+// jail's boot is done, after the last of its own lines (run.Options.OnJailReady).
 type captureStreams struct {
-	out, errw, jailOut, jailErr io.Writer
-	jailReady                   func()
+	out, errw, jailOut, jailErr, sessionOut io.Writer
+	jailReady                               func()
 }
 
 // notStartedLines are the lines that say why a build jail stopped before its build line, each
@@ -381,10 +398,11 @@ func (t *jailTail) tee(s captureStreams) captureStreams {
 		s.jailErr = os.Stderr
 	}
 	return captureStreams{
-		out:     io.MultiWriter(s.out, t.writer(tailLaunchOut)),
-		errw:    io.MultiWriter(s.errw, t.writer(tailLaunchErr)),
-		jailOut: io.MultiWriter(s.jailOut, t.writer(tailJailOut)),
-		jailErr: io.MultiWriter(s.jailErr, t.writer(tailJailErr)),
+		out:        io.MultiWriter(s.out, t.writer(tailLaunchOut)),
+		errw:       io.MultiWriter(s.errw, t.writer(tailLaunchErr)),
+		jailOut:    io.MultiWriter(s.jailOut, t.writer(tailJailOut)),
+		jailErr:    io.MultiWriter(s.jailErr, t.writer(tailJailErr)),
+		sessionOut: s.sessionOut,
 		jailReady: func() {
 			t.ready()
 			if s.jailReady != nil {
@@ -587,21 +605,25 @@ func buildForkUnderLock(b forkBuild, mode buildMode, store *capture.Store, pr ri
 	runJail := mode.runJail
 	if runJail == nil {
 		runJail = func(staging string, b forkBuild, s captureStreams) int {
-			return forkBuildRunJail(staging, b, s, color)
+			return forkBuildRunJail(staging, b, s, color, captureAct{runtime: mode.runtime})
 		}
 	}
 	// WHERE THE JAIL'S OUTPUT GOES: a jail launch's report sends it to the launch's log and the
 	// build's own, never the terminal (buildreport.go); `yolo capture` streams it, the jail's own
 	// lines where any launch relays them, the process's own streams.
-	streams := captureStreams{out: out, errw: errw}
+	streams := captureStreams{out: out, errw: errw, jailOut: mode.jailStdout, sessionOut: mode.jailStdout}
 	if mode.run != nil {
 		streams = mode.run.streams()
 	}
 	mode.run.phase("in its sealed jail")
 	// THE JAIL'S LAST LINES, kept as they stream past, the launch's and the jail's own apart: a jail
-	// that stops before its build line ran is relayed with them (forkBuildNotStarted).
+	// that stops before its build line ran is relayed with them (forkBuildNotStarted). Without a
+	// report the jail's own go where the mode names (jailStdout), else where any launch relays them,
+	// the process's own streams.
 	tail := &jailTail{}
 	streams = tail.tee(streams)
+	// THE BUILD'S OWN WORKSPACE, as the build saw it: a link into it dangles once the build ends.
+	workspace := forkBuildWorkspace(mode.runtime, b.id())
 	entry, m, err := captureStaged(store, staging,
 		func() int { return runJail(staging, b, streams) },
 		func(m *capture.Manifest) string {
@@ -618,7 +640,7 @@ func buildForkUnderLock(b forkBuild, mode buildMode, store *capture.Store, pr ri
 			if why := missingProduces(m, f.Produces); why != "" {
 				return why
 			}
-			return linksIntoTheBuild(m)
+			return linksIntoTheBuild(m, workspace)
 		})
 	toolchain, terr := os.ReadFile(filepath.Join(staging, forkToolchainLeaf))
 	var exit captureJailExit
@@ -778,7 +800,12 @@ func missingProduces(m *capture.Manifest, produces []string) string {
 // exactly this, and the produces check alone passes it (the path exists — as a link). npm writes
 // that link RELATIVE, so a relative target is resolved from where the link sat in the build jail's
 // home (the manifest's Home) before it is compared.
-func linksIntoTheBuild(m *capture.Manifest) string {
+//
+// workspace is the build's workspace as the build saw it (forkBuildWorkspace): /workspace in a
+// container build jail, the staging tree on macos-user, whose home is INSIDE it — so a link into the
+// home, which the materialize carries and relocates, is not one into the workspace.
+func linksIntoTheBuild(m *capture.Manifest, workspace string) string {
+	under := func(p, dir string) bool { return dir != "" && (p == dir || strings.HasPrefix(p, dir+"/")) }
 	for _, e := range m.Entries {
 		if e.Kind != capture.KindSymlink {
 			continue
@@ -787,7 +814,7 @@ func linksIntoTheBuild(m *capture.Manifest) string {
 		if !path.IsAbs(resolved) {
 			resolved = path.Join(m.Home, path.Dir(e.Path), resolved)
 		}
-		if resolved == containerWorkspace || strings.HasPrefix(resolved, containerWorkspace+"/") {
+		if under(resolved, workspace) && !under(resolved, m.Home) {
 			return fmt.Sprintf("the build left %s as a link into its own workspace (%s), which is "+
 				"deleted when the build ends — install a copy instead (for an npm package, "+
 				"`npm install -g \"$(npm pack --silent)\"` rather than `npm install -g .`)", e.Path, e.Target)
@@ -938,9 +965,14 @@ func forkBuildJailArgv(build string) []string {
 // forkBuildRunJail runs b's build in the capture jail UNDER THE SEAL, with the pack selection
 // narrowed to the fork and its base (FP-D9) — or, for a PATCHED EXTENSION, to the contributing pack
 // alone (PPX-D5): its toolchain is the image's, so no agent pack has anything to add to it.
-func forkBuildRunJail(workspace string, b forkBuild, s captureStreams, color bool) int {
-	return runCaptureJail(workspace, b.Fork.Bin, buildJailArgv(b.Fork, b.buildLine()),
-		&captureSeal{only: sealPacks(b.Fork), tree: sealTree(b.Fork)}, s, color)
+//
+// on, at most one, is what its caller decided of the jail (captureAct), as runCaptureJail takes it.
+func forkBuildRunJail(workspace string, b forkBuild, s captureStreams, color bool, on ...captureAct) int {
+	seal := &captureSeal{only: sealPacks(b.Fork), tree: sealTree(b.Fork)}
+	if b.Series == nil && !b.Fork.IsTree() {
+		seal.build, seal.id = b.buildLine(), b.id()
+	}
+	return runCaptureJail(workspace, b.Fork.Bin, buildJailArgv(b.Fork, b.buildLine()), seal, s, color, on...)
 }
 
 // sealPacks are the packs a build jail's selection is narrowed to: a fork and its base, or a
@@ -1069,14 +1101,41 @@ func treeAdmitProblem(m *capture.Manifest, f packload.Fork) string {
 			"path in every jail and at the host, where such a reference breaks; have the build leave "+
 			"relative paths", m.Home, strings.Join(sampleOf(refs, 3), ", "))
 	}
-	return linksIntoTheBuild(m)
+	// A tree's build runs in a container build jail alone: macos-user builds no patched extension.
+	return linksIntoTheBuild(m, containerWorkspace)
+}
+
+// forkBuildWorkspace is the workspace of the build whose id is id, at the path the build itself ran
+// in, by the runtime its jail boots with: /workspace in a container build jail, and on macos-user the
+// build's staging tree (macosuser.ForkBuildStagingRoot), which its home and its checkout are both in.
+func forkBuildWorkspace(rt, id string) string {
+	if rt == "macos-user" {
+		return macosuser.ForkBuildStagingRoot("", id)
+	}
+	return containerWorkspace
+}
+
+// forkBuildPlatform is the platform a build jail booted with rt makes a build for: darwin on this
+// machine's architecture under macos-user (FP-D24), whose build runs as the sandbox account on the
+// Mac itself, and the container jail's otherwise (captureJailPlatform). A build's lock, staging and
+// hit check are keyed on it, and its receipt records the one the build reported.
+func forkBuildPlatform(rt string) string {
+	if rt == "macos-user" {
+		return "darwin/" + goruntime.GOARCH
+	}
+	return captureJailPlatform()
 }
 
 // captureSeal is what makes a capture jail a fork build's: the seal, and the packs entries the
 // selection is narrowed to — and, for a patched extension's build, the extension's name (tree),
 // which the jail is told (run.Options.SealedTree). nil for `yolo capture` of an installer, which
 // keeps today's jail.
+//
+// build and id are a PLAIN fork's build line and its build's id, which the macos-user arm runs
+// itself (FP-D24: macosuser.RunForkBuildAct), since it has no container to run buildJailArgv in.
+// Both "" for a patched fork's or a patched extension's build, which that arm still refuses.
 type captureSeal struct {
-	only []string
-	tree string
+	only      []string
+	tree      string
+	build, id string
 }

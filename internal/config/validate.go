@@ -96,6 +96,7 @@ func ValidateConfig(config *jsonx.OrderedMap, workspace string, resolver Loophol
 	validateLSPServers(config, errs)
 	validateMCPPresets(config, errs)
 	validateMCPServers(config, errs)
+	validatePackMCPServers(errs)
 	validateProviders(config, workspace, errs, warns)
 	validateAgentProfilesRetired(config, errs, warns)
 	validateUseProfilesRetired(config, errs, warns)
@@ -547,11 +548,11 @@ func validateHostApplyOnLaunch(config *jsonx.OrderedMap, workspace string, errs 
 // validateHostManagement shape-checks the `host_management` ownership declaration
 // (docs/design/config-ownership-and-promotion.md §4.2).
 //
-// NOT a boolean, unlike its two neighbours, and the difference is the ruling rather than a
-// style choice: OQ-CO1 kept THREE values because `assert` is shipped behavior with real
-// users, so collapsing the key to on/off would be either a regression or a forced escalation
-// to `own`. The accepted set comes from KnownHostManagements, so the schema and the message
-// cannot drift.
+// A string rather than a boolean, though it has two values since `assert` was retired
+// (config-ownership-and-promotion.md §4.5, OQ-CO14): a config still spelling `"assert"` is
+// refused with a message of its own (hostManagementProblem), which a boolean could not have
+// told apart from a typo. The accepted set comes from KnownHostManagements, so the schema and
+// the message cannot drift.
 //
 // The scope half is the same defense-in-depth `host_apply_on_launch` takes, and the claim it
 // guards is the largest of the four: the key decides whether yolo may write the real $HOME at
@@ -1180,6 +1181,19 @@ func validateMCPServers(config *jsonx.OrderedMap, errs *[]string) {
 			sort.Strings(names)
 			add(errs, fmt.Sprintf("config.mcp_servers: multiple servers declare provides %q (%s). Ambiguous capability resolution.", capName, strings.Join(names, ", ")))
 		}
+	}
+}
+
+// validatePackMCPServers refuses an MCP server name two selected packs ship (packdecl.KindMCP is
+// sole-owned by server name): the composed mcp_servers table is keyed by it, so the composer's
+// later-wins rule would hand every agent one pack's server under a name the other pack also
+// claims, with nothing said. The selection is the user scope's (resolveSelectedPacks, the one
+// validation reserves names for), so the launch and `yolo check` refuse alike; a selection that
+// cannot be read refuses nothing here, its own failure being louder elsewhere.
+func validatePackMCPServers(errs *[]string) {
+	packs, _ := resolveSelectedPacks()
+	for _, msg := range packload.MCPNameCollisions(packs) {
+		add(errs, "config.packs: "+msg)
 	}
 }
 

@@ -103,6 +103,12 @@ var packMatrix = []packCase{
 			"DECLARE which platforms its vendor publishes for (only the `service` kind " +
 			"carries `platforms`), so an arm64 Linux jail selecting this pack tries the " +
 			"install and gets the vendor's error instead of yolo declining with a reason"},
+	// NOT AN AGENT: an MCP server program. It renders no config surface of its own (its `mcp`
+	// entry lands in each agent's), so the file asserted is the `files` tree its entry runs,
+	// which names the program it finds.
+	{pack: "chrome-devtools", binary: "chrome-devtools-mcp", versionArg: "--version",
+		configRel: ".local/share/yolo-chrome-devtools/chrome-devtools-mcp-wrapper",
+		marker:    "chrome-devtools-mcp"},
 }
 
 // TestPackMatrixCoversEveryShippedProgram is the forcing function this file spent its whole

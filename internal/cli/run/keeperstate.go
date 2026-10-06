@@ -27,8 +27,11 @@ package run
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
+	"io"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"syscall"
@@ -131,6 +134,29 @@ type keeperRecord struct {
 	// saw them (keeperwatch.go, JL-D19): the keeper rewrites the record as each is seen, and an
 	// arrival prints them (noteServicesDown).
 	Down []keeperServiceDown `json:"down,omitempty"`
+
+	// THE ROSTER'S HALF (docs/design/jail-lifetime-last-session-wins.md §9.9.4, JL-D38, JL-D45). At
+	// macos-user the start record IS the roster: what the keeper of a key started and where, so a
+	// joining launch composes against it and starts nothing of its own. Every field below is empty in
+	// a container jail's record. Contract is the roster's format version (keeperRosterContract): a
+	// joiner reads only one it knows. Ready is set once every service listens and the record names
+	// them all, Ending once the keeper began its teardown, after which no arrival joins it.
+	Contract        int               `json:"contract,omitempty"`
+	Notch           string            `json:"notch,omitempty"`
+	Build           string            `json:"build,omitempty"`
+	Ready           bool              `json:"ready,omitempty"`
+	Ending          bool              `json:"ending,omitempty"`
+	Services        []string          `json:"services,omitempty"`
+	Endpoints       map[string]string `json:"endpoints,omitempty"`
+	CallerTokens    map[string]string `json:"caller_tokens,omitempty"`
+	ServedAddresses map[string]string `json:"served_addresses,omitempty"`
+	Doorways        []keeperHeld      `json:"doorways,omitempty"`
+	LaunchServices  []keeperHeld      `json:"launch_services,omitempty"`
+	// Grant is the --with-credentials grant the jail was launched with, NAMES ONLY (jailGrant's
+	// exported fields; its values are unexported and never encoded), nil for a jail launched with
+	// none. An attach reads it to say what its session holds and to refuse a request the jail
+	// does not hold (refuseGrantTheJailLacks, ES-D33).
+	Grant *jailGrant `json:"grant,omitempty"`
 }
 
 // keeperRecordPath is cname's start record.
@@ -306,6 +332,14 @@ func (o *Options) probeAfterQuit(cname string) (quitState, quitLocks) {
 
 // probeAfterQuitWithin is probeAfterQuit looking again for nobody's hold only until wait runs out,
 // quitUnknown after it. A wait of 0 reads the lock once.
+//
+// A KEEPER CAN BE GONE BEFORE THE FIRST LOOK. Nobody holding the session lock is the keeper not yet
+// having taken it, or the keeper having taken it, ended and let it go already, which a keeper at
+// macos-user does in a few milliseconds: it holds no container, so its teardown is its own services'
+// stops. So each look that finds nobody asks the liveness lock again, and a keeper found gone is
+// read as a probe begun then reads it (quitAtGoneKeeper), except that one whose record is gone too
+// finished its teardown, which its log holds: the last session's (quitLast). Read only once, at
+// the start, the last session of a key whose keeper was that fast said it could not tell.
 func (o *Options) probeAfterQuitWithin(cname string, wait time.Duration) (quitState, quitLocks) {
 	live, err := holdLivenessLock(cname)
 	switch {
@@ -314,16 +348,7 @@ func (o *Options) probeAfterQuitWithin(cname string, wait time.Duration) (quitSt
 	case err != nil:
 		return quitUnknown, quitLocks{}
 	default:
-		if _, era := o.keeperEra(cname); !era {
-			releaseLock(live)
-			return quitNoKeeper, quitLocks{}
-		}
-		sessions, ok := tryExclusiveSessionLock(cname)
-		if !ok {
-			releaseLock(live)
-			return quitUnkeptOthers, quitLocks{}
-		}
-		return quitUnkeptLast, quitLocks{liveness: live, sessions: sessions.f}
+		return o.quitAtGoneKeeper(cname, live, false)
 	}
 	deadline := time.Now().Add(wait)
 	for {
@@ -341,11 +366,65 @@ func (o *Options) probeAfterQuitWithin(cname string, wait time.Duration) (quitSt
 		case heldUnknown:
 			return quitUnknown, quitLocks{}
 		}
+		live, err := holdLivenessLock(cname)
+		switch {
+		case err == nil:
+			return o.quitAtGoneKeeper(cname, live, true)
+		case !errors.Is(err, errKeeperAlive):
+			return quitUnknown, quitLocks{}
+		}
 		if !time.Now().Before(deadline) {
 			return quitUnknown, quitLocks{}
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
+}
+
+// quitAtGoneKeeper is a quitting session's answer once it holds cname's liveness lock, live: no keeper
+// is alive. A key with no record of a keeper is one that never had one (quitNoKeeper), or, when
+// wasAlive says a keeper held the lock when the probe began, one whose keeper finished its teardown
+// (quitLast). A record is a keeper that died (keeperEra): its roster is marked ending first
+// (markKeyEnding), and the session lock decides between the reap (quitUnkeptLast, both locks held
+// for it) and the other sessions that remain (quitUnkeptOthers).
+func (o *Options) quitAtGoneKeeper(cname string, live *os.File, wasAlive bool) (quitState, quitLocks) {
+	rec, era := o.keeperEra(cname)
+	if !era {
+		releaseLock(live)
+		if wasAlive {
+			return quitLast, quitLocks{}
+		}
+		return quitNoKeeper, quitLocks{}
+	}
+	markKeyEnding(cname, rec.PID)
+	sessions, ok := tryExclusiveSessionLock(cname)
+	if !ok {
+		releaseLock(live)
+		return quitUnkeptOthers, quitLocks{}
+	}
+	return quitUnkeptLast, quitLocks{liveness: live, sessions: sessions.f}
+}
+
+// markKeyEnding marks key's roster ending while it still names the keeper pid, and only a roster: a
+// container jail's start record is left as it is. It is what a REAPER writes first once it holds a
+// dead keeper's liveness lock (a quitting session's probe, `yolo stop`): an arrival that finds that
+// lock held cannot tell the reaper from a keeper, and it reads the roster only once it has counted
+// itself (arriveMacosUser), so it then waits for the reap, as for a keeper's own teardown, instead of
+// joining services that are gone (JL-D44).
+func markKeyEnding(key string, pid int) {
+	rec, ok := readKeeperRecord(key)
+	if !ok || rec.PID != pid || rec.Notch == "" || rec.Ending {
+		return
+	}
+	rec.Ending = true
+	_ = writeKeeperRecord(key, rec)
+}
+
+// keeperRosterPresent reports whether key's roster file exists, whether or not it can be read: an
+// arrival waits for a keeper whose roster is gone (one finishing, which removes it before it lets
+// its liveness lock go) and refuses only one whose roster is there and unreadable.
+func keeperRosterPresent(key string) bool {
+	_, err := os.Lstat(keeperRecordPath(key))
+	return err == nil || !errors.Is(err, os.ErrNotExist)
 }
 
 // sessionLockHolder is who holds a jail's session lock, as non-blocking takes read it.
@@ -416,4 +495,232 @@ func keeperDraining(cname string) bool {
 	}
 	_ = syscall.Flock(int(f.Fd()), syscall.LOCK_UN)
 	return false
+}
+
+// A KEY (docs/design/jail-lifetime-last-session-wins.md §1.1, JL-D37) is what one keeper holds:
+// a container jail's name at a container backend, and the workspace's container name with the
+// notch appended at macos-user, so one workspace can have a jail, a macos-user key and a guest
+// key at once, each with its own liveness lock, session lock, arrival lock, log and record. A
+// container name never holds a dot (runtime.FromWorkspace), so no key is another's.
+const (
+	// keeperNotchMacosUser is the macos-user backend at the jail notch, and keeperNotchGuest the
+	// same backend at the guest notch: a key never spans two notches, since what its sessions share
+	// would carry from the more confined to the less (JL-D37).
+	keeperNotchMacosUser = "macos-user"
+	keeperNotchGuest     = "guest"
+)
+
+// macosUserKeeperNotches are the keys a workspace's macos-user sessions can hold, in the order
+// `yolo stop` ends them.
+var macosUserKeeperNotches = []string{keeperNotchMacosUser, keeperNotchGuest}
+
+// keeperKey is the key a keeper of cname's workspace at notch holds: cname itself for a container
+// jail (notch ""), and cname.notch otherwise.
+func keeperKey(cname, notch string) string {
+	if notch == "" {
+		return cname
+	}
+	return cname + "." + notch
+}
+
+// keeperRosterContract is the roster's format version (JL-D45): what its fields mean and which
+// token variables they name. A keeper of another build that writes the same version is joined, and
+// the joiner says it runs another build; one that writes a version this build does not know is
+// refused. Raise it whenever a field changes meaning, never when one is only added.
+const keeperRosterContract = 1
+
+// arrivalLockPath is a key's ARRIVAL LOCK (JL-D37): the lock an arrival at macos-user takes to
+// probe the key's keeper and count itself, which plays the launch lock's part at a container
+// (§4.2). The fresh launch hands it to the keeper, which lets it go once its roster is written.
+func arrivalLockPath(key string) string {
+	return filepath.Join(paths.GlobalStorage(), "locks", key+".arrival")
+}
+
+// THE SESSION RECORDS (JL-D44): each macos-user session of a key names itself in a file of its own,
+// so a refused arrival can name the sessions still running and `yolo stop` can signal them. They
+// never count: the session lock does (JL-D2). A record is LIVE while its session holds the flock on
+// it, which the kernel drops however the session dies, so a SIGKILLed session's record reads stale
+// with no pid or start time to compare (an implementation decision recorded as JL-D87, the shape
+// JL-D84's macos-user session records took first). EVERY session writes one, a launch that plans
+// nothing a keeper holds included (JL-D42), so `yolo stop` ends it too; such a session's record says
+// it is not KEPT, and the lines that name or count a keeper's sessions read only the kept ones
+// (keptSessions).
+
+// keyedSessionsDir is the directory key's session records live in, in host state no jail mounts.
+func keyedSessionsDir(key string) string {
+	return filepath.Join(paths.GlobalStorage(), "locks", key+".session-records")
+}
+
+// keyedSession is one live session of a key, as its record names it.
+type keyedSession struct {
+	PID     int       `json:"pid"`
+	Started time.Time `json:"started"`
+	// Kept is set for a session of the key's keeper, one that joined it or started it, and unset for
+	// a launch that planned nothing a keeper holds and runs with none (JL-D42).
+	Kept bool `json:"kept,omitempty"`
+	path string
+}
+
+// keptSessions is the sessions of sessions that are the keeper's (keyedSession.Kept).
+func keptSessions(sessions []keyedSession) []keyedSession {
+	var out []keyedSession
+	for _, s := range sessions {
+		if s.Kept {
+			out = append(out, s)
+		}
+	}
+	return out
+}
+
+// keyedSessionRecordPending is a record's name between its creation and its flock, which no
+// reader reads (servicessession.go's reason for its own lock).
+const keyedSessionRecordPending = ".pending"
+
+// openKeyedSessionRecord writes this session's record into key's directory, holding its flock
+// for as long as the returned file stays open: created under a pending name, locked, written, and
+// only then renamed to its final name, so a reader never finds it unlocked. kept is the record's
+// keyedSession.Kept.
+func openKeyedSessionRecord(key string, pid int, started time.Time, kept bool) (*os.File, error) {
+	dir := keyedSessionsDir(key)
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return nil, err
+	}
+	f, err := os.CreateTemp(dir, strconv.Itoa(pid)+".*"+keyedSessionRecordPending)
+	if err != nil {
+		return nil, err
+	}
+	fail := func(err error) (*os.File, error) {
+		_ = f.Close()
+		_ = os.Remove(f.Name())
+		return nil, err
+	}
+	if err := flockSyscall(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
+		return fail(err)
+	}
+	body, err := json.Marshal(keyedSession{PID: pid, Started: started, Kept: kept})
+	if err != nil {
+		return fail(err)
+	}
+	if _, err := f.Write(append(body, '\n')); err != nil {
+		return fail(err)
+	}
+	final := strings.TrimSuffix(f.Name(), keyedSessionRecordPending) + ".json"
+	if err := os.Rename(f.Name(), final); err != nil {
+		return fail(err)
+	}
+	return f, nil
+}
+
+// closeKeyedSessionRecord removes this session's record, then lets its flock go. A nil file is a
+// no-op.
+func closeKeyedSessionRecord(f *os.File) {
+	if f == nil {
+		return
+	}
+	_ = os.Remove(strings.TrimSuffix(f.Name(), keyedSessionRecordPending) + ".json")
+	_ = f.Close()
+}
+
+// liveKeyedSessions is every session of key whose record is still held, oldest first. A record
+// nobody holds is a session that ended without removing it, and is removed here while it is still
+// the file at its path; one that cannot be opened or read is left, and is not named.
+func liveKeyedSessions(key string) []keyedSession {
+	matches, _ := filepath.Glob(filepath.Join(keyedSessionsDir(key), "*.json"))
+	var out []keyedSession
+	for _, path := range matches {
+		f, err := os.Open(path)
+		if err != nil {
+			continue
+		}
+		err = flockSyscall(int(f.Fd()), syscall.LOCK_SH|syscall.LOCK_NB)
+		if err == nil {
+			held, herr := f.Stat()
+			atPath, perr := os.Lstat(path)
+			if herr == nil && perr == nil && os.SameFile(held, atPath) {
+				_ = os.Remove(path)
+			}
+			_ = f.Close()
+			continue
+		}
+		var s keyedSession
+		data, rerr := io.ReadAll(io.LimitReader(f, 4096))
+		_ = f.Close()
+		if !errors.Is(err, syscall.EWOULDBLOCK) && !errors.Is(err, syscall.EAGAIN) {
+			continue
+		}
+		if rerr != nil || json.Unmarshal(data, &s) != nil || s.PID <= 0 {
+			continue
+		}
+		s.path = path
+		out = append(out, s)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Started.Before(out[j].Started) })
+	return out
+}
+
+// sessionsThat words sessions as the subject of a clause whose verb agrees with them: one is the
+// verb for a single session and many for any other count, as in "1 session (pid 4242, since
+// 09:14:03) still runs" and "2 sessions (…; …) still run". With none, which a count held by sessions
+// that could not record themselves leaves, it names them as unnamed: "sessions yolo cannot name
+// still run".
+func sessionsThat(sessions []keyedSession, one, many string) string {
+	if len(sessions) == 0 {
+		return "sessions yolo cannot name " + many
+	}
+	var parts []string
+	for _, s := range sessions {
+		parts = append(parts, fmt.Sprintf("pid %d, since %s", s.PID, s.Started.Format("15:04:05")))
+	}
+	return fmt.Sprintf("%d %s (%s) %s", len(sessions), plural(len(sessions), "session", "sessions"),
+		strings.Join(parts, "; "), plural(len(sessions), one, many))
+}
+
+// keeperGrantedPath is the record of the endpoint files of key's keeper a session's stage has
+// granted the sandbox account (§9.9.5): a joiner grants only a file it does not find here.
+func keeperGrantedPath(key string) string {
+	return filepath.Join(ownerPIDDir(), key+".granted")
+}
+
+// readKeeperGranted is the set the record names, empty when there is none.
+func readKeeperGranted(key string) map[string]bool {
+	data, err := os.ReadFile(keeperGrantedPath(key))
+	out := map[string]bool{}
+	if err != nil {
+		return out
+	}
+	for _, line := range strings.Split(string(data), "\n") {
+		if line = strings.TrimSpace(line); line != "" {
+			out[line] = true
+		}
+	}
+	return out
+}
+
+// recordKeeperGranted adds paths to the record, replacing it whole.
+func recordKeeperGranted(key string, paths []string) {
+	have := readKeeperGranted(key)
+	for _, p := range paths {
+		have[p] = true
+	}
+	lines := make([]string, 0, len(have))
+	for p := range have {
+		lines = append(lines, p)
+	}
+	sort.Strings(lines)
+	if err := os.MkdirAll(ownerPIDDir(), 0o755); err != nil {
+		return
+	}
+	tmp, err := os.CreateTemp(ownerPIDDir(), "."+key+".granted.*")
+	if err != nil {
+		return
+	}
+	_, werr := tmp.WriteString(strings.Join(lines, "\n") + "\n")
+	if cerr := tmp.Close(); werr != nil || cerr != nil {
+		_ = os.Remove(tmp.Name())
+		return
+	}
+	_ = os.Chmod(tmp.Name(), 0o600)
+	if err := os.Rename(tmp.Name(), keeperGrantedPath(key)); err != nil {
+		_ = os.Remove(tmp.Name())
+	}
 }

@@ -55,6 +55,10 @@ type ContextMount struct {
 	ReadWrite bool
 	// Pack names the pack whose `mount` grant this is; "" for a config `mounts` element.
 	Pack string
+	// Copied is true for a pack's single-file `mount` that macos-user COPIES into the context
+	// dir at launch instead of linking (docs/design/context-mounts.md CX-D25): the agent reads a
+	// snapshot, and a host edit arrives at the next launch, which the entry says.
+	Copied bool
 }
 
 // BriefingInput carries everything the jail-managed briefing content depends
@@ -143,9 +147,10 @@ type BriefingInput struct {
 	Mechanism string
 
 	// IsMacOS is the platform the launch runs ON, used for the one answer no mechanism
-	// carries: a `guest` notch has no backend of its own yet (env-manager Phase 7), so
-	// the platform picks between the Seatbelt and the Landlock spelling of that preset.
-	// Every other combination is decided by Mechanism and ignores this.
+	// carries: a `guest` notch whose caller resolved no mechanism. A macOS guest launch
+	// passes Mechanism "macos-user", which decides it (env-manager plan Phase 7.1); a
+	// Linux guest has no backend (Phase 7.2), so the platform picks the Landlock spelling
+	// of that preset. Every other combination is decided by Mechanism and ignores this.
 	IsMacOS bool
 
 	// Home is the agent's home directory. Empty means `/home/agent`, the container
@@ -236,9 +241,10 @@ func (in BriefingInput) configName() string {
 // the config. So `container` prints the VM, and a NATIVE runtime (macos-user) prints the
 // macOS guest vector — a separate user plus Seatbelt is what that backend composes by
 // definition, and it is the guest notch by another name (no container, no image) whatever
-// the notch is called. isMacOS decides only the guest variant no mechanism names: a `guest`
-// notch has no backend of its own yet (env-manager Phase 7), so the platform's spelling is
-// the best available answer.
+// the notch is called. isMacOS decides only the guest variant no mechanism names: a macOS
+// guest launch names macos-user (env-manager plan Phase 7.1), so this is a reader that
+// resolved no mechanism, or a Linux guest, which has no backend (Phase 7.2) — and the
+// platform's spelling is the best available answer for both.
 //
 // KindUnset FAILS CLOSED, to the host preset — no primitives, autonomy OFF. The briefing
 // reaches this with an unresolvable notch name (config validation rejects one, so getting
@@ -306,7 +312,7 @@ func MechanismHasNoContainer(mechanism string) bool {
 // generated sentence would say "this is the human's REAL machine" as usefully — but the
 // two facts an agent most needs are DERIVED: which primitives actually enforce the
 // boundary, and whether agent autonomy is on. That is what makes the header correct for a
-// notch nobody has enumerated yet (a Linux `guest`, whatever Phase 7 lands): an unrecognized
+// notch nobody has enumerated yet (a Linux `guest`, whatever Phase 7.2 lands): an unrecognized
 // name falls to the default branch and still describes its real enforcement vector instead
 // of asserting a container that may not be there. Same argument that motivated
 // render.KindGuest — a new notch should be a question the code asks, not a branch it
@@ -353,19 +359,32 @@ func confinementHeader(confinement, mechanism string, isMacOS bool) []string {
 			"`/tmp` is this machine's own: it survives an agent restart but may not survive a reboot; put worktrees you need later inside the repository or beside it.",
 		}, enforcementLines(prof)...)
 	case known && notch == render.KindGuest:
-		return append([]string{
+		lines := []string{
 			"# YOLO Environment — guest",
 			"",
 			"You are running at the **guest** confinement level: a restricted account on the",
 			"real machine, NOT a disposable container.",
 			"Your home is real and persists; there is no image and no jail to restart.",
-		}, enforcementLines(prof)...)
+		}
+		if noContainer {
+			// THE MACOS GUEST, which is the macos-user backend (env-manager plan Phase 7.1,
+			// EMP-D1): one account for every workspace on the machine. The same fact the
+			// jail-without-a-container branch below states, in the same words, because it
+			// is the same backend reached by the other notch — and an agent told only that
+			// its home is real would read the whole of it as its own.
+			lines = append(lines,
+				"The account is shared by every workspace on this machine; the state directories",
+				"your packs declare at `scope: workspace` are linked into THIS workspace's own",
+				"sidecar, and anything else you write in the home is not yours alone.")
+		}
+		return append(lines, enforcementLines(prof)...)
 	case known && notch == render.KindJail && noContainer:
 		// THE JAIL NOTCH WITHOUT A CONTAINER. macos-user runs at `confinement: jail`
-		// — the notch dial is a separate axis from the runtime, and `guest` is not
-		// wired yet — but there is no container anywhere in it: the boundary is a
-		// Seatbelt profile around a real account whose home persists and is shared by
-		// every workspace on the machine.
+		// as well as at `guest` — the notch dial is a separate axis from the runtime,
+		// and `runtime: "macos-user"` with no `confinement` key is the jail notch — but
+		// there is no container anywhere in it: the boundary is a Seatbelt profile around
+		// a real account whose home persists and is shared by every workspace on the
+		// machine.
 		//
 		// The header below said "a sandboxed container" there until 2026-09-04, which
 		// is the same dangerous falsehood the default branch was rewritten to avoid,
@@ -597,8 +616,24 @@ func BriefingContent(in BriefingInput) string {
 	// scoped to the jail: wherever the host nix daemon is mounted the jail runs with
 	// NIX_REMOTE=daemon, so a `nix build` runs in the daemon's builders on the host, which
 	// no process here started (docs/design/io-priority.md §2, Non-Goal 6).
+	//
+	// ON macos-user THE MECHANISM IS ANOTHER ONE, and so is every word after the value: the
+	// launcher sets a macOS disk I/O policy on itself and the session inherits it
+	// (docs/design/io-priority.md §5.5). There is no Linux class, no scheduler to name and no
+	// entrypoint boot, so the Linux sentence would be three false claims in a row; this one
+	// names the policy and keeps the two that hold everywhere: advisory, and the host nix
+	// daemon's builds are outside it.
 	var ioPriorityLine []string
-	if p := ioprio.Priority(in.IOPriority); p.Declared() {
+	if p := ioprio.Priority(in.IOPriority); p.Declared() && slices.Contains(paths.NativeRuntimes, in.Mechanism) {
+		pol, _ := p.DarwinPolicy()
+		ioPriorityLine = []string{
+			"- **Disk I/O priority**: `" + in.IOPriority + "` (" + ioprio.DarwinPolicyName(pol) + "), " +
+				"the macOS disk I/O policy the launcher set before this session started, so every " +
+				"process here inherits it and builds yield the disk under contention. Advisory, not a " +
+				"limit: a process can set its own, and work a host process does for the session is " +
+				"outside it: a `nix build` through the host nix daemon keeps the host's policy.",
+		}
+	} else if p.Declared() {
 		ioPriorityLine = []string{
 			"- **Disk I/O priority**: `" + in.IOPriority + "` (" + p.ClassName() + "), set on every " +
 				"process in this jail at boot so builds here yield the disk under contention. " +
@@ -791,11 +826,18 @@ func BriefingContent(in BriefingInput) string {
 		lines = append(lines, "## Additional Context Mounts", "",
 			"Host directories mounted into this jail. `$"+paths.ContextDirEnv+"` is `"+ctxDir+"` here.",
 			"")
-		anyRW := false
+		anyRW, anyLinked, anyCopied := false, false, false
 		for _, m := range in.ContextMounts {
 			mode := "read-only"
 			if m.ReadWrite {
 				mode, anyRW = "read-write", true
+			}
+			// A COPY IS A SNAPSHOT, and the entry says so where the agent reads it: the bytes it
+			// opens are the host file as it was at launch, not the host file.
+			if m.Copied {
+				mode, anyCopied = mode+"; copied at launch; host edits arrive at the next launch", true
+			} else {
+				anyLinked = true
 			}
 			entry := "- `" + m.Path + "` (" + mode + "; host `" + m.Host + "`"
 			if m.Pack != "" {
@@ -813,9 +855,16 @@ func BriefingContent(in BriefingInput) string {
 		// namespace: each entry is a link to the host folder itself, so a tool that resolves
 		// paths reports the host's, and the sandbox account's file permissions apply below the
 		// folder, which a container's root would have read past.
-		if MechanismHasNoContainer(in.Mechanism) {
+		//
+		// A copied entry is not a link, so the sentence leaves it out by name when both kinds are
+		// listed, and is not said at all when every entry is a copy.
+		if MechanismHasNoContainer(in.Mechanism) && anyLinked {
+			each := "Each is a link"
+			if anyCopied {
+				each = "Each one not copied is a link"
+			}
 			lines = append(lines, "",
-				"Each is a link to the host folder itself, not a mount: `pwd -P`, `realpath` and",
+				each+" to the host folder itself, not a mount: `pwd -P`, `realpath` and",
 				"git print the host path, and a subfolder this account may not read stays",
 				"unreadable here (`Permission denied`).")
 		}
@@ -865,14 +914,22 @@ func BriefingContent(in BriefingInput) string {
 //
 // IT BRANCHES BECAUSE THE SECOND HALF IS FALSE OFF-CONTAINER, which the `## Environment` fix
 // above did not reach: it told every agent to request a "container-limit change" by editing
-// `resources`, on a backend with no container where `resources` is read and IGNORED by ruling
-// (DP-D1 — RLIMIT_AS is address space rather than RSS, RLIMIT_NPROC is per-USER and collides
-// across concurrent sessions on the shared account, both rejected by name). Instructing an
-// agent to ask its human for a limit nothing can deliver is worse than a wrong path: the human
-// grants it, the config carries it, and the cap does not exist. DP-D1's own words are the rule
-// applied here — "a cap a user believes in but that does not hold is worse than a documented
-// absence" — so the absence is NAMED rather than left as silence, the same disposition every
-// other unreadable declaration on this backend gets.
+// `resources`, on a backend with no container, where no `resources` key is a kernel cap. So the
+// native arm says what EACH key does there instead, because an agent planning around a limit
+// has to know which kind it is:
+//   - `io` is a macOS disk I/O policy the launcher sets on itself before the session starts,
+//     inherited by every process in it (docs/design/io-priority.md §5.5);
+//   - `memory` is a guard inside the sandbox that samples the session's resident memory and
+//     terminates its largest process when the total is over (macosuser/sessionguard.go). The
+//     agent whose build that guard just killed is the reader this sentence is for: told no
+//     limit exists, it would never ask its human for a bigger one;
+//   - `cpus` sets only the parallelism defaults macosuser.CooperativeCPUVars lists, which a
+//     program is free to ignore. The four names are spelled out below, because jailcontent
+//     cannot import macosuser, and a macosuser test pins them to that list;
+//   - `pids_limit` is read and IGNORED (DP-D1: RLIMIT_NPROC, its one stand-in, is per-USER and
+//     collides across concurrent sessions on the shared account). DP-D1's own words govern
+//     that one — "a cap a user believes in but that does not hold is worse than a documented
+//     absence" — so its absence is NAMED rather than left as silence.
 //
 // ⚠ `/workspace` IS KEPT ON BOTH ARMS, deliberately. The 2026-09-13 ruling made it canonical
 // and spends the Environment bullet explaining that it means the real path on a native backend;
@@ -888,9 +945,14 @@ func packagesSection(mechanism, configName string) []string {
 			"To request a tool: edit `/workspace/" + configName + "` (`packages`), ALWAYS run",
 			"`yolo check` after every config edit (`yolo check --no-build` is fine inside a",
 			"running jail), then ask the human to restart the jail. Reference: `yolo config-ref`.",
-			"⚠ `resources` is not enforced here — there is no container to cap, so a memory or",
-			"CPU limit in the config is read and ignored. Do not plan around one, and do not ask",
-			"for one: it cannot be delivered on this backend.",
+			"⚠ `resources` is not enforced here the way a container enforces it: there is no",
+			"container, so no key is a kernel cap. What each one does on this backend: `io`",
+			"lowers the session's macOS disk I/O priority; `memory` is checked by sampling (not",
+			"kernel-enforced), and when the session goes over it its largest process is",
+			"terminated — a line naming `resources.memory` says so, and if the work needs more,",
+			"ask the human to raise it; `cpus` only sets the GOMAXPROCS, CARGO_BUILD_JOBS,",
+			"RAYON_NUM_THREADS and OMP_NUM_THREADS defaults, so a program that ignores them is",
+			"not limited; and `pids_limit` is read and ignored.",
 			"",
 		}
 	}

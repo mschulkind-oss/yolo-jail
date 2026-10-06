@@ -32,10 +32,26 @@ import (
 // and which surfaces declare a `defaults` layer is a property of the shipped manifests rather than
 // of anything a fixture could invent. A hand-rolled one-surface pack would pin the mechanism while
 // leaving the real question — "does a plain `yolo host apply` converge?" — unasked.
+//
+// It leaves `host_management` UNSET, which is `none` since the `assert` retirement (OQ-CO14):
+// the host composes no config surface under it. A test about what a config surface's render
+// leaves behind takes shippedPacksFixtureUnder(t, "own").
 func shippedPacksFixture(t *testing.T) string {
 	t.Helper()
+	return shippedPacksFixtureUnder(t, "")
+}
+
+// shippedPacksFixtureUnder is shippedPacksFixture with `host_management` declared as mgmt, or
+// left unset when mgmt is "".
+func shippedPacksFixtureUnder(t *testing.T, mgmt string) string {
+	t.Helper()
 	home := t.TempDir()
-	selectPacks(t, home, `"claude","codex","copilot","opencode","pi","agy"`)
+	const shipped = `"claude","codex","copilot","opencode","pi","agy"`
+	if mgmt == "" {
+		selectPacks(t, home, shipped)
+	} else {
+		selectPacksWith(t, home, shipped, `,"host_management":"`+mgmt+`"`)
+	}
 	t.Setenv("HOME", home)
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
 	defaultReport(t)
@@ -48,7 +64,7 @@ func shippedPacksFixture(t *testing.T) string {
 // bytes inside an existing file, so anything short of content hashing reports a converged home that
 // is not one.
 func TestApplyHostIsWholeHomeIdempotent(t *testing.T) {
-	home := shippedPacksFixture(t)
+	home := shippedPacksFixtureUnder(t, "own")
 
 	if rc, report := applyWith(t, true, nil); rc != 0 {
 		t.Fatalf("first apply rc=%d\n%s", rc, report)
@@ -90,23 +106,28 @@ func TestApplyHostIsWholeHomeIdempotent(t *testing.T) {
 // The attribution is not cosmetic: `defaults` and `host` are different claims about who owns the
 // key — fill-if-absent output versus the user's own value — and every reader that asks "did yolo
 // set this?" reads exactly this file.
+//
+// THE DEFECT LIVES IN THE RMW ARM's record, so the surface is one whose pack DECLARES `rmw`:
+// copilot/config. It used to be pi/settings, when the retired `assert` read-modify-wrote every
+// surface; pi/settings declares no mode, so under `own` it composes whole through `stateful`,
+// whose record is a different writer (OQ-CO14).
 func TestApplyHostKeepsADefaultAttributedToDefaults(t *testing.T) {
-	home := shippedPacksFixture(t)
-	// pi/settings declares `theme` as a default and nothing above it claims the key, so it is the
-	// shipped surface where a fill-if-absent attribution is observable end to end.
+	home := shippedPacksFixtureUnder(t, "own")
+	// copilot/config declares `yolo` as a default and nothing above it claims the key, so it is
+	// the shipped rmw surface where a fill-if-absent attribution is observable end to end.
 	record := filepath.Join(home, ".local", "share", "yolo-jail", "host-provenance",
-		"pi-settings.provenance")
+		"copilot-config.provenance")
 
 	if rc, report := applyWith(t, true, nil); rc != 0 {
 		t.Fatalf("first apply rc=%d\n%s", rc, report)
 	}
-	if got := provenanceOf(t, record, "theme"); got != "defaults" {
-		t.Fatalf("fixture bug: the FIRST apply must attribute `theme` to defaults, got %q", got)
+	if got := provenanceOf(t, record, "yolo"); got != "defaults" {
+		t.Fatalf("fixture bug: the FIRST apply must attribute `yolo` to defaults, got %q", got)
 	}
 	if rc, report := applyWith(t, true, nil); rc != 0 {
 		t.Fatalf("second apply rc=%d\n%s", rc, report)
 	}
-	if got := provenanceOf(t, record, "theme"); got != "defaults" {
+	if got := provenanceOf(t, record, "yolo"); got != "defaults" {
 		t.Errorf("the second apply relabelled yolo's own default as %q — the key is only in the "+
 			"file because the default put it there, so `host` claims the user set a value they "+
 			"never touched", got)
@@ -115,31 +136,31 @@ func TestApplyHostKeepsADefaultAttributedToDefaults(t *testing.T) {
 
 // TestApplyHostGivesAnEditedDefaultBackToTheUser is the other half, and the reason the fix cannot
 // be "always keep saying defaults": the moment the user's value differs from the default, the key
-// IS theirs and the record must say so.
+// IS theirs and the record must say so. Same rmw surface, for the same reason.
 func TestApplyHostGivesAnEditedDefaultBackToTheUser(t *testing.T) {
-	home := shippedPacksFixture(t)
+	home := shippedPacksFixtureUnder(t, "own")
 	record := filepath.Join(home, ".local", "share", "yolo-jail", "host-provenance",
-		"pi-settings.provenance")
-	settings := filepath.Join(home, ".pi", "agent", "settings.json")
+		"copilot-config.provenance")
+	cfg := filepath.Join(home, ".copilot", "config.json")
 
 	if rc, report := applyWith(t, true, nil); rc != 0 {
 		t.Fatalf("first apply rc=%d\n%s", rc, report)
 	}
-	data, err := os.ReadFile(settings)
+	data, err := os.ReadFile(cfg)
 	if err != nil {
 		t.Fatalf("fixture bug: %v", err)
 	}
-	edited := strings.Replace(string(data), `"light/dark"`, `"solarized"`, 1)
+	edited := strings.Replace(string(data), `"yolo": true`, `"yolo": false`, 1)
 	if edited == string(data) {
-		t.Fatalf("fixture bug: the default value is not in %s:\n%s", settings, data)
+		t.Fatalf("fixture bug: the default value is not in %s:\n%s", cfg, data)
 	}
-	if err := os.WriteFile(settings, []byte(edited), 0o644); err != nil {
+	if err := os.WriteFile(cfg, []byte(edited), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	if rc, report := applyWith(t, true, nil); rc != 0 {
 		t.Fatalf("second apply rc=%d\n%s", rc, report)
 	}
-	if got := provenanceOf(t, record, "theme"); got != "host" {
+	if got := provenanceOf(t, record, "yolo"); got != "host" {
 		t.Errorf("a default the user has since CHANGED must read `host`, got %q — otherwise the "+
 			"idempotency fix hands the user's own value to yolo", got)
 	}

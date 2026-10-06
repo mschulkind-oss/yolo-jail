@@ -3,11 +3,11 @@ package run
 import (
 	"os"
 	"path/filepath"
-	"sort"
 	"strings"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
+	"github.com/mschulkind-oss/yolo-jail/internal/perside"
 )
 
 // workspaceReadonlyMountArgs builds the
@@ -130,24 +130,13 @@ func (o *Options) venvShadowMountArgs(cfg *jsonx.OrderedMap, wsState string) []s
 }
 
 // perSideShadowCandidates is the per-side shadow SET, sorted and unvalidated: `.venv` ∪
-// `node_modules` ∪ the mise-config venv path ∪ config per_side_paths. venvShadowMountArgs
-// validates and mounts it, warning about each entry it cannot shadow; the workspace skills
-// reader (perSideShadowRels) reads the same set, so the two cannot disagree about which host
-// paths the jail never sees.
+// `node_modules` ∪ the mise-config venv path ∪ config per_side_paths (perside.ShadowCandidates,
+// which the macos-user backend's disclosure reads too). venvShadowMountArgs validates and
+// mounts it, warning about each entry it cannot shadow; the workspace skills reader
+// (perSideShadowRels) reads the same set, so the two cannot disagree about which host paths the
+// jail never sees.
 func perSideShadowCandidates(cfg *jsonx.OrderedMap, workspace string) []string {
-	rels := map[string]struct{}{".venv": {}, "node_modules": {}}
-	if miseVenv, ok := MiseConfigVenvPathFromDir(workspace); ok && miseVenv != "" {
-		rels[miseVenv] = struct{}{}
-	}
-	for _, e := range cfgStrList(cfg, "per_side_paths") {
-		rels[e] = struct{}{}
-	}
-	sorted := make([]string, 0, len(rels))
-	for r := range rels {
-		sorted = append(sorted, r)
-	}
-	sort.Strings(sorted)
-	return sorted
+	return perside.ShadowCandidates(cfg, workspace)
 }
 
 // --- fs helpers used by the mount builders ---

@@ -27,6 +27,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/outfmt"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
+	"github.com/mschulkind-oss/yolo-jail/internal/perf"
 	"github.com/mschulkind-oss/yolo-jail/internal/prune"
 	"github.com/mschulkind-oss/yolo-jail/internal/runtime"
 	"github.com/mschulkind-oss/yolo-jail/internal/tty"
@@ -1134,7 +1135,9 @@ func checkOptions(args []string, errw io.Writer) (check.Options, bool) {
 }
 
 // detectListingRuntime resolves the runtime for the tolerant listing commands
-// (ps/prune): env > config `runtime` key > platform probe. Loading the config
+// (ps/prune): env > config `runtime` key > the notch's own backend > platform probe
+// (config.SelectedRuntime's order), so a macOS `confinement: "guest"` lists the
+// macos-user sessions its launches run (env-manager plan EMP-D1). Loading the config
 // is the piece `yolo ps` lacked entirely (audit finding 5). Config is loaded
 // loosely (non-strict, warnings dropped) from the given workspace; any load
 // error yields an empty config, so a malformed jsonc degrades to the platform
@@ -1142,11 +1145,7 @@ func checkOptions(args []string, errw io.Writer) (check.Options, bool) {
 func detectListingRuntime(workspace string) string {
 	cfgRT := ""
 	if cfg, err := config.LoadConfig(workspace, false, func(string) {}); err == nil && cfg != nil {
-		if v, ok := cfg.Get("runtime"); ok {
-			if s, ok := v.(string); ok {
-				cfgRT = s
-			}
-		}
+		cfgRT = config.ConfiguredRuntime(cfg, config.ResolveConfinement(cfg), paths.IsMacOS)
 	}
 	return runtime.ResolveRuntime(os.Getenv("YOLO_RUNTIME"), cfgRT, paths.IsMacOS, func(bin string) bool {
 		_, err := exec.LookPath(bin)
@@ -1205,11 +1204,6 @@ func runRun(args []string) int {
 	// The one refusal the fold used to make (a -p with no readable name) went with the heuristic
 	// that needed it — docs/reference/providers.md OQ-PT5.
 	parsed := parseRunArgs(args, &opts)
-	// A HOST-ONLY flag is named as one before the generic refusal would call it unknown: the
-	// grant exists, at `yolo host`, and the refusal says so (refuseHostOnlyFlags).
-	if refuseHostOnlyFlags(parsed, os.Stderr) {
-		return 2
-	}
 	// A value flag given no value, in the words and with the exit code `yolo host` uses for
 	// the same typo (readValueFlag, notch-convergence.md row A2).
 	if parsed.misuse != nil {
@@ -1225,15 +1219,26 @@ func runRun(args []string) int {
 	// this field is what additionally makes the report PRINT, which an inherited
 	// YOLO_VERBOSE=1 must not do (D12, docs/reference/perf-logging.md).
 	opts.Verbose = explicitVerbose()
+	// The collector is built INSIDE the pipeline, and Options crosses that seam by value, so the
+	// front door is handed it through this ref (run.PerfRef): read by the title restore below,
+	// after Run returns, and by the macos-user handler while Run runs. Unconditional, since the
+	// handler reads it whether or not a terminal indicator was set.
+	ref := &run.PerfRef{}
+	opts.PerfRef = ref
 	// Wire the macos-user native branch. run stays free of the macosuser +
 	// darwinpkg deps; the front door injects the handler. packEnv is the launch's
 	// composed profile/provider channel, which run.Run composes above the backend
-	// dispatch and passes to whichever arm runs — forwarded verbatim.
+	// dispatch and passes to whichever arm runs — forwarded verbatim. The launch's signal
+	// arm is made here and installed by Run (run.MacosUserArm), so the handler can hand the
+	// backend its session runner, the answer to "is a signal ending this launch?" and the
+	// session-start hook; and the collector, so the backend's steps are spanned on it.
+	arm := run.NewMacosUserArm()
+	opts.MacosUserArm = arm
 	opts.MacosUserRun = func(cfg *jsonx.OrderedMap, workspace string, agents, agentArgv []string,
 		repoRoot, packRoot string, homeOverlay macosuser.HomeOverlay, hostCtx macosuser.HostContext, dryRun bool,
 		packEnv *jsonx.OrderedMap, blocked []packload.BlockedTool, jailDaemons macosuser.JailDaemons) int {
 		return macosUserRun(cfg, workspace, agents, agentArgv, repoRoot, packRoot, homeOverlay,
-			hostCtx, dryRun, packEnv, blocked, jailDaemons)
+			hostCtx, dryRun, packEnv, blocked, jailDaemons, arm, ref.Log)
 	}
 	// Wire the fetched model list (docs/design/model-lists-and-pickers.md OQ-MM6): a provider no
 	// pack or config gives a list gets the region's from its platform's credential service. A
@@ -1262,6 +1267,11 @@ func runRun(args []string) int {
 	opts.AutoCapture = func(bins []string, platform string) {
 		autoCapture(bins, platform, os.Stdout, os.Stderr, colorForWriter(os.Stdout))
 	}
+	// And the macos-user launch's pick of what it stages from that store (install-capture.md
+	// hand-off H4): through the resolver the sandbox's `capture-materialize` asks, which lives
+	// in THIS package. On the launch path only, for AutoCapture's reason; a capture's own jail
+	// has no store to stage from either way (its CapturesDir is "").
+	opts.MacosUserCaptures = macosUserCaptures
 	// Wire the fork build trigger (docs/design/forked-programs-as-packs.md OQ-FP4, FP-D1): every
 	// selected fork the store holds no build of at its pin is built now, in a sealed jail, and the
 	// jail is handed each fork's store key; a patched fork's advance runs here too
@@ -1323,9 +1333,7 @@ func runRun(args []string) int {
 		// The collector is built INSIDE the pipeline, and Options crosses that
 		// seam by value — so spanning this on our own copy's Perf was spanning
 		// nil, silently, forever (Span on a nil *Log is a no-op by design). The
-		// ref is handed in so the callee can publish the collector back.
-		ref := &run.PerfRef{}
-		opts.PerfRef = ref
+		// ref above is handed in so the callee can publish the collector back.
 		defer func() {
 			sp := ref.Log.Span("process.title_restore")
 			restore()
@@ -1348,17 +1356,19 @@ func runRun(args []string) int {
 var launchRunPipeline = run.Run
 
 // macosUserRun is the run.Options.MacosUserRun seam impl: it assembles the
-// real macosuser deps (TTY proxy + native darwin nix materialize) and runs the
-// Seatbelt-sandboxed launch. repoRoot is the yolo-jail checkout root (the nix
+// real macosuser deps (the session runner of the launch's signal arm, and the
+// native darwin nix materialize) and runs the Seatbelt-sandboxed launch. repoRoot is the yolo-jail checkout root (the nix
 // build root for darwin `packages:`); the native-Go bootstrap self-execs the
 // staged yolo binary and needs no source tree. packRoot is the host-side staged
 // pack tree, which the run pipeline staged before dispatching here, and packEnv is the
-// profile/provider channel it composed before dispatching there too. macos-hardware-gated;
-// on Linux macosuser fails closed at its IsMacOS precondition (dry-run works anywhere).
+// profile/provider channel it composed before dispatching there too. arm is the launch's signal
+// arm, which Run has installed by now, and log its timing collector (nil when not recording).
+// macos-hardware-gated; on Linux macosuser fails closed at its IsMacOS precondition (dry-run
+// works anywhere).
 func macosUserRun(cfg *jsonx.OrderedMap, workspace string, agents, agentArgv []string,
 	repoRoot, packRoot string, homeOverlay macosuser.HomeOverlay, hostCtx macosuser.HostContext, dryRun bool,
-	packEnv *jsonx.OrderedMap, blocked []packload.BlockedTool, jailDaemons macosuser.JailDaemons) int {
-	runProxy := run.RunWithProxy
+	packEnv *jsonx.OrderedMap, blocked []packload.BlockedTool, jailDaemons macosuser.JailDaemons,
+	arm *run.MacosUserArm, log *perf.Log) int {
 	materialize := func(nixRoot string, packages []any) (*macosuser.Darwin, bool, error) {
 		// system "" → darwinpkg.NativeSystem(), the running platform. NOT a
 		// hardcoded aarch64-darwin: this backend is macOS-only but Macs are not
@@ -1387,8 +1397,15 @@ func macosUserRun(cfg *jsonx.OrderedMap, workspace string, agents, agentArgv []s
 			ProfilePath: pkgs.ProfilePath,
 		}, true, nil
 	}
-	return macosuser.RunMacosUser(macosLaunchDeps(runProxy, materialize),
+	return macosuser.RunMacosUser(macosUserSessionDeps(arm, log, materialize),
 		macosuser.Options{
+			// The session-start hook the run pipeline registered on its arm, run by the backend
+			// just before the session's command and on no other path.
+			OnAgentStart: arm.AgentStarting,
+			// The endpoint files of the workspace's macos-user keeper a session granted already, and the
+			// record of what this session's stage grants (run's macosUserGrants, carried by the arm).
+			SkipGrant:       arm.SkipGrant,
+			OnStaged:        arm.Staged,
 			Workspace:       workspace,
 			Config:          cfg,
 			Agents:          agents,
@@ -1450,6 +1467,23 @@ func macosLaunchDeps(runProxy func(argv []string) int,
 	deps := macosuser.RealDeps(runProxy, materialize, colorForWriter(os.Stdout))
 	deps.LockWorkspace = workspaceLockSeam
 	deps.GuestBinaries = guestBinariesSeam
+	// The account home's hold, a launch's alone for LockWorkspace's reason: none of the four
+	// `yolo macos-*` commands lays the home's links (run.HoldAccountHome says why a second
+	// workspace's launch is refused while a session holds them).
+	deps.HoldAccountHome = run.HoldAccountHome
+	return deps
+}
+
+// macosUserSessionDeps is macosLaunchDeps for one launch: the session runs under its signal arm
+// (run.MacosUserArm.RunSession, which forwards SIGTERM and SIGHUP to the session's sudo and absorbs
+// SIGINT and SIGQUIT), the backend asks the arm at each step whether a signal is ending the launch
+// (Ending), and its steps are spanned on the launch's collector. A function so the wiring can fail a
+// test, for macosLaunchDeps' reason (TestMacosUserSessionDepsAreTheArms).
+func macosUserSessionDeps(arm *run.MacosUserArm, log *perf.Log,
+	materialize func(repoRoot string, packages []any) (*macosuser.Darwin, bool, error)) macosuser.Deps {
+	deps := macosLaunchDeps(arm.RunSession, materialize)
+	deps.Ending = arm.Ending
+	deps.Perf = log
 	return deps
 }
 
@@ -1460,8 +1494,19 @@ func macosLaunchDeps(runProxy func(argv []string) int,
 // (a checkout named by YOLO_REPO_ROOT). Named, not inline, for workspaceLockSeam's reason: a
 // test can invoke the wiring.
 //
-// The same two arms, and the same "yolo-jaild present, not merely the directory" check, as the
-// container's resolveJailPrefix: a half-staged directory must build rather than stage nothing.
+// The same two arms as the container's resolveJailPrefix, and a stricter version of its
+// presence check: EVERY macosuser.GuestBinaries member present as a regular file, not merely the
+// directory or one binary, because the launch stages the whole set (StageGuestBinaryCommands).
+//
+// A PREBUILT DIR SHORT OF A MEMBER CANNOT BE BUILT PAST in a bundle, so it is refused before any
+// build, naming what is missing and how to restage. A bundle ships no Go sources
+// (stage-source-bundle.sh: THE BUNDLE IS PREBUILT, NOT SOURCE), and the flake's prebuilt branch
+// asks only whether the directory exists: with this flake the build fails at the copy of the
+// missing name, and with the older flake such a bundle carries it succeeds without it. Only a
+// source with a go.mod — a checkout, whose /bin/ is untracked and so invisible to a git flake —
+// builds past a partial dir. And a build's output is held to the same rule, since a flake source
+// older than this yolo's guest set builds a prefix without the clients; either way the launch
+// would otherwise fail at the stage copy, after its privileged steps began, naming no next step.
 func guestBinariesSeam(repoRoot string) (string, error) {
 	return resolveGuestBinaries(repoRoot, image.BuildGuestPrefix, os.Stderr)
 }
@@ -1470,20 +1515,53 @@ func guestBinariesSeam(repoRoot string) (string, error) {
 func resolveGuestBinaries(repoRoot string, build func(string, io.Writer) (string, []string),
 	stderr io.Writer) (string, error) {
 	prebuilt := macosuser.PrebuiltGuestBinDir(repoRoot)
-	if info, err := os.Stat(filepath.Join(prebuilt, macosuser.JaildName)); err == nil && info.Mode().IsRegular() {
-		return prebuilt, nil
+	shipsDir := false
+	if info, err := os.Stat(prebuilt); err == nil && info.IsDir() {
+		shipsDir = true
+		missing := missingGuestBinaries(prebuilt)
+		if len(missing) == 0 {
+			return prebuilt, nil
+		}
+		if _, err := os.Stat(filepath.Join(repoRoot, "go.mod")); err != nil {
+			return "", fmt.Errorf("the flake bundle at %s ships %s without %s, and a bundle carries "+
+				"no Go sources to build them from: it was staged before this yolo's guest set held "+
+				"them, or only half staged. Restage it: `just install` from a yolo-jail checkout, "+
+				"or reinstall yolo-jail (for Homebrew, `brew reinstall yolo-jail`)",
+				repoRoot, prebuilt, strings.Join(missing, ", "))
+		}
 	}
-	fmt.Fprintln(stderr, "Building the sandbox's in-jail binaries (.#guestPrefix) — the flake "+
-		"source ships no "+filepath.Base(prebuilt)+" of its own…")
+	why := "the flake source ships no " + filepath.Base(prebuilt) + " of its own"
+	if shipsDir {
+		why = "the checkout's " + filepath.Base(prebuilt) + " is not the whole set"
+	}
+	fmt.Fprintln(stderr, "Building the sandbox's in-jail binaries (.#guestPrefix) — "+why+"…")
 	store, tail := build(repoRoot, stderr)
 	if store == "" {
 		msg := "`nix build .#guestPrefix` failed"
 		if len(tail) > 0 {
 			msg += ":\n  " + strings.Join(tail, "\n  ")
 		}
-		return "", errors.New(msg)
+		return "", errors.New(msg + "\nFix the build above and launch again.")
 	}
-	return filepath.Join(store, "bin"), nil
+	bin := filepath.Join(store, "bin")
+	if missing := missingGuestBinaries(bin); len(missing) > 0 {
+		return "", fmt.Errorf("the `.#guestPrefix` build of %s holds no %s: that flake source predates "+
+			"this yolo's guest set. Point YOLO_REPO_ROOT at a current yolo-jail checkout, or unset it "+
+			"to build from the installed bundle", repoRoot, strings.Join(missing, ", "))
+	}
+	return bin, nil
+}
+
+// missingGuestBinaries is the macosuser.GuestBinaries members dir does not hold as a regular file,
+// in the set's order.
+func missingGuestBinaries(dir string) []string {
+	var missing []string
+	for _, name := range macosuser.GuestBinaries {
+		if info, err := os.Stat(filepath.Join(dir, name)); err != nil || !info.Mode().IsRegular() {
+			missing = append(missing, name)
+		}
+	}
+	return missing
 }
 
 const checkUsage = `Usage: yolo check [flags]

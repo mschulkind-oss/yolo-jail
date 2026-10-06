@@ -13,12 +13,14 @@ package entrypoint
 // WHY IT IS THE SWITCH THAT SETTLES IT, rather than a preference about nulls. The two
 // mechanisms disagreed about whether a null-valued key is PRESENT:
 //
-//	seed WITHOUT the key       -> `assert` writes the default   (an absent key is filled)
-//	seed with `"theme": null`  -> `assert` leaves the null      (a null-valued key is not)
+//	seed WITHOUT the key       -> `assert` wrote the default    (an absent key is filled)
+//	seed with `"theme": null`  -> `assert` left the null        (a null-valued key is not)
 //	                           -> `own` wrote the default       <- the bug
 //
-// Both halves are asserted below, in that order, so the case cannot be "fixed" by making
-// `assert` stop filling defaults. §11 (OQ-CO12) requires the switch to keep every key AND
+// `assert` is retired (OQ-CO14), but its mechanism, rmw, is not, and a home it wrote into is
+// still switched to `own`, so the baseline is that home (renderAsRetiredAssert). Both halves
+// are asserted below, in that order, so the case cannot be "fixed" by making rmw stop filling
+// defaults. §11 (OQ-CO12) requires the switch to keep every key AND
 // EVERY VALUE; a value that changes is a violation under the relaxed criterion exactly as it
 // was under the byte one — the relaxation freed FORMATTING, not values.
 //
@@ -53,8 +55,9 @@ func nullPrecedencePack(t *testing.T) *packload.Pack {
 	}}
 }
 
-// seedAndAssert writes seed into a fresh home and applies once under `assert`, returning the
-// home and the bytes that home then holds.
+// seedAndAssert writes seed into a fresh home and applies once as the retired `assert` did
+// (renderAsRetiredAssert: the subject is a home asserted into before the retirement, switched
+// to `own`), returning the home and the bytes that home then holds.
 func seedAndAssert(t *testing.T, seed string) (home, path string, asserted []byte) {
 	t.Helper()
 	home = t.TempDir()
@@ -65,9 +68,7 @@ func seedAndAssert(t *testing.T, seed string) (home, path string, asserted []byt
 	if err := os.WriteFile(path, []byte(seed), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := RenderHostPack(nullPrecedencePack(t), home, render.OwnershipAssert, false, nil, nil); err != nil {
-		t.Fatalf("the `assert` apply: %v", err)
-	}
+	renderAsRetiredAssert(t, nullPrecedencePack(t), home, nil, nil)
 	b, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatal(err)
@@ -87,13 +88,14 @@ func themeOf(t *testing.T, data []byte) (v any, present bool) {
 	return v, present
 }
 
-// FIRST HALF: what `assert` does, which is the baseline the switch has to reproduce.
-func TestAssertFillsAnAbsentDefaultButNotANullOne(t *testing.T) {
+// FIRST HALF: what the retired `assert` did — its rmw arm, which an owned host still runs for a
+// surface declaring `rmw` — which is the baseline the switch has to reproduce.
+func TestRMWFillsAnAbsentDefaultButNotANullOne(t *testing.T) {
 	t.Run("absent key: the default is written", func(t *testing.T) {
 		_, _, asserted := seedAndAssert(t, `{"zebra": 1}`)
 		v, present := themeOf(t, asserted)
 		if !present || v != "system" {
-			t.Fatalf("theme = %#v (present=%v), want \"system\" — if `assert` has stopped "+
+			t.Fatalf("theme = %#v (present=%v), want \"system\" — if rmw has stopped "+
 				"filling an absent default, the case below no longer measures a "+
 				"DISAGREEMENT between the two mechanisms and needs rewriting rather than "+
 				"deleting", v, present)

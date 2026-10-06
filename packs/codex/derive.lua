@@ -94,9 +94,10 @@ local function codexDefault(list, profile)
 end
 
 -- THE MODELS OF A MULTI-MAKER PROVIDER THIS AGENT CAN CALL. callableModels expands a provider's
--- `models` and `model_options` (for Bedrock, the declaration packs/bedrock/pack.json ships,
--- with the user's `providers.<name>` merged over it) into the ordered list of the entries this
--- agent's own client can call (docs/design/bedrock-plumbing.md OQ-BR9). Each entry declares its
+-- `models` and `model_options` (for Bedrock, the list a pack's `models` contribution or the
+-- user's `providers.<name>` supplies: packs/bedrock ships none, docs/design/model-lists-and-pickers.md
+-- MM-D32) into the ordered list of the entries this agent's own client can call
+-- (docs/design/bedrock-plumbing.md OQ-BR9). Each entry declares its
 -- maker as the `vendor` fact, and the maker is never parsed out of the id. `makers` is the set
 -- of vendors this agent's client serves, nil meaning every one, and an entry that declares no
 -- vendor (a user's string-form alias) is offered to every agent.
@@ -109,9 +110,9 @@ end
 -- call, which is the fallback OQ-BR9's ruling names: "the first model that agent can call".
 --
 -- ⚠ DUPLICATED VERBATIM in packs/claude/derive.lua, packs/codex/derive.lua,
--- packs/opencode/derive.lua and packs/pi/derive.lua, because a derive cannot load another file
--- (the sandbox has no require and no io). internal/entrypoint/bedrock_model_list_test.go fails
--- when the copies differ.
+-- packs/opencode/derive.lua and packs/pi/derive.lua, and callableModels alone in
+-- packs/copilot/derive.lua, because a derive cannot load another file (the sandbox has no
+-- require and no io). internal/entrypoint/bedrock_model_list_test.go fails when the copies differ.
 local function callableModels(p, makers)
   if type(p) ~= "table" or type(p.models) ~= "table" then return {} end
   local opts = type(p.model_options) == "table" and p.model_options or {}
@@ -498,10 +499,10 @@ yolo.derive("codex", "config", function(ctx)
     elseif codexNativeBedrock(ctx) then
       -- Bedrock through codex's own client: the built-in provider, and the model among the
       -- entries codex can call (callableModels, codexBedrockMakers), the profile's own when it
-      -- names one of them, else the list's first. yolo picks here because codex's own default
-      -- is a first-party slug, not a Bedrock id, so a session left to it would not start
-      -- (docs/design/model-lists-and-pickers.md OQ-ML2). A list with nothing codex can call
-      -- writes the provider alone, and codex resolves its own model.
+      -- names one of them, else the first of a list a pack or the user supplies. packs/bedrock
+      -- ships none (docs/design/model-lists-and-pickers.md MM-D32: "whatever defaults you get"),
+      -- so with none supplied, or nothing on it codex can call, the provider is written alone
+      -- and codex resolves its own model from its own Bedrock catalog.
       local p = ctx.providers and ctx.providers[ctx.selected_provider] or nil
       local sel = { model_provider = codexBedrockProvider }
       local model = callableModel(p, callableModels(p, codexBedrockMakers), ctx.profile, true)

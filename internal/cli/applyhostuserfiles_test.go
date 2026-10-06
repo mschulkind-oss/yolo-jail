@@ -7,6 +7,10 @@ package cli
 // and a source-bearing entry and `mise_tools` are NAMED as inert, never silently skipped. Each
 // test drives hostMain, so deleting the render, the retirement or the notch line from
 // applyHostSurveyed fails it.
+//
+// Every config that renders declares `host_management: "own"`, the one contract that writes
+// since the `assert` retirement (OQ-CO14): the unset key is `none`, and `yolo host apply`
+// refuses under it before reading a single entry.
 
 import (
 	"bytes"
@@ -39,10 +43,11 @@ func userFileRecord(home string) string {
 }
 
 func TestHostApplyWritesASourceLessHostFileAndRemovesItWhenTheEntryGoes(t *testing.T) {
-	// Under both contracts that write (`assert`, the default, and `own`), and with packs and
-	// without: host_files is a config key, not a pack kind, so an empty `packs` renders it too.
+	// Under `own`, the one contract that writes (it was also run under the retired `assert`,
+	// then the default), and with packs and without: host_files is a config key, not a pack
+	// kind, so an empty `packs` renders it too.
 	for _, tc := range []struct{ packs, contract string }{
-		{`["pi"]`, ""}, {`[]`, ""}, {`["pi"]`, `"host_management":"own",`},
+		{`["pi"]`, `"host_management":"own",`}, {`[]`, `"host_management":"own",`},
 	} {
 		packs := tc.packs
 		t.Run("packs "+packs+" "+tc.contract, func(t *testing.T) {
@@ -112,7 +117,7 @@ func TestHostApplyWritesASourceLessHostFileAndRemovesItWhenTheEntryGoes(t *testi
 }
 
 func TestHostApplyNamesSourceBearingHostFilesAndMiseToolsInert(t *testing.T) {
-	home := hostComputedHome(t, `{"packs":["pi"],
+	home := hostComputedHome(t, `{"packs":["pi"],"host_management":"own",
 		"mise_tools":{"node":"22"},
 		"host_files":[{"path":"~/.config/other/token.json","source":"~/secret.json"}]}`)
 	writeFile(t, filepath.Join(home, "secret.json"), `{"k": 1}`)
@@ -137,8 +142,9 @@ func TestHostApplyNamesSourceBearingHostFilesAndMiseToolsInert(t *testing.T) {
 
 // `yolo config render --at host` previews the entry host apply writes (item 23's byte-for-byte
 // rule, extended to the user's surfaces): the preview holds the entry's content and managed key.
+// Under `own`, since under the unset key (`none`) host apply writes nothing to preview.
 func TestConfigRenderAtHostPreviewsASourceLessHostFile(t *testing.T) {
-	hostComputedHome(t, `{"packs":[],
+	hostComputedHome(t, `{"packs":[],"host_management":"own",
 		"host_files":[{"path":"~/`+userFileRel+`","content":"{\"theme\": \"dark\"}",
 		               "managed":{"telemetry": false}}]}`)
 	rc, out, errs := runConfigVerb(t, "render", "user", "--at", "host")
@@ -150,13 +156,19 @@ func TestConfigRenderAtHostPreviewsASourceLessHostFile(t *testing.T) {
 // `yolo host apply --revert` withdraws a host_files entry's keys by the same record and walk a
 // pack surface's go by, even while the entry is still declared: a revert is the user taking yolo
 // out of their files.
+//
+// The apply runs under `own` and the revert under `none`, the order the ruling gives (OQ-CO14):
+// a revert is refused under `own`, whose next apply would compose the keys straight back, and
+// runs under `none` on the record the owned apply left.
 func TestHostApplyRevertWithdrawsAHostFile(t *testing.T) {
-	home := hostComputedHome(t, `{"packs":[],
-		"host_files":[{"path":"~/`+userFileRel+`","managed":{"telemetry": false}}]}`)
+	const entry = `"host_files":[{"path":"~/` + userFileRel + `","managed":{"telemetry": false}}]`
+	home := hostComputedHome(t, `{"packs":[],"host_management":"own",`+entry+`}`)
 	writeFile(t, filepath.Join(home, userFileRel), `{"mine": 1}`)
 	if rc, report := hostApplyRun(t, true); rc != 0 {
 		t.Fatalf("assert rc=%d\n%s", rc, report)
 	}
+	writeFile(t, filepath.Join(home, ".config", "yolo-jail", "config.jsonc"),
+		`{"packs":[],"host_management":"none",`+entry+`}`)
 	var out, errw bytes.Buffer
 	if rc := hostMain([]string{"apply", "--revert", "--assert"}, &out, &errw, false, nil); rc != 0 {
 		t.Fatalf("revert rc=%d\n%s%s", rc, out.String(), errw.String())

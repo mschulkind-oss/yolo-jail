@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
+	"github.com/mschulkind-oss/yolo-jail/internal/macosuser"
 	"github.com/mschulkind-oss/yolo-jail/internal/packdecl"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 )
@@ -50,7 +51,7 @@ func workspaceStatePack(t *testing.T) *packload.Pack {
 // the reader to skip it.
 func TestBackendLimitsAreEmptyForContainerBackends(t *testing.T) {
 	for _, rt := range []string{"podman", "container"} {
-		if got := backendLimits(rt, []*packload.Pack{limitPack(t)}, jsonx.NewOrderedMap()); len(got) != 0 {
+		if got := backendLimits(rt, []*packload.Pack{limitPack(t)}, jsonx.NewOrderedMap(), nil); len(got) != 0 {
 			t.Errorf("%s: got %d limits, want none: %v", rt, len(got), got)
 		}
 	}
@@ -60,7 +61,7 @@ func TestBackendLimitsAreEmptyForContainerBackends(t *testing.T) {
 // launch to stderr, where the human reads it and the agent never does.
 func TestBackendLimitsTellTheAgentWhatStderrTellsTheHuman(t *testing.T) {
 	got := strings.Join(backendLimits("macos-user",
-		[]*packload.Pack{limitPack(t)}, jsonx.NewOrderedMap()), "\n")
+		[]*packload.Pack{limitPack(t)}, jsonx.NewOrderedMap(), nil), "\n")
 
 	// The home is machine-wide: an agent believing it is its own writes project state
 	// into a directory every other workspace reads.
@@ -71,9 +72,36 @@ func TestBackendLimitsTellTheAgentWhatStderrTellsTheHuman(t *testing.T) {
 	if !strings.Contains(got, "writable COPY") {
 		t.Errorf("does not say content is a writable copy:\n%s", got)
 	}
-	// The in-jail loophole clients have nothing to talk to.
-	if !strings.Contains(got, "yolo-ps") {
-		t.Errorf("does not say the loophole clients are inert:\n%s", got)
+	// The Linux-only loopholes' clients are not in this sandbox.
+	if !strings.Contains(got, "yolo-journalctl") || !strings.Contains(got, "yolo-cglimit") {
+		t.Errorf("does not say the Linux-only loopholes' clients are unavailable:\n%s", got)
+	}
+}
+
+// THE CLIENTS THE GUEST STAGES ARE NOT CALLED UNAVAILABLE, AND ARE SAID TO WORK. `yolo-ps` and
+// `yolo-serial` run in the macos-user sandbox whenever their loophole's endpoint is published
+// (macosuser.GuestClients), so a standing briefing line calling them unavailable would have the
+// agent decline a tool it has, all session. Driven over every guest client, so a client added to
+// the set without being moved out of the unavailable sentence fails here.
+func TestBackendLimitsDoNotCallTheGuestClientsUnavailable(t *testing.T) {
+	var line string
+	for _, l := range backendLimits("macos-user", []*packload.Pack{limitPack(t)}, jsonx.NewOrderedMap(), nil) {
+		if strings.Contains(l, "are not available here") {
+			line = l
+		}
+	}
+	if line == "" {
+		t.Fatal("the macos-user briefing no longer says which loophole clients are unavailable")
+	}
+	unavailable, available, _ := strings.Cut(line, ". ")
+	for _, c := range macosuser.GuestClients {
+		if strings.Contains(unavailable, c.Binary) {
+			t.Errorf("the briefing calls %s (the %s loophole's client) unavailable, and the "+
+				"macos-user guest stages it:\n%s", c.Binary, c.Loophole, line)
+		}
+		if !strings.Contains(available, "`"+c.Binary+"`") || !strings.Contains(available, "do run here") {
+			t.Errorf("the briefing does not say %s runs here:\n%s", c.Binary, line)
+		}
 	}
 }
 
@@ -81,7 +109,7 @@ func TestBackendLimitsTellTheAgentWhatStderrTellsTheHuman(t *testing.T) {
 // content — so only the backend's own standing facts survive. A limit list that reported
 // constraints a jail does not have would be the same overclaim in a new place.
 func TestBackendLimitsScaleWithWhatIsActuallyThere(t *testing.T) {
-	got := backendLimits("macos-user", nil, jsonx.NewOrderedMap())
+	got := backendLimits("macos-user", nil, jsonx.NewOrderedMap(), nil)
 	joined := strings.Join(got, "\n")
 	if strings.Contains(joined, "SHARED by every workspace") {
 		t.Errorf("claimed shared state dirs for a jail with no packs:\n%s", joined)
@@ -106,7 +134,7 @@ func TestBackendLimitsScaleWithWhatIsActuallyThere(t *testing.T) {
 // feature.
 func TestBackendLimitsNoLongerCallTheAgentConfigADefault(t *testing.T) {
 	got := strings.Join(backendLimits("macos-user",
-		[]*packload.Pack{limitPack(t)}, jsonx.NewOrderedMap()), "\n")
+		[]*packload.Pack{limitPack(t)}, jsonx.NewOrderedMap(), nil), "\n")
 
 	if strings.Contains(got, "DEFAULTS") {
 		t.Errorf("the briefing still tells the agent its config was rendered from defaults, "+
@@ -131,7 +159,7 @@ func TestBackendLimitsNoLongerCallTheAgentConfigADefault(t *testing.T) {
 // two tiers can tell them apart.
 func TestBackendLimitsDoNotCallWorkspaceStateShared(t *testing.T) {
 	got := strings.Join(backendLimits("macos-user",
-		[]*packload.Pack{workspaceStatePack(t)}, jsonx.NewOrderedMap()), "\n")
+		[]*packload.Pack{workspaceStatePack(t)}, jsonx.NewOrderedMap(), nil), "\n")
 
 	if strings.Contains(got, "SHARED by every workspace") {
 		t.Errorf("a scope:workspace state dir is linked into this workspace's own sidecar, "+
@@ -153,7 +181,7 @@ func TestBackendLimitsDoNotCallWorkspaceStateShared(t *testing.T) {
 // any declaration.
 func TestBackendLimitsSayBindingIsPublishingWithNoNamespace(t *testing.T) {
 	for _, packs := range [][]*packload.Pack{nil, {limitPack(t)}} {
-		got := strings.Join(backendLimits("macos-user", packs, jsonx.NewOrderedMap()), "\n")
+		got := strings.Join(backendLimits("macos-user", packs, jsonx.NewOrderedMap(), nil), "\n")
 		if !strings.Contains(got, "no network namespace") {
 			t.Errorf("does not tell the agent there is no network namespace:\n%s", got)
 		}
@@ -163,9 +191,143 @@ func TestBackendLimitsSayBindingIsPublishingWithNoNamespace(t *testing.T) {
 	}
 	// And no container backend gains it: there the usual reading is the correct one.
 	for _, rt := range []string{"podman", "container"} {
-		if got := strings.Join(backendLimits(rt, nil, jsonx.NewOrderedMap()), "\n"); got != "" {
+		if got := strings.Join(backendLimits(rt, nil, jsonx.NewOrderedMap(), nil), "\n"); got != "" {
 			t.Errorf("%s gained a standing limit: %s", rt, got)
 		}
+	}
+}
+
+// The Mac's userland: an agent reaches for GNU flags by habit, and on this backend `sed -i`
+// with no suffix, `find -printf`, `grep -P` and `tar --wildcards` fail. Unconditional, with or
+// without packs, and never on a container backend, whose userland is GNU.
+func TestBackendLimitsSayTheUserlandIsBSD(t *testing.T) {
+	for _, packs := range [][]*packload.Pack{nil, {limitPack(t)}} {
+		got := strings.Join(backendLimits("macos-user", packs, jsonx.NewOrderedMap(), nil), "\n")
+		for _, want := range []string{"the Mac's own BSD tools", "unless `packages:` or a mise tool",
+			"`sed -i ''`", "`find -printf`", "`grep -P`", "`tar --wildcards`", "Write portable invocations"} {
+			if !strings.Contains(got, want) {
+				t.Errorf("packs=%d: the userland sentence lacks %q:\n%s", len(packs), want, got)
+			}
+		}
+	}
+	for _, rt := range []string{"podman", "container"} {
+		if got := strings.Join(backendLimits(rt, nil, jsonx.NewOrderedMap(), nil), "\n"); strings.Contains(got, "BSD") {
+			t.Errorf("%s was told its userland is BSD: %s", rt, got)
+		}
+	}
+	// And it reaches the briefing a macos-user launch composes, not only this function.
+	if got := macosUserBriefing(t, appliedTestConfig()); !strings.Contains(got, "the Mac's own BSD tools") {
+		t.Errorf("the composed macos-user briefing does not carry the userland sentence:\n%s", got)
+	}
+}
+
+// The two refusals this backend's profile makes by default, and the setting that lifts each.
+// An agent that runs `/usr/bin/log show` or configures a serial adapter is refused by the
+// Seatbelt profile with nothing it can see naming the cause; the stop names its next step here
+// (AGENTS.md "Every stop names the next step"). The log sentence follows the profile's own
+// reading of `macos_log` (macosuser.MacosLogOff): absent, "off" and every value the profile
+// treats as off carry it, "user" and "full" do not. The device sentence is unconditional, like
+// the ioctl deny it describes. Both are asserted on the composed briefing, so deleting the
+// branch from backendLimits fails them.
+func TestBackendLimitsNameTheLogAndDeviceSettings(t *testing.T) {
+	const logLine = "The macOS unified log is unreadable here"
+	const devLine = "Device control calls (`ioctl`) on /dev nodes are refused here"
+	for _, mode := range []any{nil, "off", "bogus", "user", "full"} {
+		cfg := appliedTestConfig()
+		if mode != nil {
+			cfg.Set("macos_log", mode)
+		}
+		got := macosUserBriefing(t, cfg)
+		wantLog := mode == nil || mode == "off" || mode == "bogus"
+		if has := strings.Contains(got, logLine); has != wantLog {
+			t.Errorf("macos_log %v: the briefing carries the log sentence = %v, want %v:\n%s", mode, has, wantLog, got)
+		}
+		if wantLog && !strings.Contains(got, "ask the human to set `\"macos_log\": \"user\"`") {
+			t.Errorf("macos_log %v: the log sentence does not name the setting that lifts it:\n%s", mode, got)
+		}
+		if !strings.Contains(got, devLine) || !strings.Contains(got, "add its path") ||
+			!strings.Contains(got, "to `devices` in yolo-jail.jsonc") {
+			t.Errorf("macos_log %v: the briefing lacks the device sentence with its next step:\n%s", mode, got)
+		}
+	}
+	for _, rt := range []string{"podman", "container"} {
+		got := strings.Join(backendLimits(rt, nil, jsonx.NewOrderedMap(), nil), "\n")
+		if strings.Contains(got, logLine) || strings.Contains(got, devLine) {
+			t.Errorf("%s was told about the macos-user log or device refusal: %s", rt, got)
+		}
+	}
+}
+
+// THE REMAPS THE LAUNCH RELAYS reach the agent, which reads no stderr: one sentence naming each in
+// the direction the agent uses it, only when there is one, and only on macos-user.
+func TestBackendLimitsNameTheRelayedRemaps(t *testing.T) {
+	netSec := jsonx.NewOrderedMap()
+	netSec.Set("ports", []any{"8000:3000", "3001:3001"})
+	netSec.Set("forward_host_ports", []any{"8080:9090", 5432})
+	cfg := newConfig("network", netSec)
+	relays := planMacosUserPortRelays(cfg, "").relays
+
+	got := strings.Join(backendLimits("macos-user", nil, cfg, relays), "\n")
+	for _, want := range []string{
+		"This launch relays the config's port remaps from outside the sandbox, over TCP and for this session only",
+		"`localhost:8080` here reaches the host's port 9090 (`network.forward_host_ports` entry 8080:9090)",
+		"your `127.0.0.1:3000` is also published at the host's `0.0.0.0:8000` (`network.ports` entry 8000:3000)",
+		"A relay that could not listen at launch is not running, except that one whose port was in " +
+			"use takes it once it frees",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("the relay sentence lacks %q:\n%s", want, got)
+		}
+	}
+	// THE NETWORK SENTENCE AGREES WITH THE RELAY SENTENCE. A `network.ports` relay publishes a
+	// port, and one on a real interface exposes 3000 however the agent binds it, so neither
+	// "Nothing publishes a port" nor an unqualified "bind to 127.0.0.1" may stand beside it.
+	if strings.Contains(got, "Nothing publishes a port") {
+		t.Errorf("the briefing says nothing publishes a port beside a relay that publishes one:\n%s", got)
+	}
+	if !strings.Contains(got, "Nothing confines a port, and nothing publishes one but the relays below — "+
+		"bind to `127.0.0.1` when you do not mean to expose a service to their network, except on a "+
+		"port a relay below publishes on a real interface, which is exposed however you bind it.") {
+		t.Errorf("the network sentence does not name the relay's exception:\n%s", got)
+	}
+	// A loopback-only `ports` relay publishes, on this Mac alone: the exception clause is not owed.
+	loNet := jsonx.NewOrderedMap()
+	loNet.Set("ports", []any{"127.0.0.1:8000:3000"})
+	loCfg := newConfig("network", loNet)
+	lo := strings.Join(backendLimits("macos-user", nil, loCfg, planMacosUserPortRelays(loCfg, "").relays), "\n")
+	if strings.Contains(lo, "Nothing publishes a port") || strings.Contains(lo, "exposed however you bind it") ||
+		!strings.Contains(lo, "nothing publishes one but the relays below") {
+		t.Errorf("a loopback `ports` relay's network sentence:\n%s", lo)
+	}
+	// A forward relay publishes nothing: the sentence stays as it always was.
+	fwdNet := jsonx.NewOrderedMap()
+	fwdNet.Set("forward_host_ports", []any{"8080:9090"})
+	fwdCfg := newConfig("network", fwdNet)
+	fwd := strings.Join(backendLimits("macos-user", nil, fwdCfg, planMacosUserPortRelays(fwdCfg, "").relays), "\n")
+	if !strings.Contains(fwd, "Nothing publishes a port and nothing confines one") {
+		t.Errorf("a forward-only launch lost the plain network sentence:\n%s", fwd)
+	}
+	for _, unwanted := range []string{"3001", "5432"} {
+		if strings.Contains(got, unwanted) {
+			t.Errorf("a same-port entry (%s) was named as relayed:\n%s", unwanted, got)
+		}
+	}
+	if got := strings.Join(backendLimits("macos-user", nil, cfg, nil), "\n"); strings.Contains(got, "relays") {
+		t.Errorf("a launch relaying nothing was told it relays:\n%s", got)
+	}
+	if got := backendLimits("podman", nil, cfg, relays); len(got) != 0 {
+		t.Errorf("podman gained a limits section from relays it never opens: %v", got)
+	}
+
+	// And through the briefing a launch composes, from the plan the launch acts on: the relay
+	// sentence is there for the default bridge, and gone for a typed `--network host`, which
+	// drops both keys — so refreshJailBriefings must read the RESOLVED mode, not the config's.
+	if got := macosUserBriefing(t, appliedTestConfig("network", netSec)); !strings.Contains(got, "`localhost:8080` here reaches") {
+		t.Errorf("the composed briefing does not name the relayed remap:\n%s", got)
+	}
+	got = macosUserBriefingWith(t, appliedTestConfig("network", netSec), func(o *Options) { o.Network = "host" })
+	if strings.Contains(got, "relays the config's port remaps") {
+		t.Errorf("a `--network host` briefing names remaps the launch does not relay:\n%s", got)
 	}
 }
 
@@ -176,7 +338,7 @@ func TestBackendLimitsSayBindingIsPublishingWithNoNamespace(t *testing.T) {
 // no store. It fails if pi goes back to declaring `.pi-shared-npm` shared, or if the sentence
 // goes back to telling the agent to expect a package store another workspace installed into.
 func TestBackendLimitsNameNoPackageStoreOnTheShippedPacks(t *testing.T) {
-	got := strings.Join(backendLimits("macos-user", packsFixture(t, "claude", "pi"), jsonx.NewOrderedMap()), "\n")
+	got := strings.Join(backendLimits("macos-user", packsFixture(t, "claude", "pi"), jsonx.NewOrderedMap(), nil), "\n")
 	if !strings.Contains(got, ".claude-shared-credentials") {
 		t.Fatalf("the machine-tier sentence is gone, so this cell checks nothing:\n%s", got)
 	}

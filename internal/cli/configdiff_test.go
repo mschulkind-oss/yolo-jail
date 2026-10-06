@@ -58,7 +58,7 @@ func TestResetTruncatesSurfaceSoAdoptionFindsNothing(t *testing.T) {
 	}
 
 	tgt, _ := withLocalSidecarDir(t)
-	written, _, err := truncateSurfaceToPureRender(tgt, s)
+	written, _, err := truncateSurfaceToPureRender(tgt, s, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -89,7 +89,7 @@ func TestResetTruncationLeavesAbsentFileAbsent(t *testing.T) {
 	t.Setenv("HOME", home)
 	s, _ := surfaceManifest().Lookup("copilot", "config")
 	tgt, _ := withLocalSidecarDir(t)
-	baseline, _, err := truncateSurfaceToPureRender(tgt, s)
+	baseline, _, err := truncateSurfaceToPureRender(tgt, s, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -185,8 +185,9 @@ func TestConfigCaptureWithNoBaselineIsANoOp(t *testing.T) {
 // own home overlay rather than on a real home, so the premise this guard rests on is false
 // for it. What replaces the refusal there is an ordering condition — see
 // confighostjailreset_test.go. The asymmetry is the ownership design's own: capture's
-// premise is PRIVACY (a credential copied out of a real file), which `own` does not unlock
-// and a workspace target does not answer.
+// premise is PRIVACY (a credential copied out of a real file into the WORKSPACE tree), which
+// a workspace target does not answer and `own` answers only at the HOST notch, where the store
+// is the host's own 0600 one (hostownedreset_test.go, OQ-CO3).
 //
 // It drives configRunW, so the RESOLUTION runs for real and the cwd has to be a scratch
 // workspace — see withWorkspaceCwd's ⚠ for what a `--force` reset would otherwise delete.

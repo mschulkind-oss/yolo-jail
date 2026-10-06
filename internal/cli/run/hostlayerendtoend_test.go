@@ -11,9 +11,12 @@ package run
 // second hand-writes the YOLO_HOST_LAYERS value. Here nothing is hand-written between the
 // three production steps:
 //
-//  1. THE HOST ASSERT. entrypoint.RenderHostPack at `assert`, over a packoverlay.Collect at the
-//     host's own posture — the pair `yolo host apply --assert` runs — writes the host file and
-//     the provenance mark.
+//  1. THE HOST WRITE. entrypoint.RenderHostPack, over a packoverlay.Collect at the host's own
+//     posture — the pair `yolo host apply --assert` runs — writes the host file and the
+//     provenance mark. Two ways, since the `assert` retirement (OQ-CO14): under `own`, the
+//     contract that writes today; and as the retired `assert` wrote it (every surface through
+//     the rmw arm, which an owned host still runs for a surface declaring `rmw`), with the key
+//     then left unset — OQ-CO14's face 2, a home yolo asserted into that now reads as `none`.
 //  2. THE LAUNCHER. Each backend's own label: hostFileArgs + hostLayerEnv for the container
 //     backends, buildMacosCtxTree + macosuser.BuildRunPlan for macos-user.
 //  3. THE BOOT. entrypoint.ConfigurePackSurfaces over the same packs, handed exactly the wire
@@ -23,8 +26,8 @@ package run
 // personal pack whose GUARDED posture adds pi-automode to pi's `packages`, over a host file
 // that already holds one package of the user's own. The host gets the entry; the jail must get
 // neither the entry nor — because a managed home's host file is a baseline, not a layer — the
-// rest of that file. The twin is the same home never asserted into, whose file composes as the
-// user's, which is what makes the first case about the label rather than about a missing file.
+// rest of that file. The twin is the same home never written into, whose file composes as the
+// user's, which is what makes the first cases about the label rather than about a missing file.
 
 import (
 	"bytes"
@@ -35,9 +38,11 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/entrypoint"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/macosuser"
+	"github.com/mschulkind-oss/yolo-jail/internal/packdecl"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/packoverlay"
 	"github.com/mschulkind-oss/yolo-jail/internal/render"
@@ -76,16 +81,82 @@ func e2eHomeWith(t *testing.T, contributes string) (string, []*packload.Pack) {
 	return home, loaded
 }
 
-// e2eHostAssert is step 1: what `yolo host apply --assert` runs, at the host's own posture.
-func e2eHostAssert(t *testing.T, home string, loaded []*packload.Pack) {
+// e2eHostOwn is step 1 under `own`: the render `yolo host apply --assert` runs at the host's own
+// posture, called through entrypoint.RenderHostPack under render.OwnershipOwn directly. That entry
+// takes the contract as a parameter rather than reading `host_management` from the user config,
+// so this fixture writes no such key and the user config's value is not consulted.
+func e2eHostOwn(t *testing.T, home string, loaded []*packload.Pack) {
 	t.Helper()
-	target := render.Host(home, nil, render.OwnershipAssert)
+	e2eHostRender(t, home, loaded)
+}
+
+// e2eHostAsRetiredAssert is step 1 as the retired `assert` ran it, before OQ-CO14: every config
+// surface through the rmw arm, which recorded. The arm is the one an owned host still runs for a
+// surface its pack declares `rmw`, and nothing in the render branches on the contract but the
+// mode census, so re-declaring each surface `rmw` and rendering under OwnershipOwn leaves the same
+// file and the same provenance mark an `assert` apply left.
+func e2eHostAsRetiredAssert(t *testing.T, home string, loaded []*packload.Pack) {
+	t.Helper()
+	asserted := make([]*packload.Pack, len(loaded))
+	for i, p := range loaded {
+		asserted[i] = rmwDeclaredPack(t, p)
+	}
+	e2eHostRender(t, home, asserted)
+}
+
+func e2eHostRender(t *testing.T, home string, loaded []*packload.Pack) {
+	t.Helper()
+	target := render.Host(home, nil, render.OwnershipOwn)
 	set := packoverlay.Collect(loaded, target.Profile().AgentAutonomy, nil)
 	for _, p := range loaded {
-		if _, err := entrypoint.RenderHostPack(p, home, render.OwnershipAssert, false, set, nil); err != nil {
+		if _, err := entrypoint.RenderHostPack(p, home, render.OwnershipOwn, false, set, nil); err != nil {
 			t.Fatalf("RenderHostPack(%s): %v", p.Name, err)
 		}
 	}
+}
+
+// rmwDeclaredPack is a copy of p whose every config surface declares `rmw` (an `unrendered` one
+// keeps its declaration, which `assert` honored by writing nothing).
+func rmwDeclaredPack(t *testing.T, p *packload.Pack) *packload.Pack {
+	t.Helper()
+	if p.Decl == nil {
+		return p
+	}
+	decl := *p.Decl
+	decl.Contributes = append([]packdecl.Contribution(nil), p.Decl.Contributes...)
+	for i, c := range decl.Contributes {
+		if c.Kind != packdecl.KindConfig || len(c.Raw) == 0 {
+			continue
+		}
+		var surfaces []map[string]any
+		single := false
+		if err := json.Unmarshal(c.Raw, &surfaces); err != nil {
+			var one map[string]any
+			if err := json.Unmarshal(c.Raw, &one); err != nil {
+				t.Fatalf("pack %s: a config contribution is not a surface: %v", p.Name, err)
+			}
+			surfaces, single = []map[string]any{one}, true
+		}
+		for _, sf := range surfaces {
+			if mode, _ := sf["mode"].(string); mode != "unrendered" {
+				sf["mode"] = "rmw"
+			}
+		}
+		var raw []byte
+		var err error
+		if single {
+			raw, err = json.Marshal(surfaces[0])
+		} else {
+			raw, err = json.Marshal(surfaces)
+		}
+		if err != nil {
+			t.Fatal(err)
+		}
+		decl.Contributes[i].Raw = raw
+	}
+	cp := *p
+	cp.Decl = &decl
+	return &cp
 }
 
 // piPackages reads `packages` out of a home's pi settings file.
@@ -186,39 +257,80 @@ var e2eLaunchers = []launcher{
 	}},
 }
 
-// THE MANAGED HOME. The host holds the user's entry and the guarded one; a jail on either
-// backend holds neither, and its boot log says the host copy was a baseline. Delete the label
-// from either launcher, or the label check from the boot's host-layer read, and the whole host
-// file — automode included — composes into the jail as "the user's".
-func TestAManagedHomesHostFileIsABaselineFromTheAssertToTheBoot(t *testing.T) {
+// THE MANAGED HOME, under `own`. The host holds the user's entry and the guarded one; a jail on
+// either backend holds neither, and its boot log says the host copy was a baseline. Delete the
+// label from either launcher, or the label check from the boot's host-layer read, and the whole
+// host file — automode included — composes into the jail as "the user's".
+//
+// It was TestAManagedHomesHostFileIsABaselineFromTheAssertToTheBoot, rendering under `assert`;
+// that home is now its twin below, and this is the contract that writes today. `own` composes the
+// file whole, so its order is the composition's rather than rmw's append: the test reads the two
+// entries as a set.
+func TestAnOwnedHomesHostFileIsABaselineFromTheApplyToTheBoot(t *testing.T) {
 	for _, l := range e2eLaunchers {
 		t.Run(l.name, func(t *testing.T) {
 			home, loaded := e2eHome(t)
-			e2eHostAssert(t, home, loaded)
+			e2eHostOwn(t, home, loaded)
+			if got := piPackages(t, home); len(got) != 2 || !containsAny(got, e2eUsersOwn) ||
+				!containsAny(got, e2eAutomode) {
+				t.Fatalf("host packages after the owned apply = %#v, want the user's entry kept "+
+					"and the guarded posture's added", got)
+			}
+			e2eAssertBaseline(t, l, loaded)
+		})
+	}
+}
+
+// THE HOME `assert` WROTE, LEFT UNDER THE NEW DEFAULT (OQ-CO14 face 2). A home yolo asserted into
+// before the retirement, whose key was never written: the unset default is `none` now, with no
+// prompt and no notice, and the file stays exactly as `assert` last rendered it. The provenance
+// mark that render left STAYS (read from the ruling), so a jail keeps treating the keys yolo wrote
+// as yolo's — the launcher labels the file a render and the boot keeps it as a baseline — rather
+// than composing them as the user's own layer: the laundering the `retired:` label exists to stop.
+// Clear the mark, or key the label on the posture (which says `none` here), and the guarded entry
+// `assert` wrote reaches the jail as the user's.
+func TestAHomeAssertedIntoBeforeTheRetirementStaysABaselineToTheBoot(t *testing.T) {
+	for _, l := range e2eLaunchers {
+		t.Run(l.name, func(t *testing.T) {
+			home, loaded := e2eHome(t)
+			e2eHostAsRetiredAssert(t, home, loaded)
 			if got := piPackages(t, home); !reflect.DeepEqual(got, []any{e2eUsersOwn, e2eAutomode}) {
 				t.Fatalf("host packages after the assert = %#v, want the user's entry kept and the "+
 					"guarded posture's appended", got)
 			}
-
-			wire, ctxRoot := l.launch(t, loaded)
-			if !strings.Contains(wire, `"rendered":[`) {
-				t.Fatalf("the %s launcher did not label the managed home's host file:\n%s", l.name, wire)
+			if mode, declared := config.HostManagementDeclared(); mode != config.HostManagementNone || declared {
+				t.Fatalf("the fixture's key is not unset-and-none: (%q, %v)", mode, declared)
 			}
-			pkgs, log := e2eBoot(t, loaded, ctxRoot, wire)
-			for _, leaked := range []string{e2eAutomode, e2eUsersOwn} {
-				if containsAny(pkgs, leaked) {
-					t.Errorf("the jail's pi packages = %#v carry %q — the managed home's host file "+
-						"was composed as the user's layer instead of kept as a baseline", pkgs, leaked)
-				}
-			}
-			if !strings.Contains(log, "baseline and not a layer") {
-				t.Errorf("the boot did not record that it kept the host copy as a baseline:\n%s", log)
+			e2eAssertBaseline(t, l, loaded)
+			// And nothing rewrote the file on the way: the launch read it, it did not render it.
+			if got := piPackages(t, home); !reflect.DeepEqual(got, []any{e2eUsersOwn, e2eAutomode}) {
+				t.Errorf("the host file moved under `none`: %#v", got)
 			}
 		})
 	}
 }
 
-// THE TWIN: the same home, never asserted into. Nothing is labelled, so the user's own file
+// e2eAssertBaseline is steps 2 and 3 over a home yolo has written: the launcher labels the file,
+// and the boot composes neither entry and says it kept the copy as a baseline.
+func e2eAssertBaseline(t *testing.T, l launcher, loaded []*packload.Pack) {
+	t.Helper()
+	wire, ctxRoot := l.launch(t, loaded)
+	if !strings.Contains(wire, `"rendered":[`) {
+		t.Fatalf("the %s launcher did not label the managed home's host file:\n%s", l.name, wire)
+	}
+	pkgs, log := e2eBoot(t, loaded, ctxRoot, wire)
+	for _, leaked := range []string{e2eAutomode, e2eUsersOwn} {
+		if containsAny(pkgs, leaked) {
+			t.Errorf("the jail's pi packages = %#v carry %q — the managed home's host file "+
+				"was composed as the user's layer instead of kept as a baseline", pkgs, leaked)
+		}
+	}
+	if !strings.Contains(log, "baseline and not a layer") {
+		t.Errorf("the boot did not record that it kept the host copy as a baseline:\n%s", log)
+	}
+}
+
+// THE TWIN: the same home, never written into. Nothing is labelled, so the user's own file
 // composes — the onboarding path the host layer exists for (OQ-CR8) — and the guarded entry is
 // absent because nothing ever wrote it and the jail's own posture does not select it.
 func TestAnUnmanagedHomesHostFileComposesFromTheLaunchToTheBoot(t *testing.T) {

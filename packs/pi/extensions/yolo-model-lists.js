@@ -30,16 +30,24 @@ import { join } from "node:path";
 //     refuses a streamSimple without `api` (validateExtensionProvider), hence the `api`.
 const LISTS_FILE = join(homedir(), ".pi", "agent", "yolo-model-lists.json");
 
+// THE LAUNCH'S OWN LISTS, READ FIRST. `yolo host -p <profile> -- pi` composes this file's content
+// for its own -p and hands it in this variable, never writing the file, which `yolo host apply`
+// renders for the configured profile alone (packs/pi/pack.json's `launch_selection`;
+// docs/design/model-lists-and-pickers.md MM-D30). Set, it is what pi registers; unset, the file is.
+const LISTS_ENV = "YOLO_PI_MODEL_LISTS";
+
 // The output cap pi's models.json loader gives a model that states none (modelFromJson).
 const DEFAULT_MAX_TOKENS = 16384;
 
-// readModelLists returns { <pi provider id>: { models, enforce, api } }, {} when the file is
-// missing, is not JSON, or holds no providers. {} is never an error: it registers nothing, and pi
-// keeps every catalog as it is.
+// readModelLists returns { <pi provider id>: { models, enforce, api } }, {} when the launch's
+// variable and the file are missing, are not JSON, or hold no providers. {} is never an error: it
+// registers nothing, and pi keeps every catalog as it is. The variable, when set, is read instead of
+// the file, never beside it: it is the whole list this launch composed.
 function readModelLists() {
 	let parsed;
 	try {
-		parsed = JSON.parse(readFileSync(LISTS_FILE, "utf8"));
+		const fromLaunch = process.env[LISTS_ENV];
+		parsed = JSON.parse(fromLaunch ? fromLaunch : readFileSync(LISTS_FILE, "utf8"));
 	} catch {
 		return {};
 	}

@@ -201,6 +201,14 @@ things stay behind, and the report names each one: an MCP preset, a server whose
 that exists only inside a jail (such as `/workspace/...`), and a profile that needs a jail's
 service, such as claude's `codex` profile.
 
+**First, let yolo write there.** Your real home is yours until you say otherwise:
+`host_management` is `"none"` by default, and `yolo host apply` refuses. Set it in your user config,
+`~/.config/yolo-jail/config.jsonc`:
+
+```jsonc
+"host_management": "own"
+```
+
 ### Step 1: preview
 
 `yolo host apply` is a dry run unless you add `--assert`. It prints what would change and writes
@@ -223,9 +231,13 @@ What to look for:
   skills folder from your packs. Nothing is deleted; anything that cannot be moved is archived.
   Afterwards, add a skill to `~/.config/yolo-jail/local/skills/`, not to an agent's own folder,
   or the next apply will offer to move it again.
-- **What does not apply at the host.** Some kinds, such as `state`, `mount` and `loophole`, only
-  mean something in a jail, and so do settings in your user config such as `mounts`, `network`,
-  `resources` and `packages`. The report names them all in one line.
+- **What applies at launch only, and what does not apply at the host.** Some of what your packs
+  declare reaches an agent only when yolo starts it, such as pack environment variables and the
+  credential helper a loophole like `aws-auth` opens: `yolo host -- <agent>` delivers them, and
+  the apply writes no file for them. Other kinds, such as `state` and `mount`, only mean
+  something in a jail, and so do settings in your user config such as `mounts`, `network`,
+  `resources` and `packages`, and a loophole you wrote yourself with a `command`. The report
+  names both groups on one line.
 
 `--verbose` lists every file it checked. The dry run names the keys it would overwrite but does not
 print the full content, so before your first `--assert` read what your packs manage:
@@ -237,8 +249,11 @@ print the full content, so before your first `--assert` read what your packs man
 $ yolo host apply --assert
 ```
 
-yolo rewrites only the keys your packs manage and leaves every other key in the file exactly as it
-was. Run it again whenever you change a pack; it is safe to repeat.
+yolo writes each file from your packs. The first time it writes one, it copies the file as it was
+into `~/.local/share/yolo-jail/archive/config/` and keeps the keys already in it as your own edits,
+laid back over every render, so a key you set stays set unless a pack manages it. Run it again
+whenever you change a pack; it is safe to repeat. To keep a key you set by hand in every jail too,
+`yolo config promote` declares it in your local pack.
 
 Two things to know:
 
@@ -256,21 +271,24 @@ Two things to know:
   the apply warns about it, because writing a secret into a file yolo does not own would defeat
   `env_sources`. Use `yolo host -- <agent>` to hand an agent its keys (Step 4).
 
-**Taking yolo back out.** `yolo host apply --revert` removes the keys yolo wrote, using the record
-it keeps of what it wrote, and never touches a key you set yourself. It is a dry run until you add
-`--assert`. It removes what yolo wrote; it cannot restore what a key held before, because nothing
-kept a copy.
+**Taking yolo back out.** Set `host_management` back to `"none"` (or delete it), then run
+`yolo host apply --revert`. It removes the values yolo wrote, using the record it keeps of what it
+wrote, and never touches a value you set yourself, including one you changed after yolo wrote it
+and one you added inside a setting yolo also writes; the dry run names each value it keeps and
+why. It is a dry run until you add `--assert`. It removes what yolo wrote; to see the file as it
+was before yolo first wrote it, look in `~/.local/share/yolo-jail/archive/config/`.
 
 **Choosing how much yolo owns.** `host_management` in your user config decides it:
 
 | Value | What yolo does in your real home |
 |---|---|
-| `"assert"` (today's default) | Sets only the keys your packs declare, as above |
+| `"none"` (the default) | Writes nothing; `yolo host apply` refuses |
 | `"own"` | Writes each file whole from your packs, and keeps your own edits by recording them and laying them back over each render |
-| `"none"` | Writes nothing; `yolo host apply` refuses |
 
-The default is planned to change to `"none"` in a later release, so a new install writes nothing to
-your home until you ask it to.
+`"assert"`, which set only the keys your packs declare, is retired. A config that still says it is
+refused, with a message naming the two values. A home it wrote into stays exactly as it was: set
+`"own"` to have yolo take the files over (it copies each one first), or keep `"none"` and run
+`yolo host apply --revert` to take yolo's keys out.
 
 ### Step 3: make sure the host has the tools your packs need
 

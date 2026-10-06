@@ -242,6 +242,10 @@ var disclosureClasses = map[packdecl.Kind]disclosureClass{
 	// provider in the same composed table, with model ids and facts about the service, and
 	// touches nothing on the host.
 	packdecl.KindModels: disclosureSkip,
+	// mcp is provider's call too: a server entry composed into the table every agent's config
+	// renders, read nothing on the host and run by nothing yolo starts. The program behind it,
+	// when there is one, is its own `program` contribution and is disclosed as one.
+	packdecl.KindMCP: disclosureSkip,
 
 	// service is the anti-loophole (wire-bridge.md §2.1): it binds the JAIL's own
 	// loopback, reads no host state, and crosses nothing — the same call as provider,

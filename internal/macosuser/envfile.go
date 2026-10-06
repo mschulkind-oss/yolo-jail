@@ -55,6 +55,7 @@ package macosuser
 // the ruling never comes up.
 
 import (
+	"fmt"
 	"sort"
 	"strings"
 
@@ -65,10 +66,17 @@ import (
 // SandboxEnvFileEnv names the session env file on the argv. The value is a PATH, so the
 // word itself is safe to print, log and tee into <workspace>/.yolo/launch.log.
 //
-// Its consumer is the `sh -c` reader ExecWithEnvFile wraps every argv in, not the sandbox
-// process itself; it is emitted so a human reading `ps` or a dry run can find the file
-// that explains the environment they cannot see on the command line.
-const SandboxEnvFileEnv = "YOLO_DARWIN_ENV_FILE"
+// It has two consumers. On the sandboxed argvs, the `sh -c` reader ExecWithEnvFile wraps
+// each one in sources the file it is handed as an argument, and the variable is emitted
+// beside it so a human reading `ps` or a dry run can find the file that explains the
+// environment they cannot see on the command line. On the BOOTSTRAP argv the variable is the
+// whole delivery: the bootstrap reads the file into its generator Env (entrypoint's
+// hydrate_session_env step), never into its process environment, so the requires_env gate
+// it renders every agent's MCP table through sees what the agent will have.
+//
+// Spelled once, by the reader (entrypoint.DarwinSessionEnvFileEnv), since macosuser imports
+// entrypoint and not the reverse.
+const SandboxEnvFileEnv = entrypoint.DarwinSessionEnvFileEnv
 
 // sandboxEnvLeaf is the state-dir subdir holding each session's env file. A subdir of its
 // own, not a sibling of the staged binary, because the directory carries a 0700 mode and a
@@ -82,20 +90,14 @@ const sandboxEnvLeaf = "env"
 // (PlanInvariants' root-owned-state-dir check).
 const sandboxFileReadRights = "read,readattr,readextattr,readsecurity"
 
-// SandboxEnvFile is the per-session env file: <stateDir>/env/<cname>.env.
+// SandboxEnvFile is the per-session env file: <stateDir>/env/<key>.env.
 //
-// Per SESSION rather than per workspace, keyed the same way the Seatbelt profile and the
-// staged pack tree are (cnameFor the workspace), so two workspaces launching at once cannot
-// read each other's composed environment out of one file.
-func SandboxEnvFile(cname, sd string) string {
-	if sd == "" {
-		sd = stateDir
-	}
-	if cname == "" {
-		return ""
-	}
-	return sd + "/" + sandboxEnvLeaf + "/" + cname + ".env"
-}
+// Per SESSION: key is the session's (SessionKey: <cname>.<session id>, sessionfiles.go), the
+// same key its Seatbelt profile and daemons env file are named by. So two workspaces launching
+// at once cannot read each other's composed environment out of one file, and neither can two
+// terminals in one workspace, which a key of the workspace's cname alone let one session
+// rewrite, or remove, under the other.
+func SandboxEnvFile(key, sd string) string { return sessionEnvDirFile(key, sd, ".env") }
 
 // SandboxEnvFileContent renders the composed launch env as shell `export K='v'` lines.
 //
@@ -220,8 +222,11 @@ func SandboxEnvGrantCommands(envFile, user string) [][]string {
 }
 
 // SandboxEnvRemoveCommands delete the file. Best-effort at every call site: a session whose
-// agent exited must not be reported as failed because its env file could not be swept, and
-// the next launch of the same workspace overwrites the same path.
+// agent exited must not be reported as failed because its env file could not be swept. A
+// launch runs them through its teardown (sessionTeardown), so a removal that fails keeps the
+// session's liveness record, as a session that never reached its teardown does: either way the
+// next launch's sweep (sweepGoneSessions) removes the file, which the record names it to. The
+// install capture runs them in its own cleanup, on files keyed by its own staging root.
 func SandboxEnvRemoveCommands(envFile string) [][]string {
 	if envFile == "" {
 		return nil
@@ -257,7 +262,7 @@ func sandboxFileReadAce(path, user string) []string {
 // layer is exactly what this repo already measured going wrong.
 //
 // `exec` replaces the shell, so nothing extra survives in the process tree — the agent
-// keeps the pid and the terminal the TTY proxy gave it.
+// keeps the pid and the terminal the launch gave it.
 //
 // `|| exit 1` FAILS CLOSED. An unreadable env file means the agent would run with no
 // credentials and no provider configuration; starting anyway produces an agent that
@@ -327,24 +332,26 @@ func installSandboxEnvFile(deps Deps, out printer, plan sandboxEnvPlan) bool {
 	if envFile == "" {
 		return true
 	}
+	// Each failure is said unless a signal is ending the launch, which is then why its sudo failed
+	// (Deps.sayFailed); the caller returns the signal's status.
 	dirCmds, grantCmds := plan.envFileCommands()
 	for _, cmd := range dirCmds {
 		if deps.Run(append([]string{"sudo"}, cmd...)) != 0 {
-			out.printf("[bold red]Could not prepare the session environment directory "+
-				"(%s).[/bold red]", strings.Join(cmd, " "))
+			deps.sayFailed(out, fmt.Sprintf("[bold red]Could not prepare the session environment "+
+				"directory (%s).[/bold red]", strings.Join(cmd, " ")))
 			return false
 		}
 	}
 	if !deps.InstallRootFile(envFile, content, "0600") {
-		out.printf("[bold red]Could not write the session environment file %s.[/bold red]\n"+
-			"It carries everything this launch composed — the profile/provider channel and "+
-			"the hydrated env_sources — so the sandbox would start with none of it.", envFile)
+		deps.sayFailed(out, fmt.Sprintf("[bold red]Could not write the session environment file "+
+			"%s.[/bold red]\nIt carries everything this launch composed — the profile/provider "+
+			"channel and the hydrated env_sources — so the sandbox would start with none of it.", envFile))
 		return false
 	}
 	for _, cmd := range grantCmds {
 		if deps.Run(append([]string{"sudo"}, cmd...)) != 0 {
-			out.printf("[bold red]Could not grant %s read on %s (%s).[/bold red]",
-				SandboxUser, envFile, strings.Join(cmd, " "))
+			deps.sayFailed(out, fmt.Sprintf("[bold red]Could not grant %s read on %s (%s).[/bold red]",
+				SandboxUser, envFile, strings.Join(cmd, " ")))
 			return false
 		}
 	}

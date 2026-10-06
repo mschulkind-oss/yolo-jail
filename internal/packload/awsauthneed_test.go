@@ -65,6 +65,12 @@ func TestBedrockNeedsAWSAuth(t *testing.T) {
 // and agy has no Bedrock transport at all, so none of the three binds it and none needs the pack.
 var bedrockBinders = []string{"claude", "codex", "opencode", "pi"}
 
+// bedrockStarters is the agent packs whose derive keys on Bedrock's platform WITHOUT binding it:
+// copilot reads the platform only to start a bridged session on its own one default when the list
+// names nothing (docs/design/model-lists-and-pickers.md MM-D34), since it has no Bedrock catalog,
+// and the bridge, not copilot, reaches Bedrock. So it keys on the platform and needs no pack.
+var bedrockStarters = []string{"copilot"}
+
 // TestEveryBedrockAgentAloneGetsTheBedrockProfile runs the production selection closure
 // (Selection.Close, the one every notch calls) over each binding agent pack alone, then
 // composes and resolves what the launch would, so it fails when a need is dropped, when the
@@ -143,8 +149,16 @@ func TestOnlyTheBindingAgentsNeedBedrock(t *testing.T) {
 		// The list is what the derives say: a derive that keys on Bedrock's platform binds it,
 		// and one that does not cannot, so a binding added to a derive without the need (or a
 		// need left behind by a deleted binding) fails here rather than at a user's launch.
-		if binds := strings.Contains(DeriveScript(p), `"aws-bedrock"`); binds != needs {
-			t.Errorf("packs/%s's derive keys on \"aws-bedrock\" = %v, but its needs name bedrock = %v", name, binds, needs)
+		keys := strings.Contains(DeriveScript(p), `"aws-bedrock"`)
+		if slices.Contains(bedrockStarters, name) {
+			if !keys || needs {
+				t.Errorf("packs/%s is a bedrockStarter: want its derive keying on \"aws-bedrock\" (%v) and "+
+					"no need on bedrock (%v)", name, keys, needs)
+			}
+			continue
+		}
+		if keys != needs {
+			t.Errorf("packs/%s's derive keys on \"aws-bedrock\" = %v, but its needs name bedrock = %v", name, keys, needs)
 		}
 	}
 }

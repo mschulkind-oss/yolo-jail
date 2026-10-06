@@ -51,11 +51,13 @@ package macosuser
 //
 // STILL NOT MEASURED: the MATERIALIZE half. Its rewrite (install-capture.md hand-off H2,
 // internal/capture/rewrite.go) is built and measured on Linux against temp dirs standing in for
-// this backend's two homes, but no launch on this backend reaches it: nothing emits a store path
-// here, so the generated launcher's `_try_materialize` returns before calling it (hand-off H4,
-// internal/cli/run/autocapture.go). Podman-in-podman cannot exercise this backend at all, so no
-// nested jail will ever cover any of it. The hardware checklist is in install-capture.md's
-// slice 6 section.
+// this backend's two homes. Since hand-off H4 a launch here reaches it: the host CLI picks each
+// selected installer program's entry, the launch stages a root-owned copy of it under the state
+// dir (StagedCapturesRoot, StageCaptureCommands), and the bootstrap bakes that store into the
+// generated launcher, whose `_try_materialize` hands it to `capture-materialize`; and a launch
+// auto-captures what the store lacks (internal/cli/run/autocapture.go). No Mac has run that
+// path. Podman-in-podman cannot exercise this backend at all, so no nested jail will ever cover
+// any of it. The hardware checklist is in install-capture.md's slice 6 section.
 
 import (
 	"errors"
@@ -66,7 +68,10 @@ import (
 	"strings"
 	"syscall"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/config"
+	"github.com/mschulkind-oss/yolo-jail/internal/entrypoint"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
+	"github.com/mschulkind-oss/yolo-jail/internal/nixchildren"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/shquote"
@@ -170,6 +175,11 @@ type CaptureOptions struct {
 	// no real launch ever has, which is the one difference between the two homes this file
 	// exists to prevent (see the bootstrap paragraph in the file comment).
 	BlockedTools []packload.BlockedTool
+	// CATrust is the TLS trust the capture runs its installer under (cabundle.go): the same
+	// composition a launch makes, so an installer behind a corporate CA reaches its CDN as the
+	// launch's own tools do. RunCaptureAct composes it when the capture has a tool profile
+	// (Darwin), which `yolo capture` does not pass today; the zero value composes none.
+	CATrust CATrust
 }
 
 // CapturePlan is the fully-resolved, ordered artifacts + commands for one install capture — the
@@ -206,7 +216,17 @@ type CapturePlan struct {
 	EnvFileContent       string
 	EnvFileCommands      [][]string
 	EnvFileGrantCommands [][]string
-	DarwinPathPrefix     []string
+	// CATrust is the TLS trust the capture composed (CaptureOptions.CATrust). CABundleFile and
+	// CAExtrasFile are its CA files beside its env file, with what to write into each
+	// (cabundle.go); each "" when no variable names it. CleanupCommands remove both. CAFollows is
+	// the bundle variable the capture's env set, which the other four then name too, or "".
+	CATrust          CATrust
+	CABundleFile     string
+	CABundleContent  string
+	CAExtrasFile     string
+	CAExtrasContent  string
+	CAFollows        string
+	DarwinPathPrefix []string
 	// OffendingHome is the user home containing StagingRoot, when there is one — the same
 	// neutral-ground check a launch makes about its workspace, applied to the staging tree.
 	OffendingHome    string
@@ -215,11 +235,16 @@ type CapturePlan struct {
 
 // BuildCapturePlan assembles the whole capture plan (pure — no shelling out, no filesystem).
 func BuildCapturePlan(opts CaptureOptions) CapturePlan {
+	return buildCapturePlanAt(opts, CaptureStagingRoot(opts.CaptureRoot, opts.Bin))
+}
+
+// buildCapturePlanAt is BuildCapturePlan over a staging tree its caller names: an installer's,
+// keyed by its bin, or a fork's build's, keyed by the build (ForkBuildStagingRoot).
+func buildCapturePlanAt(opts CaptureOptions, stagingRoot string) CapturePlan {
 	darwinPrefix := []string{}
 	if opts.Darwin != nil {
 		darwinPrefix = append(darwinPrefix, opts.Darwin.PathPrefix...)
 	}
-	stagingRoot := CaptureStagingRoot(opts.CaptureRoot, opts.Bin)
 	stagingHome := CaptureStagingHome(stagingRoot)
 	outDir := CaptureStagingOut(stagingRoot)
 	cname := cnameFor(stagingRoot)
@@ -262,8 +287,15 @@ func BuildCapturePlan(opts CaptureOptions) CapturePlan {
 	// contract is that everything written under it is the installer's output. The zero value
 	// makes the host-layer report `unsupported`, which is the true statement about a capture
 	// — it delivered no host layers — and keeps the bytes out of the delta walk.
+	//
+	// AND NO CAPTURE STORE (the third ""), which is the recursion guard rather than an omission:
+	// the installer this runs IS the generated launcher, which materializes first when a store is
+	// baked into it, so a capture of a program the store already holds would file the store's own
+	// bytes as a fresh install and never pick up a newer vendor release (install-capture.md slice
+	// 4(f); internal/cli's runCaptureJail suppresses the container's store mount for the same
+	// reason).
 	bootstrapEnv := buildBootstrapEnv(stagingRoot, opts.Config, gitIdentity, opts.SandboxEnv,
-		packRoot, "", "", HostContext{}, "", stagingHome, darwinPrefix, opts.BlockedTools)
+		packRoot, "", "", "", HostContext{}, "", stagingHome, darwinPrefix, opts.BlockedTools)
 	stagedYolo := StagedYoloPath("")
 	offendingHome, offendingSet := HomeContaining(stagingRoot)
 
@@ -271,10 +303,19 @@ func BuildCapturePlan(opts CaptureOptions) CapturePlan {
 	// what keeps a capture from reading (or sweeping) the environment of a session running
 	// beside it. Its REMOVAL rides CaptureCleanupCommands rather than a list of its own,
 	// because a capture already sweeps everything it created in one deferred call.
+	//
+	// THE TLS VARIABLES, as a launch sets them (cabundle.go): defaults under the composed env, and
+	// the capture's own CA files beside its env file, keyed on the same cname.
+	sandboxEnv, caBundleFile, caExtrasFile, caFollows := applyCATrust(opts.SandboxEnv, opts.CATrust, cname)
+	caBundleContent, caExtrasContent := caTrustContents(opts.CATrust, caBundleFile, caExtrasFile)
 	envFile := ""
-	envFileContent := SandboxEnvFileContent(opts.SandboxEnv)
+	envFileContent := SandboxEnvFileContent(sandboxEnv)
 	if envFileContent != "" {
 		envFile = SandboxEnvFile(cname, "")
+		// Named to the bootstrap by path, as a launch names it (BuildRunPlanWithDaemons): the
+		// capture's bootstrap is the launch's bootstrap, and its generator Env should see the
+		// environment the driver will run in.
+		bootstrapEnv.Set(SandboxEnvFileEnv, envFile)
 	}
 
 	return CapturePlan{
@@ -291,8 +332,9 @@ func BuildCapturePlan(opts CaptureOptions) CapturePlan {
 		PrepareCommands: CaptureStagingCommands(stagingRoot, opts.HostUser),
 		StageCommands: append(StageBinaryCommands(opts.SelfExe, ""),
 			StagePackCommands(opts.HostPackRoot, cname, "")...),
-		CleanupCommands: append(CaptureCleanupCommands(stagingRoot, profilePath),
-			SandboxEnvRemoveCommands(envFile)...),
+		CleanupCommands: append(append(append(CaptureCleanupCommands(stagingRoot, profilePath),
+			SandboxEnvRemoveCommands(envFile)...), SandboxEnvRemoveCommands(caBundleFile)...),
+			SandboxEnvRemoveCommands(caExtrasFile)...),
 		BootstrapArgv: DarwinBootstrapArgv(stagedYolo, stagingHome, bootstrapEnv, ""),
 		DriverArgv: CaptureDriverArgv(stagedYolo, stagingHome, outDir, opts.Bin, profilePath,
 			envFile, darwinPrefix),
@@ -300,6 +342,12 @@ func BuildCapturePlan(opts CaptureOptions) CapturePlan {
 		EnvFileContent:       envFileContent,
 		EnvFileCommands:      SandboxEnvDirCommands(envFile, ""),
 		EnvFileGrantCommands: SandboxEnvGrantCommands(envFile, ""),
+		CATrust:              opts.CATrust,
+		CABundleFile:         caBundleFile,
+		CABundleContent:      caBundleContent,
+		CAExtrasFile:         caExtrasFile,
+		CAExtrasContent:      caExtrasContent,
+		CAFollows:            caFollows,
 		DarwinPathPrefix:     darwinPrefix,
 		OffendingHome:        offendingHome,
 		OffendingHomeSet:     offendingSet,
@@ -404,6 +452,20 @@ const captureInstallOnlyVar = "YOLO_INSTALL_ONLY"
 // shared home becomes writable) and the bootstrap-home check (pass SandboxHome() and the capture
 // provisions the machine's real agent home instead of a throwaway one).
 func CapturePlanInvariants(plan CapturePlan) []string {
+	problems := capturePlanProblems(plan)
+	if !containsArg(plan.DriverArgv, captureInstallOnlyVar+"=1") {
+		problems = append(problems,
+			"the capture driver argv omits "+captureInstallOnlyVar+"=1; the launcher would "+
+				"exec the tool after installing it and the capture would record its "+
+				"first-run state as part of the vendor's package")
+	}
+	return problems
+}
+
+// capturePlanProblems is CapturePlanInvariants less the one check that is an installer's alone (the
+// launcher told to install and stop): every other rule holds for a fork's build too
+// (ForkBuildPlanInvariants), which runs a build line where an installer capture runs the launcher.
+func capturePlanProblems(plan CapturePlan) []string {
 	var problems []string
 
 	// Neutral ground, exactly as a workspace must be. The staging tree is shared with the
@@ -455,6 +517,12 @@ func CapturePlanInvariants(plan CapturePlan) []string {
 	// INSTALLER, so a credential on this argv is visible to the very program yolo is
 	// running for the first time.
 	problems = append(problems, SandboxArgvEnvProblems("capture driver", plan.DriverArgv)...)
+	if plan.EnvFile != "" && !containsArg(plan.BootstrapArgv, SandboxEnvFileEnv+"="+plan.EnvFile) {
+		problems = append(problems,
+			SandboxEnvFileEnv+"="+plan.EnvFile+" is not baked into the capture bootstrap env; "+
+				"the staging home would be generated against a different environment than the "+
+				"one the driver runs the installer in")
+	}
 	if !SandboxArgvReadsEnvFile(plan.EnvFile, plan.DriverArgv) {
 		problems = append(problems,
 			"the capture driver argv never reads the session env file ("+plan.EnvFile+
@@ -525,12 +593,6 @@ func CapturePlanInvariants(plan CapturePlan) []string {
 			"the capture driver argv omits "+captureScanFlag+"; the staging path is not the "+
 				"materialize path on this backend, so the entry would be admitted "+
 				"relocatable:false and could never be materialized into "+SandboxHome())
-	}
-	if !containsArg(plan.DriverArgv, captureInstallOnlyVar+"=1") {
-		problems = append(problems,
-			"the capture driver argv omits "+captureInstallOnlyVar+"=1; the launcher would "+
-				"exec the tool after installing it and the capture would record its "+
-				"first-run state as part of the vendor's package")
 	}
 
 	// The pack tree must be staged AND named to the bootstrap, or no launcher for Bin exists
@@ -621,29 +683,19 @@ func containsArgPair(argv []string, a, b, c string) bool {
 // subprocess when we cannot run here, and refuse under sudo because the launch self-escalates
 // and running as root misassigns the identity the staging tree is chowned to.
 func RunCapturePlan(deps Deps, plan CapturePlan) int {
+	return runCaptureSteps(deps, plan, CapturePlanInvariants(plan), nil)
+}
+
+// runCaptureSteps is RunCapturePlan with the plan's violations computed by its caller — an
+// installer's (CapturePlanInvariants) or a fork's build's (ForkBuildPlanInvariants) — and the
+// commands asUser run as the INVOKING user, never under sudo, between the staging and the profile:
+// a fork's build copies its checkout into the staging tree there (ForkBuildPlan.SourceCommands).
+func runCaptureSteps(deps Deps, plan CapturePlan, problems []string, asUser [][]string) int {
 	out := printer{w: deps.Out, color: deps.Color}
-	if !deps.IsMacOS() {
-		out.print("[bold red]`yolo capture` on the macos-user backend requires macOS.[/bold red] " +
-			"Capture on a container backend instead.")
+	if !captureGatesPass(deps, out) {
 		return 1
 	}
-	if deps.Geteuid() == 0 {
-		out.print("[bold red]Don't run `yolo capture` under sudo for the macos-user " +
-			"backend.[/bold red]  It escalates each step itself; running as root would own " +
-			"the staging tree as root and the sandbox user could not write it.")
-		return 1
-	}
-	if !deps.Which("sandbox-exec") {
-		out.print("[bold red]sandbox-exec not found[/bold red] — a capture is only contained " +
-			"because Apple Seatbelt confines it, so there is no unsandboxed fallback.")
-		return 1
-	}
-	if !deps.SandboxUserExists() {
-		out.printf("[bold red]Sandbox user '%s' does not exist.[/bold red]\n"+
-			"Run the one-time setup first (`yolo macos-setup`).", SandboxUser)
-		return 1
-	}
-	if problems := CapturePlanInvariants(plan); len(problems) > 0 {
+	if len(problems) > 0 {
 		out.print("[bold red]macos-user capture plan is not viable:[/bold red]")
 		for _, p := range problems {
 			out.printf("  ✗ %s", p)
@@ -665,6 +717,13 @@ func RunCapturePlan(deps Deps, plan CapturePlan) int {
 			}
 		}
 	}
+	for _, cmd := range asUser {
+		if deps.Run(cmd) != 0 {
+			out.printf("[bold red]Could not copy the source into the staging tree (%s).[/bold red]",
+				shquote.JoinDisplay(cmd))
+			return 1
+		}
+	}
 	if !deps.InstallRootFile(plan.ProfilePath, plan.Seatbelt, "0444") {
 		out.printf("[bold red]Could not write the capture Seatbelt profile %s[/bold red]",
 			plan.ProfilePath)
@@ -674,6 +733,11 @@ func RunCapturePlan(deps Deps, plan CapturePlan) int {
 	// capture's composed env is the launch's profile/provider channel, hydrated credentials
 	// included. Its removal is already in CleanupCommands, which RunCaptureAct defers.
 	if !installSandboxEnvFile(deps, out, plan) {
+		return 1
+	}
+	// Its CA files, which its env file names, on the launch's terms (cabundle.go); removed by
+	// CleanupCommands too.
+	if !installCATrustFiles(deps, out, plan.caTrustFilePlans()) {
 		return 1
 	}
 	if deps.Run(plan.BootstrapArgv) != 0 {
@@ -686,6 +750,34 @@ func RunCapturePlan(deps Deps, plan CapturePlan) int {
 		return rc
 	}
 	return 0
+}
+
+// captureGatesPass is RunCapturePlan's gates, in its order: fail closed, before any subprocess, where
+// a capture cannot run here, saying why on out. A fork's build asks them before its toolchain's nix
+// build too (RunForkBuildAct), so a machine that would refuse the build never pays for that first.
+func captureGatesPass(deps Deps, out printer) bool {
+	if !deps.IsMacOS() {
+		out.print("[bold red]`yolo capture` on the macos-user backend requires macOS.[/bold red] " +
+			"Capture on a container backend instead.")
+		return false
+	}
+	if deps.Geteuid() == 0 {
+		out.print("[bold red]Don't run `yolo capture` under sudo for the macos-user " +
+			"backend.[/bold red]  It escalates each step itself; running as root would own " +
+			"the staging tree as root and the sandbox user could not write it.")
+		return false
+	}
+	if !deps.Which("sandbox-exec") {
+		out.print("[bold red]sandbox-exec not found[/bold red] — a capture is only contained " +
+			"because Apple Seatbelt confines it, so there is no unsandboxed fallback.")
+		return false
+	}
+	if !deps.SandboxUserExists() {
+		out.printf("[bold red]Sandbox user '%s' does not exist.[/bold red]\n"+
+			"Run the one-time setup first (`yolo macos-setup`).", SandboxUser)
+		return false
+	}
+	return true
 }
 
 // RunCaptureCleanup runs a plan's cleanup commands, best-effort, and reports nothing.
@@ -740,6 +832,16 @@ func PrintCapturePlan(w io.Writer, plan CapturePlan, problems []string) {
 	for _, cmd := range plan.EnvFileGrantCommands {
 		p.print("  sudo " + shquote.JoinDisplay(cmd))
 	}
+	for _, f := range plan.caTrustFilePlans() {
+		for _, cmd := range f.dir {
+			p.print("  sudo " + shquote.JoinDisplay(cmd))
+		}
+		p.printf("  sudo %s %s  [dim](content on stdin, never argv)[/dim]", teeBin, shquote.QuoteDisplay(f.path))
+		p.printf("  sudo %s 0600 %s", chmodBin, shquote.QuoteDisplay(f.path))
+		for _, cmd := range f.grant {
+			p.print("  sudo " + shquote.JoinDisplay(cmd))
+		}
+	}
 	p.print("")
 	p.print("[bold]── capture Seatbelt profile ──[/bold]")
 	p.print(strings.TrimRight(plan.Seatbelt, "\n"))
@@ -792,6 +894,11 @@ func RunCaptureAct(deps Deps, opts CaptureOptions, dest string, dryRun bool) int
 	if opts.HostUser == "" && deps.HostUser != nil {
 		opts.HostUser = deps.HostUser()
 	}
+	// The TLS trust a launch would compose, when the capture has a tool profile to compose it from
+	// (cabundle.go). A read of the host, so never in a dry run.
+	if !dryRun {
+		opts.CATrust = ComposeCATrust(deps, opts.Darwin)
+	}
 	plan := BuildCapturePlan(opts)
 	if dryRun {
 		PrintCapturePlan(deps.Out, plan, CapturePlanInvariants(plan))
@@ -800,6 +907,7 @@ func RunCaptureAct(deps Deps, opts CaptureOptions, dest string, dryRun bool) int
 		}
 		return 0
 	}
+	printCATrust(out, plan.CATrust, plan.EnvFileContent, plan.CABundleFile, plan.CAExtrasFile, plan.CAFollows)
 	rc := RunCapturePlan(deps, plan)
 	// Sweep whatever the run got as far as, INCLUDING on failure: a half-provisioned staging
 	// tree left behind would merge into the next capture's baseline. It runs after the move
@@ -839,8 +947,397 @@ func moveCaptureOut(src, dest string) error {
 	return err
 }
 
+// caTrustFilePlans are the capture's CA files as installable files (cabundle.go).
+func (p CapturePlan) caTrustFilePlans() []sessionFilePlan {
+	return caTrustFiles(p.EnvFile, p.CABundleFile, p.CABundleContent, p.CAExtrasFile, p.CAExtrasContent)
+}
+
 // envFile and envFileCommands make a CapturePlan a sandboxEnvPlan (envfile.go).
 func (p CapturePlan) envFile() (string, string) { return p.EnvFile, p.EnvFileContent }
 func (p CapturePlan) envFileCommands() ([][]string, [][]string) {
 	return p.EnvFileCommands, p.EnvFileGrantCommands
+}
+
+// ---------------------------------------------------------------------------
+// A FORK'S BUILD on this backend (docs/design/forked-programs-as-packs.md FP-D24)
+// ---------------------------------------------------------------------------
+//
+// The capture act above, run for a fork's build line instead of an installer, under the SEALED
+// capture profile (SeatbeltSealedCaptureProfile), so the host agent floor of a Mac holds a fork's
+// program built for darwin: a container build jail on a Mac makes a Linux build, which no program on
+// the Mac runs. Five things differ from an installer's capture, each pinned by
+// ForkBuildPlanInvariants:
+//
+//   - THE STAGING TREE IS THE BUILD'S, <root>/fork-<id>, never <root>/<bin>: an installer capture
+//     of the same program starts by deleting <root>/<bin> (CaptureStagingCommands), which would
+//     remove a build running beside it.
+//   - A src/ SIBLING holds the checkout, copied in by the INVOKING user from the host's staging
+//     directory (which sits under that user's home, where the profile denies every read), into a
+//     directory the user owns with the shared group's inherited ACLs, so the build can write it.
+//   - THE DRIVER RUNS THE BUILD LINE, `env YOLO_BYPASS_SHIMS=1 bash -c 'cd src && <build>'`, under
+//     the full reference scan, as the container build's does (internal/cli's forkBuildJailArgv).
+//   - THE TOOLCHAIN RECORD names yolo, the darwin floor's store path and the macOS release, where a
+//     container build names its image's identity; the script writes it first, beside out/.
+//   - THE TOOLCHAIN IS THE DARWIN FLOOR every launch on this backend materializes (mise, node, git
+//     and the rest), the config's darwin `packages:` with it, built before the plan. A base's
+//     `node_floor` above the floor's Node and the config's `mise_tools` are not installed: whether
+//     they should be is forked-programs-as-packs.md OQ-FP11, open. The provisioning stage is not
+//     the way in any case: its tier layout links the capture surfaces out of the home the driver
+//     walks.
+
+const (
+	// forkBuildLeafPrefix starts a fork build's staging tree's name under the capture root, the build's
+	// id after it.
+	forkBuildLeafPrefix = "fork-"
+	// forkSrcLeaf and forkToolchainLeaf are the build's checkout and the record its script writes
+	// first: siblings of home/ and out/, so neither is in the delta nor carried with the entry. They
+	// are the leaves the container build's workspace names too (internal/cli's forkSourceLeaf and
+	// forkToolchainLeaf), so the host act finds the record where it finds a container build's.
+	forkSrcLeaf       = "src"
+	forkToolchainLeaf = "toolchain"
+	// forkBypassShimsVar is the blocked-tool bypass the build line runs under, as the container
+	// build's does: a build script that runs `find` must not meet a refusal meant for an agent.
+	forkBypassShimsVar = "YOLO_BYPASS_SHIMS"
+)
+
+// ForkBuildStagingRoot is the staging tree of the fork build whose id is id: <captureRoot>/fork-<id>.
+// An empty captureRoot means CaptureRootDefault().
+func ForkBuildStagingRoot(captureRoot, id string) string {
+	return CaptureStagingRoot(captureRoot, forkBuildLeafPrefix+id)
+}
+
+// ForkBuildSourceDir is a fork build's checkout in its staging tree: where the build line runs, and
+// what a link the build leaves must not point into, since the tree is deleted when the build ends
+// (internal/cli's linksIntoTheBuild).
+func ForkBuildSourceDir(stagingRoot string) string { return filepath.Join(stagingRoot, forkSrcLeaf) }
+
+// ForkBuildOptions are the inputs the host act resolves for one fork's build: the capture's, and
+// the build's own.
+type ForkBuildOptions struct {
+	CaptureOptions
+	// BuildID is the build's id (internal/cli's forkBuild.id: source, revision, recipe and platform),
+	// which keys the staging tree.
+	BuildID string
+	// Build is the fork's build line, one command line (packdecl refuses a newline in it).
+	Build string
+	// Source is the host directory holding the checkout of the pinned commit, which the plan copies
+	// into the staging tree's src/.
+	Source string
+	// RepoRoot is the yolo-jail flake the darwin floor is built from (Deps.MaterializeDarwin).
+	RepoRoot string
+	// Toolchain is what the host knows of the build's toolchain, the record's head: "yolo <version>".
+	Toolchain string
+}
+
+// ForkBuildPlan is a CapturePlan for a fork's build, with the checkout and the record beside it.
+type ForkBuildPlan struct {
+	CapturePlan
+	// BuildID and Build are the options' own; Source the host checkout the plan copies.
+	BuildID, Build, Source string
+	// SrcDir is the staging tree's checkout and ToolchainFile the record the build's script writes.
+	SrcDir, ToolchainFile string
+	// SourceCommands copy the checkout into SrcDir, run as the INVOKING user and never under sudo:
+	// the source is that user's, and a copy made as root would leave files the build cannot write.
+	SourceCommands [][]string
+}
+
+// BuildForkBuildPlan assembles the plan for one fork's build (pure — no shelling out, no
+// filesystem): the capture plan over the build's own staging tree, the sealed profile, the src/
+// leaf and its copy, and the driver running the build line.
+func BuildForkBuildPlan(opts ForkBuildOptions) ForkBuildPlan {
+	inner := opts.CaptureOptions
+	inner.SandboxEnv = withDarwinEnv(inner.SandboxEnv, inner.Darwin)
+	stagingRoot := ForkBuildStagingRoot(inner.CaptureRoot, opts.BuildID)
+	plan := buildCapturePlanAt(inner, stagingRoot)
+	plan.Seatbelt = SeatbeltSealedCaptureProfile(stagingRoot)
+	plan.PrepareCommands = ForkBuildStagingCommands(stagingRoot, inner.HostUser)
+	src := ForkBuildSourceDir(stagingRoot)
+	toolchain := filepath.Join(stagingRoot, forkToolchainLeaf)
+	plan.DriverArgv = ForkBuildDriverArgv(plan.StagedYolo, plan.StagingHome, plan.OutDir, src, toolchain,
+		forkToolchainHead(opts), opts.Build, plan.ProfilePath, plan.EnvFile, plan.DarwinPathPrefix)
+	var copySource [][]string
+	if opts.Source != "" {
+		copySource = [][]string{{cpBin, "-R", opts.Source + "/.", src}}
+	}
+	return ForkBuildPlan{CapturePlan: plan, BuildID: opts.BuildID, Build: opts.Build, Source: opts.Source,
+		SrcDir: src, ToolchainFile: toolchain, SourceCommands: copySource}
+}
+
+// withDarwinEnv is env with the darwin floor's build variables (PKG_CONFIG_PATH and the like) set
+// over it, as a launch layers them (BuildRunPlanWithDaemons: darwin's win on conflict); env itself
+// when the floor sets none.
+func withDarwinEnv(env *jsonx.OrderedMap, d *Darwin) *jsonx.OrderedMap {
+	if d == nil || d.Env == nil || d.Env.Len() == 0 {
+		return env
+	}
+	merged := jsonx.NewOrderedMap()
+	if env != nil {
+		for _, k := range env.Keys() {
+			v, _ := env.Get(k)
+			merged.Set(k, v)
+		}
+	}
+	for _, k := range d.Env.Keys() {
+		v, _ := d.Env.Get(k)
+		merged.Set(k, v)
+	}
+	return merged
+}
+
+// forkToolchainHead is the toolchain record's head: what the host knows, the darwin floor's store
+// path after it when the plan has one. The build's script appends the macOS release.
+func forkToolchainHead(opts ForkBuildOptions) string {
+	head := opts.Toolchain
+	if head == "" {
+		head = "yolo"
+	}
+	if opts.Darwin != nil && opts.Darwin.ProfilePath != "" {
+		head += ", darwin floor " + opts.Darwin.ProfilePath
+	}
+	return head
+}
+
+// ForkBuildStagingCommands are CaptureStagingCommands with the src/ leaf beside home/ and out/, made
+// the same way: owned by the invoking user, in the sandbox group, setgid, the shared group's ACLs
+// inherited from the root — so the user can copy the checkout in and the sandbox account can build
+// in it.
+func ForkBuildStagingCommands(stagingRoot, hostUser string) [][]string {
+	cmds := CaptureStagingCommands(stagingRoot, hostUser)
+	src := ForkBuildSourceDir(stagingRoot)
+	cmds = append(cmds, []string{"mkdir", "-p", src})
+	if hostUser != "" {
+		cmds = append(cmds, []string{"chown", hostUser + ":" + SandboxGroup, src})
+	}
+	return append(cmds, []string{"chmod", "2770", src})
+}
+
+// ForkBuildDriverArgv is CaptureDriverArgv for a fork's build: the same account, environment,
+// profile and capture driver, around `env YOLO_BYPASS_SHIMS=1 /bin/bash -c <ForkBuildScript>`.
+func ForkBuildDriverArgv(stagedYolo, stagingHome, outDir, srcDir, toolchainFile, toolchainHead, build,
+	profilePath, envFile string, pathPrefix []string) []string {
+	out := []string{"sudo", "--user=" + SandboxUser, "/usr/bin/env", "-i"}
+	out = append(out, sandboxEnvPairs(stagingHome, SandboxUser,
+		SandboxPath(stagingHome, pathPrefix), envFile)...)
+	out = append(out, "/usr/bin/sandbox-exec", "-f", profilePath, "--")
+	out = append(out, ExecWithEnvFile(envFile, []string{
+		stagedYolo, "internal", "capture-run",
+		"--home=" + stagingHome,
+		"--out=" + outDir,
+		captureScanFlag,
+		"--", "/usr/bin/env", forkBypassShimsVar + "=1", "/bin/bash", "-c",
+		ForkBuildScript(srcDir, toolchainFile, toolchainHead, build),
+	})...)
+	return out
+}
+
+// ForkBuildScript is the build's bash script: the toolchain record first (head, then the macOS
+// release), so a record names every build that reached its line; the install prefixes a container
+// build jail is started with (NPM_CONFIG_PREFIX, its cache, GOPATH), which no login shell sets here;
+// then the build line in the checkout. The line is last, on a line of its own, so a build line that
+// ends in a `# comment` comments out nothing of the script's.
+func ForkBuildScript(srcDir, toolchainFile, head, build string) string {
+	return "{ printf '%s' " + shQuote(head) + "; printf ' macOS %s' \"$(/usr/bin/sw_vers -productVersion 2>/dev/null)\"; } > " +
+		shQuote(toolchainFile) + " 2>/dev/null || true\n" +
+		"export NPM_CONFIG_PREFIX=\"$HOME/.npm-global\" NPM_CONFIG_CACHE=\"$HOME/.cache/npm\" GOPATH=\"$HOME/go\"\n" +
+		"cd " + shQuote(srcDir) + " && " + build
+}
+
+// ForkBuildPlanInvariants returns static-check violation messages over a ForkBuildPlan: every
+// capture rule but the installer's own (capturePlanProblems), then the build's. Each fails when a
+// call site in BuildForkBuildPlan is deleted or swapped.
+func ForkBuildPlanInvariants(plan ForkBuildPlan) []string {
+	problems := capturePlanProblems(plan.CapturePlan)
+	if plan.BuildID == "" || filepath.Base(plan.StagingRoot) != forkBuildLeafPrefix+plan.BuildID {
+		problems = append(problems,
+			"the build's staging tree "+plan.StagingRoot+" is not keyed by the build ("+forkBuildLeafPrefix+
+				plan.BuildID+"); an installer capture of "+plan.Bin+" clears "+
+				CaptureStagingRoot(filepath.Dir(plan.StagingRoot), plan.Bin)+" before it starts, which would "+
+				"delete a build staged there")
+	}
+	for _, pair := range [][2]string{{"checkout", plan.SrcDir}, {"toolchain record", plan.ToolchainFile}} {
+		inHome := pair[1] == plan.StagingHome || strings.HasPrefix(pair[1], plan.StagingHome+"/")
+		inOut := pair[1] == plan.OutDir || strings.HasPrefix(pair[1], plan.OutDir+"/")
+		if !strings.HasPrefix(pair[1], plan.StagingRoot+"/") || inHome || inOut {
+			problems = append(problems,
+				"the build's "+pair[0]+" "+pair[1]+" is not a sibling of the staging home and out dir under "+
+					plan.StagingRoot+"; under the home the capture would record it, under out it would be "+
+					"stored with the entry, and outside the tree the profile makes it unwritable")
+		}
+	}
+	problems = append(problems, sealedProfileProblems(plan.Seatbelt)...)
+	if !containsArg(plan.DriverArgv, forkBypassShimsVar+"=1") {
+		problems = append(problems,
+			"the build driver argv omits "+forkBypassShimsVar+"=1; a build line that runs a blocked tool "+
+				"would meet the refusal meant for an agent")
+	}
+	script := ForkBuildScript(plan.SrcDir, plan.ToolchainFile, "", plan.Build)
+	script = script[strings.Index(script, "\n")+1:]
+	if !argvMentions(plan.DriverArgv, script) {
+		problems = append(problems,
+			"the build driver argv does not run the fork's build line in "+plan.SrcDir+"; the build would "+
+				"run somewhere else, or not at all")
+	}
+	if plan.Source == "" {
+		problems = append(problems, "the build has no checkout to copy into "+plan.SrcDir+
+			"; the build line would run in an empty directory")
+	} else if !commandsCopyInto(plan.SourceCommands, plan.Source, plan.SrcDir) {
+		problems = append(problems,
+			"nothing copies the checkout "+plan.Source+" into "+plan.SrcDir+
+				"; the build line would run in an empty directory")
+	}
+	for _, cmd := range plan.SourceCommands {
+		if len(cmd) > 0 && cmd[0] == "sudo" {
+			problems = append(problems,
+				"the checkout is copied under sudo ("+shquote.JoinDisplay(cmd)+"); a copy made as root "+
+					"leaves files the sandbox account cannot write")
+		}
+	}
+	if !commandsInclude(plan.PrepareCommands, []string{"mkdir", "-p", plan.SrcDir}) {
+		problems = append(problems,
+			"the prepare commands never make "+plan.SrcDir+"; the checkout's copy would have nowhere to land")
+	}
+	return problems
+}
+
+// commandsCopyInto reports whether cmds hold the copy of src's contents into dst.
+func commandsCopyInto(cmds [][]string, src, dst string) bool {
+	return commandsInclude(cmds, []string{cpBin, "-R", src + "/.", dst})
+}
+
+// commandsInclude reports whether cmds hold want, word for word.
+func commandsInclude(cmds [][]string, want []string) bool {
+	for _, c := range cmds {
+		if strings.Join(c, "\x00") == strings.Join(want, "\x00") {
+			return true
+		}
+	}
+	return false
+}
+
+// RunForkBuildPlan executes a fork build's plan: RunCapturePlan's steps, with the plan's own
+// invariants, and the checkout copied in as the invoking user before the profile is installed.
+// Like RunCapturePlan it neither moves the result nor cleans up: RunForkBuildAct does both.
+func RunForkBuildPlan(deps Deps, plan ForkBuildPlan) int {
+	return runCaptureSteps(deps, plan.CapturePlan, ForkBuildPlanInvariants(plan), plan.SourceCommands)
+}
+
+// PrintForkBuildPlan renders a ForkBuildPlan for a dry run: the capture plan, then the build's own.
+func PrintForkBuildPlan(w io.Writer, plan ForkBuildPlan, problems []string) {
+	p := printer{w: w, color: false}
+	p.print("[bold]macos-user fork build[/bold] (dry-run — nothing executed)\n")
+	p.printf("build:       %s", plan.BuildID)
+	p.printf("checkout:    %s → %s", plan.Source, plan.SrcDir)
+	p.printf("toolchain:   %s", plan.ToolchainFile)
+	p.print("")
+	PrintCapturePlan(w, plan.CapturePlan, problems)
+}
+
+// RunForkBuildAct is the WHOLE macos-user side of a fork's build: the gates, the darwin floor the
+// build line runs on, the plan, its run, and the move of the finished proto-entry to dest and of the
+// toolchain record to toolchainDest, then the sweep of the staging tree. It is RunCaptureAct's shape;
+// dest is where the host act admits from (internal/cli's buildFork: <CapturesDir>/staging/fork-<id>/out)
+// and toolchainDest the record beside it, which the build receipt carries.
+func RunForkBuildAct(deps Deps, opts ForkBuildOptions, dest, toolchainDest string, dryRun bool) int {
+	out := printer{w: deps.Out, color: deps.Color}
+	if opts.SelfExe == "" && deps.SelfExe != nil {
+		opts.SelfExe = deps.SelfExe()
+	}
+	if opts.HostUser == "" && deps.HostUser != nil {
+		opts.HostUser = deps.HostUser()
+	}
+	if !dryRun {
+		// The gates before the toolchain: its nix build can take half an hour on a machine where no
+		// launch has built the floor yet, and a machine with no sandbox account would refuse after it.
+		if !captureGatesPass(deps, out) {
+			return 1
+		}
+		d, rc := materializeForkToolchain(deps, out, opts)
+		if rc != 0 {
+			return rc
+		}
+		opts.Darwin = d
+		opts.CATrust = ComposeCATrust(deps, opts.Darwin)
+	}
+	plan := BuildForkBuildPlan(opts)
+	if dryRun {
+		problems := ForkBuildPlanInvariants(plan)
+		PrintForkBuildPlan(deps.Out, plan, problems)
+		if len(problems) > 0 {
+			return 1
+		}
+		return 0
+	}
+	printCATrust(out, plan.CATrust, plan.EnvFileContent, plan.CABundleFile, plan.CAExtrasFile, plan.CAFollows)
+	rc := RunForkBuildPlan(deps, plan)
+	defer RunCaptureCleanup(deps, plan.CapturePlan)
+	if rc != 0 {
+		return rc
+	}
+	// The record, when the script wrote one: a build that ran without it is still a build, and its
+	// receipt then names no toolchain.
+	if _, err := os.Lstat(plan.ToolchainFile); err == nil {
+		if err := moveCaptureOut(plan.ToolchainFile, toolchainDest); err != nil {
+			out.printf("[bold red]Could not move the build's toolchain record beside the store:[/bold red] %s",
+				err.Error())
+			return 1
+		}
+	}
+	if err := moveCaptureOut(plan.OutDir, dest); err != nil {
+		out.printf("[bold red]Could not move the build into the store:[/bold red] %s", err.Error())
+		return 1
+	}
+	return 0
+}
+
+// materializeForkToolchain builds the darwin floor and the config's darwin `packages:` for a fork's
+// build, as every launch on this backend does (orchestrator.go's materialize step), and refuses as
+// that step refuses: a build that failed, one that produced no tool directory, and a declared package
+// with no darwin build, which would be missing from the build's PATH.
+func materializeForkToolchain(deps Deps, out printer, opts ForkBuildOptions) (*Darwin, int) {
+	if deps.MaterializeDarwin == nil {
+		out.print("[bold red]This yolo cannot build the sandbox's tools with nix here, so a fork's build " +
+			"has no toolchain.[/bold red] That is yolo's to wire: report it at " + entrypoint.IssuesURL + ".")
+		return nil, 1
+	}
+	if opts.RepoRoot == "" {
+		out.print("[bold red]No yolo-jail flake was found to build the sandbox's tools from.[/bold red] " +
+			"Every macos-user act builds them from it; `yolo check` names the flake a launch would use.")
+		return nil, 1
+	}
+	// A SIGNAL SENT TO YOLO ALONE WHILE THIS NIX RUNS STOPS IT (internal/nixchildren), as RunMacosUser
+	// stops the same build: `yolo capture` and the host floor call this act with no launch arm
+	// (Deps.Ending nil), so without the stop a SIGTERM, a SIGHUP or a Ctrl-C ended yolo by the
+	// signal's default action and left a build of up to half an hour running with no parent. The
+	// stop covers this build alone and is removed when it returns: from the privileged steps on, a
+	// signal is theirs. Never with an arm wired: two handlers on one signal race to the exit.
+	if deps.Ending == nil {
+		defer nixchildren.StopOnSignal()()
+	}
+	build := deps.Progress.Start(deps.Out, "Building the fork build's tools with nix (the floor a "+
+		"macos-user launch runs on)")
+	d, ok, err := deps.MaterializeDarwin(opts.RepoRoot, config.EffectivePackages(opts.Config, config.PlatformDarwin))
+	if ok {
+		build.Done("done")
+	} else {
+		build.Done("failed")
+	}
+	if !ok {
+		out.printf("[bold red]Could not build the fork build's tools natively:[/bold red] %s\n"+
+			"[dim]Fix what it names, then run the build again.[/dim]", errStr(err))
+		return nil, 1
+	}
+	if d == nil || len(d.PathPrefix) == 0 {
+		out.print("[bold red]The native package build reported success but produced no tool " +
+			"directory, so a fork's build has no toolchain.[/bold red] This is a yolo bug: report it at " +
+			entrypoint.IssuesURL + ".")
+		return nil, 1
+	}
+	if len(d.Skipped) > 0 {
+		out.printf("[bold red]These packages have no %s build:[/bold red] %s\n"+
+			"The fork was not built, because a package you declared would have been missing from its "+
+			"build. Check the spelling, or mark it Linux-only ({\"name\": \"<pkg>\", \"platforms\": "+
+			"[\"linux\"]}), then run the build again.", darwinSystemLabel(d), strings.Join(d.Skipped, ", "))
+		return nil, 1
+	}
+	return d, 0
 }

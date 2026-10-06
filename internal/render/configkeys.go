@@ -97,13 +97,21 @@ var hostConfigKeys = map[string]keyCensusEntry{
 		"provider composition (LoadAdapterAddresses)"},
 	"env_sources": {KeyHonored, "the dotenv files and values `yolo host --` and `yolo host env` " +
 		"deliver through the credential gate"},
+	// Honored as a KEY, and its one undone entry shape is named PER ENTRY rather than here: an
+	// inline loophole (an entry with a `command` and no manifest) is a host daemon whose only
+	// client is a jail, and `yolo host apply` names each enabled one on its notch line
+	// (cli.inertInlineLoopholes, run.HostInlineLoopholes), as it names a source-bearing
+	// host_files entry by destination.
 	"loopholes": {KeyHonored, "`yolo host --` opens an enabled loophole's doorway for the agent whose " +
 		"selection asks for one (PlanHostDoorways), and a loophole's settings feed the region fill; " +
-		"the jail daemons themselves have no client off-container"},
+		"the jail daemons themselves have no client off-container, and an inline loophole is named " +
+		"by entry as not applying"},
 	"mcp_servers": {KeyHonored, "composed into every agent's MCP files by `yolo host apply` " +
-		"(composeHostInputs), less an entry naming a path only a jail has, which it names"},
+		"(composeHostInputs), over the selected packs' `mcp` entries, less an entry naming a path " +
+		"only a jail has, which it names"},
 	"lsp_servers": {KeyHonored, "composed into every agent's LSP files by `yolo host apply` " +
-		"(composeHostInputs), less an entry naming a path only a jail has, which it names"},
+		"(composeHostInputs), Claude's as the yolo-lsp plugin in every skills destination " +
+		"(applyHostLSPPlugin), less an entry naming a path only a jail has, which it names"},
 	"host_files": {KeyHonored, "a source-less entry is written into your real home by `yolo host " +
 		"apply`; one with a source mirrors a host file into a jail and is named by destination"},
 	"host_management": {KeyHonored, "the ownership contract `yolo host apply` renders your real " +
@@ -129,10 +137,23 @@ var hostConfigKeys = map[string]keyCensusEntry{
 		"captured settings"},
 	"prune": {KeyHonored, "the free-disk threshold `yolo check`'s disk section warns at, on this " +
 		"machine"},
+	"perf_logging": {KeyHonored, "`yolo host --` and `yolo host apply` record their spans when it " +
+		"is on, silently, into the machine-wide host-notch-perf.log (run.HostNotchTimingLog, " +
+		"reading config.PerfLoggingEnabled), as a jail launch records into its workspace's file"},
+	"required_capabilities": {KeyHonored, "`yolo host --` asks OQ-CAP2's gate over the user scope " +
+		"it composes from, after the pack refresh and before its apply gate " +
+		"(refuseHostUnmetCapabilities), refusing as a jail launch does"},
+	"security": {KeyHonored, "the user scope's `blocked_tools` are rendered by `yolo host --` into " +
+		"shims first on the PATH of the program it starts, beside the selected packs' " +
+		"(composeHostBlockers, HE-D11); a workspace's are never read at the host"},
 
 	// ---- Not applicable: the key means nothing off-container -------------------------
-	"mounts": {KeyNotApplicable, "a mount needs a mount namespace, which is unavailable without a " +
-		"container; at the host the folder is already where you are"},
+	// A GRANT, not a mechanism (docs/design/yolo-as-environment-manager.md §4: "the grants stay
+	// where they are … at lower notches they are inert"). The reason used to be "a mount needs a
+	// mount namespace", false of macos-user, which links a context mount into its sandbox with
+	// none.
+	"mounts": {KeyNotApplicable, "a mount grants a jail a host folder through the jail's wall; at " +
+		"the host there is no wall, and the folder is already where you are"},
 	"workspace_readonly": {KeyNotApplicable, "locks workspace paths read-only inside a jail; at the " +
 		"host the workspace is your own directory"},
 	"per_side_paths": {KeyNotApplicable, "shadow-mounts a jail's own copy over workspace paths, so " +
@@ -154,14 +175,11 @@ var hostConfigKeys = map[string]keyCensusEntry{
 	"kvm": {KeyNotApplicable, "passes /dev/kvm into a container; at the host it is already yours"},
 	"macos_log": {KeyNotApplicable, "dials what the macos-user sandbox's yolo-log helper may read; " +
 		"the host notch runs no sandbox and installs no helper"},
-	"security": {KeyNotApplicable, "its blocked tools are shims at the head of a JAIL's PATH; " +
-		"off-container yolo owns no PATH entry to put one in"},
 	"mise_tools": {KeyNotApplicable, "a jail composes mise's config from it, and nothing at the " +
 		"host manages your own mise"},
 	"mcp_presets": {KeyNotApplicable, "a preset's command is a wrapper only a jail's boot writes " +
-		"(HC-D6), so `yolo host apply` writes none and names each one it leaves out"},
-	"perf_logging": {KeyNotApplicable, "times a jail launch's phases; `yolo host --` records no " +
-		"spans and refuses --timing as a jail-launch flag with no meaning there"},
+		"(HC-D27), so `yolo host apply` writes none and names each one it leaves out; the " +
+		"chrome-devtools pack carries that server to the host, in a jail and on macos-user"},
 	// `brokered` is a workspace's own key, read only by a jail launch's config-change gate, which
 	// approves its `brokered.<source>.repos` entry and hands the result to the GitHub broker's
 	// scope file (run's writeScopeFiles), and by `yolo check`'s report of that gate; no host-notch
@@ -172,8 +190,9 @@ var hostConfigKeys = map[string]keyCensusEntry{
 		"broker is not offered at the host (boundary-broker.md BB-D17), where an agent runs your " +
 		"own gh"},
 	"programs": {KeyNotApplicable, "`programs.autoprune` lets a jail's boot delete the orphaned " +
-		"agent binaries in its home; the host floor removes a deselected program on `yolo host " +
-		"apply --assert` whatever this key says (HP-D8)"},
+		"agent binaries in its home; the host floor removes a deselected program on an owned " +
+		"host's `yolo host apply --assert` whatever this key says (HP-D8), and under \"none\" " +
+		"`yolo check` names the removal by hand"},
 	// Not unbuilt: host-tool-provisioning.md's HP-DIR3 (2026-09-29) rules that at the host yolo
 	// manages the agent's environment and never the workspace's runtime, which is what
 	// `packages:` declares, so provisioner-sets.md's OQ-PS1 gives darwinpkg.MaterializeAt no host
@@ -183,7 +202,7 @@ var hostConfigKeys = map[string]keyCensusEntry{
 		"there are the ones on your own PATH"},
 
 	// ---- Unbuilt: the key applies at the host and nothing honors it yet ---------------
-	"required_capabilities": {KeyUnbuilt, "OQ-CAP2 refuses a launch whose required capability " +
-		"nothing satisfies, and the gate runs in a jail launch's config path " +
-		"(refuseUnmetCapabilities); `yolo host --` launches without asking it"},
+	// None, since 2026-10-04: `required_capabilities`, the last, gained its host reader.
+	// KeyUnbuilt stays the disposition for the next key that applies here before its reader
+	// exists.
 }

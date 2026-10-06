@@ -25,8 +25,9 @@ warns in-jail, where the config is the generated snapshot).
 
 **A pack that installs an agent is just one that declares a `kind: "program"` surface**, and **most
 shipped packs install no CLI at all** — some ship only a loophole, some only a provider and a profile, one
-only blocked-tool refusals. `rg -l '"kind": "program"' packs/*/pack.json` is the agent list and
-`rg -l loophole packs/*/pack.json` the loophole list; writing either membership down here is what rots.
+only blocked-tool refusals. `rg -l '"kind": "program"' packs/*/pack.json` lists the packs that install
+something — every agent, plus `chrome-devtools`, whose program is an MCP server an `mcp` entry's `bin`
+names — and `rg -l loophole packs/*/pack.json` the loophole list; writing either membership down here is what rots.
 Anything in this corpus saying "the six" names the agent SUBSET from when it had six members. Two
 structural facts, not guessable from a manifest:
 
@@ -124,11 +125,11 @@ unification exists to end ([`loophole-transport.md`](docs/reference/loophole-tra
 |---|---|---|
 | `yolo` | host **and** in-jail | the CLI; also every host daemon |
 | `yolo-entrypoint` | container PID 1-ish | provisions the jail at startup |
-| `yolo-jaild` | container | in-jail daemons |
-| `yolo-ps` | container | host-process view (the `host-processes` loophole) |
+| `yolo-jaild` | container, and the macos-user guest | in-jail daemons |
+| `yolo-ps` | container, and the macos-user guest | host-process view (the `host-processes` loophole) |
 | `yolo-cglimit` | container | cgroup-delegate client (the one AF_UNIX consumer left) |
 | `yolo-journalctl` | container | journal-bridge client (loopback-TLS) |
-| `yolo-serial` | container | serial-bridge client (loopback-TLS; the `serial` loophole) |
+| `yolo-serial` | container, and the macos-user guest | serial-bridge client (loopback-TLS; the `serial` loophole) |
 | `goprobe` | nowhere | deployment tripwire; excluded from runtime PATH |
 
 **A new `cmd/` binary must be added to [`flake.nix`](flake.nix)'s `shippedBinaries` AND to
@@ -337,7 +338,11 @@ live, so edits are visible on the host instantly — there is no sync step.
   the one authority for which PATH counts), so a block can never leave a jail with neither the tool nor its
   alternative. A generated shim is unconditional at run time unless `YOLO_BYPASS_SHIMS=1` — set it for
   installers and scripts needing the real tool. A user's own `security.blocked_tools` is unaffected, and an
-  entry naming the same tool as a pack's REPLACES it whole.
+  entry naming the same tool as a pack's REPLACES it whole. ⚠ **A shell function outranks every PATH
+  entry**: Claude Code's Bash tool defines `grep` and `find` as functions that run its bundled search tools
+  (measured on Claude Code 2.1.289 and 2.1.290), so Claude's own commands never meet the guardrails blocks,
+  which still apply to everything that runs them by PATH. `yolo host --` applies the same blocks at the host
+  and says both limits at every launch ([HE-D11](docs/design/host-launch-environment.md#he-d11)).
 - **Use `shquote.Join`** (`internal/shquote`) for anything crossing into the container's `bash -c`.
 - **A LAUNCH HAS NO QUIET MODE, by ruling** ([`OQ-RO3`](docs/reference/report-tiers.md#why-its-this-way)).
   Progress may be COMPRESSED to a line — that is the whole density control a launch gets — but a
@@ -364,8 +369,8 @@ live, so edits are visible on the host instantly — there is no sync step.
   means only "launcher older than the variable". The in-jail witness
   ([`reachability.go`](internal/entrypoint/reachability.go)) cannot derive it: from inside, "this host
   cannot forward loopback" and "yolo asked and the service is still down" are the same observation. **That
-  witness is FATAL** — an enabled jail-facing service the jail cannot use REFUSES the launch, in all three
-  fault classes ([`OQ-R4`](docs/reference/loopback-tls-reachability.md#oq-r4)) — and severity is the
+  witness is FATAL** — an enabled jail-facing service the jail cannot use REFUSES the launch, in every
+  fault class ([`OQ-R4`](docs/reference/loopback-tls-reachability.md#oq-r4)) — and severity is the
   disposition's decision alone: only `requested` and `shared` escalate, a host yolo could not ask never being
   refused for what it cannot help ([`OQ-R3`](docs/reference/loopback-tls-reachability.md#oq-r3)). Hatch:
   `YOLO_ALLOW_UNREACHABLE_SERVICES=1`, forwarded from the host env and named in the refusal; it also
@@ -394,7 +399,7 @@ live, so edits are visible on the host instantly — there is no sync step.
   cache directories, or one the user named in their user-scope config — `cache_relocations`, and a
   read-write `mounts` element (`config.LoadRWMounts`,
   [`context-mounts.md` §2.8](docs/design/context-mounts.md#28-the-agentsmd-invariant-restated)), which every
-  launch names in a disclosure line; a relocation gets no such line. A recognised **content-addressed** host
+  launch names in a disclosure line; a relocation gets no such line on a container backend (macos-user names each link it lays). A recognised **content-addressed** host
   cache is aliased at the path the jail's own copy of the tool already uses, so it stops existing twice
   (`internal/hostcas`, [`hostcasalias.go`](internal/cli/run/hostcasalias.go);
   [`OQ-BF10`](docs/design/disk-levers-and-backfill.md#OQ-BF10)). Today that set is pants' `lmdb_store`
@@ -460,11 +465,12 @@ live, so edits are visible on the host instantly — there is no sync step.
   pack-declared gets one of each, the blocker winning by position. **Both dirs share ONE bind-mount anchor**
   at `~/.yolo/bin`, so both are cleared CONTENTS-ONLY (`resetAnchorDir`), and nothing may put that shared
   parent on PATH.
-- **`macos-user` carries a THIRD PATH list** (`macosuser.SandboxPath`) and it is **NOT `BootPath`'s order** —
-  the two-copy rule above does not cover three, and nothing compares `SandboxPath` to either other copy.
-  `$HOME/.local/bin` is THIRD there and SIXTH in `BootPath`, and `/usr/bin` precedes `/bin`, so a
-  pipx-installed tool outranks a mise shim on that backend and loses to it on every container backend. Left
-  as a divergence rather than quietly reordered: which order is right is a ruling.
+- **`macos-user` carries a THIRD PATH list** (`macosuser.SandboxPath`), and its **head is `BootPath`'s,
+  derived rather than copied**: `entrypoint.HomePathDirs` is both `BootPath`'s first six entries and
+  `SandboxPath`'s, so a mise shim outranks a `~/.local/bin` tool on every backend
+  ([`OQ-PD27`](docs/design/program-delivery.md#decision-ledger), an implementation decision under the
+  2026-10-04 delegation, reversible). The TAIL is macOS's own by decision: the darwin store prefix, the
+  staged `yolo`'s dir, then `/usr/bin:/bin:/usr/sbin:/sbin`. `sandboxpathorder_test.go` pins both.
 - **Env hygiene** (agents can't handle interactive UI): `PAGER`/`GIT_PAGER`=`cat`, `BAT_PAGER=""`;
   `EDITOR=cat` (stops `git commit` hanging) but `VISUAL=nvim` (human ctrl-g editing);
   `NPM_CONFIG_UPDATE_NOTIFIER=false` and `NPM_CONFIG_FUND=false`, as the host floor's npm has them, so an

@@ -159,6 +159,22 @@ const (
 	JailDaemonReadyFDEnv = "YOLO_JAIL_DAEMON_READY_FD"
 )
 
+// SerialEndpointEnv and HostProcessesEndpointEnv are the endpoint variables two in-jail
+// loophole CLIENTS read: `yolo-serial` the serial loophole's, `yolo-ps` the host-processes
+// loophole's. Each is YOLO_SERVICE_<NAME>_ENDPOINT for its loophole's name, the spelling the
+// run pipeline's hostServiceEnvVar produces, composed from the two halves above so the three
+// cannot drift.
+//
+// They are named here, and not inside each client, because a second binary keys on them: the
+// macos-user launch stages a client into its guest exactly when the session env carries the
+// variable that client reads (macosuser.GuestClients). Spelled twice, a renamed client would
+// be staged for a variable it no longer reads, or not staged for the one it does, and either
+// way the sandbox would hold an endpoint and no program that dials it.
+const (
+	SerialEndpointEnv        = ServiceEnvVarPrefix + "SERIAL" + ServiceEnvVarSuffix
+	HostProcessesEndpointEnv = ServiceEnvVarPrefix + "HOST_PROCESSES" + ServiceEnvVarSuffix
+)
+
 // CgdEndpointName MUST be "<BuiltinCgroupLoopholeName>.endpoint" — composed, for
 // exactly the reason recorded above CgdSocketName.
 const CgdEndpointName = BuiltinCgroupLoopholeName + ServiceEndpointExt
@@ -739,6 +755,13 @@ type HomeFileRedirect struct {
 // account home (entrypoint.DeriveDarwinHomeLayout). A fourth file redirected on one backend and not the
 // other is a per-backend answer to "where does my agent's state live", which is the drift
 // docs/design/macos-user-home-tiers.md §5.0 rules out.
+//
+// These are CORE's. The CONFIG-driven redirects — one per home-root `host_files` file
+// (`~/.npmrc`) — exist on both backends too, outside this list because the user's config
+// decides them: each consumer above lays them from the same two calls,
+// config.HostFileEntry.StagingFor and SymlinkTarget (on macos-user,
+// entrypoint.DarwinHomeLayout.WithHostFileRedirects). macos-user lays none at a login rc
+// file its bootstrap writes by path on every launch (entrypoint.DarwinLoginRCFiles).
 func HomeFileRedirects() []HomeFileRedirect {
 	return []HomeFileRedirect{
 		{Name: ".claude.json", Target: filepath.Join(".claude", "claude.json")},
@@ -785,6 +808,53 @@ func WrapDir() string { return WrapDirUnder(home()) }
 // with a t.TempDir() home does.
 func WrapDirUnder(home string) string {
 	return filepath.Join(GeneratedBinDirUnder(home), "wrap")
+}
+
+// HostBlockDir returns $HOME/.local/share/yolo-jail/bin/block — where `yolo host --` keeps the
+// blocked-tool shims it puts first on the PATH of the program it starts
+// (docs/design/host-launch-environment.md HE-D11): one CONTENT-ADDRESSED child per distinct set
+// of scripts, named by their digest, written once and then reused, so two launches with the same
+// blockers share one directory and one with different blockers never edits another's.
+//
+// Under GeneratedBinDir, and so inside the folders every host PATH lookup skips
+// (hostpath.ManagedDirs): a lookup of the program to run, or of a blocker's replacement, never
+// finds a shim. ⚠ NO JAIL MOUNTS IT, for HostFloorDir's reason: the host runs these scripts with
+// the user's authority, so a copy a jail could write would be a file the host executes because of
+// where it sits.
+func HostBlockDir() string { return HostBlockDirUnder(home()) }
+
+// HostBlockDirUnder is HostBlockDir under an EXPLICIT home.
+func HostBlockDirUnder(home string) string {
+	return filepath.Join(GeneratedBinDirUnder(home), "block")
+}
+
+// hostWorkspaceSkillsLeaf is the state-dir child holding the records of the workspace skills
+// links `yolo host --` wrote.
+const hostWorkspaceSkillsLeaf = "host-workspace-skills"
+
+// HostWorkspaceSkillsDir returns $HOME/.local/share/yolo-jail/host-workspace-skills — the RECORD
+// of each link `yolo host -- <agent>` put into a workspace for the workspace skills layer
+// (docs/design/workspace-skills.md WS-D19 to WS-D23): one file per workspace and link, keyed by a
+// digest of the workspace's resolved path and the link's path in it. The record is what makes a
+// link yolo's to refresh or remove, so it is host-side and never in the workspace's own .yolo/,
+// which the repository's agent can write. No jail mounts it.
+func HostWorkspaceSkillsDir() string { return filepath.Join(GlobalStorage(), hostWorkspaceSkillsLeaf) }
+
+// hostAgentsLeaf is the state-dir child holding the stores yolo manages for programs `yolo host
+// --` starts.
+const hostAgentsLeaf = "host-agents"
+
+// HostAgentStoreDir returns $HOME/.local/share/yolo-jail/host-agents/<pack> — a directory yolo
+// manages for the program a pack delivers when `yolo host --` starts it with something of the
+// machine's in place of the user's own: today the Claude credential view behind
+// YOLO_CLAUDE_CREDENTIAL_VIEW (docs/design/claude-login-without-interception.md CL-D27), which
+// the host broker writes and Claude reads through CLAUDE_SECURESTORAGE_CONFIG_DIR. The user's
+// own `~/.claude` is never written.
+//
+// ⚠ NO JAIL MOUNTS IT, and it is created 0700: what sits here is a login the host broker keeps
+// current, and a jail that could write it could hand a host Claude a credential of its choosing.
+func HostAgentStoreDir(pack string) string {
+	return filepath.Join(GlobalStorage(), hostAgentsLeaf, pack)
 }
 
 // GlobalMise returns the shared mise data dir.

@@ -13,7 +13,9 @@ import (
 
 // bedrock_test.go is the launch tier of the one Bedrock provider (docs/design/bedrock-plumbing.md
 // OQ-BR9 and OQ-BR1, ruled 2026-09-29): a real launch of codex, pi and opencode alone, with
-// `-p bedrock` and a region, renders each agent's OWN Bedrock client into its own file. The unit
+// `-p bedrock` and a region, renders each agent's OWN Bedrock client into its own file. yolo
+// ships no Bedrock model list (docs/design/model-lists-and-pickers.md MM-D32), so with none each
+// agent is left on its own default, and a list the user supplies is rendered and picked from. The unit
 // tests drive each derive through the boot render; this is the tier where the staged pack tree,
 // the needs closure a launch runs (none of the three packs lists `bedrock`, so it must join
 // through their `needs`), the composed table crossing into the jail and the stateful render all
@@ -26,11 +28,29 @@ func TestBedrockRendersEachAgentsOwnClient(t *testing.T) {
 	requireJail(t)
 
 	const region = "eu-west-1"
-	// GPT-6.1 Sol in eu-west-1 too: no Region detection, and a user outside the US names another
-	// model in a profile (docs/design/bedrock-plumbing.md BR-D19, superseding BR-D17).
+	// A list of two makers the user supplies, since packs/bedrock ships none (MM-D32): codex takes
+	// its OpenAI entry, pi and opencode its first, in every Region (no Region detection, BR-D19).
 	const opus, sol = "global.anthropic.claude-opus-5-5", "us.openai.gpt-6.1-sol"
-	dir := writeProject(t, `{}`)
+
+	// With no list, no agent is handed a Bedrock model: each keeps its own default.
+	bare := writeProject(t, `{}`)
 	packHome(t, `{"packs": ["codex", "pi", "opencode"], "providers": {"bedrock": {"region": "`+region+`"}}}`)
+	if r := runCommand(t, bare, append(jailRunArgs(), "-p", "bedrock", "--", "true")); r.rc != 0 {
+		t.Fatalf("a -p bedrock launch with no list failed: rc %d\n%s", r.rc, r.combined())
+	}
+	if m := codexModelAssign.FindStringSubmatch(string(renderedSurface(t, bare, "codex", "config.toml"))); m != nil {
+		t.Errorf("with no list codex was handed model %q; yolo picks no Bedrock model (MM-D32)", m[1])
+	}
+	if s := readPioencodeSurface(t, bare, "pi", "agent", "settings.json"); s.provider != "amazon-bedrock" || s.model != "" {
+		t.Errorf("with no list pi's selection = %q/%q, want amazon-bedrock and no model", s.provider, s.model)
+	}
+	if c := readPioencodeSurface(t, bare, "config", "opencode", "opencode.json"); c.slashJoin != "" {
+		t.Errorf("with no list opencode was handed model %q; yolo picks no Bedrock model (MM-D32)", c.slashJoin)
+	}
+
+	dir := writeProject(t, `{}`)
+	packHome(t, `{"packs": ["codex", "pi", "opencode"], "providers": {"bedrock": {"region": "`+region+`", `+
+		`"models": {"global.anthropic.claude-opus-5-5": {"id": "global.anthropic.claude-opus-5-5", "vendor": "anthropic"}, "us.openai.gpt-6.1-sol": {"id": "us.openai.gpt-6.1-sol", "vendor": "openai"}}}}}`)
 
 	r := runCommand(t, dir, append(jailRunArgs(), "-p", "bedrock", "--", "true"))
 	if r.rc != 0 {
@@ -80,7 +100,7 @@ func TestBedrockRendersEachAgentsOwnClient(t *testing.T) {
 			entry, _ := m.(map[string]any)
 			ids = append(ids, entry["id"])
 		}
-		if want := []any{opus, sol, "global.openai.gpt-6-astra"}; !reflect.DeepEqual(ids, want) {
+		if want := []any{opus, sol}; !reflect.DeepEqual(ids, want) {
 			t.Errorf("pi's amazon-bedrock models = %v, want %v", ids, want)
 		}
 	})

@@ -16,6 +16,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/agentcfg/manifest"
 	"github.com/mschulkind-oss/yolo-jail/internal/packdecl"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/packoverlay"
@@ -53,7 +54,7 @@ func TestHostRenderNamesOutrankedAutonomyKey(t *testing.T) {
 	// autonomy=false, matching applyHost: the host notch renders the guarded posture.
 	overlays := packoverlay.Collect([]*packload.Pack{claude, p1, p2}, false, nil)
 
-	results, rerr := RenderHostPack(claude, home, render.OwnershipAssert, false, overlays, nil)
+	results, rerr := RenderHostPack(claude, home, render.OwnershipOwn, false, overlays, nil)
 	if rerr != nil {
 		t.Fatalf("RenderHostPack: %v", rerr)
 	}
@@ -84,7 +85,19 @@ func TestHostRenderNamesOutrankedAutonomyKey(t *testing.T) {
 // THE MISLEADING WARNING, which is the half of F4 that made the output worse than silent: the
 // ⚠ overwrite line must NOT attribute the clobber to an overlay whose value never reached the
 // file. The managed layer that actually wrote it is still reported, unlabelled.
+//
+// Through both mechanisms an owned host runs — claude/settings as shipped (`stateful`) and
+// re-declared `rmw` — because each drops the outranked overlay in a different place: the rmw
+// arm's report is the declaration-based list (overlayOverwrites, which skips an outranked key),
+// and `stateful` re-measures it against its composed write (hostStatefulOverwrites). Run under
+// `own` alone with the shipped declaration, the rmw arm's half had no test.
 func TestHostRenderDoesNotBlameAnOutrankedOverlayForTheOverwrite(t *testing.T) {
+	for _, m := range hostMechanisms {
+		t.Run(m.name, func(t *testing.T) { hostRenderDoesNotBlameAnOutrankedOverlay(t, m.rmw) })
+	}
+}
+
+func hostRenderDoesNotBlameAnOutrankedOverlay(t *testing.T, rmw bool) {
 	home := t.TempDir()
 	settings := filepath.Join(home, ".claude", "settings.json")
 	if err := os.MkdirAll(filepath.Dir(settings), 0o755); err != nil {
@@ -95,17 +108,18 @@ func TestHostRenderDoesNotBlameAnOutrankedOverlayForTheOverwrite(t *testing.T) {
 		[]byte(`{"permissions":{"defaultMode":"plan"}}`), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	claude, err := embeddedPack("claude")
+	shipped, err := embeddedPack("claude")
 	if err != nil {
 		t.Fatalf("embedded claude: %v", err)
 	}
 	pushy := claudeSettingsOverlay(t, "pushy", map[string]any{
 		"permissions": map[string]any{"defaultMode": "acceptEdits"},
 	})
+	claude := declaredRMW(t, []*packload.Pack{shipped}, "claude", rmw)[0]
 	overlays := packoverlay.Collect([]*packload.Pack{claude, pushy}, false, nil)
 
 	// Observe: the report must be honest BEFORE anything is written.
-	results, rerr := RenderHostPack(claude, home, render.OwnershipAssert, true, overlays, nil)
+	results, rerr := RenderHostPack(claude, home, render.OwnershipOwn, true, overlays, nil)
 	if rerr != nil {
 		t.Fatalf("RenderHostPack observe: %v", rerr)
 	}
@@ -128,6 +142,12 @@ func TestHostRenderDoesNotBlameAnOutrankedOverlayForTheOverwrite(t *testing.T) {
 // THE NEGATIVE CASE, which is the one that catches an over-broad fix: an overlay key the
 // owner does not manage still WINS, must not appear as IGNORED, and must still show up in the
 // overwrite warning attributed to its pack.
+//
+// The owner declares `rmw`, because the case needs an overlay that wins over a value ALREADY IN
+// the file, which is the rmw arm's precedence (and was every surface's under the retired
+// `assert`). Composing `stateful`, an owned host adopts that value as a captured edit, which
+// outranks every config-overlay, so there the overlay keeps nothing to win
+// (hostcaptureoutranksoverlay_test.go).
 func TestHostRenderDoesNotCallAWinningOverlayKeyIgnored(t *testing.T) {
 	home := t.TempDir()
 	dir := filepath.Join(home, ".acme")
@@ -138,7 +158,7 @@ func TestHostRenderDoesNotCallAWinningOverlayKeyIgnored(t *testing.T) {
 		[]byte(`{"fileSuggestion":"my-own-choice"}`), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	owner := overlayOwnerPack(t, "")
+	owner := overlayOwnerPack(t, manifest.ModeRMW)
 	// fileSuggestion: the owner manages nothing of the sort, so the overlay wins.
 	// telemetry: the owner's own managed key, so the overlay loses.
 	contributor := overlayContributorPack(t, "acme-fzf", map[string]any{
@@ -146,7 +166,7 @@ func TestHostRenderDoesNotCallAWinningOverlayKeyIgnored(t *testing.T) {
 	})
 	overlays := packoverlay.Collect([]*packload.Pack{owner, contributor}, false, nil)
 
-	results, err := RenderHostPack(owner, home, render.OwnershipAssert, false, overlays, nil)
+	results, err := RenderHostPack(owner, home, render.OwnershipOwn, false, overlays, nil)
 	if err != nil {
 		t.Fatalf("RenderHostPack: %v", err)
 	}
@@ -185,7 +205,7 @@ func TestHostRenderRedundantOverlayKeyIsNotReportedAsIgnored(t *testing.T) {
 	agreeable := overlayContributorPack(t, "agreeable", map[string]any{"telemetry": false})
 	overlays := packoverlay.Collect([]*packload.Pack{owner, agreeable}, false, nil)
 
-	results, err := RenderHostPack(owner, home, render.OwnershipAssert, false, overlays, nil)
+	results, err := RenderHostPack(owner, home, render.OwnershipOwn, false, overlays, nil)
 	if err != nil {
 		t.Fatalf("RenderHostPack: %v", err)
 	}
@@ -217,7 +237,7 @@ func TestHostRenderOutrankedIsPerLeafNotPerBranch(t *testing.T) {
 	})
 	overlays := packoverlay.Collect([]*packload.Pack{owner, contributor}, false, nil)
 
-	results, rerr := RenderHostPack(owner, home, render.OwnershipAssert, false, overlays, nil)
+	results, rerr := RenderHostPack(owner, home, render.OwnershipOwn, false, overlays, nil)
 	if rerr != nil {
 		t.Fatalf("RenderHostPack: %v", rerr)
 	}
@@ -234,7 +254,7 @@ func TestHostRenderOutrankedIsPerLeafNotPerBranch(t *testing.T) {
 // traded away for this line.
 func TestHostRenderWithNoOverlaysReportsNothingOutranked(t *testing.T) {
 	home := t.TempDir()
-	results, err := RenderHostPack(overlayOwnerPack(t, ""), home, render.OwnershipAssert, false, nil, nil)
+	results, err := RenderHostPack(overlayOwnerPack(t, ""), home, render.OwnershipOwn, false, nil, nil)
 	if err != nil {
 		t.Fatalf("RenderHostPack: %v", err)
 	}

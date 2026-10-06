@@ -7,8 +7,8 @@ package entrypoint
 // # Why the bytes are not always the user's
 //
 // A `readsHost` surface composes the user's own copy of its file, staged under /ctx by the
-// launch. The moment yolo WRITES that file — `assert` rewrites its declared keys into it,
-// `own` composes it whole — those bytes stop being purely the user's. Folding them back in
+// launch. The moment yolo WRITES that file — `own` composes it whole, and the retired
+// `assert` rewrote its declared keys into it — those bytes stop being purely the user's. Folding them back in
 // makes a key yolo wrote indistinguishable from one the user wrote, so a pack overlay that
 // later changes or is removed leaves its old value in the file forever, because it came
 // back as "the user's". That is the circularity SkillTarget.HostSource was DELETED for, one
@@ -26,12 +26,14 @@ package entrypoint
 //
 // # It is the MARK that decides, not the posture — and that is one step sharper than the ruling
 //
-// [OQ-CR6]'s table names `assert`/`own`. Taken as a posture test it would be wrong on
-// almost every machine: an ABSENT `host_management` resolves to `assert`
-// (config.HostManagementMode, [OQ-CO2]), so a jail on a default install would stop
-// composing the ~/.claude/settings.json its user already has — which is exactly the
-// onboarding path [P7] says must stay frictionless, and the design's own table mislabels
-// `none` as the default.
+// [OQ-CR6]'s table names `assert`/`own`. Taken as a posture test it was wrong on almost
+// every machine while an ABSENT `host_management` resolved to `assert` ([OQ-CO2]): a jail on a
+// default install would have stopped composing the ~/.claude/settings.json its user already
+// had — exactly the onboarding path [P7] says must stay frictionless. Since the `assert`
+// retirement the absent key is `none` ([OQ-CO14]), and the mark is STILL the answer, for the
+// opposite reason: a home `assert` wrote into reads as `none` now, and a posture test would
+// compose every key `assert` left there into a jail as the user's own — the laundering the
+// `retired:` provenance label exists to stop. The ruling keeps the mark (read from it).
 //
 // [P6] states the rule on the WRITE, and a write leaves a mark: the host PROVENANCE record,
 // which hostProvenanceExists already reads as *"has yolo EVER asserted this surface in this
@@ -161,7 +163,7 @@ func StagedHostLayer(s manifest.Surface) (string, packload.HostLayerDisposition)
 // deliveries off a path the renderer had moved.
 //
 // OwnershipUnstated is right here and is not an oversight: the provenance path is the same
-// at all three contracts (render.Target.ProvenanceDir switches on the NOTCH, not the
+// at every contract, and was at the retired `assert` (render.Target.ProvenanceDir switches on the NOTCH, not the
 // contract), and this asks what yolo has already written rather than what it may write
 // next.
 func HostSurfaceRendered(home string, s manifest.Surface) bool {

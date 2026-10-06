@@ -10,6 +10,9 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+Packs can follow an upstream with your patches, `yolo host` carries more of a jail, and macos-user
+catches up and becomes the guest notch on a Mac.
+
 ### Added
 
 **Patch series for programs and pi extensions.** A pack can name an upstream and your changes as a
@@ -24,6 +27,10 @@ needs stops before the jail starts, saying why once, in plain words
 **Packs written for a newer yolo.** A launch now leaves out, and names, any part of a pack written
 for a newer yolo instead of failing, and `yolo features` lists what a yolo can read.
 
+**Provider keys for a whole jail.** `yolo --with-credentials <provider>` now starts a jail holding
+those providers' keys from `env_sources`, as `yolo host --with-credentials` hands them to one
+command. See [Give a shell a provider's key](userguide/guides/providers-and-models.md#give-a-shell-a-providers-key).
+
 **Pi can start without waiting for its extension update.** Set
 `"agent_updates": { "pi": "next-launch" }` and the update runs while you work, for your next launch.
 See [Keep agents and packs up to date](userguide/guides/packs-and-skills.md#keep-agents-and-packs-up-to-date).
@@ -33,6 +40,19 @@ patches, and yolo builds it on the host and gives each new jail a read-only copy
 installs or changes it. A launch builds its extensions at the same time. See
 [Build a pi extension as it is](userguide/guides/patch-series.md#build-a-pi-extension-as-it-is).
 
+**Chrome DevTools as a pack.** Add `"chrome-devtools"` to `packs` for a browser at `yolo host`, in
+a jail and on macos-user. See [MCP configuration](docs/reference/mcp-configuration.md#the-chrome-devtools-pack).
+
+**More of the jail at `yolo host`.** `yolo host --` applies your blocked tools, links a
+repository's skills, runs a local pack's services and keeps pi's extensions current; `yolo host
+apply` writes Claude's language servers. On a Mac, and on Linux with no container runtime, it
+keeps its own copy of claude too. See [Your own machine](userguide/guides/confinement.md#your-own-machine).
+
+**macos-user catches up.** Port remaps, `host_files` folders, `cache_relocations`, serial ports,
+`host-processes`, `--timing`, `yolo config drift` and your System keychain's certificate
+authorities work there, `resources` acts though not kernel-enforced, and a project's sessions
+share their host services, which `yolo stop` ends. `"confinement": "guest"` runs it with no `runtime`
+key. See [each setting on each setup](userguide/reference/settings-per-setup.md).
 **Pi extensions, themes and prompts as one folder.** A pack can give pi a whole folder of them in
 one manifest line, with no list of files, and yolo adds that folder to pi's packages beside your
 own, in jails and at `yolo host apply`, until you drop the pack. See
@@ -51,9 +71,17 @@ an agent told a repository is out of scope is told how. See
 give that script the variables it needs, such as where to install, with `installer_env`. See
 [the pack system reference](docs/reference/pack-system.md).
 
+**Copilot shows a provider's whole model list.** In a jail, Copilot's model picker offers every
+model on the provider's list, beside GitHub's own models when you are signed in to GitHub. See
+[a company's model list](userguide/guides/providers-and-models.md#model-menus-and-a-companys-model-list).
+
+**Overridden variables are named.** When a profile, your `env_sources` or a pack's default
+overrides another on a variable, every launch says which won, never the value. See
+[Providers and models](userguide/guides/providers-and-models.md).
 **Bedrock's own model list.** Where no pack or config lists Bedrock models, yolo reads your
-region's list from Bedrock through the `aws-auth` login, once a day, so Copilot starts on a model
-Bedrock serves; a launch that still leaves Copilot no model says what to add. See
+region's list from Bedrock through the `aws-auth` login, once a day, so Copilot's picker shows it
+and Copilot starts on a model Bedrock serves; a launch that still leaves Copilot no model says
+what to add. See
 [the providers yolo ships](userguide/guides/providers-and-models.md#the-providers-yolo-ships).
 
 **Packages from inside a nixpkgs collection.** A `packages` entry such as `rocmPackages.clr` now
@@ -68,6 +96,8 @@ comes 30 days after you upgrade. See [Storage](userguide/guides/storage.md#see-a
 
 ### Changed
 
+- `host_management` now defaults to `"none"`, and `"assert"` is refused: to keep `yolo host apply`
+  writing your agents' config files, set `"host_management": "own"`.
 - A jail now installs every agent and tool your selected packs declare when it starts, once
   per project, and `yolo apply` does exactly that and exits. If one cannot be installed,
   offline included, the launch stops and names it: to start without it, set
@@ -91,6 +121,26 @@ comes 30 days after you upgrade. See [Storage](userguide/guides/storage.md#see-a
 - A host-wide service an older yolo started, such as `aws-auth`, now stops a new launch that uses
   it instead of warning: run the `yolo host-daemon restart <name>` it names, which jails already
   running survive.
+- yolo no longer ships a Bedrock model list: each agent starts on its own Bedrock default, and
+  Copilot on gpt-oss-120b. To start on a model of your choosing, name it in a profile's `model` or
+  list it under `providers.bedrock.models`.
+- `yolo host apply` refuses inside a jail: run it on your machine.
+- `yolo host --` refuses an unmet `required_capabilities`: satisfy or remove it.
+- With `guardrails`, `yolo host --` blocks `grep -r` and `find` too: `YOLO_BYPASS_SHIMS=1` runs the
+  real one.
+- On macos-user a profile's value beats an `env_sources` one, which a `null` no longer removes: set
+  it on the agent's command instead.
+- On macos-user, a `network.ports` remap listens on every interface: write `127.0.0.1:8000:3000`
+  to keep it on the Mac.
+- On macos-user, a second project's launch stops while another's session runs: quit that session
+  first.
+- On macos-user, `macos_log: "off"` hides the log from the sandbox: set `"user"` to read it.
+- On macos-user, an unusable host service stops the launch: `YOLO_ALLOW_UNREACHABLE_SERVICES=1`
+  continues.
+- On macos-user, `host_files` may not name a shell profile such as `~/.zshrc` (use `~/.zshenv`),
+  and an old home-root file may stop one launch: run the `sudo rm` it prints.
+- `yolo-ps --tree` also shows allowlisted processes' descendants: narrow `visible` if that is too
+  much.
 - On `-p bedrock-bridge`, Claude Code now uses its own Bedrock support through the wire bridge,
   so its model menu is its own: to start it on another maker's model there, name that model in
   the profile's `model`.
@@ -162,6 +212,19 @@ comes 30 days after you upgrade. See [Storage](userguide/guides/storage.md#see-a
   variable write, a `..` in an argument, or a `:owner` or `:repo` placeholder.
 - A macos-user launch of Codex or Pi no longer refuses when the shared OpenAI credential service
   restarts just as it connects.
+- On macos-user, `requires_env` MCP servers and `yolo programs` work, and `workspace_readonly` locks
+  the config file.
+- On macos-user, `uv` keeps its own venv, home-root files stay per workspace, a git identity you
+  removed is removed, your global gitignore applies, agents install once per Mac, and closing the
+  window deletes the session's credentials file.
+- `yolo host` runs its own codex on Linux, keeps installer agents such as claude current, and on
+  NixOS without nix-ld runs your own copy, naming the fix.
+- `yolo host -p` moves codex, opencode, pi and oh-omp onto its provider for the launch, pi's ChatGPT
+  models included, and copilot reaches Bedrock on a bridge profile.
+- `yolo host apply` keeps your comments in oh-omp's yaml, and `config reset --at host` keeps your
+  profile's model.
+- A host wrapper starts yolo by its full path, so an IDE can run it.
+- The `audio` pack no longer sets `PULSE_SERVER` on a Mac or at `yolo host`.
 - `yolo host-daemon stop` or `restart` on a host-wide service that was not running, such as
   `aws-auth`, no longer stops the Claude OAuth broker in its place.
 - On a Mac, a launch and `yolo check` wait up to a minute for a busy Podman machine instead of

@@ -58,14 +58,29 @@ func clearAWS(t *testing.T) {
 	}
 }
 
+// anthropicOnTheList is a user layer giving the shipped `bedrock` a one-entry list naming Claude
+// Opus 5.5's maker. packs/bedrock ships no list (docs/design/model-lists-and-pickers.md MM-D32), and
+// the bridge passes a model untranslated only when the provider's list names it Anthropic's, so a
+// test of that route supplies the list, as a user or a company pack would.
+const anthropicOnTheList = `{"bedrock": {"models": {"global.anthropic.claude-opus-5-5":
+  {"id": "global.anthropic.claude-opus-5-5", "vendor": "anthropic"}}}}`
+
 // servedShippedBedrockBridge boots the daemon's plan for claude, pi and codex on the shipped
-// `bedrock-bridge`, each agent's env file holding its own pair and region, on free loopback ports.
+// `bedrock-bridge`, each agent's env file holding its own pair and region, on free loopback ports,
+// with Claude Opus 5.5 on the provider's list as Anthropic's (anthropicOnTheList).
 func servedShippedBedrockBridge(t *testing.T, claudeRegion, piRegion string) (up *captureUpstream, adapter, via string, logs func() string) {
+	t.Helper()
+	return servedShippedBedrockBridgeOver(t, anthropicOnTheList, claudeRegion, piRegion)
+}
+
+// servedShippedBedrockBridgeOver is servedShippedBedrockBridge over the user `providers` layer user
+// ("" for none, so the provider's list is packs/bedrock's own, which is empty).
+func servedShippedBedrockBridgeOver(t *testing.T, user, claudeRegion, piRegion string) (up *captureUpstream, adapter, via string, logs func() string) {
 	t.Helper()
 	clearAWS(t)
 	logs = captureDiag(t)
 	up = withUpstream(t)
-	providers, resolved := shippedBridgeTables(t, "")
+	providers, resolved := shippedBridgeTables(t, user)
 	use := map[string]string{"claude": "bedrock-bridge", "pi": "bedrock-bridge", "codex": "bedrock-bridge"}
 	p := planFor(providers, use, resolved)
 	if p.adapter == nil {
@@ -125,6 +140,24 @@ func TestTheShippedBedrockBridgeReachesRuntimeInTheServedAgentsRegion(t *testing
 		"SigV4 for bedrock in eu-west-1 ($AWS_REGION from ",
 		"untranslated to https://bedrock-runtime.eu-west-1.amazonaws.com/anthropic/v1/messages",
 		"/agent/pi/ chat-completions and Responses → https://bedrock-runtime.ap-southeast-2.amazonaws.com/openai/v1")
+}
+
+// WITH NO LIST, A CLAUDE MODEL IS TRANSLATED TOO (docs/design/model-lists-and-pickers.md MM-D32):
+// the bridge passes a model to runtime's Messages route untranslated only when the provider's list
+// names it Anthropic's, and core never reads a maker out of an id, so on the shipped `bedrock`,
+// which ships no list, Claude Opus 5.5 reaches runtime's chat-completions like every other model.
+// A list naming its maker (anthropicOnTheList) puts it back on Messages, as the test above pins.
+func TestWithNoListTheBridgeTranslatesAClaudeModelToo(t *testing.T) {
+	up, adapter, _, _ := servedShippedBedrockBridgeOver(t, "", "eu-west-1", "eu-west-1")
+	before := up.calls()
+	resp, body := postTo(t, "http://"+adapter+"/v1/messages",
+		`{"model":"global.anthropic.claude-opus-5-5","max_tokens":8,"messages":[{"role":"user","content":"hi"}]}`, nil)
+	if resp.StatusCode != 200 || up.calls() != before+1 {
+		t.Fatalf("status %d, upstream calls %d: %s", resp.StatusCode, up.calls()-before, body)
+	}
+	if got, want := up.requests[before].URL.String(), "https://bedrock-runtime.eu-west-1.amazonaws.com/openai/v1/chat/completions"; got != want {
+		t.Errorf("a Claude model with no list went to %s, want %s", got, want)
+	}
 }
 
 // TestARegionNamedBedrockRouteIdlesWithoutARegion: the bridge never signs for a region nobody

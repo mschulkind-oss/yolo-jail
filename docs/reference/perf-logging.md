@@ -1,6 +1,6 @@
 ---
 status: current
-next: "Close the macos-user gap under Known gaps: carry the run collector across the macos-user dispatch and span the floor's evaluation and build, the guest binaries, each sudo step, the bootstrap, the provisioning stage and sandbox-exec, printing the report on that arm's return; on the container backends, write the provisioning stage's duration into the jail perf log after the stage, not only into YOLO_PROVISION_MS; widen the Apple Container delivery test's span reader past image.* and add one relaunch that delivers nothing; launch macos-user's provisioning test with YOLO_TIMING=1. This closes the --timing clause of setup-support-gaps.md's G20"
+next: "Read the first macos-user breakdown (TestMacosUserTimingRecordsTheBackendsSteps on the macOS runner) into What has been measured; on the container backends, write the provisioning stage's duration into the jail perf log after the stage, not only into YOLO_PROVISION_MS; widen the Apple Container delivery test's span reader past image.* and add one relaunch that delivers nothing"
 verified: 2026-09-19
 verified_commit: 16ef96cb
 covers:
@@ -14,6 +14,8 @@ covers:
   - internal/lingerprobe/
   - internal/cli/run/proxy_linux.go
   - internal/cli/run/proxy_other.go
+  - internal/cli/run/macosuserarm.go
+  - internal/macosuser/orchestrator.go
   - internal/cli/run/loopholesruntime.go
   - internal/cli/run/assemble.go
   - internal/cli/run/command.go
@@ -23,11 +25,15 @@ covers:
   - internal/cli/commands.go
   - internal/paths/paths.go
   - internal/config/perflogging.go
+  - internal/cli/run/hosttiming.go
+  - internal/cli/host.go
+  - internal/cli/hostapply.go
+  - internal/cli/apply.go
   - internal/ttyproxy/ttyproxy.go
   - internal/ttyproxy/suspendkey.go
   - internal/image/autoload.go
 tags: [observability, timing, run, shutdown, perf]
-summary: "The host-side timing-span system behind `--timing`, `--verbose`, `perf_logging` and `YOLO_TIMING`: a nil-safe collector in `internal/perf` that spans the launch, the child window and both shutdown arms, writes every event to `<workspace>/.yolo/host-perf.log` the moment it happens, prices the stretch inside podman's own `--rm` cleanup from its event log and records that too, and prints a table only when a flag typed on that invocation asks for one."
+summary: "The host-side timing-span system behind `--timing`, `--verbose`, `perf_logging` and `YOLO_TIMING`: a nil-safe collector in `internal/perf` that spans the launch, the child window and both shutdown arms, writes every event to `<workspace>/.yolo/host-perf.log` the moment it happens, prices the stretch inside podman's own `--rm` cleanup from its event log and records that too, and prints a table only when a flag typed on that invocation asks for one. `yolo host --` and `yolo host apply` record by the same gates into a machine-wide file."
 ---
 
 # Timing spans — `--timing`, `perf_logging`, and the host perf log
@@ -38,7 +44,8 @@ yolo times its own launch and shutdown as a set of named **spans** recorded by a
 host-side collector, so the question "who is holding my shell prompt after the
 agent exited?" has an answer with names in it. Every opt-in writes the spans to a
 per-workspace file as they happen; only an explicit per-invocation flag prints
-the table. The stretch yolo cannot time — podman's own post-exit cleanup, where
+the table. The host notch's commands, `yolo host --` and `yolo host apply`, write
+one machine-wide file instead ([The host notch](#the-host-notch)). The stretch yolo cannot time — podman's own post-exit cleanup, where
 no yolo code runs — is attributed afterwards from podman's event log. The jail
 has a second, older timing half of its own (the entrypoint's boot checkpoints),
 which this system reads and prints but does not own.
@@ -56,6 +63,7 @@ which this system reads and prints but does not own.
 | The jail half's switch: the argv pair and the bash timers | `internal/cli/run` (`assembleRunCmd`, `buildSessionCmd`) |
 | The global `--verbose` / `-v` flag | `internal/cli` (`applyVerboseFlag`, `explicitVerbose`) |
 | `yolo stop`'s spans | `internal/cli` (`stopJail`), `internal/cli/run` (`TimingLogFor`) |
+| The host notch's spans: `yolo host --` and `yolo host apply` | `internal/cli/run` (`HostNotchTimingLog`, `HostNotchPerfLogPath`), `internal/cli` (`hostLaunchTrace`, `startHostApplyTiming`) |
 | The host-process env opt-ins | `internal/paths` (`TimingEnv`, `VerboseEnv`) |
 | The persistent config key | `internal/config` (`PerfLoggingEnabled`) |
 
@@ -161,7 +169,7 @@ intended.
 
 | Opt-in | Kind | Records | Prints |
 | :--- | :--- | :---: | :---: |
-| `--timing` (run flag) | per-invocation | yes | yes |
+| `--timing` (run flag; also `yolo host`'s and `yolo host apply`'s) | per-invocation | yes | yes |
 | `--verbose` / `-v` (global flag, before the subcommand) | per-invocation | yes | yes |
 | `perf_logging: true` (user config) | persistent | yes | no |
 | `YOLO_TIMING`, `YOLO_VERBOSE` non-empty in the environment | persistent | yes | no |
@@ -301,8 +309,9 @@ and the members that carry meaning:
 | `launch.*` | every host-side step from staging to the child window: auto-capture, orphan reaping, briefing refresh, the workspace lock, the jail prefix, the image load, workspace state, argv assembly, `launch.await_previous_keeper` (a wait for the keeper still ending the last jail), and `launch.run_with_proxy` — the whole child window under one span: on a fresh launch, the keeper's spawn, the boot it relays and the first session's exec. Port forwarding and loophole start are the keeper's own spans, in its run block | `launch.auto_capture` was added after the first real run put most of a two-minute launch in an unspanned installer capture: **a span table's holes are only visible on a real launch** |
 | `image.*` | inside `launch.auto_load_image`: the nix build, the stream load, the tar materialize | split because one span over four unrelated things measured minutes on a real host with no way to say which; the fixes for a slow build and a slow stream have nothing in common |
 | `assemble.*` | the two argv-assembly steps that run subprocesses: the host-loopback probe and the host git identity | |
-| `child.*` (marks) | the tty proxy's own transitions: `spawned`, `exited`, `drain_done`, `termios_restored` | `child.exited` → `child.drain_done` bounds the proxy-drain hypothesis; a path that skips a stage (a non-tty stdin, the non-Linux fallback) simply never reports it. On a fresh launch the proxy's child is the first session's `exec` |
+| `child.*` (marks) | the tty proxy's own transitions: `spawned`, `exited`, `drain_done`, `termios_restored` | `child.exited` → `child.drain_done` bounds the proxy-drain hypothesis; a path that skips a stage (a non-tty stdin, the non-Linux fallback, and the macos-user session's runner, which marks `spawned` and `exited` alone) simply never reports it. On a fresh launch the proxy's child is the first session's `exec` |
 | `jail_main.*` (marks) | the main-process client, which the keeper starts: `spawned`, `exited`, in the keeper's block; the fresh launch marks `jail_main.spawned` in its own when the keeper says so | `jail_main.exited` is where Window A ends; from `spawned` the boot is relayed to the terminal, so slow-span notices wait, as they do while the proxy's child has it |
+| `macos_user.*` | a macos-user launch's backend steps, one after another, on the run's own collector (`macosuser.Deps.Perf`): `preconditions`, `account_home`, `context_preflight`, `materialize` (the floor's evaluation and build), `host_nix`, `guest_binaries`, `ca_trust`, `build_plan`, `workspace_lock`, `session_sweep`, `install_profile` (usually the first `sudo`, so its password prompt is in it; a context mount's preflight or the session sweep asks first when it runs one), `stage`, `env_file`, `bootstrap`, `provision`, `start_jail_daemons`, `service_probe`, `agent` (the session); then the teardown's `stop_jail_daemons` and `remove_env_file` | inside `launch.macos_user`, the host side's span around the backend; a refused step ends its own span and no later one starts. Beside them, the arm's host side is spanned under the container's names (`launch.refresh_jail_briefings`, `launch.start_loopholes`, `shutdown.stop_loopholes`) and its own (`launch.build_home_overlay`, `launch.build_ctx_tree`, `launch.start_doorways`, `launch.start_services`, `shutdown.stop_doorways`, `shutdown.stop_services`) |
 | `housekeeping.slot` | the post-launch housekeeping slot, on a goroutine the fresh launch starts once its keeper says the container is running | runs *concurrently with the child*, so it overlaps `launch.run_with_proxy` by design |
 | `shutdown.*` | the keeper's teardown chain, after its stop (`keeper.stop_jail`), in the keeper's block | see [The shutdown path](#the-shutdown-path) |
 | `session.*` | a session's quit: `session.after_quit`, its look at what it left, and `session.keeper_teardown`, the last session's wait for its keeper | a slow `session.keeper_teardown` is the keeper's chain; its lines are in the keeper's log |
@@ -792,6 +801,41 @@ mechanism.
 > with the emit site — nothing in the tree reads the variable, so a shared constant
 > would make the assertion tautological.
 
+## The host notch
+
+`yolo host -- <cmd>` and `yolo host apply` (with its systematic spelling, `yolo apply --at host`)
+are timed by the same system since 2026-10-04 ([D18](#why-its-this-way)). They used to have no
+timing at all: `yolo host --timing -- true` was refused as a jail-launch flag, and
+`perf_logging: true` wrote nothing for a host command.
+
+- **The same gates.** The recording and reporting gates are the launch's own, asked of the same
+  inputs: `--timing` or a typed `--verbose` records and prints; `perf_logging: true`, `YOLO_TIMING`
+  and `YOLO_VERBOSE` in the environment record silently and print one line naming the file, plain
+  where the jail launch's is dim ([D20](#why-its-this-way)). With no opt-in nothing is collected
+  and nothing is written.
+- **A machine-wide file, never the directory the command ran in.** A host command has no
+  workspace: it runs wherever it was typed, the home included, and a `.yolo` minted in the home
+  breaks every later `yolo config` verb's workspace walk. So the spans go to
+  `~/.local/share/yolo-jail/logs/host-notch-perf.log`, beside `launches.log`. Each run's header
+  names the directory by its short code, `jail=host:<code>` (the code `launches.log` uses),
+  never by its path. The trim and the header are written under a sibling `.lock`, because host
+  wrappers make concurrent host commands ordinary; the event lines are single appends, as they
+  are in a workspace's file.
+- **`yolo host --` spans every stage before its hand-over:** `host.pack_refresh`,
+  `host.capability_gate`, `host.apply_gate` (which includes the check and advance of a [patched
+  extension](../design/patched-extensions.md) the program loads), `host.compose`, `host.preflight`,
+  `host.resolve_target` (which includes a first launch's floor install), `host.model_menu`,
+  `host.openai_prelaunch`, and `host.services_start` when the launch starts a service or a
+  doorway; then the `host.handover` mark. The table, or the quiet line, prints before
+  `yolo host: starting …`, which stays the last thing yolo says: after the exec there is no
+  process left to print anything, and a resident launch's terminal belongs to the agent.
+- **`yolo host apply` spans** `host_apply.pack_refresh`, `host_apply.render` (which includes an
+  acting apply's check and advance of the patched extensions), and inside the render
+  `host_apply.wrappers` and `host_apply.floor`; `--revert` is `host_apply.revert`. The table
+  goes to stderr, so `--format json` keeps stdout one document. `yolo --timing host apply` is
+  `yolo host apply --timing` ([D19](#why-its-this-way)), and `yolo apply --timing` at any notch but
+  the host is refused by name.
+
 ## Where the log lives
 
 The host half is `<workspace>/.yolo/host-perf.log`, beside `boot.log`. The jail
@@ -818,6 +862,10 @@ same bytes as a fast one.
 If the file cannot be opened, the sink warns **once** (`yolo: timing log
 unavailable at …`) and stays installed but silent; the in-memory record and the
 stderr report still work, and a jail is never refused over its timing log.
+
+The host notch's commands write elsewhere, to one machine-wide file
+([The host notch](#the-host-notch)), with the same run header, the same retention and the
+same failure rule.
 
 > [!WARNING]
 > **This directory is inside the live workspace bind**, so a jail *can* write the
@@ -848,7 +896,7 @@ stderr report still work, and a jail is never refused over its timing log.
 | The keeper's chain ends while the main process's client is still alive | the client is killed, and `shutdown.window_a_cut.keeper` marks it |
 | A `/proc` file the probe cannot read | that field renders `?`; the sample is still written |
 | Non-tty stdin or a non-Linux host | `child.spawned` / `child.exited` only; no drain or termios marks; a session's arm still runs its teardown |
-| `macos-user` backend | the collector records the host-side spans up to the backend dispatch and nothing after; no report and no quiet line — see [Known gaps](#known-gaps) |
+| `macos-user` backend | the host side's spans, the backend's `macos_user.*` steps and the teardown's; the report, or the quiet line, once the teardown has run, with no `jail half:` line, since the bootstrap keeps no jail perf log. A launch refused before the dispatch prints neither. A SIGINT, SIGHUP or SIGTERM before the session marks `terminate.signal`, ends the launch at its next step through the teardown, and still reports |
 | A refused launch (the live-overlay guard) | no collector, no file, no directory |
 
 ## What this does not do
@@ -910,14 +958,6 @@ it at 25–27 ms.
 
 The step still runs subprocesses with no timeout of their own, and the report's
 `Total` still ends before it.
-
-### `macos-user` native runs have no collector past dispatch
-
-The collector is constructed at the top of `Run` for every backend, so a
-`macos-user` launch records the probes and staging spans. The dispatch then
-returns the native arm's result directly: nothing after it is spanned, no report
-prints, and the quiet line does not either. The proxy seam that arm uses carries a
-bare `Options` with no collector, deliberately, until the arm grows one.
 
 ### The motivating symptom: narrowed to one arm, then attributed
 
@@ -1124,11 +1164,18 @@ is the only place the exact values and spellings are stated.
 | Persistent config key (boolean, user scope only) | `perf_logging` | `internal/config` (`perfLoggingKey`, `PerfLoggingEnabled`) |
 | Jail-half argv pair | `-e YOLO_JAIL_TIMING=1` | `internal/cli/run` (`assembleRunCmd`) |
 | Host perf log | `<workspace>/.yolo/host-perf.log` | `run.HostPerfLogName`, `paths.WorkspaceStateDir` |
+| Host notch perf log (`yolo host --`, `yolo host apply`), its trim lock beside it | `~/.local/share/yolo-jail/logs/host-notch-perf.log`, `host-notch-perf.log.lock` | `run.HostNotchPerfLogName`, `run.HostNotchPerfLogPath` |
+| Host notch run label | `jail=host:<paths.JailShortHash of the directory's container name>` | `run.hostNotchLabel` |
+| Host notch quiet line (plain, D20) | `yolo: timings recorded in <file> (--timing prints them)` | `run.HostNotchTiming.Report` |
+| Host notch report headers | `yolo host timing (to the hand-over):`, `yolo host apply timing (rc <n>):` | `cli.hostLaunchTrace.handOver`, `cli.startHostApplyTiming` |
+| Host notch spans | `host.{pack_refresh,capability_gate,apply_gate,compose,preflight,resolve_target,model_menu,openai_prelaunch,services_start}`, mark `host.handover`; `host_apply.{pack_refresh,render,wrappers,floor,revert}` | `cli.hostLaunch`, `cli.hostApplyRefreshAndRender`, `cli.hostApplyRevert`, `cli.applyHostSurveyed` |
 | Jail perf log | `~/.yolo-perf.log` in the jail, backed by `<workspace>/.yolo/home/yolo-perf.log` | `internal/entrypoint` (`perfLog.dump`), `internal/cli/run` mount args |
 | Run header prefix (also the trim delimiter) | `=== YOLO Host Perf (<timestamp>) jail=<name> ===` | `perf.runPrefix`, `perf.FileSink` |
 | Runs retained per workspace | 50 | `perf.MaxRuns` |
 | Slow-span notice threshold | 1 s | `perf.SlowSpanThreshold` |
 | Report header | `--- Host-side timing (rc <n>) ---` | `run.emitTimingReportLocked` |
+| macos-user backend spans | `macos_user.{preconditions,account_home,context_preflight,materialize,host_nix,guest_binaries,ca_trust,build_plan,workspace_lock,session_sweep,install_profile,stage,env_file,bootstrap,provision,start_jail_daemons,service_probe,agent}`, then `macos_user.{stop_jail_daemons,remove_env_file}` | `macosuser.RunMacosUser` (`launchSteps`) |
+| macos-user host-side spans | `launch.{refresh_jail_briefings,build_home_overlay,build_ctx_tree,start_loopholes,start_doorways,start_services,macos_user}`, `shutdown.{stop_loopholes,stop_doorways,stop_services}` | `run.Run`'s macos-user arm |
 | Quiet line | `yolo: timings recorded in <file> (--timing prints them)` | `run.noteTimingLogLocation` |
 | In-container block header | `=== YOLO Jail Profile ===` | `run.buildSessionCmd` |
 | Window A query | `podman events --since <collector start> --stream=false --filter container=<name> --format '{{.TimeNano}} {{.Status}}'` | `run.attributeWindowA` |
@@ -1190,3 +1237,7 @@ defence.
 | D16 — the probe learns of the death from an inotify watch on conmon's exit directory | Polling `podman ps` or `/proc` during the session is simpler and costs every session to diagnose a few; a pidfd on the container's init needs a `podman inspect`, and podman's lock is a suspect; "the pty went quiet" is not a death at all |
 | D17 — forwarded input is logged as a byte count and at most the name `ctrl-c`, and only after the death | Logging the bytes would make the keystroke test easier to read, and would put whatever the user typed (a password) in a file; logging from the start of the session would record a whole session's typing rhythm to answer a question about its last few seconds |
 | D15 — Window A attribution RECORDS (every opt-in) while the table PRINTS (the typed flags) | D12 reads as "attribution is part of the report", and it shipped that way. But D12 governs what prints, and Window A is the one measurement a user cannot ask for in advance — they learn it was slow by waiting through it, after the launch that could have measured it is over. The cost is one bounded exec per quiet quit; the alternative was a number yolo could go and get, and chose not to write down |
+| D18 — the host notch is timed by the launch's gates, into a machine-wide file. *Implementation decision, taken under the maintainer's 2026-10-04 delegation ("make them and build it … adjust later"); reversible* | Refusing `--timing` at the host left the one notch with no instrument, and "times a jail launch" was the census's whole reason for `perf_logging` doing nothing there. The gates are asked of an `Options` holding only what they read, so the two notches cannot classify an opt-in differently. The file is under `~/.local/share/yolo-jail/logs/` and not in the directory the command ran in, because a `.yolo` minted in the home breaks the workspace walk, and its header names the directory by the short code `launches.log` uses ([OQ-PR3](../design/podman-reboot-readiness.md#OQ-PR3)), never its path. A separate file from any workspace's `host-perf.log`, so a host command's runs are never mistaken for a jail launch's |
+| D19 — `yolo --timing host apply` is `yolo host apply --timing`. *Implementation decision, taken under the maintainer's 2026-10-04 delegation; reversible* | The front door leaves a flag typed before `host` for the host verb, as it leaves `-p` for the exec half, and `--timing` is the one flag both host verbs take, so the request has one meaning. Refusing it, naming the other spelling, was the alternative; moving it is the next step the refusal would have named |
+| D20 — the host notch's quiet line is plain. *Implementation decision, taken under the maintainer's 2026-10-04 delegation ("make them and build it … adjust later"); reversible* | The jail launch dims its `yolo: timings recorded in` line, and matching it is the obvious edit. `yolo host --` and `yolo host apply` write their stderr through no markup printer (their colored output, where they have any, is a stdout report), so one dim line would need the color gate ([`cli-color.md`](cli-color.md)) asked of stderr for that line alone. The host launch log strips ANSI either way |
+| D21 — a macos-user launch is timed on the run's own collector, end to end, and reports after its teardown. *Implementation decision, taken under the maintainer's 2026-10-04 delegation ("make them and build it … adjust later"); reversible* | The backend's steps are spans on the collector `Run` built (`macosuser.Deps.Perf`, handed through `PerfRef`), not a second log of their own, so one table and one file hold the whole launch. The report is deferred by the arm, beside the container arm's after its chain, so the host services' shutdown spans are inside the table it prints; a refusal before the dispatch prints none, as a refused container launch prints none. The session's `child.*` marks come from the runner the session runs under, its signal arm's (`MacosUserArm.RunSession`), which replaced the bare proxy seam (`run.RunWithProxy`) that carried no collector; a timed variant of that seam would have had no caller |

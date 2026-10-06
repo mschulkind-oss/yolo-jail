@@ -135,7 +135,7 @@ is numbered last so the existing P1–P6 citations keep resolving, not because i
 
 | Tier | Definition | Default rendering | `--verbose` adds |
 | :--- | :--- | :--- | :--- |
-| **1 — Notch facts** | True of this notch regardless of the home: which kinds do not apply here, which keys the user config declares that the host leaves undone (the config-key census, [OQ-DP5](../design/declaration-parity.md#OQ-DP5)), an inert `packages:`, the autonomy posture | **one line per run**, naming the kinds, those keys, `packages` when it is inert, and the posture in [the vocabulary](#the-report-vocabulary)'s words (`printNotchFacts`). | the full lines: the kinds with the `yolo config-ref` pointer, the keys, `describe`'s own `packages` line, and where the posture folded. Never the reasoning; that is the manual's (P8) |
+| **1 — Notch facts** | True of this notch regardless of the home: which kinds apply *at launch only* and which do not apply here, which keys the user config declares that the host leaves undone (the config-key census, [OQ-DP5](../design/declaration-parity.md#OQ-DP5)), and the entries of an honored key it does nothing with (a `host_files` entry with a source, an inline loophole), an inert `packages:`, the autonomy posture | **one line per run**, naming the at-launch kinds, then the kinds, keys and entries that do not apply, `packages` when it is inert, and the posture in [the vocabulary](#the-report-vocabulary)'s words (`printNotchFacts`). A kind can be in both clauses, each for its own contributions | the full lines: each clause's kinds with the `yolo config-ref` pointer, and, for a kind in both, which packs' contributions landed in each; the keys and entries, `describe`'s own `packages` line, and where the posture folded. Never the reasoning; that is the manual's (P8) |
 | **2 — Run facts** | Vary with the home but need no action: in-sync, skipped and unchanged surfaces, delivered files and wrappers, composed-from, inferred destinations, would-render surfaces, a reserved skills tree already reported, and a declared dependency that is **present** | counted in the verdict; a destination that changes is itemized, of every kind | every destination, and the per-entry lines |
 | **3 — Losses and blockers** | Two members, one treatment. A **loss**: something of the user's is replaced, dropped, moved or archived. A **blocker**: something stands between this home and a completed apply — a missing declared dependency, a refusal, a pack that failed to render | always itemized, grouped by remedy, each group carrying its remedy once, and every group represented in the verdict line | the per-destination expansion of each group |
 | **4 — Disclosures** (launch only) | Host access this launch has: pack read/exec claims, the cache alias, passthrough, the loopback verdict | always, unchanged, never grouped or compressed. **One exception**, ruled 2026-10-05 and not built: a build line is shown by its recipe's digest and `yolo pack status <key>` ([OQ-RO9](#OQ-RO9)) | nothing — there is no more to say |
@@ -162,6 +162,17 @@ flowchart LR
 The fatal refusals — an `agents` selector naming nobody, a doubly-owned surface, a name claimed
 twice — are tier 3 in shape and already right: they itemize, they name the fix, and they exit 1
 before anything renders.
+
+**The loophole loader's own warnings are not the report's lines.** The tier-1 line reads loophole
+discovery, for the doorways and the inline loopholes it names, and the loader says what it finds
+wrong (a module that is missing or does not load, a manifest key this build does not know, a
+supersession nothing matches) as `warning:` lines on stderr, each line once per process. It says
+them that way in every verb that discovers loopholes: a jail launch, `yolo host --`, `yolo check`.
+So `yolo host apply` prints them on stderr just above the tier-1 line whose loophole outcome they
+explain, and `--format json` leaves them on stderr. Making them report lines would take a
+per-call warning channel in the loader, which is not built; the warning's sink is shared by the
+whole process, so swapping it for one apply would race with the observe pass `yolo host --` runs
+on a goroutine of its own when `host_apply_on_launch` is on.
 
 ## The verdict block
 
@@ -245,8 +256,8 @@ Each count is chosen by P6 — the unit the reader cares about, not the loop cou
 | surfaces that would lose comments of yours | surfaces | `HostRenderResult.Formatting` |
 | first apply of a surface into this home | flag | `HostRenderResult.FirstApply` |
 
-The kinds that do not apply at this notch are not a count: the tier-1 line names them once per run
-(P1).
+The kinds that apply at launch only, and the ones that do not apply at this notch, are not a count:
+the tier-1 line names them once per run (P1).
 
 **Only the dry run has a footer.** It states the posture — nothing was written — and names
 `--verbose`, because the default view counts what it does not itemize and the reader has to be told
@@ -314,7 +325,8 @@ instead of re-reading a paragraph per contribution.
 | **would change** / **changed** | the destination's content differs from what a render produces; an `--assert` writes it | a destination nothing compared |
 | **unchanged** | compared, and equal | a destination that was skipped or refused |
 | **skipped** | yolo did not touch it, and it stays the user's | something yolo declined for its own reasons |
-| **does not apply** | this kind has no meaning at this notch | anything that stops the apply |
+| **at launch only** *(coined here)* | at the host notch, `yolo host -- <program>` delivers this declaration to the program it starts, and `yolo host apply` writes no file for it: an env var, a blocker, an adapter's address, a service's host half, a credential loophole's doorway. Decided per contribution with the launch's own admission and doorway checks (an adapter's by the service that answers its address, when its pack declares one), read as if every selected loophole were switched on, so it states what an enabled declaration gets at `yolo host --`. A launch can still hold back one the user switched off, or one its agent's selection does not ask for | a declaration no host verb delivers, which is *does not apply* |
+| **does not apply** | this declaration has no meaning at this notch: no verb there, `yolo host apply` or `yolo host --`, does anything with it | anything that stops the apply, and anything `yolo host --` delivers |
 | **refused** | the apply stopped; nothing was rendered | a notch fact |
 | **replaces** | a value of the user's is overwritten by a managed key or a pack's `config-overlay`, measured against the file the write produces | a key yolo already owned, or one the write leaves as the file has it |
 | **kept** | under `host_management: own`, the user's captured edit outranks a pack's `config-overlay`, so the pack's value is not in effect. Not a loss: stated on its own line with how to take the pack's value (set it in the file and apply again) or drop every captured edit (`yolo config reset <surface> --at host`) | a replaced value |
@@ -324,11 +336,19 @@ instead of re-reading a paragraph per contribution.
 | **missing** | a declared dependency is not on this host | one yolo could not probe, which is *not probed* |
 | **dry run** | the posture that writes nothing | the `--assert` posture, which is *applying* |
 
-Two rows resolve collisions and are worth stating outright:
+Three rows resolve collisions and are worth stating outright:
 
 - **`refused` belongs to the apply, not to a kind.** A kind the notch has no meaning for reads
   *does not apply*, which leaves the word `refused` free for the thing that actually stops an
   apply.
+- **A kind can be *at launch only* and *does not apply* in one run.** The unit is the
+  contribution, not the kind: aws-auth's loophole opens a doorway at `yolo host --` while
+  host-processes' has no client off-container, a plain pack env var is
+  delivered while audio's pointer at a socket only a jail binds is withheld, and an adapter is
+  delivered unless its address is answered by its own pack's service and that service has no host
+  half the launch admits. Until 2026-10-04 the
+  report named env, adapter, blocked-tool, service and loophole as not applying at the host
+  while `yolo host -- env` printed the pack env.
 - **The user-facing word for the observing posture is *dry run*.** `observe` stays the posture's
   name in the code, because that is what it is called at the call site; the report says *dry run*,
   because that is the question the reader is asking. One word reaches the user, not two.
@@ -343,10 +363,13 @@ it is still what the code decides by, and it is what the drift gate compares the
 > **Moving prose out of a mechanism and into a hand-written doc is how this codebase loses
 > documentation, and the only reason it is safe here is the gate.** Retyped text drifts from the
 > thing it describes, so the move carries a requirement rather than a hope:
-> `TestEveryHostNotchInapplicableKindHasItsReasonDocumented` asserts that every kind the host
-> `FieldSet` refuses has its reason documented, with `TestHostNotchDocGateIsNotVacuous` as its
-> control. A reason that lands in prose no test reads is exactly the predicted failure. Do not
-> move a reason into the manual without extending both.
+> `TestEveryHostNotchInapplicableKindHasItsReasonDocumented` asserts that every kind that can land
+> under *does not apply* has its reason documented, and `TestEveryHostAtLaunchKindHasItsRowDocumented`
+> that every *at launch only* kind has its row, with `TestHostNotchDocGateIsNotVacuous` and
+> `TestHostAtLaunchDocGateIsNotVacuous` as their controls. `TestNoHostNotchListCarriesARowItsKindCannotReach`
+> is the converse: a row left behind for a kind that moved, which the presence gates cannot see. A
+> reason that lands in prose no test reads is exactly the predicted failure. Do not move a reason
+> into the manual without extending the gates.
 
 ## The launch stream
 
@@ -462,6 +485,39 @@ reading the file rather than by hiding the line. The caveat is
 [`perf-logging.md`](perf-logging.md)'s D2, inherited whole: the directory is inside the live
 workspace bind, so a jail can write the host's record. Nothing reads it back to make a decision.
 
+**So does the host notch's launch, in a machine-wide file.** Since 2026-10-04 every
+`yolo host -- <cmd>` past its argument check appends one block to
+`~/.local/share/yolo-jail/logs/host-launch.log` (`run.HostLaunchLog`): a header naming the yolo
+version, the directory's short code and the program's base name, every line yolo itself printed
+to stderr, ANSI-stripped, and a trailer, `=== handed over (pid <n>): exec ===` or
+`=== launch done (pid <n>), rc=<n> ===`. It keeps the newest 50 blocks, trimmed at open under a
+sibling `.lock`. It is not `<cwd>/.yolo/launch.log`, because a host launch has no workspace and a
+`.yolo` minted in the home breaks the workspace walk. The command's own output never passes
+through it: the exec replaces yolo, and an agent yolo stays the parent of (a launch-owned service,
+a managed Codex login) is handed the caller's own stderr, so it keeps its terminal. Like the
+jail's log it is never fatal and never prints. The same launch also leaves its line in the
+machine-wide `launches.log`, with `runtime=host`
+([`OQ-PR3`](../design/podman-reboot-readiness.md#OQ-PR3)).
+
+The file keeps nothing typed after the program, and never the directory it was typed in, by
+[`OQ-PR3`](../design/podman-reboot-readiness.md#OQ-PR3)'s rule for a machine-wide record: an argument can be a secret or a prompt, the directory
+names a project, and the logs directory is one a jail may mount. The terminal still gets every
+line whole. In the log, a disclosure that yolo changed the command names each command by its
+program and argument count (`you asked for: codex <2 arguments>`), a program typed as a path is
+named by its base name, and the directory itself, or a path under it, is written
+`<cwd>`; a directory that is the root, the home or above the home is left as it is. These
+choices and the launch id below are
+[`PR-D26`](../design/podman-reboot-readiness.md#PR-D26), reversible; the plain
+`yolo: timings recorded in` line a host command prints is [`perf-logging.md`](perf-logging.md#why-its-this-way)'s
+D20.
+
+Launches interleave in the file, so every line names its launch. The header carries the
+process id (`=== yolo host launch <time> (pid <n>) ===`), every line of the block starts with it,
+and so does each trailer. Host wrappers make concurrent launches ordinary, and a launch yolo stays
+resident under writes its last lines and its trailer when the agent exits, often below later
+launches' blocks: read a trailer by its pid, never by where it sits. A resident launch whose header
+a later launch's trim removed leaves its late lines and its trailer with no header above them.
+
 ## Machine consumers
 
 [`self-documenting-cli.md`](self-documenting-cli.md)'s requirement 7 says anything that reports
@@ -472,8 +528,9 @@ the flag rather than growing a second output mode. `yolo host apply` is an actin
 - **The dry run emits the document.** It is the survey: destinations with tier, action and path;
   losses and blockers with class, names and remedy key; the counts; the verdict's outcome as a
   stable token; the first-apply flag. It goes through the existing `parseOutputFormat` front end,
-  both spellings. It names the kinds that do not apply and **does not carry their prose reasons** —
-  rationale is not data.
+  both spellings. It names the kinds that do not apply (`inapplicable_kinds`) and the ones that
+  apply at launch only (`at_launch_kinds`), and **does not carry their prose reasons** — rationale
+  is not data.
 - **`--assert --format json` refuses**, exit 2, stdout empty. *Nothing to report must still be a
   document*: zero packs emits a document with empty lists and the retire passes' results.
 
@@ -649,5 +706,6 @@ place the values themselves are stated.
 | `--assert` refusal exit code | 1 | `internal/cli` (`gateHostDeps`) |
 | Acting-posture JSON refusal | exit 2, stdout empty | `internal/cli` (`refuseJSONForActingApply`) |
 | Launcher log | `launch.log`, under `<workspace>/.yolo/` | `internal/cli/run` (`LaunchLogName`) |
+| Host-notch launcher log (`yolo host --`), newest 50 blocks | `host-launch.log`, under `~/.local/share/yolo-jail/logs/` | `internal/cli/run` (`HostLaunchLogName`, `perf.MaxRuns`) |
 | Detail flag | `--verbose`, and `YOLO_VERBOSE` in the environment | `internal/cli` (`reportVerbose`) |
 | Launch banner hatch | `YOLO_NO_BANNER` (the version line only) | `internal/cli/run` |

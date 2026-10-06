@@ -26,7 +26,8 @@ package run
 // recorded.
 //
 // WHAT IT WATCHES is what it runs: a spawned daemon's process, a front it serves (a fronted daemon's
-// and a host-wide daemon's), the in-process cgroup delegate's accept loop, and each forward's socat.
+// and a host-wide daemon's), the in-process cgroup delegate's accept loop, each forward's socat,
+// and at macos-user each doorway and launch-owned service it holds, once its supervision gives up.
 // Not a host-wide daemon itself: that daemon is the machine's, serves other jails, and is no
 // keeper's child, so no keeper can reap or see it end. Nor a spawned daemon's command that exits 0
 // with its service still reachable (startExternalService): that is the daemonizing wrapper the
@@ -119,6 +120,20 @@ func (k *keeper) watchServices() {
 		what := fmt.Sprintf("the port forward from jail port %d to host port %d", fp.forward.LocalPort, fp.forward.HostPort)
 		go k.awaitServiceEnd(what, fp.end(), fp.log)
 	}
+	// A DOORWAY OR LAUNCH-OWNED SERVICE a keeper at macos-user holds is gone for its clients once its
+	// supervision gives up on it, which is when its Running is done (launchservice.Running.Done): its
+	// restart policy left it down, or a restart never came back. Each death before that is a line its
+	// supervision already logged, and a restart that came back is no record. A start a test stands in
+	// for that has no Done is not watched.
+	for _, l := range k.launched {
+		d, ok := l.r.(interface{ Done() <-chan struct{} })
+		if !ok {
+			continue
+		}
+		go k.awaitServiceEnd(l.what, serviceEnd{done: d.Done(), how: func() string {
+			return "its supervision gave up on it (its log says why)"
+		}}, l.log)
+	}
 }
 
 // awaitServiceEnd waits for one service's end, and records it unless the keeper caused it or has
@@ -147,15 +162,18 @@ func (k *keeper) recordServiceDown(d keeperServiceDown) {
 	var recErr error
 	if k.recorded {
 		k.record.Down = append(k.record.Down, d)
-		recErr = writeKeeperRecord(k.plan.Cname, k.record)
+		recErr = writeKeeperRecord(k.stateKey(), k.record)
 	}
 	where := ""
 	if d.Log != "" {
 		where = "; its log: " + d.Log
 	}
-	k.sink.logf("keeper: %s went down at %s: %s. Nothing restarts it: what in the jail uses it fails "+
-		"until the jail is launched again (%s, then a launch)%s", d.What, d.At.Format("15:04:05"), d.How,
-		stopRemedy(k.plan.Runtime, k.plan.Cname), where)
+	users, again := "what in the jail uses it", "until the jail is launched again"
+	if k.plan.Notch != "" {
+		users, again = "what in this workspace's sandboxes uses it", "until its macos-user sessions are launched again"
+	}
+	k.sink.logf("keeper: %s went down at %s: %s. Nothing restarts it: %s fails %s (%s, then a launch)%s",
+		d.What, d.At.Format("15:04:05"), d.How, users, again, stopRemedy(k.plan.Runtime, k.plan.Cname), where)
 	if recErr != nil {
 		k.sink.logf("keeper: could not add that to its start record (%v), so an arrival will not be told", recErr)
 	}
@@ -163,11 +181,16 @@ func (k *keeper) recordServiceDown(d keeperServiceDown) {
 
 // noteServicesDown is an arrival's account of what its jail's keeper recorded down (JL-D19): one
 // line per service, since when, how, what starts it again and where its log is. An arrival was not
-// in when the service died, so the keeper's log line never reached it.
-func (o *Options) noteServicesDown(cname, rt string) {
-	rec, ok := readKeeperRecord(cname)
+// in when the service died, so the keeper's log line never reached it. key is the jail's name, or
+// a macos-user key (keeperKey), whose record says so.
+func (o *Options) noteServicesDown(key, rt string) {
+	rec, ok := readKeeperRecord(key)
 	if !ok {
 		return
+	}
+	of, users := "this jail", "what in the jail uses it"
+	if rec.Notch != "" {
+		of, users = "this workspace's macos-user host services", "what in the sandboxes uses it"
 	}
 	now := o.Now()
 	for _, d := range rec.Down {
@@ -179,9 +202,9 @@ func (o *Options) noteServicesDown(cname, rt string) {
 		if d.Log != "" {
 			where = " Its log: " + richtext.Escape(d.Log) + "."
 		}
-		o.pr(o.Stderr).printf("[yellow]%s of this jail has been down since %s: %s. Its keeper restarts "+
-			"nothing, so what in the jail uses it fails; %s, then a launch, starts it again.%s[/yellow]",
-			richtext.Escape(capitalize(d.What)), when, richtext.Escape(d.How), stopRemedy(rt, cname), where)
+		o.pr(o.Stderr).printf("[yellow]%s of %s has been down since %s: %s. Its keeper restarts "+
+			"nothing, so %s fails; %s, then a launch, starts it again.%s[/yellow]",
+			richtext.Escape(capitalize(d.What)), of, when, richtext.Escape(d.How), users, stopRemedy(rt, key), where)
 	}
 }
 

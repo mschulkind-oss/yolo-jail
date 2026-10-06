@@ -10,6 +10,8 @@ covers:
   - internal/entrypoint/requiredservice.go
   - internal/svcendpoint/
   - internal/cli/check/sections_loopholes.go
+  - internal/macosuser/serviceprobe.go
+  - internal/cli/probeservices.go
 tags: [transport, networking, loopholes, reachability]
 summary: "How a jail reaches a host daemon: yolo's daemons bind the host's loopback and advertise a name the rootless network stack does not forward there by default. The launcher asks the runtime what it is and tells it to forward loopback; an in-jail witness refuses the launch when an enabled service is unusable. Every networking mode spelled out, plus why a nested jail is structurally blind to all of it."
 ---
@@ -37,6 +39,7 @@ when an enabled jail-facing service is unusable.
 | :--- | :--- |
 | The launcher decision: probe the stack, emit the option, disclose the outcome | `internal/cli/run` (`hostloopback.go`: `decideHostLoopback`, `hostLoopbackFactsFor`, `probeHostLoopbackSupport`) |
 | The in-jail witness: probe every wired service, classify, escalate | `internal/entrypoint` (`reachability.go`: `loopbackDisposition`, `escalates`, `classifyReachability`) |
+| The same witness as a confined stage of the `macos-user` launch | `internal/macosuser` (`serviceprobe.go`: `ProbeServicesArgv`, `runServiceProbe`); `internal/cli` (`probeservices.go`: `yolo internal probe-services`) |
 | The refusal when a required in-jail service did not start, and the hatch reaching it | `internal/entrypoint` (`requiredservice.go`: `startJailDaemons`, `requiredServicePhrase`) |
 | Bind and advertise — deliberately unchanged | `internal/svcendpoint` (`Listen`, `DefaultAdvertiseHost`, `DialLocal`, `Probe`) |
 | The honesty labels on host-side greens | `internal/cli/check` (`sections_loopholes.go`) |
@@ -111,7 +114,7 @@ does the packet actually arrive?**
 | **`--net=host`** (no namespace) | n/a — the jail *shares* the host's stack | itself | Yes, trivially | ✅ works |
 | **nested jail** (podman-in-podman) | forced onto `--net=host` | itself | Yes | ✅ works — **and this is why nobody caught it** |
 | **Apple Container** (`container` 1.1.0, measured on every CI run since 2026-09-15) | nothing: `host.containers.internal` does not resolve | nowhere. A dial to the container's gateway, `192.168.64.1`, the Mac's own vmnet address, reaches the Mac but not its loopback, so a dial to a `127.0.0.1` listener's port is refused | **No** — there is no address to bind. `192.168.64.1` can be bound, but a dial to a listener there or on `0.0.0.0` connects and is torn down before a byte crosses | ❌ broken, a different fault from pasta's: no launch is refused for it, because the disposition here is `unknown`. Apple's documented `--localhost` route is unmeasured ([`backend-parity.md` §5.5](../design/backend-parity.md#55-the-container-to-host-probe-every-run-since-2026-09-15)) |
-| **`macos-user`** | n/a — the sandbox shares the launcher's network stack, so services advertise `127.0.0.1` | itself | Yes, trivially | not affected |
+| **`macos-user`** | n/a — the sandbox shares the launcher's network stack, so services advertise `127.0.0.1` | itself | Yes, trivially | ✅ works. The launch says `shared`, and [the witness](#on-macos-user) runs there as a confined stage |
 
 > [!WARNING]
 > Read the fourth column downward. **In every rootless mode, yolo cannot bind the address the jail
@@ -334,13 +337,14 @@ witness applies and the address the daemons publish cannot disagree.
 
 ### Which fault classes escalate
 
-**All three.** The witness distinguishes three failures, and every one means "this service is
+**All of them.** The witness distinguishes these failures, and every one means "this service is
 enabled and this jail cannot use it":
 
 | Fault | What it is |
 | :--- | :--- |
 | unreachable | the endpoint file is good and the advertised address does not answer |
-| unpublished | no endpoint file, one that does not parse, or one that is not a readable regular file |
+| unpublished | no endpoint file, one that does not parse, or one that is not a regular file |
+| unreadable | the endpoint file is there and this jail's user may not open it: a permission error on the file or a directory above it. On `macos-user` that is the launch's cross-account ACL grant not having taken |
 | rejected | the endpoint parsed and the listener refused this jail's token — a stale file |
 
 The distinctions that remain are about **where to look**, not how bad it is, which is what the
@@ -501,6 +505,40 @@ The options in full:
   then follows the host-loopback disposition, so a launch whose disposition is `unknown` or
   `unsupported` boots with only a warning when its bridge never started.
 
+### On macos-user
+
+A `macos-user` launch has no boot to run the witness in: its bootstrap runs outside the session's
+Seatbelt profile, so a probe there could pass where the agent's own client is refused. The launch
+runs the witness as a **stage of its own** instead, after the guest's jail daemons start and
+before the agent: `yolo internal probe-services`, executed by the staged `yolo` as the sandbox
+account, under the session's profile, reading the session env file, so it dials each endpoint
+exactly as the agent's clients will. It runs only when the session env carries a published
+endpoint. A dry run names the stage when it can, and otherwise says what it cannot know: it starts
+no host service, so it carries only the endpoints it can name (the credential service's), and a
+launch whose serial or host-processes loophole is on renders as "not in this render" rather than
+as a launch the witness skips.
+
+- **The disposition is `shared`, by construction.** The sandbox is an ordinary process on the
+  Mac's own network stack, so the launch writes `YOLO_HOST_LOOPBACK=shared` into the session env
+  on every launch, and every host daemon advertises `127.0.0.1` there on the same fact. So an
+  unusable service refuses the launch, as on a container sharing its launcher's namespace.
+- **The wording is the Mac's.** The refusal and the diagnosis speak of the Mac's own network
+  stack and loopback, never of `--net=host` or a container, and name the escape hatch.
+- **Unreadable is the likeliest fault there.** The endpoint file is 0600 under the user who
+  published it, and the sandbox account reads it through one ACL entry the launch stages. The
+  warning names that entry and the `ls -le` that shows it.
+- **The stage's status decides.** 78, the same refusal status the provisioning stage uses, stops
+  the launch, and the message is already on the terminal. Any other failure means the stage
+  never answered (sudo, `sandbox-exec`, the env file), so the launch warns and goes on.
+- **The hatch crosses.** `YOLO_ALLOW_UNREACHABLE_SERVICES` set on the host is carried into the
+  session env, where the stage reads it.
+- **The record lands in the same boot log.** The stage appends to `<workspace>/.yolo/boot.log`,
+  after the bootstrap's own record: a header, the disposition and the hatch, each service's
+  warning, the healthy verdict a container keeps there, and a last line saying whether it refused.
+  Its terminal output is the stage's own stderr, which the launcher's `launch.log` tee never sees,
+  so without the log a healthy probe would leave no trace. A launch that names no workspace to the
+  session (one that staged no pack tree) writes none, the bootstrap's own rule.
+
 ## A nested jail is structurally blind to this
 
 A nested podman is forced onto `--net=host`, the one mode where the bug **cannot** reproduce. So
@@ -544,7 +582,8 @@ underlying asymmetry is not closed and cannot be: a host-side check still cannot
   *reachable*.
 - **Not a revival of a second transport.** A bind-mounted socket works and is LAN-free, and it
   reopens a decision retired on purpose.
-- **Not macOS work.** Apple Container and `macos-user` do not use pasta.
+- **Not macOS network work.** Apple Container and `macos-user` do not use pasta. The witness does
+  run on `macos-user` ([On macos-user](#on-macos-user)), where there is no forwarding to fix.
 - **Not a rootful fix.** A rootful podman is [disclosed, not repaired](#a-rootful-podman-is-told-not-fixed):
   the launch says what will not work and names the two configurations that do.
 - **Not an override of an explicit network mode.** A user who chose one keeps it, and keeps the
@@ -563,6 +602,7 @@ not maintainer rulings.
 | <a id="oq-r3"></a>[**OQ-R3**](#oq-r3) — a host yolo cannot fix **degrades and launches** | It is never refused for what it cannot help; the requirement lands on the message instead. Applied to [rootful podman](#a-rootful-podman-is-told-not-fixed) on 2026-09-16: no rung of the ladder can ever cover it, so it degrades — and, per the second half of this ruling, is *told*, which is the half it was missing. |
 | <a id="oq-r4"></a>[**OQ-R4**](#oq-r4) — **all three** fault classes escalate, not just the dial failing | Every one of them means "enabled and unusable"; what differs is where to look, and that belongs in the diagnosis rather than in the severity. |
 | <a id="oq-r5"></a>[**OQ-R5**](#oq-r5) — a jail sharing the launcher's netns **is** escalatable | There is no host-stack excuse in that mode: the advertise address is the loopback and it is the only thing that works, so a failure has nothing to hide in. |
+| <a id="oq-r5-mu"></a>[**OQ-R5 on `macos-user`**](#oq-r5-mu) — *implementation decision, taken under the maintainer's 2026-10-04 delegation ("make them and build it … adjust later"); reversible.* The sandbox is `shared`, so its witness escalates, and an unreadable endpoint is a fault class of its own | The sandbox is on the Mac's own stack by construction, the same fact that makes its daemons advertise `127.0.0.1`. An unreadable endpoint used to fall into the network class and point a Mac user at a network stack not in the path. |
 | <a id="oq-r6"></a>[**OQ-R6**](#oq-r6) — the launcher's decision rides on the wire with **every** state spelled; only positive facts escalate | From inside the jail, "this host cannot forward loopback" and "yolo asked and the service is still down" are the same observation. Spelling every state is what keeps an absent variable from meaning anything but "older launcher". |
 | <a id="oq-r7"></a>[**OQ-R7**](#oq-r7) — a podman too old to **name** its rootless stack is an UNREAD backend, not an unrecognised one | Both are the same empty string one layer down, and reading them alike left every jail-facing service silently down on a stock LTS podman. |
 | [**OQ-R8**](#OQ-R8) — the hatch **also reaches** the boot's refusal of a required in-jail service that did not start; without it, that refusal names it. Ruled 2026-10-05 | The witness's refusal already promised a shell to a user who only needs one, [OQ-R4](#oq-r4) already put an endpoint that never published inside the hatch's scope, and what the bridge reports is mostly the user's own state — a held port, a missing key — which is what a hatch is for. |
@@ -588,6 +628,7 @@ only place the values themselves are stated.
 | Recognised stack names | `pasta`, `slirp4netns`; anything else, including empty, is unrecognised | `run.backendPasta`, `run.backendSlirp4netns` |
 | Disposition variable | `YOLO_HOST_LOOPBACK` = `requested` \| `shared` \| `unsupported` \| `unknown` | `paths.HostLoopbackEnvVar` |
 | Reachability escape hatch, which also reaches a required in-jail service's refusal | `YOLO_ALLOW_UNREACHABLE_SERVICES` (any non-empty value) | `paths.AllowUnreachableServicesEnv` |
+| The `macos-user` witness stage | `yolo internal probe-services`; status 78 refuses the launch | `macosuser.ProbeServicesVerb`, `provision.RefusedStatus` |
 | Launcher opt-out | `YOLO_NO_HOST_LOOPBACK` | `internal/cli/run/hostloopback.go` |
 | Service endpoint variables | `YOLO_SERVICE_<NAME>_ENDPOINT` | `paths.ServiceEnvVarPrefix` / `ServiceEnvVarSuffix` |
 | Boot log | `<workspace>/.yolo/boot.log`, previous boot kept beside it | `internal/entrypoint` |

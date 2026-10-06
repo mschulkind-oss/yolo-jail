@@ -154,21 +154,11 @@ func ParseEntryChannel(data []byte) (map[string]string, bool) {
 		if !inChannel {
 			continue
 		}
-		loc := exportLineRe.FindStringSubmatchIndex(line)
-		if loc == nil || groupParticipated(loc, exportGroupDef) {
+		key, val, def, ok := parseExportLine(line)
+		if !ok || def {
 			continue
 		}
-		key := groupStr(line, loc, exportGroupKey)
-		var raw string
-		switch {
-		case groupParticipated(loc, exportGroupSq):
-			raw = groupStr(line, loc, exportGroupSq)
-		case groupParticipated(loc, exportGroupDq):
-			raw = groupStr(line, loc, exportGroupDq)
-		default:
-			raw = groupStr(line, loc, exportGroupBare)
-		}
-		values[key] = strings.ReplaceAll(raw, "'\\''", "'")
+		values[key] = val
 	}
 	for _, key := range WireTables() {
 		if _, ok := values[key]; !ok {
@@ -189,6 +179,14 @@ func ParseEntryChannel(data []byte) (map[string]string, bool) {
 // this hydration is the first thing the exec'd boot does, so stale channel keys
 // from an older entry cannot survive into this one. Unparseable lines are
 // ignored. Sets os.Setenv so spawned children inherit the values.
+//
+// A DEF-FORM LINE NEVER SETS A LAUNCHER CONTRACT KEY (launcherContractKey). A default sets a
+// key the launch did not, and env_sources values come from dotenv files the workspace lists,
+// which the agent and the repository can write with no config prompt — so
+// `YOLO_PROGRAMS_AUTOPRUNE=1` there turned on the destructive act only the user's own config may
+// turn on. Such a line is skipped here, in e.Vars and in the process environment alike; the
+// session's shell still sources the whole file for itself (activationPrefix), so only the
+// boot's contract is protected. The plain-form channel is the launcher's own and is read whole.
 func hydrateEnvFromUserEnvFile(e *Env) {
 	f := filepath.Join(e.Home, ".config", "yolo-user-env.sh")
 	data, err := os.ReadFile(f)
@@ -199,34 +197,161 @@ func hydrateEnvFromUserEnvFile(e *Env) {
 		if strings.TrimSpace(line) == "" || strings.HasPrefix(strings.TrimLeft(line, " \t\r\n\v\f"), "#") {
 			continue
 		}
-		loc := exportLineRe.FindStringSubmatchIndex(line)
-		if loc == nil {
+		key, val, def, ok := parseExportLine(line)
+		if !ok {
 			continue
 		}
-		key := groupStr(line, loc, exportGroupKey)
-		if _, ok := e.Vars[key]; ok && groupParticipated(loc, exportGroupDef) {
+		if def && launcherContractKey(key) {
+			continue // an env_sources default never sets the launcher's contract
+		}
+		if _, present := e.Vars[key]; present && def {
 			continue // a def-form default loses to launch-time env; a plain-form channel value never does
 		}
-		var raw string
-		switch {
-		case groupParticipated(loc, exportGroupDef):
-			raw = groupStr(line, loc, exportGroupDef)
-		case groupParticipated(loc, exportGroupSq):
-			raw = groupStr(line, loc, exportGroupSq)
-		case groupParticipated(loc, exportGroupDq):
-			raw = groupStr(line, loc, exportGroupDq)
-		default:
-			// m.group("bare") or "" — bare always participates (\S* can match
-			// empty); an empty bare yields "".
-			raw = groupStr(line, loc, exportGroupBare)
-		}
-		// Reverse the writer's '\'' escape for single-quoted contexts.
-		val := strings.ReplaceAll(raw, "'\\''", "'")
 		e.Vars[key] = val
 		// os.Setenv fails on exactly two inputs — an empty key and a key containing
 		// "=" or a NUL — and exportLineRe's `key` group is [A-Za-z_][A-Za-z0-9_]*,
 		// which admits neither. There is no reachable error here to report.
 		_ = os.Setenv(key, val)
+	}
+}
+
+// JailGrantFileRel is where a container jail's --with-credentials grant reaches the jail, relative
+// to the jail home (docs/design/credential-sources-separation.md §5.2, ES-D37): a per-launch file
+// of plain `export K='v'` lines the launcher writes once, at the fresh launch, and never rewrites.
+// On podman it is a `:ro` bind of a 0600 file in the launcher's own state, outside the workspace;
+// on Apple Container a copy in the jail home, as that backend's env_sources channel is. Absent on
+// a jail launched with no grant.
+const JailGrantFileRel = ".config/yolo-grant-env.sh"
+
+// hydrateEnvFromGrantFile exports the jail's grant (JailGrantFileRel) into the process env and
+// e.Vars, so every process the boot and each session's entrypoint start inherits it: the jail
+// holds the set for its life, the way the ruling reads ("a later session attached to that jail
+// has the jail's set"). The values never pass through the runtime's container configuration, its
+// inspect output or its database (ES-D37). No YOLO_ name is taken from it (launcherContractKey):
+// the file holds providers' claimed credential names, and the launch's contract is the argv's.
+// An absent file is a jail launched with no grant, and reads nothing.
+func hydrateEnvFromGrantFile(e *Env) {
+	data, err := os.ReadFile(filepath.Join(e.Home, JailGrantFileRel))
+	if err != nil {
+		return
+	}
+	for _, line := range splitLines(string(data)) {
+		key, val, _, ok := parseExportLine(line)
+		if !ok || launcherContractKey(key) {
+			continue
+		}
+		e.Vars[key] = val
+		_ = os.Setenv(key, val)
+	}
+}
+
+// launcherContractKey reports whether key is in the namespace of the launcher's contract with
+// the boot: every YOLO_ name. The boot's own environment carries each one the launch set (the
+// podman argv, the bootstrap argv), so one it lacks is one the launch DID NOT set, and a file
+// composed from env_sources must not set it in the launch's place: YOLO_PROGRAMS_AUTOPRUNE turns
+// on a removal act, YOLO_PACK_ROOT names the pack tree the boot loads, YOLO_DARWIN_HOME_OVERLAY
+// a tree the macos-user bootstrap copies over the account home, all outside the sandbox there.
+// The whole prefix rather than a list of today's names, so a contract key added later is
+// covered without anyone remembering this function.
+func launcherContractKey(key string) bool { return strings.HasPrefix(key, "YOLO_") }
+
+// parseExportLine reads one `export K=…` line in any of exportLineRe's four forms, returning
+// the key, the value with the writer's single-quote escape reversed, whether the line is the
+// def form (`export K=${K:-'v'}`, a default the launch-time environment beats), and whether it
+// parsed at all. Shared by every reader of this grammar — the user env file
+// (hydrateEnvFromUserEnvFile), its per-entry channel (ParseEntryChannel), the macos-user
+// session env file (hydrateEnvFromSessionEnvFile) and the per-agent env files
+// (parseAgentEnvLine, which adds the writer's `case` lines) — so they cannot come to disagree
+// about a value's quoting.
+// ParseExportLine is parseExportLine for the launcher, which reads a jail's grant file back on an
+// attach (internal/cli/run's grantFileValues) in the grammar the jail reads it in.
+func ParseExportLine(line string) (key, val string, def, ok bool) { return parseExportLine(line) }
+
+func parseExportLine(line string) (key, val string, def, ok bool) {
+	loc := exportLineRe.FindStringSubmatchIndex(line)
+	if loc == nil {
+		return "", "", false, false
+	}
+	key = groupStr(line, loc, exportGroupKey)
+	var raw string
+	switch {
+	case groupParticipated(loc, exportGroupDef):
+		raw, def = groupStr(line, loc, exportGroupDef), true
+	case groupParticipated(loc, exportGroupSq):
+		raw = groupStr(line, loc, exportGroupSq)
+	case groupParticipated(loc, exportGroupDq):
+		raw = groupStr(line, loc, exportGroupDq)
+	default:
+		// bare always participates (\S* can match empty); an empty bare yields "".
+		raw = groupStr(line, loc, exportGroupBare)
+	}
+	// Reverse the writer's '\'' escape for single-quoted contexts.
+	return key, unescapeSingleQuoted(raw), def, true
+}
+
+// DarwinSessionEnvFileEnv names the macos-user SESSION ENV FILE on the bootstrap's argv: the
+// root-owned 0600 file, with one read grant for the sandbox account, that carries everything the
+// launch composed for the agent — the hydrated env_sources, the profile and provider channel,
+// git identity, the terminal (macosuser's envfile.go; macosuser.SandboxEnvFileEnv is this
+// constant). Its value is a PATH, never a value from the file, so the argv stays free of every
+// credential the file holds.
+const DarwinSessionEnvFileEnv = "YOLO_DARWIN_ENV_FILE"
+
+// hydrateEnvFromSessionEnvFile is the macos-user twin of hydrateEnvFromUserEnvFile: it reads
+// the session env file the launch installed before this bootstrap ran into e.Vars, so the
+// generators — the MCP requires_env gate above all — see the environment the agent will
+// have. Without it, a server gated on a shared env_sources variable was dropped from every
+// agent config on this backend, although the agent's own environment carried the variable.
+//
+// THREE DIFFERENCES FROM ITS TWIN, all deliberate:
+//
+//   - A key the bootstrap's own environment already sets WINS. That environment is the
+//     generator contract the launch composed for this process (macosuser.buildBootstrapEnv),
+//     and the file is the agent's; where both name a key, they name the same value, or the
+//     contract is the one the generators are written against.
+//   - NO YOLO_ KEY IS TAKEN FROM THE FILE AT ALL (launcherContractKey). The file is plain-form
+//     throughout, so a launcher line cannot be told from an env_sources one, and env_sources
+//     includes the workspace's dotenv files, which the agent writes. A contract key the argv
+//     lacks is one the launch did not set, and the bootstrap runs OUTSIDE Seatbelt: an
+//     `export YOLO_PROGRAMS_AUTOPRUNE='1'` there made it delete files, and YOLO_PACK_ROOT or
+//     YOLO_DARWIN_HOME_OVERLAY would have it load or copy trees of the agent's choosing.
+//   - NOTHING IS os.Setenv'd. The file carries YOLO_VERSION, the jail marker config.InJail
+//     reads off the process, and the credentials the gate asks about; in e.Vars they answer the
+//     gate, while in the process environment they would make this unconfined process call
+//     itself a jail and hand every credential to each child it spawns.
+//
+// The file is the LAUNCHED agent's environment, so it also carries the values the credential
+// gate scoped to that agent alone. They are hydrated like the rest and their names recorded in
+// e.sessionEnvKeys, so loadMCPTables can tell them from the shared composition by the
+// per-agent env files (scopedMCPView).
+//
+// An unset variable is a launch that composed nothing (or a test), and reads nothing. A file
+// named and unreadable is warned about, because the gate then answers wrongly for this launch.
+func hydrateEnvFromSessionEnvFile(e *Env) {
+	path := e.Getenv(DarwinSessionEnvFileEnv)
+	if path == "" {
+		return
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		e.warn("warning: could not read the session env file " + path + " (" + err.Error() +
+			"), so an MCP server gated by requires_env on an env_sources variable is left out " +
+			"of the agent configs this launch. Relaunch to rewrite the file.")
+		return
+	}
+	for _, line := range splitLines(string(data)) {
+		key, val, _, ok := parseExportLine(line)
+		if !ok || launcherContractKey(key) {
+			continue
+		}
+		if _, present := e.Vars[key]; present {
+			continue
+		}
+		e.Vars[key] = val
+		if e.sessionEnvKeys == nil {
+			e.sessionEnvKeys = map[string]struct{}{}
+		}
+		e.sessionEnvKeys[key] = struct{}{}
 	}
 }
 
@@ -470,10 +595,17 @@ func miseUninstallTools(e *Env, tools []string) {
 //
 // Extracted from execBash so the order is assertable without exec'ing a shell.
 func BootPath(e *Env) string {
-	return strings.Join([]string{
-		e.BlockDir(), e.LaunchDir(), e.NpmBin(), e.MiseShims(), e.GoBin(), e.LocalBin(),
-		StorePackagesBin(), "/bin", "/usr/bin",
-	}, ":")
+	return strings.Join(append(HomePathDirs(e), StorePackagesBin(), "/bin", "/usr/bin"), ":")
+}
+
+// HomePathDirs is the HEAD of BootPath: the two generated dirs, then every per-home install
+// prefix, in the order every backend's PATH puts them. Exported for macosuser.SandboxPath, which
+// takes its head from here rather than spelling a third copy (the copy it was had put
+// ~/.local/bin third, so a tool installed there outranked a mise shim on macos-user alone).
+// What follows the head is each platform's own: the store farm and the image's bins here, the
+// darwin store prefix and the macOS system dirs there.
+func HomePathDirs(e *Env) []string {
+	return []string{e.BlockDir(), e.LaunchDir(), e.NpmBin(), e.MiseShims(), e.GoBin(), e.LocalBin()}
 }
 
 // executingLine is the "⚡ Executing: <command>" hand-over execBash prints for an

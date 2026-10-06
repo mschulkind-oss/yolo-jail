@@ -8,6 +8,10 @@ package cli
 // exists because the thing only this level can measure is the LINE THE USER READS — and the
 // requirement that made the mechanism acceptable at all was that a one-shot edit of a file in
 // someone's real home is never silent.
+//
+// Both tests declare `host_management: "own"`: the unset key is `none` since the `assert`
+// retirement (OQ-CO14), under which the host renders no config surface, so there is no edit
+// to disclose and the silence the second test asks for would hold of every home.
 
 import (
 	"path/filepath"
@@ -30,7 +34,7 @@ func TestApplyHostReportsTheRepairedValue(t *testing.T) {
 	home := t.TempDir()
 	writeFile(t, filepath.Join(home, ".pi", "agent", "settings.json"),
 		`{"theme":"system","defaultModel":"sonnet"}`)
-	selectPacks(t, home, `"pi"`)
+	selectPacksWith(t, home, `"pi"`, `,"host_management":"own"`)
 	t.Setenv("HOME", home)
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
 
@@ -53,7 +57,7 @@ func TestApplyHostReportsTheRepairedValue(t *testing.T) {
 func TestApplyHostSaysNothingAboutAnUntouchedValue(t *testing.T) {
 	home := t.TempDir()
 	writeFile(t, filepath.Join(home, ".pi", "agent", "settings.json"), `{"theme":"dracula"}`)
-	selectPacks(t, home, `"pi"`)
+	selectPacksWith(t, home, `"pi"`, `,"host_management":"own"`)
 	t.Setenv("HOME", home)
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
 

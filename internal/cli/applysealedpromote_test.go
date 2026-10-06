@@ -27,7 +27,7 @@ func TestApplySealedNamesThePromoteVerb(t *testing.T) {
 	// host_management declared, so the ONLY outstanding input is the overlay below —
 	// otherwise the refusal list carries a second entry and this test would pass on it.
 	writeFile(t, filepath.Join(home, ".config", "yolo-jail", "config.jsonc"),
-		`{"host_management":"assert"}`)
+		`{"host_management":"own"}`)
 
 	s, ok := surfaceManifest().Lookup("claude", "settings")
 	if !ok {
@@ -73,6 +73,8 @@ func TestApplySealedNamesThePromoteVerb(t *testing.T) {
 // (TestGuestNotchSentenceHasExactlyOneHome). This is the behavioural half — it fails if
 // someone re-inlines the string here, even with the right words today.
 func TestApplyAtGuestReusesTheSharedNotchSentence(t *testing.T) {
+	// On Linux: on macOS the guest notch launches and apply points at it (guestnotch_test.go).
+	onPlatform(t, false)
 	_, repo := withHomeAndCwd(t)
 	writeFile(t, filepath.Join(repo, "yolo-jail.jsonc"), `{"confinement":"jail"}`)
 

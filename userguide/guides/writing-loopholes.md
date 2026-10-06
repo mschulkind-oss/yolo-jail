@@ -165,7 +165,7 @@ another in the jail, so there is a placeholder for each:
 | Placeholder | Becomes | Use it in |
 |---|---|---|
 | `{loophole_dir}` | the loophole's folder, on the host | `host_daemon.cmd`, `doctor_cmd`, `host_bind_mounts[].host` |
-| `{jail_loophole_dir}` | the same folder in the jail, `/etc/yolo-jail/loopholes/<name>` | `jail_daemon.cmd` |
+| `{jail_loophole_dir}` | the same folder in the jail: `/etc/yolo-jail/loopholes/<name>` in a container, and yolo's read-only copy of it on `macos-user` | `jail_daemon.cmd` |
 | `{socket}` | the Unix socket your host program listens on | `host_daemon.cmd` |
 | `{state}` | this loophole's state folder on the host | `ca_cert` |
 | `{listen}` | the jail address from `jail_daemon.listen` | `jail_daemon.cmd`, and `env` values |
@@ -285,14 +285,20 @@ when the agent exits. It needs `listen` and `caller_token`, and `{listen}` is th
 it takes. Only yolo's own packs may use it: the Codex and AWS credential helpers do. In any other
 pack yolo does not run it and says so at launch, and the `jail_daemon` is handled as if `host_cmd`
 were not there: it runs inside the sandbox, unless the sandbox cannot run it as written. A `cmd`
-that names `{jail_loophole_dir}`, like the example above, is one of those, because that folder
-exists only inside a container; the launch then says the helper runs nowhere.
+that names `{jail_loophole_dir}`, like the example above, runs there from yolo's copy of your
+loophole's folder, so the program it names must be one a Mac can run: a script, or a macOS
+build. A Linux executable is one the sandbox cannot run, and the launch then says the helper runs
+nowhere and that a container runtime runs it (`YOLO_RUNTIME=podman` or `YOLO_RUNTIME=container`
+for one launch). That copy is shared by every session of the workspace, and each new launch
+replaces it, so a second terminal's launch of the same workspace swaps the folder under the first
+one's running helper: when that helper restarts, it runs the newer copy.
 
 ### A program your pack downloads
 
-A program you ship in the loophole's folder works when the pack is selected by its path. It does
-not work for a pack yolo ships inside itself, whose files cannot be executable. Either way, a
-compiled program needs one build per machine. So a loophole can name its program as a
+A program you ship in the loophole's folder works when the pack is selected by its path. On
+`macos-user` it must be one a Mac runs, a script or a macOS build. It does not work for a pack
+yolo ships inside itself, whose files cannot be executable. Either way, a compiled program needs
+one build per machine. So a loophole can name its program as a
 **download** instead: one build per platform, each with an `https` address and the file's
 `sha256`, which is required.
 
@@ -350,13 +356,33 @@ full access to whatever is behind it. Name a socket `*.sock` so that yolo descri
 
 `host_devices` passes device nodes, such as `/dev/snd`, into the jail with read and write access.
 
+When a pack `env` entry tells a client where to find something your loophole mounts, mark it with
+`served_by` and the loophole's name, as you would for a jail daemon:
+
+```jsonc
+{"kind": "env", "served_by": "my-loophole", "vars": {"MY_SOCKET": "unix:/run/my-loophole/sock"}}
+```
+
+The variable is then set only in a container jail with the loophole on and active on that
+machine. `yolo host` and `macos-user` mount nothing into a jail, and a jail with the loophole off
+gets none of its mounts, so each of these leaves the variable out and says so at launch. A client
+there uses its own default instead, which under `yolo host` is your machine's own service. The
+variable follows the loophole, not each mount: a mount or device whose host path is missing on
+that machine is skipped with a warning, but the variable is still set, naming a path that is not
+there. If that path is in the loophole's folder or your home, name it in
+[`requires.file_exists`](#keys-for-turning-it-on), and a machine without it leaves the loophole
+inactive and the variable out. The `audio` pack marks `PULSE_SERVER` and `PIPEWIRE_REMOTE` this
+way.
+This works only for a loophole that mounts something or runs a jail daemon: an entry marked
+`served_by` a loophole that does neither is never set, even with the loophole on.
+
 ### What a pack's manifest may not use
 
 yolo holds every manifest to a few rules, because a pack is something other people install:
 
 | Not allowed | Use instead |
 |---|---|
-| `jail_env` | a pack `env` contribution. It applies whenever the pack is selected, even if the loophole is not active |
+| `jail_env` | a pack `env` contribution. It applies whenever the pack is selected, even if the loophole is not active. If the variable points at something the loophole mounts or at its jail daemon, mark it `served_by` the loophole and it follows the loophole (see [Mounts and devices](#mounts-and-devices) and [A program in the jail](#a-program-in-the-jail)). Marked `served_by` a loophole that does neither, it is never set |
 | `readonly: false` in a mount | a read-only mount, or a host daemon that does the writing |
 | `publishes` left out, or `"endpoint"` | `"publishes": "socket"` |
 | an absolute or `$VAR` path in `ca_cert` or `requires.file_exists` | a path inside the loophole's folder; `{state}/…` for `ca_cert`; a path relative to your home for `file_exists` |
@@ -420,7 +446,7 @@ ran.
 |---|---|
 | Podman, on Linux or a Mac | Everything |
 | Apple Container | Nothing reaches the host yet: the jail cannot connect to a host program |
-| `macos-user` | Host daemons run. Jail daemons run inside the sandbox, except one whose `cmd` names `{jail_loophole_dir}` or `{jail_binary:<name>}` and one that intercepts a website; yolo's own credential helpers run outside it (`host_cmd`) |
+| `macos-user` | Host daemons run. Jail daemons run inside the sandbox, a program from your loophole's folder included, except a Linux executable, one whose `cmd` names `{jail_binary:<name>}`, and one that intercepts a website; yolo's own credential helpers run outside it (`host_cmd`) |
 
 In each case the launch names the loopholes that do nothing and says why.
 [What works on each setup](../reference/settings-per-setup.md#the-loopholes-host-services-a-jail-can-use)

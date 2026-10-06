@@ -214,18 +214,26 @@ func sortedByPosition(pos map[string]int) []string {
 // condition that move was made on.
 const hostNotchDocMarker = "AT THE HOST NOTCH"
 
+// hostAtLaunchDocMarker is the header of config_ref.txt's AT LAUNCH ONLY list, the kinds
+// `yolo host -- <program>` delivers and `yolo host apply` writes no file for (render.HostAtLaunch).
+// It is the at-launch clause's `yolo config-ref` pointer, under the same kind of gate.
+const hostAtLaunchDocMarker = "AT LAUNCH ONLY (`yolo host -- <program>`)"
+
 // TestEveryHostNotchInapplicableKindHasItsReasonDocumented is the DRIFT GATE on that move, and
 // it is the only reason moving prose out of a mechanism and into a hand-written doc is safe
 // here: retyped text drifts from the thing it describes, so that section made the move
 // conditional on this test existing.
 //
-// ⚠ IT READS BOTH MAPS IN internal/render, through notchInapplicable — the same predicate the
-// report's tier-1 line is built from. Its own wording names only the FieldSet's refusals,
-// and stopping there would have covered five kinds and silently dropped the other six: `env`,
-// `launch`, `hook`, `profile` and `provider` are HONORED by the host FieldSet and unbuilt
-// (render.HostUnimplemented), and `service`/`blocked-tool` fall to the generic refusal with no
-// entry in refusalReasons at all. A reader meeting any of them gets the one-line report and
-// then this list; a gate over half the set would leave the other half undocumented and green.
+// ⚠ IT READS EVERY MAP IN internal/render, through notchMayNotApply — the predicate for "some
+// contribution of this kind can land under does-not-apply on the report's tier-1 line". Its own
+// wording names only the FieldSet's refusals, and stopping there would have covered five kinds
+// and silently dropped the other six: `env`, `launch`, `hook`, `profile` and `provider` were
+// HONORED by the host FieldSet and unbuilt (render.HostUnimplemented), and
+// `service`/`blocked-tool` fell to the generic refusal with no entry in refusalReasons at all.
+// Since the at-launch outcome it also covers the undelivered shape of a kind `yolo host --`
+// delivers otherwise (render.HostWithheldAtLaunch: env's pointer at a daemon the host does not
+// serve, and an adapter whose address only a service with no admitted host half answers). A reader meeting any of them gets the one-line report and then this list; a gate over
+// half the set would leave the other half undocumented and green.
 //
 // WHAT IT ASSERTS IS AN ENTRY, NOT THE TEXT. The strings stay in internal/render because they
 // are what the code decides by, but the manual wraps and rephrases them for a reader, so
@@ -236,7 +244,7 @@ func TestEveryHostNotchInapplicableKindHasItsReasonDocumented(t *testing.T) {
 	fields := render.HostFields()
 	documented := 0
 	for _, kind := range packdecl.KnownKinds() {
-		if !notchInapplicable(fields, kind) {
+		if !notchMayNotApply(fields, kind) {
 			continue
 		}
 		documented++
@@ -250,8 +258,82 @@ func TestEveryHostNotchInapplicableKindHasItsReasonDocumented(t *testing.T) {
 		}
 	}
 	if documented < 2 {
-		t.Fatalf("only %d kind(s) were checked — notchInapplicable is answering `false` for "+
+		t.Fatalf("only %d kind(s) were checked — notchMayNotApply is answering `false` for "+
 			"nearly everything, so this gate is enforcing nothing", documented)
+	}
+}
+
+// TestEveryHostAtLaunchKindHasItsRowDocumented is the same gate for the AT LAUNCH ONLY list: the
+// apply's at-launch clause names a kind and points at `yolo config-ref` for how it arrives, so a
+// kind render.HostAtLaunch names with no row there leaves that pointer pointing at nothing.
+func TestEveryHostAtLaunchKindHasItsRowDocumented(t *testing.T) {
+	section := docSection(t, configRefContent, hostAtLaunchDocMarker)
+	documented := 0
+	for _, kind := range packdecl.KnownKinds() {
+		if _, ok := render.HostAtLaunch(kind); !ok {
+			continue
+		}
+		documented++
+		if !hasKindListEntry(section, string(kind)) {
+			t.Errorf("kind %q is delivered at launch at the host notch and has NO ROW in "+
+				"config_ref's %q list — the apply's at-launch clause points there for how", kind,
+				hostAtLaunchDocMarker)
+		}
+	}
+	if documented < 2 {
+		t.Fatalf("only %d kind(s) were checked — render.HostAtLaunch names almost nothing, so "+
+			"this gate is enforcing nothing", documented)
+	}
+}
+
+// TestNoHostNotchListCarriesARowItsKindCannotReach is the CONVERSE of the two gates above, and
+// the half they missed: a row left behind for a kind that moved. MEASURED 2026-10-04: env,
+// adapter and blocked-tool left the does-not-apply outcome for the at-launch one, and their
+// DO NOT APPLY rows kept passing the gate above, which asks only that every kind that can land
+// there has a row. A row for a kind that cannot land there tells a reader its declarations do
+// nothing at the host while `yolo host --` delivers them. So: a DO NOT APPLY row only for a kind
+// notchMayNotApply names (env keeps one, for its pointer at a daemon the host does not serve, and
+// adapter has one, for an address only a service with no admitted host half answers), and an AT
+// LAUNCH ONLY row only for a kind render.HostAtLaunch names.
+func TestNoHostNotchListCarriesARowItsKindCannotReach(t *testing.T) {
+	fields := render.HostFields()
+	doesNotApply := docSection(t, configRefContent, hostNotchDocMarker)
+	atLaunch := docSection(t, configRefContent, hostAtLaunchDocMarker)
+	for _, kind := range packdecl.KnownKinds() {
+		if hasKindListEntry(doesNotApply, string(kind)) && !notchMayNotApply(fields, kind) {
+			t.Errorf("config_ref's %q list has a row for %q, and no contribution of that kind "+
+				"can land under does-not-apply at the host: delete the row (if `yolo host --` "+
+				"delivers it, its row belongs under %q)", hostNotchDocMarker, kind, hostAtLaunchDocMarker)
+		}
+		if _, ok := render.HostAtLaunch(kind); hasKindListEntry(atLaunch, string(kind)) && !ok {
+			t.Errorf("config_ref's %q list has a row for %q, which `yolo host --` does not "+
+				"deliver (render.HostAtLaunch)", hostAtLaunchDocMarker, kind)
+		}
+	}
+}
+
+// TestHostAtLaunchDocGateIsNotVacuous is the at-launch list's CONTROL, for its sibling's
+// reasons: a section extraction that ran into the next list, or into the main kind list, would
+// satisfy the gate for every kind with no row written; and the converse is only a check while
+// both sections hold rows a mutation could leave behind.
+func TestHostAtLaunchDocGateIsNotVacuous(t *testing.T) {
+	atLaunch := docSection(t, configRefContent, hostAtLaunchDocMarker)
+	doesNotApply := docSection(t, configRefContent, hostNotchDocMarker)
+	if len(atLaunch) >= len(configRefContent)/2 {
+		t.Errorf("the at-launch section is %d of %d bytes — not a section", len(atLaunch),
+			len(configRefContent))
+	}
+	// A kind ONLY the other list carries is absent here, so the extraction stops at its header.
+	for _, other := range []string{"state", "hook", "intercept", "config", "skills"} {
+		if hasKindListEntry(atLaunch, other) {
+			t.Errorf("%q has a row in the at-launch section — the extraction is reaching past "+
+				"its list", other)
+		}
+	}
+	// And the converse can fail: the at-launch-only kinds have no row in the other list, but the
+	// other list's own rows are there for it to read.
+	if !hasKindListEntry(doesNotApply, "hook") || !hasKindListEntry(doesNotApply, "service") {
+		t.Error("the DO NOT APPLY section lost its hook or service row — the extraction is broken")
 	}
 }
 
@@ -299,10 +381,17 @@ func TestHostNotchDocGateIsNotVacuous(t *testing.T) {
 // moves out of its block fails the control above rather than silently widening.
 func hostNotchDocSection(t *testing.T, doc string) string {
 	t.Helper()
+	return docSection(t, doc, hostNotchDocMarker)
+}
+
+// docSection is hostNotchDocSection for any marker: the first line containing marker, then the
+// indented rows under it, by the same indentation rule.
+func docSection(t *testing.T, doc, marker string) string {
+	t.Helper()
 	lines := strings.Split(doc, "\n")
 	start := -1
 	for i, line := range lines {
-		if strings.Contains(line, hostNotchDocMarker) {
+		if strings.Contains(line, marker) {
 			start = i
 			break
 		}
@@ -310,7 +399,7 @@ func hostNotchDocSection(t *testing.T, doc string) string {
 	if start < 0 {
 		t.Fatalf("config_ref.txt has no %q section at all — the host notch's kind reasons "+
 			"live nowhere a user can read them (docs/reference/report-tiers.md, the report vocabulary)",
-			hostNotchDocMarker)
+			marker)
 	}
 	indent := len(lines[start]) - len(strings.TrimLeft(lines[start], " "))
 	out := []string{lines[start]}

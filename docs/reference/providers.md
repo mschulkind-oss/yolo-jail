@@ -288,16 +288,20 @@ and agy, whose transport takes no address, reaches nothing.
   under `api_key_env_name`, no endpoint, no region and no `options`. A region is the user's to
   set, on the provider, in the environment or in the profile's section of `~/.aws/config`
   ([the region preflight](#the-region-preflight), [the region file](#the-region-file)).
-- **The model list** is one list of every maker's models, each entry keyed by its runtime id and
-  naming its maker as `vendor` in `model_options`, beside `order`, `name`, `context_window`,
-  `max_tokens` and `input`. *Vendor* is the model's maker, a term coined in
+- **No model list ships** ([MM-D32](../design/model-lists-and-pickers.md#MM-D32), ruled
+  2026-10-05): the provider declares no `models`, so each agent starts on its own Bedrock
+  catalog's default and offers its own catalog, an upstream catalog's faults included. copilot,
+  which has no Bedrock catalog, starts on `openai.gpt-oss-120b-1:0`
+  ([MM-D34](../design/model-lists-and-pickers.md#MM-D34)). A list a pack's `models` contribution
+  or your `providers.bedrock.models` supplies is one list of every maker's models, each entry
+  naming its maker as `vendor`. *Vendor* is the model's maker, a term coined in
   [`bedrock-plumbing.md`](../design/bedrock-plumbing.md#61-the-provider-shape-one-bedrock-provider-or-two):
   one lowercase token, read by derives and interpreted by no core code, never parsed from the id.
-  A user's object-form entry takes `vendor` too
+  A user's object-form entry takes `vendor`
   (`"kimi": {"id": "global.moonshotai.kimi-k3", "vendor": "moonshotai"}`), and an entry with no
-  vendor is offered to every agent. The list names no `default` alias.
-- **Which entries an agent picks among** is decided by its own derive, from the makers, as each
-  entry declares them, that its client is known to serve: claude's Bedrock client Anthropic's
+  vendor is offered to every agent.
+- **Which entries of a supplied list an agent picks among** is decided by its own derive, from
+  the makers, as each entry declares them, that its client is known to serve: claude's Bedrock client Anthropic's
   (Messages serves Claude only), codex's OpenAI's (it drives Responses), opencode's and pi's
   every maker's (Converse). The filter is by declared maker, not by what the client could call:
   codex skips another maker's model whose AWS page lists Responses, until a turn measures one.
@@ -305,11 +309,13 @@ and agy, whose transport takes no address, reaches nothing.
   shaped yet ([OQ-BR13](../design/model-lists-and-pickers.md#OQ-BR13)).
 - **Which model an agent starts on**: the profile's `model` when it names an entry that agent can
   call, as an alias or an id, or an id the provider does not list, which is passed through; else
-  the provider's `default` alias when that agent can call it; else the first entry it can call,
-  in `order`. A listed entry the agent cannot call is skipped, never sent. claude's own client is
-  the exception: with nothing named, yolo pins no model, because Claude Code starts on an
-  Anthropic model of its own, a valid session yolo does not steer
-  ([`OQ-ML2`](../design/model-lists-and-pickers.md#OQ-ML2)).
+  the provider's `default` alias when that agent can call it; else the first entry of a supplied
+  list it can call, in `order`; else, with no list, nothing, and the agent starts on its own
+  default. A listed entry the agent cannot call is skipped, never sent. claude's own client never
+  takes a list's first entry: with nothing named, yolo pins no model, because Claude Code starts
+  on an Anthropic model of its own, a valid session yolo does not steer
+  ([`OQ-ML2`](../design/model-lists-and-pickers.md#OQ-ML2)). copilot through the bridge, which
+  has no default of its own there, starts on `openai.gpt-oss-120b-1:0`.
 
 Each agent's binding, written only for the selected Bedrock provider and only on the agent's own
 transport. A Bedrock provider never gets an agent's generic catalog row, whose one credential is
@@ -344,8 +350,10 @@ served agent's `AWS_REGION` then `AWS_DEFAULT_REGION`, and signs every request i
 [WG-I39](../design/wire-bridge-gateway.md#WG-I39)). The address is marked `for_via` in the
 composed table: it is no endpoint for an agent its profile does not route through the bridge, so
 on `-p bedrock` claude, codex, opencode and pi keep their own clients, and codex, opencode and pi are
-not refused over an address they cannot speak. copilot, which has no Bedrock client, starts on the
-list's first model.
+not refused over an address they cannot speak. copilot, which has no Bedrock client, starts on a
+supplied list's first model, else on `openai.gpt-oss-120b-1:0`. The bridge passes a model to
+runtime's Messages route untranslated only when the list names it Anthropic's, so with no list a
+Claude model is translated like any other.
 
 <a id="bedrock-through-the-bridge-on--p-bedrock"></a>
 
@@ -693,7 +701,13 @@ that writes a launch's environment for one notch or backend. There are three:
     in `packs` changes nothing. The line names
     `yolo host --with-credentials cerebras -- bash` instead, and says why. On an agent, the named
     `-p` replaces the agent's own profile, and the line says so ("run claude on the zai profile
-    for one launch, replacing its bedrock profile"). At `yolo host env` the shell spelling is
+    for one launch, replacing its bedrock profile"). An agent that holds an
+    [active set](#an-active-set-several-profiles-for-one-agent) keeps it: the line adds the
+    claiming profile to the set, as the pair that replaces the set for one launch ("add the
+    cerebras profile to pi's active set for one launch, keeping zai, openrouter:
+    `yolo host -p pi=zai,openrouter,cerebras -- pi`"). It names the switch, which says it replaces
+    the whole set, only when no such set would run, such as a second Bedrock entry
+    ([AP-D19](../design/active-provider-sets.md#AP-D19)). At `yolo host env` the shell spelling is
     always `eval "$(yolo host env --with-credentials <provider>)"`, never the verb's own agent
     with a `-p`, whose slice would export that agent's whole provider shape into the shell. A withheld name the
     invoking shell also exports is disclosed as not added by yolo, the shell's own value
@@ -731,9 +745,26 @@ that writes a launch's environment for one notch or backend. There are three:
     ([ES-D22 and ES-D23](../design/credential-sources-separation.md#10-decision-ledger)). An unknown provider
     refuses, naming the composed ones. It combines with `-p`: an agent keeps its profile and
     also receives the granted keys. Only the typed flag grants. `-p`, the `profile` key, a
-    `YOLO_ALLOW_*` variable and config cannot, and a jail launch given the flag refuses as
-    host-only ([OQ-ES5](../design/credential-sources-separation.md#OQ-ES5), ruled for the host;
-    [ES-D13 to ES-D17](../design/credential-sources-separation.md#10-decision-ledger)).
+    `YOLO_ALLOW_*` variable and config cannot
+    ([OQ-ES5](../design/credential-sources-separation.md#OQ-ES5);
+    [ES-D13 to ES-D16](../design/credential-sources-separation.md#10-decision-ledger)).
+  - **At a jail launch the same flag grants the jail** (OQ-ES5's jail half, 2026-10-05).
+    `yolo --with-credentials zai -- bash` starts a jail whose every process holds those claimed
+    values, keys only, for the jail's life: the session it starts, every session attached later,
+    and everything each one starts. The grant is no recipient of the gate: it rides a per-launch
+    grant file the fresh launch writes once (on podman a 0600 file in the launcher's state
+    outside the workspace, bound `:ro` at `~/.config/yolo-grant-env.sh`; on Apple Container a
+    copy at that path in the jail home), which every boot and session reads into its
+    environment, or on macos-user the root-owned per-session env file; never a runtime `-e`,
+    which podman keeps in the container's configuration and database, and never a per-agent
+    file. The files go with the jail. The gate's lines name a granted key as every process's.
+    The keeper's start record names the set, so an attach asking for a provider or a name the
+    running jail's grant lacks is refused, naming `yolo stop` and the fresh launch. A profile an
+    attach selects delivers its own provider's key into that agent's env file, as ruled
+    ([the "OQ-ES5 (attach `-p`)" ledger row](../design/credential-sources-separation.md#10-decision-ledger)),
+    and the attach's grant disclosure names each key it delivers beyond the grant
+    ([§5.2](../design/credential-sources-separation.md#52-the-jail-half---with-credentials-at-a-jail-launch-built),
+    [ES-D31 to ES-D39](../design/credential-sources-separation.md#10-decision-ledger)).
 
 Every arm discloses what it scoped or withheld, by name and never by value
 (`CredentialScope.Disclosure`; the host notch adds its remedy and its shell note through
@@ -741,7 +772,7 @@ Every arm discloses what it scoped or withheld, by name and never by value
 the shared file is: the gate decides what each agent's **environment** carries, and an agent
 started by another agent inherits that agent's environment, as any child does.
 
-Two consequences to know:
+Three consequences to know:
 
 - **The loopback credential services follow the selection** ([`OQ-CN7`](#oq-cn7),
   built). `aws-auth`'s adapter (`127.0.0.1:1461`, or a port the launch picked on a jail
@@ -763,10 +794,9 @@ Two consequences to know:
   container's frozen environment, another agent's file), so a stale inherited value does not
   win. A derive's tombstone removes only such a value, too. This is the per-agent file's rule.
   The host notch applies its composition over the shell it inherits, so there a profile's
-  composed value replaces one your shell exports; whether the host should keep yours is
-  [OQ-NC13](../plans/notch-convergence.md#OQ-NC13), and which of yolo's own sources wins when two
-  set one variable, which the vehicles answer differently today, is
-  [OQ-NC12](../plans/notch-convergence.md#OQ-NC12). The menu half of
+  composed value replaces one your shell exports: your shell has no say over a name yolo
+  composes, as the host's environment has none in a jail
+  ([OQ-NC13](../plans/notch-convergence.md#OQ-NC13), ruled 2026-10-05). The menu half of
 [`OQ-CN4`](#oq-cn4) is each agent's own key:
 opencode's derive writes `enabled_providers: [<selected provider>]` beside its selected model,
 or every provider of its [active set](#an-active-set-several-profiles-for-one-agent), the primary
@@ -778,6 +808,43 @@ so for pi the only lever on what it can reach is the credential. For `openai-cod
 `enabledModels` at all: its extension registers exactly
 [the declared list](#the-openai-codex-model-list), so pi's view of that provider is the list
 ([ML-D2](../design/model-lists-and-pickers.md#ML-D2)).
+- **When two of yolo's own sources set one variable, the most specific wins, at every notch.**
+  The profile's value (what the agent's pack's env derive composes, the region fill included)
+  beats an `env_sources` value, which beats a pack's `env`. An `env_sources` null removes a
+  pack's value of that name, and at the host the shell's, but never the profile's, so a null
+  cannot leave claude zai's key with no zai address. The host exec, a jail's shared and
+  per-agent files and the macos-user session serialize one composition
+  (`CredentialScope.EnvFor`, [OQ-NC12](../plans/notch-convergence.md#OQ-NC12), ruled
+  2026-10-05), so a name has one winner wherever the agent runs. A value meant to beat the
+  profile has the per-command spelling above. In a jail, a name the agent and every other
+  process get the same value for is left in the agent's process as the jail shell holds it, so
+  an attach and a fresh launch agree. The three tables a launch composes (`YOLO_PROVIDERS`,
+  `YOLO_PROFILES`, `YOLO_USE_PROFILES`) are written after that composition at every notch, so no
+  `env_sources` value or null replaces or removes one.
+- <a id="every-launch-names-what-it-shadowed"></a>**Every launch names what that order
+  shadowed** ([OQ-NC12](../plans/notch-convergence.md#OQ-NC12)'s disclosure,
+  [NC-D73 to NC-D76](../plans/notch-convergence.md#NC-D73)). A source is *shadowed* when another
+  of the three, higher in the order above, sets the same variable to something else. For each
+  such variable a launch prints one line on stderr, naming the winning source and every losing
+  one and never a value:
+
+  ```text
+  Shadowed ANTHROPIC_BASE_URL: the zai profile's value wins over your env_sources value, for claude
+  Shadowed PI_TELEMETRY: your env_sources value wins over the pi pack's value
+  ```
+
+  A jail composes for every process at once, so a line that holds for one agent alone names it
+  (`, for claude`), and one that holds for every process names none, or says `for every other
+  process` beside an agent whose process differs. `yolo host -- <cmd>` composes for one program,
+  so its lines name no process; `yolo host env` prints the same lines on stderr, never into the
+  script. A `removal` is an `env_sources` null or a derive's tombstone. Nothing is printed when
+  nothing is shadowed: one source per name, a loser that sets the same value, two packs' `env`
+  of one name (their own order, [OQ-8](#pv-oq-8)), and the three tables above say nothing. Your
+  shell at the host is no source of yolo's ([OQ-NC13](../plans/notch-convergence.md#OQ-NC13)),
+  so it never appears in a line. The line is a disclosure, which no flag hides
+  ([OQ-RO3](report-tiers.md#why-its-this-way)). `yolo check` prints none: it runs no derive and
+  sees no `-p`, so it cannot see a profile's half; where it predicts an override refusal, it names
+  the same winning source.
 
 ## The canonical wire_api vocabulary
 
@@ -1140,12 +1207,14 @@ pack ships, and every agent that can use the provider renders that one list
   same step, over a list it composes for its own launch, with the menu kept under
   `~/.local/share/yolo-jail/model-menus/` for as long as a codex reading it runs and never in
   `~/.codex` ([MM-D24](../design/model-lists-and-pickers.md#MM-D24) to
-  [MM-D28](../design/model-lists-and-pickers.md#MM-D28)). It builds one only when the launch
-  names no `-p`, or a `-p` over the provider the config's `profile` selects for codex, because a
-  host `-p` does not choose codex's provider: `yolo host apply` writes that into codex's config
-  for the configured profile alone. A `-p` over another provider gets codex's own menu and a line
-  saying why, and which of the two should win is
-  [OQ-MM5](../design/model-lists-and-pickers.md#OQ-MM5);
+  [MM-D28](../design/model-lists-and-pickers.md#MM-D28)). A host `-p` moves codex onto its
+  provider for that launch: `yolo host -p codex -- codex` hands codex `-c model_provider="openai"`
+  and `-c model="<id>"` right after `codex`, and a `-p` over another provider hands that
+  provider's selection and its `model_providers` row the same way, so your own later `-c` still
+  wins and `~/.codex/config.toml` is never written. The menu follows the provider the `-p`
+  moved codex onto. With no `-p`, codex starts on what `yolo host apply` wrote into its config for
+  the configured profile ([MM-D30](../design/model-lists-and-pickers.md#MM-D30), which decided
+  [OQ-MM5](../design/model-lists-and-pickers.md#OQ-MM5));
 - **pi**'s extension registers exactly the list for `openai-codex`, read from a file yolo writes
   at every jail boot, with the cost, thinking and image facts taken from pi's own catalog. pi gets
   no model scope for it, and its sub-agents may use only the listed ids. A listed model pi's
@@ -1159,9 +1228,11 @@ pack ships, and every agent that can use the provider renders that one list
   `yolo host apply` writes the same list into that file, from the provider table it composes at
   user scope ([OQ-HC1](host-agent-environment.md#oq-hc1), which superseded
   [ML-D8](../design/model-lists-and-pickers.md#ML-D8)), with the switch of the profile the
-  config's `profile` names for pi. A launch's `-p` does not reach that file
-  ([OQ-HC3](host-agent-environment.md#oq-hc3)), so `yolo host -p <profile> -- pi` refuses
-  or not as the configured profile says;
+  config's `profile` names for pi. A launch's `-p` does not change that file
+  ([OQ-HC3](host-agent-environment.md#oq-hc3)): `yolo host -p <profile> -- pi` hands pi the list
+  composed for its own `-p` in `YOLO_PI_OPENAI_CODEX_MODELS`, which the extension reads before the
+  file, beside `--provider`, `--model` and `--models` for the session itself, so it refuses or not
+  as the `-p`'s profile says ([MM-D30](../design/model-lists-and-pickers.md#MM-D30));
 - **opencode** carries the list as rows of its own `openai` provider, a `[1m]` variant naming its
   base as the model it sends, and its menu is exactly the list while the profile's
   `enforce_models` is on, through the `whitelist` that also refuses any other model; off, the rows
@@ -1201,7 +1272,7 @@ What each agent actually receives, from one composed table and one selection:
 | pi | `~/.pi/agent/models.json` `providers.<id>` (JSON; credential as `apiKey: "${VAR}"` config-value syntax); never a row for `openai-codex`, whose models the extension registers from [the declared list](#the-openai-codex-model-list) | `~/.pi/agent/settings.json` `defaultProvider` + `defaultModel` (a pair of bare ids), and `enabledModels` (the scoped list, default first), which is not written for `openai-codex`. Also, for every provider, pi-subagents' `subagents` block: `defaultModel` as `<provider>/<id>` (the same model), and `modelScope` `{enforce, strict, allow}` over the provider's configured ids, or `<provider>/*` when it configures none, so a child agent never crosses providers ([XM-D3](../research/extension-model-defaults.md#XM-D3), [XM-D4](../research/extension-model-defaults.md#XM-D4)). For an [active set](#an-active-set-several-profiles-for-one-agent) the pair stays the primary's, `enabledModels` is each entry's run in set order, each led by its own default (an `openai-codex` entry adds its declared base ids, never a `[1m]` variant, since `enabledModels` are minimatch patterns), and `modelScope.allow` is the union, so a child may use any listed provider and none other; each entry's profile options reach its own catalog row, and the OpenAI login pre-launches when any entry is `openai-codex` |
 | opencode | `~/.config/opencode/opencode.json` `provider.<id>` — `baseURL`/`apiKey` live UNDER `options`; `npm` `@ai-sdk/openai-compatible` for an `openai` endpoint, `@ai-sdk/openai` for an `openai-responses` one; never a row for `openai-codex`, whose list rides opencode's own `openai` row ([above](#selecting-openai-codex-for-opencode)) | top-level `model = "<provider>/<model>"` and `small_model`, written only when a model resolves, and `enabled_providers` naming the selected provider whether or not one does, so opencode on a provider that declares no models chooses among that provider's own ([AP-D17](../design/active-provider-sets.md#AP-D17)). For an [active set](#an-active-set-several-profiles-for-one-agent) `model` and `small_model` stay the primary's and `enabled_providers` names every entry in set order, a Bedrock entry as `amazon-bedrock` wherever it sits and an entry whose provider names no endpoint by that provider's name, which must be opencode's own id for it (`anthropic`), since yolo writes such an entry no row; opencode reads that key as a filter ("When set, ONLY these providers will be enabled", its 1.18.32 schema), so the order states the set and does not order opencode's menu. Each entry's own `enforce_models` decides the `whitelist` on its provider's row. A model picked in opencode lasts for that run of it: the `model` yolo writes outranks opencode's saved recent picks at its next start ([AP-D15](../design/active-provider-sets.md#AP-D15)) |
 | omp | `~/.oh-omp/agent/models.yml` `providers.<id>` (YAML; credential as the provider's env-var NAME, which oh-omp resolves before treating it as a literal) | **no start model** — the derive writes a catalog, so a selected profile makes the provider *available* and the user chooses it inside the agent. Under an `only`, `~/.oh-omp/agent/config.yml` `enabledModels` scopes the narrowed list, default first ([MM-D8](../design/model-lists-and-pickers.md#MM-D8)). For an [active set](#an-active-set-several-profiles-for-one-agent) each entry's key reaches oh-omp, and once any entry is narrowed the scope holds every entry in set order: a narrowed entry's run, default first, and `<provider>/*` for any other, since oh-omp's selector shows nothing outside a scope; with none narrowed nothing is written, as for one profile ([AP-D18](../design/active-provider-sets.md#AP-D18)) |
-| copilot | no catalog (BYOK is env-var-only; no copilot config file has provider keys) | process env from the copilot pack's env derive: `COPILOT_PROVIDER_BASE_URL` (the sole activation gate), `COPILOT_PROVIDER_TYPE`, `COPILOT_PROVIDER_WIRE_API` (openai type only), `COPILOT_MODEL` (required — a provider with no resolvable alias composes nothing at all), `COPILOT_PROVIDER_API_KEY` (a placeholder for a keyless loopback endpoint), `COPILOT_PROVIDER_MAX_PROMPT_TOKENS` ← the provider's `context_window` option |
+| copilot | in a jail, for a provider whose list names a model, `providers.json`: an [agent file](pack-system.md#agent_files) beside copilot's env file, `~/.config/yolo-agent-env/copilot.providers.json`, which copilot reads from `COPILOT_PROVIDERS_CONFIG`. One provider and a row per entry of the list, its key as literal text; GitHub's own models appear beside it ([MM-D31](../design/model-lists-and-pickers.md#MM-D31)) | process env from the copilot pack's env derive: `COPILOT_PROVIDER_BASE_URL` (the sole activation gate), `COPILOT_PROVIDER_TYPE`, `COPILOT_PROVIDER_WIRE_API` (openai type only), `COPILOT_MODEL` (required — a provider with no resolvable alias composes nothing at all; `<provider>/<id>` where the file is written), `COPILOT_PROVIDER_API_KEY` (a placeholder for a keyless loopback endpoint), `COPILOT_PROVIDER_MAX_PROMPT_TOKENS` ← the provider's `context_window` option. The file, once it declares anything, replaces these `COPILOT_PROVIDER_*` variables; at `yolo host`, which writes no agent file, they are copilot's one model |
 | claude | no catalog (claude has no provider directory) | process env from the claude pack's env derive: the address and credential for the provider's `anthropic` endpoint (`ANTHROPIC_BASE_URL`, `ANTHROPIC_AUTH_TOKEN` — a dummy token on a routed launch that has no key, so claude never falls back to the user's own subscription login), `AWS_REGION` from the provider's `region`, one model id per claude tier resolved from the provider's aliases (the selected one from the profile's `model` option; on a Bedrock provider only from its Anthropic entries, and none unless named, [the shipped Bedrock provider](#the-shipped-bedrock-provider)), and knobs composed from provider options (the context window, request and stream timeouts). Claude's `[1m]` suffix is appended to every model id when the `context_window` option is at least one million — it is Claude Code's client syntax for the context-1m beta, stripped before the wire — and non-essential traffic is disabled on any routed launch. The exact variable set is the derive's, in `packs/claude/derive.lua` |
 
 A Bedrock provider is the exception for codex, opencode and pi: it gets no row of this table's
@@ -1932,6 +2003,13 @@ That apply does remove it: a leaf the settings derive stops asserting is cleared
 still holds the value yolo wrote. A switch you wrote before yolo asserted it, or changed after, is
 never recorded and never removed.
 
+**Where no host apply renders** — `host_management` is `"none"`, which is also the unset key, on a
+home an earlier yolo wrote into — that apply refuses, so the line names removing the key by hand,
+or `yolo host apply --revert`, which takes out the values yolo's records say it wrote, this one
+included ([CO-D16](../design/config-ownership-and-promotion.md#CO-D16)). ⚠ Switching such a home
+straight to `"own"` with claude already off Bedrock does not remove it either: the first owned
+apply adopts the file as it finds it, and the switch becomes a captured key of yours.
+
 The `-p` it offers is a declared profile over a provider of that platform that routes through no
 via service; with none declared it says to select a provider of that platform. It is a disclosure,
 never a refusal: every jail arm prints it beside the provider preflight (the fresh container
@@ -2098,7 +2176,7 @@ above explains what each is for; this table is the only place the exact spelling
 | Selection table env var | `YOLO_USE_PROFILES` | same |
 | Resolved-profiles env var | `YOLO_PROFILES` | same |
 | Selection namespace key | `selection` | `agentcfg.SelectionKey` |
-| Selection record path | `<workspace>/.yolo/prism/<agent>-<name>.selection.json` in a jail; at the host notch, the state dir's host-capture store under `host_management: own` and the provenance dir under `assert` ([OQ-HC3](host-agent-environment.md#oq-hc3)); none under `none` | `render.Target.SelectionPath` |
+| Selection record path | `<workspace>/.yolo/prism/<agent>-<name>.selection.json` in a jail; at the host notch, the state dir's host-capture store under `host_management: own` ([OQ-HC3](host-agent-environment.md#oq-hc3); the retired `assert` kept it in the provenance dir); none under `none` | `render.Target.SelectionPath` |
 | Deselection clear's log line | `selection: cleared <agent>/<surface> <key> (was <value as JSON>): yolo's selection no longer sets it`, one per cleared key whose value left the file, the value cut at 200 bytes with a trailing `…`. A key is cleared when its profile is deselected, or when a derive stops naming it while the profile stays active | `entrypoint.noteSelectionClears` |
 | Where that line goes | `<workspace>/.yolo/boot.log` (the previous boot's is `boot.log.prev`); never the terminal | `entrypoint.bootLogName`, `Env.note` |
 | Id-writing surfaces with a host layer | pi's `settings` (`~/.pi/agent/settings.json`) only; codex's `config.toml` and opencode's `opencode.json` declare no `readsHost` | `packs/{pi,codex,opencode}/pack.json` |
@@ -2111,7 +2189,8 @@ above explains what each is for; this table is the only place the exact spelling
 | Missing-provider hatch | `YOLO_ALLOW_MISSING_PROVIDERS=1`, for the credential and the region preflights | `internal/paths` |
 | Provider platform | `platform`, one token, open vocabulary; `aws-bedrock` is the one value read today (the claude, codex, opencode and pi derives, aws-auth's gate, the region preflight); a derive reads the selected provider's as `ctx.selected_platform` | `packdecl.PlatformProblem`, `luahook` (`selectedPlatform`) |
 | The shipped Bedrock provider | `bedrock` in the bedrock pack: `"platform": "aws-bedrock"`, no endpoints, no region, no options, the six AWS credential names under `api_key_env_name`; needed by claude, codex, opencode and pi, and needing aws-auth | `packs/bedrock/pack.json`, each agent pack's `needs` |
-| The Bedrock model list | `global.anthropic.claude-opus-5-5` (vendor `anthropic`, order 1), `us.openai.gpt-6.1-sol` (`openai`, 2), `global.openai.gpt-6-astra` (`openai`, 3); each keyed by its id, with `name`, `context_window`, `max_tokens` and `input` (and `reasoning` for Opus) in `model_options`; no `default` alias; no Region detection, so codex starts on GPT-6.1 Sol in every Region and opencode and pi on Claude Opus 5.5, and GPT-6 Sol is not shipped ([BR-D19](../design/bedrock-plumbing.md#BR-D19), superseding [BR-D17](../design/bedrock-plumbing.md#BR-D17)'s global-first pick). Read from each AWS model card on 2026-09-29 | `packs/bedrock/pack.json`, `packs/bedrock/README.md` |
+| The Bedrock model list | none ships ([MM-D32](../design/model-lists-and-pickers.md#MM-D32), 2026-10-05, withdrawing [BR-D19](../design/bedrock-plumbing.md#BR-D19)'s three entries): each agent starts on its own Bedrock default; a pack's `models` contribution or the user's `providers.bedrock.models` supplies one | `packs/bedrock/pack.json`, `packs/bedrock/README.md` |
+| copilot's Bedrock start model | `openai.gpt-oss-120b-1:0`, through the bridge, when no profile and no list names one ([MM-D34](../design/model-lists-and-pickers.md#MM-D34)) | `packs/copilot/derive.lua` (`bedrockStartModel`) |
 | Model vendor | `vendor`, one lowercase token (`[a-z0-9][a-z0-9._-]*`), in a pack's `model_options.<alias>` or a user's object-form `models.<alias>`; an entry with none is offered to every agent | `packdecl.ValidModelVendor`, `config.validateModelEntry`, `packload.flattenModelFacts` |
 | Makers each Bedrock client calls | claude `anthropic`; codex `openai`; opencode and pi every maker | `packs/{claude,codex,opencode,pi}/derive.lua` (`callableModels`) |
 | Bedrock built-in provider ids | codex `amazon-bedrock-runtime`; opencode `amazon-bedrock`; pi `amazon-bedrock` | `packs/{codex,opencode,pi}/derive.lua` |

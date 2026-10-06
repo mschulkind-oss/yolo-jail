@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/entrypoint"
 	"github.com/mschulkind-oss/yolo-jail/internal/hostfloor/floortest"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/macosuser"
@@ -206,29 +207,181 @@ func TestMacosUserLaunchLabelsAHostFileYoloHasRendered(t *testing.T) {
 	}
 }
 
-// DP-D15, not DP-L1: a `host_files` entry whose source is a DIRECTORY names an arbitrary
-// user tree, and a copy does not scale to one ("we can't do /ctx by copying, some of these
-// directories are huge"). It is left undelivered and NAMED — the one thing this backend's
-// host-byte warning still has to say.
-func TestMacosUserLaunchNamesADirectoryHostFileItCannotCarry(t *testing.T) {
-	// The trailing slashes are what DECLARE it a directory entry — config.checkHostFiles
-	// reads the shape off the declaration, never off a stat, so a dir entry is a thing the
-	// user wrote rather than a thing yolo inferred.
-	home := ctxLaunchHome(t, `, "host_files": [{"path": ".config/big/", "source": "~/big/"}]`)
-	if err := os.MkdirAll(filepath.Join(home, "big"), 0o755); err != nil {
-		t.Fatal(err)
+// A DIRECTORY host_files ENTRY CROSSES BY COPY, CONFINED TO ITS SOURCE. It used to be left
+// undelivered and named ("a copy does not scale to an arbitrary tree"), but a container's
+// directory host_files is a full copy at boot too, so DP-D15's size reason never applied to it;
+// the copy is capped instead (TestMacosUserRefusesADirectoryHostFileOverTheCap).
+//
+// The trailing slashes are what DECLARE it a directory entry — config.checkHostFiles reads the
+// shape off the declaration, never off a stat, so a dir entry is a thing the user wrote rather
+// than a thing yolo inferred.
+//
+// THE WHOLE CHAIN, with nothing hand-written between the steps: Run's macos-user arm composes
+// the tree, the plan builder bakes the wire and the context root, PlanInvariants passes, and the
+// entrypoint's own host_files step, handed exactly that wire and that tree as its YOLO_CTX_ROOT,
+// lands the files in the home. Delete the copy from buildMacosCtxTree and the files are not in
+// the tree; drop the entry from HostFiles and the wire does not name it.
+func TestMacosUserLaunchCopiesADirectoryHostFileEntry(t *testing.T) {
+	home := ctxLaunchHome(t, `, "host_files": [{"path": ".config/themes/", "source": "~/themes/"}]`)
+	src := filepath.Join(home, "themes")
+	writeHostFileAt(t, filepath.Join(src, "inner.txt"), "INNER\n", 0o644)
+	writeHostFileAt(t, filepath.Join(src, "sub", "deep.txt"), "DEEP\n", 0o644)
+	writeHostFileAt(t, filepath.Join(src, "run.sh"), "#!/bin/sh\nexit 0\n", 0o755)
+	writeHostFileAt(t, filepath.Join(src, "dark", "colors.vim"), "DARK\n", 0o644)
+	// Links: two that stay inside the source, to a file and to a folder (each followed, as a bind
+	// resolves it and the boot's copy then copies what it resolves to), one that loops back to the
+	// source's own root (its contents are already there, so it adds nothing), and five that a
+	// container bind would show the jail as dangling — absolute and `../` out of the source, to a
+	// file and to a folder, and dangling — none of which may carry a byte of the rest of the home.
+	writeHostFileAt(t, filepath.Join(home, "outside-secret"), "SECRET\n", 0o600)
+	for link, target := range map[string]string{
+		"in-root-link": "sub/deep.txt",
+		"current":      "dark",
+		"loop":         ".",
+		"abs-link":     filepath.Join(home, "outside-secret"),
+		"abs-dir":      home,
+		"escape-link":  "../outside-secret",
+		"escape-dir":   "..",
+		"dangling":     "nope",
+	} {
+		if err := os.Symlink(target, filepath.Join(src, link)); err != nil {
+			t.Fatal(err)
+		}
 	}
-	writeHostFileAt(t, filepath.Join(home, "big", "a.txt"), "x\n", 0o644)
 
 	ctx, out := runMacosUserCapturingCtx(t, t.TempDir(), nil)
 
-	if len(ctx.HostFiles) != 0 {
-		t.Errorf("a directory entry reached the wire (%+v); the bootstrap would look for "+
-			"bytes nothing staged", ctx.HostFiles)
+	if len(ctx.HostFiles) != 1 || !ctx.HostFiles[0].IsDir || ctx.HostFiles[0].Path != ".config/themes" {
+		t.Fatalf("HostFiles = %+v, want the one directory entry — without it the bootstrap is "+
+			"never told the tree exists", ctx.HostFiles)
 	}
-	if !strings.Contains(out, ".config/big") {
-		t.Errorf("the launch did not name the directory entry it could not carry — the user "+
-			"declared a path and gets nothing there with no reason given:\n%s", out)
+	staged := filepath.Join(ctx.Tree, "host-user", ctx.HostFiles[0].Slug())
+	for rel, want := range map[string]string{
+		"inner.txt":          "INNER\n",
+		"sub/deep.txt":       "DEEP\n",
+		"in-root-link":       "DEEP\n",
+		"run.sh":             "#!/bin/sh\nexit 0\n",
+		"dark/colors.vim":    "DARK\n",
+		"current/colors.vim": "DARK\n",
+	} {
+		if got := readOrAbsentAt(t, filepath.Join(staged, rel)); got != want {
+			t.Errorf("staged %s = %q, want %q", rel, got, want)
+		}
+	}
+	if fi, err := os.Stat(filepath.Join(staged, "run.sh")); err != nil || fi.Mode().Perm()&0o111 == 0 {
+		t.Errorf("the staged run.sh lost its exec bit (%v, %v): the boot would render it "+
+			"non-executable", fi, err)
+	}
+	for _, rel := range []string{"abs-link", "abs-dir", "escape-link", "escape-dir", "dangling"} {
+		if _, err := os.Lstat(filepath.Join(staged, rel)); err == nil {
+			t.Errorf("%s was staged: a link that leads out of the source carried host bytes "+
+				"nobody declared", rel)
+		}
+	}
+	if _, err := os.Lstat(filepath.Join(staged, "loop")); err == nil {
+		t.Errorf("the link back to the source's own root was copied: the tree repeats itself " +
+			"under loop/ until a lookup limit stops it")
+	}
+	if err := filepath.Walk(ctx.Tree, func(p string, info os.FileInfo, err error) error {
+		if err == nil && info.Mode()&os.ModeSymlink != 0 {
+			t.Errorf("the composed tree holds a link at %s; it must hold files and folders only", p)
+		}
+		if err == nil && info.Mode().IsRegular() {
+			if b, _ := os.ReadFile(p); strings.Contains(string(b), "SECRET") {
+				t.Errorf("%s carries the bytes of a file outside the source", p)
+			}
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(out, "does not cross") {
+		t.Errorf("the launch still says a directory entry does not cross:\n%s", out)
+	}
+
+	// The plan and the boot, handed what this launch produced.
+	plan := macosuser.BuildRunPlan("/Users/Shared/yolo/proj", jsonx.NewOrderedMap(),
+		[]string{"claude"}, []string{"/bin/zsh", "-l"}, "/usr/local/bin/yolo", "",
+		macosuser.HomeOverlay{}, ctx, jsonx.NewOrderedMap(), nil, nil)
+	if probs := macosuser.PlanInvariants(plan); len(probs) != 0 {
+		t.Fatalf("the plan for a directory entry fails its invariants: %v", probs)
+	}
+	wire := ""
+	for _, a := range plan.BootstrapArgv {
+		if v, ok := strings.CutPrefix(a, "YOLO_HOST_FILES="); ok {
+			wire = v
+		}
+	}
+	if !strings.Contains(wire, ".config/themes") {
+		t.Fatalf("YOLO_HOST_FILES does not name the directory entry: %q", wire)
+	}
+	t.Setenv("YOLO_CTX_ROOT", ctx.Tree)
+	jailHome := t.TempDir()
+	var errw bytes.Buffer
+	e := &entrypoint.Env{Home: jailHome, Workspace: t.TempDir(),
+		Vars: map[string]string{"YOLO_HOST_FILES": wire}, Stderr: &errw, LogOnly: &errw}
+	if err := entrypoint.ConfigureHostFiles(e); err != nil {
+		t.Fatalf("the boot's host_files step failed: %v\n%s", err, errw.String())
+	}
+	for rel, want := range map[string]string{"inner.txt": "INNER\n", "sub/deep.txt": "DEEP\n",
+		"current/colors.vim": "DARK\n"} {
+		if got := readOrAbsentAt(t, filepath.Join(jailHome, ".config", "themes", rel)); got != want {
+			t.Errorf("the jail home's ~/.config/themes/%s = %q, want %q", rel, got, want)
+		}
+	}
+}
+
+// An ABSENT directory source crosses on the wire and fails nothing, on the file entry's rule:
+// the entrypoint finds nothing at host-user/<slug> and writes nothing, as on a container whose
+// bind was skipped.
+func TestMacosUserLaunchWiresADirectoryEntryWhoseSourceIsAbsent(t *testing.T) {
+	ctxLaunchHome(t, `, "host_files": [{"path": ".config/themes/", "source": "~/themes/"}]`)
+
+	ctx, _ := runMacosUserCapturingCtx(t, t.TempDir(), nil)
+
+	if len(ctx.HostFiles) != 1 || !ctx.HostFiles[0].IsDir {
+		t.Fatalf("HostFiles = %+v, want the directory entry on the wire", ctx.HostFiles)
+	}
+	if ctx.Tree != "" {
+		t.Errorf("composed a tree at %s with nothing to put in it", ctx.Tree)
+	}
+}
+
+// THE CAP: a directory larger than this backend copies at launch ENDS the launch, naming the
+// entry and what to do instead — a fatal refusal rather than a partial tree that looks like the
+// user's. Crossed through a test-sized cap, per entry and then across the launch.
+func TestMacosUserRefusesADirectoryHostFileOverTheCap(t *testing.T) {
+	for _, tc := range []struct {
+		name              string
+		entryCap, launchC dirCopyCap
+		want              string
+	}{
+		{"one entry over its own cap", dirCopyCap{bytes: 6, entries: 100},
+			dirCopyCap{bytes: 1 << 20, entries: 100}, "copying one.txt would pass what macos-user copies for a directory host_files entry (at most 6 bytes in 100"},
+		{"two entries over the launch's", dirCopyCap{bytes: 1 << 20, entries: 100},
+			dirCopyCap{bytes: 1 << 20, entries: 2}, "for every directory host_files entry of one launch together"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			restoreE, restoreL := macosDirHostFileEntryCap, macosDirHostFileLaunchCap
+			macosDirHostFileEntryCap, macosDirHostFileLaunchCap = tc.entryCap, tc.launchC
+			t.Cleanup(func() { macosDirHostFileEntryCap, macosDirHostFileLaunchCap = restoreE, restoreL })
+			home := ctxLaunchHome(t, `, "host_files": [{"path": ".config/a/", "source": "~/a/"}, `+
+				`{"path": ".config/b/", "source": "~/b/"}]`)
+			writeHostFileAt(t, filepath.Join(home, "a", "one.txt"), "0123456789\n", 0o644)
+			writeHostFileAt(t, filepath.Join(home, "b", "two.txt"), "x\n", 0o644)
+			writeHostFileAt(t, filepath.Join(home, "b", "three.txt"), "y\n", 0o644)
+
+			out := runMacosUserExpectingRefusal(t, t.TempDir(), nil)
+			for _, want := range []string{tc.want, "Split the entry into FILE entries",
+				`runtime: "podman"`, "Apple Container " + acROBindsFloor} {
+				if !strings.Contains(out, want) {
+					t.Errorf("the refusal does not say %q:\n%s", want, out)
+				}
+			}
+			if !strings.Contains(out, "host_files ~/.config/") {
+				t.Errorf("the refusal does not name the entry:\n%s", out)
+			}
+		})
 	}
 }
 
@@ -699,4 +852,17 @@ func TestMacosUserLaunchStillWiresAnEntryWhoseSourceIsAbsent(t *testing.T) {
 	if ctx.Tree != "" {
 		t.Errorf("composed a tree at %s with no bytes to put in it", ctx.Tree)
 	}
+}
+
+// readOrAbsentAt is a file's contents, or "<absent>".
+func readOrAbsentAt(t *testing.T, path string) string {
+	t.Helper()
+	b, err := os.ReadFile(path)
+	if os.IsNotExist(err) {
+		return "<absent>"
+	}
+	if err != nil {
+		t.Fatalf("read %s: %v", path, err)
+	}
+	return string(b)
 }

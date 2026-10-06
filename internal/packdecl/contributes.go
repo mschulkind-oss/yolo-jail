@@ -36,7 +36,7 @@ type Contribution struct {
 	Kind Kind `json:"kind"`
 
 	// --- program (install) / requires (assertion) ---
-	Bin     string   `json:"bin,omitempty"`     // program/requires: the binary name
+	Bin     string   `json:"bin,omitempty"`     // program/requires: the binary name; mcp: the program the server runs
 	Via     string   `json:"via,omitempty"`     // program: "npm" | "installer" | "source"; profile: a service pack name (OQ-WG6)
 	Package string   `json:"package,omitempty"` // program via npm: the npm package
 	URL     string   `json:"url,omitempty"`     // program via installer: the curl-to-shell URL
@@ -343,8 +343,10 @@ type Contribution struct {
 	//
 	// Where an agent reads at project scope changes when the agent changes, and only its pack
 	// can keep that current — the rule `into` already follows for the home-scope half (P2 of
-	// the design, docs/reference/extension-point-principle.md). IGNORED AT THE HOST NOTCH, by
-	// ruling (OQ-WS5): `yolo host apply` never writes a workspace's skills into a real home.
+	// the design, docs/reference/extension-point-principle.md). IGNORED BY `yolo host apply`, by
+	// ruling (OQ-WS5): it never writes a workspace's skills into a real home. `yolo host --
+	// <agent>` reads it for one in-workspace link at the agent's first path
+	// (docs/design/workspace-skills.md WS-D20, internal/cli/hostworkspaceskills.go).
 	ProjectDirs []string `json:"project_dirs,omitempty"`
 	// Register makes a `files` SLOT a REGISTERING one: core appends one entry per tree that lands
 	// in the slot to an array in a surface the slot's own pack declares, attributed to the pack
@@ -419,16 +421,22 @@ type Contribution struct {
 	// launcher templates are shared by every program, and the argv, the catalog's shape and the
 	// flag that names a catalog file are facts about a release of one program.
 	ModelMenu *ModelMenu `json:"model_menu,omitempty"`
+	// LaunchSelection is how one `yolo host -p` launch hands this PROGRAM the selection its config
+	// surface's derive composes, as argv words or a variable instead of a file (a coined term —
+	// see the LaunchSelection type, in packdecl.go, which carries the grammar;
+	// docs/design/model-lists-and-pickers.md MM-D30). `program` only, any `via`.
+	LaunchSelection *LaunchSelection `json:"launch_selection,omitempty"`
 	// After, as `"host:<path>"` on a `briefing`, prepends the user's own host file to the
-	// jail's composed briefing (run.briefingHostOverlay → jailcontent.PrependHostBriefing) — so a
-	// personal AGENTS.md outranks anything a pack ships INSIDE A JAIL.
+	// destination's composed briefing — in a jail (run.briefingHostOverlay →
+	// jailcontent.PrependHostBriefing) and at `yolo host apply` (entrypoint.hostBriefingOverlay,
+	// the same bytes) — so a personal AGENTS.md outranks anything a pack ships.
 	//
-	// JAIL-ONLY, and after §6a that is a narrower claim than it looks. At the host notch the
-	// path it names is now the DESTINATION yolo generates wholesale, so there is no
-	// user-maintained file left to prepend: the host render ignores After entirely, and the user's
-	// own prose reaches every destination through the local pack instead. It survives because the
-	// jail case is still real (a `:ro`-mounted staging copy composed from a host file yolo does
-	// NOT OWN), not because it means something at both notches.
+	// AT THE HOST IT IS READ ONLY WHEN THE FILE IS THE USER'S (DP-B26). Every shipped agent pack's
+	// After names its own `into`, which at the host notch is the DESTINATION yolo generates
+	// wholesale, so that file is skipped and the user's own prose reaches every destination
+	// through the local pack instead; so is another pack's destination, and a file the briefing
+	// record lists as yolo's, by path or as the same file through a link. An After naming a file
+	// of the user's own (`host:mine.md`) opens the destination at both notches.
 	//
 	// "DOES NOT OWN" IS NOW CHECKED, not assumed. Once §6a made the host destination yolo's own
 	// output, this field named that output on every machine where `yolo host apply` had run: the
@@ -486,6 +494,47 @@ type Contribution struct {
 	// only place "who is this for?" has more than one answer. (`files` joined them with the
 	// slot mechanism; the first two are the ones with a conventional source.)
 	Agents []string `json:"agents,omitempty"`
+	// Describes names the KINDS OF THIS PACK'S OWN CONTRIBUTIONS that a `briefing` content
+	// contribution's prose is about, and delivers that prose at the host only where, for every
+	// one of them, some contribution of that kind the pack declares applies there
+	// (docs/design/boundary-broker.md BB-D69). `{"kind": "briefing", "from": "briefing/gh.md",
+	// "describes": ["intercept"]}` is the github pack's: the file explains the `gh` forwarder its
+	// `intercept` puts first on a jail's PATH, so it reaches every agent in a jail and none at the
+	// host, where that forwarder does not exist and `gh` is the user's own. Absent means the prose
+	// holds wherever the contribution delivers, as before.
+	//
+	// The answer is the pack's CONTRIBUTION's, not the kind's: a kind delivered at `yolo host --`
+	// may have a shape the host delivers nowhere (a loophole with no doorway, an env var a
+	// jail-only daemon serves), and prose about the pack's own loophole is withheld when that
+	// loophole is the undelivered shape, as the apply's notch line says it is.
+	//
+	// `briefing` CONTENT ONLY. Refused on every other kind, and on a briefing DESTINATION
+	// (`agent` set), which sources nothing to gate (P5). Every entry must be a kind, never
+	// `briefing` itself (prose gated on prose would describe nothing), and one the manifest
+	// itself declares: the field is about the pack's own contributions, so naming a kind the
+	// pack does not declare is a gate on nothing (validateDescribes, strict path only). An
+	// unknown kind is refused on the strict path alone, so a jail reading a newer pack's
+	// manifest still boots (DecodeTolerant).
+	//
+	// # Why a kind and not a notch
+	//
+	// Core knows notch NAMES only at render's two edges (docs/reference/pack-system.md#batch-6c),
+	// so a manifest spelling `"host"` or a notch-named sub-convention such as `briefing/jail/`
+	// is ruled out; the predicate has to be a capability
+	// (docs/design/notch-scoped-config-contributions.md §6, alternative B). A kind the pack
+	// declares is that capability, and whether it applies at a notch is already the census's
+	// answer (internal/render), so the pack states what its prose is about and core decides
+	// where that holds.
+	//
+	// # What reads it
+	//
+	// The HOST briefing composer (entrypoint.ComposeHostBriefings) withholds a source whose
+	// governor describes a kind the host notch does not deliver for the pack, by the census `yolo
+	// host apply` builds per contribution from its notch line (entrypoint.HostDelivery), and that
+	// apply names each withheld file once in its notch line. `yolo pack lint`, which has no pack
+	// set, names the gate beside the delivery and settles only a kind no host verb delivers in any
+	// shape (render.HostDelivers). The jail composer does not read it.
+	Describes []Kind `json:"describes,omitempty"`
 
 	// Tier is a TOMBSTONE for the per-contribution tier S2 removed: it declared a GLOBAL
 	// property (what a skill is called) at a PER-DESTINATION site, so it could not express a
@@ -578,14 +627,16 @@ type Contribution struct {
 	// its rules and why the pack declares it rather than core are EnvOverride's doc
 	// (envoverride.go).
 	OverriddenBy []EnvOverride `json:"overridden_by,omitempty"`
-	// ServedBy names the jail daemon — a loophole's `jail_daemon` by the loophole's name, or a
-	// pack service's by the service's — whose address these vars point a client at. `env` only.
-	// Core then delivers them only where that daemon is SERVED AT THIS NOTCH (a container
-	// runtime that runs it; never the host, never macos-user), and names them where it drops
-	// them, because an address nothing serves is a dead pointer at best and, on a shared
-	// loopback, a credential handed to whoever binds the port first
-	// (docs/plans/notch-convergence.md §2.4). Absent means the vars do not point at a yolo
-	// daemon and are delivered everywhere, as before.
+	// ServedBy names what these vars point a client at: a jail daemon — a loophole's
+	// `jail_daemon` by the loophole's name, or a pack service's by the service's — or a BOUND
+	// LOOPHOLE, one that runs no jail daemon but binds host sockets or devices into the jail,
+	// by its name (docs/design/loophole-packaging.md LP-D1). `env` only. Core then delivers them
+	// only where that name is SERVED AT THIS NOTCH (packload.ServedDaemons: a daemon the notch
+	// runs, or a bound loophole its container argv binds, which the host and macos-user never
+	// do), and names them where it drops them, because an address nothing serves is a dead
+	// pointer at best and, on a shared loopback, a credential handed to whoever binds the port
+	// first (docs/plans/notch-convergence.md §2.4). Absent means the vars point at nothing yolo
+	// serves and are delivered everywhere, as before.
 	ServedBy string `json:"served_by,omitempty"`
 	// RegionProfileSetting names the setting of the `served_by` loophole that holds the profile
 	// the credential these vars point at is minted for — aws-auth's `profile`. An agent this
@@ -899,6 +950,21 @@ type Contribution struct {
 	// A PACK FACT for `platform_switches`' reason: what an agent's menu can do is that agent's
 	// fact, and core names no agent. ON `program` ALONE.
 	ExactMenuRefuses *ExactMenuRefusal `json:"exact_menu_refuses,omitempty"`
+	// AgentFiles names the AGENT FILES this program's env derive may compose (a term coined in
+	// docs/design/model-lists-and-pickers.md MM-D33; agentfiles.go carries the definition): an
+	// environment variable the program reads a file's PATH from, mapped to that file's name. The
+	// derive composes the file's CONTENT under the variable, a string written as it is or a table
+	// written as JSON, and only where the notch writes agent files, which it is told as
+	// ctx.agent_files. A jail does: its per-agent env writer puts the content beside the agent's env
+	// file as `<bin>.<name>`, owner-only, rewritten on every entry and removed with it, and points
+	// the variable there. The host notch writes none, so a value composed there is withheld, never
+	// handed to the program as a value. packs/copilot declares COPILOT_PROVIDERS_CONFIG →
+	// providers.json, the file copilot shows a whole model list from (MM-D31), which carries its
+	// provider's key as literal text.
+	//
+	// A PACK FACT for `platform_switches`' reason: which variable names a file and what the file
+	// holds are facts about one program, and core names no agent. ON `program` ALONE.
+	AgentFiles map[string]string `json:"agent_files,omitempty"`
 	// NeedsModelList names the provider PLATFORMS (`platform`'s open vocabulary) on which this
 	// program has no model catalog and no default model of its own, so it starts only on a model
 	// some list names: a pack's, the user's config, a profile's `model`, or the list yolo fetches
@@ -963,8 +1029,15 @@ type Contribution struct {
 	JailDaemon *ServiceJailDaemon `json:"jail_daemon,omitempty"`
 	// HostDaemon is the service's HOST half: the argv a host launch (`yolo host --`, the
 	// wrappers) and a macos-user launch run as a launch-owned child when the one agent they
-	// start is paired through this service (internal/launchservice;
-	// docs/design/host-notch-services.md OQ-HS4). Only an official pack's host half runs.
+	// start is paired through this service, or, for a pure worker (a service no adaptation
+	// names), beside the command (internal/launchservice; docs/design/host-notch-services.md
+	// OQ-HS4, HS-D29). It runs for a pack yolo ships or a local one, never a fetched one
+	// (HS-D27), and is restarted under the jail daemon's `restart` when it dies (HS-D28). On
+	// macos-user an admitted host half that serves the pack's adaptation is why the guest
+	// declines the service's JailDaemon; a refused one, or one serving no adaptation, leaves
+	// the JailDaemon to run in the guest unless the guest declines it for a reason of its own,
+	// such as a declared Endpoint (docs/design/jail-daemon-on-macos-user-plan.md JD-9 (b)), so a
+	// fetched pack's service that declares one runs on neither side.
 	HostDaemon *ServiceHostDaemon `json:"host_daemon,omitempty"`
 	// Endpoint is the service's endpoint FILE NAME: the file lands at
 	// /run/yolo-services/<endpoint> (paths.ServiceEndpointExt, ".endpoint", is the
@@ -972,6 +1045,8 @@ type Contribution struct {
 	// cannot aim the file somewhere else. Optional in the schema: a service that
 	// publishes nothing (a pure worker) declares none, and the wire-bridge pack
 	// — whose whole discovery story is the file — declares one.
+	// On macos-user a service declaring one has its jail daemon declined: the file's
+	// directory is a container path the sandbox has no counterpart of (JD-9).
 	Endpoint string `json:"endpoint,omitempty"`
 	// ViaAddress is the base URL a service serves `via` routes under (OQ-WG7 (b),
 	// docs/design/wire-bridge-gateway.md): a profile whose `via` names this service's pack
@@ -1056,8 +1131,9 @@ type Contribution struct {
 	Env    json.RawMessage `json:"env,omitempty"`
 
 	// Raw carries kind-specific structured payloads that do not fit a scalar field
-	// — today only a `config` contribution's surface definition (the agentcfg
-	// surface schema), decoded by internal/agentcfg/manifest, kept as RawMessage
+	// — a `config` contribution's surface definition (the agentcfg surface schema),
+	// decoded by internal/agentcfg/manifest, and an `mcp` contribution's server
+	// entry, in mcp_servers' shape (Manifest.MCPContributions, packdecl.go), kept as RawMessage
 	// so packdecl stays free of an engine dependency (same reason Manifest.Surfaces
 	// is RawMessage).
 	Raw json.RawMessage `json:"config,omitempty"`
@@ -1297,6 +1373,8 @@ func (m *Manifest) InstallContributions() []Install {
 			}
 			in.ModelMenu = &m
 		}
+		// The launch selection too, for the model menu's reason, and copied for Refresh's.
+		in.LaunchSelection = c.LaunchSelection.clone()
 		switch c.Via {
 		case "npm":
 			in.Package = c.Package
@@ -1968,11 +2046,17 @@ type ServiceJailDaemon struct {
 }
 
 // ServiceHostDaemon is a service's HOST half, run by internal/launchservice as a child of the
-// one host or macos-user launch whose agent is paired through the service, for that launch's
-// lifetime (docs/design/host-notch-services.md OQ-HS3, OQ-HS4). The launch hands it its address
-// and caller token in a 0600 input file, never on the argv, and stops it when the agent exits.
-// Only an official pack's host half runs (packload.Pack.Official); a fetched or local pack's is
-// refused by name.
+// one host or macos-user launch whose agent is paired through the service (or, for a pure
+// worker, beside its command: HS-D29), for that launch's lifetime
+// (docs/design/host-notch-services.md OQ-HS3, OQ-HS4). The launch hands it its address and
+// caller token in a 0600 input file, never on the argv, and stops it when the command exits.
+// A host half runs for a pack yolo ships or a local one (packload.Pack.MayRunHostHalf); a
+// fetched pack's is refused by name (HS-D27, OQ-HS5), and on macos-user its service's jail
+// daemon then runs in the guest instead, unless the service declares an Endpoint, which the
+// guest declines whatever its host half's admission (launchservice.AdmitServiceHosts;
+// jail-daemon-on-macos-user-plan.md JD-9 (b)). One that dies while its agent runs is restarted on
+// its address under the service's `jail_daemon.restart`, "on-failure" when it declares none
+// (HS-D28).
 type ServiceHostDaemon struct {
 	// Cmd is the argv. Its first word must be `yolo`, which the launch resolves to its own
 	// binary (execx.SelfExecArgv): the host ships only `yolo`, and host daemons are
@@ -2704,6 +2788,85 @@ func (m *Manifest) validateContributions() []string {
 	problems = append(problems, m.validateSingleAutonomy()...)
 	problems = append(problems, m.validateServicePointers()...)
 	problems = append(problems, m.validatePatchedOwnerKeys()...)
+	problems = append(problems, m.validateDescribes()...)
+	return problems
+}
+
+// describesProblems refuses a `describes` (Contribution.Describes) anywhere but on `briefing`
+// CONTENT, in `reserved`'s position and for its reason: the host briefing composer is its only
+// reader, so on any other kind it would be a gate that silently gates nothing. A DESTINATION
+// (`agent` set) sources nothing (P5), so there is no prose for it to gate either. An entry naming
+// no kind, or `briefing` itself, is refused on both decode paths: both ends of a version boundary
+// agree neither is a kind a briefing can be about. Whether a kind EXISTS is validateDescribes'
+// question, asked on the strict path only.
+func describesProblems(label string, c Contribution) []string {
+	if len(c.Describes) == 0 {
+		return nil
+	}
+	var problems []string
+	switch {
+	case c.Kind != KindBriefing:
+		problems = append(problems, fmt.Sprintf(
+			"%s: kind %q does not take \"describes\" — it says which of the pack's own kinds a "+
+				"BRIEFING's prose is about, so only \"briefing\" has prose to withhold where they "+
+				"do not apply", label, c.Kind))
+	case c.Agent != "":
+		problems = append(problems, fmt.Sprintf(
+			"%s: a briefing DESTINATION (agent %q) takes no \"describes\" — it ships no prose of "+
+				"its own to withhold; put \"describes\" on the content contribution that names "+
+				"the file: {\"kind\":\"briefing\",\"from\":\"briefing/<file>.md\",\"describes\":[\"<kind>\"]}",
+			label, c.Agent))
+	}
+	for i, k := range c.Describes {
+		switch k {
+		case "":
+			problems = append(problems, fmt.Sprintf(
+				"%s.describes[%d]: empty kind — name the kind of this pack's own contribution "+
+					"the prose is about", label, i))
+		case KindBriefing:
+			problems = append(problems, fmt.Sprintf(
+				"%s.describes[%d]: \"briefing\" — a briefing cannot be about itself; name the kind "+
+					"of this pack's own contribution the prose explains (an \"intercept\", a "+
+					"\"loophole\", ...)", label, i))
+		}
+	}
+	return problems
+}
+
+// validateDescribes is `describes`' STRICT half: every kind it names must be one this build
+// knows, and one the manifest itself declares. The field states what the pack's OWN prose is
+// about, so a kind the pack does not declare makes the gate a statement about another pack's
+// contribution, which this pack cannot keep true, and a misspelled kind would withhold the prose
+// at the host for a kind that does not exist.
+//
+// Strict path only, like validateFilesDestinations and every sibling in this family: the sibling
+// half needs the whole list, and the unknown-kind half is version skew. A kind a newer build adds
+// may be named here by a pack it ships, and an older in-jail reader that refused it would brick
+// the boot, the `tier` incident's shape (DecodeTolerant). No jail reads the field, so letting the
+// tolerant path pass it costs nothing.
+func (m *Manifest) validateDescribes() []string {
+	declared := map[Kind]bool{}
+	for _, c := range m.Contributes {
+		declared[c.Kind] = true
+	}
+	var problems []string
+	for i, c := range m.Contributes {
+		for j, k := range c.Describes {
+			switch {
+			case k == "" || k == KindBriefing:
+				continue // describesProblems' refusal, reported there
+			case !KnownKind(k):
+				problems = append(problems, fmt.Sprintf("contributes[%d].describes[%d]: %s",
+					i, j, ValidateKind(k)))
+			case !declared[k]:
+				problems = append(problems, fmt.Sprintf(
+					"contributes[%d].describes[%d]: %q — this pack declares no %q contribution, "+
+						"and \"describes\" names the kinds of the pack's OWN contributions its prose "+
+						"is about. Declare the %s here, or drop it from \"describes\"",
+					i, j, string(k), string(k), string(k)))
+			}
+		}
+	}
 	return problems
 }
 
@@ -3639,8 +3802,12 @@ func validateContribution(label string, c Contribution) []string {
 	problems = append(problems, modelCatalogProblems(label, c)...)
 	// `model_menu` is a program's alone: the launcher runs it before exec'ing the program.
 	problems = append(problems, modelMenuProblems(label, c)...)
+	// `launch_selection` is a program's alone: it hands one launch of the program its selection.
+	problems = append(problems, launchSelectionProblems(label, c)...)
 	// `exact_menu_refuses` is a program's alone: it says how that program's model menu narrows.
 	problems = append(problems, exactMenuProblems(label, c)...)
+	// `agent_files` is a program's alone: it names files that program's env derive composes.
+	problems = append(problems, agentFilesProblems(label, c)...)
 	// `built_in_providers` is a program's alone: it names the providers that program implements.
 	problems = append(problems, builtInProvidersProblems(label, c)...)
 	// `reserved` is skills' alone, refused in `profile`'s position and for `profile`'s reason:
@@ -3679,6 +3846,7 @@ func validateContribution(label string, c Contribution) []string {
 		}
 	}
 	problems = append(problems, projectDirsProblems(label, c)...)
+	problems = append(problems, describesProblems(label, c)...)
 	problems = append(problems, filesSlotProblems(label, c)...)
 	// `update` is program's alone, refused in `profile`'s position and for `profile`'s
 	// reason: a verb declared on `requires` (which installs nothing) or on a content kind

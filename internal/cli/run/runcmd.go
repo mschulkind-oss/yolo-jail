@@ -63,10 +63,12 @@ type Options struct {
 	Network string
 	// Notch is `--at <jail|guest|host>` as typed on THIS launch: the confinement
 	// notch this invocation asks for, overriding the config's `confinement` key.
-	// "" means the flag was not given and the config decides.
+	// "" means the flag was not given and the config decides. launchNotch (run.go) is
+	// the one reader that folds the two.
 	//
-	// A LAUNCH HONORS ONLY `jail`, and the other two are REFUSED rather than
-	// ignored (refuseUnbuiltNotch, run.go; OQ-DP3 in
+	// A LAUNCH HONORS `jail` everywhere and `guest` on macOS, where it is the
+	// macos-user backend (env-manager plan EMP-D1). A Linux `guest` and `host` are
+	// REFUSED rather than ignored (refuseUnbuiltNotch, run.go; OQ-DP3 in
 	// docs/design/declaration-parity.md). Before this field existed
 	// cli.parseRunArgs had no `--at` case at all, so the token fell to its
 	// default arm and STARTED THE COMMAND: `yolo --at guest -- claude` launched a
@@ -76,6 +78,12 @@ type Options struct {
 	// (docs/plans/notch-convergence.md item 10). A caller setting it directly still
 	// gets refuseUnbuiltNotch's host refusal, as `confinement: host` does.
 	Notch string
+	// atNotch is the notch this launch runs at, Notch folded over the config's `confinement`
+	// (launchNotch), recorded by Run once refuseUnbuiltNotch has passed it. Read by the
+	// macos-user arm's printers that hold no config: at a guest, a next step naming a
+	// container runtime names the jail notch too (containerStepClause). The zero value
+	// reads as the jail notch, which is what every Options built outside Run describes.
+	atNotch config.Confinement
 	// NeverAttach skips the attach-to-running-container branch entirely. NOT a
 	// CLI flag (the old --new was removed 2026-09-06): it is the capture jail's
 	// programmatic "this launch must boot, never re-enter" — a capture runs its
@@ -158,6 +166,25 @@ type Options struct {
 	// refused at launch (checkProfileTargets). A named CLI keeps its entry beside a bare
 	// -p, as a named entry of the config `profile` key keeps its own beside "*" (PP-D10).
 	UseProfiles map[string]string
+	// WithCredentials is --with-credentials as typed on THIS launch: provider names and `all`,
+	// every occurrence's comma list split, in order; nil when the flag was not given
+	// (docs/design/credential-sources-separation.md OQ-ES5's jail half, jailgrant.go). It is
+	// the grant's ONLY source: no config key, no environment variable, no -p and no
+	// use_profiles entry sets it, and nothing else in this struct implies it. The front door's
+	// parse is the one writer (internal/cli's parseRunArgs).
+	WithCredentials []string
+	// jailGrant is WithCredentials resolved over this launch's composition (resolveJailGrant),
+	// nil without the flag: what a fresh launch hands the jail it starts, and what an attach
+	// asks the running jail to hold already.
+	jailGrant *jailGrant
+	// jailGrantFile is the host copy of the grant file this FRESH launch staged (stageJailGrant),
+	// which the podman argv binds; "" when none was staged. Run's deferred discard removes it
+	// unless a container came to hold it (discardUnheldJailGrant).
+	jailGrantFile string
+	// heldGrant is the grant the processes this entry starts hold, for the disclosure: this
+	// launch's own on a fresh launch and on macos-user, the running jail's (its keeper's start
+	// record) on an attach. nil when they hold none.
+	heldGrant *jailGrant
 	// stagingCfg is the launch's merged config, handed to stagePacks so the `via` closure
 	// (OQ-WG6/WG7 (c)) sees the config's profile as well as -p. Set by Run before
 	// staging; nil in a caller that stages without a config (every such caller is a test),
@@ -186,6 +213,14 @@ type Options struct {
 	// keeperMode is set on a KEEPER's own Options (keeper.go): the children it starts get the
 	// kernel's death signal, and its self-execs run its own binary.
 	keeperMode bool
+	// keeperCommand is, on a keeper at macos-user, the command of the launch that spawned it, which
+	// the supervision of a doorway or service it holds names (macosUserCommandName).
+	keeperCommand string
+	// macosUserKey is a macos-user launch's place at its KEY (keeperspawn.go's arriveMacosUser;
+	// docs/design/jail-lifetime-last-session-wins.md §9.9): the arrival lock it holds, the roster it
+	// joined, its session record and the keeper it spawned. nil on every other backend, on a dry
+	// run, and for a caller that hands Run no backend.
+	macosUserKey *macosUserKeying
 	// packTree is the pack tree THIS launch staged (packtree.go), one per launch and never
 	// edited afterwards (docs/reference/pack-system.md#oq-pk2). "" until staging.
 	packTree string
@@ -227,6 +262,12 @@ type Options struct {
 	// (packload.HeldServices, notch-convergence NC-D59). Read by the one disclosure that says so
 	// (noteShadowedServices). nil when no service name is declared twice.
 	shadowedServices []packload.ShadowedService
+	// jailBound are the BOUND LOOPHOLES (loopholes.JailBoundNames: no jail daemon, host binds or
+	// devices) whose binds the last jail-daemon payload this process composed would put on the
+	// container argv, recorded beside it so servedDaemons serves their names: a pack env pointer
+	// `served_by` one reaches the jail only where its binds do (docs/design/loophole-packaging.md
+	// LP-D1). nil on macos-user, which binds nothing, and when none is active.
+	jailBound []string
 	// launchServices are the LAUNCH-OWNED SERVICES this macos-user launch planned
 	// (macosuserservices.go, docs/design/host-notch-services.md §4.7): pack services whose host
 	// half runs as this launch's child because a profiled agent's pairing needs one. Settled
@@ -239,6 +280,11 @@ type Options struct {
 	// yolo does not ship, or an argv not naming `yolo`), so each is judged as the jail daemon it
 	// also is. Read by the one disclosure that says so (noteRefusedDoorways). nil when none.
 	refusedDoorways []launchservice.RefusedDoorway
+	// refusedServiceHosts are the pack services whose host half the last jail-daemon payload this
+	// process composed did not admit (launchservice.AdmitServiceHosts: a pack yolo does not ship,
+	// or an argv not naming `yolo`), so each is judged as the jail daemon it also is. Read by the
+	// one disclosure that says so (noteRefusedServiceHosts). nil when none.
+	refusedServiceHosts []launchservice.RefusedDoorway
 	// launchDoorways are the DOORWAYS this macos-user launch opens outside its sandbox as
 	// launch-owned listeners (macosuserdoorways.go, docs/design/host-notch-services.md HS-D15),
 	// planned from the payload at the served addresses and caller tokens the channel composed.
@@ -272,9 +318,19 @@ type Options struct {
 	// The one thing it must never be given is o.Now (see initPerf).
 	Perf *perf.Log
 	// PerfRef, when non-nil, receives the collector initPerf builds, so a caller
-	// holding a COPY of Options can span work that happens after Run returns.
+	// holding a COPY of Options can span work that happens after Run returns — or
+	// that a handler it injected does while Run runs: initPerf publishes it before any
+	// seam is called, and the macos-user handler hands it to the backend (internal/cli's
+	// macosUserRun), whose steps are spanned on it.
 	// Pointer for the reason above; nil is fine and means "no caller is asking".
 	PerfRef *PerfRef
+	// MacosUserArm is the macos-user launch's signal arm (macosuserarm.go), made by the front door
+	// so the handler it injects (MacosUserRun) can hand the arm's session runner, Ending and
+	// AgentStarting to the backend, and installed by Run's macos-user arm. A pointer for PerfRef's
+	// reason: Options crosses the launchRunPipeline seam by value. nil installs no arm (a capture
+	// act's launch, a test), whose handler never asks one: its signals keep their default action
+	// (armMacosUser).
+	MacosUserArm *MacosUserArm
 	// perfReportOnce makes the timing report once per Run invocation — a
 	// POINTER, not an embedded sync.Once, because Options is copied by value
 	// (Run's own signature) and a copied lock is a vet copylocks error. Created
@@ -414,6 +470,14 @@ type Options struct {
 	// every launch but a build jail's, whose act tells a boot that went on to be done from one that
 	// stopped by it (cli's jailTail).
 	OnJailReady func()
+	// SessionStdout is where the jail's FIRST SESSION's standard output goes. nil is this process's
+	// stdout, through the terminal proxy when stdin is a terminal — an agent's session, whose output
+	// is the product. A caller whose jail prints progress for another command names its own writer,
+	// and the session then runs off the proxy, its stdin and stderr still this process's
+	// (ttyproxy.Observer.Stdout): the host floor's capture and build jails, which run before a
+	// `yolo host` launch execs an agent whose stdout is routinely parsed, take this process's stderr
+	// for it and for JailStdout alike (internal/cli's hostJailStdout).
+	SessionStdout io.Writer
 	// Stdin is read for the config-change approval prompt. nil => os.Stdin.
 	Stdin io.Reader
 	// Color enables ANSI styling in the human output.
@@ -485,7 +549,8 @@ type Options struct {
 	// CapturesDir resolves the machine-wide install-capture store, which every
 	// launch binds :ro into the jail so a native launcher can MATERIALIZE an
 	// already-captured install instead of downloading it (program-delivery.md §6.3;
-	// entrypoint.CapturesDirEnv). nil => paths.CapturesDir.
+	// entrypoint.CapturesDirEnv), and which a macos-user launch reads its entries from to stage
+	// a root-owned copy of them (MacosUserCaptures). nil => paths.CapturesDir.
 	//
 	// RETURNING "" IS THE MEANINGFUL OVERRIDE, and it has one production caller:
 	// `yolo capture` (internal/cli/capturehost.go) suppresses the mount for the
@@ -536,6 +601,22 @@ type Options struct {
 	// PLATFORM likewise — only the pipeline knows which backend is about to run, and the
 	// one answer that looks right and is wrong is the host's own (containerJailPlatform).
 	AutoCapture func(bins []string, platform string)
+	// MacosUserCaptures picks, from the install-capture store at dir (CapturesDir's answer), the
+	// entry the materialize path's own resolver chooses for each of bins at platform, and names
+	// the store's other current entries there (kept) — the macos-user launch's half of hand-off
+	// H4 (docs/plans/install-capture.md): the backend stages a root-owned copy of each picked
+	// entry and names that store to its launchers (macosuser.StageCaptureCommands).
+	//
+	// A seam for AutoCapture's reason: the resolver and the receipt adapter it reads through live
+	// in internal/cli, which imports this package. nil stages no capture, and every launcher on
+	// that backend then downloads, as it did before H4.
+	MacosUserCaptures func(dir string, bins []string, platform string) (stage []macosuser.CaptureEntry, kept []string)
+	// MacosUserLaunchProbes answers macos-user's launch preconditions (macosuser.LaunchProbes)
+	// for the arm's auto-capture, which runs only for a launch the backend will not refuse at its
+	// first two steps (autoCaptureMacosUser, macosuser.PreflightLaunch). nil =>
+	// macosuser.RealLaunchProbes, the launch's own probes, so production wires nothing; a test
+	// stands a Mac in.
+	MacosUserLaunchProbes func() macosuser.LaunchProbes
 	// BuildForks builds, for every pinned fork in the request, the store entry the jail needs at
 	// its platform when the machine holds none, and returns per bin the entry's key or why there is
 	// none (docs/design/forked-programs-as-packs.md OQ-FP4, FP-D1, FP-D8); for a PATCHED fork it
@@ -660,6 +741,33 @@ type Options struct {
 	// patchedAct is this launch's act interrupt (actInterrupt, PF-D57), handed to the fork builds
 	// and the tree arm alike.
 	patchedAct *ActInterrupt
+}
+
+// jailStdout is where the jail's own standard output goes (JailStdout): the writer a caller named,
+// or this process's stdout.
+func (o *Options) jailStdout() io.Writer {
+	if o.JailStdout != nil {
+		return o.JailStdout
+	}
+	return os.Stdout
+}
+
+// jailStderr is where the jail's own standard error goes (JailStderr): the writer a caller named,
+// or this process's stderr.
+func (o *Options) jailStderr() io.Writer {
+	if o.JailStderr != nil {
+		return o.JailStderr
+	}
+	return os.Stderr
+}
+
+// sessionStdout is where the first session's standard output goes (SessionStdout): the writer a
+// caller named, or this process's stdout.
+func (o *Options) sessionStdout() io.Writer {
+	if o.SessionStdout != nil {
+		return o.SessionStdout
+	}
+	return os.Stdout
 }
 
 // captureConfigOnTerminate runs the injected E3 capture for a jail that has just
@@ -1203,14 +1311,16 @@ func NewDefaultOptions() Options {
 
 // RunWithProxy launches argv under the platform-appropriate TTY proxy (Linux:
 // internal/ttyproxy; other: a plain foreground exec) and returns the child exit
-// code, or 1 on a launch error. It is the run-proxy seam the front door injects
-// into macosuser (whose RunWithProxy field is `func([]string) int`), so the
-// macos-user path never imports the Linux-only ttyproxy package directly (which
-// would break the GOOS=darwin build).
+// code, or 1 on a launch error.
+//
+// IT LOST ITS LAST CALLER on 2026-10-05: it was the run-proxy seam the front door injected into
+// macosuser, and a macos-user session now runs under its launch's signal arm instead
+// (MacosUserArm.RunSession, macosuserarm.go), which this seam had none of. It goes, with
+// proxy_other.go's runWithProxy, the next time those files and the comments naming it as the
+// macos-user seam (proxy_linux.go, AGENTS.md) are edited together.
 func RunWithProxy(argv []string) int {
-	// A bare &Options{}: this seam has no collector (macos-user's native runs
-	// have not grown one), and a nil *Options would panic on the field read —
-	// an empty Options' nil Perf is the intended no-op state.
+	// A bare &Options{}: this seam has no collector, and a nil *Options would panic on the field
+	// read — an empty Options' nil Perf is the intended no-op state.
 	rc, err := runWithProxy(argv, nil, nil, &Options{})
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "launch failed: %v\n", err)

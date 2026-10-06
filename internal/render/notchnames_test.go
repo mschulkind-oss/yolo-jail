@@ -119,11 +119,12 @@ func TestHostOwnershipNamesMatchTheConfigVocabulary(t *testing.T) {
 }
 
 // The unstated contract is NOT declarable, and an unknown name fails closed onto it. Both
-// halves matter: `host_management: "unstated"` would be a fourth value the design does not
-// have (the absent key is the unset state, and config resolves it to `assert`), and a caller
-// that ignores ok must get the ownership that runs nothing rather than one that writes.
+// halves matter: `host_management: "unstated"` would be a third value the design does not
+// have (the absent key is the unset state, and config resolves it to `none`), and a caller
+// that ignores ok must get the ownership that runs nothing rather than one that writes. The
+// retired "assert" is one of those names since OQ-CO14: nothing resolves it to a contract.
 func TestHostOwnershipForRejectsAnythingUndeclarable(t *testing.T) {
-	for _, name := range []string{"unstated", "manage", "true", ""} {
+	for _, name := range []string{"unstated", "assert", "manage", "true", ""} {
 		if o, ok := HostOwnershipFor(name); ok {
 			t.Errorf("%q resolved to the declarable contract %s — it is not one", name, o)
 		} else if o != OwnershipUnstated {

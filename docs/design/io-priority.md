@@ -3,21 +3,23 @@ title: "Yielding the disk: which kernel lever reaches a jail build's I/O, and on
 date: 2026-09-27
 status: in-review
 stage: DESIGN
-next: "Record the Mac measurement at IO-D7: the 2026-10-03 scheduled macos-user.yml run (GitHub Actions run 37121866798, at 0e34798c6) logged IOPOL VERDICT: SURVIVES, a process-scope IOPOL_THROTTLE on the launcher reaching the sandboxed shell through sudo, env -i and sandbox-exec; step 5, macos-user, waited only on that"
+next: "Dispatch macos-user.yml for TestMacosUserIOPriorityIsApplied, the hardware check of build step 5, which is built; step 6 waits on OQ-IO7"
 tags: [resources, io, cgroups, bfq, storage, latency, podman, performance]
-summary: "A jail build can saturate the host disk and stall the desktop. Process I/O priority is free to set and reaches every program the jail runs, but only their reads and synchronous writes, and only on BFQ or mq-deadline disks; buffered writeback answers to the cgroup io controller alone, which a stock rootless host neither delegates nor enables. The design sets a declared resources.io.priority on every thread of the jail and names, at launch and in yolo check, each place it does nothing, and that much is built. Of three filed questions, one is decided and two are answered from existing rulings; four stay open: the default, a per-command flag, the host notch, and whether any cgroup half ships."
+summary: "A jail build can saturate the host disk and stall the desktop. Process I/O priority is free to set and reaches every program the jail runs, but only their reads and synchronous writes, and only on BFQ or mq-deadline disks; buffered writeback answers to the cgroup io controller alone, which a stock rootless host neither delegates nor enables. The design sets a declared resources.io.priority on every thread of the jail, and on macos-user as the launcher's macOS disk policy, and names, at launch and in yolo check, each place it does nothing, and that much is built. Of three filed questions, one is decided and two are answered from existing rulings; four stay open: the default, a per-command flag, the host notch, and whether any cgroup half ships."
 vantage:
   status-chip: true
 ---
 
 # Yielding the disk — which kernel lever reaches a jail build's I/O, and on which scheduler
 
-**Status:** 2026-09-27. Build steps 1 to 4 are built; step 5 waits on a Mac, whose measurement
-was written on 2026-10-01 for the scheduled `macos-user.yml` job, and step 6 on
-[OQ-IO7](#OQ-IO7). MEASURED: in a jail nested in a rootless podman jail on Linux 7.1.8, every
-thread but PID 1 read `be/7` after a launch and after an attach, and both named the Kyber NVMe
-under LUKS. UNMEASURED: a BFQ disk's latency under load, and both macOS VM backends. Kernel
-source read at v7.1.
+**Status:** 2026-10-04. Build steps 1 to 5 are built; step 6 waits on [OQ-IO7](#OQ-IO7).
+MEASURED: in a jail nested in a rootless podman jail on Linux 7.1.8, every thread but PID 1 read
+`be/7` after a launch and after an attach, and both named the Kyber NVMe under LUKS. MEASURED on a
+Mac (GitHub Actions run 37121866798, 2026-10-03): a process-scope `IOPOL_THROTTLE` set on the
+launcher reached the sandboxed shell through `sudo`, `env -i` and `sandbox-exec`, which is what
+step 5 is built on. UNMEASURED: a BFQ disk's latency under load, both macOS VM backends, and step
+5's own set on hardware (`TestMacosUserIOPriorityIsApplied`, not yet run). Kernel source read at
+v7.1.
 
 > **In short.** Process I/O priority is free to set and reaches every program a jail runs, but only
 > their reads and synchronous writes on BFQ or mq-deadline disks; buffered writes answer to a cgroup
@@ -30,7 +32,8 @@ desktop, while the CPU weight set on the host did nothing for the disk ([§1](#1
 **The shape.** One key, `resources.io.priority`. `yolo-entrypoint` sets it on one pinned thread and
 re-executes itself, so every thread and child descends from one that holds it; the launcher decides
 per backend whether to pass it, and it shares one grading of the disk under the workspace with
-`yolo check`.
+`yolo check`. On macos-user the launcher sets it on itself as a macOS disk policy instead, and the
+session inherits it ([§5.5](#55-macos-user-the-second-step)).
 
 **Cost.** Builds slow down whenever the disk is contended, and every boot or attach that declares a
 priority pays one extra exec of the entrypoint. On a Kyber or `none` disk, the usual NVMe default
@@ -42,8 +45,8 @@ which scheduler. The rest follows from it.
 
 **Needs your ruling:** [OQ-IO3](#OQ-IO3), [OQ-IO4](#OQ-IO4), [OQ-IO6](#OQ-IO6), [OQ-IO7](#OQ-IO7).
 
-**Reads with:** [`io-priority-plan.md`](io-priority-plan.md) (the implementation sketch for steps
-5 and 6, both blocked), [`backend-parity.md`](backend-parity.md) (the disposition words
+**Reads with:** [`io-priority-plan.md`](io-priority-plan.md) (the implementation sketch for step 6,
+blocked, and the record of step 5), [`backend-parity.md`](backend-parity.md) (the disposition words
 [§5.2](#52-the-launcher-one-decision-per-backend-and-the-disk-it-lands-on) uses),
 [`declaration-parity.md`](declaration-parity.md) (P1, which decides the failure paths, and P4,
 which bounds who may declare it at the host notch).
@@ -331,7 +334,7 @@ refuse a launch. The argv and the briefing read the backend decision, as they re
 | podman nested in a jail | passed | the same, graded from inside the outer jail, whose `/sys/block` and mount table are readable (measured) | the same line |
 | podman on a macOS host | not passed | **Warned** | one line: the jail runs in a VM, and its workspace reaches the Mac over VirtioFS, which carries no I/O priority |
 | Apple Container | not passed | **Warned** | the same line |
-| macos-user | not applied until [§5.5](#55-macos-user-the-second-step) ships | **Warned** | the existing line, *"resources are NOT enforced on macos-user … are read and ignored"*, which already names every declared `resources` key, `io` included ([IO-D8](#11-decision-ledger)) |
+| macos-user | set by the launcher on itself as its macOS disk policy, before the bootstrap ([§5.5](#55-macos-user-the-second-step)) | **HonoredBy** `setiopolicy_np` | nothing when the set holds; one warning naming `resources.io` when it fails or reads back otherwise, and the launch goes on ([IO-D13](#11-decision-ledger)) |
 | the host notch | — | [OQ-IO6](#OQ-IO6) | — |
 
 Every line in the table names the priority only when a priority other than `"normal"` is declared.
@@ -451,7 +454,7 @@ already decide how it behaves ([OQ-IO2](#11-decision-ledger), [IO-D6](#11-decisi
   | :--- | :--- |
   | a block-backed mount with readable sysfs: a Linux host, or a podman jail (measured readable) | graded by the table above |
   | a `virtiofs` mount (an Apple Container or podman-machine jail), or a macOS host with a VM backend | `[WARN]`: the priority is Warned there, because workspace I/O reaches the Mac over VirtioFS, which carries none ([§5.2](#52-the-launcher-one-decision-per-backend-and-the-disk-it-lands-on)) |
-  | a macOS host with macos-user | `[WARN]` for the Warned disposition until [§5.5](#55-macos-user-the-second-step) ships |
+  | a macOS host with macos-user | `[PASS]` naming the policy the launch sets, `IOPOL_UTILITY` or `IOPOL_THROTTLE` ([§5.5](#55-macos-user-the-second-step)): macOS has no per-disk scheduler to grade |
   | a mount with no block device behind it (a ZFS dataset, NFS, tmpfs, an overlay) | `[SKIP]` naming the filesystem type: there is no scheduler to grade |
   | a parent disk with no `queue/scheduler` file (a bio-based device such as zram), or a scheduler name outside the grading table | `[SKIP]` naming the disk and the missing file or the scheduler; the launch prints nothing for it ([IO-D11](#11-decision-ledger)) |
   | a block-backed mount whose sysfs entries cannot be read, in a podman jail | `hostFact`'s `[SKIP]`, saying to run `cat /sys/block/<disk>/queue/scheduler` on the host |
@@ -471,24 +474,43 @@ Example output:
 
 ### 5.5 macos-user, the second step
 
+Built 2026-10-04 ([IO-D7](#11-decision-ledger), [IO-D13](#11-decision-ledger)).
+
 - **Mechanism.** `setiopolicy_np(IOPOL_TYPE_DISK, IOPOL_SCOPE_PROCESS, <policy>)`: `"low"` becomes
   `IOPOL_UTILITY` and `"idle"` becomes `IOPOL_THROTTLE` ([`getiopolicy_np(3)`](https://keith.github.io/xcode-man-pages/getiopolicy_np.3.html):
   UTILITY I/O is *"throttled to prevent a significant impact on the latency of IMPORTANT and
   STANDARD I/Os"*; THROTTLE is *"for long-running I/O intensive background work"*). The
-  macos-user launcher applies it. That backend runs no `yolo-entrypoint` binary: its boot is
-  `yolo internal darwin-bootstrap`, which runs the entrypoint package's generators and not `Main`
-  ([`darwin.go`](../../internal/entrypoint/darwin.go)).
-- **What is unmeasured.** The agent is launched as `sudo -u <sandbox account> /usr/bin/env -i …
-  /usr/bin/sandbox-exec -f <profile> -- <agent>` (`LaunchArgv`,
-  [`macosuser.go`](../../internal/macosuser/macosuser.go)). The man page says only that *"the I/O
-  policy of a newly created process is inherited from its parent process"*. Whether it survives a
-  setuid `sudo` and `sandbox-exec` needs a Mac, and that measurement is this step. It is written
-  (2026-10-01) as an experiment the scheduled `macos-user.yml` job runs,
-  `TestMacosUserIOPolicyAcrossTheLaunchArgv`
-  ([`macosuseriopolicy_test.go`](../../integration/macosuseriopolicy_test.go)), and has not run
-  yet; [the plan's step 5](io-priority-plan.md#step-5-macos-user) says how it reads the policy.
-- **Until then it is Warned** by the existing line, which already names `io`. Once it ships, the
-  cell becomes HonoredBy `setiopolicy_np`, and that line stops naming the priority.
+  macos-user launcher applies it to itself. That backend runs no `yolo-entrypoint` binary: its
+  boot is `yolo internal darwin-bootstrap`, which runs the entrypoint package's generators and not
+  `Main` ([`darwin.go`](../../internal/entrypoint/darwin.go)).
+- **Why the launcher.** The man page says *"the I/O policy of a newly created process is inherited
+  from its parent process"*, and the agent is launched as `sudo -u <sandbox account> /usr/bin/env -i
+  … /usr/bin/sandbox-exec -f <profile> -- <agent>` (`LaunchArgv`,
+  [`macosuser.go`](../../internal/macosuser/macosuser.go)). Whether the policy survives a setuid
+  `sudo` and `sandbox-exec` was measured on a Mac: `TestMacosUserIOPolicyAcrossTheLaunchArgv`
+  ([`macosuseriopolicy_test.go`](../../integration/macosuseriopolicy_test.go)) set
+  `IOPOL_THROTTLE` on a wrapper around `yolo` and read it back inside the sandbox, and the
+  scheduled run of 2026-10-03 (GitHub Actions run 37121866798) logged `IOPOL VERDICT: SURVIVES`.
+  That test stays as the inheritance regression.
+- **When.** Once per launch, after the run plan passes its invariants and before anything that does
+  the session's I/O starts: the stage copies, the bootstrap, the provisioning stage, the jail
+  daemons and the agent all descend from the launcher, so all of them inherit it. The host's own
+  nix build of the floor runs before it, at the launcher's original policy, and a `nix build` the
+  agent runs goes through the host nix daemon and keeps the host's policy
+  ([Non-Goal 6](#2-non-goals)).
+- **How it is reached.** Every shipped binary is built with `CGO_ENABLED=0`, so the two libSystem
+  functions are reached the way `golang.org/x/sys/unix` reaches every libSystem call on darwin: a
+  `//go:cgo_import_dynamic` for each symbol, one assembly `JMP` stub per function, and the runtime's
+  libc call path ([`diskpolicy_darwin.go`](../../internal/ioprio/diskpolicy_darwin.go)).
+- **Failure.** Never fatal. A failed set, or a read-back that names another policy, prints one
+  warning naming `resources.io` and the launch goes on at the default policy; a read-back that
+  itself fails is one dim line, since the set before it succeeded ([IO-D13](#11-decision-ledger),
+  the launcher's form of [IO-D4](#11-decision-ledger) and [IO-D9](#11-decision-ledger)).
+- **What it says.** Nothing at launch when the set holds. The briefing names the policy, calls it
+  advisory and says the host nix daemon's builds are outside it, with none of the Linux sentence's
+  scheduler and writeback clauses, which describe a mechanism this backend does not use. `yolo
+  check` prints a `[PASS]` naming the policy ([§5.4](#54-yolo-check-the-disk-under-the-workspace)).
+  The "resources are NOT enforced on macos-user" line no longer names `io` at all.
 - [DP-D1](declaration-parity.md#7-ruled-divergent-and-the-ones-i-would-re-open) does not rule this
   out. It rejected `RLIMIT_AS` and `RLIMIT_NPROC` as stand-ins for `memory` and `pids_limit`, not a
   disk policy.
@@ -545,7 +567,8 @@ Example output:
 - **One writer per piece of state.**
   - The launcher decides.
   - The entrypoint is the only yolo writer of the jail's thread priorities.
-  - The macos-user launcher is the only writer on that backend.
+  - The macos-user launcher is the only writer on that backend, and it writes only its own
+    process's policy, which its children inherit.
   - The agent can rewrite its own threads, and that is allowed.
 - **Forbidden.**
   - Never refuse a launch over the priority or its absence.
@@ -566,6 +589,9 @@ Example output:
      naming VirtioFS, and the briefing does not mention the class.
   5. On a BFQ disk, under an `fio` random-read load from a jail at `"idle"`, a desktop process's
      read latency stays near its unloaded value. Nothing like it is expected on Kyber or `none`.
+  6. On macos-user with `"idle"`, `getiopolicy_np` at process scope reads `IOPOL_THROTTLE` (3)
+     inside the sandbox, and `IOPOL_UTILITY` (4) with `"low"`; with `{}` it reads what the
+     launcher's own process reads (`TestMacosUserIOPriorityIsApplied`).
 
 ## 9. What I would build, in order
 
@@ -577,10 +603,11 @@ Example output:
    the resolver step 4 shares, the Warned line, the briefing line, and leaving a `"normal"` `io`
    out of macos-user's resources line.
 4. **`yolo check`**: the scheduler row, on the same resolver and grading.
-5. **macos-user**, after a Mac shows the policy survives `sudo` and `sandbox-exec`.
+5. **macos-user**, after a Mac shows the policy survives `sudo` and `sandbox-exec`. Built
+   2026-10-04, on run 37121866798's measurement.
 6. **A cgroup half**, only if [OQ-IO7](#OQ-IO7) ships one.
 
-Steps 1 to 4 waited on no open question and are built. [OQ-IO3](#OQ-IO3) changes only what an
+Steps 1 to 5 waited on no open question and are built. [OQ-IO3](#OQ-IO3) changes only what an
 unset key means.
 
 ## 10. Open Questions
@@ -688,9 +715,10 @@ writes ([§3.2](#32-the-cgroup-io-controller)):
 | IO-D4 | *Implementation decision.* A failed set skips the re-exec; a failed re-exec resets the pinned thread to unset. Either way the boot continues with every thread unset and prints one boot-stream warning, never fatal. Only one thread is ever touched, so no partial state can outlive a failure except a failed reset, which the warning names | 2026-09-27 | [§5.1](#51-the-entrypoint-one-pinned-thread-then-a-re-exec) | ✅ |
 | IO-D5 | *Implementation decision.* One resolver and one grading serve the launch and the check. The resolver finds a path's mount by the longest mount-point prefix, never by device number, and follows its source name through device-mapper slaves and partitions to its parent disks; the grading is [§5.4](#54-yolo-check-the-disk-under-the-workspace)'s table. The check resolves the workspace and, at the host, podman's storage root; the launch resolves the workspace | 2026-09-27 | [§5.4](#54-yolo-check-the-disk-under-the-workspace) | ✅ |
 | IO-D6 | *Implementation decision.* A cgroup half, should [OQ-IO7](#OQ-IO7) ship one, is gated on `io` in `podman info`'s `host.cgroupControllers`, from the launch's existing call. It is never gated on a slice path, which can report `io` the user manager lacks. It is emitted as `--blkio-weight` for a weight or `--cgroup-conf io.prio.class=idle` for a class, never as the nonexistent `--io-weight` | 2026-09-27 | [§5.3](#53-the-cgroup-half-if-one-ships) | — |
-| IO-D7 | *Implementation decision.* On macos-user, `"low"` is `IOPOL_UTILITY` and `"idle"` is `IOPOL_THROTTLE`, applied by the macos-user launcher. It ships only after a Mac shows the policy survives `sudo` and `sandbox-exec`. Until then the existing resources line keeps it Warned | 2026-09-27 | [§5.5](#55-macos-user-the-second-step) | — |
-| IO-D8 | *Implementation decision.* macos-user's existing resources line names every present `resources` key whatever its value ([`orchestrator.go`](../../internal/macosuser/orchestrator.go)). It leaves out an `io` that resolves to `"normal"` (that string, `null` or `{}`), which makes no call on every backend and so is honored there already. Any other value is named until [§5.5](#55-macos-user-the-second-step) ships | 2026-09-27 | [§5.2](#52-the-launcher-one-decision-per-backend-and-the-disk-it-lands-on) | ✅ |
+| IO-D7 | *Implementation decision.* On macos-user, `"low"` is `IOPOL_UTILITY` and `"idle"` is `IOPOL_THROTTLE`, applied by the macos-user launcher. It ships only after a Mac shows the policy survives `sudo` and `sandbox-exec`. Until then the existing resources line keeps it Warned. **Gate cleared 2026-10-03:** the scheduled `macos-user.yml` run (GitHub Actions run 37121866798, at 0e34798c6) logged `IOPOL VERDICT: SURVIVES`, a process-scope `IOPOL_THROTTLE` set on the launcher reaching the sandboxed shell through `sudo`, `env -i` and `sandbox-exec`; built 2026-10-04 ([IO-D13](#11-decision-ledger)) | 2026-09-27 | [§5.5](#55-macos-user-the-second-step) | ✅ |
+| IO-D8 | *Implementation decision.* macos-user's existing resources line names every present `resources` key whatever its value ([`orchestrator.go`](../../internal/macosuser/orchestrator.go)). It leaves out an `io` that resolves to `"normal"` (that string, `null` or `{}`), which makes no call on every backend and so is honored there already. Any other value is named until [§5.5](#55-macos-user-the-second-step) ships. **Superseded 2026-10-04 by [IO-D13](#11-decision-ledger):** [§5.5](#55-macos-user-the-second-step) shipped, so the line names no `io` at all | 2026-09-27 | [§5.2](#52-the-launcher-one-decision-per-backend-and-the-disk-it-lands-on) | ✅ |
 | IO-D9 | *Implementation decision.* The re-executed image reads its own thread's priority back with `ioprio_get`. The boot.log note names the value it read; a value other than the declared one is the boot-stream warning; a failed read is a note that says so, since the set before the exec succeeded | 2026-09-27 | [§5.1](#51-the-entrypoint-one-pinned-thread-then-a-re-exec) | ✅ |
 | IO-D10 | *Implementation decision.* An attach on podman on Linux grades the value in the container's frozen environment, read from the `inspect` the attach already runs, and a jail whose environment has none applies nothing and prints nothing. On Apple Container and podman on macOS, where no value is ever passed, the attach prints the Warned line for the current declaration | 2026-09-27 | [§5.2](#52-the-launcher-one-decision-per-backend-and-the-disk-it-lands-on) | ✅ |
 | IO-D11 | *Implementation decision.* A parent disk with no `queue/scheduler` file (a bio-based device such as zram) or a scheduler outside the grading table is ungraded: the launch prints nothing for it and `yolo check` prints a `[SKIP]` naming the disk and what is missing | 2026-09-27 | [§5.4](#54-yolo-check-the-disk-under-the-workspace) | ✅ |
 | IO-D12 | *Implementation decision.* The briefing is handed the value the jail's environment carries and never derives one from the config: on a fresh launch the value the argv passes, and on an attach the one in the container's frozen environment on podman on Linux, or none on the VM backends, which never pass one. Its list of schedulers that ignore the value comes from [IO-D5](#11-decision-ledger)'s grading, and it says that work a host process does for the jail keeps the host's priority ([Non-Goal 6](#2-non-goals)) | 2026-09-27 | [§5.2](#52-the-launcher-one-decision-per-backend-and-the-disk-it-lands-on) | ✅ |
+| IO-D13 | *Implementation decision, taken under the maintainer's 2026-10-04 delegation ("make them and build it … adjust later"); reversible.* Step 5's shape: the macos-user launcher calls `setiopolicy_np` on its own process once the run plan passes its invariants and before the stage copies, the bootstrap, the provisioning stage, the jail daemons and the agent, which all inherit it; it reads the policy back with `getiopolicy_np`. A failed set, a read-back naming another policy, or a build with no call wired prints ONE warning naming `resources.io` and the launch goes on; a failed read-back after a good set is one dim line (IO-D4 and IO-D9 in launcher form). Silent on success. The calls go through a libSystem trampoline, since every shipped binary is built with `CGO_ENABLED=0`. `appliedIOPriority` answers the declaration on macos-user, so the briefing names the policy (`IOPOL_UTILITY` or `IOPOL_THROTTLE`), advisory, with no Linux class or scheduler words; `yolo check` prints a `[PASS]`; the "resources are NOT enforced" line stops naming `io`; the dry-run plan names the policy | 2026-10-04 | [§5.5](#55-macos-user-the-second-step) | ✅ |

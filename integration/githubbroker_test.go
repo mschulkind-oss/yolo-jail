@@ -42,8 +42,10 @@ import (
 // > loopback-forwarding bug cannot reproduce (reachability_test.go's header). A green nested
 // > run proves the chain is WIRED; only a real jail on a rootless host, or CI, proves the hop.
 //
-// podman only: Apple Container is inert for every loopback-tls loophole, and macos-user is
-// unmeasured on a Mac.
+// podman here: Apple Container is inert for every loopback-tls loophole, and macos-user has a
+// case of its own on a Mac, TestMacosUserGitHubBrokerRunsAReadAgainstTheHostGH
+// (macosusergithubbroker_test.go), with no green run recorded yet. Both run the one script and
+// the one checker below (githubBrokerReadScript, assertGitHubBrokerRead).
 
 const fakeGHToken = "gho_yoloIntegrationFakeToken0123456789"
 
@@ -90,12 +92,26 @@ func newGitHubBrokerFixture(t *testing.T) githubBrokerFixture {
 	}
 
 	bin := t.TempDir()
+	argvLog := writeFakeHostGH(t, bin)
+	env := []string{
+		"PATH=" + bin + string(os.PathListSeparator) + os.Getenv("PATH"),
+		"YOLO_NO_AUTO_IMAGE_REAP=1",
+	}
+	return githubBrokerFixture{dir: dir, argvLog: argvLog, env: env, opts: []runOption{withEnv(env...)}}
+}
+
+// writeFakeHostGH writes the stand-in for the host's gh into bin, which the caller puts first on
+// the launcher's PATH, and returns the log it appends every argv it was handed to. Nothing it
+// does reaches GitHub.
+//
+// It answers the version the classifier was measured against, a token for the broker's one
+// start-up read (redaction), and an echo of every other argv with its cwd and the two gh
+// variables. `leak` prints the token, to prove the redaction backstop end to end. The broker's
+// own `auth status --hostname github.com --active --json hosts` gets gh's JSON for a login whose
+// token source is a host path and whose scopes are the host's (BB-D65).
+func writeFakeHostGH(t *testing.T, bin string) string {
+	t.Helper()
 	argvLog := filepath.Join(bin, "argv.log")
-	// The stand-in for the host's gh: the version the classifier was measured against, a
-	// token for the broker's one start-up read (redaction), and an echo of every other argv.
-	// `leak` prints the token, to prove the redaction backstop end to end. The broker's own
-	// `auth status --hostname github.com --active --json hosts` gets gh's JSON for a login whose
-	// token source is a host path and whose scopes are the host's (BB-D65).
 	script := "#!/bin/sh\n" +
 		"echo \"$*\" >> '" + argvLog + "'\n" +
 		"case \"$1\" in\n" +
@@ -111,11 +127,7 @@ func newGitHubBrokerFixture(t *testing.T) githubBrokerFixture {
 	if err := os.WriteFile(filepath.Join(bin, "gh"), []byte(script), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	env := []string{
-		"PATH=" + bin + string(os.PathListSeparator) + os.Getenv("PATH"),
-		"YOLO_NO_AUTO_IMAGE_REAP=1",
-	}
-	return githubBrokerFixture{dir: dir, argvLog: argvLog, env: env, opts: []runOption{withEnv(env...)}}
+	return argvLog
 }
 
 // recordScope approves the workspace's current remotes from the host, as a human would with
@@ -263,7 +275,17 @@ func TestGitHubBrokerRunsAReadAgainstTheHostGH(t *testing.T) {
 	// (BB-D30) — so the launch below passes no --accept-config-changes and still starts.
 	fx.recordScope(t, "yolo-it/app")
 
-	script := ghScript(
+	r := runCommand(t, fx.dir, []string{"run", "--", "bash", "-lc", githubBrokerReadScript()}, fx.opts...)
+	// The fixture's state dir is private (macArchivePrivateState), so every audit line and
+	// scope file it holds is this test's: no workspace filter.
+	assertGitHubBrokerRead(t, r, fx.dir, fx.argvLog, "")
+}
+
+// githubBrokerReadScript is the jail half of the read test, one launch measuring every case:
+// each gh command's exit code lands after an RC<letter>= marker (ghScript).
+// assertGitHubBrokerRead reads its output, on podman and on macos-user.
+func githubBrokerReadScript() string {
+	return ghScript(
 		"gh pr view 32",                          // A: a read, repository from origin
 		"gh pr list -R yolo-it/app --state all",  // B: a read, explicit -R
 		"gh auth token",                          // C: refused
@@ -275,7 +297,17 @@ func TestGitHubBrokerRunsAReadAgainstTheHostGH(t *testing.T) {
 		"gh auth status",                         // I: the broker answers it (BB-D65)
 		`head -4 "$(command -v gh)"`,             // J: the shim says it is a forwarder (BB-D67)
 	)
-	r := runCommand(t, fx.dir, []string{"run", "--", "bash", "-lc", script}, fx.opts...)
+}
+
+// assertGitHubBrokerRead is everything the read test asserts about one launch, from dir, that
+// ran githubBrokerReadScript against a host whose gh is writeFakeHostGH's, logging to argvLog.
+//
+// workspace narrows the host's audit log to that workspace's lines, for a launch whose state
+// dir other tests of the run also write (macos-user's); "" reads every line, for a fixture whose
+// state dir is its own. Either way the launch's scope file must be gone, and every scope file
+// in the dir is counted, since a test run launches serially.
+func assertGitHubBrokerRead(t *testing.T, r result, dir, argvLog, workspace string) {
+	t.Helper()
 	if r.rc != 0 {
 		t.Fatalf("the launch failed: rc %d\n%s%s", r.rc, r.combined(), brokerDaemonLog(t))
 	}
@@ -327,7 +359,7 @@ func TestGitHubBrokerRunsAReadAgainstTheHostGH(t *testing.T) {
 	// I's own output: what the jail printed between H's exit code and I's.
 	if h, i := strings.Index(out, "RCH="), strings.Index(out, "RCI="); h >= 0 && i > h {
 		status := out[h:i]
-		for _, host := range []string{"hosts.yml", "read:org", fx.argvLog} {
+		for _, host := range []string{"hosts.yml", "read:org", argvLog} {
 			if strings.Contains(status, host) {
 				t.Errorf("`gh auth status` in the jail carried the host's %q:\n%s", host, status)
 			}
@@ -337,7 +369,7 @@ func TestGitHubBrokerRunsAReadAgainstTheHostGH(t *testing.T) {
 	}
 
 	// The host gh saw the reads and the broker's own start-up reads, and nothing else.
-	logged, _ := os.ReadFile(fx.argvLog)
+	logged, _ := os.ReadFile(argvLog)
 	for _, line := range strings.Split(strings.TrimSpace(string(logged)), "\n") {
 		switch {
 		case line == "--version", line == "auth token --hostname github.com",
@@ -354,16 +386,25 @@ func TestGitHubBrokerRunsAReadAgainstTheHostGH(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	var sets []string
+	var sets, seen []string
 	for _, e := range events {
+		seen = append(seen, e.Workspace)
+		if workspace != "" && e.Workspace != workspace {
+			continue
+		}
 		sets = append(sets, e.Set+"/"+e.Outcome)
 	}
 	for _, s := range []string{"read-only/ran", "refused/refused", "out-of-scope/refused", "read-write/denied"} {
 		if !strings.Contains(strings.Join(sets, " "), s) {
-			t.Errorf("no %s audit line; have %v", s, sets)
+			t.Errorf("no %s audit line for workspace %q; have %v (the log's workspaces: %v)",
+				s, workspace, sets, seen)
 		}
 	}
-	a := runYoloCLI(t, fx.dir, "audit", "--json", "--set", "read-only")
+	args := []string{"audit", "--json", "--set", "read-only"}
+	if workspace != "" {
+		args = append(args, "--workspace", workspace)
+	}
+	a := runYoloCLI(t, dir, args...)
 	var n int
 	for _, line := range strings.Split(strings.TrimSpace(a.stdout), "\n") {
 		var e brokeraudit.Event
@@ -375,7 +416,7 @@ func TestGitHubBrokerRunsAReadAgainstTheHostGH(t *testing.T) {
 		}
 	}
 	if n != 5 {
-		t.Errorf("yolo audit --set read-only listed %d calls, want 5:\n%s", n, a.combined())
+		t.Errorf("yolo %s listed %d calls, want 5:\n%s", strings.Join(args, " "), n, a.combined())
 	}
 
 	// The launch's scope file went with its daemon.

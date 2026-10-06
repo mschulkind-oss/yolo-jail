@@ -17,6 +17,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/agentcfg/manifest"
 	"github.com/mschulkind-oss/yolo-jail/internal/packdecl"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/packoverlay"
@@ -319,54 +320,81 @@ func TestJailRenderWithNoOverlaysIsQuiet(t *testing.T) {
 // --- the HOST path -----------------------------------------------------------------
 //
 // RenderHostPack renders ONE pack, so the cross-pack collection has to reach it as a
-// parameter. These tests drive it exactly as `yolo host apply --assert` does: collect over the
-// whole set, then render each pack against that set. Every home is a t.TempDir().
+// parameter. These tests drive it exactly as a writing `yolo host apply --assert` does under
+// `host_management: "own"`: collect over the whole set, then render each pack against that set.
+// Every home is a t.TempDir().
+//
+// An owned host runs TWO arms (render.HostOwnedModes): a surface declaring nothing composes
+// whole through `stateful`, and one declaring `rmw` still runs the rmw arm. The overlay is
+// wired into both, so the tests whose subject is that wiring run the owner under each
+// declaration (hostOverlayOwnerModes).
 
-// THE HOST PATH: an overlay from pack B lands in pack A's surface in the REAL home.
+// hostOverlayOwnerModes is the two owner declarations an owned host renders through different
+// arms: "" (`stateful`, the default) and `rmw`.
+var hostOverlayOwnerModes = []string{"", manifest.ModeRMW}
+
+// ownerModeName is the subtest name for an owner declaration.
+func ownerModeName(mode string) string {
+	if mode == "" {
+		return manifest.ModeStateful
+	}
+	return mode
+}
+
+// THE HOST PATH: an overlay from pack B lands in pack A's surface in the REAL home, through
+// either arm.
 func TestHostRenderAppliesOverlayFromAnotherPack(t *testing.T) {
-	home := t.TempDir()
-	owner := overlayOwnerPack(t, "")
-	contributor := overlayContributorPack(t, "acme-fzf", map[string]any{"fileSuggestion": "run-fzf"})
-	// autonomy=false, matching applyHost: the host notch renders the guarded posture.
-	overlays := packoverlay.Collect([]*packload.Pack{owner, contributor}, false, nil)
+	for _, mode := range hostOverlayOwnerModes {
+		t.Run(ownerModeName(mode), func(t *testing.T) {
+			home := t.TempDir()
+			owner := overlayOwnerPack(t, mode)
+			contributor := overlayContributorPack(t, "acme-fzf", map[string]any{"fileSuggestion": "run-fzf"})
+			// autonomy=false, matching applyHost: the host notch renders the guarded posture.
+			overlays := packoverlay.Collect([]*packload.Pack{owner, contributor}, false, nil)
 
-	results, err := RenderHostPack(owner, home, render.OwnershipAssert, false, overlays, nil)
-	if err != nil {
-		t.Fatalf("RenderHostPack: %v", err)
-	}
-	got := readRenderedJSON(t, home, ".acme/settings.json")
-	if got["fileSuggestion"] != "run-fzf" {
-		t.Errorf("the overlay's key is absent from the host render:\n%#v", got)
-	}
-	// R3 host-side: the result names the contributing pack, because the file itself cannot.
-	var named bool
-	for _, r := range results {
-		if r.Surface == "acme/settings" && strings.Join(r.Overlays, ",") == "acme-fzf" {
-			named = true
-		}
-	}
-	if !named {
-		t.Errorf("the host result must name the contributing pack (R3): %+v", results)
+			results, err := RenderHostPack(owner, home, render.OwnershipOwn, false, overlays, nil)
+			if err != nil {
+				t.Fatalf("RenderHostPack: %v", err)
+			}
+			got := readRenderedJSON(t, home, ".acme/settings.json")
+			if got["fileSuggestion"] != "run-fzf" {
+				t.Errorf("the overlay's key is absent from the host render:\n%#v", got)
+			}
+			// R3 host-side: the result names the contributing pack, because the file itself cannot.
+			var named bool
+			for _, r := range results {
+				if r.Surface == "acme/settings" && strings.Join(r.Overlays, ",") == "acme-fzf" {
+					named = true
+				}
+			}
+			if !named {
+				t.Errorf("the host result must name the contributing pack (R3): %+v", results)
+			}
+		})
 	}
 }
 
-// Host precedence matches the jail's: the owner's managed key still wins.
+// Host precedence matches the jail's, through either arm: the owner's managed key still wins.
 func TestHostRenderOwnersManagedBeatsOverlay(t *testing.T) {
-	home := t.TempDir()
-	owner := overlayOwnerPack(t, "")
-	pushy := overlayContributorPack(t, "pushy", map[string]any{"telemetry": true, "theme": "dark"})
-	overlays := packoverlay.Collect([]*packload.Pack{owner, pushy}, false, nil)
+	for _, mode := range hostOverlayOwnerModes {
+		t.Run(ownerModeName(mode), func(t *testing.T) {
+			home := t.TempDir()
+			owner := overlayOwnerPack(t, mode)
+			pushy := overlayContributorPack(t, "pushy", map[string]any{"telemetry": true, "theme": "dark"})
+			overlays := packoverlay.Collect([]*packload.Pack{owner, pushy}, false, nil)
 
-	if _, err := RenderHostPack(owner, home, render.OwnershipAssert, false, overlays, nil); err != nil {
-		t.Fatalf("RenderHostPack: %v", err)
-	}
-	got := readRenderedJSON(t, home, ".acme/settings.json")
-	if got["telemetry"] != false {
-		t.Errorf("an overlay overrode the owner's managed key at the host notch: telemetry=%v",
-			got["telemetry"])
-	}
-	if got["theme"] != "dark" {
-		t.Errorf("the overlay failed to override the owner's default: theme=%v", got["theme"])
+			if _, err := RenderHostPack(owner, home, render.OwnershipOwn, false, overlays, nil); err != nil {
+				t.Fatalf("RenderHostPack: %v", err)
+			}
+			got := readRenderedJSON(t, home, ".acme/settings.json")
+			if got["telemetry"] != false {
+				t.Errorf("an overlay overrode the owner's managed key at the host notch: telemetry=%v",
+					got["telemetry"])
+			}
+			if got["theme"] != "dark" {
+				t.Errorf("the overlay failed to override the owner's default: theme=%v", got["theme"])
+			}
+		})
 	}
 }
 
@@ -382,7 +410,7 @@ func TestHostRenderOrphanOverlayWritesNothing(t *testing.T) {
 		t.Fatalf("want the overlay reported as orphaned, got %+v", overlays.Orphans)
 	}
 	// Rendering the CONTRIBUTOR writes nothing: it declares no surface of its own.
-	results, err := RenderHostPack(contributor, home, render.OwnershipAssert, false, overlays, nil)
+	results, err := RenderHostPack(contributor, home, render.OwnershipOwn, false, overlays, nil)
 	if err != nil {
 		t.Fatalf("RenderHostPack: %v", err)
 	}
@@ -397,6 +425,11 @@ func TestHostRenderOrphanOverlayWritesNothing(t *testing.T) {
 // An overlay clobbering an EXISTING host value is warned about in the observe posture,
 // attributed to the contributing pack — the host notch's always-warn (§4.2) extended to
 // the one writer whose remedy is a different pack than the surface's owner.
+//
+// The owner declares `rmw`, the one arm in which an overlay CAN clobber a value already in the
+// file: rmw re-asserts the overlay's key over it on every apply. Under `stateful` the first owned
+// render adopts the user's value as a captured edit, which outranks every config-overlay, so the
+// same file is reported as KEPT, not overwritten (hostcaptureoutranksoverlay_test.go).
 func TestHostRenderWarnsWhenAnOverlayClobbersAUserValue(t *testing.T) {
 	home := t.TempDir()
 	dir := filepath.Join(home, ".acme")
@@ -407,12 +440,12 @@ func TestHostRenderWarnsWhenAnOverlayClobbersAUserValue(t *testing.T) {
 		[]byte(`{"fileSuggestion":"my-own-choice"}`), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	owner := overlayOwnerPack(t, "")
+	owner := overlayOwnerPack(t, manifest.ModeRMW)
 	contributor := overlayContributorPack(t, "acme-fzf", map[string]any{"fileSuggestion": "run-fzf"})
 	overlays := packoverlay.Collect([]*packload.Pack{owner, contributor}, false, nil)
 
 	// observe=true: the warning must appear BEFORE anything is written (finding D2).
-	results, err := RenderHostPack(owner, home, render.OwnershipAssert, true, overlays, nil)
+	results, err := RenderHostPack(owner, home, render.OwnershipOwn, true, overlays, nil)
 	if err != nil {
 		t.Fatalf("RenderHostPack observe: %v", err)
 	}
@@ -436,7 +469,7 @@ func TestHostRenderWarnsWhenAnOverlayClobbersAUserValue(t *testing.T) {
 // as before this wiring existed.
 func TestHostRenderWithNilOverlaySetIsUnchanged(t *testing.T) {
 	home := t.TempDir()
-	if _, err := RenderHostPack(overlayOwnerPack(t, ""), home, render.OwnershipAssert, false, nil, nil); err != nil {
+	if _, err := RenderHostPack(overlayOwnerPack(t, ""), home, render.OwnershipOwn, false, nil, nil); err != nil {
 		t.Fatalf("RenderHostPack with a nil overlay set: %v", err)
 	}
 	got := readRenderedJSON(t, home, ".acme/settings.json")
@@ -549,7 +582,7 @@ func TestHostRenderGatedOverlayAppliesWhenProfileActive(t *testing.T) {
 	overlays := packoverlay.Collect([]*packload.Pack{owner, contributor}, false,
 		map[string]string{"acme": "zai"})
 
-	if _, err := RenderHostPack(owner, home, render.OwnershipAssert, false, overlays, nil); err != nil {
+	if _, err := RenderHostPack(owner, home, render.OwnershipOwn, false, overlays, nil); err != nil {
 		t.Fatalf("RenderHostPack: %v", err)
 	}
 	got := readRenderedJSON(t, home, ".acme/settings.json")

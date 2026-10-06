@@ -97,7 +97,7 @@ var hostApplyFromPackUpdate = func(args []string, out, errw io.Writer, color boo
 }
 
 // packUpdate is `yolo pack update`: everything `install` does, plus the program refresh,
-// and on the host under active management (assert or own), host apply --assert.
+// and on the host under active management (`own`), host apply --assert.
 //
 // The git/lockfile half runs first and unconditionally. A failure there does not skip the
 // npm half — the two are independent (a pack whose git remote is offline says nothing
@@ -110,9 +110,20 @@ func packUpdate(out, errw io.Writer, color bool) int {
 	if n := programRefresh(richtext.Printer{W: out, Color: color}, errw); n != 0 && rc == 0 {
 		rc = n
 	}
-	// OQ-3: When running on the host under active host management (assert or own),
-	// yolo pack update automatically triggers host apply --assert.
-	if !config.InJail() && config.HostManagementMode() != config.HostManagementNone {
+	// OQ-3: When running on the host under active host management (`own`, the one value that
+	// renders since the `assert` retirement), yolo pack update automatically triggers host
+	// apply --assert. A config still saying the retired "assert" gets that refusal instead of
+	// a silent skip (OQ-CO14 face 1): it used to apply here, and resolves to `none` now.
+	if config.InJail() {
+		return rc
+	}
+	if arc, refused := retiredHostManagementRefusal(errw, "yolo pack update"); refused {
+		if rc == 0 {
+			rc = arc
+		}
+		return rc
+	}
+	if config.HostManagementMode() == config.HostManagementOwn {
 		if arc := hostApplyFromPackUpdate([]string{"--assert"}, out, errw, color, os.Stdin); arc != 0 && rc == 0 {
 			rc = arc
 		}
@@ -127,7 +138,9 @@ func packUpdate(out, errw io.Writer, color bool) int {
 // matters: it does not merely say "in a jail", it says "this process can see the staged
 // pack tree", which is the input the refresh actually needs. The host has neither.
 func refreshProgramsFromOS(pr richtext.Printer, errw io.Writer) int {
-	e := entrypoint.EnvFromOS()
+	// The Env this backend's boot built (JailEnvFromOS), so a macos-user session reads its
+	// launchers the way its bootstrap generated them, as `yolo programs` does.
+	e := entrypoint.JailEnvFromOS()
 	if e.Getenv("YOLO_PACK_ROOT") == "" {
 		pr.Printf("[dim]No staged packs here — a pack-declared program is installed " +
 			"INSIDE a jail, so run `yolo pack update` there to refresh it.[/dim]")

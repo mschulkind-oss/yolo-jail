@@ -102,8 +102,15 @@ func (b *bgRun) wait(t *testing.T, limit time.Duration) int {
 // last, so a pair here wins over the inherited one.
 func startYoloBackground(t *testing.T, name, dir, script string, env ...string) *bgRun {
 	t.Helper()
+	return startYoloBackgroundWith(t, name, dir, nil, script, env...)
+}
+
+// startYoloBackgroundWith is startYoloBackground with launch flags before the `--`, such as
+// `--with-credentials zai`.
+func startYoloBackgroundWith(t *testing.T, name, dir string, flags []string, script string, env ...string) *bgRun {
+	t.Helper()
 	ctx, cancel := context.WithCancel(context.Background())
-	args := append(jailRunArgs(), "--", "bash", "-lc", script)
+	args := append(append(jailRunArgs(), flags...), "--", "bash", "-lc", script)
 	cmd := exec.CommandContext(ctx, yoloBin, args...)
 	cmd.Dir = dir
 	cmd.Env = append(os.Environ(), "TERM=dumb")

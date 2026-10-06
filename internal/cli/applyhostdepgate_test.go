@@ -51,6 +51,11 @@ const gateConfigJSON = `{"kind":"config","config":[{"agent":"gp","name":"setting
 // landed in the home under a report that said "Nothing was written" (measured by mutation). The
 // gate's claim is about the LOOP, so the instrument has to be something the loop writes.
 //
+// UNDER `host_management: "own"`, for the same reason: the unset key is `none` since the
+// `assert` retirement (OQ-CO14), and under `none` the loop composes no config surface at all, so
+// the config destination's absence after a refusal would be true of every run and prove
+// nothing. The surface declares `rmw`, so `own` runs the same writer `assert` did for it.
+//
 // PATH holds `apt` and nothing else the deps resolve to, so the remedy in the report is the
 // detected manager's and the declared binaries are deterministically missing — on this machine
 // and on CI (see hostdepstub_test.go for why that sentence has to be true of both).
@@ -73,7 +78,7 @@ func depGateFixtureWithConfig(t *testing.T, contributions ...string) (home, brie
 			`{"kind":"briefing","from":"briefing/prose.md","into":".gate/AGENTS.md"}]}`)
 	writeFile(t, filepath.Join(packDir, "briefing", "prose.md"), "Gate prose.\n")
 	writeFile(t, filepath.Join(home, ".config", "yolo-jail", "config.jsonc"),
-		`{"packs":[{"source":"file://`+packDir+`","name":"gatepack"}]}`)
+		`{"host_management":"own","packs":[{"source":"file://`+packDir+`","name":"gatepack"}]}`)
 	t.Setenv("HOME", home)
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
 	// OUT OF A JAIL, pinned rather than inherited, for the PATH sentence's reason: this is a host

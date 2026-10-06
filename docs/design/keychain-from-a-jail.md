@@ -667,7 +667,8 @@ is listed here for its size rather than left to the build ([§6](#6-build-order)
   account `_yolojail` is created with `dscl` and `createhomedir`. It gets a random password that
   yolo never stores, and it never logs in at the login window. A macOS account that has never
   logged in has no keychain, because the login keychain is created at first login
-  ([E17](#E17), [E22](#E22)).
+  ([E17](#E17), [E22](#E22)). A probe for this exists and has no recorded run:
+  `TestMacosUserKeychainProbe` ([background](#background-to-oq-kc4)).
 - **So Copilot falls back to plain text.** Copilot asks for the User domain's default keychain.
   The store's error table has no entry for "no default keychain", so that error becomes a generic
   platform failure, and Copilot shows its plain-text consent prompt ([E17](#E17)).
@@ -979,6 +980,17 @@ only keychain Copilot can use is the account's own ([§4.1](#41-macos-user-no-se
   that keychain too, so Claude's login on this backend stops living in the shared file that
   CL-D22's bridge manages.
 
+**The probe for the leaning's measurement.** `TestMacosUserKeychainProbe`
+([`macosuserkeychain_test.go`](../../integration/macosuserkeychain_test.go)), which
+`macos-user.yml` runs on a Mac, asks from inside a macos-user sandbox, as `_yolojail`, each
+question the leaning names, every step bounded: the default keychain and the search list; a
+keychain created on a throwaway file in the account's temp dir, set never to lock, locked, and
+unlocked with its password fed to `security -i` on stdin; an item added, then read back by a
+second process; and the keychain deleted. It never sets the default keychain. It records every
+answer and asserts none. It runs on a GitHub-hosted runner, not from a Terminal launch as the
+leaning says, and whether the two give the same answer is not known, so a run's answer is input to
+this question rather than the whole measurement. No run is recorded.
+
 ## 8. Decision Ledger
 
 These are implementation decisions within the maintainer's direction on
@@ -1027,7 +1039,7 @@ from a published source or specification. INFERRED means reasoned from those.
 | <a id="E14"></a>E14 | SOURCED, INFERRED | GitHub keeps ten tokens per user, app and scope, and revokes one beyond that | [Authorizing OAuth apps, "Creating multiple tokens for OAuth apps"](https://docs.github.com/en/apps/oauth-apps/building-oauth-apps/authorizing-oauth-apps). That it applies to Copilot's logins is INFERRED from [E13](#E13) |
 | <a id="E15"></a>E15 | MEASURED, SOURCED | MCP secret storage and its "A failure never switches storage", the other stores, the timeout, the 1.0.48 service and account names, the `config.json` fallback read, and the logout that leaves the copy | 1.0.89 `app.js` (sha256 `7b87966e…`) 5247776-5249049, the sentence at 5248993. `runtime.node` near 6691818 (`mcp/oauth_store.rs`, `api_secret_store.rs`, `auth/token_store.rs`). "Keytar operation timed out" at linux 10221189 and darwin 65655278. 1.0.48 `app.js` (sha256 `4643c8fe…`) at 7185930: service `copilot-cli` and account `<host>:<login>`; the fallback reads of `copilotTokens` at about 7186200; and `removeToken`, which deletes from `copilotTokens` only in the `catch` of the keychain `deletePassword`, at about 7186900. `tryLoginToken` then `getAnyToken` at 7194395 |
 | <a id="E16"></a>E16 | SOURCED | Codex's store defaults | openai/codex at `4994306e` (2026-09-29): `codex-rs/config/src/types.rs` (`AuthCredentialsStoreMode` default `File`, `OAuthCredentialsStoreMode` default `Auto`); `codex-rs/login/src/auth/storage.rs:235, 238-249` |
-| <a id="E17"></a>E17 | SOURCED, INFERRED | A never-logged-in account has no keychain, and Copilot's store maps "no default keychain" to a generic failure | [Ask Different 365101](https://apple.stackexchange.com/questions/365101); [openillumi](https://openillumi.com/en/en-security-default-keychain-fix); apple-native-keyring-store 1.0.2 `src/keychain.rs:350-360, 366-376`. Not tried on a Mac ([`settings-per-setup.md`](../../userguide/reference/settings-per-setup.md)) |
+| <a id="E17"></a>E17 | SOURCED, INFERRED | A never-logged-in account has no keychain, and Copilot's store maps "no default keychain" to a generic failure | [Ask Different 365101](https://apple.stackexchange.com/questions/365101); [openillumi](https://openillumi.com/en/en-security-default-keychain-fix); apple-native-keyring-store 1.0.2 `src/keychain.rs:350-360, 366-376`. Not tried on a Mac ([`settings-per-setup.md`](../../userguide/reference/settings-per-setup.md)); the probe that would try it, `TestMacosUserKeychainProbe`, has no recorded run |
 | <a id="E18"></a>E18 | MEASURED | `yolo host` passes the user's environment through, and withholds jail-daemon pointers | [`host.go`](../../internal/cli/host.go#L1279-L1281), [`host.go`](../../internal/cli/host.go#L1319), [`host.go`](../../internal/cli/host.go#L1628-L1631) at `232e4dcd` |
 | <a id="E19"></a>E19 | MEASURED | A loophole host daemon inherits the launch's environment | [`loopholesruntime.go`](../../internal/cli/run/loopholesruntime.go#L1084) at `232e4dcd` |
 | <a id="E20"></a>E20 | MEASURED | A jail daemon's `listen` is a loopback IP and port, bound in the jail and dialed over plain HTTP. Podman-in-podman forces `--net=host` | [`tokens.go`](../../internal/loopholedecl/tokens.go#L48-L52), [AGENTS.md, Testing](../../AGENTS.md#testing) |

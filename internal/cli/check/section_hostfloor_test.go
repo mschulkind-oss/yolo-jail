@@ -60,12 +60,14 @@ func hostFloorCheckFixture(t *testing.T, userConfig string) (*Options, *hostfloo
 	}
 	dist := floortest.NewDist(t)
 	dist.Publish("floorcli-pkg", "1.0.0", "bin=floorcli")
+	root := checkLoaderRoot(t)
 	floor := &hostfloor.Floor{
 		Dir: paths.HostFloorDir(), GOOS: dist.GOOS, GOARCH: dist.GOARCH,
 		Node: hostfloor.NodeDist{BaseURL: dist.URL, Shipped: floortest.Shipped,
 			Pinned: map[string]string{dist.Platform: dist.SHA256}},
 		Environ: append(os.Environ(), dist.Environ()...),
 		Home:    home,
+		Root:    root,
 	}
 	o := &Options{Getenv: func(k string) string {
 		if k == "PATH" {
@@ -76,6 +78,25 @@ func hostFloorCheckFixture(t *testing.T, userConfig string) (*Options, *hostfloo
 	o.selectedPacks, o.selectedPacksKnown = []*packload.Pack{pack}, true
 	o.HostFloor = func([]hostfloor.Program) *hostfloor.Floor { return floor }
 	return o, floor, dist, filepath.Join(handBin, "floorcli")
+}
+
+// checkLoaderRoot is a filesystem root of the fixture's own for the floor's loader check (HP-D15,
+// hostfloor.Floor.Root), holding each loader Node's official Linux builds ask for, so no row a test
+// reads depends on what this machine keeps in /lib64 — a NixOS machine without nix-ld, or a musl
+// one, has none there. A floor built with Root "" reads the machine's own.
+func checkLoaderRoot(t *testing.T) string {
+	t.Helper()
+	root := floortest.ResolvedTemp(t)
+	for _, loader := range []string{"/lib64/ld-linux-x86-64.so.2", "/lib/ld-linux-aarch64.so.1"} {
+		p := filepath.Join(root, filepath.FromSlash(loader))
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte("a dynamic loader\n"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return root
 }
 
 func runHostFloorSection(o *Options) (string, *reporter) {
@@ -186,11 +207,35 @@ func TestCheckNamesADeselectedEntryOfAProgramWithNoFloorEntry(t *testing.T) {
 	}
 	floor.Include = func(string) bool { return false }
 	out, _ := runHostFloorSection(o)
+	// Unset host_management is "none" (OQ-CO14): the step is the removal by hand.
 	for _, want := range []string{"floorcli — no floor entry",
 		"floorcli: yolo's floor still holds a copy it no longer keeps, which `yolo host` does not run — " +
-			"`yolo host apply --assert` removes it"} {
+			"remove it by hand with `rm -rf "} {
 		if !strings.Contains(out, want) {
 			t.Errorf("section lacks %q:\n%s", want, out)
 		}
+	}
+	if strings.Contains(out, "— `yolo host apply --assert` removes it") {
+		t.Errorf("under none the row names `yolo host apply --assert`, which writes nothing there:\n%s", out)
+	}
+}
+
+// TestCheckNamesTheLoaderAProgramLacksAndTheNixLDStep: on a Linux host with no dynamic loader for
+// Node's official build (NixOS without nix-ld, a musl system), an npm agent has no floor entry, and
+// the row says why — the loader, the two kinds of host, the nix-ld step — and that the copy on the
+// PATH runs instead. Ungraded, as every no-floor-entry row is: a fact about this machine.
+func TestCheckNamesTheLoaderAProgramLacksAndTheNixLDStep(t *testing.T) {
+	o, floor, _, hand := hostFloorCheckFixture(t, `{}`)
+	floor.GOOS, floor.Root = "linux", floortest.ResolvedTemp(t)
+	out, r := runHostFloorSection(o)
+	for _, want := range []string{"floorcli — no floor entry: the floor runs it on Node's official linux-",
+		"needs the dynamic loader ", "(a NixOS host without nix-ld, or a musl system)", "programs.nix-ld.enable = true;",
+		"runs the one on the PATH it is started with, then host_path's folders (here, " + hand + ")"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("section lacks %q:\n%s", want, out)
+		}
+	}
+	if r.warned != 0 || r.failed != 0 {
+		t.Errorf("a program this machine cannot start graded (%d warn, %d fail)", r.warned, r.failed)
 	}
 }

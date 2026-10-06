@@ -118,7 +118,7 @@ func declaresRegisteringSlot(p *packload.Pack) bool {
 // the pack takes the folder's entry out and keeps the user's, and --revert takes out what yolo
 // inserted.
 func TestHostApplyListsThePiFolderAndForgetsItWithItsPack(t *testing.T) {
-	for _, ownership := range []render.HostOwnership{render.OwnershipAssert, render.OwnershipOwn} {
+	for _, ownership := range []render.HostOwnership{render.OwnershipOwn} {
 		t.Run(ownership.String(), func(t *testing.T) {
 			t.Setenv("YOLO_CTX_ROOT", t.TempDir())
 			home := t.TempDir()
@@ -145,8 +145,13 @@ func TestHostRevertTakesThePiFolderEntryOut(t *testing.T) {
 	home := t.TempDir()
 	plant(t, home, listSettings, `{"packages":["npm:mine"]}`)
 	pis := testPacksForAgent(t, "pi")
-	hostApplyPi(t, home, render.OwnershipAssert, append(append([]*packload.Pack(nil), pis...), piFolderPack(t)))
-	wantPackages(t, home, "npm:mine", piFolderEntry)
+	hostApplyPi(t, home, render.OwnershipOwn, append(append([]*packload.Pack(nil), pis...), piFolderPack(t)))
+	// Membership, not order: under `own`, the one writing mode since the `assert` retirement, the
+	// first render adopts the file, and an adopted entry folds after the contributions.
+	if got := packagesAt(t, home); len(got) != 2 || !containsString(got, "npm:mine") ||
+		!containsString(got, piFolderEntry) {
+		t.Fatalf("packages = %#v, want your npm:mine and the folder %q", got, piFolderEntry)
+	}
 
 	if _, err := RevertHostRender(pis, home, false); err != nil {
 		t.Fatalf("revert: %v", err)

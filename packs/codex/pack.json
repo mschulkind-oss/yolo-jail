@@ -10,6 +10,28 @@
         "pacman": "openai-codex"
       },
       "kind": "program",
+      // How `yolo host -p <profile> -- codex` moves codex for one launch without touching
+      // ~/.codex/config.toml (docs/design/model-lists-and-pickers.md MM-D30): the config derive's
+      // selection and the provider row it names, each as `-c <dotted key>=<TOML value>`, which
+      // codex applies over its config file (MEASURED on codex 0.145.0). The subscription's
+      // selection names no model_provider, which a jail's render clears; here `openai`, codex's
+      // built-in subscription provider, stands for that clear (MEASURED: it loads with no row).
+      "launch_selection": {
+        "defaults": {
+          "model_provider": "openai"
+        },
+        "each": [
+          "-c",
+          "{key}={value}"
+        ],
+        "rows": {
+          "named_by": [
+            "model_provider"
+          ],
+          "table": "model_providers"
+        },
+        "surface": ".codex/config.toml"
+      },
       "model_menu": {
         "catalog": [
           "debug",

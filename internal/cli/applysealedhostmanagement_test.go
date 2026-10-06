@@ -53,10 +53,20 @@ func TestApplySealedRefusesAnUnsetHostManagement(t *testing.T) {
 			rc, out.String(), errw.String())
 	}
 
-	// (3) Any of the three values DECLARES it, including the one that equals the default.
-	// Writing "assert" changes no behavior anywhere else, which is exactly why --sealed is
-	// the only place the unset state can bite.
-	for _, v := range []string{"none", "assert", "own"} {
+	// The refusal names the two values left and says what the unset key behaves as — `none`
+	// since the `assert` retirement (OQ-CO14) — and never names the retired value.
+	if !strings.Contains(out.String(), `it behaves as "none"`) ||
+		!strings.Contains(out.String(), `Write "none" or "own"`) {
+		t.Errorf("the unset refusal must say it behaves as none and name both values:\n%s", out.String())
+	}
+	if strings.Contains(out.String(), "assert") {
+		t.Errorf("the unset refusal still names the retired value:\n%s", out.String())
+	}
+
+	// (3) Either value DECLARES it, including the one that equals the default. Writing "none"
+	// changes no behavior anywhere else, which is exactly why --sealed is the only place the
+	// unset state can bite.
+	for _, v := range []string{"none", "own"} {
 		writeFile(t, userCfg, `{"host_management":"`+v+`"}`)
 		out.Reset()
 		errw.Reset()
@@ -64,6 +74,20 @@ func TestApplySealedRefusesAnUnsetHostManagement(t *testing.T) {
 			t.Fatalf("host_management %q is declared; want sealed (rc 0), got %d: %s%s",
 				v, rc, out.String(), errw.String())
 		}
+	}
+
+	// (3b) The retired "assert" declares nothing yolo can read (OQ-CO14 face 1): it refuses, in
+	// the retirement message's own words rather than the unset sentence.
+	writeFile(t, userCfg, `{"host_management":"assert"}`)
+	out.Reset()
+	errw.Reset()
+	if rc := applyMain([]string{"--sealed"}, &out, &errw, false, nil); rc != 1 {
+		t.Fatalf(`host_management "assert" should refuse (rc 1), got %d: %s%s`,
+			rc, out.String(), errw.String())
+	}
+	if !strings.Contains(out.String(), `host_management: "assert" is RETIRED`) ||
+		strings.Contains(out.String(), "is unset") {
+		t.Errorf("the retired value must get the retirement message, not the unset one:\n%s", out.String())
 	}
 
 	// (4) An unreadable user config cannot PROVE a declaration, so it refuses too.

@@ -6,7 +6,11 @@ verified: 2026-09-23
 verified_commit: 7ad8358c
 covers:
   - internal/entrypoint/mcp.go
+  - internal/packload/mcpcompose.go
+  - packs/chrome-devtools/pack.json
+  - packs/chrome-devtools/bin/chrome-devtools-mcp-wrapper
   - internal/jailcontent/lspplugin.go
+  - internal/cli/applyhostlspplugin.go
   - internal/cli/run/prepare.go
   - internal/agentcfg/luahook/derive.go
   - internal/entrypoint/mcp_wrappers.go
@@ -19,7 +23,7 @@ covers:
   - packs/agy/derive.lua
   - packs/pi/derive.lua
 tags: [mcp, lsp, packs, prism, config, wrappers]
-summary: "How MCP and LSP server config reaches an agent: one canonical server table built in-jail from config (presets expanded, null removes, requires_env gates, no ${VAR} interpolation), filtered by the active source's capabilities, and published as a source that each pack's derive.lua projects into its own tool's dialect — except Claude's LSP, which core renders host-side as one generated yolo-lsp plugin in every skills destination. Plus the node/npx wrappers, what is left of their job now that nix-ld covers the loader, and the gap where a custom server bypasses them."
+summary: "How MCP and LSP server config reaches an agent: one canonical server table built from config and each selected pack's `mcp` entries (composed on the host for the notch's home, then presets expanded in-jail, null removes, requires_env gates, no ${VAR} interpolation), filtered by the active source's capabilities, and published as a source that each pack's derive.lua projects into its own tool's dialect — except Claude's LSP, which core renders host-side as one generated yolo-lsp plugin in every skills destination, at every launch and by `yolo host apply`. Plus the node/npx wrappers, what is left of their job now that nix-ld covers the loader, and the gap where a custom server bypasses them."
 ---
 
 # MCP and LSP configuration — one table, projected per tool
@@ -30,6 +34,10 @@ pinned the plugin's injection call site (both uncommitted when this was written,
 UNMEASURED: no `claude` session has been started against the generated LSP plugin — the facts
 about Claude's plugin loader were read statically from its bundle, and by the no-agent-tests
 rule a live check is a human's ([Claude's LSP route](#lsp-claudes-route-is-a-generated-plugin)).
+`yolo host apply` writes the plugin into the real home since 2026-10-04
+([at the host](#at-the-host-yolo-host-apply-writes-it)); that half is covered by unit tests
+that drive the apply into a temporary home, and no `claude plugin validate` has been run
+against a plugin it wrote.
 The [derive-boundary section](#what-the-derive-boundary-removes) was re-checked against
 `ca86d945` on 2026-09-26, when the capability-delivery rule's own note folded into it.
 MEASURED on 2026-10-01 in a nested jail at `d4e435a3`: claude's rendered `mcpServers` drops a
@@ -39,16 +47,28 @@ the boot's drop notice naming the wrong remedy for that drop, fixed the same day
 server now gets a line of its own (MEASURED in a nested jail at `1493ac51`, the same two launches).
 [Pi's MCP files](#pis-mcp-files) were re-checked on 2026-10-01 against pi 0.99.2's installed
 source, when the pi pack moved its render to pi's own `mcp.json`.
+[A pack's servers](#a-packs-servers-the-mcp-kind) and [the chrome-devtools
+pack](#the-chrome-devtools-pack) were added on 2026-10-05 with the kind and the pack
+([mcp-presets-removal.md §13](../design/mcp-presets-removal.md#13-what-i-would-build-in-order) steps
+1 and 2). MEASURED once, in this repository's development jail on 2026-10-05: the wrapper,
+started under `env -i` with only `HOME`, `PATH=/usr/bin:/bin` and the npm prefix set, handed
+`--executablePath /usr/bin/chromium` to chrome-devtools-mcp 1.10.1, passed the autonomous
+posture's flags by hand (no launcher in that home), and the server answered `initialize` and a
+`list_pages` call with `about:blank`. UNMEASURED: no agent has been started against an entry the
+pack composed, at any notch, and nothing has run on a Mac; unit tests run the wrapper against
+stand-ins and `yolo host apply --assert` against a fake Node distribution.
 
-MCP config is **pack-declarative**. Core builds **one** canonical server table in-jail from
-the user's config — presets expanded, custom entries merged, `requires_env` gates applied —
-and publishes it as a named source. Each pack's `derive.lua` then *projects* that one table
+MCP config is **pack-declarative**. Core builds **one** canonical server table from the
+user's config and the selected packs' `mcp` entries — pack entries under the user's, presets
+expanded, custom entries merged, `requires_env` gates applied — and publishes it as a named
+source. Each pack's `derive.lua` then *projects* that one table
 into its own tool's dialect. Core knows the domain (`mcp_servers`); it never knows the tool.
 
 LSP config follows the same shape for every agent but one. Claude takes a language server only
 from a **plugin**, so core renders one plugin of its own, `yolo-lsp`, from the user's
-`lsp_servers` table and stages it into every skills destination — the one place in this
-pipeline where core writes a vendor's format rather than a pack
+`lsp_servers` table and writes it into every skills destination, at every launch and at
+`yolo host apply` — the one place in this pipeline where core writes a vendor's format rather
+than a pack
 ([below](#lsp-claudes-route-is-a-generated-plugin)).
 
 Alongside that, three tiny wrapper scripts sit in front of `node` and `npx` for the servers
@@ -60,7 +80,7 @@ yolo itself declares.
 | Publishing it as a composition source | `internal/entrypoint` (`packsurfaces.go`), `internal/agentcfg/manifest` (`SourceMCPServers`, `SourceLSPServers`) |
 | Capability-driven MCP filtering at the derive boundary | `internal/agentcfg/luahook` (`eligibleMCPServers`, `withoutProvidesKey`, `sourceCapabilities`) |
 | The per-tool projection | each pack's `derive.lua`, run in `internal/agentcfg/luahook` |
-| Claude's generated LSP plugin | `internal/jailcontent` (`writeLSPPlugin`, `SetLSPServers`, `LSPPluginDir`), called from `PrepareSkills`; the table is injected by `internal/cli/run` (`refreshJailBriefings`, `prepare.go`) |
+| Claude's generated LSP plugin | `internal/jailcontent` (`RenderLSPPlugin`, `writeLSPPlugin`, `IsLSPPlugin`, `SetLSPServers`, `LSPPluginDir`), called from `PrepareSkills`; the table is injected by `internal/cli/run` (`refreshJailBriefings`, `prepare.go`). At the host, `internal/cli` (`applyHostLSPPlugin`, called from `applyHostSkills`) |
 | The wrapper scripts | `internal/entrypoint` (`GenerateMCPWrappers`, `nodeWrapper`, `npxWrapper`, `chromeWrapper`) |
 | Host-side validation of the two config keys | `internal/config` (`validate.go`) |
 
@@ -78,9 +98,16 @@ unbuilt, in [`bedrock-web-search.md`](../design/bedrock-web-search.md).
 ```
 yolo-jail.jsonc: mcp_servers, mcp_presets, lsp_servers
   → validated host-side
+  ├─ HOST, every launch: each selected pack's `mcp` entries, `~/` joined to the
+  │     notch's home, with mcp_servers merged over them
+  │     (packload.ComposeMCPServers) → YOLO_MCP_SERVERS
   ├─ HOST, every launch: lsp_servers → jailcontent.writeLSPPlugin
   │     → <every skills destination>/yolo-lsp/.claude-plugin/plugin.json
-  │     (Claude's LSP route; mounted at ~/.claude/skills for the claude pack)
+  │     (Claude's LSP route; mounted at ~/.claude/skills for the claude pack,
+  │     copied into the account home by the overlay on macos-user)
+  ├─ HOST, `yolo host apply`: lsp_servers → cli.applyHostLSPPlugin
+  │     → the same bytes (jailcontent.RenderLSPPlugin) in every skills
+  │     destination of the real home
   → shipped into the jail as JSON env vars
   → in-jail LoadMCPServers(): expand presets → merge custom entries
       (override / add / null-remove) → apply the requires_env gate
@@ -106,7 +133,13 @@ variables a launch exports ([HC-D13](../design/host-computed-layer.md#HC-D13)). 
 differ, each named in the report:
 
 - **No preset is expanded.** Its command is a wrapper only a jail's boot writes
-  ([HC-D16](../design/host-computed-layer.md#HC-D16)).
+  ([HC-D16](../design/host-computed-layer.md#HC-D16)), and the line names the pack that ships
+  a server of that name, the `chrome-devtools` pack for that preset
+  ([HC-D27](../design/host-computed-layer.md#HC-D27)).
+- **A pack's `mcp` entry composes, joined to your real home**, under your own `mcp_servers`,
+  when the pack is one yolo ships or one at a path on this machine. A fetched pack's entry is
+  left out and named: its command would run unconfined as you whenever the agent starts
+  ([HC-D26](../design/host-computed-layer.md#HC-D26)).
 - **An entry whose command or arguments name a jail-only path** (`/workspace`, the jail home,
   `/ctx`, the install prefix, `/run/yolo`) is left out, and a surface whose derive output still
   names one is refused rather than written
@@ -114,8 +147,49 @@ differ, each named in the report:
 - **`requires_env` is asked of each agent's host composition**, the environment `yolo host env
   --agent <agent>` prints, over the invoking shell's.
 
-Claude's `yolo-lsp` plugin stays jail-only (below); Claude at the host gets `ENABLE_LSP_TOOL`
-in its settings, and Copilot gets its native LSP file.
+`yolo host -- <agent>` also installs into yolo's floor the program each such server runs (its
+`bin`), since the host has no lazy launcher to install it on first use; a failure costs that
+server, never the agent, and its line names `yolo host apply --assert`
+([HC-D28](../design/host-computed-layer.md#HC-D28)).
+
+Claude at the host gets its `yolo-lsp` plugin, rendered from the same composed table into every
+skills destination of the real home ([below](#at-the-host-yolo-host-apply-writes-it)), beside
+`ENABLE_LSP_TOOL` in its settings; Copilot gets its native LSP file. An entry left out above is
+left out of both.
+
+### A pack's servers: the `mcp` kind
+
+A pack contributes a server the way it contributes a provider: one `kind: "mcp"` entry per
+server, composed into the table under the user's own (`packload.ComposeMCPServers`,
+[OQ-MP3](../design/mcp-presets-removal.md#OQ-MP3)). `config` is the entry, in exactly the shape a
+user writes one under `mcp_servers`:
+
+```jsonc
+{"kind": "mcp", "name": "chrome-devtools", "bin": "chrome-devtools-mcp",
+ "config": {"command": "/bin/sh",
+            "args": ["~/.local/share/yolo-chrome-devtools/chrome-devtools-mcp-wrapper"]}}
+```
+
+- **A `command` or `args` word starting `~/` names a path under the home** of the notch the
+  entry renders for, and the composer writes it absolute: `/home/agent` in a container jail, the
+  sandbox account's home on macos-user, yours at the host. An MCP client starts its servers with
+  a scrubbed environment, so the path has to be absolute, and the home is a fact the composing
+  side already has ([OQ-MP4](../design/mcp-presets-removal.md#OQ-MP4)). `env` values are
+  literal, as everywhere.
+- **Composed once per launch, on the host, for that launch's home**: the container launch puts
+  the result in `YOLO_MCP_SERVERS`, the macos-user plan composes it from the staged pack tree
+  for the sandbox home and bakes it into the bootstrap, and `yolo host apply` composes it for
+  your home. The jail reads it as it read your table before.
+- **Your entry of the same name merges over the pack's per field**, `env` per variable, and
+  `null` removes it — at every notch, and in a jail the `null` also removes a preset of that
+  name, as it always did. Your entry is written as you wrote it: a `~/` in it is not joined, so
+  an `args` of yours, which replaces the pack's whole, names the wrapper by its absolute path.
+- **A server name is sole-owned.** Two selected packs shipping one are refused by config
+  validation, which a jail launch and `yolo check` run, and reported by `yolo pack footprint`; the
+  host runs no config validation, so there the later pack in `packs` holds the name. One pack
+  declaring a name twice is refused when the pack is read.
+- **`bin`**, optional, names the `program` the server runs. Only the host reads it
+  ([above](#at-the-host-notch)).
 
 ### The rules the one loader enforces
 
@@ -123,7 +197,10 @@ Because every projection reads the same table, these apply **identically** to ev
 MCP-enabled tool.
 
 - **Presets are opt-in and expanded in-jail**, not on the host. Their `command` is the wrapper
-  path, baked in — so the servers yolo ships are wrapper-routed by construction.
+  path, baked in — so the servers yolo ships are wrapper-routed by construction. **`macos-user`
+  expands none**: it generates no wrappers (their bodies are Linux paths), so a preset entry
+  would point every agent at a file that does not exist. The bootstrap writes no entry for a
+  preset (`Env.SkipMCPPresets`) and its launch warning names each preset it left out.
 - **`null` removes** a server or a preset. Same-file "enabled *and* null-removed" is a
   validation error; across scopes (a user config enables, a workspace nulls) it is intentional
   and allowed.
@@ -133,9 +210,27 @@ MCP-enabled tool.
   claims reaches only the agent that selected that provider, in that agent's own env file
   ([the credential gate](providers.md#the-credential-gate)), so the server is written into
   that agent's config and no other, and the notice names the agents it was configured for
-  (`loadMCPTables` in `internal/entrypoint`).
-- **Key order is insertion order** — presets in the order the config listed them, then custom
-  entries — so a projection's output is byte-stable across boots.
+  (`loadMCPTables` in `internal/entrypoint`). Each agent's answer applies its own file the way
+  its launcher sources it, so a profile that sets a variable another profile or the shared
+  environment also sets, or that removes one, is honored. On `macos-user` the jail's environment
+  is the root-owned session env file the launch writes before its bootstrap runs. The bootstrap
+  reads that file into the gate's view and leaves its own process environment unchanged (the
+  `hydrate_session_env` boot step), so a server gated on a shared `env_sources` variable is kept
+  there as it is in a container. The file is the launched agent's environment, so it also holds
+  the values the gate scoped to that agent. When some agent's own env file also names a
+  variable, the jail-wide view keeps it only where those files show the value the shared
+  environment gives it, and takes that value; otherwise it leaves the variable out, so a scoped
+  value reaches only the agents whose file sets it (`scopedMCPView`). The files cannot show the
+  shared value when two or more profiles set the variable to that value itself, and the server
+  is then configured only for the agents whose file sets it. No `YOLO_` name is taken from the
+  file: those are the launcher's.
+- **A pack's entry replaces a same-named preset.** The composed table rides in the variable the
+  user's own table always did, and that variable overrides the presets by name, so while both are
+  on (the key retires in [step 3](../design/mcp-presets-removal.md#13-what-i-would-build-in-order))
+  the `chrome-devtools` pack's entry is the one every agent gets.
+- **Key order is insertion order** — presets in the order the config listed them, then the
+  composed entries, each pack's in pack order and then the user's own — so a projection's output
+  is byte-stable across boots.
 
 > [!WARNING]
 > **`${VAR}` is not interpolated by yolo, at any notch. Do not add it back as a convenience.**
@@ -354,10 +449,12 @@ the rulings are [AM-R1 and AM-R2](../design/agent-directory-map.md#13-decision-l
   `args`, to an empty string when unset, so a server that relied on that behaves differently.
 - **At the host**, `yolo host apply` writes your `mcp_servers` here per server, beside the
   servers you added with `pi mcp add`, which stay
-  ([the host write is per key](host-agent-environment.md#the-host-write-is-per-key)). Under
-  `host_management: assert`, a server you drop from `mcp_servers` loses the fields yolo wrote, and
-  its emptied entry, `{}`, stays, which pi reports and skips as above (MEASURED 2026-10-01 with a
-  scratch test through `RenderHostPack`). ⚠ `yolo host apply --revert` removes the whole
+  ([the host write is per key](host-agent-environment.md#the-host-write-is-per-key)). Under the
+  rmw arm (every surface under the retired `host_management: assert`), a server you drop from
+  `mcp_servers` lost the fields yolo wrote, and its emptied entry, `{}`, stayed, which pi reports
+  and skips as above (MEASURED 2026-10-01 with a scratch test through `RenderHostPack`); under
+  `own`, `pi/mcp` composes through `stateful`, and a home `assert` wrote into may still hold such
+  an entry. ⚠ `yolo host apply --revert` removes the whole
   `mcpServers` key, your servers with yolo's, because its record is kept per top-level key
   (MEASURED the same way, through `RevertHostRender`); its dry run lists `pi/mcp` `mcpServers`
   before anything is removed. Host apply deletes nothing, so a `mcp-adapter.json` at the host is
@@ -462,7 +559,10 @@ The launcher renders it **on the host, on every launch**, while it stages each p
 tree — `writeLSPPlugin`, called from `PrepareSkills`, on both the container backends and
 macos-user. It is not a derive and does not run in the jail. The claude pack delivers its
 skills staging at `~/.claude/skills`, which Claude reads plugins from, so delivery needs
-nothing beyond the mount that already carries skills.
+nothing beyond the mount that already carries skills; on macos-user the home overlay copies
+the same staging into the account's home. `yolo host apply` writes the same file into the real
+home ([below](#at-the-host-yolo-host-apply-writes-it)): both notches take their bytes from
+`RenderLSPPlugin`.
 
 - **Translation.** Each server's `command` passes through and `args` passes through;
   `fileExtensions` is renamed `extensionToLanguage`. Either list is omitted when empty rather
@@ -472,9 +572,11 @@ nothing beyond the mount that already carries skills.
   minus the command.) The manifest also carries a `name` and a `description`.
 - **Ownership marker.** The manifest carries yolo's `x-yolo-managed-by` field, which is how the
   host-side adoption walk (`hostskills.IsYoloPluginDir`) knows the directory is yolo's output
-  and never offers to migrate it into the user's local pack. The value is duplicated between
-  `jailcontent` and `hostskills` rather than imported — `jailcontent` must not depend on the
-  host-skills composer — and a drift test pins the two together.
+  and never offers to migrate it into the user's local pack. The value is spelled in both
+  `jailcontent` and `hostskills`, the second keeping its constant unexported, and a drift test
+  pins the two together. The marker alone does not identify the plugin: a namespaced pack's
+  skills subtree carries it too, under the pack's name. `IsLSPPlugin` also asks for the name
+  `yolo-lsp` and an `lspServers` object, which only this renderer writes.
 - **Written last.** It goes in after the built-in skills and every pack's skills, so a pack
   that ships a directory of the same name cannot replace it with something Claude would load
   as an LSP declaration.
@@ -524,8 +626,49 @@ config drops the table stages no plugin, the process-wide record deliberately no
 between). MEASURED 2026-09-25 in a scratch copy of the tree: deleting the injection line fails
 both, and an injection that skips an empty table fails the second.
 
-**The plugin is jail-only.** The host render (`yolo apply --at host`) composes skills
-through its own path and does not render `yolo-lsp`.
+### At the host, `yolo host apply` writes it
+
+`yolo host apply` (and `yolo apply --at host`, the same verb) writes the plugin after it composes
+the skills destinations, from the `lsp_servers` table it composed for the derives, so an entry
+naming a jail-only path is left out of the plugin as it is of Copilot's file
+([at the host notch](#at-the-host-notch)). It follows the launch's rules where a real home allows
+them and says where it cannot:
+
+- **Every skills destination the selected packs compose**, created if it does not exist yet,
+  for the launch's reason: core knows no agents.
+- **The same bytes.** An in-sync plugin is reported `unchanged` and not rewritten, so a dry run
+  after an `--assert` finds nothing to do.
+- **Nothing else at that name is overwritten.** A `yolo-lsp` the user made, or a skill of that
+  name a pack composes there, is refused by name with the rename that lets the servers through,
+  and an `--assert` that met one exits 1 (a dry run reports it and exits 0,
+  [LSP-I1](#lsp-i1)). A launch stages into an empty directory and writes the plugin last, so it
+  never meets either.
+- **The dry run says what the `--assert` does.** Whether a pack composes a `yolo-lsp` is read
+  from the packs this apply composes, not from the skills record, and what the skills render
+  retires counts as gone ([LSP-I3](#lsp-i3)). A dry run records and archives nothing, so read
+  from the record it would promise a plugin the `--assert` then refuses, or repeat a refusal the
+  user has already acted on.
+- **A reserved name is skipped.** A pack contributing to the destination may fence `yolo-lsp`
+  as another tool's tree, and a fence is never composed over. The skip is a `--verbose` line
+  ([LSP-I6](#lsp-i6)).
+- **Archived, not deleted, and unconfirmed** when the table renders nothing, when no selected
+  pack composes the destination any more, and when `packs` is empty: every byte moved is one
+  yolo wrote. It goes under the skills archive, in a `lsp_servers` directory of the apply's
+  generation ([LSP-I4](#lsp-i4)). A destination counts as no longer composed only when every
+  configured pack resolved ([LSP-I5](#lsp-i5)), and only when it is not the same directory as
+  one still composed: with `~/.codex/skills` a link to `~/.claude/skills`, a home selecting
+  claude alone keeps the plugin, since an unselected pack's destination is judged by the
+  directory it is rather than by its path.
+- **A failure names its next step.** A plugin that cannot be inspected, created, written or
+  archived is refused with the directory to check and the `yolo host apply --assert` to rerun.
+- **Owned by its manifest, never a record.** The skills record maps a path to the pack that
+  composed it, and the dropped-pack retire reads every owner there as a pack. So the plugin is
+  recorded nowhere, and that retire's scan of marked directories skips it by its manifest
+  (`IsLSPPlugin`, [LSP-I2](#lsp-i2)); a pack literally named `yolo-lsp` is still found there,
+  its subtree having no `lspServers`.
+
+Two host verbs do not touch it: `yolo host apply --revert` withdraws no skills of any kind, and
+`yolo config render --at host` renders config surfaces, which the plugin is not.
 
 <a id="binaries-are-the-users"></a>**Binaries are the user's.** The plugin and Copilot's projection name a
 `command`, and yolo installs nothing behind it, on any backend: the `command` must already
@@ -540,25 +683,72 @@ plumbing, so the recipe names are no longer special: `lsp_servers.python` is a s
 other.
 
 What the recipe installed before the deletion is **left in place**, not uninstalled. Nothing
-declares it any more, so **on the container backends** the boot catalog names it as an orphan,
-and `yolo programs remove --apply` (or `programs.autoprune`) collects it. That act reads the
+declares it any more, so on every jail backend the boot catalog names it as an orphan, and
+`yolo programs remove --apply` (or `programs.autoprune`) collects it. That act reads the
 disk rather than a record, which is why no one-shot uninstall was written: the sentinel was a
 record, and `internal/entrypoint/orphanremove.go`'s header describes it losing exactly these
 entries. A workspace whose `lsp_servers` names one of those servers keeps working on the
 leftover until it is collected; after that, the server has to come from `PATH` like every
 other.
 
-> [!WARNING]
-> **On `macos-user` nothing collects it.** The boot catalog, and the autoprune it ends in, run
-> only in the container entrypoint (`entrypoint.Main`), not in `RunDarwinBootstrap`. The
-> in-sandbox `yolo programs` refuses, because this backend sets `YOLO_PACK_ROOT` only on the
-> bootstrap's own argv and never in the sandbox session (`programsEnv` in
-> `internal/cli/programs.go`). A macos-user workspace that had `lsp_servers.python`,
-> `typescript` or `go` set while the recipe existed (it installed there from 2026-09-13) keeps
-> those packages until they are deleted by hand. The npm packages are under
-> `<workspace>/.yolo/home/npm-global/lib/node_modules`, and `gopls` is at
-> `<workspace>/.yolo/home/go/bin/gopls` (the sandbox's `~/.npm-global` and `~/go` are links to
-> those directories). This is an open gap, not a ruling.
+> [!NOTE]
+> **`macos-user` collects it too, since 2026-10-04.** The macos-user bootstrap runs the boot
+> catalog and keeps the same `<workspace>/.yolo/boot.log` the container boot keeps, so the
+> catalog's names land there. The launch relays the user's `programs.autoprune`. The sandbox
+> session names the staged pack tree and the workspace, so `yolo programs ls` and
+> `yolo programs remove` run inside the sandbox
+> ([notch-convergence.md](../plans/notch-convergence.md), the row amending NC-D26). A macos-user
+> workspace that had `lsp_servers.python`, `typescript` or `go` set while the recipe existed (it
+> installed there from 2026-09-13) still holds those packages until that act runs. The npm
+> packages are under `<workspace>/.yolo/home/npm-global/lib/node_modules`, and `gopls` is at
+> `<workspace>/.yolo/home/go/bin/gopls`. The sandbox's `~/.npm-global` and `~/go` are links to
+> those directories. The bootstrap runs outside the sandbox, so the boot catalog reads, and
+> autoprune removes, only beneath those directories themselves; a symbolic link below one is
+> named on the terminal, and that boot removes nothing
+> ([program-delivery.md OQ-PD28](../design/program-delivery.md#decision-ledger)). Unmeasured on a
+> Mac until `TestMacosUserProgramsLsSeesTheStagedPacks` and `TestMacosUserAutopruneRemovesAnOrphan`
+> run.
+
+## The chrome-devtools pack
+
+`"packs": ["chrome-devtools"]` gives every selected agent a Chrome DevTools MCP server, in a
+container jail, on macos-user and at `yolo host`. The pack carries four contributions, each in
+its footprint:
+
+| Contribution | What it does |
+| :--- | :--- |
+| `program` `chrome-devtools-mcp` (npm, Node floor 22.12) | the server. In a jail and on macos-user every agent's launcher installs it before the agent starts and keeps it current on the agent's own trigger; the program's launcher, which the server runs through, installs it only if nothing has and never updates it by itself, since it runs while the client waits ([MP-D9](../design/mcp-presets-removal.md#MP-D9)). At the host `yolo host apply --assert` or the first `yolo host -- <agent>` installs it into yolo's floor |
+| `files` `.local/share/yolo-chrome-devtools/chrome-devtools-mcp-wrapper` | the script the entry runs, off PATH ([MP-D1](../design/mcp-presets-removal.md#MP-D1)) |
+| `mcp` `chrome-devtools` | `/bin/sh` and the wrapper's path under the notch's home. `/bin/sh`, because a pack selected by its bare name carries no exec bit |
+| `autonomy` | the jail-only chrome flags on the AUTONOMOUS posture's launch flags for the program: `--headless`, `--isolated` and three `--chrome-arg=` flags (`--no-sandbox`, `--disable-setuid-sandbox`, `--disable-gpu`). A jail's launcher adds them to every start; the GUARDED posture, the host's, adds none, so Chrome keeps its own sandbox and opens a window there ([MP-D2](../design/mcp-presets-removal.md#MP-D2)) |
+
+**The wrapper looks for both halves at run time**, because the client hands it a scrubbed
+environment and the notch is not something it may guess from one:
+
+- **the server**: the PATH it was given, then `~/.yolo/bin/launch` (a jail's and macos-user's
+  launcher), then the npm prefix, then yolo's host floor at
+  `~/.local/share/yolo-jail/host-floor/bin`;
+- **the browser** ([MP-D5](../design/mcp-presets-removal.md#MP-D5)): `chromium`,
+  `chromium-browser`, `google-chrome` or `google-chrome-stable` on PATH, then the standard
+  install paths — the image's `/usr/bin/chromium`, `/opt/google/chrome/chrome`, the
+  store-delivered farm, `/Applications/Google Chrome.app` and `Chromium.app`, and the same two
+  under `~/Applications`. The first found is passed as `--executablePath`; with none, nothing is
+  passed and chrome-devtools-mcp looks for Chrome itself. A browser the caller's own arguments
+  name (`--browserUrl`, `--wsEndpoint`, `--executablePath`, `--channel`, or `--autoConnect` to
+  attach to the Chrome you already run) is never overridden.
+
+It says which on stderr each time it starts the server, and **`sh
+~/.local/share/yolo-chrome-devtools/chrome-devtools-mcp-wrapper --check`** prints both finds
+and starts nothing — the browser-presence report, since a `requires` contribution can name one
+binary on PATH and not an app bundle or a set of alternatives. That departs from half of the
+ruling it implements, and is open for the maintainer at
+[`OQ-MP9`](../design/mcp-presets-removal.md#OQ-MP9). With no server it exits 127 and
+names the step for each notch.
+
+**What each notch needs**: a container jail has the image's chromium, or the store-delivered one
+on a `YOLO_STORE_PACKAGES=1` launch. macos-user and the host need a Chrome or Chromium the machine
+already has; no pack channel can install a browser. To turn the server off without dropping the
+pack, write `"mcp_servers": {"chrome-devtools": null}`.
 
 ## The node/npx wrapper
 
@@ -679,8 +869,16 @@ change in one place rather than a call-site hunt.
 `lsp` producer in its derive; Pi's `pi-lens` extension reads `lsp.servers` from
 `~/.pi-lens/config.json`, which no pack writes.
 
-**Removing the `sequential-thinking` preset** is ruled and not built —
-[`OQ-MP1`](../design/mcp-presets-removal.md#decision-ledger).
+**Removing the `sequential-thinking` preset**, and retiring `mcp_presets` whole, is ruled and
+not built: [§13](../design/mcp-presets-removal.md#13-what-i-would-build-in-order) step 3, parked
+on [`OQ-PK1`](pack-system.md#oq-pk1). Until it ships both mechanisms are live, and the pack's
+entry replaces a same-named preset.
+
+**Two readers do not see a pack's entry yet.** `yolo check`'s dry-run render composes its
+`YOLO_MCP_SERVERS` from your config alone (`internal/cli/check/entrypoint.go`), so its preview of
+an agent's MCP file lacks a pack's server; and the capability census behind
+`required_capabilities` (`config.CapabilitySatisfiers`) counts a `provides` in your
+`mcp_servers` and not in a pack's entry. No shipped pack's entry declares `provides`.
 
 **Open for pi's MCP files.** Two calls are written up below with their options: who owns the
 host's `mcp.json` server table ([OQ-MC1](#OQ-MC1)), and what yolo does about an old pi or a
@@ -697,7 +895,8 @@ duplicate each other.
 - 💬 <a id="OQ-MC1"></a>**[`OQ-MC1`](#OQ-MC1) — does the host own `mcp.json`'s server table per
   server, or whole?** Filed 2026-10-02. Today each server is yolo's or yours, which leaves the
   two faults [pi's own file](#pis-mcp-files) records at the host: an emptied `{}` entry under
-  `assert`, and a `--revert` that removes your servers with yolo's.
+  the rmw arm (as the retired `assert` ran it), and a `--revert` that removes your servers with
+  yolo's.
 
   - **(a) Per server, and fix both.** `--revert` removes only the servers yolo wrote, and an
     entry yolo empties is deleted. *You keep:* the servers you add with `pi mcp add`.
@@ -743,6 +942,10 @@ are stated.
 | Wire form into the jail | one JSON env var per key | `internal/cli/run/assemble.go` |
 | Canonical source names | `mcp_servers`, `lsp_servers` | `manifest.SourceMCPServers`, `SourceLSPServers` |
 | Available presets | `chrome-devtools`, `sequential-thinking` | `Env.LoadMCPServers` |
+| Pack-shipped servers | the `mcp` kind; `chrome-devtools` is the shipped one | `packload.ComposeMCPServers`, `packs/chrome-devtools/pack.json` |
+| The home word in an `mcp` entry | `~/` at the start of a `command` or `args` word | `packdecl.MCPHomePrefix` |
+| Where the composition is delivered | `YOLO_MCP_SERVERS` on the container argv; the macos-user bootstrap env; the host's derive inputs | `run.jailMCPServers`, `macosuser.BuildRunPlanWithDaemons` (`entrypoint.MCPServersAt`), `cli.composeHostInputs` |
+| Where the chrome-devtools wrapper lands | `~/.local/share/yolo-chrome-devtools/chrome-devtools-mcp-wrapper` | `packs/chrome-devtools/pack.json` |
 | Wrapper locations | `~/.local/bin/mcp-wrappers/{node,npx}`; `~/.local/bin/chrome-devtools-mcp-wrapper` | `Env.McpWrappersBin`, `GenerateMCPWrappers` |
 | What a wrapper exports | `FONTCONFIG_FILE`, `FONTCONFIG_PATH` — and nothing else | `internal/entrypoint/mcp_wrappers.go` |
 | What a wrapper execs | the nix `/bin/node` / `/bin/npx` | `internal/entrypoint/mcp_wrappers.go` |
@@ -754,7 +957,7 @@ are stated.
 | Where a source's capabilities are declared | `providers.<name>.capabilities` for a selected provider (a pack default under the user's override); `capabilities` on a `kind: "program"` contribution for an agent's built-in login | `packdecl.Contribution.Capabilities`, `packdecl.Manifest.NativeCapabilities`; resolved by `luahook.sourceCapabilities` |
 | Where capability-driven delivery is pinned | the acceptance cells, each driving `ConfigurePackSurfaces` over the shipped packs and the launcher's composed wire tables | `internal/entrypoint/capabilitymcp_test.go` (re-checked at `ca86d945`) |
 | LSP plugin directory name | `yolo-lsp` | `jailcontent.LSPPluginDir` |
-| LSP plugin manifest path | `<skills destination>/yolo-lsp/.claude-plugin/plugin.json` | `jailcontent.writeLSPPlugin` |
+| LSP plugin manifest path | `<skills destination>/yolo-lsp/.claude-plugin/plugin.json` | `jailcontent.LSPPluginManifestRel`; written by `jailcontent.writeLSPPlugin` and `cli.applyHostLSPPlugin` |
 | Ownership marker | `x-yolo-managed-by: "yolo-jail"` | `jailcontent.yoloPluginManagedBy`, `hostskills.yoloManagedMarker` |
 | Claude's LSP switch | `env.ENABLE_LSP_TOOL = "1"` in `settings.json`, only when a server is configured | `packs/claude/derive.lua` |
 | Claude Code version the plugin-loader facts were read from | 2.1.278, statically from its bundle | [`OQ-LSP3`](#oq-lsp3) |
@@ -763,7 +966,9 @@ are stated.
 
 ## Why it's this way
 
-Forward-facing rulings a maintainer would otherwise undo, with their original ids.
+Forward-facing rulings a maintainer would otherwise undo, with their original ids. An `LSP-I`
+row is an implementation decision rather than a ruling, numbered in a series coined in this table
+for the host half of Claude's plugin.
 
 | ID | Ruling | Why it stays |
 | :--- | :--- | :--- |
@@ -772,4 +977,10 @@ Forward-facing rulings a maintainer would otherwise undo, with their original id
 | Principle 2 of [`pack-system.md`](pack-system.md) | Core publishes the **domain** (`mcp_servers`); the pack owns the **tool's dialect** | A per-tool branch in core is the agent registry coming back through a different door. The projection changes when the tool changes, which is the pack's business. |
 | <a id="oq-lsp1"></a>[`OQ-LSP1`](#oq-lsp1) | **Option D — generate.** yolo authors ONE plugin whose `lspServers` is rendered from the user's own `lsp_servers` table, and delivers it as content. Never a per-language map, never marketplace plugin ids — neither the three it replaced nor the full official set | A per-language map is yolo picking "the" server for a language, which is the user's choice; marketplace ids also need an install path, and a jail runs no vendor install verb. The ruling said "and enables it", but no enable step exists: the skills-tree load path is opt-out. The same rule deleted the install side: the three-entry recipe table that picked `pyright`, `typescript-language-server` and `gopls`, and its install lists, sentinel and refresh arm, went on 2026-09-25, so yolo installs no language server. |
 | <a id="oq-lsp3"></a>[`OQ-LSP3`](#oq-lsp3) | Claude **auto-loads a plugin from `~/.claude/skills/*`** with no marketplace, no `enabledPlugins` entry and no flag; it is **enabled by default** there; ONE plugin may declare MANY servers, keyed by server name. Measured statically against Claude Code 2.1.278 | This is the precondition option D rests on, and it is version-pinned. **Falsifier:** a Claude release that removes the skills-tree or session load arm, or a managed policy that stops the skills-tree scan — a `strictKnownMarketplaces` allowlist without `{"source": "skills-dir"}`, a `blockedMarketplaces` entry naming it, or (2.1.288 strings) any `strictPluginOnlyCustomization` lock — shipped on by default, or set by a policy on the user's machine. `disableSideloadFlags` is not one: it gates `--plugin-dir`, `--plugin-url`, `CLAUDE_CODE_PLUGIN_DIRS`, `--agents`, `--mcp-config` and the mods folder, not the skills tree (corrected 2026-10-03, [claude-code-mods-management.md G6](../research/claude-code-mods-management.md#g6-an-organization-policy-silently-blocks-the-whole-route)). Anyone revisiting it re-reads the installed version's plugin assembler. Two servers claiming one extension is a warning, not a load failure. |
+| <a id="lsp-i1"></a>[`LSP-I1`](#lsp-i1) | *Implementation decision, taken under the maintainer's 2026-10-04 delegation ("make them and build it … adjust later"); reversible.* At `yolo host apply`, a `yolo-lsp` the plugin cannot be written over makes an `--assert` **exit 1**, and a dry run **exit 0** | The `--assert` did not deliver what the config asks, so a script must see it fail. A dry run's output is the finding ([OQ-RO5](report-tiers.md#why-its-this-way)), and a non-zero observe pass would leave the launch gate unable to read the home at all. |
+| <a id="lsp-i2"></a>[`LSP-I2`](#lsp-i2) | *Implementation decision, taken under the maintainer's 2026-10-04 delegation ("make them and build it … adjust later"); reversible.* The plugin is **identified by its manifest alone**: yolo's ownership marker, the name `yolo-lsp`, and an `lspServers` object (`IsLSPPlugin`) | The marker and the name are not enough: the namespaced subtree of a pack called `yolo-lsp` carries both. Recording the plugin in the skills record instead would have the dropped-pack retire read it as a pack's output and offer to retire it on every apply. |
+| <a id="lsp-i3"></a>[`LSP-I3`](#lsp-i3) | *Implementation decision, taken under the maintainer's 2026-10-04 delegation ("make them and build it … adjust later"); reversible.* **A `yolo-lsp` is a pack's when the packs this apply composes claim that name** at the destination, read from their layers (`hostskills.Collisions`, the authority the skills refusal uses), and **what the skills render archives or clears there is free** | Built first as "any path either skills record attributes to a pack". A dry run records and archives nothing, so that rule had the dry run disagree with the `--assert` both ways: on a new home it promised a plugin the `--assert` refused, and after the user renamed the pack's skill it repeated the refusal while the `--assert` wrote the plugin. Revised the same day. |
+| <a id="lsp-i4"></a>[`LSP-I4`](#lsp-i4) | *Implementation decision, taken under the maintainer's 2026-10-04 delegation ("make them and build it … adjust later"); reversible.* A retired plugin is **archived, unconfirmed, under `lsp_servers/`** in the skills archive of the apply's generation | No pack owns it, so it is filed under the config key whose output it was. Every byte moved is one yolo wrote, the asymmetry the skills retire already carries, and an archive costs one `mv` back. |
+| <a id="lsp-i5"></a>[`LSP-I5`](#lsp-i5) | *Implementation decision, taken under the maintainer's 2026-10-04 delegation ("make them and build it … adjust later"); reversible.* A destination is retired as **dead only over a complete pack set** | A configured pack that did not resolve may be the one naming the destination, the reason the skills composition's own retire waits for a complete set. |
+| <a id="lsp-i6"></a>[`LSP-I6`](#lsp-i6) | *Implementation decision, taken under the maintainer's 2026-10-04 delegation ("make them and build it … adjust later"); reversible.* The **reserved-name skip is a `--verbose` line**, not a warning | A fence is a pack's deliberate declaration, nothing is wrong, and the skills report already puts a skipped entry's line on demand. |
 | Orphan-file cleanup ([`config-migration-to-prism.md`](config-migration-to-prism.md#the-two-sidecars-are-different-kinds-of-thing)) | A retired sidecar is deleted by the surface's owner on first composed render, as **data** rather than Go | It was the last thing left in the per-agent render functions besides the computed layer, and keeping it in Go would keep those functions alive for a one-shot cleanup. |

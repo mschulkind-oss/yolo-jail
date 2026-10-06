@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+
+	"github.com/mschulkind-oss/yolo-jail/internal/shquote"
 )
 
 // reconcile.go takes entries back OUT of the prefix: what `yolo host apply` removes because no
@@ -15,6 +17,29 @@ import (
 // Removal is never done at launch: a launch installs what it needs and leaves everything else
 // alone, so a launch with a narrowed config can never delete the agent another terminal is
 // running. `yolo host apply` is the act that says "this is my selection now".
+
+// StaleCopyStep is the next step for the copies the floor still holds of bins it no longer keeps
+// (Reconcile's removals), under the declared host-management mode. Only an OWNED host's
+// `yolo host apply --assert` runs Reconcile: under "none", the unset default since the `assert`
+// retirement (docs/design/config-ownership-and-promotion.md OQ-CO14), that apply writes nothing
+// and removes nothing, so the step there is the removal by hand, of the paths Reconcile removes
+// (the launcher, the record and the install dir), with the owned route named after it.
+func (f *Floor) StaleCopyStep(owned bool, bins ...string) string {
+	it := "it"
+	if len(bins) > 1 {
+		it = "them"
+	}
+	if owned {
+		return "`yolo host apply --assert` removes " + it
+	}
+	args := []string{"rm", "-rf"}
+	for _, bin := range bins {
+		args = append(args, f.Launcher(bin), f.recordPath(bin), f.programsDir(bin))
+	}
+	return "remove " + it + " by hand with `" + shquote.Join(args) + "` (`yolo host apply --assert` " +
+		"removes " + it + " only under `\"host_management\": \"own\"`, and writes nothing under " +
+		"\"none\")"
+}
 
 // Removal is one entry Reconcile takes out, or would.
 type Removal struct {

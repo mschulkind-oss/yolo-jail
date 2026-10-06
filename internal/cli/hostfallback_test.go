@@ -30,7 +30,7 @@ func fallbackHostFixture(t *testing.T) *treeFixture {
 	writeFile(t, filepath.Join(agent, "pack.json"), `{"name":"agentpack","contributes":[`+
 		`{"kind":"program","bin":"tool","via":"npm","package":"tool"},`+
 		`{"kind":"config","config":[{"agent":"tool","name":"settings","codec":"json","path":"~/.tool/settings.json"}]}]}`)
-	fx.writeHostConfig(t, "")
+	fx.writeHostConfig(t, treeHostOwn)
 	// The agent's program is on PATH, so the apply's dependency gate has nothing to stop.
 	stubBins(t, "tool")
 	return fx

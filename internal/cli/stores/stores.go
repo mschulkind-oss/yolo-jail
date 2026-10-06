@@ -46,6 +46,7 @@ import (
 
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/hostcas"
+	"github.com/mschulkind-oss/yolo-jail/internal/macosuser"
 	"github.com/mschulkind-oss/yolo-jail/internal/outfmt"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/prune"
@@ -79,6 +80,10 @@ stranded and the host's bytes are what the tool reads. Those rows get their own
 section, are marked "not yolo's", and are never summed into yolo's own footprint
 or offered for reclaim. The section also explains every store yolo did NOT alias
 and why.
+
+On a Mac, a macos-user section lists that backend's own storage: the root-owned
+copies each launch stages under /var/yolo-jail, and the sandbox account's mise
+store and cache. Nothing in yolo reclaims them; each row says what removes it.
 
 Sizes are apparent sizes (the sum of file sizes), and each store's walk is
 bounded to 60s: a store that runs out of budget reports what it had summed so
@@ -191,6 +196,12 @@ type Options struct {
 	// between — the decision is a pure function of the host's filesystem and
 	// platform, so there is no stamp to go stale and no writer to name.
 	HostCAS func() []hostcas.Disposition
+	// MacosUser names the macos-user backend's two roots outside the state dir: the root-owned
+	// dir every launch stages into, and the sandbox account's home. ok is false where there is no
+	// such backend (not macOS), and the section is then left out. nil => macosuser.StateDir(),
+	// macosuser.SandboxHome() and paths.IsMacOS. Injected by tests, which point both at temp
+	// dirs on any platform.
+	MacosUser func() (stateDir, home string, ok bool)
 }
 
 // ParseArgs turns `yolo stores`'s argv into Options. args is the dispatched
@@ -279,6 +290,9 @@ func fillDefaults(o *Options) {
 	if o.Walk == nil {
 		o.Walk = walkTree
 	}
+	if o.MacosUser == nil {
+		o.MacosUser = macosUserRoots
+	}
 	if o.DiskBytes == nil {
 		o.DiskBytes = allocatedBytes
 	}
@@ -342,6 +356,18 @@ func Run(o Options) int {
 	}
 	renderText(rep, o)
 	return 0
+}
+
+// macosUserRoots is Options.MacosUser's production answer: the macos-user backend's root-owned
+// state dir and the sandbox account's home, on macOS only.
+//
+// A VARIABLE FOR ONE REASON, the one paths.HostSingletonDir states: this package's TestMain points
+// it at nothing (macosuserrows_test.go), so a test that leaves the seam nil can never walk a
+// developer Mac's real sandbox account and report its mise store as a fixture's row, which is the
+// failure inventory_test.go's HostCAS pin measured for the host cache. Nothing in production
+// writes it.
+var macosUserRoots = func() (stateDir, home string, ok bool) {
+	return macosuser.StateDir(), macosuser.SandboxHome(), paths.IsMacOS
 }
 
 // realProbeExec runs one container-runtime query, capturing stdout and honoring

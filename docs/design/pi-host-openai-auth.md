@@ -3,25 +3,30 @@ title: "Why host Pi cannot select OpenAI Codex — and how to seed its auth"
 date: 2026-09-30
 status: in-review
 stage: DESIGN
-next: "Rule OQ-1: How the host notch makes Pi's openai-codex provider configured, and OQ-3 with it"
+next: "Rule OQ-3, whose login host pi uses when the user has their own, and OQ-2; OQ-1 was decided as D2 on its leaning and built, open to revision"
 tags: [pi, host, openai-auth, credentials, model-picker]
-summary: "Pi gates a provider's models on a stored credential or a configured key. Inside a jail yolo seeds ~/.pi/agent/auth.json before launch; yolo host withholds that write under NC-D37, so openai-codex is unconfigured at the host notch although the broker socket and the extension are live. Pi also accepts a provider marked configured with no stored credential, which serves the host without writing the user's file."
+summary: "Pi gates a provider's models on a stored credential or a configured key. Inside a jail yolo seeds ~/.pi/agent/auth.json before launch; yolo host withholds that write under NC-D37, so openai-codex was unconfigured at the host notch although the broker socket and the extension are live. Pi also accepts a provider marked configured with no stored credential, which serves the host without writing the user's file: OQ-1 was decided that way (D2) on its leaning on 2026-10-04 and built, and OQ-2 and OQ-3 stay open."
 ---
 
 # Why host Pi cannot select OpenAI Codex — and how to seed its auth
 
-**Status:** 2026-10-01. Nothing built. Diagnosis measured live on the maintainer's host 2026-09-30, then
-re-verified against pi 0.99.2 and the tree at `2f579bb9` with offline probes of pi's own model runtime,
-whose commands and output are in [Appendix A](#appendix-a-the-probes).
+**Status:** 2026-10-04. [OQ-1](#OQ-1) decided as D2 on its leaning under the maintainer's delegation of that
+day, open to his revision, and built ([§5.1](#51-as-built-the-native-registration)); a session of host pi has not been
+run on it yet. [OQ-2](#OQ-2) and [OQ-3](#OQ-3) are open. Diagnosis measured live on the maintainer's host
+2026-09-30, then re-verified against pi 0.99.2 and the tree at `2f579bb9` with offline probes of pi's own
+model runtime, whose commands and output are in [Appendix A](#appendix-a-the-probes).
 
-> **In short.** Host pi lists no ChatGPT model because pi counts `openai-codex` as configured only
+> **In short.** Host pi listed no ChatGPT model because pi counts `openai-codex` as configured only
 > when a credential is stored for it, and yolo stores one only inside a jail. Pi also accepts a
 > provider that declares itself configured with no stored credential, so the host can serve the
-> subscription through the socket NC-D37 already hands it, without writing the user's `auth.json`.
+> subscription through the socket NC-D37 already hands it, without writing the user's `auth.json`;
+> D2 does that, on pi 0.81.0 and later ([§5.1](#51-as-built-the-native-registration)).
 
-**Why it matters.** Running `yolo host -- pi` under the `codex` profile boots pi into a fallback
-model (`local/qwen3.8-27b`) and hides every ChatGPT subscription model from `/model`, which says
-*"Only showing models from configured providers. Use /login to add providers."*
+**Why it matters.** Running `yolo host -- pi` under the `codex` profile booted pi into a fallback
+model (`local/qwen3.8-27b`) and hid every ChatGPT subscription model from `/model`, which said
+*"Only showing models from configured providers. Use /login to add providers."* D2 fixes that
+([§5.1](#51-as-built-the-native-registration)), though a start can still land on the fallback through
+a start-up race in pi, with `/model` listing the subscription a moment later.
 
 **The shape.** Three families: write the entry into the user's `auth.json` (by the launch, the
 extension, `/login` or `yolo host apply`), give host pi an agent directory of yolo's own, as host
@@ -34,7 +39,8 @@ the write families mutate the user's credential file.
 **Start at [§1](#1-the-diagnosis-why-host-pi-ignores-openai-codex)** for the runtime gate, then
 [§3.1](#31-what-nc-d37-protects) for what the host is protecting.
 
-**Needs your ruling:** [OQ-1](#OQ-1), [OQ-2](#OQ-2), [OQ-3](#OQ-3).
+**Needs your ruling:** [OQ-2](#OQ-2), [OQ-3](#OQ-3). **Decided under your delegation of 2026-10-04, yours to
+overrule:** [OQ-1](#OQ-1) D2, on its leaning ([PH-D1](#PH-D1)).
 
 **Reads with:** [`notch-convergence.md`](../plans/notch-convergence.md) (NC-D37's host prelaunch rule),
 [`agent-credentials.md`'s OpenAI service](../reference/agent-credentials.md#the-openai-subscription-credential-service) (the one refresh owner, and the pi view it serves),
@@ -69,11 +75,12 @@ identifiers. Upstream's `packages/ai/src/models.ts` carries the same `checkProvi
 
 ### 1.1 The gate, step by step
 
-1. **The extension layer** (SOURCED). [`yolo-openai-auth.js`](../../packs/pi/extensions/yolo-openai-auth.js#L305-L330)
-   registers `openai-codex` with `pi.registerProvider("openai-codex", { ... })`. Its model list comes
-   from `~/.pi/agent/yolo-openai-codex-models.json` ([L110](../../packs/pi/extensions/yolo-openai-auth.js#L110)),
-   and its `oauth` block wires `login`, `refreshToken` and `getApiKey` to the yolo auth broker
-   ([L314-L320](../../packs/pi/extensions/yolo-openai-auth.js#L314-L320)).
+1. **The extension layer** (SOURCED). [`yolo-openai-auth.js`](../../packs/pi/extensions/yolo-openai-auth.js)
+   registers `openai-codex` with `pi.registerProvider("openai-codex", { ... })` (everywhere but
+   `yolo host -- pi` on a pi that takes the native provider, since [PH-D2](#PH-D2) and
+   [PH-D4](#PH-D4)). Its model list comes from
+   `~/.pi/agent/yolo-openai-codex-models.json` (`CODEX_LIST_FILE`), and its `oauth` block wires
+   `login`, `refreshToken` and `getApiKey` to the yolo auth broker.
 2. **Registrations land before selection** (SOURCED, `$PI/core/agent-session-services.js:72-111`).
    Pi applies every extension registration and then awaits `modelRuntime.refresh({ allowNetwork: false })`
    before it creates the session.
@@ -127,7 +134,7 @@ Running `/login` in host pi and choosing *OpenAI Codex (yolo shared login)* logg
 no browser, saved the credential to `~/.pi/agent/auth.json`, and made the `openai-codex` models
 available (MEASURED live). The path is SOURCED: `showLoginDialog` → `modelRuntime.login(id, "oauth", …)`
 (`$PI/modes/interactive/interactive-mode.js:5142-5165`) → the composer's adapter around the
-extension's `login` (`provider-composer.js:183-193`) → [`brokerLogin`](../../packs/pi/extensions/yolo-openai-auth.js#L93-L99),
+extension's `login` (`provider-composer.js:183-193`) → [`brokerLogin`](../../packs/pi/extensions/yolo-openai-auth.js),
 which asks `status`, logs in only when it must, and returns `brokerToken`. Pi writes the result
 under its own lock and marks the provider configured. A probe with a fake broker reproduced it (P3):
 configured went from false to true, `isUsingSubscription` was true, no lock was left behind, and
@@ -263,7 +270,7 @@ These facts hold for every option that stores an entry (A, A′, B, C, E, F).
   ([the OpenAI service's one-writer rule](../reference/agent-credentials.md#openai-one-writer)).
 - **Pi refreshes it itself** (SOURCED; MEASURED). At request time, with under five minutes left, pi
   runs `oauth.refresh` under its lock with a 15 s timeout (`$AI/auth/resolve.js:46-92`). That is the
-  extension's [`refreshToken`](../../packs/pi/extensions/yolo-openai-auth.js#L318), which asks the
+  extension's [`refreshToken`](../../packs/pi/extensions/yolo-openai-auth.js), which asks the
   broker for the current generation. A catalog refresh does the same once the entry has expired
   (`$AI/models.js:230-245`). Pi writes the result back before it releases the lock
   (`$PI/core/auth-storage.js:378-395`). P4: an entry with 60 s left gave a new token and a stored
@@ -274,7 +281,7 @@ These facts hold for every option that stores an entry (A, A′, B, C, E, F).
 - **A seeded token goes stale only outside `yolo host`.** Plain `pi` still counts the provider as
   configured, because the check ignores expiry ([§1.1](#11-the-gate-step-by-step) step 5). Requests
   work on the stored access token until it expires. The next refresh then fails with
-  [`brokerFailure`](../../packs/pi/extensions/yolo-openai-auth.js#L34-L42)'s advice to launch
+  [`brokerFailure`](../../packs/pi/extensions/yolo-openai-auth.js)'s advice to launch
   through `yolo host`. A live bearer token sits in the user's file in the meantime, as it already
   does after a `/login`.
 - **Pi's lock** (SOURCED). `auth.json.lock` is a proper-lockfile 4.1.2 directory with `realpath: false`
@@ -302,7 +309,7 @@ These facts hold for every option that stores an entry (A, A′, B, C, E, F).
 
 **This is broken today, whichever option is chosen** (SOURCED). An extension's `oauth` replaces pi's
 built-in one (`provider-composer.js:296`), and yolo's `refreshToken` ignores the credential it is
-handed and asks the broker ([L318](../../packs/pi/extensions/yolo-openai-auth.js#L318)). With yolo's
+handed and asks the broker (`refreshToken`). With yolo's
 extension installed in `~/.pi/agent/extensions/`:
 
 - **`/login` for `openai-codex` is yolo's broker login**, so the user cannot log pi into their own
@@ -312,7 +319,7 @@ extension installed in `~/.pi/agent/extensions/`:
   account switch, and the user's own login cannot be restored while the extension is loaded.
 - **Under a direct launch, or `yolo host -p zai -- pi`, that refresh fails.** In the `-p zai` case the
   message wrongly says pi *"was not started through `yolo host`"*: no OpenAI prelaunch is declared, so
-  the launch hands pi no socket, and [`brokerFailure`](../../packs/pi/extensions/yolo-openai-auth.js#L34-L42)
+  the launch hands pi no socket, and [`brokerFailure`](../../packs/pi/extensions/yolo-openai-auth.js)
   cannot tell that case from a direct launch.
 
 [OQ-HS3](host-notch-services.md#OQ-HS3) covers the direct launch. It does not obviously cover a
@@ -322,7 +329,7 @@ correct launch replacing the user's account.
 whose `refresh` matches the broker's marker (`^yolo-broker:[1-9][0-9]*$`,
 [`codex.go`](../../internal/openauthclient/codex.go#L13)) to the broker, and any other credential to
 pi's built-in `openai-codex` refresh. The extension already imports `builtinProviders`
-([L143-L170](../../packs/pi/extensions/yolo-openai-auth.js#L143-L170)). Pi supports one oauth method
+(`builtinCodexProvider`). Pi supports one oauth method
 per provider, so `/login` stays yolo's broker login. An own login made before the extension arrived
 survives; a new one cannot be made while the extension is loaded. Whether the user's login or yolo's
 should win at all is [OQ-3](#OQ-3). Its options in full:
@@ -407,7 +414,7 @@ The extension's factory checks `auth.json` when `YOLO_OPENAI_AUTH_HOST_SOCKET` i
 - **Lock:** the extension context has no credential setter, `ModelRegistry.runtime` is private
   (`$PI/core/model-registry.d.ts:22`), and the package's one credential export is a reader,
   `readStoredCredential` (`$PI/index.d.ts:4`). But the package root also exports `ModelRuntime`
-  (`:15`), and the extension already imports that root ([L253](../../packs/pi/extensions/yolo-openai-auth.js#L253)).
+  (`:15`), and the extension already imports that root (`piVersion`).
   A second runtime over the same `auth.json` would write through pi's own lock code, as the `/login`
   probe's runtime did (INFERRED for an extension; not run there). Hand-written
   proper-lockfile-compatible code in JavaScript is the alternative.
@@ -498,7 +505,7 @@ no auth-only variable or flag (MEASURED, E1: every `PI_` variable `$PI` reads, a
 - **Lock:** concurrent `yolo host -- pi` launches share the managed file, as concurrent codex
   launches share their managed home.
 - **A trap:** the extension reads its model list from `homedir()/.pi/agent/`
-  ([L110](../../packs/pi/extensions/yolo-openai-auth.js#L110)), not from pi's agent directory. A link
+  (`CODEX_LIST_FILE`), not from pi's agent directory. A link
   hides that, but any yolo code that spells `~/.pi/agent` has to be audited.
 - **It is also the lever [OQ-MM5](model-lists-and-pickers.md#OQ-MM5) B anticipates** *"for pi, whose
   selection is also file-held"*: a managed directory could carry a host `-p`'s selection.
@@ -613,7 +620,7 @@ test has to fail when the production call site is deleted, not only when the cal
      reaches the stubbed built-in refresh and never the client.
 3. **The native registration ([OQ-1](#OQ-1) D2).** The extension registers `openai-codex` as a native
    provider whose key check answers only when `YOLO_OPENAI_AUTH_HOST_SOCKET` is set. The model list,
-   name and refusal move onto it.
+   name and refusal move onto it. **Built 2026-10-04** ([§5.1](#51-as-built-the-native-registration)).
    - The existing list, refusal and naming tests in
      [`pi_openai_auth_extension_test.go`](../../internal/entrypoint/pi_openai_auth_extension_test.go) and
      [`pi_openai_auth_refusal_test.go`](../../internal/entrypoint/pi_openai_auth_refusal_test.go) move to
@@ -637,6 +644,88 @@ login is still the stored entry after a session.
 If [OQ-1](#OQ-1) is ruled for a file write instead, step 3 becomes A′'s gated writer, with exit-75
 handling and a test that an own entry and a symlinked file survive a `codex`-profile launch.
 
+### 5.1 As built: the native registration
+
+Built 2026-10-04 in [`yolo-openai-auth.js`](../../packs/pi/extensions/yolo-openai-auth.js) alone. No Go
+code changed: `yolo host -- pi` already hands pi the broker's socket and writes nothing
+([`TestPreparePiUsesHostSocketWithoutStartingAdapter`](../../internal/openaiauthhost/host_test.go) still
+pins that).
+
+- **Two registrations, one per route** ([PH-D2](#PH-D2)). The **host route**: where
+  `YOLO_OPENAI_AUTH_HOST_SOCKET` is set, pi's loader takes a provider object (its root's `ModelRuntime`
+  has `registerNativeProvider`) and pi exports its built-in `openai-codex` provider serving
+  `openai-codex-responses`, the extension registers that provider natively, `pi.registerProvider(provider)`,
+  named *OpenAI Codex*, with yolo's broker login as its `auth.oauth` and a key method as its
+  `auth.apiKey`. The key method's `check` answers `{ type: "oauth", source: "yolo shared login" }`
+  while the socket is set and nothing otherwise; its `resolve` returns the broker's access token. The
+  **jail route**, everywhere else: the `ProviderConfig` registration the extension made before, unchanged.
+- **The list, the name and the refusal ride on the native provider.** Its `getModels` is the rendered
+  list, each entry completed as a model of this provider at the subscription's address, and no catalog
+  refresh replaces it. With the list's `enforce` on, its `stream` and `streamSimple` throw the
+  [MM-D23](model-lists-and-pickers.md#MM-D23) refusal for a model outside the list and hand a listed one
+  to pi's built-in stream.
+- **The key method has no `login`.** Pi's `/login` still lists an API-key entry for any provider with a
+  key method, and for one with no `login` choosing it shows the method's name and *"is configured
+  outside pi"*, here *"yolo shared login (through `yolo host`) is configured outside pi."* (SOURCED, pi
+  1.0.1 `interactive-mode.js`, `getLoginProviderOptions` and `showAmbientAuthDialog`). Not run in an
+  interactive pi.
+- **`resolve` reuses the broker's view** until five minutes before it expires ([PH-D3](#PH-D3)).
+- **Fallback** ([PH-D4](#PH-D4)): with no built-in to register, or a pi whose loader cannot take a
+  provider object, the host route registers the jail route's `ProviderConfig`. pi 0.80.10 is such a
+  pi: it exports the built-in, but its `registerProvider` takes the object for a name, throws nothing,
+  and fails applying it, which, when a `try`/`catch` around the call chose the route, reported the
+  extension as failed and lost yolo's login (MEASURED 2026-10-04). Asking for
+  `registerNativeProvider` keeps 0.80.10 on the `ProviderConfig`, unconfigured with no stored login
+  and carrying *OpenAI Codex (yolo shared login)*, the login [§1.2](#12-the-live-confirmation) chose
+  in `/login` (MEASURED by a throwaway probe of `createAgentSessionServices`).
+
+**What is measured.** MEASURED 2026-10-04 on pi 1.0.1 by the two `TestPiOpenAIAuthUnderPisOwnRuntime`
+tests in [`pi_openai_auth_native_test.go`](../../internal/entrypoint/pi_openai_auth_native_test.go),
+which load the shipped file into pi's own `createAgentSessionServices` offline, with a stand-in client
+and the boot render's `codex` list. With the socket set over an empty `auth.json`, pi counts
+`openai-codex` configured as an OAuth subscription, lists the profile's models, resolves the broker's
+token, and ends an unlisted model's turn with yolo's refusal; `auth.json` is byte-identical afterwards.
+Without the socket it does none of that and asks the client nothing. With an own login stored, the own
+access token wins and the client is not asked. The test skips where pi's package is not installed,
+which includes CI; the node harnesses in the same package pin both routes against stand-ins there. It
+also skips on a pi lacking a runtime method it reads, naming them and the version, once it has checked
+that the extension loads there without an error and leaves `auth.json` alone. MEASURED 2026-10-04: it
+passes on pi 0.87.1, 0.99.2, 1.0.1 and 1.0.2, and skips on 0.81.0 (no `isUsingSubscription`) and
+0.80.10 (no `registerNativeProvider` either), where a throwaway probe of the same call showed 0.81.0
+configured on the host route and 0.80.10 on the `ProviderConfig`, unconfigured, with no extension
+error.
+
+**A start-up race in pi, not closed here.** Each registration starts a model refresh pi does not
+await, and the refresh `createAgentSessionServices` does await can finish while one of those has
+superseded its availability pass and is still running. A provider pi counts as configured only through
+that pass, as the host route's is, can then be missing from the snapshot pi reads to pick the start
+model, so pi starts on its fallback; `/model` lists the subscription models a moment later. A stored
+login is not exposed, since pi marks a provider with one configured at registration. MEASURED
+2026-10-04 on pi 1.0.1: the snapshot predated the pass in 2 of 36 starts run twelve at a time, and in 0
+of 20 run one at a time (a throwaway probe of the call above), and in 2 of 24 runs of the native test's
+host-socket case, six test processes at a time; its assertions read after one more awaited refresh and
+passed in all 24. The mechanism is SOURCED: `ModelRuntime.registerNativeProvider`, `refresh` and
+`runAvailabilityRefresh`. The fix belongs upstream:
+pi's awaited refresh should resolve only once the newest availability pass has landed.
+
+**A failed broker call** reads *"API key auth failed for provider openai-codex: OpenAI credential
+service: …"*: pi's prefix, then [`brokerFailure`](../../packs/pi/extensions/yolo-openai-auth.js)'s words
+(MEASURED 2026-10-04 by a throwaway probe on pi 1.0.1 with a failing stand-in client). The extension's
+half is pinned against the real client by `TestPiOpenAIAuthWithAHostRouteKeepsTheClientsMessage`.
+
+**Not yet checked, and needing a person.** On a host with no `openai-codex` entry: note
+`sha256sum ~/.pi/agent/auth.json`; `yolo host -- pi` on the `codex` profile starts on `openai-codex`,
+`/model` lists the subscription models and the footer shows *"(sub)"*; the hash is unchanged; plain `pi`
+afterwards shows no `openai-codex` model. A start on another model whose `/model` then lists the
+subscription is the race above.
+
+**What stays as it was.** [§3.3](#33-a-host-pi-that-already-has-its-own-openai-codex-login): the native
+provider carries yolo's oauth, so a stored own login still refreshes through the broker under
+`yolo host`, and [OQ-3](#OQ-3) A's marker dispatch is still step 2. [§2](#2-secondary-symptom-catalog-refresh-failures-under-credential-scoping)'s
+catalog noise is [OQ-2](#OQ-2)'s. **macos-user** takes the jail route: the host socket reaches an agent
+only through `yolo host --`'s OpenAI prelaunch, the one caller of `openaiauthhost.Prepare` (SOURCED), and
+a macos-user launch hands it only to the services and doorways it runs outside the sandbox.
+
 ---
 
 ## 6. What this does not decide
@@ -659,7 +748,7 @@ handling and a test that an own entry and a symlinked file survive a `codex`-pro
 
 ## Open Questions
 
-1. 💬 **OQ-1: How host Pi receives its initial `openai-codex` credential.**
+1. ✅ **OQ-1: How host Pi receives its initial `openai-codex` credential.**
    Pi counts `openai-codex` as configured only with a stored credential or a key method, and the host
    writes neither today. What should bridge this gap? The answer decides whether yolo's login ever
    enters the user's `auth.json`,
@@ -683,7 +772,11 @@ handling and a test that an own entry and a symlinked file survive a `codex`-pro
    preferred, A′ rather than A.
 
    **Answer:**
-   > _(empty — fill in when decided)_
+   > **D2**, decided 2026-10-04 on its leaning under the maintainer's delegation of that day
+   > ("make them and build it … adjust later"), open to his revision: a native `openai-codex` provider
+   > whose key check answers only with the host socket, so nothing is written into the user's
+   > `auth.json` and [NC-D37](../plans/notch-convergence.md#NC-D37) stands as written. Built
+   > ([§5.1](#51-as-built-the-native-registration), [PH-D1](#PH-D1)).
 
 2. 💬 **OQ-2: Handling catalog refresh failures for unscoped providers.**
    Under credential scoping, `models.json` rows for unselected providers make pi's model picker report
@@ -732,6 +825,21 @@ handling and a test that an own entry and a symlinked file survive a `codex`-pro
 
    **Answer:**
    > _(empty — fill in when decided)_
+
+---
+
+## Decision Ledger
+
+Every row is reversible. [PH-D1](#PH-D1) is [OQ-1](#OQ-1), which was the maintainer's, decided on its
+leaning on 2026-10-04 under his delegation of that day; the rest are implementation decisions taken
+building it.
+
+| ID | Decision | Date | Settled in | Built |
+| :--- | :--- | :--- | :--- | :--- |
+| <a id="PH-D1"></a>PH-D1 | **[OQ-1](#OQ-1): D2.** Decided on its leaning under the maintainer's 2026-10-04 delegation (*"make them and build it … adjust later"*), open to his revision. Host pi gets a native `openai-codex` provider whose key check answers `oauth` only while the host socket is set, so pi counts the provider configured with nothing stored, and yolo writes nothing into the user's `auth.json`: [NC-D37](../plans/notch-convergence.md#NC-D37) stands as written | 2026-10-04 | [§3.4](#34-for-the-authjson-seeding-the-option-space) D, [§5](#5-build-order-and-the-tests-that-pin-each-step) step 3 | ✅ 2026-10-04 ([§5.1](#51-as-built-the-native-registration)); a host pi session not yet run on it |
+| <a id="PH-D2"></a>PH-D2 | *Implementation decision, taken under the maintainer's 2026-10-04 delegation ("make them and build it … adjust later"); reversible.* **The native registration only where the host socket is set; everywhere else the `ProviderConfig` as it was.** The alternative was the native provider everywhere, which a jail would notice in two ways: pi wraps only its own built-ins in its remote catalog refresh (`ModelRuntime.create`, SOURCED on pi 1.0.1), so a jail with no rendered list would lose that refresh, and pi's `/login` would gain an API-key entry, since it lists one for every key method. A jail gains nothing in return, having stored its login before pi starts. The socket is set only by `yolo host --`, so a jail's and a directly started pi's registration stay what they were, field for field | 2026-10-04 | [§5.1](#51-as-built-the-native-registration) | ✅ 2026-10-04; `TestPiOpenAIAuthJailRouteNeverRegistersNatively` fails with the gate removed |
+| <a id="PH-D3"></a>PH-D3 | *Implementation decision, taken under the maintainer's 2026-10-04 delegation ("make them and build it … adjust later"); reversible.* **The key method's `resolve` reuses the broker's view until five minutes before it expires**, pi's own refresh window for a stored login (pi-ai `auth/resolve.js`), instead of asking the client on every request. A token the broker replaced meanwhile is used until then, exactly as pi uses a stored login's, the jail's included | 2026-10-04 | [§5.1](#51-as-built-the-native-registration) | ✅ 2026-10-04; `TestPiOpenAIAuthHostRouteRegistersPisBuiltInAsANativeProvider` and `TestPiOpenAIAuthHostRouteAsksAgainForATokenNearItsEnd` |
+| <a id="PH-D4"></a>PH-D4 | *Implementation decision, taken under the maintainer's 2026-10-04 delegation ("make them and build it … adjust later"); reversible.* **Nothing to register natively falls back to the `ProviderConfig`**: a pi whose root's `ModelRuntime` has no `registerNativeProvider`, the method its loader hands a provider object to, or whose `providers/all` exports no `builtinProviders`, none for `openai-codex`, or one not serving `openai-codex-responses`. Such a pi keeps the host behavior it had before D2, `/login` included. The route is chosen by asking for the method, not by a throw: pi 0.80.10 exports the built-in, and its `registerProvider` took a provider object for a name, threw nothing, and failed applying it, which lost the registration and reported the extension as failed under the `try`/`catch` this row first named (MEASURED 2026-10-04). 0.81.0, the next release, has the method, as do 0.87.1, 0.99.2, 1.0.1 and 1.0.2 (MEASURED), and 0.81.0's changelog records the registration (SOURCED, its `CHANGELOG.md`) | 2026-10-04 | [§5.1](#51-as-built-the-native-registration) | ✅ 2026-10-04; `TestPiOpenAIAuthHostRouteFallsBackToTheProviderConfig`, whose cases fail with the method check or the api check removed |
 
 ---
 

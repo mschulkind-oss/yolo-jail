@@ -2,6 +2,7 @@ package entrypoint
 
 import (
 	"encoding/json"
+	"reflect"
 	"testing"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/agentcfg/manifest"
@@ -86,16 +87,17 @@ func TestTheBridgeFrontsTheRegionNamedBedrockForAViaProfile(t *testing.T) {
 // own, so the bridge is its only way in, and it takes it on plain `-p bedrock` as under
 // `bedrock-bridge` (docs/design/bedrock-plumbing.md OQ-BR1: "through the wire bridge where it has
 // none"; the carrier, docs/design/wire-bridge-gateway.md WG-I44). On either it is pointed at the
-// bridge's adapter with the bridge's caller token and the list's first model, since the list names
-// no `default` and copilot's BYOK needs one (OQ-ML2). In a launch with no bridge it composes
-// nothing, as before: nothing would carry it.
+// bridge's adapter with the bridge's caller token. packs/bedrock ships no list
+// (docs/design/model-lists-and-pickers.md MM-D32) and copilot has no Bedrock catalog, while its
+// BYOK needs a model, so it starts on its pack's one cheap open-weight default (MM-D34). In a
+// launch with no bridge it composes nothing, as before: nothing would carry it.
 func TestCopilotReachesBedrockThroughTheBridgeOnEitherProfile(t *testing.T) {
 	for _, profile := range []string{"bedrock-bridge", "bedrock"} {
 		got, _ := bridgedBedrockEnv(t, "copilot", "copilot", profile)
 		for key, want := range map[string]string{
 			"COPILOT_PROVIDER_BASE_URL": "http://127.0.0.1:8214",
 			"COPILOT_PROVIDER_TYPE":     "anthropic",
-			"COPILOT_MODEL":             "global.anthropic.claude-opus-5-5",
+			"COPILOT_MODEL":             copilotBedrockStartModel,
 		} {
 			if got[key] != want {
 				t.Errorf("copilot on %s: %s = %q, want %q (env %v)", profile, key, got[key], want, got)
@@ -126,6 +128,116 @@ func TestCopilotReachesBedrockThroughTheBridgeOnEitherProfile(t *testing.T) {
 	}
 	if len(vars) != 0 {
 		t.Errorf("copilot on -p bedrock with no bridge in the launch composed %v; want nothing", vars)
+	}
+}
+
+// A PROFILE'S OWN MODEL REPLACES COPILOT'S DEFAULT (MM-D32: "allow packs to override that", and a
+// user names a model in a profile): on either Bedrock profile's path through the bridge, a profile
+// naming an id no list holds starts copilot on that id, as written, never on bedrockStartModel.
+func TestAProfilesModelReplacesCopilotsBedrockDefault(t *testing.T) {
+	const mine = "us.anthropic.claude-sonnet-4-6"
+	packs := testPacksForAgent(t, "copilot", "bedrock", "wire-bridge")
+	table, err := packload.ComposeProviders(nil, packs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resolved, err := packload.ResolveProfiles(packs, map[string]packload.UserProfile{
+		"mine": {Provider: "bedrock", Via: "wire-bridge", Options: map[string]string{"model": mine}}}, table)
+	if err != nil {
+		t.Fatal(err)
+	}
+	vars, err := packload.AgentEnv(packs, table, map[string]string{"copilot": "mine"}, "copilot", "mine",
+		func(string) (string, bool) { return "", false }, packload.WithResolvedProfiles(resolved))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, v := range vars {
+		if v.Key == "COPILOT_MODEL" {
+			if v.Value != mine {
+				t.Errorf("COPILOT_MODEL = %q, want the profile's own %s", v.Value, mine)
+			}
+			return
+		}
+	}
+	t.Errorf("copilot composed no COPILOT_MODEL for a profile naming one: %v", vars)
+}
+
+// copilotBedrockStartModel is copilot's starting model on a Bedrock provider whose list names
+// nothing (packs/copilot's bedrockStartModel; docs/design/model-lists-and-pickers.md MM-D34).
+const copilotBedrockStartModel = "openai.gpt-oss-120b-1:0"
+
+// A LIST A PACK SUPPLIES REACHES COPILOT WHOLE (docs/design/model-lists-and-pickers.md MM-D31),
+// as its providers.json, an agent file the env derive composes only where the notch writes one
+// (MM-D33): a company pack's three-entry Bedrock list, through the bridge on either profile,
+// becomes one provider at the bridge's anthropic adapter and a row per entry, in the list's order,
+// each with its name and limits, and copilot starts on the list's first as `<provider>/<id>`. The
+// same composition at a notch that writes no agent file (the host) hands copilot no file and no
+// variable naming one, and the environment's one model, the list's first, unchanged.
+func TestABedrockListAPackSuppliesReachesCopilotsProvidersFileWhole(t *testing.T) {
+	const opus, sol, astra = "global.anthropic.claude-opus-5-5", "us.openai.gpt-6.1-sol", "global.openai.gpt-6-astra"
+	packs := append(testPacksForAgent(t, "copilot", "bedrock", "wire-bridge"), companyModelsPack(t, bedrockListAdd))
+	table, err := packload.ComposeProviders(nil, packs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resolved, err := packload.ResolveProfiles(packs, nil, table)
+	if err != nil {
+		t.Fatal(err)
+	}
+	none := func(string) (string, bool) { return "", false }
+	for _, profile := range []string{"bedrock-bridge", "bedrock"} {
+		var files []packload.AgentFile
+		vars, err := packload.AgentEnv(packs, table, map[string]string{"copilot": profile}, "copilot", profile,
+			none, packload.WithResolvedProfiles(resolved), packload.WithAgentFiles(&files))
+		if err != nil {
+			t.Fatal(err)
+		}
+		env := map[string]string{}
+		for _, v := range vars {
+			env[v.Key] = v.Value
+		}
+		if _, leaked := env["COPILOT_PROVIDERS_CONFIG"]; leaked {
+			t.Errorf("%s: the file's content rode the environment: %v", profile, env)
+		}
+		if env["COPILOT_MODEL"] != "bedrock/"+opus {
+			t.Errorf("%s: COPILOT_MODEL = %q, want the list's first as the file's selection id", profile, env["COPILOT_MODEL"])
+		}
+		if len(files) != 1 || files[0].Var != "COPILOT_PROVIDERS_CONFIG" || files[0].Name != "providers.json" {
+			t.Fatalf("%s: agent files = %+v, want copilot's providers.json", profile, files)
+		}
+		var doc map[string]any
+		if err := json.Unmarshal(files[0].Content, &doc); err != nil {
+			t.Fatalf("%s: providers.json is not JSON: %v\n%s", profile, err, files[0].Content)
+		}
+		wantProviders := []any{map[string]any{"name": "bedrock", "type": "anthropic",
+			"baseUrl": "http://127.0.0.1:8214", "apiKey": "local"}}
+		wantModels := []any{
+			map[string]any{"id": opus, "provider": "bedrock", "wireModel": opus, "name": "Claude Opus 5.5 (Global)",
+				"maxContextWindowTokens": float64(1000000), "maxOutputTokens": float64(128000)},
+			map[string]any{"id": sol, "provider": "bedrock", "wireModel": sol, "name": "GPT-6.1 Sol (US)",
+				"maxContextWindowTokens": float64(1000000), "maxOutputTokens": float64(131072)},
+			map[string]any{"id": astra, "provider": "bedrock", "wireModel": astra, "name": "GPT-6 Astra (Global)",
+				"maxContextWindowTokens": float64(1050000), "maxOutputTokens": float64(128000)},
+		}
+		if !reflect.DeepEqual(doc["providers"], wantProviders) {
+			t.Errorf("%s: providers = %v, want %v", profile, doc["providers"], wantProviders)
+		}
+		if !reflect.DeepEqual(doc["models"], wantModels) {
+			t.Errorf("%s: models = %v\nwant %v", profile, doc["models"], wantModels)
+		}
+
+		hostVars, err := packload.AgentEnv(packs, table, map[string]string{"copilot": profile}, "copilot", profile,
+			none, packload.WithResolvedProfiles(resolved))
+		if err != nil {
+			t.Fatal(err)
+		}
+		host := map[string]string{}
+		for _, v := range hostVars {
+			host[v.Key] = v.Value
+		}
+		if _, set := host["COPILOT_PROVIDERS_CONFIG"]; set || host["COPILOT_MODEL"] != opus {
+			t.Errorf("%s with no agent file: %v, want no COPILOT_PROVIDERS_CONFIG and COPILOT_MODEL %s", profile, host, opus)
+		}
 	}
 }
 

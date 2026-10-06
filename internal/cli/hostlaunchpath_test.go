@@ -19,7 +19,10 @@ import (
 // site that reads it — the launch gate's dependency survey, `yolo host apply`'s pre-flight and its
 // install, `yolo check-deps`, and the exec's target lookup — and the miss line (HE-D2) each prints.
 // Every fixture is a temp HOME and a fake PATH; no agent CLI runs, and no test reads the real home.
-// Each test says which deleted call site fails it.
+// Each test says which deleted call site fails it. A fixture that reaches the launch gate declares
+// `host_management: "own"`: the unset key is `none` since OQ-CO14, and the gate does nothing under it.
+// It also sets `host_wrappers: false`, which `own` derives on: the gate would otherwise write the
+// wrappers and report that synchronization instead of the survey these tests read.
 
 const pathSep = string(os.PathListSeparator)
 
@@ -91,7 +94,8 @@ func runGate(t *testing.T, bin string) string {
 // hint folder; `host apply --format json` carries the same line. Route any of the three probes back
 // to a bare exec.LookPath, or delete its miss line, and this fails.
 func TestEveryHostCheckReadsHostPath(t *testing.T) {
-	home, pathDir := launchPathFixture(t, `,"host_path":["~/tools/bin"],"host_apply_on_launch":true`, hpTool)
+	home, pathDir := launchPathFixture(t, `,"host_path":["~/tools/bin"],"host_management":"own","host_wrappers":false,`+
+		`"host_apply_on_launch":true`, hpTool)
 	inHostPath := putExe(t, filepath.Join(home, "tools", "bin"), "yolo-hp-tool")
 
 	verboseReport(t)
@@ -163,7 +167,7 @@ func otherOS() string {
 // launch gate. It is still not MISSING: nothing could install it, so check-deps exits 0 and host
 // apply counts it apart. Gate the miss line on "missing" again at any of the three, and this fails.
 func TestAProgramWithNoBuildHereStillPrintsTheMissLine(t *testing.T) {
-	home, pathDir := launchPathFixture(t, `,"host_apply_on_launch":true`,
+	home, pathDir := launchPathFixture(t, `,"host_management":"own","host_wrappers":false,"host_apply_on_launch":true`,
 		`{"kind":"program","bin":"yolo-hp-uptool","via":"npm","package":"yolo-hp-uptool-pkg","platforms":["`+otherOS()+`"]}`)
 	withTestFloor(t) // the production floor, so the program has no entry for the platform alone
 	putExe(t, filepath.Join(home, ".cargo", "bin"), "yolo-hp-uptool")
@@ -333,7 +337,7 @@ func TestTheStartingLineSaysWhichPartOfThePathTheTargetCameFrom(t *testing.T) {
 // of them (HP-D12), so the gate's line names what the check searched as "the PATH yolo searched" —
 // calling it "this launch's PATH" would describe a PATH the agent does not get.
 func TestWithNoPathTheGateDoesNotCallHostPathAloneThisLaunchsPath(t *testing.T) {
-	launchPathFixture(t, `,"host_path":["~/tools/bin"],"host_apply_on_launch":true`, hpTool)
+	launchPathFixture(t, `,"host_path":["~/tools/bin"],"host_management":"own","host_wrappers":false,"host_apply_on_launch":true`, hpTool)
 	t.Setenv("PATH", "")
 	got := runGate(t, "someagent")
 	if want := "yolo host: yolo-hp-tool (required by the needpack pack) is not on the PATH yolo searched, " +

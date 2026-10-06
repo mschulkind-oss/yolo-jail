@@ -36,6 +36,15 @@ var kinds = map[packdecl.Kind]Entry{
 		"block dir when the replacement is on the agent's PATH (shims.go)"),
 	packdecl.KindIntercept: renderedEverywhere("GenerateIntercepts, called from GenerateShims, " +
 		"writes the forwarder into the block dir (interceptshims.go)"),
+	packdecl.KindMCP: {
+		PodmanLinux: honored("jailMCPServers (internal/cli/run assemble.go) composes each " +
+			"selected pack's `mcp` entries under the config's mcp_servers into YOLO_MCP_SERVERS, " +
+			"which the boot renders per agent"),
+		PodmanMac:      honored("the same composition (assemble.go)"),
+		AppleContainer: honored("the same composition (assemble.go)"),
+		MacosUser: honoredBy("BuildRunPlanWithDaemons (internal/macosuser runplan.go) composes " +
+			"them for the sandbox account's home through MCPServersAt (mcp.go)"),
+	},
 	packdecl.KindProvider: everywhere(honored("packload.ComposeProvidersAt composes it into " +
 		"the channel above the dispatch (composedProviders, internal/cli/run assemble.go)")),
 	packdecl.KindProfile: {

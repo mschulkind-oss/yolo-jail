@@ -5,6 +5,7 @@ package run
 // AS INPUT.
 
 import (
+	"os"
 	"path/filepath"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
@@ -40,8 +41,14 @@ var launcherInJail = config.InJail
 //
 // A src that is NOT a destination is still prepended in a jail: nothing yolo stages lives
 // there, so whatever is there is the user's own (or an inherited mount of it).
+//
+// BOTH CHECKS ARE BY PATH AND BY FILE IDENTITY (os.SameFile), as the host composition's own
+// guard is (entrypoint.sameFileAsYoloOutput). In a dotfiles layout one file has two names —
+// ~/.foo/AGENTS.md a link to ~/AGENTS.md, with `after: "host:AGENTS.md"` — and `yolo host apply`
+// writes its composition through the link, so the record lists ~/.foo/AGENTS.md while src is
+// ~/AGENTS.md; by path alone the launch prepended yolo's own composition to its own.
 func mayPrependHostBriefing(src, home string, dests []briefingDest, generated map[string]bool) bool {
-	if generated[src] {
+	if generated[src] || sameFileAsAny(src, generatedPaths(generated)) {
 		return false
 	}
 	if launcherInJail() && isBriefingDestination(src, home, dests) {
@@ -50,11 +57,46 @@ func mayPrependHostBriefing(src, home string, dests []briefingDest, generated ma
 	return true
 }
 
-// isBriefingDestination reports whether src is where one of dests is mounted under home.
+// isBriefingDestination reports whether src is where one of dests is mounted under home, by
+// path or by file identity.
 func isBriefingDestination(src, home string, dests []briefingDest) bool {
 	src = filepath.Clean(src)
+	var candidates []string
 	for _, d := range dests {
-		if filepath.Join(home, filepath.FromSlash(d.Into)) == src {
+		p := filepath.Join(home, filepath.FromSlash(d.Into))
+		if p == src {
+			return true
+		}
+		candidates = append(candidates, p)
+	}
+	return sameFileAsAny(src, candidates)
+}
+
+// generatedPaths is the record's paths, for sameFileAsAny.
+func generatedPaths(generated map[string]bool) []string {
+	out := make([]string, 0, len(generated))
+	for p, ok := range generated {
+		if ok {
+			out = append(out, p)
+		}
+	}
+	return out
+}
+
+// sameFileAsAny reports whether src is, by file identity, one of candidates. os.Stat follows links
+// and never opens the file, so a FIFO cannot stall it; a src or candidate it cannot stat (absent,
+// or a link to nowhere) matches nothing, so the answer fails open to "the user's own", as
+// GeneratedHostBriefings does.
+func sameFileAsAny(src string, candidates []string) bool {
+	if len(candidates) == 0 {
+		return false
+	}
+	info, err := os.Stat(src)
+	if err != nil {
+		return false
+	}
+	for _, c := range candidates {
+		if other, err := os.Stat(c); err == nil && os.SameFile(info, other) {
 			return true
 		}
 	}

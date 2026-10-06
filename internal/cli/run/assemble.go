@@ -439,6 +439,12 @@ func (o *Options) assembleRunCmd(in *assembleInput) []string {
 
 	// --- Common env block (frozen order) ---
 	runCmd = append(runCmd, o.commonEnvBlock(in, blockedConfigJSON, netMode)...)
+	// THE JAIL'S --with-credentials GRANT (jailgrant.go, ES-D37): on podman a `:ro` bind of the
+	// per-launch grant file the launch staged outside the workspace (stageJailGrant), which every
+	// boot and session reads into its environment; on Apple Container nothing here, the copy being
+	// in the home it binds. NEVER a granted name or value as `-e`: podman resolves an `-e` into the
+	// container's configuration, its inspect output and its database, which outlive the jail.
+	runCmd = append(runCmd, o.jailGrantBindArgs(rt)...)
 	// THE CONTEXT DIR (docs/design/context-mounts.md CX-D4), on both container backends and on
 	// EVERY launch: /ctx is where every context mount lands here, and the directory exists
 	// whether or not one was declared. macos-user exports its own value (its staged tree),
@@ -1149,7 +1155,8 @@ func composedProviders(cfg *jsonx.OrderedMap, packs []*packload.Pack,
 // container runtime every one, in the jail, and on macos-user the ones its Seatbelt guest runs
 // since OQ-DP8/OQ-DP9 plus the doorways the launch opens outside it (macosuserdoorways.go,
 // host-notch-services.md HS-D15), the rest declined by name (noteMacosUserJailDaemonDeclines)
-// (docs/plans/notch-convergence.md §4 item 2).
+// (docs/plans/notch-convergence.md §4 item 2) — and the bound loopholes its argv binds
+// (loopholes.JailBoundNames, none on macos-user).
 //
 // It also carries WHERE each serves (servedaddresses.go): every daemon's served listen address,
 // read off the payload, and the declared-to-served map for the pack services' adapter and via
@@ -1157,10 +1164,17 @@ func composedProviders(cfg *jsonx.OrderedMap, packs []*packload.Pack,
 // ports the payload hands the daemons.
 func (o *Options) servedDaemons(specs []loopholes.JailDaemonSpec) packload.ServedDaemons {
 	names, listen := loopholes.ServedJailDaemonNames(o.runtime, specs)
+	// The BOUND LOOPHOLES the argv binds are served by name too (jailDaemonsFor recorded them
+	// beside this payload): their pointers name a path in the jail that exists exactly when the
+	// bind does (docs/design/loophole-packaging.md LP-D1).
+	names = append(append([]string(nil), names...), o.jailBound...)
 	served := packload.ServedInJail(names).WithListen(listen).WithRebind(o.movedServedAddresses())
+	if o.runtime == "macos-user" { // parity: Warned — the Seatbelt sandbox binds nothing (loopholes.JailBoundNames is nil there), so a pointer at what a loophole binds is withheld and the launch names it (packload.UnservedEnvLines)
+		served = served.MountsNothing()
+	}
 	// A macos-user launch also serves the launch-owned services it planned (macosuserservices.go):
 	// a pack service's host half at the ports it picked, since its guest declines the service's
-	// jail daemon (loopholes.JailDaemonsRunIn).
+	// jail daemon (loopholes.JailDaemonsRunIn, JD-9's rule (a)).
 	if o.runtime == "macos-user" && len(o.launchServices) > 0 { // parity: NotApplicable — the macos-user arm's own launch-owned services; a container runs the service's jail daemon
 		return served.Plus(launchservice.Served(o.launchServices))
 	}
@@ -1173,7 +1187,7 @@ func (o *Options) commonEnvBlock(in *assembleInput, blockedConfigJSON, netMode s
 	cfg := in.cfg
 	// None under the seal (seal.go): a server's literal env is a credential, and a build runs no
 	// agent to start one.
-	lspServers, mcpServers, mcpPresets := agentServerTables(cfg, in.sealed)
+	lspServers, mcpServers, mcpPresets := agentServerTables(cfg, in.sealed, in.packs)
 	env := []string{
 		"-e", "JAIL_HOME=/home/agent",
 		"-e", "NPM_CONFIG_PREFIX=/home/agent/.npm-global",
@@ -1229,6 +1243,10 @@ func (o *Options) commonEnvBlock(in *assembleInput, blockedConfigJSON, netMode s
 		"-e", "OVERMIND_SOCKET=/tmp/overmind.sock",
 		"-e", "YOLO_MISE_TOOLS="+jsonDumps(config.MergeMiseTools(cfg)),
 		"-e", "YOLO_LSP_SERVERS="+jsonDumpsOrEmptyObj(lspServers),
+		// THE COMPOSED TABLE (packload.ComposeMCPServers, through agentServerTables): each selected
+		// pack's `mcp` entries joined to the jail's home, your mcp_servers merged over them. Composed
+		// here, on the host, for this backend's home (docs/design/mcp-presets-removal.md OQ-MP4); the
+		// jail reads it as it always read your table, over its presets. None under the seal.
 		"-e", "YOLO_MCP_SERVERS="+jsonDumpsOrEmptyObj(mcpServers),
 		"-e", "YOLO_MCP_PRESETS="+jsonDumpsOrEmptyList(mcpPresets),
 		// The `agent_updates` policy, read from USER scope directly rather than from the
@@ -1412,6 +1430,12 @@ func (in *assembleInput) jailImage() string {
 func jsonDumps(v any) string {
 	s, _ := jsonx.DumpsCompact(v)
 	return s
+}
+
+// jailMCPServers is the mcp_servers table a container jail renders: the selected packs' `mcp`
+// entries joined to the jail's home, under the config's own `mcp_servers`.
+func jailMCPServers(cfg *jsonx.OrderedMap, packs []*packload.Pack) *jsonx.OrderedMap {
+	return packload.ComposeMCPServers(cfgMap(cfg, "mcp_servers"), packs, jailHome)
 }
 
 func jsonDumpsOrEmptyObj(m *jsonx.OrderedMap) string {

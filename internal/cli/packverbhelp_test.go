@@ -30,7 +30,7 @@ func packActsFixture(t *testing.T) (refreshes, applies *int, cwd string) {
 	t.Setenv("YOLO_VERSION", "")
 	t.Setenv("YOLO_PACK_ROOT", "")
 	writeFile(t, filepath.Join(home, ".config", "yolo-jail", "config.jsonc"),
-		`{"packs":[],"host_management":"assert"}`)
+		`{"packs":[],"host_management":"own"}`)
 	cwd = t.TempDir()
 	t.Chdir(cwd)
 	refreshes, applies = new(int), new(int)

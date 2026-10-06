@@ -31,6 +31,39 @@ import (
 // cross-pack overlays collected at the host notch's posture and profile table, and the declared
 // `host_management` contract.
 
+// hostRenderPrelude is the host apply's composition PRELUDE, resolved once for a verb that
+// renders what `yolo host apply --assert` writes without being it: the configured pack set (the
+// pack store as it stands — the read-only verbs never fetch), its destinations resolved, the
+// doubly-owned surfaces host apply refuses, and the cross-pack overlays collected at the host
+// notch's posture and profile table. Its two readers are `yolo config render --at host` (the
+// preview) and `yolo config reset` under `host_management: own` (the re-render after a reset);
+// one prelude, so the preview, the reset and the apply cannot fold different packs.
+type hostRenderPrelude struct {
+	packs      []*packload.Pack
+	unresolved []unresolvedPack
+	collisions []packload.Collision
+	overlays   *packoverlay.OverlaySet
+}
+
+// composeHostPrelude resolves the prelude. The derive inputs are composeHostInputs' (called by
+// the reader that needs them, over hostRenderPrelude.packs), so a caller that only previews can
+// report a composition failure in its own words.
+func composeHostPrelude() hostRenderPrelude {
+	packs, unresolved := configuredPacksForInspection()
+	packs, _ = packload.ResolveDestinations(packs)
+	// The fallbacks `yolo host apply` takes (hostTreeFallbacks), so the preview is the write's bytes.
+	listPacks, _ := hostTreeFallbacks(packs)
+	return hostRenderPrelude{packs: packs, unresolved: unresolved,
+		collisions: packload.ConfigSurfaceCollisions(packs),
+		overlays: packoverlay.Collect(listPacks, render.ProfileFor(render.KindHost).AgentAutonomy,
+			overlayGateProfiles(render.KindHost, packs))}
+}
+
+// inputs composes the derive inputs over the prelude's packs, as host apply does (HC-D11).
+func (c hostRenderPrelude) inputs(home string) (hostInputComposition, error) {
+	return composeHostInputs(config.UserScopeConfigOrEmpty(), c.packs, home)
+}
+
 // configRenderHost prints the host render of agent's surfaces (one surface when surface is
 // non-empty). --explain prints the per-key record the write keeps instead of the file.
 func configRenderHost(agent, surface string, explain bool, out, errw io.Writer, color bool) int {
@@ -39,7 +72,8 @@ func configRenderHost(agent, surface string, explain bool, out, errw io.Writer, 
 		fmt.Fprintf(errw, "yolo config render: cannot resolve your home: %v\n", err)
 		return 1
 	}
-	packs, unresolved := configuredPacksForInspection()
+	comp := composeHostPrelude()
+	packs, unresolved := comp.packs, comp.unresolved
 	// THE PREVIEW NEVER FETCHES, by the read-only rule refreshHostPacks states: `yolo host
 	// apply` fetches a never-fetched git pack and refreshes a branch-following one before it
 	// renders, and this verb reads the pack store as it stands. So "byte for byte" holds for
@@ -67,8 +101,7 @@ func configRenderHost(agent, surface string, explain bool, out, errw io.Writer, 
 			"`yolo host apply --assert` refuses an incomplete pack set.\n",
 			describeUnresolved(broken))
 	}
-	packs, _ = packload.ResolveDestinations(packs)
-	if cols := packload.ConfigSurfaceCollisions(packs); len(cols) > 0 {
+	if cols := comp.collisions; len(cols) > 0 {
 		for _, c := range cols {
 			fmt.Fprintf(errw, "yolo config render: surface %s claimed by %s: %s\n",
 				c.Target, strings.Join(c.Packs, ", "), c.Reason)
@@ -77,17 +110,14 @@ func configRenderHost(agent, surface string, explain bool, out, errw io.Writer, 
 			"more than one owner, so nothing is rendered at the host.\n")
 		return 1
 	}
-	// The fallbacks `yolo host apply` takes (hostTreeFallbacks), so the preview is the write's bytes.
-	listPacks, _ := hostTreeFallbacks(packs)
-	overlays := packoverlay.Collect(listPacks, render.ProfileFor(render.KindHost).AgentAutonomy,
-		overlayGateProfiles(render.KindHost, packs))
+	overlays := comp.overlays
 	for _, prob := range overlays.Problems {
 		fmt.Fprintf(errw, "yolo config render: not folded — %s (`yolo host apply` refuses this)\n", prob)
 	}
 
 	// THE SAME COMPOSITION host apply renders from (HC-D11), so the preview is the write's
 	// bytes for a derived surface too: its computed layer over the host's inputs.
-	inputs, cerr := composeHostInputs(config.UserScopeConfigOrEmpty(), packs, home)
+	inputs, cerr := comp.inputs(home)
 	if cerr != nil {
 		fmt.Fprintf(errw, "yolo config render: not rendered — %v (`yolo host apply` refuses "+
 			"this too)\n", cerr)

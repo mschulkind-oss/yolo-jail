@@ -15,7 +15,10 @@ import (
 // refused rather than installed over (hostfloor.Floor.Ensure; docs/design/host-tool-provisioning.md
 // HP-D8): the launch, `yolo host apply`'s dry run and --assert, and the dependency line
 // check-deps prints. Each used to read the record's error as "missing", and the launch and the
-// --assert installed this yolo's copy over the newer one's.
+// --assert installed this yolo's copy over the newer one's. Each apply's user config declares
+// `host_management: "own"`: the unset key is `none` since OQ-CO14, and `yolo host apply` refuses
+// under it before the floor stage runs. `host_wrappers` is off because `own` derives it on, and a
+// wrapper written would be a change the verdicts below would have to count.
 
 // writeNewerFloorRecord puts a record for floorcli that a newer yolo wrote in the test floor, and
 // returns its path and its bytes.
@@ -62,7 +65,7 @@ func TestHostLaunchRefusesToInstallOverANewerYolosFloorRecord(t *testing.T) {
 // The dry run says it will not install it and why; the --assert refuses it; check-deps does not
 // say the floor installs it.
 func TestHostApplyRefusesToInstallOverANewerYolosFloorRecord(t *testing.T) {
-	dist, _ := floorHostFixture(t, "")
+	dist, _ := floorHostFixture(t, `,"host_management":"own","host_wrappers":false`)
 	rec, body := writeNewerFloorRecord(t)
 
 	rc, report := applyWith(t, false, nil)
@@ -159,7 +162,7 @@ func TestCheckDepsFailsOverANewerYolosFloorRecord(t *testing.T) {
 // it too, where it said "Nothing to apply — this home is up to date." and exited 1. The dry run
 // still exits 0: its output is the finding (OQ-RO5).
 func TestHostApplyVerdictCountsAProgramTheFloorWillNotInstall(t *testing.T) {
-	floorHostFixture(t, "")
+	floorHostFixture(t, `,"host_management":"own","host_wrappers":false`)
 	writeNewerFloorRecord(t)
 	const blocker = "yolo's floor will not install floorcli over a record a newer yolo wrote until you " +
 		"run `yolo update` or remove that record (above)"
@@ -192,7 +195,7 @@ func TestHostApplyVerdictCountsAProgramTheFloorWillNotInstall(t *testing.T) {
 // make: the floor stage printed "could not install it" and the run exited 1, and the verdict under
 // it said "Nothing to apply — this home is up to date."
 func TestHostApplyVerdictCountsAProgramTheFloorCouldNotInstall(t *testing.T) {
-	dist, _ := floorHostFixture(t, "")
+	dist, _ := floorHostFixture(t, `,"host_management":"own","host_wrappers":false`)
 	dist.Publish("floorcli-pkg", "1.0.0", "bin=floorcli", "fail")
 
 	rc, report := applyWith(t, true, nil)
@@ -224,7 +227,7 @@ func countsLine(report string) string {
 // under the verdict saying the floor could not.
 func TestHostApplyCountsAProgramTheFloorWillNotOrCouldNotInstallWithTheProblems(t *testing.T) {
 	t.Run("will not", func(t *testing.T) {
-		floorHostFixture(t, "")
+		floorHostFixture(t, `,"host_management":"own","host_wrappers":false`)
 		writeNewerFloorRecord(t)
 		_, report := applyWith(t, false, nil)
 		want := "0 declared dependencies present, 1 yolo's floor will not install (floorcli)"
@@ -238,7 +241,7 @@ func TestHostApplyCountsAProgramTheFloorWillNotOrCouldNotInstallWithTheProblems(
 		}
 	})
 	t.Run("could not", func(t *testing.T) {
-		dist, _ := floorHostFixture(t, "")
+		dist, _ := floorHostFixture(t, `,"host_management":"own","host_wrappers":false`)
 		dist.Publish("floorcli-pkg", "1.0.0", "bin=floorcli", "fail")
 		_, report := applyWith(t, true, nil)
 		want := "0 declared dependencies present, 1 yolo's floor could not install (floorcli)"

@@ -58,10 +58,45 @@ the jail, does not see it, and the launch lists which keys went where. If the se
 key is empty, the launch stops and says which variable is missing. This holds on every runtime: on
 `macos-user`, an agent you start from the sandbox's shell gets its own profile's settings too.
 
+## Give a shell a provider's key
+
+To hand a shell, a script or every process in a jail some providers' keys, name them when you
+launch the jail:
+
+```bash
+yolo --with-credentials zai -- bash            # a jail whose every process holds ZAI_API_KEY
+yolo --with-credentials zai,cerebras -- bash   # several providers; `all` is every one with a key
+yolo -p bedrock --with-credentials zai -- claude   # claude stays on bedrock, and also holds zai's key
+```
+
+This hands over the keys only: no profile is selected and no agent is pointed at another service.
+The launch lists the keys by name, never their values. The jail keeps the keys it was launched with
+for as long as it runs, so every session you open in it later has them too, and they are removed
+when the jail stops. A running jail's grant cannot grow: running `yolo --with-credentials` with a
+provider the jail was not launched with stops, and tells you to run `yolo stop` and then launch
+again with the flag. A profile you select when you rejoin a jail, such as `yolo -p zai -- claude`,
+is not a grant: it still hands that agent its provider's key, and the launch says so when the
+jail's grant did not include that key. On `macos-user` each
+`yolo` is its own sandbox session, so each gets the keys its own command line names. No config key
+can do this; only the flag can. `yolo host --with-credentials zai -- <command>` does the same for
+one command on your own machine.
+
 A value you set yourself wins over the one a profile sets. `ANTHROPIC_MODEL=my-model claude`, or an
 `export` in the jail's shell before you start the agent, keeps your value for that run. On your own
 machine it does not: `yolo host -- claude` replaces a value your shell exports with the
 profile's.
+
+When two of yolo's own settings set the same variable, the more specific one wins: a profile's
+value beats one in your `env_sources`, which beats a pack's default. Every launch prints one line
+for each variable where that happened, naming the setting that won and the one that lost, never
+the values:
+
+```text
+Shadowed ANTHROPIC_BASE_URL: the zai profile's value wins over your env_sources value, for claude
+```
+
+A launch where nothing was overridden prints no such line. See
+[the reference](https://github.com/mschulkind-oss/yolo-jail/blob/main/docs/reference/providers.md#every-launch-names-what-it-shadowed).
 
 ## The providers yolo ships
 
@@ -83,24 +118,27 @@ under `providers` with a name the agent does not have.
 Two more come with the agent packs, with no extra pack to add:
 
 - **`bedrock`**, in the `bedrock` pack, which the `claude`, `codex`, `opencode` and `pi` packs
-  bring in: AWS Bedrock, for each of those agents through its own Bedrock support. Claude Code
-  uses Anthropic's models there; codex uses OpenAI's; opencode and pi use any model on the list.
-  yolo ships three: Claude Opus 5.5, GPT-6.1 Sol and GPT-6 Astra. codex starts on GPT-6.1 Sol in
-  every Region, opencode and pi on Claude Opus 5.5, and Claude Code on its own Bedrock default,
-  unless your profile names a model. AWS offers GPT-6.1 Sol in its US Regions only for now, so
-  outside the US name another model, such as GPT-6 Astra:
+  bring in: AWS Bedrock, for each of those agents through its own Bedrock support. yolo ships no
+  Bedrock model list: each agent starts on its own Bedrock default model and offers its own
+  menu, whatever its maker put there, unless your profile names a model. If an agent's own
+  default does not work on Bedrock, name one:
 
   ```jsonc
   "profiles": { "astra": { "provider": "bedrock", "model": "global.openai.gpt-6-astra" } }
   ```
 
-  Add a model with its maker, so it reaches only the agents that take that maker (opencode and
-  pi take every maker, Claude Code Anthropic's and codex OpenAI's):
+  Or give the provider a list, each model with its maker, so it reaches only the agents that
+  take that maker (opencode and pi take every maker, Claude Code Anthropic's and codex OpenAI's):
   `"providers": {"bedrock": {"models": {"kimi": {"id": "global.moonshotai.kimi-k3", "vendor": "moonshotai"}}}}`.
+  Codex, opencode and pi then start on the first model on the list they can use, and opencode and
+  pi show the list in their menus. A pack your organization ships can set the list for everyone
+  ([a company's model list](#model-menus-and-a-companys-model-list)).
   Copilot and oh-omp have no Bedrock support of their own, so they reach Bedrock only through
   the wire bridge. `-p bedrock` sends them through it whenever the bridge is in the jail, as it is
   beside Claude Code, and `-p bedrock-bridge` (below) brings the bridge in itself; either way the
-  bridge signs their requests with the credentials described below. Neither pack brings the
+  bridge signs their requests with the credentials described below. Copilot has no Bedrock
+  model of its own to start on, so with no model named it starts on `openai.gpt-oss-120b-1:0`,
+  OpenAI's open-weight gpt-oss-120b, one of Bedrock's cheapest models. Neither pack brings the
   `bedrock` pack in, so beside them alone, list it in `packs`, and list `wire-bridge` too for
   `-p bedrock`. No agent on Bedrock has yet been tested against a real AWS account, through its
   own client or the bridge.
@@ -146,15 +184,18 @@ Two more come with the agent packs, with no extra pack to add:
   every request with your AWS credentials itself. Under it Claude Code runs its own Bedrock
   support pointed at the bridge and can use every model on the list in one session: it starts on
   its own Bedrock default unless your profile's `model` names one, of any maker. codex, opencode,
-  pi and oh-omp send their own requests through the bridge unchanged, and Copilot starts on the
-  first model on the list. For Claude Code and Copilot a Claude model goes to Bedrock
-  untranslated, so prompt caching and thinking keep working, and any other model is translated.
+  pi and oh-omp send their own requests through the bridge unchanged, and Copilot starts on your
+  list's first model, or on `openai.gpt-oss-120b-1:0`. For Claude Code and Copilot a Claude model
+  goes to Bedrock untranslated, so prompt caching and thinking keep working, and any other model is
+  translated.
 
   Where no pack and no config lists Bedrock models, yolo reads your region's list from Bedrock
   itself, through the `aws-auth` login, at most once a day, and gives it to the bridge and to
-  Copilot, which then starts on the newest current Claude model on it. The other agents keep their own Bedrock
-  model lists. A launch that leaves Copilot with no model to start on, because that read failed
-  too, stops and says why and what to add. A Bedrock provider of your own that names its own
+  Copilot, whose picker then shows the whole list. Copilot still starts on
+  `openai.gpt-oss-120b-1:0` when your region's list has it, and otherwise on the newest current
+  Claude model on it. The other agents keep their own Bedrock model lists. A launch that leaves
+  Copilot with no model to start on, because that read failed too, stops and says why and what to
+  add. A Bedrock provider of your own that names its own
   address in `endpoints` is signed there too, whatever the address, once its `platform` says
   `aws-bedrock`. The bridge signs with a key pair, the `aws-auth` login or a Bedrock API key, and
   not with a profile in `~/.aws`, so in a jail whose only AWS credential is `AWS_PROFILE` it has
@@ -344,12 +385,21 @@ out, and yolo says so each time Codex starts; updating Codex brings it back. On 
 Codex keeps its usual menu.
 
 `yolo host -- codex` shows the same menu when your config's `profile` picks your ChatGPT
-subscription for Codex (`"profile": {"codex": "codex"}`), and yolo keeps the menu in its own
-folder, never in your `~/.codex`. There, a `-p` does not change which provider Codex runs on:
-Codex reads that from its own config, which `yolo host apply` writes for the profile your config
-names. So a `-p` naming another provider than that one leaves Codex's usual menu in place, and
-yolo says why each time. To use yolo's menu at the host, set `profile` for Codex in your config
-and run `yolo host apply`.
+subscription for Codex (`"profile": {"codex": "codex"}`), and so does `yolo host -p codex -- codex`
+whatever your config picks. yolo keeps the menu in its own folder, never in your `~/.codex`.
+
+On your own machine a `-p` moves an agent that keeps its provider in its own settings file, Codex,
+opencode, pi and oh-omp, for that one launch, as it does in a jail, without editing that file.
+`yolo host -p zai -- pi` starts pi on z.ai and `yolo host -p codex -- codex` starts Codex on your
+ChatGPT subscription; the next launch without `-p` is back on what your config picks. yolo hands
+the choice to the agent on its command line, or for opencode in `OPENCODE_CONFIG_CONTENT`, and the
+launch shows exactly what it added. An option of your own typed after the agent's name still wins.
+A command such as `yolo host -p zai -- pi update` or `-- oh-omp commit` runs as you typed it, with
+nothing added. If a profile cannot move the agent, such as `-p zai` for Codex, which does not speak
+z.ai's API, yolo says so and lists the profiles that can. `yolo host env -p` can carry the choice
+only for opencode; for the others it names the
+`yolo host -p` command that does. To change the provider an agent starts on every time, set
+`profile` for it in your config and run `yolo host apply`.
 
 opencode on your ChatGPT subscription (`yolo -p codex -- opencode`) shows the same models in
 `/models`, with the 1M-context variants as models of their own, and runs no other one there while
@@ -362,8 +412,8 @@ resume that was saved on another model continues on a different one, with pi say
 restore the model. That holds when you launch with no profile too. To use a model yolo does not
 list there, add it to `providers.openai-codex.models` in your config, or launch with a profile
 that sets `"enforce_models": false`. Under `yolo host`, pi reads both from a file
-`yolo host apply` writes for the profile your config's `profile` names for pi, and a `-p` on the
-launch does not change it, so make the change in your config and run `yolo host apply`.
+`yolo host apply` writes for the profile your config's `profile` names for pi, and a
+`yolo host -p` launch hands pi the list for its own profile instead, for that launch only.
 
 A model you pick with `/model` stays picked at the next launch on your ChatGPT subscription and on
 a list a pack narrowed with `only` (below), as long as the profile's `enforce_models` is on, which
@@ -394,7 +444,12 @@ agent allows it:
 | pi | exactly the list | refused |
 | oh-omp | exactly the list | a model typed with `--model` still runs |
 | Codex | on your ChatGPT subscription, exactly the list; on any other provider, its usual menu, starting on the list's default model | not refused |
-| Copilot | its usual menu, starting on the list's default model | not refused; whether it can show the whole list is still being decided |
+| Copilot | in a jail, the whole list, beside GitHub's own models when you are signed in to GitHub; at `yolo host`, the list's default model alone | not refused |
+
+Copilot shows a provider's whole list in a jail whenever the provider has one, narrowed or not.
+It cannot show the list alone: if you are signed in to GitHub with a Copilot plan, GitHub's models
+appear beside it, and a GitHub model you pick there is served by your GitHub account, not by the
+profile's provider. At `yolo host` Copilot starts on the list's default model and shows no list.
 
 When an agent reaches the provider through the wire bridge, the bridge refuses any other model
 too, whatever the agent's own menu allows: pi, opencode, oh-omp or codex on a profile with

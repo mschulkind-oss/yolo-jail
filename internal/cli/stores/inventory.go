@@ -16,6 +16,7 @@ import (
 
 	"github.com/mschulkind-oss/yolo-jail/internal/brokeraudit"
 	"github.com/mschulkind-oss/yolo-jail/internal/durable"
+	"github.com/mschulkind-oss/yolo-jail/internal/macosuser"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/prune"
 	"github.com/mschulkind-oss/yolo-jail/internal/richtext"
@@ -167,6 +168,9 @@ const (
 func Inventory(o Options) Report {
 	fillDefaults(&o)
 	rt := o.DetectRuntime()
+	// Asked ONCE: every collector below that reads the runtime reads this answer, so no two
+	// rows of one report can be about different runtimes.
+	o.DetectRuntime = func() string { return rt }
 	rep := Report{
 		GeneratedAt: o.Now().UTC(),
 		Frame:       "host",
@@ -187,7 +191,8 @@ func Inventory(o Options) Report {
 	rep.Stores = append(rep.Stores, scratchStores(o, rt)...)
 	rep.Stores = append(rep.Stores, toolDiskStores(o, rt)...)
 	rep.Stores = append(rep.Stores, durableStores(o, rt)...)
-	rep.Stores = append(rep.Stores, nixStores(o)...)
+	rep.Stores = append(rep.Stores, macosUserStores(o)...)
+	rep.Stores = append(rep.Stores, nixStores(o, rt)...)
 	return rep
 }
 
@@ -294,7 +299,7 @@ var stateReclaimers = map[string]Reclaimer{
 	// program's current and previous version, and `yolo host apply --assert` removes an entry no
 	// selected pack delivers (hostfloor.Floor.Reconcile) — so prune's reach is only what a killed
 	// install left, lock-gated.
-	"host-floor": {Func: "PruneHostFloor", Detail: "interrupted installs, lock-gated; each program keeps current + previous, deselected ones go at `yolo host apply --assert`", Trigger: "yolo prune --apply"},
+	"host-floor": {Func: "PruneHostFloor", Detail: "interrupted installs, lock-gated; each program keeps current + previous, deselected ones go at `yolo host apply --assert` under host_management \"own\", and by hand under \"none\" (`yolo check` names the command)", Trigger: "yolo prune --apply"},
 	// The model menus `yolo host --` hands the programs it runs (paths.HostModelMenusDir;
 	// docs/design/model-lists-and-pickers.md MM-D27). Self-bounded, collected by liveness: a launch
 	// that writes a new menu removes a program's others once no program holding one runs
@@ -306,7 +311,22 @@ var stateReclaimers = map[string]Reclaimer{
 	// one before (pruneHostTreeVersions), `yolo host apply --assert` removes a dropped extension's
 	// copies once no recorded link names them (sweepDroppedHostTrees), and `--revert` removes them
 	// all — so no sweep of prune's has anything to add, and a user deleting them leaves dangling links.
-	"host-trees": {Detail: "self-bounded: each patched extension keeps the build its link names and the one before; a dropped extension's copies go at `yolo host apply --assert`, all of them at `yolo host apply --revert`", Trigger: "yolo host apply --assert"},
+	"host-trees": {Detail: "self-bounded: each patched extension keeps the build its link names and the one before; a dropped extension's copies go at `yolo host apply --assert` under host_management \"own\", all of them at `yolo host apply --revert`", Trigger: "yolo host apply --assert"},
+}
+
+// macosUserContainerOnlyState names the state dir's children whose reclaimer is a pass
+// macos-user's own `yolo prune` prints as not applicable (internal/prune's
+// macosUserNotApplicable sections): the stopped-container pass, the interrupted image
+// deliveries (swept with the tarballs) and the image and prefix GC roots under build/. Each
+// value names the pass when the row's reclaimer is not all of it ("" is "this pass") and what
+// that runtime's prune still does in the dir ("" for nothing). On macos-user each row keeps its
+// reclaimer and verdict and names the container runtime's prune as its trigger
+// (onMacosUserContainerPass).
+var macosUserContainerOnlyState = map[string]struct{ pass, also string }{
+	"containers":     {},
+	"image-delivery": {},
+	"build": {"the passes that reap its image and prefix GC roots",
+		"its dangling out-links are swept by macos-user's `yolo prune --apply` too"},
 }
 
 // stateStores inventories the direct children of the state dir, one row each.
@@ -315,6 +335,7 @@ var stateReclaimers = map[string]Reclaimer{
 // walked a second time — the cache is the largest tree on the machine and
 // walking it twice would double this command's cost for a number it already has.
 func stateStores(o Options, cacheRows []Store) []Store {
+	rt := o.DetectRuntime()
 	root := o.GlobalStorage()
 	cacheLeaf := filepath.Base(o.GlobalCache())
 
@@ -418,6 +439,9 @@ func stateStores(o Options, cacheRows []Store) []Store {
 		default:
 			sizeStore(&s, s.Path, o)
 		}
+		if c, containerOnly := macosUserContainerOnlyState[name]; containerOnly && rt == macosUserRuntime {
+			onMacosUserContainerPass(&s, c.pass, c.also)
+		}
 		out = append(out, s)
 	}
 	if strayFiles > 0 {
@@ -497,6 +521,7 @@ func miseRow(s *Store, o Options) {
 // anything at all reclaims those gigabytes — is a per-subdir fact. Coverage is
 // read LIVE off prune's own exported lists, never re-typed here.
 func cacheStores(o Options) []Store {
+	rt := o.DetectRuntime()
 	root := o.GlobalCache()
 	covered := map[string]Reclaimer{}
 	// The post-launch slot purges this class too, but only on a HOST launch and
@@ -555,7 +580,7 @@ func cacheStores(o Options) []Store {
 			// The tar cache is its own reclaimer, and its keep is RUNTIME-RESOLVED
 			// since OQ-BF6 — asked here rather than hardcoded, so this row cannot
 			// disagree with the sweep that acts on it.
-			keep := prune.ResolveImageCacheKeep(prune.ImageCacheKeepUnset, o.DetectRuntime())
+			keep := prune.ResolveImageCacheKeep(prune.ImageCacheKeepUnset, rt)
 			s.Reclaimer = Reclaimer{
 				Func:    "PruneImageCache",
 				Detail:  fmt.Sprintf("keep %d", keep),
@@ -563,6 +588,14 @@ func cacheStores(o Options) []Store {
 			}
 			s.Verdict = VerdictYolo
 			s.Note = "one-shot image load artifacts; a running jail depends on the store closure, never on these"
+			if rt == macosUserRuntime {
+				// macos-user's prune runs no tar sweep, so there is no keep of its own to
+				// resolve: the keeps that apply are the container runtimes' that do run it.
+				s.Reclaimer.Detail = fmt.Sprintf("keep %d under the container runtime, %d under podman",
+					prune.ResolveImageCacheKeep(prune.ImageCacheKeepUnset, "container"),
+					prune.ResolveImageCacheKeep(prune.ImageCacheKeepUnset, "podman"))
+				onMacosUserContainerPass(&s, "", "")
+			}
 		}
 		sizeStore(&s, s.Path, o)
 		// NO PER-ROW NOTE for an uncovered subdir: the reclaimer column already
@@ -628,6 +661,9 @@ func imageStores(o Options, rt string) []Store {
 		return rows
 	}
 
+	if rt == macosUserRuntime {
+		return []Store{notApplicableOnMacosUser("images.macos-user", SectionImages, "images")}
+	}
 	if !slices.Contains(paths.SupportedRuntimes, rt) {
 		return setAll(SizingAbsent, "no container runtime on this notch")
 	}
@@ -713,6 +749,9 @@ func scratchStores(o Options, rt string) []Store {
 			rows[i].Sizing, rows[i].Reason, rows[i].CountLabel = sizing, reason, ""
 		}
 		return rows
+	}
+	if rt == macosUserRuntime {
+		return []Store{notApplicableOnMacosUser("volumes.macos-user", SectionVolumes, "scratch volumes")}
 	}
 	if !slices.Contains(paths.SupportedRuntimes, rt) {
 		return setAll(SizingAbsent, "no container runtime on this notch")
@@ -800,11 +839,28 @@ var nixOutputClasses = []nixOutputClass{
 // host's with the gcroots dir unmounted, so a jail cannot tell rooted from
 // unrooted. A row that claimed a reclaimer an in-jail yolo will never run would
 // be exactly the kind of unchecked claim this command exists to replace.
-func storeOutputReclaimer(inJail bool) (Reclaimer, Verdict, string) {
+//
+// IT IS RUNTIME-DEPENDENT TOO. The pass asks a container runtime which prefix each
+// running jail executes, so on macos-user, which runs no container, `yolo prune`
+// prints it as not applicable and a launch runs no post-launch slot at all. The
+// reclaimer is still yolo's, run by a container runtime on the same Mac, so the
+// row names that runtime as its trigger instead of the macos-user prune that
+// declines it.
+func storeOutputReclaimer(inJail bool, rt string) (Reclaimer, Verdict, string) {
 	if inJail {
 		return Reclaimer{Detail: "host-only — an in-jail yolo cannot tell rooted from unrooted"},
 			VerdictHuman,
 			"a HOST yolo reclaims these; from in here nothing does"
+	}
+	if rt == macosUserRuntime {
+		return Reclaimer{
+				Func:   "SupersededStoreOutputs",
+				Detail: "unrooted only, by name; under a container runtime only",
+				Trigger: "a container launch's post-launch slot (24h) + " +
+					"`YOLO_RUNTIME=container yolo prune --apply` (or YOLO_RUNTIME=podman)",
+			}, VerdictYolo,
+			"macos-user's launches and its `yolo prune` never run this pass; a container runtime on " +
+				"this Mac does, and with none, nothing does"
 	}
 	return Reclaimer{
 		Func:    "SupersededStoreOutputs",
@@ -821,7 +877,7 @@ func storeOutputReclaimer(inJail bool) (Reclaimer, Verdict, string) {
 // build on the machine is exactly what §5.5 forbids, and it is why the rooted /
 // unrooted split the design reports is absent here and said to be absent rather
 // than guessed.
-func nixStores(o Options) []Store {
+func nixStores(o Options, rt string) []Store {
 	entries, err := os.ReadDir(o.NixStore)
 	if err != nil {
 		var out []Store
@@ -857,7 +913,7 @@ func nixStores(o Options) []Store {
 		reclaimer := Reclaimer{Detail: "nix store gc only, which nothing runs on its own"}
 		verdict, extra := VerdictHuman, ""
 		if c.reaped {
-			reclaimer, verdict, extra = storeOutputReclaimer(o.InJail())
+			reclaimer, verdict, extra = storeOutputReclaimer(o.InJail(), rt)
 		}
 		note := c.note
 		if extra != "" {
@@ -1007,4 +1063,239 @@ func durableStores(o Options, rt string) []Store {
 func shortHash(s string) string {
 	sum := sha256.Sum256([]byte(s))
 	return hex.EncodeToString(sum[:])[:16]
+}
+
+// macosUserRuntime is the native macOS backend's runtime name, which names no container runtime.
+const macosUserRuntime = "macos-user"
+
+// macosUserContainerTrigger is the trigger a row names on macos-user when its reclaimer is a pass
+// that runtime's own `yolo prune` prints as not applicable: the prune of a container runtime on the
+// same Mac, which does run it.
+const macosUserContainerTrigger = "`YOLO_RUNTIME=container yolo prune --apply` (or YOLO_RUNTIME=podman)"
+
+// onMacosUserContainerPass rewrites, for macos-user, a row whose reclaimer is a container
+// runtime's pass. The reclaimer and the yolo verdict stay, because a container runtime on this Mac
+// runs the pass; the trigger becomes that runtime's prune, and the note says macos-user's own does
+// not run pass ("" is "this pass"), plus also, what that prune still does in the dir ("" for
+// nothing).
+//
+// WITHOUT THIS THE ROW CLAIMS A SWEEP THAT NEVER COMES: on macos-user `yolo prune` prints these
+// sections as not applicable and runs nothing in them, so a row naming the plain
+// `yolo prune --apply` would send the user to a command that leaves the bytes where they are.
+func onMacosUserContainerPass(s *Store, pass, also string) {
+	if pass == "" {
+		pass = "this pass"
+	}
+	s.Reclaimer.Trigger = macosUserContainerTrigger
+	note := "macos-user's `yolo prune` does not run " + pass + "; the prune of a container runtime " +
+		"on this Mac does, and with none, nothing does"
+	if also != "" {
+		note += "; " + also
+	}
+	if s.Note != "" {
+		note = s.Note + " — " + note
+	}
+	s.Note = note
+}
+
+// notApplicableOnMacosUser is the one row a container-only section gets on macos-user: that
+// backend runs no containers or images, so there is nothing to list, and a container runtime on
+// the same Mac is listed by naming it. Absent, never unknown: nothing was asked and failed.
+func notApplicableOnMacosUser(key, section, what string) Store {
+	return Store{
+		Key: key, Section: section, Name: "(not applicable)", Path: "macos-user",
+		Sizing:    SizingAbsent,
+		Reason:    "not applicable on macos-user, which runs no containers or images",
+		Reclaimer: none(), Verdict: VerdictYolo,
+		Note: "a container runtime's " + what + " on this Mac are listed by " +
+			"`YOLO_RUNTIME=container yolo stores` (or YOLO_RUNTIME=podman)",
+	}
+}
+
+// SectionMacosUser is the macos-user backend's own storage outside the state dir: the root-owned
+// dir every launch stages its copies into, and the sandbox account's machine-tier stores.
+const SectionMacosUser = "macos-user sandbox account"
+
+// macosUserStores inventories that storage, one row per child of the root-owned state dir and one
+// per machine-tier store of the sandbox home. NOTHING IN YOLO RECLAIMS ANY OF IT, so every row is
+// the user's to decide about and its note says how.
+//
+// IT RUNS NO sudo. The state dir is root-owned and world-readable except env/, which is 0700 and
+// reads as unknown, naming the `sudo du -sh` that measures it; a figure this command could only
+// get as root is not one it may obtain on its own. The sandbox home is read as the host user,
+// who is in the sandbox account's group, and ONLY the named stores are walked: the whole home is
+// not this command's to walk (its other directories are links into each workspace, and macOS
+// guards a home's contents with TCC prompts).
+//
+// Neither root on a Mac is one absent row naming `yolo macos-setup`; not a Mac is no rows.
+func macosUserStores(o Options) []Store {
+	stateDir, home, ok := o.MacosUser()
+	if !ok {
+		return nil
+	}
+	state, stateExists := macosUserStateRows(o, stateDir)
+	homeRows, homeExists := macosUserHomeRows(o, home)
+	if !stateExists && !homeExists {
+		return []Store{{
+			Key: "macos.absent", Section: SectionMacosUser, Name: "(no sandbox account)", Path: stateDir,
+			Sizing: SizingAbsent, Reclaimer: none(), Verdict: VerdictHuman,
+			Note: "neither " + stateDir + " nor " + home + " exists, so this Mac has no macos-user " +
+				"backend set up; `yolo macos-setup` creates the account it runs as",
+		}}
+	}
+	return append(state, homeRows...)
+}
+
+// macosUserPerWorkspaceLeaves are the state dir's children that hold one copy per workspace,
+// keyed by the workspace's container name: what each copy is, and the command that removes one
+// workspace's copy, spelled from the same internal/macosuser functions that build the paths a
+// launch writes.
+//
+// THE REMOVAL NAMES EACH PATH LITERALLY, NEVER A GLOB. The user's own shell expands a glob before
+// sudo runs, and env/ is a dir only root can list (SandboxEnvDirCommands makes it 0700), so a
+// pattern there matches nothing: zsh, macOS's default shell, refuses with "no matches found", and
+// bash hands rm the literal pattern, which -f then ignores with exit 0.
+var macosUserPerWorkspaceLeaves = map[string]struct {
+	what string
+	// perDir says each workspace's copy is one dir, so the child's entries count workspaces.
+	perDir bool
+	remove func(stateDir string) string
+}{
+	"packs": {"each workspace's staged pack tree", true, func(sd string) string {
+		return "sudo rm -rf " + macosuser.StagedPackRoot(cnamePlaceholder, sd)
+	}},
+	"home-overlay": {"each workspace's staged skills and briefings", true, func(sd string) string {
+		return "sudo rm -rf " + macosuser.StagedHomeOverlay(cnamePlaceholder, sd)
+	}},
+	"ctx": {"each workspace's staged context tree (its /ctx)", true, func(sd string) string {
+		return "sudo rm -rf " + macosuser.StagedCtxRoot(cnamePlaceholder, sd)
+	}},
+	"env": {"each workspace's session environment files", false, func(sd string) string {
+		return "sudo rm -f " + macosuser.SandboxEnvFile(cnamePlaceholder, sd) + " " +
+			macosuser.SandboxDaemonEnvFile(cnamePlaceholder, sd)
+	}},
+}
+
+// cnamePlaceholder stands for a workspace's container name in a command a note prints.
+const cnamePlaceholder = "<cname>"
+
+// macosUserStateRows is one row per child of the root-owned state dir, plus one for its loose
+// files (the per-workspace Seatbelt profiles). exists is false only when the dir is absent.
+func macosUserStateRows(o Options, stateDir string) (rows []Store, exists bool) {
+	entries, err := os.ReadDir(stateDir)
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil, false
+	}
+	teardown := "`yolo macos-teardown` does not remove it"
+	if err != nil {
+		s := Store{Key: "macos.state", Section: SectionMacosUser, Name: stateDir, Path: stateDir,
+			Sizing: SizingUnknown, Reason: err.Error(), Reclaimer: none(), Verdict: VerdictHuman,
+			Note: "the root-owned dir every macos-user launch stages into; " + sudoDu(stateDir)}
+		return []Store{s}, true
+	}
+	var loose int64
+	var looseFiles, profiles int
+	for _, e := range entries {
+		info, err := e.Info()
+		if err != nil || info.Mode()&os.ModeSymlink != 0 {
+			continue
+		}
+		name := e.Name()
+		if !info.IsDir() {
+			loose += info.Size()
+			looseFiles++
+			if strings.HasPrefix(name, "profile-") && strings.HasSuffix(name, ".sb") {
+				profiles++
+			}
+			continue
+		}
+		path := filepath.Join(stateDir, name)
+		s := Store{Key: "macos.state." + name, Section: SectionMacosUser, Name: path + "/", Path: path,
+			Verdict: VerdictHuman}
+		sizeRootOwned(&s, path, o)
+		leaf, perWorkspace := macosUserPerWorkspaceLeaves[name]
+		switch {
+		case perWorkspace:
+			s.Reclaimer = Reclaimer{Detail: "a launch replaces its own workspace's copy; nothing removes another's"}
+			if n, ok := countEntries(path); ok && leaf.perDir {
+				s.Count, s.CountLabel = n, "workspaces"
+			}
+			s.Note = leaf.what + ", root-owned and replaced in place by that workspace's next launch. A " +
+				"workspace you no longer launch keeps its copy until you remove it: " +
+				"`" + leaf.remove(stateDir) + "`; " + teardown
+		case name == "bin":
+			s.Reclaimer = Reclaimer{Detail: "every launch replaces it"}
+			s.Note = "the staged yolo binary and the sandbox's own yolo binaries, one copy for the " +
+				"machine that every launch replaces; " + teardown
+		default:
+			s.Reclaimer = none()
+			s.Note = "root-owned, under the dir every macos-user launch stages into; " + teardown
+		}
+		if s.Sizing == SizingUnknown {
+			s.Note += ". " + sudoDu(path)
+		}
+		rows = append(rows, s)
+	}
+	if looseFiles > 0 {
+		rows = append(rows, Store{
+			Key: "macos.state._files", Section: SectionMacosUser, Name: stateDir + "/ (loose files)", Path: stateDir,
+			Sizing: SizingMeasured, Bytes: loose, Files: looseFiles, Count: profiles, CountLabel: "profiles",
+			Reclaimer: Reclaimer{Detail: "a launch rewrites its own workspace's profile"}, Verdict: VerdictHuman,
+			Note: "the per-workspace Seatbelt profiles (profile-<cname>.sb), one per workspace launched; " +
+				"a workspace you no longer launch keeps its own until you remove it: `sudo rm " +
+				filepath.Join(stateDir, "profile-<cname>.sb") + "`; " + teardown,
+		})
+	}
+	return rows, true
+}
+
+// macosUserHomeRows is the sandbox home's two machine-tier stores, the only parts of that home
+// this command walks. exists is false only when the home itself is absent.
+func macosUserHomeRows(o Options, home string) (rows []Store, exists bool) {
+	if _, err := os.Lstat(home); errors.Is(err, fs.ErrNotExist) {
+		return nil, false
+	}
+	teardown := "`yolo macos-teardown` deletes it with the account's home"
+	for _, h := range []struct{ key, path, note string }{
+		{"macos.home.mise", macosuser.SandboxMiseData(home),
+			"the sandbox account's mise tool store, shared by every macos-user workspace; nothing in yolo prunes it, and " + teardown},
+		{"macos.home.cache", filepath.Join(home, ".cache"),
+			"the sandbox account's ~/.cache, shared by every macos-user workspace; the cache purge covers yolo's own " +
+				"cache/, not this, and " + teardown},
+	} {
+		s := Store{Key: h.key, Section: SectionMacosUser, Name: h.path, Path: h.path,
+			Reclaimer: none(), Verdict: VerdictHuman, Note: h.note}
+		sizeRootOwned(&s, h.path, o)
+		if s.Sizing == SizingUnknown {
+			s.Note += ". " + sudoDu(h.path)
+		}
+		rows = append(rows, s)
+	}
+	return rows, true
+}
+
+// sizeRootOwned is sizeStore for a tree this user may not be able to read: a walk that could
+// read NOTHING (its root refused, so no file and no byte was counted) is UNKNOWN, not "≥ 0 B",
+// which is a lower bound with no information in it wearing a figure's clothes.
+func sizeRootOwned(s *Store, root string, o Options) {
+	sizeStore(s, root, o)
+	if s.Sizing == SizingPartial && s.Files == 0 && s.Bytes == 0 && s.Unreadable > 0 {
+		s.Sizing = SizingUnknown
+		s.Reason = "not readable as this user"
+	}
+}
+
+// sudoDu is the sentence an unreadable root-owned row ends with: the one command that measures
+// it, which this command does not run.
+func sudoDu(path string) string {
+	return "`sudo du -sh " + path + "` measures it; this command runs no sudo"
+}
+
+// countEntries counts a directory's children, false when it cannot be read.
+func countEntries(dir string) (int, bool) {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return 0, false
+	}
+	return len(entries), true
 }

@@ -2,11 +2,13 @@ package entrypoint
 
 import (
 	"encoding/json"
-	"github.com/mschulkind-oss/yolo-jail/internal/render"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/mschulkind-oss/yolo-jail/internal/packload"
+	"github.com/mschulkind-oss/yolo-jail/internal/render"
 )
 
 // The SHIPPED claude pack, rendered at the host notch, must NOT write the jail-bypass
@@ -20,8 +22,8 @@ func TestHostRenderClaudeDropsBypass(t *testing.T) {
 	}
 	home := t.TempDir()
 
-	// write=true (assert) so the file actually lands, then inspect it.
-	results, rerr := RenderHostPack(claude, home, render.OwnershipAssert, false, nil, nil)
+	// observe=false (the --assert posture) so the file actually lands, then inspect it.
+	results, rerr := RenderHostPack(claude, home, render.OwnershipOwn, false, nil, nil)
 	if rerr != nil {
 		t.Fatalf("RenderHostPack: %v", rerr)
 	}
@@ -101,7 +103,7 @@ func TestHostRenderAllAgentsGuarded(t *testing.T) {
 			t.Fatalf("embedded %s: %v", agentName, err)
 		}
 		home := t.TempDir()
-		if _, rerr := RenderHostPack(p, home, render.OwnershipAssert, false, nil, nil); rerr != nil {
+		if _, rerr := RenderHostPack(p, home, render.OwnershipOwn, false, nil, nil); rerr != nil {
 			t.Fatalf("RenderHostPack %s: %v", agentName, rerr)
 		}
 		data, err := os.ReadFile(filepath.Join(home, rel))
@@ -137,7 +139,7 @@ func TestHostRenderReportsOverwrites(t *testing.T) {
 		t.Fatalf("embedded claude: %v", err)
 	}
 	// Observe: must report the overwrite BEFORE writing anything.
-	results, rerr := RenderHostPack(claude, home, render.OwnershipAssert, true, nil, nil)
+	results, rerr := RenderHostPack(claude, home, render.OwnershipOwn, true, nil, nil)
 	if rerr != nil {
 		t.Fatalf("RenderHostPack observe: %v", rerr)
 	}
@@ -164,17 +166,41 @@ func TestHostRenderReportsOverwrites(t *testing.T) {
 		t.Errorf("observe must not write — the user's defaultMode should still be 'plan':\n%s", after)
 	}
 
-	// A file that already matches the managed value reports NO overwrite (idempotent).
-	if err := os.WriteFile(settings,
-		[]byte(`{"permissions":{"defaultMode":"default"},`+
-			`"skipDangerousModePermissionPrompt":false}`), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	results, _ = RenderHostPack(claude, home, render.OwnershipAssert, true, nil, nil)
-	for _, r := range results {
-		if r.Surface == "claude/settings" && len(r.Overwrites) > 0 {
-			t.Errorf("an identical value must not be reported as an overwrite: %v", r.Overwrites)
-		}
+	// A file that already matches the managed value reports NO overwrite (idempotent), through
+	// both mechanisms an owned host runs — claude/settings as shipped (`stateful`) and re-declared
+	// `rmw`. Each suppresses an identical value its own way: the rmw arm's report is the
+	// declaration read against the file (managedOverwrites), and `stateful` re-measures it against
+	// its composed write (hostStatefulOverwrites), so the shipped declaration alone left the rmw
+	// arm's suppression with no test.
+	for _, m := range hostMechanisms {
+		t.Run("identical/"+m.name, func(t *testing.T) {
+			if err := os.WriteFile(settings,
+				[]byte(`{"permissions":{"defaultMode":"default"},`+
+					`"skipDangerousModePermissionPrompt":false}`), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			p := declaredRMW(t, []*packload.Pack{claude}, "claude", m.rmw)[0]
+			results, err := RenderHostPack(p, home, render.OwnershipOwn, true, nil, nil)
+			if err != nil {
+				t.Fatalf("RenderHostPack observe: %v", err)
+			}
+			seen := false
+			for _, r := range results {
+				if r.Surface != "claude/settings" {
+					continue
+				}
+				seen = true
+				if strings.HasPrefix(r.Action, "refused") {
+					t.Fatalf("claude/settings: %q", r.Action)
+				}
+				if len(r.Overwrites) > 0 {
+					t.Errorf("an identical value must not be reported as an overwrite: %v", r.Overwrites)
+				}
+			}
+			if !seen {
+				t.Fatalf("no claude/settings result: %+v", results)
+			}
+		})
 	}
 }
 
@@ -182,8 +208,9 @@ func TestHostRenderReportsOverwrites(t *testing.T) {
 // its `config` into the real home's files: on the pack's own surface as managed keys, and on
 // another pack's as a posture overlay. In both, an array replaces the file's array whole (RFC
 // 7386). In a user's own config file that empties or overwrites the user's list at every apply:
-// a managed key under both `assert` and `own`, a posture overlay under `assert` (under `own` the
-// user's captured list outranks an overlay). That is what claude's guarded
+// a managed key through either of an owned host's mechanisms, a posture overlay through rmw — a
+// surface its pack declares `rmw`, as every surface was under the retired `assert` (composing
+// `stateful`, the user's captured list outranks an overlay). That is what claude's guarded
 // `permissions.additionalDirectories: []` did until it was removed. A pack that wants an entry in a host list declares a posture `lists` entry, which
 // appends and keeps the user's own entries (docs/reference/pack-system.md#autonomy).
 //
@@ -201,7 +228,7 @@ func TestNoShippedHostPostureReplacesAList(t *testing.T) {
 		case []any:
 			t.Errorf("pack %s's host posture sets the array %s = %v, which replaces the user's "+
 				"own list in their real config file at every `yolo host apply` (on the pack's own "+
-				"surface always, as a posture overlay under `assert`). Add entries with a posture "+
+				"surface always, as a posture overlay on one declaring `rmw`). Add entries with a posture "+
 				"`lists` entry, or leave the key to the user.", pack, at, x)
 		case map[string]any:
 			for k, sub := range x {

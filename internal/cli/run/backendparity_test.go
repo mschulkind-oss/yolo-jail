@@ -9,6 +9,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
+	"github.com/mschulkind-oss/yolo-jail/internal/macosuser"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/setupcensus"
 )
@@ -392,16 +394,16 @@ func sortedDispositions() []string {
 // HERE, beside the value, means a backend whose answer changes has to change this table, and
 // a backend added to paths.SupportedRuntimes later has no row and fails.
 //
-// ⚠ ITS SCOPE IS THE CONTAINER BACKENDS, and that is a real hole, not a formality. The
-// variable is emitted while ASSEMBLING A CONTAINER ARGV (jailLoopbackEnvArgs, called from
-// assemble.go), and run.go's macos-user arm returns before an argv is ever built — so that
-// backend emits no disposition at all and there is nothing here to pin. This test iterates
-// paths.SupportedRuntimes rather than paths.AllRuntimes for exactly that reason: a
-// macos-user row could only be satisfied by a fixture pretending that backend builds a
-// container argv, which would assert a code path no launch takes. What follows is the honest
-// statement of the gap: a NATIVE backend that grows a jail-facing service, and therefore a
-// disposition to carry, is not covered by anything here, and adding it needs a fixture over
-// that backend's own plan (internal/macosuser) rather than a row in this table.
+// THE CONTAINER ROWS AND THE NATIVE ONE ARE READ FROM DIFFERENT PLACES, because the variable
+// is. For a container backend it is emitted while ASSEMBLING A CONTAINER ARGV
+// (jailLoopbackEnvArgs, called from assemble.go), so the loop below iterates
+// paths.SupportedRuntimes over jailEnvForRuntime. run.go's macos-user arm returns before an
+// argv is ever built, and that backend's disposition is written by its own plan builder into
+// the session env file (macosuser.BuildRunPlanWithDaemons), where its confined witness reads it
+// (macosuser.ProbeServicesArgv). So each paths.NativeRuntimes entry gets a case over THAT
+// backend's own plan, never a fixture pretending it builds a container argv: the plan's env file
+// must say `shared`, and sharesLauncherNetns, which decides what its daemons advertise, must
+// agree, since the two parting is the pair-drift hazard loopholesruntime.go describes.
 //
 // ⚠ IT PINS THE SPELLING, NOT THE JUDGEMENT. That `unknown` is the right answer for Apple
 // Container is an open question — OQ-BP-4 in docs/design/backend-parity.md asks whether the
@@ -471,6 +473,32 @@ func TestEveryBackendDeclaresALoopbackDisposition(t *testing.T) {
 				t.Errorf("%s declares %d allowed dispositions and no real reason for the "+
 					"width. A wide set asserts almost nothing; say what about the host moves "+
 					"it, or narrow it.", rt, len(w.allowed))
+			}
+		})
+	}
+
+	// THE NATIVE BACKENDS, over their own plan (see above). A native runtime added to
+	// paths.NativeRuntimes with no case here fails.
+	for _, rt := range paths.NativeRuntimes {
+		t.Run(rt, func(t *testing.T) {
+			if rt != "macos-user" {
+				t.Fatalf("%s is a native runtime with no plan fixture here; add one over its own "+
+					"plan builder, saying what it tells the witness", rt)
+			}
+			plan := macosuser.BuildRunPlan("/Users/Shared/yolo/proj", jsonx.NewOrderedMap(),
+				[]string{"claude"}, []string{"claude"}, "/opt/yolo/bin/yolo", "",
+				macosuser.HomeOverlay{}, macosuser.HostContext{}, jsonx.NewOrderedMap(), nil, nil)
+			if !macosuser.SandboxEnvFileSets(plan.EnvFileContent, paths.HostLoopbackEnvVar,
+				paths.HostLoopbackShared) {
+				t.Errorf("the macos-user plan's session env file does not export %s=%s, so its "+
+					"witness reads the disposition as unattributed and never refuses a launch "+
+					"whose host service the sandbox cannot use (OQ-R5). It sets:\n%s",
+					paths.HostLoopbackEnvVar, paths.HostLoopbackShared, plan.EnvFileContent)
+			}
+			if !sharesLauncherNetns(rt, "", false) || !sharesLauncherNetns(rt, "bridge", false) {
+				t.Errorf("sharesLauncherNetns(%q) is false while the plan says %s: its daemons "+
+					"would advertise a gateway name the sandbox's witness then refuses", rt,
+					paths.HostLoopbackShared)
 			}
 		})
 	}

@@ -334,23 +334,41 @@ this backend runs them the way a container does, in the sandbox:
   `bedrock` credential URI) names the same port.
 - **What is declined, by name.** One `Declined:` header, then each declined daemon on its own
   line with its reason (`loopholes.JailDaemonsRunIn`, the one split the launch's served set,
-  `yolo check`'s prediction and the decline printer all read; [JD-3](#jd-3)). Four shapes are
+  `yolo check`'s prediction and the decline printer all read; [JD-3](#jd-3)). These shapes are
   declined:
   - an **intercepting** loophole's daemon (the Claude OAuth terminator), which needs a
     container's `--add-host` and port 443 ([below](#the-oauth-terminator-stays-declined));
-  - a **pack service's** daemon (the wire bridge), whose host half runs instead, as a
-    launch-owned child ([JD-4](../design/jail-daemon-on-macos-user-plan.md#JD-4) is a
-    maintainer follow-up on whether that should change);
+  - a **pack service's** daemon whose admitted host half serves the service's adaptation
+    instead (the wire bridge), as a launch-owned child
+    ([JD-4](../design/jail-daemon-on-macos-user-plan.md#JD-4) is a maintainer follow-up on
+    whether that should change), and a pack service's daemon that publishes an endpoint file,
+    whose path, under `/run/yolo-services`, has no sandbox counterpart. Every other pack
+    service's daemon runs in the sandbox, a service whose host half the launch refuses
+    included, which the launch says on a `Not started outside the sandbox:` line
+    ([JD-9](../design/jail-daemon-on-macos-user-plan.md#JD-9));
   - a **doorway**: a daemon that also declares a host argv (`jail_daemon.host_cmd`), which opens
     outside the sandbox for this launch instead, as a listener the launch owns on the Mac's
     loopback the agent shares ([HS-D15](../design/host-notch-services.md#HS-D15)). Both shipped
     credential adapters, the OpenAI refresh adapter and the AWS credential adapter, are doorways
     since 2026-09-29, so no shipped pack hands the sandbox a daemon today, and the supervisor
     runs only for a pack that declares a jail daemon without a host argv;
-  - a command naming a path that exists only in a container: the loophole folder
-    `{jail_loophole_dir}` resolves to, or a jail binary's container path. The argv is left as
-    declared rather than rewritten ([OQ-DP8](../design/declaration-parity.md#OQ-DP8)), so
-    `hello-daemon` is declined.
+  - a program in the loophole's folder that is a **Linux executable** (its first bytes are ELF
+    magic): `{jail_loophole_dir}` resolves here to the folder's place in the sandbox's
+    root-owned copy of the staged packs, under `/var/yolo-jail/packs/<cname>/`, so a script or
+    a macOS program the pack ships runs, `hello-daemon` included
+    ([JD-10](../design/jail-daemon-on-macos-user-plan.md#JD-10)). ⚠ Unlike a container's
+    per-launch pack tree, that copy is one per workspace and each launch of the workspace
+    replaces it, so a second session swaps the folder under the first session's running
+    daemon, whose next restart runs the newer copy (JD-10 names the follow-up, a per-launch
+    copy);
+  - a command naming a path that exists only in a container: a jail binary's container path
+    (`{jail_binary:<name>}`, deferred by
+    [BP-D6](../design/broker-as-a-pack.md#BP-D6)), or a loophole folder the launch did not
+    stage.
+
+  Each line for a daemon that then runs nowhere (an endpoint publisher, a Linux executable, a
+  container path) ends with the next step: a container runtime runs it, `YOLO_RUNTIME=podman` or
+  `YOLO_RUNTIME=container` for one launch.
 
 **Starting and stopping the supervisor.** The launch starts it with `sudo -n`, which fails rather
 than prompting beside the agent's terminal, in a process group of its own, and stops it with
@@ -372,7 +390,7 @@ bound for that line in the part of the log this start added:
 **The boundary is the token files.** There is no network isolation here, so a caller proves it
 belongs to this launch with the launch's per-launch caller token
 ([NC-D2](../plans/notch-convergence.md#7-decision-ledger)). The supervisor reads every token its
-daemons demand from its own file, `/var/yolo-jail/env/<session>.daemons.env`: root-owned, mode
+daemons demand from its own file, `/var/yolo-jail/env/<session>.daemons.env` (`<session>` is [the session key](macos-user-provisioning.md#the-session-key), so each terminal's supervisor reads its own): root-owned, mode
 `0600`, in a `0700` directory, with one `user:_yolojail` ACE granting read (and search on the
 directory), installed like the session's env file and swept after the supervisor stops
 ([JD-5](#jd-5)). Not a `group:` ACE, because the `_yolojail` group holds the host user too. The
@@ -487,15 +505,22 @@ A whole class of container features has no attachment point.
 - **`writable_home_dirs`** — **not applicable.** The knob carves writable subpaths out of an
   otherwise-read-only home mount; here the home is natively writable, so the concept has no
   target.
-- **`cache_relocations`** — **structurally impossible, and warned.** Relocation moves a cache
-  subdirectory onto other storage *by bind-mounting it in*. There is no mount, so a configured
-  relocation prints a per-key warning naming the subdirectories that stay put.
+- **`cache_relocations`** — **delivered by link, since 2026-10-05, unmeasured on a Mac.** There
+  is no mount, so a user-scope entry becomes a link the bootstrap lays at the sandbox home's
+  `~/.cache/<subdir>` to the target, and the Seatbelt profile opens the target read and write
+  after its `/Volumes` and `/Users` read denies. The target may be on another volume; it may not
+  be in a home, the workspace or a context source. A DAC preflight before the nix build and one
+  write under the session profile refuse a target the sandbox account cannot use, naming
+  `yolo macos-fix-permissions`. Only `~/.cache` moves: a tool caching under `~/Library/Caches`
+  keeps its cache in the sandbox home ([`cache-relocation.md`](../plans/cache-relocation.md#macos-user-a-link-plus-seatbelt-rules)).
 - **`per_side_paths`** — **structurally impossible, and warned.** It gives the host and the
   sandbox *different contents at the same path*, which is a mount-namespace capability.
-  Seatbelt can deny a path; it cannot fork one. This matters more than it looks, because a
-  common dependency directory is in the default shadow set on the container backends — so
-  every such workspace gets a protection here that is absent, with nothing in the config
-  hinting at the difference.
+  Seatbelt can deny a path; it cannot fork one. This matters more than it looks, because
+  `node_modules` and `.venv` are in the default shadow set on the container backends — so the
+  warning names every user entry AND each default the workspace uses (the path or its manifest
+  exists), not only what the config lists. uv is the one tool redirected:
+  `UV_PROJECT_ENVIRONMENT=.venv-macos-user`, relative to each project root, under any value the
+  user's own env layers set.
 - **config `mounts` and a pack `mount`** — **delivered by link, from outside every home.** Each
   is a root-owned symbolic link in `$YOLO_CONTEXT_DIR` to the host folder itself, the Seatbelt
   profile decides access to the folder, and a check run as the sandbox account confirms it can
@@ -535,10 +560,14 @@ A whole class of container features has no attachment point.
 
 ### No cgroups, and no VM to size
 
-**`resources`** (cpu, memory, pids) is **not enforced, and warned.**
+**`resources`** has no cgroup to write, so each key does what macOS allows (2026-10-04): `io` sets
+the session's process disk policy ([`io-priority.md` §5.5](../design/io-priority.md#55-macos-user-the-second-step)),
+`cpus` sets four parallelism defaults cooperatively, `memory` is a sampled guard inside the
+sandbox that stops the largest process, and `pids_limit` is **not enforced, and warned**
+([`declaration-parity.md` DP-I8, DP-I9 and OQ-DP10](../design/declaration-parity.md#decision-ledger)).
 
 > [!WARNING]
-> **A fix is refused, not pending, and rlimits are the trap.** `RLIMIT_AS` is **address space,
+> **An rlimit fix is refused, not pending, and rlimits are the trap.** `RLIMIT_AS` is **address space,
 > not RSS**, so it is not what a memory cap means — capping it breaks JITs and the Go runtime,
 > both of which reserve far more virtual address space than they ever fault in. `RLIMIT_NPROC`
 > is **per-user, not per-process-tree**, so on this backend it would collide across concurrent
@@ -550,10 +579,16 @@ A whole class of container features has no attachment point.
 ### Networking, devices, GPU
 
 A native process runs on the host's real network, so the **network modes** have no namespace
-to switch and are not applied, and a host service is reachable directly. **Port forwarding**
-lives in the container launch path this backend returns before. **GPU** is unavailable on every
-macOS backend (Metal, no CUDA or ROCm), and **devices** and cgroup rules are Linux kernel
-features.
+to switch and are not applied, and a host service is reachable directly. **Port forwarding**'s
+container mechanism (`-p`, the host socat) lives in the launch path this backend returns before;
+here a remap in either port key is carried by a TCP relay the launch opens outside the sandbox
+when the session starts and closes with the command, and a same-port entry needs nothing
+([`declaration-parity.md` DP-I14](../design/declaration-parity.md#DP-I14), unmeasured on a Mac). **GPU** is unavailable on every
+macOS backend (Metal, no CUDA or ROCm). **Devices**: there is nothing to pass through, since the
+sandbox opens a `/dev` node under ordinary permissions, but the profile refuses `ioctl` on all but
+terminals, so a `devices` entry naming a `/dev` node re-allows that node's ioctls and is disclosed
+at launch; raw disks and bpf stay denied (unmeasured on a Mac). `usb:` and cgroup rules are Linux
+kernel features and are warned as not read.
 
 ### Loopholes: mostly moot, and the framework ports better
 
@@ -571,13 +606,18 @@ publishes each endpoint and ACL-grants it to the sandbox account. Measured: a ba
 OpenAI loophole is active and whose broker did not start is refused. Each session publishes into
 a host-services directory of its own and removes only that one, so a second terminal in the same
 workspace neither replaces the first's endpoints nor removes them when it exits
-([`HSD-4`](jail-home.md#why-its-this-way)).
+([`HSD-4`](jail-home.md#why-its-this-way)). Since 2026-10-05 one keeper per workspace holds the
+fronts, doorways and launch-owned services for every macos-user session of it, in one
+host-services directory, and stops them when the last session ends; a launch that plans none of
+them starts no keeper and runs as before
+([JL-D86](../design/jail-lifetime-last-session-wins.md#JL-D86),
+[JL-D42](../design/jail-lifetime-last-session-wins.md#JL-D42)).
 
 **The JAIL half runs too**, in the sandbox ([above](#the-jail-daemons-run-in-the-sandbox)), except
 the jail daemons it declines by name. The launch says both things: one `Declined:` line per
 declined jail daemon, and — on the
 **platform** axis only — one line per loophole this machine cannot run at all (`audio`,
-`journal`, `host-processes` and `cgroup-delegate` declare `platforms: ["linux"]`). The
+`journal` and `cgroup-delegate` declare `platforms: ["linux"]`). The
 **briefing** is gated on the backend too, so it does not advertise these under a heading
 reading "host capabilities wired into this jail".
 
@@ -594,12 +634,19 @@ has no boundary to punch:
 - **Host audio** is **moot**. The loophole bind-mounts host sound sockets and a device into a
   Linux container; a native process reaches the host's audio directly, subject to the Seatbelt
   profile and the OS privacy prompts.
-- **The host-process view** is **moot, and if anything the native side is *less* restricted.**
-  The loophole exists to give a *contained* jail an allowlisted read-only window via a daemon;
-  a native process sees host processes directly, because the profile grants process info. The
-  flip side matters: the visibility allowlist is a container-only control, so here the agent
-  sees the **full** host process table. That is a widening of the surface, not a missing
-  feature.
+- **The host-process view** runs here, and it is the same feature as in a container. The
+  sandbox lists host processes on its own, but the profile denies it another process's
+  command line (`seatbelt.go`'s `cross-process-procargs-deny`), so the loophole's allowlisted
+  window, args included, is exactly what the agent lacks. The host daemon has a BSD-ps arm
+  (`internal/hostprocesses`), and the launch stages `yolo-ps` into the sandbox whenever the
+  loophole's endpoint is published (`macosuser.GuestClients`). Unmeasured on a Mac:
+  `TestMacosUserYoloPsListsAnAllowlistedHostProcess`.
+- **The serial bridge** runs here. The host daemon opens the device on the Mac, and the
+  launch stages `yolo-serial` into the sandbox whenever the loophole's endpoint is published;
+  `yolo-serial pty` allocates its virtual PTY with darwin's own ioctls
+  (`cmd/yolo-serial/pty_darwin.go`), which the profile's terminal ioctl allow covers.
+  Unmeasured on a Mac: `TestMacosUserSerialClientDrivesAHostPtyFromTheSandbox`, and a real USB
+  device is a human's check.
 - **The Claude OAuth broker** is **mostly moot; leave it off.** It bundles two jobs. *Keeping
   one shared credentials file* is **free** here — every session shares the one real home, hence
   one real credentials file, so the shared home *is* the shared-credentials mechanism.
@@ -662,7 +709,8 @@ The launch warnings for both keys were retired with it, on the rule this page ap
 elsewhere: a warning describing a closed gap teaches the reader to distrust the ones still
 true. What remains undelivered here is `mcp_presets`, whose preset *wrappers* hardcode Linux
 paths — so the stage does not install the npm packages behind them either, and the bootstrap
-still warns.
+still warns. The `chrome-devtools` pack is the delivered route for that server: its program
+installs through the launchers as any pack's does, and its wrapper uses the Mac's own browser.
 
 ⚠ **NOT MEASURED.** Half two was built from a Linux jail, like half one — no `sandbox-exec`,
 no `_yolojail`. Every sentence above about what the stage *does* is a description of code that
@@ -720,16 +768,18 @@ only place the values themselves are stated.
 | Skip-list eval, and its bound | the darwin-unavailable list, timeout-bounded, non-fatal | `darwinpkg.skippedNames` |
 | PATH additions from the profile | `<out>/bin`, plus `PKG_CONFIG_PATH=<out>/lib/pkgconfig` when present | `darwinpkg.ProfilePaths` |
 | Content-overlay wire var | `YOLO_DARWIN_HOME_OVERLAY` | `internal/cli/run/macoshomeoverlay.go`, `entrypoint.InstallHomeOverlay` |
-| Pack tree wire var | `YOLO_PACK_ROOT`, baked onto the bootstrap argv | `macosuser.BuildRunPlan`, asserted by `PlanInvariants` |
+| Pack tree wire var | `YOLO_PACK_ROOT`, baked onto the bootstrap argv; since 2026-10-04 also in the session env file, with `YOLO_DARWIN_WORKSPACE`, when packs were staged, so an in-sandbox `yolo programs` reads this jail | `macosuser.BuildRunPlan`, asserted by `PlanInvariants`; read in the sandbox by `entrypoint.JailEnvFromOS` |
 | Login-rc PATH var | `YOLO_DARWIN_LOGIN_PATH`, assembled from `macosuser.SandboxPath` | `entrypoint.DarwinBootstrapOptions`, `WriteLoginRC` |
 | Unified-logging dial | `macos_log`: `off` / `user` / `full`, default `off` | `macosuser.MacosLogWrapperScript`, `macosuser.macosLogMode`, `entrypoint.InstallYoloLog` |
+| Unified-log deny under `off` | file-read of `/private/var/db/diagnostics` and `/private/var/db/uuidtext`, mach-lookup of `com.apple.diagnosticd`; none under `user`/`full` (inferred, unmeasured on a Mac) | `macosuser.macosLogDenies` |
 | Seatbelt write policy | deny all, re-allow the workspace, the sandbox home, and the temp dirs | `macosuser.SeatbeltProfile` |
 | Seatbelt read denials | under the users root (with intermediate literals re-allowed), under `/Volumes` except the boot volume, and the keychain dir | `macosuser.SeatbeltProfile`, `ancestorLiterals` |
-| Process visibility | allowed wholesale | `macosuser.SeatbeltProfile` |
+| Process visibility | the process list is allowed; another process's command line and environment are denied (procargs and pidinfo), except within the same sandbox | `macosuser.SeatbeltProfile` |
 | The narrower capture profile | drops the workspace and the sandbox home from the write set | `macosuser.SeatbeltCaptureProfile` |
 | Host nix daemon opt-in (container backends only) | `YOLO_NIX_HOST_DAEMON` | `internal/cli/run/hostprobes.go` |
-| The guest prefix, holding the staged `yolo` and the darwin in-jail set (verified at `d4e435a3`) | `/var/yolo-jail/bin`, root-owned; the set is `yolo-jaild` | `macosuser.GuestBinDir`, `macosuser.GuestBinaries`; `flake.nix` `guestBinaries`; `stage-source-bundle.sh` `GUEST_BINARIES` |
-| The supervisor's env file (verified at `d4e435a3`) | `/var/yolo-jail/env/<session>.daemons.env`, `0600` in a `0700` directory, one `user:_yolojail` read ACE | `macosuser.SandboxDaemonEnvFile` |
+| The guest prefix, holding the staged `yolo` and the darwin in-jail set | `/var/yolo-jail/bin`, root-owned; the set is `yolo-jaild`, `yolo-serial`, `yolo-ps` | `macosuser.GuestBinDir`, `macosuser.GuestBinaries`; `flake.nix` `guestBinaries`; `stage-source-bundle.sh` `GUEST_BINARIES` |
+| The supervisor's env file (verified at `d4e435a3`; named per session since 2026-10-04) | `/var/yolo-jail/env/<session>.daemons.env` ([`<session>`](macos-user-provisioning.md#the-session-key)), `0600` in a `0700` directory, one `user:_yolojail` read ACE | `macosuser.SandboxDaemonEnvFile` |
+| The sandbox's TLS trust (added 2026-10-04) | `NIX_SSL_CERT_FILE`, `SSL_CERT_FILE`, `REQUESTS_CA_BUNDLE`, `CURL_CA_BUNDLE`, `GIT_SSL_CAINFO` name `/var/yolo-jail/env/<session>.ca-bundle.crt` (the profile's public roots plus the CAs the System keychain trusts for TLS), or the profile's own bundle when it adds none, and when the launch's own env layers set any of the five, all five name that value instead; `NODE_EXTRA_CA_CERTS` names `<session>.extra-ca.pem` only when there is one and the layers do not set it | `macosuser.ComposeCATrust` (`cabundle.go`); [PS-D10](../design/provisioner-sets.md#PS-D10) |
 | The supervisor's own log (verified at `d4e435a3`) | `<workspace>/.yolo/home/local/state/yolo-jail-daemons/supervisor.log`, `~/.local/state/yolo-jail-daemons` in the sandbox | `macosuser.SupervisorLogName`, `SupervisorLogPath` |
 | The supervisor's readiness line, and the launch's wait for it (verified at `d4e435a3`) | `yolo-jaild supervise: supervising <names>`; 1.5 s | `supervisor.StartedLinePrefix`; `macosuser.supervisorReadyBound` |
 | The supervisor's stop (verified at `d4e435a3`) | SIGTERM to its process group, 10 s, then SIGKILL | `macosuser.jailDaemonStopGrace` (`real.go`) |
@@ -762,12 +812,13 @@ drifts from its owner is worse than no mirror.
 | `A2` | A declared package with no darwin build is **fatal**, raised host-side after a green eval | The old warn-and-skip masked a typo and a genuinely-unavailable package with one message, and either way the jail started without a tool the user declared. Erroring inside the eval was the objection; erroring after it keeps nix green and lets the CLI decide. |
 | `A3` | The relocatable-shared-root config key is **not implemented**, and the plan-invariant message no longer advertises it | The default is the OS-blessed neutral location and satisfies the requirement. A knob that names nothing is worse than no knob, and implementing it needs agreement at two separate places. |
 | `#39` mirror | Per-workspace **homes** are refused; the per-workspace **tier** is a symlink layout ([`OQ-HT4`](macos-user-home-tiers.md#oq-ht4)) | `HOME` never moves, so the declared `scope: machine` directory never moves either and the `shared_credentials` hook's output is byte-identical here. Each `scope: workspace` directory is a symlink into `<workspace>/.yolo/home` — the same sidecar podman binds — so both tiers are restored explicitly, which is what the refusal always asked for. |
-| <a id="jd-1"></a>`JD-1` | **The guest set is `yolo-jaild` alone**, one list in three spellings that tests pin together | It is the supervisor and every in-jail daemon. `yolo` is staged from the running host binary, the bootstrap is `yolo internal darwin-bootstrap` rather than `yolo-entrypoint`, and the four loophole clients belong to Linux-only loopholes. Adding a binary to one spelling and not the others ships a guest that cannot run what it declares. |
-| <a id="jd-2"></a>`JD-2` | **The guest prefix is `/var/yolo-jail/bin`, and the staged `yolo` lives in it too** | `SandboxPath` derives its one entry from the staged `yolo`'s directory, so both names resolve and no PATH list is reordered. A checkout builds `.#guestPrefix` only when the launch has a daemon to run, and a failed build refuses the launch rather than starting a jail whose daemons cannot start. |
+| <a id="jd-1"></a>`JD-1` | **The guest set is `yolo-jaild`, `yolo-serial` and `yolo-ps`**, one list in three spellings that tests pin together, staged whole when the launch runs a jail daemon or its session env carries an endpoint one of the two clients reads. *Amended 2026-10-04, an implementation decision taken under the maintainer's 2026-10-04 delegation ("make them and build it … adjust later"); reversible:* it applies [`OQ-DP8`](../design/declaration-parity.md#OQ-DP8)'s "if you would have run it in the jail container, you run it on the guest" to the clients | `yolo-jaild` is the supervisor and every in-jail daemon; the two clients belong to the loopholes that run on a Mac (`serial`, and `host-processes` since its BSD arm). `yolo` is staged from the running host binary, the bootstrap is `yolo internal darwin-bootstrap` rather than `yolo-entrypoint`, and `yolo-cglimit` and `yolo-journalctl` belong to Linux-only loopholes. The trigger is each client's own endpoint variable (`macosuser.GuestClients`), so a checkout launch builds `.#guestPrefix` only when something in the sandbox will run it. Adding a binary to one spelling and not the others ships a guest that cannot run what it declares. |
+| <a id="jd-2"></a>`JD-2` | **The guest prefix is `/var/yolo-jail/bin`, and the staged `yolo` lives in it too** | `SandboxPath` derives its one entry from the staged `yolo`'s directory, so both names resolve and no PATH list is reordered. A checkout builds `.#guestPrefix` only when the launch has a daemon to run or a guest client's endpoint, and a failed build refuses the launch, naming the daemon or the client and its loophole, rather than starting a sandbox that cannot run them. A bundle whose `bin/darwin-<arch>` lacks a member of the set is refused before any build, naming what is missing and the restage (`just install`, or reinstalling yolo-jail): a bundle ships no Go sources, and the flake's prebuilt branch asks only whether the directory exists. |
 | <a id="jd-3"></a>`JD-3` | **What the guest declines is one split, `loopholes.JailDaemonsRunIn`**, read by the served set, `yolo check`'s prediction and the decline printer | Three readers with their own copies of the rule would disagree about which daemons a launch runs, and the served set would point an agent at an address nothing serves. The split keys on manifest facts (an intercept list, a service, a host argv, a container path), never on a daemon's name. |
 | <a id="jd-5"></a>`JD-5` | **The supervisor reads an env file of its own**, separate from the agent's session file, and swept after the supervisor stops | It carries the payload, the shared channel values, and every caller token its daemons demand, a scoped one included, since no agent reads this file. Folding it into the session file would hand every agent the scoped tokens. |
 | <a id="jd-6"></a>`JD-6` | **The supervisor starts after the provisioning stage and before the agent, under `sudo -n`, in its own process group, and stops after the agent** | `sudo -n` fails rather than prompting beside the agent's terminal. Killing the group, as container teardown does, is what leaves no daemon behind; the grace is longer than the supervisor's own wait so it can stop its children first. |
 | <a id="jd-7"></a>`JD-7` | **macos-user picks served addresses** for the daemons it runs | The sandbox shares the Mac's loopback, so a declared port is the machine's real one and two concurrent launches of one workspace would collide on it. |
 | <a id="jd-8"></a>`JD-8` | **The supervisor's stdout and stderr go to `supervisor.log`, and the launch says it started the daemons only after this start's readiness line** | With both on `/dev/null`, a `sudo -n` refusal, a `sandbox-exec` denial or an exec failure left no trace while the launch still printed that it started them. The log is appended, not truncated, and the per-workspace launch lock covers the start, so the launch reads only the bytes this start added. Every failure the bound exists for exits within milliseconds, so the bound only limits a start that is alive and silent, and that case continues rather than refusing. |
+| <a id="jd-11"></a>`JD-11` | **The reachability witness runs as a confined stage of the launch**, after the jail daemons and before the agent: `yolo internal probe-services` as the sandbox account, under the session profile, reading the session env file, with plain `sudo`. Status 78 refuses; any other status warns and launches. *Implementation decision, taken under the maintainer's 2026-10-04 delegation; reversible.* (`JD-9` and `JD-10` are [the plan stub's](../design/jail-daemon-on-macos-user-plan.md#JD-9).) | The bootstrap runs outside the profile, so a probe there could pass where the agent's client is refused. Plain `sudo`, unlike the supervisor's `-n`, because the stage is in the foreground and a long provisioning stage can outlive sudo's credential cache. A stage that never answered learned nothing about the services, so it cannot refuse (provisioning's rule). See [loopback-tls-reachability.md, On macos-user](loopback-tls-reachability.md#on-macos-user). |
 | [`OQ-BP-2`](../design/backend-parity.md#decision-ledger) | Briefings and skills **are delivered**, composed above the dispatch and copied into the sandbox home | Answered by code. The part of the leaning that did **not** hold is the hardware half: it asked to land with a Mac session, and it landed without one — so the ruling is answered and the verification is still owed. |
 | [`OQ-BP-3`](../design/backend-parity.md#decision-ledger) | Whether a warned disposition needs suppressing is owned there, not here | Several launch warnings exist now, most of them on this backend. A warning people learn to skip is worse than none, which is why the question is real — and why answering it per-backend rather than per-key would be the wrong shape. |

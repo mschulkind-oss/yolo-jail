@@ -17,7 +17,7 @@ import (
 func TestAMacOSHostNamesAStepThatWorksForAGuardedOnlyTree(t *testing.T) {
 	fx := newTreeFixture(t, `"f.txt"`)
 	fx.listTreeForAgentWith(t, treePosture("guarded"))
-	fx.writeHostConfig(t, "")
+	fx.writeHostConfig(t, treeHostOwn)
 	prev := hostTreesBuild
 	hostTreesBuild = func() bool { return false }
 	t.Cleanup(func() { hostTreesBuild = prev })

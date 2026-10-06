@@ -29,7 +29,7 @@ recorded and unbuilt, so every `assert` below still describes shipped behavior w
 >
 > | [§8](#8-what-i-would-actually-do-in-order) step | Status 2026-08-23 | Evidence |
 > |---|---|---|
-> | 1. Refuse host-side `reset`/`capture` | ✅ **shipped** | `refuseHostSideWrite` (`internal/cli/configdiff.go`) aborts unless the resolved config target is local or `--force` is given (a host-owned `reset` is exempt — 9.3 in the ledger); `configReset` and `configCapture` call it. Probes 1–3 are no longer reachable without `--force`. |
+> | 1. Refuse host-side `reset`/`capture` | ✅ **shipped** | `refuseHostSideWrite` (`internal/cli/configdiff.go`) aborts unless the resolved config target is local or `--force` is given (a host-owned `reset` and, since 2026-10-04, a host-owned `capture` are exempt — 9.3 in the ledger; a `capture` at a host that keeps no store refuses even with `--force`); `configReset` and `configCapture` call it. Probes 1–3 are no longer reachable without `--force`. |
 > | 2. Decide the capture-privacy question ([§9.3](#9-open-questions--the-discussion-part)) | ✅ **answered by step 1** | The refusal *is* the answer; no key-level redaction was invented. See the OQ ledger. |
 > | 3. `internal/render` with `Target` | ✅ **whole, 2026-09-17** (the ⚠ half below is what it was until then) | `Target` ships (`internal/render/target.go`) with `Jail`/`Preview`/`Host` constructors — plus two things this doc did not predict: a `Kind` notch enum with `SelectableNotches`, and `FieldSet`. **But `render.go`/`reconcile.go` were never written**: `internal/render/` is `target.go`, `fieldset.go`, `modes.go`, `confinement.go` and their tests — a *vocabulary*, not a renderer. **The collapse is PARTIAL, not absent** (corrected 2026-08-23): `internal/entrypoint/hostrender.go` exists, `Env` carries a `hostTarget` (`env.go`), and `Env.renderTarget()` dispatches on `render.Host`/`render.Jail` — so `apply --host` does run the entrypoint's writers keyed on a Target. What is still duplicated is the `internal/cli` config-verb path alone. **[§3.4](#34-what-this-buys-immediately-before-any-host-target-exists)'s stated payoff landed separately on 2026-09-09** — the two hand-maintained layer tables are retired without the renderer collapse, which is worth knowing about the argument: the tables were duplication of a DECLARATION, and only the writers were duplication of a RENDERER. |
 > | 4. macos-user gets a target row | ✅ **shipped** | `YOLO_PACK_ROOT` is now set on that backend (`buildBootstrapEnv`, `internal/macosuser/runplan.go`, asserted in `PlanInvariants`); it is the `guest` notch (`render.GuestProfileMacOS`, `internal/render/confinement.go`). [§9.7](#9-open-questions--the-discussion-part)'s "zero surfaces, silently" is over. |
@@ -394,6 +394,18 @@ twice:
   the same shape and get the same answer. **Refusing is the precedent for a mount, not
   copying.**
 
+  > **⚠ Updated 2026-10-05: the `host_files` half of this bullet is superseded, and the
+  > `mount` half narrowed.** A directory `host_files` entry was never a mount anywhere: the
+  > container path binds it and then COPIES it into the jail home at boot
+  > (`entrypoint.stageHostFile`), so it is a launch-time snapshot on every backend, and
+  > macos-user now copies it too, confined to its source and capped
+  > ([`context-mounts.md` CX-D25](context-mounts.md#CX-D25)). A pack's single-FILE `mount` is
+  > copied on macos-user as well, and that one IS a substitute for a live bind; what keeps it
+  > inside this rule's reason is that the copy is not SILENT, since the agent's briefing marks
+  > the entry "copied at launch; host edits arrive at the next launch". Config `mounts` and a
+  > pack's DIRECTORY `mount` keep the answer this bullet gives: a live link or a refusal,
+  > never a copy.
+
   > **⚠ Updated 2026-09-13 — read the original form of this bullet as superseded.** It cited
   > the *source-bearing `host_files`* filter, which dropped every such entry on that backend
   > because there was no `/ctx/host-user` to carry one into. DP-L1 delivers the FILE-shaped
@@ -412,8 +424,9 @@ The distinction matters because a copy is silently stale: edit the source and th
 environment keeps the old bytes with nothing to indicate it. For `mounts` — `AGENTS.md`
 and skills trees — that means a pack update that appears to apply and doesn't. So
 `mounts` is **unavailable** without a mount namespace, and a target that cannot honor it
-must say so by name ([§6.2](#62-the-four-targets-and-what-fieldset-is-for)'s `FieldSet`), exactly as macos-user already does for
-`host_files`.
+must say so by name ([§6.2](#62-the-four-targets-and-what-fieldset-is-for)'s `FieldSet`), exactly as macos-user does for a
+context mount it can neither link nor copy (it said so for a directory `host_files` entry until
+that began crossing by copy on 2026-10-05).
 
 **Skills are the interesting exception**, and worth being precise about because they look
 like a counter-example. `PrepareSkills` *does* copy — `copySkillSubdirs` layers built-ins,
@@ -925,9 +938,13 @@ That has a crisp consequence worth stating as a rule:
   filesystem. Honoring it would be a copy the user did not ask for.
 - **`mount` is unavailable, and must be refused rather than emulated** ([§2.2](#22-so-which-is-it-a-command-or-a-mode)). No mount
   namespace means no `:ro`, and a copy goes silently stale — a pack update that appears to
-  apply and doesn't. macos-user's refusal of a DIRECTORY `host_files` source is the precedent
-  (it delivers the file-shaped `reads-host`/`host_files` half by copy since 2026-09-13, and
-  refuses exactly the tree-shaped one this bullet is about). The
+  apply and doesn't. macos-user's refusal of a DIRECTORY `host_files` source was the precedent
+  (it delivers the file-shaped `reads-host`/`host_files` half by copy since 2026-09-13).
+  *Updated 2026-10-05:* that precedent is gone — macos-user copies a directory `host_files`
+  source too, which every backend already delivers as a boot-time copy — and the one it leaves
+  is the context mounts: a config `mounts` element or a pack's directory `mount` is a live link
+  there or a refusal, and only a pack's single-file `mount` is copied, with the staleness stated
+  in the agent's briefing ([`context-mounts.md` CX-D25](context-mounts.md#CX-D25)). The
   *composed* artifacts a pack delivers — the merged skills tree, the composed briefing — are a separate
   question: those are composition results (their own `skills`/`briefing` kinds now) and port
   like config surfaces do, which is why [§7.3](#73-one-pack-three-environments)'s walkthrough writes them and [§6.5](#65-the-posture-stated-as-a-table)'s `assert`
@@ -1193,11 +1210,12 @@ compacted into the ledger below and kept in place only as an anchor.
 | ID | Ruling / Outcome | Date | Settled in / Evidence |
 | :--- | :--- | :--- | :--- |
 | 9.1 | **The second sense** — yolo is an interface for describing environments agents run in; the host target is one notch of a `confinement` dial, not a special case | 2026-07-27 | [`yolo-as-environment-manager.md`](yolo-as-environment-manager.md); shipped as `internal/render/confinement.go` + the `confinement` config key (`internal/config/confinement.go`) |
-| 9.3 | **`capture` does not redact — it REFUSES.** Host-side `capture`/`reset` abort unless `--force`, which removes the leak path wholesale; no notion of "sensitive key" was invented. **Amended 2026-09-12:** `reset` is now EXEMPT under `host_management: own`, because that contract answers the guard's own premise — the files are yolo's derived output, so truncating one to its pure render is the operation working rather than data loss, and adoption depends on it. `capture` stays refused at every contract, deliberately | 2026-08-23; amended 2026-09-12 | `refuseHostSideWrite` and the resolved target's `hostOwned()`, [`internal/cli/configdiff.go`](../../internal/cli/configdiff.go) |
+| 9.3 | **`capture` does not redact — it REFUSES.** Host-side `capture`/`reset` abort unless `--force`, which removes the leak path wholesale; no notion of "sensitive key" was invented. **Amended 2026-09-12:** `reset` is now EXEMPT under `host_management: own`, because that contract answers the guard's own premise — the files are yolo's derived output, so truncating one to its pure render is the operation working rather than data loss, and adoption depends on it. **Amended 2026-10-04:** `capture` is exempt under `own` too, as [`OQ-CO3`](config-ownership-and-promotion.md#13-decision-ledger) ruled — its privacy premise is a credential copied into the WORKSPACE tree, and under `own` it writes the host's own `0600` capture store. What it writes is the capture half of the host apply's own render of the surface, run in observe (`entrypoint.HostRenderResult.Capture`) — the configured pack at the host posture, with the computed layer — so the bytes are the ones the next apply records there; its first build composed the capture the jail's way instead and erased edits the apply keeps ([§6.2](config-ownership-and-promotion.md#62-host-capture-and-the-privacy-ruling-it-has-to-answer-to)). Under `none` and `assert` there is no store, so `capture` refuses there even with `--force` and names `own` instead | 2026-08-23; amended 2026-09-12, 2026-10-04 | `refuseHostSideWrite` and the resolved target's `hostOwned()`, [`internal/cli/configdiff.go`](../../internal/cli/configdiff.go) |
 | 9.4 | **`program` at a host target means OFFERED behind a confirm, not "never"** — and the answer came from the tree plus [`report-tiers.md`](../reference/report-tiers.md#the-dependency-rule)'s dependency rule, not from this doc. `HostFields` honors the kind (*"honored but confirm-gated by the caller"*); at `yolo host apply --assert` a missing declared dependency prints the exact install command, one prompt covers the set, a decline is FATAL with nothing written, and an install that leaves the binary missing counts as a decline. The per-invocation grant 9.4 said would need its own design got one | 2026-09-12 | `render.HostFields` + `internal/cli/applyhostdepgate.go`; [`yolo-as-environment-manager.md`](yolo-as-environment-manager.md#OQ-EM1) carries what is left (the elevation-class batching) |
 | 9.5 | **User/machine-scoped, never workspace-scoped**, exactly as [§6.6](#66-a-host-target-is-user-scoped-not-workspace-scoped) argued. The "two workspaces collide" framing was dissolved rather than answered | 2026-08-01 | `Target.ProvenanceDir()` → `<home>/.local/share/yolo-jail/host-provenance/` (`internal/render/target.go`), with the two rejected alternatives written into the doc comment |
 | 9.7 | **Fixed** — macos-user is the `guest` notch and receives packs; measured on a Mac 2026-09-10 and again 2026-09-12 ([runbook item 4](../plans/runbooks/macos-user-manual-checks.md#4-content-actually-reached-the-agent)) | 2026-08-23 (verified) | `YOLO_PACK_ROOT` set in `buildBootstrapEnv` (`internal/macosuser/runplan.go`), asserted in `PlanInvariants`; `render.GuestProfileMacOS` (`confinement.go`) |
 | 9.8 | **A real fourth row, and it needed no new concept** — as predicted. Declared in the vocabulary; no backend fills it yet | 2026-08-23 (verified) | `render.GuestProfileLinux()` = namespaces + Landlock (`internal/render/confinement.go`) |
+| — | **Implementation decisions, taken under the maintainer's 2026-10-04 delegation ("make them and build it … adjust later"); reversible.** (1) **The host `rmw` arm reads and writes YAML** (oh-omp's two files, refused there until then) by walking yaml.v3's node tree, never the shared `codec.YAML`, which keeps one document and no order or comments and fails on an unquoted date. A file it could not write back as written — more than one document, an anchor or alias, a `<<` merge, a non-string or duplicate key, a tag outside the JSON-shaped core — is refused byte-untouched with the fix named. The write REUSES the original node for every value the render left alone, so an untouched value keeps its quoting, flow style and comments; a comment survives iff rmw's TOML predicate (`rmwTriviaKeeper`) keeps its key, and every drop is reported by key. (2) **A computed leaf that replaces a value of the user's is reported**, labelled with the user-scope input it is computed from — found by re-running the derive with each input taken away, so core keeps no table of vendor keys — and `providers` is not named beside `profile`, because a profile resolves over the provider table. A key the profile's SELECTION writes is labelled apart, `(selected by your profile)`, and only its remedy group carries [HC-D17](host-computed-layer.md#HC-D17)'s note that a later pick of the user's stands: a leaf the derive computes from the same profile (pi-subagents' `subagents.defaultModel`) is written on every apply, and the note was false of it (corrected 2026-10-05). | 2026-10-04 | `decodeYAMLObject`, `encodeYAMLObject` (`internal/entrypoint/yamltrivia.go`); `hostLeafAttribution` (`internal/entrypoint/hostcomputed.go`); `selectedValueGroup` (`internal/cli/hostapplyremedy.go`); `TestRMWYAMLKeepsYourKeysOrderAndComments`, `TestRMWYAMLRefusesWhatItCannotWriteBack`, `TestTheOverwriteReportNamesAComputedLeaf`, `TestTheOverwriteReportTellsASelectionKeyFromARecomputedLeaf`, `TestHostApplyDoesNotPromiseARecomputedValueStands` |
 
 ### Still live
 

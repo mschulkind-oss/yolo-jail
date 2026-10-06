@@ -40,9 +40,13 @@ func (o *Options) sectionIOPriority(r *reporter, merged *jsonx.OrderedMap, runti
 	if o.IsMacOS {
 		switch {
 		case inStrSlice(paths.NativeRuntimes, runtimeSel):
-			r.warn(key+" is not applied on macos-user yet",
-				"The launch names the key. setiopolicy_np is the planned mechanism, once a Mac\n"+
-					"shows the policy survives the launch's sudo and sandbox-exec.\n"+ioDropKey)
+			// HonoredBy (io-priority.md §5.5): the launcher sets the process disk policy on
+			// itself before the bootstrap, and the session inherits it. There is no disk to
+			// grade: macOS throttles by the policy itself and has no per-disk scheduler a user
+			// picks, so the row says what is applied and how.
+			pol, _ := p.DarwinPolicy()
+			r.ok(key + " is applied at launch by setiopolicy_np as " + ioprio.DarwinPolicyName(pol) +
+				", inherited by every process of the session")
 		default:
 			backend := "podman on macOS"
 			if runtimeSel == "container" {

@@ -7,6 +7,12 @@ package cli
 // builds none; `yolo host apply` advances before the render in its acting posture only; `yolo host
 // -- <bin>` advances only for its owning agent's programs; and the owning agent does not start at
 // the host without the tree it loads.
+//
+// Every verb-level cell declares `host_management: "own"` (writeTreePackConfig, treeHostOwn): the
+// unset key is `none` since the `assert` retirement (OQ-CO14), and under `none` the host renders,
+// advances and stops for nothing (TestTheHostStopIsOffUnderHostManagementNone and
+// TestAHostLaunchUnderHostManagementNoneAdvancesNothing), so a cell left on the unset key would pass
+// with its call site deleted.
 
 import (
 	"bytes"
@@ -21,6 +27,7 @@ import (
 
 	"github.com/mschulkind-oss/yolo-jail/internal/capture"
 	"github.com/mschulkind-oss/yolo-jail/internal/cli/run"
+	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/hostskills"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
@@ -71,6 +78,21 @@ func (fx *treeFixture) renderTrees(t *testing.T, write bool) string {
 }
 
 func (fx *treeFixture) link() string { return filepath.Join(fx.home, ".tool", "ext", "tool-ext") }
+
+// treeHostOwn is writeHostConfig's extra declaring `host_management: "own"`.
+const treeHostOwn = `,"host_management":"own"`
+
+// writeTreePackConfig rewrites the user config newTreeFixture wrote — the tree pack alone — with
+// `host_management` set to mode, or unset when mode is "".
+func (fx *treeFixture) writeTreePackConfig(t *testing.T, mode string) {
+	t.Helper()
+	extra := ""
+	if mode != "" {
+		extra = `,"host_management":"` + mode + `"`
+	}
+	writeFile(t, filepath.Join(fx.home, ".config", "yolo-jail", "config.jsonc"), `{"packs":[`+
+		`{"source":"file://`+fx.treeDir+`","name":"treepack"}]`+extra+`}`)
+}
 
 // THE HOST RENDER (PPX-D11): `~/<into>` becomes a link the render owns, naming the good build's
 // versioned copy in the host-private directory; an observe pass after it changes nothing; a move
@@ -156,6 +178,7 @@ func TestAMacOSHostRendersNoTreeAndNamesAJail(t *testing.T) {
 // before the render with --assert. Red if hostApply stops calling advanceHostTrees.
 func TestHostApplyAdvancesInItsActingPostureOnly(t *testing.T) {
 	fx := newTreeFixture(t, `"f.txt"`)
+	fx.writeTreePackConfig(t, "own")
 	var errw bytes.Buffer
 	hostApply(nil, io.Discard, &errw, false, nil)
 	if len(fx.builds) != 0 {
@@ -191,6 +214,7 @@ func TestAHostLaunchAdvancesOnlyItsOwnersTrees(t *testing.T) {
 func TestTheOwningAgentStopsAtTheHostWithoutItsTree(t *testing.T) {
 	fx := newTreeFixture(t, `"f.txt"`)
 	fx.listTreeForAgent(t)
+	fx.writeHostConfig(t, treeHostOwn)
 	var errw bytes.Buffer
 	if hostTreeGate(&errw, "tool", fx.home) {
 		t.Fatal("the owner started with no build of the tree it loads")
@@ -224,7 +248,8 @@ func (fx *treeFixture) writeHostConfig(t *testing.T, extra string) {
 func TestAHostLaunchOfTheOwnerStopsWithoutItsTree(t *testing.T) {
 	fx := newTreeFixture(t, `"f.txt"`)
 	fx.listTreeForAgent(t)
-	fx.writeHostConfig(t, "")
+	// `own` derives host_apply_on_launch on, which would build and render the tree first.
+	fx.writeHostConfig(t, treeHostOwn+`,"host_apply_on_launch":false`)
 	stubBins(t, "tool")
 	got := captureHostExec(t)
 	var errw bytes.Buffer
@@ -242,7 +267,7 @@ func TestAHostLaunchOfTheOwnerStopsWithoutItsTree(t *testing.T) {
 func TestAHostLaunchAdvancesItsOwnersTreeBeforeTheGate(t *testing.T) {
 	fx := newTreeFixture(t, `"f.txt"`)
 	fx.listTreeForAgent(t)
-	fx.writeHostConfig(t, `,"host_apply_on_launch":true`)
+	fx.writeHostConfig(t, treeHostOwn+`,"host_apply_on_launch":true`)
 	stubBins(t, "tool", "other")
 	got := captureHostExec(t)
 	var errw bytes.Buffer
@@ -260,9 +285,34 @@ func TestAHostLaunchAdvancesItsOwnersTreeBeforeTheGate(t *testing.T) {
 	}
 }
 
+// A LAUNCH THE CAPABILITY GATE REFUSES BUILDS NOTHING (OQ-CAP2 before PPX-D11): the gate runs ahead
+// of the advance, as it runs ahead of the render gate, so `yolo host -- tool` under a
+// `required_capabilities` nothing satisfies stops without fetching or building the tree its pack
+// loads. Red if the advance moves back above refuseHostUnmetCapabilities in hostLaunch.
+func TestAHostLaunchTheCapabilityGateRefusesBuildsNoTree(t *testing.T) {
+	fx := newTreeFixture(t, `"f.txt"`)
+	fx.listTreeForAgent(t)
+	fx.writeHostConfig(t, treeHostOwn+`,"host_apply_on_launch":true,"required_capabilities":["web_search"]`)
+	t.Setenv(config.AllowUnmetCapabilitiesEnv, "")
+	stubBins(t, "tool")
+	got := captureHostExec(t)
+	var errw bytes.Buffer
+	rc := hostExec(nil, []string{"tool"}, io.Discard, &errw, nil)
+	if rc != 1 || got.execed {
+		t.Fatalf("rc=%d, execed %v: the capability gate did not refuse\n%s", rc, got.execed, errw.String())
+	}
+	if !strings.Contains(errw.String(), "declares 'web_search'") {
+		t.Errorf("the refusal is not the capability gate's:\n%s", errw.String())
+	}
+	if len(fx.builds) != 0 {
+		t.Errorf("a launch the capability gate refused built %d trees:\n%s", len(fx.builds), errw.String())
+	}
+}
+
 // THE OTHER SPELLING, `yolo apply --at host`, advances in its acting posture too: one operation.
 func TestApplyAtHostAdvancesInItsActingPostureOnly(t *testing.T) {
 	fx := newTreeFixture(t, `"f.txt"`)
+	fx.writeTreePackConfig(t, "own")
 	var errw bytes.Buffer
 	applyMain([]string{"--at", "host"}, io.Discard, &errw, false, nil)
 	if len(fx.builds) != 0 {
@@ -302,6 +352,7 @@ func TestADroppedExtensionsHostCopiesAreSwept(t *testing.T) {
 // the apply stops calling sweepDroppedHostTrees.
 func TestAnApplyThatDropsTheExtensionRemovesItsHostCopies(t *testing.T) {
 	fx := newTreeFixture(t, `"f.txt"`)
+	fx.writeTreePackConfig(t, "own")
 	var errw bytes.Buffer
 	hostApply([]string{"--assert"}, io.Discard, &errw, false, strings.NewReader(""))
 	target, err := os.Readlink(fx.link())
@@ -311,7 +362,7 @@ func TestAnApplyThatDropsTheExtensionRemovesItsHostCopies(t *testing.T) {
 	other := filepath.Join(fx.packs, "otherpack")
 	writeFile(t, filepath.Join(other, "pack.json"), `{"name":"otherpack","contributes":[]}`)
 	writeFile(t, filepath.Join(fx.home, ".config", "yolo-jail", "config.jsonc"),
-		`{"packs":[{"source":"file://`+other+`","name":"otherpack"}]}`)
+		`{"packs":[{"source":"file://`+other+`","name":"otherpack"}],"host_management":"own"}`)
 	var out bytes.Buffer
 	hostApply([]string{"--assert"}, &out, &errw, false, strings.NewReader("y\n"))
 	if _, err := os.Lstat(fx.link()); err == nil {
@@ -323,13 +374,17 @@ func TestAnApplyThatDropsTheExtensionRemovesItsHostCopies(t *testing.T) {
 }
 
 // UNDER host_management: none the host renders nothing, so no link is ever there, and the owner is
-// never stopped for one.
+// never stopped for one — written, or with the key unset, which is `none` since OQ-CO14.
 func TestTheHostStopIsOffUnderHostManagementNone(t *testing.T) {
-	fx := newTreeFixture(t, `"f.txt"`)
-	fx.listTreeForAgent(t)
-	fx.writeHostConfig(t, `,"host_management":"none"`)
-	if !hostTreeGate(io.Discard, "tool", fx.home) {
-		t.Error("under host_management none the owner was stopped for a tree the host never renders")
+	for name, extra := range map[string]string{"none": `,"host_management":"none"`, "unset": ""} {
+		t.Run(name, func(t *testing.T) {
+			fx := newTreeFixture(t, `"f.txt"`)
+			fx.listTreeForAgent(t)
+			fx.writeHostConfig(t, extra)
+			if !hostTreeGate(io.Discard, "tool", fx.home) {
+				t.Errorf("under host_management %s the owner was stopped for a tree the host never renders", name)
+			}
+		})
 	}
 }
 
@@ -337,6 +392,9 @@ func TestTheHostStopIsOffUnderHostManagementNone(t *testing.T) {
 // a good build serves beside, and the line of a Ctrl-C that ends it, whose next step is the host's.
 func TestAHostAdvancesLinesNameTheHost(t *testing.T) {
 	fx := newTreeFixture(t, `"f.txt"`)
+	// An owned host: under "none", the unset default, the apply named as the next step writes
+	// nothing, so the line names the setting too (hostApplyStep).
+	fx.writeHostConfig(t, treeHostOwn)
 	advanceHostTrees(io.Discard, false, "", nil)
 	if len(fx.builds) != 1 {
 		t.Fatalf("the first host advance built %d trees", len(fx.builds))
@@ -375,7 +433,7 @@ func TestAHostAdvancesLinesNameTheHost(t *testing.T) {
 func TestAHostLaunchNamesTheBuildItsLinkNames(t *testing.T) {
 	fx := newTreeFixture(t, `"f.txt"`)
 	fx.listTreeForAgent(t)
-	fx.writeHostConfig(t, `,"host_apply_on_launch":true`)
+	fx.writeHostConfig(t, treeHostOwn+`,"host_apply_on_launch":true`)
 	stubBins(t, "tool")
 	captureHostExec(t)
 	var errw bytes.Buffer
@@ -394,7 +452,8 @@ func TestAHostLaunchNamesTheBuildItsLinkNames(t *testing.T) {
 		t.Fatalf("the jail launch's advance did not move the good build:\n%s", out)
 	}
 	moved := patchedRecordOf(t, treeKeyCLI).Good
-	fx.writeHostConfig(t, "")
+	// No automatic apply, which `own` derives on, so the link stays on the earlier build.
+	fx.writeHostConfig(t, treeHostOwn+`,"host_apply_on_launch":false`)
 	errw.Reset()
 	if rc := hostExec(nil, []string{"tool"}, io.Discard, &errw, nil); rc != 0 {
 		t.Fatalf("rc=%d\n%s", rc, errw.String())
@@ -414,20 +473,25 @@ func TestAHostLaunchNamesTheBuildItsLinkNames(t *testing.T) {
 }
 
 // UNDER host_management: none `yolo host -- tool` advances nothing even with host_apply_on_launch
-// (PPX-D25): that contract renders nothing, so a build would serve no one. Red if hostExec's advance
-// stops reading host_management.
+// (PPX-D25): that contract renders nothing, so a build would serve no one — written, or with the
+// key unset, which is `none` since OQ-CO14. Red if hostExec's advance stops reading
+// host_management.
 func TestAHostLaunchUnderHostManagementNoneAdvancesNothing(t *testing.T) {
-	fx := newTreeFixture(t, `"f.txt"`)
-	fx.listTreeForAgent(t)
-	fx.writeHostConfig(t, `,"host_apply_on_launch":true,"host_management":"none"`)
-	stubBins(t, "tool")
-	got := captureHostExec(t)
-	var errw bytes.Buffer
-	if rc := hostExec(nil, []string{"tool"}, io.Discard, &errw, nil); rc != 0 || !got.execed {
-		t.Fatalf("rc=%d, execed %v\n%s", rc, got.execed, errw.String())
-	}
-	if len(fx.builds) != 0 {
-		t.Errorf("under host_management none the launch built %d trees:\n%s", len(fx.builds), errw.String())
+	for name, extra := range map[string]string{"none": `,"host_management":"none"`, "unset": ""} {
+		t.Run(name, func(t *testing.T) {
+			fx := newTreeFixture(t, `"f.txt"`)
+			fx.listTreeForAgent(t)
+			fx.writeHostConfig(t, `,"host_apply_on_launch":true`+extra)
+			stubBins(t, "tool")
+			got := captureHostExec(t)
+			var errw bytes.Buffer
+			if rc := hostExec(nil, []string{"tool"}, io.Discard, &errw, nil); rc != 0 || !got.execed {
+				t.Fatalf("rc=%d, execed %v\n%s", rc, got.execed, errw.String())
+			}
+			if len(fx.builds) != 0 {
+				t.Errorf("under host_management %s the launch built %d trees:\n%s", name, len(fx.builds), errw.String())
+			}
+		})
 	}
 }
 
@@ -458,11 +522,16 @@ func TestAHostCopyWhoseEntryIsReapedIsNeverLinked(t *testing.T) {
 // A TREE LISTED ONLY IN AN AUTONOMOUS POSTURE LIST reaches no host, so it never stops the owner's host
 // launch (PPX-D26), though nothing renders it there. Red if the stop stops reading where the entry
 // reaches.
+//
+// Under `own`, the one contract the stop runs under: with the key unset (`none`) hostTreeGate
+// returns before it reads a tree, so this would pass with the ListedAtHost check deleted. And
+// host_apply_on_launch off, which `own` derives on: the launch's own stop is under test, not an
+// automatic apply's.
 func TestATreeListedOnlyForJailsNeverStopsAHostLaunch(t *testing.T) {
 	fx := newTreeFixture(t, `"f.txt"`)
 	fx.listTreeForAgentWith(t, `{"kind":"autonomy","autonomous":{"lists":[{"surface":"tool/settings",`+
 		`"path":"/packages","add":["~/.tool/ext/tool-ext"]}]}}`)
-	fx.writeHostConfig(t, "")
+	fx.writeHostConfig(t, treeHostOwn+`,"host_apply_on_launch":false`)
 	if f := fx.tree(t); f.Owner != "agentpack" || f.ListedAtHost {
 		t.Fatalf("the fixture's tree: owner %q, listed at the host %v", f.Owner, f.ListedAtHost)
 	}
@@ -479,7 +548,9 @@ func TestATreeListedOnlyForJailsNeverStopsAHostLaunch(t *testing.T) {
 func TestAMacOSHostLaunchSaysTheOwnerStartsWithoutItsTree(t *testing.T) {
 	fx := newTreeFixture(t, `"f.txt"`)
 	fx.listTreeForAgent(t)
-	fx.writeHostConfig(t, "")
+	// host_apply_on_launch off, as this config had it before `own` derived it on: the lines under
+	// test are the launch's own, not an automatic apply's.
+	fx.writeHostConfig(t, treeHostOwn+`,"host_apply_on_launch":false`)
 	prev := hostTreesBuild
 	hostTreesBuild = func() bool { return false }
 	t.Cleanup(func() { hostTreesBuild = prev })
@@ -504,15 +575,19 @@ func TestAMacOSHostLaunchSaysTheOwnerStartsWithoutItsTree(t *testing.T) {
 
 // A REVERT REMOVES THE LINK (§8.3), and the host's versioned copies with it, as it withdraws every
 // key yolo wrote: its dry run names the link and writes nothing, and --assert removes the link, the
-// record's entry for it and the copies. Red if the revert stops calling revertHostTreeLinks.
+// record's entry for it and the copies. Red if the revert stops calling revertHostTreeLinks. The
+// apply runs under `own`, the contract that renders the link, and the revert with the key unset:
+// `--revert` runs under `none` (the unset state since OQ-CO14) and is refused at `own`.
 func TestARevertRemovesAPatchedExtensionsLinkAndItsCopies(t *testing.T) {
 	fx := newTreeFixture(t, `"f.txt"`)
+	fx.writeTreePackConfig(t, "own")
 	var out, errw bytes.Buffer
 	hostApply([]string{"--assert"}, io.Discard, &errw, false, strings.NewReader(""))
 	target, err := os.Readlink(fx.link())
 	if err != nil {
 		t.Fatalf("the apply rendered no link: %v\n%s", err, errw.String())
 	}
+	fx.writeTreePackConfig(t, "")
 	if rc := hostMain([]string{"apply", "--revert"}, &out, &errw, false, nil); rc != 0 {
 		t.Fatalf("the dry revert rc=%d\n%s%s", rc, out.String(), errw.String())
 	}
@@ -541,14 +616,17 @@ func TestARevertRemovesAPatchedExtensionsLinkAndItsCopies(t *testing.T) {
 }
 
 // AN UNREADABLE FILES RECORD fails no revert: the keys are still withdrawn, nothing the record
-// cannot prove is yolo's is removed, and the line names the record and what to do.
+// cannot prove is yolo's is removed, and the line names the record and what to do. Applied under
+// `own` and reverted with the key unset, as TestARevertRemovesAPatchedExtensionsLinkAndItsCopies is.
 func TestARevertOverAnUnreadableFilesRecordRemovesNoLinkAndSaysSo(t *testing.T) {
 	fx := newTreeFixture(t, `"f.txt"`)
+	fx.writeTreePackConfig(t, "own")
 	var out, errw bytes.Buffer
 	hostApply([]string{"--assert"}, io.Discard, &errw, false, strings.NewReader(""))
 	if _, err := os.Readlink(fx.link()); err != nil {
 		t.Fatalf("the apply rendered no link: %v\n%s", err, errw.String())
 	}
+	fx.writeTreePackConfig(t, "")
 	writeFile(t, hostSkillsManifestPath(), "{not json")
 	if rc := hostMain([]string{"apply", "--revert", "--assert"}, &out, &errw, false, nil); rc != 0 {
 		t.Fatalf("the revert rc=%d over an unreadable files record\n%s%s", rc, out.String(), errw.String())

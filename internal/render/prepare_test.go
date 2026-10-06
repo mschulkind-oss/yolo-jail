@@ -66,7 +66,7 @@ func TestPrepareBindsThePlaceholderOnlyWhereThereIsOneToBindItTo(t *testing.T) {
 	}{
 		{"jail", Jail("/home/agent", "/workspace", nil), "/workspace"},
 		{"preview", Preview("/tmp/preview"), "/tmp/preview"},
-		{"host", Host("/Users/real", nil, OwnershipAssert), agentcfg.WorkspacePlaceholder},
+		{"host", Host("/Users/real", nil, OwnershipOwn), agentcfg.WorkspacePlaceholder},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			got := projectKeys(t, tc.target.Prepare(workspaceKeyedSurface()))

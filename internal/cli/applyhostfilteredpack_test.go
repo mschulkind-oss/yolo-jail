@@ -115,6 +115,10 @@ func TestApplyHostAppliesAPackWhoseFilterDropsAnUndecodableManifest(t *testing.T
 // filtered tree, which has no manifest, so a config-overlay declared there reaches no jail; it
 // must not reach the real home either. Checking problems on the filtered tree while still reading
 // declarations from the unfiltered one would apply both of these.
+//
+// Under `host_management: "own"`: the unset key is `none` since the `assert` retirement
+// (OQ-CO14), under which the host composes no config surface, so the clean control's overlay
+// could never land and "left out" would be true with or without the filter.
 func TestApplyHostAppliesNoDeclarationFromAManifestTheFiltersDrop(t *testing.T) {
 	const overlay = `{"kind":"config-overlay","surface":"claude/settings",` +
 		`"config":{"managed":{"fltOverlayKey":"from-flt"}}}`
@@ -130,7 +134,7 @@ func TestApplyHostAppliesNoDeclarationFromAManifestTheFiltersDrop(t *testing.T) 
 			if filtered {
 				filter = `,"only":["skills/**"]`
 			}
-			home := filteredPackHome(t, manifest, nil, filter, "")
+			home := filteredPackHome(t, manifest, nil, filter, `,"host_management":"own"`)
 			rc, report := applyWith(t, true, strings.NewReader("y\n"))
 			if !filtered {
 				// The controls: unfiltered, the clean manifest's key lands and the malformed one

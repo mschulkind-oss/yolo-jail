@@ -1228,7 +1228,9 @@
         # (docs/reference/loophole-transport.md §8.4). ~/.local/bin PRECEDES /bin on
         # PATH, so a leftover script shadows the binary named here — retiring the
         # generator has to also unlink the file it used to write, which
-        # entrypoint's stale-wrapper cleanup does.
+        # entrypoint's stale-wrapper cleanup does. Two of the clients here,
+        # yolo-serial and yolo-ps, are also built for darwin into the macos-user
+        # guest (guestBinaries below), because their loopholes run on a Mac.
         shippedBinaries = [ "yolo" "yolo-entrypoint" "yolo-jaild" "yolo-ps" "yolo-cglimit" "yolo-journalctl" "yolo-serial" ];
         installPrefix = pkgs.runCommand "yolo-jail-install-prefix" { } ''
           mkdir -p $out/opt/yolo-jail/bin \
@@ -1265,11 +1267,13 @@
         #
         # guestBinaries IS THE GUEST SUBSET, and it is a subset of shippedBinaries
         # on purpose: only what a guest actually RUNS. yolo-jaild (the supervisor
-        # and every in-jail daemon) is the whole of it. `yolo` is not here — the
-        # sandbox self-execs the host's own darwin yolo, staged by the backend —
-        # and neither is yolo-entrypoint (the guest bootstrap is `yolo internal
-        # darwin-bootstrap`) nor the four loophole clients, whose loopholes are
-        # Linux-only. Pinned against scripts/stage-source-bundle.sh's
+        # and every in-jail daemon), and the two loophole clients whose loopholes
+        # run on a Mac: yolo-serial (the serial loophole) and yolo-ps
+        # (host-processes). `yolo` is not here — the sandbox self-execs the host's
+        # own darwin yolo, staged by the backend — and neither is yolo-entrypoint
+        # (the guest bootstrap is `yolo internal darwin-bootstrap`) nor
+        # yolo-cglimit and yolo-journalctl, whose loopholes declare
+        # `platforms: ["linux"]`. Pinned against scripts/stage-source-bundle.sh's
         # GUEST_BINARIES and macosuser.GuestBinaries by
         # internal/macosuser/guestbundle_test.go.
         #
@@ -1277,10 +1281,14 @@
         # that ships ./bin/darwin-<arch> (stage-source-bundle.sh, Homebrew, the
         # release archive) is copied, and a live checkout compiles the subset from
         # goSrc with GOOS=darwin. The macos-user launch builds this only when it
-        # has a jail daemon to run and the resolved flake source ships no prebuilt
-        # dir (image.BuildGuestPrefix). goArch is the jail's arch, which the
-        # darwin→linux mapping above preserves, so it is also the Mac's.
-        guestBinaries = [ "yolo-jaild" ];
+        # has a jail daemon to run, or carries the endpoint of a client above, and
+        # the resolved flake source ships no prebuilt dir holding every name here
+        # (image.BuildGuestPrefix). The prebuilt branch asks only whether the dir
+        # EXISTS, so a bundle whose dir lacks a name would fail at that name's cp:
+        # the launch refuses such a bundle before building (internal/cli's
+        # resolveGuestBinaries), naming the restage. goArch is the jail's arch,
+        # which the darwin→linux mapping above preserves, so it is also the Mac's.
+        guestBinaries = [ "yolo-jaild" "yolo-serial" "yolo-ps" ];
         guestPrebuiltDir = ./. + "/bin/darwin-${goArch}";
         guestPrefix =
           if builtins.pathExists guestPrebuiltDir then

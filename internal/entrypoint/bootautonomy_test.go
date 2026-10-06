@@ -100,7 +100,7 @@ func TestBootRenderUsesTheJailProfilesAutonomy(t *testing.T) {
 func TestBootRenderAtAHostTargetRendersTheGuardedPosture(t *testing.T) {
 	var errw bytes.Buffer
 	e := &Env{Home: t.TempDir(), Vars: map[string]string{}, Stderr: &errw,
-		hostTarget: true, hostOwnership: render.OwnershipAssert}
+		hostTarget: true, hostOwnership: render.OwnershipOwn}
 	withCtxRoot(t, t.TempDir(), "acme")
 
 	ConfigurePackSurfaces(e, []*packload.Pack{autonomyPack(t)})

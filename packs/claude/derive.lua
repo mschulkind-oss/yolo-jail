@@ -105,9 +105,10 @@ local function codexDefault(list, profile)
 end
 
 -- THE MODELS OF A MULTI-MAKER PROVIDER THIS AGENT CAN CALL. callableModels expands a provider's
--- `models` and `model_options` (for Bedrock, the declaration packs/bedrock/pack.json ships,
--- with the user's `providers.<name>` merged over it) into the ordered list of the entries this
--- agent's own client can call (docs/design/bedrock-plumbing.md OQ-BR9). Each entry declares its
+-- `models` and `model_options` (for Bedrock, the list a pack's `models` contribution or the
+-- user's `providers.<name>` supplies: packs/bedrock ships none, docs/design/model-lists-and-pickers.md
+-- MM-D32) into the ordered list of the entries this agent's own client can call
+-- (docs/design/bedrock-plumbing.md OQ-BR9). Each entry declares its
 -- maker as the `vendor` fact, and the maker is never parsed out of the id. `makers` is the set
 -- of vendors this agent's client serves, nil meaning every one, and an entry that declares no
 -- vendor (a user's string-form alias) is offered to every agent.
@@ -120,9 +121,9 @@ end
 -- call, which is the fallback OQ-BR9's ruling names: "the first model that agent can call".
 --
 -- ⚠ DUPLICATED VERBATIM in packs/claude/derive.lua, packs/codex/derive.lua,
--- packs/opencode/derive.lua and packs/pi/derive.lua, because a derive cannot load another file
--- (the sandbox has no require and no io). internal/entrypoint/bedrock_model_list_test.go fails
--- when the copies differ.
+-- packs/opencode/derive.lua and packs/pi/derive.lua, and callableModels alone in
+-- packs/copilot/derive.lua, because a derive cannot load another file (the sandbox has no
+-- require and no io). internal/entrypoint/bedrock_model_list_test.go fails when the copies differ.
 local function callableModels(p, makers)
   if type(p) ~= "table" or type(p.models) ~= "table" then return {} end
   local opts = type(p.model_options) == "table" and p.model_options or {}
@@ -982,8 +983,8 @@ yolo.env("claude", function(ctx)
   -- which translates the rest), or that declare none, through callableModel: the profile's
   -- `model`, else the provider's `default` alias, and otherwise NOTHING. No first-callable
   -- pick, because Claude Code on Bedrock starts on an Anthropic model of its own, which is a
-  -- valid session yolo does not steer (docs/design/model-lists-and-pickers.md OQ-ML2), and the
-  -- shipped list names no `default`. A profile routed through a via service with no
+  -- valid session yolo does not steer (docs/design/model-lists-and-pickers.md OQ-ML2), and
+  -- packs/bedrock ships no list at all (MM-D32). A profile routed through a via service with no
   -- anthropic endpoint to carry it pins nothing either: claude runs on its own login there,
   -- where a Bedrock id is one it cannot call.
   local bedrockCallable = nil

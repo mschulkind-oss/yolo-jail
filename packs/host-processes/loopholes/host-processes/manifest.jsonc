@@ -44,7 +44,7 @@
       "default": [],
       // Empty means the loophole shows NOTHING, which is why "enabled" here is a
       // daemon with an empty allowlist rather than a view of the host.
-      "description": "process comm names yolo-ps may reveal (empty = show nothing)"
+      "description": "process comm names yolo-ps may reveal; `yolo-ps --tree` also shows every process below one, with its command line (empty = show nothing)"
     },
     "fields": {
       "type": "string_list",
@@ -79,34 +79,48 @@
   // daemon on the real machine reading the real process table.  Selecting a pack
   // whose entire content is that daemon is not, on its own, the request to run it.
   "default_enabled": false,
-  // Linux-only, DECLARED rather than probed — the same distinction `journal` and
-  // `audio` state at length: `requires` asks "is the thing I need present" (fix:
-  // install it) and `platforms` asks "does this exist for this machine at all" (no
-  // fix).  The `ps` below is present on every Mac and is the WRONG `ps`.
+  // Linux AND darwin, and the second entry is a port rather than a probe passing. Kept
+  // DECLARED rather than probed, the distinction `journal` and `audio` state at length:
+  // `requires` asks "is the thing I need present" (fix: install it) and `platforms`
+  // asks "does this exist for this machine at all" (no fix).
   //
-  // WITHOUT THIS KEY THE LOOPHOLE LOOKED HEALTHY ON macOS AND FAILED EVERY CALL.
-  // The daemon starts, the front publishes, the reachability witness passes — and
-  // then `handleList` runs `ps -o … -C <comm>` and `handlePid` reads
-  // /proc/<pid>/comm, both of which are GNU procps and neither of which exists on
-  // darwin (measured on macOS 25.5: `ps -C bash` is `ps: illegal argument: bash`,
-  // and /proc is No such file or directory).  Nothing in internal/hostprocesses
-  // branches on GOOS, so there was no darwin path to find.  A declared platform
-  // turns that into the one `Warned` line `journal` already gets, which is the
-  // whole point of the field: an inert loophole that says so beats a running one
-  // that cannot answer.  Found by the backend gap audit as G15
-  // (docs/plans/setup-support-gaps.md).
+  // UNTIL THE PORT, A MAC GOT A LOOPHOLE THAT LOOKED HEALTHY AND FAILED EVERY CALL. The
+  // daemon was GNU procps throughout (`ps -o … -C <comm>`, `--forest`,
+  // /proc/<pid>/comm), none of which exists on darwin (measured on macOS 25.5: `ps -C
+  // bash` is `ps: illegal argument: bash`, and there is no /proc), so the backend gap
+  // audit's G15 (docs/plans/setup-support-gaps.md) declared it Linux-only. The daemon
+  // now has a BSD arm, chosen by the host's OS (internal/hostprocesses, "Two ps
+  // dialects"): it asks BSD ps only for `-ax`, `-o` and `-p`, matches the allowlist in
+  // Go, and draws the tree itself. And the macos-user launch stages `yolo-ps` into its
+  // sandbox whenever this loophole's endpoint is published (macosuser.GuestClients), so
+  // the agent there has the client to dial it with.
   //
-  // The macOS analog is unified logging, a different thing living in
-  // internal/entrypoint/darwin.go — so this is "nothing to install on darwin",
-  // not "not yet ported".
+  // ON A MAC, A `visible` NAME IS MATCHED AGAINST `ucomm`, the kernel's accounting name
+  // (at most 16 bytes) and darwin's analog of Linux's /proc/<pid>/comm. BSD `comm` is a
+  // different thing there (the process's argv[0], often a full path). List mode
+  // compares names as GNU `ps -C` does, on their first 15 bytes once they are that
+  // long, so a name written for Linux list mode finds the same program on a Mac. Pid
+  // and tree mode compare the whole name, so there a long name is written as each
+  // kernel cuts it: 15 bytes on Linux, 16 on a Mac. A program that names itself
+  // differently on the two (node's Linux task name is `MainThread`) needs both names.
+  // A `comm` in `fields` is shown as `ucomm`, the name the allowlist matched.
+  //
+  // This is the host-process VIEW, and it is the same feature on both: an allowlisted
+  // window onto the host's process table, args included. On macos-user that window is
+  // exactly what the agent lacks, since the Seatbelt profile denies it another
+  // process's command line (internal/macosuser/seatbelt.go,
+  // cross-process-procargs-deny). The macOS counterpart of `journal` is unified logging
+  // (internal/entrypoint/darwin.go), a different question entirely.
   "platforms": [
-    "linux"
+    "linux",
+    "darwin"
   ],
   // ``ps`` is a POSIX staple on any host that can run yolo-jail, but
   // gating here keeps us honest — if something pathological has it
   // missing, the loophole goes inactive rather than crashing.  It is not the
-  // platform gate: see `platforms` above for why a Mac's own `ps` passing this
-  // probe was the bug rather than the fix.
+  // platform gate, and it never tells GNU ps from BSD ps: the daemon picks its
+  // dialect from the host's OS, and its doctor_cmd asks that ps its own first
+  // question (`yolo check` fails, naming the fix, when the answer is wrong).
   "requires": {
     "command_on_path": "ps"
   },

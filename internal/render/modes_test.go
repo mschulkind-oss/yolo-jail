@@ -16,15 +16,15 @@ var allKinds = []Kind{KindUnset, KindJail, KindGuest, KindHost, KindPreview}
 
 // allNotches is every census KEY the table owes an answer for — the same forcing function one
 // axis wider, since `own` made the mode policy a function of (Kind, HostOwnership) rather than
-// of Kind alone. The host's three rows are the declared contracts; every other kind carries
-// the zero ownership, which is what censusNotch normalizes to.
+// of Kind alone. The host's two rows are the declared contracts (three until the `assert`
+// retirement, OQ-CO14); every other kind carries the zero ownership, which is what
+// censusNotch normalizes to.
 //
 // The HOST-WITHOUT-A-CONTRACT pair is deliberately absent, and TestHostWithNoContractIsUndecided
 // is why: it must reach Modes()' fail-closed default rather than a stated policy.
 var allNotches = []notch{
 	{kind: KindUnset}, {kind: KindJail}, {kind: KindGuest}, {kind: KindPreview},
 	{kind: KindHost, ownership: OwnershipNone},
-	{kind: KindHost, ownership: OwnershipAssert},
 	{kind: KindHost, ownership: OwnershipOwn},
 }
 
@@ -130,22 +130,26 @@ func TestCensusModesMatchTheManifestTaxonomy(t *testing.T) {
 // no sidecar" message, and the host losing one relaunders a dropped pack's keys into "the
 // user set this" on the very next apply.
 func TestRMWRecordsAtTheHostAndNotInAJail(t *testing.T) {
-	if !Host("/home/me", nil, OwnershipAssert).Modes().Records(manifest.ModeRMW) {
-		t.Error("the HOST notch must record an rmw render: rmw is its only mode, so \"rmw " +
-			"records nothing\" would mean \"the host records nothing\" — and a key a dropped " +
-			"pack contributed would come back as `host` instead of retired")
+	if !Host("/home/me", nil, OwnershipOwn).Modes().Records(manifest.ModeRMW) {
+		t.Error("an OWNED host must record an rmw render: the record is what `--revert` " +
+			"consumes, and without it a key a dropped pack contributed would come back as " +
+			"`host` instead of retired")
 	}
 	if Jail("/home/agent", "/workspace", nil).Modes().Records(manifest.ModeRMW) {
 		t.Error("a JAIL must NOT record an rmw render: `stateful` carries the recording duty " +
 			"there (pack-config-collaboration.md §8), and `config diff` states the absence")
 	}
-	// The mode set proper, which is the other half of the census: the host coerces every
-	// composing surface to rmw, so `stateful` and `computed` do not run there.
-	host := Host("/home/me", nil, OwnershipAssert).Modes()
-	for _, mode := range []string{manifest.ModeStateful, manifest.ModeComputed} {
-		if host.Runs(mode) {
-			t.Errorf("the host notch must not run %q — a host render is pure RMW (OQ-4)", mode)
+	// The mode set proper, which is the other half of the census. It pinned "the host runs rmw
+	// alone" until the `assert` retirement (OQ-CO14); what is left is `none`, which runs no
+	// writing mode at all, and `own`, which does not run `computed` as itself.
+	none := Host("/home/me", nil, OwnershipNone).Modes()
+	for _, mode := range []string{manifest.ModeStateful, manifest.ModeComputed, manifest.ModeRMW} {
+		if none.Runs(mode) || none.Records(mode) {
+			t.Errorf("the host under `none` must neither run nor record %q — it writes nothing", mode)
 		}
+	}
+	if Host("/home/me", nil, OwnershipOwn).Modes().Runs(manifest.ModeComputed) {
+		t.Error("an owned host must not run `computed` as itself — it has no adoption path (OQ-HC2)")
 	}
 	jail := Jail("/home/agent", "/workspace", nil).Modes()
 	for _, mode := range censusModes {
@@ -170,15 +174,19 @@ func TestPreviewCarriesTheJailCensus(t *testing.T) {
 	}
 }
 
-// GUEST IS REPRESENTABLE AND UNDECIDED (plan §6b D2, Phase 7). This is the inverse of the
-// tests above: the assertion is that guest has NO policy yet, that its emptiness is marked as
-// a pending decision rather than an answer, and that the pending state is fail-closed. When
-// Phase 7 states guest's census, this test is the one that must be rewritten — deliberately,
-// because "guest now has a policy" is exactly the change that should not pass silently.
+// GUEST IS REPRESENTABLE AND UNDECIDED (plan §6b D2, Phase 7.2). This is the inverse of the
+// tests above: the assertion is that the Linux guest has NO policy yet, that its emptiness is
+// marked as a pending decision rather than an answer, and that the pending state is
+// fail-closed. When Phase 7.2 states its census, this test is the one that must be rewritten —
+// deliberately, because "guest now has a policy" is exactly the change that should not pass
+// silently. The macOS guest is not this row's: it renders through render.Jail (EMP-D2).
 func TestGuestModePolicyIsUndecidedNotInherited(t *testing.T) {
-	guest := (Target{Home: "/Users/agent", Workspace: "/Users/matt/code/proj", kind: KindGuest}).Modes()
+	// A LINUX-shaped home: the KindGuest row is the Linux guest's alone since the guest notch
+	// launches on macOS as the macos-user backend, which renders through render.Jail and so
+	// never reaches this row (env-manager plan EMP-D2).
+	guest := (Target{Home: "/home/agent", Workspace: "/home/matt/code/proj", kind: KindGuest}).Modes()
 	if !guest.Undecided() {
-		t.Fatal("guest's mode census is no longer marked undecided. If Phase 7 stated it, " +
+		t.Fatal("guest's mode census is no longer marked undecided. If Phase 7.2 stated it, " +
 			"replace this test with the assertions for that policy — do not just delete it")
 	}
 	// Fail-closed: nothing runs, nothing records. Not the jail's four mechanisms (which the
@@ -191,12 +199,17 @@ func TestGuestModePolicyIsUndecidedNotInherited(t *testing.T) {
 			t.Errorf("an undecided guest must record nothing; it records %q", mode)
 		}
 	}
-	// And the reason names the notch and the phase, so a caller that hits one can say which
-	// decision is missing rather than printing an empty set.
+	// And the reason names the notch, the platform it is still undecided on, and the phase,
+	// so a caller that hits one can say which decision is missing rather than printing an
+	// empty set — and it must not read as if the macOS guest were undecided too, since that one
+	// runs and renders as the jail does.
 	why := guest.Excludes(manifest.ModeStateful)
-	if !strings.Contains(why, "guest") || !strings.Contains(why, "Phase 7") {
-		t.Errorf("guest's exclusion reason must name the notch and where its answer belongs; "+
-			"got %q", why)
+	for _, want := range []string{"guest", "Linux", "Phase 7.2", "macos-user"} {
+		if !strings.Contains(why, want) {
+			t.Errorf("guest's exclusion reason must name %q (the notch, where it is still "+
+				"undecided, where its answer belongs, and what the macOS guest is); got %q",
+				want, why)
+		}
 	}
 	// The regeneration premise, pinned as PROSE because it is the correction that motivated
 	// this file: `stateful` is not jail-shaped because a jail home is disposable (it is not —
@@ -244,34 +257,29 @@ func TestModesIsAFunctionOfTheNotchAlone(t *testing.T) {
 			}
 		}
 	}
-	// AND THE OWNERSHIP FIELD IS LOAD-BEARING AT THE HOST: the three contracts answer three
+	// AND THE OWNERSHIP FIELD IS LOAD-BEARING AT THE HOST: the two contracts answer two
 	// different things, so a census that dropped the field would fail here rather than
 	// silently give every host target one policy. Stated as the mechanism each names for
 	// every DECLARED mode, because that is the answer a render entry dispatches on.
 	//
 	// ⚠ EVERY MODE, not just `stateful`. This asked only about a `stateful`-declaring surface
-	// until 2026-09-12, and a one-column question pins only the DISPATCH — that the three
-	// contracts differ — while leaving each row's CONTENTS unpinned. Measured: deleting `rmw`
+	// until 2026-09-12, and a one-column question pins only the DISPATCH — that the contracts
+	// differ — while leaving each row's CONTENTS unpinned. Measured: deleting `rmw`
 	// from HostOwnedModes()'s runs and records left the whole short suite green while
 	// reversing two of the three decisions that function's own doc comment enumerates. `own`
-	// then had a sole composing mechanism, so Mechanism's fallback coerced BOTH `rmw` and
-	// `computed` to `stateful` — and a credential-shaped `rmw` surface composed into the host
-	// capture store, which is the §6.2 privacy harm bullet one refuses in as many words.
+	// then had a sole composing mechanism, so Mechanism's since-deleted fallback coerced BOTH
+	// `rmw` and `computed` to `stateful` — and a credential-shaped `rmw` surface composed into
+	// the host capture store, which is the §6.2 privacy harm bullet one refuses in as many
+	// words. With the fallback gone the same deletion makes `rmw` undecided, which this table
+	// still catches.
 	wantMechanism := map[HostOwnership]map[string]string{
 		// `none` composes nothing: undecided for every WRITING mode. `unrendered` is honored
 		// at every notch — honoring it IS writing nothing — so it answers as itself
-		// everywhere, which is why it is the one row all three contracts share.
+		// everywhere, which is why it is the one row both contracts share.
 		OwnershipNone: {manifest.ModeUnrendered: manifest.ModeUnrendered},
-		// `assert` has ONE composing mechanism, so its fallback coerces everything to it.
-		// That coercion is the contract: today's behavior, unchanged.
-		OwnershipAssert: {
-			manifest.ModeStateful:   manifest.ModeRMW,
-			manifest.ModeRMW:        manifest.ModeRMW,
-			manifest.ModeComputed:   manifest.ModeRMW,
-			manifest.ModeUnrendered: manifest.ModeUnrendered,
-		},
-		// `own` has TWO, so its fallback coerces nothing: each declaration it runs runs as
-		// itself. `computed` is the one EXPLICIT coercion, onto `stateful` (OQ-HC2,
+		// `own`: each declaration it runs runs as itself — `rmw` included, which no contract
+		// coerces onto any more (the `assert` coercion is gone, OQ-CO14). `computed` is the
+		// one STATED coercion, onto `stateful` (OQ-HC2,
 		// docs/reference/host-agent-environment.md): the capture overlay is the adoption path a
 		// wholesale `computed` render lacks, so the first owned render adopts the file.
 		OwnershipOwn: {
@@ -308,7 +316,7 @@ func TestModesIsAFunctionOfTheNotchAlone(t *testing.T) {
 
 // A HOST TARGET WITH NO CONTRACT RESOLVED IS UNDECIDED — the fail-closed default, and the one
 // case OwnershipUnstated exists for. It is NOT the "unset key" state: config resolves an
-// absent `host_management` to `assert` and an unreadable user config to `none`, so reaching
+// absent `host_management` and an unreadable user config both to `none`, so reaching
 // this means a caller built a host target without asking the boundary at all, and such a
 // target must write nothing rather than inherit whichever contract looks likeliest.
 func TestHostWithNoContractIsUndecided(t *testing.T) {
@@ -326,7 +334,7 @@ func TestHostWithNoContractIsUndecided(t *testing.T) {
 	}
 }
 
-// THE OWNED HOST KEEPS A CAPTURE STORE, and the other two contracts keep none — the
+// THE OWNED HOST KEEPS A CAPTURE STORE, and no other contract keeps one — the
 // directory half of the same declaration the census is the mechanism half of
 // (config-ownership-and-promotion.md §6.2). Resolved through the Target so the writer and
 // every reader have one definition; asserted here so a hand-built path elsewhere has
@@ -339,11 +347,11 @@ func TestHostCaptureStoreIsOwnOnly(t *testing.T) {
 	// The provenance record does NOT move into it: two directories, two lifetimes (§6.2).
 	if got, want := owned.ProvenanceDir(),
 		"/home/me/.local/share/yolo-jail/host-provenance"; got != want {
-		t.Errorf("owned host provenance dir is %q, want %q — the record stays where `assert` "+
-			"writes it, or reverting an `assert` home would depend on a dir only `own` creates",
-			got, want)
+		t.Errorf("owned host provenance dir is %q, want %q — the record stays where the "+
+			"retired `assert` wrote it, or reverting such a home under `none` would depend on "+
+			"a dir only `own` creates", got, want)
 	}
-	for _, ownership := range []HostOwnership{OwnershipUnstated, OwnershipNone, OwnershipAssert} {
+	for _, ownership := range []HostOwnership{OwnershipUnstated, OwnershipNone} {
 		if dir := Host("/home/me", nil, ownership).SidecarDir(); dir != "" {
 			t.Errorf("host under %q keeps a capture store at %q — it composes no whole file, "+
 				"so there is no baseline to diff against and no edits to capture",
@@ -361,23 +369,19 @@ func TestHostCaptureStoreIsOwnOnly(t *testing.T) {
 			t.Errorf("capture sidecar %q is not under the store with the jail's own naming", got)
 		}
 	}
-	if p := Host("/home/me", nil, OwnershipAssert).OverlayPath("acme", "settings"); p != "" {
+	if p := Host("/home/me", nil, OwnershipNone).OverlayPath("acme", "settings"); p != "" {
 		t.Errorf("a contract with no store answered %q for a capture sidecar path", p)
 	}
 }
 
-// THE SELECTION RECORD HAS A HOME UNDER `assert` TOO (OQ-HC3, HC-D18 in
-// docs/design/host-computed-layer.md). Host apply writes the `profile` selection with the
-// jail's edge-triggered rule under both contracts, and the rule needs a record of what yolo
-// wrote. `assert` keeps no capture store, so the record goes where the provenance record and the
-// config-list insert record already go; `none` and an unstated contract write nothing and so
-// keep none.
-func TestHostSelectionRecordLivesBesideTheProvenanceUnderAssert(t *testing.T) {
-	asserted := Host("/home/me", nil, OwnershipAssert)
-	want := asserted.ProvenanceDir() + "/acme-settings.selection.json"
-	if got := asserted.SelectionPath("acme", "settings"); got != want {
-		t.Errorf("assert-home selection record is %q, want %q", got, want)
-	}
+// THE SELECTION RECORD IS THE CAPTURE STORE'S, and nowhere else (OQ-HC3, HC-D18 in
+// docs/design/host-computed-layer.md, as the `assert` retirement left it). Host apply writes the
+// `profile` selection with the jail's edge-triggered rule, which needs a record of what yolo
+// wrote, and the one contract that applies keeps it in its capture store. Until OQ-CO14 an
+// `assert` home kept it beside the provenance record, having no store; that branch went with the
+// value, so `none` and an unstated contract answer "" — they write nothing and keep no record —
+// and no host contract names a selection record under the provenance dir.
+func TestHostSelectionRecordIsTheCaptureStoresOnly(t *testing.T) {
 	owned := Host("/home/me", nil, OwnershipOwn)
 	if got := owned.SelectionPath("acme", "settings"); !strings.HasPrefix(got, owned.SidecarDir()+"/") {
 		t.Errorf("an owned home's selection record %q moved out of its capture store", got)
@@ -420,25 +424,35 @@ func contains(haystack []string, needle string) bool {
 	return false
 }
 
-// THE HOST COERCES EVERY WRITING MODE TO rmw, and Mechanism is where a render entry reads
-// that instead of assuming it. HostModes says it in three places — `runs` holds rmw alone,
-// and the `stateful`/`computed` exclusions both end "is rendered through `rmw` here" — and
-// this is the machine-readable form of those sentences.
-func TestHostMechanismCoercesEveryWritingModeToRMW(t *testing.T) {
-	host := Host("/home/me", nil, OwnershipAssert).Modes()
-	for _, declared := range []string{manifest.ModeStateful, manifest.ModeComputed, manifest.ModeRMW} {
-		got, decided := host.Mechanism(declared)
-		if !decided || got != manifest.ModeRMW {
-			t.Errorf("a surface declaring %q renders through %q (decided=%v) at the host, want "+
-				"%q — HostModes runs rmw alone, so this is the coercion its exclusions describe",
-				declared, got, decided, manifest.ModeRMW)
+// ONLY A STATED COERCION COERCES. Until the `assert` retirement (OQ-CO14) Mechanism also
+// DERIVED one: a census with a sole composing mechanism rendered every declaration it did not
+// run through it, which was the whole of `assert`'s "every surface is read-modify-written". The
+// rule went with the census, and this pins that it went: a census with one way to write and no
+// stated coercion leaves a declaration it does not run undecided, so no future census acquires
+// `assert`'s coercion by happening to run one mode. It replaces
+// TestHostMechanismCoercesEveryWritingModeToRMW, which pinned that coercion at the host.
+func TestMechanismCoercesOnlyWhatACensusStates(t *testing.T) {
+	sole := ModeSet{runs: map[string]bool{manifest.ModeRMW: true, manifest.ModeUnrendered: true}}
+	for _, declared := range []string{manifest.ModeStateful, manifest.ModeComputed} {
+		if got, decided := sole.Mechanism(declared); decided {
+			t.Errorf("a census running rmw alone rendered a %q surface through %q — the derived "+
+				"sole-mechanism coercion was `assert`'s and was deleted with it", declared, got)
 		}
 	}
-	// And `unrendered` is answered with itself, not coerced into a write. Honoring it is
-	// writing nothing, and the host census runs it for exactly that reason.
-	if got, decided := host.Mechanism(manifest.ModeUnrendered); !decided || got != manifest.ModeUnrendered {
-		t.Errorf("unrendered resolved to %q (decided=%v), want itself — coercing it would turn "+
-			"a surface yolo declares it does not write into one it does", got, decided)
+	if got, decided := sole.Mechanism(manifest.ModeRMW); !decided || got != manifest.ModeRMW {
+		t.Errorf("a declaration the census runs resolved to %q (decided=%v), want itself", got, decided)
+	}
+	// A stated coercion still applies, and never onto `unrendered`: answering "write nothing"
+	// for a surface a pack asked to have rendered would look like success.
+	stated := ModeSet{runs: map[string]bool{manifest.ModeStateful: true, manifest.ModeUnrendered: true},
+		coerce: map[string]string{manifest.ModeComputed: manifest.ModeStateful,
+			manifest.ModeRMW: manifest.ModeUnrendered}}
+	if got, decided := stated.Mechanism(manifest.ModeComputed); !decided || got != manifest.ModeStateful {
+		t.Errorf("a stated coercion was not applied: %q (decided=%v)", got, decided)
+	}
+	if got, decided := stated.Mechanism(manifest.ModeRMW); decided {
+		t.Errorf("a coercion onto `unrendered` was honored (%q) — that writes nothing for a "+
+			"surface a pack asked to have rendered", got)
 	}
 }
 

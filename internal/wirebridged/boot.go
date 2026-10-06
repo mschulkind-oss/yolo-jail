@@ -399,7 +399,7 @@ func servePlan(ctx context.Context, p plan, e *entrypoint.Env) int {
 		}
 	}
 	if len(p.via.Routes) > 0 {
-		handler, lines := viaHandlerFor(p.via, e.Home, allow.via)
+		handler, lines := viaHandlerFor(p.via, e, allow.via)
 		ls = append(ls, &listener{addr: p.via.ListenAddr, what: "via routes",
 			handler: requireOpenAICaller(token, "the via address", handler)})
 		serving = append(serving, "via routes on {addr} (endpoint {endpoint}): "+strings.Join(lines, "; "))

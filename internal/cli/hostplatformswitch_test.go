@@ -12,6 +12,11 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/mschulkind-oss/yolo-jail/internal/json5"
+	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
+	"github.com/mschulkind-oss/yolo-jail/internal/packload"
+	"github.com/mschulkind-oss/yolo-jail/internal/render"
 )
 
 func TestHostLaunchNamesAUsersOwnBedrockSwitch(t *testing.T) {
@@ -59,11 +64,27 @@ func TestHostLaunchNamesAUsersOwnBedrockSwitch(t *testing.T) {
 // another provider while the host selection is still Bedrock names the key as yolo's, and the
 // apply that moves claude's host selection off Bedrock removes it, after which no line prints.
 // Before, the key stayed forever and the line told the user to remove a key of theirs.
+//
+// THROUGH BOTH WRITERS an owned host runs, under `host_management: "own"`: the SHIPPED claude pack,
+// whose settings surface declares no mode and so composes `stateful`, and a copy whose surface
+// declares `"mode": "rmw"` (claudeForkWithRMWSettings) — the arm the retired `assert` ran for every
+// surface, which is how this ran over the shipped pack before OQ-CO14. The shipped case is the
+// default path for anyone who writes their home now, and it failed until CO-D15: the stateful
+// writer kept no computed-leaf record, so the launch named the switch `own` wrote as the user's.
 func TestHostApplyRemovesTheBedrockSwitchItWroteAndTheLineSaysWhoWroteIt(t *testing.T) {
+	t.Run("shipped claude, stateful", func(t *testing.T) { hostBedrockSwitchRoundTrip(t, "claude") })
+	t.Run("claude declaring rmw", func(t *testing.T) { hostBedrockSwitchRoundTrip(t, claudeForkWithRMWSettings(t)) })
+}
+
+// hostBedrockSwitchRoundTrip is the round trip over the pack named by packEntry (a bare shipped
+// name or a path).
+func hostBedrockSwitchRoundTrip(t *testing.T, packEntry string) {
 	const providers = `"providers": {"bedrock": {"region": "us-west-2"},
 	  "mine": {"endpoints": {"anthropic": {"base_url": "https://anthropic.example"}}}},
 	  "profiles": {"mine": {"provider": "mine"}}`
-	home := hostGateHome(t, `{"packs": ["claude"], "profile": {"claude": "bedrock"}, `+providers+`}`, nil)
+	fork := packEntry
+	home := hostGateHome(t, `{"packs": ["`+fork+`"], "host_management": "own", "profile": {"claude": "bedrock"}, `+
+		providers+`}`, nil)
 	// `yolo host apply` refuses while a declared program is missing, and `claude` is on this
 	// development jail's PATH but not on CI's: stub it, or the test passes only here.
 	stubDeclaredBins(t)
@@ -99,7 +120,8 @@ func TestHostApplyRemovesTheBedrockSwitchItWroteAndTheLineSaysWhoWroteIt(t *test
 	}
 
 	// The host selection leaves Bedrock: the apply removes what it wrote, and nothing is named.
-	userCfg(t, home, `{"packs": ["claude"], "profile": {"claude": "mine"}, `+providers+`}`)
+	userCfg(t, home, `{"packs": ["`+fork+`"], "host_management": "own", "profile": {"claude": "mine"}, `+
+		providers+`}`)
 	if got := apply(); strings.Contains(got, `"CLAUDE_CODE_USE_BEDROCK"`) {
 		t.Errorf("host apply with claude off Bedrock must remove the switch it wrote:\n%s", got)
 	}
@@ -107,4 +129,121 @@ func TestHostApplyRemovesTheBedrockSwitchItWroteAndTheLineSaysWhoWroteIt(t *test
 		strings.Contains(errs, "sets CLAUDE_CODE_USE_BEDROCK") {
 		t.Errorf("with the switch gone, no line: rc=%d\n%s", rc, errs)
 	}
+}
+
+// A SWITCH yolo WROTE, AT A LAUNCH WHERE NO HOST APPLY RENDERS (OQ-CO14): the key unset, or
+// "none", over a home the retired `assert` wrote CLAUDE_CODE_USE_BEDROCK into, with the host's
+// computed-leaf record naming it. `yolo host apply` refuses here, so a line sending the user to
+// it to remove the key repeated at every launch; the line names the removal by hand, says the
+// apply renders only under "own", and offers `--revert`, which runs under "none". Through
+// hostMain to the pre-flight, so deleting the field's assignment in platformSwitchConflicts
+// fails here (and TestHostApplyRemovesTheBedrockSwitchItWroteAndTheLineSaysWhoWroteIt, under
+// "own", fails the other way).
+//
+// The launched program is claude by NAME, since the host notch names the conflicts of the one
+// agent it launches, but a path that does not exist: the line prints in the pre-flight, before
+// the target resolves, and nothing can be exec'd past it.
+func TestHostLaunchWhereNoHostApplyRendersNamesAYoloWrittenSwitchForRemovalByHand(t *testing.T) {
+	const providers = `"providers": {"mine": {"endpoints": {"anthropic": {"base_url": "https://anthropic.example"}}}},
+	  "profiles": {"mine": {"provider": "mine"}}`
+	for _, mode := range []string{"", `"host_management": "none", `} {
+		home := hostGateHome(t, `{"packs": ["claude"], `+mode+providers+`}`, nil)
+		writeFile(t, filepath.Join(home, ".claude", "settings.json"), `{"env": {"CLAUDE_CODE_USE_BEDROCK": "1"}}`)
+		rec := render.Host(home, nil, render.OwnershipUnstated).LeafRecordPath("claude", "settings")
+		if want := filepath.Join(home, ".local", "share", "yolo-jail", "host-provenance",
+			"claude-settings.leaves.json"); rec != want {
+			t.Fatalf("fixture: the leaf record is at %s, want %s", rec, want)
+		}
+		writeFile(t, rec, `{"/env/CLAUDE_CODE_USE_BEDROCK": "1"}`)
+
+		reached := false
+		orig := hostSyscallExec
+		hostSyscallExec = func(string, []string, []string) error { reached = true; return nil }
+		t.Cleanup(func() { hostSyscallExec = orig })
+		var out, errw bytes.Buffer
+		bin := filepath.Join(t.TempDir(), "no-such-dir", "claude")
+		hostMain([]string{"-p", "mine", "--", bin}, &out, &errw, false, nil)
+		errs := errw.String()
+		if reached {
+			t.Fatalf("host_management %q: the launch exec'd a program that does not exist:\n%s", mode, errs)
+		}
+		if !strings.Contains(errs, "which `yolo host apply` wrote there for claude's host selection") {
+			t.Fatalf("host_management %q: no line naming the switch yolo wrote:\n%s", mode, errs)
+		}
+		if strings.Contains(errs, "or run `yolo host apply` with") {
+			t.Errorf("host_management %q: the line sends the user to an apply that refuses here:\n%s", mode, errs)
+		}
+		for _, want := range []string{"remove CLAUDE_CODE_USE_BEDROCK from ~/.claude/settings.json by hand",
+			`host_management is not "own"`, "`yolo host apply --revert`"} {
+			if !strings.Contains(errs, want) {
+				t.Errorf("host_management %q: the line does not say %q:\n%s", mode, want, errs)
+			}
+		}
+	}
+}
+
+// claudeForkWithRMWSettings is a copy of the shipped claude pack, configured by path, whose
+// claude/settings surface declares `"mode": "rmw"`, so `own` runs the rmw arm over it — the arm
+// that keeps the host's computed-leaf record (HC-D25) — where the shipped surface composes whole.
+func claudeForkWithRMWSettings(t *testing.T) string {
+	t.Helper()
+	var claude *packload.Pack
+	for _, p := range packload.Embedded() {
+		if p.Name == "claude" {
+			claude = p
+		}
+	}
+	if claude == nil {
+		t.Fatal("fixture: no shipped claude pack")
+	}
+	fork := filepath.Join(t.TempDir(), "claude")
+	if err := os.CopyFS(fork, os.DirFS(claude.Root)); err != nil {
+		t.Fatal(err)
+	}
+	manifest := filepath.Join(fork, "pack.json")
+	doc, err := json5.Decode([]byte(readFileT(t, manifest)))
+	decl, _ := doc.(*jsonx.OrderedMap)
+	if err != nil || decl == nil {
+		t.Fatalf("fixture: the shipped claude pack.json: %v", err)
+	}
+	found := 0
+	contributes, _ := decl.Get("contributes")
+	list, _ := contributes.([]any)
+	for _, c := range list {
+		c, _ := c.(*jsonx.OrderedMap)
+		if c == nil {
+			continue
+		}
+		if kind, _ := c.Get("kind"); kind != "config" {
+			continue
+		}
+		surfaces, _ := c.Get("config")
+		inner, _ := surfaces.([]any)
+		for _, s := range inner {
+			s, _ := s.(*jsonx.OrderedMap)
+			if s == nil {
+				continue
+			}
+			if name, _ := s.Get("name"); name != "settings" {
+				continue
+			}
+			if mode, declared := s.Get("mode"); declared {
+				t.Fatalf("fixture: claude/settings already declares a mode (%v)", mode)
+			}
+			s.Set("mode", "rmw")
+			found++
+		}
+	}
+	if found != 1 {
+		t.Fatalf("fixture: %d claude/settings config surfaces in the shipped pack, want 1", found)
+	}
+	out, err := jsonx.DumpsIndent(decl, 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(manifest, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, manifest, out+"\n")
+	return fork
 }

@@ -8,6 +8,14 @@
     // it replaces this binary on its own schedule, as Claude Code's does, and
     // `agent_updates: false` does not stop it.
     {
+      // copilot's providers.json, which shows a provider's whole model list beside GitHub's
+      // (docs/design/model-lists-and-pickers.md MM-D31) and carries the provider's key as literal
+      // text, so the env derive composes it and a jail writes it beside copilot's env file
+      // (MM-D33). At `yolo host`, which writes no agent file, copilot keeps its environment's one
+      // model.
+      "agent_files": {
+        "COPILOT_PROVIDERS_CONFIG": "providers.json"
+      },
       "bin": "copilot",
       "install_hints": {
         "brew-cask": "copilot-cli"

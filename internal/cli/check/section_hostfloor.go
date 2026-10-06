@@ -73,8 +73,12 @@ func (o *Options) sectionHostFloor(r *reporter) {
 				r.dim(fmt.Sprintf("%s — %s", p.Bin(), st.Reason))
 				break
 			}
-			r.dim(fmt.Sprintf("%s — not in the floor yet (%s): the first `yolo host -- %s`, or `yolo host "+
-				"apply --assert`, installs it", p.Bin(), st.Reason, p.Bin()))
+			// The launch installs at every host-management mode; the apply only under "own".
+			by := "the first `yolo host -- " + p.Bin() + "` installs it"
+			if hostOwned() {
+				by = "the first `yolo host -- " + p.Bin() + "`, or `yolo host apply --assert`, installs it"
+			}
+			r.dim(fmt.Sprintf("%s — not in the floor yet (%s): %s", p.Bin(), st.Reason, by))
 		case hostfloor.NoEntry:
 			// With no floor entry, the copy on the launch's PATH IS what runs (OQ-HE11 (a)), so it
 			// is named as that rather than as a copy `yolo host` does not run. The PATH is the
@@ -91,7 +95,7 @@ func (o *Options) sectionHostFloor(r *reporter) {
 			// which yolo host never runs (the launch's lookup skips the floor's bin/).
 			if _, left := records[p.Bin()]; left {
 				r.dim(fmt.Sprintf("%s: yolo's floor still holds a copy it no longer keeps, which `yolo host` "+
-					"does not run — `yolo host apply --assert` removes it", p.Bin()))
+					"does not run — %s", p.Bin(), floor.StaleCopyStep(hostOwned(), p.Bin())))
 			}
 		}
 		if lk := floor.Lock(p.Bin()); lk.Held {
@@ -112,8 +116,8 @@ func (o *Options) sectionHostFloor(r *reporter) {
 		}
 	}
 	if len(stale) > 0 {
-		r.dim(fmt.Sprintf("in the floor but no selected pack delivers %s any more: `yolo host apply "+
-			"--assert` removes it", strings.Join(stale, ", ")))
+		r.dim(fmt.Sprintf("in the floor but no selected pack delivers %s any more: %s",
+			strings.Join(stale, ", "), floor.StaleCopyStep(hostOwned(), stale...)))
 	}
 	if len(leftovers) > 0 {
 		var ps []string
@@ -149,3 +153,7 @@ func sortedRecordBins(m map[string]*hostfloor.Record) []string {
 	sort.Strings(out)
 	return out
 }
+
+// hostOwned reports whether the declared host-management mode is "own", the one mode whose
+// `yolo host apply --assert` removes what the floor no longer keeps (hostfloor.StaleCopyStep).
+func hostOwned() bool { return config.HostManagementMode() == config.HostManagementOwn }

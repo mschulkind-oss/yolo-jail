@@ -267,16 +267,16 @@ func (p *Pack) loopholeClaims() []loopholeClaim {
 	mods, _, _ := p.LoopholeModules()
 	var out []loopholeClaim
 	for _, mod := range mods {
-		out = append(out, moduleClaims(mod, p.Official)...)
+		out = append(out, moduleClaims(mod, p.MayRunHostHalf())...)
 	}
 	return out
 }
 
 // moduleClaims is the per-module enumeration. Split out so it is testable from a
 // manifest alone, and so the "one claim per crossing" table above has one place to be
-// read against. official is the pack's origin (Pack.Official), which decides one crossing: a
-// doorway's host argv, which runs only from a pack yolo ships.
-func moduleClaims(mod LoopholeModule, official bool) []loopholeClaim {
+// read against. hostHalf is the pack's origin answer (Pack.MayRunHostHalf), which decides one
+// crossing: a doorway's host argv, which runs only from a pack yolo ships or a local one.
+func moduleClaims(mod LoopholeModule, hostHalf bool) []loopholeClaim {
 	name := mod.Name
 	if mod.Decl == nil {
 		// FAIL LOUD. An unreadable declaration is not "no claims": the module is still
@@ -322,11 +322,12 @@ func moduleClaims(mod LoopholeModule, official bool) []loopholeClaim {
 	// A DOORWAY'S HOST ARGV (`jail_daemon.host_cmd`) is host execution too: a launch whose agent
 	// shares the host's loopback runs it outside its sandbox, as the user, in place of the jail
 	// daemon (docs/design/host-notch-services.md HS-D15). RAW, so its {listen} survives. ONLY FOR
-	// A PACK YOLO SHIPS, because that is the only pack whose host argv a launch admits
-	// (internal/launchservice's AdmitDoorway, HS-D12's origin rule): a fetched or local pack's is
-	// refused at every launch and runs nowhere, so claiming it would disclose execution that
-	// cannot happen, in the very footprints a user reviews.
-	if official && m.JailDaemon != nil && len(m.JailDaemon.HostCmd) > 0 {
+	// A PACK YOLO SHIPS OR A LOCAL ONE, because those are the packs whose host argv a launch
+	// admits (internal/launchservice's AdmitDoorway; HS-D12's origin rule, widened to a local pack
+	// by HS-D27): a fetched pack's is refused at every launch and runs nowhere, so claiming it
+	// would disclose execution that cannot happen, in the very footprints a user reviews, while a
+	// local pack's runs and must be claimed, since the launch banner is this claim.
+	if hostHalf && m.JailDaemon != nil && len(m.JailDaemon.HostCmd) > 0 {
 		runs = append(runs, shquote.Join(m.JailDaemon.HostCmd))
 	}
 	if len(runs) > 0 {

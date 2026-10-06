@@ -22,6 +22,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"regexp"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -489,52 +490,57 @@ func TestEveryCodexModelConsumerReadsTheOneDeclaration(t *testing.T) {
 }
 
 // runExtensionRegisteredIDs writes the rendered data file into a fresh HOME, at the
-// manifest's path, and runs the shipped extension there, returning the model ids it passed
-// to registerProvider.
+// manifest's path, and runs the shipped extension there on both routes, returning the model ids
+// it registered: the jail route's ProviderConfig models, which the host route's native provider
+// must list identically.
 func runExtensionRegisteredIDs(t *testing.T, file map[string]any) []any {
 	t.Helper()
-	p := shippedPiPack(t)
-	source, err := os.ReadFile(filepath.Join(p.Root, "extensions", "yolo-openai-auth.js"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	dir := t.TempDir()
-	home := t.TempDir()
-	if err := os.WriteFile(filepath.Join(dir, "extension.mjs"), source, 0o644); err != nil {
-		t.Fatal(err)
-	}
 	data, err := json.Marshal(file)
 	if err != nil {
 		t.Fatal(err)
 	}
-	dest := filepath.Join(home, filepath.FromSlash(piCodexModelsRel(t)))
-	if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
-		t.Fatal(err)
+	var jail []any
+	for _, route := range piRoutes {
+		f := newPiExtensionFixture(t)
+		f.builtinStub(t)
+		f.modelsFile(t, string(data))
+		ids := registeredCodexIDs(t, f.output(t, route, piRegisteredIDsHarness))
+		if route == piJailRoute {
+			jail = ids
+		} else if !reflect.DeepEqual(ids, jail) {
+			t.Errorf("on the host route the pi extension registers %v, and on the jail route %v", ids, jail)
+		}
 	}
-	if err := os.WriteFile(dest, data, 0o644); err != nil {
-		t.Fatal(err)
+	return jail
+}
+
+// piRegisteredIDsHarness loads the extension from $EXT, or from ./extension.mjs beside it, and
+// prints the ids of the models its one openai-codex registration lists after an IDS marker.
+const piRegisteredIDsHarness = piRegistrationViewJS + `
+const { default: extension } = await import(process.env.EXT || "./extension.mjs");
+const registrations = [];
+await extension({ registerProvider(...args) { registrations.push(args); }, on() {} });
+if (registrations.length !== 1) throw new Error("registrations: " + registrations.length);
+const view = registrationView(registrations[0]);
+requireRoute(view);
+if (view.id !== "openai-codex") throw new Error("openai-codex was not registered");
+console.log("IDS " + JSON.stringify((view.models ?? []).map((m) => m.id)));
+`
+
+// registeredCodexIDs decodes the ids piRegisteredIDsHarness printed.
+func registeredCodexIDs(t *testing.T, out []byte) []any {
+	t.Helper()
+	for _, line := range strings.Split(string(out), "\n") {
+		if raw, ok := strings.CutPrefix(line, "IDS "); ok {
+			var ids []any
+			if err := json.Unmarshal([]byte(raw), &ids); err != nil {
+				t.Fatalf("decoding the extension's registered ids %q: %v", raw, err)
+			}
+			return ids
+		}
 	}
-	if err := os.WriteFile(filepath.Join(dir, "harness.mjs"), []byte(`
-import extension from "./extension.mjs";
-let registration;
-await extension({ registerProvider(name, config) { registration = { name, config }; }, on() {} });
-if (!registration || registration.name !== "openai-codex") throw new Error("openai-codex was not registered");
-console.log(JSON.stringify((registration.config.models ?? []).map((m) => m.id)));
-`), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	cmd := exec.Command(requireNode(t, "the shipped pi extension"), "harness.mjs")
-	cmd.Dir = dir
-	cmd.Env = append(os.Environ(), "HOME="+home)
-	out, err := cmd.Output()
-	if err != nil {
-		t.Fatalf("running the shipped pi extension: %v\n%s", err, out)
-	}
-	var ids []any
-	if err := json.Unmarshal(out, &ids); err != nil {
-		t.Fatalf("decoding the extension's registered ids %q: %v", out, err)
-	}
-	return ids
+	t.Fatalf("the harness printed no ids:\n%s", out)
+	return nil
 }
 
 // AN ALIAS FOR A DECLARED ID ADDS NOTHING. `default` and `fast` are yolo's conventional alias
@@ -610,69 +616,73 @@ func TestCodexModelListHelperIsIdenticalInEveryDerive(t *testing.T) {
 // THE HOST NOTCH GETS THE DECLARED LIST (OQ-HC1, docs/reference/host-agent-environment.md, which
 // supersedes docs/design/model-lists-and-pickers.md ML-D8). `yolo host apply` runs pi's derive
 // over the provider table it composes at user scope, so pi/codex-models holds the openai-codex
-// declaration's expansion at the host too — rendered under `assert`, and under `own` through
-// `stateful` (OQ-HC2), where it used to be refused. The extension the host notch delivers then
-// registers that list, 1M variants included, in place of pi-ai's built-in catalog, as in a jail.
-// This used to pin the opposite (ML-D8: `{}` at the host, the extension registering nothing).
+// declaration's expansion at the host too — under `own`, through `stateful` (OQ-HC2), where it
+// used to be refused (the retired `assert` rendered it through rmw). The extension the host
+// notch delivers then registers that list, 1M variants included, in place of pi-ai's built-in
+// catalog, as in a jail, and lists it on the native provider it registers under `yolo host -- pi`
+// (docs/design/pi-host-openai-auth.md OQ-1). This used to pin the opposite (ML-D8: `{}` at the
+// host, the extension registering nothing).
 func TestTheHostNotchGivesPiTheDeclaredCodexList(t *testing.T) {
 	rel := piCodexModelsRel(t)
-	for _, ownership := range []render.HostOwnership{render.OwnershipAssert, render.OwnershipOwn} {
-		t.Run(ownership.String(), func(t *testing.T) {
-			t.Setenv("YOLO_CTX_ROOT", t.TempDir())
-			home := t.TempDir()
-			in := hostTestInputs(t, testPacksForAgent(t, "pi"), nil, nil, nil)
-			if r := hostRenderWith(t, home, ownership, in, "pi", "pi/codex-models"); r.Action != "rendered" {
-				t.Fatalf("pi/codex-models at the host under %s: %q, want rendered", ownership, r.Action)
-			}
-			p := shippedPiPack(t)
-			if _, err := RenderHostFiles(p, home, filesReq(t), false); err != nil {
-				t.Fatal(err)
-			}
-			raw, err := os.ReadFile(filepath.Join(home, filepath.FromSlash(rel)))
-			if err != nil {
-				t.Fatal(err)
-			}
-			var file map[string]any
-			if err := json.Unmarshal(raw, &file); err != nil {
-				t.Fatalf("the host-rendered %s is not JSON: %v\n%s", rel, err, raw)
-			}
-			if models, _ := file["models"].([]any); len(models) == 0 {
-				t.Fatalf("the host notch rendered no openai-codex list:\n%s", raw)
-			}
-			// The extension the host notch delivered, run from where it landed with that home.
-			harness := filepath.Join(t.TempDir(), "harness.mjs")
-			ext := filepath.Join(home, ".pi", "agent", "extensions", "yolo-openai-auth.js")
-			if err := os.WriteFile(harness, []byte(`
-const { default: extension } = await import(process.env.EXT);
-let registration;
-await extension({ registerProvider(name, config) { registration = { name, config }; }, on() {} });
-if (!registration || registration.name !== "openai-codex") throw new Error("openai-codex was not registered");
-console.log(JSON.stringify((registration.config.models || []).map((m) => m.id)));
-`), 0o644); err != nil {
-				t.Fatal(err)
-			}
-			cmd := exec.Command(requireNode(t, "the host-delivered pi extension"), harness)
-			cmd.Env = append(os.Environ(), "HOME="+home, "EXT="+ext)
-			out, err := cmd.Output()
-			if err != nil {
-				t.Fatalf("running the host-delivered extension: %v\n%s", err, out)
-			}
-			var ids []string
-			if err := json.Unmarshal(out, &ids); err != nil {
-				t.Fatalf("harness output: %v\n%s", err, out)
-			}
-			long := false
-			for _, id := range ids {
-				if strings.HasSuffix(id, "[1m]") {
-					long = true
-				}
-				if strings.HasPrefix(id, "gpt-5") {
-					t.Errorf("the host-delivered extension registered pi-ai's GPT-5.x id %q", id)
-				}
-			}
-			if !long {
-				t.Errorf("the host-delivered extension registered no 1M variant: %v", ids)
-			}
-		})
+	t.Setenv("YOLO_CTX_ROOT", t.TempDir())
+	home := t.TempDir()
+	in := hostTestInputs(t, testPacksForAgent(t, "pi"), nil, nil, nil)
+	if r := hostRenderWith(t, home, render.OwnershipOwn, in, "pi", "pi/codex-models"); r.Action != "rendered" {
+		t.Fatalf("pi/codex-models at the host under own: %q, want rendered", r.Action)
+	}
+	p := shippedPiPack(t)
+	if _, err := RenderHostFiles(p, home, filesReq(t), false); err != nil {
+		t.Fatal(err)
+	}
+	raw, err := os.ReadFile(filepath.Join(home, filepath.FromSlash(rel)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var file map[string]any
+	if err := json.Unmarshal(raw, &file); err != nil {
+		t.Fatalf("the host-rendered %s is not JSON: %v\n%s", rel, err, raw)
+	}
+	if models, _ := file["models"].([]any); len(models) == 0 {
+		t.Fatalf("the host notch rendered no openai-codex list:\n%s", raw)
+	}
+	// The extension the host notch delivered, run from where it landed with that home, on
+	// both routes: a plain pi's, and the native provider `yolo host -- pi` registers with
+	// the host socket set, over a stand-in for pi's built-in resolved from the home.
+	writePiAIStub(t, home, piCatalogStubJS+piBuiltinProvidersStubJS)
+	writePiCoreStub(t, home, piNativeCoreStubJS)
+	harness := filepath.Join(t.TempDir(), "harness.mjs")
+	ext := filepath.Join(home, ".pi", "agent", "extensions", "yolo-openai-auth.js")
+	if err := os.WriteFile(harness, []byte(piRegisteredIDsHarness), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	node := requireNode(t, "the host-delivered pi extension")
+	var ids []string
+	for _, route := range piRoutes {
+		cmd := exec.Command(node, harness)
+		cmd.Env = append(append(os.Environ(), "HOME="+home, "EXT="+ext), route.env()...)
+		out, err := cmd.Output()
+		if err != nil {
+			t.Fatalf("running the host-delivered extension on the %s: %v\n%s", route.name, err, out)
+		}
+		var routeIDs []string
+		for _, id := range registeredCodexIDs(t, out) {
+			routeIDs = append(routeIDs, id.(string))
+		}
+		if ids != nil && !slices.Equal(routeIDs, ids) {
+			t.Errorf("the %s registers %v, the jail route %v", route.name, routeIDs, ids)
+		}
+		ids = routeIDs
+	}
+	long := false
+	for _, id := range ids {
+		if strings.HasSuffix(id, "[1m]") {
+			long = true
+		}
+		if strings.HasPrefix(id, "gpt-5") {
+			t.Errorf("the host-delivered extension registered pi-ai's GPT-5.x id %q", id)
+		}
+	}
+	if !long {
+		t.Errorf("the host-delivered extension registered no 1M variant: %v", ids)
 	}
 }

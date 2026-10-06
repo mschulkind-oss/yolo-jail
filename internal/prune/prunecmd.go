@@ -352,7 +352,19 @@ func Run(opts Options) int {
 	apply := opts.Apply
 
 	rt := opts.DetectRuntime()
-	workspaces := FindYoloWorkspaces(rt, opts.Exec)
+	// macos-user RUNS NO CONTAINER, so there is no runtime binary to ask: `macos-user` is a
+	// runtime name, and every probe below used to exec it, fail, and leave the old-image sweep
+	// declined — FAILED, exit 1, on every prune that backend's user ran. Its jails are its
+	// host-services sessions (runtime.ListSessions), the workspaces come from their records, and
+	// every container-only section says it does not apply and names the command that prunes a
+	// container runtime on the same machine.
+	macosUser := rt == macosUserRuntime
+	var workspaces []string
+	if macosUser {
+		workspaces = MacosUserWorkspaces(paths.HostServicesBase(paths.IsMacOS))
+	} else {
+		workspaces = FindYoloWorkspaces(rt, opts.Exec)
+	}
 
 	// OQ-LS2: a sweep that DECLINED — as opposed to one that found nothing —
 	// fails the command. `yolo prune` was told to reclaim; silence about not
@@ -368,7 +380,9 @@ func Run(opts Options) int {
 	for _, ws := range workspaces {
 		p.line("  • " + ws)
 	}
-	if len(workspaces) == 0 {
+	if len(workspaces) == 0 && macosUser {
+		p.line("[dim]No running macos-user sessions found — nothing to dedupe across.[/dim]")
+	} else if len(workspaces) == 0 {
 		p.line("[dim]No yolo-* containers found — nothing to dedupe across.[/dim]")
 	}
 
@@ -475,13 +489,18 @@ func Run(opts Options) int {
 	if !opts.NoContainers {
 		p.line("")
 		p.line("[bold]Stopped yolo-* containers[/bold]")
-		removedContainers = PruneStoppedContainers(rt, apply, opts.Exec)
-		if len(removedContainers) > 0 {
+		if !macosUser {
+			removedContainers = PruneStoppedContainers(rt, apply, opts.Exec)
+		}
+		switch {
+		case macosUser:
+			p.line(macosUserNotApplicable)
+		case len(removedContainers) > 0:
 			p.line(fmt.Sprintf("  %s: %d", verb(apply, "would remove", "removed"), len(removedContainers)))
 			for _, name := range removedContainers {
 				p.line("    • " + name)
 			}
-		} else {
+		default:
 			p.line("  [dim]none[/dim]")
 		}
 	}
@@ -496,7 +515,9 @@ func Run(opts Options) int {
 	var removedScratch []string
 	p.line("")
 	p.line("[bold]Scratch volumes of gone jails[/bold]")
-	if rt != "podman" {
+	if macosUser {
+		p.line(macosUserNotApplicable)
+	} else if rt != "podman" {
 		p.line("  [dim]not applicable — this runtime's scratch dirs are tmpfs[/dim]")
 	} else {
 		removed, failed, known := PruneScratchVolumes(rt, apply, opts.Now(), opts.Exec)
@@ -571,10 +592,12 @@ func Run(opts Options) int {
 	p.line("")
 	p.line("[bold]Orphaned broker relays[/bold]")
 	var live runtime.LiveSet
-	if rt != "" {
+	if rt != "" && !macosUser {
 		live = LiveYoloContainers(rt, opts.Exec)
 	}
-	if !live.Known {
+	if macosUser {
+		p.line(macosUserNotApplicable)
+	} else if !live.Known {
 		p.line(fmt.Sprintf("  [dim]skipped — could not enumerate running jails (%s); declining to sweep[/dim]", rt))
 	} else {
 		reaped := ReapRelayOrphans(opts.RelayBase, live.Known, live.Names, relayOlderThanSeconds, apply, opts.Now(), opts.RelayKill)
@@ -604,9 +627,13 @@ func Run(opts Options) int {
 		pointers, _ := ReadCurrentImagePointers(opts.BuildDir())
 		p.line(fmt.Sprintf("[bold]Old yolo-jail images[/bold]  "+
 			"(keeping each workspace's current image: %d pointer(s))", len(pointers)))
-		removed, declined := PruneOldImages(rt, protectedTags, pointersKnown, apply, opts.Exec)
-		removedImages = removed
+		var declined ImageReapDecline
+		if !macosUser {
+			removedImages, declined = PruneOldImages(rt, protectedTags, pointersKnown, apply, opts.Exec)
+		}
 		switch {
+		case macosUser:
+			p.line(macosUserNotApplicable)
 		case declined != "":
 			// OQ-LS2, the manual path: the user asked yolo to reclaim and it
 			// could not, so this is an ERROR and the command fails. It was a dim
@@ -637,7 +664,11 @@ func Run(opts Options) int {
 	}
 
 	// --- Cached image tarballs ---
-	if !opts.NoImageCache {
+	if !opts.NoImageCache && macosUser {
+		p.line("")
+		p.line("[bold]Cached image tarballs[/bold]")
+		p.line(macosUserNotApplicable)
+	} else if !opts.NoImageCache {
 		p.line("")
 		keepTars := ResolveImageCacheKeep(opts.ImageCacheKeep, rt)
 		p.line(fmt.Sprintf("[bold]Cached image tarballs[/bold]  (keep=%d)", keepTars))
@@ -880,7 +911,11 @@ func Run(opts Options) int {
 	// bytes — removing a symlink frees ~0 directly (the closure bytes come back
 	// only on a subsequent nix GC), so it must not inflate the reclaimed-bytes
 	// total (nor the golden-pinned summary line).
-	if !opts.NoImageRoots {
+	if !opts.NoImageRoots && macosUser {
+		p.line("")
+		p.line("[bold]Orphaned image GC roots[/bold]")
+		p.line(macosUserNotApplicable)
+	} else if !opts.NoImageRoots {
 		p.line("")
 		p.line("[bold]Orphaned image GC roots[/bold]")
 		// THE LIVENESS SET IS ASKED OF THE RUNTIME, and an unanswerable runtime
@@ -908,7 +943,11 @@ func Run(opts Options) int {
 	// all. NOT a store GC — a named, self-scoped deletion of paths yolo itself
 	// realized, gated on OQ-BF4's rooting and on nix's own liveness refusal. See
 	// internal/prune/storeoutputs.go for why each of those three is load-bearing.
-	if !opts.InJail() && !opts.NoImageRoots {
+	if !opts.InJail() && !opts.NoImageRoots && macosUser {
+		p.line("")
+		p.line("[bold]yolo's own superseded store outputs[/bold]")
+		p.line(macosUserNotApplicable)
+	} else if !opts.InJail() && !opts.NoImageRoots {
 		p.line("")
 		p.line("[bold]yolo's own superseded store outputs[/bold]")
 		rootDirs := []string{
@@ -958,8 +997,9 @@ func Run(opts Options) int {
 	if !opts.NoImageRoots {
 		p.line("")
 		p.line("[bold]Orphaned prefix GC roots[/bold]  [dim](the jail's own binaries)[/dim]")
-		sources, srcKnown, why := LivePrefixSources(rt, live, prefixBinMountDest, opts.Exec)
-		if !srcKnown {
+		if macosUser {
+			p.line(macosUserNotApplicable)
+		} else if sources, srcKnown, why := LivePrefixSources(rt, live, prefixBinMountDest, opts.Exec); !srcKnown {
 			p.line(fmt.Sprintf("  [dim]skipped — %s; declining to sweep[/dim]", why))
 		} else {
 			reaped := PruneOrphanPrefixRoots(joinPath(opts.BuildDir(), "prefix-roots"),
@@ -1007,16 +1047,27 @@ func Run(opts Options) int {
 	if !opts.NoBuildRoots {
 		p.line("")
 		p.line("[bold]Orphaned agent staging[/bold]")
-		if !live.Known {
+		// THE KNOWN SET IS live ∪ tracked ∪ SESSIONS, the third term under every runtime
+		// (SessionStagingNames says why). On macos-user there is no live container set to ask
+		// for, and none to need: a container jail on the same Mac keeps its tracking file for its
+		// whole life, and that backend's own jails are its sessions.
+		sessionNames, sessionsKnown := SessionStagingNames(opts.AgentsDir(), paths.HostServicesBase(paths.IsMacOS))
+		switch {
+		case !macosUser && !live.Known:
 			p.line(fmt.Sprintf("  [dim]skipped — could not enumerate running jails (%s); declining to sweep[/dim]", rt))
-		} else {
+		case !sessionsKnown:
+			p.line("  [dim]skipped — could not list the host-services sessions; declining to sweep[/dim]")
+		default:
 			known := TrackedContainerNames(opts.ContainerDir())
 			for name := range live.Names {
 				known[name] = struct{}{}
 			}
+			for name := range sessionNames {
+				known[name] = struct{}{}
+			}
 			var names []string
 			agentStagingBytes, agentStagingDirs, names = PruneOrphanAgentStaging(opts.AgentsDir(), known,
-				live.Known, time.Duration(buildRootOlderThanSeconds*float64(time.Second)), apply, opts.Now())
+				true, time.Duration(buildRootOlderThanSeconds*float64(time.Second)), apply, opts.Now())
 			if agentStagingDirs > 0 {
 				p.line(fmt.Sprintf("  %s: %s across %s dir(s)", verb(apply, "would remove", "removed"), FmtBytes(agentStagingBytes), fmtComma(agentStagingDirs)))
 				for _, n := range names {
@@ -1118,6 +1169,8 @@ func Run(opts Options) int {
 		p.line("")
 		p.line("[bold]Nix store GC (bounded, rooting-aware)[/bold]")
 		switch {
+		case macosUser:
+			p.line(macosUserNotApplicable)
 		case opts.InJail():
 			p.line("  [dim]skipped — refusing to GC the host store from inside a jail; " +
 				"the host's live jails are unenumerable here, so image rooting can't be confirmed[/dim]")
@@ -1264,6 +1317,39 @@ func renderEmbeddedReap(p *printer, apply bool, r EmbeddedReap, unit string) boo
 		p.line("  [dim]kept: " + keptSummary(r.Kept, r.Skipped) + "[/dim]")
 	}
 	return r.Declined != ""
+}
+
+// macosUserRuntime is the native macOS backend's runtime name. It names no binary: the backend
+// runs one sandbox per invocation and no container, so no prune probe can be addressed to it.
+const macosUserRuntime = "macos-user"
+
+// macosUserNotApplicable is the one line each container-only section prints on macos-user. It is
+// not a decline (declinedSweep is never set for it, so the command exits 0), and not a "none":
+// the section has nothing to ask on this runtime, and a container runtime on the same Mac is
+// pruned by naming it.
+const macosUserNotApplicable = "  [dim]not applicable — macos-user runs no containers or images; " +
+	"a container runtime's are pruned by `YOLO_RUNTIME=container yolo prune` (or YOLO_RUNTIME=podman)[/dim]"
+
+// MacosUserWorkspaces is FindYoloWorkspaces for macos-user: the resolved, deduplicated
+// workspaces of the macos-user sessions under sessionsBase that are live or starting, read from
+// their records (runtime.MacosUserSessions). A session with no record names no workspace and
+// adds none.
+func MacosUserWorkspaces(sessionsBase string) []string {
+	sessions, _ := runtime.MacosUserSessions(sessionsBase)
+	found := []string{}
+	seen := map[string]struct{}{}
+	for _, s := range sessions {
+		if s.Liveness == runtime.SessionGone || s.Workspace == "" {
+			continue
+		}
+		resolved := resolvePath(s.Workspace)
+		if _, dup := seen[resolved]; dup {
+			continue
+		}
+		seen[resolved] = struct{}{}
+		found = append(found, resolved)
+	}
+	return found
 }
 
 // --- small helpers ---
