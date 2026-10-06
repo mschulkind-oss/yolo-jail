@@ -58,6 +58,12 @@ func TestALaunchWithNoTreeForAnExtensionWithAFallbackStopsNothingAndSaysSo(t *te
 	if !strings.Contains(printed, "an unmodified extension of npm:tree-ext") {
 		t.Errorf("the launch's block does not name an unmodified extension:\n%s", printed)
 	}
+	// The disclosure: an unmodified extension's claim prints with the launch's, as a patched one's
+	// does, whether or not a tree was handed.
+	if !strings.Contains(printed, "DELIVERS a tree built from source at ~/"+treeInto) ||
+		!strings.Contains(printed, "its install scripts included") {
+		t.Errorf("the launch does not disclose its unmodified extension's claim:\n%s", printed)
+	}
 }
 
 func TestAMacosUserLaunchSaysTheAgentInstallsTheFallback(t *testing.T) {

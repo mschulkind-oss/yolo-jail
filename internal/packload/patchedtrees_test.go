@@ -144,3 +144,48 @@ func TestAPatchedExtensionsFootprintClaimIsMarkedForReview(t *testing.T) {
 		t.Errorf("disclosure %q does not say the upstream's code arrives unreviewed at the landing", sentence)
 	}
 }
+
+// An UNMODIFIED EXTENSION's claim is review-marked too (pi-extension-store-builds.md §4.1): an
+// upstream's code, built from source with its install scripts, that the agent loading the tree runs.
+// Red if FootprintOf stops giving a `files` contribution with a source and no patches its own
+// claim, which falls through to a plain "read-only tree" the launch never discloses.
+func TestAnUnmodifiedExtensionsFootprintClaimIsMarkedForReview(t *testing.T) {
+	for _, c := range []struct {
+		name  string
+		c     packdecl.Contribution
+		names []string
+	}{
+		{"git", packdecl.Contribution{Kind: packdecl.KindFiles, Into: treeInto,
+			Source: "git+https://github.com/upstream/pi-subagents?ref=main"},
+			[]string{"git+https://github.com/upstream/pi-subagents?ref=main", "following head", "npm install --omit=dev"}},
+		{"npm, with a fallback", packdecl.Contribution{Kind: packdecl.KindFiles, Into: treeInto,
+			Source: "npm:pi-web-access@^1.4.0", Fallback: "npm:pi-web-access"},
+			[]string{"npm:pi-web-access@^1.4.0", "npm install 'pi-web-access@<version>'", "falling back to npm:pi-web-access"}},
+	} {
+		fp := FootprintOf(agentPack(t, "matt", c.c))
+		var claim *Claim
+		for i := range fp.Claims {
+			if fp.Claims[i].Kind == packdecl.KindFiles {
+				claim = &fp.Claims[i]
+			}
+		}
+		if claim == nil {
+			t.Fatalf("%s: no files claim for the unmodified extension", c.name)
+		}
+		if !claim.ReviewWorthy || claim.Target != treeInto || !claim.IsBuiltTree() || claim.IsPatchedExtension() {
+			t.Errorf("%s: claim %+v is not a review-marked unmodified tree at its landing", c.name, claim)
+		}
+		for _, w := range c.names {
+			if !strings.Contains(claim.Detail, w) {
+				t.Errorf("%s: claim detail %q does not name %q", c.name, claim.Detail, w)
+			}
+		}
+		sentence := claim.DisclosureSentence()
+		for _, w := range []string{"DELIVERS a tree built from source at ~/" + treeInto, "its install scripts included",
+			"UPSTREAM'S NEW CODE ARRIVES UNREVIEWED"} {
+			if !strings.Contains(sentence, w) {
+				t.Errorf("%s: disclosure %q does not say %q", c.name, sentence, w)
+			}
+		}
+	}
+}
