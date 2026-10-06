@@ -279,8 +279,11 @@ func (e *Env) linkIntoSharedDir(p *packload.Pack, h packdecl.Hook, n sharedNode)
 		// A hook may only link into a dir the pack DECLARED shared. Otherwise a pack
 		// could reach the machine-global tier without saying so in its manifest, which
 		// is the one thing that tier's "declaring one is a real decision" rests on.
+		//
+		// The same predicate and sentence `yolo pack lint` and `yolo check` refuse it with
+		// (packdecl.validateHookStates), so the host says this before a boot can.
 		return &badHookError{pack: p.Name, name: h.Name,
-			why: "sharedDir " + h.SharedDir + " is not in the pack's sharedDirs"}
+			why: packdecl.UndeclaredHookStateProblem(h.SharedDir)}
 	}
 	link := filepath.Join(e.Home, filepath.FromSlash(h.File))
 	sharedDir := filepath.Join(e.Home, filepath.FromSlash(h.SharedDir))
@@ -381,12 +384,7 @@ func (e *Env) isolateHistoryFile(h packdecl.Hook) error {
 }
 
 func declaresSharedDir(p *packload.Pack, dir string) bool {
-	for _, d := range p.Decl.SharedDirContributions() {
-		if d == dir {
-			return true
-		}
-	}
-	return false
+	return p.Decl.DeclaresMachineState(dir)
 }
 
 type badHookError struct{ pack, name, why string }

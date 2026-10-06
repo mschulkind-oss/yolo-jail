@@ -77,7 +77,8 @@ settled detail the design does not need.
   (`validateAutonomyPosture` accepts one), so an older read keeps the launch flags and drops every
   key. Recorded in the design's [§7](pack-conventions.md#7-considered-and-not-proposed) row for the posture spelling, which is now [OQ-M1](manifest-language.md#OQ-M1)'s.
 - **Does anything host-side match a shared-dir hook's `at` against the pack's machine `state`?**
-  No. `RunPackHooks` runs only from the boot, so the defect is filed on the roadmap as a lint bug.
+  No. `RunPackHooks` runs only from the boot, so the defect was filed on the roadmap as a lint bug,
+  and fixed by [PC-D15](pack-conventions.md#PC-D15): every host read now refuses it.
 
 ## Tests the build owes
 

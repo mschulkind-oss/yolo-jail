@@ -2743,6 +2743,52 @@ func (m *Manifest) stateDirs(scope string) []string {
 	return out
 }
 
+// DeclaresMachineState reports whether at is one of this pack's machine-scope `state` dirs —
+// the one predicate that decides whether a shared-tier hook may link into it, read by the boot
+// (entrypoint's declaresSharedDir, before the hook runs) and by every host read through
+// validateHookStates, so `yolo pack lint` and `yolo check` refuse what the boot refuses
+// (docs/design/pack-conventions.md PC-D15). The match is exact, as the boot's always was.
+func (m *Manifest) DeclaresMachineState(at string) bool {
+	for _, d := range m.SharedDirContributions() {
+		if d == at {
+			return true
+		}
+	}
+	return false
+}
+
+// HookLinksIntoMachineState reports whether the named hook links into its `at`, which the pack
+// must therefore declare as machine-scope state. unshare_directory takes an `at` too but is
+// exempt by purpose: it undoes a link into a dir the pack NO LONGER declares.
+func HookLinksIntoMachineState(hook string) bool {
+	return hook == "shared_credentials" || hook == "shared_directory"
+}
+
+// UndeclaredHookStateProblem is the refusal of a shared-tier hook whose `at` names no
+// machine-scope state its pack declares, with its next step. ONE sentence for both readers: the
+// boot prefixes it with the pack and hook, a host read with the contribution's label.
+func UndeclaredHookStateProblem(at string) string {
+	return fmt.Sprintf("\"at\" names %q, which is no machine-scope state this pack declares — add "+
+		"{\"kind\": \"state\", \"at\": %q, \"scope\": \"machine\", \"because\": \"<why every "+
+		"workspace shares it>\"} to its contributes, or point \"at\" at a machine state it declares",
+		at, at)
+}
+
+// validateHookStates refuses on the host what the boot refuses at the hook step: a shared-tier
+// hook whose `at` is no machine state of its pack. A missing `at` is the per-contribution check's
+// problem, not this one's.
+func (m *Manifest) validateHookStates() []string {
+	var problems []string
+	for i, c := range m.Contributes {
+		if c.Kind != KindHook || c.At == "" || !HookLinksIntoMachineState(c.Hook) || m.DeclaresMachineState(c.At) {
+			continue
+		}
+		problems = append(problems, fmt.Sprintf("contributes[%d]: hook %q: %s", i, c.Hook,
+			UndeclaredHookStateProblem(c.At)))
+	}
+	return problems
+}
+
 // HookContributions returns the hook contributions as legacy Hooks.
 func (m *Manifest) HookContributions() []Hook {
 	var out []Hook
@@ -2798,6 +2844,7 @@ func (m *Manifest) validateContributions() []string {
 	problems = append(problems, m.validateServicePointers()...)
 	problems = append(problems, m.validatePatchedOwnerKeys()...)
 	problems = append(problems, m.validateDescribes()...)
+	problems = append(problems, m.validateHookStates()...)
 	return problems
 }
 
