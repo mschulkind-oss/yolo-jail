@@ -56,6 +56,11 @@ const (
 	// ctxLeaf is the state-dir subdir holding each session's staged CONTEXT tree —
 	// the HOST BYTES a `/ctx` mount carries on every other backend.
 	ctxLeaf = "ctx"
+	// capturesLeaf is the state-dir subdir holding the root-owned copy of the install-capture
+	// store's entries this backend's launches materialize from (StagedCapturesRoot). One per
+	// MACHINE, not per session: its entries are content-addressed, so a copy made for one
+	// workspace serves every other.
+	capturesLeaf = "captures"
 )
 
 // SandboxHome is /Users/_yolojail.
@@ -424,6 +429,220 @@ func StageEmptyCtxCommands(cname, sd string) [][]string {
 		{rmBin, "-rf", dst},
 		{mvBin, "-f", tmp, dst},
 	}
+}
+
+// ---------------------------------------------------------------------------
+// Staging the INSTALL-CAPTURE STORE's entries into the root-owned state dir
+// ---------------------------------------------------------------------------
+
+// CaptureEntry is one install-capture store entry (internal/capture) a launch stages for the
+// sandbox, so the generated launcher of the program it holds materializes it instead of running
+// the vendor's installer (docs/design/program-delivery.md §6.3). The HOST CLI picks it, through
+// the resolver the launcher's own `capture-materialize` asks (internal/cli's resolveCaptureFor),
+// at this backend's platform; this package only stages what it is handed, for HostContext's
+// reason: finding it reads the invoking user's state dir.
+type CaptureEntry struct {
+	// Bin is the program the entry was captured for, for the dry run.
+	Bin string
+	// Key is the entry's store key: its directory name under the store's entries/.
+	Key string
+	// Source is the entry directory in the user's store (<CapturesDir>/entries/<key>), read by
+	// root when it is copied and never by the sandbox.
+	Source string
+}
+
+// StagedCapturesRoot is the root-owned copy of the install-capture store a macos-user sandbox
+// reads: <stateDir>/captures, laid out as the store is (entries/<key>), so the launcher's
+// `capture-materialize --store=` takes it unchanged. It is what entrypoint.CapturesDirEnv names
+// to the bootstrap, which bakes it into every generated launcher.
+//
+// docs/plans/install-capture.md hand-off H4, answered (b): a neutral machine store outside every
+// home, root-owned and read-only to the sandbox — an implementation decision under the
+// maintainer's 2026-10-04 delegation, reversible. It changes no byte of the session Seatbelt
+// profile: reads outside /Users, /Volumes and the keychains fall on its `(allow default)`, and
+// reads under /var/yolo-jail were MEASURED on hardware 2026-09-13 (StagedCtxRoot). It is the
+// pattern StagedPackRoot and StageCtxCommands follow, for their reason: the user's store sits
+// under the invoking user's home, which the sandbox account may not traverse.
+//
+// A COPY, never a link of the store's inodes. An entry a macos-user capture made holds files the
+// sandbox account owns, under the shared-group ACL its staging tree carries (CaptureStagingCommands),
+// so a hardlink of one would let the sandbox rewrite bytes every workspace on the machine runs
+// (INFERRED from that ownership; no Mac has tried it). Copied by root, every byte here is root's.
+// The store is not a confidentiality boundary, here or on a container, where every jail reads it
+// whole through a `:ro` bind (internal/cli/run's captures.go).
+func StagedCapturesRoot(sd string) string {
+	if sd == "" {
+		sd = stateDir
+	}
+	return filepath.Join(sd, capturesLeaf)
+}
+
+// capturesEntriesLeaf and capturesStagingLeaf are the staged store's two children, the user
+// store's own names (internal/capture's store.go): entries/ is all a reader scans, and staging/
+// holds a copy in flight, where no reader looks.
+const (
+	capturesEntriesLeaf = "entries"
+	capturesStagingLeaf = "staging"
+)
+
+// stageCaptureScriptName and pruneCapturesScriptName are the $0 of the two root scripts below,
+// so `ps` and a failure message name which one ran.
+const (
+	stageCaptureScriptName  = "yolo-stage-capture"
+	pruneCapturesScriptName = "yolo-prune-captures"
+)
+
+// stageCaptureScript copies ONE entry into the staged store unless it is already there: $1 the
+// staged root, $2 the key, $3 the entry in the user's store. Run by root (sudo), so the copy is
+// root's; `cp -R` copies a link as a link and follows none, on BSD and GNU alike. The copy is
+// made under staging/ and renamed into entries/ last, so a reader scanning entries/ never meets
+// a half-copied entry: a `<key>.new` beside the entries would be scanned, and would win
+// selection's tie-break over the entry it copies.
+//
+// "ALREADY THERE" IS A FACT ABOUT THE KEY, and a key is a content address: an entry staged under
+// it holds the bytes it names, so it is copied once per machine. Decided when the command runs,
+// as root, rather than by the host CLI reading /var/yolo-jail first, so a plan stays a pure
+// function of its inputs and no check can be stale by the time the copy would have run.
+//
+// A COPY THAT FAILS REMOVES WHAT IT MADE and exits non-zero. Any step can fail — a full disk
+// partway through a 1.2 GB plain copy, an I/O error, a source the user's store reaped after the
+// host picked it — and the half-made tree goes at once rather than at the next launch's prune, so
+// a launch on a full disk does not keep it for the rest of its run. The launch runs this
+// best-effort (RunPlan.CaptureStageCommands), so the failure costs the program its copy and
+// nothing else: its launcher misses and downloads.
+//
+// NO ACL CROSSES, and nothing here strips one. An entry a macos-user capture made carries the
+// shared group's inherited ACE (`group:_yolojail allow read,write,…,writesecurity,chown`, set on
+// its staging tree by CaptureStagingCommands; the store's renames keep it, and freezeTree drops
+// mode bits only), and an ACE grants what the mode bits deny. Plain `cp -R` does not carry it:
+// Apple's cp copies a file's ACL only under -p (file_cmds cp/utils.c, `if (pflag &&
+// fcopyfile(…, COPYFILE_ACL)`) and a directory's only under -p (cp.c, preserve_dir_acls). The
+// extended attributes it copies without -p are what flistxattr lists (copyfile.c's
+// copyfile_xattr), and that the kernel leaves the ACL out of that list is INFERRED, not read. Nor
+// can a copy inherit one: yolo sets no inheritable ACE on the state dir or under it (the context
+// tree's root, the env-file dir and the files in it carry `user:` ACEs with no inherit flag).
+//
+// `chmod -R -N` IS NOT ADDED AS A SECOND GUARD, on purpose: under -R, Apple's chmod clears an ACL
+// through chmodx_np, which follows a symlink (chmod/chmod.c asks it to follow for every -R entry,
+// and chmod_acl.c's clear branch calls chmodx_np), so run as root it would clear the ACL of
+// whatever a captured link names outside this tree, and fail on a dangling link. A Mac checks the
+// outcome instead (integration/macosusercapture_test.go: no ACE on the staged tree, and the
+// sandbox cannot open a staged file for append).
+var stageCaptureScript = strings.Join([]string{
+	"set -eu",
+	`dst="$1/` + capturesEntriesLeaf + `/$2"`,
+	`if [ -d "$dst" ]; then exit 0; fi`,
+	`tmp="$1/` + capturesStagingLeaf + `/$2"`,
+	rmBin + ` -rf "$tmp"`,
+	// One `&&` chain inside an `if`, where `set -e` does not end the script, so a failure of any
+	// step reaches the cleanup below it.
+	"if " + strings.Join([]string{
+		cpBin + ` -R "$3" "$tmp"`,
+		// Readable and searchable by every account, writable by no account but root, which
+		// owns every byte: the store already froze its files (internal/capture's freezeTree),
+		// and the sandbox could change neither a root-owned file's bytes nor its mode.
+		chmodBin + ` -R a+rX,go-w "$tmp"`,
+		mvBin + ` "$tmp" "$dst"`,
+	}, " && ") + "; then exit 0; fi",
+	rmBin + ` -rf "$tmp"`,
+	"exit 1",
+}, "; ")
+
+// pruneCapturesScript removes every staged entry the user's store no longer selects: $1 the
+// staged root, every later argument a key to keep. A superseded capture and one reaped from the
+// user's store (`yolo prune`) go at the next launch, so internal/prune needs no second root.
+// Anything left under staging/ is a copy a killed launch did not finish, and goes too.
+var pruneCapturesScript = strings.Join([]string{
+	"set -eu",
+	"root=$1",
+	"shift",
+	`for d in "$root"/` + capturesEntriesLeaf + `/*; do ` + strings.Join([]string{
+		`if [ ! -e "$d" ] && [ ! -L "$d" ]; then continue; fi`,
+		`k=${d##*/}`,
+		"keep=no",
+		`for want in "$@"; do if [ "$k" = "$want" ]; then keep=yes; fi; done`,
+		`if [ "$keep" = no ]; then ` + rmBin + ` -rf "$d"; fi`,
+	}, "; ") + "; done",
+	rmBin + ` -rf "$root"/` + capturesStagingLeaf + `/*`,
+}, "; ")
+
+// stageCaptureArgv is the one command that stages entry e under root.
+func stageCaptureArgv(root string, e CaptureEntry) []string {
+	return []string{"/bin/sh", "-c", stageCaptureScript, stageCaptureScriptName, root, e.Key, e.Source}
+}
+
+// stageableCaptures is the subset of entries a root script may be handed: a key that is one
+// plain store key and a source that is an absolute path. Anything else came from a store yolo
+// did not write and is dropped rather than spliced into a path root writes under.
+func stageableCaptures(entries []CaptureEntry) []CaptureEntry {
+	var out []CaptureEntry
+	for _, e := range entries {
+		if captureKeyOK(e.Key) && filepath.IsAbs(e.Source) {
+			out = append(out, e)
+		}
+	}
+	return out
+}
+
+// captureKeyOK reports whether k is a store key's shape: lowercase hex (internal/capture's Key).
+func captureKeyOK(k string) bool {
+	if k == "" {
+		return false
+	}
+	for _, c := range k {
+		if (c < '0' || c > '9') && (c < 'a' || c > 'f') {
+			return false
+		}
+	}
+	return true
+}
+
+// StageCaptureCommands returns the sudo argv that bring the staged store up to date for this
+// launch: make it, drop every staged entry outside entries' and kept's keys, then copy in each of
+// entries that is not there yet (stageCaptureScript). Empty when entries is, so a launch that
+// stages no capture runs nothing and leaves the store as the last launch that did left it.
+//
+// They are RunPlan.CaptureStageCommands, never StageCommands, and the launch runs them
+// BEST-EFFORT (orchestrator.go's stageCaptures): a miss is the launcher's fallback to its
+// download, and making a capture mandatory for the installer class is a change nobody has ruled
+// (install-capture.md's Blockers), so no failure here may refuse a launch that would have started
+// without the store. The first three are the store's own and the rest one entry each, in that
+// order; stageCaptures keys on it.
+//
+// `kept` are the keys of the user store's OTHER current entries at this backend's platform — a
+// program another workspace selects — so alternating between two workspaces' pack sets copies
+// nothing twice. A key in neither list is superseded or gone from the user store.
+func StageCaptureCommands(entries []CaptureEntry, kept []string, sd string) [][]string {
+	entries = stageableCaptures(entries)
+	if len(entries) == 0 {
+		return nil
+	}
+	root := StagedCapturesRoot(sd)
+	keep := make([]string, 0, len(entries)+len(kept))
+	seen := map[string]bool{}
+	for _, e := range entries {
+		if !seen[e.Key] {
+			seen[e.Key] = true
+			keep = append(keep, e.Key)
+		}
+	}
+	for _, k := range kept {
+		if captureKeyOK(k) && !seen[k] {
+			seen[k] = true
+			keep = append(keep, k)
+		}
+	}
+	cmds := [][]string{
+		{mkdirBin, "-p", filepath.Join(root, capturesEntriesLeaf), filepath.Join(root, capturesStagingLeaf)},
+		// Explicit, rather than whatever umask sudo runs under: the sandbox has to search both to
+		// reach an entry, and a launcher that cannot reach one downloads instead, saying nothing.
+		{chmodBin, "755", root, filepath.Join(root, capturesEntriesLeaf)},
+		append([]string{"/bin/sh", "-c", pruneCapturesScript, pruneCapturesScriptName, root}, keep...),
+	}
+	for _, e := range entries {
+		cmds = append(cmds, stageCaptureArgv(root, e))
+	}
+	return cmds
 }
 
 // ---------------------------------------------------------------------------

@@ -50,7 +50,9 @@ const capturesCtxDir = paths.ContextCapturesDir
 // returns "" (the capture jail — see Options.CapturesDir), a store path that does not exist
 // (nothing has ever been captured on this machine, and podman would otherwise CREATE the
 // bind source as an empty directory, which is a store that answers every lookup with a miss
-// while looking like a store), the macos-user backend, which never reaches this code, and
+// while looking like a store), the macos-user backend, which never reaches this code — it has
+// no mounts, and stages a root-owned COPY of the selected entries instead (macosctxtree.go's
+// macosUserCaptures, macosuser.StagedCapturesRoot; install-capture.md hand-off H4) — and
 // Apple Container, which cannot be given a read-only bind (below). The launcher's branch is
 // written to treat all four as "no capture" — `[ -n "$CAPTURES_DIR" ] || return 1` then
 // `[ -d "$CAPTURES_DIR" ] || return 1`, shims.go — so the jail degrades to today's download

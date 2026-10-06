@@ -51,11 +51,13 @@ package macosuser
 //
 // STILL NOT MEASURED: the MATERIALIZE half. Its rewrite (install-capture.md hand-off H2,
 // internal/capture/rewrite.go) is built and measured on Linux against temp dirs standing in for
-// this backend's two homes, but no launch on this backend reaches it: nothing emits a store path
-// here, so the generated launcher's `_try_materialize` returns before calling it (hand-off H4,
-// internal/cli/run/autocapture.go). Podman-in-podman cannot exercise this backend at all, so no
-// nested jail will ever cover any of it. The hardware checklist is in install-capture.md's
-// slice 6 section.
+// this backend's two homes. Since hand-off H4 a launch here reaches it: the host CLI picks each
+// selected installer program's entry, the launch stages a root-owned copy of it under the state
+// dir (StagedCapturesRoot, StageCaptureCommands), and the bootstrap bakes that store into the
+// generated launcher, whose `_try_materialize` hands it to `capture-materialize`; and a launch
+// auto-captures what the store lacks (internal/cli/run/autocapture.go). No Mac has run that
+// path. Podman-in-podman cannot exercise this backend at all, so no nested jail will ever cover
+// any of it. The hardware checklist is in install-capture.md's slice 6 section.
 
 import (
 	"errors"
@@ -277,8 +279,15 @@ func BuildCapturePlan(opts CaptureOptions) CapturePlan {
 	// contract is that everything written under it is the installer's output. The zero value
 	// makes the host-layer report `unsupported`, which is the true statement about a capture
 	// — it delivered no host layers — and keeps the bytes out of the delta walk.
+	//
+	// AND NO CAPTURE STORE (the third ""), which is the recursion guard rather than an omission:
+	// the installer this runs IS the generated launcher, which materializes first when a store is
+	// baked into it, so a capture of a program the store already holds would file the store's own
+	// bytes as a fresh install and never pick up a newer vendor release (install-capture.md slice
+	// 4(f); internal/cli's runCaptureJail suppresses the container's store mount for the same
+	// reason).
 	bootstrapEnv := buildBootstrapEnv(stagingRoot, opts.Config, gitIdentity, opts.SandboxEnv,
-		packRoot, "", "", HostContext{}, "", stagingHome, darwinPrefix, opts.BlockedTools)
+		packRoot, "", "", "", HostContext{}, "", stagingHome, darwinPrefix, opts.BlockedTools)
 	stagedYolo := StagedYoloPath("")
 	offendingHome, offendingSet := HomeContaining(stagingRoot)
 

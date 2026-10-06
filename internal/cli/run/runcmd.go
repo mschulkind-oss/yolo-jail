@@ -497,7 +497,8 @@ type Options struct {
 	// CapturesDir resolves the machine-wide install-capture store, which every
 	// launch binds :ro into the jail so a native launcher can MATERIALIZE an
 	// already-captured install instead of downloading it (program-delivery.md §6.3;
-	// entrypoint.CapturesDirEnv). nil => paths.CapturesDir.
+	// entrypoint.CapturesDirEnv), and which a macos-user launch reads its entries from to stage
+	// a root-owned copy of them (MacosUserCaptures). nil => paths.CapturesDir.
 	//
 	// RETURNING "" IS THE MEANINGFUL OVERRIDE, and it has one production caller:
 	// `yolo capture` (internal/cli/capturehost.go) suppresses the mount for the
@@ -548,6 +549,22 @@ type Options struct {
 	// PLATFORM likewise — only the pipeline knows which backend is about to run, and the
 	// one answer that looks right and is wrong is the host's own (containerJailPlatform).
 	AutoCapture func(bins []string, platform string)
+	// MacosUserCaptures picks, from the install-capture store at dir (CapturesDir's answer), the
+	// entry the materialize path's own resolver chooses for each of bins at platform, and names
+	// the store's other current entries there (kept) — the macos-user launch's half of hand-off
+	// H4 (docs/plans/install-capture.md): the backend stages a root-owned copy of each picked
+	// entry and names that store to its launchers (macosuser.StageCaptureCommands).
+	//
+	// A seam for AutoCapture's reason: the resolver and the receipt adapter it reads through live
+	// in internal/cli, which imports this package. nil stages no capture, and every launcher on
+	// that backend then downloads, as it did before H4.
+	MacosUserCaptures func(dir string, bins []string, platform string) (stage []macosuser.CaptureEntry, kept []string)
+	// MacosUserLaunchProbes answers macos-user's launch preconditions (macosuser.LaunchProbes)
+	// for the arm's auto-capture, which runs only for a launch the backend will not refuse at its
+	// first two steps (autoCaptureMacosUser, macosuser.PreflightLaunch). nil =>
+	// macosuser.RealLaunchProbes, the launch's own probes, so production wires nothing; a test
+	// stands a Mac in.
+	MacosUserLaunchProbes func() macosuser.LaunchProbes
 	// BuildForks builds, for every pinned fork in the request, the store entry the jail needs at
 	// its platform when the machine holds none, and returns per bin the entry's key or why there is
 	// none (docs/design/forked-programs-as-packs.md OQ-FP4, FP-D1, FP-D8); for a PATCHED fork it

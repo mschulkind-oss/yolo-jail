@@ -345,6 +345,37 @@ func (o *Options) buildMacosCtxTree(staging string, packs []*packload.Pack,
 	return out, nil
 }
 
+// macosUserCaptures is the install-capture store's half of the host context
+// (docs/plans/install-capture.md hand-off H4): for each selected pack's `via: "installer"`
+// program, the entry the materialize path's own resolver chooses at the sandbox's platform, and
+// the keys of the store's other current entries there, through the seam internal/cli fills
+// (Options.MacosUserCaptures). The backend stages a root-owned copy of each picked entry and
+// names that store to its launchers (macosuser.StageCaptureCommands).
+//
+// Beside the context tree for the tree's reason: the store is the invoking user's
+// (paths.CapturesDir, under their home), so it is read here, in the host CLI, and only the
+// answer crosses into the pure plan builder.
+//
+// THE SAME TWO INPUTS AS THE TRIGGER (autoCaptureInstallerPrograms): installerBins, so what is
+// staged and what is captured are one set, and the darwin platform the sandbox's
+// `capture-materialize` will ask with (macosUserJailPlatform), never a container jail's. And the
+// same suppression: a capture's own launch has CapturesDir "" (internal/cli's runCaptureJail),
+// so it stages nothing a launcher could materialize from.
+func (o *Options) macosUserCaptures(packs []*packload.Pack) ([]macosuser.CaptureEntry, []string) {
+	if o.MacosUserCaptures == nil || o.CapturesDir == nil {
+		return nil, nil
+	}
+	dir := o.CapturesDir()
+	if dir == "" {
+		return nil, nil
+	}
+	bins := installerBins(packs)
+	if len(bins) == 0 {
+		return nil, nil
+	}
+	return o.MacosUserCaptures(dir, bins, macosUserJailPlatform())
+}
+
 // macosCtxLinks is the macos-user decider for the two context-mount declarations
 // (docs/design/context-mounts.md §3, §4 steps 4-5): every config `mounts` element and every
 // selected pack's `mount` grant this launch would deliver — as the LINK macosuser stages for it,

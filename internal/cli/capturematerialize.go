@@ -4,11 +4,13 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"sort"
 	"strings"
 	"time"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/capture"
 	"github.com/mschulkind-oss/yolo-jail/internal/entrypoint"
+	"github.com/mschulkind-oss/yolo-jail/internal/macosuser"
 )
 
 // capturematerialize.go is `yolo internal capture-materialize` — the IN-JAIL half of
@@ -244,6 +246,46 @@ func resolveCaptureFor(store *capture.Store, bin, platform string) (*capture.Ent
 		return nil, nil, err
 	}
 	return entry, &best.Record, nil
+}
+
+// macosUserCaptures is run.Options.MacosUserCaptures: the entries a macos-user launch stages for
+// its launchers (docs/plans/install-capture.md hand-off H4), picked HERE, by the resolver the
+// launcher's own `capture-materialize` asks (resolveCaptureFor) and the receipt adapter beside it,
+// so the host's pick and the sandbox's lookup over the staged copy are one answer.
+//
+// stage is, for each of bins the store holds an entry for at platform, that entry; a bin with
+// none is simply absent (its launcher downloads, and the launch's auto-capture has already had
+// its turn). Only an INSTALLER capture answers: resolveCaptureFor's query carries no source and no
+// fork, so a fork's build of the same bin is never picked (capture.Program). kept is every other
+// installer program's current entry at platform, the keys whose staged copies the launch leaves in
+// place. An unreadable store stages nothing, the materialize path's own answer to it.
+func macosUserCaptures(dir string, bins []string, platform string) (stage []macosuser.CaptureEntry, kept []string) {
+	store := &capture.Store{Dir: dir}
+	picked := map[string]bool{}
+	for _, bin := range bins {
+		entry, _, err := resolveCaptureFor(store, bin, platform)
+		if err != nil || picked[entry.Key] {
+			continue
+		}
+		picked[entry.Key] = true
+		stage = append(stage, macosuser.CaptureEntry{Bin: bin, Key: entry.Key, Source: entry.Root})
+	}
+	if len(stage) == 0 {
+		return nil, nil
+	}
+	selected, err := capture.Select(store, captureRecords)
+	if err != nil {
+		return stage, nil
+	}
+	for p, s := range selected {
+		if p.Platform != platform || p.Source != "" || p.Fork != "" || picked[s.Key] {
+			continue
+		}
+		picked[s.Key] = true
+		kept = append(kept, s.Key)
+	}
+	sort.Strings(kept)
+	return stage, kept
 }
 
 // hostOriginMark is what a HOST capture (host-tool-provisioning.md HP-D18) adds to the platform its

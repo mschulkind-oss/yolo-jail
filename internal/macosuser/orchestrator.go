@@ -1171,6 +1171,11 @@ func RunMacosUser(deps Deps, opts Options) int {
 	if opts.OnStaged != nil {
 		opts.OnStaged(granted)
 	}
+	// THE INSTALL-CAPTURE STORE'S ENTRIES (H4), after every stage command this launch cannot run
+	// without, and best-effort where those are fatal (stageCaptures).
+	if rc, ending := stageCaptures(deps, out, plan); ending {
+		return rc
+	}
 
 	// 2.5 THE SESSION ENV FILE — everything this launch composed, delivered as a root-owned
 	// 0600 file the sandbox account may read, instead of as words on three command lines
@@ -1367,6 +1372,65 @@ func (s *launchSteps) begin(step string) {
 func (s *launchSteps) end() {
 	s.open.End()
 	s.open = nil
+}
+
+// stageCaptures runs plan.CaptureStageCommands (macosuser.go's StageCaptureCommands), BEST-EFFORT:
+// the store only spares a program its vendor's download, and its launcher falls back to that
+// download on any miss (internal/cli's capturematerialize.go), so a copy that fails costs that
+// program the copy and nothing else — a full disk partway through a 1.2 GB plain copy, an I/O
+// error, or the user's entry reaped by a concurrent `yolo prune --apply` after the host picked it.
+// Before this, every one of them refused the launch with "Could not stage entrypoint", which is the
+// capture made mandatory, a change install-capture.md's Blockers say nobody has ruled.
+//
+// One line per failure, after the command's own stderr: which program installs the ordinary way,
+// and that the next launch tries again, which is the next step and needs nothing from the user.
+// When one of the store's own commands fails (make it, open it, prune it), no entry is copied
+// into a store that may not exist. A signal still ends the launch with its status, as at every
+// stage command: true is returned with it.
+func stageCaptures(deps Deps, out printer, plan RunPlan) (int, bool) {
+	for _, cmd := range plan.CaptureStageCommands {
+		if deps.Run(append([]string{"sudo"}, cmd...)) == 0 {
+			continue
+		}
+		if rc, ending := deps.ending(); ending {
+			return rc, true
+		}
+		c, ok := captureStagedBy(plan, cmd)
+		if !ok {
+			out.printf("[yellow]Warning: could not prepare the install-capture store at %s[/yellow] "+
+				"(%s failed; its cause is above). [dim]Every program this launch would have "+
+				"materialized from it installs the ordinary way this launch, from its vendor's "+
+				"installer; the next launch tries again.[/dim]", plan.CapturesDir, commandName(cmd))
+			return 0, false
+		}
+		out.printf("[yellow]Warning: could not copy the install capture of %s (%s) from %s[/yellow] "+
+			"(its cause is above). [dim]%s installs the ordinary way this launch, from its vendor's "+
+			"installer; the next launch tries the copy again.[/dim]", c.Bin, c.Key, c.Source, c.Bin)
+	}
+	return 0, false
+}
+
+// commandName is how a warning names cmd: a `/bin/sh -c <script> <$0> …` by its $0, which every
+// root script here sets to say which one ran, and anything else by its program.
+func commandName(cmd []string) string {
+	if len(cmd) > 3 && cmd[1] == "-c" {
+		return cmd[3]
+	}
+	if len(cmd) == 0 {
+		return ""
+	}
+	return filepath.Base(cmd[0])
+}
+
+// captureStagedBy is the entry cmd copies, when it is one of plan's per-entry copies.
+func captureStagedBy(plan RunPlan, cmd []string) (CaptureEntry, bool) {
+	for _, c := range plan.Captures {
+		want := stageCaptureArgv(plan.CapturesDir, c)
+		if len(cmd) == len(want) && containsArgRun(cmd, want) {
+			return c, true
+		}
+	}
+	return CaptureEntry{}, false
 }
 
 // guestBinariesWanted is why this launch stages the guest set (jaildaemon.go): the daemons its
@@ -1643,6 +1707,20 @@ func PrintPlan(w io.Writer, plan RunPlan, problems []string) {
 		p.printf("cache:       %s → %s [dim](read-write, cache_relocations; a link the bootstrap "+
 			"lays, and the profile opens the target)[/dim]", r.LinkPath(""), r.Target)
 	}
+	// THE INSTALL-CAPTURE STORE (H4), named either way on the same rule: "nothing captured yet"
+	// and "this backend cannot materialize a capture" were one statement until it landed.
+	if plan.CapturesDir == "" {
+		p.print("captures:    [dim]none staged — a program its vendor's installer installs " +
+			"downloads on first use[/dim]")
+	} else {
+		staged := make([]string, 0, len(plan.Captures))
+		for _, c := range plan.Captures {
+			staged = append(staged, c.Bin+" "+c.Key)
+		}
+		p.printf("captures:    %s ← %s [dim](root-owned copies, made once per machine; a "+
+			"program's launcher materializes its entry instead of downloading)[/dim]",
+			plan.CapturesDir, strings.Join(staged, ", "))
+	}
 	p.printf("git identity: %s", gitIdentityRepr(plan.GitIdentity))
 	// THE ENV FILE IS DISCLOSED BY NAME AND BY KEY, NEVER BY VALUE — and that is the
 	// disclosure this dry run owes its reader rather than a redaction (envfile.go).
@@ -1760,6 +1838,11 @@ func PrintPlan(w io.Writer, plan RunPlan, problems []string) {
 	}
 	for _, cmd := range plan.StageCommands {
 		p.print("  sudo " + shquote.JoinDisplay(cmd))
+	}
+	// The capture store's, after them as the launch runs them, and marked: a failure of one warns
+	// and the launch goes on (stageCaptures).
+	for _, cmd := range plan.CaptureStageCommands {
+		p.print("  sudo " + shquote.JoinDisplay(cmd) + "  [dim](best-effort)[/dim]")
 	}
 	// The env-file steps, in the order they run and NAMED — the directory's mode and the
 	// sandbox's read ACE are the whole of what keeps this file private, so a dry run that
@@ -1997,4 +2080,40 @@ func RealDeps(runProxy func(argv []string) int, materialize func(repoRoot string
 		Out:                LaunchWriter(),
 		Color:              color,
 	}
+}
+
+// RealLaunchProbes is the launch's own answer to every precondition (LaunchPreconditions) on this
+// machine: RealDeps' probes, for a caller that asks them before a launch does (PreflightLaunch).
+func RealLaunchProbes() LaunchProbes {
+	return RealDeps(nil, nil, false).launchProbes()
+}
+
+// PreflightLaunch asks, before a launch of workspace does, the first two things RunMacosUser asks
+// — its preconditions (LaunchPreconditions, on p) and then the account home's hold, taken through
+// hold — with the launch's own resolution of the workspace and its own name for the hold
+// (cnameFor), so the answer cannot differ from the launch's for any reason but time. ok is false
+// when either would refuse the launch; when it is true the hold is held until release, which the
+// caller must call. RunMacosUser takes its own when it runs, and a second shared hold of one
+// workspace admits, so a caller may hold this one across that call too.
+//
+// For a caller that must not act for a launch about to be refused: the run pipeline's
+// auto-capture (internal/cli/run's autoCaptureMacosUser), which on a Mac never set up used to
+// record a failure memo that held every later capture off for a day, and with the workspace
+// under a home or another workspace's session live paid an installer download, and replaced the
+// staged yolo under that session, only for the launch to refuse. It says nothing: the launch's
+// own refusal, which names the next step, follows.
+func PreflightLaunch(p LaunchProbes, hold func(workspace, cname, step string) (func(), string),
+	workspace string) (release func(), ok bool) {
+	ws := resolvePathAbs(workspace)
+	if _, unmet := unmetLaunchPrecondition(p, ws); unmet {
+		return nil, false
+	}
+	if hold == nil {
+		return func() {}, true
+	}
+	r, refusal := hold(ws, cnameFor(ws), "")
+	if refusal != "" {
+		return nil, false
+	}
+	return r, true
 }
