@@ -62,7 +62,7 @@ const (
 	DirName = ".yolo-use"
 	// SinceName is the file, in DirName, that says since when the HOST's launches have run jails
 	// that record their use: the first host launch to bind the store creates it (MarkSince), and
-	// nothing replaces it. The host judges nothing until it is Window old, because before then a
+	// nothing replaces it but a later host launch finding it unreadable. The host judges nothing until it is Window old, because before then a
 	// version some jail used without recording it — every jail a yolo older than this record
 	// started — would read as unused.
 	//
@@ -270,23 +270,61 @@ func Write(store, name string, rec Record) error {
 
 // MarkSince creates the since marker beneath store if it does not exist yet, and leaves an
 // existing one alone. Only a HOST launch calls it, for the store it binds (SinceName says why).
-// An error leaves the marker missing, which only keeps the host judging nothing: the safe
-// direction, and the next launch tries again.
+//
+// THE MARKER APPEARS WHOLE OR NOT AT ALL: the time is written to a temporary first, which is then
+// hard-linked to the marker's name — a link, unlike a rename, refuses to replace a marker another
+// launch made first. A marker that exists but cannot be read or parsed (one an older yolo left
+// empty when its write failed) is REPLACED, which starts the clock at this launch: later, so the
+// sweep waits longer, the safe direction. An error leaves the marker missing or as it was, which
+// only keeps the host judging nothing, and the next launch tries again.
 func MarkSince(store string, now time.Time) error {
 	dir, err := openDir(store, true)
 	if err != nil {
 		return err
 	}
 	defer dir.Close()
-	f, err := dir.OpenFile(SinceName, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o644)
-	if errors.Is(err, fs.ErrExist) {
-		return nil
+	_, rerr := readSince(dir)
+	if rerr == nil {
+		return nil // marked: the first launch's time stands
 	}
+	broken := !errors.Is(rerr, fs.ErrNotExist)
+	tmp := "." + SinceName + "." + NewName()
+	f, err := dir.OpenFile(tmp, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o644)
 	if err != nil {
 		return err
 	}
 	_, werr := f.WriteString(now.UTC().Format(time.RFC3339) + "\n")
-	return errors.Join(werr, f.Close())
+	cerr := f.Close()
+	defer func() { _ = dir.Remove(tmp) }() // gone already after a rename; a link leaves it
+	if werr != nil || cerr != nil {
+		return errors.Join(werr, cerr)
+	}
+	if !broken {
+		err := dir.Link(tmp, SinceName)
+		if err == nil || errors.Is(err, fs.ErrExist) {
+			return nil // marked, by this launch or by one that got there first
+		}
+		// A filesystem without hard links: the rename below can replace a marker another launch
+		// made in the moment since the read above, which only moves the clock milliseconds later.
+	}
+	return dir.Rename(tmp, SinceName)
+}
+
+// readSince reads and parses the since marker in dir. An absent marker is fs.ErrNotExist.
+func readSince(dir *os.Root) (time.Time, error) {
+	b, err := readLimited(dir, SinceName)
+	if err != nil {
+		return time.Time{}, err
+	}
+	text := strings.TrimSpace(string(b))
+	if text == "" {
+		return time.Time{}, errors.New("it is empty")
+	}
+	t, err := time.Parse(time.RFC3339, text)
+	if err != nil {
+		return time.Time{}, fmt.Errorf("it does not hold a time: %w", err)
+	}
+	return t, nil
 }
 
 // expire removes every record and temporary whose file is older than expireAfter: the writers
@@ -327,8 +365,12 @@ type Read struct {
 
 // Census is every record beneath a store.
 type Census struct {
-	// Since is when the store got its first record; zero when it never has.
+	// Since is when the host's launches started the record's clock (SinceName); zero when none
+	// has, or when SinceErr is set.
 	Since time.Time
+	// SinceErr is why a since marker that exists cannot be read or parsed. The next host launch's
+	// MarkSince replaces such a marker.
+	SinceErr error
 	// Records is every record file, readable or not, by file name.
 	Records []Read
 }
@@ -346,10 +388,10 @@ func ReadAll(store string) (Census, error) {
 	}
 	defer dir.Close()
 	var c Census
-	if b, err := readLimited(dir, SinceName); err == nil {
-		if t, perr := time.Parse(time.RFC3339, strings.TrimSpace(string(b))); perr == nil {
-			c.Since = t
-		}
+	if t, err := readSince(dir); err == nil {
+		c.Since = t
+	} else if !errors.Is(err, fs.ErrNotExist) {
+		c.SinceErr = err
 	}
 	f, err := dir.Open(".")
 	if err != nil {

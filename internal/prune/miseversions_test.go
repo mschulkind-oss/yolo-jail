@@ -384,3 +384,23 @@ func TestAWorkspacesNewestRecordSupersedesItsUnknownOne(t *testing.T) {
 		}
 	})
 }
+
+// TestAWaitSaysWhatEndsIt: a sweep that waits for the record's clock names the next step — the
+// next host launch starts the clock — and a marker that cannot be read says so instead of
+// passing for no marker at all, since that launch replaces it.
+func TestAWaitSaysWhatEndsIt(t *testing.T) {
+	f := newMiseFixture(t, "node/20.1.0")
+	marker := filepath.Join(f.store, miseuse.DirName, miseuse.SinceName)
+	if err := os.WriteFile(marker, nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	s := f.find(nothingRunning())
+	if s.Declined != "" || len(s.Candidates) != 0 || !strings.Contains(s.Waiting, "cannot be read") ||
+		!strings.Contains(s.Waiting, "next launch on this host") {
+		t.Fatalf("an empty marker must wait, saying it cannot be read and what replaces it: %+v", s)
+	}
+	_ = os.Remove(marker)
+	if s := f.find(nothingRunning()); !strings.Contains(s.Waiting, "next launch on this host") {
+		t.Fatalf("a missing marker's wait names no next step: %q", s.Waiting)
+	}
+}

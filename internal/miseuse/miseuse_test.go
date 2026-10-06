@@ -260,3 +260,63 @@ func TestAnUnparseableRecordIsReportedNotDropped(t *testing.T) {
 		t.Errorf("a store with no records = %+v, %v; want an empty census and no error", c2, err)
 	}
 }
+
+// TestABrokenSinceMarkerIsReportedAndRepaired: a marker created but never written — a write that
+// failed, on the full disk this feature exists for — used to read as "no marker" forever, since
+// every later MarkSince saw it exist and left it alone. ReadAll says it cannot be read, and the
+// next host launch's MarkSince replaces it, starting the clock from that launch.
+func TestABrokenSinceMarkerIsReportedAndRepaired(t *testing.T) {
+	for name, content := range map[string]string{"empty": "", "garbage": "not a time\n"} {
+		t.Run(name, func(t *testing.T) {
+			store := t.TempDir()
+			if err := os.MkdirAll(filepath.Join(store, DirName), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(store, DirName, SinceName), []byte(content), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			c, err := ReadAll(store)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !c.Since.IsZero() || c.SinceErr == nil {
+				t.Fatalf("a broken marker read as Since=%v SinceErr=%v; want it reported", c.Since, c.SinceErr)
+			}
+			at := time.Date(2026, 10, 6, 12, 0, 0, 0, time.UTC)
+			if err := MarkSince(store, at); err != nil {
+				t.Fatal(err)
+			}
+			if err := MarkSince(store, at.Add(time.Hour)); err != nil {
+				t.Fatal(err)
+			}
+			c, err = ReadAll(store)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !c.Since.Equal(at) || c.SinceErr != nil {
+				t.Fatalf("after a host launch the marker reads Since=%v SinceErr=%v; want %v", c.Since, c.SinceErr, at)
+			}
+		})
+	}
+}
+
+// TestMarkSinceNeverLeavesAPartialMarker: the marker appears whole or not at all, so no failed
+// write can leave the empty file every later launch would leave alone. Its temporary goes too.
+func TestMarkSinceNeverLeavesAPartialMarker(t *testing.T) {
+	store := t.TempDir()
+	at := time.Date(2026, 10, 6, 12, 0, 0, 0, time.UTC)
+	if err := MarkSince(store, at); err != nil {
+		t.Fatal(err)
+	}
+	entries, err := os.ReadDir(filepath.Join(store, DirName))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 1 || entries[0].Name() != SinceName {
+		var names []string
+		for _, e := range entries {
+			names = append(names, e.Name())
+		}
+		t.Fatalf("the record directory holds %v after MarkSince, want only %s", names, SinceName)
+	}
+}

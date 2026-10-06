@@ -139,8 +139,15 @@ func FindUnusedMiseVersions(store string, live runtime.LiveSet, now time.Time, b
 		return s
 	}
 	s.Since = census.Since
+	if census.SinceErr != nil {
+		s.Waiting = fmt.Sprintf("the record's start time, %s/%s/%s, cannot be read (%v); "+
+			"the next launch on this host replaces it and starts the clock again",
+			store, miseuse.DirName, miseuse.SinceName, census.SinceErr)
+		return s
+	}
 	if census.Since.IsZero() {
-		s.Waiting = "no launch on this host has run a jail that records the tool versions it uses yet"
+		s.Waiting = "no launch on this host has run a jail that records the tool versions it uses yet; " +
+			"the next launch on this host starts the clock"
 		return s
 	}
 	if judgeable := census.Since.Add(MiseVersionsWindow); now.Before(judgeable) {
