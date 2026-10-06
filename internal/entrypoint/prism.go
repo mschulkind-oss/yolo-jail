@@ -1485,18 +1485,25 @@ func noteDroppedManagedEntries(e *Env, surface manifest.Surface, key string, des
 		return
 	}
 	withheld := e.mcpWithheld[surface.Key()]
-	var dropped, held []string
+	// The requires_env gate's removals are named only in the table built from MCP servers. Core
+	// cannot say which table that is (a derive names its own keys), so this matches by NAME, as
+	// the withheld record does; a gated server a derive renames keeps the declare remedy.
+	gatedVars := e.mcpGatedFor(surface.Agent)
+	var dropped, held, gated []string
 	for _, name := range dest.Keys() {
 		if _, kept := table[name]; kept {
 			continue
 		}
 		if _, isHeld := withheld.servers[name]; isHeld {
 			held = append(held, name)
+		} else if _, isGated := gatedVars[name]; isGated {
+			gated = append(gated, name)
 		} else {
 			dropped = append(dropped, name)
 		}
 	}
 	noteWithheldMCPEntries(e, surface, key, held, withheld)
+	noteGatedMCPEntries(e, surface, key, gated, gatedVars)
 	if len(dropped) == 0 {
 		return
 	}
@@ -1575,6 +1582,44 @@ func noteWithheldMCPEntries(e *Env, surface manifest.Surface, key string, names 
 		"under `%s`, and to deliver %s anyway, remove %s `provides`\n",
 		surface.Agent, surface.Name, key, strings.Join(items, ", "), w.source, it, stays,
 		manifest.SourceMCPServers, it, its)
+}
+
+// noteGatedMCPEntries is the drop notice's line for the entries of table key that left the file
+// because the requires_env gate removed them (names; each one's missing variables in vars). Quiet
+// when there are none. It says each is declared, names the variable unset for this agent, and the
+// one change that delivers it: set the variable in a dotenv file the user config's `env_sources`
+// lists, and launch again. The declare-it remedy, for a declared server, changes nothing.
+func noteGatedMCPEntries(e *Env, surface manifest.Surface, key string, names []string, vars map[string][]string) {
+	if len(names) == 0 {
+		return
+	}
+	sort.Strings(names)
+	items := make([]string, len(names))
+	var unset []string
+	seen := map[string]bool{}
+	for i, name := range names {
+		items[i] = fmt.Sprintf("%s (needs %s)", name, strings.Join(vars[name], ", "))
+		for _, v := range vars[name] {
+			if !seen[v] {
+				seen[v] = true
+				unset = append(unset, v)
+			}
+		}
+	}
+	stays, it, isUnset := "it stays", "it", "is"
+	if len(names) > 1 {
+		stays, it = "each stays", "them"
+	}
+	if len(unset) > 1 {
+		isUnset = "are"
+	}
+	fmt.Fprintf(e.Stderr, "%s/%s: dropping from %s (in config, required env not set): %s "+
+		"— %s %s unset for %s, so the `requires_env` gate left %s out; %s declared under `%s`, "+
+		"and to deliver %s, set %s in a dotenv file listed under `env_sources` in %s on the "+
+		"host, then launch again\n",
+		surface.Agent, surface.Name, key, strings.Join(items, ", "),
+		strings.Join(unset, ", "), isUnset, surface.Agent, it, stays, manifest.SourceMCPServers,
+		it, strings.Join(unset, ", "), dropRemedyUserConfig)
 }
 
 // sortedKeys returns layer's keys in a deterministic order, so a re-render writes

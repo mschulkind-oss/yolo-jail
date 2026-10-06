@@ -291,10 +291,12 @@ func loadMCPTables(e *Env) mcpTables {
 	view := scopedMCPView(e)
 	shared, skipped := e.mcpServersWith(view.Lookup)
 	t := mcpTables{shared: shared, perAgent: map[string]*jsonx.OrderedMap{}}
+	e.recordMCPGated("", skipped)
 	agents := agentsWithEnvFiles(e)
 	for _, agent := range agents {
-		own, _ := e.mcpServersWith(agentEnvLookup(view, agent))
+		own, ownSkipped := e.mcpServersWith(agentEnvLookup(view, agent))
 		t.perAgent[agent] = own
+		e.recordMCPGated(agent, ownSkipped)
 	}
 	for _, s := range skipped {
 		var got []string
@@ -312,6 +314,40 @@ func loadMCPTables(e *Env) mcpTables {
 			") reaches only the agent that selected its provider")
 	}
 	return t
+}
+
+// recordMCPGated records the servers the requires_env gate removed from agent's table ("" for
+// the jail-wide one, which every agent without an env file of its own renders), for the boot's
+// drop notice (noteDroppedManagedEntries). A table that lost nothing clears its record, so a
+// stale one never speaks for this render.
+func (e *Env) recordMCPGated(agent string, skipped []mcpSkip) {
+	if e.mcpGated == nil {
+		e.mcpGated = map[string]map[string][]string{}
+	}
+	if len(skipped) == 0 {
+		delete(e.mcpGated, agent)
+		return
+	}
+	gated := make(map[string][]string, len(skipped))
+	for _, s := range skipped {
+		gated[s.name] = s.missing
+	}
+	e.mcpGated[agent] = gated
+}
+
+// mcpGatedFor is what the requires_env gate removed from the table agent's surfaces render:
+// agent's own when the credential gate wrote it an env file (tablesForAgent swaps that table
+// in), the jail-wide one otherwise.
+func (e *Env) mcpGatedFor(agent string) map[string][]string {
+	if own, ok := e.mcpGated[agent]; ok {
+		return own
+	}
+	for _, a := range agentsWithEnvFiles(e) {
+		if a == agent {
+			return nil // its own table lost nothing
+		}
+	}
+	return e.mcpGated[""]
 }
 
 // scopedMCPView is the environment loadMCPTables asks, for the jail-wide table and under each

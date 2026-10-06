@@ -1,7 +1,7 @@
 ---
 status: current
 stage: DESIGN
-next: "Make the boot's drop notice (noteDroppedManagedEntries, internal/entrypoint/prism.go) tell a server the requires_env gate removed from one not in config, as it tells a capability-withheld one since 2026-10-01: a copy a previous render left in the file is still called not in config"
+next: "Re-verify the prose in full against the tree; it was last verified against 7ad8358c, 2026-09-23"
 verified: 2026-09-23
 verified_commit: 7ad8358c
 covers:
@@ -205,7 +205,8 @@ MCP-enabled tool.
   validation error; across scopes (a user config enables, a workspace nulls) it is intentional
   and allowed.
 - **`requires_env` gates** a server: if any listed variable is unset or empty in the jail the
-  server is dropped with a notice, and otherwise the `requires_env` key itself is **stripped**
+  server is dropped with a notice (and a copy an earlier launch wrote is named as gated, with the
+  variable and where to set it, [below](#a-launch-with-a-provides-server-recorded-2026-10-01)), and otherwise the `requires_env` key itself is **stripped**
   before the entry reaches the tool. The gate is asked **per agent**: a variable a provider
   claims reaches only the agent that selected that provider, in that agent's own env file
   ([the credential gate](providers.md#the-credential-gate)), so the server is written into
@@ -380,11 +381,28 @@ claude/config: dropping from mcpServers (in config, withheld by capability): pro
 A selected provider is named as the source instead (`provider "zai" does that job itself`). The
 match is by name, in whichever table lost the entry, because core cannot say which table a derive
 builds from its MCP servers, so a derive that renamed its servers would leave a withheld one under
-the declare-it remedy. No shipped derive renames them. ⚠ A server the `requires_env` gate removed
-is not covered: the loader drops it before the derive's table is built, so the boundary records
-nothing for it, and a copy a previous render left in the file is still called "not in config",
-beside the gate's own `skipped — required env not set` line. Pinned through the boot loop by
-`capabilitydropnotice_test.go` (`internal/entrypoint`), and the rule's partition by
+the declare-it remedy. No shipped derive renames them.
+
+**Fixed 2026-10-06: a server the `requires_env` gate removed gets a line of its own too.** The
+loader drops such a server before any derive's table is built, so the boundary records nothing for
+it, and a copy a previous render left in the file used to be called "not in config", beside the
+gate's own `skipped — required env not set` line. `loadMCPTables` now records what the gate
+removed from each table it builds (`Env.recordMCPGated`): the jail-wide one, and each agent's own
+when the credential gate wrote that agent an env file. The drop notice reads the record of the
+table the surface's agent renders (`Env.mcpGatedFor`) and names each such server with the
+variables it lacks, by name in whichever table lost the entry, as for a withheld server. With
+`ACME_TOKEN` set on one launch and unset on the next, the second prints:
+
+```text
+claude/config: dropping from mcpServers (in config, required env not set): acme (needs ACME_TOKEN) — ACME_TOKEN is unset for claude, so the `requires_env` gate left it out; it stays declared under `mcp_servers`, and to deliver it, set ACME_TOKEN in a dotenv file listed under `env_sources` in ~/.config/yolo-jail/config.jsonc on the host, then launch again
+```
+
+The remedy names one place, the user config's `env_sources`, where the
+[providers guide](../../userguide/guides/providers-and-models.md) puts every key: a workspace
+config may list `env_sources` too, but it sits in a repository, and a variable a `requires_env`
+gate asks for is usually a credential. Both lines are
+pinned through the boot loop, by `capabilitydropnotice_test.go` and
+`requiresenvdropnotice_test.go` (`internal/entrypoint`), and the withheld rule's partition by
 `TestWithheldMCPServersIsWhatTheDeriveWasNotHanded` (`internal/agentcfg/luahook`).
 
 ### The projection, and how tools differ

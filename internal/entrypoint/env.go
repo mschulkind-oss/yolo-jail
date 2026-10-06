@@ -146,6 +146,11 @@ type Env struct {
 	// config declares. Written by the render step that runs the derive, read by the rmw write
 	// below it; sequential, like warnedOnce.
 	mcpWithheld map[manifest.SurfaceKey]mcpWithholding
+	// mcpGated records, per agent, the MCP servers the requires_env gate removed from the table
+	// that agent's surfaces are handed, each mapped to the variables it lacked (loadMCPTables,
+	// recordMCPGated), so the drop notice can tell a declared server whose variable is unset
+	// from an entry no config declares. Sequential, like warnedOnce.
+	mcpGated map[string]map[string][]string
 	// progressCfg is the rendering of the boot's slow steps (Env.progress). The zero
 	// value is the line-oriented one with the default timings; a test sets
 	// Immediate to see a step that finishes at once.
