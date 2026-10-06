@@ -19,9 +19,8 @@ func writePatchedExtensionPack(t *testing.T, listed bool) string {
 	if err := os.MkdirAll(filepath.Join(dir, "patches", "pi-subagents"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	patch := "From 0123456789abcdef0123456789abcdef01234567 Mon Sep 17 00:00:00 2001\nSubject: [PATCH] x\n\n" +
-		"---\n\nbase-commit: 0123456789abcdef0123456789abcdef01234567\n"
-	if err := os.WriteFile(filepath.Join(dir, "patches", "pi-subagents", "0001-x.patch"), []byte(patch), 0o644); err != nil {
+	// A member a launch reads: lint reads the series as a launch does (PF-D63).
+	if err := os.WriteFile(filepath.Join(dir, "patches", "pi-subagents", "0001-x.patch"), []byte(lintMember(lintBase)), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	list := ""

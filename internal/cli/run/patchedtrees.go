@@ -123,7 +123,8 @@ func (d TreeDelivery) label() string {
 // the dispatch as the fork block is (noteForkPins): each one's line, read offline from its series
 // and its check record with no git (patchedTreeLine), and the one lint, said once per launch, for a
 // tree no list entry names (PPX-D10). Disclosures, so none has a quiet switch (OQ-RO3). It returns
-// the trees, for the tree arm.
+// the trees a jail is delivered (packload.Fork.DeliveredInJail, PPX-D35), for the tree arm: one whose
+// list entry reaches the host alone is named in the block and built and mounted in no jail.
 func (o *Options) notePatchedTrees(packs []*packload.Pack) []packload.Fork {
 	if o.CapturesDir() == "" {
 		return nil // a capture or build jail: the launch that started it said this block
@@ -148,7 +149,7 @@ func (o *Options) notePatchedTrees(packs []*packload.Pack) []packload.Fork {
 			out.print("[yellow]Warning: " + richtext.Escape(w) + "[/yellow]")
 		}
 	}
-	return trees
+	return jailDeliveredTrees(trees)
 }
 
 // patchedTreeLine is one patched extension's line in the launch's block, and whether it is a warning:
@@ -161,10 +162,18 @@ func patchedTreeLine(f packload.Fork) (string, bool) {
 		return head + " — its patch series cannot be read: " + err.Error(), true
 	}
 	head += " + " + PatchCount(series.Len()) + " (series " + series.ShortDigest() + ")"
+	if !f.DeliveredInJail() {
+		if !hostBuildsOwnTrees() {
+			// A MACOS HOST builds no tree for its own render, so the guarded entry reaches no notch that
+			// has the tree (PPX-D38): a warning, with the step that works.
+			return head + " — " + packload.NotDeliveredAnywhereNote, true
+		}
+		return head + " — " + packload.NotDeliveredInJailNote, false
+	}
 	if config.InJail() {
 		return head + " — checked and built on the host", false
 	}
-	rec, err := patchedPacksStore().LoadCheckRecord(f.Key())
+	rec, err := LoadPatchedRecord(patchedPacksStore(), f, series)
 	if err != nil || rec.Good == nil {
 		return head + " — no build of it on this machine yet", true
 	}

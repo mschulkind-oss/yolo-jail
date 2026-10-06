@@ -213,6 +213,9 @@ const (
 	baseNone baseWhy = iota
 	// baseEmpty: the branch has no version newer than the series' base (PF-D27): nothing is held.
 	baseEmpty
+	// baseUntagged: the branch carries no version tag the release rule reads at all (PF-D60): the
+	// series stays at its base until a tag appears or `follow` changes, which the build's line says.
+	baseUntagged
 	// baseNoFit: nothing on the walk's list takes the series.
 	baseNoFit
 	// baseApplyErr: the walk stopped on an apply error before it found a fit.
@@ -362,6 +365,9 @@ func (a *advance) run() advanceResult {
 
 	var list []packsrc.ListEntry
 	a.seq = a.rec.Seq
+	// THE NO-VERSION NOTE IS SAID ONCE (PF-D60): not again by a check that finds what the last check
+	// of the same inputs found.
+	notedBefore := a.rec.Check != nil && a.rec.Check.NoVersion != "" && a.rec.Read == a.in
 	// THE GIT A CONFLICT IS KEYED BY is asked only when this launch runs git anyway (a check ran):
 	// inside the throttle a recorded conflict holds whichever git recorded it, so a steady-state
 	// launch runs no git process at all (P4), and a git upgrade is replayed at the next check
@@ -408,6 +414,16 @@ func (a *advance) run() advanceResult {
 			return a.serveOr(fmt.Sprintf("%s's upstream names nothing to build (%s)", f.Label(), found.Problem))
 		}
 		list = a.rec.Candidates(a.in)
+		if res.Ran && found.NoVersion != "" && !notedBefore {
+			// A RELEASE RULE OVER A BRANCH WITH NO VERSION TAG (PF-D60), said once: where the fork stays.
+			// With no good build the series' base is built, and that build's line says it (baseClause).
+			switch {
+			case a.serves():
+				a.warn("%s: %s", f.Label(), found.NoVersionLine(a.servingName()))
+			case good != nil:
+				a.warn("%s: %s", f.Label(), found.NoVersionLine("upstream "+goodEntry(good).Label()))
+			}
+		}
 		if a.serves() && found.FetchErr != "" {
 			// PENDING, AND THE LAST FETCH FAILED (§6.2): no advance until a check fetches — the build
 			// needs the network too, and its failure would start a back-off for no reason.
@@ -448,6 +464,9 @@ func (a *advance) run() advanceResult {
 		base = baseNoFit
 		if !listed {
 			base = baseEmpty
+			if c := a.rec.Check; c != nil && c.NoVersion != "" {
+				base = baseUntagged
+			}
 		}
 		list = []packsrc.ListEntry{a.baseEntry()}
 	}
@@ -1134,6 +1153,8 @@ func (a *advance) baseClause(base baseWhy) string {
 	switch base {
 	case baseEmpty:
 		return " — no version of the branch is newer than the series' base"
+	case baseUntagged:
+		return " — " + a.rec.Check.NoVersionLine("the series' base")
 	case baseNoFit:
 		return " — held at the series' base, which no version of the branch takes the series past"
 	case baseApplyErr:
@@ -1364,7 +1385,7 @@ func (a *advance) onlyThisFork(recs []capture.Record) bool {
 // read (§6.2): the newest admitted build of this fork key for this platform whose recipe is the
 // manifest's becomes the good build. Losing the record costs a lookup, not a rebuild.
 func (a *advance) loadOrRecover() *packsrc.CheckRecord {
-	rec, err := a.packs.LoadCheckRecord(a.f.Key())
+	rec, err := run.LoadPatchedRecord(a.packs, a.f, a.series)
 	if err == nil && rec.Good != nil {
 		return rec
 	}
@@ -1395,13 +1416,20 @@ func (a *advance) loadOrRecover() *packsrc.CheckRecord {
 	}
 	a.dim("%s: recovered its good build %s from the capture store into its check record (%s)", a.f.Label(),
 		run.GoodBuildLabel(out.Good), why)
-	return out
+	// A BUILD RECEIPTED UNDER THE SERIES' LEGACY DIGEST is recovered as that, and re-keyed (PF-D62).
+	return run.RekeyLegacyGood(a.packs, a.f, a.series, out)
 }
 
 // recoverGood is the good build the capture store holds for this fork as the manifest asks for it,
-// or nil: the newest admitted build of the fork key for this platform under the recipe as it stands.
+// or nil: the newest admitted build of the fork key for this platform under the recipe as it stands,
+// else under the recipe the series' LEGACY digest gives, a build of these very files admitted before
+// PF-D61, which loadOrRecover then re-keys (PF-D62).
 func (a *advance) recoverGood() *packsrc.GoodBuild {
-	return recoverGoodBuild(a.store, a.f.Key(), a.o.platform, a.recipe, a.series.Len())
+	if g := recoverGoodBuild(a.store, a.f.Key(), a.o.platform, a.recipe, a.series.Len()); g != nil {
+		return g
+	}
+	return recoverGoodBuild(a.store, a.f.Key(), a.o.platform, run.PatchedRecipe(a.f, a.series.LegacyDigest),
+		a.series.Len())
 }
 
 // recoverGoodBuild is recoverGood's lookup, which writes nothing: the newest admitted build of fork

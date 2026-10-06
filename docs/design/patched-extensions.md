@@ -89,8 +89,9 @@ Coined here unless a link says otherwise:
   lock, the replay, the ratchet and the explicit acts use: the fork key for a patched fork, the
   extension key for a patched extension.
 - **Owning agent pack**: the selected pack that declares the surface of the list entry naming the
-  tree: the `config-list` or posture-list entry, in the contributing pack, equal to `~/<into>`,
-  which [§8.2](#82-how-pi-finds-it)'s lint looks for. A surface is named `agent/name` (READ
+  tree: the `config-list` or posture-list entry, in the contributing pack, naming `~/<into>` or a
+  path inside it ([PPX-D36](#PPX-D36)), which [§8.2](#82-how-pi-finds-it)'s lint looks for. A
+  surface is named `agent/name` (READ
   [`contributes.go:399`](../../internal/packdecl/contributes.go#L399)), and `pi/settings` is the pi
   pack's (READ [`packs/pi/pack.json:84-91`](../../packs/pi/pack.json#L84-L91)), so in the
   maintainer's case `matt` contributes and `pi` owns. With no such entry there is none, and pi never
@@ -404,19 +405,24 @@ reaped before the copy began.
 
 ### 8.2 How pi finds it
 
-- **The author writes `~/<into>` in pi's `packages` list**, with no trailing slash, and drops the
-  extension's `git:` entry in the same edit. pi loads it as a local package: never installed, never
-  updated, untouched by the pre-launch refresh, with the package's skills and prompts.
+- **The author writes `~/<into>` in pi's `packages` list**, or a path inside it, such as one package
+  of a monorepo's tree ([PPX-D36](#PPX-D36)), and drops the extension's `git:` entry in the same
+  edit. pi loads it as a local package: never installed, never updated, untouched by the
+  pre-launch refresh, with the package's skills and prompts.
 - **The pi pack's subagents MCP render still fires.** Its pattern matches
   `~/.pi/agent/yolo-patched/pi-subagents` and does not match it with a trailing slash (MEASURED with
   node, against [`packs/pi/pack.json:140`](../../packs/pi/pack.json#L140)).
 - **One lint**, at `yolo pack lint` and once at launch, a warning naming the line to add: no
-  `config-list` or posture-list entry in the contributing pack equals `~/<into>`, so the tree is
-  mounted and pi never loads it. Its test is exact equality, so core reads none of pi's grammar.
-- **No lint for the old entry left beside the new one**, which loads the extension twice. Telling
-  that entry apart means parsing pi's package-source grammar (`@ref`, `.git`), which core does not do
-  ([caching §5](pi-git-extension-caching.md#5-alternatives)). It is [§13](#13-migrating-the-maintainers-five-forks)'s
-  guidance instead.
+  `config-list` or posture-list entry in the contributing pack names `~/<into>` or a path inside
+  it, so the tree is mounted and pi never loads it. Its test compares cleaned paths, so core reads
+  none of pi's grammar ([PPX-D36](#PPX-D36)).
+- **A lint for the old entry left beside the new one, by its final name** ([PPX-D34](#PPX-D34)),
+  which loads the extension twice. A warning at `yolo pack lint` when one list holds `~/<into>` and
+  a `git:` or `npm:` entry, or a URL, of the extension's name or its upstream's. Telling every old
+  entry apart would mean parsing pi's package-source grammar, which core does not do
+  ([caching §5](pi-git-extension-caching.md#5-alternatives)). The final name is the question the
+  pi pack's subagents render already asks, and an entry under another name is still
+  [§13](#13-migrating-the-maintainers-five-forks)'s guidance.
 
 ### 8.3 At the host
 
@@ -473,10 +479,11 @@ shell stays up. Notches that build no tree (macos-user, the macOS host, and Appl
 read-only floor, [§11](#11-notch-coverage)) start pi with a line said once, in
 [FP-D3](forked-programs-as-packs.md#FP-D3)'s shape, naming `YOLO_RUNTIME=podman`. With no owning agent
 pack no list entry names the tree, so pi does not load it, [§8.2](#82-how-pi-finds-it)'s lint says so,
-and nothing stops. Nor does a tree stop pi at a notch its entry does not reach: `pi-automode`'s
-entry is in a guarded posture list, which reaches the host and no jail
-([§3.2](#32-the-maintainers-five-forks)), so a jail with nothing to serve for it starts pi. A mountpoint podman made on an earlier launch may be left empty at `~/<into>`
-(INFERRED: `.pi` is a workspace state directory on the host). pi does not skip an empty directory
+and nothing stops. Nor does a tree stop pi at a notch its entry does not reach, where it is not
+built or mounted either ([PPX-D35](#PPX-D35)): `pi-automode`'s entry is in a guarded posture list,
+which reaches the host and no jail ([§3.2](#32-the-maintainers-five-forks)), so no jail builds it,
+and pi there starts without it. A mountpoint podman made on an earlier launch may be left empty at
+`~/<into>` (INFERRED: `.pi` is a workspace state directory on the host). pi does not skip an empty directory
 as it skips a missing path: it tries to load the directory itself as one extension, which fails
 (READ `package-manager.js:1079-1085`;
 [`pack-pi-resources.md` §1](pack-pi-resources.md#1-what-pi-loads-from-where-and-in-what-form)).
@@ -559,7 +566,8 @@ For each extension:
      export keeps all 22 members and its `base-commit:` line, replays at its base, and the declared
      `build` then rebuilds the fork's committed `dist/` byte for byte, 118 of 118 files.
    - For `pi-background-tasks`, declare `follow: "head"`: its upstream has no tags
-     ([§12](#12-dependencies)).
+     ([§12](#12-dependencies)), so the default rule leaves it at its series' base
+     ([PF-D60](patched-forks.md#PF-D60)).
 2. In one edit, add the `files` contribution and replace the extension's `git:` entry with
    `~/<into>`. Leaving both loads it twice.
 3. Launch.
@@ -569,9 +577,8 @@ For each extension:
 - `pi-automode` and `pi-background-tasks` run their base, which is their upstream's head.
 - `pi-subagents`, `pi-dynamic-workflows` and `pi-archimedes` are held at their base, which is
   exactly the fork's current tree, and the held suffix names `yolo pack rebase`.
-- `pi-automode`'s list entry is guarded-only, and a posture cannot carry `files`, so every jail
-  builds and mounts a tree its pi never loads, and the Linux host, where the guarded list reaches,
-  loads it: minor.
+- `pi-automode`'s list entry is guarded-only, so no jail builds or mounts its tree
+  ([PPX-D35](#PPX-D35)), and the Linux host, where the guarded list reaches, builds and loads it.
 - **On macos-user and a macOS host every migrated extension is absent**, where today pi installs each
   fork from its `git:` entry there (INFERRED from [§3.1](#31-how-pi-takes-an-extension-and-where-yolo-can-put-a-tree)'s
   first row). Step 2 drops that entry from a list that reaches every notch
@@ -582,7 +589,10 @@ For each extension:
 
 **An older yolo** refuses the manifest at the host, as it refuses a patched fork's, and
 [PF §10](patched-forks.md#10-migration-from-a-plain-fork)'s mitigations apply: a pack author keeps
-the `git:` manifest where existing users point and publishes this one on a new ref.
+the `git:` manifest where existing users point and publishes this one on a new ref. A yolo from this
+release on skips a contribution it cannot read and names it
+([PF-D68](patched-forks.md#PF-D68)), and `yolo features` names `patched-extensions`
+([PF-D71](patched-forks.md#PF-D71)).
 
 ## 14. Alternatives, and what this does not cover
 
@@ -607,7 +617,8 @@ the `git:` manifest where existing users point and publishes this one on a new r
 - **A `files` contribution scoped to a posture or notch**, and a list entry scoped to a notch, which
   could keep the `git:` entry on macos-user and a macOS host
   ([§13](#13-migrating-the-maintainers-five-forks)).
-- **A lint for the old entry left beside the new one.** It needs pi's package-source grammar
+- **A lint for an old entry under another name** than the extension's or its upstream's, which
+  [PPX-D34](#PPX-D34)'s lint does not see. It needs pi's package-source grammar
   ([§8.2](#82-how-pi-finds-it)). The pi pack could declare the pattern, as it does for the
   subagents render's `whenListed.matches` ([`packs/pi/pack.json:140`](../../packs/pi/pack.json#L140)).
 - **Resolving conflicts, and writing the series.** As [patched forks §13](patched-forks.md#13-what-this-does-not-cover).
@@ -736,7 +747,7 @@ mode as written, and one ruling of each covers both routes ([§12](#12-dependenc
 
 Every row is reversible, and the Built column says what has been built of each.
 [PPX-D1](#PPX-D1)–[PPX-D17](#PPX-D17) are implementation decisions made in drafting, and
-[PPX-D20](#PPX-D20)–[PPX-D31](#PPX-D31) are implementation decisions made building it. [PPX-D18](#PPX-D18) and [PPX-D19](#PPX-D19) are the two questions that were
+[PPX-D20](#PPX-D20)–[PPX-D38](#PPX-D38) are implementation decisions made building it. [PPX-D18](#PPX-D18) and [PPX-D19](#PPX-D19) are the two questions that were
 the maintainer's, [OQ-PPX1](#OQ-PPX1) and [OQ-PPX2](#OQ-PPX2), decided on their leanings on 2026-10-04
 under his delegation, and still his to overrule. The two core
 changes this design makes to patched forks are recorded there:
@@ -747,13 +758,13 @@ changes this design makes to patched forks are recorded there:
 | <a id="PPX-D1"></a>PPX-D1 | *Implementation decision.* **A patched extension is a `files` contribution with `source` and `patches` in place of `from`; there is no new kind.** `from`, `fork_of`, `agent` and `agents` are refused beside `source`, and `patches` is required | 2026-10-04 | [§4](#4-the-declaration) | S5, 2026-10-04: `packdecl.Contribution.IsPatchedExtension`, `patchedExtensionProblems` ([`patchedext.go`](../../internal/packdecl/patchedext.go)) |
 | <a id="PPX-D2"></a>PPX-D2 | *Implementation decision.* **The extension key is `<pack>/<last segment of into>`, unique per pack across its patched extensions and its patched programs' bins; every record, lock, selection, message and explicit act uses it** | 2026-10-04 | [§1](#1-defined-terms), [§4](#4-the-declaration) | S5, 2026-10-04: `packload.PatchedTrees`, `Fork.Key`; the uniqueness refusal `validatePatchedOwnerKeys` |
 | <a id="PPX-D3"></a>PPX-D3 | *Implementation decision.* **`into` is required and may not land on PATH, for any pack; `build` is optional and the sealed jail runs either way; `produces` is optional and tree-relative** | 2026-10-04 | [§4](#4-the-declaration) | S5, 2026-10-04: `patchedExtensionProblems`, `treeProducesProblems`; the PATH refusal is every `files` destination's |
-| <a id="PPX-D4"></a>PPX-D4 | *Implementation decision.* **The owning agent pack is the selected pack that declares the surface of the contributing pack's `config-list` or posture-list entry equal to `~/<into>`, the entry [§8.2](#82-how-pi-finds-it)'s lint looks for; with no such entry there is none, and pi never loads the tree.** Not read from a `state` prefix of `into`, which says which pack keeps a directory, not which agent loads a tree there | 2026-10-04 | [§1](#1-defined-terms) | S5, 2026-10-04: `packload.owningAgentPack`, with where the entry reaches (`Fork.ListedInJail`, `ListedAtHost`) |
+| <a id="PPX-D4"></a>PPX-D4 | *Implementation decision.* **The owning agent pack is the selected pack that declares the surface of the contributing pack's `config-list` or posture-list entry equal to `~/<into>`, the entry [§8.2](#82-how-pi-finds-it)'s lint looks for; with no such entry there is none, and pi never loads the tree.** [PPX-D36](#PPX-D36) widens "equal to" to a path inside it. Not read from a `state` prefix of `into`, which says which pack keeps a directory, not which agent loads a tree there | 2026-10-04 | [§1](#1-defined-terms) | S5, 2026-10-04: `packload.owningAgentPack`, with where the entry reaches (`Fork.ListedInJail`, `ListedAtHost`) |
 | <a id="PPX-D5"></a>PPX-D5 | *Implementation decision.* **The build is a fork's build act with the seal narrowed to the contributing pack and one fixed final step that copies the checkout into a reserved directory under `~/.local`; the admit adds the `produces` paths, no stray delta and no reference to the build home to the empty-delta and link checks** | 2026-10-04 | [§7.1](#71-the-build-act) | S5, 2026-10-04: `cli.treeBuildJailArgv`, `sealPacks`, `treeAdmitProblem` ([PPX-D20](#PPX-D20), [PPX-D21](#PPX-D21)) |
 | <a id="PPX-D6"></a>PPX-D6 | *Implementation decision.* **The recipe is `["tree", build, sorted produces, subdir, series digest]`; selection is by extension key and platform with an exact lookup; the receipt gains PF-D7's fields; `yolo prune`'s newest-per-selection-key rule is unchanged** | 2026-10-04 | [§7.2](#72-identity-and-selection) | S5, 2026-10-04: `packdecl.TreeRecipe`; the receipt's `fork` is the extension key ([PPX-D21](#PPX-D21)) |
 | <a id="PPX-D7"></a>PPX-D7 | *Implementation decision.* **A fresh launch materializes the good build, by reflink or copy and never by hardlink, into a per-launch directory beside its pack tree, and the `files` emitter mounts it read-only; no store is mounted for it, and a move reaps every other build of the key at once, marker first.** A copy whose entry's completion marker is gone when it ends may be partial: it is removed, and the record re-read once | 2026-10-04 | [§8.1](#81-in-a-jail) | S5, 2026-10-04: `run.treeDeliveriesFor`, `cli.deliverTree`, `capture.CopyTree`, the `files` emitter's copy arm ([PPX-D22](#PPX-D22)) |
 | <a id="PPX-D8"></a>PPX-D8 | *Implementation decision.* **The jail learns what it was handed from `YOLO_PATCHED_TREES`, a once-at-boot sibling of `YOLO_FORK_BUILDS`** | 2026-10-04 | [§8.1](#81-in-a-jail) | S5, 2026-10-04: `entrypoint.PatchedTreesEnv` ([PPX-D23](#PPX-D23)) |
 | <a id="PPX-D9"></a>PPX-D9 | *Implementation decision, applying [PF-D19](patched-forks.md#PF-D19).* **`agent_updates` off for the contributing pack or the owning agent pack holds a patched extension; with a fork of the owning agent's program selected, the fork pack counts too** | 2026-10-04 | [§2](#2-the-verdict-and-three-more-principles) PE8 | S5, 2026-10-04: `packload.Fork.HoldPacks`, read by `run.PatchedForkHold` |
-| <a id="PPX-D10"></a>PPX-D10 | *Implementation decision.* **pi learns of a built tree only through a `~/<into>` list entry its author writes; one lint warns when no entry equals it.** No lint looks for the old entry left beside it, which would need pi's package-source grammar in core | 2026-10-04 | [§8.2](#82-how-pi-finds-it) | S5, 2026-10-04: `packload.LintPatchedTrees`, at `yolo pack lint` and in the launch's block ([PPX-D27](#PPX-D27)) |
+| <a id="PPX-D10"></a>PPX-D10 | *Implementation decision.* **pi learns of a built tree only through a `~/<into>` list entry its author writes; one lint warns when no entry equals it.** [PPX-D36](#PPX-D36) counts a path inside it too. No lint looks for the old entry left beside it, which would need pi's package-source grammar in core. Amended 2026-10-05 by [PPX-D34](#PPX-D34), whose lint looks for one by its final name | 2026-10-04 | [§8.2](#82-how-pi-finds-it) | S5, 2026-10-04: `packload.LintPatchedTrees`, at `yolo pack lint` and in the launch's block ([PPX-D27](#PPX-D27)) |
 | <a id="PPX-D11"></a>PPX-D11 | *Implementation decision.* **The Linux host renders a patched extension as a host-private versioned copy and an owned link swapped by rename, after the check and the advance and before the launch gate's comparison; the previous version is kept until the next move.** The check and the advance run at `yolo host apply`, and at `yolo host -- <bin>` only when `<bin>` is a program of the owning agent pack or of a fork of it; at any other bin the gate only reads which build the link names | 2026-10-04 | [§8.3](#83-at-the-host) | S5, 2026-10-04: `cli.renderHostTrees`, `advanceHostTrees` ([PPX-D25](#PPX-D25)) |
 | <a id="PPX-D12"></a>PPX-D12 | *Implementation decision, under [OQ-PPX1](#OQ-PPX1).* **The owning agent pack's launchers, the base's and any fork's, act on a patched extension's reason as [OQ-PPX1](#OQ-PPX1) rules, and only at a notch the list entry naming the tree reaches; the jail launch is never refused** | 2026-10-04 | [§9](#9-failure-and-the-next-step) | S5, 2026-10-04: the jail's `stop` ([PPX-D24](#PPX-D24)) and the host's ([PPX-D26](#PPX-D26)) |
 | <a id="PPX-D13"></a>PPX-D13 | *Implementation decision.* **Checks of different extension keys may run concurrently, except two that name one upstream repository, which serialize on its mirror lock; their lines print in declaration order** | 2026-10-04 | [§6.1](#61-where-the-check-runs) | S5, 2026-10-04: through the shared check (the mirror's lock); the launch walks the trees in declaration order |
@@ -777,3 +788,8 @@ changes this design makes to patched forks are recorded there:
 | <a id="PPX-D31"></a>PPX-D31 | *Implementation decision, under [PPX-D11](#PPX-D11), reversible.* **`yolo host apply --revert` removes every link the `files` ownership record names into the host's versioned copies, forgets it, and removes every versioned copy no recorded link names, whatever the selection carries; its dry run names each link.** A plain `files` tree's output is left, as the revert always left it | 2026-10-04 | [§8.3](#83-at-the-host) | S5 review, 2026-10-04: `cli.revertHostTreeLinks` |
 | <a id="PPX-D32"></a>PPX-D32 | *Implementation decision, under [PF-D13](patched-forks.md#PF-D13) and [PPX-D28](#PPX-D28), reversible.* **`yolo pack rebase` takes a patched extension's owner key `<pack>/<name>` as it takes a patched fork's: it clones the extension's upstream, stops at the conflict and exports into the contributing pack's own `patches` directory, a local pack's in place and a fetched pack's through a clone of its repository. Its lines name the subject "extension `<key>`" and its pack "pack `<name>`", and with no key, or a wrong one, it lists the selected patched forks and patched extensions apart.** Found integrating the parallel builds: step 3 built the verb over `packload.Forks`, which never lists an extension, while every conflict line an extension's check prints names the verb with its key, so following the line was refused | 2026-10-04 | [§9](#9-failure-and-the-next-step) | S6, 2026-10-04: `cli.packRebase`, `pickRebaseFork`; pinned by `TestPackRebaseRebasesAPatchedExtensionsSeries`, which runs the command `yolo pack update` prints, and `TestPackRebaseNamesThePatchedExtensions` |
 | <a id="PPX-D33"></a>PPX-D33 | *Implementation decision, under [PPX-D25](#PPX-D25) and [PPX-D28](#PPX-D28), reversible.* **The host apply `yolo pack update` runs builds no patched extension: the render links the good build already on this machine, and an extension with none says `yolo host apply --assert` builds it ([`patched-forks.md` PF-D56](patched-forks.md#PF-D56), which rules it for patched forks too)** | 2026-10-05 | [§8.3](#83-at-the-host) | S6, 2026-10-05: `cli.hostApplyDeferring`; pinned by `TestPackUpdatesHostApplyBuildsNoPatchedExtension` |
+| <a id="PPX-D34"></a>PPX-D34 | *Implementation decision, amending [PPX-D10](#PPX-D10), reversible.* **`yolo pack lint` warns when one list loads a patched extension twice: the list holds an entry that loads the tree by [PPX-D36](#PPX-D36)'s rule, `~/<into>` or a path inside it, and also holds a remote entry of the same final name, and the warning names the entry to drop. A remote entry is a string, or an object's `source`, that opens with `git:` or `npm:` or names a URL. Its final name is the last segment of its path, after an npm scope, without a `.git`, and with the path cut at its first `@`, which opens an `@<ref>` or `@<version>` as pi splits it, so a ref that holds a slash, `@feat/x`, leaves the package's own name. It matches the extension's own name (the last segment of `into`) or its upstream's (the source's subdirectory, else its repository). One list is one surface and path, across every list body of the pack whose notches meet: a `config-list` meets either posture's list, and the two postures' lists never meet. This is a warning, never a failure, and it is said at lint only, not at a launch: the agent still starts, and the launch's block keeps one line per extension.** PPX-D10 left this case to the guide, because telling every old entry apart needs pi's whole package-source grammar. Equality of final names is the narrower question the pi pack's subagents render already asks (`whenListed.matches`). The maintainer asked for it on 2026-10-05 | 2026-10-05 | [§8.2](#82-how-pi-finds-it) | 2026-10-05: `packload.LintDuplicateLoads` ([`duplicateloads.go`](../../internal/packload/duplicateloads.go)), called by `cli.packLint`; pinned by the `TestTheDuplicateLoadLint…` tests and `TestPackLintWarnsOfAnExtensionLoadedTwice`; integration, 2026-10-05: the ref cut and [PPX-D36](#PPX-D36)'s rule, pinned by `TestTheDuplicateLoadLintNamesARemoteEntryWhoseRefHasASlash` and `TestTheDuplicateLoadLintReadsTheTreeAsAnOwnerDoes` |
+| <a id="PPX-D35"></a>PPX-D35 | *Implementation decision, under [PPX-D12](#PPX-D12), reversible.* **A patched extension is built and mounted only at a notch its owning agent pack's list entry reaches. A jail launch hands a tree listed only in the guarded posture to no tree arm, so no jail builds it, mounts it or is told of it, nothing stops there, and the launch's block names it with where it goes instead. The host's advance and render, at `yolo host apply` and `yolo host -- <bin>`, skip a tree listed only in the autonomous posture, and the render retires a link to it that an earlier render left, with its versioned copies, as a revert does ([PPX-D31](#PPX-D31)).** A tree with no owning agent pack names no notch, so it is still delivered at every notch and the lint says no agent loads it: the mechanism delivers any home-relative tree, and a reader that keeps no list may load one. The explicit acts (`yolo capture <pack>/<name>`, `yolo pack update`) are unchanged. Asked for in the patch-series requests' item 6, for `pi-automode`, which every jail built and mounted for a pi that never loads it | 2026-10-05 | [§9](#9-failure-and-the-next-step) | S7, 2026-10-05: `packload.Fork.DeliveredInJail`, `DeliveredAtHost`, `run.jailDeliveredTrees` (at `notePatchedTrees`' return), `cli.advanceHostTrees`, `retireHostTreeLink`; pinned by `TestAGuardedOnlyTreeIsNeitherBuiltNorMountedInAJail`, `TestHostApplyInstallsAGuardedOnlyTree`, `TestHostApplyBuildsAndLinksNoTreeListedForJailsAlone` and `TestHostApplyRetiresTheLinkOfATreeThatNoLongerReachesTheHost` |
+| <a id="PPX-D36"></a>PPX-D36 | *Implementation decision, amending [PPX-D4](#PPX-D4) and [PPX-D10](#PPX-D10), reversible.* **A list entry loads a tree when, cleaned as a path, it is `~/<into>` or lies inside it. `~/<into>/` and `~/<into>/packages/session-name` count, for the owning agent pack, where its entry reaches, the launchers' stop and the lint; `~/<into>-other` and `~/<into>/../x` do not.** Core still reads none of pi's grammar beyond the path. Asked for in the patch-series requests' item 7, so a monorepo's tree such as `pi-archimedes` can load two of its packages without a series member that edits its root manifest | 2026-10-05 | [§8.2](#82-how-pi-finds-it) | S7, 2026-10-05: `packload.loadsTree`, read by `listAdds`; pinned by `TestAListEntryUnderTheTreeLoadsIt` and `TestATreeListedForJailsIsDeliveredAndAnEntryUnderItLoadsIt` |
+| <a id="PPX-D37"></a>PPX-D37 | *Implementation decision, under [`patched-forks.md` PF-D63](patched-forks.md#PF-D63), reversible; found integrating the patch-series requests' parallel builds.* **A patched extension's series is read by the same reader as a patched fork's, and its errors name the extension's own remedies: "the extension's `patches`", "a patched extension applies at least one", and for an empty series the export alone, never "declare a plain fork instead", since a `files` contribution has no unpatched form to declare in its place.** The launch's line showed the fork's remedy for an extension from the first build; `yolo pack lint` reading every series made it the step lint names | 2026-10-05 | [§9](#9-failure-and-the-next-step) | Integration, 2026-10-05: `packsrc.ReadTreeSeries`, read by `packload.Fork.ReadSeries` for a tree; pinned by `TestPackLintFailsASeriesALaunchCannotRead` |
+| <a id="PPX-D38"></a>PPX-D38 | *Implementation decision, under [PPX-D35](#PPX-D35), reversible; found in review integrating the patch-series requests' parallel builds.* **On a host that builds no tree for itself, a macOS host, a tree whose list entry is in a guarded posture list reaches no notch that has it, and each line that names it says so with the step that works: move the entry to a `config-list` to load it in a jail, or drop it. A jail launch's block warns so in place of naming `yolo host apply --assert`, and the host render's refusal and `yolo host -- <bin>`'s line name a jail only when the entry reaches one.** Before, the jail's line sent the user to `yolo host apply --assert`, which on a Mac refuses the tree and sends the user to a jail, which PPX-D35 builds nothing in | 2026-10-05 | [§8.3](#83-at-the-host), [§9](#9-failure-and-the-next-step) | Integration, 2026-10-05: `packload.NotDeliveredAnywhereNote` and `GuardedOnlyStep`, `run.hostBuildsOwnTrees` read by `patchedTreeLine`, `cli.noHostTreeStep` read by `renderHostTree` and `noteHostTreeLines`; pinned by `TestAGuardedOnlyTreeOnAMacOSHostNamesAStepThatWorks`, `TestAMacosUserLaunchIsSilentOnAGuardedOnlyTree` and `TestAMacOSHostNamesAStepThatWorksForAGuardedOnlyTree` |

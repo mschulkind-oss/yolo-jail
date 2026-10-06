@@ -23,6 +23,9 @@ Export your changes from a checkout of your fork, naming the upstream commit the
 git format-patch --base=$(git merge-base upstream/main HEAD) -o ~/code/pi-mine/patches upstream/main..HEAD
 ```
 
+Exporting the same changes again later, from amended commits or with another version of git, is
+not a change to your series: yolo keeps the build it has.
+
 Then write a pack beside the series. It looks like a [fork pack](packs-and-skills.md#run-your-own-fork-of-a-program),
 except that `source` names the **upstream**, not your fork, and `patches` names the series:
 
@@ -39,10 +42,12 @@ except that `source` names the **upstream**, not your fork, and `patches` names 
 }
 ```
 
-Select it as you would any pack: `"packs": ["pi", "~/code/pi-mine"]`.
+Check it with `yolo pack lint --online ~/code/pi-mine`, then select it as you would any pack:
+`"packs": ["pi", "~/code/pi-mine"]`.
 
 - **`?ref=`** names the upstream branch to follow. yolo follows that branch's newest version tag.
-  Add `"follow": "head"` to follow every commit instead, which an upstream with no tags needs, or
+  On a branch with no version tags, yolo builds your series on the commit it starts from, keeps it
+  there until a tag appears, and says so. Add `"follow": "head"` to follow every commit instead, or
   `"follow": "release:<prefix>"` for tags with a prefix.
 - **A tag or a commit in `?ref=`** holds the program at that version: yolo still applies your
   patches to it and builds it, but never moves it.
@@ -76,10 +81,16 @@ pi's `packages` list that makes pi load it:
   `~/.pi/agent/extensions/`, where pi would also find it by itself.
 - **`build`** is optional: it runs in the extension's checkout, and whatever is in the checkout
   afterwards is the folder pi loads. `produces`, also optional, lists files that folder must have.
-- **The list entry is `~/` plus `into`**, with no slash at the end. Without it, the folder is built
-  and mounted but pi never loads it, and `yolo pack lint` and each launch warn you.
+- **The list entry is `~/` plus `into`**, or a folder inside it, such as one package of a
+  monorepo: `~/.pi/agent/yolo-patched/pi-archimedes/packages/session-name`. Write it with no slash
+  at the end, which pi-subagents' MCP setup needs. Without one, the folder is built and mounted but
+  pi never loads it, and `yolo pack lint` and each launch warn you.
+- **The folder is built only where the entry reaches.** An entry in the `autonomy` kind's `guarded`
+  list reaches `yolo host` alone, so `yolo host apply --assert` builds and installs the folder and
+  no jail does. One in its `autonomous` list reaches jails alone, so `yolo host` installs nothing.
+  A Mac builds no folder for `yolo host`, so there a `guarded` entry reaches nothing that has it.
 - **Drop the extension's old `git:` entry in the same edit.** pi would otherwise load the extension
-  twice.
+  twice, and `yolo pack lint` warns when one list has both.
 
 Use the extension's **key**, `<pack>/<name>` (here `subagents-mine/pi-subagents`, the last part of
 `into`), wherever a command below takes a program's name.
@@ -126,7 +137,8 @@ line in the launch ends with what holds it and what to run:
 yolo also walks back through older versions and builds the newest one your patches do apply to,
 if it is newer than the good build.
 
-`yolo pack rebase <key>` sets up the rebase for you. Run it on your machine, not in a jail:
+`yolo pack rebase <key>` sets up the rebase for you. Run it on your machine; in a jail, see
+[Check or rebase a series in a jail](#check-or-rebase-a-series-in-a-jail):
 
 ```bash
 yolo pack rebase pi-mine/pi
@@ -144,6 +156,21 @@ yolo pack rebase pi-mine/pi
 `--onto <tag or commit>` rebases onto another version, and `--restart` starts a clone over. Running
 the command again on its clone prints its next steps again. It never writes into your pack itself.
 
+## Check or rebase a series in a jail
+
+A jail cannot see your machine's copy of the upstream, or what yolo recorded about it. So two
+commands work from the pack's own folder instead, with a copy of the upstream they fetch for
+themselves and delete when they finish. Both also work on your machine.
+
+- **`yolo pack series check <pack folder>`** says whether each series in the pack still applies: it
+  applies, or the first patch that conflicts and its files. That is what `yolo pack status` would
+  show for the same series. `--onto <tag or commit>` checks that version instead of the newest.
+- **`yolo pack rebase <key> --pack <pack folder>`** sets up the rebase as above, onto the newest
+  version or `--onto`. In a jail the pack folder must be inside the workspace. The export line it
+  prints writes the new series into that folder, as it would on your machine.
+
+Neither command writes into your pack itself, or changes what a launch runs.
+
 ## Commands
 
 | Command | What it does |
@@ -151,7 +178,9 @@ the command again on its clone prints its next steps again. It never writes into
 | `yolo pack update` | Checks every upstream now, applies each series to the newest version, and says whether it applies or which patch conflicts. It builds nothing: the next launch does. |
 | `yolo pack status` | Shows each good build, the newest version and what happened when yolo tried it, what holds it, and when the next check is due. It works offline. |
 | `yolo capture <bin>` or `yolo capture <pack>/<name>` | Checks now and builds the newest version that applies, or rebuilds the good build. |
-| `yolo pack rebase <key>` | Sets up a rebase of the series onto a version it does not apply to, as above. |
+| `yolo pack rebase <key>` | Sets up a rebase of the series onto a version it does not apply to, as above. Add `--pack <pack folder>` to run it from the pack's folder, in a jail too. |
+| `yolo pack series check <pack folder>` | Says whether each series in a pack folder applies to the newest version, or which patch conflicts. It works in a jail. |
+| `yolo pack lint [--online] <dir>` | Checks a pack before you select it: each series must be one a launch can read. With `--online` it also checks the upstream in a scratch copy it deletes afterwards: that the ref and the series' base exist, what `follow` finds, and that your patches apply at their base. It works in a jail too. |
 
 To keep running what you have, turn `agent_updates` off for the pack, or put a tag in `?ref=`.
 
@@ -187,5 +216,13 @@ built, and the launch says to update git.
 
 ## Going back to a fork
 
-Remove the patched pack from `packs`, and select your fork pack again. An older yolo does not read a
-pack with `patches`, so take the patched pack out of `packs` before going back to one.
+Remove the patched pack from `packs`, and select your fork pack again.
+
+A yolo older than patch series refuses any pack that uses `patches`, and on the host that refusal
+fails **every** launch, not just the patched program's. So take the patched pack out of `packs`
+before you go back to an older yolo, and before a machine still on one reads your config.
+
+To check a machine, run `yolo features`. It lists `patch-series` and `patched-extensions` where yolo
+reads them, and a yolo without the `features` command is older than both. A yolo that has the command
+no longer fails a launch over a pack it cannot fully read: it leaves out the part it cannot read and
+says which one.

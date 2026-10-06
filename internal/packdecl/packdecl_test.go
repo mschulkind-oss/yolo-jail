@@ -23,19 +23,30 @@ import (
 // state. And because the offending manifest is one yolo SHIPS, the user had no way to route
 // around it. A field the entrypoint cannot use is a degraded jail; a field it refuses to read
 // is no jail at all.
+//
+// THE DEGRADATION IS THE CONTRIBUTION, AND IT IS NAMED (docs/design/patched-forks.md PF-D68,
+// PF-D69). This test used to pin an unknown field IGNORED in silence, its contribution rendered
+// with half its declaration. That half can be one validation refuses (a patched extension's
+// `files` with no `patches` has no `from`), which is no jail again, or one that renders
+// something else (a patched fork with no `patches` is the plain upstream). So the contribution
+// holding the field is skipped and named, the host's use read skips the same one, and a
+// pack-wide field is ignored and named. The boot still never refuses.
 func TestDecodeTolerantIgnoresUnknownFields(t *testing.T) {
 	// `skills_tier` stands in for a field a newer build adds — it is exactly the incident's
 	// shape, one version later — and futureThing/futureField for ones nothing knows.
 	manifest := []byte(`{"name":"acme","futureThing":{"a":1},"skills_tier":"namespaced",
 		"contributes":[{"kind":"skills","from":"skills","into":".acme/skills",
-		"futureField":"x"}]}`)
+		"futureField":"x"},{"kind":"skills","from":"more","into":".acme/more"}]}`)
 
 	m, problems, skipped := DecodeTolerant(manifest)
 	if len(problems) != 0 {
-		t.Fatalf("DecodeTolerant must ignore unknown fields, got %v", problems)
+		t.Fatalf("DecodeTolerant must not refuse an unknown field, got %v", problems)
 	}
-	if len(skipped) != 0 {
-		t.Fatalf("an unknown FIELD is ignored, not a skipped contribution: %v", skipped)
+	if len(skipped) != 2 || !strings.Contains(skipped[0], `unknown field "futureThing" is ignored`) ||
+		!strings.Contains(skipped[1], `contributes[0]: skipping the skills contribution ".acme/skills"`) ||
+		!strings.Contains(skipped[1], `"futureField"`) {
+		t.Fatalf("each unknown field must be named — the pack-wide one ignored, the contribution "+
+			"holding the other skipped: %q", skipped)
 	}
 	if m.Name != "acme" {
 		t.Errorf("name = %q, want acme", m.Name)
@@ -43,10 +54,11 @@ func TestDecodeTolerantIgnoresUnknownFields(t *testing.T) {
 	if !m.WantsNamespacedSkills() {
 		t.Errorf("skills_tier = %q, want namespaced", m.SkillsTier)
 	}
-	// The KNOWN fields still decode — tolerance must not mean "skip the entry".
+	// The contribution with no unknown field still decodes — tolerance must not mean "skip
+	// the pack".
 	cs := m.Contributions()
-	if len(cs) != 1 || cs[0].Kind != KindSkills || cs[0].Into != ".acme/skills" {
-		t.Fatalf("known fields must still decode: %+v", cs)
+	if len(cs) != 1 || cs[0].Kind != KindSkills || cs[0].Into != ".acme/more" {
+		t.Fatalf("the readable contribution must still decode, and only it: %+v", cs)
 	}
 }
 

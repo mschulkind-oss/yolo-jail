@@ -608,8 +608,8 @@ type Options struct {
 	// handedForks are the bins a patched fork's advance recorded itself, under its record lock
 	// (ForkBuildRequest.Hand), which the trigger's own record of the rest leaves as they are.
 	handedForks []string
-	// patchedTrees are this launch's patched extensions, read above the dispatch
-	// (notePatchedTrees), and treeDelivered what the tree arm handed the jail for each, by
+	// patchedTrees are this launch's patched extensions a jail is delivered (PPX-D35), read above
+	// the dispatch (notePatchedTrees), and treeDelivered what the tree arm handed the jail for each, by
 	// extension key (treeDeliveriesFor).
 	patchedTrees  []packload.Fork
 	treeDelivered map[string]TreeDelivery

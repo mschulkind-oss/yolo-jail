@@ -511,16 +511,23 @@ func jailOwnWorkspace(workspace string) bool {
 	if workspace == "" {
 		workspace = cwd()
 	}
-	own := os.Getenv("YOLO_WORKSPACE")
-	if own == "" {
-		own = "/workspace"
-	}
+	own := JailWorkspace()
 	a, aerr := resolve(workspace)
 	b, berr := resolve(own)
 	if aerr != nil || berr != nil {
 		return filepath.Clean(workspace) == filepath.Clean(own)
 	}
 	return a == b
+}
+
+// JailWorkspace is this jail's own workspace as the jail sees it, its bind-mount root:
+// "/workspace", or YOLO_WORKSPACE where the backend puts it elsewhere (jailOwnWorkspace). It
+// answers for a process in a jail (InJail) and is meaningless on the host.
+func JailWorkspace() string {
+	if own := os.Getenv("YOLO_WORKSPACE"); own != "" {
+		return own
+	}
+	return "/workspace"
 }
 
 // IsJailOwnWorkspace reports whether workspace is the one this jail was launched for

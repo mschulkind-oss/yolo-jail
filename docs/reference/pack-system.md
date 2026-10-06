@@ -387,9 +387,10 @@ that merely leaves out a part it could ship never fails either check.
 ## The manifest
 
 `pack.json` carries a handful of per-pack facts plus one list of typed contributions. Every
-field is optional; a pack with no `pack.json` behaves as an empty manifest. Decoding is
-strict (`DisallowUnknownFields`) and reports *every* problem, not the first, so a typo in
-one contribution does not mask a second.
+field is optional; a pack with no `pack.json` behaves as an empty manifest. The authoring decode
+is strict (`DisallowUnknownFields`) and reports *every* problem, not the first, so a typo in
+one contribution does not mask a second; a launch skips what this build cannot read instead
+([below](#unknown-kinds-across-the-version-boundary)).
 
 | Top-level key | What it is |
 | :--- | :--- |
@@ -444,10 +445,18 @@ runs on every path-bearing field of every kind.
 
 ### Unknown kinds across the version boundary
 
-An unknown `kind` is a loud load error **at authoring** — every host-side read — and, across
-the version boundary only, a skipped-and-reported contribution instead. The in-jail load
-runs `packload.TolerateSkew()`, so a manifest using a kind a pre-`just load` entrypoint does
-not know still boots the jail, warning by name.
+An unknown `kind` is a loud load error **at authoring** — `yolo pack lint`, `yolo pack
+footprint` and the packs yolo ships — and a skipped-and-reported contribution everywhere a pack is
+read for use. The in-jail load runs `packload.TolerateSkew()`, so a manifest using a kind a
+pre-`just load` entrypoint does not know still boots the jail, warning by name. The host's launches
+and verbs read through the one resolver's `packload.LoadDirForUse`, which skips the same
+contributions, an unknown `via` or field included, and names each in one line, so a pack written for
+a newer yolo no longer fails every launch on an older host
+([PF-D68](../design/patched-forks.md#PF-D68)). A contribution whose kind only restricts
+(`blocked-tool`, `intercept`, `autonomy`) is kept without the unknown field instead
+([PF-D69](../design/patched-forks.md#PF-D69)), and `yolo host apply --assert` writes nothing while a
+contribution is skipped ([PF-D70](../design/patched-forks.md#PF-D70)). `yolo features` lists the
+kinds, `via`s and named capabilities a build reads ([PF-D71](../design/patched-forks.md#PF-D71)).
 
 > [!WARNING]
 > **Tolerance is for a kind, not for a CONSTRAINT.** A settings declaration is refused on
@@ -3577,14 +3586,15 @@ included, because a flat skills dir can carry none of them.
 | Verb | What it does |
 | :--- | :--- |
 | `yolo pack init [dir]` | scaffold a valid skeleton (`briefing/<pack>.md`, an example skill, `README.md`); never a `pack.json` |
-| `yolo pack lint [dir]` | run the real staging executor **and** validate the manifest — every problem, not the first — then print the pack's footprint and every delivery, implicit broadcasts included, plus an info line for each conventional-looking file it will not ship (a root `AGENTS.md`, a subdirectory or non-`.md` file in `briefing/`) |
+| `yolo pack lint [--online] [dir]` | run the real staging executor **and** validate the manifest — every problem, not the first — then print the pack's footprint and every delivery, implicit broadcasts included, plus an info line for each conventional-looking file it will not ship (a root `AGENTS.md`, a subdirectory or non-`.md` file in `briefing/`). It reads each patch series as a launch does, and `--online` checks each series' upstream in a scratch mirror ([`patched-forks.md` PF-D63, PF-D64](../design/patched-forks.md#PF-D63)) |
 | `yolo pack ls` | list configured packs and what each stages |
 | `yolo pack explain <name>` | stage one pack and show what it stages and what it dropped (`file://` local only) |
 | `yolo pack footprint [ref]` | claims + cross-pack collisions + review summary; `[ref]` may be an embedded pack name or a local path, so you can inspect a pack you are authoring |
 | `yolo pack install` | force a refresh of every configured git pack, a tag or a branch still inside its hour included (so it follows a re-pointed tag, which a launch never does), materialize each commit into the store, write the lockfile, report whether each pin **moved**, prune the entries of packs that left the config. Optional: a host launch fetches a missing pack itself |
 | `yolo pack update` | everything `install` does, plus the refresh of npm-declared programs |
 | `yolo pack status` | show locked commits and flag config/lock drift |
-| `yolo pack rebase <pack>/<bin> [--onto <ref>] [--into <dir>] [--restart]` | for a patched fork ([`patched-forks.md` §8.4](../design/patched-forks.md#84-rebasing-the-series)): force its check, clone its upstream outside yolo's state directory, replay the series onto the target, and stop at the conflict, printing the continue and the export with the commits filled in; it writes nothing in the pack, and runs on the host only |
+| `yolo pack rebase <pack>/<bin> [--onto <ref>] [--into <dir>] [--restart] [--pack <dir>]` | for a patched fork or extension ([`patched-forks.md` §8.4](../design/patched-forks.md#84-rebasing-the-series)): force its check, clone its upstream outside yolo's state directory, replay the series onto the target, and stop at the conflict, printing the continue and the export with the commits filled in; it writes nothing in the pack. Keyed alone it reads the selected pack and this machine's check record, on the host only; with `--pack` it reads the local pack in that directory and checks the upstream in a scratch copy, so it runs in a jail too, for a pack inside the jail's workspace ([PF-D66](../design/patched-forks.md#PF-D66)) |
+| `yolo pack series check [<pack-dir>] [--onto <ref>]` | the verdict a launch would reach on each patch series of the local pack in that directory, `.` by default: whether the newest version takes it, or the patch that stops it and the rebase that fixes it, reached in a scratch copy of the upstream with no check record read or written, so it runs in a jail as on the host ([PF-D65](../design/patched-forks.md#PF-D65)) |
 
 **No `yolo pack` verb asks a question, and `packMain` takes no stdin at all.** `install` and
 `update` fetch and report; `rebase` fetches too, a patched fork's forced check, and clones the

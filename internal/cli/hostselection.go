@@ -102,6 +102,37 @@ func (s hostPackSet) joined(name string) (string, bool) {
 	return "", false
 }
 
+// skewNotes is every selected pack's version-skew notes (packload.Pack.SkewNotes, each naming its
+// pack): what the use read skipped, kept without a field, or ignored because this yolo cannot read
+// it (docs/design/patched-forks.md PF-D68). In the selection's precedence order.
+func (s hostPackSet) skewNotes() []string {
+	var out []string
+	for _, p := range s.packs {
+		out = append(out, p.SkewNotes...)
+	}
+	return out
+}
+
+// skewed is each selected pack holding a contribution this yolo cannot read, as the record a host
+// report of an incomplete set prints (unresolvedPack, its Skipped set): `yolo host apply --assert`
+// refuses such a set, since a skipped contribution's earlier render would be retired from the
+// real home (PF-D70), while a launch goes on without it and says so.
+func (s hostPackSet) skewed() []unresolvedPack {
+	var out []unresolvedPack
+	for _, p := range s.packs {
+		if len(p.SkewNotes) == 0 {
+			continue
+		}
+		u := unresolvedPack{Name: p.Name, Shipped: p.Official}
+		for _, note := range p.SkewNotes {
+			u.Skipped = append(u.Skipped, strings.TrimPrefix(note, "pack "+p.Name+": "))
+		}
+		u.Reason = strings.Join(u.Skipped, "; ")
+		out = append(out, u)
+	}
+	return out
+}
+
 // problems is every reason the selection is not what the config asks for, one record each,
 // in the shape every host report of an unresolvable pack already prints (unresolvedPack), so a
 // verb that names unresolvable packs names a malformed entry and a refused closure beside them

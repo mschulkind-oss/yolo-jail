@@ -265,34 +265,33 @@ func (s *Store) findCandidates(a Addr, follow FollowRule, base string, force boo
 		return found
 	}
 	if follow.Kind == FollowRelease && len(versions) == 0 {
-		// TWO EMPTY LISTS, TOLD APART (§8.1, PF-D27): versions that all predate the series' base are
-		// an empty list, the base built and nothing held (§6.4); a branch carrying no version the
-		// rule reads at all is a ref problem, since a release rule there follows nothing ever and
-		// the fork would sit at its base for good with no word of why.
+		// TWO EMPTY LISTS, ONE OUTCOME, TOLD APART IN WORDS (PF-D60, amending PF-D27): versions that
+		// all predate the series' base, and a branch carrying no version the rule reads at all, are
+		// each an empty list, so a first advance builds the base (§6.4). The second carries a note,
+		// since a release rule there follows nothing until a tag appears, and the launch that meets
+		// it and `yolo pack status` say so.
 		merged, err := s.versionsContaining(mirror, name, "", follow)
 		switch {
 		case err != nil:
 			found.Problem = "could not list " + a.Repo + "'s version tags: " + oneLine(err)
 			return found
 		case len(merged) == 0:
-			found.Problem = noVersionProblem(a, follow)
-			return found
+			found.NoVersion = noVersionNote(a, follow)
 		}
 	}
 	found.List = walkList(follow, tip, versions)
 	return found
 }
 
-// noVersionProblem is the reason for a branch on which a release rule finds no version tag at all:
-// what the rule reads, and the spellings that follow the branch anyway or hold it.
-func noVersionProblem(a Addr, follow FollowRule) string {
+// noVersionNote is the note for a branch on which a release rule finds no version tag at all: what
+// the rule reads (CheckFound.NoVersionLine says where the fork stays, and what follows the branch).
+func noVersionNote(a Addr, follow FollowRule) string {
 	reads := "a tag named a semantic version, optionally `v`-led"
 	if follow.Prefix != "" {
 		reads = "a tag named `" + follow.Prefix + "` and a semantic version"
 	}
 	return "?ref=" + a.Ref + " of " + a.Repo + " carries no version tag that `follow: \"" + follow.String() +
-		"\"` reads (" + reads + ", never a pre-release), so it follows nothing — `follow: \"head\"` " +
-		"follows the branch's commits, or name a tag or a full commit as the ?ref= to hold at"
+		"\"` reads (" + reads + ", never a pre-release)"
 }
 
 // ensureBase makes the series' base present in the mirror, fetching it by its id when no branch or

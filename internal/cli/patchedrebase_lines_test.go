@@ -210,7 +210,7 @@ func TestASecondRebaseOnTheSameDirectoryIsRefused(t *testing.T) {
 	f := newPatchedFixture(t, "")
 	f.commit(t, "v1.2.0", map[int]string{11: "eleven"})
 	dir := filepath.Join(t.TempDir(), "my clone")
-	unlock, held, err := patchedForkStore().TryLockRebaseDir(resolveExistingPrefix(dir))
+	unlock, held, err := mustRebaseDirLocks(t).TryLockRebaseDir(resolveExistingPrefix(dir))
 	if err != nil || held {
 		t.Fatalf("taking the lock: held=%v %v", held, err)
 	}

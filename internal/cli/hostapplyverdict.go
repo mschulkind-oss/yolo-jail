@@ -207,14 +207,19 @@ func hostApplyVerdict(s *hostApplySurvey, write bool) string {
 			return "An --assert would REFUSE: your config's providers or profiles are refused " +
 				"(above), so nothing would be written."
 		}
-		if write {
-			return fmt.Sprintf("Refused — %d configured %s could not be resolved (%s); nothing "+
-				"was written.", len(names), plural(len(names), "pack", "packs"),
-				strings.Join(names, ", "))
+		// A pack holding a contribution this yolo cannot read resolved, and is refused for that
+		// (PF-D70), so the sentence says so, as the report's group above does.
+		why := "could not be resolved"
+		if anySkipped(s.UnresolvedPacks()) {
+			why = "could not be resolved or read whole"
 		}
-		return fmt.Sprintf("An --assert would REFUSE: %d configured %s could not be resolved "+
-			"(%s), and an incomplete pack set is never applied — nothing would be written.",
-			len(names), plural(len(names), "pack", "packs"), strings.Join(names, ", "))
+		if write {
+			return fmt.Sprintf("Refused — %d configured %s %s (%s); nothing was written.", len(names),
+				plural(len(names), "pack", "packs"), why, strings.Join(names, ", "))
+		}
+		return fmt.Sprintf("An --assert would REFUSE: %d configured %s %s (%s), and an incomplete pack "+
+			"set is never applied — nothing would be written.",
+			len(names), plural(len(names), "pack", "packs"), why, strings.Join(names, ", "))
 	case outcomeIncomplete:
 		// The PACKS, and the rest of the run in the same sentence: the failures themselves are
 		// stated once, with their fixes, in the group above, and what the reader still needs
