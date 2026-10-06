@@ -31,7 +31,8 @@ highlight headings, verbs and flags; piped output and `NO_COLOR` stay plain.
 - An AMD GPU in `mode: "cdi"` on a host with no AMD CDI spec no longer fails the launch: the jail
   starts without the GPU and the warning names the command that writes the spec.
 - A second terminal opened on a running jail no longer repeats the durable-dir line, and opens faster.
-- `yolo pack lint` and `yolo check` now refuse a `shared_credentials` or `shared_directory` hook whose `at` is not a machine-scope `state` of its pack, naming the line to add, instead of passing a pack whose every launch then failed.
+- `yolo pack lint`, `yolo check` and every launch, `yolo host` included, now refuse a `shared_credentials` or `shared_directory` hook whose `at` is not a machine-scope `state` of its pack, and say how to fix it; a jail launch of such a pack used to fail at boot.
+- A pack declaring one `state` path at both workspace and machine scope is now refused by name, instead of failing the launch with a duplicate-mount error.
 
 ## [0.12.1] - 2026-10-06
 

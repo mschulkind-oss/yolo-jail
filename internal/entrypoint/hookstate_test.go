@@ -26,7 +26,7 @@ func TestTheBootRefusesExactlyTheHooksTheHostRefuses(t *testing.T) {
 			e, _, _ := sharedDirEnv(t, packdecl.Hook{File: ".x/thing", SharedDir: ".x-shared"})
 			RunPackHooks(e, []*packload.Pack{{Name: "hookfix", Decl: decl}})
 			fails := strings.Join(e.GenFailures(), "\n")
-			want := packdecl.UndeclaredHookStateProblem(".x-shared")
+			want := decl.UndeclaredHookStateProblem(".x-shared")
 			refused := strings.Contains(fails, want)
 			if refused != packdecl.HookLinksIntoMachineState(hook) {
 				t.Fatalf("boot refusal with the shared sentence = %v, host predicate = %v:\n%s",

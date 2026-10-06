@@ -40,7 +40,7 @@ func TestSectionPacksRefusesASharedDirHookWithNoMachineState(t *testing.T) {
 			r := &reporter{w: &buf}
 			(&Options{}).sectionPacks(r, jsonx.NewOrderedMap())
 
-			want := packdecl.UndeclaredHookStateProblem(".x-shared")
+			want := (&packdecl.Manifest{}).UndeclaredHookStateProblem(".x-shared")
 			if got := r.failed != 0 && strings.Contains(buf.String(), want); got != c.refused {
 				t.Errorf("refused with the boot's sentence = %v, want %v:\n%s", got, c.refused, buf.String())
 			}

@@ -2765,13 +2765,69 @@ func HookLinksIntoMachineState(hook string) bool {
 }
 
 // UndeclaredHookStateProblem is the refusal of a shared-tier hook whose `at` names no
-// machine-scope state its pack declares, with its next step. ONE sentence for both readers: the
+// machine-scope state this pack declares, with its next step. ONE sentence for both readers: the
 // boot prefixes it with the pack and hook, a host read with the contribution's label.
-func UndeclaredHookStateProblem(at string) string {
+//
+// The next step depends on the pack. When `at` is already one of its WORKSPACE-scope states, the
+// step is to change that state's scope: adding a second, machine-scope state at the same path
+// declares it at both scopes, which validateStateScopes refuses because every podman launch of
+// it fails on a duplicate mount destination.
+func (m *Manifest) UndeclaredHookStateProblem(at string) string {
+	for _, d := range m.WritableDirContributions() {
+		if d == at {
+			return fmt.Sprintf("\"at\" names %q, which this pack declares as a workspace-scope "+
+				"state, not a machine-scope one — set that state's \"scope\" to \"machine\" and give "+
+				"it a \"because\": \"<why every workspace shares it>\" (a second state at %q would "+
+				"declare it at both scopes, which is refused), or point \"at\" at a machine state it "+
+				"declares", at, at)
+		}
+	}
 	return fmt.Sprintf("\"at\" names %q, which is no machine-scope state this pack declares — add "+
 		"{\"kind\": \"state\", \"at\": %q, \"scope\": \"machine\", \"because\": \"<why every "+
 		"workspace shares it>\"} to its contributes, or point \"at\" at a machine state it declares",
 		at, at)
+}
+
+// validateStateScopes refuses a path ONE pack declares as `state` at both scopes. The launch
+// binds the workspace state from the per-workspace overlay and the machine state from the
+// machine store, both at /home/agent/<at>, and nothing removes either, so podman refuses the
+// container with "duplicate mount destination", naming no pack. A repeat at one scope is one
+// bind (packload's union deduplicates it) and is not refused. Across packs the same collision
+// is possible and is not checked here: one manifest cannot see another.
+func (m *Manifest) validateStateScopes() []string {
+	var problems []string
+	first := map[string]map[string]int{} // at -> scope -> first index
+	for i, c := range m.Contributes {
+		if c.Kind != KindState || c.At == "" {
+			continue
+		}
+		scope := c.Scope
+		if scope == "" {
+			scope = "workspace"
+		}
+		if scope != "workspace" && scope != "machine" {
+			continue // validateContribution's problem, reported there
+		}
+		other := "machine"
+		if scope == "machine" {
+			other = "workspace"
+		}
+		if j, dup := first[c.At][other]; dup {
+			problems = append(problems, fmt.Sprintf(
+				"contributes[%d]: state %q is declared at %s scope and at %s scope "+
+					"(contributes[%d]) — both bind /home/agent/%s, which the jail refuses as a "+
+					"duplicate mount; keep one of the two and give it the \"scope\" it needs "+
+					"(\"machine\" if a shared_credentials or shared_directory hook links into it)",
+				i, c.At, scope, other, j, c.At))
+		}
+		if first[c.At] == nil {
+			first[c.At] = map[string]int{}
+		}
+		if _, seen := first[c.At][scope]; !seen {
+			first[c.At][scope] = i
+		}
+	}
+	return problems
 }
 
 // validateHookStates refuses on the host what the boot refuses at the hook step: a shared-tier
@@ -2784,7 +2840,7 @@ func (m *Manifest) validateHookStates() []string {
 			continue
 		}
 		problems = append(problems, fmt.Sprintf("contributes[%d]: hook %q: %s", i, c.Hook,
-			UndeclaredHookStateProblem(c.At)))
+			m.UndeclaredHookStateProblem(c.At)))
 	}
 	return problems
 }
@@ -2844,6 +2900,7 @@ func (m *Manifest) validateContributions() []string {
 	problems = append(problems, m.validateServicePointers()...)
 	problems = append(problems, m.validatePatchedOwnerKeys()...)
 	problems = append(problems, m.validateDescribes()...)
+	problems = append(problems, m.validateStateScopes()...)
 	problems = append(problems, m.validateHookStates()...)
 	return problems
 }

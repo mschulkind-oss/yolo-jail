@@ -28,8 +28,15 @@ func TestPackLintRefusesASharedDirHookWhoseAtNamesNoMachineState(t *testing.T) {
 				// Lint is a host read: never inherit a tolerant decoder another test left on.
 				t.Cleanup(packload.OverrideSkewTolerance(false))
 				dir := filepath.Join(t.TempDir(), "local")
-				writeFile(t, filepath.Join(dir, "pack.json"), `{"name":"local","contributes":[`+
-					c.state+`{"kind":"hook","hook":"`+hook+`","from":".x/thing","at":".x-shared"}]}`)
+				manifest := `{"name":"local","contributes":[` +
+					c.state + `{"kind":"hook","hook":"` + hook + `","from":".x/thing","at":".x-shared"}]}`
+				writeFile(t, filepath.Join(dir, "pack.json"), manifest)
+				// The sentence depends on the pack (a workspace state at the path is told to
+				// change its scope), so take it from this manifest as the jail decodes it.
+				decl, problems, _ := packdecl.DecodeTolerant([]byte(manifest))
+				if len(problems) != 0 {
+					t.Fatalf("the jail's decode refused the fixture: %v", problems)
+				}
 
 				var out, errw bytes.Buffer
 				rc := packMain([]string{"lint", dir}, &out, &errw, false)
@@ -38,7 +45,7 @@ func TestPackLintRefusesASharedDirHookWhoseAtNamesNoMachineState(t *testing.T) {
 					t.Fatalf("lint passed a hook the boot refuses (rc=%d):\n%s", rc, got)
 				}
 				// The boot's own sentence, next step included: the two share one message.
-				if want := packdecl.UndeclaredHookStateProblem(".x-shared"); !strings.Contains(got, want) {
+				if want := decl.UndeclaredHookStateProblem(".x-shared"); !strings.Contains(got, want) {
 					t.Errorf("lint does not print the boot's refusal %q:\n%s", want, got)
 				}
 			})

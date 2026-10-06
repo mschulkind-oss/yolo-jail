@@ -283,7 +283,7 @@ func (e *Env) linkIntoSharedDir(p *packload.Pack, h packdecl.Hook, n sharedNode)
 		// The same predicate and sentence `yolo pack lint` and `yolo check` refuse it with
 		// (packdecl.validateHookStates), so the host says this before a boot can.
 		return &badHookError{pack: p.Name, name: h.Name,
-			why: packdecl.UndeclaredHookStateProblem(h.SharedDir)}
+			why: p.Decl.UndeclaredHookStateProblem(h.SharedDir)}
 	}
 	link := filepath.Join(e.Home, filepath.FromSlash(h.File))
 	sharedDir := filepath.Join(e.Home, filepath.FromSlash(h.SharedDir))
