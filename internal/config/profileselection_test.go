@@ -403,3 +403,47 @@ func TestUserScopeSelectionFoldsTheDefaultOverTheSet(t *testing.T) {
 		}
 	}
 }
+
+// THE DESELECTION NAMES WHERE THE SELECTION CAME FROM AND THE SPELLING THAT UNDOES IT THERE. A
+// selection from the `profile` key is answered with the key's file and line and the key's own
+// spelling with a null for the agent — which, parsed and folded back, selects nothing for that
+// agent while every other agent keeps the selection. One from -p is answered with the -p pair
+// that selects none, since nothing persistent wrote it.
+func TestProfileDeselectionNamesTheSourceAndTheSpelling(t *testing.T) {
+	h := newMountsHost(t)
+	h.user(t, "{\n  \"profile\": \"bedrock\"\n}\n")
+	key := ProfileSelection{Default: []string{"bedrock"}}
+
+	got := ProfileDeselection(key, ProfileSelection{}, "agy")
+	const spelling = `"profile": {"*": "bedrock", "agy": null}`
+	for _, want := range []string{
+		"your config's `profile` key at ~/.config/yolo-jail/config.jsonc:2:14",
+		"write `" + spelling + "` there",
+		"or add `-p agy=` for one launch",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("ProfileDeselection() = %q, want it to contain %q", got, want)
+		}
+	}
+	doc, err := jsonx.Decode([]byte("{" + spelling + "}"))
+	if err != nil {
+		t.Fatalf("the printed spelling does not parse: %v", err)
+	}
+	v, _ := doc.(*jsonx.OrderedMap).Get(ProfileKey)
+	sel, ok := ProfileSelectionOf(v)
+	if !ok {
+		t.Fatalf("the printed spelling is not a valid `profile` value: %v", v)
+	}
+	table := ProfileTableFor(ProfileReceivers{Bins: []string{"claude", "agy"}}, sel)
+	if agy, _ := table.Get("agy"); agy != nil {
+		t.Errorf("the printed spelling still selects %v for agy", agy)
+	}
+	if claude, _ := table.Get("claude"); claude != "bedrock" {
+		t.Errorf("the printed spelling took bedrock from claude too: %v", claude)
+	}
+
+	flag := ProfileSelection{Default: []string{"bedrock"}}
+	if got := ProfileDeselection(key, flag, "agy"); got != "the selection is this launch's `-p`, so add `-p agy=` to it" {
+		t.Errorf("a -p selection was answered with %q", got)
+	}
+}

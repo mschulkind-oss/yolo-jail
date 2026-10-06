@@ -807,8 +807,25 @@ func (o *Options) loopholesRuntimeArgs(cfg *jsonx.OrderedMap, rt string,
 	// CL-D10) and tells the jail it did, so its entrypoint does not link the shared file.
 	view := o.claudeCredentialView(rt, cfg)
 	set := loopholes.NewHostSet(cfgMap(cfg, "loopholes")).WithCredentialView(view)
+	// THE MOUNT SENTINELS FIRST, from the same Set over the same records, so every loophole
+	// whose state_files names the inert marker has it on disk before the argv resolves its bind
+	// sources (loopholes/mountsentinel.go). A nonempty list is what keeps a credential cache
+	// out of the jail; without its marker the launch warned that the safe source was missing.
+	o.prepareMountSentinels(set, rt)
 	args := set.RuntimeArgsWithJailDaemons(set.Enabled(), rt, jailDaemons)
 	return append(args, o.claudeCredentialViewEnvArgs(rt, cfg)...)
+}
+
+// prepareMountSentinels writes the mount sentinel of every loophole in set that declares one
+// and that this runtime's argv mounts state files for, and warns, naming the loophole and the
+// next step, for each it could not write. Keyed on the declaration, never a loophole name: it
+// replaced a writer gated on openai-auth's name, which left aws-auth — declaring the same
+// marker — warning on every launch.
+func (o *Options) prepareMountSentinels(set loopholes.Set, rt string) {
+	for _, err := range set.PrepareMountSentinels(set.Enabled(), rt) {
+		o.pr(o.Stderr).print("[yellow]Warning: " + err.Error() + ". Make that directory one you " +
+			"own and can write; the next launch writes the marker again.[/yellow]")
+	}
 }
 
 // hasKey reports whether m has key (present, even if the value is falsy).

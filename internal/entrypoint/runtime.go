@@ -325,46 +325,64 @@ func startJailDaemonSupervisor(e *Env) error {
 		return nil
 	}
 	defer readyRead.Close()
-	e.warn("yolo: waiting for required in-jail service readiness: " + strings.Join(readyNames, ", "))
-	logPaths := make([]string, 0, len(readyNames))
-	for _, name := range readyNames {
-		logPaths = append(logPaths, filepath.Join(e.Home, ".local", "state", "yolo-jail-daemons", name+".log"))
-	}
-	e.warn("  Daemon diagnostics: " + strings.Join(logPaths, ", "))
-	// The wait has no bound of its own (a daemon reports ready or failed, or the
-	// supervisor exits), so it shows how long it has waited and how many are ready.
-	wait := e.progress("Waiting for in-jail services")
+	// ONE PROGRESS LINE, NAMING WHAT IT WAITS FOR, and nothing else on a wait that ends at once
+	// (docs/reference/report-tiers.md, progress lines: a step that ends within two seconds
+	// prints nothing; WB-D20 in docs/reference/wire-bridge.md). The wait has no bound of its
+	// own (a daemon reports ready or failed, or the supervisor exits), so it shows how long it
+	// has waited and how many are ready. It used to announce itself and print the daemons'
+	// log paths on every launch, ready at once or not; the paths now ride the progress detail,
+	// which only a wait past its grace shows, and every refusal below, which is the one place a
+	// fast failure says anything.
+	logs := jailDaemonLogsPhrase(e.Home, readyNames)
+	wait := e.progress("Waiting for in-jail services (" + strings.Join(readyNames, ", ") + ")")
 	result := "failed"
 	defer func() { wait.Done(result) }()
 	total := len(ready)
 	scanner := bufio.NewScanner(readyRead)
 	for len(ready) > 0 {
-		wait.Set(fmt.Sprintf("%d of %d ready", total-len(ready), total))
+		wait.Set(fmt.Sprintf("%d of %d ready; %s", total-len(ready), total, logs))
 		if !scanner.Scan() {
 			if err := scanner.Err(); err != nil {
-				return fmt.Errorf("wait for jail-daemon readiness: %w", err)
+				return fmt.Errorf("wait for jail-daemon readiness: %w; %s", err, logs)
 			}
-			return fmt.Errorf("jail daemon supervisor exited before ready services %s", strings.Join(readyNames, ", "))
+			return fmt.Errorf("jail daemon supervisor exited before ready services %s; %s",
+				strings.Join(readyNames, ", "), logs)
 		}
 		fields := strings.Fields(scanner.Text())
 		if len(fields) < 2 || (fields[0] != "ready" && fields[0] != "failed") || !ready[fields[1]] {
-			return fmt.Errorf("jail daemon reported unexpected readiness %q", scanner.Text())
+			return fmt.Errorf("jail daemon reported unexpected readiness %q; %s", scanner.Text(), logs)
 		}
 		if fields[0] == "failed" {
 			reason := "no reason reported"
 			if len(fields) > 2 {
 				reason = strings.Join(fields[2:], " ")
 			}
-			return fmt.Errorf("jail daemon %q cannot publish its required endpoint: %s", fields[1], reason)
+			return fmt.Errorf("jail daemon %q cannot publish its required endpoint: %s; %s",
+				fields[1], reason, jailDaemonLogsPhrase(e.Home, []string{fields[1]}))
 		}
 		if e.Getenv(paths.VerboseEnv) != "" || e.Getenv("YOLO_JAIL_TIMING") != "" {
 			e.warn("yolo: required in-jail service ready: " + fields[1])
 		}
 		delete(ready, fields[1])
 	}
+	// The verdict line of a slow wait that ended well says nothing of the logs.
 	wait.Set(fmt.Sprintf("%d of %d ready", total, total))
 	result = "done"
 	return nil
+}
+
+// jailDaemonLogsPhrase names the supervisor's log file for each of names, under home:
+// "daemon log: <path>", or "daemon logs: <path>, <path>" for several.
+func jailDaemonLogsPhrase(home string, names []string) string {
+	logPaths := make([]string, 0, len(names))
+	for _, name := range names {
+		logPaths = append(logPaths, filepath.Join(home, filepath.FromSlash(paths.JailDaemonLogsRel()), name+".log"))
+	}
+	label := "daemon log: "
+	if len(logPaths) > 1 {
+		label = "daemon logs: "
+	}
+	return label + strings.Join(logPaths, ", ")
 }
 
 // portInUse check if a TCP port is already bound

@@ -49,6 +49,12 @@ type ProfileDisclosureInput struct {
 	// Scope is the credential gate's answer, for the pointers this notch withheld (WithheldBy);
 	// nil for none.
 	Scope *CredentialScope
+	// Deselect is, for agent, where its selection of profile came from and the exact spelling
+	// that selects no profile for it there, as one clause — for the warning that the selection
+	// reaches nothing for agent, which otherwise names only a flag and repeats every launch.
+	// The notch knows its selection's sources (the config key, a -p) and this package does
+	// not: a jail launch passes config.ProfileDeselection. nil names the -p form alone.
+	Deselect func(agent, profile string) string
 }
 
 // ProfileReach is one agent's answer: the provider its selection resolved to, how the agent
@@ -218,13 +224,17 @@ func profileReach(in ProfileDisclosureInput, agent, profile string) ProfileReach
 	case platform != "" && bindsPlatform(in.Packs, owner, agent, platform):
 		r.Route = fmt.Sprintf("through %s's own %q client", agent, platform)
 	case platform != "":
+		none := "none for " + agent
+		if in.Deselect != nil {
+			none += ": " + in.Deselect(agent, profile)
+		}
 		r.Warnings = append(r.Warnings, fmt.Sprintf("Warning: profile %s reaches nothing for %s: "+
 			"provider %q names no endpoint, only platform %q, and no selected pack gives %s a "+
 			"client of that platform (a pack binds a platform by shipping a provider of it, "+
 			"needing a pack that does, or declaring its program's switch or region for it), so "+
 			"nothing this profile configures reaches %s's own client. Select a profile whose "+
-			"provider %s reaches (`-p %s=<name>`), or none for %s", quoted, agent, r.Provider,
-			platform, agent, agent, agent, agent, agent))
+			"provider %s reaches (`-p %s=<name>`), or %s", quoted, agent, r.Provider,
+			platform, agent, agent, agent, agent, none))
 	default:
 		r.Route = "on its own client, which the provider re-points nowhere (it names no endpoint)"
 	}

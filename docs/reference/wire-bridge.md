@@ -785,8 +785,10 @@ receives a token that is good only against this launch's bridge.
   records how far it got even when the bind hangs.
 - **The readiness wait — a bridge that cannot serve refuses the boot.** When the launcher's serve
   decision says the bridge will serve, it also names the bridge as a *ready-required* daemon. The
-  entrypoint then hands the supervisor a one-shot readiness pipe, prints the daemon's log path, and
-  blocks until the bridge answers `ready` or `failed <reason>`. Every way a serving boot can fall
+  entrypoint then hands the supervisor a one-shot readiness pipe and blocks, under one progress
+  line naming the daemons it waits for, until the bridge answers `ready` or `failed <reason>`. A
+  wait that ends within two seconds prints nothing; one past that shows the daemon's log path in
+  its progress line, and every refusal names it ([WB-D20](#wb-d20)). Every way a serving boot can fall
   short answers `failed`: a bind error, a failed endpoint publish, a missing provider credential,
   a Codex route with no credential-service endpoint, or a daemon that idles on a boot the launcher
   registered, which is a contradiction between the two call sites of one decision. The entrypoint
@@ -971,8 +973,9 @@ A refused boot tears the container down (`--rm`), and with it the process table 
 listeners. These are the facts that survive:
 
 - **The bridge's own log**, `~/.local/state/yolo-jail-daemons/wire-bridge.log` in the jail. The
-  supervisor points the daemon's stdout and stderr at it, and the readiness wait prints its path
-  as `Daemon diagnostics:`. It sits in the jail home, so it outlives the container in the
+  supervisor points the daemon's stdout and stderr at it, and a readiness refusal names its path
+  (`daemon log: …`), as does a wait still running after two seconds. It sits in the jail home, so
+  it outlives the container in the
   workspace's home overlay under `<workspace>/.yolo/home`. Nothing the daemon logs is gated: no
   verbosity dial exists, by the same rule that gives a launch no quiet mode
   ([`OQ-RO3`](report-tiers.md#why-its-this-way)).
@@ -1161,6 +1164,7 @@ Rulings a future change would otherwise undo, with their original IDs.
 | <a id="oq-pc2"></a>[**OQ-PC2**](#oq-pc2) — an implicit provider forward is disclosed: one launch line per port naming the provider, and the briefing's Forwarded Host Ports section fed from the merged list | A forward is a hole into the host, and the user's own config cannot be grepped for a port they never wrote. The launch has no quiet mode ([`OQ-RO3`](report-tiers.md#why-its-this-way)), so the line is permanent, and that is right: it reports something yolo **did** (it bound a port in the jail and opened a socket on the host), not an absence. Do not gate it, and do not move it after the merge, where the declared and implicit ports can no longer be told apart. |
 | <a id="oq-pc3"></a>[**OQ-PC3**](#oq-pc3) — the orphan check keeps its detection and refuses, naming each orphan's PID; it never kills and never adopts | `SIGKILL` on an argv match acts irreversibly on an *inference* about ownership. A straight revert would lose the only guard against an in-container fault that prints the bridge's bind error. Adoption is rejected because an orphan's supervisor is gone, so the orphan holds no readiness pipe. Adopting it would treat a process as serving its endpoint on the strength of its argv, which is the same inference. |
 | <a id="wb-d17"></a>[**WB-D17**](#wb-d17) — more than one agent bin is a bridge consumer, and the serve predicate walks every active profile | Found while building: a derive that *prefers* an anthropic endpoint when a provider declares one makes that agent a consumer too, and a single-bin condition would have shipped those launches a dead URL with no bridge included. |
+| <a id="wb-d20"></a>[**WB-D20**](#wb-d20) — the readiness wait is one progress line naming its daemons, silent when it ends within two seconds; the daemons' log paths ride its detail and every refusal, never a line of their own (implementation decision, 2026-10-05) | It printed `yolo: waiting for required in-jail service readiness: …` and `Daemon diagnostics: …` on every launch, ready at once or not, against [report-tiers.md](report-tiers.md#progress-lines)'s rule that a step ending within two seconds prints nothing. A log path is wanted only when the wait fails or does not end, which is when it now appears: in the progress detail a slow wait shows, and in the refusal a fast failure prints. |
 | <a id="wb-d19"></a>[**WB-D19**](#wb-d19) — at the host and on macos-user the bridge runs as its service's host half, a launch-owned child for one launch's agent, on ports that launch picked, fed by a 0600 input file, stopped with the agent; only an official pack's host half runs (2026-09-28) | The maintainer ruled every notch runs the selected packs' services ([OQ-NC1](../plans/notch-convergence.md#OQ-NC1), A) and that a host service lives per launch ([OQ-HS3](../design/host-notch-services.md#OQ-HS3)). The mechanism and its decisions are [`host-notch-services.md`](../design/host-notch-services.md)'s HS-D rows; see [the host half](#at-the-host-notch). |
 | <a id="wb-d18"></a>[**WB-D18**](#wb-d18) — every request carries the launch's caller token or is refused `401`; the token is minted per launch, reused by an attach, delivered only through the per-entry channel, and never forwarded upstream (2026-09-28) | The maintainer, 2026-09-27: *"calling the jail the boundary here seems also just as bad for security because jails don't need to be bridge type, they can be house type and then um it's identical. So uh if you think this is an issue, we need to solve it in both places."* A jail on the host's loopback shares the bridge's ports with every host process, and a client sends its real credential to whatever holds the port. For claude, the Claude login went too ([§8.1](../design/agent-auth-modes.md#81-measured-2026-09-02-the-subscription-bearer-follows-anthropic_base_url)). The token is the one credential a bridged client may send there, so the address names it, and the host notch's bridge will reuse it. See [caller authentication](#caller-authentication). |
 

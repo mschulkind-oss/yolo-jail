@@ -1070,6 +1070,7 @@ func (o *Options) noteUseProfiles(channel *packChannel, loadedPacks []*packload.
 		Resolved:  channel.resolvedProfiles,
 		Providers: channel.providers,
 		Scope:     channel.scope,
+		Deselect:  channel.deselect,
 		Reaches: func(agent, name string) bool {
 			if v, found := argvPairs[name]; found && v != "" {
 				return true

@@ -1825,7 +1825,11 @@ the line, naming why and the fix, in two cases:
   the agent, so the selection configures nothing for it (copilot under `-p bedrock`, which has no
   Bedrock client of its own, in a launch with no wire bridge to
   [carry it](#bedrock-through-the-bridge-on--p-bedrock)). `yolo host --` then opens no credential
-  doorway for that agent either ([HS-D23](../design/host-notch-services.md#HS-D23));
+  doorway for that agent either ([HS-D23](../design/host-notch-services.md#HS-D23)). In a jail the
+  warning also says where the selection came from and how to undo it there: the `profile` key's
+  file and line with the key respelled to select none for that agent
+  (`"profile": {"*": "bedrock", "copilot": null}`), or, for a `-p`, the `-p copilot=` that does
+  ([PP-D12](../design/providers-and-profiles-redesign.md#PP-D12));
 - the provider names no endpoint, so [the credential preflight](#the-credential-preflight) asks
   nothing of it, and none of the credential variables it claims reaches the agent at this notch.
   The warning names them, and names the withheld pointer that would carry one when there is one

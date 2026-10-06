@@ -449,7 +449,9 @@ live, so edits are visible on the host instantly — there is no sync step.
   pipx-installed tool outranks a mise shim on that backend and loses to it on every container backend. Left
   as a divergence rather than quietly reordered: which order is right is a ruling.
 - **Env hygiene** (agents can't handle interactive UI): `PAGER`/`GIT_PAGER`=`cat`, `BAT_PAGER=""`;
-  `EDITOR=cat` (stops `git commit` hanging) but `VISUAL=nvim` (human ctrl-g editing); the host's `TERM` is
+  `EDITOR=cat` (stops `git commit` hanging) but `VISUAL=nvim` (human ctrl-g editing);
+  `NPM_CONFIG_UPDATE_NOTIFIER=false` and `NPM_CONFIG_FUND=false`, as the host floor's npm has them, so an
+  install prints no update box or funding line for an agent to read as output; the host's `TERM` is
   forwarded so color survives, and its `NO_COLOR` (when set) so a request for none does too — every
   color decision goes through the one gate, `tty.Color`, or through its `NO_COLOR` half alone for
   text another process prints ([`cli-color.md`](docs/reference/cli-color.md));

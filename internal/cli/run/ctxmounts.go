@@ -44,7 +44,10 @@ type configCtxMount struct {
 //     exists for `:ro`, and refusing a mount for a property it does not need is the wrong
 //     error (§2.9). A read-only one is never handed out writable in its place.
 func (o *Options) configCtxMounts(rt string, cfg *jsonx.OrderedMap, note func(string)) []configCtxMount {
-	if note == nil {
+	// A caller that drops the lines asks for no location either, which costs a second read of
+	// the config files (missingMountSourceWarning).
+	quiet := note == nil
+	if quiet {
 		note = func(string) {}
 	}
 	elements := make([]config.ContextMount, 0)
@@ -68,7 +71,9 @@ func (o *Options) configCtxMounts(rt string, cfg *jsonx.OrderedMap, note func(st
 		source := resolveExpand(m.Host)
 		dest := m.DestFor(source)
 		if !fileExists(source) {
-			note("[yellow]Warning: mount path does not exist, skipping: " + source + "[/yellow]")
+			if !quiet {
+				note("[yellow]Warning: " + o.missingMountSourceWarning(m, source) + "[/yellow]")
+			}
 			continue
 		}
 		if !m.RW && roUnsafe != "" {
@@ -78,6 +83,20 @@ func (o *Options) configCtxMounts(rt string, cfg *jsonx.OrderedMap, note func(st
 		out = append(out, configCtxMount{source: source, dest: dest, rw: m.RW})
 	}
 	return out
+}
+
+// missingMountSourceWarning is the launch's line for a `mounts` element whose source does not
+// exist, and it names the next step (docs/reference/happy-path-principle.md): the element as
+// written and the file, line and column that wrote it (config.MountElementWhere, read only on
+// this path), then both fixes and the check that confirms either (CX-D24 in
+// docs/design/context-mounts.md). It used to name the resolved path alone, on every launch.
+func (o *Options) missingMountSourceWarning(m config.ContextMount, source string) string {
+	where := "the `mounts` element `" + m.Spec + "`"
+	if _, locs := config.MountElementWhere(o.Workspace, m); len(locs) > 0 {
+		where += " at " + locs[0]
+	}
+	return "mount path does not exist, skipping: " + source + " (" + where + "). Create " + source +
+		" or remove that element, then run `yolo check`."
 }
 
 // bindArg is the `-v` value for one delivered mount: `:ro` for every read-only one, no

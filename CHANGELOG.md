@@ -85,6 +85,14 @@ into a jail, and what each launch shows about the code it runs. See
 - A fork's build no longer gets a copy of your config, your MCP servers' settings or your
   `agents_md_extra` text, and neither its launch nor its briefing lists credentials, host files or
   host connections the build does not get.
+- A launch with `aws-auth` enabled no longer warns that its `.mount-sentinel` is missing.
+- A jail's wait for its in-jail services shows only when it is slow, and a failure names the
+  service's log.
+- A profile that reaches nothing for an agent now says where you selected it and the setting that
+  stops it.
+- A missing `mounts` source now names the file and line that declare it, and the fix.
+- Host service logs now record each request's real exit code.
+- npm in a jail no longer prints update or funding notices.
 
 ## [0.11.1] - 2026-10-02
 

@@ -105,6 +105,11 @@ type Session struct {
 	mu       sync.Mutex
 	bytesOut int
 	exited   bool
+	// exitCode is the code the session's FIRST Exit sent — the one the client received —
+	// and what handleOne's access line logs. The line used to log the default it would have
+	// sent had the handler not exited, so every reply read rc=0, and a host daemon refusing a
+	// request with exit 2 left a log saying it had succeeded.
+	exitCode int
 }
 
 // Get exposes a raw request value.
@@ -164,8 +169,8 @@ func (s *Session) JSON(obj any) error {
 	return nil
 }
 
-// Exit ends the session with an exit code (signed int32). Idempotent.
-// Exit ends the session with an exit code (signed int32). Idempotent.
+// Exit ends the session with an exit code (signed int32). Idempotent: the first call's code
+// is the one sent and recorded (exitCode), and a later call changes neither.
 //
 // Both the check and the set are under s.mu, for the reason in sendFrame: the flag orders
 // this write against every concurrent sendFrame, so "exited" means the same thing to all of
@@ -183,6 +188,14 @@ func (s *Session) Exit(code int) {
 		s.bytesOut += n
 	}
 	s.exited = true
+	s.exitCode = code
+}
+
+// recordedExit is the code the session's first Exit sent, 0 when none has run.
+func (s *Session) recordedExit() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.exitCode
 }
 
 // ExecAllowlisted runs an external command whose argv is built by argvBuilder,
@@ -633,12 +646,15 @@ func handleOne(handler Handler, conn net.Conn, readPreamble bool) {
 	rc := 0
 	rcForLog = &rc
 	func() {
+		// THE CODE LOGGED IS THE CODE SENT: whichever Exit ran first — the handler's own, the
+		// recover path's 1 or the default 0 below — is the one the client received, Exit being
+		// idempotent, so the access line reads it back instead of assuming the default.
+		defer func() { rc = sess.recordedExit() }()
 		defer func() {
 			if r := recover(); r != nil {
 				Logger.Printf("handler raised: %v", r)
 				sess.Stderr("handler error: " + panicMsg(r) + "\n")
 				sess.Exit(1)
-				rc = 1
 			}
 		}()
 		handler(sess)

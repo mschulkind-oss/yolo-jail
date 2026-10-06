@@ -205,7 +205,8 @@ Four facts follow, and each shapes [§4](#4-the-proposal):
 
 A fifth, smaller fact: a reader who does not already know this table cannot find the daemon
 logs. The one line that names them (`"  Daemon diagnostics: …"`) prints only on a launch that
-waits for readiness.
+waits for readiness. (Since 2026-10-05 not even then: the path rides the readiness wait's progress
+line once it runs past two seconds, and its refusal, [WB-D20](../reference/wire-bridge.md#wb-d20).)
 
 ## 3. The failures are the specification
 

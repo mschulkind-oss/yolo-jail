@@ -1067,17 +1067,14 @@ func (o *Options) assembleRunCmd(in *assembleInput) []string {
 	// jail daemons and the pack service contributions' together (packservices.go;
 	// wire-bridge.md §2.1) — so a service daemon can never land on a second -e of
 	// the same name and lose to the runtime's duplicate resolution. The payload is
-	// INPUT here (in.jailDaemons), composed above the backend dispatch.
-	// The OpenAI broker's nonempty state_files list is the boundary that prevents
-	// its canonical credentials from crossing. Materialize that list's inert marker
-	// immediately before the loophole runtime resolves bind sources, so a normal
-	// launch neither widens the mount nor warns that its safe source is absent.
+	// INPUT here (in.jailDaemons), composed above the backend dispatch. The same call
+	// first writes every declared mount sentinel (prepareMountSentinels), the inert marker
+	// a credential service's nonempty state_files list names so its cache never crosses.
 	//
 	// NONE UNDER THE SEAL (seal.go): a fork build runs no loophole — no CA it trusts, no
 	// --add-host, no jail daemon, no endpoint — so none of this is emitted, the witness's
 	// registration below included.
 	if !in.sealed {
-		o.prepareOpenAIAuthMountSentinel(cfg)
 		runCmd = append(runCmd, o.loopholesRuntimeArgs(cfg, rt, in.jailDaemons)...)
 
 		// --- jail-facing service endpoint env (the witness's registration) ---
@@ -1170,6 +1167,11 @@ func (o *Options) commonEnvBlock(in *assembleInput, blockedConfigJSON, netMode s
 		"-e", "JAIL_HOME=/home/agent",
 		"-e", "NPM_CONFIG_PREFIX=/home/agent/.npm-global",
 		"-e", "NPM_CONFIG_CACHE=/home/agent/.cache/npm",
+		// Env hygiene, as the host floor's npm has it (hostfloor.Floor.npmEnv): no "new
+		// version of npm available" box and no funding line on an install that succeeded,
+		// two notices an agent reads as output (TestAssembleSilencesNpmNotices).
+		"-e", "NPM_CONFIG_UPDATE_NOTIFIER=false",
+		"-e", "NPM_CONFIG_FUND=false",
 		"-e", "GOPATH=/home/agent/go",
 		"-e", "MISE_DATA_DIR=/mise",
 		"-e", "MISE_CACHE_DIR=/tmp/mise-cache",
