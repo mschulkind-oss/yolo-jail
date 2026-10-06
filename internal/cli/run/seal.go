@@ -129,8 +129,9 @@ func sealedStores(workspace string) (cacheDir, miseDir string, err error) {
 //
 // The one gate of that shape a skip cannot answer is a fork whose base is not selected
 // (packload.ApplyForks), which the jail's own loader repeats over the staged tree: there the build
-// act names the base in the seal instead (packload.Fork.PackBases, cli's sealPacks). Every other
-// pre-flight asks about two packs claiming one thing, which a subset can only make rarer, and stays.
+// act names the base in the seal instead, and every base down that chain (packload.Fork.PackBases,
+// cli's sealPacks). Every other pre-flight asks about two packs claiming one thing, which a subset
+// can only make rarer, and stays.
 func (o *Options) selectionNarrowed() bool { return o.OnlyPacks != nil }
 
 // narrowedPackEntries is entries narrowed to the names in Options.OnlyPacks, or entries unchanged

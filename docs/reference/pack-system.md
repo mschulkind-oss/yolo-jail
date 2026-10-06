@@ -863,7 +863,8 @@ directories of the build's workspace. The build jail still has its
 [keeper](../design/jail-lifetime-last-session-wins.md#11-terms), which holds the container and
 nothing else and ends the jail when the build exits
 ([FP-D15](../design/forked-programs-as-packs.md#FP-D15)). The selection is narrowed to the fork and
-its configured base, and to the base of any other fork the fork's pack declares. The launch gates
+its configured base, and to the base of any other fork the fork's pack declares and, in turn, any
+base those bases fork. The launch gates
 that ask whether another selected pack provides what one pack names (an `agents` selector, a
 `supersedes` claim, a via profile's route, `required_capabilities`) do not run in a build jail,
 since the narrowing is what dropped that pack, and a build jail that stops before its build line

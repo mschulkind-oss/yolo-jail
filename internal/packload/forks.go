@@ -22,6 +22,7 @@ package packload
 
 import (
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 
@@ -90,11 +91,12 @@ type Fork struct {
 	// Patches and Follow are a PATCHED fork's (docs/design/patched-forks.md): the series directory,
 	// relative to Root, and the follow rule as written. Both "" for a plain fork.
 	Patches, Follow string
-	// PackBases is the base of every fork the fork pack declares (forkBases), this one's included:
-	// the packs a build sealed to that pack must carry, since a selection holding a fork whose base
-	// it lacks is refused (ApplyForks) on the host and again by the jail's own loader. A base yolo
-	// ships joins by itself; a configured one is in the selection only when the seal names it
-	// (docs/design/patched-extensions.md PPX-D39).
+	// PackBases is the base of every fork the fork pack declares, this one's included, and in turn
+	// every base those bases fork (forkBaseClosure): the packs a build sealed to that pack must
+	// carry, since a selection holding a fork whose base it lacks is refused (ApplyForks) on the
+	// host and again by the jail's own loader, and a base that forks another pack's program is such
+	// a fork. A base yolo ships joins by itself; a configured one is in the selection only when the
+	// seal names it (docs/design/patched-extensions.md PPX-D39).
 	PackBases []string
 	// Into is a PATCHED EXTENSION's home-relative landing (docs/design/patched-extensions.md;
 	// patchedtrees.go), "" for every fork of a program. With it set the value is an extension:
@@ -148,6 +150,7 @@ func Forks(packs []*Pack) []Fork {
 		if p == nil || p.Decl == nil {
 			continue
 		}
+		bases := forkBaseClosure(packs, p)
 		for _, c := range p.Decl.Contributions() {
 			if !c.IsFork() {
 				continue
@@ -156,7 +159,7 @@ func Forks(packs []*Pack) []Fork {
 				Pack: p.Name, Base: c.ForkOf, Bin: c.Bin, Source: c.Source, Build: c.Build,
 				Produces:  append([]string(nil), c.Produces...),
 				Platforms: append([]string(nil), c.Platforms...),
-				Root:      p.Root, Patches: c.Patches, Follow: c.Follow, PackBases: forkBases(p),
+				Root:      p.Root, Patches: c.Patches, Follow: c.Follow, PackBases: slices.Clone(bases),
 			})
 		}
 	}
@@ -175,6 +178,38 @@ func forkBases(p *Pack) []string {
 		if c.IsFork() && !seen[c.ForkOf] {
 			seen[c.ForkOf] = true
 			out = append(out, c.ForkOf)
+		}
+	}
+	return out
+}
+
+// forkBaseClosure is forkBases(p), then every base's own forkBases among packs, and so on, in the
+// order a breadth-first walk meets them, with p itself left out: the packs a selection narrowed to p
+// must hold for ApplyForks to accept it, since each base that forks a configured pack's program
+// needs that pack in turn (Fork.PackBases). A base not among packs ends its branch: a pack yolo
+// ships joins a selection by itself, with what it needs (ResolveNeeds). A cycle ends at the first
+// pack met twice.
+func forkBaseClosure(packs []*Pack, p *Pack) []string {
+	byName := map[string]*Pack{}
+	for _, q := range packs {
+		if q != nil {
+			if _, seen := byName[q.Name]; !seen {
+				byName[q.Name] = q
+			}
+		}
+	}
+	var out []string
+	seen := map[string]bool{p.Name: true}
+	for queue := []*Pack{p}; len(queue) > 0; queue = queue[1:] {
+		for _, base := range forkBases(queue[0]) {
+			if seen[base] {
+				continue
+			}
+			seen[base] = true
+			out = append(out, base)
+			if q := byName[base]; q != nil {
+				queue = append(queue, q)
+			}
 		}
 	}
 	return out

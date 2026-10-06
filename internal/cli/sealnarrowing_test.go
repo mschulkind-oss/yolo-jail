@@ -131,3 +131,37 @@ func TestATreesSealCarriesTheConfiguredBaseOfItsPacksFork(t *testing.T) {
 		t.Errorf("the child build jail's argv %q does not carry the fork's base", got)
 	}
 }
+
+// THE SEAL CARRIES THE BASES' OWN BASES TOO: the contributing pack forks basepack's program, and
+// basepack itself forks cpack's, so a selection without cpack is one the fork rewrite refuses for
+// basepack's fork ("basepack forks pack cpack's "c", and cpack is not in this selection"), as the
+// user's own launch of all three is not. Red if PackBases stops at the contributing pack's own
+// bases.
+func TestATreesSealCarriesItsForkBasesOwnBases(t *testing.T) {
+	fx := newTreeFixture(t, `"f.txt"`)
+	writeFile(t, filepath.Join(fx.packs, "cpack", "pack.json"),
+		`{"name":"cpack","contributes":[{"kind":"program","bin":"c","via":"npm","package":"c"}]}`)
+	writeFile(t, filepath.Join(fx.packs, "basepack", "pack.json"), `{"name":"basepack","contributes":[`+
+		`{"kind":"program","bin":"tool","via":"npm","package":"tool"},`+
+		`{"kind":"program","bin":"c","via":"source","fork_of":"cpack","source":"git+file://`+fx.repo+`?ref=main",`+
+		`"build":"make","produces":[".local/bin/c"]}]}`)
+	writeFile(t, filepath.Join(fx.treeDir, "pack.json"), `{"name":"treepack","contributes":[{"kind":"files",`+
+		`"into":".tool/ext/tool-ext","source":"git+file://`+fx.repo+`?ref=main","patches":"patches",`+
+		`"build":"true","produces":["f.txt"]},`+
+		`{"kind":"program","bin":"tool","via":"source","fork_of":"basepack","source":"git+file://`+fx.repo+`?ref=main",`+
+		`"build":"make","produces":[".local/bin/tool"]}]}`)
+	writeFile(t, filepath.Join(fx.home, ".config", "yolo-jail", "config.jsonc"), `{"packs":[`+
+		`{"source":"file://`+filepath.Join(fx.packs, "cpack")+`","name":"cpack"},`+
+		`{"source":"file://`+filepath.Join(fx.packs, "basepack")+`","name":"basepack"},`+
+		`{"source":"file://`+fx.treeDir+`","name":"treepack"}]}`)
+	d, out := fx.deliver(t, true)
+	if d.Dir == "" {
+		t.Fatalf("no copy was delivered: %+v\n%s", d, out)
+	}
+	if want := []string{"treepack", "basepack", "cpack"}; len(fx.seen) != 1 || !slices.Equal(fx.seen[0].OnlyPacks, want) {
+		t.Fatalf("the build jail ran %d times, the first sealed to %v; want %v", len(fx.seen), fx.seen[0].OnlyPacks, want)
+	}
+	if got := forkBuildChildArgv("/staging", forkBuild{Fork: fx.tree(t)}, false); !slices.Contains(got, "--only=cpack") {
+		t.Errorf("the child build jail's argv %q does not carry the base's own base", got)
+	}
+}

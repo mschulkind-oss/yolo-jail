@@ -798,9 +798,9 @@ func forkBuildRunJail(workspace string, b forkBuild, s captureStreams, color boo
 }
 
 // sealPacks are the packs a build jail's selection is narrowed to: a fork and its base, or a
-// patched extension's contributing pack — and the base of every other fork that pack declares
-// (Fork.PackBases), without which the narrowed selection is refused for a fork whose base it lacks
-// (PPX-D39). Every other gate that asks whether another pack provides what one names is skipped for
+// patched extension's contributing pack — and the base of every other fork that pack declares, and
+// in turn every base those bases fork (Fork.PackBases), without which the narrowed selection is
+// refused for a fork whose base it lacks (PPX-D39). Every other gate that asks whether another pack provides what one names is skipped for
 // a narrowed selection (run's selectionNarrowed), so nothing more is carried for those.
 func sealPacks(f packload.Fork) []string {
 	out := []string{f.Pack}
