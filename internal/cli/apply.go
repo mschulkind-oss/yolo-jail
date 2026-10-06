@@ -810,15 +810,14 @@ func applyHostSurveyed(out, errw io.Writer, color bool, write bool, stdin io.Rea
 	// that things will be lost and wait for confirm" — warn-and-confirm, not warn-and-refuse.
 	// See confirmHostLosses for the three properties that make it not-noise.
 	if write {
-		if confirmed, tables := confirmHostLosses(pr, out, stdin, loaded, home, overlays,
+		if confirmed, keep := confirmHostLosses(pr, out, stdin, loaded, home, overlays,
 			inputs.inputs); !confirmed {
 			pr.Printf("[bold red]host apply: not confirmed — nothing was written.[/bold red]")
 			// ONE remedy string, read here and at the two other places this sentence used to
 			// be written out (the per-surface loss line and confirmHostLosses' own trailer).
-			// The three had drifted — see hostapplyremedy.go. Built from the tables the prompt
+			// The three had drifted — see hostapplyremedy.go. Built from the losses the prompt
 			// listed, so both lines name the same surfaces and keys.
-			pr.Printf("[dim]Re-run and answer `y`, or keep them: %s.[/dim]",
-				mcpEntryRemedy(home, tables))
+			pr.Printf("[dim]Re-run and answer `y`, or keep them: %s.[/dim]", keep)
 			return 1
 		}
 	}
@@ -1273,11 +1272,11 @@ func reportHostPackages(pr richtext.Printer, errw io.Writer, home string) (inert
 // nothing and consumes no first-apply signal, so asking it "what would be lost?" is free and
 // cannot itself be the thing that closes the door.
 //
-// It returns the tables its prompt listed alongside the answer, so the caller's abort line
-// builds the same remedy the trailer printed.
+// It returns the remedy its prompt's trailer printed alongside the answer, so the caller's abort
+// line names the same fix for the same losses.
 func confirmHostLosses(pr richtext.Printer, out io.Writer, stdin io.Reader,
 	loaded []*packload.Pack, home string, overlays *packoverlay.OverlaySet,
-	inputs *entrypoint.HostInputs) (bool, []droppedTable) {
+	inputs *entrypoint.HostInputs) (bool, string) {
 	type loss struct {
 		surface, path string
 		keys          []string
@@ -1304,7 +1303,7 @@ func confirmHostLosses(pr richtext.Printer, out io.Writer, stdin io.Reader,
 		}
 	}
 	if len(losses) == 0 {
-		return true, nil // nothing would be lost — no prompt (see property 1)
+		return true, "" // nothing would be lost — no prompt (see property 1)
 	}
 	// "THESE SURFACES", not "this home". FirstApply is per SURFACE — hostProvenanceExists
 	// asks whether yolo has ever written THAT surface here — and a home yolo has applied
@@ -1323,14 +1322,32 @@ func confirmHostLosses(pr richtext.Printer, out io.Writer, stdin io.Reader,
 		}
 	}
 	var tables []droppedTable
+	gated := false
 	for _, l := range losses {
 		tables = append(tables, droppedTablesOf(l.surface, l.keys)...)
+		for _, k := range l.keys {
+			gated = gated || entrypoint.IsGatedEntryLoss(k)
+		}
 	}
 	sortDroppedTables(tables)
-	pr.Printf("[dim]yolo regenerates the keys it manages wholesale, so anything above that "+
-		"is not in your config is dropped. To KEEP them: %s — then re-run.[/dim]",
-		mcpEntryRemedy(home, tables))
-	return promptYesNo(out, stdin, "  Proceed and replace the values above? [y/N] "), tables
+	// Two remedies, each for its own losses: an entry not in config is kept by declaring it, and
+	// a declared server the requires_env gate left out by delivering its variable, for which
+	// declaring it again keeps nothing.
+	var keep []string
+	if len(tables) > 0 {
+		pr.Printf("[dim]yolo regenerates the keys it manages wholesale, so anything above that "+
+			"is not in your config is dropped. To KEEP them: %s — then re-run.[/dim]",
+			mcpEntryRemedy(home, tables))
+		keep = append(keep, mcpEntryRemedy(home, tables))
+	}
+	if gated {
+		remedy := entrypoint.GatedEntryLossRemedy(userConfigPathIn(home))
+		pr.Printf("[dim]An entry marked `required env not set` is declared, and its agent's "+
+			"environment lacks the variable it needs. To KEEP it: %s — then re-run.[/dim]", remedy)
+		keep = append(keep, "for an entry marked `required env not set`, "+remedy)
+	}
+	return promptYesNo(out, stdin, "  Proceed and replace the values above? [y/N] "),
+		strings.Join(keep, "; ")
 }
 
 // reportInferredDestinations names what the zero-ceremony inference concluded for one pack, and

@@ -702,7 +702,8 @@ func renderHostPlans(e *Env, p *packload.Pack, plans []surfacePlan, observe bool
 		// computed by the mechanism that writes, like the change predicate below. Kept SEPARATE
 		// from Overwrites — see HostRenderResult.EntryLosses for why the distinction is what
 		// makes the confirmation gate usable rather than noise.
-		losses := hostMechanismTableLosses(e, mechanism, s, tables, path, layers, contribs)
+		losses := hostMechanismTableLosses(e, mechanism, s, tables, path, layers, contribs,
+			agentSrc.gatedByName())
 		if !firstApply && lossInNewTable(losses, prevRecord) {
 			firstApply = true
 		}
@@ -1347,7 +1348,8 @@ func stripTableKeys(s manifest.Surface, tables []string) manifest.Surface {
 // {"command":"npx","args":[…],"env":{…}} has every incoming key an ADD, so collectOverwrites
 // reports nothing — yet the entry is replaced (or, before wholesale replacement, merged into a
 // two-transport record that no client can use).
-func tableLosses(s manifest.Surface, tables []string, path string, layer map[string]any) []string {
+func tableLosses(s manifest.Surface, tables []string, path string, layer map[string]any,
+	gated map[string][]string) []string {
 	if len(tables) == 0 {
 		return nil
 	}
@@ -1356,7 +1358,7 @@ func tableLosses(s manifest.Surface, tables []string, path string, layer map[str
 		v, ok := table[name]
 		return v, ok
 	}
-	return entryLossLines(existingSurfaceObject(s, path), tables, declared)
+	return entryLossLines(existingSurfaceObject(s, path), tables, declared, gated)
 }
 
 // hostMechanismTableLosses is the loss list per mechanism, the dispatch the change predicate
@@ -1372,12 +1374,15 @@ func tableLosses(s manifest.Surface, tables []string, path string, layer map[str
 // opencode `mcp` entry is KEPT by the owned write — measured by the design's scratch test,
 // where the report named both as dropped and the confirmation prompt then asked the user to
 // approve a loss that never happened.
+//
+// gated is what this agent's requires_env gate removed (hostAgentTables.gatedByName), so a copy
+// of a declared server the gate left out is named for that rather than as not in config.
 func hostMechanismTableLosses(e *Env, mechanism string, s manifest.Surface, tables []string,
-	path string, l surfaceLayers, contribs *surfaceContribs) []string {
+	path string, l surfaceLayers, contribs *surfaceContribs, gated map[string][]string) []string {
 	if mechanism == manifest.ModeStateful {
-		return statefulTableLosses(e, s, tables, path, l, contribs)
+		return statefulTableLosses(e, s, tables, path, l, contribs, gated)
 	}
-	return tableLosses(s, tables, path, l.computed)
+	return tableLosses(s, tables, path, l.computed, gated)
 }
 
 // statefulTableLosses is the `own` half of the loss list. It runs THE RENDER —
@@ -1389,7 +1394,7 @@ func hostMechanismTableLosses(e *Env, mechanism string, s manifest.Surface, tabl
 // Every failure answers "no loss", as the change predicate does: a surface this cannot compose
 // or decode is one the render refuses, and the refusal is reported on its own line.
 func statefulTableLosses(e *Env, s manifest.Surface, tables []string, path string,
-	l surfaceLayers, contribs *surfaceContribs) []string {
+	l surfaceLayers, contribs *surfaceContribs, gated map[string][]string) []string {
 	if len(tables) == 0 {
 		return nil
 	}
@@ -1409,14 +1414,19 @@ func statefulTableLosses(e *Env, s manifest.Surface, tables []string, path strin
 		}
 		return m.Get(name)
 	}
-	return entryLossLines(existingSurfaceObject(s, path), tables, after)
+	return entryLossLines(existingSurfaceObject(s, path), tables, after, gated)
 }
 
 // entryLossLines names each entry of each table in the user's file that `incoming` does not
 // hold (dropped) or holds with a different value (replaced) — the one spelling both mechanisms
 // report in, so the survey's entryLossName reads either the same way.
+//
+// A dropped entry named in gated is a server the user's config DOES declare, which this agent's
+// requires_env gate left out (each name maps to the variables it lacks), and its line says so
+// (IsGatedEntryLoss). Matched by NAME in whichever table lost it, as the jail boot's drop notice
+// matches it, because core cannot say which table a derive builds from its MCP servers.
 func entryLossLines(existing *jsonx.OrderedMap, tables []string,
-	incoming func(key, name string) (any, bool)) []string {
+	incoming func(key, name string) (any, bool), gated map[string][]string) []string {
 	var out []string
 	for _, key := range tables {
 		cur, present := existing.Get(key)
@@ -1428,6 +1438,11 @@ func entryLossLines(existing *jsonx.OrderedMap, tables []string,
 			prev, _ := curTable.Get(name)
 			next, kept := incoming(key, name)
 			if !kept {
+				if missing, isGated := gated[name]; isGated {
+					out = append(out, fmt.Sprintf("%s.%s (%s%s)", key, name, gatedLossMark,
+						strings.Join(missing, ", ")))
+					continue
+				}
 				out = append(out, fmt.Sprintf("%s.%s (dropped — not in your config)", key, name))
 				continue
 			}
@@ -1439,6 +1454,24 @@ func entryLossLines(existing *jsonx.OrderedMap, tables []string,
 	}
 	sort.Strings(out)
 	return out
+}
+
+// gatedLossMark opens the loss line of a declared server the requires_env gate left out
+// (entryLossLines); the variables it lacks follow.
+const gatedLossMark = "dropped — in your config, required env not set: "
+
+// IsGatedEntryLoss reports whether one HostRenderResult.EntryLosses line is a declared server the
+// agent's requires_env gate left out, rather than an entry no config declares: declaring it again
+// keeps nothing, so the declare-it remedy is not its remedy (GatedEntryLossRemedy is).
+func IsGatedEntryLoss(loss string) bool { return strings.Contains(loss, "("+gatedLossMark) }
+
+// GatedEntryLossRemedy is the change that keeps a gated loss, given the user config's path:
+// deliver the variable to the agent. It ends without a full stop, like the declare-it remedy.
+func GatedEntryLossRemedy(userConfig string) string {
+	return "set the variable its loss line names in a dotenv file listed under `env_sources` " +
+		"in " + userConfig + "; a variable a provider claims reaches only an agent whose " +
+		"selected profile resolves to that provider, so for such a variable select that " +
+		"profile for the agent with the `profile` key"
 }
 
 // overlayPackNames lists the packs contributing overlays to a surface, in fold order —

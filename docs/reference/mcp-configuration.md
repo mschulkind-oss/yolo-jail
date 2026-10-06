@@ -413,9 +413,18 @@ codex`, the line names that agent and the profile step instead (`Env.mcpGatedRea
 claude/config: dropping from mcpServers (in config, required env not set): acme (needs ACME_TOKEN) — ACME_TOKEN reaches only codex, through the profile it selected, so the `requires_env` gate left it out for claude; it stays declared under `mcp_servers`, and to deliver it, select for claude a profile that delivers ACME_TOKEN, as that one does, with the `profile` key in ~/.config/yolo-jail/config.jsonc on the host, then launch again
 ```
 
-Both lines are
+`yolo host apply` had the same defect: its loss list read the derived layer, which never held
+the gated server, so the copy in the user's file was listed `(dropped — not in your config)`
+under the declare-it remedy. Since 2026-10-06 the line reads
+`mcpServers.acme (dropped — in your config, required env not set: ACME_TOKEN)` (by name, as in
+the jail), the server leaves the declare-it group for one keyed on `env_sources`, and a first
+apply's confirmation gives it that remedy rather than the declare-it one
+([the remedy contract](report-tiers.md#the-remedy-contract)).
+
+Both boot lines are
 pinned through the boot loop, by `capabilitydropnotice_test.go` and
-`requiresenvdropnotice_test.go` (`internal/entrypoint`), and the withheld rule's partition by
+`requiresenvdropnotice_test.go` (`internal/entrypoint`), the host's by
+`hostapplygatedloss_test.go` (`internal/cli`), and the withheld rule's partition by
 `TestWithheldMCPServersIsWhatTheDeriveWasNotHanded` (`internal/agentcfg/luahook`).
 
 ### The projection, and how tools differ

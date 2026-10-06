@@ -124,6 +124,19 @@ func (h *hostSources) selectionFor(s manifest.Surface) surfaceSelection {
 		packload.ProfileTable(use), packload.ProfileSets(use), s)
 }
 
+// gatedByName is what agent's requires_env gate removed, each server mapped to the variables
+// it lacks, for the loss list (entryLossLines). Nil when it removed nothing.
+func (t hostAgentTables) gatedByName() map[string][]string {
+	if len(t.skipped) == 0 {
+		return nil
+	}
+	out := make(map[string][]string, len(t.skipped))
+	for _, s := range t.skipped {
+		out[s.name] = s.missing
+	}
+	return out
+}
+
 // skippedNotes are the per-surface lines for the servers agent's requires_env gate removed,
 // in the words the jail's boot notice uses.
 func (t hostAgentTables) skippedNotes() []string {

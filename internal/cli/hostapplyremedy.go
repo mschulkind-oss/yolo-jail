@@ -47,6 +47,7 @@ import (
 	"strings"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/agentcfg/manifest"
+	"github.com/mschulkind-oss/yolo-jail/internal/entrypoint"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/richtext"
 )
@@ -110,6 +111,9 @@ func hostApplyRemedyGroups(s *hostApplySurvey, home string, write bool) []remedy
 	out = append(out, failureGroups(s, home, write)...)
 	out = append(out, missingDepGroups(s)...)
 	if g, ok := droppedEntryGroup(s, home, write); ok {
+		out = append(out, g)
+	}
+	if g, ok := gatedEntryGroup(s, home, write); ok {
 		out = append(out, g)
 	}
 	if g, ok := adoptedSkillGroup(s, home, write); ok {
@@ -299,7 +303,7 @@ func droppedEntryGroup(s *hostApplySurvey, home string, write bool) (remedyGroup
 	if len(names) == 0 {
 		return remedyGroup{}, false
 	}
-	_, surfaces := s.DroppedEntries()
+	surfaces := len(droppedNonGatedSurfaces(s))
 	verb := "would be dropped"
 	if write {
 		verb = "were dropped"
@@ -313,6 +317,42 @@ func droppedEntryGroup(s *hostApplySurvey, home string, write bool) (remedyGroup
 		Items:       names,
 		Remedy:      mcpEntryRemedy(home, s.DroppedTables()),
 		VerdictTerm: "entr", // "entry"/"entries" — the verdict says one or the other
+		Warn:        true,
+	}, true
+}
+
+// droppedNonGatedSurfaces are the surfaces that lose an entry the declare-it remedy keeps: the
+// ones its tables name, which leave out a gated loss (droppedTablesOf).
+func droppedNonGatedSurfaces(s *hostApplySurvey) map[string]bool {
+	out := map[string]bool{}
+	for t := range s.droppedTables {
+		out[t.Surface] = true
+	}
+	return out
+}
+
+// gatedEntryGroup is the class of a declared MCP server whose copy in an agent's file goes
+// because that agent's requires_env gate left it out: one group, keyed on `env_sources`, the
+// user config key that delivers the variable. The declare-it remedy keeps nothing for it.
+func gatedEntryGroup(s *hostApplySurvey, home string, write bool) (remedyGroup, bool) {
+	names, surfaces := s.GatedEntryNames()
+	if len(names) == 0 {
+		return remedyGroup{}, false
+	}
+	verb := "would be dropped"
+	if write {
+		verb = "were dropped"
+	}
+	return remedyGroup{
+		Class: remedyClassEntryGated,
+		Key:   "env_sources",
+		Headline: fmt.Sprintf("%d declared %s %s from %d %s, %s required env unset for that "+
+			"agent", len(names), plural(len(names), "entry", "entries"), verb, surfaces,
+			plural(surfaces, "agent surface", "agent surfaces"),
+			plural(len(names), "its", "their")),
+		Items:       names,
+		Remedy:      entrypoint.GatedEntryLossRemedy(userConfigPathIn(home)),
+		VerdictTerm: "entr",
 		Warn:        true,
 	}, true
 }
@@ -586,6 +626,9 @@ const (
 	remedyClassDependency = "missing_dependency"
 	// remedyClassEntryDropped — a named table entry of the user's (an MCP server) goes.
 	remedyClassEntryDropped = "entry_dropped"
+	// remedyClassEntryGated — a declared MCP server's copy goes because an agent's requires_env
+	// gate left it out; the fix delivers the variable.
+	remedyClassEntryGated = "entry_gated"
 	// remedyClassSkillAdopted — a skill of the user's moves into their local pack.
 	remedyClassSkillAdopted = "skill_adopted"
 	// remedyClassValueReplaced — a managed key or a pack's config-overlay replaces a value of the
@@ -671,10 +714,15 @@ func joinWords(items []string, conj string) string {
 type droppedTable struct{ Surface, Table string }
 
 // droppedTablesOf is every table one surface's loss lines name, in the order they name them.
+//
+// A gated loss (entrypoint.IsGatedEntryLoss) names no table: declaring its entry keeps nothing.
 func droppedTablesOf(surface string, losses []string) []droppedTable {
 	var out []droppedTable
 	seen := map[string]bool{}
 	for _, l := range losses {
+		if entrypoint.IsGatedEntryLoss(l) {
+			continue
+		}
 		table := entryLossTable(l)
 		if table == "" || seen[table] {
 			continue

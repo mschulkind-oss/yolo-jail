@@ -138,6 +138,12 @@ type hostApplySurvey struct {
 	// droppedTables are the (surface, table key) pairs those entries go from — what the
 	// remedy's example and key list are built from, so an LSP loss is not handed an MCP key.
 	droppedTables map[droppedTable]bool
+	// gatedEntries are the names among droppedEntries that the user's config DOES declare, which
+	// an agent's requires_env gate left out (entrypoint.IsGatedEntryLoss); gatedFrom are the
+	// surfaces they go from. Declaring them again keeps nothing, so they leave the declare-it
+	// group for one of their own (gatedEntryGroup) and add no table to its remedy.
+	gatedEntries map[string]bool
+	gatedFrom    map[string]bool
 	// skills is every skill this run touches, keyed by NAME (see skillFate).
 	skills map[string]skillFate
 	// commentSurfaces are the surfaces whose comments a canonical re-emit would drop — the one the
@@ -390,6 +396,10 @@ func (s *hostApplySurvey) noteConfig(r entrypoint.HostRenderResult) {
 	for _, e := range r.EntryLosses {
 		s.mark(&s.droppedEntries, entryLossName(e))
 		s.mark(&s.droppedFrom, r.Surface)
+		if entrypoint.IsGatedEntryLoss(e) {
+			s.mark(&s.gatedEntries, entryLossName(e))
+			s.mark(&s.gatedFrom, r.Surface)
+		}
 	}
 	for _, t := range droppedTablesOf(r.Surface, r.EntryLosses) {
 		if s.droppedTables == nil {
@@ -945,8 +955,26 @@ func (s *hostApplySurvey) MissingDepFinding(bin string) hostDepFinding {
 func (s *hostApplySurvey) ReplacedKeyNames() []string { return sortedSet(s, s.replacedKeys) }
 
 // DroppedEntryNames lists the named-table entries that would be dropped, sorted and
-// deduplicated across agents (see entryLossName for why the raw strings cannot be the unit).
-func (s *hostApplySurvey) DroppedEntryNames() []string { return sortedSet(s, s.droppedEntries) }
+// deduplicated across agents (see entryLossName for why the raw strings cannot be the unit) —
+// those the declare-it remedy keeps, so not the gated ones (GatedEntryNames).
+func (s *hostApplySurvey) DroppedEntryNames() []string {
+	var out []string
+	for _, name := range sortedSet(s, s.droppedEntries) {
+		if !s.gatedEntries[name] {
+			out = append(out, name)
+		}
+	}
+	return out
+}
+
+// GatedEntryNames lists the declared servers that would be dropped because an agent's
+// requires_env gate left them out, and how many surfaces they go from.
+func (s *hostApplySurvey) GatedEntryNames() (names []string, surfaces int) {
+	if s == nil {
+		return nil, 0
+	}
+	return sortedSet(s, s.gatedEntries), len(s.gatedFrom)
+}
 
 // DroppedTables lists the (surface, table key) pairs that would lose an entry, sorted by
 // surface and then key.
