@@ -75,7 +75,9 @@ func pinnedNpmFloorConfig(t *testing.T, packDir string) string {
 	if err := os.WriteFile(filepath.Join(packDir, "pack.json"), []byte(manifest), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	return `{"packs": [{"source": "file://` + packDir + `", "name": "` + floorNpmPack + `"}]}`
+	// "own": the test's apply is the act that reconciles the floor, and under "none", the unset
+	// default since the `assert` retirement (OQ-CO14), `yolo host apply` runs no stage at all.
+	return `{"packs": [{"source": "file://` + packDir + `", "name": "` + floorNpmPack + `"}], "host_management": "own"}`
 }
 
 // floorNodePlatform is Node's own name for this platform, the one its release tarballs carry.
