@@ -75,6 +75,10 @@ type buildReport struct {
 	// build's, shown at once below the start line that announced it.
 	cfg, build progress.Config
 	pr         richtext.Printer
+	// refused are this act's build jails whose own config was refused, by seal (buildcauses.go).
+	refused map[string]*refusedSealEntry
+	// held are the builds a cause held at their good build, said once per cause by flush.
+	held []*heldGroup
 }
 
 // launchBuildStream is the stream a jail launch's builds print on: the launch's own stderr, teed

@@ -625,6 +625,8 @@ func Main(args []string) error {
 	// session's to the log alone, since the main process's boot has just printed the same lines
 	// on this terminal.
 	blog := attachPassLog(e, mode, gate != nil, os.Stderr)
+	// The last refused boot's record goes with this boot, which writes its own if it refuses too.
+	clearBootRefusal(e)
 	reportIOPriority(e, ioOutcome)
 
 	p := newPerfLog()
@@ -659,6 +661,9 @@ func Main(args []string) error {
 		if mode == modeHold {
 			markBoot(bootRefused)
 		}
+		// THE STRUCTURED CAUSE beside boot.log (bootrefusal.go), which a build jail's host act reads
+		// to say what went wrong in plain words; before the hold, which may never end.
+		recordBootRefusal(e)
 		// THE HOLD, and its two phases straddle blog.finish deliberately: the notice
 		// goes out while the log is still open (so a held boot's own instructions are
 		// in boot.log), and the block happens after it is closed (so a hold nobody
@@ -770,9 +775,15 @@ func aclHint(e *Env, fails []string) string {
 // files all do exactly that). Only a real failure — an unwritable path, a malformed value,
 // an unreadable declared file — reaches this.
 func genStep(e *Env, label string, fn func() error) {
+	genStepAbout(e, label, genAbout{}, fn)
+}
+
+// genStepAbout is genStep for a step whose record can say what it was doing and whose
+// contribution it was (bootrefusal.go): a pack's surface, its hook.
+func genStepAbout(e *Env, label string, about genAbout, fn func() error) {
 	if err := fn(); err != nil {
 		e.warn("Error: " + label + ": " + err.Error())
-		e.genFailure(label + ": " + err.Error())
+		e.genStepFailure(label, about, err)
 	}
 }
 

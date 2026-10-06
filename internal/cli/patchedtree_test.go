@@ -91,7 +91,11 @@ func (fx *treeFixture) buildJail(t *testing.T) func(run.Options) int {
 		fx.builds = append(fx.builds, string(data))
 		writeFile(t, filepath.Join(o.Workspace, forkToolchainLeaf), "image-identity node v24 npm 11\n")
 		out := filepath.Join(o.Workspace, captureOutLeaf)
-		reserved := packdecl.TreeReservedDir("tool-ext")
+		name := o.SealedTree // the tree this jail builds, one of several a test may declare
+		if name == "" {
+			name = "tool-ext"
+		}
+		reserved := packdecl.TreeReservedDir(name)
 		entries := []capture.ManifestEntry{
 			{Path: ".local", Kind: capture.KindDir, Mode: "0755"},
 			{Path: ".local/share", Kind: capture.KindDir, Mode: "0755"},

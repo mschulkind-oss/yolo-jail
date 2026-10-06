@@ -35,11 +35,9 @@ package run
 import (
 	"crypto/sha256"
 	"encoding/hex"
-	"fmt"
 	"io"
 	"os"
 	"path/filepath"
-	"slices"
 	"sort"
 	"strings"
 
@@ -110,6 +108,9 @@ type TreeDelivery struct {
 	Series      string
 	// Reason is why there is no copy, naming what to do; "" when Dir is set.
 	Reason string
+	// Cause is the build's cause in plain words, when its act found one, which the launch's refusal
+	// says once for every key that shares it (missingbuilds.go) and the jail's gate is handed.
+	Cause *entrypoint.BuildCause
 }
 
 // goodLabelOf is a build as lines name it: its tag and short commit, or the commit alone.
@@ -198,7 +199,8 @@ func patchedTreeLine(f packload.Fork) (string, bool) {
 
 // treeDeliveriesFor is THE TREE ARM, in the fork-build slot beside the fork builds: for every
 // patched extension this launch carries, the per-launch copy its jail mounts, or why there is none.
-// Nothing here can fail the launch (§9: "The jail launch itself is never refused").
+// Nothing here fails the launch; with nothing to serve a needed tree, the launch refuses right
+// after this slot (missingbuilds.go, patched-extensions.md PPX-D40).
 func (o *Options) treeDeliveriesFor(rt string) map[string]TreeDelivery {
 	if len(o.patchedTrees) == 0 || o.CapturesDir() == "" {
 		return nil
@@ -269,7 +271,7 @@ func (o *Options) patchedTreesWire(rt string) map[string]entrypoint.TreeDelivery
 		if d.Dir != "" {
 			w.Build, w.Label = d.Entry, d.label()
 		} else {
-			w.Reason = d.Reason
+			w.Reason, w.Cause = d.Reason, d.Cause
 			w.Stop = builds && f.Owner != "" && f.ListedInJail
 		}
 		out[f.Key()] = w
@@ -299,55 +301,6 @@ func (o *Options) noteTreeDeliveries(rt string) {
 				richtext.Escape(d.Reason) + "; the agent starts without it." + next)
 		}
 	}
-}
-
-// noteTreeGateStops is the host's line, right after the tree arm decided, for a launch whose program
-// PPX-D18's gate will stop in the jail: the program's owning agent pack loads a patched extension
-// this launch hands no build of, at a notch that builds trees (patchedTreesWire's Stop, which the
-// jail's launchers read). Without it the user learned that only once the image was built, the jail
-// booted and the launcher ran (OQ-PPX3's background). The program is the command's base name, as
-// a host launch keys on it (HP-DIR4's reading, selectedPacksInstall); the launch goes on, for the
-// shell and every other program (PPX-D12), which the line says.
-func (o *Options) noteTreeGateStops(rt string, packs []*packload.Pack) {
-	if len(o.Args) == 0 || len(o.treeDelivered) == 0 || !o.treesBuildHere(rt) {
-		return
-	}
-	bin := filepath.Base(o.Args[0])
-	var keys []string
-	for _, f := range o.patchedTrees {
-		if d := o.treeDelivered[f.Key()]; d.Dir == "" && f.Owner != "" && f.ListedInJail && packInstalls(packs, f.Owner, bin) {
-			keys = append(keys, f.Key())
-		}
-	}
-	if len(keys) == 0 {
-		return
-	}
-	sort.Strings(keys)
-	n := len(keys)
-	out := o.pr(o.Stderr)
-	out.print("[yellow]Warning: " + richtext.Escape(fmt.Sprintf("%s will not start in this jail: %d %s it loads %s "+
-		"no build (above); the shell is unaffected", bin, n, plural(n, "patched extension", "patched extensions"),
-		plural(n, "has", "have"))) + "[/yellow]")
-	out.print("[dim]  " + richtext.Escape("The next fresh launch builds each, or `yolo capture "+keys[0]+"` now"+
-		moreKeys(keys)+"; dropping the list entry that names one runs "+bin+" without it.") + "[/dim]")
-}
-
-// moreKeys names the capture of every key after the first, "" for one.
-func moreKeys(keys []string) string {
-	if len(keys) < 2 {
-		return ""
-	}
-	return " (and `yolo capture " + strings.Join(keys[1:], "`, `yolo capture ") + "`)"
-}
-
-// packInstalls reports whether the selected pack named pack installs a program named bin.
-func packInstalls(packs []*packload.Pack, pack, bin string) bool {
-	for _, p := range packs {
-		if p != nil && p.Name == pack && slices.Contains(p.InstallBins(), bin) {
-			return true
-		}
-	}
-	return false
 }
 
 // noteMacosUserTrees is the macos-user launch's line for each patched extension (§11, FP-D3's

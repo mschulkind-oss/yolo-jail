@@ -199,27 +199,69 @@ var errForkBuildLocked = errors.New("another build of this fork is running")
 // and the candidate stays pending.
 var errForkBuildNotStarted = errors.New("the build jail exited before its build line ran")
 
-// forkBuildNotStarted is a build jail that exited before its build line ran, with the last lines it
-// printed. Which of three things stopped it — the launch's own refusal at a pre-flight, a runtime
-// that would not start the container, or a boot that failed — only the jail knows, and the lines it
-// printed last are the ones that say (for a refusal, the refusal itself), so the error relays them
-// rather than guessing (PPX-D39: the first launch with patched extensions said "once the runtime
-// starts jails again" of a config refusal). It is errForkBuildNotStarted to errors.Is, and its
-// jail's exit to errors.As, so `yolo capture` exits with the jail's status, as for any jail that
-// failed.
+// forkBuildNotStarted is a build jail that exited before its build line ran, with what it said why.
+// Which of three things stopped it — the launch's own refusal at a pre-flight, a runtime that would
+// not start the container, or a boot that failed — only the jail knows, so the error relays what it
+// said rather than guessing (PPX-D39: the first launch with patched extensions said "once the
+// runtime starts jails again" of a config refusal). A boot that refused leaves its STRUCTURED CAUSE
+// beside its boot.log (entrypoint.BootRefusal), each failed generator in plain words with its pack
+// and its file, and that is what it said; any other stop is relayed by its last lines (PPX-D42). It
+// is errForkBuildNotStarted to errors.Is, and its jail's exit to errors.As, so `yolo capture` exits
+// with the jail's status, as for any jail that failed.
 type forkBuildNotStarted struct {
 	exit captureJailExit
-	// said is the jail's last lines (jailTail.said), "" for none.
-	said string
+	// said is the jail's last lines (jailTail.said), the hold offer left out; nil for none.
+	said []string
+	// boot is the record its refused boot left, nil when it left none.
+	boot *entrypoint.BootRefusal
 }
 
+// Error is the headline alone, one line: what the jail said is its cause's Lines (buildCause), which
+// its callers print each on a line of its own.
 func (e forkBuildNotStarted) Error() string {
-	if e.said == "" {
-		// Nothing came through the jail's writers, which is not to say it printed nothing: a container
-		// that started writes to the terminal itself.
-		return fmt.Sprintf("the build jail exited %d before its build line ran", e.exit.rc)
+	if e.boot != nil {
+		return "its build jail refused to start"
 	}
-	return fmt.Sprintf("the build jail exited %d before its build line ran, saying: %s", e.exit.rc, e.said)
+	return fmt.Sprintf("its build jail exited %d before its build line ran", e.exit.rc)
+}
+
+// buildCause is what the jail said, as the launch's refusal, its warnings and the jail's gate say it
+// (entrypoint.BuildCause): the boot's failed generators in plain words, or the jail's last lines.
+// A YOLO BUG is a boot that refused to write a file a pack declares because the build jail mounts
+// that place read-only: the user's own jail, whose packs make it writable, writes it, so the seal
+// is what refused a config the user's launch accepts (PPX-D42). seal is the packs the jail was
+// sealed to (sealPacks).
+func (e forkBuildNotStarted) buildCause(seal []string) *entrypoint.BuildCause {
+	c := &entrypoint.BuildCause{Packs: seal}
+	if e.boot != nil {
+		for _, g := range e.boot.Failures {
+			c.Lines = append(c.Lines, g.Lines()...)
+			if g.ReadOnly && g.Path != "" && g.Pack != "" {
+				c.YoloBug = true
+			}
+		}
+		return c
+	}
+	c.Lines = append([]string(nil), e.said...)
+	return c
+}
+
+// configRefused reports whether the jail's own config was refused at its boot, for a reason that
+// does not depend on what it built: a generator failed, and none at the tree's own directory. Every
+// later build sealed to the same packs would meet the same refusal (buildReport.refusedSeal).
+func (e forkBuildNotStarted) configRefused(f packload.Fork) bool {
+	if e.boot == nil {
+		return false
+	}
+	if f.IsTree() {
+		into := "~/" + strings.TrimSuffix(f.Into, "/")
+		for _, g := range e.boot.Failures {
+			if g.Path == into || strings.HasPrefix(g.Path, into+"/") {
+				return false
+			}
+		}
+	}
+	return true
 }
 
 func (e forkBuildNotStarted) Is(target error) bool { return target == errForkBuildNotStarted }
@@ -236,15 +278,32 @@ type captureStreams struct {
 	jailReady                   func()
 }
 
-// jailSaidWhy reports whether err is a build jail that stopped before its build line ran and relays
-// the lines it said why with, so the next step can point at them rather than at the output above.
-func jailSaidWhy(err error) bool {
+// notStartedLines are the lines that say why a build jail stopped before its build line, each
+// indented by indent under the line naming the build: its cause, then who can fix it, retry being
+// what builds it once fixed. nil for an err that is no such stop.
+func notStartedLines(err error, seal []string, indent, retry string) []string {
 	var ns forkBuildNotStarted
-	return errors.As(err, &ns) && ns.said != ""
+	if !errors.As(err, &ns) {
+		return nil
+	}
+	c := ns.buildCause(seal)
+	var lines []string
+	for _, l := range c.Lines {
+		lines = append(lines, indent+"  "+l)
+	}
+	if len(c.Lines) == 0 {
+		return []string{indent + "Its output above says why: fix what it names, then " + retry + "."}
+	}
+	for _, l := range c.WhoFixes(retry) {
+		lines = append(lines, indent+l)
+	}
+	return lines
 }
 
 // jailTail keeps the last lines a build jail prints on each of its four streams (writer,
-// captureStreams), for forkBuildNotStarted to relay. A jail the runtime refused, or whose boot
+// captureStreams), for forkBuildNotStarted to relay, each a line of its own, the hold offer
+// (entrypoint.IsHoldOfferLine) left out: a step for a terminal at the refused boot, not what went
+// wrong, which the first relay quoted in its place (PPX-D42). A jail the runtime refused, or whose boot
 // failed, says why on its OWN two streams, and the launch's lines after that are only its keeper's
 // account of the end ("keeper: done"); a launch that refused at a pre-flight started no container,
 // so its own two streams are all it printed on. Either says so on ONE stream, and can take a few
@@ -356,7 +415,7 @@ func (w jailTailWriter) Write(p []byte) (int, error) {
 func (t *jailTail) endLine(s *jailTailStream) {
 	line := strings.TrimSpace(jailTailANSI.ReplaceAllString(string(s.cur), ""))
 	s.cur = s.cur[:0]
-	if line == "" {
+	if line == "" || entrypoint.IsHoldOfferLine(line) {
 		return
 	}
 	if len(line) > jailTailMaxLine {
@@ -369,14 +428,14 @@ func (t *jailTail) endLine(s *jailTailStream) {
 	s.seq = t.seq
 }
 
-// said is the last lines of the stream that printed last, an unterminated line included, joined by
-// " / " so they read as one line: of the jail's own two streams when either printed, and of the
-// launch's two otherwise; "" when none printed anything, or the jail's boot was done.
-func (t *jailTail) said() string {
+// said is the last lines of the stream that printed last, an unterminated line included: of the
+// jail's own two streams when either printed, and of the launch's two otherwise; nil when none
+// printed anything, or the jail's boot was done.
+func (t *jailTail) said() []string {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	if t.booted {
-		return ""
+		return nil
 	}
 	for i := range t.streams {
 		if len(t.streams[i].cur) > 0 {
@@ -389,10 +448,10 @@ func (t *jailTail) said() string {
 			last = &t.streams[pair[1]]
 		}
 		if last.seq > 0 {
-			return strings.Join(last.lines, " / ")
+			return append([]string(nil), last.lines...)
 		}
 	}
-	return ""
+	return nil
 }
 
 // forkSourceError is a build that never reached its jail because its source could not be put in
@@ -540,7 +599,7 @@ func buildForkUnderLock(b forkBuild, mode buildMode, store *capture.Store, pr ri
 		// that exited without one stopped before it — a launch pre-flight that refused, a runtime
 		// that would not start it, or a boot that failed — and never a build that failed, which a
 		// PATCHED fork's record keeps apart (§8.1, PF-D21). Which it was, the jail said last.
-		return nil, forkBuildNotStarted{exit: exit, said: tail.said()}
+		return nil, forkBuildNotStarted{exit: exit, said: tail.said(), boot: entrypoint.ReadBootRefusal(staging)}
 	}
 	if err != nil {
 		return nil, err
@@ -586,6 +645,8 @@ func buildForksForLaunch(req run.ForkBuildRequest, out, errw io.Writer, color bo
 	// EACH BUILD IS ONE PROGRESS LINE on the launch's stream, and its build jail's output goes to the
 	// launch's log and its own (buildreport.go).
 	report := newBuildReport(req.Workspace, errw, req.Progress, color)
+	// A cause that held a good build is said once, when the builds are done (buildcauses.go).
+	defer report.flush()
 	var plain []packload.ForkPin
 	for _, p := range req.Pins {
 		if !p.Fork.Patched() {
@@ -638,6 +699,13 @@ func buildForksForLaunch(req run.ForkBuildRequest, out, errw io.Writer, color bo
 // jail materializes, or why there is none, with the build's last lines under the warning.
 func buildPlainForkForLaunch(b forkBuild, report *buildReport, epr richtext.Printer, out, errw io.Writer,
 	color bool) entrypoint.ForkDelivery {
+	if refused := report.refusedSeal(b.Fork); refused != nil {
+		// ONE CAUSE, ONCE (buildcauses.go): sealed as a build jail of this launch that was refused.
+		report.skipLine(b.Fork, refused)
+		return entrypoint.ForkDelivery{Reason: "fork " + b.Fork.Pack + "'s build of commit " + shortSHA(b.Commit) +
+			" was not started: its build jail would refuse to start on the host — the next launch builds it",
+			Cause: refused.cause}
+	}
 	r := report.begin(buildStart{fork: b.Fork, what: b.Fork.Source + " at " + shortSHA(b.Commit)})
 	bound := false
 	entry, err := buildFork(b, buildMode{lock: pidlock.Mode{Wait: true, Bound: forkBuildWaitBound}, run: r,
@@ -645,6 +713,25 @@ func buildPlainForkForLaunch(b forkBuild, report *buildReport, epr richtext.Prin
 	if err != nil {
 		if bound {
 			err = fmt.Errorf("it ran past the %s bound and was stopped: %w", forkBuildWaitBound, err)
+		}
+		var ns forkBuildNotStarted
+		if errors.As(err, &ns) && !bound {
+			// ITS JAIL STOPPED BEFORE ITS BUILD LINE: the cause on lines of its own, and who can fix it,
+			// never the nested launch's last lines (PPX-D42).
+			r.fail(err.Error())
+			cause := ns.buildCause(sealPacks(b.Fork))
+			cause.Log = r.logPath
+			if ns.configRefused(b.Fork) {
+				report.noteRefused(b.Fork, cause)
+			}
+			epr.Printf("[yellow]%s[/yellow]", richtext.Escape(fmt.Sprintf("Warning: could not build %s: %v — "+
+				"nothing was stored, and this launch continues without %s", b.Fork.Key(), err, b.Fork.Bin)))
+			for _, l := range notStartedLines(err, sealPacks(b.Fork), "  ", "the next launch builds it, or `yolo capture "+
+				b.Fork.Bin+"` now") {
+				epr.Print(richtext.Escape(l))
+			}
+			return entrypoint.ForkDelivery{Reason: "fork " + b.Fork.Pack + "'s build of commit " + shortSHA(b.Commit) +
+				" was not started: " + err.Error() + " on the host — the next launch builds it", Cause: cause}
 		}
 		r.fail("failed")
 		epr.Printf("[yellow]%s[/yellow]", richtext.Escape(fmt.Sprintf("Warning: could not build %s (%v) — nothing "+

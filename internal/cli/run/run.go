@@ -1347,7 +1347,8 @@ func (o *Options) runContainer(cfg *jsonx.OrderedMap, rt, repoRoot, cname string
 	// THE FORK BUILDS (forkbuild.go; OQ-FP4, eager at the notch's readiness act): every selected
 	// fork this machine holds no build of at its pin is built now, in a sealed jail of its own, and
 	// this jail is handed each fork's store key or the reason it has none. A hit builds nothing, and
-	// no outcome fails this launch (§9). HERE, below every attach site (FP-D14): a running jail read
+	// no outcome of the slot itself fails this launch (§9); the refusal of a missing patched build
+	// below does (missingbuilds.go). HERE, below every attach site (FP-D14): a running jail read
 	// its decisions once at boot, so a build an attach waited for would reach no jail. Under the
 	// launch lock, as the image load is: a second terminal in this workspace waits for this jail
 	// and then attaches to it.
@@ -1358,10 +1359,15 @@ func (o *Options) runContainer(cfg *jsonx.OrderedMap, rt, repoRoot, cname string
 	// the per-launch copy its jail mounts read-only. Below every attach site, under the launch lock.
 	o.treeDelivered = o.treeDeliveriesFor(rt)
 	o.noteTreeDeliveries(rt)
-	// And at once, before the image step and the boot, when the program asked for will not start in
-	// the jail for want of a tree (PPX-D18): said here, not only by its launcher after a whole boot.
-	o.noteTreeGateStops(rt, staged.packs)
 	forkSpan.End()
+	// A MISSING PATCHED BUILD IS FATAL (missingbuilds.go; PPX-D40, PF-D77): a patched fork this launch
+	// selects, or a patched extension a selected agent pack loads, with no build to deliver refuses
+	// the launch here, before the image step and the boot, whatever the command, naming each cause
+	// once and the ways back; YOLO_ALLOW_MISSING_PROGRAMS=1 goes on without them.
+	if o.refuseMissingBuilds(rt) {
+		lock.Close()
+		return 1
+	}
 
 	// Refresh the per-jail skills + AGENTS/CLAUDE staging from this launch's own pack tree. An
 	// attach refreshes from the running jail's tree instead, inside attachExisting, so this

@@ -214,11 +214,11 @@ func TestAFailedBuildPrintsItsTailAndItsLog(t *testing.T) {
 	}
 }
 
-// A BUILD JAIL THAT REFUSED before its build line ran is relayed with what it said, its refusal kept
-// on the terminal (PPX-D39), from the stream it was printed on, with its last lines under the
-// warning. Red with the relay's tail on the launch's streams (jailTail.tee) or printRunFailure's call
-// in settle deleted.
-func TestABuildJailsRefusalStaysOnTheTerminal(t *testing.T) {
+// A BUILD JAIL THAT REFUSED before its build line ran is relayed with what it said (PPX-D39), from
+// the stream it was printed on, each line its own (PPX-D42), in the cause the launch is handed, which
+// says it once (run's missingbuilds.go); the build's result line says the jail stopped. Red with the
+// relay's tail on the launch's streams (jailTail.tee) or the cause's hand in notStarted deleted.
+func TestABuildJailsRefusalIsHandedToTheLaunch(t *testing.T) {
 	fx := newTreeFixture(t, `"f.txt"`)
 	prev := forkBuildChild
 	forkBuildChild = func(_ context.Context, _ time.Duration, _ string, _ forkBuild, s captureStreams, _ bool) (int, bool) {
@@ -228,17 +228,17 @@ func TestABuildJailsRefusalStaysOnTheTerminal(t *testing.T) {
 		return 1, false
 	}
 	t.Cleanup(func() { forkBuildChild = prev })
-	_, stream := fx.deliverWithStream(t, t.TempDir())
+	d, stream := fx.deliverWithStream(t, t.TempDir())
 	term := stream.terminal()
-	for _, w := range []string{
-		"Building extension " + treeKeyCLI + ": its build jail stopped before the build line ran (",
-		"saying: Refusing to launch: the config changed and was not approved / key: packs — ",
-		"    Refusing to launch: the config changed and was not approved",
-		"Fix what it names, then `yolo capture " + treeKeyCLI + "` builds it",
-	} {
-		if !strings.Contains(term, w) {
-			t.Errorf("the refusal's relay lacks %q:\n%s", w, term)
-		}
+	if !strings.Contains(term, "Building extension "+treeKeyCLI+": its build jail exited 1 before its build line ran (") {
+		t.Errorf("the build's result does not say its jail stopped:\n%s", term)
+	}
+	if want := []string{"Refusing to launch: the config changed and was not approved", "key: packs"}; d.Cause == nil ||
+		!slices.Equal(d.Cause.Lines, want) {
+		t.Errorf("the launch is handed the cause %+v, want the refusal's lines %q", d.Cause, want)
+	}
+	if strings.Contains(term, " / ") || strings.Contains(term, "Refusing to launch") {
+		t.Errorf("the act said the cause the launch says once, or joined its lines:\n%s", term)
 	}
 }
 

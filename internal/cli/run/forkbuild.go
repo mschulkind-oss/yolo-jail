@@ -69,8 +69,10 @@ type ForkBuildRequest struct {
 // dispatch), exactly as auto-capture's is; core cannot know what the jail will run. A hit builds
 // nothing, so §9's "never rebuild on a timer or on every launch" survives.
 //
-// Nothing here can fail the launch: every "no" is a reason the program's launcher prints in place
-// of the program (§9: a broken fork is one missing tool, not a broken jail).
+// Nothing here fails the launch: every "no" is a reason the program's launcher prints in place of
+// the program (§9: a broken fork is one missing tool, not a broken jail). The launch itself then
+// refuses, before its image, when a PATCHED fork has no build (missingbuilds.go, patched-forks.md
+// PF-D77).
 //
 // THE REASONS, in the order they are asked:
 //

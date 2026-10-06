@@ -148,7 +148,8 @@ func TestADeliveredTreesWorkspaceMountpointIsMadeAndRetired(t *testing.T) {
 	if _, ok := loadPackFilesMountpointManifest(manifest).Entries[filepath.Join("tool", "ext", "tree-ext")]; !ok {
 		t.Errorf("the mountpoint is not recorded as yolo's in %s", manifest)
 	}
-	_, printed = fakePodmanLaunchIn(t, ws, "", func(o *Options) { o.BuildTrees = deliverNoTree })
+	// A launch with no build goes on only with the bypass (PPX-D40).
+	_, printed = fakePodmanLaunchIn(t, ws, "", func(o *Options) { allowMissingPrograms(o); o.BuildTrees = deliverNoTree })
 	if _, err := os.Lstat(mountpoint); err == nil {
 		t.Errorf("a launch with no copy to mount left the empty mountpoint at ~/%s:\n%s", treeInto, printed)
 	}

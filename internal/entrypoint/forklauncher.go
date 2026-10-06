@@ -46,6 +46,9 @@ type ForkDelivery struct {
 	Key string `json:"key,omitempty"`
 	// Reason is why there is no key, naming what to do; "" when Key is set.
 	Reason string `json:"reason,omitempty"`
+	// Cause is the build's cause in plain words, when its act found one (BuildCause): what the
+	// launch's refusal of a missing patched fork says (PF-D77). nil leaves Reason to say it.
+	Cause *BuildCause `json:"cause,omitempty"`
 }
 
 // ForkBuildsWire renders the decisions for the environment, "" for none.

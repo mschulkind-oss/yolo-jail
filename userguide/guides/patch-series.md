@@ -197,12 +197,25 @@ To keep running what you have, turn `agent_updates` off for the pack, or put a t
   the build's last lines and where its whole output is, and yolo tries again after a wait.
   `yolo capture` retries at once.
 - **Your own edit fails:** if you change the series, `build` or `produces` and the result does not
-  build, yolo tries your series on its base version. If that fails too, the program is missing
-  until you fix or revert the edit, and the launch says so.
-- **A pi extension with no build:** pi does not start without an extension it is set to load. In
-  the jail, running `pi` says which extension has no build and why, and that you can drop its list
-  entry to run without it. The shell is unaffected. A `yolo -- pi` launch says so too, before the
-  jail starts.
+  build, yolo tries your series on its base version. If that fails too, nothing is left to run.
+- **Nothing to run:** when a patched program, or a pi extension a pack loads, has no build at all,
+  the launch stops before the jail starts, whatever you asked it to run. It says why once, for
+  every build the same cause left without one, says whether the fix is yours or a bug in yolo to
+  report, and names the ways on: `yolo capture <key>` to build it again,
+  `yolo pack series check` and `yolo pack rebase <key>` when a series no longer applies, or dropping
+  the list entry or the pack. `YOLO_ALLOW_MISSING_PROGRAMS=1` starts the jail anyway: the shell
+  works, and pi says which extension has no build if you run it.
+
+```text
+Refusing to launch: 2 patched extensions pack pi loads have no build on this machine.
+  extensions mine/ext-a and mine/ext-b: their build jail refused to start on the host:
+      writing pi's automode file (~/.pi/agent/extensions/automode/settings.json), which pack mine declares, failed:
+        ~/.pi is mounted read-only in that jail
+    This is a bug in yolo, not in pack mine: the build jail refused a config your own launch accepts.
+    Report it at https://github.com/mschulkind-oss/yolo-jail/issues, with /home/you/project/.yolo/build-mine--ext-a-1a2b3c4d.log; once it is fixed, the next fresh launch builds them, or `yolo capture mine/ext-a`, `yolo capture mine/ext-b` now.
+  To launch without them now: YOLO_ALLOW_MISSING_PROGRAMS=1, and what loads them stops in the jail while the shell works.
+  To run without one for good: drop the list entry naming it, or its pack.
+```
 
 ## Where it works
 

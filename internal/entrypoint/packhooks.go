@@ -82,9 +82,10 @@ func RunPackHooks(e *Env, packs []*packload.Pack) {
 	for _, p := range packs {
 		for _, h := range p.Decl.HookContributions() {
 			hook, pack := h, p
-			genStep(e, "hook_"+pack.Name+"_"+hook.Name, func() error {
-				return runPackHook(e, pack, hook)
-			})
+			genStepAbout(e, "hook_"+pack.Name+"_"+hook.Name,
+				genAbout{doing: "running the " + hook.Name + " hook", pack: pack.Name}, func() error {
+					return runPackHook(e, pack, hook)
+				})
 		}
 	}
 }

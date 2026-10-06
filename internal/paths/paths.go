@@ -256,6 +256,14 @@ const AllowUnreachableServicesEnv = "YOLO_ALLOW_UNREACHABLE_SERVICES"
 // it into the container.
 const AllowMissingProvidersEnv = "YOLO_ALLOW_MISSING_PROVIDERS"
 
+// AllowMissingProgramsEnv is the escape hatch out of a launch that would refuse for a program it
+// cannot deliver, any non-empty value keeping the launch going, loudly, naming what it lacks:
+// docs/design/jail-notch-readiness.md JR-D3 rules it for the readiness act's install, and
+// docs/design/patched-extensions.md PPX-D40 has the launch's refusal of a missing patched build
+// honor it too (internal/cli/run's missingbuilds.go), so one variable covers both. The patched
+// build's refusal reads it host-side, before any jail exists, so it needs no forwarding there.
+const AllowMissingProgramsEnv = "YOLO_ALLOW_MISSING_PROGRAMS"
+
 // HoldOnRefusalEnv makes the ENTRYPOINT, on a boot it is about to refuse, print how
 // to get in and then BLOCK instead of exiting — so the container stays up with the
 // failed state intact. Any non-empty value. The user types it on the HOST, so the

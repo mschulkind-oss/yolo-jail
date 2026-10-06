@@ -930,6 +930,12 @@ func (a *advance) baseNext() string {
 // whose build fails or cannot be put in place sends the advance on to the series' base (PF-D23).
 func (a *advance) build(b forkBuild, base baseWhy, edited bool) advanceResult {
 	f := a.f
+	// ONE CAUSE, ONCE (buildcauses.go): a build jail sealed as an earlier one of this act was, whose
+	// own config was refused, would be refused the same way, so it is not started.
+	if refused := a.o.report.refusedSeal(f); refused != nil {
+		a.o.report.skipLine(f, refused)
+		return a.notStarted(refused.cause)
+	}
 	wait := ""
 	switch {
 	case a.serves() && a.o.launch:
@@ -1035,7 +1041,7 @@ func (a *advance) endRun(err error) {
 	case errors.As(err, &lockTimeout), errors.Is(err, errForkBuildLocked):
 		a.inFlight.fail("another build of it holds its lock")
 	case errors.Is(err, errForkBuildNotStarted):
-		a.inFlight.fail("its build jail stopped before the build line ran")
+		a.inFlight.fail(err.Error())
 	case errors.As(err, &source):
 		a.inFlight.fail("its source could not be put in place")
 	default:
@@ -1099,20 +1105,30 @@ func (a *advance) settle(b forkBuild, entry *capture.Entry, err error, base base
 	case errors.Is(err, errForkBuildNotStarted):
 		// THE BUILD JAIL STOPPED BEFORE ITS BUILD LINE RAN (PF-D21): not a failed build, so nothing is
 		// recorded and the candidate stays pending. What stopped it is the jail's to say, and the
-		// error relays the lines it said it with (forkBuildNotStarted, PPX-D39): a launch pre-flight's
-		// refusal, a runtime that would not start it, or a boot that failed.
-		a.warn("%s: %v — %s", f.Label(), err, a.runsNow())
-		if a.printRunFailure() || jailSaidWhy(err) {
-			a.dim("  Fix what it names, then `yolo capture %s` builds it; %s tries too", f.CaptureArg(), a.next())
-		} else {
-			a.dim("  Its output above says why: fix what it names, then `yolo capture %s` builds it; %s tries too",
-				f.CaptureArg(), a.next())
+		// error relays what it said (forkBuildNotStarted, PPX-D39, PPX-D42): a launch pre-flight's
+		// refusal, a runtime that would not start it, or a boot that failed, whose record names each
+		// failed generator's pack and file.
+		var ns forkBuildNotStarted
+		errors.As(err, &ns)
+		cause := ns.buildCause(sealPacks(f))
+		if a.inFlight != nil && a.inFlight.logPath != "" {
+			cause.Log = a.inFlight.logPath
 		}
-		if a.o.runtime == "container" {
-			a.dim("  On Apple Container a capture jail cannot start beside a running jail: if that is what "+
-				"stopped it, `yolo capture %s` builds it once the other jails stop", f.CaptureArg())
+		if ns.configRefused(f) {
+			a.o.report.noteRefused(f, cause)
 		}
-		return a.serveOr(fmt.Sprintf("%s was not built on the host: %v", f.Label(), err))
+		if a.o.report == nil {
+			// AN ACT OF ITS OWN (`yolo capture`, `yolo host`) says it here, the cause on lines of its own.
+			a.warn("%s: %v — %s", f.Label(), err, a.runsNow())
+			for _, l := range notStartedLines(err, sealPacks(f), "  ", a.retryNotStarted()) {
+				a.epr.Print(richtext.Escape(l))
+			}
+			if a.o.runtime == "container" {
+				a.dim("  On Apple Container a capture jail cannot start beside a running jail: if that is what "+
+					"stopped it, `yolo capture %s` builds it once the other jails stop", f.CaptureArg())
+			}
+		}
+		return a.notStarted(cause)
 	case errors.As(err, &source):
 		// AN APPLY ERROR in the build's own replay: nothing recorded against the entry, and the next
 		// check retries it (PF-D45).
@@ -1128,6 +1144,32 @@ func (a *advance) settle(b forkBuild, entry *capture.Entry, err error, base base
 	}
 	// THE BUILD LINE RAN AND FAILED: recorded, with the back-off.
 	return a.buildFailed(b, err)
+}
+
+// notStarted ends an advance whose build jail stopped before its build line, or would have, with
+// cause: the good build when it serves, held by the cause, which a jail launch's report says once
+// per cause when its act ends (buildReport.hold); otherwise nothing, the cause carried to the
+// launch, whose refusal or warning says it once (internal/cli/run's missingbuilds.go). The reason
+// names no key, so a jail's gate says it once for every extension that shares it.
+func (a *advance) notStarted(cause *entrypoint.BuildCause) advanceResult {
+	why := "its build jail exited before its build line ran on the host"
+	if cause != nil && len(cause.Lines) > 0 {
+		why = "its build jail refused to start on the host"
+	}
+	r := a.serveOr(why)
+	switch {
+	case r.delivery.Key == "" && r.delivery.Reason != "":
+		r.delivery.Cause = cause
+	case a.serves() && cause != nil:
+		a.o.report.hold(a.f, a.runsNow(), a.retryNotStarted(), cause)
+	}
+	return r
+}
+
+// retryNotStarted is what builds a build whose jail stopped before its build line, once its cause
+// is fixed: its capture, and the act that tries again.
+func (a *advance) retryNotStarted() string {
+	return "`yolo capture " + a.f.CaptureArg() + "` builds it; " + a.next() + " tries too"
 }
 
 // buildFailed records b's failed build — counted against the failures the record holds for its key

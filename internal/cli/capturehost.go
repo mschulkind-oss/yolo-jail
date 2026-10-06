@@ -312,9 +312,12 @@ func captureFork(f packload.Fork, out, errw io.Writer, color bool) int {
 		switch {
 		case errors.Is(err, errForkBuildLocked):
 			fmt.Fprintf(errw, "  %s\n", captureWaitStep(f.Bin))
-		case jailSaidWhy(err):
-			// The jail stopped before its build line and said why, on the line above (PPX-D39).
-			fmt.Fprintf(errw, "  Fix what it names, %s.\n", captureAgain(f.Bin))
+		case errors.Is(err, errForkBuildNotStarted):
+			// The jail stopped before its build line: what it said, on lines of their own, and who
+			// can fix it (PPX-D39, PPX-D42).
+			for _, l := range notStartedLines(err, sealPacks(f), "  ", strings.TrimPrefix(captureAgain(f.Bin), "then ")) {
+				fmt.Fprintln(errw, l)
+			}
 		case errors.As(err, &exit):
 			fmt.Fprintf(errw, "  %s\n", captureJailFailedStep(f.Bin))
 		default:
@@ -346,7 +349,13 @@ func capturePatchedFork(f packload.Fork, out, errw io.Writer, color bool) int {
 		return 0
 	}
 	if r.delivery.Key == "" && r.delivery.Reason != "" {
-		fmt.Fprintf(errw, "yolo capture: %s\n", r.delivery.Reason)
+		// A reason that names no key (a build jail's stop, which a launch says once for every key that
+		// shares it) is named here.
+		reason := r.delivery.Reason
+		if !strings.HasPrefix(reason, f.Label()) {
+			reason = f.Label() + ": " + reason
+		}
+		fmt.Fprintf(errw, "yolo capture: %s\n", reason)
 	}
 	return 1
 }

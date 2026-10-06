@@ -49,6 +49,7 @@ func deliverTreesForLaunch(req run.TreeBuildRequest, out, errw io.Writer, color 
 	for _, f := range req.Trees {
 		got[f.Key()] = deliverTree(f, req, report, out, errw, color)
 	}
+	report.flush()
 	return got
 }
 
@@ -67,7 +68,7 @@ func deliverTree(f packload.Fork, req run.TreeBuildRequest, report *buildReport,
 			r = servingTree(f, o, req.BuildFloor)
 		}
 		if r.delivery.Key == "" {
-			return run.TreeDelivery{Reason: r.delivery.Reason}
+			return run.TreeDelivery{Reason: r.delivery.Reason, Cause: r.delivery.Cause}
 		}
 		if req.CopyRoot == "" {
 			return run.TreeDelivery{Reason: f.Label() + " has a build on this machine, and this launch staged no pack " +

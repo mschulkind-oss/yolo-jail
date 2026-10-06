@@ -398,8 +398,9 @@ func TestAFailedBuildBacksOffWhileTheGoodBuildServes(t *testing.T) {
 }
 
 // A BUILD JAIL THAT NEVER RAN THE BUILD LINE is not a failed build (PF-D21): nothing is recorded,
-// the good build serves, the line relays what the jail said last and names the step (Apple
-// Container's own besides), and the next launch tries again with no back-off. The jail runs as the
+// the good build serves, the line relays what the jail said last, on a line of its own (PPX-D42),
+// and names the step (Apple Container's own besides), and the next launch tries again with no
+// back-off. The jail runs as the
 // child a serving advance runs (forkBuildChild), so this is red if that closure stops handing the
 // child the act's teed writers, as well as if the act stops relaying (PPX-D39).
 func TestABuildJailThatNeverRanRecordsNothing(t *testing.T) {
@@ -415,8 +416,9 @@ func TestABuildJailThatNeverRanRecordsNothing(t *testing.T) {
 	if fx.child == children {
 		t.Fatalf("the build did not run as a child, which this test is about:\n%s", out)
 	}
-	for _, w := range []string{"fork forkpack/tool: the build jail exited 125 before its build line ran, saying: " +
-		"Error: the fixture's runtime refused the container — still running v1.1.0",
+	for _, w := range []string{"fork forkpack/tool: its build jail exited 125 before its build line ran — still " +
+		"running v1.1.0",
+		"\n    Error: the fixture's runtime refused the container\n",
 		"  Fix what it names, then `yolo capture tool` builds it; the next fresh launch tries too",
 		"On Apple Container a capture jail cannot start beside a running jail: if that is what stopped it, " +
 			"`yolo capture tool` builds it once the other jails stop"} {

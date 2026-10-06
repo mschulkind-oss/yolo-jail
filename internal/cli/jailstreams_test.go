@@ -59,11 +59,12 @@ func runtimeRefusingBuildJail(o run.Options) int {
 // assertRelaysTheRuntime fails unless text relays the runtime's refusal, and that alone.
 func assertRelaysTheRuntime(t *testing.T, text string) {
 	t.Helper()
-	if !strings.Contains(text, "the build jail exited 126 before its build line ran, saying: "+runtimeRefusal) {
-		t.Errorf("the runtime's refusal is not what is relayed:\n%s", text)
+	if !strings.Contains(text, "its build jail exited 126 before its build line ran") ||
+		!strings.Contains(text, "\n    "+runtimeRefusal+"\n") {
+		t.Errorf("the runtime's refusal is not what is relayed, on a line of its own:\n%s", text)
 	}
-	if strings.Contains(text, "saying: keeper") || strings.Contains(text, "/ keeper:") {
-		t.Errorf("the keeper's lines are relayed as the jail's account:\n%s", text)
+	if strings.Contains(text, "    keeper:") || strings.Contains(text, " / ") {
+		t.Errorf("the keeper's lines are relayed as the jail's account, or lines are joined:\n%s", text)
 	}
 }
 
@@ -89,8 +90,14 @@ func TestATreeBuildJailTheRuntimeRefusedIsRelayedWithTheRuntimesError(t *testing
 	if d.Dir != "" {
 		t.Fatalf("a jail the runtime refused delivered %+v\n%s", d, out)
 	}
-	assertRelaysTheRuntime(t, out)
-	assertRelaysTheRuntime(t, d.Reason)
+	// A jail launch's act shows the build's result, and the cause goes to the launch, which says it
+	// once (run's missingbuilds.go): its lines, each its own.
+	if !strings.Contains(out, "Building extension "+treeKeyCLI+": its build jail exited 126 before its build line ran") {
+		t.Errorf("the build's result does not say its jail stopped:\n%s", out)
+	}
+	if d.Cause == nil || !slices.Equal(d.Cause.Lines, []string{runtimeRefusal}) || d.Cause.YoloBug {
+		t.Errorf("the cause the launch is handed is %+v, want the runtime's line alone, not yolo's fault", d.Cause)
+	}
 }
 
 // `yolo capture <fork bin>`: a plain fork's build is relayed the same way.
@@ -123,11 +130,11 @@ func TestABuildJailThatStoppedAfterItsBootRelaysNothing(t *testing.T) {
 	if rc == 0 {
 		t.Fatalf("a build jail that stopped succeeded:\n%s", stderr)
 	}
-	if strings.Contains(stderr, "saying:") {
+	if strings.Contains(stderr, "    cgroup delegate") || strings.Contains(stderr, "    keeper:") {
 		t.Errorf("a jail that stopped after its boot was relayed with lines that are not why:\n%s", stderr)
 	}
 	const want = "  Its output above says why: fix what it names, then run `yolo capture probetool` again."
-	if got := stepAfter(t, stderr, "yolo capture: the build jail exited 1 before its build line ran"); got != want {
+	if got := stepAfter(t, stderr, "yolo capture: its build jail exited 1 before its build line ran"); got != want {
 		t.Errorf("the step is\n%q\nwant\n%q", got, want)
 	}
 }

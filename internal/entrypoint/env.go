@@ -109,6 +109,9 @@ type Env struct {
 	// problem instead of one-per-restart. Main turns a non-empty slice into the
 	// error that aborts the jail. See genStep.
 	genFailures []string
+	// genRecords are the same failures as their structured records (bootrefusal.go), which a
+	// refused boot writes beside boot.log for the host's build act to read.
+	genRecords []GenFailure
 
 	// warnedOnce remembers the lines warnOnce has already emitted, so a finding whose
 	// SOURCE the boot re-reads is stated once rather than once per read. See warnOnce.
@@ -138,6 +141,14 @@ type Env struct {
 // than returned immediately so a single boot reports every broken step.
 func (e *Env) genFailure(msg string) {
 	e.genFailures = append(e.genFailures, msg)
+	e.genRecords = append(e.genRecords, GenFailure{Error: msg})
+}
+
+// genStepFailure records the failure err of the generator step label, which was doing about:
+// the refusal's line ("<label>: <err>") and its structured record (bootrefusal.go).
+func (e *Env) genStepFailure(label string, about genAbout, err error) {
+	e.genFailures = append(e.genFailures, label+": "+err.Error())
+	e.genRecords = append(e.genRecords, genFailureOf(e, label, about, err))
 }
 
 // GenFailures returns the accumulated fatal generator failures, in order.
