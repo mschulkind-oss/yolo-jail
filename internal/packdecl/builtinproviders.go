@@ -28,6 +28,28 @@ type BuiltInProviders struct {
 	// which is a JSON null here. A provider a plan names must be one of Names, and the yolo
 	// provider it is keyed by gets no model entry from the program's derive either.
 	Plans map[string]*ProviderPlan `json:"plans,omitempty"`
+	// YoloLists names the yolo providers, each one Names or a non-null Plans key, that the
+	// program runs on its own client but on YOLO'S model list, which the program's pack renders
+	// from yolo's declaration of the provider: pi and opencode on openai-codex, whose one list
+	// packs/openai-auth declares (docs/design/model-lists-and-pickers.md ML-D1). The derive still
+	// writes no catalog row over the provider, but core treats its list as yolo's: the agent's
+	// children get the provider's YOLO_MODEL_<ROLE> tiers, and the launch's profile line names the
+	// endpoint the list rides on rather than saying the agent uses a list of its own.
+	YoloLists []string `json:"yolo_lists,omitempty"`
+}
+
+// RendersYoloList reports whether the program runs the yolo provider name on yolo's model list
+// (YoloLists).
+func (b *BuiltInProviders) RendersYoloList(name string) bool {
+	if b == nil || name == "" {
+		return false
+	}
+	for _, n := range b.YoloLists {
+		if n == name {
+			return true
+		}
+	}
+	return false
 }
 
 // ProviderPlan is one program's own provider for a yolo provider's plan.
@@ -38,7 +60,9 @@ type ProviderPlan struct {
 	// differs from the one the yolo provider names: opencode's `zai-coding-plan` reads
 	// ZHIPU_API_KEY where packs/zai names ZAI_API_KEY. Core then delivers the yolo provider's
 	// key to the agent under this name too (packload.AgentEnv), so the program's own client
-	// finds it. Absent when the program reads the name the yolo provider already delivers.
+	// finds it. Absent when the program reads the name the SHIPPED yolo provider declares, which
+	// core then relays the key under whenever the user re-points the provider's
+	// api_key_env_name at a variable of their own (packload.BuiltInKeyVars).
 	APIKeyEnvName string `json:"api_key_env_name,omitempty"`
 }
 
@@ -120,6 +144,28 @@ func builtInProvidersProblems(label string, c Contribution) []string {
 			problems = append(problems, fmt.Sprintf("%s: \"built_in_providers.plans.%s.api_key_env_name\" "+
 				"%q is not an environment variable name", label, k, plan.APIKeyEnvName))
 		}
+	}
+	listed := map[string]bool{}
+	for _, n := range b.YoloLists {
+		plan, planned := b.Plans[n]
+		switch {
+		case n == "":
+			problems = append(problems, fmt.Sprintf("%s: \"built_in_providers.yolo_lists\" holds an "+
+				"empty provider name", label))
+		case listed[n]:
+			problems = append(problems, fmt.Sprintf("%s: \"built_in_providers.yolo_lists\" names %q "+
+				"twice", label, n))
+		case planned && plan == nil:
+			problems = append(problems, fmt.Sprintf("%s: \"built_in_providers.yolo_lists\" names %q, "+
+				"whose plan is null: the program has no provider of its own for it to render yolo's "+
+				"list on — drop it from \"yolo_lists\", or name the program's provider in its plan",
+				label, n))
+		case !planned && !names[n]:
+			problems = append(problems, fmt.Sprintf("%s: \"built_in_providers.yolo_lists\" names %q, "+
+				"which is neither in \"built_in_providers.names\" nor a key of its \"plans\" — list "+
+				"only a provider the program has built in", label, n))
+		}
+		listed[n] = true
 	}
 	return problems
 }

@@ -821,16 +821,22 @@ writes no model entry over one and the agent uses its own list
 object. `names` is every provider id the program's own code registers. `plans`, optional, maps a
 yolo provider name to the program's own provider for that provider's plan, `{"provider": …,
 "api_key_env_name": …}`, when the name alone gets it wrong, or to `null` when the program has the
-name built in for another plan and none of its own for this one. `packs/pi`, `packs/omp` and
-`packs/opencode` declare it; opencode's `plans` map `zai` to its own `zai-coding-plan`, which reads
-`ZHIPU_API_KEY`, and `openai-codex` to its own `openai`. Core reads it three ways: every derive's
-`ctx.built_in_providers` (`{ id, api_key_env_name }`, or `false` for a `null` plan), the launch's
-profile line, which names the agent's own client or says a `null` plan's profile reaches nothing
-for it, and the agent's environment, which carries the plan's key under `api_key_env_name` and no
-`YOLO_MODEL_<ROLE>` ([`providers.md`](providers.md#a-provider-the-agent-has-built-in)). On
-`program` alone, and a fork keeps its base's; `packdecl` refuses no `names`, an empty, padded or
-repeated name, a plan naming no provider or one not in `names`, and an `api_key_env_name` that is
-no variable name.
+name built in for another plan and none of its own for this one. `yolo_lists`, optional, names
+the built-in providers the program runs on its own client but on YOLO's model list, which its pack
+renders from yolo's declaration of the provider. `packs/pi`, `packs/omp` and `packs/opencode`
+declare it; opencode's `plans` map `zai` to its own `zai-coding-plan`, which reads
+`ZHIPU_API_KEY`, and `openai-codex` to its own `openai`; pi's and opencode's `yolo_lists` name
+`openai-codex`, whose one list `packs/openai-auth` declares
+([ML-D1](../design/model-lists-and-pickers.md#ML-D1)). Core reads it three ways: every derive's
+`ctx.built_in_providers` (`{ id, api_key_env_name, yolo_list }`, or `false` for a `null` plan),
+the launch's profile line, which names the agent's own client or says a `null` plan's profile
+reaches nothing for it, and the agent's environment, which carries the provider's key under the
+name the agent's own provider reads and no `YOLO_MODEL_<ROLE>`
+([`providers.md`](providers.md#a-provider-the-agent-has-built-in)). A provider in `yolo_lists`
+keeps both of yolo's readings of a list: its tiers, and the endpoint its line names. On `program`
+alone, and a fork keeps its base's; `packdecl` refuses no `names`, an empty, padded or repeated
+name, a plan naming no provider or one not in `names`, an `api_key_env_name` that is no variable
+name, and a `yolo_lists` entry that is empty, repeated, a `null` plan's, or no built-in name.
 
 `install_hints` maps a host package manager to the package that provides `bin` there. Used
 below the `jail` notch, where yolo bakes no image, by `yolo check-deps` / `apply` to probe

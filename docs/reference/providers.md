@@ -1226,6 +1226,15 @@ oh-omp and opencode, and `openai-codex`, the first case. For such a provider:
   yolo's zai, the coding plan, as its own `zai-coding-plan` (its own `zai` is the metered API), and
   that provider reads `ZHIPU_API_KEY`, so the launch delivers zai's key to opencode under that
   name too.
+- **A key you re-point still reaches the agent's own client**: that client reads the variable the
+  shipped provider declares, so with `providers.openrouter.api_key_env_name = "OR_KEY"` the launch
+  delivers the key to pi, oh-omp and opencode as `OPENROUTER_API_KEY` too. A literal `api_key` or
+  `options.api_key` reaches no client, since only the row carried it, and the profile line warns
+  and names the fix: put the key in a variable named under `api_key_env_name`.
+- **`openai-codex` on pi and opencode keeps yolo's list**: both run it on their own client but on
+  the one list `packs/openai-auth` declares ([ML-D1](../design/model-lists-and-pickers.md#ML-D1)),
+  which their packs say with `yolo_lists`, so its `YOLO_MODEL_<ROLE>` tiers are composed and the
+  profile line names its `openai-responses` endpoint. oh-omp runs it on its own list.
 - **A plan the agent has no provider of its own for** (a `null` plan) gets nothing written, and
   the launch's profile line says the profile reaches nothing for that agent, naming
   `-p <agent>=<name>`. No shipped pack declares one.

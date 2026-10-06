@@ -60,7 +60,11 @@
             "api_key_env_name": "ZHIPU_API_KEY",
             "provider": "zai-coding-plan"
           }
-        }
+        },
+        // openai-codex runs on opencode's own `openai` client but on yolo's list: derive.lua's
+        // opencodeCodexRow writes the one list packs/openai-auth declares as that row's models
+        // and whitelist (model-lists-and-pickers.md ML-D1).
+        "yolo_lists": ["openai-codex"]
       },
       "exact_menu_refuses": {
         "providers": [

@@ -111,3 +111,21 @@ func TestOpencodesSelectionNamesItsOwnProviderForThePlan(t *testing.T) {
 		t.Errorf("enabled_providers = %v, want [zai-coding-plan]", sel["enabled_providers"])
 	}
 }
+
+// ctx.built_in_providers CARRIES yolo_list for a provider the agent runs on yolo's list
+// (BuiltInProvider.YoloList), and no such field for one on the agent's own list, so a derive can
+// tell the two apart from the table alone.
+func TestTheCtxSaysWhichBuiltInProviderRunsYolosList(t *testing.T) {
+	script := `yolo.derive("acme", "s", function(ctx)
+	  local b = ctx.built_in_providers
+	  return { codex = tostring(b["openai-codex"].yolo_list), zai = tostring(b["zai"].yolo_list) }
+	end)`
+	out, err := (GopherLuaVM{}).Derive(script, zaiCtx("acme", "s", map[string]BuiltInProvider{
+		"openai-codex": {ID: "openai", YoloList: true}, "zai": {ID: "zai"}}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out["codex"] != "true" || out["zai"] != "nil" {
+		t.Errorf("yolo_list = %v, want true for openai-codex and absent for zai", out)
+	}
+}

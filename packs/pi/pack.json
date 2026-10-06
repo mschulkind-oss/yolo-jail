@@ -20,7 +20,10 @@
           "qwen-token-plan", "qwen-token-plan-cn", "qwen-token-plan-individual", "radius",
           "together", "typesafe", "vercel-ai-gateway", "xai", "xiaomi", "xiaomi-token-plan-ams",
           "xiaomi-token-plan-cn", "xiaomi-token-plan-sgp", "zai", "zai-coding-cn"
-        ]
+        ],
+        // openai-codex runs on pi's own client but on yolo's list: extensions/yolo-openai-auth.js
+        // registers the one list packs/openai-auth declares (model-lists-and-pickers.md ML-D1).
+        "yolo_lists": ["openai-codex"]
       },
       "flags": [
         "--ignore-scripts"

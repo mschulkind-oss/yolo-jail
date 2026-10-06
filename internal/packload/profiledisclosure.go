@@ -25,6 +25,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/agentcfg/luahook"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 )
 
@@ -209,8 +210,11 @@ func profileReach(in ProfileDisclosureInput, agent, profile string) ProfileReach
 	// shadowing.md OQ-3): its pack's derive writes it no model entry, so the agent reaches it
 	// through its own client and list, whatever the provider's endpoints or the profile's via
 	// say. Where the agent has the name built in for another plan and no provider of its own for
-	// this one, nothing reaches it, and the line says so with the next step.
-	if own, builtIn := BuiltInProviderFor(in.Packs, agent, r.Provider); builtIn {
+	// this one, nothing reaches it, and the line says so with the next step. A built-in provider
+	// whose list the agent's pack renders from yolo's declaration (YoloList: pi and opencode on
+	// openai-codex, ML-D1) runs yolo's list on the endpoint that list rides on, so it takes the
+	// protocol resolution below like any catalogued provider.
+	if own, builtIn := BuiltInProviderFor(in.Packs, agent, r.Provider); builtIn && !own.YoloList {
 		if own.ID == "" {
 			r.Warnings = append(r.Warnings, fmt.Sprintf("Warning: profile %s reaches nothing for %s: "+
 				"%s has a provider of its own named %q for another plan and none for this "+
@@ -223,6 +227,9 @@ func profileReach(in ProfileDisclosureInput, agent, profile string) ProfileReach
 		r.Route = fmt.Sprintf("through its own %q client, with its own model list", own.ID)
 		if via != "" {
 			r.Route += fmt.Sprintf(", which pack %q's route does not re-point", via)
+		}
+		if w := literalKeyWarning(in.Packs, agent, quoted, r.Provider, own, entry); w != "" {
+			r.Warnings = append(r.Warnings, w)
 		}
 		return r
 	}
@@ -276,6 +283,38 @@ func profileReach(in ProfileDisclosureInput, agent, profile string) ProfileReach
 		}
 	}
 	return r
+}
+
+// literalKeyWarning is the warning for an agent on a provider it has built in whose key is only a
+// literal `api_key` or `options.api_key` in the provider's entry, "" otherwise. Such a key reached
+// the agent only inside the catalog row its derive no longer writes over a built-in provider
+// (OQ-3), and no variable carries it (BuiltInKeyVars relays a variable's value, never a literal:
+// docs/reference/providers.md holds a literal key in the table to be the drift), so the agent's
+// own client starts with no key. The next step is the supported spelling: the key in a variable,
+// named under `api_key_env_name`.
+func literalKeyWarning(packs []*Pack, agent, quoted, provider string, own luahook.BuiltInProvider,
+	entry *jsonx.OrderedMap) string {
+	if len(CredentialEnvNames(entry)) > 0 {
+		return ""
+	}
+	spelling := ""
+	switch {
+	case entryString(entry, "api_key") != "":
+		spelling = "api_key"
+	case entryString(childMap(entry, "options"), "api_key") != "":
+		spelling = "options.api_key"
+	default:
+		return ""
+	}
+	reads := "the variable its own provider reads"
+	if v := builtInKeyVar(packs, own, provider); v != "" {
+		reads = v
+	}
+	return fmt.Sprintf("Warning: profile %s gives %s no key: provider %q's key is a literal "+
+		"`%s`, which reached %s only through the model entry yolo no longer writes over a "+
+		"provider an agent has built in, so it reaches no client and %s's own %q client starts "+
+		"with none. Put the key in a variable and name it under `providers.%s.api_key_env_name` "+
+		"(%s reads %s)", quoted, agent, provider, spelling, agent, agent, own.ID, provider, agent, reads)
 }
 
 // AgentBindsPlatform reports whether agent has a client of platform in this launch: some

@@ -141,7 +141,8 @@ type DeriveCtx struct {
 	// implements itself (packdecl.BuiltInProviders, read through packload.BuiltInProvidersFor
 	// by bin ownership, as NativeCapabilities is), keyed by YOLO provider name and exposed as
 	// ctx.built_in_providers: for each name the agent has a provider of its own for, a table
-	// `{ id = <its own provider id>, api_key_env_name = <the key it reads, when declared> }`,
+	// `{ id = <its own provider id>, api_key_env_name = <the key it reads, when declared>,
+	// yolo_list = true <when it runs yolo's list, BuiltInProvider.YoloList> }`,
 	// and `false` for a name the agent has built in for another plan with none of its own for
 	// this one. A name absent from the table is not built in, and the derive writes its row.
 	//
@@ -209,6 +210,12 @@ type BuiltInProvider struct {
 	// APIKeyEnvName is the variable that provider reads its key from, "" when the declaration
 	// names none (the agent reads the name the yolo provider delivers).
 	APIKeyEnvName string
+	// YoloList is true when the agent runs the provider on its own client but on YOLO'S model
+	// list, which its pack renders from yolo's declaration of the provider
+	// (packdecl.BuiltInProviders.YoloLists): pi and opencode on openai-codex, whose one list
+	// packs/openai-auth declares (docs/design/model-lists-and-pickers.md ML-D1). Core then keeps
+	// the provider's tiers and its endpoint on the launch line, as for any catalogued provider.
+	YoloList bool
 }
 
 // SetEntry is one entry of DeriveCtx.ActiveSet: a profile of the agent's active set, the provider
@@ -662,6 +669,9 @@ func buildDeriveCtxTable(L *lua.LState, ctx *DeriveCtx, sentinel, emptyArr *lua.
 		L.SetField(own, "id", lua.LString(b.ID))
 		if b.APIKeyEnvName != "" {
 			L.SetField(own, "api_key_env_name", lua.LString(b.APIKeyEnvName))
+		}
+		if b.YoloList {
+			L.SetField(own, "yolo_list", lua.LTrue)
 		}
 		L.SetField(builtIn, name, own)
 	}

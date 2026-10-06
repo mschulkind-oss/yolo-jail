@@ -25,10 +25,11 @@ func TestBuiltInProvidersForReadsTheAgentsOwnPack(t *testing.T) {
 		want            luahook.BuiltInProvider
 	}{
 		{"pi", "zai", luahook.BuiltInProvider{ID: "zai"}},
-		{"pi", "openai-codex", luahook.BuiltInProvider{ID: "openai-codex"}},
+		{"pi", "openai-codex", luahook.BuiltInProvider{ID: "openai-codex", YoloList: true}},
 		{"oh-omp", "kilo", luahook.BuiltInProvider{ID: "kilo"}},
 		{"opencode", "zai", luahook.BuiltInProvider{ID: "zai-coding-plan", APIKeyEnvName: "ZHIPU_API_KEY"}},
-		{"opencode", "openai-codex", luahook.BuiltInProvider{ID: "openai"}},
+		{"opencode", "openai-codex", luahook.BuiltInProvider{ID: "openai", YoloList: true}},
+		{"oh-omp", "openai-codex", luahook.BuiltInProvider{ID: "openai-codex"}},
 	} {
 		got, ok := BuiltInProviderFor(packs, tc.agent, tc.provider)
 		if !ok || got != tc.want {
@@ -136,5 +137,101 @@ func TestTheGateRelaysThePlansKeyAndNoTierOnABuiltInProvider(t *testing.T) {
 	}
 	if roles := roleVars(scope.Agent("claude").Shape); !strings.Contains(roles, "YOLO_MODEL_FAST=zai/glm-5.3-flash") {
 		t.Errorf("claude on zai, which declares no built-in providers, lost zai's tier: %q", roles)
+	}
+}
+
+// THE SUBSCRIPTION'S LIST STAYS YOLO'S WHERE THE AGENT'S PACK RENDERS IT (`yolo_lists`;
+// docs/design/model-lists-and-pickers.md ML-D1): pi and opencode run openai-codex on their own
+// client, but on the one list packs/openai-auth declares (pi's extension registers it, opencode's
+// derive writes it as its own `openai` row's models and whitelist). So a child on the subscription
+// is still handed the list's tiers, and the profile line still names the endpoint that list rides
+// on. omp runs openai-codex on its own list too, so it alone keeps the built-in answer.
+func TestTheCodexListStaysYolosForAnAgentThatRendersIt(t *testing.T) {
+	names := []string{"pi", "opencode", "omp", "openai-auth"}
+	packs := embeddedNamed(t, names...)
+	for _, tc := range []struct {
+		agent    string
+		yoloList bool
+	}{{"pi", true}, {"opencode", true}, {"oh-omp", false}} {
+		own, ok := BuiltInProviderFor(packs, tc.agent, "openai-codex")
+		if !ok || own.YoloList != tc.yoloList {
+			t.Errorf("%s's own openai-codex = %+v (built in %v), want built in with YoloList %v",
+				tc.agent, own, ok, tc.yoloList)
+		}
+	}
+
+	providers := compose(t, userProviders(t, `{"openai-codex": {"models": {"fast": "gpt-6-luna"}}}`), packs)
+	resolved, err := ResolveProfiles(packs, nil, providers)
+	if err != nil {
+		t.Fatal(err)
+	}
+	scope, err := ScopeCredentials(ScopeInput{Packs: packs, Providers: providers, Resolved: resolved,
+		EnvSources: jsonx.NewOrderedMap(), Profiles: map[string]string{"pi": "codex", "opencode": "codex"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, agent := range []string{"pi", "opencode"} {
+		if roles := roleVars(scope.Agent(agent).Shape); !strings.Contains(roles, "YOLO_MODEL_FAST=openai-codex/gpt-6-luna") {
+			t.Errorf("%s on the subscription lost the fast tier of the list it runs: %q", agent, roles)
+		}
+	}
+
+	d := disclose(t, names, map[string]string{"pi": "codex", "opencode": "codex", "oh-omp": "codex"}, nil)
+	for _, agent := range []string{"pi", "opencode"} {
+		if r := reachOf(t, d, agent); r.Route != `on its "openai-responses" endpoint` || len(r.Warnings) != 0 {
+			t.Errorf("%s on codex: %+v, want the openai-responses endpoint yolo's list rides on", agent, r)
+		}
+	}
+	if r := reachOf(t, d, "oh-omp"); r.Route != `through its own "openai-codex" client, with its own model list` {
+		t.Errorf("omp on codex: %+v, want its own client and list", r)
+	}
+}
+
+// A RE-POINTED KEY STILL REACHES THE AGENT'S OWN CLIENT: the agent's own provider reads the
+// variable the shipped provider declares (packs/openrouter's OPENROUTER_API_KEY), and with no row
+// written there is no `${OR_KEY}` reference left to carry the user's own name. So the key is
+// relayed under the name the agent's own client reads, and to no agent that has the provider
+// catalogued (claude declares no built-in providers).
+func TestARepointedKeyReachesTheAgentsOwnClient(t *testing.T) {
+	packs := embeddedNamed(t, "pi", "opencode", "omp", "openrouter")
+	providers := compose(t, userProviders(t, `{"openrouter": {"api_key_env_name": "OR_KEY"}}`), packs)
+	resolved, err := ResolveProfiles(packs, nil, providers)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sources := jsonx.NewOrderedMap()
+	sources.Set("OR_KEY", "tok")
+	scope, err := ScopeCredentials(ScopeInput{Packs: packs, Providers: providers, Resolved: resolved,
+		EnvSources: sources, Profiles: map[string]string{"pi": "openrouter", "opencode": "openrouter",
+			"oh-omp": "openrouter"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, agent := range []string{"pi", "opencode", "oh-omp"} {
+		if v, ok := scope.DeliveredTo(agent, "OPENROUTER_API_KEY"); !ok || v != "tok" {
+			t.Errorf("%s on openrouter with its key re-pointed at OR_KEY carries OPENROUTER_API_KEY = "+
+				"%q (%v), want the key under the name its own client reads", agent, v, ok)
+		}
+	}
+}
+
+// A KEY ONLY A ROW COULD CARRY IS SAID TO REACH NOTHING: a literal `options.api_key` on a provider
+// the agent has built in reached the agent only through the row the derive no longer writes, and
+// no variable carries it to the agent's own client, so the profile line warns and names the fix.
+func TestALiteralKeyOnABuiltInProviderWarns(t *testing.T) {
+	packs := embeddedNamed(t, "pi", "openrouter")
+	user := userProviders(t, `{"openrouter": {"api_key_env_name": null, "options": {"api_key": "sk-lit"}}}`)
+	table := map[string]string{"pi": "openrouter"}
+	providers, resolved, _ := launchSelection(t, packs, user, nil, table)
+	d := ProfileDisclosures(ProfileDisclosureInput{Table: table, Packs: packs,
+		Resolved: resolved, Providers: providers})
+	r := reachOf(t, d[0], "pi")
+	if len(r.Warnings) != 1 {
+		t.Fatalf("pi on openrouter with only a literal key: %+v, want one warning", r)
+	}
+	for _, want := range []string{"reaches no client", "OPENROUTER_API_KEY", "api_key_env_name"} {
+		if !strings.Contains(r.Warnings[0], want) {
+			t.Errorf("the warning lacks %q:\n%s", want, r.Warnings[0])
+		}
 	}
 }

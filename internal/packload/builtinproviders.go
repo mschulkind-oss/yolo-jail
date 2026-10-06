@@ -33,7 +33,7 @@ func BuiltInProvidersFor(packs []*Pack, agent string) map[string]luahook.BuiltIn
 	out := make(map[string]luahook.BuiltInProvider, len(decl.Names)+len(decl.Plans))
 	for _, name := range decl.Names {
 		if name != "" {
-			out[name] = luahook.BuiltInProvider{ID: name}
+			out[name] = luahook.BuiltInProvider{ID: name, YoloList: decl.RendersYoloList(name)}
 		}
 	}
 	for name, plan := range decl.Plans {
@@ -44,9 +44,21 @@ func BuiltInProvidersFor(packs []*Pack, agent string) map[string]luahook.BuiltIn
 			out[name] = luahook.BuiltInProvider{}
 			continue
 		}
-		out[name] = luahook.BuiltInProvider{ID: plan.Provider, APIKeyEnvName: plan.APIKeyEnvName}
+		out[name] = luahook.BuiltInProvider{ID: plan.Provider, APIKeyEnvName: plan.APIKeyEnvName,
+			YoloList: decl.RendersYoloList(name)}
 	}
 	return out
+}
+
+// RunsOwnList reports whether agent runs the yolo provider named provider on a model list of its
+// own: it has the name built in (BuiltInProviderFor) and its pack does not render yolo's list for
+// it (packdecl.BuiltInProviders.YoloLists). The two readers that describe the LIST, the role
+// environment (AgentEnv) and the launch's profile line (profileReach), ask this rather than
+// BuiltInProviderFor, so pi and opencode on openai-codex, which run yolo's one list on their own
+// client (docs/design/model-lists-and-pickers.md ML-D1), keep its tiers and its endpoint line.
+func RunsOwnList(packs []*Pack, agent, provider string) bool {
+	own, builtIn := BuiltInProviderFor(packs, agent, provider)
+	return builtIn && !own.YoloList
 }
 
 // BuiltInProviderFor is agent's own provider for the yolo provider named provider, and whether
@@ -63,13 +75,23 @@ func BuiltInProviderFor(packs []*Pack, agent, provider string) (luahook.BuiltInP
 }
 
 // BuiltInKeyVars is the key each of providers delivers to agent under the name agent's own
-// provider for its plan reads, where the declaration names one (packdecl.ProviderPlan's
-// APIKeyEnvName): opencode's zai-coding-plan reads ZHIPU_API_KEY, so on yolo's zai the zai key
-// is composed as ZHIPU_API_KEY too. table is the hydrated providers view (hydrateProviders), whose
-// entries carry `api_key` only for a credential the lookup found, so a provider with no key
-// composes nothing: an empty credential is the pre-flight's refusal to make, never a value to
-// send. One variable per name, the first provider in the list naming it winning, so the primary
-// of an active set outranks a later entry.
+// provider for its plan reads, wherever that differs from the variable the provider's entry
+// points at (builtInKeyVar names it). Two cases compose one:
+//
+//   - a plan declares the name (packdecl.ProviderPlan's APIKeyEnvName): opencode's
+//     zai-coding-plan reads ZHIPU_API_KEY, so on yolo's zai the zai key is composed as
+//     ZHIPU_API_KEY too;
+//   - the user re-pointed a shipped provider's api_key_env_name at a variable of their own
+//     (`providers.openrouter.api_key_env_name = "OR_KEY"`): the agent's own client reads the
+//     variable the shipped provider declares (OPENROUTER_API_KEY), and with no catalog row written
+//     over a built-in provider no `${OR_KEY}` reference is left to carry the user's name, so the
+//     key is composed under the shipped name.
+//
+// table is the hydrated providers view (hydrateProviders), whose entries carry `api_key` only
+// for a credential the lookup found, so a provider with no key composes nothing: an empty
+// credential is the pre-flight's refusal to make, never a value to send. One variable per name,
+// the first provider in the list naming it winning, so the primary of an active set outranks a
+// later entry.
 func BuiltInKeyVars(packs []*Pack, agent string, table map[string]any, providers []string) []agentenv.Var {
 	builtIn := BuiltInProvidersFor(packs, agent)
 	if len(builtIn) == 0 {
@@ -79,18 +101,51 @@ func BuiltInKeyVars(packs []*Pack, agent string, table map[string]any, providers
 	seen := map[string]bool{}
 	for _, name := range providers {
 		own, ok := builtIn[name]
-		if !ok || own.ID == "" || own.APIKeyEnvName == "" || seen[own.APIKeyEnvName] {
+		if !ok || own.ID == "" {
 			continue
 		}
 		entry, _ := table[name].(map[string]any)
+		ownVar := builtInKeyVar(packs, own, name)
+		pointed, _ := entry["api_key_env_name"].(string)
+		if ownVar == "" || ownVar == pointed || seen[ownVar] {
+			continue
+		}
 		key, _ := entry["api_key"].(string)
 		if key == "" {
 			continue
 		}
-		seen[own.APIKeyEnvName] = true
-		out = append(out, agentenv.Var{Key: own.APIKeyEnvName, Value: key})
+		seen[ownVar] = true
+		out = append(out, agentenv.Var{Key: ownVar, Value: key})
 	}
 	return out
+}
+
+// builtInKeyVar is the variable the agent's own provider own reads the key of yolo provider name
+// from: its plan's declared name, else the ONE variable the shipped provider declares (the later
+// shipping pack winning, ComposeProviders' rule), else "" when nothing says, for a provider only
+// the user declares or one of several variables.
+func builtInKeyVar(packs []*Pack, own luahook.BuiltInProvider, name string) string {
+	if own.APIKeyEnvName != "" {
+		return own.APIKeyEnvName
+	}
+	return shippedKeyEnvName(packs, name)
+}
+
+// shippedKeyEnvName is the one variable the last selected pack shipping provider name declares
+// for its key, "" when no pack ships it or its declaration names several.
+func shippedKeyEnvName(packs []*Pack, name string) string {
+	found := ""
+	for _, p := range packs {
+		if p == nil || p.Decl == nil {
+			continue
+		}
+		for _, prov := range p.Decl.Providers() {
+			if prov.Name == name {
+				found = prov.APIKeyEnvName.KeyPointer()
+			}
+		}
+	}
+	return found
 }
 
 // activeSetProviders is each entry's provider, in set order.

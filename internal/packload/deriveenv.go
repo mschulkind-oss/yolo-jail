@@ -158,14 +158,16 @@ func AgentEnv(packs []*Pack, providers *jsonx.OrderedMap, useProfiles map[string
 	// the derive-script check, because the variables are core's and an agent whose pack ships
 	// no yolo.env producer is still an agent whose children want its provider's tiers.
 	//
-	// A PROVIDER THE AGENT HAS BUILT IN NAMES NO MODEL FROM YOLO'S LIST (BuiltInProviderFor;
-	// docs/design/pi-codex-provider-shadowing.md OQ-3): the agent runs it on its own list, so
+	// A PROVIDER THE AGENT RUNS ON ITS OWN LIST NAMES NO MODEL FROM YOLO'S (RunsOwnList;
+	// docs/design/pi-codex-provider-shadowing.md OQ-3): the agent has it built in, so
 	// each role variable is composed as if the selection named no tier at all, which removes the
 	// ones another provider of the table names. A child reading YOLO_MODEL_FAST would otherwise
 	// be handed `<yolo name>/<yolo's id>`, which names a provider the agent may know by another
-	// id (opencode's zai-coding-plan) and a model its own list may not hold.
+	// id (opencode's zai-coding-plan) and a model its own list may not hold. A built-in provider
+	// whose list the agent's pack renders from yolo's declaration (pi and opencode on
+	// openai-codex, ML-D1) keeps its tiers: they name the list the agent runs.
 	roleProvider := selected
-	if _, builtIn := BuiltInProviderFor(packs, agent, selected); builtIn {
+	if RunsOwnList(packs, agent, selected) {
 		roleProvider = ""
 	}
 	composed := map[string]any{}
@@ -176,10 +178,11 @@ func AgentEnv(packs []*Pack, providers *jsonx.OrderedMap, useProfiles map[string
 			composed[v.Key] = v.Value
 		}
 	}
-	// THE PLAN'S KEY UNDER THE NAME THE AGENT'S OWN PROVIDER READS (packdecl.ProviderPlan's
-	// APIKeyEnvName): opencode serves yolo's zai as its own zai-coding-plan, which reads
-	// ZHIPU_API_KEY where packs/zai names ZAI_API_KEY, so the selected provider's key is composed
-	// under that name too, for every entry of the active set. Core, not the derive, because the
+	// THE KEY UNDER THE NAME THE AGENT'S OWN PROVIDER READS (BuiltInKeyVars): opencode serves
+	// yolo's zai as its own zai-coding-plan, which reads ZHIPU_API_KEY where packs/zai names
+	// ZAI_API_KEY, and a user who re-points a shipped provider's key at a variable of their own
+	// still has the agent's own client reading the shipped name, so the selected provider's key
+	// is composed under that name too, for every entry of the active set. Core, not the derive, because the
 	// declaration is core's to read; the agent's own pack still wins a name it sets itself.
 	for _, v := range BuiltInKeyVars(packs, agent, table, append([]string{selected},
 		activeSetProviders(ActiveSetFor(cfg.setOr(profile), cfg.resolved))...)) {

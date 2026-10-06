@@ -60,6 +60,12 @@ func TestBuiltInProvidersIsRefusedWhereNothingCouldReadIt(t *testing.T) {
 			"is not an environment variable name"},
 		{"an empty plan key", prog + `{"names":["p"],"plans":{"":{"provider":"p"}}}}`, "keyed by an empty"},
 		{"an unknown key", prog + `{"name":["p"]}}`, `unknown field "name"`},
+		{"a yolo list off the names", prog + `{"names":["p"],"yolo_lists":["q"]}}`,
+			`"built_in_providers.yolo_lists" names "q", which is neither`},
+		{"a yolo list on a null plan", prog + `{"names":["p"],"plans":{"q":null},"yolo_lists":["q"]}}`,
+			`whose plan is null`},
+		{"a yolo list twice", prog + `{"names":["p"],"yolo_lists":["p","p"]}}`, `"built_in_providers.yolo_lists" names "p" twice`},
+		{"an empty yolo list name", prog + `{"names":["p"],"yolo_lists":[""]}}`, `"built_in_providers.yolo_lists" holds an empty`},
 		{"a fork", `{"kind":"program","bin":"a","via":"source","fork_of":"base",
 		  "source":"git+https://example.test/a.git#0123456789abcdef0123456789abcdef01234567",
 		  "build":"make","produces":[".local/bin/a"],"built_in_providers":{"names":["p"]}}`,
@@ -71,5 +77,26 @@ func TestBuiltInProvidersIsRefusedWhereNothingCouldReadIt(t *testing.T) {
 				t.Errorf("problems %v, want one containing %q", probs, tc.want)
 			}
 		})
+	}
+}
+
+// `yolo_lists` names the built-in providers a program runs on yolo's list, a name or a plan key,
+// and RendersYoloList answers for one of them and no other.
+func TestYoloListsNamesTheBuiltInProvidersOnYolosList(t *testing.T) {
+	m, probs := Decode([]byte(`{"name":"acme","contributes":[
+	  {"kind":"program","bin":"acme","via":"npm","package":"@acme/acme",
+	   "built_in_providers":{"names":["openai","zai"],"plans":{"openai-codex":{"provider":"openai"}},
+	     "yolo_lists":["openai-codex","zai"]}}]}`))
+	if len(probs) != 0 {
+		t.Fatalf("fixture: %v", probs)
+	}
+	got := m.BuiltInProvidersFor("acme")
+	for name, want := range map[string]bool{"openai-codex": true, "zai": true, "openai": false, "": false} {
+		if got.RendersYoloList(name) != want {
+			t.Errorf("RendersYoloList(%q) = %v, want %v", name, !want, want)
+		}
+	}
+	if (*BuiltInProviders)(nil).RendersYoloList("zai") {
+		t.Error("no declaration renders no list")
 	}
 }
