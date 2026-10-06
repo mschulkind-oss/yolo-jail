@@ -126,6 +126,33 @@ func TestAFolderAPackStillSharesIsNeverOfferedForDeletion(t *testing.T) {
 	}
 }
 
+// TestAShippedPacksMachineFolderIsNeverOfferedForDeletion: a configured pack's unshare hook may
+// name any directory, a shipped pack's machine-scope one included, and storage.EnsureGlobalStorage
+// makes every shipped pack's on every machine, whatever this workspace selects, for the other
+// workspaces' jails to mount. `.claude-shared-credentials` is every claude jail's login, so a line
+// offering its `rm -rf` in a workspace that does not select claude would log every one of them
+// out.
+func TestAShippedPacksMachineFolderIsNeverOfferedForDeletion(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	if err := os.MkdirAll(filepath.Join(paths.GlobalHome(), ".claude-shared-credentials"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	root := t.TempDir()
+	manifest := `{"name": "mytool", "contributes": [
+		{"kind": "hook", "hook": "unshare_directory", "from": ".mytool/creds", "at": ".claude-shared-credentials"}]}`
+	if err := os.WriteFile(filepath.Join(root, "pack.json"), []byte(manifest), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	p, problems := packload.LoadDir(root, "mytool")
+	if len(problems) != 0 {
+		t.Fatalf("loading the fixture pack: %v", problems)
+	}
+	if got := retiredNote(t, []*packload.Pack{p}); got != "" {
+		t.Errorf("a shipped pack's machine folder, which other workspaces' jails mount, was offered "+
+			"for deletion:\n%s", got)
+	}
+}
+
 // TestRetiredSharedDirsReadTheKnownHook pins the spelled hook name against the closed set
 // packdecl publishes: a typo would read no hook and say nothing, with every cell above that
 // builds its own fixture still green.
@@ -174,4 +201,27 @@ func TestRunContainerNotesRetiredSharedDirs(t *testing.T) {
 				"machine store too")
 		}
 	}
+	// The sealed-build gate: the one call sits in the body of an `if !o.Sealed`, so a sealed
+	// build's log never carries the line.
+	gated := false
+	ast.Inspect(fd, func(n ast.Node) bool {
+		if ifs, ok := n.(*ast.IfStmt); ok && isNotSealed(ifs.Cond) &&
+			ifs.Body.Pos() <= calls[0].Pos() && calls[0].End() <= ifs.Body.End() {
+			gated = true
+		}
+		return true
+	})
+	if !gated {
+		t.Error("noteRetiredSharedDirs is not inside an `if !o.Sealed`, so a sealed build's log carries it")
+	}
+}
+
+// isNotSealed reports whether cond is `!o.Sealed`.
+func isNotSealed(cond ast.Expr) bool {
+	ue, ok := cond.(*ast.UnaryExpr)
+	if !ok || ue.Op != token.NOT {
+		return false
+	}
+	sel, ok := ue.X.(*ast.SelectorExpr)
+	return ok && sel.Sel.Name == "Sealed" && skelIdent(sel.X) == "o"
 }

@@ -38,12 +38,19 @@ type retiredSharedDir struct {
 }
 
 // retiredSharedDirs is the `at` of every unshare_directory hook the selected packs declare,
-// less any directory a selected pack still declares shared, and less anything that is not a
-// clean path inside the machine store (packdecl refuses one already; this runs on the host,
-// where a path that leaves the store would be a suggestion to delete something else).
+// less any directory a selected pack still declares shared, less any a SHIPPED pack declares
+// shared, and less anything that is not a clean path inside the machine store (packdecl refuses
+// one already; this runs on the host, where a path that leaves the store would be a suggestion
+// to delete something else).
+//
+// The shipped set is the one exception to "only the selected packs" (AGENTS.md names it):
+// storage.EnsureGlobalStorage makes every shipped pack's shared dir on every machine, whatever a
+// workspace selects, so another workspace's jails mount it. A configured pack's hook may name
+// any directory, `.claude-shared-credentials` included, and offering that one's `rm -rf` in a
+// workspace that does not select claude would log out every claude jail on the machine.
 func retiredSharedDirs(packs []*packload.Pack) []retiredSharedDir {
 	live := map[string]bool{}
-	for _, d := range packload.SharedDirs(packs) {
+	for _, d := range append(packload.SharedDirs(packs), packload.EmbeddedSharedDirs()...) {
 		live[filepath.Clean(filepath.FromSlash(d))] = true
 	}
 	seen := map[string]bool{}
