@@ -190,7 +190,8 @@ func applyMain(args []string, out, errw io.Writer, color bool, stdin io.Reader) 
 		// before the launch rather than left to be inferred from its banner.
 		pr.Printf("[dim]Running the jail's readiness act, the launch `yolo -- true` performs: it " +
 			"builds the image (on a container runtime; macos-user has none), stages the selected " +
-			"packs, renders their config and installs every program they declare, then exits. A " +
+			"packs, renders their config and installs every program they declare (on a container " +
+			"runtime; on macos-user each installs the first time it is run), then exits. A " +
 			"jail already running for this workspace is attached to instead, and that installs " +
 			"nothing: its readiness act ran when it started (`yolo stop`, then `yolo apply`, " +
 			"runs it again).[/dim]")
@@ -201,7 +202,11 @@ func applyMain(args []string, out, errw io.Writer, color bool, stdin io.Reader) 
 // applyJailLaunch is the launch `yolo apply` at the jail notch runs (JR-D1): run's own
 // pipeline with `true` as its command, exactly `yolo -- true`. A package var so a test can
 // assert the verb reaches it without starting a container.
-var applyJailLaunch = func() int { return runRun([]string{"run", "--", "true"}) }
+//
+// It carries `--at jail` because the verb has already decided the notch: the launch otherwise
+// re-reads `confinement` (run.refuseUnbuiltNotch), so `yolo apply --at jail` under a
+// `confinement: host` config was refused, and told to edit a key the flag had overridden.
+var applyJailLaunch = func() int { return runRun([]string{"run", "--at", "jail", "--", "true"}) }
 
 // applyHost renders the configured packs' config surfaces into the invoking user's REAL
 // home (env-manager plan Phase 4). Default posture is OBSERVE (dry-run): it prints what
@@ -1503,8 +1508,9 @@ const applyUsage = `yolo apply — make this environment match its description, 
 
   yolo apply                provision the environment at its configured confinement
                             (at jail: the launch ` + "`yolo -- true`" + ` performs — builds the
-                            image, stages the packs, installs every program they declare —
-                            then exits; a jail already running is attached to, installing nothing)
+                            image, stages the packs, installs every program they declare
+                            (not yet on macos-user) — then exits; a jail already running is
+                            attached to, installing nothing)
   yolo apply --at <level>   … at a different notch (jail|guest|host) for this run
   yolo apply --at host      render your config into your real home
                             (yolo host apply is the same thing, more typeable)

@@ -325,6 +325,17 @@ const AllowMissingProgramsEnv = "YOLO_ALLOW_MISSING_PROGRAMS"
 // stage says it installed nothing ahead of time and names what it left.
 const NoProgramReadinessEnv = "YOLO_NO_PROGRAM_READINESS"
 
+// NoProgramReadinessCaptureJail is the value the launcher gives NoProgramReadinessEnv for a
+// CAPTURE or BUILD jail (run.Options.NoProgramReadiness, set by cli.runCaptureJail): the
+// readiness act is off there for the jail's own reason, not the user's, and the stage's notice
+// says that instead of naming a variable nobody typed.
+//
+// Off there because that jail's command IS an install. `yolo capture` diffs the home across its
+// installer, so a readiness act that installed the program first left the capture empty; and a
+// fork's build jail runs the build that produces the program, so a readiness act that asked for
+// that program first refused the jail before the build could run.
+const NoProgramReadinessCaptureJail = "capture-jail"
+
 // TimingEnv is the host-process opt-in to `--timing`'s span logging
 // (docs/reference/perf-logging.md): any non-empty value enables the same surface
 // the flag does, for wrappers and scripts that cannot add a flag.

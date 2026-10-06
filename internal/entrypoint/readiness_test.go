@@ -308,6 +308,24 @@ func TestNoProgramReadinessInstallsNothingAndSaysWhatItLeft(t *testing.T) {
 	}
 }
 
+// A CAPTURE OR BUILD JAIL'S value (paths.NoProgramReadinessCaptureJail, which the launcher sets
+// for that jail) installs nothing too, and its notice says why in the jail's terms instead of
+// naming a variable the user never typed: that jail's command is the install.
+func TestACaptureJailsReadinessIsOffAndSaysWhy(t *testing.T) {
+	h := newReadyHome(t, map[string]string{readyPack: readyManifest},
+		map[string]string{paths.NoProgramReadinessEnv: paths.NoProgramReadinessCaptureJail})
+	rc, out, calls := h.run(t)
+	if rc != 0 {
+		t.Errorf("rc = %d, want 0:\n%s", rc, out)
+	}
+	if strings.Contains(calls, "npm install") || isExecutableFile(h.realBin()) {
+		t.Errorf("a capture jail's stage installed the program ahead of its command:\n%s", calls)
+	}
+	if !strings.Contains(out, "capture or build jail") || strings.Contains(out, paths.NoProgramReadinessEnv) {
+		t.Errorf("the notice does not say this is a capture or build jail, or names the variable:\n%s", out)
+	}
+}
+
 // A jail whose packs declare no program runs no readiness act and prints nothing for one (the
 // design's §7 item 3).
 func TestAJailWithNoProgramsHasNoReadinessAct(t *testing.T) {

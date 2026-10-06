@@ -83,6 +83,14 @@ type Options struct {
 	// is fresh per capture so nothing CAN be running; this makes that true by
 	// construction rather than by luck (capturehost.go's comment).
 	NeverAttach bool
+	// NoProgramReadiness turns the jail's readiness act off for this launch whatever the host
+	// environment holds: the launcher forwards paths.NoProgramReadinessEnv with the value
+	// paths.NoProgramReadinessCaptureJail (programReadinessArgs). NOT a CLI flag: it is the
+	// capture and build jails' (cli.runCaptureJail), whose command is itself an install. A
+	// readiness act ahead of it installed the program before `yolo capture` took its baseline,
+	// so the capture recorded nothing, and refused a fork's build jail for the program the
+	// build had not produced yet.
+	NoProgramReadiness bool
 	// Timing is --timing, AS TYPED ON THIS INVOCATION: an explicit, per-launch
 	// request for this launch's performance timings — the full span system
 	// (docs/reference/perf-logging.md).

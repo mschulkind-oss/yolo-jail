@@ -19,10 +19,17 @@ import "github.com/mschulkind-oss/yolo-jail/internal/paths"
 //
 // Container backends only, by where it is called: macos-user's stage does not run the readiness
 // act yet (JR-D2), so there is nothing there for either dial to reach.
+//
+// A capture or build jail (Options.NoProgramReadiness) carries the off-switch with its own value
+// instead of the host's, so its stage says why the act is off in that jail's terms.
 func (o *Options) programReadinessArgs() []string {
 	var out []string
 	for _, k := range []string{paths.AllowMissingProgramsEnv, paths.NoProgramReadinessEnv} {
-		if v := o.Getenv(k); v != "" {
+		v := o.Getenv(k)
+		if k == paths.NoProgramReadinessEnv && o.NoProgramReadiness {
+			v = paths.NoProgramReadinessCaptureJail
+		}
+		if v != "" {
 			out = append(out, "-e", k+"="+v)
 		}
 	}

@@ -1,6 +1,7 @@
 package run
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
@@ -62,5 +63,42 @@ func TestAssembleRunCmdWithoutTheReadinessDialsIsUnchanged(t *testing.T) {
 		if val, ok := envValue(argv, k); ok {
 			t.Errorf("an unset dial must not appear in the argv, got %s=%q", k, val)
 		}
+	}
+}
+
+// TestACaptureJailTurnsTheReadinessActOff: a capture or build jail's command IS an install
+// (yolo capture's installer, a fork's build), so a readiness act that installed or refused the
+// program first broke both: the capture recorded an empty delta, and the build jail was refused
+// before its build ran. Options.NoProgramReadiness forwards the off-switch with the capture
+// jail's own value, whatever the host environment holds, and exactly once.
+func TestACaptureJailTurnsTheReadinessActOff(t *testing.T) {
+	for _, hostValue := range []string{"", "1"} {
+		t.Run("host="+hostValue, func(t *testing.T) {
+			home := t.TempDir()
+			t.Setenv("HOME", home)
+			emptyLoopholeDirs(t)
+			o, _ := pastaHostOptions(t, "/ws", home, false)
+			o.Getenv = func(k string) string {
+				if k == paths.NoProgramReadinessEnv {
+					return hostValue
+				}
+				return ""
+			}
+			o.NoProgramReadiness = true
+			argv := o.assembleRunCmd(relocationInput(t, "podman", t.TempDir(), nil))
+			if got, ok := envValue(argv, paths.NoProgramReadinessEnv); !ok || got != paths.NoProgramReadinessCaptureJail {
+				t.Errorf("%s = %q (present=%v), want %q", paths.NoProgramReadinessEnv, got, ok,
+					paths.NoProgramReadinessCaptureJail)
+			}
+			n := 0
+			for _, a := range argv {
+				if strings.HasPrefix(a, paths.NoProgramReadinessEnv+"=") {
+					n++
+				}
+			}
+			if n != 1 {
+				t.Errorf("%s appears %d times in the argv, want once:\n%q", paths.NoProgramReadinessEnv, n, argv)
+			}
+		})
 	}
 }

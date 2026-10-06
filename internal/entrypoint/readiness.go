@@ -127,7 +127,8 @@ func readyProgramsOf(e *Env, packs []*packload.Pack) []readyProgram {
 // Two environments render something else, each saying so:
 //   - macos-user (Env.DeferProgramReadiness, JR-D2) renders nothing; its launch names what is
 //     absent (warnProgramsNotReady).
-//   - NoProgramReadinessEnv renders one notice naming what it left, and installs nothing.
+//   - NoProgramReadinessEnv renders one notice naming what it left, and installs nothing; its
+//     capture-jail value (paths.NoProgramReadinessCaptureJail) says that jail's reason instead.
 func readinessChecks(e *Env) string {
 	if e.DeferProgramReadiness {
 		return ""
@@ -136,7 +137,12 @@ func readinessChecks(e *Env) string {
 	if len(progs) == 0 {
 		return ""
 	}
-	if e.Getenv(paths.NoProgramReadinessEnv) != "" {
+	if v := e.Getenv(paths.NoProgramReadinessEnv); v == paths.NoProgramReadinessCaptureJail {
+		// The launcher's value for a capture or build jail, not the user's: say the jail's
+		// reason, not a variable nobody typed.
+		return "echo " + shquote.Quote("  ↳ a capture or build jail: its command is the install, "+
+			"so nothing is installed ahead of it") + " >&2"
+	} else if v != "" {
 		var who []string
 		for _, p := range progs {
 			who = append(who, p.Who)

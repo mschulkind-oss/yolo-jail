@@ -89,6 +89,51 @@ func TestApplyJailLaunchIsYoloDashDashTrue(t *testing.T) {
 	}
 }
 
+// `--at jail` IS THE NOTCH THE LAUNCH IS JUDGED AT. The launch re-reads `confinement` unless it
+// is told otherwise (run.refuseUnbuiltNotch), so a verb that dropped the flag refused a
+// `confinement: host` config's `yolo apply --at jail`, naming the config key the user had
+// overridden. Driven through applyMain with the run pipeline substituted, so the assertion is
+// downstream of the flag's whole path: the verb's parse, applyJailLaunch, runRun's parse.
+func TestApplyAtJailCarriesTheFlagIntoTheLaunch(t *testing.T) {
+	_, repo := withHomeAndCwd(t)
+	writeFile(t, filepath.Join(repo, "yolo-jail.jsonc"), `{"confinement": "host"}`)
+	var seen run.Options
+	launched := 0
+	prev := launchRunPipeline
+	launchRunPipeline = func(o run.Options) int { seen = o; launched++; return 0 }
+	t.Cleanup(func() { launchRunPipeline = prev })
+
+	var out, errw bytes.Buffer
+	if rc := applyMain([]string{"--at", "jail"}, &out, &errw, false, nil); rc != 0 || launched != 1 {
+		t.Fatalf("apply --at jail rc=%d, launched %d time(s)\nstdout:\n%s\nstderr:\n%s",
+			rc, launched, out.String(), errw.String())
+	}
+	if seen.Notch != "jail" {
+		t.Errorf("the launch's notch override is %q, want \"jail\": it would re-read `confinement: host` and refuse", seen.Notch)
+	}
+}
+
+// At the jail notch the line must not promise the install on macos-user, whose stage does not run
+// the readiness act yet (JR-D2).
+func TestApplyAtJailDoesNotPromiseTheInstallOnMacosUser(t *testing.T) {
+	_, repo := withHomeAndCwd(t)
+	writeFile(t, filepath.Join(repo, "yolo-jail.jsonc"), `{}`)
+	stubApplyJailLaunch(t, 0)
+	var out, errw bytes.Buffer
+	if rc := applyMain([]string{"--at", "jail"}, &out, &errw, false, nil); rc != 0 {
+		t.Fatalf("rc=%d\n%s", rc, errw.String())
+	}
+	got := strings.Join(strings.Fields(out.String()), " ")
+	if !strings.Contains(got, "on macos-user each installs the first time it is run") {
+		t.Errorf("apply --at jail promises the install on every backend:\n%s", got)
+	}
+	var help, herr bytes.Buffer
+	applyMain([]string{"--help"}, &help, &herr, false, nil)
+	if h := strings.Join(strings.Fields(help.String()), " "); !strings.Contains(h, "(not yet on macos-user)") {
+		t.Errorf("apply --help promises the install on every backend:\n%s", h)
+	}
+}
+
 // TestApplyUsageSaysTheJailNotchProvisions pins `yolo apply --help` to the same truth: at the
 // jail notch the verb is the launch's readiness act, which installs the declared programs.
 func TestApplyUsageSaysTheJailNotchProvisions(t *testing.T) {
