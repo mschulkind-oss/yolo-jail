@@ -12,10 +12,10 @@ package packload
 // (ApplyForks, Forks) ever lists one, because it is not a `program`.
 //
 // THE OWNING AGENT PACK (PPX-D4) is the selected pack that declares the surface of the
-// contributing pack's `config-list` or posture-list entry equal to `~/<into>`: the entry that
-// makes the agent load the tree. Exact string equality, so core reads none of an agent's grammar.
-// With no such entry there is none, and the agent never loads the tree, which LintPatchedTrees
-// says.
+// contributing pack's `config-list` or posture-list entry naming `~/<into>` or a path inside it
+// (loadsTree, PPX-D36): the entry that makes the agent load the tree. Compared as a path, so core
+// reads none of an agent's grammar. With no such entry there is none, and the agent never loads
+// the tree, which LintPatchedTrees says.
 
 import (
 	"encoding/json"
@@ -108,10 +108,10 @@ func PatchedTrees(packs []*Pack) []Fork {
 func TreeListEntry(into string) string { return "~/" + strings.TrimSuffix(into, "/") }
 
 // owningAgentPack is PPX-D4: the selected pack declaring the surface of contributing's list entry
-// equal to `~/<into>` — a `config-list` (every notch) or a posture list (its posture's notches) —
-// and whether an entry reaches a jail (a `config-list`, or the autonomous posture's) and the host
-// (a `config-list`, or the guarded posture's). "" when no entry names the tree, or no selected pack
-// declares the surface one names.
+// naming `~/<into>` or a path inside it (loadsTree) — a `config-list` (every notch) or a posture
+// list (its posture's notches) — and whether an entry reaches a jail (a `config-list`, or the
+// autonomous posture's) and the host (a `config-list`, or the guarded posture's). "" when no entry
+// names the tree, or no selected pack declares the surface one names.
 func owningAgentPack(packs []*Pack, contributing *Pack, into string) (owner string, inJail, atHost bool) {
 	want := TreeListEntry(into)
 	for _, l := range contributing.Decl.ListContributions() {
@@ -144,14 +144,15 @@ func owningAgentPack(packs []*Pack, contributing *Pack, into string) (owner stri
 	return owner, inJail, atHost
 }
 
-// listAdds reports whether a list body's `add` array holds the string want.
+// listAdds reports whether a list body's `add` array holds a string that loads the tree whose own
+// entry is want (loadsTree).
 func listAdds(add json.RawMessage, want string) bool {
 	var entries []any
 	if err := json.Unmarshal(add, &entries); err != nil {
 		return false
 	}
 	for _, e := range entries {
-		if s, ok := e.(string); ok && s == want {
+		if s, ok := e.(string); ok && loadsTree(s, want) {
 			return true
 		}
 	}
@@ -176,8 +177,8 @@ func surfaceOwner(packs []*Pack, key manifest.SurfaceKey) string {
 
 // LintPatchedTrees is the one lint a patched extension gets at `yolo pack lint` and once at launch
 // (PPX-D10): a warning, naming the line to add, for every patched extension of p that no list entry
-// in p names, so the tree is built and mounted and no agent loads it. Exact equality with
-// `~/<into>`: core reads none of an agent's package grammar.
+// in p names, so the tree is built and mounted and no agent loads it. An entry names it when it is
+// `~/<into>` or a path inside it (loadsTree): core reads none of an agent's package grammar.
 func LintPatchedTrees(p *Pack) []string {
 	if p == nil || p.Decl == nil {
 		return nil
